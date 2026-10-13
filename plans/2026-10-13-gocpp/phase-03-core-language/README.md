@@ -346,7 +346,9 @@ results always stay: shifts by ≥ width and `MIN / -1` still give Go's answers.
 - **The `fmt` shim grows**, since this phase's tests print composite values: slices and arrays
   `[1 2]`, maps `map[a:1 b:2]` (keys sorted, as Go does), structs `{1 2}` via `gp_fields`,
   pointers to structs `&{1 2}`, and a `String() string` method when the value's method set has
-  one (detected at C++ compile time, since interfaces come in Phase 05).
+  one (detected at C++ compile time, since interfaces come in Phase 05). It also gets
+  `Sprint`/`Sprintf`/`Sprintln` and the `Printf` verbs `%v %+v %d %s %q %t %f` with width and
+  precision (`%5d`, `%.1f`), which the target programs use; the full `fmt` comes in Phase 09.
 - Package-level variables are initialized in **`types.Info.InitOrder`** (go/types computes Go's
   dependency order for us) inside a generated `gp_var_init()`. Variables with constant values are
   `constinit` static initializers. Several `init()` functions per file or package are renamed

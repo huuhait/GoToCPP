@@ -123,7 +123,9 @@ func main!() {
 - **Methods** can be must functions too: `func (s *Server) Start!() { … }`. An interface spells the
   real signature (`Start() error`), and the `!` method satisfies it.
 - **`defer f.Close()`** inside a must function: if `Close` fails while the function is returning
-  a nil error, `Close`'s error is returned (the same as `defer f.Close!()` below).
+  a nil error, `Close`'s error is returned (the same as `defer f.Close!()` below). This holds for
+  any deferred call whose last result is `error` (e.g. `defer fmt.Println(…)`), because a
+  deferred call drops its results like a statement does.
 - **Closures** inside a must function are separate functions, so nothing is handled inside them
   automatically; use `!` on calls there.
 - **`go f()`**: the error can't come back from another thread, so it isn't handled; `gocpp vet`
@@ -456,7 +458,7 @@ setup: 1 0 calls: 1           ← Once: the second call skips the code
 
 | Macro | Gives |
 |---|---|
-| `#file()`, `#line()`, `#func()` | where it is written; inside a macro body, the **outermost** use site (your code) |
+| `#file()`, `#line()`, `#func()` | where it is written; inside a macro body, the **outermost** use site (your code). `#file()` is the path relative to the module root (`util/util.gp`), or just the file name (`main.gp`) for a program without `gocpp.mod` |
 | `#text(x)` | the source text of `x`; for a macro parameter, the text the caller wrote (`"path != \"\""`) |
 | `#body()` | inside a macro used on top of a function: runs that function's code (wrap style) |
 | `#embed("logo.png")` | a string constant with the file's bytes (Go's `//go:embed` works too) |

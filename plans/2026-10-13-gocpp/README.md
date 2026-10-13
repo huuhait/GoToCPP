@@ -415,7 +415,7 @@ gocpp/                       (this repo: /home/huuhait/GoToCPP)
 ├── stdlib/                  gocpp standard packages (.gp + native .cpp)
 ├── tools/                   portstd (copies Go's stdlib, Phase 09), example-output generator
 ├── tests/                   run/, errors/, golden/, interop/, diff/ (differential vs Go)
-├── examples/                hello, fizzbuzz, sdl-demo, sqlite-demo, ...
+├── examples/                the 19 target programs (hello, fizzbuzz, …, sqlite, raylib, win32)
 ├── spikes/                  throwaway experiments behind the plan's claims (2026-10-13)
 ├── editors/vscode/          syntax + LSP client
 ├── docs/                    spec/, adr/, guides/

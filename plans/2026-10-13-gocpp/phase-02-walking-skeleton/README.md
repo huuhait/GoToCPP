@@ -209,8 +209,9 @@ Small, but the API shape is final so later phases only grow it:
   (or at least stdout is flushed before every stderr write, panic and exit). The audit showed
   that buffered C++ stdio prints `b, panic, a, c` where Go prints `a, b, c, panic`. A test pipes
   both streams into one and checks the order.
-- `gp::fmtshim::Print/Println/Printf`: variadic templates for basic types. This is a stand-in
-  until the real `fmt` (Phase 05 needs `any`, Phase 09 completes it).
+- `gp::fmtshim::Print/Println/Printf`: variadic templates for basic types, with the `Printf` verbs
+  `%v %d %s %t %f` (Phase 03 adds width and precision, `%+v`, `%q` and the `Sprint` family).
+  This is a stand-in until the real `fmt` (Phase 05 needs `any`, Phase 09 completes it).
 - `gp::run_main(argc, argv, init, main)`: stores args (for `os.Args` later), runs init, runs main,
   catches panics, exits 0.
 - **Portable from day one** (Linux and Windows are the targets, your decision): the runtime
@@ -224,7 +225,7 @@ Small, but the API shape is final so later phases only grow it:
 
 ```
 gocpp build [-o out] [file.gp | dir]   # transpile + compile
-gocpp run file.gp [args...]            # build to a temp dir, run, forward the exit code
+gocpp run [file.gp | dir] [args...]    # build to a temp dir, run, forward the exit code (a dir = a package, like `go run .`)
 gocpp emit file.gp                     # print the generated C++
    -x       print every command (like go build -x)
    -work    keep the work directory and print its path
@@ -293,7 +294,7 @@ table (`objdump -l`) to make sure every generated line maps to the right `.gp` l
 
 ## 5. Exit criteria
 
-- `gocpp run examples/hello/hello.gp` prints the expected text on both compilers.
+- `gocpp run examples/hello` (and `gocpp run .` inside that folder) prints the expected text on both compilers.
 - All subset run tests and differential tests pass on **both** compilers (they must agree with
   Go, and therefore with each other, on evaluation order).
 - gdb stops at a `.gp` line and prints a local variable; the line table maps every generated

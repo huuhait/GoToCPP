@@ -174,11 +174,15 @@ translates that syntax:
 | `SDL.SDL_Rect{0, 0, 640, 480}` | `SDL_Rect{0, 0, 640, 480}` | positional = aggregate init |
 | `SDL.SDL_Rect{w: 640, h: 480}` | `[&]{ SDL_Rect gp_t{}; gp_t.w = 640; gp_t.h = 480; return gp_t; }()` | Keyed literal: GCC rejects designated initializers out of declaration order, which we can't know in opaque mode. Assignments always work (array members can't be assigned, so keyed literals with array fields are an error until Phase 12). Phase 12 switches to `.w = 640` |
 | `nil` compared to or assigned to a C pointer | `nullptr` | |
+| `switch` on a C/C++ value with C/C++ constants as cases (`case windows.WM_DESTROY:`, enum constants) | an `if`/`else` chain with C++ `==` | macros and enum constants work as case values; Go's rule against duplicate constant cases can't be checked for opaque values, the C++ compiler or Phase 12 does it |
 | `for i, v := range cppContainer` | `for (auto&& [i, v] : gp::range(c))` | `gp::range` works for anything with `begin()/end()` and for C arrays. A temporary container is **stored by value** inside `gp::range` (a reference would dangle under C++20). Random-access containers are walked by index with the size read **once**, as Go reads the length once (a `push_back` in the body would otherwise break the iterators). One variable = index (key for maps), like Go. `v` is a **copy**, like Go |
 | `a, b := std.minmax(x, y)` | `auto [a, b] = gp::values(std::minmax(x, y));` | `std::minmax` returns `pair<const int&, const int&>` (spike probe). With temporary arguments the references would dangle (and with variables they alias them), so `gp::values` copies reference members into values |
 
-**Untyped constants in opaque calls** are emitted as plain C/C++ literals with C's default types
-(`5` is an `int`, `2.0` a `double`). That is what C APIs expect (`printf("%d", 5)`). C++ templates
+**Untyped constants next to C/C++ values** (call arguments, operands of operators, index
+expressions, values assigned to C/C++ objects: `ages["bob"] = 31`, `s += "!"`,
+`p.parent_path() / "archive"`) are emitted as plain C/C++ literals with C's default types
+(`5` is an `int`, `2.0` a `double`, `"x"` a string literal; a `gp::string` there would not even
+compile, because only its `string_view` conversion is implicit). That is what C APIs expect (`printf("%d", 5)`). C++ templates
 that deduce one type from two arguments need a typed constant: `std.max(n, 0)` fails in C++
 (`int64_t` vs `int`), so you write `std.max(n, int(0))`. This is documented with an example.
 
@@ -202,9 +206,9 @@ locals that are not boxed are moved where Go semantics allow, and every construc
 | untyped string constant → any C/C++ parameter | a raw C literal `"hello"` (Phase 01 keeps untyped constants) |
 | `string` → `std::string_view` | implicit conversion on `gp::string` |
 | `string` → `std::string` | explicit: `std.string(s)`. (Implicit conversions to both `std::string` and `std::string_view` are ambiguous for overloaded C++ functions and don't work with templates, so only `std::string_view` is implicit.) |
-| `string` → `const char*` | `C.cstr(s)`: returns a small **holder** object that owns a NUL-terminated copy and converts to `const char*`. It lives at least until the end of the statement, even when the evaluation-order pass moves it into a named temporary (it is never turned into a raw pointer early). No copy if the bytes are already NUL-terminated (literals) |
+| `string` → `const char*` | `C.cstr(s)`: returns a small **holder** object that owns a NUL-terminated copy and converts to `const char*`. It lives at least until the end of the statement, even when the evaluation-order pass moves it into a named temporary (it is never turned into a raw pointer early); a holder stored in a variable (`name := C.cstr(s)`) lives as long as that variable. No copy if the bytes are already NUL-terminated (literals) |
 | `string` → owned `char*` | `C.CString(s)` (cgo-compatible, `malloc`; free with `C.free(p)`) |
-| `char*` → `string` | `C.GoString(p)`, `C.GoStringN(p, n)` (cgo-compatible) |
+| `char*` → `string` | `C.GoString(p)`, `C.GoStringN(p, n)` (cgo-compatible; they accept any char pointer: `char*`, `const char*`, `unsigned char*` as from `sqlite3_column_text`) |
 | `std::string` / `string_view` → `string` | `string(x)` conversion |
 | bytes | `C.GoBytes(p, n)` or `unsafe.Slice((*byte)(p), n)` |
 
@@ -237,7 +241,7 @@ holder must stay a C++ object.
 |---|---|
 | a C function pointer `void (*)(int)` | a top-level gocpp `func cb(x C.int)` |
 | `std::function<…>` or a template callable | any gocpp func value or closure (`gp::func` converts) |
-| `void* userdata` + callback | `cgo.NewHandle(v)` → pass the handle; in the callback `cgo.Handle(p).Value()` (Go's `runtime/cgo.Handle` API) |
+| `void* userdata` + callback | in this phase, a gocpp pointer passed as `unsafe.Pointer` (it converts to `void*`; the callback gets it back as `unsafe.Pointer`); from Phase 05 on, `cgo.NewHandle(v)` → pass the handle, and in the callback `cgo.Handle(p).Value()` (Go's `runtime/cgo.Handle` API, which needs `any`) |
 
 **Panics must not unwind through C code.** On x86-64 Linux, GCC and Clang emit unwind tables for
 C by default, so a panic inside a C callback *would* unwind through the C frames and silently skip
@@ -309,7 +313,8 @@ gocpp names.
 
 `gp::deref`, `gp::range`, `gp::values`, `gp::result_slot`, implicit `std::string_view` on
 `gp::string`, `std::span` on `gp::slice`, `gp::ptr` → `T*`, `gp::cstr`, `C.CString`, `C.GoString`,
-`C.GoStringN`, `C.GoBytes`, `C.free`, `runtime/cgo.Handle`, the C-callable trampolines.
+`C.GoStringN`, `C.GoBytes`, `C.free`, the C-callable trampolines (`runtime/cgo.Handle` follows in
+Phase 05, because its API uses `any`).
 
 The Phase 02/03 `fmt` shim also learns to print C++ values: through `std::formatter<T>` when it
 exists, otherwise `operator<<`. **Raw pointers (including `char*`) print as addresses**, as Go
@@ -337,7 +342,8 @@ prints pointers. Printing a `char*` as a C string would crash or silence stdout 
    helpers rewritten to the typed `gocpp/cgoh` package).
 10. **4.10 `unsafe` and pointers** (owning `unsafe.Pointer`, `SliceData`/`String`/`Slice` keep
     owners, `std::span`, `gp::ptr` → `T*`) + an ASan test with `strings.Builder`-style code.
-11. **4.11 Callbacks** (function pointers, `std::function`, `cgo.Handle`) + panic trampolines.
+11. **4.11 Callbacks** (function pointers, also stored into C struct fields, `std::function`,
+    `unsafe.Pointer` user data; `cgo.Handle` in Phase 05) + panic trampolines.
 12. **4.12 C++ exception → fatal Go-style panic**; `fmt` shim prints C++ values and raw pointers
     as addresses.
 13. **4.13 Compile + link package `.c/.cc/.cpp/.cxx` sources** (with `-include gocpp/nofortify.h`,

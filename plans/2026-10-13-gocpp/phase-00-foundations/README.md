@@ -106,15 +106,22 @@ One Go test binary (`go test ./tests/...`) discovers test programs by folder:
 | `tests/run/` | A `.gp` program with a trailing `// Output:` comment block (like Go examples); optional `// ExitCode: 2`, `// Stderr: regexp` | `gocpp run` output equals the expected output |
 | `tests/errors/` | A `.gp` file with `// ERROR "regexp"` on lines that must fail (the same format as Go's own `test/` dir) | `gocpp check` reports exactly those errors on those lines |
 | `tests/golden/` | A `.gp` file + `.cpp.golden` snapshot of generated C++ | Generated C++ matches; `-update` rewrites snapshots (keep this set small) |
-| `tests/diff/` | A `.gp` program using only the Go-compatible subset | **Differential test:** copy it to `.go`, run with real `go run`, run with `gocpp run`, compare outputs. The real Go toolchain is our reference implementation |
-| `tests/interop/` | Programs that use C/C++ headers/libs | Like `run/`; skipped with a message if a library is missing (`pkg-config --exists`) |
+| `tests/diff/` | A `.gp` program using only the Go-compatible subset | **Differential test:** copy it to `.go`, run with real Go, run with `gocpp run`, compare stdout and the exit code. A `// diff: stderr` header line also compares stderr, and `// diff: combined` compares both streams merged into one (for output-order tests). The real Go toolchain is our reference implementation |
+| `tests/interop/` | Programs that use C/C++ headers/libs | Like `run/`; skipped with a message if a library is missing (`// pkg-config: sdl2` line, checked with `pkg-config --exists`) |
+| `examples/` | One folder per target program (§2.4) with `main.gp` | Runs `gocpp run . <args>` **inside the example's folder** (so relative paths like `testdata/poem.txt` work) and compares stdout with `output.txt`; optional `args.txt`, `stdin.txt` and `env.txt` (`KEY=VALUE` lines, e.g. `GOCPP_SMOKE=1` for GUI smoke runs); header lines `// pkg-config: …`, `// display: required` (skipped without a display) and `// ExitCode: N`; `//go:build` lines are honored (the `win32` example runs only for Windows targets, under Wine from Phase 14) |
 
-Every run test executes with **both** `g++` and `clang++` (`GOCPP_CXX=...`). The CI also runs
-the suite with `-fsanitize=address,undefined`.
+Every test file starts with a `// phase: NN` line: a test whose phase is later than the last
+finished phase is skipped with "needs Phase NN" (a coder working on phase NN sets
+`GOCPP_TEST_PHASE=NN` to run the tests up to that phase). Every run test executes with **both** `g++` and
+`clang++` (`GOCPP_CXX=...`). Outside CI a missing compiler is a skip; `make ci` sets
+`GOCPP_REQUIRE_CXX=g++,clang++`, so there a missing compiler fails. `GOCPP_FLAGS` passes extra
+flags to `gocpp`, e.g. for the sanitizer run (`-fsanitize=address,undefined`) that CI adds.
 
 Example run test:
 
 ```go
+// phase: 03
+
 // tests/run/slices_append.gp
 package main
 
@@ -155,7 +162,7 @@ They act as the "definition of done" for the whole project:
 | `multi-pkg` | app + 3 packages + C sources | Phase 06 |
 | `generics` | `Map/Filter/Reduce`, `Stack[T]`, `iter.Seq` | Phase 07 |
 | `workers` | goroutines, channels, `select`, `WaitGroup` | Phase 08 |
-| `wc`, `grep-lite` | `os`, `bufio`, `strings`, `flag`, tests | Phase 09 |
+| `wc`, `grep-lite` | `os`, `bufio`, `strings`, `flag`, `regexp` (grep-lite), tests | Phase 09 |
 | `must-errors` | `func loadConfig!()` must functions, `F!(...)` calls, `func main!()` exit 1, `defer f.Close()` | Phase 10 |
 | `macros` | `macro` declarations; `#Assert`/`#Dbg` inside code; `#Trace`/`#Locked` (start style) and `#Recover`/`#InThread` (wrap style) on top of funcs; `#Derive(String)` on an enum and `#Derive(JSON)` on a struct | Phase 10 |
 | `win32` | a Windows program: `MessageBoxW` and a small window through the `<windows.h>` header package | Phase 14 |
@@ -188,9 +195,9 @@ warnings in `-fsyntax-only` mode. The build driver should pass `-Qunused-argumen
    license is looked at again before v1.0), `.gitignore`, `Makefile` (`make build test lint ci`),
    `README.md`.
 7. **0.7 Add `flake.nix`** (dev shell) and `.envrc` (`use flake`) for direnv users.
-8. **0.8 Build the test harness** (`tests/harness_test.go`) with the five runners from 2.3.
-   With no compiler yet, the runners must find zero tests and pass, and fail clearly when a
-   test is malformed.
+8. **0.8 Build the test harness** (`tests/harness_test.go`) with the six runners from 2.3 (the
+   five test folders plus `examples/`). With no compiler yet, the runners find the example
+   tests, skip them by phase, and pass; they fail clearly when a test is malformed.
 9. **0.9 Write the target programs** from 2.4 with their expected outputs. Each starts
    with a `// phase: NN` comment so the harness can skip programs whose phase isn't reached.
    Expected outputs of Go-compatible programs are produced by real `go run`, never by hand.

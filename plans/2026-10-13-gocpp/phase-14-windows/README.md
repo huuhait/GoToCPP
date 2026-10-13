@@ -52,7 +52,7 @@ holds the `gp::os` thread layer (Phase 08). This phase adds the Windows versions
 
 | Job | Linux | Windows |
 |---|---|---|
-| write to stdout/stderr | `write(2)` | `WriteFile`; when the handle is a console, `WriteConsoleW` with UTF-8 → UTF-16, so non-ASCII text shows correctly |
+| write to stdout/stderr | `write(2)` | `WriteFile`; when the handle is a console, `WriteConsoleW` with UTF-8 → UTF-16, so non-ASCII text shows correctly. The C runtime's text mode is never used, so `\n` stays `\n` as in Go (MinGW's text mode would write `\r\n`; found by the examples job) |
 | program arguments | `argc`/`argv` | `GetCommandLineW` + `CommandLineToArgvW`, converted to UTF-8 (Go does the same) |
 | environment | `environ` | `GetEnvironmentStringsW`, converted to UTF-8 |
 | threads with a stack size | pthreads | winpthreads (same code, linked with `-pthread`); note that `std::thread` in nixpkgs' MinGW GCC sits on its own thread library, mcfgthread |
@@ -101,8 +101,9 @@ holds the `gp::os` thread layer (Phase 08). This phase adds the Windows versions
   `push_macro`) handles the other collisions (`ERROR`, `DELETE`, `interface` from `<objbase.h>`).
 - `UNICODE` is defined by default, as Go's own Windows code uses the `W` functions. So
   `windows.MessageBox` (a macro) means `MessageBoxW`.
-- Win32 `W` functions take UTF-16 text. `C.wstr(s)` gives a `const wchar_t*` for the statement
-  (a holder, like Phase 04's `C.cstr`), and `C.GoStringW(p)` converts back.
+- Win32 `W` functions take UTF-16 text. `C.wstr(s)` gives a `const wchar_t*` for the statement,
+  or for as long as a variable holds it (a holder, like Phase 04's `C.cstr`), and
+  `C.GoStringW(p)` converts back.
 - x86-64 Windows has a single calling convention, so callbacks work as in Phase 04.
 
 ### 2.5 Editor, debugger, typed interop
@@ -119,7 +120,9 @@ holds the `gp::os` thread layer (Phase 08). This phase adds the Windows versions
 ### 2.6 Testing Windows from Linux
 
 - **CI on Linux**: every run test, error test, differential test and example is cross-built for
-  Windows and run under Wine (console programs; GUI examples run their smoke mode), with the
+  Windows and run under Wine (console programs; GUI examples run their smoke mode, with Wine's
+  graphics driver set to `null` (`HKCU\Software\Wine\Drivers`, `Graphics=null`) so they need
+  no display; found by the examples job), with the
   Wine rules from Phase 06 §2.10 (own prefix created up front, `wineserver -p`,
   `WINEDEBUG=-all`, no `winemenubuilder`). These builds use the dev shell's msvcrt-flavored
   MinGW-w64, so the C runtime that users get from llvm-mingw or MSYS2 (UCRT) is only tested by
