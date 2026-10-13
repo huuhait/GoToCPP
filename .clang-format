@@ -1,0 +1,24 @@
+# Style for the C++ that people write in this repo (runtime/, the native .cpp files in
+# stdlib/). See docs/CONTRIBUTING.md. Checked with clang-format 21; versions 15 to 20 can read
+# this file too.
+BasedOnStyle: LLVM
+Standard: c++20
+IndentWidth: 4
+ColumnLimit: 100
+# The * and & stay with the type: `T* p`, `const T& r`.
+PointerAlignment: Left
+DerivePointerAlignment: false
+# Opening braces stay on the same line: `if (x) {`, `struct S {`, `void f() {`.
+BreakBeforeBraces: Attach
+# `template <typename T>` goes on its own line, above the struct or function. This is the old
+# name of BreakTemplateDeclarations: clang-format 21 still reads it, and versions before 19
+# know only this name (an unknown key is an error).
+AlwaysBreakTemplateDeclarations: Yes
+# A short function stays on one line only inside a struct or class. An empty `{}` body stays
+# on one line anywhere. Other function bodies get their own lines.
+AllowShortFunctionsOnASingleLine: Inline
+# `public:` lines up with `struct`, the same way `case` lines up with `switch`.
+AccessModifierOffset: -4
+# Include order can matter (gocpp headers before C headers, <winsock2.h> before
+# <windows.h>), so includes stay in the order they are written.
+SortIncludes: Never
