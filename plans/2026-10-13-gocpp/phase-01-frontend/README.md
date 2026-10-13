@@ -67,7 +67,7 @@ mistakes in the gocpp part were still reported, including typos in namespace nam
 
 ### 2.2 The fork: three patches to go/scanner + go/parser
 
-The fork lives in `internal/syntax/{scanner,parser}`. It is copied from the Go 1.25.7 standard
+The fork lives in `internal/syntax/{scanner,parser}`. It is copied from the dev shell's Go 1.25 standard
 library (BSD-3-Clause; keep the license header). `go/parser` has **no internal
 dependencies** (checked with `go list`), so the fork compiles alone. Copy `go/printer/nodes.go`
 too, because the parser's `performance_test.go` reads it. The fork still produces **stock
@@ -130,6 +130,7 @@ Each import path string is classified by its shape. No new syntax is needed:
 | `"./physics.h"`, `"native/x.hpp"` (ends in `.h .hh .hpp .hxx .h++ .inl`) | local header (relative to the `.gp` file, then the include dirs) | `#include "…"` | `physics.X`, `x.X` |
 | `rl "<raylib.h>"`, `_ "<GL/gl.h>"` | header with a chosen name, or none | as above | `rl.X`, or no name |
 | `fs "::std::filesystem"` | renamed C++ namespace (optional) | nothing (just a name) | `fs.path` → `::std::filesystem::path` |
+| `"::std"` (no name) | an error: namespaces need no import | — | the message says: use `std.X` directly, or rename it with `import fs "::std::filesystem"` |
 
 **A header is a package.** Its name is the file name without directory and extension
 (`<SDL2/SDL.h>` → `SDL`, `"./physics.h"` → `physics`), with characters Go doesn't allow turned
@@ -237,7 +238,8 @@ it working. If it is ever removed, steps 2 and 3 use a small scope walk instead 
 - A package is a directory of `.gp` files (same as Go). `_test.gp` files are only included by
   `gocpp test`. `//go:build` constraints are honored using `go/build/constraint`.
 - Import path → directory: the stdlib (`fmt`, `strings`, …) is resolved from the embedded
-  `stdlib/` tree. Module packages resolve from the module root, found by walking up to
+  `stdlib/` tree (a tiny Go package inside `stdlib/` holds the `//go:embed` directive, because
+  an embed pattern can't reach a parent folder). Module packages resolve from the module root, found by walking up to
   `gocpp.mod` (Phase 06 adds `require`/`replace`).
 - The loader implements `types.ImporterFrom`. It loads and type-checks dependencies first,
   memoizes them and reports import cycles (`import cycle not allowed`).
@@ -366,7 +368,7 @@ gocpp fmt [-l] [-w] [-d] [files or packages]
 
 ## 3. Steps
 
-1. **1.1 Fork** `go/scanner` + `go/parser` from Go 1.25.7 into `internal/syntax` (plus
+1. **1.1 Fork** `go/scanner` + `go/parser` from the dev shell's Go (1.25.14 now) into `internal/syntax` (plus
    `go/printer/nodes.go` for the performance test); add `FORK.md` and the license header; the
    upstream tests pass unchanged.
 2. **1.2 Patch 1** (keywords after `.`, same line only) + tests (`std.map`, `x.type()`,

@@ -115,7 +115,7 @@ complex.
 | File | Job |
 |---|---|
 | `writer.go` | Indentation, and `#line N "/abs/file.gp"` before each generated line whose mapping is not "previous + 1" |
-| `names.go` | Identifier mangling: C++ keywords get a `_` suffix (`new` → `new_`, `class` → `class_`); names C++ reserves (`_X`, `a__b`) and user names starting with `gp_` get escaped; names that are **macros** in the headers the runtime includes (`EOF`, `errno`, `assert`, `stdin`, `stdout`, `stderr`, `NULL`, `EINVAL`, `ENOENT`, `EAGAIN`, `SEEK_SET`, `BUFSIZ`, …) get a `_` suffix. Without that, `io.EOF` would not compile; Phase 04 extends this list from the user's own headers |
+| `names.go` | Identifier mangling: C++ keywords get a `_` suffix (`new` → `new_`, `class` → `class_`; the list includes words that are keywords or operators in GCC's and Clang's C++ mode, such as `_Pragma` and `_Complex`); user names starting with `gp_` also get a `_` suffix (generated names never end in `_`, so they can't clash); a method named like its type (`func (U) U()`, which C++ would read as a constructor) becomes `U_`; other names C++ reserves (`_X`, `a__b`) stay as written, because GCC and Clang accept them even with `-Wall -Wextra -pedantic` (checked; only Clang's opt-in `-Wreserved-identifier` warns), and `gocpp vet` warns about them; names that are **macros** in the headers the runtime includes (`EOF`, `errno`, `assert`, `stdin`, `stdout`, `stderr`, `NULL`, `EINVAL`, `ENOENT`, `EAGAIN`, `SEEK_SET`, `BUFSIZ`, …) get a `_` suffix. Without that, `io.EOF` would not compile; Phase 04 extends this list from the user's own headers |
 | `names.go` (shadowing) | A Go declaration that uses the name it declares, like `v := v` or `x := x + 1`, gets a new C++ name (`v_1`). In C++ the new name is already in scope inside its own initializer, so `int64_t v = v;` would read garbage (seen in the audit) |
 | `types.go` | gocpp type → C++ type spelling (basic types in this phase) |
 | `expr.go`, `stmt.go`, `decl.go` | Expressions, statements, declarations |
@@ -217,7 +217,8 @@ Small, but the API shape is final so later phases only grow it:
   calls the operating system only through one small layer, `runtime/src/os/` (write to a file
   descriptor, exit, arguments, environment; threads come in Phase 08), with a Linux version now and
   a Windows version in Phase 14. Everything else uses standard C++ (`std::chrono`, `<atomic>`,
-  `std::filesystem`). A CI check fails if a POSIX header appears outside that folder.
+  `std::filesystem`). A CI check fails if a POSIX header appears in the runtime outside that
+  folder (the standard library's own per-OS files are a separate, allowed place).
 
 ### 2.7 The driver
 
@@ -235,9 +236,14 @@ gocpp emit file.gp                     # print the generated C++
   must be chosen per compiler family.
 - **Flags (debug default in this phase):** `-std=c++20 -fwrapv -fno-strict-aliasing
   -ffp-contract=off -g -O0 -I<runtime>`. `-std=c++20` (not `gnu++20`) avoids predefined macros
-  like `linux`/`unix` colliding with gocpp names.
+  like `linux`/`unix` colliding with gocpp names. The driver always passes an explicit `-O`
+  level, and adds `-U_FORTIFY_SOURCE` at `-O0`: a Nix shell's compiler wrapper turns on
+  "hardening" by default, which silently makes a missing `-O` into `-O2` and warns about
+  `_FORTIFY_SOURCE` at every `-O0` file (seen while building the dev shell).
 - **Runtime files** are embedded in the `gocpp` binary (`go:embed`) and extracted once to
-  `$XDG_CACHE_HOME/gocpp/rt/<version>/`.
+  `$XDG_CACHE_HOME/gocpp/rt/<version>/`. A `//go:embed` pattern can't reach a parent folder, so a
+  tiny Go package inside `runtime/` (`runtime/files.go`, package `rtfiles`) holds the directive,
+  and the driver imports it (the same trick for `stdlib/`, Phase 01).
 - **C++ compile errors** in this phase are always gocpp bugs, since there is no interop yet. Print
   "internal error: generated C++ did not compile", the first errors (already pointing at `.gp`
   lines thanks to `#line`) and the work dir path.

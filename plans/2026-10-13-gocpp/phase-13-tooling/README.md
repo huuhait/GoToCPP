@@ -29,7 +29,7 @@ keeping Go's analyzers away from code they can't handle (§2.3).
 
 - Source excerpt + caret + optional color (`-color=auto`).
 - **C++ errors translated to gocpp names:** `gp::slice<int64_t>` → `[]int`,
-  `gpkg_main::Vec2` → `main.Vec2`, `gpkg_github_com__huuhait__game__engine::Body` →
+  `gpkg_main::Vec2` → `main.Vec2`, `gpkg_github_dcom__huuhait__game__engine::Body` →
   `engine.Body` (package namespaces from Phase 06), `gp::ptr<T>` → `*T`, `gp::string` → `string`,
   `gp::map<K, V>` → `map[K]V`. Notes that point into runtime headers and template instantiation
   stacks inside `gp::` are hidden unless `-cpperrors=full`.
@@ -40,6 +40,10 @@ main.gp:14:7: C++: no member named 'push_bak' in std.vector[int]   (C++ type: st
              ^
 ```
 
+- **Columns:** `#line` only carries line numbers, so the emitter also writes a small column
+  map next to each generated file (generated line and column → `.gp` column). The driver uses
+  it to turn the C++ compiler's column into the `.gp` column shown above; without the map, the
+  message shows the line only.
 - Errors inside macro expansions or derive output name both places:
   `main.gp:9:7: in #util.Dbg (util/util.gp:21): ...`.
 

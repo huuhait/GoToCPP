@@ -31,7 +31,7 @@
   - [ ] stress: 10k goroutines, 1M channel ops; deep recursion
   - [ ] timer `cap`/`len`/`Stop`/`Reset` differential tests
 - [ ] 8.14 (optional) `iter.Pull` on a helper thread
-- [ ] 8.15 Thread layer for portability (`gp::os`: start with stack size, TLS, stack-overflow hook; Linux now, Windows in Phase 14)
+- [ ] 8.15 Thread layer for portability (`gp::os` in `runtime/src/os/`: start with stack size, TLS, stack-overflow hook; Linux now, Windows in Phase 14)
 
 ## Exit criteria
 

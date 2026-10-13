@@ -8,7 +8,7 @@
 |---|---|
 | Depends on | **Phase 01 only** for the early version (v0); grows with every phase; Phase 10 for `!`/macro support |
 | Unlocks | comfortable daily work from very early on; Phase 12 plugs C/C++ knowledge into it |
-| Milestone | **L0** when v0 ships (right after M1) and **M7** when the phase is complete |
+| Milestone | **L0** when v0 ships (it needs only Phase 01; in the one-person order it is built right after M1) and **M7** when the phase is complete |
 | Size | large (about 6–8 weeks in total; the v0 part, about 2 weeks, is done early) |
 | Progress | [STATE.md](STATE.md) |
 
@@ -95,8 +95,11 @@ never let clang (C/C++ knowledge) sit on the hot path.
    then reverse dependencies (workspace diagnostics) in the background, in parallel on all cores.
 7. **Debounce, don't delay.** Diagnostics wait about 30 ms after the last keystroke. Completion and
    hover answer immediately from the newest snapshot.
-8. **C/C++ never blocks.** Opaque mode (Phase 01) means gocpp diagnostics never need clang. C/C++
-   completion and hover come from a background header index (Phase 12) and appear when ready.
+8. **C/C++ never blocks.** Opaque mode (Phase 01) means gocpp diagnostics never wait for a C++
+   compiler. The one compiler run gocpp's checks use, Phase 01's namespace probe (is `std` a
+   namespace?), runs in the background and is cached per include set; its `undefined: x` errors
+   appear when it finishes. C/C++ completion and hover come from a background header index
+   (Phase 12) and appear when ready.
 9. **One static binary.** No JVM or Node, so the process starts instantly. gopls's own protocol
    package is internal and can't be imported, and public Go LSP modules tend to lag behind LSP
    3.17. So we copy gopls's *generated* protocol code (`gopls/internal/protocol`, BSD license)
@@ -150,7 +153,8 @@ never let clang (C/C++ knowledge) sit on the hot path.
 
 ### 2.6 Early track: start using it after Phase 01
 
-The language server needs only the front-end, not codegen. So **v0 ships right after Phase 01**
+The language server needs only the front-end, not codegen. So **v0 can ship right after Phase 01**
+(in the one-person order it is built right after M1, Phase 02)
 (diagnostics, hover, go-to-definition, completion, formatting). From then on you write gocpp in a
 real editor while the compiler is still being built, and every later phase adds to it:
 interop names (04), interfaces and embedding (05), multi-package workspaces (06), generics (07),
@@ -177,7 +181,8 @@ interop names (04), interfaces and embedding (05), multi-package workspaces (06)
     real signature), inlay hints on the calls a `!` function handles, macro go-to-definition, the
     `!` code actions, "expand macro" (also for wrap macros).
 
-Steps 11.1–11.7 and 11.10 form the **v0 early track** (right after Phase 01).
+Steps 11.1–11.7 and 11.10 form the **v0 early track** (it needs only Phase 01; built right after
+M1 in the one-person order).
 
 ## 4. Deliverables
 

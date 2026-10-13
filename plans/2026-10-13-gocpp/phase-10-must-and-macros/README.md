@@ -118,9 +118,9 @@ func main!() {
   added and the returns are normal Go. That's how you name it, for example to add context:
   `func loadConfig!(path string) (cfg Config, err error) { defer errors.Wrapf(&err, "load config %s", path); … }`.
 - **`func main!()` and `func init!()`**: an error is printed as `<program>: <error>` (`<program>`
-  is the base name of `os.Args[0]`) after `main`'s defers run, and the program exits with code 1
-  (decided, Q11).
-- **Methods** can be must functions too: `func (s *Server) start!() { … }`. An interface spells the
+  is the base name of `os.Args[0]`) and the program exits with code 1 (decided, Q11). For
+  `main!`, `main`'s defers run first; for `init!`, the program stops before `main` starts.
+- **Methods** can be must functions too: `func (s *Server) Start!() { … }`. An interface spells the
   real signature (`Start() error`), and the `!` method satisfies it.
 - **`defer f.Close()`** inside a must function: if `Close` fails while the function is returning
   a nil error, `Close`'s error is returned (the same as `defer f.Close!()` below).
@@ -185,6 +185,9 @@ func loadConfig!(path string) (cfg Config, err error) {
 // error text: "load config app.json: open app.json: no such file or directory"
 ```
 
+`errors.Wrapf` wraps like `fmt.Errorf` with `%w`, so `errors.Is(err, fs.ErrNotExist)` and
+`errors.As` still find the original error.
+
 **Error return traces (optional step).** The idea: each `!` that passes an error up records its
 `.gp` call site, so `errors.Trace(err)` or `%+v` can show the path the error took, like Zig's
 error return traces, without wrapping the error value (`err == io.EOF` must keep working). The
@@ -197,7 +200,7 @@ after v1 if time is short.
 
 1. **Parser (patch #4 to the Phase 01 fork).** A **non-keyword** identifier immediately followed by
    `!` and then `(` (or `[` for explicit type arguments) is one name: `ReadFile!`. The same rule
-   covers declarations: `func loadConfig!(`, `func (s *Server) start!(`, `func parse![T any](`.
+   covers declarations: `func loadConfig!(`, `func (s *Server) Start!(`, `func parse![T any](`.
    Keywords are excluded on purpose: `if!(a && b)`, `return!(x)`, `case!(b):` and `for!(a)` are
    valid Go (the audit checked them with the stock parser) and must keep their meaning. `x != y`
    and `!ok` are unaffected, because `!=` is a different token and a prefix `!` never directly

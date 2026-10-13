@@ -34,7 +34,7 @@
 ## Decisions / notes
 
 - 2026-10-13: Split from the old tooling phase. The language server is now Phase 11, and
-  `gocpp fmt` moved to Phase 01 (step 1.15) so it's available from the start.
+  `gocpp fmt` moved to Phase 01 (step 1.16) so it's available from the start.
 - 2026-10-13 (audit): Go's analyzers assume well-typed code, and opaque C names look well-typed
   to them (0 errors) while crashing `satisfy`/`ssa` (verified). Packages with opaque expressions
   are marked `IllTyped`, so only `RunDespiteErrors` analyzers run there; everything runs under

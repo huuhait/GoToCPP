@@ -64,8 +64,14 @@ between builds. Content hashes are only used inside the cache (2.5). One `-I` po
 headers such as `<fmt/format.h>`.
 
 - **Namespaces are flat**: `gpkg_` + an injective escape of the import path, for example
-  `gpkg_main`, `gpkg_fmt`, `gpkg_github_com__huuhait__game__engine` (`/` → `__`, `.` → `_`, a
-  literal `_` → `_u`). Nested namespaces would cause two problems the audit hit: inside
+  `gpkg_main`, `gpkg_fmt`, `gpkg_github_dcom__huuhait__game__engine`. Letters and digits stay;
+  every other character becomes `_` plus one letter: `/` → `__`, `.` → `_d`, `-` → `_h`,
+  `_` → `_u`, `~` → `_t`, `+` → `_p`, and any other byte → `_x` plus two hex digits. Because
+  every `_` in the result starts such a pair, the name can be decoded back, so two import paths
+  can never give the same namespace. (An earlier version mapped `.` → `_`, which let `x.u` and
+  `x_` collide; found by two docs jobs.) C++ reserves names containing `__`; GCC and Clang
+  accept them without a warning (checked with `-Wall -Wextra -pedantic`), so the readable `__`
+  for `/` stays. Nested namespaces would cause two problems the audit hit: inside
   `gpkg::main`, the C function `time()` would find the package namespace `gpkg::time` first; and
   package `game` declaring `engine` would clash with the sub-package namespace
   `game::engine`.
@@ -223,8 +229,8 @@ and sets GOOS/GOARCH for build constraints. Two targets matter in this phase:
 - **windows/amd64 (required).** Linux and Windows are the v1 targets (your decision), so Windows
   test builds start here, long before the full port in Phase 14. The toolchain is **MinGW-w64**
   (with clang or gcc), which the NixOS dev shell provides as a cross compiler. `gocpp build -os
-  windows` turns `hello.gp` into `hello.exe`, statically linked against the C++ runtime so it
-  runs without extra DLLs. A CI job builds the run tests that need nothing OS-specific for Windows
+  windows` turns `hello.gp` into `hello.exe`, linked with `-static` so it runs without extra
+  DLLs (with only `-static-libstdc++`, MinGW's thread library would still be a DLL). A CI job builds the run tests that need nothing OS-specific for Windows
   and runs them under **Wine**, so Windows breakage shows up early. The full Windows runtime and
   stdlib come in Phase 14.
 - **linux/arm64 (best effort)**; Phase 15 makes it a CI target.

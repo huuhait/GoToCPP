@@ -25,7 +25,8 @@ re-implements those algorithms in C++20.
 The one design rule that matters most: **every blocking operation goes through a small
 `gp::waiter` (park/unpark) interface**, a condition variable on the OS thread. Channels,
 `select`, `sync` and timers are written against it, and thread creation goes through one small
-OS layer, so the Windows port (Phase 14) touches only these two places.
+OS layer (`gp::os`, which lives in the runtime's `runtime/src/os/` folder like every other OS
+call), so the Windows port (Phase 14) touches only these two places.
 
 ## 2. How it works
 
@@ -84,7 +85,7 @@ gp::close(jobs);
 ### 2.2 Goroutines = OS threads
 
 - `gp::go(fn)` starts a detached POSIX thread (on Windows, Phase 14, the same API through
-  MinGW-w64's winpthreads). Its stack size is configurable through
+  MinGW-w64's winpthreads, linked with `-pthread`). Its stack size is configurable through
   `pthread_attr_setstacksize` (`std::thread` can't set it). The default is **8 MiB**, settable
   down to 1 MiB. Small stacks save nothing on 64-bit Linux, because stack pages only cost memory
   once they are touched. The audit measured the same RSS for 10k threads at 64 KiB, 256 KiB and
@@ -206,7 +207,7 @@ type switch can tell them apart.
     Phase 09; `perm.go` is an error test (`tests/errors`).
 14. **8.14 (optional) `iter.Pull` on a helper thread.**
 15. **8.15 Thread layer for portability**: thread start with a stack size, thread-local storage
-    and the stack-overflow hook behind one small `gp::os` interface, with the Linux version here
+    and the stack-overflow hook behind one small `gp::os` interface in `runtime/src/os/`, with the Linux version here
     and the Windows version in Phase 14.
 
 ## 4. Deliverables

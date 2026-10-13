@@ -272,7 +272,7 @@ is written mostly in gocpp itself and calls C/C++ where needed.
 | `int`, `uint` | `int64_t`, `uint64_t` (64-bit targets, like Go) |
 | `int8` … `int64`, `uint8` … `uint64`, `uintptr` | `int8_t` … `int64_t`, `uint8_t` … `uint64_t`, `uintptr_t` |
 | `byte`, `rune` | `uint8_t`, `int32_t` |
-| `float32`, `float64`, `complex128` | `float`, `double`, `std::complex<double>` |
+| `float32`, `float64`, `complex64`, `complex128` | `float`, `double`, `std::complex<float>`, `std::complex<double>` |
 | `bool` | `bool` |
 | `string` | `gp::string` (immutable bytes, usually UTF-8; cheap substrings) |
 | `[N]T` | `gp::array<T, N>` (value type, bounds checked) |
@@ -409,9 +409,11 @@ gocpp/                       (this repo: /home/huuhait/GoToCPP)
 │   ├── interop/             headers, macros, clang probes (Phase 12)
 │   ├── build/               toolchain detection, action graph, cache, linking
 │   ├── lsp/                 language server: snapshots, caches, features (Phase 11)
-│   └── diag/                diagnostics, C++ error remapping
+│   ├── diag/                diagnostics, C++ error remapping
+│   └── version/             version string and the last finished phase (test gating)
 ├── runtime/                 C++20 runtime: include/gocpp/*.hpp, src/*.cpp, src/os/{linux,windows}
 ├── stdlib/                  gocpp standard packages (.gp + native .cpp)
+├── tools/                   portstd (copies Go's stdlib, Phase 09), example-output generator
 ├── tests/                   run/, errors/, golden/, interop/, diff/ (differential vs Go)
 ├── examples/                hello, fizzbuzz, sdl-demo, sqlite-demo, ...
 ├── spikes/                  throwaway experiments behind the plan's claims (2026-10-13)

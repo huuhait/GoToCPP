@@ -47,18 +47,18 @@ MinGW, and C++ sources are compiled by gocpp's own toolchain anyway. `clang-cl` 
 
 ### 2.1 Runtime: the Windows OS layer
 
-The runtime reaches the operating system only through `runtime/src/os/` (Phase 02) and the
-`gp::os` thread layer (Phase 08). This phase adds their Windows versions:
+The runtime reaches the operating system only through `runtime/src/os/` (Phase 02), which also
+holds the `gp::os` thread layer (Phase 08). This phase adds the Windows versions:
 
 | Job | Linux | Windows |
 |---|---|---|
 | write to stdout/stderr | `write(2)` | `WriteFile`; when the handle is a console, `WriteConsoleW` with UTF-8 → UTF-16, so non-ASCII text shows correctly |
 | program arguments | `argc`/`argv` | `GetCommandLineW` + `CommandLineToArgvW`, converted to UTF-8 (Go does the same) |
 | environment | `environ` | `GetEnvironmentStringsW`, converted to UTF-8 |
-| threads with a stack size | pthreads | winpthreads (same code) |
+| threads with a stack size | pthreads | winpthreads (same code, linked with `-pthread`); note that `std::thread` in nixpkgs' MinGW GCC sits on its own thread library, mcfgthread |
 | stack overflow message | guard page + `SIGSEGV` on `sigaltstack` | `SetThreadStackGuarantee` + a vectored exception handler for `EXCEPTION_STACK_OVERFLOW` → `fatal error: stack overflow`, exit 2 |
 | exit after flushing | `_exit` | `_exit` from the MinGW C runtime |
-| stack traces in panics | `<stacktrace>` or `backtrace()` | `<stacktrace>` where the C++ library has it, otherwise `CaptureStackBackTrace` + DWARF line lookup |
+| stack traces in panics | `backtrace()` or libbacktrace (`<stacktrace>` is C++23, not available under `-std=c++20`, Phase 03 §2.9) | `CaptureStackBackTrace` + DWARF line lookup (libbacktrace reads MinGW's DWARF too) |
 | blocking in `gp::waiter` | condition variables / futex | condition variables (C++20 `std::atomic::wait` works on both) |
 | clocks | `std::chrono` | `std::chrono` (QueryPerformanceCounter underneath) |
 
@@ -68,9 +68,10 @@ The runtime reaches the operating system only through `runtime/src/os/` (Phase 0
   llvm-mingw on Windows); `gocpp env` shows what it found.
 - **Outputs**: `.exe`; `c-shared` gives a `.dll` plus an import library (`.dll.a`), and `//export`
   functions are marked `__declspec(dllexport)`; `c-archive` gives a `.a`.
-- The C++ runtime is linked **statically** (`-static-libgcc -static-libstdc++`, static
-  winpthreads), so an `.exe` runs without extra DLLs. Phase 06 already does this for the first
-  Windows builds.
+- Programs are linked with **`-static`**, so an `.exe` runs without extra DLLs. Linking only
+  `-static-libgcc -static-libstdc++` is not enough with nixpkgs' MinGW GCC: the `.exe` then still
+  needs `libmcfgthread-2.dll` and fails to start (seen while building the dev shell). Phase 06
+  already does this for the first Windows builds.
 - **Windows limits**: a command line can be at most 32,767 characters, so long compile and link
   commands go through **response files** (`@file`); paths can contain spaces and drive letters;
   the cache lives in `%LocalAppData%\gocpp`.
@@ -94,7 +95,8 @@ The runtime reaches the operating system only through `runtime/src/os/` (Phase 0
 
 - `<windows.h>` is a header package like any other: `windows.MessageBoxW(nil, …)`,
   `windows.GetLastError()`.
-- gocpp defines `WIN32_LEAN_AND_MEAN` and `NOMINMAX` by default (a directive turns them off), so
+- gocpp defines `WIN32_LEAN_AND_MEAN` and `NOMINMAX` by default (`//gocpp:no-win32-defaults`
+  turns them off), so
   the `min`/`max` macros can't break C++ code. Phase 04's macro protection (`#undef` /
   `push_macro`) handles the other collisions (`ERROR`, `DELETE`, `interface` from `<objbase.h>`).
 - `UNICODE` is defined by default, as Go's own Windows code uses the `W` functions. So

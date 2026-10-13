@@ -49,13 +49,13 @@ The initial set (summaries; the full text is written in step 0.2):
 | 001 | Transpiler is written in **Go** | C++ (the language we want to avoid), Rust |
 | 002 | Front-end = **fork of `go/scanner` + `go/parser`** (3 patches in Phase 01, 3 more in Phase 10) + a small **`go/printer` fork** (Phase 10) + stock `go/ast`, `go/types`, `go/constant`. `go/types` stays stock: x/tools (`gcexportdata`, `go/analysis`) only works with the stock package. Phase 12 solves its gaps without a fork; a fork would need its own ADR | Hand-written parser and checker (months of work, subtle Go semantics bugs) |
 | 003 | Output is **readable C++20** (GCC ≥ 13, Clang ≥ 17) with `#line` directives | Unreadable SSA-style C++ (hard to debug), C (loses templates/RAII/interop) |
-| 004 | Memory = **ARC**: `*T` → `gp::ptr<T>` (wraps `std::shared_ptr<T>`, aliasing constructor for interior pointers); `*C.T` → raw `T*` | Boehm GC (non-deterministic, C++ interop trouble), manual memory (unsafe, not Go-like) |
+| 004 | Memory = **ARC**: `*T` → `gp::ptr<T>` (wraps `std::shared_ptr<T>`, aliasing constructor for interior pointers); `*pkg.T` for a C/C++ type (`*cstdio.FILE`) → raw `T*` | Boehm GC (non-deterministic, C++ interop trouble), manual memory (unsafe, not Go-like) |
 | 005 | Interop = header imports (`"<hdr>"`, `"./x.h"`): **a header is a package named after its file** (`raylib.InitWindow`), **C++ namespaces are packages** (`std.vector`), `C` keeps only C's built-in types and helpers (`C.int`, `C.CString`); **opaque first**, typed via clang later | every C/C++ name under `C.` (cgo style), cgo-only preamble, mandatory bindings (can't cover all of C++) |
 | 006 | Numbers: `int` = `int64_t`; signed overflow wraps (`-fwrapv`); results of `int8`/`int16`/`uint8`/`uint16` arithmetic are cast back to their type (C++ promotes them to `int`); bounds/nil/div-by-zero/shift checks panic like Go; `-ffp-contract=off` | C++ `int` (surprises Go users), UB on overflow |
 | 007 | Goroutines = **OS threads**: `go f()` starts a real thread, and there is no goroutine scheduler, now or later | Fibers / an M:N scheduler (complex, not needed), no `go` at all (not Go-like) |
 | 008 | Build = **own driver** calling `$CXX` with a content-hash cache; exports `compile_commands.json` + CMake | Generate CMake and require it (slow, extra dependency) |
 | 009 | Runtime = header-mostly C++20 library in `namespace gp`, **embedded in the gocpp binary** (`go:embed`) | Separate install step (version-skew bugs) |
-| 010 | Naming: package → one **flat** namespace `gpkg_<escaped import path>` (`gpkg_main`, `gpkg_github_com__huuhait__game__engine`); C/C++ names are emitted fully qualified (`::time`, `::std::vector`) except macros; escape C++ keywords and colliding macros with a `_` suffix; also rename a method named like its type (`func (U) U()`, which C++ would read as a constructor) and user names starting with `gp_` (reserved for generated code) | Global names (collisions with C libraries); nested `gpkg::a::b` namespaces (they hide C names such as `time()` and clash with sub-packages) |
+| 010 | Naming: package → one **flat** namespace `gpkg_<escaped import path>` (`gpkg_main`, `gpkg_github_dcom__huuhait__game__engine`); C/C++ names are emitted fully qualified (`::time`, `::std::vector`) except macros; escape C++ keywords and colliding macros with a `_` suffix; also rename a method named like its type (`func (U) U()`, which C++ would read as a constructor) and user names starting with `gp_` (reserved for generated code) | Global names (collisions with C libraries); nested `gpkg::a::b` namespaces (they hide C names such as `time()` and clash with sub-packages) |
 | 011 | `error` = Go interface; `panic` = C++ exception `gp::panic_error`; `defer` = per-function frame | `setjmp/longjmp` (skips C++ destructors) |
 | 012 | Supported subset = Go 1.25 syntax + a **small, explicit** set of extensions (divergence list below) | Inventing a lot of new syntax |
 | 013 | Error propagation = **`!` (must)**, only where it is written: on a function (`func f!() T`: every error inside it that the code drops is returned; callers see `(T, error)`) and on one call (`F!(...)`). Rewritten before `go/types` (must functions need a second check), lowered to early returns; in `main` the error is printed and the program exits 1 | A `try` builtin, a `?` suffix, implicit error handling without a marker |
@@ -93,6 +93,9 @@ Specification (go1.25) except for the points below."* The initial divergence lis
 | D16 | `unsafe.Pointer` keeps its target alive (the GC sees it) | Same for gocpp objects (`unsafe.Pointer` is an owning `gp::ptr<void>`), but a pointer that comes **from C** owns nothing, and C code never keeps gocpp memory alive: a gocpp pointer passed to C is only borrowed (Phase 04) |
 | D17 | Standard packages are exactly Go's | A few **gocpp additions**: `errors.Wrapf(&err, ...)`, `errors.Trace(err)`, `C.cstr(...)`, `C.wstr(...)` (Windows), the hidden `gocpp/macro` package (Phase 10) |
 | D18 | `macro` and `lazy` are ordinary identifiers | `macro` starts a declaration **at package level** and `lazy` is a modifier **inside macro parameter lists**. Everywhere else they stay ordinary identifiers (Phase 10) |
+| D19 | `C` is an ordinary identifier | `C` is reserved for C's built-in types and the boundary helpers (`C.int`, `C.CString`): a local or package-level declaration named `C` is an error (Phase 01 §2.3) |
+| D20 | A type name has at most one dot (`pkg.T`) | Type names may have more dots for C++ types: `std.chrono.seconds`, `std.vector[int].iterator` (Phase 01 patch 3) |
+| D21 | `range` works on arrays, slices, strings, maps, channels, integers and functions | Also on C++ containers and C arrays (anything with `begin()`/`end()`), with C++'s element types and Go's "length read once" rule (Phase 04 §2.5) |
 
 ### 2.3 Test harness design
 
@@ -163,7 +166,8 @@ You are on NixOS, so a `flake.nix` dev shell makes the toolchain reproducible:
 `go_1_25`, `clang_21`, `gcc15`, `gdb`, `lldb`, `cmake`, `ninja`, `pkg-config`, `python3`
 (gdb pretty printers), plus `SDL2`, `raylib`, `sqlite` and `zlib` for the interop examples and
 the Phase 04 header zoo, and for Windows builds (Phase 06 on) the MinGW-w64 cross compiler and
-`wine64` to run the tests.
+64-bit Wine (`wine`) to run the tests. nixpkgs is pinned to `nixos-26.05`, because Go 1.25 is
+end-of-life upstream and was removed from nixos-unstable (found while building the dev shell).
 (Ninja is not installed right now; the dev shell adds it.)
 
 Note found in the spike: the NixOS clang wrapper prints `-Wunused-command-line-argument`

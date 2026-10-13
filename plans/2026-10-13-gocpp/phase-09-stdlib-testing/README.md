@@ -45,7 +45,7 @@ against Go 1.25.7, and the audit refined it:
 
 1. **Ported Go.** `tools/portstd` copies a package mechanically and records provenance in
    `stdlib/<pkg>/PORT.md` (upstream version, file selection, patch). Three rules, all from the audit:
-   - **Source:** the **pinned upstream source tarball** (`go1.25.7.src.tar.gz`, SHA-256 checked),
+   - **Source:** the **pinned upstream source tarball** of the dev shell's Go version (now `go1.25.14.src.tar.gz`), SHA-256 checked,
      not the local GOROOT. On NixOS the local GOROOT is patched (hard-coded `/nix/store/…` paths in
      `time/zoneinfo_unix.go` and four other files) and has no `test/` folder.
    - **File selection** goes through `go/build` for the target OS, with the `purego` tag. Packages

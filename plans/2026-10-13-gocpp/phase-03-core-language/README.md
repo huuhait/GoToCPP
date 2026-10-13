@@ -335,8 +335,9 @@ gp_exit:
 An unrecovered panic prints `panic: <msg>` plus `goroutine 1 [running]:` and a stack trace, then
 exits with **code 2** like Go. The trace uses `backtrace()` (or libbacktrace), because C++23's
 `<stacktrace>` is not available under `-std=c++20` (checked). `gocpp build -nochecks` compiles out
-the *checks* (bounds, nil), but never Go's defined results: shifts by ≥ width and `MIN / -1`
-still give Go's answers.
+the bounds and nil *checks* only. Division by zero and negative shift amounts still panic,
+because without those checks C++ has undefined behavior (and they cost little), and Go's defined
+results always stay: shifts by ≥ width and `MIN / -1` still give Go's answers.
 
 ### 2.10 Builtins, printing and package initialization
 

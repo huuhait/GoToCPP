@@ -119,8 +119,10 @@ A step is done only when **all** of these hold:
 - **Plan conformance**: the code does what the phase README says; anything different is reported,
   never hidden.
 - **Speed**: the language server budgets (Phase 11) and build times (Phase 06) don't get worse.
-- **Platforms**: nothing outside `runtime/src/os/` calls the operating system directly (Linux and
-  Windows are both targets).
+- **Platforms**: in the runtime, nothing outside `runtime/src/os/` calls the operating system
+  directly (that folder also holds the Phase 08 thread layer `gp::os`); the standard library's
+  own per-OS files (Phase 09, Phase 14) are the other allowed place. Linux and Windows are both
+  targets.
 - **Scope and quality**: only the ticket's change; Go code is gofmt- and vet-clean; C++ follows
   `.clang-format`; comments explain what isn't obvious.
 
@@ -152,5 +154,6 @@ A step is done only when **all** of these hold:
 | after every job | TODO.md "Now" shows the next jobs |
 
 **Commits:** one commit per clean job, with a message like
-`phase 01, step 1.2: parser patch 1 (keywords after .)`. The manager makes them only once the user
+`phase 01, step 1.2: parser patch 1 (keywords after .)`; a job split from a step uses the job
+name (`phase 01, step 1.8a: …`). The manager makes them only once the user
 has said commits are OK; until then, nothing is committed.

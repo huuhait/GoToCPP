@@ -262,7 +262,8 @@ recoverable panics.
   - `.hpp`, `.hh` and `.hxx` headers are never wrapped;
   - system headers are not wrapped by default, but `//gocpp:extern-c <lua.h>` exists for C
     libraries that ship headers without guards;
-  - `//gocpp:no-extern-c` overrides everything.
+  - `//gocpp:no-extern-c <hdr>` turns the wrapping off for that header, whatever the rules
+    above say.
   Wrapping a C++ header breaks it (`extern "C" { #include <vector> }` gives over a thousand
   errors with g++), which is why the parse-as-C check matters.
 
@@ -377,7 +378,7 @@ prints pointers. Printing a `char*` as a C string would crash or silence stdout 
 |---|---|
 | Errors arrive late and look like C++ | Good `#line` mapping and trimming now; Phase 12 checks earlier; Phase 13 renames types |
 | `gp::deref` guesses wrong for exotic types (proxies, overloaded `operator&`) | `(*x).m` always works as an explicit form; Phase 12 makes it exact |
-| The kind probe can't classify a name (e.g. it depends on template arguments) | Fall back to `.` for values and report a clear "write `(…)`" hint; Phase 12 is exact |
+| The kind probe can't classify a name (e.g. it depends on template arguments) | Fall back to `.` for values and report a clear hint: a parenthesized C++ value is always a value, so `(x).m` uses `.` and `(v)[i]` is always indexing; Phase 12 is exact |
 | Strange macros (statement macros, `do{}while(0)`) | They work as calls in statement position; otherwise wrap them in a small helper header (§2.10) |
 | Raw pointers to C++ values dangle | Documented C++ rule; ASan in CI; Phase 13 `vet` checks for `&cppLocal` escaping |
 | A panic would unwind through C frames | Trampolines on every C-callable entry stop it with a Go-style fatal error |

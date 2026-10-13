@@ -13,14 +13,14 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [ ] Write ADR-001 … ADR-021 in `docs/adr/` (summaries in Phase 00 README §2.1, your answers already in them)
 - [ ] Write `docs/spec/language.md` (diff against the Go spec), `cpp-mapping.md`, `interop.md` (v0)
 - [ ] Repo skeleton: `go.mod` (`github.com/huuhait/gocpp`), folders, `LICENSE` (BSD-3-Clause), `Makefile`, `.gitignore`, `README.md`
-- [ ] `flake.nix` dev shell (Go 1.25, clang 21, gcc 15, gdb, lldb, ninja, pkg-config, SDL2, raylib, sqlite, zlib, MinGW-w64 cross compiler, wine64)
+- [ ] `flake.nix` dev shell (Go 1.25, clang 21, gcc 15, gdb, lldb, ninja, pkg-config, SDL2, raylib, sqlite, zlib, MinGW-w64 cross compiler, 64-bit Wine; nixpkgs nixos-26.05)
 - [ ] Test harness runners (`run`, `errors`, `golden`, `diff`, `interop`) green with zero tests
 - [ ] All 19 target programs in `examples/`, tagged with their phase (Go-compatible outputs generated with real `go run`)
 - [ ] Commit the plan and the spikes (nothing is committed yet)
 
 ## Then: first Phase 01 tasks
 
-- [ ] Fork `go/scanner` + `go/parser` (Go 1.25.7) into `internal/syntax` with `FORK.md`
+- [ ] Fork `go/scanner` + `go/parser` (the dev shell's Go, 1.25.14) into `internal/syntax` with `FORK.md`
 - [ ] Parser patch 1: Go keywords allowed after `.` on the same line (+ tests)
 - [ ] Parser patch 2: constant expressions in type-argument lists (+ tests)
 - [ ] Parser patch 3: dotted type names such as `std.chrono.seconds` (+ tests)
@@ -40,7 +40,7 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] **Q2 `int`:** 64-bit, like Go. `C.int` is there for C APIs.
 - [x] **Q3 C/C++ imports:** like Go packages. A header is a package named after its file (`"<raylib.h>"` → `raylib.InitWindow`, `"./physics.h"` → `physics.step`), and C++ namespaces are packages that need no import (`std.vector[int]`). `C` keeps only C's built-in types and helpers (`C.int`, `C.CString`). No inline preamble: a helper goes into a header next to the `.gp` file. (Phase 01 §2.3, Phase 04)
 - [x] **Q4 Concurrency:** `go` starts a real OS thread. No goroutine scheduler, now or later. (Phase 08)
-- [x] **Q5 Runtime checks:** on, like Go: a bad index, nil pointer or division by zero stops with Go's message and the `.gp` line; `-nochecks` turns them off for speed. (Phase 02 §2.3, Phase 03 §2.9)
+- [x] **Q5 Runtime checks:** on, like Go: a bad index, nil pointer or division by zero stops with Go's message and the `.gp` line; `-nochecks` turns off the bounds and nil checks for speed (division and shift checks stay, because C++ has undefined behavior without them). (Phase 02 §2.3, Phase 03 §2.9)
 - [x] **Q6 Module path:** `github.com/huuhait/gocpp`.
 - [x] **Q7 License:** BSD-3-Clause for now. Look at the runtime license again before v1.0 (see backlog).
 - [x] **Q8 Platforms:** Linux and Windows, Linux first; Windows test builds from Phase 06, the full port in Phase 14, both before v1.0. macOS is not a target. (ADR-021)
