@@ -1,7 +1,7 @@
 # gocpp plan · STATE
 
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Current focus:** Phase 01, Front-end (Phase 00 done on 2026-10-13): the parser fork (1.1) and the diagnostics package (1.13) are in review; see [TODO.md](TODO.md)
+**Current focus:** Phase 01, Front-end (Phase 00 done on 2026-10-13): the parser fork (1.1) is in review, the diagnostics package (1.13) is done; see [TODO.md](TODO.md)
 **Last updated:** 2026-10-13
 
 ---
@@ -40,7 +40,7 @@
 - [ ] **Phase 08:** Concurrency → [STATE](phase-08-concurrency/STATE.md) · ends with **M5**
 - [ ] **Phase 09:** Stdlib & `gocpp test` → [STATE](phase-09-stdlib-testing/STATE.md) · ends with **M6 (v0.1)**
 - [ ] **Phase 10:** Beyond Go: `!` (must) & macros → [STATE](phase-10-must-and-macros/STATE.md)
-- [ ] **Phase 11:** Fast language server (gopls speed) → [STATE](phase-11-language-server/STATE.md) · v0 starts after Phase 01 · ends with **M7**
+- [~] **Phase 11:** Fast language server (gopls speed) → [STATE](phase-11-language-server/STATE.md) · v0 starts after Phase 01 · ends with **M7**
 - [ ] **Phase 12:** Typed C++ interop via clang → [STATE](phase-12-typed-interop/STATE.md)
 - [ ] **Phase 13:** Developer tooling (diagnostics, debugging, vet, doc) → [STATE](phase-13-tooling/STATE.md)
 - [ ] **Phase 14:** Windows → [STATE](phase-14-windows/STATE.md) · ends with **M8**

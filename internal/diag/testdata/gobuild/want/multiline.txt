@@ -1,0 +1,7 @@
+# example.com/m/multiline
+multiline/a.go:11:7: too many arguments in call to g
+	have (number, number)
+	want (int)
+multiline/a.go:12:6: impossible type assertion: i.(T)
+	T does not implement I (missing method M)
+multiline/a.go:13:12: cannot use T{} (value of struct type T) as I value in variable declaration: T does not implement I (missing method M)

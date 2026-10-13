@@ -1,0 +1,3 @@
+# example.com/m/order
+order/b.go:3:13: undefined: undefinedAtPackageLevel
+order/a.go:6:10: undefined: undefinedInBody

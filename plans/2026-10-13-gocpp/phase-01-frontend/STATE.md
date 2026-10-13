@@ -35,7 +35,7 @@
 - [ ] 1.10 go/types integration (`GoVersion`, `FakeImportC`, `Sizes` stub, full `Info`) + `CheckExpr` over opaque template arguments
 - [ ] 1.11 Opaque pass (widened "comes from C/C++" rule, recorded C type expressions, sanity rule)
 - [ ] 1.12 Unsupported-feature checker with the full gate table + generated `feature-matrix.md`
-- [~] 1.13 Diagnostics package (format, sort, dedupe, limit, caret)
+- [x] 1.13 Diagnostics package (format, sort, dedupe, limit, caret)
 - [ ] 1.14 CLI: `version`, `parse -dump`, `check`, `check -types`, `fmt`
 - [ ] 1.15 Error tests + "no false errors" interop corpus
 - [ ] 1.16 `gocpp fmt` via `go/format.Node` (`-l -w -d`); header imports keep their order (include order matters); stdlib unchanged + badly formatted inputs match real gofmt
@@ -69,3 +69,9 @@
 - 2026-10-13 (diagnostics job 1.13): real `go build` orders files by their first error, not by
   name, and stops at the 10th error found; README §2.10 now says so, and §2.12 lists what the CLI
   copies from `go build` (`# pkg` lines, stderr, exit 1, `-e` with `parser.AllErrors`).
+- 2026-10-13 (manager, diagnostics review): gocpp prints the real column even from column 255 on,
+  where `go build` prints none (an 8-bit limit in the compiler); editors can still jump to it.
+  The sanity rule (§2.8) now says "no hard errors", and `-e` keeps one syntax error per line (§2.12).
+- 2026-10-13: Step 1.13 (`internal/diag`) committed, clean after 3 review rounds. Its output equals
+  real `go build` in 21 captured cases; the reviews added `diag.ErrorCode` for the 1.10 filter,
+  emoji widths from Unicode's tables, and the documented column-255 difference.

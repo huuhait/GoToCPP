@@ -1,0 +1,3 @@
+# example.com/m/dups
+dups/a.go:6:10: undefined: x
+dups/a.go:7:10: undefined: x

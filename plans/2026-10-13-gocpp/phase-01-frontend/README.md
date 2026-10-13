@@ -280,7 +280,8 @@ go wrong (all seen in the audit): `strings` is reported "imported and not used",
 after `Check`, run `types.CheckExpr(fset, pkg, arg.Pos(), arg, info)` on every argument of an
 opaque instantiation. That types `strings.Builder`, reports `undefined: Pointt`, and lets us drop
 the false "imported and not used" errors (they are soft errors with the code `UnusedImport`; a
-filter in front of the diagnostics collector holds them back until `CheckExpr` has run).
+filter in front of the diagnostics collector reads the code with `diag.ErrorCode` and holds them
+back until `CheckExpr` has run, so the errors keep the order they were found in).
 
 ### 2.8 The opaque pass
 
@@ -297,8 +298,9 @@ It also records, for every object declared with a C/C++ type (`func f(w *SDL.SDL
 struct fields, results, `var p *cstdio.FILE`), the **AST type expression**, because `go/types`
 has no type for it and codegen must print `SDL_Window*` from the syntax.
 
-Sanity rule: if `go/types` reported no errors, every invalid expression must be opaque. If not,
-that is an internal compiler error with a clear message, never silently wrong C++.
+Sanity rule: if `go/types` reported no hard errors (soft ones, like an unused variable, leave the
+types complete), every invalid expression must be opaque. If not, that is an internal compiler
+error with a clear message, never silently wrong C++.
 
 Facts from the spike that this pass relies on:
 - Untyped constants passed to C calls keep kind and value (`"x.txt"` → `untyped string`).
@@ -346,6 +348,11 @@ The details follow the go command, as checked against real `go build` 1.25.14 (s
   dropped, and so is an exact duplicate after sorting.
 - **Limit:** after the 10th error *found*, `<its position>: too many errors` (also with exactly
   10); `-e` shows all of them.
+- **Columns:** gocpp always prints the real column. `go build` prints no column from column 255
+  on (an 8-bit limit inside the compiler). That is one of the two known differences; the other is
+  that the short name is chosen per file, so a file outside the package folder (a `//line`
+  target, later a C++ header in a sub-folder) can be shown as `other/x.go` where `go build` shows
+  `./other/x.go`.
 - **Paths:** relative to the current folder when that is shorter (`./main.go`, `sub/a.go`,
   `../two/a.go`), otherwise absolute, so the loader gives the `FileSet` absolute file names.
 - go/types' continuation lines ("other declaration of x", starting with a tab) stay attached to
@@ -391,7 +398,9 @@ gocpp fmt [-l] [-w] [-d] [files or packages]
 Like `go build`, `gocpp check` prints a `# <import path>` line before each failing package's
 errors (`# command-line-arguments` for files named on the command line), shows at most 10 per
 package, writes everything to stderr and exits with status 1. A package with syntax errors is not
-type-checked. `-e` shows all errors and also parses with `parser.AllErrors`.
+type-checked. `-e` shows all errors and also parses with `parser.AllErrors`, keeping only the
+first syntax error of each line (the compiler does that even with `-e`, while go/parser with
+`AllErrors` can report several on one line).
 
 ## 3. Steps
 

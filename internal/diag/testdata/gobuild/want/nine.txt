@@ -1,0 +1,10 @@
+# example.com/m/nine
+nine/a.go:4:10: undefined: u1
+nine/a.go:5:10: undefined: u2
+nine/a.go:6:10: undefined: u3
+nine/a.go:7:10: undefined: u4
+nine/a.go:8:10: undefined: u5
+nine/a.go:9:10: undefined: u6
+nine/a.go:10:10: undefined: u7
+nine/a.go:11:10: undefined: u8
+nine/a.go:12:10: undefined: u9

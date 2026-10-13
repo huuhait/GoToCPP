@@ -11,7 +11,6 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 ## Now: Phase 01 (front-end)
 
 - [~] Fork `go/scanner` + `go/parser` (the dev shell's Go, 1.25.14) into `internal/syntax` with `FORK.md` (step 1.1, in review)
-- [~] Diagnostics package `internal/diag`, printing errors like `go build` (step 1.13, in review)
 - [ ] Parser patch 1: Go keywords allowed after `.` on the same line (+ tests)
 - [ ] Parser patch 2: constant expressions in type-argument lists (+ tests)
 - [ ] Parser patch 3: dotted type names such as `std.chrono.seconds` (+ tests)
@@ -21,7 +20,7 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 
 ## Any time (parallel, low risk)
 
-- [ ] VS Code TextMate grammar for `.gp`, including `name!(`, `func name!(`, `#Name`, `#body()` and `macro` (Phase 11 step 11.10)
+- [~] VS Code TextMate grammar for `.gp`, including `name!(`, `func name!(`, `#Name`, `#body()` and `macro` (Phase 11 step 11.10, job 11.10a started)
 - [x] Header zoo libraries chosen: C/C++ standard headers + SDL2, raylib, sqlite3, zlib (Phase 04 step 4.18)
 - [ ] Choose the LSP reference project: a real ~30k-line Go library to copy as `.gp` for the gopls side-by-side benchmark (Phase 11 step 11.11)
 
@@ -86,3 +85,4 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] 2026-10-13: Phase 00 steps 0.2–0.7, 0.9, 0.10: ADR-001 … ADR-021, the spec docs v0, the repo skeleton, the Nix dev shell, the 19 target programs, the contributing guide (one commit per step on branch `dev`)
 - [x] 2026-10-13: Phase 00 steps 0.8 + 0.11: the test harness (six runners, phase gating, both compilers) and `make ci`
 - [x] 2026-10-13: Phase 00 job 0.6b (stale docs, `xvfb-run`) and the Phase 00 exit check: **Phase 00 done**
+- [x] 2026-10-13: Phase 01 step 1.13: `internal/diag` prints errors like `go build`

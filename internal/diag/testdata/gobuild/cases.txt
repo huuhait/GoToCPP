@@ -1,0 +1,41 @@
+# The go build reference cases. capture.sh and TestGoBuild both read this
+# file. Each line is:
+#
+#	name  cwd  package  [-e]
+#
+# name:    the output is saved in want/<name>.txt
+# cwd:     the current folder of go build, relative to m/; DEEP is a folder
+#          inside m/ so deep that go build shows absolute paths
+# package: the package folder, relative to m/
+# -e:      go build -gcflags=-e (no limit of 10 errors)
+
+# How file paths are shown.
+cwd             .     .
+subdir          .     sub
+parent          sub   .
+sibling         sub   two
+absolute        DEEP  two
+
+# Several files and their order.
+two             .     two
+order           .     order
+
+# The limit of 10 errors.
+nine            .     nine
+ten             .     ten
+eleven          .     eleven
+twelve-e        .     twelve  -e
+reportorder     .     reportorder
+
+# Duplicates.
+dups            .     dups
+dups-e          .     dups    -e
+interleave      .     interleave
+samelinecount   .     samelinecount
+
+# Messages with more places or more lines.
+redecl          .     redecl
+redecl-parent   sub   redecl
+redecl-absolute DEEP  redecl
+samepos         .     samepos
+multiline       .     multiline

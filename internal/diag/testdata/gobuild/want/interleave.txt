@@ -1,0 +1,4 @@
+# example.com/m/interleave
+interleave/a.go:5:10: undefined: x
+interleave/a.go:5:13: undefined: y
+interleave/a.go:5:16: undefined: x

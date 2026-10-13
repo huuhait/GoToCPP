@@ -1,0 +1,2 @@
+# example.com/m
+./main.go:4:10: undefined: undefinedA

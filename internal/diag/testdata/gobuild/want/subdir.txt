@@ -1,0 +1,2 @@
+# example.com/m/sub
+sub/a.go:4:9: undefined: undefinedB

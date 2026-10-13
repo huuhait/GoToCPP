@@ -1,0 +1,13 @@
+# example.com/m/twelve
+twelve/a.go:4:10: undefined: u1
+twelve/a.go:5:10: undefined: u2
+twelve/a.go:6:10: undefined: u3
+twelve/a.go:7:10: undefined: u4
+twelve/a.go:8:10: undefined: u5
+twelve/a.go:9:10: undefined: u6
+twelve/a.go:10:10: undefined: u7
+twelve/a.go:11:10: undefined: u8
+twelve/a.go:12:10: undefined: u9
+twelve/a.go:13:10: undefined: u10
+twelve/a.go:14:10: undefined: u11
+twelve/a.go:15:10: undefined: u12

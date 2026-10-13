@@ -1,6 +1,6 @@
 # Phase 11: Fast Language Server · STATE
 
-**Status:** `[ ]` not started (the v0 early track can start right after Phase 01)
+**Status:** `[~]` in progress (only the TextMate grammar, job 11.10a, which needs nothing else; the v0 early track starts after Phase 01)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
@@ -21,7 +21,7 @@
 - [ ] 11.7 Formatting + organize imports (`gocpp fmt`) · *v0*
 - [ ] 11.8 References, rename, document/workspace symbols
 - [ ] 11.9 Semantic tokens, inlay hints, document links, code actions
-- [ ] 11.10 VS Code extension (+ optional tree-sitter, editor docs) · *v0*
+- [~] 11.10 VS Code extension (+ optional tree-sitter, editor docs) · *v0* (job 11.10a, the TextMate grammar, started 2026-10-13)
 - [ ] 11.11 Benchmark harness + 3 reference projects + CI gate + gopls side-by-side table
 - [ ] 11.12 Profiling/tracing/slow-request log + random-edit differential test
 - [ ] 11.13 `!` and macro support (after Phase 10): hovers, inlay hints for handled calls, code actions, expand macro

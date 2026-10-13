@@ -1,0 +1,12 @@
+# example.com/m/reportorder
+reportorder/a.go:6:10: undefined: u1
+reportorder/a.go:7:10: undefined: u2
+reportorder/a.go:8:10: undefined: u3
+reportorder/a.go:9:10: undefined: u4
+reportorder/a.go:10:10: undefined: u5
+reportorder/a.go:11:10: undefined: u6
+reportorder/a.go:12:10: undefined: u7
+reportorder/a.go:13:10: undefined: u8
+reportorder/a.go:14:10: undefined: u9
+reportorder/a.go:18:16: undefined: undefinedLast
+reportorder/a.go:14:10: too many errors

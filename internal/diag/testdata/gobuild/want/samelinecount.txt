@@ -1,0 +1,12 @@
+# example.com/m/samelinecount
+samelinecount/a.go:5:10: undefined: d
+samelinecount/a.go:6:10: undefined: u2
+samelinecount/a.go:7:10: undefined: u3
+samelinecount/a.go:8:10: undefined: u4
+samelinecount/a.go:9:10: undefined: u5
+samelinecount/a.go:10:10: undefined: u6
+samelinecount/a.go:11:10: undefined: u7
+samelinecount/a.go:12:10: undefined: u8
+samelinecount/a.go:13:10: undefined: u9
+samelinecount/a.go:14:10: undefined: u10
+samelinecount/a.go:14:10: too many errors

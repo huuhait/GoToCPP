@@ -1,0 +1,3 @@
+# example.com/m/redecl
+../redecl/a.go:4:5: x redeclared in this block
+	../redecl/a.go:3:5: other declaration of x
