@@ -1,0 +1,59 @@
+# Phase 03: Core Language · STATE
+
+**Status:** `[ ]` not started
+**Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
+**Last updated:** 2026-10-13
+
+## Steps
+
+- [x] Spike (2026-10-13): `shared_ptr` aliasing for interior pointers, non-owning global pointers, `make_shared<T[]>` element pointers, designated init, defaulted `==`; compiled and run on GCC 15 + Clang 21
+- [ ] 3.1 Refactor into `lower` → `cppir` → printer (Phase 02 tests stay green)
+- [ ] 3.2 Runtime ownership core (`gp::ptr`, `gp::new_`, aliasing helpers, nil checks, static owners for globals, `weak` intrinsic, no plain-named members on runtime types)
+- [ ] 3.3 Boxing analysis + owner table
+  - [ ] `&x`, `&x.f`, `&x.arr[i]`, pointer-method calls (incl. on fields), `arr[:]`
+  - [ ] captured + changed (incl. field/element writes, `++`, op-assign)
+  - [ ] parameters, receivers, named results
+  - [ ] `&p.f`, `&s[i]`, `&arr[i]`, `&global`
+- [ ] 3.4 Strings (runtime, literals, slicing, concat, compare, UTF-8 range, conversions)
+- [ ] 3.5 Slices (make, append + growth formula, sub-slice, copy, nil, clear, slice→array; `cap >= len` only)
+- [ ] 3.6 Arrays (`gp::array`, checked index, `==`) + range rules (hidden counters, copy on `range arr`)
+- [ ] 3.7 Maps
+  - [ ] get / set / ref / lookup / erase / len / clear
+  - [ ] nil-map panics
+  - [ ] snapshot range
+  - [ ] hashing (strings, arrays, structs, floats, pointers)
+- [ ] 3.8 Structs
+  - [ ] layout, zero values, `==`, hash, `gp_fields`
+  - [ ] keyed literals in source order
+  - [ ] anonymous structs (shared canonical header)
+  - [ ] local types hoisted to namespace scope
+  - [ ] dependency ordering + recursive types
+- [ ] 3.9 Named non-struct types (`gp::newtype`) + implicit conversions where types differ + `switch` on underlying value
+- [ ] 3.10 Methods (value receivers copy, held reference for non-local receivers, pointer receivers, method values/expressions)
+- [ ] 3.11 Func values (by-value params), variadics, closures
+  - [ ] capture analysis (by value vs boxed)
+  - [ ] Go 1.22 per-iteration loop variables
+- [ ] 3.12 Evaluation-order lowering for every construct (+ `&&`/`||`, loop/else-if/case shapes, two-phase assignment)
+- [ ] 3.13 `defer` with the single-exit shape (panics run defers, panicking defers, named results)
+- [ ] 3.14 Runtime checks + Go panic messages + exit code 2 + `backtrace()` trace + `-nochecks` (keeps Go's defined results)
+- [ ] 3.15 Remaining builtins + `fmt` shim for composite values (slices, maps sorted, structs, `&{…}`, `String()`)
+- [ ] 3.16 Package-level vars (`InitOrder`) + multiple `init()`
+- [ ] 3.17 `gocppSizes` + `static_assert` sync
+- [ ] 3.18 Tests: ≥ 150 run, ≥ 60 differential, sanitizer CI job
+
+## Exit criteria
+
+- [ ] `structs`, `wordfreq-core`, `closures` pass on GCC and Clang
+- [ ] ≥ 150 run + ≥ 60 differential tests green on both compilers (incl. the audit cases)
+- [ ] ASan + UBSan clean; LSan clean except marked cycle tests
+- [ ] Recursive data structure test (tree, list, graph with `weak.Pointer`) passes
+
+## Decisions / notes
+
+- 2026-10-13: v1 uses `std::shared_ptr` for every heap block so interior pointers can share
+  ownership through the aliasing constructor. An intrusive refcount is a Phase 15 option.
+- 2026-10-13 (audit): value receivers and parameters are real copies (a `const&` rule was unsafe:
+  wrong values under aliasing and an ASan use-after-free); `defer` uses the single-exit shape from
+  this phase on; boxing counts field/element writes; `range` over arrays copies; local types are
+  hoisted; `weak` is an intrinsic; implicit named-type conversions are inserted; runtime types have
+  no plain-named members; `cap()` only promises `cap >= len`; the fmt shim prints composites.

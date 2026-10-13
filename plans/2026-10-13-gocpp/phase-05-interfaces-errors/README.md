@@ -1,0 +1,313 @@
+# Phase 05: Interfaces, Embedding, Errors, Panic/Recover
+
+> Add Go's tools for abstraction: implicit (structural) interfaces, `any`, the `error` type,
+> type assertions and type switches, struct embedding with promotion, and full
+> `panic`/`recover`. This turns gocpp from "C with Go syntax" into a real Go-style language.
+
+| | |
+|---|---|
+| Depends on | Phase 03 (single-exit function shape, `defer`), Phase 04 (C++ exceptions become recoverable panics) |
+| Unlocks | Phases 06, 07, 08, 09, and Phase 10 (`!` builds on this phase's errors) |
+| Size | large (about 5 weeks) |
+| Progress | [STATE.md](STATE.md) |
+
+---
+
+## 1. Idea
+
+Go interfaces are satisfied **implicitly** ("if it has the methods, it fits"), and values can be
+checked at runtime (`x.(T)`, type switches). C++ virtual functions need explicit inheritance,
+so we don't use them. Instead gocpp copies **Go's own runtime design**:
+
+- every type that can end up inside an interface gets a **type descriptor** (name, size, equality,
+  hash, formatting, method table);
+- an interface value is **(data, type, itab)**, where the itab is a small table of function
+  pointers for that (interface, concrete type) pair;
+- itabs are built by matching method **names and signatures**, then cached. That is exactly
+  what Go's `getitab` does.
+
+One rule matters more than any other here: **descriptors are chosen by the Go type, never by
+the C++ type.** Several Go types share one C++ type (`int` and `int64` are both `int64_t`;
+`uint`, `uint64` and `uintptr` are all `unsigned long` on Linux; `chan T`, `<-chan T` and
+`chan<- T` are all `gp::chan<T>`). If descriptors followed the C++ type, `any(1).(int64)` would
+succeed and `%T` would print the wrong name. In Go it fails (checked in the audit).
+
+`panic`/`recover` use the Phase 03 single-exit function shape plus C++ exceptions, giving Go's
+exact order: defers run during panics, and `recover()` works exactly where Go says it does.
+
+## 2. How it works
+
+### 2.1 Example
+
+```go
+type Shape interface{ Area() float64 }
+
+type Rect struct{ W, H float64 }
+
+func (r Rect) Area() float64 { return r.W * r.H }
+
+type Circle struct{ R float64 }
+
+func (c *Circle) Area() float64 { return 3.14159 * c.R * c.R }
+
+func main() {
+	shapes := []Shape{Rect{2, 3}, &Circle{1}}
+	for _, s := range shapes {
+		switch v := s.(type) {
+		case Rect:
+			fmt.Println("rect", v.W, v.Area())
+		case *Circle:
+			fmt.Println("circle", v.R, v.Area())
+		}
+	}
+}
+```
+
+Generated C++ (simplified):
+
+```cpp
+struct Shape : gp::iface {                      // one C++ struct per Go interface type
+    using gp::iface::iface;
+    double Area() const;                        // defined after all types (header section 6)
+};
+
+gp::slice<Shape> shapes = {
+    gp::to_iface<Shape>(Rect{2, 3}, &gp_td_Rect),                     // descriptor of the GO type
+    gp::to_iface<Shape>(gp::new_<Circle>(Circle{1}), &gp_td_ptr_Circle),
+};
+for (/* range */) {
+    Shape s = ...;
+    if (s.gp_type() == &gp_td_Rect) {
+        Rect v = gp::unbox<Rect>(s);
+        ...
+    } else if (s.gp_type() == &gp_td_ptr_Circle) {
+        gp::ptr<Circle> v = gp::unbox<gp::ptr<Circle>>(s);
+        ...
+    }
+}
+```
+
+### 2.2 Type descriptors (chosen by the Go type)
+
+`gp::type_desc` holds the Go-style name (`main.Rect`, `[]int`, `*main.Circle`), kind, size,
+`equal` and `hash` functions (null when the type is not comparable), a `format` function (for
+`fmt`'s `%v`), and for named types a **method table** `[{name, signature, thunks}]` sorted by
+name. Method sets follow Go: the table of `T` has the value-receiver methods, and the table of
+`*T` has all of them. Unexported method names are stored **with their package path**, as Go
+does, so another package's unexported `m()` can never satisfy an interface.
+
+Where descriptors come from:
+- **named types** get a generated descriptor object (`gp_td_Rect`);
+- **predeclared types** have one each in the runtime, distinct even when the C++ type is
+  shared: `gp_td_int` and `gp_td_int64` are different objects;
+- **composite types** (`[]int`, `map[string]int`, `<-chan int`, `func(int) string`, `*T`) get
+  descriptors built from their parts and **interned**, so there is exactly one per Go type and
+  pointer equality still means type identity;
+- **C/C++ types** stored in an `any` get a *foreign* descriptor, generated from a template and
+  named after the C++ spelling. Equality, hash and printing use `requires` checks
+  (`operator==`, `std::hash`, `std::formatter` or `operator<<`), and raw pointers print as addresses.
+
+Codegen always knows the Go type from `go/types`, so it passes the right descriptor at every
+boxing site, type assertion, type switch and `%T`. Generic code gets one hidden descriptor
+argument per type parameter (Phase 07). Only types that actually flow into an interface pay for
+a descriptor.
+
+### 2.3 Interface values and itabs
+
+- Layout: `{ std::shared_ptr<void> data; const type_desc* type; const itab* tab }` = 32 bytes.
+  Pointer-shaped values (`*T`) share their existing owner (no copy). Other values (structs,
+  numbers, strings) are copied into a new box, like Go.
+- **Thunks:** for each method of each named type, codegen emits one thunk with a uniform shape,
+  `R thunk(const gp::iface& self, Args...)`. It calls the method in the right form: value
+  method `unbox<T>(self).M(args)`, or pointer method `T::M(gp::ptr<T>(self.data), args)`.
+- **itab building** (`gp::getitab(iface_desc, type_desc)`): for each interface method, find the
+  method with the same name and identical signature in the type's table, and copy its thunk.
+  Results go into a global read-mostly cache. Static conversions also keep the itab in a
+  function-local `static`, so the lookup happens once per conversion site.
+- **Signatures with C/C++ types.** `go/types` treats every C type as `invalid`, and two invalid
+  types compare equal, so it would accept an interface method `Get() C.int` implemented by
+  `Get() C.double` (found in the audit). The itab would then call the thunk with the wrong
+  signature. So each static conversion has a `static_assert` that the thunk type equals the slot
+  type, and the runtime compares signatures by their source spelling when opaque parts are
+  involved.
+- Calling `s.Area()` = load slot 0 of the itab, cast it to the known signature, call it.
+- **Header order.** An interface's wrapper methods are *declared* in its struct and *defined*
+  `inline` after all types. `type Shape interface{ Bounds() Rect }` together with
+  `type Rect struct{ Owner Shape }` is legal Go, and a body inside the struct would need `Rect`
+  to be complete too early (both compilers reject it).
+
+### 2.4 Assertions, type switches, comparisons (Go's exact messages)
+
+| Go | Runtime behavior |
+|---|---|
+| `x.(T)` (concrete) | compare `x.type` with T's descriptor; on failure panic `interface conversion: interface {} is string, not int` |
+| `x.(T)` on a nil interface | panic `interface conversion: interface {} is nil, not int` |
+| `v, ok := x.(T)` | same, no panic |
+| `x.(I)` (interface) | `getitab(I, x.type)`; null → panic `interface conversion: main.Rect is not main.Stringer: missing method String`; nil → `interface conversion: interface is nil, not main.Stringer` |
+| `switch v := x.(type)` | a chain of the checks above; `case A, B:` keeps `v` as the interface; `case nil:` checks `type == null` |
+| `a == b` (interfaces) | same type and `type->equal(a, b)`; uncomparable → panic `runtime error: comparing uncomparable type []int` |
+| `x == nil` | `type == null`. A typed nil pointer inside an interface is **not** nil, the same as Go's well-known gotcha |
+| `map[any]V` keys | `type->hash`, panic if unhashable |
+
+`any` is `gp::any`: an interface with no methods and no itab.
+
+### 2.5 `error` and the errors model
+
+- `error` is the predeclared interface `interface{ Error() string }` → `gp::error`.
+- `errors.New` returns a `*errorString` exactly like Go, so two `errors.New("x")` values are
+  different errors.
+- `errors.Is`, `errors.Unwrap`, `errors.Join` are **written in gocpp** (`stdlib/errors/*.gp`).
+  `errors.As` needs "is this dynamic type assignable to that target type", which the type
+  descriptors answer natively.
+- `fmt.Errorf` with `%w` (basic version here, complete in Phase 09).
+- Less boilerplate comes later: Phase 10 adds `!` (must) on functions and calls, which returns
+  the error for you. It uses the single-exit function shape, so defers still run on the error
+  path.
+
+### 2.6 Struct embedding
+
+```go
+type Base struct{ ID int }
+
+func (b *Base) Touch() { b.ID++ }
+
+type User struct {
+	Base // embedded
+	Name string
+}
+
+func main() {
+	u := &User{Name: "ann"}
+	u.Touch()         // promoted pointer method
+	fmt.Println(u.ID) // promoted field
+}
+```
+
+- **Promoted fields/methods**: `go/types` records the full path in `types.Info.Selections`
+  (`u.ID` really is `u.Base.ID`). Codegen writes the full path: `u->Base.ID`, and
+  `Base::Touch(gp::ptr<Base>(u, &u->Base))` with an aliasing pointer that shares ownership with
+  `u`. Embedded pointers (`*Base`) get a nil check on the path.
+- **The field is declared with a fully qualified type**: `::gpkg_main::Base Base;`. GCC rejects
+  `Base Base;` (the field name changes the meaning of the type name), and both compilers reject a
+  later use of the type name after such a field. Go code like `Config Config` is common.
+- **Forwarding members**: the outer struct gets a small forwarding member function for every
+  promoted method. Generic code (Phase 07) and C++ users call `u.Touch()` without knowing the path,
+  and the method tables get thunks for promoted methods, so `User` satisfies interfaces through
+  `Base`'s methods.
+- **No C++ inheritance** is used for embedding. Go embedding is not subtyping, and we keep it
+  that way.
+- Interfaces embedding interfaces (`ReadWriter`) are just method-set unions computed by
+  `go/types`.
+
+### 2.7 panic / recover / defer (full version)
+
+This phase extends the Phase 03 single-exit shape:
+
+```cpp
+R f(Args... args) {
+    gp::result_slot<R> gp_r0;         // results; works for C++ types without copy/default ctor
+    gp::defer_frame gp_df;
+    try {
+        /* body */                    // `return x` → { gp_r0.set(x); goto gp_exit; }
+    } catch (const gp::goexit_signal&) {
+        throw;                        // runtime.Goexit is never recoverable
+    } catch (const abi::__forced_unwind&) {
+        throw;                        // glibc thread cancellation must keep unwinding
+    } catch (...) {
+        gp_df.on_panic(std::current_exception());  // C++ exceptions become panics too
+    }
+gp_exit:
+    gp_df.run();                      // run defers LIFO; if one recovered, the panic is gone,
+    return gp_r0.take();              // otherwise run() re-throws after ALL defers ran
+}
+```
+
+- `panic(v)` → `throw gp::panic_error{gp::any(v)}`. Zero cost when nothing is thrown
+  (table-based unwinding). Functions without `defer` have no frame and no `try`.
+- **`recover()` follows Go's rule exactly.** In Go, `recover` stops a panic only when it is
+  called directly by a deferred function. The deferred function may be reached any way: a func
+  value, a method value, an interface method, or a closure returned by another call
+  (`defer mk()()`, which is what Phase 10's on-top macros produce). The audit checked all four in
+  Go 1.25. So every function that contains `recover()` gets **two entry points**: a normal one,
+  and a *deferred* one that takes the frame's panic context. `gp::func` values and itab thunks
+  carry both entries. The defer runner always calls the deferred entry; every normal call uses
+  the normal entry, where `recover()` returns nil. Indirect calls (`defer helper()` where
+  `helper` calls `inner()`, which calls `recover`) correctly return nil, as in Go.
+- **Runtime errors** (index out of range, nil map, …) panic with values that implement
+  `runtime.Error`, so `recover()` returns an `error`, as in Go.
+- **C++ exceptions** thrown by interop code become panic values of type `gp::CppException`
+  (`Error()` returns `what()`), so they are recoverable. Phase 04's fatal behavior is replaced.
+- **`runtime.Goexit`** (Phase 08) uses its own `gp::goexit_signal`: defers run, `recover()`
+  returns nil during it, and it is always re-thrown. `t.Fatal` in `gocpp test` depends on this.
+- **Exact panic output** (verified with Go 1.25): an unrecovered panic prints
+  `panic: <value>` and exits with code 2; a re-panicked value prints `panic: first [recovered,
+  repanicked]`; a panic inside a deferred call prints `panic: first` then a tab and
+  `panic: second`; `panic(nil)` prints `panic: panic called with nil argument` (a
+  `*runtime.PanicNilError`); `panic(Rect{1, 2})` prints `panic: (main.Rect) 0x…` with an
+  address, so the differential harness masks addresses.
+- An unrecovered panic at the top of a goroutine prints the chain plus a trace and exits with
+  code 2.
+
+### 2.8 `fmt` on top of `any`
+
+The real `fmt.Print*` family replaces the `fmtshim`. It takes `...any` and uses type
+descriptors. `error` values print `Error()`, `fmt.Stringer` values print `String()` (found by a
+dynamic itab lookup), structs print `{1 2}`, `%+v` prints `{X:1 Y:2}`, and `%T` prints the Go
+type name. C/C++ values print through their foreign descriptors. Phase 09 completes all verbs and
+flags.
+
+## 3. Steps
+
+1. **5.1 Type descriptors chosen by the Go type**: generated objects for named types, runtime
+   objects for predeclared types, interned composite descriptors, foreign descriptors for C/C++
+   types; method tables with package-qualified unexported names.
+2. **5.2 Interface values** (`gp::iface`, boxing rules, generated interface structs, `gp::icall`,
+   wrapper methods defined after all types).
+3. **5.3 itab building + global cache + per-site static cache + signature checks** (`static_assert`
+   at static conversions, spelling check for opaque parts).
+4. **5.4 Conversions**: concrete → interface, interface → interface.
+5. **5.5 Assertions + type switches** with Go's exact panic messages.
+6. **5.6 Interface `==`, nil rules, hashing** (`map[any]V`, `map[error]V`).
+7. **5.7 `any`, `error`, `errors` package** (`New`, `Is`, `As`, `Unwrap`, `Join`; written in gocpp
+   where possible).
+8. **5.8 Embedding**: selection paths, aliasing pointers into embedded fields, fully qualified field
+   types, forwarding members, forwarding thunks, embedded pointers and interfaces.
+9. **5.9 Method values and expressions on interfaces.**
+10. **5.10 panic/recover**: two entry points for functions with `recover`, `gp::result_slot`,
+    `goexit_signal` and `__forced_unwind` re-thrown, nested panics, `runtime.Error` values, C++
+    exception conversion, exact output.
+11. **5.11 `fmt` on `any`** (basic verbs; remove the `fmtshim`).
+12. **5.12 Lift the Phase 01 gates** for interfaces, embedding and `recover`; update the feature
+    matrix.
+13. **5.13 Tests**: ≥ 80 run tests + differential tests vs Go (this whole phase is pure Go
+    semantics, so differential testing is very effective): the nil-interface gotcha; `int` vs
+    `int64` and channel directions in type switches and `%T`; `recover` through a func value, an
+    interface method, a method value and `defer mk()()`; indirect `recover` returning nil;
+    re-panic; panics in defers; `panic(nil)`; a C++ exception caught by `recover`.
+
+## 4. Deliverables
+
+- Runtime: type descriptors, interfaces, itab cache, panic machinery v2, `gp::result_slot`
+- Codegen: interface structs, thunks, conversions, assertions, type switches, embedding, two-entry
+  functions for `recover`
+- `stdlib/errors`, basic `fmt`
+- Target program `shapes` passing
+
+## 5. Exit criteria
+
+- `shapes` passes on both compilers.
+- ≥ 80 interface/error/panic run tests and the matching differential tests are green.
+- Panic output (first lines, with addresses masked) and exit codes match Go in every differential test.
+- Type switches and `%T` tell `int`/`int64` and the channel directions apart.
+- A C++ exception thrown from interop code is caught by `recover()` in a test.
+- Sanitizers clean.
+
+## 6. Risks
+
+| Risk | Mitigation |
+|---|---|
+| itab lookup cost | Per-site static cache + global cache; benchmark in Phase 15 |
+| Descriptor identity across shared libraries | Interned descriptors + one gocpp runtime per process; Phase 06's c-shared mode hides runtime symbols |
+| Code size of thunks/descriptors | Only generated for types that flow into interfaces |
+| `recover` semantics are subtle | Two-entry design matches Go's rule; differential tests for every way of reaching a deferred function |
+| C++ types in method signatures defeat `go/types` checks | `static_assert` on thunk types; Phase 12 typed interop makes them real types |
