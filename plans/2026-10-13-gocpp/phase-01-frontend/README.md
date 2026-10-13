@@ -68,8 +68,11 @@ mistakes in the gocpp part were still reported, including typos in namespace nam
 ### 2.2 The fork: three patches to go/scanner + go/parser
 
 The fork lives in `internal/syntax/{scanner,parser}`. It is copied from the dev shell's Go 1.25 standard
-library (BSD-3-Clause; keep the license header). `go/parser` has **no internal
-dependencies** (checked with `go list`), so the fork compiles alone. Copy `go/printer/nodes.go`
+library (BSD-3-Clause; keep the license header). In Go 1.25, `go/parser` and `go/scanner` have
+**no internal dependencies** (checked with `go list`), so the fork compiles alone. (Go 1.26 adds
+an import of `go/internal/scannerhooks` to both, so a re-fork to 1.26 copies that small package
+into the fork too; Go 1.27 no longer has that import. Found by the fork job, written down in
+`FORK.md`.) Copy `go/printer/nodes.go`
 too, because the parser's `performance_test.go` reads it. The fork still produces **stock
 `go/ast` nodes**, so the stock `go/types` can check them.
 
@@ -276,7 +279,8 @@ go wrong (all seen in the audit): `strings` is reported "imported and not used",
 `std.vector[Pointt]` are not reported, and codegen gets no types for the arguments. Fix (verified):
 after `Check`, run `types.CheckExpr(fset, pkg, arg.Pos(), arg, info)` on every argument of an
 opaque instantiation. That types `strings.Builder`, reports `undefined: Pointt`, and lets us drop
-the false "imported and not used" errors.
+the false "imported and not used" errors (they are soft errors with the code `UnusedImport`; a
+filter in front of the diagnostics collector holds them back until `CheckExpr` has run).
 
 ### 2.8 The opaque pass
 
@@ -331,7 +335,25 @@ The same table generates `docs/spec/feature-matrix.md`, so the docs always match
 ### 2.10 Diagnostics
 
 Go-style: `path/file.gp:12:5: message`, sorted by position, deduplicated, and at most 10 per
-package unless `-e` is given (same as `go build`). An optional source line with a caret is shown.
+package unless `-e` is given (same as `go build`). Parse errors arrive as the fork's own
+`scanner.ErrorList` type (`internal/syntax/scanner`), not stock `go/scanner`'s, so the CLI
+(step 1.14) converts that type.
+
+The details follow the go command, as checked against real `go build` 1.25.14 (step 1.13):
+- **Order:** by file, line and column, where the files come in the order their first error was
+  found (not by name), and errors at the same place keep the order they were found in.
+- **Duplicates:** an error with the same file, line and message as the one just before it is
+  dropped, and so is an exact duplicate after sorting.
+- **Limit:** after the 10th error *found*, `<its position>: too many errors` (also with exactly
+  10); `-e` shows all of them.
+- **Paths:** relative to the current folder when that is shorter (`./main.go`, `sub/a.go`,
+  `../two/a.go`), otherwise absolute, so the loader gives the `FileSet` absolute file names.
+- go/types' continuation lines ("other declaration of x", starting with a tab) stay attached to
+  their error, as related information for the editor.
+
+The messages are go/types' and go/parser's. They differ from the compiler's in a few places (parse
+errors don't start with `syntax error:`, a few positions differ), so the output equals `go build`'s
+only where both checkers agree. An optional source line with a caret is shown.
 `go/types` messages are already high quality; gocpp-specific messages use the same tone.
 
 ### 2.11 `gocpp fmt` (gofmt for `.gp`)
@@ -366,11 +388,17 @@ gocpp check -types file.gp     # print every expression with its type / "opaque"
 gocpp fmt [-l] [-w] [-d] [files or packages]
 ```
 
+Like `go build`, `gocpp check` prints a `# <import path>` line before each failing package's
+errors (`# command-line-arguments` for files named on the command line), shows at most 10 per
+package, writes everything to stderr and exits with status 1. A package with syntax errors is not
+type-checked. `-e` shows all errors and also parses with `parser.AllErrors`.
+
 ## 3. Steps
 
 1. **1.1 Fork** `go/scanner` + `go/parser` from the dev shell's Go (1.25.14 now) into `internal/syntax` (plus
-   `go/printer/nodes.go` for the performance test); add `FORK.md` and the license header; the
-   upstream tests pass unchanged.
+   `go/printer/nodes.go` for the performance test); add `FORK.md`, Go's `LICENSE` and the
+   re-fork script `update.sh`; the upstream tests pass, with only two test-path fixes
+   (`FORK.md`).
 2. **1.2 Patch 1** (keywords after `.`, same line only) + tests (`std.map`, `x.type()`,
    `posix.select`, `x.(type)` still works, semicolon after `.range`, upstream
    `TestIncompleteSelection` still passes).

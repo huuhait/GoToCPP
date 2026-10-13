@@ -11,7 +11,7 @@
 - [x] Check: stock go/printer + `ast.SortImports` print gocpp syntax correctly (2026-10-13)
 - [~] 1.1 Fork go/scanner + go/parser (the dev shell's Go, 1.25.14 now) into `internal/syntax`
   - [ ] copy sources + license headers + `FORK.md` (+ `go/printer/nodes.go` for the perf test)
-  - [ ] upstream tests pass unchanged
+  - [ ] upstream tests pass (only two test-path fixes, listed in `FORK.md`)
   - [ ] `update.sh` re-fork script
 - [ ] 1.2 Patch 1: Go keywords allowed after `.` (same line only)
   - [ ] scanner change
@@ -35,7 +35,7 @@
 - [ ] 1.10 go/types integration (`GoVersion`, `FakeImportC`, `Sizes` stub, full `Info`) + `CheckExpr` over opaque template arguments
 - [ ] 1.11 Opaque pass (widened "comes from C/C++" rule, recorded C type expressions, sanity rule)
 - [ ] 1.12 Unsupported-feature checker with the full gate table + generated `feature-matrix.md`
-- [ ] 1.13 Diagnostics package (format, sort, dedupe, limit, caret)
+- [~] 1.13 Diagnostics package (format, sort, dedupe, limit, caret)
 - [ ] 1.14 CLI: `version`, `parse -dump`, `check`, `check -types`, `fmt`
 - [ ] 1.15 Error tests + "no false errors" interop corpus
 - [ ] 1.16 `gocpp fmt` via `go/format.Node` (`-l -w -d`); header imports keep their order (include order matters); stdlib unchanged + badly formatted inputs match real gofmt
@@ -63,3 +63,9 @@
   the `C.X` + `"::std"` design.
 - 2026-10-13: `gocpp fmt` doesn't sort import groups that contain headers, because they become
   `#include` lines and C/C++ include order can matter (plain gofmt reorders them).
+- 2026-10-13 (fork job 1.1): Go 1.26's `go/scanner` and `go/parser` import
+  `go/internal/scannerhooks`, so a re-fork to 1.26 needs one more copied package (README §2.2,
+  `FORK.md`). The fork's parse errors are its own `scanner.ErrorList` type (README §2.10).
+- 2026-10-13 (diagnostics job 1.13): real `go build` orders files by their first error, not by
+  name, and stops at the 10th error found; README §2.10 now says so, and §2.12 lists what the CLI
+  copies from `go build` (`# pkg` lines, stderr, exit 1, `-e` with `parser.AllErrors`).
