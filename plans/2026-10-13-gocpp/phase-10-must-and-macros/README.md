@@ -42,9 +42,9 @@ decision, 2026-10-13):
   example "run this function under a VM", "on its own thread", "recover its panics", "only once".
 
 Inside a macro, `#file()`, `#line()`, `#func()` and `#text(arg)` describe the place where it is
-used, and `lazy` parameters only run when needed. `#Derive(String, JSON)` on top of a type
-generates methods (like Go's `stringer` tool, but built in), and C/C++ macros stay fully usable
-through their header packages (`raylib.RAYWHITE`).
+used, and `lazy` parameters only run when needed. `#Derive(String)` (enums) or `#Derive(JSON)`
+(structs) on top of a type generates methods (like Go's `stringer` tool, but built in), and C/C++
+macros stay fully usable through their header packages (`raylib.RAYWHITE`).
 
 Every design here was checked with spikes on 2026-10-13 against the **stock** `go/types` (no fork
 needed): must calls, must functions, start-style and wrap-style macros. The audit then tested
@@ -333,7 +333,7 @@ func (s *Store) Put(k string, v int) {
 	s.m[k] = v
 }
 
-#Derive(String, JSON) // on top of a type: generate methods
+#Derive(String) // on top of a type: generate methods
 type Color int
 
 func main!() {
@@ -460,7 +460,7 @@ setup: 1 0 calls: 1           ← Once: the second call skips the code
 | `#text(x)` | the source text of `x`; for a macro parameter, the text the caller wrote (`"path != \"\""`) |
 | `#body()` | inside a macro used on top of a function: runs that function's code (wrap style) |
 | `#embed("logo.png")` | a string constant with the file's bytes (Go's `//go:embed` works too) |
-| `#Derive(String, Equal, Clone, JSON)` | on top of a type: generated methods (table below) |
+| `#Derive(...)` with `String`, `Equal`, `Clone` or `JSON` | on top of a type: generated methods (table below; `String` is for enums, `JSON` for structs) |
 
 **Nested macros keep both sites.** If macro `Check(v int)` uses `#Assert(v > 0, …)`, then inside
 `Assert` `#text(cond)` must be `"v > 0"` (the inner call's text) while `#file()`/`#line()` should

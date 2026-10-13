@@ -7,7 +7,7 @@
 ## Steps
 
 - [ ] 14.1 Windows OS layer in the runtime (console UTF-8, UTF-16 args/env, threads, stack-overflow handler, `_exit`, stack traces) + unit tests under Wine
-- [ ] 14.2 Build driver: MinGW-w64 detection, `.exe`/`.dll` + import libs + `dllexport`, static C++ runtime, response files, spaces/drive letters, cache location, CRLF
+- [ ] 14.2 Build driver: MinGW-w64 detection, `.exe`/`.dll` + import libs + `dllexport`, `-static` linking, response files, spaces/drive letters, cache location, CRLF
 - [ ] 14.3 Standard library for Windows
   - [ ] `portstd` with `GOOS=windows`
   - [ ] native `internal/syscall/windows` on `<windows.h>`
@@ -32,3 +32,5 @@
   v1.0; macOS is not a target. Toolchain: MinGW-w64 (clang or gcc) first, cross-compiled from
   NixOS and tested under Wine; the MSVC ABI (`clang-cl`) later, for C++ libraries built with
   Visual Studio. This phase was added before hardening, which became Phase 15.
+- 2026-10-13 (dev-shell review): Wine runs follow the Phase 06 §2.10 rules; Linux CI tests the
+  msvcrt-flavored MinGW-w64, so UCRT (llvm-mingw, MSYS2) is checked only on real Windows.

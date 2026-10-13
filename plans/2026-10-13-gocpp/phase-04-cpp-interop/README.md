@@ -340,10 +340,15 @@ prints pointers. Printing a `char*` as a C string would crash or silence stdout 
 11. **4.11 Callbacks** (function pointers, `std::function`, `cgo.Handle`) + panic trampolines.
 12. **4.12 C++ exception → fatal Go-style panic**; `fmt` shim prints C++ values and raw pointers
     as addresses.
-13. **4.13 Compile + link package `.c/.cc/.cpp/.cxx` sources.**
+13. **4.13 Compile + link package `.c/.cc/.cpp/.cxx` sources** (with `-include gocpp/nofortify.h`,
+    Phase 02 §2.7, so a user's hardened Nix shell doesn't warn at `-O0`).
 14. **4.14 `extern "C"` rule** (parse-as-C check, never `.hpp`, `//gocpp:extern-c <hdr>`,
     `//gocpp:no-extern-c`).
-15. **4.15 Directives → flags** (`pkg-config`, `link`, `cflags`, `ldflags`).
+15. **4.15 Directives → flags** (`pkg-config`, `link`, `cflags`, `ldflags`). The tests use a small
+    test-only library with its own `.pc` file outside the default paths (or clear
+    `NIX_CFLAGS_COMPILE`/`NIX_LDFLAGS`): inside the Nix dev shell, SDL2, raylib, sqlite and zlib
+    compile and link even with no pkg-config flags at all, so a driver that drops them would
+    still pass.
 16. **4.16 Local helper headers** (§2.10: a `.h` + `.cpp` pair next to the `.gp` files, used as a
     package; replaces the cgo-style preamble) and the `C` helpers (`C.free` with `C.CString`).
 17. **4.17 Interop error reporting** (`.gp` mapping, trimming, `-cpperrors=full`).

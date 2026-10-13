@@ -51,3 +51,6 @@
   from this phase on, and namespaces are flat (`gpkg_main`).
 - 2026-10-13 (your decision, Q8): Linux and Windows are the targets, so the runtime reaches the
   OS only through `runtime/src/os/` from the start, and `#line` escapes Windows paths.
+- 2026-10-13 (dev-shell review): `-U_FORTIFY_SOURCE` doesn't beat Nix's hardening wrapper (it re-adds
+  `-D_FORTIFY_SOURCE=3` after user flags), so `rt.hpp` undefines it first thing when not optimizing;
+  a driver test simulates a user's hardened shell with `NIX_HARDENING_ENABLE`.

@@ -65,9 +65,9 @@ headers such as `<fmt/format.h>`.
 
 - **Namespaces are flat**: `gpkg_` + an injective escape of the import path, for example
   `gpkg_main`, `gpkg_fmt`, `gpkg_github_dcom__huuhait__game__engine`. Letters and digits stay;
-  every other character becomes `_` plus one letter: `/` → `__`, `.` → `_d`, `-` → `_h`,
+  every other character becomes a short code that starts with `_`: `/` → `__`, `.` → `_d`, `-` → `_h`,
   `_` → `_u`, `~` → `_t`, `+` → `_p`, and any other byte → `_x` plus two hex digits. Because
-  every `_` in the result starts such a pair, the name can be decoded back, so two import paths
+  every `_` in the result starts such a code, the name can be decoded back, so two import paths
   can never give the same namespace. (An earlier version mapped `.` → `_`, which let `x.u` and
   `x_` collide; found by two docs jobs.) C++ reserves names containing `__`; GCC and Clang
   accept them without a warning (checked with `-Wall -Wextra -pedantic`), so the readable `__`
@@ -230,9 +230,19 @@ and sets GOOS/GOARCH for build constraints. Two targets matter in this phase:
   test builds start here, long before the full port in Phase 14. The toolchain is **MinGW-w64**
   (with clang or gcc), which the NixOS dev shell provides as a cross compiler. `gocpp build -os
   windows` turns `hello.gp` into `hello.exe`, linked with `-static` so it runs without extra
-  DLLs (with only `-static-libstdc++`, MinGW's thread library would still be a DLL). A CI job builds the run tests that need nothing OS-specific for Windows
-  and runs them under **Wine**, so Windows breakage shows up early. The full Windows runtime and
-  stdlib come in Phase 14.
+  DLLs (with only `-static-libstdc++`, MinGW's thread library would still be a DLL). A CI job
+  builds the run tests that need nothing OS-specific for Windows and runs them under **Wine**,
+  so Windows breakage shows up early. The full Windows runtime and stdlib come in Phase 14.
+  Wine rules for that job (all found while building the dev shell): its own `WINEPREFIX`,
+  created once before the tests (`wineboot -i`), with `wineserver -p` kept running (a cold
+  start costs about 6 s, and creating a prefix prints two lines on stderr that would break
+  `// Stderr:` tests); `WINEDEBUG=-all`; and `WINEDLLOVERRIDES` containing
+  `winemenubuilder.exe=d;mscoree,mshtml=`, which the harness sets itself (the dev shell also sets
+  the first part, but `make ci` may run outside it), because otherwise Wine writes desktop
+  entries, MIME files and icons into the user's real home and asks to install Mono and Gecko. The
+  dev shell's MinGW-w64 targets the older `msvcrt.dll` C runtime (the UCRT variant isn't in the
+  Nix binary cache and would be built from source), while users' toolchains (llvm-mingw, MSYS2
+  UCRT64) target UCRT; the real-Windows runs of Phase 14 cover UCRT.
 - **linux/arm64 (best effort)**; Phase 15 makes it a CI target.
 
 ## 3. Steps
@@ -256,7 +266,7 @@ and sets GOOS/GOARCH for build constraints. Two targets matter in this phase:
     hidden visibility, trampolines), `cpp-lib` (CMake INTERFACE flags).
 11. **6.11 `compile_commands.json` + `gocpp export cmake`.**
 12. **6.12 CLI**: `list`, `env`, `clean`, all build flags, build tags.
-13. **6.13 Cross-compilation**: windows/amd64 with MinGW-w64 (static C++ runtime, `.exe`) and a
+13. **6.13 Cross-compilation**: windows/amd64 with MinGW-w64 (`.exe` linked with `-static`) and a
     CI job that runs the OS-independent run tests under Wine; linux/arm64 best effort.
 14. **6.14 Tests**: multi-package fixtures (diamond imports, cross-package embedding/interfaces),
     the 3-package init-order case against Go, incremental-build assertions (what was recompiled,

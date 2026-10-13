@@ -119,7 +119,11 @@ holds the `gp::os` thread layer (Phase 08). This phase adds the Windows versions
 ### 2.6 Testing Windows from Linux
 
 - **CI on Linux**: every run test, error test, differential test and example is cross-built for
-  Windows and run under Wine (console programs; GUI examples run their smoke mode). Expected
+  Windows and run under Wine (console programs; GUI examples run their smoke mode), with the
+  Wine rules from Phase 06 §2.10 (own prefix created up front, `wineserver -p`,
+  `WINEDEBUG=-all`, no `winemenubuilder`). These builds use the dev shell's msvcrt-flavored
+  MinGW-w64, so the C runtime that users get from llvm-mingw or MSYS2 (UCRT) is only tested by
+  the real-Windows runs below. Expected
   outputs of OS-dependent behavior (paths, error texts) come from real Go built with
   `GOOS=windows`, also run under Wine.
 - **Real Windows** (a machine or VM; there's no GitHub CI yet, decision Q9): the same suite and
@@ -129,7 +133,7 @@ holds the `gp::os` thread layer (Phase 08). This phase adds the Windows versions
 
 1. **14.1 Windows OS layer** in the runtime (§2.1) + its unit tests under Wine.
 2. **14.2 Build driver** (§2.2): MinGW-w64 detection, `.exe`/`.dll` + import libraries +
-   `dllexport`, static C++ runtime, response files, spaces and drive letters, cache location,
+   `dllexport`, `-static` linking, response files, spaces and drive letters, cache location,
    CRLF sources.
 3. **14.3 Standard library** for Windows (§2.3): `portstd` with `GOOS=windows`, a native
    `internal/syscall/windows` on `<windows.h>`, then `os`, `path/filepath`, `time`, `os/exec`,

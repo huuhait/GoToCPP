@@ -9,7 +9,7 @@
 - [x] Spike: stock go/parser + go/types (FakeImportC) on interop-heavy `.gp` files (2026-10-13, 0 false errors)
 - [x] Spike re-run with the final import model: header packages, namespaces as packages, namespace probe with clang++ and g++ (typos `stdd`, `fmtt` reported) (2026-10-13)
 - [x] Check: stock go/printer + `ast.SortImports` print gocpp syntax correctly (2026-10-13)
-- [ ] 1.1 Fork go/scanner + go/parser (Go 1.25.7) into `internal/syntax`
+- [ ] 1.1 Fork go/scanner + go/parser (the dev shell's Go, 1.25.14 now) into `internal/syntax`
   - [ ] copy sources + license headers + `FORK.md` (+ `go/printer/nodes.go` for the perf test)
   - [ ] upstream tests pass unchanged
   - [ ] `update.sh` re-fork script

@@ -237,9 +237,15 @@ gocpp emit file.gp                     # print the generated C++
 - **Flags (debug default in this phase):** `-std=c++20 -fwrapv -fno-strict-aliasing
   -ffp-contract=off -g -O0 -I<runtime>`. `-std=c++20` (not `gnu++20`) avoids predefined macros
   like `linux`/`unix` colliding with gocpp names. The driver always passes an explicit `-O`
-  level, and adds `-U_FORTIFY_SOURCE` at `-O0`: a Nix shell's compiler wrapper turns on
-  "hardening" by default, which silently makes a missing `-O` into `-O2` and warns about
-  `_FORTIFY_SOURCE` at every `-O0` file (seen while building the dev shell).
+  level, because a Nix shell's compiler wrapper turns on "hardening" by default, which silently
+  makes a missing `-O` into `-O2`. The same hardening warns about `_FORTIFY_SOURCE` at every
+  `-O0` file, and a `-U_FORTIFY_SOURCE` flag doesn't help: the wrapper adds
+  `-D_FORTIFY_SOURCE` (3 with gcc, 2 with clang) again *after* the user's flags (checked with both compilers). So a tiny
+  runtime header, `gocpp/nofortify.h`, holds `#if !defined(__OPTIMIZE__)` /
+  `#undef _FORTIFY_SOURCE` / `#endif`; `gocpp/rt.hpp` includes it before anything else, and the
+  user's own C/C++ files (Phase 04) get it with `-include`, which works whatever the command
+  line says (checked, also with `-Werror`). The project's own dev shell turns hardening off, so a driver test sets
+  `NIX_HARDENING_ENABLE` to nixpkgs' default list itself to check this.
 - **Runtime files** are embedded in the `gocpp` binary (`go:embed`) and extracted once to
   `$XDG_CACHE_HOME/gocpp/rt/<version>/`. A `//go:embed` pattern can't reach a parent folder, so a
   tiny Go package inside `runtime/` (`runtime/files.go`, package `rtfiles`) holds the directive,

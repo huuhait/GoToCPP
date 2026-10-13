@@ -21,7 +21,7 @@
 - [ ] 4.12 C++ exception → fatal Go-style panic; fmt shim prints C++ values (raw pointers as addresses)
 - [ ] 4.13 Compile + link package `.c/.cc/.cpp/.cxx` sources
 - [ ] 4.14 `extern "C"` rule (parse-as-C, never `.hpp`, `//gocpp:extern-c <hdr>`, `no-extern-c`)
-- [ ] 4.15 Directives → flags (`pkg-config`, `link`, `cflags`, `ldflags`)
+- [ ] 4.15 Directives → flags (`pkg-config`, `link`, `cflags`, `ldflags`); tests use a test-only library with its own `.pc` (the dev shell hides missing flags)
 - [ ] 4.16 Local helper headers used as packages (replaces the preamble) + `C` helpers (`C.free`)
 - [ ] 4.17 Interop error reporting (`.gp` line mapping, trimming, `-cpperrors=full`)
 - [ ] 4.18 Tests

@@ -1,6 +1,6 @@
 # gofmt-check gocpp code by mapping gocpp-only syntax to same-shape Go placeholders.
 import re, subprocess, sys, textwrap
-SUBS = [("std.map", "std.MAP"), (".type()", ".TYPE()"), (".select(", ".SELEC("), ("std.array[int, 5]", "std.array[int, N]"),
+SUBS = [("std.map", "std.MAP"), (".type()", ".TYPE()"), (".select(", ".SELECT("), ("std.array[int, 5]", "std.array[int, N]"),
         ("std.array[byte, 256]", "std.array[byte, NNN]"), ("std.bitset[64]", "std.bitset[NN]")]
 def to_go(code):
     for a, b in SUBS:

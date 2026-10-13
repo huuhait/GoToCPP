@@ -21,7 +21,7 @@
   - [ ] `cpp-lib` (lib + headers + CMake INTERFACE flags)
 - [ ] 6.11 `compile_commands.json` + `gocpp export cmake`
 - [ ] 6.12 CLI: `list`, `env`, `clean`, build flags, build tags
-- [ ] 6.13 Cross-compilation: windows/amd64 via MinGW-w64 (`.exe`, static C++ runtime) + Wine CI job; linux/arm64 best effort
+- [ ] 6.13 Cross-compilation: windows/amd64 via MinGW-w64 (`.exe` linked with `-static`) + Wine CI job; linux/arm64 best effort
 - [ ] 6.14 Tests: multi-package fixtures, init order vs Go, incremental-build assertions (incl. constants), build-mode consumers (incl. two c-shared libs in one process)
 
 ## Exit criteria
@@ -42,3 +42,6 @@
 - 2026-10-13 (your decision, Q8): Linux and Windows are the targets (no macOS). Windows test
   builds start in this phase (MinGW-w64 cross compiler from the dev shell, tests under Wine); the
   full port is Phase 14. Size raised to 4–5 weeks.
+- 2026-10-13 (dev-shell review): Wine CI rules (own prefix made up front, `wineserver -p`,
+  `WINEDEBUG=-all`, `winemenubuilder.exe=d` so nothing lands in the user's home); the dev shell's
+  MinGW-w64 is the msvcrt flavor (UCRT isn't cached), UCRT is covered by real Windows in Phase 14.

@@ -95,7 +95,7 @@ Specification (go1.25) except for the points below."* The initial divergence lis
 | D18 | `macro` and `lazy` are ordinary identifiers | `macro` starts a declaration **at package level** and `lazy` is a modifier **inside macro parameter lists**. Everywhere else they stay ordinary identifiers (Phase 10) |
 | D19 | `C` is an ordinary identifier | `C` is reserved for C's built-in types and the boundary helpers (`C.int`, `C.CString`): a local or package-level declaration named `C` is an error (Phase 01 §2.3) |
 | D20 | A type name has at most one dot (`pkg.T`) | Type names may have more dots for C++ types: `std.chrono.seconds`, `std.vector[int].iterator` (Phase 01 patch 3) |
-| D21 | `range` works on arrays, slices, strings, maps, channels, integers and functions | Also on C++ containers and C arrays (anything with `begin()`/`end()`), with C++'s element types and Go's "length read once" rule (Phase 04 §2.5) |
+| D21 | `range` works on arrays, slices, strings, maps, channels, integers and functions | Also on C++ containers and C arrays (anything with `begin()`/`end()`): the value (and a map's key) gets C++'s element type, and a random-access container is walked by index with its size read once, as Go reads the length once (Phase 04 §2.5) |
 
 ### 2.3 Test harness design
 
@@ -157,7 +157,7 @@ They act as the "definition of done" for the whole project:
 | `workers` | goroutines, channels, `select`, `WaitGroup` | Phase 08 |
 | `wc`, `grep-lite` | `os`, `bufio`, `strings`, `flag`, tests | Phase 09 |
 | `must-errors` | `func loadConfig!()` must functions, `F!(...)` calls, `func main!()` exit 1, `defer f.Close()` | Phase 10 |
-| `macros` | `macro` declarations; `#Assert`/`#Dbg` inside code; `#Trace`/`#Locked` (start style) and `#Recover`/`#InThread` (wrap style) on top of funcs; `#Derive(String, JSON)` | Phase 10 |
+| `macros` | `macro` declarations; `#Assert`/`#Dbg` inside code; `#Trace`/`#Locked` (start style) and `#Recover`/`#InThread` (wrap style) on top of funcs; `#Derive(String)` on an enum and `#Derive(JSON)` on a struct | Phase 10 |
 | `win32` | a Windows program: `MessageBoxW` and a small window through the `<windows.h>` header package | Phase 14 |
 
 ### 2.5 Dev environment
