@@ -1,6 +1,8 @@
-// Package syntax will hold gocpp's fork of Go's go/scanner and go/parser
-// (Go 1.25.7), in the subpackages scanner and parser. The fork still makes
-// stock go/ast nodes, so the stock go/types can check them.
+// Package syntax holds gocpp's fork of Go's go/scanner and go/parser
+// (from the dev shell's Go, Go 1.25.14 now), in the subpackages scanner and
+// parser. The fork still makes stock go/ast nodes, so the stock go/types can
+// check them. FORK.md says which upstream files are copied, lists every
+// change and patch, and says how to re-fork with update.sh.
 //
 // Phase 01 fills it: the fork, FORK.md, the upstream tests, and three patches
 // for C++ names: a Go keyword after "." on the same line is a name

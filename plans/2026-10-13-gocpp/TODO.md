@@ -10,7 +10,6 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 
 ## Now: Phase 01 (front-end)
 
-- [~] Fork `go/scanner` + `go/parser` (the dev shell's Go, 1.25.14) into `internal/syntax` with `FORK.md` (step 1.1, in review)
 - [ ] Parser patch 1: Go keywords allowed after `.` on the same line (+ tests)
 - [ ] Parser patch 2: constant expressions in type-argument lists (+ tests)
 - [ ] Parser patch 3: dotted type names such as `std.chrono.seconds` (+ tests)
@@ -86,3 +85,4 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] 2026-10-13: Phase 00 steps 0.8 + 0.11: the test harness (six runners, phase gating, both compilers) and `make ci`
 - [x] 2026-10-13: Phase 00 job 0.6b (stale docs, `xvfb-run`) and the Phase 00 exit check: **Phase 00 done**
 - [x] 2026-10-13: Phase 01 step 1.13: `internal/diag` prints errors like `go build`
+- [x] 2026-10-13: Phase 01 step 1.1: `go/scanner` + `go/parser` forked into `internal/syntax` (`FORK.md`, `update.sh`)

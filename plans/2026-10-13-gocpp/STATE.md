@@ -1,7 +1,7 @@
 # gocpp plan · STATE
 
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Current focus:** Phase 01, Front-end (Phase 00 done on 2026-10-13): the parser fork (1.1) is in review, the diagnostics package (1.13) is done; see [TODO.md](TODO.md)
+**Current focus:** Phase 01, Front-end (Phase 00 done on 2026-10-13): the parser fork (1.1) and the diagnostics package (1.13) are done; next the three parser patches, the import classifier and the directives; see [TODO.md](TODO.md)
 **Last updated:** 2026-10-13
 
 ---

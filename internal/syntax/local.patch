@@ -1,0 +1,51 @@
+diff --git a/internal/syntax/parser/performance_test.go b/internal/syntax/parser/performance_test.go
+index 1308f21..fb46d2f 100644
+--- a/internal/syntax/parser/performance_test.go
++++ b/internal/syntax/parser/performance_test.go
+@@ -10,7 +10,7 @@ import (
+ 	"testing"
+ )
+ 
+-var src = readFile("../printer/nodes.go")
++var src = readFile("../testdata/printer/nodes.go") // gocpp: upstream reads ../printer/nodes.go; see ../FORK.md
+ 
+ func readFile(filename string) []byte {
+ 	data, err := os.ReadFile(filename)
+diff --git a/internal/syntax/scanner/scanner_test.go b/internal/syntax/scanner/scanner_test.go
+index 98036be..a7c5c51 100644
+--- a/internal/syntax/scanner/scanner_test.go
++++ b/internal/syntax/scanner/scanner_test.go
+@@ -8,6 +8,7 @@ import (
+ 	"fmt"
+ 	"go/token"
+ 	"os"
++	"os/exec"
+ 	"path/filepath"
+ 	"runtime"
+ 	"slices"
+@@ -921,6 +922,16 @@ func BenchmarkScan(b *testing.B) {
+ }
+ 
+ func BenchmarkScanFiles(b *testing.B) {
++	// gocpp: upstream reads these files from ../.., which is $GOROOT/src
++	// there. Here they are read from $(go env GOROOT)/src; go test puts
++	// $GOROOT/bin first in PATH, so this is the Go that runs the test.
++	// See ../FORK.md.
++	out, err := exec.Command("go", "env", "GOROOT").Output()
++	if err != nil {
++		b.Fatalf("go env GOROOT: %v", err)
++	}
++	goroot := strings.TrimSpace(string(out))
++
+ 	// Scan a few arbitrary large files, and one small one, to provide some
+ 	// variety in benchmarks.
+ 	for _, p := range []string{
+@@ -931,7 +942,7 @@ func BenchmarkScanFiles(b *testing.B) {
+ 	} {
+ 		b.Run(p, func(b *testing.B) {
+ 			b.StopTimer()
+-			filename := filepath.Join("..", "..", filepath.FromSlash(p))
++			filename := filepath.Join(goroot, "src", filepath.FromSlash(p))
+ 			src, err := os.ReadFile(filename)
+ 			if err != nil {
+ 				b.Fatal(err)

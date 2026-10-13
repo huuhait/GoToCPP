@@ -9,10 +9,10 @@
 - [x] Spike: stock go/parser + go/types (FakeImportC) on interop-heavy `.gp` files (2026-10-13, 0 false errors)
 - [x] Spike re-run with the final import model: header packages, namespaces as packages, namespace probe with clang++ and g++ (typos `stdd`, `fmtt` reported) (2026-10-13)
 - [x] Check: stock go/printer + `ast.SortImports` print gocpp syntax correctly (2026-10-13)
-- [~] 1.1 Fork go/scanner + go/parser (the dev shell's Go, 1.25.14 now) into `internal/syntax`
-  - [ ] copy sources + license headers + `FORK.md` (+ `go/printer/nodes.go` for the perf test)
-  - [ ] upstream tests pass (only two test-path fixes, listed in `FORK.md`)
-  - [ ] `update.sh` re-fork script
+- [x] 1.1 Fork go/scanner + go/parser (the dev shell's Go, 1.25.14 now) into `internal/syntax`
+  - [x] copy sources + license headers + `FORK.md` (+ `go/printer/nodes.go` for the perf test)
+  - [x] upstream tests pass (only two test-path fixes, listed in `FORK.md`)
+  - [x] `update.sh` re-fork script
 - [ ] 1.2 Patch 1: Go keywords allowed after `.` (same line only)
   - [ ] scanner change
   - [ ] tests: `std.map`, `x.type()`, `posix.select`, `x.(type)` unaffected, semicolon after `.range`, `TestIncompleteSelection`
@@ -75,3 +75,7 @@
 - 2026-10-13: Step 1.13 (`internal/diag`) committed, clean after 3 review rounds. Its output equals
   real `go build` in 21 captured cases; the reviews added `diag.ErrorCode` for the 1.10 filter,
   emoji widths from Unicode's tables, and the documented column-255 difference.
+- 2026-10-13: Step 1.1 (the fork) committed, clean after 2 review rounds: 195 upstream tests pass,
+  `update.sh` rebuilds the fork with no diff. The reviews made `update.sh` safe: it refuses symlinks,
+  renames or copies in patches, uncommitted fork changes (unless `-f`, which keeps a copy) and a
+  repo whose top isn't gocpp's. `staticcheck.conf` turns off two checks for the upstream code.
