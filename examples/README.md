@@ -48,7 +48,7 @@ An example is a folder with these files:
 |---|---|
 | `// phase: NN` | always the first line: the phase that must make the program pass (two digits); until then the program is skipped |
 | `// pkg-config: raylib` | the program needs these libraries: skipped with a message when `pkg-config --exists` fails |
-| `// display: required` | the program opens a real window even in smoke mode: skipped without a display (neither `DISPLAY` nor `WAYLAND_DISPLAY` set); `xvfb-run -a` gives it one |
+| `// display: required` | the program opens a real window even in smoke mode: skipped without a display (neither `DISPLAY` nor `WAYLAND_DISPLAY` set); `xvfb-run -a` gives it one (with `XDG_SESSION_TYPE=x11`, see below) |
 | `// ExitCode: N` | the expected exit status (0 when the line is missing) |
 | `//go:build windows` | a normal Go build constraint, honored: [win32](win32/main.gp) runs only for Windows targets (`gocpp build -os windows`, under Wine from Phase 14) |
 
@@ -68,18 +68,24 @@ because they are compared byte for byte.
 environment variable `GOCPP_SMOKE` is set (their `env.txt` sets it), they open their window,
 close it right away and print a few lines. It is an environment variable and not an argument
 because a Phase 04 program can't read its arguments yet (`os.Args` comes with Phase 09).
-- raylib needs a display even for its hidden window. Under `xvfb-run -a` its check program
-  prints exactly `output.txt`; with no display at all it prints "raylib: no window" instead.
+- raylib needs a display even for its hidden window. Run it under `xvfb-run -a` with
+  `XDG_SESSION_TYPE=x11`, so that GLFW uses the Xvfb display. Otherwise GLFW tries Wayland
+  first, and on GNOME or KDE it finds the desktop's socket (`$XDG_RUNTIME_DIR/wayland-0`)
+  even without `WAYLAND_DISPLAY`. Under Xvfb its check program prints exactly `output.txt`;
+  with no display at all it prints "raylib: no window" instead.
 - win32 needs no display under Wine when Wine's graphics driver is `null`:
   `wine reg add 'HKCU\Software\Wine\Drivers' /v Graphics /d null /f` once in the prefix. Give Wine
   its own `WINEPREFIX`, `WINEDEBUG=-all` and
-  `WINEDLLOVERRIDES="winemenubuilder.exe=d;mscoree,mshtml="`, and stop it afterwards with
-  `wineserver -k`.
-- Both write into the home folder: Wine writes desktop entries, icons and fontconfig caches there
-  whatever `WINEPREFIX` says, and the GL drivers under Xvfb write shader caches into
-  `~/.cache`. So run them with `HOME`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`
-  pointing at a scratch folder, and without `DISPLAY` and `WAYLAND_DISPLAY`, so no window shows
-  up on the desktop. The check script below does all of this.
+  `WINEDLLOVERRIDES="winemenubuilder.exe=d;mscoree,mshtml=;winewayland.drv=d"`, and stop it
+  afterwards with `wineserver -k`. `winewayland.drv=d` matters while that first command creates
+  the prefix, before the driver is `null`: without it, Wine's desktop process finds the Wayland
+  desktop's socket in the same way.
+- Both write into the home folder. Even with `winemenubuilder.exe=d`, Wine writes fontconfig
+  caches there, whatever `WINEPREFIX` says. Without `winemenubuilder.exe=d`, it also writes
+  desktop entries and icons. The GL drivers write shader caches into `~/.cache`. So run them
+  with `HOME`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` pointing at a scratch
+  folder, and without `DISPLAY` and `WAYLAND_DISPLAY`. With the settings above, no window shows
+  up on the desktop, not even on a Wayland one. The check script below does all of this.
 
 ## Where the expected outputs come from
 
@@ -111,8 +117,8 @@ because a Phase 04 program can't read its arguments yet (`os.Args` comes with Ph
   These check programs are in
   [tools/gen-example-output/testdata/interop](../tools/gen-example-output/testdata/interop), and
   `nix develop -c sh tools/gen-example-output/testdata/interop/check.sh` runs them all again
-  (raylib also needs `xvfb-run`). When an interop example changes, change its `output.txt` by
-  hand, change its check program the same way, and run the script.
+  (raylib runs under `xvfb-run`, which the dev shell has). When an interop example changes,
+  change its `output.txt` by hand, change its check program the same way, and run the script.
 
 ## Regenerating the outputs
 

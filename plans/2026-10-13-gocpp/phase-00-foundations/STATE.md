@@ -1,6 +1,6 @@
 # Phase 00: Foundations & Language Spec · STATE
 
-**Status:** `[~]` in progress (everything is committed except the docs follow-up 0.6b, which is in review)
+**Status:** `[x]` done (2026-10-13: every step and exit criterion; the work is on branch `dev`)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
@@ -18,7 +18,7 @@
   - [x] directory layout (`cmd/`, `internal/`, `runtime/`, `stdlib/`, `editors/`, `examples/`, `docs/`, `tests/`)
   - [x] `LICENSE` (BSD-3-Clause for now), `.gitignore`, `README.md`
   - [x] `Makefile` with `build`, `test`, `lint`, `ci` (+ `staticcheck`, `clean`)
-- [~] 0.6b Follow-up: docs that went stale during the first jobs (root README, runtime and stdlib READMEs, CONTRIBUTING §3, ADR-012 link, Wine wording in the examples) + `xvfb-run` in the dev shell
+- [x] 0.6b Follow-up: docs that went stale during the first jobs (root README, runtime and stdlib READMEs, CONTRIBUTING §3, ADR-012 link, Wine wording in the examples) + `xvfb-run` in the dev shell
 - [x] 0.7 `flake.nix` dev shell + `.envrc` (incl. the MinGW-w64 cross compiler and 64-bit Wine)
 - [x] 0.8 Test harness (six runners: the five test folders + `examples/`)
   - [x] `tests/run` runner (`// Output:`, `// ExitCode:`, `// Stderr:`)
@@ -74,3 +74,8 @@
 - 2026-10-13: Steps 0.8 + 0.11 (test harness, `make ci` on GCC + Clang) committed, clean after 3
   review rounds. The reviews made it stop hung or flooding programs, kill whole process groups (also
   on Ctrl-C), and fail when a required compiler is missing in `make ci`.
+- 2026-10-13: Job 0.6b (stale docs, `xvfb-run` in the dev shell) committed, clean after 2 review
+  rounds. It also found that GLFW and Wine reach a Wayland desktop through the default socket
+  `wayland-0` even without `WAYLAND_DISPLAY` (fixed in check.sh; rules in Phases 04, 06 and 14).
+- 2026-10-13: **Phase 00 done.** All steps and exit criteria are checked; `make ci` is green on a
+  clean checkout with GCC and Clang.

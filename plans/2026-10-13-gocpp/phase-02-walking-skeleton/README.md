@@ -229,6 +229,8 @@ gocpp run [file.gp | dir] [args...]    # build to a temp dir, run, forward the e
 gocpp emit file.gp                     # print the generated C++
    -x       print every command (like go build -x)
    -work    keep the work directory and print its path
+   -asan    build with AddressSanitizer + UBSan (-fsanitize=address,undefined
+            -fno-omit-frame-pointer), for the sanitizer runs from Phase 03 on
 ```
 
 - **Compiler detection:** `GOCPP_CXX` → `CXX` → `clang++` → `g++` in `PATH`; check versions
@@ -278,7 +280,7 @@ table (`objdump -l`) to make sure every generated line maps to the right `.gp` l
 6. **2.6 Functions**: parameters, multiple results via `std::tuple`, prototypes.
 7. **2.7 Runtime v0** (§2.6, including the OS layer and the "no POSIX outside it" check) + its own
    C++ unit tests (a tiny test file compiled with both compilers).
-8. **2.8 Driver**: `build`, `run`, `emit`, `-x`, `-work`, compiler detection, embedded runtime.
+8. **2.8 Driver**: `build`, `run`, `emit`, `-x`, `-work`, `-asan`, compiler detection, embedded runtime.
 9. **2.9 Error path**: internal-error reporting for C++ compile failures.
 10. **2.10 Tests**: run tests for the subset, 3 golden tests, differential tests vs real Go
     (small-integer wrapping, division and `MIN/-1`, shifts, float printing incl. `+Inf`, float →

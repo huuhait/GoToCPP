@@ -29,7 +29,7 @@
 - [ ] 2.5 Minimal evaluation-order pass (incl. loop-condition / `else if` / `case` shapes)
 - [ ] 2.6 Functions: params, multiple results (`std::tuple`), prototypes
 - [ ] 2.7 Runtime v0 (`gp::string` minimal, helpers, panic as exception, print/println, unbuffered-order stdout, fmtshim, run_main, OS layer `runtime/src/os/` + no-POSIX-outside check) + C++ unit tests
-- [ ] 2.8 Driver: `build`, `run`, `emit`, `-x`, `-work`, compiler detection, embedded runtime
+- [ ] 2.8 Driver: `build`, `run`, `emit`, `-x`, `-work`, `-asan`, compiler detection, embedded runtime
 - [ ] 2.9 Internal-error path for C++ compile failures
 - [ ] 2.10 Tests: ≥ 25 run tests, 3 golden, ≥ 25 differential vs Go (promotion, order, shadowing, float format, float→int, stdout/stderr order)
 - [ ] 2.11 Debug test: gdb batch + line-table check
@@ -54,3 +54,5 @@
 - 2026-10-13 (dev-shell review): `-U_FORTIFY_SOURCE` doesn't beat Nix's hardening wrapper (it re-adds
   `-D_FORTIFY_SOURCE=3` after user flags), so `rt.hpp` undefines it first thing when not optimizing;
   a driver test simulates a user's hardened shell with `NIX_HARDENING_ENABLE`.
+- 2026-10-13 (docs job 0.6b): `-asan` moved here from Phase 06, because the Phase 03 CI job
+  (step 3.18) and the harness (`GOCPP_FLAGS=-asan`) need sanitizer builds before Phase 06.

@@ -87,6 +87,9 @@
               pkgs.ninja
               pkgs.pkg-config
               pkgs.python3 # gdb pretty printers, spike scripts
+              # A hidden X display, so GUI programs run without a real one: the
+              # raylib example's smoke mode runs under xvfb-run (check.sh, CI).
+              pkgs.xvfb-run
             ]
             ++ windowsTools;
 

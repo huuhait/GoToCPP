@@ -220,7 +220,8 @@ gocpp export cmake
 ```
 
 `-debug` = `-O0 -g`; the default = `-O2 -g` (optimized and debuggable, like `go build`);
-`-release` = `-O2 -flto`. `-race` = ThreadSanitizer, `-asan` = AddressSanitizer + UBSan.
+`-release` = `-O2 -flto`. `-race` = ThreadSanitizer, `-asan` = AddressSanitizer + UBSan (`-asan`
+exists since Phase 02, for the sanitizer runs).
 
 ### 2.10 Cross-compilation and the first Windows builds
 
@@ -239,7 +240,12 @@ and sets GOOS/GOARCH for build constraints. Two targets matter in this phase:
   `// Stderr:` tests); `WINEDEBUG=-all`; and `WINEDLLOVERRIDES` containing
   `winemenubuilder.exe=d;mscoree,mshtml=`, which the harness sets itself (the dev shell also sets
   the first part, but `make ci` may run outside it), because otherwise Wine writes desktop
-  entries, MIME files and icons into the user's real home and asks to install Mono and Gecko. The
+  entries, MIME files and icons into the user's real home and asks to install Mono and Gecko.
+  The prefix is created with `DISPLAY` and `WAYLAND_DISPLAY` unset and `winewayland.drv=d` in
+  `WINEDLLOVERRIDES`: while it creates the prefix, Wine starts `explorer.exe /desktop`, and its
+  Wayland driver finds the desktop's default socket (`$XDG_RUNTIME_DIR/wayland-0`) even without
+  `WAYLAND_DISPLAY`, so on GNOME or KDE it would open windows on the real desktop (found by
+  docs job 0.6b). GUI smoke runs then use `Graphics=null` (Phase 14 §2.6). The
   dev shell's MinGW-w64 targets the older `msvcrt.dll` C runtime (the UCRT variant isn't in the
   Nix binary cache and would be built from source), while users' toolchains (llvm-mingw, MSYS2
   UCRT64) target UCRT; the real-Windows runs of Phase 14 cover UCRT.

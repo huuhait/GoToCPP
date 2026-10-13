@@ -420,7 +420,7 @@ gocpp/                       (this repo: /home/huuhait/GoToCPP)
 ├── editors/vscode/          syntax + LSP client
 ├── docs/                    spec/, adr/, guides/
 ├── plans/                   this plan
-├── flake.nix                dev shell for NixOS (go, clang, gcc, gdb, lldb, ninja, MinGW-w64, wine)
+├── flake.nix                dev shell for NixOS (go, clang, gcc, gdb, lldb, ninja, MinGW-w64, wine, xvfb-run)
 └── go.mod                   module github.com/huuhait/gocpp
 ```
 

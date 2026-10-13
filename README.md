@@ -13,9 +13,11 @@ Linux and Windows.
 
 ## Status
 
-**Phase 00 (foundations).** The repo skeleton is in place, and the decisions and the language
-spec are being written. Nothing compiles `.gp` files yet: `gocpp version` and `gocpp help` work,
-and every other command says which phase builds it.
+**Phase 00 (foundations).** The repo skeleton, the dev shell, the decision records
+([docs/adr/](docs/adr/README.md)), the language spec ([docs/spec/](docs/spec/README.md)), the
+test harness ([tests/](tests/README.md)) and the 19 target programs
+([examples/](examples/README.md)) are in place. Nothing compiles `.gp` files yet:
+`gocpp version` and `gocpp help` work, and every other command says which phase builds it.
 
 - The plan: [plans/2026-10-13-gocpp/README.md](plans/2026-10-13-gocpp/README.md)
 - Progress: [plans/2026-10-13-gocpp/STATE.md](plans/2026-10-13-gocpp/STATE.md)
@@ -23,11 +25,12 @@ and every other command says which phase builds it.
 
 ## Build and test
 
-You need Go 1.25 and make. On NixOS, `nix develop` will give you a shell with the whole toolchain
-once `flake.nix` lands (Phase 00, step 0.7).
+You need Go 1.25 and make, and `make ci` also needs `g++` and `clang++`. The Nix dev shell has
+all of them and the rest of the toolchain: run `nix develop` in the repo root, or use direnv
+with the committed `.envrc` (run `direnv allow` once).
 
 ```sh
-make ci           # every check: lint, test, build
+make ci           # every required check: lint, test, build
 make build        # build bin/gocpp
 make test         # go test ./...
 make lint         # gofmt check (not spikes/ or testdata/), then go vet ./...
@@ -36,6 +39,9 @@ make clean        # remove bin/
 
 bin/gocpp version
 ```
+
+For the test programs (`make test-programs`) and their variables `GOCPP_CXX`,
+`GOCPP_REQUIRE_CXX`, `GOCPP_FLAGS` and `GOCPP_TEST_PHASE`, see [tests/README.md](tests/README.md).
 
 `spikes/` holds the throwaway experiments behind the plan. It is a separate Go module, so
 `./...` in the root doesn't include it; see [spikes/2026-10-13/README.md](spikes/2026-10-13/README.md)

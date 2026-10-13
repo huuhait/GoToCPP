@@ -8,14 +8,10 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 
 ---
 
-## Now: finish Phase 00
+## Now: Phase 01 (front-end)
 
-- [~] Docs follow-up 0.6b: root README, runtime and stdlib READMEs, CONTRIBUTING §3, ADR-012 link, Wine wording, `xvfb-run` in the dev shell (in review)
-- [ ] Phase 00 exit check on a clean checkout (`go build ./... && go test ./...`, `make ci`, `nix develop` tools), then mark Phase 00 done
-
-## Then: first Phase 01 tasks
-
-- [~] Fork `go/scanner` + `go/parser` (the dev shell's Go, 1.25.14) into `internal/syntax` with `FORK.md` (step 1.1, started)
+- [~] Fork `go/scanner` + `go/parser` (the dev shell's Go, 1.25.14) into `internal/syntax` with `FORK.md` (step 1.1, in review)
+- [~] Diagnostics package `internal/diag`, printing errors like `go build` (step 1.13, in review)
 - [ ] Parser patch 1: Go keywords allowed after `.` on the same line (+ tests)
 - [ ] Parser patch 2: constant expressions in type-argument lists (+ tests)
 - [ ] Parser patch 3: dotted type names such as `std.chrono.seconds` (+ tests)
@@ -89,3 +85,4 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] 2026-10-13: Spikes for the decisions: header packages + namespace probe (clang++ and g++), must functions (two type checks, 3 runs), wrap macros (`#VM`, `#Recover`, `#InThread`, `#Once`, race-clean)
 - [x] 2026-10-13: Phase 00 steps 0.2–0.7, 0.9, 0.10: ADR-001 … ADR-021, the spec docs v0, the repo skeleton, the Nix dev shell, the 19 target programs, the contributing guide (one commit per step on branch `dev`)
 - [x] 2026-10-13: Phase 00 steps 0.8 + 0.11: the test harness (six runners, phase gating, both compilers) and `make ci`
+- [x] 2026-10-13: Phase 00 job 0.6b (stale docs, `xvfb-run`) and the Phase 00 exit check: **Phase 00 done**

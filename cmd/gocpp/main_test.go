@@ -53,7 +53,7 @@ func TestVersion(t *testing.T) {
 	if want := version.String() + "\n"; out != want {
 		t.Errorf("gocpp version printed %q, want %q", out, want)
 	}
-	// For example "gocpp dev (phase 00) go1.25.7 linux/amd64".
+	// For example "gocpp dev (phase 00) go1.25.14 linux/amd64".
 	if re := regexp.MustCompile(`^gocpp \S+ \(phase \d\d\) .+ \S+/\S+\n$`); !re.MatchString(out) {
 		t.Errorf("gocpp version printed %q, want it to match %s", out, re)
 	}

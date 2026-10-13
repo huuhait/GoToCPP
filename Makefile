@@ -1,5 +1,6 @@
-# gocpp Makefile. "make ci" runs every check; run it before handing over a
-# change. The recipes are POSIX sh.
+# gocpp Makefile. "make ci" runs every required check (staticcheck is the
+# separate "make staticcheck"); run it before handing over a change. The
+# recipes are POSIX sh.
 
 GO ?= go
 GOFMT ?= gofmt

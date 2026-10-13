@@ -11,13 +11,17 @@
 #
 #	nix develop -c sh tools/gen-example-output/testdata/interop/check.sh
 #
-# raylib also needs xvfb-run, because it opens a (hidden) window, for example
-# from "nix shell nixpkgs#xvfb-run". win32 needs x86_64-w64-mingw32-g++ and
-# wine, which the dev shell has; Wine runs with a prefix of its own and no
-# display (its "null" graphics driver), and is stopped afterwards. Both GUI
-# checks run with a scratch home folder (use_scratch_home), because Wine,
-# fontconfig and the GL drivers write desktop files and caches into the home
-# folder. A check whose tools are missing is skipped with a message.
+# raylib also needs xvfb-run, because it opens a (hidden) window, and win32
+# needs x86_64-w64-mingw32-g++ and wine; the dev shell has all three. raylib
+# runs on Xvfb's display. Wine runs with a prefix of its own and no display
+# (its "null" graphics driver), and is stopped afterwards. Neither reaches
+# the real desktop, not even a Wayland one (see the two checks). Both GUI
+# checks run with a scratch home folder (use_scratch_home), because they
+# write into the home folder. Even with winemenubuilder.exe=d, Wine writes
+# fontconfig caches there, whatever WINEPREFIX says. Without
+# winemenubuilder.exe=d, it also writes desktop entries and icons. The GL
+# drivers write shader caches there too. A check whose tools are missing is
+# skipped with a message.
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -30,9 +34,11 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 # use_scratch_home points HOME and the XDG folders at a folder in $tmp and
 # removes the display variables. Call it in a subshell: then Wine,
-# fontconfig, Mesa and the NVIDIA driver write their files there (Wine writes
-# desktop entries into the home folder whatever WINEPREFIX says), and no
-# window shows up on the desktop.
+# fontconfig, Mesa and the NVIDIA driver write their files there. Even with
+# winemenubuilder.exe=d, Wine writes fontconfig caches there, whatever
+# WINEPREFIX says. Without winemenubuilder.exe=d, it also writes desktop
+# entries and icons. Removing WAYLAND_DISPLAY doesn't keep a program off a
+# Wayland desktop: the raylib and win32 checks need one more setting each.
 use_scratch_home() {
 	export HOME="$tmp/home" XDG_DATA_HOME="$tmp/home/.local/share" \
 		XDG_CONFIG_HOME="$tmp/home/.config" XDG_CACHE_HOME="$tmp/home/.cache"
@@ -102,7 +108,11 @@ for cxx in g++ clang++; do
 		fail raylib $cxx
 	elif ! have xvfb-run; then
 		skip raylib "built with $cxx, but there is no xvfb-run to run it without a desktop"
-	elif (use_scratch_home && GOCPP_SMOKE=1 xvfb-run -a "$o/raylib") >"$o/raylib.txt"; then
+	# XDG_SESSION_TYPE=x11 makes GLFW 3.4 use DISPLAY, which xvfb-run sets.
+	# Without it, GLFW tries Wayland first, and libwayland connects to
+	# $XDG_RUNTIME_DIR/wayland-0 even without WAYLAND_DISPLAY: on GNOME or
+	# KDE, that is the real desktop.
+	elif (use_scratch_home && GOCPP_SMOKE=1 XDG_SESSION_TYPE=x11 xvfb-run -a "$o/raylib") >"$o/raylib.txt"; then
 		compare raylib "$cxx, smoke mode under Xvfb" "$o/raylib.txt"
 	else
 		fail raylib $cxx
@@ -138,7 +148,12 @@ elif ! x86_64-w64-mingw32-g++ -std=c++20 -DUNICODE -D_UNICODE -DWIN32_LEAN_AND_M
 else
 	(
 		use_scratch_home
-		export WINEPREFIX="$tmp/wine" WINEDEBUG=-all WINEDLLOVERRIDES="winemenubuilder.exe=d;mscoree,mshtml="
+		# winewayland.drv=d: "wine reg add" creates the prefix before Graphics
+		# is null, and Wine's desktop process (explorer.exe) then tries the
+		# Wayland driver, which connects to $XDG_RUNTIME_DIR/wayland-0 even
+		# without WAYLAND_DISPLAY: on GNOME or KDE, the real desktop.
+		export WINEPREFIX="$tmp/wine" WINEDEBUG=-all \
+			WINEDLLOVERRIDES="winemenubuilder.exe=d;mscoree,mshtml=;winewayland.drv=d"
 		wine reg add 'HKCU\Software\Wine\Drivers' /v Graphics /d null /f >/dev/null 2>&1
 		GOCPP_SMOKE=1 wine "$tmp/win32.exe" >"$tmp/win32.txt" 2>/dev/null
 		status=$?

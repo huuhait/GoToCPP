@@ -18,7 +18,7 @@ var Version = "dev"
 const Phase = 0
 
 // String returns the line that "gocpp version" prints, for example
-// "gocpp dev (phase 00) go1.25.7 linux/amd64".
+// "gocpp dev (phase 00) go1.25.14 linux/amd64".
 func String() string {
 	return fmt.Sprintf("gocpp %s (phase %02d) %s %s/%s",
 		Version, Phase, runtime.Version(), runtime.GOOS, runtime.GOARCH)

@@ -59,7 +59,7 @@ The plan files (root [README](../plans/2026-10-13-gocpp/README.md) §9):
 | `runtime/` | the C++20 runtime: `include/gocpp/*.hpp`, `src/*.cpp`, `src/os/{linux,windows}/` |
 | `stdlib/` | the standard packages: `.gp` files and native `.cpp` files |
 | `tools/` | helper programs: `portstd` (copies Go's standard library, Phase 09) and the generator for the example outputs |
-| `tests/` | `run/`, `errors/`, `golden/`, `diff/`, `interop/` (see §3) |
+| `tests/` | the test harness and its folders `run/`, `errors/`, `golden/`, `diff/`, `interop/` (§3, [tests/README.md](../tests/README.md)) |
 | `examples/` | the target programs, each tagged with the phase that must make it pass |
 | `editors/vscode/` | syntax highlighting and the language server client |
 | `docs/` | `spec/`, `adr/`, `guides/` and this file ([index](README.md)) |
@@ -79,37 +79,54 @@ The full layout is in the root [README](../plans/2026-10-13-gocpp/README.md) §1
 - **Real Go is the reference.** For a program that Go can run, the expected output is generated
   with real `go run`, never written by hand. Go's output is easy to guess wrong.
 
-The test programs in `tests/` run from one Go test binary (`go test ./tests/...`), and
-`make test` runs all Go tests (`go test ./...`). The runtime's C++ unit tests are separate
-(§5). Every run test runs with both `g++` and `clang++` (`GOCPP_CXX=...`), and CI also runs the
-suite with `-fsanitize=address,undefined`. The test folders
+The test programs in `tests/` and `examples/` run from one Go test binary
+(`go test ./tests/...`). `make test` runs all Go tests (`go test ./...`), so it runs them too.
+The runtime's C++ unit tests are separate (§5). The test folders
 ([Phase 00](../plans/2026-10-13-gocpp/phase-00-foundations/README.md) §2.3):
 
 | Folder | A test is | It passes when |
 |---|---|---|
-| `tests/run/` | a `.gp` program with a `// Output:` block at the end; optional `// ExitCode: N` and `// Stderr: regexp` | `gocpp run` prints exactly that output (and exits with `N`, and stderr matches) |
+| `tests/run/` | a `.gp` program with a `// Output:` block at the end; optional `// ExitCode: N` and `// Stderr: regexp` | `gocpp run` prints that output, exits with `N` (default 0), and stderr matches |
 | `tests/errors/` | a `.gp` file with `// ERROR "regexp"` on each line that must fail | `gocpp check` reports exactly those errors, on those lines |
 | `tests/golden/` | a `.gp` file and a `.cpp.golden` snapshot of its generated C++ | the generated C++ matches the snapshot; `-update` rewrites the snapshots |
-| `tests/diff/` | a `.gp` program that uses only the Go-compatible part of gocpp | a `.go` copy run with real `go run` and the program run with `gocpp run` print the same thing |
-| `tests/interop/` | a program that uses C/C++ headers or libraries | like `run/`; skipped with a message when a library is missing (`pkg-config --exists`) |
+| `tests/diff/` | a `.gp` program that uses only the Go-compatible part of gocpp | real Go and `gocpp run` print the same stdout and exit with the same code. A `// diff: stderr` line also compares stderr, and `// diff: combined` compares both streams merged into one |
+| `tests/interop/` | a run test for a program that uses C/C++ headers or libraries | like `run/`; skipped with a message when `pkg-config --exists` doesn't find a library of its `// pkg-config: …` line |
+| `examples/` | a target program: a folder with `main.gp` and `output.txt` | `gocpp run . <args>`, run in that folder, prints `output.txt` and exits with the expected code |
 
 Keep the golden set small, and change a snapshot only on purpose.
 
 The test comments follow Go where Go has a format: `// Output:` comes from Go examples, and
 `// ERROR` from Go's own `test/` folder.
+- `// phase: NN` is the first line of **every** test file: each `.gp` test in `tests/` and the
+  `main.gp` of each example. It is the phase that must make the test pass, with two digits.
+  Until that phase is finished, the harness skips the test with "needs Phase NN".
 - `// Output:` starts the expected standard output, at the end of the file. Each output line
   is one `//` comment line below it.
 - `// ExitCode: N` is the expected exit code. A panic exits with 2, like Go.
-- `// Stderr: regexp`: standard error must match this regexp.
+- `// Stderr: regexp` (run and interop tests): standard error must match this regexp. Without
+  a `// Stderr:` line, standard error must be empty.
 - `// ERROR "regexp"` goes at the end of a line that must fail. The regexp must match the
   error message for that line.
-- `// phase: NN` is the first line of a target program in `examples/`
-  ([Phase 00](../plans/2026-10-13-gocpp/phase-00-foundations/README.md) §2.4): the phase that
-  must make it pass. The harness skips the program until that phase is reached.
+
+Run and interop tests compare the output like a Go example: space at the start and at the end
+of the whole output doesn't count. Examples, diff tests and golden tests compare byte for byte:
+an example's output with its `output.txt`, a diff test's output with real Go's, and a golden
+test's C++ with its snapshot. The full formats are in [tests/README.md](../tests/README.md)
+(and the README in each test folder) and in [examples/README.md](../examples/README.md).
+
+The run, interop, diff, golden and example tests run once with `g++` and once with `clang++`
+(`GOCPP_CXX=clang++` tests with clang++ only). Outside CI, a missing compiler is a skip.
+`make ci` sets `GOCPP_REQUIRE_CXX=g++,clang++`, so there it is a failure. While you build phase
+NN, `GOCPP_TEST_PHASE=NN` runs the tests up to that phase. `GOCPP_FLAGS` passes more flags to
+`gocpp run`, for example `GOCPP_FLAGS=-asan` (ASan and UBSan) for the sanitizer run that CI
+adds. `make test-programs` runs only the test programs and says why each skipped test is
+skipped.
 
 A run test (from Phase 00 §2.3; the output comes from real `go run`):
 
 ```go
+// phase: 03
+
 // tests/run/slices_append.gp
 package main
 
@@ -129,6 +146,8 @@ func main() {
 An error test (the message is the one `go/types` gives):
 
 ```go
+// phase: 01
+
 // tests/errors/undefined_name.gp
 package main
 
@@ -178,7 +197,7 @@ The make targets for these checks:
 |---|---|
 | `make lint` | the gofmt check, which skips `spikes/` and every `testdata/` folder, then `go vet ./...` |
 | `make staticcheck` | `go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...`, so there is nothing to install |
-| `make ci` | `lint`, `test` and `build` (the harness runs every run test with both g++ and clang++, §3): the full check that the loop uses. It does not run staticcheck, because `go run` downloads staticcheck the first time |
+| `make ci` | `lint`, `test` and `build`: every required check, the one that the loop uses. The test programs run with both g++ and clang++, and here a missing compiler fails (§3). It does not run staticcheck, because `go run` downloads staticcheck the first time |
 
 `v0.7.0` is staticcheck 2026.1, the newest release that works with Go 1.25. The newer
 releases (`v0.8.x`) need Go 1.26.
@@ -233,8 +252,8 @@ releases (`v0.8.x`) need Go 1.26.
   Windows uses MinGW-w64 (clang or gcc) first; the MSVC ABI (`clang-cl`) comes later. macOS is
   not a target.
 - **In the runtime, nothing outside `runtime/src/os/` calls the operating system directly.**
-  That folder also holds the Phase 08 thread layer `gp::os`. It has a `linux/` version now and
-  a `windows/` version in Phase 14. Everything else in the runtime uses standard C++
+  That folder also holds the Phase 08 thread layer `gp::os`. It gets a `linux/` version in
+  Phase 02 and a `windows/` version in Phase 14. Everything else in the runtime uses standard C++
   (`std::chrono`, `<atomic>`, `std::filesystem`). A CI check fails if a POSIX header appears
   outside that folder
   ([Phase 02](../plans/2026-10-13-gocpp/phase-02-walking-skeleton/README.md) §2.6).

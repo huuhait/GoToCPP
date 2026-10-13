@@ -379,6 +379,9 @@ prints pointers. Printing a `char*` as a C string would crash or silence stdout 
 
 - The four interop examples build and run on GCC and Clang (raylib/SDL may be checked by a
   smoke test that opens a hidden window and quits, or run manually where there's no display).
+  A smoke run that must not use the real desktop runs under `xvfb-run -a` with
+  `XDG_SESSION_TYPE=x11`: GLFW tries Wayland first and finds the default socket
+  (`$XDG_RUNTIME_DIR/wayland-0`) even when `WAYLAND_DISPLAY` is unset (found in the review of docs job 0.6b).
 - The header zoo compiles on both compilers.
 - ≥ 40 interop run tests are green, including the audit cases above.
 - Every seeded C++-side error in the error tests is reported at the correct `.gp` line.

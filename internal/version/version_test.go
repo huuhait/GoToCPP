@@ -27,7 +27,7 @@ func TestString(t *testing.T) {
 	re := regexp.MustCompile(`^gocpp (\S+) \(phase (\d\d)\) (.+) (\S+)/(\S+)$`)
 	m := re.FindStringSubmatch(got)
 	if m == nil {
-		t.Fatalf("String() = %q, want the form \"gocpp dev (phase 00) go1.25.7 linux/amd64\"", got)
+		t.Fatalf("String() = %q, want the form \"gocpp dev (phase 00) go1.25.14 linux/amd64\"", got)
 	}
 	if m[1] != Version {
 		t.Errorf("String() = %q: version %q, want %q", got, m[1], Version)

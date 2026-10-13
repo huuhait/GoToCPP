@@ -45,3 +45,5 @@
 - 2026-10-13 (dev-shell review): Wine CI rules (own prefix made up front, `wineserver -p`,
   `WINEDEBUG=-all`, `winemenubuilder.exe=d` so nothing lands in the user's home); the dev shell's
   MinGW-w64 is the msvcrt flavor (UCRT isn't cached), UCRT is covered by real Windows in Phase 14.
+- 2026-10-13 (docs job 0.6b): the Wine prefix is created with no display and `winewayland.drv=d`,
+  because Wine's Wayland driver otherwise reaches the real desktop through the default socket.

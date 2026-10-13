@@ -123,8 +123,8 @@ holds the `gp::os` thread layer (Phase 08). This phase adds the Windows versions
   Windows and run under Wine (console programs; GUI examples run their smoke mode, with Wine's
   graphics driver set to `null` (`HKCU\Software\Wine\Drivers`, `Graphics=null`) so they need
   no display; found by the examples job), with the
-  Wine rules from Phase 06 §2.10 (own prefix created up front, `wineserver -p`,
-  `WINEDEBUG=-all`, no `winemenubuilder`). These builds use the dev shell's msvcrt-flavored
+  Wine rules from Phase 06 §2.10 (own prefix created up front with no display and no Wayland
+  driver, `wineserver -p`, `WINEDEBUG=-all`, no `winemenubuilder`). These builds use the dev shell's msvcrt-flavored
   MinGW-w64, so the C runtime that users get from llvm-mingw or MSYS2 (UCRT) is only tested by
   the real-Windows runs below. Expected
   outputs of OS-dependent behavior (paths, error texts) come from real Go built with

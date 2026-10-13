@@ -12,8 +12,8 @@ what isn't.
 ## Decision
 
 The language is "The Go Programming Language Specification (go1.25), except for the points
-below", written down in `docs/spec/language.md`. `go/types` checks with `GoVersion: "go1.25"`.
-New syntax (and one reserved name) is kept to a short, explicit list:
+below", written down in [docs/spec/language.md](../spec/language.md). `go/types` checks with
+`GoVersion: "go1.25"`. New syntax (and one reserved name) is kept to a short, explicit list:
 
 | Divergence | Example |
 |---|---|

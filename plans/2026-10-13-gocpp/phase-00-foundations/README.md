@@ -115,7 +115,7 @@ finished phase is skipped with "needs Phase NN" (a coder working on phase NN set
 `GOCPP_TEST_PHASE=NN` to run the tests up to that phase). Every run test executes with **both** `g++` and
 `clang++` (`GOCPP_CXX=...`). Outside CI a missing compiler is a skip; `make ci` sets
 `GOCPP_REQUIRE_CXX=g++,clang++`, so there a missing compiler fails. `GOCPP_FLAGS` passes extra
-flags to `gocpp`, e.g. for the sanitizer run (`-fsanitize=address,undefined`) that CI adds.
+flags to `gocpp`, e.g. `-asan` (AddressSanitizer + UBSan, Phase 02 §2.7) for the sanitizer run that CI adds.
 
 Example run test:
 
@@ -173,9 +173,10 @@ You are on NixOS, so a `flake.nix` dev shell makes the toolchain reproducible:
 `go_1_25`, `clang_21`, `gcc15`, `gdb`, `lldb`, `cmake`, `ninja`, `pkg-config`, `python3`
 (gdb pretty printers), plus `SDL2`, `raylib`, `sqlite` and `zlib` for the interop examples and
 the Phase 04 header zoo, and for Windows builds (Phase 06 on) the MinGW-w64 cross compiler and
-64-bit Wine (`wine`) to run the tests. nixpkgs is pinned to `nixos-26.05`, because Go 1.25 is
-end-of-life upstream and was removed from nixos-unstable (found while building the dev shell).
-(Ninja is not installed right now; the dev shell adds it.)
+64-bit Wine (`wine`) to run the tests, and `xvfb-run`, so GUI examples can run their smoke mode
+without a real display. nixpkgs is pinned to `nixos-26.05`, because Go 1.25 is end-of-life
+upstream and was removed from nixos-unstable (found while building the dev shell). (Ninja is not
+installed on the machine itself; the dev shell adds it.)
 
 Note found in the spike: the NixOS clang wrapper prints `-Wunused-command-line-argument`
 warnings in `-fsyntax-only` mode. The build driver should pass `-Qunused-arguments` for clang.

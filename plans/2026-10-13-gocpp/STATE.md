@@ -1,7 +1,7 @@
 # gocpp plan · STATE
 
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Current focus:** Phase 00's last job (docs follow-up 0.6b) and Phase 01, step 1.1 (the parser fork); see [TODO.md](TODO.md)
+**Current focus:** Phase 01, Front-end (Phase 00 done on 2026-10-13): the parser fork (1.1) and the diagnostics package (1.13) are in review; see [TODO.md](TODO.md)
 **Last updated:** 2026-10-13
 
 ---
@@ -29,7 +29,7 @@
 
 ## Phases
 
-- [~] **Phase 00:** Foundations & spec → [STATE](phase-00-foundations/STATE.md)
+- [x] **Phase 00:** Foundations & spec → [STATE](phase-00-foundations/STATE.md)
 - [~] **Phase 01:** Front-end (parse, load, type-check, `gocpp fmt`) → [STATE](phase-01-frontend/STATE.md)
 - [ ] **Phase 02:** Walking skeleton → [STATE](phase-02-walking-skeleton/STATE.md) · ends with **M1**
 - [ ] **Phase 03:** Core language → [STATE](phase-03-core-language/STATE.md) · ends with **M2**
