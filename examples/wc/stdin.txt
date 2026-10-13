@@ -1,0 +1,2 @@
+read from standard input,
+café and naïve included

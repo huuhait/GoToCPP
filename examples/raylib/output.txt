@@ -1,0 +1,3 @@
+window: 800 x 450
+frames: 3 ball at: 412 234
+window closed

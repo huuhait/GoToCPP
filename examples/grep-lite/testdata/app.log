@@ -1,0 +1,8 @@
+2026-10-13 09:00:01 INFO  server starting on :8080
+2026-10-13 09:00:02 INFO  loaded 3 routes
+2026-10-13 09:00:05 WARN  slow request: GET /search took 1.2s
+2026-10-13 09:01:10 ERROR database: connection refused
+2026-10-13 09:01:11 INFO  retrying the database connection
+2026-10-13 09:01:12 error cache: miss rate is high
+2026-10-13 09:01:13 INFO  warnings so far: 1
+2026-10-13 09:02:00 INFO  server stopping

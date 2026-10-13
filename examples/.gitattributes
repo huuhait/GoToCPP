@@ -1,0 +1,4 @@
+# The expected outputs are compared byte for byte, and wc and grep-lite read
+# their testdata byte for byte. So git never converts line endings here, also
+# not in a Windows checkout with core.autocrlf (Phase 14 runs these there).
+* -text

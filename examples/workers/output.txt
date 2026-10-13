@@ -1,0 +1,12 @@
+squares: [1 4 9 16 25 36 49 64 81]
+sum of squares 1..10: 385
+counts: map[even:400 odd:400]
+hits: 100
+got fast
+timeout after 20ms
+sent 2 of 5, len 2 cap 2
+0 true
+10 true
+0 false
+merged: [1 1 2 3 4 9]
+ping-pong: 3 false

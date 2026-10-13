@@ -1,0 +1,26 @@
+rect 2x3
+  main.Rect area=6 perimeter=10
+circle r=1
+  *main.Circle area=3.14159 perimeter=6.28318
+main.Square with area 4
+  main.Square area=4 perimeter=8
+main.Cube with area 9
+  main.Cube area=9 perimeter=12
+nothing
+tile <tile> 2 tile
+{{{tile} 2 2}} {Rect:{Named:{Name:tile} W:2 H:2}}
+cube box
+solid <box> volume 27
+wheel radius now 2
+<tile> 4
+<door> 6
+<box> 9
+<wheel> 12.56636
+no name: shape has no name
+shape error: circle -1 - bad circle size -1
+ok: <ring> 0.7853975
+load shapes.txt: bad rect size -2
+true -2 true
+true false
+{{ok} 1 1} <nil>
+{{} 0 0} recovered: interface conversion: main.Shape is *main.Circle, not main.Rect

@@ -1,0 +1,4 @@
+Small code, big speed:
+Go on the outside, C++ within.
+No collector sweeps the floor —
+each count drops to zero, and the memory is free.

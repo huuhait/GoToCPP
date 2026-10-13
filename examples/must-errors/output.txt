@@ -1,0 +1,11 @@
+error: load noport.conf: port is missing
+error: load badport.conf: strconv.Atoi: parsing "eighty": invalid syntax
+error: load badline.conf: line "listen 8080" has no '='
+error: load unknown.conf: unknown key "color"
+missing.conf: not found: true
+error: port 80 is below 1024
+config: {Name:demo Port:8080 Workers:4}
+port: 8080
+endpoint: demo:8080
+name: demo workers: 4
+main: done

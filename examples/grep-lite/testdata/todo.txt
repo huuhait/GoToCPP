@@ -1,0 +1,4 @@
+fix the database retry loop
+write tests for the cache
+Error messages should start with a lower-case letter
+errors.Is works through wrapped errors

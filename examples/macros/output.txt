@@ -1,0 +1,19 @@
+[main.gp:123] square(3) + square(4) = 25
+sum: 25
+squares: [1 4 9 16]
+counter: map[even:2450 odd:2500]
+enter main.parseEvent
+exit  main.parseEvent
+event: 1 start [boot]
+[main.gp:150] ev.Level = Info
+level: Info
+Debug Info Warn Error Level(7)
+{"id":2,"name":"stop","level":2} <nil>
+enter main.ratio
+exit  main.ratio
+ratio: 4
+enter main.ratio
+recovered in main.ratio: main.gp:113: assertion failed: b != 0: ratio(1, 0)
+exit  main.ratio
+ratio: 0
+messages built: 1

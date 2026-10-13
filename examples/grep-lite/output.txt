@@ -1,0 +1,4 @@
+testdata/app.log:3:2026-10-13 09:00:05 WARN  slow request: GET /search took 1.2s
+testdata/app.log:4:2026-10-13 09:01:10 ERROR database: connection refused
+testdata/app.log:6:2026-10-13 09:01:12 error cache: miss rate is high
+testdata/todo.txt:3:Error messages should start with a lower-case letter

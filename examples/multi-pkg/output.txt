@@ -1,0 +1,15 @@
+init codes
+init geom
+init catalog
+init main
+tent 50x30 -> shelf A code 40006 true
+kayak 35x90 -> shelf B code 40014 true
+crate 55x55 -> shelf C code 40022 true
+lamp 20x20 -> shelf A code 40030 true
+error: no shelf for sofa (120x80)
+shelf A 100x40 2 items, 2100 cm2 free
+shelf B 100x60 1 items, 2850 cm2 free
+shelf C 60x60 1 items, 575 cm2 free
+shelf area: 13600
+true false
+error: codes: 12a4 is not a number

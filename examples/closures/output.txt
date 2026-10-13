@@ -1,0 +1,18 @@
+1 2 3 10 20 4
+[2 4 6 8] [3 5 7 9] [4 6 8 10]
+0 6 10
+add 10
+mul 21
+sub 4
+div missing
+squares: [0 1 4]
+total: 10
+nil func: true non-nil: true
+enter work
+x at return: 20
+x at defer: 10
+deferred 3
+deferred 2
+deferred 1
+leave work
+work returned 42

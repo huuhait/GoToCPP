@@ -1,0 +1,9 @@
+updated: 2
+name=banana qty=60
+name=apple qty=30
+name=date qty=12
+name=cherry qty=9
+rows with qty > 10: 3
+total: 111 last: date
+error: no such table: vegetables
+insert into vegetables: false

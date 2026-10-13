@@ -1,0 +1,10 @@
+fnv1a32("") = 2166136261
+fnv1a32("a") = 3826002220
+fnv1a32("gocpp") = 2142163128
+min max sum: -2 9 18
+checksum version: 2
+Gocpp Builds C And C++ Files Together
+words: 7
+go cpp rust: 3 2 0
+distinct: 3
+top: go

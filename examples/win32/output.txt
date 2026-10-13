@@ -1,0 +1,5 @@
+MessageBoxW returned 1 true
+WM_CREATE
+WM_CLOSE
+WM_DESTROY
+exit code 0

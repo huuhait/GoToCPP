@@ -1,0 +1,1 @@
+-n -i (error|warn)\b testdata/app.log testdata/todo.txt

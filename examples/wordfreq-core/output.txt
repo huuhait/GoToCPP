@@ -1,0 +1,16 @@
+words: 48 distinct: 25
+1. is 7
+2. and 4
+3. the 4
+4. c++ 3
+5. go 3
+6. are 2
+7. fast 2
+8. gocpp 2
+longest: compiler relipmoc
+by length: map[1:1 2:6 3:5 4:3 5:3 6:2 7:3 8:2]
+not ASCII: [café naïve zürich]
+  café 5 bytes, 4 runes, reversed éfac
+  naïve 6 bytes, 5 runes, reversed evïan
+  zürich 7 bytes, 6 runes, reversed hcirüz
+repeated words: 12 café repeated: false is: 7
