@@ -1,0 +1,56 @@
+# tests/run
+
+A run test is one `.gp` program. The harness runs it in this folder with
+`gocpp run file.gp`, once per C++ compiler. It passes when stdout matches the `// Output:` block
+at the end of the file, the exit code is the expected one, and stderr is what the test allows.
+
+[slices_append.gp](slices_append.gp):
+
+```go
+// phase: 03
+
+package main
+
+import "fmt"
+
+func main() {
+	s := []int{1, 2}
+	t := append(s, 3)
+	s[0] = 9
+	fmt.Println(s, t, len(t), cap(t) >= 3)
+}
+
+// Output:
+// [9 2] [1 2 3] 3 true
+```
+
+| Line | Where | Meaning |
+|---|---|---|
+| `// phase: NN` | the first line | the phase that makes the test pass; until then the test is skipped |
+| `// ExitCode: N` | the top of the file, before the package clause | the expected exit code, 0 to 255 (default 0). A panic exits with 2, like Go |
+| `// Stderr: regexp` | the top of the file, before the package clause | stderr must match this Go regexp. It is unanchored; `(?m)` makes `^` and `$` match at every line. A test may have several, and each must match. **Without one, stderr must be empty**; `// Stderr: .*` accepts anything |
+| `//go:build expr` | the top of the file, before the package clause | a normal Go build constraint: where it excludes the target, the test is skipped ([tests/README.md](../README.md)) |
+| `// Output:` | the end of the file | the expected stdout, as in a Go example test (below) |
+
+The `// Output:` block works like the one of a Go example: each comment line after it is one
+line of output, without the `//` and one space after it, and `//` alone is an empty line. Text
+on the `// Output:` line itself is the first line (`// Output: hello`). Only comment lines may
+follow it. As in Go, space at the start and at the end of the whole output doesn't count;
+everything in between must match exactly. Spaces at the end of a comment line are dropped
+(gofmt drops them too), so output with spaces at the end of a line needs a
+[diff test](../diff/README.md). A program that prints nothing ends with `// Output:` alone.
+
+A test of a program that panics (the message is Go's):
+
+```go
+// phase: 03
+// ExitCode: 2
+// Stderr: ^panic: runtime error: index out of range \[5\] with length 3
+
+package main
+```
+
+For a program that Go can run too, take the expected output from real Go, never from memory
+([docs/CONTRIBUTING.md](../../docs/CONTRIBUTING.md) §3 shows how), or make it a
+[diff test](../diff/README.md), where real Go is the reference by itself. A test that needs a
+C/C++ library goes into [tests/interop](../interop/README.md).

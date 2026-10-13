@@ -8,19 +8,14 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 
 ---
 
-## Now: Phase 00 actions
+## Now: finish Phase 00
 
-- [ ] Write ADR-001 … ADR-021 in `docs/adr/` (summaries in Phase 00 README §2.1, your answers already in them)
-- [ ] Write `docs/spec/language.md` (diff against the Go spec), `cpp-mapping.md`, `interop.md` (v0)
-- [ ] Repo skeleton: `go.mod` (`github.com/huuhait/gocpp`), folders, `LICENSE` (BSD-3-Clause), `Makefile`, `.gitignore`, `README.md`
-- [ ] `flake.nix` dev shell (Go 1.25, clang 21, gcc 15, gdb, lldb, ninja, pkg-config, SDL2, raylib, sqlite, zlib, MinGW-w64 cross compiler, 64-bit Wine; nixpkgs nixos-26.05)
-- [ ] Test harness runners (`run`, `errors`, `golden`, `diff`, `interop`) green with zero tests
-- [ ] All 19 target programs in `examples/`, tagged with their phase (Go-compatible outputs generated with real `go run`)
-- [ ] Commit the plan and the spikes (nothing is committed yet)
+- [~] Docs follow-up 0.6b: root README, runtime and stdlib READMEs, CONTRIBUTING §3, ADR-012 link, Wine wording, `xvfb-run` in the dev shell (in review)
+- [ ] Phase 00 exit check on a clean checkout (`go build ./... && go test ./...`, `make ci`, `nix develop` tools), then mark Phase 00 done
 
 ## Then: first Phase 01 tasks
 
-- [ ] Fork `go/scanner` + `go/parser` (the dev shell's Go, 1.25.14) into `internal/syntax` with `FORK.md`
+- [~] Fork `go/scanner` + `go/parser` (the dev shell's Go, 1.25.14) into `internal/syntax` with `FORK.md` (step 1.1, started)
 - [ ] Parser patch 1: Go keywords allowed after `.` on the same line (+ tests)
 - [ ] Parser patch 2: constant expressions in type-argument lists (+ tests)
 - [ ] Parser patch 3: dotted type names such as `std.chrono.seconds` (+ tests)
@@ -71,13 +66,14 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [ ] Self-hosting: compile the gocpp compiler with gocpp
 - [ ] Procedural macros: user code generators run at compile time (AST in, AST out), after v1.0
 - [ ] `#!` shebang support so `.gp` files can run as scripts (`#!/usr/bin/env -S gocpp run`)
+- [ ] GitHub Actions running `make ci` once the repo is on GitHub (decision Q9: not yet)
 - [ ] MSVC ABI on Windows (`clang-cl`) for C++ libraries built with Visual Studio; Windows arm64
 - [ ] Inline C++ preamble (cgo style) as a shortcut for tiny helpers
 - [ ] Before v1.0: decide whether the runtime gets a license exception (like LLVM's), so programs built with gocpp owe no notice
 
 ## Done
 
-- [x] 2026-10-13: Plan written in `plans/2026-10-13-gocpp/` (README, STATE, TODO, phases)
+- [x] 2026-10-13: Plan written in `plans/2026-10-13-gocpp/` (README, STATE, TODO, phases) and committed with the spikes
 - [x] 2026-10-13: Added to the plan: `F!()` must-calls + macros (Phase 10), fast language server (Phase 11); renumbered later phases
 - [x] 2026-10-13: Spike: `F!()` via hidden generic helpers on stock `go/types` (types inferred, bad uses rejected)
 - [x] 2026-10-13: Spike: macros = functions + hidden call site + lazy args (generic `#Dbg` works; lazy arg evaluated 0 times on success)
@@ -91,3 +87,5 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] 2026-10-13: Full audit of all plans by 5 independent reviewers; verified findings fixed (see STATE log)
 - [x] 2026-10-13: Your decisions Q1–Q13 recorded and applied to every phase; new Phase 14 (Windows), hardening is now Phase 15
 - [x] 2026-10-13: Spikes for the decisions: header packages + namespace probe (clang++ and g++), must functions (two type checks, 3 runs), wrap macros (`#VM`, `#Recover`, `#InThread`, `#Once`, race-clean)
+- [x] 2026-10-13: Phase 00 steps 0.2–0.7, 0.9, 0.10: ADR-001 … ADR-021, the spec docs v0, the repo skeleton, the Nix dev shell, the 19 target programs, the contributing guide (one commit per step on branch `dev`)
+- [x] 2026-10-13: Phase 00 steps 0.8 + 0.11: the test harness (six runners, phase gating, both compilers) and `make ci`

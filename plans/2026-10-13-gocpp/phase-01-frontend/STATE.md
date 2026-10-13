@@ -1,6 +1,6 @@
 # Phase 01: Front-end · STATE
 
-**Status:** `[ ]` not started (approach validated by spike, gaps found by the audit are now planned)
+**Status:** `[~]` in progress (step 1.1 started while Phase 00's last jobs are in review; it needs nothing from them)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
@@ -9,7 +9,7 @@
 - [x] Spike: stock go/parser + go/types (FakeImportC) on interop-heavy `.gp` files (2026-10-13, 0 false errors)
 - [x] Spike re-run with the final import model: header packages, namespaces as packages, namespace probe with clang++ and g++ (typos `stdd`, `fmtt` reported) (2026-10-13)
 - [x] Check: stock go/printer + `ast.SortImports` print gocpp syntax correctly (2026-10-13)
-- [ ] 1.1 Fork go/scanner + go/parser (the dev shell's Go, 1.25.14 now) into `internal/syntax`
+- [~] 1.1 Fork go/scanner + go/parser (the dev shell's Go, 1.25.14 now) into `internal/syntax`
   - [ ] copy sources + license headers + `FORK.md` (+ `go/printer/nodes.go` for the perf test)
   - [ ] upstream tests pass unchanged
   - [ ] `update.sh` re-fork script

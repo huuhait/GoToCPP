@@ -4,9 +4,14 @@
 GO ?= go
 GOFMT ?= gofmt
 
-# The checks "make ci" runs. A later check is added here, for example the
-# GCC + Clang matrix: CI_CHECKS = lint test build cxx-matrix
+# The checks "make ci" runs. A later check is added here. The GCC + Clang
+# matrix is part of test: the test programs run with both compilers.
 CI_CHECKS = lint test build
+
+# In "make ci", a C++ compiler that isn't installed fails the test programs
+# (outside it, they skip that compiler). GOCPP_REQUIRE_CXX= make ci turns
+# this off; tests/README.md has the details.
+ci: export GOCPP_REQUIRE_CXX ?= g++,clang++
 
 # The paths "make lint" does not gofmt-check, as find(1) tests joined with -o:
 # spikes/ (throwaway code in its own Go module) and every testdata folder
@@ -25,6 +30,13 @@ build:
 
 test:
 	$(GO) test ./...
+
+# The test programs alone (tests/ and examples/, see tests/README.md),
+# verbose so that every skip says why, and never from go test's cache.
+# "make test" runs them too, as part of go test ./....
+.PHONY: test-programs
+test-programs:
+	$(GO) test -count=1 -v ./tests/...
 
 # Fails if gofmt lists a Go file outside LINT_SKIP, then runs go vet.
 lint:
