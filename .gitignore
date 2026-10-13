@@ -1,0 +1,27 @@
+# Build output: "make build", "go build ./cmd/gocpp" in the root, or a plain "go build" in cmd/gocpp
+/bin/
+/gocpp
+/cmd/gocpp/gocpp
+
+# Test binaries (go test -c) and coverage files
+*.test
+*.coverprofile
+coverage.out
+cover.out
+coverage.html
+
+# direnv
+.direnv/
+
+# Nix build results (nix build in the root)
+/result
+/result-*
+
+# Python bytecode
+__pycache__/
+
+# Editor swap and backup files (Vim .swp/.swo, Emacs)
+*.sw[a-p]
+*~
+\#*\#
+.#*
