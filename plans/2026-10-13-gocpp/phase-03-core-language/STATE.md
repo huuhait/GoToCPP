@@ -1,14 +1,14 @@
 # Phase 03: Core Language · STATE
 
-**Status:** `[ ]` not started
+**Status:** `[~]` in progress (started 2026-10-14 after M1)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
 ## Steps
 
 - [x] Spike (2026-10-13): `shared_ptr` aliasing for interior pointers, non-owning global pointers, `make_shared<T[]>` element pointers, designated init, defaulted `==`; compiled and run on GCC 15 + Clang 21
-- [ ] 3.1 Refactor into `lower` → `cppir` → printer (Phase 02 tests stay green)
-- [ ] 3.2 Runtime ownership core (`gp::ptr`, `gp::new_`, aliasing helpers, nil checks, static owners for globals, `weak` intrinsic, no plain-named members on runtime types)
+- [~] 3.1 Refactor into `lower` → `cppir` → printer (Phase 02 tests stay green)
+- [~] 3.2 Runtime ownership core (`gp::ptr`, `gp::new_`, aliasing helpers, nil checks, static owners for globals, `weak` intrinsic, no plain-named members on runtime types)
 - [ ] 3.3 Boxing analysis + owner table
   - [ ] `&x`, `&x.f`, `&x.arr[i]`, pointer-method calls (incl. on fields), `arr[:]`
   - [ ] captured + changed (incl. field/element writes, `++`, op-assign)
