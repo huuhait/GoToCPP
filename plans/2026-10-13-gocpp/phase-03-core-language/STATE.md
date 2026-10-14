@@ -35,8 +35,8 @@
   - [ ] Go 1.22 per-iteration loop variables
 - [ ] 3.12 Evaluation-order lowering for every construct (+ `&&`/`||`, loop/else-if/case shapes, two-phase assignment)
 - [ ] 3.13 `defer` with the single-exit shape (panics run defers, panicking defers, named results)
-- [~] 3.14 Runtime checks + Go panic messages + exit code 2 + `backtrace()` trace + `-nochecks` (keeps Go's defined results)
-- [~] 3.15 Remaining builtins + `fmt` shim for composite values (slices, maps sorted, structs, `&{…}`, `String()`)
+- [~] 3.14 Runtime checks + Go panic messages + exit code 2 + `backtrace()` trace + `-nochecks` (keeps Go's defined results) (3.14a runtime + driver done; 3.14b emitter side)
+- [~] 3.15 Remaining builtins + `fmt` shim for composite values (slices, maps sorted, structs, `&{…}`, `String()`) (3.15a runtime shim done; 3.15b emitter side)
 - [ ] 3.16 Package-level vars (`InitOrder`) + multiple `init()`
 - [x] 3.17 `gocppSizes` + `static_assert` sync
 - [ ] 3.18 Tests: ≥ 150 run, ≥ 60 differential, sanitizer CI job
@@ -210,3 +210,19 @@
   gp::slice's operator= copies first; 3.8 must give struct operator= the same rule. tests/run/slices_append
   waits for 3.15b, which must also remove the emitter's "printing a slice/pointer" errors in expr.go call().
   `[N]T(s)` and `&arr[i]` are 3.6b; `f(s...)` for user variadics is 3.11.
+- 2026-10-14: Job 3.14a (Go-style panic traces: the stack recorded in panic_error, our own ELF/DWARF line
+  reader and Itanium name parser, Go names and .gp file:line, Go 1.25's 50 / `...N frames elided...` / 50
+  form for deep stacks (a second full walk only past 100 frames), the `?()`/pc= fallback for stripped
+  programs; `-nochecks` for build/run with its own runtime cache entry) committed, clean after 2 review
+  rounds. The accepted differences are listed in docs/spec/cpp-mapping.md "Where the trace differs from
+  Go's". For Phase 05 (recover): every panic past 100 frames pays the full walk, recovered or not (about
+  0.4 ms at depth 1,000, 2.7 ms at 10k, 190 ms at 1M; ~64 MB held near the 4M-frame cap); make it lazy if
+  recover-heavy code needs it. For Phase 14: Windows `os::stack` should be one RtlCaptureStackBackTrace call
+  (Vista+ has no 62-frame limit; the chunks re-walk from the top). For 3.14b: an allocation that fails
+  (`make([]string, 1<<40, 1<<41)`, huge append growth) ends with an uncaught std::bad_alloc ("terminate
+  called…", exit 134); Go prints "fatal error: runtime: out of memory" and exits 2: catch it in run_main.
+- 2026-10-14: Job 3.15a (the fmt shim for composite values: Go 1.25's printArg/printValue/handleMethods,
+  fmtsort key order, reflect's read-only flags incl. embedded fields, String/Error and their panics,
+  Sprint*, %T, the strconv float and quote mirrors in src/fmt.cpp, strconv.IsPrint generated from Go 1.25)
+  committed, clean after 2 review rounds. Compile cost: hello world unchanged; each new composite type
+  printed adds ~25 ms (g++) / 13 ms (clang++); keep an eye on g++ in Phase 06's build-time budget.
