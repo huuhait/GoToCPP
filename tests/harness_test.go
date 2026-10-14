@@ -132,12 +132,13 @@ type compiler struct {
 
 // A config is the harness setup that comes from the environment.
 type config struct {
-	compilers []compiler    // GOCPP_CXX, or g++ and clang++
-	flags     []string      // GOCPP_FLAGS: more flags for gocpp run
-	timeout   time.Duration // GOCPP_TEST_TIMEOUT: the limit for one command
-	roots     []string      // the paths of the repository root, for trimRoot
-	phase     int           // GOCPP_TEST_PHASE, or version.Phase: tests of later phases are skipped
-	phaseFrom string        // where phase comes from, for skip messages: "now: Phase 00"
+	compilers  []compiler    // GOCPP_CXX, or g++ and clang++
+	flags      []string      // GOCPP_FLAGS: more flags for gocpp run
+	timeout    time.Duration // GOCPP_TEST_TIMEOUT: the limit for one command
+	roots      []string      // the paths of the repository root, for trimRoot
+	phase      int           // GOCPP_TEST_PHASE, or version.Phase: tests of later phases are skipped
+	phaseFrom  string        // where phase comes from, for skip messages: "now: Phase 00"
+	requireGDB bool          // GOCPP_REQUIRE_GDB=1: the debug tests fail instead of skipping gdb
 }
 
 var (
@@ -173,6 +174,18 @@ func loadConfig() (config, error) {
 	var err error
 	if c.phase, c.phaseFrom, err = phaseLimit(os.Getenv("GOCPP_TEST_PHASE")); err != nil {
 		return c, err
+	}
+	switch s := os.Getenv("GOCPP_REQUIRE_GDB"); s {
+	case "", "0":
+	case "1":
+		// Checked here like GOCPP_REQUIRE_CXX, so that a missing gdb fails
+		// make ci also while the debug tests are skipped by their phase.
+		if _, err := exec.LookPath("gdb"); err != nil {
+			return c, fmt.Errorf("GOCPP_REQUIRE_GDB=1 needs gdb, but it is not installed: %v", err)
+		}
+		c.requireGDB = true
+	default:
+		return c, fmt.Errorf("GOCPP_REQUIRE_GDB=%s: want 1 (gdb must run) or 0", s)
 	}
 	roots := []string{repoRoot}
 	if real, err := filepath.EvalSymlinks(repoRoot); err == nil && real != repoRoot {
@@ -350,8 +363,9 @@ type program struct {
 	skip string // why the test can't run here, or ""
 
 	header *header
-	wants  []wantError // an error test's // ERROR comments
-	ex     *example    // an example's output.txt, args.txt and stdin.txt
+	wants  []wantError   // an error test's // ERROR comments
+	ex     *example      // an example's output.txt, args.txt and stdin.txt
+	debug  *debugProgram // a debug test's funcs and // gdb: comments
 }
 
 // loadTests reads the tests in tests/<kind>: each .gp file directly in the
@@ -372,6 +386,9 @@ func loadTests(t *testing.T, f format) []*program {
 		}
 		if err == nil && f.kind == "errors" {
 			p.wants, err = parseErrors(p.path, src)
+		}
+		if err == nil && f.kind == "debug" {
+			p.debug, err = parseDebug(p.path, filepath.Join(dir, name), src)
 		}
 		p.err = err
 		progs = append(progs, p)

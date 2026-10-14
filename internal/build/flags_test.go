@@ -6,7 +6,7 @@ import (
 )
 
 func TestFlags(t *testing.T) {
-	debug := []string{"-std=c++20", "-fwrapv", "-fno-strict-aliasing", "-ffp-contract=off", "-g", "-O0"}
+	debug := []string{"-std=c++20", "-fwrapv", "-fno-strict-aliasing", "-ffp-contract=off", "-g", "-gno-column-info", "-O0"}
 	asan := []string{"-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-fno-sanitize-recover=all"}
 	for _, c := range []struct {
 		family    Family
@@ -24,6 +24,12 @@ func TestFlags(t *testing.T) {
 		}
 		if got := GeneratedFlags(cxx); !slices.Equal(got, c.gen) {
 			t.Errorf("GeneratedFlags(%v) = %q, want %q", c.family, got, c.gen)
+		}
+	}
+	// No columns in the debug info: they would be C++ columns on .gp lines.
+	for _, f := range []Family{GCC, Clang} {
+		if flags := Flags(CXX{Family: f}, false); !slices.Contains(flags, "-gno-column-info") {
+			t.Errorf("Flags(%v) = %q, without -gno-column-info", f, flags)
 		}
 	}
 	// Flags returns a new slice each time: a caller may append to it.

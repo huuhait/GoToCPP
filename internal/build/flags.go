@@ -9,7 +9,10 @@ import "slices"
 // hardening on makes a missing -O into -O2. (The same wrapper adds
 // -D_FORTIFY_SOURCE after these flags, which warns at -O0; the runtime's
 // gocpp/nofortify.h, included first by gocpp/rt.hpp, undefines it.)
-var debugFlags = []string{"-std=c++20", "-fwrapv", "-fno-strict-aliasing", "-ffp-contract=off", "-g", "-O0"}
+// -gno-column-info: the debug info gets no columns, because the columns
+// would be those of the C++ code, not of the .gp code that #line maps the
+// lines to; lldb and editors would point at the wrong place in a .gp line.
+var debugFlags = []string{"-std=c++20", "-fwrapv", "-fno-strict-aliasing", "-ffp-contract=off", "-g", "-gno-column-info", "-O0"}
 
 // asanFlags are the flags that -asan adds, to the compiles and to the
 // link: AddressSanitizer and UndefinedBehaviorSanitizer, like the

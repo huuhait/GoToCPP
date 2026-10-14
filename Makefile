@@ -14,6 +14,11 @@ CI_CHECKS = lint test build
 # this off; tests/README.md has the details.
 ci: export GOCPP_REQUIRE_CXX ?= g++,clang++
 
+# In "make ci", the debug tests (tests/debug) fail instead of skipping their
+# gdb part when gdb is missing or may not trace programs (no ptrace).
+# GOCPP_REQUIRE_GDB= make ci turns this off.
+ci: export GOCPP_REQUIRE_GDB ?= 1
+
 # The paths "make lint" does not gofmt-check, as find(1) tests joined with -o:
 # spikes/ (throwaway code in its own Go module) and every testdata folder
 # (test inputs need not be gofmt-clean, for example Go's own parser testdata

@@ -1,6 +1,6 @@
 # Phase 02: Walking Skeleton · STATE
 
-**Status:** `[~]` in progress (steps 2.1–2.4 and 2.6–2.9 done)
+**Status:** `[~]` in progress (steps 2.1–2.4, 2.6–2.9 and 2.11 done)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
@@ -32,7 +32,7 @@
 - [x] 2.8 Driver: `build`, `run`, `emit`, `-x`, `-work`, `-asan`, compiler detection, embedded runtime
 - [x] 2.9 Internal-error path for C++ compile failures
 - [ ] 2.10 Tests: ≥ 25 run tests, 3 golden, ≥ 25 differential vs Go (promotion, order, shadowing, float format, float→int, stdout/stderr order)
-- [~] 2.11 Debug test: gdb batch + line-table check
+- [x] 2.11 Debug test: gdb batch + line-table check
 
 ## Exit criteria
 
@@ -133,3 +133,8 @@
   itself, gdb shows the not-yet-set inner v. Owner: a small job after 2.5 (or inside 2.10).
 - 2026-10-14 (debug review 2.11): README §2.8 says `objdump -l`; the check uses Go's debug/dwarf (no
   external tool). Line-table check on every phase-gated run test: Phase 03 (needs `gocpp build` + run).
+- 2026-10-14: Job 2.11 (the debug test, `tests/debug/` + `tests/debug.go`) committed, clean after 2 review
+  rounds: gdb batch sessions (breakpoints by .gp line, `next` in .gp order, locals by Go names, `bt`)
+  and a DWARF line-table check (Go's debug/dwarf) on both compilers, ~1 s. `make ci` sets
+  `GOCPP_REQUIRE_GDB=1` (a missing gdb or a ptrace refusal fails instead of skipping). The driver
+  now passes `-gno-column-info` (the DWARF columns were C++ columns).

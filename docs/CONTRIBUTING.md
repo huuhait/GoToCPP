@@ -59,7 +59,7 @@ The plan files (root [README](../plans/2026-10-13-gocpp/README.md) §9):
 | `runtime/` | the C++20 runtime: `include/gocpp/*.hpp`, `src/*.cpp`, `src/os/{linux,windows}/` |
 | `stdlib/` | the standard packages: `.gp` files and native `.cpp` files |
 | `tools/` | helper programs: `portstd` (copies Go's standard library, Phase 09) and the generator for the example outputs |
-| `tests/` | the test harness and its folders `run/`, `errors/`, `golden/`, `diff/`, `interop/` (§3, [tests/README.md](../tests/README.md)) |
+| `tests/` | the test harness and its folders `run/`, `errors/`, `golden/`, `diff/`, `interop/`, `debug/` (§3, [tests/README.md](../tests/README.md)) |
 | `examples/` | the target programs, each tagged with the phase that must make it pass |
 | `editors/vscode/` | syntax highlighting and the language server client |
 | `docs/` | `spec/`, `adr/`, `guides/` and this file ([index](README.md)) |
@@ -91,6 +91,7 @@ The runtime's C++ unit tests are separate (§5). The test folders
 | `tests/golden/` | a `.gp` file and a `.cpp.golden` snapshot of its generated C++ | the generated C++ matches the snapshot; `-update` rewrites the snapshots |
 | `tests/diff/` | a `.gp` program that uses only the Go-compatible part of gocpp | real Go and `gocpp run` print the same stdout and exit with the same code. A `// diff: stderr` line also compares stderr, and `// diff: combined` compares both streams merged into one |
 | `tests/interop/` | a run test for a program that uses C/C++ headers or libraries | like `run/`; skipped with a message when `pkg-config --exists` doesn't find a library of its `// pkg-config: …` line |
+| `tests/debug/` | a `.gp` program with `// gdb:` comments at the end of lines: `print x = 12`, `bt …`, `next N …` | its DWARF line table maps its code to the right `.gp` lines, and gdb (batch mode) stops at those lines and shows those values; the gdb part is skipped when gdb is missing, except in `make ci` (`GOCPP_REQUIRE_GDB=1`) |
 | `examples/` | a target program: a folder with `main.gp` and `output.txt` | `gocpp run . <args>`, run in that folder, prints `output.txt` and exits with the expected code |
 
 Keep the golden set small, and change a snapshot only on purpose.
@@ -114,8 +115,8 @@ an example's output with its `output.txt`, a diff test's output with real Go's, 
 test's C++ with its snapshot. The full formats are in [tests/README.md](../tests/README.md)
 (and the README in each test folder) and in [examples/README.md](../examples/README.md).
 
-The run, interop, diff, golden and example tests run once with `g++` and once with `clang++`
-(`GOCPP_CXX=clang++` tests with clang++ only). Outside CI, a missing compiler is a skip.
+The run, interop, diff, golden, debug and example tests run once with `g++` and once with
+`clang++` (`GOCPP_CXX=clang++` tests with clang++ only). Outside CI, a missing compiler is a skip.
 `make ci` sets `GOCPP_REQUIRE_CXX=g++,clang++`, so there it is a failure. While you build phase
 NN, `GOCPP_TEST_PHASE=NN` runs the tests up to that phase. `GOCPP_FLAGS` passes more flags to
 `gocpp run`, for example `GOCPP_FLAGS=-asan` (ASan and UBSan) for the sanitizer run that CI

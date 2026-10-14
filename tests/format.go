@@ -1,7 +1,8 @@
 // Package tests is the gocpp test harness. The harness is the test file
 // harness_test.go: one Go test binary that finds the test programs in
-// tests/run, tests/errors, tests/golden, tests/diff, tests/interop and
-// examples/, and runs each one through a gocpp binary that it builds.
+// tests/run, tests/errors, tests/golden, tests/diff, tests/interop,
+// tests/debug (debug_test.go) and examples/, and runs each one through a
+// gocpp binary that it builds.
 //
 // This file has the parts that need no gocpp binary: the readers of the
 // test formats and the code that compares results. README.md describes the
@@ -91,6 +92,7 @@ var (
 	goldenFormat  = format{"golden", goBuildLine, true}
 	diffFormat    = format{"diff", diffLine | goBuildLine, true}
 	interopFormat = format{"interop", outputLine | exitCodeLine | stderrLine | pkgConfigLine | goBuildLine, true}
+	debugFormat   = format{"debug", goBuildLine, true} // and the // gdb: comments (debug.go)
 
 	// An example's main.gp is a normal program with doc comments, which may
 	// start like a comment line of another format ("// Output: a table"),

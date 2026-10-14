@@ -10,6 +10,7 @@ go test ./tests/...                        # every test program
 go test ./tests/... -v                     # also list each test, and why it is skipped
 go test ./tests/... -run 'Run/'            # only tests/run
 go test ./tests/... -run 'Examples/hello'  # one example, with each compiler
+go test ./tests/... -run 'Debug/hello'     # one debug test (line table and gdb)
 go test ./tests/... -run Golden -update    # rewrite the golden snapshots
 make test-programs                         # go test -count=1 -v ./tests/...
 ```
@@ -21,6 +22,7 @@ make test-programs                         # go test -count=1 -v ./tests/...
 | `TestGolden` | [golden/](golden/README.md) | a `.gp` file and its `.cpp.golden` snapshot | `gocpp emit` prints the snapshot |
 | `TestDiff` | [diff/](diff/README.md) | a `.gp` program that is valid Go | `gocpp run` and real Go print the same stdout (with a `// diff:` line, also stderr) and exit with the same code |
 | `TestInterop` | [interop/](interop/README.md) | a run test that uses C/C++ libraries | like `TestRun`; skipped when `pkg-config` can't find a library |
+| `TestDebug` | [debug/](debug/README.md) | a `.gp` program with `// gdb:` comments (stops with `print`, `bt` and `next`) | its binary's DWARF line table maps the program's code to the right `.gp` lines (and nothing else to the `.gp` file), and a gdb session in batch mode stops at the `.gp` lines and shows what the comments say; the gdb part is skipped when gdb is missing or may not trace programs (a failure with `GOCPP_REQUIRE_GDB=1`, as in `make ci`) |
 | `TestExamples` | [examples/](../examples/README.md) | a folder `examples/<name>/` with `main.gp` and `output.txt` | `gocpp run . <args>`, in the example's folder, prints `output.txt` (see [below](#examples)) |
 
 In `tests/<folder>/`, each `.gp` file directly in the folder is one test. Other files (the
@@ -50,12 +52,17 @@ the log).
 
 ## Compilers
 
-Each run, interop, diff, golden and example test runs once per C++ compiler, as the subtests
-`g++` and `clang++`; gocpp gets the compiler in `GOCPP_CXX`. A compiler that isn't installed
-is a skip with a message. In `make ci` it is a failure instead: `make ci` sets
+Each run, interop, diff, golden, debug and example test runs once per C++ compiler, as the
+subtests `g++` and `clang++`; gocpp gets the compiler in `GOCPP_CXX`. A compiler that isn't
+installed is a skip with a message. In `make ci` it is a failure instead: `make ci` sets
 `GOCPP_REQUIRE_CXX=g++,clang++`, and then every runner fails when one of those compilers is
 missing (or left out with `GOCPP_CXX`). To pick one compiler, set `GOCPP_CXX`, or anchor the
 subtest name: `-run 'Run//^g\+\+$'` (`clang++` contains `g++`).
+
+The debug tests also need gdb. Without it, or where gdb may not trace programs (no `ptrace` in
+some containers and sandboxes), their gdb part is a skip. `make ci` also sets
+`GOCPP_REQUIRE_GDB=1`, which makes both a failure (a missing gdb fails every runner, like a
+missing compiler).
 
 ## Examples
 
@@ -79,12 +86,13 @@ subtest name: `-run 'Run//^g\+\+$'` (`clang++` contains `g++`).
 |---|---|---|
 | `GOCPP_CXX` | `g++` and `clang++` | test with this compiler only, for example `GOCPP_CXX=clang++` (a path works too) |
 | `GOCPP_REQUIRE_CXX` | none (`g++,clang++` in `make ci`) | a comma list of compilers that must be tested: one that is missing fails the tests instead of being skipped |
+| `GOCPP_REQUIRE_GDB` | none (`1` in `make ci`) | `1`: gdb must run the debug tests: a missing gdb, or a gdb that may not trace programs, fails the tests instead of skipping the gdb part |
 | `GOCPP_FLAGS` | none | more flags for `gocpp run`, split on spaces, for example `GOCPP_FLAGS=-asan` for a sanitizer run |
 | `GOCPP_TEST_PHASE` | `Phase` of internal/version | run the tests up to this phase (00 to 15), for example `GOCPP_TEST_PHASE=01` while you build Phase 01 |
 | `GOCPP_TEST_TIMEOUT` | `2m` | the time limit of one command (one `gocpp run`, one `go build`), as a Go duration |
 
 `make` passes them on: `GOCPP_CXX=g++ make test`. `GOCPP_REQUIRE_CXX= make ci` turns the
-compiler requirement of `make ci` off. A malformed value fails the tests with a message.
+compiler requirement of `make ci` off, and `GOCPP_REQUIRE_GDB= make ci` the gdb requirement. A malformed value fails the tests with a message.
 
 Each command that a test runs has that time limit, and it is also stopped 5 seconds before
 go test's own `-timeout` (10 minutes by default) runs out, so that its test fails with a message
@@ -104,7 +112,7 @@ in `bin/`).
 `go test` caches the results. The harness tells it what the results depend on: the files in
 `cmd/`, `internal/`, `runtime/` and `stdlib/` (the gocpp binary is built from them), the test
 files, the examples and the variables above (also `DISPLAY` and `WAYLAND_DISPLAY`). It can't
-see the compilers or the libraries: after you change those, run with `-count=1`. (Like any
+see the compilers, gdb or the libraries: after you change those, run with `-count=1`. (Like any
 flag outside go test's short list, `-update` turns the cache off by itself.)
 
 ## testdata/

@@ -198,10 +198,12 @@ $XDG_CACHE_HOME/gocpp/gen/<main module>/gpkg/<import path>/
   [first example](#a-first-example).
 - Until then, `gocpp build` and `gocpp run` write that file into a temporary work folder
   (`-work` keeps it, `-x` shows the commands) and compile it with
-  `-std=c++20 -fwrapv -fno-strict-aliasing -ffp-contract=off -g -O0`, plus `-Qunused-arguments`
-  for clang. Valid Go can make the compilers warn about generated code that is right, so that code
-  also gets `-Wno-tautological-compare` (clang) or `-Wno-overflow` (g++); every other warning
-  stays visible. The runtime comes from the gocpp binary: it is extracted once into the user
+  `-std=c++20 -fwrapv -fno-strict-aliasing -ffp-contract=off -g -gno-column-info -O0`, plus
+  `-Qunused-arguments` for clang. The debug info has no columns (`-gno-column-info`): they would
+  be the columns of the C++ code, and debuggers would show them on `.gp` lines. Valid Go can
+  make the compilers warn about generated code that is right, so that code also gets
+  `-Wno-tautological-compare` (clang) or `-Wno-overflow` (g++); every other warning stays
+  visible. The runtime comes from the gocpp binary: it is extracted once into the user
   cache folder (`$XDG_CACHE_HOME` or `~/.cache` on Linux), to `gocpp/rt/<version>-<hash>/`, and
   its object files are kept there, per compiler and flags.
 - `gocpp run` exits like the program: with its exit status, or, when a signal kills the
