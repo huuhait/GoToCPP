@@ -12,7 +12,7 @@
   - [x] the runtime's macro names (`EOF`, `errno`, `assert`, `stdin`, …)
   - [x] `gp_` temporaries
   - [x] shadowing renames (`v := v`, `x := x + 1`)
-- [ ] 2.3 Expressions
+- [~] 2.3 Expressions
   - [ ] constants via `go/constant` (all basic types, big values)
   - [ ] string literal escaping (octal, never `\x`)
   - [ ] operators (incl. `&^`, unary `^`) + **small-integer cast rule** (int8/int16/uint8/uint16)
