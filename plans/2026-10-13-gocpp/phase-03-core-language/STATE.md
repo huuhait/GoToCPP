@@ -29,7 +29,7 @@
   - [x] local types hoisted to namespace scope
   - [x] dependency ordering + recursive types
 - [x] 3.9 Named non-struct types (`gp::newtype`) + implicit conversions where types differ + `switch` on underlying value
-- [~] 3.10 Methods (3.10a done: methods; 3.10b: method values and expressions, after 3.11) (value receivers copy, held reference for non-local receivers, pointer receivers, method values/expressions)
+- [~] 3.10 Methods (3.10a done: methods; 3.10b: method values and expressions, in progress) (value receivers copy, held reference for non-local receivers, pointer receivers, method values/expressions)
 - [x] 3.11 Func values (by-value params), variadics, closures
   - [x] capture analysis (by value vs boxed; large captures shared)
   - [x] Go 1.22 per-iteration loop variables
