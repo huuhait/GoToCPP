@@ -13,14 +13,20 @@ Linux and Windows.
 
 ## Status
 
-Phase 00 (foundations) is done: the repo skeleton, the dev shell, the decision records
-([docs/adr/](docs/adr/README.md)), the language spec ([docs/spec/](docs/spec/README.md)), the
-test harness ([tests/](tests/README.md)) and the 19 target programs
-([examples/](examples/README.md)) are in place. Phase 01 (the front-end) is under way.
-Nothing compiles `.gp` files yet, but `gocpp fmt` works: it formats `.gp` files like gofmt
-(`gocpp fmt -h` explains how), and `gocpp check` parses and type-checks packages and prints
-their errors like `go build` (`gocpp check ./...`; `gocpp check -h` explains how). A command
-that is not built yet says which phase builds it.
+Phase 00 (foundations) and Phase 01 (the front-end) are done; Phase 02 (the walking skeleton) is
+under way. What works today:
+
+- `gocpp fmt` formats `.gp` files like gofmt (`gocpp fmt -h`).
+- `gocpp check` parses and type-checks packages, C/C++ header imports included, and prints their
+  errors like `go build` (`gocpp check ./...`; `gocpp check -h`). Features of later phases get a
+  "not supported yet (Phase NN)" error; [docs/spec/feature-matrix.md](docs/spec/feature-matrix.md)
+  lists them.
+- `gocpp build`, `gocpp run` and `gocpp emit` compile programs of the Phase 02 subset (basic
+  types, functions, loops, `switch`, labels, `fmt.Println`) to C++20 and build them with g++ or
+  clang++: [examples/hello](examples/hello/main.gp), [fizzbuzz](examples/fizzbuzz/main.gp) and
+  [primes](examples/primes/main.gp) run, and gdb can debug them at the `.gp` level.
+
+A command that is not built yet says which phase builds it.
 
 - The plan: [plans/2026-10-13-gocpp/README.md](plans/2026-10-13-gocpp/README.md)
 - Progress: [plans/2026-10-13-gocpp/STATE.md](plans/2026-10-13-gocpp/STATE.md)
