@@ -83,3 +83,11 @@
   0x0, and the pc is masked. For 3.17: `weak.Pointer` is 24 B in gocpp (gocppSizes must special-case
   it; Go's declaration would give 16). Phase 15 notes: one shared count for all pointers to globals
   (per-package owners), and large values held alive (memory, not the object) by weak pointers.
+- 2026-10-14 (3.1 review): the cppir printer prints a Lambda on one line (an expression is a string);
+  step 3.11 (closures) or 3.13 (defer) must lay out non-inline lambda bodies over several lines (the
+  header ends the line, the body is indented with a `#line` per .gp statement, `}` plus the rest of the
+  statement at Body.End), so closure bodies stay steppable in gdb.
+- 2026-10-14 (3.2 round 2): slices and maps (3.5, 3.7) must release their owners through
+  `gp::detail::release` (the long-chain trampoline); recover (Phase 05) must call
+  `gp::detail::clear_signal()`. The depth limit (1000) needs ~0.5–1 MB of stack: Phase 08's thread
+  stacks must allow that or lower the limit.

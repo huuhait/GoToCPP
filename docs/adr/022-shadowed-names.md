@@ -58,4 +58,4 @@ the Go name, with no error. Debugging by Go names is a promise of
 ## See
 
 - [Phase 02 README §2.2](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/README.md#22-backend-structure-internalcppgen)
-  and §2.8; `internal/cppgen/names.go` and `stmt.go`; [cpp-mapping.md](../spec/cpp-mapping.md).
+  and §2.8; `internal/lower/names.go` and `stmt.go` (moved from `internal/cppgen` in Phase 03 step 3.1); [cpp-mapping.md](../spec/cpp-mapping.md).
