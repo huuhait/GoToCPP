@@ -171,10 +171,11 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.
 	case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ:
 		a, b := fg.expr(x), fg.expr(y) // first, so that an operand's own error comes first
 		if (op == token.EQL || op == token.NEQ) && (isPointer(fg.typeOf(x)) || isPointer(fg.typeOf(y)) ||
-			isSlice(fg.typeOf(x)) || isSlice(fg.typeOf(y)) || isArray(fg.typeOf(x))) {
+			isSlice(fg.typeOf(x)) || isSlice(fg.typeOf(y)) || isArray(fg.typeOf(x)) ||
+			isMap(fg.typeOf(x)) || isMap(fg.typeOf(y))) {
 			// p == q compares the addresses, p == nil is p == nullptr (gp::ptr's ==; C++20
-			// writes != and nil == p from it). A slice compares only with nil: s == nullptr.
-			// Arrays compare their elements (gp::array's ==).
+			// writes != and nil == p from it). A slice or a map compares only with nil:
+			// s == nullptr. Arrays compare their elements (gp::array's ==).
 			return &cppir.Binary{Op: op.String(), X: at(a, precShift), Y: at(b, precShift)}
 		}
 		if fg.operandType(pos, op, x) == nil {
@@ -354,6 +355,9 @@ func (fg *funcGen) unary(e *ast.UnaryExpr) cppir.Expr {
 // element itself, a T& that can be assigned, after gp::slice's bounds check.
 func (fg *funcGen) index(e *ast.IndexExpr) cppir.Expr {
 	t := fg.g.info.TypeOf(e.X)
+	if isMap(t) {
+		return fg.mapRead(e) // step 3.7, maps.go
+	}
 	if arrayOf(t) != nil {
 		return fg.arrayIndex(e) // arrays.go
 	}
@@ -398,9 +402,10 @@ func (fg *funcGen) slice(e *ast.SliceExpr) cppir.Expr {
 	return call("gp::sub", x, lo, fg.intExpr(e.High))
 }
 
-// builtin returns the C++ of a call of the builtin len, cap, panic, new, make, append, copy or
-// clear. (A constant len(s) was folded before.) new(T) is gp::new_<T>(), a pointer to a new
-// zero T; len and cap are gp::len and gp::cap; the slice builtins are slices.go's.
+// builtin returns the C++ of a call of the builtin len, cap, panic, new, make, append, copy,
+// clear or delete. (A constant len(s) was folded before.) new(T) is gp::new_<T>(), a pointer to
+// a new zero T; len and cap are gp::len and gp::cap; the slice builtins are slices.go's, the
+// map builtins maps.go's.
 func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 	arg := c.Args[0]
 	if name == "new" {
@@ -414,12 +419,15 @@ func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 	case "len", "cap":
 		// len and cap of an array, or of a pointer to one, are N: a constant unless the
 		// argument has calls (gp::len(f()) evaluates f, and doesn't dereference a pointer).
-		if !isSlice(t) && arrayOf(t) == nil && (name == "cap" || b == nil || b.Info()&types.IsString == 0) {
+		if !isSlice(t) && arrayOf(t) == nil && !(name == "len" && isMap(t)) && (name == "cap" || b == nil || b.Info()&types.IsString == 0) {
 			fg.g.unsupported(c.Pos(), name+" of "+tname+" (Phase 03)")
 			return placeholder
 		}
 		return call("gp::"+name, fg.expr(arg))
-	case "make", "append", "copy", "clear":
+	case "make", "append", "copy", "clear", "delete":
+		if isMap(t) {
+			return fg.mapBuiltin(c, name) // step 3.7, maps.go
+		}
 		return fg.sliceBuiltin(c, name)
 	default: // panic
 		if b == nil {
@@ -470,6 +478,9 @@ func (fg *funcGen) conversion(c *ast.CallExpr, to types.Type) cppir.Expr {
 	}
 	if isSlice(to) || isSlice(from) {
 		return fg.sliceConversion(c, to, from)
+	}
+	if isMap(to) {
+		return fg.mapConversion(c, to, from) // maps.go
 	}
 	tb, fb := basicOf(to), basicOf(from)
 	if tb == nil || fb == nil {

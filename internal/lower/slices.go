@@ -55,6 +55,9 @@ import (
 // more than the largest index.
 func (fg *funcGen) compositeLit(e *ast.CompositeLit) cppir.Expr {
 	t := fg.g.info.TypeOf(e)
+	if isMap(t) {
+		return fg.mapLit(e) // step 3.7, maps.go
+	}
 	st, ok := types.Unalias(t).(*types.Slice)
 	if !ok {
 		fg.g.unsupported(e.Lbrace, "composite literals of type "+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))+" (Phase 03)")

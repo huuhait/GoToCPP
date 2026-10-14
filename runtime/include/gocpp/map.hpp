@@ -27,8 +27,8 @@
 // Reads never insert (unlike C++'s operator[]). A nil map reads like an empty one: gp::get
 // gives the zero value, gp::lookup {zero, false}, gp::len 0, gp::erase and gp::clear do
 // nothing and a range has no iterations. Writes to a nil map (gp::set, gp::ref) panic with
-// Go's "assignment to entry in nil map". make's size hint only reserves room: a negative one
-// counts as 0, as in Go, and one too big to allocate is ignored.
+// Go's "assignment to entry in nil map". make's size hint only reserves room (for at most 2^20
+// entries): a negative one counts as 0, as in Go, and a hint never fails.
 //
 // Keys can have every comparable type that gocpp/hash.hpp hashes: bools, numbers, strings,
 // pointers, and structs and arrays through their gp_hash(). Equality is K's ==: so NaN keys
@@ -78,6 +78,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <memory>
+#include <new>
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
@@ -265,12 +266,19 @@ static_assert(sizeof(map<int64_t, int64_t>) == 16,
               "gp::map is 16 bytes: a std::shared_ptr to the table (D15)");
 
 // make_map<K, V>(): make(map[K]V), an empty map (not nil). make_map<K, V>(n): with room for
-// about n entries. A negative n counts as 0, as in Go; an n whose entries couldn't be
-// allocated (beyond Go's maxAlloc) is ignored, as Go does.
+// about n entries, but for at most detail::max_map_reserve (2^20) of them: reserve allocates
+// std::unordered_map's bucket array at once, while Go allocates a huge map's table only as it
+// fills, so make(map[string]int, 1<<40) runs in Go and must not fail here. A larger table grows
+// as it fills. A negative n counts as 0, as in Go, and so does an n whose room can't be
+// allocated: a hint never panics.
 template <typename K, typename V>
 map<K, V> make_map() {
     return map<K, V>(std::make_shared<detail::map_impl<K, V>>());
 }
+
+namespace detail {
+inline constexpr uint64_t max_map_reserve = uint64_t(1) << 20;
+} // namespace detail
 
 template <typename K, typename V, go_int H>
 map<K, V> make_map(H hint) {
@@ -281,9 +289,16 @@ map<K, V> make_map(H hint) {
     } else {
         positive = hint != 0;
     }
-    if (positive && static_cast<uint64_t>(hint) <=
-                        static_cast<uint64_t>(detail::max_alloc) / (sizeof(K) + sizeof(V))) {
-        m.gp_get()->gp_t.reserve(static_cast<std::size_t>(hint));
+    if (positive) {
+        uint64_t n = static_cast<uint64_t>(hint);
+        if (n > detail::max_map_reserve) {
+            n = detail::max_map_reserve;
+        }
+        try {
+            m.gp_get()->gp_t.reserve(static_cast<std::size_t>(n));
+        } catch (const std::bad_alloc&) {
+            // No room: an empty table, which grows as it fills (Go ignores such a hint too).
+        }
     }
     return m;
 }
@@ -406,7 +421,8 @@ void clear(const map<K, V>& m) {
 
 // map_range is the state of `for k, v := range m` (above). After each successful
 // range_next, gp_key() and gp_value() are the entry's key and its current value; they stay
-// valid until the next range_next or a delete or clear of that map. Copy them.
+// valid until the next range_next or a delete or clear of that map. Copy them (or read the
+// value later with range_value).
 template <typename K, typename V>
 struct map_range {
     map<K, V> gp_m;                              // the map, evaluated once
@@ -462,6 +478,25 @@ bool range_next(map_range<K, V>& it) {
         }
     }
     return false;
+}
+
+// range_value(it): the value of the range's current entry as it is now, when code ran since
+// range_next: the emitter reads it after the targets' operands of for k, v = range m (step
+// 3.7b), whose calls may store into the entry, delete it or clear the map (gp_value() would
+// dangle then). It gives the entry's current value, as Go does, or the zero value if the entry
+// is gone (Go reads its cleared slot).
+template <typename K, typename V>
+V range_value(const map_range<K, V>& it) {
+    detail::map_impl<K, V>* impl = it.gp_m.gp_get();
+    if (impl->gp_erases == it.gp_erases) {
+        return it.gp_cur->second; // nothing was removed since the range started
+    }
+    const detail::map_snap<K, V>& s = it.gp_snap[it.gp_next - 1];
+    if (detail::self_equal(s.gp_k, s.gp_k)) {
+        auto f = detail::map_find(*impl, s.gp_k, s.gp_h);
+        return f == impl->gp_t.end() ? V() : f->second;
+    }
+    return impl->gp_clears == it.gp_clears ? s.gp_e->second : V(); // a NaN key: only a clear
 }
 
 } // namespace gp

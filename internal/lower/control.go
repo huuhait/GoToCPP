@@ -429,6 +429,9 @@ func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 	case isSlice(xt):
 		fg.rangeIter(s, "gp::range_slice", func(it cppir.Expr) cppir.Expr { return &cppir.Call{Fun: &cppir.Member{X: it, Name: "gp_v"}} })
 		return
+	case isMap(xt):
+		fg.rangeIter(s, "gp::range_map", func(it cppir.Expr) cppir.Expr { return &cppir.Call{Fun: &cppir.Member{X: it, Name: "gp_value"}} })
+		return
 	case arrayOf(xt) != nil:
 		if fg.rangeArray(s) { // arrays.go: with a value variable
 			return
@@ -442,20 +445,20 @@ func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 	// The type of the counter (the spec, "For statements with range clause"): n's type, or
 	// for an untyped constant n the type of a variable that exists, or else int.
 	t := xt
-	var key *types.Var      // a new range variable
-	var assigned cppir.Expr // the C++ of a variable that exists
+	var key *types.Var // a new range variable
+	assigned := false  // the key is a variable that exists, or another target (s[i], m[k])
 	if s.Key != nil && !isBlank(s.Key) {
 		if s.Tok == token.DEFINE {
 			key, _ = fg.g.info.Defs[s.Key.(*ast.Ident)].(*types.Var)
 		} else {
-			assigned = fg.expr(s.Key)
+			assigned = true
 		}
 	}
 	if b.Info()&types.IsUntyped != 0 {
 		switch {
 		case key != nil:
 			t = key.Type()
-		case assigned != nil:
+		case assigned:
 			t = fg.g.info.TypeOf(s.Key)
 		default:
 			t = types.Typ[types.Int]
@@ -497,9 +500,14 @@ func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 		}
 	case key != nil:
 		l.vars = func() { fg.add(varDecl(fg.g.pos(s.Key.Pos()), ct, fg.names.declare(key), cxxName(i))) }
-	case assigned != nil:
+	case assigned:
+		// As by s.Key = gp_i0 at the start of each iteration: the target's operands first (with
+		// their own order), then the store (gp::set for a map entry).
 		l.vars = func() {
-			fg.add(&cppir.ExprStmt{Pos: fg.g.pos(s.Key.Pos()), X: &cppir.Assign{Op: "=", X: assigned, Y: cxxName(i)}})
+			line := &cppir.Line{Pos: fg.g.pos(s.Key.Pos())}
+			line.Stmts = append(line.Stmts, fg.order(false, targetOperands([]ast.Expr{s.Key})...)...)
+			line.Stmts = append(line.Stmts, &cppir.ExprStmt{X: fg.lhs(s.Key).assignExpr(cxxName(i))})
+			fg.add(line)
 		}
 	}
 	fg.loopBody(l)
@@ -529,6 +537,11 @@ func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 // iteration, as by i, r = gp_i, gp_r: the operands of a target that is not a variable (for i,
 // s[i] = range ...) are evaluated before the stores, each iteration (saveOperands); a blank one,
 // or one that is left out (for range s, for _, r := range s), is neither.
+//
+// A map (step 3.7) is the same loop, gp::range_map(m), with the key gp_it0.gp_key() (rangeKey)
+// and the value gp_it0.gp_value(): the iterator holds the map and a snapshot of its entries
+// (gocpp/map.hpp), so a key deleted before it is reached is skipped, its value is read when it
+// is reached, and a key added during the loop is not produced (Go may or may not produce it).
 func (fg *funcGen) rangeIter(s *ast.RangeStmt, start string, value func(it cppir.Expr) cppir.Expr) {
 	pre := fg.order(false, s.X)
 	if len(pre) > 0 {
@@ -551,7 +564,7 @@ func (fg *funcGen) rangeIter(s *ast.RangeStmt, start string, value func(it cppir
 		value cppir.Expr
 	}
 	var vars []rangeVar
-	key := &cppir.Member{X: cxxName(it), Name: "gp_i"}
+	key := rangeKey(start, cxxName(it)) // gp_i, or a map's gp_key() (maps.go)
 	for _, v := range []rangeVar{{e: s.Key, value: key}, {e: s.Value, value: value(cxxName(it))}} {
 		if v.e == nil || isBlank(v.e) {
 			continue
@@ -575,6 +588,13 @@ func (fg *funcGen) rangeIter(s *ast.RangeStmt, start string, value func(it cppir
 				lhs := make([]ast.Expr, len(vars))
 				for i, v := range vars {
 					lhs[i] = v.e
+				}
+				if start == "gp::range_map" {
+					// The key and the value are references into the map's entry, which a call
+					// in the targets' operands can delete (maps.go).
+					for i, v := range vars {
+						line.Stmts = append(line.Stmts, fg.rangeMapVar(targetOperands(lhs), v.e == s.Key, cxxName(it), &vars[i].value)...)
+					}
 				}
 				line.Stmts = append(line.Stmts, fg.order(false, targetOperands(lhs)...)...)
 				targets := make([]target, len(vars))

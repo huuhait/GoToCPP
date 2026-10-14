@@ -30,8 +30,12 @@ import (
 // it and a pointer into it), of a boxed local array that the calls change through a pointer,
 // assignments of whole arrays (also with a store into the new array in the same assignment),
 // range over arrays (a copy when the body could change the array, or through a pointer: no
-// copy), &a[i] and a[lo:hi] that share the array, and == of arrays. It compares what each prints
-// with real Go, on both compilers.
+// copy), &a[i] and a[lo:hi] that share the array, and == of arrays, and maps (step 3.7): reads,
+// stores, op=, ++, v, ok and delete of a package map that the calls change (they store, delete
+// and make a new map), of a local map that shares its table with a package map, and of a map of
+// slices (m[k] = append(m[k], x)), map literals with constant and other keys that can be equal,
+// and range over maps; no output depends on the order of a map's range (gocpp's isn't Go's: D8).
+// It compares what each prints with real Go, on both compilers.
 //
 //	GOCPP_RANDOM_TESTS=1 go test ./internal/cppgen -run TestRandomOrder
 //
@@ -152,6 +156,7 @@ func e(tag, v int) int {
 	}
 	reshape(tag)
 	rearray(tag)
+	remap(tag)
 	return v
 }
 
@@ -208,6 +213,29 @@ func rearray(tag int) {
 	}
 	if tag%7 == 3 {
 		gas = gar[tag&1 : 2+tag&1]
+	}
+}
+
+// gmp has keys in 0..3; e deletes from it, stores into it and makes a new one. gml shares its
+// table with main's local map lm, so a call changes a local map. gms is a map of slices.
+var gmp = map[int]int{0: 1, 2: 3}
+var gml = map[int]int{1: 1}
+var gms = map[int][]int{}
+
+func remap(tag int) {
+	switch tag % 5 {
+	case 1:
+		delete(gmp, tag&3)
+	case 2:
+		gmp[tag&3] += tag
+	case 3:
+		gml[tag&3] = tag
+	case 4:
+		if tag%3 == 0 {
+			gmp = map[int]int{tag & 3: tag, 3: -tag}
+		} else {
+			gms[tag&3] = append(gms[tag&3], tag)
+		}
 	}
 }
 
@@ -284,12 +312,23 @@ func (g *progGen) program() string {
 	g.printf("lap := &la")
 	g.printf("las := la[1:3]")
 	g.ptrs = []string{"pg", "pl", "lp", "psl", "lsp", "gpa"}
+	g.printf("lm := gml") // shares gml's table
+	g.printf("var mv int")
+	g.printf("var mok bool")
 	g.main = true
 	g.stmts(14)
 	g.printf("fmt.Println(l0, l1, l2, g0, g1, gs, gb, g8, *pg, *lp)")
 	g.printf("fmt.Println(gsl[0], gsl[1], gsl[2], gsl[3], gsl[4], gal[0], gal[1], len(gsl), *psl, ls[0], ls[1], ls[2], ls[3], *lsp)")
 	g.printf("fmt.Println(len(lb), lb[0], lb[1], lb[2], len(*psb))")
 	g.printf("fmt.Println(gar[0], gar[1], gar[2], gar[3], gas[0], gas[1], *gpa, la[0], la[1], la[2], la[3], las[0], las[1], lap[3], gar == la)")
+	g.printf("fmt.Println(len(gmp), gmp[0], gmp[1], gmp[2], gmp[3], len(lm), lm[0], lm[1], lm[2], lm[3], mv, mok)")
+	g.printf("for k := range 4 {")
+	g.printf("\tfmt.Print(len(gms[k]), \":\")")
+	g.printf("\tfor _, x := range gms[k] {")
+	g.printf("\t\tfmt.Print(\" \", x)")
+	g.printf("\t}")
+	g.printf("\tfmt.Println()")
+	g.printf("}")
 	g.printf("if pc != nil {")
 	g.printf("\tfmt.Println(*pc)")
 	g.printf("}")
@@ -390,6 +429,9 @@ func (g *progGen) target() string {
 	}
 	if g.chance(0.2) {
 		return g.elem()
+	}
+	if g.chance(0.15) {
+		return g.mapElem()
 	}
 	if len(free) == 0 || g.chance(0.3) {
 		return []string{"g0", "g1"}[g.r.Intn(2)]
@@ -493,6 +535,76 @@ func (g *progGen) arrayStmt() {
 	}
 }
 
+// mapElem returns an entry of a map to read or write: of gmp, or (in main) of lm, whose keys are
+// in 0..3.
+func (g *progGen) mapElem() string {
+	if g.main && g.chance(0.3) {
+		return "lm[" + g.expr(1) + " & 3]"
+	}
+	return "gmp[" + g.expr(1) + " & 3]"
+}
+
+// mapStmt writes a statement on maps: delete, v, ok, an append to a map of slices (with the same
+// key on both sides, which takes the entry once), a new map from a literal whose
+// keys can be equal (the constant entries are stored first), ++, clear, and range over a copy of
+// gmp (a copy, so that the calls in the body can't change the map; and no break or continue,
+// so the result doesn't depend on the order).
+func (g *progGen) mapStmt() {
+	switch g.r.Intn(8) {
+	case 0:
+		g.printf("delete(gmp, %s & 3)", g.expr(2))
+	case 1:
+		if g.main && g.chance(0.5) {
+			g.printf("mv, mok = %s", g.mapElem())
+			break
+		}
+		g.nvars++
+		v, ok := "mv"+strconv.Itoa(g.nvars), "mok"+strconv.Itoa(g.nvars)
+		g.printf("%s, %s := %s", v, ok, g.mapElem())
+		g.printf("fmt.Println(%s, %s)", v, ok)
+	case 2:
+		g.nvars++
+		k := "mk" + strconv.Itoa(g.nvars)
+		g.printf("%s := %s & 3", k, g.expr(1))
+		if g.chance(0.4) {
+			// The same key that is not a name: gc evaluates it before the other arguments.
+			g.printf("gms[(%s+1)&3] = append(gms[(%s+1)&3], %s)", k, k, g.expr(2))
+			break
+		}
+		g.printf("gms[%s] = append(gms[%s], %s)", k, k, g.expr(2))
+	case 3:
+		g.printf("gms[2] = append(gms[2], %s, %s)", g.expr(2), g.expr(1))
+	case 4:
+		g.printf("gmp = map[int]int{%s & 3: %s, 3: %s, 1: 7}", g.nonConst(1), g.expr(2), g.expr(1))
+	case 5:
+		g.printf("%s++", g.mapElem())
+	case 6:
+		if g.chance(0.2) {
+			g.printf("clear(gml)")
+		} else {
+			g.printf("gml[%s & 3] = len(gml)", g.expr(1))
+		}
+	default:
+		g.nvars++
+		cp, sum := "cp"+strconv.Itoa(g.nvars), "ms"+strconv.Itoa(g.nvars)
+		g.printf("%s := map[int]int{}", cp)
+		g.printf("for k, v := range gmp {")
+		g.printf("\t%s[k] = v", cp)
+		g.printf("}")
+		g.printf("%s := 0", sum)
+		g.printf("for k, v := range %s {", cp)
+		g.indent++
+		g.printf("%s += k*10 + v", sum)
+		g.indent--
+		loops := g.loops
+		g.loops = 0
+		g.block(1)
+		g.loops = loops
+		g.printf("}")
+		g.printf("fmt.Println(%q, %s, len(%s))", sum, sum, cp)
+	}
+}
+
 // sliceStmt writes a statement that changes a slice: an append (in place or into a new array,
 // also with a store into the old array in the same assignment), a copy, a range over a slice,
 // and the forms that move the slice into the call (s = append(s, x), s = s[a:]), which keep
@@ -566,9 +678,13 @@ func (g *progGen) sliceExpr(depth int) string {
 }
 
 func (g *progGen) stmt() {
-	k := g.r.Intn(20)
+	k := g.r.Intn(22)
 	if k >= 18 {
-		g.arrayStmt()
+		if k >= 20 {
+			g.mapStmt()
+		} else {
+			g.arrayStmt()
+		}
 		return
 	}
 	if k >= 16 {
@@ -904,7 +1020,10 @@ func (g *progGen) leaf() string {
 		if g.chance(0.3) {
 			return g.elem()
 		}
-		return []string{"g0", "g1", "len(gs)", "int(g8)"}[g.r.Intn(4)]
+		if g.chance(0.25) {
+			return g.mapElem()
+		}
+		return []string{"g0", "g1", "len(gs)", "int(g8)", "len(gmp)"}[g.r.Intn(5)]
 	default:
 		return fmt.Sprintf("e(%d, %s)", g.nextTag(), strconv.Itoa(g.r.Intn(7)-2))
 	}
@@ -961,6 +1080,10 @@ func (g *progGen) expr(depth int) string {
 			}
 			return fmt.Sprintf("len(append(gsl[%s & 1:3:3], %s))", g.expr(d), g.expr(d))
 		case 2:
+			if g.chance(0.3) {
+				// A literal whose keys can be equal, indexed.
+				return fmt.Sprintf("map[int]int{1: %s, %s & 3: %s}[%s & 3]", g.expr(d), g.nonConst(d), g.expr(d), g.expr(d))
+			}
 			return fmt.Sprintf("copy(gal, %s)", g.sliceExpr(d))
 		}
 		return fmt.Sprintf("both(%s, %s)", g.expr(d), g.expr(d))

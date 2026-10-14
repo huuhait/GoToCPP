@@ -73,6 +73,7 @@ type funcGen struct {
 	ordered map[ast.Expr]bool   // the calls that order.go ordered
 	force   map[ast.Expr]bool   // the calls that order.go must put into temporaries
 	moves   map[ast.Expr]bool   // the slices that s = append(s, ...) and s = s[a:b] move (slices.go)
+	stores  map[ast.Expr]bool   // the map entries m[k] that op= or ++ changes (maps.go: markStores)
 
 	// boxed are the variables of the function that live in a box (box.go): nil in
 	// gp_var_init, which has none.
@@ -97,6 +98,7 @@ func newFuncGen(g *gen, names *funcNames, fn *funcInfo) *funcGen {
 		ordered:    make(map[ast.Expr]bool),
 		force:      make(map[ast.Expr]bool),
 		moves:      make(map[ast.Expr]bool),
+		stores:     make(map[ast.Expr]bool),
 	}
 	if fn != nil {
 		fg.boxed = fn.boxed
@@ -176,8 +178,9 @@ func (fg *funcGen) exactExpr(e ast.Expr) cppir.Expr {
 	switch {
 	case ok && tv.Value != nil:
 		return fg.g.constant(tv.Value, fg.g.untypedCount(e, tv.Type), e.Pos(), true)
-	case ok && tv.IsNil() && isSlice(tv.Type):
-		// nullptr would be a std::nullptr_t: gp::slice<T>(), a nil slice.
+	case ok && tv.IsNil() && (isSlice(tv.Type) || isMap(tv.Type)):
+		// nullptr would be a std::nullptr_t: gp::slice<T>(), a nil slice (gp::map<K, V>(), a
+		// nil map).
 		return construct(fg.g.cxxType(tv.Type, e.Pos()))
 	}
 	return fg.expr(e)
@@ -218,10 +221,10 @@ func (fg *funcGen) ident(id *ast.Ident) cppir.Expr {
 	case *types.Func:
 		fg.g.unsupported(id.Pos(), "function values (Phase 03)")
 	case *types.Nil:
-		// A nil pointer or slice: C++ converts nullptr to gp::ptr<T> and gp::slice<T> (where
-		// C++ deduces the type, exactExpr writes gp::slice<T>()). The other nil values (maps,
-		// funcs, interfaces) come with their types.
-		if t := fg.g.info.TypeOf(id); t != nil && (isPointer(t) || isSlice(t) || t == types.Typ[types.UntypedNil]) {
+		// A nil pointer, slice or map: C++ converts nullptr to gp::ptr<T>, gp::slice<T> and
+		// gp::map<K, V> (where C++ deduces the type, exactExpr writes gp::slice<T>()). The
+		// other nil values (funcs, interfaces) come with their types.
+		if t := fg.g.info.TypeOf(id); t != nil && (isPointer(t) || isSlice(t) || isMap(t) || t == types.Typ[types.UntypedNil]) {
 			return lit("nullptr")
 		}
 		fg.g.unsupported(id.Pos(), "nil of type "+types.TypeString(fg.g.info.TypeOf(id), types.RelativeTo(fg.g.pkg.Types)))
@@ -254,15 +257,19 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 			case "print", "println":
 				callee, template = "gp::"+obj.Name(), true
 				for _, a := range c.Args {
-					if t := fg.g.info.TypeOf(a); t != nil && (isSlice(t) || isArray(t)) {
-						// Go prints [len/cap]0xc000012345 for a slice, with an address of
-						// Go's heap (D23), and rejects an array: internal/check rejects
-						// both, so this is only a safety net.
-						fg.g.unsupported(a.Pos(), "printing a slice or an array with "+obj.Name())
+					if t := fg.g.info.TypeOf(a); t != nil && (isSlice(t) || isArray(t) || isMap(t)) {
+						// Go prints [len/cap]0xc000012345 for a slice and 0xc000012345 for a
+						// map, with an address of Go's heap (D23), and rejects an array:
+						// internal/check rejects them, so this is only a safety net.
+						what := "a slice or an array"
+						if isMap(t) {
+							what = "a map"
+						}
+						fg.g.unsupported(a.Pos(), "printing "+what+" with "+obj.Name())
 						return placeholder
 					}
 				}
-			case "len", "cap", "panic", "new", "make", "append", "copy", "clear":
+			case "len", "cap", "panic", "new", "make", "append", "copy", "clear", "delete":
 				return fg.builtin(c, obj.Name())
 			default:
 				fg.g.unsupported(c.Pos(), "the builtin "+obj.Name())
@@ -304,6 +311,10 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 			}
 			if t := fg.g.info.TypeOf(a); t != nil && isArray(t) {
 				fg.g.unsupported(a.Pos(), "printing an array (Phase 03 step 3.15)")
+				return placeholder
+			}
+			if t := fg.g.info.TypeOf(a); t != nil && isMap(t) {
+				fg.g.unsupported(a.Pos(), "printing a map (Phase 03 step 3.15)")
 				return placeholder
 			}
 		}

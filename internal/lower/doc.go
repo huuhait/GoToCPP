@@ -57,6 +57,8 @@
 //   - arrays.go: arrays (step 3.6): literals (constinit ones too), a[i] and p[i], slicing,
 //     the owner of &a[i] (addrOf), the conversions from slices, and range over arrays (with a
 //     copy only where the body could change the array);
+//   - maps.go: maps (step 3.7): literals in gc's order, m[k] reads and stores, op= and ++ on an
+//     entry, v, ok := m[k], make, delete, clear, range, and their order of evaluation;
 //   - ops.go: the operators (with the small-integer rule and the runtime's gp::div, gp::rem,
 //     gp::shl and gp::shr), conversions (gp::f2i), s[i] and the builtins len and panic;
 //   - types.go: the C++ spelling of the types;

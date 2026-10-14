@@ -224,6 +224,11 @@ void test_make() {
     imap c = gp::make_map<int64_t, int64_t>(INT64_MAX);
     imap d = gp::make_map<int64_t, int64_t>(UINT64_MAX);
     imap z = gp::make_map<int64_t, int64_t>(uint8_t(0));
+    // A big hint that Go accepts (it allocates as the map fills): only 2^20 entries reserved.
+    gp::map<gp::string, int64_t> big = gp::make_map<gp::string, int64_t>(INT64_C(1) << 40);
+    CHECK(big.gp_get()->gp_t.bucket_count() <= 2 * gp::detail::max_map_reserve);
+    gp::set(big, "x"_gs, 1);
+    CHECK_EQ(gp::len(big), INT64_C(1));
     for (imap* m : {&a, &b, &c, &d, &z}) {
         CHECK(*m != nullptr);
         CHECK_EQ(gp::len(*m), INT64_C(0));
@@ -636,6 +641,34 @@ void test_struct_keys() {
     gp::set(o, Outer{{1, 2}, Arr3{{1, 1, 0.0}}}, 3);
     CHECK_EQ(gp::len(o), INT64_C(2));
     CHECK_EQ(gp::get(o, Outer{{1, 2}, Arr3{{1, 1, -0.0}}}), INT64_C(3));
+}
+
+void test_range_value() {
+    // range_value reads the current entry's value after code that ran since range_next: the new
+    // value of a store, the zero value after a delete or a clear (also for a NaN key).
+    gp::map<gp::string, gp::string> m = gp::make_map<gp::string, gp::string>();
+    gp::set(m, "k"_gs, "v"_gs);
+    auto it = gp::range_map(m);
+    CHECK(gp::range_next(it));
+    CHECK(gp::range_value(it) == "v"_gs);
+    gp::set(m, "k"_gs, "new"_gs);
+    CHECK(gp::range_value(it) == "new"_gs);
+    gp::erase(m, "k"_gs);
+    CHECK(gp::range_value(it) == ""_gs);
+    gp::set(m, "k"_gs, "again"_gs);
+    CHECK(gp::range_value(it) == "again"_gs);
+    CHECK(!gp::range_next(it));
+
+    double zero = 0.0;
+    gp::map<double, int64_t> f = gp::make_map<double, int64_t>();
+    gp::set(f, zero / zero, 7);
+    gp::set(f, 1.0, 8);
+    gp::erase(f, 1.0);
+    auto fit = gp::range_map(f);
+    CHECK(gp::range_next(fit));
+    CHECK_EQ(gp::range_value(fit), INT64_C(7));
+    gp::clear(f);
+    CHECK_EQ(gp::range_value(fit), INT64_C(0));
 }
 
 void test_range() {
@@ -1135,6 +1168,7 @@ void run_tests() {
     test_keys();
     test_struct_keys();
     test_range();
+    test_range_value();
     test_nested();
     test_lifetimes();
     test_chains();

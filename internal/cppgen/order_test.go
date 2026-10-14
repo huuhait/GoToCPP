@@ -115,6 +115,26 @@ func TestOrderPanics(t *testing.T) {
 		{"array-addr-first", arr, "i := 3\n\tfmt.Println(&garr[i] == nil, f())"},
 		{"array-literal-index", arr, "i := 7\n\tfmt.Println(len([3]int{f(), garr[i], f()}))"},
 		{"array-range-ptr", "", "var p *[3]int\n\tfor _, v := range p {\n\t\tfmt.Println(v, f())\n\t}"},
+		// Maps (step 3.7): the key's calls, then the value (with its panics), before the entry
+		// is taken, which panics for a nil map; m[k] is read after the calls; a map literal
+		// stores its entries one by one (a panic in an entry comes before the calls of the
+		// entries after it, where a slice literal calls them first).
+		{"map-nil-store-calls", "", "var m map[int]int\n\tm[id(1)] = f()"},
+		{"map-store-value-first", "", "var m map[int]int\n\tz := 0\n\tm[f()] = 7 / z"},
+		{"map-op-assign-call", "", "m := map[int]int{}\n\tm[id(1)] /= f() - x"},
+		{"map-nil-op-assign-call", "", "var m map[int]int\n\tm[id(1)] += f()"},
+		{"map-read-deref", "", "var p *map[int]int\n\tfmt.Println((*p)[1], f())"},
+		{"map-literal-entry", "", "z := 0\n\t_ = map[int]int{f(): 7 / z, id(2): 1}"},
+		{"map-literal-entries", "", "z := 0\n\t_ = map[int]int{1: 7 / z, f(): 1}"},
+		{"slice-literal-elems", "", "z := 0\n\t_ = []int{7 / z, f()}"},
+		{"map-literal-later", "", "z := 0\n\tfmt.Println(len(map[int]int{1: 7 / z}), f())"},
+		{"map-append-call", "", "var m map[int][]int\n\tk := 1\n\tm[k] = append(m[k], f(), id(2))"},
+		// m[k] = append(m[k], ...) with the same m and k that are not names: gc evaluates m and
+		// k (and their panics) before the other arguments.
+		{"map-append-nil-ptr", "", "var p *map[int][]int\n\tk := 1\n\t(*p)[k] = append((*p)[k], f())"},
+		{"map-append-index", "", "ss := []map[int][]int{{}}\n\ti := 3\n\tss[i][0] = append(ss[i][0], f())"},
+		{"map-append-key-div", "", "m := map[int][]int{}\n\tz := 0\n\tm[1/z] = append(m[1/z], f())"},
+		{"map-append-key-call", "", "var m map[int][]int\n\tm[id(1)+0] = append(m[id(1)+0], f())"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -297,11 +317,54 @@ func TestOrderTemps(t *testing.T) {
 		{"for i := range mka() {\n\t\t_ = i\n\t}", "for (int64_t gp_i0 = 0, gp_n0 = gp::len(mka()); gp_i0 < gp_n0; gp_i0++) {"},
 		{"var p *[3]int\n\tfor i := range *p {\n\t\t_ = i\n\t}", "for (int64_t gp_i0 = 0; gp_i0 < 3; gp_i0++) {"},
 		{"var p *[3]int\n\tfor i, _ := range *p {\n\t\t_ = i\n\t}", "for (int64_t gp_i0 = 0, gp_n0 = gp::len(*p); gp_i0 < gp_n0; gp_i0++) {"},
+		// Maps (step 3.7): m[k] is read after the calls, also of a local map (another variable
+		// can share its table), but a bool is copied in its place as an argument of fmt, and so
+		// is m[string(b)] (gc reads it there); len(m) is evaluated in its place; a store
+		// evaluates its value first; op= and ++ take the entry once (gp::ref), but /= and %= by
+		// a variable store a new value (the division panics before the entry is taken), and <<=
+		// by a variable takes it twice; m[k] = append(m[k], x) takes the entry once, after the
+		// other arguments, and moves the slice; v, ok := m[k] is gp::lookup; a map literal is
+		// evaluated entry by entry, in a temporary when an entry needs one.
+		{"fmt.Println(gm[1], f())", "{ auto gp_t0 = f(); gp::fmtshim::Println(gp::get(gm, 1), gp_t0); }"},
+		{"lm := map[int]int{}\n\tfmt.Println(lm[1], x)", "gp::fmtshim::Println(gp::get(lm, 1), x);"},
+		{"lm := map[int]int{}\n\tfmt.Println(lm[1], f())", "{ auto gp_t0 = f(); gp::fmtshim::Println(gp::get(lm, 1), gp_t0); }"},
+		{"lm := map[int]bool{}\n\tfmt.Println(lm[1], f())", "{ auto gp_t0 = gp::get(lm, 1); gp::fmtshim::Println(gp_t0, f()); }"},
+		{"b := []byte(\"x\")\n\tlm := map[string]int{}\n\tfmt.Println(lm[string(b)], f())", "{ auto gp_t0 = gp::get(lm, gp::to_string(b)); gp::fmtshim::Println(gp_t0, f()); }"},
+		{"lm := map[int]int{}\n\tfmt.Println(len(lm), f())", "{ auto gp_t0 = gp::len(lm); gp::fmtshim::Println(gp_t0, f()); }"},
+		{"gm[1] = f()", "{ auto gp_t0 = f(); gp::set(gm, 1, gp_t0); }"},
+		{"lm := map[int]int{}\n\tlm[f()] = f()", "{ auto gp_t0 = f(); gp::set(lm, gp_t0, f()); }"},
+		{"lm := map[int]int{}\n\tlm[1] = x", "gp::set(lm, 1, x);"},
+		{"lm := map[int]int{}\n\tlm[1] += f()", "{ auto gp_t0 = f(); gp::ref(lm, 1) += gp_t0; }"},
+		{"lm := map[int]int{}\n\tlm[f()]++", "gp::ref(lm, f())++;"},
+		{"lm := map[int]int{}\n\tlm[f()] -= 2", "{ auto gp_t0 = f(); gp::ref(lm, gp_t0) -= 2; }"},
+		{"lm := map[int]int{}\n\tz := 0\n\tlm[1] /= z", "gp::set(lm, 1, gp::div(gp::get(lm, 1), z));"},
+		{"lm := map[int]int{}\n\tlm[1] /= -1", "gp::set(lm, 1, gp::div(gp::get(lm, 1), -1));"},
+		{"lm := map[int]int{}\n\tlm[1] %= 3", "gp::ref(lm, 1) %= 3;"},
+		{"lm := map[int]float64{}\n\tz := 0.0\n\tlm[1] /= z", "gp::ref(lm, 1) /= z;"},
+		{"lm := map[int]int{}\n\tn := 1\n\tlm[1] <<= n", "gp::ref(lm, 1) = gp::shl(gp::ref(lm, 1), n);"},
+		{"lm := map[int]int{}\n\tlm[1] >>= x", "{ auto gp_t0 = x; gp::ref(lm, 1) = gp::shr(gp::ref(lm, 1), gp_t0); }"},
+		{"lm := map[int]uint8{}\n\tlm[1] <<= 7", "gp::ref(lm, 1) <<= 7;"},
+		{"lm := map[int]int{}\n\tlm[1] &^= x", "gp::ref(lm, 1) &= ~x;"},
+		{"lm := map[int][]int{}\n\tk := 1\n\tlm[k] = append(lm[k], 2)", "{ gp::slice<int64_t>& gp_r0 = gp::ref(lm, k); gp_r0 = gp::append(static_cast<gp::slice<int64_t>&&>(gp_r0), 2); }"},
+		{"gms[1] = append(gms[1], f(), x)", "{ auto gp_t0 = f(); auto gp_t1 = x; gp::slice<int64_t>& gp_r0 = gp::ref(gms, 1); gp_r0 = gp::append(static_cast<gp::slice<int64_t>&&>(gp_r0), gp_t0, gp_t1); }"},
+		{"lm := map[int][]int{}\n\tlm[1] = append(lm[2], 1)", "gp::set(lm, 1, gp::append(gp::get(lm, 2), 1));"},
+		{"lm := map[int][]int{}\n\tp := &lm\n\tk := 1\n\t(*p)[k+1] = append((*p)[k+1], f())", "{ auto gp_t0 = *p; auto gp_t1 = f(); gp::slice<int64_t>& gp_r0 = gp::ref(gp_t0, k + 1); gp_r0 = gp::append(static_cast<gp::slice<int64_t>&&>(gp_r0), gp_t1); }"},
+		{"lm := map[int]int{}\n\tv, ok := lm[1]\n\t_, _ = v, ok", "auto gp_t0 = gp::lookup(lm, 1);"},
+		{"lm := map[int]int{}\n\tlm[1], lm[2] = lm[2], lm[1]", "{ auto gp_t0 = gp::get(lm, 2); auto gp_t1 = gp::get(lm, 1); gp::set(lm, 1, gp_t0); gp::set(lm, 2, gp_t1); }"},
+		{"lm := map[int]int{}\n\tlm, lm[1] = nil, 2", "{ auto gp_t0 = lm; lm = nullptr; gp::set(gp_t0, 1, 2); }"},
+		{"lm := map[int]int{1: 2, 3: f()}\n\t_ = lm", "gp::map<int64_t, int64_t> lm = gp::map_of<int64_t, int64_t>({{1, 2}, {3, f()}});"},
+		{"lm := map[int]int{3: f(), 1: 2}\n\t_ = lm", "gp::map<int64_t, int64_t> lm = gp::map_of<int64_t, int64_t>({{1, 2}, {3, f()}});"},
+		{"lm := map[int]int{f(): x, 2: f()}\n\t_ = lm", "gp::map<int64_t, int64_t> lm = gp::map_of<int64_t, int64_t>({{f(), x}, {2, f()}});"},
+		{"lm := map[int]int{1: 2, x: f()}\n\t_ = lm", "gp::map<int64_t, int64_t> gp_t0 = gp::map_of<int64_t, int64_t>({{1, 2}}); auto gp_t1 = f(); gp::set(gp_t0, x, gp_t1); gp::map<int64_t, int64_t> lm = gp_t0;"},
+		{"fmt.Println(len(map[int]int{1: x}), f())", "{ auto gp_t0 = gp::len(gp::map_of<int64_t, int64_t>({{1, x}})); gp::fmtshim::Println(gp_t0, f()); }"},
+		{"for k, v := range gm {\n\t\t_, _ = k, v\n\t}", "for (auto gp_it0 = gp::range_map(gm); gp::range_next(gp_it0);) {"},
+		{"delete(gm, f())", "{ auto gp_t0 = f(); gp::erase(gm, gp_t0); }"},
+		{"lm := make(map[int]int, x)\n\t_ = lm", "gp::map<int64_t, int64_t> lm = gp::make_map<int64_t, int64_t>(x);"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.body, func(t *testing.T) {
 			dir := t.TempDir()
-			src := "package main\n\nimport \"fmt\"\n\nvar x = 1\n\nvar gsl = []int{1, 2}\n\nvar gg = [][]int{{1}}\n\nfunc mk() []int {\n\treturn nil\n}\n\nfunc f() int {\n\tx++\n\tfmt.Print()\n\treturn x\n}\n\n" +
+			src := "package main\n\nimport \"fmt\"\n\nvar x = 1\n\nvar gsl = []int{1, 2}\n\nvar gg = [][]int{{1}}\n\nvar gm = map[int]int{}\n\nvar gms = map[int][]int{}\n\nfunc mk() []int {\n\treturn nil\n}\n\nfunc f() int {\n\tx++\n\tfmt.Print()\n\treturn x\n}\n\n" +
 				"func g(a, b int) int {\n\treturn a + b\n}\n\nfunc h(p *int) *int {\n\treturn p\n}\n\n" +
 				"var ga = [3]int{1, 2, 3}\n\nvar gg2 = [2][2]int{}\n\nfunc mka() *[3]int {\n\treturn nil\n}\n\nfunc main() {\n\t" + tt.body + "\n}\n"
 			gp := filepath.Join(dir, "main.gp")

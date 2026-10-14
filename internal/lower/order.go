@@ -70,6 +70,11 @@ import (
 // OSTR2RUNES). The elements of a composite literal are ordered like the operands of an
 // operator (gc reads the variables in them after the calls).
 //
+// Maps (step 3.7, maps.go) add a read and units: m[k] reads the map's table, which any call can
+// change, after the calls of its scope (gc doesn't copy OINDEXMAP), and len(m) and make are
+// evaluated in their places among the calls; a map literal is evaluated as a whole in its place
+// among the calls, entry by entry (collectMapLit).
+//
 // A divergence (the manager's decision, 2.5 review): gc also evaluates two such operations
 // from left to right (with both out of range, s[i] == s[j] reports i), but gocpp doesn't keep
 // that order: it would need temporaries in common code (fmt.Println(s[i], s[j])), and the
@@ -317,10 +322,10 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		if fg.isBuiltin(x, "make") {
 			// make([]T, n): in its place among the calls (gc copies it), and it panics for a
 			// bad length (a constant one is checked by go/types, also against a constant
-			// capacity). Its first argument is a type.
+			// capacity). Its first argument is a type. make(map[K]V, n) never panics.
 			var eff effect
 			for _, a := range x.Args[1:] {
-				if fg.constValue(a) == nil {
+				if fg.constValue(a) == nil && !isMap(fg.g.info.TypeOf(x.Args[0])) {
 					eff.panics = true
 				}
 			}
@@ -338,8 +343,8 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		}
 		if fg.isBuiltin(x, "len") || fg.isBuiltin(x, "cap") {
 			// len and cap have no effect of their own, but gc evaluates them in their places
-			// among the calls.
-			fg.collectInPlace(sc, x, x.Args, effect{}, root, up)
+			// among the calls. len(m) reads the map's table, which a call can change.
+			fg.collectInPlace(sc, x, x.Args, effect{read: isMap(fg.g.info.TypeOf(x.Args[0]))}, root, up)
 			return
 		}
 		// A call; also append, copy and clear, which write the elements of an array that
@@ -368,6 +373,10 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		}
 		fg.collect(sc, x.X, root, up)
 	case *ast.IndexExpr:
+		if isMap(fg.g.info.TypeOf(x.X)) {
+			fg.collectMapIndex(sc, x, root, up) // maps.go
+			return
+		}
 		fg.collect(sc, x.X, root, below)
 		fg.collect(sc, x.Index, root, below)
 		eff := effect{panics: true}
@@ -383,6 +392,10 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 			add(&orderItem{eff: eff})
 		}
 	case *ast.CompositeLit:
+		if isMap(fg.g.info.TypeOf(x)) {
+			fg.collectMapLit(sc, x, root, up) // maps.go
+			return
+		}
 		// The elements, like the operands of an operator: gc orders them (and reads the
 		// variables in them) as the operands of an expression. The keys of a slice literal
 		// are constants.
@@ -620,6 +633,10 @@ func (fg *funcGen) emitScope(sc *orderScope, pre *[]cppir.Stmt) {
 // they go on the line of their statement (a Line or an inline Block).
 func (fg *funcGen) emitItem(it *orderItem, pre *[]cppir.Stmt) {
 	fg.ordered[it.e] = true
+	if lit, ok := it.e.(*ast.CompositeLit); ok && isMap(fg.g.info.TypeOf(lit)) {
+		fg.emitMapLit(it, lit, pre) // maps.go
+		return
+	}
 	if it.block {
 		// r := x; if r { r = y } (for ||: if !r)
 		fg.emitScope(it.inner[0], pre)

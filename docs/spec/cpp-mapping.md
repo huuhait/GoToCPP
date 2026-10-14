@@ -500,6 +500,44 @@ as in Go. Results and the other temporaries stay on the stack
 ([D24](language.md#d24-large-values-on-the-c-stack)).
 
 Source: [Phase 03 §2.3](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#23-strings-slices-arrays-maps).
+## Maps
+
+A `gp::map<K, V>` is a reference to a hash table (one shared pointer, 16 bytes): copies, parameters
+and results share the table, as in Go. Reading a missing key gives the zero value and never
+inserts it, unlike C++'s `operator[]`.
+
+| gocpp | C++ | Notes |
+|---|---|---|
+| `var m map[K]V`, `m = nil`, `m == nil` | `gp::map<K, V> m{};`, `m = nullptr`, `m == nullptr` | nil is the zero value; a nil map reads like an empty one (get, `len`, `delete`, `clear`, range) |
+| `make(map[K]V)`, `make(map[K]V, n)` | `gp::make_map<K, V>()`, `gp::make_map<K, V>(n)` | the size hint only reserves room, for at most 2^20 entries (Go allocates a huge map's table as it fills); a negative hint counts as 0, as in Go, and a hint never panics |
+| `map[K]V{k1: v1, k2: v2}` | `gp::map_of<K, V>({{k1, v1}, {k2, v2}})` | gc's order: the entries whose key and value are constants first, then the others in source order, so of two equal keys the later one that isn't constant wins |
+| `v := m[k]` | `V v = gp::get(m, k);` | the zero value if `k` is missing; never inserts |
+| `v, ok := m[k]` | `auto gp_t0 = gp::lookup(m, k); V v = std::get<0>(gp_t0); bool ok = std::get<1>(gp_t0);` | the multi-value rule of [multiple results](#multiple-results) |
+| `m[k] = v` | `gp::set(m, k, v);` | a nil map panics: `assignment to entry in nil map` |
+| `m[k] += v`, `m[k]++` | `gp::ref(m, k) += v;`, `gp::ref(m, k)++;` | takes the entry once (inserting `k` as the zero value first); also `-= *= &= \|= ^= &^=`, strings' `+=` |
+| `m[k] /= y`, `m[k] %= y` | `gp::set(m, k, gp::div(gp::get(m, k), y));` | as gc: a division by zero panics before `k` is inserted; a constant divisor (not 0 or -1) is `gp::ref(m, k) /= 3` |
+| `m[k] <<= n` | `gp::ref(m, k) = gp::shl(gp::ref(m, k), n);` | as gc: a negative `n` panics after `k` is inserted; a constant count below the width is `gp::ref(m, k) <<= 3` |
+| `m[k] = append(m[k], x)` | `gp::slice<T>& gp_r0 = gp::ref(m, k); gp_r0 = gp::append(static_cast<gp::slice<T>&&>(gp_r0), x);` | the same `m` and `k` on both sides (variables, constants, `*p`, indexes and operators of them, as gc's `SameSafeExpr`): as gc, `m` and `k` are evaluated first (into temporaries unless they are names or constants, so their panics come first; a variable key of a type that gc's fast map calls convert, such as `int` or a pointer, is copied too), then `x`, then the entry is taken once and the slice is moved |
+| `delete(m, k)`, `len(m)`, `clear(m)` | `gp::erase(m, k)`, `gp::len(m)`, `gp::clear(m)` | `clear` also removes NaN keys (Go 1.21) |
+| `for k, v := range m` | `for (auto gp_it0 = gp::range_map(m); gp::range_next(gp_it0);) { K k = gp_it0.gp_key(); V v = gp_it0.gp_value(); ...` | over a snapshot of the entries: a key deleted before it is reached is skipped, its value is read when it is reached, and a key added during the loop is not produced (Go may or may not produce it) |
+| `for s[f()], v = range m` | `auto gp_t0 = gp_it0.gp_key(); auto gp_t1 = f(); s[gp_t1] = gp_t0; v = gp::range_value(gp_it0);` | targets whose operands call functions: the key is copied first and the value read after the calls (its current value, or zero if a call deleted the entry), as Go reads them; where a call deletes the entry, Go may also clear the key it assigns, gocpp assigns the key as it was |
+
+Keys can be bools, numbers, strings, pointers and arrays of them (structs come with step
+3.8); an array value `m[k]` is a copy, so `m[k][i]` can be read but not assigned, as in Go.
+Floats follow Go: `+0` and `-0` are one key (a store keeps the new key), and a NaN key is
+never found again, so each `m[NaN] = v` adds an entry. The order of a range is unspecified and
+not Go's, and not randomized ([D8](language.md#d8-map-order-is-not-randomized)). `fmt.Println(m)`
+prints the keys sorted, as Go does (step 3.15); `println(m)` is an error
+([D23](language.md#d23-print-and-println-of-a-slice-or-a-map)).
+
+The order of evaluation is gc's: `m[k]` reads the table, which a call can change (also the table
+of a local map, which another variable can share), so it is read after the calls of its
+statement, like `*p` and `s[i]`; but a `bool`, `int8` or `uint8` value is copied in its place as
+an argument of `fmt`, and so is `m[string(b)]`. `len(m)` and `make` are evaluated in their places
+among the calls. A store `m[k] = v` evaluates the calls of `m` and `k`, then `v` (with its
+panics), and only then takes the entry, so `m[k] = f()` stores into the map that `m` is after
+`f` ran. A map literal is evaluated in its place among the calls, entry by entry, as gc stores
+it: a panic in one entry comes before the calls of the entries after it.
 
 ## Pointers and boxing
 
@@ -638,7 +676,8 @@ Sources: [Phase 03 §2.10](../../plans/2026-10-13-gocpp/phase-03-core-language/R
 
 - The runtime checks what Go checks, with Go's messages: an index (`runtime error: index out of
   range [5] with length 3`), a slice expression, a slice to array conversion, a nil pointer
-  dereference (`*p`, `p.f`), division by zero and a negative shift count.
+  dereference (`*p`, `p.f`), division by zero and a negative shift count, and a store into a nil
+  map (`assignment to entry in nil map`).
 - A panic is a C++ exception, `gp::panic_error`. Unrecovered, it prints Go's lines and then a
   stack trace: each function by its Go name, `(...)` when it has parameters, then a tab, the
   `.gp` file and line of the call (from the debug info that `#line` makes) and the offset in the

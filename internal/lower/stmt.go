@@ -28,6 +28,7 @@ import (
 //	s[i] = v, s[i] op= v     the same, on the element (a T&); s = append(s, x) moves s (slices.go)
 //	s, s[0] = t, 5           { auto gp_t0 = s; s = t; gp_t0[0] = 5; } (the old s: saveOperands)
 //	a, a[0] = b, 5           a = b; a[0] = 5; (an array: the new a; its index is saved, arrays.go)
+//	m[k] = v, m[k] op= v     gp::set(m, k, v);  gp::ref(m, k) += v; and the other forms (maps.go)
 //	x++, x--                 x++; x--;  (C++ converts a small integer back with Go's wrapping)
 //	return a, b              return {a, b};
 //	L: s                     L:; s  (only for a label that a goto uses)
@@ -165,12 +166,14 @@ func (fg *funcGen) simple(s ast.Stmt) ([]cppir.Stmt, cppir.Expr) {
 	if c := fg.appendInPlace(s); c != nil {
 		fg.ordered[c] = true // its arguments are in the statement's scope
 	}
+	pre = append(pre, fg.mapPre(s)...) // m[k] = append(m[k], x), m[k] <<= n (maps.go)
 	return pre, fg.simpleExpr(s)
 }
 
 // forceTarget makes the calls in the target of x op= y go into temporaries (fg.force): x op= y
 // is x = x op y, which evaluates x twice (*f() += 1 must call f once).
 func (fg *funcGen) forceTarget(s ast.Stmt) {
+	fg.markStores(s) // maps.go
 	a, ok := s.(*ast.AssignStmt)
 	if !ok || a.Tok == token.ASSIGN || a.Tok == token.DEFINE || len(a.Lhs) != 1 {
 		return
@@ -196,6 +199,9 @@ func (fg *funcGen) simpleScope(s ast.Stmt) []ast.Expr {
 	case *ast.AssignStmt:
 		if c := fg.appendInPlace(s); c != nil {
 			return append(targetOperands(s.Lhs), c.Args...)
+		}
+		if fg.mapAppend(s) != nil {
+			return nil // m[k] = append(m[k], ...): ordered by mapPre (maps.go)
 		}
 		if s.Tok == token.ASSIGN {
 			return append(targetOperands(s.Lhs), s.Rhs...)
@@ -231,7 +237,7 @@ func (fg *funcGen) postInHead(post ast.Stmt) bool {
 // simpleNeedsPre reports whether simple(s) would return temporaries, without writing anything.
 func (fg *funcGen) simpleNeedsPre(s ast.Stmt) bool {
 	fg.forceTarget(s)
-	return fg.needsPre(false, fg.simpleScope(s)...)
+	return fg.needsPre(false, fg.simpleScope(s)...) || fg.mapNeedsPre(s)
 }
 
 // simpleExpr returns the C++ expression of a simple statement that is one: an expression
@@ -239,6 +245,9 @@ func (fg *funcGen) simpleNeedsPre(s ast.Stmt) bool {
 // x op= e). oneExpr says which statements are. The statement's expressions were ordered
 // (simple).
 func (fg *funcGen) simpleExpr(s ast.Stmt) cppir.Expr {
+	if x := fg.mapSimple(s); x != nil {
+		return x // a map entry changed by op=, ++ or append (maps.go)
+	}
 	switch s := s.(type) {
 	case *ast.ExprStmt:
 		return fg.expr(s.X)
@@ -374,6 +383,9 @@ type target struct {
 	// change them (gc's ascompatee: saveOperands).
 	ptr   ast.Expr
 	index *ast.IndexExpr
+	// mapX and mapK are the C++ of the map and the key of a target m[k] (an index too), which
+	// stores with gp::set(m, k, value) (maps.go).
+	mapX, mapK cppir.Expr
 }
 
 // varTarget returns the target of the existing variable whose C++ name is name.
@@ -398,6 +410,9 @@ func (fg *funcGen) lhs(e ast.Expr) target {
 		t.ptr = x.X
 	case *ast.IndexExpr:
 		t.index = x
+		if isMap(fg.g.info.TypeOf(x.X)) {
+			fg.mapTarget(&t, x)
+		}
 	}
 	return t
 }
@@ -436,6 +451,13 @@ func (fg *funcGen) saveOperands(pos cppir.Pos, targets []target, i int) []cppir.
 		if x == nil {
 			x = fg.expr(t.index.X)
 		}
+		if t.mapX != nil {
+			if idx == nil {
+				idx = fg.expr(t.index.Index)
+			}
+			targets[i].mapX, targets[i].mapK = x, idx
+			break
+		}
 		if idx == nil {
 			idx = fg.intExpr(t.index.Index)
 		}
@@ -466,6 +488,9 @@ func (t target) assign(pos cppir.Pos, value cppir.Expr) cppir.Stmt {
 func (t target) assignExpr(value cppir.Expr) cppir.Expr {
 	if t.blank() {
 		return voidCast(value)
+	}
+	if t.mapX != nil {
+		return call("gp::set", t.mapX, t.mapK, value)
 	}
 	return &cppir.Assign{Op: "=", X: t.x, Y: value}
 }

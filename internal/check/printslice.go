@@ -6,10 +6,11 @@ import (
 	"go/types"
 )
 
-// checkPrintSlices reports each slice argument of the builtins print and println (divergence
-// D23 in docs/spec/language.md): Go prints a slice there as its length, its capacity and the
-// address of its array, [3/4]0xc000012345, an address of Go's heap that gocpp can't give, so
-// gocpp rejects it for good and suggests fmt.Println, which prints the elements.
+// checkPrintSlices reports each slice or map argument of the builtins print and println
+// (divergence D23 in docs/spec/language.md): Go prints a slice there as its length, its capacity
+// and the address of its array, [3/4]0xc000012345, and a map as the address of its table,
+// 0xc000012345 (0x0 for nil), addresses of Go's heap that gocpp can't give, so gocpp rejects
+// them for good and suggests fmt.Println, which prints the elements.
 //
 // It also reports an array or a struct argument, which Go's compiler rejects too ("illegal
 // types for operand: print"; go/types accepts any type there).
@@ -34,6 +35,7 @@ func checkPrintSlices(fset *token.FileSet, pkg *types.Package, files []*ast.File
 				if t == nil {
 					continue
 				}
+				var how string
 				switch t.Underlying().(type) {
 				case *types.Array, *types.Struct:
 					report(a.Pos(), types.Error{Fset: fset, Pos: a.Pos(), Msg: "illegal types for operand: " + b.Name() + " " +
@@ -41,12 +43,15 @@ func checkPrintSlices(fset *token.FileSet, pkg *types.Package, files []*ast.File
 						" doesn't take arrays or structs, in Go too; use fmt.Println"})
 					continue
 				case *types.Slice:
+					how = "a slice as [len/cap]0x<address>"
+				case *types.Map:
+					how = "a map as 0x<address>"
 				default:
 					continue
 				}
 				report(a.Pos(), types.Error{Fset: fset, Pos: a.Pos(), Msg: "cannot " + b.Name() + " " +
 					types.ExprString(a) + " (" + types.TypeString(t, types.RelativeTo(pkg)) + "): " + b.Name() +
-					" prints a slice as [len/cap]0x<address>, which gocpp can't print; use fmt.Println"})
+					" prints " + how + ", which gocpp can't print; use fmt.Println"})
 			}
 			return true
 		})

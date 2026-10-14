@@ -22,6 +22,7 @@ import (
 //	*T                       gp::ptr<T> (Phase 03 step 3.3; T of any type that cxxType has)
 //	[]T                      gp::slice<T> (Phase 03 step 3.5; T of any type that cxxType has)
 //	[N]T                     gp::array<T, N> (Phase 03 step 3.6, arrays.go)
+//	map[K]V                  gp::map<K, V> (Phase 03 step 3.7, maps.go)
 //
 // An untyped constant has the C++ type of its default type (untyped int → int64_t, untyped
 // rune → int32_t, untyped float → double), but go/types records the type that a constant
@@ -29,7 +30,7 @@ import (
 //
 // Not yet: complex64 and complex128 (std::complex, not in the Phase 02 subset), named types,
 // also those over a basic type (type Celsius float64 becomes a gp::newtype in Phase 03; type
-// IDs []int too), and the other composite types (arrays, maps, structs, funcs: Phase 03;
+// IDs []int too), and the other composite types (arrays, structs, funcs: Phase 03;
 // interfaces and error: Phase 05; channels: Phase 08). For these, cxxType reports "not
 // supported yet".
 
@@ -82,6 +83,8 @@ func (g *gen) cxxType(t types.Type, pos token.Pos) cppir.Type {
 		return sliceType(g.cxxType(t.Elem(), pos))
 	case *types.Array:
 		return arrayType(g.cxxType(t.Elem(), pos), t.Len())
+	case *types.Map:
+		return mapType(g.cxxType(t.Key(), pos), g.cxxType(t.Elem(), pos))
 	case *types.Tuple:
 		args := make([]cppir.Node, t.Len())
 		for i := range t.Len() {

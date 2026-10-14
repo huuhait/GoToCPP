@@ -642,7 +642,8 @@ func (fg *funcGen) rangeCopies(s *ast.RangeStmt) bool {
 // stays valid while a range loop runs (if the body doesn't change or free it, rangeCopies): a
 // variable, an element of such an array (a[i]), or an array that a pointer or a slice that is
 // such a variable points into: *p, p[i], s[i], (*pp)[i] or s[j][i] with p, pp and s variables.
-// Not an array in a block that only a temporary owns: *f(), f()[i], *(&[N]T{...}), **f().
+// Not an array in a block that only a temporary owns: *f(), f()[i], *(&[N]T{...}), **f(), and not
+// a map's entry m[k] or what it points into (m[k][i]): gp::get gives a copy (step 3.7).
 func (fg *funcGen) stableArray(x ast.Expr) bool {
 	switch e := ast.Unparen(x).(type) {
 	case *ast.Ident:
@@ -654,7 +655,8 @@ func (fg *funcGen) stableArray(x ast.Expr) bool {
 		if isArray(fg.g.info.TypeOf(e.X)) {
 			return fg.stableArray(e.X)
 		}
-		return fg.varOwner(e.X) // a slice or a pointer to an array
+		// A slice or a pointer to an array; not a map, whose m[k] is a copy (gp::get).
+		return !isMap(fg.g.info.TypeOf(e.X)) && fg.varOwner(e.X)
 	}
 	return false
 }
@@ -669,7 +671,8 @@ func (fg *funcGen) varOwner(e ast.Expr) bool {
 	case *ast.StarExpr:
 		return fg.varOwner(x.X)
 	case *ast.IndexExpr:
-		return fg.varOwner(x.X) && !hasCall(fg.g.info, x.Index)
+		// A map's m[k] is a copy of the entry (gp::get), a temporary: not a variable.
+		return !isMap(fg.g.info.TypeOf(x.X)) && fg.varOwner(x.X) && !hasCall(fg.g.info, x.Index)
 	}
 	return false
 }

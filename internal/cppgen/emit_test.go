@@ -316,8 +316,9 @@ func TestUnsupported(t *testing.T) {
 	tests := []struct {
 		name, src, want string
 	}{
-		{"makemap", "func main() {\n\t_ = make(map[int]int)\n}", "main.gp:4:6: cppgen: not supported yet: make of map[int]int (Phase 03)"},
 		{"structlit", "func main() {\n\t_ = struct{}{}\n}", "main.gp:4:14: cppgen: not supported yet: composite literals of type struct{} (Phase 03)"},
+		{"makechan", "func main() {\n\t_ = make(chan int)\n}", "main.gp:4:6: cppgen: not supported yet: make of chan int (Phase 03)"},
+		{"fmtmap", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, map[int]int{})\n}", "main.gp:5:17: cppgen: not supported yet: printing a map (Phase 03 step 3.15)"},
 		{"fmtslice", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, [][]int{})\n}", "main.gp:5:17: cppgen: not supported yet: printing a slice (Phase 03 step 3.15)"},
 		{"fmtarray", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, [2]int{})\n}", "main.gp:5:17: cppgen: not supported yet: printing an array (Phase 03 step 3.15)"},
 		{"spread", "func f(a ...int) {}\nfunc main() {\n\tf([]int{1}...)\n}", "main.gp:5:12: cppgen: not supported yet: f(s...) (Phase 03)"},
@@ -423,10 +424,10 @@ func TestRuntimeFuncNames(t *testing.T) {
 // condition), the builtin panic with values of basic types, the nil pointer dereferences
 // (also through new(*int), &*p and a parameter), the panics of slices (an index out of
 // range, also in a store, op=, ++ and &s[i]; the slice expressions with 2 and 3 indexes; make),
-// and of arrays (index, slicing, the conversions from slices, nil pointers to arrays): each
-// program prints what it prints with Go,
-// exits with code 2, and stderr is Go's up to the "goroutine 1 [running]:" line (goResult),
-// with the signal line of a nil dereference (its pc masked: maskPC).
+// of arrays (index, slicing, the conversions from slices, nil pointers to arrays), and of maps
+// (a store into a nil map, and the order of the panics of a store): each program prints what it
+// prints with Go, exits with code 2, and stderr is Go's up to the "goroutine 1 [running]:" line
+// (goResult), with the signal line of a nil dereference (its pc masked: maskPC).
 func TestPanics(t *testing.T) {
 	tests := []struct{ name, body string }{
 		{"div", "a, b := 7, 0\n\tfmt.Println(\"before\", a/2)\n\tfmt.Println(a / b)"},
@@ -528,6 +529,24 @@ func TestPanics(t *testing.T) {
 		{"to-array", "s := []int{1, 2}\n\ta := [3]int(s)\n\tfmt.Println(a[0])"},
 		{"to-array-ptr", "s := make([]string, 2, 10)\n\tp := (*[3]string)(s)\n\tfmt.Println(p[0])"},
 		{"to-array-ptr-nil", "var s []int\n\tfmt.Println((*[0]int)(s) == nil, len([0]int(s)))\n\tfmt.Println((*[1]int)(s) == nil)"},
+		// Maps (step 3.7): a store into a nil map panics (reads don't), also through op=, ++
+		// and append; the value of a store is evaluated before the entry is taken, and so is the
+		// divisor of /= and %= (gc rewrites m[k] /= y to m[k] = m[k] / y), while <<= takes the
+		// entry before it checks the count.
+		{"map-nil-store", "var m map[string]int\n\tfmt.Println(len(m), m[\"a\"])\n\tm[\"a\"] = 1"},
+		{"map-nil-inc", "var m map[int]float64\n\tm[1]++"},
+		{"map-nil-op-assign", "var m map[string]string\n\tm[\"a\"] += \"x\""},
+		{"map-nil-append", "var m map[int][]int\n\tm[1] = append(m[1], 2)"},
+		{"map-nil-inner", "m := map[string]map[string]int{\"a\": nil}\n\tfmt.Println(len(m[\"a\"]), len(m[\"b\"]))\n\tm[\"a\"][\"b\"] = 1"},
+		{"map-nil-shl", "var m map[string]int\n\tn := -1\n\tm[\"a\"] <<= n"},
+		{"map-shl", "m := map[string]int{}\n\tn := -1\n\tm[\"a\"] <<= n"},
+		{"map-nil-div", "var m map[string]int\n\tz := 0\n\tm[\"a\"] /= z"},
+		{"map-nil-rem8", "var m map[string]int8\n\tvar z int8\n\tm[\"a\"] %= z"},
+		{"map-nil-value-first", "var m map[string]int\n\tz := 0\n\tm[\"a\"] = 7 / z"},
+		{"map-nil-op-value-first", "var m map[string]int\n\tz := 0\n\tm[\"a\"] += 7 / z"},
+		{"map-nil-append-arg-first", "var m map[int][]int\n\tz := 0\n\tm[1] = append(m[1], 7/z)"},
+		{"map-slice-index", "m := map[string][]int{}\n\tfmt.Println(m[\"x\"][0])"},
+		{"map-nil-swap", "var m map[int]int\n\tm[1], m[2] = m[2], m[1]"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
