@@ -800,6 +800,9 @@ func TestCheckExamples(t *testing.T) {
 			if name == "win32" {
 				t.Setenv("GOOS", "windows")
 				t.Setenv("GOARCH", "amd64")
+				// The namespace probe uses x86_64-w64-mingw32-g++, not the
+				// host compiler that GOCPP_CXX may name.
+				t.Setenv("GOCPP_CXX", "")
 			}
 			t.Chdir(dir)
 
@@ -1284,15 +1287,30 @@ func TestCheckTarget(t *testing.T) {
 		{"foo", "amd64", 2, "gocpp: unsupported GOOS/GOARCH pair foo/amd64\n"},
 		{"linux", "bar", 2, "gocpp: unsupported GOOS/GOARCH pair linux/bar\n"},
 		{"Linux", "amd64", 2, "gocpp: unsupported GOOS/GOARCH pair Linux/amd64\n"},
-		{"windows", "arm64", 1, "gates"},
+		// No C++ compiler for windows/arm64: the namespace probe's error
+		// at the first header import, then the gates.
+		{"windows", "arm64", 1, "no compiler"},
 	} {
 		t.Run(c.goos+"/"+c.goarch, func(t *testing.T) {
 			t.Setenv("GOOS", c.goos)
 			t.Setenv("GOARCH", c.goarch)
+			t.Setenv("GOCPP_CXX", "") // the probe finds the target's compiler
 			t.Chdir(win32)
 			code, out, errOut := gocpp("check", ".")
-			if c.stderr == "gates" {
+			switch c.stderr {
+			case "gates":
 				c.stderr = "# command-line-arguments\n" + strings.Join(examplesGates(t)["win32"], "\n") + "\n"
+				errOut = portable(errOut)
+			case "no compiler":
+				var lines []string
+				for _, l := range examplesGates(t)["win32"] {
+					if strings.HasSuffix(l, "header imports are not supported yet (Phase 04)") {
+						pos, _, _ := strings.Cut(l, " ")
+						lines = append(lines, pos+" cannot check the header imports: no C++ compiler for windows/arm64 (set GOCPP_CXX)")
+					}
+					lines = append(lines, l)
+				}
+				c.stderr = "# command-line-arguments\n" + strings.Join(lines, "\n") + "\n"
 				errOut = portable(errOut)
 			}
 			if r := (result{code, out, errOut}); r != (result{c.code, "", c.stderr}) {

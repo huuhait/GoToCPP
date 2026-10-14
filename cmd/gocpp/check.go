@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -138,10 +140,19 @@ func (c *checkCommand) run(patterns []string) int {
 		return c.printLoadErrors(prog, m)
 	}
 
-	// TODO(job 1.10c): the namespace probe runs the C++ compiler (found
-	// with build.FindCXX, GOCPP_CXX, CXX) on the namespace candidates of
-	// the files with header imports; check.Config gets the compiler then.
-	r := check.Check(prog, check.Config{})
+	// The namespace probe runs the C++ compiler of the target (GOOS,
+	// GOARCH) for the files with header imports. ^C stops it: the
+	// compiler runs in its own process group, which the terminal's signal
+	// doesn't reach, so the canceled context is what kills it. Then gocpp
+	// check exits quietly with 130, like a shell for SIGINT; a second ^C
+	// kills it the default way.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	go func() { <-ctx.Done(); stop() }()
+	r := check.Check(prog, check.Config{GOOS: c.goos, GOARCH: c.goarch, Context: ctx})
+	if ctx.Err() != nil {
+		return 130
+	}
 	failed := false
 	// broken holds the packages with errors and the packages that import
 	// one, directly or not. Like go build, which doesn't compile a package

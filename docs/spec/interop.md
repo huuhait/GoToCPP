@@ -169,6 +169,31 @@ func main() {
 - **Typos are still found early.** gocpp compiles one small check file with the file's includes
   (the namespace probe). If `stdd` is not a namespace, you get a normal `undefined: stdd` error at
   that spot, before any C++ is generated. The result is cached per include set.
+- The same check finds problems with the headers themselves. Each one is an error at the
+  import that brought the header in:
+  - `cannot find header <raylibb.h>`: the compiler doesn't find the header.
+  - `header "./bad.h" doesn't compile: bad.h:3:12: <the compiler's first message>`: the header,
+    or a header that it includes, has an error.
+  - `header "./bad.h" ends inside a declaration or a block that it doesn't close`: for example
+    an `extern "C" {` without its `}`.
+  - `header "./x.h" can't be read: <the compiler's message>`: for example no read permission.
+  - `::std::filesystm is not a namespace of the imported headers`: a renamed namespace that the
+    file's headers don't declare.
+  - `cannot rename ::std::chrono: the file imports no header that could declare it`: a namespace
+    rename in a file without header imports.
+  - `cannot check the header imports: <reason>`: the check couldn't run, for example because no
+    C++ compiler was found. Without a compiler, this error comes once per package; when the
+    check itself fails, once per group of files with the same header imports.
+
+  When a file's headers have errors, gocpp can't tell which names are namespaces. Then it reports
+  nothing about the file's namespace names until the headers are fixed.
+- **Header imports need a C++ compiler for the target**, even for `gocpp check`. It is the
+  compiler in `GOCPP_CXX`, else the usual one (`CXX`, `clang++`, `g++`). When checking for
+  another system, it is `GOCPP_CXX`, else the known cross compiler (`x86_64-w64-mingw32-g++` for
+  windows/amd64). A program without header imports needs no compiler.
+- For now, a package with a `//gocpp:pkg-config` or `//gocpp:cflags` line is not checked this
+  way, because the check can't use those flags yet (Phase 04 adds them). Its namespace names are
+  checked when the C++ code is compiled.
 - **Rename a namespace** when it is long or clashes with another name:
   `import fs "::std::filesystem"`, or `import cfmt "::fmt"` next to gocpp's `fmt`.
 - A namespace import **without a name** (`import "::std"`) is an error, because namespaces need

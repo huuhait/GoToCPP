@@ -26,9 +26,14 @@
 // type) and keeps the type expressions of the objects declared with C/C++
 // types.
 //
-// Phase 01 adds more on top (steps 1.10 to 1.12): the namespace probe and
-// the unsupported-feature checker, which rejects every feature that is not
-// built yet with a message naming the phase that brings it (a phase gate),
-// so nobody gets broken C++. Each later phase removes the gates of the
-// features it builds.
+// Before go/types, the namespace probe (nsprobe.go) asks the C++ compiler
+// (Config.CXX) which names that the loader took as C++ namespaces (std in
+// std.vector) the headers of each file really declare: a typo such as
+// stdd.vector is "undefined: stdd", reported by go/types itself, and a
+// header that isn't found or doesn't compile is an error at its import.
+//
+// After the last check, the unsupported-feature checker rejects every
+// feature that is not built yet with a message naming the phase that
+// brings it (a phase gate), so nobody gets broken C++. Each later phase
+// removes the gates of the features it builds.
 package check

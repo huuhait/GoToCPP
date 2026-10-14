@@ -131,6 +131,10 @@ type IncludeError struct {
 	Index   int
 	Include string
 
+	// Kind says what kind of error it is, so that a caller can word its
+	// message without knowing the compilers' messages.
+	Kind IncludeErrorKind
+
 	// File, Line and Column are where the compiler found the error when
 	// it is in a header (also one that the include brings in). They are
 	// "", 0 and 0 when the error is in the probe file: at the #include line
@@ -145,6 +149,50 @@ type IncludeError struct {
 	// directory" (gcc) or "expected ';' after struct".
 	Msg string
 }
+
+// An IncludeErrorKind says what is wrong with an include.
+type IncludeErrorKind int
+
+const (
+	// HeaderErrors: the header, or a header that it includes, has an
+	// error (IncludeError.File says where), or the compiler reported
+	// another error than "not found" at the #include line (File is "").
+	// It is the zero value.
+	HeaderErrors IncludeErrorKind = iota
+
+	// HeaderNotFound: the compiler didn't find the header of the include
+	// ("'raylibb.h' file not found", "raylibb.h: No such file or
+	// directory"). A header that isn't found by a header that the include
+	// brings in is HeaderErrors, with the place of its #include line.
+	HeaderNotFound
+
+	// HeaderUnclosed: the header ends inside a declaration or a block
+	// that it doesn't close (the scope check after the #include failed).
+	// Msg says so, and then gives the compiler's message about the check
+	// line of the probe file, which says little about the header.
+	HeaderUnclosed
+)
+
+// String returns the name of the constant, such as "HeaderNotFound".
+func (k IncludeErrorKind) String() string {
+	switch k {
+	case HeaderErrors:
+		return "HeaderErrors"
+	case HeaderNotFound:
+		return "HeaderNotFound"
+	case HeaderUnclosed:
+		return "HeaderUnclosed"
+	}
+	return fmt.Sprintf("IncludeErrorKind(%d)", int(k))
+}
+
+// notFoundRx matches the compilers' messages for a header that isn't
+// found: clang's "'x.h' file not found" and gcc's "x.h: No such file or
+// directory" (with LC_ALL=C, so in English and with ASCII quotes). For
+// <x.h> with only a quoted x.h next to the file, clang says "'x.h' file
+// not found with <angled> include; use \"quotes\" instead" (and then
+// includes it anyway), where gcc says it isn't found.
+var notFoundRx = regexp.MustCompile(`^(?:'.*' file not found(?: with <angled> include; use "quotes" instead)?|.*: No such file or directory)$`)
 
 // Error returns "include: msg", or "include: file:line:col: msg" for an
 // error in a header.
@@ -161,8 +209,10 @@ func (e IncludeError) Error() string {
 
 // ProbeNamespaces asks the C++ compiler cxx which of the candidates are
 // C++ namespaces, given the includes of a .gp file. It runs the compiler
-// once, with -fsyntax-only, for all the candidates; an empty candidate
-// list runs nothing.
+// once, with -fsyntax-only, for all the candidates. With includes, it
+// runs also for an empty candidate list (or one with only reserved names),
+// to check the includes: a .gp file that imports only C headers has no
+// namespace uses, but its headers must be there.
 //
 // includes are the texts of the #include lines, in source order, each
 // with its delimiters: "<raylib.h>", "\"./physics.h\"". dir is the folder
@@ -179,7 +229,7 @@ func (e IncludeError) Error() string {
 // Without includes, every candidate is Unknown and nothing runs: nothing
 // can declare a namespace (a .gp file can have a namespace rename and no
 // header import). A candidate that starts with gp_ is NotNamespace without
-// a probe: gocpp reserves those names (ADR-010).
+// a probe line: gocpp reserves those names (ADR-010).
 //
 // The answers are the compiler's own, and g++ and clang++ differ in one
 // place: g++ declares namespace std even when no header does, so with only
@@ -575,7 +625,10 @@ func readOutput(pf *probeFile, out []byte, src string, includes []string) (*prob
 				ie.File, ie.Line, ie.Column = filepath.Clean(d.file), d.line, d.col
 			case (n-1)%includeLines == 1:
 				// The scope check after the #include.
+				ie.Kind = HeaderUnclosed
 				ie.Msg = "the header ends inside a declaration or a block that it doesn't close: " + d.msg
+			case notFoundRx.MatchString(d.msg):
+				ie.Kind = HeaderNotFound
 			}
 			run.incErrs = append(run.incErrs, ie)
 		case n >= pf.firstBlock() && n < pf.canary():

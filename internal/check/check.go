@@ -1,6 +1,7 @@
 package check
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"go/ast"
@@ -8,6 +9,7 @@ import (
 	"go/types"
 	"strings"
 
+	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/diag"
 	"github.com/huuhait/gocpp/internal/load"
 )
@@ -27,6 +29,38 @@ type Config struct {
 	// that gocpp never has). Phase 02's subset is always allowed, so the
 	// phases 00 to 02 give the same result.
 	Phase int
+
+	// GOOS and GOARCH are the target that the program was loaded for
+	// (load.Config.GOOS and GOARCH): the namespace probe must run the C++
+	// compiler of that target, whose headers the files include
+	// (<windows.h> for windows). "" means the system that runs gocpp
+	// (runtime.GOOS, runtime.GOARCH). Only the default CXX uses them.
+	GOOS, GOARCH string
+
+	// Context, if not nil, can stop the C++ compiler runs of the
+	// namespace probe (see probeNamespaces). When it is canceled before
+	// or during the probe, Check stops right after the probe and returns
+	// a Result without packages (Result.Package returns nil): the caller
+	// is stopping. nil means context.Background(). (Check can't take a
+	// context argument without changing its callers; the probe is the
+	// only part that waits.)
+	Context context.Context
+
+	// CXX returns the C++ compiler that the namespace probe runs, which
+	// must be the compiler of the load target. Check calls it at most
+	// once, and only when a file of a package that it checks imports a
+	// header (a program without header imports needs no compiler). nil
+	// means build.FindCXXFor with GOOS and GOARCH: for the host,
+	// GOCPP_CXX, CXX, clang++, g++; for windows/amd64 from another
+	// system, GOCPP_CXX or x86_64-w64-mingw32-g++. When it fails, each
+	// package with header imports gets one error, at its first header
+	// import ("cannot check the header imports: no C++ compiler found:
+	// ..."), and its namespace uses stay opaque.
+	CXX func(ctx context.Context) (build.CXX, error)
+
+	// probe, if not nil, replaces interop.ProbeNamespaces (for the tests,
+	// whose headers mostly don't exist).
+	probe probeFunc
 }
 
 // A Result is what Check found out about a loaded program.
@@ -69,7 +103,10 @@ type Package struct {
 	// Errors are the diagnostics of the package, as go build prints them.
 	// For a package that was not type-checked, it is Load.Errors. For a
 	// checked package, it is a new list: the warnings of Load.Errors (such
-	// a package has no load errors), then the errors of go/types and of
+	// a package has no load errors), then the errors of the namespace
+	// probe about the header imports and the namespace renames (the
+	// "undefined: stdd" of a name that is no namespace comes from
+	// go/types, see Check), then the errors of go/types and of
 	// the type arguments of opaque instantiations, in the order they were
 	// found, then the errors of the expressions that go/types skipped next
 	// to opaque ones (checkSkipped), then the internal errors of the opaque
@@ -124,6 +161,20 @@ func (p *Package) Checked() bool {
 // the type T (Phase 01 README §2.5 step 5): see Conversion. A package
 // without such conversions is checked once.
 //
+// Before any of this, Check runs the namespace probe for every file with
+// header imports or namespace renames (Phase 01 README §2.5 step 4, see
+// probeNamespaces): a name that the loader took as a namespace (stdd in
+// stdd.vector) but that the file's headers don't declare as one is
+// "undefined: stdd" at each use, from go/types itself, and a header that
+// isn't found or doesn't compile is an error at its import. The probe
+// runs the C++ compiler of Config.CXX.
+//
+// Check changes the program: it undoes the rewrites of the names that are
+// not namespaces, in the ASTs and in load.Rewrite, and it rewrites
+// conversions of opaque values in the ASTs. So a Program is checked once
+// (a second Check gives the same result, but sees the changed ASTs), and
+// after a header or a file changes, the program must be loaded again.
+//
 // Then Check runs the phase gates over each user package (gates.go): every
 // feature of a phase after Config.Phase is an error that names the phase
 // ("composite types are not supported yet (Phase 03)"). They run on the
@@ -146,6 +197,10 @@ func Check(prog *load.Program, cfg Config) *Result {
 	failed := make(map[*load.Package]bool)
 	hasC := make(map[*load.Package]bool)
 	cgoh := newCgohPackage()
+	probeErrs := probeNamespaces(prog, cfg)
+	if cfg.Context != nil && cfg.Context.Err() != nil {
+		return r
+	}
 	for _, lp := range prog.Packages {
 		var p *Package
 		if lp.Incomplete {
@@ -158,7 +213,7 @@ func Check(prog *load.Program, cfg Config) *Result {
 				c = c || hasC[dep]
 			}
 			hasC[lp] = c
-			p = checkPackage(prog.Fset, lp, checked, cgoh, c && !depsFailed)
+			p = checkPackage(prog.Fset, lp, checked, cgoh, c && !depsFailed, probeErrs[lp])
 			p.Opaque = findOpaque(prog.Fset, p)
 			checked[lp] = p.Types
 			failed[lp] = depsFailed || hasHardErrors(p.Errors)
@@ -188,14 +243,16 @@ func hasHardErrors(l *diag.List) bool {
 // again, until no rewrite is left (see converter). Check passes convert
 // only for a package with C in it, and none whose imports have errors (an
 // invalid value from there can come from an error, not only from C).
+// probeErrs are the errors of the namespace probe, which each check puts
+// first (after the load warnings).
 func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package,
-	cgoh *types.Package, convert bool) *Package {
+	cgoh *types.Package, convert bool, probeErrs []diag.Diagnostic) *Package {
 	cv := newConverter(fset, lp, cgoh)
-	p, errs := checkFiles(fset, lp, checked, cv)
+	p, errs := checkFiles(fset, lp, checked, cv, probeErrs)
 	p.checks = 1
 	for convert && cv.rewrite(p, errs) {
 		checks := p.checks + 1
-		p, errs = checkFiles(fset, lp, checked, cv)
+		p, errs = checkFiles(fset, lp, checked, cv, probeErrs)
 		p.checks = checks
 	}
 	if len(cv.names) > 0 {
@@ -208,14 +265,20 @@ func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Packa
 // diagnostics. It returns the places of the errors that can make a value
 // invalid (collector.blocking), in the order they were found. cv
 // gives the hidden package gocpp/cgoh to the importer and maps
-// gp_cgoh.As[T](x) back to T(x) in the messages.
-func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package, cv *converter) (*Package, []token.Pos) {
+// gp_cgoh.As[T](x) back to T(x) in the messages. The errors of the
+// namespace probe, probeErrs, come before those of go/types: they were
+// found first.
+func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package, cv *converter,
+	probeErrs []diag.Diagnostic) (*Package, []token.Pos) {
 	errs := new(diag.List)
 	for _, d := range lp.Errors.Diagnostics() {
 		// For a package that Check checks, these are only warnings (else
 		// the package would be incomplete). Warnings don't count for the
 		// limit of 10 errors, so their sorted order is as good as the
 		// order in which they were found.
+		errs.Add(d)
+	}
+	for _, d := range probeErrs {
 		errs.Add(d)
 	}
 	// Every package buffers: an expression that go/types skips next to an

@@ -691,7 +691,7 @@ func main() {
 `
 	root := writeTree(t, map[string]string{"gocpp.mod": "module example.com/m\n", "main.gp": src})
 	prog, r := loadAndCheck(t, load.Config{}, root, ".")
-	r2 := Check(prog, Config{Phase: LastPhase})
+	r2 := Check(prog, fakeProbeConfig(LastPhase))
 	errs, errs2 := errorText(t, prog, r, root, true), errorText(t, prog, r2, root, true)
 	want := "# example.com/m\n" +
 		"./main.gp:5:6: invalid operation: n + \"a\" (mismatched types int and untyped string)\n" +
@@ -928,7 +928,7 @@ func main() {
 `
 	root := writeTree(t, map[string]string{"gocpp.mod": "module example.com/m\n", "main.gp": src})
 	prog := load.Load(load.Config{Dir: root, Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: "linux", GOARCH: "amd64"}, ".")
-	r := Check(prog, Config{Phase: 4})
+	r := Check(prog, fakeProbeConfig(4))
 	want := "# example.com/m\n" +
 		"./main.gp:9:2: int(C.y()) (value of type int) is not used\n" +
 		"./main.gp:10:8: defer requires function call, not conversion int(C.f()) (value of type int)\n"
@@ -952,7 +952,7 @@ func main() {
 `
 	root = writeTree(t, map[string]string{"gocpp.mod": "module example.com/m\n", "main.gp": src})
 	prog = load.Load(load.Config{Dir: root, Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: "linux", GOARCH: "amd64"}, ".")
-	r = Check(prog, Config{Phase: 11})
+	r = Check(prog, fakeProbeConfig(11))
 	msg := features[featPromotedCpp].Message()
 	want = "# example.com/m\n" +
 		"./main.gp:7:8: " + msg + "\n" +

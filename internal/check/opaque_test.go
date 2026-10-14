@@ -482,7 +482,7 @@ type File struct {
 		{"// use-g", "g", "g", "opaque"},
 	})
 	var libPkg *Package
-	r := Check(prog, Config{})
+	r := Check(prog, fakeProbeConfig(0))
 	for _, q := range r.Packages {
 		if q.Load.ImportPath == "example.com/m/lib" {
 			libPkg = q

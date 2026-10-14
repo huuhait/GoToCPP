@@ -208,13 +208,12 @@ func (c *cache) probe(ctx context.Context, cxx build.CXX, dir string, includes, 
 			parts = append(parts, p)
 		}
 	}
-	if len(candidates) == 0 {
-		return Result{Kinds: map[string]Kind{}}, nil
-	}
 	// Without includes nothing can declare a namespace (a .gp file with a
 	// namespace rename but no header import): every candidate is Unknown,
-	// and the caller reports the rename. Reserved names need no probe.
-	if len(includes) == 0 || len(names) == 0 {
+	// and the caller reports the rename. With includes, the probe runs
+	// also without candidates (or with only reserved ones, which need no
+	// probe line), to check the includes.
+	if len(includes) == 0 {
 		return result(candidates, nil, nil), nil
 	}
 	if cxx.Family != build.Clang && cxx.Family != build.GCC {
@@ -327,6 +326,9 @@ func (c *cache) valid(set *includeSet) bool {
 // setKey is the cache key of an include set. None of its parts can hold a
 // NUL byte (checkInclude, and paths can't), so the key can't be confused
 // with another one.
+//
+// TODO(job 2.8): add the compiler's arguments (CXX.Args, "ccache g++")
+// once build.CXX has them.
 func setKey(cxx build.CXX, dir string, includes []string) string {
 	return strings.Join(append([]string{cxx.Path, cxx.Family.String(), cxx.Version, dir}, includes...), "\x00")
 }

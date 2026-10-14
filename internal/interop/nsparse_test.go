@@ -2,12 +2,15 @@ package interop
 
 import (
 	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -105,7 +108,7 @@ func TestReadOutput(t *testing.T) {
 		{name: "gcc: missing header first, then nothing",
 			out: "/tmp/p/gp_probe.cpp:3:10: fatal error: ./bad.h: No such file or directory\n" +
 				"compilation terminated.\n",
-			incErrs: []IncludeError{{Index: 1, Include: `"./bad.h"`, Msg: "./bad.h: No such file or directory"}}},
+			incErrs: []IncludeError{{Index: 1, Include: `"./bad.h"`, Kind: HeaderNotFound, Msg: "./bad.h: No such file or directory"}}},
 		{name: "first error of each include, in include order",
 			out: "/tmp/p/gp_probe.cpp:3:10: fatal error: './bad.h' file not found\n" +
 				"In file included from /tmp/p/gp_probe.cpp:1:\n" +
@@ -113,11 +116,11 @@ func TestReadOutput(t *testing.T) {
 				"/usr/include/c++/15/vector:2:1: error: second\n",
 			incErrs: []IncludeError{
 				{Index: 0, Include: "<vector>", File: "/usr/include/c++/15/vector", Line: 1, Column: 1, Msg: "first"},
-				{Index: 1, Include: `"./bad.h"`, Msg: "'./bad.h' file not found"}}},
+				{Index: 1, Include: `"./bad.h"`, Kind: HeaderNotFound, Msg: "'./bad.h' file not found"}}},
 		{name: "unfinished declaration",
 			out: "/tmp/p/gp_probe.cpp:4:1: error: expected primary-expression before ';' token\n" +
 				"/tmp/p/gp_probe.cpp:8:1: error: expected primary-expression before 'namespace'\n" + canaryGCC,
-			incErrs: []IncludeError{{Index: 1, Include: `"./bad.h"`, Msg: "the header ends inside a declaration or a block that it doesn't close: expected primary-expression before ';' token"}}},
+			incErrs: []IncludeError{{Index: 1, Include: `"./bad.h"`, Kind: HeaderUnclosed, Msg: "the header ends inside a declaration or a block that it doesn't close: expected primary-expression before ';' token"}}},
 		{name: "open brace",
 			out: canaryGCC +
 				"/tmp/p/gp_probe.cpp:16:26: error: expected '}' at end of input\n" +
@@ -264,11 +267,12 @@ func TestProbeNoIncludes(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(res.Kinds, want) || res.IncludeErrors != nil {
 		t.Errorf("probe without includes = %+v, %v; want Kinds %v", res, err, want)
 	}
-	// Only reserved names: nothing runs either.
-	res, err = c.probe(context.Background(), cxx, t.TempDir(), []string{"<vector>"}, []string{"gp_inc_0", "::gp_x::y"})
-	want = map[string]Kind{"gp_inc_0": NotNamespace, "::gp_x::y": NotNamespace}
-	if err != nil || !reflect.DeepEqual(res.Kinds, want) {
-		t.Errorf("probe with reserved names only = %+v, %v; want Kinds %v", res, err, want)
+	// No candidates either. (With includes, the probe runs also without
+	// candidates or with only reserved ones, to check the includes:
+	// TestProbeNoCandidates.)
+	res, err = c.probe(context.Background(), cxx, t.TempDir(), nil, nil)
+	if err != nil || res.Kinds == nil || len(res.Kinds) != 0 || res.IncludeErrors != nil {
+		t.Errorf("probe without includes and candidates = %+v, %v; want empty Kinds", res, err)
 	}
 	if n := c.runs.Load(); n != 0 {
 		t.Errorf("%d compiler runs, want 0", n)
@@ -426,10 +430,40 @@ func fakeCompiler(t *testing.T, family build.Family, body string) build.CXX {
 		t.Skip("the fake compilers are shell scripts")
 	}
 	path := filepath.Join(t.TempDir(), "fake++")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+	writeScript(t, path, "#!/bin/sh\n"+body+"\n")
+	return build.CXX{Path: path, Family: family, Version: "fake 1.0"}
+}
+
+// writeScript writes the shell script src (which starts with #!/bin/sh) to
+// path, executable, and runs it once, so that a test can run it without
+// "text file busy". A test that forks a process (a compiler) while another
+// one writes a script can give that child the script's write fd for a
+// moment (between fork and exec, golang/go#22315), and exec fails with
+// ETXTBSY while it has it. The run retries that; once one exec succeeded,
+// no process has the fd any more. For the run, the line after #!/bin/sh
+// exits at once when GOCPP_TEST_WARMUP is 1.
+func writeScript(t testing.TB, path, src string) {
+	t.Helper()
+	body, ok := strings.CutPrefix(src, "#!/bin/sh\n")
+	if !ok {
+		t.Fatalf("script %s doesn't start with #!/bin/sh", path)
+	}
+	src = "#!/bin/sh\n[ \"$GOCPP_TEST_WARMUP\" = 1 ] && exit 0\n" + body
+	if err := os.WriteFile(path, []byte(src), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return build.CXX{Path: path, Family: family, Version: "fake 1.0"}
+	for try := 0; ; try++ {
+		cmd := exec.Command(path)
+		cmd.Env = append(os.Environ(), "GOCPP_TEST_WARMUP=1")
+		err := cmd.Run()
+		if err == nil {
+			return
+		}
+		if !errors.Is(err, syscall.ETXTBSY) || try == 50 {
+			t.Fatalf("running %s: %v", path, err)
+		}
+		time.Sleep(time.Duration(try+1) * 10 * time.Millisecond)
+	}
 }
 
 func TestProbeFakeCompilers(t *testing.T) {
@@ -479,7 +513,7 @@ func TestProbeOutputLimitStops(t *testing.T) {
 echo "$f:1:10: fatal error: x.h: No such file or directory"
 while :; do printf '%1000s\n' x; done`)
 	res, err := newCache().probe(ctx, cxx, t.TempDir(), []string{"<x.h>"}, []string{"std"})
-	want := []IncludeError{{Index: 0, Include: "<x.h>", Msg: "x.h: No such file or directory"}}
+	want := []IncludeError{{Index: 0, Include: "<x.h>", Kind: HeaderNotFound, Msg: "x.h: No such file or directory"}}
 	if err != nil || !reflect.DeepEqual(res.IncludeErrors, want) || res.Kinds["std"] != Unknown {
 		t.Errorf("probe = %+v, %v; want the include error %+v", res, err, want)
 	}

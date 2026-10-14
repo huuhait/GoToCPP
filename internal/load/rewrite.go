@@ -25,11 +25,13 @@ type Rewrite struct {
 
 	// Namespaces lists the names that RewriteFile took as C++ namespaces
 	// (std in std.vector, where Go declares std nowhere), in the order of
-	// their first use. The namespace probe checks that the headers of the
-	// file declare them. For a name that they don't declare, such as the
-	// typo stdd, the caller reports "undefined: stdd" at each use, as
-	// go/types would have done. A namespace rename such as fs is not in
-	// this list: it is in Renames.
+	// their first use. The namespace probe (check.Check) checks that the
+	// headers of the file declare them. For a name that they don't
+	// declare, such as the typo stdd, check.Check undoes the rewrite of
+	// its uses (C.stdd.vector becomes stdd.vector again) and takes the
+	// name and its uses out of Namespaces and Uses, so that go/types
+	// reports "undefined: stdd" at each use. A namespace rename such as fs
+	// is not in this list: it is in Renames.
 	Namespaces []*NamespaceCandidate
 
 	// Renames lists the namespace renames of the file
@@ -39,7 +41,9 @@ type Rewrite struct {
 	Renames []*NamespaceRename
 
 	// ImportC is the import "C" that RewriteFile added because the file
-	// uses C, or nil.
+	// uses C, or nil. After check.Check undid the uses of a name that is
+	// not a namespace (see Namespaces), the file may not use C any more;
+	// the import stays (go/types never reports import "C" as unused).
 	ImportC *ast.ImportSpec
 }
 

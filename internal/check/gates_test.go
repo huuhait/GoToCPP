@@ -31,7 +31,7 @@ func checkAt(t *testing.T, cfg load.Config, dir string, phase int, patterns ...s
 		cfg.GOOS, cfg.GOARCH = "linux", "amd64"
 	}
 	prog := load.Load(cfg, patterns...)
-	return errorText(t, prog, Check(prog, Config{Phase: phase}), dir, true)
+	return errorText(t, prog, Check(prog, fakeProbeConfig(phase)), dir, true)
 }
 
 // A gateCase is a small program that uses a gated feature.
@@ -523,7 +523,7 @@ func TestStubsNotGated(t *testing.T) {
 	dir := writeTree(t, map[string]string{"main.gp": src})
 	cfg := load.Config{Dir: dir, Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: "linux", GOARCH: "amd64"}
 	prog := load.Load(cfg, ".")
-	r := Check(prog, Config{Phase: floorPhase})
+	r := Check(prog, fakeProbeConfig(floorPhase))
 	std := 0
 	for _, p := range r.Packages {
 		if !p.Load.Std {
@@ -885,7 +885,7 @@ func TestGatesKeepFoundOrder(t *testing.T) {
 		text := func(phase int) string {
 			cfg := load.Config{Dir: dir, Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: "linux", GOARCH: "amd64"}
 			prog := load.Load(cfg, ".")
-			return errorText(t, prog, Check(prog, Config{Phase: phase}), dir, false)
+			return errorText(t, prog, Check(prog, fakeProbeConfig(phase)), dir, false)
 		}
 		got, want := text(9), text(LastPhase)
 		want = strings.Replace(want, "undefined: errors.Wrapf", "errors.Wrapf is not available yet (Phase 10)", 1)

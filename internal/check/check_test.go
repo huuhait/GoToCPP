@@ -2,6 +2,7 @@ package check
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"go/ast"
 	"go/constant"
@@ -11,7 +12,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/diag"
+	"github.com/huuhait/gocpp/internal/interop"
 	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/stdlib"
 )
@@ -47,7 +50,25 @@ func loadAndCheck(t *testing.T, cfg load.Config, dir string, patterns ...string)
 		cfg.GOOS, cfg.GOARCH = "linux", "amd64"
 	}
 	prog := load.Load(cfg, patterns...)
-	return prog, Check(prog, Config{Phase: LastPhase})
+	return prog, Check(prog, fakeProbeConfig(LastPhase))
+}
+
+// fakeProbeConfig returns the Config for the phase with a namespace probe
+// that runs no compiler: every name is a namespace, and every header is
+// fine. Most tests use headers that don't exist (<lib.h>); the tests of the
+// probe (nsprobe_test.go) run the real compilers.
+func fakeProbeConfig(phase int) Config {
+	return Config{
+		Phase: phase,
+		CXX:   func(context.Context) (build.CXX, error) { return build.CXX{}, nil },
+		probe: func(_ context.Context, _ build.CXX, _ string, _, candidates []string) (interop.Result, error) {
+			kinds := make(map[string]interop.Kind)
+			for _, c := range candidates {
+				kinds[c] = interop.Namespace
+			}
+			return interop.Result{Kinds: kinds}, nil
+		},
+	}
 }
 
 // errorText returns what gocpp check would print for the program, like go
@@ -800,7 +821,7 @@ func TestCouldNotImport(t *testing.T) {
 	checked := make(map[*load.Package]*types.Package)
 	var a, main *Package
 	for _, lp := range prog.Packages {
-		cp := checkPackage(prog.Fset, lp, checked, newCgohPackage(), false)
+		cp := checkPackage(prog.Fset, lp, checked, newCgohPackage(), false, nil)
 		checked[lp] = cp.Types
 		switch lp.ImportPath {
 		case "example.com/m/a":

@@ -414,6 +414,11 @@ func TestProbeIncludeErrors(t *testing.T) {
 			{name: "missing system header",
 				includes: []string{"<vector>", "<gocpp_no_such_header.h>", `"./physics.h"`},
 				want:     []includeErrorCase{{1, "", 0, "gocpp_no_such_header.h"}}},
+			// physics.h is next to the .gp file, but <> doesn't look
+			// there: gcc doesn't find it, clang says to use quotes.
+			{name: "local header in <>",
+				includes: []string{"<vector>", "<physics.h>"},
+				want:     []includeErrorCase{{1, "", 0, "physics.h"}}},
 			{name: "missing local header",
 				includes: []string{`"./missing.h"`, "<vector>"},
 				want:     []includeErrorCase{{0, "", 0, "missing.h"}}},
@@ -516,8 +521,17 @@ func checkIncludeErrors(t *testing.T, got []IncludeError, includes []string, dir
 		if file != "" {
 			file = filepath.Clean(file) // gcc and clang print "dir/./bad.h" for "./bad.h"
 		}
-		if e.Include != includes[w.index] || file != wantFile || e.Line != w.line || e.Msg == "" || !strings.Contains(e.Msg, w.msg) {
-			t.Errorf("include error %+v, want include %s, file %q, line %d, a message with %q", e, includes[w.index], wantFile, w.line, w.msg)
+		// The cases without a file are a missing header or a header that
+		// the scope check caught.
+		wantKind := HeaderErrors
+		switch {
+		case w.file == "" && strings.HasPrefix(w.msg, "the header ends inside"):
+			wantKind = HeaderUnclosed
+		case w.file == "":
+			wantKind = HeaderNotFound
+		}
+		if e.Include != includes[w.index] || file != wantFile || e.Line != w.line || e.Msg == "" || !strings.Contains(e.Msg, w.msg) || e.Kind != wantKind {
+			t.Errorf("include error %+v, want include %s, file %q, line %d, kind %v, a message with %q", e, includes[w.index], wantFile, w.line, wantKind, w.msg)
 		}
 	}
 	for i, e := range got {
@@ -561,19 +575,32 @@ func TestProbeLeavesNoFiles(t *testing.T) {
 }
 
 func TestProbeNoCandidates(t *testing.T) {
-	// No candidates: no compiler run, so even a compiler that isn't there
-	// is fine.
-	c := newCache()
-	cxx := build.CXX{Path: filepath.Join(t.TempDir(), "no-such-c++"), Family: build.GCC, Version: "none"}
-	for _, cands := range [][]string{nil, {}} {
-		res, err := c.probe(context.Background(), cxx, t.TempDir(), []string{"<vector>"}, cands)
-		if err != nil || res.Kinds == nil || len(res.Kinds) != 0 || res.IncludeErrors != nil {
-			t.Errorf("probe with candidates %#v = %+v, %v; want empty Kinds", cands, res, err)
+	t.Parallel()
+	forEachCompiler(t, func(t *testing.T, cxx build.CXX) {
+		t.Parallel()
+		// Without candidates (or with only reserved ones), the probe
+		// still checks the includes: once per include set.
+		dir := testDir(t)
+		c := newCache()
+		for _, cands := range [][]string{nil, {}, {"gp_x", "::gp_x::y"}} {
+			res, err := c.probe(context.Background(), cxx, dir, []string{"<vector>", `"./physics.h"`}, cands)
+			if err != nil || len(res.Kinds) != len(cands) || res.IncludeErrors != nil {
+				t.Errorf("probe with candidates %#v = %+v, %v; want no include errors", cands, res, err)
+			}
+			for _, cand := range cands {
+				if res.Kinds[cand] != NotNamespace {
+					t.Errorf("%s: %v, want NotNamespace", cand, res.Kinds[cand])
+				}
+			}
+			res, err = c.probe(context.Background(), cxx, dir, []string{"<vector>", "<gocpp_no_such_header.h>"}, cands)
+			if err != nil || len(res.IncludeErrors) != 1 || res.IncludeErrors[0].Index != 1 || res.IncludeErrors[0].Kind != HeaderNotFound {
+				t.Errorf("probe of a missing header with candidates %#v = %+v, %v; want its include error", cands, res, err)
+			}
 		}
-	}
-	if n := c.runs.Load(); n != 0 {
-		t.Errorf("%d compiler runs, want 0", n)
-	}
+		if n := c.runs.Load(); n != 2 {
+			t.Errorf("%d compiler runs, want 2 (one per include set)", n)
+		}
+	})
 }
 
 func TestProbeManyCandidates(t *testing.T) {
