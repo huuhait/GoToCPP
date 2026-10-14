@@ -9,7 +9,7 @@
 - [x] Measured go/types re-check speed with cached deps: `strings` 3 ms, `encoding/json` 5 ms, `net/http` (28.5k lines) 29 ms parse+check (2026-10-13)
 - [x] 11.1 LSP core (JSON-RPC stdio, initialize/shutdown, incremental sync, overlays; protocol types copied from gopls's generated code + generator) · *v0*
 - [x] 11.2 Snapshots + cancellation + debounce · *v0*
-- [ ] 11.3 Memoized pipeline · *v0*
+- [~] 11.3 Memoized pipeline · *v0*
   - [ ] per-file parse+expand cache
   - [ ] per-package check cache
   - [ ] export-data summaries (memory + on-disk; deep `gcexportdata` first, shallow via vendored `gcimporter` if memory needs it; cache keyed by gocpp binary hash; side table for opaque type spellings)
