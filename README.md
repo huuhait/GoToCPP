@@ -13,24 +13,26 @@ Linux and Windows.
 
 ## Status
 
-Phase 00 (foundations) and Phase 01 (the front-end) are done; Phase 02 (the walking skeleton) is
-under way. What works today:
+Phases 00 (foundations), 01 (the front-end) and 02 (the walking skeleton) are done; Phase 03 (the
+core language) is under way, and the language server's first version is done. What works today:
 
 - `gocpp fmt` formats `.gp` files like gofmt (`gocpp fmt -h`).
 - `gocpp check` parses and type-checks packages, C/C++ header imports included, and prints their
   errors like `go build` (`gocpp check ./...`; `gocpp check -h`). Features of later phases get a
   "not supported yet (Phase NN)" error; [docs/spec/feature-matrix.md](docs/spec/feature-matrix.md)
   lists them.
-- `gocpp build`, `gocpp run` and `gocpp emit` compile programs of the Phase 02 subset (basic
-  types, functions, loops, `switch`, labels, `fmt.Println`) to C++20 and build them with g++ or
-  clang++: [examples/hello](examples/hello/main.gp), [fizzbuzz](examples/fizzbuzz/main.gp) and
-  [primes](examples/primes/main.gp) run, and gdb can debug them at the `.gp` level.
-- `gocpp lsp` is the start of the language server: it speaks LSP over stdin and stdout and shows
-  the errors of `gocpp check` as you type (`gocpp lsp -h`). The VS Code extension in
-  [editors/vscode](editors/vscode/README.md) starts it; [docs/guides/editors.md](docs/guides/editors.md)
-  sets up Neovim, Helix and Emacs. It keeps summaries of the packages it checks in a cache on
-  disk, `gocpp/lsp` in your user cache folder (set `GOCPP_LSP_CACHE` to an absolute folder to move
-  it, or to `off`); `gocpp lsp -h` explains the size and age caps.
+- `gocpp build`, `gocpp run` and `gocpp emit` compile programs to C++20 and build them with g++ or
+  clang++: basic types, functions, loops, `switch`, labels, pointers, slices, arrays and
+  `fmt.Println`, with Go's evaluation order and Go's panic messages and stack traces
+  (`-nochecks` turns off the bounds and nil checks). [examples/hello](examples/hello/main.gp),
+  [fizzbuzz](examples/fizzbuzz/main.gp) and [primes](examples/primes/main.gp) run, and gdb can
+  debug them at the `.gp` level. Maps, structs, methods and closures come next (Phase 03).
+- `gocpp lsp` is the language server (`gocpp lsp -h`): errors as you type, hover, go to
+  definition, signature help, completion (with auto-import), formatting and organize imports. The
+  VS Code extension in [editors/vscode](editors/vscode/README.md) starts it;
+  [docs/guides/editors.md](docs/guides/editors.md) sets up Neovim, Helix and Emacs. It keeps
+  summaries of the packages it checks in a cache on disk, `gocpp/lsp` in your user cache folder
+  (set `GOCPP_LSP_CACHE` to an absolute folder to move it, or to `off`).
 
 A command that is not built yet says which phase builds it.
 
