@@ -1,6 +1,6 @@
 # Phase 11: Fast Language Server · STATE
 
-**Status:** `[~]` in progress (v0 track: 11.1, 11.2, 11.3a, 11.4 done; 11.10a grammar done)
+**Status:** `[~]` in progress (v0 track: 11.1–11.4, 11.10b done; 11.10a grammar done)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
@@ -9,10 +9,10 @@
 - [x] Measured go/types re-check speed with cached deps: `strings` 3 ms, `encoding/json` 5 ms, `net/http` (28.5k lines) 29 ms parse+check (2026-10-13)
 - [x] 11.1 LSP core (JSON-RPC stdio, initialize/shutdown, incremental sync, overlays; protocol types copied from gopls's generated code + generator) · *v0*
 - [x] 11.2 Snapshots + cancellation + debounce · *v0*
-- [~] 11.3 Memoized pipeline (11.3a done; 11.3b: disk summaries + opaque spellings) · *v0*
+- [x] 11.3 Memoized pipeline (11.3a + 11.3b) · *v0*
   - [x] per-file parse+expand cache
   - [x] per-package check cache
-  - [~] export-data summaries (job 11.3b: on-disk + opaque spellings; memory done) (memory + on-disk; deep `gcexportdata` first, shallow via vendored `gcimporter` if memory needs it; cache keyed by gocpp binary hash; side table for opaque type spellings)
+  - [x] export-data summaries (memory + on-disk; deep `gcexportdata` first, shallow via vendored `gcimporter` if memory needs it; cache keyed by gocpp binary hash; side table for opaque type spellings)
   - [x] API-hash short-circuit
   - [x] LRU memory cap
 - [x] 11.4 Diagnostics as you type · *v0*
@@ -112,3 +112,11 @@
   rounds. Licenses: languageclient 10.x is skipped because it pulls BlueOak-licensed minimatch 10; 9.0.1 pulls
   ISC packages (semver, minimatch 5), accepted as permissive. Not tested inside a real VS Code window (the
   agents may not start a GUI): the user can try `code --extensionDevelopmentPath=$PWD/editors/vscode`.
+- 2026-10-14: Job 11.3b (internal/lsp/cache/filecache: a disk cache per gocpp binary hash, atomic writes,
+  checked entries, a trim that touches only its own files (5 days, 1 GiB, other binaries' folders 1 day);
+  disk.go: dependency summaries from disk; opaque.go: the side table of C/C++ type spellings, in the API
+  hash, `(*Package).OpaqueType` for hover) committed, clean after 2 review rounds. 50k-line workspace:
+  cold open 43–108 ms (heap 45 MB), warm 8–18 ms (heap 4 MB). Deviation from the 11.3 note: the compiler's
+  identity is not in the key; each summary stores the probe answers its check used, and they are asked
+  again in the background at load (provisional until then; stale and re-checked if they differ), which also
+  catches changed headers. Shallow export data was not needed. GOCPP_LSP_CACHE must be absolute (or `off`).
