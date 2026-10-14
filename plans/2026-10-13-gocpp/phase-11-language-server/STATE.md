@@ -59,3 +59,10 @@
   COPIED.md and update.sh, JSON-RPC framing, the lifecycle, incremental text sync, overlays) committed,
   clean after 2 review rounds. Process start → initialize answered ≈ 1.5 ms. A failed didChange marks
   the overlay broken and tells the user once (window/showMessage).
+- 2026-10-14 (manager, 11.2 review): gocpp runs requests truly concurrently, unlike gopls (whose
+  jsonrpc2.AsyncHandler serializes requests except the ones that call jsonrpc2.Async). The order
+  guarantee comes from taking each request's snapshot on the read loop. Consequence for 11.3: the
+  caches must be concurrency-safe anyway (11.4's background diagnostics run beside requests):
+  immutable computed values, a ctx-aware per-key promise/singleflight keyed by content hash, a short
+  mutex per map never held while computing, and a semaphore (≈ GOMAXPROCS) around type-checks.
+  Nothing is written to the client after `exit` (like gopls).
