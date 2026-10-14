@@ -44,9 +44,13 @@ import (
 // printed by fmt, and assignments whose first target is a part of a plain local struct or array
 // (lw.a, lar[i]) and whose later target has an operand that reads it (gsl[lw.a & 3]),
 // defer (step 3.13): deferred fmt.Println and e calls, whose arguments are evaluated at the
-// defer statement and which run when their function returns or panics, and named types (step
+// defer statement and which run when their function returns or panics, named types (step
 // 3.9): a named int8, gn, with arithmetic that wraps (also division, shifts and op=), and a named
-// slice of them, gns, that the calls change and append to, in any place.
+// slice of them, gns, that the calls change and append to, in any place, and methods (step
+// 3.10): value and pointer methods of S and N, called (also deferred) on the package, boxed and
+// plain local structs, through pst and pls and on elements, which change their receivers and call
+// e (a value receiver is a copy that e's changes don't reach), next to the calls of their
+// arguments.
 // It compares what each prints with real Go, on both compilers.
 //
 //	GOCPP_RANDOM_TESTS=1 go test ./internal/cppgen -run TestRandomOrder
@@ -354,6 +358,36 @@ func eb(tag int, v bool) bool {
 
 func both(a, b int) int {
 	return a*7 + b
+}
+
+// mv and mp are methods of S, nv and np of N: each prints its tag and calls e, which changes the
+// package structs and gn, so a value receiver shows that it is a copy and a pointer receiver
+// that it is not.
+func (s S) mv(tag, v int) int {
+	fmt.Print("mv", tag, " ")
+	e(tag, v)
+	fmt.Print(s.a, s.b, s.in.c, " ")
+	return s.a + s.b + s.arr[1] + v
+}
+
+func (s *S) mp(tag, v int) int {
+	fmt.Print("mp", tag, " ")
+	s.a += v
+	e(tag, v)
+	return s.a*2 + s.b
+}
+
+func (n N) nv(tag int) int {
+	fmt.Print("nv", tag, " ")
+	e(tag, 1)
+	return int(n)
+}
+
+func (n *N) np(tag int) int {
+	fmt.Print("np", tag, " ")
+	*n += N(tag)
+	e(tag, 0)
+	return int(*n)
 }
 
 `
@@ -977,6 +1011,10 @@ func (g *progGen) stmt() {
 		g.printf("fmt.Println(%s)", g.args(1+g.r.Intn(4)))
 	case 2:
 		if g.chance(0.15) {
+			if g.chance(0.4) {
+				g.printf("defer %s", g.method(2)) // the receiver too is evaluated now
+				break
+			}
 			g.printf("defer e(%d, %s)", g.nextTag(), g.expr(2))
 			break
 		}
@@ -1313,8 +1351,37 @@ func (g *progGen) leaf() string {
 		}
 		return []string{"g0", "g1", "len(gs)", "int(g8)", "len(gmp)"}[g.r.Intn(5)]
 	default:
+		if g.chance(0.2) {
+			return g.method(1)
+		}
 		return fmt.Sprintf("e(%d, %s)", g.nextTag(), strconv.Itoa(g.r.Intn(7)-2))
 	}
+}
+
+// method returns a call of a method (step 3.10): a value or a pointer method of S on a struct
+// that the calls can change (the package's gst, through pst, an element of gss or gsa, and in
+// main the boxed lst, through pls, and for the value method the plain local lw), or of N on gn
+// or an element of gns. Its argument has calls too.
+func (g *progGen) method(depth int) string {
+	tag := g.nextTag()
+	if g.chance(0.25) {
+		recv := []string{"gn", "gns[" + g.expr(1) + " & 3]"}[g.r.Intn(2)]
+		if g.chance(0.5) {
+			return fmt.Sprintf("%s.nv(%d)", recv, tag)
+		}
+		return fmt.Sprintf("%s.np(%d)", recv, tag)
+	}
+	recvs := []string{"gst", "pst", "gss[" + g.expr(1) + " & 1]", "gsa[" + g.expr(1) + " & 1]", "(*pst)"}
+	if g.main {
+		recvs = append(recvs, "lst", "pls")
+	}
+	if g.chance(0.5) {
+		if g.main {
+			recvs = append(recvs, "lw")
+		}
+		return fmt.Sprintf("%s.mv(%d, %s)", recvs[g.r.Intn(len(recvs))], tag, g.expr(depth))
+	}
+	return fmt.Sprintf("%s.mp(%d, %s)", recvs[g.r.Intn(len(recvs))], tag, g.expr(depth))
 }
 
 // expr returns an int expression.

@@ -326,8 +326,38 @@ void Vec2::Scale(gp::ptr<Vec2> v, double k) {
 | `func (p *T) M()` (pointer receiver) | `static void M(gp::ptr<T> p);`: the method needs an owning pointer that can escape |
 | `p.M()`, value method, `p` a pointer | `p->M()`: auto-deref with a nil check. If `p` is not a local of the caller (a global, a field or an element), the caller first copies it into a local, so the object can't be freed while the method runs |
 | `x.PM()`, pointer method, `x` addressable | `T::PM(<address of x>)` (see [pointers](#pointers-and-boxing)) |
-| `f := x.M` (method value) | a lambda that copies the receiver **now** (Go evaluates the receiver when the method value is made) |
-| `T.M`, `(*T).PM` (method expressions) | lambdas that take the receiver as the first parameter |
+| `f := x.M` (method value) | a lambda that copies the receiver **now** (Go evaluates the receiver when the method value is made); not yet: it comes with `gp::func` (step 3.11) |
+| `T.M`, `(*T).PM` (method expressions) | lambdas that take the receiver as the first parameter; not yet, as method values |
+| `o.M()`, `M` promoted from an embedded `Inner` / `*Inner` | `o.Inner.M()`, `o.Inner->M()`, `Inner::PM(gp::field_ptr(<&o>, &Outer::Inner))` (embedding is allowed from Phase 05) |
+| `defer x.M(a)` | `gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp_a0.M(gp_a1); }, x, a);`: the receiver is stored at the defer statement, a copy of the value for a value method (`defer p.M()` copies `*p` there, and panics there for a nil `p`) |
+
+What the C++ looks like (step 3.10, internal/lower/methods.go):
+
+- The methods are declared in their type's struct (also a named type that isn't a struct, a
+  `gp::newtype`) and defined out of line after all the structs, in source order with the
+  functions, so a method may use a type declared after it. Their C++ names are escaped like the
+  fields' (`MethodName`: a C++ word gets a `_`, `func (w Words) Words()` is `Words_`), so a method
+  never clashes with a field. Inside a method, the struct's members (its fields, methods and, for
+  a named type over a runtime class, the base's names `slice`, `string`, ...) would hide the
+  package's names, so a package variable, function or type of such a name is written qualified
+  there: `gpkg_main::X`.
+- A value receiver is a copy, `T v = *this;`; a box, `gp::ptr<T> v = gp::new_<T>(*this);`, when
+  the method takes its address (or calls a pointer method on it) or when `T` is larger than
+  128 KiB; and `const T& v = *this;` when the body provably can't change the object: it calls
+  only `len`, `cap`, `min`, `max`, `new`, `make`, `print`, `println`, `panic` and conversions,
+  takes no address, has no `defer`, `go` or func literal, and assigns only its own variables
+  (or their parts), not `v`. A receiver without a name (or `_`) is not copied.
+- Go's order: the receiver is evaluated with the arguments, as gc does (it makes the receiver the
+  first argument): its calls run before the arguments' calls (`h().M(f())` calls `h` first), its
+  reads after all of them (`g.M(f())`, where `f` changes `g`, calls `M` on the new `g`, and for a
+  nil `g` panics after `f` ran). A value method called through a pointer that is not a local of
+  the caller copies it first, `gp::ptr<T>(g)->M(...)`, so the object stays alive for the call.
+- fmt's `String()` and `Error()` (gocpp/fmtshim.hpp): each struct gets `gp::string gp_String()
+  const` when its method set has `String() string`, or the static `gp_String_ptr(const
+  gp::ptr<T>&)` when only `*T`'s has it (a pointer method), promoted methods included; the same
+  for `Error() string`. A method of another signature is not fmt's (Go's doesn't call it either).
+- Go has no methods on local types (a method is declared at package level on a package-level
+  type), so a local type moved to the namespace has none of its own.
 
 Sources: [Phase 03 §2.5](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#25-methods),
 and the example of the [root README §2](../../plans/2026-10-13-gocpp/README.md#2-what-it-looks-like)
@@ -985,12 +1015,13 @@ Sources: [Phase 03 §2.10](../../plans/2026-10-13-gocpp/phase-03-core-language/R
   an operation stay too: a write to a nil map, `make` with a bad length or capacity, and an
   index of a `[0]T` (which has no element to give).
 
+A method prints as Go prints it: a value method (a const member function) as `main.T.M`, a
+pointer method (a static one, whose mangled name has no qualifier) as `main.(*T).M`.
+
 Where the trace differs from Go's (accepted divergences):
 - the parentheses always hold `(...)` (the function has parameters) or `()`, where Go prints
   the argument words (`main.f(0x0?)`), or `(...)` for an inlined frame; and every frame has
   its offset, where Go prints none for an inlined frame;
-- a method prints as `main.T.M`, never `main.(*T).M`: the C++ name doesn't say whether the
-  receiver is a pointer;
 - a Go name that gocpp escaped for a C++ keyword or macro keeps its `_` (`main.new_`), and a
   func literal in a function compiled by clang++ has no known number (`main.f.func?`), as
   clang++ numbers the lambdas of a whole file;

@@ -75,6 +75,9 @@ type funcGen struct {
 	moves   map[ast.Expr]bool   // the slices that s = append(s, ...) and s = s[a:b] move (slices.go)
 	stores  map[ast.Expr]bool   // the map entries m[k] that op= or ++ changes (maps.go: markStores)
 
+	// recvs are the receivers that a deferred method call stored (methods.go: storeRecv).
+	recvs map[*ast.SelectorExpr]cppir.Expr
+
 	// boxed are the variables of the function that live in a box (box.go): nil in
 	// gp_var_init, which has none.
 	boxed map[*types.Var]boxReason
@@ -125,6 +128,10 @@ func (fg *funcGen) cname(obj types.Object, pos token.Pos) string {
 		return n
 	}
 	if n, ok := fg.g.names[obj]; ok {
+		if fg.g.tdecls().members[n] {
+			// In a method, a member of its struct of that name would hide it (methods.go).
+			return fg.g.ns + "::" + n
+		}
 		return n
 	}
 	fg.g.errorf(pos, "internal error: no C++ name for %s", obj.Name())
@@ -299,6 +306,9 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 			return placeholder
 		}
 	case *ast.SelectorExpr:
+		if sel := fg.g.info.Selections[fun]; sel != nil && sel.Kind() == types.MethodVal {
+			return fg.methodCall(c, fun, sel) // methods.go
+		}
 		callee = fg.pkgFunc(c, fun)
 		if callee == "" {
 			return placeholder
@@ -379,6 +389,9 @@ func (fg *funcGen) argTypes(args []ast.Expr) []types.Type {
 // read. Every call by the name of a function must go through here: of the package's
 // functions now, and from Phase 03 on of methods, other packages' functions and func values.
 func (g *gen) funcCallName(name string, args []types.Type) string {
+	if strings.HasPrefix(name, g.ns+"::") {
+		return name // qualified already (cname, in a method)
+	}
 	for _, t := range args {
 		if b := basicOf(t); b == nil || b.Info()&types.IsString != 0 {
 			return g.ns + "::" + name

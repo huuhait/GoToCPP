@@ -69,7 +69,8 @@ import (
 //
 // The named types that aren't structs (type Celsius float64, type IDs []int, step 3.9) are
 // structs too, over gp::newtype (named.go: newtypeDef), named, ordered and declared with the
-// others. Not yet: methods (3.10) and generic types (Phase 07).
+// others. Their methods (step 3.10) are declared in them (methods.go). Not yet: generic types
+// (Phase 07).
 
 // A structInfo is one C++ struct: of a named struct type, of an anonymous struct type, or of a
 // named type that isn't a struct (a gp::newtype: named.go).
@@ -94,6 +95,9 @@ type typeDecls struct {
 	// variables and functions of the function that is being lowered (its funcNames.taken), or
 	// the fields of the struct that is being defined (hide).
 	hidden map[string]bool
+	// members are the C++ names of the members of the struct whose method is being lowered
+	// (methods.go: hideMembers): in a member function they hide the package's names too.
+	members map[string]bool
 }
 
 // tdecls returns the package's structs.
@@ -302,7 +306,7 @@ func (g *gen) structType(t types.Type, pos token.Pos) cppir.Type {
 	if si == nil {
 		return typeName("gp_unsupported")
 	}
-	if g.tdecls().hidden[si.name] {
+	if td := g.tdecls(); td.hidden[si.name] || td.members[si.name] {
 		return typeName(g.ns + "::" + si.name)
 	}
 	return typeName(si.name)
@@ -359,6 +363,10 @@ func (g *gen) structDecls() []cppir.Decl {
 	for i := 0; i < len(td.list); i++ { // (structDef may add none: anonStructsIn found them all)
 		define(td.list[i])
 	}
+	// The fmt shim's hooks of the method sets, after all the structs (methods.go).
+	for _, si := range td.list {
+		decls = append(decls, g.hookDefs(si)...)
+	}
 	return decls
 }
 
@@ -395,6 +403,9 @@ func (g *gen) structDef(si *structInfo) []cppir.Decl {
 	hidden := make(map[string]bool)
 	for _, f := range si.fields {
 		hidden[f] = true
+	}
+	for _, m := range g.methodNames(si) { // methods.go
+		hidden[m] = true
 	}
 	defer g.hide(hidden)()
 	s := &cppir.Struct{Name: si.name}
@@ -454,7 +465,8 @@ func (g *gen) structDef(si *structInfo) []cppir.Decl {
 	info := &cppir.VarDecl{Specs: []string{"static", "constexpr"}, Type: typeName("auto"),
 		Vars: []cppir.Declarator{{Name: "gp_fields", Init: call("gp::fields", fields...)}}}
 	s.Members = append(s.Members, name, info)
-	return []cppir.Decl{s, g.layoutAssert(si)} // named.go
+	s.Members = append(s.Members, g.methodDecls(si)...) // methods.go
+	return []cppir.Decl{s, g.layoutAssert(si)}          // named.go
 }
 
 // zeroInit returns the default member initializer of a field of type t, its zero value: 0 or

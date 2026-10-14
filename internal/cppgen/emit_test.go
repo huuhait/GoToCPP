@@ -325,11 +325,12 @@ func TestUnsupported(t *testing.T) {
 		{"struct-map-tags", "type W struct{ M map[int]struct{ Q int `t:\"q\"` } }\ntype V struct{ M map[int]struct{ Q int } }\nfunc main() {\n\t_ = V(W{})\n}", "main.gp:6:6: cppgen: not supported yet: the conversion from W to V, whose fields differ in struct tags inside a slice or a map"},
 		{"namedfunc", "type F func(int) int\nfunc main() {}", "main.gp:3:6: cppgen: not supported yet: named func types (Phase 03 step 3.11)"},
 		{"namedcomplex", "type Z complex128\nfunc main() {}", "main.gp:3:6: cppgen: not supported yet: type complex128"},
-		{"structmethod", "type T struct{}\nfunc (T) M() {}\nfunc main() {}", "main.gp:4:1: cppgen: not supported yet: methods (Phase 03)"},
+		{"methodvalue", "type T struct{}\nfunc (T) M() {}\nfunc main() {\n\tvar t T\n\tprintln(t.M == nil)\n}", "main.gp:7:10: cppgen: not supported yet: method values (Phase 03 step 3.10 after 3.11)"},
 		{"fmtslice", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, [][]int{})\n}", "main.gp:5:17: cppgen: not supported yet: printing a slice (Phase 03 step 3.15)"},
 		{"fmtarray", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, [2]int{})\n}", "main.gp:5:17: cppgen: not supported yet: printing an array (Phase 03 step 3.15)"},
 		{"spread", "func f(a ...int) {}\nfunc main() {\n\tf([]int{1}...)\n}", "main.gp:5:12: cppgen: not supported yet: f(s...) (Phase 03)"},
-		{"method", "type T int\nfunc (T) M() {}\nfunc main() {}", "main.gp:4:1: cppgen: not supported yet: methods (Phase 03)"},
+		{"methodexpr", "type T int\nfunc (T) M() {}\nfunc main() {\n\tprintln(T.M == nil)\n}", "main.gp:6:10: cppgen: not supported yet: method expressions (Phase 03 step 3.10 after 3.11)"},
+		{"methodvariadic", "type T int\nfunc (T) M(a ...int) {}\nfunc main() {\n\tvar t T\n\tt.M(1)\n}", "main.gp:7:2: cppgen: not supported yet: variadic functions (Phase 03)"},
 		{"funcvalue", "func g() {}\nfunc main() {\n\tf := g\n\tf()\n}", "main.gp:5:2: cppgen: not supported yet: type func()"},
 		{"funcvalue2", "func g() {}\nfunc main() {\n\tprintln(g == nil)\n}", "main.gp:5:10: cppgen: not supported yet: function values (Phase 03)"},
 		{"complex", "func main() {\n\tc := complex(1, 2)\n\tprintln(real(c))\n}", "main.gp:4:2: cppgen: not supported yet: type complex128"},
@@ -647,6 +648,19 @@ func TestPanics(t *testing.T) {
 		{"named-map-div", "m := Ages{\"a\": 1}\n\tz := 0\n\tm[\"a\"] /= z"},
 		{"named-nil-pointer", "var l Link\n\tfmt.Println(\"before\")\n\tfmt.Println(l.a)"},
 		{"named-to-array", "ids := IDs{1}\n\tg := Grid(ids)\n\tfmt.Println(g[0])"},
+		// Methods (step 3.10): a value method through a nil pointer panics at the call (also a
+		// deferred one, at the defer statement, and one promoted through a nil embedded
+		// pointer), a pointer method gets the nil pointer and panics where it dereferences it;
+		// the receiver is read after the calls of the arguments (gnil is set to nil by clear),
+		// and an index of the receiver panics after them.
+		{"method-nil-value", "var p *Pt\n\tfmt.Println(\"before\")\n\tfmt.Println(p.sum())"},
+		{"method-nil-pointer", "var p *Pt\n\tfmt.Println(p.isNil())\n\tp.set(1)"},
+		{"method-nil-defer", "var p *Pt\n\tdefer fmt.Println(\"deferred\")\n\tdefer p.sum()\n\tfmt.Println(\"not reached\")"},
+		{"method-nil-embedded", "var w Wrap\n\tfmt.Println(w.isNil())\n\tfmt.Println(w.sum())"},
+		{"method-nil-after-args", "gnil = &Pt{1, 2}\n\tfmt.Println(gnil.add(clear()))"},
+		{"method-index-after-args", "s := []Pt{{1, 2}}\n\ti := 1\n\ts[i].set(clear())"},
+		{"method-div", "p := Pt{1, 0}\n\tfmt.Println(p.div())"},
+		{"method-div-pointer", "p := &Pt{1, 0}\n\tp.divSet()"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -687,6 +701,13 @@ func TestPanics(t *testing.T) {
 			if strings.HasPrefix(tt.name, "named-") {
 				src += "\ntype N int\n\ntype U8 uint8\n\ntype IDs []int\n\ntype Name string\n\ntype Grid [3]int\n\n" +
 					"type Ages map[string]int\n\ntype Pt struct{ a int }\n\ntype Link *Pt\n"
+			}
+			if strings.HasPrefix(tt.name, "method-") {
+				src += "\ntype Pt struct{ a, b int }\n\ntype Wrap struct{ *Pt }\n\nvar gnil *Pt\n\n" +
+					"func (p Pt) sum() int {\n\treturn p.a + p.b\n}\n\nfunc (p Pt) add(n int) int {\n\treturn p.a + n\n}\n\n" +
+					"func (p Pt) div() int {\n\treturn p.a / p.b\n}\n\nfunc (p *Pt) divSet() {\n\tp.a /= p.b\n}\n\n" +
+					"func (p *Pt) set(v int) {\n\tp.a = v\n}\n\nfunc (p *Pt) isNil() bool {\n\treturn p == nil\n}\n\n" +
+					"func clear() int {\n\tprintln(\"clear\")\n\tgnil = nil\n\treturn 1\n}\n"
 			}
 			if strings.HasPrefix(tt.name, "struct-") {
 				src += "\ntype Pt struct{ a, b int }\n\ntype Wrap struct{ *Pt }\n\ntype List struct {\n\tv    int\n\tnext *List\n}\n\n" +

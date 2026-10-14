@@ -104,8 +104,18 @@ const name_case name_cases[] = {
     {"_ZN9gpkg_main1hEN2gp5sliceINS0_6stringEEENS0_5arrayIlLl3EEERKNS_1TEPS6_NSt7__"
      "cxx1112basic_stringIcSt11char_traitsIcESaIcEEE",
      "main.h", true, false},
-    {"_ZN9gpkg_main1T1MEv", "main.T.M", false, false},
-    {"_ZNK9gpkg_main1T1KEv", "main.T.K", false, false},
+    // Methods (step 3.10): a value method is a const member function, a pointer method a
+    // static one; the receiver is a parameter in Go.
+    {"_ZNK9gpkg_main1T1KEv", "main.T.K", true, false},
+    {"_ZNK9gpkg_main1T1MEl", "main.T.M", true, false},
+    {"_ZN9gpkg_main1T1MEv", "main.(*T).M", false, false},
+    {"_ZN9gpkg_main1T2PMEN2gp3ptrIS0_EE", "main.(*T).PM", true, false},
+    {"_ZN9gpkg_main7Celsius6StringEN2gp3ptrIS0_EE", "main.(*Celsius).String", true, false},
+    {"_ZNK9gpkg_main7Celsius6StringEv", "main.Celsius.String", true, false},
+    {"_ZZNK9gpkg_main1T1MEvENKUlvE_clEv", "main.T.M.func1", false, false},
+    {"_ZZN9gpkg_main1T2PMEN2gp3ptrIS0_EEENKUlvE_clEv", "main.(*T).PM.func1", false, false},
+    {"_ZNK9gpkg_main1T9gp_StringEv", nullptr, false, false}, // the fmt shim's hook
+    {"_ZN9gpkg_main1T13gp_String_ptrERKN2gp3ptrIS0_EE", nullptr, false, false},
     {"_ZN9gpkg_main3MapIlEEvT_", "main.Map[...]", true, false},
     {"_ZN9gpkg_main5gp_x_Ev", "main.gp_x", false, false}, // a user's gp_x
     {"_ZN9gpkg_main4new_Ev", "main.new_", false, false},  // Go's new: the _ stays

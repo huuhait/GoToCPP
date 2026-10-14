@@ -237,7 +237,7 @@ func (g *gen) collect() {
 func (g *gen) collectFunc(d *ast.FuncDecl) {
 	switch {
 	case d.Recv != nil:
-		g.unsupported(d.Pos(), "methods (Phase 03)")
+		g.collectMethod(d) // methods.go
 		return
 	case d.Type.TypeParams != nil:
 		g.unsupported(d.Pos(), "generic functions (Phase 07)")
@@ -290,13 +290,18 @@ func (g *gen) collectGen(d *ast.GenDecl) {
 }
 
 // prototypes declares every function: C++ needs a declaration before a use, Go doesn't care
-// about the order.
+// about the order. A method is declared in its struct (methods.go).
 func (g *gen) prototypes() {
+	n := 0
 	for _, f := range g.funcs {
 		f.prepare(g)
+		if f.method != nil {
+			continue // declared in its struct (methods.go)
+		}
 		g.decl(&cppir.Func{Result: f.result, Name: f.name, Params: f.params})
+		n++
 	}
-	if len(g.funcs) > 0 {
+	if n > 0 {
 		g.decl(&cppir.Blank{})
 	}
 }

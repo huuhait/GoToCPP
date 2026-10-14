@@ -41,8 +41,8 @@ import (
 // Which named types: a defined type over a basic type (not complex), a string, a slice, an array,
 // a map or a pointer, also one declared in a function (moved to the namespace like a local struct,
 // typedecl.go). Over a struct it is a struct of its own (typedecl.go); over a func type, an
-// interface or a channel it comes with those types (steps 3.11, Phase 05, Phase 08). Methods are
-// step 3.10.
+// interface or a channel it comes with those types (steps 3.11, Phase 05, Phase 08). Its methods
+// (step 3.10, methods.go) are members of its struct, as a struct's are.
 //
 // Every operator of the underlying type works on the named type and gives it (go/types gives the
 // result its type): the runtime's gp::newtype has the operators of the numbers (converting back
@@ -135,8 +135,16 @@ func (g *gen) addNewtype(t *types.Named, name, goName string) *structInfo {
 // underlying type with int64, uint64 or uintptr in it, gp_value_tag (gocpp/fmtshim.hpp).
 func (g *gen) newtypeDef(si *structInfo) []cppir.Decl {
 	// In the struct's body, the names of its base classes (their injected class names) hide
-	// the package's types of those names: a type named array is gpkg_main::array there.
-	defer g.hide(baseNames)()
+	// the package's types of those names: a type named array is gpkg_main::array there; so do
+	// its methods (methods.go).
+	hidden := make(map[string]bool)
+	for n := range baseNames {
+		hidden[n] = true
+	}
+	for _, m := range g.methodNames(si) {
+		hidden[m] = true
+	}
+	defer g.hide(hidden)()
 	base := &cppir.TypeName{Name: "gp::newtype", Args: []cppir.Node{typeName(si.name), g.cxxType(si.under, token.NoPos)}}
 	s := &cppir.Struct{Name: si.name, Bases: []cppir.Type{base}}
 	// The base's constructors, by its full name: a plain newtype::newtype would name the type
@@ -148,6 +156,7 @@ func (g *gen) newtypeDef(si *structInfo) []cppir.Decl {
 	cstr := &cppir.Ptr{Elem: &cppir.Const{Elem: typeName("char")}}
 	s.Members = append(s.Members, &cppir.VarDecl{Specs: []string{"static", "constexpr"}, Type: cstr,
 		Vars: []cppir.Declarator{{Name: "gp_type_name", Init: lit(cppir.CString(si.goName))}}})
+	s.Members = append(s.Members, g.methodDecls(si)...) // methods.go
 	return []cppir.Decl{s, g.layoutAssert(si)}
 }
 

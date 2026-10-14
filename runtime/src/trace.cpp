@@ -76,6 +76,7 @@ struct encoding;
 struct name_t {
     std::unique_ptr<encoding> outer;
     std::vector<comp> comps;
+    bool konst = false; // a nested name with the const qualifier: a const member function
 };
 
 // An encoding: a function's name, and whether it has parameters.
@@ -196,6 +197,10 @@ private:
 
     void parse_name(name_t& n) {
         if (peek() == 'N') {
+            for (std::size_t j = i_ + 1; j < s_.size() && std::strchr("rVK", s_[j]) != nullptr;
+                 j++) {
+                n.konst = n.konst || s_[j] == 'K';
+            }
             nested(n.comps);
         } else if (peek() == 'Z') {
             local(n);
@@ -607,6 +612,10 @@ go_name gocpp_name(const encoding& e) {
         return r;
     }
     r.name = path;
+    // A method (step 3.10) is a member of its type's struct, gpkg_main::T::M: a value method is a
+    // const member function (main.T.M), a pointer method a static one (main.(*T).M), whose
+    // mangled name has no qualifier.
+    bool ptr_method = cs.size() == 3 && !e.name.konst;
     for (std::size_t k = 1; k < cs.size(); k++) {
         const comp& c = cs[k];
         if (c.kind != comp::source) {
@@ -630,6 +639,9 @@ go_name gocpp_name(const encoding& e) {
             }
         }
         r.name += '.';
+        if (ptr_method && k == 1) {
+            part = "(*" + part + ")";
+        }
         r.name += part;
         if (c.targs) {
             r.name += "[...]";
@@ -657,7 +669,8 @@ go_func func_name(std::string_view symbol) {
     demangler d(symbol);
     f.params = true; // unless the parser finds there are none
     if (d.top(e)) {
-        f.params = e.params;
+        // A value method's receiver is a parameter in Go, *this in C++.
+        f.params = e.params || (e.name.konst && e.name.outer == nullptr);
         go_name g = gocpp_name(e);
         if (g.kind == go_name::runtime) {
             return f; // not shown
@@ -665,7 +678,6 @@ go_func func_name(std::string_view symbol) {
         if (g.kind == go_name::gocpp) {
             f.name = std::move(g.name);
             f.shown = true;
-            f.params = e.params;
             return f;
         }
     } else if (base.starts_with("_ZN2gp") || base.starts_with("_ZNK2gp") ||

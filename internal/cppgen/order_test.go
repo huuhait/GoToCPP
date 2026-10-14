@@ -50,6 +50,13 @@ const st = "type Pt struct{ a, b int }\n\ntype Wrap struct{ *Pt }\n\nvar gst Pt\
 // named slice of them, package variables of both, and a function that gives a []N.
 const nt = "type N int\n\ntype NS []N\n\nvar gn N = 5\n\nvar gns = NS{1, 2, 3}\n\nfunc mkn() []N {\n\treturn nil\n}\n\n"
 
+// mt has the methods for the method cases of TestOrderPanics (step 3.10): a value and a pointer
+// method that print their receiver, a package pointer that nilr sets to nil, and a package slice.
+const mt = "type R struct{ v int }\n\nfunc (r R) get(a int) int {\n\tfmt.Println(\"get\", r.v, a)\n\treturn r.v\n}\n\n" +
+	"func (r *R) put(a int) {\n\tfmt.Println(\"put\", r.v, a)\n\tr.v = a\n}\n\n" +
+	"func (r *R) self(a int) *R {\n\tfmt.Println(\"self\", a)\n\treturn r\n}\n\nvar gr *R\n\nvar grs = []R{{1}}\n\n" +
+	"func nilr() int {\n\tfmt.Println(\"nilr\")\n\tgr = nil\n\treturn 0\n}\n\nfunc mkr() *R {\n\tfmt.Println(\"mkr\")\n\treturn nil\n}\n\n"
+
 // TestOrderPanics checks the order of calls and of the operations that can panic (order.go)
 // against real Go: gc calls f first in a/b + f() and panics after it, and reads s after grow
 // in int(s[i]) + grow(). Each program panics, with Go's output and exit code 2, on both
@@ -177,6 +184,17 @@ func TestOrderPanics(t *testing.T) {
 		{"named-index-named", nt, "var i N = 7\n\tfmt.Println(int(gns[i])+f(), f())"},
 		{"named-slice-first", nt, "j := 9\n\tfmt.Println(len(gns[:j]), f())"},
 		{"named-append-index", nt, "gns = append(gns[:1], N(f()))\n\tfmt.Println(gns[2], f())"},
+		// Methods (step 3.10): the receiver is evaluated with the arguments, as gc does: its
+		// calls before theirs, its reads after all of them (a nil gr after nilr, an index out
+		// of range after f), also for a deferred call, whose receiver is stored at the defer.
+		{"method-recv-after-call", mt, "gr = &R{1}\n\tgr.get(nilr())"},
+		{"method-recv-call-first", mt, "mkr().get(id(1))"},
+		{"method-ptr-recv-call-first", mt, "mkr().put(id(1))"},
+		{"method-index-recv", mt, "i := 3\n\tgrs[i].get(f())"},
+		{"method-index-ptr-recv", mt, "i := 3\n\tgrs[i].put(f())"},
+		{"method-defer-recv", mt, "var p *R\n\tdefer fmt.Println(\"first\")\n\tdefer p.get(f())"},
+		{"method-arg-panic", mt, "z := 0\n\tgr = &R{2}\n\tgr.get(7 / z + f())"},
+		{"method-chain", mt, "gr = &R{3}\n\tfmt.Println(gr.self(id(1)).get(nilr()), gr.self(id(2)).get(f()))"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -484,6 +502,21 @@ func TestOrderTemps(t *testing.T) {
 		{"lb := Flag(x > 0) && Flag(f() > 1)\n\t_ = lb", "Flag lb = Flag(Flag(x > 0) && Flag(f() > 1));"},
 		{"fmt.Println(Flag(x > 0) && Flag(f() > 1), f())", "{ Flag gp_t0 = Flag(Flag(x > 0) && Flag(f() > 1)); gp::fmtshim::Println(gp_t0, f()); }"},
 		{"switch gn {\n\tcase 1:\n\t}", "switch (gn.gp_value()) {"},
+		// Methods (step 3.10): a receiver whose address is taken has no read of its own, a call
+		// in the receiver goes first, a value method through a package pointer copies it first
+		// (the copy holds the object), through a local pointer it doesn't, a read of a package
+		// receiver goes after the calls, and a deferred call stores its receiver.
+		{"gst.inc(f())", "Pt::inc(gp::static_ptr(gst), f());"},
+		{"mkp().inc(f())", "{ auto gp_t0 = mkp(); Pt::inc(gp_t0, f()); }"},
+		{"fmt.Println(gpp.sum())", "gp::fmtshim::Println(gp::ptr<Pt>(gpp)->sum());"},
+		{"lp := &gst\n\tfmt.Println(lp.sum())", "gp::fmtshim::Println(lp->sum());"},
+		{"lp := &gst\n\t_ = lp.sum() + f()", "{ auto gp_t0 = lp->sum(); static_cast<void>(gp_t0 + f()); }"},
+		{"fmt.Println(gpp.inc(f()))", "{ auto gp_t0 = f(); gp::fmtshim::Println(Pt::inc(gpp, gp_t0)); }"},
+		{"fmt.Println(gst.sum(), f())", "{ auto gp_t0 = gst.sum(); gp::fmtshim::Println(gp_t0, f()); }"},
+		{"gst.add(f())", "{ auto gp_t0 = f(); gst.add(gp_t0); }"},
+		{"gsts[0].inc(1)", "Pt::inc(gp::ptr<Pt>(gsts.gp_owner(), &gsts[0]), 1);"},
+		{"defer gpp.sum()", "gp_df.gp_push_call([](auto&& gp_a0) { gp_a0.sum(); }, *gpp);"},
+		{"defer gst.inc(f())", "gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { Pt::inc(gp_a0, gp_a1); }, gp::static_ptr(gst), f());"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.body, func(t *testing.T) {
@@ -493,7 +526,9 @@ func TestOrderTemps(t *testing.T) {
 				"var ga = [3]int{1, 2, 3}\n\nvar gg2 = [2][2]int{}\n\nfunc mka() *[3]int {\n\treturn nil\n}\n\n" +
 				"type Pt struct{ a, b int }\n\ntype One struct{ v int }\n\ntype Tree struct {\n\tkids []Tree\n\tnext *Tree\n}\n\nvar gst Pt\n\nvar gsts = []Pt{{1, 2}}\n\n" +
 				"type Wrap struct{ *Pt }\n\ntype Huge struct {\n\tv  int\n\tbig [1 << 15]int\n\tn  int\n}\n\n" +
-				"func mkp() *Pt {\n\treturn &gst\n}\n\n" + nt + "type Flag bool\n\nfunc main() {\n\t" + tt.body + "\n}\n"
+				"func mkp() *Pt {\n\treturn &gst\n}\n\n" + nt +
+				"func (p Pt) sum() int {\n\treturn p.a + p.b\n}\n\nfunc (p Pt) add(n int) int {\n\treturn p.a + n\n}\n\n" +
+				"func (p *Pt) inc(n int) int {\n\tp.a += n\n\treturn p.a\n}\n\nvar gpp = &gst\n\n" + "type Flag bool\n\nfunc main() {\n\t" + tt.body + "\n}\n"
 			gp := filepath.Join(dir, "main.gp")
 			if err := os.WriteFile(gp, []byte(src), 0o644); err != nil {
 				t.Fatal(err)

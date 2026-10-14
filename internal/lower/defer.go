@@ -58,9 +58,11 @@ import (
 // The lambda is one line, at the defer statement's line, so gdb has no lines of its own to
 // step through there; a deferred function of the program is stepped into as any call.
 //
-// For later steps: a method call (3.10) and a call of a func value (3.11) must store the
-// receiver and the func value too, as arguments of the lambda (evaluated at the defer
-// statement, as Go does), and a deferred func literal is pushed as it is
+// A method call (step 3.10) stores its receiver as the lambda's first argument, evaluated at
+// the defer statement as Go does: a copy of the value for a value method (defer p.M() copies
+// *p there, and panics there for a nil p), the pointer for a pointer method (methods.go:
+// storeRecv). For later steps: a call of a func value (3.11) must store the func value too, as
+// an argument of the lambda, and a deferred func literal is pushed as it is
 // (gp_df.gp_push_call(lambda)): it is the user's code, which the trace shows as main.f.func1,
 // as Go does; its body is several lines (the multi-line lambda of the cppir package doc). A
 // func literal with defers of its own gets the same shape inside its lambda.
@@ -255,6 +257,8 @@ func (fg *funcGen) deferThunk(c *ast.CallExpr) cppir.Expr {
 	var values []cppir.Expr
 	saved := make(map[ast.Expr]string)
 	panics := fg.isBuiltin(c, "panic")
+	// A method's receiver is stored too, as the lambda's first parameter (methods.go).
+	defer fg.storeRecv(c, &params, &values)()
 	for _, a := range c.Args {
 		if fg.constValue(a) != nil || panics && fg.staticConst(a) != nil {
 			continue // the same value in the call (a constant for panic: panicid.go)

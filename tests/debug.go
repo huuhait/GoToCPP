@@ -98,6 +98,16 @@ func parseDebug(rel, abs string, src []byte) (*debugProgram, error) {
 			continue
 		}
 		fn := debugFunc{name: fd.Name.Name, nameLine: line(fd.Name.Pos()), start: line(fd.Pos()), end: line(fd.Body.Rbrace)}
+		if fd.Recv != nil && len(fd.Recv.List) == 1 {
+			// A method is a member of its type's struct (Phase 03 step 3.10): gpkg_main::T::M.
+			t := fd.Recv.List[0].Type
+			if s, ok := t.(*ast.StarExpr); ok {
+				t = s.X
+			}
+			if id, ok := t.(*ast.Ident); ok {
+				fn.name = id.Name + "::" + fn.name
+			}
+		}
 		p.funcs = append(p.funcs, fn)
 		for _, l := range codeLines(fset, fd) {
 			code[l] = true

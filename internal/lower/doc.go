@@ -68,6 +68,11 @@
 //   - defer.go: defer (step 3.13): the single-exit shape of a function with defers (the
 //     results as variables, a gp::defer_frame, the body in a try block, one exit per return),
 //     and the deferred calls, with their arguments evaluated at the defer statement;
+//   - methods.go: methods (step 3.10): members of their type's struct (a value receiver's copy,
+//     T v = *this;, or a const reference when the body can't change it; a pointer receiver as
+//     the first parameter of a static member), the calls (the address of an addressable
+//     receiver, -> through a pointer, promoted methods, the receiver in Go's order, a deferred
+//     call's stored receiver), and the fmt shim's String()/Error() hooks;
 //   - named.go: the named types that aren't structs (step 3.9): their C++ structs over
 //     gp::newtype, the conversions to and from them, and Go's implicit conversions between types
 //     that are not identical (also between struct types), found before a function is lowered;
@@ -81,8 +86,8 @@
 //
 // Phase 02 built it for a small subset of the language (as internal/cppgen; step 3.1 moved
 // it here), and every later phase widens it: Phase 03 adds the boxing analysis (box.go),
-// value receivers and parameters as real copies, closures that share variables, defer frames
-// and range loops; later phases add their rewrites, for example the early returns of ! (must) in
-// Phase 10. Phase 06 adds the per-package layout: one pkg.hpp per package, one .cpp per .gp
-// file and a pkg_init.cpp.
+// value receivers (methods.go) and parameters as real copies, closures that share variables,
+// defer frames and range loops; later phases add their rewrites, for example the early returns
+// of ! (must) in Phase 10. Phase 06 adds the per-package layout: one pkg.hpp per package, one
+// .cpp per .gp file and a pkg_init.cpp.
 package lower

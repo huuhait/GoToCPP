@@ -354,8 +354,14 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 			return
 		}
 		// A call; also append, copy and clear, which write the elements of an array that
-		// other slices can see.
-		args := fg.analyzeArgs(false, x.Args, iface)
+		// other slices can see. A method's receiver is evaluated with the arguments
+		// (methods.go).
+		var args *orderScope
+		if sel, s := fg.methodSel(x); sel != nil {
+			args = fg.analyzeMethod(x, sel, s)
+		} else {
+			args = fg.analyzeArgs(false, x.Args, iface)
+		}
 		add(&orderItem{unit: true, inner: []*orderScope{args}, eff: effect{call: true}, force: fg.force[x]})
 	case *ast.BinaryExpr:
 		if x.Op == token.LAND || x.Op == token.LOR {

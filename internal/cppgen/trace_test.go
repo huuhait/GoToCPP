@@ -96,11 +96,78 @@ func normTrace(stderr string) string {
 		case strings.HasPrefix(line, "..."):
 			b.WriteString(line + "\n")
 		default:
-			if j := strings.Index(line, "("); j >= 0 {
-				line = line[:j]
+			if j := strings.LastIndex(line, "("); j >= 0 {
+				line = line[:j] // the arguments (not the ( of main.(*T).M)
 			}
 			b.WriteString(line + "()\n")
 		}
 	}
 	return b.String()
+}
+
+// TestTraceMethods compares the trace of a panic inside methods with Go's (step 3.10): a value
+// method is main.T.M, a pointer method main.(*T).M, also for a named type that isn't a struct,
+// and a method called through a deferred call shows at the line of its function's exit.
+func TestTraceMethods(t *testing.T) {
+	goOnce.Do(func() { goCmd, _ = exec.LookPath("go") })
+	if goCmd == "" {
+		t.Skip("no go command")
+	}
+	src := `package main
+
+type T struct{ v int }
+
+func (t T) Div(d int) int {
+	return t.v / d
+}
+
+func (t *T) Half(d int) int {
+	return T{t.v}.Div(d - 2)
+}
+
+type N int
+
+func (n N) Run(t *T) int {
+	return t.Half(int(n))
+}
+
+func (n *N) Defer(t *T) {
+	defer n.Run(t)
+}
+
+func main() {
+	n := N(2)
+	n.Defer(&T{4})
+}
+`
+	dir := t.TempDir()
+	gp := filepath.Join(dir, "main.gp")
+	if err := os.WriteFile(gp, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := goTrace(t, gp)
+	for _, name := range []string{"main.T.Div()", "main.(*T).Half()", "main.N.Run()", "main.(*N).Defer()"} {
+		if !strings.Contains(want, name+"\n") {
+			t.Fatalf("Go's trace has no %s:\n%s", name, want)
+		}
+	}
+	work := t.TempDir()
+	cpp := filepath.Join(work, "main.gp.cpp")
+	if err := os.WriteFile(cpp, []byte(emitter(gp)(t, Config{OutputPath: cpp})), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range compilers(t) {
+		t.Run(c.name, func(t *testing.T) {
+			if c.missing != "" {
+				t.Skip(c.missing)
+			}
+			_, stderr, code, err := command(work, false, c.build(t, cpp))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := normTrace(string(stderr)); code != 2 || got != want {
+				t.Errorf("exit code %d, the trace (normalized):\n%s\nwant Go's:\n%s", code, got, want)
+			}
+		})
+	}
 }

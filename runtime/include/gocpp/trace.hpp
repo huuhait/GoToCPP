@@ -80,7 +80,8 @@ struct go_func {
 // gives the package path back, a name that starts with gp_ loses the _ that escaped it, and
 //
 //     gpkg_main::f                             main.f
-//     gpkg_main::T::M                          main.T.M (step 3.10 decides the receivers)
+//     gpkg_main::T::M (a const member)         main.T.M (a value method, step 3.10)
+//     gpkg_main::T::PM (a static member)       main.(*T).PM (a pointer method)
 //     gpkg_main::F<...>                        main.F[...]
 //     a lambda in gpkg_main::main (C++'s #k)   main.main.funck, and inside it main.main.funck.j
 //     gpkg_main::gp_init_3                     main.init.2 (Go's numbering starts at 0)

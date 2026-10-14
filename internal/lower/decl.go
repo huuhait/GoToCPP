@@ -26,6 +26,8 @@ type funcInfo struct {
 	args  []*types.Var             // the boxed parameters, in order
 
 	defers *deferInfo // the single-exit shape of a function with defers (defer.go), or nil
+
+	method *methodInfo // a method's receiver and its type (methods.go), or nil for a function
 }
 
 // prepare chooses the C++ names of the function's parameters and named results, and its C++
@@ -58,8 +60,11 @@ func (f *funcInfo) prepare(g *gen) {
 	// The function's scope holds the parameters, the named results and the outermost
 	// declarations of the body, in C++ as in Go. funcDecl closes it.
 	f.names.openScope()
-	// A parameter named like a type hides it in the parameters after it (typedecl.go).
+	// A parameter named like a type hides it in the parameters after it (typedecl.go), and so
+	// does a member of a method's struct (methods.go).
 	defer g.hide(f.names.taken)()
+	recv := f.prepareRecv(g) // methods.go: the receiver of a pointer method is a parameter
+	defer g.hideMembers(f.members())()
 
 	sig := f.obj.Signature()
 	f.params = make([]cppir.Param, sig.Params().Len())
@@ -95,6 +100,7 @@ func (f *funcInfo) prepare(g *gen) {
 			}
 		}
 	}
+	f.params = append(recv, f.params...)
 	f.result = g.resultType(sig, f.decl.Pos())
 	f.prepareDefers()
 }
@@ -102,12 +108,13 @@ func (f *funcInfo) prepare(g *gen) {
 // funcDecl adds the definition of a function.
 func (g *gen) funcDecl(f *funcInfo) {
 	defer g.hide(f.names.taken)() // a variable named like a type hides it (typedecl.go)
+	defer g.hideMembers(f.members())()
 	body := f.decl.Body
 	g.noteConversions(body, f.obj.Signature()) // named.go
 	g.markCounts(body)
 	fg := newFuncGen(g, f.names, f)
 	fg.flow = newFlow(g.info, body, fg.postAtEnd)
-	fn := &cppir.Func{Pos: g.pos(f.decl.Pos()), Result: f.result, Name: f.name, Params: f.params, Body: &cppir.Block{}}
+	fn := &cppir.Func{Pos: g.pos(f.decl.Pos()), Result: f.result, Name: f.name, Params: f.params, Quals: f.quals(), Body: &cppir.Block{}}
 	fg.push(&fn.Body.Stmts, &fn.Body.End)
 	if f.results != nil {
 		res := f.obj.Signature().Results()
@@ -122,6 +129,7 @@ func (g *gen) funcDecl(f *funcInfo) {
 		}
 	}
 	fg.fresh = f.results == nil // the named results are in the function's block (declLines)
+	fg.recvCopy()               // methods.go: a value receiver's copy, T v = *this;
 	fg.openDefers()             // defer.go
 	boxes := fg.paramBoxes()
 	fg.stmts(body.List, body.Rbrace)
