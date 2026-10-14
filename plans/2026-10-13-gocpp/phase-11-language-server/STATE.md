@@ -12,7 +12,7 @@
 - [~] 11.3 Memoized pipeline (11.3a done; 11.3b: disk summaries + opaque spellings) · *v0*
   - [x] per-file parse+expand cache
   - [x] per-package check cache
-  - [ ] export-data summaries (memory + on-disk; deep `gcexportdata` first, shallow via vendored `gcimporter` if memory needs it; cache keyed by gocpp binary hash; side table for opaque type spellings)
+  - [~] export-data summaries (job 11.3b: on-disk + opaque spellings; memory done) (memory + on-disk; deep `gcexportdata` first, shallow via vendored `gcimporter` if memory needs it; cache keyed by gocpp binary hash; side table for opaque type spellings)
   - [x] API-hash short-circuit
   - [x] LRU memory cap
 - [x] 11.4 Diagnostics as you type · *v0*
@@ -23,8 +23,8 @@
 - [ ] 11.9 Semantic tokens, inlay hints, document links, code actions
 - [~] 11.10 VS Code extension (+ optional tree-sitter, editor docs) · *v0*
   - [x] 11.10a the `.gp` language + TextMate grammar (`editors/vscode`, `make vscode-test`)
-  - [ ] the LSP client, format on save, `contributes.breakpoints` (after the language server v0)
-  - [ ] tree-sitter grammar (optional), editor setup docs
+  - [~] the LSP client, format on save, `contributes.breakpoints` (after the language server v0) (job 11.10b)
+  - [~] tree-sitter grammar (optional; not yet), editor setup docs (job 11.10b)
 - [ ] 11.11 Benchmark harness + 3 reference projects + CI gate + gopls side-by-side table
 - [ ] 11.12 Profiling/tracing/slow-request log + random-edit differential test
 - [ ] 11.13 `!` and macro support (after Phase 10): hovers, inlay hints for handled calls, code actions, expand macro
