@@ -21,7 +21,7 @@
 - [ ] 4.12 C++ exception → fatal Go-style panic; fmt shim prints C++ values (raw pointers as addresses)
 - [ ] 4.13 Compile + link package `.c/.cc/.cpp/.cxx` sources
 - [ ] 4.14 `extern "C"` rule (parse-as-C, never `.hpp`, `//gocpp:extern-c <hdr>`, `no-extern-c`)
-- [ ] 4.15 Directives → flags (`pkg-config`, `link`, `cflags`, `ldflags`); tests use a test-only library with its own `.pc` (the dev shell hides missing flags)
+- [ ] 4.15 Directives → flags (`pkg-config`, `link`, `cflags`, `ldflags`) + the flag allow-list (port Go's security.go tables, `GOCPP_*_ALLOW`); tests use a test-only library with its own `.pc` (the dev shell hides missing flags)
 - [ ] 4.16 Local helper headers used as packages (replaces the preamble) + `C` helpers (`C.free`)
 - [ ] 4.17 Interop error reporting (`.gp` line mapping, trimming, `-cpperrors=full`)
 - [ ] 4.18 Tests
@@ -51,3 +51,7 @@
 - 2026-10-13 (your decision): C/C++ names come through header packages (`raylib.X`) and
   namespaces (`std.vector`) instead of `C.X`; `C` keeps only C's built-in types and the helpers.
   The cgo-style preamble is dropped from v1 (step 4.16 now covers helper headers instead).
+- 2026-10-13 (directive job 1.7): flags from directives and pkg-config are checked by an allow-list
+  like Go's, before any compiler or probe runs them (`gocpp check` and the editor run probes);
+  `.h++`/`.inl` are C++ headers; an explicit `extern-c` wins; `extern-c` + `no-extern-c` on one
+  header is an error.

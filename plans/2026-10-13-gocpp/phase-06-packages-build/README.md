@@ -46,6 +46,9 @@ contains every line. Lax mode skips `replace`, so our code reads `replace` plus 
 (`cxx`, `cflags`, `pkg-config`, …) from that tree (the audit confirmed this behavior). If it
 gets awkward, a small parser of our own (about 200 lines) is fine. In v1, `require` resolves
 through `replace` (local path) or a `vendor/` folder. Downloading modules is Phase 15.
+The `cflags`, `ldflags` and `pkg-config` lines of `gocpp.mod`, and the directives of every
+dependency, go through the same flag allow-list as the main package's directives (Phase 04
+§2.9).
 
 ### 2.2 One package → its own C++ files
 
@@ -231,7 +234,8 @@ and sets GOOS/GOARCH for build constraints. Two targets matter in this phase:
   test builds start here, long before the full port in Phase 14. The toolchain is **MinGW-w64**
   (with clang or gcc), which the NixOS dev shell provides as a cross compiler. `gocpp build -os
   windows` turns `hello.gp` into `hello.exe`, linked with `-static` so it runs without extra
-  DLLs (with only `-static-libstdc++`, MinGW's thread library would still be a DLL). A CI job
+  DLLs (with only `-static-libstdc++`, MinGW's thread library would still be a DLL). Libraries from
+  `//gocpp:pkg-config` are then asked for with `pkg-config --static --libs`. A CI job
   builds the run tests that need nothing OS-specific for Windows and runs them under **Wine**,
   so Windows breakage shows up early. The full Windows runtime and stdlib come in Phase 14.
   Wine rules for that job (all found while building the dev shell): its own `WINEPREFIX`,

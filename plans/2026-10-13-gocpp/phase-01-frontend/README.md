@@ -43,7 +43,8 @@ mistakes in the gocpp part were still reported, including typos in namespace nam
                                             │
                      ┌──────────────────────┘
                      ▼
-              classify imports ──► FileInfo{Includes, HeaderNames, NamespaceRenames, Directives}
+              classify imports ──► FileInfo{Packages, Includes, HeaderNames, NamespaceRenames}
+              + //gocpp: directives (joined with FileInfo by the loader)
                      │
                      ▼
               preprocess AST:  drop header imports · raylib.X → C.X · std.X → C.std.X ·
@@ -84,6 +85,9 @@ previous token was `.` and the next word is a keyword **on the same line**, retu
 any identifier). The same-line rule matters: an editor often has an unfinished `fmt.` with a
 keyword on the next line, and upstream's `TestIncompleteSelection` expects that to stay a syntax
 error. With the rule, all upstream scanner and parser tests pass (checked during the audit).
+"The same line" is the physical line. One consequence (found by job 1.2): in Go's trailing-dot
+chain style, a keyword-named method can't start the next line (`b.` then `select()` on the next
+line is a syntax error), so `.select` stays on the line of its `.`.
 
 ```go
 func examples() {
@@ -142,7 +146,14 @@ enum constants and macros (`raylib.InitWindow`, `raylib.Color`, `raylib.RAYWHITE
 Go import (`import rl "<raylib.h>"`) or include it without a name (`import _ "<GL/gl.h>"`).
 A header gets **no name** when its file name is a Go keyword (`<map>`, `<sys/select.h>`), a
 predeclared Go name (`<string>`, `<string.h>`, `<new>`) or already taken by another import
-(`<math.h>` next to gocpp's `"math"`). Name it yourself if you need its C names
+(`<math.h>` next to gocpp's `"math"`) or a package-level name. Only the last extension is dropped
+(`<foo.bar.h>` → `foo_bar`); a name that would be empty, start with a digit, or be `C`, `_` or
+`init` also gives no name. Two different headers with the same default name both get none, so
+the result never depends on import order; the same header imported twice is
+`raylib redeclared in this block`, as in Go. A name you choose follows Go's rules, except that it
+can't be `C`, `init` or a predeclared name (`import string "<string.h>"` is an error, because
+`go/types` never sees header imports and `string` would mean two things; use `cstring`). The
+details and messages are in the interop spec. Name it yourself if you need its C names
 (`import cstring "<string.h>"`). Using such a header by its file name gives a hint instead of a
 bare type error (`string.strlen` → "give `<string.h>` a name: `import cstring "<string.h>"`",
 checked in the spike). Header imports never cause "imported and not used" errors, because a
@@ -182,7 +193,9 @@ package game
 ```
 
 Phase 01 only parses and validates them (unknown directive = error, with a "did you mean"
-suggestion).
+suggestion). Arguments are split like cgo's `#cgo` lines (quotes group, also inside a word, and
+backslash escapes), and an unquoted argument that starts with `//` starts a comment, so
+`//gocpp:link m // for sqrt` works (and so does a `// ERROR` mark in tests/errors).
 
 ### 2.5 Preprocessing before go/types (proven by the spike)
 
@@ -365,13 +378,18 @@ only where both checkers agree. An optional source line with a caret is shown.
 
 ### 2.11 `gocpp fmt` (gofmt for `.gp`)
 
-Our parser → import sorting → **`go/format.Node`** (the stock function behind gofmt). Our AST
-is made of stock nodes (`std.map` is just an `Ident` named `map`), so no printer fork is needed
-yet. Using `go/format` instead of a hand-configured `go/printer` matters: gofmt also normalizes
-number literals (`0XFF` → `0xFF`, `1E5` → `1e5`) through an unexported printer mode that only
-`go/format` sets (found in the audit). Flags are gofmt's: `-l`, `-w`, `-d`. (Phase 10 adds a small
-printer fork for the `macro` keyword, `lazy` parameters and on-top macros, and it must keep this
-normalization.)
+Our parser → gocpp's import sorting (below) → **`go/printer` with gofmt's exact settings**. Our
+AST is made of stock nodes (`std.map` is just an `Ident` named `map`), so no printer fork is needed
+yet. `go/format.Node` itself can't be used: for any file with a grouped import it prints the file,
+**parses it again with the stock `go/parser`** and sorts every import group, so it fails on
+`std.map` (`format.Node internal error (… expected selector or type assertion, found 'map')`) and
+reorders header imports (found by job 1.5). So `gocpp fmt` prints with
+`printer.Config{Mode: printer.UseSpaces | printer.TabIndent | normalizeNumbers, Tabwidth: 8}`,
+which is what `go/format` uses. `normalizeNumbers` is go/printer's unexported mode `1 << 30`
+(`0XFF` → `0xFF`, `1E5` → `1e5`; found in the audit); a test pins it, so a Go update that changes
+the value fails loudly. Flags are gofmt's: `-l`, `-w`, `-d`. (Phase 10 adds a small printer fork
+for the `macro` keyword, `lazy` parameters and on-top macros; it keeps this normalization and gives
+the mode a name.)
 
 Verified on 2026-10-13: the stock printer prints `std.map[std.string, int]{}`,
 `std.array[int, 5]` and `node.type()` correctly.
@@ -422,10 +440,13 @@ first syntax error of each line (the compiler does that even with `-e`, while go
    namespace renames, and the reserved-`C` error.
 7. **1.7 Directive parser** for `//gocpp:` lines with validation and suggestions.
 8. **1.8 AST preprocessing** (§2.5): header-package and namespace rewrites with positions
-   kept, the package-wide name set, the namespace probe (cached), `gp_as[T]` conversions,
-   shadowing tests.
+   kept, the package-wide name set (`load.PackageNames`, from step 1.6), the namespace probe
+   (cached), `gp_as[T]` conversions, shadowing tests.
 9. **1.9 Package loader + importer** (§2.6): dir scan, `_test.gp`, build constraints, cycles,
-   stubs for every package the target programs import.
+   stubs for every package the target programs import. It joins each file's `FileInfo` with its
+   `//gocpp:` directives, and re-checks the header names against the real names of the imported
+   gocpp packages (step 1.6 guesses them from the import path, like goimports). Steps 1.6 and 1.7
+   each have a list of header extensions; the loader keeps one shared list.
 10. **1.10 go/types integration** (§2.7) including a `gocppSizes` stub and the `CheckExpr` pass
     over opaque template arguments.
 11. **1.11 Opaque pass** (§2.8) with the widened "comes from C/C++" rule, the sanity rule and
@@ -437,9 +458,11 @@ first syntax error of each line (the compiler does that even with `-e`, while go
     directives, phase-gated features, shadowed namespaces, a local named `C`, typos in namespace
     names, an unnamed header used by its file name, typos inside opaque template arguments) and a
     "no false errors" corpus of interop-heavy files.
-16. **1.16 `gocpp fmt`** (§2.11) with `-l -w -d`, tested three ways: the Go stdlib is unchanged
-    by it; deliberately badly formatted inputs (including number literals like `0XFF`) produce
-    exactly what the real `gofmt` produces; and a group of header imports keeps its order.
+16. **1.16 `gocpp fmt`** (§2.11) with `-l -w -d`, tested three ways: on the Go stdlib its output
+    equals real `gofmt`'s (gofmt changes 4 files there itself, in spacing, so "unchanged" is the
+    wrong test); deliberately badly formatted inputs (including number literals like `0XFF`)
+    produce exactly what the real `gofmt` produces; and a group of header imports keeps its order.
+    The round-trip test (step 1.5) then prints the same way as `gocpp fmt`.
 
 ## 4. Deliverables
 

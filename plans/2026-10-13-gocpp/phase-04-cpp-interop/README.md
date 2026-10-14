@@ -259,6 +259,16 @@ recoverable panics.
   `.c` with `$CC -std=c17`, and `.cc/.cpp/.cxx` with `$CXX -std=c++20`, using the package's flags.
 - **Directives** from Phase 01 now take effect: `//gocpp:pkg-config sdl2` runs
   `pkg-config --cflags --libs`, `//gocpp:link m` adds `-lm`, and `cflags`/`ldflags` are added as given.
+- **Flag allow-list, like Go's.** Some compiler and linker flags run code at build time
+  (`-fplugin=`, `-B`, `-specs=`, `-wrapper`, `@file`, `-Wl,-plugin`). Go checks every `#cgo`
+  flag and the pkg-config output against an allow-list (cmd/go/internal/work/security.go, since
+  CVE-2018-6574), and gocpp does the same for `//gocpp:cflags`/`ldflags` and pkg-config output,
+  in every package. It matters early: `gocpp check` and the language server run compiler probes
+  with these flags, so just opening a cloned repo in the editor would otherwise run them. Go's
+  tables (BSD-3-Clause) already cover the C++ flags (`-std=`, `-stdlib=`, `-f(no-)rtti`,
+  `-f(no-)exceptions`, `-fsanitize=`); a `GOCPP_CFLAGS_ALLOW`/`GOCPP_LDFLAGS_ALLOW` regexp
+  (like `CGO_CFLAGS_ALLOW`) allows more, and flags from the environment are trusted (found by
+  job 1.7).
 - **`extern "C"` for C headers.** A header needs `extern "C"` when it declares C functions without
   its own `__cplusplus` guard. The rule:
   - a **local `.h`** header is wrapped only if it **parses as C** (`$CC -fsyntax-only -x c`,
@@ -267,7 +277,10 @@ recoverable panics.
   - system headers are not wrapped by default, but `//gocpp:extern-c <lua.h>` exists for C
     libraries that ship headers without guards;
   - `//gocpp:no-extern-c <hdr>` turns the wrapping off for that header, whatever the rules
-    above say.
+    above say;
+  - `.h++` and `.inl` headers count as C++ headers, like `.hpp`: never wrapped by default;
+  - an explicit `//gocpp:extern-c` wins over the default rules, also for a `.hpp` file (a C
+    header with an odd name); `extern-c` and `no-extern-c` on the same header is an error.
   Wrapping a C++ header breaks it (`extern "C" { #include <vector> }` gives over a thousand
   errors with g++), which is why the parse-as-C check matters.
 
@@ -350,7 +363,8 @@ prints pointers. Printing a `char*` as a C string would crash or silence stdout 
     Phase 02 §2.7, so a user's hardened Nix shell doesn't warn at `-O0`).
 14. **4.14 `extern "C"` rule** (parse-as-C check, never `.hpp`, `//gocpp:extern-c <hdr>`,
     `//gocpp:no-extern-c`).
-15. **4.15 Directives → flags** (`pkg-config`, `link`, `cflags`, `ldflags`). The tests use a small
+15. **4.15 Directives → flags** (`pkg-config`, `link`, `cflags`, `ldflags`), checked by the flag
+    allow-list (§2.9) before any compiler or probe runs them. The tests use a small
     test-only library with its own `.pc` file outside the default paths (or clear
     `NIX_CFLAGS_COMPILE`/`NIX_LDFLAGS`): inside the Nix dev shell, SDL2, raylib, sqlite and zlib
     compile and link even with no pkg-config flags at all, so a driver that drops them would
