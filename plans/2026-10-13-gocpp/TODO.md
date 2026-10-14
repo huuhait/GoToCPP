@@ -27,6 +27,9 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [ ] Phase 02 README §2.2 file table: add `ops.go` (operators, conversions, `s[i]`, `len`, `panic`; from job 2.3)
 - [ ] `docs/spec/cpp-mapping.md:80` maps `uintptr` to `uintptr_t`; the emitter writes `uint64_t` (job 2.1 decision): fix the doc (from the 2.3 review)
 - [ ] The GOCPP_CXX/GOCPP_REQUIRE_CXX compiler-matrix test code exists four times (runtime/cxx_test.go, tests/harness_test.go, internal/interop/nsprobe_test.go, internal/check/nsprobe_test.go) with slightly different messages: one shared internal test helper (from the 1.10c review)
+- [ ] `gocpp fmt` (an upstream go/printer bug, also in gofmt with Go generics) drops the parentheses in `range (std.vector[int]{7, 8})`, and the result doesn't parse ("expected 1 expression"): keep the parentheses when the range expression is a composite literal (from job 1.15)
+- [ ] `gocpp check -types` prints the hidden `gp_cgoh.As` rewrite nodes as garbage lines (`value in func[T any](x any) T`): skip `Package.Conversions`' hidden nodes and print the conversion as the user wrote it (from job 1.15)
+- [ ] Phase 01 README §2.7 "not yet caught": `std.vector[Box]` with Box generic and uninstantiated, `std.array[int, len(xs)]` / `std.array[int, n]` with non-constants give no error in `gocpp check` (C++ reports them later); decide the messages (Phase 04 kind probe or a check in 1.10a's template-argument pass)
 - [ ] `docs/adr/README.md`: describe dated amendments (like ADR-002's printer line), not only superseding (from job 1.5)
 
 ## Any time (parallel, low risk)

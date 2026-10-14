@@ -32,7 +32,7 @@
 - [x] 2.8 Driver: `build`, `run`, `emit`, `-x`, `-work`, `-asan`, compiler detection, embedded runtime
 - [x] 2.9 Internal-error path for C++ compile failures
 - [ ] 2.10 Tests: ≥ 25 run tests, 3 golden, ≥ 25 differential vs Go (promotion, order, shadowing, float format, float→int, stdout/stderr order)
-- [ ] 2.11 Debug test: gdb batch + line-table check
+- [~] 2.11 Debug test: gdb batch + line-table check
 
 ## Exit criteria
 
