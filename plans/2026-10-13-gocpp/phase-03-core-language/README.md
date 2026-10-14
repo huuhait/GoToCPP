@@ -241,9 +241,11 @@ using `this`.
   `f(s...)` → `f(s)`.
 - **Closures** become C++ lambdas. Capture analysis per variable:
   - never changed after its initialization (no assignment, no field/element write, no
-    `++`/op-assign) and address never taken → **captured by value** (cheap, identical behavior);
+    `++`/op-assign), address never taken, and at most 128 bytes (Go's limit) → **captured by
+    value** (cheap, identical behavior);
   - otherwise → **boxed** (2.2) and the lambda captures the box, so closure and function see
-    the same variable, as in Go.
+    the same variable, as in Go (a large never-changed variable is shared the same way, so many
+    closures don't each copy it).
 
 ```go
 func counter() func() int {

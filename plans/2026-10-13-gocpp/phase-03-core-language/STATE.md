@@ -317,3 +317,9 @@
   func variable) cost an atomic inc/dec: 1e8 calls take 2.3 s (clang++) / 3.1 s (g++) against 0.4 s through a
   local and 0.1 s in Go; idea: skip the extra owner when nothing in the package assigns the variable outside
   its declaration.
+- 2026-10-14 (3.11 round 2, for Phase 13): gdb `step` into a closure called through a func value passes 5
+  runtime lines (func.hpp operator()/gp_call_obj, shared_ptr.h get) and `finish` from it needs 3 commands to
+  reach the caller; `gocpp debug` should add skip rules for runtime/include/gocpp/func.hpp and
+  bits/shared_ptr*.h (with the defer_frame/std::apply rules from 3.13). Closure capture rule (README §2.2/2.6):
+  a captured variable is boxed when it changes after capture OR when it is larger than 128 bytes (Go's limit;
+  `boxShared`).
