@@ -241,18 +241,21 @@ public:
     std::shared_ptr<T> gp_take() && noexcept { return std::move(gp_sp_); }
 
 private:
-    // gp_checked: the address, or Go's nil pointer panic.
+    // gp_checked: the address, or Go's nil pointer panic. With GOCPP_NOCHECKS (checks.hpp),
+    // only the address: a nil dereference is then undefined behavior.
     T* gp_checked() const {
         T* p = gp_sp_.get();
+#ifndef GOCPP_NOCHECKS
         if (p == nullptr) [[unlikely]] {
             panic_nil();
         }
+#endif
         return p;
     }
 
     // gp_check_owner: the invariant above. An aliasing shared_ptr whose owner is empty has a
     // use count of 0. It is on unless GOCPP_NOCHECKS is defined, gocpp's own switch, which the
-    // -nochecks build (step 3.14) defines for every file of the program; not NDEBUG, which a
+    // -nochecks build defines for every file of the program; not NDEBUG, which a
     // user's file or a library may define for itself (one header compiled two ways in one
     // program would break the one-definition rule).
     void gp_check_owner() const noexcept {

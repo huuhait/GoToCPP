@@ -7,8 +7,13 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
+
+namespace gp::detail {
+struct exe_image; // gocpp/trace.hpp
+} // namespace gp::detail
 
 namespace gp::os {
 
@@ -57,5 +62,26 @@ std::vector<std::string> arguments(int argc, char** argv);
 
 // environment returns the process environment as "KEY=value" strings, in the OS's order.
 std::vector<std::string> environment();
+
+// --- the stack trace of a panic (gocpp/trace.hpp) ---
+
+// stack writes the return addresses of the calling thread's stack into pcs, innermost first
+// (the first one is in the function that called stack), at most max of them, and returns how
+// many it wrote (0 when it can't). It runs at every panic, so it only collects addresses:
+// read_exe and the DWARF line table turn them into names and lines later, and only for a
+// panic that ends the program. On Linux it is glibc's backtrace(); Phase 14 brings Windows
+// (CaptureStackBackTrace). Not async-signal-safe: a panic is a C++ exception, not a signal.
+int stack(uintptr_t* pcs, int max) noexcept;
+
+// read_exe reads the running program's file into img, and reports whether it could. It reads
+// the file at once (a few hundred KB for a small program), so it is for the end of a program
+// only. On Linux the file is /proc/self/exe, an ELF file; Windows (PE, Phase 14) has no
+// version yet.
+bool read_exe(gp::detail::exe_image& img);
+
+// demangle returns the C++ name of a mangled symbol name ("gpkg_main::f(long)"), or "" when
+// it isn't one. Itanium C++ ABI names (GCC and Clang, also on MinGW); clang-cl's MSVC names
+// come later.
+std::string demangle(const std::string& name);
 
 } // namespace gp::os

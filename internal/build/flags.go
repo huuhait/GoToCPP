@@ -22,6 +22,25 @@ var debugFlags = []string{"-std=c++20", "-fwrapv", "-fno-strict-aliasing", "-ffp
 // report stops the program with exit status 1 instead of letting it go on.
 var asanFlags = []string{"-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-fno-sanitize-recover=all"}
 
+// noChecksFlags are the flags that -nochecks adds to every compile, of the
+// generated C++ and of the runtime (Phase 03 §2.9): GOCPP_NOCHECKS turns
+// off the runtime's bounds and nil checks (runtime/include/gocpp/checks.hpp)
+// and keeps the division and shift checks. The runtime's object files must
+// be compiled with it too, as its headers are inline code that every file
+// shares (one definition each); they are cached apart, since the flags are
+// part of their key (runtimeKey).
+var noChecksFlags = []string{"-DGOCPP_NOCHECKS"}
+
+// CompileFlags returns the flags of every compile of a program and of the
+// runtime: Flags, and with nochecks the flags of -nochecks.
+func CompileFlags(cxx CXX, asan, nochecks bool) []string {
+	flags := Flags(cxx, asan)
+	if nochecks {
+		flags = append(flags, noChecksFlags...)
+	}
+	return flags
+}
+
 // Flags returns the flags of every compile and of the link of a program
 // and of the runtime, for the compiler cxx, after cxx.Args: the debug
 // flags, the sanitizers with asan, and the flags of the compiler's

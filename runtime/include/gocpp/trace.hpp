@@ -1,0 +1,122 @@
+// gocpp/trace.hpp: the stack trace that an unrecovered panic prints after
+// "goroutine 1 [running]:", in Go's format:
+//
+//     main.f(...)
+//             /home/me/prog/main.gp:9 +0x4d
+//     main.main()
+//             /home/me/prog/main.gp:14 +0x7a
+//
+// Each frame is the function's Go name, with "(...)" when it has parameters (Go prints the
+// argument words there; gocpp doesn't know them) and "()" when it has none, then a tab, the
+// .gp file and line of the call (the #line directives put them into the DWARF line table)
+// and the offset of the return address in the function, as Go prints it.
+//
+// How: a panic_error records the return addresses of the stack when it is made (os::stack, a
+// cheap walk of the unwind tables, as the C++ unwinding then removes the frames), and only
+// when the panic ends the program, append_trace reads the program's own file (os::read_exe):
+// the symbol table gives each address its function, func_name turns the mangled C++ name into
+// the Go name, and the DWARF line table gives the file and line. The runtime's own frames
+// (gp::, std::, the C++ ABI, libc, gocpp's helper functions, and C++'s main, where the walk
+// stops) are left out, like Go leaves out its runtime's frames.
+//
+// This header is for the runtime's own files and its tests: generated code doesn't include it.
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace gp::detail {
+
+// exe_symbol is a function of the program's symbol table: its address in the file (before
+// relocation), its size in bytes (0 when unknown) and its symbol name, as the compiler mangled
+// it.
+struct exe_symbol {
+    uintptr_t addr;
+    uintptr_t size;
+    std::string name;
+};
+
+// exe_image is what a stack trace needs of the running program's own file (os::read_exe).
+struct exe_image {
+    // bias is what the loader added to the file's addresses (a position-independent program
+    // is loaded anywhere): a run-time address minus bias is the address in the file, which the
+    // symbol table and the DWARF line table use.
+    uintptr_t bias = 0;
+    // code are the run-time address ranges [first, second) of the program's own code, so a
+    // frame in a shared library (libc, libstdc++) can be told apart.
+    std::vector<std::pair<uintptr_t, uintptr_t>> code;
+    // funcs are the functions of the symbol table (.symtab; none in a stripped program), sorted
+    // by address.
+    std::vector<exe_symbol> funcs;
+    // The DWARF sections that the line table needs: .debug_line and the string sections that
+    // DWARF 5 file names point into. Each is empty when the file doesn't have it (or has it
+    // compressed).
+    std::string debug_line, debug_line_str, debug_str;
+};
+
+// go_func is how the trace shows the function of a frame.
+struct go_func {
+    // name is the Go name ("main.f", "main.T.M", "main.main.func1", "main.init.0",
+    // "github.com/a/b.F"); for a function that isn't gocpp's, the C++ name.
+    std::string name;
+    // shown is false for a frame that the trace leaves out: the runtime's own functions (gp::,
+    // std::, __cxa_*, names that C++ reserves) and gocpp's generated helpers (gp_init_funcs,
+    // gp_init_all, the generic lambdas of std::apply).
+    bool shown = false;
+    // params: the function has parameters, so Go prints "(...)" after the name; else "()".
+    bool params = false;
+    // raw: name is a C++ name with its own parameter list ("ns::f(int)"), or a C name: the
+    // trace prints it as it is (a C name with "(...)").
+    bool raw = false;
+};
+
+// func_name returns how the trace shows the function whose symbol name is symbol: a C++ name
+// mangled by the Itanium C++ ABI (GCC and Clang, also on MinGW) or a C name. The Go name of a
+// gocpp function comes from its C++ name (ADR-010): the namespace gpkg_<escaped import path>
+// gives the package path back, a name that starts with gp_ loses the _ that escaped it, and
+//
+//     gpkg_main::f                             main.f
+//     gpkg_main::T::M                          main.T.M (step 3.10 decides the receivers)
+//     gpkg_main::F<...>                        main.F[...]
+//     a lambda in gpkg_main::main (C++'s #k)   main.main.funck, and inside it main.main.funck.j
+//     gpkg_main::gp_init_3                     main.init.2 (Go's numbering starts at 0)
+//     gpkg_main::gp_var_init                   main.init (package variables, as in Go)
+//
+// A name escaped for a C++ keyword or macro (Go's new is new_) keeps its _: the runtime
+// doesn't have the emitter's lists. A lambda's number is its number in the C++ function (g++,
+// and clang++ inside a lambda), which is Go's func number while every C++ lambda there is a Go
+// func literal (step 3.11). clang++ numbers the lambdas of a function that isn't inline in
+// the whole file ($_0, $_1), so there the number is unknown: main.main.func?.
+go_func func_name(std::string_view symbol);
+
+// A line_query asks for the source line of the code at addr, an address in the program's file
+// (before relocation). lines_of sets file and line, or leaves line 0 when the line table
+// doesn't have addr.
+struct line_query {
+    uint64_t addr = 0;
+    std::string file;
+    int64_t line = 0;
+};
+
+// lines_of answers the queries from the DWARF line table, versions 2 to 5: debug_line is the
+// .debug_line section, and line_str and str the .debug_line_str and .debug_str sections that
+// DWARF 5 file names point into. It reads the whole table once, for all the queries, and
+// stops at the first bad header or opcode of a unit (it never reads outside the sections).
+void lines_of(std::string_view debug_line, std::string_view line_str, std::string_view str,
+              line_query* queries, std::size_t n);
+
+// append_trace appends the trace of the return addresses pcs (innermost first, from
+// os::stack) to out, like Go 1.25: every frame of a stack of up to 100 frames that the trace
+// shows; for a deeper one, the inner 50, "...N frames elided..." and the outer 50 (main.main
+// last). complete is false when pcs is only the top of the stack: then the inner 50 come, and
+// Go's older "...additional frames elided..." line. It reads the program's file, so it is for
+// the end of the program; when the file has no symbol table (a stripped program) or none of
+// the frames is one that the trace shows, it prints each address of the program's code as
+// "?()" and "\t?:0 pc=0x..." (an address in the file, for addr2line).
+void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool complete);
+
+} // namespace gp::detail

@@ -15,8 +15,9 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `src/rt.cpp` | the parts that are not templates: strings, panics, the print and `fmt` formats, `run_main`. Standard C++ only. Embedded |
 | `src/slice.cpp` | the parts of slices and slice bounds checks that are not templates: the bounds panics with Go's messages, `make`'s panics, and the capacity of a growing slice (Go's formula and size classes). Embedded |
 | `src/map.cpp` | the parts of maps and key hashing that are not templates: the hash of a run of bytes (strings) and the nil map panic. Embedded |
-| `src/os/linux/` | the Linux OS layer: `os.cpp`. Phase 08 adds the Linux side of the thread layer `gp::os`. Embedded |
-| `src/os/windows/` | the Windows OS layer (Phase 14; not there yet) |
+| `src/trace.cpp` | the stack trace of a panic (`trace.hpp`): the `panic_error` constructor that records the stack, Go names from mangled C++ names, the DWARF line table reader, the frames. Standard C++ only. Embedded |
+| `src/os/linux/` | the Linux OS layer: `os.cpp`, and `trace.cpp` (the stack trace's addresses, ELF file and demangling). Phase 08 adds the Linux side of the thread layer `gp::os`. Embedded |
+| `src/os/windows/` | the Windows OS layer (Phase 14): so far only `trace.cpp`, the stack trace's addresses (no file reader yet). Embedded |
 | `files.go` | package `rtfiles`: `FS()` holds `include/` and `src/`; `Sources(goos)` lists the `.cpp` files a program is compiled with (`src/*.cpp` and `src/os/<goos>/*.cpp`) |
 | `test/` | the C++ tests (not embedded): `unit.cpp`, `slice_test.cpp`, `array_test.cpp`, `map_test.cpp`, `diff.cpp`, `fortify.cpp` and `layout.cpp` (generated) |
 | `testdata/diff/main.go` | the Go side of the differential test |
@@ -29,7 +30,7 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 |---|---|
 | `rt.hpp` | includes everything below, `nofortify.h` first and `sizes.hpp` last |
 | `nofortify.h` | turns `_FORTIFY_SOURCE` off at `-O0` (below) |
-| `checks.hpp` | the concepts `gp::go_int` and `gp::go_float`, and the panics of the runtime checks with Go's messages: `panic_divide`, `panic_shift`, `panic_index`, `panic_nil` |
+| `checks.hpp` | the concepts `gp::go_int` and `gp::go_float`, and the panics of the runtime checks with Go's messages: `panic_divide`, `panic_shift`, `panic_index`, `panic_nil`; `gp::check_index`; what `GOCPP_NOCHECKS` (`gocpp build -nochecks`) turns off: the bounds checks here and in `bounds.hpp`, the nil and owner checks of `ptr.hpp` (division and shift checks stay) |
 | `string.hpp` | `gp::string` (owner, data pointer, length: 32 bytes), `"..."_gs` literals (static storage, no allocation, no owner: `gp_owner()` gives `gp::static_owner()` for them), `+`, `+=`, `==`, `<=>`, `s[i]` with Go's bounds check, `gp::len(s)`; `gp::sub` (`s[a:b]`, `s[a:]`: shares the bytes, Go's slice-bounds panics), `gp::concat` (a chain of `+`, one allocation), `gp::range_string`/`gp::range_next` (`for i, r := range s`, Go's UTF-8 decoding), `gp::rune_to_string` (`string(r)`) |
 | `ptr.hpp` | Go's pointers: `gp::ptr<T>` (`*T`: a `std::shared_ptr` with nil checks, 16 bytes), `gp::new_<T>` (`new(T)`, `&T{...}`, boxes), the aliasing constructors for pointers into objects (`&p.f`, `&s[i]`), `gp::static_ptr` (`&global`), `gp::ptr_cast` (`(*Q)(p)`), and `gp::weak_ptr<T>` with `gp::weak_make` and `gp::weak_value` (`weak.Pointer[T]`, `weak.Make`, `Value`) |
 | `bounds.hpp` | Go's checks for slice expressions in Go's order, for slices, strings and arrays: `gp::check_slice` (`x[lo:hi]`), `gp::check_slice3` (`x[lo:hi:max]`), `gp::check_convert` (`[N]T(s)`), and `gp::panic_bounds` with Go's exact messages (`slice bounds out of range [:5] with capacity 3`) |
@@ -39,10 +40,11 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `map.hpp` | `gp::map<K, V>` (`map[K]V`: a `std::shared_ptr` to a `std::unordered_map`, 16 bytes): nil maps (reads give zero values, writes panic with `assignment to entry in nil map`), `gp::make_map`, `gp::map_of` (literals), `gp::get`, `gp::lookup` (comma-ok), `gp::set`, `gp::ref` (`m[k] op= v`), `gp::erase`, `gp::len`, `gp::clear`, and `gp::range_map` / `gp::range_next` (a snapshot of the entries, which skips the ones deleted meanwhile); reads never insert, NaN keys and the key replacement on a store work as in Go, the table is released through `gp::detail::release` |
 | `arith.hpp` | `gp::div`, `gp::rem`, `gp::shl`, `gp::shr` and `gp::f2i<T>`, each returning the Go type |
 | `print.hpp` | the builtins `gp::print` and `gp::println`: stderr, in Go's runtime number format (`+1.500000e+000`) |
-| `panic.hpp` | `gp::panic_error` (the exception a panic throws) and `gp::panic(v)` |
+| `panic.hpp` | `gp::panic_error` (the exception a panic throws, with the return addresses of its stack) and `gp::panic(v)` |
 | `fmtshim.hpp` | `gp::fmtshim::Print`, `Println` and `Printf` (verbs `%v %d %s %t %f`), a stand-in for `fmt` until Phase 05 and 09 |
 | `main.hpp` | `gp::run_main(argc, argv, init, main)`, `gp::args()`, `gp::envs()` |
 | `os.hpp` | the OS layer's interface (declarations only) |
+| `trace.hpp` | not in `rt.hpp`, for the runtime's own files and tests: the stack trace of a panic (Go names from mangled C++ names, the DWARF line table reader, the frames in Go's format) |
 | `sizes.hpp` | generated from the size table in `internal/check/sizes.go`: a `static_assert` of the size and alignment of each runtime type, the numbers that `unsafe.Sizeof` gives (divergence D15) |
 
 The headers include only the standard headers they need. Every macro of a header that
@@ -57,9 +59,22 @@ What they do, in short:
   `MIN`. `gp::shl` and `gp::shr` give Go's results for a count of the width or more, and panic
   on a negative count. `gp::f2i<T>` converts a float like Go does on amd64, also out of range.
 - **A panic is a C++ exception**, `gp::panic_error`. `gp::run_main` catches it, prints
-  `panic: <value>`, a blank line and `goroutine 1 [running]:` to stderr, and exits with code 2.
-  The stack trace comes in Phase 03. A nil pointer dereference also sets the goroutine's
-  signal (a thread-local value, like Go's `g.sig`), and then the report prints Go's signal
+  `panic: <value>`, a blank line, `goroutine 1 [running]:` and the stack trace to stderr, and
+  exits with code 2. The trace (`trace.hpp`) is Go's format: each frame's Go name
+  (`main.f(...)`, `main.main()`), a tab, the `.gp` file and line and the offset in the function.
+  A `panic_error` records the return addresses when it is made (`gp::os::stack`, glibc's
+  `backtrace()`: 1–5 µs on a stack of up to about 25 frames, about 5 µs at its cap of 100),
+  because the C++ unwinding then removes the frames. When the 100 fill up, a second walk
+  records the whole stack (`gp_all`), so that the trace can show Go 1.25's inner 50, `...N
+  frames elided...` and outer 50; its cost grows with the depth, and only deep stacks pay it.
+  Only an unrecovered panic reads the program's file (`gp::os::read_exe`: the ELF symbol
+  table and the DWARF line table, about 2 ms) and prints the frames, without the runtime's
+  own (`gp::`, `std::`, libc, gocpp's helpers); a stripped program (no `.symtab`) gets the
+  addresses. The parser of mangled names and the line table reader are standard C++, never
+  read outside their data and limit their recursion. Windows (`src/os/windows/`) has the
+  addresses but no file reader yet (Phase 14). The accepted differences from Go's trace are
+  listed in `docs/spec/cpp-mapping.md` ("Runtime checks and panics"). A nil pointer
+  dereference also sets the goroutine's signal (a thread-local value, like Go's `g.sig`), and then the report prints Go's signal
   line after the panic text (after the whole chain of panics, from step 3.13 on):
   `[signal SIGSEGV: segmentation violation code=0x1 addr=0x0 pc=0x...]`. A recover that
   stops the panic clears it (Phase 05). gocpp's `addr` is always `0x0`. Go's is the faulting
@@ -70,7 +85,7 @@ What they do, in short:
   pointer to a package-level variable shares a static owner that is never freed (so a weak
   pointer to a global never expires). A non-nil pointer always has an owner (the aliasing
   constructors check it, unless `GOCPP_NOCHECKS` is defined, gocpp's own switch for the
-  `-nochecks` build of step 3.14; not `NDEBUG`, which a user's file may define). A cycle is never freed unless a weak
+  `-nochecks` build; not `NDEBUG`, which a user's file may define). A cycle is never freed unless a weak
   pointer breaks it. After the last strong pointer to a `gp::new_` value goes, the value is
   destroyed, but its memory stays until the last weak pointer to it goes too (one allocation
   holds the value and the counts).
@@ -136,7 +151,8 @@ A check of `#include` lines can't see everything: glibc's standard headers decla
 functions anyway (g++ defines `_GNU_SOURCE`, so `<cstdio>` declares `fileno`), and code can
 declare an OS function by hand. So `TestWindowsSyntax` also compiles every `.cpp` file outside
 `src/os/` for Windows with the dev shell's MinGW-w64 (`-fsyntax-only`), where those don't
-exist. It is skipped when `x86_64-w64-mingw32-g++` isn't installed. Neither check reaches a
+exist, and the Windows OS layer's files (`src/os/windows/`, so far only the stack trace's
+part; Phase 14 brings the rest). It is skipped when `x86_64-w64-mingw32-g++` isn't installed. Neither check reaches a
 POSIX function that also exists on Windows (MinGW has `fileno`): reviews still matter.
 
 ## `nofortify.h`
@@ -153,9 +169,10 @@ this.
 ## Tests
 
 `go test ./runtime` (also part of `make test` and `make ci`) runs:
-- `TestCXX`: compiles `test/unit.cpp`, `test/slice_test.cpp`, `test/array_test.cpp`, `test/map_test.cpp` and `test/diff.cpp` with the embedded runtime, with g++
+- `TestCXX`: compiles `test/unit.cpp`, `test/slice_test.cpp`, `test/array_test.cpp`, `test/map_test.cpp`, `test/trace_test.cpp`, `test/nochecks_test.cpp` and `test/diff.cpp` with the embedded runtime, with g++
   and clang++, each at `-O0`, at `-O2` and with `-fsanitize=address,undefined` (a sanitizer
-  report fails the test). The flags are the driver's: `-std=c++20 -fwrapv -fno-strict-aliasing
+  report fails the test; this mode also writes DWARF 4, the others the compilers' DWARF 5).
+  The flags are the driver's: `-std=c++20 -fwrapv -fno-strict-aliasing
   -ffp-contract=off -g`, plus `-Wall -Wextra -Werror`, and `-Qunused-arguments` for clang.
   - `unit.cpp` checks every helper: strings, `div`/`rem`/`shl`/`shr` for every integer type
     (`MIN / -1`, shifts by 0, width - 1, width, 200, a negative count), `f2i` at the
@@ -203,6 +220,20 @@ this.
     that free their own source, qualified calls, `gp::array` keys (`[3]float64` with NaN and
     `-0`, `[0]int`, `[2]string`, nested), and a stress test of a million inserts, lookups and
     deletes (100,000 with ASan; `GOCPP_MAP_BENCH=1` prints the times to stderr, by hand only).
+  - `trace_test.cpp` checks the stack trace: the Go names of the mangled names of every shape
+    of gocpp's code (functions, methods, templates, lambdas of g++ and clang++, nested ones,
+    `init` functions, escaped names and import paths) and the frames left out (the runtime,
+    the C++ library, libc, generated helpers), broken and deeply nested names, the trace of a
+    real panic (the Go names and the lines of the file, no runtime frame in between, exact at
+    `-O0`), stacks of 100, 101 and 300 frames (Go 1.25's inner 50, `...N frames elided...`,
+    outer 50; the second walk), a stack known only at its top, frames without a shown name
+    (the addresses), and a broken line table (cut short or changed anywhere: no read
+    outside it, which ASan checks).
+  - `nochecks_test.cpp` is compiled with `-DGOCPP_NOCHECKS`, as `gocpp build -nochecks` does,
+    runtime included: the index, slice, conversion, nil and owner checks are gone (an index
+    past `len` inside `cap` reads the element, without undefined behavior), and the division
+    and shift panics, Go's results for `MIN / -1` and big shifts, the nil map, `make` and
+    `[0]T` panics stay.
   - `diff.cpp` is the same program as `testdata/diff/main.go`. The test runs both, with each
     case, and compares the exit codes and stdout and stderr merged into one stream, up to Go's
     stack trace: number formats (1500 random floats too), integer tables, float → int (on
@@ -211,7 +242,8 @@ this.
     `-0` keys; ranges with deletes and inserts; the nil map panics), panics (also the nil pointer ones, whose
     signal line is compared with the `pc` left out), the output order and 1 MiB writes.
     Without a `go` command it is skipped.
-  - Without Go: the exact panic output and exit codes; on Linux, 1 MiB into a full
+  - Without Go: the exact panic output and exit codes, and the start of the stack trace
+    (the Go name and the line in `diff.cpp` of the function that panicked); on Linux, 1 MiB into a full
     non-blocking pipe (all of it must arrive) and into a broken pipe, with and without SIGPIPE
     ignored by the parent (`fmtshim::Print` must die of SIGPIPE, `println` must go on; these
     expectations are also checked against Go when it is there); a pointer without an owner,

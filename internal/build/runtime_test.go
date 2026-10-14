@@ -153,6 +153,68 @@ func TestProgramParallel(t *testing.T) {
 	}
 }
 
+func TestProgramNoChecks(t *testing.T) {
+	// -nochecks defines GOCPP_NOCHECKS for the program's compile and the
+	// runtime's, not for the link, and its runtime objects are cached apart.
+	cxx, err := LookCXX(context.Background(), "g++")
+	if err != nil {
+		if cxx, err = LookCXX(context.Background(), "clang++"); err != nil {
+			t.Skip("no C++ compiler:", err)
+		}
+	}
+	cache := t.TempDir()
+	const prog = "#include <gocpp/rt.hpp>\n#include <cstdio>\nint main() {\n" +
+		"    try { gp::check_index(INT64_C(5), 3); std::puts(\"unchecked\"); }\n" +
+		"    catch (const gp::panic_error&) { std::puts(\"checked\"); }\n}\n"
+	for _, c := range []struct {
+		nochecks bool
+		want     string
+	}{{false, "checked\n"}, {true, "unchecked\n"}} {
+		work := t.TempDir()
+		src := filepath.Join(work, "p.cpp")
+		if err := os.WriteFile(src, []byte(prog), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var trace strings.Builder
+		b := &Builder{CXX: cxx, NoChecks: c.nochecks, GOOS: runtime.GOOS, Work: work, Cache: cache, Trace: &trace, Stderr: os.Stderr}
+		bin := filepath.Join(work, "p")
+		if err := b.Program(context.Background(), src, bin); err != nil {
+			var ce *CompileError
+			if errors.As(err, &ce) {
+				t.Fatalf("%v\n%s\n%s", ce, ce.Command, ce.Output)
+			}
+			t.Fatal(err)
+		}
+		if out, err := exec.Command(bin).Output(); err != nil || string(out) != c.want {
+			t.Errorf("nochecks=%v: the program prints %q, %v; want %q", c.nochecks, out, err, c.want)
+		}
+		// Each compile (the runtime's, as the cache is new for this setting,
+		// and the program's) has the define, and the link doesn't.
+		compiles := 0
+		for _, line := range strings.Split(strings.TrimSpace(trace.String()), "\n") {
+			if !strings.HasPrefix(line, cxx.Path+" ") {
+				continue
+			}
+			has := strings.Contains(line, " -DGOCPP_NOCHECKS ")
+			if strings.Contains(line, " -c ") {
+				compiles++
+				if has != c.nochecks {
+					t.Errorf("nochecks=%v: a compile with -DGOCPP_NOCHECKS=%v: %s", c.nochecks, has, line)
+				}
+			} else if has {
+				t.Errorf("the link has -DGOCPP_NOCHECKS: %s", line)
+			}
+		}
+		if want := len(rtfiles.Sources(runtime.GOOS)) + 1; compiles != want {
+			t.Errorf("nochecks=%v: -x shows %d compiles, want %d (the runtime's and the program's):\n%s", c.nochecks, compiles, want, trace.String())
+		}
+	}
+	dir, _ := ExtractRuntime(cache)
+	if objs, _ := os.ReadDir(filepath.Join(dir, "obj")); len(objs) != 2 {
+		t.Errorf("obj/ holds %d folders, want 2: the runtime with and without -nochecks", len(objs))
+	}
+}
+
 func TestRemoveStale(t *testing.T) {
 	// A killed gocpp leaves its temporary folders: those older than an
 	// hour go when the next one is made; younger ones may be in use.

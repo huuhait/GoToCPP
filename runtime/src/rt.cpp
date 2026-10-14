@@ -743,7 +743,7 @@ int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
         // have printf'd: that comes first, as it happened before the panic.
         std::fflush(nullptr);
         std::string out;
-        detail::panic_report(out, e.gp_text);
+        detail::panic_report(out, e); // with the stack trace
         detail::write_stderr(out);
         os::exit(2);
     }

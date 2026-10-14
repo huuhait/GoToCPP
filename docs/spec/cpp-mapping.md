@@ -518,14 +518,70 @@ Here package `main` imports `b` and `c`, and `b` imports `z`. Go 1.25 runs the i
   `gp_var_init()`. Variables of C++ types that can't be constant-initialized use `gp::lazy<T>`
   storage, which is constructed in `gp_var_init()`.
 - `gp::run_main(argc, argv, init, main)` stores the arguments (for `os.Args`), runs the init
-  function, runs `main`, and exits with code 0. An unrecovered panic prints `panic: <message>`
-  and `goroutine 1 [running]:` and exits with code 2, as in Go.
+  function, runs `main`, and exits with code 0. An unrecovered panic prints `panic: <message>`,
+  `goroutine 1 [running]:` and a stack trace, and exits with code 2, as in Go (see
+  [Runtime checks and panics](#runtime-checks-and-panics)).
 - In the `c-archive` and `c-shared` build modes, initialization runs at the first exported call
   instead, as in Go.
 
 Sources: [Phase 03 §2.10](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#210-builtins-printing-and-package-initialization),
 [Phase 06 §2.4](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#24-initialization-across-packages-go-121-rule),
 [Phase 06 §2.7](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#27-build-modes--buildmode-like-go).
+
+## Runtime checks and panics
+
+- The runtime checks what Go checks, with Go's messages: an index (`runtime error: index out of
+  range [5] with length 3`), a slice expression, a slice to array conversion, a nil pointer
+  dereference (`*p`, `p.f`), division by zero and a negative shift count.
+- A panic is a C++ exception, `gp::panic_error`. Unrecovered, it prints Go's lines and then a
+  stack trace: each function by its Go name, `(...)` when it has parameters, then a tab, the
+  `.gp` file and line of the call (from the debug info that `#line` makes) and the offset in the
+  function, like Go's trace. The runtime's own frames are left out.
+
+  ```
+  panic: runtime error: index out of range [5] with length 3
+
+  goroutine 1 [running]:
+  main.at(...)
+  	/home/me/prog/main.gp:14 +0x19
+  main.main()
+  	/home/me/prog/main.gp:23 +0x34
+  ```
+
+  Like Go 1.25, a stack of more than 100 frames shows the inner 50, `...N frames elided...` and
+  the outer 50, ending with `main.main()`.
+
+  The panic records the return addresses where it starts (`backtrace()` on Linux): a panic
+  costs 1–5 µs more than a plain C++ throw on a stack of up to about 25 frames, and about 5 µs
+  more when the first 100 addresses fill up. Only then a second walk records the whole stack,
+  for the outer frames and the count, so its cost grows with the depth, and only deep stacks
+  pay for it. The names and lines are looked up only when the program ends, from the
+  program's symbol table and DWARF line table (about 2 ms). The names come back from the C++
+  names: `gpkg_main::f` is `main.f`, a lambda is `main.f.func1`, `gp_init_1` is `main.init.0`.
+- `gocpp build -nochecks` (and `gocpp run -nochecks`) turns off the bounds and nil checks: an
+  index, a slice expression or a conversion out of range and a nil dereference are then
+  undefined behavior, as in C++. It defines `GOCPP_NOCHECKS` for every compile, the runtime's
+  too (whose object files are cached apart). Division by zero and a negative shift count still
+  panic, and Go's results for `MIN / -1` and for a shift by the width or more stay, because
+  without them C++ has undefined behavior and they cost little. The panics that are part of
+  an operation stay too: a write to a nil map, `make` with a bad length or capacity, and an
+  index of a `[0]T` (which has no element to give).
+
+Where the trace differs from Go's (accepted divergences):
+- the parentheses always hold `(...)` (the function has parameters) or `()`, where Go prints
+  the argument words (`main.f(0x0?)`), or `(...)` for an inlined frame; and every frame has
+  its offset, where Go prints none for an inlined frame;
+- a method prints as `main.T.M`, never `main.(*T).M`: the C++ name doesn't say whether the
+  receiver is a pointer;
+- a Go name that gocpp escaped for a C++ keyword or macro keeps its `_` (`main.new_`), and a
+  func literal in a function compiled by clang++ has no known number (`main.f.func?`), as
+  clang++ numbers the lambdas of a whole file;
+- an optimized build (Phase 15) can show the line of an inlined runtime header as the
+  innermost frame's line; gocpp builds at `-O0`;
+- a stripped program shows the addresses instead (`?()` and `pc=0x...`, for `addr2line`);
+- on Windows the trace has no frames yet, until Phase 14 reads the program's PE file.
+
+Source: [Phase 03 §2.9](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#29-runtime-checks-and-panics-gos-exact-messages).
 
 ## `#line` and debugging
 

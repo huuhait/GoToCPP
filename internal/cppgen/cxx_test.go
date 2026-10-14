@@ -235,14 +235,20 @@ type result struct {
 	code           int
 }
 
-// run runs the program bin in the folder dir.
+// run runs the program bin in the folder dir. Its stderr ends with the goroutine line of a
+// panic: the stack trace after it differs between Go and gocpp (paths, offsets, frames), so
+// the tests compare the output up to it.
 func run(t *testing.T, dir, bin string) result {
 	t.Helper()
 	stdout, stderr, code, err := command(dir, false, bin)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return result{string(stdout), string(stderr), code}
+	e := string(stderr)
+	if i := strings.Index(e, goStackMark); i >= 0 {
+		e = e[:i+len(goStackMark)]
+	}
+	return result{string(stdout), e, code}
 }
 
 // command runs a command with a timeout in the folder dir, in the compiler's environment

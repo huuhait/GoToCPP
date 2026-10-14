@@ -23,9 +23,10 @@ import (
 // (Phase 02: one translation unit per program; Phase 06 brings the action
 // graph).
 type Builder struct {
-	CXX  CXX    // the compiler
-	ASan bool   // build with the sanitizers (-asan)
-	GOOS string // the operating system, for the runtime's OS layer
+	CXX      CXX    // the compiler
+	ASan     bool   // build with the sanitizers (-asan)
+	NoChecks bool   // without the bounds and nil checks (-nochecks)
+	GOOS     string // the operating system, for the runtime's OS layer
 
 	// Work is the work folder (absolute): the object files go there, and
 	// the compiles run in it.
@@ -74,7 +75,7 @@ const maxCompileOutput = 4 << 20
 // links it with the runtime into the program out. Both paths are
 // absolute. A compile or link that fails is a *CompileError.
 func (b *Builder) Program(ctx context.Context, src, out string) error {
-	flags := Flags(b.CXX, b.ASan)
+	flags := CompileFlags(b.CXX, b.ASan, b.NoChecks)
 	rtDir, rtObjs, rtErr := b.runtime(ctx, flags)
 	if rtErr != nil {
 		return rtErr
@@ -84,12 +85,12 @@ func (b *Builder) Program(ctx context.Context, src, out string) error {
 	if err := b.run(ctx, "the generated C++", false, compile); err != nil {
 		return err
 	}
-	link := slices.Concat(flags, []string{obj}, rtObjs, []string{"-o", out})
+	link := slices.Concat(Flags(b.CXX, b.ASan), []string{obj}, rtObjs, []string{"-o", out})
 	return b.run(ctx, "the generated C++", true, link)
 }
 
-// runtime returns the folder of the runtime and its object files for
-// flags, compiling them first if they are not in the cache.
+// runtime returns the folder of the runtime and its object files for the
+// compile flags flags, compiling them first if they are not in the cache.
 func (b *Builder) runtime(ctx context.Context, flags []string) (dir string, objs []string, err error) {
 	srcs := rtfiles.Sources(b.GOOS)
 	if b.Cache != "" {

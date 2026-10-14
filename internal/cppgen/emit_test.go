@@ -262,16 +262,11 @@ func goResult(t *testing.T, gps ...string) *result {
 	if err != nil || code != 0 {
 		t.Fatalf("go build %s: exit code %d %v\n%s", strings.Join(gps, " "), code, err, out)
 	}
-	r := run(t, dir, bin)
-	// After this line Go prints the stack trace of a panic, which gocpp doesn't have yet
-	// (Phase 03): the output is compared up to it.
-	if i := strings.Index(r.stderr, goStackMark); i >= 0 {
-		r.stderr = r.stderr[:i+len(goStackMark)]
-	}
+	r := run(t, dir, bin) // its stderr ends at the stack trace, as gocpp's does
 	return &r
 }
 
-// goStackMark is the line of a panic message after which Go prints the stack trace.
+// goStackMark is the line of a panic message after which Go and gocpp print the stack trace.
 const goStackMark = "goroutine 1 [running]:\n"
 
 // pcRx matches the pc in the signal line of a nil pointer panic, "[signal SIGSEGV:

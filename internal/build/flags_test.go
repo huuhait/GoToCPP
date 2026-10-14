@@ -32,6 +32,17 @@ func TestFlags(t *testing.T) {
 			t.Errorf("Flags(%v) = %q, without -gno-column-info", f, flags)
 		}
 	}
+	// CompileFlags: Flags, and -DGOCPP_NOCHECKS with nochecks (last, after the
+	// family's flags).
+	for _, f := range []Family{GCC, Clang} {
+		cxx := CXX{Family: f}
+		if got := CompileFlags(cxx, true, false); !slices.Equal(got, Flags(cxx, true)) {
+			t.Errorf("CompileFlags(%v, asan, no nochecks) = %q, want Flags: %q", f, got, Flags(cxx, true))
+		}
+		if got, want := CompileFlags(cxx, false, true), append(Flags(cxx, false), "-DGOCPP_NOCHECKS"); !slices.Equal(got, want) {
+			t.Errorf("CompileFlags(%v, nochecks) = %q, want %q", f, got, want)
+		}
+	}
 	// Flags returns a new slice each time: a caller may append to it.
 	a := Flags(CXX{Family: GCC}, false)
 	_ = append(a[:len(a):len(a)], "-x")

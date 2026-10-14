@@ -485,6 +485,70 @@ func TestASan(t *testing.T) {
 	})
 }
 
+// noChecksSrc indexes a substring past its end but inside the string it
+// came from, then divides by zero: with the checks, the index panics; with
+// -nochecks, it reads the byte that is there (no undefined behavior), and
+// the division still panics.
+const noChecksSrc = `package main
+
+import "fmt"
+
+func main() {
+	s := "abcdef"
+	t := s[0:2]
+	i := 4
+	fmt.Println(t[i])
+	a, b := 7, 0
+	fmt.Println(a / b)
+}
+`
+
+func TestNoChecks(t *testing.T) {
+	forEachCXX(t, func(t *testing.T, c testCXX) {
+		t.Setenv("GOCPP_GATE_PHASE", "03") // string slicing
+		// A cache of its own: the runtime is compiled for -nochecks here, so
+		// -x shows those compiles too.
+		t.Setenv("XDG_CACHE_HOME", t.TempDir())
+		dir := inDir(t, map[string]string{"nochecks.gp": noChecksSrc})
+		r := gocppRun("", false, "run", "nochecks.gp")
+		if want := "panic: runtime error: index out of range [4] with length 2\n\ngoroutine 1 [running]:\nmain.main()\n"; r.code != 2 || r.stdout != "" || !strings.HasPrefix(r.stderr, want) {
+			t.Errorf("gocpp run = %+v, want exit 2 and stderr starting with %q", r, want)
+		}
+		r = gocppRun("", false, "run", "-nochecks", "-x", "nochecks.gp")
+		workDir(t, r.stderr)
+		// The trace has the .gp line of the division.
+		divide := "panic: runtime error: integer divide by zero\n\ngoroutine 1 [running]:\nmain.main()\n\t" +
+			filepath.Join(dir, "nochecks.gp") + ":11 +0x"
+		if r.code != 2 || r.stdout != "101\n" || !strings.Contains(r.stderr, divide) {
+			t.Errorf("gocpp run -nochecks = exit %d, stdout %q, stderr:\n%s\nwant exit 2, 101 and a division panic", r.code, r.stdout, r.stderr)
+		}
+		// Every compile has -DGOCPP_NOCHECKS: the runtime's and the
+		// program's. The link doesn't need it.
+		compiles := 0
+		for _, line := range strings.Split(r.stderr, "\n") {
+			if !strings.HasPrefix(line, c.cxx.Path+" ") {
+				continue
+			}
+			has := strings.Contains(line, " -DGOCPP_NOCHECKS ")
+			if strings.Contains(line, " -c ") {
+				compiles++
+				if !has {
+					t.Errorf("a compile without -DGOCPP_NOCHECKS: %s", line)
+				}
+			} else if has {
+				t.Errorf("the link has -DGOCPP_NOCHECKS: %s", line)
+			}
+		}
+		if compiles < 2 {
+			t.Errorf("gocpp run -nochecks -x shows %d compiles, want the runtime's and the program's:\n%s", compiles, r.stderr)
+		}
+		// The help text names the flag.
+		if r := gocppRun("", false, "build", "-h"); !strings.Contains(r.stderr, "\t-nochecks\n") {
+			t.Errorf("gocpp build -h doesn't show -nochecks:\n%s", r.stderr)
+		}
+	})
+}
+
 func TestCheckErrors(t *testing.T) {
 	// Errors before the C++: exactly what gocpp check prints, exit 1, and
 	// nothing is compiled (no compiler is needed: GOCPP_CXX names none).

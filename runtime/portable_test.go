@@ -17,10 +17,11 @@ import (
 const mingwCXX = "x86_64-w64-mingw32-g++"
 
 // TestWindowsSyntax compiles the portable C++ of the runtime (everything outside src/os/)
-// for Windows with MinGW-w64, syntax only. It backs up TestNoOSHeadersOutsideOS, which sees
-// only #include lines: a POSIX function that glibc's standard headers declare anyway (g++
-// defines _GNU_SOURCE, so <cstdio> declares fileno) or a hand-written OS declaration
-// doesn't compile for Windows. It is skipped when the cross compiler isn't installed.
+// and its Windows OS layer (src/os/windows/, which Phase 14 completes) for Windows with
+// MinGW-w64, syntax only. It backs up TestNoOSHeadersOutsideOS, which sees only #include
+// lines: a POSIX function that glibc's standard headers declare anyway (g++ defines
+// _GNU_SOURCE, so <cstdio> declares fileno) or a hand-written OS declaration doesn't compile
+// for Windows. It is skipped when the cross compiler isn't installed.
 func TestWindowsSyntax(t *testing.T) {
 	cc, err := build.LookCXX(t.Context(), mingwCXX)
 	if err != nil {
@@ -35,8 +36,8 @@ func TestWindowsSyntax(t *testing.T) {
 		if skipEntry(disk, p, d) {
 			return skipped(d)
 		}
-		if d.IsDir() && p == "src/os" {
-			return fs.SkipDir
+		if d.IsDir() && strings.HasPrefix(p, "src/os/") && p != "src/os/windows" {
+			return fs.SkipDir // another OS's layer
 		}
 		if !d.IsDir() && path.Ext(p) == ".cpp" {
 			files = append(files, sourcePath(t, p))
@@ -53,8 +54,9 @@ func TestWindowsSyntax(t *testing.T) {
 			t.Errorf("%s %s: exit %d %v\n%s", cc.Path, strings.Join(args, " "), code, err, out)
 		}
 	}
-	if len(files) == 0 {
-		t.Fatal("found no .cpp files outside src/os/")
+	if !slices.ContainsFunc(files, func(f string) bool { return strings.Contains(f, "/src/os/windows/") }) ||
+		!slices.ContainsFunc(files, func(f string) bool { return !strings.Contains(f, "/src/os/") }) {
+		t.Fatalf("found no .cpp files outside src/os/ or in src/os/windows/: %q", files)
 	}
 }
 

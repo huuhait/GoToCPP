@@ -21,11 +21,12 @@ import (
 	rtfiles "github.com/huuhait/gocpp/runtime"
 )
 
-// The C++ tests of the runtime: test/unit.cpp, test/slice_test.cpp, test/array_test.cpp and
-// test/map_test.cpp (unit tests) and test/diff.cpp (the C++ side of a differential test against
-// testdata/diff/main.go, run with real Go). Each is compiled with the embedded runtime
-// (rtfiles.FS, extracted to a temporary folder, as the driver will do it), with g++ and with
-// clang++, in each mode below.
+// The C++ tests of the runtime: test/unit.cpp, test/slice_test.cpp, test/array_test.cpp,
+// test/map_test.cpp and test/trace_test.cpp (unit tests), test/nochecks_test.cpp (the unit
+// tests of a -nochecks build, compiled with the runtime with -DGOCPP_NOCHECKS) and
+// test/diff.cpp (the C++ side of a differential test against testdata/diff/main.go, run with
+// real Go). Each is compiled with the embedded runtime (rtfiles.FS, extracted to a temporary
+// folder, as the driver will do it), with g++ and with clang++, in each mode below.
 //
 // Like the test harness (tests/harness_test.go): GOCPP_CXX=<compiler> tests with that
 // compiler only; a compiler that isn't installed is a skip, unless GOCPP_REQUIRE_CXX (a comma
@@ -41,13 +42,15 @@ var baseFlags = []string{"-std=c++20", "-fwrapv", "-fno-strict-aliasing", "-ffp-
 
 // The modes: the driver's debug build, an optimized build, and the sanitizers. With
 // -fno-sanitize-recover=all, a sanitizer report stops the program with a nonzero exit code.
+// The sanitizer mode also writes DWARF 4, so the stack trace's line table reader is tested with
+// version 4 there and with the compilers' default, version 5, in the others.
 var modes = []struct {
 	name  string
 	flags []string
 }{
 	{"O0", []string{"-O0"}},
 	{"O2", []string{"-O2"}},
-	{"asan", []string{"-O0", "-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-fno-sanitize-recover=all"}},
+	{"asan", []string{"-O0", "-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-fno-sanitize-recover=all", "-gdwarf-4"}},
 }
 
 // A cxx is one C++ compiler of the test matrix.
@@ -236,8 +239,17 @@ type result struct {
 }
 
 // goStackMark is the line after which Go prints the stack trace of a panic. gocpp prints
-// that line too, and the trace comes in Phase 03, so both outputs are compared up to it.
+// that line too, then a trace of its own (gocpp/trace.hpp), which differs from Go's (other
+// paths, offsets and runtime frames), so both outputs are compared up to it (cutTrace).
 const goStackMark = "goroutine 1 [running]:\n"
+
+// cutTrace returns out up to the end of the goStackMark line, or out when there is none.
+func cutTrace(out []byte) []byte {
+	if i := bytes.Index(out, []byte(goStackMark)); i >= 0 {
+		return out[:i+len(goStackMark)]
+	}
+	return out
+}
 
 // pcRx matches the pc in the signal line of a nil pointer panic, "[signal SIGSEGV:
 // segmentation violation code=0x1 addr=0x0 pc=0x4a2b1c]": an address in the program, which
@@ -276,10 +288,7 @@ func goResults(t *testing.T) (map[string]result, string) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if i := bytes.Index(out, []byte(goStackMark)); i >= 0 {
-			out = out[:i+len(goStackMark)]
-		}
-		res[name] = result{maskPC(out), code}
+		res[name] = result{maskPC(cutTrace(out)), code}
 	}
 	return res, bin
 }
@@ -305,11 +314,15 @@ func TestCXX(t *testing.T) {
 					slice := c.compile(t, rt, "test/slice_test.cpp", dir, m.flags, nil)
 					array := c.compile(t, rt, "test/array_test.cpp", dir, m.flags, nil)
 					maps := c.compile(t, rt, "test/map_test.cpp", dir, m.flags, nil)
+					trace := c.compile(t, rt, "test/trace_test.cpp", dir, m.flags, nil)
+					nochecks := c.compile(t, rt, "test/nochecks_test.cpp", dir, append(slices.Clone(m.flags), "-DGOCPP_NOCHECKS"), nil)
 					t.Run("unit", func(t *testing.T) { runUnit(t, unit) })
 					t.Run("slice", func(t *testing.T) { runUnit(t, slice) })
 					t.Run("array", func(t *testing.T) { runUnit(t, array) })
 					t.Run("map", func(t *testing.T) { runUnit(t, maps) })
-					t.Run("panic", func(t *testing.T) { runPanic(t, diff) })
+					t.Run("trace", func(t *testing.T) { runUnit(t, trace) })
+					t.Run("nochecks", func(t *testing.T) { runUnit(t, nochecks) })
+					t.Run("panic", func(t *testing.T) { runPanic(t, diff, m.name != "O2") })
 					t.Run("leak", func(t *testing.T) { runLeak(t, diff, m.name == "asan") })
 					t.Run("pipes", func(t *testing.T) { runPipes(t, diff, goBin) })
 					t.Run("diff", func(t *testing.T) {
@@ -356,7 +369,45 @@ var nilSignal = func() string {
 
 // runPanic checks the end of a program without real Go: an unrecovered panic prints Go's
 // message and exits with 2, after what the program printed before; a normal end exits with 0.
-func runPanic(t *testing.T, bin string) {
+// The output is compared up to the goroutine line; after it, the stack trace must name the
+// function of diff.cpp that panicked, with its line (exact only when frames says that the
+// build keeps every frame, not at -O2).
+func runPanic(t *testing.T, bin string, frames bool) {
+	diffCPP := sourcePath(t, "test/diff.cpp")
+	src, err := os.ReadFile(diffCPP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// lineOf is the line of diff.cpp that has text.
+	lineOf := func(text string) int {
+		t.Helper()
+		i := strings.Index(string(src), text)
+		if i < 0 {
+			t.Fatalf("test/diff.cpp has no %q", text)
+		}
+		return strings.Count(string(src[:i]), "\n") + 1
+	}
+	for _, tc := range []struct {
+		name, trace string
+	}{
+		// The panicking line is 3 lines below the case's own line.
+		{"index", "main.main()\n\t" + diffCPP + ":" + fmt.Sprint(lineOf(`(c == "index")`)+3) + " +0x"},
+		{"slice-index", "main.slice_case(...)\n\t" + diffCPP + ":" + fmt.Sprint(lineOf(`(c == "slice-index")`)+3) + " +0x"},
+		{"panic-str", "main.main()\n\t" + diffCPP + ":" + fmt.Sprint(lineOf(`(c == "panic-str")`)+2) + " +0x"},
+	} {
+		out, _, code, err := command(filepath.Dir(bin), nil, true, bin, tc.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		trace := string(out[len(cutTrace(out)):])
+		want := tc.trace
+		if !frames {
+			want = tc.trace[:strings.Index(tc.trace, "(")] // the function's name only
+		}
+		if code != 2 || !strings.HasPrefix(trace, want) || strings.Contains(trace, "gp::") {
+			t.Errorf("%s: exit code %d, the trace:\n%s\nwant exit code 2 and a trace that starts with\n%s", tc.name, code, trace, want)
+		}
+	}
 	for _, tc := range []struct {
 		name, out string
 		code      int
@@ -376,7 +427,7 @@ func runPanic(t *testing.T, bin string) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out = maskPC(out)
+		out = maskPC(cutTrace(out))
 		if code != tc.code || string(out) != tc.out {
 			t.Errorf("%s: exit code %d, output:\n%s\nwant exit code %d, output:\n%s", tc.name, code, out, tc.code, tc.out)
 		}
@@ -405,7 +456,7 @@ func runDiff(t *testing.T, bin, name string, want result) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out = maskPC(out)
+	out = maskPC(cutTrace(out))
 	if code != want.code {
 		t.Errorf("exit code %d, Go's is %d", code, want.code)
 	}

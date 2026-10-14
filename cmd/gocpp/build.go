@@ -64,6 +64,13 @@ The build flags (of build and run) are:
 	-asan
 		build with AddressSanitizer and UndefinedBehaviorSanitizer:
 		the program stops at the first report, with exit status 1
+	-nochecks
+		build without the bounds and nil checks, for speed: an index
+		or slice expression out of range, a slice to array conversion
+		that doesn't fit and a nil pointer dereference are then
+		undefined behavior, as in C++, instead of a panic. Division by
+		zero and a negative shift count still panic, and the results
+		that Go defines stay (MIN / -1, shifts by the width or more)
 	-work
 		print the name of the work folder and keep it
 	-x
@@ -122,10 +129,11 @@ var testHookCPP func(cpp []byte) []byte
 
 // buildFlags are the flags of gocpp build and gocpp run.
 type buildFlags struct {
-	output string // -o, build only
-	x      bool   // -x
-	work   bool   // -work
-	asan   bool   // -asan
+	output   string // -o, build only
+	x        bool   // -x
+	work     bool   // -work
+	asan     bool   // -asan
+	nochecks bool   // -nochecks
 }
 
 func (f *buildFlags) register(flags *flag.FlagSet, withOutput bool) {
@@ -133,6 +141,7 @@ func (f *buildFlags) register(flags *flag.FlagSet, withOutput bool) {
 		flags.StringVar(&f.output, "o", "", "write the program to this file or folder")
 	}
 	flags.BoolVar(&f.asan, "asan", false, "build with AddressSanitizer and UndefinedBehaviorSanitizer")
+	flags.BoolVar(&f.nochecks, "nochecks", false, "build without the bounds and nil checks (division and shift checks stay)")
 	flags.BoolVar(&f.work, "work", false, "print the name of the work folder and keep it")
 	flags.BoolVar(&f.x, "x", false, "print the commands")
 }
@@ -535,7 +544,7 @@ func (d *driver) compile(patterns []string) (*program, int) {
 		return nil, exitErrors
 	}
 
-	b := &build.Builder{CXX: cxx, ASan: d.flags.asan, GOOS: d.check.goos, Work: work, Stderr: d.stderr}
+	b := &build.Builder{CXX: cxx, ASan: d.flags.asan, NoChecks: d.flags.nochecks, GOOS: d.check.goos, Work: work, Stderr: d.stderr}
 	if cache, err := os.UserCacheDir(); err == nil {
 		b.Cache = filepath.Join(cache, "gocpp")
 	}

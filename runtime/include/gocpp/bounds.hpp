@@ -25,6 +25,8 @@
 //
 // An index can have any Go integer type. A negative signed index prints without the second
 // number ("[:-1]", "[-1:]"), and a huge unsigned one prints as unsigned, as in Go.
+//
+// With GOCPP_NOCHECKS (gocpp build -nochecks, checks.hpp), the checks do nothing.
 #pragma once
 
 #include <gocpp/checks.hpp>
@@ -78,19 +80,24 @@ template <go_int I>
 // check_slice: Go's checks for x[lo:hi]. bound is cap(x) for a slice (first is
 // bounds::slice_acap) or len(x) for a string or an array (bounds::slice_alen).
 template <go_int L, go_int H>
-inline void check_slice(L lo, H hi, int64_t bound, bounds first) {
+inline void check_slice([[maybe_unused]] L lo, [[maybe_unused]] H hi,
+                        [[maybe_unused]] int64_t bound, [[maybe_unused]] bounds first) {
+#ifndef GOCPP_NOCHECKS
     if (!detail::in_bounds(hi, bound)) [[unlikely]] {
         detail::bounds_fail(first, hi, bound);
     }
     if (!detail::in_bounds(lo, static_cast<int64_t>(hi))) [[unlikely]] {
         detail::bounds_fail(bounds::slice_b, lo, static_cast<int64_t>(hi));
     }
+#endif
 }
 
 // check_slice3: Go's checks for x[lo:hi:max]. bound is cap(x) for a slice (first is
 // bounds::slice3_acap) or len(x) for an array (bounds::slice3_alen).
 template <go_int L, go_int H, go_int M>
-inline void check_slice3(L lo, H hi, M max, int64_t bound, bounds first) {
+inline void check_slice3([[maybe_unused]] L lo, [[maybe_unused]] H hi, [[maybe_unused]] M max,
+                         [[maybe_unused]] int64_t bound, [[maybe_unused]] bounds first) {
+#ifndef GOCPP_NOCHECKS
     if (!detail::in_bounds(max, bound)) [[unlikely]] {
         detail::bounds_fail(first, max, bound);
     }
@@ -100,13 +107,16 @@ inline void check_slice3(L lo, H hi, M max, int64_t bound, bounds first) {
     if (!detail::in_bounds(lo, static_cast<int64_t>(hi))) [[unlikely]] {
         detail::bounds_fail(bounds::slice3_c, lo, static_cast<int64_t>(hi));
     }
+#endif
 }
 
 // check_convert: Go's check for [N]T(s) and (*[N]T)(s): n (the array length N) <= len.
-inline void check_convert(int64_t n, int64_t len) {
+inline void check_convert([[maybe_unused]] int64_t n, [[maybe_unused]] int64_t len) {
+#ifndef GOCPP_NOCHECKS
     if (n > len) [[unlikely]] {
         panic_bounds(bounds::convert, n, true, len);
     }
+#endif
 }
 
 } // namespace gp
