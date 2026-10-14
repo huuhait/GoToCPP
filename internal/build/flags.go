@@ -12,6 +12,8 @@ import "slices"
 // -gno-column-info: the debug info gets no columns, because the columns
 // would be those of the C++ code, not of the .gp code that #line maps the
 // lines to; lldb and editors would point at the wrong place in a .gp line.
+// -fno-strict-aliasing: gp::ptr_cast and gp::to_array_ptr (the runtime's
+// pointer conversions) access objects through another type, and need it.
 var debugFlags = []string{"-std=c++20", "-fwrapv", "-fno-strict-aliasing", "-ffp-contract=off", "-g", "-gno-column-info", "-O0"}
 
 // asanFlags are the flags that -asan adds, to the compiles and to the

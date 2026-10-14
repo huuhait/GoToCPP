@@ -149,3 +149,8 @@
   without a panic; `for i, v := range p` on a nil *[3]int panics with the nil dereference, `for i := range
   p` doesn't. constinit works for array literals of literal types only (not gp::string literals, not
   keyed literals of strings/pointers): 3.6b/3.16 choose constinit vs gp_var_init by that rule.
+- 2026-10-14: Job 3.6a (the array runtime: runtime/include/gocpp/array.hpp: gp::array<T,N>, the empty
+  [0]T specialization, Go's ==, checked index, literals incl. keyed, to_array/to_array_ptr (relies on
+  -fno-strict-aliasing, pinned by a test), slicing a boxed array) committed, clean after 2 review rounds.
+  Step 3.6 stays open for 3.6b (the emitter: array types, literals, indexing, ==, range copies, &arr[i],
+  arr[:], the gp_hash hook for map keys).

@@ -179,12 +179,12 @@ var runtimeTypes = []runtimeType{
 	{goType: "[]int", cpp: "gp::slice<int64_t>", layout: layoutSlice,
 		defined: `(?:class|struct) slice\b`, pending: ""},
 	// Arrays have no fixed layout (gocppSizes computes them), but these
-	// examples make sizes.hpp assert gp::array once step 3.6 adds it: an
-	// empty struct for N == 0, N elements without gaps otherwise.
+	// examples make sizes.hpp assert gp::array (step 3.6): an empty struct
+	// for N == 0, N elements without gaps otherwise.
 	{goType: "[0]int64", cpp: "gp::array<int64_t, 0>", layout: layout{1, 1},
-		defined: `(?:class|struct) array\b`, pending: "step 3.6"},
+		defined: `(?:class|struct) array\b`, pending: ""},
 	{goType: "[3]int16", cpp: "gp::array<int16_t, 3>", layout: layout{6, 2},
-		defined: `(?:class|struct) array\b`, pending: "step 3.6"},
+		defined: `(?:class|struct) array\b`, pending: ""},
 	{goType: "map[int]int", cpp: "gp::map<int64_t, int64_t>", layout: layoutMap,
 		defined: `(?:class|struct) map\b`, pending: "step 3.7"},
 	{goType: "func()", cpp: "gp::func<void()>", layout: layoutFunc,

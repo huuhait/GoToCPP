@@ -35,8 +35,7 @@
 //     append(s, t...)          gp::append_slice(s, t)      also append([]byte, string...)
 //     copy(dst, src)           gp::copy(dst, src)          also copy([]byte, string)
 //     clear(s)                 gp::clear(s)
-//     [N]T(s), (*[N]T)(s)      gp::check_convert(N, gp::len(s)) (bounds.hpp), then the
-//                              array (step 3.6)
+//     [N]T(s), (*[N]T)(s)      gp::to_array<N>(s), gp::to_array_ptr<N>(s) (gocpp/array.hpp)
 //
 // An index can have any Go integer type. The checks panic with Go's exact messages: "index out
 // of range [5] with length 3" (gp::check_index), the slice expression ones in

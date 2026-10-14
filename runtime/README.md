@@ -17,7 +17,7 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `src/os/linux/` | the Linux OS layer: `os.cpp`. Phase 08 adds the Linux side of the thread layer `gp::os`. Embedded |
 | `src/os/windows/` | the Windows OS layer (Phase 14; not there yet) |
 | `files.go` | package `rtfiles`: `FS()` holds `include/` and `src/`; `Sources(goos)` lists the `.cpp` files a program is compiled with (`src/*.cpp` and `src/os/<goos>/*.cpp`) |
-| `test/` | the C++ tests (not embedded): `unit.cpp`, `slice_test.cpp`, `diff.cpp`, `fortify.cpp` and `layout.cpp` (generated) |
+| `test/` | the C++ tests (not embedded): `unit.cpp`, `slice_test.cpp`, `array_test.cpp`, `diff.cpp`, `fortify.cpp` and `layout.cpp` (generated) |
 | `testdata/diff/main.go` | the Go side of the differential test |
 | `*_test.go` | the Go tests that build and run the C++ tests, and the checks below |
 | `compile_flags.txt` | the flags for clangd, so the files open without false errors in an editor (the dev shell's clangd) |
@@ -33,6 +33,7 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `ptr.hpp` | Go's pointers: `gp::ptr<T>` (`*T`: a `std::shared_ptr` with nil checks, 16 bytes), `gp::new_<T>` (`new(T)`, `&T{...}`, boxes), the aliasing constructors for pointers into objects (`&p.f`, `&s[i]`), `gp::static_ptr` (`&global`), `gp::ptr_cast` (`(*Q)(p)`), and `gp::weak_ptr<T>` with `gp::weak_make` and `gp::weak_value` (`weak.Pointer[T]`, `weak.Make`, `Value`) |
 | `bounds.hpp` | Go's checks for slice expressions in Go's order, for slices, strings and arrays: `gp::check_slice` (`x[lo:hi]`), `gp::check_slice3` (`x[lo:hi:max]`), `gp::check_convert` (`[N]T(s)`), and `gp::panic_bounds` with Go's exact messages (`slice bounds out of range [:5] with capacity 3`) |
 | `slice.hpp` | `gp::slice<T>` (`[]T`: owner, data pointer, length, capacity: 40 bytes): nil and empty slices, `s == nullptr`, `s[i]` with Go's bounds check, `gp::len`, `gp::cap`, `gp::make_slice<T>`, `gp::slice_of<T>({...})` (literals), `gp::sub` (2 and 3 indexes), `gp::append`, `gp::append_slice` (`append(s, t...)`, also a string's bytes), `gp::copy`, `gp::clear`; growth with Go's formula (only `cap >= len` is promised), overlap safe, owners released through `gp::detail::release` |
+| `array.hpp` | `gp::array<T, N>` (`[N]T`: an aggregate of N elements, exactly `N * sizeof(T)` bytes; `[0]T` an empty struct of 1 byte): zero values, value semantics, braced literals and `gp::array_keyed<T, N>({{k, v}, ...})` (keyed literals; `constinit` works for positional literals whose elements are constants (numbers, bools, nested arrays of them, `T()` zeros; not `"..."_gs`), and for keyed literals only of numbers, bools and nested arrays of them), `a[i]` with Go's bounds check, `==` when `T` is comparable (NaN != NaN), constant `gp::len`/`gp::cap` (also of a pointer to an array), the conversions `gp::to_array<N>(s)` (`[N]T(s)`, a copy) and `gp::to_array_ptr<N>(s)` (`(*[N]T)(s)`, shares the slice's array; needs `-fno-strict-aliasing`), and `gp::sub` on a `gp::ptr<gp::array<T, N>>` (slicing a boxed array: the slice shares the box) |
 | `arith.hpp` | `gp::div`, `gp::rem`, `gp::shl`, `gp::shr` and `gp::f2i<T>`, each returning the Go type |
 | `print.hpp` | the builtins `gp::print` and `gp::println`: stderr, in Go's runtime number format (`+1.500000e+000`) |
 | `panic.hpp` | `gp::panic_error` (the exception a panic throws) and `gp::panic(v)` |
@@ -149,7 +150,7 @@ this.
 ## Tests
 
 `go test ./runtime` (also part of `make test` and `make ci`) runs:
-- `TestCXX`: compiles `test/unit.cpp`, `test/slice_test.cpp` and `test/diff.cpp` with the embedded runtime, with g++
+- `TestCXX`: compiles `test/unit.cpp`, `test/slice_test.cpp`, `test/array_test.cpp` and `test/diff.cpp` with the embedded runtime, with g++
   and clang++, each at `-O0`, at `-O2` and with `-fsanitize=address,undefined` (a sanitizer
   report fails the test). The flags are the driver's: `-std=c++20 -fwrapv -fno-strict-aliasing
   -ffp-contract=off -g`, plus `-Wall -Wextra -Werror`, and `-Qunused-arguments` for clang.
@@ -176,10 +177,20 @@ this.
     q[0].kids...)`), chains of 200,000 nodes through slices of pointers and of values (the
     value chain overflows the stack at `-O0` without `detail::release`), and qualified calls
     (a user's function named like a runtime helper is never called).
+  - `array_test.cpp` checks `gp::array`: the layouts (`[0]T` an empty struct), the type's
+    rules (an aggregate, `==` only for comparable elements, no ordering), `constinit` literals,
+    zero values (also in dirty memory), positional and keyed literals (evaluated in source
+    order), value semantics (copies, parameters, nested arrays, arrays of strings, pointers and
+    slices), every index panic, `==` with NaN, -0 and nested arrays, element destructors run
+    exactly once, a chain of 200,000 nodes through arrays of pointers, the conversions from
+    slices (a copy; a pointer that shares and keeps the array; `[0]T` and nil; Go's panics),
+    slicing boxed arrays, fields, slice elements and globals (writes seen both ways, the slice
+    keeps the block alive, the bounds messages "with length N", the nil panic first), and
+    qualified calls.
   - `diff.cpp` is the same program as `testdata/diff/main.go`. The test runs both, with each
     case, and compares the exit codes and stdout and stderr merged into one stream, up to Go's
     stack trace: number formats (1500 random floats too), integer tables, float → int (on
-    amd64 only), strings, pointers (with `weak`), slices (behavior, and every bounds and `make` panic), panics (also the nil pointer ones, whose
+    amd64 only), strings, pointers (with `weak`), slices (behavior, and every bounds and `make` panic), arrays (value semantics, `==`, conversions, slicing, and their index, conversion and bounds panics), panics (also the nil pointer ones, whose
     signal line is compared with the `pc` left out), the output order and 1 MiB writes.
     Without a `go` command it is skipped.
   - Without Go: the exact panic output and exit codes; on Linux, 1 MiB into a full

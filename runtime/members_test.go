@@ -35,7 +35,7 @@ func TestNoPlainMembers(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The check must see the runtime's types, or it checks nothing.
-	for _, c := range []string{"gp::string", "gp::ptr", "gp::weak_ptr", "gp::panic_error", "gp::slice"} {
+	for _, c := range []string{"gp::string", "gp::ptr", "gp::weak_ptr", "gp::panic_error", "gp::slice", "gp::array"} {
 		if !slices.Contains(classes, c) {
 			t.Errorf("the check didn't see the class %s; it saw %q", c, classes)
 		}
@@ -102,6 +102,28 @@ class tmpl_bad {
     T value;
     T gp_value;
 };
+template <typename T, int N>
+struct spec { T gp_a[N]; };
+template <typename T>
+struct spec<T, 0> {
+    int count;
+};
+template <int N>
+struct spec<char, N> {
+    char gp_c[N];
+};
+template <template <typename> class W>
+struct spec<W<int>, 1> {
+    int gp_w;
+};
+struct outer {
+    template <typename T, int N>
+    struct gp_in { T gp_a; };
+    template <typename T>
+    struct gp_in<T, 0> { int part; };
+    template <>
+    struct gp_in<char, 1> { int full; };
+};
 namespace detail {
 struct fine { int get; };
 }
@@ -118,7 +140,7 @@ struct nested { int data; };
 		"gp::bad::len_", "gp::bad::reset", "gp::bad::size", "gp::bad::tmpl", "gp::bad::u",
 		"gp::bad::value_type", "gp::hidden (base std::shared_ptr<int>)", "gp::hidden2 (base std::shared_ptr<T>)",
 		"gp::hidden2::reset", "gp::hidden::get", "gp::leaky (base std::shared_ptr<T>)",
-		"gp::sub::nested::data", "gp::tmpl_bad::value"}
+		"gp::outer::gp_in::full", "gp::outer::gp_in::part", "gp::spec::count", "gp::sub::nested::data", "gp::tmpl_bad::value"}
 	if !slices.Equal(got, want) {
 		t.Errorf("found %q\nwant  %q", got, want)
 	}
@@ -270,6 +292,8 @@ func (k *checker) checkRecord(r astNode, name string) {
 		case strings.HasSuffix(m.Kind, "Attr"), strings.HasSuffix(m.Kind, "Comment"):
 		case m.Kind == "AccessSpecDecl", m.Kind == "FriendDecl", m.Kind == "StaticAssertDecl",
 			m.Kind == "CXXConstructorDecl", m.Kind == "CXXDestructorDecl", m.Kind == "CXXConversionDecl":
+		case m.Kind == "TemplateTypeParmDecl", m.Kind == "NonTypeTemplateParmDecl", m.Kind == "TemplateTemplateParmDecl":
+			// The template parameters of a partial specialization (array<T, 0>): not members.
 		case m.IsImplicit:
 			// The injected class name, implicit members, the fields of an anonymous union.
 		case m.Kind == "CXXRecordDecl":
@@ -286,6 +310,11 @@ func (k *checker) checkRecord(r astNode, name string) {
 					k.checkRecord(c, name+"::"+m.Name)
 				}
 			}
+		case m.Kind == "ClassTemplatePartialSpecializationDecl", m.Kind == "ClassTemplateSpecializationDecl":
+			// A specialization of a member template, declared in the class: its members are
+			// checked like the template's.
+			check(m.Name)
+			k.checkRecord(m, name+"::"+m.Name)
 		case m.Kind == "FunctionTemplateDecl":
 			if !slices.ContainsFunc(m.Inner, func(c astNode) bool {
 				return c.Kind == "CXXConstructorDecl" || c.Kind == "CXXDestructorDecl" || c.Kind == "CXXConversionDecl"

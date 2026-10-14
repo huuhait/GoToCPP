@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	if sliceCase(os.Args[1]) {
+	if sliceCase(os.Args[1]) || arrayCase(os.Args[1]) {
 		return
 	}
 	switch os.Args[1] {
@@ -691,4 +691,164 @@ func utf8Case() {
 	showString(0x10FFFF)
 	showString(0x110000)
 	showString(-2147483648)
+}
+
+// --- arrays (Phase 03 step 3.6a) ---
+
+// arrayCase runs the array case name and reports whether there is one. Each panic case ends
+// the program with Go's message.
+func arrayCase(name string) bool {
+	switch name {
+	case "arrays":
+		arraysCase()
+	case "array-index":
+		var a [3]int
+		i := 5
+		fmt.Println(a[i])
+	case "array-index-neg":
+		var a [3]int
+		i := -1
+		fmt.Println(a[i])
+	case "array-index-u8":
+		var a [3]int
+		i := uint8(200)
+		fmt.Println(a[i])
+	case "array-index0":
+		var a [0]int
+		i := 0
+		fmt.Println(a[i])
+	case "array-convert":
+		s := []int{1, 2}
+		a := [3]int(s)
+		fmt.Println(a[0])
+	case "array-convert-ptr":
+		s := []int{1, 2}
+		p := (*[3]int)(s)
+		fmt.Println(p[0])
+	case "array-convert-nil":
+		var s []int
+		p := (*[1]int)(s)
+		fmt.Println(p[0])
+	case "array-slice-hi":
+		a := [3]int{1, 2, 3}
+		h := 4
+		fmt.Println(len(a[:h]))
+	case "array-slice-lo":
+		a := [3]int{1, 2, 3}
+		l := 4
+		fmt.Println(len(a[l:]))
+	case "array-slice3-max":
+		a := [3]int{1, 2, 3}
+		m := 4
+		fmt.Println(len(a[0:1:m]))
+	case "array-slice-nil":
+		var p *[3]int
+		h := 2
+		fmt.Println(len(p[:h]))
+	case "array-slice-nil0":
+		var p *[0]int
+		fmt.Println(len(p[:]))
+	default:
+		return false
+	}
+	return true
+}
+
+// show5 prints a name and the elements of a (a copy).
+func show5(name string, a [5]int) {
+	fmt.Print(name, " [")
+	for i := 0; i < len(a); i++ {
+		if i > 0 {
+			fmt.Print(" ")
+		}
+		fmt.Print(a[i])
+	}
+	fmt.Print("]\n")
+}
+
+func bump(x [3]int) [3]int {
+	x[1] = 100
+	return x
+}
+
+// keepSlice returns a slice of a local array: the array lives on.
+func keepSlice() []int {
+	a := [3]int{7, 8, 9}
+	s := a[1:]
+	a[1] = 80
+	return s
+}
+
+func arraysCase() {
+	// zero values and literals
+	var z [5]int
+	fmt.Println(len(z), cap(z), z[0], z[4])
+	show5("lit", [5]int{1, 2})
+	show5("keyed", [5]int{3: 30, 1: 10})
+	show5("mixed", [...]int{1, 3: 2, 7})
+
+	// value semantics: copies are independent
+	a := [3]int{1, 2, 3}
+	b := a
+	b[0] = 9
+	fmt.Println(a[0], b[0])
+	c := bump(a)
+	fmt.Println(a[1], c[1])
+	strs := [2]string{"x", "y"}
+	strs2 := strs
+	strs2[0] = "z"
+	fmt.Println(strs[0], strs2[0], strs2[1])
+	x := new(int)
+	pa := [2]*int{x, nil}
+	pb := pa
+	*pb[0] = 6
+	pb[1] = x
+	fmt.Println(*pa[0], pa[1] == nil, pa == pb)
+
+	// ==
+	fmt.Println(a == [3]int{1, 2, 3}, a != b, a == b)
+	n := math.NaN()
+	f := [2]float64{1, n}
+	g := f
+	fmt.Println(f == g, f != g, [2]float64{0, 1} == [2]float64{math.Copysign(0, -1), 1})
+	nested := [2][2]int{{1, 2}, {3, 4}}
+	m := nested
+	m[1][1] = 5
+	fmt.Println(nested == m, nested[1][1], m[1][1], nested == [2][2]int{{1, 2}, {3, 4}})
+	fmt.Println([2]string{"a", "b"} == [2]string{"a", "b"}, [2]string{"a", "b"} == [2]string{"a", "c"})
+	var e1, e2 [0]int
+	fmt.Println(e1 == e2, len(e1))
+
+	// conversions from slices
+	sl := []int{1, 2, 3, 4}
+	arr := [3]int(sl)
+	arr[0] = 10
+	fmt.Println(sl[0], arr[0], arr[2])
+	ap := (*[2]int)(sl[1:])
+	ap[0] = 20
+	sl[2] = 30
+	fmt.Println(sl[1], ap[1], len(ap))
+	var nilS []int
+	fmt.Println((*[0]int)(nilS) == nil, (*[0]int)([]int{}) == nil, len([0]int(nilS)))
+
+	// slicing an array: the slice shares it
+	box := [5]int{1, 2, 3, 4, 5}
+	bs := box[1:3]
+	bs[0] = 20
+	box[2] = 30
+	fmt.Println(box[1], bs[1], len(bs), cap(bs))
+	bs = append(bs, 40)
+	fmt.Println(box[3], len(bs))
+	b3 := box[1:2:3]
+	fmt.Println(len(b3), cap(b3))
+	pbox := &box
+	ps := pbox[3:]
+	fmt.Println(len(ps), ps[0])
+	show5("box", box)
+	var np *[3]int
+	fmt.Println(len(np), cap(np))
+	var e0 [0]int
+	fmt.Println(e0[:] == nil, len(e0[:]))
+	k := keepSlice()
+	fmt.Println(k[0], k[1], len(k))
 }

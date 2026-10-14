@@ -21,11 +21,11 @@ import (
 	rtfiles "github.com/huuhait/gocpp/runtime"
 )
 
-// The C++ tests of the runtime: test/unit.cpp and test/slice_test.cpp (unit tests) and
-// test/diff.cpp (the C++ side of a differential test against testdata/diff/main.go, run with
-// real Go). Each is compiled
-// with the embedded runtime (rtfiles.FS, extracted to a temporary folder, as the driver will
-// do it), with g++ and with clang++, in each mode below.
+// The C++ tests of the runtime: test/unit.cpp, test/slice_test.cpp and test/array_test.cpp
+// (unit tests) and test/diff.cpp (the C++ side of a differential test against
+// testdata/diff/main.go, run with real Go). Each is compiled with the embedded runtime
+// (rtfiles.FS, extracted to a temporary folder, as the driver will do it), with g++ and with
+// clang++, in each mode below.
 //
 // Like the test harness (tests/harness_test.go): GOCPP_CXX=<compiler> tests with that
 // compiler only; a compiler that isn't installed is a skip, unless GOCPP_REQUIRE_CXX (a comma
@@ -217,6 +217,13 @@ var sliceDiffCases = []string{"slices", "slice-grow", "slice-free", "slice-index
 
 func init() { diffCases = append(diffCases, sliceDiffCases...) }
 
+// The array cases (Phase 03 step 3.6a): the arrayCase function of testdata/diff/main.go.
+var arrayDiffCases = []string{"arrays", "array-index", "array-index-neg", "array-index-u8",
+	"array-index0", "array-convert", "array-convert-ptr", "array-convert-nil", "array-slice-hi",
+	"array-slice-lo", "array-slice3-max", "array-slice-nil", "array-slice-nil0"}
+
+func init() { diffCases = append(diffCases, arrayDiffCases...) }
+
 // A result is what a program printed (stdout and stderr merged) and its exit code.
 type result struct {
 	out  []byte
@@ -291,8 +298,10 @@ func TestCXX(t *testing.T) {
 					unit := c.compile(t, rt, "test/unit.cpp", dir, m.flags, nil)
 					diff := c.compile(t, rt, "test/diff.cpp", dir, m.flags, nil)
 					slice := c.compile(t, rt, "test/slice_test.cpp", dir, m.flags, nil)
+					array := c.compile(t, rt, "test/array_test.cpp", dir, m.flags, nil)
 					t.Run("unit", func(t *testing.T) { runUnit(t, unit) })
 					t.Run("slice", func(t *testing.T) { runUnit(t, slice) })
+					t.Run("array", func(t *testing.T) { runUnit(t, array) })
 					t.Run("panic", func(t *testing.T) { runPanic(t, diff) })
 					t.Run("leak", func(t *testing.T) { runLeak(t, diff, m.name == "asan") })
 					t.Run("pipes", func(t *testing.T) { runPipes(t, diff, goBin) })

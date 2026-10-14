@@ -332,10 +332,11 @@ gp::string the_case;
 int64_t* volatile leak_sink;
 
 bool slice_case(std::string_view c);
+bool array_case(std::string_view c);
 
 void main() {
     std::string_view c = the_case.gp_view();
-    if (slice_case(c)) {
+    if (slice_case(c) || array_case(c)) {
         return;
     }
     if (c == "println") {
@@ -640,9 +641,9 @@ void slices_case() {
     fmt::Println(it[u8], it[i8], it[u64], gp::len(gp::sub(it, u8)), gp::len(gp::sub(it, i8, u8)),
                  gp::cap(gp::sub(it, i8, u8, u8)));
 
-    // slice to array: the length check passes (the array type comes in step 3.6)
-    gp::check_convert(2, gp::len(it));
-    fmt::Println(it[0], it[1]);
+    // slice to array: the length check passes
+    gp::array<int64_t, 2> arr = gp::to_array<2>(it);
+    fmt::Println(arr[0], arr[1]);
 }
 
 void slice_grow_case() {
@@ -807,8 +808,173 @@ bool slice_case(std::string_view c) {
         fmt::Println(gp::len(gp::make_slice<int64_t>(n, cp)));
     } else if (c == "slice-convert") {
         ints s = gp::slice_of<int64_t>({1, 2});
-        gp::check_convert(3, gp::len(s));
-        fmt::Println(s[0]);
+        gp::array<int64_t, 3> a = gp::to_array<3>(s);
+        fmt::Println(a[0]);
+    } else {
+        return false;
+    }
+    return true;
+}
+
+// --- arrays (Phase 03 step 3.6a) ---
+
+template <int64_t N>
+using iarr = gp::array<int64_t, N>;
+
+void show5(gp::string name, iarr<5> a) {
+    fmt::Print(name, " ["_gs);
+    for (int64_t i = 0; i < gp::len(a); i++) {
+        if (i > 0) {
+            fmt::Print(" "_gs);
+        }
+        fmt::Print(a[i]);
+    }
+    fmt::Print("]\n"_gs);
+}
+
+iarr<3> bump(iarr<3> x) {
+    x[1] = 100;
+    return x;
+}
+
+// a is sliced, so it is boxed; the slice keeps the box alive.
+ints keep_slice() {
+    gp::ptr<iarr<3>> a = gp::new_<iarr<3>>(iarr<3>{7, 8, 9});
+    ints s = gp::sub(a, 1);
+    (*a)[1] = 80;
+    return s;
+}
+
+void arrays_case() {
+    // zero values and literals
+    iarr<5> z;
+    fmt::Println(gp::len(z), gp::cap(z), z[0], z[4]);
+    show5("lit"_gs, iarr<5>{1, 2});
+    show5("keyed"_gs, gp::array_keyed<int64_t, 5>({{3, 30}, {1, 10}}));
+    show5("mixed"_gs, gp::array_keyed<int64_t, 5>({{0, 1}, {3, 2}, {4, 7}}));
+
+    // value semantics: copies are independent
+    iarr<3> a{1, 2, 3};
+    iarr<3> b = a;
+    b[0] = 9;
+    fmt::Println(a[0], b[0]);
+    iarr<3> c = bump(a);
+    fmt::Println(a[1], c[1]);
+    gp::array<gp::string, 2> strs{"x"_gs, "y"_gs};
+    gp::array<gp::string, 2> strs2 = strs;
+    strs2[0] = "z"_gs;
+    fmt::Println(strs[0], strs2[0], strs2[1]);
+    gp::ptr<int64_t> x = gp::new_<int64_t>();
+    gp::array<gp::ptr<int64_t>, 2> pa{x, nullptr};
+    gp::array<gp::ptr<int64_t>, 2> pb = pa;
+    *pb[0] = 6;
+    pb[1] = x;
+    fmt::Println(*pa[0], pa[1] == nullptr, pa == pb);
+
+    // ==
+    fmt::Println(a == iarr<3>{1, 2, 3}, a != b, a == b);
+    double n = std::nan("");
+    gp::array<double, 2> f{1, n};
+    gp::array<double, 2> g = f;
+    fmt::Println(f == g, f != g,
+                 gp::array<double, 2>{0, 1} == gp::array<double, 2>{std::copysign(0.0, -1.0), 1});
+    gp::array<iarr<2>, 2> nested{iarr<2>{1, 2}, iarr<2>{3, 4}};
+    gp::array<iarr<2>, 2> m = nested;
+    m[1][1] = 5;
+    fmt::Println(nested == m, nested[1][1], m[1][1],
+                 nested == gp::array<iarr<2>, 2>{iarr<2>{1, 2}, iarr<2>{3, 4}});
+    using str2 = gp::array<gp::string, 2>;
+    fmt::Println(str2{"a"_gs, "b"_gs} == str2{"a"_gs, "b"_gs},
+                 str2{"a"_gs, "b"_gs} == str2{"a"_gs, "c"_gs});
+    iarr<0> e1, e2;
+    fmt::Println(e1 == e2, gp::len(e1));
+
+    // conversions from slices
+    ints sl = gp::slice_of<int64_t>({1, 2, 3, 4});
+    iarr<3> arr = gp::to_array<3>(sl);
+    arr[0] = 10;
+    fmt::Println(sl[0], arr[0], arr[2]);
+    gp::ptr<iarr<2>> ap = gp::to_array_ptr<2>(gp::sub(sl, 1));
+    (*ap)[0] = 20;
+    sl[2] = 30;
+    fmt::Println(sl[1], (*ap)[1], gp::len(ap));
+    ints nil_s;
+    fmt::Println(gp::to_array_ptr<0>(nil_s) == nullptr,
+                 gp::to_array_ptr<0>(gp::slice_of<int64_t>({})) == nullptr,
+                 gp::len(gp::to_array<0>(nil_s)));
+
+    // slicing an array: the slice shares it (box is boxed: it is sliced)
+    gp::ptr<iarr<5>> box = gp::new_<iarr<5>>(iarr<5>{1, 2, 3, 4, 5});
+    ints bs = gp::sub(box, 1, 3);
+    bs[0] = 20;
+    (*box)[2] = 30;
+    fmt::Println((*box)[1], bs[1], gp::len(bs), gp::cap(bs));
+    bs = gp::append(std::move(bs), INT64_C(40));
+    fmt::Println((*box)[3], gp::len(bs));
+    ints b3 = gp::sub(box, 1, 2, 3);
+    fmt::Println(gp::len(b3), gp::cap(b3));
+    gp::ptr<iarr<5>> pbox = box;
+    ints ps = gp::sub(pbox, 3);
+    fmt::Println(gp::len(ps), ps[0]);
+    show5("box"_gs, *box);
+    gp::ptr<iarr<3>> np;
+    fmt::Println(gp::len(np), gp::cap(np));
+    gp::ptr<iarr<0>> e0 = gp::new_<iarr<0>>();
+    fmt::Println(gp::sub(e0, 0) == nullptr, gp::len(gp::sub(e0, 0)));
+    ints k = keep_slice();
+    fmt::Println(k[0], k[1], gp::len(k));
+}
+
+bool array_case(std::string_view c) {
+    if (c == "arrays") {
+        arrays_case();
+    } else if (c == "array-index") {
+        iarr<3> a;
+        int64_t i = 5;
+        fmt::Println(a[i]);
+    } else if (c == "array-index-neg") {
+        iarr<3> a;
+        int64_t i = -1;
+        fmt::Println(a[i]);
+    } else if (c == "array-index-u8") {
+        iarr<3> a;
+        uint8_t i = 200;
+        fmt::Println(a[i]);
+    } else if (c == "array-index0") {
+        iarr<0> a;
+        int64_t i = 0;
+        fmt::Println(a[i]);
+    } else if (c == "array-convert") {
+        ints s = gp::slice_of<int64_t>({1, 2});
+        iarr<3> a = gp::to_array<3>(s);
+        fmt::Println(a[0]);
+    } else if (c == "array-convert-ptr") {
+        ints s = gp::slice_of<int64_t>({1, 2});
+        gp::ptr<iarr<3>> p = gp::to_array_ptr<3>(s);
+        fmt::Println((*p)[0]);
+    } else if (c == "array-convert-nil") {
+        ints s;
+        gp::ptr<iarr<1>> p = gp::to_array_ptr<1>(s);
+        fmt::Println((*p)[0]);
+    } else if (c == "array-slice-hi") {
+        gp::ptr<iarr<3>> a = gp::new_<iarr<3>>(iarr<3>{1, 2, 3});
+        int64_t h = 4;
+        fmt::Println(gp::len(gp::sub(a, 0, h)));
+    } else if (c == "array-slice-lo") {
+        gp::ptr<iarr<3>> a = gp::new_<iarr<3>>(iarr<3>{1, 2, 3});
+        int64_t l = 4;
+        fmt::Println(gp::len(gp::sub(a, l)));
+    } else if (c == "array-slice3-max") {
+        gp::ptr<iarr<3>> a = gp::new_<iarr<3>>(iarr<3>{1, 2, 3});
+        int64_t m = 4;
+        fmt::Println(gp::len(gp::sub(a, 0, 1, m)));
+    } else if (c == "array-slice-nil") {
+        gp::ptr<iarr<3>> p;
+        int64_t h = 2;
+        fmt::Println(gp::len(gp::sub(p, 0, h)));
+    } else if (c == "array-slice-nil0") {
+        gp::ptr<iarr<0>> p;
+        fmt::Println(gp::len(gp::sub(p, 0)));
     } else {
         return false;
     }
