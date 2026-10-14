@@ -17,7 +17,7 @@
   - [x] LRU memory cap
 - [x] 11.4 Diagnostics as you type · *v0*
 - [x] 11.5 Hover, go-to-definition, signature help · *v0*
-- [ ] 11.6 Completion (scopes, members, keywords, snippets, auto-import) · *v0*
+- [~] 11.6 Completion (scopes, members, keywords, snippets, auto-import) · *v0*
 - [~] 11.7 Formatting + organize imports (`gocpp fmt`) · *v0*
 - [ ] 11.8 References, rename, document/workspace symbols
 - [ ] 11.9 Semantic tokens, inlay hints, document links, code actions
