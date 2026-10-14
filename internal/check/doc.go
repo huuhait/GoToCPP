@@ -9,7 +9,9 @@
 // with load errors, or one that imports such a package, is not checked.
 // After go/types, Check type-checks the type arguments of opaque
 // instantiations (std.vector[strings.Builder]) with types.CheckExpr,
-// because go/types stops at their opaque base.
+// because go/types stops at their opaque base, and the expressions that
+// go/types skips next to an opaque one, such as the T of x.(T)
+// (checkSkipped).
 //
 // A conversion of an opaque value, n := int(cstring.strlen(p)), would have
 // no type either, and n would be invalid. So in a package with C in it (a
@@ -19,9 +21,13 @@
 // package again: then n is an int, and later mistakes with n are reported
 // (Conversion, converter).
 //
-// Phase 01 adds more on top (steps 1.10 to 1.12): the namespace probe,
-// the opaque pass, which records which expressions come from C/C++, and the
-// unsupported-feature checker, which rejects every feature that is not
+// After the last check, the opaque pass (Package.Opaque) labels every
+// expression typed or opaque (it comes from C/C++ and has no complete
+// type) and keeps the type expressions of the objects declared with C/C++
+// types.
+//
+// Phase 01 adds more on top (steps 1.10 to 1.12): the namespace probe and
+// the unsupported-feature checker, which rejects every feature that is not
 // built yet with a message naming the phase that brings it (a phase gate),
 // so nobody gets broken C++. Each later phase removes the gates of the
 // features it builds.

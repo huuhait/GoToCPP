@@ -71,7 +71,9 @@ type Package struct {
 	// checked package, it is a new list: the warnings of Load.Errors (such
 	// a package has no load errors), then the errors of go/types and of
 	// the type arguments of opaque instantiations, in the order they were
-	// found. Check never changes Load.Errors.
+	// found, then the errors of the expressions that go/types skipped next
+	// to opaque ones (checkSkipped), then the internal errors of the opaque
+	// pass. Check never changes Load.Errors.
 	Errors *diag.List
 
 	// Conversions are the conversions of opaque values in the files, T(x)
@@ -88,6 +90,12 @@ type Package struct {
 	// checks is how many times go/types checked the package: 1, or more
 	// after rewrites of conversions.
 	checks int
+
+	// Opaque says which expressions are opaque (they come from C/C++ and
+	// have no complete type) and keeps the type expressions of the objects
+	// declared with C/C++ types (see Opaque). It is nil if the package
+	// was not type-checked.
+	Opaque *Opaque
 }
 
 // Checked reports whether the package was type-checked. A package is not
@@ -151,6 +159,7 @@ func Check(prog *load.Program, cfg Config) *Result {
 			}
 			hasC[lp] = c
 			p = checkPackage(prog.Fset, lp, checked, cgoh, c && !depsFailed)
+			p.Opaque = findOpaque(prog.Fset, p)
 			checked[lp] = p.Types
 			failed[lp] = depsFailed || hasHardErrors(p.Errors)
 		}
@@ -209,11 +218,10 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 		// order in which they were found.
 		errs.Add(d)
 	}
-	c := &collector{fset: fset, list: errs, seen: make(map[errorKey]bool), fix: cv.fixMessage}
-	for _, f := range lp.Files {
-		// Only a file with import "C" can have opaque instantiations.
-		c.buffer = c.buffer || importsC(f.AST)
-	}
+	// Every package buffers: an expression that go/types skips next to an
+	// opaque one can be in a file without import "C" (make(lib.Vec, n),
+	// with type Vec = C.vec in another file or package).
+	c := &collector{fset: fset, list: errs, seen: make(map[errorKey]bool), fix: cv.fixMessage, buffer: true}
 	imp := &importer{from: lp, checked: checked, refused: make(map[string]bool), cgoh: cv.cgoh}
 	if lp.Incomplete {
 		// Check doesn't check such a package, but a caller that wants
@@ -246,10 +254,11 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 	}
 	// The errors go to c; the returned error is the first of them.
 	pkg, _ := conf.Check(lp.ImportPath, fset, files, info)
-	if !c.buffer {
-		return &Package{Load: lp, Types: pkg, Info: info, Errors: errs}, c.blocking
-	}
+	// checkOpaqueArgs and checkSkipped write into info and into the scope
+	// tree of pkg (types.CheckExpr), so they run once in each round of
+	// checks, after conf.Check, on the round's own fresh info and pkg.
 	used := checkOpaqueArgs(fset, pkg, files, info, c.checkExprError)
+	checkSkipped(fset, pkg, files, info, c.checkExprError, used)
 	c.flush(func(err types.Error) bool {
 		if diag.ErrorCode(err) == diag.UnusedVar {
 			return used.vars[err.Pos]
@@ -322,10 +331,11 @@ type errorKey struct {
 // diag.List.Collect. It drops a "could not import X" when the loader
 // reported X already.
 //
-// In a package with import "C" (buffer), an import or a local variable can
-// be used only in the type arguments of opaque instantiations
-// (std.vector[strings.Builder], std.array[int, len(arr)]), which are
-// checked after go/types. So there the collector keeps every go/types
+// An import or a local variable can be used only in the type arguments of
+// opaque instantiations (std.vector[strings.Builder],
+// std.array[int, len(arr)]) or in expressions that go/types skips next to
+// opaque ones (cv.(strings.Builder), make(lib.Vec, n): checkSkipped),
+// which are checked after go/types. So the collector keeps every go/types
 // error, in the order they were found, until flush: the "imported and not
 // used" (diag.UnusedImport) and "declared and not used" (diag.UnusedVar)
 // errors are held, and flush drops those whose import or variable turned
@@ -333,7 +343,8 @@ type errorKey struct {
 // keep the order in which go/types found them (the limit of 10 errors
 // keeps the first 10 found): go/types reports the unused variables at the
 // end of each function body, and the unused imports after all bodies. The
-// errors of the type arguments (CheckExpr) come after them.
+// errors of the type arguments (CheckExpr) come after them, and then those
+// of the skipped expressions.
 type collector struct {
 	fset *token.FileSet
 	list *diag.List
@@ -346,8 +357,8 @@ type collector struct {
 	// found.
 	found []foundError
 
-	// argErrors are the errors of the type arguments, which flush adds
-	// after found.
+	// argErrors are the errors of the type arguments and then of the
+	// skipped expressions, which flush adds after found.
 	argErrors []types.Error
 
 	// seen holds the errors added so far (to found or to list), so that
@@ -470,7 +481,7 @@ func (c *collector) checkExprError(pos token.Pos, err error) {
 // flush adds the kept errors to the list: the go/types errors in the order
 // they were found, without the held ones for which used reports that their
 // import or variable is used after all, and then the errors of the type
-// arguments.
+// arguments and of the skipped expressions.
 func (c *collector) flush(used func(err types.Error) bool) {
 	keep := true
 	for _, f := range c.found {

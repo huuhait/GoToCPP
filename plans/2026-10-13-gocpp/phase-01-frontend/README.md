@@ -341,6 +341,24 @@ Sanity rule: if `go/types` reported no hard errors (soft ones, like an unused va
 types complete), every invalid expression must be opaque. If not, that is an internal compiler
 error with a clear message, never silently wrong C++.
 
+As built (job 1.11, `internal/check/opaque.go`, `skipped.go`; API `Package.Opaque` with
+`IsOpaque(e)` and `TypeExpr(obj)`):
+- **Strict operand rule:** an expression with no complete type is opaque when it is rooted in C
+  or names a C object, or when one of its operands is itself *opaque* (not merely "comes from C"),
+  so a gocpp bug can't hide behind a C neighbour. Generic functions instantiated with a C type
+  argument count as C; an uninstantiated generic signature is never "typed".
+- **Skipped subtrees get real types:** go/types skips the `T` of `x.(T)`, the sizes of
+  `make(T, …)`, const values of a C-part type and the keys of opaque literals when the neighbour is
+  opaque. The pass runs `types.CheckExpr` on them (like step 1.10a's template arguments), so their
+  false "imported/declared and not used" errors go away; it runs in every check round of step
+  1.10b on that round's fresh Info.
+- **Sanity rule, narrowed:** only `UnusedImport`, `UnusedVar` and `UnusedLabel` keep it on. Other
+  soft errors (such as `InvalidRangeExpr`) also leave values without types.
+- Literals of a named type over a C struct (`type P C.Point`, `P{X: 1}`) stay typed as `P`, so
+  codegen must notice "named type with an invalid underlying type" and use `TypeExpr(P)`.
+- Remaining false errors from go/types are listed in `../TODO.md` "Small follow-ups" (owner: the
+  1.15 corpus).
+
 Facts from the spike that this pass relies on:
 - Untyped constants passed to C calls keep kind and value (`"x.txt"` → `untyped string`).
   Codegen emits raw C literals for them (`fopen("x.txt", "r")`).
