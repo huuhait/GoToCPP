@@ -23,8 +23,9 @@
 - [ ] 11.9 Semantic tokens, inlay hints, document links, code actions
 - [~] 11.10 VS Code extension (+ optional tree-sitter, editor docs) · *v0*
   - [x] 11.10a the `.gp` language + TextMate grammar (`editors/vscode`, `make vscode-test`)
-  - [~] the LSP client, format on save, `contributes.breakpoints` (after the language server v0) (job 11.10b)
-  - [~] tree-sitter grammar (optional; not yet), editor setup docs (job 11.10b)
+  - [x] the LSP client, format on save, `contributes.breakpoints` (job 11.10b)
+  - [x] editor setup docs (docs/guides/editors.md, job 11.10b)
+  - [ ] tree-sitter grammar (optional)
 - [ ] 11.11 Benchmark harness + 3 reference projects + CI gate + gopls side-by-side table
 - [ ] 11.12 Profiling/tracing/slow-request log + random-edit differential test
 - [ ] 11.13 `!` and macro support (after Phase 10): hovers, inlay hints for handled calls, code actions, expand macro
@@ -103,3 +104,11 @@
   variants exist). The "change lock" is relaxed: requests take their snapshot on the read loop, and
   DidOpen/DidChange/DidClose/Invalidate are serialized by Session's change mutex. Left for 11.11: `under`
   in Clone is O(changed × handles); a probe started while waiting for the semaphore can be one round behind.
+- 2026-10-14: Job 11.10b (editors/vscode: plain-JS client on vscode-languageclient 9.0.1 over stdio, settings
+  gocpp.path/lsp.args/lsp.env/trace.server, restart command, Restricted Mode (no server until the folder is
+  trusted), vscode-go's format-on-save and organize-imports defaults, contributes.breakpoints, node tests incl.
+  an end-to-end start through the real createMessageTransports; docs/guides/editors.md for Neovim (tested
+  headless, 0.11.6), Helix and Emacs (not tested yet), Zed (not supported yet)) committed, clean after 2 review
+  rounds. Licenses: languageclient 10.x is skipped because it pulls BlueOak-licensed minimatch 10; 9.0.1 pulls
+  ISC packages (semver, minimatch 5), accepted as permissive. Not tested inside a real VS Code window (the
+  agents may not start a GUI): the user can try `code --extensionDevelopmentPath=$PWD/editors/vscode`.
