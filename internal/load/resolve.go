@@ -15,6 +15,13 @@ import (
 	"github.com/huuhait/gocpp/internal/diag"
 )
 
+// CgohPath is the import path of the hidden package that the type checker
+// gives the conversions of opaque values (package check: T(x) becomes
+// gp_cgoh.As[T](x)). The package is made in Go code; no .gp file can import
+// it, and a user package with this path (in a module named gocpp) can't be
+// imported either: resolve reports it like an internal package.
+const CgohPath = "gocpp/cgoh"
+
 // A location is where the package with an import path is.
 type location struct {
 	importPath string
@@ -30,6 +37,9 @@ type location struct {
 func (l *loader) resolve(from *Package, path string, at token.Position) (*Package, string) {
 	if path == "unsafe" {
 		return nil, ""
+	}
+	if path == CgohPath {
+		return nil, fmt.Sprintf("use of internal package %s not allowed", path)
 	}
 	loc, msg := l.find(from, path)
 	// Go's rule for internal packages comes first for a package that

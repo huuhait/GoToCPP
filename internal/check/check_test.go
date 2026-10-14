@@ -800,7 +800,7 @@ func TestCouldNotImport(t *testing.T) {
 	checked := make(map[*load.Package]*types.Package)
 	var a, main *Package
 	for _, lp := range prog.Packages {
-		cp := checkPackage(prog.Fset, lp, checked)
+		cp := checkPackage(prog.Fset, lp, checked, newCgohPackage(), false)
 		checked[lp] = cp.Types
 		switch lp.ImportPath {
 		case "example.com/m/a":

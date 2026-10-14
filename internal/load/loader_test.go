@@ -1320,6 +1320,26 @@ c/c.gp:10:2: package example.com/m/a/internal/missing is not in module example.c
 	wantErrors(t, prog, root, "")
 }
 
+// TestCgohPath checks that no package can import the hidden package of
+// the type checker (CgohPath), also from a module named gocpp that has a
+// package with that path; the package itself still loads as a pattern.
+func TestCgohPath(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"gocpp.mod":   "module gocpp\n",
+		"main.gp":     "package main\n\nimport _ \"gocpp/cgoh\"\n",
+		"cgoh/c.gp":   "package cgoh\n",
+		"std/main.gp": "package main\n\nimport \"gocpp/cgoh\"\n",
+	})
+	prog := loadIn(t, Config{}, root, ".", "./std")
+	wantErrors(t, prog, root, `# gocpp
+./main.gp:3:8: use of internal package gocpp/cgoh not allowed
+# gocpp/std
+std/main.gp:3:8: use of internal package gocpp/cgoh not allowed
+`)
+	prog = loadIn(t, Config{}, root, "./cgoh")
+	wantErrors(t, prog, root, "")
+}
+
 // TestTestOnlyExternal checks a Tests root without test files of its own
 // package: it is the plain package, shared with the rest of the program,
 // and only its external test package is for the test, as in go test.

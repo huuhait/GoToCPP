@@ -164,3 +164,15 @@
   package without a stub keeps the loader's "(Phase 09)" message from its own phase on (the phase
   that builds it adds the stub); one gate error per place can hide a second feature until the first
   is fixed.
+- 2026-10-13: Job 1.10b (`T(opaque)` conversions stay typed) committed, clean after 4 review rounds.
+  As built: a conversion `T(x)` whose argument comes from C is rewritten to `gp_cgoh.As[T](x)` from the
+  hidden package with the reserved path `gocpp/cgoh` (user code can't import it), and the package is
+  checked again until a round rewrites nothing (usually 2 checks; 3 when a conversion to a type with C
+  parts feeds another). A conversion used as a statement becomes `gp_cgoh.Unused[T](x)[0]`, and one
+  after `go`/`defer` becomes `T(gp_cgoh.Value[T](x))`, so go/types reports Go's own message. "Has C"
+  means a file imports C or the package imports such a package, directly or not. To keep `go build`
+  parity, an argument made invalid by a user error is never rewritten (a state lattice
+  typed < waiting < opaque < unknown < errored traces each argument to its sources). Messages are
+  mapped back (`gp_cgoh.As[int](x)` → `int(x)`); `Package.Conversions` records every rewrite for
+  codegen and tools, and the gates skip the hidden nodes. Known safe-side limit: `int(G(C.f()))` with
+  type inference is not rewritten.

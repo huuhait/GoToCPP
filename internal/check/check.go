@@ -73,6 +73,21 @@ type Package struct {
 	// the type arguments of opaque instantiations, in the order they were
 	// found. Check never changes Load.Errors.
 	Errors *diag.List
+
+	// Conversions are the conversions of opaque values in the files, T(x)
+	// with x from C/C++, which Check rewrote to gp_cgoh.As[T](x) (gp_cgoh
+	// is the import of the reserved path gocpp/cgoh) in the ASTs of Load,
+	// so that they have the type T (see Conversion). They are in source
+	// order, an outer conversion before the ones inside it. Only a checked
+	// package with C in it (see Check) can have them.
+	Conversions []*Conversion
+
+	// conversions maps the Call of each conversion to it.
+	conversions map[*ast.CallExpr]*Conversion
+
+	// checks is how many times go/types checked the package: 1, or more
+	// after rewrites of conversions.
+	checks int
 }
 
 // Checked reports whether the package was type-checked. A package is not
@@ -93,9 +108,18 @@ func (p *Package) Checked() bool {
 // instantiation (std.vector[strings.Builder]), which go/types skips
 // because the generic type is opaque: see checkOpaqueArgs.
 //
+// In a package that has C in it (a file with import "C", or an import of
+// such a package, directly or not), Check then rewrites each conversion of
+// an opaque value, T(x), to gp_cgoh.As[T](x), where gp_cgoh is the import
+// of the hidden package with the reserved path gocpp/cgoh (load.CgohPath),
+// and checks the package again from the start, so that the conversion has
+// the type T (Phase 01 README §2.5 step 5): see Conversion. A package
+// without such conversions is checked once.
+//
 // Then Check runs the phase gates over each user package (gates.go): every
 // feature of a phase after Config.Phase is an error that names the phase
-// ("composite types are not supported yet (Phase 03)").
+// ("composite types are not supported yet (Phase 03)"). They run on the
+// Info of the last check.
 //
 // A package with a load error (load.Package.Incomplete) is not checked, and
 // neither is a package that imports one, directly or not. Note that go
@@ -108,13 +132,27 @@ func Check(prog *load.Program, cfg Config) *Result {
 	gates := newGates(prog.Fset, cfg.phase())
 	r := &Result{Fset: prog.Fset, byLoad: make(map[*load.Package]*Package, len(prog.Packages))}
 	checked := make(map[*load.Package]*types.Package)
+	// failed holds the packages with hard errors, or that import one,
+	// directly or not, and hasC those with import "C" in a file, or that
+	// import one, directly or not: only they can have opaque values.
+	failed := make(map[*load.Package]bool)
+	hasC := make(map[*load.Package]bool)
+	cgoh := newCgohPackage()
 	for _, lp := range prog.Packages {
 		var p *Package
 		if lp.Incomplete {
 			p = &Package{Load: lp, Errors: lp.Errors}
+			failed[lp] = true
 		} else {
-			p = checkPackage(prog.Fset, lp, checked)
+			depsFailed, c := false, usesC(lp)
+			for _, dep := range lp.Imports {
+				depsFailed = depsFailed || failed[dep]
+				c = c || hasC[dep]
+			}
+			hasC[lp] = c
+			p = checkPackage(prog.Fset, lp, checked, cgoh, c && !depsFailed)
 			checked[lp] = p.Types
+			failed[lp] = depsFailed || hasHardErrors(p.Errors)
 		}
 		gates.apply(p)
 		r.Packages = append(r.Packages, p)
@@ -123,9 +161,46 @@ func Check(prog *load.Program, cfg Config) *Result {
 	return r
 }
 
+// hasHardErrors reports whether l has an error that is not a soft error
+// of go/types.
+func hasHardErrors(l *diag.List) bool {
+	for _, d := range l.Diagnostics() {
+		if d.Severity == diag.Error && !d.Soft {
+			return true
+		}
+	}
+	return false
+}
+
 // checkPackage type-checks the loaded package lp. checked holds the
-// packages checked so far, which lp's imports come from.
-func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package) *Package {
+// packages checked so far, which lp's imports come from, and cgoh is the
+// hidden package of the conversions (newCgohPackage). With convert, it
+// then rewrites the conversions of opaque values and checks the package
+// again, until no rewrite is left (see converter). Check passes convert
+// only for a package with C in it, and none whose imports have errors (an
+// invalid value from there can come from an error, not only from C).
+func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package,
+	cgoh *types.Package, convert bool) *Package {
+	cv := newConverter(fset, lp, cgoh)
+	p, errs := checkFiles(fset, lp, checked, cv)
+	p.checks = 1
+	for convert && cv.rewrite(p, errs) {
+		checks := p.checks + 1
+		p, errs = checkFiles(fset, lp, checked, cv)
+		p.checks = checks
+	}
+	if len(cv.names) > 0 {
+		p.setConversions(findConversions(lp, p.Info))
+	}
+	return p
+}
+
+// checkFiles type-checks the files of lp once, with fresh Info and
+// diagnostics. It returns the places of the errors that can make a value
+// invalid (collector.blocking), in the order they were found. cv
+// gives the hidden package gocpp/cgoh to the importer and maps
+// gp_cgoh.As[T](x) back to T(x) in the messages.
+func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package, cv *converter) (*Package, []token.Pos) {
 	errs := new(diag.List)
 	for _, d := range lp.Errors.Diagnostics() {
 		// For a package that Check checks, these are only warnings (else
@@ -134,12 +209,12 @@ func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Packa
 		// order in which they were found.
 		errs.Add(d)
 	}
-	c := &collector{fset: fset, list: errs, seen: make(map[errorKey]bool)}
+	c := &collector{fset: fset, list: errs, seen: make(map[errorKey]bool), fix: cv.fixMessage}
 	for _, f := range lp.Files {
 		// Only a file with import "C" can have opaque instantiations.
 		c.buffer = c.buffer || importsC(f.AST)
 	}
-	imp := &importer{from: lp, checked: checked, refused: make(map[string]bool)}
+	imp := &importer{from: lp, checked: checked, refused: make(map[string]bool), cgoh: cv.cgoh}
 	if lp.Incomplete {
 		// Check doesn't check such a package, but a caller that wants
 		// the types of a broken package can (the language server,
@@ -172,7 +247,7 @@ func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Packa
 	// The errors go to c; the returned error is the first of them.
 	pkg, _ := conf.Check(lp.ImportPath, fset, files, info)
 	if !c.buffer {
-		return &Package{Load: lp, Types: pkg, Info: info, Errors: errs}
+		return &Package{Load: lp, Types: pkg, Info: info, Errors: errs}, c.blocking
 	}
 	used := checkOpaqueArgs(fset, pkg, files, info, c.checkExprError)
 	c.flush(func(err types.Error) bool {
@@ -182,7 +257,7 @@ func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Packa
 		pn := pkgNameAt(files, info, err.Pos)
 		return pn != nil && used.imports[pn]
 	})
-	return &Package{Load: lp, Types: pkg, Info: info, Errors: errs}
+	return &Package{Load: lp, Types: pkg, Info: info, Errors: errs}, c.blocking
 }
 
 // An importer gives go/types the packages that one package imports. It is
@@ -197,6 +272,11 @@ type importer struct {
 
 	// refused holds the paths that the importer had no package for.
 	refused map[string]bool
+
+	// cgoh is the hidden package of the conversions of opaque values
+	// (load.CgohPath), which no gocpp package can import (the loader
+	// rejects the path).
+	cgoh *types.Package
 }
 
 // errNotChecked is the error of an import whose package was not
@@ -209,10 +289,14 @@ func (im *importer) Import(path string) (*types.Package, error) {
 }
 
 // ImportFrom implements types.ImporterFrom. "unsafe" is go/types' own
-// package, and "C" never comes here: FakeImportC handles it.
+// package, "gocpp/cgoh" is Check's own (only the rewrite of conversions
+// imports it), and "C" never comes here: FakeImportC handles it.
 func (im *importer) ImportFrom(path, _ string, _ types.ImportMode) (*types.Package, error) {
 	if path == "unsafe" {
 		return types.Unsafe, nil
+	}
+	if path == load.CgohPath && im.cgoh != nil {
+		return im.cgoh, nil
 	}
 	if dep := im.from.Imports[path]; dep != nil {
 		if pkg := im.checked[dep]; pkg != nil {
@@ -278,6 +362,19 @@ type collector struct {
 	// last says what happened to the last error that isn't a continuation
 	// line: its continuation lines go the same way.
 	last action
+
+	// blocking holds the places of the errors of go/types and of the type
+	// arguments that can make a value invalid, in the order they were
+	// found, also those that the list doesn't get: the hard errors and the
+	// soft ones (a range clause with two variables over an int leaves them
+	// invalid), but not an unused import, variable or expression, which
+	// make no type wrong, and not an error about an operand that is
+	// invalid already (followOnError).
+	blocking []token.Pos
+
+	// fix, if not nil, changes the message of each error before the list
+	// gets it: it maps gp_cgoh.As[T](x) back to T(x).
+	fix func(msg string) string
 }
 
 // A foundError is an error of go/types that the collector keeps.
@@ -302,7 +399,17 @@ func (c *collector) collect(err error) {
 		return
 	}
 	if !strings.HasPrefix(terr.Msg, "\t") {
+		switch diag.ErrorCode(terr) {
+		case diag.UnusedImport, diag.UnusedVar, unusedExpr:
+		default:
+			if !followOnError(terr.Msg) {
+				c.blocking = append(c.blocking, terr.Pos)
+			}
+		}
 		c.last = c.decide(terr)
+	}
+	if c.fix != nil {
+		terr.Msg = c.fix(terr.Msg)
 	}
 	if c.last == dropped {
 		return
@@ -349,6 +456,10 @@ func (c *collector) checkExprError(pos token.Pos, err error) {
 			Pos:  pos,
 			Msg:  fmt.Sprintf("internal error: checking a type argument: %v", err),
 		}
+	}
+	c.blocking = append(c.blocking, terr.Pos)
+	if c.fix != nil {
+		terr.Msg = c.fix(terr.Msg)
 	}
 	if key := (errorKey{terr.Pos, terr.Msg}); !c.seen[key] {
 		c.seen[key] = true

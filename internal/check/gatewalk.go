@@ -60,6 +60,7 @@ func (gs *gates) apply(p *Package) {
 		declTypes: make(map[ast.Expr]bool),
 		cppIdents: make(map[token.Pos]bool),
 	}
+	g.hidden, g.skipTypes = p.rewriteNodes()
 	for _, f := range p.Load.Files {
 		g.checkFile(f)
 	}
@@ -152,6 +153,11 @@ type gateChecker struct {
 	// unresolved are the selectors that go/types found nothing for, which
 	// checkPromoted looks at once every struct of the package is known.
 	unresolved []*ast.SelectorExpr
+
+	// hidden and skipTypes are the nodes of the rewrite of conversions
+	// (Package.rewriteNodes), which the gates don't look at: the user
+	// wrote T(x).
+	hidden, skipTypes map[ast.Node]bool
 }
 
 // feature reports a use of the feature from pos to end if the gate
@@ -252,7 +258,7 @@ func (g *gateChecker) checkImports(f *load.File) {
 	}
 	for _, spec := range f.AST.Imports {
 		path, err := strconv.Unquote(spec.Path.Value)
-		if err != nil || path == "C" {
+		if err != nil || path == "C" || path == load.CgohPath {
 			continue
 		}
 		if dep := g.pkg.Load.Imports[path]; dep != nil && !dep.Std {
@@ -296,6 +302,9 @@ func (g *gateChecker) checkComments(file *ast.File) {
 
 // visit finds the uses that the syntax shows, with the help of the types.
 func (g *gateChecker) visit(n ast.Node) bool {
+	if g.hidden[n] {
+		return false
+	}
 	switch n := n.(type) {
 	case *ast.FuncLit:
 		g.node(featClosures, n)
@@ -444,6 +453,14 @@ func embeddedIdent(e ast.Expr) *ast.Ident {
 // strings, and the nil arguments of interface parameters, and marks the
 // called expression.
 func (g *gateChecker) visitCall(call *ast.CallExpr) {
+	if name, typ := cgohCall(call, g.info); name != "" {
+		// A rewritten conversion: the gates of T(x).
+		g.funs[call.Fun] = true
+		if tv, ok := g.info.Types[typ]; ok && name != valueName {
+			g.checkConversion(call, tv.Type, call.Args[0])
+		}
+		return
+	}
 	fun := ast.Unparen(call.Fun)
 	g.funs[fun] = true
 	switch x := fun.(type) {
@@ -652,7 +669,8 @@ func (g *gateChecker) checkPromoted(sel *ast.SelectorExpr) {
 	if !g.embedsOpaque(t, make(map[types.Type]bool)) {
 		return
 	}
-	prefix := types.ExprString(sel) + " undefined ("
+	// The messages show rewritten conversions as the user wrote them.
+	prefix := g.pkg.exprString(sel) + " undefined ("
 	g.replace(sel.Sel.Pos(), sel.Sel.End(), features[featPromotedCpp].Message(), func(msg string) bool {
 		// Not "cannot refer to unexported field": that is a real error.
 		return strings.HasPrefix(msg, prefix) && strings.Contains(msg, " has no field or method ")
@@ -737,6 +755,9 @@ func (g *gateChecker) hasC(e ast.Expr) bool {
 func (g *gateChecker) checkTypes() {
 	g.inTypes = true
 	for e, tv := range g.info.Types {
+		if g.skipTypes[e] {
+			continue
+		}
 		switch {
 		case tv.IsType():
 			if g.declTypes[e] || g.inTypeParams(e) {
@@ -766,18 +787,27 @@ func (g *gateChecker) checkTypes() {
 		}
 	}
 	for id, obj := range g.info.Defs {
+		if g.skipTypes[id] {
+			continue
+		}
 		switch obj := obj.(type) {
 		case *types.Var, *types.Const:
 			g.typeUses(obj.Type(), id.Pos(), id.End(), &typeWalk{seen: make(map[types.Type]bool)})
 		}
 	}
 	for id := range g.info.Instances {
+		if g.skipTypes[id] {
+			continue
+		}
 		if obj := g.info.Uses[id]; obj != nil && obj.Pkg() != nil && obj.Pkg().Path() == "weak" {
 			continue // a compiler intrinsic (Phase 03 README §2.2)
 		}
 		g.node(featGenerics, id)
 	}
 	for id, obj := range g.info.Uses {
+		if g.skipTypes[id] {
+			continue
+		}
 		if m := laterMember(obj); m != nil && m.Phase > g.phase {
 			g.report(id.Pos(), id.End(), m.message(), m.Phase)
 		}
