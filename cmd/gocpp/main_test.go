@@ -22,10 +22,16 @@ var planned = []struct {
 	{"get", 15}, {"bindgen", 12}, {"export", 6}, {"version", 0},
 }
 
-// gocpp runs the CLI with args and returns its exit code and output.
+// gocpp runs the CLI with args and an empty standard input, and returns
+// its exit code and output.
 func gocpp(args ...string) (code int, stdout, stderr string) {
+	return gocppStdin("", args...)
+}
+
+// gocppStdin is gocpp with the standard input stdin.
+func gocppStdin(stdin string, args ...string) (code int, stdout, stderr string) {
 	var out, errOut bytes.Buffer
-	code = run(args, &out, &errOut)
+	code = run(args, strings.NewReader(stdin), &out, &errOut)
 	return code, out.String(), errOut.String()
 }
 

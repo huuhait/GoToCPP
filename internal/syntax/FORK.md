@@ -113,8 +113,8 @@ Phase 10 adds three more patches: `name!(` is one name (must calls), `#Name` is 
 - `go/ast`, `go/token` and `go/build/constraint` stay stock.
 - All upstream tests keep passing, `TestIncompleteSelection` too.
 - `roundtrip_test.go` keeps passing too: for every Go file of the standard library, the fork gives
-  the same AST as the stock `go/parser`, and printing it with `go/format` and parsing it again
-  gives the same AST.
+  the same AST as the stock `go/parser`, and formatting it like `gocpp fmt` does (`format.Source`
+  in `internal/format`) and parsing it again gives the same AST.
 
 ## 6. Re-fork with update.sh
 

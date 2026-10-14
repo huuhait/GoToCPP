@@ -257,6 +257,10 @@ recoverable panics.
 
 - **Sources in the package directory** are compiled and linked, like cgo:
   `.c` with `$CC -std=c17`, and `.cc/.cpp/.cxx` with `$CXX -std=c++20`, using the package's flags.
+- **Quoted includes** are looked up with `-iquote <package dir>` (as the Phase 01 namespace probe
+  does), not `-I`, so a file next to the `.gp` files can't hide a system header like `<vector>`.
+  The kind probe reuses the namespace probe's guard lines (Phase 01 §2.5 step 4), and a macro is
+  never a namespace.
 - **Directives** from Phase 01 now take effect: `//gocpp:pkg-config sdl2` runs
   `pkg-config --cflags --libs`, `//gocpp:link m` adds `-lm`, and `cflags`/`ldflags` are added as given.
 - **Flag allow-list, like Go's.** Some compiler and linker flags run code at build time

@@ -1,0 +1,3 @@
+# The test inputs must keep their exact bytes: crlf.input has CRLF line
+# ends, which git must not change.
+* -text

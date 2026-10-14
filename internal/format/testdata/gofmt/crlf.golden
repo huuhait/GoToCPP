@@ -1,0 +1,13 @@
+// CRLF line ends: gofmt writes LF.
+package p
+
+/* a block
+   comment */
+
+var s = `raw
+string`
+
+func f() {
+	x := 1 // x
+	_ = x
+}

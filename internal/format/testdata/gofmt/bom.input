@@ -1,0 +1,4 @@
+﻿// A byte order mark at the start: gofmt drops it.
+package  p
+
+var x = 0XFF

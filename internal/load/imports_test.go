@@ -1053,6 +1053,30 @@ import "errors"
 	}
 }
 
+// TestIsHeaderOrNamespace checks the shape rule that gocpp fmt uses: it
+// must agree with kindOf, which ClassifyImports uses.
+func TestIsHeaderOrNamespace(t *testing.T) {
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{"<raylib.h>", true}, {"<SDL2/SDL.h>", true}, {"<vector>", true},
+		{"./physics.h", true}, {"native/x.hpp", true}, {"../shared/y.h", true}, {"e.h++", true}, {"f.inl", true},
+		{"::std", true}, {"::std::filesystem", true}, {"::std::vector<int>", true},
+		// Broken header and namespace paths, which ClassifyImports reports,
+		// still have the shape.
+		{"<raylib.h", true}, {"raylib.h>", true}, {" <vector>", true}, {"<vector> ", true}, {"<>", true},
+		{"std::vector", true},
+		// gocpp packages, and the errors that are not headers.
+		{"fmt", false}, {"myapp/engine", false}, {"math/rand/v2", false}, {"C", false}, {"", false},
+		{"./physics", false}, {"./helper.cpp", false}, {"x.c", false}, {"./x.H", false},
+	} {
+		if got := IsHeaderOrNamespace(tc.path); got != tc.want {
+			t.Errorf("IsHeaderOrNamespace(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
 func TestPackageLevelNames(t *testing.T) {
 	const x = `package p
 

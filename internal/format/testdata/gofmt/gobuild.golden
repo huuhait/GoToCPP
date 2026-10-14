@@ -1,0 +1,8 @@
+// Copyright line.
+
+//go:build (linux || darwin) && amd64
+// +build linux darwin
+// +build amd64
+
+// Package p has only // +build lines: gofmt adds a //go:build line.
+package p

@@ -1,0 +1,2 @@
+# The txtar test files must keep their LF line ends, also in a Windows checkout.
+* -text

@@ -1,0 +1,9 @@
+// A //go:build line after other comments, with // +build lines that say
+// something else: gofmt moves //go:build up and rewrites the +build lines.
+
+// +build ignore
+
+//go:build linux && !386
+package p
+
+var x = 1

@@ -1,0 +1,6 @@
+//go:build windows
+// +build windows
+
+package p // //go:build is already right: nothing changes but this line's spacing
+
+var x = 1

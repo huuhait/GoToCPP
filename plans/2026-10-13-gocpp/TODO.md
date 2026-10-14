@@ -12,7 +12,6 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 
 - [~] Parser patch 3: dotted type names such as `std.chrono.seconds` (+ tests) (step 1.4, started)
 - [ ] Turn the front-end spike (header packages, namespace rewrite + namespace probe, `FakeImportC`) into `internal/load` + `internal/check`
-- [~] `gocpp fmt` (Phase 01 step 1.16), so formatting works from the first week
 - [ ] After M1: language server v0 (Phase 11 early track: diagnostics, hover, go-to-definition, completion, formatting; about 2 weeks, see STATE timeline)
 
 ## Small follow-ups (give them to the next job that touches the file)
@@ -20,7 +19,6 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [ ] `internal/syntax/FORK.md` §7: "Don't use a number twice" instead of "would overwrite that patch"; §8 step 3: say where `local.patch` is written (`internal/syntax/local.patch`) (nits from the 1.2 review; job 1.4 edits FORK.md)
 - [ ] `internal/syntax/parser/gocpp_typeargs_test.go` TestTypeArgStartTokens: add one expression form per token that also starts a type (`chan int(nil)`, `map[int]int{}`, `struct{}{}`, `interface{}(nil)`, `func() {}`, `[1]int{}`, `*p`, `<-ch`), so dropping one from the list fails (nit from the 1.3 review; job 1.4 edits this area)
 - [ ] `docs/adr/README.md`: describe dated amendments (like ADR-002's printer line), not only superseding (from job 1.5)
-- [ ] `internal/syntax/FORK.md` §5: "printing it with `go/format`" changes when step 1.16 moves the round-trip check to `gocpp fmt`'s printer
 
 ## Any time (parallel, low risk)
 
@@ -97,3 +95,4 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] 2026-10-13: Phase 01 step 1.7: the `//gocpp:` directive parser
 - [x] 2026-10-13: Phase 01 step 1.3: parser patch 2 (`std.array[int, 5]`)
 - [x] 2026-10-13: Phase 11 job 11.10a: the VS Code language + TextMate grammar for `.gp`
+- [x] 2026-10-13: Phase 01 step 1.16: `gocpp fmt` (gofmt's output, header import groups kept as written)

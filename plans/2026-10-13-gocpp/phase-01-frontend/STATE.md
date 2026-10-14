@@ -38,7 +38,7 @@
 - [x] 1.13 Diagnostics package (format, sort, dedupe, limit, caret)
 - [ ] 1.14 CLI: `version`, `parse -dump`, `check`, `check -types` (`fmt` is step 1.16)
 - [ ] 1.15 Error tests + "no false errors" interop corpus
-- [~] 1.16 `gocpp fmt` via `go/printer` with gofmt's settings (`go/format.Node` re-parses with the stock parser) (`-l -w -d`); header imports keep their order (include order matters); stdlib + badly formatted inputs match real gofmt
+- [x] 1.16 `gocpp fmt` via `go/printer` with gofmt's settings (`go/format.Node` re-parses with the stock parser) (`-l -w -d`); header imports keep their order (include order matters); stdlib + badly formatted inputs match real gofmt
 
 ## Exit criteria
 
@@ -107,3 +107,15 @@
 - 2026-10-13: Step 1.3 (patch 2, `patches/0002-constant-type-args.patch`) committed, clean after 2
   review rounds: Go code parses exactly as before (146,281 files), and half-typed code recovers like
   Go (a token that can't start a type argument keeps upstream's error).
+- 2026-10-13 (manager, rewrite review 1.8a): the legacy resolver scopes a type-switch variable over
+  its case lists (go/types doesn't), so the rewrite handles type switches itself; `import "C"` is
+  placed at the `import`/`package` keyword so node positions stay in order for the editor; names
+  from dot imports are a separate input (the loader, step 1.9, imports dot-imported packages
+  before the rewrite); a header used without a selector gets "use of package X not in selector".
+  Known corner: a would-be header name lost to another import (`UsedByImport`) gets the hint even
+  if it is also a namespace (`glm`); the probe integration can refine it. FakeImportC gives a false
+  soft error for ranging over an opaque composite literal (`range std.vector[int]{1, 2}`): steps
+  1.10/1.11 and the 1.15 corpus cover it.
+- 2026-10-13: Step 1.16 (`gocpp fmt`, `internal/format`) committed, clean after 3 review rounds: byte-
+  identical to gofmt 1.25.14 on all of GOROOT (stdout, stderr, exit status). One deliberate difference:
+  `-w` through a symlink no longer leaves the old tail in the file (a bug gofmt itself has).

@@ -234,7 +234,11 @@ gocpp emit file.gp                     # print the generated C++
 ```
 
 - **Compiler detection:** `GOCPP_CXX` → `CXX` → `clang++` → `g++` in `PATH`; check versions
-  (Clang ≥ 17, GCC ≥ 13). For **clang only**, add `-Qunused-arguments` (NixOS wrapper noise, seen
+  (Clang ≥ 17, GCC ≥ 13). Phase 01 already has the finder (`build.FindCXX`, for the namespace
+  probe); this phase adds the version check and the flags. A compiler named in `GOCPP_CXX` or
+  `CXX` that doesn't exist is an error (no fall-back). To decide here: whether `CXX` may carry
+  arguments (`ccache g++`), split like cmd/go splits `CC`. The process-group handling of the
+  probe (`internal/interop`) moves to `internal/build` for the real compiles. For **clang only**, add `-Qunused-arguments` (NixOS wrapper noise, seen
   in the spike). g++ rejects that flag (`unrecognized command-line option`, verified), so flags
   must be chosen per compiler family.
 - **Flags (debug default in this phase):** `-std=c++20 -fwrapv -fno-strict-aliasing

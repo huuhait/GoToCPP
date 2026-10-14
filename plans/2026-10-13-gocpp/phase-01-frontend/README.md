@@ -172,8 +172,8 @@ A namespace can be renamed when a name clashes or is long (`import fs "::std::fi
 **`C` holds only C's built-in types and the boundary helpers**, as in cgo: `C.int`, `C.uint`,
 `C.long`, `C.char`, `C.uchar`, `C.size_t`, `C.float`, `C.double`, `C.CString`, `C.GoString`,
 `C.cstr`. Everything a header declares comes through its package or a namespace. `C` can be used
-in every `.gp` file; the front-end adds `import "C"` only to files that use it (an unused import
-would be a Go error). A local or package-level declaration named `C` gets a clear error ("`C` is
+in every `.gp` file; the front-end adds `import "C"` only to files that use it, so files that
+don't use C stay plain Go. A local or package-level declaration named `C` gets a clear error ("`C` is
 reserved for C's built-in types"). A `FileInfo` struct keeps everything the later phases need:
 includes (in order), header package names, namespace renames, `//gocpp:` directives, and
 positions for error messages.
@@ -205,8 +205,8 @@ backslash escapes), and an unquoted argument that starts with `//` starts a comm
 1. **Drop header imports** from the import declarations and store them in `FileInfo.Includes`,
    together with each header's package name.
 2. **Rewrite header-package uses**: `raylib.InitWindow` becomes `C.InitWindow`, with positions
-   kept for error messages. `FileInfo` records which header package each use came through, for
-   diagnostics, codegen and the editor.
+   kept for error messages. The rewrite's record (`load.Rewrite`) says which header package each
+   use came through, for diagnostics, codegen and the editor.
 3. **Rewrite namespace uses**: an identifier used as `x.` that is declared **nowhere** in Go (not
    a local, a package-level name of any file in the package, an import or a predeclared name)
    is taken as a C++ namespace: `std.vector` becomes `C.std.vector`. A local variable named `std`
@@ -219,7 +219,13 @@ backslash escapes), and an unquoted argument that starts with `//` starts a comm
    compile means "not a namespace", and gocpp reports a normal `undefined: stdd` error at that
    spot. So typos are still caught before any C++ is generated. The spike checked this with
    clang++ and g++ (both found `std`, both rejected `stdd` and `fmtt`). The result is cached per
-   include set; Phase 04 extends this probe into the full "kind probe".
+   include set; Phase 04 extends this probe into the full "kind probe". The plain file gives wrong
+   answers on its own (found by job 1.8b), so the probe adds guard lines: a macro check around each
+   alias (a macro with an unbalanced `{` hid all later lines), a `;` after each include (a header
+   that ends mid-declaration), a final alias that must fail (so a silent compiler can't make
+   everything a namespace), and an end-of-file check for an unclosed `{`. Quoted includes are found
+   with `-iquote <dir>`, not `-I` (with `-I`, a file named `vector` next to the `.gp` file hid
+   `<vector>`).
 5. **Keep conversions of opaque values typed.** `n := int(cstring.strlen(p))` would otherwise give
    `n` the type `invalid`, and every later mistake with `n` would go unreported. The conversion is
    rewritten to a hidden generic helper, `gp_as[int](C.strlen(p))`, which `go/types` types as
@@ -446,7 +452,8 @@ first syntax error of each line (the compiler does that even with `-e`, while go
    kept, the package-wide name set (`load.PackageNames`, from step 1.6), the namespace probe
    (cached), `gp_as[T]` conversions, shadowing tests.
 9. **1.9 Package loader + importer** (§2.6): dir scan, `_test.gp`, build constraints, cycles,
-   stubs for every package the target programs import. It joins each file's `FileInfo` with its
+   stubs for every package the target programs import. It imports dot-imported packages before
+   the rewrite (their names are an input of `load.RewriteFile`). It joins each file's `FileInfo` with its
    `//gocpp:` directives. For the header names it needs the real names of the imported gocpp
    packages: it gets their paths with `load.PackagePaths`, reads those packages' package
    clauses, then calls `load.ClassifyImports` with a `packageName` function (without one, step

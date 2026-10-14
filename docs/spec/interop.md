@@ -190,8 +190,22 @@ func main() {
 - Put header imports in **their own group**, separated by a blank line, after the gocpp imports.
 - Header imports become `#include` lines in the order you wrote them. C/C++ include order can
   matter (`<winsock2.h>` before `<windows.h>`, `<GL/glew.h>` before `<GL/gl.h>`). So `gocpp fmt`
-  sorts only import groups without headers, and leaves a group that contains a header exactly as
-  written. (Plain gofmt would sort it.)
+  leaves an import group that contains a header or a namespace import exactly as you wrote it:
+  it doesn't sort the group, and it doesn't remove duplicates from it. (Plain gofmt would sort
+  it.)
+- `gocpp fmt` sorts the other groups like gofmt does. A group is what gofmt takes as one: import
+  lines with no empty line and no comment line between them. Two `import` declarations are never
+  sorted together.
+
+```go
+import (
+	"fmt" // gocpp fmt sorts this group, like gofmt
+	"os"
+
+	"<winsock2.h>" // and keeps this group as you wrote it
+	"<windows.h>"
+)
+```
 
 Sources: [Phase 01 §2.3](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#23-import-classification),
 [§2.5](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#25-preprocessing-before-gotypes-proven-by-the-spike),
@@ -575,7 +589,8 @@ The rules for directives:
   own. A `//gocpp:` line after the `package` clause is an error. In a doc comment, `gocpp fmt`
   (like gofmt) moves the directives to its end. It keeps only well-formed directives as they
   are: `//gocpp:Link m` would become the ordinary comment `// gocpp:Link m`. So `gocpp fmt`
-  leaves a file with directive errors unchanged and prints the errors.
+  leaves a file with directive errors unchanged, prints the errors and exits with status 2, as
+  gofmt does for a file with a syntax error.
 - The arguments follow the rules of cgo's `#cgo` lines. Spaces and tabs separate them. Quotes
   (`"` or `'`) keep spaces inside an argument. gocpp removes the quotes, also in the middle of an
   argument: `-DMSG="hello world"` is one argument, `-DMSG=hello world`. A missing closing quote

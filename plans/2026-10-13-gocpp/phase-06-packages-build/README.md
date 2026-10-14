@@ -255,6 +255,11 @@ and sets GOOS/GOARCH for build constraints. Two targets matter in this phase:
   UCRT64) target UCRT; the real-Windows runs of Phase 14 cover UCRT.
 - **linux/arm64 (best effort)**; Phase 15 makes it a CI target.
 
+**Probe results on disk.** The Phase 01 namespace probe (and the Phase 04 kind probe) cache their
+results in memory only. The disk cache keeps them too; its key must include the environment that
+changes include paths (`CPATH`, `CPLUS_INCLUDE_PATH`, `C_INCLUDE_PATH`, `NIX_CFLAGS_COMPILE`) and
+the flags, because system headers can change without the compiler changing (found by job 1.8b).
+
 ## 3. Steps
 
 1. **6.1 `gocpp.mod`** parsing (`x/mod/modfile` lax mode + reading `replace` and the gocpp lines

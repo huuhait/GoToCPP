@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
-	"go/format"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -22,6 +21,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/huuhait/gocpp/internal/format"
 	fork "github.com/huuhait/gocpp/internal/syntax/parser"
 	"github.com/huuhait/gocpp/internal/syntax/scanner"
 )
@@ -35,15 +35,15 @@ import (
 //     (ast.Ident.Obj, ast.File.Scope and ast.File.Unresolved), because gocpp
 //     uses it (phase 01 README §2.5). So the gocpp patches never change how
 //     Go code parses.
-//  2. The round trip: go/format.Node prints the fork's AST, and the fork
-//     parses the printed source to an equal AST again. For a file with an
-//     import group, go/format.Node also parses its own output again with
-//     the stock go/parser and sorts the imports, which is why gocpp fmt
-//     can't use it (README §2.11). Step 1.16 moves this check to gocpp
-//     fmt's printer. Here a position only has to be set on both sides or on
-//     neither, because some positions mean something: CallExpr.Ellipsis is
-//     the "..." of f(xs...), TypeSpec.Assign the "=" of an alias. The object
-//     resolution is not compared here; check 1 does that.
+//  2. The round trip: format.Source (internal/format) formats the file as
+//     gocpp fmt does: it parses it with the fork, sorts the imports and
+//     prints it with go/printer and gofmt's settings. The fork parses the
+//     printed source to an equal AST again. (The imports of the standard
+//     library are sorted already, so sorting them changes nothing.) Here a
+//     position only has to be set on both sides or on neither, because
+//     some positions mean something: CallExpr.Ellipsis is the "..." of
+//     f(xs...), TypeSpec.Assign the "=" of an alias. The object resolution
+//     is not compared here; check 1 does that.
 //
 // In both checks a nil slice and an empty one differ: a CaseClause with a
 // nil List is "default". Both parsers keep the comments (ParseComments),
@@ -190,8 +190,8 @@ func (s *summary) log(t *testing.T, src string) {
 // checkFile does the two checks of TestStdlibRoundTrip on one file. name is
 // the path of the file in src, with slashes.
 func checkFile(t *testing.T, src, name string, sum *summary) {
-	// A panic in the fork, in go/format or in the comparer is reported with
-	// the name of the file, and the other files are still checked.
+	// A panic in the fork, in internal/format or in the comparer is reported
+	// with the name of the file, and the other files are still checked.
 	defer func() {
 		if r := recover(); r != nil {
 			sum.fail(t, name, "%s: panic: %v\n%s", name, r, debug.Stack())
@@ -224,22 +224,22 @@ func checkFile(t *testing.T, src, name string, sum *summary) {
 			same.where(name, d), same.explain(d, [2]string{"fork", "go/parser"}, [2][]byte{data, data}))
 	}
 
-	// 2. The round trip: print the fork's AST, and parse it again.
-	var buf bytes.Buffer
-	if err := format.Node(&buf, forkFset, file); err != nil {
-		sum.fail(t, name, "%s: format.Node: %v", name, err)
+	// 2. The round trip: format the file as gocpp fmt does, and parse the
+	// result again.
+	printed, err := format.Source(name, data)
+	if err != nil {
+		sum.fail(t, name, "%s: format.Source: %v", name, err)
 		return
 	}
-	printed := buf.Bytes()
 	againFset := token.NewFileSet()
 	again, err := fork.ParseFile(againFset, name+" (printed)", printed, fork.ParseComments)
 	if err != nil {
-		sum.fail(t, name, "%s: the fork cannot parse what format.Node printed:\n%v%s", name, err, errorLine(err, printed))
+		sum.fail(t, name, "%s: the fork cannot parse what format.Source printed:\n%v%s", name, err, errorLine(err, printed))
 		return
 	}
 	round := comparer{fsets: [2]*token.FileSet{forkFset, againFset}}
 	if d := round.files(file, again); d != nil {
-		sum.fail(t, name, "%s: format.Node printed source that the fork parses to a different AST\n%s",
+		sum.fail(t, name, "%s: format.Source printed source that the fork parses to a different AST\n%s",
 			round.where(name, d), round.explain(d, [2]string{"source", "printed"}, [2][]byte{data, printed}))
 	}
 }

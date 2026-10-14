@@ -588,8 +588,8 @@ its package or a namespace. Every `.gp` file can use `C` without importing it, a
 is reserved ([D19](#d19-c-is-a-reserved-name)).
 
 **Style:** put the header imports in their own group, after the gocpp imports. `gocpp fmt` keeps a
-group that contains a header in the order you wrote it, because the order of `#include` lines
-can matter in C and C++.
+group that contains a header or a namespace import in the order you wrote it, because the order
+of `#include` lines can matter in C and C++.
 
 **No preamble.** gocpp has no inline C/C++ code in comments. A small helper goes into a header
 next to the `.gp` file, and that header is a package like any other.

@@ -1,0 +1,44 @@
+// Number literals: gofmt makes prefixes and exponents lowercase and drops
+// the leading zeros of an imaginary integer literal. Hex digits stay.
+package p
+
+const (
+	a = 0XFF
+	b = 0xff
+	c = 1E5
+	d = 1e+5
+	e = 0X1P-2
+	f = 0x1P+3
+	g = 0B101
+	h = 0O17
+	i = 017
+	j = 1_000_000
+	k = 0X_FF_ff
+	l = 1.5E3
+	m = .5E-3
+	n = 0.
+	o = 1_0.0_1E1_0
+	p = 0XaBcDeF
+	q = 0
+	r = 7
+	s = 'x'
+	t = "0XFF"
+)
+
+const (
+	i1  = 0i
+	i2  = 00i
+	i3  = 0123i
+	i4  = 1E2i
+	i5  = 0X1P3i
+	i6  = 0B1i
+	i7  = 0O7i
+	i8  = 0_1i
+	i9  = 1.5E3i
+	i10 = 0x1P-2i
+	i11 = 0x10i
+	i12 = 00.5i
+	i13 = 0e5i
+)
+
+var all = []any{0XFF, 1E5, 0B1, 0O1, 0123i, -0X1P-2}

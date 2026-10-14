@@ -1,0 +1,43 @@
+// Package p tests comments.
+// It has a doc comment
+// without spaces after the slashes,
+// and a directive in the middle, which gofmt moves to the end.
+//
+//	code block
+//
+// Second paragraph.
+//   - a list
+//   - with items
+//
+//go:generate echo hi
+package p
+
+/* block comment */
+var x = 1   // trailing
+var yy = 2  // trailing two
+var zzz = 3 // trailing three
+
+// A doc comment for f.
+//
+//go:noinline
+func f() {
+	// inside
+	x := 1 /* inline */ + 2
+	_ = x
+	// a comment that is indented too much
+	//a comment without a space
+}
+
+/*
+ * old style
+ */
+type T int
+
+/*
+A block doc comment
+
+	with indentation.
+*/
+type U int
+
+// End of file comment.

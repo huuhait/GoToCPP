@@ -1,0 +1,6 @@
+// No newline at the end of the file, and space at the ends of lines.
+package p
+
+func f() {
+	return
+}

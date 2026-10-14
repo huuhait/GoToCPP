@@ -1,0 +1,39 @@
+// Spacing: operators by precedence, commas, colons, parentheses,
+// semicolons, and the alignment of comments and values.
+package p
+
+var a,b,c=1,2,3
+var x = a+b*c - (a*b)/c
+var y = a << 2 | b&^c
+var s = []int{ 1,2 , 3 }[ 1 : 2 ]
+var t = s[a+1:b-1]
+var m = map[string]int{"a":1,"bb":22,"ccc":333}
+
+const (
+	A=1
+	BB=2 // two
+	CCC=3 // three
+	DDDD // four
+)
+
+type (
+	short int
+	aVeryLongTypeName string
+)
+
+func f( a int,b int )( int,error ){ return a+b , nil }
+
+func g()  {
+	x := f ; _ = x
+	y:=func()int{return 1}()
+	_=y
+	var p * int = nil
+	_ = * p
+	if x:=1;x>0 {}
+	for  ;  ;  { break }
+	ch := make(chan int)
+	go func(){ch<-1}()
+	<- ch
+	_ = !true && - a > + b
+	_ = func(x ... int) {}
+}

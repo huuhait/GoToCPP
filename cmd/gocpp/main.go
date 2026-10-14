@@ -24,8 +24,10 @@ type command struct {
 	phase   int    // the phase of the plan that builds the command
 
 	// run runs the command with the arguments after its name and returns the
-	// exit code. It is nil while the command is not built yet.
-	run func(args []string, stdout, stderr io.Writer) int
+	// exit code. It is nil while the command is not built yet. stdin is the
+	// standard input, which only some commands read (gocpp fmt with no
+	// paths).
+	run func(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 }
 
 // commands lists every planned command, in the order "gocpp help" shows
@@ -37,7 +39,7 @@ var commands = []command{
 	{name: "check", phase: 1, summary: "parse and type-check packages, print errors"},
 	{name: "emit", phase: 2, summary: "print the C++ generated for a .gp file"},
 	{name: "expand", phase: 10, summary: "print code after macro, #Derive and ! rewriting"},
-	{name: "fmt", phase: 1, summary: "format .gp files like gofmt"},
+	{name: "fmt", phase: 1, summary: "format .gp files like gofmt", run: runFmt},
 	{name: "lsp", phase: 11, summary: "run the language server for editors"},
 	{name: "vet", phase: 13, summary: "report likely mistakes in packages"},
 	{name: "doc", phase: 13, summary: "show documentation for a package or symbol"},
@@ -53,13 +55,13 @@ var commands = []command{
 }
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
 // run runs gocpp with the arguments after the program name and returns the
 // exit code. A usage error and a command that is not built yet exit with 2;
 // otherwise the command decides.
-func run(args []string, stdout, stderr io.Writer) int {
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		usage(stderr) // like "go" with no arguments
 		return 2
@@ -83,7 +85,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "gocpp %s: not available yet (Phase %02d)\n", name, cmd.phase)
 		return 2
 	}
-	return cmd.run(args, stdout, stderr)
+	return cmd.run(args, stdin, stdout, stderr)
 }
 
 // lookup returns the command with the given name, or nil.
@@ -124,12 +126,13 @@ The commands are:
 	}
 	fmt.Fprint(w, `
 A command marked (Phase NN) is planned but not built yet: it comes in
-that phase of the plan.
+that phase of the plan. Run "gocpp <command> -h" to see how a command
+that is built works, for example "gocpp fmt -h".
 `)
 }
 
 // runVersion is "gocpp version".
-func runVersion(args []string, stdout, stderr io.Writer) int {
+func runVersion(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
 		fmt.Fprintln(stderr, "usage: gocpp version")
 		return 2

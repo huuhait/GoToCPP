@@ -1,0 +1,38 @@
+// Import groups: gofmt sorts each run of import lines, removes
+// duplicates, keeps the comments with their imports, and removes the
+// empty line before ")". A comment line or an empty line ends a run.
+package p
+
+import (
+	"os"
+	"fmt"
+	f2 "fmt"
+	"fmt"
+
+	// The standard library, sorted by gofmt.
+	"strings"
+	"bytes" // bytes
+	/* c */ "errors"
+	"io" /* io */ // more
+	"context"
+	// a comment line also ends a run
+	"bufio"
+	"archive/tar"
+
+	_ "embed"
+	. "math"
+	m2 "math"
+
+
+)
+
+import "z"
+import ("y"; "x"; "x")
+
+import ()
+
+import (
+	"single"
+)
+
+var _ = fmt.Println

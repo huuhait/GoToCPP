@@ -273,6 +273,21 @@ func PackagePaths(f *ast.File) []string {
 	return paths
 }
 
+// IsHeaderOrNamespace reports whether the import path p, without its
+// quotes, has the shape of a header or a namespace import, by the rules of
+// ClassifyImports: "<raylib.h>", "./physics.h", "native/x.hpp" or
+// "::std::filesystem". It looks only at the shape, so a broken path such
+// as "<raylib.h" or " <vector>" counts too, while "fmt" and "./physics"
+// (a ./ path that is not a header) don't. gocpp fmt keeps the order of an
+// import group with such an import, because headers become #include lines.
+func IsHeaderOrNamespace(p string) bool {
+	switch kindOf(strings.TrimSpace(p)) {
+	case systemImport, localImport, namespaceImport:
+		return true
+	}
+	return false
+}
+
 // PackageLevelNames returns the package-level names that the files of one
 // package declare, with the position of the identifier that declares each
 // name first: the names of funcs (not methods and not init), vars, consts

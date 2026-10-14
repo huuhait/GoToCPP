@@ -1,0 +1,30 @@
+// Indentation: spaces, tabs, nothing, and too much, in nested blocks.
+package   main
+import "fmt"
+type   point struct{
+x,y int
+    name string // the name
+  next *point
+ }
+func main(){
+      p:=point{x:1,y:2,
+name:"a"}
+if p.x>0{
+fmt.Println( p )
+        } else {
+  for i:=0;i<3;i++{
+	    switch i{
+    case 0:
+          fmt.Println("zero")
+        default:
+fmt.Println(i)
+}
+}
+   }
+	  var long = []string{
+"a",
+	"b",
+				"c",
+	}
+	_ = long
+		}
