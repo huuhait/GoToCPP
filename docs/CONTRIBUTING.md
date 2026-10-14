@@ -197,6 +197,10 @@ The compiler, the language server and the tools are written in Go 1.25.
   (from Phase 10 also `go/printer`) with a few small patches. Change only what a patch needs,
   and list every patch in `internal/syntax/FORK.md`, so the fork can move to a new Go version
   ([Phase 01](../plans/2026-10-13-gocpp/phase-01-frontend/README.md) §2.2).
+- **The copied LSP code.** `internal/lsp/protocol/` holds gopls's generated LSP types and their
+  generator, copied as they are. Don't edit the copied files: `update.sh` copies them again, and
+  [`internal/lsp/protocol/COPIED.md`](../internal/lsp/protocol/COPIED.md) lists them and says
+  how to update. gocpp's own code there is in its own files.
 - **Messages.** Error messages read like Go's own.
 - **Comments** explain what isn't obvious.
 

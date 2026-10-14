@@ -25,6 +25,8 @@ under way. What works today:
   types, functions, loops, `switch`, labels, `fmt.Println`) to C++20 and build them with g++ or
   clang++: [examples/hello](examples/hello/main.gp), [fizzbuzz](examples/fizzbuzz/main.gp) and
   [primes](examples/primes/main.gp) run, and gdb can debug them at the `.gp` level.
+- `gocpp lsp` is the start of the language server: it speaks LSP over stdin and stdout and keeps
+  the text of the open files, but has no features yet (`gocpp lsp -h`).
 
 A command that is not built yet says which phase builds it.
 

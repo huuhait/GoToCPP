@@ -1,13 +1,13 @@
 # Phase 11: Fast Language Server · STATE
 
-**Status:** `[~]` in progress (only the TextMate grammar, job 11.10a, which needs nothing else; the v0 early track starts after Phase 01)
+**Status:** `[~]` in progress (v0 track: 11.1 done; 11.10a grammar done)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
 ## Steps
 
 - [x] Measured go/types re-check speed with cached deps: `strings` 3 ms, `encoding/json` 5 ms, `net/http` (28.5k lines) 29 ms parse+check (2026-10-13)
-- [~] 11.1 LSP core (JSON-RPC stdio, initialize/shutdown, incremental sync, overlays; protocol types copied from gopls's generated code + generator) · *v0*
+- [x] 11.1 LSP core (JSON-RPC stdio, initialize/shutdown, incremental sync, overlays; protocol types copied from gopls's generated code + generator) · *v0*
 - [ ] 11.2 Snapshots + cancellation + debounce · *v0*
 - [ ] 11.3 Memoized pipeline · *v0*
   - [ ] per-file parse+expand cache
@@ -53,5 +53,9 @@
   loop that applies notifications in order, requests in goroutines with a context per ID, and
   RequestCancelled (-32800) / ContentModified (-32801) replies. For 11.4: convert positions through
   byte offsets (`Mapper.Position(offset)`), and skip diagnostics for an overlay marked broken after a
-  failed didChange. For 11.11: one didChange with 100 changes on a 1 MiB file costs ≈ 86 ms (the text and
-  line index are rebuilt per change, like gopls).
+  failed didChange. For 11.11: one didChange with 100 changes on a 1 MiB file costs ≈ 16 ms on an idle machine
+  (the text and line index are rebuilt per change, like gopls; one change ≈ 0.17 ms).
+- 2026-10-14: Job 11.1 (LSP core: `gocpp lsp`, internal/lsp/protocol copied from gopls v0.21.1 with
+  COPIED.md and update.sh, JSON-RPC framing, the lifecycle, incremental text sync, overlays) committed,
+  clean after 2 review rounds. Process start → initialize answered ≈ 1.5 ms. A failed didChange marks
+  the overlay broken and tells the user once (window/showMessage).
