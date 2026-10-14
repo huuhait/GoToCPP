@@ -201,3 +201,10 @@
   pointer-only ones, promoted methods included; int64/uint64/uintptr arguments are passed through
   `gp::fmtshim::typed<tag>` so `%!s(int64=5)` names the Go type. Until Phase 05: a non-string panic
   value inside String() prints in the builtin print format; verbs past Phase 03 stay gated.
+- 2026-10-14 (3.5b, manager): every slice element read follows gc's order (read after the statement's
+  calls, like `*p`), even for locals: more temporaries, but Go's results. Moves into package or boxed slices
+  on `s = append(s, …)` are kept: only a growslice overflow could expose the nil to a Phase 05 recover
+  (Phase 05: re-check). Self-reachable assignments (`s[0] = s[0][1:]`) are safe for slices because
+  gp::slice's operator= copies first; 3.8 must give struct operator= the same rule. tests/run/slices_append
+  waits for 3.15b, which must also remove the emitter's "printing a slice/pointer" errors in expr.go call().
+  `[N]T(s)` and `&arr[i]` are 3.6b; `f(s...)` for user variadics is 3.11.

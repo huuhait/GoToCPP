@@ -102,6 +102,7 @@ analysis that keeps non-escaping variables on the stack.
 | `&x` (boxed local) | its box | `x` |
 | `&p.f` (`p` is `*T`) | `p` | `gp::ptr<F>(p, &p->f)` (aliasing) |
 | `&s[i]` (`s` is a slice) | the slice's backing array | `gp::ptr<T>(s.gp_owner(), &s[i])` |
+| `&f()[i]` (the slice is not a variable) | the result's backing array | `gp::elem_ptr(f(), i)` |
 | `&arr[i]`, `&x.a.b` (inside a boxed local) | that box | aliasing with the box |
 | `&globalVar` | a **static owner** that is never freed | `gp::ptr` sharing that owner (so `weak.Make(&global)` never expires) |
 
