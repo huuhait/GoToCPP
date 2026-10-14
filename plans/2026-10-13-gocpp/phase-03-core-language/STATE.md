@@ -70,3 +70,8 @@
   (`%!s(int=5)` for an `int64`) and `%T` would too. Decision: this phase (with `%T`/`%v` work) passes a
   type tag from the emitter to the formatting code for the types C++ can't tell apart (a small
   wrapper at the call site, only for `int64`, `uint64`, `uintptr`); not a divergence.
+- 2026-10-13 (statements review 2.4): `x op= y` is emitted `x = x op y`, which evaluates the target twice;
+  `a[f()] += 1` and `*p() op= y` need it once (C++ compound assignment, or `auto& r = …;` with the
+  small-integer cast). `pure()`/`isLocal()` in internal/cppgen assume no call can change a local:
+  closures and pointers break that. Go 1.22 gives each iteration of a 3-clause loop its own variable,
+  which matters once closures exist.

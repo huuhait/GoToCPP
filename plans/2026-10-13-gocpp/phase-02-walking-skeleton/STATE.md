@@ -94,3 +94,7 @@
   expression (`65535 * uint16(x | -1)`); the behavior is right (`-fwrapv`). Decision: the driver
   passes `-Wno-tautological-compare` (clang) and `-Wno-overflow` (g++) for generated files, and the
   emitter tests use the same flags; other warnings stay visible (job 2.8).
+- 2026-10-13 (statements review 2.4, for step 2.5): `x, y := a/b, f()` with b == 0 panics before calling
+  f (Go calls f first), and so does `x = a/b + f()`: `bind`'s direct path for all-new targets writes the
+  values in order without temporaries. The 2.5 hoisting must cover `bind`'s direct path and the
+  `forInit` path (control.go) too; parallel assignment to existing variables already matches Go.

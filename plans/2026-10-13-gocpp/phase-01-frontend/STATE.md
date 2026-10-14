@@ -37,7 +37,7 @@
 - [x] 1.12 Unsupported-feature checker with the full gate table + generated `feature-matrix.md`
 - [x] 1.13 Diagnostics package (format, sort, dedupe, limit, caret)
 - [x] 1.14 CLI: `version`, `parse -dump`, `check`, `check -types` (`fmt` is step 1.16)
-- [ ] 1.15 Error tests + "no false errors" interop corpus
+- [~] 1.15 Error tests + "no false errors" interop corpus
 - [x] 1.16 `gocpp fmt` via `go/printer` with gofmt's settings (`go/format.Node` re-parses with the stock parser) (`-l -w -d`); header imports keep their order (include order matters); stdlib + badly formatted inputs match real gofmt
 
 ## Exit criteria
