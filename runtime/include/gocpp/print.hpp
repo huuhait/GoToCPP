@@ -45,6 +45,8 @@ void append_print(std::string& out, const T& v) {
         print_hex(out, static_cast<uint64_t>(reinterpret_cast<uintptr_t>(v)));
     } else if constexpr (std::is_null_pointer_v<T>) {
         out += "0x0";
+    } else if constexpr (requires { v.gp_value(); }) {
+        append_print(out, v.gp_value()); // a named type (gp::newtype): as its underlying value
     } else {
         static_assert(always_false<T>, "print: a value of this type can't be printed yet");
     }

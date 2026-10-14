@@ -90,7 +90,7 @@ Source: [Phase 02 §2.1](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/
 | `unsafe.Pointer` | `gp::ptr<void>` (keeps a gocpp object alive, like Go) | shares the owner of the object it came from, and converts to `void*` for C ([D16](language.md#d16-unsafepointer-and-pointers-from-c)) |
 | `func(A) R` | `gp::func<R(A)>` | a `std::function` wrapper: calling a nil func panics, and `f == nil` works |
 | `struct{...}` | `struct` + generated `==`, hash, field info | `operator==` and `gp_hash()` only when the struct is comparable; the field info (`gp_fields`) is for `fmt`'s `%v`; an anonymous struct type is `gp_anon_` and a hash of the type ([structs](#structs)) |
-| `type Celsius float64` (named non-struct type) | `struct Celsius : gp::newtype<Celsius, double>` (a distinct type that can have methods) | gocpp inserts a conversion wherever Go converts implicitly ([structs](#structs-and-named-types)) |
+| `type Celsius float64` (named non-struct type) | `struct Celsius : gp::newtype<Celsius, double>` (a distinct type that can have methods) | gocpp inserts a conversion wherever Go converts implicitly ([named types](#named-types)) |
 | `interface{...}`, `any`, `error` | generated interface class, `gp::any`, `gp::error` | an interface value holds data, a type descriptor and a method table (32 bytes); no C++ virtual functions (Phase 05) |
 | `chan T` | `gp::chan<T>` | a shared reference to the channel; `<-chan T` and `chan<- T` are the same C++ type, but different Go types (Phase 08) |
 | results `(A, B)` | `std::tuple<A, B>` | `return a, b` becomes `return {a, b};` ([multiple results](#multiple-results)) |
@@ -354,7 +354,7 @@ struct Point {
         gp::field(&Point::Y, "Y", true, false));
 };
 struct Celsius : gp::newtype<Celsius, double> {      // a distinct type with double's operators
-    using newtype::newtype;
+    using gp::newtype<Celsius, double>::newtype;
     static constexpr const char* gp_type_name = "main.Celsius";
     gp::string String() const;
     gp::string gp_String() const { return String(); } // fmt: the method set has String() string
@@ -626,13 +626,109 @@ struct Line {
   reference; a literal that initializes a new variable, and `&Big{...}`, is made in its block,
   `gp::new_init<Big>([&](Big& gp_b) { gp_b.n = 3; })` (the zero value, then the given fields); other
   literals are temporaries on the stack ([D24](language.md#d24-large-values-on-the-c-stack)).
-- **Implicit conversions** between a named struct type and an anonymous one with the same
-  fields (`var p Point = struct{ X, Y int }{1, 2}`, an argument, a result, an element) are two C++
-  types: they report "not supported yet" until step 3.9.
-- **Not yet**: methods (step 3.10), named types that are not structs and the conversions between
-  struct types that are not identical (step 3.9; `T(x)` between two names of one type works),
-  embedding is open from Phase 05 (the gate), and Phase 06 moves the anonymous structs into a
-  header that all packages share.
+- **Conversions between struct types** that are not identical: a named struct type and an
+  anonymous one with the same fields are two C++ structs, and so are `type B A` and `A`. Go
+  converts between the first two implicitly (`var p Point = struct{ X, Y int }{1, 2}`, an
+  argument, a result, an element, a map key, `==`, a case value, a range target) and between any
+  two explicitly (`B(a)`, also when only the tags differ): both are `gp::convert<Point>(x)`, a
+  field-by-field copy through `gp_fields` ([named types](#named-types)); a field whose types
+  differ only in tags is converted too (a struct field by field, an array element by element, a
+  pointer with `gp::ptr_cast`, so it still points to the same struct), but not yet a slice or a
+  map of such structs. `(*B)(pa)` is `gp::ptr_cast<B>(pa)`, which points at the same struct.
+- **Not yet**: methods (step 3.10), embedding is open from Phase 05 (the gate), and Phase 06
+  moves the anonymous structs into a header that all packages share.
+
+Source: [Phase 03 §2.4](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#24-structs-and-named-types).
+
+## Named types
+
+A named type that isn't a struct (`type Celsius float64`, `type IDs []int`) is a C++ struct of
+its own over `gp::newtype<T, U>` (`runtime/include/gocpp/newtype.hpp`), so it is a distinct C++
+type that can get its own methods (step 3.10) and its Go name for `fmt`:
+
+```go
+type Celsius float64
+type IDs []int
+```
+
+```cpp
+struct Celsius : gp::newtype<Celsius, double> {
+    using gp::newtype<Celsius, double>::newtype;
+    static constexpr const char* gp_type_name = "main.Celsius";
+};
+static_assert(sizeof(Celsius) == 8 && alignof(Celsius) == 8);
+
+struct IDs : gp::newtype<IDs, gp::slice<int64_t>> {
+    using gp::newtype<IDs, gp::slice<int64_t>>::newtype;
+    static constexpr const char* gp_type_name = "main.IDs";
+};
+static_assert(sizeof(IDs) == 40 && alignof(IDs) == 8);
+```
+
+- **Two shapes.** Over a number or a bool, `gp::newtype` holds the value (`gp_v`) and has every
+  operator of the underlying type on two values of the named type, giving the named type
+  (comparisons give `bool`); the result converts back to the underlying type, so a
+  `type Small uint8` wraps like a `uint8`. Over a string, a slice, an array, a map or a pointer,
+  the named type **is** its underlying runtime type, a public base class: everything that reads
+  it works unchanged (`ids[i]`, `gp::len(ids)`, range, `gp::get(m, k)`, `p->f`).
+- **Sizes**: the size of the underlying type (no members of its own), checked by a
+  `static_assert` after each type; `unsafe.Sizeof` agrees.
+- **Members**: only `gp_` names (`gp_value()`, `gp_hash()`, `gp_type_name`) and operators, so a
+  Go method of any name can't clash with them. The constructors are inherited by the base's full
+  name, so a type (or, from step 3.10, a method) named `newtype` works too.
+- **Names of the bases.** A base class brings its name into the struct's body: there,
+  `newtype`, `string`, `slice`, `array`, `map` and `ptr` are the runtime's classes. So a type of
+  the package with one of these names is written qualified in a named type's struct:
+  `struct Grid : gp::newtype<Grid, gp::array<gpkg_main::array, 2>>` for `type array [2]int;
+  type Grid [2]array`.
+- Like structs, named types are declared first and defined in dependency order (a named array
+  of structs after the struct; a struct that holds a named type by value after it), and one
+  declared in a function moves to the namespace.
+
+| gocpp | C++ | Notes |
+|---|---|---|
+| `var c Celsius` | `Celsius c{};` | zero |
+| `c = 5`, `c * 9 / 5` | `c = Celsius(5.0)`, `c * Celsius(9.0) / Celsius(5.0)` | an untyped constant has the named type |
+| `n / m`, `n % m`, `n << k`, `n >> k` | `gp::div(n, m)`, `gp::rem(n, m)`, `gp::shl(n, k)`, `gp::shr(n, k)` | Go's panics and results, as for the underlying type; a constant divisor or count below the width uses the operator |
+| `n += 1`, `n++` | `n = n + N(1)`, `n++` | also on slice elements, fields and map entries (`gp::ref(m, k) += y`) |
+| `Celsius(f)`, `float64(c)` | `Celsius(f)`, `c.gp_value()` | `gp_value()` is the underlying value |
+| `int(c)`, `Fahrenheit(c)` | `gp::f2i<int64_t>(c.gp_value())`, `Fahrenheit(c.gp_value())` | the conversion of the underlying types, then to the named type |
+| `b && c` (`type ok bool`), `x < y` as an `ok` | `ok(b && c)`, `ok(x < y)` | C++ gives `bool`; a named bool is a condition by itself (`if (ok)`) |
+| `n + m` (`type Name string`), `n[1:]` | `Name(n + m)`, `Name(gp::sub(n, 1))` | the runtime gives a `gp::string`; Go's result has the named type |
+| `append(ids, 1)`, `ids[1:]`, `make(IDs, n)` | `IDs(gp::append(ids, 1))`, `IDs(gp::sub(ids, 1))`, `IDs(gp::make_slice<int64_t>(n))` | the same for literals: `IDs{1, 2}` is `IDs(gp::slice_of<int64_t>({1, 2}))` |
+| `s[i]` with `i` of a named integer type | `s[i.gp_value()]` | also bounds, lengths and shift counts |
+| `buf[:]` (`type Buf [64]byte`) | `gp::sub(gp::base_ptr(buf), 0)` | `gp::base_ptr` makes a `gp::ptr<Buf>` a pointer to its `gp::array` |
+| `switch c` (`type Color int`) | `switch (c.gp_value()) { case 1: ... }` | C++ rejects a class type in a `switch`: the value, with the constants folded |
+| `var ids IDs = []int{1}`, `f(s)` for a parameter of type `IDs` | `IDs(...)` | an implicit conversion (below) |
+| `var s []int = ids` | `gp::slice<int64_t> s = ids;` | C++ copies the base class |
+
+**Implicit conversions.** Go assigns a value to a variable of another type when both have
+identical underlying types and one of them is not a named type: a `[]int` to an `IDs`, an
+anonymous struct to a named one. `go/types` records no conversion there, so the emitter finds
+those places (an assignment or declaration, an argument, a return value, an element or a key
+of a composite literal, a map index, an operand of `==` and `!=`, a case value, a range target
+with `=`, and one result of several, `a, b = f()`) and converts the value: to a named type with
+`T(x)`, between two struct types with `gp::convert<T>(x)`; from a named type to its unnamed
+underlying type, C++'s derived-to-base copy does it. The results of a call with several results
+are converted one by one: `a, b = f()` where each is stored, `return f()` as
+`auto gp_t0 = f(); return {IDs(std::get<0>(gp_t0)), std::get<1>(gp_t0)};`, and `g(f())` through
+a lambda that `std::apply` calls, `[](auto&& gp_e0, auto&& gp_e1) { return g(IDs(gp_e0), gp_e1); }`.
+
+**`fmt` and `println`** print a named type as its underlying value (`%v` of a `Celsius` prints
+`36.6`), with its Go name in the error forms (`%!s(main.Count=5)`; `%T` comes with Phase 05).
+A `String()` method (step 3.10) changes that. A named type over `int64`, `uint64` or `uintptr`
+has `using gp_value_tag = gp::fmtshim::tag::int64;` (and so on), the type tag of its value.
+
+**Map keys** of a named type hash their value (`gp_hash()`); in `m[k] = append(m[k], x)` a key
+of a named type over `uint32`, `uint64` or `string` is read before `x`, like an `int` key,
+because gc converts it to its fast map call's key type.
+
+**Not yet**: named func types (step 3.11), named interface types (Phase 05), named channel types
+(Phase 08), named complex types, and methods (step 3.10); the conversions between strings and
+slices of named byte or rune types (`[]MyByte(s)`, `string([]R{...})` for `type R rune`), and
+between slice types (or structs with slice or map fields) whose element structs differ only in
+their tags (`[]struct{ Q int }(s)` of a `[]struct{ Q int "t" }`): Go shares the elements there,
+which C++ would have to reinterpret.
 
 Source: [Phase 03 §2.4](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#24-structs-and-named-types).
 
@@ -695,7 +791,7 @@ gp::ptr<Counter> NewCounter() {
   prints Go's signal line (`[signal SIGSEGV: ...]`).
 - `p == nil` is `p == nullptr`, and `p == q` compares the addresses. A conversion between
   pointer types whose base types have identical underlying types, `(*Q)(p)`, is
-  `gp::ptr_cast<Q>(p)` (with named types, step 3.9); `(*int)(nil)` is
+  `gp::ptr_cast<Q>(p)` (`(*B)(pa)` for `type B A`); `(*int)(nil)` is
   `gp::ptr<int64_t>(nullptr)`. `&*p` is `gp::ptr<T>(p, &*p)`: Go's `&*p` panics for a nil `p`.
 - `weak.Pointer[T]` is `gp::weak_ptr<T>`: `weak.Make(p)` is `gp::weak_make(p)` and
   `w.Value()` is `gp::weak_value(w)` (free functions, since runtime types have no plain-named

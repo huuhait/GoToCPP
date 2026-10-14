@@ -36,7 +36,8 @@ func TestNoPlainMembers(t *testing.T) {
 	}
 	// The check must see the runtime's types, or it checks nothing.
 	for _, c := range []string{"gp::string", "gp::ptr", "gp::weak_ptr", "gp::panic_error", "gp::slice", "gp::array",
-		"gp::map", "gp::map_range", "gp::hash", "gp::fmtshim::typed_value", "gp::defer_frame"} {
+		"gp::map", "gp::map_range", "gp::hash", "gp::fmtshim::typed_value", "gp::defer_frame",
+		"gp::newtype"} {
 		if !slices.Contains(classes, c) {
 			t.Errorf("the check didn't see the class %s; it saw %q", c, classes)
 		}
@@ -77,6 +78,10 @@ struct derived2 : gtbase<T> {
     using gtbase<T>::gp_v;
 };
 struct derived3 : gtbase<int> {};
+template <typename T>
+struct pbase : T {
+    using T::T;
+};
 struct bad {
     int get;
     int gp_ok;
@@ -141,7 +146,7 @@ struct nested { int data; };
 		"gp::bad::len_", "gp::bad::reset", "gp::bad::size", "gp::bad::tmpl", "gp::bad::u",
 		"gp::bad::value_type", "gp::hidden (base std::shared_ptr<int>)", "gp::hidden2 (base std::shared_ptr<T>)",
 		"gp::hidden2::reset", "gp::hidden::get", "gp::leaky (base std::shared_ptr<T>)",
-		"gp::outer::gp_in::full", "gp::outer::gp_in::part", "gp::spec::count", "gp::sub::nested::data", "gp::tmpl_bad::value"}
+		"gp::outer::gp_in::full", "gp::outer::gp_in::part", "gp::pbase (base T)", "gp::pbase::type-parameter-0-0", "gp::spec::count", "gp::sub::nested::data", "gp::tmpl_bad::value"}
 	if !slices.Equal(got, want) {
 		t.Errorf("found %q\nwant  %q", got, want)
 	}
@@ -263,6 +268,12 @@ func (k *checker) walkScope(d astNode, scope string) {
 	}
 }
 
+// paramBases are the class templates whose base class is their template parameter U, which
+// their requires-clause limits to the runtime's own classes: gp::newtype<D, U> over a gp::string,
+// gp::slice, gp::array, gp::map or gp::ptr (gocpp/newtype.hpp: detail::runtime_class), each of
+// them checked here as a class of its own. So such a base brings no plain-named member either.
+var paramBases = map[string]bool{"gp::newtype": true}
+
 // checkRecord checks the members of the class r, named name.
 func (k *checker) checkRecord(r astNode, name string) {
 	k.classes = append(k.classes, name)
@@ -276,11 +287,20 @@ func (k *checker) checkRecord(r astNode, name string) {
 	// base in gp without gp:: when the code does ("gtbase<T>"), so such a name is resolved at
 	// the end, against the classes the check saw.
 	var baseNames []string
+	var params []string // the template parameters of a partial specialization
+	for _, m := range r.Inner {
+		if m.Kind == "TemplateTypeParmDecl" {
+			params = append(params, m.Name)
+		}
+	}
+	paramBase := false // a base that is a template parameter (paramBases)
 	for _, b := range r.Bases {
 		q, d := strings.TrimPrefix(b.Type.QualType, "::"), strings.TrimPrefix(b.Type.Desugared, "::")
 		_, last := splitQualified(q)
 		baseNames = append(baseNames, stripArgs(last))
 		switch {
+		case paramBases[name] && slices.Contains(params, q):
+			paramBase = true
 		case strings.HasPrefix(q, "gp::") || strings.HasPrefix(d, "gp::"):
 		case !strings.Contains(stripArgs(q), "::"):
 			k.unqualified = append(k.unqualified, unqualifiedBase{name, q})
@@ -295,6 +315,8 @@ func (k *checker) checkRecord(r astNode, name string) {
 			m.Kind == "CXXConstructorDecl", m.Kind == "CXXDestructorDecl", m.Kind == "CXXConversionDecl":
 		case m.Kind == "TemplateTypeParmDecl", m.Kind == "NonTypeTemplateParmDecl", m.Kind == "TemplateTemplateParmDecl":
 			// The template parameters of a partial specialization (array<T, 0>): not members.
+		case strings.HasSuffix(m.Kind, "Expr"):
+			// The requires-clause of a partial specialization (newtype's runtime_class<U>).
 		case m.IsImplicit:
 			// The injected class name, implicit members, the fields of an anonymous union.
 		case m.Kind == "CXXRecordDecl":
@@ -327,7 +349,10 @@ func (k *checker) checkRecord(r astNode, name string) {
 			// ("std::shared_ptr<int>::get"). using base::base (inheriting the constructors)
 			// is fine.
 			_, short := splitQualified(m.Name)
+			// clang names using U::U (the constructors of a base that is a template
+			// parameter) by U's canonical name, type-parameter-0-1.
 			inheriting := short == r.Name || slices.Contains(baseNames, stripArgs(short)) ||
+				paramBase && strings.HasPrefix(m.Name, "type-parameter-") ||
 				slices.ContainsFunc(m.Inner, func(c astNode) bool { return c.Kind == "ConstructorUsingShadowDecl" })
 			if !inheriting {
 				check(short)

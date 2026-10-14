@@ -43,8 +43,10 @@ import (
 // assignments of whole structs, &s.f that shares the struct's owner, == of structs, structs
 // printed by fmt, and assignments whose first target is a part of a plain local struct or array
 // (lw.a, lar[i]) and whose later target has an operand that reads it (gsl[lw.a & 3]),
-// and defer (step 3.13): deferred fmt.Println and e calls, whose arguments are evaluated at the
-// defer statement and which run when their function returns or panics.
+// defer (step 3.13): deferred fmt.Println and e calls, whose arguments are evaluated at the
+// defer statement and which run when their function returns or panics, and named types (step
+// 3.9): a named int8, gn, with arithmetic that wraps (also division, shifts and op=), and a named
+// slice of them, gns, that the calls change and append to, in any place.
 // It compares what each prints with real Go, on both compilers.
 //
 //	GOCPP_RANDOM_TESTS=1 go test ./internal/cppgen -run TestRandomOrder
@@ -173,7 +175,29 @@ func e(tag, v int) int {
 	rearray(tag)
 	remap(tag)
 	restruct(tag)
+	renamed(tag)
 	return v
+}
+
+// N is a named int8 and NS a named slice of them. gn and gns (always 4 elements) are changed by
+// e: arithmetic that wraps, stores into gns and appends in place and into a new array.
+type N int8
+type NS []N
+
+var gn N = 3
+var gns = NS{1, 2, 3, 4}
+
+func renamed(tag int) {
+	switch tag % 5 {
+	case 1:
+		gn = gn*3 + N(tag)
+	case 2:
+		gns[tag&3] -= N(tag) << 2
+	case 3:
+		gns = append(gns[:3], gn)
+	case 4:
+		gns = append(NS(nil), gns...)
+	}
 }
 
 // S is a struct with a nested anonymous struct and an array. gst is a package struct, gss a
@@ -404,6 +428,7 @@ func (g *progGen) program() string {
 	g.printf("\tfmt.Println()")
 	g.printf("}")
 	g.printf("fmt.Println(gst, gss[0], gss[1], gsa[0], gsa[1], *pst, lst, *pfa, *lfp, gst == lst, lw, lar[0], lar[1])")
+	g.printf("fmt.Println(gn, gns[0], gns[1], gns[2], gns[3], len(gns))")
 	g.printf("if pc != nil {")
 	g.printf("\tfmt.Println(*pc)")
 	g.printf("}")
@@ -850,8 +875,78 @@ func (g *progGen) sliceExpr(depth int) string {
 	return "gsl[" + g.expr(depth) + " & 1 : 2+" + g.expr(depth) + "&3]"
 }
 
+// named returns an expression of the named type N: gn, an element of gns, a conversion, or N's
+// arithmetic on them.
+func (g *progGen) named(depth int) string {
+	if depth <= 0 || g.chance(0.3) {
+		switch g.r.Intn(4) {
+		case 0:
+			return "gn"
+		case 1:
+			return "gns[" + g.expr(1) + " & 3]"
+		case 2:
+			return "N(" + g.nonConst(1) + ")"
+		}
+		// An untyped constant, converted to N: small, so that no constant expression of the
+		// generator overflows int8 (a compile error).
+		return strconv.Itoa(g.r.Intn(5) - 2)
+	}
+	d := depth - 1
+	switch g.r.Intn(6) {
+	case 0:
+		return "(" + g.named(d) + " / (" + g.named(d) + " | 1))"
+	case 1:
+		return "(" + g.named(d) + " << (" + g.nonConst(1) + " & 7))"
+	case 2:
+		return "-(" + g.named(d) + ")"
+	}
+	return "(" + g.named(d) + " " + []string{"+", "-", "*", "&^", "^"}[g.r.Intn(5)] + " " + g.named(d) + ")"
+}
+
+// namedStmt writes a statement with the named types: a store into gn or an element of gns (also
+// op=, ++ and parallel assignments), an append to gns in place or into a new array (keeping 4
+// elements), a local named slice (a literal, and a conversion from []int), and a print.
+func (g *progGen) namedStmt() {
+	switch g.r.Intn(6) {
+	case 0:
+		g.printf("gn = %s", g.named(2))
+	case 1:
+		ops := []string{"+=", "-=", "*=", "^=", "<<="}
+		op := ops[g.r.Intn(len(ops))]
+		y := g.named(1)
+		if op == "<<=" {
+			y = g.nonConst(1) + " & 7"
+		}
+		g.printf("gns[%s & 3] %s %s", g.expr(1), op, y)
+	case 2:
+		if g.chance(0.5) {
+			g.printf("gns = append(gns[:3], %s)", g.named(2))
+		} else {
+			g.printf("gns, gn = append(gns[:3:3], %s), %s", g.named(1), g.named(1))
+		}
+	case 3:
+		g.nvars++
+		v := "ln" + strconv.Itoa(g.nvars)
+		if g.chance(0.5) {
+			g.printf("%s := NS{%s, %s}", v, g.named(1), g.named(1))
+		} else {
+			g.printf("var %s NS = []N{%s, %s}", v, g.named(1), g.named(1))
+		}
+		g.printf("%s = append(%s, %s)", v, v, g.named(1))
+		g.printf("fmt.Println(len(%s), %s[0], %s[2], %s)", v, v, v, g.expr(1))
+	case 4:
+		g.printf("gns[%s & 3]++", g.expr(1))
+	default:
+		g.printf("fmt.Println(%s, %s, %s)", g.named(2), g.named(1), g.expr(2))
+	}
+}
+
 func (g *progGen) stmt() {
-	k := g.r.Intn(24)
+	k := g.r.Intn(26)
+	if k >= 24 {
+		g.namedStmt()
+		return
+	}
 	if k >= 22 {
 		g.structStmt()
 		return
@@ -1212,6 +1307,9 @@ func (g *progGen) leaf() string {
 		}
 		if g.chance(0.3) {
 			return g.field()
+		}
+		if x := g.named(1); g.chance(0.2) && !isConstText(x) {
+			return "int(" + x + ")" // (a constant would make a case of a switch a duplicate)
 		}
 		return []string{"g0", "g1", "len(gs)", "int(g8)", "len(gmp)"}[g.r.Intn(5)]
 	default:

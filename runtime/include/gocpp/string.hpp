@@ -183,9 +183,10 @@ string rune_string(int64_t r);
 
 // concat(a, b, c, ...) is a + b + c + ...: one allocation for the whole result, where a chain
 // of + would make a string for each +. If only one part is not empty, the result is that part
-// (no copy), as in Go.
+// (no copy), as in Go. A part may be of a named string type (gp::newtype over gp::string,
+// step 3.9), which is a string.
 template <typename... S>
-    requires(sizeof...(S) >= 2 && (std::same_as<S, string> && ...))
+    requires(sizeof...(S) >= 2 && (std::derived_from<S, string> && ...))
 string concat(const S&... parts) {
     const string* list[] = {&parts...};
     return detail::concat(list, sizeof...(S));

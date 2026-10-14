@@ -58,7 +58,7 @@ func (fg *funcGen) compositeLit(e *ast.CompositeLit) cppir.Expr {
 	if isMap(t) {
 		return fg.mapLit(e) // step 3.7, maps.go
 	}
-	st, ok := types.Unalias(t).(*types.Slice)
+	st, ok := under(t).(*types.Slice) // also of a named slice type (litValue converts it)
 	if !ok {
 		fg.g.unsupported(e.Lbrace, "composite literals of type "+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))+" (Phase 03)")
 		return placeholder
@@ -125,10 +125,10 @@ func (fg *funcGen) sliceBuiltin(c *ast.CallExpr, name string) cppir.Expr {
 }
 
 // sliceConversion returns the C++ of a conversion to or from a slice type: []T(nil) is
-// gp::slice<T>(), []T(s) of a slice of the same C++ type is s (until step 3.9, every slice type
-// is unnamed: identical ones), and []byte(s), []rune(s), string(b) and string(runes) are the
-// runtime's copying conversions (slice.hpp).
-func (fg *funcGen) sliceConversion(c *ast.CallExpr, to, from types.Type) cppir.Expr {
+// gp::slice<T>(), []T(s) of a slice of the same C++ type is s (identical types: a named slice
+// type converts as its underlying type, namedConversion), and []byte(s), []rune(s), string(b)
+// and string(runes) are the runtime's copying conversions (slice.hpp).
+func (fg *funcGen) sliceConversion(c *ast.CallExpr, to, from types.Type, x cppir.Expr) cppir.Expr {
 	arg := c.Args[0]
 	qual := types.RelativeTo(fg.g.pkg.Types)
 	if isSlice(to) {
@@ -137,19 +137,19 @@ func (fg *funcGen) sliceConversion(c *ast.CallExpr, to, from types.Type) cppir.E
 		case fg.g.info.Types[arg].IsNil():
 			return construct(typ)
 		case isSlice(from) && cppir.TypeString(typ) == cppir.TypeString(fg.g.cxxType(from, arg.Pos())):
-			return fg.expr(arg)
+			return x
 		case isString(from):
 			switch elemKind(to) {
 			case types.Uint8:
-				return call("gp::to_bytes", fg.expr(arg))
+				return call("gp::to_bytes", x)
 			case types.Int32:
-				return call("gp::to_runes", fg.expr(arg))
+				return call("gp::to_runes", x)
 			}
 		}
 	} else if isString(to) {
 		switch elemKind(from) {
 		case types.Uint8, types.Int32:
-			return call("gp::to_string", fg.expr(arg))
+			return call("gp::to_string", x)
 		}
 	}
 	fg.g.unsupported(c.Pos(), "the conversion from "+types.TypeString(from, qual)+" to "+types.TypeString(to, qual))
@@ -270,7 +270,11 @@ func (fg *funcGen) appendInPlace(s ast.Stmt) *ast.CallExpr {
 func (fg *funcGen) storedExpr(rhs ast.Expr) cppir.Expr {
 	x := fg.expr(rhs)
 	if _, ok := fg.temps[ast.Unparen(rhs)]; ok {
-		if t := fg.g.info.TypeOf(rhs); t != nil && isClass(t) && !fg.g.info.Types[rhs].IsNil() {
+		t := fg.g.info.TypeOf(rhs)
+		if to, ok := fg.g.implicit[rhs]; ok {
+			t = to // the temporary holds the value converted to the target's type (step 3.9)
+		}
+		if t != nil && isClass(t) && !fg.g.info.Types[rhs].IsNil() {
 			return moved(fg.g.cxxType(t, rhs.Pos()), x)
 		}
 	}

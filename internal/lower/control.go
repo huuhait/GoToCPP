@@ -421,7 +421,7 @@ func (fg *funcGen) forInit(s ast.Stmt) (cppir.Stmt, bool) {
 // calls (gp::len(f()), arrays.go: rangeCount).
 func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 	xt := fg.g.info.TypeOf(s.X)
-	b := basicOf(xt)
+	b := underBasic(xt) // also a named string or integer type (step 3.9)
 	switch {
 	case b != nil && b.Info()&types.IsString != 0:
 		fg.rangeIter(s, "gp::range_string", func(it cppir.Expr) cppir.Expr { return &cppir.Member{X: it, Name: "gp_r"} })
@@ -473,7 +473,7 @@ func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 	}
 	fg.names.openScope() // the range variable and the body (see the top)
 	i := fg.names.temp("i")
-	init := varDecl(cppir.Pos{}, ct, i, lit("0"))
+	init := varDecl(cppir.Pos{}, ct, i, fg.g.constant(constant.MakeInt64(0), t, s.X.Pos(), false)) // N(0) for a named N
 	var limit cppir.Expr
 	count := fg.constValue(s.X)
 	if count == nil {
@@ -550,11 +550,15 @@ func (fg *funcGen) rangeIter(s *ast.RangeStmt, start string, value func(it cppir
 	}
 	fg.names.openScope() // the range variables and the body (see the top)
 	it := fg.names.temp("it")
+	xt := fg.g.info.TypeOf(s.X)
 	head := &cppir.For{
 		Pos:  fg.g.pos(s.For),
-		Init: varDecl(cppir.Pos{}, typeName("auto"), it, call(start, fg.expr(s.X))),
+		Init: varDecl(cppir.Pos{}, typeName("auto"), it, call(start, arrayPtrValue(xt, fg.expr(s.X)))),
 		Cond: call("gp::range_next", cxxName(it)),
 	}
+	// The types of the key and the value, which Go converts implicitly to the types of targets
+	// that exist (for k, v = range x: step 3.9, named.go).
+	keyType, valueType := rangeTypes(xt)
 	// The line at the start of each iteration: a declaration or an assignment of each range
 	// variable, made from its counter (as in Go, the key first), on one C++ line.
 	type rangeVar struct {
@@ -605,7 +609,12 @@ func (fg *funcGen) rangeIter(s *ast.RangeStmt, start string, value func(it cppir
 					line.Stmts = append(line.Stmts, fg.saveOperands(cppir.Pos{}, targets, i)...)
 				}
 				for i, t := range targets {
-					line.Stmts = append(line.Stmts, &cppir.ExprStmt{X: t.assignExpr(vars[i].value)})
+					from := valueType
+					if vars[i].e == s.Key {
+						from = keyType
+					}
+					value := fg.g.convertTo(from, fg.g.info.TypeOf(vars[i].e), vars[i].value, vars[i].e.Pos())
+					line.Stmts = append(line.Stmts, &cppir.ExprStmt{X: t.assignExpr(value)})
 				}
 				fg.add(line)
 				return
@@ -706,12 +715,15 @@ func (fg *funcGen) switchStmt(s *ast.SwitchStmt) {
 
 	p := fg.g.pos(s.Switch)
 	if fg.integerSwitch(s, clauses) {
-		sw := &cppir.Switch{Pos: p, Tag: fg.expr(s.Tag)}
+		// A tag of a named integer type switches on its value, with the constants of the
+		// underlying type (C++ rejects a class type in a switch: step 3.9).
+		tt := fg.g.info.TypeOf(s.Tag)
+		sw := &cppir.Switch{Pos: p, Tag: valueOf(tt, fg.expr(s.Tag))}
 		fg.add(withLead(p, tagPre, sw))
 		for _, c := range clauses {
 			var values []cppir.Expr // nil: default
 			for _, e := range c.List {
-				values = append(values, fg.expr(e)) // a constant
+				values = append(values, fg.g.constant(fg.constValue(e), under(tt), e.Pos(), false))
 			}
 			fg.caseBody(sw, c, values)
 		}
@@ -732,8 +744,11 @@ func (fg *funcGen) switchStmt(s *ast.SwitchStmt) {
 				fg.add(withLead(tp, tagPre, varDecl(tp, typeName("auto"), t, fg.exactExpr(s.Tag))))
 			}
 		}
-		boolTag := s.Tag != nil && basicOf(fg.g.info.TypeOf(s.Tag)) != nil &&
-			basicOf(fg.g.info.TypeOf(s.Tag)).Info()&types.IsBoolean != 0
+		// A bool tag's value, for the constant cases (that of a named bool type: step 3.9).
+		var boolTag cppir.Expr
+		if b := underBasic(fg.g.info.TypeOf(s.Tag)); tag != nil && b != nil && b.Info()&types.IsBoolean != 0 {
+			boolTag = valueOf(fg.g.info.TypeOf(s.Tag), tag)
+		}
 		caseCond := func(c *ast.CaseClause) func() ([]*cppir.Line, cppir.Expr) {
 			return func() ([]*cppir.Line, cppir.Expr) { return fg.caseCond(tag, boolTag, c.List) }
 		}
@@ -796,7 +811,7 @@ func (fg *funcGen) integerSwitch(s *ast.SwitchStmt, clauses []*ast.CaseClause) b
 	if s.Tag == nil || fg.constValue(s.Tag) != nil {
 		return false
 	}
-	if b := basicOf(fg.g.info.TypeOf(s.Tag)); b == nil || b.Info()&types.IsInteger == 0 {
+	if b := underBasic(fg.g.info.TypeOf(s.Tag)); b == nil || b.Info()&types.IsInteger == 0 {
 		return false
 	}
 	for _, c := range clauses {
@@ -834,7 +849,7 @@ func (fg *funcGen) isLocal(e ast.Expr) bool {
 //
 //	bool gp_t0 = gp_tag0 == 1;
 //	if (!gp_t0) { auto gp_t1 = g(); gp_t0 = gp_tag0 == f(x, gp_t1); }
-func (fg *funcGen) caseCond(tag cppir.Expr, boolTag bool, list []ast.Expr) ([]*cppir.Line, cppir.Expr) {
+func (fg *funcGen) caseCond(tag, boolTag cppir.Expr, list []ast.Expr) ([]*cppir.Line, cppir.Expr) {
 	lazy := -1 // the first expression after the first one that needs temporaries
 	for i, e := range list {
 		if i > 0 && lazy < 0 && fg.needsPre(false, e) {
@@ -856,11 +871,12 @@ func (fg *funcGen) caseCond(tag cppir.Expr, boolTag bool, list []ast.Expr) ([]*c
 			} else {
 				parts[i] = c
 			}
-		} else if v := fg.constValue(e); boolTag && v != nil {
-			// A bool tag and a constant case: b or !b, not b == true.
-			parts[i] = tag
+		} else if v := fg.constValue(e); boolTag != nil && v != nil {
+			// A bool tag and a constant case: b or !b, not b == true (boolTag is the tag's
+			// bool, b.gp_value() for a named bool type).
+			parts[i] = boolTag
 			if !constant.BoolVal(v) {
-				parts[i] = &cppir.Unary{Op: "!", X: tag}
+				parts[i] = &cppir.Unary{Op: "!", X: boolTag}
 			}
 		} else {
 			pres[i] = fg.order(false, e)

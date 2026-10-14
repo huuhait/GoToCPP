@@ -195,6 +195,7 @@ func (fg *funcGen) deferReturn(s *ast.ReturnStmt) {
 	targets := make([]target, len(fg.fn.results))
 	for i, n := range fg.fn.results {
 		targets[i] = varTarget(n)
+		targets[i].gtype = res.At(i).Type() // which return f() converts to (step 3.9)
 		if fg.isBoxed(res.At(i)) {
 			targets[i].x, targets[i].mem = &cppir.Paren{X: deref(cxxName(n))}, true
 		}

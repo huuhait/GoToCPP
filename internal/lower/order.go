@@ -266,7 +266,7 @@ func (fg *funcGen) copied(e ast.Expr) bool {
 	if t := fg.g.info.TypeOf(e); isStruct(t) {
 		return copiedStruct(t) // structs.go
 	}
-	b := basicOf(fg.g.info.TypeOf(e))
+	b := underBasic(fg.g.info.TypeOf(e)) // gc's rule is on the kind: also a named bool
 	if b == nil {
 		return false
 	}
@@ -521,11 +521,11 @@ func (fg *funcGen) binaryPanics(e *ast.BinaryExpr) bool {
 	}
 	switch e.Op {
 	case token.QUO, token.REM:
-		b := basicOf(fg.g.info.TypeOf(e))
+		b := underBasic(fg.g.info.TypeOf(e))
 		return b != nil && b.Info()&types.IsInteger != 0
 	case token.SHL, token.SHR:
 		// An untyped count is a uint (typeOf).
-		b := basicOf(fg.g.info.TypeOf(e.Y))
+		b := underBasic(fg.g.info.TypeOf(e.Y))
 		return b != nil && b.Info()&(types.IsUnsigned|types.IsUntyped) == 0
 	}
 	return false
@@ -657,7 +657,7 @@ func (fg *funcGen) emitItem(it *orderItem, pre *[]cppir.Stmt) {
 		// r := x; if r { r = y } (for ||: if !r)
 		fg.emitScope(it.inner[0], pre)
 		t := fg.names.temp("t")
-		*pre = append(*pre, varDecl(cppir.Pos{}, typeName("bool"), t, fg.expr(it.bin.X)))
+		*pre = append(*pre, varDecl(cppir.Pos{}, fg.boolType(it.e), t, fg.expr(it.bin.X)))
 		var inner []cppir.Stmt
 		fg.emitScope(it.inner[1], &inner)
 		inner = append(inner, &cppir.ExprStmt{X: &cppir.Assign{Op: "=", X: cxxName(t), Y: fg.expr(it.bin.Y)}})
@@ -672,14 +672,23 @@ func (fg *funcGen) emitItem(it *orderItem, pre *[]cppir.Stmt) {
 	for _, in := range it.inner {
 		fg.emitScope(in, pre)
 	}
-	typ := "auto"
+	var typ cppir.Type = typeName("auto")
 	if it.bin != nil {
-		typ = "bool"
+		typ = fg.boolType(it.e)
 	}
 	x := fg.exactExpr(it.e)
 	t := fg.names.temp("t")
-	*pre = append(*pre, varDecl(cppir.Pos{}, typeName(typ), t, x))
+	*pre = append(*pre, varDecl(cppir.Pos{}, typ, t, x))
 	fg.temps[it.e] = t
+}
+
+// boolType returns the C++ type of the temporary of e, an && or ||: bool, or the named bool type
+// (type ok bool, step 3.9) that it has.
+func (fg *funcGen) boolType(e ast.Expr) cppir.Type {
+	if t := fg.g.info.TypeOf(e); isNewtype(t) {
+		return fg.g.cxxType(t, e.Pos())
+	}
+	return typeName("bool")
 }
 
 // withPre returns the C++ statement s with the statements pre in front of it: in an inline

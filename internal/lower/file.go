@@ -111,6 +111,10 @@ type gen struct {
 
 	// typeDecls are the package's structs (typedecl.go), or nil before the first one.
 	typeDecls *typeDecls
+
+	// implicit are the values that Go converts implicitly to another type, which C++ needs a
+	// conversion for, with the type (named.go: noteConversions).
+	implicit map[ast.Expr]types.Type
 }
 
 // errorf records an error at pos, if it is the first.

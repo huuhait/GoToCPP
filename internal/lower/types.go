@@ -26,16 +26,16 @@ import (
 //	struct{...}, type T struct{...}   a struct of its own (Phase 03 step 3.8, typedecl.go): Point,
 //	                         or gpkg_main::Point where a variable of that name hides it;
 //	                         gp_anon_3f2a... for an anonymous struct type
+//	type Celsius float64     Celsius, a struct over gp::newtype<Celsius, double> (Phase 03 step
+//	type IDs []int           3.9, named.go), IDs over gp::newtype<IDs, gp::slice<int64_t>>
 //
 // An untyped constant has the C++ type of its default type (untyped int → int64_t, untyped
 // rune → int32_t, untyped float → double), but go/types records the type that a constant
 // converts to, so the emitter seldom needs it.
 //
-// Not yet: complex64 and complex128 (std::complex, not in the Phase 02 subset), named types
-// that are not structs, also those over a basic type (type Celsius float64 becomes a
-// gp::newtype in Phase 03; type IDs []int too), and the other composite types (funcs: Phase 03;
-// interfaces and error: Phase 05; channels: Phase 08). For these, cxxType reports "not
-// supported yet".
+// Not yet: complex64 and complex128 (std::complex, not in the Phase 02 subset), and the other
+// composite types (funcs: Phase 03; interfaces and error: Phase 05; channels: Phase 08), also
+// named ones. For these, cxxType reports "not supported yet".
 
 // basicTypes are the C++ spellings of the basic types, by kind.
 var basicTypes = map[types.BasicKind]string{
@@ -91,8 +91,8 @@ func (g *gen) cxxType(t types.Type, pos token.Pos) cppir.Type {
 	case *types.Struct:
 		return g.structType(t, pos) // typedecl.go
 	case *types.Named:
-		if isStruct(t) {
-			return g.structType(t, pos)
+		if isStruct(t) || isNewtype(t) {
+			return g.structType(t, pos) // typedecl.go; a gp::newtype: named.go
 		}
 	case *types.Tuple:
 		args := make([]cppir.Node, t.Len())

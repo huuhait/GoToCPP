@@ -322,6 +322,10 @@ func (fg *funcGen) returnStmt(s *ast.ReturnStmt) {
 	case len(s.Results) == 1:
 		// One result, or a call whose results are the function's: return f();
 		pre := fg.order(false, s.Results[0])
+		if r := fg.tupleReturn(p, s.Results[0]); r != nil {
+			fg.add(withPre(p, append(pre, r[:len(r)-1]...), r[len(r)-1]))
+			break
+		}
 		fg.add(withPre(p, pre, &cppir.Return{Pos: p, X: fg.expr(s.Results[0])}))
 	default:
 		// C++ evaluates the values of a braced list in order.
@@ -405,6 +409,10 @@ type target struct {
 	// stores with gp::set(m, k, value) (maps.go).
 	mapX, mapK cppir.Expr
 	field      *ast.SelectorExpr
+
+	// gtype is the Go type of the target (nil for _), which a value of another type converts to
+	// (bind: one value with several results, step 3.9).
+	gtype types.Type
 }
 
 // varTarget returns the target of the existing variable whose C++ name is name.
@@ -414,7 +422,7 @@ func varTarget(name string) target {
 
 // lhs returns the target of the left side e of an assignment, which is not _.
 func (fg *funcGen) lhs(e ast.Expr) target {
-	t := target{x: fg.expr(e), mem: true}
+	t := target{x: fg.expr(e), mem: true, gtype: fg.g.info.TypeOf(e)}
 	switch x := ast.Unparen(e).(type) {
 	case *ast.Ident:
 		if v, ok := fg.g.info.Uses[x].(*types.Var); ok {
@@ -643,7 +651,7 @@ func (fg *funcGen) newTargets(lhs []ast.Expr) []target {
 			continue
 		}
 		if obj, ok := fg.g.info.Defs[id].(*types.Var); ok {
-			t := target{typ: fg.g.cxxType(obj.Type(), id.Pos()), shadow: fg.shadowing(obj), box: fg.isBoxed(obj)}
+			t := target{typ: fg.g.cxxType(obj.Type(), id.Pos()), shadow: fg.shadowing(obj), box: fg.isBoxed(obj), gtype: obj.Type()}
 			t.large = t.box && largeVar(obj.Type())
 			t.class = isClass(obj.Type())
 			if t.shadow {
@@ -743,10 +751,16 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 		for i := range targets {
 			save(i)
 		}
+		tuple, _ := fg.g.info.TypeOf(values[0]).(*types.Tuple)
 		for i, t := range targets {
 			if !t.blank() {
 				get := &cppir.Name{Name: "std::get", Args: []cppir.Node{lit(strconv.Itoa(i))}}
-				assign(t, &cppir.Call{Fun: get, Args: []cppir.Expr{cxxName(tmp)}})
+				var x cppir.Expr = &cppir.Call{Fun: get, Args: []cppir.Expr{cxxName(tmp)}}
+				if tuple != nil && i < tuple.Len() {
+					// Go converts the result implicitly to the target's type (step 3.9).
+					x = fg.g.convertTo(tuple.At(i).Type(), t.gtype, x, values[0].Pos())
+				}
+				assign(t, x)
 			}
 		}
 	case direct:

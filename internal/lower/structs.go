@@ -57,7 +57,9 @@ func (fg *funcGen) compLit(e *ast.CompositeLit) cppir.Expr {
 	return fg.litValue(e, t)
 }
 
-// litValue returns the C++ of the composite literal e of type t (not a pointer).
+// litValue returns the C++ of the composite literal e of type t (not a pointer). A literal of a
+// named slice, map or array type is the literal of its underlying type converted to it (step
+// 3.9): IDs(gp::slice_of<int64_t>({1, 2})).
 func (fg *funcGen) litValue(e *ast.CompositeLit, t types.Type) cppir.Expr {
 	switch {
 	case isArray(t):
@@ -65,7 +67,7 @@ func (fg *funcGen) litValue(e *ast.CompositeLit, t types.Type) cppir.Expr {
 	case isStruct(t):
 		return fg.structLit(e, t)
 	}
-	return fg.compositeLit(e) // slices.go
+	return fg.g.wrapNamed(t, fg.compositeLit(e), e.Lbrace) // slices.go
 }
 
 // litType returns the type of the composite literal e, the T of a literal {...} whose type *T
@@ -398,6 +400,9 @@ func (fg *funcGen) sharedCopy(e ast.Expr, x cppir.Expr) cppir.Expr {
 	if _, ok := fg.temps[ast.Unparen(e)]; ok || t == nil || !(isStruct(t) || isArray(t)) || !mayOwn(t) || !fg.indirect(e) {
 		return x
 	}
+	if _, ok := fg.g.implicit[e]; ok {
+		return x // converted to the target's type (named.go): a new value already
+	}
 	return construct(fg.g.cxxType(t, e.Pos()), x)
 }
 
@@ -420,18 +425,12 @@ func (fg *funcGen) indirect(e ast.Expr) bool {
 	return false
 }
 
-// structConversion returns the C++ of the conversion T(x) to or from a struct type: x itself
-// when both have the same C++ type (an alias); the others (between a named struct type and an
-// identical anonymous one, or two named ones) come with step 3.9's conversions between types
-// that are not identical.
-func (fg *funcGen) structConversion(c *ast.CallExpr, to, from types.Type) cppir.Expr {
-	arg := c.Args[0]
-	if cppir.TypeString(fg.g.cxxType(to, c.Pos())) == cppir.TypeString(fg.g.cxxType(from, arg.Pos())) {
-		return fg.expr(arg)
-	}
-	qual := types.RelativeTo(fg.g.pkg.Types)
-	fg.g.unsupported(c.Pos(), "the conversion from "+types.TypeString(from, qual)+" to "+types.TypeString(to, qual)+" (Phase 03 step 3.9)")
-	return placeholder
+// structConversion returns the C++ of the conversion T(x) to or from a struct type, whose operand's
+// C++ is x: x itself when both have the same C++ type (an alias), else gp::convert<T>(x), which
+// copies the fields (between a named struct type and an identical anonymous one, or two named
+// ones whose underlying types are identical, ignoring tags: step 3.9, named.go).
+func (fg *funcGen) structConversion(c *ast.CallExpr, to, from types.Type, x cppir.Expr) cppir.Expr {
+	return fg.g.convertStruct(from, to, x, c.Pos())
 }
 
 // goSizes are Go's own sizes (gc on amd64), for gc's rule of which values it copies into a
@@ -491,171 +490,4 @@ func soleComponent(t types.Type) types.Type {
 		return soleComponent(u.Elem())
 	}
 	return t
-}
-
-// checkConversion reports the implicit conversion at pos of a value of type from to the type to
-// if both are struct types that are not identical (implicitConversions).
-func (g *gen) checkConversion(pos token.Pos, from, to types.Type) {
-	if from == nil || to == nil || !isStruct(from) || !isStruct(to) || types.Identical(from, to) {
-		return
-	}
-	qual := types.RelativeTo(g.pkg.Types)
-	g.unsupported(pos, "the implicit conversion from "+types.TypeString(from, qual)+" to "+
-		types.TypeString(to, qual)+" (Phase 03 step 3.9)")
-}
-
-// implicitConversions reports "not supported yet" for the implicit conversions in n between
-// struct types that are not identical: a value of an anonymous struct type where the named struct
-// type with the same fields is expected, or the other way round (var p Point = struct{ X, Y int
-// }{1, 2}, f(struct{...}{...}), a return, an element of a composite literal, a map key, a range
-// target with =, a case value of a switch). Go
-// allows them because one of the types is unnamed; they are two C++ types, and step 3.9 adds the
-// conversions where the types are not identical. sig is the signature of the function n is in
-// (nil for the initializers of package variables).
-func (g *gen) implicitConversions(n ast.Node, sig *types.Signature) {
-	check := func(e ast.Expr, to types.Type) { g.checkConversion(e.Pos(), g.info.TypeOf(e), to) }
-	// values checks the values of a list against the types: one value with several results
-	// (a, b = f()), or one value for each type.
-	values := func(list []ast.Expr, typeOf func(i int) types.Type, n int) {
-		if len(list) == 1 && n > 1 {
-			if tuple, ok := g.info.TypeOf(list[0]).(*types.Tuple); ok {
-				for i := range min(tuple.Len(), n) {
-					g.checkConversion(list[0].Pos(), tuple.At(i).Type(), typeOf(i))
-				}
-			}
-			return
-		}
-		for i, e := range list {
-			if i < n {
-				check(e, typeOf(i))
-			}
-		}
-	}
-	sigs := []*types.Signature{sig}
-	var stack []ast.Node
-	ast.Inspect(n, func(n ast.Node) bool {
-		if n == nil {
-			if _, ok := stack[len(stack)-1].(*ast.FuncLit); ok {
-				sigs = sigs[:len(sigs)-1]
-			}
-			stack = stack[:len(stack)-1]
-			return true
-		}
-		stack = append(stack, n)
-		switch x := n.(type) {
-		case *ast.FuncLit:
-			s, _ := g.info.TypeOf(x).(*types.Signature)
-			sigs = append(sigs, s)
-		case *ast.AssignStmt:
-			if x.Tok == token.ASSIGN || x.Tok == token.DEFINE {
-				values(x.Rhs, func(i int) types.Type {
-					if isBlank(x.Lhs[i]) {
-						return nil
-					}
-					return g.info.TypeOf(x.Lhs[i])
-				}, len(x.Lhs))
-			}
-		case *ast.ValueSpec:
-			if x.Type != nil {
-				to := g.info.TypeOf(x.Type)
-				values(x.Values, func(int) types.Type { return to }, len(x.Names))
-			}
-		case *ast.ReturnStmt:
-			if s := sigs[len(sigs)-1]; s != nil {
-				values(x.Results, func(i int) types.Type { return s.Results().At(i).Type() }, s.Results().Len())
-			}
-		case *ast.CallExpr:
-			if g.info.Types[x.Fun].IsType() {
-				return true // a conversion
-			}
-			s, ok := under(g.info.TypeOf(x.Fun)).(*types.Signature)
-			if !ok {
-				return true
-			}
-			params := s.Params()
-			values(x.Args, func(i int) types.Type {
-				if s.Variadic() && i >= params.Len()-1 {
-					if x.Ellipsis.IsValid() {
-						return params.At(params.Len() - 1).Type()
-					}
-					return params.At(params.Len() - 1).Type().(*types.Slice).Elem()
-				}
-				return params.At(i).Type()
-			}, max(len(x.Args), params.Len()))
-		case *ast.CompositeLit:
-			t := g.litType(x)
-			for i, elt := range x.Elts {
-				kv, keyed := elt.(*ast.KeyValueExpr)
-				switch u := under(t).(type) {
-				case *types.Struct:
-					if keyed {
-						if k := fieldIndex(u, kv.Key.(*ast.Ident).Name); k >= 0 {
-							check(kv.Value, u.Field(k).Type())
-						}
-					} else if i < u.NumFields() {
-						check(elt, u.Field(i).Type())
-					}
-				case *types.Map:
-					if keyed {
-						check(kv.Key, u.Key())
-						check(kv.Value, u.Elem())
-					}
-				case *types.Slice:
-					if keyed {
-						elt = kv.Value
-					}
-					check(elt, u.Elem())
-				case *types.Array:
-					if keyed {
-						elt = kv.Value
-					}
-					check(elt, u.Elem())
-				}
-			}
-		case *ast.IndexExpr:
-			if m, ok := under(g.info.TypeOf(x.X)).(*types.Map); ok {
-				check(x.Index, m.Key())
-			}
-		case *ast.BinaryExpr:
-			if x.Op == token.EQL || x.Op == token.NEQ {
-				check(x.Y, g.info.TypeOf(x.X))
-			}
-		case *ast.SwitchStmt:
-			// The tag is compared with each case value, as by ==.
-			if x.Tag != nil {
-				for _, c := range x.Body.List {
-					for _, e := range c.(*ast.CaseClause).List {
-						check(e, g.info.TypeOf(x.Tag))
-					}
-				}
-			}
-		case *ast.RangeStmt:
-			// for k, v = range x assigns the key and the value to targets that exist.
-			if x.Tok != token.ASSIGN {
-				break
-			}
-			var key, value types.Type
-			switch u := under(g.info.TypeOf(x.X)).(type) {
-			case *types.Slice:
-				value = u.Elem()
-			case *types.Array:
-				value = u.Elem()
-			case *types.Pointer:
-				if a, ok := under(u.Elem()).(*types.Array); ok {
-					value = a.Elem()
-				}
-			case *types.Map:
-				key, value = u.Key(), u.Elem()
-			}
-			for _, t := range []struct {
-				e    ast.Expr
-				from types.Type
-			}{{x.Key, key}, {x.Value, value}} {
-				if t.e != nil && !isBlank(t.e) {
-					g.checkConversion(t.e.Pos(), t.from, g.info.TypeOf(t.e))
-				}
-			}
-		}
-		return true
-	})
 }

@@ -201,7 +201,8 @@ func (fg *funcGen) emitMapLit(it *orderItem, e *ast.CompositeLit, pre *[]cppir.S
 		}
 		start = templateCall("gp::map_of", []cppir.Node{key, elem}, &cppir.InitList{Elems: pairs})
 	}
-	*pre = append(*pre, varDecl(cppir.Pos{}, mapType(key, elem), t, start))
+	// A literal of a named map type (step 3.9) is one in its temporary of that type.
+	*pre = append(*pre, varDecl(cppir.Pos{}, fg.g.cxxType(fg.g.info.TypeOf(e), e.Pos()), t, fg.g.wrapNamed(fg.g.info.TypeOf(e), start, e.Pos())))
 	for _, kv := range dynamics {
 		// The arguments of gp::set are not in order: the entry's own scope, as a store.
 		*pre = append(*pre, fg.order(false, kv.Key, kv.Value)...)
@@ -275,16 +276,16 @@ func (fg *funcGen) mapBuiltin(c *ast.CallExpr, name string) cppir.Expr {
 }
 
 // mapConversion returns the C++ of a conversion to a map type: map[K]V(nil) is gp::map<K, V>(),
-// and a map of the same C++ type is itself (until step 3.9, every map type is unnamed:
-// identical ones).
-func (fg *funcGen) mapConversion(c *ast.CallExpr, to, from types.Type) cppir.Expr {
+// and a map of the same C++ type is itself (identical types: a named map type converts as its
+// underlying type, namedConversion).
+func (fg *funcGen) mapConversion(c *ast.CallExpr, to, from types.Type, x cppir.Expr) cppir.Expr {
 	arg := c.Args[0]
 	typ := fg.g.cxxType(to, c.Pos())
 	switch {
 	case fg.g.info.Types[arg].IsNil():
 		return construct(typ)
 	case isMap(from) && cppir.TypeString(typ) == cppir.TypeString(fg.g.cxxType(from, arg.Pos())):
-		return fg.expr(arg)
+		return x
 	}
 	qual := types.RelativeTo(fg.g.pkg.Types)
 	fg.g.unsupported(c.Pos(), "the conversion from "+types.TypeString(from, qual)+" to "+types.TypeString(to, qual))
@@ -481,7 +482,7 @@ func (fg *funcGen) sameSafe(a, b ast.Expr) bool {
 	case *ast.CallExpr:
 		y, ok := b.(*ast.CallExpr)
 		if !ok || len(x.Args) != 1 || len(y.Args) != 1 || !fg.g.info.Types[x.Fun].IsType() ||
-			!fg.g.info.Types[y.Fun].IsType() || basicOf(ta.Type) == nil || isString(ta.Type) {
+			!fg.g.info.Types[y.Fun].IsType() || underBasic(ta.Type) == nil || isString(ta.Type) {
 			return false // only conversions to numbers and bools (gc: types.IsSimple)
 		}
 		return fg.sameSafe(x.Args[0], y.Args[0])
@@ -498,7 +499,7 @@ func (fg *funcGen) mapShift(s ast.Stmt) (*ast.AssignStmt, bool) {
 	}
 	if v := fg.constValue(a.Rhs[0]); v != nil {
 		n, exact := constant.Uint64Val(constant.ToInt(v))
-		if b := basicOf(fg.g.info.TypeOf(a.Lhs[0])); b != nil && exact && n < bitSize(b) {
+		if b := underBasic(fg.g.info.TypeOf(a.Lhs[0])); b != nil && exact && n < bitSize(b) {
 			return a, false
 		}
 	}
@@ -603,7 +604,7 @@ func (fg *funcGen) mapSimple(s ast.Stmt) cppir.Expr {
 		}
 		y := s.Rhs[0]
 		op := s.Tok + (token.ADD - token.ADD_ASSIGN)
-		b := basicOf(fg.g.info.TypeOf(x))
+		b := underBasic(fg.g.info.TypeOf(x))
 		switch op {
 		case token.AND_NOT:
 			return &cppir.Assign{Op: "&=", X: fg.mapRef(x), Y: &cppir.Unary{Op: "~", X: at(fg.expr(y), precUnary)}}

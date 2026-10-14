@@ -46,6 +46,10 @@ const arr = "var garr = [3]int{1, 2, 3}\n\n"
 // package Pt and a package slice of them.
 const st = "type Pt struct{ a, b int }\n\ntype Wrap struct{ *Pt }\n\nvar gst Pt\n\nvar gsts = []Pt{{1, 2}}\n\n"
 
+// nt has the named types for the named cases of TestOrderPanics (step 3.9): a named int, a
+// named slice of them, package variables of both, and a function that gives a []N.
+const nt = "type N int\n\ntype NS []N\n\nvar gn N = 5\n\nvar gns = NS{1, 2, 3}\n\nfunc mkn() []N {\n\treturn nil\n}\n\n"
+
 // TestOrderPanics checks the order of calls and of the operations that can panic (order.go)
 // against real Go: gc calls f first in a/b + f() and panics after it, and reads s after grow
 // in int(s[i]) + grow(). Each program panics, with Go's output and exit code 2, on both
@@ -163,6 +167,16 @@ func TestOrderPanics(t *testing.T) {
 		{"defer-runs-later", "", "defer fmt.Println(\"deferred\", x, f())\n\tx = 100\n\tz := 0\n\tfmt.Println(7 / z)"},
 		{"defer-map-nil", "", "var m map[int]int\n\tdefer fmt.Println(\"after\", f())\n\tm[id(1)] = f()"},
 		{"defer-panic-arg", "", "defer fmt.Println(\"first\", f())\n\tdefer panic(id(f()))\n\tfmt.Println(\"body\", x)"},
+		// Named types (step 3.9): a division, a shift and an index of named types panic after
+		// the calls of their scope, like those of their underlying types; a slice expression of
+		// a named slice in its place among the calls.
+		{"named-div-call", nt, "z := N(0)\n\tfmt.Println(gn/z + N(f()))"},
+		{"named-op-assign", nt, "gn /= N(f() - x)\n\tfmt.Println(gn)"},
+		{"named-shift-call", nt, "k := -1\n\tfmt.Println(gn<<k, f())"},
+		{"named-index-call", nt, "i := 5\n\tfmt.Println(gns[i], f())"},
+		{"named-index-named", nt, "var i N = 7\n\tfmt.Println(int(gns[i])+f(), f())"},
+		{"named-slice-first", nt, "j := 9\n\tfmt.Println(len(gns[:j]), f())"},
+		{"named-append-index", nt, "gns = append(gns[:1], N(f()))\n\tfmt.Println(gns[2], f())"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -456,6 +470,20 @@ func TestOrderTemps(t *testing.T) {
 		{"defer panic(f())", "gp_df.gp_push_call([](auto&& gp_a0) { gp::panic(gp_a0); }, f());"},
 		{"defer fmt.Println(two())", "gp_df.gp_push_call([](auto&& gp_a0) { std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, gp_a0); }, two());"},
 		{"defer g(two())", "gp_df.gp_push_call([](auto&& gp_a0) { std::apply(g, gp_a0); }, two());"},
+		// Named types (step 3.9): a package N is read after the calls, a local one anywhere; a
+		// division of a named int is gp::div with its temporaries like an int's; a value that Go
+		// converts to a named type implicitly is converted in its temporary; s = append(s, x)
+		// of a named slice moves it; an && of a named bool is that type, also in a temporary.
+		{"fmt.Println(gn, f())", "{ auto gp_t0 = f(); gp::fmtshim::Println(gn, gp_t0); }"},
+		{"ln := gn\n\tfmt.Println(ln*2, f())", "gp::fmtshim::Println(ln * N(2), f());"},
+		{"z := N(0)\n\tfmt.Println(gn/z + N(f()))", "{ auto gp_t0 = f(); gp::fmtshim::Println(gp::div(gn, z) + N(gp_t0)); }"},
+		{"var lns NS = mkn()\n\t_ = lns", "NS lns = NS(mkn());"},
+		{"lns := NS{}\n\tlns = append(lns, gn)", "lns = NS(gp::append(static_cast<NS&&>(lns), gn));"},
+		{"lns := NS{}\n\tlns = mkn()\n\t_ = lns", "lns = NS(mkn());"},
+		{"var lns NS\n\tlns, x = mkn(), f()\n\t_ = lns", "{ auto gp_t0 = NS(mkn()); auto gp_t1 = f(); lns = gp_t0; x = gp_t1; }"},
+		{"lb := Flag(x > 0) && Flag(f() > 1)\n\t_ = lb", "Flag lb = Flag(Flag(x > 0) && Flag(f() > 1));"},
+		{"fmt.Println(Flag(x > 0) && Flag(f() > 1), f())", "{ Flag gp_t0 = Flag(Flag(x > 0) && Flag(f() > 1)); gp::fmtshim::Println(gp_t0, f()); }"},
+		{"switch gn {\n\tcase 1:\n\t}", "switch (gn.gp_value()) {"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.body, func(t *testing.T) {
@@ -465,7 +493,7 @@ func TestOrderTemps(t *testing.T) {
 				"var ga = [3]int{1, 2, 3}\n\nvar gg2 = [2][2]int{}\n\nfunc mka() *[3]int {\n\treturn nil\n}\n\n" +
 				"type Pt struct{ a, b int }\n\ntype One struct{ v int }\n\ntype Tree struct {\n\tkids []Tree\n\tnext *Tree\n}\n\nvar gst Pt\n\nvar gsts = []Pt{{1, 2}}\n\n" +
 				"type Wrap struct{ *Pt }\n\ntype Huge struct {\n\tv  int\n\tbig [1 << 15]int\n\tn  int\n}\n\n" +
-				"func mkp() *Pt {\n\treturn &gst\n}\n\nfunc main() {\n\t" + tt.body + "\n}\n"
+				"func mkp() *Pt {\n\treturn &gst\n}\n\n" + nt + "type Flag bool\n\nfunc main() {\n\t" + tt.body + "\n}\n"
 			gp := filepath.Join(dir, "main.gp")
 			if err := os.WriteFile(gp, []byte(src), 0o644); err != nil {
 				t.Fatal(err)

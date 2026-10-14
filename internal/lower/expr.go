@@ -138,6 +138,13 @@ func (fg *funcGen) expr(e ast.Expr) cppir.Expr {
 	if t, ok := fg.temps[e]; ok {
 		return cxxName(t)
 	}
+	// Go may convert the value implicitly to another type there (step 3.9, named.go).
+	return fg.implicitConv(e, fg.value(e))
+}
+
+// value returns the C++ of the expression e, which is not in a temporary, with its own type
+// (expr).
+func (fg *funcGen) value(e ast.Expr) cppir.Expr {
 	// A constant is folded: go/types computed its value and the type it converts to.
 	if tv, ok := fg.g.info.Types[e]; ok && tv.Value != nil {
 		return fg.g.constant(tv.Value, fg.g.untypedCount(e, tv.Type), e.Pos(), false)
@@ -190,12 +197,13 @@ func (fg *funcGen) exactExpr(e ast.Expr) cppir.Expr {
 
 // intExpr returns the C++ of e, an index, a bound of a slice expression or a length (make): a
 // constant is a literal of type int, which every runtime template takes (go/types may record
-// an untyped float constant, s[2.0], or a byte, s['a']); the rest is fg.expr's.
+// an untyped float constant, s[2.0], or a byte, s['a']), and a value of a named integer type
+// is its integer (x.gp_value()); the rest is fg.expr's.
 func (fg *funcGen) intExpr(e ast.Expr) cppir.Expr {
 	if v := fg.constValue(e); v != nil {
 		return fg.g.constant(v, types.Typ[types.Int], e.Pos(), false)
 	}
-	return fg.expr(e)
+	return valueOf(fg.g.info.TypeOf(e), fg.expr(e)) // a named integer: its value (step 3.9)
 }
 
 // exprs returns the C++ of each expression. With exact, constants get their exact type
@@ -335,6 +343,8 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 				Params: []cppir.Param{{Type: &cppir.Ref{Elem: &cppir.Const{Elem: typeName("auto")}}, Pack: true, Name: "gp_a"}},
 				Body:   &cppir.Block{Stmts: []cppir.Stmt{body}, Inline: true},
 			}
+		} else if x := fg.tupleArgs(c, callee); x != nil {
+			fn = x // results that Go converts to the parameters' types (step 3.9, named.go)
 		}
 		return &cppir.Call{Fun: cxxName("std::apply"), Args: []cppir.Expr{fn, arg}}
 	}
@@ -463,7 +473,13 @@ func isLetter(c byte) bool {
 //     of the double.
 //   - Strings: "..."_gs, a gp::string over the literal's bytes (cppir.CString's escapes).
 //   - Booleans: true and false.
+//   - A named type over one of them (step 3.9): T(literal), Celsius(1.5).
 func (g *gen) constant(v constant.Value, t types.Type, pos token.Pos, exact bool) cppir.Expr {
+	if isNewtype(t) {
+		// A constant of a named type (step 3.9) is the constant of its underlying type as a
+		// value of the named type: Celsius(1.5), Name("x"_gs).
+		return g.wrapNamed(t, g.constant(v, t.Underlying(), pos, false), pos)
+	}
 	b := basicOf(t)
 	if b == nil {
 		g.cxxType(t, pos) // reports it

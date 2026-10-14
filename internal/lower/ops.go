@@ -78,11 +78,11 @@ func bitSize(b *types.Basic) uint64 {
 	return 64
 }
 
-// operandType returns the basic type of the operand x, or nil (with an error) if it has
-// another type.
+// operandType returns the basic type of the operand x (under its name, for a named type: step
+// 3.9), or nil (with an error) if it has another type.
 func (fg *funcGen) operandType(pos token.Pos, op token.Token, x ast.Expr) *types.Basic {
 	t := fg.typeOf(x)
-	b := basicOf(t)
+	b := underBasic(t)
 	if b == nil {
 		fg.g.unsupported(pos, "the operator "+op.String()+" on "+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types)))
 	}
@@ -153,9 +153,15 @@ func (fg *funcGen) binary(e *ast.BinaryExpr) cppir.Expr {
 		if t == nil {
 			return placeholder
 		}
-		return fg.shift(t, e.Op, e.X, e.Y)
+		return fg.shift(t, fg.typeOf(e), e.Op, e.X, e.Y)
 	}
-	return fg.binaryOp(e.OpPos, e.Op, e.X, e.Y)
+	x := fg.binaryOp(e.OpPos, e.Op, e.X, e.Y)
+	switch e.Op {
+	case token.LAND, token.LOR, token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ:
+		// A bool of a named type (type ok bool, step 3.9): b && c and x < y give C++'s bool.
+		return fg.g.wrapNamed(fg.typeOf(e), x, e.Pos())
+	}
+	return x
 }
 
 // binaryOp returns the C++ of x op y, a Go binary expression whose operator is at pos. (Step
@@ -193,10 +199,17 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.
 	if t == nil {
 		return placeholder
 	}
+	xt := fg.typeOf(x)
+	narrow := func(b *types.Basic, x cppir.Expr) cppir.Expr {
+		if isNewtype(xt) {
+			return x // gp::newtype's operators convert back to the type (step 3.9)
+		}
+		return narrow(b, x)
+	}
 	switch op {
 	case token.ADD, token.SUB:
 		if op == token.ADD && t.Info()&types.IsString != 0 {
-			return fg.concat(x, y)
+			return fg.g.wrapNamed(xt, fg.concat(x, y), pos) // gp::string's + gives a string
 		}
 		return narrow(t, fg.infix(x, op.String(), y))
 	case token.MUL:
@@ -216,7 +229,7 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.
 		// gp::div deduces its type from x (y converts to it), so a constant x needs its type.
 		return call(helper, fg.exactExpr(x), fg.expr(y))
 	case token.SHL, token.SHR:
-		return fg.shift(t, op, x, y)
+		return fg.shift(t, xt, op, x, y)
 	case token.AND:
 		return narrow(t, fg.grouped(x, "&", y, precBitAnd, precUnary-1))
 	case token.OR:
@@ -248,7 +261,7 @@ func (fg *funcGen) concat(x, y ast.Expr) cppir.Expr {
 		u := ast.Unparen(e)
 		_, temp := fg.temps[u]
 		if b, ok := u.(*ast.BinaryExpr); ok && b.Op == token.ADD && !temp && fg.constValue(u) == nil {
-			if t := basicOf(fg.typeOf(u)); t != nil && t.Info()&types.IsString != 0 {
+			if t := underBasic(fg.typeOf(u)); t != nil && t.Info()&types.IsString != 0 {
 				walk(b.X)
 				walk(b.Y)
 				return
@@ -285,18 +298,23 @@ func (fg *funcGen) grouped(x ast.Expr, op string, y ast.Expr, prec, loose int) c
 	return &cppir.Binary{Op: op, X: a, Y: at(b, max(prec, loose)+1)}
 }
 
-// shift returns the C++ of x << y or x >> y, where x has the integer type t. Go defines every
-// count: one of the width of t or more gives 0 (or -1 for >> of a negative signed x), and a
-// negative one panics. C++ defines only counts below the width, so the plain operator is used
-// only for a constant count below it; the runtime's gp::shl and gp::shr do the rest.
-func (fg *funcGen) shift(t *types.Basic, op token.Token, x, y ast.Expr) cppir.Expr {
+// shift returns the C++ of x << y or x >> y, where x has the integer type t (under the named
+// type nt, or nt itself). Go defines every count: one of the width of t or more gives 0 (or -1
+// for >> of a negative signed x), and a negative one panics. C++ defines only counts below the
+// width, so the plain operator is used only for a constant count below it; the runtime's
+// gp::shl and gp::shr do the rest (with overloads for the named types, gocpp/newtype.hpp).
+func (fg *funcGen) shift(t *types.Basic, nt types.Type, op token.Token, x, y ast.Expr) cppir.Expr {
 	if v := fg.constValue(y); v != nil {
 		n, exact := constant.Uint64Val(constant.ToInt(v))
 		if exact && n < bitSize(t) {
 			// The left operand of a plain shift gets parentheses even where C++ doesn't
 			// need them: clang warns about a + b << 3 (-Wshift-op-parentheses).
 			a := at(fg.expr(x), precUnary)
-			return narrow(t, &cppir.Binary{Op: op.String(), X: a, Y: lit(strconv.FormatUint(n, 10))})
+			x := &cppir.Binary{Op: op.String(), X: a, Y: lit(strconv.FormatUint(n, 10))}
+			if isNewtype(nt) {
+				return x // gp::newtype's << converts back to the type
+			}
+			return narrow(t, x)
 		}
 	}
 	helper := "gp::shl"
@@ -305,7 +323,11 @@ func (fg *funcGen) shift(t *types.Basic, op token.Token, x, y ast.Expr) cppir.Ex
 	}
 	a := fg.exactExpr(x)
 	if v := fg.constValue(x); v != nil {
-		a = fg.g.constant(v, t, x.Pos(), true) // t, the type of the shift
+		var st types.Type = t // the type of the shift
+		if isNewtype(nt) {
+			st = nt
+		}
+		a = fg.g.constant(v, st, x.Pos(), true)
 	}
 	return call(helper, a, fg.shiftCount(y))
 }
@@ -317,7 +339,7 @@ func (fg *funcGen) shift(t *types.Basic, op token.Token, x, y ast.Expr) cppir.Ex
 func (fg *funcGen) shiftCount(y ast.Expr) cppir.Expr {
 	v := fg.constValue(y)
 	if v == nil {
-		return fg.expr(y)
+		return valueOf(fg.typeOf(y), fg.expr(y)) // a named count: its value (step 3.9)
 	}
 	n, _ := constant.Uint64Val(constant.ToInt(v))
 	if n <= math.MaxInt32 {
@@ -338,6 +360,11 @@ func (fg *funcGen) unary(e *ast.UnaryExpr) cppir.Expr {
 			return placeholder
 		}
 		x := fg.expr(e.X)
+		narrow := narrow
+		if isNewtype(fg.typeOf(e.X)) {
+			// gp::newtype's operators convert back to the type (step 3.9).
+			narrow = func(_ *types.Basic, x cppir.Expr) cppir.Expr { return x }
+		}
 		switch e.Op {
 		case token.ADD:
 			return x // +x is x (C++'s +x would promote a small integer to int)
@@ -391,16 +418,23 @@ func (fg *funcGen) slice(e *ast.SliceExpr) cppir.Expr {
 	case e.Low == nil && e.High == nil && e.Max == nil:
 		return x
 	case e.High == nil:
-		return call("gp::sub", x, fg.intExpr(e.Low))
+		x = call("gp::sub", x, fg.intExpr(e.Low))
+	case e.Max != nil:
+		x = call("gp::sub", x, fg.sliceLow(e), fg.intExpr(e.High), fg.intExpr(e.Max))
+	default:
+		x = call("gp::sub", x, fg.sliceLow(e), fg.intExpr(e.High))
 	}
-	var lo cppir.Expr = lit("0")
-	if e.Low != nil {
-		lo = fg.intExpr(e.Low)
+	// s[a:b] of a named string or slice type has that type (step 3.9): gp::sub gives the
+	// underlying one.
+	return fg.g.wrapNamed(fg.g.info.TypeOf(e), x, e.Pos())
+}
+
+// sliceLow returns the C++ of the low bound of the slice expression e: 0 if it has none.
+func (fg *funcGen) sliceLow(e *ast.SliceExpr) cppir.Expr {
+	if e.Low == nil {
+		return lit("0")
 	}
-	if e.Max != nil {
-		return call("gp::sub", x, lo, fg.intExpr(e.High), fg.intExpr(e.Max))
-	}
-	return call("gp::sub", x, lo, fg.intExpr(e.High))
+	return fg.intExpr(e.Low)
 }
 
 // builtin returns the C++ of a call of the builtin len, cap, panic, new, make, append, copy,
@@ -420,16 +454,21 @@ func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 	case "len", "cap":
 		// len and cap of an array, or of a pointer to one, are N: a constant unless the
 		// argument has calls (gp::len(f()) evaluates f, and doesn't dereference a pointer).
-		if !isSlice(t) && arrayOf(t) == nil && !(name == "len" && isMap(t)) && (name == "cap" || b == nil || b.Info()&types.IsString == 0) {
+		if s := underBasic(t); !isSlice(t) && arrayOf(t) == nil && !(name == "len" && isMap(t)) && (name == "cap" || s == nil || s.Info()&types.IsString == 0) {
 			fg.g.unsupported(c.Pos(), name+" of "+tname+" (Phase 03)")
 			return placeholder
 		}
-		return call("gp::"+name, fg.expr(arg))
+		return call("gp::"+name, arrayPtrValue(t, fg.expr(arg)))
 	case "make", "append", "copy", "clear", "delete":
+		var x cppir.Expr
 		if isMap(t) {
-			return fg.mapBuiltin(c, name) // step 3.7, maps.go
+			x = fg.mapBuiltin(c, name) // step 3.7, maps.go
+		} else {
+			x = fg.sliceBuiltin(c, name)
 		}
-		return fg.sliceBuiltin(c, name)
+		// make(IDs, n) and append(ids, x) of a named type have that type (step 3.9): the
+		// runtime gives the underlying one.
+		return fg.g.wrapNamed(fg.g.info.TypeOf(c), x, c.Pos())
 	default: // panic
 		if b == nil {
 			fg.g.unsupported(c.Pos(), "panic with a value of type "+tname+" (Phase 05)")
@@ -475,31 +514,46 @@ func (fg *funcGen) conversion(c *ast.CallExpr, to types.Type) cppir.Expr {
 	}
 	arg := c.Args[0]
 	from := fg.g.info.TypeOf(arg)
-	if x := fg.arrayConversion(c, to, from); x != nil {
-		return x // arrays.go
+	if isNewtype(to) || isNewtype(from) {
+		return fg.namedConversion(c, to, from) // step 3.9, named.go
+	}
+	return fg.convertValue(c, to, from, fg.exactExpr(arg))
+}
+
+// convertValue returns the C++ of the conversion c to the type to of a value of type from (not
+// named types that aren't structs: namedConversion), whose C++ is x.
+func (fg *funcGen) convertValue(c *ast.CallExpr, to, from types.Type, x cppir.Expr) cppir.Expr {
+	arg := c.Args[0]
+	if y := fg.arrayConversion(c, to, from, x); y != nil {
+		return y // arrays.go
 	}
 	if isStruct(to) || isStruct(from) {
-		return fg.structConversion(c, to, from) // structs.go
+		return fg.structConversion(c, to, from, x) // structs.go
 	}
 	if isPointer(to) {
-		// (*int)(p) between pointers of the same C++ type, or (*int)(nil). The other
-		// conversions between pointer types need named types (gp::ptr_cast, step 3.9).
+		// (*int)(p) between pointers of the same C++ type, or (*int)(nil); between pointers
+		// whose base types have identical underlying types ((*B)(pa) for type B A),
+		// gp::ptr_cast<B>(pa), which shares pa's target.
 		typ := fg.g.cxxType(to, c.Pos())
 		if fg.g.info.Types[arg].IsNil() {
 			return construct(typ, lit("nullptr"))
 		}
 		if isPointer(from) && cppir.TypeString(typ) == cppir.TypeString(fg.g.cxxType(from, c.Pos())) {
-			return fg.expr(arg)
+			return x
+		}
+		if isPointer(from) {
+			elem := under(to).(*types.Pointer).Elem()
+			return templateCall("gp::ptr_cast", []cppir.Node{fg.g.cxxType(elem, c.Pos())}, x)
 		}
 		qual := types.RelativeTo(fg.g.pkg.Types)
-		fg.g.unsupported(c.Pos(), "the conversion from "+types.TypeString(from, qual)+" to "+types.TypeString(to, qual)+" (Phase 03 step 3.9)")
+		fg.g.unsupported(c.Pos(), "the conversion from "+types.TypeString(from, qual)+" to "+types.TypeString(to, qual))
 		return placeholder
 	}
 	if isSlice(to) || isSlice(from) {
-		return fg.sliceConversion(c, to, from)
+		return fg.sliceConversion(c, to, from, x)
 	}
 	if isMap(to) {
-		return fg.mapConversion(c, to, from) // maps.go
+		return fg.mapConversion(c, to, from, x) // maps.go
 	}
 	tb, fb := basicOf(to), basicOf(from)
 	if tb == nil || fb == nil {
@@ -510,18 +564,17 @@ func (fg *funcGen) conversion(c *ast.CallExpr, to types.Type) cppir.Expr {
 	ti, fi := tb.Info(), fb.Info()
 	if ti&types.IsString != 0 || fi&types.IsString != 0 {
 		if ti&fi&types.IsString != 0 {
-			return fg.expr(arg) // string(s)
+			return x // string(s)
 		}
 		if ti&types.IsString != 0 && fi&types.IsInteger != 0 {
 			// The template takes the value with its Go type, which decides what is valid
 			// (a uint64 above 2^63 is not a negative number).
-			return call("gp::rune_to_string", fg.exactExpr(arg))
+			return call("gp::rune_to_string", x)
 		}
 		qual := types.RelativeTo(fg.g.pkg.Types)
 		fg.g.unsupported(c.Pos(), "the conversion from "+types.TypeString(from, qual)+" to "+types.TypeString(to, qual))
 		return placeholder
 	}
-	x := fg.expr(arg)
 	ct := basicTypes[tb.Kind()]
 	switch {
 	case ct == basicTypes[fb.Kind()]:

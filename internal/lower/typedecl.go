@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/cppir"
 )
 
@@ -68,13 +67,16 @@ import (
 // types (type Node struct{ next *Node; kids []Node }) work. A cycle by value is a go/types error.
 // The structs come before the prototypes and the package variables.
 //
-// Not yet: named types that are not structs (type Celsius float64, step 3.9), methods (3.10) and
-// generic types (Phase 07).
+// The named types that aren't structs (type Celsius float64, type IDs []int, step 3.9) are
+// structs too, over gp::newtype (named.go: newtypeDef), named, ordered and declared with the
+// others. Not yet: methods (3.10) and generic types (Phase 07).
 
-// A structInfo is one C++ struct: of a named struct type, or of an anonymous struct type.
+// A structInfo is one C++ struct: of a named struct type, of an anonymous struct type, or of a
+// named type that isn't a struct (a gp::newtype: named.go).
 type structInfo struct {
 	t      types.Type    // the *types.Named, or the *types.Struct of an anonymous type
-	st     *types.Struct // its fields
+	st     *types.Struct // its fields (nil for a gp::newtype)
+	under  types.Type    // the underlying type of a gp::newtype, or nil
 	name   string        // the C++ name
 	goName string        // Go's name of the type, as %T prints it: main.Point, struct { X int }
 	fields []string      // the C++ names of the fields
@@ -164,8 +166,7 @@ func (g *gen) typeSpec(spec *ast.TypeSpec, local bool) {
 	if named == nil {
 		return
 	}
-	if _, ok := named.Underlying().(*types.Struct); !ok {
-		g.unsupported(spec.Pos(), "named types that are not structs (Phase 03 step 3.9)")
+	if !isStruct(named) && !g.newtypeOK(spec, named) { // named.go
 		return
 	}
 	td := g.tdecls()
@@ -183,7 +184,12 @@ func (g *gen) typeSpec(spec *ast.TypeSpec, local bool) {
 	if local {
 		td.local[tn] = name // before addStruct: a field may refer to the type itself
 	}
-	si := g.addStruct(named, name, tn.Pkg().Name()+"."+tn.Name())
+	var si *structInfo
+	if isStruct(named) {
+		si = g.addStruct(named, name, tn.Pkg().Name()+"."+tn.Name())
+	} else {
+		si = g.addNewtype(named, name, tn.Pkg().Name()+"."+tn.Name()) // named.go
+	}
 	td.named[tn] = si
 }
 
@@ -272,8 +278,9 @@ func (g *gen) anonKey(st *types.Struct) string {
 	})
 }
 
-// structOf returns the struct of the struct type t (named or anonymous, through aliases), or nil
-// (with an error at pos) if it has none.
+// structOf returns the struct of the struct type t (named or anonymous, through aliases), or of
+// the named type t that isn't a struct (a gp::newtype), or nil (with an error at pos) if it has
+// none.
 func (g *gen) structOf(t types.Type, pos token.Pos) *structInfo {
 	switch t := types.Unalias(t).(type) {
 	case *types.Named:
@@ -287,8 +294,9 @@ func (g *gen) structOf(t types.Type, pos token.Pos) *structInfo {
 	return nil
 }
 
-// structType returns the C++ spelling of the struct type t: its name, or the name qualified by
-// the namespace where a variable, a function or a field of that name hides it (hidden).
+// structType returns the C++ spelling of the struct type t (or of a named type that isn't a
+// struct): its name, or the name qualified by the namespace where a variable, a function or a
+// field of that name hides it (hidden).
 func (g *gen) structType(t types.Type, pos token.Pos) cppir.Type {
 	si := g.structOf(t, pos)
 	if si == nil {
@@ -334,7 +342,13 @@ func (g *gen) structDecls() []cppir.Decl {
 			return
 		}
 		done[si] = true // a cycle by value is a go/types error
-		for i := range si.st.NumFields() {
+		if si.under != nil {
+			// A gp::newtype is its underlying type: a gp::array<T, N> base needs T.
+			for _, dep := range g.byValue(si.under) {
+				define(dep)
+			}
+		}
+		for i := range si.fieldCount() {
 			for _, dep := range g.byValue(si.st.Field(i).Type()) {
 				define(dep)
 			}
@@ -348,8 +362,17 @@ func (g *gen) structDecls() []cppir.Decl {
 	return decls
 }
 
+// fieldCount returns the number of fields of the struct si (0 for a gp::newtype).
+func (si *structInfo) fieldCount() int {
+	if si.st == nil {
+		return 0
+	}
+	return si.st.NumFields()
+}
+
 // byValue returns the structs that a field of type t holds by value, which must be defined
-// before the struct of the field: t itself, or the element of an array (of arrays).
+// before the struct of the field: t itself (also a named type that isn't a struct, a
+// gp::newtype, which is its base class), or the element of an array (of arrays).
 func (g *gen) byValue(t types.Type) []*structInfo {
 	switch u := types.Unalias(t).(type) {
 	case *types.Named:
@@ -366,6 +389,9 @@ func (g *gen) byValue(t types.Type) []*structInfo {
 
 // structDef returns the definition of the struct si and its static_assert.
 func (g *gen) structDef(si *structInfo) []cppir.Decl {
+	if si.under != nil {
+		return g.newtypeDef(si) // named.go
+	}
 	hidden := make(map[string]bool)
 	for _, f := range si.fields {
 		hidden[f] = true
@@ -428,11 +454,7 @@ func (g *gen) structDef(si *structInfo) []cppir.Decl {
 	info := &cppir.VarDecl{Specs: []string{"static", "constexpr"}, Type: typeName("auto"),
 		Vars: []cppir.Declarator{{Name: "gp_fields", Init: call("gp::fields", fields...)}}}
 	s.Members = append(s.Members, name, info)
-
-	sizes := check.Sizes()
-	size := &cppir.Binary{Op: "==", X: call("sizeof", cxxName(si.name)), Y: lit(strconv.FormatInt(sizes.Sizeof(si.t), 10))}
-	align := &cppir.Binary{Op: "==", X: call("alignof", cxxName(si.name)), Y: lit(strconv.FormatInt(sizes.Alignof(si.t), 10))}
-	return []cppir.Decl{s, &cppir.StaticAssert{Cond: &cppir.Binary{Op: "&&", X: size, Y: align}}}
+	return []cppir.Decl{s, g.layoutAssert(si)} // named.go
 }
 
 // zeroInit returns the default member initializer of a field of type t, its zero value: 0 or

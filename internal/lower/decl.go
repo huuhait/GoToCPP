@@ -103,7 +103,7 @@ func (f *funcInfo) prepare(g *gen) {
 func (g *gen) funcDecl(f *funcInfo) {
 	defer g.hide(f.names.taken)() // a variable named like a type hides it (typedecl.go)
 	body := f.decl.Body
-	g.implicitConversions(body, f.obj.Signature()) // structs.go
+	g.noteConversions(body, f.obj.Signature()) // named.go
 	g.markCounts(body)
 	fg := newFuncGen(g, f.names, f)
 	fg.flow = newFlow(g.info, body, fg.postAtEnd)
@@ -204,7 +204,7 @@ func (g *gen) packageVars() {
 		typ := g.cxxType(v.Type(), v.Pos())
 		var value cppir.Expr = &cppir.InitList{} // the zero value
 		if c := constInit(g.info, byVar[v]); c != nil {
-			if basicOf(v.Type()).Info()&types.IsString != 0 {
+			if underBasic(v.Type()).Info()&types.IsString != 0 {
 				// "..."_gs can't be constexpr (the owner's destructor isn't), but this
 				// constructor is.
 				s := constant.StringVal(c)
@@ -235,8 +235,8 @@ func constInit(info *types.Info, init *types.Initializer) constant.Value {
 	if init == nil || len(init.Lhs) != 1 || init.Lhs[0].Name() == "_" {
 		return nil
 	}
-	if basicOf(init.Lhs[0].Type()) == nil {
-		return nil
+	if underBasic(init.Lhs[0].Type()) == nil {
+		return nil // (a named type over a basic type is constant too: Celsius(1.5))
 	}
 	return info.Types[init.Rhs].Value
 }
@@ -263,13 +263,14 @@ func (g *gen) initFuncs() {
 			}
 			g.markCounts(init.Rhs)
 			if len(init.Lhs) == 1 {
-				g.checkConversion(init.Rhs.Pos(), g.info.TypeOf(init.Rhs), init.Lhs[0].Type()) // structs.go
+				g.noteConversion(init.Rhs, init.Lhs[0].Type()) // named.go
 			}
-			g.implicitConversions(init.Rhs, nil)
+			g.noteConversions(init.Rhs, nil)
 			targets := make([]target, len(init.Lhs))
 			for i, v := range init.Lhs {
 				if v.Name() != "_" {
 					targets[i] = varTarget(g.names[v])
+					targets[i].gtype = v.Type()
 				}
 			}
 			fg.bind(init.Rhs.Pos(), targets, nil, []ast.Expr{init.Rhs}, false)
@@ -296,8 +297,9 @@ func newBox(typ cppir.Type, value cppir.Expr) cppir.Expr {
 }
 
 // isClass reports whether the C++ type of t is a class type (gp::string, gp::ptr), which a
-// value that is not used again is moved into, rather than one of C++'s fundamental types.
+// value that is not used again is moved into, rather than one of C++'s fundamental types (or a
+// named type over one, a gp::newtype that holds only the number).
 func isClass(t types.Type) bool {
-	b := basicOf(t)
+	b := underBasic(t)
 	return b == nil || b.Info()&types.IsString != 0
 }

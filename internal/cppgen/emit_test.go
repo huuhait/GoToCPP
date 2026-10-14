@@ -318,21 +318,18 @@ func TestUnsupported(t *testing.T) {
 	}{
 		{"makechan", "func main() {\n\t_ = make(chan int)\n}", "main.gp:4:6: cppgen: not supported yet: make of chan int (Phase 03)"},
 		{"fmtmap", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, map[int]int{})\n}", "main.gp:5:17: cppgen: not supported yet: printing a map (Phase 03 step 3.15)"},
-		{"structconv", "type A struct{ x int }\ntype B A\nfunc main() {\n\t_ = B(A{})\n}", "main.gp:6:6: cppgen: not supported yet: the conversion from A to B (Phase 03 step 3.9)"},
-		{"structcompare", "type P struct{ x int }\nfunc main() {\n\tprintln(P{} == struct{ x int }{})\n}", "main.gp:5:17: cppgen: not supported yet: the implicit conversion from struct{x int} to P (Phase 03 step 3.9)"},
-		{"implicit-var", "type P struct{ X, Y int }\nfunc a() struct{ X, Y int } { return struct{ X, Y int }{} }\nfunc main() {\n\tvar p P = a()\n\t_ = p\n}", "main.gp:6:12: cppgen: not supported yet: the implicit conversion from struct{X int; Y int} to P (Phase 03 step 3.9)"},
-		{"implicit-arg", "type P struct{ X, Y int }\nfunc f(p P) {}\nfunc main() {\n\tf(struct{ X, Y int }{1, 2})\n}", "main.gp:6:4: cppgen: not supported yet: the implicit conversion from struct{X int; Y int} to P (Phase 03 step 3.9)"},
-		{"implicit-return", "type P struct{ X, Y int }\nfunc f() P {\n\treturn struct{ X, Y int }{7, 8}\n}\nfunc main() {\n\t_ = f()\n}", "main.gp:5:9: cppgen: not supported yet: the implicit conversion from struct{X int; Y int} to P (Phase 03 step 3.9)"},
-		{"implicit-elem", "type P struct{ X, Y int }\nfunc main() {\n\t_ = []P{struct{ X, Y int }{3, 4}}\n}", "main.gp:5:10: cppgen: not supported yet: the implicit conversion from struct{X int; Y int} to P (Phase 03 step 3.9)"},
-		{"implicit-tuple", "type P struct{ X, Y int }\nfunc two() (struct{ X, Y int }, int) { return struct{ X, Y int }{}, 1 }\nfunc main() {\n\tvar p P\n\tp, _ = two()\n\t_ = p\n}", "main.gp:7:9: cppgen: not supported yet: the implicit conversion from struct{X int; Y int} to P (Phase 03 step 3.9)"},
-		{"implicit-range", "type P struct{ X, Y int }\nfunc main() {\n\tvar p P\n\tfor _, p = range []struct{ X, Y int }{{1, 2}} {\n\t}\n\t_ = p\n}", "main.gp:6:9: cppgen: not supported yet: the implicit conversion from struct{X int; Y int} to P (Phase 03 step 3.9)"},
-		{"implicit-switch", "type P struct{ X, Y int }\nfunc an() struct{ X, Y int } { return struct{ X, Y int }{} }\nfunc main() {\n\tvar p P\n\tswitch p {\n\tcase an():\n\t}\n}", "main.gp:8:7: cppgen: not supported yet: the implicit conversion from struct{X int; Y int} to P (Phase 03 step 3.9)"},
-		{"implicit-pkgvar", "type P struct{ X, Y int }\nvar p P = struct{ X, Y int }{1, 2}\nfunc main() {\n\t_ = p\n}", "main.gp:4:11: cppgen: not supported yet: the implicit conversion from struct{X int; Y int} to P (Phase 03 step 3.9)"},
+		{"bytes-named-elem", "type MyByte byte\nfunc main() {\n\t_ = []MyByte(\"ab\")\n}", "main.gp:5:6: cppgen: not supported yet: the conversion from string to []MyByte"},
+		{"runes-named-elem", "type R rune\nfunc main() {\n\t_ = string([]R{'a'})\n}", "main.gp:5:6: cppgen: not supported yet: the conversion from []R to string"},
+		{"slice-tags", "func main() {\n\t_ = []struct{ Q int }([]struct {\n\t\tQ int `t:\"q\"`\n\t}{})\n}", `main.gp:4:6: cppgen: not supported yet: the conversion from []struct{Q int "t:\"q\""} to []struct{Q int}`},
+		{"struct-slice-tags", "type W struct{ S []struct{ Q int `t:\"q\"` } }\ntype V struct{ S []struct{ Q int } }\nfunc main() {\n\t_ = V(W{})\n}", "main.gp:6:6: cppgen: not supported yet: the conversion from W to V, whose fields differ in struct tags inside a slice or a map"},
+		{"struct-map-tags", "type W struct{ M map[int]struct{ Q int `t:\"q\"` } }\ntype V struct{ M map[int]struct{ Q int } }\nfunc main() {\n\t_ = V(W{})\n}", "main.gp:6:6: cppgen: not supported yet: the conversion from W to V, whose fields differ in struct tags inside a slice or a map"},
+		{"namedfunc", "type F func(int) int\nfunc main() {}", "main.gp:3:6: cppgen: not supported yet: named func types (Phase 03 step 3.11)"},
+		{"namedcomplex", "type Z complex128\nfunc main() {}", "main.gp:3:6: cppgen: not supported yet: type complex128"},
 		{"structmethod", "type T struct{}\nfunc (T) M() {}\nfunc main() {}", "main.gp:4:1: cppgen: not supported yet: methods (Phase 03)"},
 		{"fmtslice", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, [][]int{})\n}", "main.gp:5:17: cppgen: not supported yet: printing a slice (Phase 03 step 3.15)"},
 		{"fmtarray", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, [2]int{})\n}", "main.gp:5:17: cppgen: not supported yet: printing an array (Phase 03 step 3.15)"},
 		{"spread", "func f(a ...int) {}\nfunc main() {\n\tf([]int{1}...)\n}", "main.gp:5:12: cppgen: not supported yet: f(s...) (Phase 03)"},
-		{"method", "type T int\nfunc (T) M() {}\nfunc main() {}", "main.gp:3:6: cppgen: not supported yet: named types that are not structs (Phase 03 step 3.9)"},
+		{"method", "type T int\nfunc (T) M() {}\nfunc main() {}", "main.gp:4:1: cppgen: not supported yet: methods (Phase 03)"},
 		{"funcvalue", "func g() {}\nfunc main() {\n\tf := g\n\tf()\n}", "main.gp:5:2: cppgen: not supported yet: type func()"},
 		{"funcvalue2", "func g() {}\nfunc main() {\n\tprintln(g == nil)\n}", "main.gp:5:10: cppgen: not supported yet: function values (Phase 03)"},
 		{"complex", "func main() {\n\tc := complex(1, 2)\n\tprintln(real(c))\n}", "main.gp:4:2: cppgen: not supported yet: type complex128"},
@@ -632,6 +629,24 @@ func TestPanics(t *testing.T) {
 		{"rp-int32-conv", "n := 100000\n\tdefer panic(int32(n))\n\tpanic(int32(n))"},
 		{"rp-float-conv", "f := 1.5\n\tdefer panic(float64(f))\n\tpanic(float64(f))"},
 		{"rp-var-decl", "var s = \"long string\"\n\tdefer panic(s)\n\tpanic(\"long string\")"},
+		// Named types (step 3.9): division and shifts of named integers (also op= and a named
+		// count), indexes and bounds of named slices, strings and arrays (also a named index),
+		// a nil named map, a nil named pointer, and a short slice converted to a named array.
+		{"named-div", "a, b := N(7), N(0)\n\tfmt.Println(a / b)"},
+		{"named-rem-small", "var a, b U8 = 7, 0\n\tfmt.Println(a % b)"},
+		{"named-op-assign", "x, z := N(5), N(0)\n\tx /= z\n\tfmt.Println(x)"},
+		{"named-shift", "x, n := N(1), -1\n\tfmt.Println(x << n)"},
+		{"named-shift-count", "var k N = -2\n\tfmt.Println(1 << k)"},
+		{"named-slice-index", "ids := IDs{1, 2}\n\ti := 2\n\tfmt.Println(ids[i])"},
+		{"named-slice-named-index", "ids := IDs{1, 2}\n\tvar i N = 5\n\tids[i] = 1"},
+		{"named-slice-bounds", "ids, j := IDs{1, 2}, 3\n\tfmt.Println(len(ids[:j]))"},
+		{"named-append-index", "ids := append(IDs{}, 1)\n\tfmt.Println(ids[1])"},
+		{"named-string-index", "n, i := Name(\"ab\"), 2\n\tfmt.Println(n[i])"},
+		{"named-array-index", "var g Grid\n\ti := 3\n\tg[i]++"},
+		{"named-map-nil", "var m Ages\n\tm[\"a\"] = 1"},
+		{"named-map-div", "m := Ages{\"a\": 1}\n\tz := 0\n\tm[\"a\"] /= z"},
+		{"named-nil-pointer", "var l Link\n\tfmt.Println(\"before\")\n\tfmt.Println(l.a)"},
+		{"named-to-array", "ids := IDs{1}\n\tg := Grid(ids)\n\tfmt.Println(g[0])"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -668,6 +683,10 @@ func TestPanics(t *testing.T) {
 			}
 			if strings.Contains(tt.body, "two(") {
 				src += "\nfunc two() [2]int {\n\treturn [2]int{1, 2}\n}\n"
+			}
+			if strings.HasPrefix(tt.name, "named-") {
+				src += "\ntype N int\n\ntype U8 uint8\n\ntype IDs []int\n\ntype Name string\n\ntype Grid [3]int\n\n" +
+					"type Ages map[string]int\n\ntype Pt struct{ a int }\n\ntype Link *Pt\n"
 			}
 			if strings.HasPrefix(tt.name, "struct-") {
 				src += "\ntype Pt struct{ a, b int }\n\ntype Wrap struct{ *Pt }\n\ntype List struct {\n\tv    int\n\tnext *List\n}\n\n" +

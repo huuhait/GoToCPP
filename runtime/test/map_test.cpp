@@ -172,6 +172,23 @@ struct Node {
 constinit imap global_nil;
 
 static_assert(sizeof(imap) == 16);
+
+// Keys of named types (gp::newtype, step 3.9) are replaced like those of their underlying
+// types: never for integers and pointers, always for floats and strings.
+struct NamedInt : gp::newtype<NamedInt, int64_t> {
+    using gp::newtype<NamedInt, int64_t>::newtype;
+};
+struct NamedPtr : gp::newtype<NamedPtr, gp::ptr<int64_t>> {
+    using gp::newtype<NamedPtr, gp::ptr<int64_t>>::newtype;
+};
+struct NamedFloat : gp::newtype<NamedFloat, double> {
+    using gp::newtype<NamedFloat, double>::newtype;
+};
+struct NamedStr : gp::newtype<NamedStr, gp::string> {
+    using gp::newtype<NamedStr, gp::string>::newtype;
+};
+static_assert(!gp::detail::key_update<NamedInt> && !gp::detail::key_update<NamedPtr>);
+static_assert(gp::detail::key_update<NamedFloat> && gp::detail::key_update<NamedStr>);
 static_assert(sizeof(gp::map<gp::string, Node>) == 16);
 static_assert(alignof(imap) == 8);
 static_assert(!std::equality_comparable<imap>, "Go compares maps only with nil");

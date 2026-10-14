@@ -156,9 +156,21 @@ inline constexpr bool is_pointer_key<ptr<T>> = true;
 template <typename T>
 inline constexpr bool is_pointer_key<weak_ptr<T>> = true;
 
+// key_base<K>: K, or the underlying type of a named type (gp::newtype, step 3.9), whose keys
+// are replaced when that type's are.
 template <typename K>
+struct key_base {
+    using type = K;
+};
+template <typename K>
+    requires requires { typename K::gp_underlying; }
+struct key_base<K> {
+    using type = typename K::gp_underlying;
+};
+
+template <typename K, typename B = typename key_base<K>::type>
 inline constexpr bool key_update =
-    !std::is_integral_v<K> && !std::is_enum_v<K> && !is_pointer_key<K>;
+    !std::is_integral_v<B> && !std::is_enum_v<B> && !is_pointer_key<B>;
 
 // self_equal: k == k, false for a NaN (or a struct or array that holds one). A function, so
 // that compilers don't warn about a comparison of a value with itself.

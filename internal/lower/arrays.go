@@ -88,14 +88,24 @@ func arrayOf(t types.Type) *types.Array {
 // own names its type (gp::array<T, 2>{...}, never a bare {}), because C++ would take a bare {}
 // as the initializer of gp::array's member.
 func (fg *funcGen) arrayLit(e *ast.CompositeLit) cppir.Expr {
-	return fg.g.arrayLitOf(e, fg.expr)
+	return fg.g.arrayLitValue(e, fg.expr)
+}
+
+// arrayLitValue returns arrayLitOf(e, elem) as a value of e's type: a literal of a named array
+// type is the gp::array converted to it (step 3.9), Grid(gp::array<int64_t, 3>{1, 2, 3}).
+func (g *gen) arrayLitValue(e *ast.CompositeLit, elem func(ast.Expr) cppir.Expr) cppir.Expr {
+	x := g.arrayLitOf(e, elem)
+	if x == nil {
+		return nil
+	}
+	return g.wrapNamed(g.litType(e), x, e.Lbrace)
 }
 
 // arrayLitOf returns the C++ of the array literal e (arrayLit), with elem's C++ for each
-// element, or nil if elem returns nil for one.
+// element, or nil if elem returns nil for one: a gp::array, also for a named array type.
 func (g *gen) arrayLitOf(e *ast.CompositeLit, elem func(ast.Expr) cppir.Expr) cppir.Expr {
-	t := g.litType(e) // [N]T of an elided &[N]T{...} too
-	at := under(t).(*types.Array)
+	t := under(g.litType(e)) // [N]T of an elided &[N]T{...} too, and of a named array type
+	at := t.(*types.Array)
 	var elems, pairs []cppir.Expr
 	var index int64
 	for _, elt := range e.Elts {
@@ -126,6 +136,9 @@ func (g *gen) arrayLitOf(e *ast.CompositeLit, elem func(ast.Expr) cppir.Expr) cp
 // structs.go), because gp::new_<A>(A{a, b}) would first build the value in a temporary on the
 // C++ stack, which could overflow it (D24). Any other value is gp::new_<A>(value).
 func largeBox(typ cppir.Type, value cppir.Expr) cppir.Expr {
+	if x := largeNamedBox(typ, value); x != nil {
+		return x // a literal of a named array type (step 3.9, named.go)
+	}
 	switch x := value.(type) {
 	case *cppir.InitList:
 		if x.Type != nil && len(x.Elems) == 0 {
@@ -183,6 +196,12 @@ func (g *gen) constArray(init *types.Initializer) cppir.Expr {
 		return nil
 	}
 	x := g.constArrayLit(cl)
+	if x == nil {
+		return nil
+	}
+	// A literal of an unnamed array type for a variable of a named one (var g Grid = [3]int{...})
+	// is converted to it (step 3.9).
+	x = g.convertTo(g.info.TypeOf(cl), init.Lhs[0].Type(), x, cl.Pos())
 	if l, ok := x.(*cppir.InitList); ok {
 		l.Type = nil // the variable's braced initializer
 	}
@@ -198,16 +217,16 @@ func (g *gen) constArrayLit(e *ast.CompositeLit) cppir.Expr {
 			if !isArray(g.info.TypeOf(l)) {
 				return nil
 			}
-			return g.arrayLitOf(l, elem)
+			return g.arrayLitValue(l, elem)
 		}
 		tv := g.info.Types[x]
-		b := basicOf(tv.Type)
+		b := underBasic(tv.Type) // Celsius(1.5) is constexpr too
 		if tv.Value == nil || b == nil || b.Info()&(types.IsNumeric|types.IsBoolean) == 0 || b.Info()&types.IsComplex != 0 {
 			return nil
 		}
 		return g.constant(tv.Value, tv.Type, x.Pos(), false)
 	}
-	return g.arrayLitOf(e, elem)
+	return g.arrayLitValue(e, elem)
 }
 
 // arrayIndex returns the C++ of a[i] for an array a, a T& that can be assigned (gp::array's
@@ -227,10 +246,13 @@ func (fg *funcGen) arrayIndex(e *ast.IndexExpr) cppir.Expr {
 // a nil p's nil dereference panic. A missing low bound is 0; a[:] is gp::sub(&a, 0).
 func (fg *funcGen) arraySlice(e *ast.SliceExpr) cppir.Expr {
 	var p cppir.Expr
-	if arrayPtr(fg.g.info.TypeOf(e.X)) != nil {
-		p = fg.expr(e.X)
+	if xt := fg.g.info.TypeOf(e.X); arrayPtr(xt) != nil {
+		p = arrayPtrValue(xt, fg.expr(e.X))
 	} else {
 		p = fg.addrOf(e.X)
+		if isNewtype(xt) {
+			p = call("gp::base_ptr", p) // a named array type (step 3.9): a gp::ptr<Buf>
+		}
 	}
 	var lo cppir.Expr = lit("0")
 	if e.Low != nil {
@@ -362,8 +384,11 @@ func (fg *funcGen) elemPtr(e ast.Expr) cppir.Expr {
 		switch {
 		case isArray(xt):
 			base = fg.elemPtr(x.X)
+			if isNewtype(xt) {
+				base = call("gp::base_ptr", base) // a named array type (step 3.9)
+			}
 		default: // a slice, or a pointer to an array
-			base = fg.expr(x.X)
+			base = arrayPtrValue(xt, fg.expr(x.X))
 		}
 		return call("gp::elem_ptr", base, fg.intExpr(x.Index))
 	case *ast.SelectorExpr:
@@ -401,18 +426,24 @@ func (fg *funcGen) stableOwner(e ast.Expr) bool {
 // gp::to_array_ptr<N>(s), a pointer that shares s's array (nil for a nil s when N is 0, as
 // in Go), both with Go's panic when len(s) < N; and [N]T(a) of an array of the same C++ type is
 // a itself.
-func (fg *funcGen) arrayConversion(c *ast.CallExpr, to, from types.Type) cppir.Expr {
+func (fg *funcGen) arrayConversion(c *ast.CallExpr, to, from types.Type, x cppir.Expr) cppir.Expr {
 	arg := c.Args[0]
 	switch {
 	case isArray(to) && isSlice(from):
 		n := under(to).(*types.Array).Len()
-		return templateCall("gp::to_array", []cppir.Node{lit(strconv.FormatInt(n, 10))}, fg.expr(arg))
+		return templateCall("gp::to_array", []cppir.Node{lit(strconv.FormatInt(n, 10))}, x)
 	case arrayPtr(to) != nil && isSlice(from):
 		n := arrayPtr(to).Len()
-		return templateCall("gp::to_array_ptr", []cppir.Node{lit(strconv.FormatInt(n, 10))}, fg.expr(arg))
+		p := templateCall("gp::to_array_ptr", []cppir.Node{lit(strconv.FormatInt(n, 10))}, x)
+		if elem := under(to).(*types.Pointer).Elem(); isNewtype(elem) {
+			// (*Buf)(s) for type Buf [8]byte: a pointer to the gp::array as one to the Buf
+			// (step 3.9), which is that array (its base class).
+			return templateCall("gp::ptr_cast", []cppir.Node{fg.g.cxxType(elem, c.Pos())}, p)
+		}
+		return p
 	case isArray(to) && isArray(from):
 		if cppir.TypeString(fg.g.cxxType(to, c.Pos())) == cppir.TypeString(fg.g.cxxType(from, arg.Pos())) {
-			return fg.expr(arg)
+			return x
 		}
 	}
 	return nil
