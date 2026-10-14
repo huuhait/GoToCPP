@@ -50,7 +50,7 @@
 
 | | Milestone | Proof | Rough time from start* | Likely range |
 |---|---|---|---|---|
-| [ ] | **M1** `hello.gp` runs | `gocpp run examples/hello` on GCC + Clang | ~6.5 weeks | 6–8 |
+| [x] | **M1** `hello.gp` runs | `gocpp run examples/hello` on GCC + Clang | ~6.5 weeks | 6–8 |
 | [ ] | **L0** editor v0 (early track) | diagnostics, hover, go-to-definition, completion, `gocpp fmt` in VS Code | ~8.5 weeks (2 weeks after M1) | 8–10 |
 | [ ] | **M2** real non-interop programs | `structs`, `wordfreq-core`, `closures` + 150 run tests | ~15 weeks | 14–18 |
 | [ ] | **M3** any C/C++ header usable | `sqlite`, `raylib`/`sdl`, `cpp-std`, `mixed-sources` | ~20 weeks | 19–24 |
