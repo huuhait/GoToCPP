@@ -125,3 +125,11 @@
   - generated files get `-Wno-tautological-compare` (clang) or `-Wno-overflow` (g++); other warnings
     are shown;
   - starting a compiler or the program retries on ETXTBSY, like go run.
+- 2026-10-14 (debug review 2.11): a shadowing rename (`v := v + i + 1` → `v_1`) makes gdb's `print v` show
+  the OUTER variable, a wrong value under the Go name. Decision: fix it in cppgen before step 2.10's
+  goldens depend on `v_1`: emit `int64_t gp_t0 = v + i + 1; int64_t v = gp_t0;` (shadowing in a nested
+  block is legal C++; only reading the name in its own initializer is the problem) and keep the rename
+  only where C++ forbids redeclaring in the same scope. Tradeoff to document: on the declaration line
+  itself, gdb shows the not-yet-set inner v. Owner: a small job after 2.5 (or inside 2.10).
+- 2026-10-14 (debug review 2.11): README §2.8 says `objdump -l`; the check uses Go's debug/dwarf (no
+  external tool). Line-table check on every phase-gated run test: Phase 03 (needs `gocpp build` + run).

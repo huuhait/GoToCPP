@@ -40,3 +40,7 @@
   are marked `IllTyped`, so only `RunDespiteErrors` analyzers run there; everything runs under
   `recover`. Debugging: GDB safe-path, LLDB import, VS Code `contributes.breakpoints`, path
   remapping for `-trimpath`.
+- 2026-10-14 (from the 2.11 debug test): gdb pretty-printer candidates for `gocpp debug`: `gp::string`
+  (prints its C++ fields; `gp_data_` up to a NUL is not the string's end: `*s.gp_data_@s.gp_len_`),
+  int8/uint8 printed with a character (`4 '\004'`), `info locals` shows `gp_t0`/`gp_i0` and
+  not-yet-declared variables; `step` at `}` enters `gp::string::~string` (ship `skip -gfi */gocpp/rt/*`).
