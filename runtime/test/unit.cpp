@@ -1158,6 +1158,8 @@ static_assert(has_plain_member<std::string>);
 static_assert(!has_plain_member<gp::string>);
 static_assert(!has_plain_member<gp::ptr<int64_t>>);
 static_assert(!has_plain_member<gp::ptr<Node>>);
+static_assert(!has_plain_member<gp::slice<int64_t>>);
+static_assert(!has_plain_member<gp::slice<Node>>);
 static_assert(!has_plain_member<gp::ptr<void>>);
 static_assert(!has_plain_member<gp::weak_ptr<int64_t>>);
 static_assert(!has_plain_member<gp::weak_ptr<Node>>);

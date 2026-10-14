@@ -35,7 +35,7 @@ func TestNoPlainMembers(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The check must see the runtime's types, or it checks nothing.
-	for _, c := range []string{"gp::string", "gp::ptr", "gp::weak_ptr", "gp::panic_error"} {
+	for _, c := range []string{"gp::string", "gp::ptr", "gp::weak_ptr", "gp::panic_error", "gp::slice"} {
 		if !slices.Contains(classes, c) {
 			t.Errorf("the check didn't see the class %s; it saw %q", c, classes)
 		}

@@ -177,7 +177,7 @@ var runtimeTypes = []runtimeType{
 	{goType: "weak.Pointer[int]", cpp: "gp::weak_ptr<int64_t>", layout: layoutWeak,
 		defined: `class weak_ptr\b`},
 	{goType: "[]int", cpp: "gp::slice<int64_t>", layout: layoutSlice,
-		defined: `(?:class|struct) slice\b`, pending: "step 3.5"},
+		defined: `(?:class|struct) slice\b`, pending: ""},
 	// Arrays have no fixed layout (gocppSizes computes them), but these
 	// examples make sizes.hpp assert gp::array once step 3.6 adds it: an
 	// empty struct for N == 0, N elements without gaps otherwise.

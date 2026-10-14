@@ -126,3 +126,9 @@
   move `s` (std::move) when no other argument reads it: 1e7 appends 130 ms vs 170–230 ms without (Go
   50–90 ms; the rest is eager memset/mmap: a calloc-based allocator for large trivial arrays is a Phase
   15 idea).
+- 2026-10-14: Job 3.5a (the slice runtime: runtime/include/gocpp/slice.hpp, bounds.hpp, src/slice.cpp;
+  Go 1.25 growth and every bounds/makeslice panic byte-identical to Go; stores that could free their own
+  source keep a local copy) committed, clean after 2 review rounds. Step 3.5 stays open for 3.5b (the
+  emitter: slice types, make, literals, append with std::move of the target, copy, sub-slicing, range,
+  &s[i], and the []byte/[]rune conversions of 3.4). Strings (3.4) switch to bounds.hpp's
+  gp::check_slice when both are in.

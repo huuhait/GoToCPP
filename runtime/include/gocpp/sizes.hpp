@@ -10,6 +10,7 @@
 
 #include <gocpp/string.hpp>
 #include <gocpp/ptr.hpp>
+#include <gocpp/slice.hpp>
 
 #include <cstdint>
 
@@ -45,12 +46,13 @@ static_assert(sizeof(gp::ptr<void>) == 16, "unsafe.Pointer: 16 bytes");
 static_assert(alignof(gp::ptr<void>) == 8, "unsafe.Pointer: alignment 8");
 static_assert(sizeof(gp::weak_ptr<int64_t>) == 24, "weak.Pointer[int]: 24 bytes");
 static_assert(alignof(gp::weak_ptr<int64_t>) == 8, "weak.Pointer[int]: alignment 8");
+static_assert(sizeof(gp::slice<int64_t>) == 40, "[]int: 40 bytes");
+static_assert(alignof(gp::slice<int64_t>) == 8, "[]int: alignment 8");
 
 // Not in the runtime yet. When a step adds one of these types, TestSizesTable fails until
 // its row in the table is no longer pending; then this file asserts it.
 //   complex64, std::complex<float>: 8 bytes, alignment 4 (complex numbers)
 //   complex128, std::complex<double>: 16 bytes, alignment 8 (complex numbers)
-//   []int, gp::slice<int64_t>: 40 bytes, alignment 8 (step 3.5)
 //   [0]int64, gp::array<int64_t, 0>: 1 byte, alignment 1 (step 3.6)
 //   [3]int16, gp::array<int16_t, 3>: 6 bytes, alignment 2 (step 3.6)
 //   map[int]int, gp::map<int64_t, int64_t>: 16 bytes, alignment 8 (step 3.7)

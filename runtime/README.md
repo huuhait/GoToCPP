@@ -13,10 +13,11 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 |---|---|
 | `include/gocpp/` | the headers (below). Embedded |
 | `src/rt.cpp` | the parts that are not templates: strings, panics, the print and `fmt` formats, `run_main`. Standard C++ only. Embedded |
+| `src/slice.cpp` | the parts of slices and slice bounds checks that are not templates: the bounds panics with Go's messages, `make`'s panics, and the capacity of a growing slice (Go's formula and size classes). Embedded |
 | `src/os/linux/` | the Linux OS layer: `os.cpp`. Phase 08 adds the Linux side of the thread layer `gp::os`. Embedded |
 | `src/os/windows/` | the Windows OS layer (Phase 14; not there yet) |
 | `files.go` | package `rtfiles`: `FS()` holds `include/` and `src/`; `Sources(goos)` lists the `.cpp` files a program is compiled with (`src/*.cpp` and `src/os/<goos>/*.cpp`) |
-| `test/` | the C++ tests (not embedded): `unit.cpp`, `diff.cpp`, `fortify.cpp` and `layout.cpp` (generated) |
+| `test/` | the C++ tests (not embedded): `unit.cpp`, `slice_test.cpp`, `diff.cpp`, `fortify.cpp` and `layout.cpp` (generated) |
 | `testdata/diff/main.go` | the Go side of the differential test |
 | `*_test.go` | the Go tests that build and run the C++ tests, and the checks below |
 | `compile_flags.txt` | the flags for clangd, so the files open without false errors in an editor (the dev shell's clangd) |
@@ -30,6 +31,8 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `checks.hpp` | the concepts `gp::go_int` and `gp::go_float`, and the panics of the runtime checks with Go's messages: `panic_divide`, `panic_shift`, `panic_index`, `panic_nil` |
 | `string.hpp` | `gp::string` (owner, data pointer, length: 32 bytes), `"..."_gs` literals (static storage, no allocation), `+`, `+=`, `==`, `<=>`, `s[i]` with Go's bounds check, `gp::len(s)` |
 | `ptr.hpp` | Go's pointers: `gp::ptr<T>` (`*T`: a `std::shared_ptr` with nil checks, 16 bytes), `gp::new_<T>` (`new(T)`, `&T{...}`, boxes), the aliasing constructors for pointers into objects (`&p.f`, `&s[i]`), `gp::static_ptr` (`&global`), `gp::ptr_cast` (`(*Q)(p)`), and `gp::weak_ptr<T>` with `gp::weak_make` and `gp::weak_value` (`weak.Pointer[T]`, `weak.Make`, `Value`) |
+| `bounds.hpp` | Go's checks for slice expressions in Go's order, for slices, strings and arrays: `gp::check_slice` (`x[lo:hi]`), `gp::check_slice3` (`x[lo:hi:max]`), `gp::check_convert` (`[N]T(s)`), and `gp::panic_bounds` with Go's exact messages (`slice bounds out of range [:5] with capacity 3`) |
+| `slice.hpp` | `gp::slice<T>` (`[]T`: owner, data pointer, length, capacity: 40 bytes): nil and empty slices, `s == nullptr`, `s[i]` with Go's bounds check, `gp::len`, `gp::cap`, `gp::make_slice<T>`, `gp::slice_of<T>({...})` (literals), `gp::sub` (2 and 3 indexes), `gp::append`, `gp::append_slice` (`append(s, t...)`, also a string's bytes), `gp::copy`, `gp::clear`; growth with Go's formula (only `cap >= len` is promised), overlap safe, owners released through `gp::detail::release` |
 | `arith.hpp` | `gp::div`, `gp::rem`, `gp::shl`, `gp::shr` and `gp::f2i<T>`, each returning the Go type |
 | `print.hpp` | the builtins `gp::print` and `gp::println`: stderr, in Go's runtime number format (`+1.500000e+000`) |
 | `panic.hpp` | `gp::panic_error` (the exception a panic throws) and `gp::panic(v)` |
@@ -146,7 +149,7 @@ this.
 ## Tests
 
 `go test ./runtime` (also part of `make test` and `make ci`) runs:
-- `TestCXX`: compiles `test/unit.cpp` and `test/diff.cpp` with the embedded runtime, with g++
+- `TestCXX`: compiles `test/unit.cpp`, `test/slice_test.cpp` and `test/diff.cpp` with the embedded runtime, with g++
   and clang++, each at `-O0`, at `-O2` and with `-fsanitize=address,undefined` (a sanitizer
   report fails the test). The flags are the driver's: `-std=c++20 -fwrapv -fno-strict-aliasing
   -ffp-contract=off -g`, plus `-Wall -Wextra -Werror`, and `-Qunused-arguments` for clang.
@@ -163,10 +166,20 @@ this.
     (nothing is left pending afterwards; `GOCPP_TEST_BIG=1 go test ./runtime` also runs them
     with 2,000,000 nodes, which takes more time and memory than `make ci` should), and the "no
     plain-named members" rule for a list of names.
+  - `slice_test.cpp` checks `gp::slice` and the bounds checks: nil and empty slices, moves and
+    self-assignment, `make` (zeroed, Go's panics), every bounds message, aliasing (writes and
+    appends within capacity seen through other slices, a copy beyond it), append forms
+    (self-append, overlapping appends, arguments read first), the capacities against real Go's
+    sequences (int64 up to 1,000,000 appends, bytes, 24-byte elements; reallocations counted),
+    overlapping copy, clear, element destructors run exactly once, element pointers that keep
+    the array alive, elements whose assignment frees the source (`q = append(q[:0],
+    q[0].kids...)`), chains of 200,000 nodes through slices of pointers and of values (the
+    value chain overflows the stack at `-O0` without `detail::release`), and qualified calls
+    (a user's function named like a runtime helper is never called).
   - `diff.cpp` is the same program as `testdata/diff/main.go`. The test runs both, with each
     case, and compares the exit codes and stdout and stderr merged into one stream, up to Go's
     stack trace: number formats (1500 random floats too), integer tables, float → int (on
-    amd64 only), strings, pointers (with `weak`), panics (also the nil pointer ones, whose
+    amd64 only), strings, pointers (with `weak`), slices (behavior, and every bounds and `make` panic), panics (also the nil pointer ones, whose
     signal line is compared with the `pc` left out), the output order and 1 MiB writes.
     Without a `go` command it is skipped.
   - Without Go: the exact panic output and exit codes; on Linux, 1 MiB into a full

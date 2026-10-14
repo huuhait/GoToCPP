@@ -278,8 +278,13 @@ gp::string the_case;
 // can't remove the allocation.
 int64_t* volatile leak_sink;
 
+bool slice_case(std::string_view c);
+
 void main() {
     std::string_view c = the_case.gp_view();
+    if (slice_case(c)) {
+        return;
+    }
     if (c == "println") {
         println_case();
     } else if (c == "fmt") {
@@ -383,6 +388,358 @@ void init() {
     if (gp::args().size() > 1) {
         the_case = gp::args()[1];
     }
+}
+
+// --- slices (Phase 03 step 3.5a) ---
+
+using ints = gp::slice<int64_t>;
+using bytes = gp::slice<uint8_t>;
+
+void dump(const gp::string& name, const ints& s) {
+    fmt::Print(name, " "_gs, gp::len(s), " ["_gs);
+    for (int64_t i = 0; i < gp::len(s); i++) {
+        if (i > 0) {
+            fmt::Print(" "_gs);
+        }
+        fmt::Print(s[i]);
+    }
+    fmt::Print("]\n"_gs);
+}
+
+void dump_bytes(const gp::string& name, const bytes& s) {
+    fmt::Print(name, " "_gs, gp::len(s), " ["_gs);
+    for (int64_t i = 0; i < gp::len(s); i++) {
+        if (i > 0) {
+            fmt::Print(" "_gs);
+        }
+        fmt::Print(s[i]);
+    }
+    fmt::Print("]\n"_gs);
+}
+
+void slices_case() {
+    // nil and empty slices
+    ints n;
+    fmt::Println(n == nullptr, gp::len(n), gp::cap(n), gp::sub(n, 0, 0) == nullptr,
+                 gp::len(gp::sub(n, 0)), gp::sub(n, 0) == nullptr);
+    ints e = gp::slice_of<int64_t>({});
+    fmt::Println(e == nullptr, gp::len(e), gp::cap(e), gp::sub(e, 0, 0) == nullptr);
+    ints m0 = gp::make_slice<int64_t>(0);
+    fmt::Println(m0 == nullptr, gp::len(m0), gp::cap(m0), gp::sub(m0, 0, 0, 0) == nullptr);
+
+    // make: zeroed, with the exact len and cap; sub-slices have Go's exact len and cap
+    ints m = gp::make_slice<int64_t>(3, 10);
+    dump("make"_gs, m);
+    fmt::Println(gp::len(m), gp::cap(m), gp::len(gp::sub(m, 0, 10)), gp::cap(gp::sub(m, 2)),
+                 gp::len(gp::sub(m, 2, 5, 7)), gp::cap(gp::sub(m, 2, 5, 7)),
+                 gp::cap(gp::sub(m, 10, 10)), gp::len(gp::sub(m, 3)), gp::cap(gp::sub(m, 3)));
+    m = gp::sub(m, 0, 10);
+    dump("make10"_gs, m);
+    ints m1 = gp::make_slice<int64_t>(4);
+    fmt::Println(gp::len(m1), gp::cap(m1));
+
+    // two slices of one array see each other's writes
+    ints a = gp::slice_of<int64_t>({1, 2, 3, 4, 5});
+    fmt::Println(gp::len(a), gp::cap(a));
+    ints b = gp::sub(a, 1, 3);
+    b[0] = 20;
+    dump("a"_gs, a);
+    dump("b"_gs, b);
+    fmt::Println(gp::len(b), gp::cap(b));
+    b = gp::append(b, INT64_C(30));
+    dump("a"_gs, a);
+    dump("b"_gs, b);
+    ints c = gp::sub(a, 1, 3, 3);
+    c = gp::append(c, INT64_C(99));
+    c[0] = -1;
+    dump("a"_gs, a);
+    dump("c"_gs, c);
+    fmt::Println(gp::cap(c) >= gp::len(c));
+
+    // append forms
+    ints x;
+    x = gp::append(x);
+    fmt::Println(x == nullptr);
+    x = gp::append(x, INT64_C(1));
+    x = gp::append(x, INT64_C(2), INT64_C(3), INT64_C(4));
+    x = gp::append_slice(x, x);
+    dump("x"_gs, x);
+    x = gp::append_slice(gp::sub(x, 0, 1), gp::sub(x, 2));
+    dump("x"_gs, x);
+    ints y = gp::slice_of<int64_t>({1, 2, 3, 4});
+    y = gp::append(gp::sub(y, 0, 1), y[2], y[1]);
+    dump("y"_gs, y);
+    ints z = gp::make_slice<int64_t>(2, 8);
+    z[0] = 7;
+    z[1] = 8;
+    z = gp::append_slice(z, z);
+    z = gp::append_slice(z, z);
+    dump("z"_gs, z);
+    ints w = gp::make_slice<int64_t>(5, 10);
+    for (int64_t i = 0; i < gp::len(w); i++) {
+        w[i] = i;
+    }
+    ints w2 = gp::append_slice(gp::sub(w, 0, 1), gp::sub(w, 0, 4));
+    dump("w"_gs, w);
+    dump("w2"_gs, w2);
+    ints nn;
+    nn = gp::append_slice(nn, gp::slice_of<int64_t>({}));
+    fmt::Println(nn == nullptr);
+    nn = gp::append_slice(nn, ints());
+    fmt::Println(nn == nullptr);
+    nn = gp::append_slice(nn, gp::slice_of<int64_t>({6, 7}));
+    dump("nn"_gs, nn);
+
+    // copy: the number copied; overlap safe
+    ints k = gp::slice_of<int64_t>({1, 2, 3, 4, 5});
+    fmt::Println(gp::copy(gp::sub(k, 1), k));
+    dump("k"_gs, k);
+    k = gp::slice_of<int64_t>({1, 2, 3, 4, 5});
+    fmt::Println(gp::copy(k, gp::sub(k, 2)));
+    dump("k"_gs, k);
+    int64_t n3 = gp::copy(k, gp::slice_of<int64_t>({}));
+    int64_t n4 = gp::copy(ints(), k);
+    fmt::Println(n3, n4, gp::copy(gp::sub(k, 0, 2), gp::slice_of<int64_t>({8, 9, 10})));
+    dump("k"_gs, k);
+
+    // []byte and strings
+    bytes bs = gp::slice_of<uint8_t>({'h', 'i'});
+    bs = gp::append_slice(bs, "llo"_gs);
+    bs = gp::append_slice(bs, ""_gs);
+    dump_bytes("bs"_gs, bs);
+    bytes nb = gp::make_slice<uint8_t>(3);
+    // In Go's order: C++ evaluates the arguments of a call in any order.
+    int64_t n1 = gp::copy(nb, "abcdef"_gs);
+    int64_t n2 = gp::copy(gp::sub(nb, 2), "z"_gs);
+    fmt::Println(n1, n2, gp::copy(nb, ""_gs));
+    dump_bytes("nb"_gs, nb);
+    bytes nilb;
+    nilb = gp::append_slice(nilb, ""_gs);
+    fmt::Println(nilb == nullptr);
+    nilb = gp::append_slice(nilb, "go"_gs);
+    dump_bytes("nilb"_gs, nilb);
+
+    // clear
+    ints cl = gp::slice_of<int64_t>({1, 2, 3, 4});
+    gp::clear(gp::sub(cl, 1, 3));
+    dump("cl"_gs, cl);
+    ints cln;
+    gp::clear(cln);
+
+    // strings as elements
+    gp::slice<gp::string> ss = gp::slice_of<gp::string>({"a"_gs, "b"_gs});
+    ss = gp::append(ss, "c"_gs, "d"_gs, "e"_gs);
+    gp::slice<gp::string> t = gp::sub(ss, 1, 4);
+    t[0] = "B"_gs;
+    gp::clear(gp::sub(ss, 3));
+    fmt::Println(gp::len(ss), ss[0], ss[1], ss[2], ss[3] == ""_gs, ss[4] == ""_gs, t[0],
+                 gp::len(t));
+
+    // nested slices
+    gp::slice<ints> grid = gp::make_slice<ints>(3);
+    for (int64_t i = 0; i < gp::len(grid); i++) {
+        grid[i] = gp::make_slice<int64_t>(i + 1);
+        grid[i][i] = i * 10;
+    }
+    grid = gp::append(grid, grid[1]);
+    grid[3][0] = 55;
+    fmt::Println(gp::len(grid), grid[1][0], grid[2][2], gp::len(grid[3]), grid[0] == nullptr);
+
+    // pointers to elements keep the array alive
+    ints pe = gp::slice_of<int64_t>({1, 2, 3});
+    gp::ptr<int64_t> p = gp::ptr<int64_t>(pe.gp_owner(), &pe[1]);
+    *p = 22;
+    fmt::Println(pe[1]);
+    pe = nullptr;
+    *p += 1;
+    fmt::Println(*p, pe == nullptr);
+    ints pe2 = gp::slice_of<int64_t>({4, 5});
+    gp::ptr<int64_t> q = gp::ptr<int64_t>(pe2.gp_owner(), &pe2[0]);
+    pe2 = gp::append(pe2, INT64_C(6));
+    *q = 40;
+    fmt::Println(pe2[0], *q, gp::len(pe2));
+
+    // index types
+    ints it = gp::slice_of<int64_t>({10, 20, 30});
+    uint8_t u8 = 2;
+    int8_t i8 = 1;
+    uint64_t u64 = 0;
+    fmt::Println(it[u8], it[i8], it[u64], gp::len(gp::sub(it, u8)), gp::len(gp::sub(it, i8, u8)),
+                 gp::cap(gp::sub(it, i8, u8, u8)));
+
+    // slice to array: the length check passes (the array type comes in step 3.6)
+    gp::check_convert(2, gp::len(it));
+    fmt::Println(it[0], it[1]);
+}
+
+void slice_grow_case() {
+    ints s;
+    bool ok = true;
+    int64_t reallocs = 0;
+    for (int64_t i = 0; i < 1000000; i++) {
+        int64_t before = gp::cap(s);
+        s = gp::append(s, i);
+        if (gp::cap(s) < gp::len(s)) {
+            ok = false;
+        }
+        if (gp::cap(s) != before) {
+            reallocs++;
+        }
+    }
+    int64_t sum = 0;
+    for (int64_t i = 0; i < gp::len(s); i++) {
+        sum += s[i];
+    }
+    fmt::Println(gp::len(s), sum, ok, s[999999], reallocs < 100);
+    bytes bs;
+    for (int64_t i = 0; i < 100000; i++) {
+        bs = gp::append(bs, static_cast<uint8_t>(i));
+    }
+    fmt::Println(gp::len(bs), bs[99999], gp::cap(bs) >= gp::len(bs));
+    gp::slice<gp::string> ss;
+    for (int64_t i = 0; i < 10000; i++) {
+        ss = gp::append(ss, "x"_gs);
+    }
+    fmt::Println(gp::len(ss), ss[9999], gp::cap(ss) >= gp::len(ss));
+    ints t = gp::make_slice<int64_t>(0, 3);
+    t = gp::append(t, INT64_C(1), INT64_C(2), INT64_C(3), INT64_C(4), INT64_C(5), INT64_C(6),
+                   INT64_C(7));
+    fmt::Println(gp::len(t), gp::cap(t) >= 7, t[6]);
+    fmt::Println(gp::cap(gp::make_slice<int64_t>(5)), gp::cap(gp::make_slice<int64_t>(0, 7)),
+                 gp::cap(gp::slice_of<int64_t>({1, 2, 3})));
+}
+
+struct node {
+    gp::slice<node> kids;
+    int64_t v = 0;
+};
+
+void node_vals(const gp::slice<node>& q) {
+    fmt::Print(gp::len(q), " ["_gs);
+    for (int64_t i = 0; i < gp::len(q); i++) {
+        if (i > 0) {
+            fmt::Print(" "_gs);
+        }
+        fmt::Print(q[i].v);
+    }
+    fmt::Print("]\n"_gs);
+}
+
+// Elements whose source array is owned only by the element that the store overwrites
+// (q[0].kids): the store must not free the source while it reads it (ASan checks).
+void slice_free_case() {
+    using nodes = gp::slice<node>;
+    nodes q =
+        gp::slice_of<node>({node{gp::slice_of<node>({node{{}, 5}, node{{}, 6}, node{{}, 7}}), 0}});
+    q = gp::append_slice(gp::sub(q, 0, 0), q[0].kids);
+    node_vals(q);
+    q = gp::slice_of<node>({node{gp::slice_of<node>({node{{}, 1}}), 0}, node{{}, 5}});
+    fmt::Println(gp::copy(gp::sub(q, 0, 1), q[0].kids));
+    node_vals(q);
+    q = gp::slice_of<node>(
+        {node{gp::slice_of<node>({node{{}, 3}, node{{}, 5}, node{{}, 6}, node{{}, 7}}), 0},
+         node{{}, 1}, node{{}, 2}});
+    fmt::Println(gp::copy(q, q[0].kids));
+    node_vals(q);
+    q = gp::slice_of<node>({node{gp::slice_of<node>({node{{}, 5}, node{{}, 8}}), 0}});
+    q = gp::append(gp::sub(q, 0, 0), q[0].kids[0]);
+    node_vals(q);
+    q = gp::slice_of<node>({node{gp::slice_of<node>({node{{}, 5}, node{{}, 8}}), 0}});
+    q = gp::append(gp::sub(q, 0, 0), q[0].kids[1], q[0].kids[0]);
+    node_vals(q);
+    nodes k = gp::slice_of<node>({node{{}, 9}});
+    k[0].kids = k;
+    gp::clear(k[0].kids);
+    fmt::Println(k[0].v, k[0].kids == nullptr);
+}
+
+bool slice_case(std::string_view c) {
+    ints s3 = gp::make_slice<int64_t>(3, 5);
+    if (c == "slices") {
+        slices_case();
+    } else if (c == "slice-grow") {
+        slice_grow_case();
+    } else if (c == "slice-free") {
+        slice_free_case();
+    } else if (c == "slice-index") {
+        ints s = gp::make_slice<int64_t>(3);
+        int64_t i = 5;
+        fmt::Println(s[i]);
+    } else if (c == "slice-index-neg") {
+        ints s = gp::make_slice<int64_t>(3);
+        int64_t i = -1;
+        fmt::Println(s[i]);
+    } else if (c == "slice-index-u8") {
+        ints s = gp::make_slice<int64_t>(3);
+        uint8_t i = 200;
+        fmt::Println(s[i]);
+    } else if (c == "slice-index-nil") {
+        ints s;
+        int64_t i = 0;
+        fmt::Println(s[i]);
+    } else if (c == "slice-hi") {
+        int64_t h = 6;
+        fmt::Println(gp::len(gp::sub(s3, 0, h)));
+    } else if (c == "slice-hi-neg") {
+        int64_t h = -1;
+        fmt::Println(gp::len(gp::sub(s3, 0, h)));
+    } else if (c == "slice-hi-u") {
+        uint64_t h = UINT64_MAX;
+        fmt::Println(gp::len(gp::sub(s3, 0, h)));
+    } else if (c == "slice-lo") {
+        int64_t l = 3, h = 2;
+        fmt::Println(gp::len(gp::sub(s3, l, h)));
+    } else if (c == "slice-lo-neg") {
+        int64_t l = -2;
+        fmt::Println(gp::len(gp::sub(s3, l)));
+    } else if (c == "slice-from") {
+        int64_t l = 4;
+        fmt::Println(gp::len(gp::sub(s3, l)));
+    } else if (c == "slice-nil-sub") {
+        ints s;
+        int64_t h = 1;
+        fmt::Println(gp::len(gp::sub(s, 0, h)));
+    } else if (c == "slice3-max") {
+        int64_t m = 6;
+        fmt::Println(gp::len(gp::sub(s3, 0, 1, m)));
+    } else if (c == "slice3-max-neg") {
+        int64_t m = -1;
+        fmt::Println(gp::len(gp::sub(s3, 0, 1, m)));
+    } else if (c == "slice3-max-u") {
+        uint64_t m = UINT64_MAX;
+        fmt::Println(gp::len(gp::sub(s3, 0, 1, m)));
+    } else if (c == "slice3-hi") {
+        int64_t h = 4, m = 2;
+        fmt::Println(gp::len(gp::sub(s3, 0, h, m)));
+    } else if (c == "slice3-hi-neg") {
+        int64_t h = -1, m = 2;
+        fmt::Println(gp::len(gp::sub(s3, 0, h, m)));
+    } else if (c == "slice3-lo") {
+        int64_t l = 3, h = 2, m = 4;
+        fmt::Println(gp::len(gp::sub(s3, l, h, m)));
+    } else if (c == "slice3-lo-neg") {
+        int64_t l = -1, h = 2, m = 4;
+        fmt::Println(gp::len(gp::sub(s3, l, h, m)));
+    } else if (c == "make-len") {
+        int64_t n = -1;
+        fmt::Println(gp::len(gp::make_slice<int64_t>(n)));
+    } else if (c == "make-len-big") {
+        int64_t n = INT64_C(1) << 60;
+        fmt::Println(gp::len(gp::make_slice<int64_t>(n)));
+    } else if (c == "make-cap") {
+        int64_t n = 2, cp = 1;
+        fmt::Println(gp::len(gp::make_slice<int64_t>(n, cp)));
+    } else if (c == "make-cap-big") {
+        int64_t n = 1, cp = INT64_C(1) << 60;
+        fmt::Println(gp::len(gp::make_slice<int64_t>(n, cp)));
+    } else if (c == "slice-convert") {
+        ints s = gp::slice_of<int64_t>({1, 2});
+        gp::check_convert(3, gp::len(s));
+        fmt::Println(s[0]);
+    } else {
+        return false;
+    }
+    return true;
 }
 
 } // namespace gpkg_main

@@ -1,0 +1,809 @@
+// The unit tests of gp::slice (gocpp/slice.hpp) and of the slice bounds checks
+// (gocpp/bounds.hpp). runtime/cxx_test.go compiles this file with the runtime's .cpp files,
+// with g++ and clang++, at -O0, at -O2 and with ASan + UBSan (LeakSanitizer included), and
+// runs it like test/unit.cpp. It prints "ok: N checks" and exits 0, or prints each failed check
+// and exits 1. The Go behavior it checks is in runtime/testdata/diff/main.go (sliceCase) too,
+// where real Go runs it.
+#include <gocpp/rt.hpp>
+#include <gocpp/os.hpp>
+
+#include <concepts>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+// A user's package (a namespace like generated code's gpkg_main) with Go functions whose names
+// are also the names of the runtime's helpers. The runtime's calls are qualified, so
+// argument-dependent lookup for a slice of a user type never picks these (test_adl).
+namespace gpkg_adl {
+
+struct P {
+    int64_t v = 0;
+};
+
+int64_t hijacked = 0;
+
+template <typename T>
+gp::slice<T> grow(const gp::slice<T>& s, int64_t) {
+    hijacked++;
+    return s;
+}
+template <typename T>
+void copy_elems(T*, const T*, int64_t) {
+    hijacked++;
+}
+template <typename T>
+gp::slice<T> append_n(gp::slice<T> s, const T*, int64_t) {
+    hijacked++;
+    return s;
+}
+gp::slice<P> sub(gp::slice<P> s, int64_t, int64_t) {
+    hijacked++;
+    return s;
+}
+template <typename T>
+std::shared_ptr<T[]> new_array(int64_t, int64_t) {
+    hijacked++;
+    return nullptr;
+}
+
+} // namespace gpkg_adl
+
+namespace {
+
+int checks = 0;
+int failures = 0;
+
+std::string show(int64_t v) {
+    return std::to_string(static_cast<long long>(v));
+}
+std::string show(const std::string& v) {
+    return '"' + v + '"';
+}
+
+void report(bool ok, const char* file, int line, const std::string& what) {
+    checks++;
+    if (!ok) {
+        failures++;
+        std::string msg = std::string(file) + ":" + std::to_string(line) + ": " + what + "\n";
+        gp::os::write(gp::os::stderr_fd, msg.data(), msg.size());
+    }
+}
+
+#define CHECK(...) report((__VA_ARGS__), __FILE__, __LINE__, "CHECK(" #__VA_ARGS__ ") failed")
+
+#define CHECK_EQ(got, want)                                                                        \
+    do {                                                                                           \
+        auto gp_got = (got);                                                                       \
+        decltype(gp_got) gp_want = (want);                                                         \
+        report(gp_got == gp_want, __FILE__, __LINE__,                                              \
+               #got " = " + show(gp_got) + ", want " + show(gp_want));                             \
+    } while (0)
+
+// panic_text runs f and returns the text of the panic it throws, or "<no panic>".
+template <typename F>
+std::string panic_text(F f) {
+    try {
+        f();
+    } catch (const gp::panic_error& e) {
+        return std::string(e.gp_text.gp_view());
+    }
+    return "<no panic>";
+}
+
+using ints = gp::slice<int64_t>;
+using bytes = gp::slice<uint8_t>;
+using strs = gp::slice<gp::string>;
+
+// elems: the elements of s, for comparisons.
+template <typename T>
+std::vector<T> elems(const gp::slice<T>& s) {
+    std::vector<T> v;
+    for (int64_t i = 0; i < gp::len(s); i++) {
+        v.push_back(s[i]);
+    }
+    return v;
+}
+
+bool same(const ints& s, std::vector<int64_t> want) {
+    return elems(s) == want;
+}
+
+// --- layout, zero values, the type's rules ---
+
+// A slice accepts an incomplete element type: Node is incomplete where its member is declared.
+struct Node {
+    gp::slice<Node> kids;
+    int64_t v = 0;
+};
+
+// A zero-value package-level slice needs no dynamic initialization.
+constinit ints global_nil;
+int64_t global_arr[3] = {1, 2, 3};
+
+static_assert(sizeof(gp::slice<int64_t>) == 40);
+static_assert(sizeof(gp::slice<Node>) == 40);
+static_assert(sizeof(gp::slice<gp::string>) == 40);
+static_assert(!std::equality_comparable<ints>, "Go compares slices only with nil");
+static_assert(requires(ints s) { s == nullptr; });
+static_assert(requires(ints s) { s != nullptr; });
+static_assert(std::is_nothrow_move_constructible_v<ints>);
+static_assert(std::is_same_v<decltype(std::declval<const ints&>()[0]), int64_t&>,
+              "s[i] is a writable element, also for a const slice");
+static_assert(!std::is_convertible_v<ints, bool>);
+
+void test_nil_and_empty() {
+    ints n;
+    CHECK(n == nullptr);
+    CHECK(global_nil == nullptr);
+    CHECK_EQ(gp::len(n), INT64_C(0));
+    CHECK_EQ(gp::cap(n), INT64_C(0));
+    CHECK(gp::sub(n, 0, 0) == nullptr);
+    CHECK(gp::sub(n, 0) == nullptr);
+    CHECK(gp::sub(n, 0, 0, 0) == nullptr);
+    CHECK(gp::append(n) == nullptr);
+    CHECK(gp::append_slice(n, ints()) == nullptr);
+    CHECK(gp::append_slice(bytes(), ""_gs) == nullptr);
+    CHECK_EQ(gp::copy(n, gp::slice_of<int64_t>({1})), INT64_C(0));
+    gp::clear(n);
+
+    // []T{} and make([]T, 0) are empty but not nil, and allocate nothing.
+    ints e = gp::slice_of<int64_t>({});
+    ints m = gp::make_slice<int64_t>(0);
+    ints m2 = gp::make_slice<int64_t>(0, 0);
+    CHECK(e != nullptr && m != nullptr && m2 != nullptr);
+    CHECK(e.gp_owner() == nullptr);
+    CHECK(gp::len(e) == 0 && gp::cap(e) == 0);
+    CHECK(gp::sub(e, 0, 0) != nullptr); // a slice of an empty slice is not nil
+    CHECK(gp::append(e) != nullptr);
+    CHECK(gp::append_slice(m, ints()) != nullptr);
+
+    // nil assignment and nil arguments
+    ints s = gp::slice_of<int64_t>({1, 2});
+    s = nullptr;
+    CHECK(s == nullptr);
+    auto f = [](const ints& x) { return x == nullptr; };
+    CHECK(f(nullptr));
+
+    // A move leaves nil behind.
+    ints a = gp::slice_of<int64_t>({1, 2});
+    ints b = std::move(a);
+    CHECK(a == nullptr && gp::len(a) == 0 && gp::cap(a) == 0); // NOLINT(bugprone-use-after-move)
+    CHECK(same(b, {1, 2}));
+    ints c;
+    c = std::move(b);
+    CHECK(b == nullptr && same(c, {1, 2})); // NOLINT(bugprone-use-after-move)
+    ints& cr = c;
+    c = std::move(cr); // self-move: unchanged
+    CHECK(same(c, {1, 2}));
+    c = cr; // self-copy
+    CHECK(same(c, {1, 2}));
+}
+
+// Plain is trivial: make and growth zero it with memset. Init has default member initializers
+// (like generated structs); Holder holds a string, so it is constructed and assigned.
+struct Plain {
+    int64_t a;
+    double b;
+    bool c;
+};
+struct Init {
+    int64_t a = 0;
+    int64_t b = 0;
+};
+struct Holder {
+    gp::string s;
+    int64_t n;
+};
+
+void test_make() {
+    ints m = gp::make_slice<int64_t>(3, 10);
+    CHECK_EQ(gp::len(m), INT64_C(3));
+    CHECK_EQ(gp::cap(m), INT64_C(10));
+    CHECK(same(gp::sub(m, 0, 10), std::vector<int64_t>(10, 0)));
+    CHECK_EQ(gp::cap(gp::make_slice<int64_t>(5)), INT64_C(5));
+    CHECK_EQ(gp::cap(gp::make_slice<int64_t>(uint8_t(4), uint16_t(7))), INT64_C(7));
+
+    gp::slice<Plain> p = gp::make_slice<Plain>(2, 4);
+    bool zero = true;
+    gp::slice<Plain> p4 = gp::sub(p, 0, 4);
+    for (int64_t i = 0; i < 4; i++) {
+        const Plain& x = p4[i];
+        zero = zero && x.a == 0 && x.b == 0.0 && !x.c;
+    }
+    CHECK(zero);
+    gp::slice<Holder> h = gp::make_slice<Holder>(3);
+    CHECK(h[2].s == ""_gs && h[2].n == 0);
+    strs s = gp::make_slice<gp::string>(2);
+    CHECK(s[0] == ""_gs && s[1] == ""_gs);
+    gp::slice<gp::ptr<int64_t>> ps = gp::make_slice<gp::ptr<int64_t>>(2);
+    CHECK(ps[1] == nullptr);
+    gp::slice<ints> nested = gp::make_slice<ints>(2);
+    CHECK(nested[0] == nullptr);
+
+    // Go's makeslice panics.
+    CHECK_EQ(panic_text([] { gp::make_slice<int64_t>(-1); }),
+             std::string("runtime error: makeslice: len out of range"));
+    CHECK_EQ(panic_text([] { gp::make_slice<int64_t>(INT64_C(1) << 60); }),
+             std::string("runtime error: makeslice: len out of range"));
+    CHECK_EQ(panic_text([] { gp::make_slice<int64_t>(UINT64_MAX); }),
+             std::string("runtime error: makeslice: len out of range"));
+    CHECK_EQ(panic_text([] { gp::make_slice<int64_t>(2, 1); }),
+             std::string("runtime error: makeslice: cap out of range"));
+    CHECK_EQ(panic_text([] { gp::make_slice<int64_t>(1, -1); }),
+             std::string("runtime error: makeslice: cap out of range"));
+    CHECK_EQ(panic_text([] { gp::make_slice<int64_t>(1, INT64_C(1) << 60); }),
+             std::string("runtime error: makeslice: cap out of range"));
+    CHECK_EQ(panic_text([] { gp::make_slice<int64_t>(-1, 5); }),
+             std::string("runtime error: makeslice: len out of range"));
+    // The limit is Go's maxAlloc, 1 << 48 bytes.
+    CHECK_EQ(panic_text([] { gp::make_slice<uint8_t>(0, (INT64_C(1) << 48) + 1); }),
+             std::string("runtime error: makeslice: cap out of range"));
+}
+
+void test_index() {
+    ints s = gp::slice_of<int64_t>({10, 20, 30});
+    CHECK_EQ(s[0], INT64_C(10));
+    CHECK_EQ(s[uint8_t(2)], INT64_C(30));
+    s[int8_t(1)] = 21;
+    CHECK_EQ(s[uint64_t(1)], INT64_C(21));
+    CHECK_EQ(panic_text([&] { s[3]; }),
+             std::string("runtime error: index out of range [3] with length 3"));
+    CHECK_EQ(panic_text([&] { s[-1]; }), std::string("runtime error: index out of range [-1]"));
+    CHECK_EQ(panic_text([&] { s[UINT64_MAX]; }),
+             std::string("runtime error: index out of range [18446744073709551615] with length 3"));
+    CHECK_EQ(panic_text([] { ints().operator[](0); }),
+             std::string("runtime error: index out of range [0] with length 0"));
+    // The index is checked against len, not cap.
+    ints t = gp::sub(gp::make_slice<int64_t>(2, 8), 0, 1);
+    CHECK_EQ(panic_text([&] { t[1]; }),
+             std::string("runtime error: index out of range [1] with length 1"));
+}
+
+void test_sub() {
+    ints s = gp::make_slice<int64_t>(3, 5);
+    for (int64_t i = 0; i < 3; i++) {
+        s[i] = i + 1;
+    }
+    ints t = gp::sub(s, 1, 4);
+    CHECK(gp::len(t) == 3 && gp::cap(t) == 4 && same(t, {2, 3, 0}));
+    CHECK(gp::len(gp::sub(s, 2)) == 1 && gp::cap(gp::sub(s, 2)) == 3);
+    ints u = gp::sub(s, 1, 2, 3);
+    CHECK(gp::len(u) == 1 && gp::cap(u) == 2);
+    CHECK_EQ(gp::cap(gp::sub(s, 5, 5)), INT64_C(0));
+    CHECK(gp::sub(s, 5, 5).gp_data() == s.gp_data()); // like Go: cap 0 keeps the pointer
+    CHECK(gp::sub(s, 0, 0).gp_data() == s.gp_data());
+    CHECK(gp::sub(s, 2, 2).gp_data() == s.gp_data() + 2);
+    CHECK_EQ(gp::cap(gp::sub(gp::sub(s, 0, 2, 2), 0, 2)), INT64_C(2));
+    // A slice can grow back up to its capacity.
+    CHECK(same(gp::sub(gp::sub(s, 0, 1), 0, 3), {1, 2, 3}));
+    // Index types mix.
+    CHECK_EQ(gp::len(gp::sub(s, uint8_t(1), int16_t(3), uint64_t(5))), INT64_C(2));
+
+    auto msg = [](auto f) { return panic_text(f); };
+    std::string p = "runtime error: slice bounds out of range ";
+    CHECK_EQ(msg([&] { gp::sub(s, 0, 6); }), p + "[:6] with capacity 5");
+    CHECK_EQ(msg([&] { gp::sub(s, 0, -1); }), p + "[:-1]");
+    CHECK_EQ(msg([&] { gp::sub(s, 0, UINT64_MAX); }),
+             p + "[:18446744073709551615] with capacity 5");
+    CHECK_EQ(msg([&] { gp::sub(s, 3, 2); }), p + "[3:2]");
+    CHECK_EQ(msg([&] { gp::sub(s, -2, 2); }), p + "[-2:]");
+    CHECK_EQ(msg([&] { gp::sub(s, uint64_t(1) << 63, 2); }), p + "[9223372036854775808:2]");
+    CHECK_EQ(msg([&] { gp::sub(s, 4); }), p + "[4:3]");
+    CHECK_EQ(msg([&] { gp::sub(s, 6, 6); }), p + "[:6] with capacity 5"); // hi is checked first
+    CHECK_EQ(msg([&] { gp::sub(ints(), 0, 1); }), p + "[:1] with capacity 0");
+    CHECK_EQ(msg([&] { gp::sub(s, 0, 1, 6); }), p + "[::6] with capacity 5");
+    CHECK_EQ(msg([&] { gp::sub(s, 0, 1, -1); }), p + "[::-1]");
+    CHECK_EQ(msg([&] { gp::sub(s, 0, 4, 2); }), p + "[:4:2]");
+    CHECK_EQ(msg([&] { gp::sub(s, 0, -1, 2); }), p + "[:-1:]");
+    CHECK_EQ(msg([&] { gp::sub(s, 3, 2, 4); }), p + "[3:2:]");
+    CHECK_EQ(msg([&] { gp::sub(s, -1, 2, 4); }), p + "[-1::]");
+    CHECK_EQ(msg([&] { gp::sub(s, 9, 8, 7); }), p + "[::7] with capacity 5"); // max first
+    CHECK_EQ(msg([&] { gp::sub(s, int8_t(-1), 2); }), p + "[-1:]");
+
+    // The checks for strings and arrays say "length" (bounds.hpp; used by steps 3.4, 3.6).
+    CHECK_EQ(msg([] { gp::check_slice(0, 4, 3, gp::bounds::slice_alen); }),
+             p + "[:4] with length 3");
+    CHECK_EQ(msg([] { gp::check_slice3(0, 1, 4, 3, gp::bounds::slice3_alen); }),
+             p + "[::4] with length 3");
+    CHECK_EQ(msg([] { gp::check_slice(2, 1, 3, gp::bounds::slice_alen); }), p + "[2:1]");
+    CHECK_EQ(msg([] { gp::check_slice(0, 3, 3, gp::bounds::slice_alen); }), "<no panic>");
+
+    // [N]T(s): N <= len(s).
+    CHECK_EQ(msg([] { gp::check_convert(3, 2); }),
+             std::string("runtime error: cannot convert slice with length 2 to array or pointer "
+                         "to array with length 3"));
+    CHECK_EQ(msg([] { gp::check_convert(2, 2); }), "<no panic>");
+    CHECK_EQ(msg([] { gp::check_convert(0, 0); }), "<no panic>");
+}
+
+// --- aliasing: slices of one array ---
+
+void test_aliasing() {
+    ints a = gp::slice_of<int64_t>({1, 2, 3, 4, 5});
+    ints b = gp::sub(a, 1, 3);
+    b[0] = 20;
+    CHECK_EQ(a[1], INT64_C(20));
+    a[2] = 30;
+    CHECK_EQ(b[1], INT64_C(30));
+
+    // append within capacity writes into the shared array: a sees it.
+    ints b2 = gp::append(b, INT64_C(40));
+    CHECK(same(a, {1, 20, 30, 40, 5}));
+    CHECK(b2.gp_data() == b.gp_data());
+    // ... and a second append from the same b overwrites the same element.
+    ints b3 = gp::append(b, INT64_C(41));
+    CHECK_EQ(b2[2], INT64_C(41));
+    CHECK(same(b3, {20, 30, 41}));
+
+    // append beyond capacity copies: the new slice no longer shares.
+    ints c = gp::append(gp::sub(a, 1, 3, 3), INT64_C(99));
+    c[0] = -1;
+    CHECK(same(a, {1, 20, 30, 41, 5}));
+    CHECK(same(c, {-1, 30, 99}));
+
+    // append_slice within capacity writes into the shared array too.
+    ints d = gp::append_slice(gp::sub(a, 0, 1), gp::slice_of<int64_t>({7, 8}));
+    CHECK(same(a, {1, 7, 8, 41, 5}));
+    CHECK(d.gp_data() == a.gp_data());
+}
+
+// --- append ---
+
+volatile int64_t fake_len = INT64_MAX;
+
+void test_append() {
+    ints x;
+    x = gp::append(x, INT64_C(1));
+    CHECK(same(x, {1}));
+    x = gp::append(x, 2, 3, 4); // int arguments convert to int64_t
+    CHECK(same(x, {1, 2, 3, 4}));
+
+    // Self-append, with and without room.
+    ints y = x;
+    y = gp::append_slice(y, y);
+    CHECK(same(y, {1, 2, 3, 4, 1, 2, 3, 4}));
+    ints r = gp::make_slice<int64_t>(2, 8);
+    r[0] = 7;
+    r[1] = 8;
+    r = gp::append_slice(r, r);
+    r = gp::append_slice(r, r);
+    CHECK(same(r, {7, 8, 7, 8, 7, 8, 7, 8}));
+    CHECK_EQ(gp::cap(r), INT64_C(8));
+
+    // Removing an element in place, and overlapping appends inside one array.
+    ints z = gp::slice_of<int64_t>({0, 1, 2, 3, 4});
+    z = gp::append_slice(gp::sub(z, 0, 1), gp::sub(z, 2));
+    CHECK(same(z, {0, 2, 3, 4}));
+    ints w = gp::make_slice<int64_t>(5, 10);
+    for (int64_t i = 0; i < 5; i++) {
+        w[i] = i;
+    }
+    ints w2 = gp::append_slice(gp::sub(w, 0, 1), gp::sub(w, 0, 4)); // dst after src
+    CHECK(same(w2, {0, 0, 1, 2, 3}));
+    ints w3 = gp::append_slice(gp::sub(w, 0, 4), gp::sub(w, 0, 6)); // grows: reads the old array
+    CHECK(same(w3, {0, 0, 1, 2, 0, 0, 1, 2, 3, 0}));
+
+    // The arguments are read before anything is stored (Go evaluates them first).
+    ints v = gp::slice_of<int64_t>({1, 2, 3, 4});
+    v = gp::append(gp::sub(v, 0, 1), v[2], v[1]);
+    CHECK(same(v, {1, 3, 2}));
+    ints v2 = gp::slice_of<int64_t>({1, 2, 3});
+    v2 = gp::append(gp::sub(v2, 0, 1, 1), v2[0], v2[2]); // grows: reads the old array
+    CHECK(same(v2, {1, 1, 3}));
+
+    // A string's bytes appended to a []byte.
+    bytes bs = gp::slice_of<uint8_t>({'g'});
+    bs = gp::append_slice(bs, "o!"_gs);
+    CHECK(elems(bs) == std::vector<uint8_t>({'g', 'o', '!'}));
+    bytes nb;
+    nb = gp::append_slice(nb, "abc"_gs);
+    CHECK(gp::len(nb) == 3 && nb[2] == 'c');
+
+    // The capacity follows Go's growth formula (only cap >= len is promised).
+    ints g;
+    g = gp::append(g, 1, 2, 3);
+    CHECK_EQ(gp::cap(g), INT64_C(3));
+    g = gp::append(g, 1, 2, 3, 4, 5, 6, 7, 8);
+    CHECK_EQ(gp::cap(g), INT64_C(12));
+    bytes gb = gp::make_slice<uint8_t>(0);
+    gb = gp::append_slice(gb, "hello, world!"_gs);
+    CHECK_EQ(gp::cap(gb), INT64_C(16));
+
+    // The new array's elements after len are zero values (also for a trivial type).
+    ints t = gp::append(ints(), INT64_C(5));
+    t = gp::append(t, INT64_C(6)); // cap 2
+    t = gp::append(t, INT64_C(7)); // cap 4
+    CHECK(same(gp::sub(t, 0, gp::cap(t)), {5, 6, 7, 0}));
+    strs ts = gp::append(strs(), "a"_gs, "b"_gs, "c"_gs);
+    ts = gp::append(ts, "d"_gs);
+    CHECK(gp::cap(ts) > 4 && gp::sub(ts, 0, gp::cap(ts))[4] == ""_gs);
+
+    // Go's growslice panic, when the length would overflow or the array be too big. The
+    // slices are made up and never read; their lengths are volatile, so that g++ -O2 doesn't
+    // warn about the copy that the panic stops (-Warray-bounds).
+    CHECK_EQ(panic_text([] {
+                 bytes huge(gp::static_owner(), gp::detail::empty_data<uint8_t>(), fake_len,
+                            fake_len);
+                 gp::append(huge, uint8_t(1));
+             }),
+             std::string("runtime error: growslice: len out of range"));
+    CHECK_EQ(panic_text([] {
+                 int64_t n = fake_len >> 15; // (1 << 48) - 1
+                 bytes big(gp::static_owner(), gp::detail::empty_data<uint8_t>(), n, n);
+                 gp::append(big, uint8_t(1));
+             }),
+             std::string("runtime error: growslice: len out of range"));
+}
+
+// The capacities of Go 1.25 for appends one at a time (cap changes of a slice that escapes to
+// the heap; printed by real Go on amd64): int64 elements, bytes and 24-byte elements.
+const std::vector<int64_t> go_caps_int = {
+    1,      2,      4,      8,      16,     32,     64,     128,    256,    512,
+    848,    1280,   1792,   2560,   3408,   5120,   7168,   9216,   12288,  16384,
+    21504,  27648,  34816,  44032,  55296,  69632,  88064,  110592, 139264, 175104,
+    219136, 274432, 344064, 431104, 539648, 674816, 843776, 1055744};
+const std::vector<int64_t> go_caps_byte = {8,     16,    32,    64,    128,   256,   512,   896,
+                                           1408,  2048,  3072,  4096,  5376,  6912,  9472,  12288,
+                                           16384, 21760, 28672, 40960, 57344, 73728, 98304, 131072};
+const std::vector<int64_t> go_caps_24 = {1,     2,     4,     8,     16,    32,    64,    128,
+                                         256,   512,   853,   1365,  2048,  3072,  4096,  5461,
+                                         7168,  9216,  11946, 15360, 19456, 24576, 31061, 39253,
+                                         49493, 62122, 78165, 97962, 122880};
+
+struct Three {
+    int64_t a, b, c;
+};
+
+template <typename T>
+std::vector<int64_t> grow_caps(int64_t n, int64_t* reallocs, bool* ok) {
+    gp::slice<T> s;
+    std::vector<int64_t> caps;
+    *reallocs = 0;
+    *ok = true;
+    for (int64_t i = 0; i < n; i++) {
+        T* before = s.gp_data();
+        s = gp::append(s, T{});
+        if (s.gp_data() != before) {
+            ++*reallocs;
+            caps.push_back(gp::cap(s));
+        }
+        *ok = *ok && gp::cap(s) >= gp::len(s) && gp::len(s) == i + 1;
+    }
+    return caps;
+}
+
+void test_growth() {
+    int64_t reallocs = 0;
+    bool ok = false;
+    CHECK(grow_caps<int64_t>(1'000'000, &reallocs, &ok) == go_caps_int);
+    CHECK(ok);
+    CHECK(reallocs <= 40); // amortized O(1): about 1.25x per reallocation
+    CHECK(grow_caps<uint8_t>(100'000, &reallocs, &ok) == go_caps_byte);
+    CHECK(ok);
+    CHECK(grow_caps<Three>(100'000, &reallocs, &ok) == go_caps_24);
+    CHECK(ok);
+
+    // The values survive the reallocations.
+    ints s;
+    for (int64_t i = 0; i < 1'000'000; i++) {
+        s = gp::append(std::move(s), i);
+    }
+    int64_t sum = 0;
+    for (int64_t i = 0; i < gp::len(s); i++) {
+        sum += s[i];
+    }
+    CHECK_EQ(sum, INT64_C(499999500000));
+
+    // Strings: elements copied into a new array keep their bytes.
+    strs ss;
+    for (int64_t i = 0; i < 10'000; i++) {
+        ss = gp::append(ss, gp::string::gp_copy(std::to_string(i)));
+    }
+    CHECK(ss[9999] == "9999"_gs && ss[0] == "0"_gs);
+}
+
+// --- copy and clear ---
+
+void test_copy_clear() {
+    ints k = gp::slice_of<int64_t>({1, 2, 3, 4, 5});
+    CHECK_EQ(gp::copy(gp::sub(k, 1), k), INT64_C(4)); // forward overlap
+    CHECK(same(k, {1, 1, 2, 3, 4}));
+    k = gp::slice_of<int64_t>({1, 2, 3, 4, 5});
+    CHECK_EQ(gp::copy(k, gp::sub(k, 2)), INT64_C(3)); // backward overlap
+    CHECK(same(k, {3, 4, 5, 4, 5}));
+    CHECK_EQ(gp::copy(k, k), INT64_C(5));
+    CHECK_EQ(gp::copy(ints(), k), INT64_C(0));
+
+    // Non-trivial elements, overlapping both ways.
+    strs s = gp::slice_of<gp::string>({"a"_gs, "b"_gs, "c"_gs, "d"_gs});
+    CHECK_EQ(gp::copy(gp::sub(s, 1), s), INT64_C(3));
+    CHECK(elems(s) == std::vector<gp::string>({"a"_gs, "a"_gs, "b"_gs, "c"_gs}));
+    s = gp::slice_of<gp::string>({"a"_gs, "b"_gs, "c"_gs, "d"_gs});
+    CHECK_EQ(gp::copy(s, gp::sub(s, 1)), INT64_C(3));
+    CHECK(elems(s) == std::vector<gp::string>({"b"_gs, "c"_gs, "d"_gs, "d"_gs}));
+
+    // copy(dst []byte, src string)
+    bytes b = gp::make_slice<uint8_t>(3);
+    CHECK_EQ(gp::copy(b, "hello"_gs), INT64_C(3));
+    CHECK_EQ(gp::copy(gp::sub(b, 1), "E"_gs), INT64_C(1));
+    CHECK(elems(b) == std::vector<uint8_t>({'h', 'E', 'l'}));
+    CHECK_EQ(gp::copy(b, ""_gs), INT64_C(0));
+
+    // clear zeroes len elements, not cap.
+    ints c = gp::slice_of<int64_t>({1, 2, 3, 4});
+    gp::clear(gp::sub(c, 1, 2));
+    CHECK(same(c, {1, 0, 3, 4}));
+    strs cs = gp::slice_of<gp::string>({"x"_gs, "y"_gs});
+    gp::clear(cs);
+    CHECK(cs[0] == ""_gs && cs[1] == ""_gs);
+    gp::slice<Plain> cp = gp::slice_of<Plain>({Plain{1, 2.5, true}});
+    gp::clear(cp);
+    CHECK(cp[0].a == 0 && cp[0].b == 0.0 && !cp[0].c);
+}
+
+// --- lifetimes ---
+
+// Tracked counts its live objects and catches a double destruction.
+int64_t live = 0;
+int64_t bad_destroys = 0;
+
+struct Tracked {
+    int64_t v = 0;
+    int64_t magic = 0x5eed;
+    Tracked() { live++; }
+    Tracked(int64_t x) : v(x) { live++; }
+    Tracked(const Tracked& o) : v(o.v) { live++; }
+    Tracked& operator=(const Tracked& o) {
+        v = o.v;
+        return *this;
+    }
+    ~Tracked() {
+        if (magic != 0x5eed) {
+            bad_destroys++;
+        }
+        magic = 0;
+        live--;
+    }
+};
+
+void test_lifetimes() {
+    {
+        gp::slice<Tracked> t = gp::make_slice<Tracked>(3, 5);
+        CHECK_EQ(live, INT64_C(5)); // every element of the array is a constructed zero value
+        for (int64_t i = 0; i < 20; i++) {
+            t = gp::append(t, Tracked(i));
+        }
+        gp::slice<Tracked> u = gp::sub(t, 2, 4);
+        t = nullptr;
+        CHECK_EQ(u[0].v, INT64_C(0));
+        gp::clear(u);
+        gp::slice<Tracked> lit = gp::slice_of<Tracked>({Tracked(1), Tracked(2)});
+        CHECK_EQ(lit[1].v, INT64_C(2));
+    }
+    CHECK_EQ(live, INT64_C(0));
+    CHECK_EQ(bad_destroys, INT64_C(0));
+
+    // A pointer to an element keeps the array alive after the slice goes.
+    ints s = gp::slice_of<int64_t>({1, 2, 3});
+    gp::ptr<int64_t> p = gp::ptr<int64_t>(s.gp_owner(), &s[1]);
+    gp::weak_ptr<int64_t> w = gp::weak_make(p);
+    s = nullptr;
+    *p += 40;
+    CHECK_EQ(*p, INT64_C(42));
+    CHECK(gp::weak_value(w) == p);
+    p = nullptr;
+    CHECK(gp::weak_value(w) == nullptr); // the array is freed with the last pointer
+
+    // ... also through a sub-slice, and after an append moved the slice to a new array.
+    ints a = gp::slice_of<int64_t>({4, 5});
+    gp::ptr<int64_t> q = gp::ptr<int64_t>(gp::sub(a, 1).gp_owner(), &gp::sub(a, 1)[0]);
+    a = gp::append(a, INT64_C(6));
+    *q = 50;
+    CHECK(same(a, {4, 5, 6}));
+    CHECK_EQ(*q, INT64_C(50));
+
+    // Elements that own things: strings, pointers, nested slices are freed with the array
+    // (LeakSanitizer checks there's nothing left in the asan mode).
+    gp::ptr<int64_t> target = gp::new_<int64_t>(7);
+    gp::weak_ptr<int64_t> wt = gp::weak_make(target);
+    gp::slice<gp::ptr<int64_t>> ps = gp::slice_of<gp::ptr<int64_t>>({target, nullptr});
+    target = nullptr;
+    CHECK(gp::weak_value(wt) != nullptr);
+    ps = gp::append(ps, ps[0], ps[0]);
+    ps = nullptr;
+    CHECK(gp::weak_value(wt) == nullptr);
+
+    ints inner = gp::slice_of<int64_t>({1});
+    gp::weak_ptr<int64_t> wi = gp::weak_make(gp::ptr<int64_t>(inner.gp_owner(), &inner[0]));
+    gp::slice<ints> outer = gp::slice_of<ints>({inner, inner});
+    inner = nullptr;
+    outer = gp::append(outer, outer[1]);
+    CHECK(gp::weak_value(wi) != nullptr);
+    outer = nullptr;
+    CHECK(gp::weak_value(wi) == nullptr);
+
+    strs ss = gp::slice_of<gp::string>({gp::string::gp_copy("heap")});
+    ss = gp::append(ss, ss[0], gp::string::gp_copy("more"));
+    ss = gp::sub(ss, 1);
+    CHECK(ss[0] == "heap"_gs && ss[1] == "more"_gs);
+
+    // An assignment reads the new value before it drops the old array: n's array holds the
+    // only reference to the array of n[0].kids.
+    gp::slice<Node> n = gp::make_slice<Node>(1);
+    n[0].kids = gp::slice_of<Node>({Node{nullptr, 5}});
+    n = n[0].kids;
+    CHECK(gp::len(n) == 1 && n[0].v == 5);
+    n = std::move(n[0].kids); // nil: n[0] has no kids
+    CHECK(n == nullptr);
+
+    // A slice of a package-level array shares the static owner, so &s[i] has an owner.
+    ints g(gp::static_owner(), global_arr, 3, 3);
+    gp::ptr<int64_t> gp0 = gp::ptr<int64_t>(g.gp_owner(), &g[2]);
+    *gp0 = 30;
+    CHECK_EQ(global_arr[2], INT64_C(30));
+    gp::weak_ptr<int64_t> wg = gp::weak_make(gp0);
+    g = nullptr;
+    gp0 = nullptr;
+    CHECK(gp::weak_value(wg) != nullptr); // never expires
+}
+
+// Stores whose source array is owned only by the element that the store overwrites: q[0].kids
+// is the only owner of its array, and storing into q[0] drops it. Without may_free (slice.hpp)
+// each case read freed memory (ASan: heap-use-after-free). The values are real Go's.
+std::vector<int64_t> vals(const gp::slice<Node>& q) {
+    std::vector<int64_t> v;
+    for (int64_t i = 0; i < gp::len(q); i++) {
+        v.push_back(q[i].v);
+    }
+    return v;
+}
+
+gp::slice<Node> with_kids(std::vector<int64_t> kids, std::vector<int64_t> rest) {
+    gp::slice<Node> k;
+    for (int64_t v : kids) {
+        k = gp::append(k, Node{nullptr, v});
+    }
+    gp::slice<Node> q = gp::append(gp::slice<Node>(), Node{k, 0});
+    for (int64_t v : rest) {
+        q = gp::append(q, Node{nullptr, v});
+    }
+    return q;
+}
+
+void test_self_free() {
+    gp::slice<Node> q = with_kids({5, 6, 7}, {});
+    q = gp::append_slice(gp::sub(q, 0, 0), q[0].kids);
+    CHECK(vals(q) == std::vector<int64_t>({5, 6, 7}));
+
+    q = with_kids({1}, {5});
+    CHECK_EQ(gp::copy(gp::sub(q, 0, 1), q[0].kids), INT64_C(1));
+    CHECK(vals(q) == std::vector<int64_t>({1, 5}));
+
+    q = with_kids({3, 5, 6, 7}, {1, 2});
+    CHECK_EQ(gp::copy(q, q[0].kids), INT64_C(3));
+    CHECK(vals(q) == std::vector<int64_t>({3, 5, 6}));
+
+    q = with_kids({5, 8}, {});
+    q = gp::append(gp::sub(q, 0, 0), q[0].kids[0]);
+    CHECK(vals(q) == std::vector<int64_t>({5}));
+
+    q = with_kids({5, 8}, {});
+    q = gp::append(gp::sub(q, 0, 0), q[0].kids[1], q[0].kids[0]);
+    CHECK(vals(q) == std::vector<int64_t>({8, 5}));
+
+    // clear of a slice that an element of its own array holds (a cycle, broken by the clear).
+    gp::slice<Node> k = gp::append(gp::slice<Node>(), Node{nullptr, 9});
+    k[0].kids = k;
+    gp::clear(k[0].kids);
+    CHECK(k[0].v == 0 && k[0].kids == nullptr);
+}
+
+// --- freeing long chains (detail::release) ---
+
+int64_t freed = 0;
+
+// A list whose links hold slices of pointers to the next link, and one whose links hold the
+// next link by value inside a slice.
+struct PLink {
+    gp::slice<gp::ptr<PLink>> next;
+    ~PLink() { freed++; }
+};
+struct VLink {
+    gp::slice<VLink> next;
+    int64_t pad = 0;
+    ~VLink() { freed++; }
+};
+
+bool nothing_pending() {
+    return gp::detail::release_tls.gp_depth == 0 && gp::detail::release_tls.gp_pending == nullptr;
+}
+
+void test_chains() {
+    const int64_t n = 200'000;
+    freed = 0;
+    {
+        gp::ptr<PLink> head;
+        for (int64_t i = 0; i < n; i++) {
+            gp::ptr<PLink> l = gp::new_<PLink>();
+            l->next = gp::slice_of<gp::ptr<PLink>>({head});
+            head = std::move(l);
+        }
+    } // dropped at the end of the scope
+    CHECK_EQ(freed, n);
+    CHECK(nothing_pending());
+
+    freed = 0;
+    gp::slice<VLink> top;
+    for (int64_t i = 0; i < n; i++) {
+        gp::slice<VLink> s = gp::make_slice<VLink>(1);
+        s[0].next = std::move(top);
+        top = std::move(s);
+    }
+    int64_t made = freed; // nothing was freed while building
+    top = nullptr;        // dropped by an assignment
+    CHECK_EQ(made, INT64_C(0));
+    CHECK_EQ(freed, n);
+    CHECK(nothing_pending());
+
+    // A slice in the middle of a chain: the rest is freed when the last slice of it goes.
+    freed = 0;
+    gp::ptr<PLink> h;
+    for (int64_t i = 0; i < n; i++) {
+        gp::ptr<PLink> l = gp::new_<PLink>();
+        l->next = gp::slice_of<gp::ptr<PLink>>({h});
+        h = std::move(l);
+    }
+    gp::slice<gp::ptr<PLink>> mid = h->next;
+    h = nullptr;
+    CHECK_EQ(freed, INT64_C(1));
+    mid = nullptr;
+    CHECK_EQ(freed, n);
+    CHECK(nothing_pending());
+}
+
+void test_adl() {
+    using gpkg_adl::P;
+    gp::slice<P> s;
+    s = gp::append(s, P{1});
+    s = gp::append(s, P{2}, P{3});
+    s = gp::append_slice(s, gp::sub(s, 1));
+    s = gp::sub(s, 1);
+    CHECK_EQ(gp::copy(s, gp::sub(s, 1)), INT64_C(3));
+    CHECK_EQ(gp::len(s), INT64_C(4));
+    CHECK(s[0].v == 3 && s[1].v == 2 && s[2].v == 3 && s[3].v == 3);
+    CHECK_EQ(gpkg_adl::hijacked, INT64_C(0));
+}
+
+void run_tests() {
+    test_nil_and_empty();
+    test_make();
+    test_index();
+    test_sub();
+    test_aliasing();
+    test_append();
+    test_growth();
+    test_copy_clear();
+    test_lifetimes();
+    test_self_free();
+    test_chains();
+    test_adl();
+    if (failures > 0) {
+        std::string msg =
+            "FAIL: " + std::to_string(failures) + " of " + std::to_string(checks) + " checks\n";
+        gp::os::write(gp::os::stderr_fd, msg.data(), msg.size());
+        gp::os::exit(1);
+    }
+    gp::fmtshim::Printf("ok: %d checks\n"_gs, int64_t(checks));
+}
+
+void no_init() {}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    return gp::run_main(argc, argv, &no_init, &run_tests);
+}

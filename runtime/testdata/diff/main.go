@@ -12,6 +12,9 @@ import (
 )
 
 func main() {
+	if sliceCase(os.Args[1]) {
+		return
+	}
 	switch os.Args[1] {
 	case "println":
 		printlnCase()
@@ -294,4 +297,334 @@ func ptrCase() {
 	fmt.Println(wg.Value() == &globalPoint, wg == weak.Make(g), wg.Value().X)
 	var z weak.Pointer[point]
 	fmt.Println(z.Value() == nil, z == weak.Make[point](nil), z == w)
+}
+
+// --- slices (Phase 03 step 3.5a) ---
+
+// sliceCase runs the slice case name and reports whether there is one. Each panic case ends
+// the program with Go's message.
+func sliceCase(name string) bool {
+	switch name {
+	case "slices":
+		slicesCase()
+	case "slice-grow":
+		sliceGrowCase()
+	case "slice-free":
+		sliceFreeCase()
+	case "slice-index":
+		s, i := make([]int, 3), 5
+		fmt.Println(s[i])
+	case "slice-index-neg":
+		s, i := make([]int, 3), -1
+		fmt.Println(s[i])
+	case "slice-index-u8":
+		s, i := make([]int, 3), uint8(200)
+		fmt.Println(s[i])
+	case "slice-index-nil":
+		var s []int
+		i := 0
+		fmt.Println(s[i])
+	case "slice-hi":
+		s, h := make([]int, 3, 5), 6
+		fmt.Println(len(s[:h]))
+	case "slice-hi-neg":
+		s, h := make([]int, 3, 5), -1
+		fmt.Println(len(s[:h]))
+	case "slice-hi-u":
+		s, h := make([]int, 3, 5), uint64(math.MaxUint64)
+		fmt.Println(len(s[:h]))
+	case "slice-lo":
+		s, l, h := make([]int, 3, 5), 3, 2
+		fmt.Println(len(s[l:h]))
+	case "slice-lo-neg":
+		s, l := make([]int, 3, 5), -2
+		fmt.Println(len(s[l:]))
+	case "slice-from":
+		s, l := make([]int, 3, 5), 4
+		fmt.Println(len(s[l:]))
+	case "slice-nil-sub":
+		var s []int
+		h := 1
+		fmt.Println(len(s[:h]))
+	case "slice3-max":
+		s, m := make([]int, 3, 5), 6
+		fmt.Println(len(s[0:1:m]))
+	case "slice3-max-neg":
+		s, m := make([]int, 3, 5), -1
+		fmt.Println(len(s[0:1:m]))
+	case "slice3-max-u":
+		s, m := make([]int, 3, 5), uint(math.MaxUint64)
+		fmt.Println(len(s[0:1:m]))
+	case "slice3-hi":
+		s, h, m := make([]int, 3, 5), 4, 2
+		fmt.Println(len(s[0:h:m]))
+	case "slice3-hi-neg":
+		s, h, m := make([]int, 3, 5), -1, 2
+		fmt.Println(len(s[0:h:m]))
+	case "slice3-lo":
+		s, l, h, m := make([]int, 3, 5), 3, 2, 4
+		fmt.Println(len(s[l:h:m]))
+	case "slice3-lo-neg":
+		s, l, h, m := make([]int, 3, 5), -1, 2, 4
+		fmt.Println(len(s[l:h:m]))
+	case "make-len":
+		n := -1
+		fmt.Println(len(make([]int, n)))
+	case "make-len-big":
+		n := 1 << 60
+		fmt.Println(len(make([]int, n)))
+	case "make-cap":
+		n, c := 2, 1
+		fmt.Println(len(make([]int, n, c)))
+	case "make-cap-big":
+		n, c := 1, 1<<60
+		fmt.Println(len(make([]int, n, c)))
+	case "slice-convert":
+		s := []int{1, 2}
+		a := [3]int(s)
+		fmt.Println(a[0])
+	default:
+		return false
+	}
+	return true
+}
+
+// dump prints a name, the length and the elements of s.
+func dump(name string, s []int) {
+	fmt.Print(name, " ", len(s), " [")
+	for i, v := range s {
+		if i > 0 {
+			fmt.Print(" ")
+		}
+		fmt.Print(v)
+	}
+	fmt.Print("]\n")
+}
+
+func dumpBytes(name string, s []byte) {
+	fmt.Print(name, " ", len(s), " [")
+	for i, v := range s {
+		if i > 0 {
+			fmt.Print(" ")
+		}
+		fmt.Print(v)
+	}
+	fmt.Print("]\n")
+}
+
+func slicesCase() {
+	// nil and empty slices
+	var n []int
+	fmt.Println(n == nil, len(n), cap(n), n[0:0] == nil, len(n[:]), n[:] == nil)
+	e := []int{}
+	fmt.Println(e == nil, len(e), cap(e), e[0:0] == nil)
+	m0 := make([]int, 0)
+	fmt.Println(m0 == nil, len(m0), cap(m0), m0[:0:0] == nil)
+
+	// make: zeroed, with the exact len and cap; sub-slices have Go's exact len and cap
+	m := make([]int, 3, 10)
+	dump("make", m)
+	fmt.Println(len(m), cap(m), len(m[:10]), cap(m[2:]), len(m[2:5:7]), cap(m[2:5:7]), cap(m[10:10]), len(m[3:]), cap(m[3:]))
+	m = m[:10]
+	dump("make10", m)
+	m1 := make([]int, 4)
+	fmt.Println(len(m1), cap(m1))
+
+	// two slices of one array see each other's writes
+	a := []int{1, 2, 3, 4, 5}
+	fmt.Println(len(a), cap(a))
+	b := a[1:3]
+	b[0] = 20
+	dump("a", a)
+	dump("b", b)
+	fmt.Println(len(b), cap(b))
+	b = append(b, 30) // fits: overwrites a[3]
+	dump("a", a)
+	dump("b", b)
+	c := a[1:3:3]
+	c = append(c, 99) // doesn't fit: a new array
+	c[0] = -1
+	dump("a", a)
+	dump("c", c)
+	fmt.Println(cap(c) >= len(c))
+
+	// append forms
+	var x []int
+	x = append(x)
+	fmt.Println(x == nil)
+	x = append(x, 1)
+	x = append(x, 2, 3, 4)
+	x = append(x, x...)
+	dump("x", x)
+	x = append(x[:1], x[2:]...) // removes x[1], in place
+	dump("x", x)
+	y := []int{1, 2, 3, 4}
+	y = append(y[:1], y[2], y[1]) // the arguments are read first
+	dump("y", y)
+	z := make([]int, 2, 8)
+	z[0], z[1] = 7, 8
+	z = append(z, z...)
+	z = append(z, z...)
+	dump("z", z)
+	w := make([]int, 5, 10)
+	for i := range w {
+		w[i] = i
+	}
+	w2 := append(w[:1], w[0:4]...) // overlaps inside the array
+	dump("w", w)
+	dump("w2", w2)
+	var nn []int
+	nn = append(nn, []int{}...)
+	fmt.Println(nn == nil)
+	nn = append(nn, nil...)
+	fmt.Println(nn == nil)
+	nn = append(nn, []int{6, 7}...)
+	dump("nn", nn)
+
+	// copy: the number copied; overlap safe
+	k := []int{1, 2, 3, 4, 5}
+	fmt.Println(copy(k[1:], k))
+	dump("k", k)
+	k = []int{1, 2, 3, 4, 5}
+	fmt.Println(copy(k, k[2:]))
+	dump("k", k)
+	fmt.Println(copy(k, []int{}), copy([]int(nil), k), copy(k[:2], []int{8, 9, 10}))
+	dump("k", k)
+
+	// []byte and strings
+	bs := []byte{'h', 'i'}
+	bs = append(bs, "llo"...)
+	bs = append(bs, ""...)
+	dumpBytes("bs", bs)
+	nb := make([]byte, 3)
+	fmt.Println(copy(nb, "abcdef"), copy(nb[2:], "z"), copy(nb, ""))
+	dumpBytes("nb", nb)
+	var nilb []byte
+	nilb = append(nilb, ""...)
+	fmt.Println(nilb == nil)
+	nilb = append(nilb, "go"...)
+	dumpBytes("nilb", nilb)
+
+	// clear
+	cl := []int{1, 2, 3, 4}
+	clear(cl[1:3])
+	dump("cl", cl)
+	var cln []int
+	clear(cln)
+
+	// strings as elements
+	ss := []string{"a", "b"}
+	ss = append(ss, "c", "d", "e")
+	t := ss[1:4]
+	t[0] = "B"
+	clear(ss[3:])
+	fmt.Println(len(ss), ss[0], ss[1], ss[2], ss[3] == "", ss[4] == "", t[0], len(t))
+
+	// nested slices
+	grid := make([][]int, 3)
+	for i := range grid {
+		grid[i] = make([]int, i+1)
+		grid[i][i] = i * 10
+	}
+	grid = append(grid, grid[1])
+	grid[3][0] = 55
+	fmt.Println(len(grid), grid[1][0], grid[2][2], len(grid[3]), grid[0] == nil)
+
+	// pointers to elements keep the array alive
+	pe := []int{1, 2, 3}
+	p := &pe[1]
+	*p = 22
+	fmt.Println(pe[1])
+	pe = nil
+	*p += 1
+	fmt.Println(*p, pe == nil)
+	pe2 := []int{4, 5}
+	q := &pe2[0]
+	pe2 = append(pe2, 6) // a new array: q still points into the old one
+	*q = 40
+	fmt.Println(pe2[0], *q, len(pe2))
+
+	// index types
+	it := []int{10, 20, 30}
+	u8, i8, u64 := uint8(2), int8(1), uint64(0)
+	fmt.Println(it[u8], it[i8], it[u64], len(it[u8:]), len(it[i8:u8]), cap(it[i8:u8:u8]))
+
+	// slice to array: the length check passes
+	arr := [2]int(it)
+	fmt.Println(arr[0], arr[1])
+}
+
+func sliceGrowCase() {
+	var s []int
+	ok := true
+	reallocs := 0
+	for i := 0; i < 1000000; i++ {
+		before := cap(s)
+		s = append(s, i)
+		if cap(s) < len(s) {
+			ok = false
+		}
+		if cap(s) != before {
+			reallocs++
+		}
+	}
+	sum := 0
+	for _, v := range s {
+		sum += v
+	}
+	fmt.Println(len(s), sum, ok, s[999999], reallocs < 100)
+	var bs []byte
+	for i := 0; i < 100000; i++ {
+		bs = append(bs, byte(i))
+	}
+	fmt.Println(len(bs), bs[99999], cap(bs) >= len(bs))
+	var ss []string
+	for i := 0; i < 10000; i++ {
+		ss = append(ss, "x")
+	}
+	fmt.Println(len(ss), ss[9999], cap(ss) >= len(ss))
+	t := make([]int, 0, 3)
+	t = append(t, 1, 2, 3, 4, 5, 6, 7)
+	fmt.Println(len(t), cap(t) >= 7, t[6])
+	fmt.Println(cap(make([]int, 5)), cap(make([]int, 0, 7)), cap([]int{1, 2, 3}))
+}
+
+type node struct {
+	kids []node
+	v    int
+}
+
+func nodeVals(q []node) {
+	fmt.Print(len(q), " [")
+	for i, n := range q {
+		if i > 0 {
+			fmt.Print(" ")
+		}
+		fmt.Print(n.v)
+	}
+	fmt.Print("]\n")
+}
+
+// sliceFreeCase stores elements whose source array is owned only by the element that the
+// store overwrites (q[0].kids): in gocpp, the store must not free the source while it reads it.
+func sliceFreeCase() {
+	q := []node{{kids: []node{{v: 5}, {v: 6}, {v: 7}}}}
+	q = append(q[:0], q[0].kids...)
+	nodeVals(q)
+	q = []node{{kids: []node{{v: 1}}}, {v: 5}}
+	fmt.Println(copy(q[:1], q[0].kids))
+	nodeVals(q)
+	q = []node{{kids: []node{{v: 3}, {v: 5}, {v: 6}, {v: 7}}}, {v: 1}, {v: 2}}
+	fmt.Println(copy(q, q[0].kids))
+	nodeVals(q)
+	q = []node{{kids: []node{{v: 5}, {v: 8}}}}
+	q = append(q[:0], q[0].kids[0])
+	nodeVals(q)
+	q = []node{{kids: []node{{v: 5}, {v: 8}}}}
+	q = append(q[:0], q[0].kids[1], q[0].kids[0])
+	nodeVals(q)
+	k := []node{{v: 9}}
+	k[0].kids = k
+	clear(k[0].kids)
+	fmt.Println(k[0].v, k[0].kids == nil)
 }

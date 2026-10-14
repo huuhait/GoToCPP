@@ -12,6 +12,8 @@
 #include <gocpp/checks.hpp>
 #include <gocpp/string.hpp>
 #include <gocpp/ptr.hpp>
+#include <gocpp/bounds.hpp>
+#include <gocpp/slice.hpp>
 #include <gocpp/arith.hpp>
 #include <gocpp/print.hpp>
 #include <gocpp/panic.hpp>

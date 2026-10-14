@@ -21,8 +21,9 @@ import (
 	rtfiles "github.com/huuhait/gocpp/runtime"
 )
 
-// The C++ tests of the runtime: test/unit.cpp (unit tests) and test/diff.cpp (the C++ side
-// of a differential test against testdata/diff/main.go, run with real Go). Each is compiled
+// The C++ tests of the runtime: test/unit.cpp and test/slice_test.cpp (unit tests) and
+// test/diff.cpp (the C++ side of a differential test against testdata/diff/main.go, run with
+// real Go). Each is compiled
 // with the embedded runtime (rtfiles.FS, extracted to a temporary folder, as the driver will
 // do it), with g++ and with clang++, in each mode below.
 //
@@ -206,6 +207,15 @@ var diffCases = []string{"println", "fmt", "floats", "arith", "f2i", "strings", 
 	"div", "rem", "shl", "shr", "index", "negindex", "uindex", "exit0", "big", "bigerr",
 	"ptr", "nil-deref", "nil-store", "nil-field", "nil-method", "nil-addr"}
 
+// The slice cases (Phase 03 step 3.5a): the sliceCase function of testdata/diff/main.go.
+var sliceDiffCases = []string{"slices", "slice-grow", "slice-free", "slice-index", "slice-index-neg",
+	"slice-index-u8", "slice-index-nil", "slice-hi", "slice-hi-neg", "slice-hi-u", "slice-lo",
+	"slice-lo-neg", "slice-from", "slice-nil-sub", "slice3-max", "slice3-max-neg", "slice3-max-u",
+	"slice3-hi", "slice3-hi-neg", "slice3-lo", "slice3-lo-neg", "make-len", "make-len-big",
+	"make-cap", "make-cap-big", "slice-convert"}
+
+func init() { diffCases = append(diffCases, sliceDiffCases...) }
+
 // A result is what a program printed (stdout and stderr merged) and its exit code.
 type result struct {
 	out  []byte
@@ -279,7 +289,9 @@ func TestCXX(t *testing.T) {
 					dir := t.TempDir()
 					unit := c.compile(t, rt, "test/unit.cpp", dir, m.flags, nil)
 					diff := c.compile(t, rt, "test/diff.cpp", dir, m.flags, nil)
+					slice := c.compile(t, rt, "test/slice_test.cpp", dir, m.flags, nil)
 					t.Run("unit", func(t *testing.T) { runUnit(t, unit) })
+					t.Run("slice", func(t *testing.T) { runUnit(t, slice) })
 					t.Run("panic", func(t *testing.T) { runPanic(t, diff) })
 					t.Run("leak", func(t *testing.T) { runLeak(t, diff, m.name == "asan") })
 					t.Run("pipes", func(t *testing.T) { runPipes(t, diff, goBin) })
