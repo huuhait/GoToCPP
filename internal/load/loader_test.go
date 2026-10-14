@@ -126,7 +126,7 @@ func checkProgram(t *testing.T, prog *Program) {
 			t.Errorf("package %s: Errors is nil", p.ImportPath)
 		}
 		for path, dep := range p.Imports {
-			if _, ok := pos[dep]; !ok {
+			if _, ok := pos[dep]; !ok && !dep.summary {
 				t.Errorf("package %s imports %s, which is not in Packages", p.ImportPath, path)
 			}
 			if pos[dep] > pos[p] && !dep.Incomplete {

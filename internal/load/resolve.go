@@ -7,7 +7,6 @@ import (
 	"go/token"
 	"io"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -69,6 +68,16 @@ func (l *loader) resolve(from *Package, path string, at token.Position) (*Packag
 	if p := l.byPath[loc.importPath]; p != nil {
 		return p, ""
 	}
+	if l.cfg.Deps != nil && !l.cfg.Tests {
+		if p := l.cfg.Deps(loc.importPath, loc.dir, loc.std); p != nil {
+			if !p.summary {
+				panic("load: Config.Deps returned a package that Package.Summary did not make")
+			}
+			l.byPath[loc.importPath] = p
+			l.state[p] = loaded
+			return p, ""
+		}
+	}
 	p := l.newPackage(loc.importPath, loc.dir, loc.std, loc.mod)
 	p.at = at
 	l.byPath[loc.importPath] = p
@@ -125,7 +134,7 @@ func (l *loader) find(from *Package, path string) (location, string) {
 	}
 	if mod := from.Module; mod != nil && mod.Path != "" && inModule(path, mod.Path) {
 		dir := filepath.Join(mod.Dir, filepath.FromSlash(strings.TrimPrefix(path[len(mod.Path):], "/")))
-		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		if !l.isDir(dir) {
 			return location{}, fmt.Sprintf("package %s is not in module %s (%s)", path, mod.Path, dir)
 		}
 		if m := l.module(dir); m == nil || m.Dir != mod.Dir {
@@ -244,10 +253,10 @@ func (l *loader) module(dir string) *Module {
 		}
 		walked = append(walked, d)
 		name := filepath.Join(d, modFile)
-		if data, err := os.ReadFile(name); err == nil {
+		if data, err := l.readAbs(name); err == nil {
 			mod = &Module{Path: l.readModFile(name, data), Dir: d}
 			break
-		} else if fi, statErr := os.Stat(name); statErr == nil && !fi.IsDir() {
+		} else if fi, statErr := l.cfg.FS.Stat(name); statErr == nil && !fi.IsDir() {
 			l.prog.Errors.Errorf(token.Position{Filename: name}, "%s", err)
 			mod = &Module{Dir: d}
 			break

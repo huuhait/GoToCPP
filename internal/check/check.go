@@ -59,9 +59,38 @@ type Config struct {
 	// ..."), and its namespace uses stay opaque.
 	CXX func(ctx context.Context) (build.CXX, error)
 
+	// Deps, if not nil, gives what Check needs of each package that a
+	// package of the program imports but that is not in
+	// load.Program.Packages: a package that load.Config.Deps gave the
+	// loader, which Check does not check again. Check calls it once for
+	// each such package. The language server (Phase 11) gives the types
+	// of such a package from its export data, and the rest from the
+	// Result.Dep of the check that checked it.
+	Deps func(lp *load.Package) Dep
+
 	// probe, if not nil, replaces interop.ProbeNamespaces (for the tests,
 	// whose headers mostly don't exist).
 	probe probeFunc
+}
+
+// A Dep is what Check needs of a package that it imports but does not
+// check (Config.Deps), and what Result.Dep says about a package it checked.
+type Dep struct {
+	// Types is the type-checked package, or nil if it was not
+	// type-checked (Package.Checked): then importing it fails, like
+	// importing an Incomplete package.
+	Types *types.Package
+
+	// HasC reports whether a file of the package has import "C", or a
+	// package that it imports, directly or not, has one: only then can a
+	// value of an importer be opaque (see Check).
+	HasC bool
+
+	// Failed reports whether the package has a hard error (not a soft
+	// error of go/types), or imports such a package, directly or not:
+	// then its importers' conversions of invalid values are not rewritten
+	// (see checkPackage).
+	Failed bool
 }
 
 // A Result is what Check found out about a loaded program.
@@ -74,12 +103,27 @@ type Result struct {
 	Packages []*Package
 
 	byLoad map[*load.Package]*Package
+
+	// hasC and failed are Dep.HasC and Dep.Failed of each package.
+	hasC, failed map[*load.Package]bool
 }
 
 // Package returns the checked package of the loaded package p, or nil if
 // p is not a package of the program.
 func (r *Result) Package(p *load.Package) *Package {
 	return r.byLoad[p]
+}
+
+// Dep returns what a later Check needs of the package p of the program
+// when p is not checked again there (Config.Deps): its types (nil if p was
+// not type-checked) and how it counts for its importers. ok is false when p
+// is not a package of the program.
+func (r *Result) Dep(p *load.Package) (dep Dep, ok bool) {
+	cp := r.byLoad[p]
+	if cp == nil {
+		return Dep{}, false
+	}
+	return Dep{Types: cp.Types, HasC: r.hasC[p], Failed: r.failed[p]}, true
 }
 
 // A Package is a loaded package after type checking.
@@ -197,10 +241,31 @@ func Check(prog *load.Program, cfg Config) *Result {
 	// import one, directly or not: only they can have opaque values.
 	failed := make(map[*load.Package]bool)
 	hasC := make(map[*load.Package]bool)
+	r.hasC, r.failed = hasC, failed
 	cgoh := newCgohPackage()
 	probeErrs := probeNamespaces(prog, cfg)
 	if cfg.Context != nil && cfg.Context.Err() != nil {
 		return r
+	}
+	if cfg.Deps != nil {
+		// The imported packages that are not checked here.
+		inProg := make(map[*load.Package]bool, len(prog.Packages))
+		for _, lp := range prog.Packages {
+			inProg[lp] = true
+		}
+		asked := make(map[*load.Package]bool)
+		for _, lp := range prog.Packages {
+			for _, dep := range lp.Imports {
+				if !inProg[dep] && !asked[dep] {
+					asked[dep] = true
+					d := cfg.Deps(dep)
+					if d.Types != nil {
+						checked[dep] = d.Types
+					}
+					hasC[dep], failed[dep] = d.HasC, d.Failed || d.Types == nil
+				}
+			}
+		}
 	}
 	for _, lp := range prog.Packages {
 		var p *Package

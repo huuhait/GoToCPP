@@ -1,6 +1,6 @@
 # Phase 11: Fast Language Server · STATE
 
-**Status:** `[~]` in progress (v0 track: 11.1, 11.2 done; 11.10a grammar done)
+**Status:** `[~]` in progress (v0 track: 11.1, 11.2, 11.3a done; 11.10a grammar done)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
@@ -9,12 +9,12 @@
 - [x] Measured go/types re-check speed with cached deps: `strings` 3 ms, `encoding/json` 5 ms, `net/http` (28.5k lines) 29 ms parse+check (2026-10-13)
 - [x] 11.1 LSP core (JSON-RPC stdio, initialize/shutdown, incremental sync, overlays; protocol types copied from gopls's generated code + generator) · *v0*
 - [x] 11.2 Snapshots + cancellation + debounce · *v0*
-- [~] 11.3 Memoized pipeline · *v0*
-  - [ ] per-file parse+expand cache
-  - [ ] per-package check cache
+- [~] 11.3 Memoized pipeline (11.3a done; 11.3b: disk summaries + opaque spellings) · *v0*
+  - [x] per-file parse+expand cache
+  - [x] per-package check cache
   - [ ] export-data summaries (memory + on-disk; deep `gcexportdata` first, shallow via vendored `gcimporter` if memory needs it; cache keyed by gocpp binary hash; side table for opaque type spellings)
-  - [ ] API-hash short-circuit
-  - [ ] LRU memory cap
+  - [x] API-hash short-circuit
+  - [x] LRU memory cap
 - [ ] 11.4 Diagnostics as you type · *v0*
 - [ ] 11.5 Hover, go-to-definition, signature help · *v0*
 - [ ] 11.6 Completion (scopes, members, keywords, snippets, auto-import) · *v0*
@@ -87,3 +87,8 @@
   import"); `gocpp check` reports it once, at the first import. The loader reads through
   `load.Config.FS` (the pipeline's snapshot view; every read of a metadata load is recorded and part of
   the check key).
+- 2026-10-14: Job 11.3a (the memoized pipeline: internal/lsp/memoize, internal/lsp/cache parse/metadata/
+  check caches keyed by content and recorded reads, deps from gcexportdata, API-hash short-circuit, cost
+  caps in estimated memory, open packages kept; load.Config.FS/Overlay/Deps, check.Config.Deps)
+  committed, clean after 3 review rounds. A one-line edit in a 10k-line package re-checks in ≈ 26–33 ms;
+  diagnostics equal `gocpp check` on 476 packages except the known import-error difference.

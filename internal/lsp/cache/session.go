@@ -7,7 +7,8 @@
 //
 // A Snapshot holds the open documents (Overlays) and a State: the derived
 // data of the memoized pipeline (step 11.3: parsed files, checked
-// packages), which each new snapshot clones from the one before.
+// packages; Pipeline.NewState), which each new snapshot clones from the
+// one before.
 package cache
 
 import (

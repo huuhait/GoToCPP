@@ -72,7 +72,53 @@ type Config struct {
 	// Fset is the file set that gets the files. If it is nil, Load makes
 	// a new one.
 	Fset *token.FileSet
+
+	// Overlay holds files by absolute name whose contents Load reads
+	// instead of the files on disk: the unsaved buffers of an editor (the
+	// language server, Phase 11 README §2.6). A .gp file of Overlay is in
+	// its folder also when it is not on disk, and so is a gocpp.mod file.
+	// The files of Config.Stdlib have no overlay.
+	Overlay map[string][]byte
+
+	// Deps, if not nil, gives packages that Load uses as they are instead
+	// of loading them: for each package that a loaded package imports, Load
+	// calls Deps once, with the import path, the folder and whether it is a
+	// standard package (Package.Std), before it loads the package. If Deps
+	// returns a package, which must be one that Package.Summary made, Load
+	// reads none of its files: it is in the Imports of its importers, but
+	// not in Program.Packages, and Load never changes it. If Deps returns
+	// nil, Load loads the package itself. The language server gives the
+	// summaries of the packages it has loaded and checked already, so a
+	// load reads only the files of the package it is for (Phase 11
+	// README §2.2). Load ignores Deps when Tests is set: in the import
+	// graph of a test, a package that imports the package under test must
+	// be loaded again (Package.ForTest).
+	Deps func(importPath, dir string, std bool) *Package
+
+	// FS, if not nil, is where Load reads the files and folders that are
+	// not in Config.Stdlib or Config.Overlay, instead of the operating
+	// system: every file, folder listing and stat that Load makes goes
+	// through it. The language server gives the files of a snapshot, so
+	// that a load sees what the snapshot sees, also what decides how the
+	// imports resolve (which folders exist, which gocpp.mod files).
+	FS FileSystem
 }
+
+// A FileSystem is what Load reads the files on disk with (Config.FS). The
+// names are absolute; the methods work like os.ReadFile, os.ReadDir and
+// os.Stat (an error for a missing file is fs.ErrNotExist).
+type FileSystem interface {
+	ReadFile(name string) ([]byte, error)
+	ReadDir(name string) ([]fs.DirEntry, error)
+	Stat(name string) (fs.FileInfo, error)
+}
+
+// osFS is the FileSystem of the operating system.
+type osFS struct{}
+
+func (osFS) ReadFile(name string) ([]byte, error)       { return os.ReadFile(name) }
+func (osFS) ReadDir(name string) ([]fs.DirEntry, error) { return os.ReadDir(name) }
+func (osFS) Stat(name string) (fs.FileInfo, error)      { return os.Stat(name) }
 
 // A Program is what Load loaded: the packages that the patterns name and
 // every package that they import, directly or not.
@@ -209,6 +255,34 @@ type Package struct {
 	// cycleReported is set once the package has an import cycle error:
 	// it gets only one, like in the go command.
 	cycleReported bool
+
+	// summary is set for a package that Summary made: it has no files,
+	// and the loader never changes it (Config.Deps).
+	summary bool
+}
+
+// Summary returns what a later Load needs of p when Config.Deps gives it,
+// as a new package: the fields of p but no Files, no Imports (an empty map)
+// and no test links, with the exported package-level names of p kept for
+// dot imports. It is never changed, so the summary can be given to any
+// number of loads, also at the same time. Call it before the files of p
+// are changed (check.Check rewrites the ASTs; their package-level names
+// stay the same).
+func (p *Package) Summary() *Package {
+	return &Package{
+		ImportPath: p.ImportPath,
+		Name:       p.Name,
+		Dir:        p.Dir,
+		Std:        p.Std,
+		Module:     p.Module,
+		Imports:    map[string]*Package{},
+		Errors:     p.Errors,
+		Incomplete: p.Incomplete,
+		NoFiles:    p.NoFiles,
+		ForTest:    p.ForTest,
+		exported:   maps.Clone(p.exportedNames()),
+		summary:    true,
+	}
 }
 
 // A NoFilesReason says why a package has no .gp file to build
@@ -324,6 +398,10 @@ type loader struct {
 	graph    *testGraph          // the import graph of the test being loaded, or nil
 	state    map[*Package]loadState
 	all      []*Package // the packages, in the order they started loading
+
+	// overlayDirs holds the base names of the files of Config.Overlay, by
+	// folder.
+	overlayDirs map[string][]string
 }
 
 // A stackEntry is a package on the import stack, and the name of the file
@@ -361,7 +439,10 @@ func newLoader(cfg Config) *loader {
 	if cfg.Fset == nil {
 		cfg.Fset = token.NewFileSet()
 	}
-	return &loader{
+	if cfg.FS == nil {
+		cfg.FS = osFS{}
+	}
+	l := &loader{
 		cfg:      cfg,
 		fset:     cfg.Fset,
 		prog:     &Program{Fset: cfg.Fset, Errors: new(diag.List)},
@@ -372,6 +453,12 @@ func newLoader(cfg Config) *loader {
 		rootDirs: make(map[string]bool),
 		state:    make(map[*Package]loadState),
 	}
+	l.overlayDirs = make(map[string][]string)
+	for name := range cfg.Overlay {
+		dir := filepath.Dir(name)
+		l.overlayDirs[dir] = append(l.overlayDirs[dir], filepath.Base(name))
+	}
+	return l
 }
 
 // newPackage returns a new package that is not loaded yet.
@@ -395,7 +482,7 @@ func (l *loader) loadFiles(names []string) {
 			return
 		}
 		abs := l.abs(name)
-		if fi, err := os.Stat(abs); err == nil && fi.IsDir() {
+		if fi, err := l.cfg.FS.Stat(abs); err == nil && fi.IsDir() {
 			l.prog.Errors.Errorf(token.Position{}, "%s is a directory, should be a .gp file", name)
 			return
 		}
@@ -427,8 +514,10 @@ func (l *loader) loadPattern(pat string) {
 		return
 	}
 	dir := l.abs(pat)
-	fi, err := os.Stat(dir)
+	fi, err := l.cfg.FS.Stat(dir)
 	switch {
+	case err != nil && len(l.overlayDirs[dir]) > 0:
+		// A folder that is only in the overlay.
 	case err != nil:
 		l.prog.Errors.Errorf(token.Position{}, "stat %s: directory not found", dir)
 		return
@@ -776,7 +865,7 @@ func (l *loader) read(p *Package, named []string, tests bool) (internalTests boo
 				skippedTests++
 				continue
 			}
-			src, err := os.ReadFile(path)
+			src, err := l.readAbs(path)
 			if err != nil {
 				fileError(name, nil, diag.Diagnostic{Msg: err.Error()})
 				continue
@@ -932,12 +1021,28 @@ func clauseName(src []byte) string {
 	return f.Name.Name
 }
 
-// readDir returns the entries of the folder of p, sorted by name.
+// readDir returns the entries of the folder of p, sorted by name, with the
+// files of Config.Overlay in it.
 func (l *loader) readDir(p *Package) ([]fs.DirEntry, error) {
 	if p.Std {
 		return fs.ReadDir(l.cfg.Stdlib, l.stdPath(p))
 	}
-	return os.ReadDir(p.Dir)
+	entries, err := l.cfg.FS.ReadDir(p.Dir)
+	extra := l.overlayDirs[p.Dir]
+	if len(extra) == 0 {
+		return entries, err
+	}
+	// The folder may be only in the overlay (not saved yet).
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	for _, name := range extra {
+		if !slices.ContainsFunc(entries, func(e fs.DirEntry) bool { return e.Name() == name }) {
+			entries = append(entries, overlayEntry(name))
+		}
+	}
+	slices.SortFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
+	return entries, nil
 }
 
 // readFile reads the file name in the folder of p.
@@ -945,8 +1050,35 @@ func (l *loader) readFile(p *Package, name string) ([]byte, error) {
 	if p.Std {
 		return fs.ReadFile(l.cfg.Stdlib, l.stdPath(p)+"/"+name)
 	}
-	return os.ReadFile(filepath.Join(p.Dir, name))
+	return l.readAbs(filepath.Join(p.Dir, name))
 }
+
+// readAbs reads the file with the absolute name path, from Config.Overlay
+// if it is there.
+func (l *loader) readAbs(path string) ([]byte, error) {
+	if src, ok := l.cfg.Overlay[path]; ok {
+		return src, nil
+	}
+	return l.cfg.FS.ReadFile(path)
+}
+
+// isDir reports whether the absolute name dir is a folder, on disk or in
+// Config.Overlay.
+func (l *loader) isDir(dir string) bool {
+	if fi, err := l.cfg.FS.Stat(dir); err == nil {
+		return fi.IsDir()
+	}
+	return len(l.overlayDirs[dir]) > 0
+}
+
+// An overlayEntry is a file of Config.Overlay that is not on disk, as an
+// entry of its folder.
+type overlayEntry string
+
+func (e overlayEntry) Name() string               { return string(e) }
+func (e overlayEntry) IsDir() bool                { return false }
+func (e overlayEntry) Type() fs.FileMode          { return 0 }
+func (e overlayEntry) Info() (fs.FileInfo, error) { return nil, fs.ErrNotExist }
 
 // stdPath returns the folder of the standard package p in Config.Stdlib.
 func (l *loader) stdPath(p *Package) string {
@@ -1184,6 +1316,9 @@ func setIncomplete(pkgs []*Package) {
 	state := make(map[*Package]loadState) // loading: on the way to the package being looked at
 	var visit func(p *Package) bool
 	visit = func(p *Package) bool {
+		if p.summary {
+			return p.Incomplete // Config.Deps: set by its own load
+		}
 		switch state[p] {
 		case loading:
 			return true // a cycle
@@ -1221,6 +1356,9 @@ func initOrder(pkgs []*Package) []*Package {
 	ready := &pkgHeap{index: index}
 	for _, p := range pkgs {
 		for _, dep := range p.Imports {
+			if dep.summary {
+				continue // Config.Deps: not loaded here, so done
+			}
 			waiting[p]++
 			importers[dep] = append(importers[dep], p)
 		}

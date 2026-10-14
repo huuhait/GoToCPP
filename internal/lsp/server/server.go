@@ -11,8 +11,9 @@
 // the next messages, until it answers or is cancelled.
 //
 // The server offers no features yet, so its capabilities are the text sync
-// alone. The check pipeline and the features (diagnostics, hover, ...)
-// come in the next steps.
+// alone. The session's snapshots have the memoized check pipeline
+// (cache.Pipeline, step 11.3), which the features (diagnostics, hover, ...)
+// of the next steps use.
 package server
 
 import (
@@ -29,6 +30,7 @@ import (
 	"github.com/huuhait/gocpp/internal/lsp/cache"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
 	"github.com/huuhait/gocpp/internal/version"
+	"github.com/huuhait/gocpp/stdlib"
 )
 
 // Run serves the LSP over in and out (stdin and stdout for "gocpp lsp")
@@ -150,13 +152,19 @@ func New(logger *log.Logger) *Server {
 	}
 	return &Server{
 		log:          logger,
-		session:      cache.NewSession(nil),
+		session:      cache.NewSession(newPipeline().NewState()),
 		requests:     map[string]method{}, // the features come with steps 11.4 to 11.9
 		shutdownWait: shutdownWait,
 		trace:        protocol.Off,
 		warned:       make(map[protocol.DocumentURI]bool),
 		stale:        make(map[protocol.DocumentURI]map[protocol.ID]*staleToken),
 	}
+}
+
+// newPipeline returns the check pipeline of a session: the gocpp standard
+// library, for the system that runs the server, as gocpp check does.
+func newPipeline() *cache.Pipeline {
+	return cache.NewPipeline(cache.Config{Stdlib: stdlib.FS(), GoStd: stdlib.IsStd})
 }
 
 // Session returns the server's session: the snapshots of the open
