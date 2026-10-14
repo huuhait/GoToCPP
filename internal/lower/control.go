@@ -173,6 +173,7 @@ type loop struct {
 	vars  func()         // lowers the declarations at the start of each iteration, or nil
 	body  *ast.BlockStmt // the Go body
 	post  ast.Stmt       // a post statement that is not one C++ expression, or nil
+	renew *cppir.Line    // the new boxes of the loop's variables for the next iteration, or nil
 }
 
 // loopBody lowers a loop from its head to its closing brace, and the label after it that a
@@ -181,7 +182,7 @@ type loop struct {
 // own block, or, if a goto goes to the end of the body (continue), a block inside it,
 // followed by the label and the post statement: for (...) { { body } gp_cont_0:; post; }.
 func (fg *funcGen) loopBody(l loop) {
-	shaped := fg.flow.contLabel[l.stmt] || l.post != nil
+	shaped := fg.flow.contLabel[l.stmt] || l.post != nil || l.renew != nil
 	if fg.flow.contLabel[l.stmt] {
 		if fg.flow.label[l.stmt] != nil {
 			fg.contLabels[l.stmt] = fg.flow.labelName(l.stmt, "continue")
@@ -208,6 +209,9 @@ func (fg *funcGen) loopBody(l loop) {
 		fg.block(l.body)
 		if label := fg.contLabels[l.stmt]; label != "" {
 			fg.add(&cppir.Label{Pos: fg.g.pos(l.body.Rbrace), Name: label})
+		}
+		if l.renew != nil {
+			fg.add(l.renew)
 		}
 		if l.post != nil {
 			fg.stmt(l.post)
@@ -277,7 +281,23 @@ func (fg *funcGen) forStmt(s *ast.ForStmt) {
 		}
 	}
 	var post cppir.Expr
-	if s.Post != nil {
+	if renew := fg.loopBoxes(s); renew != nil {
+		// Go 1.22: each iteration has its own variables, which a pointer (or, from step
+		// 3.11, a closure) can keep. The next iteration's variables are new boxes with the
+		// values of the last ones, made before the post statement, which changes them
+		// (the spec, "For statements with for clause").
+		line := &cppir.Line{Pos: fg.g.pos(s.For)}
+		if s.Post != nil {
+			line.Pos = fg.g.pos(s.Post.Pos())
+		}
+		for _, v := range renew {
+			name := fg.cname(v, s.For)
+			typ := fg.g.cxxType(v.Type(), v.Pos())
+			line.Stmts = append(line.Stmts, &cppir.ExprStmt{X: &cppir.Assign{Op: "=", X: cxxName(name), Y: newBox(typ, deref(cxxName(name)))}})
+		}
+		l.renew = line
+		l.post = s.Post
+	} else if s.Post != nil {
 		if fg.postInHead(s.Post) {
 			var pre []cppir.Stmt
 			pre, post = fg.simple(s.Post)
@@ -304,13 +324,36 @@ func (fg *funcGen) forStmt(s *ast.ForStmt) {
 	fg.breakLabel(s, end)
 }
 
+// loopBoxes returns the boxed variables that the init statement of the 3-clause for s
+// declares (box.go), which each iteration gets a new box of (forStmt).
+func (fg *funcGen) loopBoxes(s *ast.ForStmt) []*types.Var {
+	a, ok := s.Init.(*ast.AssignStmt)
+	if !ok || a.Tok != token.DEFINE {
+		return nil
+	}
+	var vars []*types.Var
+	for _, e := range a.Lhs {
+		if v, ok := fg.g.info.Defs[e.(*ast.Ident)].(*types.Var); ok && fg.isBoxed(v) {
+			vars = append(vars, v)
+		}
+	}
+	return vars
+}
+
+// postAtEnd reports whether the 3-clause for s has its post statement at the end of its body
+// (and a continue must go there, flow.go): a post statement that can't be in the C++ for's
+// head, or the new boxes of its variables (loopBoxes).
+func (fg *funcGen) postAtEnd(s *ast.ForStmt) bool {
+	return s.Post != nil && !fg.postInHead(s.Post) || fg.loopBoxes(s) != nil
+}
+
 // forInit returns the C++ init statement of a 3-clause for, if the Go init statement is one:
 // a simple statement that is one C++ expression, or a := whose values all go into new
 // variables of one C++ type (int64_t i = 0, j = n), without temporaries (order.go, bind). It
 // returns false for the others, which go before the loop.
 func (fg *funcGen) forInit(s ast.Stmt) (cppir.Stmt, bool) {
 	if oneExpr(s) {
-		if fg.needsPre(false, simpleScope(s)...) {
+		if fg.simpleNeedsPre(s) {
 			return nil, false
 		}
 		_, x := fg.simple(s)
@@ -320,13 +363,16 @@ func (fg *funcGen) forInit(s ast.Stmt) (cppir.Stmt, bool) {
 	if !ok || a.Tok != token.DEFINE || len(a.Lhs) != len(a.Rhs) || fg.needsPre(true, a.Rhs...) {
 		return nil, false
 	}
-	var typ cppir.Type
+	var typ cppir.Type // of the C++ variables: gp::ptr<T> for boxed ones
 	for _, e := range a.Lhs {
 		obj, ok := fg.g.info.Defs[e.(*ast.Ident)].(*types.Var)
 		if !ok || isBlank(e) {
 			return nil, false // _ or a variable that exists
 		}
 		t := fg.g.cxxType(obj.Type(), e.Pos())
+		if fg.isBoxed(obj) {
+			t = ptrType(t)
+		}
 		if typ != nil && cppir.TypeString(t) != cppir.TypeString(typ) {
 			return nil, false
 		}
@@ -353,7 +399,11 @@ func (fg *funcGen) forInit(s ast.Stmt) (cppir.Stmt, bool) {
 	fg.order(true, a.Rhs...) // the declarators are evaluated in order; nothing goes in front
 	d := &cppir.VarDecl{Type: typ}
 	for i, t := range targets {
-		d.Vars = append(d.Vars, cppir.Declarator{Name: t.name, Init: fg.expr(a.Rhs[i])})
+		init := fg.expr(a.Rhs[i])
+		if t.box {
+			init = newBox(t.typ, init)
+		}
+		d.Vars = append(d.Vars, cppir.Declarator{Name: t.name, Init: init})
 	}
 	return d, true
 }
@@ -422,6 +472,10 @@ func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 	}
 	l := loop{stmt: s, head: head, body: s.Body}
 	switch {
+	case key != nil && fg.isBoxed(key):
+		l.vars = func() {
+			fg.add(varDecl(fg.g.pos(s.Key.Pos()), ptrType(ct), fg.names.declare(key), newBox(ct, cxxName(i))))
+		}
 	case key != nil:
 		l.vars = func() { fg.add(varDecl(fg.g.pos(s.Key.Pos()), ct, fg.names.declare(key), cxxName(i))) }
 	case assigned != nil:
@@ -494,9 +548,12 @@ func (fg *funcGen) rangeString(s *ast.RangeStmt) {
 			line := &cppir.Line{Pos: fg.g.pos(vars[0].e.Pos())}
 			for _, v := range vars {
 				value := &cppir.Member{X: cxxName(it), Name: v.counter}
-				if v.obj != nil {
+				switch {
+				case v.obj != nil && fg.isBoxed(v.obj):
+					line.Stmts = append(line.Stmts, varDecl(cppir.Pos{}, ptrType(v.typ), fg.names.declare(v.obj), newBox(v.typ, value)))
+				case v.obj != nil:
 					line.Stmts = append(line.Stmts, varDecl(cppir.Pos{}, v.typ, fg.names.declare(v.obj), value))
-				} else {
+				default:
 					line.Stmts = append(line.Stmts, &cppir.ExprStmt{X: &cppir.Assign{Op: "=", X: v.target, Y: value}})
 				}
 			}
@@ -551,10 +608,9 @@ func withLead(pos cppir.Pos, lead []cppir.Stmt, s cppir.Stmt) cppir.Stmt {
 //     if (gp_tag0 == 1) { gp_case0 = 0; } else if (...) { gp_case0 = 1; }
 //     switch (gp_case0) { case 0: {...} default: {...} case 1: {...} }
 //
-// The tag goes into a temporary (gp_tag0) unless it is a constant or a local variable, which
-// a case can't change in Phase 02 (Phase 03's closures can: the lowering pass will keep the
-// temporary then). An init statement or temporaries go into a block first, { ... }; so do the
-// temporaries of the tag's own order (order.go). Those of a case expression are lazy, like
+// The tag goes into a temporary (gp_tag0) unless it is a constant or a local variable that
+// a case can't change (isLocal: not a boxed one). An init statement or temporaries go into a
+// block first, { ... }; so do the temporaries of the tag's own order (order.go). Those of a case expression are lazy, like
 // the case: in the chain, in a block of the else branch, before its if (caseCond). In the
 // C++ switches, each case is a block, so that a case label doesn't jump over the
 // initialization of a variable of another case.
@@ -694,14 +750,15 @@ func (fg *funcGen) integerSwitch(s *ast.SwitchStmt, clauses []*ast.CaseClause) b
 }
 
 // isLocal reports whether e is a variable of the function (a parameter, a result or a local
-// variable), not a package variable.
+// variable) that no call can change: not a package variable, and not boxed (box.go), which
+// a call can change through a pointer.
 func (fg *funcGen) isLocal(e ast.Expr) bool {
 	id, ok := ast.Unparen(e).(*ast.Ident)
 	if !ok {
 		return false
 	}
 	obj, ok := fg.g.info.Uses[id].(*types.Var)
-	if !ok {
+	if !ok || fg.isBoxed(obj) {
 		return false
 	}
 	_, ok = fg.names.names[obj]

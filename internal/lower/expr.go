@@ -17,8 +17,9 @@ import (
 // Expressions (Phase 02 README §2.3): constants (folded by go/types), variables, calls of
 // user functions, of the builtins len, print, println and panic and of fmt.Print, Println and
 // Printf (gp::fmtshim), the byte s[i] of a string, the substring s[a:b], conversions between
-// basic types (also string(r)), and every operator of the Phase 02 subset with string
-// concatenation (ops.go). The rest is reported as "not supported yet": the
+// basic types (also string(r)), every operator of the Phase 02 subset with string
+// concatenation (ops.go), and pointers (step 3.3): *p, &x (addr.go), new(T), nil, p == q, and
+// a boxed variable x (box.go), which is (*x). The rest is reported as "not supported yet": the
 // phase gates of internal/check reject it before, with a message for the user.
 //
 // Every expression that is not a constant has exactly its Go type in C++ (int8 is int8_t, not
@@ -68,6 +69,11 @@ type funcGen struct {
 
 	temps   map[ast.Expr]string // the expressions that order.go put into temporaries
 	ordered map[ast.Expr]bool   // the calls that order.go ordered
+	force   map[ast.Expr]bool   // the calls that order.go must put into temporaries
+
+	// boxed are the variables of the function that live in a box (box.go): nil in
+	// gp_var_init, which has none.
+	boxed map[*types.Var]boxReason
 
 	// out are the open statement lists, innermost last (stmt.go: add, push, pop).
 	out []frame
@@ -81,12 +87,27 @@ type funcGen struct {
 
 // newFuncGen returns the funcGen of a function (fn and flow are nil in gp_var_init).
 func newFuncGen(g *gen, names *funcNames, fn *funcInfo) *funcGen {
-	return &funcGen{
+	fg := &funcGen{
 		g: g, names: names, fn: fn,
 		contLabels: make(map[ast.Stmt]string),
 		temps:      make(map[ast.Expr]string),
 		ordered:    make(map[ast.Expr]bool),
+		force:      make(map[ast.Expr]bool),
 	}
+	if fn != nil {
+		fg.boxed = fn.boxed
+	}
+	return fg
+}
+
+// isBoxed reports whether v is a variable of the function that lives in a box (box.go).
+func (fg *funcGen) isBoxed(v *types.Var) bool {
+	return fg.boxed[v] != 0
+}
+
+// deref returns *x, the variable that the pointer x points to.
+func deref(x cppir.Expr) cppir.Expr {
+	return &cppir.Unary{Op: "*", X: x}
 }
 
 // cname returns the C++ name of the variable or function obj.
@@ -127,6 +148,9 @@ func (fg *funcGen) expr(e ast.Expr) cppir.Expr {
 		return fg.index(e)
 	case *ast.SliceExpr:
 		return fg.slice(e)
+	case *ast.StarExpr:
+		// *p: gp::ptr's operator* panics like Go for a nil p.
+		return deref(fg.expr(e.X))
 	}
 	fg.g.unsupported(e.Pos(), nodeKind(e))
 	return placeholder
@@ -162,11 +186,20 @@ func (fg *funcGen) exprs(list []ast.Expr, exact bool) []cppir.Expr {
 func (fg *funcGen) ident(id *ast.Ident) cppir.Expr {
 	switch obj := fg.g.info.Uses[id].(type) {
 	case *types.Var:
+		if fg.isBoxed(obj) {
+			// The variable is in its box: (*x).
+			return &cppir.Paren{X: deref(cxxName(fg.cname(obj, id.Pos())))}
+		}
 		return cxxName(fg.cname(obj, id.Pos()))
 	case *types.Func:
 		fg.g.unsupported(id.Pos(), "function values (Phase 03)")
 	case *types.Nil:
-		fg.g.unsupported(id.Pos(), "nil")
+		// A nil pointer: C++ converts nullptr to gp::ptr<T>. The other nil values (slices,
+		// maps, funcs, interfaces) come with their types.
+		if t := fg.g.info.TypeOf(id); t != nil && (isPointer(t) || t == types.Typ[types.UntypedNil]) {
+			return lit("nullptr")
+		}
+		fg.g.unsupported(id.Pos(), "nil of type "+types.TypeString(fg.g.info.TypeOf(id), types.RelativeTo(fg.g.pkg.Types)))
 	default:
 		fg.g.unsupported(id.Pos(), "the identifier "+id.Name)
 	}
@@ -195,7 +228,7 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 			switch obj.Name() {
 			case "print", "println":
 				callee, template = "gp::"+obj.Name(), true
-			case "len", "panic":
+			case "len", "panic", "new":
 				return fg.builtin(c, obj.Name())
 			default:
 				fg.g.unsupported(c.Pos(), "the builtin "+obj.Name())
@@ -223,6 +256,15 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 	default:
 		fg.g.unsupported(c.Pos(), "calls of "+nodeKind(fun))
 		return placeholder
+	}
+
+	if template {
+		for _, a := range c.Args {
+			if t := fg.g.info.TypeOf(a); t != nil && isPointer(t) {
+				fg.g.unsupported(a.Pos(), "printing a pointer (Phase 03 step 3.15)")
+				return placeholder
+			}
+		}
 	}
 
 	// f(g()), where g has several results: the arguments are g's results.
@@ -456,7 +498,7 @@ var nodeKinds = map[string]string{
 	"IndexListExpr":  "instantiations (Phase 07)",
 	"SliceExpr":      "slice expressions (Phase 03)",
 	"TypeAssertExpr": "type assertions (Phase 05)",
-	"StarExpr":       "pointers (Phase 03)",
+	"StarExpr":       "pointer types",
 	"KeyValueExpr":   "key: value",
 	"TypeSwitchStmt": "type switches (Phase 05)",
 	"SelectStmt":     "select statements (Phase 08)",

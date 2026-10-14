@@ -157,12 +157,29 @@ func (fg *funcGen) inner(list *[]cppir.Stmt, end *cppir.Pos, endPos token.Pos, b
 // simple orders and translates a simple statement that is one C++ expression (simpleExpr): it
 // returns the temporaries that go in front of it, and its C++ expression.
 func (fg *funcGen) simple(s ast.Stmt) ([]cppir.Stmt, cppir.Expr) {
+	fg.forceTarget(s)
 	pre := fg.order(false, simpleScope(s)...)
 	return pre, fg.simpleExpr(s)
 }
 
+// forceTarget makes the calls in the target of x op= y go into temporaries (fg.force): x op= y
+// is x = x op y, which evaluates x twice (*f() += 1 must call f once).
+func (fg *funcGen) forceTarget(s ast.Stmt) {
+	a, ok := s.(*ast.AssignStmt)
+	if !ok || a.Tok == token.ASSIGN || a.Tok == token.DEFINE || len(a.Lhs) != 1 {
+		return
+	}
+	ast.Inspect(a.Lhs[0], func(n ast.Node) bool {
+		if c, ok := n.(*ast.CallExpr); ok && !fg.g.info.Types[c.Fun].IsType() {
+			fg.force[c] = true
+		}
+		return true
+	})
+}
+
 // simpleScope returns the expressions that a simple statement that is one C++ expression
-// evaluates, in any order: x op= y reads x too.
+// evaluates, in any order: x op= y reads x too, and x = y evaluates the operands of its target
+// (targetOperands) before y, as gc does.
 func simpleScope(s ast.Stmt) []ast.Expr {
 	switch s := s.(type) {
 	case *ast.ExprStmt:
@@ -171,17 +188,37 @@ func simpleScope(s ast.Stmt) []ast.Expr {
 		return []ast.Expr{s.X}
 	case *ast.AssignStmt:
 		if s.Tok == token.ASSIGN {
-			return s.Rhs
+			return append(targetOperands(s.Lhs), s.Rhs...)
 		}
 		return []ast.Expr{s.Lhs[0], s.Rhs[0]}
 	}
 	return nil
 }
 
+// targetOperands returns the operands of the targets of an assignment that are evaluated with
+// its values (the spec's "operands of index expressions and pointer indirections on the left"):
+// p of *p. (a[i] and p.f add theirs with their steps.) gc evaluates their calls before those
+// of the values, in order, and reads them where the stores are.
+func targetOperands(lhs []ast.Expr) []ast.Expr {
+	var ops []ast.Expr
+	for _, e := range lhs {
+		if x, ok := ast.Unparen(e).(*ast.StarExpr); ok {
+			ops = append(ops, x.X)
+		}
+	}
+	return ops
+}
+
 // postInHead reports whether the post statement of a 3-clause for goes into the C++ for's
 // head: when it is one C++ expression without temporaries.
 func (fg *funcGen) postInHead(post ast.Stmt) bool {
-	return oneExpr(post) && !fg.needsPre(false, simpleScope(post)...)
+	return oneExpr(post) && !fg.simpleNeedsPre(post)
+}
+
+// simpleNeedsPre reports whether simple(s) would return temporaries, without writing anything.
+func (fg *funcGen) simpleNeedsPre(s ast.Stmt) bool {
+	fg.forceTarget(s)
+	return fg.needsPre(false, simpleScope(s)...)
 }
 
 // simpleExpr returns the C++ expression of a simple statement that is one: an expression
@@ -234,7 +271,15 @@ func (fg *funcGen) returnStmt(s *ast.ReturnStmt) {
 	case len(s.Results) == 0 && len(fg.fn.results) == 0:
 		fg.add(&cppir.Return{Pos: p})
 	case len(s.Results) == 0:
-		fg.add(&cppir.Return{Pos: p, X: braceList(fg.fn.results)})
+		res := fg.fn.obj.Signature().Results()
+		names := make([]cppir.Expr, len(fg.fn.results))
+		for i, n := range fg.fn.results {
+			names[i] = cxxName(n)
+			if fg.isBoxed(res.At(i)) {
+				names[i] = &cppir.Paren{X: deref(names[i])}
+			}
+		}
+		fg.add(&cppir.Return{Pos: p, X: braceList(names)})
 	case len(s.Results) == 1:
 		// One result, or a call whose results are the function's: return f();
 		pre := fg.order(false, s.Results[0])
@@ -246,16 +291,12 @@ func (fg *funcGen) returnStmt(s *ast.ReturnStmt) {
 	}
 }
 
-// braceList returns the names as the value of a return: x, or {x, y}.
-func braceList(names []string) cppir.Expr {
-	if len(names) == 1 {
-		return cxxName(names[0])
+// braceList returns the values of a return: x, or {x, y}.
+func braceList(values []cppir.Expr) cppir.Expr {
+	if len(values) == 1 {
+		return values[0]
 	}
-	l := &cppir.InitList{}
-	for _, n := range names {
-		l.Elems = append(l.Elems, cxxName(n))
-	}
-	return l
+	return &cppir.InitList{Elems: values}
 }
 
 func (fg *funcGen) assignStmt(s *ast.AssignStmt) {
@@ -267,13 +308,7 @@ func (fg *funcGen) assignStmt(s *ast.AssignStmt) {
 		p := fg.g.pos(s.Pos())
 		fg.add(withPre(p, pre, &cppir.ExprStmt{Pos: p, X: x}))
 	default: // a, b = b, a and a, b = f()
-		targets := make([]target, len(s.Lhs))
-		for i, e := range s.Lhs {
-			if !isBlank(e) {
-				targets[i] = fg.lhs(e)
-			}
-		}
-		fg.bind(s.Pos(), targets, s.Rhs, true)
+		fg.bind(s.Pos(), nil, s.Lhs, s.Rhs, true)
 	}
 }
 
@@ -306,11 +341,19 @@ func isBlank(e ast.Expr) bool {
 // is _.
 type target struct {
 	x    cppir.Expr // the C++ of the left side, or nil for _
-	typ  cppir.Type // the C++ type of a new variable, or nil for an existing one or _
+	typ  cppir.Type // the C++ type of a new variable (of its value if boxed), or nil (an existing one, _)
 	name string     // the C++ name of the variable that x is (reads), or "" for _ or another target
 
 	shadow bool // a new variable that shadows a variable or function of an outer scope
 	class  bool // a new variable of a C++ class type (gp::string), which a temporary is moved into
+	box    bool // a new variable that is boxed (box.go): gp::ptr<T> x = gp::new_<T>(value);
+
+	// mem: storing to the target writes memory that other expressions can read: a boxed or a
+	// package variable, or a target that is not a variable (*p).
+	mem bool
+	// ptr is the pointer operand p of a target *p, which bind evaluates into a temporary
+	// first when an assignment before it can change it (gc's ascompatee).
+	ptr ast.Expr
 }
 
 // varTarget returns the target of the existing variable whose C++ name is name.
@@ -320,15 +363,19 @@ func varTarget(name string) target {
 
 // lhs returns the target of the left side e of an assignment, which is not _.
 func (fg *funcGen) lhs(e ast.Expr) target {
-	t := target{x: fg.expr(e)}
-	if id, ok := ast.Unparen(e).(*ast.Ident); ok {
-		if v, ok := fg.g.info.Uses[id].(*types.Var); ok {
+	t := target{x: fg.expr(e), mem: true}
+	switch x := ast.Unparen(e).(type) {
+	case *ast.Ident:
+		if v, ok := fg.g.info.Uses[x].(*types.Var); ok {
 			if n, ok := fg.names.names[v]; ok {
 				t.name = n
 			} else {
 				t.name = fg.g.names[v]
 			}
+			t.mem = isPkgVar(v) || fg.isBoxed(v)
 		}
+	case *ast.StarExpr:
+		t.ptr = x.X
 	}
 	return t
 }
@@ -339,6 +386,9 @@ func (t target) blank() bool { return t.x == nil }
 // assign returns the C++ statement at pos that gives t the value: T x = value; for a new
 // variable, x = value; for an existing one, and for _ a statement that only evaluates it.
 func (t target) assign(pos cppir.Pos, value cppir.Expr) cppir.Stmt {
+	if t.typ != nil && t.box {
+		return varDecl(pos, ptrType(t.typ), t.name, newBox(t.typ, value))
+	}
 	if t.typ != nil {
 		return varDecl(pos, t.typ, t.name, value)
 	}
@@ -374,13 +424,17 @@ func (fg *funcGen) declare(pos token.Pos, lhs, values []ast.Expr) {
 				if t.shadow && open < 0 {
 					open = len(lines)
 				}
-				lines = append(lines, varDecl(p, t.typ, t.name, &cppir.InitList{}))
+				if t.box {
+					lines = append(lines, varDecl(p, ptrType(t.typ), t.name, newBox(t.typ, nil)))
+				} else {
+					lines = append(lines, varDecl(p, t.typ, t.name, &cppir.InitList{}))
+				}
 			}
 		}
 		fg.declLines(pos, lines, open, false, targets)
 		return
 	}
-	fg.bind(pos, targets, values, false)
+	fg.bind(pos, targets, nil, values, false)
 }
 
 // declLines adds the statements of a declaration (joined: as one line), and puts its new
@@ -456,10 +510,8 @@ func (fg *funcGen) newTargets(lhs []ast.Expr) []target {
 			continue
 		}
 		if obj, ok := fg.g.info.Defs[id].(*types.Var); ok {
-			t := target{typ: fg.g.cxxType(obj.Type(), id.Pos()), shadow: fg.shadowing(obj)}
-			if b := basicOf(obj.Type()); b == nil || b.Info()&types.IsString != 0 {
-				t.class = true
-			}
+			t := target{typ: fg.g.cxxType(obj.Type(), id.Pos()), shadow: fg.shadowing(obj), box: fg.isBoxed(obj)}
+			t.class = isClass(obj.Type())
 			if t.shadow {
 				t.name = fg.names.name(obj) // declLines puts it into its scope
 			} else {
@@ -475,7 +527,11 @@ func (fg *funcGen) newTargets(lhs []ast.Expr) []target {
 }
 
 // bind adds the statements that give the targets their values, with Go's order: all values
-// are evaluated, from left to right, before any target changes.
+// are evaluated, from left to right, before any target changes. For an assignment, targets is
+// nil and lhs are its left sides: their operands (targetOperands) are ordered with the values,
+// and the targets are made after that. A target *p whose p a store before it can change
+// (affected: p, *p = q, 5) gets p in a temporary first, so it stores through the old p, as gc
+// does.
 //   - One value with several results (a, b := f()): the result tuple goes into a temporary,
 //     and each target gets its element.
 //   - As many values as targets: in order, directly, if no value reads a target too early
@@ -494,9 +550,22 @@ func (fg *funcGen) newTargets(lhs []ast.Expr) []target {
 // For an assignment (stmt), the statements are one C++ line, and the temporaries are in { }.
 // A declaration whose values need temporaries in front is one line too, except the result
 // tuple's (Phase 02 README §2.1).
-func (fg *funcGen) bind(pos token.Pos, targets []target, values []ast.Expr, stmt bool) {
+func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr, stmt bool) {
 	p := fg.g.pos(pos)
-	pre := fg.order(len(values) > 1, values...)
+	// The operands of the targets (*p) are evaluated first, but their reads are where the
+	// stores are, after the values: then the list is not in C++'s order.
+	ops := targetOperands(lhs)
+	pre := fg.order(len(values) > 1 && ops == nil, append(ops, values...)...)
+	if lhs != nil {
+		// The targets of an assignment, translated after the order: their operands may be
+		// in temporaries.
+		targets = make([]target, len(lhs))
+		for i, e := range lhs {
+			if !isBlank(e) {
+				targets[i] = fg.lhs(e)
+			}
+		}
+	}
 	var lines []cppir.Stmt
 	temps := len(pre) > 0
 	joined := len(pre) > 0
@@ -506,6 +575,16 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, values []ast.Expr, stmt
 			open = len(lines)
 		}
 		lines = append(lines, t.assign(p, value))
+	}
+	// save evaluates the pointer of a target *p into a temporary first if an assignment
+	// before it can change p (gc saves it with the values, before the stores).
+	save := func(i int) {
+		if t := targets[i]; t.ptr != nil && fg.affected(t.ptr, targets[:i]) {
+			tmp := fg.names.temp("t")
+			temps, joined = true, true
+			lines = append(lines, varDecl(p, typeName("auto"), tmp, fg.expr(t.ptr)))
+			targets[i].x = deref(cxxName(tmp))
+		}
 	}
 	direct := len(values) == len(targets)
 	for i, t := range targets {
@@ -529,6 +608,9 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, values []ast.Expr, stmt
 		tmp := fg.names.temp("t")
 		temps = true
 		lines = append(lines, varDecl(p, typeName("auto"), tmp, value))
+		for i := range targets {
+			save(i)
+		}
 		for i, t := range targets {
 			if !t.blank() {
 				get := &cppir.Name{Name: "std::get", Args: []cppir.Node{lit(strconv.Itoa(i))}}
@@ -545,6 +627,7 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, values []ast.Expr, stmt
 		// doesn't read a target too early.
 		tmps := make([]string, len(values))
 		for i, v := range values {
+			save(i)
 			switch {
 			case fg.constValue(v) != nil:
 			case targets[i].blank():
@@ -613,6 +696,25 @@ func (fg *funcGen) reads(e ast.Expr, targets []target) bool {
 		}
 	}
 	return false
+}
+
+// affected reports whether an assignment to one of the targets (which come before the
+// expression e in an assignment) can change the value of e, so that e must be evaluated before
+// them (gc's ascompatee: affected): e reads one of the targets, or one of them writes memory
+// (target.mem) and e reads memory (a boxed or a package variable, *p: !inert).
+func (fg *funcGen) affected(e ast.Expr, targets []target) bool {
+	used := fg.usedNames([]ast.Expr{e})
+	mem := false
+	for _, t := range targets {
+		switch {
+		case t.blank():
+		case t.name != "" && used[t.name]:
+			return true
+		case t.mem:
+			mem = true
+		}
+	}
+	return mem && !fg.inert(e)
 }
 
 // usedNames returns the C++ names of the variables and functions that the expressions use,

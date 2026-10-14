@@ -65,6 +65,13 @@ func TestOrderPanics(t *testing.T) {
 		{"else-if", "", "z := 0\n\tif f() > 100 {\n\t} else if 7/z+f() > 0 {\n\t\tfmt.Println(1)\n\t}"},
 		{"case", "", "z := 0\n\tswitch f() {\n\tcase 1:\n\tcase 7/z + f():\n\t\tfmt.Println(1)\n\t}"},
 		{"case-list", "", "z := 0\n\tswitch f() {\n\tcase 1, id(7/z) + f():\n\t\tfmt.Println(1)\n\t}"},
+		// A nil dereference panics after the calls of its scope, like the other operations.
+		{"deref-call", "", "var p *int\n\tfmt.Println(*p + f())"},
+		{"deref-arg", "", "var p *int\n\tfmt.Println(*p, f())"},
+		{"store-call", "", "var p *int\n\t*p = f()"},
+		{"op-assign-call", "", "var p *int\n\t*p += f()"},
+		{"parallel-store", "", "var p *int\n\ty := 0\n\t*p, y = 1, f()\n\tfmt.Println(y)"},
+		{"addr-deref", "", "var p *int\n\tfmt.Println(&*p == nil, f())"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -79,7 +86,7 @@ func TestOrderPanics(t *testing.T) {
 			if want != nil && want.code != 2 {
 				t.Fatalf("with Go, the program exits with %d, not with a panic:\n%s", want.code, want.stderr)
 			}
-			checkRuns(t, emitter(gp), want)
+			checkRunsNorm(t, emitter(gp), want, maskPC)
 		})
 	}
 }
@@ -114,12 +121,27 @@ func TestOrderTemps(t *testing.T) {
 		{"a, b := 7, 0\n\tfmt.Println(a/b, 1<<b, a%b)", "gp::fmtshim::Println(gp::div(a, b), gp::shl(int64_t(1), b), gp::rem(a, b));"},
 		{"fmt.Println(x == 2, f())", "{ auto gp_t0 = x == 2; gp::fmtshim::Println(gp_t0, f()); }"},
 		{"println(x == 2, f())", "{ auto gp_t0 = f(); gp::println(x == 2, gp_t0); }"},
+		// Pointers (step 3.3): a boxed variable and *p are read after the calls, like x; a
+		// local pointer itself is not.
+		{"l := 1\n\t_ = &l\n\tfmt.Println(l, f())", "{ auto gp_t0 = f(); gp::fmtshim::Println((*l), gp_t0); }"},
+		{"l := 1\n\t_ = &l\n\tfmt.Println(l == 1, f())", "{ auto gp_t0 = (*l) == 1; gp::fmtshim::Println(gp_t0, f()); }"},
+		{"p := &x\n\tfmt.Println(*p, f())", "{ auto gp_t0 = f(); gp::fmtshim::Println(*p, gp_t0); }"},
+		{"p := &x\n\tg(*p, 1)", "g(*p, 1);"},
+		{"p := &x\n\t*p = f()", "*p = f();"},
+		{"p := &x\n\t*p += f()", "{ auto gp_t0 = f(); *p = *p + gp_t0; }"},
+		{"p := &x\n\tq := &p\n\t*p = f()\n\t_ = q", "{ auto gp_t0 = f(); *(*p) = gp_t0; }"},
+		{"p := &x\n\t*h(p) += 1", "{ auto gp_t0 = gpkg_main::h(p); *gp_t0 = *gp_t0 + 1; }"},
+		{"p := &x\n\t*h(p) = f()", "{ auto gp_t0 = gpkg_main::h(p); *gp_t0 = f(); }"},
+		{"p := &x\n\t(*h(p))++", "(*gpkg_main::h(p))++;"},
+		{"p, q := &x, new(int)\n\t*p, *q = *q, *p", "{ auto gp_t0 = *q; auto gp_t1 = *p; *p = gp_t0; *q = gp_t1; }"},
+		{"p, q := &x, new(int)\n\tp, *p = q, 1", "{ auto gp_t0 = p; p = q; *gp_t0 = 1; }"},
+		{"l := 1\n\tp := &l\n\tswitch l {\n\tcase f():\n\t}\n\t_ = p", "auto gp_tag0 = (*l);"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.body, func(t *testing.T) {
 			dir := t.TempDir()
 			src := "package main\n\nimport \"fmt\"\n\nvar x = 1\n\nfunc f() int {\n\tx++\n\tfmt.Print()\n\treturn x\n}\n\n" +
-				"func g(a, b int) int {\n\treturn a + b\n}\n\nfunc main() {\n\t" + tt.body + "\n}\n"
+				"func g(a, b int) int {\n\treturn a + b\n}\n\nfunc h(p *int) *int {\n\treturn p\n}\n\nfunc main() {\n\t" + tt.body + "\n}\n"
 			gp := filepath.Join(dir, "main.gp")
 			if err := os.WriteFile(gp, []byte(src), 0o644); err != nil {
 				t.Fatal(err)

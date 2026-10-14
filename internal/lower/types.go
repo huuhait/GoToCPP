@@ -19,6 +19,7 @@ import (
 //	float32, float64         float, double
 //	string                   gp::string
 //	(A, B) (results)         std::tuple<A, B>
+//	*T                       gp::ptr<T> (Phase 03 step 3.3; T of any type that cxxType has)
 //
 // An untyped constant has the C++ type of its default type (untyped int → int64_t, untyped
 // rune → int32_t, untyped float → double), but go/types records the type that a constant
@@ -26,8 +27,8 @@ import (
 //
 // Not yet: complex64 and complex128 (std::complex, not in the Phase 02 subset), named types,
 // also those over a basic type (type Celsius float64 becomes a gp::newtype in Phase 03), and
-// every composite type (pointers, slices, arrays, maps, structs, funcs: Phase 03; interfaces
-// and error: Phase 05; channels: Phase 08). For these, cxxType reports "not supported yet".
+// the other composite types (slices, arrays, maps, structs, funcs: Phase 03; interfaces and
+// error: Phase 05; channels: Phase 08). For these, cxxType reports "not supported yet".
 
 // basicTypes are the C++ spellings of the basic types, by kind.
 var basicTypes = map[types.BasicKind]string{
@@ -72,6 +73,8 @@ func (g *gen) cxxType(t types.Type, pos token.Pos) cppir.Type {
 		if s := basicTypes[t.Kind()]; s != "" {
 			return typeName(s)
 		}
+	case *types.Pointer:
+		return ptrType(g.cxxType(t.Elem(), pos))
 	case *types.Tuple:
 		args := make([]cppir.Node, t.Len())
 		for i := range t.Len() {
@@ -94,4 +97,16 @@ func (g *gen) resultType(sig *types.Signature, pos token.Pos) cppir.Type {
 	default:
 		return g.cxxType(r, pos)
 	}
+}
+
+// ptrType returns gp::ptr<elem>, the C++ type of a pointer to elem, and of the box of a
+// variable of the C++ type elem (box.go).
+func ptrType(elem cppir.Type) cppir.Type {
+	return &cppir.TypeName{Name: "gp::ptr", Args: []cppir.Node{elem}}
+}
+
+// isPointer reports whether t is a pointer type (through names and aliases: type P *int).
+func isPointer(t types.Type) bool {
+	_, ok := under(t).(*types.Pointer)
+	return ok
 }

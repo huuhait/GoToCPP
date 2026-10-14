@@ -39,9 +39,10 @@ type flow struct {
 }
 
 // newFlow finds where the break and continue statements of body go. go/types checked them:
-// each has a statement to go to, and a label names an enclosing one. inHead reports whether a
-// 3-clause for puts its post statement in the C++ for's head.
-func newFlow(info *types.Info, body *ast.BlockStmt, inHead func(post ast.Stmt) bool) *flow {
+// each has a statement to go to, and a label names an enclosing one. atEnd reports whether a
+// 3-clause for puts its post statement (or what runs before it) at the end of its body, not
+// in the C++ for's head.
+func newFlow(info *types.Info, body *ast.BlockStmt, atEnd func(loop *ast.ForStmt) bool) *flow {
 	f := &flow{
 		target:     make(map[*ast.BranchStmt]ast.Stmt),
 		plain:      make(map[*ast.BranchStmt]bool),
@@ -81,7 +82,7 @@ func newFlow(info *types.Info, body *ast.BlockStmt, inHead func(post ast.Stmt) b
 	})
 
 	for b, t := range f.target {
-		if loop, ok := t.(*ast.ForStmt); ok && b.Tok == token.CONTINUE && loop.Post != nil && !inHead(loop.Post) {
+		if loop, ok := t.(*ast.ForStmt); ok && b.Tok == token.CONTINUE && atEnd(loop) {
 			f.plain[b] = false
 		}
 	}

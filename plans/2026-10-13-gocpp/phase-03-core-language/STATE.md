@@ -9,11 +9,11 @@
 - [x] Spike (2026-10-13): `shared_ptr` aliasing for interior pointers, non-owning global pointers, `make_shared<T[]>` element pointers, designated init, defaulted `==`; compiled and run on GCC 15 + Clang 21
 - [x] 3.1 Refactor into `lower` → `cppir` → printer (Phase 02 tests stay green)
 - [x] 3.2 Runtime ownership core (`gp::ptr`, `gp::new_`, aliasing helpers, nil checks, static owners for globals, `weak` intrinsic, no plain-named members on runtime types)
-- [~] 3.3 Boxing analysis + owner table
-  - [ ] `&x`, `&x.f`, `&x.arr[i]`, pointer-method calls (incl. on fields), `arr[:]`
-  - [ ] captured + changed (incl. field/element writes, `++`, op-assign)
-  - [ ] parameters, receivers, named results
-  - [ ] `&p.f`, `&s[i]`, `&arr[i]`, `&global`
+- [x] 3.3 Boxing analysis + owner table
+  - [x] `&x`, `&x.f`, `&x.arr[i]`, pointer-method calls (incl. on fields), `arr[:]`
+  - [x] captured + changed (incl. field/element writes, `++`, op-assign)
+  - [x] parameters, receivers, named results
+  - [x] `&p.f`, `&s[i]`, `&arr[i]`, `&global`
 - [x] 3.4 Strings (runtime, literals, slicing, concat, compare, UTF-8 range, conversions)
 - [~] 3.5 Slices (make, append + growth formula, sub-slice, copy, nil, clear, slice→array; `cap >= len` only)
 - [~] 3.6 Arrays (`gp::array`, checked index, `==`) + range rules (hidden counters, copy on `range arr`)
@@ -174,3 +174,14 @@
   the caller boxing, or a reference to a temporary copy) or document it with the large-temporaries
   divergence. 3.11 must run the boxing analysis over function literals in package-level var
   initializers too (not done today).
+- 2026-10-14: Job 3.3 (the boxing analysis internal/lower/box.go with the full §2.2 rule incl. large
+  locals > 128 KiB and returns changing named results; pointers to basic types and strings; gc's
+  evaluation order around *p and boxed variables incl. the ascompatee "save"; Go 1.22 per-iteration
+  boxes) committed, clean after 2 review rounds. &x.f, &a[i], &s[i], &T{} report their steps (3.5b,
+  3.6b, 3.8); the owner table is in addr.go's doc. A boxed parameter keeps its Go name (ADR-022 shape).
+  Moves into boxes are written as casts (a `std::move` call leaves a <bits/move.h> row in g++ -O0's line
+  table); bind's older std::move for shadowing class temporaries should switch to the same cast.
+- 2026-10-14 (manager): known g++ 15 debug-info bug: at -O0, a nested-block variable returned by name
+  (NRVO) gets a wrong DWARF location, so `print` shows garbage there (clang++ is right). We don't add
+  -fno-elide-constructors (it changes the generated code's copies); documented in tests/debug; Phase 13's
+  `gocpp debug` may add the flag for g++ debug sessions.

@@ -17,8 +17,10 @@ import (
 // that Phase 02 has (arguments, operands, && and ||, conditions of if, else if, for and
 // switch, case lists, post statements, range bounds, returns, assignments and declarations),
 // next to reads of those variables and to operations that can panic (also substrings,
-// concatenations and range over strings, Phase 03), and compares what each
-// prints with real Go, on both compilers.
+// concatenations and range over strings, Phase 03), and pointers (step 3.3): reads and writes
+// through pointers to package variables and to boxed locals (*pg, *pl, *lp, *pick(...)), which
+// the calls change, and the per-iteration variables of loops whose address is taken. It
+// compares what each prints with real Go, on both compilers.
 //
 //	GOCPP_RANDOM_TESTS=1 go test ./internal/cppgen -run TestRandomOrder
 //
@@ -98,7 +100,8 @@ type progGen struct {
 	depth   int             // of the statement nesting
 	loops   int             // the loops around the current statement
 	nvars   int
-	helpers int // the helpers h0, k0, ... that the code may call (only earlier ones: no recursion)
+	helpers int      // the helpers h0, k0, ... that the code may call (only earlier ones: no recursion)
+	ptrs    []string // the *int variables in scope that may be read and written through
 }
 
 const randomPrelude = `package main
@@ -110,7 +113,12 @@ var gs = "abcde"
 var gb = true
 var g8 uint8 = 200
 
-// e prints its tag and changes the package variables.
+// pg points to g0 or g1, pl to a boxed local of main, pc to a loop's variable (or g1).
+var pg = &g0
+var pl, pc *int
+
+// e prints its tag and changes the package variables, also through the pointers, and where pg
+// points.
 func e(tag, v int) int {
 	fmt.Print("e", tag, " ")
 	g0 += tag
@@ -120,7 +128,23 @@ func e(tag, v int) int {
 	if tag%3 == 0 {
 		gs += "x"
 	}
+	if tag%4 == 1 {
+		if pg == &g0 {
+			pg = &g1
+		} else {
+			pg = &g0
+		}
+	}
+	if pl != nil {
+		*pl += tag
+	}
 	return v
+}
+
+// pick prints its tag and returns p: a pointer from a call.
+func pick(tag int, p *int) *int {
+	fmt.Print("p", tag, " ")
+	return p
 }
 
 func eb(tag int, v bool) bool {
@@ -144,6 +168,7 @@ func (g *progGen) program() string {
 		g.printf("func h%d(p int) (int, int) {", i)
 		g.indent++
 		g.locals = []string{"p"}
+		g.paramPtr()
 		g.stmts(2)
 		g.printf("return %s, %s", g.expr(3), g.expr(3))
 		g.indent--
@@ -152,6 +177,7 @@ func (g *progGen) program() string {
 		g.printf("func k%d(p int) int {", i)
 		g.indent++
 		g.locals = []string{"p"}
+		g.paramPtr()
 		g.stmts(1)
 		g.printf("return %s", g.expr(3))
 		g.indent--
@@ -163,8 +189,15 @@ func (g *progGen) program() string {
 	g.indent++
 	g.locals = []string{"l0", "l1", "l2"}
 	g.printf("l0, l1, l2 := %d, %d, %d", g.r.Intn(9)-2, g.r.Intn(9), g.r.Intn(5)+1)
+	// l1 and l2 are boxed: e changes l1 through pl, and lp points to l2.
+	g.printf("pl = &l1")
+	g.printf("lp := &l2")
+	g.ptrs = []string{"pg", "pl", "lp"}
 	g.stmts(14)
-	g.printf("fmt.Println(l0, l1, l2, g0, g1, gs, gb, g8)")
+	g.printf("fmt.Println(l0, l1, l2, g0, g1, gs, gb, g8, *pg, *lp)")
+	g.printf("if pc != nil {")
+	g.printf("\tfmt.Println(*pc)")
+	g.printf("}")
 	g.indent--
 	g.printf("}")
 	return g.b.String()
@@ -183,6 +216,26 @@ func (g *progGen) chance(p float64) bool { return g.r.Float64() < p }
 func (g *progGen) nextTag() int {
 	g.tag++
 	return g.tag
+}
+
+// paramPtr starts a helper: pg and pl, and sometimes a pointer to its parameter p, which boxes
+// it.
+func (g *progGen) paramPtr() {
+	g.ptrs = []string{"pg", "pl"}
+	if g.chance(0.4) {
+		g.printf("pp := &p")
+		g.printf("*pp += %d", g.r.Intn(3))
+		g.ptrs = append(g.ptrs, "pp")
+	}
+}
+
+// ptr returns a pointer to read or write through: a variable, or sometimes a call of pick.
+func (g *progGen) ptr() string {
+	p := g.ptrs[g.r.Intn(len(g.ptrs))]
+	if g.chance(0.2) {
+		return fmt.Sprintf("pick(%d, %s)", g.nextTag(), p)
+	}
+	return p
 }
 
 // local returns a local int variable of the current scope.
@@ -237,6 +290,9 @@ func (g *progGen) target() string {
 			free = append(free, v)
 		}
 	}
+	if g.chance(0.2) {
+		return "*" + g.ptr()
+	}
 	if len(free) == 0 || g.chance(0.3) {
 		return []string{"g0", "g1"}[g.r.Intn(2)]
 	}
@@ -273,6 +329,11 @@ func (g *progGen) stmt() {
 		g.printf("%s %s %s", g.target(), op, y)
 	case 5:
 		a, b := g.target(), g.target()
+		if g.chance(0.15) {
+			// The pointer changes before the store through it: gc stores through the old one.
+			g.printf("pg, *pg = &%s, %s", []string{"g0", "g1"}[g.r.Intn(2)], g.expr(2))
+			break
+		}
 		if a == b {
 			g.printf("%s, _ = %s, %s", a, g.expr(2), g.expr(2))
 		} else {
@@ -324,6 +385,7 @@ func (g *progGen) stmt() {
 			g.printf("fmt.Println(%q, %s)", i, i)
 		}
 		g.indent--
+		g.keepAddr(i)
 		g.block(2)
 		g.loops--
 		g.printf("}")
@@ -395,6 +457,7 @@ func (g *progGen) forStmt() {
 			cond = d + " > " + strconv.Itoa(g.r.Intn(9)-4) + " || " + cond
 		}
 		g.printf("for %s; %s < 3 && (%s); %s {", init, c, cond, post)
+		g.keepAddr(c)
 		g.block(2)
 		g.printf("}")
 		g.locals = g.locals[:saved] // the scope of c and d ends
@@ -408,6 +471,7 @@ func (g *progGen) forStmt() {
 		g.printf("}")
 	default:
 		g.printf("for %s := 0; %s < 3; %s++ {", c, c, c)
+		g.keepAddr(c)
 		g.block(2)
 		g.printf("}")
 		g.locals = g.locals[:saved]
@@ -565,6 +629,9 @@ func (g *progGen) leaf() string {
 	case 1, 2:
 		return g.local()
 	case 3:
+		if g.chance(0.4) {
+			return "*" + g.ptr()
+		}
 		return []string{"g0", "g1", "len(gs)", "int(g8)"}[g.r.Intn(4)]
 	default:
 		return fmt.Sprintf("e(%d, %s)", g.nextTag(), strconv.Itoa(g.r.Intn(7)-2))
@@ -593,8 +660,9 @@ func (g *progGen) expr(depth int) string {
 			return "(" + g.expr(d) + " >> (" + g.nonConst(1) + " - 2))" // may be negative
 		}
 		if g.chance(0.2) {
-			// An untyped count that is not a constant: a uint, never negative (typeOf).
-			return "(" + g.expr(d) + " >> (1<<(" + g.nonConst(1) + " & 127) - 2))"
+			// An untyped count that is not a constant: a uint, never negative (typeOf). (The
+			// int(...) keeps an untyped constant shifted inside it, -6 >> n, an int.)
+			return "(" + g.expr(d) + " >> (1<<(int(" + g.nonConst(1) + ") & 127) - 2))"
 		}
 		return "(" + g.expr(d) + " << (uint(int(" + g.nonConst(1) + ")) & 7))"
 	case 7:
@@ -613,6 +681,19 @@ func (g *progGen) expr(depth int) string {
 		return fmt.Sprintf("both(%s, %s)", g.expr(d), g.expr(d))
 	default:
 		return "-" + g.leaf()
+	}
+}
+
+// keepAddr sometimes keeps the address of the loop variable c in pc (in the loop's body), so
+// the end of the program shows the variable of the iteration that set it last (Go 1.22: each
+// iteration has its own).
+func (g *progGen) keepAddr(c string) {
+	if g.chance(0.3) {
+		g.indent++
+		g.printf("if %s {", g.cond(1))
+		g.printf("\tpc = &%s", c)
+		g.printf("}")
+		g.indent--
 	}
 }
 

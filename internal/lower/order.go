@@ -49,6 +49,10 @@ import (
 //   - a read of a package variable, which any call can change (Phase 03: collect sees only
 //     the package's own variables, an identifier; a variable of another package, pkg.V, is a
 //     selector, which must become a read too);
+//   - a read of a boxed variable (box.go) and a read through a pointer, *p (Phase 03 step
+//     3.3): a call can change them through a pointer, and gc reads them after the calls of
+//     their scope too, like a package variable: in x + f(), *p + f(), and y, z := x, f(), f
+//     runs first and the new value is read (and *p's nil check panics after f ran);
 //   - an operation that can panic: an integer division or remainder by a non-constant
 //     (gp::div), a shift by a non-constant signed count (gp::shl), and s[i] (out of range). gc
 //     evaluates them after the calls of their scope: a/b + f() calls f first, then panics.
@@ -59,11 +63,15 @@ import (
 // only difference is which of the two panic messages is printed. Calls, output and the values
 // that are read keep Go's order.
 //
-// Reads of the function's own variables are not effects: in Phase 02 a local variable can
-// change only by an assignment, and an expression has none (no closures, no pointers, no
-// methods with pointer receivers yet: Phase 03's lowering pass decides then). A statement
-// that assigns several variables (a, b = b, a) keeps its own rule (bind, stmt.go). Constants
-// are never effects.
+// Reads of the function's own variables that are not boxed are not effects: such a variable
+// can change only by an assignment, and an expression has none. Every variable whose address
+// is taken, or that a closure captures and that changes, is boxed (box.go), and a read of it is
+// one (above). A statement that assigns several variables (a, b = b, a) keeps its own rule
+// (bind, stmt.go). Constants are never effects. Nor is &x: the box of x, and the address of a
+// package variable, never change while a statement runs.
+//
+// A call in the target of x op= y (*f() += 1) always goes into a temporary (fg.force), because
+// x op= y is x = x op y, which evaluates x twice.
 //
 // A unit goes into a temporary only where C++ could get the order wrong: where it has a
 // neighbour, an operand or an argument next to it, that is not a constant or a local variable,
@@ -126,6 +134,7 @@ type orderItem struct {
 	inner []*orderScope   // a unit's own scopes: a call's arguments; x and y of x && y
 	block bool            // x && y or x || y whose y needs temporaries: written as an if
 	bin   *ast.BinaryExpr // the expression of && and ||
+	force bool            // a call that must go into a temporary (fg.force)
 }
 
 // An orderStep is one operator above an item: a linked list up to the top of its expression.
@@ -215,8 +224,8 @@ func (fg *funcGen) copied(e ast.Expr) bool {
 		return false
 	}
 	switch x := e.(type) {
-	case *ast.Ident:
-		return false
+	case *ast.Ident, *ast.StarExpr:
+		return false // a variable: addressable (a local that is not boxed is copied, unseen)
 	case *ast.CallExpr:
 		if !fg.g.info.Types[x.Fun].IsType() {
 			return false // a call
@@ -252,14 +261,22 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 	below := &orderStep{e, up} // for the operands of e
 	switch x := e.(type) {
 	case *ast.Ident:
-		if v, ok := fg.g.info.Uses[x].(*types.Var); ok && isPkgVar(v) {
+		if v, ok := fg.g.info.Uses[x].(*types.Var); ok && (isPkgVar(v) || fg.isBoxed(v)) {
 			add(&orderItem{eff: effect{read: true}})
 		}
+	case *ast.StarExpr:
+		// *p reads what p points to, which a call can change, and panics for a nil p.
+		fg.collect(sc, x.X, root, below)
+		add(&orderItem{eff: effect{read: true, panics: true}})
 	case *ast.CallExpr:
 		if fg.g.info.Types[x.Fun].IsType() {
 			for _, a := range x.Args {
 				fg.collect(sc, a, root, up) // a conversion: its operand
 			}
+			return
+		}
+		if fg.isBuiltin(x, "new") {
+			sc.calls = append(sc.calls, x) // new(T) has no effect: its argument is a type
 			return
 		}
 		iface := len(x.Args)
@@ -272,7 +289,7 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 			}
 		}
 		args := fg.analyzeArgs(false, x.Args, iface)
-		it := &orderItem{unit: true, inner: []*orderScope{args}, eff: effect{call: true}}
+		it := &orderItem{unit: true, inner: []*orderScope{args}, eff: effect{call: true}, force: fg.force[x]}
 		if fg.isBuiltin(x, "len") {
 			// len of a string has no effect of its own, but gc evaluates it in its place
 			// among the calls.
@@ -298,6 +315,10 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 			add(&orderItem{eff: effect{panics: true}})
 		}
 	case *ast.UnaryExpr:
+		if x.Op == token.AND {
+			fg.collectAddr(sc, x.X, root, up)
+			return
+		}
 		fg.collect(sc, x.X, root, up)
 	case *ast.IndexExpr:
 		fg.collect(sc, x.X, root, below)
@@ -326,6 +347,20 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 			return
 		}
 		add(&orderItem{unit: true, eff: eff, inner: []*orderScope{in}})
+	}
+}
+
+// collectAddr adds the items of &e to the scope: those of what e is addressed through. &x of
+// a variable (its box, or a package variable) has none; &*p reads p and panics if p is nil.
+// (The other forms come with their types, addr.go.)
+func (fg *funcGen) collectAddr(sc *orderScope, e ast.Expr, root int, up *orderStep) {
+	switch x := ast.Unparen(e).(type) {
+	case *ast.Ident:
+	case *ast.StarExpr:
+		fg.collect(sc, x.X, root, up)
+		sc.items = append(sc.items, &orderItem{e: ast.Unparen(e), root: root, up: up, eff: effect{panics: true}})
+	default:
+		fg.collect(sc, e, root, up)
 	}
 }
 
@@ -407,7 +442,7 @@ func (sc *orderScope) plan() {
 	// C++ expression.
 	n := 0
 	for i, u := range units {
-		if u.block {
+		if u.block || u.force {
 			n = i + 1
 		}
 	}

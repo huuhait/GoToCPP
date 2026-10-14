@@ -167,6 +167,11 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.
 		return fg.infix(x, "&&", y)
 	case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ:
 		a, b := fg.expr(x), fg.expr(y) // first, so that an operand's own error comes first
+		if (op == token.EQL || op == token.NEQ) && (isPointer(fg.typeOf(x)) || isPointer(fg.typeOf(y))) {
+			// p == q compares the addresses, p == nil is p == nullptr (gp::ptr's ==; C++20
+			// writes != and nil == p from it).
+			return &cppir.Binary{Op: op.String(), X: at(a, precShift), Y: at(b, precShift)}
+		}
 		if fg.operandType(pos, op, x) == nil {
 			return placeholder
 		}
@@ -316,6 +321,8 @@ func (fg *funcGen) shiftCount(y ast.Expr) cppir.Expr {
 
 func (fg *funcGen) unary(e *ast.UnaryExpr) cppir.Expr {
 	switch e.Op {
+	case token.AND:
+		return fg.addr(e)
 	case token.NOT:
 		return &cppir.Unary{Op: "!", X: fg.expr(e.X)}
 	case token.ADD, token.SUB, token.XOR:
@@ -373,10 +380,14 @@ func (fg *funcGen) slice(e *ast.SliceExpr) cppir.Expr {
 	return call("gp::sub", x, lo, fg.expr(e.High))
 }
 
-// builtin returns the C++ of a call of the builtin len or panic. (A constant len(s) was
-// folded before.)
+// builtin returns the C++ of a call of the builtin len, panic or new. (A constant len(s) was
+// folded before.) new(T) is gp::new_<T>(), a pointer to a new zero T.
 func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 	arg := c.Args[0]
+	if name == "new" {
+		t := fg.g.info.TypeOf(arg)
+		return newBox(fg.g.cxxType(t, arg.Pos()), nil)
+	}
 	t := fg.g.info.TypeOf(arg)
 	b := basicOf(t)
 	tname := types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))
@@ -417,6 +428,20 @@ func (fg *funcGen) conversion(c *ast.CallExpr, to types.Type) cppir.Expr {
 	}
 	arg := c.Args[0]
 	from := fg.g.info.TypeOf(arg)
+	if isPointer(to) {
+		// (*int)(p) between pointers of the same C++ type, or (*int)(nil). The other
+		// conversions between pointer types need named types (gp::ptr_cast, step 3.9).
+		typ := fg.g.cxxType(to, c.Pos())
+		if tn, ok := typ.(*cppir.TypeName); ok && fg.g.info.Types[arg].IsNil() {
+			return &cppir.Call{Fun: &cppir.Name{Name: tn.Name, Args: tn.Args}, Args: []cppir.Expr{lit("nullptr")}}
+		}
+		if isPointer(from) && cppir.TypeString(typ) == cppir.TypeString(fg.g.cxxType(from, c.Pos())) {
+			return fg.expr(arg)
+		}
+		qual := types.RelativeTo(fg.g.pkg.Types)
+		fg.g.unsupported(c.Pos(), "the conversion from "+types.TypeString(from, qual)+" to "+types.TypeString(to, qual)+" (Phase 03 step 3.9)")
+		return placeholder
+	}
 	tb, fb := basicOf(to), basicOf(from)
 	if isStringSlice(tb, from) || isStringSlice(fb, to) {
 		fg.g.unsupported(c.Pos(), "conversions between strings and slices (Phase 03 step 3.5)")

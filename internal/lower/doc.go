@@ -49,6 +49,9 @@
 //   - expr.go: expressions, with constants folded by go/types;
 //   - order.go: Go's order of evaluation: the calls (and the other things whose order can be
 //     seen) that C++ could evaluate in another order go into gp_ temporaries first;
+//   - box.go: the boxing analysis, a pre-pass over each function that decides which of its
+//     variables live in a box on the heap (gp::ptr<T> x = gp::new_<T>(...), each use (*x));
+//   - addr.go: &x, the owner table (every pointer shares the owner of what it points into);
 //   - ops.go: the operators (with the small-integer rule and the runtime's gp::div, gp::rem,
 //     gp::shl and gp::shr), conversions (gp::f2i), s[i] and the builtins len and panic;
 //   - types.go: the C++ spelling of the types;
@@ -58,9 +61,9 @@
 //     they shadow one (v := v); the gp_ temporaries.
 //
 // Phase 02 built it for a small subset of the language (as internal/cppgen; step 3.1 moved
-// it here), and every later phase widens it: Phase 03 adds the boxing analysis, value
-// receivers and parameters as real copies, closures that share variables, defer frames and
-// range loops; later phases add their rewrites, for example the early returns of ! (must) in
+// it here), and every later phase widens it: Phase 03 adds the boxing analysis (box.go),
+// value receivers and parameters as real copies, closures that share variables, defer frames
+// and range loops; later phases add their rewrites, for example the early returns of ! (must) in
 // Phase 10. Phase 06 adds the per-package layout: one pkg.hpp per package, one .cpp per .gp
 // file and a pkg_init.cpp.
 package lower

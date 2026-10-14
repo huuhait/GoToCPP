@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -273,6 +274,17 @@ func goResult(t *testing.T, gps ...string) *result {
 // goStackMark is the line of a panic message after which Go prints the stack trace.
 const goStackMark = "goroutine 1 [running]:\n"
 
+// pcRx matches the pc in the signal line of a nil pointer panic, "[signal SIGSEGV:
+// segmentation violation code=0x1 addr=0x0 pc=0x4a2b1c]": an address in the program, which
+// differs between Go and gocpp.
+var pcRx = regexp.MustCompile(` pc=0x[0-9a-f]+\]`)
+
+// maskPC replaces the pc of the signal line in the stderr of r with PC (checkRunsNorm).
+func maskPC(r result) result {
+	r.stderr = pcRx.ReplaceAllString(r.stderr, " pc=PC]")
+	return r
+}
+
 // TestExampleHello builds examples/hello, the milestone M1 program, and checks that it
 // prints its output.txt.
 func TestExampleHello(t *testing.T) {
@@ -326,6 +338,9 @@ func TestUnsupported(t *testing.T) {
 		{"go", "func main() {\n\tgo println()\n}", "main.gp:4:2: cppgen: not supported yet: go statements (Phase 08)"},
 		{"insideif", "func main() {\n\tif x := 1; x > 0 {\n\t\tdefer println()\n\t}\n}", "main.gp:5:3: cppgen: not supported yet: defer statements (Phase 03)"},
 		{"nomain", "func f() {}", "main.gp:2:9: cppgen: function main is undeclared in the main package"},
+		{"printptr", "func main() {\n\tx := 1\n\tprintln(&x)\n}", "main.gp:5:10: cppgen: not supported yet: printing a pointer (Phase 03 step 3.15)"},
+		{"fmtptr", "import \"fmt\"\nfunc main() {\n\tfmt.Println(new(int))\n}", "main.gp:5:14: cppgen: not supported yet: printing a pointer (Phase 03 step 3.15)"},
+		{"addrderefcall", "func f() *int { return nil }\nfunc main() {\n\t_ = &*f()\n}", "main.gp:5:6: cppgen: not supported yet: &*p where p is not a variable"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -407,9 +422,10 @@ func TestRuntimeFuncNames(t *testing.T) {
 
 // TestPanics checks the run-time panics of expressions (division by zero, a negative shift
 // count, a string index out of range; also in x /= y and x <<= n, in a case and in a loop
-// condition) and the builtin panic with values of basic types: each
-// program prints what it prints with Go, exits with code 2, and stderr is Go's up to the
-// "goroutine 1 [running]:" line (goResult).
+// condition), the builtin panic with values of basic types, and the nil pointer dereferences
+// (also through new(*int), &*p and a parameter): each program prints what it prints with Go,
+// exits with code 2, and stderr is Go's up to the "goroutine 1 [running]:" line (goResult),
+// with the signal line of a nil dereference (its pc masked: maskPC).
 func TestPanics(t *testing.T) {
 	tests := []struct{ name, body string }{
 		{"div", "a, b := 7, 0\n\tfmt.Println(\"before\", a/2)\n\tfmt.Println(a / b)"},
@@ -450,6 +466,12 @@ func TestPanics(t *testing.T) {
 		{"panic-float32", "var f float32 = 0.1\n\tpanic(f)"},
 		{"panic-bool", "x := 1\n\tpanic(x > 0)"},
 		{"panic-rune", "panic('x')"},
+		{"nil-deref", "var p *int\n\tfmt.Println(\"before\")\n\tfmt.Println(*p)"},
+		{"nil-store", "var p *int\n\t*p = 1"},
+		{"nil-inc", "var p *string\n\t*p += \"x\""},
+		{"nil-new", "pp := new(*int)\n\t**pp = 1"},
+		{"nil-addr", "var p *int\n\tq := &*p\n\tfmt.Println(q == nil)"},
+		{"nil-param", "fmt.Println(deref(nil))"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -460,6 +482,9 @@ func TestPanics(t *testing.T) {
 				src += "import \"fmt\"\n\n"
 			}
 			src += "func main() {\n\t" + tt.body + "\n}\n"
+			if strings.Contains(tt.body, "deref(") {
+				src += "\nfunc deref(p *int) int {\n\treturn *p\n}\n"
+			}
 			gp := filepath.Join(dir, "main.gp")
 			if err := os.WriteFile(gp, []byte(src), 0o644); err != nil {
 				t.Fatal(err)
@@ -468,7 +493,7 @@ func TestPanics(t *testing.T) {
 			if want != nil && want.code != 2 {
 				t.Fatalf("with Go, the program exits with %d, not with a panic:\n%s", want.code, want.stderr)
 			}
-			checkRuns(t, emitter(gp), want)
+			checkRunsNorm(t, emitter(gp), want, maskPC)
 		})
 	}
 }

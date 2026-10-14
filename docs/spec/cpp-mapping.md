@@ -419,8 +419,26 @@ gp::ptr<Counter> NewCounter() {
 - **Boxing.** A local variable (also a parameter, a receiver copy or a named result) lives on the
   heap, in a "box", when the function takes its address or the address of anything inside it,
   calls a pointer method on it, slices an array in it, or captures it in a closure **and** changes
-  it anywhere. Uses of a boxed `x` become `(*x)`. This is a simple, safe version of Go's escape
-  analysis; Phase 15 adds the real one.
+  it anywhere. A local variable larger than 128 KB (Go's limit for stack variables) is boxed
+  too, so it can't overflow the C++ stack. Uses of a boxed `x` become `(*x)`, and `&x` is the
+  box. This is a simple, safe version of Go's escape analysis; Phase 15 adds the real one.
+  - A boxed parameter keeps its name: the C++ parameter is copied into its box at the
+    function's entry, and the box is a variable of the same name in a block around the body,
+    the shape of a shadowing declaration:
+    `int64_t twice(int64_t n) { gp::ptr<int64_t> gp_t0 = gp::new_<int64_t>(n); { gp::ptr<int64_t> n = static_cast<gp::ptr<int64_t>&&>(gp_t0); ... } }`
+    (a class type is moved into the box too; the moves are written as casts, because g++ -O0
+    leaves a line of `<bits/move.h>` in the function for a call of `std::move`). A debugger shows the value the
+    parameter came with in the frame line (`twice (n=21)`) and the box as `n` in the body
+    (`print *n` shows its value).
+  - A boxed named result starts as a new zero box, `gp::ptr<T> r = gp::new_<T>();`, and a
+    bare `return` returns `(*r)`.
+  - A boxed variable of a 3-clause `for` gets a new box for each iteration (Go 1.22): before
+    the post statement, `i = gp::new_<int64_t>(*i);`, so a pointer keeps the variable of its
+    iteration. The variables of a `range` loop are declared in the body, a new box each time.
+- **Order of evaluation.** A boxed variable and `*p` can change in any call (through a
+  pointer), so like a package variable they are read after the calls of their statement, as
+  gc does: in `x + f()`, `*p = f()` and `y, z := x, f()`, `f` runs first (and a nil `*p` panics
+  after it). In `p, *p = q, 1` the store goes through the old `p`, which is copied first.
 - **Pointers into objects** share ownership with the object (the aliasing constructor of
   `std::shared_ptr`), so they are memory safe too:
 
@@ -434,8 +452,10 @@ gp::ptr<Counter> NewCounter() {
 - Dereferencing a nil `gp::ptr` (`*p`, `p->f`, also `&p->f`) panics with Go's message:
   `runtime error: invalid memory address or nil pointer dereference`. Unrecovered, it also
   prints Go's signal line (`[signal SIGSEGV: ...]`).
-- `p == nil` is `p == nullptr`. A conversion between pointer types whose base types have
-  identical underlying types, `(*Q)(p)`, is `gp::ptr_cast<Q>(p)`.
+- `p == nil` is `p == nullptr`, and `p == q` compares the addresses. A conversion between
+  pointer types whose base types have identical underlying types, `(*Q)(p)`, is
+  `gp::ptr_cast<Q>(p)` (with named types, step 3.9); `(*int)(nil)` is
+  `gp::ptr<int64_t>(nullptr)`. `&*p` is `gp::ptr<T>(p, &*p)`: Go's `&*p` panics for a nil `p`.
 - `weak.Pointer[T]` is `gp::weak_ptr<T>`: `weak.Make(p)` is `gp::weak_make(p)` and
   `w.Value()` is `gp::weak_value(w)` (free functions, since runtime types have no plain-named
   members). `weak` is a compiler intrinsic until generics come (Phase 07).

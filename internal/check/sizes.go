@@ -195,6 +195,10 @@ var runtimeTypes = []runtimeType{
 		defined: `(?:class|struct) chan\b`, pending: "Phase 08"},
 }
 
+// Sizes returns gocpp's sizes (gocppSizes): the sizes and alignments of the C++ types, which
+// go/types uses for unsafe.Sizeof. Lowering uses them too (the boxing of large locals).
+func Sizes() types.Sizes { return gocppSizes{} }
+
 func (s gocppSizes) Sizeof(t types.Type) int64 { return s.layoutOf(t).size }
 
 func (s gocppSizes) Alignof(t types.Type) int64 { return s.layoutOf(t).align }
