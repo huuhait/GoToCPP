@@ -33,6 +33,8 @@
 //     [...]T{...}             the N that go/types computed
 //     a[i]                    a[i]                               bounds checked
 //     a == b, a != b          a == b, a != b                     when T is comparable
+//     map[[N]T]V keys         a.gp_hash()                        elementwise (gocpp/hash.hpp):
+//                                                                +0 and -0 alike, a NaN new
 //     len(a), cap(a)          gp::len(a), gp::cap(a)             constexpr (Go: a constant)
 //     len(p), cap(p) (*[N]T)  gp::len(p), gp::cap(p)             N, also for a nil p, as in Go
 //     [N]T(s)                 gp::to_array<N>(s)                 a copy of s[0:N]
@@ -109,6 +111,7 @@
 
 #include <gocpp/bounds.hpp>
 #include <gocpp/checks.hpp>
+#include <gocpp/hash.hpp>
 #include <gocpp/ptr.hpp>
 #include <gocpp/slice.hpp>
 
@@ -177,6 +180,14 @@ struct array {
         }
         return true;
     }
+
+    // gp_hash: the hash of the elements in index order, for map keys (gocpp/hash.hpp). Only
+    // when T is comparable, like ==.
+    std::size_t gp_hash() const
+        requires std::equality_comparable<T>
+    {
+        return gp::hash_elems(gp_elems.data(), N);
+    }
 };
 
 // array<T, 0> is [0]T: an empty struct (1 byte, alignment 1). Every index panics, and two of
@@ -196,6 +207,13 @@ struct array<T, 0> {
         requires std::equality_comparable<T>
     {
         return true;
+    }
+
+    // gp_hash: all [0]T are equal, so they hash the same (an empty struct's hash).
+    std::size_t gp_hash() const
+        requires std::equality_comparable<T>
+    {
+        return gp::hash_fields();
     }
 };
 
@@ -335,11 +353,5 @@ slice<T> sub(ptr<array<T, N>> p, L lo, H hi, M max) {
                         h - l, c);
     }
 }
-
-// --- hashing: step 3.7b ---
-//
-// Arrays of comparable elements are comparable, so they can be map keys. Step 3.7b adds their
-// hash here (elementwise, with the element hash of gocpp/hash.hpp, so that a == b gives equal
-// hashes: +0 and -0 hash alike, NaN keys are never found again).
 
 } // namespace gp

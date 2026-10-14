@@ -5,8 +5,10 @@
 #include <gocpp/rt.hpp>
 #include <gocpp/os.hpp>
 
+#include <algorithm>
 #include <bit>
 #include <cmath>
+#include <complex>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -333,10 +335,11 @@ int64_t* volatile leak_sink;
 
 bool slice_case(std::string_view c);
 bool array_case(std::string_view c);
+bool map_case(std::string_view c);
 
 void main() {
     std::string_view c = the_case.gp_view();
-    if (slice_case(c) || array_case(c)) {
+    if (slice_case(c) || array_case(c) || map_case(c)) {
         return;
     }
     if (c == "println") {
@@ -975,6 +978,365 @@ bool array_case(std::string_view c) {
     } else if (c == "array-slice-nil0") {
         gp::ptr<iarr<0>> p;
         fmt::Println(gp::len(gp::sub(p, 0)));
+    } else {
+        return false;
+    }
+    return true;
+}
+
+// --- maps (Phase 03 step 3.7a) ---
+
+using smap = gp::map<gp::string, int64_t>;
+using imap = gp::map<int64_t, int64_t>;
+
+std::vector<gp::string> sorted_keys(const smap& m) {
+    std::vector<gp::string> ks;
+    for (auto it = gp::range_map(m); gp::range_next(it);) {
+        gp::string k = it.gp_key();
+        ks.push_back(k);
+    }
+    std::sort(ks.begin(), ks.end());
+    return ks;
+}
+
+// mpoint and fkey are what the emitter writes for comparable Go structs used as keys: == and the
+// gp_hash member (gocpp/hash.hpp). Arrays are gp::array, which has both.
+struct mpoint {
+    int64_t X = 0;
+    int64_t Y = 0;
+    bool operator==(const mpoint&) const = default;
+    std::size_t gp_hash() const { return gp::hash_fields(X, Y); }
+};
+
+struct fkey {
+    gp::string s;
+    double f = 0;
+    bool operator==(const fkey&) const = default;
+    std::size_t gp_hash() const { return gp::hash_fields(s, f); }
+};
+
+void maps_case() {
+    // A nil map reads like an empty one.
+    smap nm;
+    {
+        auto gp_t = gp::lookup(nm, "a"_gs);
+        int64_t v = std::get<0>(gp_t);
+        bool ok = std::get<1>(gp_t);
+        fmt::Println(nm == nullptr, gp::len(nm), gp::get(nm, "a"_gs), v, ok);
+    }
+    gp::erase(nm, "a"_gs);
+    gp::clear(nm);
+    int64_t n = 0;
+    for (auto it = gp::range_map(nm); gp::range_next(it);) {
+        n++;
+    }
+    fmt::Println(n);
+
+    // Word counts; reads never insert.
+    smap m = gp::map_of<gp::string, int64_t>({});
+    gp::slice<gp::string> words = gp::slice_of<gp::string>(
+        {"the"_gs, "cat"_gs, "and"_gs, "the"_gs, "hat"_gs, "and"_gs, "the"_gs, "bat"_gs});
+    for (int64_t i = 0; i < gp::len(words); i++) {
+        gp::ref(m, words[i])++;
+    }
+    for (const gp::string& k : sorted_keys(m)) {
+        fmt::Println(k, gp::get(m, k));
+    }
+    bool ok = std::get<1>(gp::lookup(m, "dog"_gs));
+    int64_t l1 = gp::len(m);
+    int64_t cow = gp::get(m, "cow"_gs);
+    fmt::Println(l1, ok, cow, gp::len(m));
+    gp::ref(m, "the"_gs) += 10;
+    gp::erase(m, "cat"_gs);
+    gp::erase(m, "cat"_gs);
+    gp::erase(m, "zzz"_gs);
+    fmt::Println(gp::get(m, "the"_gs), gp::len(m));
+    smap alias = m;
+    gp::set(alias, "new"_gs, 7);
+    fmt::Println(gp::get(m, "new"_gs), gp::len(m));
+    gp::clear(alias);
+    fmt::Println(gp::len(m));
+    gp::set(m, "again"_gs, 1);
+    fmt::Println(gp::len(alias));
+
+    // A literal with equal non-constant keys: the later one wins.
+    int64_t k = 4;
+    imap lit = gp::map_of<int64_t, int64_t>({{k, 1}, {2, 2}, {k + 0, 3}});
+    // gc stores a literal's static entries (constant key and value) first: {2, 2} here.
+    fmt::Println(gp::len(lit), gp::get(lit, 4), gp::get(lit, 2),
+                 gp::len(gp::map_of<int64_t, int64_t>({})),
+                 gp::map_of<int64_t, int64_t>({}) == nullptr);
+
+    // make's hint only reserves room.
+    int64_t h = -1;
+    imap mh = gp::make_map<int64_t, int64_t>(h);
+    gp::set(mh, 1, 1);
+    imap mz = gp::make_map<int64_t, int64_t>();
+    fmt::Println(gp::len(mh), gp::len(mz), mz == nullptr);
+
+    // Maps of maps.
+    gp::map<gp::string, smap> mm = gp::map_of<gp::string, smap>({});
+    gp::set(mm, "x"_gs, gp::map_of<gp::string, int64_t>({}));
+    gp::set(gp::get(mm, "x"_gs), "y"_gs, 1);
+    gp::ref(gp::get(mm, "x"_gs), "y"_gs) += 5;
+    smap inner = gp::get(mm, "x"_gs);
+    gp::set(inner, "q"_gs, 2);
+    fmt::Println(gp::get(gp::get(mm, "x"_gs), "y"_gs), gp::len(gp::get(mm, "x"_gs)),
+                 gp::len(gp::get(mm, "nope"_gs)), gp::get(gp::get(mm, "nope"_gs), "y"_gs),
+                 gp::get(mm, "nope"_gs) == nullptr, gp::len(mm));
+    gp::erase(mm, "x"_gs);
+    fmt::Println(gp::len(mm), gp::get(inner, "q"_gs));
+
+    // Pointer keys: by identity.
+    gp::ptr<int64_t> p1 = gp::new_<int64_t>(), p2 = gp::new_<int64_t>();
+    gp::map<gp::ptr<int64_t>, int64_t> pm =
+        gp::map_of<gp::ptr<int64_t>, int64_t>({{p1, 1}, {p2, 2}});
+    gp::set(pm, p1, 3);
+    gp::set(pm, nullptr, 4);
+    fmt::Println(gp::len(pm), gp::get(pm, p1), gp::get(pm, p2), gp::get(pm, nullptr));
+
+    // Struct keys.
+    gp::map<mpoint, gp::string> sm =
+        gp::map_of<mpoint, gp::string>({{mpoint{1, 2}, "a"_gs}, {mpoint{2, 1}, "b"_gs}});
+    gp::set(sm, mpoint{1, 2}, "c"_gs);
+    fmt::Println(gp::len(sm), gp::get(sm, mpoint{1, 2}), gp::get(sm, mpoint{2, 1}),
+                 gp::get(sm, mpoint{}) == ""_gs);
+
+    // bool and small integer keys.
+    gp::map<bool, int64_t> bm = gp::map_of<bool, int64_t>({});
+    gp::ref(bm, true)++;
+    gp::ref(bm, true)++;
+    gp::ref(bm, false)--;
+    gp::map<int8_t, int64_t> i8 = gp::map_of<int8_t, int64_t>({});
+    for (int64_t i = -128; i < 128; i++) {
+        gp::set(i8, static_cast<int8_t>(i), i);
+    }
+    fmt::Println(gp::len(bm), gp::get(bm, true), gp::get(bm, false), gp::len(i8),
+                 gp::get(i8, int8_t(-128)), gp::get(i8, int8_t(127)));
+
+    // A range where the first iteration deletes all the other entries.
+    imap dm = gp::map_of<int64_t, int64_t>({});
+    for (int64_t i = 0; i < 100; i++) {
+        gp::set(dm, i, i);
+    }
+    n = 0;
+    for (auto it = gp::range_map(dm); gp::range_next(it);) {
+        int64_t key = it.gp_key();
+        for (int64_t i = 0; i < 100; i++) {
+            if (i != key) {
+                gp::erase(dm, i);
+            }
+        }
+        n++;
+    }
+    fmt::Println(n, gp::len(dm));
+
+    // Each entry deleted as it is reached.
+    for (int64_t i = 0; i < 100; i++) {
+        gp::set(dm, i, i);
+    }
+    n = 0;
+    int64_t sum = 0;
+    for (auto it = gp::range_map(dm); gp::range_next(it);) {
+        int64_t key = it.gp_key();
+        int64_t v = it.gp_value();
+        gp::erase(dm, key);
+        n++;
+        sum += v;
+    }
+    fmt::Println(n, sum, gp::len(dm));
+
+    // Inserts during a range.
+    for (int64_t i = 0; i < 10; i++) {
+        gp::set(dm, i, i);
+    }
+    for (auto it = gp::range_map(dm); gp::range_next(it);) {
+        int64_t key = it.gp_key();
+        if (key < 10) {
+            gp::set(dm, key + 1000, key);
+        }
+    }
+    fmt::Println(gp::len(dm));
+
+    // Values changed before they are reached.
+    imap um = gp::map_of<int64_t, int64_t>({{1, 0}, {2, 0}, {3, 0}});
+    sum = 0;
+    bool first = true;
+    for (auto it = gp::range_map(um); gp::range_next(it);) {
+        int64_t key = it.gp_key();
+        int64_t v = it.gp_value();
+        if (first) {
+            for (int64_t i = 1; i <= 3; i++) {
+                if (i != key) {
+                    gp::set(um, i, 10 * i);
+                }
+            }
+            first = false;
+            sum += 100;
+        } else {
+            sum += v - 10 * key;
+        }
+    }
+    fmt::Println(sum);
+
+    // Reassigning the variable doesn't change the range.
+    imap rm = gp::map_of<int64_t, int64_t>({{1, 1}, {2, 2}, {3, 3}});
+    n = 0;
+    sum = 0;
+    for (auto it = gp::range_map(rm); gp::range_next(it);) {
+        int64_t v = it.gp_value();
+        rm = nullptr;
+        n++;
+        sum += v;
+    }
+    fmt::Println(n, sum, rm == nullptr);
+}
+
+void map_floats_case() {
+    double negz = std::copysign(0.0, -1.0);
+    using fmap = gp::map<double, int64_t>;
+
+    fmap m = gp::map_of<double, int64_t>({});
+    gp::set(m, nan, 1);
+    gp::set(m, nan, 2);
+    gp::ref(m, nan) += 4;
+    {
+        auto gp_t = gp::lookup(m, nan);
+        fmt::Println(gp::len(m), gp::get(m, nan), std::get<0>(gp_t), std::get<1>(gp_t));
+    }
+    gp::erase(m, nan);
+    fmt::Println(gp::len(m));
+    gp::set(m, 1.5, 100);
+    int64_t n = 0, sum = 0, nans = 0;
+    for (auto it = gp::range_map(m); gp::range_next(it);) {
+        double k = it.gp_key();
+        int64_t v = it.gp_value();
+        n++;
+        sum += v;
+        if (k != k) {
+            nans++;
+        }
+    }
+    fmt::Println(n, sum, nans);
+    n = 0;
+    nans = 0;
+    for (auto it = gp::range_map(m); gp::range_next(it);) {
+        double k = it.gp_key();
+        gp::erase(m, 1.5);
+        if (k != k) {
+            nans++;
+        }
+        n++;
+    }
+    fmt::Println(nans, gp::len(m));
+    gp::clear(m);
+    n = 0;
+    for (auto it = gp::range_map(m); gp::range_next(it);) {
+        n++;
+    }
+    fmt::Println(gp::len(m), n);
+
+    // clear during a range.
+    for (int64_t i = 0; i < 20; i++) {
+        if (i % 2 == 0) {
+            gp::set(m, nan, i);
+        } else {
+            gp::set(m, static_cast<double>(i), i);
+        }
+    }
+    fmt::Println(gp::len(m));
+    n = 0;
+    for (auto it = gp::range_map(m); gp::range_next(it);) {
+        gp::clear(m);
+        n++;
+    }
+    fmt::Println(n, gp::len(m));
+
+    // +0 and -0.
+    fmap z = gp::map_of<double, int64_t>({});
+    gp::set(z, negz, 1);
+    gp::set(z, 0.0, 2);
+    for (auto it = gp::range_map(z); gp::range_next(it);) {
+        double k = it.gp_key();
+        int64_t v = it.gp_value();
+        fmt::Println(gp::len(z), std::signbit(k), v);
+    }
+    gp::ref(z, negz)++;
+    for (auto it = gp::range_map(z); gp::range_next(it);) {
+        double k = it.gp_key();
+        int64_t v = it.gp_value();
+        fmt::Println(gp::len(z), std::signbit(k), v);
+    }
+    fmt::Println(gp::get(z, 0.0), gp::get(z, negz));
+    // gc stores the static entry 0: 2 first, then the dynamic negz: 1.
+    fmap z2 = gp::map_of<double, int64_t>({{0.0, 2}, {negz, 1}});
+    for (auto it = gp::range_map(z2); gp::range_next(it);) {
+        double k = it.gp_key();
+        int64_t v = it.gp_value();
+        fmt::Println(gp::len(z2), std::signbit(k), v);
+    }
+
+    // float32 and infinities.
+    gp::map<float, int64_t> f = gp::map_of<float, int64_t>({});
+    gp::set(f, static_cast<float>(negz), 1);
+    gp::set(f, 0.0f, 2);
+    gp::set(f, static_cast<float>(nan), 3);
+    gp::set(f, static_cast<float>(inf), 4);
+    gp::set(f, static_cast<float>(-inf), 5);
+    fmt::Println(gp::len(f), gp::get(f, 0.0f), gp::get(f, static_cast<float>(inf)),
+                 gp::get(f, static_cast<float>(-inf)));
+
+    // Structs, arrays and complex numbers that hold a NaN or a zero.
+    gp::map<fkey, int64_t> sk = gp::map_of<fkey, int64_t>({});
+    gp::set(sk, fkey{"k"_gs, negz}, 1);
+    gp::set(sk, fkey{"k"_gs, 0}, 2);
+    gp::set(sk, fkey{"k"_gs, nan}, 3);
+    gp::set(sk, fkey{"k"_gs, nan}, 4);
+    gp::erase(sk, fkey{"k"_gs, nan});
+    fmt::Println(gp::len(sk), gp::get(sk, fkey{"k"_gs, negz}), gp::get(sk, fkey{"k"_gs, nan}));
+    using arr2 = gp::array<double, 2>;
+    gp::map<arr2, int64_t> ak = gp::map_of<arr2, int64_t>({});
+    gp::set(ak, arr2{1, negz}, 1);
+    gp::set(ak, arr2{1, 0}, 2);
+    gp::set(ak, arr2{nan, 0}, 3);
+    gp::set(ak, arr2{nan, 0}, 4);
+    fmt::Println(gp::len(ak), gp::get(ak, arr2{1, 0}), gp::get(ak, arr2{nan, 0}));
+    for (auto it = gp::range_map(ak); gp::range_next(it);) {
+        arr2 k = it.gp_key();
+        int64_t v = it.gp_value();
+        if (k[0] == 1) {
+            fmt::Println(std::signbit(k[1]), v);
+        }
+    }
+    using empty = gp::array<int64_t, 0>;
+    gp::map<empty, int64_t> ek = gp::map_of<empty, int64_t>({});
+    gp::set(ek, empty{}, 1);
+    gp::ref(ek, empty{}) += 5;
+    fmt::Println(gp::len(ek), gp::get(ek, empty{}));
+    using c128 = std::complex<double>;
+    gp::map<c128, int64_t> ck = gp::map_of<c128, int64_t>({});
+    gp::set(ck, c128(1, negz), 1);
+    gp::set(ck, c128(1, 0), 2);
+    gp::set(ck, c128(nan, 0), 3);
+    gp::set(ck, c128(nan, 0), 4);
+    fmt::Println(gp::len(ck), gp::get(ck, c128(1, 0)), gp::get(ck, c128(nan, 0)));
+}
+
+bool map_case(std::string_view c) {
+    if (c == "maps") {
+        maps_case();
+    } else if (c == "map-floats") {
+        map_floats_case();
+    } else if (c == "map-nil") {
+        smap m;
+        fmt::Println(gp::len(m), gp::get(m, "a"_gs));
+        gp::set(m, "a"_gs, 1);
+    } else if (c == "map-nil-ref") {
+        smap m;
+        gp::ref(m, "a"_gs)++;
+    } else if (c == "map-nil-inner") {
+        gp::map<gp::string, smap> mm = gp::map_of<gp::string, smap>({});
+        gp::set(gp::get(mm, "x"_gs), "y"_gs, 1);
     } else {
         return false;
     }

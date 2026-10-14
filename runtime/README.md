@@ -14,10 +14,11 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `include/gocpp/` | the headers (below). Embedded |
 | `src/rt.cpp` | the parts that are not templates: strings, panics, the print and `fmt` formats, `run_main`. Standard C++ only. Embedded |
 | `src/slice.cpp` | the parts of slices and slice bounds checks that are not templates: the bounds panics with Go's messages, `make`'s panics, and the capacity of a growing slice (Go's formula and size classes). Embedded |
+| `src/map.cpp` | the parts of maps and key hashing that are not templates: the hash of a run of bytes (strings) and the nil map panic. Embedded |
 | `src/os/linux/` | the Linux OS layer: `os.cpp`. Phase 08 adds the Linux side of the thread layer `gp::os`. Embedded |
 | `src/os/windows/` | the Windows OS layer (Phase 14; not there yet) |
 | `files.go` | package `rtfiles`: `FS()` holds `include/` and `src/`; `Sources(goos)` lists the `.cpp` files a program is compiled with (`src/*.cpp` and `src/os/<goos>/*.cpp`) |
-| `test/` | the C++ tests (not embedded): `unit.cpp`, `slice_test.cpp`, `array_test.cpp`, `diff.cpp`, `fortify.cpp` and `layout.cpp` (generated) |
+| `test/` | the C++ tests (not embedded): `unit.cpp`, `slice_test.cpp`, `array_test.cpp`, `map_test.cpp`, `diff.cpp`, `fortify.cpp` and `layout.cpp` (generated) |
 | `testdata/diff/main.go` | the Go side of the differential test |
 | `*_test.go` | the Go tests that build and run the C++ tests, and the checks below |
 | `compile_flags.txt` | the flags for clangd, so the files open without false errors in an editor (the dev shell's clangd) |
@@ -33,7 +34,9 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `ptr.hpp` | Go's pointers: `gp::ptr<T>` (`*T`: a `std::shared_ptr` with nil checks, 16 bytes), `gp::new_<T>` (`new(T)`, `&T{...}`, boxes), the aliasing constructors for pointers into objects (`&p.f`, `&s[i]`), `gp::static_ptr` (`&global`), `gp::ptr_cast` (`(*Q)(p)`), and `gp::weak_ptr<T>` with `gp::weak_make` and `gp::weak_value` (`weak.Pointer[T]`, `weak.Make`, `Value`) |
 | `bounds.hpp` | Go's checks for slice expressions in Go's order, for slices, strings and arrays: `gp::check_slice` (`x[lo:hi]`), `gp::check_slice3` (`x[lo:hi:max]`), `gp::check_convert` (`[N]T(s)`), and `gp::panic_bounds` with Go's exact messages (`slice bounds out of range [:5] with capacity 3`) |
 | `slice.hpp` | `gp::slice<T>` (`[]T`: owner, data pointer, length, capacity: 40 bytes): nil and empty slices, `s == nullptr`, `s[i]` with Go's bounds check, `gp::len`, `gp::cap`, `gp::make_slice<T>`, `gp::slice_of<T>({...})` (literals), `gp::sub` (2 and 3 indexes), `gp::append`, `gp::append_slice` (`append(s, t...)`, also a string's bytes), `gp::copy`, `gp::clear`; growth with Go's formula (only `cap >= len` is promised), overlap safe, owners released through `gp::detail::release` |
-| `array.hpp` | `gp::array<T, N>` (`[N]T`: an aggregate of N elements, exactly `N * sizeof(T)` bytes; `[0]T` an empty struct of 1 byte): zero values, value semantics, braced literals and `gp::array_keyed<T, N>({{k, v}, ...})` (keyed literals; `constinit` works for positional literals whose elements are constants (numbers, bools, nested arrays of them, `T()` zeros; not `"..."_gs`), and for keyed literals only of numbers, bools and nested arrays of them), `a[i]` with Go's bounds check, `==` when `T` is comparable (NaN != NaN), constant `gp::len`/`gp::cap` (also of a pointer to an array), the conversions `gp::to_array<N>(s)` (`[N]T(s)`, a copy) and `gp::to_array_ptr<N>(s)` (`(*[N]T)(s)`, shares the slice's array; needs `-fno-strict-aliasing`), and `gp::sub` on a `gp::ptr<gp::array<T, N>>` (slicing a boxed array: the slice shares the box) |
+| `array.hpp` | `gp::array<T, N>` (`[N]T`: an aggregate of N elements, exactly `N * sizeof(T)` bytes; `[0]T` an empty struct of 1 byte): zero values, value semantics, braced literals and `gp::array_keyed<T, N>({{k, v}, ...})` (keyed literals; `constinit` works for positional literals whose elements are constants (numbers, bools, nested arrays of them, `T()` zeros; not `"..."_gs`), and for keyed literals only of numbers, bools and nested arrays of them), `a[i]` with Go's bounds check, `==` and `gp_hash()` (map keys) when `T` is comparable (NaN != NaN), constant `gp::len`/`gp::cap` (also of a pointer to an array), the conversions `gp::to_array<N>(s)` (`[N]T(s)`, a copy) and `gp::to_array_ptr<N>(s)` (`(*[N]T)(s)`, shares the slice's array; needs `-fno-strict-aliasing`), and `gp::sub` on a `gp::ptr<gp::array<T, N>>` (slicing a boxed array: the slice shares the box) |
+| `hash.hpp` | the hashing of map keys: `gp::hash_of(k)` and the customization point `gp::hash<T>`; Go's float rules (`+0` and `-0` hash the same; every NaN hashes alike, and the map spreads NaN keys with its own count), strings by their bytes, pointers by address, complex numbers by their parts, and the protocol for structs and arrays: a member `gp_hash()` built with `gp::hash_fields(...)` or `gp::hash_elems(p, n)` (`gp::array` has one); `std::hash` for C++ types. A fixed seed; the order is not randomized (D8), but pointer keys make it differ between runs |
+| `map.hpp` | `gp::map<K, V>` (`map[K]V`: a `std::shared_ptr` to a `std::unordered_map`, 16 bytes): nil maps (reads give zero values, writes panic with `assignment to entry in nil map`), `gp::make_map`, `gp::map_of` (literals), `gp::get`, `gp::lookup` (comma-ok), `gp::set`, `gp::ref` (`m[k] op= v`), `gp::erase`, `gp::len`, `gp::clear`, and `gp::range_map` / `gp::range_next` (a snapshot of the entries, which skips the ones deleted meanwhile); reads never insert, NaN keys and the key replacement on a store work as in Go, the table is released through `gp::detail::release` |
 | `arith.hpp` | `gp::div`, `gp::rem`, `gp::shl`, `gp::shr` and `gp::f2i<T>`, each returning the Go type |
 | `print.hpp` | the builtins `gp::print` and `gp::println`: stderr, in Go's runtime number format (`+1.500000e+000`) |
 | `panic.hpp` | `gp::panic_error` (the exception a panic throws) and `gp::panic(v)` |
@@ -150,7 +153,7 @@ this.
 ## Tests
 
 `go test ./runtime` (also part of `make test` and `make ci`) runs:
-- `TestCXX`: compiles `test/unit.cpp`, `test/slice_test.cpp`, `test/array_test.cpp` and `test/diff.cpp` with the embedded runtime, with g++
+- `TestCXX`: compiles `test/unit.cpp`, `test/slice_test.cpp`, `test/array_test.cpp`, `test/map_test.cpp` and `test/diff.cpp` with the embedded runtime, with g++
   and clang++, each at `-O0`, at `-O2` and with `-fsanitize=address,undefined` (a sanitizer
   report fails the test). The flags are the driver's: `-std=c++20 -fwrapv -fno-strict-aliasing
   -ffp-contract=off -g`, plus `-Wall -Wextra -Werror`, and `-Qunused-arguments` for clang.
@@ -187,10 +190,25 @@ this.
     slicing boxed arrays, fields, slice elements and globals (writes seen both ways, the slice
     keeps the block alive, the bounds messages "with length N", the nil panic first), and
     qualified calls.
+  - `map_test.cpp` checks `gp::map` and the hashing: nil maps and the panic text, reads that
+    never insert, `ref` (`m[k]++`), literals with equal keys, NaN keys (each store a new
+    entry, never found, never deleted, visited by a range, removed by `clear`), `+0`/`-0` and
+    the key replacement, float32 and complex keys, strings (every length up to a few words),
+    pointers (by address, interior pointers too), bools, small integers, enums, `std::hash`
+    types, struct and array keys through `gp_hash` (with NaN and `-0` fields), ranges with
+    deletes, inserts (with rehashing), re-inserts, `clear` and a reassigned variable during the
+    range, maps of maps and of slices, values and keys destroyed exactly once, chains of
+    200,000 nodes through maps (by pointer and by value; 50,000 with ASan, which still
+    overflows the stack at -O0 without `detail::release`) freed without deep recursion, stores
+    that free their own source, qualified calls, `gp::array` keys (`[3]float64` with NaN and
+    `-0`, `[0]int`, `[2]string`, nested), and a stress test of a million inserts, lookups and
+    deletes (100,000 with ASan; `GOCPP_MAP_BENCH=1` prints the times to stderr, by hand only).
   - `diff.cpp` is the same program as `testdata/diff/main.go`. The test runs both, with each
     case, and compares the exit codes and stdout and stderr merged into one stream, up to Go's
     stack trace: number formats (1500 random floats too), integer tables, float → int (on
-    amd64 only), strings, pointers (with `weak`), slices (behavior, and every bounds and `make` panic), arrays (value semantics, `==`, conversions, slicing, and their index, conversion and bounds panics), panics (also the nil pointer ones, whose
+    amd64 only), strings, pointers (with `weak`), slices (behavior, and every bounds and `make` panic), arrays (value semantics, `==`, conversions, slicing, and their index, conversion and bounds panics),
+    maps (behavior that doesn't depend on the order: sorted keys, counts and sums; NaN and
+    `-0` keys; ranges with deletes and inserts; the nil map panics), panics (also the nil pointer ones, whose
     signal line is compared with the `pc` left out), the output order and 1 MiB writes.
     Without a `go` command it is skipped.
   - Without Go: the exact panic output and exit codes; on Linux, 1 MiB into a full

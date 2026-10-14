@@ -21,8 +21,8 @@ import (
 	rtfiles "github.com/huuhait/gocpp/runtime"
 )
 
-// The C++ tests of the runtime: test/unit.cpp, test/slice_test.cpp and test/array_test.cpp
-// (unit tests) and test/diff.cpp (the C++ side of a differential test against
+// The C++ tests of the runtime: test/unit.cpp, test/slice_test.cpp, test/array_test.cpp and
+// test/map_test.cpp (unit tests) and test/diff.cpp (the C++ side of a differential test against
 // testdata/diff/main.go, run with real Go). Each is compiled with the embedded runtime
 // (rtfiles.FS, extracted to a temporary folder, as the driver will do it), with g++ and with
 // clang++, in each mode below.
@@ -215,14 +215,19 @@ var sliceDiffCases = []string{"slices", "slice-grow", "slice-free", "slice-index
 	"slice3-hi", "slice3-hi-neg", "slice3-lo", "slice3-lo-neg", "make-len", "make-len-big",
 	"make-cap", "make-cap-big", "slice-convert"}
 
-func init() { diffCases = append(diffCases, sliceDiffCases...) }
-
 // The array cases (Phase 03 step 3.6a): the arrayCase function of testdata/diff/main.go.
 var arrayDiffCases = []string{"arrays", "array-index", "array-index-neg", "array-index-u8",
 	"array-index0", "array-convert", "array-convert-ptr", "array-convert-nil", "array-slice-hi",
 	"array-slice-lo", "array-slice3-max", "array-slice-nil", "array-slice-nil0"}
 
-func init() { diffCases = append(diffCases, arrayDiffCases...) }
+// The map cases (Phase 03 step 3.7a): the mapCase function of testdata/diff/main.go.
+var mapDiffCases = []string{"maps", "map-floats", "map-nil", "map-nil-ref", "map-nil-inner"}
+
+func init() {
+	diffCases = append(diffCases, sliceDiffCases...)
+	diffCases = append(diffCases, arrayDiffCases...)
+	diffCases = append(diffCases, mapDiffCases...)
+}
 
 // A result is what a program printed (stdout and stderr merged) and its exit code.
 type result struct {
@@ -299,9 +304,11 @@ func TestCXX(t *testing.T) {
 					diff := c.compile(t, rt, "test/diff.cpp", dir, m.flags, nil)
 					slice := c.compile(t, rt, "test/slice_test.cpp", dir, m.flags, nil)
 					array := c.compile(t, rt, "test/array_test.cpp", dir, m.flags, nil)
+					maps := c.compile(t, rt, "test/map_test.cpp", dir, m.flags, nil)
 					t.Run("unit", func(t *testing.T) { runUnit(t, unit) })
 					t.Run("slice", func(t *testing.T) { runUnit(t, slice) })
 					t.Run("array", func(t *testing.T) { runUnit(t, array) })
+					t.Run("map", func(t *testing.T) { runUnit(t, maps) })
 					t.Run("panic", func(t *testing.T) { runPanic(t, diff) })
 					t.Run("leak", func(t *testing.T) { runLeak(t, diff, m.name == "asan") })
 					t.Run("pipes", func(t *testing.T) { runPipes(t, diff, goBin) })

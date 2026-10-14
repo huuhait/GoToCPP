@@ -8,11 +8,12 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"sort"
 	"weak"
 )
 
 func main() {
-	if sliceCase(os.Args[1]) || arrayCase(os.Args[1]) {
+	if sliceCase(os.Args[1]) || arrayCase(os.Args[1]) || mapCase(os.Args[1]) {
 		return
 	}
 	switch os.Args[1] {
@@ -851,4 +852,311 @@ func arraysCase() {
 	fmt.Println(e0[:] == nil, len(e0[:]))
 	k := keepSlice()
 	fmt.Println(k[0], k[1], len(k))
+}
+
+// --- maps (Phase 03 step 3.7a) ---
+
+// mapCase runs the map case name and reports whether there is one. Nothing printed depends on
+// the iteration order, which Go randomizes (and gocpp leaves unspecified, D8): keys are sorted,
+// or only counted and summed.
+func mapCase(name string) bool {
+	switch name {
+	case "maps":
+		mapsCase()
+	case "map-floats":
+		mapFloatsCase()
+	case "map-nil":
+		var m map[string]int
+		fmt.Println(len(m), m["a"])
+		m["a"] = 1
+	case "map-nil-ref":
+		var m map[string]int
+		m["a"]++
+	case "map-nil-inner":
+		mm := map[string]map[string]int{}
+		mm["x"]["y"] = 1
+	default:
+		return false
+	}
+	return true
+}
+
+func sortedKeys(m map[string]int) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	sort.Strings(ks)
+	return ks
+}
+
+type mpoint struct{ X, Y int }
+
+func mapsCase() {
+	// A nil map reads like an empty one.
+	var nm map[string]int
+	v, ok := nm["a"]
+	fmt.Println(nm == nil, len(nm), nm["a"], v, ok)
+	delete(nm, "a")
+	clear(nm)
+	n := 0
+	for range nm {
+		n++
+	}
+	fmt.Println(n)
+
+	// Word counts; reads never insert.
+	m := map[string]int{}
+	for _, w := range []string{"the", "cat", "and", "the", "hat", "and", "the", "bat"} {
+		m[w]++
+	}
+	for _, k := range sortedKeys(m) {
+		fmt.Println(k, m[k])
+	}
+	_, ok = m["dog"]
+	fmt.Println(len(m), ok, m["cow"], len(m))
+	m["the"] += 10
+	delete(m, "cat")
+	delete(m, "cat")
+	delete(m, "zzz")
+	fmt.Println(m["the"], len(m))
+	alias := m // a map is a reference
+	alias["new"] = 7
+	fmt.Println(m["new"], len(m))
+	clear(alias)
+	fmt.Println(len(m))
+	m["again"] = 1
+	fmt.Println(len(alias))
+
+	// A literal with equal non-constant keys: the later one wins.
+	k := 4
+	lit := map[int]int{k: 1, 2: 2, k + 0: 3}
+	fmt.Println(len(lit), lit[4], lit[2], len(map[int]int{}), map[int]int{} == nil)
+
+	// make's hint only reserves room.
+	h := -1
+	mh := make(map[int]int, h)
+	mh[1] = 1
+	mz := make(map[int]int)
+	fmt.Println(len(mh), len(mz), mz == nil)
+
+	// Maps of maps.
+	mm := map[string]map[string]int{}
+	mm["x"] = map[string]int{}
+	mm["x"]["y"] = 1
+	mm["x"]["y"] += 5
+	inner := mm["x"]
+	inner["q"] = 2
+	fmt.Println(mm["x"]["y"], len(mm["x"]), len(mm["nope"]), mm["nope"]["y"], mm["nope"] == nil, len(mm))
+	delete(mm, "x")
+	fmt.Println(len(mm), inner["q"])
+
+	// Pointer keys: by identity.
+	p1, p2 := new(int), new(int)
+	pm := map[*int]int{p1: 1, p2: 2}
+	pm[p1] = 3
+	pm[nil] = 4
+	fmt.Println(len(pm), pm[p1], pm[p2], pm[nil])
+
+	// Struct keys.
+	sm := map[mpoint]string{{1, 2}: "a", {2, 1}: "b"}
+	sm[mpoint{1, 2}] = "c"
+	fmt.Println(len(sm), sm[mpoint{1, 2}], sm[mpoint{2, 1}], sm[mpoint{}] == "")
+
+	// bool and small integer keys.
+	bm := map[bool]int{}
+	bm[true]++
+	bm[true]++
+	bm[false]--
+	i8 := map[int8]int{}
+	for i := -128; i < 128; i++ {
+		i8[int8(i)] = i
+	}
+	fmt.Println(len(bm), bm[true], bm[false], len(i8), i8[-128], i8[127])
+
+	// A range where the first iteration deletes all the other entries: those are not produced.
+	dm := map[int]int{}
+	for i := 0; i < 100; i++ {
+		dm[i] = i
+	}
+	n = 0
+	for k := range dm {
+		for i := 0; i < 100; i++ {
+			if i != k {
+				delete(dm, i)
+			}
+		}
+		n++
+	}
+	fmt.Println(n, len(dm))
+
+	// Each entry deleted as it is reached.
+	for i := 0; i < 100; i++ {
+		dm[i] = i
+	}
+	n, sum := 0, 0
+	for k, v := range dm {
+		delete(dm, k)
+		n++
+		sum += v
+	}
+	fmt.Println(n, sum, len(dm))
+
+	// Inserts during a range (Go may or may not produce them, so only len is printed).
+	for i := 0; i < 10; i++ {
+		dm[i] = i
+	}
+	for k := range dm {
+		if k < 10 {
+			dm[k+1000] = k
+		}
+	}
+	fmt.Println(len(dm))
+
+	// Values changed before they are reached: the new values are produced.
+	um := map[int]int{1: 0, 2: 0, 3: 0}
+	sum = 0
+	first := true
+	for k, v := range um {
+		if first {
+			for i := 1; i <= 3; i++ {
+				if i != k {
+					um[i] = 10 * i
+				}
+			}
+			first = false
+			sum += 100
+		} else {
+			sum += v - 10*k
+		}
+	}
+	fmt.Println(sum)
+
+	// Reassigning the variable doesn't change the range.
+	rm := map[int]int{1: 1, 2: 2, 3: 3}
+	n, sum = 0, 0
+	for _, v := range rm {
+		rm = nil
+		n++
+		sum += v
+	}
+	fmt.Println(n, sum, rm == nil)
+}
+
+type fkey struct {
+	s string
+	f float64
+}
+
+func mapFloatsCase() {
+	nan := math.NaN()
+	negz := math.Copysign(0, -1)
+
+	// NaN != NaN: each store adds an entry, a lookup never finds one, delete can't remove one,
+	// a range visits each, and clear removes them.
+	m := map[float64]int{}
+	m[nan] = 1
+	m[nan] = 2
+	m[nan] += 4
+	v, ok := m[nan]
+	fmt.Println(len(m), m[nan], v, ok)
+	delete(m, nan)
+	fmt.Println(len(m))
+	m[1.5] = 100
+	n, sum, nans := 0, 0, 0
+	for k, v := range m {
+		n++
+		sum += v
+		if k != k {
+			nans++
+		}
+	}
+	fmt.Println(n, sum, nans)
+	n, nans = 0, 0
+	for k := range m {
+		delete(m, 1.5) // another key: the NaN entries are still produced
+		if k != k {
+			nans++
+		}
+		n++
+	}
+	fmt.Println(nans, len(m))
+	clear(m)
+	n = 0
+	for range m {
+		n++
+	}
+	fmt.Println(len(m), n)
+
+	// clear during a range: nothing more is produced.
+	for i := 0; i < 20; i++ {
+		if i%2 == 0 {
+			m[nan] = i
+		} else {
+			m[float64(i)] = i
+		}
+	}
+	fmt.Println(len(m))
+	n = 0
+	for range m {
+		clear(m)
+		n++
+	}
+	fmt.Println(n, len(m))
+
+	// +0 and -0 are one key, and a store replaces the stored key.
+	z := map[float64]int{}
+	z[negz] = 1
+	z[0] = 2
+	for k, v := range z {
+		fmt.Println(len(z), math.Signbit(k), v)
+	}
+	z[negz]++
+	for k, v := range z {
+		fmt.Println(len(z), math.Signbit(k), v)
+	}
+	fmt.Println(z[0], z[negz])
+	z2 := map[float64]int{negz: 1, 0: 2}
+	for k, v := range z2 {
+		fmt.Println(len(z2), math.Signbit(k), v)
+	}
+
+	// float32 and infinities.
+	f := map[float32]int{}
+	f[float32(negz)] = 1
+	f[0] = 2
+	f[float32(nan)] = 3
+	f[float32(math.Inf(1))] = 4
+	f[float32(math.Inf(-1))] = 5
+	fmt.Println(len(f), f[0], f[float32(math.Inf(1))], f[float32(math.Inf(-1))])
+
+	// Structs, arrays and complex numbers that hold a NaN or a zero.
+	sk := map[fkey]int{}
+	sk[fkey{"k", negz}] = 1
+	sk[fkey{"k", 0}] = 2
+	sk[fkey{"k", nan}] = 3
+	sk[fkey{"k", nan}] = 4
+	delete(sk, fkey{"k", nan})
+	fmt.Println(len(sk), sk[fkey{"k", negz}], sk[fkey{"k", nan}])
+	ak := map[[2]float64]int{}
+	ak[[2]float64{1, negz}] = 1
+	ak[[2]float64{1, 0}] = 2
+	ak[[2]float64{nan, 0}] = 3
+	ak[[2]float64{nan, 0}] = 4
+	fmt.Println(len(ak), ak[[2]float64{1, 0}], ak[[2]float64{nan, 0}])
+	for k, v := range ak {
+		if k[0] == 1 {
+			fmt.Println(math.Signbit(k[1]), v)
+		}
+	}
+	ek := map[[0]int]int{}
+	ek[[0]int{}] = 1
+	ek[[0]int{}] += 5
+	fmt.Println(len(ek), ek[[0]int{}])
+	ck := map[complex128]int{}
+	ck[complex(1, negz)] = 1
+	ck[complex(1, 0)] = 2
+	ck[complex(nan, 0)] = 3
+	ck[complex(nan, 0)] = 4
+	fmt.Println(len(ck), ck[complex(1, 0)], ck[complex(nan, 0)])
 }

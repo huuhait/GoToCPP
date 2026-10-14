@@ -163,3 +163,9 @@
   reorders. Hash protocol for 3.8/3.9: comparable structs get `gp_hash()` via `gp::hash_fields` over the
   non-blank fields (blank fields also out of ==); `gp::newtype` hashes its value. The nil-map write panic
   is a runtime.Error (Phase 05 recover).
+- 2026-10-14: Job 3.7a (the map runtime: runtime/include/gocpp/map.hpp, hash.hpp, src/map.cpp: gp::map
+  with Go's nil/NaN/±0/key-replacement rules, ranges over a snapshot, the gp_hash protocol (gp::array has
+  it now)) committed, clean after 2 review rounds. Step 3.7 stays open for 3.7b (the emitter: map types,
+  make, literals with gc's static-first order, get/set/ref/lookup/delete, range, the op= order rules).
+  For 3.6b/3.7b: nested array literals need their type written (`grid{{row{1, 2}, row{3, 4}}}`; clang's
+  -Wmissing-braces).

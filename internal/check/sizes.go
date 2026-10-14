@@ -186,7 +186,7 @@ var runtimeTypes = []runtimeType{
 	{goType: "[3]int16", cpp: "gp::array<int16_t, 3>", layout: layout{6, 2},
 		defined: `(?:class|struct) array\b`, pending: ""},
 	{goType: "map[int]int", cpp: "gp::map<int64_t, int64_t>", layout: layoutMap,
-		defined: `(?:class|struct) map\b`, pending: "step 3.7"},
+		defined: `(?:class|struct) map\b`, pending: ""},
 	{goType: "func()", cpp: "gp::func<void()>", layout: layoutFunc,
 		defined: `(?:class|struct) func\b`, pending: "step 3.11"},
 	{goType: "any", cpp: "gp::any", layout: layoutInterface,

@@ -228,7 +228,11 @@ fmt.Println(m) // map[a:1 b:2 c:3]: fmt sorts the keys, as in Go
 - **Go:** the spec leaves the iteration order unspecified, and the Go runtime randomizes it on
   purpose.
 - **gocpp:** the order is unspecified too, but gocpp does **not** randomize it. Programs still
-  must not depend on any order.
+  must not depend on any order. The hashes of map keys have a fixed seed, and NaN keys are
+  spread with a count kept by each map, not a random number. The order can still differ from
+  run to run: pointer keys hash by address, and addresses change between runs. Go's random seed
+  also guards against inputs chosen to collide (hash flooding); gocpp's maps don't, until Phase
+  15's Swiss table.
 - **Phase:** [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#23-strings-slices-arrays-maps).
 
 ## D9. 64-bit targets only

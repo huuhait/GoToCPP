@@ -1072,6 +1072,7 @@ _CXXABI_FORCED_H
 _CXXABI_INIT_EXCEPTION_H
 _DEFAULT_SOURCE
 _DYNAMIC_STACK_SIZE_SOURCE
+_ENABLE_SPECIAL_MEMBERS_H
 _ENDIAN_H
 _ERRNO_H
 _EXCEPTION_DEFINES_H
@@ -1186,6 +1187,7 @@ _GLIBCXX_END_NAMESPACE_CXX11
 _GLIBCXX_END_NAMESPACE_LDBL
 _GLIBCXX_END_NAMESPACE_LDBL_OR_CXX11
 _GLIBCXX_END_NAMESPACE_VERSION
+_GLIBCXX_ERASE_IF_H
 _GLIBCXX_ERROR_CONSTANTS
 _GLIBCXX_EXTERN_TEMPLATE
 _GLIBCXX_FAST_MATH
@@ -1454,6 +1456,7 @@ _GLIBCXX_TUPLE
 _GLIBCXX_TXN_SAFE
 _GLIBCXX_TXN_SAFE_DYN
 _GLIBCXX_TYPE_TRAITS
+_GLIBCXX_UNORDERED_MAP
 _GLIBCXX_USE_ALLOCATOR_NEW
 _GLIBCXX_USE_BUILTIN_TRAIT
 _GLIBCXX_USE_C11_UCHAR_CXX11
@@ -1539,6 +1542,8 @@ _GLIBXX_STREAMBUF
 _GNU_SOURCE
 _GTHREAD_USE_MUTEX_TIMEDLOCK
 _GXX_NULLPTR_T
+_HASHTABLE_H
+_HASHTABLE_POLICY_H
 _HASH_BYTES_H
 _INITIALIZER_LIST
 _IOFBF
@@ -1581,6 +1586,7 @@ _LP64
 _MEMORYFWD_H
 _MOVE_H
 _NEW
+_NODE_HANDLE
 _NULLPTR_T
 _OSTREAM_INSERT_H
 _PC_2_SYMLINKS
@@ -2045,6 +2051,7 @@ _T_WCHAR
 _T_WCHAR_
 _UNIQUE_PTR_H
 _UNISTD_H
+_UNORDERED_MAP_H
 _USES_ALLOCATOR_ARGS
 _USES_ALLOCATOR_H
 _VA_LIST_DEFINED
@@ -3442,6 +3449,7 @@ __cpp_lib_enable_shared_from_this
 __cpp_lib_endian
 __cpp_lib_erase_if
 __cpp_lib_exchange_function
+__cpp_lib_generic_unordered_lookup
 __cpp_lib_hardware_interference_size
 __cpp_lib_has_unique_object_representations
 __cpp_lib_incomplete_container_elements
@@ -3463,6 +3471,7 @@ __cpp_lib_logical_traits
 __cpp_lib_make_from_tuple
 __cpp_lib_make_unique
 __cpp_lib_math_constants
+__cpp_lib_node_extract
 __cpp_lib_nonmember_container_access
 __cpp_lib_parallel_algorithm
 __cpp_lib_ranges
@@ -3485,6 +3494,7 @@ __cpp_lib_tuples_by_type
 __cpp_lib_type_identity
 __cpp_lib_type_trait_variable_templates
 __cpp_lib_uncaught_exceptions
+__cpp_lib_unordered_map_try_emplace
 __cpp_lib_unwrap_ref
 __cpp_lib_void_t
 __cpp_named_character_escapes

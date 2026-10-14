@@ -15,6 +15,8 @@
 #include <gocpp/bounds.hpp>
 #include <gocpp/slice.hpp>
 #include <gocpp/array.hpp>
+#include <gocpp/hash.hpp>
+#include <gocpp/map.hpp>
 #include <gocpp/arith.hpp>
 #include <gocpp/print.hpp>
 #include <gocpp/panic.hpp>
