@@ -124,6 +124,13 @@ NN, `GOCPP_TEST_PHASE=NN` runs the tests up to that phase. `GOCPP_FLAGS` passes 
 adds. `make test-programs` runs only the test programs and says why each skipped test is
 skipped.
 
+The emitter's own tests (`go test ./internal/cppgen`) add the flags of `GOCPP_TEST_CXXFLAGS`
+to each C++ compile, for example `GOCPP_TEST_CXXFLAGS="-O2 -fsanitize=address,undefined
+-fno-sanitize-recover=undefined"`. Their random evaluation-order test runs only with
+`GOCPP_RANDOM_TESTS=1`; `GOCPP_RANDOM_N` is the number of programs (default 40),
+`GOCPP_RANDOM_SEED` the first seed (a failure names its seed), and `GOCPP_RANDOM_DIR` a folder
+that keeps the programs.
+
 A run test (from Phase 00 §2.3; the output comes from real `go run`):
 
 ```go

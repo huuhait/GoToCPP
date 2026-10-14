@@ -37,7 +37,7 @@ void main() {
         int64_t y = x;
         gp::fmtshim::Println(x_2, y);
     }
-    gp::fmtshim::Println(v, x, w, f());
+    { auto gp_t0 = f(); gp::fmtshim::Println(v, x, w, gp_t0); }
 }
 
 } // namespace gpkg_main

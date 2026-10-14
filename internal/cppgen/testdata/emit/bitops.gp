@@ -24,4 +24,11 @@ func main() {
 	fmt.Println(a&b|a^b, (a|b)&(a^b), a<<1&b, a&b<<1, -a&b, ^a&b, a&-b)
 	var x uint16 = 0x1234
 	fmt.Println(x&0xFF<<8|x>>8, ^x, x&^x, -x, x^x^x)
+	// A constant shifted by a variable count has the type of the shift: in a count, a uint.
+	var n uint = 3
+	fmt.Println(a>>(0<<n-2), x<<(1<<n), 1<<n, int8(1<<n<<4), 1<<(n+60)>>60)
+	big, m, z := 1000, uint(64), 1
+	fmt.Println(big>>(1<<m-2)+7/z, big>>(1<<(m+1)-2)<<1)
+	big <<= 1<<m - 2
+	fmt.Println(big)
 }

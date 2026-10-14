@@ -13,6 +13,8 @@
 //   - stmt.go, control.go and flow.go: statements (control.go has if, for, range and switch,
 //     flow.go finds where each break and continue goes);
 //   - expr.go: expressions, with constants folded by go/types;
+//   - order.go: Go's order of evaluation: the calls (and the other things whose order can be
+//     seen) that C++ could evaluate in another order go into gp_ temporaries first;
 //   - ops.go: the operators (with the small-integer rule and the runtime's gp::div, gp::rem,
 //     gp::shl and gp::shr), conversions (gp::f2i), s[i] and the builtins len and panic;
 //   - types.go: the C++ spelling of the types;

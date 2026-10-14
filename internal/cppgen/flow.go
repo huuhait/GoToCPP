@@ -17,7 +17,8 @@ import (
 //     body, which is then in a block of its own, so that the goto doesn't jump over the
 //     initialization of a variable of the body (C++ forbids that);
 //   - any continue of a 3-clause for whose post statement is not one C++ expression (i, j =
-//     i+1, j-1): the post then comes at the end of the body, after the same kind of label
+//     i+1, j-1) or needs temporaries (order.go): the post then comes at the end of the body,
+//     after the same kind of label
 //     (gp_L_continue, or gp_cont_N without a label), and a continue must not skip it.
 //
 // The generated labels start with gp_ and never end in _, so they can't be a user label
@@ -38,8 +39,9 @@ type flow struct {
 }
 
 // newFlow finds where the break and continue statements of body go. go/types checked them:
-// each has a statement to go to, and a label names an enclosing one.
-func newFlow(info *types.Info, body *ast.BlockStmt) *flow {
+// each has a statement to go to, and a label names an enclosing one. inHead reports whether a
+// 3-clause for writes its post statement in the C++ for's head.
+func newFlow(info *types.Info, body *ast.BlockStmt, inHead func(post ast.Stmt) bool) *flow {
 	f := &flow{
 		target:     make(map[*ast.BranchStmt]ast.Stmt),
 		plain:      make(map[*ast.BranchStmt]bool),
@@ -79,7 +81,7 @@ func newFlow(info *types.Info, body *ast.BlockStmt) *flow {
 	})
 
 	for b, t := range f.target {
-		if loop, ok := t.(*ast.ForStmt); ok && b.Tok == token.CONTINUE && loop.Post != nil && !oneExpr(loop.Post) {
+		if loop, ok := t.(*ast.ForStmt); ok && b.Tok == token.CONTINUE && loop.Post != nil && !inHead(loop.Post) {
 			f.plain[b] = false
 		}
 	}

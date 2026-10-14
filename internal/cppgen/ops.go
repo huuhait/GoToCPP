@@ -74,12 +74,62 @@ func bitSize(b *types.Basic) uint64 {
 // operandType returns the basic type of the operand x, or nil (with an error) if it has
 // another type.
 func (fg *funcGen) operandType(pos token.Pos, op token.Token, x ast.Expr) *types.Basic {
-	t := fg.g.info.TypeOf(x)
+	t := fg.typeOf(x)
 	b := basicOf(t)
 	if b == nil {
 		fg.g.unsupported(pos, "the operator "+op.String()+" on "+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types)))
 	}
 	return b
+}
+
+// typeOf returns the Go type of the expression e. go/types leaves the type of a shift count
+// that is not a constant but is made of untyped constants untyped (x >> (1<<n - 2)); Go's
+// compiler computes it as a uint, so inside such a count (markCounts) an untyped integer is a
+// uint.
+func (fg *funcGen) typeOf(e ast.Expr) types.Type {
+	return fg.g.untypedCount(e, fg.g.info.TypeOf(e))
+}
+
+// untypedCount returns t, the type of e, or uint for an untyped integer t inside an untyped
+// shift count (typeOf). It depends only on e, not on where the translation is: an operand of
+// the count may be translated into a temporary in front of the statement (order.go).
+func (g *gen) untypedCount(e ast.Expr, t types.Type) types.Type {
+	if b, ok := t.(*types.Basic); ok && g.uintCounts[e] && (b.Kind() == types.UntypedInt || b.Kind() == types.UntypedRune) {
+		return types.Typ[types.Uint]
+	}
+	return t
+}
+
+// markCounts finds the shift counts in n that are untyped but not constants (x >> (1<<k - 2),
+// x <<= 1<<k) and marks every expression in them (uintCounts, typeOf).
+func (g *gen) markCounts(n ast.Node) {
+	mark := func(count ast.Expr) {
+		if g.info.Types[count].Value != nil {
+			return
+		}
+		if b := basicOf(g.info.TypeOf(count)); b == nil || b.Info()&types.IsUntyped == 0 {
+			return
+		}
+		ast.Inspect(count, func(m ast.Node) bool {
+			if e, ok := m.(ast.Expr); ok {
+				g.uintCounts[e] = true
+			}
+			return true
+		})
+	}
+	ast.Inspect(n, func(m ast.Node) bool {
+		switch m := m.(type) {
+		case *ast.BinaryExpr:
+			if m.Op == token.SHL || m.Op == token.SHR {
+				mark(m.Y)
+			}
+		case *ast.AssignStmt:
+			if (m.Tok == token.SHL_ASSIGN || m.Tok == token.SHR_ASSIGN) && len(m.Rhs) == 1 {
+				mark(m.Rhs[0])
+			}
+		}
+		return true
+	})
 }
 
 // constValue returns the value of the expression e if it is a constant, or nil.
@@ -88,6 +138,16 @@ func (fg *funcGen) constValue(e ast.Expr) constant.Value {
 }
 
 func (fg *funcGen) binary(e *ast.BinaryExpr) cexpr {
+	if (e.Op == token.SHL || e.Op == token.SHR) && fg.constValue(e.X) != nil {
+		// A constant shifted by a count that is not a constant: the constant has the type
+		// of the shift (the spec, "Operators"), which go/types may not record for the
+		// constant itself (x >> (1<<n - 2): the inner shift is a count, a uint).
+		t := fg.operandType(e.OpPos, e.Op, e)
+		if t == nil {
+			return placeholder
+		}
+		return fg.shift(t, e.Op, e.X, e.Y)
+	}
 	return fg.binaryOp(e.OpPos, e.Op, e.X, e.Y)
 }
 
@@ -199,12 +259,17 @@ func (fg *funcGen) shift(t *types.Basic, op token.Token, x, y ast.Expr) cexpr {
 	if op == token.SHR {
 		helper = "gp::shr("
 	}
-	return cexpr{helper + fg.exactExpr(x).text + ", " + fg.shiftCount(y).text + ")", precPostfix}
+	a := fg.exactExpr(x)
+	if v := fg.constValue(x); v != nil {
+		a = fg.g.constant(v, t, x.Pos(), true) // t, the type of the shift
+	}
+	return cexpr{helper + a.text + ", " + fg.shiftCount(y).text + ")", precPostfix}
 }
 
 // shiftCount returns the C++ of the count of a shift for gp::shl or gp::shr, which take a
 // count of any integer type. A constant count (one of the width or more, here) is written as
 // an unsigned value: go/types may leave it untyped, and Go allows any count that a uint holds.
+// So is a count that is not a constant but untyped (1<<n - 2, typeOf).
 func (fg *funcGen) shiftCount(y ast.Expr) cexpr {
 	v := fg.constValue(y)
 	if v == nil {

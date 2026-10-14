@@ -9,6 +9,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Expressions (Phase 02 README §2.3): constants (folded by go/types), variables, calls of
@@ -22,12 +23,9 @@ import (
 // runtime template that deduces its argument types (gp::println, gp::div) sees the Go type.
 // A constant gets its Go type only where exactExpr asks for it.
 //
-// Not done yet: Go's left-to-right order of calls (step 2.5). Until then the C++ evaluates the
-// arguments of a call and the operands of an operator in the order the C++ compiler picks,
-// which is silently wrong for calls with side effects: fmt.Println(next(), next()) prints
-// "2 1" with g++ (and "1 2" with clang++ and Go). The hook for step 2.5: every operand and
-// every argument is translated by fg.expr or fg.exactExpr, from left to right, so the
-// ordering pass can move a call into a gp_ temporary there (or rewrite the AST before).
+// Go's order of evaluation is order.go's: before the expressions of a statement are
+// translated, fg.order moves the calls that need it into gp_ temporaries, and fg.expr then
+// writes a temporary's name for its expression (fg.temps).
 //
 // An expression is a cexpr: its C++ text and the C++ precedence of its outermost operator, so
 // that an operand gets parentheses exactly where C++ would group it differently from the Go
@@ -79,6 +77,19 @@ type funcGen struct {
 
 	flow       *flow               // where break and continue go (nil in gp_var_init)
 	contLabels map[ast.Stmt]string // the label at the end of a loop's body, for continue
+
+	temps   map[ast.Expr]string // the expressions that order.go put into temporaries
+	ordered map[ast.Expr]bool   // the calls that order.go ordered
+}
+
+// newFuncGen returns the funcGen of a function (fn and flow are nil in gp_var_init).
+func newFuncGen(g *gen, names *funcNames, fn *funcInfo) *funcGen {
+	return &funcGen{
+		g: g, names: names, fn: fn,
+		contLabels: make(map[ast.Stmt]string),
+		temps:      make(map[ast.Expr]string),
+		ordered:    make(map[ast.Expr]bool),
+	}
 }
 
 // cname returns the C++ name of the variable or function obj.
@@ -97,9 +108,12 @@ func (fg *funcGen) cname(obj types.Object, pos token.Pos) string {
 // (an operand, an initializer, the argument of a user function). Use exactExpr where C++
 // deduces the type from the expression.
 func (fg *funcGen) expr(e ast.Expr) cexpr {
+	if t, ok := fg.temps[e]; ok {
+		return cexpr{t, precPrimary}
+	}
 	// A constant is folded: go/types computed its value and the type it converts to.
 	if tv, ok := fg.g.info.Types[e]; ok && tv.Value != nil {
-		return fg.g.constant(tv.Value, tv.Type, e.Pos(), false)
+		return fg.g.constant(tv.Value, fg.g.untypedCount(e, tv.Type), e.Pos(), false)
 	}
 	switch e := e.(type) {
 	case *ast.ParenExpr:
@@ -127,7 +141,7 @@ func (fg *funcGen) expr(e ast.Expr) cexpr {
 // small integer types back).
 func (fg *funcGen) exactExpr(e ast.Expr) cexpr {
 	if tv, ok := fg.g.info.Types[e]; ok && tv.Value != nil {
-		return fg.g.constant(tv.Value, tv.Type, e.Pos(), true)
+		return fg.g.constant(tv.Value, fg.g.untypedCount(e, tv.Type), e.Pos(), true)
 	}
 	return fg.expr(e)
 }
@@ -164,6 +178,10 @@ func (fg *funcGen) ident(id *ast.Ident) cexpr {
 func (fg *funcGen) call(c *ast.CallExpr) cexpr {
 	if tv := fg.g.info.Types[c.Fun]; tv.IsType() {
 		return fg.conversion(c, tv.Type)
+	}
+	if !fg.ordered[c] {
+		fg.g.errorf(c.Pos(), "internal error: a call whose evaluation order was not decided")
+		return placeholder
 	}
 	if c.Ellipsis.IsValid() {
 		fg.g.unsupported(c.Ellipsis, "f(s...) (Phase 03)")
@@ -286,25 +304,43 @@ func (fg *funcGen) pkgFunc(c *ast.CallExpr, sel *ast.SelectorExpr) string {
 }
 
 // printfVerbs reports whether the Printf format uses only what gp::fmtshim::Printf knows: the
-// verbs %v %d %s %t %f and %%, without flags, width or precision. If not, it returns the
-// first directive that it doesn't know. (A % at the end is Go's %!(NOVERB), which fmtshim
-// prints too.)
+// verbs %v %d %s %t %f and %%, without flags, width, precision or argument indexes, and any
+// character that is no verb of Go's fmt (%z, %!, %é), for which fmtshim writes Go's error form
+// %!z(int=5), as Go does. If not, it returns the first directive that it doesn't know. The
+// format is parsed like Go's fmt.(*pp).doPrintf and the phase gate (internal/check,
+// checkFormat and verbPhase), so the emitter accepts exactly what the gate lets through in
+// Phase 02. (A % at the end is Go's %!(NOVERB), which fmtshim prints too.)
 func printfVerbs(format string) (string, bool) {
-	for i := 0; i < len(format); i++ {
-		if format[i] != '%' || i+1 == len(format) {
+	for i := 0; i < len(format); {
+		if format[i] != '%' {
+			i++
 			continue
 		}
+		start := i
 		i++
-		if !strings.ContainsRune("vdstf%", rune(format[i])) {
+		if i < len(format) && (strings.IndexByte("#0+- [*", format[i]) >= 0 || '1' <= format[i] && format[i] <= '9' ||
+			format[i] == '.' && i+1 < len(format)) {
+			// Flags, an argument index, a width or a precision (a . at the end is the verb).
 			end := i + 1
 			for end < len(format) && !isLetter(format[end-1]) {
 				end++
 			}
-			return format[i-1 : end], false
+			return format[start:end], false
+		}
+		if i == len(format) {
+			break
+		}
+		verb, size := utf8.DecodeRuneInString(format[i:])
+		i += size
+		if strings.ContainsRune(goVerbs, verb) && !strings.ContainsRune("vdstf%", verb) {
+			return format[start:i], false
 		}
 	}
 	return "", true
 }
+
+// goVerbs are the verbs of Go's fmt (and %w of fmt.Errorf), as internal/check has them.
+const goVerbs = "vTtbcdoOqxXUeEfFgGspw%"
 
 func isLetter(c byte) bool {
 	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'

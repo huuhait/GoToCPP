@@ -140,9 +140,9 @@ int64_t ladder(int64_t n) {
 }
 
 void main() {
-    gp::fmtshim::Println(gpkg_main::kind("a"_gs), gpkg_main::kind("b"_gs), gpkg_main::kind("c"_gs));
-    gp::fmtshim::Println(firstAbove(3, 100), must(true));
-    gp::fmtshim::Println(ladder(-4), ladder(0), ladder(5), ladder(50));
+    { auto gp_t0 = gpkg_main::kind("a"_gs); auto gp_t1 = gpkg_main::kind("b"_gs); gp::fmtshim::Println(gp_t0, gp_t1, gpkg_main::kind("c"_gs)); }
+    { auto gp_t2 = firstAbove(3, 100); gp::fmtshim::Println(gp_t2, must(true)); }
+    { auto gp_t3 = ladder(-4); auto gp_t4 = ladder(0); auto gp_t5 = ladder(5); gp::fmtshim::Println(gp_t3, gp_t4, gp_t5, ladder(50)); }
     {
 #line 101 "$DIR/returns.gp"
         int64_t i = 0;
@@ -167,7 +167,7 @@ void main() {
     std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, early(20));
     std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, early(-3));
     std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, early(4));
-    gp::fmtshim::Println(sign(-5), sign(0), sign(9));
+    { auto gp_t6 = sign(-5); auto gp_t7 = sign(0); gp::fmtshim::Println(gp_t6, gp_t7, sign(9)); }
 }
 
 } // namespace gpkg_main

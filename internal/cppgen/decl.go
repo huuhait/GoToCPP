@@ -71,7 +71,9 @@ func (f *funcInfo) prepare(g *gen) {
 // funcDecl writes the definition of a function.
 func (g *gen) funcDecl(f *funcInfo) {
 	body := f.decl.Body
-	fg := &funcGen{g: g, names: f.names, fn: f, flow: newFlow(g.info, body), contLabels: make(map[ast.Stmt]string)}
+	g.markCounts(body)
+	fg := newFuncGen(g, f.names, f)
+	fg.flow = newFlow(g.info, body, fg.postInHead)
 	g.w.line(g.pos(f.decl.Pos()), f.header+" {")
 	g.w.indent()
 	if f.results != nil {
@@ -144,7 +146,7 @@ func constInit(info *types.Info, init *types.Initializer) constant.Value {
 // namespace, calls both; docs/spec/cpp-mapping.md, "Package initialization").
 func (g *gen) initFuncs() {
 	if g.varInits {
-		fg := &funcGen{g: g, names: newFuncNames()}
+		fg := newFuncGen(g, newFuncNames(), nil)
 		fg.names.openScope()
 		g.w.plain("void gp_var_init() {")
 		g.w.indent()
@@ -152,6 +154,7 @@ func (g *gen) initFuncs() {
 			if constInit(g.info, init) != nil {
 				continue
 			}
+			g.markCounts(init.Rhs)
 			targets := make([]target, len(init.Lhs))
 			for i, v := range init.Lhs {
 				if v.Name() != "_" {

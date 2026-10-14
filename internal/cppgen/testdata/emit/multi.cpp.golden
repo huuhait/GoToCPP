@@ -15,7 +15,7 @@ constinit int64_t second{};
 
 #line 9 "$DIR/multi/a.gp"
 void main() {
-    gp::fmtshim::Println(first, second, fromB());
+    { auto gp_t0 = fromB(); gp::fmtshim::Println(first, second, gp_t0); }
 }
 
 int64_t fromA() {

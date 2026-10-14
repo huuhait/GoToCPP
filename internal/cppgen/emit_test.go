@@ -161,6 +161,17 @@ func goarchOnly(t *testing.T, gp string) string {
 // (nil: nothing to compare with, only build and run).
 func checkRuns(t *testing.T, emit emitFunc, want *result) {
 	t.Helper()
+	checkRunsNorm(t, emit, want, nil)
+}
+
+// checkRunsNorm is checkRuns, where norm (if not nil) rewrites both results before they are
+// compared.
+func checkRunsNorm(t *testing.T, emit emitFunc, want *result, norm func(result) result) {
+	t.Helper()
+	if want != nil && norm != nil {
+		w := norm(*want)
+		want = &w
+	}
 	work := t.TempDir()
 	src := filepath.Join(work, "main.gp.cpp")
 	cpp := emit(t, Config{OutputPath: src})
@@ -174,6 +185,9 @@ func checkRuns(t *testing.T, emit emitFunc, want *result) {
 				t.Skip(c.missing)
 			}
 			got := run(t, work, c.build(t, src))
+			if norm != nil {
+				got = norm(got)
+			}
 			if want != nil && got != *want {
 				t.Errorf("the program prints\nstdout:\n%s\nstderr:\n%s\nexit code %d\nbut with Go\nstdout:\n%s\nstderr:\n%s\nexit code %d",
 					got.stdout, got.stderr, got.code, want.stdout, want.stderr, want.code)
@@ -292,6 +306,9 @@ func TestUnsupported(t *testing.T) {
 		{"funcvalue2", "func g() {}\nfunc main() {\n\tprintln(g == nil)\n}", "main.gp:5:10: cppgen: not supported yet: function values (Phase 03)"},
 		{"complex", "func main() {\n\tc := complex(1, 2)\n\tprintln(real(c))\n}", "main.gp:4:2: cppgen: not supported yet: type complex128"},
 		{"printf", "import \"fmt\"\nfunc main() {\n\tfmt.Printf(\"%5d\\n\", 1)\n}", `main.gp:5:13: cppgen: not supported yet: the fmt.Printf verb %5d (Phase 03)`},
+		{"printf-goverb", "import \"fmt\"\nfunc main() {\n\tfmt.Printf(\"%z %x\\n\", 1, 2)\n}", `main.gp:5:13: cppgen: not supported yet: the fmt.Printf verb %x (Phase 03)`},
+		{"printf-precision", "import \"fmt\"\nfunc main() {\n\tfmt.Printf(\"%.2f\\n\", 1.5)\n}", `main.gp:5:13: cppgen: not supported yet: the fmt.Printf verb %.2f (Phase 03)`},
+		{"printf-flag", "import \"fmt\"\nfunc main() {\n\tfmt.Printf(\"%-z\\n\", 1)\n}", `main.gp:5:13: cppgen: not supported yet: the fmt.Printf verb %-z (Phase 03)`},
 		{"sprint", "import \"fmt\"\nfunc main() {\n\tprintln(fmt.Sprint(1))\n}", "main.gp:5:10: cppgen: not supported yet: fmt.Sprint: Phase 02 has only fmt.Print, fmt.Println and fmt.Printf"},
 		{"errorresult", "import \"fmt\"\nfunc main() {\n\tn, err := fmt.Println()\n\tprintln(n, err)\n}", "main.gp:5:5: cppgen: not supported yet: type error"},
 		{"rangestring", "func main() {\n\tfor i := range \"abc\" {\n\t\tprintln(i)\n\t}\n}", "main.gp:4:17: cppgen: not supported yet: range over strings (Phase 03)"},

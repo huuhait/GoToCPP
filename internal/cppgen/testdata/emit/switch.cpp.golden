@@ -71,7 +71,7 @@ int64_t last(int64_t n) {
 }
 
 void main() {
-    gp::fmtshim::Println(last(0), last(1), last(5));
+    { auto gp_t0 = last(0); auto gp_t1 = last(1); gp::fmtshim::Println(gp_t0, gp_t1, last(5)); }
 #line 58 "$DIR/switch.gp"
     for (int64_t gp_i0 = 0; gp_i0 < 3; gp_i0++) {
 #line 58 "$DIR/switch.gp"
@@ -157,7 +157,7 @@ void main() {
     for (int64_t n = -1; n <= 4; n++) {
         gp::fmtshim::Println(n, describe(n));
     }
-    gp::fmtshim::Println(describe(100), describe(50));
+    { auto gp_t2 = describe(100); gp::fmtshim::Println(gp_t2, describe(50)); }
 #line 107 "$DIR/switch.gp"
     for (int64_t gp_i1 = 0; gp_i1 < 4; gp_i1++) {
 #line 107 "$DIR/switch.gp"

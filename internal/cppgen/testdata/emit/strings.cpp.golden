@@ -15,7 +15,7 @@ void main() {
     gp::string s = "h\303\251llo"_gs;
     gp::string t = s + ", "_gs + "world"_gs;
     gp::fmtshim::Println(s, t, gp::len(s), gp::len(t), int64_t(6), int64_t(0), s[0], s[1], s[2], s[gp::len(s) - 1]);
-    gp::fmtshim::Println(gpkg_main::join(s, t), gp::len(gpkg_main::join(""_gs, ""_gs)), s == "h\303\251llo"_gs, s + ""_gs == s, t > s, ""_gs < s);
+    { auto gp_t0 = gpkg_main::join(s, t); gp::fmtshim::Println(gp_t0, gp::len(gpkg_main::join(""_gs, ""_gs)), s == "h\303\251llo"_gs, s + ""_gs == s, t > s, ""_gs < s); }
     uint8_t i = 4;
     int16_t j = 2;
     gp::fmtshim::Println(s[i], s[j], uint8_t(s[i] + s[j]), s[i] == 108, s[0] >= 97 && s[0] <= 122, uint8_t(s[1] - 48) <= 9);

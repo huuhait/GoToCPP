@@ -29,6 +29,17 @@ void main() {
     gp::fmtshim::Println(((a & b) | a) ^ b, (a | b) & (a ^ b), (a << 1) & b, (a & b) << 1, -a & b, ~a & b, a & -b);
     uint16_t x = 4660;
     gp::fmtshim::Println(uint16_t(uint16_t(uint16_t(x & 255) << 8) | uint16_t(x >> 8)), uint16_t(~x), uint16_t(x & ~x), uint16_t(-x), uint16_t(uint16_t(x ^ x) ^ x));
+#line 28 "$DIR/bitops.gp"
+    uint64_t n = 3;
+    gp::fmtshim::Println(gp::shr(a, gp::shl(uint64_t(0), n) - 2), gp::shl(x, gp::shl(uint64_t(1), n)), gp::shl(int64_t(1), n), int8_t(gp::shl(int8_t(1), n) << 4), gp::shl(int64_t(1), n + 60) >> 60);
+    int64_t big = 1000;
+#line 30 "$DIR/bitops.gp"
+    uint64_t m = 64;
+#line 30 "$DIR/bitops.gp"
+    int64_t z = 1;
+    gp::fmtshim::Println(gp::shr(big, gp::shl(uint64_t(1), m) - 2) + gp::div(int64_t(7), z), gp::shr(big, gp::shl(uint64_t(1), m + 1) - 2) << 1);
+    big = gp::shl(big, gp::shl(uint64_t(1), m) - 2);
+    gp::fmtshim::Println(big);
 }
 
 } // namespace gpkg_main

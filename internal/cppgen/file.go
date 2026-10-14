@@ -80,6 +80,8 @@ func EmitPackage(w io.Writer, fset *token.FileSet, pkg *check.Package, cfg Confi
 		info:  pkg.Info,
 		ns:    NamespaceName("main"),
 		names: make(map[types.Object]string),
+
+		uintCounts: make(map[ast.Expr]bool),
 	}
 	g.w.out = cfg.OutputPath
 	g.file()
@@ -115,6 +117,10 @@ type gen struct {
 	vars     []*types.Var // the package variables, in source order (without _)
 	initFns  []string     // the C++ names of the init functions, in source order
 	varInits bool         // gp_var_init is needed
+
+	// uintCounts are the expressions inside a shift count that is untyped but not a
+	// constant (markCounts).
+	uintCounts map[ast.Expr]bool
 }
 
 // errorf records an error at pos, if it is the first.

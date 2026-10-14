@@ -53,7 +53,7 @@ void main() {
 #line 31 "$DIR/keywords.gp"
     int64_t char8_t_ = 3;
     gp::fmtshim::Println(int_, bool_, char_, auto_, typename_, new__, new___);
-    gp::fmtshim::Println(gpkg_main::delete_("a"_gs, "b"_gs), xor_, not_, namespace_, _Pragma_, __int128_, __FILE___);
+    { auto gp_t1 = gpkg_main::delete_("a"_gs, "b"_gs); gp::fmtshim::Println(gp_t1, xor_, not_, namespace_, _Pragma_, __int128_, __FILE___); }
     gp::fmtshim::Println(__is_same_, _Complex_, char8_t_);
 }
 

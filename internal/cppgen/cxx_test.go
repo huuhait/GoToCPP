@@ -105,14 +105,24 @@ func bothCompilers(t *testing.T) []*cxx {
 }
 
 // flags returns the driver's flags for generated C++ with this compiler, without -I: the
-// same as gocpp build's (build.Flags and build.GeneratedFlags), with more.
+// same as gocpp build's (build.Flags and build.GeneratedFlags), with more, and then
+// GOCPP_TEST_CXXFLAGS (testFlags).
 func (c *cxx) flags(more ...string) []string {
-	return slices.Concat(build.Flags(c.cc, false), build.GeneratedFlags(c.cc), more)
+	return slices.Concat(build.Flags(c.cc, false), build.GeneratedFlags(c.cc), more, testFlags())
 }
 
-// runtimeFlags returns the driver's flags for the runtime's own files, with more.
+// runtimeFlags returns the driver's flags for the runtime's own files, with more, and then
+// GOCPP_TEST_CXXFLAGS.
 func (c *cxx) runtimeFlags(more ...string) []string {
-	return slices.Concat(build.Flags(c.cc, false), more)
+	return slices.Concat(build.Flags(c.cc, false), more, testFlags())
+}
+
+// testFlags returns the flags of GOCPP_TEST_CXXFLAGS (split at spaces), which these tests add
+// to every compile and link, after the driver's, so that GOCPP_TEST_CXXFLAGS="-O2
+// -fsanitize=address,undefined -fno-sanitize-recover=undefined" runs them optimized and with
+// the sanitizers.
+func testFlags() []string {
+	return strings.Fields(os.Getenv("GOCPP_TEST_CXXFLAGS"))
 }
 
 var (

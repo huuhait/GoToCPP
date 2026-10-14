@@ -1,6 +1,6 @@
 # Phase 02: Walking Skeleton · STATE
 
-**Status:** `[~]` in progress (steps 2.1–2.4, 2.6–2.9 and 2.11 done)
+**Status:** `[~]` in progress (steps 2.1–2.9 and 2.11 done)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
@@ -26,7 +26,7 @@
   - [x] `switch` via case index + native switch (`fallthrough`)
   - [x] labeled `break`/`continue`, `goto` (temporaries in blocks)
   - [x] `return` (single and multiple)
-- [~] 2.5 Minimal evaluation-order pass (incl. loop-condition / `else if` / `case` shapes)
+- [x] 2.5 Minimal evaluation-order pass (incl. loop-condition / `else if` / `case` shapes)
 - [x] 2.6 Functions: params, multiple results (`std::tuple`), prototypes
 - [x] 2.7 Runtime v0 (`gp::string` minimal, helpers, panic as exception, print/println, unbuffered-order stdout, fmtshim, run_main, OS layer `runtime/src/os/` + no-POSIX-outside check) + C++ unit tests
 - [x] 2.8 Driver: `build`, `run`, `emit`, `-x`, `-work`, `-asan`, compiler detection, embedded runtime
@@ -142,3 +142,15 @@
   everything else (also panics), the one-byte fmt copies, `&&`/`||` as units and `len`, but not the
   order between two panicking operations with no call between them: that is divergence D22 in
   docs/spec/language.md (only which panic message appears can differ).
+- 2026-10-14: Job 2.5 (the evaluation-order pass, `internal/cppgen/order.go`) committed, clean after 2
+  review rounds. It copies gc's walk/order.go: calls are units hoisted into `gp_` temporaries in Go's
+  order when a neighbour could see the difference; also units: `len(x)` when x could change, `&&`/`||`
+  with effects, fmt arguments of one-byte types that gc copies (gc's OCONVIFACE/addrTemp rule; Phase 03
+  extends it to every interface conversion); panicking operations keep their order against calls but
+  not against each other (divergence D22). Every call must pass the pass (`fg.ordered`), or it is an
+  internal error. Random differential test kept in the repo, opt-in: `GOCPP_RANDOM_TESTS=1` (with
+  `_N`, `_SEED`, `_DIR`; extra C++ flags through `GOCPP_TEST_CXXFLAGS`); ~8,000 programs matched Go on
+  both compilers incl. -O2 + ASan/UBSan. This is the random test step 2.10 asked to keep. Also fixed on
+  the way: untyped shift counts are uint like gc; the emitter accepts exactly the Printf directives the
+  gate allows (`%z` prints `%!z(int=5)`). Known: fmtshim names int64/uint64/uintptr `int`/`uint`
+  (Phase 03 type tags).

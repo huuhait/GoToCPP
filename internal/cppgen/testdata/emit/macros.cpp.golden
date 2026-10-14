@@ -47,7 +47,7 @@ void main() {
     gp::string unix = "unix"_gs;
     gp::fmtshim::Println(EOF_, stdin_, stdout_, stderr_, NULL_, EINVAL_, BUFSIZ_, SEEK_SET_);
     gp::fmtshim::Println(int64_t_, uint8_t_, __x86_64____, __GNUC___, linux, unix);
-    gp::fmtshim::Println(assert_(true), INT64_C_(21));
+    { auto gp_t0 = assert_(true); gp::fmtshim::Println(gp_t0, INT64_C_(21)); }
 }
 
 } // namespace gpkg_main

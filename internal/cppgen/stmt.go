@@ -16,6 +16,7 @@ import (
 //
 //	Go                       C++
 //	x := e, var x = e        T x = e;  (an explicit type; only gp_ temporaries are auto)
+//	g(x, f())                { auto gp_t0 = f(); g(x, gp_t0); }  (Go's order, order.go)
 //	var x T                  T x{};  (the zero value)
 //	a, b := f()              auto gp_t0 = f(); T a = std::get<0>(gp_t0); ...
 //	x = e                    x = e;
@@ -34,11 +35,10 @@ import (
 // if, for and switch put theirs in an extra block too), and a goto that Go allows never jumps
 // over a C++ initialization.
 //
-// The hook for the evaluation-order pass (step 2.5): every expression of a statement is
-// translated by fg.expr, fg.exactExpr or fg.cond, from left to right, right before its
-// statement's lines are written. So the pass can put temporaries in front of a statement (in
-// the { } of an assignment), and a condition (if, else if, loop, case) has one place where
-// its own shape goes: fg.cond, and the arms of chain (control.go).
+// The evaluation order (order.go): each statement orders its expressions (fg.order) right
+// before it translates them, and writes the temporaries that this returns in front of its
+// lines, in the { } of a statement that is not a declaration. A condition (if, else if, loop,
+// case) has its own shapes: fg.cond, the arms of chain and the loops (control.go).
 
 // stmts writes the statements of a block.
 func (fg *funcGen) stmts(list []ast.Stmt) {
@@ -53,7 +53,8 @@ func (fg *funcGen) stmt(s ast.Stmt) {
 	case *ast.BlockStmt:
 		fg.block(s)
 	case *ast.ExprStmt, *ast.IncDecStmt:
-		fg.line(s.Pos(), fg.simpleExpr(s)+";")
+		pre, text := fg.simple(s)
+		fg.line(s.Pos(), withPre(pre, text+";"))
 	case *ast.ReturnStmt:
 		fg.returnStmt(s)
 	case *ast.AssignStmt:
@@ -98,9 +99,40 @@ func (fg *funcGen) inner(body func()) {
 	fg.g.w.dedent()
 }
 
+// simple orders and translates a simple statement that is one C++ expression (simpleExpr): it
+// returns the temporaries that go in front of it, and its C++ expression.
+func (fg *funcGen) simple(s ast.Stmt) ([]string, string) {
+	pre := fg.order(false, simpleScope(s)...)
+	return pre, fg.simpleExpr(s)
+}
+
+// simpleScope returns the expressions that a simple statement that is one C++ expression
+// evaluates, in any order: x op= y reads x too.
+func simpleScope(s ast.Stmt) []ast.Expr {
+	switch s := s.(type) {
+	case *ast.ExprStmt:
+		return []ast.Expr{s.X}
+	case *ast.IncDecStmt:
+		return []ast.Expr{s.X}
+	case *ast.AssignStmt:
+		if s.Tok == token.ASSIGN {
+			return s.Rhs
+		}
+		return []ast.Expr{s.Lhs[0], s.Rhs[0]}
+	}
+	return nil
+}
+
+// postInHead reports whether the post statement of a 3-clause for goes into the C++ for's
+// head: when it is one C++ expression without temporaries.
+func (fg *funcGen) postInHead(post ast.Stmt) bool {
+	return oneExpr(post) && !fg.needsPre(false, simpleScope(post)...)
+}
+
 // simpleExpr returns the C++ expression of a simple statement that is one: an expression
 // statement, x++ or x--, and an assignment with one target and one value (x = e, _ = e,
-// x op= e). oneExpr says which statements are.
+// x op= e). oneExpr says which statements are. The statement's expressions were ordered
+// (simple).
 func (fg *funcGen) simpleExpr(s ast.Stmt) string {
 	switch s := s.(type) {
 	case *ast.ExprStmt:
@@ -149,9 +181,12 @@ func (fg *funcGen) returnStmt(s *ast.ReturnStmt) {
 		fg.line(s.Pos(), "return "+braceList(fg.fn.results)+";")
 	case len(s.Results) == 1:
 		// One result, or a call whose results are the function's: return f();
-		fg.line(s.Pos(), "return "+fg.expr(s.Results[0]).text+";")
+		pre := fg.order(false, s.Results[0])
+		fg.line(s.Pos(), withPre(pre, "return "+fg.expr(s.Results[0]).text+";"))
 	default:
-		fg.line(s.Pos(), "return {"+fg.exprs(s.Results, false)+"};")
+		// C++ evaluates the values of a braced list in order.
+		pre := fg.order(true, s.Results...)
+		fg.line(s.Pos(), withPre(pre, "return {"+fg.exprs(s.Results, false)+"};"))
 	}
 }
 
@@ -168,7 +203,8 @@ func (fg *funcGen) assignStmt(s *ast.AssignStmt) {
 	case s.Tok == token.DEFINE:
 		fg.declare(s.Pos(), s.Lhs, s.Rhs)
 	case oneExpr(s):
-		fg.line(s.Pos(), fg.simpleExpr(s)+";")
+		pre, text := fg.simple(s)
+		fg.line(s.Pos(), withPre(pre, text+";"))
 	default: // a, b = b, a and a, b = f()
 		targets := make([]target, len(s.Lhs))
 		for i, e := range s.Lhs {
@@ -277,14 +313,18 @@ func (fg *funcGen) newTargets(lhs, values []ast.Expr) []target {
 //     can't use a variable that the same statement declares, which then comes into scope only
 //     in C++ (declare renames it). If some targets exist already, the values go into
 //     temporaries first, because a value can use an old target. None is needed for a
-//     constant, or for a value without calls that reads only variables of the function and
-//     none of the targets before it (pure, reads): it is evaluated in its own assignment.
-//     The value of _ is only evaluated.
+//     constant, or for a value that has no effect (inert: no call, no package variable, no
+//     operation that can panic) and reads none of the targets before it (reads): it is
+//     evaluated in its own assignment. The value of _ is only evaluated.
 //
-// For an assignment (stmt), the lines are one C++ line, and the temporaries are in { }.
+// The values are ordered first (order.go), as a list that C++ evaluates in order: the values
+// that are evaluated before the assignments are in their order, and the others are inert.
+// For an assignment (stmt), the lines are one C++ line, and the temporaries are in { }. A
+// declaration whose values need temporaries in front is one line too.
 func (fg *funcGen) bind(pos token.Pos, targets []target, values []ast.Expr, stmt bool) {
+	pre := fg.order(len(values) > 1, values...)
 	var lines []string
-	temps := false
+	temps := len(pre) > 0
 	direct := true
 	for _, t := range targets {
 		if t.name != "" && t.typ == "" {
@@ -312,15 +352,15 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, values []ast.Expr, stmt
 		}
 	default:
 		// A value is evaluated in its assignment, after the targets before it changed,
-		// if that can't make a difference: a constant, or a value without calls that
-		// doesn't read those targets (or a package variable, which a call could change).
+		// if that can't make a difference: a constant, or a value without an effect that
+		// doesn't read those targets.
 		tmps := make([]string, len(values))
 		for i, v := range values {
 			switch {
 			case fg.constValue(v) != nil:
 			case targets[i].name == "":
 				lines = append(lines, targets[i].assign(fg.expr(v).text))
-			case fg.pure(v) && !fg.reads(v, targets[:i]):
+			case fg.inert(v) && !fg.reads(v, targets[:i]):
 			default:
 				tmps[i] = fg.names.temp("t")
 				temps = true
@@ -337,7 +377,10 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, values []ast.Expr, stmt
 			}
 		}
 	}
+	lines = append(pre, lines...)
 	switch {
+	case !stmt && len(pre) > 0:
+		fg.line(pos, strings.Join(lines, " "))
 	case !stmt:
 		for _, l := range lines {
 			fg.line(pos, l)
@@ -347,30 +390,6 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, values []ast.Expr, stmt
 	default:
 		fg.line(pos, strings.Join(lines, " "))
 	}
-}
-
-// pure reports whether evaluating e can't have an effect that another expression sees, and
-// can't see one: e has no calls (conversions are not calls), and it reads only constants and
-// variables of the function, which no call can change in Phase 02 (Phase 03's closures and
-// pointers can: the lowering pass decides it then).
-func (fg *funcGen) pure(e ast.Expr) bool {
-	ok := true
-	ast.Inspect(e, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.CallExpr:
-			if !fg.g.info.Types[n.Fun].IsType() {
-				ok = false
-			}
-		case *ast.Ident:
-			if v, isVar := fg.g.info.Uses[n].(*types.Var); isVar {
-				if _, local := fg.names.names[v]; !local {
-					ok = false
-				}
-			}
-		}
-		return ok
-	})
-	return ok
 }
 
 // reads reports whether e reads one of the targets.
@@ -384,11 +403,15 @@ func (fg *funcGen) reads(e ast.Expr, targets []target) bool {
 	return false
 }
 
-// usedNames returns the C++ names of the variables and functions that the expressions use.
+// usedNames returns the C++ names of the variables and functions that the expressions use,
+// apart from those in temporaries (order.go), which are evaluated already.
 func (fg *funcGen) usedNames(list []ast.Expr) map[string]bool {
 	used := make(map[string]bool)
 	for _, e := range list {
 		ast.Inspect(e, func(n ast.Node) bool {
+			if e, ok := n.(ast.Expr); ok && fg.temps[e] != "" {
+				return false
+			}
 			if id, ok := n.(*ast.Ident); ok {
 				switch obj := fg.g.info.Uses[id].(type) {
 				case *types.Var, *types.Func:
