@@ -140,3 +140,12 @@
   phase only; the harness sets each test's own `// phase:`), so phase-NN tests run while phase NN is
   built: with GOCPP_TEST_PHASE=03 the only failures left are slices_append and the examples closures,
   structs, wordfreq-core (they need 3.5b, 3.8, 3.11).
+- 2026-10-14 (manager, 3.6a review): large values. 3.3 boxes every local variable (arrays and structs,
+  also parameters and named results) whose gocppSizes size is over 128 KiB (Go's ir.MaxStackVarSize).
+  By-value arguments, results and temporaries of such types (`f(a)`, `x := *p`, the `range arr` copy,
+  to_array/array_keyed results) still live on the fixed C++ stack, where Go's stack grows: 3.6b/3.8 put
+  temporaries of such types on the heap when cheap, else it becomes a documented divergence (a new D
+  entry) before Phase 03 ends. 3.6b notes (checked with Go): `len(f())`/`cap(f())` of a nil *[3]int are 3
+  without a panic; `for i, v := range p` on a nil *[3]int panics with the nil dereference, `for i := range
+  p` doesn't. constinit works for array literals of literal types only (not gp::string literals, not
+  keyed literals of strings/pointers): 3.6b/3.16 choose constinit vs gp_var_init by that rule.
