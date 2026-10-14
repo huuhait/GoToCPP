@@ -399,6 +399,9 @@ fmt.Println(unsafe.Sizeof(struct{}{}), unsafe.Sizeof(struct {
   largest alignment of a field. The difference is the empty struct: it takes 1 byte, also as
   a field, so `struct{ a struct{}; b int64 }` is 16 bytes (Go: 8) and `[3]struct{}` is 3.
   `[0]T` is 1 byte too, with alignment 1. An array `[N]T` is `N` times the size of `T`.
+  A slice of empty structs therefore uses memory: `make([]struct{}, n)` allocates `n` bytes, and a
+  huge `n` (Go allows `math.MaxInt`, because its zero-size elements take no memory) fails with an
+  out-of-memory error in gocpp.
 - The sizes of `chan T`, func values and interface values are placeholders until their
   phases build them (08, 03 step 3.11, 05); they can still change there.
 - Only the C++ compiler knows the size of a C/C++ type (`C.int`, `*stdio.FILE`,
