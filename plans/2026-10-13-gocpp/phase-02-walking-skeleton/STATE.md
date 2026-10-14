@@ -1,8 +1,8 @@
 # Phase 02: Walking Skeleton · STATE
 
-**Status:** `[~]` in progress (every step done; exit check next)
+**Status:** `[x]` done (2026-10-14: every step and exit criterion; `internal/version.Phase` is 2; milestone **M1**)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-13
+**Last updated:** 2026-10-14
 
 ## Steps
 
@@ -36,11 +36,11 @@
 
 ## Exit criteria
 
-- [ ] `hello`, `fizzbuzz`, `primes` run correctly on GCC and Clang
-- [ ] All subset run + differential tests green on both compilers
-- [ ] gdb breaks at a `.gp` line and prints a local; line table checked
-- [ ] Golden outputs reviewed and readable
-- [ ] Unsupported features give phase-gate errors only
+- [x] `hello`, `fizzbuzz`, `primes` run correctly on GCC and Clang
+- [x] All subset run + differential tests green on both compilers
+- [x] gdb breaks at a `.gp` line and prints a local; line table checked
+- [x] Golden outputs reviewed and readable
+- [x] Unsupported features give phase-gate errors only
 
 ## Decisions / notes
 
@@ -166,3 +166,9 @@
 - 2026-10-14: Job 2.10b (shadowed names keep their Go names, ADR-022; the 3 golden tests hello, control,
   funcs) committed, clean after 2 review rounds; step 2.10 is done. Strings use named escapes (`\n`),
   case ends are `} break;`. The reviewer calls the goldens reviewed and readable (§5).
+- 2026-10-14: **Phase 02 done (milestone M1).** Exit check: hello, fizzbuzz and primes run on g++ and
+  clang++ (TestExamples); all 34 run and 41 diff tests pass on both (also with `-asan`); TestDebug's gdb
+  sessions and line-table checks pass on both; the 3 golden snapshots are reviewed and readable (job
+  2.10b review); features of later phases get gate errors from `gocpp check`/`build`/`run`, and
+  anything the gates let through that the emitter can't do is an internal error, never broken C++.
+  `internal/version.Phase` is now 2, so every Phase 02 test runs in `make ci` (with gdb required).

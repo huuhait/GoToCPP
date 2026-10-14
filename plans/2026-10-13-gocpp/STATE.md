@@ -1,7 +1,7 @@
 # gocpp plan · STATE
 
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Current focus:** Phase 02, Walking skeleton (Phase 00 done 2026-10-13, Phase 01 done 2026-10-14): steps 2.1–2.4 and 2.6–2.9, 2.11 done; 2.5 (evaluation order) in review; then the shadowed-name fix and 2.10 (tests) for M1; see [TODO.md](TODO.md)
+**Current focus:** Phase 03, Core language (Phases 00–02 done; M1 reached 2026-10-14), and the language server v0 track (Phase 11: 11.1 done, 11.2 in review); see [TODO.md](TODO.md)
 **Last updated:** 2026-10-14
 
 ---
@@ -31,7 +31,7 @@
 
 - [x] **Phase 00:** Foundations & spec → [STATE](phase-00-foundations/STATE.md)
 - [x] **Phase 01:** Front-end (parse, load, type-check, `gocpp fmt`) → [STATE](phase-01-frontend/STATE.md)
-- [~] **Phase 02:** Walking skeleton → [STATE](phase-02-walking-skeleton/STATE.md) · ends with **M1**
+- [x] **Phase 02:** Walking skeleton → [STATE](phase-02-walking-skeleton/STATE.md) · ends with **M1**
 - [ ] **Phase 03:** Core language → [STATE](phase-03-core-language/STATE.md) · ends with **M2**
 - [ ] **Phase 04:** C/C++ interop (opaque) → [STATE](phase-04-cpp-interop/STATE.md) · ends with **M3**
 - [ ] **Phase 05:** Interfaces, embedding, errors, panic/recover → [STATE](phase-05-interfaces-errors/STATE.md)

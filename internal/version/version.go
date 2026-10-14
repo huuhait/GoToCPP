@@ -15,7 +15,7 @@ var Version = "dev"
 // Phase is the last finished phase of the plan in
 // plans/2026-10-13-gocpp (00 to 15). The test harness uses it to skip
 // tests of phases that are not reached yet.
-const Phase = 1
+const Phase = 2
 
 // String returns the line that "gocpp version" prints, for example
 // "gocpp dev (phase 00) go1.25.14 linux/amd64".
