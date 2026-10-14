@@ -66,3 +66,7 @@
   immutable computed values, a ctx-aware per-key promise/singleflight keyed by content hash, a short
   mutex per map never held while computing, and a semaphore (≈ GOMAXPROCS) around type-checks.
   Nothing is written to the client after `exit` (like gopls).
+- 2026-10-14 (11.2 review): an `exit` that arrives right after `shutdown` first waits (at most
+  shutdownWait + 1 s) for the answers in flight, so a client that sends initialize/shutdown/exit at once
+  still gets shutdown's answer (allowed by the spec; a compliant client waits for the answer anyway).
+  `gocpp lsp` ignores SIGPIPE, so a client that closes our stdout gives a write error, not a signal death.
