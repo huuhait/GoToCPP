@@ -1,6 +1,6 @@
 # Phase 11: Fast Language Server · STATE
 
-**Status:** `[~]` in progress (v0 track: 11.1–11.5, 11.10b done; 11.10a grammar done)
+**Status:** `[~]` in progress (v0 track: 11.1–11.5, 11.7, 11.10b done; 11.10a grammar done)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
@@ -18,7 +18,7 @@
 - [x] 11.4 Diagnostics as you type · *v0*
 - [x] 11.5 Hover, go-to-definition, signature help · *v0*
 - [~] 11.6 Completion (scopes, members, keywords, snippets, auto-import) · *v0*
-- [~] 11.7 Formatting + organize imports (`gocpp fmt`) · *v0*
+- [x] 11.7 Formatting + organize imports (`gocpp fmt`) · *v0*
 - [ ] 11.8 References, rename, document/workspace symbols
 - [ ] 11.9 Semantic tokens, inlay hints, document links, code actions
 - [~] 11.10 VS Code extension (+ optional tree-sitter, editor docs) · *v0*
@@ -129,3 +129,10 @@
   answers in open _test.gp files (no test variants), build-constraint-excluded files in package lists
   (TODO(Phase 11)), `-I` folders from //gocpp:cflags (Phase 04). Follow-up: hover should use 11.3b's
   `(*Package).OpaqueType` so opaque types of imports stop showing as `invalid type` (merged separately).
+- 2026-10-14: Job 11.7 (textDocument/formatting with gocpp fmt and a minimal line diff with a cost cap;
+  Organize Imports as source.organizeImports: goimports-style sorting, headers after gocpp imports and never
+  removed, unused gocpp imports removed from the type check, no action while the package is provisional or
+  when code shares a line with an import declaration; a safety net that parses the result and compares the
+  code outside the imports and the imports themselves) committed, clean after 4 review rounds. Benchmarks
+  measured on a quiet machine in round 1 only (format 1,000 lines p95 1.6–5.3 ms; organize 0.3 ms); the
+  later rounds ran at load 5–48: re-measure in 11.11's harness.
