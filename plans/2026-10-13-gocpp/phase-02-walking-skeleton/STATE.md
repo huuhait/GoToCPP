@@ -31,7 +31,7 @@
 - [x] 2.7 Runtime v0 (`gp::string` minimal, helpers, panic as exception, print/println, unbuffered-order stdout, fmtshim, run_main, OS layer `runtime/src/os/` + no-POSIX-outside check) + C++ unit tests
 - [x] 2.8 Driver: `build`, `run`, `emit`, `-x`, `-work`, `-asan`, compiler detection, embedded runtime
 - [x] 2.9 Internal-error path for C++ compile failures
-- [ ] 2.10 Tests: ≥ 25 run tests, 3 golden, ≥ 25 differential vs Go (promotion, order, shadowing, float format, float→int, stdout/stderr order)
+- [~] 2.10 Tests: ≥ 25 run tests, 3 golden, ≥ 25 differential vs Go (promotion, order, shadowing, float format, float→int, stdout/stderr order)
 - [x] 2.11 Debug test: gdb batch + line-table check
 
 ## Exit criteria
@@ -138,3 +138,7 @@
   and a DWARF line-table check (Go's debug/dwarf) on both compilers, ~1 s. `make ci` sets
   `GOCPP_REQUIRE_GDB=1` (a missing gdb or a ptrace refusal fails instead of skipping). The driver
   now passes `-gno-column-info` (the DWARF columns were C++ columns).
+- 2026-10-14 (manager, from the 2.5 review): the evaluation-order pass keeps gc's order between calls and
+  everything else (also panics), the one-byte fmt copies, `&&`/`||` as units and `len`, but not the
+  order between two panicking operations with no call between them: that is divergence D22 in
+  docs/spec/language.md (only which panic message appears can differ).

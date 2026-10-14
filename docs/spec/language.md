@@ -9,7 +9,7 @@ Everything this document doesn't mention works as the Go spec says.
 | | |
 |---|---|
 | Status | v0, written in Phase 00 from the plan. Each phase updates it when it builds a feature |
-| Source | [Phase 00 §2.2](../../plans/2026-10-13-gocpp/phase-00-foundations/README.md#22-the-language-as-a-diff-against-go) (the divergence list D1–D21) and the phase READMEs linked in each section |
+| Source | [Phase 00 §2.2](../../plans/2026-10-13-gocpp/phase-00-foundations/README.md#22-the-language-as-a-diff-against-go) (the divergence list D1–D21; D22 from the Phase 02 evaluation-order work) and the phase READMEs linked in each section |
 | See also | [cpp-mapping.md](cpp-mapping.md) (what the C++ output looks like), [interop.md](interop.md) (using C and C++), [feature-matrix.md](feature-matrix.md) (the phase of each feature) |
 
 **How to read it.** Each section starts with an example. Then it says what Go does, what gocpp
@@ -43,6 +43,7 @@ The [feature matrix](feature-matrix.md) lists every feature with the phase that 
 | [D19](#d19-c-is-a-reserved-name) | `C` is an ordinary name | `C` is reserved for C's built-in types and helpers | 01 |
 | [D20](#d20-type-names-with-more-than-one-dot) | a type name has at most one dot | `std.chrono.seconds`, `std.vector[int].iterator` | 01, 04 |
 | [D21](#d21-range-over-c-containers) | `range` over Go types only | also over C++ containers and C arrays | 04 |
+| [D22](#d22-which-of-two-run-time-panics-is-reported) | one panic message, fixed by the compiler | with two possible panics and no call between them, the other message can appear | 02 |
 
 The three things gocpp adds have their own sections:
 [header imports](#header-imports), [must functions and must calls](#must-functions-and-must-calls)
@@ -523,6 +524,22 @@ for i, n := range nums { // i is the index, n is a copy of the element
   `push_back` in the body doesn't break the loop.
 - **Phase:** [04](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#25-values-and-operations-opaque).
   The C++ form is in [interop.md](interop.md#operations-on-cc-values).
+
+## D22. Which of two run-time panics is reported
+
+```go
+s, i, z := "abc", 5, 0
+fmt.Println(s[i], 7/z) // Go: "index out of range [5] with length 3"; gocpp may report the division
+```
+
+- **Go:** the spec leaves this order open; Go's compiler (gc) happens to check the index first.
+- **gocpp:** when one expression holds two operations that can panic at run time (an integer
+  division or remainder by zero, a negative shift count, an index out of range) and no function
+  call between them decides which runs first, gocpp may report the other of the two panics. The
+  program still panics and exits with code 2, and every call, all output and every value read
+  happen in Go's order; only the panic message can differ. Keeping gc's order here would need a
+  temporary for every such operation, which makes the C++ much harder to read.
+- **Phase:** [02](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/README.md#25-evaluation-order-minimal-version-here-already).
 
 ---
 
