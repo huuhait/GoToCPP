@@ -467,7 +467,7 @@ func count() int {
 var size C.size_t = 16 // fine: C holds C's built-in types
 
 func area() int {
-	C := 3 // error: "C is reserved for C's built-in types"
+	C := 3 // error: "cannot declare C - C is reserved for C's built-in types"
 	return C * C
 }
 ```
@@ -475,7 +475,8 @@ func area() int {
 - **Go:** `C` is an ordinary identifier.
 - **gocpp:** `C` is reserved for C's built-in types and the boundary helpers (`C.int`,
   `C.CString`), and every `.gp` file can use it without an import. A local or package-level
-  declaration named `C` is an error.
+  declaration named `C` is an error. An import can't be named `C` either
+  (`import C "<x.h>"`), and `package C` is an error too.
 - **Phase:** [01](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#23-import-classification).
   What `C` holds: [interop.md](interop.md#what-c-holds).
 
@@ -546,17 +547,22 @@ func main() {
 - The shape of the import path says what it is. A path in `<...>` is a system header. A path
   that ends in `.h`, `.hh`, `.hpp`, `.hxx`, `.h++` or `.inl` is a local header (found next to the
   `.gp` file, then in the include directories). A path that starts with `::` is a C++ namespace
-  that you rename (below). Every other path is a gocpp package.
-- The package name is the file name without directory and extension: `<SDL2/SDL.h>` is `SDL`,
-  `"./physics.h"` is `physics`. Characters that Go doesn't allow in names become `_`.
+  that you rename (below). Every other path is a gocpp package, but a path that starts with `./`
+  or `../` must be a header.
+- The package name is the file name without its directory and its last extension:
+  `<SDL2/SDL.h>` is `SDL`, `"./physics.h"` is `physics`, `<foo.bar.h>` is `foo_bar`. Characters
+  that Go doesn't allow in names become `_`.
 - The members are the header's C-level names: functions, types, global variables, enum constants
   and macros (`raylib.InitWindow`, `raylib.Color`, `raylib.RAYWHITE`).
 - Rename a header like a Go import (`import rl "<raylib.h>"`), or import it without a name
-  (`import _ "<GL/gl.h>"`).
-- A header gets **no name** when its file name is a Go keyword (`<map>`, `<sys/select.h>`), a
-  predeclared Go name (`<string>`, `<string.h>`, `<new>`), or a name another import already uses
-  (`<math.h>` next to `"math"`). Give it a name if you need its C names:
+  (`import _ "<GL/gl.h>"`). A name you choose can't be `C`, `init` or a predeclared Go name such
+  as `string`: use another one, like `cstring`.
+- A header gets **no name** when its name would be a Go keyword (`<map>`, `<sys/select.h>`), a
+  predeclared Go name (`<string>`, `<string.h>`, `<new>`), a name that another import or a
+  package-level declaration already uses (`<math.h>` next to `"math"`), empty, a name that starts
+  with a digit (`<3dmath.h>`), or `C`, `_` or `init`. Give it a name if you need its C names:
   `import cstring "<string.h>"`. If you use it by its file name anyway, the error tells you how.
+  All the rules are in [interop.md](interop.md#header-packages-and-their-names).
 - A header import never causes an "imported and not used" error, because it also brings
   namespaces and macros.
 
@@ -571,7 +577,8 @@ func main() {
   asks the C++ compiler which names are namespaces (the namespace probe).
 - Rename a namespace that is long or clashes: `import fs "::std::filesystem"`, or
   `import cfmt "::fmt"` next to gocpp's `fmt`. A namespace import without a name
-  (`import "::std"`) is an error, because namespaces need no import: use `std.X` directly.
+  (`import "::std"`) is an error, because namespaces need no import. The message says: use
+  `std.X` directly, or rename it: `import cstd "::std"`.
 - If a header's package name is also a namespace (`<glm/glm.hpp>` is package `glm`, and `glm`
   is a namespace), `glm.X` looks in the namespace first, then in the C-level names.
 

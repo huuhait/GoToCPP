@@ -79,9 +79,12 @@ Source: [Phase 04 §2.1](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/READM
 | `"./physics.h"`, `"native/x.hpp"` (the path ends in `.h .hh .hpp .hxx .h++ .inl`) | local header (looked up next to the `.gp` file, then in the include directories) | `#include "…"` | `physics.X`, `x.X` |
 | `rl "<raylib.h>"`, `_ "<GL/gl.h>"` | a header with a name you choose, or with no name | as above | `rl.X`, or no name |
 | `fs "::std::filesystem"` | a C++ namespace with a new name (optional) | nothing (it is just a name) | `fs.path` → `::std::filesystem::path` |
-| `"::std"` (no name) | an error: namespaces need no import | — | the message says: use `std.X` directly, or rename it with `import fs "::std::filesystem"` |
+| `"::std"` (no name) | an error: namespaces need no import | — | the message says: use `std.X` directly, or rename it: `import cstd "::std"` |
 
-No new syntax is needed: the shape of the import path says what it is.
+No new syntax is needed: the shape of the import path says what it is. A path in `<...>` is a
+system header. A path that ends in `.h`, `.hh`, `.hpp`, `.hxx`, `.h++` or `.inl` is a local
+header. A path that starts with `::` is a namespace. Every other path is a gocpp package, but a
+path that starts with `./` or `../` must be a header.
 
 ### Header packages and their names
 
@@ -95,17 +98,39 @@ import (
 )
 ```
 
-- **A header is a package.** Its default name is the file name without directory and extension
-  (`<SDL2/SDL.h>` → `SDL`, `"./physics.h"` → `physics`). Characters that Go doesn't allow in
-  names become `_`.
+- **A header is a package.** Its default name is the file name without its folder and its last
+  extension (`<SDL2/SDL.h>` → `SDL`, `"./physics.h"` → `physics`, `<foo.bar.h>` → `foo_bar`).
+  Characters that Go doesn't allow in names become `_`.
 - Its members are the header's **C-level names**: functions, types, global variables, enum
   constants and macros (`raylib.InitWindow`, `raylib.Color`, `raylib.RAYWHITE`).
-- **No default name** when the file name is a Go keyword (`<map>`, `<sys/select.h>`), a
-  predeclared Go name (`<string>`, `<string.h>`, `<new>`), or a name that another import already
-  uses (`<math.h>` next to gocpp's `"math"`). Name it yourself if you need its C names:
+- **No default name** in these cases. Name the header yourself if you need its C names:
   `import cstring "<string.h>"`.
+  - The name is a Go keyword (`<map>`, `<sys/select.h>`) or a predeclared Go name (`<string>`,
+    `<string.h>`, `<new>`).
+  - The name is not a valid name (`<3dmath.h>` starts with a digit), or it is `C`, `init` or `_`.
+  - Another import of the file uses the name: a gocpp package (`<math.h>` next to `"math"`), a
+    name you chose, or a namespace rename. A gocpp package always keeps its name.
+  - A package-level name of the package uses it, in any file of the package.
+  - Two different headers would get the same name (`<time.h>` and `<sys/time.h>`). Then neither
+    gets it, so the order of the imports doesn't matter.
 - If you use such a header by its file name anyway, you get a hint instead of a bare type error:
   `string.strlen` → "give `<string.h>` a name: `import cstring "<string.h>"`".
+- **A name you choose follows Go's rules.** Two imports of one file can't have the same name
+  (`rl redeclared in this block`), and an import name can't be a package-level name
+  (`rl already declared through import of <raylib.h>`). You can import the same header twice
+  with two different names (`"<raylib.h>"` and `rl "<raylib.h>"`). Twice with the same name is an
+  error, also when one of the two is the default name. Like `import "fmt"` twice in Go, that is
+  `raylib redeclared in this block`.
+- A name you choose can't be `init` or a predeclared Go name such as `string` or `len`
+  (`cannot import header as string - string is a predeclared Go name`). Choose another name,
+  like `cstring`. It can't be `C` either (see [What C holds](#what-c-holds)).
+- **These header imports are errors:** an empty path, a path that is not well formed (`"<>"`,
+  `"<raylib.h"`, `"raylib.h>"`, a space at the start or at the end), a path with `\` (use `/`) or
+  with a character that can't be in an `#include` line, and a dot import (`. "<raylib.h>"`).
+- A path that starts with `./` or `../` must end in `.h`, `.hh`, `.hpp`, `.hxx`, `.h++` or
+  `.inl`. A C or C++ file (`.c`, `.cc`, `.cpp`, `.cxx`) can't be imported: import its header.
+  gocpp compiles the C and C++ files in the package folder
+  ([Building C and C++ sources](#building-c-and-c-sources)).
 - A header import never causes an "imported and not used" error, because a header also brings
   its namespaces and macros.
 - C++ has only one global namespace, so a C-level name compiles through any header package:
@@ -147,8 +172,15 @@ func main() {
 - **Rename a namespace** when it is long or clashes with another name:
   `import fs "::std::filesystem"`, or `import cfmt "::fmt"` next to gocpp's `fmt`.
 - A namespace import **without a name** (`import "::std"`) is an error, because namespaces need
-  no import. The message says to use `std.X` directly, or to rename the namespace with
-  `import fs "::std::filesystem"`.
+  no import. The message says to use `std.X` directly, or to rename the namespace, with an
+  example made from your path: `import chrono "::std::chrono"` for `"::std::chrono"`. A
+  namespace whose first name can't be a name in Go code, such as `::go` (a Go keyword) or
+  `::error` (a predeclared name), can only be used with a new name: `import cgo "::go"`.
+- A namespace path is `::` and C++ names joined with `::`: `"::std"`, `"::std::filesystem"`.
+  Other paths with `::` are errors: `"::"`, `"::std::"`, `"::1x"`, and `"std::vector"` (it must
+  start with `::`).
+- A namespace import only gives a new name, so `_ "::std"` and `. "::std"` are errors. The new
+  name follows the same rules as a name you choose for a header (see above).
 - **A header name that is also a namespace:** `<glm/glm.hpp>` is the package `glm`, and `glm` is
   also a namespace. Then `glm.X` looks in the namespace first, then in the C-level names (the
   kind probe picks the one that exists).
@@ -207,8 +239,14 @@ declares comes through its package or a namespace, never through `C` (`cstdio.pr
 
 - Every `.gp` file can use `C` without importing it. The front-end adds `import "C"` only to the
   files that use it, because an unused import would be a Go error.
-- A local or package-level declaration named `C` is an error: "`C` is reserved for C's built-in
-  types".
+- So `import "C"` in a `.gp` file is an error. There is no inline C preamble either: put C code
+  in a header next to the `.gp` file.
+- **`C` is reserved** for C's built-in types. A declaration named `C` is an error:
+  `cannot declare C - C is reserved for C's built-in types`. That is a func, variable, constant or
+  type (package-level or local), a name on the left of `:=`, a parameter or result (of a func,
+  method or closure), and a type parameter. Struct fields, methods and labels can be named `C`.
+- An import can't give the name `C` either (`import C "<x.h>"`, or a gocpp package whose package
+  name is `C`), and a package can't be named `C` (`package C`).
 
 Sources: [Phase 01 §2.3](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#23-import-classification),
 [Phase 04 §2.4](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#24-cc-types-in-gocpp-code)

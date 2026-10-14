@@ -21,7 +21,7 @@
   - [ ] tests: type position, composite literal, call, nested
 - [ ] 1.4 Patch 3: dotted type names (`std.chrono.seconds`, `std.filesystem.path`, `std.vector[int].iterator`)
 - [x] 1.5 Round-trip test over the Go stdlib (parse → print → parse)
-- [~] 1.6 Import classifier + `FileInfo` (header package names and their rules, namespace renames) + reserved-`C` error
+- [x] 1.6 Import classifier + `FileInfo` (header package names and their rules, namespace renames) + reserved-`C` error
 - [~] 1.7 `//gocpp:` directive parser + validation + suggestions
 - [ ] 1.8 AST preprocessing
   - [ ] drop header imports; `raylib.X` → `C.X`; undeclared `ns.X` → `C.ns.X` (package-wide name set); inject `import "C"` only where used
@@ -93,3 +93,6 @@
 - 2026-10-13: Step 1.5 (`internal/syntax/roundtrip_test.go`) committed, clean after 2 review rounds:
   6240 stdlib files in about 2 s; the fork must give the same AST as stock `go/parser` (exact
   positions and object resolution included), and print → parse must give the same AST again.
+- 2026-10-13: Step 1.6 (`internal/load` imports.go + reserved.go) committed, clean after 3 review
+  rounds: 142 tests, the same result in every import order (62,500 random runs), broken files
+  handled; the caller passes real gocpp package names (step 1.9).

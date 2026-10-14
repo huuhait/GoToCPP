@@ -457,7 +457,9 @@ first syntax error of each line (the compiler does that even with `-e`, while go
 12. **1.12 Unsupported-feature checker** (§2.9) with the full table + generated feature matrix.
 13. **1.13 Diagnostics** package (§2.10).
 14. **1.14 CLI**: `version`, `parse -dump`, `check`, `check -types`, `fmt`.
-15. **1.15 Error tests** in `tests/errors/` for gocpp-specific cases (bad import shapes, unknown
+15. **1.15 Error tests** (`gocpp check` prints warnings as `file:line:col: warning: msg`, for
+    example for a comment that looks like a broken `//gocpp:` directive; the errors runner gets a
+    `// WARNING "regexp"` mark for them, next to `// ERROR`) in `tests/errors/` for gocpp-specific cases (bad import shapes, unknown
     directives, phase-gated features, shadowed namespaces, a local named `C`, typos in namespace
     names, an unnamed header used by its file name, typos inside opaque template arguments) and a
     "no false errors" corpus of interop-heavy files.
