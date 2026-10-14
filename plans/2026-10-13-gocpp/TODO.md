@@ -15,6 +15,7 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 
 ## Small follow-ups (give them to the next job that touches the file)
 
+- [ ] `docs/CONTRIBUTING.md` §2: list `tools/stubgen` (the stdlib stub generator) under `tools/` (from job 1.9b)
 - [ ] `docs/adr/README.md`: describe dated amendments (like ADR-002's printer line), not only superseding (from job 1.5)
 
 ## Any time (parallel, low risk)

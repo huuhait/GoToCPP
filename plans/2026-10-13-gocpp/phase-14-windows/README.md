@@ -82,6 +82,8 @@ holds the `gp::os` thread layer (Phase 08). This phase adds the Windows versions
 
 ### 2.3 Standard library
 
+- `stdlib/std.txt` (the list of Go's std packages) becomes the union of linux's and windows'
+  `go list std` (windows adds `internal/syscall/windows…`).
 - `tools/portstd` runs again with `GOOS=windows` (Phase 09 prepared it), so Go's own Windows code
   comes along: `os` (`file_windows.go`, errors), `path/filepath` (`\` and drive letters), `time`
   (time zones from the registry), `os/exec`, `os/signal` (Ctrl-C).

@@ -227,7 +227,9 @@ backslash escapes), and an unquoted argument that starts with `//` starts a comm
    that ends mid-declaration), a final alias that must fail (so a silent compiler can't make
    everything a namespace), and an end-of-file check for an unclosed `{`. Quoted includes are found
    with `-iquote <dir>`, not `-I` (with `-I`, a file named `vector` next to the `.gp` file hid
-   `<vector>`).
+   `<vector>`). Note: g++ predeclares `namespace std` and clang++ doesn't, so with only C headers
+   (`<stdio.h>`) `std.x` is a namespace use with g++ and `undefined: std` with clang++; error
+   tests avoid that case. A file with no includes gets no compiler run (every name unknown).
 5. **Keep conversions of opaque values typed.** `n := int(cstring.strlen(p))` would otherwise give
    `n` the type `invalid`, and every later mistake with `n` would go unreported. The conversion is
    rewritten to a hidden generic helper, `gp_as[int](C.strlen(p))`, which `go/types` types as
@@ -271,11 +273,16 @@ it working. If it is ever removed, steps 2 and 3 use a small scope walk instead 
   `stdlib/` tree (a tiny Go package inside `stdlib/` holds the `//go:embed` directive, because
   an embed pattern can't reach a parent folder). Module packages resolve from the module root, found by walking up to
   `gocpp.mod` (Phase 06 adds `require`/`replace`).
-- The loader implements `types.ImporterFrom`. It loads and type-checks dependencies first,
-  memoizes them and reports import cycles (`import cycle not allowed`).
+- The loader (step 1.9) loads the import graph at the parse level, memoizes packages and reports
+  import cycles (`import cycle not allowed`); step 1.10 adds the `types.ImporterFrom` that
+  type-checks dependencies first. External `package x_test` files are their own package, as in
+  Go. The stdlib FS has the package folders at its root (`fmt/fmt.gp`).
 - In this phase `stdlib/` contains **declaration stubs** for every standard package that the
   Phase 00 target programs import (`fmt`, `os`, `bufio`, `strings`, `strconv`, `errors`, `flag`,
-  `sync`, `time`, `sort`, `math`, …), so all of them type-check now. Real implementations come in
+  `sync`, `time`, `slices`, `regexp`, `encoding/json`, … 24 packages with what their signatures
+  need), generated from Go's source by `tools/stubgen`, so all of them type-check now. The loader
+  applies Go's `internal/` rule ("use of internal package … not allowed") before the "not available
+  yet" check. Real implementations come in
   Phases 02, 05, 08 and 09. Importing a package that has no stub yet is a gate error
   ("package X is not available yet (Phase 09)").
 
@@ -337,7 +344,8 @@ Facts from the spike that this pass relies on:
 
 ### 2.9 Unsupported-feature checker (phase gates)
 
-A table-driven pass rejects features that are not implemented *yet*, with a message that names
+A table-driven pass over **user** packages (never the stdlib stubs, which use methods, interfaces,
+generics and channels) rejects features that are not implemented *yet*, with a message that names
 the phase. That way users (and tests) never get broken C++. The table must cover **everything**
 a later phase adds:
 

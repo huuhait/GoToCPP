@@ -160,6 +160,10 @@ real editor while the compiler is still being built, and every later phase adds 
 interop names (04), interfaces and embedding (05), multi-package workspaces (06), generics (07),
 `!` and macros (10), and C/C++ completion (12).
 
+The front-end loader (`load.Load`) reads files from disk; the language server adds an overlay
+(`Config.Overlay`, unsaved editor buffers by file name), and the namespace probe needs the same
+for unsaved headers (found by the Phase 01 loader and probe reviews).
+
 ## 3. Steps
 
 1. **11.1 LSP core**: JSON-RPC over stdio, `initialize`/`shutdown`, incremental text sync, overlays,
