@@ -55,3 +55,9 @@
   because computed floats print with 7 digits; checked with clang 21);
   header contents in the cache key; header index from `-ast-list` + `-dM`; E1 and E2 solved on
   stock go/types, because a go/types fork would break x/tools for Phases 11 and 13; size raised.
+- 2026-10-14 (from the 1.15 review): until this phase, go/types errors on C values, also on named types
+  over C (`type Handle C.int`), are dropped in `gocpp check`, and the C++ compiler reports them (Phase 04
+  on) at the .gp line. The interop checker here gives the early, typed errors. Test cases to cover:
+  `var h Handle = "s"`, `h + "x"`, `var h Handle = goStruct`, `f(h)` with `f(string)` (C++ errors
+  today), and the silent numeric ones `var h Handle = 1.5` (truncates) and `h = n` (int64 → int narrowing,
+  a `gocpp vet` warning per §2.3).
