@@ -154,3 +154,12 @@
   -fno-strict-aliasing, pinned by a test), slicing a boxed array) committed, clean after 2 review rounds.
   Step 3.6 stays open for 3.6b (the emitter: array types, literals, indexing, ==, range copies, &arr[i],
   arr[:], the gp_hash hook for map keys).
+- 2026-10-14 (3.7a review, for 3.7b/3.12): Go's order for `m[k] op= y` (checked with go run): y is
+  evaluated before the slot is taken (`gp::ref(m,k) += y` matches); `m[k] /= 0` and `%= 0` do not insert
+  k (gc rewrites to `m[k] = m[k] / y`: check the divisor before `gp::ref`), `m[k] <<= negative` does insert
+  k (don't check the count first); never hold `auto& r = gp::ref(m,k)` across a call that may delete k:
+  evaluate y into a temporary first. Map literals: gc stores the static entries (constant key and value)
+  first, then the dynamic ones in source order (`map[float64]int{negz: 1, 0: 2}` is {-0: 1}): 3.7b
+  reorders. Hash protocol for 3.8/3.9: comparable structs get `gp_hash()` via `gp::hash_fields` over the
+  non-blank fields (blank fields also out of ==); `gp::newtype` hashes its value. The nil-map write panic
+  is a runtime.Error (Phase 05 recover).
