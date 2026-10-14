@@ -38,6 +38,11 @@ var config = printer.Config{Mode: printer.UseSpaces | printer.TabIndent | normal
 // position. The warnings of load.ParseDirectives, for a comment that only
 // looks like a directive, are not errors: such a comment is an ordinary
 // comment, Source formats it like one, and gocpp check reports it.
+//
+// Source also returns an error, and no source, in one rare case where it
+// can't keep the parentheses that a composite literal needs in the header
+// of an if, for or switch statement: when the type of the literal can't be
+// printed on one line, or has a comment in it (see keepParens).
 func Source(filename string, src []byte) ([]byte, error) {
 	return formatSource(filename, src, false)
 }
@@ -69,6 +74,9 @@ func formatSource(filename string, src []byte, fragmentOK bool) ([]byte, error) 
 		}
 	}
 	sortImports(fset, file)
+	if err := keepParens(fset, file); err != nil {
+		return nil, err
+	}
 	return format(fset, file, sourceAdj, indentAdj, src, config)
 }
 

@@ -10,7 +10,7 @@
 //     no empty line and no comment line between them.
 //  3. Print the file with go/printer and the settings of gofmt.
 //
-// Two rules are gocpp's own:
+// Three rules are gocpp's own:
 //   - An import group that contains a header or a namespace import
 //     ("<windows.h>", "./physics.h", fs "::std::filesystem") stays as it
 //     is written: it is not sorted, and duplicates stay. A header becomes
@@ -20,9 +20,17 @@
 //     the package doc comment, go/printer would turn a broken directive
 //     like //gocpp:Link m into the ordinary comment // gocpp:Link m, and
 //     the library would then silently not be linked.
+//   - gofmt removes the parentheses in for range (T[int]{1, 2}), and the
+//     result doesn't parse: the "{" after T[int] starts the block. gocpp
+//     fmt keeps them, as gofmt does for T{1, 2}. The same goes for
+//     std.vector[int]{7, 8} and for the headers of if and switch
+//     statements. gocpp fmt keeps them wherever gofmt keeps them for T,
+//     so also in for range (f(T[int]{1})), where they aren't needed (see
+//     parens.go).
 //
-// So for a Go file, the result is exactly what gofmt prints. The tests
-// check this on every Go file of the Go standard library.
+// So for a Go file, the result is exactly what gofmt prints, except where
+// the third rule keeps parentheses. The tests check this on every Go file
+// of the Go standard library.
 //
 // go/format can't do this job. For a file with an import group,
 // go/format.Node prints the file and parses it again with the stock

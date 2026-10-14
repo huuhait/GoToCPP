@@ -52,10 +52,10 @@ func main() {
 			fmt.Println(i, j, row[j])
 		}
 	}
-	// The parentheses are needed (else { starts the body). gofmt and gocpp
-	// fmt remove them, which breaks the code: go/printer keeps them only
-	// around a literal whose type is a name, not an instance (also for Go
-	// generics, G[int]{7, 8}).
+	// The parentheses are needed (else { starts the body). gofmt removes
+	// them, which breaks the code: go/printer keeps them only around a
+	// literal whose type is a name, not an instance (also for Go generics,
+	// G[int]{7, 8}). gocpp fmt keeps them (internal/format/parens.go).
 	for _, x := range (std.vector[int]{7, 8}) {
 		fmt.Println(x)
 	}
