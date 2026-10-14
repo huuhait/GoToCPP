@@ -17,7 +17,7 @@
 - [x] 3.4 Strings (runtime, literals, slicing, concat, compare, UTF-8 range, conversions)
 - [x] 3.5 Slices (make, append + growth formula, sub-slice, copy, nil, clear; `cap >= len` only) (slice→array conversions moved to 3.6b; printing slices with fmt is 3.15b)
 - [x] 3.6 Arrays (`gp::array`, checked index, `==`) + range rules (hidden counters, copy on `range arr`)
-- [~] 3.7 Maps
+- [x] 3.7 Maps
   - [ ] get / set / ref / lookup / erase / len / clear
   - [ ] nil-map panics
   - [ ] snapshot range
@@ -246,3 +246,13 @@
   at entry); 3.10's method value/expression lambdas forward such parameters by reference; 3.8 large structs
   follow the same largeVar rule. For every range iterator: the iterator must own or keep alive what it reads
   after the targets' operands run (3.7b review).
+- 2026-10-14: Job 3.7b (maps in the emitter: types, nil, make (hints capped at 2^20, never panic), literals
+  in gc's static-first order, get/set/ref/lookup/delete/len/clear, op= with Go's insert rules for /=, %= and
+  shifts, `m[k] = append(m[k], …)` with one lookup and gc's SameSafeExpr/mapKeyTemp order (wrappedKey),
+  range over a snapshot with the key copied before the targets' operands and gp::range_value after them,
+  array keys and values, println of a map a check error (D23)) committed, clean after 3 review rounds.
+  Accepted difference (noted in cpp-mapping.md): when a range target's call deletes the current entry or
+  clears the map, Go may also blank the key it assigns ("" or 0); gocpp assigns the key as reached. For 3.8:
+  struct keys of 4 or 8 bytes of plain memory go into wrappedKey; static struct literals into staticLit;
+  structs need gp_hash for map keys. For 3.8/3.9: a struct or named-type value read from a map is a copy
+  (like arrays), so a reference to an element of `m[k]` is never stable (stableArray/varOwner).
