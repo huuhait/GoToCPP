@@ -115,6 +115,9 @@ type gen struct {
 	// implicit are the values that Go converts implicitly to another type, which C++ needs a
 	// conversion for, with the type (named.go: noteConversions).
 	implicit map[ast.Expr]types.Type
+
+	// lits are the numbers of the func literals in their functions (closures.go: numberLits).
+	lits map[*ast.FuncLit]int
 }
 
 // errorf records an error at pos, if it is the first.

@@ -28,14 +28,15 @@ import (
 //	                         gp_anon_3f2a... for an anonymous struct type
 //	type Celsius float64     Celsius, a struct over gp::newtype<Celsius, double> (Phase 03 step
 //	type IDs []int           3.9, named.go), IDs over gp::newtype<IDs, gp::slice<int64_t>>
+//	func(A, B) R             gp::func<R(A, B)> (Phase 03 step 3.11, closures.go)
 //
 // An untyped constant has the C++ type of its default type (untyped int → int64_t, untyped
 // rune → int32_t, untyped float → double), but go/types records the type that a constant
 // converts to, so the emitter seldom needs it.
 //
 // Not yet: complex64 and complex128 (std::complex, not in the Phase 02 subset), and the other
-// composite types (funcs: Phase 03; interfaces and error: Phase 05; channels: Phase 08), also
-// named ones. For these, cxxType reports "not supported yet".
+// composite types (interfaces and error: Phase 05; channels: Phase 08), also named ones. For
+// these, cxxType reports "not supported yet".
 
 // basicTypes are the C++ spellings of the basic types, by kind.
 var basicTypes = map[types.BasicKind]string{
@@ -94,6 +95,8 @@ func (g *gen) cxxType(t types.Type, pos token.Pos) cppir.Type {
 		if isStruct(t) || isNewtype(t) {
 			return g.structType(t, pos) // typedecl.go; a gp::newtype: named.go
 		}
+	case *types.Signature:
+		return g.funcType(t, pos) // gp::func<R(P...)> (closures.go)
 	case *types.Tuple:
 		args := make([]cppir.Node, t.Len())
 		for i := range t.Len() {

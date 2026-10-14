@@ -65,6 +65,9 @@ type funcGen struct {
 	g     *gen
 	names *funcNames
 	fn    *funcInfo // nil in gp_var_init
+	// top is the outermost node of the code: the function declaration, or the package
+	// variable's initializer in gp_var_init (funcInfo.top).
+	top ast.Node
 
 	flow       *flow               // where break and continue go (nil in gp_var_init)
 	contLabels map[ast.Stmt]string // the label at the end of a loop's body, for continue
@@ -107,7 +110,7 @@ func newFuncGen(g *gen, names *funcNames, fn *funcInfo) *funcGen {
 		stores:     make(map[ast.Expr]bool),
 	}
 	if fn != nil {
-		fg.boxed = fn.boxed
+		fg.boxed, fg.top = fn.boxed, fn.top
 	}
 	return fg
 }
@@ -178,6 +181,8 @@ func (fg *funcGen) value(e ast.Expr) cppir.Expr {
 		return fg.compLit(e) // structs.go
 	case *ast.SelectorExpr:
 		return fg.selector(e) // structs.go
+	case *ast.FuncLit:
+		return fg.funcValue(e) // closures.go
 	}
 	fg.g.unsupported(e.Pos(), nodeKind(e))
 	return placeholder
@@ -194,9 +199,9 @@ func (fg *funcGen) exactExpr(e ast.Expr) cppir.Expr {
 	switch {
 	case ok && tv.Value != nil:
 		return fg.g.constant(tv.Value, fg.g.untypedCount(e, tv.Type), e.Pos(), true)
-	case ok && tv.IsNil() && (isSlice(tv.Type) || isMap(tv.Type)):
+	case ok && tv.IsNil() && (isSlice(tv.Type) || isMap(tv.Type) || isFunc(tv.Type)):
 		// nullptr would be a std::nullptr_t: gp::slice<T>(), a nil slice (gp::map<K, V>(), a
-		// nil map).
+		// nil map; gp::func<Sig>(), a nil func).
 		return construct(fg.g.cxxType(tv.Type, e.Pos()))
 	}
 	return fg.expr(e)
@@ -236,12 +241,12 @@ func (fg *funcGen) ident(id *ast.Ident) cppir.Expr {
 		}
 		return cxxName(fg.cname(obj, id.Pos()))
 	case *types.Func:
-		fg.g.unsupported(id.Pos(), "function values (Phase 03)")
+		return fg.funcRef(obj, id.Pos()) // a function of the package as a value (closures.go)
 	case *types.Nil:
-		// A nil pointer, slice or map: C++ converts nullptr to gp::ptr<T>, gp::slice<T> and
-		// gp::map<K, V> (where C++ deduces the type, exactExpr writes gp::slice<T>()). The
-		// other nil values (funcs, interfaces) come with their types.
-		if t := fg.g.info.TypeOf(id); t != nil && (isPointer(t) || isSlice(t) || isMap(t) || t == types.Typ[types.UntypedNil]) {
+		// A nil pointer, slice, map or func: C++ converts nullptr to gp::ptr<T>, gp::slice<T>,
+		// gp::map<K, V> and gp::func<Sig> (where C++ deduces the type, exactExpr writes
+		// gp::slice<T>()). The other nil values (interfaces) come with their types.
+		if t := fg.g.info.TypeOf(id); t != nil && (isPointer(t) || isSlice(t) || isMap(t) || isFunc(t) || t == types.Typ[types.UntypedNil]) {
 			return lit("nullptr")
 		}
 		fg.g.unsupported(id.Pos(), "nil of type "+types.TypeString(fg.g.info.TypeOf(id), types.RelativeTo(fg.g.pkg.Types)))
@@ -260,12 +265,12 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 		fg.g.errorf(c.Pos(), "internal error: a call whose evaluation order was not decided")
 		return placeholder
 	}
-	if c.Ellipsis.IsValid() && !fg.isBuiltin(c, "append") {
-		fg.g.unsupported(c.Ellipsis, "f(s...) (Phase 03)")
-		return placeholder
+	if fg.funcValueCall(c) {
+		return fg.callValue(c) // closures.go
 	}
 	var callee string
-	template := false // the callee is a runtime template, which deduces its argument types
+	var sig *types.Signature // of a function of the package
+	template := false        // the callee is a runtime template, which deduces its argument types
 	switch fun := ast.Unparen(c.Fun).(type) {
 	case *ast.Ident:
 		switch obj := fg.g.info.Uses[fun].(type) {
@@ -274,6 +279,11 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 			case "print", "println":
 				callee, template = "gp::"+obj.Name(), true
 				for _, a := range c.Args {
+					if t := fg.g.info.TypeOf(a); t != nil && isFunc(t) {
+						// Go prints the func's code address.
+						fg.g.unsupported(a.Pos(), "printing a func value with "+obj.Name())
+						return placeholder
+					}
 					if t := fg.g.info.TypeOf(a); t != nil && (isSlice(t) || isArray(t) || isMap(t)) {
 						// Go prints [len/cap]0xc000012345 for a slice and 0xc000012345 for a
 						// map, with an address of Go's heap (D23), and rejects an array:
@@ -293,12 +303,12 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 				return placeholder
 			}
 		case *types.Func:
-			if obj.Signature().Variadic() {
-				fg.g.unsupported(c.Pos(), "variadic functions (Phase 03)")
-				return placeholder
-			}
+			sig = obj.Signature()
 			callee = fg.cname(obj, fun.Pos())
-			if len(c.Args) != 1 || !isTuple(fg.g.info.TypeOf(c.Args[0])) {
+			switch {
+			case sig.Variadic():
+				callee = fg.g.ns + "::" + callee // the last argument is a gp::slice (ADL)
+			case len(c.Args) != 1 || !isTuple(fg.g.info.TypeOf(c.Args[0])):
 				callee = fg.g.funcCallName(callee, fg.argTypes(c.Args))
 			}
 		default:
@@ -321,6 +331,11 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 
 	if template {
 		for _, a := range c.Args {
+			if t := fg.g.info.TypeOf(a); t != nil && hasFunc(t) {
+				// Go prints a func's code address (closures.go).
+				fg.g.unsupported(a.Pos(), "printing a func value")
+				return placeholder
+			}
 			if t := fg.g.info.TypeOf(a); t != nil && isPointer(t) {
 				fg.g.unsupported(a.Pos(), "printing a pointer (Phase 03 step 3.15)")
 				return placeholder
@@ -340,11 +355,15 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 		}
 	}
 
-	// f(g()), where g has several results: the arguments are g's results.
-	// (std::apply names the function without calling it, so ADL doesn't apply.)
+	// f(g()), where g has several results: the arguments are g's results. A function of the
+	// package is named qualified, as funcCallName would (std::apply names it without calling
+	// it, so ADL doesn't apply, but the qualified name is the one the other calls use).
 	if len(c.Args) == 1 && isTuple(fg.g.info.TypeOf(c.Args[0])) {
 		arg := fg.expr(c.Args[0])
 		var fn cppir.Expr = cxxName(callee)
+		if sig != nil && !strings.HasPrefix(callee, fg.g.ns+"::") {
+			fn = cxxName(fg.g.ns + "::" + callee)
+		}
 		if template {
 			// std::apply needs a callable object. The elements of the tuple have their
 			// Go types: [](const auto&... gp_a) { gp::println(gp_a...); }
@@ -353,10 +372,13 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 				Params: []cppir.Param{{Type: &cppir.Ref{Elem: &cppir.Const{Elem: typeName("auto")}}, Pack: true, Name: "gp_a"}},
 				Body:   &cppir.Block{Stmts: []cppir.Stmt{body}, Inline: true},
 			}
-		} else if x := fg.tupleArgs(c, callee); x != nil {
-			fn = x // results that Go converts to the parameters' types (step 3.9, named.go)
+		} else if x := fg.tupleArgs(c, sig, fn, false); x != nil {
+			fn = x // results that Go converts to the parameters' types (step 3.9, named.go), or variadic
 		}
 		return &cppir.Call{Fun: cxxName("std::apply"), Args: []cppir.Expr{fn, arg}}
+	}
+	if sig != nil {
+		return &cppir.Call{Fun: cxxName(callee), Args: fg.callArgs(c, sig)} // closures.go: variadics
 	}
 	return &cppir.Call{Fun: cxxName(callee), Args: fg.exprs(c.Args, template)}
 }

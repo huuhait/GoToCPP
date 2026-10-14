@@ -47,13 +47,15 @@
 // has no choices that depend on Go, and lowering never writes text with newlines, indentation
 // or #line (a newline in a node's text is a panic).
 //
+// One expression goes on over several lines: a Lambda whose body is not Inline (a func
+// literal, step 3.11). Its statement's line ends with the lambda's opening brace, the body's
+// statements follow, each with its own place (so a debugger steps through a closure's lines),
+// the closing brace is a line at the body's End, and the rest of the statement, `);`, a line at
+// the statement's place (or, for Lambda.TailAtEnd, after the brace on its line). A line can hold several such lambdas, one after the other, and a body can hold
+// more of them.
+//
 // # Known limits, for later steps
 //
-//   - A Lambda is always written on one line, because an expression is written as one string:
-//     a closure body over several .gp lines (step 3.11, also a deferred func literal) needs the
-//     printer to lay out a lambda body that is not inline over several lines, with a #line for
-//     each statement. (The lambdas of step 3.13, which call a deferred builtin, are generated
-//     code of one .gp line, so one line is right for them.)
 //   - Struct.Name and Func.Name are plain text, so a template specialization is spelled in the
 //     name (Box<int64_t>).
 //   - There is no range-based for, and no structured binding (auto [a, b] = ...); Phase 02 and

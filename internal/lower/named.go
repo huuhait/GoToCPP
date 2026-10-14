@@ -39,10 +39,11 @@ import (
 //	buf[:] (type Buf [8]byte)   gp::sub(gp::base_ptr(buf), 0)  (buf boxed: a gp::ptr<Buf>)
 //
 // Which named types: a defined type over a basic type (not complex), a string, a slice, an array,
-// a map or a pointer, also one declared in a function (moved to the namespace like a local struct,
-// typedecl.go). Over a struct it is a struct of its own (typedecl.go); over a func type, an
-// interface or a channel it comes with those types (steps 3.11, Phase 05, Phase 08). Its methods
-// (step 3.10, methods.go) are members of its struct, as a struct's are.
+// a map, a pointer or a func type (step 3.11: type Handler func(int) is a gp::func<void(int64_t)>,
+// called as one), also one declared in a function (moved to the namespace like a local struct,
+// typedecl.go). Over a struct it is a struct of its own (typedecl.go); over an interface or a
+// channel it comes with those types (Phase 05, Phase 08). Its methods (step 3.10, methods.go)
+// are members of its struct, as a struct's are.
 //
 // Every operator of the underlying type works on the named type and gives it (go/types gives the
 // result its type): the runtime's gp::newtype has the operators of the numbers (converting back
@@ -106,10 +107,8 @@ func (g *gen) newtypeOK(spec *ast.TypeSpec, named *types.Named) bool {
 			return true
 		}
 		g.unsupported(spec.Pos(), "type "+u.Name())
-	case *types.Slice, *types.Array, *types.Map, *types.Pointer:
-		return true
-	case *types.Signature:
-		g.unsupported(spec.Pos(), "named func types (Phase 03 step 3.11)")
+	case *types.Slice, *types.Array, *types.Map, *types.Pointer, *types.Signature:
+		return true // a func type: over gp::func (step 3.11)
 	case *types.Interface:
 		g.unsupported(spec.Pos(), "interface types (Phase 05)")
 	case *types.Chan:
@@ -350,7 +349,7 @@ func tupleConvs(tuple *types.Tuple, to *types.Tuple) bool {
 // the return last; or nil if e needs no conversion.
 func (fg *funcGen) tupleReturn(p cppir.Pos, e ast.Expr) []cppir.Stmt {
 	tuple, ok := fg.g.info.TypeOf(e).(*types.Tuple)
-	res := fg.fn.obj.Signature().Results()
+	res := fg.fn.sig.Results()
 	if !ok || tuple.Len() < 2 || !tupleConvs(tuple, res) {
 		return nil
 	}
@@ -364,26 +363,58 @@ func (fg *funcGen) tupleReturn(p cppir.Pos, e ast.Expr) []cppir.Stmt {
 }
 
 // tupleArgs returns the callable that std::apply calls with the results of g in f(g()), where
-// Go converts some of them implicitly to f's parameter types (step 3.9): a lambda that converts
-// them, [](auto&& gp_e0, auto&& gp_e1) { return f(IDs(gp_e0), gp_e1); }; or nil if none needs a
-// conversion. callee is the C++ name of f.
-func (fg *funcGen) tupleArgs(c *ast.CallExpr, callee string) cppir.Expr {
+// Go converts some of them implicitly to f's parameter types (step 3.9), or where f is variadic
+// (step 3.11): a lambda that converts them and puts the ones of the variadic parameter into a
+// slice, [](auto&& gp_e0, auto&& gp_e1) { return f(IDs(gp_e0), gp::slice_of<int64_t>({gp_e1}));
+// }; or nil if f itself can be the callable. sig is f's signature, callee the C++ of f: the
+// qualified name of a function of the package, or a func value (closures.go), which the lambda
+// captures by reference (it runs at once).
+func (fg *funcGen) tupleArgs(c *ast.CallExpr, sig *types.Signature, callee cppir.Expr, value bool) cppir.Expr {
 	tuple, ok := fg.g.info.TypeOf(c.Args[0]).(*types.Tuple)
-	sig, ok2 := under(fg.g.info.TypeOf(c.Fun)).(*types.Signature)
-	if !ok || !ok2 || !tupleConvs(tuple, sig.Params()) {
+	if !ok || !sig.Variadic() && !tupleConvs(tuple, sig.Params()) {
 		return nil
 	}
+	params, args := fg.spreadTuple(c, sig)
+	body := &cppir.Return{X: &cppir.Call{Fun: callee, Args: args}}
+	lam := &cppir.Lambda{Params: params, Body: &cppir.Block{Stmts: []cppir.Stmt{body}, Inline: true}}
+	if value {
+		lam.Default = "&"
+	}
+	return lam
+}
+
+// spreadTuple returns the parameters of the lambda that std::apply calls with the results of g
+// in f(g()), gp_e0, gp_e1, ..., and the arguments of f made from them (tupleArgs): each
+// converted to its parameter's type where Go converts it, and those of a variadic parameter in
+// a slice (nil for none). sig is f's signature.
+func (fg *funcGen) spreadTuple(c *ast.CallExpr, sig *types.Signature) ([]cppir.Param, []cppir.Expr) {
+	tuple := fg.g.info.TypeOf(c.Args[0]).(*types.Tuple)
+	n := sig.Params().Len()
+	var elem types.Type // of the variadic parameter
+	if sig.Variadic() {
+		if st, ok := under(sig.Params().At(n - 1).Type()).(*types.Slice); ok {
+			elem = st.Elem()
+		}
+	}
 	params := make([]cppir.Param, tuple.Len())
-	args := make([]cppir.Expr, tuple.Len())
-	ts := make([]types.Type, tuple.Len())
+	var args, rest []cppir.Expr
 	for i := range params {
 		name := "gp_e" + strconv.Itoa(i) // (not gp_a: a deferred call's lambda has those)
 		params[i] = cppir.Param{Type: &cppir.Ref{Elem: typeName("auto"), RValue: true}, Name: name}
-		args[i] = fg.g.convertTo(tuple.At(i).Type(), sig.Params().At(i).Type(), cxxName(name), c.Pos())
-		ts[i] = sig.Params().At(i).Type()
+		if elem != nil && i >= n-1 {
+			rest = append(rest, fg.g.convertTo(tuple.At(i).Type(), elem, cxxName(name), c.Pos()))
+		} else {
+			args = append(args, fg.g.convertTo(tuple.At(i).Type(), sig.Params().At(i).Type(), cxxName(name), c.Pos()))
+		}
 	}
-	body := &cppir.Return{X: call(fg.g.funcCallName(callee, ts), args...)}
-	return &cppir.Lambda{Params: params, Body: &cppir.Block{Stmts: []cppir.Stmt{body}, Inline: true}}
+	if elem != nil {
+		if len(rest) == 0 {
+			args = append(args, construct(fg.g.cxxType(sig.Params().At(n-1).Type(), c.Pos()))) // nil
+		} else {
+			args = append(args, templateCall("gp::slice_of", []cppir.Node{fg.g.cxxType(elem, c.Pos())}, &cppir.InitList{Elems: rest}))
+		}
+	}
+	return params, args
 }
 
 // noteConversions finds the implicit conversions in n (see the top) and records the values that

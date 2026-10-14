@@ -178,10 +178,11 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.
 		a, b := fg.expr(x), fg.expr(y) // first, so that an operand's own error comes first
 		if (op == token.EQL || op == token.NEQ) && (isPointer(fg.typeOf(x)) || isPointer(fg.typeOf(y)) ||
 			isSlice(fg.typeOf(x)) || isSlice(fg.typeOf(y)) || isArray(fg.typeOf(x)) ||
-			isMap(fg.typeOf(x)) || isMap(fg.typeOf(y)) || isStruct(fg.typeOf(x))) {
+			isMap(fg.typeOf(x)) || isMap(fg.typeOf(y)) || isStruct(fg.typeOf(x)) ||
+			isFunc(fg.typeOf(x)) || isFunc(fg.typeOf(y))) {
 			// p == q compares the addresses, p == nil is p == nullptr (gp::ptr's ==; C++20
 			// writes != and nil == p from it). A slice or a map compares only with nil:
-			// s == nullptr. Arrays compare their elements (gp::array's ==), structs their
+			// s == nullptr, and so does a func (step 3.11). Arrays compare their elements (gp::array's ==), structs their
 			// fields (the generated operator==, typedecl.go).
 			return &cppir.Binary{Op: op.String(), X: at(a, precShift), Y: at(b, precShift)}
 		}
@@ -548,6 +549,14 @@ func (fg *funcGen) convertValue(c *ast.CallExpr, to, from types.Type, x cppir.Ex
 		qual := types.RelativeTo(fg.g.pkg.Types)
 		fg.g.unsupported(c.Pos(), "the conversion from "+types.TypeString(from, qual)+" to "+types.TypeString(to, qual))
 		return placeholder
+	}
+	if isFunc(to) {
+		// Between func types with identical underlying types (type Handler func(int), step
+		// 3.11): the same C++ type, or nil.
+		if fg.g.info.Types[arg].IsNil() {
+			return construct(fg.g.cxxType(to, c.Pos()))
+		}
+		return x
 	}
 	if isSlice(to) || isSlice(from) {
 		return fg.sliceConversion(c, to, from, x)

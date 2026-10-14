@@ -65,6 +65,10 @@
 //   - structs.go: struct expressions (step 3.8): literals (keyed ones in the fields' order),
 //     fields (also promoted ones, through pointers), the owners of &x.f, the operands of a target
 //     x.f, and the copy before an assignment that could free its value;
+//   - closures.go: func values and closures (step 3.11): func types as gp::func, functions of the
+//     package as values, func literals as lambdas with their captures (by value or the box), their
+//     numbers for the stack trace, calls of func values (gp_call where the call could change
+//     them), variadic calls, and deferred func values;
 //   - defer.go: defer (step 3.13): the single-exit shape of a function with defers (the
 //     results as variables, a gp::defer_frame, the body in a try block, one exit per return),
 //     and the deferred calls, with their arguments evaluated at the defer statement;

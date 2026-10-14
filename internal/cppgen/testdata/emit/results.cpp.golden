@@ -46,7 +46,7 @@ void main() {
 #line 30 "$DIR/results.gp"
     bool ok = std::get<2>(gp_t1);
     gp::fmtshim::Println(s, f, ok);
-    gp::fmtshim::Println(std::apply(sum, pair(3, 4)));
+    gp::fmtshim::Println(std::apply(gpkg_main::sum, pair(3, 4)));
     std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, forward());
     std::apply([](const auto&... gp_a) { gp::println(gp_a...); }, pair(5, 6));
     auto gp_t2 = pair(b, a);

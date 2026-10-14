@@ -99,7 +99,7 @@ void main() {
     { auto gp_t17 = x == 3; auto gp_t18 = inc(); gp::fmtshim::Printf("%v %v %v\n"_gs, gp_t17, gp_t18, first + p1 + p2); }
 #line 90 "$DIR/order.gp"
     { auto gp_t19 = next(); auto gp_t20 = next(); gp::fmtshim::Println(g(gp_t19, g(gp_t20, next()))); }
-    gp::fmtshim::Println(std::apply(both, pair()));
+    gp::fmtshim::Println(std::apply(gpkg_main::both, pair()));
     std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, pair());
     std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, ret());
     std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, ret2());

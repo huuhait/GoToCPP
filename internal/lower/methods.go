@@ -413,10 +413,6 @@ func (fg *funcGen) analyzeMethod(c *ast.CallExpr, x *ast.SelectorExpr, s *types.
 // methodCall returns the C++ of the call c of a method, x.M(args) (see the top).
 func (fg *funcGen) methodCall(c *ast.CallExpr, x *ast.SelectorExpr, s *types.Selection) cppir.Expr {
 	fn := s.Obj().(*types.Func)
-	if fn.Signature().Variadic() {
-		fg.g.unsupported(c.Pos(), "variadic functions (Phase 03)")
-		return placeholder
-	}
 	r := pathOf(s)
 	recv, ptr := fg.recvs[x], false // a deferred call's stored receiver (storeRecv)
 	if recv == nil {
@@ -427,16 +423,11 @@ func (fg *funcGen) methodCall(c *ast.CallExpr, x *ast.SelectorExpr, s *types.Sel
 	var params []cppir.Param
 	if tuple {
 		// x.M(g()), where g has several results: std::apply calls a lambda with them, which
-		// converts them to M's parameter types where Go does (step 3.9, as tupleArgs).
-		tt := fg.g.info.TypeOf(c.Args[0]).(*types.Tuple)
-		ps := fn.Signature().Params()
-		for i := range tt.Len() {
-			name := "gp_e" + strconv.Itoa(i)
-			params = append(params, cppir.Param{Type: &cppir.Ref{Elem: typeName("auto"), RValue: true}, Name: name})
-			args = append(args, fg.g.convertTo(tt.At(i).Type(), ps.At(i).Type(), cxxName(name), c.Pos()))
-		}
+		// converts them to M's parameter types where Go does (step 3.9) and puts those of a
+		// variadic parameter in a slice (step 3.11), as tupleArgs.
+		params, args = fg.spreadTuple(c, fn.Signature())
 	} else {
-		args = fg.exprs(c.Args, false)
+		args = fg.callArgs(c, fn.Signature()) // closures.go: variadics
 	}
 	call := fg.g.callMethod(recv, ptr, fn, r, args, c.Pos())
 	if !tuple {

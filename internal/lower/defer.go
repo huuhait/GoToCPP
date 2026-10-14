@@ -52,20 +52,21 @@ import (
 //   - anything else (a builtin, fmt.Println): gp_df.gp_push_call with a generic lambda whose
 //     body is the call, with each argument that is not a constant a parameter of the lambda:
 //     gp_df.gp_push_call([](auto&& gp_a0) { gp::println(gp_a0, 1); }, x). The stack trace leaves
-//     a generic lambda out (gocpp's helper), and it doesn't count in the numbers of the func
-//     literals (main.f.func1) of the function, which are its non-generic lambdas.
+//     a generic lambda out (gocpp's helper): it is no func literal (those have their numbers,
+//     main.f.func1, as a template argument: closures.go);
+//   - a func value (step 3.11, closures.go: deferValue): gp_df.gp_push_call(f, a, b), a copy of
+//     the func value f, evaluated now (a nil f panics when the call runs, as in Go), and a
+//     deferred func literal as its lambda, gp_df.gp_push_call([n]<int = 1>() mutable -> void {
+//     ... }): it is the user's code, which the trace shows as main.f.func1, as Go does. A func
+//     literal with defers of its own gets the same shape inside its lambda.
 //
-// The lambda is one line, at the defer statement's line, so gdb has no lines of its own to
-// step through there; a deferred function of the program is stepped into as any call.
+// The generic lambda is one line, at the defer statement's line, so gdb has no lines of its own
+// to step through there; a deferred function of the program is stepped into as any call.
 //
 // A method call (step 3.10) stores its receiver as the lambda's first argument, evaluated at
 // the defer statement as Go does: a copy of the value for a value method (defer p.M() copies
 // *p there, and panics there for a nil p), the pointer for a pointer method (methods.go:
-// storeRecv). For later steps: a call of a func value (3.11) must store the func value too, as
-// an argument of the lambda, and a deferred func literal is pushed as it is
-// (gp_df.gp_push_call(lambda)): it is the user's code, which the trace shows as main.f.func1,
-// as Go does; its body is several lines (the multi-line lambda of the cppir package doc). A
-// func literal with defers of its own gets the same shape inside its lambda.
+// storeRecv).
 
 // A deferInfo is what the single-exit shape of a function with defers needs (funcInfo.defers).
 type deferInfo struct {
@@ -101,11 +102,11 @@ func hasDefer(body *ast.BlockStmt) bool {
 // prepareDefers is prepare's part for a function with defers: it gets a deferInfo, and its
 // results that have no names get gp_r names, for the variables that the returns assign.
 func (f *funcInfo) prepareDefers() {
-	if f.decl.Body == nil || !hasDefer(f.decl.Body) {
+	if f.body == nil || !hasDefer(f.body) {
 		return
 	}
 	f.defers = &deferInfo{}
-	res := f.obj.Signature().Results()
+	res := f.sig.Results()
 	if f.results == nil && res.Len() > 0 {
 		f.results = make([]string, res.Len())
 		for i := range f.results {
@@ -127,7 +128,7 @@ func (fg *funcGen) openDefers() {
 	if d == nil {
 		return
 	}
-	p := fg.g.pos(fg.fn.decl.Pos())
+	p := fg.g.pos(fg.fn.pos)
 	d.try = &cppir.Try{Pos: p, Body: &cppir.Block{}}
 	frame := varDecl(p, typeName("gp::defer_frame"), deferFrame, nil)
 	fg.add(&cppir.Line{Pos: p, Stmts: []cppir.Stmt{frame, d.try}})
@@ -168,7 +169,7 @@ func (fg *funcGen) exitStmts(pos cppir.Pos, ret bool) []cppir.Stmt {
 	}
 	r := &cppir.Return{Pos: pos}
 	if len(fg.fn.results) > 0 {
-		res := fg.fn.obj.Signature().Results()
+		res := fg.fn.sig.Results()
 		values := make([]cppir.Expr, len(fg.fn.results))
 		for i, n := range fg.fn.results {
 			values[i] = cxxName(n)
@@ -193,7 +194,7 @@ func (fg *funcGen) deferReturn(s *ast.ReturnStmt) {
 		fg.add(jump) // a bare return: the named results are set already
 		return
 	}
-	res := fg.fn.obj.Signature().Results()
+	res := fg.fn.sig.Results()
 	targets := make([]target, len(fg.fn.results))
 	for i, n := range fg.fn.results {
 		targets[i] = varTarget(n)
@@ -221,10 +222,13 @@ func (fg *funcGen) deferStmt(s *ast.DeferStmt) {
 	c := s.Call
 	pre := fg.order(false, c) // the arguments' order, as for the call as a statement
 	var push cppir.Expr
-	if fn := fg.deferredFunc(c); fn != nil {
+	switch fn := fg.deferredFunc(c); {
+	case fn != nil:
 		args := append([]cppir.Expr{cxxName(fg.cname(fn, c.Fun.Pos()))}, fg.exprs(c.Args, false)...)
 		push = frameCall("gp_push", args...)
-	} else {
+	case fg.funcValueCall(c):
+		push = fg.deferValue(c) // closures.go
+	default:
 		push = fg.deferThunk(c)
 	}
 	fg.add(withPre(p, pre, &cppir.ExprStmt{Pos: p, X: push}))

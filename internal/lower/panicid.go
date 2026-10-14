@@ -69,15 +69,16 @@ func (fg *funcGen) singleDef(v *types.Var) ast.Expr {
 		return nil
 	}
 	if fg.singleDefs == nil {
-		fg.singleDefs = singleDefs(fg.g.info, fg.fn.decl, fg.boxed)
+		fg.singleDefs = singleDefs(fg.g.info, fg.fn.top, fg.boxed)
 	}
 	return fg.singleDefs[v]
 }
 
-// singleDefs finds the local variables of the function decl that have one definition, with a
-// value, and no other assignment, and whose address is never taken (boxed: box.go's reasons),
+// singleDefs finds the local variables in top (a function declaration, or a package variable's
+// initializer, with the func literals in it) that have one definition, with a value, and no
+// other assignment, and whose address is never taken (boxed: box.go's reasons),
 // with their initializers.
-func singleDefs(info *types.Info, decl *ast.FuncDecl, boxed map[*types.Var]boxReason) map[*types.Var]ast.Expr {
+func singleDefs(info *types.Info, top ast.Node, boxed map[*types.Var]boxReason) map[*types.Var]ast.Expr {
 	defs := make(map[*types.Var]ast.Expr)
 	changed := make(map[*types.Var]bool)
 	assigned := func(e ast.Expr) {
@@ -102,7 +103,7 @@ func singleDefs(info *types.Info, decl *ast.FuncDecl, boxed map[*types.Var]boxRe
 			}
 		}
 	}
-	ast.Inspect(decl.Body, func(n ast.Node) bool {
+	ast.Inspect(top, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.AssignStmt:
 			if n.Tok == token.DEFINE {

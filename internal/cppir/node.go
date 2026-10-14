@@ -99,11 +99,13 @@ type Template struct {
 }
 
 // A Param is a parameter of a function, a lambda or a template: `Type Name`, `Type... Name`
-// for a parameter pack (Pack), and only `Type` without a Name.
+// for a parameter pack (Pack), and only `Type` without a Name; `Type Name = Default` with a
+// default argument (int = 1 for a template parameter without a name).
 type Param struct {
-	Type Type
-	Name string
-	Pack bool
+	Type    Type
+	Name    string
+	Pack    bool
+	Default Expr
 }
 
 // A Struct is a class type, defined, or only declared (Forward):
@@ -426,16 +428,28 @@ type Designated struct {
 	X    Expr
 }
 
-// A Lambda is [Default, Captures](Params) Specs -> Result { Body... }, without -> Result if
-// Result is nil: [n, &m](int64_t x) mutable -> int64_t { ... }. Print writes it on one line
-// (see the package doc).
+// A Lambda is [Default, Captures]<Template>(Params) Specs -> Result { Body... }, without
+// <Template> if it is nil and without -> Result if Result is nil: [n, &m](int64_t x) mutable ->
+// int64_t { ... }, [n]<int = 1>() -> int64_t { ... }.
+//
+// A Lambda whose Body is Inline is written on one line, inside the line of its statement. One
+// whose Body is not Inline goes on over several lines (the body of a func literal): the line of
+// its statement ends after the opening brace, the body's statements follow one level deeper,
+// each at its own place, the closing brace is a line of its own at Body.End, and the rest of the
+// statement (`);`) a line at the statement's place, so that the code of the statement maps to
+// its line, not to the brace's. With TailAtEnd the rest follows the brace on its line instead
+// (`}.operator()();`: a lambda called at once, whose call Go puts on that line). (ExprString
+// writes every Lambda on one line.)
 type Lambda struct {
 	Default  string // the capture default: "", "=" or "&"
 	Captures []Capture
+	Template []Param // the template parameters (a lambda template, C++20), or nil
 	Params   []Param
 	Specs    []string // mutable, constexpr, noexcept, ...
 	Result   Type
 	Body     *Block
+
+	TailAtEnd bool
 }
 
 // A Capture is one capture of a Lambda: Name (a copy), &Name with ByRef, and Name = Init or

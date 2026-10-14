@@ -2,6 +2,7 @@ package cppir
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -9,7 +10,7 @@ import (
 // the C++ goes to, or "" if it isn't known: the lines with the zero Pos then get #line
 // directives with their own lines in that file (see the package doc).
 func Print(f *File, out string) []byte {
-	p := &printer{}
+	p := &printer{split: true}
 	p.w.out = out
 	p.decls(f.Decls)
 	return p.w.buf.Bytes()
@@ -18,11 +19,43 @@ func Print(f *File, out string) []byte {
 // A printer writes a tree to its writer.
 type printer struct {
 	w writer
+
+	// split: a Lambda whose body is not Inline goes on over several lines (Print). Then the
+	// text of a line holds a mark for each such lambda, a NUL byte, its index in lambdas and a
+	// NUL byte, and line writes the lambda there (no node's text has a NUL: CString escapes it).
+	split   bool
+	lambdas []*Lambda
 }
 
-// line writes one line of text mapped to pos (a plain line for the zero Pos).
+// line writes one line of text mapped to pos (a plain line for the zero Pos), and the lambdas
+// that it marks over the lines that follow it (see Lambda).
 func (p *printer) line(pos Pos, text string) {
-	p.w.line(pos, text)
+	start := pos // the statement's place, for what follows a lambda's closing brace
+	for {
+		i := strings.IndexByte(text, 0)
+		if i < 0 {
+			p.w.line(pos, text)
+			return
+		}
+		j := i + 1 + strings.IndexByte(text[i+1:], 0)
+		k, err := strconv.Atoi(text[i+1 : j])
+		if err != nil || j <= i || k >= len(p.lambdas) {
+			panic(fmt.Sprintf("cppir: a broken lambda mark in %q", text))
+		}
+		lam := p.lambdas[k]
+		p.w.line(pos, text[:i]+p.lambdaHead(lam)+" {")
+		p.indented(lam.Body.Stmts)
+		rest := text[j+1:]
+		if lam.TailAtEnd || rest == "" {
+			text, pos = "}"+rest, lam.Body.End
+			continue
+		}
+		// The closing brace alone at Body.End (the lambda's own end), and the rest of the
+		// statement on a line of its own at the statement's place, so a debugger's next over the
+		// statement stays on its line.
+		p.w.line(lam.Body.End, "}")
+		text, pos = rest, start
+	}
 }
 
 // ---- Declarations ----
@@ -131,6 +164,9 @@ func (p *printer) param(pa Param) string {
 	}
 	if pa.Name != "" {
 		s += " " + pa.Name
+	}
+	if pa.Default != nil {
+		s += " = " + p.operand(pa.Default, PrecAssign)
 	}
 	return s
 }
@@ -530,6 +566,10 @@ func (p *printer) expr(e Expr) string {
 	case *Postfix:
 		return p.operand(e.X, PrecPostfix) + e.Op
 	case *Index:
+		if startsWithLambda(e.Index) {
+			// a[[]() { ... }()] would start an attribute, [[.
+			return p.operand(e.X, PrecPostfix) + "[(" + p.expr(e.Index) + ")]"
+		}
 		return p.operand(e.X, PrecPostfix) + "[" + p.expr(e.Index) + "]"
 	case *Member:
 		op := "."
@@ -554,32 +594,74 @@ func (p *printer) expr(e Expr) string {
 	case *Designated:
 		return "." + e.Name + " = " + p.operand(e.X, PrecAssign)
 	case *Lambda:
-		var caps []string
-		if e.Default != "" {
-			caps = append(caps, e.Default)
+		if p.split && !e.Body.Inline {
+			// Written over several lines by line (see Lambda).
+			p.lambdas = append(p.lambdas, e)
+			return "\x00" + strconv.Itoa(len(p.lambdas)-1) + "\x00"
 		}
-		for _, c := range e.Captures {
-			cs := c.Name
-			if c.ByRef {
-				cs = "&" + cs
-			}
-			if c.Init != nil {
-				cs += " = " + p.operand(c.Init, PrecAssign)
-			}
-			caps = append(caps, cs)
-		}
-		s := "[" + strings.Join(caps, ", ") + "](" + p.params(e.Params) + ")"
-		if len(e.Specs) > 0 {
-			s += " " + strings.Join(e.Specs, " ")
-		}
-		if e.Result != nil {
-			s += " -> " + p.typ(e.Result)
-		}
-		return s + " " + p.braces(e.Body.Stmts)
+		return p.lambdaHead(e) + " " + p.braces(e.Body.Stmts)
 	case *Expand:
 		return p.operand(e.X, PrecPostfix) + "..."
 	}
 	panic(fmt.Sprintf("cppir: unknown expression %T", e))
+}
+
+// startsWithLambda reports whether the C++ of e starts with a lambda's [.
+func startsWithLambda(e Expr) bool {
+	for {
+		switch x := e.(type) {
+		case *Lambda:
+			return true
+		case *Call:
+			e = x.Fun
+		case *Binary:
+			e = x.X
+		case *Postfix:
+			e = x.X
+		case *Index:
+			e = x.X
+		case *Member:
+			e = x.X
+		case *Assign:
+			e = x.X
+		case *Cond:
+			e = x.Cond
+		case *Expand:
+			e = x.X
+		default:
+			return false
+		}
+	}
+}
+
+// lambdaHead returns the lambda without its body: [n]<int = 1>(int64_t x) -> int64_t.
+func (p *printer) lambdaHead(e *Lambda) string {
+	var caps []string
+	if e.Default != "" {
+		caps = append(caps, e.Default)
+	}
+	for _, c := range e.Captures {
+		cs := c.Name
+		if c.ByRef {
+			cs = "&" + cs
+		}
+		if c.Init != nil {
+			cs += " = " + p.operand(c.Init, PrecAssign)
+		}
+		caps = append(caps, cs)
+	}
+	s := "[" + strings.Join(caps, ", ") + "]"
+	if e.Template != nil {
+		s += "<" + p.params(e.Template) + ">"
+	}
+	s += "(" + p.params(e.Params) + ")"
+	if len(e.Specs) > 0 {
+		s += " " + strings.Join(e.Specs, " ")
+	}
+	if e.Result != nil {
+		s += " -> " + p.typ(e.Result)
+	}
+	return s
 }
 
 // targs returns the template arguments <a, b>, or "" for nil.

@@ -323,16 +323,14 @@ func TestUnsupported(t *testing.T) {
 		{"slice-tags", "func main() {\n\t_ = []struct{ Q int }([]struct {\n\t\tQ int `t:\"q\"`\n\t}{})\n}", `main.gp:4:6: cppgen: not supported yet: the conversion from []struct{Q int "t:\"q\""} to []struct{Q int}`},
 		{"struct-slice-tags", "type W struct{ S []struct{ Q int `t:\"q\"` } }\ntype V struct{ S []struct{ Q int } }\nfunc main() {\n\t_ = V(W{})\n}", "main.gp:6:6: cppgen: not supported yet: the conversion from W to V, whose fields differ in struct tags inside a slice or a map"},
 		{"struct-map-tags", "type W struct{ M map[int]struct{ Q int `t:\"q\"` } }\ntype V struct{ M map[int]struct{ Q int } }\nfunc main() {\n\t_ = V(W{})\n}", "main.gp:6:6: cppgen: not supported yet: the conversion from W to V, whose fields differ in struct tags inside a slice or a map"},
-		{"namedfunc", "type F func(int) int\nfunc main() {}", "main.gp:3:6: cppgen: not supported yet: named func types (Phase 03 step 3.11)"},
 		{"namedcomplex", "type Z complex128\nfunc main() {}", "main.gp:3:6: cppgen: not supported yet: type complex128"},
 		{"methodvalue", "type T struct{}\nfunc (T) M() {}\nfunc main() {\n\tvar t T\n\tprintln(t.M == nil)\n}", "main.gp:7:10: cppgen: not supported yet: method values (Phase 03 step 3.10 after 3.11)"},
 		{"fmtslice", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, [][]int{})\n}", "main.gp:5:17: cppgen: not supported yet: printing a slice (Phase 03 step 3.15)"},
 		{"fmtarray", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, [2]int{})\n}", "main.gp:5:17: cppgen: not supported yet: printing an array (Phase 03 step 3.15)"},
-		{"spread", "func f(a ...int) {}\nfunc main() {\n\tf([]int{1}...)\n}", "main.gp:5:12: cppgen: not supported yet: f(s...) (Phase 03)"},
 		{"methodexpr", "type T int\nfunc (T) M() {}\nfunc main() {\n\tprintln(T.M == nil)\n}", "main.gp:6:10: cppgen: not supported yet: method expressions (Phase 03 step 3.10 after 3.11)"},
-		{"methodvariadic", "type T int\nfunc (T) M(a ...int) {}\nfunc main() {\n\tvar t T\n\tt.M(1)\n}", "main.gp:7:2: cppgen: not supported yet: variadic functions (Phase 03)"},
-		{"funcvalue", "func g() {}\nfunc main() {\n\tf := g\n\tf()\n}", "main.gp:5:2: cppgen: not supported yet: type func()"},
-		{"funcvalue2", "func g() {}\nfunc main() {\n\tprintln(g == nil)\n}", "main.gp:5:10: cppgen: not supported yet: function values (Phase 03)"},
+		{"printfunc", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, main)\n}", "main.gp:5:17: cppgen: not supported yet: printing a func value"},
+		{"printlnfunc", "func g() {}\nfunc main() {\n\tprintln(g)\n}", "main.gp:5:10: cppgen: not supported yet: printing a func value with println"},
+		{"printfuncfield", "import \"fmt\"\ntype T struct{ f func() }\nfunc main() {\n\tfmt.Println(T{})\n}", "main.gp:6:14: cppgen: not supported yet: printing a func value"},
 		{"complex", "func main() {\n\tc := complex(1, 2)\n\tprintln(real(c))\n}", "main.gp:4:2: cppgen: not supported yet: type complex128"},
 		{"printf", "import \"fmt\"\nfunc main() {\n\tfmt.Printf(\"%5d\\n\", 1)\n}", `main.gp:5:13: cppgen: not supported yet: the fmt.Printf verb %5d (Phase 03)`},
 		{"printf-goverb", "import \"fmt\"\nfunc main() {\n\tfmt.Printf(\"%z %x\\n\", 1, 2)\n}", `main.gp:5:13: cppgen: not supported yet: the fmt.Printf verb %x (Phase 03)`},
@@ -341,7 +339,6 @@ func TestUnsupported(t *testing.T) {
 		{"sprint", "import \"fmt\"\nfunc main() {\n\tprintln(fmt.Sprint(1))\n}", "main.gp:5:10: cppgen: not supported yet: fmt.Sprint: Phase 02 has only fmt.Print, fmt.Println and fmt.Printf"},
 		{"errorresult", "import \"fmt\"\nfunc main() {\n\tn, err := fmt.Println()\n\tprintln(n, err)\n}", "main.gp:5:5: cppgen: not supported yet: type error"},
 		{"rangechan", "func main() {\n\tfor range make(chan int) {\n\t}\n}", "main.gp:4:12: cppgen: not supported yet: range over channels (Phase 08)"},
-		{"deferlit", "func main() {\n\tdefer func() {}()\n}", "main.gp:4:8: cppgen: not supported yet: calls of function literals (Phase 03)"},
 		{"go", "func main() {\n\tgo println()\n}", "main.gp:4:2: cppgen: not supported yet: go statements (Phase 08)"},
 		{"insideif", "func main() {\n\tif x := 1; x > 0 {\n\t\tgo println()\n\t}\n}", "main.gp:5:3: cppgen: not supported yet: go statements (Phase 08)"},
 		{"nomain", "func f() {}", "main.gp:2:9: cppgen: function main is undeclared in the main package"},
@@ -661,6 +658,20 @@ func TestPanics(t *testing.T) {
 		{"method-index-after-args", "s := []Pt{{1, 2}}\n\ti := 1\n\ts[i].set(clear())"},
 		{"method-div", "p := Pt{1, 0}\n\tfmt.Println(p.div())"},
 		{"method-div-pointer", "p := &Pt{1, 0}\n\tp.divSet()"},
+		// Func values (step 3.11): calling nil panics like a nil dereference (with the signal
+		// line), after the arguments; also a nil field, map value, element and deferred func (when
+		// the deferred call runs); a panic in a closure, in a deferred closure, and in a closure
+		// in a package variable.
+		{"func-nil", "var fn func()\n\tfmt.Println(\"before\")\n\tfn()"},
+		{"func-nil-args-first", "var fn func(int)\n\targ := func() int { fmt.Println(\"arg\"); return 1 }\n\tfn(arg())"},
+		{"func-nil-field", "type H struct{ f func() }\n\tvar h H\n\th.f()"},
+		{"func-nil-map", "m := map[string]func(){}\n\tfmt.Println(len(m))\n\tm[\"x\"]()"},
+		{"func-nil-elem", "fs := make([]func(int) int, 2)\n\tfmt.Println(fs[1](3))"},
+		{"func-nil-deferred", "var fn func()\n\tdefer fn()\n\tfmt.Println(\"body\")"},
+		{"func-nil-result", "mkf := func() func() { return nil }\n\tmkf()()"},
+		{"func-closure-panic", "n := 0\n\tinc := func() {\n\t\tn++\n\t\tif n == 2 {\n\t\t\tpanic(n)\n\t\t}\n\t}\n\tinc()\n\tinc()"},
+		{"func-deferred-closure", "defer func() { panic(\"in defer\") }()\n\tpanic(\"body\")"},
+		{"func-pkg-closure", "fmt.Println(gfn(2))\n\tfmt.Println(gfn(0))"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -682,6 +693,9 @@ func TestPanics(t *testing.T) {
 			}
 			if strings.Contains(tt.body, "gbig") {
 				src += "\nvar gbig = 100000\n"
+			}
+			if strings.Contains(tt.body, "gfn(") {
+				src += "\nvar gfn = func(n int) int {\n\treturn 10 / n\n}\n"
 			}
 			if strings.Contains(tt.body, "div(") {
 				src += "\nfunc div(a, b int) int {\n\treturn a / b\n}\n"

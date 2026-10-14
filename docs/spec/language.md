@@ -391,7 +391,7 @@ fmt.Println(unsafe.Sizeof(struct{}{}), unsafe.Sizeof(struct {
 | `weak.Pointer[T]` | 8 | 24 | a `std::weak_ptr` and the address it was made from |
 | `map[K]V` | 8 | 16 | a `std::shared_ptr` to the map table |
 | `chan T` | 8 | 16 | a `std::shared_ptr` to the channel ([Phase 08](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md)) |
-| `func(...)` | 8 | 32 | a `std::function` wrapper ([Phase 03 §2.6](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#26-functions-func-values-closures)) |
+| `func(...)` | 8 | 24 | the owner of the closure and its code pointer ([Phase 03 §2.6](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#26-functions-func-values-closures)) |
 | interface values | 16 | 32 | data, type descriptor, method table ([Phase 05 §2.3](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md#23-interface-values-and-itabs)) |
 | `struct{}`, `[0]T` | 0 | 1 | in C++, every object takes at least 1 byte |
 

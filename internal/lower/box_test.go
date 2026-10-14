@@ -130,6 +130,9 @@ func closures() {
 	_, _, _, _, _ = f, g, m, s, n
 	o := 1
 	_ = func() { _ = o } // captured, never changed
+	var big [17]int // box: captured and large
+	var small [16]int // 128 bytes: copied
+	_ = func() { _, _ = big[0], small[0] }
 }
 
 func inner() {

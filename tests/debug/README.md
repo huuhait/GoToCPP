@@ -56,7 +56,7 @@ first time the line runs, then runs the commands of the comment, separated by `;
 |---|---|---|
 | `print EXPR = VALUE` | `print EXPR` | gdb prints `$N = VALUE`, exactly |
 | `print EXPR ~ REGEXP` | `print EXPR` | the value matches the regexp (for values with addresses). The first ` = ` or ` ~ ` ends `EXPR` |
-| `bt F1 F2 ...` | `bt` | the program's frames (the ones in `gpkg_main::`) are `F1 F2 ...`, from frame #0 on, each at a `.gp` line of its func (frame #0 at the stop), and the outermost frame is the generated `main`, at a line of `x.gp.cpp`. Between two of the program's frames only a deferred call's frames may come: a run of the runtime's and the C++ library's (`gp::`, `std::`) that ends with `gp::defer_frame::gp_run`, just inside the next program frame. Write the names as gdb shows them: `gpkg_main::add`, and a method as a member of its type's struct: `gpkg_main::Point::Move` |
+| `bt F1 F2 ...` | `bt` | the program's frames (the ones in `gpkg_main::`, and the lambdas of its func literals) are `F1 F2 ...`, from frame #0 on, each at a `.gp` line of its func or func literal (frame #0 at the stop), and the outermost frame is the generated `main`, at a line of `x.gp.cpp`. Between two of the program's frames only a deferred call's frames or a func value's may come: a run of the runtime's and the C++ library's (`gp::`, `std::`, `__`) that ends with `gp::defer_frame::gp_run` or a frame of `gp::func`, just inside the next program frame. Write the names as gdb shows them, `gpkg_main::add`, a method as a member of its type's struct: `gpkg_main::Point::Move`, and a func literal by its Go name: `gpkg_main::main.func1` (the first literal of `main`), `gpkg_main::main.func1.1` (the first one in it) |
 | `next L1 L2 ...` | `next`, once per line | each `next` stops at the next line of the list, in the `.gp` file, in the func of that line: so `next` never goes into the `.cpp` file or a runtime header for a user statement |
 
 The session is: for each stop, in the order of the lines, `tbreak x.gp:N` (gdb must put it at
@@ -131,5 +131,28 @@ What the debugger shows in this phase (the gdb and lldb pretty printers come wit
 - **Columns.** The debug info has no columns (`gocpp build` passes `-gno-column-info`): the
   compilers only know the columns of the C++ code, and lldb would show them on the `.gp` line
   (`hello.gp:16:26`, with its `^` at the wrong place). So debuggers show lines only.
+- **Closures.** A func literal is a C++ lambda whose body keeps its `.gp` lines
+  ([closures.gp](closures.gp)): `break` and `next` work in it, and `print` shows its parameters,
+  its locals and what it captured by their Go names (a variable that the closure shares with its
+  function is boxed: `print *count`), and `next` over a statement that makes a closure goes on to
+  the next statement (the C++ after the lambda's closing brace, `);`, is mapped to the
+  statement's line, not to the brace's). gdb names the lambda's frame `operator()<>(int64_t)` (g++)
+  or `gpkg_main::main()::$_0::operator()<1>(long)` (clang++); the `<1>` is the literal's number in
+  its function, as in Go's `main.main.func1`. Between the lambda and the frame that called the
+  func value are two frames of `gp::func` (`gocpp/func.hpp`): `operator()` (or `gp_call`) and
+  `gp_call_obj`, which calls the lambda. On both compilers they show up when you step:
+  - `step` at a call of a func value (`inc()`) goes through the runtime's lines first:
+    `func.hpp`'s `operator()` (three lines: the nil check and the call), then
+    `std::__shared_ptr::get` (`shared_ptr_base.h`), then `gp_call_obj` (`func.hpp`), and only then
+    to the closure's first line: five stops in the runtime before the closure (the sixth `step` reaches
+    it). A `break` on the closure's first line is quicker;
+  - `step` at a call that passes a func value (`apply(add, 1)`) goes into `gp::func`'s copy
+    constructor (`func.hpp`), then into `std::shared_ptr`'s, before it reaches the callee;
+  - `finish` from a closure stops in `gp_call_obj`, then in `operator()`: three `finish`es get
+    back to the frame that called the func value;
+  - with g++, `next` from the last line of a closure that a func value called stops in
+    `gp_call_obj` (`func.hpp`) too; clang++ goes back to the caller.
+
+  Phase 13's `gocpp debug` adds skip rules for the runtime's frames.
 - **Generated code.** The `main` wrapper maps to the generated `.cpp` file, which is gone after
   the build (`gocpp build -work` keeps it), and the runtime to its files in the gocpp cache.

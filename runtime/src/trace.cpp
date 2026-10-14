@@ -67,6 +67,7 @@ struct comp {
     std::string text;   // a source name
     bool targs = false; // template arguments follow it
     int lambda_n = 0;   // a lambda's number, 1 for the first; 0 when unknown
+    int targ_n = 0;     // the template argument when it is one int, <N> (from 1); else 0
 };
 
 struct encoding;
@@ -280,7 +281,7 @@ private:
                     fail();
                     return;
                 }
-                template_args();
+                comps.back().targ_n = template_args();
                 comps.back().targs = true;
                 continue;
             }
@@ -304,11 +305,22 @@ private:
             }
             comps.push_back(n);
         } else if (eat("Ul")) {
-            // A lambda: Ul <parameter types> E [<number>] _; the first one is #1.
+            // A lambda: Ul <template parameters> <parameter types> E [<number>] _; the first one
+            // is #1. A template parameter of a lambda template is Ty (a type), Tn <type> (a
+            // value: gocpp's <int = N>) or Tp <parameter> (a pack).
             while (!bad && !eat("E")) {
                 if (at_end()) {
                     fail();
                     return;
+                }
+                while (eat("Tp")) {
+                }
+                if (eat("Ty")) {
+                    continue;
+                }
+                if (eat("Tn")) {
+                    type();
+                    continue;
                 }
                 type();
             }
@@ -362,15 +374,30 @@ private:
         }
     }
 
-    void template_args() {
+    // template_args skips template arguments, I <arg>... E. It returns N when they are one
+    // positive int literal, ILi<N>EE (gocpp's numbers of func literals), else 0.
+    int template_args() {
+        std::size_t start = i_;
         i_++; // I
         while (!bad && !eat("E")) {
             if (at_end()) {
                 fail();
-                return;
+                return 0;
             }
             template_arg();
         }
+        std::string_view a = s_.substr(start, i_ - start);
+        if (bad || !a.starts_with("ILi") || !a.ends_with("EE") || a.size() < 6 || a[3] == '0') {
+            return 0;
+        }
+        int n = 0;
+        for (char c : a.substr(3, a.size() - 5)) {
+            if (!digit(c) || n > 100000000) {
+                return 0;
+            }
+            n = n * 10 + (c - '0');
+        }
+        return n;
     }
 
     // template_arg counts the depth like type: a pack (J) holds template arguments.
@@ -581,15 +608,22 @@ go_name gocpp_name(const encoding& e) {
             return r;
         }
         if (cs.size() == 2 && cs[0].kind == comp::lambda && cs[1].kind == comp::call_op) {
+            // A func literal is a lambda template, [n]<int = N>(...) (internal/lower's
+            // closures.go): N is its number in the function, as Go numbers them, where the
+            // compilers' own numbers of lambdas differ. A generic lambda (auto parameters) is
+            // gocpp's own helper (std::apply's callable, a deferred builtin), never a Go func
+            // literal.
+            int n = cs[0].lambda_n;
             if (cs[1].targs) {
-                // A generic lambda (auto parameters): gocpp's own helper (std::apply's
-                // callable), never a Go func literal.
-                r.kind = go_name::runtime;
-                return r;
+                if (cs[1].targ_n == 0) {
+                    r.kind = go_name::runtime;
+                    return r;
+                }
+                n = cs[1].targ_n;
             }
             r.kind = go_name::gocpp;
-            r.name = outer.name + (outer.closure ? "." : ".func") +
-                     (cs[0].lambda_n > 0 ? std::to_string(cs[0].lambda_n) : "?");
+            r.name =
+                outer.name + (outer.closure ? "." : ".func") + (n > 0 ? std::to_string(n) : "?");
             r.closure = true;
             return r;
         }

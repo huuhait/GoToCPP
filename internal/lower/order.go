@@ -72,6 +72,13 @@ import (
 // OSTR2RUNES). The elements of a composite literal are ordered like the operands of an
 // operator (gc reads the variables in them after the calls).
 //
+// A call of a func value (step 3.11, closures.go) has the func value in its own scope, first.
+// gc evaluates a func value that has a call in it (f(), fs[i()], m[k()]) as a whole into a
+// temporary before the arguments (typecheck's RewriteNonNameCall), so it is a unit of its own
+// there (calleeCopied); any other one (f, fs[i], m[k], s.f) is read after the calls of the
+// arguments, like any variable: f(g()) with a g that changes the package variable f calls the
+// new f, fs[i()](g()) the old element.
+//
 // Maps (step 3.7, maps.go) add a read and units: m[k] reads the map's table, which any call can
 // change, after the calls of its scope (gc doesn't copy OINDEXMAP), and len(m) and make are
 // evaluated in their places among the calls; a map literal is evaluated as a whole in its place
@@ -355,10 +362,14 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		}
 		// A call; also append, copy and clear, which write the elements of an array that
 		// other slices can see. A method's receiver is evaluated with the arguments
-		// (methods.go).
+		// (methods.go). The func value of a call of one (closures.go) is in the call's scope,
+		// before the arguments (calleeCopied).
 		var args *orderScope
 		if sel, s := fg.methodSel(x); sel != nil {
 			args = fg.analyzeMethod(x, sel, s)
+		} else if fg.funcValueCall(x) {
+			list := append([]ast.Expr{x.Fun}, x.Args...)
+			args = fg.analyzeCopied(false, list, func(i int, e ast.Expr) bool { return i == 0 && fg.calleeCopied(e) })
 		} else {
 			args = fg.analyzeArgs(false, x.Args, iface)
 		}
@@ -452,6 +463,29 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		}
 		add(&orderItem{unit: true, eff: eff, inner: []*orderScope{in}})
 	}
+}
+
+// calleeCopied reports whether gc evaluates the func value e of a call into a temporary before
+// the call's arguments (typecheck's RewriteNonNameCall): e has a call in it (also of a builtin,
+// but not new(T); not one inside a func literal, nor a conversion) or a receive.
+func (fg *funcGen) calleeCopied(e ast.Expr) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.CallExpr:
+			if !fg.g.info.Types[x.Fun].IsType() && fg.g.info.Types[x].Value == nil && !fg.isBuiltin(x, "new") {
+				found = true
+			}
+		case *ast.UnaryExpr:
+			if x.Op == token.ARROW {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
 }
 
 // collectInPlace adds the call or conversion x, whose operands are args, to the scope as an

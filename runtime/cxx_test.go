@@ -22,7 +22,8 @@ import (
 )
 
 // The C++ tests of the runtime: test/unit.cpp, test/slice_test.cpp, test/array_test.cpp,
-// test/map_test.cpp, test/fmt_test.cpp, test/trace_test.cpp and test/defer_test.cpp (unit tests), test/nochecks_test.cpp
+// test/map_test.cpp, test/fmt_test.cpp, test/trace_test.cpp, test/defer_test.cpp and test/func_test.cpp (unit
+// tests), test/nochecks_test.cpp
 // (the unit tests of a -nochecks build, compiled with the runtime with -DGOCPP_NOCHECKS),
 // test/diff.cpp (the C++ side of a differential test against testdata/diff/main.go, run with
 // real Go) and test/fmt_diff.cpp (the same for the fmt shim, against testdata/fmtdiff/main.go).
@@ -331,6 +332,7 @@ func TestCXX(t *testing.T) {
 					maps := c.compile(t, rt, "test/map_test.cpp", dir, m.flags, nil)
 					trace := c.compile(t, rt, "test/trace_test.cpp", dir, m.flags, nil)
 					defers := c.compile(t, rt, "test/defer_test.cpp", dir, m.flags, nil)
+					funcs := c.compile(t, rt, "test/func_test.cpp", dir, m.flags, nil)
 					nochecks := c.compile(t, rt, "test/nochecks_test.cpp", dir, append(slices.Clone(m.flags), "-DGOCPP_NOCHECKS"), nil)
 					fmtUnit := c.compile(t, rt, "test/fmt_test.cpp", dir, m.flags, nil)
 					fmtDiff := c.compile(t, rt, "test/fmt_diff.cpp", dir, m.flags, nil)
@@ -340,6 +342,7 @@ func TestCXX(t *testing.T) {
 					t.Run("map", func(t *testing.T) { runUnit(t, maps) })
 					t.Run("trace", func(t *testing.T) { runUnit(t, trace) })
 					t.Run("defer", func(t *testing.T) { runUnit(t, defers) })
+					t.Run("func", func(t *testing.T) { runUnit(t, funcs) })
 					t.Run("nochecks", func(t *testing.T) { runUnit(t, nochecks) })
 					t.Run("fmt", func(t *testing.T) { runUnit(t, fmtUnit) })
 					t.Run("fmtdiff", func(t *testing.T) {

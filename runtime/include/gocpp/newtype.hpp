@@ -22,11 +22,12 @@
 //     gp::shl and gp::shr (gocpp/arith.hpp) have overloads for these types below, with Go's
 //     panics. A shift count is any integer type (the emitter writes a named count as its
 //     value). explicit operator U() makes a named bool a condition (if (ok)).
-//   - Over a class U (gp::string, gp::slice, gp::array, gp::map, gp::ptr), it IS a U: a public
-//     base class, whose constructors it inherits (nullptr for a nil slice, map or pointer). So
-//     every runtime function of U takes a D too (template argument deduction sees the base),
-//     and everything that reads a U works on a D: s[i], gp::len, range, gp::get(m, k), *p,
-//     p->f. A function that makes a new U (gp::append, gp::sub, gp::make_slice, +) gives a U,
+//   - Over a class U (gp::string, gp::slice, gp::array, gp::map, gp::ptr, gp::func), it IS a
+//     U: a public base class, whose constructors it inherits (nullptr for a nil slice, map,
+//     pointer or func). So every runtime function of U takes a D too (template argument
+//     deduction sees the base), and everything that reads a U works on a D: s[i], gp::len,
+//     range, gp::get(m, k), *p, p->f, h(x) and h == nullptr (type Handler func(int), step
+//     3.11). A function that makes a new U (gp::append, gp::sub, gp::make_slice, +) gives a U,
 //     which the emitter converts to D where Go's result has the named type: IDs(gp::append(ids,
 //     1)). A D converts to U implicitly (a derived-to-base copy), as Go assigns an IDs to a
 //     []int; a U converts to D only explicitly, IDs(s), which the emitter writes wherever Go
@@ -43,6 +44,7 @@
 #include <gocpp/arith.hpp>
 #include <gocpp/array.hpp>
 #include <gocpp/checks.hpp>
+#include <gocpp/func.hpp>
 #include <gocpp/hash.hpp>
 #include <gocpp/map.hpp>
 #include <gocpp/ptr.hpp>
@@ -76,6 +78,8 @@ template <typename K, typename V>
 inline constexpr bool runtime_class<map<K, V>> = true;
 template <typename T>
 inline constexpr bool runtime_class<ptr<T>> = true;
+template <typename Sig>
+inline constexpr bool runtime_class<func<Sig>> = true;
 
 } // namespace detail
 

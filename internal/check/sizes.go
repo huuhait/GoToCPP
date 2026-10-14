@@ -84,10 +84,9 @@ var (
 	// gp::chan<T> (Phase 08 §2.2): a shared reference to the channel, a
 	// std::shared_ptr. A placeholder until Phase 08 builds it.
 	layoutChan = layout{16, 8}
-	// gp::func<Sig> (step 3.11): a wrapper of std::function, which is 32
-	// bytes in libstdc++ (g++, clang++ on Linux, MinGW-w64; libc++ is not
-	// checked). A placeholder until 3.11 decides the layout.
-	layoutFunc = layout{32, 8}
+	// gp::func<Sig> (step 3.11): the owner of the closure (a
+	// std::shared_ptr<void>) and the function that calls it.
+	layoutFunc = layout{24, 8}
 	// An interface value (Phase 05 §2.3): the data (a std::shared_ptr),
 	// the type descriptor and the method table. A placeholder until Phase
 	// 05 builds it.
@@ -188,7 +187,7 @@ var runtimeTypes = []runtimeType{
 	{goType: "map[int]int", cpp: "gp::map<int64_t, int64_t>", layout: layoutMap,
 		defined: `(?:class|struct) map\b`, pending: ""},
 	{goType: "func()", cpp: "gp::func<void()>", layout: layoutFunc,
-		defined: `(?:class|struct) func\b`, pending: "step 3.11"},
+		defined: `(?:class|struct) func\b`, pending: ""},
 	{goType: "any", cpp: "gp::any", layout: layoutInterface,
 		defined: `(?:class|struct) any\b`, pending: "Phase 05"},
 	{goType: "chan int", cpp: "gp::chan<int64_t>", layout: layoutChan,

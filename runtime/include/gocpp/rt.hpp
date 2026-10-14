@@ -17,6 +17,7 @@
 #include <gocpp/array.hpp>
 #include <gocpp/hash.hpp>
 #include <gocpp/map.hpp>
+#include <gocpp/func.hpp>
 #include <gocpp/arith.hpp>
 #include <gocpp/newtype.hpp>
 #include <gocpp/print.hpp>

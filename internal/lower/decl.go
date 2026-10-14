@@ -3,6 +3,7 @@ package lower
 import (
 	"go/ast"
 	"go/constant"
+	"go/token"
 	"go/types"
 	"strconv"
 
@@ -11,11 +12,19 @@ import (
 
 // Declarations: functions, package variables and the package's initialization.
 
-// A funcInfo is a function of the package, with what prepare chose for it.
+// A funcInfo is a function of the package, with what prepare chose for it, or a func literal
+// (closures.go), with what its lambda's signature chose.
 type funcInfo struct {
-	decl *ast.FuncDecl
-	obj  *types.Func
-	name string // the C++ name
+	decl *ast.FuncDecl // nil for a func literal
+	obj  *types.Func   // nil for a func literal
+	name string        // the C++ name (of a function of the package)
+
+	sig  *types.Signature
+	body *ast.BlockStmt
+	pos  token.Pos // the func keyword
+	// top is the outermost node that the function is in: its own declaration, or for a func
+	// literal the declaration or the package variable's initializer that holds it (panicid.go).
+	top ast.Node
 
 	names   *funcNames
 	result  cppir.Type    // the C++ result type: void, int64_t, std::tuple<int64_t, bool>
@@ -37,6 +46,7 @@ type funcInfo struct {
 // runs the boxing analysis (box.go): a boxed parameter keeps its name as a C++ parameter, and
 // funcDecl copies it into its box, a variable of the same name in a block (ADR-022's shape).
 func (f *funcInfo) prepare(g *gen) {
+	f.sig, f.body, f.pos, f.top = f.obj.Signature(), f.decl.Body, f.decl.Pos(), f.decl
 	f.boxed = boxedVars(g.info, f.decl)
 	f.names = newFuncNames()
 	// A new name must not hide anything that the function refers to (funcNames).
@@ -65,12 +75,18 @@ func (f *funcInfo) prepare(g *gen) {
 	defer g.hide(f.names.taken)()
 	recv := f.prepareRecv(g) // methods.go: the receiver of a pointer method is a parameter
 	defer g.hideMembers(f.members())()
+	f.signature(g)
+	f.params = append(recv, f.params...)
+}
 
-	sig := f.obj.Signature()
+// signature chooses the C++ names of the parameters and named results of the function (or func
+// literal) f, in the innermost scope of f.names, and its C++ parameters and result type (prepare).
+func (f *funcInfo) signature(g *gen) {
+	sig := f.sig
 	f.params = make([]cppir.Param, sig.Params().Len())
 	for i := range sig.Params().Len() {
 		p := sig.Params().At(i)
-		f.params[i].Type = g.cxxType(p.Type(), f.decl.Pos())
+		f.params[i].Type = g.cxxType(p.Type(), f.pos)
 		if largeVar(p.Type()) {
 			// A parameter larger than 128 KiB: a copy on the C++ stack could overflow it
 			// (D24), so the caller passes a reference, and the function copies the value
@@ -100,8 +116,7 @@ func (f *funcInfo) prepare(g *gen) {
 			}
 		}
 	}
-	f.params = append(recv, f.params...)
-	f.result = g.resultType(sig, f.decl.Pos())
+	f.result = g.resultType(sig, f.pos)
 	f.prepareDefers()
 }
 
@@ -109,15 +124,28 @@ func (f *funcInfo) prepare(g *gen) {
 func (g *gen) funcDecl(f *funcInfo) {
 	defer g.hide(f.names.taken)() // a variable named like a type hides it (typedecl.go)
 	defer g.hideMembers(f.members())()
-	body := f.decl.Body
-	g.noteConversions(body, f.obj.Signature()) // named.go
+	body := f.body
+	g.noteConversions(body, f.sig) // named.go
 	g.markCounts(body)
+	g.numberLits(f.decl, make(map[*ast.FuncLit]int)) // closures.go
 	fg := newFuncGen(g, f.names, f)
-	fg.flow = newFlow(g.info, body, fg.postAtEnd)
-	fn := &cppir.Func{Pos: g.pos(f.decl.Pos()), Result: f.result, Name: f.name, Params: f.params, Quals: f.quals(), Body: &cppir.Block{}}
+	fn := &cppir.Func{Pos: g.pos(f.pos), Result: f.result, Name: f.name, Params: f.params, Quals: f.quals(), Body: &cppir.Block{}}
 	fg.push(&fn.Body.Stmts, &fn.Body.End)
+	fg.funcBody()
+	fg.pop(body.Rbrace)
+	g.decl(fn, &cppir.Blank{})
+	f.names.closeScope()
+}
+
+// funcBody lowers the body of the function (or func literal) fg.fn into the open statement
+// list, the C++ function's block or the lambda's: the named results, the single-exit shape of a
+// function with defers (defer.go), the boxes of the parameters, and the statements.
+func (fg *funcGen) funcBody() {
+	g, f := fg.g, fg.fn
+	body := f.body
+	fg.flow = newFlow(g.info, body, fg.postAtEnd)
 	if f.results != nil {
-		res := f.obj.Signature().Results()
+		res := f.sig.Results()
 		for i := range res.Len() {
 			r := res.At(i)
 			typ := g.cxxType(r.Type(), r.Pos())
@@ -138,9 +166,6 @@ func (g *gen) funcDecl(f *funcInfo) {
 		fg.pop(body.Rbrace)
 	}
 	fg.closeDefers(body.Rbrace)
-	fg.pop(body.Rbrace)
-	g.decl(fn, &cppir.Blank{})
-	f.names.closeScope()
 }
 
 // paramBoxes copies the boxed parameters into their boxes, which keep the parameters' names, in
@@ -162,7 +187,7 @@ func (fg *funcGen) paramBoxes() bool {
 		return false
 	}
 	g := fg.g
-	p := g.pos(f.decl.Pos())
+	p := g.pos(f.pos)
 	line := &cppir.Line{Pos: p}
 	sc := &cppir.Scope{Pos: p}
 	for _, v := range f.args {
@@ -262,6 +287,8 @@ func nilInit(info *types.Info, init *types.Initializer) bool {
 func (g *gen) initFuncs() {
 	if g.varInits {
 		fg := newFuncGen(g, newFuncNames(), nil)
+		g.prepareVarInits(fg)
+		defer g.hide(fg.names.taken)() // a closure's variable named like a type hides it
 		fg.names.openScope()
 		fn := &cppir.Func{Result: typeName("void"), Name: "gp_var_init", Body: &cppir.Block{}}
 		fg.push(&fn.Body.Stmts, nil)
@@ -269,6 +296,7 @@ func (g *gen) initFuncs() {
 			if constInit(g.info, init) != nil || nilInit(g.info, init) || g.constArray(init) != nil {
 				continue
 			}
+			fg.top = init.Rhs
 			g.markCounts(init.Rhs)
 			if len(init.Lhs) == 1 {
 				g.noteConversion(init.Rhs, init.Lhs[0].Type()) // named.go
@@ -291,6 +319,47 @@ func (g *gen) initFuncs() {
 			body.Stmts = append(body.Stmts, &cppir.ExprStmt{X: call(n)})
 		}
 		g.decl(&cppir.Func{Result: typeName("void"), Name: "gp_init_funcs", Body: body}, &cppir.Blank{})
+	}
+}
+
+// prepareVarInits prepares gp_var_init's funcGen for the func literals in the initializers of
+// the package variables (step 3.11): their variables are boxed by the same analysis as a
+// function's (box.go), their names hide nothing they refer to (prepare), and they are numbered
+// in source order across the package, as Go's main.init.funcN (closures.go).
+func (g *gen) prepareVarInits(fg *funcGen) {
+	fg.boxed = make(map[*types.Var]boxReason)
+	counts := make(map[*ast.FuncLit]int)
+	for _, f := range g.pkg.Load.Files {
+		for _, d := range f.AST.Decls {
+			gd, ok := d.(*ast.GenDecl)
+			if !ok || gd.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				for _, v := range spec.(*ast.ValueSpec).Values {
+					g.numberLits(v, counts)
+					for x, r := range boxedVars(g.info, v) {
+						fg.boxed[x] = r
+					}
+					ast.Inspect(v, func(n ast.Node) bool {
+						if id, ok := n.(*ast.Ident); ok {
+							switch obj := g.info.Uses[id].(type) {
+							case *types.Var:
+								if !obj.IsField() {
+									fg.names.reserve(Escape(obj.Name()))
+								}
+							case *types.Func:
+								fg.names.reserve(Escape(obj.Name()))
+							}
+							if obj, ok := g.info.Defs[id].(*types.Var); ok {
+								fg.names.reserve(Escape(obj.Name()))
+							}
+						}
+						return true
+					})
+				}
+			}
+		}
 	}
 }
 

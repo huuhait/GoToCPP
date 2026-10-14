@@ -50,7 +50,12 @@ import (
 // 3.10): value and pointer methods of S and N, called (also deferred) on the package, boxed and
 // plain local structs, through pst and pls and on elements, which change their receivers and call
 // e (a value receiver is a copy that e's changes don't reach), next to the calls of their
-// arguments.
+// arguments, and func values (step
+// 3.11): calls of a package func variable that e changes (the new func is called when an
+// argument changes it), of an element of a package slice of funcs, of a counter closure of main
+// that changes a boxed variable, of a closure that reads locals of main and a package variable
+// when it runs, of func literals called at once, and deferred calls of the package func
+// variable.
 // It compares what each prints with real Go, on both compilers.
 //
 //	GOCPP_RANDOM_TESTS=1 go test ./internal/cppgen -run TestRandomOrder
@@ -180,6 +185,7 @@ func e(tag, v int) int {
 	remap(tag)
 	restruct(tag)
 	renamed(tag)
+	refunc(tag)
 	return v
 }
 
@@ -201,6 +207,24 @@ func renamed(tag int) {
 		gns = append(gns[:3], gn)
 	case 4:
 		gns = append(NS(nil), gns...)
+	}
+}
+
+// gfn is a package func value, gfs a package slice of funcs; e changes gfn and gfs[1].
+var gfn = func(v int) int {
+	fmt.Print("f", v, " ")
+	return v + g0
+}
+var gfs = []func(int) int{gfn, func(v int) int { return v - g1 }}
+
+func refunc(tag int) {
+	if tag%5 == 2 {
+		k := tag
+		gfn = func(v int) int {
+			fmt.Print("F", k, " ")
+			return v*2 - g1
+		}
+		gfs[1] = gfn
 	}
 }
 
@@ -445,6 +469,16 @@ func (g *progGen) program() string {
 	g.printf("lar := [2]int{l0, l1}")
 	g.ptrs = []string{"pg", "pl", "lp", "psl", "lsp", "gpa", "pfa", "lfp"}
 	g.printf("lm := gml") // shares gml's table
+	// next is a counter closure (cnt is boxed), lc a closure that reads locals and g0 when it
+	// runs.
+	g.printf("cnt := 0")
+	g.printf("next := func(t int) int {")
+	g.printf("\tcnt += t")
+	g.printf("\tfmt.Print(\"n\", t, \" \")")
+	g.printf("\treturn cnt")
+	g.printf("}")
+	g.printf("lc := func() int { return l0 + l2 + g0 }")
+	g.printf("_, _ = next, lc")
 	g.printf("var mv int")
 	g.printf("var mok bool")
 	g.main = true
@@ -453,7 +487,7 @@ func (g *progGen) program() string {
 	g.printf("fmt.Println(gsl[0], gsl[1], gsl[2], gsl[3], gsl[4], gal[0], gal[1], len(gsl), *psl, ls[0], ls[1], ls[2], ls[3], *lsp)")
 	g.printf("fmt.Println(len(lb), lb[0], lb[1], lb[2], len(*psb))")
 	g.printf("fmt.Println(gar[0], gar[1], gar[2], gar[3], gas[0], gas[1], *gpa, la[0], la[1], la[2], la[3], las[0], las[1], lap[3], gar == la)")
-	g.printf("fmt.Println(len(gmp), gmp[0], gmp[1], gmp[2], gmp[3], len(lm), lm[0], lm[1], lm[2], lm[3], mv, mok)")
+	g.printf("fmt.Println(len(gmp), gmp[0], gmp[1], gmp[2], gmp[3], len(lm), lm[0], lm[1], lm[2], lm[3], mv, mok, cnt)")
 	g.printf("for k := range 4 {")
 	g.printf("\tfmt.Print(len(gms[k]), \":\")")
 	g.printf("\tfor _, x := range gms[k] {")
@@ -1008,6 +1042,11 @@ func (g *progGen) stmt() {
 			g.printf("defer fmt.Println(%s)", g.args(1+g.r.Intn(4)))
 			break
 		}
+		if g.chance(0.05) {
+			// Step 3.11: the func value too is evaluated now.
+			g.printf("defer gfn(%s)", g.expr(2))
+			break
+		}
 		g.printf("fmt.Println(%s)", g.args(1+g.r.Intn(4)))
 	case 2:
 		if g.chance(0.15) {
@@ -1390,7 +1429,7 @@ func (g *progGen) expr(depth int) string {
 		return g.leaf()
 	}
 	d := depth - 1
-	switch g.r.Intn(12) {
+	switch g.r.Intn(13) {
 	case 0, 1:
 		return "(" + g.expr(d) + " + " + g.expr(d) + ")"
 	case 2:
@@ -1446,9 +1485,27 @@ func (g *progGen) expr(depth int) string {
 			return fmt.Sprintf("copy(gal, %s)", g.sliceExpr(d))
 		}
 		return fmt.Sprintf("both(%s, %s)", g.expr(d), g.expr(d))
+	case 11:
+		return g.funcCall(d)
 	default:
 		return "-" + g.leaf()
 	}
+}
+
+// funcCall returns a call of a func value (step 3.11): gfn, an element of gfs, (in main) the
+// counter next and the closure lc, or a func literal called at once.
+func (g *progGen) funcCall(d int) string {
+	switch k := g.r.Intn(5); {
+	case k == 0:
+		return "gfn(" + g.expr(d) + ")"
+	case k == 1:
+		return "gfs[" + g.expr(d) + " & 1](" + g.expr(d) + ")"
+	case k == 2 && g.main:
+		return fmt.Sprintf("next(%d)", g.nextTag())
+	case k == 3 && g.main:
+		return "lc()"
+	}
+	return "func(a int) int { return a + g1 }(" + g.expr(d) + ")"
 }
 
 // keepAddr sometimes keeps the address of the loop variable c in pc (in the loop's body), so

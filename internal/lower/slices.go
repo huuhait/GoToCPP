@@ -345,7 +345,7 @@ func (fg *funcGen) plainLocal(e ast.Expr) bool {
 	if !ok || isPkgVar(v) || fg.isBoxed(v) || fg.fn == nil {
 		return false
 	}
-	res := fg.fn.obj.Signature().Results()
+	res := fg.fn.sig.Results()
 	for i := range res.Len() {
 		if res.At(i) == v {
 			return false

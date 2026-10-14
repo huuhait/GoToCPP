@@ -280,7 +280,11 @@ struct Box : gp::newtype<Box, double> {
 struct Box;
 gp::func<int64_t()> counter() {
     gp::ptr<int64_t> n = gp::new_<int64_t>(0);
-    return [n]() -> int64_t { (*n)++; return (*n); };
+    return [n]() -> int64_t {
+        (*n)++;
+        return (*n);
+    }
+    ;
 }
 void f() {
     try {
@@ -297,6 +301,68 @@ static_assert(sizeof(Point) == 16 && alignof(Point) == 8);
 		&StaticAssert{Cond: &Binary{Op: "&&",
 			X: &Binary{Op: "==", X: cl("sizeof", n("Point")), Y: l("16")},
 			Y: &Binary{Op: "==", X: cl("alignof", n("Point")), Y: l("8")}}})
+}
+
+// TestPrintLambdas checks the lambdas whose bodies go on over several lines (func literals):
+// the statement's line ends with the opening brace, each statement of the body is at its own
+// place, the closing brace is a line at the body's End, and the rest of the statement a line at
+// the statement's place (after the brace with TailAtEnd); also two such lambdas in one statement, one inside another, one in a
+// statement's head, and the inline ones, which stay on their line.
+func TestPrintLambdas(t *testing.T) {
+	sig := &TypeName{Name: "gp::func", Args: []Node{&FuncType{Result: tn("int64_t"), Params: []Type{tn("int64_t")}}}}
+	tmpl := []Param{{Type: tn("int"), Default: l("1")}}
+	inner := &Lambda{Captures: []Capture{{Name: "y"}}, Template: []Param{{Type: tn("int"), Default: l("1")}}, Result: tn("int64_t"),
+		Body: &Block{Stmts: []Stmt{&Return{Pos: gp(6), X: n("y")}}, End: gp(7)}}
+	outer := &Lambda{Template: tmpl, Params: []Param{{Type: tn("int64_t"), Name: "y"}}, Result: tn("int64_t"), Body: &Block{Stmts: []Stmt{
+		vd(gp(4), "auto", "g", inner),
+		&Return{Pos: gp(9), X: &Call{Fun: n("g")}},
+	}, End: gp(10)}}
+	second := &Lambda{Template: []Param{{Type: tn("int"), Default: l("2")}}, Result: tn("void"),
+		Body: &Block{Stmts: []Stmt{es(gp(13), cl("g"))}, End: gp(14)}}
+	inline := &Lambda{Params: []Param{{Type: &Ref{Elem: tn("auto"), RValue: true}, Pack: true}}, Body: &Block{Inline: true, Stmts: []Stmt{es(Pos{}, cl("h"))}}}
+	cond := &Lambda{Result: tn("bool"), Body: &Block{Stmts: []Stmt{&Return{Pos: gp(17), X: l("true")}}, End: gp(18)}, TailAtEnd: true}
+	checkPrint(t, `
+#line 1 "/a.gp"
+void f() {
+#line 3 "/a.gp"
+    gp::func<int64_t(int64_t)> f = gp::func<int64_t(int64_t)>([]<int = 1>(int64_t y) -> int64_t {
+        auto g = [y]<int = 1>() -> int64_t {
+#line 6 "/a.gp"
+            return y;
+        }
+#line 4 "/a.gp"
+        ;
+#line 9 "/a.gp"
+        return g();
+    }
+#line 3 "/a.gp"
+    );
+#line 12 "/a.gp"
+    k([]<int = 2>() -> void {
+        g();
+    }
+#line 12 "/a.gp"
+    , [](auto&&...) { h(); });
+#line 16 "/a.gp"
+    if ([]() -> bool {
+        return true;
+    }()) {
+    }
+}
+`, fn(20,
+		&VarDecl{Pos: gp(3), Type: sig, Vars: []Declarator{{Name: "f", Init: construct(sig, outer)}}},
+		es(gp(12), cl("k", second, inline)),
+		&If{Pos: gp(16), Cond: &Call{Fun: cond}, Then: &Block{End: gp(19)}},
+	))
+	// ExprString writes every lambda on one line.
+	if got, want := ExprString(second), "[]<int = 2>() -> void { g(); }"; got != want {
+		t.Errorf("ExprString = %s, want %s", got, want)
+	}
+}
+
+// construct returns the call of the constructor of the class type typ.
+func construct(typ *TypeName, args ...Expr) Expr {
+	return &Call{Fun: &Name{Name: typ.Name, Args: typ.Args}, Args: args}
 }
 
 // TestPrintExprs checks the expressions and types, and the parentheses that the printer adds
@@ -339,6 +405,7 @@ func TestPrintExprs(t *testing.T) {
 		{&Name{Name: "gp::array", Args: []Node{tn("int64_t"), bin(">", a, b)}}, "gp::array<int64_t, (a > b)>"},
 		{&Lambda{Params: []Param{{Type: &Ref{Elem: &Const{Elem: tn("auto")}}, Pack: true, Name: "gp_a"}}, Body: &Block{Stmts: []Stmt{es(Pos{}, cl("gp::println", &Expand{X: n("gp_a")}))}}}, "[](const auto&... gp_a) { gp::println(gp_a...); }"},
 		{&Lambda{Default: "&", Body: &Block{}}, "[&]() {}"},
+		{&Index{X: a, Index: bin("&", &Call{Fun: &Lambda{Body: &Block{}}}, l("3"))}, "a[([]() {}() & 3)]"},
 		{&Lambda{Default: "=", Captures: []Capture{{Name: "this"}, {Name: "m", ByRef: true}}, Body: &Block{}}, "[=, this, &m]() {}"},
 		{&Lambda{
 			Captures: []Capture{{Name: "n"}, {Name: "r", ByRef: true, Init: n("x")}, {Name: "c", Init: bin(",", a, b)}},

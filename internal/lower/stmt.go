@@ -310,7 +310,7 @@ func (fg *funcGen) returnStmt(s *ast.ReturnStmt) {
 	case len(s.Results) == 0 && len(fg.fn.results) == 0:
 		fg.add(&cppir.Return{Pos: p})
 	case len(s.Results) == 0:
-		res := fg.fn.obj.Signature().Results()
+		res := fg.fn.sig.Results()
 		names := make([]cppir.Expr, len(fg.fn.results))
 		for i, n := range fg.fn.results {
 			names[i] = cxxName(n)

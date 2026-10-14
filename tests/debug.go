@@ -40,16 +40,19 @@ type debugProgram struct {
 	paths map[string]bool // its absolute path as the debug info may name it (also with symlinks resolved)
 	lines []string        // its source lines
 	funcs []debugFunc     // its func declarations, in the order of the file
+	lits  []debugFunc     // its func literals (step 3.11), named as Go names them: main.func1
 	code  []int           // the lines that must have code (codeLines), sorted
 	stops []gdbStop       // its // gdb: comments, sorted by line
 }
 
-// A debugFunc is a func declaration of a debugProgram.
+// A debugFunc is a func declaration of a debugProgram, or a func literal
+// (a lambda in C++, named main.func1 as Go names it in stack traces).
 type debugFunc struct {
 	name     string // the Go name; in C++ it is debugNamespace::name
 	nameLine int    // the line of the name: the DW_AT_decl_line of its C++ function
 	start    int    // the line of the func keyword
 	end      int    // the line of the closing brace
+	lit      bool   // a func literal
 }
 
 // cxxName returns the name that gdb shows for f.
@@ -112,6 +115,7 @@ func parseDebug(rel, abs string, src []byte) (*debugProgram, error) {
 		for _, l := range codeLines(fset, fd) {
 			code[l] = true
 		}
+		p.lits = append(p.lits, funcLits(fset, fd, fn.name)...)
 	}
 	for l := range code {
 		p.code = append(p.code, l)
@@ -160,13 +164,16 @@ func parseDebug(rel, abs string, src []byte) (*debugProgram, error) {
 func codeLines(fset *token.FileSet, fd *ast.FuncDecl) []int {
 	lines := []int{fset.Position(fd.Pos()).Line}
 	add := func(n ast.Node) { lines = append(lines, fset.Position(n.Pos()).Line) }
-	if body := fd.Body.List; fd.Type.Results == nil && (len(body) == 0 || !isReturn(body[len(body)-1])) {
-		lines = append(lines, fset.Position(fd.Body.Rbrace).Line)
+	end := func(t *ast.FuncType, b *ast.BlockStmt) {
+		if body := b.List; t.Results == nil && (len(body) == 0 || !isReturn(body[len(body)-1])) {
+			lines = append(lines, fset.Position(b.Rbrace).Line)
+		}
 	}
+	end(fd.Type, fd.Body)
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.FuncLit:
-			return false // a function of its own (Phase 03); the line table check doesn't know them yet
+			end(n.Type, n.Body) // a lambda (step 3.11): its statements, and its closing brace
 		case *ast.AssignStmt, *ast.ExprStmt, *ast.IncDecStmt, *ast.ReturnStmt, *ast.SendStmt,
 			*ast.GoStmt, *ast.DeferStmt, *ast.IfStmt, *ast.RangeStmt:
 			add(n)
@@ -188,6 +195,36 @@ func codeLines(fset *token.FileSet, fd *ast.FuncDecl) []int {
 		return true
 	})
 	return lines
+}
+
+// funcLits returns the func literals of fd, whose name is name (T::M for a
+// method), named as Go names them in stack traces: main.func1, main.func2 in
+// source order, main.func1.1 for the first literal in main.func1 (T::M.func1 in
+// a method).
+func funcLits(fset *token.FileSet, fd *ast.FuncDecl, name string) []debugFunc {
+	var lits []debugFunc
+	var walk func(n ast.Node, name string, first bool)
+	walk = func(n ast.Node, name string, first bool) {
+		k := 0
+		ast.Inspect(n, func(m ast.Node) bool {
+			fl, ok := m.(*ast.FuncLit)
+			if !ok || m == n {
+				return true
+			}
+			k++
+			sep := "."
+			if first {
+				sep = ".func"
+			}
+			lit := debugFunc{name: name + sep + strconv.Itoa(k), start: fset.Position(fl.Pos()).Line, end: fset.Position(fl.Body.Rbrace).Line, lit: true}
+			lit.nameLine = lit.start
+			lits = append(lits, lit)
+			walk(fl, lit.name, false)
+			return false
+		})
+	}
+	walk(fd.Body, name, true)
+	return lits
 }
 
 func isReturn(s ast.Stmt) bool {
@@ -283,14 +320,69 @@ func (p *debugProgram) funcAt(line int) *debugFunc {
 	return nil
 }
 
-// funcNamed returns the func whose C++ name is name, or nil.
+// funcNamed returns the func or func literal whose C++ name is name, or nil.
 func (p *debugProgram) funcNamed(name string) *debugFunc {
-	for i := range p.funcs {
-		if f := &p.funcs[i]; f.cxxName() == name {
-			return f
+	for _, fs := range [][]debugFunc{p.funcs, p.lits} {
+		for i := range fs {
+			if f := &fs[i]; f.cxxName() == name {
+				return f
+			}
 		}
 	}
 	return nil
+}
+
+// innermost returns the func literal or else the func whose lines hold line,
+// or nil: the innermost literal (the last one that starts on its first line).
+func (p *debugProgram) innermost(line int) *debugFunc {
+	var in *debugFunc
+	for i := range p.lits {
+		if l := &p.lits[i]; l.start <= line && line <= l.end && (in == nil || l.start >= in.start && l.end <= in.end) {
+			in = l
+		}
+	}
+	if in != nil {
+		return in
+	}
+	return p.funcAt(line)
+}
+
+// outerOf returns the func literal or func around the func literal lit, or nil.
+func (p *debugProgram) outerOf(lit *debugFunc) *debugFunc {
+	var in *debugFunc
+	for i := range p.lits {
+		if l := &p.lits[i]; l != lit && l.start <= lit.start && lit.end <= l.end && (in == nil || l.start >= in.start && l.end <= in.end) {
+			in = l
+		}
+	}
+	if in != nil {
+		return in
+	}
+	return p.funcAt(lit.start)
+}
+
+// isLambdaFrame reports whether fn, a function as gdb shows it, is the call
+// operator of a lambda: a func literal. gdb shows g++'s as
+// "operator()<>(int64_t)", clang++'s as "gpkg_main::main()::$_0::operator()<1>(long)".
+func isLambdaFrame(fn string) bool {
+	return strings.Contains(fn, "operator()<")
+}
+
+// frameName returns the name of the frame f as the program's frames are
+// written in bt commands: a lambda's is the name of the func literal at its
+// line (gpkg_main::main.func1), and a func's is gdb's (gpkg_main::add). It
+// returns "" for a frame that is not the program's.
+func (p *debugProgram) frameName(f gdbFrame) string {
+	if isLambdaFrame(f.fn) && p.paths[f.file] {
+		if l := p.innermost(f.line); l != nil && l.lit {
+			return l.cxxName()
+		}
+		return f.fn
+	}
+	if strings.HasPrefix(f.fn, debugNamespace+"::") {
+		return f.fn
+	}
+	return ""
 }
 
 // source returns line n of the program, for messages.
@@ -452,11 +544,18 @@ func (p *debugProgram) checkFrame(line int) func(string) error {
 			return errors.New("gdb shows no frame: the program is not stopped")
 		}
 		f := frames[0]
-		want := p.funcAt(line)
+		want := p.innermost(line)
 		if want == nil {
 			return fmt.Errorf("line %d is not in a func", line)
 		}
-		if !p.paths[f.file] || f.line != line || f.fn != want.cxxName() {
+		// The line where a func literal starts is also a line of the code around it (the
+		// statement that makes the closure).
+		if want.lit && want.start == line && p.frameName(f) != want.cxxName() {
+			if outer := p.outerOf(want); outer != nil {
+				want = outer
+			}
+		}
+		if !p.paths[f.file] || f.line != line || p.frameName(f) != want.cxxName() {
 			return fmt.Errorf("stopped in %v, want %s at line %d of %s (%s)", f, want.cxxName(), line, p.rel, p.source(line))
 		}
 		return nil
@@ -464,21 +563,22 @@ func (p *debugProgram) checkFrame(line int) func(string) error {
 }
 
 // checkBacktrace checks gdb's backtrace at a stop at line: the frames of
-// the program (in debugNamespace) are want, from frame #0 on, each at a
-// line of its func in the .gp file, and frame #0 at line; the outermost
-// frame is the main function that gocpp generates, at a line of the
-// generated C++ file. Between two of the program's frames, only a deferred
-// call's frames may come: a run of frames of the runtime and the C++
-// library (gp::, std::) whose outermost one, just inside the next program
-// frame, is gp::defer_frame::gp_run (which calls the deferred function
-// through std::apply).
+// the program (in debugNamespace, and the lambdas of its func literals, named
+// by frameName) are want, from frame #0 on, each at a line of its func (or
+// func literal) in the .gp file, and frame #0 at line; the outermost frame is
+// the main function that gocpp generates, at a line of the generated C++
+// file. Between two of the program's frames, only a deferred call's frames or
+// a func value's may come: a run of frames of the runtime and the C++ library
+// (gp::, std::, __) whose outermost one, just inside the next program frame,
+// is gp::defer_frame::gp_run (which calls the deferred function through
+// std::apply) or a frame of gp::func (runtimeRun).
 func (p *debugProgram) checkBacktrace(want []string, line int) func(string) error {
 	return func(out string) error {
 		frames := parseFrames(out)
 		var got []string
 		for _, f := range frames {
-			if strings.HasPrefix(f.fn, debugNamespace+"::") {
-				got = append(got, f.fn)
+			if n := p.frameName(f); n != "" {
+				got = append(got, n)
 			}
 		}
 		if !slices.Equal(got, want) {
@@ -489,9 +589,9 @@ func (p *debugProgram) checkBacktrace(want []string, line int) func(string) erro
 			if k == len(want) {
 				break
 			}
-			if f.num != i || f.fn != want[k] {
-				if k > 0 && f.num == i && deferRun(frames[i:], want[k]) {
-					continue // a deferred call, run by gp::defer_frame::gp_run
+			if f.num != i || p.frameName(f) != want[k] {
+				if k > 0 && f.num == i && p.runtimeRun(frames[i:], want[k]) {
+					continue // a deferred call, or a call of a func value
 				}
 				return fmt.Errorf("frame #%d is %v; the program's frames must come first", i, f)
 			}
@@ -514,15 +614,18 @@ func (p *debugProgram) checkBacktrace(want []string, line int) func(string) erro
 	}
 }
 
-// deferRun reports whether frames start with a run of the runtime's and the
-// C++ library's frames (gp::, std::) that ends with gp::defer_frame::gp_run,
-// right before the program's frame next.
-func deferRun(frames []gdbFrame, next string) bool {
+// runtimeRun reports whether frames start with a run of the runtime's and the
+// C++ library's frames (gp::, std::) that ends with gp::defer_frame::gp_run (a
+// deferred call) or with a frame of gp::func (gp::func<...>::operator(), the
+// call of a func value), right before the program's frame next.
+func (p *debugProgram) runtimeRun(frames []gdbFrame, next string) bool {
 	for i, f := range frames {
-		if f.fn == next {
-			return i > 0 && frames[i-1].fn == "gp::defer_frame::gp_run"
+		if p.frameName(f) == next {
+			return i > 0 && (frames[i-1].fn == "gp::defer_frame::gp_run" || strings.HasPrefix(frames[i-1].fn, "gp::func<"))
 		}
-		if !strings.HasPrefix(f.fn, "gp::") && !strings.HasPrefix(f.fn, "std::") {
+		// (clang++'s debug info names some of the C++ library's templates without their
+		// namespace: __apply_impl<...>; names that start with __ are the library's.)
+		if !strings.HasPrefix(f.fn, "gp::") && !strings.HasPrefix(f.fn, "std::") && !strings.HasPrefix(f.fn, "__") {
 			return false
 		}
 	}

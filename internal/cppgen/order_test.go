@@ -57,6 +57,12 @@ const mt = "type R struct{ v int }\n\nfunc (r R) get(a int) int {\n\tfmt.Println
 	"func (r *R) self(a int) *R {\n\tfmt.Println(\"self\", a)\n\treturn r\n}\n\nvar gr *R\n\nvar grs = []R{{1}}\n\n" +
 	"func nilr() int {\n\tfmt.Println(\"nilr\")\n\tgr = nil\n\treturn 0\n}\n\nfunc mkr() *R {\n\tfmt.Println(\"mkr\")\n\treturn nil\n}\n\n"
 
+// fv has the func values for the func cases of TestOrderPanics: a package func variable that
+// setfv changes, and mkfv, which gives a nil func.
+const fv = "var gfv = func(v int) int {\n\tfmt.Println(\"old gfv\", v)\n\treturn v\n}\n\n" +
+	"func setfv() int {\n\tgfv = func(v int) int {\n\t\tfmt.Println(\"new gfv\", v)\n\t\treturn v\n\t}\n\treturn 1\n}\n\n" +
+	"func mkfv() func(int) {\n\tfmt.Println(\"mkfv\")\n\treturn nil\n}\n\n"
+
 // TestOrderPanics checks the order of calls and of the operations that can panic (order.go)
 // against real Go: gc calls f first in a/b + f() and panics after it, and reads s after grow
 // in int(s[i]) + grow(). Each program panics, with Go's output and exit code 2, on both
@@ -195,6 +201,21 @@ func TestOrderPanics(t *testing.T) {
 		{"method-defer-recv", mt, "var p *R\n\tdefer fmt.Println(\"first\")\n\tdefer p.get(f())"},
 		{"method-arg-panic", mt, "z := 0\n\tgr = &R{2}\n\tgr.get(7 / z + f())"},
 		{"method-chain", mt, "gr = &R{3}\n\tfmt.Println(gr.self(id(1)).get(nilr()), gr.self(id(2)).get(f()))"},
+		// Func values (step 3.11): a func value is read after the calls of its call's scope (a
+		// package variable that an argument changes: the new func), a call that gives one runs
+		// before the arguments, a nil func panics after them, an element of a slice of funcs
+		// panics after them, and a closure reads what it captured when it runs.
+		{"func-pkg-var", fv, "fmt.Println(gfv(setfv()))\n\tpanic(\"end\")"},
+		{"func-call-first", fv, "mkfv()(id(1))"},
+		{"func-nil-after-args", "", "var fn func(int, int)\n\tfn(f(), id(2))"},
+		{"func-elem-after-args", fv, "fs := []func(int) int{gfv}\n\ti := 3\n\tfmt.Println(fs[i](f()))"},
+		{"func-closure-reads", "", "y := 1\n\tg := func() int { return y }\n\ty = 2\n\tfmt.Println(g(), f())\n\tpanic(g())"},
+		{"func-counter", "", "c := 0\n\tnext := func() int {\n\t\tc++\n\t\treturn c\n\t}\n\tfmt.Println(next(), next()*10, next())\n\tpanic(c)"},
+		{"func-defer-value", fv, "defer gfv(f())\n\tgfv = nil\n\tfmt.Println(\"body\")\n\tpanic(\"end\")"},
+		{"func-defer-pkg-var", fv, "defer gfv(setfv())\n\tpanic(\"end\")"},
+		{"func-elem-call-index", fv, "fs := []func(int) int{gfv, gfv}\n\tfs[id(1)](func() int { fs[1] = nil; return 1 }())\n\tpanic(\"end\")"},
+		{"func-elem-index", fv, "fs := []func(int) int{gfv, gfv}\n\ti := 1\n\tfs[i](func() int { fs[1] = nil; return 1 }())"},
+		{"func-defer-closure-args", "", "defer func(a, b int) { fmt.Println(\"deferred\", a, b, x) }(f(), id(x))\n\tx = 100\n\tpanic(\"end\")"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -487,7 +508,16 @@ func TestOrderTemps(t *testing.T) {
 		{"defer delete(gm, f())", "{ auto gp_t0 = f(); gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp::erase(gp_a0, gp_a1); }, gm, gp_t0); }"},
 		{"defer panic(f())", "gp_df.gp_push_call([](auto&& gp_a0) { gp::panic(gp_a0); }, f());"},
 		{"defer fmt.Println(two())", "gp_df.gp_push_call([](auto&& gp_a0) { std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, gp_a0); }, two());"},
-		{"defer g(two())", "gp_df.gp_push_call([](auto&& gp_a0) { std::apply(g, gp_a0); }, two());"},
+		// Func values (step 3.11): the func value is in its call's scope, first; a local that
+		// isn't boxed is called in place, a boxed one is read after the calls (gp_call); a call
+		// that gives the func goes first; variadic arguments are one slice.
+		{"fv := func(a int) int { return a }\n\tfmt.Println(fv(1), f())", "{ auto gp_t0 = fv(1); gp::fmtshim::Println(gp_t0, f()); }"},
+		{"fv := func(a int) int { return a }\n\tfmt.Println(fv(f()))", "gp::fmtshim::Println(fv(f()));"},
+		{"bv := func(a int) int { return a }\n\t_ = &bv\n\tfmt.Println(bv(f()))", "{ auto gp_t0 = f(); gp::fmtshim::Println((*bv).gp_call(gp_t0)); }"},
+		{"mk := func() func(int) int { return nil }\n\t_ = mk()(f())", "{ auto gp_t0 = mk(); static_cast<void>(gp_t0(f())); }"},
+		{"sum := func(xs ...int) int { return len(xs) }\n\tfmt.Println(sum(f(), x))", "{ auto gp_t0 = f(); gp::fmtshim::Println(sum(gp::slice_of<int64_t>({gp_t0, x}))); }"},
+		{"fv := func(a int) int { return a }\n\tdefer fv(f())", "gp_df.gp_push_call(fv, f());"},
+		{"defer g(two())", "gp_df.gp_push_call([](auto&& gp_a0) { std::apply(gpkg_main::g, gp_a0); }, two());"},
 		// Named types (step 3.9): a package N is read after the calls, a local one anywhere; a
 		// division of a named int is gp::div with its temporaries like an int's; a value that Go
 		// converts to a named type implicitly is converted in its temporary; s = append(s, x)

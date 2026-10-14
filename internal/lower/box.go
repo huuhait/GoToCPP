@@ -24,10 +24,13 @@ import (
 //     makes a method value of one, x.Inc (boxMethod);
 //   - slices an array that is it or is inside it: arr[:], x.arr[:] (boxSliced);
 //   - or captures it in a closure and changes it anywhere, in the function or in a closure
-//     (boxCaptured). Changing is an assignment, also by := of a variable that exists and by a
-//     range clause with =, and ++, --, op=, and also a write to a field or an element of an
-//     array inside it: x.f = 5, arr[1]++. A write through a pointer, a slice or a map (p.f = 5,
-//     s[1] = 2, m[k] = v) doesn't change the variable itself;
+//     (boxCaptured), or captures it and it is larger than 128 bytes (boxShared: Go shares such
+//     a variable with its closures too, cmd/compile's escape analysis, instead of copying it
+//     into each one; the size is gocpp's, check.Sizes). Changing is an assignment, also by :=
+//     of a variable that exists and by a range clause with =, and ++, --, op=, and also a write
+//     to a field or an element of an array inside it: x.f = 5, arr[1]++. A write through a
+//     pointer, a slice or a map (p.f = 5, s[1] = 2, m[k] = v) doesn't change the variable
+//     itself;
 //   - or is a local variable whose C++ type is larger than maxStackVarSize (boxLarge), which
 //     could overflow the C++ stack (var a [1 << 20]int is 8 MB): Go's compiler moves such a
 //     variable to the heap too. Its size is gocpp's (check.Sizes). The parameters and the
@@ -56,12 +59,19 @@ const (
 	boxSliced                        // an array that is it, or a part of it, is sliced
 	boxCaptured                      // a closure captures it, and it is changed somewhere
 	boxLarge                         // it is too large for the C++ stack
+	boxShared                        // a closure captures it, and it is larger than 128 bytes
 )
 
 // maxStackVarSize is the size in bytes above which a local variable is boxed (boxLarge): Go
 // 1.25's limit for the variables that a function declares (cmd/compile/internal/ir's
 // MaxStackVarSize, which escape.HeapAllocReason compares with), 128 KB.
 const maxStackVarSize = 128 * 1024
+
+// maxCaptureCopy is the size in bytes above which a variable that closures capture is shared
+// with them (boxShared) even if it never changes: Go's limit for capturing by value
+// (cmd/compile's escape analysis: closure variables of more than 128 bytes are captured by
+// reference).
+const maxCaptureCopy = 128
 
 func (r boxReason) String() string {
 	switch r {
@@ -75,14 +85,16 @@ func (r boxReason) String() string {
 		return "captured and changed"
 	case boxLarge:
 		return "large"
+	case boxShared:
+		return "captured and large"
 	}
 	return "not boxed"
 }
 
 // boxedVars returns the variables of the function fn (a *ast.FuncDecl, or any node) that must
-// be boxed, each with the first reason found. Lowering runs it over each function declaration;
-// the initializers of package variables are not analyzed yet, because only a function literal
-// can declare variables there (step 3.11 must run it over those literals).
+// be boxed, each with the first reason found. Lowering runs it over each function declaration,
+// and over the initializer of each package variable, where only a function literal can declare
+// variables (decl.go: prepareVarInits).
 func boxedVars(info *types.Info, fn ast.Node) map[*types.Var]boxReason {
 	b := &boxer{
 		info:     info,
@@ -185,8 +197,11 @@ func boxedVars(info *types.Info, fn ast.Node) map[*types.Var]boxReason {
 		return true
 	})
 	for v := range b.captured {
-		if b.changed[v] {
+		switch {
+		case b.changed[v]:
 			b.mark(v, boxCaptured)
+		case check.Sizes().Sizeof(v.Type()) > maxCaptureCopy:
+			b.mark(v, boxShared)
 		}
 	}
 	for v := range b.declared {

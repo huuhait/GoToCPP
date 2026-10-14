@@ -88,7 +88,7 @@ Source: [Phase 02 §2.1](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/
 | `*T` where `T` is a gocpp type | `gp::ptr<T>` (reference counted, nil-checked) | a `std::shared_ptr<T>` with nil checks; a nil dereference panics with Go's message ([pointers](#pointers-and-boxing)) |
 | `*pkg.T` where `T` is a C/C++ type (`*SDL.SDL_Window`, `*cstdio.FILE`) | `T*` (raw pointer, C++ rules) | not reference counted; it follows C++ lifetime rules ([interop.md](interop.md#cc-types-in-gocpp-code)) |
 | `unsafe.Pointer` | `gp::ptr<void>` (keeps a gocpp object alive, like Go) | shares the owner of the object it came from, and converts to `void*` for C ([D16](language.md#d16-unsafepointer-and-pointers-from-c)) |
-| `func(A) R` | `gp::func<R(A)>` | a `std::function` wrapper: calling a nil func panics, and `f == nil` works |
+| `func(A) R` | `gp::func<R(A)>` | 24 bytes: the closure's owner and its code; copies share the closure, calling a nil func panics, and `f == nil` works ([closures](#closures)) |
 | `struct{...}` | `struct` + generated `==`, hash, field info | `operator==` and `gp_hash()` only when the struct is comparable; the field info (`gp_fields`) is for `fmt`'s `%v`; an anonymous struct type is `gp_anon_` and a hash of the type ([structs](#structs)) |
 | `type Celsius float64` (named non-struct type) | `struct Celsius : gp::newtype<Celsius, double>` (a distinct type that can have methods) | gocpp inserts a conversion wherever Go converts implicitly ([named types](#named-types)) |
 | `interface{...}`, `any`, `error` | generated interface class, `gp::any`, `gp::error` | an interface value holds data, a type descriptor and a method table (32 bytes); no C++ virtual functions (Phase 05) |
@@ -253,7 +253,9 @@ int64_t count(gp::slice<gp::string> names) {
 - **Variables get explicit C++ types:** `x := e` becomes `int64_t x = e;`. Only compiler
   temporaries and opaque C/C++ values use `auto`. `var x T` becomes `T x{};` (the Go zero value).
 - **Variadic** `names ...string` is a `gp::slice<gp::string>`. A call `count("a", "b")` becomes
-  `count({"a"_gs, "b"_gs})`, and `count(s...)` becomes `count(s)`.
+  `count(gp::slice_of<gp::string>({"a"_gs, "b"_gs}))`, `count()` passes a nil slice, and
+  `count(s...)` becomes `count(s)`: the callee shares `s`'s array, as in Go. Variadic methods
+  and func values take their arguments the same way.
 - **Order of evaluation:** Go evaluates calls left to right, C++ doesn't promise that (and g++ and
   clang++ really differ). So calls are moved into `gp_` temporaries in Go's order where it
   matters: `fmt.Println(next(), next())` becomes `auto gp_t1 = next();` followed by the call.
@@ -783,7 +785,8 @@ gp::ptr<Counter> NewCounter() {
 - **Boxing.** A local variable (also a parameter, a receiver copy or a named result) lives on the
   heap, in a "box", when the function takes its address or the address of anything inside it,
   calls a pointer method on it, slices an array in it, or captures it in a closure **and** changes
-  it anywhere. A local variable larger than 128 KB (Go's limit for stack variables) is boxed
+  it anywhere, or captures it and it is larger than 128 bytes (Go shares those with closures
+  too). A local variable larger than 128 KB (Go's limit for stack variables) is boxed
   too, so it can't overflow the C++ stack. Uses of a boxed `x` become `(*x)`, and `&x` is the
   box. This is a simple, safe version of Go's escape analysis; Phase 15 adds the real one.
   - A boxed parameter keeps its name: the C++ parameter is copied into its box at the
@@ -834,25 +837,75 @@ Source: [Phase 03 §2.2](../../plans/2026-10-13-gocpp/phase-03-core-language/REA
 ## Closures
 
 ```go
-func counter() func() int {
+func counter(step int) func() int {
 	n := 0
-	return func() int { n++; return n }
+	return func() int {
+		n += step
+		return n
+	}
 }
 ```
 
 ```cpp
-gp::func<int64_t()> counter() {
-    gp::ptr<int64_t> n = gp::new_<int64_t>(0);              // boxed: captured + modified
-    return [n]() -> int64_t { (*n)++; return (*n); };
+gp::func<int64_t()> counter(int64_t step) {
+    gp::ptr<int64_t> n = gp::new_<int64_t>(0);              // boxed: captured + changed
+    return gp::func<int64_t()>([n, step]<int = 1>() mutable -> int64_t {
+        (*n) = (*n) + step;
+        return (*n);
+    });
 }
 ```
 
-- A func value is a `gp::func<R(A...)>`. A closure is a C++ lambda.
-- A captured variable that never changes after its initialization (and whose address is never
-  taken) is **captured by value**. Any other captured variable is **boxed**, and the lambda
-  captures the box, so the closure and the function see the same variable, as in Go.
+- A func value is a `gp::func<R(A...)>` (`gocpp/func.hpp`): the owner of the closure (a
+  `std::shared_ptr`) and the function that calls it, 24 bytes. Copies share the closure, as Go's
+  func values do. A function of the package as a value is `gp::func_of<&gpkg_main::f>()`, a
+  closure without captures needs no allocation either, and a nil func is `nullptr`
+  (`f == nullptr` is `f == nil`). Calling nil panics with Go's nil dereference message and signal
+  line. A parameter larger than 128 KiB is a `const A&`, as in a function declaration.
+- A closure is a C++ lambda with an explicit capture list. A captured variable of at most 128
+  bytes (gocpp's size) that never changes after its initialization (and whose address is never
+  taken) is **captured by value**: it is copied once, when the closure is made, which gives the
+  same values, as it never changes. Any other captured variable is **boxed** (also a larger one
+  that never changes: Go shares those too, so many closures of a big array share one array), and the lambda captures the box, so the closure and
+  the function see the same variable, as in Go. The lambda is `mutable`, so the copies are not
+  `const`. Nested closures, parameters and named results are captured the same way.
+- The body of a func literal is lowered like a function's (its parameters, named results, its
+  own `defer` frame, break and continue), and written over several lines, each statement at its
+  `.gp` line, so gdb stops and steps in a closure. A literal on one `.gp` line stays on one C++
+  line.
+- `<int = N>` is the literal's number in the function around it, as Go numbers them in stack
+  traces (`main.main.func1`, `main.main.func1.1`, `main.init.func2` for a package variable's
+  initializer, `main.T.M.func1` and `main.(*T).M.func1` in methods): the trace reads it from the
+  lambda's mangled name, the same for g++ and clang++. A closure in a method captures the
+  receiver like any other variable (a pointer receiver's pointer, a value receiver's copy).
+- Calls: `f(x)` for a func value that the call can't change (a local variable that isn't boxed,
+  a temporary), `f.gp_call(x)` for any other (a package or boxed variable, a field, an element),
+  which keeps the closure alive while it runs (`f = nil` inside `f`). gc's order: a func value is
+  read after the calls of its arguments (`f(g())` where `g` changes the package variable `f`
+  calls the new `f`), unless it has a call in it (`fs[i()](g())`, `f()(g())`), which gc
+  evaluates first. A literal called at once is called in place: `[...]() { ... }()`, over
+  several lines `[...]() { ... }.operator()()`, so that clang++ gives the call the line Go gives
+  it.
+- `defer f(x)` stores a copy of `f` with the arguments (`gp_df.gp_push_call(f, x)`; a nil `f`
+  panics when the deferred call runs, as in Go), and `defer func() { ... }()` stores the lambda
+  itself. A deferred closure that changes a named result changes what the function returns:
+  the result is captured and changed, so it is boxed, and the exit returns the box's value.
 - Go 1.22 loop variables: each iteration has its own variable. Only when a loop variable is boxed
-  does gocpp make a new box per iteration.
+  does gocpp make a new box per iteration, with the post statement applied to the new one.
+- A closure in a package variable's initializer is lowered in `gp_var_init`, with the same
+  boxing analysis.
+- A named func type (`type Handler func(int)`) is a `gp::newtype` over its `gp::func`, so it is
+  called, compared with nil and passed like one; a func literal passed as a `Handler` is converted
+  explicitly (`Handler(gp::func<void(int64_t)>(...))`), as Go converts it implicitly.
+- `f(g())`, where `g` has several results, is `std::apply(f, g())`; when `f` is variadic, or Go
+  converts some of the results, a generic lambda between them converts them and makes the slice:
+  `std::apply([](auto&& gp_e0, auto&& gp_e1) { return gpkg_main::sum(gp::slice_of<int64_t>({gp_e0,
+  gp_e1})); }, g())`.
+- A closure that captures the variable that holds it (`var f func(); f = func() { f() }`) is a
+  reference cycle, which is never freed (D1): it lives until the program ends, and
+  LeakSanitizer reports it.
+- Printing a func value (`fmt.Println(f)`, `println(f)`, also inside a struct) is not supported
+  yet: Go prints the address of the func's code.
 
 Source: [Phase 03 §2.6](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#26-functions-func-values-closures).
 
@@ -1022,9 +1075,10 @@ Where the trace differs from Go's (accepted divergences):
 - the parentheses always hold `(...)` (the function has parameters) or `()`, where Go prints
   the argument words (`main.f(0x0?)`), or `(...)` for an inlined frame; and every frame has
   its offset, where Go prints none for an inlined frame;
-- a Go name that gocpp escaped for a C++ keyword or macro keeps its `_` (`main.new_`), and a
-  func literal in a function compiled by clang++ has no known number (`main.f.func?`), as
-  clang++ numbers the lambdas of a whole file;
+- a Go name that gocpp escaped for a C++ keyword or macro keeps its `_` (`main.new_`);
+- func literals have Go's names (`main.f.func1`), but Go's inliner copies a closure into the
+  function it inlines it in and names the copy after that one (`main.main.main.func1.func3`);
+  gocpp's names are those of a Go program built with `-gcflags=-l`;
 - an optimized build (Phase 15) can show the line of an inlined runtime header as the
   innermost frame's line; gocpp builds at `-O0`;
 - a stripped program shows the addresses instead (`?()` and `pc=0x...`, for `addr2line`);
@@ -1033,7 +1087,10 @@ Where the trace differs from Go's (accepted divergences):
   with `?:0` for its place, where Go shows its runtime's `panic({0x...?, 0x...?})` and the line
   of `runtime/panic.go`;
 - a deferred builtin call (`defer panic(v)`, `defer println(x)`) has no frame of its own; Go
-  shows a wrapper there, `main.f.deferwrap1()`, at the line of the defer statement.
+  shows a wrapper there, `main.f.deferwrap1()`, at the line of the defer statement;
+- a call in a statement over several lines shows the statement's first line, where Go shows the
+  line of the call: `fmt.Println(1,` / `2,` / `get())`, and a call after a multi-line func
+  literal in the same statement (`f(apply(func() {...}, 3), apply(func() {...}, 4))`).
 
 Source: [Phase 03 §2.9](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#29-runtime-checks-and-panics-gos-exact-messages).
 
