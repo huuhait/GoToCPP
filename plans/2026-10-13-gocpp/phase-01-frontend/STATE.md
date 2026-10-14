@@ -22,8 +22,8 @@
 - [ ] 1.4 Patch 3: dotted type names (`std.chrono.seconds`, `std.filesystem.path`, `std.vector[int].iterator`)
 - [x] 1.5 Round-trip test over the Go stdlib (parse → print → parse)
 - [x] 1.6 Import classifier + `FileInfo` (header package names and their rules, namespace renames) + reserved-`C` error
-- [~] 1.7 `//gocpp:` directive parser + validation + suggestions
-- [ ] 1.8 AST preprocessing
+- [x] 1.7 `//gocpp:` directive parser + validation + suggestions
+- [~] 1.8 AST preprocessing (jobs 1.8a: rewrites, 1.8b: namespace probe; `gp_as` comes after)
   - [ ] drop header imports; `raylib.X` → `C.X`; undeclared `ns.X` → `C.ns.X` (package-wide name set); inject `import "C"` only where used
   - [ ] namespace probe (one `-fsyntax-only` file, cached per include set) → `undefined: x` for non-namespaces
   - [ ] `T(opaque)` → `gp_as[T](…)`
@@ -96,3 +96,7 @@
 - 2026-10-13: Step 1.6 (`internal/load` imports.go + reserved.go) committed, clean after 3 review
   rounds: 142 tests, the same result in every import order (62,500 random runs), broken files
   handled; the caller passes real gocpp package names (step 1.9).
+- 2026-10-13: Step 1.7 (`internal/load/directives.go`) committed, clean after 3 review rounds.
+  Arguments split exactly like cgo's `#cgo` lines (checked against go/build on millions of
+  inputs), `//` starts a comment, a warning catches broken-directive lookalikes (e.g. after
+  gofmt-style printing), and the spec now describes the flag allow-list (Phase 04).

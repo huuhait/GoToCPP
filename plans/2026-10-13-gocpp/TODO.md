@@ -94,3 +94,4 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] 2026-10-13: Phase 01 step 1.2: parser patch 1 (`std.map`, `node.type()`)
 - [x] 2026-10-13: Phase 01 step 1.5: the round-trip test over the Go standard library (6240 files)
 - [x] 2026-10-13: Phase 01 step 1.6: the import classifier (headers and namespaces as packages, the reserved `C`)
+- [x] 2026-10-13: Phase 01 step 1.7: the `//gocpp:` directive parser

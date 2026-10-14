@@ -555,17 +555,50 @@ pkg-config sdl2
 `.c` with `$CC -std=c17`, and `.cc`, `.cpp`, `.cxx` with `$CXX -std=c++20`, using the package's
 flags.
 
-**Directives** are line comments before the `package` clause, like `//go:build`. An unknown
-directive is an error with a "did you mean" hint.
+**Directives** are line comments before the `package` clause, like `//go:build`.
 
-| Directive | Effect |
-|---|---|
-| `//gocpp:pkg-config sdl2` | runs `pkg-config --cflags --libs sdl2` and adds the flags |
-| `//gocpp:link m pthread` | adds `-lm -lpthread` |
-| `//gocpp:cflags ...`, `//gocpp:ldflags ...` | adds the flags as given |
-| `//gocpp:extern-c <hdr>` | wraps that header in `extern "C"` (for C libraries whose headers lack the guard, such as `<lua.h>`) |
-| `//gocpp:no-extern-c <hdr>` | turns the `extern "C"` wrapping off for that one header, whatever the rules below say |
-| `//gocpp:no-win32-defaults` | Windows: gocpp does not define `WIN32_LEAN_AND_MEAN` and `NOMINMAX` ([Windows headers](#windows-headers), Phase 14) |
+| Directive | Arguments | Effect |
+|---|---|---|
+| `//gocpp:pkg-config sdl2` | one or more package names | runs `pkg-config --cflags --libs sdl2` and adds the flags it prints, if they are allowed |
+| `//gocpp:link m pthread` | one or more library names | adds `-lm -lpthread` |
+| `//gocpp:cflags ...`, `//gocpp:ldflags ...` | one or more flags | adds the flags, if they are allowed |
+| `//gocpp:extern-c <hdr>` | one header | wraps that header in `extern "C"` (for C libraries whose headers lack the guard, such as `<lua.h>`) |
+| `//gocpp:no-extern-c <hdr>` | one header | turns the `extern "C"` wrapping off for that one header, whatever the defaults below say |
+| `//gocpp:no-win32-defaults` | none | Windows: gocpp does not define `WIN32_LEAN_AND_MEAN` and `NOMINMAX` ([Windows headers](#windows-headers), Phase 14) |
+
+The rules for directives:
+- A directive starts with exactly `//gocpp:`, with no space after `//`. `// gocpp:link m` is an
+  ordinary comment, and so is every `/* */` comment. But before the `package` clause, a comment
+  like `// gocpp:link m` gets a warning, because it looks like a broken directive. To turn a
+  directive off, comment it out: `// //gocpp:link m`.
+- Directives go before the `package` clause: in the package doc comment or in a comment of their
+  own. A `//gocpp:` line after the `package` clause is an error. In a doc comment, `gocpp fmt`
+  (like gofmt) moves the directives to its end. It keeps only well-formed directives as they
+  are: `//gocpp:Link m` would become the ordinary comment `// gocpp:Link m`. So `gocpp fmt`
+  leaves a file with directive errors unchanged and prints the errors.
+- The arguments follow the rules of cgo's `#cgo` lines. Spaces and tabs separate them. Quotes
+  (`"` or `'`) keep spaces inside an argument. gocpp removes the quotes, also in the middle of an
+  argument: `-DMSG="hello world"` is one argument, `-DMSG=hello world`. A missing closing quote
+  and an empty argument (`""`) are errors.
+- A backslash makes the next character an ordinary one: `\"` is a quote and `\\` is a
+  backslash. So write Windows paths with `/`. A backslash at the end of the line is an error.
+- An argument that starts with `//` starts a comment, up to the end of the line:
+  `//gocpp:link m // the math library`. A quoted `"//"` is an ordinary argument.
+- An unknown name is an error. When a known name is close, the error says which one:
+  `unknown //gocpp: directive "lnk"; did you mean //gocpp:link?`. A wrong number of arguments
+  is an error too.
+- A pkg-config package name or a library name has only the characters `A-Z a-z 0-9 _ + - .`, and
+  it doesn't start with `-`: `//gocpp:link stdc++ boost_system-mt`. Flags go into `cflags` and
+  `ldflags`.
+- Flags that can run code at build time, such as `-fplugin=…`, `-B` or `@file`, are refused, as
+  in Go. gocpp checks `cflags`, `ldflags` and the output of pkg-config against Go's list of
+  allowed flags (Phase 04), also those of `gocpp.mod` and of every dependency (Phase 06). The
+  regexps in `GOCPP_CFLAGS_ALLOW` and `GOCPP_LDFLAGS_ALLOW` allow more flags, like cgo's
+  `CGO_CFLAGS_ALLOW`.
+- A header is written like its import path, without the Go quotes: `<lua.h>`, or a path that
+  ends in `.h`, `.hh`, `.hpp`, `.hxx`, `.h++` or `.inl`, such as `./legacy.h`.
+- A directive can be repeated, and the repeats add up: two `//gocpp:link` lines link the
+  libraries of both.
 
 **Module-wide settings** go into `gocpp.mod` (`cflags`, `pkg-config`, …). Packages add their own
 with directives.
@@ -574,15 +607,20 @@ with directives.
 every package that depends on it, so no two translation units see a C struct with different
 layouts ([Phase 06 §2.3](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#23-header-layout-c-needs-declarations-before-use-go-doesnt)).
 
-**The `extern "C"` rule.** A header needs `extern "C"` when it declares C functions without its
-own `__cplusplus` guard:
+**The `extern "C"` rule** (Phase 04). A header needs `extern "C"` when it declares C functions
+without its own `__cplusplus` guard:
 - a **local `.h`** header is wrapped only if it **parses as C** (checked once with
   `$CC -fsyntax-only -x c`, cached) and has no `__cplusplus` guard;
-- `.hpp`, `.hh` and `.hxx` headers are never wrapped;
-- system headers are not wrapped by default; `//gocpp:extern-c <lua.h>` is there for C libraries
-  that ship headers without guards;
-- `//gocpp:no-extern-c <hdr>` turns the wrapping off for that header, whatever the rules above
-  say.
+- `.hpp`, `.hh`, `.hxx`, `.h++` and `.inl` headers are C++ headers: they are not wrapped by
+  default;
+- system headers are not wrapped by default;
+- `//gocpp:extern-c <hdr>` wraps the header, whatever these defaults say, also a `.hpp` file (a C
+  header with an odd name). It is there for C libraries that ship headers without guards, such
+  as `<lua.h>`;
+- `//gocpp:no-extern-c <hdr>` turns the wrapping off for that header;
+- `extern-c` and `no-extern-c` on the same header is an error. So is an `extern-c` or
+  `no-extern-c` header that no file of the package imports, because a typo would otherwise do
+  nothing. This also catches `.\legacy.h`, which becomes `.legacy.h` (the `\` escapes the `l`).
 
 Wrapping a C++ header breaks it (`extern "C" { #include <vector> }` gives over a thousand errors
 with g++), which is why the parse-as-C check matters.

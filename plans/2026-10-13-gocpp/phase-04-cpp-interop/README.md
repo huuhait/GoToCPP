@@ -275,12 +275,12 @@ recoverable panics.
   its own `__cplusplus` guard. The rule:
   - a **local `.h`** header is wrapped only if it **parses as C** (`$CC -fsyntax-only -x c`,
     cached) and has no `__cplusplus` guard;
-  - `.hpp`, `.hh` and `.hxx` headers are never wrapped;
+  - `.hpp`, `.hh` and `.hxx` headers are not wrapped by default;
   - system headers are not wrapped by default, but `//gocpp:extern-c <lua.h>` exists for C
     libraries that ship headers without guards;
   - `//gocpp:no-extern-c <hdr>` turns the wrapping off for that header, whatever the rules
     above say;
-  - `.h++` and `.inl` headers count as C++ headers, like `.hpp`: never wrapped by default;
+  - `.h++` and `.inl` headers count as C++ headers, like `.hpp`: not wrapped by default;
   - an explicit `//gocpp:extern-c` wins over the default rules, also for a `.hpp` file (a C
     header with an odd name); `extern-c` and `no-extern-c` on the same header is an error, and so
     is an `extern-c`/`no-extern-c` header that no file of the package imports (a typo would
@@ -365,8 +365,8 @@ prints pointers. Printing a `char*` as a C string would crash or silence stdout 
     as addresses.
 13. **4.13 Compile + link package `.c/.cc/.cpp/.cxx` sources** (with `-include gocpp/nofortify.h`,
     Phase 02 §2.7, so a user's hardened Nix shell doesn't warn at `-O0`).
-14. **4.14 `extern "C"` rule** (parse-as-C check, never `.hpp`, `//gocpp:extern-c <hdr>`,
-    `//gocpp:no-extern-c`).
+14. **4.14 `extern "C"` rule** (parse-as-C check, `.hpp` not wrapped by default,
+    `//gocpp:extern-c <hdr>`, `//gocpp:no-extern-c`, the error cases of §2.9).
 15. **4.15 Directives → flags** (`pkg-config`, `link`, `cflags`, `ldflags`), checked by the flag
     allow-list (§2.9) before any compiler or probe runs them. The tests use a small
     test-only library with its own `.pc` file outside the default paths (or clear
