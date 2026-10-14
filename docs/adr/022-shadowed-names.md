@@ -26,8 +26,11 @@ the Go name, with no error. Debugging by Go names is a promise of
   }
   ```
 
-- So gdb shows the outer variable on every line before the declaration (and on its own line), and
-  the inner one after it, as in Go.
+- So gdb shows the outer variable on every line before the declaration, and the inner one after
+  it, as in Go. On the declaration's own line it shows the outer one when the value reads the
+  name (the temporary is computed outside the block), and the inner, not yet set one otherwise
+  (`x := 7 + i`): a temporary for every shadowing declaration (every `if err := f()`) isn't worth
+  that one line.
 - A rename (`name_1`) stays only as a guard for a second declaration in the same C++ block, which
   the Phase 02 emitter never produces.
 
@@ -39,7 +42,8 @@ the Go name, with no error. Debugging by Go names is a promise of
 
 ## Consequences
 
-- More braces in the generated C++ where Go code shadows names; the names stay Go's.
+- More braces in the generated C++ where Go code shadows names (none when the declaration is the
+  first thing in its C++ block); the names stay Go's.
 - `goto` stays valid: Go rejects a jump over a declaration into its scope, and a jump out of the
   new block is legal C++.
 - A class-type temporary (`gp::string`) is moved into the variable, so shadowing costs no extra
