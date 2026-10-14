@@ -1,7 +1,7 @@
 # gocpp plan · STATE
 
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Current focus:** Phase 03, Core language (Phases 00–02 done; M1 reached 2026-10-14), and the language server v0 track (Phase 11: 11.1 done, 11.2 in review); see [TODO.md](TODO.md)
+**Current focus:** Phase 03, Core language (Phases 00–02 done; M1 reached 2026-10-14), and the language server v0 track (Phase 11: 11.1–11.4 done except 11.3b); see [TODO.md](TODO.md)
 **Last updated:** 2026-10-14
 
 ---

@@ -1,6 +1,6 @@
 # Phase 11: Fast Language Server · STATE
 
-**Status:** `[~]` in progress (v0 track: 11.1, 11.2, 11.3a done; 11.10a grammar done)
+**Status:** `[~]` in progress (v0 track: 11.1, 11.2, 11.3a, 11.4 done; 11.10a grammar done)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
@@ -15,7 +15,7 @@
   - [ ] export-data summaries (memory + on-disk; deep `gcexportdata` first, shallow via vendored `gcimporter` if memory needs it; cache keyed by gocpp binary hash; side table for opaque type spellings)
   - [x] API-hash short-circuit
   - [x] LRU memory cap
-- [~] 11.4 Diagnostics as you type · *v0*
+- [x] 11.4 Diagnostics as you type · *v0*
 - [ ] 11.5 Hover, go-to-definition, signature help · *v0*
 - [ ] 11.6 Completion (scopes, members, keywords, snippets, auto-import) · *v0*
 - [ ] 11.7 Formatting + organize imports (`gocpp fmt`) · *v0*
@@ -92,3 +92,14 @@
   caps in estimated memory, open packages kept; load.Config.FS/Overlay/Deps, check.Config.Deps)
   committed, clean after 3 review rounds. A one-line edit in a 10k-line package re-checks in ≈ 26–33 ms;
   diagnostics equal `gocpp check` on 476 packages except the known import-error difference.
+- 2026-10-14: Job 11.4 (diagnostics as you type: server/diagnostics.go debounced per-package runs that publish
+  per file, API-hash fan-out to importers, stale-result protection, didChangeWatchedFiles with dynamic
+  registration, cache/probe.go background namespace probe with Provisional/Stale packages and at most 2
+  probes at once, Session.Recheck, relatedInformation only when the client supports it) committed, clean
+  after 2 review rounds. Keystroke p50 56 ms / p95 61 ms on a quiet machine (81/94 ms at load 14). Known
+  differences for the 11.12 random-edit differential test (editor behavior, like gopls): every syntax error
+  is shown, not only the first per line; an importer of a broken package shows its own errors too; an open
+  `_test.gp` in a normal package gets the package's placeless diagnostics at its package clause (until test
+  variants exist). The "change lock" is relaxed: requests take their snapshot on the read loop, and
+  DidOpen/DidChange/DidClose/Invalidate are serialized by Session's change mutex. Left for 11.11: `under`
+  in Clone is O(changed × handles); a probe started while waiting for the semaphore can be one round behind.
