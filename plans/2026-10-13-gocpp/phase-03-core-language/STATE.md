@@ -28,7 +28,7 @@
   - [x] anonymous structs (canonical names; the shared header is Phase 06)
   - [x] local types hoisted to namespace scope
   - [x] dependency ordering + recursive types
-- [~] 3.9 Named non-struct types (`gp::newtype`) + implicit conversions where types differ + `switch` on underlying value
+- [x] 3.9 Named non-struct types (`gp::newtype`) + implicit conversions where types differ + `switch` on underlying value
 - [ ] 3.10 Methods (value receivers copy, held reference for non-local receivers, pointer receivers, method values/expressions)
 - [~] 3.11 Func values (by-value params), variadics, closures
   - [ ] capture analysis (by value vs boxed)
@@ -290,3 +290,20 @@
   enter the named type's scope: inside its body and its methods' bodies, user names that could collide are
   written qualified (gpkg_main::array). The two newtype shapes (a value holder for numbers and bools, a public
   base for runtime classes) are one CRTP template partly specialized by std::is_class_v<U>: accepted.
+- 2026-10-14: Job 3.9 (named types: gp::newtype<D, U> — a value holder with every Go operator for numbers and
+  bools, a public base for runtime classes — for every underlying type, `type B A` structs, local named
+  types, implicit conversions everywhere Go's assignability needs one (incl. `return f()` and `g(f())` of
+  tuples), gp::convert for struct conversions (pointer fields shared via ptr_cast), switch on named types,
+  named map keys) committed, clean after 2 review rounds. Not yet (documented): `[]MyByte(s)`,
+  `string([]R{...})` for `type R rune`, slices/maps of structs that differ only in tags. For 3.10: keep
+  g.hide(baseNames) around method bodies of named types and qualify package functions named slice, array,
+  ptr, map, string or newtype; methods become members of the newtype structs. For 3.11: tupleArgs indexes
+  the callee's params by tuple position — map tuple elements onto a variadic parameter's element type; the
+  std::apply lambda names a package function, so func values and methods need their own path; align
+  `std::apply(k, …)` (unqualified today) with the qualified converting path. Phase 05: panic_identity must
+  key by Go type, not basic kind, once named panic values exist.
+- 2026-10-14 (job 03-order5021): the seed-5021 random-test mismatch was a gc bug, not gocpp's: gc 1.25 folds
+  ((x >> c) & d) << e with a constant 64-bit count c >= 1<<63 read as negative (generic.rules), on amd64 and
+  arm64. gocpp follows the spec. TestRandomOrder's huge counts now read `gz` (always 0) so gc can't fold
+  them; tests/diff/shift_huge_count.gp and order_random_seed5021.gp. Draft upstream issue (not filed):
+  plans/2026-10-13-gocpp/upstream/gc-shift-count-issue.md.
