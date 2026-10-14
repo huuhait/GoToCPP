@@ -5,8 +5,11 @@
 // the libraries a package asks for.
 //
 // Phase 01 starts it with the compiler finder (FindCXX), for the namespace
-// probe. Phase 02 adds the compiler's version checks and flags, the
-// embedded runtime and one-package builds. Phase 04 adds C/C++ sources and
+// probe. Phase 02 adds the compiler's version checks and arguments
+// (cxx.go), the flags (flags.go), the embedded runtime, extracted once
+// into the cache folder with its object files (runtime.go), one-package
+// builds (compile.go: Builder) and the process groups of the compilers
+// (proc_unix.go), which the namespace probe uses too. Phase 04 adds C/C++ sources and
 // link flags. Phase 06 adds the action graph, the cache, parallel builds,
 // build modes, compile_commands.json and the first Windows builds, and
 // Phase 14 finishes Windows.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -16,7 +17,7 @@ import (
 
 // The macro lines of the fake compilers' -dM -E.
 var (
-	clangMacros = []string{"#define __GNUC__ 4", "#define __clang__ 1", `#define __VERSION__ "Clang 99.0.0"`}
+	clangMacros = []string{"#define __GNUC__ 4", "#define __clang__ 1", "#define __clang_major__ 99", `#define __VERSION__ "Clang 99.0.0"`}
 	gccMacros   = []string{"#define __GNUC__ 99", `#define __VERSION__ "99.1.0"`}
 )
 
@@ -44,6 +45,13 @@ func fakeCXX(t *testing.T, dir, name, version string, macros ...string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+// noStamp returns c without the stamp of its program file, to compare it
+// with a CXX that a test spells out.
+func noStamp(c CXX) CXX {
+	c.stamp = fileStamp{}
+	return c
 }
 
 // shellQuote quotes s for sh.
@@ -102,8 +110,8 @@ func TestFindCXXOrder(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := CXX{Path: c.want, Family: c.family, Version: c.version}
-			if got != want {
+			want := CXX{Path: c.want, Family: c.family, Version: c.version, Major: 99}
+			if !reflect.DeepEqual(noStamp(got), want) {
 				t.Errorf("FindCXX() = %+v, want %+v", got, want)
 			}
 		})
@@ -125,7 +133,9 @@ func TestFindCXXMissing(t *testing.T) {
 		{"GOCPP_CXX missing", dir, "clang++-404", "", []string{"GOCPP_CXX: ", `"clang++-404" was not found`}},
 		{"GOCPP_CXX path missing", dir, filepath.Join(empty, "c++"), "", []string{"GOCPP_CXX: ", "not found", filepath.Join(empty, "c++")}},
 		{"CXX missing", dir, "", "g++-404", []string{"CXX: ", `"g++-404" was not found`}},
-		{"CXX with arguments", dir, "", "ccache clang++", []string{"CXX: ", `"ccache clang++" was not found (it must be one program, without arguments, for now)`}},
+		{"CXX with arguments missing", dir, "", "ccache clang++", []string{"CXX: ", `"ccache clang++" was not found`, `"ccache"`}},
+		{"CXX unterminated quote", dir, "", `'clang++`, []string{"CXX='clang++: unterminated ' string"}},
+		{"CXX blank", dir, "  ", "", []string{`GOCPP_CXX="  " names no program`}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			setEnv(t, c.path, c.gocppCXX, c.cxx)
@@ -172,12 +182,20 @@ func TestLookCXXFamily(t *testing.T) {
 		name, version string
 		macros        []string
 		family        Family
+		major         int    // the major version, if not 99
 		err           string // part of the error message, if it must fail
 	}{
 		{name: "clang-like", version: "Ubuntu clang version 18.1.3 (1ubuntu1)", macros: clangMacros, family: Clang},
 		// A compiler built on clang that doesn't say "clang" in its version line.
 		{name: "icpx-like", version: "Intel(R) oneAPI DPC++/C++ Compiler 2024.0.0", macros: clangMacros, family: Clang},
 		{name: "gcc-like", version: "x86_64-w64-mingw32-g++ (GCC) 13.2.0", macros: gccMacros, family: GCC},
+		// The oldest versions that work, and the ones before them.
+		{name: "clang-17", version: "clang version 17.0.6", macros: []string{"#define __clang__ 1", "#define __clang_major__ 17", "#define __GNUC__ 4"}, family: Clang, major: 17},
+		{name: "gcc-13", version: "g++ (GCC) 13.1.0", macros: []string{"#define __GNUC__ 13"}, family: GCC, major: 13},
+		{name: "clang-16", version: "clang version 16.0.6", macros: []string{"#define __clang__ 1", "#define __clang_major__ 16", "#define __GNUC__ 4"},
+			err: "(clang version 16.0.6) is too old: gocpp needs clang 17 or newer"},
+		{name: "gcc-12", version: "g++ (GCC) 12.3.0", macros: []string{"#define __GNUC__ 12"}, err: "(g++ (GCC) 12.3.0) is too old: gocpp needs gcc 13 or newer"},
+		{name: "clang-no-major", version: "clang version ?", macros: []string{"#define __clang__ 1"}, err: "is too old"},
 		{name: "neither", version: "other c++ 1.0", macros: []string{"#define __OTHER__ 1"}, err: "is neither clang nor gcc"},
 		{name: "no-version", macros: gccMacros, err: "--version failed: exit status 3: fake: bad arguments"},
 		{name: "blank-version", version: " ", macros: gccMacros, err: "printed nothing for --version"},
@@ -194,8 +212,11 @@ func TestLookCXXFamily(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := CXX{Path: path, Family: c.family, Version: c.version}
-			if got != want {
+			want := CXX{Path: path, Family: c.family, Version: c.version, Major: 99}
+			if c.major != 0 {
+				want.Major = c.major
+			}
+			if !reflect.DeepEqual(noStamp(got), want) {
 				t.Errorf("LookCXX(%q) = %+v, want %+v", c.name, got, want)
 			}
 		})
@@ -218,7 +239,7 @@ func TestLookCXXCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := runsOf(t, path); n != 2 || again != first {
+	if n := runsOf(t, path); n != 2 || !reflect.DeepEqual(again, first) {
 		t.Errorf("LookCXX again: %+v and %d runs, want %+v from the cache (2 runs)", again, n, first)
 	}
 
@@ -228,8 +249,8 @@ func TestLookCXXCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := CXX{Path: path, Family: Clang, Version: "c++ 2.0 (a longer version line)"}
-	if got != want {
+	want := CXX{Path: path, Family: Clang, Version: "c++ 2.0 (a longer version line)", Major: 99}
+	if !reflect.DeepEqual(noStamp(got), want) {
 		t.Errorf("LookCXX after the compiler changed = %+v, want %+v", got, want)
 	}
 
@@ -315,5 +336,133 @@ func TestFamilyString(t *testing.T) {
 		if got := f.String(); got != want {
 			t.Errorf("Family(%d).String() = %q, want %q", int(f), got, want)
 		}
+	}
+}
+
+func TestFindCXXWithArguments(t *testing.T) {
+	// CXX="launcher g++": the launcher is the program, g++ its first
+	// argument, and every run passes it first. The fake launcher runs the
+	// fake compiler named by its first argument, like ccache.
+	dir := t.TempDir()
+	gcc := fakeCXX(t, dir, "g++", "g++ (GCC) 99.1.0", gccMacros...)
+	launcher := filepath.Join(dir, "launch")
+	if err := os.WriteFile(launcher, []byte("#!/bin/sh\necho \"$*\" >> \"$0.log\"\nprog=$1\nshift\nexec \""+dir+"/$prog\" \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	spaced := filepath.Join(dir, "my dir")
+	if err := os.Mkdir(spaced, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	spacedCXX := fakeCXX(t, spaced, "c++", "c++ (GCC) 99.2.0", gccMacros...)
+	for _, c := range []struct {
+		name, gocppCXX, cxx string
+		want                CXX
+	}{
+		{"CXX", "", "launch g++", CXX{Path: launcher, Args: []string{"g++"}, Family: GCC, Version: "g++ (GCC) 99.1.0", Major: 99}},
+		{"GOCPP_CXX with spaces around", "  launch   g++  ", "", CXX{Path: launcher, Args: []string{"g++"}, Family: GCC, Version: "g++ (GCC) 99.1.0", Major: 99}},
+		{"quoted path", `"` + spacedCXX + `" -m64`, "", CXX{Path: spacedCXX, Args: []string{"-m64"}, Family: GCC, Version: "c++ (GCC) 99.2.0", Major: 99}},
+		{"single quotes", "'" + spacedCXX + "'", "", CXX{Path: spacedCXX, Family: GCC, Version: "c++ (GCC) 99.2.0", Major: 99}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			setEnv(t, dir, c.gocppCXX, c.cxx)
+			got, err := FindCXX(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(noStamp(got), c.want) {
+				t.Errorf("FindCXX() = %+v, want %+v", got, c.want)
+			}
+		})
+	}
+	// The launcher got g++ first in both detection runs.
+	log, err := os.ReadFile(launcher + ".log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(log)), "\n") {
+		if !strings.HasPrefix(line, "g++ ") {
+			t.Errorf("the launcher ran with %q, want g++ first", line)
+		}
+	}
+	if runsOf(t, gcc) == 0 {
+		t.Errorf("the launcher never ran g++")
+	}
+	// Command passes the Args first.
+	cxx := CXX{Path: launcher, Args: []string{"g++"}}
+	if got := cxx.Command(context.Background(), "-c", "x.cpp").Args; !reflect.DeepEqual(got, []string{launcher, "g++", "-c", "x.cpp"}) {
+		t.Errorf("Command(-c x.cpp).Args = %q", got)
+	}
+	if got := cxx.Name(); got != "launch g++" {
+		t.Errorf("Name() = %q, want %q", got, "launch g++")
+	}
+}
+
+func TestFindCXXTooOld(t *testing.T) {
+	// A named compiler that is too old is an error; without GOCPP_CXX and
+	// CXX, an old clang++ is skipped for g++.
+	dir := t.TempDir()
+	fakeCXX(t, dir, "clang++", "clang version 16.0.0", "#define __clang__ 1", "#define __clang_major__ 16", "#define __GNUC__ 4")
+	gcc := fakeCXX(t, dir, "g++", "g++ (GCC) 99.1.0", gccMacros...)
+	setEnv(t, dir, "clang++", "")
+	if got, err := FindCXX(context.Background()); err == nil || !strings.Contains(err.Error(), "GOCPP_CXX: the C++ compiler "+filepath.Join(dir, "clang++")+" (clang version 16.0.0) is too old: gocpp needs clang 17 or newer") {
+		t.Errorf("FindCXX() = %+v, %v; want the too-old error", got, err)
+	}
+	setEnv(t, dir, "", "")
+	if got, err := FindCXX(context.Background()); err != nil || got.Path != gcc {
+		t.Errorf("FindCXX() = %+v, %v; want g++ at %s", got, err, gcc)
+	}
+}
+
+func TestSplitCommand(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		want []string
+		err  string
+	}{
+		{in: "g++", want: []string{"g++"}},
+		{in: " ccache\tg++ \n", want: []string{"ccache", "g++"}},
+		{in: `"/opt/my c++/bin/g++" -m64`, want: []string{"/opt/my c++/bin/g++", "-m64"}},
+		{in: `'a b' "c'd"`, want: []string{"a b", "c'd"}},
+		{in: `a"b c`, want: []string{`a"b`, "c"}}, // a quote inside a word is a normal character
+		{in: "", want: nil},
+		{in: `"abc`, err: `unterminated " string`},
+		{in: `x 'abc`, err: `unterminated ' string`},
+	} {
+		got, err := SplitCommand(c.in)
+		switch {
+		case c.err != "":
+			if err == nil || err.Error() != c.err {
+				t.Errorf("SplitCommand(%q) = %q, %v; want the error %q", c.in, got, err, c.err)
+			}
+		case err != nil || !reflect.DeepEqual(got, c.want):
+			t.Errorf("SplitCommand(%q) = %q, %v; want %q", c.in, got, err, c.want)
+		}
+	}
+}
+
+func TestLookCXXStamp(t *testing.T) {
+	// LookCXX keeps the identity of the program file, for the runtime's
+	// object cache: another compiler with the same version line gets
+	// another key.
+	dir := t.TempDir()
+	setEnv(t, dir, "", "")
+	path := fakeCXX(t, dir, "c++", "c++ 1.0", gccMacros...)
+	got, err := LookCXX(context.Background(), "c++")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.stamp.real == "" || got.stamp.size == 0 {
+		t.Errorf("LookCXX(c++).stamp = %+v, want the file's identity", got.stamp)
+	}
+	b := &Builder{CXX: got}
+	key := b.runtimeKey([]string{"src/rt.cpp"}, []string{"-O0"})
+	fakeCXX(t, dir, "c++", "c++ 1.0", append(gccMacros, "#define __OTHER__ 1")...) // another size
+	again, err := LookCXX(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.CXX = again
+	if again.Version != got.Version || b.runtimeKey([]string{"src/rt.cpp"}, []string{"-O0"}) == key {
+		t.Errorf("the runtime key stays the same for a new compiler file (version %q and %q)", got.Version, again.Version)
 	}
 }

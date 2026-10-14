@@ -196,6 +196,17 @@ $XDG_CACHE_HOME/gocpp/gen/<main module>/gpkg/<import path>/
 - From Phase 06 on, each package gets one header (`pkg.hpp`), one `.cpp` per `.gp` file and one
   `pkg_init.cpp`. Before that (Phases 02–05), a program is one generated file, as in the
   [first example](#a-first-example).
+- Until then, `gocpp build` and `gocpp run` write that file into a temporary work folder
+  (`-work` keeps it, `-x` shows the commands) and compile it with
+  `-std=c++20 -fwrapv -fno-strict-aliasing -ffp-contract=off -g -O0`, plus `-Qunused-arguments`
+  for clang. Valid Go can make the compilers warn about generated code that is right, so that code
+  also gets `-Wno-tautological-compare` (clang) or `-Wno-overflow` (g++); every other warning
+  stays visible. The runtime comes from the gocpp binary: it is extracted once into the user
+  cache folder (`$XDG_CACHE_HOME` or `~/.cache` on Linux), to `gocpp/rt/<version>-<hash>/`, and
+  its object files are kept there, per compiler and flags.
+- `gocpp run` exits like the program: with its exit status, or, when a signal kills the
+  program, by dying of the same signal (on Linux; elsewhere with status 128 plus its number),
+  after it removed the work folder. Unlike `go run`, it prints no `exit status N` line.
 - `pkg.hpp` has a fixed order: `#pragma once` and `<gocpp/rt.hpp>`; the headers of imported gocpp
   packages; the package's C/C++ headers that its declarations need; forward declarations of all
   named types; type definitions in by-value dependency order; function prototypes, `extern`
@@ -469,6 +480,12 @@ Sources: [Phase 03 §2.10](../../plans/2026-10-13-gocpp/phase-03-core-language/R
 - The paths are absolute, so editors that match breakpoints by full path find the file. They are
   written as C string literals, so Windows backslashes are escaped (`#line 6 "C:\\work\\hello.gp"`).
 - Your variable names stay the same in C++, so `print s` works in the debugger.
+- The lines that have no place in the `.gp` source (the C++ `main` wrapper) get `#line`
+  directives that point at the generated file itself, in the work folder; `gocpp emit` leaves
+  them out.
+- A C++ compile error in generated code is a bug in gocpp: `gocpp build` prints
+  `internal error: generated C++ did not compile`, the compiler's first errors (at `.gp` lines,
+  thanks to `#line`) and the work folder, which it keeps; it exits with status 2.
 
 Source: [Phase 02 §2.1 and §2.8](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/README.md#28-debugging-works-from-day-1).
 

@@ -16,6 +16,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/diag"
@@ -90,7 +92,45 @@ func runCheck(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "gocpp check: %v\n", err)
 		return 1
 	}
+	var stop func()
+	c.ctx, c.stopped, stop = signalContext()
+	defer stop()
 	return c.run(flags.Args())
+}
+
+// signalContext returns a context that SIGINT, SIGTERM or SIGHUP cancels,
+// a function that returns the signal that came (or nil), and a function
+// that ends the signal handling. After the first signal, gocpp no longer
+// catches them: a second ^C kills it the default way.
+func signalContext() (context.Context, func() os.Signal, func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+	sigs := make(chan os.Signal, 1)
+	notify(sigs, stopSigs...)
+	var got atomic.Pointer[os.Signal]
+	done := make(chan struct{})
+	go func() {
+		select {
+		case sig := <-sigs:
+			got.Store(&sig)
+			signal.Stop(sigs)
+			cancel()
+		case <-done:
+		}
+	}()
+	stopped := func() os.Signal {
+		if p := got.Load(); p != nil {
+			return *p
+		}
+		return nil
+	}
+	var once sync.Once
+	return ctx, stopped, func() {
+		once.Do(func() {
+			signal.Stop(sigs)
+			close(done)
+			cancel()
+		})
+	}
 }
 
 // A checkCommand is one run of "gocpp check".
@@ -107,10 +147,38 @@ type checkCommand struct {
 	dropped       map[*load.Package]bool // see droppedPackages
 	parserErrors  map[string]*fileErrors // see parserErrorsOf
 	reportedPaths map[string]bool        // the unresolved imports reported
+
+	// ctx stops the C++ compiler runs of the namespace probe when gocpp
+	// gets SIGINT, SIGTERM or SIGHUP; stopped then returns the signal (see
+	// signalContext, and the driver of build, run and emit).
+	ctx     context.Context
+	stopped func() os.Signal
 }
 
 // run checks the packages of the patterns and returns the exit status.
 func (c *checkCommand) run(patterns []string) int {
+	prog, r, code := c.check(patterns)
+	if r == nil || !c.types {
+		return code
+	}
+	for _, root := range prog.Roots {
+		if p := r.Package(root); p != nil && p.Checked() && !c.dropped[root] {
+			if err := printTypes(c.stdout, c.dir, prog.Fset, p); err != nil {
+				fmt.Fprintf(c.stderr, "gocpp check: %v\n", err)
+				code = 1
+			}
+		}
+	}
+	return code
+}
+
+// check loads and type-checks the packages of the patterns and prints
+// their errors and warnings to stderr, like go build. It returns the
+// program, the result of the type checking (nil when the packages couldn't
+// be loaded: then nothing was checked) and the exit status: 1 if there is
+// an error (a phase gate counts), else 0. gocpp build, run and emit use
+// it too, so that they fail exactly like gocpp check.
+func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, int) {
 	m := matchPatterns(c.dir, patterns)
 	for _, w := range m.warnings {
 		fmt.Fprintln(c.stderr, w)
@@ -137,21 +205,21 @@ func (c *checkCommand) run(patterns []string) int {
 	c.warnNoMatch(m)
 
 	if len(m.errors) > 0 || c.loadFailed(prog) {
-		return c.printLoadErrors(prog, m)
+		return prog, nil, c.printLoadErrors(prog, m)
 	}
 
 	// The namespace probe runs the C++ compiler of the target (GOOS,
-	// GOARCH) for the files with header imports. ^C stops it: the
-	// compiler runs in its own process group, which the terminal's signal
-	// doesn't reach, so the canceled context is what kills it. Then gocpp
-	// check exits quietly with 130, like a shell for SIGINT; a second ^C
-	// kills it the default way.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	go func() { <-ctx.Done(); stop() }()
-	r := check.Check(prog, check.Config{GOOS: c.goos, GOARCH: c.goarch, Context: ctx})
-	if ctx.Err() != nil {
-		return 130
+	// GOARCH) for the files with header imports. ^C (or SIGTERM, SIGHUP)
+	// stops it: the compiler runs in its own process group, which the
+	// terminal's signal doesn't reach, so the canceled context is what
+	// kills it. Then gocpp prints nothing more and dies of the signal
+	// (stopStatus), like build and run.
+	r := check.Check(prog, check.Config{GOOS: c.goos, GOARCH: c.goarch, Context: c.ctx})
+	if c.ctx != nil && c.ctx.Err() != nil {
+		if sig := c.stopped(); sig != nil {
+			return prog, nil, stopStatus(sig)
+		}
+		return prog, nil, exitErrors
 	}
 	failed := false
 	// broken holds the packages with errors and the packages that import
@@ -189,20 +257,10 @@ func (c *checkCommand) run(patterns []string) int {
 			broken[p.Load] = true
 		}
 	}
-	if c.types {
-		for _, root := range prog.Roots {
-			if p := r.Package(root); p != nil && p.Checked() && !c.dropped[root] {
-				if err := printTypes(c.stdout, c.dir, prog.Fset, p); err != nil {
-					fmt.Fprintf(c.stderr, "gocpp check: %v\n", err)
-					failed = true
-				}
-			}
-		}
-	}
 	if failed {
-		return 1
+		return prog, r, 1
 	}
-	return 0
+	return prog, r, 0
 }
 
 // packageList returns the packages of prog in the order of go's

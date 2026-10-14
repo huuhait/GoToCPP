@@ -53,3 +53,18 @@ func TestFindCXXFor(t *testing.T) {
 		})
 	}
 }
+
+func TestFindCXXForArguments(t *testing.T) {
+	// GOCPP_CXX for another target is split into words like for the host.
+	dir := t.TempDir()
+	mine := fakeCXX(t, dir, "my-c++", "my c++ 1.0", gccMacros...)
+	setEnv(t, dir, "my-c++ -m64", "")
+	got, err := FindCXXFor(context.Background(), "windows", "arm64")
+	if err != nil || got.Path != mine || len(got.Args) != 1 || got.Args[0] != "-m64" {
+		t.Errorf("FindCXXFor(windows, arm64) with GOCPP_CXX=\"my-c++ -m64\" = %+v, %v", got, err)
+	}
+	setEnv(t, dir, "'my-c++", "")
+	if _, err := FindCXXFor(context.Background(), "windows", "arm64"); err == nil || err.Error() != "GOCPP_CXX='my-c++: unterminated ' string" {
+		t.Errorf("FindCXXFor with an unterminated quote: %v", err)
+	}
+}

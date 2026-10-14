@@ -30,9 +30,6 @@ import (
 // cmdTimeout bounds each compile and each run.
 const cmdTimeout = 3 * time.Minute
 
-// driverFlags are the driver's flags in Phase 02 (README §2.7), without -I.
-var driverFlags = []string{"-std=c++20", "-fwrapv", "-fno-strict-aliasing", "-ffp-contract=off", "-g", "-O0"}
-
 // A cxx is one C++ compiler of the test matrix.
 type cxx struct {
 	name    string    // "g++", "clang++"
@@ -107,13 +104,15 @@ func bothCompilers(t *testing.T) []*cxx {
 	return both
 }
 
-// flags returns the driver's flags for this compiler, with more.
+// flags returns the driver's flags for generated C++ with this compiler, without -I: the
+// same as gocpp build's (build.Flags and build.GeneratedFlags), with more.
 func (c *cxx) flags(more ...string) []string {
-	args := slices.Concat(driverFlags, more)
-	if c.cc.Family == build.Clang {
-		args = append(args, "-Qunused-arguments") // the Nix wrapper's noise
-	}
-	return args
+	return slices.Concat(build.Flags(c.cc, false), build.GeneratedFlags(c.cc), more)
+}
+
+// runtimeFlags returns the driver's flags for the runtime's own files, with more.
+func (c *cxx) runtimeFlags(more ...string) []string {
+	return slices.Concat(build.Flags(c.cc, false), more)
 }
 
 var (
@@ -178,7 +177,7 @@ func (c *cxx) runtimeObjects(t *testing.T) []string {
 		}
 		for i, src := range rtfiles.Sources(runtime.GOOS) {
 			obj := filepath.Join(dir, fmt.Sprintf("%d.o", i))
-			args := append(c.flags(includeFlag(t)), "-c", filepath.Join(rt, filepath.FromSlash(src)), "-o", obj)
+			args := append(c.runtimeFlags(includeFlag(t)), "-c", filepath.Join(rt, filepath.FromSlash(src)), "-o", obj)
 			out, _, code, err := command(dir, true, c.cc.Path, args...)
 			if err == nil && code != 0 {
 				err = fmt.Errorf("exit code %d", code)

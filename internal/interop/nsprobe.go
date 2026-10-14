@@ -422,20 +422,24 @@ func runProbe(ctx context.Context, cxx build.CXX, dir string, includes []string,
 
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, cxx.Path, args...)
-	cmd.Dir = dir
-	cmd.Env = probeEnv(tmp, dir)
 	out := &capBuffer{max: maxProbeOutput, stop: cancel}
-	cmd.Stdout, cmd.Stderr = out, out
-	cmd.WaitDelay = waitDelay
-	inGroup(cmd)
 	start := time.Now()
-	err = cmd.Start()
+	// build.Start starts it again after ETXTBSY (a compiler wrapper that
+	// was just written).
+	cmd, err := build.Start(ctx, func() *exec.Cmd {
+		cmd := cxx.Command(ctx, args...) // with the compiler's own Args (CXX="ccache g++")
+		cmd.Dir = dir
+		cmd.Env = probeEnv(tmp, dir)
+		cmd.Stdout, cmd.Stderr = out, out
+		cmd.WaitDelay = waitDelay
+		build.InGroup(cmd)
+		return cmd
+	})
 	if err == nil {
 		err = cmd.Wait()
-		killGroup(cmd) // whatever the compiler left running
+		build.KillGroup(cmd) // whatever the compiler left running
 	}
-	name := filepath.Base(cxx.Path)
+	name := cxx.Name()
 	switch {
 	case out.full:
 		// The include errors so far are enough: then the candidates are

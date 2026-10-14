@@ -1,0 +1,218 @@
+package build
+
+import (
+	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	rtfiles "github.com/huuhait/gocpp/runtime"
+)
+
+func TestExtractRuntime(t *testing.T) {
+	cache := t.TempDir()
+	// Many at the same time, like parallel gocpp runs: all get the same
+	// complete folder, and no temporary folder is left.
+	const n = 8
+	dirs := make([]string, n)
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() { dirs[i], errs[i] = ExtractRuntime(cache) })
+	}
+	wg.Wait()
+	for i := range n {
+		if errs[i] != nil {
+			t.Fatal(errs[i])
+		}
+		if dirs[i] != dirs[0] {
+			t.Errorf("ExtractRuntime returned %s and %s", dirs[0], dirs[i])
+		}
+	}
+	dir := dirs[0]
+	if want := filepath.Join(cache, "rt", runtimeName()); dir != want {
+		t.Errorf("ExtractRuntime = %s, want %s", dir, want)
+	}
+	if !strings.HasPrefix(filepath.Base(dir), "dev-") || len(filepath.Base(dir)) != len("dev-")+16 {
+		t.Errorf("the runtime folder %s is not named <version>-<hash>", filepath.Base(dir))
+	}
+	if err := checkRuntime(dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range rtfiles.Sources(runtime.GOOS) {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(s))); err != nil {
+			t.Error(err)
+		}
+	}
+	assertNoTemp(t, filepath.Join(cache, "rt"))
+
+	// A changed file (another size) and a removed one are noticed, and the
+	// folder is replaced.
+	for _, breakIt := range []func(string) error{
+		func(p string) error { return os.WriteFile(p, []byte("#error broken\n"), 0o644) },
+		os.Remove,
+	} {
+		rt := filepath.Join(dir, "include", "gocpp", "rt.hpp")
+		if err := breakIt(rt); err != nil {
+			t.Fatal(err)
+		}
+		if checkRuntime(dir) == nil {
+			t.Fatal("checkRuntime doesn't notice the broken file")
+		}
+		got, err := ExtractRuntime(cache)
+		if err != nil || got != dir {
+			t.Fatalf("ExtractRuntime = %s, %v; want %s", got, err, dir)
+		}
+		if err := checkRuntime(dir); err != nil {
+			t.Errorf("the folder is not replaced: %v", err)
+		}
+		assertNoTemp(t, filepath.Join(cache, "rt"))
+	}
+}
+
+// assertNoTemp fails if the folder has a temporary folder (.tmp-, .old-).
+func assertNoTemp(t *testing.T, dir string) {
+	t.Helper()
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".") {
+			t.Errorf("%s has the temporary folder %s left", dir, e.Name())
+		}
+	}
+}
+
+func TestShellQuoteWork(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"/w/x.cpp", "$WORK/x.cpp"},
+		{"/w", "$WORK"},
+		{"/wx/a", "/wx/a"},
+		{"-O0", "-O0"},
+		{"a b", "'a b'"},
+		{"it's", `'it'\''s'`},
+		{"", "''"},
+		{"/w/a b.cpp", "$WORK'/a b.cpp'"},
+	} {
+		if got := ShellQuoteWork(c.in, "/w"); got != c.want {
+			t.Errorf("ShellQuoteWork(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestProgramParallel(t *testing.T) {
+	// Builds with one compiler at the same time share the runtime's object
+	// files: one folder in obj/, no temporary folder left, and every
+	// program works.
+	cxx, err := LookCXX(context.Background(), "g++")
+	if err != nil {
+		if cxx, err = LookCXX(context.Background(), "clang++"); err != nil {
+			t.Skip("no C++ compiler:", err)
+		}
+	}
+	cache := t.TempDir()
+	const n = 4
+	errs := make([]error, n)
+	bins := make([]string, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		work := t.TempDir()
+		src := filepath.Join(work, "p.cpp")
+		if err := os.WriteFile(src, []byte("#include <gocpp/rt.hpp>\n#include <cstdio>\nint main() { std::puts(\"ok\"); }\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		bins[i] = filepath.Join(work, "p")
+		b := &Builder{CXX: cxx, GOOS: runtime.GOOS, Work: work, Cache: cache, Stderr: os.Stderr}
+		wg.Go(func() { errs[i] = b.Program(context.Background(), src, bins[i]) })
+	}
+	wg.Wait()
+	for i := range n {
+		if errs[i] != nil {
+			var ce *CompileError
+			if errors.As(errs[i], &ce) {
+				t.Fatalf("%v\n%s\n%s", ce, ce.Command, ce.Output)
+			}
+			t.Fatal(errs[i])
+		}
+		if out, err := exec.Command(bins[i]).Output(); err != nil || string(out) != "ok\n" {
+			t.Errorf("%s: %q, %v", bins[i], out, err)
+		}
+	}
+	dir, _ := ExtractRuntime(cache)
+	objs, _ := os.ReadDir(filepath.Join(dir, "obj"))
+	if len(objs) != 1 || strings.HasPrefix(objs[0].Name(), ".") {
+		var names []string
+		for _, o := range objs {
+			names = append(names, o.Name())
+		}
+		t.Errorf("obj/ holds %q, want one folder", names)
+	}
+}
+
+func TestRemoveStale(t *testing.T) {
+	// A killed gocpp leaves its temporary folders: those older than an
+	// hour go when the next one is made; younger ones may be in use.
+	cache := t.TempDir()
+	root := filepath.Join(cache, "rt")
+	old := []string{".tmp-1", ".old-2"}
+	keep := []string{".tmp-young", "other"}
+	for _, n := range append(old, keep...) {
+		if err := os.MkdirAll(filepath.Join(root, n, "x"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	long := time.Now().Add(-2 * staleAge)
+	for _, n := range append(old, "other") {
+		if err := os.Chtimes(filepath.Join(root, n), long, long); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := ExtractRuntime(cache); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range old {
+		if _, err := os.Stat(filepath.Join(root, n)); err == nil {
+			t.Errorf("the stale %s is still there", n)
+		}
+	}
+	for _, n := range keep {
+		if _, err := os.Stat(filepath.Join(root, n)); err != nil {
+			t.Errorf("%s was removed: %v", n, err)
+		}
+	}
+}
+
+func TestBrokenObjects(t *testing.T) {
+	// A folder of runtime objects with a file missing is replaced.
+	cxx, err := LookCXX(context.Background(), "g++")
+	if err != nil {
+		if cxx, err = LookCXX(context.Background(), "clang++"); err != nil {
+			t.Skip("no C++ compiler:", err)
+		}
+	}
+	cache := t.TempDir()
+	work := t.TempDir()
+	var trace strings.Builder
+	b := &Builder{CXX: cxx, GOOS: runtime.GOOS, Work: work, Cache: cache, Trace: &trace}
+	flags := Flags(cxx, false)
+	dir, objs, err := b.runtime(context.Background(), flags)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// -x shows the temporary folder being made and moved into place.
+	if !strings.Contains(trace.String(), "mkdir -p "+filepath.Join(dir, "obj", ".tmp-")) || !strings.Contains(trace.String(), "mv ") {
+		t.Errorf("-x doesn't show mkdir and mv:\n%s", trace.String())
+	}
+	if err := os.Remove(objs[0]); err != nil {
+		t.Fatal(err)
+	}
+	_, again, err := b.runtime(context.Background(), flags)
+	if err != nil || !allExist(again) || again[0] != objs[0] {
+		t.Fatalf("runtime after a missing object file = %q, %v", again, err)
+	}
+	assertNoTemp(t, filepath.Join(dir, "obj"))
+}

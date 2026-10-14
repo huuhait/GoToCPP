@@ -17,7 +17,7 @@ import (
 )
 
 // The tests in this file check that a stopped probe stops all the
-// processes of the compiler (the process group, proc_unix.go). They read
+// processes of the compiler (the process group, build.InGroup). They read
 // /proc, so they are for Linux.
 
 // state returns the state of the process pid, as /proc/<pid>/stat says

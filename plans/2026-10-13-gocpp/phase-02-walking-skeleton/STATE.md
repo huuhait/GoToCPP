@@ -1,6 +1,6 @@
 # Phase 02: Walking Skeleton · STATE
 
-**Status:** `[~]` in progress (steps 2.1–2.4, 2.6 and 2.7 done)
+**Status:** `[~]` in progress (steps 2.1–2.4 and 2.6–2.9 done)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
@@ -26,11 +26,11 @@
   - [x] `switch` via case index + native switch (`fallthrough`)
   - [x] labeled `break`/`continue`, `goto` (temporaries in blocks)
   - [x] `return` (single and multiple)
-- [ ] 2.5 Minimal evaluation-order pass (incl. loop-condition / `else if` / `case` shapes)
+- [~] 2.5 Minimal evaluation-order pass (incl. loop-condition / `else if` / `case` shapes)
 - [x] 2.6 Functions: params, multiple results (`std::tuple`), prototypes
 - [x] 2.7 Runtime v0 (`gp::string` minimal, helpers, panic as exception, print/println, unbuffered-order stdout, fmtshim, run_main, OS layer `runtime/src/os/` + no-POSIX-outside check) + C++ unit tests
-- [~] 2.8 Driver: `build`, `run`, `emit`, `-x`, `-work`, `-asan`, compiler detection, embedded runtime
-- [~] 2.9 Internal-error path for C++ compile failures
+- [x] 2.8 Driver: `build`, `run`, `emit`, `-x`, `-work`, `-asan`, compiler detection, embedded runtime
+- [x] 2.9 Internal-error path for C++ compile failures
 - [ ] 2.10 Tests: ≥ 25 run tests, 3 golden, ≥ 25 differential vs Go (promotion, order, shadowing, float format, float→int, stdout/stderr order)
 - [ ] 2.11 Debug test: gdb batch + line-table check
 
@@ -107,3 +107,21 @@
   if-else chain; otherwise the case index + native switch); fewer temporaries (`a, b = b, a` uses one);
   a range over a constant has no `gp_n`; op-assign is `x = x op y` (Phase 03 must evaluate the target
   once). Step 2.10 should keep the random statement test, opt-in, next to the expression one.
+- 2026-10-13: Job 2.8 + 2.9 (the driver: `gocpp build`, `run`, `emit`; `internal/build`) committed, clean
+  after 3 review rounds. The Phase 02 harness (`GOCPP_TEST_PHASE=02 go test ./tests/... -run
+  'Run|Diff|Examples'`) passes on g++ and clang++, also with `-asan`: hello, fizzbuzz, primes,
+  small_int_wrap and 3 run tests. Decisions that differ from README §2.7 or add to it:
+  - the runtime is extracted to `<user cache>/gocpp/rt/<version>-<hash16>/` (a "dev" build changes the
+    runtime without its version) and its objects are cached there per compiler (path, args, version,
+    file stamp) + flags + compile-related environment; extraction and installs are atomic;
+  - `GOCPP_CXX`/`CXX` may carry arguments, split like cmd/go splits `CC` (one place, `cxxFromEnv`, for
+    host and cross targets);
+  - `gocpp run` forwards the program's exit status N; when the program dies by a signal, gocpp dies by
+    the same signal (Linux; elsewhere 128+n), so the diff harness and shells see what they see for the
+    bare binary; signals the parent ignores stay ignored (`nohup`); `gocpp check` stops the same way;
+  - an internal error (C++ that doesn't compile or link, or an emitter "not supported yet") exits 2
+    and keeps the work folder with the C++ and the compiler log;
+  - the work folder is removed early on SIGTERM/SIGHUP while the program runs (Linux);
+  - generated files get `-Wno-tautological-compare` (clang) or `-Wno-overflow` (g++); other warnings
+    are shown;
+  - starting a compiler or the program retries on ETXTBSY, like go run.

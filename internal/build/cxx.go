@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -46,38 +48,72 @@ type CXX struct {
 	// in PATH (symbolic links are not resolved).
 	Path string
 
+	// Args are the arguments that come with the program in GOCPP_CXX or
+	// CXX, before gocpp's own: "g++" for CXX="ccache g++". They are
+	// usually empty. Every run of the compiler passes them first
+	// (Command).
+	Args []string
+
 	// Family is Clang or GCC.
 	Family Family
 
 	// Version is the first line that the compiler prints for --version,
 	// such as "clang version 21.1.8" or "g++ (GCC) 15.3.0". Caches use it,
-	// with Path and Family, to tell compilers apart.
+	// with Path, Args and Family, to tell compilers apart.
 	Version string
+
+	// Major is the major version of the compiler, from its predefined
+	// macros: __clang_major__ for clang, __GNUC__ for gcc. LookCXX
+	// rejects a compiler older than MinClang or MinGCC.
+	Major int
+
+	// stamp is the program file as LookCXX saw it (its real path, size
+	// and modification time), for the cache keys of the runtime's object
+	// files: a compiler that was replaced by another with the same version
+	// line gets new ones. It is zero for a CXX made by hand.
+	stamp fileStamp
+}
+
+// The oldest compiler versions that gocpp supports (ADR-003): the first
+// ones with enough of C++20.
+const (
+	MinClang = 17
+	MinGCC   = 13
+)
+
+// Command returns the command that runs the compiler with args, after
+// the compiler's own Args. It runs with CompilerEnv.
+func (c CXX) Command(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, c.Path, append(slices.Clip(c.Args), args...)...)
+	cmd.Env = CompilerEnv()
+	return cmd
+}
+
+// Name returns the compiler as messages show it: the base name of Path,
+// with the Args ("ccache g++").
+func (c CXX) Name() string {
+	return strings.Join(append([]string{filepath.Base(c.Path)}, c.Args...), " ")
 }
 
 // The programs that FindCXX tries when neither GOCPP_CXX nor CXX is set,
 // in this order.
 var defaultCXX = []string{"clang++", "g++"}
 
-// FindCXX finds the C++ compiler that gocpp uses: the program in
-// GOCPP_CXX, else the program in CXX, else clang++, else g++. GOCPP_CXX
-// and CXX hold one program: a name, which is looked up in PATH, or a
-// path (for now without arguments: Phase 02 decides about "ccache g++").
-// When one of them is set, FindCXX uses its program or fails: it doesn't
+// FindCXX finds the C++ compiler that gocpp uses: the compiler in
+// GOCPP_CXX, else the compiler in CXX, else clang++, else g++. GOCPP_CXX
+// and CXX hold a program, a name that is looked up in PATH or a path,
+// and maybe arguments after it: CXX="ccache g++". They are split into
+// words like the go command splits CC: at spaces, and a word can be put
+// in single or double quotes (with no escapes inside), so that a path
+// with spaces can be named ('C:\Program Files\LLVM\bin\clang++.exe').
+// When one of them is set, FindCXX uses its compiler or fails: it doesn't
 // go on to the next one, so a compiler that was chosen is never swapped
 // for another one without a word. Without them, a clang++ that doesn't
-// work (LookCXX fails) is skipped for g++.
-//
-// FindCXX only finds the compiler and its family; Phase 02 adds the
-// version checks.
+// work or is too old (LookCXX fails) is skipped for g++.
 func FindCXX(ctx context.Context) (CXX, error) {
 	for _, env := range []string{"GOCPP_CXX", "CXX"} {
-		if prog := os.Getenv(env); prog != "" {
-			cxx, err := LookCXX(ctx, prog)
-			if err != nil {
-				return CXX{}, fmt.Errorf("%s: %w", env, err)
-			}
-			return cxx, nil
+		if cxx, ok, err := cxxFromEnv(ctx, env); ok {
+			return cxx, err
 		}
 	}
 	var problems []string
@@ -100,25 +136,62 @@ func FindCXX(ctx context.Context) (CXX, error) {
 	return CXX{}, fmt.Errorf("no working C++ compiler found (GOCPP_CXX can name the compiler to use): %s", strings.Join(problems, "; "))
 }
 
+// SplitCommand splits the value of GOCPP_CXX or CXX into words, like the
+// go command splits CC (cmd/internal/quoted.Split): at spaces, tabs and
+// newlines, and a word in single or double quotes keeps its spaces. There
+// are no escapes, and a quote inside a word is a normal character.
+func SplitCommand(s string) ([]string, error) {
+	var words []string
+	for {
+		s = strings.TrimLeft(s, " \t\n\r")
+		if s == "" {
+			return words, nil
+		}
+		if q := s[0]; q == '"' || q == '\'' {
+			end := strings.IndexByte(s[1:], q)
+			if end < 0 {
+				return nil, fmt.Errorf("unterminated %c string", q)
+			}
+			words = append(words, s[1:1+end])
+			s = s[2+end:]
+			continue
+		}
+		end := strings.IndexAny(s, " \t\n\r")
+		if end < 0 {
+			end = len(s)
+		}
+		words = append(words, s[:end])
+		s = s[end:]
+	}
+}
+
 // LookCXX returns the C++ compiler prog: a program name, which is looked
-// up in PATH, or a path. It runs the compiler twice: with --version, for
-// CXX.Version, and with -dM -E, to see whether it defines __clang__ or
-// __GNUC__. The answer is cached for the program file, so another call
-// runs nothing while the file stays the same.
+// up in PATH, or a path, without arguments. It runs the compiler twice:
+// with --version, for CXX.Version, and with -dM -E, to see whether it
+// defines __clang__ or __GNUC__, and its major version. A compiler older
+// than MinClang or MinGCC is an error that shows its version. The answer
+// is cached for the program file, so another call runs nothing while the
+// file stays the same.
 func LookCXX(ctx context.Context, prog string) (CXX, error) {
+	return lookCommand(ctx, prog, nil)
+}
+
+// lookCommand is LookCXX for the program prog with the arguments args.
+func lookCommand(ctx context.Context, prog string, args []string) (CXX, error) {
+	show := strings.Join(append([]string{prog}, args...), " ")
 	path, err := exec.LookPath(prog)
 	if err != nil {
-		if strings.ContainsAny(prog, " \t") {
-			return CXX{}, fmt.Errorf("the C++ compiler %q was not found (it must be one program, without arguments, for now): %w", prog, err)
-		}
-		return CXX{}, fmt.Errorf("the C++ compiler %q was not found: %w", prog, err)
+		return CXX{}, fmt.Errorf("the C++ compiler %q was not found: %w", show, err)
 	}
 	// A relative path ("./bin/c++") must not change meaning when the
 	// compiler later runs in another folder.
 	if path, err = filepath.Abs(path); err != nil {
-		return CXX{}, fmt.Errorf("the C++ compiler %q: %w", prog, err)
+		return CXX{}, fmt.Errorf("the C++ compiler %q: %w", show, err)
 	}
-	return lookPath(ctx, path)
+	if len(args) == 0 {
+		args = nil // the same CXX as LookCXX's
+	}
+	return lookPath(ctx, path, slices.Clone(args))
 }
 
 // detectTimeout limits each run of the compiler in LookCXX, also when ctx
@@ -150,7 +223,8 @@ func stampOf(path string) (fileStamp, error) {
 	return fileStamp{real: real, size: fi.Size(), modTime: fi.ModTime().UnixNano()}, nil
 }
 
-// detected caches what lookPath found, by program path.
+// detected caches what lookPath found, by the program path and the
+// arguments (commandKey).
 var detected = struct {
 	sync.Mutex
 	m map[string]detection
@@ -161,79 +235,103 @@ type detection struct {
 	cxx   CXX
 }
 
-// lookPath returns the compiler at the absolute path path, from the cache
-// when the file hasn't changed.
-func lookPath(ctx context.Context, path string) (CXX, error) {
+// commandKey is the key of a compiler command in caches: the path and the
+// arguments, separated by NUL bytes, which none of them can hold.
+func commandKey(path string, args []string) string {
+	return strings.Join(append([]string{path}, args...), "\x00")
+}
+
+// lookPath returns the compiler at the absolute path path, run with the
+// arguments args, from the cache when the program file hasn't changed.
+// (With arguments, the program is often a launcher such as ccache, and
+// only its file is watched: a cached answer stays while the process
+// runs, even if the compiler that it starts changes.)
+func lookPath(ctx context.Context, path string, args []string) (CXX, error) {
 	stamp, err := stampOf(path)
 	if err != nil {
 		return CXX{}, fmt.Errorf("the C++ compiler %s: %w", path, err)
 	}
+	key := commandKey(path, args)
 	detected.Lock()
-	d, ok := detected.m[path]
+	d, ok := detected.m[key]
 	detected.Unlock()
 	if ok && d.stamp == stamp {
 		return d.cxx, nil
 	}
-	cxx, err := detect(ctx, path)
+	cxx, err := detect(ctx, CXX{Path: path, Args: args, stamp: stamp})
 	if err != nil {
 		return CXX{}, err
 	}
 	detected.Lock()
-	detected.m[path] = detection{stamp: stamp, cxx: cxx}
+	detected.m[key] = detection{stamp: stamp, cxx: cxx}
 	detected.Unlock()
 	return cxx, nil
 }
 
-// detect runs the compiler at path to find out its version line and its
-// family.
-func detect(ctx context.Context, path string) (CXX, error) {
-	out, err := runDetect(ctx, path, "--version")
+// detect runs the compiler c (Path and Args set) to find out its version
+// line, its family and its major version.
+func detect(ctx context.Context, c CXX) (CXX, error) {
+	show := c.Path
+	if len(c.Args) > 0 {
+		show = strings.Join(append([]string{c.Path}, c.Args...), " ")
+	}
+	out, err := runDetect(ctx, c, show, "--version")
 	if err != nil {
 		return CXX{}, err
 	}
-	version := firstLine(out)
-	if version == "" {
-		return CXX{}, fmt.Errorf("the C++ compiler %s printed nothing for --version", path)
+	c.Version = firstLine(out)
+	if c.Version == "" {
+		return CXX{}, fmt.Errorf("the C++ compiler %s printed nothing for --version", show)
 	}
 	// "-x c++ -" reads an empty C++ file from stdin (exec gives the
 	// program the null device), so this works without a temporary file.
-	out, err = runDetect(ctx, path, "-dM", "-E", "-x", "c++", "-")
+	out, err = runDetect(ctx, c, show, "-dM", "-E", "-x", "c++", "-")
 	if err != nil {
 		return CXX{}, err
 	}
-	family := familyOf(out)
-	if family == 0 {
-		return CXX{}, fmt.Errorf("the C++ compiler %s (%s) is neither clang nor gcc: it defines neither __clang__ nor __GNUC__", path, version)
+	c.Family, c.Major = familyOf(out)
+	switch {
+	case c.Family == 0:
+		return CXX{}, fmt.Errorf("the C++ compiler %s (%s) is neither clang nor gcc: it defines neither __clang__ nor __GNUC__", show, c.Version)
+	case c.Family == Clang && c.Major < MinClang:
+		return CXX{}, fmt.Errorf("the C++ compiler %s (%s) is too old: gocpp needs clang %d or newer", show, c.Version, MinClang)
+	case c.Family == GCC && c.Major < MinGCC:
+		return CXX{}, fmt.Errorf("the C++ compiler %s (%s) is too old: gocpp needs gcc %d or newer", show, c.Version, MinGCC)
 	}
-	return CXX{Path: path, Family: family, Version: version}, nil
+	return c, nil
 }
 
-// runDetect runs the compiler at path with args and returns what it
-// printed on stdout. It runs with CompilerEnv, so that the version line is
-// the same in every locale and nothing writes files.
-func runDetect(ctx context.Context, path string, args ...string) ([]byte, error) {
+// runDetect runs the compiler c with args and returns what it printed on
+// stdout. It runs with CompilerEnv, so that the version line is the same
+// in every locale and nothing writes files. show is the compiler for
+// messages.
+func runDetect(ctx context.Context, c CXX, show string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, detectTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, args...)
-	cmd.Env = CompilerEnv()
 	stdout := &limitBuffer{max: maxDetectOutput}
 	stderr := &limitBuffer{max: maxDetectOutput}
-	cmd.Stdout, cmd.Stderr = stdout, stderr
-	// If a process that the compiler started keeps stdout open, stop
-	// waiting for it soon after the compiler exits.
-	cmd.WaitDelay = time.Second
-	err := cmd.Run()
-	show := strings.Join(args, " ")
+	cmd, err := Start(ctx, func() *exec.Cmd {
+		cmd := c.Command(ctx, args...)
+		cmd.Stdout, cmd.Stderr = stdout, stderr
+		// If a process that the compiler started keeps stdout open, stop
+		// waiting for it soon after the compiler exits.
+		cmd.WaitDelay = time.Second
+		return cmd
+	})
+	if err == nil {
+		err = cmd.Wait()
+	}
+	what := strings.Join(args, " ")
 	switch {
 	case ctx.Err() != nil:
-		return nil, fmt.Errorf("the C++ compiler %s: %s: %w", path, show, ctx.Err())
+		return nil, fmt.Errorf("the C++ compiler %s: %s: %w", show, what, ctx.Err())
 	case err != nil:
 		if msg := firstLine(stderr.buf.Bytes()); msg != "" {
-			return nil, fmt.Errorf("the C++ compiler %s: %s failed: %v: %s", path, show, err, msg)
+			return nil, fmt.Errorf("the C++ compiler %s: %s failed: %v: %s", show, what, err, msg)
 		}
-		return nil, fmt.Errorf("the C++ compiler %s: %s failed: %v", path, show, err)
+		return nil, fmt.Errorf("the C++ compiler %s: %s failed: %v", show, what, err)
 	case stdout.full:
-		return nil, fmt.Errorf("the C++ compiler %s: %s printed more than %d bytes", path, show, maxDetectOutput)
+		return nil, fmt.Errorf("the C++ compiler %s: %s printed more than %d bytes", show, what, maxDetectOutput)
 	}
 	return stdout.buf.Bytes(), nil
 }
@@ -269,28 +367,36 @@ func CompilerEnv() []string {
 }
 
 // familyOf returns the compiler family that the macro list out (from -dM
-// -E) shows, or 0. clang defines __GNUC__ too, so __clang__ decides.
-func familyOf(out []byte) Family {
+// -E) shows, or 0, and its major version (__clang_major__ or __GNUC__;
+// 0 if it is missing). clang defines __GNUC__ too, so __clang__ decides.
+func familyOf(out []byte) (Family, int) {
 	var clang, gnuc bool
+	var clangMajor, gnucMajor int
 	for line := range strings.SplitSeq(string(out), "\n") {
 		f := strings.Fields(line)
 		if len(f) < 2 || f[0] != "#define" {
 			continue
 		}
+		n := 0
+		if len(f) > 2 {
+			n, _ = strconv.Atoi(f[2])
+		}
 		switch f[1] {
 		case "__clang__":
 			clang = true
+		case "__clang_major__":
+			clangMajor = n
 		case "__GNUC__":
-			gnuc = true
+			gnuc, gnucMajor = true, n
 		}
 	}
 	switch {
 	case clang:
-		return Clang
+		return Clang, clangMajor
 	case gnuc:
-		return GCC
+		return GCC, gnucMajor
 	}
-	return 0
+	return 0, 0
 }
 
 // firstLine returns the first line of out that isn't blank, without

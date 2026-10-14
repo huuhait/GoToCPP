@@ -21,12 +21,13 @@ func TestCheckProcess(t *testing.T) {
 	if os.Getenv("GOCPP_CHECK_PROCESS") != "1" {
 		t.Skip("only run by TestCheckInterrupt")
 	}
-	os.Exit(run([]string{"check", "."}, strings.NewReader(""), os.Stdout, os.Stderr))
+	exit(run([]string{"check", "."}, strings.NewReader(""), os.Stdout, os.Stderr)) // like main
 }
 
 // TestCheckInterrupt checks ^C while the namespace probe runs a slow
-// compiler: gocpp check exits with 130 and prints nothing, and the
-// compiler is gone.
+// compiler: gocpp check prints nothing and dies of SIGINT (on Linux; with
+// exit status 130 elsewhere), like gocpp build and run, and the compiler
+// is gone.
 func TestCheckInterrupt(t *testing.T) {
 	dir := t.TempDir()
 	pidFile := filepath.Join(dir, "probe.pid")
@@ -45,20 +46,8 @@ exit 3
 	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Run it once before the real run, retrying "text file busy": a
-	// process forked while the script was written can hold its write fd
-	// for a moment (golang/go#22315). This test runs alone, so it
-	// shouldn't happen; the retry costs nothing.
-	for try := 0; ; try++ {
-		err := exec.Command(fake, "--version").Run()
-		if err == nil {
-			break
-		}
-		if !errors.Is(err, syscall.ETXTBSY) || try == 50 {
-			t.Fatalf("running %s: %v", fake, err)
-		}
-		time.Sleep(time.Duration(try+1) * 10 * time.Millisecond)
-	}
+	// A "text file busy" start (golang/go#22315) is retried by gocpp
+	// itself (build.Start).
 	pkg := filepath.Join(dir, "m")
 	if err := os.MkdirAll(pkg, 0o755); err != nil {
 		t.Fatal(err)
@@ -94,10 +83,10 @@ exit 3
 	if err := cmd.Process.Signal(os.Interrupt); err != nil {
 		t.Fatal(err)
 	}
-	err := cmd.Wait()
-	var exit *exec.ExitError
-	if !errors.As(err, &exit) || exit.ExitCode() != 130 || stdout.Len() != 0 || stderr.Len() != 0 {
-		t.Errorf("after ^C: %v, stdout %q, stderr %q; want exit status 130 and no output", err, stdout.String(), stderr.String())
+	cmd.Wait()
+	checkSignaled(t, cmd, syscall.SIGINT)
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Errorf("after ^C: stdout %q, stderr %q; want no output", stdout.String(), stderr.String())
 	}
 	// The compiler (sleep, after exec) is gone: killed and waited for.
 	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -326,11 +327,12 @@ func (c *cache) valid(set *includeSet) bool {
 // setKey is the cache key of an include set. None of its parts can hold a
 // NUL byte (checkInclude, and paths can't), so the key can't be confused
 // with another one.
-//
-// TODO(job 2.8): add the compiler's arguments (CXX.Args, "ccache g++")
-// once build.CXX has them.
 func setKey(cxx build.CXX, dir string, includes []string) string {
-	return strings.Join(append([]string{cxx.Path, cxx.Family.String(), cxx.Version, dir}, includes...), "\x00")
+	// The compiler's own arguments (CXX="g++ -m32") come after their
+	// number, so that they can't be confused with the parts after them.
+	parts := append([]string{cxx.Path, fmt.Sprint(len(cxx.Args))}, cxx.Args...)
+	parts = append(parts, cxx.Family.String(), cxx.Version, dir)
+	return strings.Join(append(parts, includes...), "\x00")
 }
 
 // dependsOn returns the files that the result of run depends on: the

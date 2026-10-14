@@ -33,11 +33,11 @@ type command struct {
 // commands lists every planned command, in the order "gocpp help" shows
 // them. A phase that builds a command sets its run field.
 var commands = []command{
-	{name: "build", phase: 2, summary: "compile packages and their C/C++ files"},
-	{name: "run", phase: 2, summary: "compile and run a program"},
+	{name: "build", phase: 2, summary: "compile packages and their C/C++ files", run: runBuild},
+	{name: "run", phase: 2, summary: "compile and run a program", run: runRun},
 	{name: "test", phase: 9, summary: "run the tests in _test.gp files"},
 	{name: "check", phase: 1, summary: "parse and type-check packages, print errors", run: runCheck},
-	{name: "emit", phase: 2, summary: "print the C++ generated for a .gp file"},
+	{name: "emit", phase: 2, summary: "print the C++ generated for a .gp file", run: runEmit},
 	{name: "expand", phase: 10, summary: "print code after macro, #Derive and ! rewriting"},
 	{name: "fmt", phase: 1, summary: "format .gp files like gofmt", run: runFmt},
 	{name: "lsp", phase: 11, summary: "run the language server for editors"},
@@ -56,7 +56,17 @@ var commands = []command{
 }
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+	exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+}
+
+// exit ends gocpp with the exit status code, or by dying of the signal
+// that a command recorded (exitSignal: the program of gocpp run died of
+// it, or it stopped a command) if it can.
+func exit(code int) {
+	if sig := exitSignal.Load(); sig != nil {
+		dieOf(*sig) // returns if it can't
+	}
+	os.Exit(code)
 }
 
 // run runs gocpp with the arguments after the program name and returns the
