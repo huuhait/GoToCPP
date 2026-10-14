@@ -275,16 +275,27 @@ func TestDirectiveArgErrors(t *testing.T) {
 			errs: []string{`1:14: invalid character '\u200b' in library name "m\u200bpthread"`},
 		},
 
-		// Headers.
-		{name: "header without <", src: beforePackage("//gocpp:extern-c lua.h>"), errs: []string{`1:18: invalid header "lua.h>": ` + headerWant}},
-		{name: "header without >", src: beforePackage("//gocpp:extern-c <lua.h"), errs: []string{`1:18: invalid header "<lua.h": ` + headerWant}},
-		{name: "empty <>", src: beforePackage("//gocpp:extern-c <>"), errs: []string{`1:18: invalid header "<>": ` + headerWant}},
-		{name: "nested <>", src: beforePackage("//gocpp:extern-c <<lua.h>>"), errs: []string{`1:18: invalid header "<<lua.h>>": ` + headerWant}},
+		// Headers. The check is the one of the header imports
+		// (checkHeader), so the messages are those of ClassifyImports.
+		{name: "header without <", src: beforePackage("//gocpp:extern-c lua.h>"), errs: []string{`1:18: invalid header "lua.h>": missing < at the start`}},
+		{name: "header without >", src: beforePackage("//gocpp:extern-c <lua.h"), errs: []string{`1:18: invalid header "<lua.h": missing > at the end`}},
+		{name: "empty <>", src: beforePackage("//gocpp:extern-c <>"), errs: []string{`1:18: invalid header "<>": missing file name`}},
+		{name: "nested <>", src: beforePackage("//gocpp:extern-c <<lua.h>>"), errs: []string{`1:18: invalid header "<<lua.h>>": invalid character U+003C '<'`}},
+		{name: "space after <", src: beforePackage(`//gocpp:extern-c "< lua.h>"`), errs: []string{`1:18: invalid header "< lua.h>": space after <`}},
+		{name: "space before >", src: beforePackage(`//gocpp:extern-c "<lua.h >"`), errs: []string{`1:18: invalid header "<lua.h >": space before >`}},
+		{name: "space at the start", src: beforePackage(`//gocpp:extern-c " ./a.h"`), errs: []string{`1:18: invalid header " ./a.h": space at the start`}},
+		{name: "space at the end", src: beforePackage(`//gocpp:no-extern-c "<lua.h> "`), errs: []string{`1:21: invalid header "<lua.h> ": space at the end`}},
+		{name: "backslash", src: beforePackage(`//gocpp:extern-c sub\\x.h`), errs: []string{`1:18: invalid header "sub\\x.h": use / in header paths`}},
 		{name: "header without extension", src: beforePackage("//gocpp:extern-c lua"), errs: []string{`1:18: invalid header "lua": ` + headerWant}},
 		{name: "C source, not a header", src: beforePackage("//gocpp:extern-c ./legacy.c"), errs: []string{`1:18: invalid header "./legacy.c": ` + headerWant}},
 		{name: "upper-case extension", src: beforePackage("//gocpp:extern-c ./legacy.H"), errs: []string{`1:18: invalid header "./legacy.H": ` + headerWant}},
-		{name: "only an extension", src: beforePackage("//gocpp:extern-c ./.h"), errs: []string{`1:18: invalid header "./.h": ` + headerWant}},
-		{name: "quote in a local header", src: beforePackage(`//gocpp:no-extern-c ./a\"b.h`), errs: []string{`1:21: invalid header "./a\"b.h": ` + headerWant}},
+		{name: "namespace, not a header", src: beforePackage("//gocpp:extern-c ::std"), errs: []string{`1:18: invalid header "::std": ` + headerWant}},
+		{name: "quote in a local header", src: beforePackage(`//gocpp:no-extern-c ./a\"b.h`), errs: []string{`1:21: invalid header "./a\"b.h": invalid character U+0022 '"'`}},
+		// Headers that the import rules accept, so the directives accept
+		// them too: a file named .h (a header without a package name when
+		// it is imported), and a > in a local header.
+		{name: "only an extension", src: beforePackage("//gocpp:extern-c ./.h"), dirs: []string{`1:1 extern-c ["./.h"]`}},
+		{name: "> in a local header", src: beforePackage("//gocpp:extern-c ./a>b.h"), dirs: []string{`1:1 extern-c ["./a>b.h"]`}},
 
 		{
 			// Every bad argument is reported, at its own column.

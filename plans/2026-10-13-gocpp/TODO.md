@@ -95,3 +95,4 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] 2026-10-13: Phase 11 job 11.10a: the VS Code language + TextMate grammar for `.gp`
 - [x] 2026-10-13: Phase 01 step 1.16: `gocpp fmt` (gofmt's output, header import groups kept as written)
 - [x] 2026-10-13: Phase 01 step 1.4: parser patch 3 (`std.chrono.seconds`, `std.vector[int].iterator`)
+- [x] 2026-10-13: Phase 01 step 1.9: the package loader (`load.Load`) and the stdlib stubs

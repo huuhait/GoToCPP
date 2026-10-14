@@ -150,8 +150,10 @@ names. That is also why user names starting with `gp_` are escaped.
 - **Float → int conversion** uses `gp::f2i<T>(x)`. Out-of-range values are UB in C++ and
   implementation-specific in Go, so we copy Go on amd64, per type: `int64` and `int32` give
   their MIN value (`int64(f)` with `f := 1e300` is `-9223372036854775808`); `int16`, `int8`,
-  `uint32`, `uint16` and `uint8` convert through `int64` and then truncate (`uint8(f)` with
-  `f := 300.0` is `44`); `uint64` uses Go's two-range algorithm. Go on arm64 saturates instead,
+  `uint16` and `uint8` convert through `int32` and then truncate (`uint8(f)` with `f := 300.0` is
+  `44`; `int16(3e9+7)` is `0`, as the CVTTSD2SL instruction gives MIN for out-of-range values);
+  `uint32` converts through `int64` and truncates; `uint64` uses Go's two-range algorithm (checked
+  against real Go 1.25 on amd64 by job 2.7). Go on arm64 saturates instead,
   so these cases run in the differential tests only on amd64.
 - **`fmt.Println` float output** follows Go's `%v` rules exactly: shortest round-trip digits
   from `std::to_chars`, then exponent form when the decimal exponent is < -4 or >= 6. Verified

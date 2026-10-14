@@ -224,12 +224,20 @@ func (r NoNameReason) String() string {
 // ("gopkg.in/yaml.v3" gives yaml). A guess can be wrong: the package in
 // "myapp/api/v1" may be named v1.
 //
+// dotNames returns the exported package-level names of the gocpp package
+// with the given import path, for a dot import (. "myapp/geom"), or nil if
+// they are not known. The loader knows them once it has loaded the
+// package. A dot import gives these names to the file, like any other
+// import gives its name: a header doesn't get such a name as its default
+// name, and a name given to a header or a namespace can't be one ("Rect
+// redeclared in this block"). dotNames may be nil.
+//
 // A header gets no default name when it would be a Go keyword, a
 // predeclared Go name, C, init or _, not a valid name, or a name that
-// another import of the file or a package-level name uses. When two
-// different headers would get the same default name, neither gets it, so
-// the result doesn't depend on the order of the imports. A gocpp package
-// always keeps its name.
+// another import of the file (also a dot import) or a package-level name
+// uses. When two different headers would get the same default name,
+// neither gets it, so the result doesn't depend on the order of the
+// imports. A gocpp package always keeps its name.
 //
 // A name given in an import follows Go: when two imports of the file give
 // the same name, the second one is an error ("rl redeclared in this
@@ -244,12 +252,13 @@ func (r NoNameReason) String() string {
 // Header imports never cause "imported and not used" errors, because a
 // header also brings its namespaces and macros.
 func ClassifyImports(fset *token.FileSet, f *ast.File, pkgLevel map[string]token.Pos,
-	packageName func(path string) string, errs *diag.List) *FileInfo {
+	packageName func(path string) string, dotNames func(path string) []string, errs *diag.List) *FileInfo {
 	c := &classifier{
 		fset:        fset,
 		errs:        errs,
 		pkgLevel:    pkgLevel,
 		packageName: packageName,
+		dotNames:    dotNames,
 		info: &FileInfo{
 			PackageNames:     make(map[string]*ast.ImportSpec),
 			HeaderNames:      make(map[string]*Include),
@@ -415,6 +424,7 @@ type classifier struct {
 	errs        *diag.List
 	pkgLevel    map[string]token.Pos
 	packageName func(path string) string
+	dotNames    func(path string) []string
 	info        *FileInfo
 
 	// names holds the imports that give a name to the file scope, in
@@ -425,13 +435,15 @@ type classifier struct {
 
 // A scopeName is an import that gives a name to the file scope: a gocpp
 // package, a header (with a name given in the import, or its default
-// name) or a namespace rename.
+// name) or a namespace rename. A dot import gives one scopeName for each
+// exported name of its package.
 type scopeName struct {
 	name      string // "" for a default name that is not known yet
 	spec      *ast.ImportSpec
 	inc       *Include         // the header, or nil
 	rename    *NamespaceRename // the namespace rename, or nil
 	isDefault bool             // the default name of a header
+	isDot     bool             // a name that a dot import brings
 }
 
 // cpp reports whether the import is a header or a namespace, which
@@ -457,11 +469,16 @@ func (c *classifier) importSpec(spec *ast.ImportSpec) {
 		c.gocppPackage(spec, p, name) // a space in the path is go/types' error
 		return
 	}
-	what := "header"
-	switch kind {
-	case namespaceImport:
-		what = "namespace"
-	case notHeaderImport:
+	if hk, msg := checkHeader(p); hk != 0 {
+		if msg != "" {
+			c.errorAt(spec.Path, "invalid header path %s: %s", strconv.Quote(p), msg)
+			return
+		}
+		c.header(spec, p, name, hk)
+		return
+	}
+	what := "namespace"
+	if kind == notHeaderImport {
 		what = "import"
 	}
 	switch {
@@ -469,10 +486,6 @@ func (c *classifier) importSpec(spec *ast.ImportSpec) {
 		c.errorAt(spec.Path, "invalid %s path %s: space at the start", what, strconv.Quote(p))
 	case strings.TrimRightFunc(p, unicode.IsSpace) != p:
 		c.errorAt(spec.Path, "invalid %s path %s: space at the end", what, strconv.Quote(p))
-	case kind == systemImport:
-		c.header(spec, p, name, SystemHeader)
-	case kind == localImport:
-		c.header(spec, p, name, LocalHeader)
 	case kind == namespaceImport:
 		c.namespace(spec, p, name)
 	// The cases below are for a ./ or ../ path that is not a header.
@@ -504,7 +517,17 @@ func (c *classifier) gocppPackage(spec *ast.ImportSpec, p, name string) {
 		}
 	}
 	c.info.Packages = append(c.info.Packages, spec)
-	if name != "" && name != "_" && name != "." {
+	switch name {
+	case "", "_":
+	case ".":
+		if c.dotNames != nil {
+			names := slices.Clone(c.dotNames(p))
+			slices.Sort(names) // the order of the errors doesn't depend on the caller
+			for _, n := range names {
+				c.names = append(c.names, scopeName{name: n, spec: spec, isDot: true})
+			}
+		}
+	default:
 		c.names = append(c.names, scopeName{name: name, spec: spec})
 	}
 }
@@ -520,12 +543,8 @@ func (c *classifier) pkgName(p string) string {
 	return assumedName(p)
 }
 
-// header handles a header import.
+// header handles a header import whose path checkHeader accepts.
 func (c *classifier) header(spec *ast.ImportSpec, p, name string, kind HeaderKind) {
-	if msg := checkHeaderPath(p, kind); msg != "" {
-		c.errorAt(spec.Path, "invalid header path %s: %s", strconv.Quote(p), msg)
-		return
-	}
 	inc := &Include{Kind: kind, Path: p, Pos: spec.Path.Pos(), Spec: spec}
 	c.info.Includes = append(c.info.Includes, inc)
 	switch name {
@@ -742,7 +761,7 @@ func (c *classifier) declareNames() {
 		case n.rename != nil:
 			c.info.NamespaceRenames[n.name] = n.rename
 			c.checkPackageLevel(n.name, n.spec, n.rename.Namespace)
-		default:
+		case !n.isDot: // a dot import gives no package name
 			c.info.PackageNames[n.name] = n.spec
 		}
 	}
@@ -784,6 +803,34 @@ func isSourceFile(p string) bool {
 		}
 	}
 	return false
+}
+
+// checkHeader is the check of a header path, shared by the header imports
+// (ClassifyImports) and the extern-c and no-extern-c directives
+// (ParseDirectives). It returns the kind of header that p is by its shape
+// (see kindOf: "<raylib.h>" is a SystemHeader, "./physics.h" a
+// LocalHeader), and what is wrong with it, or "" if nothing is. It returns
+// the kind 0 when p doesn't have the shape of a header: a gocpp package
+// ("fmt"), a namespace ("::std") or a ./ path that is not a header
+// ("./physics"). p is the path without the Go quotes. A space at its start
+// or at its end is wrong: "space at the start".
+func checkHeader(p string) (HeaderKind, string) {
+	var kind HeaderKind
+	switch kindOf(strings.TrimSpace(p)) {
+	case systemImport:
+		kind = SystemHeader
+	case localImport:
+		kind = LocalHeader
+	default:
+		return 0, ""
+	}
+	switch {
+	case strings.TrimLeftFunc(p, unicode.IsSpace) != p:
+		return kind, "space at the start"
+	case strings.TrimRightFunc(p, unicode.IsSpace) != p:
+		return kind, "space at the end"
+	}
+	return kind, checkHeaderPath(p, kind)
 }
 
 // checkHeaderPath returns what is wrong with the header path p, or "".

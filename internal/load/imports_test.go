@@ -74,7 +74,7 @@ func classify(t *testing.T, pkgNames map[string]string, allowParseErrors bool, s
 	}
 	r := classifyResult{list: new(diag.List), file: files[0], fset: fset}
 	specsBefore := len(importSpecs(r.file))
-	r.info = ClassifyImports(fset, r.file, PackageLevelNames(files), packageName, r.list)
+	r.info = ClassifyImports(fset, r.file, PackageLevelNames(files), packageName, nil, r.list)
 	if n := len(importSpecs(r.file)); n != specsBefore {
 		t.Errorf("ClassifyImports changed the AST: %d import specs, had %d", n, specsBefore)
 	}
@@ -678,7 +678,7 @@ func TestPackageLevelNoPos(t *testing.T) {
 		t.Fatal(err)
 	}
 	var l diag.List
-	fi := ClassifyImports(fset, f, map[string]token.Pos{"rl": token.NoPos, "fs": token.NoPos}, nil, &l)
+	fi := ClassifyImports(fset, f, map[string]token.Pos{"rl": token.NoPos, "fs": token.NoPos}, nil, nil, &l)
 	want := "x.gp:4:2: rl already declared through import of <raylib.h>\n" +
 		"x.gp:5:2: fs already declared through import of ::std::filesystem\n"
 	if got := printDiags(t, &l); got != want {
@@ -732,6 +732,67 @@ func TestRealPackageNames(t *testing.T) {
 	}})
 }
 
+// TestDotImportNames checks the names that dot imports bring into the
+// file (the dotNames input, job 1.9a): a header doesn't get one as its
+// default name, and a name given to a header or a namespace can't be one,
+// in either order of the imports. A dot import gives no package name.
+func TestDotImportNames(t *testing.T) {
+	dotNames := func(p string) []string {
+		if p == "myapp/geom" {
+			return []string{"Rect", "Point"}
+		}
+		return nil
+	}
+	for _, tc := range []struct {
+		name  string
+		specs []string
+		want  []string // infoLines
+		errs  string
+	}{{
+		name:  "a default name gives way",
+		specs: []string{`. "myapp/geom"`, `"<Rect.h>"`, `"<geom.h>"`},
+		want:  []string{`pkg . "myapp/geom"`, `sys <Rect.h> none UsedByImport "Rect"`, "sys <geom.h> geom"},
+	}, {
+		name:  "also before the dot import",
+		specs: []string{`"<Rect.h>"`, `. "myapp/geom"`},
+		want:  []string{`pkg . "myapp/geom"`, `sys <Rect.h> none UsedByImport "Rect"`},
+	}, {
+		name:  "a name given to a header after the dot import",
+		specs: []string{`. "myapp/geom"`, `Rect "<x.h>"`},
+		want:  []string{`pkg . "myapp/geom"`, `sys <x.h> none UsedByImport "Rect"`},
+		errs:  "x.gp:5:2: Rect redeclared in this block\n\tx.gp:4:2: other declaration of Rect\n",
+	}, {
+		name:  "a namespace rename before the dot import",
+		specs: []string{`Point "::std::chrono"`, `. "myapp/geom"`},
+		want:  []string{`pkg . "myapp/geom"`, "ns Point ::std::chrono"},
+		errs:  "x.gp:5:2: Point redeclared in this block\n\tx.gp:4:2: other declaration of Point\n",
+	}, {
+		name:  "names that are not known",
+		specs: []string{`. "myapp/other"`, `"<Rect.h>"`},
+		want:  []string{`pkg . "myapp/other"`, "sys <Rect.h> Rect"},
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			fset := token.NewFileSet()
+			f, err := parser.ParseFile(fset, "x.gp", importFile("", tc.specs...), 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var l diag.List
+			info := ClassifyImports(fset, f, nil, nil, dotNames, &l)
+			checkFileInfo(t, f, info)
+			if got := infoLines(info); !slices.Equal(got, tc.want) {
+				t.Errorf("got:\n\t%s\nwant:\n\t%s", strings.Join(got, "\n\t"), strings.Join(tc.want, "\n\t"))
+			}
+			if got := printDiags(t, &l); got != tc.errs {
+				t.Errorf("errors:\n%s\nwant:\n%s", got, tc.errs)
+			}
+			if len(info.PackageNames) != 0 {
+				t.Errorf("a dot import gives package names: %v", info.PackageNames)
+			}
+		})
+	}
+}
+
 // TestPackageNames checks FileInfo.PackageNames (job 1.8a): the names that
 // the gocpp imports give to the file, which RewriteFile never takes as
 // namespaces.
@@ -776,7 +837,7 @@ func TestPackageNameCalls(t *testing.T) {
 	ClassifyImports(fset, f, nil, func(p string) string {
 		calls = append(calls, p)
 		return ""
-	}, &l)
+	}, nil, &l)
 	if want := []string{"fmt", "myapp/a"}; !slices.Equal(calls, want) {
 		t.Errorf("packageName was called with %q, want %q", calls, want)
 	}

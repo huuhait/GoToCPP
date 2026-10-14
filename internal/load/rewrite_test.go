@@ -60,7 +60,7 @@ func rewrite(t *testing.T, broken bool, srcs ...string) rewriteResult {
 	}
 	pkgLevel := PackageLevelNames(r.files)
 	for _, f := range r.files {
-		info := ClassifyImports(r.fset, f, pkgLevel, nil, r.list)
+		info := ClassifyImports(r.fset, f, pkgLevel, nil, nil, r.list)
 		before := snapshot(f)
 		rw := RewriteFile(r.fset, f, info, pkgLevel, dotNames(t, info), r.list)
 		checkRewrite(t, r.fset, f, info, rw, before, !broken)
@@ -2266,7 +2266,7 @@ func TestRewriteWithoutObjectResolution(t *testing.T) {
 		t.Fatal(err)
 	}
 	var errs diag.List
-	info := ClassifyImports(fset, f, nil, nil, &errs)
+	info := ClassifyImports(fset, f, nil, nil, nil, &errs)
 	defer func() {
 		if msg, _ := recover().(string); !strings.Contains(msg, "without object resolution") {
 			t.Errorf("RewriteFile panicked with %q, want the object resolution message", msg)

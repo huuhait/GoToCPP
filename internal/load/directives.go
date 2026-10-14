@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
-	"path"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -387,22 +386,18 @@ func badNameChar(what, name string) string {
 // written like the header's import path, without the Go quotes: a system
 // header in angle brackets (<lua.h>, <vector>), or a local header, whose
 // path ends in one of the header extensions of the import rules (Phase 01
-// README §2.3).
+// README §2.3). The check is the one of the header imports (checkHeader),
+// so a header that can be imported can be named here, and the other way
+// around.
 func checkHeaderArg(arg string) string {
-	if inner, ok := strings.CutPrefix(arg, "<"); ok {
-		if inner, ok := strings.CutSuffix(inner, ">"); ok && inner != "" && !strings.ContainsAny(inner, "<>") {
-			return ""
-		}
-	} else if !strings.ContainsAny(arg, `<>"`) {
-		for _, ext := range []string{".h", ".hh", ".hpp", ".hxx", ".h++", ".inl"} {
-			// The file name needs more than the extension: "./.h" is not
-			// a header.
-			if strings.HasSuffix(arg, ext) && len(path.Base(arg)) > len(ext) {
-				return ""
-			}
-		}
+	kind, msg := checkHeader(arg)
+	switch {
+	case kind == 0:
+		return fmt.Sprintf("invalid header %q: want <name> or a path ending in %s", arg, headerExtList)
+	case msg != "":
+		return fmt.Sprintf("invalid header %q: %s", arg, msg)
 	}
-	return fmt.Sprintf("invalid header %q: want <name> or a path ending in .h, .hh, .hpp, .hxx, .h++ or .inl", arg)
+	return ""
 }
 
 // suggestDirective returns the known directive names that are closest to
