@@ -74,3 +74,10 @@
   reference counts and a State hook for 11.3; protocol.Conn with notifications in order and requests
   concurrent, a context per ID, $/cancelRequest, ContentModified; internal/lsp/debounce with a fake
   clock) committed, clean after 3 review rounds; stress-tested with -race -count=200 on 1–8 CPUs.
+- 2026-10-14 (manager, 11.3 review): deviation recorded: every package check re-parses all of the
+  package's files from source (Check changes ASTs), not only the edited file (README §2.2 item 3,
+  ADR-015); it costs ≈ 8% of an edit's CPU, within budget; a parse hook in internal/load plus AST
+  cloning is an option for 11.11. Follow-up job 11.3b: the on-disk summary cache (keyed by the gocpp
+  binary's hash, with a trim policy: the disk is small) and the side table of opaque type spellings
+  (which must also feed the API hash); the "< 300 ms warm open" budget depends on it. The project now
+  depends on golang.org/x/tools (v0.44.0, BSD-3) for go/gcexportdata, as ADR-001/002/015 planned.
