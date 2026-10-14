@@ -406,10 +406,18 @@ gp::ptr<Counter> NewCounter() {
   | `&x` (`x` is a boxed local) | its box | `x` |
   | `&p.f` (`p` is a `*T`) | `p` | `gp::ptr<F>(p, &p->f)` |
   | `&s[i]` (`s` is a slice) | the slice's array | `gp::ptr<T>(s.gp_owner(), &s[i])` |
-  | `&globalVar` | a static owner that is never freed | a `gp::ptr` that shares it |
+  | `&globalVar`, `&globalVar.f` | a static owner that is never freed | `gp::static_ptr(globalVar)`, `gp::static_ptr(globalVar.f)` |
 
-- Dereferencing a nil `gp::ptr` panics with Go's message:
-  `runtime error: invalid memory address or nil pointer dereference`.
+- Dereferencing a nil `gp::ptr` (`*p`, `p->f`, also `&p->f`) panics with Go's message:
+  `runtime error: invalid memory address or nil pointer dereference`. Unrecovered, it also
+  prints Go's signal line (`[signal SIGSEGV: ...]`).
+- `p == nil` is `p == nullptr`. A conversion between pointer types whose base types have
+  identical underlying types, `(*Q)(p)`, is `gp::ptr_cast<Q>(p)`.
+- `weak.Pointer[T]` is `gp::weak_ptr<T>`: `weak.Make(p)` is `gp::weak_make(p)` and
+  `w.Value()` is `gp::weak_value(w)` (free functions, since runtime types have no plain-named
+  members). `weak` is a compiler intrinsic until generics come (Phase 07).
+- Freeing a long chain (a list of millions of nodes) doesn't recurse deeply: past a depth of
+  128, the runtime puts the rest on a per-thread list and frees it in a loop.
 
 Source: [Phase 03 §2.2](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#22-pointers-and-boxing).
 

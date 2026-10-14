@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <string_view>
 #include <vector>
 
@@ -184,6 +185,83 @@ void strings_case() {
                  gp::len("a\000b"_gs));
 }
 
+struct point {
+    int64_t X = 0;
+    int64_t Y = 0;
+    int64_t Sum() const;
+};
+
+int64_t point::Sum() const {
+    point p = *this;
+    return p.X + p.Y;
+}
+
+struct other {
+    int64_t X = 0;
+    int64_t Y = 0;
+};
+
+point globalPoint;
+int64_t globalArr[3];
+
+gp::ptr<int64_t> newCounter() {
+    gp::ptr<int64_t> c = gp::new_<int64_t>(INT64_C(1)); // boxed: its address is returned
+    return c;
+}
+
+void ptr_case() {
+    gp::ptr<int64_t> p = gp::new_<int64_t>();
+    fmt::Println(*p, p == nullptr, p != nullptr);
+    *p = 5;
+    gp::ptr<int64_t> q = p;
+    *q += 2;
+    fmt::Println(*p, *q, p == q);
+    gp::ptr<int64_t> r = gp::new_<int64_t>();
+    *r = 7;
+    fmt::Println(*r == *p, r == p);
+    gp::ptr<int64_t> n;
+    fmt::Println(n == nullptr, n == gp::ptr<int64_t>(nullptr), n == r);
+
+    gp::ptr<int64_t> c = newCounter(), d = newCounter();
+    (*c)++;
+    fmt::Println(*c, *d, c == d);
+
+    gp::ptr<point> pt = gp::new_<point>(point{.X = 1, .Y = 2});
+    gp::ptr<int64_t> py = gp::ptr<int64_t>(pt, &pt->Y);
+    *py = 7;
+    fmt::Println(pt->X, pt->Y, *py, pt->Sum(), py == gp::ptr<int64_t>(pt, &pt->Y),
+                 gp::ptr<int64_t>(pt, &pt->X) == gp::ptr<int64_t>(pt, &pt->Y));
+    pt = nullptr;
+    *py = 8;
+    fmt::Println(*py, pt == nullptr);
+
+    gp::ptr<point> g = gp::static_ptr(globalPoint);
+    g->X = 3;
+    fmt::Println(globalPoint.X, gp::static_ptr(globalPoint) == g,
+                 gp::static_ptr(globalPoint.X) == gp::ptr<int64_t>(g, &g->X),
+                 gp::static_ptr(globalPoint.X) == gp::static_ptr(globalPoint.Y));
+    gp::ptr<int64_t> e = gp::static_ptr(globalArr[1]);
+    *e = 9;
+    fmt::Println(globalArr[1], e == gp::static_ptr(globalArr[1]),
+                 e == gp::static_ptr(globalArr[2]));
+
+    gp::ptr<other> o = gp::ptr_cast<other>(g);
+    o->Y = 11;
+    fmt::Println(globalPoint.Y, gp::ptr_cast<point>(o) == g);
+
+    gp::ptr<point> pt2 = gp::new_<point>(point{.X = 4, .Y = 5});
+    gp::weak_ptr<point> w = gp::weak_make(pt2);
+    fmt::Println(gp::weak_value(w) == pt2, w == gp::weak_make(pt2), gp::weak_value(w)->X,
+                 w == gp::weak_make(gp::new_<point>(point{.X = 4, .Y = 5})));
+    gp::weak_ptr<int64_t> wy = gp::weak_make(gp::ptr<int64_t>(pt2, &pt2->Y));
+    fmt::Println(*gp::weak_value(wy), gp::weak_value(wy) == gp::ptr<int64_t>(pt2, &pt2->Y));
+    gp::weak_ptr<point> wg = gp::weak_make(gp::static_ptr(globalPoint));
+    fmt::Println(gp::weak_value(wg) == gp::static_ptr(globalPoint), wg == gp::weak_make(g),
+                 gp::weak_value(wg)->X);
+    gp::weak_ptr<point> z;
+    fmt::Println(gp::weak_value(z) == nullptr, z == gp::weak_make(gp::ptr<point>(nullptr)), z == w);
+}
+
 // big_string is 1 MiB of lines: much more than a pipe holds.
 gp::string big_string() {
     gp::string line = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde\n"_gs;
@@ -260,6 +338,24 @@ void main() {
         gp::string s = "abc"_gs;
         uint64_t i = UINT64_MAX;
         fmt::Println(s[i]);
+    } else if (c == "ptr") {
+        ptr_case();
+    } else if (c == "nil-deref") {
+        gp::ptr<int64_t> p;
+        fmt::Println(*p);
+    } else if (c == "nil-store") {
+        gp::ptr<int64_t> p;
+        *p = 1;
+    } else if (c == "nil-field") {
+        gp::ptr<point> p;
+        fmt::Println(p->X);
+    } else if (c == "nil-method") {
+        gp::ptr<point> p;
+        fmt::Println(p->Sum());
+    } else if (c == "nil-addr") {
+        gp::ptr<point> p;
+        gp::ptr<int64_t> q = gp::ptr<int64_t>(p, &p->Y);
+        fmt::Println(q == nullptr);
     } else if (c == "exit0") {
         fmt::Print("only stdout\n"_gs);
     } else if (c == "big") {
@@ -269,6 +365,12 @@ void main() {
         gp::println(big_string());
         gp::println("still alive"_gs);
         gp::os::exit(3);
+    } else if (c == "bad-owner") {
+        // Not in the Go program: a non-nil pointer without an owner breaks the runtime's
+        // invariant (ptr.hpp), and the check ends the program like a Go fatal error.
+        int64_t x = 0;
+        gp::ptr<int64_t> p(std::shared_ptr<void>(), &x);
+        fmt::Println(*p);
     } else if (c == "leak") {
         // Not in the Go program: LeakSanitizer must report this in the asan mode.
         leak_sink = new int64_t[100];

@@ -40,8 +40,19 @@ namespace detail {
 
 // panic_report appends what Go prints for an unrecovered panic with this text:
 // "panic: " + text + "\n\ngoroutine 1 [running]:\n". As in Go, each newline in the text is
-// followed by a tab. Go then prints the stack trace (Phase 03).
+// followed by a tab. When the goroutine has a signal (below), Go's signal line comes after the
+// text, before the blank line. Go then prints the stack trace (Phase 03). Step 3.13 passes the
+// whole panic chain (a panic in a deferred call adds "\tpanic: ..." lines); the signal line
+// still comes once, after the chain, as in Go.
 void panic_report(std::string& out, const gp::string& text);
+
+// The goroutine's signal, Go's g.sig: in Go, a nil pointer dereference is a memory fault, and
+// an unrecovered panic then prints a signal line, "[signal SIGSEGV: segmentation violation
+// code=0x1 addr=0x0 pc=0x4a2b1c]". panic_nil sets it for the running thread (a goroutine is a
+// thread, ADR-007), and it stays set while the panic goes on, also through panics that
+// deferred calls add. A recover that stops the panic must call clear_signal (Phase 05), as Go
+// clears g.sig; a later, ordinary panic then prints no signal line.
+void clear_signal() noexcept;
 
 } // namespace detail
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"weak"
 )
 
 func main() {
@@ -67,6 +68,24 @@ func main() {
 	case "uindex":
 		s, i := "abc", uint64(math.MaxUint64)
 		fmt.Println(s[i])
+	case "ptr":
+		ptrCase()
+	case "nil-deref":
+		var p *int
+		fmt.Println(*p)
+	case "nil-store":
+		var p *int
+		*p = 1
+	case "nil-field":
+		var p *point
+		fmt.Println(p.X)
+	case "nil-method":
+		var p *point
+		fmt.Println(p.Sum())
+	case "nil-addr":
+		var p *point
+		q := &p.Y
+		fmt.Println(q == nil)
 	case "exit0":
 		fmt.Print("only stdout\n")
 	case "big":
@@ -212,4 +231,67 @@ func stringsCase() {
 	println(s, len(s), s[2], t)
 	fmt.Printf("%s|%v|%d\n", s, t, len(s))
 	fmt.Println("tab\tnl\\n bytes:\303\251", len("\303\251"), "a\000b" == "a\000b", len("a\000b"))
+}
+
+type point struct{ X, Y int }
+
+func (p point) Sum() int { return p.X + p.Y }
+
+// other has the same underlying type as point, so (*other)(p) converts a *point.
+type other point
+
+var globalPoint point
+var globalArr [3]int
+
+// newCounter returns the address of a local: the local lives on (gocpp boxes it).
+func newCounter() *int {
+	c := 1
+	return &c
+}
+
+func ptrCase() {
+	p := new(int)
+	fmt.Println(*p, p == nil, p != nil)
+	*p = 5
+	q := p
+	*q += 2
+	fmt.Println(*p, *q, p == q)
+	r := new(int)
+	*r = 7
+	fmt.Println(*r == *p, r == p)
+	var n *int
+	fmt.Println(n == nil, n == (*int)(nil), n == r)
+
+	c, d := newCounter(), newCounter()
+	*c++
+	fmt.Println(*c, *d, c == d)
+
+	pt := &point{1, 2}
+	py := &pt.Y
+	*py = 7
+	fmt.Println(pt.X, pt.Y, *py, pt.Sum(), py == &pt.Y, &pt.X == &pt.Y)
+	pt = nil
+	*py = 8 // the point lives on through py
+	fmt.Println(*py, pt == nil)
+
+	g := &globalPoint
+	g.X = 3
+	fmt.Println(globalPoint.X, &globalPoint == g, &globalPoint.X == &g.X, &globalPoint.X == &globalPoint.Y)
+	e := &globalArr[1]
+	*e = 9
+	fmt.Println(globalArr[1], e == &globalArr[1], e == &globalArr[2])
+
+	o := (*other)(g)
+	o.Y = 11
+	fmt.Println(globalPoint.Y, (*point)(o) == g)
+
+	pt2 := &point{4, 5}
+	w := weak.Make(pt2)
+	fmt.Println(w.Value() == pt2, w == weak.Make(pt2), w.Value().X, w == weak.Make(&point{4, 5}))
+	wy := weak.Make(&pt2.Y)
+	fmt.Println(*wy.Value(), wy.Value() == &pt2.Y)
+	wg := weak.Make(&globalPoint)
+	fmt.Println(wg.Value() == &globalPoint, wg == weak.Make(g), wg.Value().X)
+	var z weak.Pointer[point]
+	fmt.Println(z.Value() == nil, z == weak.Make[point](nil), z == w)
 }

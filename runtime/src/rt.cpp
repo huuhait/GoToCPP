@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <new>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -43,6 +44,47 @@ string operator+(const string& a, const string& b) {
     return string(std::move(bytes), data, static_cast<int64_t>(n));
 }
 
+// --- release (ptr.hpp) ---
+
+namespace detail {
+
+void release_defer(std::shared_ptr<const void>&& owner) noexcept {
+    // One node per release_max_depth nodes of a chain, so the allocation is rare. Without
+    // memory, drop the owner here, recursing deeper: better than losing it.
+    release_state& st = release_tls;
+    auto* n = new (std::nothrow) release_node{std::move(owner), st.gp_pending};
+    if (n == nullptr) {
+        ++st.gp_depth;
+        owner.reset();
+        --st.gp_depth;
+        return;
+    }
+    st.gp_pending = n;
+}
+
+void release_drain() noexcept {
+    // Called by the outermost release (depth 0). The depth is 1 while each pending owner is
+    // dropped, so the releases inside don't drain again, and they defer once they are
+    // release_max_depth deep, which adds to the list this loop empties.
+    release_state& st = release_tls;
+    st.gp_depth = 1;
+    while (release_node* n = st.gp_pending) {
+        st.gp_pending = n->gp_next;
+        std::shared_ptr<const void> owner = std::move(n->gp_owner);
+        delete n;
+        owner.reset();
+    }
+    st.gp_depth = 0;
+}
+
+void bad_owner() noexcept {
+    write_stderr("fatal error: gocpp: a non-nil pointer without an owner (a bug in the runtime "
+                 "or in the generated code)\n");
+    os::exit(2);
+}
+
+} // namespace detail
+
 // --- panics ---
 
 void panic(const gp::string& v) {
@@ -56,6 +98,30 @@ void panic_divide() {
 void panic_shift() {
     throw panic_error{"runtime error: negative shift amount"_gs};
 }
+
+namespace {
+
+// The goroutine's signal (panic.hpp): set by panic_nil, with the pc of its caller.
+constinit thread_local bool signal_set = false;
+constinit thread_local uintptr_t signal_pc = 0;
+
+} // namespace
+
+void panic_nil() {
+    signal_set = true;
+    signal_pc =
+        reinterpret_cast<uintptr_t>(__builtin_extract_return_addr(__builtin_return_address(0)));
+    throw panic_error{"runtime error: invalid memory address or nil pointer dereference"_gs};
+}
+
+namespace detail {
+
+void clear_signal() noexcept {
+    signal_set = false;
+    signal_pc = 0;
+}
+
+} // namespace detail
 
 void panic_index(int64_t x, bool is_signed, int64_t len) {
     // Go's boundsError: "index out of range [%x] with length %y", or only "[%x]" for a
@@ -84,6 +150,22 @@ void panic_report(std::string& out, const gp::string& text) {
         if (c == '\n') {
             out += '\t';
         }
+    }
+    if (signal_set) {
+        // Go's line for the SIGSEGV of the nil access. Its addr is the faulting address: 0x0
+        // for a field at offset 0, for a whole value and for a field at 4096 or more (Go
+        // checks those itself), and the field's offset for a field at a smaller offset, read
+        // or written. gocpp checks the pointer before any access, so it always prints 0x0.
+        // The pc is the code that called panic_nil.
+#ifdef _WIN32
+        // Go on Windows (Phase 14 checks it, and may move this to src/os/): the exception
+        // code, and code= is 0x0 for a read and 0x1 for a write, which gocpp can't tell.
+        out += "\n[signal 0xc0000005 code=0x0 addr=0x0 pc=";
+#else
+        out += "\n[signal SIGSEGV: segmentation violation code=0x1 addr=0x0 pc=";
+#endif
+        print_hex(out, static_cast<uint64_t>(signal_pc));
+        out += ']';
     }
     out += "\n\ngoroutine 1 [running]:\n";
 }

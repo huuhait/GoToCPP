@@ -73,6 +73,11 @@ func link(a, b *Node) {
   (A points to B, and B points to A) is never freed. Break it with Go 1.24's `weak` package:
   `weak.Make(p)` and `wp.Value()`. `gocpp vet` warns about obvious cycles, such as a closure that
   refers to itself (Phase 13).
+- A weak pointer doesn't keep its target alive, but it keeps its memory: `new` and `&T{}` put
+  the value and its counts in one allocation, so after the last strong pointer goes, the value
+  is destroyed and its memory (`unsafe.Sizeof` of the value) stays until the last weak pointer
+  to it goes too. That matters for a cache of weak pointers to big values. Phase 15 may
+  allocate large values apart from their counts.
 - gocpp code has no use-after-free, except with data races ([D10](#d10-data-races-can-break-reference-counts)),
   `unsafe`, and C/C++ values ([D14](#d14-cc-values-follow-c-rules)).
 - **Phase:** [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#21-one-ownership-system-for-everything-v1).

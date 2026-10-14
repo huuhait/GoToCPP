@@ -10,13 +10,18 @@
 #include <gocpp/os.hpp>
 
 #include <cmath>
+#include <concepts>
 #include <cstdint>
 #include <cstdio>
 #include <exception>
 #include <limits>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -558,6 +563,7 @@ void test_panic() {
     CHECK_PANIC(gp::panic(1.5), "+1.500000e+000");
     CHECK_PANIC(gp::panic(true), "true");
     CHECK_PANIC(gp::panic(uint8_t(7)), "7");
+    gp::detail::clear_signal(); // in case a nil pointer panic ran before
     std::string out;
     gp::detail::panic_report(out, "a\nb\nc"_gs);
     CHECK_EQ(out, std::string("panic: a\n\tb\n\tc\n\ngoroutine 1 [running]:\n"));
@@ -567,6 +573,596 @@ void test_panic() {
     // A panic is not a std::exception, so C++ code can't catch it as one by accident.
     CHECK(!std::is_base_of_v<std::exception, gp::panic_error>);
 }
+
+// --- pointers (gocpp/ptr.hpp) ---
+
+const char* const nil_msg = "runtime error: invalid memory address or nil pointer dereference";
+
+// report_of returns what an unrecovered panic with this text prints now, on this thread.
+std::string report_of(const char* text) {
+    std::string out;
+    gp::detail::panic_report(out, gp::string::gp_copy(text));
+    return out;
+}
+
+struct Point {
+    int64_t X = 0;
+    int64_t Y = 0;
+    int64_t Sum() const { return X + Y; }
+};
+
+// Same layout as Point, as for `type Other Point` in Go.
+struct Other {
+    int64_t X = 0;
+    int64_t Y = 0;
+};
+
+// Tracked counts its live objects, so a test can see when a block is freed. (Go structs have
+// no destructors; this is only for the tests.)
+int live = 0;
+
+struct Tracked {
+    int64_t n = 0;
+    Point pt;
+    Tracked() { live++; }
+    explicit Tracked(int64_t v) : n(v) { live++; }
+    Tracked(const Tracked& o) : n(o.n), pt(o.pt) { live++; }
+    ~Tracked() { live--; }
+};
+
+// A recursive type: the templates accept an incomplete T.
+struct Node {
+    int64_t v = 0;
+    gp::ptr<Node> next;
+    gp::weak_ptr<Node> prev;
+    Tracked t;
+};
+
+// A parent that owns its child, and a child that points back with a weak pointer: no cycle.
+struct Child;
+struct Parent {
+    gp::ptr<Child> child;
+    Tracked t;
+};
+struct Child {
+    gp::weak_ptr<Parent> parent;
+    gp::ptr<Parent> strong; // for the cycle test
+    Tracked t;
+};
+
+Point global_point;
+int64_t global_arr[3];
+
+int64_t use_count(const gp::ptr<Tracked>& p) {
+    return static_cast<int64_t>(p.gp_shared().use_count());
+}
+
+// A boxed local whose address escapes (func f() *T { x := T{...}; return &x }).
+gp::ptr<Tracked> boxed_escape(int64_t v) {
+    gp::ptr<Tracked> x = gp::new_<Tracked>(Tracked(v)); // boxed: &x is taken below
+    x->n++;
+    return x; // &x is the box
+}
+
+template <typename P>
+constexpr bool derefable = requires(P v) { *v; };
+
+void test_ptr_basics() {
+    CHECK(sizeof(gp::ptr<int64_t>) == 16);
+    CHECK(sizeof(gp::ptr<Node>) == 16);
+    CHECK(sizeof(gp::weak_ptr<int64_t>) == 24);
+
+    gp::ptr<int64_t> nil;
+    CHECK(nil == nullptr);
+    CHECK(nullptr == nil);
+    CHECK(nil == gp::ptr<int64_t>());
+    CHECK(nil.gp_get() == nullptr);
+
+    // new(int) is a zero int; &T{...} copies the value in.
+    gp::ptr<int64_t> p = gp::new_<int64_t>();
+    CHECK(p != nullptr);
+    CHECK_EQ(*p, INT64_C(0));
+    *p = 5;
+    gp::ptr<int64_t> q = p;
+    *q += 2;
+    CHECK_EQ(*p, INT64_C(7));
+    CHECK(p == q);
+    gp::ptr<int64_t> r = gp::new_<int64_t>(INT64_C(7));
+    CHECK(*r == *p);
+    CHECK(r != p); // equal values, different objects
+    CHECK(p != nil);
+    CHECK_TYPE(*p, int64_t&);
+
+    gp::ptr<Point> pt = gp::new_<Point>();
+    CHECK_EQ(pt->X, INT64_C(0));
+    CHECK_EQ(pt->Y, INT64_C(0));
+    pt = gp::new_<Point>(Point{.X = 1, .Y = 2});
+    CHECK_EQ(pt->Sum(), INT64_C(3));
+    (*pt).Y = 5;
+    CHECK_EQ(pt->Y, INT64_C(5));
+    pt = nullptr;
+    CHECK(pt == nullptr);
+
+    // A recursive type: a list of three nodes, with weak back pointers.
+    {
+        gp::ptr<Node> head = gp::new_<Node>();
+        head->next = gp::new_<Node>();
+        head->next->v = 2;
+        head->next->prev = gp::weak_make(head);
+        head->next->next = gp::new_<Node>();
+        head->next->next->v = 3;
+        CHECK_EQ(live, 3);
+        CHECK(gp::weak_value(head->next->prev) == head);
+        CHECK_EQ(head->next->next->v, INT64_C(3));
+        CHECK(head->next->next->next == nullptr);
+    }
+    CHECK_EQ(live, 0);
+
+    // Conversions: none to another pointer type, a raw pointer or bool, as in Go; nil converts.
+    CHECK(!(std::is_convertible_v<gp::ptr<Point>, gp::ptr<Other>>));
+    CHECK(!(std::is_constructible_v<gp::ptr<Other>, gp::ptr<Point>>));
+    CHECK(!(std::is_convertible_v<gp::ptr<int64_t>, int64_t*>));
+    CHECK(!(std::is_convertible_v<gp::ptr<int64_t>, bool>));
+    CHECK(!(std::is_constructible_v<bool, gp::ptr<int64_t>>));
+    CHECK(!(std::is_convertible_v<int64_t*, gp::ptr<int64_t>>));
+    CHECK(!(std::is_convertible_v<std::shared_ptr<int64_t>, gp::ptr<int64_t>>)); // explicit only
+    CHECK((std::is_convertible_v<std::nullptr_t, gp::ptr<int64_t>>));
+    CHECK(!(std::equality_comparable_with<gp::ptr<Point>, gp::ptr<Other>>));
+
+    // ptr_cast: Go's (*Other)(p) between types with identical underlying types.
+    gp::ptr<Point> src = gp::new_<Point>(Point{.X = 4, .Y = 6});
+    gp::ptr<Other> o = gp::ptr_cast<Other>(src);
+    o->X = 11;
+    CHECK_EQ(src->X, INT64_C(11));
+    CHECK(static_cast<void*>(o.gp_get()) == static_cast<void*>(src.gp_get()));
+    CHECK(gp::ptr_cast<Point>(o) == src);
+    CHECK_EQ(src.gp_shared().use_count(), 2L); // the conversion shares the owner
+    CHECK(gp::ptr_cast<Other>(gp::ptr<Point>()) == nullptr);
+
+    // unsafe.Pointer is gp::ptr<void> (Phase 04): it exists and compares; it has no *.
+    gp::ptr<void> vp;
+    CHECK(vp == nullptr);
+    CHECK(!derefable<gp::ptr<void>>);
+    CHECK(derefable<gp::ptr<int64_t>>);
+}
+
+void test_ptr_nil() {
+    gp::ptr<int64_t> n;
+    gp::ptr<Point> pn;
+    CHECK_PANIC((void)*n, nil_msg);
+    CHECK_PANIC(*n = 1, nil_msg);
+    CHECK_PANIC((void)pn->X, nil_msg);
+    CHECK_PANIC(pn->Y = 1, nil_msg);
+    CHECK_PANIC((void)(*pn).Y, nil_msg);
+    CHECK_PANIC(pn->Sum(), nil_msg);                    // a value method through a nil pointer
+    CHECK_PANIC(gp::ptr<int64_t>(pn, &pn->Y), nil_msg); // &p.Y with a nil p panics in Go too
+    CHECK_PANIC(*gp::weak_value(gp::weak_ptr<int64_t>()), nil_msg);
+
+    // The goroutine's signal: a nil pointer panic sets it, and the report of an unrecovered
+    // panic prints Go's signal line after the text. The pc is the caller's.
+    gp::detail::clear_signal();
+    CHECK_EQ(report_of(nil_msg), std::string("panic: ") + nil_msg + "\n\ngoroutine 1 [running]:\n");
+    CHECK_PANIC(*n = 1, nil_msg);
+    std::string out = report_of(nil_msg);
+    std::string head = std::string("panic: ") + nil_msg +
+                       "\n[signal SIGSEGV: segmentation violation code=0x1 addr=0x0 pc=0x";
+#ifdef _WIN32
+    head = std::string("panic: ") + nil_msg + "\n[signal 0xc0000005 code=0x0 addr=0x0 pc=0x";
+#endif
+    std::string tail = "]\n\ngoroutine 1 [running]:\n";
+    CHECK_EQ(out.substr(0, head.size()), head);
+    CHECK(out.size() > head.size() + tail.size());
+    if (out.size() > head.size() + tail.size()) {
+        CHECK_EQ(out.substr(out.size() - tail.size()), tail);
+        std::string pc = out.substr(head.size(), out.size() - head.size() - tail.size());
+        CHECK(pc.find_first_not_of("0123456789abcdef") == std::string::npos);
+        CHECK(pc != "0");
+    }
+    // The signal belongs to the goroutine, not to the panic value: a later panic, as from a
+    // deferred call that panics while the nil pointer panic goes on (step 3.13), still prints
+    // it, once, after its text. In Go:
+    //
+    //     panic: runtime error: invalid memory address or nil pointer dereference
+    //         panic: boom
+    //     [signal SIGSEGV: segmentation violation code=0x1 addr=0x0 pc=0x47e84b]
+    //
+    // Step 3.13 passes the chain; here the report of the last panic shows where the line goes.
+    std::string boom = report_of("boom");
+    CHECK_EQ(boom.substr(0, 12), std::string("panic: boom\n"));
+    CHECK(boom.find("[signal ") == 12);
+    // A recover that stops the panic clears it (Phase 05 calls clear_signal); an ordinary
+    // panic after that has no signal line.
+    gp::detail::clear_signal();
+    CHECK_EQ(report_of("later"), std::string("panic: later\n\ngoroutine 1 [running]:\n"));
+    CHECK_PANIC(gp::panic("x"_gs), "x");
+    CHECK_PANIC(gp::panic_divide(), divide_msg);
+    CHECK_EQ(report_of("x"), std::string("panic: x\n\ngoroutine 1 [running]:\n"));
+}
+
+void test_ptr_ownership() {
+    // A boxed variable outlives its function through the pointer.
+    {
+        gp::ptr<Tracked> p = boxed_escape(41);
+        CHECK_EQ(live, 1);
+        CHECK_EQ(p->n, INT64_C(42));
+        CHECK_EQ(use_count(p), INT64_C(1));
+    }
+    CHECK_EQ(live, 0);
+
+    // An interior pointer (&p.pt.Y) keeps the whole block alive.
+    gp::ptr<int64_t> field;
+    gp::ptr<Point> sub;
+    {
+        gp::ptr<Tracked> p = gp::new_<Tracked>(Tracked(1));
+        field = gp::ptr<int64_t>(p, &p->pt.Y);
+        sub = gp::ptr<Point>(p, &p->pt);
+        CHECK_EQ(use_count(p), INT64_C(3));
+        *field = 9;
+        CHECK_EQ(p->pt.Y, INT64_C(9));
+        CHECK(field.gp_get() == &sub->Y);
+    }
+    CHECK_EQ(live, 1); // the Tracked lives on through field and sub
+    CHECK_EQ(*field, INT64_C(9));
+    CHECK_EQ(sub->Y, INT64_C(9));
+    sub = nullptr;
+    CHECK_EQ(live, 1);
+    field = nullptr;
+    CHECK_EQ(live, 0);
+
+    // An interior pointer made from a pointer that is moved in takes over its count.
+    {
+        gp::ptr<Tracked> p = gp::new_<Tracked>(Tracked(1));
+        gp::ptr<Tracked> keep = p;
+        gp::ptr<int64_t> n(std::move(p), &keep->n);
+        CHECK(p == nullptr);
+        CHECK_EQ(use_count(keep), INT64_C(2));
+        CHECK(n.gp_get() == &keep->n);
+    }
+    CHECK_EQ(live, 0);
+
+    // &s[i]: an element of a shared array (a slice's backing array, step 3.5) keeps the array.
+    gp::ptr<int64_t> elem;
+    {
+        std::shared_ptr<int64_t[]> arr = std::make_shared<int64_t[]>(4);
+        elem = gp::ptr<int64_t>(arr, &arr[2]);
+        *elem = 42;
+        CHECK_EQ(arr[2], INT64_C(42));
+        CHECK_EQ(arr[1], INT64_C(0)); // make_shared<T[]> value-initializes: Go's zero values
+        CHECK_EQ(arr.use_count(), 2L);
+        gp::ptr<int64_t> e2(arr, &arr[2]);
+        CHECK(e2 == elem);
+        CHECK(gp::ptr<int64_t>(arr, &arr[3]) != elem);
+    }
+    CHECK_EQ(*elem, INT64_C(42)); // the array is still there
+    CHECK_EQ(elem.gp_shared().use_count(), 1L);
+    elem = nullptr;
+
+    // Copies and moves (what they cost: one count change per copy, none per move).
+    gp::ptr<Tracked> a = gp::new_<Tracked>();
+    CHECK_EQ(use_count(a), INT64_C(1));
+    gp::ptr<Tracked> b = a;
+    CHECK_EQ(use_count(a), INT64_C(2));
+    gp::ptr<Tracked> c = std::move(b);
+    CHECK(b == nullptr);
+    CHECK_EQ(use_count(a), INT64_C(2));
+    c = std::move(a);
+    CHECK(a == nullptr);
+    CHECK_EQ(use_count(c), INT64_C(1));
+    CHECK_EQ(live, 1);
+    c = nullptr;
+    CHECK_EQ(live, 0);
+    CHECK(std::is_nothrow_copy_constructible_v<gp::ptr<Tracked>>);
+    CHECK(std::is_nothrow_move_constructible_v<gp::ptr<Tracked>>);
+    CHECK(std::is_nothrow_copy_assignable_v<gp::ptr<Tracked>>);
+    CHECK(std::is_nothrow_move_assignable_v<gp::ptr<Tracked>>);
+    // A dereference and -> don't copy the pointer: they return the pointee itself.
+    CHECK_TYPE(gp::ptr<Tracked>().operator->(), Tracked*);
+    CHECK_TYPE(*gp::ptr<Tracked>(), Tracked&);
+
+    // Hashing, for map keys (step 3.7): by address, like ==.
+    gp::ptr<int64_t> h1 = gp::new_<int64_t>(), h2 = gp::new_<int64_t>();
+    gp::ptr<int64_t> h1b = h1;
+    std::hash<gp::ptr<int64_t>> hash;
+    CHECK(hash(h1) == hash(h1b));
+    CHECK(hash(gp::ptr<int64_t>()) == hash(nullptr));
+    std::unordered_set<gp::ptr<int64_t>> set{h1, h2, h1b, nullptr};
+    CHECK_EQ(set.size(), std::size_t(3));
+    CHECK(set.count(h1b) == 1);
+}
+
+void test_ptr_static() {
+    // &global and &global.f share the static owner, which is never freed.
+    CHECK(&gp::static_owner() == &gp::static_owner());
+    long before = gp::static_owner().use_count();
+    CHECK(before >= 1);
+    gp::weak_ptr<Point> w;
+    {
+        gp::ptr<Point> g = gp::static_ptr(global_point);
+        CHECK(g == gp::static_ptr(global_point));
+        CHECK(g.gp_get() == &global_point);
+        g->X = 3;
+        CHECK_EQ(global_point.X, INT64_C(3));
+        gp::ptr<int64_t> gy = gp::static_ptr(global_point.Y);
+        CHECK(gy == gp::ptr<int64_t>(g, &g->Y)); // &global.Y == &(&global).Y
+        CHECK(gp::static_ptr(global_point.X) != gy);
+        CHECK_EQ(gp::static_owner().use_count(), before + 2);
+        gp::ptr<int64_t> e = gp::static_ptr(global_arr[1]);
+        *e = 9;
+        CHECK_EQ(global_arr[1], INT64_C(9));
+        w = gp::weak_make(g);
+    }
+    CHECK_EQ(gp::static_owner().use_count(), before);
+    // No pointer to the global is left, but it is never freed: weak.Make(&global) never
+    // expires. (ASan would report a delete of a global.)
+    CHECK(gp::weak_value(w) == gp::static_ptr(global_point));
+    CHECK(w == gp::weak_make(gp::static_ptr(global_point)));
+    for (int i = 0; i < 1000; i++) {
+        gp::ptr<Point> g = gp::static_ptr(global_point);
+        g->Y = i;
+    }
+    CHECK_EQ(global_point.Y, INT64_C(999));
+    CHECK(gp::static_ptr(global_point) != nullptr);
+}
+
+void test_ptr_weak() {
+    // The zero weak pointer and weak.Make(nil): Value is nil, and they are equal.
+    gp::weak_ptr<Tracked> zero;
+    CHECK(gp::weak_value(zero) == nullptr);
+    CHECK(gp::weak_make(gp::ptr<Tracked>()) == zero);
+    CHECK(gp::weak_make(gp::ptr<Tracked>()).gp_addr() == 0);
+
+    gp::weak_ptr<Tracked> w, w2;
+    gp::weak_ptr<int64_t> wf;
+    {
+        gp::ptr<Tracked> p = gp::new_<Tracked>();
+        w = gp::weak_make(p);
+        w2 = gp::weak_make(p);
+        wf = gp::weak_make(gp::ptr<int64_t>(p, &p->n));
+        CHECK(gp::weak_value(w) == p);
+        CHECK(w == w2);
+        CHECK(w != zero);
+        CHECK_EQ(use_count(p), INT64_C(1)); // a weak pointer doesn't count
+        CHECK(gp::weak_value(wf) == gp::ptr<int64_t>(p, &p->n));
+        gp::ptr<Tracked> other = gp::new_<Tracked>();
+        CHECK(gp::weak_make(other) != w);
+        CHECK_EQ(live, 2);
+    }
+    // The last pointer went away: the object is freed, and Value is nil.
+    CHECK_EQ(live, 0);
+    CHECK(gp::weak_value(w) == nullptr);
+    CHECK(gp::weak_value(wf) == nullptr);
+    // Still equal after the target is freed, as in Go; and not equal to the zero value.
+    CHECK(w == w2);
+    CHECK(w != zero);
+    // A new object gives a different weak pointer (the allocator may or may not reuse the
+    // address; the case below makes the same address with different owners on purpose).
+    gp::ptr<Tracked> again = gp::new_<Tracked>();
+    CHECK(gp::weak_make(again) != w);
+    {
+        // Two pointers to one address with two owners: equal as pointers, but their weak
+        // pointers differ, because the owners differ. (This breaks the invariant that one
+        // object has one owner, which generated code never does; it shows that weak == also
+        // compares the owner, which is what tells a freed object from a new one at its
+        // address.)
+        gp::ptr<Tracked> o1 = gp::new_<Tracked>(), o2 = gp::new_<Tracked>();
+        gp::ptr<int64_t> a(o1, &o1->n), b(o2, &o1->n);
+        CHECK(a == b);
+        CHECK(gp::weak_make(a) != gp::weak_make(b));
+        CHECK(gp::weak_make(a) == gp::weak_make(gp::ptr<int64_t>(o1, &o1->n)));
+        CHECK(gp::weak_make(a).gp_addr() == gp::weak_make(b).gp_addr());
+    }
+    std::hash<gp::weak_ptr<Tracked>> hash;
+    CHECK(hash(w) == hash(w2));
+    again = nullptr;
+
+    // A parent and a child that points back with a weak pointer: freeing the parent frees both
+    // (LeakSanitizer checks it in the asan mode).
+    {
+        gp::ptr<Parent> parent = gp::new_<Parent>();
+        parent->child = gp::new_<Child>();
+        parent->child->parent = gp::weak_make(parent);
+        CHECK(gp::weak_value(parent->child->parent) == parent);
+        CHECK_EQ(live, 2);
+    }
+    CHECK_EQ(live, 0);
+
+    // A cycle of strong pointers is never freed (D1). The test breaks it by hand afterwards,
+    // so LeakSanitizer stays quiet.
+    gp::weak_ptr<Parent> wp;
+    {
+        gp::ptr<Parent> parent = gp::new_<Parent>();
+        parent->child = gp::new_<Child>();
+        parent->child->strong = parent; // the cycle
+        wp = gp::weak_make(parent);
+    }
+    CHECK_EQ(live, 2); // leaked
+    gp::ptr<Parent> back = gp::weak_value(wp);
+    CHECK(back != nullptr);
+    back->child->strong = nullptr; // break the cycle
+    back = nullptr;
+    CHECK_EQ(live, 0);
+    CHECK(gp::weak_value(wp) == nullptr);
+}
+
+// --- freeing long chains (detail::release) ---
+
+// Link and Tree count their frees. (Only for the tests: Go types have no destructors.)
+int64_t freed = 0;
+
+struct Link {
+    gp::ptr<Link> next;
+    ~Link() { freed++; }
+};
+
+struct Tree {
+    gp::ptr<Tree> left;
+    gp::ptr<Tree> right;
+    ~Tree() { freed++; }
+};
+
+// list builds a list of n links, without recursion.
+gp::ptr<Link> list(int64_t n) {
+    gp::ptr<Link> head;
+    for (int64_t i = 0; i < n; i++) {
+        gp::ptr<Link> l = gp::new_<Link>();
+        l->next = std::move(head);
+        head = std::move(l);
+    }
+    return head;
+}
+
+// spine builds a tree that is n nodes deep on one side, with a leaf on the other side of each
+// node: 2n nodes.
+gp::ptr<Tree> spine(int64_t n, bool left) {
+    gp::ptr<Tree> top;
+    for (int64_t i = 0; i < n; i++) {
+        gp::ptr<Tree> t = gp::new_<Tree>();
+        (left ? t->left : t->right) = std::move(top);
+        (left ? t->right : t->left) = gp::new_<Tree>();
+        top = std::move(t);
+    }
+    return top;
+}
+
+bool nothing_pending() {
+    return gp::detail::release_tls.gp_depth == 0 && gp::detail::release_tls.gp_pending == nullptr;
+}
+
+// big_tests: GOCPP_TEST_BIG=1 in the environment also runs the big cases (2,000,000 nodes,
+// about 100 MB, more with ASan), which make ci leaves out.
+bool big_tests() {
+    for (const gp::string& e : gp::envs()) {
+        if (e == "GOCPP_TEST_BIG=1"_gs) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// The chain cases, each run with n nodes. Without detail::release, freeing 100,000 links one
+// from the destructor of the next overflowed the 8 MB stack at -O0 (1,000,000 at -O2); each
+// case below crashes at -O0 with release's depth limit taken away (checked by hand). n is
+// 200,000 in make ci, and 2,000,000 more with GOCPP_TEST_BIG=1.
+void chain_list_assign(int64_t n) {
+    freed = 0;
+    gp::ptr<Link> l = list(n);
+    l = nullptr; // dropped by an assignment
+    CHECK_EQ(freed, n);
+}
+
+void chain_list_scope(int64_t n) {
+    freed = 0;
+    {
+        gp::ptr<Link> scoped = list(n); // dropped at the end of the scope (~ptr)
+    }
+    CHECK_EQ(freed, n);
+}
+
+void chain_list_middle(int64_t n) {
+    // The last pointer into the middle of a list goes; a weak pointer to it then gives nil.
+    freed = 0;
+    gp::ptr<Link> a = list(n);
+    gp::ptr<Link> b = a->next;
+    gp::weak_ptr<Link> w = gp::weak_make(b);
+    a = nullptr;
+    CHECK_EQ(freed, INT64_C(1));
+    b = nullptr;
+    CHECK_EQ(freed, n);
+    CHECK(gp::weak_value(w) == nullptr);
+}
+
+// Trees n nodes deep on one side, with a leaf on the other side of each node.
+void chain_tree_left(int64_t n) {
+    freed = 0;
+    gp::ptr<Tree> t = spine(n, true);
+    t = nullptr;
+    CHECK_EQ(freed, 2 * n);
+}
+
+void chain_tree_right(int64_t n) {
+    freed = 0;
+    gp::ptr<Tree> t = spine(n, false);
+    t = nullptr;
+    CHECK_EQ(freed, 2 * n);
+}
+
+void test_ptr_chains() {
+    void (*const cases[])(int64_t) = {chain_list_assign, chain_list_scope, chain_list_middle,
+                                      chain_tree_left, chain_tree_right};
+    std::vector<int64_t> sizes = {200'000};
+    if (big_tests()) {
+        sizes.push_back(2'000'000);
+    }
+    for (int64_t n : sizes) {
+        for (auto f : cases) {
+            f(n);
+            CHECK(nothing_pending());
+        }
+    }
+
+    // A short list is freed at once, without the pending list.
+    freed = 0;
+    gp::ptr<Link> s = list(gp::detail::release_max_depth - 10);
+    s = nullptr;
+    CHECK_EQ(freed, INT64_C(gp::detail::release_max_depth - 10));
+    CHECK(nothing_pending());
+}
+
+// The "no plain-named members" rule (Phase 03 §2.1): a runtime type has only operators and
+// gp_-prefixed members, so a Go method or field of any other name can't clash with one.
+// C++20 can't list a class's members, so the test asks for a set of names that a wrapper
+// would likely have (the std::shared_ptr and std::string ones) and common Go method names.
+// has_member_<name><T> finds a member of any kind, public or private, a data member, a member
+// function (also overloaded or a template) or a member type: the probe inherits from T and
+// from a base with a member of that name, so &probe::name is ambiguous exactly when T has a
+// member with the name too.
+#define GP_MEMBER_PROBE(name)                                                                      \
+    struct probe_base_##name {                                                                     \
+        int name;                                                                                  \
+    };                                                                                             \
+    template <typename T>                                                                          \
+    struct probe_##name : T, probe_base_##name {};                                                 \
+    template <typename T>                                                                          \
+    constexpr bool has_member_##name = !requires { &probe_##name<T>::name; };
+
+// clang-format off
+#define GP_PLAIN_NAMES(X)                                                                          \
+    X(get) X(reset) X(swap) X(use_count) X(unique) X(owner_before) X(lock) X(expired)              \
+    X(release) X(value) X(data) X(size) X(len) X(cap) X(length) X(empty) X(begin) X(end)           \
+    X(front) X(back) X(push_back) X(append) X(c_str) X(str) X(at) X(find) X(insert) X(erase)       \
+    X(clear) X(copy) X(view) X(text) X(signal) X(next) X(type) X(kind) X(hash) X(element_type)     \
+    X(value_type) X(Value) X(String) X(Error) X(Len) X(Get) X(Set) X(Reset) X(Make)
+// clang-format on
+
+GP_PLAIN_NAMES(GP_MEMBER_PROBE)
+
+#define GP_HAS_ANY_PLAIN_MEMBER(name) || has_member_##name<T>
+
+template <typename T>
+constexpr bool has_plain_member = false GP_PLAIN_NAMES(GP_HAS_ANY_PLAIN_MEMBER);
+
+// The probe works: std::shared_ptr has get, reset and element_type; a struct with a private
+// member is found too.
+struct with_private {
+private:
+    [[maybe_unused]] int len = 0;
+};
+static_assert(has_member_get<std::shared_ptr<int>>);
+static_assert(has_member_reset<std::shared_ptr<int>>);
+static_assert(has_member_element_type<std::shared_ptr<int>>);
+static_assert(has_member_lock<std::weak_ptr<int>>);
+static_assert(has_member_len<with_private>);
+static_assert(!has_member_get<with_private>);
+static_assert(has_plain_member<std::string>);
+
+static_assert(!has_plain_member<gp::string>);
+static_assert(!has_plain_member<gp::ptr<int64_t>>);
+static_assert(!has_plain_member<gp::ptr<Node>>);
+static_assert(!has_plain_member<gp::ptr<void>>);
+static_assert(!has_plain_member<gp::weak_ptr<int64_t>>);
+static_assert(!has_plain_member<gp::weak_ptr<Node>>);
+static_assert(!has_plain_member<gp::panic_error>);
+static_assert(!has_plain_member<gp::static_bytes_t>);
 
 // --- run_main ---
 
@@ -600,6 +1196,12 @@ void run_tests() {
     test_print();
     test_fmt();
     test_panic();
+    test_ptr_basics();
+    test_ptr_nil();
+    test_ptr_ownership();
+    test_ptr_static();
+    test_ptr_weak();
+    test_ptr_chains();
     if (failures > 0) {
         std::string msg =
             "FAIL: " + std::to_string(failures) + " of " + std::to_string(checks) + " checks\n";

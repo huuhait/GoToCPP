@@ -8,7 +8,7 @@
 
 - [x] Spike (2026-10-13): `shared_ptr` aliasing for interior pointers, non-owning global pointers, `make_shared<T[]>` element pointers, designated init, defaulted `==`; compiled and run on GCC 15 + Clang 21
 - [x] 3.1 Refactor into `lower` → `cppir` → printer (Phase 02 tests stay green)
-- [~] 3.2 Runtime ownership core (`gp::ptr`, `gp::new_`, aliasing helpers, nil checks, static owners for globals, `weak` intrinsic, no plain-named members on runtime types)
+- [x] 3.2 Runtime ownership core (`gp::ptr`, `gp::new_`, aliasing helpers, nil checks, static owners for globals, `weak` intrinsic, no plain-named members on runtime types)
 - [ ] 3.3 Boxing analysis + owner table
   - [ ] `&x`, `&x.f`, `&x.arr[i]`, pointer-method calls (incl. on fields), `arr[:]`
   - [ ] captured + changed (incl. field/element writes, `++`, op-assign)
@@ -103,3 +103,8 @@
   node; assignment targets are IR expressions; Lambda has real captures and specifiers. Known limits
   in the cppir doc: lambdas print on one line (3.11/3.13), Struct/Func names are plain text, no
   range-for or structured bindings.
+- 2026-10-14: Job 3.2 (the runtime ownership core: runtime/include/gocpp/ptr.hpp with gp::ptr, gp::new_,
+  aliasing, gp::static_ptr, gp::ptr_cast, gp::weak_ptr with gp::weak_make/gp::weak_value; Go's nil
+  panic with the per-goroutine signal line; the long-chain release trampoline (depth 128); the
+  complete no-plain-named-members test runtime/members_test.go) committed, clean after 3 review rounds.
+  The emitter maps `weak.Make(p)` / `w.Value()` to `gp::weak_make` / `gp::weak_value`.

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -202,7 +203,8 @@ func sourcePath(t *testing.T, p string) string {
 // The cases of the differential test (the case names of testdata/diff/main.go).
 var diffCases = []string{"println", "fmt", "floats", "arith", "f2i", "strings", "order",
 	"panic-str", "panic-multi", "panic-empty", "panic-int", "panic-float", "panic-bool",
-	"div", "rem", "shl", "shr", "index", "negindex", "uindex", "exit0", "big", "bigerr"}
+	"div", "rem", "shl", "shr", "index", "negindex", "uindex", "exit0", "big", "bigerr",
+	"ptr", "nil-deref", "nil-store", "nil-field", "nil-method", "nil-addr"}
 
 // A result is what a program printed (stdout and stderr merged) and its exit code.
 type result struct {
@@ -213,6 +215,15 @@ type result struct {
 // goStackMark is the line after which Go prints the stack trace of a panic. gocpp prints
 // that line too, and the trace comes in Phase 03, so both outputs are compared up to it.
 const goStackMark = "goroutine 1 [running]:\n"
+
+// pcRx matches the pc in the signal line of a nil pointer panic, "[signal SIGSEGV:
+// segmentation violation code=0x1 addr=0x0 pc=0x4a2b1c]": an address in the program, which
+// differs between Go and gocpp (and between builds). maskPC replaces it with "pc=PC".
+var pcRx = regexp.MustCompile(`( pc=)0x[0-9a-f]+\]\n`)
+
+func maskPC(out []byte) []byte {
+	return pcRx.ReplaceAll(out, []byte("${1}PC]\n"))
+}
 
 // goResults runs testdata/diff/main.go with real Go, once for each case, and returns the
 // results and the Go binary. It returns nil and "" (and logs why) when there is no go command.
@@ -245,7 +256,7 @@ func goResults(t *testing.T) (map[string]result, string) {
 		if i := bytes.Index(out, []byte(goStackMark)); i >= 0 {
 			out = out[:i+len(goStackMark)]
 		}
-		res[name] = result{out, code}
+		res[name] = result{maskPC(out), code}
 	}
 	return res, bin
 }
@@ -302,6 +313,18 @@ func runUnit(t *testing.T, bin string) {
 	t.Logf("%s", bytes.TrimSpace(stdout))
 }
 
+// nilSignal is the signal line of a nil pointer panic on this OS, after maskPC. Go's addr is
+// the faulting address: the field's offset for an access (read or write) to a field at a
+// small nonzero offset (below 4096), and 0x0 for offset 0, for 4096 or more and for a whole
+// value. gocpp checks the pointer before any access and always prints 0x0, so the diff cases
+// use only accesses where Go's is 0x0 too.
+var nilSignal = func() string {
+	if runtime.GOOS == "windows" {
+		return "[signal 0xc0000005 code=0x0 addr=0x0 pc=PC]"
+	}
+	return "[signal SIGSEGV: segmentation violation code=0x1 addr=0x0 pc=PC]"
+}()
+
 // runPanic checks the end of a program without real Go: an unrecovered panic prints Go's
 // message and exits with 2, after what the program printed before; a normal end exits with 0.
 func runPanic(t *testing.T, bin string) {
@@ -314,13 +337,17 @@ func runPanic(t *testing.T, bin string) {
 		{"div", "panic: runtime error: integer divide by zero\n\ngoroutine 1 [running]:\n", 2},
 		{"shl", "panic: runtime error: negative shift amount\n\ngoroutine 1 [running]:\n", 2},
 		{"index", "panic: runtime error: index out of range [5] with length 3\n\ngoroutine 1 [running]:\n", 2},
+		{"nil-field", "panic: runtime error: invalid memory address or nil pointer dereference\n" + nilSignal + "\n\ngoroutine 1 [running]:\n", 2},
+		{"nil-store", "panic: runtime error: invalid memory address or nil pointer dereference\n" + nilSignal + "\n\ngoroutine 1 [running]:\n", 2},
 		{"order", "a\nb\nc\nd\ne1\nno newline, then stderr\npanic: p\n\ngoroutine 1 [running]:\n", 2},
 		{"exit0", "only stdout\n", 0},
+		{"bad-owner", "fatal error: gocpp: a non-nil pointer without an owner (a bug in the runtime or in the generated code)\n", 2},
 	} {
 		out, _, code, err := command(filepath.Dir(bin), nil, true, bin, tc.name)
 		if err != nil {
 			t.Fatal(err)
 		}
+		out = maskPC(out)
 		if code != tc.code || string(out) != tc.out {
 			t.Errorf("%s: exit code %d, output:\n%s\nwant exit code %d, output:\n%s", tc.name, code, out, tc.code, tc.out)
 		}
@@ -349,6 +376,7 @@ func runDiff(t *testing.T, bin, name string, want result) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	out = maskPC(out)
 	if code != want.code {
 		t.Errorf("exit code %d, Go's is %d", code, want.code)
 	}

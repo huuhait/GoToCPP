@@ -26,6 +26,13 @@ concept go_float =
 // panic_shift: "runtime error: negative shift amount".
 [[noreturn]] void panic_shift();
 
+// panic_nil: "runtime error: invalid memory address or nil pointer dereference", the panic of
+// a nil pointer dereference (gp::ptr). In Go this panic comes from a memory fault, so it also
+// sets the goroutine's signal (panic.hpp), and an unrecovered panic then prints Go's signal
+// line, "[signal SIGSEGV: segmentation violation code=0x1 addr=0x0 pc=0x...]", where the pc is
+// the caller's.
+[[noreturn]] void panic_nil();
+
 // panic_index: "runtime error: index out of range [5] with length 3". A negative signed index
 // prints without the length, like Go: "index out of range [-1]". When is_signed is false, x is
 // the bits of an unsigned index (uint64), and it prints as unsigned.
