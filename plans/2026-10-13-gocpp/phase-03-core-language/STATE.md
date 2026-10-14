@@ -16,8 +16,8 @@
   - [ ] `&p.f`, `&s[i]`, `&arr[i]`, `&global`
 - [~] 3.4 Strings (runtime, literals, slicing, concat, compare, UTF-8 range, conversions)
 - [~] 3.5 Slices (make, append + growth formula, sub-slice, copy, nil, clear, slice→array; `cap >= len` only)
-- [ ] 3.6 Arrays (`gp::array`, checked index, `==`) + range rules (hidden counters, copy on `range arr`)
-- [ ] 3.7 Maps
+- [~] 3.6 Arrays (`gp::array`, checked index, `==`) + range rules (hidden counters, copy on `range arr`)
+- [~] 3.7 Maps
   - [ ] get / set / ref / lookup / erase / len / clear
   - [ ] nil-map panics
   - [ ] snapshot range
