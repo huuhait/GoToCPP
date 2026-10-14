@@ -230,9 +230,15 @@ func goResults(t *testing.T) (map[string]result, string) {
 	if err != nil || code != 0 {
 		t.Fatalf("go build testdata/diff/main.go: exit %d %v\n%s", code, err, out)
 	}
+	// Go's runtime print (println) writes with one write call and drops what a short write
+	// leaves. A blocking pipe write ends short when a signal arrives in the middle, and the
+	// Go runtime sends itself SIGURG to preempt goroutines, so under load "bigerr" lost the
+	// end of its 1 MiB line in real Go (the gocpp side loops until all is written). Without
+	// asynchronous preemption there is no SIGURG, and Go's output is complete.
+	env := append(os.Environ(), "GODEBUG=asyncpreemptoff=1")
 	res := make(map[string]result)
 	for _, name := range diffCases {
-		out, _, code, err := command(dir, nil, true, bin, name)
+		out, _, code, err := command(dir, env, true, bin, name)
 		if err != nil {
 			t.Fatal(err)
 		}
