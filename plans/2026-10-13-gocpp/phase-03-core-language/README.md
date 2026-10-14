@@ -263,7 +263,10 @@ gp::func<int64_t()> counter() {
 ### 2.7 Evaluation order
 
 Phase 02 already keeps Go's left-to-right order for calls in simple expressions (g++ and clang++
-really differ there). This phase extends the pass to every construct: composite literals,
+really differ there). Slice expressions follow gc too (found by job 3.4): a slice
+expression is evaluated in its place among the calls, and its bounds are copied first unless they
+are a name, a constant or `len`/`cap` of a name (gc's `cheapExpr`), so `fmt.Println(g[n:], f())`
+reads the old `g` and panics before `f` runs, while `s[i]` is still checked after the calls. This phase extends the pass to every construct: composite literals,
 index and slice expressions, method calls, `&&`/`||` (whose right side, if it needs temporaries,
 becomes a small `if` chain so short-circuiting is kept), loop conditions and post statements,
 `else if` conditions and `case` expressions (which can't hoist their temporaries above the whole
