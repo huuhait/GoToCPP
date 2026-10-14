@@ -139,6 +139,11 @@ var gs = "abcde"
 var gb = true
 var g8 uint8 = 200
 
+// gz is always 0: nothing changes it. Huge shift counts add it, so that gc can't fold them to a
+// constant (gc 1.25 on amd64 miscompiles ((x >> c) & m) << k for a constant c >= 1<<63, see
+// the shift count in expr).
+var gz = 0
+
 // pg points to g0 or g1, pl to a boxed local of main, pc to a loop's variable (or g1).
 var pg = &g0
 var pl, pc *int
@@ -1237,8 +1242,12 @@ func (g *progGen) expr(depth int) string {
 		}
 		if g.chance(0.2) {
 			// An untyped count that is not a constant: a uint, never negative (typeOf). (The
-			// int(...) keeps an untyped constant shifted inside it, -6 >> n, an int.)
-			return "(" + g.expr(d) + " >> (1<<(int(" + g.nonConst(1) + ") & 127) - 2))"
+			// int(...) keeps an untyped constant shifted inside it, -6 >> n, an int.) The count
+			// is often huge (1<<0 - 2 wraps), and gc would fold a count like 1<<(p - p) - 2 to
+			// the constant 1<<64 - 1, which its rewrite rule for ((x >> c) & m) << k (generic.rules,
+			// "c < e") compares as a signed -1: it then computes (x << (k+1)) & (m << k), not 0
+			// (seed 5021, in copy(gsl[i:], ...)). The read of gz keeps the count non-constant.
+			return "(" + g.expr(d) + " >> (1<<(int(" + g.nonConst(1) + ")&127+gz) - 2))"
 		}
 		return "(" + g.expr(d) + " << (uint(int(" + g.nonConst(1) + ")) & 7))"
 	case 7:
