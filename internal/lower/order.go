@@ -2,6 +2,7 @@ package lower
 
 import (
 	"go/ast"
+	"go/constant"
 	"go/token"
 	"go/types"
 
@@ -28,6 +29,9 @@ import (
 //   - len(x), when x could change;
 //   - x && y and x || y, as a whole: y's temporaries must not run unless x says so, so gc
 //     evaluates them into a temporary of their own (r := x; if r { r = y });
+//   - a slice expression s[a:b] (Phase 03), with its bounds: gc copies it into a temporary
+//     in its place, so it reads s and panics there, and its bounds that are not a name, a
+//     constant or len or cap of a name are copied in their places first (collect, cheap);
 //   - an argument of fmt.Print, Println or Printf (a ...any parameter) of a one-byte type
 //     (bool, int8, uint8) that is not a variable: so fmt.Println(s[i], grow()) panics before
 //     grow runs, and fmt.Println(x == 1, f()) compares the old x, while fmt.Println(x, f())
@@ -178,9 +182,16 @@ func (fg *funcGen) analyze(seq bool, list []ast.Expr) *orderScope {
 // analyzeArgs is analyze, where the expressions from the index iface on are arguments of
 // fmt's ...any (see the top of the file).
 func (fg *funcGen) analyzeArgs(seq bool, list []ast.Expr, iface int) *orderScope {
+	return fg.analyzeCopied(seq, list, func(i int, e ast.Expr) bool { return i >= iface && fg.copied(e) })
+}
+
+// analyzeCopied is analyze, where an expression of the list for which copy says so is a unit
+// of its own: gc copies it into a temporary in its place among the calls (an argument of fmt's
+// ...any, a bound of a slice expression).
+func (fg *funcGen) analyzeCopied(seq bool, list []ast.Expr, copy func(i int, e ast.Expr) bool) *orderScope {
 	sc := &orderScope{seq: seq}
 	for i, e := range list {
-		if i >= iface && fg.copied(e) {
+		if copy(i, e) {
 			in := fg.analyze(false, []ast.Expr{e})
 			if eff := in.effect(); eff.any() {
 				sc.items = append(sc.items, &orderItem{e: ast.Unparen(e), unit: true, eff: eff, root: i, inner: []*orderScope{in}})
@@ -292,7 +303,52 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		fg.collect(sc, x.X, root, below)
 		fg.collect(sc, x.Index, root, below)
 		add(&orderItem{eff: effect{panics: true}})
+	case *ast.SliceExpr:
+		// gc evaluates a slice expression as a whole in its place among the calls (walk/
+		// order.go copies it into a temporary), after its bounds, which it copies into
+		// temporaries in their own places too unless they are a name, a constant or len or
+		// cap of a name (cheapExpr): so fmt.Println(s[i:], f()) slices s before f runs (and panics
+		// before it), and in s[n+0 : f()] n is read before f runs.
+		list := []ast.Expr{x.X}
+		for _, b := range []ast.Expr{x.Low, x.High, x.Max} {
+			if b != nil {
+				list = append(list, b)
+			}
+		}
+		in := fg.analyzeCopied(false, list, func(i int, e ast.Expr) bool { return i > 0 && !fg.cheap(e) })
+		eff := in.effect()
+		// s[:] and s[0:] can't fail; the other forms check their bounds.
+		if x.High != nil || x.Low != nil && !isZero(fg.constValue(x.Low)) {
+			eff.panics = true
+		}
+		if !eff.any() {
+			sc.calls = append(sc.calls, in.calls...)
+			return
+		}
+		add(&orderItem{unit: true, eff: eff, inner: []*orderScope{in}})
 	}
+}
+
+// cheap reports whether gc leaves the bound e of a slice expression in place instead of
+// copying it into a temporary (cmd/compile's cheapExpr): a name, a constant, or len or cap
+// of a cheap expression.
+func (fg *funcGen) cheap(e ast.Expr) bool {
+	e = ast.Unparen(e)
+	if _, ok := fg.temps[e]; ok || fg.constValue(e) != nil {
+		return true
+	}
+	switch x := e.(type) {
+	case *ast.Ident:
+		return true
+	case *ast.CallExpr:
+		return (fg.isBuiltin(x, "len") || fg.isBuiltin(x, "cap")) && len(x.Args) == 1 && fg.cheap(x.Args[0])
+	}
+	return false
+}
+
+// isZero reports whether the constant v is 0 (false for nil, not a constant).
+func isZero(v constant.Value) bool {
+	return v != nil && constant.Sign(v) == 0
 }
 
 // isPkgVar reports whether v is a package variable, which any call can change.

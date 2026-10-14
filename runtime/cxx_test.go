@@ -205,7 +205,8 @@ func sourcePath(t *testing.T, p string) string {
 var diffCases = []string{"println", "fmt", "floats", "arith", "f2i", "strings", "order",
 	"panic-str", "panic-multi", "panic-empty", "panic-int", "panic-float", "panic-bool",
 	"div", "rem", "shl", "shr", "index", "negindex", "uindex", "exit0", "big", "bigerr",
-	"ptr", "nil-deref", "nil-store", "nil-field", "nil-method", "nil-addr"}
+	"ptr", "nil-deref", "nil-store", "nil-field", "nil-method", "nil-addr",
+	"substr", "utf8", "substr-alen", "substr-b", "substr-neg", "substr-from"}
 
 // The slice cases (Phase 03 step 3.5a): the sliceCase function of testdata/diff/main.go.
 var sliceDiffCases = []string{"slices", "slice-grow", "slice-free", "slice-index", "slice-index-neg",

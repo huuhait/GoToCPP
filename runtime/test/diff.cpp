@@ -272,6 +272,59 @@ gp::string big_string() {
     return s;
 }
 
+void substr_case() {
+    gp::string s = "hello, world"_gs;
+    int64_t i = 7, j = 12;
+    fmt::Println(gp::sub(s, i, j), gp::sub(s, i), gp::sub(s, 0, 5), s, gp::sub(s, j),
+                 gp::len(gp::sub(s, 3, 3)), gp::sub(s, 1, 4) == "ell"_gs,
+                 gp::sub(gp::sub(s, i, j), 1, 3));
+    gp::string t = gp::concat(gp::sub(s, 0, 5), "!"_gs, gp::sub(s, i), "?"_gs);
+    fmt::Println(t, gp::len(t), t[5], gp::sub(s, 0, 0) == ""_gs);
+    gp::string u = ""_gs;
+    for (int64_t k = 0; k < 5; k++) {
+        u = gp::concat(u, gp::sub(s, k, k + 1), "-"_gs);
+    }
+    fmt::Println(u, gp::len(u));
+}
+
+void show_runes(gp::string s) {
+    for (auto it = gp::range_string(s); gp::range_next(it);) {
+        int64_t i = it.gp_i;
+        int32_t r = it.gp_r;
+        fmt::Printf("%d:%d "_gs, i, r);
+    }
+    fmt::Println(gp::len(s));
+}
+
+void show_string(int32_t r) {
+    gp::string s = gp::rune_to_string(r);
+    fmt::Printf("%d:"_gs, gp::len(s));
+    for (int64_t i = 0; i < gp::len(s); i++) {
+        fmt::Printf(" %d"_gs, s[i]);
+    }
+    fmt::Println();
+}
+
+void utf8_case() {
+    show_runes(""_gs);
+    show_runes("abc"_gs);
+    show_runes("h\303\251llo, \344\270\226\347\225\214 \360\237\230\200"_gs);
+    show_runes("a\377b\300\200c"_gs);
+    show_runes("\342\202 \355\240\200 \364\220\200\200 \360\237\230"_gs);
+    show_runes("\302\200\337\277\340\240\200\357\277\277\360\220\200\200\364\217\277\277"_gs);
+    for (auto it = gp::range_string("A\303\251\342\202\254\360\237\230\200"_gs);
+         gp::range_next(it);) {
+        show_string(it.gp_r);
+    }
+    show_string(0);
+    show_string(-1);
+    show_string(0xD800);
+    show_string(0xDFFF);
+    show_string(0x10FFFF);
+    show_string(0x110000);
+    show_string(INT32_MIN);
+}
+
 gp::string the_case;
 
 // The "leak" case drops the only pointer to a block through this variable, so the compiler
@@ -297,6 +350,26 @@ void main() {
         f2i_case();
     } else if (c == "strings") {
         strings_case();
+    } else if (c == "substr") {
+        substr_case();
+    } else if (c == "utf8") {
+        utf8_case();
+    } else if (c == "substr-alen") {
+        gp::string s = "abc"_gs;
+        int64_t i = 1, j = 5;
+        fmt::Println(gp::sub(s, i, j));
+    } else if (c == "substr-b") {
+        gp::string s = "abc"_gs;
+        int64_t i = 3, j = 2;
+        fmt::Println(gp::sub(s, i, j));
+    } else if (c == "substr-neg") {
+        gp::string s = "abc"_gs;
+        int64_t i = -1;
+        fmt::Println(gp::sub(s, i));
+    } else if (c == "substr-from") {
+        gp::string s = "abc"_gs;
+        uint8_t i = 4;
+        fmt::Println(gp::sub(s, i));
     } else if (c == "order") {
         fmt::Print("a\n"_gs);
         gp::println("b"_gs);

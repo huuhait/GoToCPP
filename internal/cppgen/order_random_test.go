@@ -16,7 +16,8 @@ import (
 // generates random programs whose calls print and change package variables, in every place
 // that Phase 02 has (arguments, operands, && and ||, conditions of if, else if, for and
 // switch, case lists, post statements, range bounds, returns, assignments and declarations),
-// next to reads of those variables and to operations that can panic, and compares what each
+// next to reads of those variables and to operations that can panic (also substrings,
+// concatenations and range over strings, Phase 03), and compares what each
 // prints with real Go, on both compilers.
 //
 //	GOCPP_RANDOM_TESTS=1 go test ./internal/cppgen -run TestRandomOrder
@@ -301,13 +302,27 @@ func (g *progGen) stmt() {
 	case 10, 11:
 		g.forStmt()
 	case 12:
-		x := g.expr(2) // before i is in scope
+		str := g.chance(0.4) // range over a string, else over an int
+		var x string
+		if str {
+			x = g.rangeStr()
+		} else {
+			x = g.expr(2) + " & 3" // before i is in scope
+		}
 		i := g.newVar()
 		g.fixed[i] = true
-		g.printf("for %s := range %s & 3 {", i, x)
+		if str {
+			g.printf("for %s, r := range %s {", i, x)
+		} else {
+			g.printf("for %s := range %s {", i, x)
+		}
 		g.loops++
 		g.indent++
-		g.printf("fmt.Println(%q, %s)", i, i)
+		if str {
+			g.printf("fmt.Println(%q, %s, r)", i, i)
+		} else {
+			g.printf("fmt.Println(%q, %s)", i, i)
+		}
 		g.indent--
 		g.block(2)
 		g.loops--
@@ -443,7 +458,7 @@ func (g *progGen) condList() string {
 func (g *progGen) args(n int) string {
 	list := make([]string, n)
 	for i := range list {
-		switch g.r.Intn(8) {
+		switch g.r.Intn(9) {
 		case 0:
 			list[i] = g.cond(2)
 		case 1:
@@ -454,6 +469,8 @@ func (g *progGen) args(n int) string {
 		case 3:
 			list[i] = []string{"gs", "gb", "g8", "len(gs)"}[g.r.Intn(4)]
 		case 4:
+			list[i] = g.strExpr(2)
+		case 5:
 			if k := g.helper("k"); k != "" {
 				list[i] = k + "(" + g.expr(1) + ")"
 			} else {
@@ -472,6 +489,50 @@ func (g *progGen) index() string {
 		return g.expr(2) + " & 15"
 	}
 	return g.expr(2) + " & 3"
+}
+
+// strExpr returns a string expression: substrings of gs (whose bounds are usually in
+// range) and concatenations, whose operands may call e, which changes gs.
+func (g *progGen) strExpr(depth int) string {
+	if depth <= 0 || g.chance(0.3) {
+		return "gs"
+	}
+	d := depth - 1
+	switch g.r.Intn(5) {
+	case 0:
+		return "gs[" + g.bound() + ":]"
+	case 1:
+		return "gs[:" + g.bound() + "]"
+	case 2:
+		return "gs[" + g.bound() + ":" + g.bound() + "+1]"
+	case 3:
+		return "(" + g.strExpr(d) + " + " + g.strExpr(d) + ")"
+	default:
+		return g.strExpr(d) + " + " + g.strExpr(d) + " + \"-\""
+	}
+}
+
+// rangeStr returns a short string to range over (gs grows, and a loop over all of it in a
+// loop that calls e would print without end): a few bytes of gs and some UTF-8, also
+// invalid.
+func (g *progGen) rangeStr() string {
+	switch g.r.Intn(3) {
+	case 0:
+		return "gs[:" + g.bound() + "] + \"\u00e9\\xff\""
+	case 1:
+		return "gs[" + g.bound() + ":4]"
+	default:
+		return "\"\\xe2\\x82\u4e16\" + gs[" + g.bound() + ":" + g.bound() + "+1]"
+	}
+}
+
+// bound returns a bound of a slice expression: like index, but not a constant, because
+// constant bounds out of order (gs[3:1]) don't compile.
+func (g *progGen) bound() string {
+	if g.chance(0.03) {
+		return g.nonConst(2) + " & 15"
+	}
+	return g.nonConst(2) + " & 3"
 }
 
 // divisor returns a divisor: usually one that can't be 0.
@@ -544,6 +605,9 @@ func (g *progGen) expr(depth int) string {
 		}
 		return g.leaf()
 	case 9:
+		if g.chance(0.3) {
+			return "len(" + g.strExpr(d) + ")"
+		}
 		return "int(gs[" + g.index() + "])"
 	case 10:
 		return fmt.Sprintf("both(%s, %s)", g.expr(d), g.expr(d))

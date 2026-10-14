@@ -55,6 +55,11 @@ in the go command). Without packages, it checks the package in the
 current folder. The build constraints are for the system that runs
 gocpp, or for the GOOS and GOARCH environment variables.
 
+Features of a later phase of gocpp's plan are errors ("... not supported
+yet (Phase 03)"). For gocpp's own development and tests,
+GOCPP_GATE_PHASE=NN (two digits) accepts them up to phase NN; build, run
+and emit read it too. It can't turn the gates of finished phases back on.
+
 -types prints the type of every expression of the packages named on the
 command line to standard output, one per line in source order: its
 position, its mode (value, var, const, type, ...), its source text and
@@ -177,8 +182,15 @@ func (c *checkCommand) run(patterns []string) int {
 // program, the result of the type checking (nil when the packages couldn't
 // be loaded: then nothing was checked) and the exit status: 1 if there is
 // an error (a phase gate counts), else 0. gocpp build, run and emit use
-// it too, so that they fail exactly like gocpp check.
+// it too, so that they fail exactly like gocpp check. GOCPP_GATE_PHASE
+// (gatePhase) can open the gates of a later phase; a malformed value is exit
+// status 2.
 func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, int) {
+	phase, err := gatePhase(os.Getenv(gatePhaseEnv))
+	if err != nil {
+		fmt.Fprintf(c.stderr, "gocpp: %v\n", err)
+		return &load.Program{Fset: token.NewFileSet(), Errors: new(diag.List)}, nil, exitInternal
+	}
 	m := matchPatterns(c.dir, patterns)
 	for _, w := range m.warnings {
 		fmt.Fprintln(c.stderr, w)
@@ -214,7 +226,7 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 	// terminal's signal doesn't reach, so the canceled context is what
 	// kills it. Then gocpp prints nothing more and dies of the signal
 	// (stopStatus), like build and run.
-	r := check.Check(prog, check.Config{GOOS: c.goos, GOARCH: c.goarch, Context: c.ctx})
+	r := check.Check(prog, check.Config{Phase: phase, GOOS: c.goos, GOARCH: c.goarch, Context: c.ctx})
 	if c.ctx != nil && c.ctx.Err() != nil {
 		if sig := c.stopped(); sig != nil {
 			return prog, nil, stopStatus(sig)

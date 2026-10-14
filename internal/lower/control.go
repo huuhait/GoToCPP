@@ -24,6 +24,8 @@ import (
 //	for ...; i, j = i+1, j-1 {  for (...;) { {body} gp_cont_0:; { auto gp_t0 = i + 1; ... } }
 //	for i := range n {...}      for (int64_t gp_i0 = 0, gp_n0 = n; gp_i0 < gp_n0; gp_i0++) {
 //	                                int64_t i = gp_i0; ...
+//	for i, r := range s {...}   for (auto gp_it0 = gp::range_string(s); gp::range_next(gp_it0);) {
+//	                                int64_t i = gp_it0.gp_i; int32_t r = gp_it0.gp_r; ...
 //	switch (3 shapes)           see switchStmt
 //
 // Scopes: a C++ for doesn't allow a name of its init statement to be declared again in the
@@ -364,6 +366,10 @@ func (fg *funcGen) forInit(s ast.Stmt) (cppir.Stmt, bool) {
 func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 	xt := fg.g.info.TypeOf(s.X)
 	b := basicOf(xt)
+	if b != nil && b.Info()&types.IsString != 0 {
+		fg.rangeString(s)
+		return
+	}
 	if b == nil || b.Info()&types.IsInteger == 0 {
 		fg.g.unsupported(s.X.Pos(), rangeKind(xt))
 		return
@@ -431,11 +437,82 @@ func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 	fg.breakLabel(s, s.Body.Rbrace)
 }
 
+// rangeString lowers a range loop over a string (Phase 03 step 3.4). The string is evaluated
+// once, into the loop's gp::string_range (with its temporaries, if it needs any, in a block in
+// front, as for range over an integer), and gp::range_next steps from rune to rune, decoding
+// UTF-8 like Go: an invalid byte is U+FFFD and steps one byte. The range variables are copies
+// of its hidden counters, gp_i (where the rune starts) and gp_r (the rune), so assigning to
+// them in the body doesn't change the iteration (Go 1.22). Every form is the same loop:
+//
+//	for i, r := range s {       for (auto gp_it0 = gp::range_string(s); gp::range_next(gp_it0);) {
+//	                                int64_t i = gp_it0.gp_i; int32_t r = gp_it0.gp_r;
+//
+// A variable that exists (for i, r = range s) is assigned at the start of each iteration;
+// a blank one, or one that is left out (for range s, for _, r := range s), is neither.
+func (fg *funcGen) rangeString(s *ast.RangeStmt) {
+	pre := fg.order(false, s.X)
+	if len(pre) > 0 {
+		fg.open(s.For)
+		fg.add(&cppir.Line{Pos: fg.g.pos(s.X.Pos()), Stmts: pre})
+	}
+	fg.names.openScope() // the range variables and the body (see the top)
+	it := fg.names.temp("it")
+	head := &cppir.For{
+		Pos:  fg.g.pos(s.For),
+		Init: varDecl(cppir.Pos{}, typeName("auto"), it, call("gp::range_string", fg.expr(s.X))),
+		Cond: call("gp::range_next", cxxName(it)),
+	}
+	// The line at the start of each iteration: a declaration or an assignment of each range
+	// variable, made from its counter (as in Go, the key first), on one C++ line.
+	type rangeVar struct {
+		e       ast.Expr
+		obj     *types.Var // a new variable
+		typ     cppir.Type // its C++ type
+		target  cppir.Expr // or a variable that exists
+		counter string
+	}
+	var vars []rangeVar
+	for _, v := range []rangeVar{{e: s.Key, counter: "gp_i"}, {e: s.Value, counter: "gp_r"}} {
+		if v.e == nil || isBlank(v.e) {
+			continue
+		}
+		if s.Tok == token.DEFINE {
+			v.obj, _ = fg.g.info.Defs[v.e.(*ast.Ident)].(*types.Var)
+			if v.obj == nil {
+				fg.g.errorf(v.e.Pos(), "internal error: a range variable without an object")
+				continue
+			}
+			v.typ = fg.g.cxxType(v.obj.Type(), v.e.Pos())
+		} else {
+			v.target = fg.expr(v.e)
+		}
+		vars = append(vars, v)
+	}
+	l := loop{stmt: s, head: head, body: s.Body}
+	if len(vars) > 0 {
+		l.vars = func() {
+			line := &cppir.Line{Pos: fg.g.pos(vars[0].e.Pos())}
+			for _, v := range vars {
+				value := &cppir.Member{X: cxxName(it), Name: v.counter}
+				if v.obj != nil {
+					line.Stmts = append(line.Stmts, varDecl(cppir.Pos{}, v.typ, fg.names.declare(v.obj), value))
+				} else {
+					line.Stmts = append(line.Stmts, &cppir.ExprStmt{X: &cppir.Assign{Op: "=", X: v.target, Y: value}})
+				}
+			}
+			fg.add(line)
+		}
+	}
+	fg.loopBody(l)
+	fg.names.closeScope()
+	if len(pre) > 0 {
+		fg.close(s.Body.Rbrace)
+	}
+	fg.breakLabel(s, s.Body.Rbrace)
+}
+
 // rangeKind names what a range over a value of type t is, for "not supported yet".
 func rangeKind(t types.Type) string {
-	if b := basicOf(t); b != nil && b.Info()&types.IsString != 0 {
-		return "range over strings (Phase 03)"
-	}
 	switch types.Unalias(t).Underlying().(type) {
 	case *types.Signature:
 		return "range over functions (Phase 07)"

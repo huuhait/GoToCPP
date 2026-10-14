@@ -226,6 +226,20 @@ func loadConfig() (config, error) {
 	return c, nil
 }
 
+// gateEnv returns GOCPP_GATE_PHASE=NN for a test of phase NN that comes
+// after version.Phase, else "". While phase NN is built, version.Phase is
+// still an earlier phase, so gocpp's own phase gates would reject the
+// features that the tests of phase NN use: GOCPP_GATE_PHASE opens them up to
+// NN (cmd/gocpp/gatephase.go), and only for that test. A test of a finished
+// phase keeps the gates of version.Phase, so an error test can still expect
+// the gate of a later phase.
+func gateEnv(phase int) string {
+	if phase <= version.Phase {
+		return ""
+	}
+	return fmt.Sprintf("GOCPP_GATE_PHASE=%02d", phase)
+}
+
 // phaseLimitRx matches a GOCPP_TEST_PHASE value: one or two digits.
 var phaseLimitRx = regexp.MustCompile(`^\d{1,2}$`)
 
@@ -567,7 +581,7 @@ func (c *config) runTest(t *testing.T, p *program) {
 		stderr:   p.header.stderr,
 	}
 	c.forEachCompiler(t, func(t *testing.T, cc compiler) {
-		checkRun(t, c.run(t, gocppJob(p.dir, nil, cc.cxx, c.runArgs(p.arg)...)), want)
+		checkRun(t, c.run(t, gocppJob(p.dir, nil, cc.cxx, p.header.phase, c.runArgs(p.arg)...)), want)
 	})
 }
 
@@ -607,7 +621,7 @@ func (c *config) exampleTest(t *testing.T, p *program) {
 		anyStderr: true,
 	}
 	c.forEachCompiler(t, func(t *testing.T, cc compiler) {
-		j := gocppJob(p.dir, p.ex.env, cc.cxx, c.runArgs(p.arg, p.ex.args...)...)
+		j := gocppJob(p.dir, p.ex.env, cc.cxx, p.header.phase, c.runArgs(p.arg, p.ex.args...)...)
 		if p.ex.stdin != nil {
 			j.stdin = p.ex.stdin
 			j.show += " < stdin.txt"
@@ -620,7 +634,7 @@ func (c *config) exampleTest(t *testing.T, p *program) {
 // with 1 if the test wants errors, and with 0 if it wants none (warnings
 // don't change the exit status).
 func (c *config) errorsTest(t *testing.T, p *program) {
-	r := c.run(t, checkJob(p.dir, p.arg))
+	r := c.run(t, checkJob(p.dir, p.arg, p.header.phase))
 	if r.problem != "" {
 		t.Fatalf("%s: %s\noutput:\n%s", r.cmd, r.problem, indent(string(r.stdout)))
 	}
@@ -641,9 +655,9 @@ func (c *config) errorsTest(t *testing.T, p *program) {
 // checkJob returns the job that checks the error test file in dir:
 // gocpp check -e file. -e reports every error, not only the first 10 (Go's
 // own test/ runner passes -e too). The errors may go to stdout or to
-// stderr, so both go to one buffer.
-func checkJob(dir, file string) job {
-	j := gocppJob(dir, nil, "", "check", "-e", file)
+// stderr, so both go to one buffer. phase is the test's (gocppJob).
+func checkJob(dir, file string, phase int) job {
+	j := gocppJob(dir, nil, "", phase, "check", "-e", file)
 	j.combined = true
 	return j
 }
@@ -656,7 +670,7 @@ func (c *config) goldenTest(t *testing.T, p *program) {
 	rel := strings.TrimSuffix(p.path, ".gp") + snapshotSuffix
 	written := false
 	c.forEachCompiler(t, func(t *testing.T, cc compiler) {
-		r := c.run(t, gocppJob(p.dir, nil, cc.cxx, "emit", p.arg))
+		r := c.run(t, gocppJob(p.dir, nil, cc.cxx, p.header.phase, "emit", p.arg))
 		if r.problem != "" || r.exit != 0 {
 			t.Fatalf("%s: %s\nstderr:\n%s", r.cmd, r.why(), indent(string(r.stderr)))
 		}
@@ -694,7 +708,7 @@ func (c *config) diffTest(t *testing.T, p *program) {
 	mode := p.header.diff
 	ref := c.goReference(t, p, mode == diffCombined)
 	c.forEachCompiler(t, func(t *testing.T, cc compiler) {
-		j := gocppJob(p.dir, nil, cc.cxx, c.runArgs(p.arg)...)
+		j := gocppJob(p.dir, nil, cc.cxx, p.header.phase, c.runArgs(p.arg)...)
 		j.combined = mode == diffCombined
 		r := c.run(t, j)
 		if r.problem != "" {
@@ -900,12 +914,16 @@ func (r result) why() string {
 	return r.status
 }
 
-// gocppJob returns a job that runs the gocpp binary in dir with args. env
-// holds KEY=value pairs to add to the environment; cxx, if it isn't "",
-// goes to gocpp in GOCPP_CXX, after them.
-func gocppJob(dir string, env []string, cxx string, args ...string) job {
+// gocppJob returns a job that runs the gocpp binary in dir with args, for a
+// test of the phase (its // phase: line). env holds KEY=value pairs to add
+// to the environment; cxx, if it isn't "", goes to gocpp in GOCPP_CXX, after
+// them, and so does the GOCPP_GATE_PHASE of gateEnv(phase).
+func gocppJob(dir string, env []string, cxx string, phase int, args ...string) job {
 	if cxx != "" {
 		env = append(env[:len(env):len(env)], "GOCPP_CXX="+cxx)
+	}
+	if gate := gateEnv(phase); gate != "" {
+		env = append(env[:len(env):len(env)], gate)
 	}
 	var show strings.Builder
 	if rel, err := filepath.Rel(repoRoot, dir); err == nil && rel != "." {

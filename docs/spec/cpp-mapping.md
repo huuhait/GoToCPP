@@ -379,6 +379,25 @@ struct Celsius : gp::newtype<Celsius, double> {      // a distinct type with dou
 
 Source: [Phase 03 §2.4](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#24-structs-and-named-types).
 
+## Strings
+
+A `gp::string` is immutable: copies and substrings share the bytes, and only concatenation
+and conversions make new ones.
+
+| gocpp | C++ | Notes |
+|---|---|---|
+| `"héllo"` | `"h\303\251llo"_gs` | static storage: no allocation, no reference count |
+| `s[i]`, `len(s)` | `s[i]`, `gp::len(s)` | a `uint8_t`, bounds checked: `index out of range [5] with length 3` |
+| `s[a:b]`, `s[a:]`, `s[:b]`, `s[:]` | `gp::sub(s, a, b)`, `gp::sub(s, a)`, `gp::sub(s, 0, b)`, `s` | shares the bytes; Go's checks and messages: `slice bounds out of range [:5] with length 3`, then `[3:2]` |
+| `a + b`, `a + b + c` | `a + b`, `gp::concat(a, b, c)` | a chain of `+` allocates once |
+| `string(r)` (an integer `r`) | `gp::rune_to_string(r)` | UTF-8; `"\uFFFD"` for a value that is no code point (negative, a surrogate half, above U+10FFFF) |
+| `for i, r := range s` | `for (auto gp_it0 = gp::range_string(s); gp::range_next(gp_it0);) { int64_t i = gp_it0.gp_i; int32_t r = gp_it0.gp_r; ...` | `s` is evaluated once; an invalid UTF-8 byte is U+FFFD and steps one byte, as in Go; `i` and `r` are copies of the hidden counters (Go 1.22) |
+
+`[]byte(s)`, `string(b)`, `[]rune(s)` and `string(runes)` come with the slices (Phase 03, step
+3.5). As in Go's compiler, a slice expression is evaluated in its place among the calls of its
+statement: `fmt.Println(s[i:], f())` slices `s` (and panics, if `i` is out of range) before
+`f` runs, while `s[i]` is checked after the calls.
+
 ## Pointers and boxing
 
 ```go

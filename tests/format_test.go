@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -674,6 +675,37 @@ func TestPhaseGate(t *testing.T) {
 	}
 }
 
+// TestGateEnv checks that a gocpp command of the harness gets
+// GOCPP_GATE_PHASE=NN exactly for a test of a phase NN after version.Phase,
+// so gocpp's gates open up to that test's own phase and no further, whatever
+// GOCPP_TEST_PHASE is.
+func TestGateEnv(t *testing.T) {
+	for _, tt := range []struct {
+		phase int
+		want  string
+	}{
+		{0, ""},
+		{version.Phase, ""},
+		{version.Phase + 1, fmt.Sprintf("GOCPP_GATE_PHASE=%02d", version.Phase+1)},
+		{15, "GOCPP_GATE_PHASE=15"},
+	} {
+		if got := gateEnv(tt.phase); got != tt.want {
+			t.Errorf("gateEnv(%d) = %q, want %q", tt.phase, got, tt.want)
+		}
+	}
+	t.Setenv("GOCPP_TEST_PHASE", "15") // must not matter
+	j := gocppJob(t.TempDir(), []string{"A=1"}, "clang++", 15, "run", ".")
+	if want := []string{"A=1", "GOCPP_CXX=clang++", "GOCPP_GATE_PHASE=15"}; !slices.Equal(j.env, want) {
+		t.Errorf("gocppJob env = %q, want %q", j.env, want)
+	}
+	if j := gocppJob(t.TempDir(), nil, "", version.Phase, "run", "."); len(j.env) != 0 {
+		t.Errorf("gocppJob env = %q for a test of version.Phase, want none", j.env)
+	}
+	if j := checkJob(t.TempDir(), "x.gp", 1); len(j.env) != 0 {
+		t.Errorf("checkJob env = %q for a Phase 01 test, want none", j.env)
+	}
+}
+
 func TestPhaseLimit(t *testing.T) {
 	for _, tt := range []struct {
 		env   string
@@ -945,7 +977,7 @@ func TestShellQuote(t *testing.T) {
 
 func TestCheckJob(t *testing.T) {
 	// gocpp check gets -e, so that a test can want more than 10 errors.
-	j := checkJob(filepath.Join(repoRoot, "tests", "errors"), "many.gp")
+	j := checkJob(filepath.Join(repoRoot, "tests", "errors"), "many.gp", 1)
 	if want := []string{"check", "-e", "many.gp"}; !reflect.DeepEqual(j.args, want) || !j.combined {
 		t.Errorf("checkJob: args %q, combined %v; want %q and true", j.args, j.combined, want)
 	}

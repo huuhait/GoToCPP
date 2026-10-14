@@ -3,6 +3,7 @@
 #include <gocpp/rt.hpp>
 #include <gocpp/os.hpp>
 
+#include <array>
 #include <charconv>
 #include <cmath>
 #include <cstdio>
@@ -43,6 +44,144 @@ string operator+(const string& a, const string& b) {
     const char* data = bytes.get();
     return string(std::move(bytes), data, static_cast<int64_t>(n));
 }
+
+// --- strings: concatenation, UTF-8, string(r) (step 3.4) ---
+
+namespace detail {
+
+string concat(const string* const* parts, std::size_t n) {
+    std::size_t total = 0;
+    const string* only = nullptr; // the one part that is not empty, if there is one
+    std::size_t nonempty = 0;
+    for (std::size_t i = 0; i < n; i++) {
+        auto l = static_cast<std::size_t>(len(*parts[i]));
+        if (l != 0) {
+            total += l;
+            only = parts[i];
+            nonempty++;
+        }
+    }
+    if (nonempty == 0) {
+        return string();
+    }
+    if (nonempty == 1) {
+        return *only;
+    }
+    auto bytes = std::make_shared_for_overwrite<char[]>(total);
+    char* p = bytes.get();
+    for (std::size_t i = 0; i < n; i++) {
+        std::string_view v = parts[i]->gp_view();
+        if (!v.empty()) {
+            std::memcpy(p, v.data(), v.size());
+            p += v.size();
+        }
+    }
+    const char* data = bytes.get();
+    return string(std::move(bytes), data, static_cast<int64_t>(total));
+}
+
+int32_t decode_rune(const char* p, int64_t n, int64_t& width) noexcept {
+    // Go's utf8.DecodeRuneInString, with its accept ranges for the second byte: E0 needs A0..BF
+    // (no overlong 3-byte form), ED 80..9F (no surrogates), F0 90..BF (no overlong 4-byte
+    // form), F4 80..8F (nothing above U+10FFFF); the other continuation bytes are 80..BF.
+    constexpr int32_t error = 0xFFFD;
+    auto b = [p](int k) { return static_cast<uint8_t>(p[k]); };
+    auto cont = [](uint8_t c) { return c >= 0x80 && c <= 0xBF; };
+    width = 1;
+    uint8_t c0 = b(0);
+    if (c0 < 0x80) {
+        return c0;
+    }
+    if (c0 < 0xC2 || c0 > 0xF4) {
+        return error; // a continuation byte, an overlong 2-byte form (C0, C1), or F5..FF
+    }
+    int64_t size = c0 < 0xE0 ? 2 : c0 < 0xF0 ? 3 : 4;
+    if (n < size) {
+        return error;
+    }
+    uint8_t lo = 0x80, hi = 0xBF;
+    switch (c0) {
+    case 0xE0:
+        lo = 0xA0;
+        break;
+    case 0xED:
+        hi = 0x9F;
+        break;
+    case 0xF0:
+        lo = 0x90;
+        break;
+    case 0xF4:
+        hi = 0x8F;
+        break;
+    }
+    uint8_t c1 = b(1);
+    if (c1 < lo || c1 > hi) {
+        return error;
+    }
+    if (size == 2) {
+        width = 2;
+        return static_cast<int32_t>(c0 & 0x1F) << 6 | (c1 & 0x3F);
+    }
+    uint8_t c2 = b(2);
+    if (!cont(c2)) {
+        return error;
+    }
+    if (size == 3) {
+        width = 3;
+        return static_cast<int32_t>(c0 & 0x0F) << 12 | (c1 & 0x3F) << 6 | (c2 & 0x3F);
+    }
+    uint8_t c3 = b(3);
+    if (!cont(c3)) {
+        return error;
+    }
+    width = 4;
+    return static_cast<int32_t>(c0 & 0x07) << 18 | (c1 & 0x3F) << 12 | (c2 & 0x3F) << 6 |
+           (c3 & 0x3F);
+}
+
+namespace {
+
+// The strings of one ASCII byte each, in static storage: string(r) for r < 0x80 points here
+// and doesn't allocate.
+constexpr auto ascii_bytes = [] {
+    std::array<char, 128> a{};
+    for (int i = 0; i < 128; i++) {
+        a[static_cast<std::size_t>(i)] = static_cast<char>(i);
+    }
+    return a;
+}();
+
+} // namespace
+
+string rune_string(int64_t r) {
+    // Go's intstring: a value that is not a valid code point is U+FFFD (EF BF BD).
+    if (r >= 0 && r < 0x80) {
+        return string(static_bytes, &ascii_bytes[static_cast<std::size_t>(r)], 1);
+    }
+    if (r < 0 || r > 0x10FFFF || (r >= 0xD800 && r <= 0xDFFF)) {
+        r = 0xFFFD;
+    }
+    auto u = static_cast<uint32_t>(r);
+    char buf[4];
+    std::size_t n;
+    if (u < 0x800) {
+        buf[0] = static_cast<char>(0xC0 | u >> 6);
+        n = 2;
+    } else if (u < 0x10000) {
+        buf[0] = static_cast<char>(0xE0 | u >> 12);
+        buf[1] = static_cast<char>(0x80 | (u >> 6 & 0x3F));
+        n = 3;
+    } else {
+        buf[0] = static_cast<char>(0xF0 | u >> 18);
+        buf[1] = static_cast<char>(0x80 | (u >> 12 & 0x3F));
+        buf[2] = static_cast<char>(0x80 | (u >> 6 & 0x3F));
+        n = 4;
+    }
+    buf[n - 1] = static_cast<char>(0x80 | (u & 0x3F));
+    return string::gp_copy(std::string_view(buf, n));
+}
+
+} // namespace detail
 
 // --- release (ptr.hpp) ---
 

@@ -29,7 +29,7 @@ func TestDebug(t *testing.T) {
 func (c *config) debugTest(t *testing.T, p *program) {
 	c.forEachCompiler(t, func(t *testing.T, cc compiler) {
 		bin := filepath.Join(t.TempDir(), p.name+exe)
-		r := c.run(t, gocppJob(p.dir, nil, cc.cxx, "build", "-o", bin, p.arg))
+		r := c.run(t, gocppJob(p.dir, nil, cc.cxx, p.header.phase, "build", "-o", bin, p.arg))
 		if r.problem != "" || r.exit != 0 {
 			t.Fatalf("%s: %s\nstderr:\n%s", r.cmd, r.why(), indent(string(r.stderr)))
 		}

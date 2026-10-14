@@ -1,15 +1,26 @@
 // gocpp/string.hpp: gp::string, Go's string type.
 //
 // A gp::string is an immutable run of bytes: an owner, a data pointer and a length (32 bytes).
-// A literal ("hi"_gs) points at static storage and has no owner, so it costs no allocation.
-// A string made at run time (a concatenation) owns its bytes through the owner, a
-// std::shared_ptr, so copies share the bytes. Phase 03 adds substrings, which share them too.
+// A literal ("hi"_gs) points at static storage and has no owner, so it costs no allocation,
+// and copying it changes no reference count. A string made at run time (a concatenation, a
+// conversion) owns its bytes through the owner, a std::shared_ptr, so copies share the bytes,
+// and so does a substring s[a:b] (gp::sub). The bytes never hold another owner, so dropping
+// one can't free a chain: unlike gp::ptr, a string drops its owner directly, not through
+// gp::detail::release (ptr.hpp).
+//
+// The invariant of ptr.hpp (a pointer into static storage shares gp::static_owner(), never an
+// empty owner) holds at the place where a pointer into a string's bytes is made: gp_owner()
+// gives static_owner() for static bytes. A literal itself keeps an empty owner: with
+// static_owner() in every literal, each "..."_gs and each copy of one would change that one
+// shared count, from every thread, and the constexpr constructor (constinit) couldn't exist.
 //
 // Like every runtime type, gp::string has only operators and gp_-prefixed members; everything
 // else is a free function such as gp::len(s), so a Go method named len can't clash with it.
 #pragma once
 
+#include <gocpp/bounds.hpp>
 #include <gocpp/checks.hpp>
+#include <gocpp/ptr.hpp>
 
 #include <compare>
 #include <cstddef>
@@ -51,6 +62,29 @@ public:
     std::string_view gp_view() const noexcept {
         return gp_len_ == 0 ? std::string_view()
                             : std::string_view(gp_data_, static_cast<std::size_t>(gp_len_));
+    }
+
+    // gp_owner: the owner of the bytes, for a pointer into them (unsafe.StringData, Phase 04).
+    // Static bytes (a literal) give gp::static_owner(), never an empty owner (ptr.hpp).
+    std::shared_ptr<const void> gp_owner() const noexcept {
+        if (gp_owner_ == nullptr && gp_data_ != nullptr) {
+            return static_owner();
+        }
+        return gp_owner_;
+    }
+
+    // gp_sub: the bytes [lo, hi) of the string, which share its owner, without a bounds
+    // check: gp::sub checks them. An empty result is the empty string (it keeps nothing
+    // alive).
+    string gp_sub(int64_t lo, int64_t hi) const noexcept {
+        if (lo == hi) {
+            return string();
+        }
+        string r;
+        r.gp_owner_ = gp_owner_;
+        r.gp_data_ = gp_data_ + lo;
+        r.gp_len_ = hi - lo;
+        return r;
     }
 
     // s[i]: the byte at index i, with Go's bounds check: an index outside [0, len(s)) panics
@@ -107,6 +141,104 @@ inline string operator""_gs(const char* data, std::size_t len) noexcept {
 }
 
 } // namespace literals
+
+} // namespace gp
+
+namespace gp {
+
+// --- substrings, concatenation, UTF-8 and string(r) (Phase 03 step 3.4) ---
+
+// sub(s, lo, hi) is s[lo:hi], and sub(s, lo) is s[lo:] (s[:hi] is sub(s, 0, hi)). The
+// substring shares the bytes of s. The bounds may have any integer types, and Go's checks run
+// in Go's order (gp::check_slice, bounds.hpp): hi <= len(s) ("slice bounds out of range [:5]
+// with length 3"), then lo <= hi ("slice bounds out of range [3:2]").
+template <go_int L, go_int H>
+string sub(const string& s, L lo, H hi) {
+    check_slice(lo, hi, len(s), bounds::slice_alen);
+    return s.gp_sub(static_cast<int64_t>(lo), static_cast<int64_t>(hi));
+}
+
+template <go_int L>
+string sub(const string& s, L lo) {
+    int64_t n = len(s);
+    check_slice(lo, n, n, bounds::slice_alen); // hi = len(s) is in range: only lo <= len(s)
+    return s.gp_sub(static_cast<int64_t>(lo), n);
+}
+
+namespace detail {
+
+// concat is gp::concat for n strings (rt.cpp).
+string concat(const string* const* parts, std::size_t n);
+
+// decode_rune decodes the UTF-8 sequence at the start of the n > 0 bytes at p, exactly like
+// Go's utf8.DecodeRuneInString: it returns the rune and sets width to its length in bytes.
+// An invalid or incomplete sequence, an overlong encoding, a surrogate half (U+D800 to
+// U+DFFF) and a value above U+10FFFF give U+FFFD with width 1 (rt.cpp).
+int32_t decode_rune(const char* p, int64_t n, int64_t& width) noexcept;
+
+// rune_string is string(r) for a value that fits in int64 (rt.cpp).
+string rune_string(int64_t r);
+
+} // namespace detail
+
+// concat(a, b, c, ...) is a + b + c + ...: one allocation for the whole result, where a chain
+// of + would make a string for each +. If only one part is not empty, the result is that part
+// (no copy), as in Go.
+template <typename... S>
+    requires(sizeof...(S) >= 2 && (std::same_as<S, string> && ...))
+string concat(const S&... parts) {
+    const string* list[] = {&parts...};
+    return detail::concat(list, sizeof...(S));
+}
+
+// rune_to_string(x) is Go's string(x) for an integer x: the UTF-8 encoding of the rune x, or
+// of U+FFFD ("\uFFFD") if x is not a valid code point: negative, a surrogate half (U+D800 to
+// U+DFFF), or above U+10FFFF.
+template <go_int I>
+string rune_to_string(I x) {
+    if constexpr (std::is_unsigned_v<I> && sizeof(I) == 8) {
+        if (x > 0x10FFFF) {
+            return detail::rune_string(-1); // too big for int64 too
+        }
+    }
+    return detail::rune_string(static_cast<int64_t>(x));
+}
+
+// string_range is the state of `for i, r := range s`: the hidden counters of Go 1.22, so
+// assigning to i or r in the body doesn't change the iteration. It holds s, evaluated once.
+// After each successful range_next, gp_i is where the rune starts and gp_r is the rune;
+// invalid UTF-8 gives U+FFFD and steps one byte, as in Go.
+struct string_range {
+    string gp_s;
+    int64_t gp_i = 0;    // where the current rune starts
+    int64_t gp_next = 0; // where the next one starts
+    int32_t gp_r = 0;    // the current rune
+};
+
+// range_string(s) starts a range over s.
+inline string_range range_string(const string& s) noexcept {
+    return string_range{s};
+}
+
+// range_next steps to the next rune of the range, and reports whether there is one.
+inline bool range_next(string_range& it) noexcept {
+    int64_t i = it.gp_next;
+    int64_t n = len(it.gp_s);
+    if (i >= n) {
+        return false;
+    }
+    it.gp_i = i;
+    auto c = static_cast<uint8_t>(it.gp_s.gp_data()[i]);
+    if (c < 0x80) {
+        it.gp_r = c;
+        it.gp_next = i + 1;
+        return true;
+    }
+    int64_t width = 1;
+    it.gp_r = detail::decode_rune(it.gp_s.gp_data() + i, n - i, width);
+    it.gp_next = i + width;
+    return true;
+}
 
 } // namespace gp
 

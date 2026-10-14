@@ -25,9 +25,12 @@ import (
 //	-x, ^x, !x, +x              -x, ~x, !x, x
 //	== != < <= > >=, && ||      the same operator
 //	s + t, s == t, s < t, …     gp::string's operators
+//	s + t + u (3 or more)       gp::concat(s, t, u): one allocation (concat)
 //	s[i], len(s)                s[i] (gp::string's operator[], which checks the bounds), gp::len(s)
+//	s[a:b], s[a:], s[:b], s[:]  gp::sub(s, a, b), gp::sub(s, a), gp::sub(s, 0, b), s (slice)
 //	T(x)                        T(x), or x if T and x have the same C++ type; gp::f2i<T>(x)
 //	                            for a float x and an integer type T
+//	string(r)                   gp::rune_to_string(r), for an integer r
 //	panic(v)                    gp::panic(v)
 //
 // The small-integer rule: C++ computes int8, int16, uint8 and uint16 operands in int, so a
@@ -180,6 +183,9 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.
 	}
 	switch op {
 	case token.ADD, token.SUB:
+		if op == token.ADD && t.Info()&types.IsString != 0 {
+			return fg.concat(x, y)
+		}
 		return narrow(t, fg.infix(x, op.String(), y))
 	case token.MUL:
 		return narrow(t, fg.infix(x, "*", y))
@@ -215,6 +221,35 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.
 	}
 	fg.g.unsupported(pos, "the operator "+op.String())
 	return placeholder
+}
+
+// concat returns the C++ of the string concatenation x + y. A chain of + (a + b + c, also
+// with parentheses: a + (b + c), and the s + t + u of s += t + u) is one call of gp::concat
+// with all the operands, which allocates the result once, where C++'s + would make a string
+// for each +: Go's compiler does the same (concatstrings). The operands are translated from
+// left to right, and an operand that order.go put into a temporary, or a constant, is one
+// operand. Two operands stay a + b.
+func (fg *funcGen) concat(x, y ast.Expr) cppir.Expr {
+	var parts []ast.Expr
+	var walk func(e ast.Expr)
+	walk = func(e ast.Expr) {
+		u := ast.Unparen(e)
+		_, temp := fg.temps[u]
+		if b, ok := u.(*ast.BinaryExpr); ok && b.Op == token.ADD && !temp && fg.constValue(u) == nil {
+			if t := basicOf(fg.typeOf(u)); t != nil && t.Info()&types.IsString != 0 {
+				walk(b.X)
+				walk(b.Y)
+				return
+			}
+		}
+		parts = append(parts, e)
+	}
+	walk(x)
+	walk(y)
+	if len(parts) == 2 {
+		return fg.infix(parts[0], "+", parts[1])
+	}
+	return call("gp::concat", fg.exprs(parts, false)...)
 }
 
 // infix returns x op y for a C++ operator that groups from left to right, like all of Go's.
@@ -313,6 +348,31 @@ func (fg *funcGen) index(e *ast.IndexExpr) cppir.Expr {
 	return &cppir.Index{X: fg.expr(e.X), Index: fg.expr(e.Index)}
 }
 
+// slice returns the C++ of the slice expression s[a:b], s[a:], s[:b] or s[:]. Phase 03 step
+// 3.4 has it for strings: the substring shares the bytes of s, after Go's bounds checks
+// (gp::sub, with Go's "slice bounds out of range" panics). A missing low bound is 0, and
+// s[:] is s itself. The bounds may have any integer types (gp::sub is a template), so an
+// untyped constant bound is a plain C++ int literal.
+func (fg *funcGen) slice(e *ast.SliceExpr) cppir.Expr {
+	t := fg.g.info.TypeOf(e.X)
+	if b := basicOf(t); b == nil || b.Info()&types.IsString == 0 {
+		fg.g.unsupported(e.Lbrack, "slice expressions on "+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))+" (Phase 03 step 3.5)")
+		return placeholder
+	}
+	x := fg.expr(e.X)
+	switch {
+	case e.Low == nil && e.High == nil:
+		return x
+	case e.High == nil:
+		return call("gp::sub", x, fg.expr(e.Low))
+	}
+	var lo cppir.Expr = lit("0")
+	if e.Low != nil {
+		lo = fg.expr(e.Low)
+	}
+	return call("gp::sub", x, lo, fg.expr(e.High))
+}
+
 // builtin returns the C++ of a call of the builtin len or panic. (A constant len(s) was
 // folded before.)
 func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
@@ -340,8 +400,10 @@ func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 
 // conversion returns the C++ of the conversion T(x), where x is not a constant (expr folds a
 // conversion of a constant). Phase 02 has the conversions between the number types and the
-// identities (bool(b), string(s)); the conversions between strings and bytes, runes or
-// integers are Phase 03's.
+// identities (bool(b), string(s)); Phase 03 adds string(r) for an integer r, the UTF-8 of the
+// rune r (gp::rune_to_string, which gives "\uFFFD" for a value that is not a code point, as
+// Go does). The conversions between strings and slices ([]byte(s), string(b), []rune(s),
+// string(runes)) come with the slices of step 3.5.
 //
 // Between integer types, T(x) is a C++ functional cast, which C++20 defines like Go: the
 // value modulo 2^width of T, sign-extended from a signed x. Between floats and from integers to
@@ -356,6 +418,10 @@ func (fg *funcGen) conversion(c *ast.CallExpr, to types.Type) cppir.Expr {
 	arg := c.Args[0]
 	from := fg.g.info.TypeOf(arg)
 	tb, fb := basicOf(to), basicOf(from)
+	if isStringSlice(tb, from) || isStringSlice(fb, to) {
+		fg.g.unsupported(c.Pos(), "conversions between strings and slices (Phase 03 step 3.5)")
+		return placeholder
+	}
 	if tb == nil || fb == nil {
 		qual := types.RelativeTo(fg.g.pkg.Types)
 		fg.g.unsupported(c.Pos(), "the conversion from "+types.TypeString(from, qual)+" to "+types.TypeString(to, qual))
@@ -363,11 +429,17 @@ func (fg *funcGen) conversion(c *ast.CallExpr, to types.Type) cppir.Expr {
 	}
 	ti, fi := tb.Info(), fb.Info()
 	if ti&types.IsString != 0 || fi&types.IsString != 0 {
-		if ti&fi&types.IsString == 0 {
-			fg.g.unsupported(c.Pos(), "conversions between strings and bytes, runes or integers (Phase 03)")
-			return placeholder
+		if ti&fi&types.IsString != 0 {
+			return fg.expr(arg) // string(s)
 		}
-		return fg.expr(arg) // string(s)
+		if ti&types.IsString != 0 && fi&types.IsInteger != 0 {
+			// The template takes the value with its Go type, which decides what is valid
+			// (a uint64 above 2^63 is not a negative number).
+			return call("gp::rune_to_string", fg.exactExpr(arg))
+		}
+		qual := types.RelativeTo(fg.g.pkg.Types)
+		fg.g.unsupported(c.Pos(), "the conversion from "+types.TypeString(from, qual)+" to "+types.TypeString(to, qual))
+		return placeholder
 	}
 	x := fg.expr(arg)
 	ct := basicTypes[tb.Kind()]
@@ -379,4 +451,14 @@ func (fg *funcGen) conversion(c *ast.CallExpr, to types.Type) cppir.Expr {
 		return &cppir.Call{Fun: f2i, Args: []cppir.Expr{x}}
 	}
 	return call(ct, x)
+}
+
+// isStringSlice reports whether b is a string type and t a slice type: the conversions
+// between them ([]byte(s), string(b)) are step 3.5's.
+func isStringSlice(b *types.Basic, t types.Type) bool {
+	if b == nil || b.Info()&types.IsString == 0 {
+		return false
+	}
+	_, ok := types.Unalias(t).Underlying().(*types.Slice)
+	return ok
 }

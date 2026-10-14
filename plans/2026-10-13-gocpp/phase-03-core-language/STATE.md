@@ -14,7 +14,7 @@
   - [ ] captured + changed (incl. field/element writes, `++`, op-assign)
   - [ ] parameters, receivers, named results
   - [ ] `&p.f`, `&s[i]`, `&arr[i]`, `&global`
-- [~] 3.4 Strings (runtime, literals, slicing, concat, compare, UTF-8 range, conversions)
+- [x] 3.4 Strings (runtime, literals, slicing, concat, compare, UTF-8 range, conversions)
 - [~] 3.5 Slices (make, append + growth formula, sub-slice, copy, nil, clear, slice→array; `cap >= len` only)
 - [~] 3.6 Arrays (`gp::array`, checked index, `==`) + range rules (hidden counters, copy on `range arr`)
 - [~] 3.7 Maps
@@ -132,3 +132,11 @@
   emitter: slice types, make, literals, append with std::move of the target, copy, sub-slicing, range,
   &s[i], and the []byte/[]rune conversions of 3.4). Strings (3.4) switch to bounds.hpp's
   gp::check_slice when both are in.
+- 2026-10-14: Job 3.4 (strings: substrings sharing the owner with bounds.hpp's Go panics, gp::concat for
+  chains of 3+, range over strings with Go's DecodeRune, string(int) as Go's intstring, gc's evaluation
+  order for slice expressions) committed, clean after 2 review rounds; the []byte/[]rune conversions go
+  to 3.5b. Literals keep an empty owner (no contended shared count); `gp_owner()` gives
+  `static_owner()` where a pointer into the bytes is made. New dev knob GOCPP_GATE_PHASE (raises the gate
+  phase only; the harness sets each test's own `// phase:`), so phase-NN tests run while phase NN is
+  built: with GOCPP_TEST_PHASE=03 the only failures left are slices_append and the examples closures,
+  structs, wordfreq-core (they need 3.5b, 3.8, 3.11).

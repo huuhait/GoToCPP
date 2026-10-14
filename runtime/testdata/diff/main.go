@@ -28,6 +28,22 @@ func main() {
 		f2iCase()
 	case "strings":
 		stringsCase()
+	case "substr":
+		substrCase()
+	case "utf8":
+		utf8Case()
+	case "substr-alen":
+		s, i, j := "abc", 1, 5
+		fmt.Println(s[i:j])
+	case "substr-b":
+		s, i, j := "abc", 3, 2
+		fmt.Println(s[i:j])
+	case "substr-neg":
+		s, i := "abc", -1
+		fmt.Println(s[i:])
+	case "substr-from":
+		s, i := "abc", uint8(4)
+		fmt.Println(s[i:])
 	case "order":
 		fmt.Print("a\n")
 		println("b")
@@ -627,4 +643,52 @@ func sliceFreeCase() {
 	k[0].kids = k
 	clear(k[0].kids)
 	fmt.Println(k[0].v, k[0].kids == nil)
+}
+
+func substrCase() {
+	s := "hello, world"
+	i, j := 7, 12
+	fmt.Println(s[i:j], s[i:], s[:5], s[:], s[j:], len(s[3:3]), s[1:4] == "ell", s[i:j][1:3])
+	t := s[:5] + "!" + s[i:] + "?"
+	fmt.Println(t, len(t), t[5], s[0:0] == "")
+	u := ""
+	for k := 0; k < 5; k++ {
+		u += s[k:k+1] + "-"
+	}
+	fmt.Println(u, len(u))
+}
+
+func showRunes(s string) {
+	for i, r := range s {
+		fmt.Printf("%d:%d ", i, r)
+	}
+	fmt.Println(len(s))
+}
+
+func showString(r rune) {
+	s := string(r)
+	fmt.Printf("%d:", len(s))
+	for i := 0; i < len(s); i++ {
+		fmt.Printf(" %d", s[i])
+	}
+	fmt.Println()
+}
+
+func utf8Case() {
+	showRunes("")
+	showRunes("abc")
+	showRunes("h\u00e9llo, \u4e16\u754c \U0001F600")
+	showRunes("a\xffb\xc0\x80c")
+	showRunes("\xe2\x82 \xed\xa0\x80 \xf4\x90\x80\x80 \xf0\x9f\x98")
+	showRunes("\xc2\x80\xdf\xbf\xe0\xa0\x80\xef\xbf\xbf\xf0\x90\x80\x80\xf4\x8f\xbf\xbf")
+	for _, r := range "A\u00e9\u20ac\U0001F600" {
+		showString(r)
+	}
+	showString(0)
+	showString(-1)
+	showString(0xD800)
+	showString(0xDFFF)
+	showString(0x10FFFF)
+	showString(0x110000)
+	showString(-2147483648)
 }

@@ -173,6 +173,185 @@ void test_string() {
     CHECK_PANIC(abc[opaque(INT64_MIN)], "runtime error: index out of range [-9223372036854775808]");
 }
 
+// --- strings: substrings, concatenation, UTF-8, string(r) (step 3.4) ---
+
+// runes ranges over s like `for i, r := range s` and writes "i:r " for each rune.
+std::string runes(const gp::string& s) {
+    std::string out;
+    for (auto it = gp::range_string(s); gp::range_next(it);) {
+        out += std::to_string(it.gp_i) + ":" + std::to_string(it.gp_r) + " ";
+    }
+    return out;
+}
+
+void test_substring() {
+    gp::string hello = gp::string::gp_copy("hello, world");
+    gp::string w = gp::sub(hello, 7, 12);
+    CHECK(w == "world"_gs);
+    CHECK(w.gp_data() == hello.gp_data() + 7); // shares the bytes
+    CHECK(gp::sub(hello, 7) == "world"_gs);
+    CHECK(gp::sub(hello, 0, 5) == "hello"_gs);
+    CHECK(gp::sub(hello, 0) == hello);
+    CHECK(gp::sub(hello, 12) == ""_gs);
+    CHECK(gp::sub(hello, uint8_t(3), INT64_C(3)) == ""_gs);
+    CHECK(gp::sub(hello, 3, 3).gp_data() == nullptr); // an empty substring keeps nothing alive
+    CHECK_EQ(gp::len(gp::sub(hello, int8_t(1), uint64_t(4))), INT64_C(3));
+    CHECK(gp::sub(""_gs, 0, 0) == ""_gs);
+    CHECK(gp::sub(""_gs, 0) == ""_gs);
+    {
+        // A substring keeps the bytes alive after the string it came from is gone.
+        gp::string keep;
+        {
+            gp::string a = gp::string::gp_copy("abcdef");
+            keep = gp::sub(a, 2, 4);
+        }
+        CHECK(keep == "cd"_gs);
+        CHECK(gp::sub(keep, 1) == "d"_gs);
+    }
+    // A substring of a literal points into the literal, and has no owner of its own.
+    gp::string lit = "literal"_gs;
+    CHECK(gp::sub(lit, 3).gp_data() == lit.gp_data() + 3);
+
+    // Go's messages, and Go's order of the checks: hi <= len first, then lo <= hi.
+    gp::string abc = "abc"_gs;
+    const char* pre = "runtime error: slice bounds out of range ";
+    auto msg = [pre](const char* m) { return std::string(pre) + m; };
+    CHECK_PANIC(gp::sub(abc, opaque(0), opaque(5)), msg("[:5] with length 3"));
+    CHECK_PANIC(gp::sub(abc, opaque(4), opaque(5)), msg("[:5] with length 3"));
+    CHECK_PANIC(gp::sub(abc, opaque(3), opaque(2)), msg("[3:2]"));
+    CHECK_PANIC(gp::sub(abc, opaque(-1), opaque(2)), msg("[-1:]"));
+    CHECK_PANIC(gp::sub(abc, opaque(0), opaque(-1)), msg("[:-1]"));
+    CHECK_PANIC(gp::sub(abc, opaque(4)), msg("[4:3]"));
+    CHECK_PANIC(gp::sub(abc, opaque(-2)), msg("[-2:]"));
+    CHECK_PANIC(gp::sub(abc, opaque(UINT64_MAX)), msg("[18446744073709551615:3]"));
+    CHECK_PANIC(gp::sub(abc, opaque(0), opaque(UINT64_MAX)),
+                msg("[:18446744073709551615] with length 3"));
+    CHECK_PANIC(gp::sub(abc, opaque(uint8_t(3)), opaque(int8_t(1))), msg("[3:1]"));
+    CHECK_PANIC(gp::sub(abc, opaque(INT64_MIN), opaque(1)), msg("[-9223372036854775808:]"));
+    CHECK_PANIC(gp::sub(""_gs, opaque(1)), msg("[1:0]"));
+    CHECK_PANIC(gp::sub(abc, opaque(1), opaque(INT64_C(1) << 40)),
+                msg("[:1099511627776] with length 3"));
+    CHECK_EQ(gp::sub(abc, opaque(3), opaque(3)), ""_gs);
+}
+
+void test_concat() {
+    gp::string a = gp::string::gp_copy("ab"), e;
+    CHECK(gp::concat(a, "cd"_gs, "e"_gs) == "abcde"_gs);
+    CHECK(gp::concat(e, e, e) == ""_gs);
+    CHECK(gp::concat(e, a, e).gp_data() == a.gp_data()); // one non-empty part: no copy
+    CHECK(gp::concat(""_gs, "x"_gs, ""_gs, "y"_gs) == "xy"_gs);
+    CHECK(gp::concat("a\000"_gs, "\000"_gs, "b"_gs) == "a\000\000b"_gs);
+    CHECK_EQ(gp::len(gp::concat(a, a, a, a)), INT64_C(8));
+    gp::string s;
+    for (int i = 0; i < 100; i++) {
+        s = gp::concat(s, "x"_gs, "y"_gs);
+    }
+    CHECK_EQ(gp::len(s), INT64_C(200));
+    CHECK(gp::sub(s, 198) == "xy"_gs);
+}
+
+void test_utf8() {
+    int64_t w = 0;
+    auto dec = [&w](std::string_view b) {
+        int32_t r = gp::detail::decode_rune(b.data(), static_cast<int64_t>(b.size()), w);
+        return std::to_string(r) + "/" + std::to_string(w);
+    };
+    // The cases of Go's utf8 tests: valid forms of each length, the edges of each range, and
+    // every way a sequence can be invalid.
+    CHECK_EQ(dec("a"), std::string("97/1"));
+    CHECK_EQ(dec(std::string_view("\0", 1)), std::string("0/1"));
+    CHECK_EQ(dec("\x7f"), std::string("127/1"));
+    CHECK_EQ(dec("\xc2\x80"), std::string("128/2"));
+    CHECK_EQ(dec("\xdf\xbf"), std::string("2047/2"));
+    CHECK_EQ(dec("\xe0\xa0\x80"), std::string("2048/3"));
+    CHECK_EQ(dec("\xe2\x82\xac"), std::string("8364/3"));  // €
+    CHECK_EQ(dec("\xed\x9f\xbf"), std::string("55295/3")); // U+D7FF
+    CHECK_EQ(dec("\xee\x80\x80"), std::string("57344/3")); // U+E000
+    CHECK_EQ(dec("\xef\xbf\xbd"), std::string("65533/3"));
+    CHECK_EQ(dec("\xef\xbf\xbf"), std::string("65535/3"));
+    CHECK_EQ(dec("\xf0\x90\x80\x80"), std::string("65536/4"));
+    CHECK_EQ(dec("\xf0\x9f\x98\x80"), std::string("128512/4"));  // 😀
+    CHECK_EQ(dec("\xf4\x8f\xbf\xbf"), std::string("1114111/4")); // U+10FFFF
+    CHECK_EQ(dec("\x80"), std::string("65533/1"));               // a continuation byte
+    CHECK_EQ(dec("\xbf"), std::string("65533/1"));
+    CHECK_EQ(dec("\xc0\x80"), std::string("65533/1")); // overlong
+    CHECK_EQ(dec("\xc1\xbf"), std::string("65533/1"));
+    CHECK_EQ(dec("\xe0\x9f\xbf"), std::string("65533/1"));     // overlong 3-byte
+    CHECK_EQ(dec("\xed\xa0\x80"), std::string("65533/1"));     // a surrogate, U+D800
+    CHECK_EQ(dec("\xed\xbf\xbf"), std::string("65533/1"));     // U+DFFF
+    CHECK_EQ(dec("\xf0\x8f\xbf\xbf"), std::string("65533/1")); // overlong 4-byte
+    CHECK_EQ(dec("\xf4\x90\x80\x80"), std::string("65533/1")); // above U+10FFFF
+    CHECK_EQ(dec("\xf5\x80\x80\x80"), std::string("65533/1"));
+    CHECK_EQ(dec("\xff"), std::string("65533/1"));
+    CHECK_EQ(dec("\xc2"), std::string("65533/1")); // incomplete
+    CHECK_EQ(dec("\xe2\x82"), std::string("65533/1"));
+    CHECK_EQ(dec("\xf0\x9f\x98"), std::string("65533/1"));
+    CHECK_EQ(dec("\xc2\x41"), std::string("65533/1")); // a bad continuation byte
+    CHECK_EQ(dec("\xe2\x41\xac"), std::string("65533/1"));
+    CHECK_EQ(dec("\xe2\x82\x41"), std::string("65533/1"));
+    CHECK_EQ(dec("\xf0\x9f\x98\x41"), std::string("65533/1"));
+    CHECK_EQ(dec("\xc2\xc2"), std::string("65533/1"));
+
+    // range: the index of each rune's first byte, invalid bytes one at a time.
+    CHECK_EQ(runes(""_gs), std::string(""));
+    CHECK_EQ(runes("ab"_gs), std::string("0:97 1:98 "));
+    CHECK_EQ(runes("h\xc3\xa9llo"_gs), std::string("0:104 1:233 3:108 4:108 5:111 "));
+    CHECK_EQ(runes("\xe4\xb8\x96\xf0\x9f\x98\x80"_gs), std::string("0:19990 3:128512 "));
+    CHECK_EQ(runes("a\xffz"_gs), std::string("0:97 1:65533 2:122 "));
+    CHECK_EQ(runes("\xe2\x82"_gs), std::string("0:65533 1:65533 "));
+    CHECK_EQ(runes("\xed\xa0\x80x"_gs), std::string("0:65533 1:65533 2:65533 3:120 "));
+    CHECK_EQ(runes("a\000b"_gs), std::string("0:97 1:0 2:98 "));
+    // The range holds its own copy of the string.
+    gp::string s = gp::string::gp_copy("xy");
+    auto it = gp::range_string(s);
+    s = "other"_gs;
+    std::string seen;
+    while (gp::range_next(it)) {
+        seen += static_cast<char>(it.gp_r);
+    }
+    CHECK_EQ(seen, std::string("xy"));
+    CHECK(!gp::range_next(it)); // stays done
+
+    // string(r): UTF-8, and U+FFFD for what is not a code point.
+    CHECK(gp::rune_to_string(int32_t(65)) == "A"_gs);
+    CHECK(gp::rune_to_string(int32_t(0)) == "\000"_gs);
+    CHECK(gp::rune_to_string(uint8_t(0xe9)) == "\xc3\xa9"_gs); // string(byte) is a rune too
+    CHECK(gp::rune_to_string(int32_t(0x7ff)) == "\xdf\xbf"_gs);
+    CHECK(gp::rune_to_string(int32_t(0x800)) == "\xe0\xa0\x80"_gs);
+    CHECK(gp::rune_to_string(int32_t(0x20ac)) == "\xe2\x82\xac"_gs);
+    CHECK(gp::rune_to_string(int32_t(0xffff)) == "\xef\xbf\xbf"_gs);
+    CHECK(gp::rune_to_string(int32_t(0x10000)) == "\xf0\x90\x80\x80"_gs);
+    CHECK(gp::rune_to_string(int32_t(0x10ffff)) == "\xf4\x8f\xbf\xbf"_gs);
+    gp::string bad = "\xef\xbf\xbd"_gs;
+    CHECK(gp::rune_to_string(int32_t(0x110000)) == bad);
+    CHECK(gp::rune_to_string(int32_t(-1)) == bad);
+    CHECK(gp::rune_to_string(INT32_MIN) == bad);
+    CHECK(gp::rune_to_string(int32_t(0xd800)) == bad);
+    CHECK(gp::rune_to_string(int32_t(0xdfff)) == bad);
+    CHECK(gp::rune_to_string(int32_t(0xd7ff)) == "\xed\x9f\xbf"_gs);
+    CHECK(gp::rune_to_string(int32_t(0xe000)) == "\xee\x80\x80"_gs);
+    CHECK(gp::rune_to_string(INT64_C(0x100000041)) == bad); // not truncated to 'A'
+    CHECK(gp::rune_to_string(INT64_MIN) == bad);
+    CHECK(gp::rune_to_string(UINT64_MAX) == bad);
+    CHECK(gp::rune_to_string(uint64_t(0x41)) == "A"_gs);
+    CHECK(gp::rune_to_string(uint32_t(0xffffffff)) == bad);
+    CHECK(gp::rune_to_string(int16_t(-3)) == bad);
+    // ASCII doesn't allocate: the same static bytes each time.
+    CHECK(gp::rune_to_string(int32_t('q')).gp_data() == gp::rune_to_string(int32_t('q')).gp_data());
+
+    // gp_owner: static bytes give the static owner, never an empty one (ptr.hpp).
+    auto same = [](const std::shared_ptr<const void>& a, const std::shared_ptr<const void>& b) {
+        return !a.owner_before(b) && !b.owner_before(a);
+    };
+    std::shared_ptr<const void> none;
+    CHECK(same(("lit"_gs).gp_owner(), gp::static_owner()));
+    CHECK(same(gp::sub("lit"_gs, 1).gp_owner(), gp::static_owner()));
+    CHECK(same(gp::string().gp_owner(), none));
+    gp::string own = gp::string::gp_copy("own");
+    CHECK(!same(own.gp_owner(), none) && !same(own.gp_owner(), gp::static_owner()));
+    CHECK(same(gp::sub(own, 1).gp_owner(), own.gp_owner()));
+}
+
 // --- div and rem ---
 
 template <typename T>
@@ -1192,6 +1371,9 @@ void test_run_main() {
 void run_tests() {
     test_run_main();
     test_string();
+    test_substring();
+    test_concat();
+    test_utf8();
     test_div();
     test_shift();
     test_f2i();

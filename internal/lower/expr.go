@@ -16,8 +16,9 @@ import (
 
 // Expressions (Phase 02 README §2.3): constants (folded by go/types), variables, calls of
 // user functions, of the builtins len, print, println and panic and of fmt.Print, Println and
-// Printf (gp::fmtshim), the byte s[i] of a string, conversions between basic types, and every
-// operator of the Phase 02 subset (ops.go). The rest is reported as "not supported yet": the
+// Printf (gp::fmtshim), the byte s[i] of a string, the substring s[a:b], conversions between
+// basic types (also string(r)), and every operator of the Phase 02 subset with string
+// concatenation (ops.go). The rest is reported as "not supported yet": the
 // phase gates of internal/check reject it before, with a message for the user.
 //
 // Every expression that is not a constant has exactly its Go type in C++ (int8 is int8_t, not
@@ -124,6 +125,8 @@ func (fg *funcGen) expr(e ast.Expr) cppir.Expr {
 		return fg.unary(e)
 	case *ast.IndexExpr:
 		return fg.index(e)
+	case *ast.SliceExpr:
+		return fg.slice(e)
 	}
 	fg.g.unsupported(e.Pos(), nodeKind(e))
 	return placeholder

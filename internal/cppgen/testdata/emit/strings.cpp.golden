@@ -8,12 +8,12 @@ void main();
 
 #line 7 "$DIR/strings.gp"
 gp::string join(gp::string a, gp::string b) {
-    return a + "-"_gs + b;
+    return gp::concat(a, "-"_gs, b);
 }
 
 void main() {
     gp::string s = "h\303\251llo"_gs;
-    gp::string t = s + ", "_gs + "world"_gs;
+    gp::string t = gp::concat(s, ", "_gs, "world"_gs);
     gp::fmtshim::Println(s, t, gp::len(s), gp::len(t), int64_t(6), int64_t(0), s[0], s[1], s[2], s[gp::len(s) - 1]);
     { auto gp_t0 = gpkg_main::join(s, t); gp::fmtshim::Println(gp_t0, gp::len(gpkg_main::join(""_gs, ""_gs)), s == "h\303\251llo"_gs, s + ""_gs == s, t > s, ""_gs < s); }
     uint8_t i = 4;
@@ -27,7 +27,7 @@ void main() {
     n = n * 10 + int64_t(uint8_t(digits[3] - 48));
     gp::fmtshim::Println(n, uint8_t(digits[4] - 48) <= 9, uint8_t(digits[4] - 48), s == s, "abc"_gs[uint8_t(i - 3)]);
     gp::string empty{};
-    gp::fmtshim::Println(empty == ""_gs, gp::len(empty), empty + empty == ""_gs, "x"_gs + empty + "y"_gs);
+    gp::fmtshim::Println(empty == ""_gs, gp::len(empty), empty + empty == ""_gs, gp::concat("x"_gs, empty, "y"_gs));
     gp::println(s, t + "!"_gs, s[0]);
     gp::fmtshim::Println(gp::len(s + t) == gp::len(s) + gp::len(t));
 }
