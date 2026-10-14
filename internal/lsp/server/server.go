@@ -13,9 +13,10 @@
 // The session's snapshots have the memoized check pipeline (cache.Pipeline,
 // step 11.3). The features so far: the text sync, the diagnostics as you
 // type (step 11.4, diagnostics.go: textDocument/publishDiagnostics, with
-// workspace/didChangeWatchedFiles for the files that change on disk), and
-// hover, go to definition and signature help (step 11.5, navigation.go).
-// The others (completion, ...) come with the next steps.
+// workspace/didChangeWatchedFiles for the files that change on disk),
+// hover, go to definition and signature help (step 11.5, navigation.go),
+// and formatting and organize imports (step 11.7, format.go). The others
+// (completion, ...) come with the next steps.
 package server
 
 import (
@@ -191,6 +192,9 @@ func newServer(logger *log.Logger, cfg cache.Config, clock debounce.Clock) *Serv
 		stale:        make(map[protocol.DocumentURI]map[protocol.ID]*staleToken),
 	}
 	s.addNavigation()
+	for name, m := range formatMethods {
+		s.requests[name] = m
+	}
 	s.diags = newDiagnostics(s, clock)
 	cfg.OnProbe = s.diags.probed
 	s.pipeline = cache.NewPipeline(cfg)
@@ -411,6 +415,7 @@ func (s *Server) initialize(params json.RawMessage) (any, error) {
 		ServerInfo: &protocol.ServerInfo{Name: "gocpp", Version: version.Version},
 	}
 	s.nav.initialize(p.Capabilities, &res.Capabilities)
+	formatCapabilities(&res.Capabilities, &p.Capabilities)
 	return res, nil
 }
 

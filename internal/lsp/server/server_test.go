@@ -282,8 +282,9 @@ func wantResult(t *testing.T, resp *protocol.Response, want string) {
 const initParams = `{"processId":123,"clientInfo":{"name":"test","version":"1.0"},"rootUri":"file:///w","capabilities":{"general":{"positionEncodings":["utf-8","utf-16"]}},"trace":"messages"}`
 
 // The whole answer to initialize: the server offers the text sync and the
-// features so far.
-var initResult = `{"capabilities":{"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":2,"save":{}},"hoverProvider":true,"signatureHelpProvider":{"triggerCharacters":["(",","]},"definitionProvider":true,"typeDefinitionProvider":true},"serverInfo":{"name":"gocpp","version":` + strconv.Quote(version.Version) + `}}`
+// features so far (a client without code action literals gets no list of
+// code action kinds).
+var initResult = `{"capabilities":{"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":2,"save":{}},"hoverProvider":true,"signatureHelpProvider":{"triggerCharacters":["(",","]},"definitionProvider":true,"typeDefinitionProvider":true,"codeActionProvider":true,"documentFormattingProvider":true},"serverInfo":{"name":"gocpp","version":` + strconv.Quote(version.Version) + `}}`
 
 func TestLifecycle(t *testing.T) {
 	c := start(t)

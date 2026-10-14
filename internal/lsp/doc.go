@@ -6,7 +6,7 @@
 //
 // Phase 11 fills it. The early version (v0: diagnostics, hover,
 // go-to-definition, completion, formatting) needs only Phase 01. So far
-// (steps 11.1 to 11.5) there are:
+// (steps 11.1 to 11.5 and 11.7) there are:
 //   - protocol: the LSP 3.17 types (copied from gopls, see
 //     protocol/COPIED.md), JSON-RPC 2.0 over the Content-Length framing
 //     (notifications in order on the read loop, requests on their own
@@ -33,7 +33,7 @@
 //     step 11.4);
 //   - server: the lifecycle (initialize, shutdown, exit), the open
 //     documents kept up to date with incremental changes, the requests,
-//     each on the snapshot of its time, and the diagnostics as you type
+//     each on the snapshot of its time, the diagnostics as you type
 //     (step 11.4: textDocument/publishDiagnostics per file of the open
 //     packages, and workspace/didChangeWatchedFiles), and the navigation
 //     features (step 11.5): textDocument/hover (the declaration of a name
@@ -44,5 +44,14 @@
 //     and from a header import to the header file), and
 //     textDocument/signatureHelp (the active parameter, also of a
 //     variadic function). They answer from the cached check of the
-//     package, also in a file that doesn't parse (check.Config.Partial).
+//     package, also in a file that doesn't parse (check.Config.Partial);
+//     and formatting and organize imports (step 11.7):
+//     textDocument/formatting gives the edits that make the unsaved text
+//     what gocpp fmt prints (small edits from a line diff, so cursors
+//     stay; a file with syntax errors is not formatted), and the code
+//     action source.organizeImports (also for "organize imports on save")
+//     sorts and groups the imports like goimports, puts the header and
+//     namespace imports after the gocpp ones in their own order, and
+//     removes the gocpp imports that the type check reports as unused
+//     (never a header import).
 package lsp
