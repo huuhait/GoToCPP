@@ -169,3 +169,8 @@
   make, literals with gc's static-first order, get/set/ref/lookup/delete, range, the op= order rules).
   For 3.6b/3.7b: nested array literals need their type written (`grid{{row{1, 2}, row{3, 4}}}`; clang's
   -Wmissing-braces).
+- 2026-10-14 (3.3 review): large parameters and results are not boxed (as in Go, whose stacks grow); a
+  C++ by-value `[1<<20]int` parameter overflows the stack: 3.6b/3.8 pass such values differently (by
+  the caller boxing, or a reference to a temporary copy) or document it with the large-temporaries
+  divergence. 3.11 must run the boxing analysis over function literals in package-level var
+  initializers too (not done today).
