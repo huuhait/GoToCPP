@@ -22,7 +22,7 @@
   - [ ] nil-map panics
   - [ ] snapshot range
   - [ ] hashing (strings, arrays, structs, floats, pointers)
-- [ ] 3.8 Structs
+- [~] 3.8 Structs (job 3.8)
   - [ ] layout, zero values, `==`, hash, `gp_fields`
   - [ ] keyed literals in source order
   - [ ] anonymous structs (shared canonical header)
