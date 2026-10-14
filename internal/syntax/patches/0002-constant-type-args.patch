@@ -1,9 +1,9 @@
 diff --git a/internal/syntax/parser/gocpp_typeargs_test.go b/internal/syntax/parser/gocpp_typeargs_test.go
 new file mode 100644
-index 0000000..5145783
+index 0000000..d9b13c0
 --- /dev/null
 +++ b/internal/syntax/parser/gocpp_typeargs_test.go
-@@ -0,0 +1,563 @@
+@@ -0,0 +1,600 @@
 +// The tests of gocpp's patch 2 (../FORK.md §4): a type argument may be a
 +// constant expression, because C++ templates take values, as in
 +// std.array[int, 5] and std.bitset[64]. This file is gocpp's own, not
@@ -382,6 +382,15 @@ index 0000000..5145783
 +// f[int, X] and interface{ J[int, X] } with parseRhs; if it can't, with
 +// parseType, which reports "expected type" at X, as upstream. "]" and EOF
 +// are left out: the callers stop there before they call parseTypeArg.
++//
++// That check sees a missing token only where parseType fails. Eight tokens
++// start a type too, and there parseType parses the type without an error.
++// So for each of them, the test also parses an expression that starts with
++// it and is not a type, in the same three places. It must parse without an
++// error; parseType would stop after the type, at the "{", "(" or "+", or
++// for "<-" at ch, where a type has chan. (*p alone would not do: parseType
++// parses it as a pointer type, to the same AST.) IDENT and "(" also start
++// both; TestTypeArgConstants covers them, with N*2 and (5).
 +func TestTypeArgStartTokens(t *testing.T) {
 +	samples := map[token.Token]string{
 +		token.IDENT: "x", token.INT: "1", token.FLOAT: "1.5", token.IMAG: "1i", token.CHAR: "'c'", token.STRING: `"s"`,
@@ -416,6 +425,34 @@ index 0000000..5145783
 +	}
 +	if n < 70 {
 +		t.Errorf("checked only %d tokens", n)
++	}
++
++	// The eight tokens that start a type and an expression.
++	for _, test := range []struct {
++		tok  token.Token
++		expr string
++	}{
++		{token.LBRACK, "[1]int{}"},
++		{token.MUL, "*p + 1"},
++		{token.ARROW, "<-ch"},
++		{token.FUNC, "func() {}"},
++		{token.STRUCT, "struct{}{}"},
++		{token.INTERFACE, "interface{}(nil)"},
++		{token.MAP, "map[int]int{}"},
++		{token.CHAN, "chan int(nil)"},
++	} {
++		if !strings.HasPrefix(test.expr, test.tok.String()) {
++			t.Fatalf("%s does not start with %s", test.expr, test.tok)
++		}
++		for _, src := range []string{
++			"package p; var _ T[int, " + test.expr + "]",
++			"package p; var _ = f[int, " + test.expr + "]",
++			"package p; type _ interface{ J[int, " + test.expr + "] }",
++		} {
++			if _, err := ParseFile(token.NewFileSet(), "", src, AllErrors); err != nil {
++				t.Errorf("%s: %s starts a type and an expression, so parseTypeArg must parse the expression %s with parseRhs: %v", src, test.tok, test.expr, err)
++			}
++		}
 +	}
 +}
 +

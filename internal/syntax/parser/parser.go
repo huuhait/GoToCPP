@@ -575,11 +575,56 @@ func (p *parser) parseTypeName(ident *ast.Ident) ast.Expr {
 	if p.tok == token.PERIOD {
 		// ident is a package name
 		p.next()
+		if p.tok == token.IDENT { // gocpp: more dots may follow; see parseDottedName
+			return p.parseDottedName(&ast.SelectorExpr{X: ident, Sel: p.parseIdent()})
+		}
 		sel := p.parseIdent()
 		return &ast.SelectorExpr{X: ident, Sel: sel}
 	}
 
 	return ident
+}
+
+// gocpp: parseDottedName is patch 3 (../FORK.md §4). A C++ type name can
+// have more than one dot: a type in a nested namespace, std.chrono.seconds,
+// or a member type of a type instance, std.vector[int].iterator. x is a
+// type name with one dot, or a type instance, and parseDottedName parses
+// the ".Name" parts after it; upstream stops at the next '.', and its
+// caller reports it. parseDottedName goes on at a '.' only when a name
+// follows it (nameAfterDot). At any other token after the '.', the caller
+// still gets the '.', so the error and the error recovery stay upstream's.
+// The callers call it only after a real name or "]", not after one that
+// the error recovery made up: std.).x stops at its second '.', as upstream.
+// parseArrayFieldOrTypeInstance checks for the "]" itself; parseTypeInstance
+// and the instance of parseMethodSpec need no check, because their loops
+// over the arguments end only at "]" or EOF (TestDottedTypeRecovery has
+// std.vector[int).x). The AST is the one of the expression
+// std.chrono.seconds: nested SelectorExprs.
+func (p *parser) parseDottedName(x ast.Expr) ast.Expr {
+	for p.tok == token.PERIOD && p.nameAfterDot() {
+		p.next()
+		x = &ast.SelectorExpr{X: x, Sel: p.parseIdent()}
+	}
+	return x
+}
+
+// gocpp: nameAfterDot reports whether the token after the current '.' is a
+// name, for parseDottedName; as for the parser, a keyword is a name on the
+// line of the '.' (patch 1). It scans that token with a copy of the
+// scanner, so the parser stays at the '.'. The copy reports scan errors to
+// the parser too; nameAfterDot drops them, and the parser's own scan of the
+// same text reports them again. The copy also adds the lines and the
+// //line directives that it passes to the token.File, which ignores them
+// when the parser's scan adds them again.
+func (p *parser) nameAfterDot() bool {
+	s := p.scanner
+	n := len(p.errors)
+	_, tok, _ := s.Scan()
+	for tok == token.COMMENT {
+		_, tok, _ = s.Scan()
+	}
+	p.errors = p.errors[:n]
+	return tok == token.IDENT
 }
 
 // "[" has already been consumed, and lbrack is its position.
@@ -634,6 +679,7 @@ func (p *parser) parseArrayFieldOrTypeInstance(x *ast.Ident) (*ast.Ident, ast.Ex
 		}
 		p.exprLev--
 	}
+	closed := p.tok == token.RBRACK // gocpp: see x[P] below
 	rbrack := p.expect(token.RBRACK)
 
 	if len(args) == 0 {
@@ -656,6 +702,9 @@ func (p *parser) parseArrayFieldOrTypeInstance(x *ast.Ident) (*ast.Ident, ast.Ex
 	}
 
 	// x[P], x[P1, P2], ...
+	if closed { // gocpp: a member type may follow, x[P].Name; see parseDottedName
+		return nil, p.parseDottedName(packIndexExpr(x, lbrack, args, rbrack))
+	}
 	return nil, packIndexExpr(x, lbrack, args, rbrack)
 }
 
@@ -1192,7 +1241,7 @@ func (p *parser) parseMethodSpec() *ast.Field {
 					p.exprLev--
 				}
 				rbrack := p.expectClosing(token.RBRACK, "type argument list")
-				typ = packIndexExpr(ident, lbrack, list, rbrack)
+				typ = p.parseDottedName(packIndexExpr(ident, lbrack, list, rbrack)) // gocpp: see parseDottedName
 			}
 		case p.tok == token.LPAREN:
 			// ordinary method
@@ -1401,7 +1450,7 @@ func (p *parser) parseTypeInstance(typ ast.Expr) ast.Expr {
 		}
 	}
 
-	return packIndexExpr(typ, opening, list, closing)
+	return p.parseDottedName(packIndexExpr(typ, opening, list, closing)) // gocpp: see parseDottedName
 }
 
 func (p *parser) tryIdentOrType() ast.Expr {

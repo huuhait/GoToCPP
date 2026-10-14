@@ -19,7 +19,7 @@
 - [x] 1.3 Patch 2: constant expressions in type-argument lists
   - [x] parser change (`parseRhs` for type arguments)
   - [x] tests: type position, composite literal, call, nested
-- [~] 1.4 Patch 3: dotted type names (`std.chrono.seconds`, `std.filesystem.path`, `std.vector[int].iterator`)
+- [x] 1.4 Patch 3: dotted type names (`std.chrono.seconds`, `std.filesystem.path`, `std.vector[int].iterator`)
 - [x] 1.5 Round-trip test over the Go stdlib (parse → print → parse)
 - [x] 1.6 Import classifier + `FileInfo` (header package names and their rules, namespace renames) + reserved-`C` error
 - [x] 1.7 `//gocpp:` directive parser + validation + suggestions
@@ -126,3 +126,6 @@
   type-check with stock go/types. Step 1.8 stays open for the probe (1.8b) and `gp_as[T]`.
 - 2026-10-13 (manager): `gp_as[T]` moves from 1.8 to 1.10 (two type checks), because only go/types
   knows conversions and opaque operands. Patch 3 doesn't support member templates (`a[T].b[U]`) yet.
+- 2026-10-13: Step 1.4 (patch 3, `patches/0003-dotted-type-names.patch`) committed, clean after 2 review
+  rounds: dotted type names in every type position; 0 differences against stock on 159,957 valid
+  files; broken code recovers like stock. With it, all three Phase 01 parser patches are in.

@@ -61,8 +61,9 @@ the import paths are on 5 lines in 5 files. It doesn't change the files in `test
 inputs stay as they are. Then it runs gofmt on the changed files. gofmt sorts each import
 block, so in `parser/parser.go` and `parser/resolver_test.go` the new import line moves up.
 After that, `go list` checks that no Go file of the fork imports the stock packages. The check
-runs before the patches (§6): the test file of patch 2, `parser/gocpp_typeargs_test.go`, imports
-the stock `go/parser` and `go/scanner` on purpose, to compare the fork with them.
+runs before the patches (§6): the test files of patches 2 and 3, `parser/gocpp_typeargs_test.go`
+and `parser/gocpp_dottypes_test.go`, import the stock `go/parser` and `go/scanner` on purpose, to
+compare the fork with them.
 
 Two things to know:
 
@@ -96,7 +97,7 @@ table. When a patch is done, its row names its file:
 |---|---|---|
 | 1 | A Go keyword after `.` on the same line is a name: `std.map`, `node.type()`. The scanner returns it as `token.IDENT`, also with space or a `/* */` comment after the `.` on that line. On the next line, it stays a keyword. It is in: [`0001-keyword-after-dot.patch`](patches/0001-keyword-after-dot.patch) | 1.2 |
 | 2 | Type arguments may be constants: `std.array[int, 5]`. In the three places where upstream called `parseType` for a type argument (in a type, and after the first argument of an index expression or of an instance embedded in an interface), `parseTypeArg` parses a type or an expression with `parseRhs`. Upstream already parsed those first arguments, and the arguments of an embedded field or an unnamed parameter `T[...]`, as expressions. For a Go generic, go/types still reports `5 is not a type`. A token that can't start a type argument keeps upstream's error and recovery: `parseTypeArg` calls `parseRhs` only for a token that can start an expression. In valid Go code, one thing changes: nested type arguments in a type or after a comma reach "exceeded max nesting depth" at 49,999 levels, not 99,999, as upstream's own `T[«», int]{}` already did. It is in: [`0002-constant-type-args.patch`](patches/0002-constant-type-args.patch) | 1.3 |
-| 3 | Type names may have more than one dot: `std.chrono.seconds` | 1.4 |
+| 3 | Type names may have more than one dot: a type in a nested namespace, `std.chrono.seconds`, and a member type after a type instance, `std.vector[int].iterator`, in every place where Go has a type. `parseTypeName` goes on after its first `.Name`, and so does each place that parses a type instance: `parseTypeInstance`, and an instance `T[...]` embedded in an interface, embedded in a struct or as an unnamed parameter. `parseDottedName` parses the `.Name` parts. The AST is the one of the same expression: nested `SelectorExpr`s. At a `.` that no name follows (`nameAfterDot` looks at the next token with a copy of the scanner), or after a part that the error recovery made up, the type name stops at the `.`, so the error and the recovery stay upstream's. A type instance after a member type, as in `a[T].b[U]`, is not in the patch. Code that the stock `go/parser` accepts parses the same, with one exception that is never valid Go: in an expression, a selector right after a slice, array, map, chan or func type whose last part is a qualified type name or a type instance, as in `[]pkg.T.M{}`, was a method of that type (it has none), and now it is a part of the element type. It is in: [`0003-dotted-type-names.patch`](patches/0003-dotted-type-names.patch) | 1.4 |
 
 Phase 10 adds three more patches: `name!(` is one name (must calls), `#Name` is one name
 (macros), and `macro` declarations with `lazy` parameters. It also adds a small fork of
@@ -168,9 +169,8 @@ import it any more, so this is only for Go 1.26.
 2. Change the files in `scanner/` or `parser/`, and add the tests. For a new file, run
    `git add -N <file>`, so that `git diff` shows it.
 3. Write the patch file. Its name is `NNNN-name.patch`. For `NNNN`, pick the next free number:
-   one more than the highest number in `patches/`. A number that is already used would
-   overwrite that patch. For `name`, use a few words that say what the patch does, like
-   `keyword-after-dot`:
+   one more than the highest number in `patches/`. Don't use a number twice. For `name`, use a
+   few words that say what the patch does, like `keyword-after-dot`:
 
        mkdir -p internal/syntax/patches
        git diff --no-renames -- internal/syntax/scanner internal/syntax/parser >internal/syntax/patches/NNNN-name.patch
@@ -196,4 +196,15 @@ and the patches before that one. Then:
 
        git diff --no-renames -- internal/syntax/scanner internal/syntax/parser >internal/syntax/patches/NNNN-name.patch
 
+   If the patch that doesn't apply is `local.patch`, write it to `internal/syntax/local.patch`:
+   it is not in `patches/`.
+
 4. Run `update.sh -f` again. Do the same for the next patch that doesn't apply.
+
+The same steps change a patch on purpose, for example to add a test to it. Start from a fork
+that `update.sh` made, and undo that patch and the patches after it, the last one first:
+`git apply -R internal/syntax/patches/NNNN-name.patch`. Then do step 1, apply the patch again
+with `git apply`, and run `git add -N` on each file that the patch adds (for patch 2,
+`internal/syntax/parser/gocpp_typeargs_test.go`). Step 1 saved the patch's new files as
+deleted, so without `git add -N`, `git diff` would leave them out of the patch. Then change it
+(step 2). In step 3, `git diff` shows the whole patch with your change, not only your change.

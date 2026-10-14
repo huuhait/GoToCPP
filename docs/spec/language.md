@@ -497,7 +497,9 @@ func base(p std.filesystem.path) std.filesystem.path {
 - **gocpp:** the type name of a C++ type may have more dots: a type in a nested namespace
   (`std.chrono.seconds`, `std.filesystem.path`) or a member type (`std.vector[int].iterator`).
   This works in every type position: variables, parameters, results, struct fields and element
-  types (`[]std.chrono.seconds`). In expressions, Go already allows more dots.
+  types (`[]std.chrono.seconds`). In expressions, Go already allows more dots. In a type, only
+  names can follow the type arguments: `std.vector[int].iterator` works, but a second list of
+  type arguments, as in `std.allocator_traits[A].rebind_alloc[T]`, is a syntax error.
 - **Phase:** [01](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#22-the-fork-three-patches-to-goscanner--goparser)
   (parser patch 3), [04](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#24-cc-types-in-gocpp-code)
   (C++ output).
