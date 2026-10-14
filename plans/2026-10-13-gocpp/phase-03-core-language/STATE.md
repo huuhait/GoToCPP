@@ -75,3 +75,11 @@
   small-integer cast). `pure()`/`isLocal()` in internal/cppgen assume no call can change a local:
   closures and pointers break that. Go 1.22 gives each iteration of a 3-clause loop its own variable,
   which matters once closures exist.
+- 2026-10-14 (manager, 3.2 review): freeing a long chain of `gp::ptr` recursed and crashed at 100,000
+  list nodes (-O0); `~ptr()` gets a deferred-release trampoline (job 3.2), reusable by slices and maps
+  of pointers (3.5, 3.7). The nil-dereference signal line is per goroutine (thread_local), printed once
+  after the panic chain; a finished recover (Phase 05) clears it. For 3.14 / tests/diff: Go prints the
+  field offset in `addr=` for accesses to a field at a small nonzero offset (< 4096); gocpp prints
+  0x0, and the pc is masked. For 3.17: `weak.Pointer` is 24 B in gocpp (gocppSizes must special-case
+  it; Go's declaration would give 16). Phase 15 notes: one shared count for all pointers to globals
+  (per-package owners), and large values held alive (memory, not the object) by weak pointers.
