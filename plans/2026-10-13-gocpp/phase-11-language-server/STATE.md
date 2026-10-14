@@ -1,6 +1,6 @@
 # Phase 11: Fast Language Server · STATE
 
-**Status:** `[~]` in progress (v0 track: 11.1–11.4, 11.10b done; 11.10a grammar done)
+**Status:** `[~]` in progress (v0 track: 11.1–11.5, 11.10b done; 11.10a grammar done)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
@@ -16,7 +16,7 @@
   - [x] API-hash short-circuit
   - [x] LRU memory cap
 - [x] 11.4 Diagnostics as you type · *v0*
-- [~] 11.5 Hover, go-to-definition, signature help · *v0*
+- [x] 11.5 Hover, go-to-definition, signature help · *v0*
 - [ ] 11.6 Completion (scopes, members, keywords, snippets, auto-import) · *v0*
 - [~] 11.7 Formatting + organize imports (`gocpp fmt`) · *v0*
 - [ ] 11.8 References, rename, document/workspace symbols
@@ -120,3 +120,12 @@
   identity is not in the key; each summary stores the probe answers its check used, and they are asked
   again in the background at load (provisional until then; stale and re-checked if they differ), which also
   catches changed headers. Shallow export data was not needed. GOCPP_LSP_CACHE must be absolute (or `off`).
+- 2026-10-14: Job 11.5 (hover in gopls's format incl. builtins, type switch variables and modest C/C++ hovers;
+  definition/typeDefinition across files and packages and into header files; signature help; check.Config.Partial
+  so broken packages still get types) committed, clean after 2 review rounds. p95 under 1 ms each (budget 30 ms);
+  Partial adds ~15 ms to a keystroke that leaves the package broken (within 100 ms). Export-data positions are
+  line-only and can be old after an API-preserving edit, so features re-find the declaration by name and kind
+  (README §2.2 item 4 should say this). Left for later: definition into the embedded stdlib (no file on disk),
+  answers in open _test.gp files (no test variants), build-constraint-excluded files in package lists
+  (TODO(Phase 11)), `-I` folders from //gocpp:cflags (Phase 04). Follow-up: hover should use 11.3b's
+  `(*Package).OpaqueType` so opaque types of imports stop showing as `invalid type` (merged separately).
