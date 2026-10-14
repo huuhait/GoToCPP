@@ -185,7 +185,7 @@ struct Point {
                                                  gp::field(&Point::Y, "Y", true, false)); // for fmt %v/%+v
 };
 struct Celsius : gp::newtype<Celsius, double> {      // a distinct type with double's operators
-    using newtype::newtype;
+    using gp::newtype<Celsius, double>::newtype;     // qualified: the base's injected names enter this scope
     gp::string String() const;
 };
 ```

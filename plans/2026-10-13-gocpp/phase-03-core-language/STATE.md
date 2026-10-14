@@ -285,3 +285,8 @@
   defers uses about 160–184 B per call at -O0 (deep recursion with a defer per level stops at 40–50k levels on
   8 MiB; documented in cpp-mapping "Defer"). tests/debug's bt rule allows a run of gp::/std:: frames only when
   it ends in gp::defer_frame::gp_run.
+- 2026-10-14 (3.9 review, for 3.10 and later): a named type over a runtime class publicly inherits it
+  (gp::newtype's class shape), so the base's injected class names (newtype, string, slice, array, map, ptr)
+  enter the named type's scope: inside its body and its methods' bodies, user names that could collide are
+  written qualified (gpkg_main::array). The two newtype shapes (a value holder for numbers and bools, a public
+  base for runtime classes) are one CRTP template partly specialized by std::is_class_v<U>: accepted.
