@@ -12,6 +12,7 @@ import (
 
 	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/diag"
+	"github.com/huuhait/gocpp/internal/interop"
 	"github.com/huuhait/gocpp/internal/load"
 )
 
@@ -68,9 +69,13 @@ type Config struct {
 	// Result.Dep of the check that checked it.
 	Deps func(lp *load.Package) Dep
 
-	// probe, if not nil, replaces interop.ProbeNamespaces (for the tests,
-	// whose headers mostly don't exist).
-	probe probeFunc
+	// Probe, if not nil, replaces interop.ProbeNamespaces: Check calls it
+	// once per include set of a package, with the compiler that CXX gave.
+	// The language server (Phase 11, step 11.4) answers from what it knows
+	// at once (the names it doesn't know yet are Unknown, so their uses stay
+	// opaque) and runs the real probe in the background; the tests of this
+	// package use it for headers that mostly don't exist.
+	Probe func(ctx context.Context, cxx build.CXX, dir string, includes, candidates []string) (interop.Result, error)
 }
 
 // A Dep is what Check needs of a package that it imports but does not

@@ -19,15 +19,30 @@ import (
 )
 
 // A client talks to a Server over pipes, like an editor over stdin and
-// stdout.
+// stdout. A goroutine reads what the server writes: the diagnostics
+// (textDocument/publishDiagnostics, which come whenever a run ends) go to a
+// list of their own (publishes), the other messages to msgs, in order.
 type client struct {
-	t    *testing.T
+	t    testing.TB
 	s    *Server
 	in   *io.PipeWriter // the server's stdin
 	out  *protocol.Reader
 	code chan int // the exit code of Serve
 	logs *syncBuffer
 	id   int
+
+	msgs    chan protocol.Message // closed at the end of the output
+	readErr error                 // why the output ended; set before msgs is closed
+
+	pubMu     sync.Mutex
+	publishes []*publish
+}
+
+// A publish is one textDocument/publishDiagnostics.
+type publish struct {
+	protocol.PublishDiagnosticsParams
+	raw  string
+	seen bool // nextPublish returned it
 }
 
 type syncBuffer struct {
@@ -56,13 +71,22 @@ func start(t *testing.T) *client {
 // add their own request methods).
 func startWith(t *testing.T, setup func(*Server)) *client {
 	t.Helper()
+	return startServer(t, New(nil), setup)
+}
+
+// startServer starts serving s (whose log the client takes over).
+func startServer(t testing.TB, s *Server, setup func(*Server)) *client {
+	t.Helper()
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
-	c := &client{t: t, in: inW, out: protocol.NewReader(outR), code: make(chan int, 1), logs: &syncBuffer{}}
-	c.s = New(log.New(c.logs, "", 0))
+	c := &client{t: t, in: inW, out: protocol.NewReader(outR), code: make(chan int, 1), logs: &syncBuffer{},
+		msgs: make(chan protocol.Message, 1000)}
+	c.s = s
+	s.log = log.New(c.logs, "", 0)
 	if setup != nil {
 		setup(c.s)
 	}
+	go c.readLoop()
 	go func() {
 		code := c.s.Serve(context.Background(), inR, outW)
 		inR.Close() // a later write of the client fails, it doesn't hang
@@ -71,6 +95,37 @@ func startWith(t *testing.T, setup func(*Server)) *client {
 	}()
 	t.Cleanup(func() { inW.Close() })
 	return c
+}
+
+// readLoop reads the server's output until it ends.
+func (c *client) readLoop() {
+	for {
+		body, err := c.out.Read()
+		if err != nil {
+			c.readErr = err
+			close(c.msgs)
+			return
+		}
+		m, err := protocol.DecodeMessage(body)
+		if err != nil {
+			c.readErr = fmt.Errorf("the server wrote %q: %v", body, err)
+			close(c.msgs)
+			return
+		}
+		if req, ok := m.(*protocol.Request); ok && req.IsNotification() && req.Method == "textDocument/publishDiagnostics" {
+			p := &publish{raw: string(req.Params)}
+			if err := json.Unmarshal(req.Params, &p.PublishDiagnosticsParams); err != nil {
+				c.readErr = fmt.Errorf("publishDiagnostics %s: %v", req.Params, err)
+				close(c.msgs)
+				return
+			}
+			c.pubMu.Lock()
+			c.publishes = append(c.publishes, p)
+			c.pubMu.Unlock()
+			continue
+		}
+		c.msgs <- m
+	}
 }
 
 func (c *client) send(body string) {
@@ -90,7 +145,8 @@ func (c *client) notify(method, params string) {
 }
 
 // call sends a request and returns its response. The next message from the
-// server must be that response: a notification before it got no response.
+// server (but the diagnostics) must be that response: a notification
+// before it got no response.
 func (c *client) call(method, params string) *protocol.Response {
 	c.t.Helper()
 	c.id++
@@ -120,25 +176,13 @@ func (c *client) readNotification(method string) string {
 	}
 }
 
+// read returns the next message but the diagnostics.
 func (c *client) read() protocol.Message {
 	c.t.Helper()
-	type result struct {
-		body []byte
-		err  error
-	}
-	ch := make(chan result, 1)
-	go func() {
-		body, err := c.out.Read()
-		ch <- result{body, err}
-	}()
 	select {
-	case r := <-ch:
-		if r.err != nil {
-			c.t.Fatalf("reading from the server: %v", r.err)
-		}
-		m, err := protocol.DecodeMessage(r.body)
-		if err != nil {
-			c.t.Fatalf("the server wrote %q: %v", r.body, err)
+	case m, ok := <-c.msgs:
+		if !ok {
+			c.t.Fatalf("reading from the server: %v", c.readErr)
 		}
 		return m
 	case <-time.After(10 * time.Second):
@@ -148,20 +192,62 @@ func (c *client) read() protocol.Message {
 }
 
 // wait closes the server's stdin and returns its exit code; the server
-// must write nothing more.
+// must write nothing more (but the diagnostics before the end).
 func (c *client) wait() int {
 	c.t.Helper()
 	c.in.Close()
 	select {
 	case code := <-c.code:
-		if body, err := c.out.Read(); err != io.EOF {
-			c.t.Errorf("after the end, the server wrote %q (%v)", body, err)
+		select {
+		case m, ok := <-c.msgs:
+			if ok {
+				c.t.Errorf("after the end, the server wrote %+v", m)
+			} else if c.readErr != io.EOF {
+				c.t.Errorf("the output ended with %v, want EOF", c.readErr)
+			}
+		case <-time.After(10 * time.Second):
+			c.t.Error("the output didn't end in 10 s")
 		}
 		return code
 	case <-time.After(10 * time.Second):
 		c.t.Fatal("the server didn't stop in 10 s")
 	}
 	return -1
+}
+
+// nextPublish returns the next publish of the diagnostics of uri that it
+// has not returned yet, waiting up to 10 s for it.
+func (c *client) nextPublish(uri protocol.DocumentURI) *publish {
+	c.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		c.pubMu.Lock()
+		for _, p := range c.publishes {
+			if p.URI == uri && !p.seen {
+				p.seen = true
+				c.pubMu.Unlock()
+				return p
+			}
+		}
+		c.pubMu.Unlock()
+		if time.Now().After(deadline) {
+			c.t.Fatalf("no diagnostics of %s in 10 s", uri)
+		}
+		time.Sleep(200 * time.Microsecond)
+	}
+}
+
+// unseen returns the publishes that nextPublish has not returned.
+func (c *client) unseen() []*publish {
+	c.pubMu.Lock()
+	defer c.pubMu.Unlock()
+	var ps []*publish
+	for _, p := range c.publishes {
+		if !p.seen {
+			ps = append(ps, p)
+		}
+	}
+	return ps
 }
 
 // overlay returns the document uri of the server's current snapshot.

@@ -134,6 +134,12 @@ func TestSameAsCheck(t *testing.T) {
 				t.Fatal(err)
 			}
 			pkg, err := p.packageOf(context.Background(), h)
+			// The namespace probe and its compiler lookup run in the
+			// background (probe.go): compare once they are done.
+			for try := 0; err == nil && (pkg.Provisional() || pkg.Stale()) && try < 10; try++ {
+				p.prober.wait()
+				pkg, err = p.packageOf(context.Background(), h)
+			}
 			if err != nil {
 				t.Fatalf("%s: %v", lp.ImportPath, err)
 			}

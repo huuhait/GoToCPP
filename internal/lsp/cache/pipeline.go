@@ -14,8 +14,8 @@ import (
 	"sync/atomic"
 
 	"github.com/huuhait/gocpp/internal/build"
+	"github.com/huuhait/gocpp/internal/interop"
 	"github.com/huuhait/gocpp/internal/lsp/memoize"
-	"github.com/huuhait/gocpp/internal/lsp/protocol"
 	"github.com/huuhait/gocpp/internal/syntax/parser"
 )
 
@@ -53,14 +53,20 @@ type Config struct {
 	// Phase is check.Config.Phase.
 	Phase int
 
-	// CXX is check.Config.CXX: the C++ compiler of the namespace probe.
-	// The pipeline asks for it once (nil: build.FindCXXFor, which runs the
-	// compiler to see what it is).
-	//
-	// TODO(11.4, Phase 12): the answer is kept for the session, also an
-	// error: a compiler that is installed later is not found until the
-	// server starts again. Ask again after an error, now and then.
-	CXX func(ctx context.Context) (build.CXX, error)
+	// CXX finds the C++ compiler of the namespace probe (nil:
+	// build.FindCXXFor, which runs the compiler to see what it is), and
+	// Probe is the probe (nil: interop.ProbeNamespaces). The pipeline calls
+	// them in the background only, never while a check waits (probe.go):
+	// the compiler once, and again cxxRetry after an error, so that a
+	// compiler installed later is found.
+	CXX   func(ctx context.Context) (build.CXX, error)
+	Probe func(ctx context.Context, cxx build.CXX, dir string, includes, candidates []string) (interop.Result, error)
+
+	// OnProbe, if not nil, is called (on a goroutine of the pipeline) when
+	// the background work of the namespace probe has changed an answer
+	// that checks may have used: then the packages that are Stale should
+	// be checked again in a new snapshot (Session.Recheck).
+	OnProbe func()
 
 	// The memory caps of the caches; 0 means the default. MaxCheckBytes
 	// caps the checked packages (with their ASTs, types.Info and the
@@ -91,8 +97,9 @@ type Pipeline struct {
 	checks    *memoize.Store[Hash, *Package]
 	summaries *memoize.Store[Hash, *summary]
 
-	// cxx finds the C++ compiler once.
-	cxx *memoize.Promise[build.CXX]
+	// prober runs the compiler lookup and the namespace probes in the
+	// background (probe.go).
+	prober *prober
 
 	// sem holds a place for each type-check that runs, at most GOMAXPROCS.
 	sem chan struct{}
@@ -161,9 +168,23 @@ func NewPipeline(cfg Config) *Pipeline {
 	if find == nil {
 		find = func(ctx context.Context) (build.CXX, error) { return build.FindCXXFor(ctx, cfg.GOOS, cfg.GOARCH) }
 	}
-	p.cxx = memoize.NewPromise(find)
+	probe := cfg.Probe
+	if probe == nil {
+		probe = interop.ProbeNamespaces
+	}
+	p.prober = newProber(find, probe, cfg.OnProbe)
 	return p
 }
+
+// Close stops the background work of the pipeline (the compiler lookup and
+// the namespace probes) and waits for it to end. Checks after Close don't
+// start background work: their probe answers stay what they are.
+func (p *Pipeline) Close() { p.prober.close() }
+
+// HeadersChanged tells the pipeline that C/C++ headers may have changed on
+// disk: the answers of the namespace probe are checked again in the
+// background (Config.OnProbe says when one changed).
+func (p *Pipeline) HeadersChanged() { p.prober.headersChanged() }
 
 // astFactor is how much memory the AST of a file parsed with comments
 // takes per byte of its source (about 10 to 20).
@@ -175,9 +196,6 @@ func orDefault(n, def int64) int64 {
 	}
 	return n
 }
-
-// findCXX is check.Config.CXX: the compiler, found once.
-func (p *Pipeline) findCXX(ctx context.Context) (build.CXX, error) { return p.cxx.Get(ctx) }
 
 // NewState returns the state of the first snapshot of a session
 // (NewSession): it has no open documents.
@@ -235,8 +253,15 @@ type state struct {
 // resolved with a read of the file or folder (an unsaved file in a new
 // folder makes an import resolve), and every package that imports one of
 // those, directly or not (they get new handles, whose keys see whether the
-// API changed); a changed gocpp.mod changes every package.
-func (s *state) Clone(next *Snapshot, changed map[protocol.DocumentURI]bool) State {
+// API changed); a changed gocpp.mod changes every package. A changed path
+// may be a folder (Session.Invalidate, or the deletion of a folder that the
+// editor reports): then it changes everything under it too.
+//
+// A package of ch.Packages, and every package that imports it, directly or
+// not, gets a new handle too (its check key is made again, from the
+// summaries of its imports), but nothing is read again.
+func (s *state) Clone(next *Snapshot, ch Change) State {
+	changed := ch.Files
 	n := &state{p: s.p, snap: next, overlays: make(map[string]*Overlay, len(next.overlays))}
 	for uri, o := range next.overlays {
 		if path := uri.Path(); path != "" {
@@ -245,13 +270,25 @@ func (s *state) Clone(next *Snapshot, changed map[protocol.DocumentURI]bool) Sta
 	}
 	paths := make(map[string]bool, len(changed))
 	dirs := make(map[string]bool, len(changed))
+	var trees []string // the changed paths, as folders
 	modChanged := false
 	for uri := range changed {
 		if path := uri.Path(); path != "" {
 			paths[path] = true
+			dirs[path] = true // it may be a folder
 			dirs[filepath.Dir(path)] = true
+			trees = append(trees, path+string(filepath.Separator))
 			modChanged = modChanged || filepath.Base(path) == modFileName
 		}
+	}
+	// under reports whether path is in one of the changed folders.
+	under := func(path string) bool {
+		for _, t := range trees {
+			if strings.HasPrefix(path, t) {
+				return true
+			}
+		}
+		return false
 	}
 
 	s.mu.Lock()
@@ -260,13 +297,13 @@ func (s *state) Clone(next *Snapshot, changed map[protocol.DocumentURI]bool) Sta
 	// (metadata.valid reads it).
 	n.files = make(map[string]*fileHandle, len(s.files))
 	for path, f := range s.files {
-		if !paths[path] && !errors.Is(f.err, fs.ErrNotExist) {
+		if !paths[path] && !under(path) && !errors.Is(f.err, fs.ErrNotExist) {
 			n.files[path] = f
 		}
 	}
 	n.dirs = make(map[string]*dirHandle, len(s.dirs))
 	for dir, d := range s.dirs {
-		if !dirs[dir] && (len(d.names) > 0 || !errors.Is(d.err, fs.ErrNotExist)) {
+		if !dirs[dir] && !under(dir) && (len(d.names) > 0 || !errors.Is(d.err, fs.ErrNotExist)) {
 			n.dirs[dir] = d
 		}
 	}
@@ -276,7 +313,9 @@ func (s *state) Clone(next *Snapshot, changed map[protocol.DocumentURI]bool) Sta
 		return n // a module can change the import path of every package
 	}
 	for dir, m := range s.mods {
-		n.mods[dir] = m
+		if !dirs[dir] && !under(dir) {
+			n.mods[dir] = m
+		}
 	}
 	// The packages in the changed folders, and their importers.
 	importers := make(map[pkgID][]pkgID)
@@ -288,7 +327,7 @@ func (s *state) Clone(next *Snapshot, changed map[protocol.DocumentURI]bool) Sta
 		for _, dep := range h.cut {
 			importers[dep] = append(importers[dep], id)
 		}
-		if !id.std && dirs[id.dir] || h.meta.reads != nil && touches(h.meta.reads, paths, dirs) {
+		if !id.std && (dirs[id.dir] || under(id.dir) || ch.Packages[id.dir]) || h.meta.reads != nil && touches(h.meta.reads, paths, dirs, under) {
 			stale = append(stale, id)
 		}
 	}
@@ -310,9 +349,9 @@ func (s *state) Clone(next *Snapshot, changed map[protocol.DocumentURI]bool) Sta
 }
 
 // touches reports whether one of the reads is of a changed file or folder.
-func touches(reads []*read, paths, dirs map[string]bool) bool {
+func touches(reads []*read, paths, dirs map[string]bool, under func(string) bool) bool {
 	for _, r := range reads {
-		if paths[r.path] || dirs[r.path] {
+		if paths[r.path] || dirs[r.path] || under(r.path) {
 			return true
 		}
 	}

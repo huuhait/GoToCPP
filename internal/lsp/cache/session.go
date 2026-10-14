@@ -20,11 +20,14 @@ import (
 )
 
 // A Session is the state of one client: the current snapshot, replaced by
-// a new one on every change. Its methods are safe for concurrent use, but
-// the changes (DidOpen, DidChange, DidClose) must come one at a time, in
-// the order of the client's notifications: the server's read loop makes
-// them (protocol.Handler).
+// a new one on every change. Its methods are safe for concurrent use. The
+// changes (DidOpen, DidChange, DidClose, Invalidate) happen one at a time:
+// the server's read loop makes the first three in the order of the
+// client's notifications (protocol.Handler), and Invalidate may come from
+// another goroutine (the background work of the namespace probe).
 type Session struct {
+	change sync.Mutex // held during a change
+
 	mu      sync.Mutex
 	current *Snapshot
 	live    int  // the snapshots that are not destroyed yet
@@ -67,6 +70,8 @@ var errShutdown = errors.New("the session is shut down")
 // DidOpen opens the document of a didOpen in a new snapshot. A document that
 // is open already is replaced; replaced reports that.
 func (s *Session) DidOpen(item protocol.TextDocumentItem) (replaced bool, err error) {
+	s.change.Lock()
+	defer s.change.Unlock()
 	snap, release := s.Snapshot()
 	defer release()
 	_, replaced = snap.overlays[item.URI]
@@ -78,6 +83,8 @@ func (s *Session) DidOpen(item protocol.TextDocumentItem) (replaced bool, err er
 // is not open, or a range ends before it starts; in the second case the new
 // snapshot has the overlay marked Broken.
 func (s *Session) DidChange(uri protocol.DocumentURI, version int32, changes []protocol.TextDocumentContentChangeEvent) error {
+	s.change.Lock()
+	defer s.change.Unlock()
 	snap, release := s.Snapshot()
 	defer release()
 	old := snap.overlays[uri]
@@ -95,12 +102,48 @@ func (s *Session) DidChange(uri protocol.DocumentURI, version int32, changes []p
 // DidClose removes the document of a didClose in a new snapshot. It is an
 // error when the document is not open.
 func (s *Session) DidClose(uri protocol.DocumentURI) error {
+	s.change.Lock()
+	defer s.change.Unlock()
 	snap, release := s.Snapshot()
 	defer release()
 	if snap.overlays[uri] == nil {
 		return fmt.Errorf("%s is not open", uri)
 	}
 	return s.update(snap, uri, nil)
+}
+
+// Invalidate makes a new snapshot with the same open documents, in which
+// the files and folders uris may have changed on disk (didChangeWatchedFiles),
+// or must be checked again (the packages in the folders whose namespace
+// probe answers changed, Package.Stale): the state forgets what it read
+// of them and what depends on it (State.Clone). A folder stands for
+// everything in it.
+func (s *Session) Invalidate(uris []protocol.DocumentURI) error {
+	s.change.Lock()
+	defer s.change.Unlock()
+	snap, release := s.Snapshot()
+	defer release()
+	changed := make(map[protocol.DocumentURI]bool, len(uris))
+	for _, uri := range uris {
+		changed[uri] = true
+	}
+	return s.next(snap, snap.overlays, Change{Files: changed})
+}
+
+// Recheck makes a new snapshot with the same open documents and files, in
+// which the packages in the folders dirs (absolute names) and their
+// importers are checked again: their namespace probe answers changed
+// (Package.Stale). Nothing is read again.
+func (s *Session) Recheck(dirs []string) error {
+	s.change.Lock()
+	defer s.change.Unlock()
+	snap, release := s.Snapshot()
+	defer release()
+	pkgs := make(map[string]bool, len(dirs))
+	for _, dir := range dirs {
+		pkgs[dir] = true
+	}
+	return s.next(snap, snap.overlays, Change{Packages: pkgs})
 }
 
 // update makes the snapshot after prev, in which the document uri has the
@@ -119,10 +162,17 @@ func (s *Session) update(prev *Snapshot, uri protocol.DocumentURI, o *Overlay) e
 	} else {
 		overlays[uri] = o
 	}
+	return s.next(prev, overlays, Change{Files: map[protocol.DocumentURI]bool{uri: true}})
+}
+
+// next makes the snapshot after prev, with the overlays (which it keeps)
+// and the change ch, and makes it current. prev must still be the current
+// snapshot.
+func (s *Session) next(prev *Snapshot, overlays map[protocol.DocumentURI]*Overlay, ch Change) error {
 	// The next snapshot is made first, so that its state can know it.
 	next := newSnapshot(s, prev.id+1, overlays, nil)
 	if prev.state != nil {
-		next.state = prev.state.Clone(next, map[protocol.DocumentURI]bool{uri: true})
+		next.state = prev.state.Clone(next, ch)
 	}
 	s.mu.Lock()
 	var err error
@@ -130,9 +180,8 @@ func (s *Session) update(prev *Snapshot, uri protocol.DocumentURI, o *Overlay) e
 	case s.closed:
 		err = errShutdown
 	case s.current != prev:
-		// Another change came meanwhile: the callers broke the rule of
-		// one change at a time.
-		err = fmt.Errorf("%s: the snapshot changed during the change", uri)
+		// Another change came meanwhile, which s.change prevents.
+		err = errors.New("cache: the snapshot changed during the change")
 	}
 	if err != nil {
 		s.mu.Unlock()
@@ -164,6 +213,18 @@ func (s *Session) Shutdown() {
 	cur.cancel()
 }
 
+// A Change is what changed from one snapshot to the next.
+type Change struct {
+	// Files are the documents that were opened, edited or closed, and the
+	// files and folders that changed on disk (Session.Invalidate); a
+	// folder stands for everything in it.
+	Files map[protocol.DocumentURI]bool
+
+	// Packages are the folders of packages that must be checked again,
+	// with their importers, although no file changed (Session.Recheck).
+	Packages map[string]bool
+}
+
 // A State is the derived data of one snapshot: what step 11.3's memoized
 // pipeline keeps per file and per package (parsed files, checked packages,
 // their diagnostics). The session gives each new snapshot the state that
@@ -177,14 +238,14 @@ func (s *Session) Shutdown() {
 // (parsed files by the hash of their text) are shared by the states, not
 // owned by one.
 type State interface {
-	// Clone returns the state of next, the snapshot after the receiver's;
-	// changed holds the documents that were opened, edited or closed.
-	// next is complete but for its State: a lazy state may keep it, to
+	// Clone returns the state of next, the snapshot after the receiver's,
+	// after the change ch. next is complete but for its State: a lazy
+	// state may keep it, to
 	// read its overlays when it computes. Clone keeps what does not
 	// depend on the changed documents and must not change the receiver,
 	// which requests may still use. It runs on the read loop, so it must
 	// be quick: copy on write, compute later.
-	Clone(next *Snapshot, changed map[protocol.DocumentURI]bool) State
+	Clone(next *Snapshot, ch Change) State
 
 	// Release is called once, when the snapshot is destroyed: it is not
 	// current any more and no request holds it. The state lets go of

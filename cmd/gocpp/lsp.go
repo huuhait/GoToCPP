@@ -27,9 +27,11 @@ It exits with status 0 after the editor's shutdown request and exit
 notification, and with status 1 when the editor exits it without
 shutdown or closes the connection first.
 
-For now the server keeps the text of the open files up to date and does
-nothing else yet: diagnostics, hover, completion and the other features
-come in the later steps of Phase 11.
+For now the server keeps the text of the open files up to date and
+publishes the diagnostics of gocpp check as you type, for the packages of
+the open files (the C++ namespace probe of header imports runs in the
+background, and its errors come when it is done). Hover, completion and
+the other features come in the later steps of Phase 11.
 
 The flags are:
 `

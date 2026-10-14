@@ -509,7 +509,9 @@ func TestCXXOnce(t *testing.T) {
 	cfg := testConfig()
 	calls := 0
 	var mu sync.Mutex
+	found := make(chan struct{}) // the first lookup ends when it is closed
 	cfg.CXX = func(context.Context) (build.CXX, error) {
+		<-found
 		mu.Lock()
 		calls++
 		mu.Unlock()
@@ -517,13 +519,21 @@ func TestCXXOnce(t *testing.T) {
 	}
 	src := "package main\n\nimport \"<vector>\"\n\nfunc main() { var v std.vector[int]; _ = v }\n"
 	w := newWorld(t, cfg, map[string]string{"gocpp.mod": "module m\n", "main.gp": src})
-	if errs := w.errs(w.pkg(".")); !strings.Contains(errs, "cannot check the header imports") {
-		t.Errorf("errors:\n%s", errs)
+	// The first check doesn't wait for the lookup (probe.go): it is
+	// provisional, without the error, and stale once the lookup is done.
+	if pkg := w.pkg("."); !pkg.Provisional() || w.errs(pkg) != "" {
+		t.Errorf("first check: provisional %v, errors:\n%s", pkg.Provisional(), w.errs(pkg))
+	}
+	close(found)
+	w.p.prober.wait()
+	if pkg := w.pkg("."); pkg.Provisional() || !strings.Contains(w.errs(pkg), "cannot check the header imports") {
+		t.Errorf("after the lookup: provisional %v, errors:\n%s", pkg.Provisional(), w.errs(pkg))
 	}
 	w.open("main.gp", strings.Replace(src, "_ = v", "_ = &v", 1))
 	w.pkg(".")
-	if n := w.checks(); n != 2 || calls != 1 {
-		t.Errorf("%d checks, %d compiler lookups; want 2 and 1", n, calls)
+	w.p.prober.wait()
+	if n := w.checks(); n != 3 || calls != 1 {
+		t.Errorf("%d checks, %d compiler lookups; want 3 and 1", n, calls)
 	}
 }
 
@@ -664,5 +674,87 @@ func TestUnreadableFolder(t *testing.T) {
 	errs := w.errs(w.pkg("."))
 	if !strings.Contains(errs, "permission denied") || strings.Contains(errs, "not in module") {
 		t.Errorf("errors:\n%s", errs)
+	}
+}
+
+// TestInvalidate checks Session.Invalidate (didChangeWatchedFiles): a file
+// changed on disk is read again only in the snapshot after it, with its
+// package and the importers whose API it changed; a deleted folder stands
+// for everything in it.
+func TestInvalidate(t *testing.T) {
+	w := newWorld(t, testConfig(), app)
+	if errs := w.errs(w.pkg(".")); errs != "" {
+		t.Fatalf("errors:\n%s", errs)
+	}
+	path := filepath.Join(w.root, "shapes", "shapes.gp")
+	if err := os.WriteFile(path, []byte("package shapes\n\ntype Square struct{ Edge int }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if errs := w.errs(w.pkg(".")); errs != "" {
+		t.Errorf("before Invalidate, the snapshot reads the disk again:\n%s", errs)
+	}
+	if err := w.s.Invalidate([]protocol.DocumentURI{w.uri("shapes/shapes.gp")}); err != nil {
+		t.Fatal(err)
+	}
+	if errs := w.errs(w.pkg(".")); !strings.Contains(errs, "Side") {
+		t.Errorf("after Invalidate of shapes.gp, errors:\n%s", errs)
+	}
+	if err := os.RemoveAll(filepath.Join(w.root, "geom")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.s.Invalidate([]protocol.DocumentURI{w.uri("geom")}); err != nil {
+		t.Fatal(err)
+	}
+	if errs := w.errs(w.pkg(".")); !strings.Contains(errs, "geom") {
+		t.Errorf("after Invalidate of the deleted folder geom, errors:\n%s", errs)
+	}
+	snap, release := w.s.Snapshot()
+	defer release()
+	if _, err := snap.Package(context.Background(), filepath.Join(w.root, "geom")); err == nil {
+		t.Error("the deleted package geom is still there")
+	}
+}
+
+// TestRecheck checks Session.Recheck: the package of the folder and its
+// importers get new handles, and nothing is read again (the files, folders
+// and the other handles stay).
+func TestRecheck(t *testing.T) {
+	w := newWorld(t, testConfig(), app)
+	w.pkg(".")
+	stateOf := func() *state {
+		snap, release := w.s.Snapshot()
+		defer release()
+		return snap.State().(*state)
+	}
+	before := stateOf()
+	if err := w.s.Recheck([]string{filepath.Join(w.root, "shapes")}); err != nil {
+		t.Fatal(err)
+	}
+	after := stateOf()
+	after.mu.Lock()
+	defer after.mu.Unlock()
+	// What exists stays (what is missing is looked for again in every
+	// snapshot, see Clone).
+	before.mu.Lock()
+	for path, f := range before.files {
+		if f.err == nil && after.files[path] != f {
+			t.Errorf("the file %s is read again", path)
+		}
+	}
+	for dir, d := range before.dirs {
+		if len(d.names) > 0 && after.dirs[dir] != d {
+			t.Errorf("the folder %s is read again", dir)
+		}
+	}
+	before.mu.Unlock()
+	if len(after.mods) != len(before.mods) {
+		t.Errorf("mods %d→%d: want all kept", len(before.mods), len(after.mods))
+	}
+	for id := range before.handles {
+		_, kept := after.handles[id]
+		rechecked := id.dir == w.root || id.dir == filepath.Join(w.root, "geom") || id.dir == filepath.Join(w.root, "shapes")
+		if kept == rechecked {
+			t.Errorf("%s: kept %v", id.dir, kept)
+		}
 	}
 }

@@ -75,7 +75,7 @@ here imports anything of `golang.org/x/tools`.
 | `doc.go` | the package doc |
 | `jsonrpc.go` | the JSON-RPC 2.0 messages (`Request`, `Response`, `ID`), `ResponseError` and `Errorf`, `DecodeMessage` and `EncodeMessage`. The error codes are the generated `ErrorCodes` and `LSPErrorCodes` |
 | `stream.go` | the base protocol's framing: `Content-Length` headers (`Reader`, `Writer`) |
-| `conn.go` | `Conn`: reads the messages, hands each request and notification to a `Handler` in order, writes the responses; `Notify` |
+| `conn.go` | `Conn`: reads the messages, hands each request and notification to a `Handler` in order, writes the responses; `Notify`; `Request` (the server's own requests to the client, such as `client/registerCapability`, with IDs `gocpp-N`: the client's answers are matched to them, an error is logged, a result dropped) |
 | `position.go` | `Mapper`: LSP positions (lines and UTF-16 units) to byte offsets and back |
 
 These files say at the top that they are gocpp's code, and `update.sh` never touches them.

@@ -117,7 +117,7 @@ func noCXX(t *testing.T) func(context.Context) (build.CXX, error) {
 	}
 }
 
-// A probeRecorder is a Config.probe that records the calls and passes them
+// A probeRecorder is a Config.Probe that records the calls and passes them
 // on to interop.ProbeNamespaces.
 type probeRecorder struct {
 	mu    sync.Mutex
@@ -396,7 +396,7 @@ func TestProbeNames(t *testing.T) {
 		t.Parallel()
 		rec := new(probeRecorder)
 		cfg := probeConfig(cxx, LastPhase)
-		cfg.probe = rec.probe
+		cfg.Probe = rec.probe
 		got := probeErrors(t, cfg, map[string]string{
 			"main.gp": `package main
 
@@ -475,7 +475,7 @@ var d = chrono.seconds(1)
 func TestProbeNoIncludes(t *testing.T) {
 	t.Parallel()
 	rec := new(probeRecorder)
-	cfg := Config{Phase: LastPhase, CXX: noCXX(t), probe: rec.probe}
+	cfg := Config{Phase: LastPhase, CXX: noCXX(t), Probe: rec.probe}
 	got := probeErrors(t, cfg, map[string]string{"main.gp": `package main
 
 func main() {
@@ -618,7 +618,7 @@ func main() { _ = std.vector[int]{}; _ = stdd.x }
 		for _, dir := range []string{"//gocpp:pkg-config gocpp-no-such-lib\n", "//gocpp:cflags -I/nowhere\n"} {
 			rec := new(probeRecorder)
 			cfg := probeConfig(cxx, LastPhase)
-			cfg.probe = rec.probe
+			cfg.Probe = rec.probe
 			prog, root := loadTree(t, map[string]string{"main.gp": main, "flags.gp": dir + "package main\n"})
 			if got := errorText(t, prog, Check(prog, cfg), root, true); got != "" || len(rec.calls) != 0 {
 				t.Errorf("with %q: errors:\n%s\nprobe calls: %q; want none", dir, got, rec.calls)

@@ -59,9 +59,6 @@ import (
 // checked once; after a header changes, load it again (the language
 // server makes a new snapshot anyway).
 
-// A probeFunc is interop.ProbeNamespaces, or a replacement in the tests.
-type probeFunc func(ctx context.Context, cxx build.CXX, dir string, includes, candidates []string) (interop.Result, error)
-
 // A probeGroup is the files of one package that have the same header
 // imports, which the probe checks with one call.
 type probeGroup struct {
@@ -149,7 +146,7 @@ func probeNamespaces(prog *load.Program, cfg Config) map[*load.Package][]diag.Di
 		}
 		cxx, cxxErr = find(ctx)
 	}
-	probe := cfg.probe
+	probe := cfg.Probe
 	if probe == nil {
 		probe = interop.ProbeNamespaces
 	}

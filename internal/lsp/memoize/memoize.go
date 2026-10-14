@@ -225,3 +225,31 @@ func (s *Store[K, V]) Stats() (n int, cost int64) {
 	defer s.mu.Unlock()
 	return s.lru.Len(), s.total
 }
+
+// ForgetIf drops the value of key when it is done and stale reports true
+// for it: the next Get computes it again. A holder of the value keeps it.
+// The language server forgets a checked package whose namespace probe
+// answers have changed since it was checked (cache.Package.Stale).
+func (s *Store[K, V]) ForgetIf(key K, stale func(V, error) bool) {
+	s.mu.Lock()
+	e := s.entries[key]
+	s.mu.Unlock()
+	if e == nil {
+		return
+	}
+	v, err, done := e.promise.Done()
+	if !done || !stale(v, err) {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.entries[key] != e {
+		return
+	}
+	delete(s.entries, key)
+	if e.elem != nil {
+		s.lru.Remove(e.elem)
+		e.elem = nil
+		s.total -= e.cost
+	}
+}

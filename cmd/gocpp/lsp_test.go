@@ -92,13 +92,20 @@ func (p *lspProcess) send(body string) {
 	}
 }
 
+// read returns the next message, but the diagnostics
+// (textDocument/publishDiagnostics), which come whenever the server is done
+// with a change.
 func (p *lspProcess) read() string {
 	p.t.Helper()
-	body, err := p.out.Read()
-	if err != nil {
-		p.t.Fatalf("reading from gocpp lsp: %v; stderr:\n%s", err, p.stderr.String())
+	for {
+		body, err := p.out.Read()
+		if err != nil {
+			p.t.Fatalf("reading from gocpp lsp: %v; stderr:\n%s", err, p.stderr.String())
+		}
+		if !strings.Contains(string(body), `"method":"textDocument/publishDiagnostics"`) {
+			return string(body)
+		}
 	}
-	return string(body)
 }
 
 // wait closes stdin and returns the exit code. gocpp lsp must have written

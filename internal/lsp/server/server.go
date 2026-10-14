@@ -10,10 +10,11 @@
 // and none after; then it runs on its own goroutine, at the same time as
 // the next messages, until it answers or is cancelled.
 //
-// The server offers no features yet, so its capabilities are the text sync
-// alone. The session's snapshots have the memoized check pipeline
-// (cache.Pipeline, step 11.3), which the features (diagnostics, hover, ...)
-// of the next steps use.
+// The session's snapshots have the memoized check pipeline (cache.Pipeline,
+// step 11.3). The features so far: the text sync, and the diagnostics as
+// you type (step 11.4, diagnostics.go: textDocument/publishDiagnostics,
+// with workspace/didChangeWatchedFiles for the files that change on disk).
+// The others (hover, completion, ...) come with the next steps.
 package server
 
 import (
@@ -23,11 +24,13 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/huuhait/gocpp/internal/lsp/cache"
+	"github.com/huuhait/gocpp/internal/lsp/debounce"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
 	"github.com/huuhait/gocpp/internal/version"
 	"github.com/huuhait/gocpp/stdlib"
@@ -54,7 +57,13 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, logger *log.Logger) i
 // exit after shutdown first lets shutdown's answer out (Notify).
 func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) int {
 	s.conn = protocol.NewConn(in, out, s.log)
-	s.conn.OnEnd(s.session.Shutdown)
+	s.conn.OnEnd(func() {
+		// The background work stops: nothing is checked or published
+		// any more.
+		s.session.Shutdown()
+		s.diags.stop()
+		s.pipeline.Close()
+	})
 	err := s.conn.Serve(ctx, s)
 	s.mu.Lock()
 	shutdown, exited := s.lifecycle == stateShutdown, s.exited
@@ -95,9 +104,11 @@ const shutdownWait = time.Second
 // A Server is the state of one language server: one client connection. It
 // is a protocol.Handler.
 type Server struct {
-	log     *log.Logger
-	session *cache.Session
-	conn    *protocol.Conn // set by Serve
+	log      *log.Logger
+	pipeline *cache.Pipeline
+	session  *cache.Session
+	diags    *diagnostics
+	conn     *protocol.Conn // set by Serve
 	// requests are the methods of the requests that run on a snapshot
 	// (see method); tests add their own before Serve.
 	requests     map[string]method
@@ -107,6 +118,9 @@ type Server struct {
 	lifecycle lifecycle
 	trace     protocol.TraceValue
 	exited    bool // the exit notification came
+	// watchFiles: the client can register workspace/didChangeWatchedFiles
+	// (initialize), so initialized does.
+	watchFiles bool
 	// warned holds the documents whose change failed and that the user
 	// was told about (didChange); didOpen removes a document.
 	warned map[protocol.DocumentURI]bool
@@ -147,24 +161,35 @@ type env struct {
 
 // New returns a server that logs to logger, which may be nil.
 func New(logger *log.Logger) *Server {
+	return newServer(logger, pipelineConfig(), debounce.RealClock{})
+}
+
+// newServer returns a server with the pipeline configuration cfg (whose
+// OnProbe it sets) and the clock of its diagnostics' debouncer.
+func newServer(logger *log.Logger, cfg cache.Config, clock debounce.Clock) *Server {
 	if logger == nil {
 		logger = log.New(io.Discard, "", 0)
 	}
-	return &Server{
+	s := &Server{
 		log:          logger,
-		session:      cache.NewSession(newPipeline().NewState()),
-		requests:     map[string]method{}, // the features come with steps 11.4 to 11.9
+		requests:     map[string]method{}, // the features come with steps 11.5 to 11.9
 		shutdownWait: shutdownWait,
 		trace:        protocol.Off,
 		warned:       make(map[protocol.DocumentURI]bool),
 		stale:        make(map[protocol.DocumentURI]map[protocol.ID]*staleToken),
 	}
+	s.diags = newDiagnostics(s, clock)
+	cfg.OnProbe = s.diags.probed
+	s.pipeline = cache.NewPipeline(cfg)
+	s.session = cache.NewSession(s.pipeline.NewState())
+	return s
 }
 
-// newPipeline returns the check pipeline of a session: the gocpp standard
-// library, for the system that runs the server, as gocpp check does.
-func newPipeline() *cache.Pipeline {
-	return cache.NewPipeline(cache.Config{Stdlib: stdlib.FS(), GoStd: stdlib.IsStd})
+// pipelineConfig returns the configuration of the check pipeline of a
+// session: the gocpp standard library, for the system that runs the
+// server, as gocpp check does.
+func pipelineConfig() cache.Config {
+	return cache.Config{Stdlib: stdlib.FS(), GoStd: stdlib.IsStd}
 }
 
 // Session returns the server's session: the snapshots of the open
@@ -186,6 +211,7 @@ var notifications = map[string]func(*Server, context.Context, json.RawMessage) e
 	"textDocument/didChange":           (*Server).didChange,
 	"textDocument/didClose":            (*Server).didClose,
 	"textDocument/didSave":             (*Server).didSave,
+	"workspace/didChangeWatchedFiles":  (*Server).didChangeWatchedFiles,
 	"workspace/didChangeConfiguration": ignore, // no settings yet
 }
 
@@ -351,7 +377,9 @@ func (s *Server) initialize(params json.RawMessage) (any, error) {
 	if p.Trace != nil {
 		s.trace = *p.Trace
 	}
+	s.watchFiles = p.Capabilities.Workspace.DidChangeWatchedFiles.DynamicRegistration
 	s.mu.Unlock()
+	s.diags.related.Store(p.Capabilities.TextDocument.PublishDiagnostics.RelatedInformation)
 	if c := p.ClientInfo; c != nil {
 		s.log.Printf("initialize: client %s %s", c.Name, c.Version)
 	}
@@ -371,19 +399,47 @@ func (s *Server) initialize(params json.RawMessage) (any, error) {
 	}, nil
 }
 
-func (s *Server) initialized(context.Context, json.RawMessage) error { return nil }
+// watchedFiles are the files whose changes on disk the server wants to hear
+// of (workspace/didChangeWatchedFiles): the .gp files and gocpp.mod files,
+// which the snapshots read, and the C/C++ headers, which the namespace probe
+// reads.
+var watchedFiles = []string{"**/*.gp", "**/gocpp.mod", "**/*.{h,hh,hpp,hxx,inc}"}
+
+// initialized registers workspace/didChangeWatchedFiles when the client can
+// (like gopls; a client without dynamic registration may send it anyway).
+func (s *Server) initialized(context.Context, json.RawMessage) error {
+	s.mu.Lock()
+	watch := s.watchFiles
+	s.mu.Unlock()
+	if !watch {
+		return nil
+	}
+	watchers := make([]protocol.FileSystemWatcher, len(watchedFiles))
+	for i, glob := range watchedFiles {
+		watchers[i] = protocol.FileSystemWatcher{GlobPattern: protocol.GlobPattern{Value: glob}}
+	}
+	return s.conn.Request("client/registerCapability", &protocol.RegistrationParams{
+		Registrations: []protocol.Registration{{
+			ID:              "gocpp-watched-files",
+			Method:          "workspace/didChangeWatchedFiles",
+			RegisterOptions: protocol.DidChangeWatchedFilesRegistrationOptions{Watchers: watchers},
+		}},
+	})
+}
 
 // shutdown starts the shutdown request id. From now on, every request but
 // exit gets an error (Call). The answer waits until the requests in flight
 // have answered, for up to s.shutdownWait; then the ones left are
 // cancelled (RequestCancelled). So the answer to shutdown comes after the
-// answers to every request before it.
+// answers to every request before it. The diagnostics stop first: none is
+// published after the answer.
 func (s *Server) shutdown(id protocol.ID) protocol.Work {
 	s.mu.Lock()
 	s.lifecycle = stateShutdown
 	s.shutdownID = &id
 	s.mu.Unlock()
 	return func(ctx context.Context) (any, error) {
+		s.diags.stop()
 		wctx, cancel := context.WithTimeout(ctx, s.shutdownWait)
 		defer cancel()
 		if s.conn.Wait(wctx, id) || ctx.Err() != nil {
@@ -430,6 +486,7 @@ func (s *Server) didOpen(_ context.Context, params json.RawMessage) error {
 	s.mu.Lock()
 	delete(s.warned, uri)
 	s.mu.Unlock()
+	s.diags.scheduleFile(uri, 0)
 	return nil
 }
 
@@ -450,6 +507,7 @@ func (s *Server) didChange(_ context.Context, params json.RawMessage) error {
 	err := s.session.DidChange(uri, version, p.ContentChanges)
 	if old != nil {
 		s.modified(uri) // a failed change made it broken: stale too
+		s.diags.scheduleFile(uri, s.diags.delay)
 	}
 	if err != nil {
 		s.warnBroken(uri)
@@ -482,14 +540,94 @@ func (s *Server) didClose(_ context.Context, params json.RawMessage) error {
 		return err
 	}
 	s.modified(p.TextDocument.URI)
+	s.diags.scheduleFile(p.TextDocument.URI, 0)
 	return nil
 }
 
 func (s *Server) didSave(_ context.Context, params json.RawMessage) error {
-	// The file on disk now has the text of the overlay. Nothing reads the
-	// disk yet (step 11.3 does).
+	// The file on disk now has the text of the overlay, which the
+	// snapshots read anyway: the run finds what it published, and
+	// publishes nothing (it is cheap: everything is cached).
 	var p protocol.DidSaveTextDocumentParams
-	return decode(params, &p)
+	if err := decode(params, &p); err != nil {
+		return err
+	}
+	s.diags.scheduleFile(p.TextDocument.URI, 0)
+	return nil
+}
+
+// isHeader reports whether the file is a C/C++ header (watchedFiles).
+func isHeader(path string) bool {
+	switch filepath.Ext(path) {
+	case ".h", ".hh", ".hpp", ".hxx", ".inc":
+		return true
+	}
+	return false
+}
+
+// didChangeWatchedFiles takes in files that changed on disk, outside the
+// editor (a git checkout, a generator, another editor): a new snapshot
+// reads them again (Session.Invalidate) and the open packages they are in
+// are diagnosed again, after the quiet time of a didChange (a checkout
+// reports many files, in several notifications); their importers follow
+// when their API changed. A changed file of a package that is not open, a
+// gocpp.mod file or a folder (anything else but a header) can change every
+// open package: every open package is diagnosed again (only what the
+// change touches is checked again, step 11.3), and the package that is not
+// open is not checked for itself. A
+// header changes no snapshot: the namespace probe checks its answers again
+// in the background (Pipeline.HeadersChanged), and the packages whose
+// answers changed are diagnosed again (diagnostics.probed). The events of
+// an open document change nothing: its overlay is what counts.
+func (s *Server) didChangeWatchedFiles(_ context.Context, params json.RawMessage) error {
+	var p protocol.DidChangeWatchedFilesParams
+	if err := decode(params, &p); err != nil {
+		return err
+	}
+	var uris []protocol.DocumentURI
+	dirs := make(map[string]bool)
+	headers, all := false, false
+	for _, c := range p.Changes {
+		path := c.URI.Path()
+		switch {
+		case path == "":
+			continue
+		case isHeader(path):
+			headers = true
+			continue
+		case strings.HasSuffix(path, ".gp"):
+			dirs[filepath.Dir(path)] = true
+		default:
+			all = true // gocpp.mod, or a folder
+		}
+		uris = append(uris, c.URI)
+	}
+	if headers {
+		s.pipeline.HeadersChanged()
+	}
+	if len(uris) == 0 {
+		return nil
+	}
+	if err := s.session.Invalidate(uris); err != nil {
+		return err
+	}
+	if all {
+		s.diags.scheduleOpen("", s.diags.delay)
+		return nil
+	}
+	snap, release := s.session.Snapshot()
+	open := openDirs(snap)
+	release()
+	for dir := range dirs {
+		if !open[dir] {
+			s.diags.scheduleOpen("", s.diags.delay)
+			return nil
+		}
+	}
+	for dir := range dirs {
+		s.diags.schedule(dir, s.diags.delay)
+	}
+	return nil
 }
 
 // Trace returns the trace level that the client set ($/setTrace, or the

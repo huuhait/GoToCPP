@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"slices"
@@ -80,6 +81,8 @@ type Conn struct {
 	writeErr error        // the first error writing a response, a *WriteError
 	onEnd    func()       // OnEnd
 	works    sync.WaitGroup
+	sent     map[ID]string // the requests of the server whose answer has not come, by ID: their methods
+	lastID   int64         // the number of the last ID of a request of the server
 }
 
 // A call is a request in flight.
@@ -131,7 +134,8 @@ var errEnded = Errorf(RequestCancelled, "the connection ended")
 // is not JSON gets a ParseError response, JSON that is not a JSON-RPC 2.0
 // message gets an InvalidRequest response, and so does a request whose ID
 // is the ID of a request still in flight; Serve goes on after them. A
-// response from the client is dropped: the server sends no requests yet.
+// response from the client to a request of the server (Request) is logged
+// when it is an error, and dropped; another response is dropped too.
 //
 // A request whose context is cancelled while its Work runs, and whose Work
 // then returns the context's error (context.Canceled, maybe wrapped), is
@@ -231,7 +235,7 @@ func (c *Conn) serve(ctx context.Context, h Handler) error {
 		var req *Request
 		switch m := msg.(type) {
 		case *Response:
-			c.log.Printf("dropped a response to request %v: the server sends no requests", m.ID)
+			c.answered(m)
 			continue
 		case *Request:
 			req = m
@@ -471,6 +475,55 @@ func (c *Conn) Notify(method string, params any) error {
 		}
 	}
 	return c.write(&Request{Method: method, Params: data})
+}
+
+// Request sends a request to the client, with an ID of the server's own
+// ("gocpp-1", "gocpp-2", ...), and returns without waiting for the answer:
+// when it comes, an error is logged and a result dropped (the server's
+// requests, such as client/registerCapability, need no result). It is safe
+// for concurrent use. After the end of the connection it returns ErrClosed
+// and writes nothing (Serve).
+func (c *Conn) Request(method string, params any) error {
+	var data json.RawMessage
+	if params != nil {
+		var err error
+		if data, err = json.Marshal(params); err != nil {
+			return err
+		}
+	}
+	c.mu.Lock()
+	c.lastID++
+	id := StringID(fmt.Sprintf("gocpp-%d", c.lastID))
+	if c.sent == nil {
+		c.sent = make(map[ID]string)
+	}
+	c.sent[id] = method
+	c.mu.Unlock()
+	err := c.write(&Request{ID: &id, Method: method, Params: data})
+	if err != nil {
+		c.mu.Lock()
+		delete(c.sent, id)
+		c.mu.Unlock()
+	}
+	return err
+}
+
+// answered handles a response from the client.
+func (c *Conn) answered(m *Response) {
+	var method string
+	ok := false
+	if m.ID != nil {
+		c.mu.Lock()
+		method, ok = c.sent[*m.ID]
+		delete(c.sent, *m.ID)
+		c.mu.Unlock()
+	}
+	switch {
+	case !ok:
+		c.log.Printf("dropped a response to request %v: the server sent no such request", m.ID)
+	case m.Error != nil:
+		c.log.Printf("%s: the client answered with an error: %v", method, m.Error)
+	}
 }
 
 func (c *Conn) write(m Message) error {

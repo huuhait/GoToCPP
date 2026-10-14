@@ -698,3 +698,40 @@ func waitInFlight(t *testing.T, c *Conn, n int) {
 type writerFunc func([]byte) (int, error)
 
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
+
+// TestRequest: the conn sends requests of its own with IDs that are its
+// own; their answers are dropped (an error is logged), and so is an answer
+// to a request it never sent.
+func TestRequest(t *testing.T) {
+	checkGoroutines(t)
+	p := startPeer(t, funcs{})
+	for i := 1; i <= 2; i++ {
+		if err := p.conn.Request("client/registerCapability", map[string]int{"n": i}); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case m := <-p.msgs:
+			req, ok := m.(*Request)
+			want := StringID(fmt.Sprintf("gocpp-%d", i))
+			if !ok || req.ID == nil || *req.ID != want || req.Method != "client/registerCapability" || string(req.Params) != fmt.Sprintf(`{"n":%d}`, i) {
+				t.Fatalf("got %+v, want request %v", m, want)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("no request in 10 s")
+		}
+	}
+	p.send(`{"jsonrpc":"2.0","id":"gocpp-1","result":null}`)
+	p.send(`{"jsonrpc":"2.0","id":"gocpp-2","error":{"code":-32601,"message":"no"}}`)
+	p.send(`{"jsonrpc":"2.0","id":"gocpp-1","result":null}`) // answered already
+	if err := p.endQuiet(); err != io.EOF {
+		t.Fatalf("Serve: %v", err)
+	}
+	log := p.log()
+	if !strings.Contains(log, "client/registerCapability: the client answered with an error: no") ||
+		strings.Count(log, "dropped a response") != 1 {
+		t.Errorf("log:\n%s", log)
+	}
+	if err := p.conn.Request("m", nil); err != ErrClosed {
+		t.Errorf("Request after Serve = %v, want ErrClosed", err)
+	}
+}

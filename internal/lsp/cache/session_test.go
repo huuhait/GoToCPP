@@ -25,11 +25,11 @@ type stateLog struct {
 	released []int // the gens, in the order of Release
 }
 
-func (s *testState) Clone(next *Snapshot, changed map[protocol.DocumentURI]bool) State {
+func (s *testState) Clone(next *Snapshot, ch Change) State {
 	s.log.mu.Lock()
 	s.log.clones++
 	s.log.mu.Unlock()
-	return &testState{gen: s.gen + 1, changed: maps.Clone(changed), snap: next, log: s.log}
+	return &testState{gen: s.gen + 1, changed: maps.Clone(ch.Files), snap: next, log: s.log}
 }
 
 func (s *testState) Release() {

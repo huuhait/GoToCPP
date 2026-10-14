@@ -133,6 +133,23 @@ type summary struct {
 	hasC       bool          // check.Dep.HasC
 	failed     bool          // check.Dep.Failed
 	apiHash    Hash
+
+	// records are the probe records of the check of the package and of
+	// the packages it imports, directly or not, that asked for the C++
+	// compiler or a probe (probe.go): the summary is stale when one of
+	// them is.
+	records []*probeRecord
+}
+
+// stale reports whether the prober would answer a check of the package, or
+// of one it imports, differently now.
+func (s *summary) stale() bool {
+	for _, r := range s.records {
+		if r.stale() {
+			return true
+		}
+	}
+	return false
 }
 
 // A Package is a package of a snapshot after the check: loaded alone, with
@@ -165,6 +182,26 @@ type Package struct {
 // Fset returns the FileSet of the package's files and of the objects of the
 // packages it imports (from their export data).
 func (pkg *Package) Fset() *token.FileSet { return pkg.Program.Fset }
+
+// Provisional reports whether the check of the package, or of a package
+// that it imports, directly or not, went on without an answer of the
+// namespace probe that runs in the background (probe.go): the uses of the
+// names it didn't know yet are opaque, without errors, and the include
+// errors are missing. When the answers come, the package is Stale.
+func (pkg *Package) Provisional() bool {
+	for _, r := range pkg.summary.records {
+		if r.provisional() {
+			return true
+		}
+	}
+	return false
+}
+
+// Stale reports whether the namespace probe answers the check of the
+// package, or of a package it imports, differently now than when it was
+// checked: a new snapshot (Session.Recheck of its folder) checks it
+// again. Config.OnProbe says when this may have changed.
+func (pkg *Package) Stale() bool { return pkg.summary.stale() }
 
 // Package returns the checked package of the folder dir (an absolute name)
 // in the snapshot. Only the package and the imports whose API changed are
@@ -209,6 +246,21 @@ func (s *Snapshot) ParseFile(ctx context.Context, uri protocol.DocumentURI, mode
 		return nil, err
 	}
 	return st.p.parse(ctx, f, mode)
+}
+
+// ReadFile returns the content of the file with the absolute name path in
+// the snapshot: its overlay, or else the file on disk as the snapshot read
+// it (once): the text that the snapshot's checks saw.
+func (s *Snapshot) ReadFile(path string) ([]byte, error) {
+	st, ok := s.state.(*state)
+	if !ok {
+		return nil, errNoPipeline
+	}
+	f, err := st.file(path)
+	if err != nil {
+		return nil, err
+	}
+	return f.src, f.err
 }
 
 var errNoPipeline = errors.New("cache: the session has no pipeline")
@@ -509,13 +561,42 @@ func (p *Pipeline) summaryOf(ctx context.Context, h *handle) (*summary, error) {
 	if err != nil {
 		return nil, err
 	}
-	return p.summaries.Get(ctx, k.key, func(ctx context.Context) (*summary, error) {
-		pkg, err := p.checked(ctx, h, k)
-		if err != nil {
-			return nil, err
+	for {
+		s, err := p.summaries.Get(ctx, k.key, func(ctx context.Context) (*summary, error) {
+			pkg, err := p.checked(ctx, h, k)
+			if err != nil {
+				return nil, err
+			}
+			return pkg.summary, nil
+		})
+		if err != nil || !k.renew(s) {
+			return s, err
 		}
-		return pkg.summary, nil
-	})
+		p.forget(k.key, s)
+	}
+}
+
+// renew reports whether s, the summary of a check with the key k, is stale
+// and a new check of k would not be: the summaries of the imports that k
+// has are not stale. (Otherwise a new check is no better: a new snapshot
+// makes a new key with new summaries, see Package.Stale.)
+func (k *keyed) renew(s *summary) bool {
+	if !s.stale() {
+		return false
+	}
+	for _, d := range k.deps {
+		if d != nil && d.stale() {
+			return false
+		}
+	}
+	return true
+}
+
+// forget drops the stale summary s of the key, and its checked package,
+// from the caches.
+func (p *Pipeline) forget(key Hash, s *summary) {
+	p.summaries.ForgetIf(key, func(v *summary, _ error) bool { return v == s })
+	p.checks.ForgetIf(key, func(v *Package, _ error) bool { return v != nil && v.summary == s })
 }
 
 // packageOf returns the checked package of h: from the cache, or checked
@@ -524,7 +605,7 @@ func (p *Pipeline) packageOf(ctx context.Context, h *handle) (*Package, error) {
 	if h.cyclic {
 		return h.own.Get(ctx)
 	}
-	if pkg := h.last.Load(); pkg != nil {
+	if pkg := h.last.Load(); pkg != nil && !pkg.Stale() {
 		return pkg, nil
 	}
 	k, err := h.keyed.Get(ctx)
@@ -538,9 +619,16 @@ func (p *Pipeline) packageOf(ctx context.Context, h *handle) (*Package, error) {
 	return pkg, err
 }
 
-// checked returns the check of the key k of h.
+// checked returns the check of the key k of h: a new one when the kept one
+// is stale and a new one would not be (keyed.renew).
 func (p *Pipeline) checked(ctx context.Context, h *handle, k *keyed) (*Package, error) {
-	return p.checks.Get(ctx, k.key, func(ctx context.Context) (*Package, error) { return p.check(ctx, h, k) })
+	for {
+		pkg, err := p.checks.Get(ctx, k.key, func(ctx context.Context) (*Package, error) { return p.check(ctx, h, k) })
+		if err != nil || !k.renew(pkg.summary) {
+			return pkg, err
+		}
+		p.forget(k.key, pkg.summary)
+	}
 }
 
 // check loads the package of h alone, with its imports from their
@@ -608,12 +696,16 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 	reportImportErrors(prog, root)
 	sum := &summary{importPath: root.ImportPath, load: root.Summary()}
 
+	// The compiler and the probes answer at once, from what the prober
+	// knows (probe.go); rec keeps what they answered.
+	rec := &probeRecord{pr: p.prober}
 	r := check.Check(prog, check.Config{
 		Phase:   p.cfg.Phase,
 		GOOS:    p.cfg.GOOS,
 		GOARCH:  p.cfg.GOARCH,
 		Context: ctx,
-		CXX:     p.findCXX,
+		CXX:     p.prober.findCXX(rec),
+		Probe:   p.prober.probeFor(rec),
 		Deps:    func(lp *load.Package) check.Dep { return depOf[lp] },
 	})
 	if err := ctx.Err(); err != nil {
@@ -630,6 +722,18 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 		sum.export = buf.Bytes()
 	}
 	sum.apiHash = apiHash(root, dep, k.deps)
+	if rec.used() {
+		sum.records = append(sum.records, rec)
+	}
+	for _, s := range k.deps {
+		if s != nil {
+			for _, r := range s.records {
+				if !slices.Contains(sum.records, r) {
+					sum.records = append(sum.records, r)
+				}
+			}
+		}
+	}
 	pkg := &Package{Program: prog, Check: cp, APIHash: sum.apiHash, summary: sum}
 	for _, f := range h.files {
 		pkg.cost += sourceFactor * int64(len(f.src))
