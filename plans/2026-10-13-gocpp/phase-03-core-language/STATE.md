@@ -108,3 +108,9 @@
   panic with the per-goroutine signal line; the long-chain release trampoline (depth 128); the
   complete no-plain-named-members test runtime/members_test.go) committed, clean after 3 review rounds.
   The emitter maps `weak.Make(p)` / `w.Value()` to `gp::weak_make` / `gp::weak_value`.
+- 2026-10-14 (3.17 review): rules for later steps: 3.6 `gp::array<T, 0>` is an empty struct (1 byte, like
+  gocpp's empty struct); 3.8 fields in source order at one access level, no `[[no_unique_address]]`,
+  embedded fields as data members (never base classes: the empty-base optimization would change sizes,
+  Phase 05 §2.6); 3.9 `gp::newtype` has the size of the type it wraps; 3.5a merge: TestSizesTable fails
+  on purpose until the `[]int` row stops being pending and `-update-sizes` is run (same for maps in 3.7,
+  arrays in 3.6). `unsafe.Sizeof` of a type with a C/C++ part by value is an error until Phase 04.
