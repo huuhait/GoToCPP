@@ -235,8 +235,8 @@ using `this`.
   (otherwise the caller passes a fresh copy). A plain `const&` rule is unsafe: if the callee
   changes the global that was passed, the parameter changes too, or the object is freed (seen in
   the audit).
-- `func(int) string` → `gp::func<gp::string(int64_t)>` (a `std::function` wrapper that panics
-  when you call nil and supports `== nil`).
+- `func(int) string` → `gp::func<gp::string(int64_t)>` (gocpp's own 24-byte type: an owner plus a code
+  pointer, so copies share the closure as in Go; it panics when you call nil and supports `== nil`).
 - Variadic `func f(xs ...int)` takes a `gp::slice<int64_t>`. `f(1, 2)` → `f({1, 2})`;
   `f(s...)` → `f(s)`.
 - **Closures** become C++ lambdas. Capture analysis per variable:
@@ -254,7 +254,10 @@ func counter() func() int {
 ```cpp
 gp::func<int64_t()> counter() {
     gp::ptr<int64_t> n = gp::new_<int64_t>(0);              // boxed: captured + modified
-    return [n]() -> int64_t { (*n)++; return (*n); };
+    return gp::func<int64_t()>([n]<int = 1>() mutable -> int64_t {  // <int = 1>: Go's closure number (func1)
+        (*n)++;
+        return (*n);
+    });
 }
 ```
 

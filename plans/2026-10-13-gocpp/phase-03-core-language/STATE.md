@@ -307,3 +307,13 @@
   arm64. gocpp follows the spec. TestRandomOrder's huge counts now read `gz` (always 0) so gc can't fold
   them; tests/diff/shift_huge_count.gp and order_random_seed5021.gp. Draft upstream issue (not filed):
   plans/2026-10-13-gocpp/upstream/gc-shift-count-issue.md.
+- 2026-10-14 (3.11 review, manager): gp::func is gocpp's own 24-byte type (a shared_ptr<void> owner plus a
+  code pointer; copies share the closure, as Go does; the owner is released through detail::release), not a
+  std::function wrapper (std::function copies the closure on every copy): accepted; README §2.6's sample is
+  updated. gc's call order: a callee that contains a call is evaluated before the arguments; a callee without
+  one (f, fs[i], m[k]) is read after the argument calls. For 3.18: tests/run/closures_recursive.gp and
+  emit/closures.gp (fib through a variable) are reference cycles: mark them as LSan cycle tests (exit
+  criterion: "LSan clean except marked cycle tests"). For Phase 15: calls through gp_call (a package or boxed
+  func variable) cost an atomic inc/dec: 1e8 calls take 2.3 s (clang++) / 3.1 s (g++) against 0.4 s through a
+  local and 0.1 s in Go; idea: skip the extra owner when nothing in the package assigns the variable outside
+  its declaration.
