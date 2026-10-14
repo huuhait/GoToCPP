@@ -478,9 +478,24 @@ gocpp fmt [-l] [-w] [-d] [files or folders]  # like gofmt; no paths = stdin
 Like `go build`, `gocpp check` prints a `# <import path>` line before each failing package's
 errors (`# command-line-arguments` for files named on the command line), shows at most 10 per
 package, writes everything to stderr and exits with status 1. A package with syntax errors is not
-type-checked. `-e` shows all errors and also parses with `parser.AllErrors`, keeping only the
-first syntax error of each line (the compiler does that even with `-e`, while go/parser with
-`AllErrors` can report several on one line).
+type-checked. `-e` shows all errors.
+
+As built (job 1.14, `cmd/gocpp/check.go`), checked against 1.25.14 `go build` output in about 35
+captured cases:
+- The loader always parses with `parser.AllErrors`; then the compiler's rules apply in found order:
+  the first parser error of each line, every scanner error, and the 10-error limit unless `-e`.
+  This matches `go build` with and without `-e`.
+- **Load failures** (what `go list` would report first: pattern errors, bad imports, errors in the
+  file header as go/build's import reader cuts it) print go-list style, in go's `PackageList`
+  order, each missing import path once, only the first header error per package; nothing is
+  type-checked then.
+- A package whose dependency has real errors is not reported (like `go build`). A dependency with
+  only phase-gate errors (`diag.Diagnostic.Gate`) doesn't hide the packages that import it.
+- `./...` is expanded by the CLI the way cmd/go does (module root, `_`/`.`/testdata skipped,
+  symlinks, nested modules); `load.Load` doesn't take `...` (Phase 06's `gocpp list` may move it
+  there). A `...` pattern outside the main module is an error, as in go.
+- `GOOS`/`GOARCH` from the environment are honored and checked against go's list of pairs.
+- `check -types` prints every expression with its type, or `opaque` from the opaque pass.
 
 ## 3. Steps
 

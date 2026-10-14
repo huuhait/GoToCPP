@@ -19,7 +19,7 @@ var planned = []struct {
 	{"build", 2}, {"run", 2}, {"test", 9}, {"check", 1}, {"emit", 2},
 	{"expand", 10}, {"fmt", 1}, {"lsp", 11}, {"vet", 13}, {"doc", 13},
 	{"debug", 13}, {"explain", 13}, {"env", 6}, {"list", 6}, {"clean", 6},
-	{"get", 15}, {"bindgen", 12}, {"export", 6}, {"version", 0},
+	{"get", 15}, {"bindgen", 12}, {"export", 6}, {"parse", 1}, {"version", 0},
 }
 
 // gocpp runs the CLI with args and an empty standard input, and returns
@@ -80,7 +80,7 @@ func TestHelp(t *testing.T) {
 			t.Errorf("gocpp %s: exit %d, stderr %q; want exit 0 and no stderr", arg, code, errOut)
 			continue
 		}
-		checkUsage(t, "gocpp "+arg, out)
+		checkCommandList(t, "gocpp "+arg, out)
 	}
 }
 
@@ -98,12 +98,12 @@ func TestNoArgs(t *testing.T) {
 	if code != 2 || out != "" {
 		t.Fatalf("gocpp: exit %d, stdout %q; want exit 2 and no stdout", code, out)
 	}
-	checkUsage(t, "gocpp", errOut)
+	checkCommandList(t, "gocpp", errOut)
 }
 
-// checkUsage checks that the usage lists every planned command on one line,
+// checkCommandList checks that the usage lists every planned command on one line,
 // in order, and marks the ones that are not built yet with their phase.
-func checkUsage(t *testing.T, what, usage string) {
+func checkCommandList(t *testing.T, what, usage string) {
 	t.Helper()
 	_, list, ok := strings.Cut(usage, "The commands are:\n\n")
 	if !ok {

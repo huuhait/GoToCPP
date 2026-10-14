@@ -72,7 +72,7 @@ func gateUnchecked(fset *token.FileSet, p *Package, phase int) {
 			for _, u := range uses {
 				first = min(first, u.offset)
 				pos := tf.Pos(u.offset)
-				d := diag.Diagnostic{Pos: tf.Position(pos), Msg: features[u.id].Message()}
+				d := diag.Diagnostic{Pos: tf.Position(pos), Msg: features[u.id].Message(), Gate: true}
 				if u.length > 0 {
 					d.End = tf.Position(pos + token.Pos(u.length))
 				}

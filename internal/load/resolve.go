@@ -221,6 +221,15 @@ func checkImportPath(path string) string {
 // modFile is the name of the file at the top of a module.
 const modFile = "gocpp.mod"
 
+// FindModule returns the module of the absolute folder dir, as Load finds
+// it: the one whose gocpp.mod file is in dir or in the nearest folder above
+// it, or nil if there is none. Its Path is "" if gocpp.mod has no valid
+// module line (Load reports why). gocpp check uses it to match patterns
+// with "..." the way the go command does.
+func FindModule(dir string) *Module {
+	return newLoader(Config{Dir: dir}).module(filepath.Clean(dir))
+}
+
 // module returns the module of the folder dir: the one with the gocpp.mod
 // file in dir or in the nearest folder above it, or nil if there is none.
 // It reads each gocpp.mod file once, and reports its errors in

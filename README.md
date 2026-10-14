@@ -18,8 +18,9 @@ Phase 00 (foundations) is done: the repo skeleton, the dev shell, the decision r
 test harness ([tests/](tests/README.md)) and the 19 target programs
 ([examples/](examples/README.md)) are in place. Phase 01 (the front-end) is under way.
 Nothing compiles `.gp` files yet, but `gocpp fmt` works: it formats `.gp` files like gofmt
-(`gocpp fmt -h` explains how). `gocpp check` comes later in Phase 01. A command that is not
-built yet says which phase builds it.
+(`gocpp fmt -h` explains how), and `gocpp check` parses and type-checks packages and prints
+their errors like `go build` (`gocpp check ./...`; `gocpp check -h` explains how). A command
+that is not built yet says which phase builds it.
 
 - The plan: [plans/2026-10-13-gocpp/README.md](plans/2026-10-13-gocpp/README.md)
 - Progress: [plans/2026-10-13-gocpp/STATE.md](plans/2026-10-13-gocpp/STATE.md)

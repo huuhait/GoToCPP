@@ -170,6 +170,24 @@ func (s *printState) shortName(name string) string {
 	return short + name[i:]
 }
 
+// ShortFileName returns the file name name the way Print shows it, with
+// cwd as the current folder (Printer.Dir): its folder relative to cwd when
+// that is shorter ("./main.gp", "sub/a.gp", "../a.gp"), else as it is. A
+// relative name, or an empty cwd, leaves name as it is. gocpp check
+// -types names files with it, so that they look like the ones in errors.
+func ShortFileName(cwd, name string) string {
+	s := printState{cwd: cwd, dirs: make(map[string]string)}
+	return s.shortName(name)
+}
+
+// ShortPath returns the path p relative to the current folder cwd, if that
+// is shorter and is the same file or folder. Else it returns p. It is
+// base.ShortPath of the go command, which shows folders this way in its
+// messages ("directory prefix sub does not contain main module").
+func ShortPath(cwd, p string) string {
+	return shortDir(cwd, p)
+}
+
 // shortDir returns the folder dir relative to the current folder cwd, if
 // that is shorter and is the same folder. Else it returns dir. This is
 // base.ShortPath of the go command (cmd/go/internal/base/path.go).

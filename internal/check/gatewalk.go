@@ -1006,7 +1006,7 @@ func (g *gateChecker) apply() {
 		return
 	}
 	toDiag := func(f finding) diag.Diagnostic {
-		d := diag.Diagnostic{Pos: g.fset.Position(f.pos), Msg: f.msg}
+		d := diag.Diagnostic{Pos: g.fset.Position(f.pos), Msg: f.msg, Gate: true}
 		if f.end > f.pos {
 			d.End = g.fset.Position(f.end)
 		}

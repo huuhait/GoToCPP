@@ -36,7 +36,7 @@
 - [x] 1.11 Opaque pass (widened "comes from C/C++" rule, recorded C type expressions, sanity rule)
 - [x] 1.12 Unsupported-feature checker with the full gate table + generated `feature-matrix.md`
 - [x] 1.13 Diagnostics package (format, sort, dedupe, limit, caret)
-- [~] 1.14 CLI: `version`, `parse -dump`, `check`, `check -types` (`fmt` is step 1.16)
+- [x] 1.14 CLI: `version`, `parse -dump`, `check`, `check -types` (`fmt` is step 1.16)
 - [ ] 1.15 Error tests + "no false errors" interop corpus
 - [x] 1.16 `gocpp fmt` via `go/printer` with gofmt's settings (`go/format.Node` re-parses with the stock parser) (`-l -w -d`); header imports keep their order (include order matters); stdlib + badly formatted inputs match real gofmt
 
@@ -181,3 +181,7 @@
   opaque values; the narrowed sanity rule; a key name in an opaque literal that resolves to a local
   variable marks it used (a truly unused local named like a C field of that literal goes
   unreported). Over Go's own stdlib (651 packages) the pass finds 0 unlabeled expressions.
+- 2026-10-13: Job 1.14 (`gocpp check`, `check -types`, `parse -dump`) committed, clean after 3 review
+  rounds (README §2.12 "As built"). New on the way: `diag.Diagnostic.Gate`, `load.Package.NoFiles`
+  (a `NoFilesReason`), `load.FindModule`, `diag.ShortPath`/`ShortFileName`. The C++ compiler for the
+  namespace probe is not passed to `check.Check` yet (`TODO(job 1.10c)` in check.go).

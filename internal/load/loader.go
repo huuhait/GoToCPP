@@ -169,6 +169,17 @@ type Package struct {
 	// imports, directly or not, has an error.
 	Incomplete bool
 
+	// NoFiles says why the folder of the package has no .gp file to
+	// build, when nothing else is wrong with it: no .gp files at all
+	// (NoGpFiles), only _test.gp files without Config.Tests
+	// (OnlyTestFiles), or only files that the build constraints exclude
+	// (ExcludedFiles). Errors then holds just that error ("no .gp files
+	// in", "no non-test .gp files in", "build constraints exclude all .gp
+	// files in"). It is HasFiles, the zero value, otherwise. Like the go
+	// command, gocpp check skips such a folder when a pattern with "..."
+	// matches it (go's NoGoError, and its omitTestOnly for tests).
+	NoFiles NoFilesReason
+
 	// ForTest is set for the packages of the import graph of a test
 	// (Config.Tests) that are not shared with the rest of the program: the
 	// test variant of a package, its external test package, and the
@@ -199,6 +210,21 @@ type Package struct {
 	// it gets only one, like in the go command.
 	cycleReported bool
 }
+
+// A NoFilesReason says why a package has no .gp file to build
+// (Package.NoFiles).
+type NoFilesReason int
+
+const (
+	// HasFiles: the package has files to build, or another problem.
+	HasFiles NoFilesReason = iota
+	// NoGpFiles: the folder has no .gp files.
+	NoGpFiles
+	// OnlyTestFiles: the folder has only _test.gp files.
+	OnlyTestFiles
+	// ExcludedFiles: the build constraints exclude all the .gp files.
+	ExcludedFiles
+)
 
 // A File is one .gp file of a package, after the parse-level steps.
 type File struct {
@@ -794,10 +820,13 @@ func (l *loader) read(p *Package, named []string, tests bool) (internalTests boo
 		dir := p.Dir
 		switch {
 		case skippedTests > 0:
+			p.NoFiles = OnlyTestFiles
 			p.Errors.Errorf(p.at, "%s: no non-test .gp files in %s", p.ImportPath, dir)
 		case excluded > 0:
+			p.NoFiles = ExcludedFiles
 			p.Errors.Errorf(p.at, "package %s: build constraints exclude all .gp files in %s", p.ImportPath, dir)
 		default:
+			p.NoFiles = NoGpFiles
 			p.Errors.Errorf(p.at, "no .gp files in %s", dir)
 		}
 		return false

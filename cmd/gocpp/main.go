@@ -36,7 +36,7 @@ var commands = []command{
 	{name: "build", phase: 2, summary: "compile packages and their C/C++ files"},
 	{name: "run", phase: 2, summary: "compile and run a program"},
 	{name: "test", phase: 9, summary: "run the tests in _test.gp files"},
-	{name: "check", phase: 1, summary: "parse and type-check packages, print errors"},
+	{name: "check", phase: 1, summary: "parse and type-check packages, print errors", run: runCheck},
 	{name: "emit", phase: 2, summary: "print the C++ generated for a .gp file"},
 	{name: "expand", phase: 10, summary: "print code after macro, #Derive and ! rewriting"},
 	{name: "fmt", phase: 1, summary: "format .gp files like gofmt", run: runFmt},
@@ -51,6 +51,7 @@ var commands = []command{
 	{name: "get", phase: 15, summary: "add dependencies to gocpp.mod and download them"},
 	{name: "bindgen", phase: 12, summary: "write a readable gocpp view of a C/C++ header"},
 	{name: "export", phase: 6, summary: "write build files for other tools (cmake)"},
+	{name: "parse", phase: 1, summary: "print the syntax tree of .gp files (for debugging)", run: runParse},
 	{name: "version", phase: 0, summary: "print the gocpp version", run: runVersion},
 }
 

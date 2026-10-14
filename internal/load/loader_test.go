@@ -564,11 +564,73 @@ func TestNoFiles(t *testing.T) {
 		t.Run(tc.pattern, func(t *testing.T) {
 			prog := loadIn(t, Config{}, root, tc.pattern)
 			wantErrors(t, prog, root, tc.want)
+			want := map[string]NoFilesReason{
+				"example.com/m/empty":    NoGpFiles,
+				"example.com/m/hidden":   NoGpFiles,
+				"example.com/m/onlytest": OnlyTestFiles,
+				"example.com/m/tagged":   ExcludedFiles,
+			}
+			for _, p := range prog.Packages {
+				if p.NoFiles != want[p.ImportPath] {
+					t.Errorf("%s: NoFiles is %v, want %v", p.ImportPath, p.NoFiles, want[p.ImportPath])
+				}
+			}
 		})
 	}
 	// With Tests, a folder of test files is a package.
 	prog := loadIn(t, Config{Tests: true}, root, "./onlytest")
 	wantErrors(t, prog, root, "")
+	if prog.Roots[0].NoFiles != HasFiles {
+		t.Errorf("onlytest with Tests: NoFiles is %v", prog.Roots[0].NoFiles)
+	}
+
+	// A folder whose only file has a broken //go:build line, or can't be
+	// read, has files, with an error: NoFiles is not set.
+	root = writeTree(t, map[string]string{
+		"gocpp.mod":   "module example.com/m\n",
+		"broken/b.gp": "//go:build linux &&\n\npackage b\n",
+		"unread/u.gp": "package u\n",
+	})
+	unreadable := filepath.Join(root, "unread", "u.gp")
+	if err := os.Chmod(unreadable, 0); err != nil {
+		t.Fatal(err)
+	}
+	_, err := os.ReadFile(unreadable)
+	for _, pattern := range []string{"./broken", "./unread"} {
+		if pattern == "./unread" && err == nil {
+			continue // the test runs as root, or on windows: the file can be read
+		}
+		prog := loadIn(t, Config{}, root, pattern)
+		if p := prog.Roots[0]; p.NoFiles != HasFiles || !p.Errors.HasErrors() {
+			t.Errorf("%s: NoFiles %v, errors %v; want no NoFiles and an error", pattern, p.NoFiles, p.Errors.Diagnostics())
+		}
+	}
+}
+
+func TestFindModule(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"gocpp.mod":            "// The app.\nmodule example.com/app // its path\n",
+		"sub/x.gp":             "package sub\n",
+		"inner/gocpp.mod":      "module example.com/inner\n",
+		"inner/deep/x.gp":      "package deep\n",
+		"broken/gocpp.mod":     "go 1.25\n",
+		"broken/deeper/README": "x\n",
+	})
+	for _, tc := range []struct{ dir, root, path string }{
+		{".", ".", "example.com/app"},
+		{"sub", ".", "example.com/app"},
+		{"nosuch", ".", "example.com/app"},
+		{"inner/deep", "inner", "example.com/inner"},
+		{"broken/deeper", "broken", ""},
+	} {
+		m := FindModule(filepath.Join(root, filepath.FromSlash(tc.dir)))
+		if want := filepath.Join(root, filepath.FromSlash(tc.root)); m == nil || m.Dir != want || m.Path != tc.path {
+			t.Errorf("FindModule(%s) = %+v, want {Path:%s Dir:%s}", tc.dir, m, tc.path, want)
+		}
+	}
+	if m := FindModule(t.TempDir()); m != nil {
+		t.Errorf("FindModule of a folder outside every module = %+v, want nil", m)
+	}
 }
 
 func TestFoundPackages(t *testing.T) {

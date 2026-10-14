@@ -50,7 +50,29 @@ func TestShortName(t *testing.T) {
 			if got := s.shortName(tt.file); got != filepath.FromSlash(tt.want) {
 				t.Errorf("shortName(%q) from %q = %q, want %q", tt.file, tt.cwd, got, tt.want)
 			}
+			if got := ShortFileName(tt.cwd, tt.file); got != filepath.FromSlash(tt.want) {
+				t.Errorf("ShortFileName(%q, %q) = %q, want %q", tt.cwd, tt.file, got, tt.want)
+			}
 		})
+	}
+}
+
+func TestShortPath(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct{ cwd, path, want string }{
+		{root, root, "."},
+		{root, sub, "sub"},
+		{sub, root, ".."},
+		{root, filepath.Join(root, "sub", "a.gp"), filepath.Join("sub", "a.gp")},
+		{root, "rel", "rel"},
+	} {
+		if got := ShortPath(tt.cwd, tt.path); got != tt.want {
+			t.Errorf("ShortPath(%q, %q) = %q, want %q", tt.cwd, tt.path, got, tt.want)
+		}
 	}
 }
 

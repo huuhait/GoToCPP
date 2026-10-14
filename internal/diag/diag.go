@@ -84,6 +84,13 @@ type Diagnostic struct {
 	// and Go doesn't change them.
 	Code int
 
+	// Gate reports that the error is a phase gate of internal/check: a
+	// feature that a later phase of the plan brings ("closures are not
+	// supported yet (Phase 03)") or that gocpp never has. Such an error
+	// says nothing against the types, so gocpp check still checks the
+	// packages that import a package whose only errors are gates.
+	Gate bool
+
 	// Related lists more places that belong to the message, such as
 	// "other declaration of x". Print shows each one on its own line,
 	// after a tab, under the message.
