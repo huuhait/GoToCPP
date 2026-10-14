@@ -55,7 +55,7 @@ const nt = "type N int\n\ntype NS []N\n\nvar gn N = 5\n\nvar gns = NS{1, 2, 3}\n
 const mt = "type R struct{ v int }\n\nfunc (r R) get(a int) int {\n\tfmt.Println(\"get\", r.v, a)\n\treturn r.v\n}\n\n" +
 	"func (r *R) put(a int) {\n\tfmt.Println(\"put\", r.v, a)\n\tr.v = a\n}\n\n" +
 	"func (r *R) self(a int) *R {\n\tfmt.Println(\"self\", a)\n\treturn r\n}\n\nvar gr *R\n\nvar grs = []R{{1}}\n\n" +
-	"func nilr() int {\n\tfmt.Println(\"nilr\")\n\tgr = nil\n\treturn 0\n}\n\nfunc mkr() *R {\n\tfmt.Println(\"mkr\")\n\treturn nil\n}\n\n"
+	"func callr(f func(int) int, n int) int {\n\treturn f(n)\n}\n\nfunc nilr() int {\n\tfmt.Println(\"nilr\")\n\tgr = nil\n\treturn 0\n}\n\nfunc mkr() *R {\n\tfmt.Println(\"mkr\")\n\treturn nil\n}\n\n"
 
 // fv has the func values for the func cases of TestOrderPanics: a package func variable that
 // setfv changes, and mkfv, which gives a nil func.
@@ -201,6 +201,13 @@ func TestOrderPanics(t *testing.T) {
 		{"method-defer-recv", mt, "var p *R\n\tdefer fmt.Println(\"first\")\n\tdefer p.get(f())"},
 		{"method-arg-panic", mt, "z := 0\n\tgr = &R{2}\n\tgr.get(7 / z + f())"},
 		{"method-chain", mt, "gr = &R{3}\n\tfmt.Println(gr.self(id(1)).get(nilr()), gr.self(id(2)).get(f()))"},
+		// Method values (step 3.10b): the receiver is evaluated where the value is made, after
+		// the calls of its scope (gr.get next to nilr() binds the nil gr), a call in it first; a
+		// value receiver is copied then, and the later changes don't reach it.
+		{"method-value-recv-after-call", mt, "gr = &R{1}\n\tfmt.Println(callr(gr.get, nilr()))"},
+		{"method-value-call-first", mt, "fmt.Println(callr(mkr().get, id(1)))"},
+		{"method-value-index", mt, "i := 3\n\tfmt.Println(callr(grs[i].get, f()))"},
+		{"method-value-copy", mt, "gr = &R{1}\n\tg, p := gr.get, gr.put\n\tgr.v = 5\n\tp(7)\n\tfmt.Println(g(0), gr.v)\n\tgr = nil\n\tfmt.Println(g(1), callr(gr.get, 2))"},
 		// Func values (step 3.11): a func value is read after the calls of its call's scope (a
 		// package variable that an argument changes: the new func), a call that gives one runs
 		// before the arguments, a nil func panics after them, an element of a slice of funcs
@@ -547,6 +554,14 @@ func TestOrderTemps(t *testing.T) {
 		{"gsts[0].inc(1)", "Pt::inc(gp::ptr<Pt>(gsts.gp_owner(), &gsts[0]), 1);"},
 		{"defer gpp.sum()", "gp_df.gp_push_call([](auto&& gp_a0) { gp_a0.sum(); }, *gpp);"},
 		{"defer gst.inc(f())", "gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { Pt::inc(gp_a0, gp_a1); }, gp::static_ptr(gst), f());"},
+		// Method values (step 3.10b): a copy of the receiver (*gpp for a value method through a
+		// pointer), or the pointer, in the lambda's capture, read after the calls of the scope;
+		// a call of a method expression calls its lambda.
+		{"s := gst.sum\n\t_ = s", "gp::func<int64_t()> s = gp::func<int64_t()>([gp_r = gst](auto&&... gp_a) { return gp_r.sum(gp_a...); });"},
+		{"a := gpp.add\n\t_ = a", "gp::func<int64_t(int64_t)> a = gp::func<int64_t(int64_t)>([gp_r = *gpp](auto&&... gp_a) { return gp_r.add(gp_a...); });"},
+		{"i := gst.inc\n\t_ = i", "gp::func<int64_t(int64_t)> i = gp::func<int64_t(int64_t)>([gp_r = gp::static_ptr(gst)](auto&&... gp_a) { return Pt::inc(gp_r, gp_a...); });"},
+		{"fs := []func() int{gst.sum, mkf()}\n\t_ = fs", "auto gp_t0 = mkf(); gp::slice<gp::func<int64_t()>> fs = gp::slice_of<gp::func<int64_t()>>({gp::func<int64_t()>([gp_r = gst](auto&&... gp_a) { return gp_r.sum(gp_a...); }), gp_t0});"},
+		{"_ = Pt.add(gst, f())", "{ auto gp_t0 = f(); static_cast<void>([](auto&& gp_r, auto&&... gp_a) { return gp_r.add(gp_a...); }(gst, gp_t0)); }"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.body, func(t *testing.T) {
@@ -558,7 +573,7 @@ func TestOrderTemps(t *testing.T) {
 				"type Wrap struct{ *Pt }\n\ntype Huge struct {\n\tv  int\n\tbig [1 << 15]int\n\tn  int\n}\n\n" +
 				"func mkp() *Pt {\n\treturn &gst\n}\n\n" + nt +
 				"func (p Pt) sum() int {\n\treturn p.a + p.b\n}\n\nfunc (p Pt) add(n int) int {\n\treturn p.a + n\n}\n\n" +
-				"func (p *Pt) inc(n int) int {\n\tp.a += n\n\treturn p.a\n}\n\nvar gpp = &gst\n\n" + "type Flag bool\n\nfunc main() {\n\t" + tt.body + "\n}\n"
+				"func (p *Pt) inc(n int) int {\n\tp.a += n\n\treturn p.a\n}\n\nvar gpp = &gst\n\nfunc mkf() func() int {\n\tx++\n\treturn nil\n}\n\n" + "type Flag bool\n\nfunc main() {\n\t" + tt.body + "\n}\n"
 			gp := filepath.Join(dir, "main.gp")
 			if err := os.WriteFile(gp, []byte(src), 0o644); err != nil {
 				t.Fatal(err)

@@ -50,8 +50,8 @@ import (
 // 3.10): value and pointer methods of S and N, called (also deferred) on the package, boxed and
 // plain local structs, through pst and pls and on elements, which change their receivers and call
 // e (a value receiver is a copy that e's changes don't reach), next to the calls of their
-// arguments, and func values (step
-// 3.11): calls of a package func variable that e changes (the new func is called when an
+// arguments, also as method values and method expressions (step 3.10b: the receiver is
+// evaluated where the value is made), and func values (step 3.11): calls of a package func variable that e changes (the new func is called when an
 // argument changes it), of an element of a package slice of funcs, of a counter closure of main
 // that changes a boxed variable, of a closure that reads locals of main and a package variable
 // when it runs, of func literals called at once, and deferred calls of the package func
@@ -413,6 +413,11 @@ func (n *N) np(tag int) int {
 	e(tag, 0)
 	return int(*n)
 }
+
+// via calls a method value, viaE a method expression (step 3.10b).
+func via(f func(int, int) int, tag, v int) int { return f(tag, v) }
+
+func viaE(f func(S, int, int) int, s S, tag, v int) int { return f(s, tag, v) }
 
 `
 
@@ -1414,11 +1419,25 @@ func (g *progGen) method(depth int) string {
 	if g.main {
 		recvs = append(recvs, "lst", "pls")
 	}
+	value := g.chance(0.3) // a method value (step 3.10b): its receiver is evaluated where it is made
 	if g.chance(0.5) {
 		if g.main {
 			recvs = append(recvs, "lw")
 		}
-		return fmt.Sprintf("%s.mv(%d, %s)", recvs[g.r.Intn(len(recvs))], tag, g.expr(depth))
+		recv := recvs[g.r.Intn(len(recvs))]
+		switch {
+		case value && g.chance(0.3):
+			if recv == "pst" || recv == "pls" {
+				recv = "*" + recv
+			}
+			return fmt.Sprintf("viaE(S.mv, %s, %d, %s)", recv, tag, g.expr(depth))
+		case value:
+			return fmt.Sprintf("via(%s.mv, %d, %s)", recv, tag, g.expr(depth))
+		}
+		return fmt.Sprintf("%s.mv(%d, %s)", recv, tag, g.expr(depth))
+	}
+	if value {
+		return fmt.Sprintf("via(%s.mp, %d, %s)", recvs[g.r.Intn(len(recvs))], tag, g.expr(depth))
 	}
 	return fmt.Sprintf("%s.mp(%d, %s)", recvs[g.r.Intn(len(recvs))], tag, g.expr(depth))
 }

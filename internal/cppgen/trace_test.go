@@ -174,13 +174,19 @@ func normTrace(stderr string) string {
 
 // TestTraceMethods compares the trace of a panic inside methods with Go's (step 3.10): a value
 // method is main.T.M, a pointer method main.(*T).M, also for a named type that isn't a struct,
-// and a method called through a deferred call shows at the line of its function's exit.
+// and a method called through a deferred call shows at the line of its function's exit. Method
+// values and expressions (step 3.10b) show the method itself: Go leaves out its wrappers
+// (main.T.M-fm) as the trace leaves out gocpp's generic lambdas.
 func TestTraceMethods(t *testing.T) {
 	goOnce.Do(func() { goCmd, _ = exec.LookPath("go") })
 	if goCmd == "" {
 		t.Skip("no go command")
 	}
-	src := `package main
+	tests := []struct {
+		name, src string
+		frames    []string // in Go's trace
+	}{
+		{"calls", `package main
 
 type T struct{ v int }
 
@@ -206,34 +212,77 @@ func main() {
 	n := N(2)
 	n.Defer(&T{4})
 }
-`
-	dir := t.TempDir()
-	gp := filepath.Join(dir, "main.gp")
-	if err := os.WriteFile(gp, []byte(src), 0o644); err != nil {
-		t.Fatal(err)
+`, []string{"main.T.Div()", "main.(*T).Half()", "main.N.Run()", "main.(*N).Defer()"}},
+		{"values", `package main
+
+type T struct{ v int }
+
+func (t T) Div(d int) int {
+	return t.v / d
+}
+
+func (t *T) Half(d int) int {
+	return call(T{t.v}.Div, d-2)
+}
+
+func call(f func(int) int, d int) int {
+	return f(d)
+}
+
+func main() {
+	t := &T{4}
+	h := t.Half
+	e := (*T).Half
+	println(e(t, 3))
+	h(2)
+}
+`, []string{"main.T.Div()", "main.call()", "main.(*T).Half()", "main.main()"}},
+		{"expressions", `package main
+
+type T struct{ v int }
+
+func (t T) Div(d int) int {
+	return t.v / d
+}
+
+func main() {
+	f := T.Div
+	println(f(T{1}, 1))
+	println(T.Div(T{1}, 0))
+}
+`, []string{"main.T.Div()", "main.main()"}},
 	}
-	want := goTrace(t, gp)
-	for _, name := range []string{"main.T.Div()", "main.(*T).Half()", "main.N.Run()", "main.(*N).Defer()"} {
-		if !strings.Contains(want, name+"\n") {
-			t.Fatalf("Go's trace has no %s:\n%s", name, want)
-		}
-	}
-	work := t.TempDir()
-	cpp := filepath.Join(work, "main.gp.cpp")
-	if err := os.WriteFile(cpp, []byte(emitter(gp)(t, Config{OutputPath: cpp})), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	for _, c := range compilers(t) {
-		t.Run(c.name, func(t *testing.T) {
-			if c.missing != "" {
-				t.Skip(c.missing)
-			}
-			_, stderr, code, err := command(work, false, c.build(t, cpp))
-			if err != nil {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			gp := filepath.Join(dir, "main.gp")
+			if err := os.WriteFile(gp, []byte(tt.src), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			if got := normTrace(string(stderr)); code != 2 || got != want {
-				t.Errorf("exit code %d, the trace (normalized):\n%s\nwant Go's:\n%s", code, got, want)
+			want := goTrace(t, gp)
+			for _, name := range tt.frames {
+				if !strings.Contains(want, name+"\n") {
+					t.Fatalf("Go's trace has no %s:\n%s", name, want)
+				}
+			}
+			work := t.TempDir()
+			cpp := filepath.Join(work, "main.gp.cpp")
+			if err := os.WriteFile(cpp, []byte(emitter(gp)(t, Config{OutputPath: cpp})), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			for _, c := range compilers(t) {
+				t.Run(c.name, func(t *testing.T) {
+					if c.missing != "" {
+						t.Skip(c.missing)
+					}
+					_, stderr, code, err := command(work, false, c.build(t, cpp))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if got := normTrace(string(stderr)); code != 2 || got != want {
+						t.Errorf("exit code %d, the trace (normalized):\n%s\nwant Go's:\n%s", code, got, want)
+					}
+				})
 			}
 		})
 	}

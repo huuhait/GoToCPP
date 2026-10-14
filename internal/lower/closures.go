@@ -239,7 +239,7 @@ func (fg *funcGen) funcValueCall(c *ast.CallExpr) bool {
 		return ok
 	case *ast.SelectorExpr:
 		sel := fg.g.info.Selections[fun]
-		return sel != nil && sel.Kind() == types.FieldVal
+		return sel != nil && (sel.Kind() == types.FieldVal || sel.Kind() == types.MethodExpr) // T.M(x): methods.go
 	}
 	return isFunc(fg.g.info.TypeOf(c.Fun))
 }
@@ -257,6 +257,10 @@ func (fg *funcGen) stableCallee(e ast.Expr) bool {
 		return true
 	case *ast.CallExpr:
 		return !fg.g.info.Types[x.Fun].IsType()
+	case *ast.SelectorExpr:
+		if s := fg.g.info.Selections[x]; s != nil && s.Kind() == types.MethodExpr {
+			return true // T.M: a lambda (methods.go)
+		}
 	}
 	v := (&boxer{info: fg.g.info}).root(e)
 	return v != nil && !fg.isBoxed(v)
@@ -282,6 +286,8 @@ func (fg *funcGen) callValue(c *ast.CallExpr) cppir.Expr {
 			callee = &cppir.Member{X: lam, Name: "operator()"}
 			lam.TailAtEnd = true
 		}
+	} else if x, s := fg.methodExpr(fun); x != nil {
+		callee = fg.methodLambda(x, s) // T.M(x, a): its lambda, called at once (methods.go)
 	} else {
 		callee = fg.expr(fun)
 	}

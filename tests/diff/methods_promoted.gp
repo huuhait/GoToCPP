@@ -5,7 +5,7 @@
 // o.Mid.Deep.Bump()), on a package variable, through a pointer and deferred, and fmt's hooks of
 // promoted String and Error methods (Error first, also through two embedded pointers, and a
 // pointer method reached through an embedded pointer followed by an embedded value, also with
-// that pointer nil).
+// that pointer nil), and their method values and expressions.
 package main
 
 import "fmt"
@@ -76,6 +76,15 @@ func main() {
 	fmt.Println(Out{}, Top{}) // a nil *Mid2: the String method panics, fmt prints PANIC=
 	out := Out{&Mid2{In{4}}}
 	fmt.Println(out.String(), Top{out}.String())
+	// Method values and expressions of promoted methods (step 3.10b): the receiver through the
+	// embedded fields, copied or addressed when the value is made.
+	get, set, bump, val := o.Get, o.Set, o.Bump, o.Val
+	o.Inner.v = 1
+	set(3)
+	fmt.Println(get(), o.Get(), bump(), val(), Outer.Get(o), (*Outer).Bump(&o), Outer.Val(o))
+	(*Outer).Set(&o, 2)
+	ps := out.String
+	fmt.Println(o.Get(), ps(), Out.String(out), Top.String(Top{out}))
 	defer o.Set(8)
 	defer fmt.Println(o.Get())
 	defer o.Bump()

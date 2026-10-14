@@ -24,6 +24,7 @@ import (
 //	o.M() (promoted)                o.Inner.M(), o.Inner->M(), Inner::PM(gp::field_ptr(...))
 //	defer x.M(a)                    gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) {
 //	                                    gp_a0.M(gp_a1); }, x, a);  (the receiver copied now)
+//	f := x.M, x.PM, T.M, (*T).PM    gp::func<Sig>(<a generic lambda>)  (methodValue)
 //
 // A value receiver is the method's own copy, as in Go: the const member function starts with T v
 // = *this; (a box, gp::ptr<T> v = gp::new_<T>(*this);, when the boxing analysis boxes v, or when T
@@ -59,8 +60,8 @@ import (
 // static gp::string gp_String_ptr(const gp::ptr<T>&) for a pointer-only one, promoted methods
 // included; the same for Error().
 //
-// Method values (f := x.M) and method expressions (T.M, (*T).PM) are func values: they come
-// with gp::func (step 3.11) and report "Phase 03 step 3.10 after 3.11" until then.
+// Method values (f := x.M) and method expressions (T.M, (*T).PM) are func values (step 3.10b,
+// on step 3.11's gp::func): methodValue.
 
 // A methodInfo is what a method's funcInfo has more than a function's.
 type methodInfo struct {
@@ -392,22 +393,31 @@ func (r recvPath) endPtr() bool { return isPointer(r.end) }
 // change, and panic for nil: after the calls of the scope, as gc does.
 func (fg *funcGen) analyzeMethod(c *ast.CallExpr, x *ast.SelectorExpr, s *types.Selection) *orderScope {
 	sc := &orderScope{}
-	r := pathOf(s)
 	if _, stored := fg.recvs[x]; !stored {
-		if r.ptrRecv && !r.endPtr() && !r.deref {
-			fg.collectAddr(sc, x.X, 0, nil) // &x, &x.Inner: the address of an addressable x
-		} else {
-			fg.collect(sc, x.X, 0, nil)
-			if r.deref || !r.ptrRecv && r.endPtr() {
-				sc.items = append(sc.items, &orderItem{e: x, root: 0, eff: effect{read: true, panics: true}})
-			}
-		}
+		fg.collectRecv(sc, x, s, 0, nil)
 	}
 	for i, a := range c.Args {
 		fg.collect(sc, a, i+1, nil)
 	}
 	sc.plan()
 	return sc
+}
+
+// collectRecv adds the items of the receiver of x.M, a method call's or a method value's, to the
+// scope (order.go), below the operators up: taking the receiver's address has the items of its
+// address (collectAddr); a value method through a pointer, and a promotion through an embedded
+// pointer, read memory through the pointer, which a call can change, and panic for nil.
+func (fg *funcGen) collectRecv(sc *orderScope, x *ast.SelectorExpr, s *types.Selection, root int, up *orderStep) {
+	r := pathOf(s)
+	below := &orderStep{node: x, up: up}
+	if r.ptrRecv && !r.endPtr() && !r.deref {
+		fg.collectAddr(sc, x.X, root, below) // &x, &x.Inner: the address of an addressable x
+		return
+	}
+	fg.collect(sc, x.X, root, below)
+	if r.deref || !r.ptrRecv && r.endPtr() {
+		sc.items = append(sc.items, &orderItem{e: x, root: root, up: up, eff: effect{read: true, panics: true}})
+	}
 }
 
 // methodCall returns the C++ of the call c of a method, x.M(args) (see the top).
@@ -552,14 +562,118 @@ func (fg *funcGen) storeRecv(c *ast.CallExpr, params *[]cppir.Param, values *[]c
 	return func() { delete(fg.recvs, x) }
 }
 
-// methodValue reports a method value (x.M not called) or a method expression (T.M): func values,
-// which come with step 3.11.
-func (fg *funcGen) methodValue(x *ast.SelectorExpr, s *types.Selection) {
-	if s.Kind() == types.MethodExpr {
-		fg.g.unsupported(x.Pos(), "method expressions (Phase 03 step 3.10 after 3.11)")
-		return
+// methodValue returns the C++ of a method value x.M (not called) or a method expression T.M, a
+// func value (step 3.11's gp::func, closures.go) made from a generic lambda, which the stack trace
+// leaves out as Go leaves out its wrappers (main.T.M-fm, and main.(*T).M for (*T).M):
+//
+//	x.M (value method)    gp::func<Sig>([gp_r = x](auto&&... gp_a) { return gp_r.M(gp_a...); })
+//	p.M (value method)    the same with gp_r = *p: a copy now, which panics now for a nil p
+//	x.PM, p.PM            [gp_r = <&x>, p](auto&&... gp_a) { return T::PM(gp_r, gp_a...); }
+//	T.M, (*T).PM          [](auto&& gp_r, auto&&... gp_a) { return gp_r.M(gp_a...); }, T::PM(...)
+//	(*T).M                the same with gp_r->M(...), after Go's check: a nil gp_r panics with
+//	                      "value method main.T.M called using nil *T pointer"
+//
+// The receiver of a method value is evaluated where the value is made, like a method call's
+// receiver (order.go: collectRecv): its reads after the calls of its scope. A value receiver
+// larger than 128 KiB is captured in a box (D24). A call of a method expression, T.M(x, a), is a
+// call of its lambda, without a gp::func (closures.go: callValue). Promoted methods work the same
+// way, through the embedded fields (recvFrom).
+func (fg *funcGen) methodValue(x *ast.SelectorExpr, s *types.Selection) cppir.Expr {
+	sig, _ := fg.g.info.TypeOf(x).(*types.Signature)
+	if sig == nil {
+		fg.g.errorf(x.Pos(), "internal error: a method value without a signature")
+		return placeholder
 	}
-	fg.g.unsupported(x.Pos(), "method values (Phase 03 step 3.10 after 3.11)")
+	return construct(fg.g.funcType(sig, x.Pos()), fg.methodLambda(x, s))
+}
+
+// methodLambda returns the generic lambda of the method value or method expression x
+// (methodValue).
+func (fg *funcGen) methodLambda(x *ast.SelectorExpr, s *types.Selection) *cppir.Lambda {
+	fn := s.Obj().(*types.Func)
+	r := pathOf(s)
+	auto := &cppir.Ref{Elem: typeName("auto"), RValue: true}
+	args := []cppir.Expr{&cppir.Expand{X: cxxName("gp_a")}}
+	lam := &cppir.Lambda{Params: []cppir.Param{{Type: auto, Pack: true, Name: "gp_a"}}, Body: &cppir.Block{Inline: true}}
+	recv := cppir.Expr(cxxName("gp_r"))
+	ptr := false
+	if s.Kind() == types.MethodExpr {
+		// The receiver is the first parameter, of the type before the dot.
+		lam.Params = append([]cppir.Param{{Type: auto, Name: "gp_r"}}, lam.Params...)
+		if isPointer(r.t) && !r.ptrRecv && len(r.path) == 0 {
+			// (*T).M of a value method: Go's wrapper checks the pointer (runtime.panicwrap).
+			msg := "value method " + goTypeName(r.end.(*types.Pointer).Elem()) + "." + fn.Name() +
+				" called using nil *" + r.end.(*types.Pointer).Elem().(*types.Named).Obj().Name() + " pointer"
+			check := &cppir.If{Cond: &cppir.Binary{Op: "==", X: recv, Y: lit("nullptr")},
+				Then: &cppir.Block{Inline: true, Stmts: []cppir.Stmt{&cppir.ExprStmt{X: call("gp::panic_constant", lit(cppir.CString(msg)+"_gs"))}}}}
+			lam.Body.Stmts = append(lam.Body.Stmts, check)
+		}
+		var ok bool
+		recv, ptr, ok = fg.recvFrom(recv, r)
+		if !ok {
+			fg.g.errorf(x.Pos(), "internal error: the method expression %s has no pointer for its receiver", types.ExprString(x))
+		}
+	} else {
+		// A method value: the receiver now, a copy of a value (*p for a value method through a
+		// pointer: nil panics here), or the pointer for a pointer method.
+		value, isPtr := fg.recvExpr(x, r, false)
+		if isPtr && !r.ptrRecv {
+			value = deref(value)
+		}
+		if !r.ptrRecv {
+			if base := recvBase(r); largeVar(base) {
+				typ := fg.g.cxxType(base, x.Pos())
+				value = newBox(typ, value) // a large copy goes into a box (D24)
+				recv = &cppir.Paren{X: deref(recv)}
+			}
+		}
+		lam.Captures = []cppir.Capture{{Name: "gp_r", Init: value}}
+		ptr = r.ptrRecv
+	}
+	lam.Body.Stmts = append(lam.Body.Stmts, &cppir.Return{X: fg.g.callMethod(recv, ptr, fn, r, args, x.Pos())})
+	return lam
+}
+
+// methodExpr returns e as a method expression (T.M, (*T).PM) and its selection, or nil.
+func (fg *funcGen) methodExpr(e ast.Expr) (*ast.SelectorExpr, *types.Selection) {
+	x, ok := ast.Unparen(e).(*ast.SelectorExpr)
+	if !ok {
+		return nil, nil
+	}
+	if s := fg.g.info.Selections[x]; s != nil && s.Kind() == types.MethodExpr {
+		return x, s
+	}
+	return nil, nil
+}
+
+// recvBase returns the receiver's base type at the end of the path r: T for T or *T.
+func recvBase(r recvPath) types.Type {
+	if p, ok := under(r.end).(*types.Pointer); ok {
+		return p.Elem()
+	}
+	return r.end
+}
+
+// recvFrom returns the receiver of the method at the end of the path r from base, the C++ of a
+// value of type r.t (a struct value or a pointer to one), and whether it is a pointer: for a
+// pointer method of a value at the end of the path, its address, from the last pointer on the
+// path (base itself, or an embedded pointer) with one gp::field_ptr for each field after it; else
+// the fields of the path. It reports false if the address needs a pointer that the path doesn't
+// have (an addressable variable is fg.recvAddr's).
+func (fg *funcGen) recvFrom(base cppir.Expr, r recvPath) (cppir.Expr, bool, bool) {
+	if r.ptrRecv && !r.endPtr() {
+		p, t, start := base, r.t, 0
+		switch {
+		case r.last >= 0:
+			p, t = fg.fieldSteps(base, r.t, r.path[:r.last], token.NoPos)
+			start = r.last
+		case !isPointer(r.t):
+			return placeholder, true, false
+		}
+		return fg.g.fieldPtrs(p, t, r.path[start:], token.NoPos), true, true
+	}
+	recv, _ := fg.fieldSteps(base, r.t, r.path, token.NoPos)
+	return recv, r.endPtr(), true
 }
 
 // A hook is one of the fmt shim's members for a method of the method set of a struct
@@ -634,24 +748,14 @@ func (g *gen) hookDefs(si *structInfo) []cppir.Decl {
 			}
 			base = deref(lit("this")) // promoted through the embedded fields of *this
 		}
-		if r.ptrRecv && !r.endPtr() {
-			// A pointer method of a value at the end of the path: its address, from the last
-			// pointer on the path (gp_p itself, or an embedded pointer, which T's value method
-			// set needs for a pointer method: Out{*Mid} with Mid{In} and (*In).String), one
-			// gp::field_ptr for each field after it.
-			if r.last < 0 && !h.ptr {
-				g.errorf(token.NoPos, "internal error: the hook %s of %s has no pointer for its receiver", h.name, si.name)
-				return nil
-			}
-			p, t, start := base, r.t, 0
-			if r.last >= 0 {
-				p, t = fg.fieldSteps(base, r.t, r.path[:r.last], token.NoPos)
-				start = r.last
-			}
-			recv, ptr = g.fieldPtrs(p, t, r.path[start:], token.NoPos), true
-		} else {
-			recv, _ = fg.fieldSteps(base, r.t, r.path, token.NoPos)
-			ptr = r.endPtr()
+		// A pointer method of a value at the end of the path takes its address from the last
+		// pointer on the path: gp_p itself, or an embedded pointer, which T's value method set
+		// needs for a pointer method (Out{*Mid} with Mid{In} and (*In).String).
+		var ok bool
+		recv, ptr, ok = fg.recvFrom(base, r)
+		if !ok {
+			g.errorf(token.NoPos, "internal error: the hook %s of %s has no pointer for its receiver", h.name, si.name)
+			return nil
 		}
 		x := g.callMethod(recv, ptr, fn, r, nil, token.NoPos)
 		d.Body = &cppir.Block{Stmts: []cppir.Stmt{&cppir.Return{X: x}}}

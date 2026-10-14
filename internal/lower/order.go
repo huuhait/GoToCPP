@@ -437,6 +437,8 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 			if eff := fg.fieldEffect(x); eff.any() {
 				add(&orderItem{eff: eff})
 			}
+		} else if s := fg.g.info.Selections[x]; s != nil && s.Kind() == types.MethodVal {
+			fg.collectRecv(sc, x, s, root, up) // a method value's receiver (methods.go)
 		}
 	case *ast.SliceExpr:
 		// gc evaluates a slice expression as a whole in its place among the calls (walk/

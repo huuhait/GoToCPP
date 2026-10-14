@@ -76,7 +76,8 @@
 //     T v = *this;, or a const reference when the body can't change it; a pointer receiver as
 //     the first parameter of a static member), the calls (the address of an addressable
 //     receiver, -> through a pointer, promoted methods, the receiver in Go's order, a deferred
-//     call's stored receiver), and the fmt shim's String()/Error() hooks;
+//     call's stored receiver), method values and method expressions (step 3.10b, gp::func), and
+//     the fmt shim's String()/Error() hooks;
 //   - named.go: the named types that aren't structs (step 3.9): their C++ structs over
 //     gp::newtype, the conversions to and from them, and Go's implicit conversions between types
 //     that are not identical (also between struct types), found before a function is lowered;

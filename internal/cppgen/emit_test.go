@@ -324,10 +324,8 @@ func TestUnsupported(t *testing.T) {
 		{"struct-slice-tags", "type W struct{ S []struct{ Q int `t:\"q\"` } }\ntype V struct{ S []struct{ Q int } }\nfunc main() {\n\t_ = V(W{})\n}", "main.gp:6:6: cppgen: not supported yet: the conversion from W to V, whose fields differ in struct tags inside a slice or a map"},
 		{"struct-map-tags", "type W struct{ M map[int]struct{ Q int `t:\"q\"` } }\ntype V struct{ M map[int]struct{ Q int } }\nfunc main() {\n\t_ = V(W{})\n}", "main.gp:6:6: cppgen: not supported yet: the conversion from W to V, whose fields differ in struct tags inside a slice or a map"},
 		{"namedcomplex", "type Z complex128\nfunc main() {}", "main.gp:3:6: cppgen: not supported yet: type complex128"},
-		{"methodvalue", "type T struct{}\nfunc (T) M() {}\nfunc main() {\n\tvar t T\n\tprintln(t.M == nil)\n}", "main.gp:7:10: cppgen: not supported yet: method values (Phase 03 step 3.10 after 3.11)"},
 		{"fmtslice", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, [][]int{})\n}", "main.gp:5:17: cppgen: not supported yet: printing a slice (Phase 03 step 3.15)"},
 		{"fmtarray", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, [2]int{})\n}", "main.gp:5:17: cppgen: not supported yet: printing an array (Phase 03 step 3.15)"},
-		{"methodexpr", "type T int\nfunc (T) M() {}\nfunc main() {\n\tprintln(T.M == nil)\n}", "main.gp:6:10: cppgen: not supported yet: method expressions (Phase 03 step 3.10 after 3.11)"},
 		{"printfunc", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, main)\n}", "main.gp:5:17: cppgen: not supported yet: printing a func value"},
 		{"printlnfunc", "func g() {}\nfunc main() {\n\tprintln(g)\n}", "main.gp:5:10: cppgen: not supported yet: printing a func value with println"},
 		{"printfuncfield", "import \"fmt\"\ntype T struct{ f func() }\nfunc main() {\n\tfmt.Println(T{})\n}", "main.gp:6:14: cppgen: not supported yet: printing a func value"},
@@ -658,6 +656,16 @@ func TestPanics(t *testing.T) {
 		{"method-index-after-args", "s := []Pt{{1, 2}}\n\ti := 1\n\ts[i].set(clear())"},
 		{"method-div", "p := Pt{1, 0}\n\tfmt.Println(p.div())"},
 		{"method-div-pointer", "p := &Pt{1, 0}\n\tp.divSet()"},
+		// Method values and expressions (step 3.10b): a value method's value through a nil
+		// pointer panics where it is made, after the calls of its scope; a pointer method's value
+		// binds the nil pointer and panics in the method; (*T).M of a value method panics with
+		// Go's wrapper message; a panic in a method called through a method value.
+		{"method-value-nil", "var p *Pt\n\tfmt.Println(\"before\")\n\tf := p.sum\n\tfmt.Println(\"not reached\", f())"},
+		{"method-value-nil-after-args", "gnil = &Pt{1, 2}\n\tfmt.Println(call(gnil.sum, clear()))"},
+		{"method-value-nil-pointer", "var p *Pt\n\tf := p.set\n\tfmt.Println(\"bound\")\n\tf(1)"},
+		{"method-expr-nil", "f := (*Pt).sum\n\tfmt.Println(\"made\")\n\tfmt.Println(f(nil))"},
+		{"method-expr-nil-call", "var p *Pt\n\tfmt.Println((*Pt).sum(p))"},
+		{"method-value-div", "p := Pt{1, 0}\n\tf := p.div\n\tdefer fmt.Println(\"deferred\")\n\tfmt.Println(f())"},
 		// Func values (step 3.11): calling nil panics like a nil dereference (with the signal
 		// line), after the arguments; also a nil field, map value, element and deferred func (when
 		// the deferred call runs); a panic in a closure, in a deferred closure, and in a closure
@@ -721,7 +729,8 @@ func TestPanics(t *testing.T) {
 					"func (p Pt) sum() int {\n\treturn p.a + p.b\n}\n\nfunc (p Pt) add(n int) int {\n\treturn p.a + n\n}\n\n" +
 					"func (p Pt) div() int {\n\treturn p.a / p.b\n}\n\nfunc (p *Pt) divSet() {\n\tp.a /= p.b\n}\n\n" +
 					"func (p *Pt) set(v int) {\n\tp.a = v\n}\n\nfunc (p *Pt) isNil() bool {\n\treturn p == nil\n}\n\n" +
-					"func clear() int {\n\tprintln(\"clear\")\n\tgnil = nil\n\treturn 1\n}\n"
+					"func clear() int {\n\tprintln(\"clear\")\n\tgnil = nil\n\treturn 1\n}\n\n" +
+					"func call(f func() int, n int) int {\n\treturn f() + n\n}\n"
 			}
 			if strings.HasPrefix(tt.name, "struct-") {
 				src += "\ntype Pt struct{ a, b int }\n\ntype Wrap struct{ *Pt }\n\ntype List struct {\n\tv    int\n\tnext *List\n}\n\n" +

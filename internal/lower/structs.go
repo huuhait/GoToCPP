@@ -212,7 +212,7 @@ func (fg *funcGen) selector(x *ast.SelectorExpr) cppir.Expr {
 	case sel.Kind() == types.FieldVal:
 		return fg.fieldChain(fg.expr(x.X), sel, x.Pos())
 	default:
-		fg.methodValue(x, sel) // methods.go: method values and expressions
+		return fg.methodValue(x, sel) // methods.go: method values and expressions
 	}
 	return placeholder
 }
