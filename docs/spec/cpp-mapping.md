@@ -348,13 +348,39 @@ struct Point {
     int64_t X = 0;
     int64_t Y = 0;
     bool operator==(const Point&) const = default;   // only when comparable
-    static constexpr auto gp_fields = gp::fields(&Point::X, "X", &Point::Y, "Y"); // for fmt %v/%+v
+    static constexpr const char* gp_type_name = "main.Point";  // for fmt's error forms and %T
+    static constexpr auto gp_fields = gp::fields(    // for fmt's %v and %+v
+        gp::field(&Point::X, "X", true, false),      // member, Go name, exported, embedded
+        gp::field(&Point::Y, "Y", true, false));
 };
 struct Celsius : gp::newtype<Celsius, double> {      // a distinct type with double's operators
     using newtype::newtype;
+    static constexpr const char* gp_type_name = "main.Celsius";
     gp::string String() const;
+    gp::string gp_String() const { return String(); } // fmt: the method set has String() string
 };
 ```
+
+- **For `fmt`** (the protocol of `runtime/include/gocpp/fmtshim.hpp`; all names start with `gp_`,
+  so they never clash with a Go name):
+  - a struct has `gp_type_name` (its Go name, as `%T` prints it) and `gp_fields`: every field in
+    declaration order, also blank `_` fields, as `gp::field(&T::f, "name", exported, embedded)`.
+    An embedded field has its type's name. As in Go, `fmt` doesn't call the `String()` method of
+    a value reached through an unexported field, except in the exported fields of an embedded
+    unexported one;
+  - a named non-struct type has `gp_type_name` and `const U& gp_value() const` (its underlying
+    value), and `using gp_value_tag = …` when `U` needs a type tag (below);
+  - a type whose method set has `String() string` has `gp::string gp_String() const`; one whose
+    pointer type has it only through a pointer receiver has
+    `static gp::string gp_String_ptr(const gp::ptr<T>&)`. The same for `Error() string`
+    (`gp_Error`, `gp_Error_ptr`), which `fmt` prefers. The emitter writes them from Go's method
+    sets, promoted methods included;
+  - Go's `int` and `int64` are both `int64_t`, and `uint`, `uint64` and `uintptr` all `uint64_t`.
+    Where the Go type is `int64`, `uint64` or `uintptr`, a type tag says so, for the type names in
+    `fmt`'s error forms (`%!s(int64=5)`): `gp::fmtshim::typed<tag::int64>(x)` for an argument
+    (`tag::slice<tag::uintptr>`, `tag::map<tag::none, tag::uint64>`, `tag::ptr<…>`,
+    `tag::array<…>` for the parts of a composite type), and `gp::field<tag::int64>(…)` for a
+    field.
 
 - **Zero values** come from default member initializers and `T{}`.
 - **Keyed literals:** `Point{Y: 2, X: 1}` becomes `Point{.X = 1, .Y = 2}`. C++ needs declaration

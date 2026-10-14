@@ -12,15 +12,17 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | Folder or file | What is there |
 |---|---|
 | `include/gocpp/` | the headers (below). Embedded |
-| `src/rt.cpp` | the parts that are not templates: strings, panics, the print and `fmt` formats, `run_main`. Standard C++ only. Embedded |
+| `src/rt.cpp` | the parts that are not templates: strings, panics, the print format, `run_main`. Standard C++ only. Embedded |
+| `src/fmt.cpp` | the parts of the `fmt` shim that are not templates, each a mirror of Go's function of the same name: the formats of the basic kinds with width, precision and flags (`fmt/format.go`), the verbs and error forms and the parsing of a `Printf` format (`fmt/print.go`), and strconv's float formatting and quoting. Embedded |
+| `src/isprint.cpp` | `strconv.IsPrint` (for `%q`), generated from Go 1.25's strconv, the Go that gocpp follows (`go test ./runtime -run TestIsPrintTable -update-isprint` in the dev shell). Embedded |
 | `src/slice.cpp` | the parts of slices and slice bounds checks that are not templates: the bounds panics with Go's messages, `make`'s panics, and the capacity of a growing slice (Go's formula and size classes). Embedded |
 | `src/map.cpp` | the parts of maps and key hashing that are not templates: the hash of a run of bytes (strings) and the nil map panic. Embedded |
 | `src/trace.cpp` | the stack trace of a panic (`trace.hpp`): the `panic_error` constructor that records the stack, Go names from mangled C++ names, the DWARF line table reader, the frames. Standard C++ only. Embedded |
 | `src/os/linux/` | the Linux OS layer: `os.cpp`, and `trace.cpp` (the stack trace's addresses, ELF file and demangling). Phase 08 adds the Linux side of the thread layer `gp::os`. Embedded |
 | `src/os/windows/` | the Windows OS layer (Phase 14): so far only `trace.cpp`, the stack trace's addresses (no file reader yet). Embedded |
 | `files.go` | package `rtfiles`: `FS()` holds `include/` and `src/`; `Sources(goos)` lists the `.cpp` files a program is compiled with (`src/*.cpp` and `src/os/<goos>/*.cpp`) |
-| `test/` | the C++ tests (not embedded): `unit.cpp`, `slice_test.cpp`, `array_test.cpp`, `map_test.cpp`, `diff.cpp`, `fortify.cpp` and `layout.cpp` (generated) |
-| `testdata/diff/main.go` | the Go side of the differential test |
+| `test/` | the C++ tests (not embedded): `unit.cpp`, `slice_test.cpp`, `array_test.cpp`, `map_test.cpp`, `fmt_test.cpp`, `diff.cpp`, `fmt_diff.cpp`, `fortify.cpp` and `layout.cpp` (generated) |
+| `testdata/diff/main.go`, `testdata/fmtdiff/main.go` | the Go sides of the differential tests |
 | `*_test.go` | the Go tests that build and run the C++ tests, and the checks below |
 | `compile_flags.txt` | the flags for clangd, so the files open without false errors in an editor (the dev shell's clangd) |
 
@@ -41,7 +43,7 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `arith.hpp` | `gp::div`, `gp::rem`, `gp::shl`, `gp::shr` and `gp::f2i<T>`, each returning the Go type |
 | `print.hpp` | the builtins `gp::print` and `gp::println`: stderr, in Go's runtime number format (`+1.500000e+000`) |
 | `panic.hpp` | `gp::panic_error` (the exception a panic throws, with the return addresses of its stack) and `gp::panic(v)` |
-| `fmtshim.hpp` | `gp::fmtshim::Print`, `Println` and `Printf` (verbs `%v %d %s %t %f`), a stand-in for `fmt` until Phase 05 and 09 |
+| `fmtshim.hpp` | `gp::fmtshim::Print`, `Println`, `Printf`, `Sprint`, `Sprintln`, `Sprintf`, a stand-in for `fmt` until Phase 05 and 09: every Phase 03 value as Go's `fmt` prints it (slices, arrays, maps with Go's key order, structs, `&{...}`, addresses, `String()` and `Error()` methods, panics in them), the verbs `%v %+v %d %s %q %t %f` (and `%T`) with width, precision and the flags `- + space 0`, Go's error forms; the protocols that the emitter's types follow (`gp_fields` with `gp::field`, `gp_type_name`, `gp_value()`, `gp_String`/`gp_String_ptr`, `gp_Error`/`gp_Error_ptr`) and the type tags for `int64`, `uint64` and `uintptr` (`gp::fmtshim::typed<tag>(x)`) |
 | `main.hpp` | `gp::run_main(argc, argv, init, main)`, `gp::args()`, `gp::envs()` |
 | `os.hpp` | the OS layer's interface (declarations only) |
 | `trace.hpp` | not in `rt.hpp`, for the runtime's own files and tests: the stack trace of a panic (Go names from mangled C++ names, the DWARF line table reader, the frames in Go's format) |
@@ -169,7 +171,7 @@ this.
 ## Tests
 
 `go test ./runtime` (also part of `make test` and `make ci`) runs:
-- `TestCXX`: compiles `test/unit.cpp`, `test/slice_test.cpp`, `test/array_test.cpp`, `test/map_test.cpp`, `test/trace_test.cpp`, `test/nochecks_test.cpp` and `test/diff.cpp` with the embedded runtime, with g++
+- `TestCXX`: compiles `test/unit.cpp`, `test/slice_test.cpp`, `test/array_test.cpp`, `test/map_test.cpp`, `test/fmt_test.cpp`, `test/trace_test.cpp`, `test/nochecks_test.cpp`, `test/diff.cpp` and `test/fmt_diff.cpp` with the embedded runtime, with g++
   and clang++, each at `-O0`, at `-O2` and with `-fsanitize=address,undefined` (a sanitizer
   report fails the test; this mode also writes DWARF 4, the others the compilers' DWARF 5).
   The flags are the driver's: `-std=c++20 -fwrapv -fno-strict-aliasing
@@ -242,6 +244,20 @@ this.
     `-0` keys; ranges with deletes and inserts; the nil map panics), panics (also the nil pointer ones, whose
     signal line is compared with the `pc` left out), the output order and 1 MiB writes.
     Without a `go` command it is skipped.
+  - `fmt_diff.cpp` is the same program as `testdata/fmtdiff/main.go`, compared the same way,
+    case by case: slices and arrays (nested, nil, 10 levels deep, bytes with `%s` and `%q`,
+    a verb for each element), maps (key order of numbers with NaN and ±Inf, strings, bools,
+    arrays, structs, named types; nil), structs (`%+v`, unexported, embedded and blank fields),
+    pointers (`&{...}` at the top level, `<nil>`, the forms of the addresses), `String()` and
+    `Error()` methods (by value and through pointers, nil receivers, unexported fields, promoted
+    methods, panics in them, methods that change what is printed), every flag, width and
+    precision of the verbs, `%q` of strings and runes (also invalid UTF-8; a hash of `%q` and
+    `%+q` of every rune checks `strconv.IsPrint` whole), floats inside composites, the type tags
+    in the error forms, `Sprint` spacing, the error forms, and a 100,000-element slice.
+  - `fmt_test.cpp` checks what can't be compared with Go: the addresses that pointers print,
+    the order of pointer keys, which types count as having `String` and `Error` methods (at
+    compile time), the type names of the tags, qualified calls, big widths, and the time of
+    `Sprintln` of 100,000 and 1,000,000 ints (printed in its `ok:` line).
   - Without Go: the exact panic output and exit codes, and the start of the stack trace
     (the Go name and the line in `diff.cpp` of the function that panicked); on Linux, 1 MiB into a full
     non-blocking pipe (all of it must arrive) and into a broken pipe, with and without SIGPIPE
@@ -258,6 +274,7 @@ this.
   (`go test ./internal/check -run TestSizesHeader -update-sizes`), and fails when either is
   stale. `TestWindowsSyntax` compiles it, and so `sizes.hpp`, with MinGW-w64 too.
 - `TestFSHasEveryFile`: the embedded files are exactly the files of `include/` and `src/`.
+- `TestIsPrintTable`: `src/isprint.cpp` says what Go 1.25's `strconv.IsPrint` says for every rune; with another Go it fails and says so.
 
 The tests that walk `runtime/` leave out names that start with `.` (editor and tool files: an
 Emacs lock `.#rt.cpp`, clangd's `.cache/`; `//go:embed` leaves them out too) and symbolic links

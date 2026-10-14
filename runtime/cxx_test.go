@@ -22,11 +22,12 @@ import (
 )
 
 // The C++ tests of the runtime: test/unit.cpp, test/slice_test.cpp, test/array_test.cpp,
-// test/map_test.cpp and test/trace_test.cpp (unit tests), test/nochecks_test.cpp (the unit
-// tests of a -nochecks build, compiled with the runtime with -DGOCPP_NOCHECKS) and
+// test/map_test.cpp, test/fmt_test.cpp and test/trace_test.cpp (unit tests), test/nochecks_test.cpp
+// (the unit tests of a -nochecks build, compiled with the runtime with -DGOCPP_NOCHECKS),
 // test/diff.cpp (the C++ side of a differential test against testdata/diff/main.go, run with
-// real Go). Each is compiled with the embedded runtime (rtfiles.FS, extracted to a temporary
-// folder, as the driver will do it), with g++ and with clang++, in each mode below.
+// real Go) and test/fmt_diff.cpp (the same for the fmt shim, against testdata/fmtdiff/main.go).
+// Each is compiled with the embedded runtime (rtfiles.FS, extracted to a temporary folder, as
+// the driver will do it), with g++ and with clang++, in each mode below.
 //
 // Like the test harness (tests/harness_test.go): GOCPP_CXX=<compiler> tests with that
 // compiler only; a compiler that isn't installed is a skip, unless GOCPP_REQUIRE_CXX (a comma
@@ -226,6 +227,12 @@ var arrayDiffCases = []string{"arrays", "array-index", "array-index-neg", "array
 // The map cases (Phase 03 step 3.7a): the mapCase function of testdata/diff/main.go.
 var mapDiffCases = []string{"maps", "map-floats", "map-nil", "map-nil-ref", "map-nil-inner"}
 
+// The cases of the fmt shim's differential test (Phase 03 step 3.15a): test/fmt_diff.cpp
+// against testdata/fmtdiff/main.go.
+var fmtDiffCases = []string{"fmt-slices", "fmt-maps", "fmt-structs", "fmt-pointers", "fmt-methods",
+	"fmt-panics", "fmt-verbs", "fmt-quote", "fmt-floats", "fmt-typed", "fmt-sprint", "fmt-errors",
+	"fmt-big", "fmt-runes", "fmt-mutate", "fmt-embedded"}
+
 func init() {
 	diffCases = append(diffCases, sliceDiffCases...)
 	diffCases = append(diffCases, arrayDiffCases...)
@@ -264,6 +271,13 @@ func maskPC(out []byte) []byte {
 // results and the Go binary. It returns nil and "" (and logs why) when there is no go command.
 func goResults(t *testing.T) (map[string]result, string) {
 	t.Helper()
+	return goProgramResults(t, "testdata/diff/main.go", diffCases)
+}
+
+// goProgramResults builds the Go program src, runs it once for each case, and returns the
+// results and the binary, or nil and "" when there is no go command.
+func goProgramResults(t *testing.T, src string, cases []string) (map[string]result, string) {
+	t.Helper()
 	gocmd, err := exec.LookPath("go")
 	if err != nil {
 		t.Logf("no go command, so the differential tests are skipped: %v", err)
@@ -271,10 +285,10 @@ func goResults(t *testing.T) (map[string]result, string) {
 	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "godiff")
-	src := sourcePath(t, "testdata/diff/main.go")
-	out, _, code, err := command(".", nil, true, gocmd, "build", "-o", bin, src)
+	abs := sourcePath(t, src)
+	out, _, code, err := command(".", nil, true, gocmd, "build", "-o", bin, abs)
 	if err != nil || code != 0 {
-		t.Fatalf("go build testdata/diff/main.go: exit %d %v\n%s", code, err, out)
+		t.Fatalf("go build %s: exit %d %v\n%s", src, code, err, out)
 	}
 	// Go's runtime print (println) writes with one write call and drops what a short write
 	// leaves. A blocking pipe write ends short when a signal arrives in the middle, and the
@@ -283,7 +297,7 @@ func goResults(t *testing.T) (map[string]result, string) {
 	// asynchronous preemption there is no SIGURG, and Go's output is complete.
 	env := append(os.Environ(), "GODEBUG=asyncpreemptoff=1")
 	res := make(map[string]result)
-	for _, name := range diffCases {
+	for _, name := range cases {
 		out, _, code, err := command(dir, env, true, bin, name)
 		if err != nil {
 			t.Fatal(err)
@@ -299,6 +313,7 @@ func TestCXX(t *testing.T) {
 	ccs := compilers(t)
 	rt := extractRuntime(t)
 	want, goBin := goResults(t)
+	fmtWant, _ := goProgramResults(t, "testdata/fmtdiff/main.go", fmtDiffCases)
 	for _, c := range ccs {
 		t.Run(c.name, func(t *testing.T) {
 			if c.missing != "" {
@@ -316,12 +331,23 @@ func TestCXX(t *testing.T) {
 					maps := c.compile(t, rt, "test/map_test.cpp", dir, m.flags, nil)
 					trace := c.compile(t, rt, "test/trace_test.cpp", dir, m.flags, nil)
 					nochecks := c.compile(t, rt, "test/nochecks_test.cpp", dir, append(slices.Clone(m.flags), "-DGOCPP_NOCHECKS"), nil)
+					fmtUnit := c.compile(t, rt, "test/fmt_test.cpp", dir, m.flags, nil)
+					fmtDiff := c.compile(t, rt, "test/fmt_diff.cpp", dir, m.flags, nil)
 					t.Run("unit", func(t *testing.T) { runUnit(t, unit) })
 					t.Run("slice", func(t *testing.T) { runUnit(t, slice) })
 					t.Run("array", func(t *testing.T) { runUnit(t, array) })
 					t.Run("map", func(t *testing.T) { runUnit(t, maps) })
 					t.Run("trace", func(t *testing.T) { runUnit(t, trace) })
 					t.Run("nochecks", func(t *testing.T) { runUnit(t, nochecks) })
+					t.Run("fmt", func(t *testing.T) { runUnit(t, fmtUnit) })
+					t.Run("fmtdiff", func(t *testing.T) {
+						if fmtWant == nil {
+							t.Skip("no go command")
+						}
+						for _, name := range fmtDiffCases {
+							t.Run(name, func(t *testing.T) { runDiff(t, fmtDiff, name, fmtWant[name]) })
+						}
+					})
 					t.Run("panic", func(t *testing.T) { runPanic(t, diff, m.name != "O2") })
 					t.Run("leak", func(t *testing.T) { runLeak(t, diff, m.name == "asan") })
 					t.Run("pipes", func(t *testing.T) { runPipes(t, diff, goBin) })
