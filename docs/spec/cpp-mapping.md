@@ -419,10 +419,36 @@ and conversions make new ones.
 | `string(r)` (an integer `r`) | `gp::rune_to_string(r)` | UTF-8; `"\uFFFD"` for a value that is no code point (negative, a surrogate half, above U+10FFFF) |
 | `for i, r := range s` | `for (auto gp_it0 = gp::range_string(s); gp::range_next(gp_it0);) { int64_t i = gp_it0.gp_i; int32_t r = gp_it0.gp_r; ...` | `s` is evaluated once; an invalid UTF-8 byte is U+FFFD and steps one byte, as in Go; `i` and `r` are copies of the hidden counters (Go 1.22) |
 
-`[]byte(s)`, `string(b)`, `[]rune(s)` and `string(runes)` come with the slices (Phase 03, step
-3.5). As in Go's compiler, a slice expression is evaluated in its place among the calls of its
-statement: `fmt.Println(s[i:], f())` slices `s` (and panics, if `i` is out of range) before
-`f` runs, while `s[i]` is checked after the calls.
+`[]byte(s)`, `string(b)`, `[]rune(s)` and `string(runes)` are with the slices (below). As in
+Go's compiler, a slice expression is evaluated in its place among the calls of its statement:
+`fmt.Println(s[i:], f())` slices `s` (and panics, if `i` is out of range) before `f` runs,
+while `s[i]` is checked after the calls.
+
+## Slices
+
+A `gp::slice<T>` is a view of a backing array on the heap: copies and sub-slices share the
+array, as in Go, and `append` writes into it while it has room.
+
+| gocpp | C++ | Notes |
+|---|---|---|
+| `var s []T`, `s = nil`, `s == nil` | `gp::slice<T> s{};`, `s = nullptr`, `s == nullptr` | nil is the zero value; `[]T{}` and `make([]T, 0)` are empty but not nil |
+| `[]T{a, b}`, `[]T{5: a, b}` | `gp::slice_of<T>({a, b})`, `gp::slice_keyed<T>(7, {{5, a}, {6, b}})` | elements in source order; a keyed literal's other elements are zero |
+| `make([]T, n)`, `make([]T, n, c)` | `gp::make_slice<T>(n)`, `gp::make_slice<T>(n, c)` | zeroed; `makeslice: len out of range`, `makeslice: cap out of range` |
+| `s[i]`, `len(s)`, `cap(s)` | `s[i]`, `gp::len(s)`, `gp::cap(s)` | `s[i]` is a `T&` (`s[i] = v`, `s[i] += v`, `s[i]++`), bounds checked |
+| `s[a:b]`, `s[a:b:c]` | `gp::sub(s, a, b)`, `gp::sub(s, a, b, c)` | shares the array; `slice bounds out of range [:5] with capacity 3` |
+| `append(s, a, b)`, `append(s, t...)` | `gp::append(s, a, b)`, `gp::append_slice(s, t)` | also `append(b, str...)` for a `[]byte`; grows like Go, but only `cap >= len` is promised |
+| `s = append(s, x)`, `s = s[1:]` | `s = gp::append(static_cast<gp::slice<T>&&>(s), x)` | `s` is moved into the call (no reference count traffic) when no other argument can read it; into `gp::sub` only for a local variable that is not boxed and not a named result, since its bounds check can panic |
+| `copy(dst, src)`, `clear(s)` | `gp::copy(dst, src)`, `gp::clear(s)` | overlap safe; also `copy(b, str)` |
+| `&s[i]` | `gp::ptr<T>(s.gp_owner(), &s[i])`, or `gp::elem_ptr(f(), i)` | the pointer keeps the array alive |
+| `for i, v := range s` | `for (auto gp_it0 = gp::range_slice(s); gp::range_next(gp_it0);) { int64_t i = gp_it0.gp_i; T v = gp_it0.gp_v(); ...` | the loop holds a copy of `s`: it covers the original length and array, also when the body appends to `s` |
+| `[]byte(s)`, `[]rune(s)` | `gp::to_bytes(s)`, `gp::to_runes(s)` | copies; an invalid UTF-8 byte is U+FFFD |
+| `string(b)`, `string(runes)` | `gp::to_string(b)`, `gp::to_string(runes)` | copies; a rune that is no code point is U+FFFD |
+
+The order of evaluation is gc's: an element `s[i]` is memory that a call can change (through
+another slice of the same array), so it is read after the calls of its statement, like `*p`;
+`append`, `copy`, `make`, `len`, `cap`, `[]byte(s)` and `[]rune(s)` are evaluated in their
+places among the calls, and `string(b)` reads `b` where it is. In `s, s[0] = t, 5` the store
+goes into the old `s`, and in `i, s[i] = 1, 2` to the old `i`, as in Go.
 
 ## Pointers and boxing
 

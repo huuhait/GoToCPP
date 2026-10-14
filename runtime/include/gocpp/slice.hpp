@@ -24,10 +24,17 @@
 //     s == nil, s != nil       s == nullptr, s != nullptr (a slice compares only with nil)
 //     []T{a, b}                gp::slice_of<T>({a, b})     len = cap = 2; {} gives an empty,
 //                                                          non-nil slice (not nil)
+//     []T{5: a, b}             gp::slice_keyed<T>(7, {{5, a}, {6, b}})   keyed: the rest zero
 //     make([]T, n), (n, c)     gp::make_slice<T>(n), gp::make_slice<T>(n, c)
 //     len(s), cap(s)           gp::len(s), gp::cap(s)
 //     s[i]                     s[i]                        a T&, bounds checked
 //     &s[i]                    gp::ptr<T>(s.gp_owner(), &s[i])   keeps the array alive
+//     &f()[i]                  gp::elem_ptr(f(), i)        the same, for a slice that is not a
+//                                                          variable (evaluated once)
+//     for i, v := range s      for (auto gp_it0 = gp::range_slice(s); gp::range_next(gp_it0);)
+//                              with i = gp_it0.gp_i, v = gp_it0.gp_v()
+//     []byte(s), []rune(s)     gp::to_bytes(s), gp::to_runes(s)
+//     string(b), string(r)     gp::to_string(b), gp::to_string(r)
 //     s[lo:], s[lo:hi]         gp::sub(s, lo), gp::sub(s, lo, hi)
 //     s[:hi], s[:]             gp::sub(s, 0, hi), gp::sub(s, 0)
 //     s[lo:hi:max]             gp::sub(s, lo, hi, max)
@@ -43,7 +50,8 @@
 //
 // Moving: std::move(s) leaves s nil (no atomic operation). The emitter may pass std::move(s)
 // to append or sub only when no other argument of the call reads s (C++ doesn't say in which
-// order arguments are initialized).
+// order arguments are initialized): s = append(s, x) is
+// s = gp::append(static_cast<gp::slice<T>&&>(s), x) (a cast: see internal/lower's moved).
 //
 // append and growth: when the elements fit (len + n <= cap), append writes them into the same
 // array, after len, so other slices of that array see them (Go's aliasing). Otherwise it makes
@@ -89,6 +97,7 @@
 #include <initializer_list>
 #include <memory>
 #include <type_traits>
+#include <utility>
 
 namespace gp {
 
@@ -467,6 +476,80 @@ void clear(const slice<T>& s) {
         }
     }
 }
+
+// --- keyed literals, element pointers, range, conversions (step 3.5b) ---
+
+// slice_keyed<T>(n, {{k, v}, ...}): the keyed literal []T{k: v, ...} of length (and capacity)
+// n, one more than its largest index. The elements are evaluated in source order (a braced
+// list); the ones that no key names are zero values. go/types checked the keys (constants,
+// none twice), so n >= 1; a key outside [0, n) would be a bug in the generated code and panics
+// like an index.
+template <typename T>
+slice<T> slice_keyed(int64_t n, std::initializer_list<std::pair<int64_t, T>> elems) {
+    if (n <= 0) {
+        return slice<T>(std::shared_ptr<void>(), detail::empty_data<T>(), 0, 0);
+    }
+    std::shared_ptr<T[]> a = detail::new_array<T>(n, 0);
+    T* d = a.get();
+    for (const std::pair<int64_t, T>& e : elems) {
+        gp::check_index(e.first, n);
+        d[e.first] = e.second;
+    }
+    return slice<T>(std::shared_ptr<void>(std::move(a), d), d, n, n);
+}
+
+// elem_ptr(s, i): &s[i] for a slice s that is not a variable (&f()[i], &ss[j][i]): a pointer
+// to the element that shares the slice's array (s is evaluated once). For a variable s,
+// generated code writes gp::ptr<T>(s.gp_owner(), &s[i]) itself.
+template <typename T, go_int I>
+ptr<T> elem_ptr(const slice<T>& s, I i) {
+    T& e = s[i];
+    return ptr<T>(s.gp_owner(), &e);
+}
+
+// slice_range is the state of `for i, v := range s`: a copy of s, taken once when the loop
+// starts (Go evaluates the range expression once, so appending to s or assigning s in the body
+// doesn't change the iteration: it covers the original length and array), and the hidden
+// counter of Go 1.22 (assigning to i in the body doesn't change the iteration). After each
+// successful range_next, gp_i is the index and gp_v() the element there, read when it is
+// called: a write to a later element in the body is seen, as in Go, since the copy shares the
+// array.
+template <typename T>
+struct slice_range {
+    slice<T> gp_s;
+    int64_t gp_i = -1;
+
+    T& gp_v() const noexcept { return gp_s.gp_data()[gp_i]; }
+};
+
+// range_slice(s) starts a range over s.
+template <typename T>
+slice_range<T> range_slice(slice<T> s) noexcept {
+    return slice_range<T>{std::move(s)};
+}
+
+// range_next steps to the next index of the range, and reports whether there is one.
+template <typename T>
+bool range_next(slice_range<T>& it) noexcept {
+    return ++it.gp_i < it.gp_s.gp_len();
+}
+
+// The conversions between strings and slices; each copies, as in Go (runtime/src/slice.cpp).
+//
+//     []byte(s)       to_bytes(s)      the bytes; []byte("") is empty, not nil
+//     []rune(s)       to_runes(s)      the runes, decoded like range over s: an invalid byte
+//                                      is U+FFFD; []rune("") is empty, not nil
+//     string(b)       to_string(b)     the bytes of a []byte
+//     string(runes)   to_string(r)     the UTF-8 of each rune; a value that is not a code
+//                                      point (negative, a surrogate half, above U+10FFFF)
+//                                      is U+FFFD, as in string(r)
+//
+// Go's capacity of []byte(s) and []rune(s) depends on its size classes and escape analysis;
+// gocpp's is the length (only cap >= len is promised).
+slice<uint8_t> to_bytes(const string& s);
+slice<int32_t> to_runes(const string& s);
+string to_string(const slice<uint8_t>& b);
+string to_string(const slice<int32_t>& r);
 
 namespace detail {
 

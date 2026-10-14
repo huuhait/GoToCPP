@@ -28,6 +28,8 @@ import (
 //	s + t + u (3 or more)       gp::concat(s, t, u): one allocation (concat)
 //	s[i], len(s)                s[i] (gp::string's operator[], which checks the bounds), gp::len(s)
 //	s[a:b], s[a:], s[:b], s[:]  gp::sub(s, a, b), gp::sub(s, a), gp::sub(s, 0, b), s (slice)
+//	s[a:b:c] (a slice)          gp::sub(s, a, b, c)
+//	s == nil (a slice)          s == nullptr
 //	T(x)                        T(x), or x if T and x have the same C++ type; gp::f2i<T>(x)
 //	                            for a float x and an integer type T
 //	string(r)                   gp::rune_to_string(r), for an integer r
@@ -167,9 +169,10 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.
 		return fg.infix(x, "&&", y)
 	case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ:
 		a, b := fg.expr(x), fg.expr(y) // first, so that an operand's own error comes first
-		if (op == token.EQL || op == token.NEQ) && (isPointer(fg.typeOf(x)) || isPointer(fg.typeOf(y))) {
+		if (op == token.EQL || op == token.NEQ) && (isPointer(fg.typeOf(x)) || isPointer(fg.typeOf(y)) ||
+			isSlice(fg.typeOf(x)) || isSlice(fg.typeOf(y))) {
 			// p == q compares the addresses, p == nil is p == nullptr (gp::ptr's ==; C++20
-			// writes != and nil == p from it).
+			// writes != and nil == p from it). A slice compares only with nil: s == nullptr.
 			return &cppir.Binary{Op: op.String(), X: at(a, precShift), Y: at(b, precShift)}
 		}
 		if fg.operandType(pos, op, x) == nil {
@@ -344,44 +347,52 @@ func (fg *funcGen) unary(e *ast.UnaryExpr) cppir.Expr {
 	return placeholder
 }
 
-// index returns the C++ of s[i]. Phase 02 has it only for strings: the byte at i, as a
-// uint8_t, after gp::string's bounds check (Go's "index out of range" panic).
+// index returns the C++ of s[i]: for a string, the byte at i, as a uint8_t, after
+// gp::string's bounds check (Go's "index out of range" panic); for a slice (step 3.5), the
+// element itself, a T& that can be assigned, after gp::slice's bounds check.
 func (fg *funcGen) index(e *ast.IndexExpr) cppir.Expr {
 	t := fg.g.info.TypeOf(e.X)
-	if b := basicOf(t); b == nil || b.Info()&types.IsString == 0 {
+	if !isString(t) && !isSlice(t) {
 		fg.g.unsupported(e.Lbrack, "index expressions on "+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))+" (Phase 03)")
 		return placeholder
 	}
-	return &cppir.Index{X: fg.expr(e.X), Index: fg.expr(e.Index)}
+	return &cppir.Index{X: fg.expr(e.X), Index: fg.intExpr(e.Index)}
 }
 
-// slice returns the C++ of the slice expression s[a:b], s[a:], s[:b] or s[:]. Phase 03 step
-// 3.4 has it for strings: the substring shares the bytes of s, after Go's bounds checks
-// (gp::sub, with Go's "slice bounds out of range" panics). A missing low bound is 0, and
-// s[:] is s itself. The bounds may have any integer types (gp::sub is a template), so an
-// untyped constant bound is a plain C++ int literal.
+// slice returns the C++ of the slice expression s[a:b], s[a:], s[:b], s[:] or s[a:b:c]. Phase
+// 03 step 3.4 has it for strings: the substring shares the bytes of s, after Go's bounds
+// checks (gp::sub, with Go's "slice bounds out of range" panics); step 3.5 for slices, whose
+// result shares the array (gp::sub's checks against the capacity, also with a third bound).
+// A missing low bound is 0, and s[:] is s itself. The bounds may have any integer types
+// (gp::sub is a template), so a constant bound is a plain C++ int literal (intExpr). In
+// s = s[a:b] of a local s, s is moved into gp::sub when nothing else reads it (markMoves,
+// slices.go).
 func (fg *funcGen) slice(e *ast.SliceExpr) cppir.Expr {
 	t := fg.g.info.TypeOf(e.X)
-	if b := basicOf(t); b == nil || b.Info()&types.IsString == 0 {
-		fg.g.unsupported(e.Lbrack, "slice expressions on "+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))+" (Phase 03 step 3.5)")
+	if !isString(t) && !isSlice(t) {
+		fg.g.unsupported(e.Lbrack, "slice expressions on "+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))+" (Phase 03 step 3.6)")
 		return placeholder
 	}
-	x := fg.expr(e.X)
+	x := fg.movedExpr(e.X)
 	switch {
-	case e.Low == nil && e.High == nil:
+	case e.Low == nil && e.High == nil && e.Max == nil:
 		return x
 	case e.High == nil:
-		return call("gp::sub", x, fg.expr(e.Low))
+		return call("gp::sub", x, fg.intExpr(e.Low))
 	}
 	var lo cppir.Expr = lit("0")
 	if e.Low != nil {
-		lo = fg.expr(e.Low)
+		lo = fg.intExpr(e.Low)
 	}
-	return call("gp::sub", x, lo, fg.expr(e.High))
+	if e.Max != nil {
+		return call("gp::sub", x, lo, fg.intExpr(e.High), fg.intExpr(e.Max))
+	}
+	return call("gp::sub", x, lo, fg.intExpr(e.High))
 }
 
-// builtin returns the C++ of a call of the builtin len, panic or new. (A constant len(s) was
-// folded before.) new(T) is gp::new_<T>(), a pointer to a new zero T.
+// builtin returns the C++ of a call of the builtin len, cap, panic, new, make, append, copy or
+// clear. (A constant len(s) was folded before.) new(T) is gp::new_<T>(), a pointer to a new
+// zero T; len and cap are gp::len and gp::cap; the slice builtins are slices.go's.
 func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 	arg := c.Args[0]
 	if name == "new" {
@@ -392,12 +403,14 @@ func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 	b := basicOf(t)
 	tname := types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))
 	switch name {
-	case "len":
-		if b == nil || b.Info()&types.IsString == 0 {
-			fg.g.unsupported(c.Pos(), "len of "+tname+" (Phase 03)")
+	case "len", "cap":
+		if !isSlice(t) && (name == "cap" || b == nil || b.Info()&types.IsString == 0) {
+			fg.g.unsupported(c.Pos(), name+" of "+tname+" (Phase 03)")
 			return placeholder
 		}
-		return call("gp::len", fg.expr(arg))
+		return call("gp::"+name, fg.expr(arg))
+	case "make", "append", "copy", "clear":
+		return fg.sliceBuiltin(c, name)
 	default: // panic
 		if b == nil {
 			fg.g.unsupported(c.Pos(), "panic with a value of type "+tname+" (Phase 05)")
@@ -413,8 +426,8 @@ func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 // conversion of a constant). Phase 02 has the conversions between the number types and the
 // identities (bool(b), string(s)); Phase 03 adds string(r) for an integer r, the UTF-8 of the
 // rune r (gp::rune_to_string, which gives "\uFFFD" for a value that is not a code point, as
-// Go does). The conversions between strings and slices ([]byte(s), string(b), []rune(s),
-// string(runes)) come with the slices of step 3.5.
+// Go does). The conversions with slices ([]byte(s), string(b), []rune(s), string(runes),
+// []T(nil)) are step 3.5's (sliceConversion, slices.go).
 //
 // Between integer types, T(x) is a C++ functional cast, which C++20 defines like Go: the
 // value modulo 2^width of T, sign-extended from a signed x. Between floats and from integers to
@@ -432,8 +445,8 @@ func (fg *funcGen) conversion(c *ast.CallExpr, to types.Type) cppir.Expr {
 		// (*int)(p) between pointers of the same C++ type, or (*int)(nil). The other
 		// conversions between pointer types need named types (gp::ptr_cast, step 3.9).
 		typ := fg.g.cxxType(to, c.Pos())
-		if tn, ok := typ.(*cppir.TypeName); ok && fg.g.info.Types[arg].IsNil() {
-			return &cppir.Call{Fun: &cppir.Name{Name: tn.Name, Args: tn.Args}, Args: []cppir.Expr{lit("nullptr")}}
+		if fg.g.info.Types[arg].IsNil() {
+			return construct(typ, lit("nullptr"))
 		}
 		if isPointer(from) && cppir.TypeString(typ) == cppir.TypeString(fg.g.cxxType(from, c.Pos())) {
 			return fg.expr(arg)
@@ -442,11 +455,10 @@ func (fg *funcGen) conversion(c *ast.CallExpr, to types.Type) cppir.Expr {
 		fg.g.unsupported(c.Pos(), "the conversion from "+types.TypeString(from, qual)+" to "+types.TypeString(to, qual)+" (Phase 03 step 3.9)")
 		return placeholder
 	}
-	tb, fb := basicOf(to), basicOf(from)
-	if isStringSlice(tb, from) || isStringSlice(fb, to) {
-		fg.g.unsupported(c.Pos(), "conversions between strings and slices (Phase 03 step 3.5)")
-		return placeholder
+	if isSlice(to) || isSlice(from) {
+		return fg.sliceConversion(c, to, from)
 	}
+	tb, fb := basicOf(to), basicOf(from)
 	if tb == nil || fb == nil {
 		qual := types.RelativeTo(fg.g.pkg.Types)
 		fg.g.unsupported(c.Pos(), "the conversion from "+types.TypeString(from, qual)+" to "+types.TypeString(to, qual))
@@ -476,14 +488,4 @@ func (fg *funcGen) conversion(c *ast.CallExpr, to types.Type) cppir.Expr {
 		return &cppir.Call{Fun: f2i, Args: []cppir.Expr{x}}
 	}
 	return call(ct, x)
-}
-
-// isStringSlice reports whether b is a string type and t a slice type: the conversions
-// between them ([]byte(s), string(b)) are step 3.5's.
-func isStringSlice(b *types.Basic, t types.Type) bool {
-	if b == nil || b.Info()&types.IsString == 0 {
-		return false
-	}
-	_, ok := types.Unalias(t).Underlying().(*types.Slice)
-	return ok
 }

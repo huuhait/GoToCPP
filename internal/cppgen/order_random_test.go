@@ -17,10 +17,16 @@ import (
 // that Phase 02 has (arguments, operands, && and ||, conditions of if, else if, for and
 // switch, case lists, post statements, range bounds, returns, assignments and declarations),
 // next to reads of those variables and to operations that can panic (also substrings,
-// concatenations and range over strings, Phase 03), and pointers (step 3.3): reads and writes
+// concatenations and range over strings, Phase 03), pointers (step 3.3): reads and writes
 // through pointers to package variables and to boxed locals (*pg, *pl, *lp, *pick(...)), which
-// the calls change, and the per-iteration variables of loops whose address is taken. It
-// compares what each prints with real Go, on both compilers.
+// the calls change, and the per-iteration variables of loops whose address is taken, and slices
+// (step 3.5): element reads and writes (also op=, ++ and parallel assignments) of a package
+// slice that the calls change, reslice and append to (in place or into a new array), of a
+// slice that shares its array, and of a local slice, appends, sub-slices and copy in any place,
+// range over slices, and a pointer into a slice's array (&gsl[i]). Every append's effect on the
+// arrays is the same whatever the growth (in place into a slice of len 4 and cap >= 5, or a new
+// array from a full one), so the output never depends on the capacity. It compares what each
+// prints with real Go, on both compilers.
 //
 //	GOCPP_RANDOM_TESTS=1 go test ./internal/cppgen -run TestRandomOrder
 //
@@ -102,6 +108,7 @@ type progGen struct {
 	nvars   int
 	helpers int      // the helpers h0, k0, ... that the code may call (only earlier ones: no recursion)
 	ptrs    []string // the *int variables in scope that may be read and written through
+	main    bool     // in main, whose local slice ls is in scope
 }
 
 const randomPrelude = `package main
@@ -138,7 +145,46 @@ func e(tag, v int) int {
 	if pl != nil {
 		*pl += tag
 	}
+	reshape(tag)
 	return v
+}
+
+// gsl always has 5 elements, gal 2 of its array (or of an older one), and psl points into an
+// array of gsl. e changes them: appends in place (gsl[:4] has room) and into a new array
+// (gsl[:4:4] has none), so what the program prints doesn't depend on how a slice grows.
+var gsl = []int{1, 2, 3, 4, 5}
+var gal = gsl[1:3]
+var psl = &gsl[2]
+
+func reshape(tag int) {
+	switch tag % 7 {
+	case 2:
+		gsl = append(gsl[:4], tag)
+	case 3:
+		gsl[tag&3] += tag
+	case 4:
+		gsl = append([]int(nil), gsl...)
+	case 5:
+		gal = gsl[tag&1 : 2+tag&1]
+	case 6:
+		gsl = append(gsl[:4:4], -tag)
+	}
+	if tag%6 == 1 {
+		gal[tag&1] -= 1
+	}
+	if tag%8 == 6 {
+		psl = &gsl[tag&3]
+	}
+}
+
+// sum prints its tag and returns the sum of s.
+func sum(tag int, s []int) int {
+	fmt.Print("s", tag, " ")
+	t := 0
+	for _, v := range s {
+		t += v
+	}
+	return t
 }
 
 // pick prints its tag and returns p: a pointer from a call.
@@ -189,12 +235,20 @@ func (g *progGen) program() string {
 	g.indent++
 	g.locals = []string{"l0", "l1", "l2"}
 	g.printf("l0, l1, l2 := %d, %d, %d", g.r.Intn(9)-2, g.r.Intn(9), g.r.Intn(5)+1)
-	// l1 and l2 are boxed: e changes l1 through pl, and lp points to l2.
+	// l1 and l2 are boxed: e changes l1 through pl, and lp points to l2. ls is a local slice
+	// of 4 elements (also after the appends to ls[:3]); lsp points into an array of ls.
 	g.printf("pl = &l1")
 	g.printf("lp := &l2")
-	g.ptrs = []string{"pg", "pl", "lp"}
+	g.printf("ls := []int{l0, 7, l1, 8}")
+	g.printf("lsp := &ls[1]")
+	g.printf("lb := []int{1, 2, 3}") // boxed: psb points to it
+	g.printf("psb := &lb")
+	g.ptrs = []string{"pg", "pl", "lp", "psl", "lsp"}
+	g.main = true
 	g.stmts(14)
 	g.printf("fmt.Println(l0, l1, l2, g0, g1, gs, gb, g8, *pg, *lp)")
+	g.printf("fmt.Println(gsl[0], gsl[1], gsl[2], gsl[3], gsl[4], gal[0], gal[1], len(gsl), *psl, ls[0], ls[1], ls[2], ls[3], *lsp)")
+	g.printf("fmt.Println(len(lb), lb[0], lb[1], lb[2], len(*psb))")
 	g.printf("if pc != nil {")
 	g.printf("\tfmt.Println(*pc)")
 	g.printf("}")
@@ -221,7 +275,7 @@ func (g *progGen) nextTag() int {
 // paramPtr starts a helper: pg and pl, and sometimes a pointer to its parameter p, which boxes
 // it.
 func (g *progGen) paramPtr() {
-	g.ptrs = []string{"pg", "pl"}
+	g.ptrs = []string{"pg", "pl", "psl"}
 	if g.chance(0.4) {
 		g.printf("pp := &p")
 		g.printf("*pp += %d", g.r.Intn(3))
@@ -293,6 +347,9 @@ func (g *progGen) target() string {
 	if g.chance(0.2) {
 		return "*" + g.ptr()
 	}
+	if g.chance(0.2) {
+		return g.elem()
+	}
 	if len(free) == 0 || g.chance(0.3) {
 		return []string{"g0", "g1"}[g.r.Intn(2)]
 	}
@@ -307,8 +364,95 @@ func (g *progGen) helper(prefix string) string {
 	return prefix + strconv.Itoa(g.r.Intn(g.helpers))
 }
 
+// elem returns an element of a slice to read or write: of gsl, gal, or (in main) ls.
+func (g *progGen) elem() string {
+	switch k := g.r.Intn(5); {
+	case k == 0:
+		return "gal[" + g.expr(1) + " & 1]"
+	case k == 1 && g.main:
+		return "ls[" + g.expr(1) + " & 3]"
+	}
+	return "gsl[" + g.expr(1) + " & 3]"
+}
+
+// sliceStmt writes a statement that changes a slice: an append (in place or into a new array,
+// also with a store into the old array in the same assignment), a copy, a range over a slice,
+// and the forms that move the slice into the call (s = append(s, x), s = s[a:]), which keep
+// the lengths: a slice is cut by one element, then appended to in place.
+func (g *progGen) sliceStmt() {
+	if g.chance(0.3) {
+		switch k := g.r.Intn(4); {
+		case k == 0:
+			g.printf("gsl = gsl[:4]")
+			g.printf("gsl = append(gsl, %s)", g.expr(2))
+		case k == 1 && g.main:
+			g.printf("ls = ls[%s & 0:]", g.expr(1))
+			g.printf("ls = ls[:3]")
+			g.printf("ls = append(ls, %s)", g.expr(2))
+		case k == 2 && g.main:
+			g.printf("*psb = (*psb)[:2]")
+			g.printf("*psb = append(*psb, %s)", g.expr(2))
+		default:
+			g.printf("gal = gal[:1]")
+			g.printf("gal = append(gal, %s)", g.expr(2))
+		}
+		return
+	}
+	switch g.r.Intn(6) {
+	case 0:
+		g.printf("gsl = append(gsl[:4], %s)", g.expr(2))
+	case 1:
+		g.printf("gsl = append(gsl[:3:3], %s, %s)", g.expr(2), g.expr(2))
+	case 2:
+		// The store goes into the old array of gsl (Go evaluates gsl before the stores).
+		g.printf("gsl, %s = append(gsl[:4:4], %s), %s", g.elem(), g.expr(1), g.expr(2))
+	case 3:
+		if g.main {
+			g.printf("ls = append(ls[:3], %s)", g.expr(2))
+			if g.chance(0.3) {
+				g.printf("lsp = &ls[%s & 3]", g.expr(1))
+			}
+			break
+		}
+		fallthrough
+	case 4:
+		g.printf("_ = copy(gsl[%s & 3:], gal)", g.expr(1))
+	default:
+		x := g.sliceExpr(1) // before i is in scope
+		i := g.newVar()
+		g.fixed[i] = true
+		g.printf("for %s, v := range %s {", i, x)
+		g.loops++
+		g.indent++
+		g.printf("fmt.Println(%q, %s, v, %s)", i, i, g.expr(2))
+		g.indent--
+		g.block(1)
+		g.loops--
+		g.printf("}")
+		g.locals = g.locals[:len(g.locals)-1]
+	}
+}
+
+// sliceExpr returns a sub-slice of gsl (or gal), with bounds in range: gsl[a:b] with
+// a <= 1 < 2 <= b <= 5.
+func (g *progGen) sliceExpr(depth int) string {
+	switch g.r.Intn(4) {
+	case 0:
+		return "gal"
+	case 1:
+		return "gsl[" + g.expr(depth) + " & 1:]"
+	case 2:
+		return "gsl[:2+" + g.expr(depth) + "&3]"
+	}
+	return "gsl[" + g.expr(depth) + " & 1 : 2+" + g.expr(depth) + "&3]"
+}
+
 func (g *progGen) stmt() {
-	k := g.r.Intn(16)
+	k := g.r.Intn(18)
+	if k >= 16 {
+		g.sliceStmt()
+		return
+	}
 	if g.depth >= 2 && k >= 8 {
 		k = g.r.Intn(8) // no deeper nesting
 	}
@@ -540,6 +684,9 @@ func (g *progGen) args(n int) string {
 			} else {
 				list[i] = g.expr(2)
 			}
+		case 6:
+			// An element of a []int is addressable: read after the calls.
+			list[i] = g.elem()
 		default:
 			list[i] = g.expr(3)
 		}
@@ -632,6 +779,9 @@ func (g *progGen) leaf() string {
 		if g.chance(0.4) {
 			return "*" + g.ptr()
 		}
+		if g.chance(0.3) {
+			return g.elem()
+		}
 		return []string{"g0", "g1", "len(gs)", "int(g8)"}[g.r.Intn(4)]
 	default:
 		return fmt.Sprintf("e(%d, %s)", g.nextTag(), strconv.Itoa(g.r.Intn(7)-2))
@@ -678,6 +828,19 @@ func (g *progGen) expr(depth int) string {
 		}
 		return "int(gs[" + g.index() + "])"
 	case 10:
+		switch g.r.Intn(4) {
+		case 0:
+			return fmt.Sprintf("sum(%d, %s)", g.nextTag(), g.sliceExpr(d))
+		case 1:
+			// In place into the array of gal (which has room after its 2 elements), or into a
+			// new array (a full slice).
+			if g.chance(0.5) {
+				return fmt.Sprintf("len(append(gal, %s))", g.expr(d))
+			}
+			return fmt.Sprintf("len(append(gsl[%s & 1:3:3], %s))", g.expr(d), g.expr(d))
+		case 2:
+			return fmt.Sprintf("copy(gal, %s)", g.sliceExpr(d))
+		}
 		return fmt.Sprintf("both(%s, %s)", g.expr(d), g.expr(d))
 	default:
 		return "-" + g.leaf()

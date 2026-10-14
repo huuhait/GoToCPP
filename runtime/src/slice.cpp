@@ -1,10 +1,14 @@
 // The parts of slices (gocpp/slice.hpp) and of the bounds checks (gocpp/bounds.hpp) that are
-// not templates: the panics with Go's messages, and the capacity of a growing slice.
+// not templates: the panics with Go's messages, the capacity of a growing slice, and the
+// conversions between strings and slices.
 #include <gocpp/rt.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <memory>
 #include <string>
+#include <string_view>
 
 namespace gp {
 
@@ -151,5 +155,120 @@ int64_t grow_cap(int64_t new_len, int64_t old_cap, std::size_t size) {
 }
 
 } // namespace detail
+
+// --- the conversions between strings and slices (slice.hpp) ---
+
+namespace {
+
+// rune_len: the number of bytes of the UTF-8 encoding of r, or of U+FFFD (3) if r is not a
+// code point, as Go's encoderune does.
+int64_t rune_len(int32_t r) {
+    if (r < 0 || r > 0x10FFFF || (r >= 0xD800 && r <= 0xDFFF)) {
+        return 3;
+    }
+    return r < 0x80 ? 1 : r < 0x800 ? 2 : r < 0x10000 ? 3 : 4;
+}
+
+// put_rune writes the UTF-8 of r (U+FFFD if r is not a code point) at p and returns the end.
+char* put_rune(char* p, int32_t r) {
+    if (r < 0 || r > 0x10FFFF || (r >= 0xD800 && r <= 0xDFFF)) {
+        r = 0xFFFD;
+    }
+    auto u = static_cast<uint32_t>(r);
+    if (u < 0x80) {
+        *p++ = static_cast<char>(u);
+    } else if (u < 0x800) {
+        *p++ = static_cast<char>(0xC0 | u >> 6);
+        *p++ = static_cast<char>(0x80 | (u & 0x3F));
+    } else if (u < 0x10000) {
+        *p++ = static_cast<char>(0xE0 | u >> 12);
+        *p++ = static_cast<char>(0x80 | (u >> 6 & 0x3F));
+        *p++ = static_cast<char>(0x80 | (u & 0x3F));
+    } else {
+        *p++ = static_cast<char>(0xF0 | u >> 18);
+        *p++ = static_cast<char>(0x80 | (u >> 12 & 0x3F));
+        *p++ = static_cast<char>(0x80 | (u >> 6 & 0x3F));
+        *p++ = static_cast<char>(0x80 | (u & 0x3F));
+    }
+    return p;
+}
+
+template <typename T>
+slice<T> empty_slice() {
+    return slice<T>(std::shared_ptr<void>(), detail::empty_data<T>(), 0, 0);
+}
+
+} // namespace
+
+slice<uint8_t> to_bytes(const string& s) {
+    int64_t n = gp::len(s);
+    if (n == 0) {
+        return empty_slice<uint8_t>();
+    }
+    std::shared_ptr<uint8_t[]> a = detail::new_array<uint8_t>(n, n);
+    uint8_t* d = a.get();
+    std::memcpy(d, s.gp_data(), static_cast<std::size_t>(n));
+    return slice<uint8_t>(std::shared_ptr<void>(std::move(a), d), d, n, n);
+}
+
+slice<int32_t> to_runes(const string& s) {
+    const char* p = s.gp_data();
+    int64_t n = gp::len(s);
+    if (n == 0) {
+        return empty_slice<int32_t>();
+    }
+    // Count the runes first (Go's countrunes), then decode them into the new array.
+    int64_t count = 0;
+    for (int64_t i = 0; i < n; count++) {
+        if (static_cast<uint8_t>(p[i]) < 0x80) {
+            i++;
+            continue;
+        }
+        int64_t width = 1;
+        detail::decode_rune(p + i, n - i, width);
+        i += width;
+    }
+    std::shared_ptr<int32_t[]> a = detail::new_array<int32_t>(count, count);
+    int32_t* d = a.get();
+    for (int64_t i = 0, k = 0; i < n; k++) {
+        auto c = static_cast<uint8_t>(p[i]);
+        if (c < 0x80) {
+            d[k] = c;
+            i++;
+            continue;
+        }
+        int64_t width = 1;
+        d[k] = detail::decode_rune(p + i, n - i, width);
+        i += width;
+    }
+    return slice<int32_t>(std::shared_ptr<void>(std::move(a), d), d, count, count);
+}
+
+string to_string(const slice<uint8_t>& b) {
+    if (gp::len(b) == 0) {
+        return string();
+    }
+    return string::gp_copy(std::string_view(reinterpret_cast<const char*>(b.gp_data()),
+                                            static_cast<std::size_t>(gp::len(b))));
+}
+
+string to_string(const slice<int32_t>& r) {
+    int64_t n = gp::len(r);
+    const int32_t* d = r.gp_data();
+    int64_t total = 0;
+    for (int64_t i = 0; i < n; i++) {
+        total += rune_len(d[i]);
+    }
+    if (total == 0) {
+        return string();
+    }
+    auto bytes = std::make_shared_for_overwrite<char[]>(static_cast<std::size_t>(total));
+    char* p = bytes.get();
+    for (int64_t i = 0; i < n; i++) {
+        p = put_rune(p, d[i]);
+    }
+    const char* data = bytes.get();
+    return string(std::move(bytes), data, total);
+}
 
 } // namespace gp

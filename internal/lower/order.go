@@ -55,7 +55,15 @@ import (
 //     runs first and the new value is read (and *p's nil check panics after f ran);
 //   - an operation that can panic: an integer division or remainder by a non-constant
 //     (gp::div), a shift by a non-constant signed count (gp::shl), and s[i] (out of range). gc
-//     evaluates them after the calls of their scope: a/b + f() calls f first, then panics.
+//     evaluates them after the calls of their scope: a/b + f() calls f first, then panics;
+//   - an element of a slice, s[i] (step 3.5), which a call can change through another slice of
+//     the same array: a read, like *p, also of a local slice; string(b) reads b's bytes.
+//
+// Slices add units (step 3.5), each evaluated in its place among the calls, as gc copies them
+// into temporaries: append, copy and clear (calls: they write elements that other slices can
+// see), make (it can panic), cap (like len), []byte(s) and []rune(s) (gc's OSTR2BYTES and
+// OSTR2RUNES). The elements of a composite literal are ordered like the operands of an
+// operator (gc reads the variables in them after the calls).
 //
 // A divergence (the manager's decision, 2.5 review): gc also evaluates two such operations
 // from left to right (with both out of range, s[i] == s[j] reports i), but gocpp doesn't keep
@@ -138,9 +146,12 @@ type orderItem struct {
 }
 
 // An orderStep is one operator above an item: a linked list up to the top of its expression.
+// For an element of a composite literal, node is the literal and elem the element's index
+// (+1): C++ evaluates the elements of its braced list in order.
 type orderStep struct {
 	node ast.Expr
 	up   *orderStep
+	elem int
 }
 
 // An orderScope is one scope of the order: a list of expressions that C++ evaluates in
@@ -226,6 +237,10 @@ func (fg *funcGen) copied(e ast.Expr) bool {
 	switch x := e.(type) {
 	case *ast.Ident, *ast.StarExpr:
 		return false // a variable: addressable (a local that is not boxed is copied, unseen)
+	case *ast.IndexExpr:
+		if isSlice(fg.g.info.TypeOf(x.X)) {
+			return false // an element of a slice: addressable, like *p
+		}
 	case *ast.CallExpr:
 		if !fg.g.info.Types[x.Fun].IsType() {
 			return false // a call
@@ -258,7 +273,7 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		it.e, it.root, it.up = e, root, up
 		sc.items = append(sc.items, it)
 	}
-	below := &orderStep{e, up} // for the operands of e
+	below := &orderStep{node: e, up: up} // for the operands of e
 	switch x := e.(type) {
 	case *ast.Ident:
 		if v, ok := fg.g.info.Uses[x].(*types.Var); ok && (isPkgVar(v) || fg.isBoxed(v)) {
@@ -270,13 +285,38 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		add(&orderItem{eff: effect{read: true, panics: true}})
 	case *ast.CallExpr:
 		if fg.g.info.Types[x.Fun].IsType() {
+			to := fg.g.info.TypeOf(x)
+			if len(x.Args) == 1 && isSlice(to) && isString(fg.g.info.TypeOf(x.Args[0])) {
+				// []byte(s) and []rune(s): gc evaluates them in their places among the calls
+				// (walk/order.go: OSTR2BYTES, OSTR2RUNES), like len.
+				fg.collectInPlace(sc, x, x.Args, effect{}, root, up)
+				return
+			}
 			for _, a := range x.Args {
 				fg.collect(sc, a, root, up) // a conversion: its operand
+			}
+			if len(x.Args) == 1 && isString(to) && isSlice(fg.g.info.TypeOf(x.Args[0])) {
+				// string(b) reads the bytes of b where it is, after the calls of its scope
+				// (gc doesn't copy OBYTES2STR): memory that a call can change.
+				add(&orderItem{eff: effect{read: true}})
 			}
 			return
 		}
 		if fg.isBuiltin(x, "new") {
 			sc.calls = append(sc.calls, x) // new(T) has no effect: its argument is a type
+			return
+		}
+		if fg.isBuiltin(x, "make") {
+			// make([]T, n): in its place among the calls (gc copies it), and it panics for a
+			// bad length (a constant one is checked by go/types, also against a constant
+			// capacity). Its first argument is a type.
+			var eff effect
+			for _, a := range x.Args[1:] {
+				if fg.constValue(a) == nil {
+					eff.panics = true
+				}
+			}
+			fg.collectInPlace(sc, x, x.Args[1:], eff, root, up)
 			return
 		}
 		iface := len(x.Args)
@@ -288,17 +328,16 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 				}
 			}
 		}
-		args := fg.analyzeArgs(false, x.Args, iface)
-		it := &orderItem{unit: true, inner: []*orderScope{args}, eff: effect{call: true}, force: fg.force[x]}
-		if fg.isBuiltin(x, "len") {
-			// len of a string has no effect of its own, but gc evaluates it in its place
+		if fg.isBuiltin(x, "len") || fg.isBuiltin(x, "cap") {
+			// len and cap have no effect of their own, but gc evaluates them in their places
 			// among the calls.
-			if it.eff = args.effect(); !it.eff.any() {
-				sc.calls = append(append(sc.calls, x), args.calls...)
-				return
-			}
+			fg.collectInPlace(sc, x, x.Args, effect{}, root, up)
+			return
 		}
-		add(it)
+		// A call; also append, copy and clear, which write the elements of an array that
+		// other slices can see.
+		args := fg.analyzeArgs(false, x.Args, iface)
+		add(&orderItem{unit: true, inner: []*orderScope{args}, eff: effect{call: true}, force: fg.force[x]})
 	case *ast.BinaryExpr:
 		if x.Op == token.LAND || x.Op == token.LOR {
 			l, r := fg.analyze(false, []ast.Expr{x.X}), fg.analyze(false, []ast.Expr{x.Y})
@@ -323,7 +362,23 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 	case *ast.IndexExpr:
 		fg.collect(sc, x.X, root, below)
 		fg.collect(sc, x.Index, root, below)
-		add(&orderItem{eff: effect{panics: true}})
+		eff := effect{panics: true}
+		if isSlice(fg.g.info.TypeOf(x.X)) {
+			// An element of a slice is memory that a call can change through another slice
+			// of the array: read after the calls, like *p. (A string's bytes never change.)
+			eff.read = true
+		}
+		add(&orderItem{eff: eff})
+	case *ast.CompositeLit:
+		// The elements, like the operands of an operator: gc orders them (and reads the
+		// variables in them) as the operands of an expression. The keys of a slice literal
+		// are constants.
+		for i, elt := range x.Elts {
+			if kv, ok := elt.(*ast.KeyValueExpr); ok {
+				elt = kv.Value
+			}
+			fg.collect(sc, elt, root, &orderStep{node: e, up: up, elem: i + 1})
+		}
 	case *ast.SliceExpr:
 		// gc evaluates a slice expression as a whole in its place among the calls (walk/
 		// order.go copies it into a temporary), after its bounds, which it copies into
@@ -348,6 +403,19 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		}
 		add(&orderItem{unit: true, eff: eff, inner: []*orderScope{in}})
 	}
+}
+
+// collectInPlace adds the call or conversion x, whose operands are args, to the scope as an
+// item that gc evaluates in its place among the calls (len, cap, make, []byte(s)), which has
+// no effect of its own but eff: a unit, if it or its operands have an effect, or else an
+// expression that can be evaluated anywhere (its calls are only marked ordered).
+func (fg *funcGen) collectInPlace(sc *orderScope, x *ast.CallExpr, args []ast.Expr, eff effect, root int, up *orderStep) {
+	in := fg.analyze(false, args)
+	if eff = eff.or(in.effect()); !eff.any() {
+		sc.calls = append(append(sc.calls, x), in.calls...)
+		return
+	}
+	sc.items = append(sc.items, &orderItem{e: x, unit: true, eff: eff, root: root, up: up, inner: []*orderScope{in}, force: fg.force[x]})
 }
 
 // collectAddr adds the items of &e to the scope: those of what e is addressed through. &x of
@@ -471,17 +539,33 @@ func (sc *orderScope) plan() {
 // wherever Go's order can be seen.
 func (sc *orderScope) first(u *orderItem, later, others []*orderItem) bool {
 	var above map[ast.Expr]bool // the operators above u
+	var elems map[ast.Expr]int  // the composite literals above u: the element u is in
 	for st := u.up; st != nil; st = st.up {
 		if above == nil {
 			above = make(map[ast.Expr]bool)
 		}
 		above[st.node] = true
+		if st.elem > 0 {
+			if elems == nil {
+				elems = make(map[ast.Expr]int)
+			}
+			elems[st.node] = st.elem
+		}
 	}
 	before := func(b *orderItem) bool {
 		// An operator above u runs after its operands; a list that C++ evaluates in order
-		// keeps the order of its expressions. Everything else is unordered in C++ (or
-		// ordered only since C++17, as s[i], which gocpp doesn't rely on).
-		return above[b.e] || sc.seq && u.root < b.root
+		// keeps the order of its expressions, also the braced list of a composite literal
+		// ([]int{f(), g()}). Everything else is unordered in C++ (or ordered only since
+		// C++17, as s[i], which gocpp doesn't rely on).
+		if above[b.e] || sc.seq && u.root < b.root {
+			return true
+		}
+		for st := b.up; st != nil && elems != nil; st = st.up {
+			if e, ok := elems[st.node]; ok && st.elem > e {
+				return true
+			}
+		}
+		return false
 	}
 	for _, b := range later {
 		if conflict(u.eff, b.eff) && !before(b) {

@@ -314,3 +314,18 @@ func varDecl(pos cppir.Pos, typ cppir.Type, n string, init cppir.Expr) *cppir.Va
 func voidCast(x cppir.Expr) cppir.Expr {
 	return &cppir.Cast{Kind: "static_cast", Type: typeName("void"), X: x}
 }
+
+// templateCall returns fun<targs...>(args...): gp::make_slice<int64_t>(n).
+func templateCall(fun string, targs []cppir.Node, args ...cppir.Expr) *cppir.Call {
+	return &cppir.Call{Fun: &cppir.Name{Name: fun, Args: targs}, Args: args}
+}
+
+// construct returns typ(args...), a value of the C++ class type typ made by its constructor:
+// gp::slice<int64_t>() (nil), gp::ptr<int64_t>(owner, p). typ is a *cppir.TypeName.
+func construct(typ cppir.Type, args ...cppir.Expr) cppir.Expr {
+	tn, ok := typ.(*cppir.TypeName)
+	if !ok {
+		return placeholder
+	}
+	return templateCall(tn.Name, tn.Args, args...)
+}

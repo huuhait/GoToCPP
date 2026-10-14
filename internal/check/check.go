@@ -406,6 +406,7 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 		}
 	}
 	checkSizeCParts(fset, files, info, cppNames, c.checkExprError)
+	checkPrintSlices(fset, pkg, files, info, c.checkExprError)
 	falseErrs := newFalseErrors(pkg, info, files)
 	c.flush(func(err types.Error) bool {
 		if diag.ErrorCode(err) == diag.UnusedVar {

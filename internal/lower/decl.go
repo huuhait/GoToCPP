@@ -164,8 +164,10 @@ func moved(typ cppir.Type, x cppir.Expr) cppir.Expr {
 
 // packageVars adds the package variables. Each one is constinit, so C++ runs no dynamic
 // initialization of its own (whose order across files C++ doesn't define): a variable whose
-// initializer is a constant gets its value at compile time, and the others start at their
-// zero value and get their values in gp_var_init, in Go's order (types.Info.InitOrder).
+// initializer is a constant gets its value at compile time, one whose initializer is nil (var
+// s []int = nil) is its zero value, and the others start at their zero value and get their
+// values in gp_var_init, in Go's order (types.Info.InitOrder). A slice literal needs its
+// array on the heap, so it is never constinit.
 func (g *gen) packageVars() {
 	byVar := make(map[*types.Var]*types.Initializer)
 	for _, init := range g.info.InitOrder {
@@ -191,7 +193,7 @@ func (g *gen) packageVars() {
 		g.decl(d)
 	}
 	for _, init := range g.info.InitOrder {
-		if constInit(g.info, init) == nil {
+		if constInit(g.info, init) == nil && !nilInit(g.info, init) {
 			g.varInits = true
 		}
 	}
@@ -212,6 +214,11 @@ func constInit(info *types.Info, init *types.Initializer) constant.Value {
 	return info.Types[init.Rhs].Value
 }
 
+// nilInit reports whether the initializer init gives one variable nil, its zero value.
+func nilInit(info *types.Info, init *types.Initializer) bool {
+	return init != nil && len(init.Lhs) == 1 && info.Types[init.Rhs].IsNil()
+}
+
 // initFuncs adds gp_var_init, which sets the package variables that constInit doesn't, and
 // gp_init_funcs, which calls the init functions in source order (gp_init_all, after the
 // namespace, calls both; docs/spec/cpp-mapping.md, "Package initialization"). They are
@@ -224,7 +231,7 @@ func (g *gen) initFuncs() {
 		fn := &cppir.Func{Result: typeName("void"), Name: "gp_var_init", Body: &cppir.Block{}}
 		fg.push(&fn.Body.Stmts, nil)
 		for _, init := range g.info.InitOrder {
-			if constInit(g.info, init) != nil {
+			if constInit(g.info, init) != nil || nilInit(g.info, init) {
 				continue
 			}
 			g.markCounts(init.Rhs)

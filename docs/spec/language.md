@@ -9,7 +9,7 @@ Everything this document doesn't mention works as the Go spec says.
 | | |
 |---|---|
 | Status | v0, written in Phase 00 from the plan. Each phase updates it when it builds a feature |
-| Source | [Phase 00 §2.2](../../plans/2026-10-13-gocpp/phase-00-foundations/README.md#22-the-language-as-a-diff-against-go) (the divergence list D1–D21; D22 from the Phase 02 evaluation-order work) and the phase READMEs linked in each section |
+| Source | [Phase 00 §2.2](../../plans/2026-10-13-gocpp/phase-00-foundations/README.md#22-the-language-as-a-diff-against-go) (the divergence list D1–D21; D22 from the Phase 02 evaluation-order work, D23 from Phase 03 step 3.5) and the phase READMEs linked in each section |
 | See also | [cpp-mapping.md](cpp-mapping.md) (what the C++ output looks like), [interop.md](interop.md) (using C and C++), [feature-matrix.md](feature-matrix.md) (the phase of each feature) |
 
 **How to read it.** Each section starts with an example. Then it says what Go does, what gocpp
@@ -44,6 +44,7 @@ The [feature matrix](feature-matrix.md) lists every feature with the phase that 
 | [D20](#d20-type-names-with-more-than-one-dot) | a type name has at most one dot | `std.chrono.seconds`, `std.vector[int].iterator` | 01, 04 |
 | [D21](#d21-range-over-c-containers) | `range` over Go types only | also over C++ containers and C arrays | 04 |
 | [D22](#d22-which-of-two-run-time-panics-is-reported) | one panic message, fixed by the compiler | with two possible panics and no call between them, the other message can appear | 02 |
+| [D23](#d23-print-and-println-of-a-slice) | `println(s)` prints `[3/3]0xc000012345` | an error: use `fmt.Println` | 03 |
 
 The three things gocpp adds have their own sections:
 [header imports](#header-imports), [must functions and must calls](#must-functions-and-must-calls)
@@ -584,6 +585,19 @@ fmt.Println(s[i], 7/z) // Go: "index out of range [5] with length 3"; gocpp may 
   happen in Go's order; only the panic message can differ. Keeping gc's order here would need a
   temporary for every such operation, which makes the C++ much harder to read.
 - **Phase:** [02](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/README.md#25-evaluation-order-minimal-version-here-already).
+
+## D23. print and println of a slice
+
+```go
+s := []int{1, 2, 3}
+println(s) // Go prints [3/3]0xc000012345; gocpp: error: cannot println s ([]int): ... use fmt.Println
+```
+
+- **Go:** the builtins `print` and `println` write a slice as its length, its capacity and the
+  address of its array in Go's heap.
+- **gocpp:** that address can't be the same, so `gocpp check` rejects a slice argument of `print`
+  and `println`; `fmt.Println(s)` prints the elements, as in Go.
+- **Phase:** [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#23-strings-slices-arrays-maps).
 
 ---
 

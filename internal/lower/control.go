@@ -26,6 +26,8 @@ import (
 //	                                int64_t i = gp_i0; ...
 //	for i, r := range s {...}   for (auto gp_it0 = gp::range_string(s); gp::range_next(gp_it0);) {
 //	                                int64_t i = gp_it0.gp_i; int32_t r = gp_it0.gp_r; ...
+//	for i, v := range sl {...}  for (auto gp_it0 = gp::range_slice(sl); gp::range_next(gp_it0);) {
+//	                                int64_t i = gp_it0.gp_i; int64_t v = gp_it0.gp_v(); ...
 //	switch (3 shapes)           see switchStmt
 //
 // Scopes: a C++ for doesn't allow a name of its init statement to be declared again in the
@@ -416,8 +418,12 @@ func (fg *funcGen) forInit(s ast.Stmt) (cppir.Stmt, bool) {
 func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 	xt := fg.g.info.TypeOf(s.X)
 	b := basicOf(xt)
-	if b != nil && b.Info()&types.IsString != 0 {
-		fg.rangeString(s)
+	switch {
+	case b != nil && b.Info()&types.IsString != 0:
+		fg.rangeIter(s, "gp::range_string", func(it cppir.Expr) cppir.Expr { return &cppir.Member{X: it, Name: "gp_r"} })
+		return
+	case isSlice(xt):
+		fg.rangeIter(s, "gp::range_slice", func(it cppir.Expr) cppir.Expr { return &cppir.Call{Fun: &cppir.Member{X: it, Name: "gp_v"}} })
 		return
 	}
 	if b == nil || b.Info()&types.IsInteger == 0 {
@@ -491,19 +497,26 @@ func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 	fg.breakLabel(s, s.Body.Rbrace)
 }
 
-// rangeString lowers a range loop over a string (Phase 03 step 3.4). The string is evaluated
-// once, into the loop's gp::string_range (with its temporaries, if it needs any, in a block in
-// front, as for range over an integer), and gp::range_next steps from rune to rune, decoding
-// UTF-8 like Go: an invalid byte is U+FFFD and steps one byte. The range variables are copies
-// of its hidden counters, gp_i (where the rune starts) and gp_r (the rune), so assigning to
-// them in the body doesn't change the iteration (Go 1.22). Every form is the same loop:
+// rangeIter lowers a range loop over a string (Phase 03 step 3.4) or a slice (step 3.5). The
+// range expression is evaluated once, into the loop's iterator (with its temporaries, if it
+// needs any, in a block in front, as for range over an integer), which holds it:
 //
 //	for i, r := range s {       for (auto gp_it0 = gp::range_string(s); gp::range_next(gp_it0);) {
 //	                                int64_t i = gp_it0.gp_i; int32_t r = gp_it0.gp_r;
+//	for i, v := range sl {      for (auto gp_it0 = gp::range_slice(sl); gp::range_next(gp_it0);) {
+//	                                int64_t i = gp_it0.gp_i; int64_t v = gp_it0.gp_v();
 //
-// A variable that exists (for i, r = range s) is assigned at the start of each iteration;
-// a blank one, or one that is left out (for range s, for _, r := range s), is neither.
-func (fg *funcGen) rangeString(s *ast.RangeStmt) {
+// For a string, gp::range_next steps from rune to rune, decoding UTF-8 like Go: an invalid byte
+// is U+FFFD and steps one byte. For a slice, the iterator holds a copy of the slice, so the loop
+// covers the original length and array also when the body appends to it or assigns it, and
+// gp_v() reads the element when the iteration starts (a write to a later element in the body is
+// seen, as in Go). The range variables are copies of the hidden counters, so assigning to them
+// in the body doesn't change the iteration (Go 1.22), and each iteration has its own. Every form
+// is the same loop. A variable that exists (for i, r = range s) is assigned at the start of each
+// iteration, as by i, r = gp_i, gp_r: the operands of a target that is not a variable (for i,
+// s[i] = range ...) are evaluated before the stores, each iteration (saveOperands); a blank one,
+// or one that is left out (for range s, for _, r := range s), is neither.
+func (fg *funcGen) rangeIter(s *ast.RangeStmt, start string, value func(it cppir.Expr) cppir.Expr) {
 	pre := fg.order(false, s.X)
 	if len(pre) > 0 {
 		fg.open(s.For)
@@ -513,20 +526,20 @@ func (fg *funcGen) rangeString(s *ast.RangeStmt) {
 	it := fg.names.temp("it")
 	head := &cppir.For{
 		Pos:  fg.g.pos(s.For),
-		Init: varDecl(cppir.Pos{}, typeName("auto"), it, call("gp::range_string", fg.expr(s.X))),
+		Init: varDecl(cppir.Pos{}, typeName("auto"), it, call(start, fg.expr(s.X))),
 		Cond: call("gp::range_next", cxxName(it)),
 	}
 	// The line at the start of each iteration: a declaration or an assignment of each range
 	// variable, made from its counter (as in Go, the key first), on one C++ line.
 	type rangeVar struct {
-		e       ast.Expr
-		obj     *types.Var // a new variable
-		typ     cppir.Type // its C++ type
-		target  cppir.Expr // or a variable that exists
-		counter string
+		e     ast.Expr
+		obj   *types.Var // a new variable
+		typ   cppir.Type // its C++ type
+		value cppir.Expr
 	}
 	var vars []rangeVar
-	for _, v := range []rangeVar{{e: s.Key, counter: "gp_i"}, {e: s.Value, counter: "gp_r"}} {
+	key := &cppir.Member{X: cxxName(it), Name: "gp_i"}
+	for _, v := range []rangeVar{{e: s.Key, value: key}, {e: s.Value, value: value(cxxName(it))}} {
 		if v.e == nil || isBlank(v.e) {
 			continue
 		}
@@ -537,8 +550,6 @@ func (fg *funcGen) rangeString(s *ast.RangeStmt) {
 				continue
 			}
 			v.typ = fg.g.cxxType(v.obj.Type(), v.e.Pos())
-		} else {
-			v.target = fg.expr(v.e)
 		}
 		vars = append(vars, v)
 	}
@@ -546,15 +557,31 @@ func (fg *funcGen) rangeString(s *ast.RangeStmt) {
 	if len(vars) > 0 {
 		l.vars = func() {
 			line := &cppir.Line{Pos: fg.g.pos(vars[0].e.Pos())}
+			if s.Tok != token.DEFINE {
+				// An assignment of the counters to the targets: their operands first.
+				lhs := make([]ast.Expr, len(vars))
+				for i, v := range vars {
+					lhs[i] = v.e
+				}
+				line.Stmts = append(line.Stmts, fg.order(false, targetOperands(lhs)...)...)
+				targets := make([]target, len(vars))
+				for i, v := range vars {
+					targets[i] = fg.lhs(v.e)
+				}
+				for i := range targets {
+					line.Stmts = append(line.Stmts, fg.saveOperands(cppir.Pos{}, targets, i)...)
+				}
+				for i, t := range targets {
+					line.Stmts = append(line.Stmts, &cppir.ExprStmt{X: t.assignExpr(vars[i].value)})
+				}
+				fg.add(line)
+				return
+			}
 			for _, v := range vars {
-				value := &cppir.Member{X: cxxName(it), Name: v.counter}
-				switch {
-				case v.obj != nil && fg.isBoxed(v.obj):
-					line.Stmts = append(line.Stmts, varDecl(cppir.Pos{}, ptrType(v.typ), fg.names.declare(v.obj), newBox(v.typ, value)))
-				case v.obj != nil:
-					line.Stmts = append(line.Stmts, varDecl(cppir.Pos{}, v.typ, fg.names.declare(v.obj), value))
-				default:
-					line.Stmts = append(line.Stmts, &cppir.ExprStmt{X: &cppir.Assign{Op: "=", X: v.target, Y: value}})
+				if fg.isBoxed(v.obj) {
+					line.Stmts = append(line.Stmts, varDecl(cppir.Pos{}, ptrType(v.typ), fg.names.declare(v.obj), newBox(v.typ, v.value)))
+				} else {
+					line.Stmts = append(line.Stmts, varDecl(cppir.Pos{}, v.typ, fg.names.declare(v.obj), v.value))
 				}
 			}
 			fg.add(line)

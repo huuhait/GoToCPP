@@ -52,6 +52,8 @@
 //   - box.go: the boxing analysis, a pre-pass over each function that decides which of its
 //     variables live in a box on the heap (gp::ptr<T> x = gp::new_<T>(...), each use (*x));
 //   - addr.go: &x, the owner table (every pointer shares the owner of what it points into);
+//   - slices.go: slices (step 3.5): literals, make, append, copy, clear, the conversions
+//     between strings and slices, and the move of s in s = append(s, x);
 //   - ops.go: the operators (with the small-integer rule and the runtime's gp::div, gp::rem,
 //     gp::shl and gp::shr), conversions (gp::f2i), s[i] and the builtins len and panic;
 //   - types.go: the C++ spelling of the types;

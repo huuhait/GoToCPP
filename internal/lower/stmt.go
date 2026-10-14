@@ -25,6 +25,8 @@ import (
 //	x = e                    x = e;
 //	a, b = b, a              { auto gp_t0 = b; auto gp_t1 = a; a = gp_t0; b = gp_t1; }
 //	x op= y                  x = x op y, through binaryOp: x = gp::div(x, y), x = uint8_t(x + y)
+//	s[i] = v, s[i] op= v     the same, on the element (a T&); s = append(s, x) moves s (slices.go)
+//	s, s[0] = t, 5           { auto gp_t0 = s; s = t; gp_t0[0] = 5; } (the old s: saveOperands)
 //	x++, x--                 x++; x--;  (C++ converts a small integer back with Go's wrapping)
 //	return a, b              return {a, b};
 //	L: s                     L:; s  (only for a label that a goto uses)
@@ -158,7 +160,10 @@ func (fg *funcGen) inner(list *[]cppir.Stmt, end *cppir.Pos, endPos token.Pos, b
 // returns the temporaries that go in front of it, and its C++ expression.
 func (fg *funcGen) simple(s ast.Stmt) ([]cppir.Stmt, cppir.Expr) {
 	fg.forceTarget(s)
-	pre := fg.order(false, simpleScope(s)...)
+	pre := fg.order(false, fg.simpleScope(s)...)
+	if c := fg.appendInPlace(s); c != nil {
+		fg.ordered[c] = true // its arguments are in the statement's scope
+	}
 	return pre, fg.simpleExpr(s)
 }
 
@@ -179,14 +184,18 @@ func (fg *funcGen) forceTarget(s ast.Stmt) {
 
 // simpleScope returns the expressions that a simple statement that is one C++ expression
 // evaluates, in any order: x op= y reads x too, and x = y evaluates the operands of its target
-// (targetOperands) before y, as gc does.
-func simpleScope(s ast.Stmt) []ast.Expr {
+// (targetOperands) before y, as gc does. In s = append(s, ...) (appendInPlace), the append is
+// not a unit of its own: its arguments are in the statement's scope.
+func (fg *funcGen) simpleScope(s ast.Stmt) []ast.Expr {
 	switch s := s.(type) {
 	case *ast.ExprStmt:
 		return []ast.Expr{s.X}
 	case *ast.IncDecStmt:
 		return []ast.Expr{s.X}
 	case *ast.AssignStmt:
+		if c := fg.appendInPlace(s); c != nil {
+			return append(targetOperands(s.Lhs), c.Args...)
+		}
 		if s.Tok == token.ASSIGN {
 			return append(targetOperands(s.Lhs), s.Rhs...)
 		}
@@ -197,13 +206,16 @@ func simpleScope(s ast.Stmt) []ast.Expr {
 
 // targetOperands returns the operands of the targets of an assignment that are evaluated with
 // its values (the spec's "operands of index expressions and pointer indirections on the left"):
-// p of *p. (a[i] and p.f add theirs with their steps.) gc evaluates their calls before those
-// of the values, in order, and reads them where the stores are.
+// p of *p, s and i of s[i] (step 3.5). (p.f adds its own with step 3.8.) gc evaluates their
+// calls before those of the values, in order, and reads them where the stores are.
 func targetOperands(lhs []ast.Expr) []ast.Expr {
 	var ops []ast.Expr
 	for _, e := range lhs {
-		if x, ok := ast.Unparen(e).(*ast.StarExpr); ok {
+		switch x := ast.Unparen(e).(type) {
+		case *ast.StarExpr:
 			ops = append(ops, x.X)
+		case *ast.IndexExpr:
+			ops = append(ops, x.X, x.Index)
 		}
 	}
 	return ops
@@ -218,7 +230,7 @@ func (fg *funcGen) postInHead(post ast.Stmt) bool {
 // simpleNeedsPre reports whether simple(s) would return temporaries, without writing anything.
 func (fg *funcGen) simpleNeedsPre(s ast.Stmt) bool {
 	fg.forceTarget(s)
-	return fg.needsPre(false, simpleScope(s)...)
+	return fg.needsPre(false, fg.simpleScope(s)...)
 }
 
 // simpleExpr returns the C++ expression of a simple statement that is one: an expression
@@ -238,11 +250,15 @@ func (fg *funcGen) simpleExpr(s ast.Stmt) cppir.Expr {
 				var t target // _
 				if !isBlank(lhs) {
 					t = fg.lhs(lhs)
+					fg.markMoves(lhs, rhs) // s = append(s, x)
 				}
-				return t.assignExpr(fg.expr(rhs))
+				return t.assignExpr(fg.storedExpr(rhs))
 			}
-			// x op= y is x = x op y: x is a variable (Phase 02 has no other targets),
-			// so reading it twice is reading it once.
+			// x op= y is x = x op y, which evaluates x twice: a variable, *p or s[i]. The
+			// calls in x went into temporaries (forceTarget), so reading it twice is reading
+			// it once: nothing between the two reads can change p, s or i (gc's safeExpr
+			// rewrites it the same way), and the bounds check of s[i] runs twice with the
+			// same result.
 			op := s.Tok + (token.ADD - token.ADD_ASSIGN)
 			return &cppir.Assign{Op: "=", X: fg.expr(lhs), Y: fg.binaryOp(s.TokPos, op, lhs, rhs)}
 		}
@@ -349,11 +365,13 @@ type target struct {
 	box    bool // a new variable that is boxed (box.go): gp::ptr<T> x = gp::new_<T>(value);
 
 	// mem: storing to the target writes memory that other expressions can read: a boxed or a
-	// package variable, or a target that is not a variable (*p).
+	// package variable, or a target that is not a variable (*p, s[i]).
 	mem bool
-	// ptr is the pointer operand p of a target *p, which bind evaluates into a temporary
-	// first when an assignment before it can change it (gc's ascompatee).
-	ptr ast.Expr
+	// ptr is the pointer operand p of a target *p, and index a target s[i], whose operands
+	// (p; s and i) bind evaluates into temporaries first when an assignment before it can
+	// change them (gc's ascompatee: saveOperands).
+	ptr   ast.Expr
+	index *ast.IndexExpr
 }
 
 // varTarget returns the target of the existing variable whose C++ name is name.
@@ -376,8 +394,47 @@ func (fg *funcGen) lhs(e ast.Expr) target {
 		}
 	case *ast.StarExpr:
 		t.ptr = x.X
+	case *ast.IndexExpr:
+		t.index = x
 	}
 	return t
+}
+
+// saveOperands evaluates the operands of the target targets[i] into temporaries (the
+// statements it returns, at pos) if an assignment to one of the targets before it can change
+// them, and makes the target use them: in p, *p = q, 5 the store goes through the old p, in
+// s, s[0] = t, 5 into the old s, and in i, s[i] = 1, 2 to the old i, as in Go, whose
+// assignments evaluate the operands of their targets before any store (gc's ascompatee).
+func (fg *funcGen) saveOperands(pos cppir.Pos, targets []target, i int) []cppir.Stmt {
+	t := targets[i]
+	var lines []cppir.Stmt
+	save := func(e ast.Expr, x cppir.Expr) cppir.Expr {
+		if !fg.affected(e, targets[:i]) {
+			return x
+		}
+		tmp := fg.names.temp("t")
+		lines = append(lines, varDecl(pos, typeName("auto"), tmp, fg.exactExpr(e)))
+		return cxxName(tmp)
+	}
+	switch {
+	case t.ptr != nil:
+		if p := save(t.ptr, nil); p != nil {
+			targets[i].x = deref(p)
+		}
+	case t.index != nil:
+		x, idx := save(t.index.X, nil), save(t.index.Index, nil)
+		if x == nil && idx == nil {
+			break
+		}
+		if x == nil {
+			x = fg.expr(t.index.X)
+		}
+		if idx == nil {
+			idx = fg.intExpr(t.index.Index)
+		}
+		targets[i].x = &cppir.Index{X: x, Index: idx}
+	}
+	return lines
 }
 
 // blank reports whether t is _.
@@ -576,14 +633,12 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 		}
 		lines = append(lines, t.assign(p, value))
 	}
-	// save evaluates the pointer of a target *p into a temporary first if an assignment
-	// before it can change p (gc saves it with the values, before the stores).
+	// save evaluates the operands of a target *p or s[i] into temporaries first if an
+	// assignment before it can change them (gc saves them with the values, before the stores).
 	save := func(i int) {
-		if t := targets[i]; t.ptr != nil && fg.affected(t.ptr, targets[:i]) {
-			tmp := fg.names.temp("t")
+		if saved := fg.saveOperands(p, targets, i); len(saved) > 0 {
 			temps, joined = true, true
-			lines = append(lines, varDecl(p, typeName("auto"), tmp, fg.expr(t.ptr)))
-			targets[i].x = deref(cxxName(tmp))
+			lines = append(lines, saved...)
 		}
 	}
 	direct := len(values) == len(targets)
@@ -647,7 +702,7 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 			switch {
 			case t.blank():
 			case tmps[i] != "" && t.typ != nil && t.class:
-				assign(t, call("std::move", cxxName(tmps[i]))) // the temporary is not used again
+				assign(t, moved(t.typ, cxxName(tmps[i]))) // the temporary is not used again
 			case tmps[i] != "":
 				assign(t, cxxName(tmps[i]))
 			default:
@@ -685,6 +740,9 @@ func early(targets []target, i int) []target {
 // target that is not a variable (a[i] = ..., *p = ..., from Phase 03 on) counts as read by
 // any e, so that its value goes into a temporary rather than in the wrong order.
 func (fg *funcGen) reads(e ast.Expr, targets []target) bool {
+	if _, ok := fg.temps[ast.Unparen(e)]; ok {
+		return false // a temporary, evaluated already
+	}
 	used := fg.usedNames([]ast.Expr{e})
 	for _, t := range targets {
 		switch {

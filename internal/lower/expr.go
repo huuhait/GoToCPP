@@ -18,9 +18,10 @@ import (
 // user functions, of the builtins len, print, println and panic and of fmt.Print, Println and
 // Printf (gp::fmtshim), the byte s[i] of a string, the substring s[a:b], conversions between
 // basic types (also string(r)), every operator of the Phase 02 subset with string
-// concatenation (ops.go), and pointers (step 3.3): *p, &x (addr.go), new(T), nil, p == q, and
-// a boxed variable x (box.go), which is (*x). The rest is reported as "not supported yet": the
-// phase gates of internal/check reject it before, with a message for the user.
+// concatenation (ops.go), pointers (step 3.3): *p, &x (addr.go), new(T), nil, p == q, and
+// a boxed variable x (box.go), which is (*x), and slices (step 3.5, slices.go). The rest is
+// reported as "not supported yet": the phase gates of internal/check reject it before, with a
+// message for the user.
 //
 // Every expression that is not a constant has exactly its Go type in C++ (int8 is int8_t, not
 // the int that C++ arithmetic gives: ops.go casts the small integer types back), so that a
@@ -70,6 +71,7 @@ type funcGen struct {
 	temps   map[ast.Expr]string // the expressions that order.go put into temporaries
 	ordered map[ast.Expr]bool   // the calls that order.go ordered
 	force   map[ast.Expr]bool   // the calls that order.go must put into temporaries
+	moves   map[ast.Expr]bool   // the slices that s = append(s, ...) and s = s[a:b] move (slices.go)
 
 	// boxed are the variables of the function that live in a box (box.go): nil in
 	// gp_var_init, which has none.
@@ -93,6 +95,7 @@ func newFuncGen(g *gen, names *funcNames, fn *funcInfo) *funcGen {
 		temps:      make(map[ast.Expr]string),
 		ordered:    make(map[ast.Expr]bool),
 		force:      make(map[ast.Expr]bool),
+		moves:      make(map[ast.Expr]bool),
 	}
 	if fn != nil {
 		fg.boxed = fn.boxed
@@ -151,6 +154,8 @@ func (fg *funcGen) expr(e ast.Expr) cppir.Expr {
 	case *ast.StarExpr:
 		// *p: gp::ptr's operator* panics like Go for a nil p.
 		return deref(fg.expr(e.X))
+	case *ast.CompositeLit:
+		return fg.compositeLit(e)
 	}
 	fg.g.unsupported(e.Pos(), nodeKind(e))
 	return placeholder
@@ -163,8 +168,23 @@ func (fg *funcGen) expr(e ast.Expr) cppir.Expr {
 // exactExpr; the other expressions already have their Go type in C++ (ops.go casts the
 // small integer types back).
 func (fg *funcGen) exactExpr(e ast.Expr) cppir.Expr {
-	if tv, ok := fg.g.info.Types[e]; ok && tv.Value != nil {
+	tv, ok := fg.g.info.Types[e]
+	switch {
+	case ok && tv.Value != nil:
 		return fg.g.constant(tv.Value, fg.g.untypedCount(e, tv.Type), e.Pos(), true)
+	case ok && tv.IsNil() && isSlice(tv.Type):
+		// nullptr would be a std::nullptr_t: gp::slice<T>(), a nil slice.
+		return construct(fg.g.cxxType(tv.Type, e.Pos()))
+	}
+	return fg.expr(e)
+}
+
+// intExpr returns the C++ of e, an index, a bound of a slice expression or a length (make): a
+// constant is a literal of type int, which every runtime template takes (go/types may record
+// an untyped float constant, s[2.0], or a byte, s['a']); the rest is fg.expr's.
+func (fg *funcGen) intExpr(e ast.Expr) cppir.Expr {
+	if v := fg.constValue(e); v != nil {
+		return fg.g.constant(v, types.Typ[types.Int], e.Pos(), false)
 	}
 	return fg.expr(e)
 }
@@ -194,9 +214,10 @@ func (fg *funcGen) ident(id *ast.Ident) cppir.Expr {
 	case *types.Func:
 		fg.g.unsupported(id.Pos(), "function values (Phase 03)")
 	case *types.Nil:
-		// A nil pointer: C++ converts nullptr to gp::ptr<T>. The other nil values (slices,
-		// maps, funcs, interfaces) come with their types.
-		if t := fg.g.info.TypeOf(id); t != nil && (isPointer(t) || t == types.Typ[types.UntypedNil]) {
+		// A nil pointer or slice: C++ converts nullptr to gp::ptr<T> and gp::slice<T> (where
+		// C++ deduces the type, exactExpr writes gp::slice<T>()). The other nil values (maps,
+		// funcs, interfaces) come with their types.
+		if t := fg.g.info.TypeOf(id); t != nil && (isPointer(t) || isSlice(t) || t == types.Typ[types.UntypedNil]) {
 			return lit("nullptr")
 		}
 		fg.g.unsupported(id.Pos(), "nil of type "+types.TypeString(fg.g.info.TypeOf(id), types.RelativeTo(fg.g.pkg.Types)))
@@ -215,7 +236,7 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 		fg.g.errorf(c.Pos(), "internal error: a call whose evaluation order was not decided")
 		return placeholder
 	}
-	if c.Ellipsis.IsValid() {
+	if c.Ellipsis.IsValid() && !fg.isBuiltin(c, "append") {
 		fg.g.unsupported(c.Ellipsis, "f(s...) (Phase 03)")
 		return placeholder
 	}
@@ -228,7 +249,15 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 			switch obj.Name() {
 			case "print", "println":
 				callee, template = "gp::"+obj.Name(), true
-			case "len", "panic", "new":
+				for _, a := range c.Args {
+					if t := fg.g.info.TypeOf(a); t != nil && isSlice(t) {
+						// Go prints [len/cap]0xc000012345, with an address of Go's heap:
+						// internal/check rejects it (D23), so this is only a safety net.
+						fg.g.unsupported(a.Pos(), "printing a slice with "+obj.Name())
+						return placeholder
+					}
+				}
+			case "len", "cap", "panic", "new", "make", "append", "copy", "clear":
 				return fg.builtin(c, obj.Name())
 			default:
 				fg.g.unsupported(c.Pos(), "the builtin "+obj.Name())
@@ -262,6 +291,10 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 		for _, a := range c.Args {
 			if t := fg.g.info.TypeOf(a); t != nil && isPointer(t) {
 				fg.g.unsupported(a.Pos(), "printing a pointer (Phase 03 step 3.15)")
+				return placeholder
+			}
+			if t := fg.g.info.TypeOf(a); t != nil && isSlice(t) {
+				fg.g.unsupported(a.Pos(), "printing a slice (Phase 03 step 3.15)")
 				return placeholder
 			}
 		}

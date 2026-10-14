@@ -778,6 +778,69 @@ void test_adl() {
     CHECK_EQ(gpkg_adl::hijacked, INT64_C(0));
 }
 
+// --- keyed literals, element pointers, range and the string conversions (step 3.5b) ---
+
+void test_keyed_range_conv() {
+    // []int{5: 1, 2, 1: 7}: length 7, the rest zero, evaluated in source order.
+    ints k = gp::slice_keyed<int64_t>(7, {{5, 1}, {6, 2}, {1, 7}});
+    CHECK(same(k, {0, 7, 0, 0, 0, 1, 2}));
+    CHECK_EQ(gp::cap(k), int64_t(7));
+    strs ks = gp::slice_keyed<gp::string>(3, {{2, "x"_gs}});
+    CHECK(ks[0] == ""_gs && ks[1] == ""_gs && ks[2] == "x"_gs);
+    CHECK_EQ(panic_text([] { gp::slice_keyed<int64_t>(2, {{2, 1}}); }),
+             std::string("runtime error: index out of range [2] with length 2"));
+
+    // &s[i] of a slice that is not a variable keeps its array alive.
+    gp::ptr<int64_t> p = gp::elem_ptr(gp::slice_of<int64_t>({4, 5, 6}), 1);
+    CHECK_EQ(*p, int64_t(5));
+    *p = 9;
+    CHECK_EQ(*p, int64_t(9));
+    CHECK_EQ(panic_text([] { gp::elem_ptr(ints(), 0); }),
+             std::string("runtime error: index out of range [0] with length 0"));
+
+    // range: the original length and array; later elements as they are when reached.
+    ints s = gp::slice_of<int64_t>({1, 2, 3});
+    std::vector<int64_t> seen;
+    for (auto it = gp::range_slice(s); gp::range_next(it);) {
+        seen.push_back(it.gp_i * 10 + it.gp_v());
+        if (it.gp_i == 0) {
+            s[2] = 7;                      // seen: the copy shares the array
+            s = gp::append(s, 4);          // not seen: the range has the old length
+            s = gp::slice_of<int64_t>({}); // not seen either
+        }
+    }
+    CHECK(seen == (std::vector<int64_t>{1, 12, 27}));
+    int n = 0;
+    for (auto it = gp::range_slice(ints()); gp::range_next(it);) {
+        n++;
+    }
+    CHECK_EQ(int64_t(n), int64_t(0));
+
+    // []byte(s), string(b): copies.
+    bytes b = gp::to_bytes("héllo"_gs);
+    CHECK_EQ(gp::len(b), int64_t(6));
+    CHECK(b[1] == 0xC3 && b[2] == 0xA9);
+    b[0] = 'j';
+    CHECK(gp::to_string(b) == "jéllo"_gs);
+    gp::string from = gp::to_string(b);
+    b[0] = 'x';
+    CHECK(from == "jéllo"_gs);
+    CHECK(gp::to_bytes(""_gs) != nullptr && gp::len(gp::to_bytes(""_gs)) == 0);
+    CHECK(gp::to_string(bytes()) == ""_gs);
+
+    // []rune(s): decoded like range over s (an invalid byte is U+FFFD).
+    gp::slice<int32_t> r = gp::to_runes("a\xffé\xe2\x82世"_gs);
+    CHECK_EQ(gp::len(r), int64_t(6));
+    CHECK(r[0] == 'a' && r[1] == 0xFFFD && r[2] == 0xE9 && r[3] == 0xFFFD && r[4] == 0xFFFD &&
+          r[5] == 0x4E16);
+    CHECK(gp::to_runes(""_gs) != nullptr && gp::len(gp::to_runes(""_gs)) == 0);
+
+    // string(runes): invalid code points are U+FFFD.
+    gp::slice<int32_t> rs = gp::slice_of<int32_t>({104, -1, 0xD800, 0x110000, 0xE9, 0x10FFFF});
+    CHECK(gp::to_string(rs) == "h\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd\xc3\xa9\xf4\x8f\xbf\xbf"_gs);
+    CHECK(gp::to_string(gp::slice<int32_t>()) == ""_gs);
+}
+
 void run_tests() {
     test_nil_and_empty();
     test_make();
@@ -791,6 +854,7 @@ void run_tests() {
     test_self_free();
     test_chains();
     test_adl();
+    test_keyed_range_conv();
     if (failures > 0) {
         std::string msg =
             "FAIL: " + std::to_string(failures) + " of " + std::to_string(checks) + " checks\n";

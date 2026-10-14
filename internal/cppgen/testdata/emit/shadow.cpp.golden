@@ -177,7 +177,7 @@ void main() {
     }
     gp::string str = "go"_gs;
     {
-        gp::string gp_t18 = str + "!"_gs; { gp::string str = std::move(gp_t18);
+        gp::string gp_t18 = str + "!"_gs; { gp::string str = static_cast<gp::string&&>(gp_t18);
             gp::fmtshim::Println(str);
         }
 #line 119 "$DIR/shadow.gp"

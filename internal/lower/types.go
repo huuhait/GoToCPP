@@ -20,15 +20,17 @@ import (
 //	string                   gp::string
 //	(A, B) (results)         std::tuple<A, B>
 //	*T                       gp::ptr<T> (Phase 03 step 3.3; T of any type that cxxType has)
+//	[]T                      gp::slice<T> (Phase 03 step 3.5; T of any type that cxxType has)
 //
 // An untyped constant has the C++ type of its default type (untyped int → int64_t, untyped
 // rune → int32_t, untyped float → double), but go/types records the type that a constant
 // converts to, so the emitter seldom needs it.
 //
 // Not yet: complex64 and complex128 (std::complex, not in the Phase 02 subset), named types,
-// also those over a basic type (type Celsius float64 becomes a gp::newtype in Phase 03), and
-// the other composite types (slices, arrays, maps, structs, funcs: Phase 03; interfaces and
-// error: Phase 05; channels: Phase 08). For these, cxxType reports "not supported yet".
+// also those over a basic type (type Celsius float64 becomes a gp::newtype in Phase 03; type
+// IDs []int too), and the other composite types (arrays, maps, structs, funcs: Phase 03;
+// interfaces and error: Phase 05; channels: Phase 08). For these, cxxType reports "not
+// supported yet".
 
 // basicTypes are the C++ spellings of the basic types, by kind.
 var basicTypes = map[types.BasicKind]string{
@@ -75,6 +77,8 @@ func (g *gen) cxxType(t types.Type, pos token.Pos) cppir.Type {
 		}
 	case *types.Pointer:
 		return ptrType(g.cxxType(t.Elem(), pos))
+	case *types.Slice:
+		return sliceType(g.cxxType(t.Elem(), pos))
 	case *types.Tuple:
 		args := make([]cppir.Node, t.Len())
 		for i := range t.Len() {
@@ -109,4 +113,21 @@ func ptrType(elem cppir.Type) cppir.Type {
 func isPointer(t types.Type) bool {
 	_, ok := under(t).(*types.Pointer)
 	return ok
+}
+
+// sliceType returns gp::slice<elem>, the C++ type of a slice of elem.
+func sliceType(elem cppir.Type) cppir.Type {
+	return &cppir.TypeName{Name: "gp::slice", Args: []cppir.Node{elem}}
+}
+
+// isSlice reports whether t is a slice type (through names and aliases: type IDs []int).
+func isSlice(t types.Type) bool {
+	_, ok := under(t).(*types.Slice)
+	return ok
+}
+
+// isString reports whether t is a string type (through names and aliases), also an untyped one.
+func isString(t types.Type) bool {
+	b, ok := under(t).(*types.Basic)
+	return ok && b.Info()&types.IsString != 0
 }
