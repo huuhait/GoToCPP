@@ -11,7 +11,7 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 ## Now: Phase 01 (front-end)
 
 - [ ] Turn the front-end spike (header packages, namespace rewrite + namespace probe, `FakeImportC`) into `internal/load` + `internal/check`
-- [ ] After M1: language server v0 (Phase 11 early track: diagnostics, hover, go-to-definition, completion, formatting; about 2 weeks, see STATE timeline)
+- [x] After M1: language server v0 (Phase 11 early track: diagnostics, hover, go-to-definition, completion, formatting; about 2 weeks, see STATE timeline) — done 2026-10-14
 
 ## Small follow-ups (give them to the next job that touches the file)
 
@@ -114,3 +114,5 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] 2026-10-13: Phase 01 step 1.16: `gocpp fmt` (gofmt's output, header import groups kept as written)
 - [x] 2026-10-13: Phase 01 step 1.4: parser patch 3 (`std.chrono.seconds`, `std.vector[int].iterator`)
 - [x] 2026-10-13: Phase 01 step 1.9: the package loader (`load.Load`) and the stdlib stubs
+- [ ] Completion nits from the 11.6 review (Phase 11, small job): fixDangling makes one pass (gopls loops up to 10: two dangling selectors in one function lose the second); `p. // note` before a keyword line isn't fixed; when importEdits returns nil (two import declarations on one line, an unclosed `import (`), the candidate still says `(from "strings")` but adds no import: drop the candidate or its auto-import; in `var r geom.|` (a type position) the selector branch drops wantType, so types aren't ranked first
+- [ ] Re-measure the formatting and organize-imports benchmarks on a quiet machine (11.7's later rounds ran at load 5–48), in 11.11's harness

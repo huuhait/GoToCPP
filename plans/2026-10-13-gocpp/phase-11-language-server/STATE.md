@@ -1,6 +1,6 @@
 # Phase 11: Fast Language Server · STATE
 
-**Status:** `[~]` in progress (v0 track: 11.1–11.5, 11.7, 11.10b done; 11.10a grammar done)
+**Status:** `[~]` in progress (v0 track done 2026-10-14: 11.1–11.7, 11.10a/b; the optional tree-sitter grammar is left; 11.10a grammar done)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
@@ -17,7 +17,7 @@
   - [x] LRU memory cap
 - [x] 11.4 Diagnostics as you type · *v0*
 - [x] 11.5 Hover, go-to-definition, signature help · *v0*
-- [~] 11.6 Completion (scopes, members, keywords, snippets, auto-import) · *v0*
+- [x] 11.6 Completion (scopes, members, keywords, snippets, auto-import) · *v0*
 - [x] 11.7 Formatting + organize imports (`gocpp fmt`) · *v0*
 - [ ] 11.8 References, rename, document/workspace symbols
 - [ ] 11.9 Semantic tokens, inlay hints, document links, code actions
@@ -136,3 +136,11 @@
   code outside the imports and the imports themselves) committed, clean after 4 review rounds. Benchmarks
   measured on a quiet machine in round 1 only (format 1,000 lines p95 1.6–5.3 ms; organize 0.3 ms); the
   later rounds ran at load 5–48: re-measure in 11.11's harness.
+- 2026-10-14: Job 11.6 (completion: scope names ranked like gopls by depth and expected type, selector members
+  with gopls's addressability rules, struct literal fields, keywords, call snippets with gopls's defaults,
+  auto-import from an index of the embedded stdlib and the module (edits made by 11.7's organizer), lazy docs
+  via completionItem/resolve, gopls's fix for dangling selectors through Snapshot.PackageWithFile (a private
+  check of the fixed text, never cached for diagnostics); hover/signature help show C/C++ types of imports
+  as written) committed, clean after 2 review rounds. Cached p95 2.7 ms, after an edit p95 32 ms (budget
+  50 ms). The language server v0 track is done (M1+v0). Deviations (completer.go header): keywords at a
+  blank statement, prefix filter (no fuzzy matching), docs through resolve, one dangling-selector pass.
