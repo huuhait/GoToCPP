@@ -33,6 +33,18 @@ the open files (the C++ namespace probe of header imports runs in the
 background, and its errors come when it is done). Hover, completion and
 the other features come in the later steps of Phase 11.
 
+The server keeps a summary of each package it checks (its export data) in
+a cache on disk, so that its next start loads the packages it doesn't show
+from there instead of checking them again. The cache is in gocpp/lsp in the
+user's cache folder ($XDG_CACHE_HOME or ~/.cache on Linux, %LocalAppData%
+on Windows), each gocpp binary with its own entries. GOCPP_LSP_CACHE sets
+another folder (an absolute name), or "off" turns the cache off;
+GOCPP_LSP_CACHE_SIZE caps its size (default 1G; for example 512M) and
+GOCPP_LSP_CACHE_AGE the time an entry is kept without use (default 120h;
+the entries of other gocpp binaries go after a day). The server trims the
+cache in the background, at most once an hour, and removes only the files
+it wrote there. The folder can be deleted at any time.
+
 The flags are:
 `
 

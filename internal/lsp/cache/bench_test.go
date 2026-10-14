@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/huuhait/gocpp/internal/lsp/cache/filecache"
 	"github.com/huuhait/gocpp/stdlib"
 )
 
@@ -123,3 +124,85 @@ func BenchmarkColdBig(b *testing.B) {
 		release()
 	}
 }
+
+// bigWorkspace returns a module of n copies of the package big of
+// bigPackage (10k lines each: p0, p1, ...) and a main package that imports
+// them all: a workspace of n×10k lines.
+func bigWorkspace(n int) map[string]string {
+	files := map[string]string{"gocpp.mod": "module example.com/bench\n"}
+	var imports, uses strings.Builder
+	for i := range n {
+		name := fmt.Sprintf("p%d", i)
+		for path, src := range bigPackage() {
+			if dir, file, ok := strings.Cut(path, "/"); ok && dir == "big" {
+				files[name+"/"+file] = strings.Replace(src, "package big", "package "+name, 1)
+			}
+		}
+		fmt.Fprintf(&imports, "\t\"example.com/bench/%s\"\n", name)
+		fmt.Fprintf(&uses, "\tfmt.Println(%s.F0_0(1), %s.T0{})\n", name, name)
+	}
+	files["main.gp"] = "package main\n\nimport (\n\t\"fmt\"\n\n" + imports.String() + ")\n\nfunc main() {\n" + uses.String() + "}\n"
+	return files
+}
+
+// benchOpen opens the main package of a 50k-line workspace (bigWorkspace(5))
+// in a new pipeline per iteration, as a server that starts: with an empty
+// disk cache (warm false: every package is checked, and the summaries are
+// written in the background, which is not timed), or with the disk cache
+// of an earlier run (warm: only main is checked). It reports the checks and
+// the summaries from disk per open, and the live heap after the last open
+// (with that server's caches only: the loop keeps no earlier one alive, so
+// it registers no Cleanup per open).
+func benchOpen(b *testing.B, warm bool) {
+	root := writeTree(b, bigWorkspace(5))
+	dir := b.TempDir()
+	open := func(cacheDir string) *world {
+		c, err := filecache.Open(filecache.Options{Dir: cacheDir, Version: "bench"})
+		if err != nil {
+			b.Fatal(err)
+		}
+		p := NewPipeline(diskCfg(c))
+		w := &world{t: b, root: root, p: p, s: NewSession(p.NewState())}
+		if errs := w.errs(w.pkg(".")); errs != "" {
+			b.Fatalf("errors:\n%s", errs)
+		}
+		return w
+	}
+	closeAll := func(w *world) {
+		w.p.Close()
+		w.p.cfg.Disk.Close()
+	}
+	if warm {
+		closeAll(open(dir))
+	}
+	var checks, hits int64
+	var last *world
+	b.ResetTimer()
+	for range b.N {
+		cacheDir := dir
+		if !warm {
+			b.StopTimer()
+			cacheDir = b.TempDir()
+			b.StartTimer()
+		}
+		w := open(cacheDir)
+		b.StopTimer()
+		h, _, _ := w.p.DiskStats()
+		checks, hits = checks+w.checks(), hits+h
+		closeAll(w)
+		last = w
+		b.StartTimer()
+	}
+	b.StopTimer()
+	b.ReportMetric(float64(checks)/float64(b.N), "checks/op")
+	b.ReportMetric(float64(hits)/float64(b.N), "fromdisk/op")
+	b.ReportMetric(float64(heapAfterGC())/(1<<20), "heapMB")
+	runtime.KeepAlive(last)
+}
+
+// BenchmarkOpenCold50k: the first diagnostics of a 50k-line workspace with
+// an empty disk cache (budget < 2 s, README §2.1).
+func BenchmarkOpenCold50k(b *testing.B) { benchOpen(b, false) }
+
+// BenchmarkOpenWarm50k: the same with a warm disk cache (budget < 300 ms).
+func BenchmarkOpenWarm50k(b *testing.B) { benchOpen(b, true) }

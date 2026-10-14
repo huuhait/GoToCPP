@@ -28,7 +28,9 @@ under way. What works today:
 - `gocpp lsp` is the start of the language server: it speaks LSP over stdin and stdout and shows
   the errors of `gocpp check` as you type (`gocpp lsp -h`). The VS Code extension in
   [editors/vscode](editors/vscode/README.md) starts it; [docs/guides/editors.md](docs/guides/editors.md)
-  sets up Neovim, Helix and Emacs.
+  sets up Neovim, Helix and Emacs. It keeps summaries of the packages it checks in a cache on
+  disk, `gocpp/lsp` in your user cache folder (set `GOCPP_LSP_CACHE` to an absolute folder to move
+  it, or to `off`); `gocpp lsp -h` explains the size and age caps.
 
 A command that is not built yet says which phase builds it.
 

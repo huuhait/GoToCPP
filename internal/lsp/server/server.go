@@ -38,9 +38,19 @@ import (
 
 // Run serves the LSP over in and out (stdin and stdout for "gocpp lsp")
 // with a new Server and returns the exit code (Server.Serve). It logs to
-// logger, which may be nil.
+// logger, which may be nil. Unlike New, the server keeps the summaries of
+// the packages it checks in the cache on disk that the environment says
+// (openDisk), so that its next run starts warm.
 func Run(ctx context.Context, in io.Reader, out io.Writer, logger *log.Logger) int {
-	return New(logger).Serve(ctx, in, out)
+	if logger == nil {
+		logger = log.New(io.Discard, "", 0)
+	}
+	cfg := pipelineConfig()
+	if disk := openDisk(logger); disk != nil {
+		defer disk.Close()
+		cfg.Disk = disk
+	}
+	return newServer(logger, cfg, debounce.RealClock{}).Serve(ctx, in, out)
 }
 
 // Serve serves the LSP over in and out until the client's exit

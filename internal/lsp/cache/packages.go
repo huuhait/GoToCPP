@@ -125,7 +125,9 @@ type keyed struct {
 }
 
 // A summary is what the packages that import a package need of it: the
-// loader's summary, its export data, and its API hash.
+// loader's summary, its export data, the side table of its opaque types,
+// and its API hash. It comes from a check, or from the disk cache
+// (disk.go).
 type summary struct {
 	importPath string
 	load       *load.Package // load.Package.Summary
@@ -134,11 +136,34 @@ type summary struct {
 	failed     bool          // check.Dep.Failed
 	apiHash    Hash
 
+	// opaque is the side table of the opaque types of the package
+	// (opaque.go), and tables are the non-empty tables of the package and
+	// of the packages it imports, directly or not, by import path.
+	opaque []opaqueEntry
+	tables map[string][]opaqueEntry
+
 	// records are the probe records of the check of the package and of
 	// the packages it imports, directly or not, that asked for the C++
 	// compiler or a probe (probe.go): the summary is stale when one of
-	// them is.
+	// them is. own is the record of the package's own check (or of its
+	// summary from disk, see prober.replay), if it asked.
 	records []*probeRecord
+	own     *probeRecord
+}
+
+// inherit adds what s has of the summaries of its imports deps (nil for a
+// cyclic one): their probe records and their side tables.
+func (s *summary) inherit(deps []*summary) {
+	for _, d := range deps {
+		if d != nil {
+			for _, r := range d.records {
+				if !slices.Contains(s.records, r) {
+					s.records = append(s.records, r)
+				}
+			}
+		}
+	}
+	s.tables = mergeTables(s.importPath, s.opaque, deps)
 }
 
 // stale reports whether the prober would answer a check of the package, or
@@ -177,6 +202,17 @@ type Package struct {
 	// export data of its imports, whose types it holds (exportFactor).
 	cost    int64
 	summary *summary
+
+	// For OpaqueType (opaque.go): the content of the package's files by
+	// name, the packages read from export data by import path, and the
+	// side tables of the imports; depTypes is made from them once.
+	src       map[string][]byte
+	imported  map[string]*types.Package
+	tables    map[string][]opaqueEntry
+	depOnce   sync.Once
+	depTypes  map[types.Object]string
+	funcOnce  sync.Once
+	funcTypes map[types.Object]string // the functions of the package (funcSpellings)
 }
 
 // Fset returns the FileSet of the package's files and of the objects of the
@@ -548,7 +584,9 @@ func (p *Pipeline) keyOf(ctx context.Context, h *handle) (*keyed, error) {
 	return k, nil
 }
 
-// summaryOf returns the summary of h: from the cache, or after its check.
+// summaryOf returns the summary of h: from the cache, from the disk cache
+// (unless a checked package of the key is in memory), or after its check,
+// which is then written to the disk cache.
 func (p *Pipeline) summaryOf(ctx context.Context, h *handle) (*summary, error) {
 	if h.cyclic {
 		pkg, err := h.own.Get(ctx)
@@ -561,18 +599,30 @@ func (p *Pipeline) summaryOf(ctx context.Context, h *handle) (*summary, error) {
 	if err != nil {
 		return nil, err
 	}
+	fromDisk := true
 	for {
 		s, err := p.summaries.Get(ctx, k.key, func(ctx context.Context) (*summary, error) {
+			if pkg, _, ok := p.checks.Peek(k.key); ok && pkg != nil {
+				p.saveSummary(h, k, pkg.summary)
+				return pkg.summary, nil
+			}
+			if fromDisk {
+				if s := p.diskSummaryOf(h, k); s != nil {
+					return s, nil
+				}
+			}
 			pkg, err := p.checked(ctx, h, k)
 			if err != nil {
 				return nil, err
 			}
+			p.saveSummary(h, k, pkg.summary)
 			return pkg.summary, nil
 		})
 		if err != nil || !k.renew(s) {
 			return s, err
 		}
 		p.forget(k.key, s)
+		fromDisk = false // the one on disk is stale too: it is written again
 	}
 }
 
@@ -721,20 +771,21 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 		}
 		sum.export = buf.Bytes()
 	}
-	sum.apiHash = apiHash(root, dep, k.deps)
+	src := make(map[string][]byte, len(h.files))
+	for _, f := range h.files {
+		src[f.path] = f.src
+	}
+	if cp != nil && cp.Load == root {
+		sum.opaque = opaqueTableOf(cfg.Fset, cp, func(name string) []byte { return src[name] })
+	}
+	sum.apiHash = apiHash(root, dep, k.deps, sum.opaque)
 	if rec.used() {
 		sum.records = append(sum.records, rec)
+		sum.own = rec
 	}
-	for _, s := range k.deps {
-		if s != nil {
-			for _, r := range s.records {
-				if !slices.Contains(sum.records, r) {
-					sum.records = append(sum.records, r)
-				}
-			}
-		}
-	}
-	pkg := &Package{Program: prog, Check: cp, APIHash: sum.apiHash, summary: sum}
+	sum.inherit(k.deps)
+	pkg := &Package{Program: prog, Check: cp, APIHash: sum.apiHash, summary: sum,
+		src: src, imported: imported, tables: sum.tables}
 	for _, f := range h.files {
 		pkg.cost += sourceFactor * int64(len(f.src))
 	}

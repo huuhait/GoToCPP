@@ -62,6 +62,7 @@ func TestMain(m *testing.M) {
 	cache := filepath.Join(tmp, "cache")
 	os.Setenv("TMPDIR", tmp)
 	os.Setenv("XDG_CACHE_HOME", cache)
+	os.Setenv("GOCPP_LSP_CACHE", filepath.Join(cache, "gocpp-lsp")) // also on Windows, which has no XDG_CACHE_HOME
 	code := m.Run()
 	entries, _ := os.ReadDir(tmp)
 	for _, e := range entries {

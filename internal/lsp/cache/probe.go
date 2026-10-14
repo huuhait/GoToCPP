@@ -189,7 +189,7 @@ func (pr *prober) findCXX(r *probeRecord) func(context.Context) (build.CXX, erro
 		if !l.done || l.err != nil && time.Since(l.at) >= cxxRetry {
 			pr.lookCXXLocked()
 		}
-		r.addCXX(l.gen, !l.done)
+		r.addCXX(l.gen, !l.done, l.cxx, l.err)
 		if !l.done {
 			return pendingCXX, nil
 		}
@@ -436,13 +436,21 @@ func digest(res interop.Result, err error, complete bool) string {
 // A probeRecord is what the compiler lookup and the probes of one check
 // answered. A summary keeps the records of its package and of the packages
 // it imports, directly or not (summary.records).
+//
+// The record of a summary from the disk cache (disk is set, see replay) has
+// the answers of a check of another run of the server: it is stale when the
+// prober has answers now and they differ, and provisional until the prober
+// has them all.
 type probeRecord struct {
-	pr *prober
+	pr   *prober
+	disk bool
 
 	mu         sync.Mutex
 	cxxUsed    bool
 	cxxGen     int64
 	cxxPending bool
+	cxx        build.CXX // the compiler that the check got
+	cxxErr     string    // the error of the lookup (errText)
 	uses       []probeUse
 }
 
@@ -454,10 +462,10 @@ type probeUse struct {
 	complete bool
 }
 
-func (r *probeRecord) addCXX(gen int64, pending bool) {
+func (r *probeRecord) addCXX(gen int64, pending bool, cxx build.CXX, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.cxxUsed, r.cxxGen, r.cxxPending = true, gen, pending
+	r.cxxUsed, r.cxxGen, r.cxxPending, r.cxx, r.cxxErr = true, gen, pending, cxx, errText(err)
 }
 
 func (r *probeRecord) add(u probeUse) {
@@ -474,8 +482,13 @@ func (r *probeRecord) used() bool {
 }
 
 // provisional reports whether an answer was missing: the compiler was
-// being looked for, or a probe didn't know a name.
+// being looked for, or a probe didn't know a name. (For a record from
+// disk: whether the prober doesn't have all its answers yet.)
 func (r *probeRecord) provisional() bool {
+	if r.disk {
+		_, provisional := r.diskState()
+		return provisional
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.cxxPending {
@@ -495,6 +508,10 @@ func (r *probeRecord) provisional() bool {
 // (The lock order is prober.mu, then probeRecord.mu: the check's hooks add
 // to the record under the prober's lock.)
 func (r *probeRecord) stale() bool {
+	if r.disk {
+		stale, _ := r.diskState()
+		return stale
+	}
 	r.mu.Lock()
 	cxxUsed, cxxGen, uses := r.cxxUsed, r.cxxGen, r.uses
 	r.mu.Unlock()
@@ -513,4 +530,118 @@ func (r *probeRecord) stale() bool {
 		}
 	}
 	return false
+}
+
+// diskState compares the answers of the record r from disk (see replay)
+// with what the prober knows now: r is stale when an answer that the prober
+// has differs (the compiler lookup found another compiler, or failed
+// differently; a probe answered differently), and provisional when the
+// prober doesn't have every answer yet. The fields of a record from disk
+// never change, so they need no lock.
+func (r *probeRecord) diskState() (stale, provisional bool) {
+	pr := r.pr
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+	if r.cxxUsed {
+		switch l := &pr.cxx; {
+		case !l.done:
+			provisional = true
+		case !sameCXX(l.cxx, r.cxx) || errText(l.err) != r.cxxErr:
+			return true, false
+		}
+	}
+	for _, u := range r.uses {
+		set := u.set
+		if cur := pr.sets[set.key]; cur != nil {
+			set = cur
+		}
+		res, err, complete := set.answer(u.cands)
+		switch {
+		case !complete:
+			provisional = true
+		case digest(res, err, complete) != u.digest:
+			return true, false
+		}
+	}
+	return false, provisional
+}
+
+// A diskProbe is a probeRecord on disk: what the compiler lookup and the
+// probes of a check answered, all of it (a provisional record is never
+// written).
+type diskProbe struct {
+	CXXUsed bool
+	CXX     build.CXX
+	CXXErr  string
+	Uses    []diskProbeUse
+}
+
+// A diskProbeUse is a probeUse on disk: the include set (with the compiler
+// of the diskProbe), the candidates and the answer.
+type diskProbeUse struct {
+	Dir      string
+	Includes []string
+	Cands    []string
+	Digest   string
+}
+
+// diskForm returns what r keeps on disk, or false when r can't be kept: it
+// is provisional, or it is from disk itself.
+func (r *probeRecord) diskForm() (*diskProbe, bool) {
+	if r.disk {
+		return nil, false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cxxPending {
+		return nil, false
+	}
+	d := &diskProbe{CXXUsed: r.cxxUsed, CXX: r.cxx, CXXErr: r.cxxErr}
+	for _, u := range r.uses {
+		if !u.complete {
+			return nil, false
+		}
+		// The fields of a set that make its key never change.
+		d.Uses = append(d.Uses, diskProbeUse{Dir: u.set.dir, Includes: u.set.includes, Cands: u.cands, Digest: u.digest})
+	}
+	return d, true
+}
+
+// replay returns the record of a summary from disk with the answers d, and
+// asks the prober for them in the background as the check did: it looks
+// for the compiler (if it hasn't yet), and probes each include set with the
+// compiler of d (the one that the check got), unless the prober knows the
+// answers. When they come, the record is no longer provisional, and it is
+// stale if they differ (Config.OnProbe says when).
+func (pr *prober) replay(d *diskProbe) *probeRecord {
+	r := &probeRecord{pr: pr, disk: true, cxxUsed: d.CXXUsed, cxx: d.CXX, cxxErr: d.CXXErr}
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+	if d.CXXUsed {
+		if l := &pr.cxx; !l.done || l.err != nil && time.Since(l.at) >= cxxRetry {
+			pr.lookCXXLocked()
+		}
+	}
+	for _, u := range d.Uses {
+		set := pr.setLocked(d.CXX, u.Dir, u.Includes)
+		r.uses = append(r.uses, probeUse{set: set, cands: u.Cands, digest: u.Digest, complete: true})
+		if len(set.names)+len(u.Cands) > maxProbeNames {
+			clear(set.names)
+		}
+		for _, c := range u.Cands {
+			set.names[c] = true
+		}
+		switch _, _, complete := set.answer(u.Cands); {
+		case !complete:
+			for _, c := range u.Cands {
+				if _, ok := set.kinds[c]; !ok {
+					set.want[c] = true
+				}
+			}
+			pr.startLocked(set)
+		case time.Since(set.validated) >= revalidateAfter:
+			pr.startLocked(set)
+		}
+	}
+	return r
 }

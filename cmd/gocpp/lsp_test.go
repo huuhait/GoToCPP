@@ -255,7 +255,8 @@ func TestLSPUsage(t *testing.T) {
 		t.Errorf("gocpp lsp extra: exit %d, stdout %q, stderr %q", code, out, errOut)
 	}
 	code, out, errOut = gocpp("lsp", "-h")
-	if code != 0 || out != "" || !strings.HasPrefix(errOut, lspUsage) || !strings.Contains(errOut, "-logfile file") {
+	if code != 0 || out != "" || !strings.HasPrefix(errOut, lspUsage) || !strings.Contains(errOut, "-logfile file") ||
+		!strings.Contains(errOut, "GOCPP_LSP_CACHE") {
 		t.Errorf("gocpp lsp -h: exit %d, stdout %q, stderr %q", code, out, errOut)
 	}
 	code, _, errOut = gocpp("lsp", "-nope")

@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"iter"
 
 	"github.com/huuhait/gocpp/internal/diag"
 )
@@ -123,6 +124,23 @@ func (o *Opaque) TypeExpr(obj types.Object) ast.Expr {
 		return nil
 	}
 	return o.typeExprs[obj]
+}
+
+// TypeExprs returns every object that has a type expression (TypeExpr),
+// with that expression, in no fixed order. The language server keeps the
+// expressions of the objects that importers can see beside the export data,
+// which has no types for them (Phase 11, step 11.3b).
+func (o *Opaque) TypeExprs() iter.Seq2[types.Object, ast.Expr] {
+	return func(yield func(types.Object, ast.Expr) bool) {
+		if o == nil {
+			return
+		}
+		for obj, e := range o.typeExprs {
+			if !yield(obj, e) {
+				return
+			}
+		}
+	}
 }
 
 // findOpaque runs the opaque pass over the checked package p and returns

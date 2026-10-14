@@ -15,6 +15,7 @@ import (
 
 	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/interop"
+	"github.com/huuhait/gocpp/internal/lsp/cache/filecache"
 	"github.com/huuhait/gocpp/internal/lsp/memoize"
 	"github.com/huuhait/gocpp/internal/syntax/parser"
 )
@@ -76,6 +77,18 @@ type Config struct {
 	// their memory (astFactor). The checked packages of the open documents stay while a
 	// snapshot holds them (handle.last), whatever the cap.
 	MaxCheckBytes, MaxSummaryBytes, MaxParseBytes int64
+
+	// Disk, if not nil, is the cache on disk of the summaries (disk.go):
+	// a summary that is not in memory is looked for there before its
+	// package is checked, and the summaries that the pipeline computes are
+	// written there in the background. The key of an entry has StdlibDir,
+	// GOOS, GOARCH, Tags and Phase, but not Stdlib and GoStd (the standard
+	// library itself): the version of the cache (filecache.Options.Version)
+	// must change when they do. gocpp embeds them in its binary, so the
+	// default version, the hash of the binary, does; a test that uses
+	// another standard library must use another version. The pipeline
+	// doesn't close it.
+	Disk *filecache.Cache
 }
 
 // The default caps: the memory budget is 400 MB for a 50k-line project
@@ -111,10 +124,21 @@ type Pipeline struct {
 	stdMu  sync.Mutex
 	stdPkg map[string][]*fileHandle // the files of each standard package, by import path
 
+	// The writes to the disk cache run in the background, at most
+	// maxDiskWrites at a time; Close waits for them.
+	diskMu  sync.Mutex
+	closed  bool // guarded by diskMu
+	diskWG  sync.WaitGroup
+	diskSem chan struct{}
+
 	stats struct {
-		parses, metadata, checks atomic.Int64
+		parses, metadata, checks         atomic.Int64
+		diskHits, diskMisses, diskWrites atomic.Int64
 	}
 }
+
+// maxDiskWrites is the number of writes to the disk cache at the same time.
+const maxDiskWrites = 4
 
 // NewPipeline returns a pipeline with empty caches.
 func NewPipeline(cfg Config) *Pipeline {
@@ -161,8 +185,9 @@ func NewPipeline(cfg Config) *Pipeline {
 			}
 			return int64(len(s.export)) + 256
 		}),
-		sem:    make(chan struct{}, runtime.GOMAXPROCS(0)),
-		stdPkg: make(map[string][]*fileHandle),
+		sem:     make(chan struct{}, runtime.GOMAXPROCS(0)),
+		diskSem: make(chan struct{}, maxDiskWrites),
+		stdPkg:  make(map[string][]*fileHandle),
 	}
 	find := cfg.CXX
 	if find == nil {
@@ -177,9 +202,17 @@ func NewPipeline(cfg Config) *Pipeline {
 }
 
 // Close stops the background work of the pipeline (the compiler lookup and
-// the namespace probes) and waits for it to end. Checks after Close don't
-// start background work: their probe answers stay what they are.
-func (p *Pipeline) Close() { p.prober.close() }
+// the namespace probes) and waits for it to end, and for the writes to the
+// disk cache that have started. Checks after Close don't start background
+// work: their probe answers stay what they are, and their summaries are
+// not written to disk.
+func (p *Pipeline) Close() {
+	p.prober.close()
+	p.diskMu.Lock()
+	p.closed = true
+	p.diskMu.Unlock()
+	p.diskWG.Wait()
+}
 
 // HeadersChanged tells the pipeline that C/C++ headers may have changed on
 // disk: the answers of the namespace probe are checked again in the

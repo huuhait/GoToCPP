@@ -285,6 +285,41 @@ func (p *Package) Summary() *Package {
 	}
 }
 
+// ExportedNames returns the exported package-level names of p, sorted: what
+// a summary (Summary) keeps for dot imports.
+func (p *Package) ExportedNames() []string {
+	return slices.Sorted(maps.Keys(p.exportedNames()))
+}
+
+// NewSummary returns a summary (see Summary) made from its parts: the
+// fields of p that a summary keeps (ImportPath, Name, Dir, Std, Module,
+// Errors, Incomplete, NoFiles, ForTest; the others are ignored) and the
+// exported package-level names (ExportedNames of the package). The
+// language server keeps summaries on disk and makes them again with it.
+func NewSummary(p *Package, exported []string) *Package {
+	s := &Package{
+		ImportPath: p.ImportPath,
+		Name:       p.Name,
+		Dir:        p.Dir,
+		Std:        p.Std,
+		Module:     p.Module,
+		Imports:    map[string]*Package{},
+		Errors:     p.Errors,
+		Incomplete: p.Incomplete,
+		NoFiles:    p.NoFiles,
+		ForTest:    p.ForTest,
+		exported:   make(map[string]bool, len(exported)),
+		summary:    true,
+	}
+	if s.Errors == nil {
+		s.Errors = new(diag.List)
+	}
+	for _, name := range exported {
+		s.exported[name] = true
+	}
+	return s
+}
+
 // A NoFilesReason says why a package has no .gp file to build
 // (Package.NoFiles).
 type NoFilesReason int

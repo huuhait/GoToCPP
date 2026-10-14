@@ -30,16 +30,16 @@ import (
 // a declaration changes nothing (the positions of the objects of an
 // import may then be old in an importer's types.Info until it is checked
 // again). A type from C or C++ (opaque) is "invalid type" here, as in the
-// export data: so an edit that changes only such a type (C.int to C.long)
-// leaves the hash the same. The side table of opaque spellings (job 11.3b)
-// must feed the hash too.
+// export data, so the hash has the side table of opaque types too
+// (opaque, see opaqueTableOf): an edit that changes only such a type
+// (C.int to C.long) changes the hash.
 //
 // An exported declaration can show the types of another package (a
 // function that returns a *bufio.Reader), whose API can change while this
 // package's declarations stay the same; so the hash has the API hashes of
 // the imports too (deps): a change of an API changes the API hashes of
 // all the packages that import it, directly or not.
-func apiHash(lp *load.Package, dep check.Dep, deps []*summary) Hash {
+func apiHash(lp *load.Package, dep check.Dep, deps []*summary, opaque []opaqueEntry) Hash {
 	h := newHasher("api")
 	h.str(lp.ImportPath)
 	h.str(lp.Name)
@@ -71,6 +71,11 @@ func apiHash(lp *load.Package, dep check.Dep, deps []*summary) Hash {
 
 	if dep.Types != nil {
 		writeAPI(h, dep.Types)
+	}
+	h.int(int64(len(opaque)))
+	for _, e := range opaque {
+		h.str(string(e.Path))
+		h.str(e.Type)
 	}
 
 	deps = slices.DeleteFunc(slices.Clone(deps), func(s *summary) bool { return s == nil }) // nil: cyclic
