@@ -15,7 +15,7 @@
   - [ ] export-data summaries (memory + on-disk; deep `gcexportdata` first, shallow via vendored `gcimporter` if memory needs it; cache keyed by gocpp binary hash; side table for opaque type spellings)
   - [x] API-hash short-circuit
   - [x] LRU memory cap
-- [ ] 11.4 Diagnostics as you type · *v0*
+- [~] 11.4 Diagnostics as you type · *v0*
 - [ ] 11.5 Hover, go-to-definition, signature help · *v0*
 - [ ] 11.6 Completion (scopes, members, keywords, snippets, auto-import) · *v0*
 - [ ] 11.7 Formatting + organize imports (`gocpp fmt`) · *v0*
