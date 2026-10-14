@@ -1,0 +1,335 @@
+package cppgen
+
+import (
+	"bytes"
+	"errors"
+	"flag"
+	"fmt"
+	"go/token"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/huuhait/gocpp/internal/build"
+	"github.com/huuhait/gocpp/internal/check"
+	"github.com/huuhait/gocpp/internal/load"
+	"github.com/huuhait/gocpp/stdlib"
+)
+
+var update = flag.Bool("update", false, "rewrite testdata/emit/*.cpp.golden with the emitted C++, and add new macros to cxx_macros.txt")
+
+// emitPatterns loads and checks the package of the patterns (in the folder dir) and returns
+// its C++. The check runs without the phase gates (Phase: check.LastPhase): they are tested in
+// internal/check, and the emitter already handles some features before their phase (package
+// variables and init functions, Phase 03), and its own "not supported yet" errors are tested
+// here.
+func emitPatterns(t *testing.T, cfg Config, dir string, patterns ...string) (string, error) {
+	t.Helper()
+	lcfg := load.Config{Dir: dir, Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: "linux", GOARCH: "amd64"}
+	prog := load.Load(lcfg, patterns...)
+	r := check.Check(prog, check.Config{Phase: check.LastPhase})
+	if len(prog.Roots) != 1 {
+		t.Fatalf("%d root packages", len(prog.Roots))
+	}
+	pkg := r.Package(prog.Roots[0])
+	if pkg.Errors.HasErrors() || prog.Errors.HasErrors() {
+		var b bytes.Buffer
+		for _, d := range append(prog.Errors.Diagnostics(), pkg.Errors.Diagnostics()...) {
+			b.WriteString(d.Pos.String() + ": " + d.Msg + "\n")
+		}
+		t.Fatalf("the program has errors:\n%s", b.String())
+	}
+	var out bytes.Buffer
+	err := EmitPackage(&out, r.Fset, pkg, cfg)
+	if err != nil && out.Len() != 0 {
+		t.Errorf("EmitPackage failed (%v) but wrote %d bytes", err, out.Len())
+	}
+	return out.String(), err
+}
+
+// An emitFunc returns the C++ of a test program, written with cfg.
+type emitFunc func(t *testing.T, cfg Config) string
+
+// emitter returns the emitFunc of the program in path: a .gp file, or a folder with the .gp
+// files of one package.
+func emitter(path string) emitFunc {
+	return func(t *testing.T, cfg Config) string {
+		t.Helper()
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var cpp string
+		if strings.HasSuffix(abs, ".gp") {
+			cpp, err = emitPatterns(t, cfg, filepath.Dir(abs), abs)
+		} else {
+			cpp, err = emitPatterns(t, cfg, abs, ".")
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cpp
+	}
+}
+
+// withDir replaces the folder dir in the #line directives of cpp with $DIR, so that the
+// golden files don't depend on where the repository is.
+func withDir(cpp, dir string) string {
+	inner := cString(dir + string(filepath.Separator))
+	inner = inner[1 : len(inner)-1]
+	return strings.ReplaceAll(cpp, `"`+inner, `"$DIR/`)
+}
+
+// TestEmit emits each program of testdata/emit (a .gp file, or a folder with a package of
+// several files) and compares the C++ with its .cpp.golden file (go test -update rewrites
+// them). Then it builds the C++ with each compiler and checks that the program prints what
+// the same program prints with real Go.
+func TestEmit(t *testing.T) {
+	dir, err := filepath.Abs(filepath.Join("testdata", "emit"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	progs, err := filepath.Glob(filepath.Join(dir, "*.gp"))
+	if err != nil || len(progs) == 0 {
+		t.Fatalf("no test programs: %v", err)
+	}
+	more, err := filepath.Glob(filepath.Join(dir, "*", "*.gp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range more {
+		if d := filepath.Dir(f); !slices.Contains(progs, d) {
+			progs = append(progs, d)
+		}
+	}
+	for _, prog := range progs {
+		t.Run(strings.TrimSuffix(filepath.Base(prog), ".gp"), func(t *testing.T) {
+			t.Parallel()
+			emit := emitter(prog)
+			golden := strings.TrimSuffix(prog, ".gp") + ".cpp.golden"
+			got := withDir(emit(t, Config{}), dir)
+			if *update {
+				if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			want, err := os.ReadFile(golden)
+			if err != nil {
+				t.Fatalf("%v (go test -update writes it)", err)
+			}
+			if got != string(want) {
+				t.Errorf("the C++ differs from %s (go test -update rewrites it):\n%s", golden, got)
+			}
+			gps := []string{prog}
+			if !strings.HasSuffix(prog, ".gp") {
+				gps, _ = filepath.Glob(filepath.Join(prog, "*.gp"))
+			}
+			checkRuns(t, emit, goResult(t, gps...))
+		})
+	}
+}
+
+// checkRuns writes the C++ of a program to a file (with Config.OutputPath set to it), builds
+// it with each compiler, runs it, and compares what it prints and its exit code with want
+// (nil: nothing to compare with, only build and run).
+func checkRuns(t *testing.T, emit emitFunc, want *result) {
+	t.Helper()
+	work := t.TempDir()
+	src := filepath.Join(work, "main.gp.cpp")
+	cpp := emit(t, Config{OutputPath: src})
+	checkOwnLines(t, cpp, src)
+	if err := os.WriteFile(src, []byte(cpp), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range compilers(t) {
+		t.Run(c.name, func(t *testing.T) {
+			if c.missing != "" {
+				t.Skip(c.missing)
+			}
+			got := run(t, work, c.build(t, src))
+			if want != nil && got != *want {
+				t.Errorf("the program prints\nstdout:\n%s\nstderr:\n%s\nexit code %d\nbut with Go\nstdout:\n%s\nstderr:\n%s\nexit code %d",
+					got.stdout, got.stderr, got.code, want.stdout, want.stderr, want.code)
+			}
+		})
+	}
+}
+
+// checkOwnLines checks the #line directives that point at the generated file out itself: each
+// one gives the next line its real line number, and the main wrapper comes after one.
+func checkOwnLines(t *testing.T, cpp, out string) {
+	t.Helper()
+	own := `"` + strings.Trim(cString(out), `"`) + `"`
+	lines := strings.Split(cpp, "\n")
+	last := -1
+	for i, l := range lines {
+		if n, ok := strings.CutSuffix(l, " "+own); ok {
+			if want := fmt.Sprintf("#line %d", i+2); n != want {
+				t.Errorf("line %d is %q, want %s %s", i+1, l, want, own)
+			}
+			last = i
+		}
+		if strings.HasPrefix(l, "#line ") && !strings.HasSuffix(l, own) {
+			last = -1
+		}
+	}
+	wrapper := slices.Index(lines, "int main(int argc, char** argv) {")
+	if wrapper < 0 || last < 0 || last > wrapper {
+		t.Errorf("the main wrapper (line %d) doesn't come after a #line of the generated file:\n%s", wrapper+1, cpp)
+	}
+}
+
+var (
+	goOnce sync.Once
+	goCmd  string
+)
+
+// goResult runs the .gp files, one package, as a Go program with real Go (the go command in
+// PATH) and returns what it prints, or nil (and logs why) without a go command.
+func goResult(t *testing.T, gps ...string) *result {
+	t.Helper()
+	goOnce.Do(func() { goCmd, _ = exec.LookPath("go") })
+	if goCmd == "" {
+		t.Log("no go command: the output is not compared with Go's")
+		return nil
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "prog")
+	args := []string{"build", "-o", bin}
+	for _, gp := range gps {
+		src, err := os.ReadFile(gp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		name := strings.TrimSuffix(filepath.Base(gp), ".gp") + ".go"
+		if err := os.WriteFile(filepath.Join(dir, name), src, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		args = append(args, name)
+	}
+	out, _, code, err := command(dir, true, goCmd, args...)
+	if err != nil || code != 0 {
+		t.Fatalf("go build %s: exit code %d %v\n%s", strings.Join(gps, " "), code, err, out)
+	}
+	r := run(t, dir, bin)
+	return &r
+}
+
+// TestExampleHello builds examples/hello, the milestone M1 program, and checks that it
+// prints its output.txt.
+func TestExampleHello(t *testing.T) {
+	dir, err := filepath.Abs(filepath.Join("..", "..", "examples", "hello"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join(dir, "output.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkRuns(t, emitter(dir), &result{stdout: string(want)})
+}
+
+// TestUnsupported checks that what the emitter can't translate yet gives an *Error at the
+// right place, never a panic or C++ that doesn't compile.
+func TestUnsupported(t *testing.T) {
+	tests := []struct {
+		name, src, want string
+	}{
+		{"if", "func main() {\n\tif true {\n\t}\n}", "main.gp:4:2: cppgen: not supported yet: if statements (step 2.4)"},
+		{"for", "func main() {\n\tfor {\n\t}\n}", "main.gp:4:2: cppgen: not supported yet: for statements (step 2.4)"},
+		{"switch", "func main() {\n\tswitch {\n\t}\n}", "main.gp:4:2: cppgen: not supported yet: switch statements (step 2.4)"},
+		{"incdec", "func main() {\n\tx := 1\n\tx++\n\tprintln(x)\n}", "main.gp:5:2: cppgen: not supported yet: ++ and -- (step 2.4)"},
+		{"div", "func f(a, b int) int {\n\treturn a / b\n}\nfunc main() { println(f(1, 2)) }", "main.gp:4:11: cppgen: not supported yet: the operator / (step 2.3)"},
+		{"small", "func f(a, b uint8) uint8 {\n\treturn a + b\n}\nfunc main() { println(f(1, 2)) }", "main.gp:4:9: cppgen: not supported yet: arithmetic on uint8 (the small-integer rule, step 2.3)"},
+		{"conversion", "func main() {\n\tx := 1\n\tprintln(int32(x))\n}", "main.gp:5:10: cppgen: not supported yet: conversions (step 2.3)"},
+		{"method", "type T int\nfunc (T) M() {}\nfunc main() {}", "main.gp:3:1: cppgen: not supported yet: type declarations (Phase 03)"},
+		{"funcvalue", "func g() {}\nfunc main() {\n\tf := g\n\tf()\n}", "main.gp:5:2: cppgen: not supported yet: type func()"},
+		{"funcvalue2", "func g() {}\nfunc main() {\n\tprintln(g == nil)\n}", "main.gp:5:10: cppgen: not supported yet: function values (Phase 03)"},
+		{"complex", "func main() {\n\tc := complex(1, 2)\n\tprintln(real(c))\n}", "main.gp:4:2: cppgen: not supported yet: type complex128"},
+		{"parallel", "func main() {\n\ta, b := 1, 2\n\ta, b = b, a\n\tprintln(a, b)\n}", "main.gp:5:2: cppgen: not supported yet: the assignment = with these operands (step 2.4)"},
+		{"printf", "import \"fmt\"\nfunc main() {\n\tfmt.Printf(\"%5d\\n\", 1)\n}", `main.gp:5:13: cppgen: not supported yet: the fmt.Printf verb %5d (Phase 03)`},
+		{"sprint", "import \"fmt\"\nfunc main() {\n\tprintln(fmt.Sprint(1))\n}", "main.gp:5:10: cppgen: not supported yet: fmt.Sprint: Phase 02 has only fmt.Print, fmt.Println and fmt.Printf"},
+		{"errorresult", "import \"fmt\"\nfunc main() {\n\tn, err := fmt.Println()\n\tprintln(n, err)\n}", "main.gp:5:5: cppgen: not supported yet: type error"},
+		{"nomain", "func f() {}", "main.gp:2:9: cppgen: function main is undeclared in the main package"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			src := "// test\npackage main\n" + tt.src + "\n"
+			if err := os.WriteFile(filepath.Join(dir, "main.gp"), []byte(src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := emitPatterns(t, Config{}, dir, filepath.Join(dir, "main.gp"))
+			var e *Error
+			if !errors.As(err, &e) {
+				t.Fatalf("got %v (%T), want an *Error", err, err)
+			}
+			if got := strings.TrimPrefix(err.Error(), dir+string(filepath.Separator)); got != tt.want {
+				t.Errorf("got  %s\nwant %s", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestRuntimeFuncNames checks that a Go function named like any free function of namespace
+// gp can be called with a gp::string argument (funcCallName qualifies the call, so C++'s
+// argument-dependent lookup doesn't find the runtime's function too). The names come from
+// clang's AST of gocpp/rt.hpp (-ast-dump-filter=gp::), so a function that the runtime adds
+// is tested too.
+func TestRuntimeFuncNames(t *testing.T) {
+	var clang *cxx
+	for _, c := range compilers(t) {
+		if c.missing == "" && c.cc.Family == build.Clang {
+			clang = c
+		}
+	}
+	if clang == nil {
+		t.Skip("needs clang++, whose -ast-dump lists the runtime's functions")
+	}
+	dir := t.TempDir()
+	rt := filepath.Join(dir, "rt.cpp")
+	if err := os.WriteFile(rt, []byte("#include <gocpp/rt.hpp>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args := append(clang.flags(includeFlag(t)), "-fsyntax-only", "-Xclang", "-ast-dump-filter=gp::", "-Xclang", "-ast-dump", rt)
+	out, _, code, err := command(dir, false, clang.cc.Path, args...)
+	if err != nil || code != 0 {
+		t.Fatalf("%s %s: exit code %d %v", clang.cc.Path, strings.Join(args, " "), code, err)
+	}
+	// The dump has a "Dumping gp::len:" line before each declaration, then its kind.
+	var names []string
+	lines := strings.Split(string(out), "\n")
+	for i, l := range lines[:len(lines)-1] {
+		name, ok := strings.CutPrefix(l, "Dumping gp::")
+		name, _ = strings.CutSuffix(name, ":")
+		kind, _, _ := strings.Cut(lines[i+1], " ")
+		if ok && (kind == "FunctionDecl" || kind == "FunctionTemplateDecl") && token.IsIdentifier(name) &&
+			!slices.Contains(names, name) && name != "main" && name != "init" && name != "fmt" {
+			names = append(names, name)
+		}
+	}
+	for _, want := range []string{"len", "panic", "print", "println", "div", "shl", "run_main"} {
+		if !slices.Contains(names, want) {
+			t.Fatalf("the runtime's functions %v lack %s: did clang's dump change?", names, want)
+		}
+	}
+	var b strings.Builder
+	b.WriteString("package main\n\nimport \"fmt\"\n\n")
+	for i, n := range names {
+		fmt.Fprintf(&b, "func %s(s string) int {\n\treturn %d\n}\n\n", n, i)
+	}
+	b.WriteString("func main() {\n\ts := \"x\"\n")
+	for _, n := range names {
+		fmt.Fprintf(&b, "\tfmt.Println(%s(s), %s(\"lit\"))\n", n, n)
+	}
+	b.WriteString("}\n")
+	gp := filepath.Join(dir, "main.gp")
+	if err := os.WriteFile(gp, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	checkRuns(t, emitter(gp), goResult(t, gp))
+}

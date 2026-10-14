@@ -1,17 +1,17 @@
 # Phase 02: Walking Skeleton · STATE
 
-**Status:** `[~]` in progress (step 2.7, the runtime, done early: it needs nothing from Phase 01)
+**Status:** `[~]` in progress (steps 2.1, 2.2, 2.6 and 2.7 done)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
 ## Steps
 
-- [~] 2.1 Emitter skeleton (writer, `#line` with absolute paths repeated where needed, prologue, flat namespace, prototypes, main wrapper)
-- [~] 2.2 Names
-  - [ ] C++ keywords, reserved names, user names starting with `gp_`
-  - [ ] the runtime's macro names (`EOF`, `errno`, `assert`, `stdin`, …)
-  - [ ] `gp_` temporaries
-  - [ ] shadowing renames (`v := v`, `x := x + 1`)
+- [x] 2.1 Emitter skeleton (writer, `#line` with absolute paths repeated where needed, prologue, flat namespace, prototypes, main wrapper)
+- [x] 2.2 Names
+  - [x] C++ keywords, reserved names, user names starting with `gp_`
+  - [x] the runtime's macro names (`EOF`, `errno`, `assert`, `stdin`, …)
+  - [x] `gp_` temporaries
+  - [x] shadowing renames (`v := v`, `x := x + 1`)
 - [ ] 2.3 Expressions
   - [ ] constants via `go/constant` (all basic types, big values)
   - [ ] string literal escaping (octal, never `\x`)
@@ -27,7 +27,7 @@
   - [ ] labeled `break`/`continue`, `goto` (temporaries in blocks)
   - [ ] `return` (single and multiple)
 - [ ] 2.5 Minimal evaluation-order pass (incl. loop-condition / `else if` / `case` shapes)
-- [~] 2.6 Functions: params, multiple results (`std::tuple`), prototypes
+- [x] 2.6 Functions: params, multiple results (`std::tuple`), prototypes
 - [x] 2.7 Runtime v0 (`gp::string` minimal, helpers, panic as exception, print/println, unbuffered-order stdout, fmtshim, run_main, OS layer `runtime/src/os/` + no-POSIX-outside check) + C++ unit tests
 - [ ] 2.8 Driver: `build`, `run`, `emit`, `-x`, `-work`, `-asan`, compiler detection, embedded runtime
 - [ ] 2.9 Internal-error path for C++ compile failures
@@ -63,3 +63,23 @@
 - 2026-10-13: Step 2.7 (runtime v0) committed, clean after 4 review rounds. The reviews added
   `TestSymbols` (every strong global symbol of the runtime is in `gp::` or starts with `gp_`, so it
   can't clash with user C/C++ code), the no-POSIX-outside-`src/os/` check, and pipe/SIGPIPE tests.
+- 2026-10-13: Job 2.1 (+2.2, 2.6: emitter skeleton, names, functions; `cppgen.EmitPackage`) committed,
+  clean after 2 review rounds. Decisions: a call to a package-level function is written
+  `gpkg_main::f(...)` when any argument's C++ type is not a number or bool, so C++ argument-dependent
+  lookup can't pick a `gp::` or `std::` function (`func len(s string)` broke both compilers);
+  `funcCallName` is the one place for this rule. Constants in places where C++ deduces the type
+  (runtime template arguments, `auto`) get their exact Go type (`int64_t(5)`). `#line` only where the
+  line is not previous + 1 (the §2.1 example shows more; the rule wins). Escaping is one-to-one by
+  name "families" (`new` → `new_`, `new_` → `new__`); the integer type names (`int64_t`, …) are
+  reserved too. `?` after `?` is written `\?` (trigraph warnings). `Config.OutputPath`: the 2.8 driver
+  must set it. The emitter already does package-level variables and `init` (Phase 03 step 3.16, basic
+  types only); the gates still say Phase 03, so its tests run with `Config{Phase: check.LastPhase}`.
+- 2026-10-13 (emitter review 2.1): `int`/`int64` are both `int64_t` and `uint`/`uint64`/`uintptr` are
+  `uint64_t`, so fmtshim prints Go's type name `int`/`uint` where Go says `int64`/`uint64`/`uintptr`
+  (`%!s(int64=5)`). The emitter must pass a type tag to fmtshim for these (or it is a documented
+  divergence); decide before Phase 03's `%T`/`%v` work (step 2.3 or 3.x).
+- 2026-10-13 (manager): the flaky runtime test `TestCXX/*/diff/bigerr` was real Go's output, not
+  gocpp's: Go's runtime `println` writes once and drops what a short write leaves, and a `SIGURG`
+  preemption signal can cut a blocking pipe write short (all six configurations failed at once,
+  because they share one Go run, at exactly 128 KiB). The Go reference runs now use
+  `GODEBUG=asyncpreemptoff=1`.

@@ -60,3 +60,8 @@
 - 2026-10-13 (from Phase 01 job 1.10a): `types.CheckExpr` (used for C++ template arguments) can't take
   gocpp's Sizes, so when step 3.17 changes the real sizes (string 32 B, pointers 16 B), re-evaluate
   `unsafe.Sizeof/Alignof/Offsetof` inside opaque template arguments or gate them (a test pins it).
+- 2026-10-13 (emitter job 2.1): step 3.16 is partly done early: package-level variables of basic types
+  (constant ones `constinit`, the others in `gp_var_init` in `InitOrder`) and `init` functions
+  (`gp_init_1…n`, `run_main` gets `&gp_init_all`). 3.16 extends it to all types and lifts the gate.
+  Also for this phase: a user type named `std` or `gp` would capture `std::`/`gp::` in generated code:
+  reserve both names or write `::std::`/`::gp::` (from the 2.1 review).

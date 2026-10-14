@@ -18,6 +18,8 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [ ] `docs/CONTRIBUTING.md` §2: list `tools/stubgen` (the stdlib stub generator) under `tools/` (from job 1.9b)
 - [ ] Tests in `internal/interop` (TestProbeCommand) and `internal/load` (TestLoadModule, TestTestFiles, TestNoFiles) fail when TMPDIR contains `..`: clean the temp paths (`filepath.Clean`/`EvalSymlinks`) before comparing (from the 2.7 review)
 - [ ] FakeImportC false errors still reported (from job 1.11; owner: job 1.10c or 1.15, which touch the error collector in `internal/check/check.go`): `for _, x := range (std.vector[int]{1, 2})` (soft InvalidRangeExpr "value with invalid type"), `std.vector[std.vector[int]]{{1, 2}}` (hard "missing type in composite literal"), `type Handle C.int; h + 1` (hard "cannot convert 1 … to type invalid type"). Drop each one only when its operand is opaque, and add it to the 1.15 corpus
+- [ ] `docs/spec/cpp-mapping.md` §package initialization (line ~71): `run_main` gets `&gp_init_all` as soon as a package has variables or `init` functions (not only from Phase 06), and the `#line` example shows a directive only where the line is not previous + 1 (from job 2.1)
+- [ ] Phase 01 README §2.1/§2.5 step 5 and ADR-002: `gp_as[T]` is now `gp_cgoh.As[T]` from the reserved path `gocpp/cgoh` (plus `Unused`/`Value`), and "has C" includes imports (from job 1.10b; do it when 1.10b is committed)
 - [ ] `docs/adr/README.md`: describe dated amendments (like ADR-002's printer line), not only superseding (from job 1.5)
 
 ## Any time (parallel, low risk)
