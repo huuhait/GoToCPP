@@ -137,7 +137,8 @@ Each import path string is classified by its shape. No new syntax is needed:
 | `"./physics.h"`, `"native/x.hpp"` (ends in `.h .hh .hpp .hxx .h++ .inl`) | local header (relative to the `.gp` file, then the include dirs) | `#include "…"` | `physics.X`, `x.X` |
 | `rl "<raylib.h>"`, `_ "<GL/gl.h>"` | header with a chosen name, or none | as above | `rl.X`, or no name |
 | `fs "::std::filesystem"` | renamed C++ namespace (optional) | nothing (just a name) | `fs.path` → `::std::filesystem::path` |
-| `"::std"` (no name) | an error: namespaces need no import | — | the message says: use `std.X` directly, or rename it with `import fs "::std::filesystem"` |
+| `"::std"` (no name) | an error: namespaces need no import | — | the message says: use `std.X` directly, or rename it (with the path you wrote, e.g. `import chrono "::std::chrono"`) |
+| `"./helper.cpp"`, `"./physics"`, `"./x.H"` (a `./` or `../` path that isn't a header) | an error | — | a local path must be a header (`.h .hh .hpp .hxx .h++ .inl`); `.c`/`.cpp` files next to the `.gp` file are compiled anyway |
 
 **A header is a package.** Its name is the file name without directory and extension
 (`<SDL2/SDL.h>` → `SDL`, `"./physics.h"` → `physics`), with characters Go doesn't allow turned
@@ -444,9 +445,11 @@ first syntax error of each line (the compiler does that even with `-e`, while go
    (cached), `gp_as[T]` conversions, shadowing tests.
 9. **1.9 Package loader + importer** (§2.6): dir scan, `_test.gp`, build constraints, cycles,
    stubs for every package the target programs import. It joins each file's `FileInfo` with its
-   `//gocpp:` directives, and re-checks the header names against the real names of the imported
-   gocpp packages (step 1.6 guesses them from the import path, like goimports). Steps 1.6 and 1.7
-   each have a list of header extensions; the loader keeps one shared list.
+   `//gocpp:` directives. For the header names it needs the real names of the imported gocpp
+   packages: it gets their paths with `load.PackagePaths`, reads those packages' package
+   clauses, then calls `load.ClassifyImports` with a `packageName` function (without one, step
+   1.6 guesses names from the path, like goimports). Steps 1.6 and 1.7 each check header paths
+   (with small differences, e.g. `< lua.h>`); the loader makes them share one check.
 10. **1.10 go/types integration** (§2.7) including a `gocppSizes` stub and the `CheckExpr` pass
     over opaque template arguments.
 11. **1.11 Opaque pass** (§2.8) with the widened "comes from C/C++" rule, the sanity rule and
@@ -462,7 +465,11 @@ first syntax error of each line (the compiler does that even with `-e`, while go
     equals real `gofmt`'s (gofmt changes 4 files there itself, in spacing, so "unchanged" is the
     wrong test); deliberately badly formatted inputs (including number literals like `0XFF`)
     produce exactly what the real `gofmt` produces; and a group of header imports keeps its order.
-    The round-trip test (step 1.5) then prints the same way as `gocpp fmt`.
+    The round-trip test (step 1.5) then prints the same way as `gocpp fmt`. Like gofmt with a syntax
+    error, `gocpp fmt` leaves a file unchanged and prints the errors when its `//gocpp:` directives
+    have errors: go/printer would turn a broken directive in a doc comment (`//gocpp:Link m`) into
+    an ordinary comment (`// gocpp:Link m`), and the library would silently not be linked (found
+    in the review of job 1.7).
 
 ## 4. Deliverables
 

@@ -16,6 +16,12 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [ ] `gocpp fmt` (Phase 01 step 1.16), so formatting works from the first week
 - [ ] After M1: language server v0 (Phase 11 early track: diagnostics, hover, go-to-definition, completion, formatting; about 2 weeks, see STATE timeline)
 
+## Small follow-ups (give them to the next job that touches the file)
+
+- [ ] `internal/syntax/FORK.md` §7: "Don't use a number twice" instead of "would overwrite that patch"; §8 step 3: say where `local.patch` is written (`internal/syntax/local.patch`) (nits from the 1.2 review; job 1.4 edits FORK.md)
+- [ ] `docs/adr/README.md`: describe dated amendments (like ADR-002's printer line), not only superseding (from job 1.5)
+- [ ] `internal/syntax/FORK.md` §5: "printing it with `go/format`" changes when step 1.16 moves the round-trip check to `gocpp fmt`'s printer
+
 ## Any time (parallel, low risk)
 
 - [~] VS Code TextMate grammar for `.gp`, including `name!(`, `func name!(`, `#Name`, `#body()` and `macro` (Phase 11 step 11.10, job 11.10a started)
@@ -86,3 +92,4 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] 2026-10-13: Phase 01 step 1.13: `internal/diag` prints errors like `go build`
 - [x] 2026-10-13: Phase 01 step 1.1: `go/scanner` + `go/parser` forked into `internal/syntax` (`FORK.md`, `update.sh`)
 - [x] 2026-10-13: Phase 01 step 1.2: parser patch 1 (`std.map`, `node.type()`)
+- [x] 2026-10-13: Phase 01 step 1.5: the round-trip test over the Go standard library (6240 files)

@@ -14,6 +14,7 @@ nodes, so the stock `go/types` can check them.
 | `update.sh` | the script that makes the fork again (§6) |
 | `staticcheck.conf` | turns off two staticcheck checks for the fork (§1) |
 | `doc.go`, `FORK.md` | the package doc and this file |
+| `roundtrip_test.go` | the round-trip test over the Go standard library (§5). `update.sh` doesn't change it |
 
 ## 1. Upstream
 
@@ -39,8 +40,9 @@ copies it from `$(go env GOROOT)/src`:
 - `go/ast`, `go/token` and `go/build/constraint` are not copied. The fork uses the stock ones.
 - `staticcheck.conf` turns off two checks for the fork, because they report upstream code,
   which stays as it is: SA1019 (`parser/resolver.go` uses the deprecated `ast.Scope` and
-  `ast.Object`, and gocpp keeps this old name resolution on purpose) and S1005
-  (`for i, _ := range list` in `parser/parser.go`). All other checks still run.
+  `ast.Object`, and gocpp keeps this old name resolution on purpose; `roundtrip_test.go`,
+  which compares that resolution, uses them too) and S1005 (`for i, _ := range list` in
+  `parser/parser.go`). All other checks still run.
 
 ## 2. The import paths
 
@@ -108,6 +110,9 @@ Phase 10 adds three more patches: `name!(` is one name (must calls), `#Name` is 
   that are not committed; with `-f`, it saves a copy of them first (§6).
 - `go/ast`, `go/token` and `go/build/constraint` stay stock.
 - All upstream tests keep passing, `TestIncompleteSelection` too.
+- `roundtrip_test.go` keeps passing too: for every Go file of the standard library, the fork gives
+  the same AST as the stock `go/parser`, and printing it with `go/format` and parsing it again
+  gives the same AST.
 
 ## 6. Re-fork with update.sh
 

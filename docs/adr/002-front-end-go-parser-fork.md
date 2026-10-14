@@ -17,7 +17,9 @@ libraries, but the stock parser rejects a few shapes that C++ names need.
   lists (D4), (3) dotted type names (D20). Phase 10 adds 3 more: (4) `name!(` is one name ([ADR-013](013-must-errors.md)), (5) `#Name` is
   one token, (6) `macro` declarations, `lazy` parameters and macros on top of a declaration
   ([ADR-014](014-macros.md)). `FORK.md` lists the patches; a re-fork script re-applies them.
-- **Printer:** stock `go/format` for `gocpp fmt`, then a small `go/printer` fork in Phase 10.
+- **Printer:** stock `go/printer` with gofmt's settings for `gocpp fmt` (amended 2026-10-13: it
+  said `go/format`, but `go/format.Node` re-parses files with grouped imports using the stock
+  parser; found in job 1.5), then a small `go/printer` fork in Phase 10.
 - **Type checker:** stock `go/types` and `go/constant` with `FakeImportC`. The front-end first
   rewrites header-package and namespace uses (`raylib.InitWindow` → `C.InitWindow`, `std.vector`
   → `C.std.vector`, [ADR-005](005-interop-header-packages.md)), so C/C++ names check as "opaque".

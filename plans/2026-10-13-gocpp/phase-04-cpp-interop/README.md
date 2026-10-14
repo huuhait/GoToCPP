@@ -268,7 +268,9 @@ recoverable panics.
   tables (BSD-3-Clause) already cover the C++ flags (`-std=`, `-stdlib=`, `-f(no-)rtti`,
   `-f(no-)exceptions`, `-fsanitize=`); a `GOCPP_CFLAGS_ALLOW`/`GOCPP_LDFLAGS_ALLOW` regexp
   (like `CGO_CFLAGS_ALLOW`) allows more, and flags from the environment are trusted (found by
-  job 1.7).
+  job 1.7). cgo also checks the characters of every argument (go/build's `safeCgoName`: with Go
+  1.25, `-DNAME=\"x\"` is a "malformed #cgo argument"); the port decides on purpose whether gocpp
+  does the same.
 - **`extern "C"` for C headers.** A header needs `extern "C"` when it declares C functions without
   its own `__cplusplus` guard. The rule:
   - a **local `.h`** header is wrapped only if it **parses as C** (`$CC -fsyntax-only -x c`,
@@ -280,7 +282,9 @@ recoverable panics.
     above say;
   - `.h++` and `.inl` headers count as C++ headers, like `.hpp`: never wrapped by default;
   - an explicit `//gocpp:extern-c` wins over the default rules, also for a `.hpp` file (a C
-    header with an odd name); `extern-c` and `no-extern-c` on the same header is an error.
+    header with an odd name); `extern-c` and `no-extern-c` on the same header is an error, and so
+    is an `extern-c`/`no-extern-c` header that no file of the package imports (a typo would
+    otherwise do nothing silently).
   Wrapping a C++ header breaks it (`extern "C" { #include <vector> }` gives over a thousand
   errors with g++), which is why the parse-as-C check matters.
 
