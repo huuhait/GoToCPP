@@ -30,7 +30,7 @@
   - [x] dependency ordering + recursive types
 - [~] 3.9 Named non-struct types (`gp::newtype`) + implicit conversions where types differ + `switch` on underlying value
 - [ ] 3.10 Methods (value receivers copy, held reference for non-local receivers, pointer receivers, method values/expressions)
-- [ ] 3.11 Func values (by-value params), variadics, closures
+- [~] 3.11 Func values (by-value params), variadics, closures
   - [ ] capture analysis (by value vs boxed)
   - [ ] Go 1.22 per-iteration loop variables
 - [ ] 3.12 Evaluation-order lowering for every construct (+ `&&`/`||`, loop/else-if/case shapes, two-phase assignment)
