@@ -193,3 +193,11 @@
   05 may make it lazy for recover-heavy code). `-nochecks` removes only the bounds, conversion and nil
   checks; division and shift panics, Go's defined results, the nil-map write, `make` and `[0]T` index
   panics stay, since they are part of the operation.
+- 2026-10-14 (3.15a, manager): the fmt shim's protocol for the emitter (3.8/3.9/3.10/3.15b), documented in
+  runtime/include/gocpp/fmtshim.hpp: structs get `gp_type_name` and `gp_fields = gp::fields(gp::field(&T::X,
+  "X", exported), …)` with every field (blank and embedded too; `gp::field<tag>` for int64/uint64/uintptr);
+  named types give `gp_value()` (+ optional `gp_value_tag`); the emitter generates member hooks
+  `gp_String()`/`gp_Error()` for value method sets and statics `gp_String_ptr`/`gp_Error_ptr` for
+  pointer-only ones, promoted methods included; int64/uint64/uintptr arguments are passed through
+  `gp::fmtshim::typed<tag>` so `%!s(int64=5)` names the Go type. Until Phase 05: a non-string panic
+  value inside String() prints in the builtin print format; verbs past Phase 03 stay gated.
