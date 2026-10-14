@@ -34,7 +34,7 @@
   - [ ] capture analysis (by value vs boxed)
   - [ ] Go 1.22 per-iteration loop variables
 - [ ] 3.12 Evaluation-order lowering for every construct (+ `&&`/`||`, loop/else-if/case shapes, two-phase assignment)
-- [~] 3.13 `defer` with the single-exit shape (panics run defers, panicking defers, named results)
+- [x] 3.13 `defer` with the single-exit shape (panics run defers, panicking defers, named results)
 - [~] 3.14 Runtime checks + Go panic messages + exit code 2 + `backtrace()` trace + `-nochecks` (keeps Go's defined results) (3.14a runtime + driver done; 3.14b emitter side)
 - [~] 3.15 Remaining builtins + `fmt` shim for composite values (slices, maps sorted, structs, `&{…}`, `String()`) (3.15a runtime shim done; 3.15b emitter side)
 - [ ] 3.16 Package-level vars (`InitOrder`) + multiple `init()`
@@ -274,3 +274,14 @@
   in a function with defers enters gp::defer_frame::gp_run; `gocpp debug` should add skip rules for it and
   std::apply/__invoke. 3.10/3.11: a deferred method call or func value must store the receiver / func value
   as an argument evaluated at the defer statement. Phase 09: os.Exit must not unwind (no defers run).
+- 2026-10-14: Job 3.13 (defer: the single-exit shape with one exit per return (at the return's line, as Go's
+  traces show), gp::defer_frame (gp_push/gp_run/gp_on_panic, 64-byte inline buffer), arguments evaluated at the
+  defer statement in gc's order, panics that run defers and chain like Go's printpanics incl. "[recovered,
+  repanicked]" (gp::panic_identity copies gc's static-data rule and its ReassignOracle constant folding;
+  pinned against real Go by TestPanics rp-*), stitched traces) committed, clean after 3 review rounds. Only
+  gp::panic_error is caught by the generated handler: a foreign C++ exception or a glibc forced unwind passes
+  through without running defers (Phase 05 converts C++ exceptions at Go boundaries). README §2.8's names are
+  now gp_on_panic/gp_run, with one exit label per return instead of a single gp_exit. Stack: a function with
+  defers uses about 160–184 B per call at -O0 (deep recursion with a defer per level stops at 40–50k levels on
+  8 MiB; documented in cpp-mapping "Defer"). tests/debug's bt rule allows a run of gp::/std:: frames only when
+  it ends in gp::defer_frame::gp_run.

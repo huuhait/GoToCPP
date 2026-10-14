@@ -300,10 +300,10 @@ R f(Args... args) {
     try {
         /* body */                    // `return x` → { gp_r0 = x; goto gp_exit; }
     } catch (...) {
-        gp_df.on_panic(std::current_exception());
+        gp_df.gp_on_panic(gp_e);           // catch (gp::panic_error& gp_e): only Go panics
     }
 gp_exit:
-    gp_df.run();                      // run defers LIFO, then re-throw a pending panic
+    gp_df.gp_run();                   // run defers LIFO, then re-throw a pending panic (one exit label per return)
     return gp_r0;
 }
 ```
