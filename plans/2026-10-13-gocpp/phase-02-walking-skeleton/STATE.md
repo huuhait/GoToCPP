@@ -1,6 +1,6 @@
 # Phase 02: Walking Skeleton · STATE
 
-**Status:** `[ ]` not started
+**Status:** `[~]` in progress (step 2.7, the runtime, started early: it needs nothing from Phase 01)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
@@ -28,7 +28,7 @@
   - [ ] `return` (single and multiple)
 - [ ] 2.5 Minimal evaluation-order pass (incl. loop-condition / `else if` / `case` shapes)
 - [ ] 2.6 Functions: params, multiple results (`std::tuple`), prototypes
-- [ ] 2.7 Runtime v0 (`gp::string` minimal, helpers, panic as exception, print/println, unbuffered-order stdout, fmtshim, run_main, OS layer `runtime/src/os/` + no-POSIX-outside check) + C++ unit tests
+- [~] 2.7 Runtime v0 (`gp::string` minimal, helpers, panic as exception, print/println, unbuffered-order stdout, fmtshim, run_main, OS layer `runtime/src/os/` + no-POSIX-outside check) + C++ unit tests
 - [ ] 2.8 Driver: `build`, `run`, `emit`, `-x`, `-work`, `-asan`, compiler detection, embedded runtime
 - [ ] 2.9 Internal-error path for C++ compile failures
 - [ ] 2.10 Tests: ≥ 25 run tests, 3 golden, ≥ 25 differential vs Go (promotion, order, shadowing, float format, float→int, stdout/stderr order)

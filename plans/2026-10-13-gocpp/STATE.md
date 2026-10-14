@@ -31,7 +31,7 @@
 
 - [x] **Phase 00:** Foundations & spec → [STATE](phase-00-foundations/STATE.md)
 - [~] **Phase 01:** Front-end (parse, load, type-check, `gocpp fmt`) → [STATE](phase-01-frontend/STATE.md)
-- [ ] **Phase 02:** Walking skeleton → [STATE](phase-02-walking-skeleton/STATE.md) · ends with **M1**
+- [~] **Phase 02:** Walking skeleton → [STATE](phase-02-walking-skeleton/STATE.md) · ends with **M1**
 - [ ] **Phase 03:** Core language → [STATE](phase-03-core-language/STATE.md) · ends with **M2**
 - [ ] **Phase 04:** C/C++ interop (opaque) → [STATE](phase-04-cpp-interop/STATE.md) · ends with **M3**
 - [ ] **Phase 05:** Interfaces, embedding, errors, panic/recover → [STATE](phase-05-interfaces-errors/STATE.md)

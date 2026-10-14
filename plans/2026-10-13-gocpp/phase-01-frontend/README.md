@@ -223,9 +223,11 @@ backslash escapes), and an unquoted argument that starts with `//` starts a comm
    clang++ and g++ (both found `std`, both rejected `stdd` and `fmtt`). The result is cached per
    include set; Phase 04 extends this probe into the full "kind probe". The plain file gives wrong
    answers on its own (found by job 1.8b), so the probe adds guard lines: a macro check around each
-   alias (a macro with an unbalanced `{` hid all later lines), a `;` after each include (a header
-   that ends mid-declaration), a final alias that must fail (so a silent compiler can't make
-   everything a namespace), and an end-of-file check for an unclosed `{`. Quoted includes are found
+   alias (a macro with an unbalanced `{` hid all later lines), a scope-check line after each
+   include (it fails at the culprit's own include when a header leaves an `extern "C"`, namespace,
+   class, function or enum open, or ends mid-declaration), a final alias that must fail (so a
+   silent compiler can't make everything a namespace), and an end-of-file check for an open
+   `extern "C++" {`. Candidates starting with `gp_` (reserved) are never namespaces. Quoted includes are found
    with `-iquote <dir>`, not `-I` (with `-I`, a file named `vector` next to the `.gp` file hid
    `<vector>`). Note: g++ predeclares `namespace std` and clang++ doesn't, so with only C headers
    (`<stdio.h>`) `std.x` is a namespace use with g++ and `undefined: std` with clang++; error

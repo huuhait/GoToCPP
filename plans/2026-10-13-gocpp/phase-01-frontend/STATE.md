@@ -23,9 +23,9 @@
 - [x] 1.5 Round-trip test over the Go stdlib (parse → print → parse)
 - [x] 1.6 Import classifier + `FileInfo` (header package names and their rules, namespace renames) + reserved-`C` error
 - [x] 1.7 `//gocpp:` directive parser + validation + suggestions
-- [~] 1.8 AST preprocessing (jobs 1.8a: rewrites, 1.8b: namespace probe; `gp_as` comes after)
+- [x] 1.8 AST preprocessing (jobs 1.8a: rewrites, 1.8b: namespace probe; `gp_as` moved to 1.10)
   - [x] drop header imports; `raylib.X` → `C.X`; undeclared `ns.X` → `C.ns.X` (package-wide name set); inject `import "C"` only where used
-  - [ ] namespace probe (one `-fsyntax-only` file, cached per include set) → `undefined: x` for non-namespaces
+  - [x] namespace probe (one `-fsyntax-only` file, cached per include set) → `undefined: x` for non-namespaces (job 1.8b; the caller reports `undefined` in step 1.10)
   - [x] `T(opaque)` → `gp_as[T](…)`: moved to step 1.10 (needs go/types)
   - [x] position preservation + shadowing tests
 - [~] 1.9 Package loader + importer (jobs 1.9a: loader core, 1.9b: stdlib stubs)
@@ -141,3 +141,6 @@
   overlay for unsaved buffers.
 - 2026-10-13: Job 1.9b (stdlib stubs, package `stdlib`, `tools/stubgen`) committed, clean after 2 review
   rounds: 17 of the 19 examples type-check against them (macros and must-errors need Phase 10).
+- 2026-10-13: Job 1.8b (namespace probe, `internal/interop` + `build.FindCXX`) committed, clean after 3
+  review rounds: guard lines against broken headers, -iquote, a stat-checked cache (µs per hit, also
+  with 4 MiB headers), process-group kills; ~4M stress calls equal fresh probes. Step 1.8 is done.

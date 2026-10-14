@@ -4,9 +4,10 @@
 // by content hash, compiles the .c/.cpp files next to the .gp files, and links
 // the libraries a package asks for.
 //
-// Phase 02 starts it (compiler detection and flags, the embedded runtime,
-// one-package builds). Phase 04 adds C/C++ sources and link flags. Phase 06
-// adds the action graph, the cache, parallel builds, build modes,
-// compile_commands.json and the first Windows builds, and Phase 14 finishes
-// Windows.
+// Phase 01 starts it with the compiler finder (FindCXX), for the namespace
+// probe. Phase 02 adds the compiler's version checks and flags, the
+// embedded runtime and one-package builds. Phase 04 adds C/C++ sources and
+// link flags. Phase 06 adds the action graph, the cache, parallel builds,
+// build modes, compile_commands.json and the first Windows builds, and
+// Phase 14 finishes Windows.
 package build
