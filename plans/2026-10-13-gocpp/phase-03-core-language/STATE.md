@@ -36,7 +36,7 @@
 - [ ] 3.12 Evaluation-order lowering for every construct (+ `&&`/`||`, loop/else-if/case shapes, two-phase assignment)
 - [x] 3.13 `defer` with the single-exit shape (panics run defers, panicking defers, named results)
 - [~] 3.14 Runtime checks + Go panic messages + exit code 2 + `backtrace()` trace + `-nochecks` (keeps Go's defined results) (3.14a runtime + driver done; 3.14b emitter side)
-- [~] 3.15 Remaining builtins + `fmt` shim for composite values (slices, maps sorted, structs, `&{…}`, `String()`) (3.15a runtime shim done; 3.15b emitter side)
+- [~] 3.15 Remaining builtins + `fmt` shim for composite values (slices, maps sorted, structs, `&{…}`, `String()`) (3.15a runtime shim done; 3.15b emitter side in review; 3.15c complex numbers in progress)
 - [ ] 3.16 Package-level vars (`InitOrder`) + multiple `init()`
 - [x] 3.17 `gocppSizes` + `static_assert` sync
 - [ ] 3.18 Tests: ≥ 150 run, ≥ 60 differential, sanitizer CI job
@@ -337,3 +337,6 @@
   per statement, Go's closure names in traces (main.main.func1, main.T.M.func1) on both compilers) committed,
   clean after 4 review rounds (the last one checked the rebase onto 3.10). For 3.10b: methods.go's gates
   still say "(Phase 03 step 3.10 after 3.11)": rename to "3.10b" when building method values/expressions.
+- 2026-10-14 (3.15b, manager): complex numbers (complex64/complex128, complex/real/imag) are gated to Phase 03
+  but were never built: job 3.15c builds them (Go's own * and / rules for Inf/NaN, constants, ==, map keys,
+  printing, sizes). %T stays gated to Phase 05 (not in §2.10's verb list), though the shim prints it.
