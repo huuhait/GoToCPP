@@ -181,8 +181,8 @@ struct Point {
     int64_t Y = 0;
     bool operator==(const Point&) const = default;   // only when comparable
     static constexpr const char* gp_type_name = "main.Point";        // for fmt %T and %!verb(T=…)
-    static constexpr auto gp_fields = gp::fields(gp::field(&Point::X, "X", true),  // true: exported
-                                                 gp::field(&Point::Y, "Y", true)); // for fmt %v/%+v
+    static constexpr auto gp_fields = gp::fields(gp::field(&Point::X, "X", true, false),  // exported, not embedded
+                                                 gp::field(&Point::Y, "Y", true, false)); // for fmt %v/%+v
 };
 struct Celsius : gp::newtype<Celsius, double> {      // a distinct type with double's operators
     using newtype::newtype;
