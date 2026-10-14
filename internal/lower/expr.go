@@ -19,7 +19,8 @@ import (
 // Printf (gp::fmtshim), the byte s[i] of a string, the substring s[a:b], conversions between
 // basic types (also string(r)), every operator of the Phase 02 subset with string
 // concatenation (ops.go), pointers (step 3.3): *p, &x (addr.go), new(T), nil, p == q, and
-// a boxed variable x (box.go), which is (*x), and slices (step 3.5, slices.go). The rest is
+// a boxed variable x (box.go), which is (*x), slices (step 3.5, slices.go) and arrays (step
+// 3.6, arrays.go). The rest is
 // reported as "not supported yet": the phase gates of internal/check reject it before, with a
 // message for the user.
 //
@@ -155,6 +156,9 @@ func (fg *funcGen) expr(e ast.Expr) cppir.Expr {
 		// *p: gp::ptr's operator* panics like Go for a nil p.
 		return deref(fg.expr(e.X))
 	case *ast.CompositeLit:
+		if isArray(fg.g.info.TypeOf(e)) {
+			return fg.arrayLit(e) // arrays.go
+		}
 		return fg.compositeLit(e)
 	}
 	fg.g.unsupported(e.Pos(), nodeKind(e))
@@ -250,10 +254,11 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 			case "print", "println":
 				callee, template = "gp::"+obj.Name(), true
 				for _, a := range c.Args {
-					if t := fg.g.info.TypeOf(a); t != nil && isSlice(t) {
-						// Go prints [len/cap]0xc000012345, with an address of Go's heap:
-						// internal/check rejects it (D23), so this is only a safety net.
-						fg.g.unsupported(a.Pos(), "printing a slice with "+obj.Name())
+					if t := fg.g.info.TypeOf(a); t != nil && (isSlice(t) || isArray(t)) {
+						// Go prints [len/cap]0xc000012345 for a slice, with an address of
+						// Go's heap (D23), and rejects an array: internal/check rejects
+						// both, so this is only a safety net.
+						fg.g.unsupported(a.Pos(), "printing a slice or an array with "+obj.Name())
 						return placeholder
 					}
 				}
@@ -295,6 +300,10 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 			}
 			if t := fg.g.info.TypeOf(a); t != nil && isSlice(t) {
 				fg.g.unsupported(a.Pos(), "printing a slice (Phase 03 step 3.15)")
+				return placeholder
+			}
+			if t := fg.g.info.TypeOf(a); t != nil && isArray(t) {
+				fg.g.unsupported(a.Pos(), "printing an array (Phase 03 step 3.15)")
 				return placeholder
 			}
 		}

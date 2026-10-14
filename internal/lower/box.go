@@ -30,8 +30,9 @@ import (
 //     s[1] = 2, m[k] = v) doesn't change the variable itself;
 //   - or is a local variable whose C++ type is larger than maxStackVarSize (boxLarge), which
 //     could overflow the C++ stack (var a [1 << 20]int is 8 MB): Go's compiler moves such a
-//     variable to the heap too. Its size is gocpp's (check.Sizes). As in Go, the parameters and
-//     the results never are: they are passed on the stack anyway.
+//     variable to the heap too. Its size is gocpp's (check.Sizes). The parameters and the
+//     results are not, here; but a parameter of such a type is passed as a const reference and
+//     boxed at the function's entry (decl.go: prepare), and the results stay on the stack (D24).
 //
 // "Inside it" follows the parts that are stored in the variable: the fields of a struct value
 // (x.f, also through embedded fields that are not pointers) and the elements of an array
@@ -203,10 +204,10 @@ func largeVar(t types.Type) bool {
 	return n < 0 || n > maxStackVarSize
 }
 
-// params records the parameters and results of a function type. They are never boxLarge, as
-// in Go, where they are on the stack anyway. C++ stacks don't grow, though, so a large
-// parameter or result by value can still overflow one: steps 3.6 and 3.8 decide how large
-// arrays and structs are passed.
+// params records the parameters and results of a function type. They are never boxLarge here,
+// as in Go, where they are on the stack anyway. C++ stacks don't grow, though: prepare (decl.go)
+// passes a large parameter by const reference and boxes it, and a large result by value can
+// still overflow the stack (D24).
 func (b *boxer) params(ft *ast.FuncType) {
 	b.fields(ft.Params)
 	if ft.Results != nil {

@@ -1,5 +1,6 @@
 // The unit tests of gp::array (gocpp/array.hpp): layout, zero values, value semantics, the
-// index check, ==, [0]T, literals, the conversions from slices and slicing a boxed array.
+// index check, ==, [0]T, literals, the conversions from slices, slicing a boxed array, the range
+// loops and elem_ptr.
 // runtime/cxx_test.go compiles this file with the runtime's .cpp files, with g++ and clang++,
 // at -O0, at -O2 and with ASan + UBSan (LeakSanitizer included), and runs it like
 // test/unit.cpp. It prints "ok: N checks" and exits 0, or prints each failed check and exits 1.
@@ -689,6 +690,128 @@ void test_sub() {
     (void)e0;
 }
 
+// --- range loops and elem_ptr ---
+
+// A large array (over 128 KiB): range_array_copy copies it to the heap.
+using big = gp::array<int64_t, 20000>;
+static_assert(gp::detail::large_array<int64_t, 20000> && !gp::detail::large_array<int64_t, 16384>);
+static_assert(sizeof(gp::array_copy_range<int64_t, 20000>) < 64);
+static_assert(sizeof(gp::array_copy_range<int64_t, 3>) == 32);
+
+void test_range() {
+    // range_array reads the array itself: writes in the body are seen (the emitter uses it
+    // only where the body can't write).
+    iarr<3> a{1, 2, 3};
+    std::vector<int64_t> got;
+    for (auto it = gp::range_array(a); gp::range_next(it);) {
+        if (it.gp_i == 0) {
+            a[2] = 30;
+        }
+        got.push_back(it.gp_i * 100 + it.gp_v());
+    }
+    CHECK(got == std::vector<int64_t>({1, 102, 230}));
+
+    // range_array_copy ranges over a copy: writes in the body are not seen.
+    got.clear();
+    for (auto it = gp::range_array_copy(a); gp::range_next(it);) {
+        a[it.gp_i] = -1;
+        got.push_back(it.gp_v());
+    }
+    CHECK(got == std::vector<int64_t>({1, 2, 30}) && same(a, {-1, -1, -1}));
+    // Of a temporary (f() in Go): the copy outlives it.
+    got.clear();
+    for (auto it = gp::range_array_copy(iarr<2>{7, 8}); gp::range_next(it);) {
+        got.push_back(it.gp_v());
+    }
+    CHECK(got == std::vector<int64_t>({7, 8}));
+    // An rvalue is moved into the range (range_array_copy(array&&)), also a large one.
+    gp::array<gp::string, 2> strs{gp::concat("hel"_gs, "lo"_gs), "x"_gs};
+    gp::string joined;
+    for (auto it = gp::range_array_copy(std::move(strs)); gp::range_next(it);) {
+        joined = joined + it.gp_v();
+    }
+    CHECK(joined == "hellox"_gs);
+    int64_t zeros = 0;
+    for (auto it = gp::range_array_copy(big{}); gp::range_next(it);) {
+        zeros += it.gp_v() == 0 ? 1 : 0;
+    }
+    CHECK(zeros == 20000);
+    // A large array is copied to the heap.
+    gp::ptr<big> b = gp::new_<big>();
+    (*b)[19999] = 5;
+    int64_t sum = 0, n = 0;
+    for (auto it = gp::range_array_copy(*b); gp::range_next(it);) {
+        (*b)[19999] = 0;
+        sum += it.gp_v();
+        n++;
+    }
+    CHECK(sum == 5 && n == 20000);
+
+    // range_array of a pointer reads through it: writes are seen, and a nil pointer panics at
+    // the first element (none for [0]T).
+    gp::ptr<iarr<3>> p = gp::new_<iarr<3>>(iarr<3>{1, 2, 3});
+    got.clear();
+    for (auto it = gp::range_array(p); gp::range_next(it);) {
+        if (it.gp_i == 0) {
+            (*p)[1] = 20;
+            p = nullptr; // the loop holds its own copy of the pointer
+        }
+        got.push_back(it.gp_v());
+    }
+    CHECK(got == std::vector<int64_t>({1, 20, 3}));
+    std::string nil = "runtime error: invalid memory address or nil pointer dereference";
+    CHECK_EQ(panic_text([] {
+                 for (auto it = gp::range_array(gp::ptr<iarr<3>>()); gp::range_next(it);) {
+                     (void)it.gp_v();
+                 }
+             }),
+             nil);
+    gp::detail::clear_signal();
+    n = 0;
+    for (auto it = gp::range_array(gp::ptr<iarr<0>>()); gp::range_next(it);) {
+        n++;
+    }
+    for (auto it = gp::range_array_copy(iarr<0>{}); gp::range_next(it);) {
+        n++;
+    }
+    CHECK(n == 0);
+
+    // new_array, new_array_keyed, new_to_array: built in the new block, the rest zero.
+    gp::ptr<big> nb = gp::new_array<int64_t, 20000>({1, 2, 3});
+    CHECK((*nb)[0] == 1 && (*nb)[2] == 3 && (*nb)[3] == 0 && (*nb)[19999] == 0);
+    gp::ptr<big> nk = gp::new_array_keyed<int64_t, 20000>({{19999, 9}, {4, 5}});
+    CHECK((*nk)[19999] == 9 && (*nk)[4] == 5 && (*nk)[0] == 0);
+    gp::ptr<gp::array<gp::string, 3>> ns = gp::new_array<gp::string, 3>({"a"_gs});
+    CHECK((*ns)[0] == "a"_gs && (*ns)[2] == ""_gs);
+    ints src = gp::make_slice<int64_t>(20001);
+    src[19999] = 7;
+    gp::ptr<big> nt = gp::new_to_array<20000>(src);
+    src[19999] = 70;
+    CHECK((*nt)[19999] == 7);
+    CHECK_EQ(panic_text([&] { gp::new_to_array<20000>(gp::sub(src, 2)); }),
+             std::string("runtime error: cannot convert slice with length 19999 to array or "
+                         "pointer to array with length 20000"));
+    CHECK(gp::new_to_array<0>(ints()) != nullptr);
+
+    // elem_ptr: &(*p)[i] sharing p's block, with the nil check before the index check.
+    gp::ptr<iarr<3>> q = gp::new_<iarr<3>>();
+    gp::ptr<int64_t> e = gp::elem_ptr(q, 2);
+    gp::weak_ptr<iarr<3>> wq = gp::weak_make(q);
+    q = nullptr;
+    *e = 9;
+    CHECK(*e == 9 && gp::weak_value(wq) != nullptr);
+    e = nullptr;
+    CHECK(gp::weak_value(wq) == nullptr);
+    gp::ptr<gp::array<iarr<2>, 2>> g = gp::new_<gp::array<iarr<2>, 2>>();
+    gp::ptr<int64_t> ge = gp::elem_ptr(gp::elem_ptr(g, 1), 0); // &g[1][0]
+    *ge = 4;
+    CHECK((*g)[1][0] == 4);
+    CHECK_EQ(panic_text([] { gp::elem_ptr(gp::ptr<iarr<3>>(), 5); }), nil);
+    gp::detail::clear_signal();
+    CHECK_EQ(panic_text([&] { gp::elem_ptr(g, int8_t(-1)); }),
+             std::string("runtime error: index out of range [-1]"));
+}
+
 // --- argument-dependent lookup ---
 
 void test_adl() {
@@ -721,6 +844,7 @@ void run_tests() {
     test_convert();
     test_views_alias();
     test_sub();
+    test_range();
     test_adl();
     if (failures > 0) {
         std::string msg =

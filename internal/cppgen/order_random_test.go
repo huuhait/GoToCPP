@@ -25,8 +25,13 @@ import (
 // slice that shares its array, and of a local slice, appends, sub-slices and copy in any place,
 // range over slices, and a pointer into a slice's array (&gsl[i]). Every append's effect on the
 // arrays is the same whatever the growth (in place into a slice of len 4 and cap >= 5, or a new
-// array from a full one), so the output never depends on the capacity. It compares what each
-// prints with real Go, on both compilers.
+// array from a full one), so the output never depends on the capacity, and arrays (step 3.6):
+// element reads and writes of a package array that the calls change (also through a slice of
+// it and a pointer into it), of a boxed local array that the calls change through a pointer,
+// assignments of whole arrays (also with a store into the new array in the same assignment),
+// range over arrays (a copy when the body could change the array, or through a pointer: no
+// copy), &a[i] and a[lo:hi] that share the array, and == of arrays. It compares what each prints
+// with real Go, on both compilers.
 //
 //	GOCPP_RANDOM_TESTS=1 go test ./internal/cppgen -run TestRandomOrder
 //
@@ -108,7 +113,7 @@ type progGen struct {
 	nvars   int
 	helpers int      // the helpers h0, k0, ... that the code may call (only earlier ones: no recursion)
 	ptrs    []string // the *int variables in scope that may be read and written through
-	main    bool     // in main, whose local slice ls is in scope
+	main    bool     // in main, whose local slice ls and local array la are in scope
 }
 
 const randomPrelude = `package main
@@ -146,6 +151,7 @@ func e(tag, v int) int {
 		*pl += tag
 	}
 	reshape(tag)
+	rearray(tag)
 	return v
 }
 
@@ -174,6 +180,34 @@ func reshape(tag int) {
 	}
 	if tag%8 == 6 {
 		psl = &gsl[tag&3]
+	}
+}
+
+// gar is a package array, gas a slice of its array (2 elements), and gpa points into it or into
+// la, a boxed local array of main, which pla points to. e changes them all.
+var gar = [4]int{10, 20, 30, 40}
+var gas = gar[1:3]
+var gpa = &gar[2]
+var pla *[4]int
+
+func rearray(tag int) {
+	switch tag % 5 {
+	case 1:
+		gar[tag&3] += tag
+	case 2:
+		gas[tag&1] -= tag
+	case 3:
+		if pla != nil {
+			pla[tag&3] *= 2
+		}
+	case 4:
+		gar = [4]int{tag, gar[0], gar[1], gar[2]}
+	}
+	if tag%9 == 4 {
+		gpa = &gar[tag&3]
+	}
+	if tag%7 == 3 {
+		gas = gar[tag&1 : 2+tag&1]
 	}
 }
 
@@ -243,12 +277,19 @@ func (g *progGen) program() string {
 	g.printf("lsp := &ls[1]")
 	g.printf("lb := []int{1, 2, 3}") // boxed: psb points to it
 	g.printf("psb := &lb")
-	g.ptrs = []string{"pg", "pl", "lp", "psl", "lsp"}
+	// la is a boxed local array, which e changes through pla, lap points to it, and las is a
+	// slice of it (2 elements).
+	g.printf("la := [4]int{l0, 1, l2, 3}")
+	g.printf("pla = &la")
+	g.printf("lap := &la")
+	g.printf("las := la[1:3]")
+	g.ptrs = []string{"pg", "pl", "lp", "psl", "lsp", "gpa"}
 	g.main = true
 	g.stmts(14)
 	g.printf("fmt.Println(l0, l1, l2, g0, g1, gs, gb, g8, *pg, *lp)")
 	g.printf("fmt.Println(gsl[0], gsl[1], gsl[2], gsl[3], gsl[4], gal[0], gal[1], len(gsl), *psl, ls[0], ls[1], ls[2], ls[3], *lsp)")
 	g.printf("fmt.Println(len(lb), lb[0], lb[1], lb[2], len(*psb))")
+	g.printf("fmt.Println(gar[0], gar[1], gar[2], gar[3], gas[0], gas[1], *gpa, la[0], la[1], la[2], la[3], las[0], las[1], lap[3], gar == la)")
 	g.printf("if pc != nil {")
 	g.printf("\tfmt.Println(*pc)")
 	g.printf("}")
@@ -275,7 +316,7 @@ func (g *progGen) nextTag() int {
 // paramPtr starts a helper: pg and pl, and sometimes a pointer to its parameter p, which boxes
 // it.
 func (g *progGen) paramPtr() {
-	g.ptrs = []string{"pg", "pl", "psl"}
+	g.ptrs = []string{"pg", "pl", "psl", "gpa"}
 	if g.chance(0.4) {
 		g.printf("pp := &p")
 		g.printf("*pp += %d", g.r.Intn(3))
@@ -364,15 +405,92 @@ func (g *progGen) helper(prefix string) string {
 	return prefix + strconv.Itoa(g.r.Intn(g.helpers))
 }
 
-// elem returns an element of a slice to read or write: of gsl, gal, or (in main) ls.
+// elem returns an element of a slice or an array to read or write: of gsl, gal, gar, gas, or
+// (in main) ls, la, lap and las.
 func (g *progGen) elem() string {
-	switch k := g.r.Intn(5); {
+	switch k := g.r.Intn(9); {
 	case k == 0:
 		return "gal[" + g.expr(1) + " & 1]"
 	case k == 1 && g.main:
 		return "ls[" + g.expr(1) + " & 3]"
+	case k == 2:
+		return "gar[" + g.expr(1) + " & 3]"
+	case k == 3:
+		return "gas[" + g.expr(1) + " & 1]"
+	case k == 4 && g.main:
+		return "la[" + g.expr(1) + " & 3]"
+	case k == 5 && g.main:
+		return "lap[" + g.expr(1) + " & 3]"
+	case k == 6 && g.main:
+		return "las[" + g.expr(1) + " & 1]"
 	}
 	return "gsl[" + g.expr(1) + " & 3]"
+}
+
+// array returns an array of 4 ints that the calls can change: gar or (in main) la or *lap.
+func (g *progGen) array() string {
+	if g.main {
+		return []string{"gar", "la", "*lap"}[g.r.Intn(3)]
+	}
+	return "gar"
+}
+
+// arrayStmt writes a statement with arrays: a range over an array (with a value: a copy of
+// it, unless it is through a pointer), an assignment of a whole array (also with a store into
+// the new array in the same assignment, which Go makes after the array's assignment), a new
+// pointer into an array, a new slice of one, and a copy into one.
+func (g *progGen) arrayStmt() {
+	switch g.r.Intn(7) {
+	case 0, 1:
+		x := g.array()
+		if g.main && g.chance(0.3) {
+			x = "lap" // through the pointer: no copy, the body's changes are seen
+		}
+		i := g.newVar()
+		g.fixed[i] = true
+		if g.chance(0.3) {
+			g.printf("for %s := range %s {", i, x)
+		} else {
+			g.printf("for %s, v := range %s {", i, x)
+			g.indent++
+			g.printf("fmt.Println(%q, v, %s)", i, g.expr(2))
+			g.indent--
+		}
+		g.loops++
+		g.indent++
+		g.printf("fmt.Println(%q, %s)", i, i)
+		g.indent--
+		g.block(1)
+		g.loops--
+		g.printf("}")
+		g.locals = g.locals[:len(g.locals)-1]
+	case 2:
+		a := g.array()
+		if a == "*lap" {
+			a = "la"
+		}
+		if g.chance(0.5) {
+			g.printf("%s, %s[%s & 3] = %s, %s", a, a, g.expr(1), g.array(), g.expr(2))
+		} else {
+			g.printf("%s = [4]int{%s, %s, 3, %s}", a, g.expr(2), g.expr(1), g.expr(1))
+		}
+	case 3:
+		a := g.array()
+		if a == "*lap" {
+			a = "lap"
+		}
+		g.printf("gpa = &%s[%s & 3]", a, g.expr(1))
+	case 4:
+		if g.main && g.chance(0.5) {
+			g.printf("las = la[%s & 1 : 2+%s&1]", g.expr(1), g.expr(1))
+		} else {
+			g.printf("gas = gar[%s & 1 : 2+%s&1]", g.expr(1), g.expr(1))
+		}
+	case 5:
+		g.printf("_ = copy(gar[%s & 3:], gas)", g.expr(1))
+	default:
+		g.printf("fmt.Println(%s == %s, %s)", g.array(), g.array(), g.expr(2))
+	}
 }
 
 // sliceStmt writes a statement that changes a slice: an append (in place or into a new array,
@@ -448,7 +566,11 @@ func (g *progGen) sliceExpr(depth int) string {
 }
 
 func (g *progGen) stmt() {
-	k := g.r.Intn(18)
+	k := g.r.Intn(20)
+	if k >= 18 {
+		g.arrayStmt()
+		return
+	}
 	if k >= 16 {
 		g.sliceStmt()
 		return

@@ -29,6 +29,7 @@ import (
 //	s[i], len(s)                s[i] (gp::string's operator[], which checks the bounds), gp::len(s)
 //	s[a:b], s[a:], s[:b], s[:]  gp::sub(s, a, b), gp::sub(s, a), gp::sub(s, 0, b), s (slice)
 //	s[a:b:c] (a slice)          gp::sub(s, a, b, c)
+//	a[i], a[a:b], a == b        arrays (step 3.6): arrays.go
 //	s == nil (a slice)          s == nullptr
 //	T(x)                        T(x), or x if T and x have the same C++ type; gp::f2i<T>(x)
 //	                            for a float x and an integer type T
@@ -170,9 +171,10 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.
 	case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ:
 		a, b := fg.expr(x), fg.expr(y) // first, so that an operand's own error comes first
 		if (op == token.EQL || op == token.NEQ) && (isPointer(fg.typeOf(x)) || isPointer(fg.typeOf(y)) ||
-			isSlice(fg.typeOf(x)) || isSlice(fg.typeOf(y))) {
+			isSlice(fg.typeOf(x)) || isSlice(fg.typeOf(y)) || isArray(fg.typeOf(x))) {
 			// p == q compares the addresses, p == nil is p == nullptr (gp::ptr's ==; C++20
 			// writes != and nil == p from it). A slice compares only with nil: s == nullptr.
+			// Arrays compare their elements (gp::array's ==).
 			return &cppir.Binary{Op: op.String(), X: at(a, precShift), Y: at(b, precShift)}
 		}
 		if fg.operandType(pos, op, x) == nil {
@@ -352,6 +354,9 @@ func (fg *funcGen) unary(e *ast.UnaryExpr) cppir.Expr {
 // element itself, a T& that can be assigned, after gp::slice's bounds check.
 func (fg *funcGen) index(e *ast.IndexExpr) cppir.Expr {
 	t := fg.g.info.TypeOf(e.X)
+	if arrayOf(t) != nil {
+		return fg.arrayIndex(e) // arrays.go
+	}
 	if !isString(t) && !isSlice(t) {
 		fg.g.unsupported(e.Lbrack, "index expressions on "+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))+" (Phase 03)")
 		return placeholder
@@ -369,6 +374,9 @@ func (fg *funcGen) index(e *ast.IndexExpr) cppir.Expr {
 // slices.go).
 func (fg *funcGen) slice(e *ast.SliceExpr) cppir.Expr {
 	t := fg.g.info.TypeOf(e.X)
+	if arrayOf(t) != nil {
+		return fg.arraySlice(e) // arrays.go
+	}
 	if !isString(t) && !isSlice(t) {
 		fg.g.unsupported(e.Lbrack, "slice expressions on "+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))+" (Phase 03 step 3.6)")
 		return placeholder
@@ -404,7 +412,9 @@ func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 	tname := types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))
 	switch name {
 	case "len", "cap":
-		if !isSlice(t) && (name == "cap" || b == nil || b.Info()&types.IsString == 0) {
+		// len and cap of an array, or of a pointer to one, are N: a constant unless the
+		// argument has calls (gp::len(f()) evaluates f, and doesn't dereference a pointer).
+		if !isSlice(t) && arrayOf(t) == nil && (name == "cap" || b == nil || b.Info()&types.IsString == 0) {
 			fg.g.unsupported(c.Pos(), name+" of "+tname+" (Phase 03)")
 			return placeholder
 		}
@@ -441,6 +451,9 @@ func (fg *funcGen) conversion(c *ast.CallExpr, to types.Type) cppir.Expr {
 	}
 	arg := c.Args[0]
 	from := fg.g.info.TypeOf(arg)
+	if x := fg.arrayConversion(c, to, from); x != nil {
+		return x // arrays.go
+	}
 	if isPointer(to) {
 		// (*int)(p) between pointers of the same C++ type, or (*int)(nil). The other
 		// conversions between pointer types need named types (gp::ptr_cast, step 3.9).

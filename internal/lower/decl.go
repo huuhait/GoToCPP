@@ -27,7 +27,8 @@ type funcInfo struct {
 }
 
 // prepare chooses the C++ names of the function's parameters and named results, and its C++
-// signature. Parameters are passed by value, as real copies, like Go's. Several results are
+// signature. Parameters are passed by value, as real copies, like Go's (one larger than 128 KiB
+// as a const reference, which the function copies into a box at its entry). Several results are
 // a std::tuple; named results are local variables that start at their zero value. It also
 // runs the boxing analysis (box.go): a boxed parameter keeps its name as a C++ parameter, and
 // funcDecl copies it into its box, a variable of the same name in a block (ADR-022's shape).
@@ -57,6 +58,16 @@ func (f *funcInfo) prepare(g *gen) {
 	for i := range sig.Params().Len() {
 		p := sig.Params().At(i)
 		f.params[i].Type = g.cxxType(p.Type(), f.decl.Pos())
+		if largeVar(p.Type()) {
+			// A parameter larger than 128 KiB: a copy on the C++ stack could overflow it
+			// (D24), so the caller passes a reference, and the function copies the value
+			// into a box at its entry (paramBoxes), before any of its code runs: the
+			// parameter is still a copy of the argument, as in Go.
+			f.params[i].Type = &cppir.Ref{Elem: &cppir.Const{Elem: f.params[i].Type}}
+			if f.boxed[p] == 0 && p.Name() != "" && p.Name() != "_" {
+				f.boxed[p] = boxLarge
+			}
+		}
 		if p.Name() != "" && p.Name() != "_" {
 			f.params[i].Name = f.names.declare(p)
 			if f.boxed[p] != 0 {
@@ -137,8 +148,8 @@ func (fg *funcGen) paramBoxes() bool {
 		name := fg.names.names[v]
 		typ := g.cxxType(v.Type(), v.Pos())
 		var arg cppir.Expr = cxxName(name)
-		if isClass(v.Type()) {
-			arg = moved(typ, arg)
+		if isClass(v.Type()) && !largeVar(v.Type()) {
+			arg = moved(typ, arg) // a large parameter is a const reference (prepare): copied
 		}
 		tmp := fg.names.temp("t")
 		box := ptrType(typ)
@@ -167,7 +178,8 @@ func moved(typ cppir.Type, x cppir.Expr) cppir.Expr {
 // initializer is a constant gets its value at compile time, one whose initializer is nil (var
 // s []int = nil) is its zero value, and the others start at their zero value and get their
 // values in gp_var_init, in Go's order (types.Info.InitOrder). A slice literal needs its
-// array on the heap, so it is never constinit.
+// array on the heap, so it is never constinit; an array literal of number and bool constants is
+// (constArray).
 func (g *gen) packageVars() {
 	byVar := make(map[*types.Var]*types.Initializer)
 	for _, init := range g.info.InitOrder {
@@ -187,13 +199,15 @@ func (g *gen) packageVars() {
 			} else {
 				value = g.constant(c, v.Type(), v.Pos(), false)
 			}
+		} else if x := g.constArray(byVar[v]); x != nil {
+			value = x // an array literal of constants (arrays.go)
 		}
 		d := varDecl(g.pos(v.Pos()), typ, g.names[v], value)
 		d.Specs = []string{"constinit"}
 		g.decl(d)
 	}
 	for _, init := range g.info.InitOrder {
-		if constInit(g.info, init) == nil && !nilInit(g.info, init) {
+		if constInit(g.info, init) == nil && !nilInit(g.info, init) && g.constArray(init) == nil {
 			g.varInits = true
 		}
 	}
@@ -231,7 +245,7 @@ func (g *gen) initFuncs() {
 		fn := &cppir.Func{Result: typeName("void"), Name: "gp_var_init", Body: &cppir.Block{}}
 		fg.push(&fn.Body.Stmts, nil)
 		for _, init := range g.info.InitOrder {
-			if constInit(g.info, init) != nil || nilInit(g.info, init) {
+			if constInit(g.info, init) != nil || nilInit(g.info, init) || g.constArray(init) != nil {
 				continue
 			}
 			g.markCounts(init.Rhs)

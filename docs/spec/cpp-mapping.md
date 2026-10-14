@@ -82,7 +82,7 @@ Source: [Phase 02 §2.1](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/
 | `float32`, `float64`, `complex64`, `complex128` | `float`, `double`, `std::complex<float>`, `std::complex<double>` | compiled with `-ffp-contract=off`, so the C++ compiler doesn't fuse floating-point operations |
 | `bool` | `bool` | the same type in both languages |
 | `string` | `gp::string` (immutable bytes, usually UTF-8; cheap substrings) | 32 bytes: owner, data pointer, length. A literal `"hi"` becomes `"hi"_gs` and points at static storage (no allocation); `s[a:b]` shares the bytes |
-| `[N]T` | `gp::array<T, N>` (value type, bounds checked) | wraps `std::array`; assignment copies it, as in Go; `==` exists when the elements are comparable |
+| `[N]T` | `gp::array<T, N>` (value type, bounds checked) | wraps `std::array`; assignment copies it, as in Go; `==` exists when the elements are comparable ([arrays](#arrays)) |
 | `[]T` | `gp::slice<T>` | 40 bytes: owner, data pointer, length, capacity; `append` grows like Go, but gocpp only promises `cap >= len`, not Go's exact capacity |
 | `map[K]V` | `gp::map<K, V>` (reference type) | a shared pointer to the table (v1 wraps `std::unordered_map`); reading a missing key gives the zero value and never inserts |
 | `*T` where `T` is a gocpp type | `gp::ptr<T>` (reference counted, nil-checked) | a `std::shared_ptr<T>` with nil checks; a nil dereference panics with Go's message ([pointers](#pointers-and-boxing)) |
@@ -450,6 +450,57 @@ another slice of the same array), so it is read after the calls of its statement
 places among the calls, and `string(b)` reads `b` where it is. In `s, s[0] = t, 5` the store
 goes into the old `s`, and in `i, s[i] = 1, 2` to the old `i`, as in Go.
 
+## Arrays
+
+A `gp::array<T, N>` is a value: its N elements are in the object itself, so assigning, passing
+and returning an array copies it, as in Go.
+
+| gocpp | C++ | Notes |
+|---|---|---|
+| `var a [3]T` | `gp::array<T, 3> a{};` | every element zero |
+| `[3]T{a, b}`, `[...]T{a, b}` | `gp::array<T, 3>{a, b}`, `gp::array<T, 2>{a, b}` | elements in source order; the missing ones are zero |
+| `[5]T{2: a, b}` | `gp::array_keyed<T, 5>({{2, a}, {3, b}})` | keyed: elements in source order, the others zero |
+| `[2][2]T{{a, b}, {c, d}}` | `gp::array<gp::array<T, 2>, 2>{gp::array<T, 2>{a, b}, ...}` | a nested literal names its type |
+| `a[i]`, `p[i]` (`p` is `*[N]T`) | `a[i]`, `(*p)[i]` | a `T&`; `index out of range [5] with length 3`; a nil `p` panics with the nil dereference first |
+| `len(a)`, `cap(a)`, `len(p)` | `N` (a constant), or `gp::len(f())` | `len(p)` of a nil `p` is N, without a panic, as in Go |
+| `a == b`, `a != b` | `a == b`, `a != b` | when the elements are comparable; floats compare as numbers (NaN != NaN) |
+| `a[lo:hi]`, `a[lo:hi:max]` | `gp::sub(&a, lo, hi)`, `gp::sub(&a, lo, hi, max)` | shares the array; `&a` is a pointer to it (below), so a sliced local array is boxed; `slice bounds out of range [:5] with length 3` |
+| `p[lo:hi]` | `gp::sub(p, lo, hi)` | a nil `p` panics with the nil dereference |
+| `&a[i]` | `gp::ptr<T>(a, &(*a)[i])` (boxed `a`), `gp::static_ptr(garr[i])`, `gp::ptr<T>(p, &(*p)[i])`, `gp::elem_ptr(f(), i)` | shares the owner of the array ([pointers](#pointers-and-boxing)) |
+| `&[N]T{...}` | `gp::new_<gp::array<T, N>>(gp::array<T, N>{...})` | a new block |
+| `[N]T(s)`, `(*[N]T)(s)` | `gp::to_array<N>(s)`, `gp::to_array_ptr<N>(s)` | a copy of `s[0:N]`; a pointer that shares `s`'s array; `cannot convert slice with length 2 to array or pointer to array with length 3`; `(*[0]T)(s)` of a nil `s` is nil |
+| `for i, v := range a` | `for (auto gp_it0 = gp::range_array_copy(a); gp::range_next(gp_it0);) { int64_t i = gp_it0.gp_i; T v = gp_it0.gp_v(); ...` | over a copy of `a`, as in Go; `gp::range_array(a)` without the copy where the body can't change `a`; `gp::range_array(p)` through a pointer (the body's writes are seen) |
+| `for i := range a` | `for (int64_t gp_i0 = 0; gp_i0 < N; gp_i0++) { int64_t i = gp_i0; ...` | `a` is not evaluated (`for i := range p` of a nil `p` doesn't panic), unless it has a call: `gp::len(f())` |
+| `x := [1 << 21]int{5: 3}` (over 128 KiB) | `gp::ptr<gp::array<int64_t, 2097152>> x = gp::new_array_keyed<int64_t, 2097152>({{5, 3}});` | boxed, and built in its box (below) |
+| `var garr = [3]int{1, 2, 3}` | `constinit gp::array<int64_t, 3> garr{1, 2, 3};` | an array literal of number and bool constants is set at compile time; the others in `gp_var_init` |
+
+**Range copies.** Go ranges over a copy of an array, so `for _, v := range a { a[1] = 100 }`
+still sees the old `a[1]`. gocpp makes that copy only where the body could change the array:
+for a local variable that is not boxed, when the body assigns to it or to a part of it; for any
+other array (a package or a boxed variable, `*p`, an element of a slice), also when the body has
+a call or writes to memory through a pointer, a slice or a package variable, or to a variable
+that may hold the last pointer to the array's block (`p = nil` for `range *p`). An array that is
+not reached from a variable is always held by the loop: a value (`f()`, a literal), and one in a
+block that only a temporary owns (`*f()`, `f()[i]`, `**f()`, `*(&[N]T{...})`), which is freed
+when the loop's first line ends. A copy of an array larger than 128 KiB goes to the heap.
+
+The order of evaluation is gc's: an element of a package or a boxed array, or one behind a
+pointer, is read after the calls of its statement, like `*p`; a slice of an array is taken in its
+place among the calls; `[N]T(s)` reads `s` after the calls. In `a, a[0] = b, 5` the store goes
+into the new `a` (only the index and the pointer of a target are saved, never the array), as in
+Go.
+
+**Arrays larger than 128 KiB** (Go's limit for a variable on the stack) are kept off the C++
+stack where that is cheap: a local variable is boxed, and a literal or a conversion that
+initializes it is built in its box (so is `&[N]T{...}` in its new block) (`gp::new_array<T, N>({a, b})`, `gp::new_array_keyed<T,
+N>({{5, a}})`, `gp::new_to_array<N>(s)`); a parameter is a `const A&`, which the function copies
+into a box at its entry, before any of its code runs (`int64_t sum(const gp::array<int64_t,
+2097152>& a)`), so it is still a copy of the argument, read after the call's other arguments,
+as in Go. Results and the other temporaries stay on the stack
+([D24](language.md#d24-large-values-on-the-c-stack)).
+
+Source: [Phase 03 §2.3](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#23-strings-slices-arrays-maps).
+
 ## Pointers and boxing
 
 ```go
@@ -499,7 +550,10 @@ gp::ptr<Counter> NewCounter() {
   | `&x` (`x` is a boxed local) | its box | `x` |
   | `&p.f` (`p` is a `*T`) | `p` | `gp::ptr<F>(p, &p->f)` |
   | `&s[i]` (`s` is a slice) | the slice's array | `gp::ptr<T>(s.gp_owner(), &s[i])` |
-  | `&globalVar`, `&globalVar.f` | a static owner that is never freed | `gp::static_ptr(globalVar)`, `gp::static_ptr(globalVar.f)` |
+  | `&a[i]`, `&a[i][j]` (`a` is a boxed array) | its box | `gp::ptr<T>(a, &(*a)[i])` |
+  | `&p[i]` (`p` is a `*[N]T`) | `p` | `gp::ptr<T>(p, &(*p)[i])` |
+  | `&f()[i]` (not a variable) | the result's block | `gp::elem_ptr(f(), i)` |
+  | `&globalVar`, `&globalVar.f`, `&garr[i]` | a static owner that is never freed | `gp::static_ptr(globalVar)`, `gp::static_ptr(globalVar.f)`, `gp::static_ptr(garr[i])` |
 
 - Dereferencing a nil `gp::ptr` (`*p`, `p->f`, also `&p->f`) panics with Go's message:
   `runtime error: invalid memory address or nil pointer dereference`. Unrecovered, it also
@@ -566,8 +620,8 @@ Here package `main` imports `b` and `c`, and `b` imports `z`. Go 1.25 runs the i
   again and again initialize the **first** package in that list whose imports are all
   initialized. The driver computes this order at link time and generates `gp_init_all()`.
 - Package variables are declared `constinit`, so C++ runs no dynamic initializers of its own. A
-  variable with a constant value gets it at compile time; the others are assigned in
-  `gp_var_init()`. Variables of C++ types that can't be constant-initialized use `gp::lazy<T>`
+  variable with a constant value gets it at compile time (also an array literal of number and
+  bool constants); the others are assigned in `gp_var_init()`. Variables of C++ types that can't be constant-initialized use `gp::lazy<T>`
   storage, which is constructed in `gp_var_init()`.
 - `gp::run_main(argc, argv, init, main)` stores the arguments (for `os.Args`), runs the init
   function, runs `main`, and exits with code 0. An unrecovered panic prints `panic: <message>`,

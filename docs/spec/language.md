@@ -9,7 +9,7 @@ Everything this document doesn't mention works as the Go spec says.
 | | |
 |---|---|
 | Status | v0, written in Phase 00 from the plan. Each phase updates it when it builds a feature |
-| Source | [Phase 00 §2.2](../../plans/2026-10-13-gocpp/phase-00-foundations/README.md#22-the-language-as-a-diff-against-go) (the divergence list D1–D21; D22 from the Phase 02 evaluation-order work, D23 from Phase 03 step 3.5) and the phase READMEs linked in each section |
+| Source | [Phase 00 §2.2](../../plans/2026-10-13-gocpp/phase-00-foundations/README.md#22-the-language-as-a-diff-against-go) (the divergence list D1–D21; D22 from the Phase 02 evaluation-order work, D23 from Phase 03 step 3.5, D24 from step 3.6) and the phase READMEs linked in each section |
 | See also | [cpp-mapping.md](cpp-mapping.md) (what the C++ output looks like), [interop.md](interop.md) (using C and C++), [feature-matrix.md](feature-matrix.md) (the phase of each feature) |
 
 **How to read it.** Each section starts with an example. Then it says what Go does, what gocpp
@@ -45,6 +45,7 @@ The [feature matrix](feature-matrix.md) lists every feature with the phase that 
 | [D21](#d21-range-over-c-containers) | `range` over Go types only | also over C++ containers and C arrays | 04 |
 | [D22](#d22-which-of-two-run-time-panics-is-reported) | one panic message, fixed by the compiler | with two possible panics and no call between them, the other message can appear | 02 |
 | [D23](#d23-print-and-println-of-a-slice) | `println(s)` prints `[3/3]0xc000012345` | an error: use `fmt.Println` | 03 |
+| [D24](#d24-large-values-on-the-c-stack) | the stack grows for any value | a result or a temporary array over 128 KiB can overflow the C++ stack | 03 |
 
 The three things gocpp adds have their own sections:
 [header imports](#header-imports), [must functions and must calls](#must-functions-and-must-calls)
@@ -597,6 +598,37 @@ println(s) // Go prints [3/3]0xc000012345; gocpp: error: cannot println s ([]int
   address of its array in Go's heap.
 - **gocpp:** that address can't be the same, so `gocpp check` rejects a slice argument of `print`
   and `println`; `fmt.Println(s)` prints the elements, as in Go.
+- **Phase:** [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#23-strings-slices-arrays-maps).
+
+## D24. Large values on the C++ stack
+
+```go
+func zeros() [1 << 21]int { return [1 << 21]int{} } // 16 MiB result
+
+func main() {
+	a := zeros() // Go: works; gocpp: the result is a temporary on the C++ stack, which can overflow
+	_ = a
+}
+```
+
+- **Go:** goroutine stacks grow, and Go's compiler moves large values to the heap, so an array of
+  any size can be a local variable, a parameter, a result or a temporary.
+- **gocpp:** C++ stacks have a fixed size (8 MiB for the main thread on Linux by default). gocpp
+  keeps values larger than 128 KiB (Go's own limit for stack variables) off the stack where that
+  is cheap. A local variable of such a type is boxed (it lives on the heap), and is built in its
+  box when a literal or a conversion initializes it (`a := [1 << 21]int{5: 3}`,
+  `a := [1 << 21]int(s)`, also in a declaration of several variables or one that shadows
+  another). `&[1 << 21]int{...}` is built in its new block. A parameter is passed by reference
+  and copied into a box when the function starts, and `range` copies a large array to the heap.
+  The other values of such a type that are C++ temporaries stay on the stack: a result returned
+  by value, a literal or a conversion that doesn't initialize a new variable (`a = [1 << 21]int{}`,
+  `f([1 << 21]int{})`, and a variable that `:=` redeclares, which it assigns: `x, z :=
+  [1 << 21]int{2: 1}, 4` where `x` exists), and the temporaries of the order of evaluation. At -O0
+  each of them takes its own place in the function's stack frame, and a program whose temporaries
+  add up to more than the stack crashes with a segmentation fault (exit code 139), where Go runs.
+  Return a pointer to the array (`*[N]T`, for example `return &[1 << 21]int{...}`) or a slice
+  instead, as Go code usually does for large arrays. Structs (step 3.8) will follow the same
+  rules.
 - **Phase:** [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#23-strings-slices-arrays-maps).
 
 ---

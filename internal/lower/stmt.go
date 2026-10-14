@@ -27,6 +27,7 @@ import (
 //	x op= y                  x = x op y, through binaryOp: x = gp::div(x, y), x = uint8_t(x + y)
 //	s[i] = v, s[i] op= v     the same, on the element (a T&); s = append(s, x) moves s (slices.go)
 //	s, s[0] = t, 5           { auto gp_t0 = s; s = t; gp_t0[0] = 5; } (the old s: saveOperands)
+//	a, a[0] = b, 5           a = b; a[0] = 5; (an array: the new a; its index is saved, arrays.go)
 //	x++, x--                 x++; x--;  (C++ converts a small integer back with Go's wrapping)
 //	return a, b              return {a, b};
 //	L: s                     L:; s  (only for a label that a goto uses)
@@ -363,6 +364,7 @@ type target struct {
 	shadow bool // a new variable that shadows a variable or function of an outer scope
 	class  bool // a new variable of a C++ class type (gp::string), which a temporary is moved into
 	box    bool // a new variable that is boxed (box.go): gp::ptr<T> x = gp::new_<T>(value);
+	large  bool // a boxed new variable larger than 128 KiB, built in its box (largeBox, arrays.go)
 
 	// mem: storing to the target writes memory that other expressions can read: a boxed or a
 	// package variable, or a target that is not a variable (*p, s[i]).
@@ -421,6 +423,11 @@ func (fg *funcGen) saveOperands(pos cppir.Pos, targets []target, i int) []cppir.
 		if p := save(t.ptr, nil); p != nil {
 			targets[i].x = deref(p)
 		}
+	case t.index != nil && fg.inArray(t.index):
+		// An element of an array: the operands of the array's place, never the array itself.
+		if x := fg.saveArrayElem(t.index, func(e ast.Expr) cppir.Expr { return save(e, nil) }); x != nil {
+			targets[i].x = x // arrays.go
+		}
 	case t.index != nil:
 		x, idx := save(t.index.X, nil), save(t.index.Index, nil)
 		if x == nil && idx == nil {
@@ -443,11 +450,14 @@ func (t target) blank() bool { return t.x == nil }
 // assign returns the C++ statement at pos that gives t the value: T x = value; for a new
 // variable, x = value; for an existing one, and for _ a statement that only evaluates it.
 func (t target) assign(pos cppir.Pos, value cppir.Expr) cppir.Stmt {
+	if t.typ != nil && t.box && t.large {
+		return varDecl(pos, ptrType(t.typ), t.name, largeBox(t.typ, value))
+	}
 	if t.typ != nil && t.box {
 		return varDecl(pos, ptrType(t.typ), t.name, newBox(t.typ, value))
 	}
 	if t.typ != nil {
-		return varDecl(pos, t.typ, t.name, value)
+		return varDecl(pos, t.typ, t.name, sameTypeInit(t.typ, value))
 	}
 	return &cppir.ExprStmt{Pos: pos, X: t.assignExpr(value)}
 }
@@ -568,6 +578,7 @@ func (fg *funcGen) newTargets(lhs []ast.Expr) []target {
 		}
 		if obj, ok := fg.g.info.Defs[id].(*types.Var); ok {
 			t := target{typ: fg.g.cxxType(obj.Type(), id.Pos()), shadow: fg.shadowing(obj), box: fg.isBoxed(obj)}
+			t.large = t.box && largeVar(obj.Type())
 			t.class = isClass(obj.Type())
 			if t.shadow {
 				t.name = fg.names.name(obj) // declLines puts it into its scope
@@ -691,7 +702,11 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 			default:
 				tmps[i] = fg.names.temp("t")
 				temps, joined = true, true
-				if typ := targets[i].typ; typ != nil {
+				if t := targets[i]; t.large {
+					// A large boxed variable: the temporary is its box, built in place
+					// (largeBox, arrays.go), which the variable takes over.
+					lines = append(lines, varDecl(p, ptrType(t.typ), tmps[i], largeBox(t.typ, fg.expr(v))))
+				} else if typ := targets[i].typ; typ != nil {
 					lines = append(lines, varDecl(p, typ, tmps[i], fg.expr(v)))
 				} else {
 					lines = append(lines, varDecl(p, typeName("auto"), tmps[i], fg.exactExpr(v)))
@@ -701,6 +716,10 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 		for i, t := range targets {
 			switch {
 			case t.blank():
+			case tmps[i] != "" && t.large:
+				box := t // the temporary is the box: moved into the variable
+				box.typ, box.box, box.large = ptrType(t.typ), false, false
+				assign(box, moved(box.typ, cxxName(tmps[i])))
 			case tmps[i] != "" && t.typ != nil && t.class:
 				assign(t, moved(t.typ, cxxName(tmps[i]))) // the temporary is not used again
 			case tmps[i] != "":

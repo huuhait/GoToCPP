@@ -57,7 +57,12 @@ import (
 //     (gp::div), a shift by a non-constant signed count (gp::shl), and s[i] (out of range). gc
 //     evaluates them after the calls of their scope: a/b + f() calls f first, then panics;
 //   - an element of a slice, s[i] (step 3.5), which a call can change through another slice of
-//     the same array: a read, like *p, also of a local slice; string(b) reads b's bytes.
+//     the same array: a read, like *p, also of a local slice; string(b) reads b's bytes;
+//   - an element of an array (step 3.6, arrays.go): a read of the variable it is in (so after
+//     the calls for a package or a boxed array, anywhere for a plain local), or through a
+//     pointer, p[i], like *p; it panics for an index that is not a constant (and a nil p);
+//     [N]T(s) reads s's elements, and both [N]T(s) and (*[N]T)(s) panic for a short s, after
+//     the calls.
 //
 // Slices add units (step 3.5), each evaluated in its place among the calls, as gc copies them
 // into temporaries: append, copy and clear (calls: they write elements that other slices can
@@ -238,8 +243,8 @@ func (fg *funcGen) copied(e ast.Expr) bool {
 	case *ast.Ident, *ast.StarExpr:
 		return false // a variable: addressable (a local that is not boxed is copied, unseen)
 	case *ast.IndexExpr:
-		if isSlice(fg.g.info.TypeOf(x.X)) {
-			return false // an element of a slice: addressable, like *p
+		if fg.addressable(x) {
+			return false // an element of a slice or of an addressable array: like *p
 		}
 	case *ast.CallExpr:
 		if !fg.g.info.Types[x.Fun].IsType() {
@@ -299,6 +304,9 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 				// string(b) reads the bytes of b where it is, after the calls of its scope
 				// (gc doesn't copy OBYTES2STR): memory that a call can change.
 				add(&orderItem{eff: effect{read: true}})
+			}
+			if eff := fg.conversionEffect(x); eff.any() {
+				add(&orderItem{eff: eff}) // [N]T(s), (*[N]T)(s): arrays.go
 			}
 			return
 		}
@@ -368,7 +376,12 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 			// of the array: read after the calls, like *p. (A string's bytes never change.)
 			eff.read = true
 		}
-		add(&orderItem{eff: eff})
+		if fg.inArray(x) {
+			eff = fg.indexEffect(x) // arrays.go
+		}
+		if eff.any() {
+			add(&orderItem{eff: eff})
+		}
 	case *ast.CompositeLit:
 		// The elements, like the operands of an operator: gc orders them (and reads the
 		// variables in them) as the operands of an expression. The keys of a slice literal
@@ -393,8 +406,9 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		}
 		in := fg.analyzeCopied(false, list, func(i int, e ast.Expr) bool { return i > 0 && !fg.cheap(e) })
 		eff := in.effect()
-		// s[:] and s[0:] can't fail; the other forms check their bounds.
-		if x.High != nil || x.Low != nil && !isZero(fg.constValue(x.Low)) {
+		// s[:] and s[0:] can't fail; the other forms check their bounds. p[:] of a pointer to
+		// an array panics for a nil p.
+		if x.High != nil || x.Low != nil && !isZero(fg.constValue(x.Low)) || arrayPtr(fg.g.info.TypeOf(x.X)) != nil {
 			eff.panics = true
 		}
 		if !eff.any() {

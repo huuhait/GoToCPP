@@ -54,6 +54,9 @@
 //   - addr.go: &x, the owner table (every pointer shares the owner of what it points into);
 //   - slices.go: slices (step 3.5): literals, make, append, copy, clear, the conversions
 //     between strings and slices, and the move of s in s = append(s, x);
+//   - arrays.go: arrays (step 3.6): literals (constinit ones too), a[i] and p[i], slicing,
+//     the owner of &a[i] (addrOf), the conversions from slices, and range over arrays (with a
+//     copy only where the body could change the array);
 //   - ops.go: the operators (with the small-integer rule and the runtime's gp::div, gp::rem,
 //     gp::shl and gp::shr), conversions (gp::f2i), s[i] and the builtins len and panic;
 //   - types.go: the C++ spelling of the types;

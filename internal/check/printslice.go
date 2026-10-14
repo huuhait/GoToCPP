@@ -10,6 +10,9 @@ import (
 // D23 in docs/spec/language.md): Go prints a slice there as its length, its capacity and the
 // address of its array, [3/4]0xc000012345, an address of Go's heap that gocpp can't give, so
 // gocpp rejects it for good and suggests fmt.Println, which prints the elements.
+//
+// It also reports an array or a struct argument, which Go's compiler rejects too ("illegal
+// types for operand: print"; go/types accepts any type there).
 func checkPrintSlices(fset *token.FileSet, pkg *types.Package, files []*ast.File, info *types.Info,
 	report func(pos token.Pos, err error)) {
 	for _, f := range files {
@@ -31,7 +34,14 @@ func checkPrintSlices(fset *token.FileSet, pkg *types.Package, files []*ast.File
 				if t == nil {
 					continue
 				}
-				if _, ok := t.Underlying().(*types.Slice); !ok {
+				switch t.Underlying().(type) {
+				case *types.Array, *types.Struct:
+					report(a.Pos(), types.Error{Fset: fset, Pos: a.Pos(), Msg: "illegal types for operand: " + b.Name() + " " +
+						types.ExprString(a) + " (" + types.TypeString(t, types.RelativeTo(pkg)) + "): " + b.Name() +
+						" doesn't take arrays or structs, in Go too; use fmt.Println"})
+					continue
+				case *types.Slice:
+				default:
 					continue
 				}
 				report(a.Pos(), types.Error{Fset: fset, Pos: a.Pos(), Msg: "cannot " + b.Name() + " " +

@@ -21,6 +21,7 @@ import (
 //	(A, B) (results)         std::tuple<A, B>
 //	*T                       gp::ptr<T> (Phase 03 step 3.3; T of any type that cxxType has)
 //	[]T                      gp::slice<T> (Phase 03 step 3.5; T of any type that cxxType has)
+//	[N]T                     gp::array<T, N> (Phase 03 step 3.6, arrays.go)
 //
 // An untyped constant has the C++ type of its default type (untyped int → int64_t, untyped
 // rune → int32_t, untyped float → double), but go/types records the type that a constant
@@ -79,6 +80,8 @@ func (g *gen) cxxType(t types.Type, pos token.Pos) cppir.Type {
 		return ptrType(g.cxxType(t.Elem(), pos))
 	case *types.Slice:
 		return sliceType(g.cxxType(t.Elem(), pos))
+	case *types.Array:
+		return arrayType(g.cxxType(t.Elem(), pos), t.Len())
 	case *types.Tuple:
 		args := make([]cppir.Node, t.Len())
 		for i := range t.Len() {

@@ -45,6 +45,12 @@
 //     arr[lo:hi:max]          gp::sub(arr, lo, hi, max)
 //     p[lo:hi] (p is *[N]T)   gp::sub(p, lo, hi)                 a nil p panics first
 //     &arr[i] (arr boxed)     gp::ptr<T>(arr, &(*arr)[i])        aliasing: shares the box
+//     &f()[i] (f() is *[N]T)  gp::elem_ptr(f(), i)               the same, p evaluated once
+//     x := [N]T{...} (large)  gp::new_array<T, N>({...}), new_array_keyed, new_to_array<N>(s)
+//                             a boxed variable over 128 KiB, built in its block (D24)
+//     for i, v := range a     for (auto gp_it0 = gp::range_array_copy(a); gp::range_next(gp_it0);)
+//                             (or range_array(a) when the body can't change a, range_array(p)
+//                             for p of type *[N]T; see range_array below)
 //
 // Each element of a literal is a full C++ expression of type T: the emitter writes a zero
 // element as T() (gp::string(), gp::slice<U>()), never as a bare {}, which C++ would take as
@@ -352,6 +358,180 @@ slice<T> sub(ptr<array<T, N>> p, L lo, H hi, M max) {
         return slice<T>(std::shared_ptr<void>(std::move(p).gp_take()), c == 0 ? base : base + l,
                         h - l, c);
     }
+}
+
+// new_array, new_array_keyed, new_to_array: gp::new_<array<T, N>>(...) of a literal, a keyed
+// literal or [N]T(s), built in the new block itself. The emitter writes them for a boxed
+// variable larger than 128 KiB (x := [1 << 21]int{5: 3}), where gp::new_ of the value would
+// first build it in a temporary on the C++ stack, which could overflow it (D24). The elements
+// are evaluated in source order, and the others are zero, as in array{...} and array_keyed.
+template <typename T, int64_t N>
+ptr<array<T, N>> new_array(std::initializer_list<T> elems) {
+    ptr<array<T, N>> p = gp::new_<array<T, N>>();
+    if constexpr (N > 0) {
+        std::size_t i = 0;
+        for (const T& e : elems) {
+            if (i >= static_cast<std::size_t>(N)) [[unlikely]] {
+                detail::index_fail(static_cast<int64_t>(i), N);
+            }
+            p->gp_elems[i++] = e;
+        }
+    }
+    return p;
+}
+
+template <typename T, int64_t N>
+ptr<array<T, N>> new_array_keyed(std::initializer_list<std::pair<int64_t, T>> elems) {
+    ptr<array<T, N>> p = gp::new_<array<T, N>>();
+    for (const std::pair<int64_t, T>& e : elems) {
+        if (e.first < 0 || e.first >= N) [[unlikely]] {
+            detail::index_fail(e.first, N);
+        }
+        if constexpr (N > 0) {
+            p->gp_elems[static_cast<std::size_t>(e.first)] = e.second;
+        }
+    }
+    return p;
+}
+
+template <int64_t N, typename T>
+ptr<array<T, N>> new_to_array(const slice<T>& s) {
+    gp::check_convert(N, gp::len(s));
+    ptr<array<T, N>> p = gp::new_<array<T, N>>();
+    if constexpr (N > 0) {
+        const T* src = s.gp_data();
+        for (std::size_t i = 0; i < static_cast<std::size_t>(N); i++) {
+            p->gp_elems[i] = src[i];
+        }
+    }
+    return p;
+}
+
+// elem_ptr(p, i): &(*p)[i] for a pointer p to an array: a pointer to the element that shares
+// p's owner (p is evaluated once). The emitter writes it where p is not a variable (&f()[i])
+// and for each step of &x[i][j] whose owner is not a variable; for a variable p it writes
+// gp::ptr<T>(p, &(*p)[i]) itself. A nil p panics with the nil dereference before the index
+// check, as in Go.
+template <typename T, int64_t N, go_int I>
+ptr<T> elem_ptr(const ptr<array<T, N>>& p, I i) {
+    T& e = (*p)[i];
+    return ptr<T>(p, &e);
+}
+
+namespace detail {
+
+// array_elem: a.gp_elems[i] for an index that a range loop knows is in [0, N).
+template <typename T, int64_t N>
+const T& array_elem(const array<T, N>& a, int64_t i) noexcept {
+    if constexpr (N == 0) {
+        return a[i]; // never called: a range over [0]T has no iteration (and this panics)
+    } else {
+        return a.gp_elems[static_cast<std::size_t>(i)];
+    }
+}
+
+// large_array: an array too large to copy onto the C++ stack, Go's limit for a variable on the
+// stack (128 KiB, the boxing rule of the emitter's internal/lower/box.go): a range copies
+// such an array to the heap.
+template <typename T, int64_t N>
+inline constexpr bool large_array = sizeof(array<T, N>) > 128 * 1024;
+
+} // namespace detail
+
+// The range loops over arrays with a value variable (`for i, v := range x`; the emitter writes
+// the loops without one, `for i := range x`, as a counter to N, which doesn't evaluate x when
+// len(x) is a constant, as in Go). As for slices, gp_i is the hidden counter (Go 1.22: assigning
+// to i in the body doesn't change the iteration) and gp_v() the element at gp_i, read when it
+// is called:
+//
+//     range_array(a)        a reference to the array a: for an array that the body can't change
+//                           (the emitter decides it), so the copy below is not needed
+//     range_array_copy(a)   a copy of a, taken once when the loop starts: Go ranges over a copy
+//                           of an array, so writes to a in the body are not seen; an array
+//                           larger than 128 KiB is copied to the heap
+//     range_array(p)        p of type *[N]T: a copy of the pointer (p is evaluated once), and
+//                           each gp_v() reads (*p)[gp_i], so writes in the body are seen, as in
+//                           Go; a nil p panics at the first gp_v() (no iteration for N == 0)
+
+template <typename T, int64_t N>
+struct array_range {
+    const array<T, N>* gp_a;
+    int64_t gp_i = -1;
+
+    const T& gp_v() const noexcept { return detail::array_elem(*gp_a, gp_i); }
+};
+
+template <typename T, int64_t N>
+struct array_copy_range {
+    // The copy, on the heap when it is large.
+    std::conditional_t<detail::large_array<T, N>, std::unique_ptr<const array<T, N>>, array<T, N>>
+        gp_a;
+    int64_t gp_i = -1;
+
+    const T& gp_v() const noexcept {
+        if constexpr (detail::large_array<T, N>) {
+            return detail::array_elem(*gp_a, gp_i);
+        } else {
+            return detail::array_elem(gp_a, gp_i);
+        }
+    }
+};
+
+template <typename T, int64_t N>
+struct array_ptr_range {
+    ptr<array<T, N>> gp_p;
+    int64_t gp_i = -1;
+
+    const T& gp_v() const { return detail::array_elem(*gp_p, gp_i); }
+};
+
+// range_array(a) starts a range over the array a, which must outlive the loop.
+template <typename T, int64_t N>
+array_range<T, N> range_array(const array<T, N>& a) noexcept {
+    return array_range<T, N>{&a};
+}
+
+// range_array_copy(a) starts a range over a copy of the array a.
+template <typename T, int64_t N>
+array_copy_range<T, N> range_array_copy(const array<T, N>& a) {
+    if constexpr (detail::large_array<T, N>) {
+        return array_copy_range<T, N>{std::make_unique<const array<T, N>>(a)};
+    } else {
+        return array_copy_range<T, N>{a};
+    }
+}
+
+// range_array_copy(f()) of a temporary moves it into the range instead of copying it.
+template <typename T, int64_t N>
+array_copy_range<T, N> range_array_copy(array<T, N>&& a) {
+    if constexpr (detail::large_array<T, N>) {
+        return array_copy_range<T, N>{std::make_unique<const array<T, N>>(std::move(a))};
+    } else {
+        return array_copy_range<T, N>{std::move(a)};
+    }
+}
+
+// range_array(p) starts a range over the array that p points to (p is *[N]T).
+template <typename T, int64_t N>
+array_ptr_range<T, N> range_array(ptr<array<T, N>> p) noexcept {
+    return array_ptr_range<T, N>{std::move(p)};
+}
+
+// range_next steps to the next index of a range over an array, and reports whether there is
+// one.
+template <typename T, int64_t N>
+bool range_next(array_range<T, N>& it) noexcept {
+    return ++it.gp_i < N;
+}
+
+template <typename T, int64_t N>
+bool range_next(array_copy_range<T, N>& it) noexcept {
+    return ++it.gp_i < N;
+}
+
+template <typename T, int64_t N>
+bool range_next(array_ptr_range<T, N>& it) noexcept {
+    return ++it.gp_i < N;
 }
 
 } // namespace gp

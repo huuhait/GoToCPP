@@ -28,6 +28,8 @@ import (
 //	                                int64_t i = gp_it0.gp_i; int32_t r = gp_it0.gp_r; ...
 //	for i, v := range sl {...}  for (auto gp_it0 = gp::range_slice(sl); gp::range_next(gp_it0);) {
 //	                                int64_t i = gp_it0.gp_i; int64_t v = gp_it0.gp_v(); ...
+//	for i, v := range arr {...} for (auto gp_it0 = gp::range_array_copy(arr); ...) (arrays.go)
+//	for i := range arr {...}    for (int64_t gp_i0 = 0; gp_i0 < 3; gp_i0++) {
 //	switch (3 shapes)           see switchStmt
 //
 // Scopes: a C++ for doesn't allow a name of its init statement to be declared again in the
@@ -414,7 +416,9 @@ func (fg *funcGen) forInit(s ast.Stmt) (cppir.Stmt, bool) {
 // from 0 to n-1, n is evaluated once (with its temporaries, if it needs any, in a block in
 // front), and the range variable is a copy of the counter, so assigning to it in the body
 // doesn't change the iteration (Go 1.22). A variable that exists (for i = range n) is
-// assigned the counter at the start of each iteration.
+// assigned the counter at the start of each iteration. A range over an array (step 3.6) without
+// a value variable is the same loop with n = N, where the array is not evaluated unless it has
+// calls (gp::len(f()), arrays.go: rangeCount).
 func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 	xt := fg.g.info.TypeOf(s.X)
 	b := basicOf(xt)
@@ -425,6 +429,11 @@ func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 	case isSlice(xt):
 		fg.rangeIter(s, "gp::range_slice", func(it cppir.Expr) cppir.Expr { return &cppir.Call{Fun: &cppir.Member{X: it, Name: "gp_v"}} })
 		return
+	case arrayOf(xt) != nil:
+		if fg.rangeArray(s) { // arrays.go: with a value variable
+			return
+		}
+		xt, b = types.Typ[types.Int], types.Typ[types.Int] // a counter to len(x)
 	}
 	if b == nil || b.Info()&types.IsInteger == 0 {
 		fg.g.unsupported(s.X.Pos(), rangeKind(xt))
@@ -463,11 +472,15 @@ func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 	i := fg.names.temp("i")
 	init := varDecl(cppir.Pos{}, ct, i, lit("0"))
 	var limit cppir.Expr
-	if v := fg.constValue(s.X); v != nil {
-		limit = at(fg.g.constant(v, t, s.X.Pos(), false), precShift)
+	count := fg.constValue(s.X)
+	if count == nil {
+		count = fg.rangeCount(s) // N for an array that is not evaluated (arrays.go)
+	}
+	if count != nil {
+		limit = at(fg.g.constant(count, t, s.X.Pos(), false), precShift)
 	} else {
 		n := fg.names.temp("n")
-		init.Vars = append(init.Vars, cppir.Declarator{Name: n, Init: fg.expr(s.X)})
+		init.Vars = append(init.Vars, cppir.Declarator{Name: n, Init: fg.rangeLimit(s.X)})
 		limit = cxxName(n)
 	}
 	head := &cppir.For{

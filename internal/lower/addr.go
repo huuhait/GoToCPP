@@ -18,16 +18,26 @@ import (
 //	&s[i] (s is a slice)     the slice's array        gp::ptr<T>(s.gp_owner(), &s[i]) (elemAddr)
 //	&f()[i] (not a variable) the slice's array        gp::elem_ptr(f(), i)
 //
+// Arrays (step 3.6, arrays.go: addrOf), also nested (&a[i][j]) and for a[lo:hi], which slices
+// the array that a pointer to it points into:
+//
+//	&a[i] (a is boxed)       a's box                  gp::ptr<T>(a, &(*a)[i])
+//	&garr[i]                 the static owner         gp::static_ptr(garr[i])
+//	&p[i] (p is *[N]T)       p                        gp::ptr<T>(p, &(*p)[i])
+//	&s[j][i] (s is [][N]T)   the slice's array        gp::ptr<T>(s.gp_owner(), &s[j][i])
+//	&f()[i] (f() is *[N]T)   the array's block        gp::elem_ptr(f(), i)
+//	&[N]T{...}               a new block              gp::new_<A>(A{...})
+//
 // The rest of the table comes with the types it needs, each a pointer that shares the owner of
 // the object it points into (gp::ptr's aliasing constructor):
 //
 //	&p.f (p is *T)           p                        gp::ptr<F>(p, &p->f)            step 3.8
-//	&x.f, &x.arr[i]          x's box                  gp::ptr<F>(x, &(*x).f)          steps 3.6, 3.8
-//	&global.f, &garr[i]      the static owner         gp::static_ptr(global.f)        steps 3.6, 3.8
+//	&x.f, &x.arr[i]          x's box                  gp::ptr<F>(x, &(*x).f)          step 3.8
+//	&global.f                the static owner         gp::static_ptr(global.f)        step 3.8
 //	&T{...}                  a new block              gp::new_<T>(T{...})             step 3.8
 //
-// The owner is evaluated once, so an owner that is not a variable (&f().x, &(*pp).f) must go
-// into a temporary first. The boxing analysis (box.go) boxes every local variable whose address,
+// The aliasing form reads the owner twice, so it is for an owner that is a variable (or in a
+// temporary); another one goes through gp::elem_ptr, which evaluates it once. The boxing analysis (box.go) boxes every local variable whose address,
 // or the address of a part of it, is taken, so &x never needs the address of a C++ stack
 // variable.
 
@@ -57,6 +67,14 @@ func (fg *funcGen) addr(e *ast.UnaryExpr) cppir.Expr {
 		}
 		fg.g.unsupported(e.Pos(), "&*p where p is not a variable")
 	case *ast.CompositeLit:
+		if t := fg.g.info.TypeOf(x); isArray(t) {
+			// &[N]T{...}: a new block that holds the literal, gp::new_<A>(A{...}); one larger
+			// than 128 KiB is built in the block itself (largeBox, arrays.go).
+			if largeVar(t) {
+				return largeBox(fg.g.cxxType(t, x.Pos()), fg.expr(x))
+			}
+			return newBox(fg.g.cxxType(t, x.Pos()), fg.expr(x))
+		}
 		fg.g.unsupported(e.Pos(), "&T{...} (Phase 03 step 3.8)")
 	case *ast.SelectorExpr:
 		fg.g.unsupported(e.Pos(), "the address of a field (Phase 03 step 3.8)")
@@ -64,7 +82,7 @@ func (fg *funcGen) addr(e *ast.UnaryExpr) cppir.Expr {
 		if isSlice(fg.g.info.TypeOf(x.X)) {
 			return fg.elemAddr(e, x)
 		}
-		fg.g.unsupported(e.Pos(), "the address of an element of an array (Phase 03 step 3.6)")
+		return fg.addrOf(x) // an element of an array (arrays.go)
 	default:
 		fg.g.unsupported(e.Pos(), "the address of "+nodeKind(x))
 	}

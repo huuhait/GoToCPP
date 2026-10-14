@@ -39,6 +39,9 @@ func id(v int) int {
 // sl is a package slice for the slice cases of TestOrderPanics.
 const sl = "var gsl = []int{1, 2, 3}\n\n"
 
+// arr is a package array for the array cases of TestOrderPanics.
+const arr = "var garr = [3]int{1, 2, 3}\n\n"
+
 // TestOrderPanics checks the order of calls and of the operations that can panic (order.go)
 // against real Go: gc calls f first in a/b + f() and panics after it, and reads s after grow
 // in int(s[i]) + grow(). Each program panics, with Go's output and exit code 2, on both
@@ -93,6 +96,25 @@ func TestOrderPanics(t *testing.T) {
 		{"append-sub-first", sl, "j := 4\n\tfmt.Println(len(append(gsl[:j], f())))"},
 		{"literal-index", sl, "i := 7\n\tfmt.Println(len([]int{f(), gsl[i], f()}))"},
 		{"range-elem", sl, "for i := range 4 {\n\t\tfmt.Println(gsl[i], f())\n\t}"},
+		// Arrays (step 3.6): a[i] and p[i] (a nil p) panic after the calls of their scope, also
+		// in a store and op=, and so do [N]T(s) and (*[N]T)(s); a slice expression and &a[i]
+		// in a comparison panic in their places, before the calls after them.
+		{"array-index-call", arr, "i := 5\n\tfmt.Println(garr[i] + f())"},
+		{"array-index-arg", arr, "i := 5\n\tfmt.Println(garr[i], f())"},
+		{"array-local-index-arg", "", "a, i := [2]bool{}, 2\n\tfmt.Println(a[i], f())"},
+		{"array-store-call", arr, "i := 5\n\tgarr[i] = f()"},
+		{"array-store-index-call", arr, "garr[id(7)] = f()"},
+		{"array-op-assign-call", arr, "i := 5\n\tgarr[i] += f()"},
+		{"array-parallel-store", arr, "y := 0\n\tgarr[id(9)], y = f(), f()\n\tfmt.Println(y)"},
+		{"array-ptr-call", "", "var p *[3]int\n\tfmt.Println(p[0], f())"},
+		{"array-ptr-store-call", "", "var p *[3]int\n\tp[0] = f()"},
+		{"array-to-array-call", "", "s := []int{1}\n\tfmt.Println([3]int(s)[0], f())"},
+		{"array-to-ptr-call", "", "s := []int{1}\n\tfmt.Println((*[3]int)(s)[0], f())"},
+		{"array-slice-first", arr, "j := 5\n\tfmt.Println(len(garr[:j]), f())"},
+		{"array-slice-ptr-first", "", "var p *[3]int\n\tfmt.Println(len(p[:]), f())"},
+		{"array-addr-first", arr, "i := 3\n\tfmt.Println(&garr[i] == nil, f())"},
+		{"array-literal-index", arr, "i := 7\n\tfmt.Println(len([3]int{f(), garr[i], f()}))"},
+		{"array-range-ptr", "", "var p *[3]int\n\tfor _, v := range p {\n\t\tfmt.Println(v, f())\n\t}"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -213,12 +235,75 @@ func TestOrderTemps(t *testing.T) {
 		{"ls := []int{1}\n\tp := &ls[0]\n\t_ = p", "gp::ptr<int64_t> p = gp::ptr<int64_t>(ls.gp_owner(), &ls[0]);"},
 		{"p := &gsl[f()]\n\t_ = p", "auto gp_t0 = f(); gp::ptr<int64_t> p = gp::ptr<int64_t>(gsl.gp_owner(), &gsl[gp_t0]);"},
 		{"ss := [][]int{{1}}\n\tp := &ss[0][0]\n\t_ = p", "gp::ptr<int64_t> p = gp::elem_ptr(ss[0], 0);"},
+		// Arrays (step 3.6): an element of a package array, or through a pointer, is read after
+		// the calls; one of a local array only panics (a variable index), and isn't copied as an
+		// argument of fmt (it is addressable); len of an array is a constant unless it has a
+		// call; the operands of a target a[i] are saved, never the array itself; &a[i] and a[:]
+		// share the owner; range copies the array only when the body could change it.
+		{"fmt.Println(ga[0], f())", "{ auto gp_t0 = f(); gp::fmtshim::Println(ga[0], gp_t0); }"},
+		{"la := [2]int{1, 2}\n\tfmt.Println(la[0], f())", "gp::fmtshim::Println(la[0], f());"},
+		{"la := [2]int{1, 2}\n\ti := 0\n\tfmt.Println(la[i], f())", "{ auto gp_t0 = f(); gp::fmtshim::Println(la[i], gp_t0); }"},
+		{"la := [2]bool{}\n\tfmt.Println(la[0], f())", "gp::fmtshim::Println(la[0], f());"},
+		{"p := &ga\n\tfmt.Println(p[1], f())", "{ auto gp_t0 = f(); gp::fmtshim::Println((*p)[1], gp_t0); }"},
+		{"fmt.Println(len(ga), f())", "gp::fmtshim::Println(int64_t(3), f());"},
+		{"fmt.Println(len(mka()), f())", "{ auto gp_t0 = gp::len(mka()); gp::fmtshim::Println(gp_t0, f()); }"},
+		{"fmt.Println(ga == [3]int{}, f())", "{ auto gp_t0 = ga == gp::array<int64_t, 3>{}; gp::fmtshim::Println(gp_t0, f()); }"},
+		{"la := [2]int{f(), f()}\n\t_ = la", "gp::array<int64_t, 2> la{f(), f()};"},
+		{"la := [2]int{x, f()}\n\t_ = la", "auto gp_t0 = f(); gp::array<int64_t, 2> la{x, gp_t0};"},
+		{"la := [3]int{1: f(), 0: f()}\n\t_ = la", "gp::array<int64_t, 3> la = gp::array_keyed<int64_t, 3>({{1, f()}, {0, f()}});"},
+		{"lg := [2][2]int{{f()}, {1, f()}}\n\t_ = lg", "gp::array<gp::array<int64_t, 2>, 2> lg{gp::array<int64_t, 2>{f()}, gp::array<int64_t, 2>{1, f()}};"},
+		{"ga[f()] += 1", "{ auto gp_t0 = f(); ga[gp_t0] = ga[gp_t0] + 1; }"},
+		{"ga, ga[0] = [3]int{}, 5", "ga = gp::array<int64_t, 3>{}; ga[0] = 5;"},
+		{"i := 0\n\ti, ga[i] = 1, 2", "{ auto gp_t0 = i; i = 1; ga[gp_t0] = 2; }"},
+		{"j := 0\n\tj, gg2[j][1] = 1, 5", "{ auto gp_t0 = j; j = 1; gg2[gp_t0][1] = 5; }"},
+		{"p, q := &ga, &ga\n\tp, p[0] = q, 1", "{ auto gp_t0 = p; p = q; (*gp_t0)[0] = 1; }"},
+		{"ls := [][2]int{{1}}\n\tj := 0\n\tls, ls[j][1] = nil, 5", "{ auto gp_t0 = ls; ls = nullptr; gp_t0[j][1] = 5; }"},
+		{"p := &ga[f()]\n\t_ = p", "auto gp_t0 = f(); gp::ptr<int64_t> p = gp::static_ptr(ga[gp_t0]);"},
+		{"la := [2]int{}\n\tp := &la[1]\n\t_ = p", "gp::ptr<int64_t> p = gp::ptr<int64_t>(la, &(*la)[1]);"},
+		{"pa := &ga\n\tp := &pa[2]\n\t_ = p", "gp::ptr<int64_t> p = gp::ptr<int64_t>(pa, &(*pa)[2]);"},
+		{"p := &mka()[1]\n\t_ = p", "gp::ptr<int64_t> p = gp::elem_ptr(mka(), 1);"},
+		{"ls := [][2]int{{1}}\n\tp := &ls[0][1]\n\t_ = p", "gp::ptr<int64_t> p = gp::ptr<int64_t>(ls.gp_owner(), &ls[0][1]);"},
+		{"s := ga[1:]\n\t_ = s", "gp::slice<int64_t> s = gp::sub(gp::static_ptr(ga), 1);"},
+		{"la := [3]int{}\n\ts := la[:2:3]\n\t_ = s", "gp::slice<int64_t> s = gp::sub(la, 0, 2, 3);"},
+		{"s := mka()[:]\n\t_ = s", "gp::slice<int64_t> s = gp::sub(mka(), 0);"},
+		{"s := gg2[1][:]\n\t_ = s", "gp::slice<int64_t> s = gp::sub(gp::static_ptr(gg2[1]), 0);"},
+		{"la := [2]int(gsl)\n\t_ = la", "gp::array<int64_t, 2> la = gp::to_array<2>(gsl);"},
+		{"fmt.Println([2]int(gsl)[0], f())", "{ auto gp_t0 = f(); gp::fmtshim::Println(gp::to_array<2>(gsl)[0], gp_t0); }"},
+		{"p := (*[2]int)(gsl)\n\t_ = p", "gp::ptr<gp::array<int64_t, 2>> p = gp::to_array_ptr<2>(gsl);"},
+		{"for i, v := range ga {\n\t\t_, _ = i, v\n\t}", "for (auto gp_it0 = gp::range_array(ga); gp::range_next(gp_it0);) {"},
+		{"for _, v := range ga {\n\t\tga[0] = v\n\t}", "for (auto gp_it0 = gp::range_array_copy(ga); gp::range_next(gp_it0);) {"},
+		{"for _, v := range ga {\n\t\t_ = v + f()\n\t}", "for (auto gp_it0 = gp::range_array_copy(ga); gp::range_next(gp_it0);) {"},
+		{"la := [2]int{}\n\tfor _, v := range la {\n\t\t_ = v + f()\n\t}", "for (auto gp_it0 = gp::range_array(la); gp::range_next(gp_it0);) {"},
+		{"la := [2]int{}\n\tfor _, v := range la {\n\t\tla[1] = v\n\t}", "for (auto gp_it0 = gp::range_array_copy(la); gp::range_next(gp_it0);) {"},
+		{"lg := [2][2]int{}\n\tfor _, v := range lg[0] {\n\t\tlg[1][0] = v\n\t}", "for (auto gp_it0 = gp::range_array_copy(lg[0]); gp::range_next(gp_it0);) {"},
+		{"la := [2]int{}\n\tfor i, v := range la {\n\t\ti, v = 1, 2\n\t\t_, _ = i, v\n\t}", "for (auto gp_it0 = gp::range_array(la); gp::range_next(gp_it0);) {"},
+		{"la := [2]int{}\n\tvar i int\n\tfor i, la[1] = range la {\n\t}\n\t_ = i", "for (auto gp_it0 = gp::range_array_copy(la); gp::range_next(gp_it0);) {"},
+		{"var t [1]int\n\tvar i int\n\tfor i, t[f()] = range ga {\n\t}\n\t_ = i", "for (auto gp_it0 = gp::range_array_copy(ga); gp::range_next(gp_it0);) {"},
+		{"la := [2]int{}\n\tvar t [1]int\n\tvar i int\n\tfor i, t[f()] = range la {\n\t}\n\t_ = i", "for (auto gp_it0 = gp::range_array(la); gp::range_next(gp_it0);) {"},
+		{"for _, v := range [2]int{f(), 1} {\n\t\t_ = v\n\t}", "for (auto gp_it0 = gp::range_array_copy(gp::array<int64_t, 2>{f(), 1}); gp::range_next(gp_it0);) {"},
+		{"p := &ga\n\tfor _, v := range p {\n\t\tp[0] = v\n\t}", "for (auto gp_it0 = gp::range_array(p); gp::range_next(gp_it0);) {"},
+		{"p, n := &ga, 0\n\tfor _, v := range *p {\n\t\tn += v\n\t}\n\t_ = n", "for (auto gp_it0 = gp::range_array(*p); gp::range_next(gp_it0);) {"},
+		{"p := &ga\n\tfor _, v := range *p {\n\t\tp = nil\n\t\t_ = v\n\t}", "for (auto gp_it0 = gp::range_array_copy(*p); gp::range_next(gp_it0);) {"},
+		{"ls := [][2]int{{1}}\n\tfor _, v := range ls[0] {\n\t\tls = nil\n\t\t_ = v\n\t}", "for (auto gp_it0 = gp::range_array_copy(ls[0]); gp::range_next(gp_it0);) {"},
+		{"n := 0\n\tfor _, v := range *mka() {\n\t\tn += v\n\t}\n\t_ = n", "for (auto gp_it0 = gp::range_array_copy(*mka()); gp::range_next(gp_it0);) {"},
+		{"n := 0\n\tfor _, v := range gg2[0] {\n\t\tn += v\n\t}\n\t_ = n", "for (auto gp_it0 = gp::range_array(gg2[0]); gp::range_next(gp_it0);) {"},
+		{"big := [1 << 15]int{3: f()}\n\t_ = big", "gp::ptr<gp::array<int64_t, 32768>> big = gp::new_array_keyed<int64_t, 32768>({{3, f()}});"},
+		{"big := [1 << 15]int{x, 2}\n\t_ = big", "gp::ptr<gp::array<int64_t, 32768>> big = gp::new_array<int64_t, 32768>({x, 2});"},
+		{"p := &[1 << 15]int{3: x}\n\tq := &[1 << 15]int{}\n\t_, _ = p, q", "gp::ptr<gp::array<int64_t, 32768>> p = gp::new_array_keyed<int64_t, 32768>({{3, x}});"},
+		{"p := &[1 << 15]int{}\n\t_ = p", "gp::ptr<gp::array<int64_t, 32768>> p = gp::new_<gp::array<int64_t, 32768>>();"},
+		{"big := [1 << 15]int{x}\n\t{\n\t\tbig := [1 << 15]int{big[0]}\n\t\t_ = big\n\t}\n\t_ = big", "gp::ptr<gp::array<int64_t, 32768>> gp_t0 = gp::new_array<int64_t, 32768>({(*big)[0]}); { gp::ptr<gp::array<int64_t, 32768>> big = static_cast<gp::ptr<gp::array<int64_t, 32768>>&&>(gp_t0);"},
+		{"big := [1 << 15]int(gsl)\n\t_ = big", "gp::ptr<gp::array<int64_t, 32768>> big = gp::new_to_array<32768>(gsl);"},
+		{"la := [2]int{x, 2}\n\t_ = la", "gp::array<int64_t, 2> la{x, 2};"},
+		{"for i := range mka() {\n\t\t_ = i\n\t}", "for (int64_t gp_i0 = 0, gp_n0 = gp::len(mka()); gp_i0 < gp_n0; gp_i0++) {"},
+		{"var p *[3]int\n\tfor i := range *p {\n\t\t_ = i\n\t}", "for (int64_t gp_i0 = 0; gp_i0 < 3; gp_i0++) {"},
+		{"var p *[3]int\n\tfor i, _ := range *p {\n\t\t_ = i\n\t}", "for (int64_t gp_i0 = 0, gp_n0 = gp::len(*p); gp_i0 < gp_n0; gp_i0++) {"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.body, func(t *testing.T) {
 			dir := t.TempDir()
 			src := "package main\n\nimport \"fmt\"\n\nvar x = 1\n\nvar gsl = []int{1, 2}\n\nvar gg = [][]int{{1}}\n\nfunc mk() []int {\n\treturn nil\n}\n\nfunc f() int {\n\tx++\n\tfmt.Print()\n\treturn x\n}\n\n" +
-				"func g(a, b int) int {\n\treturn a + b\n}\n\nfunc h(p *int) *int {\n\treturn p\n}\n\nfunc main() {\n\t" + tt.body + "\n}\n"
+				"func g(a, b int) int {\n\treturn a + b\n}\n\nfunc h(p *int) *int {\n\treturn p\n}\n\n" +
+				"var ga = [3]int{1, 2, 3}\n\nvar gg2 = [2][2]int{}\n\nfunc mka() *[3]int {\n\treturn nil\n}\n\nfunc main() {\n\t" + tt.body + "\n}\n"
 			gp := filepath.Join(dir, "main.gp")
 			if err := os.WriteFile(gp, []byte(src), 0o644); err != nil {
 				t.Fatal(err)

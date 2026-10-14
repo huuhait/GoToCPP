@@ -317,8 +317,9 @@ func TestUnsupported(t *testing.T) {
 		name, src, want string
 	}{
 		{"makemap", "func main() {\n\t_ = make(map[int]int)\n}", "main.gp:4:6: cppgen: not supported yet: make of map[int]int (Phase 03)"},
-		{"arraylit", "func main() {\n\t_ = [2]int{1, 2}\n}", "main.gp:4:12: cppgen: not supported yet: composite literals of type [2]int (Phase 03)"},
+		{"structlit", "func main() {\n\t_ = struct{}{}\n}", "main.gp:4:14: cppgen: not supported yet: composite literals of type struct{} (Phase 03)"},
 		{"fmtslice", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, [][]int{})\n}", "main.gp:5:17: cppgen: not supported yet: printing a slice (Phase 03 step 3.15)"},
+		{"fmtarray", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, [2]int{})\n}", "main.gp:5:17: cppgen: not supported yet: printing an array (Phase 03 step 3.15)"},
 		{"spread", "func f(a ...int) {}\nfunc main() {\n\tf([]int{1}...)\n}", "main.gp:5:12: cppgen: not supported yet: f(s...) (Phase 03)"},
 		{"method", "type T int\nfunc (T) M() {}\nfunc main() {}", "main.gp:3:1: cppgen: not supported yet: type declarations (Phase 03)"},
 		{"funcvalue", "func g() {}\nfunc main() {\n\tf := g\n\tf()\n}", "main.gp:5:2: cppgen: not supported yet: type func()"},
@@ -420,8 +421,10 @@ func TestRuntimeFuncNames(t *testing.T) {
 // TestPanics checks the run-time panics of expressions (division by zero, a negative shift
 // count, a string index out of range; also in x /= y and x <<= n, in a case and in a loop
 // condition), the builtin panic with values of basic types, the nil pointer dereferences
-// (also through new(*int), &*p and a parameter), and the panics of slices (an index out of
-// range, also in a store, op=, ++ and &s[i]; the slice expressions with 2 and 3 indexes; make): each program prints what it prints with Go,
+// (also through new(*int), &*p and a parameter), the panics of slices (an index out of
+// range, also in a store, op=, ++ and &s[i]; the slice expressions with 2 and 3 indexes; make),
+// and of arrays (index, slicing, the conversions from slices, nil pointers to arrays): each
+// program prints what it prints with Go,
 // exits with code 2, and stderr is Go's up to the "goroutine 1 [running]:" line (goResult),
 // with the signal line of a nil dereference (its pc masked: maskPC).
 func TestPanics(t *testing.T) {
@@ -500,6 +503,31 @@ func TestPanics(t *testing.T) {
 		{"makeslice-huge", "n := 1 << 62\n\tfmt.Println(len(make([]int, n)))"},
 		{"makeslice-uint", "var n uint64 = 1 << 63\n\tfmt.Println(len(make([]byte, n)))"},
 		{"makeslice-cap-huge", "n, c := 1, 1<<60\n\tfmt.Println(len(make([]int, n, c)))"},
+		// Arrays (step 3.6): index, slice-expression and conversion panics, and the nil
+		// dereference of a nil pointer to an array (p[i], p[:], &p[i], range with a value,
+		// range over *p with two variables), but not where Go doesn't evaluate it (len(p) and
+		// for i := range *p).
+		{"array-index", "a, i := [3]int{1, 2, 3}, 5\n\tfmt.Println(a[i])"},
+		{"array-index-neg", "a, i := [3]string{}, -1\n\tfmt.Println(\"before\")\n\ta[i] = \"x\""},
+		{"array-index-uint8", "var a [3]bool\n\tvar i uint8 = 200\n\ta[i] = true"},
+		{"array-op-assign", "a, i := [2]float64{1}, 2\n\ta[i] *= 2"},
+		{"array-inc", "a, i := [2][2]uint8{}, 3\n\ta[1][i]++"},
+		{"array-empty", "var a [0]int\n\ti := 0\n\tfmt.Println(a[i])"},
+		{"array-call", "i := 4\n\tfmt.Println(two()[i])"},
+		{"array-addr", "a, i := [3]int{}, 3\n\tp := &a[i]\n\tfmt.Println(*p)"},
+		{"array-ptr-index", "var p *[3]int\n\tfmt.Println(len(p), cap(p))\n\tfmt.Println(p[0])"},
+		{"array-ptr-index-bad", "var p *[3]int\n\ti := 7\n\tp[i] = 1"},
+		{"array-ptr-addr", "var p *[3]int\n\tq := &p[0]\n\tfmt.Println(q == nil)"},
+		{"array-ptr-slice", "var p *[3]int\n\tfor i := range *p {\n\t\tfmt.Print(i)\n\t}\n\tfmt.Println(len(p[1:]))"},
+		{"array-ptr-range", "var p *[3]int\n\tfor i, _ := range p {\n\t\tfmt.Print(i)\n\t}\n\tfor i, v := range p {\n\t\tfmt.Println(i, v)\n\t}"},
+		{"array-deref-range", "var p *[3]int\n\tfor i, _ := range *p {\n\t\tfmt.Println(i)\n\t}"},
+		{"array-slice", "a, j := [3]int{}, 4\n\tp := &a\n\tfmt.Println(len(p[:j]))"},
+		{"array-slice-boxed", "a, i, j := [3]int{}, 2, 1\n\tfmt.Println(len(a[i:j]))"},
+		{"array-slice3", "a, k := [3]string{}, 4\n\tfmt.Println(len(a[0:1:k]))"},
+		{"array-slice-empty", "var a [0]int\n\tj := 1\n\tfmt.Println(len(a[:0]), len(a[:j]))"},
+		{"to-array", "s := []int{1, 2}\n\ta := [3]int(s)\n\tfmt.Println(a[0])"},
+		{"to-array-ptr", "s := make([]string, 2, 10)\n\tp := (*[3]string)(s)\n\tfmt.Println(p[0])"},
+		{"to-array-ptr-nil", "var s []int\n\tfmt.Println((*[0]int)(s) == nil, len([0]int(s)))\n\tfmt.Println((*[1]int)(s) == nil)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -515,6 +543,9 @@ func TestPanics(t *testing.T) {
 			}
 			if strings.Contains(tt.body, "mk(") {
 				src += "\nfunc mk() []int {\n\treturn []int{1}\n}\n"
+			}
+			if strings.Contains(tt.body, "two(") {
+				src += "\nfunc two() [2]int {\n\treturn [2]int{1, 2}\n}\n"
 			}
 			gp := filepath.Join(dir, "main.gp")
 			if err := os.WriteFile(gp, []byte(src), 0o644); err != nil {
