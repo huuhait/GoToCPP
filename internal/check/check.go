@@ -327,6 +327,15 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 	// checks, after conf.Check, on the round's own fresh info and pkg.
 	used := checkOpaqueArgs(fset, pkg, files, info, c.checkExprError)
 	checkSkipped(fset, pkg, files, info, c.checkExprError, used)
+	cppNames := make(map[token.Pos]string)
+	for _, f := range lp.Files {
+		if f.Rewrite != nil {
+			for _, u := range f.Rewrite.Uses {
+				cppNames[u.Ident.Pos()] = u.Ident.Name
+			}
+		}
+	}
+	checkSizeCParts(fset, files, info, cppNames, c.checkExprError)
 	falseErrs := newFalseErrors(pkg, info, files)
 	c.flush(func(err types.Error) bool {
 		if diag.ErrorCode(err) == diag.UnusedVar {

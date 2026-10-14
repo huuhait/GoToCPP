@@ -369,6 +369,12 @@ var xs []int
 var p *int
 fmt.Println(unsafe.Sizeof(s), unsafe.Sizeof(xs), unsafe.Sizeof(p))
 // Go prints 16 24 8. gocpp v1 prints 32 40 16.
+
+fmt.Println(unsafe.Sizeof(struct{}{}), unsafe.Sizeof(struct {
+	a struct{}
+	b int64
+}{}))
+// Go prints 0 8. gocpp prints 1 16.
 ```
 
 | Type | Go (64-bit) | gocpp v1 | Why |
@@ -376,14 +382,40 @@ fmt.Println(unsafe.Sizeof(s), unsafe.Sizeof(xs), unsafe.Sizeof(p))
 | `string` | 16 | 32 | owner, data pointer, length |
 | `[]T` | 24 | 40 | owner, data pointer, length, capacity |
 | `*T`, `unsafe.Pointer` | 8 | 16 | a `std::shared_ptr` (pointer + owner) |
+| `weak.Pointer[T]` | 8 | 24 | a `std::weak_ptr` and the address it was made from |
 | `map[K]V` | 8 | 16 | a `std::shared_ptr` to the map table |
+| `chan T` | 8 | 16 | a `std::shared_ptr` to the channel ([Phase 08](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md)) |
+| `func(...)` | 8 | 32 | a `std::function` wrapper ([Phase 03 §2.6](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#26-functions-func-values-closures)) |
 | interface values | 16 | 32 | data, type descriptor, method table ([Phase 05 §2.3](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md#23-interface-values-and-itabs)) |
+| `struct{}`, `[0]T` | 0 | 1 | in C++, every object takes at least 1 byte |
 
 - **Go:** `unsafe.Sizeof` gives the sizes in the "Go" column.
 - **gocpp:** reference-counted values carry their owner, so they are bigger. The type checker
-  gets the real gocpp sizes, so `unsafe.Sizeof` is right, and C++ `static_assert`s keep both
-  sides in sync. Phase 15 may make `string` and `[]T` smaller (24 and 32 bytes) if a cheaper
-  reference count wins the benchmarks.
+  gets the real gocpp sizes, so `unsafe.Sizeof`, `unsafe.Alignof` and `unsafe.Offsetof` give
+  what the C++ gives, and C++ `static_assert`s keep both sides in sync. The numbers, `bool`
+  and `complex` types have Go's sizes (`int` is 8 bytes).
+- **Structs** are laid out like C++ structs, which is also Go's rule: the fields in source
+  order, each one at the next multiple of its alignment, and the size rounded up to the
+  largest alignment of a field. The difference is the empty struct: it takes 1 byte, also as
+  a field, so `struct{ a struct{}; b int64 }` is 16 bytes (Go: 8) and `[3]struct{}` is 3.
+  `[0]T` is 1 byte too, with alignment 1. An array `[N]T` is `N` times the size of `T`.
+- The sizes of `chan T`, func values and interface values are placeholders until their
+  phases build them (08, 03 step 3.11, 05); they can still change there.
+- Only the C++ compiler knows the size of a C/C++ type (`C.int`, `*stdio.FILE`,
+  `std.vector[int]`), so until
+  [Phase 04](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md) `unsafe.Sizeof`,
+  `Alignof` and `Offsetof` are an error when their value depends on one: a type that holds a
+  C/C++ value directly or in a field or an array element, also nested
+  (`cannot use unsafe.Sizeof(x): its type has a C/C++ part (field n C.int), whose size gocpp
+  only knows from Phase 04`). A Go pointer, slice or map of such a type is fine: its size
+  doesn't depend on what it points to. `Offsetof(x.f)` is fine when the C/C++ fields come
+  after `f`.
+- Inside a C++ template argument (`std.array[byte, unsafe.Sizeof(s)]`) and next to other
+  C/C++ expressions, `unsafe.Sizeof`, `Alignof` and `Offsetof` are an error when Go's size
+  differs from gocpp's: the type checker can only use Go's sizes there. Declare a constant
+  (`const n = unsafe.Sizeof(s)`) and use it: `std.array[byte, n]`.
+- Phase 15 may make `string` and `[]T` smaller (24 and 32 bytes) if a cheaper reference count
+  wins the benchmarks.
 - **Phase:** [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#21-one-ownership-system-for-everything-v1),
   maybe smaller in [15](../../plans/2026-10-13-gocpp/phase-15-hardening-release/README.md#21-performance-measure-first).
 

@@ -259,6 +259,8 @@ func checkSkipped(fset *token.FileSet, pkg *types.Package, files []*ast.File, in
 		}
 		if err := types.CheckExpr(fset, pkg, pos, sk.root, info); err != nil {
 			report(pos, err)
+		} else if err := sizeCallError(fset, sk.root, info, "next to a C/C++ expression"); err != nil {
+			report(pos, err) // CheckExpr computed it with Go's sizes (see gocppSizes)
 		}
 		u.mark(sk.root)
 	}

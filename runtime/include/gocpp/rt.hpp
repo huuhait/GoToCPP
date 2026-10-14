@@ -22,3 +22,7 @@
 // INT64_C and the fixed-width integer types.
 #include <cstdint>
 #include <tuple>
+
+// Last: the static_asserts of the sizes and alignments that go/types gets for gocpp's types
+// (generated from the table in internal/check/sizes.go).
+#include <gocpp/sizes.hpp>

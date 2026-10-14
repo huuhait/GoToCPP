@@ -33,10 +33,14 @@ import (
 //   - It stops at the first error of an argument: in
 //     std.vector[struct{ a Aa; b Bb }] only Aa is reported. report gets
 //     that error, with the position of the argument.
-//   - It uses go/types' default sizes (gc on amd64), not gocppSizes: today
-//     they are the same, but once Phase 03 gives gocppSizes the real C++
-//     layout, unsafe.Sizeof(s) in std.array[byte, unsafe.Sizeof(s)] would
-//     be Go's size (TestOpaqueArgSizes fails then).
+//   - It uses go/types' default sizes (gc on amd64), not gocppSizes, so
+//     unsafe.Sizeof(s) in std.array[byte, unsafe.Sizeof(s)] would be Go's
+//     size of a string (16), not gocpp's (32). So sizeCallError computes
+//     each unsafe.Sizeof, Alignof and Offsetof in the argument again with
+//     gocppSizes, and one whose value differs is an error, which says to
+//     use a constant (const n = unsafe.Sizeof(s); std.array[byte, n]):
+//     go/types computes the constant with gocppSizes, and CheckExpr takes
+//     its value.
 //   - It has no Go version, so every language feature is allowed inside
 //     an argument, whatever the file's //go:build go1.N line says.
 //
@@ -66,6 +70,10 @@ func checkOpaqueArgs(fset *token.FileSet, pkg *types.Package, files []*ast.File,
 						scope: innermost(pkg, arg.Pos()), pos: arg.Pos()}
 					u.mark(arg)
 					if err != nil {
+						report(arg.Pos(), err)
+						continue
+					}
+					if err := sizeCallError(fset, arg, info, "in a C++ template argument"); err != nil {
 						report(arg.Pos(), err)
 						continue
 					}

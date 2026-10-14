@@ -16,7 +16,7 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `src/os/linux/` | the Linux OS layer: `os.cpp`. Phase 08 adds the Linux side of the thread layer `gp::os`. Embedded |
 | `src/os/windows/` | the Windows OS layer (Phase 14; not there yet) |
 | `files.go` | package `rtfiles`: `FS()` holds `include/` and `src/`; `Sources(goos)` lists the `.cpp` files a program is compiled with (`src/*.cpp` and `src/os/<goos>/*.cpp`) |
-| `test/` | the C++ tests (not embedded): `unit.cpp`, `diff.cpp` and `fortify.cpp` |
+| `test/` | the C++ tests (not embedded): `unit.cpp`, `diff.cpp`, `fortify.cpp` and `layout.cpp` (generated) |
 | `testdata/diff/main.go` | the Go side of the differential test |
 | `*_test.go` | the Go tests that build and run the C++ tests, and the checks below |
 | `compile_flags.txt` | the flags for clangd, so the files open without false errors in an editor (the dev shell's clangd) |
@@ -25,7 +25,7 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 
 | Header | What it has |
 |---|---|
-| `rt.hpp` | includes everything below, `nofortify.h` first |
+| `rt.hpp` | includes everything below, `nofortify.h` first and `sizes.hpp` last |
 | `nofortify.h` | turns `_FORTIFY_SOURCE` off at `-O0` (below) |
 | `checks.hpp` | the concepts `gp::go_int` and `gp::go_float`, and the panics of the runtime checks with Go's messages: `panic_divide`, `panic_shift`, `panic_index`, `panic_nil` |
 | `string.hpp` | `gp::string` (owner, data pointer, length: 32 bytes), `"..."_gs` literals (static storage, no allocation), `+`, `+=`, `==`, `<=>`, `s[i]` with Go's bounds check, `gp::len(s)` |
@@ -36,6 +36,7 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `fmtshim.hpp` | `gp::fmtshim::Print`, `Println` and `Printf` (verbs `%v %d %s %t %f`), a stand-in for `fmt` until Phase 05 and 09 |
 | `main.hpp` | `gp::run_main(argc, argv, init, main)`, `gp::args()`, `gp::envs()` |
 | `os.hpp` | the OS layer's interface (declarations only) |
+| `sizes.hpp` | generated from the size table in `internal/check/sizes.go`: a `static_assert` of the size and alignment of each runtime type, the numbers that `unsafe.Sizeof` gives (divergence D15) |
 
 The headers include only the standard headers they need. Every macro of a header that
 `rt.hpp` includes is in every generated file, and a Go name must not be one of them.
@@ -177,6 +178,11 @@ this.
     Every program ends with `_exit`, which skips ASan's leak check, so `gp::os::exit` runs it
     itself in an ASan build.
 - `TestNoFortify`: the `nofortify.h` check above, with `-Werror`.
+- `TestLayout`: compiles `test/layout.cpp` (syntax only) with g++ and clang++. Its
+  `static_assert`s check the sizes, alignments and field offsets of C++ structs like those the
+  emitter writes, against `gocppSizes`; `internal/check` generates it, with `sizes.hpp`
+  (`go test ./internal/check -run TestSizesHeader -update-sizes`), and fails when either is
+  stale. `TestWindowsSyntax` compiles it, and so `sizes.hpp`, with MinGW-w64 too.
 - `TestFSHasEveryFile`: the embedded files are exactly the files of `include/` and `src/`.
 
 The tests that walk `runtime/` leave out names that start with `.` (editor and tool files: an

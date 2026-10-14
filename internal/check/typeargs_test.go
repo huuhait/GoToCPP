@@ -1,6 +1,7 @@
 package check
 
 import (
+	"fmt"
 	"go/ast"
 	"go/constant"
 	"go/token"
@@ -76,19 +77,22 @@ func main() {
 	}
 }
 
-// TestOpaqueArgSizes checks that unsafe.Sizeof in an opaque argument gives
-// the package's own size (gocppSizes). CheckExpr takes no types.Config and
-// uses go/types' default sizes (gc on amd64), which are the same as the
-// stub today. When Phase 03 gives gocppSizes the real C++ layout (a string
-// is 32 bytes), this test fails, on purpose: the arguments must then get
-// the same sizes another way.
+// TestOpaqueArgSizes pins unsafe.Sizeof, Alignof and Offsetof in the
+// expressions that types.CheckExpr checks (opaque arguments and skipped
+// roots): CheckExpr computes them with Go's sizes, so each one is computed
+// again with gocppSizes. Where the two agree (an int, an int8 field at
+// offset 8), the argument keeps its value; where they differ (a string is
+// 16 bytes in Go and 32 in gocpp), it is an error that says to use a
+// constant. A constant gets gocpp's value, also in an argument.
 func TestOpaqueArgSizes(t *testing.T) {
 	src := `package main
 
 import (
 	"unsafe"
+	. "unsafe"
 
 	"<array>"
+	"<stdio.h>"
 )
 
 type pair struct {
@@ -96,34 +100,83 @@ type pair struct {
 	b string
 }
 
+type tri struct {
+	s string
+	b int8
+}
+
+type outer struct {
+	x int8
+	tri
+}
+
 var s string
 var p pair
+var q *tri
+var o outer
+var n int
 
-const (
-	sizeS = unsafe.Sizeof(s)
-	sizeP = unsafe.Sizeof(p)
-)
+const sizeS = unsafe.Sizeof(s)
 
-var a std.array[byte, unsafe.Sizeof(s)]
-var b std.array[byte, unsafe.Sizeof(p)]
+var a1 std.array[byte, unsafe.Sizeof(s)]
+var a2 std.array[byte, (unsafe.Sizeof(p) + 1)]
+var a3 std.array[byte, Sizeof(s)]
+var a4 std.array[byte, unsafe.Offsetof(q.b)]
+var a5 std.array[byte, unsafe.Offsetof(o.b)]
+var a6 std.array[[unsafe.Sizeof(s)]byte, 2]
 
-func main() { _, _ = a, b }
+var b1 std.array[byte, sizeS]
+var b2 std.array[byte, unsafe.Sizeof(n)]
+var b3 std.array[byte, unsafe.Offsetof(p.b)]
+var b4 std.array[byte, unsafe.Alignof(s)]
+var b5 std.array[byte, unsafe.Alignof(p)]
+
+const k C.int = unsafe.Sizeof(s)
+
+func main() { _, _, _, _, _, _, _, _, _, _, _ = a1, a2, a3, a4, a5, a6, b1, b2, b3, b4, b5 }
 `
 	root := writeTree(t, map[string]string{"gocpp.mod": "module example.com/m\n", "main.gp": src})
 	prog, r := loadAndCheck(t, load.Config{}, root, ".")
-	if errs := errorText(t, prog, r, root, true); errs != "" {
-		t.Fatalf("errors:\n%s", errs)
+	// The errors: the line (by a marker), the column, the call, where it is,
+	// Go's value and gocpp's.
+	wantErrs := []struct {
+		marker         string
+		col            int
+		call           string
+		where          string
+		goSize, gpSize int
+	}{
+		{"var a1", 24, "unsafe.Sizeof(s)", "in a C++ template argument", 16, 32},
+		{"var a2", 25, "unsafe.Sizeof(p)", "in a C++ template argument", 24, 40},
+		{"var a3", 24, "Sizeof(s)", "in a C++ template argument", 16, 32},
+		{"var a4", 24, "unsafe.Offsetof(q.b)", "in a C++ template argument", 16, 32},
+		{"var a5", 24, "unsafe.Offsetof(o.b)", "in a C++ template argument", 24, 40},
+		{"var a6", 19, "unsafe.Sizeof(s)", "in a C++ template argument", 16, 32},
+		{"const k C.int", 17, "unsafe.Sizeof(s)", "next to a C/C++ expression", 16, 32},
+	}
+	want := "# example.com/m\n"
+	for _, e := range wantErrs {
+		want += fmt.Sprintf("./main.gp:%d:%d: cannot use %s %s: it would be Go's %d, not gocpp's %d (use a constant: const n = %s)\n",
+			lineOf(t, src, e.marker), e.col, e.call, e.where, e.goSize, e.gpSize, e.call)
+	}
+	if errs := errorText(t, prog, r, root, true); errs != want {
+		t.Fatalf("errors:\n%s\nwant:\n%s", errs, want)
 	}
 	p := mainPkg(t, prog, r)
-	for _, c := range []struct{ name, at, src string }{
-		{"sizeS", "unsafe.Sizeof(s)]", "unsafe.Sizeof(s)"},
-		{"sizeP", "unsafe.Sizeof(p)]", "unsafe.Sizeof(p)"},
+	for _, c := range []struct {
+		at, src string
+		want    int64
+	}{
+		{"sizeS]", "sizeS", 32},
+		{"unsafe.Sizeof(n)]", "unsafe.Sizeof(n)", 8},
+		{"unsafe.Offsetof(p.b)]", "unsafe.Offsetof(p.b)", 8},
+		{"unsafe.Alignof(s)]", "unsafe.Alignof(s)", 8},
+		{"unsafe.Alignof(p)]", "unsafe.Alignof(p)", 8},
 	} {
-		want := p.Types.Scope().Lookup(c.name).(*types.Const).Val()
 		e := findExpr(t, prog, p, lineOf(t, src, c.at), c.at, c.src)
 		got := p.Info.Types[e].Value
-		if got == nil || !constant.Compare(got, token.EQL, want) {
-			t.Errorf("%s in an opaque argument is %v, want %v (%s)", c.src, got, want, c.name)
+		if got == nil || !constant.Compare(got, token.EQL, constant.MakeInt64(c.want)) {
+			t.Errorf("%s in an opaque argument is %v, want %d", c.src, got, c.want)
 		}
 	}
 }

@@ -38,7 +38,7 @@
 - [ ] 3.14 Runtime checks + Go panic messages + exit code 2 + `backtrace()` trace + `-nochecks` (keeps Go's defined results)
 - [ ] 3.15 Remaining builtins + `fmt` shim for composite values (slices, maps sorted, structs, `&{…}`, `String()`)
 - [ ] 3.16 Package-level vars (`InitOrder`) + multiple `init()`
-- [~] 3.17 `gocppSizes` + `static_assert` sync
+- [x] 3.17 `gocppSizes` + `static_assert` sync
 - [ ] 3.18 Tests: ≥ 150 run, ≥ 60 differential, sanitizer CI job
 
 ## Exit criteria
@@ -114,3 +114,15 @@
   Phase 05 §2.6); 3.9 `gp::newtype` has the size of the type it wraps; 3.5a merge: TestSizesTable fails
   on purpose until the `[]int` row stops being pending and `-update-sizes` is run (same for maps in 3.7,
   arrays in 3.6). `unsafe.Sizeof` of a type with a C/C++ part by value is an error until Phase 04.
+- 2026-10-14: Job 3.17 (gocppSizes from one table, generated runtime/include/gocpp/sizes.hpp and
+  runtime/test/layout.cpp, staleness and table tests; unsafe.Sizeof/Alignof/Offsetof re-checked inside
+  C++ template arguments; an error for a type with a C/C++ part by value until Phase 04) committed, clean
+  after 2 review rounds. Empty struct and `[0]T` are 1 byte (D15). Placeholders: chan 16 (Phase 08), func
+  32 (3.11), interface 32 (Phase 05). Pending rows (slice 3.5, map 3.7, array 3.6) make TestSizesTable
+  fail on purpose when the type lands: clear `pending` and run `-update-sizes`.
+- 2026-10-14 (3.5a review, for 3.3/3.5b): a plain assignment whose right side is reachable from its left
+  side (`n = n.kids[0]`, `s[0] = s[0].kids[0]`) frees the source while it is read in the generated
+  struct's operator=: the emitter needs copy-then-move or a temporary there. `s = append(s, …)` must
+  move `s` (std::move) when no other argument reads it: 1e7 appends 130 ms vs 170–230 ms without (Go
+  50–90 ms; the rest is eager memset/mmap: a calloc-based allocator for large trivial arrays is a Phase
+  15 idea).

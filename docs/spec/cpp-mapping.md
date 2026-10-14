@@ -103,8 +103,12 @@ Source: [Phase 02 §2.1](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/
 descriptor chosen by the **Go** type
 ([Phase 05 §2.2](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md#22-type-descriptors-chosen-by-the-go-type)).
 
-**Sizes.** `unsafe.Sizeof` reports the sizes of these C++ types, which differ from Go's
-([D15](language.md#d15-different-sizes)).
+**Sizes.** `unsafe.Sizeof`, `unsafe.Alignof` and `unsafe.Offsetof` report the layout of these
+C++ types, which differs from Go's ([D15](language.md#d15-different-sizes)): a pointer is 16
+bytes, a `string` 32, a slice 40, a map 16, a `weak.Pointer` 24, and an empty struct 1. A struct
+is laid out like the C++ struct (fields in source order). The table that gives the type checker
+these numbers is in `internal/check/sizes.go`; `runtime/include/gocpp/sizes.hpp` is generated
+from it and checks them with `static_assert`s.
 
 Sources: [root README §6](../../plans/2026-10-13-gocpp/README.md#6-type-mapping-cheat-sheet),
 [Phase 02 §2.3](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/README.md#23-expressions-the-important-rules),

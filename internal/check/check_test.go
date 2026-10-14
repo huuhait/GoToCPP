@@ -284,8 +284,8 @@ func contains(list []string, s string) bool {
 }
 
 // TestConfig checks the settings of types.Config: the pinned Go version,
-// the per-file version of a //go:build go1.N line, the sizes stub and
-// FakeImportC.
+// the per-file version of a //go:build go1.N line, gocpp's sizes
+// (gocppSizes: a string is 32 bytes) and FakeImportC.
 func TestConfig(t *testing.T) {
 	root := writeTree(t, map[string]string{
 		"gocpp.mod": "module example.com/m\n",
@@ -303,6 +303,7 @@ const (
 		a int8
 		b int64
 	}{})
+	stringSize = unsafe.Sizeof("")
 )
 
 func main() {
@@ -331,7 +332,7 @@ func main() {
 	if versions["a.gp"] != "go1.25" || versions["old.gp"] != "go1.21" {
 		t.Errorf("FileVersions %v, want a.gp go1.25 and old.gp go1.21", versions)
 	}
-	for name, want := range map[string]int64{"intSize": 8, "pairSize": 16} {
+	for name, want := range map[string]int64{"intSize": 8, "pairSize": 16, "stringSize": 32} {
 		c, _ := p.Types.Scope().Lookup(name).(*types.Const)
 		if c == nil {
 			t.Fatalf("no constant %s", name)
