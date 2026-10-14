@@ -16,7 +16,7 @@
   - [x] `&p.f`, `&s[i]`, `&arr[i]`, `&global`
 - [x] 3.4 Strings (runtime, literals, slicing, concat, compare, UTF-8 range, conversions)
 - [x] 3.5 Slices (make, append + growth formula, sub-slice, copy, nil, clear; `cap >= len` only) (slice→array conversions moved to 3.6b; printing slices with fmt is 3.15b)
-- [~] 3.6 Arrays (`gp::array`, checked index, `==`) + range rules (hidden counters, copy on `range arr`)
+- [x] 3.6 Arrays (`gp::array`, checked index, `==`) + range rules (hidden counters, copy on `range arr`)
 - [~] 3.7 Maps
   - [ ] get / set / ref / lookup / erase / len / clear
   - [ ] nil-map panics
@@ -233,3 +233,16 @@
   a compile error (Go prints `[len/cap]0x<address>`); internal/check/printslice.go. For Phase 07: that
   check uses Underlying(), so a type parameter whose core type is a slice (`func f[S ~[]int](s S) {
   println(s) }`) is not caught yet: use the core type. tests/run/slices_append still waits for 3.15b.
+- 2026-10-14: Job 3.6b (arrays in the emitter: literals incl. keyed and [...], checked index, op=, ==, slicing
+  with the right owner, &a[i], [N]T(s) and (*[N]T)(s), every range form, gc's order) committed, clean after 4
+  review rounds. Range over an array is by reference only when the array is reached from a variable and
+  neither the body nor a range target's operands can change or free it (calls count); else
+  gp::range_array_copy. Large values (> 128 KiB): new boxed variables, `&[N]T{...}` and shadowing
+  declarations are built in their box (gp::new_array, new_array_keyed, new_to_array); a by-value parameter of
+  such a type is `const A&` in C++ and copied into a box at the callee's entry. D24 covers the rest (results,
+  literals that don't initialize a new variable, order temporaries). print/println of arrays and structs is a
+  check error (as in gc). For 3.11 (func types/values): the C++ type of `func(A) R` with a large A must be
+  `gp::func<R(const A&)>`; function literals with such a parameter reuse prepare/paramBoxes (const A& + box
+  at entry); 3.10's method value/expression lambdas forward such parameters by reference; 3.8 large structs
+  follow the same largeVar rule. For every range iterator: the iterator must own or keep alive what it reads
+  after the targets' operands run (3.7b review).
