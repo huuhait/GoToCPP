@@ -486,3 +486,28 @@ func TestSeverityString(t *testing.T) {
 		}
 	}
 }
+
+func TestRewrite(t *testing.T) {
+	// Found in this order: 3, 1, 2. The limit of 10 keeps the first 10
+	// found, so the order matters.
+	var l List
+	l.Add(e("a.gp", 3, 2, "three"))
+	l.Add(e("a.gp", 1, 2, "one"))
+	l.Add(e("a.gp", 2, 2, "two"))
+	n := l.Rewrite(func(d Diagnostic) []Diagnostic {
+		switch d.Msg {
+		case "one":
+			return nil
+		case "two":
+			return []Diagnostic{e("a.gp", 2, 2, "TWO"), e("a.gp", 2, 5, "more")}
+		}
+		return []Diagnostic{d}
+	})
+	want := []Diagnostic{e("a.gp", 3, 2, "three"), e("a.gp", 2, 2, "TWO"), e("a.gp", 2, 5, "more")}
+	if !reflect.DeepEqual(n.diags, want) {
+		t.Errorf("Rewrite: got %v, want %v", n.diags, want)
+	}
+	if len(l.diags) != 3 || l.diags[1].Msg != "one" {
+		t.Errorf("Rewrite changed the old list: %v", l.diags)
+	}
+}

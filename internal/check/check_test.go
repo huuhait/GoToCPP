@@ -39,7 +39,7 @@ func writeTree(t *testing.T, files map[string]string) string {
 
 // loadAndCheck loads the patterns in the folder dir with the standard
 // library stubs (for linux/amd64 unless cfg says otherwise) and checks the
-// program with Check.
+// program with Check, without the phase gates (gates_test.go tests them).
 func loadAndCheck(t *testing.T, cfg load.Config, dir string, patterns ...string) (*load.Program, *Result) {
 	t.Helper()
 	cfg.Dir, cfg.Stdlib, cfg.GoStd = dir, stdlib.FS(), stdlib.IsStd
@@ -47,7 +47,7 @@ func loadAndCheck(t *testing.T, cfg load.Config, dir string, patterns ...string)
 		cfg.GOOS, cfg.GOARCH = "linux", "amd64"
 	}
 	prog := load.Load(cfg, patterns...)
-	return prog, Check(prog, Config{})
+	return prog, Check(prog, Config{Phase: LastPhase})
 }
 
 // errorText returns what gocpp check would print for the program, like go

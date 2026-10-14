@@ -374,6 +374,23 @@ parameters and `error` results, and `panic(v)` with a basic value, are allowed f
 
 The same table generates `docs/spec/feature-matrix.md`, so the docs always match the compiler.
 
+As built (job 1.12, `internal/check/gates.go`): the table above became about 50 rows (the full
+list is the generated matrix), plus a table of standard packages and members with their phase and
+a table of `Printf` verbs (Phase 02: `%v %d %s %t %f %%`; 03: width, precision, flags, `%q`;
+05: `%T`, `%w`; 09: the rest; a format that is not a constant waits for Phase 09). The rules:
+- **Phase 02 is a floor**: gates never reject the Phase 02 subset, so Phases 00–02 behave the
+  same and the Phase 02 examples pass `gocpp check` while Phase 01 is built (§5).
+- **One error per feature per file**, at its first use; each gated import gets its own error.
+  Gates that replace a go/types error (promoted members of embedded C++ types, `errors.Wrapf`)
+  are reported at every use, in the place of the error they replace, so found order and the
+  10-error limit stay as in `go build`.
+- The `fmt` exemption covers a `Print`/`Println`/`Printf` call whose results are dropped, with
+  arguments of basic types.
+- Phase 10 syntax is found by a token scan, because the parser can't read it yet: the gate error
+  replaces the syntax errors from the first such token on.
+- A gate opens by itself when `version.Phase` reaches its phase, so the later "lift the gates"
+  steps only bump `version.Phase` and update the notes in `gates.go`.
+
 ### 2.10 Diagnostics
 
 Go-style: `path/file.gp:12:5: message`, sorted by position, deduplicated, and at most 10 per

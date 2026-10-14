@@ -17,6 +17,7 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 
 - [ ] `docs/CONTRIBUTING.md` §2: list `tools/stubgen` (the stdlib stub generator) under `tools/` (from job 1.9b)
 - [ ] Tests in `internal/interop` (TestProbeCommand) and `internal/load` (TestLoadModule, TestTestFiles, TestNoFiles) fail when TMPDIR contains `..`: clean the temp paths (`filepath.Clean`/`EvalSymlinks`) before comparing (from the 2.7 review)
+- [ ] FakeImportC false errors still reported (from job 1.11; owner: job 1.10c or 1.15, which touch the error collector in `internal/check/check.go`): `for _, x := range (std.vector[int]{1, 2})` (soft InvalidRangeExpr "value with invalid type"), `std.vector[std.vector[int]]{{1, 2}}` (hard "missing type in composite literal"), `type Handle C.int; h + 1` (hard "cannot convert 1 … to type invalid type"). Drop each one only when its operand is opaque, and add it to the 1.15 corpus
 - [ ] `docs/adr/README.md`: describe dated amendments (like ADR-002's printer line), not only superseding (from job 1.5)
 
 ## Any time (parallel, low risk)

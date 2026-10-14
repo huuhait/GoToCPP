@@ -10,12 +10,13 @@ Everything this document doesn't mention works as the Go spec says.
 |---|---|
 | Status | v0, written in Phase 00 from the plan. Each phase updates it when it builds a feature |
 | Source | [Phase 00 §2.2](../../plans/2026-10-13-gocpp/phase-00-foundations/README.md#22-the-language-as-a-diff-against-go) (the divergence list D1–D21) and the phase READMEs linked in each section |
-| See also | [cpp-mapping.md](cpp-mapping.md) (what the C++ output looks like), [interop.md](interop.md) (using C and C++) |
+| See also | [cpp-mapping.md](cpp-mapping.md) (what the C++ output looks like), [interop.md](interop.md) (using C and C++), [feature-matrix.md](feature-matrix.md) (the phase of each feature) |
 
 **How to read it.** Each section starts with an example. Then it says what Go does, what gocpp
 does, and which phase of the plan builds it. Source files end in `.gp`. Until a phase is done, the
 compiler rejects its features with a clear error: "not supported yet (Phase NN)"
 ([Phase 01 §2.9](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#29-unsupported-feature-checker-phase-gates)).
+The [feature matrix](feature-matrix.md) lists every feature with the phase that brings it.
 
 ## Contents
 

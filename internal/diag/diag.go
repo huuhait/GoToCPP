@@ -175,6 +175,22 @@ func typeErrorData(err types.Error) (code int, end token.Pos) {
 	return code, end
 }
 
+// Rewrite returns a new list with the diagnostics of l, in the order they
+// were added, each one replaced by what f returns for it: nothing drops it,
+// the diagnostic itself keeps it, and other diagnostics take its place (in
+// the order that f gives them). Unlike Diagnostics, it keeps the order in
+// which the diagnostics were found, which the limit of 10 errors needs.
+// The continuation lines of a diagnostic (Related) are part of it. l does
+// not change.
+func (l *List) Rewrite(f func(d Diagnostic) []Diagnostic) *List {
+	n := new(List)
+	for _, d := range l.diags {
+		d.Related = slices.Clone(d.Related) // f may change them
+		n.diags = append(n.diags, f(d)...)
+	}
+	return n
+}
+
 // HasErrors reports whether the list has an error (a warning is not an
 // error).
 func (l *List) HasErrors() bool {

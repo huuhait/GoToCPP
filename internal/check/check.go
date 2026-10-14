@@ -18,9 +18,16 @@ import (
 // a //go:build go1.N line, as in Go (types.Info.FileVersions).
 const GoVersion = "go1.25"
 
-// A Config says how Check checks. It has no settings yet; the namespace
-// probe (job 1.10c) adds the C++ compiler that it runs.
-type Config struct{}
+// A Config says how Check checks.
+type Config struct {
+	// Phase is the last finished phase of the plan: the phase gates
+	// (gates.go) reject in user packages every feature of a later phase,
+	// with a message that names it. Zero means version.Phase, and
+	// LastPhase turns the gates off (but not the ones of the features
+	// that gocpp never has). Phase 02's subset is always allowed, so the
+	// phases 00 to 02 give the same result.
+	Phase int
+}
 
 // A Result is what Check found out about a loaded program.
 type Result struct {
@@ -86,6 +93,10 @@ func (p *Package) Checked() bool {
 // instantiation (std.vector[strings.Builder]), which go/types skips
 // because the generic type is opaque: see checkOpaqueArgs.
 //
+// Then Check runs the phase gates over each user package (gates.go): every
+// feature of a phase after Config.Phase is an error that names the phase
+// ("composite types are not supported yet (Phase 03)").
+//
 // A package with a load error (load.Package.Incomplete) is not checked, and
 // neither is a package that imports one, directly or not. Note that go
 // build does a little less for some load errors: when an import can't be
@@ -94,7 +105,7 @@ func (p *Package) Checked() bool {
 // packages, like Check. The caller (gocpp check) decides whether to look
 // at the other packages.
 func Check(prog *load.Program, cfg Config) *Result {
-	_ = cfg
+	gates := newGates(prog.Fset, cfg.phase())
 	r := &Result{Fset: prog.Fset, byLoad: make(map[*load.Package]*Package, len(prog.Packages))}
 	checked := make(map[*load.Package]*types.Package)
 	for _, lp := range prog.Packages {
@@ -105,6 +116,7 @@ func Check(prog *load.Program, cfg Config) *Result {
 			p = checkPackage(prog.Fset, lp, checked)
 			checked[lp] = p.Types
 		}
+		gates.apply(p)
 		r.Packages = append(r.Packages, p)
 		r.byLoad[lp] = p
 	}

@@ -6,8 +6,8 @@
 
 ## Steps
 
-- [ ] 2.1 Emitter skeleton (writer, `#line` with absolute paths repeated where needed, prologue, flat namespace, prototypes, main wrapper)
-- [ ] 2.2 Names
+- [~] 2.1 Emitter skeleton (writer, `#line` with absolute paths repeated where needed, prologue, flat namespace, prototypes, main wrapper)
+- [~] 2.2 Names
   - [ ] C++ keywords, reserved names, user names starting with `gp_`
   - [ ] the runtime's macro names (`EOF`, `errno`, `assert`, `stdin`, …)
   - [ ] `gp_` temporaries
@@ -27,7 +27,7 @@
   - [ ] labeled `break`/`continue`, `goto` (temporaries in blocks)
   - [ ] `return` (single and multiple)
 - [ ] 2.5 Minimal evaluation-order pass (incl. loop-condition / `else if` / `case` shapes)
-- [ ] 2.6 Functions: params, multiple results (`std::tuple`), prototypes
+- [~] 2.6 Functions: params, multiple results (`std::tuple`), prototypes
 - [x] 2.7 Runtime v0 (`gp::string` minimal, helpers, panic as exception, print/println, unbuffered-order stdout, fmtshim, run_main, OS layer `runtime/src/os/` + no-POSIX-outside check) + C++ unit tests
 - [ ] 2.8 Driver: `build`, `run`, `emit`, `-x`, `-work`, `-asan`, compiler detection, embedded runtime
 - [ ] 2.9 Internal-error path for C++ compile failures

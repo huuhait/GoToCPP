@@ -197,7 +197,7 @@ small block inside the loop or branch). Phase 03 extends the pass to every const
 ### 2.6 Runtime v0 (`runtime/include/gocpp/rt.hpp`)
 
 Small, but the API shape is final so later phases only grow it:
-- `gp::string` (minimal): literal, concatenation, comparison (`<=>`), `len`, byte index, print.
+- `gp::string` (minimal): literal, concatenation, comparison (`<=>`), `len`, byte index `s[i]` (in the Phase 02 subset; slicing `s[a:b]` is Phase 03), print.
 - `operator""_gs`, the integer helpers (`div`, `rem`, `shl`, `shr`, `f2i`, all returning the Go type).
 - **`panic` is a C++ exception from the start:** `throw gp::panic_error{...}`. `gp::run_main`
   catches it, flushes stdout, prints `panic: msg` + `goroutine 1 [running]:` and exits with
