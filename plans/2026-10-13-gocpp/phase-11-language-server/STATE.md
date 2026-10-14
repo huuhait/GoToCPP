@@ -47,3 +47,11 @@
   the stdlib, leaking files 902 → 564).
 - 2026-10-13: Job 11.10a (the TextMate grammar) committed, clean after 2 review rounds; VS Code
   1.109's own token scopes match the test tokenizer on 8 files; Node.js joined the dev shell.
+- 2026-10-14 (manager, 11.1 review): line ends follow gopls's rule, not the LSP spec's: only `\n` ends a
+  line (a `\r` before it belongs to the line end; a lone `\r` is a character), so the server, gopls,
+  go/token and Neovim agree. For 11.2: Serve handles one message at a time today; 11.2 needs a read
+  loop that applies notifications in order, requests in goroutines with a context per ID, and
+  RequestCancelled (-32800) / ContentModified (-32801) replies. For 11.4: convert positions through
+  byte offsets (`Mapper.Position(offset)`), and skip diagnostics for an overlay marked broken after a
+  failed didChange. For 11.11: one didChange with 100 changes on a 1 MiB file costs ≈ 86 ms (the text and
+  line index are rebuilt per change, like gopls).

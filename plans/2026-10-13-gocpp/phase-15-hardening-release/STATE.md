@@ -52,3 +52,8 @@
 - 2026-10-13 (your decisions): renumbered from Phase 14 to 15, because the new Phase 14 ports to
   Windows. macOS is no longer a target; the platform stream is Linux arm64 + packaging; size now
   9–11 weeks. A goroutine scheduler is not on the post-1.0 list (`go` stays an OS thread).
+- 2026-10-14 (from the 11.1 review): BSD-3 clause 2 says a binary distribution must carry the copyright
+  notice. Release binaries and their docs must include a THIRD_PARTY notice with Go's license (the
+  parser fork in internal/syntax, internal/format, internal/diff, the stdlib stubs) and gopls's (the
+  copied LSP protocol in internal/lsp/protocol), e.g. printed by `gocpp version -licenses` and shipped
+  next to the binary.
