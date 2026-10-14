@@ -340,3 +340,9 @@
 - 2026-10-14 (3.15b, manager): complex numbers (complex64/complex128, complex/real/imag) are gated to Phase 03
   but were never built: job 3.15c builds them (Go's own * and / rules for Inf/NaN, constants, ==, map keys,
   printing, sizes). %T stays gated to Phase 05 (not in §2.10's verb list), though the shim prints it.
+- 2026-10-14 (3.15b review, for 3.12): two reads that can panic in one argument list stay inside the C++ call,
+  whose argument order is unspecified: `fmt.Println(s[i], arr[i])` and `g(s[i], arr[i])` panic on arr first with
+  g++ ("with length 2"), where Go and clang++ panic on s first. 3.12 must hoist every panicking read except the
+  last into a temporary when several share an argument list. Also for 3.12: `&[]int{1}` and `&map[K]V{}` pass
+  the checker but hit an internal error in internal/lower/addr.go:80 (box the composite and take its address,
+  as Go does).
