@@ -120,7 +120,9 @@ more dots, and the stock parser rejects them in every *type* position (expressio
 field of type `std.chrono.seconds`, or a member type `std.vector[int].iterator`. The patch lets
 `parseTypeName` loop over `.Name` parts, including after a type instance. `go/types` already
 accepts these nested selectors when they are rooted in `C` (checked through the §2.5 rewrite).
-One-dot types such as `std.vector[int]` and `*SDL.SDL_Window` need no patch.
+One-dot types such as `std.vector[int]` and `*SDL.SDL_Window` need no patch. The type name goes on at a
+`.` only when a name follows (otherwise upstream's error and recovery stay). Member templates
+(`a[T].b[U]`) are not supported yet (found by job 1.4).
 
 `FORK.md` records the upstream version, every patch, and a re-fork procedure
 (`internal/syntax/update.sh`: copy the new upstream, re-apply the patches as git patches, run
@@ -229,7 +231,10 @@ backslash escapes), and an unquoted argument that starts with `//` starts a comm
 5. **Keep conversions of opaque values typed.** `n := int(cstring.strlen(p))` would otherwise give
    `n` the type `invalid`, and every later mistake with `n` would go unreported. The conversion is
    rewritten to a hidden generic helper, `gp_as[int](C.strlen(p))`, which `go/types` types as
-   `int` (verified during the audit). Codegen emits a normal C++ cast.
+   `int` (verified during the audit). Codegen emits a normal C++ cast. This happens in step 1.10,
+   not before type checking (manager, 2026-10-13): only go/types knows whether `int(x)` is a
+   conversion and whether `x` is opaque (also for `x := cstring.strlen(p); n := int(x)`), so the
+   package is checked once, such conversions are rewritten, and it is checked again.
 6. **Add `import "C"`** to files that use `C`, a header package or a namespace.
 
 What the user wrote:
@@ -450,7 +455,7 @@ first syntax error of each line (the compiler does that even with `-e`, while go
 7. **1.7 Directive parser** for `//gocpp:` lines with validation and suggestions.
 8. **1.8 AST preprocessing** (§2.5): header-package and namespace rewrites with positions
    kept, the package-wide name set (`load.PackageNames`, from step 1.6), the namespace probe
-   (cached), `gp_as[T]` conversions, shadowing tests.
+   (cached), shadowing tests (`gp_as[T]` conversions moved to step 1.10).
 9. **1.9 Package loader + importer** (§2.6): dir scan, `_test.gp`, build constraints, cycles,
    stubs for every package the target programs import. It imports dot-imported packages before
    the rewrite (their names are an input of `load.RewriteFile`, and should also reach
@@ -460,8 +465,8 @@ first syntax error of each line (the compiler does that even with `-e`, while go
    clauses, then calls `load.ClassifyImports` with a `packageName` function (without one, step
    1.6 guesses names from the path, like goimports). Steps 1.6 and 1.7 each check header paths
    (with small differences, e.g. `< lua.h>`); the loader makes them share one check.
-10. **1.10 go/types integration** (§2.7) including a `gocppSizes` stub and the `CheckExpr` pass
-    over opaque template arguments.
+10. **1.10 go/types integration** (§2.7) including a `gocppSizes` stub, the `CheckExpr` pass
+    over opaque template arguments, and the `gp_as[T]` rewrite with a second check (§2.5 step 5).
 11. **1.11 Opaque pass** (§2.8) with the widened "comes from C/C++" rule, the sanity rule and
     recorded type expressions.
 12. **1.12 Unsupported-feature checker** (§2.9) with the full table + generated feature matrix.

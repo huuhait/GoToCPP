@@ -26,13 +26,13 @@
 - [~] 1.8 AST preprocessing (jobs 1.8a: rewrites, 1.8b: namespace probe; `gp_as` comes after)
   - [x] drop header imports; `raylib.X` → `C.X`; undeclared `ns.X` → `C.ns.X` (package-wide name set); inject `import "C"` only where used
   - [ ] namespace probe (one `-fsyntax-only` file, cached per include set) → `undefined: x` for non-namespaces
-  - [ ] `T(opaque)` → `gp_as[T](…)`
+  - [x] `T(opaque)` → `gp_as[T](…)`: moved to step 1.10 (needs go/types)
   - [x] position preservation + shadowing tests
-- [ ] 1.9 Package loader + importer
+- [~] 1.9 Package loader + importer (jobs 1.9a: loader core, 1.9b: stdlib stubs)
   - [ ] dir scan, `_test.gp`, `//go:build`
   - [ ] import cycles
   - [ ] stubs for every stdlib package the target programs import
-- [ ] 1.10 go/types integration (`GoVersion`, `FakeImportC`, `Sizes` stub, full `Info`) + `CheckExpr` over opaque template arguments
+- [ ] 1.10 go/types integration (`GoVersion`, `FakeImportC`, `Sizes` stub, full `Info`) + `CheckExpr` over opaque template arguments + `gp_as[T]` (two checks)
 - [ ] 1.11 Opaque pass (widened "comes from C/C++" rule, recorded C type expressions, sanity rule)
 - [ ] 1.12 Unsupported-feature checker with the full gate table + generated `feature-matrix.md`
 - [x] 1.13 Diagnostics package (format, sort, dedupe, limit, caret)
@@ -124,3 +124,5 @@
 - 2026-10-13: Job 1.8a (`internal/load/rewrite.go`) committed, clean after 2 review rounds: header and
   namespace rewrites, `import "C"`, the hint, Go scoping incl. type switches; the 5 valid spike files
   type-check with stock go/types. Step 1.8 stays open for the probe (1.8b) and `gp_as[T]`.
+- 2026-10-13 (manager): `gp_as[T]` moves from 1.8 to 1.10 (two type checks), because only go/types
+  knows conversions and opaque operands. Patch 3 doesn't support member templates (`a[T].b[U]`) yet.
