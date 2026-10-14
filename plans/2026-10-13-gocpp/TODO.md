@@ -26,6 +26,7 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [ ] The gates reject a call through a parenthesized function name, `(g)(1)` and `(fmt.Println)(1)`, as "function values … (Phase 03)" at Phase 02: unparen the callee before the function-value check (from job 2.3); give it to the next job that touches `internal/check/gatewalk.go`
 - [ ] Phase 02 README §2.2 file table: add `ops.go` (operators, conversions, `s[i]`, `len`, `panic`; from job 2.3)
 - [ ] `docs/spec/cpp-mapping.md:80` maps `uintptr` to `uintptr_t`; the emitter writes `uint64_t` (job 2.1 decision): fix the doc (from the 2.3 review)
+- [ ] The GOCPP_CXX/GOCPP_REQUIRE_CXX compiler-matrix test code exists four times (runtime/cxx_test.go, tests/harness_test.go, internal/interop/nsprobe_test.go, internal/check/nsprobe_test.go) with slightly different messages: one shared internal test helper (from the 1.10c review)
 - [ ] `docs/adr/README.md`: describe dated amendments (like ADR-002's printer line), not only superseding (from job 1.5)
 
 ## Any time (parallel, low risk)

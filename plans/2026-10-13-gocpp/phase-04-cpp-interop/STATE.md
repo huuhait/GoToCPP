@@ -55,3 +55,9 @@
   like Go's, before any compiler or probe runs them (`gocpp check` and the editor run probes);
   `.h++`/`.inl` are C++ headers; an explicit `extern-c` wins; `extern-c` + `no-extern-c` on one
   header is an error.
+- 2026-10-13 (namespace probe job 1.10c): until this phase applies `//gocpp:pkg-config` and
+  `//gocpp:cflags` (through the flag allow-list, §2.9), the probe is skipped for a package with any
+  such directive (all names Unknown, no include errors), so there are no false errors outside a Nix
+  shell. This phase removes that rule (`TODO(phase 04)` in internal/check/nsprobe.go) and passes the
+  checked flags to the probe. A gap to close here too: flags from the environment (trusted) other
+  than CPATH/CPLUS_INCLUDE_PATH don't reach the probe.

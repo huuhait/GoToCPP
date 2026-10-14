@@ -19,7 +19,7 @@
   - [x] `gp::div/rem/shl/shr/f2i` (return the Go type; `MIN/-1`, `MIN%-1`, per-type float→int)
   - [x] conversions between basic types
   - [x] calls
-- [ ] 2.4 Statements
+- [~] 2.4 Statements
   - [ ] `var`, `:=`, `=`, parallel assignment, op-assign, `++/--`
   - [ ] `if` with init
   - [ ] `for` (all forms; hidden counter for `range` over int; body block before labels)
