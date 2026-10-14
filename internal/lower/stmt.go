@@ -33,7 +33,8 @@ import (
 //	p, p.f = q, 5            { auto gp_t0 = p; p = q; gp_t0->f = 5; } (the old p: structs.go)
 //	n = n.kids[0]            n = Node(n.kids[0]); (a copy first: sharedCopy, structs.go)
 //	x++, x--                 x++; x--;  (C++ converts a small integer back with Go's wrapping)
-//	return a, b              return {a, b};
+//	return a, b              return {a, b};  (with defers: gp_r0 = a; gp_r1 = b; goto gp_ret0;)
+//	defer f(x)               gp_df.gp_push(f, x);  (defer.go)
 //	L: s                     L:; s  (only for a label that a goto uses)
 //	goto L                   goto L;
 //	fallthrough              [[fallthrough]];
@@ -138,6 +139,8 @@ func (fg *funcGen) stmt(s ast.Stmt) {
 		fg.rangeStmt(s)
 	case *ast.SwitchStmt:
 		fg.switchStmt(s)
+	case *ast.DeferStmt:
+		fg.deferStmt(s) // defer.go
 	default:
 		fg.g.unsupported(s.Pos(), nodeKind(s))
 	}
@@ -298,6 +301,10 @@ func oneExpr(s ast.Stmt) bool {
 // returnStmt lowers return. Several results are a std::tuple, which `return {a, b};` makes
 // from its values left to right; a bare return in a function with named results returns them.
 func (fg *funcGen) returnStmt(s *ast.ReturnStmt) {
+	if fg.fn.defers != nil {
+		fg.deferReturn(s) // defer.go: the results, then the exit
+		return
+	}
 	p := fg.g.pos(s.Pos())
 	switch {
 	case len(s.Results) == 0 && len(fg.fn.results) == 0:

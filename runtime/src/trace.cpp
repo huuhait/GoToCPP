@@ -17,25 +17,38 @@
 
 namespace gp {
 
-panic_error::panic_error(gp::string text) noexcept : gp_text(std::move(text)) {
+namespace {
+
+// walk_all records the whole stack of the calling thread into all (innermost first, up to
+// panic_error::gp_max_walk frames) and reports whether it got to its end. The buffer grows 8
+// times each try, so the walks cost O(depth) in all. It throws std::bad_alloc without memory.
+bool walk_all(std::vector<uintptr_t>& all) {
+    for (std::size_t size = 1024; size <= panic_error::gp_max_walk; size *= 8) {
+        all.resize(size);
+        int n = os::stack(all.data(), static_cast<int>(size));
+        if (n >= 0 && static_cast<std::size_t>(n) < size) {
+            all.resize(static_cast<std::size_t>(n));
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+panic_error::panic_error(gp::string text, panic_identity id) noexcept
+    : gp_text(std::move(text)), gp_id(id) {
     gp_npcs = os::stack(gp_pcs, gp_max_trace);
     if (gp_npcs < gp_max_trace) {
         return;
     }
     // A deep stack: walk it again to its end, for Go's outer frames and the count of the frames
-    // left out. The buffer grows 8 times each try, so the walks cost O(depth) in all, and only
-    // a deep stack pays for them.
+    // left out. Only a deep stack pays for it.
     try {
         auto all = std::make_shared<std::vector<uintptr_t>>();
-        for (std::size_t size = 1024; size <= gp_max_walk; size *= 8) {
-            all->resize(size);
-            int n = os::stack(all->data(), static_cast<int>(size));
-            if (n >= 0 && static_cast<std::size_t>(n) < size) {
-                all->resize(static_cast<std::size_t>(n));
-                all->shrink_to_fit();
-                gp_all = std::move(all);
-                return;
-            }
+        if (walk_all(*all)) {
+            all->shrink_to_fit();
+            gp_all = std::move(all);
         }
     } catch (...) {
         // No memory: the trace shows the inner frames only.
@@ -1088,6 +1101,7 @@ struct frame {
     uint64_t call;   // the address of the call (the return address - 1), in the file
     uint64_t offset; // of the return address in the function
     bool raw_pc;     // no symbols: "?()" and the address
+    bool gopanic;    // the panic frame between a deferred call and the panic it ran in
 };
 
 // inner and outer are how many frames Go 1.25 prints at the top and at the bottom of a stack
@@ -1109,6 +1123,10 @@ void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool co
         // The names of a deep recursion are the same few functions: each is parsed once.
         std::vector<std::pair<const exe_symbol*, go_func>> names;
         for (std::size_t k = 0; k < n; k++) {
+            if (pcs[k] == 0) {
+                frames.push_back(frame{go_func{}, 0, 0, false, true});
+                continue;
+            }
             if (!in_code(pcs[k])) {
                 continue; // a shared library: libc, libstdc++, libgcc
             }
@@ -1136,16 +1154,19 @@ void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool co
                 named = names.end() - 1;
             }
             if (named->second.shown) {
-                frames.push_back(frame{named->second, call, addr - sym.addr, false});
+                frames.push_back(frame{named->second, call, addr - sym.addr, false, false});
             }
         }
     }
-    if (frames.empty()) {
+    if (std::all_of(frames.begin(), frames.end(), [](const frame& f) { return f.gopanic; })) {
         // No symbols (a stripped program), or none of a function that the trace shows: the
         // addresses in the program's code, for addr2line.
+        frames.clear();
         for (std::size_t k = 0; k < n; k++) {
-            if (in_code(pcs[k])) {
-                frames.push_back(frame{go_func{}, pcs[k] - img.bias, 0, true});
+            if (pcs[k] == 0) {
+                frames.push_back(frame{go_func{}, 0, 0, false, true});
+            } else if (in_code(pcs[k])) {
+                frames.push_back(frame{go_func{}, pcs[k] - img.bias, 0, true, false});
             }
         }
     }
@@ -1181,6 +1202,12 @@ void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool co
             out += " frames elided...\n";
         }
         const frame& f = frames[shown[k]];
+        if (f.gopanic) {
+            // Go shows runtime.gopanic, with its argument words and its line in the runtime's
+            // panic.go; gocpp's panic has no such frame of its own.
+            out += "panic(...)\n\t?:0\n";
+            continue;
+        }
         if (f.raw_pc) {
             out += "?()\n\t?:0 pc=";
             print_hex(out, f.call + 1);
@@ -1208,24 +1235,87 @@ void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool co
     }
 }
 
+namespace {
+
+// recorded returns the stack that the panic e recorded, and whether it is the whole stack.
+std::pair<std::pair<const uintptr_t*, std::size_t>, bool> recorded(const panic_error& e) {
+    if (e.gp_all != nullptr) {
+        return {{e.gp_all->data(), e.gp_all->size()}, true};
+    }
+    // A full gp_pcs without gp_all: the second walk failed (no memory, or a stack of more than
+    // panic_error::gp_max_walk frames).
+    return {{e.gp_pcs, static_cast<std::size_t>(e.gp_npcs)}, e.gp_npcs < panic_error::gp_max_trace};
+}
+
+} // namespace
+
 void panic_report(std::string& out, const panic_error& e) noexcept {
     std::size_t header = 0;
     try {
-        panic_report(out, e.gp_text);
-        header = out.size();
-        if (e.gp_all != nullptr) {
-            append_trace(out, e.gp_all->data(), e.gp_all->size(), true);
-        } else {
-            // A full gp_pcs without gp_all: the second walk failed (no memory, or a stack of
-            // more than panic_error::gp_max_walk frames).
-            append_trace(out, e.gp_pcs, static_cast<std::size_t>(e.gp_npcs),
-                         e.gp_npcs < panic_error::gp_max_trace);
+        // The chain, the first panic first.
+        std::vector<const panic_error*> chain;
+        for (const panic_error* p = &e; p != nullptr; p = p->gp_prev.get()) {
+            chain.push_back(p);
         }
+        std::reverse(chain.begin(), chain.end());
+        panic_report(out, chain.data(), chain.size());
+        header = out.size();
+        // The trace: like Go, the frames of the last panic's deferred call, a "panic" frame
+        // (the 0 address, append_trace), the frames of the panic before it, and so on down to
+        // the stack of the first panic.
+        std::vector<uintptr_t> pcs;
+        bool complete = true;
+        for (const panic_error* p = &e;;) {
+            auto [st, whole] = recorded(*p);
+            if (p->gp_prev != nullptr && p->gp_inner >= 0 &&
+                static_cast<std::size_t>(p->gp_inner) <= st.second) {
+                pcs.insert(pcs.end(), st.first, st.first + p->gp_inner);
+                pcs.push_back(0);
+                p = p->gp_prev.get();
+                continue;
+            }
+            pcs.insert(pcs.end(), st.first, st.first + st.second);
+            complete = whole;
+            break;
+        }
+        append_trace(out, pcs.data(), pcs.size(), complete);
     } catch (...) {
         // No memory for the trace (or for the header): keep what is there.
         if (header != 0) {
             out.resize(header);
         }
+    }
+}
+
+void panic_chain(panic_error& newer, const panic_error& running) noexcept {
+    panic_error* oldest = &newer;
+    while (oldest->gp_prev != nullptr) {
+        oldest = oldest->gp_prev.get();
+    }
+    if (oldest == &running) {
+        return;
+    }
+    try {
+        oldest->gp_prev = std::make_shared<panic_error>(running);
+        oldest->gp_inner = -1;
+        // The frames of oldest's stack that are the deferred call's: those above the frames it
+        // has in common with this stack, which are gp_run's caller and the callers below it
+        // (gp_run's own frame differs: here it is in its handler, there in the call).
+        auto [st, whole] = recorded(*oldest);
+        std::vector<uintptr_t> here;
+        if (!whole || !walk_all(here)) {
+            return;
+        }
+        std::size_t common = 0;
+        while (common < st.second && common < here.size() &&
+               st.first[st.second - 1 - common] == here[here.size() - 1 - common]) {
+            common++;
+        }
+        if (common > 0 && common < st.second) {
+            oldest->gp_inner = static_cast<int64_t>(st.second - common);
+        }
+    } catch (...) {
+        // No memory: the chain (or the trace's frames of the older panics) stays incomplete.
     }
 }
 

@@ -343,9 +343,9 @@ func TestUnsupported(t *testing.T) {
 		{"sprint", "import \"fmt\"\nfunc main() {\n\tprintln(fmt.Sprint(1))\n}", "main.gp:5:10: cppgen: not supported yet: fmt.Sprint: Phase 02 has only fmt.Print, fmt.Println and fmt.Printf"},
 		{"errorresult", "import \"fmt\"\nfunc main() {\n\tn, err := fmt.Println()\n\tprintln(n, err)\n}", "main.gp:5:5: cppgen: not supported yet: type error"},
 		{"rangechan", "func main() {\n\tfor range make(chan int) {\n\t}\n}", "main.gp:4:12: cppgen: not supported yet: range over channels (Phase 08)"},
-		{"defer", "func main() {\n\tdefer println()\n}", "main.gp:4:2: cppgen: not supported yet: defer statements (Phase 03)"},
+		{"deferlit", "func main() {\n\tdefer func() {}()\n}", "main.gp:4:8: cppgen: not supported yet: calls of function literals (Phase 03)"},
 		{"go", "func main() {\n\tgo println()\n}", "main.gp:4:2: cppgen: not supported yet: go statements (Phase 08)"},
-		{"insideif", "func main() {\n\tif x := 1; x > 0 {\n\t\tdefer println()\n\t}\n}", "main.gp:5:3: cppgen: not supported yet: defer statements (Phase 03)"},
+		{"insideif", "func main() {\n\tif x := 1; x > 0 {\n\t\tgo println()\n\t}\n}", "main.gp:5:3: cppgen: not supported yet: go statements (Phase 08)"},
 		{"nomain", "func f() {}", "main.gp:2:9: cppgen: function main is undeclared in the main package"},
 		{"printptr", "func main() {\n\tx := 1\n\tprintln(&x)\n}", "main.gp:5:10: cppgen: not supported yet: printing a pointer (Phase 03 step 3.15)"},
 		{"fmtptr", "import \"fmt\"\nfunc main() {\n\tfmt.Println(new(int))\n}", "main.gp:5:14: cppgen: not supported yet: printing a pointer (Phase 03 step 3.15)"},
@@ -571,6 +571,67 @@ func TestPanics(t *testing.T) {
 		{"struct-nil-nested", "l := &List{}\n\tfmt.Println(l.next == nil)\n\tl.next.v = 3"},
 		{"struct-nil-call", "fmt.Println(nilPt().b)"},
 		{"struct-index", "var s Arrs\n\ti := 3\n\ts.a[i] = 1"},
+		// defer (step 3.13): a panic runs the deferred calls, then goes on; a deferred call that
+		// panics adds its panic to the chain ("panic: A" then "\tpanic: B", also on a normal
+		// return), and the others still run; a nil dereference's signal line comes once, after
+		// the chain; a panic while a deferred call's arguments are evaluated.
+		{"defer-runs", "defer fmt.Println(\"deferred\")\n\tfmt.Println(\"body\")\n\tpanic(\"boom\")"},
+		{"defer-chain", "defer fmt.Println(\"last\")\n\tdefer boom(\"second\")\n\tpanic(\"first\")"},
+		{"defer-chain3", "defer boom(\"third\")\n\tdefer fmt.Println(\"between\")\n\tdefer boom(\"second\")\n\tpanic(\"first\")"},
+		{"defer-return", "defer fmt.Println(\"still runs\")\n\tdefer boom(\"on return\")\n\tfmt.Println(\"body\")"},
+		{"defer-return-chain", "defer boom(\"B\")\n\tdefer boom(\"A\")"},
+		{"defer-int", "defer boom(\"after\")\n\tpanic(42)"},
+		{"defer-multiline", "defer boom(\"x\\ny\")\n\tpanic(\"a\\nb\")"},
+		{"defer-nil-first", "var p *int\n\tdefer boom(\"after nil\")\n\tfmt.Println(*p)"},
+		{"defer-nil-later", "defer fmt.Println(deref(nil))\n\tpanic(\"first\")"},
+		{"defer-nil-in-defer", "defer deref(nil)\n\tpanic(\"first\")"},
+		{"defer-arg-panic", "a, b := 1, 0\n\tdefer fmt.Println(\"first defer\")\n\tdefer fmt.Println(a / b)\n\tfmt.Println(\"not reached\")"},
+		{"defer-index", "s, i := []int{1}, 3\n\tdefer fmt.Println(\"deferred\", s[0])\n\ts[0] = 9\n\tfmt.Println(s[i])"},
+		{"defer-loop", "for i := range 3 {\n\t\tdefer fmt.Println(\"loop\", i)\n\t}\n\tpanic(\"after the loop\")"},
+		// Go prints two neighbouring panics of the chain whose values have the same interface
+		// words once, as "[recovered, repanicked]" (gocpp/panic.hpp, panic_identity): the same
+		// constant, a bool or 1-byte value, a small integer (< 256), 0.0, "", and the runtime's
+		// global errors are; a larger or negative integer, a string that is not a constant, a
+		// constant next to a variable, two types, and an index error are not.
+		{"rp-const", "defer panic(\"x\")\n\tpanic(\"x\")"},
+		{"rp-const-int", "defer panic(5)\n\tpanic(5)"},
+		{"rp-small", "n := 7\n\tdefer panic(n)\n\tpanic(n)"},
+		{"rp-bool", "b := true\n\tdefer panic(b)\n\tpanic(b)"},
+		{"rp-empty", "e := \"\"\n\tdefer panic(e)\n\tpanic(e)"},
+		{"rp-int8", "var i8 int8 = -1\n\tdefer panic(i8)\n\tpanic(i8)"},
+		{"rp-byte-const", "var c uint8 = 7\n\tdefer panic(c)\n\tpanic(uint8(7))"},
+		{"rp-zero", "f := 0.0\n\tdefer panic(f)\n\tpanic(f)"},
+		{"rp-nil", "defer deref(nil)\n\tvar p *int\n\tfmt.Println(*p)"},
+		{"rp-div", "z := 0\n\tdefer div(1, z)\n\tfmt.Println(1 / z)"},
+		{"rp-nil-map", "var m map[int]int\n\tdefer setm(m)\n\tm[2] = 2"},
+		{"rp-three", "defer panic(5)\n\tdefer panic(5)\n\tpanic(5)"},
+		{"rp-aab", "defer panic(\"B\")\n\tdefer panic(\"A\")\n\tpanic(\"A\")"},
+		{"rp-abb", "defer panic(\"B\")\n\tdefer panic(\"B\")\n\tpanic(\"A\")"},
+		{"rp-big", "big := 100000\n\tdefer panic(big)\n\tpanic(big)"},
+		{"rp-str", "s := \"x\"\n\tdefer panic(s)\n\tpanic(s)"},
+		{"rp-neg", "m1 := -1\n\tdefer panic(m1)\n\tpanic(m1)"},
+		{"rp-int16", "var h int16 = -1\n\tdefer panic(h)\n\tpanic(h)"},
+		{"rp-const-var", "x := \"x\"\n\tdefer panic(x)\n\tpanic(\"x\")"},
+		{"rp-const-var-int", "n := 5\n\tdefer panic(n)\n\tpanic(5)"},
+		{"rp-types", "a, b := 5, int64(5)\n\tdefer panic(b)\n\tpanic(a)"},
+		{"rp-uintptr", "var u uintptr = 5\n\tdefer panic(u)\n\tpanic(uint(5))"},
+		{"rp-index", "s, i := []int{1}, 5\n\tdefer at(s, i)\n\tfmt.Println(s[i])"},
+		{"rp-float-bits", "f, g := 1.0, 1.0\n\tdefer panic(g)\n\tpanic(f)"},
+		// gc's escape analysis makes a local variable that only its declaration gives a
+		// constant that constant (panicid.go); a reassigned or address-taken one, a parameter
+		// and a package variable stay values.
+		{"rp-reassigned", "n := -1\n\tn--\n\tdefer panic(n)\n\tpanic(n)"},
+		{"rp-reassigned-small", "n := 5\n\tn++\n\tdefer panic(n)\n\tpanic(n)"},
+		{"rp-addr", "n := -1\n\tp := &n\n\t_ = p\n\tdefer panic(n)\n\tpanic(n)"},
+		{"rp-param", "fmt.Println(deferPanic(-1))"},
+		{"rp-pkgvar", "defer panic(gbig)\n\tpanic(gbig)"},
+		{"rp-chain-var", "a := 500\n\tb := a\n\tdefer panic(b)\n\tpanic(500)"},
+		{"rp-redeclared", "a := 500\n\ta, c := 600, 1\n\t_ = c\n\tdefer panic(a)\n\tpanic(a)"},
+		{"rp-int64-conv", "n := 100000\n\tdefer panic(int64(n))\n\tpanic(int64(n))"},
+		{"rp-uintptr-conv", "var u uint = 100000\n\tdefer panic(uintptr(u))\n\tpanic(uintptr(u))"},
+		{"rp-int32-conv", "n := 100000\n\tdefer panic(int32(n))\n\tpanic(int32(n))"},
+		{"rp-float-conv", "f := 1.5\n\tdefer panic(float64(f))\n\tpanic(float64(f))"},
+		{"rp-var-decl", "var s = \"long string\"\n\tdefer panic(s)\n\tpanic(\"long string\")"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -586,6 +647,24 @@ func TestPanics(t *testing.T) {
 			}
 			if strings.Contains(tt.body, "mk(") {
 				src += "\nfunc mk() []int {\n\treturn []int{1}\n}\n"
+			}
+			if strings.Contains(tt.body, "deferPanic(") {
+				src += "\nfunc deferPanic(n int) int {\n\tdefer panic(n)\n\tpanic(n)\n}\n"
+			}
+			if strings.Contains(tt.body, "gbig") {
+				src += "\nvar gbig = 100000\n"
+			}
+			if strings.Contains(tt.body, "div(") {
+				src += "\nfunc div(a, b int) int {\n\treturn a / b\n}\n"
+			}
+			if strings.Contains(tt.body, "setm(") {
+				src += "\nfunc setm(m map[int]int) {\n\tm[1] = 1\n}\n"
+			}
+			if strings.Contains(tt.body, "at(s") {
+				src += "\nfunc at(s []int, i int) int {\n\treturn s[i]\n}\n"
+			}
+			if strings.Contains(tt.body, "boom(") {
+				src += "\nfunc boom(s string) {\n\tpanic(s)\n}\n"
 			}
 			if strings.Contains(tt.body, "two(") {
 				src += "\nfunc two() [2]int {\n\treturn [2]int{1, 2}\n}\n"

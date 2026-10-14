@@ -335,6 +335,26 @@ func TestGDBChecks(t *testing.T) {
 			"#1  gpkg_main::add (a=7, b=5) at /work/x.gp:8\n" +
 			"#2  0x00005555555573ed in gpkg_main::main () at /work/x.gp:12\n" +
 			"#3  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/w/x.gp.cpp:27\n", "frame #0 is write (no line information); the program's frames must come first"},
+		// A deferred call: a run of the runtime's frames (gp::, std::) ending with
+		// gp::defer_frame::gp_run may come between the program's frames, nothing else.
+		{5, "#0  gpkg_main::add (a=7, b=5) at /work/x.gp:8\n" +
+			"#1  0x000055555555b2f1 in std::__invoke_impl<void, void (*&)(long, long), long, long> (__f=...) at /usr/include/c++/15/bits/invoke.h:63\n" +
+			"#2  0x000055555555c8e9 in gp::defer_frame::gp_run (this=0x7fffffff9300) at /rt/src/defer.cpp:69\n" +
+			"#3  0x00005555555573ed in gpkg_main::main () at /work/x.gp:12\n" +
+			"#4  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/w/x.gp.cpp:27\n", ""},
+		{5, "#0  gpkg_main::add (a=7, b=5) at /work/x.gp:8\n" +
+			"#1  0x00007ffff7a3b2c4 in qsort () from /lib/libc.so.6\n" +
+			"#2  0x00005555555573ed in gpkg_main::main () at /work/x.gp:12\n" +
+			"#3  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/w/x.gp.cpp:27\n", "frame #1 is qsort (no line information); the program's frames must come first"},
+		{5, "#0  gpkg_main::add (a=7, b=5) at /work/x.gp:8\n" +
+			"#1  0x000055555555c8e9 in gp::detail::release (p=0x7fffffff9300) at /rt/include/gocpp/ptr.hpp:69\n" +
+			"#2  0x00005555555573ed in gpkg_main::main () at /work/x.gp:12\n" +
+			"#3  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/w/x.gp.cpp:27\n", "frame #1 is gp::detail::release at /rt/include/gocpp/ptr.hpp:69; the program's frames must come first"},
+		{5, "#0  gpkg_main::add (a=7, b=5) at /work/x.gp:8\n" +
+			"#1  0x000055555555c8e9 in gp::defer_frame::gp_run (this=0x7fffffff9300) at /rt/src/defer.cpp:69\n" +
+			"#2  0x000055555555b2f1 in std::function<void ()>::operator() (this=0x7ff) at /usr/include/c++/15/bits/std_function.h:591\n" +
+			"#3  0x00005555555573ed in gpkg_main::main () at /work/x.gp:12\n" +
+			"#4  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/w/x.gp.cpp:27\n", "frame #1 is gp::defer_frame::gp_run at /rt/src/defer.cpp:69; the program's frames must come first"},
 		{7, "#0  gpkg_main::add (a=7, b=5) at /work/x.gp:9\n9\t}\n", ""},
 		{len(steps) - 1, "k = 7\n[Inferior 1 (process 1034679) exited normally]\n", ""},
 		{len(steps) - 1, "[Inferior 1 (process 1034679) exited with code 02]\n", "the program didn't exit normally"},

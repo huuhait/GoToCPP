@@ -48,7 +48,7 @@ std::size_t hash_bytes(const void* p, std::size_t n) noexcept {
 
 void panic_nil_map() {
     // Go's plainError: a runtime.Error whose text has no "runtime error: " prefix.
-    throw panic_error{"assignment to entry in nil map"_gs};
+    throw panic_error{"assignment to entry in nil map"_gs, {panic_identity::gp_runtime, 0, 0}};
 }
 
 } // namespace detail

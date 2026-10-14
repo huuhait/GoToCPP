@@ -457,7 +457,11 @@ func (p *debugProgram) checkFrame(line int) func(string) error {
 // the program (in debugNamespace) are want, from frame #0 on, each at a
 // line of its func in the .gp file, and frame #0 at line; the outermost
 // frame is the main function that gocpp generates, at a line of the
-// generated C++ file.
+// generated C++ file. Between two of the program's frames, only a deferred
+// call's frames may come: a run of frames of the runtime and the C++
+// library (gp::, std::) whose outermost one, just inside the next program
+// frame, is gp::defer_frame::gp_run (which calls the deferred function
+// through std::apply).
 func (p *debugProgram) checkBacktrace(want []string, line int) func(string) error {
 	return func(out string) error {
 		frames := parseFrames(out)
@@ -470,18 +474,27 @@ func (p *debugProgram) checkBacktrace(want []string, line int) func(string) erro
 		if !slices.Equal(got, want) {
 			return fmt.Errorf("the program's frames are %v, want %v", got, want)
 		}
-		for i, f := range frames[:len(want)] {
-			fn := p.funcNamed(want[i])
-			switch {
-			case f.num != i || f.fn != want[i]:
+		k := 0 // the next frame of want
+		for i, f := range frames {
+			if k == len(want) {
+				break
+			}
+			if f.num != i || f.fn != want[k] {
+				if k > 0 && f.num == i && deferRun(frames[i:], want[k]) {
+					continue // a deferred call, run by gp::defer_frame::gp_run
+				}
 				return fmt.Errorf("frame #%d is %v; the program's frames must come first", i, f)
+			}
+			fn := p.funcNamed(want[k])
+			switch {
 			case fn == nil:
-				return fmt.Errorf("%s is not a func of %s", want[i], p.rel)
+				return fmt.Errorf("%s is not a func of %s", want[k], p.rel)
 			case !p.paths[f.file] || f.line < fn.start || f.line > fn.end:
 				return fmt.Errorf("frame #%d is %v, not at a line of %s in %s (lines %d to %d)", i, f, fn.name, p.rel, fn.start, fn.end)
 			case i == 0 && f.line != line:
 				return fmt.Errorf("frame #0 is %v, not at line %d", f, line)
 			}
+			k++
 		}
 		last := frames[len(frames)-1]
 		if last.fn != "main" || !p.isCPP(last.file) {
@@ -489,6 +502,21 @@ func (p *debugProgram) checkBacktrace(want []string, line int) func(string) erro
 		}
 		return nil
 	}
+}
+
+// deferRun reports whether frames start with a run of the runtime's and the
+// C++ library's frames (gp::, std::) that ends with gp::defer_frame::gp_run,
+// right before the program's frame next.
+func deferRun(frames []gdbFrame, next string) bool {
+	for i, f := range frames {
+		if f.fn == next {
+			return i > 0 && frames[i-1].fn == "gp::defer_frame::gp_run"
+		}
+		if !strings.HasPrefix(f.fn, "gp::") && !strings.HasPrefix(f.fn, "std::") {
+			return false
+		}
+	}
+	return false
 }
 
 // valueRx matches gdb's answer to print: "$1 = 12".

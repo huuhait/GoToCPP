@@ -154,6 +154,15 @@ func TestOrderPanics(t *testing.T) {
 		{"struct-keyed-order", st, "var p *Pt\n\tq := Pt{b: id(f()), a: id(p.a)}\n\tfmt.Println(q)"},
 		{"struct-slice-elem", st, "i := 4\n\tfmt.Println(gsts[i].a, f())"},
 		{"struct-field-index", st + "var garrs struct{ a [3]int }\n\n", "i := 5\n\tfmt.Println(garrs.a[i], f())"},
+		// defer (step 3.13): the arguments of a deferred call are evaluated at the defer
+		// statement, in the order of a call: the calls first, then the panics; a panic there
+		// runs the calls deferred before it, and the deferred calls see the values of then.
+		{"defer-div-call", "", "a, b := 7, 0\n\tdefer fmt.Println(a/b + f())"},
+		{"defer-index-arg", sl, "i := 5\n\tdefer fmt.Println(\"first\")\n\tdefer fmt.Println(gsl[i], f())"},
+		{"defer-deref-arg", "", "var p *int\n\tdefer id(f())\n\tdefer id(*p + f())"},
+		{"defer-runs-later", "", "defer fmt.Println(\"deferred\", x, f())\n\tx = 100\n\tz := 0\n\tfmt.Println(7 / z)"},
+		{"defer-map-nil", "", "var m map[int]int\n\tdefer fmt.Println(\"after\", f())\n\tm[id(1)] = f()"},
+		{"defer-panic-arg", "", "defer fmt.Println(\"first\", f())\n\tdefer panic(id(f()))\n\tfmt.Println(\"body\", x)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -431,12 +440,28 @@ func TestOrderTemps(t *testing.T) {
 		{"lmk := map[Pt]int{}\n\tlmk[Pt{1, 2}] = f()", "gp::set(lmk, Pt{1, 2}, f());"},
 		{"lmk := map[Pt]int{{x, 1}: 1, {1, 2}: 2}\n\t_ = lmk", "gp::map<Pt, int64_t> lmk = gp::map_of<Pt, int64_t>({{Pt{1, 2}, 2}, {Pt{x, 1}, 1}});"},
 		{"lmv := map[int]Pt{}\n\tfmt.Println(lmv[1].a, f())", "{ auto gp_t0 = f(); gp::fmtshim::Println(gp::get(lmv, 1).a, gp_t0); }"},
+		// defer (step 3.13): the arguments are ordered like those of the call as a statement and
+		// stored; a function of the package is stored as a function pointer, anything else is
+		// called by a generic lambda, with each argument that is not a constant its parameter.
+		{"defer g(1, f())", "gp_df.gp_push(g, 1, f());"},
+		{"defer g(x, f())", "{ auto gp_t0 = f(); gp_df.gp_push(g, x, gp_t0); }"},
+		{"l := 1\n\tdefer g(f(), l)", "gp_df.gp_push(g, f(), l);"},
+		{"defer g(f(), f())", "{ auto gp_t0 = f(); gp_df.gp_push(g, gp_t0, f()); }"},
+		{"defer fmt.Println(x, f())", "{ auto gp_t0 = f(); gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp::fmtshim::Println(gp_a0, gp_a1); }, x, gp_t0); }"},
+		{"defer fmt.Println(\"x\", 1)", "gp_df.gp_push_call([](auto&&...) { gp::fmtshim::Println(\"x\"_gs, int64_t(1)); });"},
+		{"defer println(x == 2, f())", "{ auto gp_t0 = f(); gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp::println(gp_a0, gp_a1); }, x == 2, gp_t0); }"},
+		{"p := &x\n\tdefer g(*p, f())", "{ auto gp_t0 = f(); gp_df.gp_push(g, *p, gp_t0); }"},
+		{"defer g(gsl[0], f())", "{ auto gp_t0 = f(); gp_df.gp_push(g, gsl[0], gp_t0); }"},
+		{"defer delete(gm, f())", "{ auto gp_t0 = f(); gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp::erase(gp_a0, gp_a1); }, gm, gp_t0); }"},
+		{"defer panic(f())", "gp_df.gp_push_call([](auto&& gp_a0) { gp::panic(gp_a0); }, f());"},
+		{"defer fmt.Println(two())", "gp_df.gp_push_call([](auto&& gp_a0) { std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, gp_a0); }, two());"},
+		{"defer g(two())", "gp_df.gp_push_call([](auto&& gp_a0) { std::apply(g, gp_a0); }, two());"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.body, func(t *testing.T) {
 			dir := t.TempDir()
 			src := "package main\n\nimport \"fmt\"\n\nvar x = 1\n\nvar gsl = []int{1, 2}\n\nvar gg = [][]int{{1}}\n\nvar gm = map[int]int{}\n\nvar gms = map[int][]int{}\n\nfunc mk() []int {\n\treturn nil\n}\n\nfunc f() int {\n\tx++\n\tfmt.Print()\n\treturn x\n}\n\n" +
-				"func g(a, b int) int {\n\treturn a + b\n}\n\nfunc h(p *int) *int {\n\treturn p\n}\n\n" +
+				"func g(a, b int) int {\n\treturn a + b\n}\n\nfunc h(p *int) *int {\n\treturn p\n}\n\nfunc two() (int, int) {\n\treturn 1, 2\n}\n\n" +
 				"var ga = [3]int{1, 2, 3}\n\nvar gg2 = [2][2]int{}\n\nfunc mka() *[3]int {\n\treturn nil\n}\n\n" +
 				"type Pt struct{ a, b int }\n\ntype One struct{ v int }\n\ntype Tree struct {\n\tkids []Tree\n\tnext *Tree\n}\n\nvar gst Pt\n\nvar gsts = []Pt{{1, 2}}\n\n" +
 				"type Wrap struct{ *Pt }\n\ntype Huge struct {\n\tv  int\n\tbig [1 << 15]int\n\tn  int\n}\n\n" +

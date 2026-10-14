@@ -121,7 +121,7 @@ gp::string must(bool ok) {
     if (ok) {
         return "ok"_gs;
     }
-    gp::panic("not ok"_gs);
+    gp::panic_constant("not ok"_gs);
 }
 
 int64_t ladder(int64_t n) {

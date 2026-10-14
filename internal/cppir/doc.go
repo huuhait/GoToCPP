@@ -50,9 +50,10 @@
 // # Known limits, for later steps
 //
 //   - A Lambda is always written on one line, because an expression is written as one string:
-//     a closure body over several .gp lines (step 3.11) or a deferred closure (3.13) needs the
+//     a closure body over several .gp lines (step 3.11, also a deferred func literal) needs the
 //     printer to lay out a lambda body that is not inline over several lines, with a #line for
-//     each statement.
+//     each statement. (The lambdas of step 3.13, which call a deferred builtin, are generated
+//     code of one .gp line, so one line is right for them.)
 //   - Struct.Name and Func.Name are plain text, so a template specialization is spelled in the
 //     name (Box<int64_t>).
 //   - There is no range-based for, and no structured binding (auto [a, b] = ...); Phase 02 and

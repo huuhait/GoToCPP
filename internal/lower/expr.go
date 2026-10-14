@@ -78,6 +78,9 @@ type funcGen struct {
 	// boxed are the variables of the function that live in a box (box.go): nil in
 	// gp_var_init, which has none.
 	boxed map[*types.Var]boxReason
+	// singleDefs are the local variables that only their declaration gives a value
+	// (panicid.go), found on first use.
+	singleDefs map[*types.Var]ast.Expr
 
 	// out are the open statement lists, innermost last (stmt.go: add, push, pop).
 	out []frame
@@ -555,7 +558,6 @@ var nodeKinds = map[string]string{
 	"TypeSwitchStmt": "type switches (Phase 05)",
 	"SelectStmt":     "select statements (Phase 08)",
 	"GoStmt":         "go statements (Phase 08)",
-	"DeferStmt":      "defer statements (Phase 03)",
 	"SendStmt":       "send statements (Phase 08)",
 }
 

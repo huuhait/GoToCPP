@@ -20,6 +20,7 @@
 #include <gocpp/arith.hpp>
 #include <gocpp/print.hpp>
 #include <gocpp/panic.hpp>
+#include <gocpp/defer.hpp>
 #include <gocpp/fmtshim.hpp>
 #include <gocpp/main.hpp>
 

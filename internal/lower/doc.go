@@ -65,6 +65,9 @@
 //   - structs.go: struct expressions (step 3.8): literals (keyed ones in the fields' order),
 //     fields (also promoted ones, through pointers), the owners of &x.f, the operands of a target
 //     x.f, and the copy before an assignment that could free its value;
+//   - defer.go: defer (step 3.13): the single-exit shape of a function with defers (the
+//     results as variables, a gp::defer_frame, the body in a try block, one exit per return),
+//     and the deferred calls, with their arguments evaluated at the defer statement;
 //   - ops.go: the operators (with the small-integer rule and the runtime's gp::div, gp::rem,
 //     gp::shl and gp::shr), conversions (gp::f2i), s[i] and the builtins len and panic;
 //   - types.go: the C++ spelling of the types;

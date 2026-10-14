@@ -24,6 +24,8 @@ type funcInfo struct {
 
 	boxed map[*types.Var]boxReason // the variables that live in a box (box.go)
 	args  []*types.Var             // the boxed parameters, in order
+
+	defers *deferInfo // the single-exit shape of a function with defers (defer.go), or nil
 }
 
 // prepare chooses the C++ names of the function's parameters and named results, and its C++
@@ -94,6 +96,7 @@ func (f *funcInfo) prepare(g *gen) {
 		}
 	}
 	f.result = g.resultType(sig, f.decl.Pos())
+	f.prepareDefers()
 }
 
 // funcDecl adds the definition of a function.
@@ -119,12 +122,14 @@ func (g *gen) funcDecl(f *funcInfo) {
 		}
 	}
 	fg.fresh = f.results == nil // the named results are in the function's block (declLines)
+	fg.openDefers()             // defer.go
 	boxes := fg.paramBoxes()
 	fg.stmts(body.List, body.Rbrace)
 	if boxes {
 		fg.names.closeScope()
 		fg.pop(body.Rbrace)
 	}
+	fg.closeDefers(body.Rbrace)
 	fg.pop(body.Rbrace)
 	g.decl(fn, &cppir.Blank{})
 	f.names.closeScope()

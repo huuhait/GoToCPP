@@ -95,7 +95,8 @@ uint64_t nextslicecap(uint64_t new_len, uint64_t old_cap) {
 }
 
 [[noreturn]] void panic_growslice() {
-    throw panic_error{"runtime error: growslice: len out of range"_gs};
+    throw panic_error{"runtime error: growslice: len out of range"_gs,
+                      {panic_identity::gp_runtime, 0, 0}};
 }
 
 } // namespace
@@ -134,9 +135,11 @@ void panic_make(int64_t len, int64_t /*cap*/, std::size_t size) {
     // heap form.
     auto limit = static_cast<uint64_t>(max_alloc) / size;
     if (len < 0 || static_cast<uint64_t>(len) > limit) {
-        throw panic_error{"runtime error: makeslice: len out of range"_gs};
+        throw panic_error{"runtime error: makeslice: len out of range"_gs,
+                          {panic_identity::gp_runtime, 0, 0}};
     }
-    throw panic_error{"runtime error: makeslice: cap out of range"_gs};
+    throw panic_error{"runtime error: makeslice: cap out of range"_gs,
+                      {panic_identity::gp_runtime, 0, 0}};
 }
 
 int64_t grow_cap(int64_t new_len, int64_t old_cap, std::size_t size) {

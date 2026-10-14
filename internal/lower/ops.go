@@ -436,8 +436,23 @@ func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 			return placeholder
 		}
 		// gp::panic is a template: the value needs its Go type, which decides how it prints
-		// (panic(1.5) prints +1.500000e+000).
-		return call("gp::panic", fg.exactExpr(arg))
+		// (panic(1.5) prints +1.500000e+000). A constant is gp::panic_constant, and int64,
+		// uint64 and uintptr (int64_t and uint64_t in C++, like int and uint) name their kind:
+		// Go prints a chain of two panics with the same value once (gocpp/panic.hpp,
+		// panic_identity), and gc gives a constant and a value different data pointers.
+		// gc's constants include a local variable that only its declaration gives a constant
+		// (panicid.go).
+		fun := &cppir.Name{Name: "gp::panic"}
+		value := func() cppir.Expr { return fg.exactExpr(arg) }
+		if v := fg.staticConst(arg); v != nil {
+			fun.Name = "gp::panic_constant"
+			value = func() cppir.Expr { return fg.g.constant(v, fg.g.untypedCount(arg, t), arg.Pos(), true) }
+		}
+		switch b.Kind() {
+		case types.Int64, types.Uint64, types.Uintptr:
+			fun.Args = []cppir.Node{lit(strconv.Itoa(int(b.Kind())))}
+		}
+		return &cppir.Call{Fun: fun, Args: []cppir.Expr{value()}}
 	}
 }
 

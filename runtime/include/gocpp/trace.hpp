@@ -116,7 +116,10 @@ void lines_of(std::string_view debug_line, std::string_view line_str, std::strin
 // Go's older "...additional frames elided..." line. It reads the program's file, so it is for
 // the end of the program; when the file has no symbol table (a stripped program) or none of
 // the frames is one that the trace shows, it prints each address of the program's code as
-// "?()" and "\t?:0 pc=0x..." (an address in the file, for addr2line).
+// "?()" and "\t?:0 pc=0x..." (an address in the file, for addr2line). An address 0 is the
+// panic frame between a deferred call and the panic that ran it (panic_report puts it in
+// between the stacks of a panic chain): "panic(...)" and "\t?:0", where Go shows
+// runtime.gopanic as "panic({0x...?, 0x...?})" and its line in runtime/panic.go.
 void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool complete);
 
 } // namespace gp::detail

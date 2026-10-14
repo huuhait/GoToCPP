@@ -227,16 +227,37 @@ void bad_owner() noexcept {
 
 // --- panics ---
 
+// The identity of the runtime errors that Go keeps in one global or a constant
+// (panic_identity): the same for the same message.
+constexpr panic_identity runtime_id{panic_identity::gp_runtime, 0, 0};
+
+namespace detail {
+
+void throw_panic(gp::string text, panic_identity id) {
+    throw panic_error{std::move(text), id};
+}
+
+} // namespace detail
+
 void panic(const gp::string& v) {
-    throw panic_error{v};
+    // Go's convTstring: the empty string is runtime.zeroVal, any other one a new allocation.
+    panic_identity id;
+    if (v.gp_view().empty()) {
+        id = {panic_identity::gp_value, 17, 0};
+    }
+    throw panic_error{v, id};
+}
+
+void panic_constant(const gp::string& c) {
+    throw panic_error{c, {panic_identity::gp_constant, 17, 0}};
 }
 
 void panic_divide() {
-    throw panic_error{"runtime error: integer divide by zero"_gs};
+    throw panic_error{"runtime error: integer divide by zero"_gs, runtime_id};
 }
 
 void panic_shift() {
-    throw panic_error{"runtime error: negative shift amount"_gs};
+    throw panic_error{"runtime error: negative shift amount"_gs, runtime_id};
 }
 
 namespace {
@@ -251,7 +272,8 @@ void panic_nil() {
     signal_set = true;
     signal_pc =
         reinterpret_cast<uintptr_t>(__builtin_extract_return_addr(__builtin_return_address(0)));
-    throw panic_error{"runtime error: invalid memory address or nil pointer dereference"_gs};
+    throw panic_error{"runtime error: invalid memory address or nil pointer dereference"_gs,
+                      runtime_id};
 }
 
 namespace detail {
@@ -283,12 +305,44 @@ void panic_index(int64_t x, bool is_signed, int64_t len) {
 namespace detail {
 
 void panic_report(std::string& out, const gp::string& text) {
-    out += "panic: ";
-    // Go's printindented: a tab after each newline of the value.
-    for (char c : text.gp_view()) {
-        out += c;
-        if (c == '\n') {
-            out += '\t';
+    panic_error e{text};
+    const panic_error* chain[] = {&e};
+    panic_report(out, chain, 1);
+}
+
+namespace {
+
+// same reports whether Go's interface words of the two panic values are the same
+// (panic_identity).
+bool same(const panic_error& a, const panic_error& b) {
+    return a.gp_id.gp_kind != panic_identity::gp_unique && a.gp_id.gp_kind == b.gp_id.gp_kind &&
+           a.gp_id.gp_type == b.gp_id.gp_type && a.gp_id.gp_bits == b.gp_id.gp_bits &&
+           a.gp_text.gp_view() == b.gp_text.gp_view();
+}
+
+} // namespace
+
+void panic_report(std::string& out, const panic_error* const* chain, std::size_t n) {
+    // Go's preprintpanics and printpanics: the first panic first, each later one after a tab;
+    // a panic with the same value as the next one is printed once, as "repanicked", and the
+    // next one is left out.
+    for (std::size_t k = 0; k < n; k++) {
+        if (k > 0 && same(*chain[k - 1], *chain[k])) {
+            continue;
+        }
+        if (k > 0) {
+            out += "\n\t";
+        }
+        out += "panic: ";
+        // Go's printindented: a tab after each newline of the value.
+        for (char c : chain[k]->gp_text.gp_view()) {
+            out += c;
+            if (c == '\n') {
+                out += '\t';
+            }
+        }
+        if (k + 1 < n && same(*chain[k], *chain[k + 1])) {
+            out += " [recovered, repanicked]";
         }
     }
     if (signal_set) {

@@ -730,6 +730,86 @@ gp::func<int64_t()> counter() {
 
 Source: [Phase 03 §2.6](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#26-functions-func-values-closures).
 
+## Defer
+
+```go
+func load(n int) (count int) {
+	defer add(&count, 1)
+	defer fmt.Println("done", n)
+	if n < 0 {
+		return 0
+	}
+	return n * 2
+}
+```
+
+```cpp
+int64_t load(int64_t n) {
+    gp::ptr<int64_t> count = gp::new_<int64_t>();     // boxed: &count is taken
+    gp::defer_frame gp_df; try {
+        gp_df.gp_push(add, count, 1);
+        gp_df.gp_push_call([](auto&& gp_a0) { gp::fmtshim::Println("done"_gs, gp_a0); }, n);
+        if (n < 0) {
+            (*count) = 0; goto gp_ret0;
+        }
+        (*count) = n * 2; goto gp_ret1;
+    } catch (gp::panic_error& gp_e) {
+        gp_df.gp_on_panic(gp_e);
+    }
+    gp_df.gp_run(); return (*count);                  // the end of the body, or a panic
+    gp_ret0:; gp_df.gp_run(); return (*count);        // at the line of the first return
+    gp_ret1:; gp_df.gp_run(); return (*count);
+}
+```
+
+- A function with a `defer` statement (also `main` and the `init` functions) gets the
+  **single-exit shape**: a `gp::defer_frame`, the body in a `try` block, and one way out that
+  runs the deferred calls. Functions without `defer` keep their plain shape.
+- **The results are variables**, declared before the frame: named results keep their names, the
+  others are `gp_r0`, `gp_r1`, …. A `return x` assigns them (with Go's order) and jumps to its
+  own exit, which runs the deferred calls and then returns the variables. So, as in Go, the
+  results are set before the deferred calls run, and a deferred call that changes a named result
+  through a pointer changes what the function returns (`load(3)` returns 7). Each `return` has
+  its own exit at its own line, so a panic in a deferred call shows the function at the line of
+  that `return`, as in Go; the end of the body (and a panic) uses the exit at the closing brace.
+- **`defer f(a, b)` evaluates `f` and its arguments at the defer statement**, in Go's order (the
+  same as for the call `f(a, b)`): `gp_df.gp_push(f, a, b)` stores the function pointer and the
+  arguments, converted to the parameter types. A builtin or `fmt` call is stored as a generic
+  lambda with the arguments that are not constants: `gp_df.gp_push_call([](auto&& gp_a0) {
+  gp::println(gp_a0); }, x)`. The frame keeps a few calls in a small buffer inside it, and more
+  (or bigger ones) on the heap. Defers in a loop accumulate until the function returns, and run
+  last in, first out.
+- **A panic runs the deferred calls too**: the `catch` keeps it, `gp_run` runs the calls and
+  throws the same panic again, so the trace still shows where it started. A deferred call that
+  panics doesn't stop the others: its panic replaces the running one, and the running one goes
+  into its chain. An unrecovered panic prints the whole chain, the first panic first, as Go
+  does (`panic: first` then `\tpanic: second`), and the signal line of a nil dereference once,
+  after the chain. As in Go, two neighbouring panics of the chain whose values have the same
+  interface words are printed once, as `panic: x [recovered, repanicked]` (also without
+  `recover`): the same constant (gc also counts a local variable that only its declaration gives
+  a constant), a value that gc keeps in static data (a bool, a 1-byte integer, a 2-, 4- or
+  8-byte number whose bits are below 256, the empty string), or the same runtime error of the
+  ones Go keeps in one place (nil dereference, division by zero, negative shift, a store into a
+  nil map). (gc also gives that identity to a value from an inlined call of a function that
+  returns a constant, `n := five()`; gocpp doesn't, and prints both panics.) The trace shows
+  each deferred call on top of the panic that it ran in, with a `panic(...)` frame between
+  them, as Go's does.
+- **Only a Go panic** (`gp::panic_error`) is caught. Any other C++ exception goes on at once,
+  without running the deferred calls: a forced unwind (`pthread_exit` in C code, Phase 04) must
+  pass untouched, and Phase 05 turns C++ exceptions into Go panics where they enter Go code.
+- **Stack:** the frame is 96 bytes, with room for one call (more go to the heap). At `-O0` a
+  function with one defer takes about 160 to 185 bytes of C++ stack per call (g++, clang++),
+  where the same function without it takes 24 to 32: with the default 8 MiB stack, a recursion
+  with a defer at each level gets to about 40,000 to 50,000 levels, where Go's growing stack goes
+  on (the C++ stack doesn't grow, as for large values:
+  [D24](language.md#d24-large-values-on-the-c-stack)).
+- **C++ destructors** of the body's locals run when their block ends, so before the deferred
+  calls. That only matters for C/C++ objects (Phase 04).
+- `-nochecks` doesn't change any of this. `recover()` is Phase 05 work, and `os.Exit` (Phase 09)
+  ends the program without running the deferred calls, as in Go.
+
+Source: [Phase 03 §2.8](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#28-defer-without-recover).
+
 ## Package initialization
 
 ```cpp
@@ -822,6 +902,11 @@ Where the trace differs from Go's (accepted divergences):
   innermost frame's line; gocpp builds at `-O0`;
 - a stripped program shows the addresses instead (`?()` and `pc=0x...`, for `addr2line`);
 - on Windows the trace has no frames yet, until Phase 14 reads the program's PE file.
+- a panic that starts in a deferred call while another panic runs has a `panic(...)` frame
+  with `?:0` for its place, where Go shows its runtime's `panic({0x...?, 0x...?})` and the line
+  of `runtime/panic.go`;
+- a deferred builtin call (`defer panic(v)`, `defer println(x)`) has no frame of its own; Go
+  shows a wrapper there, `main.f.deferwrap1()`, at the line of the defer statement.
 
 Source: [Phase 03 §2.9](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#29-runtime-checks-and-panics-gos-exact-messages).
 

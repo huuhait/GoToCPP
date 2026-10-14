@@ -56,7 +56,7 @@ first time the line runs, then runs the commands of the comment, separated by `;
 |---|---|---|
 | `print EXPR = VALUE` | `print EXPR` | gdb prints `$N = VALUE`, exactly |
 | `print EXPR ~ REGEXP` | `print EXPR` | the value matches the regexp (for values with addresses). The first ` = ` or ` ~ ` ends `EXPR` |
-| `bt F1 F2 ...` | `bt` | the program's frames (the ones in `gpkg_main::`) are `F1 F2 ...`, from frame #0 on, each at a `.gp` line of its func (frame #0 at the stop), and the outermost frame is the generated `main`, at a line of `x.gp.cpp`. Write the names as gdb shows them: `gpkg_main::add` |
+| `bt F1 F2 ...` | `bt` | the program's frames (the ones in `gpkg_main::`) are `F1 F2 ...`, from frame #0 on, each at a `.gp` line of its func (frame #0 at the stop), and the outermost frame is the generated `main`, at a line of `x.gp.cpp`. Between two of the program's frames only a deferred call's frames may come: a run of the runtime's and the C++ library's (`gp::`, `std::`) that ends with `gp::defer_frame::gp_run`, just inside the next program frame. Write the names as gdb shows them: `gpkg_main::add` |
 | `next L1 L2 ...` | `next`, once per line | each `next` stops at the next line of the list, in the `.gp` file, in the func of that line: so `next` never goes into the `.cpp` file or a runtime header for a user statement |
 
 The session is: for each stop, in the order of the lines, `tbreak x.gp:N` (gdb must put it at

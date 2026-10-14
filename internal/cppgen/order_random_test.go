@@ -42,7 +42,10 @@ import (
 // the calls change through a pointer; keyed literals whose values Go evaluates in source order,
 // assignments of whole structs, &s.f that shares the struct's owner, == of structs, structs
 // printed by fmt, and assignments whose first target is a part of a plain local struct or array
-// (lw.a, lar[i]) and whose later target has an operand that reads it (gsl[lw.a & 3]). It compares what each prints with real Go, on both compilers.
+// (lw.a, lar[i]) and whose later target has an operand that reads it (gsl[lw.a & 3]),
+// and defer (step 3.13): deferred fmt.Println and e calls, whose arguments are evaluated at the
+// defer statement and which run when their function returns or panics.
+// It compares what each prints with real Go, on both compilers.
 //
 //	GOCPP_RANDOM_TESTS=1 go test ./internal/cppgen -run TestRandomOrder
 //
@@ -865,8 +868,18 @@ func (g *progGen) stmt() {
 	}
 	switch k {
 	case 0, 1:
+		if g.chance(0.15) {
+			// Step 3.13: the arguments are evaluated now, the call runs when the function
+			// returns (also through a panic), the last deferred one first.
+			g.printf("defer fmt.Println(%s)", g.args(1+g.r.Intn(4)))
+			break
+		}
 		g.printf("fmt.Println(%s)", g.args(1+g.r.Intn(4)))
 	case 2:
+		if g.chance(0.15) {
+			g.printf("defer e(%d, %s)", g.nextTag(), g.expr(2))
+			break
+		}
 		g.printf("println(%s)", g.args(1+g.r.Intn(3)))
 	case 3:
 		g.printf("%s = %s", g.target(), g.expr(3))
