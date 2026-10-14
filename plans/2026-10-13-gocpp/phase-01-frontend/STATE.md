@@ -1,8 +1,8 @@
 # Phase 01: Front-end · STATE
 
-**Status:** `[~]` in progress (step 1.1 started while Phase 00's last jobs are in review; it needs nothing from them)
+**Status:** `[x]` done (2026-10-14: every step and exit criterion; `internal/version.Phase` is 1)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-13
+**Last updated:** 2026-10-14
 
 ## Steps
 
@@ -42,11 +42,11 @@
 
 ## Exit criteria
 
-- [ ] Upstream scanner/parser tests pass on the fork; stdlib round-trip passes
-- [ ] All target programs pass `gocpp check` (or fail only with the expected phase-gate errors)
-- [ ] Interop corpus: 0 false errors, every seeded error reported at the right line
-- [ ] `check -types` output reviewed on 3 files
-- [ ] `gocpp fmt` output equals real gofmt (stdlib + badly formatted inputs); header groups keep their order
+- [x] Upstream scanner/parser tests pass on the fork; stdlib round-trip passes
+- [x] All target programs pass `gocpp check` (or fail only with the expected phase-gate errors)
+- [x] Interop corpus: 0 false errors, every seeded error reported at the right line
+- [x] `check -types` output reviewed on 3 files
+- [x] `gocpp fmt` output equals real gofmt (stdlib + badly formatted inputs); header groups keep their order
 
 ## Decisions / notes
 
@@ -202,3 +202,9 @@
   ones exactly their ERROR marks). `gocpp check -types` reviewed by hand on conversions.gp,
   localheaders.gp and crosspkg.gp (all 20 corpus files checked by the reviewer). The tests/errors files
   expect gate errors of later phases: the steps that lift those gates must update their marks.
+- 2026-10-14: **Phase 01 done.** Exit check: the upstream scanner/parser tests and the stdlib
+  round-trip pass (internal/syntax); every example passes `gocpp check` or gives exactly its gate
+  errors (TestCheckExamples, TestGateExamples); the corpus has 0 false errors and every seeded mistake
+  at its line (TestCorpus, both compilers); `check -types` reviewed on 3 corpus files (job 1.15);
+  `gocpp fmt` equals gofmt (job 1.16). `internal/version.Phase` is now 1, so the phase-01 error tests
+  (22 in tests/errors) run in `make ci`.

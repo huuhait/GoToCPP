@@ -747,7 +747,7 @@ func TestCheckWarning(t *testing.T) {
 
 // examplesGates reads internal/check/testdata/gates/examples.txt: the
 // phase gate errors of each example at Phase 02, which gocpp check
-// reports now (version.Phase is 00, and the gates allow Phase 02's
+// reports now (version.Phase is 01, and the gates allow Phase 02's
 // subset). It maps each example to its error lines, as check prints them
 // for the example's folder (win32 for windows/amd64).
 func examplesGates(t *testing.T) map[string][]string {
