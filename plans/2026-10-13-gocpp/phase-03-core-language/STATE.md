@@ -199,7 +199,9 @@
   named types give `gp_value()` (+ optional `gp_value_tag`); the emitter generates member hooks
   `gp_String()`/`gp_Error()` for value method sets and statics `gp_String_ptr`/`gp_Error_ptr` for
   pointer-only ones, promoted methods included; int64/uint64/uintptr arguments are passed through
-  `gp::fmtshim::typed<tag>` so `%!s(int64=5)` names the Go type. Until Phase 05: a non-string panic
+  `gp::fmtshim::typed<tag>` so `%!s(int64=5)` names the Go type. Each `gp::field` also says whether the
+  field is embedded (3.15a review): Go still calls String()/Error() on the exported fields of an embedded
+  unexported struct (reflect's flagEmbedRO), so 3.8 must pass that flag. Until Phase 05: a non-string panic
   value inside String() prints in the builtin print format; verbs past Phase 03 stay gated.
 - 2026-10-14 (3.5b, manager): every slice element read follows gc's order (read after the statement's
   calls, like `*p`), even for locals: more temporaries, but Go's results. Moves into package or boxed slices
