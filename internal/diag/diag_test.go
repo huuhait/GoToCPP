@@ -376,6 +376,30 @@ func TestCollectUnusedImport(t *testing.T) {
 	}
 }
 
+// TestCollectUnusedVar checks that a real unused variable gets the code
+// UnusedVar, from ErrorCode and in Diagnostic.Code. Step 1.10 holds those
+// errors back too, with the filter in front of Collect.
+func TestCollectUnusedVar(t *testing.T) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "a.go", "package p\n\nfunc f() {\n\tx := 1\n}\n", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var l List
+	var codes []int
+	conf := types.Config{Error: func(err error) {
+		codes = append(codes, ErrorCode(err.(types.Error)))
+		l.Collect(err)
+	}}
+	conf.Check("p", fset, []*ast.File{f}, nil)
+	if !reflect.DeepEqual(codes, []int{UnusedVar}) {
+		t.Errorf("ErrorCode gave %v, want [%d]", codes, UnusedVar)
+	}
+	if ds := l.Diagnostics(); len(ds) != 1 || ds[0].Code != UnusedVar || ds[0].Msg != "declared and not used: x" {
+		t.Errorf("got:\n%s", dump(ds))
+	}
+}
+
 func dump(ds []Diagnostic) string {
 	var b strings.Builder
 	for _, d := range ds {

@@ -56,3 +56,7 @@
   a driver test simulates a user's hardened shell with `NIX_HARDENING_ENABLE`.
 - 2026-10-13 (docs job 0.6b): `-asan` moved here from Phase 06, because the Phase 03 CI job
   (step 3.18) and the harness (`GOCPP_FLAGS=-asan`) need sanitizer builds before Phase 06.
+- 2026-10-13 (runtime review 2.7): fmtshim's Printf handles only `%v %d %s %t %f %%` (and Go's error
+  forms; int64_t shows as "int" there until Phase 05), so the emitter (2.3/2.8) rejects constant
+  formats with flags, width or other verbs with a phase-gate error (Phase 03 adds them).
+  stdout writes wait on a non-blocking fd (poll) and a broken pipe raises SIGPIPE, like Go.

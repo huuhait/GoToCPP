@@ -20,6 +20,10 @@ const maxErrors = 10
 // `"strings" imported and not used`.
 const UnusedImport = 8
 
+// UnusedVar is the go/types error code of a local variable that is not
+// used: "declared and not used: x".
+const UnusedVar = 101
+
 // ErrorCode returns the error code of a go/types error, such as
 // UnusedImport, or 0 if it is not known. A filter in front of List.Collect
 // uses it, for example to hold back the "imported and not used" errors

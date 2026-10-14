@@ -47,3 +47,6 @@
   MinGW-w64 is the msvcrt flavor (UCRT isn't cached), UCRT is covered by real Windows in Phase 14.
 - 2026-10-13 (docs job 0.6b): the Wine prefix is created with no display and `winewayland.drv=d`,
   because Wine's Wayland driver otherwise reaches the real desktop through the default socket.
+- 2026-10-13 (your decision): C/C++ libraries from the internet are modules, and their headers are
+  imported by full path (`"github.com/ocornut/imgui/imgui.h"`, package `imgui`); `<...>` is for system
+  headers only. Built by gocpp from a small `cxx` recipe in gocpp.mod, no CMake (README §2.11).

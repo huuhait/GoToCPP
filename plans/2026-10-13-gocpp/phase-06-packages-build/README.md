@@ -260,6 +260,48 @@ results in memory only. The disk cache keeps them too; its key must include the 
 changes include paths (`CPATH`, `CPLUS_INCLUDE_PATH`, `C_INCLUDE_PATH`, `NIX_CFLAGS_COMPILE`) and
 the flags, because system headers can change without the compiler changing (found by job 1.8b).
 
+### 2.11 C and C++ libraries from the internet (your decision, 2026-10-13)
+
+A C/C++ library on GitHub is a module like any other, and its headers are imported **by their
+full path**, as Go imports packages, so two libraries with the same file name (`utils.h`) can't
+clash. `<...>` stays for system headers only (`<vector>`, `<stdio.h>`, a Nix/apt `<SDL2/SDL.h>`).
+
+```
+// gocpp.mod
+module github.com/huuhait/mygame
+
+require github.com/ocornut/imgui v1.91.5    // a plain C++ repo, no gocpp files in it
+
+cxx github.com/ocornut/imgui {              // how to build it (no CMake)
+	sources  *.cpp backends/imgui_impl_glfw.cpp backends/imgui_impl_opengl3.cpp
+	include  . backends
+	pkg-config glfw3
+}
+```
+
+```go
+import (
+	"github.com/ocornut/imgui/imgui.h"                      // package imgui
+	"github.com/ocornut/imgui/backends/imgui_impl_glfw.h"   // package imgui_impl_glfw
+)
+
+func main() { imgui.Begin("hello") }
+```
+
+- **Path rule:** a quoted import whose first element has a dot (a domain, like Go's module paths)
+  and that ends in a header extension is a *module header*: the longest `require`d module path
+  that is a prefix names the module, and the rest is the file inside it. Its package name is the
+  file name, as for every header. `"native/x.h"` and `"./x.h"` stay local headers.
+- **Download** like Go modules: a tagged archive (or a commit), its hash in `gocpp.sum`, a
+  read-only module cache, `gocpp mod vendor` for offline builds.
+- **Build** with gocpp's own driver from the `cxx` recipe: the listed sources, include folders,
+  defines and pkg-config packages, compiled once per (version, recipe, compiler, flags) into the
+  global cache and reused by every project. The flag allow-list (Phase 04) applies.
+- **To decide later:** a shared recipe index so common libraries need no `cxx` block, and an
+  opt-in fallback that runs a project's own CMake for big libraries (OpenCV, Assimp).
+- The import rule and local recipes come with this phase; downloading comes with module
+  downloads (Phase 15, or earlier if you want it sooner).
+
 ## 3. Steps
 
 1. **6.1 `gocpp.mod`** parsing (`x/mod/modfile` lax mode + reading `replace` and the gocpp lines

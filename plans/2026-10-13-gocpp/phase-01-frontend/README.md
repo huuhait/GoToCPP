@@ -317,7 +317,10 @@ after `Check`, run `types.CheckExpr(fset, pkg, arg.Pos(), arg, info)` on every a
 opaque instantiation. That types `strings.Builder`, reports `undefined: Pointt`, and lets us drop
 the false "imported and not used" errors (they are soft errors with the code `UnusedImport`; a
 filter in front of the diagnostics collector reads the code with `diag.ErrorCode` and holds them
-back until `CheckExpr` has run, so the errors keep the order they were found in).
+back until `CheckExpr` has run, so the errors keep the order they were found in). The same goes
+for "declared and not used" (`UnusedVar`): `std.array[int, len(arr)]` in a type position is the
+only use of `arr`. Not yet caught here (for steps 1.11/1.12 and the 1.15 corpus): uninstantiated
+generics (`std.vector[Box]`) and non-constant values (`std.array[int, len(xs)]` with a slice).
 
 ### 2.8 The opaque pass
 

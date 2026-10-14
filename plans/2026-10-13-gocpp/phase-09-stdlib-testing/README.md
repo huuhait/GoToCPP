@@ -155,6 +155,13 @@ system paths (upstream Go already lists NixOS's `/etc/zoneinfo`), and an optiona
   `Skip`, `Cleanup`, `TempDir`, `Setenv`, `Context`.
 - `testing.B`: `b.N` and Go 1.24's `b.Loop()`, `ReportAllocs`.
 - Flags: `-run`, `-v`, `-count`, `-timeout`, `-short`, `-failfast`, `-bench`, `-benchtime`, `-race`.
+- **testify works** (your wish, 2026-10-13): tests written with `github.com/stretchr/testify`'s
+  `assert` and `require` (`assert.Equal(t, want, got)`, `require.NoError(t, err)`) build and run
+  unchanged. The real testify needs more than our reflect subset (go-spew walks every value with
+  reflect and unsafe, plus `reflect.DeepEqual`, `runtime.Caller`, go-difflib and yaml), so the
+  first route is a gocpp-maintained drop-in with the same API and the same failure output, picked
+  automatically for that import path; compiling the real module is the goal once reflect is big
+  enough. (Which route: TODO open question.)
 - Later (backlog): fuzzing (`testing.F`), coverage via `-fprofile-instr-generate` mapped through
   `#line`, `-json` output.
 

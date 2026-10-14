@@ -16,6 +16,7 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 ## Small follow-ups (give them to the next job that touches the file)
 
 - [ ] `docs/CONTRIBUTING.md` §2: list `tools/stubgen` (the stdlib stub generator) under `tools/` (from job 1.9b)
+- [ ] Tests in `internal/interop` (TestProbeCommand) and `internal/load` (TestLoadModule, TestTestFiles, TestNoFiles) fail when TMPDIR contains `..`: clean the temp paths (`filepath.Clean`/`EvalSymlinks`) before comparing (from the 2.7 review)
 - [ ] `docs/adr/README.md`: describe dated amendments (like ADR-002's printer line), not only superseding (from job 1.5)
 
 ## Any time (parallel, low risk)
@@ -38,9 +39,14 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] **Q10 `!` (must):** only where you write it. On a function (`func loadConfig!(path string) Config`): every error inside it that you don't take yourself is returned; callers see `(Config, error)`. On one call (`cfg := loadConfig!(path)`) in any function. Without `!`, plain Go. (Phase 10 §2.1)
 - [x] **Q11 `!` in `main`:** print `<program>: <error>` and exit 1 (for `func main!()` and for `F!()` in `main`).
 - [x] **Q12 Macro style:** `macro Name(args) { ... }`, used as `#Name(...)` inside code or on top of a func, and `#Derive(...)` on a type.
+- [x] **Q14 C/C++ libraries from the internet (2026-10-13):** modules like Go's; headers imported by full path (`"github.com/ocornut/imgui/imgui.h"`); `<...>` only for system headers; built from a small `cxx` recipe in `gocpp.mod`, no CMake. (Phase 06 §2.11)
 - [x] **Q13 Macros on top of a func:** both styles. Start style (runs at the start; a returned `func()` runs at the end) and wrap style (`#body()`: the macro decides how the function's code runs, e.g. `#VM()`, `#Recover()`, `#InThread()`, `#Once()`). (Phase 10 §2.2)
 
 ## Open questions (no decision needed yet)
+
+- [ ] testify (Phase 09 §2.7): a gocpp drop-in with testify's API first, or wait until the real module compiles? Fuzzing (`testing.F`) and `-cover` into the plan proper?
+
+- [ ] C/C++ modules (Phase 06 §2.11): a shared recipe index? an opt-in CMake fallback for big libraries? download them before Phase 15?
 
 - [ ] Operator overloading or destructors for gocpp types? Go has neither; revisit after v0.1.
 - [x] Is `C` available in every file? **Decided: yes**, for C's built-in types and helpers; the front-end adds `import "C"` only to files that use it (D2 in Phase 00).

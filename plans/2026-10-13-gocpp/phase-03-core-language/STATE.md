@@ -57,3 +57,6 @@
   this phase on; boxing counts field/element writes; `range` over arrays copies; local types are
   hoisted; `weak` is an intrinsic; implicit named-type conversions are inserted; runtime types have
   no plain-named members; `cap()` only promises `cap >= len`; the fmt shim prints composites.
+- 2026-10-13 (from Phase 01 job 1.10a): `types.CheckExpr` (used for C++ template arguments) can't take
+  gocpp's Sizes, so when step 3.17 changes the real sizes (string 32 B, pointers 16 B), re-evaluate
+  `unsafe.Sizeof/Alignof/Offsetof` inside opaque template arguments or gate them (a test pins it).
