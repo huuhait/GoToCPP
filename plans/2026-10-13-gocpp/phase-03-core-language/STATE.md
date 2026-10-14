@@ -15,7 +15,7 @@
   - [ ] parameters, receivers, named results
   - [ ] `&p.f`, `&s[i]`, `&arr[i]`, `&global`
 - [~] 3.4 Strings (runtime, literals, slicing, concat, compare, UTF-8 range, conversions)
-- [ ] 3.5 Slices (make, append + growth formula, sub-slice, copy, nil, clear, slice→array; `cap >= len` only)
+- [~] 3.5 Slices (make, append + growth formula, sub-slice, copy, nil, clear, slice→array; `cap >= len` only)
 - [ ] 3.6 Arrays (`gp::array`, checked index, `==`) + range rules (hidden counters, copy on `range arr`)
 - [ ] 3.7 Maps
   - [ ] get / set / ref / lookup / erase / len / clear
@@ -38,7 +38,7 @@
 - [ ] 3.14 Runtime checks + Go panic messages + exit code 2 + `backtrace()` trace + `-nochecks` (keeps Go's defined results)
 - [ ] 3.15 Remaining builtins + `fmt` shim for composite values (slices, maps sorted, structs, `&{…}`, `String()`)
 - [ ] 3.16 Package-level vars (`InitOrder`) + multiple `init()`
-- [ ] 3.17 `gocppSizes` + `static_assert` sync
+- [~] 3.17 `gocppSizes` + `static_assert` sync
 - [ ] 3.18 Tests: ≥ 150 run, ≥ 60 differential, sanitizer CI job
 
 ## Exit criteria
