@@ -81,3 +81,9 @@
   binary's hash, with a trim policy: the disk is small) and the side table of opaque type spellings
   (which must also feed the API hash); the "< 300 ms warm open" budget depends on it. The project now
   depends on golang.org/x/tools (v0.44.0, BSD-3) for go/gcexportdata, as ADR-001/002/015 planned.
+- 2026-10-14 (manager, 11.3 round 2): known difference for the 11.12 random-edit differential test: a
+  dependency's position-less error (no .gp files, only test files, build constraints, two packages,
+  import cycles) is reported at every importing spec of every importer (like gopls's "could not
+  import"); `gocpp check` reports it once, at the first import. The loader reads through
+  `load.Config.FS` (the pipeline's snapshot view; every read of a metadata load is recorded and part of
+  the check key).
