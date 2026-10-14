@@ -18,7 +18,7 @@ make test-programs                         # go test -count=1 -v ./tests/...
 | Test | Folder | A test is | It passes when |
 |---|---|---|---|
 | `TestRun` | [run/](run/README.md) | a `.gp` program with an `// Output:` block at the end | `gocpp run` prints that output, with the expected exit code and stderr |
-| `TestErrors` | [errors/](errors/README.md) | a `.gp` file with `// ERROR "regexp"` comments | `gocpp check` reports exactly those errors, on those lines |
+| `TestErrors` | [errors/](errors/README.md) | a `.gp` file with `// ERROR "regexp"` (and `// WARNING "regexp"`) comments | `gocpp check` reports exactly those errors (and warnings), on those lines |
 | `TestGolden` | [golden/](golden/README.md) | a `.gp` file and its `.cpp.golden` snapshot | `gocpp emit` prints the snapshot |
 | `TestDiff` | [diff/](diff/README.md) | a `.gp` program that is valid Go | `gocpp run` and real Go print the same stdout (with a `// diff:` line, also stderr) and exit with the same code |
 | `TestInterop` | [interop/](interop/README.md) | a run test that uses C/C++ libraries | like `TestRun`; skipped when `pkg-config` can't find a library |

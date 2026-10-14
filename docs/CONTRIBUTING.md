@@ -107,7 +107,8 @@ The test comments follow Go where Go has a format: `// Output:` comes from Go ex
 - `// Stderr: regexp` (run and interop tests): standard error must match this regexp. Without
   a `// Stderr:` line, standard error must be empty.
 - `// ERROR "regexp"` goes at the end of a line that must fail. The regexp must match the
-  error message for that line.
+  error message for that line. `// WARNING "regexp"` works the same way for a warning
+  (`file.gp:LINE:COL: warning: message`).
 
 Run and interop tests compare the output like a Go example: space at the start and at the end
 of the whole output doesn't count. Examples, diff tests and golden tests compare byte for byte:

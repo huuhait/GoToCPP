@@ -37,7 +37,7 @@
 - [x] 1.12 Unsupported-feature checker with the full gate table + generated `feature-matrix.md`
 - [x] 1.13 Diagnostics package (format, sort, dedupe, limit, caret)
 - [x] 1.14 CLI: `version`, `parse -dump`, `check`, `check -types` (`fmt` is step 1.16)
-- [~] 1.15 Error tests + "no false errors" interop corpus
+- [x] 1.15 Error tests + "no false errors" interop corpus
 - [x] 1.16 `gocpp fmt` via `go/printer` with gofmt's settings (`go/format.Node` re-parses with the stock parser) (`-l -w -d`); header imports keep their order (include order matters); stdlib + badly formatted inputs match real gofmt
 
 ## Exit criteria
@@ -195,3 +195,10 @@
   `//gocpp:cflags` is not probed until Phase 04. `Check` changes the Program (undone rewrites), so a
   Program is checked once. Ctrl-C during `gocpp check` exits 130 quietly (to align with the driver's
   "die by the signal" later).
+- 2026-10-14: Job 1.15 (error tests, the false-error filter, the corpus) committed, clean after 3 review
+  rounds (README §2.8 "As built"). 19 gocpp-specific error tests in tests/errors (phase 01) with a new
+  `// WARNING` mark; the "no false errors" corpus is `internal/check/testdata/corpus` (19 files,
+  TestCorpus with gates off and the real probe on both compilers: clean files give 0 errors, seeded
+  ones exactly their ERROR marks). `gocpp check -types` reviewed by hand on conversions.gp,
+  localheaders.gp and crosspkg.gp (all 20 corpus files checked by the reviewer). The tests/errors files
+  expect gate errors of later phases: the steps that lift those gates must update their marks.

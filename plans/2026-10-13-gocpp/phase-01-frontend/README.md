@@ -319,8 +319,7 @@ the false "imported and not used" errors (they are soft errors with the code `Un
 filter in front of the diagnostics collector reads the code with `diag.ErrorCode` and holds them
 back until `CheckExpr` has run, so the errors keep the order they were found in). The same goes
 for "declared and not used" (`UnusedVar`): `std.array[int, len(arr)]` in a type position is the
-only use of `arr`. Not yet caught here (for steps 1.11/1.12 and the 1.15 corpus): uninstantiated
-generics (`std.vector[Box]`) and non-constant values (`std.array[int, len(xs)]` with a slice).
+only use of `arr`.
 
 ### 2.8 The opaque pass
 
@@ -356,8 +355,35 @@ As built (job 1.11, `internal/check/opaque.go`, `skipped.go`; API `Package.Opaqu
   soft errors (such as `InvalidRangeExpr`) also leave values without types.
 - Literals of a named type over a C struct (`type P C.Point`, `P{X: 1}`) stay typed as `P`, so
   codegen must notice "named type with an invalid underlying type" and use `TypeExpr(P)`.
-- Remaining false errors from go/types are listed in `../TODO.md` "Small follow-ups" (owner: the
-  1.15 corpus).
+- **False errors of go/types (job 1.15, `falseerrors.go`).** FakeImportC leaves some C/C++ values with a
+  valid mode and an invalid type, and go/types then reports errors that the C++ compiler wouldn't:
+  values of another package with C types (`*lib.CB`, `lib.CB[0]`), opaque literals in a range and
+  elided literals inside them, pointers to invalid types (`p.x` with `p := &C.Point{}`), and every
+  operation on a named type over a C/C++ type (`type Handle C.int`: `h + 1`, `h == 0`, `xs[h]`,
+  `append(hs, 1)`, `min(h, 1)`, `var h Handle = 3`). The collector drops such an error only when (1)
+  its code is one of a fixed list (14, 23, 45, 46, 48, 50, 51, 52, 54, 56, 57, 70, 76, 86, 92, 94, 96,
+  109, 116, 127, 150), (2) its position is the operand slot that code is about, taking the innermost
+  expression there that go/types couldn't type (`n + s == h` keeps the error of `n + s`), and (3)
+  that operand is a C/C++ value (opaque, or whose own type is a named type over C/C++; for `p.x`
+  also a pointer to one), or the assigned-to type is a named type over C/C++ (this is how element
+  types count in `append`, `copy`, `delete`, a map index and a send). A Go slice, map, array or
+  pointer of such a type is a Go value: `hs++` and `pp + 1` stay errors. No message text is used. It
+  runs where the `gp_cgoh.As` rewrite runs, and a dropped error no longer blocks that rewrite.
+- **Operand rule, widened.** An expression without a type is also opaque when an operand's own type is
+  a named type over a C/C++ type (`h + 1`, `len(v)`), and, after a dropped error, when the X of a
+  selector is a pointer to one (`pp.x`) or an argument of `delete` or `copy` is a container of one.
+  Range and multi-value variables declared from such a value also come from C/C++, and so does a
+  blank `_` on the left of `=` when the right side is a C/C++ value. Three more skipped subtrees get
+  types from `checkSkipped`: the arguments of an uncallable C value, the indices of `lib.CB[1:n]`,
+  and the values of `map[Handle]int{1: n}`.
+- **Template arguments.** `checkOpaqueArgs` also rejects a generic type without type arguments
+  (`std.vector[Box]`: "cannot use generic type Box[T any] without instantiation") and a Go value
+  that is not a constant (`std.array[int, n]`: "template argument n (variable of type int) must be
+  constant"). Functions (`main`, `pkg.F`) and `nil` are valid C++ template arguments; a function
+  variable or a method value is not. A value with a C/C++ part (`int(C.N)`) is the C++ compiler's.
+- **Limit.** Mistakes with C/C++ values, also of named types over C/C++ (`var h Handle = "s"`,
+  `h + "x"`, `x.(T)` on a C value), are the C++ compiler's to report until Phase 12. go/types also
+  still hides its "invalid type" follow-on errors after a dropped first error.
 
 Facts from the spike that this pass relies on:
 - Untyped constants passed to C calls keep kind and value (`"x.txt"` → `untyped string`).

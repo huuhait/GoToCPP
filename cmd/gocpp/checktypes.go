@@ -39,12 +39,17 @@ import (
 // check.Package.Opaque) labels opaque: it comes from C or C++, and
 // go/types has no complete type for it, so the C++ compiler checks it
 // later. A definition whose declared type comes from C or C++ prints as
-// "opaque (<its type expression>)"; one that gets its type from an opaque
-// value (k := cstdio.getchar()) has go/types' invalid type, and its uses
-// are opaque; so has a parameter in the type of a function
-// (func(w invalid type)).
+// "opaque (<its type expression>)", and one that gets its type from an
+// opaque value (k := cstdio.getchar()) as "opaque". A function with C or
+// C++ parts in its signature prints them the same way:
+// func(w opaque (*SDL.SDL_Window)) int.
+//
+// A conversion of an opaque value, which Check rewrote to
+// gp_cgoh.As[T](x) (check.Conversion), prints as written: T(x), with T
+// and x; the nodes that the rewrite added are left out.
 func printTypes(w io.Writer, cwd string, fset *token.FileSet, p *check.Package) error {
 	tw := tabwriter.NewWriter(w, 0, 8, 2, ' ', 0)
+	hidden := hiddenNodes(p)
 	for _, f := range p.Load.Files {
 		src, err := readSource(p.Load, f)
 		if err != nil {
@@ -58,6 +63,7 @@ func printTypes(w io.Writer, cwd string, fset *token.FileSet, p *check.Package) 
 			src:    src,
 			name:   diag.ShortFileName(cwd, f.Path),
 			skip:   namespaceRoots(f),
+			hidden: hidden,
 			w:      tw,
 		}
 		ast.Inspect(f.AST, tp.node)
@@ -95,6 +101,7 @@ type typePrinter struct {
 	src    []byte // the file's text
 	name   string // the file's name, as printed
 	skip   map[ast.Expr]bool
+	hidden *hiddenSet
 	w      io.Writer
 }
 
@@ -103,17 +110,13 @@ func (tp *typePrinter) node(n ast.Node) bool {
 	if id, ok := n.(*ast.Ident); ok {
 		if obj := tp.info.Defs[id]; obj != nil {
 			if kind := defKind(obj); kind != "" {
-				t := types.TypeString(obj.Type(), tp.qual)
-				if te := tp.opaque.TypeExpr(obj); te != nil {
-					t = "opaque (" + tp.text(te) + ")"
-				}
-				tp.line(id, "def "+kind, t)
+				tp.line(id, "def "+kind, tp.objType(obj))
 			}
 			return false
 		}
 	}
 	e, ok := n.(ast.Expr)
-	if !ok || tp.skip[e] {
+	if !ok || tp.skip[e] || tp.hidden.nodes[n] {
 		return n != nil
 	}
 	tv, recorded := tp.info.Types[e]
@@ -127,7 +130,13 @@ func (tp *typePrinter) node(n ast.Node) bool {
 		}
 		tp.line(e, m, "opaque")
 	case recorded:
+		if typ, ok := tp.hidden.unused[e]; ok {
+			tv.Type = tp.info.Types[typ].Type // gp_cgoh.Unused[T](x) is a [1]T
+		}
 		t := types.TypeString(tv.Type, tp.qual)
+		if sig, ok := tv.Type.(*types.Signature); ok && incomplete(sig) {
+			t = tp.signature(sig) // a builtin: append([]C.int, ...C.int)
+		}
 		switch {
 		case tv.IsBuiltin() && tv.Type == types.Typ[types.Invalid]:
 			t = "-" // go/types records no type for some builtins (len("ab"))
@@ -137,6 +146,177 @@ func (tp *typePrinter) node(n ast.Node) bool {
 		tp.line(e, mode(tv), t)
 	}
 	return true
+}
+
+// objType returns the type of the object obj that a definition defines,
+// as printTypes prints it.
+func (tp *typePrinter) objType(obj types.Object) string {
+	if te := tp.opaque.TypeExpr(obj); te != nil {
+		return "opaque (" + tp.text(te) + ")"
+	}
+	if sig, ok := obj.Type().(*types.Signature); ok && incomplete(sig) {
+		return tp.signature(sig)
+	}
+	if incomplete(obj.Type()) {
+		return "opaque"
+	}
+	return types.TypeString(obj.Type(), tp.qual)
+}
+
+// signature returns the type of a function with C or C++ parts, like
+// types.TypeString (without the receiver), but each parameter or result
+// of a type with C or C++ parts as "opaque", with its type expression.
+func (tp *typePrinter) signature(sig *types.Signature) string {
+	var b strings.Builder
+	b.WriteString("func")
+	if tps := sig.TypeParams(); tps.Len() > 0 {
+		b.WriteString("[")
+		for i := range tps.Len() {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			p := tps.At(i)
+			b.WriteString(p.Obj().Name() + " " + types.TypeString(p.Constraint(), tp.qual))
+		}
+		b.WriteString("]")
+	}
+	b.WriteString(tp.tuple(sig.Params(), sig.Variadic()))
+	switch res := sig.Results(); {
+	case res.Len() == 1 && res.At(0).Name() == "":
+		b.WriteString(" " + tp.varType(res.At(0), false))
+	case res.Len() > 0:
+		b.WriteString(" " + tp.tuple(res, false))
+	}
+	return b.String()
+}
+
+// tuple returns the parameters or results t in parentheses (see
+// signature). variadic says that the last one is ...T.
+func (tp *typePrinter) tuple(t *types.Tuple, variadic bool) string {
+	parts := make([]string, t.Len())
+	for i := range t.Len() {
+		v := t.At(i)
+		parts[i] = tp.varType(v, variadic && i == t.Len()-1)
+		if v.Name() != "" {
+			parts[i] = v.Name() + " " + parts[i]
+		}
+	}
+	return "(" + strings.Join(parts, ", ") + ")"
+}
+
+// varType returns the type of the parameter or result v (see signature);
+// dots says that v is the ...T of a variadic function.
+func (tp *typePrinter) varType(v *types.Var, dots bool) string {
+	if te := tp.opaque.TypeExpr(v); te != nil {
+		return "opaque (" + tp.text(te) + ")" // with the ... of ...T
+	}
+	t := v.Type()
+	prefix := ""
+	if s, ok := t.(*types.Slice); ok && dots {
+		t, prefix = s.Elem(), "..."
+	}
+	if incomplete(t) {
+		return prefix + "opaque"
+	}
+	return prefix + types.TypeString(t, tp.qual)
+}
+
+// incomplete reports whether the type t has a part that go/types left
+// invalid (a C or C++ type), as the opaque pass counts it: a named type is
+// complete unless one of its type arguments is not.
+func incomplete(t types.Type) bool {
+	switch t := t.(type) {
+	case *types.Basic:
+		return t.Kind() == types.Invalid
+	case *types.Alias:
+		return incomplete(types.Unalias(t))
+	case *types.Named:
+		for i := range t.TypeArgs().Len() {
+			if incomplete(t.TypeArgs().At(i)) {
+				return true
+			}
+		}
+	case *types.Pointer:
+		return incomplete(t.Elem())
+	case *types.Slice:
+		return incomplete(t.Elem())
+	case *types.Array:
+		return incomplete(t.Elem())
+	case *types.Chan:
+		return incomplete(t.Elem())
+	case *types.Map:
+		return incomplete(t.Key()) || incomplete(t.Elem())
+	case *types.Signature:
+		return incomplete(t.Params()) || incomplete(t.Results())
+	case *types.Tuple:
+		for i := range t.Len() {
+			if incomplete(t.At(i).Type()) {
+				return true
+			}
+		}
+	case *types.Struct:
+		for i := range t.NumFields() {
+			if incomplete(t.Field(i).Type()) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// A hiddenSet is what Check added to the files of a package when it
+// rewrote the conversions of opaque values (check.Conversion).
+type hiddenSet struct {
+	// nodes are the new nodes: the gp_cgoh.As[T] of gp_cgoh.As[T](x) (but
+	// T), the [0] around gp_cgoh.Unused[T](x), and the gp_cgoh.Value[T](x)
+	// around the x of a deferred conversion (but x). printTypes leaves
+	// them out, so that the conversion prints as the user wrote it.
+	nodes map[ast.Node]bool
+
+	// unused maps each call gp_cgoh.Unused[T](x) to T: the call has the
+	// type [1]T, and printTypes prints T, the type of T(x).
+	unused map[ast.Expr]ast.Expr
+}
+
+// hiddenNodes returns the hiddenSet of p.
+func hiddenNodes(p *check.Package) *hiddenSet {
+	h := &hiddenSet{nodes: make(map[ast.Node]bool), unused: make(map[ast.Expr]ast.Expr)}
+	hide := func(root, keep ast.Node) {
+		ast.Inspect(root, func(n ast.Node) bool {
+			if n == nil || n == keep {
+				return false
+			}
+			h.nodes[n] = true
+			return true
+		})
+	}
+	for _, c := range p.Conversions {
+		switch c.Kind {
+		case check.AsCall, check.UnusedStmt:
+			hide(c.Call.Fun, c.Type)
+			if c.Kind == check.UnusedStmt {
+				h.unused[c.Call] = c.Type
+			}
+		case check.Deferred:
+			if inner, ok := c.Call.Args[0].(*ast.CallExpr); ok {
+				h.nodes[inner] = true
+				hide(inner.Fun, nil)
+			}
+		}
+	}
+	if len(h.unused) == 0 {
+		return h
+	}
+	for _, f := range p.Load.Files {
+		ast.Inspect(f.AST, func(n ast.Node) bool {
+			if ix, ok := n.(*ast.IndexExpr); ok && h.unused[ix.X] != nil {
+				h.nodes[ix] = true
+				h.nodes[ix.Index] = true
+			}
+			return true
+		})
+	}
+	return h
 }
 
 // line prints one line for the node n.

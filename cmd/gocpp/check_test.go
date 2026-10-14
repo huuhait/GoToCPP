@@ -1026,7 +1026,7 @@ const typesWant = `./main.gp:10:6   def type   point                            
 ./main.gp:14:7   type       point                                     point
 ./main.gp:14:16  const      1                                         int = 1
 ./main.gp:14:22  var        n                                         int
-./main.gp:15:2   def var    v                                         invalid type
+./main.gp:15:2   def var    v                                         opaque
 ./main.gp:15:7   value      std.vector[int]{}                         opaque
 ./main.gp:15:7   type       std.vector[int]                           opaque
 ./main.gp:15:7   type       std.vector                                opaque
@@ -1035,7 +1035,7 @@ const typesWant = `./main.gp:10:6   def type   point                            
 ./main.gp:16:2   value      v.push_back                               opaque
 ./main.gp:16:2   var        v                                         opaque
 ./main.gp:16:14  var        n                                         int
-./main.gp:17:2   def var    k                                         invalid type
+./main.gp:17:2   def var    k                                         opaque
 ./main.gp:17:7   value      cstdio.getchar()                          opaque
 ./main.gp:17:7   value      cstdio.getchar                            opaque
 ./main.gp:18:2   value      fmt.Println(p.x, len("ab"), k, v.size())  (n int, err error)
@@ -1056,7 +1056,7 @@ const typesWant = `./main.gp:10:6   def type   point                            
 ./sdl.gp:6:5    type       SDL.SDL_Window                      opaque
 ./sdl.gp:7:2    def field  n                                   int
 ./sdl.gp:7:4    type       int                                 int
-./sdl.gp:10:6   def func   id                                  func(w invalid type)
+./sdl.gp:10:6   def func   id                                  func(w opaque (*SDL.SDL_Window))
 ./sdl.gp:10:9   def var    w                                   opaque (*SDL.SDL_Window)
 ./sdl.gp:10:11  type       *SDL.SDL_Window                     opaque
 ./sdl.gp:10:12  type       SDL.SDL_Window                      opaque
@@ -1098,6 +1098,92 @@ const typesGates = `./main.gp:6:9: header imports are not supported yet (Phase 0
 ./sdl.gp:5:13: composite types are not supported yet (Phase 03)
 ./sdl.gp:6:4: pointers are not supported yet (Phase 03)
 `
+
+// TestCheckTypesConversions checks -types on conversions of opaque values,
+// which Check rewrote (check.Conversion): they print as written, T(x), as
+// a value of type T, without the nodes of the rewrite, also as a statement
+// (gp_cgoh.Unused[T](x)[0]) and after defer (T(gp_cgoh.Value[T](x))). A
+// function with C types in its signature prints them as opaque, and so
+// does a builtin that go/types gives such a signature.
+func TestCheckTypesConversions(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{"main.gp": `package main
+
+import "<cstdio>"
+
+func f(n int, p *cstdio.FILE, rest ...C.int) (*cstdio.FILE, int) { return p, n }
+
+func main() {
+	x := cstdio.getchar()
+	n := int(x) + 1
+	int(x)
+	defer int(x)
+	_, _ = f(n, nil)
+	_ = append([]C.int{}, x)
+	var s struct{ fs []cstdio.FILE }
+	s.fs = append(s.fs, cstdio.FILE{})
+}
+`})
+	t.Chdir(dir)
+	code, out, _ := gocpp("check", "-types", "main.gp")
+	want := `./main.gp:5:6    def func   f                            func(n int, p opaque (*cstdio.FILE), rest opaque (...C.int)) (opaque, int)
+./main.gp:5:8    def var    n                            int
+./main.gp:5:10   type       int                          int
+./main.gp:5:15   def var    p                            opaque (*cstdio.FILE)
+./main.gp:5:17   type       *cstdio.FILE                 opaque
+./main.gp:5:18   type       cstdio.FILE                  opaque
+./main.gp:5:31   def var    rest                         opaque (...C.int)
+./main.gp:5:36   type       ...C.int                     opaque
+./main.gp:5:39   type       C.int                        opaque
+./main.gp:5:47   type       *cstdio.FILE                 opaque
+./main.gp:5:48   type       cstdio.FILE                  opaque
+./main.gp:5:61   type       int                          int
+./main.gp:5:75   var        p                            opaque
+./main.gp:5:78   var        n                            int
+./main.gp:7:6    def func   main                         func()
+./main.gp:8:2    def var    x                            opaque
+./main.gp:8:7    value      cstdio.getchar()             opaque
+./main.gp:8:7    value      cstdio.getchar               opaque
+./main.gp:9:2    def var    n                            int
+./main.gp:9:7    value      int(x) + 1                   int
+./main.gp:9:7    value      int(x)                       int
+./main.gp:9:7    type       int                          int
+./main.gp:9:11   var        x                            opaque
+./main.gp:9:16   const      1                            int = 1
+./main.gp:10:2   value      int(x)                       int
+./main.gp:10:2   type       int                          int
+./main.gp:10:6   var        x                            opaque
+./main.gp:11:8   value      int(x)                       int
+./main.gp:11:8   type       int                          int
+./main.gp:11:12  var        x                            opaque
+./main.gp:12:9   value      f(n, nil)                    opaque
+./main.gp:12:9   value      f                            opaque
+./main.gp:12:11  var        n                            int
+./main.gp:12:14  nil        nil                          untyped nil
+./main.gp:13:6   value      append([]C.int{}, x)         opaque
+./main.gp:13:6   builtin    append                       -
+./main.gp:13:13  value      []C.int{}                    opaque
+./main.gp:13:13  type       []C.int                      opaque
+./main.gp:13:15  type       C.int                        opaque
+./main.gp:13:24  var        x                            opaque
+./main.gp:14:6   def var    s                            opaque (struct{ fs []cstdio.FILE })
+./main.gp:14:8   type       struct{ fs []cstdio.FILE }   opaque
+./main.gp:14:16  def field  fs                           opaque ([]cstdio.FILE)
+./main.gp:14:19  type       []cstdio.FILE                opaque
+./main.gp:14:21  type       cstdio.FILE                  opaque
+./main.gp:15:2   var        s.fs                         opaque
+./main.gp:15:2   var        s                            opaque
+./main.gp:15:9   value      append(s.fs, cstdio.FILE{})  opaque
+./main.gp:15:9   builtin    append                       func(opaque, ...opaque) opaque
+./main.gp:15:16  var        s.fs                         opaque
+./main.gp:15:16  var        s                            opaque
+./main.gp:15:22  value      cstdio.FILE{}                opaque
+./main.gp:15:22  type       cstdio.FILE                  opaque
+`
+	if code != 1 || portable(out) != want {
+		t.Errorf("gocpp check -types main.gp: exit %d\n%s\nwant:\n%s", code, portable(out), want)
+	}
+}
 
 // TestCheckTypesErrors checks -types on a package with a type error: the
 // types go to stdout, the error to stderr, and the exit status is 1. A

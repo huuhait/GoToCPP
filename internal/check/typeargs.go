@@ -1,6 +1,7 @@
 package check
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
@@ -39,6 +40,10 @@ import (
 //   - It has no Go version, so every language feature is allowed inside
 //     an argument, whatever the file's //go:build go1.N line says.
 //
+// An argument with a type must also be something that C++ can take as a
+// template argument (badTemplateArg): a type that is instantiated, or a
+// constant.
+//
 // checkOpaqueArgs returns the imports and the variables that the arguments
 // use, so that the caller can drop their "imported and not used" and
 // "declared and not used" errors.
@@ -55,19 +60,94 @@ func checkOpaqueArgs(fset *token.FileSet, pkg *types.Package, files []*ast.File,
 				if isOpaqueInstance(arg, info) {
 					continue // ast.Inspect gets to its arguments
 				}
-				if _, ok := info.Types[arg]; ok {
-					continue
+				if _, ok := info.Types[arg]; !ok {
+					err := types.CheckExpr(fset, pkg, arg.Pos(), arg, info)
+					u := &useMarker{info: info, dots: dots, used: used,
+						scope: innermost(pkg, arg.Pos()), pos: arg.Pos()}
+					u.mark(arg)
+					if err != nil {
+						report(arg.Pos(), err)
+						continue
+					}
 				}
-				if err := types.CheckExpr(fset, pkg, arg.Pos(), arg, info); err != nil {
-					report(arg.Pos(), err)
+				if msg := badTemplateArg(pkg, arg, info); msg != "" {
+					report(arg.Pos(), types.Error{Fset: fset, Pos: arg.Pos(), Msg: msg})
 				}
-				u := &useMarker{info: info, dots: dots, used: used, scope: innermost(pkg, arg.Pos()), pos: arg.Pos()}
-				u.mark(arg)
 			}
 			return true
 		})
 	}
 	return used
+}
+
+// badTemplateArg returns the error of the template argument arg of an
+// opaque instantiation, which go/types typed, or "": a generic type
+// without type arguments (std.vector[Box] with type Box[T any] ...), with
+// Go's message for it, or a value that is not a constant
+// (std.array[int, n] with a variable n): C++ takes only types and
+// constants. An argument without a valid type (a C/C++ name such as
+// cstdio.BUFSIZ, or an error) is the C++ compiler's to check, and so is a
+// value with a C/C++ part (int(C.N), with a macro N, is a constant in C++).
+// A function (main, pkg.F) and nil are C++ template arguments too (a
+// function pointer, nullptr); a variable that holds a function is not.
+func badTemplateArg(pkg *types.Package, arg ast.Expr, info *types.Info) string {
+	tv := info.Types[arg]
+	if tv.Type == nil || tv.Type == types.Typ[types.Invalid] {
+		return ""
+	}
+	qual := types.RelativeTo(pkg)
+	switch {
+	case tv.IsType():
+		n, ok := types.Unalias(tv.Type).(*types.Named)
+		if ok && n.TypeParams().Len() > 0 && n.TypeArgs().Len() == 0 {
+			return fmt.Sprintf("cannot use generic type %s without instantiation",
+				types.TypeString(n, qual))
+		}
+	case tv.IsValue() && tv.Value == nil && !tv.IsNil() && !namesFunc(arg, info) &&
+		!hasCPart(arg, info):
+		what := "value"
+		if tv.Addressable() {
+			what = "variable"
+		}
+		return fmt.Sprintf("template argument %s (%s of type %s) must be constant",
+			types.ExprString(arg), what, types.TypeString(tv.Type, qual))
+	}
+	return ""
+}
+
+// namesFunc reports whether e names a function (f, pkg.F, in parentheses
+// or not), not a method value (x.M).
+func namesFunc(e ast.Expr, info *types.Info) bool {
+	var id *ast.Ident
+	switch x := ast.Unparen(e).(type) {
+	case *ast.Ident:
+		id = x
+	case *ast.SelectorExpr:
+		pkg, ok := x.X.(*ast.Ident)
+		if !ok {
+			return false
+		}
+		if _, ok := info.Uses[pkg].(*types.PkgName); !ok {
+			return false
+		}
+		id = x.Sel
+	default:
+		return false
+	}
+	_, ok := info.Uses[id].(*types.Func)
+	return ok
+}
+
+// hasCPart reports whether a part of e is rooted in C.
+func hasCPart(e ast.Expr, info *types.Info) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		if x, ok := n.(ast.Expr); ok && !found && rootedInC(x, info) {
+			found = true
+		}
+		return !found
+	})
+	return found
 }
 
 // argUses are the imports and the variables that the checked arguments

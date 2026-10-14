@@ -289,7 +289,8 @@ func TestRun(t *testing.T) {
 }
 
 // TestErrors checks the files in tests/errors with gocpp check: it must
-// report the errors of the // ERROR comments and no others. See
+// report the errors of the // ERROR comments and the warnings of the
+// // WARNING comments, and no others. See
 // tests/errors/README.md.
 func TestErrors(t *testing.T) {
 	c := setup(t)
@@ -548,7 +549,8 @@ func (c *config) exampleTest(t *testing.T, p *program) {
 }
 
 // errorsTest checks an error test with gocpp check (checkJob). It must exit
-// with 1 if the test wants errors, and with 0 if it wants none.
+// with 1 if the test wants errors, and with 0 if it wants none (warnings
+// don't change the exit status).
 func (c *config) errorsTest(t *testing.T, p *program) {
 	r := c.run(t, checkJob(p.dir, p.arg))
 	if r.problem != "" {
@@ -557,7 +559,7 @@ func (c *config) errorsTest(t *testing.T, p *program) {
 	diags, other := parseDiagnostics(string(r.stdout))
 	problems := matchErrors(p.arg, p.wants, diags, other)
 	wantExit := 0
-	if len(p.wants) > 0 {
+	if wantsErrors(p.wants) {
 		wantExit = 1
 	}
 	if r.exit != wantExit {

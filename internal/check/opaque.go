@@ -30,7 +30,11 @@ import (
 //     or an index, the function or an argument of a call, the operands of
 //     unary and binary expressions, the type of a function literal, the
 //     parts of a type expression (an operand that is typed doesn't count,
-//     even if it comes from C/C++ in the sense of objects below);
+//     even if it comes from C/C++ in the sense of objects below, with one
+//     exception: a value or a type of a named type declared over a C/C++
+//     type, h in h + 1 with type Handle C.int, whose underlying type
+//     go/types doesn't know; see cOperand, which also says where a pointer
+//     or a container of one counts);
 //   - or it is a composite literal of an opaque type, also one whose type
 //     was left out ([]C.Point{{1, 2}}) inside such a literal. (A literal
 //     of a named type over a C/C++ type stays typed: P{X: 1} with
@@ -42,9 +46,11 @@ import (
 //     an opaque expression next to it (see skipped): the T of x.(T) with x
 //     opaque, the sizes of make(T, n) with T opaque, the values of
 //     const k C.int = 1, the keys of an opaque literal, the function of a
-//     generic call with an opaque argument. checkSkipped gives most of
-//     these real types first, so they are typed; what it can't type (a
-//     name as a key, a value with iota) stays opaque.
+//     generic call with an opaque argument, the arguments of lib.CB(n) and
+//     the indices of lib.CB[1:n] (a C/C++ value that go/types can't call
+//     or slice), the values of map[Handle]int{1: n}. checkSkipped gives
+//     most of these real types first, so they are typed; what it can't
+//     type (a name as a key, a value with iota) stays opaque.
 //
 // An object of the package comes from C/C++ when its declared type comes
 // from C/C++ (var xs []C.int, func f(w *SDL.SDL_Window), a struct field, a
@@ -53,9 +59,13 @@ import (
 // x := lib.foo(), a, b := std.minmax(x, y), the range variables of a range
 // over an opaque value, the variable of a type switch over one. A closure
 // sees the same objects, so a variable that a closure captures stays what
-// it is. An object of another package comes from C/C++ when its type is
-// not complete (that package's own opaque pass checked where the type came
-// from).
+// it is. (A range variable, or one of several variables declared from one
+// value, also comes from C/C++ when that value has a named type over a
+// C/C++ type: range v with type V C.vec. A blank name on the left of an
+// assignment comes from C/C++ when a value on the right does: go/types
+// doesn't record it when the values are invalid.) An object of another
+// package comes from C/C++ when its type is not complete (that package's
+// own opaque pass checked where the type came from).
 //
 // The sanity rule (findOpaque): when the package has no errors but
 // "imported and not used", "declared and not used" and "label declared and
@@ -186,6 +196,12 @@ type opaquePass struct {
 	// keyOf maps the key of a keyed element to its composite literal.
 	keyOf map[ast.Expr]*ast.CompositeLit
 
+	// blankFrom maps each blank name on the left of an assignment
+	// (_, _ = x.(T)) to the values on the right. go/types records the
+	// name in Defs, but not when the values are invalid (it doesn't look
+	// at the left then): when one of the values is opaque, so is the name.
+	blankFrom map[*ast.Ident][]ast.Expr
+
 	// skipped maps each expression in a skipped root (see skipped) to
 	// that root, the innermost one if roots nest; roots lists the roots
 	// in the order they were found.
@@ -231,6 +247,7 @@ func newOpaquePass(pkg *types.Package, info *types.Info, files []*ast.File) *opa
 		skip:      make(map[ast.Expr]bool),
 		litParent: make(map[*ast.CompositeLit]*ast.CompositeLit),
 		keyOf:     make(map[ast.Expr]*ast.CompositeLit),
+		blankFrom: make(map[*ast.Ident][]ast.Expr),
 		skipped:   make(map[ast.Expr]*skipped),
 		opq:       make(map[ast.Expr]bool),
 		fromC:     make(map[ast.Expr]bool),
@@ -272,6 +289,10 @@ func (op *opaquePass) collect(n ast.Node) bool {
 		}
 	case *ast.CallExpr:
 		op.collectCall(n)
+	case *ast.SliceExpr:
+		for _, e := range []ast.Expr{n.Low, n.High, n.Max} {
+			op.addUnrecorded(e, n.X, skipSlice)
+		}
 	case *ast.KeyValueExpr:
 		op.skip[n] = true
 	case *ast.CompositeLit:
@@ -383,6 +404,10 @@ func (op *opaquePass) collectLit(lit *ast.CompositeLit) {
 			op.litParent[inner] = lit
 		}
 	}
+	var mapType *types.Map
+	if tv, ok := op.info.Types[lit]; ok && tv.Type != nil {
+		mapType, _ = tv.Type.Underlying().(*types.Map)
+	}
 	for _, elt := range lit.Elts {
 		kv, ok := elt.(*ast.KeyValueExpr)
 		if !ok {
@@ -393,12 +418,24 @@ func (op *opaquePass) collectLit(lit *ast.CompositeLit) {
 		elided(kv.Key)
 		op.keyOf[kv.Key] = lit
 		op.addSkipped(kv.Key, lit, skipKey)
+		if mapType != nil {
+			op.addUnrecorded(kv.Value, lit, skipMapValue)
+		}
 	}
 }
 
 // collectAssign records the variables that a short variable declaration
-// declares, and skips its names.
+// declares, and skips its names. Of an assignment, it records the blank
+// names on the left (see blankFrom).
 func (op *opaquePass) collectAssign(s *ast.AssignStmt) {
+	if s.Tok == token.ASSIGN {
+		for _, lhs := range s.Lhs {
+			if id, ok := lhs.(*ast.Ident); ok && id.Name == "_" {
+				op.blankFrom[id] = s.Rhs
+			}
+		}
+		return
+	}
 	if s.Tok != token.DEFINE {
 		return
 	}
@@ -609,6 +646,11 @@ func (op *opaquePass) computeOpaque(e ast.Expr) bool {
 	}
 	switch e := e.(type) {
 	case *ast.Ident:
+		for _, v := range op.blankFrom[e] {
+			if op.cValue(v) {
+				return true
+			}
+		}
 		return op.identFromC(e)
 	case *ast.CompositeLit:
 		if op.litTypeOpaque(e) {
@@ -617,11 +659,40 @@ func (op *opaquePass) computeOpaque(e ast.Expr) bool {
 	}
 	found := false
 	exprChildren(e, func(c ast.Expr) {
-		if !found && op.opaqueExpr(c) {
+		if !found && op.cOperand(e, c) {
 			found = true
 		}
 	})
 	return found
+}
+
+// cOperand reports whether the operand c makes the expression e around
+// it, which has no complete type, opaque: c is a C/C++ value (cValue:
+// opaque, or its own type is a named type over a C/C++ type, type
+// Handle C.int, whose underlying type is invalid, so that go/types can't
+// type h + 1, h.x or len(h); falseErrors drops its errors about them). Two
+// operations go/types also can't type for a Go value with such a type in
+// it, after a dropped error: the X of a selector may be a pointer to one
+// (pp.x with var pp *P and type P C.Point, cPointer), and an argument of
+// delete or copy a container of one (delete(m, 1) with
+// m map[Handle]int, cNamed). Nowhere else does such a Go value count, so
+// that -hs or pp + 1, whose errors stay, are no more opaque than the
+// errors say.
+func (op *opaquePass) cOperand(e, c ast.Expr) bool {
+	switch e := e.(type) {
+	case *ast.SelectorExpr:
+		if c == e.X {
+			return op.cPointer(c)
+		}
+	case *ast.CallExpr:
+		if id, ok := ast.Unparen(e.Fun).(*ast.Ident); ok && c != e.Fun {
+			b, ok := op.info.Uses[id].(*types.Builtin)
+			if ok && (b.Name() == "delete" || b.Name() == "copy") {
+				return op.cValue(c) || op.cNamed(c)
+			}
+		}
+	}
+	return op.cValue(c)
 }
 
 // comesFromC reports whether the type expression e comes from C/C++,
@@ -674,7 +745,9 @@ func (op *opaquePass) identFromC(id *ast.Ident) bool {
 func (op *opaquePass) litTypeOpaque(lit *ast.CompositeLit) bool {
 	for lit != nil {
 		if lit.Type != nil {
-			return op.opaqueExpr(lit.Type)
+			// Also a named type over a C/C++ type: go/types has no type
+			// for the literals left out in V{{1}}.
+			return op.cValue(lit.Type)
 		}
 		lit = op.litParent[lit]
 	}
@@ -704,10 +777,16 @@ func (op *opaquePass) objectFromC(obj types.Object) bool {
 	op.objC[obj] = false // in progress, as in comesFromC
 	v := false
 	if d, ok := op.decls[obj]; ok {
-		if d.typ != nil {
+		switch {
+		case d.typ != nil:
 			v = op.comesFromC(d.typ)
-		} else {
+		case d.value:
 			v = op.opaqueExpr(d.init)
+		default:
+			// A range variable, or one of several values: from a value
+			// of a named type over a C/C++ type too (range v with
+			// type V C.vec), which go/types can't take apart.
+			v = op.cValue(d.init)
 		}
 	}
 	op.objC[obj] = v

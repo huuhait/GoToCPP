@@ -241,3 +241,41 @@ func main() { _, _ = x, y }
 		t.Errorf("errors:\n%s\nwant:\n%s", errs, want)
 	}
 }
+
+// TestTemplateArgErrors checks the template arguments that C++ can't take
+// (badTemplateArg): a generic type without type arguments, and a value
+// that is not a constant (also a function variable or a method value), in
+// a type and in a value. Constants, instantiated types, values with C/C++
+// parts, functions and nil are fine.
+func TestTemplateArgErrors(t *testing.T) {
+	const box = "type Box[T any] struct{ v T }\n"
+	const generic = "cannot use generic type Box[T any] without instantiation"
+	for _, c := range []struct{ body, want string }{
+		{box + "_ = std.vector[Box]{}", generic},
+		{box + "var v std.vector[Box]\n_ = v", generic},
+		{box + "_ = std.make_unique[Box]()", generic},
+		{box + "_ = std.map[int, std.vector[Box]]{}", generic},
+		{"xs := []int{1}\nvar a std.array[int, len(xs)]\n_ = a",
+			"template argument len(xs) (value of type int) must be constant"},
+		{"n := 3\nvar a std.array[int, n]\n_ = a",
+			"template argument n (variable of type int) must be constant"},
+		{"n := 3\n_ = std.get[n](lib.CB)",
+			"template argument n (variable of type int) must be constant"},
+		{box + "_ = std.vector[Box[int]]{}", ""},
+		{"const k = 3\nvar a std.array[int, k*2]\n_ = a", ""},
+		{"var arr [4]int\nvar a std.array[int, len(arr)]\n_ = a", ""},
+		{"var a std.array[int, x.BUFSIZ]\n_ = a", ""},
+		{"var a std.array[int, int(x.BUFSIZ)]\n_ = a", ""},
+		{"_ = std.thing[main]{}", ""},
+		{"_ = std.thing[lib.Make]{}", ""},
+		{"_ = std.thing[nil]{}", ""},
+		{"f := func() {}\n_ = std.thing[f]{}",
+			"template argument f (variable of type func()) must be constant"},
+		{"var p P\n_ = std.thing[p.Len]{}",
+			"template argument p.Len (value of type func() float64) must be constant"},
+	} {
+		if got := falseErrorMessages(t, c.body); got != c.want {
+			t.Errorf("body:\n%s\nerrors:\n%s\nwant:\n%s", c.body, got, c.want)
+		}
+	}
+}

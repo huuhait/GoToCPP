@@ -7,6 +7,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"slices"
 	"strings"
 
 	"github.com/huuhait/gocpp/internal/build"
@@ -240,19 +241,21 @@ func hasHardErrors(l *diag.List) bool {
 // packages checked so far, which lp's imports come from, and cgoh is the
 // hidden package of the conversions (newCgohPackage). With convert, it
 // then rewrites the conversions of opaque values and checks the package
-// again, until no rewrite is left (see converter). Check passes convert
-// only for a package with C in it, and none whose imports have errors (an
-// invalid value from there can come from an error, not only from C).
+// again, until no rewrite is left (see converter), and it drops the false
+// errors of go/types on opaque code (see falseErrors). Check passes
+// convert only for a package with C in it, and none whose imports have
+// errors (an invalid value from there can come from an error, not only
+// from C).
 // probeErrs are the errors of the namespace probe, which each check puts
 // first (after the load warnings).
 func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package,
 	cgoh *types.Package, convert bool, probeErrs []diag.Diagnostic) *Package {
 	cv := newConverter(fset, lp, cgoh)
-	p, errs := checkFiles(fset, lp, checked, cv, probeErrs)
+	p, errs := checkFiles(fset, lp, checked, cv, probeErrs, convert)
 	p.checks = 1
 	for convert && cv.rewrite(p, errs) {
 		checks := p.checks + 1
-		p, errs = checkFiles(fset, lp, checked, cv, probeErrs)
+		p, errs = checkFiles(fset, lp, checked, cv, probeErrs, convert)
 		p.checks = checks
 	}
 	if len(cv.names) > 0 {
@@ -267,9 +270,10 @@ func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Packa
 // gives the hidden package gocpp/cgoh to the importer and maps
 // gp_cgoh.As[T](x) back to T(x) in the messages. The errors of the
 // namespace probe, probeErrs, come before those of go/types: they were
-// found first.
-func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package, cv *converter,
-	probeErrs []diag.Diagnostic) (*Package, []token.Pos) {
+// found first. With dropFalse, the false errors of go/types on opaque code
+// are dropped (see falseErrors).
+func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package,
+	cv *converter, probeErrs []diag.Diagnostic, dropFalse bool) (*Package, []token.Pos) {
 	errs := new(diag.List)
 	for _, d := range lp.Errors.Diagnostics() {
 		// For a package that Check checks, these are only warnings (else
@@ -284,7 +288,8 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 	// Every package buffers: an expression that go/types skips next to an
 	// opaque one can be in a file without import "C" (make(lib.Vec, n),
 	// with type Vec = C.vec in another file or package).
-	c := &collector{fset: fset, list: errs, seen: make(map[errorKey]bool), fix: cv.fixMessage, buffer: true}
+	c := &collector{fset: fset, list: errs, seen: make(map[errorKey]bool), fix: cv.fixMessage,
+		buffer: true}
 	imp := &importer{from: lp, checked: checked, refused: make(map[string]bool), cgoh: cv.cgoh}
 	if lp.Incomplete {
 		// Check doesn't check such a package, but a caller that wants
@@ -322,12 +327,15 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 	// checks, after conf.Check, on the round's own fresh info and pkg.
 	used := checkOpaqueArgs(fset, pkg, files, info, c.checkExprError)
 	checkSkipped(fset, pkg, files, info, c.checkExprError, used)
+	falseErrs := newFalseErrors(pkg, info, files)
 	c.flush(func(err types.Error) bool {
 		if diag.ErrorCode(err) == diag.UnusedVar {
 			return used.vars[err.Pos]
 		}
 		pn := pkgNameAt(files, info, err.Pos)
 		return pn != nil && used.imports[pn]
+	}, func(err types.Error) bool {
+		return dropFalse && falseErrs.drop(err)
 	})
 	return &Package{Load: lp, Types: pkg, Info: info, Errors: errs}, c.blocking
 }
@@ -455,6 +463,9 @@ type collector struct {
 type foundError struct {
 	err  types.Error
 	held bool // an unused import or variable, which flush may drop
+
+	// blocking says that the error's place is in collector.blocking.
+	blocking bool
 }
 
 type action int
@@ -472,12 +483,14 @@ func (c *collector) collect(err error) {
 		c.list.Collect(err)
 		return
 	}
+	blocking := false
 	if !strings.HasPrefix(terr.Msg, "\t") {
 		switch diag.ErrorCode(terr) {
 		case diag.UnusedImport, diag.UnusedVar, unusedExpr:
 		default:
 			if !followOnError(terr.Msg) {
 				c.blocking = append(c.blocking, terr.Pos)
+				blocking = true
 			}
 		}
 		c.last = c.decide(terr)
@@ -493,7 +506,7 @@ func (c *collector) collect(err error) {
 		c.list.Collect(terr)
 		return
 	}
-	c.found = append(c.found, foundError{err: terr, held: c.last == held})
+	c.found = append(c.found, foundError{err: terr, held: c.last == held, blocking: blocking})
 }
 
 // decide says what happens to an error that isn't a continuation line.
@@ -543,13 +556,22 @@ func (c *collector) checkExprError(pos token.Pos, err error) {
 
 // flush adds the kept errors to the list: the go/types errors in the order
 // they were found, without the held ones for which used reports that their
-// import or variable is used after all, and then the errors of the type
-// arguments and of the skipped expressions.
-func (c *collector) flush(used func(err types.Error) bool) {
+// import or variable is used after all and without the false errors on
+// opaque code, for which falseError reports true (see falseErrors), and
+// then the errors of the type arguments and of the skipped expressions. A
+// dropped false error leaves blocking too: it is no mistake that could
+// have made a value invalid.
+func (c *collector) flush(used, falseError func(err types.Error) bool) {
 	keep := true
 	for _, f := range c.found {
 		if !strings.HasPrefix(f.err.Msg, "\t") {
 			keep = !f.held || !used(f.err)
+			if keep && !f.held && falseError(f.err) {
+				keep = false
+				if f.blocking {
+					c.unblock(f.err.Pos)
+				}
+			}
 		}
 		if keep {
 			c.list.Collect(f.err)
@@ -559,6 +581,13 @@ func (c *collector) flush(used func(err types.Error) bool) {
 		c.list.Collect(err)
 	}
 	c.found, c.argErrors = nil, nil
+}
+
+// unblock removes one place pos from blocking.
+func (c *collector) unblock(pos token.Pos) {
+	if i := slices.Index(c.blocking, pos); i >= 0 {
+		c.blocking = slices.Delete(c.blocking, i, i+1)
+	}
 }
 
 // pkgNameAt returns the package name that the import at pos in files

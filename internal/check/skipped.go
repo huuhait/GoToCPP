@@ -18,13 +18,24 @@ import (
 //     type, std.map[int, int]{n + 4: 2} (it can't know whether the key is a
 //     field name, so it doesn't look at it);
 //   - skipGeneric: the function of a call of a generic function that
-//     go/types couldn't instantiate, id(cv) with cv opaque.
+//     go/types couldn't instantiate, id(cv) with cv opaque;
+//   - skipCall: an argument of a call of a C value that go/types can't
+//     call, lib.CB(n) with var CB = x.get_cb() in lib, or h(n) with
+//     var h Handle and type Handle C.int (it stops at the function, see
+//     falseErrors);
+//   - skipSlice: an index of a slice expression of such a value,
+//     lib.CB[1:n] (it stops at the value);
+//   - skipMapValue: the value of an element of a map literal whose key
+//     type is a named type over a C/C++ type, map[Handle]int{1: n} (it
+//     stops at the key, which it can't assign).
 //
-// A root of the first four kinds counts only when go/types really stopped
-// at its near expression (see stopped); else go/types checked the root as
-// usual. After go/types, checkSkipped gives these roots real types with
-// types.CheckExpr, where it can (the same way as the type arguments of
-// opaque instantiations). Each expression in a root that still has no
+// A root counts only when go/types really stopped at its near expression
+// (see stopped), but for skipGeneric and skipMapValue; else go/types
+// checked the root as usual. A root of skipCall, skipSlice or skipMapValue
+// also counts only when go/types recorded nothing in it (a C function,
+// C.f(n), has its arguments checked). After go/types, checkSkipped gives
+// these roots real types with types.CheckExpr, where it can (the same way
+// as the type arguments of opaque instantiations). Each expression in a root that still has no
 // type afterwards is opaque when the root's near expression says so (see
 // skippedFromC).
 type skipped struct {
@@ -41,6 +52,9 @@ const (
 	skipConst
 	skipKey
 	skipGeneric
+	skipCall
+	skipSlice
+	skipMapValue
 )
 
 // addSkipped records the skipped root root, whose near expression is near,
@@ -48,7 +62,7 @@ const (
 // maps to it, until a root inside it (found later, because collect walks
 // the files top-down) takes over its own part.
 func (op *opaquePass) addSkipped(root, near ast.Expr, kind skipKind) {
-	if kind != skipGeneric && !op.stopped(near) {
+	if kind != skipGeneric && kind != skipMapValue && !op.stopped(near) {
 		return
 	}
 	sk := &skipped{root: root, near: near, kind: kind}
@@ -62,8 +76,8 @@ func (op *opaquePass) addSkipped(root, near ast.Expr, kind skipKind) {
 }
 
 // collectCall records the skipped roots of a call: the size arguments of
-// make, and the function of a generic call that go/types couldn't
-// instantiate.
+// make, the function of a generic call that go/types couldn't
+// instantiate, and the arguments of a call that it couldn't check.
 func (op *opaquePass) collectCall(call *ast.CallExpr) {
 	if id, ok := ast.Unparen(call.Fun).(*ast.Ident); ok && len(call.Args) > 1 {
 		if b, ok := op.info.Uses[id].(*types.Builtin); ok && b.Name() == "make" {
@@ -71,6 +85,11 @@ func (op *opaquePass) collectCall(call *ast.CallExpr) {
 				op.addSkipped(arg, call.Args[0], skipMake)
 			}
 			return
+		}
+	}
+	if tv := op.info.Types[call.Fun]; !tv.IsType() && !tv.IsBuiltin() {
+		for _, arg := range call.Args {
+			op.addUnrecorded(arg, call.Fun, skipCall)
 		}
 	}
 	for e := call.Fun; e != nil; {
@@ -88,6 +107,15 @@ func (op *opaquePass) collectCall(call *ast.CallExpr) {
 		default:
 			e = nil
 		}
+	}
+}
+
+// addUnrecorded records the skipped root root (of skipCall, skipSlice or
+// skipMapValue) if go/types recorded nothing in it (and, but for
+// skipMapValue, stopped at near).
+func (op *opaquePass) addUnrecorded(root, near ast.Expr, kind skipKind) {
+	if root != nil && !recordedIn(root, op.info) {
+		op.addSkipped(root, near, kind)
 	}
 }
 
@@ -123,10 +151,10 @@ func (op *opaquePass) uninstantiated(e ast.Expr) bool {
 
 // skippedFromC reports whether the expressions of the skipped root sk come
 // from C/C++:
-//   - x of x.(T) or T of make(T, n) is opaque (for a typed x or T of a
-//     named type over a C/C++ type, type V C.vec, go/types reports an
-//     error itself: "pv (variable of invalid type type P) is not an
-//     interface", "cannot make V");
+//   - x of x.(T) or T of make(T, n) is opaque, or has a named type over a
+//     C/C++ type (type V C.vec; go/types reports an error then, "hv
+//     (variable of invalid type type H) is not an interface", "cannot make
+//     V", which falseErrors drops);
 //   - the type of the literal of a key, its own or the one it was left out
 //     from, comes from C/C++ (P{X: 1} and []P{{X: 1}} with type P C.Point:
 //     the literal is typed as P, but go/types doesn't look at its keys);
@@ -143,6 +171,12 @@ func (op *opaquePass) skippedFromC(sk *skipped) bool {
 	case skipKey:
 		lit := sk.near.(*ast.CompositeLit)
 		return op.opaqueExpr(lit) || op.litTypeFromC(lit)
+	case skipMapValue:
+		if t := op.info.Types[sk.near].Type; t != nil {
+			m, _ := t.Underlying().(*types.Map)
+			return m != nil && op.namedOverC(m.Key())
+		}
+		return false
 	case skipGeneric:
 		for _, arg := range sk.near.(*ast.CallExpr).Args {
 			if op.opaqueExpr(arg) {
@@ -151,7 +185,7 @@ func (op *opaquePass) skippedFromC(sk *skipped) bool {
 		}
 		return false
 	}
-	return op.opaqueExpr(sk.near)
+	return op.cValue(sk.near)
 }
 
 // litTypeFromC reports whether the type expression of the composite
@@ -206,7 +240,8 @@ func checkSkipped(fset *token.FileSet, pkg *types.Package, files []*ast.File, in
 			continue
 		}
 		pos := sk.root.Pos()
-		u := &useMarker{info: info, dots: dots[fset.File(pos)], used: used, scope: innermost(pkg, pos), pos: pos}
+		u := &useMarker{info: info, dots: dots[fset.File(pos)], used: used,
+			scope: innermost(pkg, pos), pos: pos}
 		switch r := sk.root.(type) {
 		case *ast.CompositeLit:
 			if sk.kind == skipKey && r.Type == nil {

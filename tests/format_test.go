@@ -228,6 +228,42 @@ func TestParseErrorComments(t *testing.T) {
 	}
 }
 
+func TestParseWarningComments(t *testing.T) {
+	type want struct {
+		line    int
+		expr    string
+		warning bool
+	}
+	path := "testdata/errors/warnings.gp"
+	wants, err := parseErrors(path, readFile(t, path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []want
+	for _, w := range wants {
+		got = append(got, want{w.line, w.expr, w.warning})
+	}
+	expected := []want{
+		{3, "an ordinary comment", true}, // a WARNING comment after a comment
+		{7, "declared and not used: x", false},
+		{7, "w1", true}, // ERROR, then WARNING, on one line
+		{7, "w2", true},
+		{8, "only a warning", true}, // WARNING, then ERROR
+		{8, "then an error", false},
+		{9, `warnings\.gp:9`, true}, // LINE works in WARNING too
+		// line 10 has // WARNINGS, which is not WARNING; line 11 has //// WARNING: turned off
+	}
+	if !reflect.DeepEqual(got, expected) {
+		t.Fatalf("got  %v\nwant %v", got, expected)
+	}
+	if !wantsErrors(wants) {
+		t.Error("wantsErrors = false, want true")
+	}
+	if wantsErrors(wants[:1]) || wantsErrors(nil) {
+		t.Error("wantsErrors = true for warnings only")
+	}
+}
+
 func TestParseErrorCommentsMalformed(t *testing.T) {
 	tests := []struct {
 		file string
@@ -238,6 +274,8 @@ func TestParseErrorCommentsMalformed(t *testing.T) {
 		{"unterminated.gp", `8: bad // ERROR comment: no closing quote in "\"undefined: x" (a regexp can't contain a double quote; write \x22 for one)`},
 		{"junk.gp", `8: bad // ERROR comment: want a regexp in double quotes, not "or \"x\""`},
 		{"bad_regexp.gp", "8: bad regexp in a // ERROR comment: error parsing regexp: missing closing ): `missing (`"},
+		{"bare_warning.gp", `8: bad // WARNING comment: want one or more regexps in double quotes after WARNING`},
+		{"mark_after_mark.gp", `8: bad // WARNING comment: want one or more regexps in double quotes after WARNING`},
 	}
 	for _, tt := range tests {
 		path := "testdata/errors/" + tt.file
@@ -254,17 +292,19 @@ func TestParseDiagnostics(t *testing.T) {
 		"\tx.gp:3:1: other declaration of a\n" + // continues the error above
 		"./sub/x.gp:12: no column\n" +
 		`C:\work\x.gp:5:6: a Windows path: with colons` + "\n" +
+		"x.gp:2:1: warning: looks like a directive\n" + // a warning
 		"\n" +
 		"too many errors\n" +
 		"\tafter a line that is not an error\n"
 	diags, other := parseDiagnostics(out)
 	wantDiags := []diagnostic{
-		{"x.gp", 4, "undefined: a\n\tx.gp:3:1: other declaration of a", "x.gp:4:2: undefined: a\n\tx.gp:3:1: other declaration of a"},
-		{"./sub/x.gp", 12, "no column", "./sub/x.gp:12: no column"},
-		{`C:\work\x.gp`, 5, "a Windows path: with colons", `C:\work\x.gp:5:6: a Windows path: with colons`},
+		{"x.gp", 4, "undefined: a\n\tx.gp:3:1: other declaration of a", "x.gp:4:2: undefined: a\n\tx.gp:3:1: other declaration of a", false},
+		{"./sub/x.gp", 12, "no column", "./sub/x.gp:12: no column", false},
+		{`C:\work\x.gp`, 5, "a Windows path: with colons", `C:\work\x.gp:5:6: a Windows path: with colons`, false},
+		{"x.gp", 2, "looks like a directive", "x.gp:2:1: warning: looks like a directive", true},
 	}
 	if !reflect.DeepEqual(diags, wantDiags) {
-		t.Errorf("diagnostics:\n got %q\nwant %q", diags, wantDiags)
+		t.Errorf("diagnostics:\n got %+v\nwant %+v", diags, wantDiags)
 	}
 	if want := []string{"too many errors", "\tafter a line that is not an error"}; !reflect.DeepEqual(other, want) {
 		t.Errorf("other lines: got %q, want %q", other, want)
@@ -313,6 +353,45 @@ func TestMatchDiagnostics(t *testing.T) {
 		}},
 	}
 	for _, tt := range tests {
+		diags, other := parseDiagnostics(tt.out)
+		if got := matchErrors("x.gp", wants, diags, other); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("%s:\n got %q\nwant %q", tt.name, got, tt.want)
+		}
+	}
+
+	// Warnings: a WARNING regexp matches only a warning (after
+	// "warning: "), an ERROR regexp only an error.
+	src = "// phase: 01\n" +
+		"package main\n" +
+		"// a // WARNING \"looks like\"\n" + // line 3
+		"func main() {\n" +
+		"\tx // ERROR \"undefined: x\" // WARNING \"odd\"\n" + // line 5
+		"}\n"
+	if wants, err = parseErrors("x.gp", []byte(src)); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name string
+		out  string
+		want []string
+	}{
+		{"exact", "x.gp:3:1: warning: looks like a directive\nx.gp:5:2: undefined: x\nx.gp:5:2: warning: odd\n", nil},
+		{"warning for error", "x.gp:3:1: warning: looks like a directive\nx.gp:5:2: warning: undefined: x\nx.gp:5:2: warning: odd\n", []string{
+			`x.gp:5: missing error "undefined: x"`,
+			"unexpected warning: x.gp:5:2: warning: undefined: x",
+		}},
+		{"error for warning", "x.gp:3:1: looks like a directive\nx.gp:5:2: undefined: x\nx.gp:5:2: warning: odd\n", []string{
+			`x.gp:3: missing warning "looks like"`,
+			"unexpected error: x.gp:3:1: looks like a directive",
+		}},
+		{"wrong warning", "x.gp:3:1: warning: looks like a directive\nx.gp:5:2: undefined: x\nx.gp:5:2: warning: even\n", []string{
+			"x.gp:5: no warning matches \"odd\"; the line has:\n\t\tx.gp:5:2: warning: even",
+			"unexpected warning: x.gp:5:2: warning: even",
+		}},
+		{"unexpected warning", "x.gp:3:1: warning: looks like a directive\nx.gp:5:2: undefined: x\nx.gp:5:2: warning: odd\nx.gp:6:1: warning: more\n", []string{
+			"unexpected warning: x.gp:6:1: warning: more",
+		}},
+	} {
 		diags, other := parseDiagnostics(tt.out)
 		if got := matchErrors("x.gp", wants, diags, other); !reflect.DeepEqual(got, tt.want) {
 			t.Errorf("%s:\n got %q\nwant %q", tt.name, got, tt.want)

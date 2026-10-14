@@ -387,28 +387,41 @@ func sameOutput(got, want string) bool {
 	return strings.TrimSpace(got) == strings.TrimSpace(want)
 }
 
-// A wantError is an error that "gocpp check" must report: the regexp of a
-// // ERROR comment and its line.
+// A wantError is an error or a warning that "gocpp check" must report: the
+// regexp of a // ERROR or // WARNING comment and its line.
 type wantError struct {
-	line int
-	expr string // the regexp as written, after LINE is expanded
-	rx   *regexp.Regexp
+	line    int
+	expr    string // the regexp as written, after LINE is expanded
+	rx      *regexp.Regexp
+	warning bool // from a // WARNING comment
 }
 
+// The marks of an error test.
+const (
+	errorMark   = "ERROR"
+	warningMark = "WARNING"
+)
+
 var (
-	// errorCommentRx finds a // ERROR comment and the text after it.
-	errorCommentRx = regexp.MustCompile(`// ERROR( .*)?$`)
+	// markCommentRx finds the first // ERROR or // WARNING comment of a
+	// line and the text after it.
+	markCommentRx = regexp.MustCompile(`// (ERROR|WARNING)( .*)?$`)
+	// nextMarkRx matches a // ERROR or // WARNING comment after the
+	// regexps of the one before it.
+	nextMarkRx = regexp.MustCompile(`^// (ERROR|WARNING)( |$)`)
 	// lineRefRx matches LINE, LINE+N and LINE-N in a regexp.
 	lineRefRx = regexp.MustCompile(`LINE(([+-])(\d+))?`)
 )
 
-// parseErrors reads the // ERROR comments of an error test, with the rules
-// of Go's own test/ folder: `// ERROR "rx1" "rx2"` at the end of a line
-// says that gocpp check reports one error per regexp on that line. The
-// regexps are between double quotes and used as written (no escapes are
-// processed, and a regexp can't contain a double quote). LINE in a regexp
-// stands for "file.gp:N" of its own line, LINE+N and LINE-N for a line
-// before or after it, and a line that contains "////" is skipped.
+// parseErrors reads the // ERROR and // WARNING comments of an error test,
+// with the rules of Go's own test/ folder: `// ERROR "rx1" "rx2"` at the
+// end of a line says that gocpp check reports one error per regexp on that
+// line, and `// WARNING "rx"` one warning. Both can be on one line, one
+// after the other (`// ERROR "rx1" // WARNING "rx2"`). The regexps are
+// between double quotes and used as written (no escapes are processed, and
+// a regexp can't contain a double quote). LINE in a regexp stands for
+// "file.gp:N" of its own line, LINE+N and LINE-N for a line before or after
+// it, and a line that contains "////" is skipped.
 func parseErrors(path string, src []byte) ([]wantError, error) {
 	base := filepath.Base(path)
 	var wants []wantError
@@ -417,45 +430,68 @@ func parseErrors(path string, src []byte) ([]wantError, error) {
 		if strings.Contains(line, "////") {
 			continue // a double comment turns ERROR off, as in Go's test/
 		}
-		m := errorCommentRx.FindStringSubmatch(line)
+		m := markCommentRx.FindStringSubmatch(line)
 		if m == nil {
 			continue
 		}
-		exprs, err := quotedRegexps(m[1])
-		if err != nil {
-			return nil, fmt.Errorf("%s:%d: bad // ERROR comment: %v", path, n, err)
-		}
-		for _, expr := range exprs {
-			expr = expandLINE(expr, base, n)
-			rx, err := regexp.Compile(expr)
+		mark, rest := m[1], m[2]
+		for {
+			exprs, next, err := quotedRegexps(mark, rest)
 			if err != nil {
-				return nil, fmt.Errorf("%s:%d: bad regexp in a // ERROR comment: %v", path, n, err)
+				return nil, fmt.Errorf("%s:%d: bad // %s comment: %v", path, n, mark, err)
 			}
-			wants = append(wants, wantError{line: n, expr: expr, rx: rx})
+			for _, expr := range exprs {
+				expr = expandLINE(expr, base, n)
+				rx, err := regexp.Compile(expr)
+				if err != nil {
+					return nil, fmt.Errorf("%s:%d: bad regexp in a // %s comment: %v", path, n, mark, err)
+				}
+				wants = append(wants, wantError{line: n, expr: expr, rx: rx, warning: mark == warningMark})
+			}
+			if next == "" {
+				break
+			}
+			nm := nextMarkRx.FindStringSubmatch(next)
+			mark, rest = nm[1], next[len(nm[0])-len(nm[2]):]
 		}
 	}
 	return wants, nil
 }
 
-// quotedRegexps splits the text after ERROR into its double-quoted regexps.
-func quotedRegexps(s string) ([]string, error) {
+// quotedRegexps splits the text after the mark (ERROR or WARNING) into its
+// double-quoted regexps. It stops at a // ERROR or // WARNING comment after
+// them and returns it in next.
+func quotedRegexps(mark, s string) (exprs []string, next string, err error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return nil, errors.New(`want one or more regexps in double quotes after ERROR, like // ERROR "undefined: x"`)
+		return nil, "", fmt.Errorf(`want one or more regexps in double quotes after %s, like // %s "undefined: x"`, mark, mark)
 	}
-	var exprs []string
 	for s != "" {
+		if len(exprs) > 0 && nextMarkRx.MatchString(s) {
+			return exprs, s, nil
+		}
 		if s[0] != '"' {
-			return nil, fmt.Errorf("want a regexp in double quotes, not %q", s)
+			return nil, "", fmt.Errorf("want a regexp in double quotes, not %q", s)
 		}
 		end := strings.IndexByte(s[1:], '"')
 		if end < 0 {
-			return nil, fmt.Errorf(`no closing quote in %q (a regexp can't contain a double quote; write \x22 for one)`, s)
+			return nil, "", fmt.Errorf(`no closing quote in %q (a regexp can't contain a double quote; write \x22 for one)`, s)
 		}
 		exprs = append(exprs, s[1:1+end])
 		s = strings.TrimLeft(s[2+end:], " \t")
 	}
-	return exprs, nil
+	return exprs, "", nil
+}
+
+// wantsErrors reports whether wants has an error (not only warnings): then
+// gocpp check must exit with 1.
+func wantsErrors(wants []wantError) bool {
+	for _, w := range wants {
+		if !w.warning {
+			return true
+		}
+	}
+	return false
 }
 
 // expandLINE replaces LINE, LINE+N and LINE-N in a regexp of a // ERROR
@@ -474,14 +510,19 @@ func expandLINE(expr, base string, n int) string {
 	})
 }
 
-// A diagnostic is one error that "gocpp check" printed, in the form
-// "path/file.gp:LINE:COL: message" (the column may be missing).
+// A diagnostic is one error or warning that "gocpp check" printed, in the
+// form "path/file.gp:LINE:COL: message" (the column may be missing); a
+// warning's message starts with "warning: ".
 type diagnostic struct {
-	file string // the path as printed
-	line int
-	text string // the message and the indented lines after it: what a // ERROR regexp must match
-	raw  string // the error as printed, for reports
+	file    string // the path as printed
+	line    int
+	text    string // the message (of a warning: after "warning: ") and the indented lines after it: what a regexp must match
+	raw     string // the error as printed, for reports
+	warning bool
 }
+
+// warningPrefix starts the message of a warning (diag.Printer).
+const warningPrefix = "warning: "
 
 // diagnosticRx matches the first line of a diagnostic.
 var diagnosticRx = regexp.MustCompile(`^(.+?):(\d+)(?::\d+)?: (.*)$`)
@@ -509,7 +550,8 @@ func parseDiagnostics(out string) (diags []diagnostic, other []string) {
 		default:
 			if m := diagnosticRx.FindStringSubmatch(line); m != nil {
 				n, _ := strconv.Atoi(m[2])
-				diags = append(diags, diagnostic{file: m[1], line: n, text: m[3], raw: line})
+				text, warning := strings.CutPrefix(m[3], warningPrefix)
+				diags = append(diags, diagnostic{file: m[1], line: n, text: text, raw: line, warning: warning})
 				last = &diags[len(diags)-1]
 				continue
 			}
@@ -521,10 +563,12 @@ func parseDiagnostics(out string) (diags []diagnostic, other []string) {
 }
 
 // matchErrors compares the diagnostics of the test file base with the
-// errors the test wants, like Go's test/ runner: each regexp must match a
-// diagnostic on its line, and it uses up every diagnostic there that it
-// matches; a diagnostic that no regexp uses up is unexpected, and so is any
-// other output. It returns one message per problem.
+// errors and warnings the test wants, like Go's test/ runner: each regexp
+// must match a diagnostic of its kind (an ERROR regexp an error, a WARNING
+// regexp a warning) on its line, and it uses up every such diagnostic
+// there that it matches; a diagnostic that no regexp uses up is
+// unexpected, and so is any other output. It returns one message per
+// problem.
 func matchErrors(base string, wants []wantError, diags []diagnostic, other []string) []string {
 	used := make([]bool, len(diags))
 	var problems []string
@@ -532,7 +576,7 @@ func matchErrors(base string, wants []wantError, diags []diagnostic, other []str
 		var onLine []string
 		matched := false
 		for i, d := range diags {
-			if used[i] || d.line != w.line || filepath.Base(d.file) != base {
+			if used[i] || d.line != w.line || filepath.Base(d.file) != base || d.warning != w.warning {
 				continue
 			}
 			if w.rx.MatchString(d.text) {
@@ -541,17 +585,25 @@ func matchErrors(base string, wants []wantError, diags []diagnostic, other []str
 				onLine = append(onLine, d.raw)
 			}
 		}
+		kind := "error"
+		if w.warning {
+			kind = "warning"
+		}
 		switch {
 		case matched:
 		case len(onLine) == 0:
-			problems = append(problems, fmt.Sprintf("%s:%d: missing error %q", base, w.line, w.expr))
+			problems = append(problems, fmt.Sprintf("%s:%d: missing %s %q", base, w.line, kind, w.expr))
 		default:
-			problems = append(problems, fmt.Sprintf("%s:%d: no error matches %q; the line has:\n\t\t%s",
-				base, w.line, w.expr, strings.Join(onLine, "\n\t\t")))
+			problems = append(problems, fmt.Sprintf("%s:%d: no %s matches %q; the line has:\n\t\t%s",
+				base, w.line, kind, w.expr, strings.Join(onLine, "\n\t\t")))
 		}
 	}
 	for i, d := range diags {
-		if !used[i] {
+		switch {
+		case used[i]:
+		case d.warning:
+			problems = append(problems, "unexpected warning: "+d.raw)
+		default:
 			problems = append(problems, "unexpected error: "+d.raw)
 		}
 	}
