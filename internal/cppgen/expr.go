@@ -80,6 +80,12 @@ type funcGen struct {
 
 	temps   map[ast.Expr]string // the expressions that order.go put into temporaries
 	ordered map[ast.Expr]bool   // the calls that order.go ordered
+
+	// shadows counts the C++ blocks that declarations of shadowing variables opened and that
+	// are still open (declLines); fresh reports that nothing is written yet in the C++ block
+	// that was opened last.
+	shadows int
+	fresh   bool
 }
 
 // newFuncGen returns the funcGen of a function (fn and flow are nil in gp_var_init).

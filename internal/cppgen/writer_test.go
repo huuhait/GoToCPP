@@ -99,7 +99,9 @@ func TestCString(t *testing.T) {
 		{"/home/me/my project/a.gp", `"/home/me/my project/a.gp"`},
 		{`say "hi"`, `"say \"hi\""`},
 		{"é", `"\303\251"`},
-		{"\x00\x01\t\n\x7f\xff", `"\000\001\011\012\177\377"`},
+		{"\x00\x01\t\n\x7f\xff", `"\000\001\t\n\177\377"`},
+		{"\a\b\f\n\r\t\v", `"\a\b\f\n\r\t\v"`},
+		{"\n1\t7", `"\n1\t7"`},      // a named escape takes no digit that follows
 		{"\x01" + "23", `"\00123"`}, // 3 digits: the 2 and the 3 stay characters
 		{"??=", `"?\?="`},           // GCC and Clang warn about trigraphs even in C++20
 		{"a???/b?", `"a?\?\?/b?"`},

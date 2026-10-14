@@ -71,8 +71,10 @@ void main() {
     for (int64_t gp_i8 = 0; gp_i8 < 3; gp_i8++) {
 #line 55 "$DIR/loops.gp"
         int64_t i = gp_i8;
-        int64_t i_1 = i * 100;
-        gp::fmtshim::Print(i_1, " "_gs);
+        int64_t gp_t0 = i * 100; { int64_t i = gp_t0;
+            gp::fmtshim::Print(i, " "_gs);
+        }
+#line 58 "$DIR/loops.gp"
     }
     gp::fmtshim::Println();
 #line 62 "$DIR/loops.gp"
@@ -129,8 +131,10 @@ void main() {
         }
     }
     for (int64_t i = 0; i < 4; i++) {
-        int64_t i_2 = i + 10;
-        gp::fmtshim::Print(i_2, " "_gs);
+        int64_t gp_t1 = i + 10; { int64_t i = gp_t1;
+            gp::fmtshim::Print(i, " "_gs);
+        }
+#line 101 "$DIR/loops.gp"
     }
     gp::fmtshim::Println();
     int64_t a = 0;
@@ -148,7 +152,7 @@ void main() {
 #line 110 "$DIR/loops.gp"
         gp_cont_1:;
 #line 104 "$DIR/loops.gp"
-        { auto gp_t0 = b + a; a = a + 1; b = gp_t0; }
+        { auto gp_t2 = b + a; a = a + 1; b = gp_t2; }
 #line 110 "$DIR/loops.gp"
     }
     gp::fmtshim::Println(a, b);

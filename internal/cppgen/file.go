@@ -74,6 +74,17 @@ func EmitPackage(w io.Writer, fset *token.FileSet, pkg *check.Package, cfg Confi
 	case pkg.Errors.HasErrors():
 		return fmt.Errorf("cppgen: package %s has errors", pkg.Load.ImportPath)
 	}
+	g := newGen(fset, pkg, cfg)
+	g.file()
+	if g.err != nil {
+		return g.err
+	}
+	_, err := w.Write(g.w.buf.Bytes())
+	return err
+}
+
+// newGen returns the emitter of the checked package pkg.
+func newGen(fset *token.FileSet, pkg *check.Package, cfg Config) *gen {
 	g := &gen{
 		fset:  fset,
 		pkg:   pkg,
@@ -84,12 +95,7 @@ func EmitPackage(w io.Writer, fset *token.FileSet, pkg *check.Package, cfg Confi
 		uintCounts: make(map[ast.Expr]bool),
 	}
 	g.w.out = cfg.OutputPath
-	g.file()
-	if g.err != nil {
-		return g.err
-	}
-	_, err := w.Write(g.w.buf.Bytes())
-	return err
+	return g
 }
 
 // errNoMain is the error for a main package without func main, which go build gives too

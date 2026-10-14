@@ -22,7 +22,7 @@ void main() {
     double whole = 3.0;
     gp::fmtshim::Println(i8, u8, i32, u32, i64, u64, big, neg, r);
     gp::fmtshim::Println(f32, f64, e6, whole, f32 * 3.0f, -f64);
-    gp::fmtshim::Println("\303\251\011\"q\" \\ ABC \000 ok"_gs, ""_gs);
+    gp::fmtshim::Println("\303\251\t\"q\" \\ ABC \000 ok"_gs, ""_gs);
     gp::fmtshim::Println("trigraphs?\?= ?\?/ ?\?' ?\?( ?\?) ?\?! ?\?< ?\?> ?\?- ?\?\?"_gs);
     gp::println(u32 + 1, i32 - 1, -neg, u64 * 2, big + big);
 }

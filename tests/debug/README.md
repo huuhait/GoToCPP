@@ -106,10 +106,19 @@ What the debugger shows in this phase (the gdb and lldb pretty printers come wit
 - **Names.** Locals and parameters keep their Go names, and functions are
   `gpkg_<package>::name` (`gpkg_main::add`). Names that gocpp escapes keep their C++ form
   (`new` is `new_`).
-- **Shadowed names.** A variable that shadows one of the same name gets a new C++ name:
-  `v := v + i + 1` declares `v_1`. In that scope, `print v_1` shows the inner variable, and
-  `print v` shows the **outer** one, not the `v` that Go means there
-  ([loops.gp](loops.gp) checks this).
+- **Shadowed names.** A variable that shadows one of the same name keeps its Go name too, in a
+  C++ block of its own that starts at its declaration and ends with its Go block:
+  `v := v + i + 1` is `int64_t gp_t0 = v + i + 1; { int64_t v = gp_t0; ... }`. The temporary,
+  outside the block, reads the outer `v` (in C++ a new name is in scope already in its own
+  initializer). So `print v` shows the variable that Go means there: the outer `v` on the lines
+  of the block above the declaration, the inner `v` after the declaration, and the outer one
+  again after the block. On the declaration's own line it shows the outer `v` when the value
+  reads the name, as here (the line starts with the temporary); a declaration whose value
+  doesn't read it (`x := 7 + i`, `err := f()`) has no temporary, and on its own line `print x`
+  shows the inner `x`, not set yet, as for any C++ declaration. [loops.gp](loops.gp) checks this
+  in the loop's second iteration, and [shadow.gp](shadow.gp) the other places: a line above
+  the declaration, an if with an init, a loop body that declares its range variable again,
+  and `x, y := 2, x`.
 - **Temporaries.** `info locals` also lists gocpp's temporaries (`gp_t0`, the hidden counter
   `gp_i0` of a `for range`), and C++ shows every variable of a scope, also the ones that are
   declared further down and hold garbage until then.

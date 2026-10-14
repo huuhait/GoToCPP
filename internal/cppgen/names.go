@@ -161,16 +161,27 @@ func NamespaceName(path string) string {
 // A funcNames chooses the C++ names inside one function: of its parameters, results and local
 // variables, and of the temporaries that the generated code needs.
 //
-// A local variable keeps its escaped Go name, unless C++ would see it differently than Go:
-//   - the declaration uses the name it declares (v := v, x := x + 1, var v = v): in C++ the
-//     new name is already in scope in its own initializer, so int64_t v = v; would read the
-//     new, uninitialized v (Phase 02 README §2.2);
-//   - the name is declared already in the same C++ scope: the C++ of a statement can put two
-//     Go scopes into one C++ block.
+// A local variable keeps its escaped Go name, so a debugger finds it by its Go name and shows
+// the variable that Go means there (Phase 02 README §2.8). A variable that shadows a variable
+// or function of an outer scope (v := v + 1, err := f(), a loop body's i := i * 2) keeps its
+// name too: its declaration starts a C++ block of its own, which ends with its Go block, and a
+// value that reads a name that the declaration declares goes into a gp_ temporary first,
+// outside the block: int64_t gp_t0 = v + 1; { int64_t v = gp_t0; ... } (declLines and bind,
+// stmt.go). That handles the places where C++ sees such a declaration differently than Go:
+//   - in C++ a new name is in scope already in its own initializer and in those of the
+//     declarators after it, so int64_t v = v; would read the new, uninitialized v;
+//   - C++ debug info puts a variable in scope in its whole block, so a debugger would show the
+//     inner v, not yet set, on the lines of the block above its declaration;
+//   - C++ forbids declaring a variable of a for's init, or the range variable, again in the
+//     outermost block of the loop's body (Go allows it: the body is a block of its own).
 //
-// Then it gets a new name: name_1, name_2, ... (the first one that is free). A new name is
-// never reserved, and never the name of anything that the function declares or uses, so it
-// can't hide what the code refers to. All choices depend only on the source, in source order.
+// A new name is left for one case only: a name declared again in the same C++ block, which
+// C++ rejects. Every Go block is a C++ block of its own and a shadowing variable starts one, so
+// the Phase 02 emitter makes none (TestShadowNames); the rule stays as a guard for the later
+// phases' rewrites, which must not produce broken C++. The new name is name_1, name_2, ...
+// (the first one that is free). It is never reserved, and never the name of anything that the
+// function declares or uses, so it can't hide what the code refers to. All choices depend only
+// on the source, in source order.
 type funcNames struct {
 	// taken are the names that a new name must not be: the C++ names of every variable and
 	// function that the function declares or uses, and the new names chosen so far.
@@ -204,19 +215,36 @@ func (f *funcNames) reserve(name string) {
 func (f *funcNames) openScope()  { f.scopes = append(f.scopes, make(map[string]bool)) }
 func (f *funcNames) closeScope() { f.scopes = f.scopes[:len(f.scopes)-1] }
 
-// declare chooses the C++ name of the variable obj, declared in the innermost C++ scope. used
-// holds the C++ names that its declaration's initializers refer to (the names of the
-// variables and functions in them); obj gets a new name if its own name is one of them, or if
-// the scope already has it.
-func (f *funcNames) declare(obj types.Object, used map[string]bool) string {
+// declare chooses the C++ name of the variable obj, declared in the innermost C++ scope: its
+// escaped Go name, or a new name if the scope has that one already (see funcNames).
+func (f *funcNames) declare(obj types.Object) string {
 	name := Escape(obj.Name())
 	scope := f.scopes[len(f.scopes)-1]
-	if used[name] || scope[name] {
+	if scope[name] {
 		name = f.newName(obj.Name())
 	}
 	scope[name] = true
 	f.names[obj] = name
 	return name
+}
+
+// name chooses the C++ name of a variable that a declaration shadows another one with: its
+// escaped Go name. The declaration then puts it into a scope with enter.
+func (f *funcNames) name(obj types.Object) string {
+	name := Escape(obj.Name())
+	f.names[obj] = name
+	return name
+}
+
+// enter puts a C++ name into the innermost scope, and reports false if the scope has it
+// already (C++ would reject the declaration).
+func (f *funcNames) enter(name string) bool {
+	scope := f.scopes[len(f.scopes)-1]
+	if scope[name] {
+		return false
+	}
+	scope[name] = true
+	return true
 }
 
 // newName returns the first of name_1, name_2, ... that is free: not reserved, not taken,

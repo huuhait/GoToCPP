@@ -94,9 +94,7 @@ void main() {
         case 2: {
             gp::fmtshim::Println("two or after one"_gs, i);
 #line 71 "$DIR/switch.gp"
-            break;
-#line 71 "$DIR/switch.gp"
-        }
+        } break;
         }
         {
 #line 73 "$DIR/switch.gp"
@@ -129,9 +127,7 @@ void main() {
             default: {
                 gp::fmtshim::Println("tagless default"_gs, i);
 #line 85 "$DIR/switch.gp"
-                break;
-#line 85 "$DIR/switch.gp"
-            }
+            } break;
             }
 #line 86 "$DIR/switch.gp"
         }
@@ -171,9 +167,7 @@ void main() {
         case 1: {
             gp::fmtshim::Print("one-or-after-zero "_gs);
 #line 113 "$DIR/switch.gp"
-            break;
-#line 113 "$DIR/switch.gp"
-        }
+        } break;
         default: {
             gp::fmtshim::Print("default "_gs);
             [[fallthrough]];
@@ -182,9 +176,7 @@ void main() {
         case 2: {
             gp::fmtshim::Print("two-or-after-default "_gs);
 #line 118 "$DIR/switch.gp"
-            break;
-#line 118 "$DIR/switch.gp"
-        }
+        } break;
         }
         gp::fmtshim::Println();
     }
@@ -262,15 +254,11 @@ void main() {
         case 1: {
             gp::fmtshim::Println("y after fallthrough"_gs);
 #line 164 "$DIR/switch.gp"
-            break;
-#line 164 "$DIR/switch.gp"
-        }
+        } break;
         case 2: {
             gp::fmtshim::Println("never"_gs);
 #line 166 "$DIR/switch.gp"
-            break;
-#line 166 "$DIR/switch.gp"
-        }
+        } break;
         }
 #line 167 "$DIR/switch.gp"
     }
@@ -303,15 +291,11 @@ void main() {
                 }
                 gp::fmtshim::Println("never"_gs);
 #line 179 "$DIR/switch.gp"
-                break;
-#line 179 "$DIR/switch.gp"
-            }
+            } break;
             default: {
                 gp::fmtshim::Println("i"_gs, i);
 #line 181 "$DIR/switch.gp"
-                break;
-#line 181 "$DIR/switch.gp"
-            }
+            } break;
             }
 #line 182 "$DIR/switch.gp"
         }
@@ -334,9 +318,7 @@ void main() {
             }
             gp::fmtshim::Println("never"_gs);
 #line 191 "$DIR/switch.gp"
-            break;
-#line 191 "$DIR/switch.gp"
-        }
+        } break;
         }
 #line 192 "$DIR/switch.gp"
     }
@@ -354,15 +336,11 @@ void main() {
     case 44: {
         gp::fmtshim::Println("uint8 wraps"_gs);
 #line 207 "$DIR/switch.gp"
-        break;
-#line 207 "$DIR/switch.gp"
-    }
+    } break;
     case 255: {
         gp::fmtshim::Println("no"_gs);
 #line 209 "$DIR/switch.gp"
-        break;
-#line 209 "$DIR/switch.gp"
-    }
+    } break;
     }
     double f = 2.5;
     {

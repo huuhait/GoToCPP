@@ -96,7 +96,7 @@ void main() {
     { auto gp_t10 = count(); auto gp_t11 = next(); gp::fmtshim::Println(gp::shr(int64_t(1000), gp::shl(uint64_t(1), gp_t10) - 2) + gp::div(int64_t(7), z), gp_t11); }
 #line 86 "$DIR/order.gp"
     { auto gp_t12 = x == 2; auto gp_t13 = inc(); auto gp_t14 = x == 2; auto gp_t15 = s[3]; auto gp_t16 = grow(); gp::fmtshim::Println(gp_t12, gp_t13, gp_t14, gp_t15, gp_t16, uint8_t(x)); }
-    { auto gp_t17 = x == 3; auto gp_t18 = inc(); gp::fmtshim::Printf("%v %v %v\012"_gs, gp_t17, gp_t18, first + p1 + p2); }
+    { auto gp_t17 = x == 3; auto gp_t18 = inc(); gp::fmtshim::Printf("%v %v %v\n"_gs, gp_t17, gp_t18, first + p1 + p2); }
 #line 90 "$DIR/order.gp"
     { auto gp_t19 = next(); auto gp_t20 = next(); gp::fmtshim::Println(g(gp_t19, g(gp_t20, next()))); }
     gp::fmtshim::Println(std::apply(both, pair()));

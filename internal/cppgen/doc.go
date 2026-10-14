@@ -20,8 +20,8 @@
 //   - types.go: the C++ spelling of the types;
 //   - names.go: the C++ names: a _ suffix for C++ keywords, compiler words and macros
 //     (cxx_words.txt, cxx_macros.txt) and for user names that start with gp_, which are the
-//     generated code's; new names where C++ would see a declaration differently than Go
-//     (v := v); the gp_ temporaries;
+//     generated code's; the names of local variables, which keep their Go names, also when
+//     they shadow one (v := v); the gp_ temporaries;
 //   - writer.go: indentation, and the #line directives that point every generated line back
 //     at its .gp line, for debuggers and compiler errors.
 //

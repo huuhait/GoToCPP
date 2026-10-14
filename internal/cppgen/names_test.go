@@ -3,6 +3,8 @@ package cppgen
 import (
 	"go/token"
 	"go/types"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -161,9 +163,10 @@ func TestReservedLists(t *testing.T) {
 	}
 }
 
-// TestFuncNames checks the choices of funcNames: new names for a declaration that uses its
-// own name and for a second declaration in one C++ scope, never a taken name, and the
-// counters of the temporaries.
+// TestFuncNames checks the choices of funcNames: a variable keeps its Go name, also when it
+// shadows one (v := v gets a temporary in stmt.go, not a new name), and gets a new name only
+// for a second declaration in one C++ scope, never a taken name; and the counters of the
+// temporaries.
 func TestFuncNames(t *testing.T) {
 	v := func(name string) types.Object { return types.NewVar(token.NoPos, nil, name, types.Typ[types.Int]) }
 	f := newFuncNames()
@@ -178,16 +181,20 @@ func TestFuncNames(t *testing.T) {
 			t.Errorf("got %q, want %q", got, want)
 		}
 	}
-	check(f.declare(v0, nil), "v")
+	check(f.declare(v0), "v")
 	f.openScope()
-	check(f.declare(v("v"), map[string]bool{"v": true}), "v_2") // v := v; v_1 is taken
-	check(f.declare(v("x"), map[string]bool{"v_2": true}), "x")
-	check(f.declare(v("x"), nil), "x_1") // a second x in the same C++ scope
-	check(f.declare(v("new"), map[string]bool{"new_": true}), "new_2")
-	check(f.declare(v("gp_x"), map[string]bool{"gp_x_": true}), "gp_x_1_") // never like gp_t0
-	check(f.declare(v("EOF"), map[string]bool{"EOF_": true}), "EOF_1")
+	check(f.declare(v("v")), "v") // shadows the outer v: a nested C++ block allows it
+	check(f.declare(v("x")), "x")
+	check(f.declare(v("x")), "x_1") // a second x in the same C++ scope
+	check(f.declare(v("v")), "v_2") // v_1 is taken
+	check(f.declare(v("new")), "new_")
+	check(f.declare(v("new")), "new_2")
+	check(f.declare(v("gp_x")), "gp_x_")
+	check(f.declare(v("gp_x")), "gp_x_1_") // never like gp_t0
+	check(f.declare(v("EOF")), "EOF_")
+	check(f.declare(v("EOF")), "EOF_1")
 	f.openScope()
-	check(f.declare(v("v"), map[string]bool{"v_2": true}), "v") // v := v_2 * 2: no clash
+	check(f.declare(v("v")), "v")
 	f.closeScope()
 	f.closeScope()
 	check(f.names[v0], "v")
@@ -195,4 +202,59 @@ func TestFuncNames(t *testing.T) {
 	check(f.temp("t"), "gp_t1")
 	check(f.temp("cont_"), "gp_cont_0")
 	check(f.temp("t"), "gp_t2")
+}
+
+// TestShadowNames checks that every local variable keeps its (escaped) Go name in C++, so a
+// debugger shows the variable that Go means (funcNames): in the emitter's test programs and
+// in the Phase 02 programs of tests/run, tests/diff, tests/debug and tests/golden, which
+// shadow names in blocks, if, for, range and switch statements and declare names again in
+// loop bodies.
+func TestShadowNames(t *testing.T) {
+	progs, err := filepath.Glob(filepath.Join("testdata", "emit", "*.gp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"run", "diff", "debug", "golden"} {
+		files, err := filepath.Glob(filepath.Join("..", "..", "tests", dir, "*.gp"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range files {
+			data, err := os.ReadFile(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.HasPrefix(string(data), "// phase: 02\n") {
+				progs = append(progs, f)
+			}
+		}
+	}
+	if len(progs) < 20 {
+		t.Fatalf("only %d programs", len(progs))
+	}
+	n := 0 // the local variables
+	for _, prog := range progs {
+		abs, err := filepath.Abs(prog)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fset, pkg := checkPatterns(t, filepath.Dir(abs), abs)
+		g := newGen(fset, pkg, Config{})
+		g.file()
+		if g.err != nil {
+			t.Errorf("%s: %v", prog, g.err)
+			continue
+		}
+		for _, f := range g.funcs {
+			for obj, name := range f.names.names {
+				n++
+				if want := Escape(obj.Name()); name != want {
+					t.Errorf("%s: %s is %s in C++, want %s", fset.Position(obj.Pos()), obj.Name(), name, want)
+				}
+			}
+		}
+	}
+	if n < 100 {
+		t.Errorf("only %d local variables", n)
+	}
 }

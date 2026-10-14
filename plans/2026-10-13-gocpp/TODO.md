@@ -28,6 +28,7 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [ ] The GOCPP_CXX/GOCPP_REQUIRE_CXX compiler-matrix test code exists four times (runtime/cxx_test.go, tests/harness_test.go, internal/interop/nsprobe_test.go, internal/check/nsprobe_test.go) with slightly different messages: one shared internal test helper (from the 1.10c review)
 - [ ] `gocpp fmt` (an upstream go/printer bug, also in gofmt with Go generics) drops the parentheses in `range (std.vector[int]{7, 8})`, and the result doesn't parse ("expected 1 expression"): keep the parentheses when the range expression is a composite literal (from job 1.15)
 - [ ] gocpp's own error "x (a C/C++ value) is not an interface" for `x.(T)` and `switch x.(type)` on any C value (local or not, also named over C): go/types is silent or gives a garbage message there, and job 1.15 drops the garbage one (owner: Phase 04 or 05)
+- [ ] internal/cppgen (from the 2.10b review; give to the next emitter job): `chain` in control.go closes the shadow blocks of an if/else-if init as separate `}` lines (join them like `closeShadows`); in `x, y := x+1, 5`, `y` enters the outer funcNames scope but is written inside the new C++ block (enter all of a declaration's new variables into the inner scope once a block is opened)
 - [ ] `docs/adr/README.md`: describe dated amendments (like ADR-002's printer line), not only superseding (from job 1.5)
 
 ## Any time (parallel, low risk)

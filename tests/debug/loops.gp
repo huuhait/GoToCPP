@@ -1,9 +1,9 @@
 // phase: 02
 
-// Loops, switches, labels and goto, and a shadowed name. gocpp renames a
-// variable that shadows one of the same name (v := v + i + 1 becomes
-// int64_t v_1 = v + i + 1), so in gdb the inner v is v_1, and "print v" shows
-// the outer v.
+// Loops, switches, labels and goto, and a shadowed name: the inner v keeps
+// its Go name in a C++ block of its own (int64_t gp_t0 = v + i + 1; {
+// int64_t v = gp_t0; ...}), so "print v" shows the outer v up to and on the
+// declaration line, then the inner v (README.md, "Shadowed names").
 package main
 
 import "fmt"
@@ -13,7 +13,7 @@ func main() {
 	total := 0
 	for i := range 3 {
 		v := v + i + 1
-		total += v // gdb: print i = 0; print v_1 = 11; print v = 10; next 17 14 15 16
+		total += v // gdb: print i = 0; print v = 11; next 17 14; print v = 10; next 15; print v = 10; next 16; print i = 1; print v = 12
 		fmt.Println(i, v, classify(v-12))
 	}
 	k := 0 // gdb: print total = 36; print v = 10

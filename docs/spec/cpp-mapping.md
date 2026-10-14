@@ -159,11 +159,13 @@ treatment:
 | a user name that starts with `gp_` (`gp_count`) | the name with a `_` suffix (`gp_count_`) | `gp_` is reserved for generated code, and generated names never end in `_`, so the two can't clash |
 | a name that C++ reserves (`_X`, `a__b`) | not renamed: it stays as written | GCC and Clang accept them, even with `-Wall -Wextra -pedantic` (only Clang's opt-in `-Wreserved-identifier` warns); `gocpp vet` warns about them |
 | a method named like its type (`func (U) U()`) | `U_` | C++ would read it as a constructor |
-| a declaration that uses the name it declares: `v := v`, `x := x + 1` | a new name: `v_1` | in C++, the new name is already in scope inside its own initializer, so `int64_t v = v;` would read garbage |
+| a variable that shadows one of an outer scope: `v := v + 1`, `err := f()` | not renamed: `v`, in a C++ block of its own from its declaration to the end of its Go block; a value that reads the name goes into a temporary first: `int64_t gp_t0 = v + 1; { int64_t v = gp_t0; ... }` | in C++ the new name is already in scope inside its own initializer, so `int64_t v = v;` would read garbage; and debug info puts a variable in scope in its whole block, so without the block a debugger would show the inner `v`, not yet set, on the lines above the declaration. The block also lets a loop body declare the loop's own variable again (`for i := range n { i := i * 2 }`), which C++ forbids in the outermost block of the body |
 | several `init()` functions | `gp_init_1` … `gp_init_n` | Go allows many `init` functions in one package |
 
 - Temporaries made by the compiler always start with `gp_` (`gp_t0`), so they can't collide with
   your names.
+- Local variables keep their names, so a debugger finds them by their Go names and shows the
+  variable that Go means at each line (shadowing included, see the table).
 - A `type` declared inside a function moves to namespace scope with a unique name (C++ local
   classes can't have the static members gocpp needs).
 - An embedded field is declared with a fully qualified type, `::gpkg_main::Base Base;`, because

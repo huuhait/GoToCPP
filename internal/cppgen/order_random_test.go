@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -91,6 +92,7 @@ type progGen struct {
 	indent  int
 	tag     int             // the next tag of a call, so the output shows which call ran
 	locals  []string        // the int variables in scope
+	block0  int             // the first of locals that the current block declares
 	fixed   map[string]bool // the loop counters, which the program doesn't assign
 	depth   int             // of the statement nesting
 	loops   int             // the loops around the current statement
@@ -187,23 +189,37 @@ func (g *progGen) local() string {
 	return g.locals[g.r.Intn(len(g.locals))]
 }
 
-// newVar declares a new local int variable in the current scope.
+// newVar declares a new local int variable in the current scope. Sometimes it shadows a
+// variable of an outer block, whose name the value of the declaration may read (v1 := v1 + 1,
+// for v1 := range v1 & 3 { v1 := v1 * 2 }): the C++ keeps the Go names (funcNames).
 func (g *progGen) newVar() string {
-	g.nvars++
-	v := "v" + strconv.Itoa(g.nvars)
+	var outer []string
+	for _, v := range g.locals[:g.block0] {
+		if !slices.Contains(g.locals[g.block0:], v) {
+			outer = append(outer, v)
+		}
+	}
+	var v string
+	if len(outer) > 0 && g.chance(0.3) {
+		v = outer[g.r.Intn(len(outer))]
+	} else {
+		g.nvars++
+		v = "v" + strconv.Itoa(g.nvars)
+	}
 	g.locals = append(g.locals, v)
 	return v
 }
 
 // block writes the statements of a block; its variables go out of scope at the end.
 func (g *progGen) block(n int) {
-	saved := len(g.locals)
+	saved, block0 := len(g.locals), g.block0
+	g.block0 = saved
 	g.indent++
 	g.depth++
 	g.stmts(n)
 	g.depth--
 	g.indent--
-	g.locals = g.locals[:saved]
+	g.locals, g.block0 = g.locals[:saved], block0
 }
 
 func (g *progGen) stmts(n int) {

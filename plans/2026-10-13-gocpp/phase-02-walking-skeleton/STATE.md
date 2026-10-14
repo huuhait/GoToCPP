@@ -1,6 +1,6 @@
 # Phase 02: Walking Skeleton · STATE
 
-**Status:** `[~]` in progress (steps 2.1–2.9 and 2.11 done)
+**Status:** `[~]` in progress (every step done; exit check next)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
@@ -31,7 +31,7 @@
 - [x] 2.7 Runtime v0 (`gp::string` minimal, helpers, panic as exception, print/println, unbuffered-order stdout, fmtshim, run_main, OS layer `runtime/src/os/` + no-POSIX-outside check) + C++ unit tests
 - [x] 2.8 Driver: `build`, `run`, `emit`, `-x`, `-work`, `-asan`, compiler detection, embedded runtime
 - [x] 2.9 Internal-error path for C++ compile failures
-- [~] 2.10 Tests: ≥ 25 run tests, 3 golden, ≥ 25 differential vs Go (promotion, order, shadowing, float format, float→int, stdout/stderr order)
+- [x] 2.10 Tests: ≥ 25 run tests, 3 golden, ≥ 25 differential vs Go (promotion, order, shadowing, float format, float→int, stdout/stderr order)
 - [x] 2.11 Debug test: gdb batch + line-table check
 
 ## Exit criteria
@@ -163,3 +163,6 @@
   declaration to the end of its Go block (ADR-022, superseding ADR-010's `v := v` row); a loop body
   that redeclares its for-init/range variable is in such a block too (the coder's choice over the
   ticket's "keep the rename" hint). gdb then shows the right variable on every line.
+- 2026-10-14: Job 2.10b (shadowed names keep their Go names, ADR-022; the 3 golden tests hello, control,
+  funcs) committed, clean after 2 review rounds; step 2.10 is done. Strings use named escapes (`\n`),
+  case ends are `} break;`. The reviewer calls the goldens reviewed and readable (§5).

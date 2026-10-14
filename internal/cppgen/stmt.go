@@ -16,6 +16,8 @@ import (
 //
 //	Go                       C++
 //	x := e, var x = e        T x = e;  (an explicit type; only gp_ temporaries are auto)
+//	v := v + 1 (shadowing)   T gp_t0 = v + 1; { T v = gp_t0; ...rest of the block... }
+//	                         (v keeps its Go name: declLines)
 //	g(x, f())                { auto gp_t0 = f(); g(x, gp_t0); }  (Go's order, order.go)
 //	var x T                  T x{};  (the zero value)
 //	a, b := f()              auto gp_t0 = f(); T a = std::get<0>(gp_t0); ...
@@ -40,11 +42,38 @@ import (
 // lines, in the { } of a statement that is not a declaration. A condition (if, else if, loop,
 // case) has its own shapes: fg.cond, the arms of chain and the loops (control.go).
 
-// stmts writes the statements of a block.
-func (fg *funcGen) stmts(list []ast.Stmt) {
+// stmts writes the statements of a block, which ends at end: there it closes the blocks that
+// the declarations of shadowing variables opened (declLines).
+func (fg *funcGen) stmts(list []ast.Stmt, end token.Pos) {
+	mark := fg.shadows
 	for _, s := range list {
 		fg.stmt(s)
 	}
+	fg.closeShadows(mark, end)
+}
+
+// closeShadows closes the blocks that the declarations of shadowing variables opened since
+// fg.shadows was mark, at end: all on one line, } } }.
+func (fg *funcGen) closeShadows(mark int, end token.Pos) {
+	if fg.shadows == mark {
+		return
+	}
+	var braces []string
+	for ; fg.shadows > mark; fg.shadows-- {
+		fg.names.closeScope()
+		fg.g.w.dedent()
+		braces = append(braces, "}")
+	}
+	fg.line(end, strings.Join(braces, " "))
+}
+
+// initShadows returns the number of blocks that the init statement of an if, for or switch
+// opened for shadowing variables since fg.shadows was mark (declLines), and takes them over:
+// the statement closes them where it closes its own block.
+func (fg *funcGen) initShadows(mark int) int {
+	n := fg.shadows - mark
+	fg.shadows = mark
+	return n
 }
 
 func (fg *funcGen) stmt(s ast.Stmt) {
@@ -81,12 +110,13 @@ func (fg *funcGen) stmt(s ast.Stmt) {
 // line writes one line of C++ mapped to the .gp line of pos.
 func (fg *funcGen) line(pos token.Pos, text string) {
 	fg.g.w.line(fg.g.pos(pos), text)
+	fg.fresh = false
 }
 
 // block writes a Go block as a C++ block, which is a scope in both languages.
 func (fg *funcGen) block(b *ast.BlockStmt) {
 	fg.line(b.Lbrace, "{")
-	fg.inner(func() { fg.stmts(b.List) })
+	fg.inner(func() { fg.stmts(b.List, b.Rbrace) })
 	fg.line(b.Rbrace, "}")
 }
 
@@ -94,6 +124,7 @@ func (fg *funcGen) block(b *ast.BlockStmt) {
 func (fg *funcGen) inner(body func()) {
 	fg.g.w.indent()
 	fg.names.openScope()
+	fg.fresh = true
 	body()
 	fg.names.closeScope()
 	fg.g.w.dedent()
@@ -245,6 +276,9 @@ func isBlank(e ast.Expr) bool {
 type target struct {
 	name string // the C++ name, or "" for _
 	typ  string // the C++ type of a new variable, or "" for an existing one
+
+	shadow bool // a new variable that shadows a variable or function of an outer scope
+	class  bool // a new variable of a C++ class type (gp::string), which a temporary is moved into
 }
 
 // assign returns the C++ statement that gives t the value: T x = value; for a new variable,
@@ -268,28 +302,94 @@ func (t target) assignExpr(value string) string {
 // For :=, some of the names may be variables that exist already: they are assigned.
 //
 // Each new variable gets an explicit C++ type: x := e is `int64_t x = e;`, and var x T is
-// `T x{};`, the zero value. A new variable whose name the values use (v := v) gets a new C++
-// name, because in C++ the new name is in scope in its own initializer (funcNames.declare).
+// `T x{};`, the zero value. A new variable keeps its Go name also when it shadows another one
+// (v := v): bind puts a value that reads the name into a temporary first, and the declaration
+// starts a C++ block (declLines, funcNames).
 //
 // The temporaries of a declaration are not in { }, which would end the scope of its
 // variables too: Go doesn't allow a goto over a declaration anyway.
 func (fg *funcGen) declare(pos token.Pos, lhs, values []ast.Expr) {
-	targets := fg.newTargets(lhs, values)
+	targets := fg.newTargets(lhs)
 	if len(values) == 0 {
+		var lines []string
+		open := -1
 		for _, t := range targets {
 			if t.name != "" {
-				fg.line(pos, t.typ+" "+t.name+"{};")
+				if t.shadow && open < 0 {
+					open = len(lines)
+				}
+				lines = append(lines, t.typ+" "+t.name+"{};")
 			}
 		}
+		fg.declLines(pos, lines, open, false, targets)
 		return
 	}
 	fg.bind(pos, targets, values, false)
 }
 
-// newTargets returns the targets of a declaration of the names lhs with the values, and
-// chooses the C++ names of its new variables.
-func (fg *funcGen) newTargets(lhs, values []ast.Expr) []target {
-	used := fg.usedNames(values)
+// declLines writes the lines of a declaration (joined: as one line), and puts its new
+// variables into the scope of funcNames. open is the index of the line that declares the
+// first variable that shadows another one (fg.shadowing), or -1.
+//
+// A shadowing variable starts a C++ block of its own, which ends where its Go block ends
+// (stmts, or the if, for or switch of an init statement):
+//
+//	int64_t gp_t0 = v + 1; { int64_t v = gp_t0;
+//	    ...the rest of the Go block...
+//	}
+//
+// C++ debug info puts a variable into the scope of its whole block, also above its
+// declaration. So without the block, a debugger would show the inner v, not yet set, on the
+// lines of the block above the declaration and on the declaration's own line; with it, it
+// shows the outer v there, and the inner one after the declaration. The lines of the
+// declaration before the first shadowing variable (its temporaries) stay outside the block,
+// on the same C++ line. A block that has nothing before the declaration (fg.fresh) needs no
+// new block. The block is also what lets a loop body declare a variable of the loop's init or
+// its range variable again, which C++ forbids in the outermost block of the body (control.go).
+func (fg *funcGen) declLines(pos token.Pos, lines []string, open int, joined bool, targets []target) {
+	switch {
+	case open >= 0 && (open > 0 || !fg.fresh):
+		before := ""
+		if open > 0 {
+			before = strings.Join(lines[:open], " ") + " "
+		}
+		fg.line(pos, before+"{ "+strings.Join(lines[open:], " "))
+		fg.g.w.indent()
+		fg.names.openScope()
+		fg.shadows++
+	case joined:
+		fg.line(pos, strings.Join(lines, " "))
+	default:
+		for _, l := range lines {
+			fg.line(pos, l)
+		}
+	}
+	for _, t := range targets {
+		if t.shadow && !fg.names.enter(t.name) {
+			fg.g.errorf(pos, "internal error: %s is declared twice in one C++ block", t.name)
+		}
+	}
+}
+
+// shadowing reports whether the new variable obj shadows a variable or a function of an outer
+// scope (a local variable, a parameter, a result, a package variable or function), which a
+// debugger would show by the same name.
+func (fg *funcGen) shadowing(obj *types.Var) bool {
+	s := obj.Parent()
+	if s == nil || s.Parent() == nil {
+		return false
+	}
+	_, outer := s.Parent().LookupParent(obj.Name(), obj.Pos())
+	switch outer.(type) {
+	case *types.Var, *types.Func:
+		return true
+	}
+	return false
+}
+
+// newTargets returns the targets of a declaration of the names lhs, and chooses the C++ names
+// of its new variables.
+func (fg *funcGen) newTargets(lhs []ast.Expr) []target {
 	targets := make([]target, len(lhs))
 	for i, e := range lhs {
 		id := e.(*ast.Ident)
@@ -297,7 +397,16 @@ func (fg *funcGen) newTargets(lhs, values []ast.Expr) []target {
 			continue
 		}
 		if obj, ok := fg.g.info.Defs[id].(*types.Var); ok {
-			targets[i] = target{name: fg.names.declare(obj, used), typ: fg.g.cxxType(obj.Type(), id.Pos())}
+			t := target{typ: fg.g.cxxType(obj.Type(), id.Pos()), shadow: fg.shadowing(obj)}
+			if b := basicOf(obj.Type()); b == nil || b.Info()&types.IsString != 0 {
+				t.class = true
+			}
+			if t.shadow {
+				t.name = fg.names.name(obj) // declLines puts it into its scope
+			} else {
+				t.name = fg.names.declare(obj)
+			}
+			targets[i] = t
 		} else {
 			targets[i] = target{name: fg.expr(id).text} // redeclared by :=
 		}
@@ -309,25 +418,43 @@ func (fg *funcGen) newTargets(lhs, values []ast.Expr) []target {
 // evaluated, from left to right, before any target changes.
 //   - One value with several results (a, b := f()): the result tuple goes into a temporary,
 //     and each target gets its element.
-//   - As many values as targets: in order, directly, if every target is new (or _): a value
-//     can't use a variable that the same statement declares, which then comes into scope only
-//     in C++ (declare renames it). If some targets exist already, the values go into
-//     temporaries first, because a value can use an old target. None is needed for a
-//     constant, or for a value that has no effect (inert: no call, no package variable, no
-//     operation that can panic) and reads none of the targets before it (reads): it is
-//     evaluated in its own assignment. The value of _ is only evaluated.
+//   - As many values as targets: in order, directly, if no value reads a target too early
+//     (early): in C++ a new variable is in scope already in its own initializer and in those
+//     after it (v := v, x, y := 2, x), and a target that exists can change before a later
+//     value reads it (a, b = b, a). Otherwise the values go into temporaries first, which
+//     read the old variables: int64_t gp_t0 = v + 1; { int64_t v = gp_t0; (the temporary of
+//     a new variable has its type, and a class type is moved out of it; the others are auto).
+//     None is needed for a constant, or for a value that has no effect (inert: no call, no
+//     package variable, no operation that can panic) and reads no target too early: it is
+//     evaluated in its own assignment. The value of _ is only evaluated. So a new variable
+//     keeps its Go name (funcNames), and a shadowing one starts its block (declLines).
 //
 // The values are ordered first (order.go), as a list that C++ evaluates in order: the values
 // that are evaluated before the assignments are in their order, and the others are inert.
 // For an assignment (stmt), the lines are one C++ line, and the temporaries are in { }. A
-// declaration whose values need temporaries in front is one line too.
+// declaration whose values need temporaries in front is one line too, except the result
+// tuple's (Phase 02 README §2.1).
 func (fg *funcGen) bind(pos token.Pos, targets []target, values []ast.Expr, stmt bool) {
 	pre := fg.order(len(values) > 1, values...)
 	var lines []string
 	temps := len(pre) > 0
-	direct := true
-	for _, t := range targets {
-		if t.name != "" && t.typ == "" {
+	joined := len(pre) > 0
+	open := -1 // the line of the first shadowing variable (declLines)
+	assign := func(t target, value string) {
+		if t.shadow && open < 0 {
+			open = len(lines)
+		}
+		lines = append(lines, t.assign(value))
+	}
+	direct := len(values) == len(targets)
+	for i, t := range targets {
+		if !direct {
+			break
+		}
+		if t.name != "" && t.typ == "" && len(targets) > 1 {
+			direct = false // a value after an old target may read it, also in a call
+		}
+		if fg.reads(values[i], early(targets, i)) {
 			direct = false
 		}
 	}
@@ -343,53 +470,69 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, values []ast.Expr, stmt
 		lines = append(lines, "auto "+tmp+" = "+value+";")
 		for i, t := range targets {
 			if t.name != "" {
-				lines = append(lines, t.assign("std::get<"+strconv.Itoa(i)+">("+tmp+")"))
+				assign(t, "std::get<"+strconv.Itoa(i)+">("+tmp+")")
 			}
 		}
-	case direct || len(targets) == 1:
+	case direct:
 		for i, t := range targets {
-			lines = append(lines, t.assign(fg.expr(values[i]).text))
+			assign(t, fg.expr(values[i]).text)
 		}
 	default:
 		// A value is evaluated in its assignment, after the targets before it changed,
 		// if that can't make a difference: a constant, or a value without an effect that
-		// doesn't read those targets.
+		// doesn't read a target too early.
 		tmps := make([]string, len(values))
 		for i, v := range values {
 			switch {
 			case fg.constValue(v) != nil:
 			case targets[i].name == "":
 				lines = append(lines, targets[i].assign(fg.expr(v).text))
-			case fg.inert(v) && !fg.reads(v, targets[:i]):
+			case fg.inert(v) && !fg.reads(v, early(targets, i)):
 			default:
 				tmps[i] = fg.names.temp("t")
-				temps = true
-				lines = append(lines, "auto "+tmps[i]+" = "+fg.exactExpr(v).text+";")
+				temps, joined = true, true
+				if typ := targets[i].typ; typ != "" {
+					lines = append(lines, typ+" "+tmps[i]+" = "+fg.expr(v).text+";")
+				} else {
+					lines = append(lines, "auto "+tmps[i]+" = "+fg.exactExpr(v).text+";")
+				}
 			}
 		}
 		for i, t := range targets {
 			switch {
 			case t.name == "":
+			case tmps[i] != "" && t.typ != "" && t.class:
+				assign(t, "std::move("+tmps[i]+")") // the temporary is not used again
 			case tmps[i] != "":
-				lines = append(lines, t.assign(tmps[i]))
+				assign(t, tmps[i])
 			default:
-				lines = append(lines, t.assign(fg.expr(values[i]).text))
+				assign(t, fg.expr(values[i]).text)
 			}
 		}
 	}
+	if open >= 0 {
+		open += len(pre)
+	}
 	lines = append(pre, lines...)
 	switch {
-	case !stmt && len(pre) > 0:
-		fg.line(pos, strings.Join(lines, " "))
 	case !stmt:
-		for _, l := range lines {
-			fg.line(pos, l)
-		}
+		fg.declLines(pos, lines, open, joined, targets)
 	case temps:
 		fg.line(pos, "{ "+strings.Join(lines, " ")+" }")
 	default:
 		fg.line(pos, strings.Join(lines, " "))
 	}
+}
+
+// early returns the targets that the value of targets[i] must not read when it is evaluated
+// in its own assignment: the targets before it, which have changed or are declared by then,
+// and targets[i] itself if it is a new variable, whose name C++ puts in scope in its own
+// initializer.
+func early(targets []target, i int) []target {
+	if targets[i].typ != "" {
+		return targets[:i+1]
+	}
+	return targets[:i]
 }
 
 // reads reports whether e reads one of the targets.

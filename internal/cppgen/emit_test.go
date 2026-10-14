@@ -30,6 +30,19 @@ var update = flag.Bool("update", false, "rewrite testdata/emit/*.cpp.golden with
 // here.
 func emitPatterns(t *testing.T, cfg Config, dir string, patterns ...string) (string, error) {
 	t.Helper()
+	fset, pkg := checkPatterns(t, dir, patterns...)
+	var out bytes.Buffer
+	err := EmitPackage(&out, fset, pkg, cfg)
+	if err != nil && out.Len() != 0 {
+		t.Errorf("EmitPackage failed (%v) but wrote %d bytes", err, out.Len())
+	}
+	return out.String(), err
+}
+
+// checkPatterns loads and checks the package of the patterns (in the folder dir), as
+// emitPatterns does, and fails the test if it has errors.
+func checkPatterns(t *testing.T, dir string, patterns ...string) (*token.FileSet, *check.Package) {
+	t.Helper()
 	lcfg := load.Config{Dir: dir, Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: "linux", GOARCH: "amd64"}
 	prog := load.Load(lcfg, patterns...)
 	r := check.Check(prog, check.Config{Phase: check.LastPhase})
@@ -44,12 +57,7 @@ func emitPatterns(t *testing.T, cfg Config, dir string, patterns ...string) (str
 		}
 		t.Fatalf("the program has errors:\n%s", b.String())
 	}
-	var out bytes.Buffer
-	err := EmitPackage(&out, r.Fset, pkg, cfg)
-	if err != nil && out.Len() != 0 {
-		t.Errorf("EmitPackage failed (%v) but wrote %d bytes", err, out.Len())
-	}
-	return out.String(), err
+	return r.Fset, pkg
 }
 
 // An emitFunc returns the C++ of a test program, written with cfg.

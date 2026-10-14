@@ -107,11 +107,13 @@ func (w *writer) write(l string) {
 
 // cString returns s as a C++ string literal (without the _gs suffix): printable ASCII stays
 // as it is, except `"` and `\`, which get a backslash, and a ? after a ? (\?), because GCC
-// and Clang warn about a trigraph such as ??= even in C++20, which has none; every other byte
-// is a 3-digit octal escape (\303\251 for "é"). Never \x: in C++ a hex escape takes every hex digit that follows
-// ("\x41BC" is one character), and an octal escape takes at most 3. The #line file names use it
-// too, so a Windows path keeps its backslashes ("C:\\work\\hello.gp"); GCC and Clang read the
-// escapes of a #line file name like those of a string literal.
+// and Clang warn about a trigraph such as ??= even in C++20, which has none. The control
+// characters that C++ has a named escape for are written with it (\n, \t, \r, \a, \b, \f,
+// \v), which never takes a character that follows; every other byte is a 3-digit octal escape
+// (\303\251 for "é"). Never \x: in C++ a hex escape takes every hex digit that follows
+// ("\x41BC" is one character), and an octal escape takes at most 3. The #line file names use
+// it too, so a Windows path keeps its backslashes ("C:\\work\\hello.gp"); GCC and Clang read
+// the escapes of a #line file name like those of a string literal.
 func cString(s string) string {
 	var b strings.Builder
 	b.Grow(len(s) + 2)
@@ -124,6 +126,9 @@ func cString(s string) string {
 			b.WriteByte(c)
 		case c >= 0x20 && c < 0x7f:
 			b.WriteByte(c)
+		case namedEscapes[c] != 0:
+			b.WriteByte('\\')
+			b.WriteByte(namedEscapes[c])
 		default:
 			b.WriteByte('\\')
 			b.WriteByte('0' + c>>6)
@@ -134,3 +139,6 @@ func cString(s string) string {
 	b.WriteByte('"')
 	return b.String()
 }
+
+// namedEscapes are the letters of the C++ escapes for control characters: \n for '\n'.
+var namedEscapes = [256]byte{'\a': 'a', '\b': 'b', '\f': 'f', '\n': 'n', '\r': 'r', '\t': 't', '\v': 'v'}

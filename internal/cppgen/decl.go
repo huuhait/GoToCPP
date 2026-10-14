@@ -50,7 +50,7 @@ func (f *funcInfo) prepare(g *gen) {
 		p := sig.Params().At(i)
 		params[i] = g.cxxType(p.Type(), f.decl.Pos())
 		if p.Name() != "" && p.Name() != "_" {
-			params[i] += " " + f.names.declare(p, nil)
+			params[i] += " " + f.names.declare(p)
 		}
 	}
 	res := sig.Results()
@@ -61,7 +61,7 @@ func (f *funcInfo) prepare(g *gen) {
 			if r.Name() == "_" {
 				f.results[i] = f.names.temp("r") // still returned by a bare return
 			} else {
-				f.results[i] = f.names.declare(r, nil)
+				f.results[i] = f.names.declare(r)
 			}
 		}
 	}
@@ -83,7 +83,8 @@ func (g *gen) funcDecl(f *funcInfo) {
 			g.w.line(g.pos(r.Pos()), g.cxxType(r.Type(), r.Pos())+" "+f.results[i]+"{};")
 		}
 	}
-	fg.stmts(body.List)
+	fg.fresh = f.results == nil // the named results are in the function's block (declLines)
+	fg.stmts(body.List, body.Rbrace)
 	g.w.dedent()
 	g.w.line(g.pos(body.Rbrace), "}")
 	g.w.blank()

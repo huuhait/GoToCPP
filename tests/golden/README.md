@@ -6,7 +6,16 @@ compiler (`GOCPP_CXX`), and the output must equal the snapshot byte for byte. Ke
 small: every change to the generated code breaks the snapshots, so behavior belongs in
 [run tests](../run/README.md).
 
-[hello.gp](hello.gp) (its snapshot comes with Phase 02, see below):
+The set shows the main shapes of the generated C++ (Phase 02 README §5: "reviewed and
+readable"):
+
+| Test | Shows |
+|---|---|
+| [hello.gp](hello.gp) | the program of the Phase 02 README (§2.1): prototypes, a `std::tuple` result, `#line` |
+| [control.gp](control.gp) | the `for` forms, a range over an integer whose body declares the range variable again, the three `switch` shapes (a C++ `switch`, an if-else chain, a case index for `fallthrough`), labeled `break` and `continue`, `goto` |
+| [funcs.gp](funcs.gp) | several and named results, a shadowed variable (`q := q * 10`), Go's order of evaluation for calls (`gp_` temporaries), parallel assignment, `gp::div`, `gp::rem`, `gp::shl`, small integers, float to int, `fmt` |
+
+[hello.gp](hello.gp):
 
 ```go
 // phase: 02

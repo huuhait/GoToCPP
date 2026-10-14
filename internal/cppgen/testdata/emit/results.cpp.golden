@@ -66,16 +66,12 @@ void main() {
 #line 40 "$DIR/results.gp"
     int64_t y = a;
     gp::fmtshim::Println(x, y);
-    auto gp_t5 = b;
-#line 42 "$DIR/results.gp"
-    b = a;
-#line 42 "$DIR/results.gp"
-    int64_t z = gp_t5;
+    int64_t gp_t5 = b; b = a; int64_t z = gp_t5;
     gp::fmtshim::Println(b, z);
     gpkg_main::noResults("done"_gs);
-    gp::fmtshim::Printf("%v and %d and %s and %t and %f %%\012"_gs, a, b, s, ok, f);
+    gp::fmtshim::Printf("%v and %d and %s and %t and %f %%\n"_gs, a, b, s, ok, f);
 #line 47 "$DIR/results.gp"
-    gp::fmtshim::Printf("%f %f %f %s %d %t %d\012"_gs, int64_t(5), int8_t(5), uint64_t(7), int64_t(5), "x"_gs, int32_t(97), 2.5);
+    gp::fmtshim::Printf("%f %f %f %s %d %t %d\n"_gs, int64_t(5), int8_t(5), uint64_t(7), int64_t(5), "x"_gs, int32_t(97), 2.5);
     gp::println(int64_t(5), uint8_t(200), int32_t(97), 1.5);
 }
 

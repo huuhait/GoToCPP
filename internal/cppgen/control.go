@@ -26,9 +26,17 @@ import (
 //	switch (3 shapes)           see switchStmt
 //
 // Scopes: a C++ for doesn't allow a name of its init statement to be declared again in the
-// outermost block of its body (Go does: the body is a block of its own). So the init and the
-// body are one scope of funcNames, which gives a body variable of the same name a new name
-// (i_1). The range variable is declared in the body, the same way.
+// outermost block of its body (Go does: the body is a block of its own). The range variable
+// is declared in the C++ body, which is the same. Such a declaration shadows the loop's
+// variable, so it starts a C++ block of its own (declLines, stmt.go), and both variables keep
+// their Go names (funcNames):
+//
+//	for (int64_t gp_i0 = 0; gp_i0 < n; gp_i0++) {
+//	    int64_t i = gp_i0;
+//	    int64_t gp_t0 = i * 10; { int64_t i = gp_t0;
+//	        ...
+//	    }
+//	}
 
 // cond orders and translates a condition: of an if or an else if, a loop, a case of a
 // switch. It returns the temporaries that must run right before the condition (order.go),
@@ -76,13 +84,16 @@ func (fg *funcGen) chain(arms []arm, end token.Pos) {
 			}
 			fg.g.w.indent()
 			fg.names.openScope()
+			fg.fresh = true
 			blocks++
 			head = "if ("
 			opened = true
 		}
 		if a.init != nil {
 			open()
+			mark := fg.shadows
 			fg.stmt(a.init)
+			blocks += fg.initShadows(mark) // closed with the blocks
 		}
 		switch {
 		case a.cond != nil:
@@ -121,7 +132,7 @@ func (fg *funcGen) ifStmt(s *ast.IfStmt) {
 				pre, c := fg.cond(cond)
 				return oneLine(pre), c.text
 			},
-			body: func() { fg.stmts(body.List) },
+			body: func() { fg.stmts(body.List, body.Rbrace) },
 		})
 		end = body.Rbrace
 		next := s.Else
@@ -130,7 +141,7 @@ func (fg *funcGen) ifStmt(s *ast.IfStmt) {
 		case *ast.IfStmt:
 			s = e
 		case *ast.BlockStmt:
-			arms = append(arms, arm{pos: e.Lbrace, body: func() { fg.stmts(e.List) }})
+			arms = append(arms, arm{pos: e.Lbrace, body: func() { fg.stmts(e.List, e.Rbrace) }})
 			end = e.Rbrace
 		}
 	}
@@ -180,7 +191,10 @@ func (fg *funcGen) loopBody(l loop) {
 			fg.stmt(l.post)
 		}
 	} else {
-		fg.stmts(l.body.List)
+		// The C++ body has the loop's own variables (see the top), so it is fresh only for a
+		// loop without them (declLines).
+		fg.fresh = l.vars == nil && l.check == "" && fg.g.info.Scopes[l.stmt].Len() == 0
+		fg.stmts(l.body.List, l.body.Rbrace)
 	}
 	fg.g.w.dedent()
 	fg.line(l.body.Rbrace, "}")
@@ -198,6 +212,7 @@ func (fg *funcGen) open(pos token.Pos) {
 	fg.line(pos, "{")
 	fg.g.w.indent()
 	fg.names.openScope()
+	fg.fresh = true
 }
 
 // close ends the block of open.
@@ -211,6 +226,7 @@ func (fg *funcGen) forStmt(s *ast.ForStmt) {
 	end := s.Body.Rbrace
 	fg.names.openScope() // the init and the body (see the top)
 	wrapped := false
+	shadows := 0 // the blocks that the init opened for shadowing variables (declLines)
 	init := ""
 	if s.Init != nil {
 		if text, ok := fg.forInit(s.Init); ok {
@@ -219,8 +235,11 @@ func (fg *funcGen) forStmt(s *ast.ForStmt) {
 			// { a, b := f(); for (; ...) {...} }
 			fg.line(s.For, "{")
 			fg.g.w.indent()
+			fg.fresh = true
 			wrapped = true
+			mark := fg.shadows
 			fg.stmt(s.Init)
+			shadows = fg.initShadows(mark)
 		}
 	}
 	l := loop{stmt: s, pos: s.For, body: s.Body}
@@ -265,6 +284,8 @@ func (fg *funcGen) forStmt(s *ast.ForStmt) {
 	}
 	fg.loopBody(l)
 	if wrapped {
+		fg.shadows += shadows
+		fg.closeShadows(fg.shadows-shadows, end)
 		fg.g.w.dedent()
 		fg.line(end, "}")
 	}
@@ -275,7 +296,7 @@ func (fg *funcGen) forStmt(s *ast.ForStmt) {
 // forInit returns the C++ init statement of a 3-clause for, without the ;, if the Go init
 // statement is one: a simple statement that is one C++ expression, or a := whose values all
 // go into new variables of one C++ type (int64_t i = 0, j = n), without temporaries
-// (order.go). It returns false for the others, which go before the loop.
+// (order.go, bind). It returns false for the others, which go before the loop.
 func (fg *funcGen) forInit(s ast.Stmt) (string, bool) {
 	if oneExpr(s) {
 		if fg.needsPre(false, simpleScope(s)...) {
@@ -300,7 +321,24 @@ func (fg *funcGen) forInit(s ast.Stmt) (string, bool) {
 		}
 		typ = t
 	}
-	targets := fg.newTargets(a.Lhs, a.Rhs)
+	// A value that reads the name of its own variable or of one before it (for i := i; ...)
+	// needs a temporary (bind): the init goes before the loop.
+	for i, e := range a.Rhs {
+		used := fg.usedNames([]ast.Expr{e})
+		for _, id := range a.Lhs[:i+1] {
+			if used[Escape(id.(*ast.Ident).Name)] {
+				return "", false
+			}
+		}
+	}
+	targets := fg.newTargets(a.Lhs)
+	for _, t := range targets {
+		// A shadowing variable is in the for's own scope already: the init is all there is
+		// before the loop's variables in it (declLines).
+		if t.shadow && !fg.names.enter(t.name) {
+			fg.g.errorf(s.Pos(), "internal error: %s is declared twice in one C++ block", t.name)
+		}
+	}
 	fg.order(true, a.Rhs...) // the declarators are evaluated in order; nothing goes in front
 	parts := make([]string, len(targets))
 	for i, t := range targets {
@@ -363,7 +401,7 @@ func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 	l := loop{stmt: s, pos: s.For, head: head, body: s.Body}
 	switch {
 	case key != nil:
-		l.vars = func() { fg.line(s.Key.Pos(), ct+" "+fg.names.declare(key, nil)+" = "+i+";") }
+		l.vars = func() { fg.line(s.Key.Pos(), ct+" "+fg.names.declare(key)+" = "+i+";") }
 	case assigned != "":
 		l.vars = func() { fg.line(s.Key.Pos(), assigned+" = "+i+";") }
 	}
@@ -425,9 +463,12 @@ func (fg *funcGen) switchStmt(s *ast.SwitchStmt) {
 			wrapped = true
 		}
 	}
+	shadows := 0 // the blocks that the init opened for shadowing variables (declLines)
 	if s.Init != nil {
 		wrap()
+		mark := fg.shadows
 		fg.stmt(s.Init)
+		shadows = fg.initShadows(mark)
 	}
 	tagPre := "" // the temporaries of the tag, in front of the line that evaluates it
 	if s.Tag != nil {
@@ -484,10 +525,10 @@ func (fg *funcGen) switchStmt(s *ast.SwitchStmt) {
 					def = c
 					continue
 				}
-				arms = append(arms, arm{pos: c.Case, cond: caseCond(c), body: func() { fg.stmts(c.Body) }})
+				arms = append(arms, arm{pos: c.Case, cond: caseCond(c), body: func() { fg.stmts(c.Body, clauseEnd(c)) }})
 			}
 			if def != nil {
-				arms = append(arms, arm{pos: def.Case, body: func() { fg.stmts(def.Body) }})
+				arms = append(arms, arm{pos: def.Case, body: func() { fg.stmts(def.Body, clauseEnd(def)) }})
 			}
 			if arms != nil {
 				fg.chain(arms, end)
@@ -519,6 +560,8 @@ func (fg *funcGen) switchStmt(s *ast.SwitchStmt) {
 		}
 	}
 	if wrapped {
+		fg.shadows += shadows
+		fg.closeShadows(fg.shadows-shadows, end)
 		fg.close(end)
 	}
 	fg.breakLabel(s, end)
@@ -659,17 +702,17 @@ func lastStmt(list []ast.Stmt) ast.Stmt {
 	return nil
 }
 
-// caseBody writes a clause of a C++ switch: its labels, and its body as a block, which ends
-// with break unless it ends with a jump (fallthrough falls into the next case).
+// caseBody writes a clause of a C++ switch: its labels, and its body as a block, which is
+// followed by break unless it ends with a jump (fallthrough falls into the next case): one
+// line, } break;, so that the end of a case needs no more #line.
 func (fg *funcGen) caseBody(c *ast.CaseClause, label string) {
 	fg.line(c.Case, label+" {")
-	fg.inner(func() {
-		fg.stmts(c.Body)
-		if !endsWithJump(c) {
-			fg.line(clauseEnd(c), "break;")
-		}
-	})
-	fg.line(clauseEnd(c), "}")
+	fg.inner(func() { fg.stmts(c.Body, clauseEnd(c)) })
+	if endsWithJump(c) {
+		fg.line(clauseEnd(c), "}")
+	} else {
+		fg.line(clauseEnd(c), "} break;")
+	}
 }
 
 // clauseEnd returns the place of the end of a clause: its last statement, or the colon.

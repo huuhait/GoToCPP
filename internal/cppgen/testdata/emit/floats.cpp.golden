@@ -29,7 +29,7 @@ void main() {
     double negz = -zero;
     gp::fmtshim::Println(inf, ninf, nan, negz, zero, 0.0, 1.0 / negz);
     gp::println(inf, ninf, nan, negz, zero, 1.5, 3.0, -0.25);
-    gp::fmtshim::Printf("%v %f %v %f %v\012"_gs, inf, ninf, nan, negz, 2.5);
+    gp::fmtshim::Printf("%v %f %v %f %v\n"_gs, inf, ninf, nan, negz, 2.5);
     double x = 0.1;
 #line 20 "$DIR/floats.gp"
     double y = 0.2;

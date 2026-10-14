@@ -5,8 +5,9 @@ namespace gpkg_main {
 
 int64_t f();
 void main();
+int64_t d(int64_t n);
 
-#line 7 "$DIR/shadow.gp"
+#line 10 "$DIR/shadow.gp"
 constinit int64_t w = 3;
 
 int64_t f() {
@@ -17,27 +18,175 @@ void main() {
     int64_t v = 1;
     int64_t v_1 = 100;
     {
-        int64_t v_2 = v + 1;
-        gp::fmtshim::Println(v_2, v_1);
-        {
-            int64_t v = v_2 * 2;
-            gp::fmtshim::Println(v);
+        int64_t gp_t0 = v + 1; { int64_t v = gp_t0;
+            gp::fmtshim::Println(v, v_1);
+            {
+                int64_t gp_t1 = v * 2; { int64_t v = gp_t1;
+                    gp::fmtshim::Println(v);
+                }
+#line 25 "$DIR/shadow.gp"
+            }
         }
+#line 26 "$DIR/shadow.gp"
     }
     int64_t x = 5;
     {
-        int64_t x_1 = x;
-        int64_t w_1 = w + x_1;
-        int64_t f_1 = f();
-        gp::fmtshim::Println(x_1, w_1, f_1);
+        int64_t gp_t2 = x; { int64_t x = gp_t2;
+            int64_t gp_t3 = w + x; { int64_t w = gp_t3;
+                int64_t gp_t4 = f(); { int64_t f = gp_t4;
+                    gp::fmtshim::Println(x, w, f);
+        } } }
+#line 33 "$DIR/shadow.gp"
     }
     {
-        int64_t x_2 = 2;
-#line 32 "$DIR/shadow.gp"
-        int64_t y = x;
-        gp::fmtshim::Println(x_2, y);
+        int64_t gp_t5 = x; { int64_t x = 2; int64_t y = gp_t5;
+            gp::fmtshim::Println(x, y);
+        }
+#line 37 "$DIR/shadow.gp"
     }
-    { auto gp_t0 = f(); gp::fmtshim::Println(v, x, w, gp_t0); }
+    {
+        int64_t y = x; { int64_t x = 2;
+            gp::fmtshim::Println(x, y);
+        }
+#line 41 "$DIR/shadow.gp"
+    }
+    int64_t a = 1;
+#line 42 "$DIR/shadow.gp"
+    int64_t b = 2;
+    {
+        int64_t a = 10;
+        int64_t gp_t6 = a; a = b; { int64_t b = gp_t6;
+            gp::fmtshim::Println(a, b);
+            int64_t c = d(b); { int64_t d = b;
+                gp::fmtshim::Println(c, d);
+        } }
+#line 49 "$DIR/shadow.gp"
+    }
+    {
+        int64_t gp_t7 = v + f(); { int64_t v = gp_t7;
+            int64_t gp_t8 = f(); int64_t gp_t9 = x; { int64_t x = gp_t8; int64_t y = gp_t9;
+                int64_t p = 1;
+#line 53 "$DIR/shadow.gp"
+                int64_t q = 2;
+                {
+                    int64_t gp_t10 = p; { int64_t p = q; int64_t q = gp_t10;
+                        gp::fmtshim::Println(v, x, y, p, q);
+                    }
+#line 57 "$DIR/shadow.gp"
+                }
+        } }
+#line 58 "$DIR/shadow.gp"
+    }
+    {
+#line 59 "$DIR/shadow.gp"
+        int64_t gp_t11 = x; { int64_t x = gp_t11;
+#line 59 "$DIR/shadow.gp"
+            for (; x < 8; x++) {
+                gp::fmtshim::Print(x, " "_gs);
+            }
+#line 61 "$DIR/shadow.gp"
+        }
+#line 61 "$DIR/shadow.gp"
+    }
+    gp::fmtshim::Println();
+    for (int64_t i = 0; i < 3; i++) {
+        int64_t gp_t12 = i * 10; { int64_t i = gp_t12;
+            gp::fmtshim::Print(i, " "_gs);
+        }
+#line 66 "$DIR/shadow.gp"
+    }
+    gp::fmtshim::Println();
+    for (int64_t gp_i0 = 0; gp_i0 < 3; gp_i0++) {
+#line 68 "$DIR/shadow.gp"
+        int64_t i = gp_i0;
+        int64_t gp_t13 = i + 1; { int64_t i = gp_t13;
+            if (i == 2) {
+                continue;
+            }
+            gp::fmtshim::Print(i, " "_gs);
+        }
+#line 74 "$DIR/shadow.gp"
+    }
+    gp::fmtshim::Println();
+    int64_t k = 0;
+    {
+        int64_t gp_t14 = k + 1; { int64_t k = gp_t14;
+            retry:;
+            if (k < 4) {
+                k++;
+                goto retry;
+            }
+            gp::fmtshim::Println("k"_gs, k);
+        }
+#line 85 "$DIR/shadow.gp"
+    }
+    int64_t t = 0;
+    {
+        top:;
+        t++;
+        int64_t gp_t15 = t * 10; { int64_t t = gp_t15;
+            if (t < 30) {
+                goto top;
+            }
+            gp::fmtshim::Println("t"_gs, t);
+        }
+#line 95 "$DIR/shadow.gp"
+    }
+#line 97 "$DIR/shadow.gp"
+    for (int64_t gp_i1 = 0; gp_i1 < 3; gp_i1++) {
+#line 97 "$DIR/shadow.gp"
+        int64_t j = gp_i1;
+#line 97 "$DIR/shadow.gp"
+        {
+            int64_t gp_t16 = j * 2; { int64_t j = gp_t16;
+                for (int64_t gp_i2 = 0; gp_i2 < 2; gp_i2++) {
+#line 99 "$DIR/shadow.gp"
+                    int64_t m = gp_i2;
+                    if (m == 1) {
+                        goto gp_outer_continue;
+                    }
+                    gp::fmtshim::Println("j"_gs, j, m);
+                }
+            }
+#line 105 "$DIR/shadow.gp"
+        }
+#line 105 "$DIR/shadow.gp"
+        gp_outer_continue:;
+#line 105 "$DIR/shadow.gp"
+    }
+    {
+#line 106 "$DIR/shadow.gp"
+        int64_t s = 1;
+#line 106 "$DIR/shadow.gp"
+        switch (s) {
+        case 1: {
+            int64_t gp_t17 = s + 1; { int64_t s = gp_t17;
+                gp::fmtshim::Println("s"_gs, s);
+                [[fallthrough]];
+#line 110 "$DIR/shadow.gp"
+            }
+#line 110 "$DIR/shadow.gp"
+        }
+        case 2: {
+            int8_t s{};
+            gp::fmtshim::Println("two"_gs, s);
+#line 113 "$DIR/shadow.gp"
+        } break;
+        }
+#line 114 "$DIR/shadow.gp"
+    }
+    gp::string str = "go"_gs;
+    {
+        gp::string gp_t18 = str + "!"_gs; { gp::string str = std::move(gp_t18);
+            gp::fmtshim::Println(str);
+        }
+#line 119 "$DIR/shadow.gp"
+    }
+    { auto gp_t19 = f(); gp::fmtshim::Println(v, x, w, gp_t19, a, b, k, t, str); }
+}
+
+int64_t d(int64_t n) {
+    return n * 2;
 }
 
 } // namespace gpkg_main

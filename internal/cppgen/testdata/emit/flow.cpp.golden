@@ -69,9 +69,7 @@ void main() {
                 }
                 gp::fmtshim::Print("small "_gs);
 #line 55 "$DIR/flow.gp"
-                break;
-#line 55 "$DIR/flow.gp"
-            }
+            } break;
             }
             gp::fmtshim::Print(i, ":"_gs, j, " "_gs);
         }
@@ -154,9 +152,7 @@ void main() {
             default: {
                 gp::fmtshim::Println("default"_gs, k);
 #line 95 "$DIR/flow.gp"
-                break;
-#line 95 "$DIR/flow.gp"
-            }
+            } break;
             }
 #line 96 "$DIR/flow.gp"
         }

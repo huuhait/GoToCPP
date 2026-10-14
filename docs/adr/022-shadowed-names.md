@@ -14,17 +14,18 @@ the Go name, with no error. Debugging by Go names is a promise of
 ## Decision
 
 - Every user variable keeps its Go name (escaped as ADR-010 says) wherever C++ allows it.
-- A declaration that shadows a variable (a local, a parameter, a result or a package variable)
-  opens a C++ block that runs from the declaration to the end of its Go block. When its value
+- A declaration that shadows a variable or a package function (a local, a parameter, a result,
+  a package variable or function) opens a C++ block that runs from the declaration to the end of its Go block. When its value
   reads a name it declares, the value goes into a `gp_` temporary first, outside that block:
 
   ```cpp
-  int64_t gp_t0 = v + 1;
-  {
-      int64_t v = gp_t0;
+  int64_t gp_t0 = v + 1; { int64_t v = gp_t0;
       // the rest of the Go block
   }
   ```
+
+  The temporary, the `{` and the declaration share one line, so the declaration's line is
+  computed outside the new block.
 
 - So gdb shows the outer variable on every line before the declaration, and the inner one after
   it, as in Go. On the declaration's own line it shows the outer one when the value reads the
