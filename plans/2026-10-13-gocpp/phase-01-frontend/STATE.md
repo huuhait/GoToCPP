@@ -16,9 +16,9 @@
 - [x] 1.2 Patch 1: Go keywords allowed after `.` (same line only)
   - [x] scanner change
   - [x] tests: `std.map`, `x.type()`, `posix.select`, `x.(type)` unaffected, semicolon after `.range`, `TestIncompleteSelection`
-- [~] 1.3 Patch 2: constant expressions in type-argument lists
-  - [ ] parser change (`parseRhs` for type arguments)
-  - [ ] tests: type position, composite literal, call, nested
+- [x] 1.3 Patch 2: constant expressions in type-argument lists
+  - [x] parser change (`parseRhs` for type arguments)
+  - [x] tests: type position, composite literal, call, nested
 - [ ] 1.4 Patch 3: dotted type names (`std.chrono.seconds`, `std.filesystem.path`, `std.vector[int].iterator`)
 - [x] 1.5 Round-trip test over the Go stdlib (parse → print → parse)
 - [x] 1.6 Import classifier + `FileInfo` (header package names and their rules, namespace renames) + reserved-`C` error
@@ -38,7 +38,7 @@
 - [x] 1.13 Diagnostics package (format, sort, dedupe, limit, caret)
 - [ ] 1.14 CLI: `version`, `parse -dump`, `check`, `check -types`, `fmt`
 - [ ] 1.15 Error tests + "no false errors" interop corpus
-- [ ] 1.16 `gocpp fmt` via `go/printer` with gofmt's settings (`go/format.Node` re-parses with the stock parser) (`-l -w -d`); header imports keep their order (include order matters); stdlib + badly formatted inputs match real gofmt
+- [~] 1.16 `gocpp fmt` via `go/printer` with gofmt's settings (`go/format.Node` re-parses with the stock parser) (`-l -w -d`); header imports keep their order (include order matters); stdlib + badly formatted inputs match real gofmt
 
 ## Exit criteria
 
@@ -100,3 +100,10 @@
   Arguments split exactly like cgo's `#cgo` lines (checked against go/build on millions of
   inputs), `//` starts a comment, a warning catches broken-directive lookalikes (e.g. after
   gofmt-style printing), and the spec now describes the flag allow-list (Phase 04).
+- 2026-10-13 (manager, rewrite job 1.8a): a namespace rename (`fs "::std::filesystem"`) is expanded in
+  every file, also one without header imports, so the namespace probe also runs for files with
+  renames (there, with no includes, it reports the namespace as unknown); a header imported with
+  `_` gets no hint (its would-be name can be a namespace, `_ "<glm/glm.hpp>"` + `glm.vec3`).
+- 2026-10-13: Step 1.3 (patch 2, `patches/0002-constant-type-args.patch`) committed, clean after 2
+  review rounds: Go code parses exactly as before (146,281 files), and half-typed code recovers like
+  Go (a token that can't start a type argument keeps upstream's error).

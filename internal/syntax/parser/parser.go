@@ -1183,7 +1183,7 @@ func (p *parser) parseMethodSpec() *ast.Field {
 					p.exprLev++
 					p.next()
 					for p.tok != token.RBRACK && p.tok != token.EOF {
-						list = append(list, p.parseType())
+						list = append(list, p.parseTypeArg()) // gocpp: was parseType; see parseTypeArg
 						if !p.atComma("type argument list", token.RBRACK) {
 							break
 						}
@@ -1352,6 +1352,26 @@ func (p *parser) parseChanType() *ast.ChanType {
 	return &ast.ChanType{Begin: pos, Arrow: arrow, Dir: dir, Value: value}
 }
 
+// gocpp: parseTypeArg is patch 2 (../FORK.md §4). It parses one type
+// argument, after "[" or ",". C++ templates take values too, so a type
+// argument may be a type or a constant expression: std.array[int, 5].
+// parseRhs parses both, as upstream does for the first argument of an index
+// expression; go/types still reports a value where a Go generic needs a
+// type. The case list holds the tokens that can start an expression: the
+// cases of parseUnaryExpr, parseOperand and tryIdentOrType
+// (TestTypeArgStartTokens checks it). Any other token can't start a type
+// argument; there parseType reports it as upstream does ("expected type,
+// found X"), and its error recovery stops at the end of the argument.
+func (p *parser) parseTypeArg() ast.Expr {
+	switch p.tok {
+	case token.IDENT, token.INT, token.FLOAT, token.IMAG, token.CHAR, token.STRING,
+		token.LPAREN, token.LBRACK, token.FUNC, token.STRUCT, token.INTERFACE, token.MAP, token.CHAN,
+		token.MUL, token.ARROW, token.ADD, token.SUB, token.NOT, token.XOR, token.AND, token.TILDE:
+		return p.parseRhs()
+	}
+	return p.parseType()
+}
+
 func (p *parser) parseTypeInstance(typ ast.Expr) ast.Expr {
 	if p.trace {
 		defer un(trace(p, "TypeInstance"))
@@ -1361,7 +1381,7 @@ func (p *parser) parseTypeInstance(typ ast.Expr) ast.Expr {
 	p.exprLev++
 	var list []ast.Expr
 	for p.tok != token.RBRACK && p.tok != token.EOF {
-		list = append(list, p.parseType())
+		list = append(list, p.parseTypeArg()) // gocpp: was parseType; see parseTypeArg
 		if !p.atComma("type argument list", token.RBRACK) {
 			break
 		}
@@ -1601,7 +1621,7 @@ func (p *parser) parseIndexOrSliceOrInstance(x ast.Expr) ast.Expr {
 		for p.tok == token.COMMA {
 			p.next()
 			if p.tok != token.RBRACK && p.tok != token.EOF {
-				args = append(args, p.parseType())
+				args = append(args, p.parseTypeArg()) // gocpp: was parseType; see parseTypeArg
 			}
 		}
 	}

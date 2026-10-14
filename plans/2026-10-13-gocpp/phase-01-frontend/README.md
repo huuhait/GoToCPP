@@ -51,7 +51,7 @@ mistakes in the gocpp part were still reported, including typos in namespace nam
                                T(opaque) → gp_as[T](…) · add import "C" where used
                      │
                      ▼
-              namespace probe (only for files with header imports; cached)
+              namespace probe (only for files with header imports or namespace renames; cached)
                      │
                      ▼
               go/types.Check  (FakeImportC, our Importer, error collector)
@@ -104,7 +104,9 @@ func examples() {
 (`std::array<int, 5>`, `std::bitset<64>`). The stock parser fails on `std.array[int, 5]`
 (`expected type, found 5`), whether it is used as a type, in a composite literal or in a call.
 Each type argument is parsed with the "type-or-expression" parser (`parseRhs`) instead of the
-type-only one. The AST is a normal `*ast.IndexListExpr`. For gocpp generics, `go/types` still
+type-only one, but only when the next token can start an expression; any other token keeps
+upstream's error and recovery (`expected type, found '|'`), so half-typed code in the editor
+recovers like Go (found in the review of job 1.3). The AST is a normal `*ast.IndexListExpr`. For gocpp generics, `go/types` still
 reports `5 is not a type`, which is the correct error.
 
 ```go

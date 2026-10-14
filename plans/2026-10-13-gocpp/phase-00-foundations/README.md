@@ -171,7 +171,8 @@ They act as the "definition of done" for the whole project:
 
 You are on NixOS, so a `flake.nix` dev shell makes the toolchain reproducible:
 `go_1_25`, `clang_21`, `gcc15`, `gdb`, `lldb`, `cmake`, `ninja`, `pkg-config`, `python3`
-(gdb pretty printers), plus `SDL2`, `raylib`, `sqlite` and `zlib` for the interop examples and
+(gdb pretty printers, spike scripts, `go generate` in `internal/diag`), `nodejs` (the VS Code
+grammar tests, `make vscode-test`), plus `SDL2`, `raylib`, `sqlite` and `zlib` for the interop examples and
 the Phase 04 header zoo, and for Windows builds (Phase 06 on) the MinGW-w64 cross compiler and
 64-bit Wine (`wine`) to run the tests, and `xvfb-run`, so GUI examples can run their smoke mode
 without a real display. nixpkgs is pinned to `nixos-26.05`, because Go 1.25 is end-of-life

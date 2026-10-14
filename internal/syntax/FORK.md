@@ -60,7 +60,9 @@ only before all other declarations, so in each file it stops at the first `func`
 the import paths are on 5 lines in 5 files. It doesn't change the files in `testdata/`: test
 inputs stay as they are. Then it runs gofmt on the changed files. gofmt sorts each import
 block, so in `parser/parser.go` and `parser/resolver_test.go` the new import line moves up.
-After that, `go list` checks that no Go file of the fork imports the stock packages.
+After that, `go list` checks that no Go file of the fork imports the stock packages. The check
+runs before the patches (§6): the test file of patch 2, `parser/gocpp_typeargs_test.go`, imports
+the stock `go/parser` and `go/scanner` on purpose, to compare the fork with them.
 
 Two things to know:
 
@@ -93,7 +95,7 @@ table. When a patch is done, its row names its file:
 | # | Patch | Step |
 |---|---|---|
 | 1 | A Go keyword after `.` on the same line is a name: `std.map`, `node.type()`. The scanner returns it as `token.IDENT`, also with space or a `/* */` comment after the `.` on that line. On the next line, it stays a keyword. It is in: [`0001-keyword-after-dot.patch`](patches/0001-keyword-after-dot.patch) | 1.2 |
-| 2 | Type arguments may be constants: `std.array[int, 5]` | 1.3 |
+| 2 | Type arguments may be constants: `std.array[int, 5]`. In the three places where upstream called `parseType` for a type argument (in a type, and after the first argument of an index expression or of an instance embedded in an interface), `parseTypeArg` parses a type or an expression with `parseRhs`. Upstream already parsed those first arguments, and the arguments of an embedded field or an unnamed parameter `T[...]`, as expressions. For a Go generic, go/types still reports `5 is not a type`. A token that can't start a type argument keeps upstream's error and recovery: `parseTypeArg` calls `parseRhs` only for a token that can start an expression. In valid Go code, one thing changes: nested type arguments in a type or after a comma reach "exceeded max nesting depth" at 49,999 levels, not 99,999, as upstream's own `T[«», int]{}` already did. It is in: [`0002-constant-type-args.patch`](patches/0002-constant-type-args.patch) | 1.3 |
 | 3 | Type names may have more than one dot: `std.chrono.seconds` | 1.4 |
 
 Phase 10 adds three more patches: `name!(` is one name (must calls), `#Name` is one name

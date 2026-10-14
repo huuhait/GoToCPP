@@ -37,3 +37,8 @@
 
 - 2026-10-13: Speed is a contract (budgets in README §2.1, enforced in CI). The architecture copies
   gopls: snapshots, content-hash memoization, export-data summaries, cancellation, background work.
+- 2026-10-13 (grammar job 11.10a): in the TextMate grammar, a predeclared name after a dot is a
+  name too, not only a keyword (`std.string`, `s.append()`, `C.int`; a selector is never a builtin
+  in Go either). The grammar also fixes an upstream go-syntax bug: a function declaration whose
+  result is `func()`, a generic type or `interface{…}`/`struct{…}` never ended (0 new leaks over
+  the stdlib, leaking files 902 → 564).
