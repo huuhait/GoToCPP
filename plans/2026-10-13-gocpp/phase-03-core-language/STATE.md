@@ -30,9 +30,9 @@
   - [x] dependency ordering + recursive types
 - [x] 3.9 Named non-struct types (`gp::newtype`) + implicit conversions where types differ + `switch` on underlying value
 - [~] 3.10 Methods (3.10a done: methods; 3.10b: method values and expressions, after 3.11) (value receivers copy, held reference for non-local receivers, pointer receivers, method values/expressions)
-- [~] 3.11 Func values (by-value params), variadics, closures
-  - [ ] capture analysis (by value vs boxed)
-  - [ ] Go 1.22 per-iteration loop variables
+- [x] 3.11 Func values (by-value params), variadics, closures
+  - [x] capture analysis (by value vs boxed; large captures shared)
+  - [x] Go 1.22 per-iteration loop variables
 - [ ] 3.12 Evaluation-order lowering for every construct (+ `&&`/`||`, loop/else-if/case shapes, two-phase assignment)
 - [x] 3.13 `defer` with the single-exit shape (panics run defers, panicking defers, named results)
 - [~] 3.14 Runtime checks + Go panic messages + exit code 2 + `backtrace()` trace + `-nochecks` (keeps Go's defined results) (3.14a runtime + driver done; 3.14b emitter side)
@@ -331,3 +331,9 @@
   main.T.M / main.(*T).M like Go) committed, clean after 2 review rounds. 3.10b (after 3.11 lands): method
   values (`f := x.M`, the receiver copied now) and expressions (`T.M`, `(*T).PM`) on gp::func, from the design
   in methods.go's methodValue note; Go names their wrappers `main.T.M-fm` in traces.
+- 2026-10-14: Job 3.11 (gp::func, func values and named func types, variadics incl. methods and tuple
+  spreading, closures with capture analysis (by value, boxed when changed or over 128 bytes), Go 1.22 loop
+  variables, deferred closures, closures in package-var initializers, multi-line lambda printing with #line
+  per statement, Go's closure names in traces (main.main.func1, main.T.M.func1) on both compilers) committed,
+  clean after 4 review rounds (the last one checked the rebase onto 3.10). For 3.10b: methods.go's gates
+  still say "(Phase 03 step 3.10 after 3.11)": rename to "3.10b" when building method values/expressions.
