@@ -29,7 +29,7 @@
   - [x] local types hoisted to namespace scope
   - [x] dependency ordering + recursive types
 - [x] 3.9 Named non-struct types (`gp::newtype`) + implicit conversions where types differ + `switch` on underlying value
-- [~] 3.10 Methods (value receivers copy, held reference for non-local receivers, pointer receivers, method values/expressions)
+- [~] 3.10 Methods (3.10a done: methods; 3.10b: method values and expressions, after 3.11) (value receivers copy, held reference for non-local receivers, pointer receivers, method values/expressions)
 - [~] 3.11 Func values (by-value params), variadics, closures
   - [ ] capture analysis (by value vs boxed)
   - [ ] Go 1.22 per-iteration loop variables
@@ -323,3 +323,11 @@
   bits/shared_ptr*.h (with the defer_frame/std::apply rules from 3.13). Closure capture rule (README §2.2/2.6):
   a captured variable is boxed when it changes after capture OR when it is larger than 128 bytes (Go's limit;
   `boxShared`).
+- 2026-10-14: Job 3.10a (methods: value receivers copied at entry (`T v = *this;`, or `const T&` when
+  readOnly proves the body can't change anything), pointer receivers as static members, auto-address and
+  auto-deref with Go's nil panic, the caller-local copy for non-local receivers, gc's receiver order (receiver
+  calls first, receiver reads after the argument calls), promoted methods, fmt hooks gp_String/gp_Error and
+  the _ptr statics, deferred method calls storing the receiver, name hiding in method bodies, trace names
+  main.T.M / main.(*T).M like Go) committed, clean after 2 review rounds. 3.10b (after 3.11 lands): method
+  values (`f := x.M`, the receiver copied now) and expressions (`T.M`, `(*T).PM`) on gp::func, from the design
+  in methods.go's methodValue note; Go names their wrappers `main.T.M-fm` in traces.
