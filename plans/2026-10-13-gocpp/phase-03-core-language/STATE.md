@@ -185,3 +185,11 @@
   (NRVO) gets a wrong DWARF location, so `print` shows garbage there (clang++ is right). We don't add
   -fno-elide-constructors (it changes the generated code's copies); documented in tests/debug; Phase 13's
   `gocpp debug` may add the flag for g++ debug sessions.
+- 2026-10-14 (3.14a, manager): the trace uses our own ELF symtab + DWARF .debug_line reader and Itanium
+  name parser (runtime/src/trace.cpp, OS parts in src/os/), not libbacktrace. Accepted divergences, to be
+  documented in docs/spec/cpp-mapping.md: Windows traces have no frames until Phase 14; clang's per-file
+  lambda numbers print `func?`; methods print `main.T.M`, never `main.(*T).M` (3.14b/3.10 may fix it from
+  the emitter's names); keyword-escaped names keep their `_`. The stack is recorded at every panic (Phase
+  05 may make it lazy for recover-heavy code). `-nochecks` removes only the bounds, conversion and nil
+  checks; division and shift panics, Go's defined results, the nil-map write, `make` and `[0]T` index
+  panics stay, since they are part of the operation.
