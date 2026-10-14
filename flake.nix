@@ -75,11 +75,14 @@
           default = pkgs.mkShell {
             packages = [
               pkgs.go_1_25 # go, gofmt
+              # Before clang: the clang wrapper brings the unwrapped clang's bin/ into
+              # PATH right after its own, and that bin/ has a clangd that can't find
+              # the standard headers. clang-tools' clangd is wrapped and finds them.
+              llvm.clang-tools # clang-format, clangd, clang-tidy
               # With two compilers, `cc` and `c++` come from the first one listed
               # (clang) and $CC, $CXX from the last one (gcc). Call clang++ or g++
               # by name to get a specific one.
               llvm.clang # clang, clang++
-              llvm.clang-tools # clang-format, clangd, clang-tidy
               gcc # gcc, g++
               pkgs.gdb
               llvm.lldb

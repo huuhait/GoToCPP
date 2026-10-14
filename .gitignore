@@ -13,6 +13,9 @@ coverage.html
 # direnv
 .direnv/
 
+# clangd's index (it writes .cache/clangd/ next to compile_flags.txt, e.g. runtime/.cache/)
+.cache/
+
 # Nix build results (nix build in the root)
 /result
 /result-*

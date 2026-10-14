@@ -1,6 +1,6 @@
 # Phase 02: Walking Skeleton · STATE
 
-**Status:** `[~]` in progress (step 2.7, the runtime, started early: it needs nothing from Phase 01)
+**Status:** `[~]` in progress (step 2.7, the runtime, done early: it needs nothing from Phase 01)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
@@ -28,7 +28,7 @@
   - [ ] `return` (single and multiple)
 - [ ] 2.5 Minimal evaluation-order pass (incl. loop-condition / `else if` / `case` shapes)
 - [ ] 2.6 Functions: params, multiple results (`std::tuple`), prototypes
-- [~] 2.7 Runtime v0 (`gp::string` minimal, helpers, panic as exception, print/println, unbuffered-order stdout, fmtshim, run_main, OS layer `runtime/src/os/` + no-POSIX-outside check) + C++ unit tests
+- [x] 2.7 Runtime v0 (`gp::string` minimal, helpers, panic as exception, print/println, unbuffered-order stdout, fmtshim, run_main, OS layer `runtime/src/os/` + no-POSIX-outside check) + C++ unit tests
 - [ ] 2.8 Driver: `build`, `run`, `emit`, `-x`, `-work`, `-asan`, compiler detection, embedded runtime
 - [ ] 2.9 Internal-error path for C++ compile failures
 - [ ] 2.10 Tests: ≥ 25 run tests, 3 golden, ≥ 25 differential vs Go (promotion, order, shadowing, float format, float→int, stdout/stderr order)
@@ -60,3 +60,6 @@
   forms; int64_t shows as "int" there until Phase 05), so the emitter (2.3/2.8) rejects constant
   formats with flags, width or other verbs with a phase-gate error (Phase 03 adds them).
   stdout writes wait on a non-blocking fd (poll) and a broken pipe raises SIGPIPE, like Go.
+- 2026-10-13: Step 2.7 (runtime v0) committed, clean after 4 review rounds. The reviews added
+  `TestSymbols` (every strong global symbol of the runtime is in `gp::` or starts with `gp_`, so it
+  can't clash with user C/C++ code), the no-POSIX-outside-`src/os/` check, and pipe/SIGPIPE tests.
