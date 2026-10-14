@@ -44,3 +44,5 @@
   division/shifts); `gp_call` handles promoted and plain-named methods; C/C++ type arguments have
   their own rule (no `Instances` entry); `%T` names use Go's exact format; ported Go test suites
   moved to Phase 09 (they need `testing`).
+- 2026-10-14 (from 3.5b): internal/check/printslice.go (D23, `println` of a slice is an error) looks at
+  Underlying(); for a type parameter it must use the core type (`S ~[]int`).

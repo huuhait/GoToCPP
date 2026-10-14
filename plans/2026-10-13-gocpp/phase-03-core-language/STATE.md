@@ -15,7 +15,7 @@
   - [x] parameters, receivers, named results
   - [x] `&p.f`, `&s[i]`, `&arr[i]`, `&global`
 - [x] 3.4 Strings (runtime, literals, slicing, concat, compare, UTF-8 range, conversions)
-- [~] 3.5 Slices (make, append + growth formula, sub-slice, copy, nil, clear, slice→array; `cap >= len` only)
+- [x] 3.5 Slices (make, append + growth formula, sub-slice, copy, nil, clear; `cap >= len` only) (slice→array conversions moved to 3.6b; printing slices with fmt is 3.15b)
 - [~] 3.6 Arrays (`gp::array`, checked index, `==`) + range rules (hidden counters, copy on `range arr`)
 - [~] 3.7 Maps
   - [ ] get / set / ref / lookup / erase / len / clear
@@ -226,3 +226,10 @@
   Sprint*, %T, the strconv float and quote mirrors in src/fmt.cpp, strconv.IsPrint generated from Go 1.25)
   committed, clean after 2 review rounds. Compile cost: hello world unchanged; each new composite type
   printed adds ~25 ms (g++) / 13 ms (clang++); keep an eye on g++ in Phase 06's build-time budget.
+- 2026-10-14: Job 3.5b (slices in the emitter: literals incl. keyed, make, every append form, copy, clear,
+  conversions, index/slicing/len/cap, range, &s[i] and gp::elem_ptr, gc's order for element reads and
+  append-in-place, the move rule for locals, package and boxed slices, moved order temporaries) committed,
+  clean after 2 review rounds. New divergence D23 (docs/spec/language.md): `print`/`println` of a slice is
+  a compile error (Go prints `[len/cap]0x<address>`); internal/check/printslice.go. For Phase 07: that
+  check uses Underlying(), so a type parameter whose core type is a slice (`func f[S ~[]int](s S) {
+  println(s) }`) is not caught yet: use the core type. tests/run/slices_append still waits for 3.15b.
