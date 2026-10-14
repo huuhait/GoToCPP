@@ -9,7 +9,7 @@
 - [x] Spike (2026-10-13): `shared_ptr` aliasing for interior pointers, non-owning global pointers, `make_shared<T[]>` element pointers, designated init, defaulted `==`; compiled and run on GCC 15 + Clang 21
 - [x] 3.1 Refactor into `lower` → `cppir` → printer (Phase 02 tests stay green)
 - [x] 3.2 Runtime ownership core (`gp::ptr`, `gp::new_`, aliasing helpers, nil checks, static owners for globals, `weak` intrinsic, no plain-named members on runtime types)
-- [ ] 3.3 Boxing analysis + owner table
+- [~] 3.3 Boxing analysis + owner table
   - [ ] `&x`, `&x.f`, `&x.arr[i]`, pointer-method calls (incl. on fields), `arr[:]`
   - [ ] captured + changed (incl. field/element writes, `++`, op-assign)
   - [ ] parameters, receivers, named results
