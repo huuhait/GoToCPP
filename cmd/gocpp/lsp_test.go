@@ -128,7 +128,7 @@ func (p *lspProcess) wait() int {
 
 var (
 	lspInitialize = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":null,"clientInfo":{"name":"lsp_test"},"rootUri":null,"capabilities":{}}}`
-	lspInitResult = `{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":2,"save":{}},"hoverProvider":true,"signatureHelpProvider":{"triggerCharacters":["(",","]},"definitionProvider":true,"typeDefinitionProvider":true,"codeActionProvider":true,"documentFormattingProvider":true},"serverInfo":{"name":"gocpp","version":` + strconv.Quote(version.Version) + `}}}`
+	lspInitResult = `{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":2,"save":{}},"completionProvider":{"triggerCharacters":["."],"resolveProvider":true},"hoverProvider":true,"signatureHelpProvider":{"triggerCharacters":["(",","]},"definitionProvider":true,"typeDefinitionProvider":true,"codeActionProvider":true,"documentFormattingProvider":true},"serverInfo":{"name":"gocpp","version":` + strconv.Quote(version.Version) + `}}}`
 	lspShutdown   = `{"jsonrpc":"2.0","id":2,"method":"shutdown"}`
 	lspExit       = `{"jsonrpc":"2.0","method":"exit"}`
 )

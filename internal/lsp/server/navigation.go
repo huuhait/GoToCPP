@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"go/ast"
 	"go/constant"
 	goformat "go/format"
@@ -11,12 +12,14 @@ import (
 	"go/types"
 	"slices"
 	"strconv"
+	"strings"
 	"sync/atomic"
 
 	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/lsp/cache"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
+	"github.com/huuhait/gocpp/internal/syntax/parser"
 )
 
 // The navigation features (step 11.5): hover (hover.go), go to definition
@@ -125,20 +128,32 @@ func newQuery(ctx context.Context, snap *cache.Snapshot, uri protocol.DocumentUR
 	if err != nil {
 		return nil, err
 	}
+	src, err := snap.ReadFile(path)
+	if err != nil {
+		return nil, nil // no such file: then it is no file of the package either
+	}
+	return queryIn(snap, pkg, path, src, at), nil
+}
+
+// queryIn returns the query of the place at in the file path of the checked
+// package pkg, whose text (the document's) is src, or nil (see newQuery).
+// The check may have read a fixed text of the same length (completion's
+// fixDangling): positions are byte offsets, which are the same.
+func queryIn(snap *cache.Snapshot, pkg *cache.Package, path string, src []byte, at protocol.Position) *query {
 	if len(pkg.Program.Roots) == 0 {
-		return nil, nil
+		return nil
 	}
 	q := &query{snap: snap, pkg: pkg, fset: pkg.Fset(), lp: pkg.Program.Roots[0], exact: make(map[string]bool)}
 	cp := pkg.Check
 	switch {
 	case cp == nil:
-		return nil, nil
+		return nil
 	case cp.Checked():
 		q.types, q.info, q.opaque = cp.Types, cp.Info, cp.Opaque
 	case cp.Partial != nil:
 		q.types, q.info, q.opaque = cp.Partial.Types, cp.Partial.Info, cp.Partial.Opaque
 	default:
-		return nil, nil
+		return nil
 	}
 	for _, lp := range pkg.Program.Packages {
 		for _, f := range lp.Files {
@@ -151,18 +166,16 @@ func newQuery(ctx context.Context, snap *cache.Snapshot, uri protocol.DocumentUR
 		}
 	}
 	if q.file == nil || q.file.AST == nil {
-		return nil, nil
+		return nil
 	}
 	q.tok = q.fset.File(q.file.AST.FileStart)
-	if q.src, err = snap.ReadFile(path); err != nil {
-		return nil, err
-	}
+	q.src = src
 	if q.tok == nil || q.tok.Size() != len(q.src) {
-		return nil, nil // can't be: the check read the same text
+		return nil // can't be: the check read the same text
 	}
 	q.mapper = protocol.NewMapper(string(q.src))
 	q.pos = q.tok.Pos(q.mapper.Offset(at))
-	return q, nil
+	return q
 }
 
 // decodePosition decodes the params of a request at a place in a document.
@@ -280,10 +293,17 @@ type declInfo struct {
 // import name has a place only at its import: not the import "C" that the
 // loader adds (load.Rewrite.ImportC).
 func (q *query) declOf(ctx context.Context, obj types.Object) (*declInfo, error) {
+	return q.declIn(ctx, obj, q.fset)
+}
+
+// declIn is declOf for an object whose positions are in fset: the FileSet
+// of the document's package, or of the API of a package that it doesn't
+// import (cache.Exports: from export data, so never exact).
+func (q *query) declIn(ctx context.Context, obj types.Object, fset *token.FileSet) (*declInfo, error) {
 	if !obj.Pos().IsValid() {
 		return nil, nil
 	}
-	posn := q.fset.Position(obj.Pos())
+	posn := fset.Position(obj.Pos())
 	if posn.Filename == "" {
 		return nil, nil
 	}
@@ -294,7 +314,7 @@ func (q *query) declOf(ctx context.Context, obj types.Object) (*declInfo, error)
 		}
 		return nil, nil // the file is gone
 	}
-	exact := q.exact[posn.Filename]
+	exact := fset == q.fset && q.exact[posn.Filename]
 	recv := ""
 	if fn, ok := obj.(*types.Func); ok {
 		if sig, ok := fn.Type().(*types.Signature); ok && sig.Recv() != nil {
@@ -594,27 +614,165 @@ func (q *query) spelling(n ast.Node) string {
 }
 
 // opaqueSpelling returns the type expression that v was declared with, as
-// the user wrote it, when its type comes from C/C++ (check.Opaque.TypeExpr),
-// or "". Only an object of the document's package has it: the export data
-// of an import has "invalid type" there (until the side table of opaque
-// spellings, job 11.3b).
+// the user wrote it, when its type comes from C/C++, or "": for an object of
+// the document's package from its opaque pass (check.Opaque.TypeExpr), and
+// for one of an import from the side table of its summary
+// (cache.Package.OpaqueType, step 11.3b), where the export data has
+// "invalid type".
 func (q *query) opaqueSpelling(v *types.Var) string {
-	if v.Pkg() != q.types || q.types == nil {
+	if q.types == nil {
 		return ""
 	}
+	if v.Pkg() != q.types {
+		t, _ := q.pkg.OpaqueType(v)
+		return t
+	}
 	if te := q.opaque.TypeExpr(v.Origin()); te != nil {
-		return q.spelling(te)
+		return q.spelling(ast.Unparen(te)) // w (*C.X): *C.X
 	}
 	return ""
 }
 
+// typeString returns the type t as Go writes it, like types.TypeString,
+// but with the C/C++ parts of a struct, pointer, slice, array, map or
+// channel type as the source wrote them, where a field has a spelling
+// (opaqueSpelling): a variable declared without a type, var v =
+// struct{ W *SDL.SDL_Window }{}, shows struct{W *SDL.SDL_Window}.
+func (q *query) typeString(t types.Type, qual types.Qualifier) string {
+	if !cache.Incomplete(t) {
+		return types.TypeString(t, qual)
+	}
+	switch t := t.(type) {
+	case *types.Pointer:
+		return "*" + q.typeString(t.Elem(), qual)
+	case *types.Slice:
+		return "[]" + q.typeString(t.Elem(), qual)
+	case *types.Array:
+		return fmt.Sprintf("[%d]%s", t.Len(), q.typeString(t.Elem(), qual))
+	case *types.Map:
+		return "map[" + q.typeString(t.Key(), qual) + "]" + q.typeString(t.Elem(), qual)
+	case *types.Chan:
+		dir := "chan "
+		switch t.Dir() {
+		case types.SendOnly:
+			dir = "chan<- "
+		case types.RecvOnly:
+			dir = "<-chan "
+		}
+		return dir + q.typeString(t.Elem(), qual)
+	case *types.Struct:
+		var b strings.Builder
+		b.WriteString("struct{")
+		for i := range t.NumFields() {
+			if i > 0 {
+				b.WriteString("; ")
+			}
+			f := t.Field(i)
+			ft := q.opaqueSpelling(f)
+			if ft == "" {
+				ft = q.typeString(f.Type(), qual)
+			}
+			if !f.Embedded() {
+				b.WriteString(f.Name())
+				b.WriteByte(' ')
+			}
+			b.WriteString(ft)
+			if tag := t.Tag(i); tag != "" {
+				b.WriteByte(' ')
+				b.WriteString(strconv.Quote(tag))
+			}
+		}
+		b.WriteByte('}')
+		return b.String()
+	}
+	return types.TypeString(t, qual)
+}
+
+// A funcSpelling is the types of the parameters and the results of a
+// function whose signature has C/C++ parts, as its source wrote them: one
+// entry per parameter or result ("*SDL.SDL_Window", "...C.int").
+type funcSpelling struct {
+	params, results []string
+}
+
+// funcSpellingOf returns the spelling of the signature of fn
+// (cache.Package.OpaqueType), or nil when it has no C/C++ parts or no
+// spelling (a package that has load errors only has the types of its
+// parameters: opaqueSpelling).
+func (q *query) funcSpellingOf(fn *types.Func) *funcSpelling {
+	text, ok := q.pkg.OpaqueType(fn)
+	if !ok {
+		return nil
+	}
+	return parseFuncSpelling(text, fn)
+}
+
+// parseFuncSpelling returns the spelling of the signature of fn from its
+// text, "func(w *SDL.SDL_Window) *SDL.SDL_Renderer" (OpaqueType), or nil
+// when the text doesn't fit the signature.
+func parseFuncSpelling(text string, fn *types.Func) *funcSpelling {
+	sig, ok := fn.Type().(*types.Signature)
+	if !ok {
+		return nil
+	}
+	// "func[T any](x T) *C.X": a function type with type parameters is
+	// a syntax error in an expression, but it parses.
+	e, _ := parser.ParseExpr(text)
+	ft, ok := e.(*ast.FuncType)
+	if !ok {
+		return nil
+	}
+	fields := func(list *ast.FieldList, want int) []string {
+		var types []string
+		if list != nil {
+			for _, f := range list.List {
+				// The FileSet of ParseExpr has only text, at base 1;
+				// w (*C.X) is w *C.X.
+				typ := ast.Unparen(f.Type)
+				start, end := int(typ.Pos())-1, int(typ.End())-1
+				if start < 0 || end > len(text) || start > end {
+					return nil
+				}
+				for range max(1, len(f.Names)) {
+					types = append(types, text[start:end])
+				}
+			}
+		}
+		if len(types) != want {
+			return nil
+		}
+		return types
+	}
+	sp := &funcSpelling{params: fields(ft.Params, sig.Params().Len()), results: fields(ft.Results, sig.Results().Len())}
+	if sp.params == nil && sig.Params().Len() > 0 || sp.results == nil && sig.Results().Len() > 0 {
+		return nil
+	}
+	return sp
+}
+
+// funcSpellingFor returns funcSpellingOf(obj) for a function, else nil.
+func (q *query) funcSpellingFor(obj types.Object) *funcSpelling {
+	if fn, ok := obj.(*types.Func); ok {
+		return q.funcSpellingOf(fn)
+	}
+	return nil
+}
+
 // tupleString returns the parameters or results t, each with its name:
-// "x int", "args ...any" (with variadic, the last one is ...T).
-func (q *query) tupleString(t *types.Tuple, variadic bool, qual types.Qualifier) []string {
+// "x int", "args ...any" (with variadic, the last one is ...T). spelled,
+// if not nil, has the types as the source wrote them (funcSpelling): they
+// are used for the types that have C/C++ parts.
+func (q *query) tupleString(t *types.Tuple, variadic bool, qual types.Qualifier, spelled []string) []string {
 	list := make([]string, t.Len())
 	for i := range t.Len() {
 		v := t.At(i)
-		typ := q.opaqueSpelling(v) // ...T already, for the last parameter
+		typ := ""
+		if spelled != nil && cache.Incomplete(v.Type()) {
+			typ = spelled[i] // ...T already, for the last parameter
+		}
+		if typ == "" {
+			typ = q.opaqueSpelling(v) // ...T already too
+		}
 		if typ == "" {
 			typ = types.TypeString(v.Type(), qual)
 			if s, ok := v.Type().(*types.Slice); ok && variadic && i == t.Len()-1 {
@@ -630,18 +788,22 @@ func (q *query) tupleString(t *types.Tuple, variadic bool, qual types.Qualifier)
 }
 
 // signatureString returns the parameters and the results of sig, as Go
-// writes them after the name of a function: "(x int) (string, error)".
-func (q *query) signatureString(sig *types.Signature, qual types.Qualifier) string {
+// writes them after the name of a function: "(x int) (string, error)". sp
+// is the spelling of the function's C/C++ types, or nil.
+func (q *query) signatureString(sig *types.Signature, qual types.Qualifier, sp *funcSpelling) string {
+	if sp == nil {
+		sp = &funcSpelling{}
+	}
 	var b bytes.Buffer
 	b.WriteByte('(')
-	for i, p := range q.tupleString(sig.Params(), sig.Variadic(), qual) {
+	for i, p := range q.tupleString(sig.Params(), sig.Variadic(), qual, sp.params) {
 		if i > 0 {
 			b.WriteString(", ")
 		}
 		b.WriteString(p)
 	}
 	b.WriteByte(')')
-	results := q.tupleString(sig.Results(), false, qual)
+	results := q.tupleString(sig.Results(), false, qual, sp.results)
 	if len(results) == 0 {
 		return b.String()
 	}
@@ -688,8 +850,8 @@ func typeParamsString(list *types.TypeParamList, qual types.Qualifier) string {
 // name, "func (t T) String() string", and a constant its value,
 // "const C untyped int = 3" (the expression it was declared with, when
 // that says more: "const K = 1 << 10 // 1024"). A type that comes from
-// C/C++ shows as it was written (opaqueSpelling). d is where obj is
-// declared, or nil.
+// C/C++ shows as it was written (opaqueSpelling, funcSpellingOf), also
+// for an object of an import. d is where obj is declared, or nil.
 func (q *query) objectString(obj types.Object, qual types.Qualifier, d *declInfo) string {
 	switch obj := obj.(type) {
 	case *types.Func:
@@ -719,15 +881,28 @@ func (q *query) objectString(obj types.Object, qual types.Qualifier, d *declInfo
 		}
 		b.WriteString(obj.Name())
 		b.WriteString(typeParamsString(sig.TypeParams(), qual))
-		b.WriteString(q.signatureString(sig, qual))
+		b.WriteString(q.signatureString(sig, qual, q.funcSpellingOf(obj)))
 		return b.String()
 	case *types.Var:
 		if typ := q.opaqueSpelling(obj); typ != "" {
-			kind := "var "
+			kind, name := "var ", obj.Name()
 			if obj.IsField() {
 				kind = "field "
+			} else if p := obj.Pkg(); p != nil && p.Scope().Lookup(name) == obj && qual(p) != "" {
+				name = qual(p) + "." + name // a variable of an import: var lib.Default
 			}
-			return kind + obj.Name() + " " + typ
+			return kind + name + " " + typ
+		}
+		if obj.Type() != types.Typ[types.Invalid] && cache.Incomplete(obj.Type()) {
+			// A C/C++ part without a type expression of its own: var
+			// v = struct{ W *SDL.SDL_Window }{}.
+			kind, name := "var ", obj.Name()
+			if obj.IsField() {
+				kind = "field "
+			} else if p := obj.Pkg(); p != nil && p.Scope().Lookup(name) == obj && qual(p) != "" {
+				name = qual(p) + "." + name
+			}
+			return kind + name + " " + q.typeString(obj.Type(), qual)
 		}
 	case *types.Const:
 		return constString(obj, qual, d)

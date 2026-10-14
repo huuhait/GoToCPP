@@ -138,7 +138,14 @@ loop:
 		return nil, nil, nil
 	}
 	var obj types.Object
-	switch fn := ast.Unparen(fn).(type) {
+	fun := ast.Unparen(fn)
+	switch f := fun.(type) {
+	case *ast.IndexExpr: // an instance: F[int]
+		fun = f.X
+	case *ast.IndexListExpr:
+		fun = f.X
+	}
+	switch fn := fun.(type) {
 	case *ast.Ident:
 		obj = q.info.ObjectOf(fn)
 	case *ast.SelectorExpr:
@@ -165,8 +172,12 @@ loop:
 			s.doc = doc.Text()
 		}
 	}
-	s.params = q.tupleString(sig.Params(), sig.Variadic(), qual)
-	s.results = q.tupleString(sig.Results(), false, qual)
+	sp := q.funcSpellingFor(obj)
+	if sp == nil {
+		sp = &funcSpelling{}
+	}
+	s.params = q.tupleString(sig.Params(), sig.Variadic(), qual, sp.params)
+	s.results = q.tupleString(sig.Results(), false, qual, sp.results)
 	s.resultParens = len(s.results) > 1 || len(s.results) == 1 && sig.Results().At(0).Name() != ""
 	return s, call, nil
 }

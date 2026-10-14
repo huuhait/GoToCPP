@@ -15,8 +15,8 @@
 // type (step 11.4, diagnostics.go: textDocument/publishDiagnostics, with
 // workspace/didChangeWatchedFiles for the files that change on disk),
 // hover, go to definition and signature help (step 11.5, navigation.go),
-// and formatting and organize imports (step 11.7, format.go). The others
-// (completion, ...) come with the next steps.
+// completion (step 11.6, completion.go), and formatting and organize
+// imports (step 11.7, format.go). The others come with the next steps.
 package server
 
 import (
@@ -74,6 +74,7 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) int {
 		// any more.
 		s.session.Shutdown()
 		s.diags.stop()
+		s.comp.stop()
 		s.pipeline.Close()
 	})
 	err := s.conn.Serve(ctx, s)
@@ -126,6 +127,7 @@ type Server struct {
 	requests     map[string]method
 	shutdownWait time.Duration
 	nav          navigation // hover, definition, signature help (navigation.go)
+	comp         completion // completion (completion.go)
 
 	mu        sync.Mutex
 	lifecycle lifecycle
@@ -198,6 +200,7 @@ func newServer(logger *log.Logger, cfg cache.Config, clock debounce.Clock) *Serv
 	s.diags = newDiagnostics(s, clock)
 	cfg.OnProbe = s.diags.probed
 	s.pipeline = cache.NewPipeline(cfg)
+	s.addCompletion(s.pipeline)
 	s.session = cache.NewSession(s.pipeline.NewState())
 	return s
 }
@@ -416,6 +419,7 @@ func (s *Server) initialize(params json.RawMessage) (any, error) {
 	}
 	s.nav.initialize(p.Capabilities, &res.Capabilities)
 	formatCapabilities(&res.Capabilities, &p.Capabilities)
+	s.comp.initialize(p.Capabilities, &res.Capabilities, s.nav.hoverMarkdown.Load())
 	return res, nil
 }
 
@@ -507,6 +511,9 @@ func (s *Server) didOpen(_ context.Context, params json.RawMessage) error {
 	delete(s.warned, uri)
 	s.mu.Unlock()
 	s.diags.scheduleFile(uri, 0)
+	if path := uri.Path(); path != "" {
+		s.comp.index.warm(filepath.Dir(path)) // the packages to import (autoimport.go)
+	}
 	return nil
 }
 
@@ -604,6 +611,7 @@ func (s *Server) didChangeWatchedFiles(_ context.Context, params json.RawMessage
 	if err := decode(params, &p); err != nil {
 		return err
 	}
+	s.comp.index.changed(p.Changes) // a package may be new, or gone
 	var uris []protocol.DocumentURI
 	dirs := make(map[string]bool)
 	headers, all := false, false

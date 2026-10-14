@@ -126,8 +126,9 @@ type Pipeline struct {
 	metaMu sync.Mutex
 	metas  map[Hash]*metadata
 
-	stdMu  sync.Mutex
-	stdPkg map[string][]*fileHandle // the files of each standard package, by import path
+	stdMu   sync.Mutex
+	stdPkg  map[string][]*fileHandle // the files of each standard package, by import path
+	stdList                          // StdPackages
 
 	// The writes to the disk cache run in the background, at most
 	// maxDiskWrites at a time; Close waits for them.

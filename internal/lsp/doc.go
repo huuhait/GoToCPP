@@ -6,7 +6,7 @@
 //
 // Phase 11 fills it. The early version (v0: diagnostics, hover,
 // go-to-definition, completion, formatting) needs only Phase 01. So far
-// (steps 11.1 to 11.5 and 11.7) there are:
+// (steps 11.1 to 11.7) there are:
 //   - protocol: the LSP 3.17 types (copied from gopls, see
 //     protocol/COPIED.md), JSON-RPC 2.0 over the Content-Length framing
 //     (notifications in order on the read loop, requests on their own
@@ -53,5 +53,11 @@
 //     sorts and groups the imports like goimports, puts the header and
 //     namespace imports after the gocpp ones in their own order, and
 //     removes the gocpp imports that the type check reports as unused
-//     (never a header import).
+//     (never a header import). And textDocument/completion (step 11.6): the
+//     names in scope, the fields and methods after x., the members of a
+//     package after pkg. (also of a package that the file doesn't import
+//     yet, with the edit that adds the import), the field names of a
+//     struct literal and the keywords, ranked like gopls's (what fits the
+//     expected type first), with snippets for calls; their documentation
+//     comes from completionItem/resolve.
 package lsp

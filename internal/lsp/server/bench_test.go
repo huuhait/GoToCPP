@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -178,4 +179,108 @@ func bigPackage() map[string]string {
 		files[fmt.Sprintf("big/f%02d.gp", i)] = b.String()
 	}
 	return files
+}
+
+// BenchmarkCompletion measures the budget "completion < 50 ms (p95)"
+// (README §2.1) on the 10k-line package: completions in f25.gp after a
+// selector (t.|, t.Str|), at a blank statement (all the names in scope:
+// the 400 functions of the package, its types, the builtins), after F
+// (the 400 functions), and after a package to import (bytes.). The package
+// is checked before (the request uses the cached check):
+//
+//	go test -run '^$' -bench 'Completion' -benchtime 300x ./internal/lsp/server
+//
+// BenchmarkCompletionAfterEdit measures the completion that comes right
+// after an edit (a new line t. in a function), so the request checks the
+// package first (it doesn't parse: x. is a syntax error).
+func BenchmarkCompletion(b *testing.B) {
+	files := bigPackage()
+	name := "big/f25.gp"
+	src := strings.Replace(files[name], "\ttotal := 0\n", "\ttotal := 0\n\t\n\tF\n\tbytes.\n", 1)
+	c := startBench(b, files)
+	c.open(name, src)
+	var params []string
+	for _, mark := range []string{"t.|String(), \"x\"", "t.Str|ing(), \"x\"", "\ttotal := 0\n\t|\n", "\tF|\n", "\tbytes.|\n"} {
+		params = append(params, c.posParams(name, src, mark))
+	}
+	for i, p := range params {
+		if items := completionItems(b, c, p); len(items) == 0 {
+			b.Fatalf("no completion at mark %d", i)
+		}
+	}
+	_, _, checks := c.s.pipeline.Stats()
+	lat := make([]time.Duration, 0, b.N)
+	b.ResetTimer()
+	for i := range b.N {
+		start := time.Now()
+		resp := c.call("textDocument/completion", params[i%len(params)])
+		lat = append(lat, time.Since(start))
+		if resp.Error != nil {
+			b.Fatal(resp.Error)
+		}
+	}
+	b.StopTimer()
+	if _, _, n := c.s.pipeline.Stats(); n != checks {
+		b.Errorf("%d checks during the requests, want none", n-checks)
+	}
+	reportLatency(b, lat, "p95 < 50 ms")
+}
+
+func BenchmarkCompletionAfterEdit(b *testing.B) {
+	files := bigPackage()
+	name := "big/f25.gp"
+	src := files[name]
+	c := startBench(b, files)
+	c.open(name, src)
+	c.next(name) // the diagnostics: the package is checked
+	lat := make([]time.Duration, 0, b.N)
+	b.ResetTimer()
+	for i := range b.N {
+		// Each edit makes new text: a check that the cache doesn't have.
+		edited := strings.Replace(src, "\ttotal := 0\n", fmt.Sprintf("\ttotal := %d\n", i), 1)
+		edited = strings.Replace(edited, "\tif strings.HasPrefix(", "\tt.\n\tif strings.HasPrefix(", 1)
+		start := time.Now()
+		c.change(name, i+2, edited)
+		resp := c.call("textDocument/completion", c.posParams(name, edited, "\tt.|\n"))
+		lat = append(lat, time.Since(start))
+		if resp.Error != nil {
+			b.Fatal(resp.Error)
+		}
+		if i == 0 && !strings.Contains(string(resp.Result), `"label":"String"`) {
+			b.Fatalf("the completion: %s", resp.Result)
+		}
+	}
+	b.StopTimer()
+	reportLatency(b, lat, "p95 < 50 ms")
+}
+
+// startBench starts a server over the files, initialized for snippets.
+func startBench(b *testing.B, files map[string]string) *dclient {
+	root := writeTree(b, files)
+	c := &dclient{client: startServer(b, newServer(nil, testConfig(), debounce.RealClock{}), nil), root: root}
+	c.call("initialize", `{"processId":1,"rootUri":null,"capabilities":{"textDocument":{"completion":{"completionItem":{"snippetSupport":true}}}}}`)
+	c.notify("initialized", "{}")
+	return c
+}
+
+// completionItems returns the items of a completion with the params.
+func completionItems(b *testing.B, c *dclient, params string) []json.RawMessage {
+	resp := c.call("textDocument/completion", params)
+	if resp.Error != nil {
+		b.Fatal(resp.Error)
+	}
+	var list struct{ Items []json.RawMessage }
+	if err := json.Unmarshal(resp.Result, &list); err != nil {
+		b.Fatal(err)
+	}
+	return list.Items
+}
+
+// reportLatency reports the p50 and p95 of the latencies.
+func reportLatency(b *testing.B, lat []time.Duration, budget string) {
+	slices.Sort(lat)
+	p50, p95 := lat[len(lat)/2], lat[min(len(lat)-1, len(lat)*95/100)]
+	b.ReportMetric(float64(p50.Microseconds())/1000, "p50-ms")
+	b.ReportMetric(float64(p95.Microseconds())/1000, "p95-ms")
+	b.Logf("%d requests: p50 %v, p95 %v (budget: %s)", len(lat), p50, p95, budget)
 }

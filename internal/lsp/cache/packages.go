@@ -150,6 +150,11 @@ type summary struct {
 	// summary from disk, see prober.replay), if it asked.
 	records []*probeRecord
 	own     *probeRecord
+
+	// exp is the decoded export data, for Snapshot.Exports (once).
+	expOnce sync.Once
+	exp     *Exports
+	expErr  error
 }
 
 // inherit adds what s has of the summaries of its imports deps (nil for a

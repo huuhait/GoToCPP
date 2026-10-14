@@ -54,7 +54,7 @@ func opaqueTableOf(fset *token.FileSet, cp *check.Package, src func(name string)
 		}
 	}
 	for obj, te := range cp.Opaque.TypeExprs() {
-		if text, ok := exprText(fset, te, src); ok {
+		if text, ok := exprText(fset, ast.Unparen(te), src); ok {
 			add(obj, text)
 		}
 	}
@@ -153,6 +153,12 @@ func funcSpellings(fset *token.FileSet, cp *check.Package, src func(name string)
 	}
 	return m
 }
+
+// Incomplete reports whether the type t has a part that go/types left
+// invalid: a C or C++ type, as the opaque pass counts it (a named type is
+// complete unless one of its type arguments is not). OpaqueType has the
+// spellings of such types.
+func Incomplete(t types.Type) bool { return incomplete(t, nil) }
 
 // incomplete reports whether t has a part that go/types left invalid (a C
 // or C++ type), as the opaque pass counts it: a named type is complete
@@ -265,7 +271,7 @@ func (pkg *Package) OpaqueType(obj types.Object) (string, bool) {
 		if te == nil {
 			return "", false
 		}
-		return exprText(pkg.Fset(), te, src)
+		return exprText(pkg.Fset(), ast.Unparen(te), src)
 	}
 	pkg.depOnce.Do(pkg.decodeTables)
 	t, ok := pkg.depTypes[obj]

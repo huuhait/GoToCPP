@@ -4,10 +4,11 @@ gocpp has a language server, `gocpp lsp`. It speaks the Language Server Protocol
 over standard input and output, so any editor with an LSP client can use it. The editor starts
 `gocpp lsp` and talks to it; there is nothing else to run.
 
-What the server does now: it shows the errors of `gocpp check` as you type. Hover, go to
-definition, completion, formatting and the other features come in later versions of the
-server, and they need no change in the editor setup below: the editor asks the server what it
-can do.
+What the server does now: it shows the errors of `gocpp check` as you type, and it has hover,
+go to definition and type definition, signature help, completion (with snippets for calls and
+the imports it adds for you), formatting and organize imports. The other features (rename,
+references, symbols, ...) come in later versions of the server, and they need no change in the
+editor setup below: the editor asks the server what it can do.
 
 All the setups need the `gocpp` binary in `PATH` (or its full path in the config). Build it in
 the gocpp repository with `make build`; that writes `bin/gocpp`.
