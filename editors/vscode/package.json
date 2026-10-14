@@ -1,7 +1,7 @@
 {
 	"name": "gocpp",
 	"displayName": "gocpp",
-	"description": "gocpp language support: syntax highlighting for .gp files",
+	"description": "gocpp language support for .gp files: syntax highlighting and the gocpp language server",
 	"version": "0.0.1",
 	"publisher": "gocpp",
 	"license": "BSD-3-Clause AND MIT",
@@ -10,8 +10,24 @@
 		"vscode": "^1.86.0"
 	},
 	"categories": [
-		"Programming Languages"
+		"Programming Languages",
+		"Formatters"
 	],
+	"main": "./src/extension.js",
+	"activationEvents": [
+		"onLanguage:gocpp"
+	],
+	"capabilities": {
+		"untrustedWorkspaces": {
+			"supported": "limited",
+			"description": "In Restricted Mode the gocpp language server does not start (it runs the C++ compiler on the headers of the project), and the settings gocpp.path, gocpp.lsp.args and gocpp.lsp.env come from your user settings only. Syntax highlighting works.",
+			"restrictedConfigurations": [
+				"gocpp.path",
+				"gocpp.lsp.args",
+				"gocpp.lsp.env"
+			]
+		}
+	},
 	"contributes": {
 		"languages": [
 			{
@@ -32,14 +48,76 @@
 				"path": "./syntaxes/gocpp.tmLanguage.json"
 			}
 		],
+		"breakpoints": [
+			{
+				"language": "gocpp"
+			}
+		],
+		"commands": [
+			{
+				"command": "gocpp.restartServer",
+				"title": "Restart Language Server",
+				"category": "gocpp"
+			}
+		],
+		"configuration": {
+			"title": "gocpp",
+			"properties": {
+				"gocpp.path": {
+					"type": "string",
+					"default": "gocpp",
+					"scope": "machine-overridable",
+					"markdownDescription": "The gocpp binary that runs the language server (`gocpp lsp`): a command name looked up in `PATH`, or a path. `~` at the start is your home directory; a relative path is relative to the first workspace folder."
+				},
+				"gocpp.lsp.args": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"default": [],
+					"scope": "machine-overridable",
+					"markdownDescription": "More arguments for `gocpp lsp`, after `lsp`. For example `[\"-logfile\", \"/tmp/gocpp-lsp.log\"]` writes the server log to a file."
+				},
+				"gocpp.lsp.env": {
+					"type": "object",
+					"additionalProperties": {
+						"type": "string"
+					},
+					"default": {},
+					"scope": "machine-overridable",
+					"markdownDescription": "Environment variables for the language server, on top of the environment of VS Code. A changed `PATH` is also used to find `gocpp.path`."
+				},
+				"gocpp.trace.server": {
+					"type": "string",
+					"enum": [
+						"off",
+						"messages",
+						"verbose"
+					],
+					"enumDescriptions": [
+						"No trace.",
+						"Trace the name of each message.",
+						"Trace each message with its content."
+					],
+					"default": "off",
+					"scope": "window",
+					"markdownDescription": "Trace the messages between VS Code and the language server in the **gocpp** output channel."
+				}
+			}
+		},
 		"configurationDefaults": {
 			"[gocpp]": {
-				"editor.insertSpaces": false
+				"editor.insertSpaces": false,
+				"editor.formatOnSave": true,
+				"editor.formatOnSaveMode": "file",
+				"editor.codeActionsOnSave": {
+					"source.organizeImports": "explicit"
+				}
 			}
 		}
 	},
 	"scripts": {
-		"test": "vscode-tmgrammar-test --compact \"test/testdata/*.gp\" && node test/check-examples.mjs"
+		"test": "vscode-tmgrammar-test --compact \"test/testdata/*.gp\" && node test/check-examples.mjs && node --test \"test/*.test.js\""
 	},
 	"devDependencies": {
 		"vscode-oniguruma": "1.7.0",
@@ -50,5 +128,8 @@
 		"vscode-tmgrammar-test": {
 			"vscode-textmate": "$vscode-textmate"
 		}
+	},
+	"dependencies": {
+		"vscode-languageclient": "9.0.1"
 	}
 }

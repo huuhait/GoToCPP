@@ -25,8 +25,10 @@ under way. What works today:
   types, functions, loops, `switch`, labels, `fmt.Println`) to C++20 and build them with g++ or
   clang++: [examples/hello](examples/hello/main.gp), [fizzbuzz](examples/fizzbuzz/main.gp) and
   [primes](examples/primes/main.gp) run, and gdb can debug them at the `.gp` level.
-- `gocpp lsp` is the start of the language server: it speaks LSP over stdin and stdout and keeps
-  the text of the open files, but has no features yet (`gocpp lsp -h`).
+- `gocpp lsp` is the start of the language server: it speaks LSP over stdin and stdout and shows
+  the errors of `gocpp check` as you type (`gocpp lsp -h`). The VS Code extension in
+  [editors/vscode](editors/vscode/README.md) starts it; [docs/guides/editors.md](docs/guides/editors.md)
+  sets up Neovim, Helix and Emacs.
 
 A command that is not built yet says which phase builds it.
 
@@ -46,7 +48,7 @@ make build        # build bin/gocpp
 make test         # go test ./...
 make lint         # gofmt check (not spikes/ or testdata/), then go vet ./...
 make staticcheck  # staticcheck ./... (not in ci: go run downloads it once)
-make vscode-test  # VS Code grammar tests (not in ci: npm downloads the tools once)
+make vscode-test  # VS Code extension tests (not in ci: npm downloads the packages once)
 make clean        # remove bin/
 
 bin/gocpp version

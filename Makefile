@@ -55,9 +55,10 @@ lint:
 staticcheck:
 	$(STATICCHECK) ./...
 
-# The tests of the VS Code grammar (editors/vscode/README.md). Not part of ci,
-# because npm downloads the test tools the first time. npm ci runs when
-# node_modules is missing or older than package-lock.json.
+# The tests of the VS Code extension: its grammar and its code
+# (editors/vscode/README.md). Not part of ci, because npm downloads the
+# packages the first time. npm ci runs when node_modules is missing or older
+# than package-lock.json. One test builds gocpp with go build.
 VSCODE_DIR = editors/vscode
 .PHONY: vscode-test
 vscode-test: $(VSCODE_DIR)/node_modules/.package-lock.json

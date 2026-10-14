@@ -211,7 +211,7 @@ The make targets for these checks:
 | `make lint` | the gofmt check, which skips `spikes/` and every `testdata/` folder, then `go vet ./...` |
 | `make staticcheck` | `go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...`, so there is nothing to install |
 | `make ci` | `lint`, `test` and `build`: every required check, the one that the loop uses. The test programs run with both g++ and clang++, and here a missing compiler fails (§3). It does not run staticcheck, because `go run` downloads staticcheck the first time |
-| `make vscode-test` | the tests of the VS Code grammar in `editors/vscode` (`npm test`, with `npm ci` first when needed). Not part of `make ci`, because npm downloads the test tools the first time. Run it when you change `editors/vscode` |
+| `make vscode-test` | the tests of the VS Code extension in `editors/vscode`: its grammar and its code, including a run of `gocpp lsp` (`npm test`, with `npm ci` first when needed). Not part of `make ci`, because npm downloads the packages the first time. Run it when you change `editors/vscode` or the start of `gocpp lsp` |
 
 `v0.7.0` is staticcheck 2026.1, the newest release that works with Go 1.25. The newer
 releases (`v0.8.x`) need Go 1.26.
