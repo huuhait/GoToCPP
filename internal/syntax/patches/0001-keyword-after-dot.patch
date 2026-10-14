@@ -1,0 +1,704 @@
+diff --git a/internal/syntax/parser/gocpp_keyword_test.go b/internal/syntax/parser/gocpp_keyword_test.go
+new file mode 100644
+index 0000000..c618ca9
+--- /dev/null
++++ b/internal/syntax/parser/gocpp_keyword_test.go
+@@ -0,0 +1,357 @@
++// gocpp: the tests of patch 1 (../FORK.md §4): a Go keyword right after a
++// '.' on the same line is a name, for C++ names such as std::map and
++// node.type(). This file is new in the patch.
++
++package parser_test
++
++import (
++	"errors"
++	"fmt"
++	"go/ast"
++	"go/token"
++	"strings"
++	"testing"
++
++	"github.com/huuhait/gocpp/internal/syntax/parser"
++	"github.com/huuhait/gocpp/internal/syntax/scanner"
++)
++
++// kwKeywords are the 25 keywords of the Go spec. The scanner's tests check
++// the list against go/token.
++var kwKeywords = []string{
++	"break", "case", "chan", "const", "continue",
++	"default", "defer", "else", "fallthrough", "for",
++	"func", "go", "goto", "if", "import",
++	"interface", "map", "package", "range", "return",
++	"select", "struct", "switch", "type", "var",
++}
++
++// kwParseFile parses src. A syntax error fails the test.
++func kwParseFile(t *testing.T, src string) *ast.File {
++	t.Helper()
++	f, err := parser.ParseFile(token.NewFileSet(), "test.gp", src, parser.ParseComments)
++	if err != nil {
++		t.Fatalf("parsing %q: %v", src, err)
++	}
++	return f
++}
++
++// kwParseBody parses body as the body of a function and returns its
++// statements. A syntax error fails the test.
++func kwParseBody(t *testing.T, body string) []ast.Stmt {
++	t.Helper()
++	f := kwParseFile(t, "package p\n\nfunc _() {\n"+body+"\n}\n")
++	return f.Decls[0].(*ast.FuncDecl).Body.List
++}
++
++// kwFirstError parses src, which must have a syntax error, and returns the
++// first error.
++func kwFirstError(t *testing.T, src string) *scanner.Error {
++	t.Helper()
++	_, err := parser.ParseFile(token.NewFileSet(), "test.gp", src, 0)
++	var list scanner.ErrorList
++	if !errors.As(err, &list) || len(list) == 0 {
++		t.Fatalf("parsing %q: got error %v, want a scanner.ErrorList", src, err)
++	}
++	return list[0]
++}
++
++// kwTree writes an expression with the types of its nodes, for example
++// Call(Sel(node, type)) for node.type(). A missing expression is "-".
++func kwTree(e ast.Expr) string {
++	switch e := e.(type) {
++	case nil:
++		return "-"
++	case *ast.Ident:
++		return e.Name
++	case *ast.BasicLit:
++		return e.Value
++	case *ast.SelectorExpr:
++		return "Sel(" + kwTree(e.X) + ", " + e.Sel.Name + ")"
++	case *ast.CallExpr:
++		if e.Ellipsis.IsValid() {
++			return "Call(" + kwTree(e.Fun) + kwList(e.Args) + "...)" // f(xs...)
++		}
++		return "Call(" + kwTree(e.Fun) + kwList(e.Args) + ")"
++	case *ast.IndexExpr:
++		return "Index(" + kwTree(e.X) + "; " + kwTree(e.Index) + ")"
++	case *ast.IndexListExpr:
++		return "IndexList(" + kwTree(e.X) + kwList(e.Indices) + ")"
++	case *ast.CompositeLit:
++		return "Lit(" + kwTree(e.Type) + kwList(e.Elts) + ")"
++	case *ast.KeyValueExpr:
++		return kwTree(e.Key) + ": " + kwTree(e.Value)
++	case *ast.TypeAssertExpr:
++		if e.Type == nil {
++			return "Assert(" + kwTree(e.X) + "; type)" // x.(type)
++		}
++		return "Assert(" + kwTree(e.X) + "; " + kwTree(e.Type) + ")"
++	case *ast.BinaryExpr:
++		return "Binary(" + kwTree(e.X) + " " + e.Op.String() + " " + kwTree(e.Y) + ")"
++	case *ast.UnaryExpr:
++		return "Unary(" + e.Op.String() + kwTree(e.X) + ")"
++	case *ast.StarExpr:
++		return "Star(" + kwTree(e.X) + ")"
++	case *ast.ArrayType:
++		return "Array(" + kwTree(e.Len) + "; " + kwTree(e.Elt) + ")"
++	case *ast.Ellipsis:
++		return "Ellipsis(" + kwTree(e.Elt) + ")"
++	case *ast.MapType:
++		return "Map(" + kwTree(e.Key) + "; " + kwTree(e.Value) + ")"
++	case *ast.ChanType:
++		return "Chan(" + kwTree(e.Value) + ")"
++	case *ast.FuncType:
++		return "Func"
++	case *ast.InterfaceType:
++		return "Interface"
++	case *ast.StructType:
++		return "Struct"
++	}
++	return fmt.Sprintf("%T", e)
++}
++
++// kwList writes list for kwTree: "; a, b", or "" if list is empty.
++func kwList(list []ast.Expr) string {
++	var b strings.Builder
++	for i, e := range list {
++		if i == 0 {
++			b.WriteString("; ")
++		} else {
++			b.WriteString(", ")
++		}
++		b.WriteString(kwTree(e))
++	}
++	return b.String()
++}
++
++// kwExpr returns the expression of a statement "x := e", "_ = e" or "e".
++func kwExpr(t *testing.T, s ast.Stmt) ast.Expr {
++	t.Helper()
++	switch s := s.(type) {
++	case *ast.AssignStmt:
++		if len(s.Rhs) == 1 {
++			return s.Rhs[0]
++		}
++	case *ast.ExprStmt:
++		return s.X
++	}
++	t.Fatalf("got a %T, want x := e, _ = e or e", s)
++	return nil
++}
++
++func TestKeywordSelectors(t *testing.T) {
++	for _, test := range []struct{ stmt, want string }{
++		// The examples of the plan (phase 01 README §2.2).
++		{"m := std.map[std.string, int]{}", "Lit(IndexList(Sel(std, map); Sel(std, string), int))"},
++		{"t := node.type()", "Call(Sel(node, type))"},
++		{"n := posix.select(fd+1, &rd, nil, nil, nil)", "Call(Sel(posix, select); Binary(fd + 1), Unary(&rd), nil, nil, nil)"},
++
++		// Space and comments on the same line don't matter.
++		{"_ = x . map", "Sel(x, map)"},
++		{"_ = x./* c */map", "Sel(x, map)"},
++
++		// Chains, and keyword names inside other expressions.
++		{"_ = x.map.range.type()", "Call(Sel(Sel(Sel(x, map), range), type))"},
++		{"_ = std.map[int, int]{1: 2}[1]", "Index(Lit(IndexList(Sel(std, map); int, int); 1: 2); 1)"},
++		{"x.default(x.case, x.go)", "Call(Sel(x, default); Sel(x, case), Sel(x, go))"},
++
++		// Not a keyword: like upstream, the name may be on the next line.
++		{"_ = x.\n\tfoo", "Sel(x, foo)"},
++	} {
++		stmts := kwParseBody(t, test.stmt)
++		if len(stmts) != 1 {
++			t.Errorf("parsing %q: got %d statements, want 1", test.stmt, len(stmts))
++			continue
++		}
++		if got := kwTree(kwExpr(t, stmts[0])); got != test.want {
++			t.Errorf("parsing %q:\ngot  %s\nwant %s", test.stmt, got, test.want)
++		}
++	}
++}
++
++// TestKeywordSelectorTypes checks keyword names in type names (pkg.T).
++func TestKeywordSelectorTypes(t *testing.T) {
++	f := kwParseFile(t, `package p
++
++import posix "<sys/select.h>"
++
++var m std.map[std.string, int]
++
++func f(std.map) node.type { return nil }
++
++func g(m std.map[int, int], t *node.type) {}
++
++type T struct {
++	x.map
++	*y.type
++}
++
++var rd posix.fd_set
++var n = posix.select(fd+1, &rd, nil, nil, nil)
++`)
++	var got []string
++	ast.Inspect(f, func(n ast.Node) bool {
++		switch n := n.(type) {
++		case *ast.ValueSpec:
++			s := "var " + n.Names[0].Name
++			if n.Type != nil {
++				s += " " + kwTree(n.Type)
++			}
++			for _, v := range n.Values {
++				s += " = " + kwTree(v)
++			}
++			got = append(got, s)
++		case *ast.Field:
++			got = append(got, "field "+kwTree(n.Type))
++		}
++		return true
++	})
++	want := []string{
++		"var m IndexList(Sel(std, map); Sel(std, string), int)",
++		"field Sel(std, map)",
++		"field Sel(node, type)",
++		"field IndexList(Sel(std, map); int, int)",
++		"field Star(Sel(node, type))",
++		"field Sel(x, map)",
++		"field Star(Sel(y, type))",
++		"var rd Sel(posix, fd_set)",
++		"var n = Call(Sel(posix, select); Binary(fd + 1), Unary(&rd), nil, nil, nil)",
++	}
++	if strings.Join(got, "\n") != strings.Join(want, "\n") {
++		t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
++	}
++}
++
++func TestEveryKeywordSelector(t *testing.T) {
++	for _, kw := range kwKeywords {
++		// On the same line, the keyword is a name.
++		stmts := kwParseBody(t, "_ = x."+kw+"\nx."+kw+"()\n_ = x . "+kw+"\n_ = x./* c */"+kw)
++		want := []string{"Sel(x, " + kw + ")", "Call(Sel(x, " + kw + "))", "Sel(x, " + kw + ")", "Sel(x, " + kw + ")"}
++		if len(stmts) != len(want) {
++			t.Errorf("%s: got %d statements, want %d", kw, len(stmts), len(want))
++			continue
++		}
++		for i, s := range stmts {
++			if got := kwTree(kwExpr(t, s)); got != want[i] {
++				t.Errorf("%s: statement %d is %s, want %s", kw, i+1, got, want[i])
++			}
++		}
++
++		// On the next line, it stays a keyword, so an unfinished "x."
++		// is still a syntax error (TestIncompleteSelection).
++		for _, test := range []struct {
++			sep  string
++			line int
++			col  int
++		}{
++			{"\n", 4, 1},
++			{"\n\t", 4, 2},
++			{" // c\n", 4, 1},
++			{"/*\n*/", 4, 3},
++		} {
++			src := "package p\n\nvar _ = x." + test.sep + kw + "\n"
++			err := kwFirstError(t, src)
++			wantMsg := "expected selector or type assertion, found '" + kw + "'"
++			if err.Msg != wantMsg || err.Pos.Line != test.line || err.Pos.Column != test.col {
++				t.Errorf("parsing %q: the first error is %v, want test.gp:%d:%d: %s", src, err, test.line, test.col, wantMsg)
++			}
++		}
++	}
++}
++
++func TestKeywordSelectorPositions(t *testing.T) {
++	const src = "package p\n\nvar _ = std . /* c */ map[k]\n"
++	fset := token.NewFileSet()
++	f, err := parser.ParseFile(fset, "test.gp", src, parser.ParseComments)
++	if err != nil {
++		t.Fatal(err)
++	}
++	index := f.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Values[0].(*ast.IndexExpr)
++	sel := index.X.(*ast.SelectorExpr)
++	for _, test := range []struct {
++		what string
++		pos  token.Pos
++		want string
++	}{
++		{"std", sel.X.Pos(), "test.gp:3:9"},
++		{"map", sel.Sel.Pos(), "test.gp:3:23"},
++		{"the end of map", sel.Sel.End(), "test.gp:3:26"},
++		{"[", index.Lbrack, "test.gp:3:26"},
++	} {
++		if got := fset.Position(test.pos).String(); got != test.want {
++			t.Errorf("%s is at %s, want %s", test.what, got, test.want)
++		}
++	}
++	if len(f.Comments) != 1 || len(f.Comments[0].List) != 1 || f.Comments[0].List[0].Text != "/* c */" {
++		t.Errorf("got the comments %v, want only /* c */", f.Comments)
++	}
++}
++
++// TestKeywordSelectorSemicolon checks that a keyword name at the end of a
++// line ends the statement, like any name.
++func TestKeywordSelectorSemicolon(t *testing.T) {
++	stmts := kwParseBody(t, "v := x.range\nw := y.map // c\nz := q.type()\nx.return")
++	want := []string{"Sel(x, range)", "Sel(y, map)", "Call(Sel(q, type))", "Sel(x, return)"}
++	if len(stmts) != len(want) {
++		t.Fatalf("got %d statements, want %d", len(stmts), len(want))
++	}
++	for i, s := range stmts {
++		if got := kwTree(kwExpr(t, s)); got != want[i] {
++			t.Errorf("statement %d is %s, want %s", i+1, got, want[i])
++		}
++	}
++}
++
++// TestKeywordAfterDotUnaffected checks Go code that the patch must not
++// change: type assertions and type switches, where '(' follows the '.',
++// "..." and the '.' of a number, which are not '.' tokens, and dot imports.
++func TestKeywordAfterDotUnaffected(t *testing.T) {
++	for _, test := range []struct{ stmt, want string }{
++		{"_ = x.(map[string]int)", "Assert(x; Map(string; int))"},
++		{"_ = x.(func())", "Assert(x; Func)"},
++		{"_ = x.(chan int)", "Assert(x; Chan(int))"},
++		{"_ = x.(interface{})", "Assert(x; Interface)"},
++		{"_ = x.(struct{})", "Assert(x; Struct)"},
++
++		{"_ = [...]struct{}{}", "Lit(Array(Ellipsis(-); Struct))"},
++		{"_ = 1. + .5", "Binary(1. + .5)"},
++		{"f(xs...)", "Call(f; xs...)"},
++	} {
++		stmts := kwParseBody(t, test.stmt)
++		if got := kwTree(kwExpr(t, stmts[0])); got != test.want {
++			t.Errorf("parsing %q:\ngot  %s\nwant %s", test.stmt, got, test.want)
++		}
++	}
++	for _, body := range []string{
++		"switch v := x.(type) {\ncase int:\n\t_ = v\n}",
++		"switch x. (type) {\n}",
++	} {
++		stmts := kwParseBody(t, body)
++		sw, ok := stmts[0].(*ast.TypeSwitchStmt)
++		if !ok {
++			t.Errorf("parsing %q: got a %T, want a type switch", body, stmts[0])
++			continue
++		}
++		if got := kwTree(kwExpr(t, sw.Assign)); got != "Assert(x; type)" {
++			t.Errorf("parsing %q: the type switch has %s, want Assert(x; type)", body, got)
++		}
++	}
++
++	// "..." in a parameter list.
++	f := kwParseFile(t, "package p\n\nfunc f(a ...map[string]int) {}\n")
++	param := f.Decls[0].(*ast.FuncDecl).Type.Params.List[0]
++	if got := kwTree(param.Type); got != "Ellipsis(Map(string; int))" {
++		t.Errorf("the parameter type is %s, want Ellipsis(Map(string; int))", got)
++	}
++
++	// Dot imports.
++	for _, src := range []string{
++		"package p\n\nimport . \"fmt\"\n",
++		"package p\n\nimport (\n\t. \"fmt\"\n\tm \"math\"\n)\n",
++	} {
++		f := kwParseFile(t, src)
++		if imp := f.Imports[0]; imp.Name == nil || imp.Name.Name != "." || imp.Path.Value != `"fmt"` {
++			t.Errorf("parsing %q: got import %v %v, want . \"fmt\"", src, imp.Name, imp.Path.Value)
++		}
++	}
++}
+diff --git a/internal/syntax/scanner/gocpp_keyword_test.go b/internal/syntax/scanner/gocpp_keyword_test.go
+new file mode 100644
+index 0000000..1da0ed2
+--- /dev/null
++++ b/internal/syntax/scanner/gocpp_keyword_test.go
+@@ -0,0 +1,276 @@
++// gocpp: the tests of patch 1 (../FORK.md §4): a Go keyword right after a
++// '.' on the same line is a name, for C++ names such as std::map and
++// node.type(). This file is new in the patch.
++
++package scanner_test
++
++import (
++	"go/token"
++	"strings"
++	"testing"
++
++	"github.com/huuhait/gocpp/internal/syntax/scanner"
++)
++
++// kwKeywords are the 25 keywords of the Go spec.
++var kwKeywords = []string{
++	"break", "case", "chan", "const", "continue",
++	"default", "defer", "else", "fallthrough", "for",
++	"func", "go", "goto", "if", "import",
++	"interface", "map", "package", "range", "return",
++	"select", "struct", "switch", "type", "var",
++}
++
++// kwToken is one token that Scan returned.
++type kwToken struct {
++	tok token.Token
++	lit string
++	pos token.Position
++}
++
++// kwScan scans src in the given mode and returns its tokens, without the
++// EOF. A scan error fails the test.
++func kwScan(t *testing.T, src string, mode scanner.Mode) []kwToken {
++	t.Helper()
++	fset := token.NewFileSet()
++	file := fset.AddFile("test.gp", fset.Base(), len(src))
++	var s scanner.Scanner
++	s.Init(file, []byte(src), func(pos token.Position, msg string) {
++		t.Errorf("scanning %q: %s: %s", src, pos, msg)
++	}, mode)
++	var toks []kwToken
++	for {
++		pos, tok, lit := s.Scan()
++		if tok == token.EOF {
++			return toks
++		}
++		toks = append(toks, kwToken{tok, lit, fset.Position(pos)})
++	}
++}
++
++// kwDescribe writes toks like "IDENT(x) . IDENT(map) ;": a name or a literal
++// with its text, a keyword or an operator as itself.
++func kwDescribe(toks []kwToken) string {
++	var b strings.Builder
++	for i, t := range toks {
++		if i > 0 {
++			b.WriteByte(' ')
++		}
++		b.WriteString(t.tok.String())
++		if t.tok.IsLiteral() {
++			b.WriteString("(" + t.lit + ")")
++		}
++	}
++	return b.String()
++}
++
++// kwCheck scans src twice, with and without scanner.ScanComments, and
++// compares the tokens with want (written for ScanComments; without it,
++// the COMMENT tokens are left out).
++func kwCheck(t *testing.T, src, want string) {
++	t.Helper()
++	if got := kwDescribe(kwScan(t, src, scanner.ScanComments)); got != want {
++		t.Errorf("scanning %q with comments:\ngot  %s\nwant %s", src, got, want)
++	}
++	var fields []string
++	for _, f := range strings.Fields(want) {
++		if f != "COMMENT" {
++			fields = append(fields, f)
++		}
++	}
++	want = strings.Join(fields, " ")
++	if got := kwDescribe(kwScan(t, src, 0)); got != want {
++		t.Errorf("scanning %q without comments:\ngot  %s\nwant %s", src, got, want)
++	}
++}
++
++// TestKeywordList checks kwKeywords against go/token, so that the tests
++// below cover every keyword.
++func TestKeywordList(t *testing.T) {
++	n := 0
++	for tok := token.ILLEGAL; tok <= token.TILDE; tok++ { // TILDE is the last token of go/token
++		if tok.IsKeyword() {
++			n++
++		}
++	}
++	if n != len(kwKeywords) {
++		t.Errorf("go/token has %d keywords, kwKeywords has %d", n, len(kwKeywords))
++	}
++	for _, kw := range kwKeywords {
++		if !token.IsKeyword(kw) {
++			t.Errorf("%q is not a keyword in go/token", kw)
++		}
++	}
++}
++
++func TestKeywordAfterDot(t *testing.T) {
++	for _, test := range []struct{ src, want string }{
++		// The examples of the plan (phase 01 README §2.2).
++		{"m := std.map[std.string, int]{}", "IDENT(m) := IDENT(std) . IDENT(map) [ IDENT(std) . IDENT(string) , IDENT(int) ] { } ;"},
++		{"t := node.type()", "IDENT(t) := IDENT(node) . IDENT(type) ( ) ;"},
++		{"n := posix.select(fd+1, &rd, nil, nil, nil)", "IDENT(n) := IDENT(posix) . IDENT(select) ( IDENT(fd) + INT(1) , & IDENT(rd) , IDENT(nil) , IDENT(nil) , IDENT(nil) ) ;"},
++
++		// Space and comments on the same line don't matter.
++		{"x . map", "IDENT(x) . IDENT(map) ;"},
++		{"x.\t\tmap", "IDENT(x) . IDENT(map) ;"},
++		{"x.\rmap", "IDENT(x) . IDENT(map) ;"}, // a lone \r doesn't end a line in Go
++		{"x./* c */map", "IDENT(x) . COMMENT IDENT(map) ;"},
++		{"x. /* a */ /* b */ map", "IDENT(x) . COMMENT COMMENT IDENT(map) ;"},
++
++		// Chains, and a '.' and its keyword on a later line.
++		{"x.map.range.type()", "IDENT(x) . IDENT(map) . IDENT(range) . IDENT(type) ( ) ;"},
++		{"a.b\nx.func", "IDENT(a) . IDENT(b) ; IDENT(x) . IDENT(func) ;"},
++
++		// The rule looks at the lines of the source, not at the
++		// positions that a line directive gives.
++		{"x./*line other.gp:9:1*/map", "IDENT(x) . COMMENT IDENT(map) ;"},
++
++		// A keyword on the next line stays a keyword: an editor often
++		// has an unfinished "fmt." there (TestIncompleteSelection).
++		{"x.\nmap", "IDENT(x) . map"},
++		{"x.\r\nmap", "IDENT(x) . map"},
++		{"x. // c\nmap", "IDENT(x) . COMMENT map"},
++		{"x./*\n*/map", "IDENT(x) . COMMENT map"},
++		{"fmt.\ntype X int", "IDENT(fmt) . type IDENT(X) IDENT(int) ;"},
++
++		// Only right after the '.'.
++		{"x.y map", "IDENT(x) . IDENT(y) map"},
++		{"x.y(map[int]int{})", "IDENT(x) . IDENT(y) ( map [ IDENT(int) ] IDENT(int) { } ) ;"},
++
++		// Type assertions and type switches: there, '(' follows the '.'.
++		{"x.(type)", "IDENT(x) . ( type ) ;"},
++		{"x. (type)", "IDENT(x) . ( type ) ;"},
++		{"x.(map[string]int)", "IDENT(x) . ( map [ IDENT(string) ] IDENT(int) ) ;"},
++		{"x.(func())", "IDENT(x) . ( func ( ) ) ;"},
++		{"x.(chan int)", "IDENT(x) . ( chan IDENT(int) ) ;"},
++		{"x.(interface{})", "IDENT(x) . ( interface { } ) ;"},
++		{"x.(struct{})", "IDENT(x) . ( struct { } ) ;"},
++
++		// "...", and the '.' of a number, are not a '.' token. A '.'
++		// right after them is one.
++		{"func f(a ...map[string]int)", "func IDENT(f) ( IDENT(a) ... map [ IDENT(string) ] IDENT(int) ) ;"},
++		{"[...]struct{}{}", "[ ... ] struct { } { } ;"},
++		{"x := 1. + .5", "IDENT(x) := FLOAT(1.) + FLOAT(.5) ;"},
++		{"1.map", "FLOAT(1.) map"},
++		{"x.5", "IDENT(x) FLOAT(.5) ;"},
++		{"1.e5.map", "FLOAT(1.e5) . IDENT(map) ;"},
++		{"....map", "... . IDENT(map) ;"},
++
++		// A dot import: a string follows the '.'.
++		{`import . "fmt"`, `import . STRING("fmt") ;`},
++		{"import (\n\t. \"fmt\"\n)", `import ( . STRING("fmt") ; ) ;`},
++	} {
++		kwCheck(t, test.src, test.want)
++	}
++}
++
++func TestEveryKeywordAfterDot(t *testing.T) {
++	for _, kw := range kwKeywords {
++		// On the same line, the keyword is a name, so at the end of the
++		// source it gets the automatic semicolon of a name.
++		name := "IDENT(" + kw + ")"
++		kwCheck(t, "x."+kw, "IDENT(x) . "+name+" ;")
++		kwCheck(t, "x . "+kw, "IDENT(x) . "+name+" ;")
++		kwCheck(t, "x./* c */"+kw, "IDENT(x) . COMMENT "+name+" ;")
++		kwCheck(t, "x."+kw+"()", "IDENT(x) . "+name+" ( ) ;")
++
++		// The name keeps the word as its literal, and its position.
++		if toks := kwScan(t, "x . "+kw, 0); len(toks) == 4 {
++			if got := toks[2]; got.tok != token.IDENT || got.lit != kw || got.pos.Offset != 4 || got.pos.Line != 1 || got.pos.Column != 5 {
++				t.Errorf(`scanning "x . %s": got %s %q at %s (offset %d), want IDENT %q at test.gp:1:5 (offset 4)`,
++					kw, got.tok, got.lit, got.pos, got.pos.Offset, kw)
++			}
++		}
++
++		// On the next line, it stays a keyword. Four keywords get an
++		// automatic semicolon at the end, as in upstream.
++		want := "IDENT(x) . " + kw
++		switch kw {
++		case "break", "continue", "fallthrough", "return":
++			want += " ;"
++		}
++		kwCheck(t, "x.\n"+kw, want)
++		kwCheck(t, "x. // c\n"+kw, strings.Replace(want, ". ", ". COMMENT ", 1))
++		kwCheck(t, "x./*\n*/"+kw, strings.Replace(want, ". ", ". COMMENT ", 1))
++	}
++}
++
++// TestKeywordAfterDotSemicolon checks that a keyword that became a name gets
++// the automatic semicolon of a name at the end of a line.
++func TestKeywordAfterDotSemicolon(t *testing.T) {
++	for _, test := range []struct {
++		src  string
++		want string
++		semi int // the offset of the automatic semicolon
++	}{
++		{"v := x.range\n", "IDENT(v) := IDENT(x) . IDENT(range) ;", 12},
++		{"v := x.range", "IDENT(v) := IDENT(x) . IDENT(range) ;", 12},
++		{"v := x.range // c\n", "IDENT(v) := IDENT(x) . IDENT(range) COMMENT ;", 17},
++		{"v := x.range /* c */\n", "IDENT(v) := IDENT(x) . IDENT(range) COMMENT ;", 20},
++		{"v := x.range /*\n*/", "IDENT(v) := IDENT(x) . IDENT(range) COMMENT ;", 15},
++	} {
++		kwCheck(t, test.src, test.want)
++		for _, mode := range []scanner.Mode{0, scanner.ScanComments} {
++			toks := kwScan(t, test.src, mode)
++			last := toks[len(toks)-1]
++			if last.tok != token.SEMICOLON || last.lit != "\n" || last.pos.Offset != test.semi {
++				t.Errorf("scanning %q (mode %d): the last token is %s %q at offset %d, want an automatic semicolon at offset %d",
++					test.src, mode, last.tok, last.lit, last.pos.Offset, test.semi)
++			}
++		}
++	}
++	kwCheck(t, "v := x.range\nw := y.map\n", "IDENT(v) := IDENT(x) . IDENT(range) ; IDENT(w) := IDENT(y) . IDENT(map) ;")
++}
++
++func TestKeywordAfterDotPositions(t *testing.T) {
++	const src = "a.b\nstd . /* c */ map[k]\n\tx.\n\ttype"
++	pos := func(offset, line, column int) token.Position {
++		return token.Position{Filename: "test.gp", Offset: offset, Line: line, Column: column}
++	}
++	want := []kwToken{
++		{token.IDENT, "a", pos(0, 1, 1)},
++		{token.PERIOD, "", pos(1, 1, 2)},
++		{token.IDENT, "b", pos(2, 1, 3)},
++		{token.SEMICOLON, "\n", pos(3, 1, 4)},
++		{token.IDENT, "std", pos(4, 2, 1)},
++		{token.PERIOD, "", pos(8, 2, 5)},
++		{token.COMMENT, "/* c */", pos(10, 2, 7)},
++		{token.IDENT, "map", pos(18, 2, 15)},
++		{token.LBRACK, "", pos(21, 2, 18)},
++		{token.IDENT, "k", pos(22, 2, 19)},
++		{token.RBRACK, "", pos(23, 2, 20)},
++		{token.SEMICOLON, "\n", pos(24, 2, 21)},
++		{token.IDENT, "x", pos(26, 3, 2)},
++		{token.PERIOD, "", pos(27, 3, 3)},
++		{token.TYPE, "type", pos(30, 4, 2)},
++	}
++	got := kwScan(t, src, scanner.ScanComments)
++	if len(got) != len(want) {
++		t.Fatalf("scanning %q: got %d tokens, want %d:\n%s", src, len(got), len(want), kwDescribe(got))
++	}
++	for i := range want {
++		if got[i] != want[i] {
++			t.Errorf("token %d: got %s %q at %s (offset %d), want %s %q at %s (offset %d)", i,
++				got[i].tok, got[i].lit, got[i].pos, got[i].pos.Offset,
++				want[i].tok, want[i].lit, want[i].pos, want[i].pos.Offset)
++		}
++	}
++}
++
++// TestKeywordAfterDotInit checks that Init forgets a '.' of the source
++// before.
++func TestKeywordAfterDotInit(t *testing.T) {
++	fset := token.NewFileSet()
++	var s scanner.Scanner
++	src := []byte("x.")
++	s.Init(fset.AddFile("a.gp", fset.Base(), len(src)), src, nil, 0)
++	s.Scan()
++	if _, tok, _ := s.Scan(); tok != token.PERIOD {
++		t.Fatalf("scanning %q: got %s, want .", src, tok)
++	}
++	src = []byte("map")
++	s.Init(fset.AddFile("b.gp", fset.Base(), len(src)), src, nil, 0)
++	if _, tok, lit := s.Scan(); tok != token.MAP {
++		t.Errorf("scanning %q after Init: got %s %q, want the keyword map", src, tok, lit)
++	}
++}
+diff --git a/internal/syntax/scanner/scanner.go b/internal/syntax/scanner/scanner.go
+index 153252b..69df8ea 100644
+--- a/internal/syntax/scanner/scanner.go
++++ b/internal/syntax/scanner/scanner.go
+@@ -41,6 +41,7 @@ type Scanner struct {
+ 	lineOffset int       // current line offset
+ 	insertSemi bool      // insert a semicolon before next newline
+ 	nlPos      token.Pos // position of newline in preceding comment
++	dotLine    int       // gocpp: lineOffset of a '.' that was the last non-comment token, or -1
+ 
+ 	// public state - ok to modify
+ 	ErrorCount int // number of errors encountered
+@@ -146,6 +147,7 @@ func (s *Scanner) Init(file *token.File, src []byte, err ErrorHandler, mode Mode
+ 	s.rdOffset = 0
+ 	s.lineOffset = 0
+ 	s.insertSemi = false
++	s.dotLine = -1 // gocpp: no '.' yet
+ 	s.ErrorCount = 0
+ 
+ 	s.next()
+@@ -777,6 +779,9 @@ func (s *Scanner) switch4(tok0, tok1 token.Token, ch2 rune, tok2, tok3 token.Tok
+ //
+ // If the returned token is a keyword, the literal string is the keyword.
+ //
++// gocpp: a keyword right after a '.' on the same line, such as map in
++// std.map, is returned as [token.IDENT] (see ../FORK.md, patch 1).
++//
+ // If the returned token is [token.SEMICOLON], the corresponding
+ // literal string is ";" if the semicolon was present in the source,
+ // and "\n" if the semicolon was inserted because of a newline or
+@@ -820,6 +825,12 @@ scanAgain:
+ 		if len(lit) > 1 {
+ 			// keywords are longer than one letter - avoid lookup otherwise
+ 			tok = token.Lookup(lit)
++			if tok.IsKeyword() && s.dotLine == s.lineOffset {
++				// gocpp: a keyword right after a '.' on the same line is a
++				// name, for C++ names: std.map, node.type() (see
++				// ../FORK.md, patch 1)
++				tok = token.IDENT
++			}
+ 			switch tok {
+ 			case token.IDENT, token.BREAK, token.CONTINUE, token.FALLTHROUGH, token.RETURN:
+ 				insertSemi = true
+@@ -969,6 +980,15 @@ scanAgain:
+ 	if s.mode&dontInsertSemis == 0 {
+ 		s.insertSemi = insertSemi
+ 	}
++	// gocpp: remember the line of a '.' for the next token; a comment in
++	// between doesn't count. (The early returns above can't come right
++	// after a '.': they need insertSemi, which a '.' doesn't set.)
++	if tok != token.COMMENT {
++		s.dotLine = -1
++		if tok == token.PERIOD {
++			s.dotLine = s.lineOffset
++		}
++	}
+ 
+ 	return
+ }

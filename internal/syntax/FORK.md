@@ -10,7 +10,7 @@ nodes, so the stock `go/types` can check them.
 | `testdata/printer/nodes.go` | a test input from upstream (§1). `update.sh` copies it |
 | `LICENSE` | Go's license (§1) |
 | `local.patch` | the local changes to the upstream tests (§3) |
-| `patches/` | the patches for gocpp's language (§4). None yet |
+| `patches/` | the patches for gocpp's language, one file per patch. §4 says which ones are in |
 | `update.sh` | the script that makes the fork again (§6) |
 | `staticcheck.conf` | turns off two staticcheck checks for the fork (§1) |
 | `doc.go`, `FORK.md` | the package doc and this file |
@@ -84,12 +84,13 @@ comment in the code.
 The patches are gocpp's changes to the language. Each one is a patch file in `patches/`, and
 `update.sh` applies them in name order: `0001-….patch`, `0002-….patch`, and so on.
 
-There are none yet. The plan
-([phase 01 README](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md) §2.2):
+The patches of the plan
+([phase 01 README](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md) §2.2) are in this
+table. When a patch is done, its row names its file:
 
 | # | Patch | Step |
 |---|---|---|
-| 1 | A Go keyword after `.` on the same line is a name: `std.map`, `node.type()` | 1.2 |
+| 1 | A Go keyword after `.` on the same line is a name: `std.map`, `node.type()`. The scanner returns it as `token.IDENT`, also with space or a `/* */` comment after the `.` on that line. On the next line, it stays a keyword. It is in: [`0001-keyword-after-dot.patch`](patches/0001-keyword-after-dot.patch) | 1.2 |
 | 2 | Type arguments may be constants: `std.array[int, 5]` | 1.3 |
 | 3 | Type names may have more than one dot: `std.chrono.seconds` | 1.4 |
 
@@ -159,15 +160,18 @@ import it any more, so this is only for Go 1.26.
    changes.
 2. Change the files in `scanner/` or `parser/`, and add the tests. For a new file, run
    `git add -N <file>`, so that `git diff` shows it.
-3. Write the patch file, with the next number:
+3. Write the patch file. Its name is `NNNN-name.patch`. For `NNNN`, pick the next free number:
+   one more than the highest number in `patches/`. A number that is already used would
+   overwrite that patch. For `name`, use a few words that say what the patch does, like
+   `keyword-after-dot`:
 
        mkdir -p internal/syntax/patches
-       git diff --no-renames -- internal/syntax/scanner internal/syntax/parser >internal/syntax/patches/0001-keyword-after-dot.patch
+       git diff --no-renames -- internal/syntax/scanner internal/syntax/parser >internal/syntax/patches/NNNN-name.patch
 
 4. Check it: run `update.sh -f` (your changes are not committed yet, and they are in the
    patch now). Then the same `git diff` must give the same patch:
 
-       git diff --no-renames -- internal/syntax/scanner internal/syntax/parser | cmp - internal/syntax/patches/0001-keyword-after-dot.patch
+       git diff --no-renames -- internal/syntax/scanner internal/syntax/parser | cmp - internal/syntax/patches/NNNN-name.patch
 
 5. Add the patch to the table in §4.
 
@@ -180,8 +184,9 @@ and the patches before that one. Then:
 1. Save this state in git's index: `git add internal/syntax`.
 2. Make the change of the patch by hand. The old patch file shows what to change. For a new
    file, run `git add -N <file>`, as in §7.
-3. Write the patch file again. `git diff` now shows only your change:
+3. Write the patch file again. Here `NNNN-name.patch` is the patch that doesn't apply: keep
+   its name, so that it replaces the old file. `git diff` now shows only your change:
 
-       git diff --no-renames -- internal/syntax/scanner internal/syntax/parser >internal/syntax/patches/0001-keyword-after-dot.patch
+       git diff --no-renames -- internal/syntax/scanner internal/syntax/parser >internal/syntax/patches/NNNN-name.patch
 
 4. Run `update.sh -f` again. Do the same for the next patch that doesn't apply.

@@ -121,6 +121,15 @@ n := posix.select(fd+1, &rd, nil, nil, nil) // the C function select()
   Go keywords work: `std::map`, a method `type()`, the C function `select()`. The type switch
   `x.(type)` still works, because there the token after `.` is `(`. A keyword on the line after a
   `.` is still an error, so an unfinished `fmt.` in the editor doesn't swallow the next line.
+- In a chain of calls, a keyword name can't start the next line. When `b.` ends a line and
+  `select()` starts the next one, that is a syntax error: "expected selector or type assertion,
+  found 'select'". Keep `select` on the line of its `.` (the real line in the file, not the line
+  that a `/*line …*/` directive gives):
+
+  ```go
+  w := a.type().select().
+  	Next()
+  ```
 - In the example, `posix` is `<sys/select.h>` imported with a name (`import posix "<sys/select.h>"`).
   It gets no name by default, because `select` is a Go keyword ([header imports](#header-imports)).
 - **Phase:** [01](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#22-the-fork-three-patches-to-goscanner--goparser)

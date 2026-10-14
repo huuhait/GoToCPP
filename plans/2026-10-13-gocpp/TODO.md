@@ -10,7 +10,6 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 
 ## Now: Phase 01 (front-end)
 
-- [ ] Parser patch 1: Go keywords allowed after `.` on the same line (+ tests)
 - [ ] Parser patch 2: constant expressions in type-argument lists (+ tests)
 - [ ] Parser patch 3: dotted type names such as `std.chrono.seconds` (+ tests)
 - [ ] Turn the front-end spike (header packages, namespace rewrite + namespace probe, `FakeImportC`) into `internal/load` + `internal/check`
@@ -86,3 +85,4 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] 2026-10-13: Phase 00 job 0.6b (stale docs, `xvfb-run`) and the Phase 00 exit check: **Phase 00 done**
 - [x] 2026-10-13: Phase 01 step 1.13: `internal/diag` prints errors like `go build`
 - [x] 2026-10-13: Phase 01 step 1.1: `go/scanner` + `go/parser` forked into `internal/syntax` (`FORK.md`, `update.sh`)
+- [x] 2026-10-13: Phase 01 step 1.2: parser patch 1 (`std.map`, `node.type()`)

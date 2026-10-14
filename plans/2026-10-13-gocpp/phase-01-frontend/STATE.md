@@ -13,9 +13,9 @@
   - [x] copy sources + license headers + `FORK.md` (+ `go/printer/nodes.go` for the perf test)
   - [x] upstream tests pass (only two test-path fixes, listed in `FORK.md`)
   - [x] `update.sh` re-fork script
-- [~] 1.2 Patch 1: Go keywords allowed after `.` (same line only)
-  - [ ] scanner change
-  - [ ] tests: `std.map`, `x.type()`, `posix.select`, `x.(type)` unaffected, semicolon after `.range`, `TestIncompleteSelection`
+- [x] 1.2 Patch 1: Go keywords allowed after `.` (same line only)
+  - [x] scanner change
+  - [x] tests: `std.map`, `x.type()`, `posix.select`, `x.(type)` unaffected, semicolon after `.range`, `TestIncompleteSelection`
 - [~] 1.3 Patch 2: constant expressions in type-argument lists
   - [ ] parser change (`parseRhs` for type arguments)
   - [ ] tests: type position, composite literal, call, nested
@@ -88,3 +88,5 @@
   "redeclared" like Go; chosen names can't be `C`, `init` or predeclared; `import "C"` and dot
   imports of headers or namespaces are errors; `package C` is an error; the caller passes the real
   gocpp package names (the goimports guess is only a fallback). README §2.3 updated.
+- 2026-10-13: Step 1.2 (patch 1, `patches/0001-keyword-after-dot.patch`) committed, clean after 2
+  review rounds: 0 differences against the stock parser over 121,513 Go files and 21.6M fuzz inputs.

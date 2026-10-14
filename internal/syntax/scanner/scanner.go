@@ -41,6 +41,7 @@ type Scanner struct {
 	lineOffset int       // current line offset
 	insertSemi bool      // insert a semicolon before next newline
 	nlPos      token.Pos // position of newline in preceding comment
+	dotLine    int       // gocpp: lineOffset of a '.' that was the last non-comment token, or -1
 
 	// public state - ok to modify
 	ErrorCount int // number of errors encountered
@@ -146,6 +147,7 @@ func (s *Scanner) Init(file *token.File, src []byte, err ErrorHandler, mode Mode
 	s.rdOffset = 0
 	s.lineOffset = 0
 	s.insertSemi = false
+	s.dotLine = -1 // gocpp: no '.' yet
 	s.ErrorCount = 0
 
 	s.next()
@@ -777,6 +779,9 @@ func (s *Scanner) switch4(tok0, tok1 token.Token, ch2 rune, tok2, tok3 token.Tok
 //
 // If the returned token is a keyword, the literal string is the keyword.
 //
+// gocpp: a keyword right after a '.' on the same line, such as map in
+// std.map, is returned as [token.IDENT] (see ../FORK.md, patch 1).
+//
 // If the returned token is [token.SEMICOLON], the corresponding
 // literal string is ";" if the semicolon was present in the source,
 // and "\n" if the semicolon was inserted because of a newline or
@@ -820,6 +825,12 @@ scanAgain:
 		if len(lit) > 1 {
 			// keywords are longer than one letter - avoid lookup otherwise
 			tok = token.Lookup(lit)
+			if tok.IsKeyword() && s.dotLine == s.lineOffset {
+				// gocpp: a keyword right after a '.' on the same line is a
+				// name, for C++ names: std.map, node.type() (see
+				// ../FORK.md, patch 1)
+				tok = token.IDENT
+			}
 			switch tok {
 			case token.IDENT, token.BREAK, token.CONTINUE, token.FALLTHROUGH, token.RETURN:
 				insertSemi = true
@@ -968,6 +979,15 @@ scanAgain:
 	}
 	if s.mode&dontInsertSemis == 0 {
 		s.insertSemi = insertSemi
+	}
+	// gocpp: remember the line of a '.' for the next token; a comment in
+	// between doesn't count. (The early returns above can't come right
+	// after a '.': they need insertSemi, which a '.' doesn't set.)
+	if tok != token.COMMENT {
+		s.dotLine = -1
+		if tok == token.PERIOD {
+			s.dotLine = s.lineOffset
+		}
 	}
 
 	return
