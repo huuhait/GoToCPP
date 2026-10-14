@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -139,6 +140,7 @@ type config struct {
 	phase      int           // GOCPP_TEST_PHASE, or version.Phase: tests of later phases are skipped
 	phaseFrom  string        // where phase comes from, for skip messages: "now: Phase 00"
 	requireGDB bool          // GOCPP_REQUIRE_GDB=1: the debug tests fail instead of skipping gdb
+	runVsGo    bool          // GOCPP_RUN_VS_GO=1: TestRunVsGo checks the run tests' expectations with real Go
 }
 
 var (
@@ -186,6 +188,13 @@ func loadConfig() (config, error) {
 		c.requireGDB = true
 	default:
 		return c, fmt.Errorf("GOCPP_REQUIRE_GDB=%s: want 1 (gdb must run) or 0", s)
+	}
+	switch s := os.Getenv("GOCPP_RUN_VS_GO"); s {
+	case "", "0":
+	case "1":
+		c.runVsGo = true
+	default:
+		return c, fmt.Errorf("GOCPP_RUN_VS_GO=%s: want 1 (check the run tests with real Go) or 0", s)
 	}
 	roots := []string{repoRoot}
 	if real, err := filepath.EvalSymlinks(repoRoot); err == nil && real != repoRoot {
@@ -286,6 +295,41 @@ func trackFiles(dir string) {
 func TestRun(t *testing.T) {
 	c := setup(t)
 	c.runPrograms(t, "tests/run", loadTests(t, runFormat), c.runTest)
+}
+
+// TestRunVsGo checks the expectations of the tests in tests/run (the
+// // Output: block, // ExitCode: and the // Stderr: regexps) against real
+// Go, so that an expected output pasted from Go can't drift. It is opt-in:
+// GOCPP_RUN_VS_GO=1 turns it on. Real Go doesn't depend on gocpp's
+// progress, so it checks the tests of every phase. A test whose code go
+// build rejects (gocpp-only code, such as a header import) is skipped; any
+// other failure of go build fails the test, and so does a run that compared
+// no test at all. It runs no C++ compiler.
+func TestRunVsGo(t *testing.T) {
+	c := setup(t)
+	if !c.runVsGo {
+		t.Skip("GOCPP_RUN_VS_GO=1 turns it on")
+	}
+	var n vsGoCount
+	// The cleanup runs after the parallel subtests.
+	t.Cleanup(func() {
+		compared, rejected := n.compared.Load(), n.rejected.Load()
+		t.Logf("tests/run: compared %d with real Go, skipped %d (go build rejects them)", compared, rejected)
+		if compared == 0 {
+			t.Error("no test was compared with real Go")
+		}
+	})
+	all := *c
+	all.phase, all.phaseFrom = lastPhase, "every phase"
+	all.runPrograms(t, "tests/run", loadTests(t, runFormat), func(t *testing.T, p *program) {
+		c.runVsGoTest(t, p, &n)
+	})
+}
+
+// vsGoCount counts the tests of TestRunVsGo: those compared with real Go,
+// and those skipped because go build rejects their code.
+type vsGoCount struct {
+	compared, rejected atomic.Int64
 }
 
 // TestErrors checks the files in tests/errors with gocpp check: it must
@@ -527,6 +571,30 @@ func (c *config) runTest(t *testing.T, p *program) {
 	})
 }
 
+// runVsGoTest builds a run test with real Go, runs it like gocpp run runs
+// it, and checks the result against the test's expectations.
+func (c *config) runVsGoTest(t *testing.T, p *program, n *vsGoCount) {
+	prog, build := c.goBuild(t, p)
+	if build.problem != "" {
+		t.Fatalf("%s: %s\n%s", build.cmd, build.problem, indent(string(build.stdout)))
+	}
+	if build.exit != 0 {
+		if goRejects(string(build.stdout), goFileName(p.arg)) {
+			n.rejected.Add(1)
+			t.Skipf("go build rejects the code of %s, so it is not a Go program:\n%s", p.path, indent(string(build.stdout)))
+		}
+		t.Fatalf("%s: %s, and not because of an error in the program:\n%s", build.cmd, build.status, indent(string(build.stdout)))
+	}
+	n.compared.Add(1)
+	r := c.run(t, job{dir: p.dir, name: prog, show: "the Go build of " + p.path + " (run in tests/run)"})
+	checkRun(t, r, expect{
+		stdout:   p.header.output,
+		from:     "the // Output: block",
+		exitCode: p.header.exitCode,
+		stderr:   p.header.stderr,
+	})
+}
+
 // exampleTest runs an example in its folder with each compiler, with the
 // arguments of args.txt, the input of stdin.txt and the environment of
 // env.txt.
@@ -676,30 +744,10 @@ func compareDiff(mode string, gp, ref result) []string {
 // into 1.
 func (c *config) goReference(t *testing.T, p *program, combined bool) result {
 	t.Helper()
-	src, err := os.ReadFile(filepath.Join(p.dir, p.arg))
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := t.TempDir()
-	goFile := strings.TrimSuffix(p.arg, ".gp") + ".go"
-	if err := os.WriteFile(filepath.Join(dir, goFile), src, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module difftest\n\ngo 1.25\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	prog := filepath.Join(dir, "prog"+exe)
-	build := job{
-		dir:      dir,
-		env:      []string{"GOTOOLCHAIN=local", "GOWORK=off", "GOFLAGS="}, // only the Go that runs the tests, no workspace
-		name:     "go",
-		args:     []string{"build", "-o", prog, "."},
-		show:     "go build (" + p.path + " copied to " + goFile + ")",
-		combined: true,
-	}
-	if r := c.run(t, build); r.problem != "" || r.exit != 0 {
+	prog, build := c.goBuild(t, p)
+	if build.problem != "" || build.exit != 0 {
 		t.Fatalf("real Go can't build %s, and a diff test must be a valid Go 1.25 program: %s\n%s",
-			p.path, r.why(), indent(string(r.stdout)))
+			p.path, build.why(), indent(string(build.stdout)))
 	}
 	// The binary runs where gocpp run runs the program, in tests/diff, so
 	// that relative file names mean the same files for both.
@@ -709,6 +757,50 @@ func (c *config) goReference(t *testing.T, p *program, combined bool) result {
 		t.Fatalf("%s: %s\n%s:\n%s", r.cmd, r.problem, label, indent(string(out)))
 	}
 	return r
+}
+
+// goBuild copies the test program p to a temporary module as a .go file
+// and builds it there with go build. It returns the binary's path and the
+// result of go build, whose stdout holds go build's stdout and stderr.
+func (c *config) goBuild(t *testing.T, p *program) (prog string, build result) {
+	t.Helper()
+	src, err := os.ReadFile(filepath.Join(p.dir, p.arg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	goFile := goFileName(p.arg)
+	if err := os.WriteFile(filepath.Join(dir, goFile), src, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module difftest\n\ngo 1.25\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prog = filepath.Join(dir, "prog"+exe)
+	return prog, c.run(t, job{
+		dir:      dir,
+		env:      []string{"GOTOOLCHAIN=local", "GOWORK=off", "GOFLAGS="}, // only the Go that runs the tests, no workspace
+		name:     "go",
+		args:     []string{"build", "-o", prog, "."},
+		show:     "go build (" + p.path + " copied to " + goFile + ")",
+		combined: true,
+	})
+}
+
+// goFileName returns the name of the .go file that goBuild copies the test
+// file name (x.gp) to.
+func goFileName(name string) string {
+	return strings.TrimSuffix(name, ".gp") + ".go"
+}
+
+// goRejects reports whether the output of a failed go build (out) shows an
+// error in the program's own code: a message about a line of goFile
+// ("./x.go:8:2: undefined: foo"). Any other failure (a go.mod that the Go
+// toolchain refuses, a missing toolchain) is a problem of the setup, not of
+// the program.
+func goRejects(out, goFile string) bool {
+	rx := regexp.MustCompile(`(?m)^(\./)?` + regexp.QuoteMeta(goFile) + `:\d+(:\d+)?: `)
+	return rx.MatchString(out)
 }
 
 // streamOf returns the stream of r to show when a command fails: its
@@ -730,42 +822,53 @@ type expect struct {
 	anyStderr bool             // ...unless anyStderr is set: then stderr is not checked
 }
 
-// checkRun checks what gocpp run did against want.
+// checkRun checks what gocpp run (or, in TestRunVsGo, a Go build) did
+// against want.
 func checkRun(t *testing.T, r result, want expect) {
 	t.Helper()
 	if r.problem != "" {
 		t.Fatalf("%s: %s\nstderr:\n%s", r.cmd, r.problem, indent(string(r.stderr)))
 	}
+	problems, shown := runMismatches(r, want)
+	for _, p := range problems {
+		t.Errorf("%s: %s", r.cmd, p)
+	}
+	// Whatever failed, stderr may say why (a C++ compile error, a panic).
+	if len(problems) > 0 && !shown {
+		t.Logf("stderr:\n%s", indent(string(r.stderr)))
+	}
+}
+
+// runMismatches compares the exit code, stdout and stderr of a finished
+// program (r) with want, and returns one message per difference. shown
+// says whether a message already holds the whole stderr.
+func runMismatches(r result, want expect) (problems []string, shown bool) {
 	if r.exit != want.exitCode {
-		t.Errorf("%s: %s, want exit code %d", r.cmd, r.status, want.exitCode)
+		problems = append(problems, fmt.Sprintf("%s, want exit code %d", r.status, want.exitCode))
 	}
 	got := string(r.stdout)
 	switch {
 	case want.exact && got != want.stdout:
-		t.Errorf("%s: stdout differs from %s:\n%s", r.cmd, want.from, explainMismatch(got, want.stdout))
+		problems = append(problems, fmt.Sprintf("stdout differs from %s:\n%s", want.from, explainMismatch(got, want.stdout)))
 	case !want.exact && !sameOutput(got, want.stdout):
-		t.Errorf("%s: stdout differs from %s (space at the start and at the end doesn't count):\n%s",
-			r.cmd, want.from, explainMismatch(strings.TrimSpace(got), strings.TrimSpace(want.stdout)))
+		problems = append(problems, fmt.Sprintf("stdout differs from %s (space at the start and at the end doesn't count):\n%s",
+			want.from, explainMismatch(strings.TrimSpace(got), strings.TrimSpace(want.stdout))))
 	}
-	shown := false // a message above shows stderr
 	switch {
 	case want.anyStderr:
 	case len(want.stderr) == 0:
 		if len(r.stderr) > 0 {
-			t.Errorf("%s: stderr must be empty (the test has no // Stderr: line), but it is:\n%s", r.cmd, indent(string(r.stderr)))
+			problems = append(problems, fmt.Sprintf("stderr must be empty (the test has no // Stderr: line), but it is:\n%s", indent(string(r.stderr))))
 			shown = true
 		}
 	default:
 		for _, rx := range want.stderr {
 			if !rx.Match(r.stderr) {
-				t.Errorf("%s: stderr doesn't match the // Stderr: regexp %q", r.cmd, rx)
+				problems = append(problems, fmt.Sprintf("stderr doesn't match the // Stderr: regexp %q", rx))
 			}
 		}
 	}
-	// Whatever failed, stderr may say why (a C++ compile error, a panic).
-	if t.Failed() && !shown {
-		t.Logf("stderr:\n%s", indent(string(r.stderr)))
-	}
+	return problems, shown
 }
 
 // A job is a command for a test to run.

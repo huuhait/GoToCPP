@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -422,6 +423,71 @@ func TestSameOutput(t *testing.T) {
 		if got := sameOutput(tt.got, tt.want); got != tt.same {
 			t.Errorf("sameOutput(%q, %q) = %v, want %v", tt.got, tt.want, got, tt.same)
 		}
+	}
+}
+
+func TestRunMismatches(t *testing.T) {
+	panicRx := regexp.MustCompile(`^panic: boom\n`)
+	goroutineRx := regexp.MustCompile(`(?m)^goroutine 1 \[running\]:$`)
+	run := func(stdout, stderr string, exit int) result {
+		return result{stdout: []byte(stdout), stderr: []byte(stderr), exit: exit, status: fmt.Sprintf("exit status %d", exit)}
+	}
+	tests := []struct {
+		name  string
+		r     result
+		want  expect
+		probs []string // the start of each message
+		shown bool
+	}{
+		{"same", run("a\nb\n", "", 0), expect{stdout: "a\nb"}, nil, false},
+		{"space at the ends", run("\na\nb  \n\n", "", 0), expect{stdout: "a\nb"}, nil, false},
+		{"space inside", run("a \nb\n", "", 0), expect{stdout: "a\nb"}, []string{"stdout differs"}, false},
+		{"exact", run("a\n", "", 0), expect{stdout: "a", exact: true}, []string{"stdout differs"}, false},
+		{"exit code", run("a\n", "", 2), expect{stdout: "a"}, []string{"exit status 2, want exit code 0"}, false},
+		{"stderr not empty", run("", "oops\n", 0), expect{}, []string{"stderr must be empty"}, true},
+		{"any stderr", run("", "oops\n", 0), expect{anyStderr: true}, nil, false},
+		{"panic", run("x\n", "panic: boom\n\ngoroutine 1 [running]:\n", 2),
+			expect{stdout: "x", exitCode: 2, stderr: []*regexp.Regexp{panicRx, goroutineRx}}, nil, false},
+		{"stderr regexp", run("x\n", "panic: bang\n\ngoroutine 1 [running]:\n", 2),
+			expect{stdout: "x", exitCode: 2, stderr: []*regexp.Regexp{panicRx, goroutineRx}},
+			[]string{fmt.Sprintf("stderr doesn't match the // Stderr: regexp %q", panicRx.String())}, false},
+		{"everything", run("y\n", "", 1), expect{stdout: "x", exitCode: 2, stderr: []*regexp.Regexp{panicRx}},
+			[]string{"exit status 1, want exit code 2", "stdout differs", "stderr doesn't match"}, false},
+	}
+	for _, tt := range tests {
+		probs, shown := runMismatches(tt.r, tt.want)
+		ok := len(probs) == len(tt.probs) && shown == tt.shown
+		for i := 0; ok && i < len(probs); i++ {
+			ok = strings.HasPrefix(probs[i], tt.probs[i])
+		}
+		if !ok {
+			t.Errorf("%s: got %q (shown %v), want messages starting with %q (shown %v)", tt.name, probs, shown, tt.probs, tt.shown)
+		}
+	}
+}
+
+func TestGoRejects(t *testing.T) {
+	tests := []struct {
+		out    string
+		reject bool
+	}{
+		{"# difftest\n./slices_append.go:8:2: undefined: foo\n", true},
+		{"# difftest\nslices_append.go:12: syntax error\n", true},
+		{"# difftest\n./slices_append.go:3:8: package raylib.h is not in std\n", true},
+		{"go: go.mod requires go >= 1.99 (running go 1.25.14; GOTOOLCHAIN=local)\n", false},
+		{"go: errors parsing go.mod:\ngo.mod:3: invalid go version '1.x'\n", false},
+		{"# difftest\n./other.go:8:2: undefined: foo\n", false},          // another file
+		{"# difftest\n./xslices_append.go:8:2: undefined: foo\n", false}, // not the same name
+		{"build constraints exclude all Go files in /tmp/x\n", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := goRejects(tt.out, "slices_append.go"); got != tt.reject {
+			t.Errorf("goRejects(%q) = %v, want %v", tt.out, got, tt.reject)
+		}
+	}
+	if got := goFileName("slices_append.gp"); got != "slices_append.go" {
+		t.Errorf("goFileName = %q", got)
 	}
 }
 

@@ -154,3 +154,8 @@
   the way: untyped shift counts are uint like gc; the emitter accepts exactly the Printf directives the
   gate allows (`%z` prints `%!z(int=5)`). Known: fmtshim names int64/uint64/uintptr `int`/`uint`
   (Phase 03 type tags).
+- 2026-10-14: Job 2.10a (the Phase 02 run and diff tests) committed, clean after 3 review rounds: 30 new
+  tests/run and 38 new tests/diff programs (34 run and 41 diff tests at Phase 02 in all); with job 2.5 in,
+  every one passes on g++ and clang++, also with `-asan`. `GOCPP_RUN_VS_GO=1` checks every tests/run
+  expectation against real Go (34/34). Left for 2.10b: the 3 golden tests (after the shadowed-name fix).
+  For Phase 03: a `g(x, f())` diff test where f changes x (needs package variables or pointers).

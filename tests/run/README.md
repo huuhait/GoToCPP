@@ -52,5 +52,8 @@ package main
 
 For a program that Go can run too, take the expected output from real Go, never from memory
 ([docs/CONTRIBUTING.md](../../docs/CONTRIBUTING.md) §3 shows how), or make it a
-[diff test](../diff/README.md), where real Go is the reference by itself. A test that needs a
+[diff test](../diff/README.md), where real Go is the reference by itself.
+`GOCPP_RUN_VS_GO=1 go test ./tests/... -run RunVsGo` checks every run test that Go can build
+against real Go: its output, its exit code and its `// Stderr:` lines
+([tests/README.md](../README.md)). A test that needs a
 C/C++ library goes into [tests/interop](../interop/README.md).
