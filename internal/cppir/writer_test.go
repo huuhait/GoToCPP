@@ -1,16 +1,11 @@
-package cppgen
+package cppir
 
 import (
-	"fmt"
-	"go/token"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 )
 
-func at(file string, line int) token.Position {
-	return token.Position{Filename: file, Line: line, Column: 1}
+func at(file string, line int) Pos {
+	return Pos{File: file, Line: line}
 }
 
 // TestWriterLines checks where the writer puts #line directives: before a mapped line whose
@@ -21,13 +16,14 @@ func TestWriterLines(t *testing.T) {
 	w.blank()
 	w.line(at("/a.gp", 6), "f() {") // the first mapped line always needs one
 	w.indent()
-	w.line(at("/a.gp", 7), "x;")       // 7 follows 6: none
-	w.line(at("/a.gp", 7), "y;")       // a second line for .gp line 7: again
-	w.line(at("/a.gp", 8), "z;\nzz;")  // two lines for 8: the second one again
-	w.line(at("/a.gp", 3), "back;")    // backwards
-	w.line(at("/b.gp", 4), "other;")   // another file, the next line number
-	w.line(token.Position{}, "plain;") // no place: plain, and it takes line 5
-	w.line(at("/b.gp", 6), "six;")     // 6 follows the plain line 5: none
+	w.line(at("/a.gp", 7), "x;") // 7 follows 6: none
+	w.line(at("/a.gp", 7), "y;") // a second line for .gp line 7: again
+	w.line(at("/a.gp", 8), "z;") // two lines for 8: the second one again
+	w.line(at("/a.gp", 8), "zz;")
+	w.line(at("/a.gp", 3), "back;")  // backwards
+	w.line(at("/b.gp", 4), "other;") // another file, the next line number
+	w.line(Pos{}, "plain;")          // no place: plain, and it takes line 5
+	w.line(at("/b.gp", 6), "six;")   // 6 follows the plain line 5: none
 	w.dedent()
 	w.blank()                   // takes 7
 	w.line(at("/b.gp", 8), "}") // none
@@ -64,7 +60,8 @@ func TestWriterOwnLines(t *testing.T) {
 	w.line(at("/a.gp", 8), "}")      // 4, 5
 	w.blank()                        // 6: blank, it stays at a.gp:9
 	w.line(at("/a.gp", 10), "g() {") // 7
-	w.plain("}\nwrapper() {")        // 8: #line 9 "/work/main.gp.cpp", 9, 10
+	w.plain("}")                     // 8: #line 9 "/work/main.gp.cpp", 9
+	w.plain("wrapper() {")           // 10
 	w.plain("}")                     // 11
 	w.line(at("/a.gp", 3), "h();")   // 12, 13
 	w.blank()                        // 14
@@ -107,45 +104,24 @@ func TestCString(t *testing.T) {
 		{"a???/b?", `"a?\?\?/b?"`},
 	}
 	for _, tt := range tests {
-		if got := cString(tt.in); got != tt.want {
-			t.Errorf("cString(%q) = %s, want %s", tt.in, got, tt.want)
+		if got := CString(tt.in); got != tt.want {
+			t.Errorf("CString(%q) = %s, want %s", tt.in, got, tt.want)
 		}
 	}
 }
 
-// TestLineFileNames checks with each compiler that a #line file name that cString wrote
-// reads back as the same bytes: a Windows path, spaces, quotes and UTF-8.
-func TestLineFileNames(t *testing.T) {
-	names := []string{
-		`C:\work\hello.gp`,
-		`C:\Users\Me\My Project\x"y.gp`,
-		"/home/người dùng/app/main.gp",
-		"/tmp/what??=/a??/b.gp",
-	}
-	dir := t.TempDir()
-	for _, c := range compilers(t) {
-		t.Run(c.name, func(t *testing.T) {
-			if c.missing != "" {
-				t.Skip(c.missing)
-			}
-			for i, name := range names {
-				var w writer
-				w.plain("#include <cstdio>")
-				w.line(at(name, 42), "int main() { std::fputs(__FILE__, stdout); return __LINE__; }")
-				src := filepath.Join(dir, fmt.Sprintf("%s-%d.cpp", c.name, i))
-				if err := os.WriteFile(src, w.buf.Bytes(), 0o644); err != nil {
-					t.Fatal(err)
+// TestWriterNewline checks that a newline in a line's text, which would break the count of
+// the #line directives, is a panic (a bug in the tree), with and without a place.
+func TestWriterNewline(t *testing.T) {
+	for _, pos := range []Pos{at("/a.gp", 1), {}} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("no panic for a newline at %v", pos)
 				}
-				bin := strings.TrimSuffix(src, ".cpp")
-				out, _, code, err := command(dir, true, c.cc.Path, append(c.flags(), src, "-o", bin)...)
-				if err != nil || code != 0 || len(out) != 0 {
-					t.Fatalf("compile %s: exit code %d %v\n%s", src, code, err, out)
-				}
-				r := run(t, dir, bin)
-				if r.stdout != name || r.code != 42 {
-					t.Errorf("__FILE__ is %q and __LINE__ %d, want %q and 42", r.stdout, r.code, name)
-				}
-			}
-		})
+			}()
+			var w writer
+			w.line(pos, "a;\nb;")
+		}()
 	}
 }

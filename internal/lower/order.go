@@ -1,10 +1,11 @@
-package cppgen
+package lower
 
 import (
 	"go/ast"
 	"go/token"
 	"go/types"
-	"strings"
+
+	"github.com/huuhait/gocpp/internal/cppir"
 )
 
 // The evaluation order (Phase 02 README §2.5).
@@ -151,8 +152,8 @@ func (sc *orderScope) effect() effect {
 // order orders the scope of the expressions list (seq: C++ evaluates them in order) and
 // returns the statements that must run before them, in order. Afterwards fg.expr writes the
 // temporaries' names for the expressions that went into them.
-func (fg *funcGen) order(seq bool, list ...ast.Expr) []string {
-	var pre []string
+func (fg *funcGen) order(seq bool, list ...ast.Expr) []cppir.Stmt {
+	var pre []cppir.Stmt
 	fg.emitScope(fg.analyze(seq, list), &pre)
 	return pre
 }
@@ -405,7 +406,7 @@ func (sc *orderScope) first(u *orderItem, later, others []*orderItem) bool {
 }
 
 // emitScope writes the temporaries of the scope to pre, and registers them (fg.temps).
-func (fg *funcGen) emitScope(sc *orderScope, pre *[]string) {
+func (fg *funcGen) emitScope(sc *orderScope, pre *[]cppir.Stmt) {
 	for _, c := range sc.calls {
 		fg.ordered[c] = true
 	}
@@ -426,22 +427,23 @@ func (fg *funcGen) emitScope(sc *orderScope, pre *[]string) {
 	}
 }
 
-// emitItem writes the temporary of one item.
-func (fg *funcGen) emitItem(it *orderItem, pre *[]string) {
+// emitItem writes the temporary of one item. The statements have no place of their own:
+// they go on the line of their statement (a Line or an inline Block).
+func (fg *funcGen) emitItem(it *orderItem, pre *[]cppir.Stmt) {
 	fg.ordered[it.e] = true
 	if it.block {
 		// r := x; if r { r = y } (for ||: if !r)
 		fg.emitScope(it.inner[0], pre)
 		t := fg.names.temp("t")
-		*pre = append(*pre, "bool "+t+" = "+fg.expr(it.bin.X).text+";")
-		var inner []string
+		*pre = append(*pre, varDecl(cppir.Pos{}, typeName("bool"), t, fg.expr(it.bin.X)))
+		var inner []cppir.Stmt
 		fg.emitScope(it.inner[1], &inner)
-		inner = append(inner, t+" = "+fg.expr(it.bin.Y).text+";")
-		cond := t
+		inner = append(inner, &cppir.ExprStmt{X: &cppir.Assign{Op: "=", X: cxxName(t), Y: fg.expr(it.bin.Y)}})
+		var cond cppir.Expr = cxxName(t)
 		if it.bin.Op == token.LOR {
-			cond = "!" + t
+			cond = &cppir.Unary{Op: "!", X: cond}
 		}
-		*pre = append(*pre, "if ("+cond+") { "+strings.Join(inner, " ")+" }")
+		*pre = append(*pre, &cppir.If{Cond: cond, Then: &cppir.Block{Stmts: inner, Inline: true}})
 		fg.temps[it.e] = t
 		return
 	}
@@ -452,17 +454,17 @@ func (fg *funcGen) emitItem(it *orderItem, pre *[]string) {
 	if it.bin != nil {
 		typ = "bool"
 	}
-	text := fg.exactExpr(it.e).text
+	x := fg.exactExpr(it.e)
 	t := fg.names.temp("t")
-	*pre = append(*pre, typ+" "+t+" = "+text+";")
+	*pre = append(*pre, varDecl(cppir.Pos{}, typeName(typ), t, x))
 	fg.temps[it.e] = t
 }
 
-// withPre returns the C++ statement text with the statements pre in front of it: in a block,
-// so that a goto doesn't jump over the temporaries' initializations (stmt.go).
-func withPre(pre []string, text string) string {
+// withPre returns the C++ statement s with the statements pre in front of it: in an inline
+// block at pos, so that a goto doesn't jump over the temporaries' initializations (stmt.go).
+func withPre(pos cppir.Pos, pre []cppir.Stmt, s cppir.Stmt) cppir.Stmt {
 	if len(pre) == 0 {
-		return text
+		return s
 	}
-	return "{ " + strings.Join(pre, " ") + " " + text + " }"
+	return &cppir.Block{Pos: pos, Stmts: append(pre, s), Inline: true}
 }

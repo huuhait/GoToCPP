@@ -2,30 +2,15 @@
 // translation unit, which compiles with the runtime (runtime/, gocpp/rt.hpp) and the driver's
 // flags. The driver calls EmitPackage with a package that check.Check checked.
 //
-// It walks the typed AST (go/ast and types.Info); Phase 03 adds a lowering pass in front when
-// the rewrites get complex. The files (Phase 02 README §2.2):
+// It runs the backend's stages (Phase 03 README §1):
 //
-//   - file.go: EmitPackage, the prologue (#include <gocpp/rt.hpp>), the flat package namespace
-//     (gpkg_main), the prototypes and the C++ main wrapper, which calls gp::run_main;
-//   - decl.go: functions (parameters, results as a std::tuple, named results), package
-//     variables (constinit) and the package's initialization (gp_var_init, the init
-//     functions);
-//   - stmt.go, control.go and flow.go: statements (control.go has if, for, range and switch,
-//     flow.go finds where each break and continue goes);
-//   - expr.go: expressions, with constants folded by go/types;
-//   - order.go: Go's order of evaluation: the calls (and the other things whose order can be
-//     seen) that C++ could evaluate in another order go into gp_ temporaries first;
-//   - ops.go: the operators (with the small-integer rule and the runtime's gp::div, gp::rem,
-//     gp::shl and gp::shr), conversions (gp::f2i), s[i] and the builtins len and panic;
-//   - types.go: the C++ spelling of the types;
-//   - names.go: the C++ names: a _ suffix for C++ keywords, compiler words and macros
-//     (cxx_words.txt, cxx_macros.txt) and for user names that start with gp_, which are the
-//     generated code's; the names of local variables, which keep their Go names, also when
-//     they shadow one (v := v); the gp_ temporaries;
-//   - writer.go: indentation, and the #line directives that point every generated line back
-//     at its .gp line, for debuggers and compiler errors.
+//	typed AST ──► internal/lower ──► internal/cppir (a C++ syntax tree) ──► cppir.Print
 //
-// Phase 02 fills it for a small subset of the language, and every later phase widens it. Phase
-// 06 adds the per-package layout: one pkg.hpp per package, one .cpp per .gp file and a
-// pkg_init.cpp.
+// internal/lower decides what the C++ is (Go's semantics: the order of evaluation, the names,
+// the shapes of the statements), internal/cppir holds it and writes it (indentation and the
+// #line directives). cppgen itself only checks its input and passes Config.OutputPath to the
+// printer; its tests are the emitter's end-to-end tests: the golden C++ of testdata/emit,
+// which each compiler builds and runs against real Go, the panics, the evaluation order (also
+// TestRandomOrder's random programs), the reserved names with real compilers, and what can't
+// be translated yet (TestUnsupported).
 package cppgen

@@ -1,4 +1,4 @@
-package cppgen
+package lower
 
 import (
 	"go/ast"
@@ -25,7 +25,7 @@ import (
 // (Escape gives those a _ suffix), and C++ labels have a name space of their own.
 
 // A flow holds where the break and continue statements of one function go, found before any
-// of it is written: a loop's body needs its extra block before its first line is written.
+// of it is lowered: a loop's body needs its extra block before its first statement is added.
 type flow struct {
 	target map[*ast.BranchStmt]ast.Stmt // break or continue → its for, range or switch
 	plain  map[*ast.BranchStmt]bool     // a C++ break or continue does it
@@ -40,7 +40,7 @@ type flow struct {
 
 // newFlow finds where the break and continue statements of body go. go/types checked them:
 // each has a statement to go to, and a label names an enclosing one. inHead reports whether a
-// 3-clause for writes its post statement in the C++ for's head.
+// 3-clause for puts its post statement in the C++ for's head.
 func newFlow(info *types.Info, body *ast.BlockStmt, inHead func(post ast.Stmt) bool) *flow {
 	f := &flow{
 		target:     make(map[*ast.BranchStmt]ast.Stmt),

@@ -106,7 +106,7 @@ Three details in this output are deliberate (all found by the audit):
   a nested `gpkg::main`, the C function `time()` would be hidden by the package namespace
   `gpkg::time` (Phase 06 has the full naming rule).
 
-### 2.2 Backend structure (`internal/cppgen`)
+### 2.2 Backend structure (`internal/cppgen`; since Phase 03 step 3.1: `internal/lower` → `internal/cppir`)
 
 The emitter walks the **typed AST** (`go/ast` + `types.Info`) and writes C++ through a small
 writer. There's no separate IR yet; Phase 03 adds a lowering pass in front when the rewrites get

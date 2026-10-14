@@ -1,11 +1,12 @@
-package cppgen
+package lower
 
 import (
 	"go/ast"
 	"go/constant"
 	"go/types"
 	"strconv"
-	"strings"
+
+	"github.com/huuhait/gocpp/internal/cppir"
 )
 
 // Declarations: functions, package variables and the package's initialization.
@@ -17,12 +18,13 @@ type funcInfo struct {
 	name string // the C++ name
 
 	names   *funcNames
-	header  string   // the C++ declarator: std::tuple<int64_t, bool> add(int64_t a, int64_t b)
-	results []string // the C++ names of the named results, or nil
+	result  cppir.Type    // the C++ result type: void, int64_t, std::tuple<int64_t, bool>
+	params  []cppir.Param // the C++ parameters
+	results []string      // the C++ names of the named results, or nil
 }
 
-// prepare chooses the C++ names of the function's parameters and named results, and makes
-// its header. Parameters are passed by value, as real copies, like Go's. Several results are
+// prepare chooses the C++ names of the function's parameters and named results, and its C++
+// signature. Parameters are passed by value, as real copies, like Go's. Several results are
 // a std::tuple; named results are local variables that start at their zero value.
 func (f *funcInfo) prepare(g *gen) {
 	f.names = newFuncNames()
@@ -45,12 +47,12 @@ func (f *funcInfo) prepare(g *gen) {
 	f.names.openScope()
 
 	sig := f.obj.Signature()
-	params := make([]string, sig.Params().Len())
+	f.params = make([]cppir.Param, sig.Params().Len())
 	for i := range sig.Params().Len() {
 		p := sig.Params().At(i)
-		params[i] = g.cxxType(p.Type(), f.decl.Pos())
+		f.params[i].Type = g.cxxType(p.Type(), f.decl.Pos())
 		if p.Name() != "" && p.Name() != "_" {
-			params[i] += " " + f.names.declare(p)
+			f.params[i].Name = f.names.declare(p)
 		}
 	}
 	res := sig.Results()
@@ -65,33 +67,32 @@ func (f *funcInfo) prepare(g *gen) {
 			}
 		}
 	}
-	f.header = g.resultType(sig, f.decl.Pos()) + " " + f.name + "(" + strings.Join(params, ", ") + ")"
+	f.result = g.resultType(sig, f.decl.Pos())
 }
 
-// funcDecl writes the definition of a function.
+// funcDecl adds the definition of a function.
 func (g *gen) funcDecl(f *funcInfo) {
 	body := f.decl.Body
 	g.markCounts(body)
 	fg := newFuncGen(g, f.names, f)
 	fg.flow = newFlow(g.info, body, fg.postInHead)
-	g.w.line(g.pos(f.decl.Pos()), f.header+" {")
-	g.w.indent()
+	fn := &cppir.Func{Pos: g.pos(f.decl.Pos()), Result: f.result, Name: f.name, Params: f.params, Body: &cppir.Block{}}
+	fg.push(&fn.Body.Stmts, &fn.Body.End)
 	if f.results != nil {
 		res := f.obj.Signature().Results()
 		for i := range res.Len() {
 			r := res.At(i)
-			g.w.line(g.pos(r.Pos()), g.cxxType(r.Type(), r.Pos())+" "+f.results[i]+"{};")
+			fg.add(varDecl(g.pos(r.Pos()), g.cxxType(r.Type(), r.Pos()), f.results[i], &cppir.InitList{}))
 		}
 	}
 	fg.fresh = f.results == nil // the named results are in the function's block (declLines)
 	fg.stmts(body.List, body.Rbrace)
-	g.w.dedent()
-	g.w.line(g.pos(body.Rbrace), "}")
-	g.w.blank()
+	fg.pop(body.Rbrace)
+	g.decl(fn, &cppir.Blank{})
 	f.names.closeScope()
 }
 
-// packageVars writes the package variables. Each one is constinit, so C++ runs no dynamic
+// packageVars adds the package variables. Each one is constinit, so C++ runs no dynamic
 // initialization of its own (whose order across files C++ doesn't define): a variable whose
 // initializer is a constant gets its value at compile time, and the others start at their
 // zero value and get their values in gp_var_init, in Go's order (types.Info.InitOrder).
@@ -104,21 +105,20 @@ func (g *gen) packageVars() {
 	}
 	for _, v := range g.vars {
 		typ := g.cxxType(v.Type(), v.Pos())
-		decl := "constinit " + typ + " " + g.names[v]
-		init := byVar[v]
-		if value := constInit(g.info, init); value != nil {
+		var value cppir.Expr = &cppir.InitList{} // the zero value
+		if c := constInit(g.info, byVar[v]); c != nil {
 			if basicOf(v.Type()).Info()&types.IsString != 0 {
 				// "..."_gs can't be constexpr (the owner's destructor isn't), but this
 				// constructor is.
-				s := constant.StringVal(value)
-				decl += "{gp::static_bytes, " + cString(s) + ", " + strconv.Itoa(len(s)) + "}"
+				s := constant.StringVal(c)
+				value = &cppir.InitList{Elems: []cppir.Expr{cxxName("gp::static_bytes"), lit(cppir.CString(s)), lit(strconv.Itoa(len(s)))}}
 			} else {
-				decl += " = " + g.constant(value, v.Type(), v.Pos(), false).text
+				value = g.constant(c, v.Type(), v.Pos(), false)
 			}
-		} else {
-			decl += "{}"
 		}
-		g.w.line(g.pos(v.Pos()), decl+";")
+		d := varDecl(g.pos(v.Pos()), typ, g.names[v], value)
+		d.Specs = []string{"constinit"}
+		g.decl(d)
 	}
 	for _, init := range g.info.InitOrder {
 		if constInit(g.info, init) == nil {
@@ -126,7 +126,7 @@ func (g *gen) packageVars() {
 		}
 	}
 	if len(g.vars) > 0 {
-		g.w.blank()
+		g.decl(&cppir.Blank{})
 	}
 }
 
@@ -142,15 +142,17 @@ func constInit(info *types.Info, init *types.Initializer) constant.Value {
 	return info.Types[init.Rhs].Value
 }
 
-// initFuncs writes gp_var_init, which sets the package variables that constInit doesn't, and
+// initFuncs adds gp_var_init, which sets the package variables that constInit doesn't, and
 // gp_init_funcs, which calls the init functions in source order (gp_init_all, after the
-// namespace, calls both; docs/spec/cpp-mapping.md, "Package initialization").
+// namespace, calls both; docs/spec/cpp-mapping.md, "Package initialization"). They are
+// generated code: their own lines have no place in the .gp source, but the statements of
+// gp_var_init are mapped to the initializers.
 func (g *gen) initFuncs() {
 	if g.varInits {
 		fg := newFuncGen(g, newFuncNames(), nil)
 		fg.names.openScope()
-		g.w.plain("void gp_var_init() {")
-		g.w.indent()
+		fn := &cppir.Func{Result: typeName("void"), Name: "gp_var_init", Body: &cppir.Block{}}
+		fg.push(&fn.Body.Stmts, nil)
 		for _, init := range g.info.InitOrder {
 			if constInit(g.info, init) != nil {
 				continue
@@ -159,23 +161,18 @@ func (g *gen) initFuncs() {
 			targets := make([]target, len(init.Lhs))
 			for i, v := range init.Lhs {
 				if v.Name() != "_" {
-					targets[i] = target{name: g.names[v]}
+					targets[i] = varTarget(g.names[v])
 				}
 			}
 			fg.bind(init.Rhs.Pos(), targets, []ast.Expr{init.Rhs}, false)
 		}
-		g.w.dedent()
-		g.w.plain("}")
-		g.w.blank()
+		g.decl(fn, &cppir.Blank{})
 	}
 	if len(g.initFns) > 0 {
-		g.w.plain("void gp_init_funcs() {")
-		g.w.indent()
-		for _, name := range g.initFns {
-			g.w.plain(name + "();")
+		body := &cppir.Block{}
+		for _, n := range g.initFns {
+			body.Stmts = append(body.Stmts, &cppir.ExprStmt{X: call(n)})
 		}
-		g.w.dedent()
-		g.w.plain("}")
-		g.w.blank()
+		g.decl(&cppir.Func{Result: typeName("void"), Name: "gp_init_funcs", Body: body}, &cppir.Blank{})
 	}
 }

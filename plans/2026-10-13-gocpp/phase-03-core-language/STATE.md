@@ -7,7 +7,7 @@
 ## Steps
 
 - [x] Spike (2026-10-13): `shared_ptr` aliasing for interior pointers, non-owning global pointers, `make_shared<T[]>` element pointers, designated init, defaulted `==`; compiled and run on GCC 15 + Clang 21
-- [~] 3.1 Refactor into `lower` → `cppir` → printer (Phase 02 tests stay green)
+- [x] 3.1 Refactor into `lower` → `cppir` → printer (Phase 02 tests stay green)
 - [~] 3.2 Runtime ownership core (`gp::ptr`, `gp::new_`, aliasing helpers, nil checks, static owners for globals, `weak` intrinsic, no plain-named members on runtime types)
 - [ ] 3.3 Boxing analysis + owner table
   - [ ] `&x`, `&x.f`, `&x.arr[i]`, pointer-method calls (incl. on fields), `arr[:]`
@@ -97,3 +97,9 @@
   `-nochecks` build defines `GOCPP_NOCHECKS` (3.14). For whoever adds `runtime.AddCleanup` /
   `SetFinalizer`: `release` is `noexcept` and runs destructors deep in a chain, so Go cleanups must be
   queued and run outside it.
+- 2026-10-14: Job 3.1 (the emitter as internal/lower → internal/cppir → printer; cppgen is a thin wrapper)
+  committed, clean after 2 review rounds. Output byte-identical to before over ~2,500 outputs (all .gp
+  files, examples and 1,000+ random programs, with and without OutputPath). The IR has no raw-C++
+  node; assignment targets are IR expressions; Lambda has real captures and specifiers. Known limits
+  in the cppir doc: lambdas print on one line (3.11/3.13), Struct/Func names are plain text, no
+  range-for or structured bindings.

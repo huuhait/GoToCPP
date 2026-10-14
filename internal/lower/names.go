@@ -1,9 +1,10 @@
-package cppgen
+package lower
 
 import (
 	_ "embed"
 	"fmt"
 	"go/types"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -76,6 +77,17 @@ var reserved = func() map[string]bool {
 	}
 	return m
 }()
+
+// ReservedNames returns every name that is reserved (see the top of names.go), sorted: the
+// names that Escape never returns.
+func ReservedNames() []string {
+	names := make([]string, 0, len(reserved))
+	for r := range reserved {
+		names = append(names, r)
+	}
+	slices.Sort(names)
+	return names
+}
 
 // listWords returns the words of a list file: one per line, without the empty lines and the
 // comment lines (which start with #).

@@ -17,6 +17,7 @@ import (
 
 	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/check"
+	"github.com/huuhait/gocpp/internal/cppir"
 	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/stdlib"
 )
@@ -88,7 +89,7 @@ func emitter(path string) emitFunc {
 // withDir replaces the folder dir in the #line directives of cpp with $DIR, so that the
 // golden files don't depend on where the repository is.
 func withDir(cpp, dir string) string {
-	inner := cString(dir + string(filepath.Separator))
+	inner := cppir.CString(dir + string(filepath.Separator))
 	inner = inner[1 : len(inner)-1]
 	return strings.ReplaceAll(cpp, `"`+inner, `"$DIR/`)
 }
@@ -208,7 +209,7 @@ func checkRunsNorm(t *testing.T, emit emitFunc, want *result, norm func(result) 
 // one gives the next line its real line number, and the main wrapper comes after one.
 func checkOwnLines(t *testing.T, cpp, out string) {
 	t.Helper()
-	own := `"` + strings.Trim(cString(out), `"`) + `"`
+	own := `"` + strings.Trim(cppir.CString(out), `"`) + `"`
 	lines := strings.Split(cpp, "\n")
 	last := -1
 	for i, l := range lines {

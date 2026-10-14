@@ -9,21 +9,45 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/huuhait/gocpp/internal/lower"
 )
 
-// The tests of the reserved names with the real compilers.
+// The tests of the reserved names (internal/lower, names.go) with the real compilers.
 
-// goNames returns the names of reserved that a Go program can declare (identifiers that are
-// not Go keywords), sorted.
+// goNames returns the reserved names that a Go program can declare (identifiers that are not
+// Go keywords), sorted.
 func goNames() []string {
 	var names []string
-	for r := range reserved {
+	for _, r := range lower.ReservedNames() {
 		if token.IsIdentifier(r) {
 			names = append(names, r)
 		}
 	}
-	slices.Sort(names)
 	return names
+}
+
+// listFile returns the path of a list of internal/lower: cxx_words.txt or cxx_macros.txt.
+func listFile(name string) string {
+	return filepath.Join("..", "lower", name)
+}
+
+// readList returns the words of a list of internal/lower (listFile): one per line, without
+// the empty lines and the comment lines (which start with #), as names.go reads them.
+func readList(t *testing.T, name string) []string {
+	t.Helper()
+	data, err := os.ReadFile(listFile(name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var words []string
+	for l := range strings.SplitSeq(string(data), "\n") {
+		l = strings.TrimSpace(l)
+		if l != "" && !strings.HasPrefix(l, "#") {
+			words = append(words, l)
+		}
+	}
+	return words
 }
 
 // uses returns C++ that declares and uses the name name in three ways, each in its own
@@ -43,7 +67,7 @@ func TestWordsEscaped(t *testing.T) {
 	b.WriteString("#include <gocpp/rt.hpp>\n")
 	for i, r := range goNames() {
 		for k := range 4 { // the name and the next names of its family
-			b.WriteString(uses(Escape(r+strings.Repeat("_", k)), fmt.Sprintf("%d_%d", i, k), "int64_t"))
+			b.WriteString(uses(lower.Escape(r+strings.Repeat("_", k)), fmt.Sprintf("%d_%d", i, k), "int64_t"))
 		}
 	}
 	src := filepath.Join(t.TempDir(), "escaped.cpp")
@@ -69,7 +93,7 @@ func TestWordsEscaped(t *testing.T) {
 // preprocessorOnly are words of cxx_words.txt that compile as names: g++ only warns about them.
 var preprocessorOnly = map[string]bool{"__VA_ARGS__": true, "__VA_OPT__": true}
 
-// TestWordsRaw checks that every word of cxx_words.txt that a Go program can declare really
+// TestWordsRaw checks that every word of internal/lower/cxx_words.txt that a Go program can declare really
 // can't be a name: g++ or clang++ rejects one of its uses (each word is a keyword of at least
 // one of them). It needs both compilers.
 func TestWordsRaw(t *testing.T) {
@@ -79,7 +103,7 @@ func TestWordsRaw(t *testing.T) {
 	}
 	dir := t.TempDir()
 	var words []string
-	for _, w := range listWords(cxxWordsTxt) {
+	for _, w := range readList(t, "cxx_words.txt") {
 		if token.IsIdentifier(w) && !preprocessorOnly[w] {
 			words = append(words, w)
 		}
@@ -101,7 +125,7 @@ func TestWordsRaw(t *testing.T) {
 				return
 			}
 		}
-		errs[i] = words[i] + ": both compilers accept it as a name; run mkwords.sh"
+		errs[i] = words[i] + ": both compilers accept it as a name; run internal/lower/mkwords.sh"
 	})
 	for _, e := range errs {
 		if e != "" {
@@ -127,6 +151,10 @@ func TestMacrosRaw(t *testing.T) {
 				t.Skip(c.missing)
 			}
 			inc := includeFlag(t)
+			reserved := make(map[string]bool)
+			for _, r := range lower.ReservedNames() {
+				reserved[r] = true
+			}
 			errs := make([]string, len(rawMacros))
 			parallel(len(rawMacros), func(i int) {
 				m := rawMacros[i]
@@ -136,8 +164,8 @@ func TestMacrosRaw(t *testing.T) {
 				}
 				src := filepath.Join(dir, c.name+"-"+m+".cpp")
 				typ := "int64_t"
-				if slices.Contains(unqualifiedNames, m) {
-					typ = m // what breaks is a use of the type after the name
+				if strings.HasSuffix(m, "_t") {
+					typ = m // an integer type: what breaks is a use of the type after the name
 				}
 				if err := os.WriteFile(src, []byte("#include <gocpp/rt.hpp>\n"+uses(m, "", typ)), 0o644); err != nil {
 					errs[i] = err.Error()
@@ -164,7 +192,7 @@ func TestMacrosRaw(t *testing.T) {
 // an optimized build (__OPTIMIZE__) and the sanitizers (-asan: __SANITIZE_ADDRESS__).
 var macroModes = [][]string{nil, {"-O2"}, {"-fsanitize=address,undefined", "-fno-omit-frame-pointer"}}
 
-// TestMacroList checks that cxx_macros.txt has every macro that the runtime's headers define,
+// TestMacroList checks that internal/lower/cxx_macros.txt has every macro that the runtime's headers define,
 // with each compiler, in each mode: the compiler lists them for a file that includes
 // gocpp/rt.hpp (-dM -E). The macros that a Go program can't declare (Go keywords) are left out.
 // When a runtime header, a compiler or the C library adds macros, the test fails; then
@@ -204,7 +232,7 @@ func TestMacroList(t *testing.T) {
 		t.Skip("no compiler")
 	}
 	listed := make(map[string]bool)
-	for _, m := range listWords(cxxMacrosTxt) {
+	for _, m := range readList(t, "cxx_macros.txt") {
 		listed[m] = true
 	}
 	var missing []string
@@ -264,7 +292,7 @@ func writeMacroList(names map[string]bool) error {
 	for _, n := range sorted {
 		b.WriteString(n + "\n")
 	}
-	return os.WriteFile("cxx_macros.txt", []byte(b.String()), 0o644)
+	return os.WriteFile(listFile("cxx_macros.txt"), []byte(b.String()), 0o644)
 }
 
 // firstLines returns the first n lines of s.

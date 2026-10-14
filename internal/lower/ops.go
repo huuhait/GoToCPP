@@ -1,4 +1,4 @@
-package cppgen
+package lower
 
 import (
 	"go/ast"
@@ -7,7 +7,8 @@ import (
 	"go/types"
 	"math"
 	"strconv"
-	"strings"
+
+	"github.com/huuhait/gocpp/internal/cppir"
 )
 
 // Operators, conversions, s[i] and the builtins len and panic (Phase 02 README §2.3):
@@ -50,11 +51,11 @@ func isSmallInt(b *types.Basic) bool {
 
 // narrow casts x, the result of an operator on operands of the type b, back to b if C++
 // computes it in int (the small-integer rule).
-func narrow(b *types.Basic, x cexpr) cexpr {
+func narrow(b *types.Basic, x cppir.Expr) cppir.Expr {
 	if !isSmallInt(b) {
 		return x
 	}
-	return cexpr{basicTypes[b.Kind()] + "(" + x.text + ")", precPostfix}
+	return call(basicTypes[b.Kind()], x)
 }
 
 // bitSize returns the width of the integer type b in bits (int, uint and uintptr have 64:
@@ -137,7 +138,7 @@ func (fg *funcGen) constValue(e ast.Expr) constant.Value {
 	return fg.g.info.Types[e].Value
 }
 
-func (fg *funcGen) binary(e *ast.BinaryExpr) cexpr {
+func (fg *funcGen) binary(e *ast.BinaryExpr) cppir.Expr {
 	if (e.Op == token.SHL || e.Op == token.SHR) && fg.constValue(e.X) != nil {
 		// A constant shifted by a count that is not a constant: the constant has the type
 		// of the shift (the spec, "Operators"), which go/types may not record for the
@@ -153,26 +154,22 @@ func (fg *funcGen) binary(e *ast.BinaryExpr) cexpr {
 
 // binaryOp returns the C++ of x op y, a Go binary expression whose operator is at pos. (Step
 // 2.4's x op= y uses it too.) Both operands are translated from left to right.
-func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cexpr {
+func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.Expr {
 	switch op {
 	case token.LOR:
 		// a || (b && c): C++ doesn't need the parentheses, but they are clearer, and g++
 		// -Wall asks for them.
 		return fg.grouped(x, "||", y, precLogOr, precLogAnd)
 	case token.LAND:
-		return fg.infix(x, "&&", y, precLogAnd)
+		return fg.infix(x, "&&", y)
 	case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ:
 		a, b := fg.expr(x), fg.expr(y) // first, so that an operand's own error comes first
 		if fg.operandType(pos, op, x) == nil {
 			return placeholder
 		}
-		prec := precRel
-		if op == token.EQL || op == token.NEQ {
-			prec = precEq
-		}
 		// A comparison as an operand of a comparison gets parentheses, which C++ doesn't
 		// need: (a < b) == c, not a < b == c, which reads like a chain.
-		return cexpr{a.at(precShift) + " " + op.String() + " " + b.at(precShift), prec}
+		return &cppir.Binary{Op: op.String(), X: at(a, precShift), Y: at(b, precShift)}
 	}
 
 	// The other operators: the result has the type of x (a shift too, whose count may have
@@ -183,23 +180,23 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cexpr 
 	}
 	switch op {
 	case token.ADD, token.SUB:
-		return narrow(t, fg.infix(x, op.String(), y, precAdd))
+		return narrow(t, fg.infix(x, op.String(), y))
 	case token.MUL:
-		return narrow(t, fg.infix(x, "*", y, precMul))
+		return narrow(t, fg.infix(x, "*", y))
 	case token.QUO, token.REM:
 		if t.Info()&types.IsInteger == 0 {
-			return fg.infix(x, op.String(), y, precMul) // floats: IEEE division, x / 0 is ±Inf or NaN
+			return fg.infix(x, op.String(), y) // floats: IEEE division, x / 0 is ±Inf or NaN
 		}
 		if v := fg.constValue(y); v != nil && constant.Sign(v) != 0 && constant.Compare(v, token.NEQ, constant.MakeInt64(-1)) {
 			// Neither a division by zero nor MIN / -1 can happen.
-			return narrow(t, fg.infix(x, op.String(), y, precMul))
+			return narrow(t, fg.infix(x, op.String(), y))
 		}
-		helper := "gp::div("
+		helper := "gp::div"
 		if op == token.REM {
-			helper = "gp::rem("
+			helper = "gp::rem"
 		}
 		// gp::div deduces its type from x (y converts to it), so a constant x needs its type.
-		return cexpr{helper + fg.exactExpr(x).text + ", " + fg.expr(y).text + ")", precPostfix}
+		return call(helper, fg.exactExpr(x), fg.expr(y))
 	case token.SHL, token.SHR:
 		return fg.shift(t, op, x, y)
 	case token.AND:
@@ -210,21 +207,21 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cexpr 
 		return narrow(t, fg.grouped(x, "^", y, precBitXor, precUnary-1))
 	case token.AND_NOT:
 		a := fg.expr(x)
-		if a.prec != precBitAnd {
-			a.text = a.at(precUnary)
+		if cppir.Prec(a) != precBitAnd {
+			a = at(a, precUnary)
 		}
-		return narrow(t, cexpr{a.text + " & ~" + fg.expr(y).at(precUnary), precBitAnd})
+		notY := &cppir.Unary{Op: "~", X: fg.expr(y)}
+		return narrow(t, &cppir.Binary{Op: "&", X: a, Y: notY})
 	}
 	fg.g.unsupported(pos, "the operator "+op.String())
 	return placeholder
 }
 
-// infix returns x op y for a C++ operator of the precedence prec that groups from left to
-// right, like all of Go's: a right operand of the same precedence needs parentheses,
-// a - (b - c).
-func (fg *funcGen) infix(x ast.Expr, op string, y ast.Expr, prec int) cexpr {
-	a := fg.expr(x).at(prec)
-	return cexpr{a + " " + op + " " + fg.expr(y).at(prec+1), prec}
+// infix returns x op y for a C++ operator that groups from left to right, like all of Go's.
+// The printer adds the parentheses that C++ needs: a - (b - c), (a + b) * c.
+func (fg *funcGen) infix(x ast.Expr, op string, y ast.Expr) cppir.Expr {
+	a := fg.expr(x)
+	return &cppir.Binary{Op: op, X: a, Y: fg.expr(y)}
 }
 
 // grouped is infix for the C++ operators whose operands read better with parentheses: an
@@ -233,59 +230,59 @@ func (fg *funcGen) infix(x ast.Expr, op string, y ast.Expr, prec int) cexpr {
 // expression or in parentheses, (a + b) | 1 and (a & b) | c (C++ would group both the same
 // without them, but they are easy to misread, and g++ -Wall warns), and so is an && inside
 // ||.
-func (fg *funcGen) grouped(x ast.Expr, op string, y ast.Expr, prec, loose int) cexpr {
+func (fg *funcGen) grouped(x ast.Expr, op string, y ast.Expr, prec, loose int) cppir.Expr {
 	a, b := fg.expr(x), fg.expr(y)
-	if a.prec < prec || a.prec <= loose && a.prec != prec {
-		a.text = "(" + a.text + ")"
+	if p := cppir.Prec(a); p < prec || p <= loose && p != prec {
+		a = &cppir.Paren{X: a}
 	}
-	return cexpr{a.text + " " + op + " " + b.at(max(prec, loose)+1), prec}
+	return &cppir.Binary{Op: op, X: a, Y: at(b, max(prec, loose)+1)}
 }
 
 // shift returns the C++ of x << y or x >> y, where x has the integer type t. Go defines every
 // count: one of the width of t or more gives 0 (or -1 for >> of a negative signed x), and a
 // negative one panics. C++ defines only counts below the width, so the plain operator is used
 // only for a constant count below it; the runtime's gp::shl and gp::shr do the rest.
-func (fg *funcGen) shift(t *types.Basic, op token.Token, x, y ast.Expr) cexpr {
+func (fg *funcGen) shift(t *types.Basic, op token.Token, x, y ast.Expr) cppir.Expr {
 	if v := fg.constValue(y); v != nil {
 		n, exact := constant.Uint64Val(constant.ToInt(v))
 		if exact && n < bitSize(t) {
 			// The left operand of a plain shift gets parentheses even where C++ doesn't
 			// need them: clang warns about a + b << 3 (-Wshift-op-parentheses).
-			a := fg.expr(x).at(precUnary)
-			return narrow(t, cexpr{a + " " + op.String() + " " + strconv.FormatUint(n, 10), precShift})
+			a := at(fg.expr(x), precUnary)
+			return narrow(t, &cppir.Binary{Op: op.String(), X: a, Y: lit(strconv.FormatUint(n, 10))})
 		}
 	}
-	helper := "gp::shl("
+	helper := "gp::shl"
 	if op == token.SHR {
-		helper = "gp::shr("
+		helper = "gp::shr"
 	}
 	a := fg.exactExpr(x)
 	if v := fg.constValue(x); v != nil {
 		a = fg.g.constant(v, t, x.Pos(), true) // t, the type of the shift
 	}
-	return cexpr{helper + a.text + ", " + fg.shiftCount(y).text + ")", precPostfix}
+	return call(helper, a, fg.shiftCount(y))
 }
 
 // shiftCount returns the C++ of the count of a shift for gp::shl or gp::shr, which take a
 // count of any integer type. A constant count (one of the width or more, here) is written as
 // an unsigned value: go/types may leave it untyped, and Go allows any count that a uint holds.
 // So is a count that is not a constant but untyped (1<<n - 2, typeOf).
-func (fg *funcGen) shiftCount(y ast.Expr) cexpr {
+func (fg *funcGen) shiftCount(y ast.Expr) cppir.Expr {
 	v := fg.constValue(y)
 	if v == nil {
 		return fg.expr(y)
 	}
 	n, _ := constant.Uint64Val(constant.ToInt(v))
 	if n <= math.MaxInt32 {
-		return cexpr{strconv.FormatUint(n, 10), precPrimary}
+		return lit(strconv.FormatUint(n, 10))
 	}
-	return cexpr{"UINT64_C(" + strconv.FormatUint(n, 10) + ")", precPrimary}
+	return call("UINT64_C", lit(strconv.FormatUint(n, 10)))
 }
 
-func (fg *funcGen) unary(e *ast.UnaryExpr) cexpr {
+func (fg *funcGen) unary(e *ast.UnaryExpr) cppir.Expr {
 	switch e.Op {
 	case token.NOT:
-		return cexpr{"!" + fg.expr(e.X).at(precUnary), precUnary}
+		return &cppir.Unary{Op: "!", X: fg.expr(e.X)}
 	case token.ADD, token.SUB, token.XOR:
 		t := fg.operandType(e.OpPos, e.Op, e.X)
 		if t == nil {
@@ -296,13 +293,10 @@ func (fg *funcGen) unary(e *ast.UnaryExpr) cexpr {
 		case token.ADD:
 			return x // +x is x (C++'s +x would promote a small integer to int)
 		case token.XOR:
-			return narrow(t, cexpr{"~" + x.at(precUnary), precUnary})
+			return narrow(t, &cppir.Unary{Op: "~", X: x})
 		}
-		s := x.at(precUnary)
-		if strings.HasPrefix(s, "-") {
-			s = "(" + s + ")" // - -x, not the decrement --x
-		}
-		return narrow(t, cexpr{"-" + s, precUnary})
+		// The printer writes - -x as -(-x), not as the decrement --x.
+		return narrow(t, &cppir.Unary{Op: "-", X: x})
 	}
 	fg.g.unsupported(e.OpPos, "the operator "+e.Op.String())
 	return placeholder
@@ -310,19 +304,18 @@ func (fg *funcGen) unary(e *ast.UnaryExpr) cexpr {
 
 // index returns the C++ of s[i]. Phase 02 has it only for strings: the byte at i, as a
 // uint8_t, after gp::string's bounds check (Go's "index out of range" panic).
-func (fg *funcGen) index(e *ast.IndexExpr) cexpr {
+func (fg *funcGen) index(e *ast.IndexExpr) cppir.Expr {
 	t := fg.g.info.TypeOf(e.X)
 	if b := basicOf(t); b == nil || b.Info()&types.IsString == 0 {
 		fg.g.unsupported(e.Lbrack, "index expressions on "+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))+" (Phase 03)")
 		return placeholder
 	}
-	s := fg.expr(e.X).at(precPostfix)
-	return cexpr{s + "[" + fg.expr(e.Index).text + "]", precPostfix}
+	return &cppir.Index{X: fg.expr(e.X), Index: fg.expr(e.Index)}
 }
 
 // builtin returns the C++ of a call of the builtin len or panic. (A constant len(s) was
 // folded before.)
-func (fg *funcGen) builtin(c *ast.CallExpr, name string) cexpr {
+func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 	arg := c.Args[0]
 	t := fg.g.info.TypeOf(arg)
 	b := basicOf(t)
@@ -333,7 +326,7 @@ func (fg *funcGen) builtin(c *ast.CallExpr, name string) cexpr {
 			fg.g.unsupported(c.Pos(), "len of "+tname+" (Phase 03)")
 			return placeholder
 		}
-		return cexpr{"gp::len(" + fg.expr(arg).text + ")", precPostfix}
+		return call("gp::len", fg.expr(arg))
 	default: // panic
 		if b == nil {
 			fg.g.unsupported(c.Pos(), "panic with a value of type "+tname+" (Phase 05)")
@@ -341,7 +334,7 @@ func (fg *funcGen) builtin(c *ast.CallExpr, name string) cexpr {
 		}
 		// gp::panic is a template: the value needs its Go type, which decides how it prints
 		// (panic(1.5) prints +1.500000e+000).
-		return cexpr{"gp::panic(" + fg.exactExpr(arg).text + ")", precPostfix}
+		return call("gp::panic", fg.exactExpr(arg))
 	}
 }
 
@@ -355,7 +348,7 @@ func (fg *funcGen) builtin(c *ast.CallExpr, name string) cexpr {
 // floats, it rounds to the nearest value, as in Go. From a float to an integer type,
 // gp::f2i<T> truncates toward zero and gives amd64's results where C++ has undefined
 // behavior (out of range, NaN).
-func (fg *funcGen) conversion(c *ast.CallExpr, to types.Type) cexpr {
+func (fg *funcGen) conversion(c *ast.CallExpr, to types.Type) cppir.Expr {
 	if len(c.Args) != 1 {
 		fg.g.errorf(c.Pos(), "internal error: a conversion with %d arguments", len(c.Args))
 		return placeholder
@@ -382,7 +375,8 @@ func (fg *funcGen) conversion(c *ast.CallExpr, to types.Type) cexpr {
 	case ct == basicTypes[fb.Kind()]:
 		return x // int(i) of an int64, bool(b): the same C++ type
 	case ti&types.IsInteger != 0 && fi&types.IsFloat != 0:
-		return cexpr{"gp::f2i<" + ct + ">(" + x.text + ")", precPostfix}
+		f2i := &cppir.Name{Name: "gp::f2i", Args: []cppir.Node{typeName(ct)}}
+		return &cppir.Call{Fun: f2i, Args: []cppir.Expr{x}}
 	}
-	return cexpr{ct + "(" + x.text + ")", precPostfix}
+	return call(ct, x)
 }

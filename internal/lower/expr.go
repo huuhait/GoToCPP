@@ -1,4 +1,4 @@
-package cppgen
+package lower
 
 import (
 	"fmt"
@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/huuhait/gocpp/internal/cppir"
 )
 
 // Expressions (Phase 02 README §2.3): constants (folded by go/types), variables, calls of
@@ -27,49 +29,34 @@ import (
 // translated, fg.order moves the calls that need it into gp_ temporaries, and fg.expr then
 // writes a temporary's name for its expression (fg.temps).
 //
-// An expression is a cexpr: its C++ text and the C++ precedence of its outermost operator, so
-// that an operand gets parentheses exactly where C++ would group it differently from the Go
-// AST.
+// An expression is a cppir.Expr. Where an operand needs parentheses that C++'s precedence
+// doesn't (for the reader, or because g++ -Wall asks for them), lowering adds a cppir.Paren
+// (at); the printer adds the ones that C++ needs.
 
-// C++ operator precedences, higher binds tighter.
+// The C++ operator precedences (cppir.Prec), higher binds tighter.
 const (
-	precComma   = 1 + iota // ,
-	precAssign             // = ?: (right to left)
-	precLogOr              // ||
-	precLogAnd             // &&
-	precBitOr              // |
-	precBitXor             // ^
-	precBitAnd             // &
-	precEq                 // == !=
-	precRel                // < <= > >=
-	precCmp3               // <=>
-	precShift              // << >>
-	precAdd                // + -
-	precMul                // * / %
-	precUnary              // -x !x ~x and casts
-	precPostfix            // f(x) a[i] a.b
-	precPrimary            // names, literals, (e)
+	precLogOr  = cppir.PrecLogOr
+	precLogAnd = cppir.PrecLogAnd
+	precBitOr  = cppir.PrecBitOr
+	precBitXor = cppir.PrecBitXor
+	precBitAnd = cppir.PrecBitAnd
+	precShift  = cppir.PrecShift
+	precUnary  = cppir.PrecUnary
 )
 
-// A cexpr is a C++ expression.
-type cexpr struct {
-	text string
-	prec int // the precedence of its outermost operator (precPrimary for a name or literal)
-}
-
 // placeholder stands for an expression that couldn't be translated (an error was recorded).
-var placeholder = cexpr{"gp_unsupported", precPrimary}
+var placeholder = cxxName("gp_unsupported")
 
-// at returns the text of x as an operand that needs at least the precedence prec: in
-// parentheses if x binds less tightly.
-func (x cexpr) at(prec int) string {
-	if x.prec < prec {
-		return "(" + x.text + ")"
+// at returns x as an operand that needs at least the precedence prec: in parentheses if x
+// binds less tightly.
+func at(x cppir.Expr, prec int) cppir.Expr {
+	if cppir.Prec(x) < prec {
+		return &cppir.Paren{X: x}
 	}
-	return x.text
+	return x
 }
 
-// A funcGen writes the body of one function (or of gp_var_init).
+// A funcGen lowers the body of one function (or of gp_var_init).
 type funcGen struct {
 	g     *gen
 	names *funcNames
@@ -81,8 +68,11 @@ type funcGen struct {
 	temps   map[ast.Expr]string // the expressions that order.go put into temporaries
 	ordered map[ast.Expr]bool   // the calls that order.go ordered
 
-	// shadows counts the C++ blocks that declarations of shadowing variables opened and that
-	// are still open (declLines); fresh reports that nothing is written yet in the C++ block
+	// out are the open statement lists, innermost last (stmt.go: add, push, pop).
+	out []frame
+
+	// shadows counts the Scopes that declarations of shadowing variables opened and that
+	// are still open (declLines); fresh reports that nothing is added yet to the C++ block
 	// that was opened last.
 	shadows int
 	fresh   bool
@@ -107,15 +97,15 @@ func (fg *funcGen) cname(obj types.Object, pos token.Pos) string {
 		return n
 	}
 	fg.g.errorf(pos, "internal error: no C++ name for %s", obj.Name())
-	return placeholder.text
+	return placeholder.Name
 }
 
 // expr returns the C++ of the expression e, where C++ converts it to the type that it needs
 // (an operand, an initializer, the argument of a user function). Use exactExpr where C++
 // deduces the type from the expression.
-func (fg *funcGen) expr(e ast.Expr) cexpr {
+func (fg *funcGen) expr(e ast.Expr) cppir.Expr {
 	if t, ok := fg.temps[e]; ok {
-		return cexpr{t, precPrimary}
+		return cxxName(t)
 	}
 	// A constant is folded: go/types computed its value and the type it converts to.
 	if tv, ok := fg.g.info.Types[e]; ok && tv.Value != nil {
@@ -145,31 +135,31 @@ func (fg *funcGen) expr(e ast.Expr) cexpr {
 // a C++ int, so Printf("%s", 5) would say int32 instead of Go's int. Every such place calls
 // exactExpr; the other expressions already have their Go type in C++ (ops.go casts the
 // small integer types back).
-func (fg *funcGen) exactExpr(e ast.Expr) cexpr {
+func (fg *funcGen) exactExpr(e ast.Expr) cppir.Expr {
 	if tv, ok := fg.g.info.Types[e]; ok && tv.Value != nil {
 		return fg.g.constant(tv.Value, fg.g.untypedCount(e, tv.Type), e.Pos(), true)
 	}
 	return fg.expr(e)
 }
 
-// exprs returns the C++ of each expression, joined with ", ". With exact, constants get their
-// exact type (exactExpr).
-func (fg *funcGen) exprs(list []ast.Expr, exact bool) string {
-	parts := make([]string, len(list))
+// exprs returns the C++ of each expression. With exact, constants get their exact type
+// (exactExpr).
+func (fg *funcGen) exprs(list []ast.Expr, exact bool) []cppir.Expr {
+	xs := make([]cppir.Expr, len(list))
 	for i, e := range list {
 		if exact {
-			parts[i] = fg.exactExpr(e).text
+			xs[i] = fg.exactExpr(e)
 		} else {
-			parts[i] = fg.expr(e).text
+			xs[i] = fg.expr(e)
 		}
 	}
-	return strings.Join(parts, ", ")
+	return xs
 }
 
-func (fg *funcGen) ident(id *ast.Ident) cexpr {
+func (fg *funcGen) ident(id *ast.Ident) cppir.Expr {
 	switch obj := fg.g.info.Uses[id].(type) {
 	case *types.Var:
-		return cexpr{fg.cname(obj, id.Pos()), precPrimary}
+		return cxxName(fg.cname(obj, id.Pos()))
 	case *types.Func:
 		fg.g.unsupported(id.Pos(), "function values (Phase 03)")
 	case *types.Nil:
@@ -181,7 +171,7 @@ func (fg *funcGen) ident(id *ast.Ident) cexpr {
 }
 
 // call returns the C++ of a function call.
-func (fg *funcGen) call(c *ast.CallExpr) cexpr {
+func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 	if tv := fg.g.info.Types[c.Fun]; tv.IsType() {
 		return fg.conversion(c, tv.Type)
 	}
@@ -235,15 +225,20 @@ func (fg *funcGen) call(c *ast.CallExpr) cexpr {
 	// f(g()), where g has several results: the arguments are g's results.
 	// (std::apply names the function without calling it, so ADL doesn't apply.)
 	if len(c.Args) == 1 && isTuple(fg.g.info.TypeOf(c.Args[0])) {
-		arg := fg.expr(c.Args[0]).text
+		arg := fg.expr(c.Args[0])
+		var fn cppir.Expr = cxxName(callee)
 		if template {
 			// std::apply needs a callable object. The elements of the tuple have their
-			// Go types.
-			callee = "[](const auto&... gp_a) { " + callee + "(gp_a...); }"
+			// Go types: [](const auto&... gp_a) { gp::println(gp_a...); }
+			body := &cppir.ExprStmt{X: call(callee, &cppir.Expand{X: cxxName("gp_a")})}
+			fn = &cppir.Lambda{
+				Params: []cppir.Param{{Type: &cppir.Ref{Elem: &cppir.Const{Elem: typeName("auto")}}, Pack: true, Name: "gp_a"}},
+				Body:   &cppir.Block{Stmts: []cppir.Stmt{body}, Inline: true},
+			}
 		}
-		return cexpr{"std::apply(" + callee + ", " + arg + ")", precPostfix}
+		return &cppir.Call{Fun: cxxName("std::apply"), Args: []cppir.Expr{fn, arg}}
 	}
-	return cexpr{callee + "(" + fg.exprs(c.Args, template) + ")", precPostfix}
+	return &cppir.Call{Fun: cxxName(callee), Args: fg.exprs(c.Args, template)}
 }
 
 // isTuple reports whether t is the result list of a call with several results.
@@ -366,9 +361,9 @@ func isLetter(c byte) bool {
 //     .0 if it would read as an integer), and for float32 as the same float32, with an f
 //     suffix: 0.1f. A float32 constant that is a double literal would print with the digits
 //     of the double.
-//   - Strings: "..."_gs, a gp::string over the literal's bytes (cString's escapes).
+//   - Strings: "..."_gs, a gp::string over the literal's bytes (cppir.CString's escapes).
 //   - Booleans: true and false.
-func (g *gen) constant(v constant.Value, t types.Type, pos token.Pos, exact bool) cexpr {
+func (g *gen) constant(v constant.Value, t types.Type, pos token.Pos, exact bool) cppir.Expr {
 	b := basicOf(t)
 	if b == nil {
 		g.cxxType(t, pos) // reports it
@@ -377,16 +372,16 @@ func (g *gen) constant(v constant.Value, t types.Type, pos token.Pos, exact bool
 	info := b.Info()
 	switch {
 	case info&types.IsBoolean != 0:
-		return cexpr{strconv.FormatBool(constant.BoolVal(v)), precPrimary}
+		return lit(strconv.FormatBool(constant.BoolVal(v)))
 	case info&types.IsString != 0:
-		return cexpr{cString(constant.StringVal(v)) + "_gs", precPostfix}
+		return lit(cppir.CString(constant.StringVal(v)) + "_gs")
 	case info&types.IsInteger != 0:
-		x := intLiteral(v, b.Kind(), info&types.IsUnsigned != 0)
-		if exact && x.plain {
+		x, plain := intLiteral(v, b.Kind(), info&types.IsUnsigned != 0)
+		if exact && plain {
 			// A plain literal is a C++ int: int64_t(5).
-			return cexpr{basicTypes[b.Kind()] + "(" + x.text + ")", precPostfix}
+			return call(basicTypes[b.Kind()], x)
 		}
-		return x.cexpr
+		return x
 	case info&types.IsFloat != 0:
 		return floatLiteral(v, b.Kind() == types.Float32)
 	}
@@ -394,43 +389,38 @@ func (g *gen) constant(v constant.Value, t types.Type, pos token.Pos, exact bool
 	return placeholder
 }
 
-// An intLit is an integer literal: a cexpr, and whether it is a plain decimal literal (a C++
-// int) rather than one of the exact type.
-type intLit struct {
-	cexpr
-	plain bool
-}
-
-func intLiteral(v constant.Value, kind types.BasicKind, unsigned bool) intLit {
+// intLiteral returns the C++ of the integer constant v of the kind, and whether it is a
+// plain decimal literal (a C++ int, maybe negated) rather than one of the exact type.
+func intLiteral(v constant.Value, kind types.BasicKind, unsigned bool) (cppir.Expr, bool) {
 	v = constant.ToInt(v)
 	if unsigned {
 		u, _ := constant.Uint64Val(v)
 		switch {
 		case u <= math.MaxInt32:
-			return intLit{cexpr{strconv.FormatUint(u, 10), precPrimary}, true}
+			return lit(strconv.FormatUint(u, 10)), true
 		case kind == types.Uint32:
-			return intLit{cexpr{"UINT32_C(" + strconv.FormatUint(u, 10) + ")", precPrimary}, false}
+			return call("UINT32_C", lit(strconv.FormatUint(u, 10))), false
 		}
-		return intLit{cexpr{"UINT64_C(" + strconv.FormatUint(u, 10) + ")", precPrimary}, false}
+		return call("UINT64_C", lit(strconv.FormatUint(u, 10))), false
 	}
 	i, _ := constant.Int64Val(v)
 	switch {
 	case -math.MaxInt32 <= i && i <= math.MaxInt32:
 		if i < 0 {
-			return intLit{cexpr{strconv.FormatInt(i, 10), precUnary}, true}
+			return &cppir.Unary{Op: "-", X: lit(strconv.FormatInt(-i, 10))}, true
 		}
-		return intLit{cexpr{strconv.FormatInt(i, 10), precPrimary}, true}
+		return lit(strconv.FormatInt(i, 10)), true
 	case kind == types.Int32: // only math.MinInt32 is left
-		return intLit{cexpr{"INT32_MIN", precPrimary}, false}
+		return lit("INT32_MIN"), false
 	case i == math.MinInt64:
-		return intLit{cexpr{"INT64_MIN", precPrimary}, false}
+		return lit("INT64_MIN"), false
 	case i < 0:
-		return intLit{cexpr{"-INT64_C(" + strconv.FormatInt(-i, 10) + ")", precUnary}, false}
+		return &cppir.Unary{Op: "-", X: call("INT64_C", lit(strconv.FormatInt(-i, 10)))}, false
 	}
-	return intLit{cexpr{"INT64_C(" + strconv.FormatInt(i, 10) + ")", precPrimary}, false}
+	return call("INT64_C", lit(strconv.FormatInt(i, 10))), false
 }
 
-func floatLiteral(v constant.Value, float32 bool) cexpr {
+func floatLiteral(v constant.Value, float32 bool) cppir.Expr {
 	v = constant.ToFloat(v)
 	var s string
 	if float32 {
@@ -446,10 +436,10 @@ func floatLiteral(v constant.Value, float32 bool) cexpr {
 	if float32 {
 		s += "f"
 	}
-	if strings.HasPrefix(s, "-") {
-		return cexpr{s, precUnary}
+	if neg, ok := strings.CutPrefix(s, "-"); ok {
+		return &cppir.Unary{Op: "-", X: lit(neg)}
 	}
-	return cexpr{s, precPrimary}
+	return lit(s)
 }
 
 // nodeKinds name the AST nodes in the "not supported yet" errors.

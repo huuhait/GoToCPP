@@ -1,6 +1,7 @@
-package cppgen
+package lower
 
 import (
+	"bytes"
 	"go/token"
 	"go/types"
 	"os"
@@ -8,7 +9,33 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/huuhait/gocpp/internal/check"
+	"github.com/huuhait/gocpp/internal/load"
+	"github.com/huuhait/gocpp/stdlib"
 )
+
+// checkFile loads and checks the program in the .gp file gp (an absolute path), without the
+// phase gates (as internal/cppgen's tests do: lowering handles some features before their
+// phase), and fails the test if it has errors.
+func checkFile(t *testing.T, gp string) (*token.FileSet, *check.Package) {
+	t.Helper()
+	lcfg := load.Config{Dir: filepath.Dir(gp), Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: "linux", GOARCH: "amd64"}
+	prog := load.Load(lcfg, gp)
+	r := check.Check(prog, check.Config{Phase: check.LastPhase})
+	if len(prog.Roots) != 1 {
+		t.Fatalf("%d root packages", len(prog.Roots))
+	}
+	pkg := r.Package(prog.Roots[0])
+	if pkg.Errors.HasErrors() || prog.Errors.HasErrors() {
+		var b bytes.Buffer
+		for _, d := range append(prog.Errors.Diagnostics(), pkg.Errors.Diagnostics()...) {
+			b.WriteString(d.Pos.String() + ": " + d.Msg + "\n")
+		}
+		t.Fatalf("the program has errors:\n%s", b.String())
+	}
+	return r.Fset, pkg
+}
 
 func TestEscape(t *testing.T) {
 	tests := []struct{ in, want string }{
@@ -205,12 +232,12 @@ func TestFuncNames(t *testing.T) {
 }
 
 // TestShadowNames checks that every local variable keeps its (escaped) Go name in C++, so a
-// debugger shows the variable that Go means (funcNames): in the emitter's test programs and
-// in the Phase 02 programs of tests/run, tests/diff, tests/debug and tests/golden, which
-// shadow names in blocks, if, for, range and switch statements and declare names again in
-// loop bodies.
+// debugger shows the variable that Go means (funcNames): in the emitter's test programs
+// (internal/cppgen/testdata/emit) and in the Phase 02 programs of tests/run, tests/diff,
+// tests/debug and tests/golden, which shadow names in blocks, if, for, range and switch
+// statements and declare names again in loop bodies.
 func TestShadowNames(t *testing.T) {
-	progs, err := filepath.Glob(filepath.Join("testdata", "emit", "*.gp"))
+	progs, err := filepath.Glob(filepath.Join("..", "cppgen", "testdata", "emit", "*.gp"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,8 +265,8 @@ func TestShadowNames(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		fset, pkg := checkPatterns(t, filepath.Dir(abs), abs)
-		g := newGen(fset, pkg, Config{})
+		fset, pkg := checkFile(t, abs)
+		g := newGen(fset, pkg)
 		g.file()
 		if g.err != nil {
 			t.Errorf("%s: %v", prog, g.err)

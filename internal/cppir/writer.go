@@ -1,8 +1,8 @@
-package cppgen
+package cppir
 
 import (
 	"bytes"
-	"go/token"
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -10,9 +10,9 @@ import (
 // indentUnit is one level of indentation in the generated C++.
 const indentUnit = "    "
 
-// A writer writes the generated C++ line by line, with indentation and #line directives.
+// A writer writes the C++ line by line, with indentation and #line directives.
 //
-// Each line is either mapped to a .gp position (line) or not (plain). Before a mapped line, the
+// Each line is either mapped to a .gp place (line) or not (plain). Before a mapped line, the
 // writer writes `#line N "/abs/file.gp"` unless the line that C++ would give it anyway is
 // already N in that file: C++ counts on from the last #line, so a directive is needed exactly
 // when the mapping is not "the previous line + 1". So the three C++ lines of `s, big :=
@@ -46,33 +46,28 @@ type writer struct {
 func (w *writer) indent() { w.depth++ }
 func (w *writer) dedent() { w.depth-- }
 
-// line writes text as lines mapped to pos: each line of text (it may hold several, split at
-// "\n") gets pos's line, with a #line directive before it where needed. If pos is not
-// valid, the lines are plain.
-func (w *writer) line(pos token.Position, text string) {
+// line writes the line l mapped to pos, with a #line directive before it where needed. If
+// pos is not valid, the line is plain.
+func (w *writer) line(pos Pos, l string) {
 	if !pos.IsValid() {
-		w.plain(text)
+		w.plain(l)
 		return
 	}
-	for l := range strings.SplitSeq(text, "\n") {
-		if w.file != pos.Filename || w.lineNo != pos.Line {
-			w.directive(pos.Line, pos.Filename)
-			w.file, w.lineNo = pos.Filename, pos.Line
-		}
-		w.write(l)
+	if w.file != pos.File || w.lineNo != pos.Line {
+		w.directive(pos.Line, pos.File)
+		w.file, w.lineNo = pos.File, pos.Line
 	}
+	w.write(l)
 }
 
-// plain writes text as lines that are not mapped to a .gp place.
-func (w *writer) plain(text string) {
-	for l := range strings.SplitSeq(text, "\n") {
-		if l != "" && w.file != "" && w.out != "" {
-			// The directive is line w.lines+1, so the next line is w.lines+2.
-			w.directive(w.lines+2, w.out)
-			w.file = ""
-		}
-		w.write(l)
+// plain writes the line l, which is not mapped to a .gp place.
+func (w *writer) plain(l string) {
+	if l != "" && w.file != "" && w.out != "" {
+		// The directive is line w.lines+1, so the next line is w.lines+2.
+		w.directive(w.lines+2, w.out)
+		w.file = ""
 	}
+	w.write(l)
 }
 
 // blank writes an empty line.
@@ -85,13 +80,17 @@ func (w *writer) directive(n int, file string) {
 	w.buf.WriteString("#line ")
 	w.buf.WriteString(strconv.Itoa(n))
 	w.buf.WriteByte(' ')
-	w.buf.WriteString(cString(file))
+	w.buf.WriteString(CString(file))
 	w.buf.WriteByte('\n')
 	w.lines++
 }
 
-// write writes one line with the current indentation (an empty line stays empty).
+// write writes one line with the current indentation (an empty line stays empty). A newline
+// in the text of a node would break the #line count: it is a bug in the tree, so it panics.
 func (w *writer) write(l string) {
+	if strings.Contains(l, "\n") {
+		panic(fmt.Sprintf("cppir: a newline in the text of a line: %q", l))
+	}
 	if l != "" {
 		for range w.depth {
 			w.buf.WriteString(indentUnit)
@@ -105,16 +104,16 @@ func (w *writer) write(l string) {
 	}
 }
 
-// cString returns s as a C++ string literal (without the _gs suffix): printable ASCII stays
-// as it is, except `"` and `\`, which get a backslash, and a ? after a ? (\?), because GCC
-// and Clang warn about a trigraph such as ??= even in C++20, which has none. The control
+// CString returns s as a C++ string literal (without a suffix such as _gs): printable ASCII
+// stays as it is, except `"` and `\`, which get a backslash, and a ? after a ? (\?), because
+// GCC and Clang warn about a trigraph such as ??= even in C++20, which has none. The control
 // characters that C++ has a named escape for are written with it (\n, \t, \r, \a, \b, \f,
 // \v), which never takes a character that follows; every other byte is a 3-digit octal escape
 // (\303\251 for "é"). Never \x: in C++ a hex escape takes every hex digit that follows
 // ("\x41BC" is one character), and an octal escape takes at most 3. The #line file names use
 // it too, so a Windows path keeps its backslashes ("C:\\work\\hello.gp"); GCC and Clang read
 // the escapes of a #line file name like those of a string literal.
-func cString(s string) string {
+func CString(s string) string {
 	var b strings.Builder
 	b.Grow(len(s) + 2)
 	b.WriteByte('"')

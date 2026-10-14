@@ -1,4 +1,4 @@
-package cppgen
+package lower
 
 import (
 	"errors"
@@ -6,45 +6,34 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
-	"io"
 	"path/filepath"
 	"strings"
 
 	"github.com/huuhait/gocpp/internal/check"
+	"github.com/huuhait/gocpp/internal/cppir"
 )
 
-// A Config says how EmitPackage writes the C++.
-type Config struct {
-	// OutputPath is the absolute path of the file that the C++ goes to, or "". When it is
-	// set, the code that has no place in the .gp source (the main wrapper, gp_init_funcs, the
-	// closing lines of gp_var_init) gets #line directives with its own lines in that file,
-	// so that a debugger and the line table don't show it at unrelated .gp lines. gocpp emit,
-	// which prints the C++, leaves it empty.
-	OutputPath string
-}
-
-// An Error is a problem that stops EmitPackage: mostly a construct that the emitter can't
-// translate yet ("not supported yet: switch statement"). The phase gates of internal/check
-// reject the features of later phases with a message for the user, so an Error is a gocpp
-// bug or a feature that this phase hasn't built yet, and the driver reports it as an internal
-// error.
+// An Error is a problem that stops Package: mostly a construct that lowering can't translate
+// yet ("not supported yet: switch statement"). The phase gates of internal/check reject the
+// features of later phases with a message for the user, so an Error is a gocpp bug or a
+// feature that this phase hasn't built yet (cppgen reports it as an internal error).
 type Error struct {
 	Pos token.Position // where in the .gp source; may be invalid
-	Msg string         // without the position and the "cppgen: " prefix
+	Msg string         // without the position
 }
 
 func (e *Error) Error() string {
 	if e.Pos.IsValid() {
-		return e.Pos.String() + ": cppgen: " + e.Msg
+		return e.Pos.String() + ": " + e.Msg
 	}
-	return "cppgen: " + e.Msg
+	return e.Msg
 }
 
-// EmitPackage writes the C++ of the type-checked package pkg to w: one C++20 translation unit
-// for the whole program (Phases 02 to 05 build a program from one package, main; Phase 06
-// writes one file per .gp file and a pkg.hpp). fset holds the positions of pkg's files
-// (check.Result.Fset); their names must be absolute, as the loader makes them, because they
-// go into the #line directives.
+// Package returns the C++ translation unit of the type-checked main package pkg, which has
+// no errors: one unit for the whole program (Phases 02 to 05 build a program from one
+// package, main; Phase 06 writes one file per .gp file and a pkg.hpp). fset holds the
+// positions of pkg's files (check.Result.Fset); their names must be absolute, as the loader
+// makes them, because they go into the #line directives.
 //
 // The translation unit (docs/spec/cpp-mapping.md, "A first example") is:
 //
@@ -54,7 +43,7 @@ func (e *Error) Error() string {
 //	namespace gpkg_main {
 //	<a prototype of every function, so that their order doesn't matter>
 //	<the package variables>
-//	<the functions, each line after a #line directive where it needs one>
+//	<the functions, each line mapped to its .gp line>
 //	<gp_var_init and gp_init_funcs, if the package needs them>
 //	} // namespace gpkg_main
 //
@@ -63,29 +52,19 @@ func (e *Error) Error() string {
 //	    return gp::run_main(argc, argv, nullptr, &gpkg_main::main);
 //	}
 //
-// It compiles with the driver's flags and the runtime (-I runtime/include and the runtime's
-// .cpp files, rtfiles.Sources). EmitPackage writes nothing to w if it fails: it returns an
-// *Error for a construct that it can't translate, and another error if pkg is not a checked
-// main package without errors.
-func EmitPackage(w io.Writer, fset *token.FileSet, pkg *check.Package, cfg Config) error {
-	switch {
-	case !pkg.Checked():
-		return fmt.Errorf("cppgen: package %s was not type-checked", pkg.Load.ImportPath)
-	case pkg.Errors.HasErrors():
-		return fmt.Errorf("cppgen: package %s has errors", pkg.Load.ImportPath)
-	}
-	g := newGen(fset, pkg, cfg)
-	g.file()
+// For a construct that it can't translate, Package returns an *Error.
+func Package(fset *token.FileSet, pkg *check.Package) (*cppir.File, error) {
+	g := newGen(fset, pkg)
+	f := g.file()
 	if g.err != nil {
-		return g.err
+		return nil, g.err
 	}
-	_, err := w.Write(g.w.buf.Bytes())
-	return err
+	return f, nil
 }
 
-// newGen returns the emitter of the checked package pkg.
-func newGen(fset *token.FileSet, pkg *check.Package, cfg Config) *gen {
-	g := &gen{
+// newGen returns the lowering of the checked package pkg.
+func newGen(fset *token.FileSet, pkg *check.Package) *gen {
+	return &gen{
 		fset:  fset,
 		pkg:   pkg,
 		info:  pkg.Info,
@@ -94,23 +73,24 @@ func newGen(fset *token.FileSet, pkg *check.Package, cfg Config) *gen {
 
 		uintCounts: make(map[ast.Expr]bool),
 	}
-	g.w.out = cfg.OutputPath
-	return g
 }
 
 // errNoMain is the error for a main package without func main, which go build gives too
 // (from the linker, which go/types leaves it to).
 var errNoMain = errors.New("function main is undeclared in the main package")
 
-// A gen holds the state of one EmitPackage call.
+// A gen holds the state of one Package call.
 type gen struct {
 	fset *token.FileSet
 	pkg  *check.Package
 	info *types.Info
-	w    writer
 
-	// err is the first error, or nil. After an error, the emitter goes on (so its code needs
-	// no error checks at every step), but its output is thrown away.
+	// decls is the list of declarations that the declarations go into: the package's
+	// namespace.
+	decls *[]cppir.Decl
+
+	// err is the first error, or nil. After an error, lowering goes on (so its code needs no
+	// error checks at every step), but its tree is thrown away.
 	err *Error
 
 	// ns is the C++ namespace of the package (gpkg_main).
@@ -141,62 +121,76 @@ func (g *gen) unsupported(pos token.Pos, what string) {
 	g.errorf(pos, "not supported yet: %s", what)
 }
 
-// pos returns the position of p in the .gp source.
-func (g *gen) pos(p token.Pos) token.Position {
-	return g.fset.Position(p)
+// pos returns the place of p in the .gp source, for a C++ line: the zero Pos if p is not
+// valid.
+func (g *gen) pos(p token.Pos) cppir.Pos {
+	if !p.IsValid() {
+		return cppir.Pos{}
+	}
+	pp := g.fset.Position(p)
+	return cppir.Pos{File: pp.Filename, Line: pp.Line}
 }
 
-// file writes the whole translation unit.
-func (g *gen) file() {
+// decl adds the declarations to the package's namespace.
+func (g *gen) decl(ds ...cppir.Decl) {
+	*g.decls = append(*g.decls, ds...)
+}
+
+// file returns the whole translation unit.
+func (g *gen) file() *cppir.File {
 	if g.pkg.Types.Name() != "main" {
 		g.unsupported(g.pkg.Load.Files[0].AST.Name.Pos(), "package "+g.pkg.Types.Name()+": only package main can be built until Phase 06")
-		return
+		return nil
 	}
 	mainFn, _ := g.pkg.Types.Scope().Lookup("main").(*types.Func)
 	if mainFn == nil {
 		g.errorf(g.pkg.Load.Files[0].AST.Name.Pos(), "%v", errNoMain)
-		return
+		return nil
 	}
 	g.collect()
 	if g.err != nil {
-		return
+		return nil
 	}
 
-	g.w.plain("// " + g.outputName() + ": generated by gocpp, do not edit")
-	g.w.plain("#include <gocpp/rt.hpp>")
-	g.w.blank()
-	ns := g.ns
-	g.w.plain("namespace " + ns + " {")
-	g.w.blank()
+	f := &cppir.File{}
+	f.Decls = append(f.Decls,
+		&cppir.Comment{Text: g.outputName() + ": generated by gocpp, do not edit"},
+		&cppir.Include{Path: "gocpp/rt.hpp", System: true},
+		&cppir.Blank{})
+	ns := &cppir.Namespace{Name: g.ns}
+	g.decls = &ns.Decls
+	g.decl(&cppir.Blank{})
 	g.prototypes()
 	g.packageVars()
-	for _, f := range g.funcs {
-		g.funcDecl(f)
+	for _, fn := range g.funcs {
+		g.funcDecl(fn)
 	}
 	g.initFuncs()
-	g.w.plain("} // namespace " + ns)
-	g.w.blank()
+	f.Decls = append(f.Decls, ns, &cppir.Blank{})
 
-	init := "nullptr"
+	init := cppir.Expr(&cppir.Lit{Text: "nullptr"})
 	if g.varInits || len(g.initFns) > 0 {
-		init = "&gp_init_all"
-		g.w.plain("void gp_init_all() {")
-		g.w.indent()
+		init = &cppir.Unary{Op: "&", X: cxxName("gp_init_all")}
+		body := &cppir.Block{}
 		if g.varInits {
-			g.w.plain(ns + "::gp_var_init();")
+			body.Stmts = append(body.Stmts, &cppir.ExprStmt{X: call(g.ns + "::gp_var_init")})
 		}
 		if len(g.initFns) > 0 {
-			g.w.plain(ns + "::gp_init_funcs();")
+			body.Stmts = append(body.Stmts, &cppir.ExprStmt{X: call(g.ns + "::gp_init_funcs")})
 		}
-		g.w.dedent()
-		g.w.plain("}")
-		g.w.blank()
+		f.Decls = append(f.Decls, &cppir.Func{Result: typeName("void"), Name: "gp_init_all", Body: body}, &cppir.Blank{})
 	}
-	g.w.plain("int main(int argc, char** argv) {")
-	g.w.indent()
-	g.w.plain("return gp::run_main(argc, argv, " + init + ", &" + ns + "::" + g.names[mainFn] + ");")
-	g.w.dedent()
-	g.w.plain("}")
+	run := call("gp::run_main", cxxName("argc"), cxxName("argv"), init, &cppir.Unary{Op: "&", X: cxxName(g.ns + "::" + g.names[mainFn])})
+	f.Decls = append(f.Decls, &cppir.Func{
+		Result: typeName("int"),
+		Name:   "main",
+		Params: []cppir.Param{
+			{Type: typeName("int"), Name: "argc"},
+			{Type: &cppir.Ptr{Elem: &cppir.Ptr{Elem: typeName("char")}}, Name: "argv"},
+		},
+		Body: &cppir.Block{Stmts: []cppir.Stmt{&cppir.Return{X: run}}},
+	})
+	return f
 }
 
 // outputName returns the name of the generated file for its first line: hello.gp.cpp for
@@ -283,14 +277,40 @@ func (g *gen) collectGen(d *ast.GenDecl) {
 	}
 }
 
-// prototypes writes a declaration of every function: C++ needs a declaration before a use, Go
-// doesn't care about the order.
+// prototypes declares every function: C++ needs a declaration before a use, Go doesn't care
+// about the order.
 func (g *gen) prototypes() {
 	for _, f := range g.funcs {
 		f.prepare(g)
-		g.w.plain(f.header + ";")
+		g.decl(&cppir.Func{Result: f.result, Name: f.name, Params: f.params})
 	}
 	if len(g.funcs) > 0 {
-		g.w.blank()
+		g.decl(&cppir.Blank{})
 	}
+}
+
+// Small constructors of cppir nodes.
+
+// cxxName returns the C++ name s, which may be qualified: gp::len.
+func cxxName(s string) *cppir.Name { return &cppir.Name{Name: s} }
+
+// lit returns the C++ literal s.
+func lit(s string) *cppir.Lit { return &cppir.Lit{Text: s} }
+
+// call returns the call fun(args...).
+func call(fun string, args ...cppir.Expr) *cppir.Call {
+	return &cppir.Call{Fun: cxxName(fun), Args: args}
+}
+
+// typeName returns the C++ type named s.
+func typeName(s string) *cppir.TypeName { return &cppir.TypeName{Name: s} }
+
+// varDecl returns the declaration `typ n = init;` (`typ n{};` for an empty InitList) at pos.
+func varDecl(pos cppir.Pos, typ cppir.Type, n string, init cppir.Expr) *cppir.VarDecl {
+	return &cppir.VarDecl{Pos: pos, Type: typ, Vars: []cppir.Declarator{{Name: n, Init: init}}}
+}
+
+// voidCast returns static_cast<void>(x), which evaluates x and drops its value.
+func voidCast(x cppir.Expr) cppir.Expr {
+	return &cppir.Cast{Kind: "static_cast", Type: typeName("void"), X: x}
 }

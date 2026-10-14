@@ -34,7 +34,7 @@
 # Run it when the dev shell gets a new g++ or clang++, and look at the
 # changes with git diff:
 #
-#	nix develop -c internal/cppgen/mkwords.sh
+#	nix develop -c internal/lower/mkwords.sh
 #
 # It works from any folder and takes a few minutes. It needs g++, clang++,
 # strings and ldd. TestWords checks the list with both compilers in make ci.

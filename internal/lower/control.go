@@ -1,4 +1,4 @@
-package cppgen
+package lower
 
 import (
 	"go/ast"
@@ -6,7 +6,8 @@ import (
 	"go/token"
 	"go/types"
 	"strconv"
-	"strings"
+
+	"github.com/huuhait/gocpp/internal/cppir"
 )
 
 // if, for, range and switch (Phase 02 README §2.4).
@@ -42,52 +43,63 @@ import (
 // switch. It returns the temporaries that must run right before the condition (order.go),
 // which each caller puts in its own place: a loop at the top of its body, followed by
 // if (!c) break; an if-else chain in a block of the else branch (chain).
-func (fg *funcGen) cond(e ast.Expr) ([]string, cexpr) {
+func (fg *funcGen) cond(e ast.Expr) ([]cppir.Stmt, cppir.Expr) {
 	pre := fg.order(false, e)
 	return pre, fg.expr(e)
 }
 
-// oneLine returns the statements pre as one line, or none.
-func oneLine(pre []string) []string {
+// oneLine returns the statements pre as one line, or none. Its place is set where it is
+// added.
+func oneLine(pre []cppir.Stmt) []*cppir.Line {
 	if len(pre) == 0 {
 		return nil
 	}
-	return []string{strings.Join(pre, " ")}
+	return []*cppir.Line{{Stmts: pre}}
 }
 
 // An arm is one branch of an if-else chain (chain).
 type arm struct {
-	pos  token.Pos                 // where its if (or its else) is
-	init ast.Stmt                  // the statement before the condition, or nil
-	cond func() ([]string, string) // lines of temporaries, the condition's C++; nil: the else
-	body func()                    // writes the body
+	pos  token.Pos                          // where its if (or its else) is
+	init ast.Stmt                           // the statement before the condition, or nil
+	cond func() ([]*cppir.Line, cppir.Expr) // lines of temporaries, the condition; nil: the else
+	body func()                             // lowers the body
 }
 
-// chain writes an if-else chain of the arms, the last of which may be an else. It
-// translates each condition right before its if line, so the conditions are translated in
-// the order they run. An arm with an init statement or with temporaries for its condition
-// starts a block, the scope of the init, that holds the rest of the chain: { init; if (c) ...
-// }, or } else { init; if (c) ... } in the middle. end is the place of the closing brace.
+// chain lowers an if-else chain of the arms, the last of which may be an else. It
+// translates each condition right before its if, so the conditions are translated in the
+// order they run. An arm with an init statement or with temporaries for its condition starts
+// a block, the scope of the init, that holds the rest of the chain: { init; if (c) ... }, or
+// } else { init; if (c) ... } in the middle. end is the place of the closing brace.
 func (fg *funcGen) chain(arms []arm, end token.Pos) {
-	blocks := 0
-	for i, a := range arms {
-		head := "} else if ("
-		if i == 0 {
-			head = "if ("
-		}
+	blocks := 0        // the blocks that the chain opened, which close at end
+	var prev *cppir.If // the if of the arm before, whose else the next arm is
+	for _, a := range arms {
+		p := fg.g.pos(a.pos)
+		elseOf := prev // the arm is the else of this if, until it opens a block
 		opened := false
 		open := func() {
-			if i == 0 {
-				fg.line(a.pos, "{")
+			blk := &cppir.Block{Pos: p}
+			if elseOf != nil {
+				elseOf.Else = blk
+				fg.fresh = false
 			} else {
-				fg.line(a.pos, "} else {")
+				fg.add(blk)
 			}
-			fg.g.w.indent()
+			fg.push(&blk.Stmts, &blk.End)
 			fg.names.openScope()
 			fg.fresh = true
 			blocks++
-			head = "if ("
+			elseOf = nil
 			opened = true
+		}
+		// attach puts the arm's if or block where it goes.
+		attach := func(s cppir.Stmt) {
+			if elseOf != nil {
+				elseOf.Else = s
+				fg.fresh = false
+			} else {
+				fg.add(s)
+			}
 		}
 		if a.init != nil {
 			open()
@@ -95,6 +107,7 @@ func (fg *funcGen) chain(arms []arm, end token.Pos) {
 			fg.stmt(a.init)
 			blocks += fg.initShadows(mark) // closed with the blocks
 		}
+		var body *cppir.Block
 		switch {
 		case a.cond != nil:
 			lines, c := a.cond()
@@ -102,21 +115,23 @@ func (fg *funcGen) chain(arms []arm, end token.Pos) {
 				open()
 			}
 			for _, l := range lines {
-				fg.line(a.pos, l)
+				l.Pos = p
+				fg.add(l)
 			}
-			fg.line(a.pos, head+c+") {")
-		case i == 0:
-			fg.line(a.pos, "{") // only an else: a switch with only a default
+			body = &cppir.Block{}
+			s := &cppir.If{Pos: p, Cond: c, Then: body}
+			attach(s)
+			prev = s
 		default:
-			fg.line(a.pos, "} else {")
+			// The else, or only an else: a switch with only a default.
+			body = &cppir.Block{Pos: p}
+			attach(body)
 		}
-		fg.inner(a.body)
+		fg.inner(&body.Stmts, &body.End, end, a.body)
 	}
-	fg.line(end, "}")
 	for range blocks {
 		fg.names.closeScope()
-		fg.g.w.dedent()
-		fg.line(end, "}")
+		fg.pop(end)
 	}
 }
 
@@ -128,9 +143,9 @@ func (fg *funcGen) ifStmt(s *ast.IfStmt) {
 		arms = append(arms, arm{
 			pos:  s.If,
 			init: s.Init,
-			cond: func() ([]string, string) {
+			cond: func() ([]*cppir.Line, cppir.Expr) {
 				pre, c := fg.cond(cond)
-				return oneLine(pre), c.text
+				return oneLine(pre), c
 			},
 			body: func() { fg.stmts(body.List, body.Rbrace) },
 		})
@@ -150,17 +165,15 @@ func (fg *funcGen) ifStmt(s *ast.IfStmt) {
 
 // A loop is what loopBody needs to know about a for or range statement.
 type loop struct {
-	stmt     ast.Stmt
-	pos      token.Pos      // the for keyword
-	head     string         // the C++ head: for (...) {, while (c) {
-	check    string         // the condition with its temporaries at the top of the body, or ""
-	checkPos token.Pos      // where the condition is
-	vars     func()         // writes the declarations at the start of each iteration, or nil
-	body     *ast.BlockStmt // the Go body
-	post     ast.Stmt       // a post statement that is not one C++ expression, or nil
+	stmt  ast.Stmt
+	head  cppir.Stmt     // the C++ loop, a *cppir.For or *cppir.While, without its body
+	check *cppir.Line    // the condition with its temporaries at the top of the body, or nil
+	vars  func()         // lowers the declarations at the start of each iteration, or nil
+	body  *ast.BlockStmt // the Go body
+	post  ast.Stmt       // a post statement that is not one C++ expression, or nil
 }
 
-// loopBody writes a loop from its head to its closing brace, and the label after it that a
+// loopBody lowers a loop from its head to its closing brace, and the label after it that a
 // break L needs (flow.go). A condition with temporaries (check) comes first, in the loop's
 // own block, so continue goes to it as to the head's condition. The body is the C++ loop's
 // own block, or, if a goto goes to the end of the body (continue), a block inside it,
@@ -174,10 +187,17 @@ func (fg *funcGen) loopBody(l loop) {
 			fg.contLabels[l.stmt] = fg.names.temp("cont_")
 		}
 	}
-	fg.line(l.pos, l.head)
-	fg.g.w.indent()
-	if l.check != "" {
-		fg.line(l.checkPos, l.check)
+	body := &cppir.Block{}
+	switch h := l.head.(type) {
+	case *cppir.For:
+		h.Body = body
+	case *cppir.While:
+		h.Body = body
+	}
+	fg.add(l.head)
+	fg.push(&body.Stmts, &body.End)
+	if l.check != nil {
+		fg.add(l.check)
 	}
 	if l.vars != nil {
 		l.vars()
@@ -185,7 +205,7 @@ func (fg *funcGen) loopBody(l loop) {
 	if shaped {
 		fg.block(l.body)
 		if label := fg.contLabels[l.stmt]; label != "" {
-			fg.line(l.body.Rbrace, label+":;")
+			fg.add(&cppir.Label{Pos: fg.g.pos(l.body.Rbrace), Name: label})
 		}
 		if l.post != nil {
 			fg.stmt(l.post)
@@ -193,48 +213,48 @@ func (fg *funcGen) loopBody(l loop) {
 	} else {
 		// The C++ body has the loop's own variables (see the top), so it is fresh only for a
 		// loop without them (declLines).
-		fg.fresh = l.vars == nil && l.check == "" && fg.g.info.Scopes[l.stmt].Len() == 0
+		fg.fresh = l.vars == nil && l.check == nil && fg.g.info.Scopes[l.stmt].Len() == 0
 		fg.stmts(l.body.List, l.body.Rbrace)
 	}
-	fg.g.w.dedent()
-	fg.line(l.body.Rbrace, "}")
+	fg.pop(l.body.Rbrace)
 }
 
-// breakLabel writes the label after the statement s that a break L goes to, if one does.
+// breakLabel adds the label after the statement s that a break L goes to, if one does.
 func (fg *funcGen) breakLabel(s ast.Stmt, end token.Pos) {
 	if fg.flow.breakLabel[s] {
-		fg.line(end, fg.flow.labelName(s, "break")+":;")
+		fg.add(&cppir.Label{Pos: fg.g.pos(end), Name: fg.flow.labelName(s, "break")})
 	}
 }
 
-// open starts a block, a scope, at pos: { (for an init statement or temporaries).
+// open starts a block, a scope, at pos (for an init statement or temporaries).
 func (fg *funcGen) open(pos token.Pos) {
-	fg.line(pos, "{")
-	fg.g.w.indent()
+	blk := &cppir.Block{Pos: fg.g.pos(pos)}
+	fg.add(blk)
+	fg.push(&blk.Stmts, &blk.End)
 	fg.names.openScope()
 	fg.fresh = true
 }
 
-// close ends the block of open.
+// close ends the block of open, at pos.
 func (fg *funcGen) close(pos token.Pos) {
 	fg.names.closeScope()
-	fg.g.w.dedent()
-	fg.line(pos, "}")
+	fg.pop(pos)
 }
 
 func (fg *funcGen) forStmt(s *ast.ForStmt) {
 	end := s.Body.Rbrace
 	fg.names.openScope() // the init and the body (see the top)
 	wrapped := false
-	shadows := 0 // the blocks that the init opened for shadowing variables (declLines)
-	init := ""
+	shadows := 0 // the Scopes that the init opened for shadowing variables (declLines)
+	var init cppir.Stmt
 	if s.Init != nil {
-		if text, ok := fg.forInit(s.Init); ok {
-			init = text
+		if st, ok := fg.forInit(s.Init); ok {
+			init = st
 		} else {
 			// { a, b := f(); for (; ...) {...} }
-			fg.line(s.For, "{")
-			fg.g.w.indent()
+			blk := &cppir.Block{Pos: fg.g.pos(s.For)}
+			fg.add(blk)
+			fg.push(&blk.Stmts, &blk.End)
 			fg.fresh = true
 			wrapped = true
 			mark := fg.shadows
@@ -242,22 +262,22 @@ func (fg *funcGen) forStmt(s *ast.ForStmt) {
 			shadows = fg.initShadows(mark)
 		}
 	}
-	l := loop{stmt: s, pos: s.For, body: s.Body}
-	cond := ""
+	l := loop{stmt: s, body: s.Body}
+	var cond cppir.Expr
 	if s.Cond != nil {
 		pre, c := fg.cond(s.Cond)
 		if len(pre) > 0 {
 			// The temporaries run before every evaluation of the condition.
-			l.check = strings.Join(pre, " ") + " if (!" + c.at(precUnary) + ") break;"
-			l.checkPos = s.Cond.Pos()
+			stop := &cppir.If{Cond: &cppir.Unary{Op: "!", X: c}, Then: &cppir.Break{}}
+			l.check = &cppir.Line{Pos: fg.g.pos(s.Cond.Pos()), Stmts: append(pre, stop)}
 		} else {
-			cond = c.text
+			cond = c
 		}
 	}
-	post := ""
+	var post cppir.Expr
 	if s.Post != nil {
 		if fg.postInHead(s.Post) {
-			var pre []string
+			var pre []cppir.Stmt
 			pre, post = fg.simple(s.Post)
 			if len(pre) > 0 {
 				fg.g.errorf(s.Post.Pos(), "internal error: a post statement with temporaries in the head")
@@ -266,58 +286,47 @@ func (fg *funcGen) forStmt(s *ast.ForStmt) {
 			l.post = s.Post
 		}
 	}
-	switch {
-	case init == "" && post == "" && cond == "":
-		l.head = "for (;;) {"
-	case init == "" && post == "":
-		l.head = "while (" + cond + ") {"
-	default:
-		l.head = "for (" + init + ";"
-		if cond != "" {
-			l.head += " " + cond
-		}
-		l.head += ";"
-		if post != "" {
-			l.head += " " + post
-		}
-		l.head += ") {"
+	p := fg.g.pos(s.For)
+	if init == nil && post == nil && cond != nil {
+		l.head = &cppir.While{Pos: p, Cond: cond}
+	} else {
+		l.head = &cppir.For{Pos: p, Init: init, Cond: cond, Post: post} // for (;;) without any
 	}
 	fg.loopBody(l)
 	if wrapped {
 		fg.shadows += shadows
 		fg.closeShadows(fg.shadows-shadows, end)
-		fg.g.w.dedent()
-		fg.line(end, "}")
+		fg.pop(end)
 	}
 	fg.names.closeScope()
 	fg.breakLabel(s, end)
 }
 
-// forInit returns the C++ init statement of a 3-clause for, without the ;, if the Go init
-// statement is one: a simple statement that is one C++ expression, or a := whose values all
-// go into new variables of one C++ type (int64_t i = 0, j = n), without temporaries
-// (order.go, bind). It returns false for the others, which go before the loop.
-func (fg *funcGen) forInit(s ast.Stmt) (string, bool) {
+// forInit returns the C++ init statement of a 3-clause for, if the Go init statement is one:
+// a simple statement that is one C++ expression, or a := whose values all go into new
+// variables of one C++ type (int64_t i = 0, j = n), without temporaries (order.go, bind). It
+// returns false for the others, which go before the loop.
+func (fg *funcGen) forInit(s ast.Stmt) (cppir.Stmt, bool) {
 	if oneExpr(s) {
 		if fg.needsPre(false, simpleScope(s)...) {
-			return "", false
+			return nil, false
 		}
-		_, text := fg.simple(s)
-		return text, true
+		_, x := fg.simple(s)
+		return &cppir.ExprStmt{X: x}, true
 	}
 	a, ok := s.(*ast.AssignStmt)
 	if !ok || a.Tok != token.DEFINE || len(a.Lhs) != len(a.Rhs) || fg.needsPre(true, a.Rhs...) {
-		return "", false
+		return nil, false
 	}
-	typ := ""
+	var typ cppir.Type
 	for _, e := range a.Lhs {
 		obj, ok := fg.g.info.Defs[e.(*ast.Ident)].(*types.Var)
 		if !ok || isBlank(e) {
-			return "", false // _ or a variable that exists
+			return nil, false // _ or a variable that exists
 		}
 		t := fg.g.cxxType(obj.Type(), e.Pos())
-		if typ != "" && t != typ {
-			return "", false
+		if typ != nil && cppir.TypeString(t) != cppir.TypeString(typ) {
+			return nil, false
 		}
 		typ = t
 	}
@@ -327,7 +336,7 @@ func (fg *funcGen) forInit(s ast.Stmt) (string, bool) {
 		used := fg.usedNames([]ast.Expr{e})
 		for _, id := range a.Lhs[:i+1] {
 			if used[Escape(id.(*ast.Ident).Name)] {
-				return "", false
+				return nil, false
 			}
 		}
 	}
@@ -340,14 +349,14 @@ func (fg *funcGen) forInit(s ast.Stmt) (string, bool) {
 		}
 	}
 	fg.order(true, a.Rhs...) // the declarators are evaluated in order; nothing goes in front
-	parts := make([]string, len(targets))
+	d := &cppir.VarDecl{Type: typ}
 	for i, t := range targets {
-		parts[i] = t.name + " = " + fg.expr(a.Rhs[i]).text
+		d.Vars = append(d.Vars, cppir.Declarator{Name: t.name, Init: fg.expr(a.Rhs[i])})
 	}
-	return typ + " " + strings.Join(parts, ", "), true
+	return d, true
 }
 
-// rangeStmt writes a range loop. Phase 02 has range over an integer n: a hidden counter goes
+// rangeStmt lowers a range loop. Phase 02 has range over an integer n: a hidden counter goes
 // from 0 to n-1, n is evaluated once (with its temporaries, if it needs any, in a block in
 // front), and the range variable is a copy of the counter, so assigning to it in the body
 // doesn't change the iteration (Go 1.22). A variable that exists (for i = range n) is
@@ -362,20 +371,20 @@ func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 	// The type of the counter (the spec, "For statements with range clause"): n's type, or
 	// for an untyped constant n the type of a variable that exists, or else int.
 	t := xt
-	var key *types.Var // a new range variable
-	assigned := ""     // the C++ of a variable that exists
+	var key *types.Var      // a new range variable
+	var assigned cppir.Expr // the C++ of a variable that exists
 	if s.Key != nil && !isBlank(s.Key) {
 		if s.Tok == token.DEFINE {
 			key, _ = fg.g.info.Defs[s.Key.(*ast.Ident)].(*types.Var)
 		} else {
-			assigned = fg.expr(s.Key).text
+			assigned = fg.expr(s.Key)
 		}
 	}
 	if b.Info()&types.IsUntyped != 0 {
 		switch {
 		case key != nil:
 			t = key.Type()
-		case assigned != "":
+		case assigned != nil:
 			t = fg.g.info.TypeOf(s.Key)
 		default:
 			t = types.Typ[types.Int]
@@ -386,24 +395,33 @@ func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 	pre := fg.order(false, s.X)
 	if len(pre) > 0 {
 		fg.open(s.For)
-		fg.line(s.X.Pos(), strings.Join(pre, " "))
+		fg.add(&cppir.Line{Pos: fg.g.pos(s.X.Pos()), Stmts: pre})
 	}
 	fg.names.openScope() // the range variable and the body (see the top)
 	i := fg.names.temp("i")
-	head := "for (" + ct + " " + i + " = 0"
+	init := varDecl(cppir.Pos{}, ct, i, lit("0"))
+	var limit cppir.Expr
 	if v := fg.constValue(s.X); v != nil {
-		head += "; " + i + " < " + fg.g.constant(v, t, s.X.Pos(), false).at(precShift)
+		limit = at(fg.g.constant(v, t, s.X.Pos(), false), precShift)
 	} else {
 		n := fg.names.temp("n")
-		head += ", " + n + " = " + fg.expr(s.X).text + "; " + i + " < " + n
+		init.Vars = append(init.Vars, cppir.Declarator{Name: n, Init: fg.expr(s.X)})
+		limit = cxxName(n)
 	}
-	head += "; " + i + "++) {"
-	l := loop{stmt: s, pos: s.For, head: head, body: s.Body}
+	head := &cppir.For{
+		Pos:  fg.g.pos(s.For),
+		Init: init,
+		Cond: &cppir.Binary{Op: "<", X: cxxName(i), Y: limit},
+		Post: &cppir.Postfix{X: cxxName(i), Op: "++"},
+	}
+	l := loop{stmt: s, head: head, body: s.Body}
 	switch {
 	case key != nil:
-		l.vars = func() { fg.line(s.Key.Pos(), ct+" "+fg.names.declare(key)+" = "+i+";") }
-	case assigned != "":
-		l.vars = func() { fg.line(s.Key.Pos(), assigned+" = "+i+";") }
+		l.vars = func() { fg.add(varDecl(fg.g.pos(s.Key.Pos()), ct, fg.names.declare(key), cxxName(i))) }
+	case assigned != nil:
+		l.vars = func() {
+			fg.add(&cppir.ExprStmt{Pos: fg.g.pos(s.Key.Pos()), X: &cppir.Assign{Op: "=", X: assigned, Y: cxxName(i)}})
+		}
 	}
 	fg.loopBody(l)
 	fg.names.closeScope()
@@ -427,7 +445,16 @@ func rangeKind(t types.Type) string {
 	return "range over " + types.TypeString(t, nil) + " (Phase 03)"
 }
 
-// switchStmt writes a switch statement. Go evaluates the tag once, then the case expressions
+// withLead returns s, with the statements lead in front of it on its first line (a Line), if
+// there are any.
+func withLead(pos cppir.Pos, lead []cppir.Stmt, s cppir.Stmt) cppir.Stmt {
+	if len(lead) == 0 {
+		return s
+	}
+	return &cppir.Line{Pos: pos, Stmts: append(lead, s)}
+}
+
+// switchStmt lowers a switch statement. Go evaluates the tag once, then the case expressions
 // one by one in source order, only until one matches; default runs if none does, wherever it
 // is. There are three shapes:
 //
@@ -463,18 +490,18 @@ func (fg *funcGen) switchStmt(s *ast.SwitchStmt) {
 			wrapped = true
 		}
 	}
-	shadows := 0 // the blocks that the init opened for shadowing variables (declLines)
+	shadows := 0 // the Scopes that the init opened for shadowing variables (declLines)
 	if s.Init != nil {
 		wrap()
 		mark := fg.shadows
 		fg.stmt(s.Init)
 		shadows = fg.initShadows(mark)
 	}
-	tagPre := "" // the temporaries of the tag, in front of the line that evaluates it
+	var tagPre []cppir.Stmt // the temporaries of the tag, in front of the line that evaluates it
 	if s.Tag != nil {
 		if pre := fg.order(false, s.Tag); len(pre) > 0 {
 			wrap()
-			tagPre = strings.Join(pre, " ") + " "
+			tagPre = pre
 		}
 	}
 	clauses := make([]*ast.CaseClause, len(s.Body.List))
@@ -484,38 +511,38 @@ func (fg *funcGen) switchStmt(s *ast.SwitchStmt) {
 		cases = cases || clauses[i].List != nil
 	}
 
+	p := fg.g.pos(s.Switch)
 	if fg.integerSwitch(s, clauses) {
-		fg.line(s.Switch, tagPre+"switch ("+fg.expr(s.Tag).text+") {")
+		sw := &cppir.Switch{Pos: p, Tag: fg.expr(s.Tag)}
+		fg.add(withLead(p, tagPre, sw))
 		for _, c := range clauses {
-			label := "default:"
-			if c.List != nil {
-				labels := make([]string, len(c.List))
-				for i, e := range c.List {
-					labels[i] = "case " + fg.expr(e).text + ":" // a constant
-				}
-				label = strings.Join(labels, " ")
+			var values []cppir.Expr // nil: default
+			for _, e := range c.List {
+				values = append(values, fg.expr(e)) // a constant
 			}
-			fg.caseBody(c, label)
+			fg.caseBody(sw, c, values)
 		}
-		fg.line(end, "}")
+		sw.End = fg.g.pos(end)
 	} else {
-		tag := ""
+		var tag cppir.Expr // nil: no tag
 		if s.Tag != nil {
+			tp := fg.g.pos(s.Tag.Pos())
 			switch {
 			case fg.constValue(s.Tag) != nil || fg.isLocal(s.Tag):
-				tag = fg.expr(s.Tag).at(precShift)
+				tag = at(fg.expr(s.Tag), precShift)
 			case !cases:
-				fg.line(s.Tag.Pos(), tagPre+"static_cast<void>("+fg.expr(s.Tag).text+");")
+				fg.add(withLead(tp, tagPre, &cppir.ExprStmt{Pos: tp, X: voidCast(fg.expr(s.Tag))}))
 			default:
 				wrap()
-				tag = fg.names.temp("tag")
-				fg.line(s.Tag.Pos(), tagPre+"auto "+tag+" = "+fg.exactExpr(s.Tag).text+";")
+				t := fg.names.temp("tag")
+				tag = cxxName(t)
+				fg.add(withLead(tp, tagPre, varDecl(tp, typeName("auto"), t, fg.exactExpr(s.Tag))))
 			}
 		}
 		boolTag := s.Tag != nil && basicOf(fg.g.info.TypeOf(s.Tag)) != nil &&
 			basicOf(fg.g.info.TypeOf(s.Tag)).Info()&types.IsBoolean != 0
-		caseCond := func(c *ast.CaseClause) func() ([]string, string) {
-			return func() ([]string, string) { return fg.caseCond(tag, boolTag, c.List) }
+		caseCond := func(c *ast.CaseClause) func() ([]*cppir.Line, cppir.Expr) {
+			return func() ([]*cppir.Line, cppir.Expr) { return fg.caseCond(tag, boolTag, c.List) }
 		}
 		var arms []arm
 		var def *ast.CaseClause
@@ -536,27 +563,29 @@ func (fg *funcGen) switchStmt(s *ast.SwitchStmt) {
 		} else {
 			wrap()
 			index := fg.names.temp("case")
-			fg.line(s.Switch, "int "+index+" = -1;")
+			fg.add(varDecl(p, typeName("int"), index, &cppir.Unary{Op: "-", X: lit("1")}))
 			n := 0
-			labels := make([]string, len(clauses))
+			values := make([][]cppir.Expr, len(clauses))
 			for i, c := range clauses {
 				if c.List == nil {
-					labels[i] = "default:"
-					continue
+					continue // default
 				}
 				k := strconv.Itoa(n)
 				n++
-				labels[i] = "case " + k + ":"
-				arms = append(arms, arm{pos: c.Case, cond: caseCond(c), body: func() { fg.line(c.Case, index+" = "+k+";") }})
+				values[i] = []cppir.Expr{lit(k)}
+				arms = append(arms, arm{pos: c.Case, cond: caseCond(c), body: func() {
+					fg.add(&cppir.ExprStmt{Pos: fg.g.pos(c.Case), X: &cppir.Assign{Op: "=", X: cxxName(index), Y: lit(k)}})
+				}})
 			}
 			if arms != nil {
 				fg.chain(arms, arms[len(arms)-1].pos)
 			}
-			fg.line(s.Switch, "switch ("+index+") {")
+			sw := &cppir.Switch{Pos: p, Tag: cxxName(index)}
+			fg.add(sw)
 			for i, c := range clauses {
-				fg.caseBody(c, labels[i])
+				fg.caseBody(sw, c, values[i])
 			}
-			fg.line(end, "}")
+			sw.End = fg.g.pos(end)
 		}
 	}
 	if wrapped {
@@ -603,56 +632,69 @@ func (fg *funcGen) isLocal(e ast.Expr) bool {
 }
 
 // caseCond returns the C++ condition of a case with the expressions list: each one compared
-// with the tag (the C++ of the tag, "" for a switch without one), joined with ||, which
-// evaluates them in order and only until one matches, as Go does. It returns the lines of
-// temporaries that go before the condition too. An expression after the first that needs
-// temporaries would run them too early, so from there on the condition is a bool temporary
-// that each expression sets only if the ones before it didn't match, as gc does for ||, one
-// line for each:
+// with the tag (nil for a switch without one), joined with ||, which evaluates them in order
+// and only until one matches, as Go does. It returns the lines of temporaries that go before
+// the condition too. An expression after the first that needs temporaries would run them too
+// early, so from there on the condition is a bool temporary that each expression sets only if
+// the ones before it didn't match, as gc does for ||, one line for each:
 //
 //	bool gp_t0 = gp_tag0 == 1;
 //	if (!gp_t0) { auto gp_t1 = g(); gp_t0 = gp_tag0 == f(x, gp_t1); }
-func (fg *funcGen) caseCond(tag string, boolTag bool, list []ast.Expr) ([]string, string) {
+func (fg *funcGen) caseCond(tag cppir.Expr, boolTag bool, list []ast.Expr) ([]*cppir.Line, cppir.Expr) {
 	lazy := -1 // the first expression after the first one that needs temporaries
 	for i, e := range list {
 		if i > 0 && lazy < 0 && fg.needsPre(false, e) {
 			lazy = i
 		}
 	}
-	parts := make([]string, len(list))
-	pres := make([][]string, len(list))
+	parts := make([]cppir.Expr, len(list))
+	pres := make([][]cppir.Stmt, len(list))
 	t := ""
 	for i, e := range list {
 		if i == lazy {
 			t = fg.names.temp("t") // before the temporaries that it guards
 		}
-		if tag == "" {
-			var c cexpr
+		if tag == nil {
+			var c cppir.Expr
 			pres[i], c = fg.cond(e)
 			if len(list) > 1 {
-				parts[i] = c.at(precBitOr) // (a && b) || c: g++ -Wall asks for them
+				parts[i] = at(c, precBitOr) // (a && b) || c: g++ -Wall asks for them
 			} else {
-				parts[i] = c.text
+				parts[i] = c
 			}
 		} else if v := fg.constValue(e); boolTag && v != nil {
 			// A bool tag and a constant case: b or !b, not b == true.
 			parts[i] = tag
 			if !constant.BoolVal(v) {
-				parts[i] = "!" + tag
+				parts[i] = &cppir.Unary{Op: "!", X: tag}
 			}
 		} else {
 			pres[i] = fg.order(false, e)
-			parts[i] = tag + " == " + fg.expr(e).at(precShift)
+			parts[i] = &cppir.Binary{Op: "==", X: tag, Y: at(fg.expr(e), precShift)}
 		}
 	}
 	if lazy < 0 {
-		return oneLine(pres[0]), strings.Join(parts, " || ")
+		return oneLine(pres[0]), orList(parts)
 	}
-	lines := oneLine(append(pres[0], "bool "+t+" = "+strings.Join(parts[:lazy], " || ")+";"))
+	lines := oneLine(append(pres[0], varDecl(cppir.Pos{}, typeName("bool"), t, orList(parts[:lazy]))))
 	for i := lazy; i < len(list); i++ {
-		lines = append(lines, "if (!"+t+") { "+strings.Join(append(pres[i], t+" = "+parts[i]+";"), " ")+" }")
+		set := &cppir.ExprStmt{X: &cppir.Assign{Op: "=", X: cxxName(t), Y: parts[i]}}
+		guard := &cppir.If{
+			Cond: &cppir.Unary{Op: "!", X: cxxName(t)},
+			Then: &cppir.Block{Stmts: append(pres[i], set), Inline: true},
+		}
+		lines = append(lines, &cppir.Line{Stmts: []cppir.Stmt{guard}})
 	}
-	return lines, t
+	return lines, cxxName(t)
+}
+
+// orList returns the expressions joined with ||: a || b || c.
+func orList(list []cppir.Expr) cppir.Expr {
+	x := list[0]
+	for _, y := range list[1:] {
+		x = &cppir.Binary{Op: "||", X: x, Y: y}
+	}
+	return x
 }
 
 // fallsThrough reports whether a clause ends with fallthrough.
@@ -702,17 +744,15 @@ func lastStmt(list []ast.Stmt) ast.Stmt {
 	return nil
 }
 
-// caseBody writes a clause of a C++ switch: its labels, and its body as a block, which is
-// followed by break unless it ends with a jump (fallthrough falls into the next case): one
-// line, } break;, so that the end of a case needs no more #line.
-func (fg *funcGen) caseBody(c *ast.CaseClause, label string) {
-	fg.line(c.Case, label+" {")
-	fg.inner(func() { fg.stmts(c.Body, clauseEnd(c)) })
-	if endsWithJump(c) {
-		fg.line(clauseEnd(c), "}")
-	} else {
-		fg.line(clauseEnd(c), "} break;")
-	}
+// caseBody adds the clause c to the C++ switch sw, with the case values (nil: default): its
+// body is a block, which is followed by break unless it ends with a jump (fallthrough falls
+// into the next case). The printer writes them on one line, } break;, so that the end of a
+// case needs no more #line.
+func (fg *funcGen) caseBody(sw *cppir.Switch, c *ast.CaseClause, values []cppir.Expr) {
+	cs := &cppir.Case{Pos: fg.g.pos(c.Case), Values: values, Break: !endsWithJump(c)}
+	sw.Cases = append(sw.Cases, cs)
+	fg.fresh = false
+	fg.inner(&cs.Body, &cs.End, clauseEnd(c), func() { fg.stmts(c.Body, clauseEnd(c)) })
 }
 
 // clauseEnd returns the place of the end of a clause: its last statement, or the colon.

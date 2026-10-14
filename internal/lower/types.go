@@ -1,9 +1,10 @@
-package cppgen
+package lower
 
 import (
 	"go/token"
 	"go/types"
-	"strings"
+
+	"github.com/huuhait/gocpp/internal/cppir"
 )
 
 // The C++ spelling of gocpp types (docs/spec/cpp-mapping.md, "Types").
@@ -65,29 +66,29 @@ func basicOf(t types.Type) *types.Basic {
 
 // cxxType returns the C++ spelling of t. For a type that Phase 02 doesn't have, it reports
 // "not supported yet" at pos and returns a placeholder.
-func (g *gen) cxxType(t types.Type, pos token.Pos) string {
+func (g *gen) cxxType(t types.Type, pos token.Pos) cppir.Type {
 	switch t := types.Unalias(t).(type) {
 	case *types.Basic:
 		if s := basicTypes[t.Kind()]; s != "" {
-			return s
+			return typeName(s)
 		}
 	case *types.Tuple:
-		parts := make([]string, t.Len())
+		args := make([]cppir.Node, t.Len())
 		for i := range t.Len() {
-			parts[i] = g.cxxType(t.At(i).Type(), pos)
+			args[i] = g.cxxType(t.At(i).Type(), pos)
 		}
-		return "std::tuple<" + strings.Join(parts, ", ") + ">"
+		return &cppir.TypeName{Name: "std::tuple", Args: args}
 	}
 	g.unsupported(pos, "type "+types.TypeString(t, types.RelativeTo(g.pkg.Types)))
-	return "gp_unsupported"
+	return typeName("gp_unsupported")
 }
 
 // resultType returns the C++ result type of a function with the signature sig: void, the one
 // result's type, or a std::tuple of the results.
-func (g *gen) resultType(sig *types.Signature, pos token.Pos) string {
+func (g *gen) resultType(sig *types.Signature, pos token.Pos) cppir.Type {
 	switch r := sig.Results(); r.Len() {
 	case 0:
-		return "void"
+		return typeName("void")
 	case 1:
 		return g.cxxType(r.At(0).Type(), pos)
 	default:
