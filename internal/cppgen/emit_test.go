@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -128,9 +129,31 @@ func TestEmit(t *testing.T) {
 			if !strings.HasSuffix(prog, ".gp") {
 				gps, _ = filepath.Glob(filepath.Join(prog, "*.gp"))
 			}
-			checkRuns(t, emit, goResult(t, gps...))
+			goWant := goResult(t, gps...)
+			if arch := goarchOnly(t, gps[0]); arch != "" && arch != runtime.GOARCH {
+				t.Logf("the output is compared with Go's only on %s (Phase 02 README §2.3)", arch)
+				goWant = nil
+			}
+			checkRuns(t, emit, goWant)
 		})
 	}
+}
+
+// goarchOnly returns the GOARCH of a "// goarch: amd64" line in the .gp file, or "". Such a
+// program prints what Go prints only on that architecture: Go's float-to-integer conversions
+// of out-of-range values depend on the CPU, and gocpp copies amd64's (gp::f2i).
+func goarchOnly(t *testing.T, gp string) string {
+	t.Helper()
+	src, err := os.ReadFile(gp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range strings.Split(string(src), "\n") {
+		if arch, ok := strings.CutPrefix(l, "// goarch: "); ok {
+			return strings.TrimSpace(arch)
+		}
+	}
+	return ""
 }
 
 // checkRuns writes the C++ of a program to a file (with Config.OutputPath set to it), builds
@@ -216,8 +239,16 @@ func goResult(t *testing.T, gps ...string) *result {
 		t.Fatalf("go build %s: exit code %d %v\n%s", strings.Join(gps, " "), code, err, out)
 	}
 	r := run(t, dir, bin)
+	// After this line Go prints the stack trace of a panic, which gocpp doesn't have yet
+	// (Phase 03): the output is compared up to it.
+	if i := strings.Index(r.stderr, goStackMark); i >= 0 {
+		r.stderr = r.stderr[:i+len(goStackMark)]
+	}
 	return &r
 }
+
+// goStackMark is the line of a panic message after which Go prints the stack trace.
+const goStackMark = "goroutine 1 [running]:\n"
 
 // TestExampleHello builds examples/hello, the milestone M1 program, and checks that it
 // prints its output.txt.
@@ -243,9 +274,7 @@ func TestUnsupported(t *testing.T) {
 		{"for", "func main() {\n\tfor {\n\t}\n}", "main.gp:4:2: cppgen: not supported yet: for statements (step 2.4)"},
 		{"switch", "func main() {\n\tswitch {\n\t}\n}", "main.gp:4:2: cppgen: not supported yet: switch statements (step 2.4)"},
 		{"incdec", "func main() {\n\tx := 1\n\tx++\n\tprintln(x)\n}", "main.gp:5:2: cppgen: not supported yet: ++ and -- (step 2.4)"},
-		{"div", "func f(a, b int) int {\n\treturn a / b\n}\nfunc main() { println(f(1, 2)) }", "main.gp:4:11: cppgen: not supported yet: the operator / (step 2.3)"},
-		{"small", "func f(a, b uint8) uint8 {\n\treturn a + b\n}\nfunc main() { println(f(1, 2)) }", "main.gp:4:9: cppgen: not supported yet: arithmetic on uint8 (the small-integer rule, step 2.3)"},
-		{"conversion", "func main() {\n\tx := 1\n\tprintln(int32(x))\n}", "main.gp:5:10: cppgen: not supported yet: conversions (step 2.3)"},
+		{"stringconv", "func main() {\n\tr := 'x'\n\tprintln(string(r))\n}", "main.gp:5:10: cppgen: not supported yet: conversions between strings and bytes, runes or integers (Phase 03)"},
 		{"method", "type T int\nfunc (T) M() {}\nfunc main() {}", "main.gp:3:1: cppgen: not supported yet: type declarations (Phase 03)"},
 		{"funcvalue", "func g() {}\nfunc main() {\n\tf := g\n\tf()\n}", "main.gp:5:2: cppgen: not supported yet: type func()"},
 		{"funcvalue2", "func g() {}\nfunc main() {\n\tprintln(g == nil)\n}", "main.gp:5:10: cppgen: not supported yet: function values (Phase 03)"},
@@ -332,4 +361,54 @@ func TestRuntimeFuncNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkRuns(t, emitter(gp), goResult(t, gp))
+}
+
+// TestPanics checks the run-time panics of expressions (division by zero, a negative shift
+// count, a string index out of range) and the builtin panic with values of basic types: each
+// program prints what it prints with Go, exits with code 2, and stderr is Go's up to the
+// "goroutine 1 [running]:" line (goResult).
+func TestPanics(t *testing.T) {
+	tests := []struct{ name, body string }{
+		{"div", "a, b := 7, 0\n\tfmt.Println(\"before\", a/2)\n\tfmt.Println(a / b)"},
+		{"div8", "var a, b int8 = -128, 0\n\tfmt.Println(a / b)"},
+		{"divu", "var a, b uint = 7, 0\n\tfmt.Println(a / b)"},
+		{"rem", "a, b := 7, 0\n\tfmt.Println(a % b)"},
+		{"rem16", "var a, b uint16 = 7, 0\n\tfmt.Println(a % b)"},
+		{"shl", "x, n := 1, -1\n\tfmt.Println(x << n)"},
+		{"shr8", "var x int64 = 1\n\tvar n int8 = -128\n\tfmt.Println(x >> n)"},
+		{"index", "s, i := \"abc\", 5\n\tfmt.Println(s[i])"},
+		{"index-len", "s := \"abc\"\n\tfmt.Println(s[len(s)])"},
+		{"index-neg", "s, i := \"abc\", -1\n\tfmt.Println(s[i])"},
+		{"index-uint", "var i uint64 = 18446744073709551615\n\ts := \"abc\"\n\tfmt.Println(s[i])"},
+		{"index-empty", "var s string\n\tfmt.Println(s[0])"},
+		{"panic-str", "s := \"bo\"\n\tpanic(s + \"om\")"},
+		{"panic-const", "panic(\"multi\\nline\")"},
+		{"panic-int", "panic(42)"},
+		{"panic-int8", "var x int8 = -7\n\tpanic(x * 2)"},
+		{"panic-uint", "var x uint64 = 1 << 63\n\tpanic(x)"},
+		{"panic-float", "panic(1.5)"},
+		{"panic-float32", "var f float32 = 0.1\n\tpanic(f)"},
+		{"panic-bool", "x := 1\n\tpanic(x > 0)"},
+		{"panic-rune", "panic('x')"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			src := "package main\n\n"
+			if strings.Contains(tt.body, "fmt.") {
+				src += "import \"fmt\"\n\n"
+			}
+			src += "func main() {\n\t" + tt.body + "\n}\n"
+			gp := filepath.Join(dir, "main.gp")
+			if err := os.WriteFile(gp, []byte(src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			want := goResult(t, gp)
+			if want != nil && want.code != 2 {
+				t.Fatalf("with Go, the program exits with %d, not with a panic:\n%s", want.code, want.stderr)
+			}
+			checkRuns(t, emitter(gp), want)
+		})
+	}
 }

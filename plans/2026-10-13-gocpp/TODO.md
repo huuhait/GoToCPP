@@ -23,8 +23,9 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [ ] One rule for "is this C" in the gates (from the 1.11 review): `embedsOpaque` only sees this package's C type names, so a struct embedding `lib.T` (with `type T C.Foo` in lib) misses the Phase 12 promoted-member gate. Use `Package.Opaque.TypeExpr(obj) != nil` for this package and the opaque pass's other-package rule (give it to the next job that touches `internal/check/gatewalk.go`; 1.11 is in)
 - [ ] `internal/load` tests fail on Windows (under Wine, 41 FAIL lines, also on 1301b21): expectations with `/` where the output has `\`, Wine's "File not found." message, TestFset assuming `/opt/gocpp/stdlib` is absolute. Also a design question: the default StdlibDir `$GOCPP/stdlib` is not an absolute path on Windows, while diag's short names expect absolute file names. Owner: Phase 14 (Windows) at the latest; earlier if a job touches the loader tests (from the 1.14 review)
 - [ ] `gocpp check -types`: a definition that takes its type from an opaque value (`v := std.vector[int]{}`) or a function with C parameters prints go/types' raw `invalid type`; print `opaque` there too (from job 1.14)
-- [ ] The gates reject a call through a parenthesized function name, `(g)(1)`, as "function values … (Phase 03)" at Phase 02 (from job 2.3); give it to the next job that touches `internal/check/gatewalk.go`
+- [ ] The gates reject a call through a parenthesized function name, `(g)(1)` and `(fmt.Println)(1)`, as "function values … (Phase 03)" at Phase 02: unparen the callee before the function-value check (from job 2.3); give it to the next job that touches `internal/check/gatewalk.go`
 - [ ] Phase 02 README §2.2 file table: add `ops.go` (operators, conversions, `s[i]`, `len`, `panic`; from job 2.3)
+- [ ] `docs/spec/cpp-mapping.md:80` maps `uintptr` to `uintptr_t`; the emitter writes `uint64_t` (job 2.1 decision): fix the doc (from the 2.3 review)
 - [ ] `docs/adr/README.md`: describe dated amendments (like ADR-002's printer line), not only superseding (from job 1.5)
 
 ## Any time (parallel, low risk)

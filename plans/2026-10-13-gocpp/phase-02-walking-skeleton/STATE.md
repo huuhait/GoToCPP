@@ -1,6 +1,6 @@
 # Phase 02: Walking Skeleton · STATE
 
-**Status:** `[~]` in progress (steps 2.1, 2.2, 2.6 and 2.7 done)
+**Status:** `[~]` in progress (steps 2.1, 2.2, 2.3, 2.6 and 2.7 done)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
@@ -12,13 +12,13 @@
   - [x] the runtime's macro names (`EOF`, `errno`, `assert`, `stdin`, …)
   - [x] `gp_` temporaries
   - [x] shadowing renames (`v := v`, `x := x + 1`)
-- [~] 2.3 Expressions
-  - [ ] constants via `go/constant` (all basic types, big values)
-  - [ ] string literal escaping (octal, never `\x`)
-  - [ ] operators (incl. `&^`, unary `^`) + **small-integer cast rule** (int8/int16/uint8/uint16)
-  - [ ] `gp::div/rem/shl/shr/f2i` (return the Go type; `MIN/-1`, `MIN%-1`, per-type float→int)
-  - [ ] conversions between basic types
-  - [ ] calls
+- [x] 2.3 Expressions
+  - [x] constants via `go/constant` (all basic types, big values)
+  - [x] string literal escaping (octal, never `\x`)
+  - [x] operators (incl. `&^`, unary `^`) + **small-integer cast rule** (int8/int16/uint8/uint16)
+  - [x] `gp::div/rem/shl/shr/f2i` (return the Go type; `MIN/-1`, `MIN%-1`, per-type float→int)
+  - [x] conversions between basic types
+  - [x] calls
 - [ ] 2.4 Statements
   - [ ] `var`, `:=`, `=`, parallel assignment, op-assign, `++/--`
   - [ ] `if` with init
@@ -29,8 +29,8 @@
 - [ ] 2.5 Minimal evaluation-order pass (incl. loop-condition / `else if` / `case` shapes)
 - [x] 2.6 Functions: params, multiple results (`std::tuple`), prototypes
 - [x] 2.7 Runtime v0 (`gp::string` minimal, helpers, panic as exception, print/println, unbuffered-order stdout, fmtshim, run_main, OS layer `runtime/src/os/` + no-POSIX-outside check) + C++ unit tests
-- [ ] 2.8 Driver: `build`, `run`, `emit`, `-x`, `-work`, `-asan`, compiler detection, embedded runtime
-- [ ] 2.9 Internal-error path for C++ compile failures
+- [~] 2.8 Driver: `build`, `run`, `emit`, `-x`, `-work`, `-asan`, compiler detection, embedded runtime
+- [~] 2.9 Internal-error path for C++ compile failures
 - [ ] 2.10 Tests: ≥ 25 run tests, 3 golden, ≥ 25 differential vs Go (promotion, order, shadowing, float format, float→int, stdout/stderr order)
 - [ ] 2.11 Debug test: gdb batch + line-table check
 
@@ -83,3 +83,14 @@
   preemption signal can cut a blocking pipe write short (all six configurations failed at once,
   because they share one Go run, at exactly 128 KiB). The Go reference runs now use
   `GODEBUG=asyncpreemptoff=1`.
+- 2026-10-13: Job 2.3 (expressions, `internal/cppgen/ops.go`) committed, clean after 1 review round. The
+  reviewer's random-expression differential test (about 360k expressions over all Phase 02 operators
+  and types, both compilers, -O0 to -O2, with UBSan) matched real Go everywhere. Decisions:
+  comparisons of small integers get no cast (the operands are already in range); constants are
+  written in decimal; extra parentheses where `-Wall` asks for them. Step 2.10 should keep such a
+  random-expression test in the repo, opt-in through an environment variable.
+- 2026-10-13 (expressions review 2.3): valid Go can make the compilers warn: clang's
+  `-Wtautological-compare` (`x == x` on integers) and g++'s `-Woverflow` when it folds part of an
+  expression (`65535 * uint16(x | -1)`); the behavior is right (`-fwrapv`). Decision: the driver
+  passes `-Wno-tautological-compare` (clang) and `-Wno-overflow` (g++) for generated files, and the
+  emitter tests use the same flags; other warnings stay visible (job 2.8).

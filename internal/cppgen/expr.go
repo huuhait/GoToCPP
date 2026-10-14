@@ -11,18 +11,23 @@ import (
 	"strings"
 )
 
-// Expressions (Phase 02 README §2.3). This step has what the first programs need: constants
-// (folded by go/types), variables, calls of user functions, of the builtins print and println
-// and of fmt.Print, Println and Printf (gp::fmtshim), and the operators that mean the same in
-// C++: + - * on the types that C++ doesn't promote, + on strings, the comparisons, && || !
-// and unary -. Step 2.3 adds the rest: / % and shifts through the runtime's helpers, the
-// bit operators, the small-integer cast rule, conversions. Everything else is reported as
-// "not supported yet".
+// Expressions (Phase 02 README §2.3): constants (folded by go/types), variables, calls of
+// user functions, of the builtins len, print, println and panic and of fmt.Print, Println and
+// Printf (gp::fmtshim), the byte s[i] of a string, conversions between basic types, and every
+// operator of the Phase 02 subset (ops.go). The rest is reported as "not supported yet": the
+// phase gates of internal/check reject it before, with a message for the user.
+//
+// Every expression that is not a constant has exactly its Go type in C++ (int8 is int8_t, not
+// the int that C++ arithmetic gives: ops.go casts the small integer types back), so that a
+// runtime template that deduces its argument types (gp::println, gp::div) sees the Go type.
+// A constant gets its Go type only where exactExpr asks for it.
 //
 // Not done yet: Go's left-to-right order of calls (step 2.5). Until then the C++ evaluates the
 // arguments of a call and the operands of an operator in the order the C++ compiler picks,
 // which is silently wrong for calls with side effects: fmt.Println(next(), next()) prints
-// "2 1" with g++ (and "1 2" with clang++ and Go).
+// "2 1" with g++ (and "1 2" with clang++ and Go). The hook for step 2.5: every operand and
+// every argument is translated by fg.expr or fg.exactExpr, from left to right, so the
+// ordering pass can move a call into a gp_ temporary there (or rewrite the AST before).
 //
 // An expression is a cexpr: its C++ text and the C++ precedence of its outermost operator, so
 // that an operand gets parentheses exactly where C++ would group it differently from the Go
@@ -104,6 +109,8 @@ func (fg *funcGen) expr(e ast.Expr) cexpr {
 		return fg.binary(e)
 	case *ast.UnaryExpr:
 		return fg.unary(e)
+	case *ast.IndexExpr:
+		return fg.index(e)
 	}
 	fg.g.unsupported(e.Pos(), nodeKind(e))
 	return placeholder
@@ -113,7 +120,7 @@ func (fg *funcGen) expr(e ast.Expr) cexpr {
 // the expression: an argument of a runtime template (gp::println, gp::fmtshim::Printf), or
 // the initializer of an auto temporary. There a constant must have its Go type: a plain 5 is
 // a C++ int, so Printf("%s", 5) would say int32 instead of Go's int. Every such place calls
-// exactExpr; the other expressions already have their Go type in C++ (step 2.3 casts the
+// exactExpr; the other expressions already have their Go type in C++ (ops.go casts the
 // small integer types back).
 func (fg *funcGen) exactExpr(e ast.Expr) cexpr {
 	if tv, ok := fg.g.info.Types[e]; ok && tv.Value != nil {
@@ -150,85 +157,10 @@ func (fg *funcGen) ident(id *ast.Ident) cexpr {
 	return placeholder
 }
 
-// binaryOps are the Go binary operators that are the same operator in C++ (for the types that
-// smallInt doesn't reject), with its precedence.
-var binaryOps = map[token.Token]int{
-	token.LOR:  precLogOr,
-	token.LAND: precLogAnd,
-	token.EQL:  precEq,
-	token.NEQ:  precEq,
-	token.LSS:  precRel,
-	token.LEQ:  precRel,
-	token.GTR:  precRel,
-	token.GEQ:  precRel,
-	token.ADD:  precAdd,
-	token.SUB:  precAdd,
-	token.MUL:  precMul,
-}
-
-func (fg *funcGen) binary(e *ast.BinaryExpr) cexpr {
-	prec, ok := binaryOps[e.Op]
-	if !ok {
-		fg.g.unsupported(e.OpPos, "the operator "+e.Op.String()+" (step 2.3)")
-		return placeholder
-	}
-	if prec == precAdd || prec == precMul {
-		if !fg.plainArith(e.Pos(), fg.g.info.TypeOf(e)) {
-			return placeholder
-		}
-	}
-	// C++ groups these operators from left to right, like Go: a right operand with the same
-	// precedence needs parentheses (a - (b - c)).
-	x, y := fg.expr(e.X), fg.expr(e.Y)
-	return cexpr{x.at(prec) + " " + e.Op.String() + " " + y.at(prec+1), prec}
-}
-
-func (fg *funcGen) unary(e *ast.UnaryExpr) cexpr {
-	switch e.Op {
-	case token.NOT:
-		return cexpr{"!" + fg.expr(e.X).at(precUnary), precUnary}
-	case token.ADD, token.SUB:
-		if !fg.plainArith(e.Pos(), fg.g.info.TypeOf(e)) {
-			return placeholder
-		}
-		x := fg.expr(e.X)
-		if e.Op == token.ADD {
-			return x // +x is x for the types plainArith allows (C++'s +x would promote)
-		}
-		s := x.at(precUnary)
-		if strings.HasPrefix(s, "-") {
-			s = "(" + s + ")" // - -x, not the decrement --x
-		}
-		return cexpr{"-" + s, precUnary}
-	}
-	fg.g.unsupported(e.OpPos, "the operator "+e.Op.String())
-	return placeholder
-}
-
-// plainArith reports whether + - * on values of type t mean the same in C++ as in Go. They
-// do for the integer types of 32 and 64 bits (signed overflow wraps, because the C++ is
-// compiled with -fwrapv), the float types and, for +, strings. They don't for int8, int16,
-// uint8 and uint16, which C++ promotes to int first, so that a result doesn't wrap: step 2.3
-// casts those back.
-func (fg *funcGen) plainArith(pos token.Pos, t types.Type) bool {
-	b := basicOf(t)
-	if b == nil {
-		fg.g.unsupported(pos, "arithmetic on "+types.TypeString(t, nil))
-		return false
-	}
-	switch b.Kind() {
-	case types.Int8, types.Int16, types.Uint8, types.Uint16:
-		fg.g.unsupported(pos, "arithmetic on "+b.Name()+" (the small-integer rule, step 2.3)")
-		return false
-	}
-	return true
-}
-
 // call returns the C++ of a function call.
 func (fg *funcGen) call(c *ast.CallExpr) cexpr {
 	if tv := fg.g.info.Types[c.Fun]; tv.IsType() {
-		fg.g.unsupported(c.Pos(), "conversions (step 2.3)")
-		return placeholder
+		return fg.conversion(c, tv.Type)
 	}
 	if c.Ellipsis.IsValid() {
 		fg.g.unsupported(c.Ellipsis, "f(s...) (Phase 03)")
@@ -243,6 +175,8 @@ func (fg *funcGen) call(c *ast.CallExpr) cexpr {
 			switch obj.Name() {
 			case "print", "println":
 				callee, template = "gp::"+obj.Name(), true
+			case "len", "panic":
+				return fg.builtin(c, obj.Name())
 			default:
 				fg.g.unsupported(c.Pos(), "the builtin "+obj.Name())
 				return placeholder
@@ -480,7 +414,7 @@ var nodeKinds = map[string]string{
 	"CompositeLit":   "composite literals (Phase 03)",
 	"FuncLit":        "function literals (Phase 03)",
 	"SelectorExpr":   "selectors (Phase 03)",
-	"IndexExpr":      "index expressions (step 2.3)",
+	"IndexExpr":      "index expressions (Phase 03)",
 	"IndexListExpr":  "instantiations (Phase 07)",
 	"SliceExpr":      "slice expressions (Phase 03)",
 	"TypeAssertExpr": "type assertions (Phase 05)",

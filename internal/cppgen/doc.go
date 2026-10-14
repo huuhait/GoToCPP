@@ -11,6 +11,8 @@
 //     variables (constinit) and the package's initialization (gp_var_init, the init
 //     functions);
 //   - stmt.go and expr.go: statements and expressions, with constants folded by go/types;
+//   - ops.go: the operators (with the small-integer rule and the runtime's gp::div, gp::rem,
+//     gp::shl and gp::shr), conversions (gp::f2i), s[i] and the builtins len and panic;
 //   - types.go: the C++ spelling of the types;
 //   - names.go: the C++ names: a _ suffix for C++ keywords, compiler words and macros
 //     (cxx_words.txt, cxx_macros.txt) and for user names that start with gp_, which are the
