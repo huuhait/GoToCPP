@@ -21,7 +21,7 @@ and from the user's answers to Q1–Q13
 | [007](007-goroutines-os-threads.md) | Goroutines are OS threads, with no scheduler | accepted | `go` starts a real thread; there is no goroutine scheduler, now or later. |
 | [008](008-build-driver.md) | gocpp has its own build driver with a content-hash cache | accepted | It calls `$CXX` itself and writes `compile_commands.json` and CMake files for other tools. |
 | [009](009-embedded-runtime.md) | The runtime is a C++20 library embedded in the gocpp binary | accepted | A mostly-header library in `namespace gp`, shipped inside `gocpp` with `go:embed`. |
-| [010](010-cpp-naming.md) | Generated C++ names: flat package namespaces, fully qualified C names | accepted | `gpkg_<escaped import path>` namespaces, `::time` for C names, `_` escapes for keywords and macros. |
+| [010](010-cpp-naming.md) | Generated C++ names: flat package namespaces, fully qualified C names | accepted (the `v := v` row superseded by 022) | `gpkg_<escaped import path>` namespaces, `::time` for C names, `_` escapes for keywords and macros. |
 | [011](011-errors-panic-defer.md) | `error` is an interface, `panic` is a C++ exception, `defer` is a frame | accepted | Go's exact defer and recover order in a single-exit C++ function shape. |
 | [012](012-go-subset-and-extensions.md) | gocpp is Go 1.25 syntax plus a small, explicit set of extensions | accepted | The language is a short, written list of differences from the Go spec. |
 | [013](013-must-errors.md) | `!` (must) returns errors for you, only where it is written | accepted | `func f!()` and `F!(...)`; in `main` the error is printed and the program exits 1. |
@@ -33,6 +33,7 @@ and from the user's answers to Q1–Q13
 | [019](019-output-layout.md) | Output layout: one header per package, one `.cpp` per `.gp` file | accepted | `pkg.hpp`, `<file>.gp.cpp`, `pkg_init.cpp`, and Go 1.21's init order in `gp_init_all()`. |
 | [020](020-modules-gocpp-mod.md) | Modules use a `gocpp.mod` file in `go.mod` syntax | accepted | `replace` and `vendor/` first; downloads with minimal version selection in Phase 15. |
 | [021](021-platforms-linux-windows.md) | The platforms are Linux and Windows (MinGW-w64 first) | accepted | Linux first, Windows before v1.0; MSVC ABI later; no macOS. |
+| [022](022-shadowed-names.md) | Shadowed variables keep their Go names in C++ | accepted | A shadowing declaration opens a C++ block; supersedes ADR-010's `v := v` row. |
 
 ## Changing a decision
 

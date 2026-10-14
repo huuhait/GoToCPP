@@ -1,6 +1,6 @@
 # ADR-010: Generated C++ names: flat package namespaces, fully qualified C names
 
-Status: accepted (2026-10-13)
+Status: accepted (2026-10-13) Its `v := v` row is superseded by [ADR-022](022-shadowed-names.md).
 
 ## Context
 
@@ -37,7 +37,7 @@ namespaces that hide C functions, and user names that clash with compiler tempor
 | `io.EOF` (`EOF` is a C macro) | `::gpkg_io::EOF_` |
 | a variable named `new`; a user name `gp_count` | `new_`; `gp_count_` |
 | `func (U) U()` (a method named like its type) | `U_` |
-| `v := v` | `int64_t v_1 = v;` |
+| `v := v` | the name is kept, see [ADR-022](022-shadowed-names.md) (was `int64_t v_1 = v;`) |
 
 ## Alternatives
 

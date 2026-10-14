@@ -116,7 +116,7 @@ complex.
 |---|---|
 | `writer.go` | Indentation, and `#line N "/abs/file.gp"` before each generated line whose mapping is not "previous + 1" |
 | `names.go` | Identifier mangling: C++ keywords get a `_` suffix (`new` → `new_`, `class` → `class_`; the list includes words that are keywords or operators in GCC's and Clang's C++ mode, such as `_Pragma` and `_Complex`); user names starting with `gp_` also get a `_` suffix (generated names never end in `_`, so they can't clash); a method named like its type (`func (U) U()`, which C++ would read as a constructor) becomes `U_`; other names C++ reserves (`_X`, `a__b`) stay as written, because GCC and Clang accept them even with `-Wall -Wextra -pedantic` (checked; only Clang's opt-in `-Wreserved-identifier` warns), and `gocpp vet` warns about them; names that are **macros** in the headers the runtime includes (`EOF`, `errno`, `assert`, `stdin`, `stdout`, `stderr`, `NULL`, `EINVAL`, `ENOENT`, `EAGAIN`, `SEEK_SET`, `BUFSIZ`, …) get a `_` suffix. Without that, `io.EOF` would not compile; Phase 04 extends this list from the user's own headers |
-| `names.go` (shadowing) | A Go declaration that uses the name it declares, like `v := v` or `x := x + 1`, gets a new C++ name (`v_1`). In C++ the new name is already in scope inside its own initializer, so `int64_t v = v;` would read garbage (seen in the audit) |
+| `names.go` (shadowing) | A Go declaration that shadows a variable keeps its Go name: it opens a C++ block from the declaration to the end of its Go block, and a value that reads the declared name goes into a `gp_` temporary first (`int64_t gp_t0 = v + 1; { int64_t v = gp_t0; … }`). In C++ the new name is already in scope inside its own initializer, so `int64_t v = v;` would read garbage (seen in the audit); a rename (`v_1`, the first design) made gdb print the outer variable under the Go name ([ADR-022](../../../docs/adr/022-shadowed-names.md)) |
 | `types.go` | gocpp type → C++ type spelling (basic types in this phase) |
 | `expr.go`, `stmt.go`, `decl.go` | Expressions, statements, declarations |
 | `file.go` | Prologue (`#include`s), namespace, prototypes, the C++ `main` wrapper |
@@ -275,7 +275,7 @@ table (`objdump -l`) to make sure every generated line maps to the right `.gp` l
 1. **2.1 Emitter skeleton**: writer with `#line` (absolute paths, repeated where needed),
    prologue, flat namespace, prototypes, main wrapper.
 2. **2.2 Names**: C++ keywords, reserved names, the runtime's macro names, `gp_` temporaries,
-   shadowing renames (`v := v`), per-scope collisions + tests.
+   shadowed names kept through a C++ block (`v := v`, ADR-022), per-scope collisions + tests.
 3. **2.3 Expressions**: constants via `go/constant`, string literal escaping, operators with the
    small-integer cast rule, calls, conversions, the integer and float helpers.
 4. **2.4 Statements**: declarations, assignments (including parallel), `if`, `for` (all forms, with

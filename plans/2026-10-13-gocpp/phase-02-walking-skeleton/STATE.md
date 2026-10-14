@@ -159,3 +159,7 @@
   every one passes on g++ and clang++, also with `-asan`. `GOCPP_RUN_VS_GO=1` checks every tests/run
   expectation against real Go (34/34). Left for 2.10b: the 3 golden tests (after the shadowed-name fix).
   For Phase 03: a `g(x, f())` diff test where f changes x (needs package variables or pointers).
+- 2026-10-14 (manager, 2.10b review): shadowed variables keep their Go names through a C++ block from the
+  declaration to the end of its Go block (ADR-022, superseding ADR-010's `v := v` row); a loop body
+  that redeclares its for-init/range variable is in such a block too (the coder's choice over the
+  ticket's "keep the rename" hint). gdb then shows the right variable on every line.
