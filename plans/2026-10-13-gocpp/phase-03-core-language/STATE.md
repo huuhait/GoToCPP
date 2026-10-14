@@ -91,3 +91,9 @@
   `gp::detail::release` (the long-chain trampoline); recover (Phase 05) must call
   `gp::detail::clear_signal()`. The depth limit (1000) needs ~0.5–1 MB of stack: Phase 08's thread
   stacks must allow that or lower the limit.
+- 2026-10-14 (3.2 round 2): every runtime type that holds an owner (pointers, slices, maps, closure cells,
+  func values, interfaces) releases it through `gp::detail::release`; its depth limit is 128 (about
+  50–100 KB of stack). The owner check (a non-nil pointer must have an owner) is on unless the
+  `-nochecks` build defines `GOCPP_NOCHECKS` (3.14). For whoever adds `runtime.AddCleanup` /
+  `SetFinalizer`: `release` is `noexcept` and runs destructors deep in a chain, so Go cleanups must be
+  queued and run outside it.
