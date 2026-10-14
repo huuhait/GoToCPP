@@ -1,0 +1,54 @@
+{
+	"name": "gocpp",
+	"displayName": "gocpp",
+	"description": "gocpp language support: syntax highlighting for .gp files",
+	"version": "0.0.1",
+	"publisher": "gocpp",
+	"license": "BSD-3-Clause AND MIT",
+	"private": true,
+	"engines": {
+		"vscode": "^1.86.0"
+	},
+	"categories": [
+		"Programming Languages"
+	],
+	"contributes": {
+		"languages": [
+			{
+				"id": "gocpp",
+				"aliases": [
+					"gocpp"
+				],
+				"extensions": [
+					".gp"
+				],
+				"configuration": "./language-configuration.json"
+			}
+		],
+		"grammars": [
+			{
+				"language": "gocpp",
+				"scopeName": "source.gocpp",
+				"path": "./syntaxes/gocpp.tmLanguage.json"
+			}
+		],
+		"configurationDefaults": {
+			"[gocpp]": {
+				"editor.insertSpaces": false
+			}
+		}
+	},
+	"scripts": {
+		"test": "vscode-tmgrammar-test --compact \"test/testdata/*.gp\" && node test/check-examples.mjs"
+	},
+	"devDependencies": {
+		"vscode-oniguruma": "1.7.0",
+		"vscode-textmate": "9.3.2",
+		"vscode-tmgrammar-test": "0.1.3"
+	},
+	"overrides": {
+		"vscode-tmgrammar-test": {
+			"vscode-textmate": "$vscode-textmate"
+		}
+	}
+}

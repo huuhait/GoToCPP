@@ -86,7 +86,8 @@
               pkgs.cmake
               pkgs.ninja
               pkgs.pkg-config
-              pkgs.python3 # gdb pretty printers, spike scripts
+              pkgs.python3 # gdb pretty printers, spike scripts, go generate in internal/diag
+              pkgs.nodejs # node, npm: the VS Code grammar tests (make vscode-test)
               # A hidden X display, so GUI programs run without a real one: the
               # raylib example's smoke mode runs under xvfb-run (check.sh, CI).
               pkgs.xvfb-run

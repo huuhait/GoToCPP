@@ -50,6 +50,17 @@ lint:
 staticcheck:
 	$(STATICCHECK) ./...
 
+# The tests of the VS Code grammar (editors/vscode/README.md). Not part of ci,
+# because npm downloads the test tools the first time. npm ci runs when
+# node_modules is missing or older than package-lock.json.
+VSCODE_DIR = editors/vscode
+.PHONY: vscode-test
+vscode-test: $(VSCODE_DIR)/node_modules/.package-lock.json
+	cd $(VSCODE_DIR) && npm test
+
+$(VSCODE_DIR)/node_modules/.package-lock.json: $(VSCODE_DIR)/package-lock.json
+	cd $(VSCODE_DIR) && npm ci --no-audit --no-fund
+
 ci: $(CI_CHECKS)
 	@echo "make ci: all checks passed"
 

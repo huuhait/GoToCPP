@@ -410,6 +410,8 @@ gocpp/                       (this repo: /home/huuhait/GoToCPP)
 │   ├── build/               toolchain detection, action graph, cache, linking
 │   ├── lsp/                 language server: snapshots, caches, features (Phase 11)
 │   ├── diag/                diagnostics, C++ error remapping
+│   ├── format/              gocpp fmt: gofmt's printing + header-aware import sorting
+│   ├── diff/                Go's internal/diff (for gocpp fmt -d)
 │   └── version/             version string and the last finished phase (test gating)
 ├── runtime/                 C++20 runtime: include/gocpp/*.hpp, src/*.cpp, src/os/{linux,windows}
 ├── stdlib/                  gocpp standard packages (.gp + native .cpp)

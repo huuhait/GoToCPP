@@ -20,6 +20,9 @@ coverage.html
 # Python bytecode
 __pycache__/
 
+# npm packages: the VS Code grammar tests in editors/vscode (make vscode-test)
+node_modules/
+
 # Editor swap and backup files (Vim .swp/.swo, Emacs)
 *.sw[a-p]
 *~

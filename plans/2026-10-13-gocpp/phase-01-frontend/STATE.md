@@ -19,7 +19,7 @@
 - [x] 1.3 Patch 2: constant expressions in type-argument lists
   - [x] parser change (`parseRhs` for type arguments)
   - [x] tests: type position, composite literal, call, nested
-- [ ] 1.4 Patch 3: dotted type names (`std.chrono.seconds`, `std.filesystem.path`, `std.vector[int].iterator`)
+- [~] 1.4 Patch 3: dotted type names (`std.chrono.seconds`, `std.filesystem.path`, `std.vector[int].iterator`)
 - [x] 1.5 Round-trip test over the Go stdlib (parse → print → parse)
 - [x] 1.6 Import classifier + `FileInfo` (header package names and their rules, namespace renames) + reserved-`C` error
 - [x] 1.7 `//gocpp:` directive parser + validation + suggestions
@@ -36,7 +36,7 @@
 - [ ] 1.11 Opaque pass (widened "comes from C/C++" rule, recorded C type expressions, sanity rule)
 - [ ] 1.12 Unsupported-feature checker with the full gate table + generated `feature-matrix.md`
 - [x] 1.13 Diagnostics package (format, sort, dedupe, limit, caret)
-- [ ] 1.14 CLI: `version`, `parse -dump`, `check`, `check -types`, `fmt`
+- [ ] 1.14 CLI: `version`, `parse -dump`, `check`, `check -types` (`fmt` is step 1.16)
 - [ ] 1.15 Error tests + "no false errors" interop corpus
 - [~] 1.16 `gocpp fmt` via `go/printer` with gofmt's settings (`go/format.Node` re-parses with the stock parser) (`-l -w -d`); header imports keep their order (include order matters); stdlib + badly formatted inputs match real gofmt
 

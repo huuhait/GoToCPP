@@ -35,6 +35,7 @@ make build        # build bin/gocpp
 make test         # go test ./...
 make lint         # gofmt check (not spikes/ or testdata/), then go vet ./...
 make staticcheck  # staticcheck ./... (not in ci: go run downloads it once)
+make vscode-test  # VS Code grammar tests (not in ci: npm downloads the tools once)
 make clean        # remove bin/
 
 bin/gocpp version

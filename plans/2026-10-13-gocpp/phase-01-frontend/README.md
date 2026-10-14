@@ -401,8 +401,8 @@ Verified on 2026-10-13: the stock printer prints `std.map[std.string, int]{}`,
 byte-wise. That's harmless for Go packages, but header imports become `#include` lines, and C/C++
 include order can matter (`<winsock2.h>` before `<windows.h>`, `<GL/glew.h>` before `<GL/gl.h>`).
 Plain gofmt would reorder them (seen on the spike files). So `gocpp fmt` uses a small copy of
-`ast.SortImports` that sorts only groups without header imports, and leaves a group that contains
-a header exactly as written. The style rule in the spec is to **put header imports in their own
+`ast.SortImports` that sorts only groups without header or namespace imports, and leaves a group
+that contains one exactly as written. The style rule in the spec is to **put header imports in their own
 blank-line-separated group** after the gocpp imports, the same way Go groups stdlib and
 third-party imports.
 
@@ -413,7 +413,7 @@ gocpp version
 gocpp parse -dump file.gp      # print the AST (debugging)
 gocpp check [packages]         # parse + type-check, print errors, exit 1 on error
 gocpp check -types file.gp     # print every expression with its type / "opaque" (like the spike)
-gocpp fmt [-l] [-w] [-d] [files or packages]
+gocpp fmt [-l] [-w] [-d] [files or folders]  # like gofmt; no paths = stdin
 ```
 
 Like `go build`, `gocpp check` prints a `# <import path>` line before each failing package's
@@ -458,7 +458,7 @@ first syntax error of each line (the compiler does that even with `-e`, while go
     recorded type expressions.
 12. **1.12 Unsupported-feature checker** (§2.9) with the full table + generated feature matrix.
 13. **1.13 Diagnostics** package (§2.10).
-14. **1.14 CLI**: `version`, `parse -dump`, `check`, `check -types`, `fmt`.
+14. **1.14 CLI**: `version`, `parse -dump`, `check`, `check -types` (`fmt` comes with step 1.16).
 15. **1.15 Error tests** (`gocpp check` prints warnings as `file:line:col: warning: msg`, for
     example for a comment that looks like a broken `//gocpp:` directive; the errors runner gets a
     `// WARNING "regexp"` mark for them, next to `// ERROR`) in `tests/errors/` for gocpp-specific cases (bad import shapes, unknown

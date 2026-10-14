@@ -21,7 +21,10 @@
 - [ ] 11.7 Formatting + organize imports (`gocpp fmt`) · *v0*
 - [ ] 11.8 References, rename, document/workspace symbols
 - [ ] 11.9 Semantic tokens, inlay hints, document links, code actions
-- [~] 11.10 VS Code extension (+ optional tree-sitter, editor docs) · *v0* (job 11.10a, the TextMate grammar, started 2026-10-13)
+- [~] 11.10 VS Code extension (+ optional tree-sitter, editor docs) · *v0*
+  - [x] 11.10a the `.gp` language + TextMate grammar (`editors/vscode`, `make vscode-test`)
+  - [ ] the LSP client, format on save, `contributes.breakpoints` (after the language server v0)
+  - [ ] tree-sitter grammar (optional), editor setup docs
 - [ ] 11.11 Benchmark harness + 3 reference projects + CI gate + gopls side-by-side table
 - [ ] 11.12 Profiling/tracing/slow-request log + random-edit differential test
 - [ ] 11.13 `!` and macro support (after Phase 10): hovers, inlay hints for handled calls, code actions, expand macro
@@ -42,3 +45,5 @@
   in Go either). The grammar also fixes an upstream go-syntax bug: a function declaration whose
   result is `func()`, a generic type or `interface{…}`/`struct{…}` never ended (0 new leaks over
   the stdlib, leaking files 902 → 564).
+- 2026-10-13: Job 11.10a (the TextMate grammar) committed, clean after 2 review rounds; VS Code
+  1.109's own token scopes match the test tokenizer on 8 files; Node.js joined the dev shell.

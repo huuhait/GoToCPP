@@ -10,7 +10,7 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 
 ## Now: Phase 01 (front-end)
 
-- [ ] Parser patch 3: dotted type names such as `std.chrono.seconds` (+ tests)
+- [~] Parser patch 3: dotted type names such as `std.chrono.seconds` (+ tests) (step 1.4, started)
 - [ ] Turn the front-end spike (header packages, namespace rewrite + namespace probe, `FakeImportC`) into `internal/load` + `internal/check`
 - [~] `gocpp fmt` (Phase 01 step 1.16), so formatting works from the first week
 - [ ] After M1: language server v0 (Phase 11 early track: diagnostics, hover, go-to-definition, completion, formatting; about 2 weeks, see STATE timeline)
@@ -24,7 +24,7 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 
 ## Any time (parallel, low risk)
 
-- [~] VS Code TextMate grammar for `.gp`, including `name!(`, `func name!(`, `#Name`, `#body()` and `macro` (Phase 11 step 11.10, job 11.10a started)
+- [x] VS Code TextMate grammar for `.gp`, including `name!(`, `func name!(`, `#Name`, `#body()` and `macro` (Phase 11 step 11.10, job 11.10a, done 2026-10-13)
 - [x] Header zoo libraries chosen: C/C++ standard headers + SDL2, raylib, sqlite3, zlib (Phase 04 step 4.18)
 - [ ] Choose the LSP reference project: a real ~30k-line Go library to copy as `.gp` for the gopls side-by-side benchmark (Phase 11 step 11.11)
 
@@ -96,3 +96,4 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] 2026-10-13: Phase 01 step 1.6: the import classifier (headers and namespaces as packages, the reserved `C`)
 - [x] 2026-10-13: Phase 01 step 1.7: the `//gocpp:` directive parser
 - [x] 2026-10-13: Phase 01 step 1.3: parser patch 2 (`std.array[int, 5]`)
+- [x] 2026-10-13: Phase 11 job 11.10a: the VS Code language + TextMate grammar for `.gp`
