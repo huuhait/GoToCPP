@@ -76,6 +76,14 @@ type Config struct {
 	// opaque) and runs the real probe in the background; the tests of this
 	// package use it for headers that mostly don't exist.
 	Probe func(ctx context.Context, cxx build.CXX, dir string, includes, candidates []string) (interop.Result, error)
+
+	// Partial, if set, type-checks the packages with load errors too, for
+	// Package.Partial only: the language server (Phase 11, step 11.5)
+	// answers hover and go to definition in a file that doesn't parse from
+	// what go/types finds anyway. It changes nothing else: such a package
+	// still has only its load errors, is not Checked, and its importers
+	// get no types from it (Result.Dep).
+	Partial bool
 }
 
 // A Dep is what Check needs of a package that it imports but does not
@@ -183,6 +191,24 @@ type Package struct {
 	// declared with C/C++ types (see Opaque). It is nil if the package
 	// was not type-checked.
 	Opaque *Opaque
+
+	// Partial is what go/types found in a package that was not
+	// type-checked because it has load errors (a syntax error, an import
+	// that can't be resolved, or one of a package with errors), when
+	// Config.Partial asked for it; else it is nil. Its Info can miss
+	// parts, and types can be invalid where something is broken. Nothing
+	// else uses it: not the errors, not the phase gates, not the importers.
+	Partial *Partial
+}
+
+// A Partial is the result of go/types on the files of a package that has
+// load errors (Package.Partial). The imports that the loader couldn't
+// give, or whose packages were not type-checked, are missing, so their
+// names have no type.
+type Partial struct {
+	Types  *types.Package
+	Info   *types.Info // every map filled, as in Package.Info
+	Opaque *Opaque
 }
 
 // Checked reports whether the package was type-checked. A package is not
@@ -277,6 +303,9 @@ func Check(prog *load.Program, cfg Config) *Result {
 		if lp.Incomplete {
 			p = &Package{Load: lp, Errors: lp.Errors}
 			failed[lp] = true
+			if cfg.Partial {
+				p.Partial = checkPartial(prog.Fset, lp, checked, cgoh)
+			}
 		} else {
 			depsFailed, c := false, usesC(lp)
 			for _, dep := range lp.Imports {
@@ -294,6 +323,16 @@ func Check(prog *load.Program, cfg Config) *Result {
 		r.byLoad[lp] = p
 	}
 	return r
+}
+
+// checkPartial type-checks the files of lp, a package with load errors,
+// for Package.Partial: once, without the namespace probe (whose rewrites
+// stay, so those names are opaque) and without the rewrite of conversions.
+// Its errors are dropped: lp's own are the ones that count.
+func checkPartial(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package, cgoh *types.Package) *Partial {
+	cv := newConverter(fset, lp, cgoh)
+	p, _ := checkFiles(fset, lp, checked, cv, nil, false)
+	return &Partial{Types: p.Types, Info: p.Info, Opaque: findOpaque(fset, p)}
 }
 
 // hasHardErrors reports whether l has an error that is not a soft error

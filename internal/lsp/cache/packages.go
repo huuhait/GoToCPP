@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -269,15 +270,22 @@ func (s *Snapshot) PackageOf(ctx context.Context, uri protocol.DocumentURI) (*Pa
 // file on disk) parsed in the mode mode (ParseFull for the features), from
 // the parse cache. The ParsedFile must not be changed.
 func (s *Snapshot) ParseFile(ctx context.Context, uri protocol.DocumentURI, mode parser.Mode) (*ParsedFile, error) {
-	st, ok := s.state.(*state)
-	if !ok {
-		return nil, errNoPipeline
-	}
 	path := uri.Path()
 	if path == "" {
 		return nil, fmt.Errorf("%s is not a file", uri)
 	}
-	f, err := st.file(path)
+	return s.ParsePath(ctx, path, mode)
+}
+
+// ParsePath is ParseFile for the file with the absolute name path, which
+// can also be a file of the standard library (a name in
+// Config.StdlibDir, as the positions of its objects have it).
+func (s *Snapshot) ParsePath(ctx context.Context, path string, mode parser.Mode) (*ParsedFile, error) {
+	st, ok := s.state.(*state)
+	if !ok {
+		return nil, errNoPipeline
+	}
+	f, err := st.fileOrStd(path)
 	if err != nil {
 		return nil, err
 	}
@@ -286,17 +294,71 @@ func (s *Snapshot) ParseFile(ctx context.Context, uri protocol.DocumentURI, mode
 
 // ReadFile returns the content of the file with the absolute name path in
 // the snapshot: its overlay, or else the file on disk as the snapshot read
-// it (once): the text that the snapshot's checks saw.
+// it (once): the text that the snapshot's checks saw. A name in
+// Config.StdlibDir is a file of the standard library.
 func (s *Snapshot) ReadFile(path string) ([]byte, error) {
 	st, ok := s.state.(*state)
 	if !ok {
 		return nil, errNoPipeline
 	}
-	f, err := st.file(path)
+	f, err := st.fileOrStd(path)
 	if err != nil {
 		return nil, err
 	}
 	return f.src, f.err
+}
+
+// PackageFiles returns the absolute names of the .gp files of the package
+// lp (a package of a checked program, or the summary of one that it
+// imports) in the snapshot, sorted, with the test files: the files of its
+// folder, or of the standard package.
+func (s *Snapshot) PackageFiles(lp *load.Package) ([]string, error) {
+	st, ok := s.state.(*state)
+	if !ok {
+		return nil, errNoPipeline
+	}
+	var names []string
+	if lp.Std {
+		for _, f := range st.p.stdFiles(lp.ImportPath) {
+			names = append(names, f.path)
+		}
+		return names, nil
+	}
+	d, err := st.dir(filepath.Clean(lp.Dir))
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range d.names {
+		names = append(names, filepath.Join(lp.Dir, name))
+	}
+	return names, nil
+}
+
+// IsStdFile reports whether path is the name of a file of the standard
+// library (in Config.StdlibDir): it has no file on disk.
+func (s *Snapshot) IsStdFile(path string) bool {
+	st, ok := s.state.(*state)
+	return ok && st.p.inStdlib(path)
+}
+
+// inStdlib reports whether path is in Config.StdlibDir.
+func (p *Pipeline) inStdlib(path string) bool {
+	return strings.HasPrefix(path, p.cfg.StdlibDir+string(filepath.Separator))
+}
+
+// fileOrStd returns the file path of the snapshot (state.file), or the file
+// of the standard library with that name.
+func (s *state) fileOrStd(path string) (*fileHandle, error) {
+	if !s.p.inStdlib(path) {
+		return s.file(path)
+	}
+	rel := strings.TrimPrefix(path, s.p.cfg.StdlibDir+string(filepath.Separator))
+	for _, f := range s.p.stdFiles(filepath.ToSlash(filepath.Dir(rel))) {
+		if f.path == path {
+			return f, nil
+		}
+	}
+	return &fileHandle{path: path, err: fs.ErrNotExist}, nil
 }
 
 var errNoPipeline = errors.New("cache: the session has no pipeline")
@@ -757,6 +819,10 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 		CXX:     p.prober.findCXX(rec),
 		Probe:   p.prober.probeFor(rec),
 		Deps:    func(lp *load.Package) check.Dep { return depOf[lp] },
+		// A package with load errors (a file that doesn't parse) is
+		// type-checked too, for hover and go to definition there
+		// (check.Package.Partial); its diagnostics stay the same.
+		Partial: true,
 	})
 	if err := ctx.Err(); err != nil {
 		return nil, err // the probe stopped

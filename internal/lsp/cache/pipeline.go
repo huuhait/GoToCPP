@@ -63,6 +63,11 @@ type Config struct {
 	CXX   func(ctx context.Context) (build.CXX, error)
 	Probe func(ctx context.Context, cxx build.CXX, dir string, includes, candidates []string) (interop.Result, error)
 
+	// IncludeDirs, if not nil, replaces the compiler run that lists the
+	// system include folders of the C++ compiler cxx, for go to definition
+	// on a header import (Pipeline.HeaderFile; the tests use it).
+	IncludeDirs func(ctx context.Context, cxx build.CXX) ([]string, error)
+
 	// OnProbe, if not nil, is called (on a goroutine of the pipeline) when
 	// the background work of the namespace probe has changed an answer
 	// that checks may have used: then the packages that are Stale should
@@ -131,6 +136,8 @@ type Pipeline struct {
 	diskWG  sync.WaitGroup
 	diskSem chan struct{}
 
+	includeDirsCache // HeaderFile
+
 	stats struct {
 		parses, metadata, checks         atomic.Int64
 		diskHits, diskMisses, diskWrites atomic.Int64
@@ -145,6 +152,9 @@ func NewPipeline(cfg Config) *Pipeline {
 	if cfg.StdlibDir == "" {
 		cfg.StdlibDir = "$GOCPP/stdlib"
 	}
+	// As the names of the files have it (filepath.Join): $GOCPP\stdlib on
+	// Windows, for inStdlib.
+	cfg.StdlibDir = filepath.Clean(cfg.StdlibDir)
 	if cfg.GOOS == "" {
 		cfg.GOOS = runtime.GOOS
 	}

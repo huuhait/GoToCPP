@@ -6,7 +6,7 @@
 //
 // Phase 11 fills it. The early version (v0: diagnostics, hover,
 // go-to-definition, completion, formatting) needs only Phase 01. So far
-// (steps 11.1 to 11.4) there are:
+// (steps 11.1 to 11.5) there are:
 //   - protocol: the LSP 3.17 types (copied from gopls, see
 //     protocol/COPIED.md), JSON-RPC 2.0 over the Content-Length framing
 //     (notifications in order on the read loop, requests on their own
@@ -35,5 +35,14 @@
 //     documents kept up to date with incremental changes, the requests,
 //     each on the snapshot of its time, and the diagnostics as you type
 //     (step 11.4: textDocument/publishDiagnostics per file of the open
-//     packages, and workspace/didChangeWatchedFiles).
+//     packages, and workspace/didChangeWatchedFiles), and the navigation
+//     features (step 11.5): textDocument/hover (the declaration of a name
+//     as Go code, its doc comment in Markdown or plain text, the methods
+//     of a type; for a C/C++ name or a header import, where it comes
+//     from), textDocument/definition and typeDefinition (in the package,
+//     into the packages it imports, whose objects come from export data,
+//     and from a header import to the header file), and
+//     textDocument/signatureHelp (the active parameter, also of a
+//     variadic function). They answer from the cached check of the
+//     package, also in a file that doesn't parse (check.Config.Partial).
 package lsp

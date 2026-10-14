@@ -197,6 +197,18 @@ func (pr *prober) findCXX(r *probeRecord) func(context.Context) (build.CXX, erro
 	}
 }
 
+// compiler returns the C++ compiler, when the prober has found it; else it
+// looks for it in the background (like findCXX, but without a record).
+func (pr *prober) compiler() (build.CXX, bool) {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+	l := &pr.cxx
+	if !l.done || l.err != nil && time.Since(l.at) >= cxxRetry {
+		pr.lookCXXLocked()
+	}
+	return l.cxx, l.done && l.err == nil
+}
+
 // lookCXXLocked looks for the compiler in the background, unless that runs
 // already. pr.mu is held.
 func (pr *prober) lookCXXLocked() {

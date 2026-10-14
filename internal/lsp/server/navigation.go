@@ -1,0 +1,777 @@
+package server
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"go/ast"
+	"go/constant"
+	goformat "go/format"
+	"go/token"
+	"go/types"
+	"slices"
+	"strconv"
+	"sync/atomic"
+
+	"github.com/huuhait/gocpp/internal/check"
+	"github.com/huuhait/gocpp/internal/load"
+	"github.com/huuhait/gocpp/internal/lsp/cache"
+	"github.com/huuhait/gocpp/internal/lsp/protocol"
+)
+
+// The navigation features (step 11.5): hover (hover.go), go to definition
+// and type definition (definition.go), and signature help (signature.go).
+// Ideas and some code come from gopls (see COPIED.md).
+//
+// A request works on the snapshot it took on the read loop, so it sees the
+// unsaved edits before it. It looks at the checked package of its document
+// (cache.Snapshot.PackageOf), which comes from the cache when nothing
+// changed: then a request costs a walk over the file's syntax tree, lookups
+// in types.Info, and the parse (from the parse cache too) of the file that
+// declares what it shows, for its doc comment and its declaration as the
+// user wrote it. A file that doesn't parse answers from what go/types found
+// anyway (check.Package.Partial).
+//
+// The checked syntax trees are the loader's, after its rewrites
+// (raylib.InitWindow became C.InitWindow): their names keep the places of
+// the names the user wrote, so they find the name at a place, but text
+// that the features show comes from a fresh parse of the file, never from
+// a rewritten tree.
+
+// navigation holds what the navigation features learned from initialize:
+// the markup the client wants.
+type navigation struct {
+	// hoverMarkdown: the hover text is Markdown, else plain text.
+	hoverMarkdown atomic.Bool
+	// sigMarkdown: the documentation of signature help is Markdown.
+	sigMarkdown atomic.Bool
+}
+
+// initialize takes the client's markup choices from its capabilities and
+// offers the navigation features in caps.
+func (n *navigation) initialize(client protocol.ClientCapabilities, caps *protocol.ServerCapabilities) {
+	hover := true
+	if h := client.TextDocument.Hover; h != nil {
+		hover = preferMarkdown(h.ContentFormat, true)
+	}
+	n.hoverMarkdown.Store(hover)
+	sig := hover
+	if sh := client.TextDocument.SignatureHelp; sh != nil && sh.SignatureInformation != nil {
+		sig = preferMarkdown(sh.SignatureInformation.DocumentationFormat, hover)
+	}
+	n.sigMarkdown.Store(sig)
+	caps.HoverProvider = &protocol.Or_ServerCapabilities_hoverProvider{Value: true}
+	caps.DefinitionProvider = &protocol.Or_ServerCapabilities_definitionProvider{Value: true}
+	caps.TypeDefinitionProvider = &protocol.Or_ServerCapabilities_typeDefinitionProvider{Value: true}
+	caps.SignatureHelpProvider = &protocol.SignatureHelpOptions{TriggerCharacters: []string{"(", ","}}
+}
+
+// preferMarkdown reports whether the first markup kind of formats that the
+// server knows is Markdown (the client lists them in the order it
+// prefers), or def when formats has none (like gopls, Markdown by
+// default).
+func preferMarkdown(formats []protocol.MarkupKind, def bool) bool {
+	for _, f := range formats {
+		switch f {
+		case protocol.Markdown:
+			return true
+		case protocol.PlainText:
+			return false
+		}
+	}
+	return def
+}
+
+// addNavigation adds the requests of the navigation features.
+func (s *Server) addNavigation() {
+	s.requests["textDocument/hover"] = method{run: s.hover}
+	s.requests["textDocument/definition"] = method{run: s.definition}
+	s.requests["textDocument/typeDefinition"] = method{run: s.typeDefinition}
+	s.requests["textDocument/signatureHelp"] = method{run: s.signatureHelp}
+}
+
+// A query is the place of a request in its checked package.
+type query struct {
+	snap   *cache.Snapshot
+	pkg    *cache.Package
+	fset   *token.FileSet
+	types  *types.Package
+	info   *types.Info
+	opaque *check.Opaque
+	lp     *load.Package // the package of the document
+	file   *load.File    // the document, as checked
+	tok    *token.File
+	src    []byte
+	mapper *protocol.Mapper
+	pos    token.Pos // the place of the request
+	// exact holds the files that the program loaded from source, whose
+	// positions have exact offsets (the others are from export data:
+	// file and line only).
+	exact map[string]bool
+}
+
+// newQuery returns the query of the place at in the document uri, or nil
+// when the document is not a file of its package (a file that the build
+// constraints leave out, a _test.gp file) or has no types at all.
+func newQuery(ctx context.Context, snap *cache.Snapshot, uri protocol.DocumentURI, at protocol.Position) (*query, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err // a cached package would answer anyway
+	}
+	path := uri.Path()
+	if path == "" {
+		return nil, nil
+	}
+	pkg, err := snap.PackageOf(ctx, uri)
+	if err != nil {
+		return nil, err
+	}
+	if len(pkg.Program.Roots) == 0 {
+		return nil, nil
+	}
+	q := &query{snap: snap, pkg: pkg, fset: pkg.Fset(), lp: pkg.Program.Roots[0], exact: make(map[string]bool)}
+	cp := pkg.Check
+	switch {
+	case cp == nil:
+		return nil, nil
+	case cp.Checked():
+		q.types, q.info, q.opaque = cp.Types, cp.Info, cp.Opaque
+	case cp.Partial != nil:
+		q.types, q.info, q.opaque = cp.Partial.Types, cp.Partial.Info, cp.Partial.Opaque
+	default:
+		return nil, nil
+	}
+	for _, lp := range pkg.Program.Packages {
+		for _, f := range lp.Files {
+			q.exact[f.Path] = true
+		}
+	}
+	for _, f := range q.lp.Files {
+		if f.Path == path {
+			q.file = f
+		}
+	}
+	if q.file == nil || q.file.AST == nil {
+		return nil, nil
+	}
+	q.tok = q.fset.File(q.file.AST.FileStart)
+	if q.src, err = snap.ReadFile(path); err != nil {
+		return nil, err
+	}
+	if q.tok == nil || q.tok.Size() != len(q.src) {
+		return nil, nil // can't be: the check read the same text
+	}
+	q.mapper = protocol.NewMapper(string(q.src))
+	q.pos = q.tok.Pos(q.mapper.Offset(at))
+	return q, nil
+}
+
+// decodePosition decodes the params of a request at a place in a document.
+func decodePosition(params json.RawMessage) (protocol.TextDocumentPositionParams, error) {
+	var p protocol.TextDocumentPositionParams
+	err := decode(params, &p)
+	return p, err
+}
+
+// rangeOf returns the range of the nodes from pos to end in the document.
+func (q *query) rangeOf(pos, end token.Pos) protocol.Range {
+	return protocol.Range{Start: q.mapper.Position(q.tok.Offset(pos)), End: q.mapper.Position(q.tok.Offset(end))}
+}
+
+// contains reports whether the place of q is in the node n, or right
+// after it.
+func (q *query) contains(n ast.Node) bool {
+	return n != nil && n.Pos().IsValid() && n.Pos() <= q.pos && q.pos <= n.End()
+}
+
+// identAt returns the name at pos in f and the nodes around it, from the
+// file down (without the name), or nil. A name that ends at pos counts too
+// (the cursor right after it) when no name starts or goes on there.
+func identAt(f *ast.File, pos token.Pos) (*ast.Ident, []ast.Node) {
+	var id, after *ast.Ident
+	var path, afterPath []ast.Node
+	ast.PreorderStack(f, nil, func(n ast.Node, stack []ast.Node) bool {
+		if id != nil || n.Pos() > pos || pos > n.End() {
+			return false
+		}
+		if x, ok := n.(*ast.Ident); ok {
+			if pos < x.End() {
+				id, path = x, slices.Clone(stack)
+			} else if after == nil {
+				after, afterPath = x, slices.Clone(stack)
+			}
+		}
+		return true
+	})
+	if id == nil {
+		return after, afterPath
+	}
+	return id, path
+}
+
+// objectAt returns the object of the name id: what it declares or uses, or
+// the implicit object of an unnamed import.
+func (q *query) objectAt(id *ast.Ident) types.Object {
+	if obj := q.info.Defs[id]; obj != nil {
+		return obj
+	}
+	return q.info.Uses[id]
+}
+
+// qualifier returns how the types of the document name their packages: by
+// the name that the file imports them with, and the package itself without
+// a name (like gopls's FileQualifier).
+func (q *query) qualifier() types.Qualifier {
+	names := make(map[*types.Package]string)
+	for _, spec := range q.file.AST.Imports {
+		var obj types.Object
+		if spec.Name != nil {
+			obj = q.info.Defs[spec.Name]
+		} else {
+			obj = q.info.Implicits[spec]
+		}
+		if pn, ok := obj.(*types.PkgName); ok {
+			if _, ok := names[pn.Imported()]; !ok {
+				names[pn.Imported()] = pn.Name()
+			}
+		}
+	}
+	return func(p *types.Package) string {
+		if p == q.types {
+			return ""
+		}
+		if name, ok := names[p]; ok {
+			if name == "." {
+				return ""
+			}
+			return name
+		}
+		return p.Name()
+	}
+}
+
+// isBuiltin reports whether obj is predeclared: in the universe (len,
+// error, true, nil), or the Error method of error.
+func isBuiltin(obj types.Object) bool {
+	return obj.Pkg() == nil && !obj.Pos().IsValid()
+}
+
+// A declInfo is where an object is declared, in a fresh parse of its file
+// (the user's text, which the loader didn't rewrite).
+type declInfo struct {
+	pf    *cache.ParsedFile
+	ident *ast.Ident // the declaring name; nil when it wasn't found (see off)
+	off   int        // the offset of the declaring name in pf.Src
+	end   int        // the offset of its end, or 0: the end of the name
+	// The declaration around it (gopls's findDeclInfo): any of them can
+	// be nil, also all three (a local variable).
+	decl  ast.Decl
+	spec  ast.Spec
+	field *ast.Field
+}
+
+// declOf returns where obj is declared, or nil when it has no place (a
+// predeclared object, or one whose file can't be read). For an object of a
+// package that the program loaded from source (the document's own), its
+// position is exact. An object of an import comes from export data, whose
+// positions have the file and the line only (the column is 1), and which
+// can be old (an edit in the import that kept its API, see apiHash): then
+// the declaring name of the object's name nearest to that line is taken,
+// among the names that declare the same kind of object (sameKind). An
+// import name has a place only at its import: not the import "C" that the
+// loader adds (load.Rewrite.ImportC).
+func (q *query) declOf(ctx context.Context, obj types.Object) (*declInfo, error) {
+	if !obj.Pos().IsValid() {
+		return nil, nil
+	}
+	posn := q.fset.Position(obj.Pos())
+	if posn.Filename == "" {
+		return nil, nil
+	}
+	pf, err := q.snap.ParsePath(ctx, posn.Filename, cache.ParseFull)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, nil // the file is gone
+	}
+	exact := q.exact[posn.Filename]
+	recv := ""
+	if fn, ok := obj.(*types.Func); ok {
+		if sig, ok := fn.Type().(*types.Signature); ok && sig.Recv() != nil {
+			recv = typeName(sig.Recv().Type())
+		}
+	}
+	d := &declInfo{pf: pf, off: -1}
+	if _, ok := obj.(*types.PkgName); ok {
+		if !exact {
+			return nil, nil
+		}
+		// The import: all of it, like gopls.
+		for _, spec := range pf.File.Imports {
+			if off := pf.Tok.Offset(spec.Pos()); off == posn.Offset || pf.Tok.Offset(spec.Path.Pos()) == posn.Offset {
+				d.off, d.end = off, pf.Tok.Offset(spec.End())
+				return d, nil
+			}
+		}
+		return nil, nil // an import that the user didn't write
+	}
+	best := -1
+	ast.PreorderStack(pf.File, nil, func(n ast.Node, stack []ast.Node) bool {
+		for _, c := range declaringNames(n, obj.Name()) {
+			if fd, ok := n.(*ast.FuncDecl); ok && recvName(fd) != recv {
+				continue // another type's method, or a function
+			}
+			off := pf.Tok.Offset(c.ident.Pos())
+			dist := 0
+			if exact {
+				if off != posn.Offset {
+					continue
+				}
+			} else {
+				if !sameKind(obj, n, stack) {
+					continue
+				}
+				dist = abs(pf.Tok.Line(c.ident.Pos()) - posn.Line)
+			}
+			if best < 0 || dist < best {
+				best = dist
+				d.ident, d.off, d.field = c.ident, off, c.field
+				d.decl, d.spec = c.decl, c.spec
+				for i := len(stack) - 1; i >= 0 && d.decl == nil; i-- {
+					switch x := stack[i].(type) {
+					case ast.Spec:
+						if d.spec == nil {
+							d.spec = x
+						}
+					case ast.Decl:
+						d.decl = x
+					}
+				}
+			}
+		}
+		return true
+	})
+	if d.ident == nil {
+		if !exact || posn.Offset > len(pf.Src) {
+			return nil, nil
+		}
+		d.off = posn.Offset // a local variable, a label, ...
+	}
+	return d, nil
+}
+
+// sameKind reports whether the node n, under the nodes stack (from the
+// file down), declares a name of the same kind as obj, an object of an
+// import (from export data, so declared at the top level, or a field or
+// method): a function a top-level function, a method a method of the same
+// receiver type or a method of an interface type, a field a field of a
+// struct, a package variable or constant a top-level var or const, a type
+// a type. Never a parameter or a local variable.
+func sameKind(obj types.Object, n ast.Node, stack []ast.Node) bool {
+	parent := func(i int) ast.Node {
+		if i <= len(stack) {
+			return stack[len(stack)-i]
+		}
+		return nil
+	}
+	switch obj := obj.(type) {
+	case *types.Func:
+		sig, ok := obj.Type().(*types.Signature)
+		if !ok {
+			return false
+		}
+		if sig.Recv() == nil {
+			fd, ok := n.(*ast.FuncDecl)
+			return ok && fd.Recv == nil
+		}
+		if types.IsInterface(sig.Recv().Type()) {
+			// A method in an interface type, of the interface named
+			// like the receiver when it has a name.
+			f, ok := n.(*ast.Field)
+			if _, in := parent(2).(*ast.InterfaceType); !ok || !in || len(f.Names) == 0 {
+				return false
+			}
+			name := typeName(sig.Recv().Type())
+			ts, ok := parent(3).(*ast.TypeSpec)
+			return name == "" || ok && ts.Name.Name == name
+		}
+		fd, ok := n.(*ast.FuncDecl)
+		return ok && fd.Recv != nil // of the receiver type: see declOf
+	case *types.Var:
+		if obj.IsField() {
+			_, ok := n.(*ast.Field)
+			_, in := parent(2).(*ast.StructType)
+			return ok && in
+		}
+		return topLevel(n, stack, token.VAR)
+	case *types.Const:
+		return topLevel(n, stack, token.CONST)
+	case *types.TypeName:
+		_, ok := n.(*ast.TypeSpec)
+		return ok
+	}
+	return false
+}
+
+// topLevel reports whether n, under the nodes stack, is a spec of a
+// top-level declaration with the token tok (var or const).
+func topLevel(n ast.Node, stack []ast.Node, tok token.Token) bool {
+	if _, ok := n.(*ast.ValueSpec); !ok || len(stack) != 2 {
+		return false
+	}
+	gd, ok := stack[1].(*ast.GenDecl)
+	return ok && gd.Tok == tok
+}
+
+// recvName returns the name of the receiver type of the method fd ("T" for
+// (t *T) and (l List[E])), or "" for a function.
+func recvName(fd *ast.FuncDecl) string {
+	if fd.Recv == nil || len(fd.Recv.List) == 0 {
+		return ""
+	}
+	if id := embeddedName(fd.Recv.List[0].Type); id != nil {
+		return id.Name
+	}
+	return ""
+}
+
+// typeName returns the name of the named type t or *t, or "".
+func typeName(t types.Type) string {
+	if p, ok := t.(*types.Pointer); ok {
+		t = p.Elem()
+	}
+	switch t := types.Unalias(t).(type) {
+	case *types.Named:
+		return t.Obj().Name()
+	case *types.Interface:
+		return "" // a method of a named interface from export data (see objectString)
+	}
+	return ""
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+// A declName is a name that n declares, with the declaration it is in.
+type declName struct {
+	ident *ast.Ident
+	decl  ast.Decl
+	spec  ast.Spec
+	field *ast.Field
+}
+
+// declaringNames returns the names called name that the node n declares
+// itself (not in its children): of a function, a type, a constant or
+// variable, a field, parameter or result, or the type name of an embedded
+// field.
+func declaringNames(n ast.Node, name string) []declName {
+	var names []declName
+	switch n := n.(type) {
+	case *ast.FuncDecl:
+		if n.Name.Name == name {
+			names = append(names, declName{ident: n.Name, decl: n})
+		}
+	case *ast.TypeSpec:
+		if n.Name.Name == name {
+			names = append(names, declName{ident: n.Name, spec: n})
+		}
+	case *ast.ValueSpec:
+		for _, id := range n.Names {
+			if id.Name == name {
+				names = append(names, declName{ident: id, spec: n})
+			}
+		}
+	case *ast.Field:
+		for _, id := range n.Names {
+			if id.Name == name {
+				names = append(names, declName{ident: id, field: n})
+			}
+		}
+		if len(n.Names) == 0 {
+			if id := embeddedName(n.Type); id != nil && id.Name == name {
+				names = append(names, declName{ident: id, field: n})
+			}
+		}
+	case *ast.AssignStmt:
+		if n.Tok == token.DEFINE {
+			for _, x := range n.Lhs {
+				if id, ok := x.(*ast.Ident); ok && id.Name == name {
+					names = append(names, declName{ident: id})
+				}
+			}
+		}
+	}
+	return names
+}
+
+// embeddedName returns the type name of an embedded field: T in T, *T,
+// pkg.T and T[int].
+func embeddedName(x ast.Expr) *ast.Ident {
+	for {
+		switch t := x.(type) {
+		case *ast.StarExpr:
+			x = t.X
+		case *ast.IndexExpr:
+			x = t.X
+		case *ast.IndexListExpr:
+			x = t.X
+		case *ast.SelectorExpr:
+			return t.Sel
+		case *ast.Ident:
+			return t
+		default:
+			return nil
+		}
+	}
+}
+
+// docOf returns the doc comment of a declaration (gopls's
+// chooseDocComment): the field's, else the spec's, else the declaration's,
+// else the comment at the end of the line.
+func (d *declInfo) docOf() *ast.CommentGroup {
+	if d == nil {
+		return nil
+	}
+	if d.field != nil {
+		if d.field.Doc != nil {
+			return d.field.Doc
+		}
+		return d.field.Comment
+	}
+	switch decl := d.decl.(type) {
+	case *ast.FuncDecl:
+		return decl.Doc
+	case *ast.GenDecl:
+		switch spec := d.spec.(type) {
+		case *ast.ValueSpec:
+			if spec.Doc != nil {
+				return spec.Doc
+			}
+			if decl.Doc != nil {
+				return decl.Doc
+			}
+			return spec.Comment
+		case *ast.TypeSpec:
+			if spec.Doc != nil {
+				return spec.Doc
+			}
+			if decl.Doc != nil {
+				return decl.Doc
+			}
+			return spec.Comment
+		}
+	}
+	return nil
+}
+
+// formatNode returns the Go source of n, a node of the file of fset, as
+// gofmt prints it.
+func formatNode(fset *token.FileSet, n ast.Node) string {
+	var b bytes.Buffer
+	if err := goformat.Node(&b, fset, n); err != nil {
+		return ""
+	}
+	return b.String()
+}
+
+// spelling returns the source text of the node n of the program (in a file
+// of the document's package): how the user wrote it, also where the loader
+// rewrote it (*SDL.SDL_Window, not *C.SDL_Window).
+func (q *query) spelling(n ast.Node) string {
+	posn, end := q.fset.Position(n.Pos()), q.fset.Position(n.End())
+	if !q.exact[posn.Filename] || posn.Filename != end.Filename {
+		return ""
+	}
+	src, err := q.snap.ReadFile(posn.Filename)
+	if err != nil || end.Offset > len(src) || posn.Offset > end.Offset {
+		return ""
+	}
+	return string(src[posn.Offset:end.Offset])
+}
+
+// opaqueSpelling returns the type expression that v was declared with, as
+// the user wrote it, when its type comes from C/C++ (check.Opaque.TypeExpr),
+// or "". Only an object of the document's package has it: the export data
+// of an import has "invalid type" there (until the side table of opaque
+// spellings, job 11.3b).
+func (q *query) opaqueSpelling(v *types.Var) string {
+	if v.Pkg() != q.types || q.types == nil {
+		return ""
+	}
+	if te := q.opaque.TypeExpr(v.Origin()); te != nil {
+		return q.spelling(te)
+	}
+	return ""
+}
+
+// tupleString returns the parameters or results t, each with its name:
+// "x int", "args ...any" (with variadic, the last one is ...T).
+func (q *query) tupleString(t *types.Tuple, variadic bool, qual types.Qualifier) []string {
+	list := make([]string, t.Len())
+	for i := range t.Len() {
+		v := t.At(i)
+		typ := q.opaqueSpelling(v) // ...T already, for the last parameter
+		if typ == "" {
+			typ = types.TypeString(v.Type(), qual)
+			if s, ok := v.Type().(*types.Slice); ok && variadic && i == t.Len()-1 {
+				typ = "..." + types.TypeString(s.Elem(), qual)
+			}
+		}
+		if v.Name() != "" {
+			typ = v.Name() + " " + typ
+		}
+		list[i] = typ
+	}
+	return list
+}
+
+// signatureString returns the parameters and the results of sig, as Go
+// writes them after the name of a function: "(x int) (string, error)".
+func (q *query) signatureString(sig *types.Signature, qual types.Qualifier) string {
+	var b bytes.Buffer
+	b.WriteByte('(')
+	for i, p := range q.tupleString(sig.Params(), sig.Variadic(), qual) {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(p)
+	}
+	b.WriteByte(')')
+	results := q.tupleString(sig.Results(), false, qual)
+	if len(results) == 0 {
+		return b.String()
+	}
+	b.WriteByte(' ')
+	parens := len(results) > 1 || sig.Results().At(0).Name() != ""
+	if parens {
+		b.WriteByte('(')
+	}
+	for i, r := range results {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(r)
+	}
+	if parens {
+		b.WriteByte(')')
+	}
+	return b.String()
+}
+
+// typeParamsString returns the type parameters of a generic function,
+// "[T any]", or "".
+func typeParamsString(list *types.TypeParamList, qual types.Qualifier) string {
+	if list.Len() == 0 {
+		return ""
+	}
+	var b bytes.Buffer
+	b.WriteByte('[')
+	for i := range list.Len() {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		tp := list.At(i)
+		b.WriteString(tp.Obj().Name())
+		b.WriteByte(' ')
+		types.WriteType(&b, tp.Constraint(), qual)
+	}
+	b.WriteByte(']')
+	return b.String()
+}
+
+// objectString returns the declaration of obj as hover shows it, like
+// types.ObjectString with gopls's changes: a method shows its receiver
+// name, "func (t T) String() string", and a constant its value,
+// "const C untyped int = 3" (the expression it was declared with, when
+// that says more: "const K = 1 << 10 // 1024"). A type that comes from
+// C/C++ shows as it was written (opaqueSpelling). d is where obj is
+// declared, or nil.
+func (q *query) objectString(obj types.Object, qual types.Qualifier, d *declInfo) string {
+	switch obj := obj.(type) {
+	case *types.Func:
+		sig, ok := obj.Type().(*types.Signature)
+		if !ok {
+			break
+		}
+		var b bytes.Buffer
+		b.WriteString("func ")
+		if recv := sig.Recv(); recv != nil {
+			b.WriteByte('(')
+			if _, ok := recv.Type().(*types.Interface); ok {
+				// The export data makes the methods of a named
+				// interface with the interface as the receiver.
+				b.WriteString("interface")
+			} else {
+				if name := recv.Name(); name != "" && name != "_" {
+					b.WriteString(name)
+					b.WriteByte(' ')
+				}
+				types.WriteType(&b, recv.Type(), qual)
+			}
+			b.WriteString(") ")
+		} else if s := qual(obj.Pkg()); s != "" {
+			b.WriteString(s)
+			b.WriteByte('.')
+		}
+		b.WriteString(obj.Name())
+		b.WriteString(typeParamsString(sig.TypeParams(), qual))
+		b.WriteString(q.signatureString(sig, qual))
+		return b.String()
+	case *types.Var:
+		if typ := q.opaqueSpelling(obj); typ != "" {
+			kind := "var "
+			if obj.IsField() {
+				kind = "field "
+			}
+			return kind + obj.Name() + " " + typ
+		}
+	case *types.Const:
+		return constString(obj, qual, d)
+	}
+	return types.ObjectString(obj, qual)
+}
+
+// constString returns the declaration of the constant obj (gopls's
+// objectString): with its value, or with the expression it was declared
+// with and the value as a comment when they differ. A string constant
+// shows only its value.
+func constString(obj *types.Const, qual types.Qualifier, d *declInfo) string {
+	str := types.ObjectString(obj, qual)
+	decl := obj.Val().String()
+	comment := ""
+	if spec, ok := declSpec(d).(*ast.ValueSpec); ok && obj.Val().Kind() != constant.String {
+		for i, name := range spec.Names {
+			if name == d.ident && i < len(spec.Values) {
+				if orig := formatNode(d.pf.Fset, spec.Values[i]); orig != "" && orig != decl {
+					comment, decl = decl, orig
+				}
+			}
+		}
+	}
+	str += " = " + decl
+	if comment != "" {
+		str += " // " + comment
+	}
+	return str
+}
+
+// declSpec returns the spec of d, or nil.
+func declSpec(d *declInfo) ast.Spec {
+	if d == nil {
+		return nil
+	}
+	return d.spec
+}
+
+// importPath returns the path of an import, without the quotes.
+func importPath(spec *ast.ImportSpec) string {
+	path, err := strconv.Unquote(spec.Path.Value)
+	if err != nil {
+		return ""
+	}
+	return path
+}

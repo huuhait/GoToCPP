@@ -281,9 +281,9 @@ func wantResult(t *testing.T, resp *protocol.Response, want string) {
 
 const initParams = `{"processId":123,"clientInfo":{"name":"test","version":"1.0"},"rootUri":"file:///w","capabilities":{"general":{"positionEncodings":["utf-8","utf-16"]}},"trace":"messages"}`
 
-// The whole answer to initialize: the server offers the text sync and
-// nothing else.
-var initResult = `{"capabilities":{"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":2,"save":{}}},"serverInfo":{"name":"gocpp","version":` + strconv.Quote(version.Version) + `}}`
+// The whole answer to initialize: the server offers the text sync and the
+// features so far.
+var initResult = `{"capabilities":{"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":2,"save":{}},"hoverProvider":true,"signatureHelpProvider":{"triggerCharacters":["(",","]},"definitionProvider":true,"typeDefinitionProvider":true},"serverInfo":{"name":"gocpp","version":` + strconv.Quote(version.Version) + `}}`
 
 func TestLifecycle(t *testing.T) {
 	c := start(t)
@@ -404,7 +404,7 @@ func TestOtherMethods(t *testing.T) {
 	c := start(t)
 	c.call("initialize", initParams)
 	c.notify("initialized", `{}`)
-	wantError(t, c.call("textDocument/hover", `{}`), protocol.MethodNotFound, "method not found: textDocument/hover")
+	wantError(t, c.call("textDocument/frobnicate", `{}`), protocol.MethodNotFound, "method not found: textDocument/frobnicate")
 	wantError(t, c.call("$/unknown", `{}`), protocol.MethodNotFound, "")
 	wantError(t, c.call("exit", ""), protocol.MethodNotFound, "") // exit is a notification
 	// Dropped without a response.

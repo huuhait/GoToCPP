@@ -30,8 +30,12 @@ shutdown or closes the connection first.
 For now the server keeps the text of the open files up to date and
 publishes the diagnostics of gocpp check as you type, for the packages of
 the open files (the C++ namespace probe of header imports runs in the
-background, and its errors come when it is done). Hover, completion and
-the other features come in the later steps of Phase 11.
+background, and its errors come when it is done). It answers hover (the
+declaration and doc of a name), go to definition and type definition (also
+into the packages that a package imports, and from a header import to the
+header file), and signature help. For C/C++ names (raylib.InitWindow,
+std.vector) it knows only where they come from. Completion and the other
+features come in the later steps of Phase 11.
 
 The server keeps a summary of each package it checks (its export data) in
 a cache on disk, so that its next start loads the packages it doesn't show

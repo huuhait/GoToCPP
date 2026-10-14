@@ -11,10 +11,11 @@
 // the next messages, until it answers or is cancelled.
 //
 // The session's snapshots have the memoized check pipeline (cache.Pipeline,
-// step 11.3). The features so far: the text sync, and the diagnostics as
-// you type (step 11.4, diagnostics.go: textDocument/publishDiagnostics,
-// with workspace/didChangeWatchedFiles for the files that change on disk).
-// The others (hover, completion, ...) come with the next steps.
+// step 11.3). The features so far: the text sync, the diagnostics as you
+// type (step 11.4, diagnostics.go: textDocument/publishDiagnostics, with
+// workspace/didChangeWatchedFiles for the files that change on disk), and
+// hover, go to definition and signature help (step 11.5, navigation.go).
+// The others (completion, ...) come with the next steps.
 package server
 
 import (
@@ -123,6 +124,7 @@ type Server struct {
 	// (see method); tests add their own before Serve.
 	requests     map[string]method
 	shutdownWait time.Duration
+	nav          navigation // hover, definition, signature help (navigation.go)
 
 	mu        sync.Mutex
 	lifecycle lifecycle
@@ -188,6 +190,7 @@ func newServer(logger *log.Logger, cfg cache.Config, clock debounce.Clock) *Serv
 		warned:       make(map[protocol.DocumentURI]bool),
 		stale:        make(map[protocol.DocumentURI]map[protocol.ID]*staleToken),
 	}
+	s.addNavigation()
 	s.diags = newDiagnostics(s, clock)
 	cfg.OnProbe = s.diags.probed
 	s.pipeline = cache.NewPipeline(cfg)
@@ -394,7 +397,7 @@ func (s *Server) initialize(params json.RawMessage) (any, error) {
 		s.log.Printf("initialize: client %s %s", c.Name, c.Version)
 	}
 	utf16 := protocol.UTF16
-	return &protocol.InitializeResult{
+	res := &protocol.InitializeResult{
 		Capabilities: protocol.ServerCapabilities{
 			// The only position encoding (protocol.Mapper); a client
 			// that offers others still gets UTF-16, the default.
@@ -406,7 +409,9 @@ func (s *Server) initialize(params json.RawMessage) (any, error) {
 			},
 		},
 		ServerInfo: &protocol.ServerInfo{Name: "gocpp", Version: version.Version},
-	}, nil
+	}
+	s.nav.initialize(p.Capabilities, &res.Capabilities)
+	return res, nil
 }
 
 // watchedFiles are the files whose changes on disk the server wants to hear

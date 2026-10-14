@@ -128,7 +128,7 @@ func (p *lspProcess) wait() int {
 
 var (
 	lspInitialize = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":null,"clientInfo":{"name":"lsp_test"},"rootUri":null,"capabilities":{}}}`
-	lspInitResult = `{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":2,"save":{}}},"serverInfo":{"name":"gocpp","version":` + strconv.Quote(version.Version) + `}}}`
+	lspInitResult = `{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":2,"save":{}},"hoverProvider":true,"signatureHelpProvider":{"triggerCharacters":["(",","]},"definitionProvider":true,"typeDefinitionProvider":true},"serverInfo":{"name":"gocpp","version":` + strconv.Quote(version.Version) + `}}}`
 	lspShutdown   = `{"jsonrpc":"2.0","id":2,"method":"shutdown"}`
 	lspExit       = `{"jsonrpc":"2.0","method":"exit"}`
 )
@@ -150,8 +150,8 @@ func TestLSPProcess(t *testing.T) {
 		p.send(`{"jsonrpc":"2.0","method":"initialized","params":{}}`)
 		p.send(`{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///w/a.gp","languageId":"gocpp","version":1,"text":"package main\n"}}}`)
 		p.send(`{"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///w/a.gp","version":2},"contentChanges":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":0}},"text":"// 😀\n"}]}}`)
-		p.send(`{"jsonrpc":"2.0","id":"h","method":"textDocument/hover","params":{}}`)
-		if got, want := p.read(), `{"jsonrpc":"2.0","id":"h","error":{"code":-32601,"message":"method not found: textDocument/hover"}}`; got != want {
+		p.send(`{"jsonrpc":"2.0","id":"h","method":"textDocument/hover","params":{"textDocument":{"uri":"file:///w/a.gp"},"position":{"line":0,"character":9}}}`)
+		if got, want := p.read(), "{\"jsonrpc\":\"2.0\",\"id\":\"h\",\"result\":{\"contents\":{\"kind\":\"markdown\",\"value\":\"```go\\npackage main\\n```\"},\"range\":{\"start\":{\"line\":0,\"character\":8},\"end\":{\"line\":0,\"character\":12}}}}"; got != want {
 			t.Errorf("hover: got %s, want %s", got, want)
 		}
 		p.send(lspShutdown)

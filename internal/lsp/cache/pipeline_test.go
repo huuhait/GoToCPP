@@ -1,9 +1,11 @@
 package cache
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -756,5 +758,34 @@ func TestRecheck(t *testing.T) {
 		if kept == rechecked {
 			t.Errorf("%s: kept %v", id.dir, kept)
 		}
+	}
+}
+
+// TestStdlibNames: a name of a file of the standard library, as the loader
+// and the pipeline make it (filepath.Join, so $GOCPP\stdlib\fmt\fmt.gp on
+// Windows), is in Config.StdlibDir, also when StdlibDir is not clean or is
+// the default with its slash: the snapshot reads it from the embedded
+// files, never from the disk.
+func TestStdlibNames(t *testing.T) {
+	for _, dir := range []string{"", "$GOCPP/./stdlib/", filepath.Join(t.TempDir(), "std") + "//"} {
+		cfg := testConfig()
+		cfg.StdlibDir = dir
+		w := newWorld(t, cfg, map[string]string{"gocpp.mod": "module example.com/m\n"})
+		if dir == "" {
+			dir = "$GOCPP/stdlib"
+		}
+		name := filepath.Join(dir, "fmt", "fmt.gp")
+		snap, release := w.s.Snapshot()
+		if !snap.IsStdFile(name) {
+			t.Errorf("StdlibDir %q: %q is not a file of the standard library", dir, name)
+		}
+		src, err := snap.ReadFile(name)
+		if want, _ := fs.ReadFile(stdlib.FS(), "fmt/fmt.gp"); err != nil || !bytes.Equal(src, want) {
+			t.Errorf("StdlibDir %q: ReadFile(%q): %v, not the embedded file", dir, name, err)
+		}
+		if _, err := snap.ParsePath(context.Background(), name, ParseFull); err != nil {
+			t.Errorf("StdlibDir %q: ParsePath(%q): %v", dir, name, err)
+		}
+		release()
 	}
 }
