@@ -65,3 +65,8 @@
   (`gp_init_1…n`, `run_main` gets `&gp_init_all`). 3.16 extends it to all types and lifts the gate.
   Also for this phase: a user type named `std` or `gp` would capture `std::`/`gp::` in generated code:
   reserve both names or write `::std::`/`::gp::` (from the 2.1 review).
+- 2026-10-13 (manager, from the 2.1/2.3 reviews): Go's `int`/`int64` are both `int64_t` and
+  `uint`/`uint64`/`uintptr` are `uint64_t`, so fmtshim names the type wrongly in error forms
+  (`%!s(int=5)` for an `int64`) and `%T` would too. Decision: this phase (with `%T`/`%v` work) passes a
+  type tag from the emitter to the formatting code for the types C++ can't tell apart (a small
+  wrapper at the call site, only for `int64`, `uint64`, `uintptr`); not a divergence.
