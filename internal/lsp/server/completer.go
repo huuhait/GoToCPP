@@ -201,8 +201,8 @@ func (c *completer) collect() {
 	c.path, _ = astutil.PathEnclosingInterval(q.file.AST, at, at)
 	if dot := c.start - 1; dot >= 0 && q.src[dot] == '.' {
 		// The members that fit the place of x.f come first too:
-		// helper(p.|) wants an int.
-		c.expected, _ = c.expectedType()
+		// helper(p.|) wants an int, var r geom.| a type.
+		c.expected, c.wantType = c.expectedType()
 		c.selector(q.tok.Pos(dot))
 		return
 	}

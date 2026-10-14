@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"go/ast"
+	"go/token"
 	"go/types"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/huuhait/gocpp/internal/lsp/cache"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
+	"github.com/huuhait/gocpp/internal/syntax/parser"
 )
 
 // textDocument/completion and completionItem/resolve (step 11.6), like
@@ -112,7 +114,16 @@ func (s *Server) completion(ctx context.Context, e env, params json.RawMessage) 
 	insert := q.rangeOf(q.tok.Pos(c.start), q.tok.Pos(c.off))
 	suffix := string(q.src[c.off:c.end])
 	data := completionData{URI: p.TextDocument.URI, Line: p.Position.Line, Character: p.Position.Character}
-	for i, cand := range c.cands {
+	for _, cand := range c.cands {
+		var imports []protocol.TextEdit
+		if cand.imp != nil {
+			// No item when the import can't be added (gopls drops
+			// an item whose import edit fails).
+			if imports = c.importEdit(cand.imp); len(imports) == 0 {
+				continue
+			}
+		}
+		i := len(list.Items)
 		f := c.format(cand)
 		text := f.plain
 		if snippets {
@@ -139,9 +150,8 @@ func (s *Server) completion(ctx context.Context, e env, params json.RawMessage) 
 			FilterText: cand.name,
 			Preselect:  i == 0,
 			Data:       dataOf(data, cand),
-		}
-		if cand.imp != nil {
-			item.AdditionalTextEdits = c.importEdit(cand.imp)
+
+			AdditionalTextEdits: imports,
 		}
 		list.Items = append(list.Items, item)
 	}
@@ -191,46 +201,105 @@ func (s *Server) completer(ctx context.Context, snap *cache.Snapshot, uri protoc
 // "_" (a phantom selector) and goes on with the next line: var y = 1 or
 // if c { … } is then lost for the rest of the statement, with the names it
 // declares (gopls's fixDanglingSelector inserts a real _ and parses again).
-// To keep the byte offsets of the text (the positions of the check are
-// those of the document), the _ takes the place of one space or tab of the
-// white space that follows the dot: a dot followed by a line end and no
-// other white space is not fixed. Nor is one before ), ] or }, which ends
-// the expression anyway.
+// The fixed text is parsed again and fixed again while it has errors, up to
+// maxDanglingPasses times, like gopls's loop: a second x. in the statements
+// that the first one swallowed is seen only then.
 func fixDangling(pf *cache.ParsedFile) []byte {
 	if pf.Err == nil {
 		return nil
 	}
-	src := pf.Src
+	file, tok, src := pf.File, pf.Tok, pf.Src
 	var fixed []byte
-	ast.Inspect(pf.File, func(n ast.Node) bool {
+	for range maxDanglingPasses {
+		next := fixDanglingOnce(file, tok, src)
+		if next == nil {
+			break
+		}
+		fixed = next
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, pf.Path, fixed, pf.Mode)
+		if err == nil || f == nil {
+			break
+		}
+		file, tok, src = f, fset.File(f.FileStart), fixed
+	}
+	return fixed
+}
+
+// maxDanglingPasses is the most times fixDangling fixes and parses again
+// (gopls's 10).
+const maxDanglingPasses = 10
+
+// fixDanglingOnce returns a copy of src, the text of file, with the x. at
+// the end of a line that have a phantom selector in file made x._, or nil
+// when there is none. To keep the byte offsets of the text (the positions
+// of the check are those of the document), the _ takes the place of the
+// first space or tab between the dot and the next token, out of the
+// comments (gopls inserts it): a dot followed by only line ends and
+// comments, with no space or tab, is not fixed. Nor is one before ), ] or
+// }, which ends the expression anyway, or one with the next token on its
+// line.
+func fixDanglingOnce(file *ast.File, tok *token.File, src []byte) []byte {
+	var fixed []byte
+	ast.Inspect(file, func(n ast.Node) bool {
 		sel, ok := n.(*ast.SelectorExpr)
 		if !ok || sel.Sel.Name != "_" || !sel.X.End().IsValid() {
 			return true
 		}
-		dot := pf.Tok.Offset(sel.X.End())
+		dot := tok.Offset(sel.X.End())
 		for dot < len(src) && (src[dot] == ' ' || src[dot] == '\t') {
 			dot++
 		}
 		if dot >= len(src) || src[dot] != '.' {
 			return true
 		}
-		end := dot + 1
-		for end < len(src) && strings.IndexByte(" \t\r\n", src[end]) >= 0 {
-			end++
+		// The white space and comments after the dot: a newline in
+		// them, and the first space or tab out of a comment.
+		end, room, newline := dot+1, -1, false
+		for end < len(src) {
+			switch b := src[end]; {
+			case b == ' ' || b == '\t':
+				if room < 0 {
+					room = end
+				}
+				end++
+				continue
+			case b == '\r' || b == '\n':
+				newline = newline || b == '\n'
+				end++
+				continue
+			case bytes.HasPrefix(src[end:], []byte("//")):
+				k := bytes.IndexByte(src[end:], '\n')
+				if k < 0 {
+					end = len(src)
+				} else {
+					end += k // the \n is white space
+				}
+				continue
+			case bytes.HasPrefix(src[end:], []byte("/*")):
+				k := bytes.Index(src[end+2:], []byte("*/"))
+				if k < 0 {
+					end = len(src)
+				} else {
+					newline = newline || bytes.IndexByte(src[end:end+2+k], '\n') >= 0
+					end += 2 + k + 2
+				}
+				continue
+			}
+			break
 		}
-		ws := src[dot+1 : end]
-		if end >= len(src) || strings.IndexByte(")]}_", src[end]) >= 0 || !bytes.Contains(ws, []byte("\n")) {
+		if end >= len(src) || strings.IndexByte(")]}_", src[end]) >= 0 || !newline {
 			return true // the end of the text, of the expression, or a real _
 		}
-		i := bytes.LastIndexAny(ws, " \t")
-		if i < 0 {
+		if room < 0 {
 			return true // no room for the _
 		}
 		if fixed == nil {
 			fixed = bytes.Clone(src)
 		}
-		// "._" then the white space without the space or tab at i.
-		copy(fixed[dot+1:], append([]byte{'_'}, append(slices.Clone(ws[:i]), ws[i+1:]...)...))
+		// "._", then what came before the space or tab at room.
+		copy(fixed[dot+2:room+1], src[dot+1:room])
+		fixed[dot+1] = '_'
 		return true
 	})
 	return fixed
@@ -251,7 +320,7 @@ func sortCandidates(cands []*candidate) {
 }
 
 // importEdit returns the edit that adds the import of p (importEdits),
-// made once per package.
+// made once per package, or nil when the import can't be added.
 func (c *completer) importEdit(p *importable) []protocol.TextEdit {
 	if c.imports == nil {
 		c.imports = make(map[string][]protocol.TextEdit)

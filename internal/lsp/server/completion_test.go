@@ -336,6 +336,9 @@ func TestCompletionRanking(t *testing.T) {
 		{name: "comparison", text: inMain("\tif count == | {\n\t}\n"), first: "count"},
 		// The members after x. that fit come first: helper wants an int.
 		{name: "selector argument", text: inMain("\thelper(p.|)\n"), want: []string{"X", "Y", "Dist", "label", "Move"}},
+		// A type after pkg. where a type is wanted: the types first.
+		{name: "type after pkg.", text: inMain("\tvar r geom.|\n"), first: "Rect"},
+		{name: "type after pkg., in a struct", text: strings.Replace(inMain(""), "type Named struct {", "type Named struct {\n\tR geom.|", 1), first: "Rect"},
 		// An untyped constant that converts comes after a value of the
 		// type itself (gopls's 0.75).
 		{name: "untyped constant", text: inMain("\tvar m int = |\n\t_ = m\n"), want: []string{"count", "Count", "Answer"}},
@@ -532,8 +535,6 @@ func TestCompletionAutoImport(t *testing.T) {
 			"package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n\t\"strings\"\n)\n\nfunc f() {"},
 		{"package main\n\nimport (\n\t// fmt formats.\n\t\"fmt\"\n)\n\nfunc f() {\n\tfmt.Println()\n\tbytes.|\n}\n",
 			"package main\n\nimport (\n\t// fmt formats.\n\t\"bytes\"\n\t\"fmt\"\n)\n\nfunc f() {"},
-		// Code on the line of an import: no edit.
-		{"package main; import \"fmt\"\n\nfunc f() {\n\tfmt.Println()\n\tstrings.|\n}\n", "package main; import \"fmt\"\n\nfunc f() {"},
 	} {
 		src, _ := c.set("app/util.gp", tt.text)
 		items := c.complete("app/util.gp", tt.text)
@@ -544,6 +545,36 @@ func TestCompletionAutoImport(t *testing.T) {
 		if got := importEditOf(t, src, item(items, label)); !strings.HasPrefix(got, tt.want) {
 			t.Errorf("in\n%s\nafter the edits:\n%s\nwant the start\n%s", tt.text, got, tt.want)
 		}
+	}
+}
+
+// TestCompletionAutoImportNoEdit: where the import can't be added (code on
+// the line of an import, an import ( that isn't closed), the candidates
+// that need it are not offered (gopls drops an item whose import edit
+// fails), and the others are.
+func TestCompletionAutoImportNoEdit(t *testing.T) {
+	c := startComp(t, compFiles, snippetInit)
+	c.t = t
+	for _, tt := range []struct{ text, label string }{
+		{"package main; import \"fmt\"\n\nfunc f() {\n\tfmt.Println()\n\tstrings.|\n}\n", "Join"},
+		{"package main\n\nimport \"fmt\"; import \"os\"\n\nfunc f() {\n\tfmt.Println(os.Args)\n\tstrings.|\n}\n", "Join"},
+		{"package main\n\nimport \"fmt\"; import \"os\"\n\nfunc f() {\n\tfmt.Println(os.Args)\n\tshap|\n}\n", "shapes"},
+		{"package main\n\nimport (\n\t\"fmt\"\n\nfunc f() {\n\tfmt.Println()\n\tstrings.|\n}\n", "Join"},
+	} {
+		items := c.complete("app/util.gp", tt.text)
+		if it := item(items, tt.label); it != nil {
+			t.Errorf("in\n%s\n%q is offered: %+v", tt.text, tt.label, it)
+		}
+		for _, it := range items {
+			if strings.Contains(it.Detail, "(from \"") && len(it.AdditionalTextEdits) == 0 {
+				t.Errorf("in\n%s\n%q needs an import and adds none", tt.text, it.Label)
+				break
+			}
+		}
+	}
+	// The members of an imported package are still offered there.
+	if items := c.complete("app/util.gp", "package main; import \"fmt\"\n\nfunc f() {\n\tfmt.Spr|\n}\n"); item(items, "Sprint") == nil {
+		t.Errorf("no fmt.Sprint: %q", labels(items))
 	}
 }
 
@@ -873,11 +904,22 @@ func TestFixDangling(t *testing.T) {
 	for _, tt := range []struct{ src, want string }{
 		{"package p\n\nfunc f() {\n\tp.\n\tvar y = 1\n}\n", "package p\n\nfunc f() {\n\tp._\nvar y = 1\n}\n"},
 		{"package p\n\nfunc f() {\n\tp.\r\n\t\tif x {\r\n\t\t}\r\n}\n", "package p\n\nfunc f() {\n\tp._\r\n\tif x {\r\n\t\t}\r\n}\n"},
-		{"package p\n\nfunc f() {\n\tp.\nvar y = 1\n}\n", ""},        // no room
-		{"package p\n\nfunc f() {\n\tp.\n}\n", ""},                   // before }
-		{"package p\n\nfunc f() {\n\tp.\n\tq()\n}\n", ""},            // no phantom: p.q
-		{"package p\n\nfunc f() {\n\tp. // c\n\tvar y = 1\n}\n", ""}, // a comment
-		{"package p\n\nfunc f() {\n\tp.x\n}\n", ""},                  // nothing wrong
+		{"package p\n\nfunc f() {\n\tp.\nvar y = 1\n}\n", ""}, // no room
+		{"package p\n\nfunc f() {\n\tp.\n}\n", ""},            // before }
+		{"package p\n\nfunc f() {\n\tp.\n\tq()\n}\n", ""},     // no phantom: p.q
+		// A comment after the dot: the _ takes the place of the space
+		// before it, or of one after it.
+		{"package p\n\nfunc f() {\n\tp. // c\n\tvar y = 1\n}\n", "package p\n\nfunc f() {\n\tp._// c\n\tvar y = 1\n}\n"},
+		{"package p\n\nfunc f() {\n\tp./* c */\n\tvar y = 1\n}\n", "package p\n\nfunc f() {\n\tp._/* c */\nvar y = 1\n}\n"},
+		{"package p\n\nfunc f() {\n\tp.\n\t// c\n\tvar y = 1\n}\n", "package p\n\nfunc f() {\n\tp._\n// c\n\tvar y = 1\n}\n"},
+		{"package p\n\nfunc f() {\n\tp.// c\nvar y = 1\n}\n", ""}, // no room
+		{"package p\n\nfunc f() {\n\tp. /* c\n}\n", ""},           // a comment to the end
+		{"package p\n\nfunc f() {\n\tp. /* c */ )\n}\n", ""},      // before )
+		// Two: the second x. is seen once the first is fixed (gopls
+		// parses again, up to 10 times).
+		{"package p\n\nfunc f() {\n\tp.\n\tvar y = 1\n\tp.\n\tvar z = 2\n}\n",
+			"package p\n\nfunc f() {\n\tp._\nvar y = 1\n\tp._\nvar z = 2\n}\n"},
+		{"package p\n\nfunc f() {\n\tp.x\n}\n", ""}, // nothing wrong
 	} {
 		fset := token.NewFileSet()
 		f, err := parser.ParseFile(fset, "p.gp", tt.src, parser.ParseComments|parser.AllErrors)
@@ -896,5 +938,13 @@ func TestFixDangling(t *testing.T) {
 	}
 	if p := c.next("app/main.gp"); !strings.Contains(format(p), "expected selector or type assertion") {
 		t.Errorf("the diagnostics of the user's text:\n%s", format(p))
+	}
+	for _, text := range []string{
+		inMain("\tp.\n\tvar yyy = 1\n\tp.\n\tvar yyz = 2\n\tyy|\n"),
+		inMain("\tp. // note\n\tvar yyy = 1\n\tvar yyz = 2\n\tyy|\n"),
+	} {
+		if items := c.complete("app/main.gp", text); item(items, "yyy") == nil || item(items, "yyz") == nil {
+			t.Errorf("in\n%s\nno yyy and yyz: %q", text, labels(items))
+		}
 	}
 }
