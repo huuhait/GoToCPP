@@ -21,6 +21,7 @@ import (
 //	                         (v keeps its Go name: declLines)
 //	g(x, f())                { auto gp_t0 = f(); g(x, gp_t0); }  (Go's order, order.go)
 //	var x T                  T x{};  (the zero value)
+//	type T struct{...}       nothing here: the struct is at namespace scope (typedecl.go)
 //	a, b := f()              auto gp_t0 = f(); T a = std::get<0>(gp_t0); ...
 //	x = e                    x = e;
 //	a, b = b, a              { auto gp_t0 = b; auto gp_t1 = a; a = gp_t0; b = gp_t1; }
@@ -29,6 +30,8 @@ import (
 //	s, s[0] = t, 5           { auto gp_t0 = s; s = t; gp_t0[0] = 5; } (the old s: saveOperands)
 //	a, a[0] = b, 5           a = b; a[0] = 5; (an array: the new a; its index is saved, arrays.go)
 //	m[k] = v, m[k] op= v     gp::set(m, k, v);  gp::ref(m, k) += v; and the other forms (maps.go)
+//	p, p.f = q, 5            { auto gp_t0 = p; p = q; gp_t0->f = 5; } (the old p: structs.go)
+//	n = n.kids[0]            n = Node(n.kids[0]); (a copy first: sharedCopy, structs.go)
 //	x++, x--                 x++; x--;  (C++ converts a small integer back with Go's wrapping)
 //	return a, b              return {a, b};
 //	L: s                     L:; s  (only for a label that a goto uses)
@@ -198,13 +201,13 @@ func (fg *funcGen) simpleScope(s ast.Stmt) []ast.Expr {
 		return []ast.Expr{s.X}
 	case *ast.AssignStmt:
 		if c := fg.appendInPlace(s); c != nil {
-			return append(targetOperands(s.Lhs), c.Args...)
+			return append(fg.targetOperands(s.Lhs), c.Args...)
 		}
 		if fg.mapAppend(s) != nil {
 			return nil // m[k] = append(m[k], ...): ordered by mapPre (maps.go)
 		}
 		if s.Tok == token.ASSIGN {
-			return append(targetOperands(s.Lhs), s.Rhs...)
+			return append(fg.targetOperands(s.Lhs), s.Rhs...)
 		}
 		return []ast.Expr{s.Lhs[0], s.Rhs[0]}
 	}
@@ -212,10 +215,11 @@ func (fg *funcGen) simpleScope(s ast.Stmt) []ast.Expr {
 }
 
 // targetOperands returns the operands of the targets of an assignment that are evaluated with
-// its values (the spec's "operands of index expressions and pointer indirections on the left"):
-// p of *p, s and i of s[i] (step 3.5). (p.f adds its own with step 3.8.) gc evaluates their
+// its values (the spec's "operands of index expressions and pointer indirections (including
+// implicit pointer indirections in selectors) on the left"): p of *p, s and i of s[i] (step
+// 3.5), p of p.f and those of the place of x in x.f (step 3.8, structs.go). gc evaluates their
 // calls before those of the values, in order, and reads them where the stores are.
-func targetOperands(lhs []ast.Expr) []ast.Expr {
+func (fg *funcGen) targetOperands(lhs []ast.Expr) []ast.Expr {
 	var ops []ast.Expr
 	for _, e := range lhs {
 		switch x := ast.Unparen(e).(type) {
@@ -223,6 +227,8 @@ func targetOperands(lhs []ast.Expr) []ast.Expr {
 			ops = append(ops, x.X)
 		case *ast.IndexExpr:
 			ops = append(ops, x.X, x.Index)
+		case *ast.SelectorExpr:
+			ops = append(ops, fg.selectorOperands(x)...)
 		}
 	}
 	return ops
@@ -352,8 +358,8 @@ func (fg *funcGen) declStmt(s *ast.DeclStmt) {
 			}
 			fg.declare(spec.Pos(), lhs, spec.Values)
 		}
-	default:
-		fg.g.unsupported(s.Pos(), "local type declarations (Phase 03)")
+	case token.TYPE:
+		// Moved to the namespace (typedecl.go): nothing to write here.
 	}
 }
 
@@ -369,6 +375,10 @@ type target struct {
 	x    cppir.Expr // the C++ of the left side, or nil for _
 	typ  cppir.Type // the C++ type of a new variable (of its value if boxed), or nil (an existing one, _)
 	name string     // the C++ name of the variable that x is (reads), or "" for _ or another target
+	// root is the C++ name of the local variable that the target is a part of, a field or an
+	// element of an array in it (w.f, a[i], w.arr[i].g; box.go's root), or "": an expression
+	// that reads that variable reads the target too (affected).
+	root string
 
 	shadow bool // a new variable that shadows a variable or function of an outer scope
 	class  bool // a new variable of a C++ class type (gp::string), which a temporary is moved into
@@ -378,14 +388,16 @@ type target struct {
 	// mem: storing to the target writes memory that other expressions can read: a boxed or a
 	// package variable, or a target that is not a variable (*p, s[i]).
 	mem bool
-	// ptr is the pointer operand p of a target *p, and index a target s[i], whose operands
-	// (p; s and i) bind evaluates into temporaries first when an assignment before it can
-	// change them (gc's ascompatee: saveOperands).
+	// ptr is the pointer operand p of a target *p, index a target s[i] and field a target x.f
+	// (step 3.8), whose operands (p; s and i; those of x.f: selectorOperands) bind evaluates into
+	// temporaries first when an assignment before it can change them (gc's ascompatee:
+	// saveOperands).
 	ptr   ast.Expr
 	index *ast.IndexExpr
 	// mapX and mapK are the C++ of the map and the key of a target m[k] (an index too), which
 	// stores with gp::set(m, k, value) (maps.go).
 	mapX, mapK cppir.Expr
+	field      *ast.SelectorExpr
 }
 
 // varTarget returns the target of the existing variable whose C++ name is name.
@@ -412,6 +424,13 @@ func (fg *funcGen) lhs(e ast.Expr) target {
 		t.index = x
 		if isMap(fg.g.info.TypeOf(x.X)) {
 			fg.mapTarget(&t, x)
+		}
+	case *ast.SelectorExpr:
+		t.field = x
+	}
+	if _, ok := ast.Unparen(e).(*ast.Ident); !ok {
+		if v := (&boxer{info: fg.g.info}).root(e); v != nil {
+			t.root = fg.cname(v, e.Pos())
 		}
 	}
 	return t
@@ -442,6 +461,21 @@ func (fg *funcGen) saveOperands(pos cppir.Pos, targets []target, i int) []cppir.
 		// An element of an array: the operands of the array's place, never the array itself.
 		if x := fg.saveArrayElem(t.index, func(e ast.Expr) cppir.Expr { return save(e, nil) }); x != nil {
 			targets[i].x = x // arrays.go
+		}
+	case t.field != nil && fg.embeddedPointer(t.field):
+		// A promoted field through an embedded pointer (o.F of an embedded *E): Go evaluates
+		// that pointer before the stores, so it goes into a temporary when a store before it can
+		// change it (o.E, o.F = e, 5 stores into the old *o.E; structs.go).
+		if fg.affected(t.field, targets[:i]) {
+			p, typ, rest := fg.embeddedPtr(t.field)
+			tmp := fg.names.temp("t")
+			lines = append(lines, varDecl(pos, typeName("auto"), tmp, p))
+			targets[i].x, _ = fg.fieldSteps(cxxName(tmp), typ, rest, t.field.Pos())
+		}
+	case t.field != nil:
+		// A field: the pointer p of p.f, or the operands of the struct's place.
+		if x := fg.saveField(t.field, func(e ast.Expr) cppir.Expr { return save(e, nil) }); x != nil {
+			targets[i].x = x // structs.go
 		}
 	case t.index != nil:
 		x, idx := save(t.index.X, nil), save(t.index.Index, nil)
@@ -647,7 +681,7 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 	p := fg.g.pos(pos)
 	// The operands of the targets (*p) are evaluated first, but their reads are where the
 	// stores are, after the values: then the list is not in C++'s order.
-	ops := targetOperands(lhs)
+	ops := fg.targetOperands(lhs)
 	pre := fg.order(len(values) > 1 && ops == nil, append(ops, values...)...)
 	if lhs != nil {
 		// The targets of an assignment, translated after the order: their operands may be
@@ -710,7 +744,7 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 		}
 	case direct:
 		for i, t := range targets {
-			assign(t, fg.expr(values[i]))
+			assign(t, fg.storedValue(t, values[i]))
 		}
 	default:
 		// A value is evaluated in its assignment, after the targets before it changed,
@@ -750,7 +784,7 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 			case tmps[i] != "":
 				assign(t, cxxName(tmps[i]))
 			default:
-				assign(t, fg.expr(values[i]))
+				assign(t, fg.storedValue(t, values[i]))
 			}
 		}
 	}
@@ -766,6 +800,16 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 	default:
 		fg.add(&cppir.Line{Pos: p, Stmts: lines})
 	}
+}
+
+// storedValue returns the C++ of the value v of the target t: for a target that exists, copied
+// first if the store could free it (sharedCopy, structs.go).
+func (fg *funcGen) storedValue(t target, v ast.Expr) cppir.Expr {
+	x := fg.expr(v)
+	if t.typ == nil && !t.blank() {
+		return fg.sharedCopy(v, x)
+	}
+	return x
 }
 
 // early returns the targets that the value of targets[i] must not read when it is evaluated
@@ -802,15 +846,17 @@ func (fg *funcGen) reads(e ast.Expr, targets []target) bool {
 
 // affected reports whether an assignment to one of the targets (which come before the
 // expression e in an assignment) can change the value of e, so that e must be evaluated before
-// them (gc's ascompatee: affected): e reads one of the targets, or one of them writes memory
-// (target.mem) and e reads memory (a boxed or a package variable, *p: !inert).
+// them (gc's ascompatee: affected): e reads one of the targets, also the variable that a
+// target is a part of (w in w.i, s[w.i] = 1, 3, or a in a[0], x[a[0]] = 1, 2: target.root), or
+// one of them writes memory (target.mem) and e reads memory (a boxed or a package variable, *p:
+// !inert).
 func (fg *funcGen) affected(e ast.Expr, targets []target) bool {
 	used := fg.usedNames([]ast.Expr{e})
 	mem := false
 	for _, t := range targets {
 		switch {
 		case t.blank():
-		case t.name != "" && used[t.name]:
+		case t.name != "" && used[t.name], t.root != "" && used[t.root]:
 			return true
 		case t.mem:
 			mem = true

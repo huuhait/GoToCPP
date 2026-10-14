@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"go/types"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/huuhait/gocpp/internal/check"
@@ -107,6 +108,9 @@ type gen struct {
 	// uintCounts are the expressions inside a shift count that is untyped but not a
 	// constant (markCounts).
 	uintCounts map[ast.Expr]bool
+
+	// typeDecls are the package's structs (typedecl.go), or nil before the first one.
+	typeDecls *typeDecls
 }
 
 // errorf records an error at pos, if it is the first.
@@ -166,6 +170,8 @@ func (g *gen) file() *cppir.File {
 		g.funcDecl(fn)
 	}
 	g.initFuncs()
+	// The structs go first (typedecl.go): everything above has added the ones it uses.
+	ns.Decls = slices.Insert(ns.Decls, 1, g.structDecls()...)
 	f.Decls = append(f.Decls, ns, &cppir.Blank{})
 
 	init := cppir.Expr(&cppir.Lit{Text: "nullptr"})
@@ -207,8 +213,9 @@ func (g *gen) outputName() string {
 	return "package main (" + strings.Join(names, ", ") + ")"
 }
 
-// collect walks the package-level declarations: it names the functions and variables and
-// rejects the declarations that Phase 02 doesn't have.
+// collect walks the package-level declarations: it names the functions, variables and types
+// (also the types declared in functions) and rejects the declarations that lowering doesn't have
+// yet.
 func (g *gen) collect() {
 	for _, f := range g.pkg.Load.Files {
 		for _, d := range f.AST.Decls {
@@ -220,6 +227,7 @@ func (g *gen) collect() {
 			}
 		}
 	}
+	g.collectLocalTypes() // typedecl.go
 }
 
 func (g *gen) collectFunc(d *ast.FuncDecl) {
@@ -258,7 +266,7 @@ func (g *gen) collectGen(d *ast.GenDecl) {
 	case token.CONST:
 		// Every use of a constant is folded (expr.go), so constants need no C++.
 	case token.TYPE:
-		g.unsupported(d.Pos(), "type declarations (Phase 03)")
+		g.collectTypes(d) // typedecl.go
 	case token.VAR:
 		for _, spec := range d.Specs {
 			for _, id := range spec.(*ast.ValueSpec).Names {

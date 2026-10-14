@@ -20,6 +20,7 @@
 //     &x  (x is boxed)    x                                the box is the pointer
 //     &p.f                gp::ptr<F>(p, &p->f)             aliasing: shares p's owner
 //     &s[i]               gp::ptr<T>(s.gp_owner(), &s[i])  shares the slice's array
+//     &f().f              gp::field_ptr(f(), &T::f)        the same, f() evaluated once
 //     &global, &global.f  gp::static_ptr(global), gp::static_ptr(global.f)
 //     *p, p.f             *p, p->f                         a nil p panics like Go
 //     p == nil            p == nullptr
@@ -296,6 +297,25 @@ inline const std::shared_ptr<void>& static_owner() noexcept {
 template <typename T>
 ptr<T> static_ptr(T& x) noexcept {
     return ptr<T>(static_owner(), std::addressof(x));
+}
+
+// new_init<T>(init): &T{...} for a struct larger than 128 KiB (step 3.8): a pointer to a new zero
+// T, made in its block, which init(T&) then fills with the literal's fields, so the literal is
+// never a temporary on the C++ stack (D24).
+template <typename T, typename F>
+ptr<T> new_init(F&& init) {
+    ptr<T> p = new_<T>();
+    std::forward<F>(init)(*p);
+    return p;
+}
+
+// field_ptr(p, &T::f): &p.f for a pointer p that is not a variable (&f().f, &f()[i].f, step
+// 3.8): a pointer to the field that shares p's owner, with p evaluated once. A nil p panics like
+// Go. (For a variable p, generated code writes gp::ptr<F>(p, &p->f).)
+template <typename T, typename F>
+ptr<F> field_ptr(ptr<T> p, F T::* f) {
+    F* q = &((*p).*f);
+    return ptr<F>(std::move(p), q);
 }
 
 // ptr_cast<U>(p): Go's conversion (*U)(p) between pointer types whose base types have

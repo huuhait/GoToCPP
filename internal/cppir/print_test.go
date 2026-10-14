@@ -291,8 +291,12 @@ void f() {
     gp_exit:;
 }
 constinit gp::string s{gp::static_bytes, "go", 2};
+static_assert(sizeof(Point) == 16 && alignof(Point) == 8);
 `,
-		point, box, &Struct{Pos: Pos{}, Name: "Box", Forward: true}, counter, deferred, constinit)
+		point, box, &Struct{Pos: Pos{}, Name: "Box", Forward: true}, counter, deferred, constinit,
+		&StaticAssert{Cond: &Binary{Op: "&&",
+			X: &Binary{Op: "==", X: cl("sizeof", n("Point")), Y: l("16")},
+			Y: &Binary{Op: "==", X: cl("alignof", n("Point")), Y: l("8")}}})
 }
 
 // TestPrintExprs checks the expressions and types, and the parentheses that the printer adds

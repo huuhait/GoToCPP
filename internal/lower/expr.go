@@ -19,8 +19,8 @@ import (
 // Printf (gp::fmtshim), the byte s[i] of a string, the substring s[a:b], conversions between
 // basic types (also string(r)), every operator of the Phase 02 subset with string
 // concatenation (ops.go), pointers (step 3.3): *p, &x (addr.go), new(T), nil, p == q, and
-// a boxed variable x (box.go), which is (*x), slices (step 3.5, slices.go) and arrays (step
-// 3.6, arrays.go). The rest is
+// a boxed variable x (box.go), which is (*x), slices (step 3.5, slices.go), arrays (step
+// 3.6, arrays.go) and structs (step 3.8, structs.go). The rest is
 // reported as "not supported yet": the phase gates of internal/check reject it before, with a
 // message for the user.
 //
@@ -158,10 +158,9 @@ func (fg *funcGen) expr(e ast.Expr) cppir.Expr {
 		// *p: gp::ptr's operator* panics like Go for a nil p.
 		return deref(fg.expr(e.X))
 	case *ast.CompositeLit:
-		if isArray(fg.g.info.TypeOf(e)) {
-			return fg.arrayLit(e) // arrays.go
-		}
-		return fg.compositeLit(e)
+		return fg.compLit(e) // structs.go
+	case *ast.SelectorExpr:
+		return fg.selector(e) // structs.go
 	}
 	fg.g.unsupported(e.Pos(), nodeKind(e))
 	return placeholder

@@ -104,8 +104,8 @@ func (fg *funcGen) mapEntries(e *ast.CompositeLit) []*ast.KeyValueExpr {
 }
 
 // splitEntries returns the static entries of the map literal e (gc's isStaticCompositeLiteral:
-// the key and the value are constants, nil or array literals of static elements; static structs
-// come with step 3.8) and the others, each in source order.
+// the key and the value are constants, nil or array or struct literals of static elements) and
+// the others, each in source order.
 func (fg *funcGen) splitEntries(e *ast.CompositeLit) (statics, dynamics []*ast.KeyValueExpr) {
 	for _, elt := range e.Elts {
 		kv := elt.(*ast.KeyValueExpr)
@@ -119,14 +119,15 @@ func (fg *funcGen) splitEntries(e *ast.CompositeLit) (statics, dynamics []*ast.K
 }
 
 // staticLit reports whether x is static for gc (walk/complit.go: isStaticCompositeLiteral): a
-// constant, nil, or an array literal whose elements are static (a slice or map literal never is).
+// constant, nil, or an array or struct literal whose elements are static (a slice or map
+// literal never is, nor &T{...}).
 func (fg *funcGen) staticLit(x ast.Expr) bool {
 	x = ast.Unparen(x)
 	if tv := fg.g.info.Types[x]; tv.Value != nil || tv.IsNil() {
 		return true
 	}
 	lit, ok := x.(*ast.CompositeLit)
-	if !ok || !isArray(fg.g.info.TypeOf(lit)) {
+	if t := fg.g.info.TypeOf(lit); !ok || !isArray(t) && !isStruct(t) {
 		return false
 	}
 	for _, elt := range lit.Elts {
@@ -322,9 +323,8 @@ func (fg *funcGen) mapAppend(s ast.Stmt) *ast.CallExpr {
 // uint64 and string. In m[k] = append(m[k], ...), cheapExpr then copies the conversion, so such a
 // key is read before the other arguments, while a key of another type (bool, int8, int16, uint8,
 // uint16, floats, uint32, uint64, string) is read where the entry is taken, after them. The fast
-// calls also need a value of at most 128 bytes, which a slice always is here. Arrays: see the
-// code (structs of 4 or 8 bytes, step 3.8, must be added too). tests/diff/maps_append_key.gp
-// checks this rule against the Go in use.
+// calls also need a value of at most 128 bytes, which a slice always is here. Arrays and structs
+// (step 3.8): see the code. tests/diff/maps_append_key.gp checks this rule against the Go in use.
 func wrappedKey(k types.Type) bool {
 	if types.Identical(k, types.Typ[types.Uint32]) || types.Identical(k, types.Typ[types.Uint64]) ||
 		types.Identical(k, types.Typ[types.String]) || types.Identical(k, types.Typ[types.UnsafePointer]) {
@@ -336,6 +336,15 @@ func wrappedKey(k types.Type) bool {
 		// element whose own algorithm is (a [1]string is a string).
 		mem, size := goMemKey(k)
 		return mem && (size == 4 || size == 8) || singleFast(k)
+	}
+	if isStruct(k) {
+		// A struct is wrapped like an array when gc's algorithm for it is a fast one: a struct
+		// of one field (not _) has that field's (types.CalcStructSize), and any other one is
+		// plain memory of 4 or 8 bytes without blank fields and padding (goMemKey).
+		if f := soleField(k); f != nil {
+			return isString(f.Type()) || wrappedKey(f.Type()) || fastMem(f.Type())
+		}
+		return fastMem(k)
 	}
 	switch u := under(k).(type) {
 	case *types.Pointer, *types.Chan:
@@ -371,8 +380,46 @@ func goMemKey(t types.Type) (bool, int64) {
 	case *types.Array:
 		mem, size := goMemKey(u.Elem())
 		return mem, size * u.Len()
+	case *types.Struct:
+		// gc's rule (types.CalcStructSize): one field (not _) is that field; more are plain
+		// memory if every field is, and none is _ or followed by padding.
+		if f := soleField(t); f != nil {
+			return goMemKey(f.Type())
+		}
+		fields := make([]*types.Var, u.NumFields())
+		for i := range fields {
+			fields[i] = u.Field(i)
+		}
+		offsets := goSizes.Offsetsof(fields)
+		size := goSizes.Sizeof(t)
+		for i, f := range fields {
+			mem, fsize := goMemKey(f.Type())
+			end := size
+			if i+1 < len(fields) {
+				end = offsets[i+1]
+			}
+			if !mem || f.Name() == "_" || offsets[i]+fsize != end {
+				return false, 0
+			}
+		}
+		return true, size
 	}
 	return false, 0
+}
+
+// soleField returns the field of the struct type t if it has one field that is not _, or nil.
+func soleField(t types.Type) *types.Var {
+	if st, ok := under(t).(*types.Struct); ok && st.NumFields() == 1 && st.Field(0).Name() != "_" {
+		return st.Field(0)
+	}
+	return nil
+}
+
+// fastMem reports whether gc hashes a key of type t as plain memory of 4 or 8 bytes (AMEM32,
+// AMEM64), which its fast map calls take.
+func fastMem(t types.Type) bool {
+	mem, size := goMemKey(t)
+	return mem && (size == 4 || size == 8)
 }
 
 // singleFast reports whether t is an array of one element (also nested: [1][1]T) whose

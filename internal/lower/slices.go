@@ -54,7 +54,7 @@ import (
 // element its index (a key, or the index after the element before it), and its length is one
 // more than the largest index.
 func (fg *funcGen) compositeLit(e *ast.CompositeLit) cppir.Expr {
-	t := fg.g.info.TypeOf(e)
+	t := fg.g.litType(e) // []T of an elided &[]T{...} too
 	if isMap(t) {
 		return fg.mapLit(e) // step 3.7, maps.go
 	}
@@ -266,7 +266,7 @@ func (fg *funcGen) appendInPlace(s ast.Stmt) *ast.CallExpr {
 
 // storedExpr returns the C++ of rhs, the value of a plain assignment: moved
 // (static_cast<T&&>(gp_t0)) if it is a temporary of the order (order.go) of a class type,
-// which is used only here.
+// which is used only here, and copied first if the store could free it (sharedCopy).
 func (fg *funcGen) storedExpr(rhs ast.Expr) cppir.Expr {
 	x := fg.expr(rhs)
 	if _, ok := fg.temps[ast.Unparen(rhs)]; ok {
@@ -274,17 +274,19 @@ func (fg *funcGen) storedExpr(rhs ast.Expr) cppir.Expr {
 			return moved(fg.g.cxxType(t, rhs.Pos()), x)
 		}
 	}
-	return x
+	return fg.sharedCopy(rhs, x) // n = n.kids[0] (structs.go)
 }
 
-// baseVar returns the variable that the slice s (a variable, *p or v[i], sameVar) is or is in:
-// s, p, v's.
+// baseVar returns the variable that the slice s (a variable, *p, v[i] or v.f, sameVar) is or is
+// in: s, p, v's.
 func baseVar(s ast.Expr) ast.Expr {
 	for {
 		switch x := ast.Unparen(s).(type) {
 		case *ast.StarExpr:
 			s = x.X
 		case *ast.IndexExpr:
+			s = x.X
+		case *ast.SelectorExpr:
 			s = x.X
 		default:
 			return s
@@ -293,8 +295,8 @@ func baseVar(s ast.Expr) ast.Expr {
 }
 
 // sameVar reports whether a and b are the same variable that can be read twice with the same
-// result: the same variable x, *x of the same x, or x[i] of the same x (a variable, *x or x[i]
-// again) and the same constant or variable i.
+// result: the same variable x, *x of the same x, x[i] of the same x (a variable, *x or x[i]
+// again) and the same constant or variable i, or the same field x.f of the same x.
 func (fg *funcGen) sameVar(a, b ast.Expr) bool {
 	switch x := ast.Unparen(a).(type) {
 	case *ast.Ident:
@@ -317,6 +319,13 @@ func (fg *funcGen) sameVar(a, b ast.Expr) bool {
 			return cx != nil && cy != nil && constant.Compare(cx, token.EQL, cy)
 		}
 		return fg.sameVar(x.Index, y.Index)
+	case *ast.SelectorExpr:
+		// The same field of the same variable: x.f, p.f, s[i].f (structs.go).
+		y, ok := ast.Unparen(b).(*ast.SelectorExpr)
+		if !ok || fg.fieldSel(x) == nil || fg.fieldSel(y) == nil {
+			return false
+		}
+		return fg.fieldSel(x).Obj() == fg.fieldSel(y).Obj() && fg.sameVar(x.X, y.X)
 	}
 	return false
 }

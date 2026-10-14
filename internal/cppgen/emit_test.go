@@ -316,13 +316,23 @@ func TestUnsupported(t *testing.T) {
 	tests := []struct {
 		name, src, want string
 	}{
-		{"structlit", "func main() {\n\t_ = struct{}{}\n}", "main.gp:4:14: cppgen: not supported yet: composite literals of type struct{} (Phase 03)"},
 		{"makechan", "func main() {\n\t_ = make(chan int)\n}", "main.gp:4:6: cppgen: not supported yet: make of chan int (Phase 03)"},
 		{"fmtmap", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, map[int]int{})\n}", "main.gp:5:17: cppgen: not supported yet: printing a map (Phase 03 step 3.15)"},
+		{"structconv", "type A struct{ x int }\ntype B A\nfunc main() {\n\t_ = B(A{})\n}", "main.gp:6:6: cppgen: not supported yet: the conversion from A to B (Phase 03 step 3.9)"},
+		{"structcompare", "type P struct{ x int }\nfunc main() {\n\tprintln(P{} == struct{ x int }{})\n}", "main.gp:5:17: cppgen: not supported yet: the implicit conversion from struct{x int} to P (Phase 03 step 3.9)"},
+		{"implicit-var", "type P struct{ X, Y int }\nfunc a() struct{ X, Y int } { return struct{ X, Y int }{} }\nfunc main() {\n\tvar p P = a()\n\t_ = p\n}", "main.gp:6:12: cppgen: not supported yet: the implicit conversion from struct{X int; Y int} to P (Phase 03 step 3.9)"},
+		{"implicit-arg", "type P struct{ X, Y int }\nfunc f(p P) {}\nfunc main() {\n\tf(struct{ X, Y int }{1, 2})\n}", "main.gp:6:4: cppgen: not supported yet: the implicit conversion from struct{X int; Y int} to P (Phase 03 step 3.9)"},
+		{"implicit-return", "type P struct{ X, Y int }\nfunc f() P {\n\treturn struct{ X, Y int }{7, 8}\n}\nfunc main() {\n\t_ = f()\n}", "main.gp:5:9: cppgen: not supported yet: the implicit conversion from struct{X int; Y int} to P (Phase 03 step 3.9)"},
+		{"implicit-elem", "type P struct{ X, Y int }\nfunc main() {\n\t_ = []P{struct{ X, Y int }{3, 4}}\n}", "main.gp:5:10: cppgen: not supported yet: the implicit conversion from struct{X int; Y int} to P (Phase 03 step 3.9)"},
+		{"implicit-tuple", "type P struct{ X, Y int }\nfunc two() (struct{ X, Y int }, int) { return struct{ X, Y int }{}, 1 }\nfunc main() {\n\tvar p P\n\tp, _ = two()\n\t_ = p\n}", "main.gp:7:9: cppgen: not supported yet: the implicit conversion from struct{X int; Y int} to P (Phase 03 step 3.9)"},
+		{"implicit-range", "type P struct{ X, Y int }\nfunc main() {\n\tvar p P\n\tfor _, p = range []struct{ X, Y int }{{1, 2}} {\n\t}\n\t_ = p\n}", "main.gp:6:9: cppgen: not supported yet: the implicit conversion from struct{X int; Y int} to P (Phase 03 step 3.9)"},
+		{"implicit-switch", "type P struct{ X, Y int }\nfunc an() struct{ X, Y int } { return struct{ X, Y int }{} }\nfunc main() {\n\tvar p P\n\tswitch p {\n\tcase an():\n\t}\n}", "main.gp:8:7: cppgen: not supported yet: the implicit conversion from struct{X int; Y int} to P (Phase 03 step 3.9)"},
+		{"implicit-pkgvar", "type P struct{ X, Y int }\nvar p P = struct{ X, Y int }{1, 2}\nfunc main() {\n\t_ = p\n}", "main.gp:4:11: cppgen: not supported yet: the implicit conversion from struct{X int; Y int} to P (Phase 03 step 3.9)"},
+		{"structmethod", "type T struct{}\nfunc (T) M() {}\nfunc main() {}", "main.gp:4:1: cppgen: not supported yet: methods (Phase 03)"},
 		{"fmtslice", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, [][]int{})\n}", "main.gp:5:17: cppgen: not supported yet: printing a slice (Phase 03 step 3.15)"},
 		{"fmtarray", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, [2]int{})\n}", "main.gp:5:17: cppgen: not supported yet: printing an array (Phase 03 step 3.15)"},
 		{"spread", "func f(a ...int) {}\nfunc main() {\n\tf([]int{1}...)\n}", "main.gp:5:12: cppgen: not supported yet: f(s...) (Phase 03)"},
-		{"method", "type T int\nfunc (T) M() {}\nfunc main() {}", "main.gp:3:1: cppgen: not supported yet: type declarations (Phase 03)"},
+		{"method", "type T int\nfunc (T) M() {}\nfunc main() {}", "main.gp:3:6: cppgen: not supported yet: named types that are not structs (Phase 03 step 3.9)"},
 		{"funcvalue", "func g() {}\nfunc main() {\n\tf := g\n\tf()\n}", "main.gp:5:2: cppgen: not supported yet: type func()"},
 		{"funcvalue2", "func g() {}\nfunc main() {\n\tprintln(g == nil)\n}", "main.gp:5:10: cppgen: not supported yet: function values (Phase 03)"},
 		{"complex", "func main() {\n\tc := complex(1, 2)\n\tprintln(real(c))\n}", "main.gp:4:2: cppgen: not supported yet: type complex128"},
@@ -547,6 +557,20 @@ func TestPanics(t *testing.T) {
 		{"map-nil-append-arg-first", "var m map[int][]int\n\tz := 0\n\tm[1] = append(m[1], 7/z)"},
 		{"map-slice-index", "m := map[string][]int{}\n\tfmt.Println(m[\"x\"][0])"},
 		{"map-nil-swap", "var m map[int]int\n\tm[1], m[2] = m[2], m[1]"},
+		// Structs (step 3.8): a field through a nil pointer (read, store, op=, ++, &p.f, a
+		// promoted field through a nil embedded pointer, a nested pointer), and an index out of
+		// range in a field.
+		{"struct-nil-read", "var p *Pt\n\tfmt.Println(\"before\")\n\tfmt.Println(p.a)"},
+		{"struct-nil-second", "var p *Pt\n\tfmt.Println(p.b)"},
+		{"struct-nil-store", "var p *Pt\n\tp.b = 1"},
+		{"struct-nil-op-assign", "var p *Pt\n\tp.a += 2"},
+		{"struct-nil-inc", "var p *Pt\n\tp.b++"},
+		{"struct-nil-addr", "var p *Pt\n\tq := &p.b\n\tfmt.Println(q == nil)"},
+		{"struct-nil-deref", "var p *Pt\n\tv := *p\n\tfmt.Println(v)"},
+		{"struct-nil-embedded", "var w Wrap\n\tfmt.Println(w.Pt == nil)\n\tfmt.Println(w.a)"},
+		{"struct-nil-nested", "l := &List{}\n\tfmt.Println(l.next == nil)\n\tl.next.v = 3"},
+		{"struct-nil-call", "fmt.Println(nilPt().b)"},
+		{"struct-index", "var s Arrs\n\ti := 3\n\ts.a[i] = 1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -566,6 +590,10 @@ func TestPanics(t *testing.T) {
 			if strings.Contains(tt.body, "two(") {
 				src += "\nfunc two() [2]int {\n\treturn [2]int{1, 2}\n}\n"
 			}
+			if strings.HasPrefix(tt.name, "struct-") {
+				src += "\ntype Pt struct{ a, b int }\n\ntype Wrap struct{ *Pt }\n\ntype List struct {\n\tv    int\n\tnext *List\n}\n\n" +
+					"type Arrs struct{ a [3]int }\n\nfunc nilPt() *Pt {\n\treturn nil\n}\n"
+			}
 			gp := filepath.Join(dir, "main.gp")
 			if err := os.WriteFile(gp, []byte(src), 0o644); err != nil {
 				t.Fatal(err)
@@ -574,7 +602,51 @@ func TestPanics(t *testing.T) {
 			if want != nil && want.code != 2 {
 				t.Fatalf("with Go, the program exits with %d, not with a panic:\n%s", want.code, want.stderr)
 			}
-			checkRunsNorm(t, emitter(gp), want, maskPC)
+			checkRunsNorm(t, emitter(gp), want, maskPCAddr)
 		})
+	}
+}
+
+// addrRx matches the address in the signal line of a nil pointer panic, addr=0x8: Go prints the
+// offset of a field that is read through a nil pointer, gocpp 0x0 (Phase 03 STATE, 3.2).
+var addrRx = regexp.MustCompile(` addr=0x[0-9a-f]+ `)
+
+// maskPCAddr is maskPC that also replaces the address of the signal line with ADDR.
+func maskPCAddr(r result) result {
+	r = maskPC(r)
+	r.stderr = addrRx.ReplaceAllString(r.stderr, " addr=ADDR ")
+	return r
+}
+
+// TestAnonNames checks the names of the anonymous structs that hold types declared in functions
+// (typedecl.go: anonKey): two functions' types of the same name give two structs, and the names
+// don't depend on the lines and columns of the declarations.
+func TestAnonNames(t *testing.T) {
+	const prog = "package main\n\nimport \"fmt\"\n\nfunc f() {\n%s\ttype T struct{ a int }\n\tfmt.Println(struct{ t T }{T{1}})\n}\n\n" +
+		"func g() {\n\ttype T struct{ b string }\n\tfmt.Println(struct{ t T }{T{\"s\"}})\n}\n\nfunc main() {\n\tf()\n\tg()\n}\n"
+	anonRx := regexp.MustCompile(`struct (gp_anon_[0-9a-f]+) \{`)
+	names := func(src string) []string {
+		dir := t.TempDir()
+		gp := filepath.Join(dir, "main.gp")
+		if err := os.WriteFile(gp, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cpp, err := emitPatterns(t, Config{}, dir, gp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var list []string
+		for _, m := range anonRx.FindAllStringSubmatch(cpp, -1) {
+			list = append(list, m[1])
+		}
+		return list
+	}
+	a := names(fmt.Sprintf(prog, ""))
+	b := names(fmt.Sprintf(prog, "\t// a line above the type\n\n"))
+	if len(a) != 2 || a[0] == a[1] {
+		t.Errorf("the anonymous structs are %v, want two different ones", a)
+	}
+	if !slices.Equal(a, b) {
+		t.Errorf("the names changed with the lines: %v, then %v", a, b)
 	}
 }

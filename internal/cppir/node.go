@@ -159,6 +159,12 @@ type Declarator struct {
 	Init Expr
 }
 
+// A StaticAssert is `static_assert(Cond);`, a declaration at namespace or class scope.
+type StaticAssert struct {
+	Pos  Pos
+	Cond Expr
+}
+
 // A Comment is a comment: `// Text` on a line of its own, `/* Text */` inside a Line or an
 // inline block (then Text must not hold */). Text must not hold a newline.
 type Comment struct {
@@ -476,25 +482,27 @@ type FuncType struct {
 	Params []Type
 }
 
-func (*Include) node()   {}
-func (*Namespace) node() {}
-func (*Func) node()      {}
-func (*Struct) node()    {}
-func (*Access) node()    {}
-func (*Using) node()     {}
-func (*VarDecl) node()   {}
-func (*Comment) node()   {}
-func (*Blank) node()     {}
+func (*Include) node()      {}
+func (*Namespace) node()    {}
+func (*Func) node()         {}
+func (*Struct) node()       {}
+func (*Access) node()       {}
+func (*Using) node()        {}
+func (*VarDecl) node()      {}
+func (*StaticAssert) node() {}
+func (*Comment) node()      {}
+func (*Blank) node()        {}
 
-func (*Include) decl()   {}
-func (*Namespace) decl() {}
-func (*Func) decl()      {}
-func (*Struct) decl()    {}
-func (*Access) decl()    {}
-func (*Using) decl()     {}
-func (*VarDecl) decl()   {}
-func (*Comment) decl()   {}
-func (*Blank) decl()     {}
+func (*Include) decl()      {}
+func (*Namespace) decl()    {}
+func (*Func) decl()         {}
+func (*Struct) decl()       {}
+func (*Access) decl()       {}
+func (*Using) decl()        {}
+func (*VarDecl) decl()      {}
+func (*StaticAssert) decl() {}
+func (*Comment) decl()      {}
+func (*Blank) decl()        {}
 
 func (*ExprStmt) node() {}
 func (*Return) node()   {}

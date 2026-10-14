@@ -59,6 +59,12 @@
 //     copy only where the body could change the array);
 //   - maps.go: maps (step 3.7): literals in gc's order, m[k] reads and stores, op= and ++ on an
 //     entry, v, ok := m[k], make, delete, clear, range, and their order of evaluation;
+//   - typedecl.go: the type declarations (step 3.8): the C++ structs of the named and the
+//     anonymous struct types, with their ==, gp_hash, the fmt shim's gp_type_name and gp_fields,
+//     the names of local types moved to the namespace, and the order of the definitions;
+//   - structs.go: struct expressions (step 3.8): literals (keyed ones in the fields' order),
+//     fields (also promoted ones, through pointers), the owners of &x.f, the operands of a target
+//     x.f, and the copy before an assignment that could free its value;
 //   - ops.go: the operators (with the small-integer rule and the runtime's gp::div, gp::rem,
 //     gp::shl and gp::shr), conversions (gp::f2i), s[i] and the builtins len and panic;
 //   - types.go: the C++ spelling of the types;

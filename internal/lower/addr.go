@@ -28,16 +28,18 @@ import (
 //	&f()[i] (f() is *[N]T)   the array's block        gp::elem_ptr(f(), i)
 //	&[N]T{...}               a new block              gp::new_<A>(A{...})
 //
-// The rest of the table comes with the types it needs, each a pointer that shares the owner of
+// Structs (step 3.8, structs.go), with the same addrOf, each a pointer that shares the owner of
 // the object it points into (gp::ptr's aliasing constructor):
 //
-//	&p.f (p is *T)           p                        gp::ptr<F>(p, &p->f)            step 3.8
-//	&x.f, &x.arr[i]          x's box                  gp::ptr<F>(x, &(*x).f)          step 3.8
-//	&global.f                the static owner         gp::static_ptr(global.f)        step 3.8
-//	&T{...}                  a new block              gp::new_<T>(T{...})             step 3.8
+//	&p.f (p is *T)           p                        gp::ptr<F>(p, &p->f)
+//	&x.f, &x.arr[i].g        x's box                  gp::ptr<F>(x, &(*x).f)
+//	&global.f                the static owner         gp::static_ptr(global.f)
+//	&s[i].f                  the slice's array        gp::ptr<F>(s.gp_owner(), &s[i].f)
+//	&f().f (f() is *T)       f()'s block              gp::field_ptr(f(), &T::f)
+//	&T{...}                  a new block              gp::new_<T>(T{...})
 //
 // The aliasing form reads the owner twice, so it is for an owner that is a variable (or in a
-// temporary); another one goes through gp::elem_ptr, which evaluates it once. The boxing analysis (box.go) boxes every local variable whose address,
+// temporary); another one goes through gp::elem_ptr or gp::field_ptr, which evaluate it once. The boxing analysis (box.go) boxes every local variable whose address,
 // or the address of a part of it, is taken, so &x never needs the address of a C++ stack
 // variable.
 
@@ -67,17 +69,17 @@ func (fg *funcGen) addr(e *ast.UnaryExpr) cppir.Expr {
 		}
 		fg.g.unsupported(e.Pos(), "&*p where p is not a variable")
 	case *ast.CompositeLit:
-		if t := fg.g.info.TypeOf(x); isArray(t) {
-			// &[N]T{...}: a new block that holds the literal, gp::new_<A>(A{...}); one larger
-			// than 128 KiB is built in the block itself (largeBox, arrays.go).
+		if t := fg.g.info.TypeOf(x); isArray(t) || isStruct(t) {
+			// &[N]T{...}, &T{...}: a new block that holds the literal, gp::new_<A>(A{...}); one
+			// larger than 128 KiB is built in the block itself (largeBox, arrays.go).
 			if largeVar(t) {
 				return largeBox(fg.g.cxxType(t, x.Pos()), fg.expr(x))
 			}
 			return newBox(fg.g.cxxType(t, x.Pos()), fg.expr(x))
 		}
-		fg.g.unsupported(e.Pos(), "&T{...} (Phase 03 step 3.8)")
+		fg.g.unsupported(e.Pos(), "&T{...} of a slice or map literal")
 	case *ast.SelectorExpr:
-		fg.g.unsupported(e.Pos(), "the address of a field (Phase 03 step 3.8)")
+		return fg.addrOf(x) // a field: arrays.go and structs.go
 	case *ast.IndexExpr:
 		if isSlice(fg.g.info.TypeOf(x.X)) {
 			return fg.elemAddr(e, x)

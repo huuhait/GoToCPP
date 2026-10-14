@@ -97,6 +97,8 @@ func (p *printer) decl(d Decl) {
 		}
 	case *VarDecl:
 		p.line(d.Pos, p.inline(d))
+	case *StaticAssert:
+		p.line(d.Pos, "static_assert("+p.expr(d.Cond)+");")
 	case *Comment:
 		p.line(d.Pos, "// "+d.Text)
 	case *Blank:

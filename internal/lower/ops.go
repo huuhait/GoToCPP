@@ -172,10 +172,11 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.
 		a, b := fg.expr(x), fg.expr(y) // first, so that an operand's own error comes first
 		if (op == token.EQL || op == token.NEQ) && (isPointer(fg.typeOf(x)) || isPointer(fg.typeOf(y)) ||
 			isSlice(fg.typeOf(x)) || isSlice(fg.typeOf(y)) || isArray(fg.typeOf(x)) ||
-			isMap(fg.typeOf(x)) || isMap(fg.typeOf(y))) {
+			isMap(fg.typeOf(x)) || isMap(fg.typeOf(y)) || isStruct(fg.typeOf(x))) {
 			// p == q compares the addresses, p == nil is p == nullptr (gp::ptr's ==; C++20
 			// writes != and nil == p from it). A slice or a map compares only with nil:
-			// s == nullptr. Arrays compare their elements (gp::array's ==).
+			// s == nullptr. Arrays compare their elements (gp::array's ==), structs their
+			// fields (the generated operator==, typedecl.go).
 			return &cppir.Binary{Op: op.String(), X: at(a, precShift), Y: at(b, precShift)}
 		}
 		if fg.operandType(pos, op, x) == nil {
@@ -461,6 +462,9 @@ func (fg *funcGen) conversion(c *ast.CallExpr, to types.Type) cppir.Expr {
 	from := fg.g.info.TypeOf(arg)
 	if x := fg.arrayConversion(c, to, from); x != nil {
 		return x // arrays.go
+	}
+	if isStruct(to) || isStruct(from) {
+		return fg.structConversion(c, to, from) // structs.go
 	}
 	if isPointer(to) {
 		// (*int)(p) between pointers of the same C++ type, or (*int)(nil). The other

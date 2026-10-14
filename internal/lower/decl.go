@@ -42,8 +42,12 @@ func (f *funcInfo) prepare(g *gen) {
 			if obj == nil {
 				obj = g.info.Uses[id]
 			}
-			switch obj.(type) {
-			case *types.Var, *types.Func:
+			switch obj := obj.(type) {
+			case *types.Var:
+				if !obj.IsField() { // a field is always reached by x.f: it hides nothing
+					f.names.reserve(Escape(obj.Name()))
+				}
+			case *types.Func:
 				f.names.reserve(Escape(obj.Name()))
 			}
 		}
@@ -52,6 +56,8 @@ func (f *funcInfo) prepare(g *gen) {
 	// The function's scope holds the parameters, the named results and the outermost
 	// declarations of the body, in C++ as in Go. funcDecl closes it.
 	f.names.openScope()
+	// A parameter named like a type hides it in the parameters after it (typedecl.go).
+	defer g.hide(f.names.taken)()
 
 	sig := f.obj.Signature()
 	f.params = make([]cppir.Param, sig.Params().Len())
@@ -92,7 +98,9 @@ func (f *funcInfo) prepare(g *gen) {
 
 // funcDecl adds the definition of a function.
 func (g *gen) funcDecl(f *funcInfo) {
+	defer g.hide(f.names.taken)() // a variable named like a type hides it (typedecl.go)
 	body := f.decl.Body
+	g.implicitConversions(body, f.obj.Signature()) // structs.go
 	g.markCounts(body)
 	fg := newFuncGen(g, f.names, f)
 	fg.flow = newFlow(g.info, body, fg.postAtEnd)
@@ -249,6 +257,10 @@ func (g *gen) initFuncs() {
 				continue
 			}
 			g.markCounts(init.Rhs)
+			if len(init.Lhs) == 1 {
+				g.checkConversion(init.Rhs.Pos(), g.info.TypeOf(init.Rhs), init.Lhs[0].Type()) // structs.go
+			}
+			g.implicitConversions(init.Rhs, nil)
 			targets := make([]target, len(init.Lhs))
 			for i, v := range init.Lhs {
 				if v.Name() != "_" {

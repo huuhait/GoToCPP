@@ -40,10 +40,10 @@ import (
 //     is not addressable (not a variable; a local variable is copied too, which can't be
 //     seen) and its type is not one that the runtime converts by value: a 2-, 4- or 8-byte
 //     scalar, a string or a slice (dataWordFuncName). In Phase 02 only fmt's arguments are
-//     converted to interfaces, and only bool, int8 and uint8 are copied. Phase 03 must
-//     extend this to every conversion to an interface (any parameters, assignments to
-//     interface variables, panic) and to the other types gc copies (complex numbers, arrays,
-//     structs).
+//     converted to interfaces, and only bool, int8 and uint8 are copied, and structs (step
+//     3.8, by gc's rule in Go's sizes: copiedStruct). Phase 03 must extend this to every
+//     conversion to an interface (any parameters, assignments to interface variables, panic)
+//     and to the other types gc copies (complex numbers, arrays).
 //
 // The rest stays where it is, and its order matters only where it can be seen:
 //   - a read of a package variable, which any call can change (Phase 03: collect sees only
@@ -62,7 +62,9 @@ import (
 //     the calls for a package or a boxed array, anywhere for a plain local), or through a
 //     pointer, p[i], like *p; it panics for an index that is not a constant (and a nil p);
 //     [N]T(s) reads s's elements, and both [N]T(s) and (*[N]T)(s) panic for a short s, after
-//     the calls.
+//     the calls;
+//   - a field (step 3.8, structs.go): a read of the variable it is in, and through a pointer
+//     (p.f, also an embedded pointer), like *p, a read that panics for a nil p.
 //
 // Slices add units (step 3.5), each evaluated in its place among the calls, as gc copies them
 // into temporaries: append, copy and clear (calls: they write elements that other slices can
@@ -238,7 +240,8 @@ func (fg *funcGen) analyzeCopied(seq bool, list []ast.Expr, copy func(i int, e a
 
 // copied reports whether gc copies the argument e of fmt's ...any into a temporary in its
 // place among the calls: a value of a one-byte type that is not a variable (and not a unit
-// already).
+// already), or a struct that is not addressable, unless gc converts it by value
+// (copiedStruct).
 func (fg *funcGen) copied(e ast.Expr) bool {
 	e = ast.Unparen(e)
 	if _, ok := fg.temps[e]; ok || fg.constValue(e) != nil {
@@ -247,9 +250,9 @@ func (fg *funcGen) copied(e ast.Expr) bool {
 	switch x := e.(type) {
 	case *ast.Ident, *ast.StarExpr:
 		return false // a variable: addressable (a local that is not boxed is copied, unseen)
-	case *ast.IndexExpr:
+	case *ast.IndexExpr, *ast.SelectorExpr:
 		if fg.addressable(x) {
-			return false // an element of a slice or of an addressable array: like *p
+			return false // an element of a slice or of an addressable array, a field: like *p
 		}
 	case *ast.CallExpr:
 		if !fg.g.info.Types[x.Fun].IsType() {
@@ -259,6 +262,9 @@ func (fg *funcGen) copied(e ast.Expr) bool {
 		if x.Op == token.LAND || x.Op == token.LOR {
 			return false
 		}
+	}
+	if t := fg.g.info.TypeOf(e); isStruct(t) {
+		return copiedStruct(t) // structs.go
 	}
 	b := basicOf(fg.g.info.TypeOf(e))
 	if b == nil {
@@ -398,12 +404,22 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		}
 		// The elements, like the operands of an operator: gc orders them (and reads the
 		// variables in them) as the operands of an expression. The keys of a slice literal
-		// are constants.
+		// are constants; the values of a keyed struct literal are in the fields' order in
+		// C++ (litElem, structs.go).
 		for i, elt := range x.Elts {
 			if kv, ok := elt.(*ast.KeyValueExpr); ok {
 				elt = kv.Value
 			}
-			fg.collect(sc, elt, root, &orderStep{node: e, up: up, elem: i + 1})
+			fg.collect(sc, elt, root, &orderStep{node: e, up: up, elem: fg.litElem(x, i)})
+		}
+	case *ast.SelectorExpr:
+		// x.f reads x (its own item), and through a pointer also memory that a call can
+		// change, and panics for nil (structs.go).
+		if fg.fieldSel(x) != nil {
+			fg.collect(sc, x.X, root, below)
+			if eff := fg.fieldEffect(x); eff.any() {
+				add(&orderItem{eff: eff})
+			}
 		}
 	case *ast.SliceExpr:
 		// gc evaluates a slice expression as a whole in its place among the calls (walk/

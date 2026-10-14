@@ -89,7 +89,7 @@ Source: [Phase 02 §2.1](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/
 | `*pkg.T` where `T` is a C/C++ type (`*SDL.SDL_Window`, `*cstdio.FILE`) | `T*` (raw pointer, C++ rules) | not reference counted; it follows C++ lifetime rules ([interop.md](interop.md#cc-types-in-gocpp-code)) |
 | `unsafe.Pointer` | `gp::ptr<void>` (keeps a gocpp object alive, like Go) | shares the owner of the object it came from, and converts to `void*` for C ([D16](language.md#d16-unsafepointer-and-pointers-from-c)) |
 | `func(A) R` | `gp::func<R(A)>` | a `std::function` wrapper: calling a nil func panics, and `f == nil` works |
-| `struct{...}` | `struct` + generated `==`, hash, field info | `operator==` only when the struct is comparable; the field info (`gp_fields`) is for `fmt`'s `%v` ([structs](#structs-and-named-types)) |
+| `struct{...}` | `struct` + generated `==`, hash, field info | `operator==` and `gp_hash()` only when the struct is comparable; the field info (`gp_fields`) is for `fmt`'s `%v`; an anonymous struct type is `gp_anon_` and a hash of the type ([structs](#structs)) |
 | `type Celsius float64` (named non-struct type) | `struct Celsius : gp::newtype<Celsius, double>` (a distinct type that can have methods) | gocpp inserts a conversion wherever Go converts implicitly ([structs](#structs-and-named-types)) |
 | `interface{...}`, `any`, `error` | generated interface class, `gp::any`, `gp::error` | an interface value holds data, a type descriptor and a method table (32 bytes); no C++ virtual functions (Phase 05) |
 | `chan T` | `gp::chan<T>` | a shared reference to the channel; `<-chan T` and `chan<- T` are the same C++ type, but different Go types (Phase 08) |
@@ -108,7 +108,7 @@ C++ types, which differs from Go's ([D15](language.md#d15-different-sizes)): a p
 bytes, a `string` 32, a slice 40, a map 16, a `weak.Pointer` 24, and an empty struct 1. A struct
 is laid out like the C++ struct (fields in source order). The table that gives the type checker
 these numbers is in `internal/check/sizes.go`; `runtime/include/gocpp/sizes.hpp` is generated
-from it and checks them with `static_assert`s.
+from it and checks them with `static_assert`s, and each generated struct has one of its own.
 
 Sources: [root README §6](../../plans/2026-10-13-gocpp/README.md#6-type-mapping-cheat-sheet),
 [Phase 02 §2.3](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/README.md#23-expressions-the-important-rules),
@@ -522,8 +522,9 @@ inserts it, unlike C++'s `operator[]`.
 | `for k, v := range m` | `for (auto gp_it0 = gp::range_map(m); gp::range_next(gp_it0);) { K k = gp_it0.gp_key(); V v = gp_it0.gp_value(); ...` | over a snapshot of the entries: a key deleted before it is reached is skipped, its value is read when it is reached, and a key added during the loop is not produced (Go may or may not produce it) |
 | `for s[f()], v = range m` | `auto gp_t0 = gp_it0.gp_key(); auto gp_t1 = f(); s[gp_t1] = gp_t0; v = gp::range_value(gp_it0);` | targets whose operands call functions: the key is copied first and the value read after the calls (its current value, or zero if a call deleted the entry), as Go reads them; where a call deletes the entry, Go may also clear the key it assigns, gocpp assigns the key as it was |
 
-Keys can be bools, numbers, strings, pointers and arrays of them (structs come with step
-3.8); an array value `m[k]` is a copy, so `m[k][i]` can be read but not assigned, as in Go.
+Keys can be bools, numbers, strings, pointers, and arrays and comparable structs of them; an
+array or struct value `m[k]` is a copy, so `m[k][i]` and `m[k].f` can be read but not assigned,
+as in Go.
 Floats follow Go: `+0` and `-0` are one key (a store keeps the new key), and a NaN key is
 never found again, so each `m[NaN] = v` adds an entry. The order of a range is unspecified and
 not Go's, and not randomized ([D8](language.md#d8-map-order-is-not-randomized)). `fmt.Println(m)`
@@ -538,6 +539,102 @@ among the calls. A store `m[k] = v` evaluates the calls of `m` and `k`, then `v`
 panics), and only then takes the entry, so `m[k] = f()` stores into the map that `m` is after
 `f` ran. A map literal is evaluated in its place among the calls, entry by entry, as gc stores
 it: a panic in one entry comes before the calls of the entries after it.
+
+## Structs
+
+A struct is a value, as in Go: its fields are in the object itself, so assigning, passing and
+returning a struct copies it.
+
+```go
+type Point struct{ X, Y int }
+
+type Line struct {
+	Point Point // a field named like its type
+	Name  string
+	_     int
+}
+```
+
+```cpp
+struct Point;
+struct Line;
+
+struct Point {
+    int64_t X = 0;
+    int64_t Y = 0;
+    bool operator==(const Point&) const = default;
+    std::size_t gp_hash() const {
+        return gp::hash_fields(X, Y);
+    }
+    static constexpr const char* gp_type_name = "main.Point";
+    static constexpr auto gp_fields = gp::fields(gp::field(&Point::X, "X", true, false), gp::field(&Point::Y, "Y", true, false));
+};
+static_assert(sizeof(Point) == 16 && alignof(Point) == 8);
+
+struct Line {
+    gpkg_main::Point Point;
+    gp::string Name;
+    int64_t gp_blank0 = 0;
+    bool operator==(const Line& gp_o) const {
+        return Point == gp_o.Point && Name == gp_o.Name;
+    }
+    ...
+};
+```
+
+| gocpp | C++ | Notes |
+|---|---|---|
+| `var p Point`, `Point{}` | `Point p{};`, `Point{}` | the default member initializers make the zero value |
+| `Point{1, 2}` | `Point{1, 2}` | in order; C++ evaluates a braced list in order |
+| `Point{Y: f(), X: 1}` | `Point{.X = 1, .Y = f()}` | designated initializers need the fields' order; the values that C++ would then evaluate too late go into temporaries first, so they run in source order, as in Go |
+| `[]Point{{1, 2}}`, `[]*Point{{1, 2}}` | `gp::slice_of<Point>({Point{1, 2}})`, `gp::slice_of<gp::ptr<Point>>({gp::new_<Point>(Point{1, 2})})` | an elided type is written out |
+| `&Point{1, 2}`, `new(Point)` | `gp::new_<Point>(Point{1, 2})`, `gp::new_<Point>()` | a new block |
+| `p.X`, `pp.X` (`pp` is `*Point`) | `p.X`, `pp->X` | `->` panics with Go's message for a nil `pp` |
+| `o.A` (promoted from an embedded `Inner`), through an embedded `*Mid` | `o.Inner.A`, `o.Mid->M` | the path that `go/types` gives; an embedded field is a data member named after its type, never a base class |
+| `&p.X` (`p` boxed), `&pp.X`, `&s[i].X`, `&global.X` | `gp::ptr<int64_t>(p, &(*p).X)`, `gp::ptr<int64_t>(pp, &pp->X)`, `gp::ptr<int64_t>(s.gp_owner(), &s[i].X)`, `gp::static_ptr(global.X)` | shares the owner of the struct ([pointers](#pointers-and-boxing)); a local whose field's address is taken is boxed |
+| `&f().X` (`f` returns `*Point`) | `gp::field_ptr(f(), &Point::X)` | the pointer is evaluated once |
+| `a == b`, `a != b` | `a == b`, `a != b` | when comparable: field by field in order, floats as numbers (NaN != NaN, -0 == +0); blank fields are skipped |
+| `n = n.kids[0]`, `*p = *p.next` | `n = Node(n.kids[0]);` | a struct (or an array) that holds owners, reached through a pointer or a slice that the target may own, is copied before the store, which could free it while the generated `operator=` reads it |
+| `p, p.X = q, 1` | `{ auto gp_t0 = p; p = q; gp_t0->X = 1; }` | the pointer of a target `p.f` (and the slice and index of `s[i].f`) is evaluated before the values, as in Go |
+| `type T struct{...}` in a function | `struct T` (or `T_1`, ...) at namespace scope | C++'s local classes can't have the static members; `gp_type_name` is still `main.T` |
+| `struct{ X int }` (anonymous) | `struct gp_anon_7132535b4707e21c` | one C++ type for identical struct types (same fields, types, tags), named by a hash of the type; `gp_type_name` is Go's `struct { X int }` |
+
+- **Names.** A field keeps its Go name, with the escapes of [names](#names-inside-a-package),
+  and a field named like its own struct gets a `_` (`Words_`), because C++ would read it as a
+  constructor. A blank field `_` is `gp_blank0`, `gp_blank1`, ... A type that a field or a
+  variable of the same name hides is written qualified, `gpkg_main::Point`: GCC rejects a member
+  that changes the meaning of a type name used before it in the class. A type named `gp` or
+  `std` becomes `gp_` or `std_`, since it would hide the namespaces `gp::` and `std::`.
+- **For `fmt`**: `gp_type_name` and `gp_fields` list every field (also blank and embedded ones)
+  with its Go name and whether it is exported or embedded; a field of type `int64`, `uint64` or
+  `uintptr` (or a slice, array, pointer or map of one) gets its type tag, `gp::field<gp::fmtshim::tag::int64>(…)`.
+  `fmt.Println(p)` prints `{1 2}`.
+- **Map keys**: a comparable struct has `gp_hash()` over its non-blank fields (gocpp/hash.hpp),
+  so it can be a key. A struct literal of constants is a static entry of a map literal, stored
+  before the others as gc does, and in `m[k] = append(m[k], x)` a struct key `k` is read before
+  `x` when gc's fast map calls take it (4 or 8 bytes of plain memory, or one field that they
+  take: an `int`, a string, a pointer).
+- **Order of definitions**: all structs are declared first, then defined so that a struct comes
+  after the structs it holds by value (also in an array); a pointer, a slice or a map of an
+  incomplete struct is fine, so recursive types work.
+- **Order of evaluation** is gc's: a field of a package or boxed struct, and one through a
+  pointer, is read after the calls of its statement (like `*p`), and a nil pointer panics there.
+  As an argument of `fmt.Println`, a struct that is not addressable (a literal, a conversion) is
+  copied in its place among the calls, unless Go converts it by value (8 bytes without pointers,
+  or a struct whose only field is a string or a slice), as gc does.
+- **Larger than 128 KiB**: like arrays, a local variable is boxed and a parameter is passed by
+  reference; a literal that initializes a new variable, and `&Big{...}`, is made in its block,
+  `gp::new_init<Big>([&](Big& gp_b) { gp_b.n = 3; })` (the zero value, then the given fields); other
+  literals are temporaries on the stack ([D24](language.md#d24-large-values-on-the-c-stack)).
+- **Implicit conversions** between a named struct type and an anonymous one with the same
+  fields (`var p Point = struct{ X, Y int }{1, 2}`, an argument, a result, an element) are two C++
+  types: they report "not supported yet" until step 3.9.
+- **Not yet**: methods (step 3.10), named types that are not structs and the conversions between
+  struct types that are not identical (step 3.9; `T(x)` between two names of one type works),
+  embedding is open from Phase 05 (the gate), and Phase 06 moves the anonymous structs into a
+  header that all packages share.
+
+Source: [Phase 03 §2.4](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#24-structs-and-named-types).
 
 ## Pointers and boxing
 

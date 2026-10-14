@@ -505,7 +505,7 @@ func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 		// their own order), then the store (gp::set for a map entry).
 		l.vars = func() {
 			line := &cppir.Line{Pos: fg.g.pos(s.Key.Pos())}
-			line.Stmts = append(line.Stmts, fg.order(false, targetOperands([]ast.Expr{s.Key})...)...)
+			line.Stmts = append(line.Stmts, fg.order(false, fg.targetOperands([]ast.Expr{s.Key})...)...)
 			line.Stmts = append(line.Stmts, &cppir.ExprStmt{X: fg.lhs(s.Key).assignExpr(cxxName(i))})
 			fg.add(line)
 		}
@@ -593,10 +593,10 @@ func (fg *funcGen) rangeIter(s *ast.RangeStmt, start string, value func(it cppir
 					// The key and the value are references into the map's entry, which a call
 					// in the targets' operands can delete (maps.go).
 					for i, v := range vars {
-						line.Stmts = append(line.Stmts, fg.rangeMapVar(targetOperands(lhs), v.e == s.Key, cxxName(it), &vars[i].value)...)
+						line.Stmts = append(line.Stmts, fg.rangeMapVar(fg.targetOperands(lhs), v.e == s.Key, cxxName(it), &vars[i].value)...)
 					}
 				}
-				line.Stmts = append(line.Stmts, fg.order(false, targetOperands(lhs)...)...)
+				line.Stmts = append(line.Stmts, fg.order(false, fg.targetOperands(lhs)...)...)
 				targets := make([]target, len(vars))
 				for i, v := range vars {
 					targets[i] = fg.lhs(v.e)

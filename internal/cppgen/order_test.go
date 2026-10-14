@@ -42,6 +42,10 @@ const sl = "var gsl = []int{1, 2, 3}\n\n"
 // arr is a package array for the array cases of TestOrderPanics.
 const arr = "var garr = [3]int{1, 2, 3}\n\n"
 
+// st has the structs for the struct cases of TestOrderPanics: Pt, Wrap (an embedded *Pt), a
+// package Pt and a package slice of them.
+const st = "type Pt struct{ a, b int }\n\ntype Wrap struct{ *Pt }\n\nvar gst Pt\n\nvar gsts = []Pt{{1, 2}}\n\n"
+
 // TestOrderPanics checks the order of calls and of the operations that can panic (order.go)
 // against real Go: gc calls f first in a/b + f() and panics after it, and reads s after grow
 // in int(s[i]) + grow(). Each program panics, with Go's output and exit code 2, on both
@@ -135,6 +139,21 @@ func TestOrderPanics(t *testing.T) {
 		{"map-append-index", "", "ss := []map[int][]int{{}}\n\ti := 3\n\tss[i][0] = append(ss[i][0], f())"},
 		{"map-append-key-div", "", "m := map[int][]int{}\n\tz := 0\n\tm[1/z] = append(m[1/z], f())"},
 		{"map-append-key-call", "", "var m map[int][]int\n\tm[id(1)+0] = append(m[id(1)+0], f())"},
+		// Structs (step 3.8): a field through a nil pointer (also an embedded one) panics after
+		// the calls of its scope, also in a store, op= and a keyed literal (whose values Go
+		// evaluates in source order); &p.f in a comparison (copied) panics in its place; an
+		// index in a field of a package struct panics after the calls.
+		{"struct-ptr-call", st, "var p *Pt\n\tfmt.Println(p.a + f())"},
+		{"struct-ptr-arg", st, "var p *Pt\n\tfmt.Println(p.b, f())"},
+		{"struct-ptr-store", st, "var p *Pt\n\tp.a = f()"},
+		{"struct-ptr-op-assign", st, "var p *Pt\n\tp.b -= f()"},
+		{"struct-ptr-parallel", st, "var p *Pt\n\ty := 0\n\tp.a, y = 1, f()\n\tfmt.Println(y)"},
+		{"struct-embedded-arg", st, "var w Wrap\n\tfmt.Println(w.b, f())"},
+		{"struct-addr-first", st, "var p *Pt\n\tfmt.Println(&p.a == nil, f())"},
+		{"struct-keyed", st, "var p *Pt\n\tfmt.Println(Pt{b: f(), a: p.b + f()})"},
+		{"struct-keyed-order", st, "var p *Pt\n\tq := Pt{b: id(f()), a: id(p.a)}\n\tfmt.Println(q)"},
+		{"struct-slice-elem", st, "i := 4\n\tfmt.Println(gsts[i].a, f())"},
+		{"struct-field-index", st + "var garrs struct{ a [3]int }\n\n", "i := 5\n\tfmt.Println(garrs.a[i], f())"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -149,7 +168,7 @@ func TestOrderPanics(t *testing.T) {
 			if want != nil && want.code != 2 {
 				t.Fatalf("with Go, the program exits with %d, not with a panic:\n%s", want.code, want.stderr)
 			}
-			checkRunsNorm(t, emitter(gp), want, maskPC)
+			checkRunsNorm(t, emitter(gp), want, maskPCAddr)
 		})
 	}
 }
@@ -360,13 +379,68 @@ func TestOrderTemps(t *testing.T) {
 		{"for k, v := range gm {\n\t\t_, _ = k, v\n\t}", "for (auto gp_it0 = gp::range_map(gm); gp::range_next(gp_it0);) {"},
 		{"delete(gm, f())", "{ auto gp_t0 = f(); gp::erase(gm, gp_t0); }"},
 		{"lm := make(map[int]int, x)\n\t_ = lm", "gp::map<int64_t, int64_t> lm = gp::make_map<int64_t, int64_t>(x);"},
+		// Structs (step 3.8): a field of a package struct, or through a pointer, is read after
+		// the calls, one of a local struct anywhere; a keyed literal is in the fields' order, with
+		// temporaries where Go's source order differs; the pointer of a target p.f is saved; &x.f
+		// shares the owner (gp::field_ptr for a call); an assignment of a struct that holds owners
+		// from a place behind a pointer or a slice copies it first; s.f = append(s.f, x) moves;
+		// a struct argument of fmt is copied by gc's rule (in Go's sizes).
+		{"fmt.Println(gst.a, f())", "{ auto gp_t0 = f(); gp::fmtshim::Println(gst.a, gp_t0); }"},
+		{"ls := Pt{}\n\tfmt.Println(ls.a, f())", "gp::fmtshim::Println(ls.a, f());"},
+		{"lp := &gst\n\tfmt.Println(lp.a, f())", "{ auto gp_t0 = f(); gp::fmtshim::Println(lp->a, gp_t0); }"},
+		{"gst.a = f()", "gst.a = f();"},
+		{"gsts[0].b = f()", "{ auto gp_t0 = f(); gsts[0].b = gp_t0; }"},
+		{"lp := &gst\n\tlp.a += f()", "{ auto gp_t0 = f(); lp->a = lp->a + gp_t0; }"},
+		{"mkp().b += 1", "{ auto gp_t0 = mkp(); gp_t0->b = gp_t0->b + 1; }"},
+		{"ls := Pt{b: f(), a: f()}\n\t_ = ls", "auto gp_t0 = f(); Pt ls{.a = f(), .b = gp_t0};"},
+		{"ls := Pt{a: f(), b: f()}\n\t_ = ls", "Pt ls{.a = f(), .b = f()};"},
+		{"ls := Pt{f(), f()}\n\t_ = ls", "Pt ls{f(), f()};"},
+		{"ls := Pt{b: x, a: f()}\n\t_ = ls", "Pt ls{.a = f(), .b = x};"},
+		{"ls := []Pt{{1, 2}, {b: 3}}\n\t_ = ls", "gp::slice<Pt> ls = gp::slice_of<Pt>({Pt{1, 2}, Pt{.b = 3}});"},
+		{"lps := []*Pt{{1, 2}}\n\t_ = lps", "gp::slice<gp::ptr<Pt>> lps = gp::slice_of<gp::ptr<Pt>>({gp::new_<Pt>(Pt{1, 2})});"},
+		{"lp, lq := &gst, &Pt{}\n\tlp, lp.a = lq, 1", "{ auto gp_t0 = lp; lp = lq; gp_t0->a = 1; }"},
+		{"i := 0\n\ti, gsts[i].a = 1, 2", "{ auto gp_t0 = i; i = 1; gsts[gp_t0].a = 2; }"},
+		{"lp := &gst\n\tq := &lp.b\n\t_ = q", "gp::ptr<int64_t> q = gp::ptr<int64_t>(lp, &lp->b);"},
+		{"q := &gst.b\n\t_ = q", "gp::ptr<int64_t> q = gp::static_ptr(gst.b);"},
+		{"q := &gsts[0].b\n\t_ = q", "gp::ptr<int64_t> q = gp::ptr<int64_t>(gsts.gp_owner(), &gsts[0].b);"},
+		{"q := &mkp().b\n\t_ = q", "gp::ptr<int64_t> q = gp::field_ptr(mkp(), &Pt::b);"},
+		{"ls := Pt{}\n\tq := &ls.a\n\t_ = q", "gp::ptr<int64_t> q = gp::ptr<int64_t>(ls, &(*ls).a);"},
+		{"lt := Tree{}\n\tlt = lt.kids[0]", "lt = Tree(lt.kids[0]);"},
+		{"lt := Tree{}\n\tlp := &lt\n\t*lp = *lt.next", "*lp = Tree(*(*lt).next);"},
+		{"lp := &gst\n\tgst = *lp", "gst = *lp;"},
+		{"lt := Tree{}\n\tlt.kids = append(lt.kids, Tree{})", "lt.kids = gp::append(static_cast<gp::slice<Tree>&&>(lt.kids), Tree{});"},
+		{"fmt.Println(Pt{x, 1}, f())", "{ auto gp_t0 = Pt{x, 1}; gp::fmtshim::Println(gp_t0, f()); }"},
+		{"fmt.Println(One{x}, f())", "{ auto gp_t0 = f(); gp::fmtshim::Println(One{x}, gp_t0); }"},
+		{"fmt.Println(gst == Pt{}, f())", "{ auto gp_t0 = gst == Pt{}; gp::fmtshim::Println(gp_t0, f()); }"},
+		// A target that is a part of a plain local (w.a, la[0], w.p, ws[0].p) is a write to
+		// it: a later target's operand that reads the local is saved first (Go's two phases).
+		{"var w Pt\n\tls := []int{0, 0}\n\tw.a, ls[w.a] = 1, 3", "{ auto gp_t0 = w.a; w.a = 1; ls[gp_t0] = 3; }"},
+		{"la := [2]int{}\n\tlx := [3]int{}\n\tla[0], lx[la[0]] = 1, 2", "{ auto gp_t0 = la[0]; la[0] = 1; lx[gp_t0] = 2; }"},
+		{"var w Tree\n\tw.next, w.next.next = &Tree{}, nil", "{ auto gp_t0 = w.next; auto gp_t1 = nullptr; w.next = gp::new_<Tree>(Tree{}); gp_t0->next = gp_t1; }"},
+		{"ws := [1]Tree{}\n\tws[0].next, ws[0].next.next = nil, nil", "{ auto gp_t0 = ws[0].next; auto gp_t1 = nullptr; ws[0].next = nullptr; gp_t0->next = gp_t1; }"},
+		{"var w Pt\n\tls := []int{0, 0}\n\tfor w.a, ls[w.a] = range ls {\n\t}", "auto gp_t0 = w.a; w.a = gp_it0.gp_i; ls[gp_t0] = gp_it0.gp_v();"},
+		{"var w Pt\n\tw.a, w.b = w.b, w.a", "{ auto gp_t0 = w.a; w.a = w.b; w.b = gp_t0; }"},
+		// Embedded pointers: the pointer of a promoted field is saved like p of p.f.
+		{"var w Wrap\n\tw.Pt, w.a = &Pt{}, 1", "{ auto gp_t0 = w.Pt; w.Pt = gp::new_<Pt>(Pt{}); gp_t0->a = 1; }"},
+		// A struct over 128 KiB is made in its box, then its fields are stored.
+		{"lb := Huge{n: f()}\n\t_ = lb", "gp::ptr<Huge> lb = gp::new_init<Huge>([&](Huge& gp_b) { gp_b.n = f(); });"},
+		{"lb := &Huge{n: x, v: f()}\n\t_ = lb", "gp::ptr<Huge> lb = gp::new_init<Huge>([&](Huge& gp_b) { gp_b.v = f(); gp_b.n = x; });"},
+		{"lb := Huge{n: f(), v: f()}\n\t_ = lb", "auto gp_t0 = f(); gp::ptr<Huge> lb = gp::new_init<Huge>([&](Huge& gp_b) { gp_b.v = f(); gp_b.n = gp_t0; });"},
+		// Struct keys and values of maps (with step 3.7): a struct literal of constants is a
+		// static entry, stored first; a field of a value read from a map is read from the copy.
+		{"lmk := map[Pt]int{}\n\tlmk[Pt{1, 2}] = f()", "gp::set(lmk, Pt{1, 2}, f());"},
+		{"lmk := map[Pt]int{{x, 1}: 1, {1, 2}: 2}\n\t_ = lmk", "gp::map<Pt, int64_t> lmk = gp::map_of<Pt, int64_t>({{Pt{1, 2}, 2}, {Pt{x, 1}, 1}});"},
+		{"lmv := map[int]Pt{}\n\tfmt.Println(lmv[1].a, f())", "{ auto gp_t0 = f(); gp::fmtshim::Println(gp::get(lmv, 1).a, gp_t0); }"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.body, func(t *testing.T) {
 			dir := t.TempDir()
 			src := "package main\n\nimport \"fmt\"\n\nvar x = 1\n\nvar gsl = []int{1, 2}\n\nvar gg = [][]int{{1}}\n\nvar gm = map[int]int{}\n\nvar gms = map[int][]int{}\n\nfunc mk() []int {\n\treturn nil\n}\n\nfunc f() int {\n\tx++\n\tfmt.Print()\n\treturn x\n}\n\n" +
 				"func g(a, b int) int {\n\treturn a + b\n}\n\nfunc h(p *int) *int {\n\treturn p\n}\n\n" +
-				"var ga = [3]int{1, 2, 3}\n\nvar gg2 = [2][2]int{}\n\nfunc mka() *[3]int {\n\treturn nil\n}\n\nfunc main() {\n\t" + tt.body + "\n}\n"
+				"var ga = [3]int{1, 2, 3}\n\nvar gg2 = [2][2]int{}\n\nfunc mka() *[3]int {\n\treturn nil\n}\n\n" +
+				"type Pt struct{ a, b int }\n\ntype One struct{ v int }\n\ntype Tree struct {\n\tkids []Tree\n\tnext *Tree\n}\n\nvar gst Pt\n\nvar gsts = []Pt{{1, 2}}\n\n" +
+				"type Wrap struct{ *Pt }\n\ntype Huge struct {\n\tv  int\n\tbig [1 << 15]int\n\tn  int\n}\n\n" +
+				"func mkp() *Pt {\n\treturn &gst\n}\n\nfunc main() {\n\t" + tt.body + "\n}\n"
 			gp := filepath.Join(dir, "main.gp")
 			if err := os.WriteFile(gp, []byte(src), 0o644); err != nil {
 				t.Fatal(err)

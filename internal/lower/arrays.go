@@ -94,7 +94,7 @@ func (fg *funcGen) arrayLit(e *ast.CompositeLit) cppir.Expr {
 // arrayLitOf returns the C++ of the array literal e (arrayLit), with elem's C++ for each
 // element, or nil if elem returns nil for one.
 func (g *gen) arrayLitOf(e *ast.CompositeLit, elem func(ast.Expr) cppir.Expr) cppir.Expr {
-	t := g.info.TypeOf(e)
+	t := g.litType(e) // [N]T of an elided &[N]T{...} too
 	at := under(t).(*types.Array)
 	var elems, pairs []cppir.Expr
 	var index int64
@@ -122,17 +122,20 @@ func (g *gen) arrayLitOf(e *ast.CompositeLit, elem func(ast.Expr) cppir.Expr) cp
 // larger than 128 KiB (box.go: boxLarge), or the block of &[N]T{...} of such a type (addr.go),
 // with the value: an array literal or [N]T(s) is built in the new block itself, gp::new_<A>()
 // for an empty literal, gp::new_array<T, N>({a, b}), gp::new_array_keyed<T, N>({{2, a}}) or
-// gp::new_to_array<N>(s) (array.hpp), because gp::new_<A>(A{a, b}) would first build the value
-// in a temporary on the C++ stack, which could overflow it (D24). Any other value is
-// gp::new_<A>(value).
+// gp::new_to_array<N>(s) (array.hpp), and a struct literal is gp::new_init<T>(...) (newStruct,
+// structs.go), because gp::new_<A>(A{a, b}) would first build the value in a temporary on the
+// C++ stack, which could overflow it (D24). Any other value is gp::new_<A>(value).
 func largeBox(typ cppir.Type, value cppir.Expr) cppir.Expr {
 	switch x := value.(type) {
 	case *cppir.InitList:
+		if x.Type != nil && len(x.Elems) == 0 {
+			return newBox(typ, nil) // the zero value (also of a struct): gp::new_<A>()
+		}
 		if tn, ok := x.Type.(*cppir.TypeName); ok && tn.Name == "gp::array" {
-			if len(x.Elems) == 0 {
-				return newBox(typ, nil) // the zero value: gp::new_<A>()
-			}
 			return templateCall("gp::new_array", tn.Args, &cppir.InitList{Elems: x.Elems})
+		}
+		if x.Type != nil {
+			return newStruct(typ, x) // a struct literal (structs.go)
 		}
 	case *cppir.Call:
 		if n, ok := x.Fun.(*cppir.Name); ok {
@@ -242,19 +245,20 @@ func (fg *funcGen) arraySlice(e *ast.SliceExpr) cppir.Expr {
 	return call("gp::sub", p, lo, fg.intExpr(e.High))
 }
 
-// The kinds of owners of an addressable expression inside an array (ownerOf).
+// The kinds of owners of an addressable expression inside an array or a struct (ownerOf).
 const (
-	ownerNone  = iota // not addressable, or a form that comes later (a field: step 3.8)
-	ownerPkg          // a package variable: the static owner
-	ownerBox          // a boxed local variable: its box
-	ownerPtr          // *p or p[i] of a pointer p to an array: p
-	ownerSlice        // s[i] of a slice s: the slice's array
+	ownerNone     = iota // not addressable, or a form that comes later
+	ownerPkg             // a package variable: the static owner
+	ownerBox             // a boxed local variable: its box
+	ownerPtr             // *p, p[i] of a pointer p to an array, p.f of a pointer p to a struct: p
+	ownerSlice           // s[i] of a slice s: the slice's array
+	ownerEmbedded        // a field through an embedded pointer (structs.go): that pointer
 )
 
 // ownerOf returns the owner of the addressable expression e (Phase 03 README §2.2, the owner
-// table): e is a variable, or an element of an array, maybe nested (a[i][j]), that is in the
-// variable, behind a pointer or in a slice's array. It returns the variable, the pointer or the
-// slice expression, and its kind.
+// table): e is a variable, or an element of an array or a field of a struct, maybe nested
+// (a[i][j], s[i].f.g), that is in the variable, behind a pointer or in a slice's array. It
+// returns the variable, the pointer or the slice expression, and its kind.
 func (fg *funcGen) ownerOf(e ast.Expr) (ast.Expr, int) {
 	for {
 		switch x := ast.Unparen(e).(type) {
@@ -280,6 +284,19 @@ func (fg *funcGen) ownerOf(e ast.Expr) (ast.Expr, int) {
 				return x.X, ownerPtr
 			case isSlice(xt):
 				return x.X, ownerSlice
+			}
+		case *ast.SelectorExpr:
+			// A field (structs.go): of the struct x, which has the owner, or through the
+			// pointer p of p.f, or through an embedded pointer.
+			inner, p, embedded := fg.fieldOwner(x)
+			switch {
+			case inner != nil:
+				e = inner
+				continue
+			case p != nil:
+				return p, ownerPtr
+			case embedded:
+				return x, ownerEmbedded
 			}
 		}
 		return nil, ownerNone
@@ -324,6 +341,8 @@ func (fg *funcGen) addrOf(e ast.Expr) cppir.Expr {
 			o = &cppir.Call{Fun: &cppir.Member{X: o, Name: "gp_owner"}}
 		}
 		return construct(typ, o, &cppir.Unary{Op: "&", X: fg.expr(e)})
+	case ownerEmbedded:
+		return fg.elemPtr(e) // gp::field_ptr from the embedded pointer (structs.go: fieldPtr)
 	}
 	fg.g.errorf(e.Pos(), "internal error: the address of %s, which has no owner", types.ExprString(e))
 	return placeholder
@@ -347,6 +366,8 @@ func (fg *funcGen) elemPtr(e ast.Expr) cppir.Expr {
 			base = fg.expr(x.X)
 		}
 		return call("gp::elem_ptr", base, fg.intExpr(x.Index))
+	case *ast.SelectorExpr:
+		return fg.fieldPtr(x) // structs.go
 	}
 	fg.g.errorf(e.Pos(), "internal error: the address of %s, which has no owner", types.ExprString(e))
 	return placeholder
@@ -369,6 +390,8 @@ func (fg *funcGen) stableOwner(e ast.Expr) bool {
 		return fg.stableOwner(x.X)
 	case *ast.IndexExpr:
 		return fg.stableOwner(x.X) && fg.stableOwner(x.Index)
+	case *ast.SelectorExpr:
+		return fg.fieldSel(x) != nil && fg.stableOwner(x.X) // a field: x.p, p.q
 	}
 	return false
 }
@@ -421,8 +444,8 @@ func (fg *funcGen) indexEffect(x *ast.IndexExpr) effect {
 	return effect{panics: fg.constValue(x.Index) == nil}
 }
 
-// addressable reports whether e is an addressable array expression (not a call, a literal or a
-// conversion): gc copies a value that is not addressable into a temporary where it is converted
+// addressable reports whether e is an addressable array or struct expression (not a call, a
+// literal or a conversion): gc copies a value that is not addressable into a temporary where it is converted
 // to an interface (order.go: copied).
 func (fg *funcGen) addressable(e ast.Expr) bool {
 	switch x := ast.Unparen(e).(type) {
@@ -434,6 +457,10 @@ func (fg *funcGen) addressable(e ast.Expr) bool {
 	case *ast.IndexExpr:
 		xt := fg.g.info.TypeOf(x.X)
 		return isSlice(xt) || arrayPtr(xt) != nil || isArray(xt) && fg.addressable(x.X)
+	case *ast.SelectorExpr:
+		// A field through a pointer, or of an addressable struct.
+		sel := fg.fieldSel(x)
+		return sel != nil && (sel.Indirect() || fg.addressable(x.X))
 	}
 	return false
 }
@@ -477,6 +504,8 @@ func (fg *funcGen) saveArrayElem(e ast.Expr, save func(ast.Expr) cppir.Expr) cpp
 			idx = fg.intExpr(x.Index)
 		}
 		return &cppir.Index{X: base, Index: idx}
+	case *ast.SelectorExpr:
+		return fg.saveField(x, save) // structs.go
 	}
 	return nil
 }

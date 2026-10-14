@@ -45,7 +45,7 @@ The [feature matrix](feature-matrix.md) lists every feature with the phase that 
 | [D21](#d21-range-over-c-containers) | `range` over Go types only | also over C++ containers and C arrays | 04 |
 | [D22](#d22-which-of-two-run-time-panics-is-reported) | one panic message, fixed by the compiler | with two possible panics and no call between them, the other message can appear | 02 |
 | [D23](#d23-print-and-println-of-a-slice-or-a-map) | `println(s)` prints `[3/3]0xc000012345`, `println(m)` `0xc000012345` | an error: use `fmt.Println` | 03 |
-| [D24](#d24-large-values-on-the-c-stack) | the stack grows for any value | a result or a temporary array over 128 KiB can overflow the C++ stack | 03 |
+| [D24](#d24-large-values-on-the-c-stack) | the stack grows for any value | a result or a temporary array or struct over 128 KiB can overflow the C++ stack | 03 |
 
 The three things gocpp adds have their own sections:
 [header imports](#header-imports), [must functions and must calls](#must-functions-and-must-calls)
@@ -404,7 +404,8 @@ fmt.Println(unsafe.Sizeof(struct{}{}), unsafe.Sizeof(struct {
   order, each one at the next multiple of its alignment, and the size rounded up to the
   largest alignment of a field. The difference is the empty struct: it takes 1 byte, also as
   a field, so `struct{ a struct{}; b int64 }` is 16 bytes (Go: 8) and `[3]struct{}` is 3.
-  `[0]T` is 1 byte too, with alignment 1. An array `[N]T` is `N` times the size of `T`.
+  `[0]T` is 1 byte too, with alignment 1. An array `[N]T` is `N` times the size of `T`. Each
+  generated struct has a `static_assert` that its C++ size and alignment are these.
   A slice of empty structs therefore uses memory: `make([]struct{}, n)` allocates `n` bytes, and a
   huge `n` (Go allows `math.MaxInt`, because its zero-size elements take no memory) fails with an
   out-of-memory error in gocpp.
@@ -629,8 +630,15 @@ func main() {
   each of them takes its own place in the function's stack frame, and a program whose temporaries
   add up to more than the stack crashes with a segmentation fault (exit code 139), where Go runs.
   Return a pointer to the array (`*[N]T`, for example `return &[1 << 21]int{...}`) or a slice
-  instead, as Go code usually does for large arrays. Structs (step 3.8) will follow the same
-  rules.
+  instead, as Go code usually does for large arrays.
+- **Structs** larger than 128 KiB (a struct with a large array field) follow the same rules: a
+  local variable is boxed, and a parameter is passed by reference and copied into a box. A
+  literal that initializes a new variable or `&Big{...}` (`b := Big{n: 3}`, `&Big{n: 3}`, also
+  `var b Big`, `new(Big)`) is made in its block: the zero value first, then the given fields are
+  stored, so the literal is never a temporary. A literal anywhere else (`b = Big{n: 3}`,
+  `f(Big{n: 3})`) is a temporary on the stack, and so is the copy that an assignment of a struct
+  makes when its value is reached through a pointer or a slice (`b = *p`, which gocpp copies
+  first so that the store can't free the value while it reads it).
 - **Phase:** [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#23-strings-slices-arrays-maps).
 
 ---

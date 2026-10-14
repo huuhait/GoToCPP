@@ -105,24 +105,35 @@ func listWords(txt string) []string {
 // Escape returns the C++ name of the Go name name: name itself, or name with _ suffixes when
 // it is reserved (see the top of names.go). It is deterministic and one-to-one.
 func Escape(name string) string {
-	return escapeAvoiding(name, "")
+	return escapeAvoiding(name, nil)
+}
+
+// TypeName returns the C++ name of a Go type name at namespace scope: as Escape, and gp, std and
+// the names that start with gpkg_ get a _ suffix too. A type of the package's namespace named gp
+// or std would hide the namespaces gp:: and std:: inside it (a name before :: finds types), and
+// one named like a package's namespace (gpkg_main) would hide that.
+func TypeName(name string) string {
+	return escapeAvoiding(name, func(s string) bool {
+		// (A name that ends in _ is free again: gpkg_x is gpkg_x_, as gp_x is gp_x_.)
+		return s == "gp" || s == "std" || strings.HasPrefix(s, "gpkg_") && !strings.HasSuffix(s, "_")
+	})
 }
 
 // MethodName returns the C++ name of the method method of the type whose C++ name is typ: as
 // Escape, and a method whose name is the type's (func (U) U(), which C++ would read as a
 // constructor) gets a _ suffix too: U_. The methods of one type keep different names.
 func MethodName(typ, method string) string {
-	return escapeAvoiding(method, typ)
+	return escapeAvoiding(method, func(s string) bool { return s == typ })
 }
 
-// escapeAvoiding escapes name as Escape does, with avoid (if it isn't "") as one more
-// reserved name.
-func escapeAvoiding(name, avoid string) string {
+// escapeAvoiding escapes name as Escape does, with the names for which avoid (if it isn't nil)
+// reports true as more reserved names.
+func escapeAvoiding(name string, avoid func(string) bool) string {
 	base := strings.TrimRight(name, "_")
 	n := len(name) - len(base) // name is the n-th name of the family of base
 	taken := func(k int) bool {
 		s := base + strings.Repeat("_", k)
-		return reserved[s] || s == avoid || (k == 0 && strings.HasPrefix(base, "gp_"))
+		return reserved[s] || avoid != nil && avoid(s) || (k == 0 && strings.HasPrefix(base, "gp_"))
 	}
 	k := 0
 	for i := -1; ; k++ {

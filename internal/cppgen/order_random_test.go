@@ -34,8 +34,15 @@ import (
 // stores, op=, ++, v, ok and delete of a package map that the calls change (they store, delete
 // and make a new map), of a local map that shares its table with a package map, and of a map of
 // slices (m[k] = append(m[k], x)), map literals with constant and other keys that can be equal,
-// and range over maps; no output depends on the order of a map's range (gocpp's isn't Go's: D8).
-// It compares what each prints with real Go, on both compilers.
+// and range over maps; no output depends on the order of a map's range (gocpp's isn't Go's: D8),
+// and structs (step 3.8):
+// field reads and writes (also op=, ++ and parallel assignments, nested fields) of a package
+// struct that the calls change, through a pointer that the calls move between structs, of the
+// elements of a package slice and a package array of structs, and of a boxed local struct that
+// the calls change through a pointer; keyed literals whose values Go evaluates in source order,
+// assignments of whole structs, &s.f that shares the struct's owner, == of structs, structs
+// printed by fmt, and assignments whose first target is a part of a plain local struct or array
+// (lw.a, lar[i]) and whose later target has an operand that reads it (gsl[lw.a & 3]). It compares what each prints with real Go, on both compilers.
 //
 //	GOCPP_RANDOM_TESTS=1 go test ./internal/cppgen -run TestRandomOrder
 //
@@ -157,7 +164,58 @@ func e(tag, v int) int {
 	reshape(tag)
 	rearray(tag)
 	remap(tag)
+	restruct(tag)
 	return v
+}
+
+// S is a struct with a nested anonymous struct and an array. gst is a package struct, gss a
+// slice and gsa an array of them, pst points to one of them or to lst, a boxed local struct of
+// main (pls points to it), and pfa to a field of one. e changes them all.
+type S struct {
+	a, b int
+	in   struct{ c int }
+	arr  [2]int
+}
+
+var gst = S{a: 1, b: 2}
+var gss = []S{{a: 3}, {b: 4}}
+var gsa [2]S
+var pst = &gst
+var pls *S
+var pfa = &gst.b
+
+func restruct(tag int) {
+	switch tag % 6 {
+	case 1:
+		gst.a += tag
+	case 2:
+		gss[tag&1].b -= tag
+	case 3:
+		gsa[tag&1].in.c += tag
+	case 4:
+		if pls != nil {
+			pls.arr[tag&1] *= 2
+		}
+	case 5:
+		pst.b++
+	}
+	if tag%7 == 4 {
+		switch tag % 3 {
+		case 0:
+			pst = &gss[tag&1]
+		case 1:
+			pst = &gsa[tag&1]
+		default:
+			if pls != nil {
+				pst = pls
+			} else {
+				pst = &gst
+			}
+		}
+	}
+	if tag%8 == 3 {
+		pfa = &gss[tag&1].a
+	}
 }
 
 // gsl always has 5 elements, gal 2 of its array (or of an older one), and psl points into an
@@ -311,7 +369,15 @@ func (g *progGen) program() string {
 	g.printf("pla = &la")
 	g.printf("lap := &la")
 	g.printf("las := la[1:3]")
-	g.ptrs = []string{"pg", "pl", "lp", "psl", "lsp", "gpa"}
+	// lst is a boxed local struct, which e changes through pls; lfp points to one of its fields.
+	g.printf("lst := S{b: l1, a: l0}")
+	g.printf("pls = &lst")
+	g.printf("lfp := &lst.in.c")
+	// lw and lar are plain locals (never boxed): a target that is a part of one, lw.a or
+	// lar[i], must be seen by the operands of the targets after it.
+	g.printf("lw := S{a: l2}")
+	g.printf("lar := [2]int{l0, l1}")
+	g.ptrs = []string{"pg", "pl", "lp", "psl", "lsp", "gpa", "pfa", "lfp"}
 	g.printf("lm := gml") // shares gml's table
 	g.printf("var mv int")
 	g.printf("var mok bool")
@@ -329,6 +395,7 @@ func (g *progGen) program() string {
 	g.printf("\t}")
 	g.printf("\tfmt.Println()")
 	g.printf("}")
+	g.printf("fmt.Println(gst, gss[0], gss[1], gsa[0], gsa[1], *pst, lst, *pfa, *lfp, gst == lst, lw, lar[0], lar[1])")
 	g.printf("if pc != nil {")
 	g.printf("\tfmt.Println(*pc)")
 	g.printf("}")
@@ -355,7 +422,7 @@ func (g *progGen) nextTag() int {
 // paramPtr starts a helper: pg and pl, and sometimes a pointer to its parameter p, which boxes
 // it.
 func (g *progGen) paramPtr() {
-	g.ptrs = []string{"pg", "pl", "psl", "gpa"}
+	g.ptrs = []string{"pg", "pl", "psl", "gpa", "pfa"}
 	if g.chance(0.4) {
 		g.printf("pp := &p")
 		g.printf("*pp += %d", g.r.Intn(3))
@@ -431,7 +498,10 @@ func (g *progGen) target() string {
 		return g.elem()
 	}
 	if g.chance(0.15) {
-		return g.mapElem()
+		if g.chance(0.5) {
+			return g.mapElem()
+		}
+		return g.field()
 	}
 	if len(free) == 0 || g.chance(0.3) {
 		return []string{"g0", "g1"}[g.r.Intn(2)]
@@ -467,6 +537,101 @@ func (g *progGen) elem() string {
 		return "las[" + g.expr(1) + " & 1]"
 	}
 	return "gsl[" + g.expr(1) + " & 3]"
+}
+
+// field returns an int field of a struct to read or write: of gst (also nested, and in its
+// array), through pst, of an element of gss or gsa, or (in main) of lst, also through pls.
+func (g *progGen) field() string {
+	f := []string{"a", "b", "in.c", "arr[" + g.expr(1) + " & 1]"}[g.r.Intn(4)]
+	switch k := g.r.Intn(6); {
+	case k == 0:
+		return "pst." + f
+	case k == 1:
+		return "gss[" + g.expr(1) + " & 1]." + f
+	case k == 2:
+		return "gsa[" + g.expr(1) + " & 1]." + f
+	case k == 3 && g.main:
+		return "lst." + f
+	case k == 4 && g.main:
+		return "pls." + f
+	case k == 5 && g.main && g.chance(0.5):
+		return "lw." + f
+	}
+	return "gst." + f
+}
+
+// structVal returns a struct that the calls can change: gst, *pst, an element of gss or gsa, or
+// (in main) lst.
+func (g *progGen) structVal() string {
+	switch k := g.r.Intn(5); {
+	case k == 0:
+		return "*pst"
+	case k == 1:
+		return "gss[" + g.expr(1) + " & 1]"
+	case k == 2:
+		return "gsa[" + g.expr(1) + " & 1]"
+	case k == 3 && g.main:
+		return "lst"
+	}
+	return "gst"
+}
+
+// structLit returns a struct literal: keyed in any order (Go evaluates the values in source
+// order, C++ in the fields' order) or positional.
+func (g *progGen) structLit() string {
+	if g.chance(0.3) {
+		return fmt.Sprintf("S{%s, %s, struct{ c int }{%s}, [2]int{%s, %s}}", g.expr(1), g.expr(1), g.expr(1), g.expr(1), g.expr(1))
+	}
+	keys := []string{"a: " + g.expr(2), "b: " + g.expr(2), "in: struct{ c int }{" + g.expr(1) + "}", "arr: [2]int{1: " + g.expr(1) + "}"}
+	g.r.Shuffle(len(keys), func(i, j int) { keys[i], keys[j] = keys[j], keys[i] })
+	return "S{" + strings.Join(keys[:1+g.r.Intn(len(keys))], ", ") + "}"
+}
+
+// structStmt writes a statement with structs: an assignment of a whole struct (a literal, or a
+// copy of another; also with a store into a field in the same assignment, which Go makes after
+// the struct's assignment, through the old pst), a new pointer to a field, a comparison, and a
+// print of structs next to calls.
+func (g *progGen) structStmt() {
+	if g.main && g.chance(0.5) {
+		g.localTargets()
+		return
+	}
+	switch g.r.Intn(6) {
+	case 0:
+		g.printf("%s = %s", g.structVal(), g.structLit())
+	case 1:
+		g.printf("%s = %s", g.structVal(), g.structVal())
+	case 2:
+		if g.chance(0.5) {
+			g.printf("pst, pst.a = &gss[%s & 1], %s", g.expr(1), g.expr(2))
+		} else {
+			g.printf("%s, %s = %s, %s", g.structVal(), g.field(), g.structLit(), g.expr(2))
+		}
+	case 3:
+		g.printf("pfa = &%s", []string{"gst.b", "gss[" + g.expr(1) + " & 1].a", "gsa[" + g.expr(1) + " & 1].in.c", "pst.arr[1]"}[g.r.Intn(4)])
+	case 4:
+		g.printf("fmt.Println(%s == %s, %s)", g.structVal(), g.structVal(), g.expr(2))
+	default:
+		g.printf("fmt.Println(%s, %s, %s)", g.structVal(), g.structLit(), g.expr(2))
+	}
+}
+
+// localTargets writes an assignment (or a range with targets) whose first target is a part of a
+// plain local, lw or lar, and whose later target has an operand that reads it: Go evaluates that
+// operand before the first store.
+func (g *progGen) localTargets() {
+	first := []string{"lw.a", "lw.in.c", "lw.arr[" + g.expr(1) + " & 1]", "lar[" + g.expr(1) + " & 1]"}[g.r.Intn(4)]
+	read := []string{"lw.a", "lw.in.c", "lw.arr[1]", "lar[0]", "lar[1]"}[g.r.Intn(5)]
+	second := []string{"gsl[" + read + " & 3]", "lar[" + read + " & 1]", "lw.arr[" + read + " & 1]", "gss[" + read + " & 1].b"}[g.r.Intn(4)]
+	switch g.r.Intn(4) {
+	case 0:
+		g.printf("for %s, %s = range []int{%s, %s} {", first, second, g.expr(1), g.expr(1))
+		g.printf("}")
+	case 1:
+		g.printf("%s, %s = %s, %s", first, read, read, first) // a swap
+	default:
+		g.printf("%s, %s = %s, %s", first, second, g.expr(2), g.expr(2))
+	}
 }
 
 // array returns an array of 4 ints that the calls can change: gar or (in main) la or *lap.
@@ -678,7 +843,11 @@ func (g *progGen) sliceExpr(depth int) string {
 }
 
 func (g *progGen) stmt() {
-	k := g.r.Intn(22)
+	k := g.r.Intn(24)
+	if k >= 22 {
+		g.structStmt()
+		return
+	}
 	if k >= 18 {
 		if k >= 20 {
 			g.mapStmt()
@@ -1022,6 +1191,9 @@ func (g *progGen) leaf() string {
 		}
 		if g.chance(0.25) {
 			return g.mapElem()
+		}
+		if g.chance(0.3) {
+			return g.field()
 		}
 		return []string{"g0", "g1", "len(gs)", "int(g8)", "len(gmp)"}[g.r.Intn(5)]
 	default:
