@@ -1,10 +1,18 @@
 // Package server is the language server of "gocpp lsp" (Phase 11): the
-// LSP lifecycle (initialize, shutdown, exit) and the text of the open
-// documents (Overlays), kept up to date with incremental changes.
+// LSP lifecycle (initialize, shutdown, exit), the text of the open
+// documents kept up to date with incremental changes, and the way requests
+// run (step 11.2).
 //
-// Step 11.1 builds only that: the server offers no features yet, so its
-// capabilities are the text sync alone. Snapshots, the check pipeline and
-// the features (diagnostics, hover, ...) come in the next steps.
+// Notifications are handled one at a time, in order, on the read loop
+// (protocol.Handler); each change of a document makes a new snapshot
+// (cache.Session). A request takes the snapshot that is current when it
+// comes, on the read loop too, so it sees every change that came before it
+// and none after; then it runs on its own goroutine, at the same time as
+// the next messages, until it answers or is cancelled.
+//
+// The server offers no features yet, so its capabilities are the text sync
+// alone. The check pipeline and the features (diagnostics, hover, ...)
+// come in the next steps.
 package server
 
 import (
@@ -16,7 +24,9 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/huuhait/gocpp/internal/lsp/cache"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
 	"github.com/huuhait/gocpp/internal/version"
 )
@@ -31,10 +41,18 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, logger *log.Logger) i
 // Serve serves the LSP over in and out until the client's exit
 // notification or the end of in, and returns the exit code: 0 when the
 // client sent shutdown first, 1 when not (LSP 3.17 "exit"), and 1 when the
-// stream breaks. Nothing but LSP messages is ever written to out. Serve
-// may be called once.
+// input breaks. A client that stops reading out (it closed the pipe) is
+// like one that closes in: after shutdown, that is exit code 0. Nothing but
+// LSP messages is ever written to out. Serve may be called once.
+//
+// When the read loop ends, the session shuts down at once (the background
+// work stops), and nothing more is written after exit: the requests still
+// running are cancelled and get no answer, and a notification fails.
+// Serve waits up to a second for them to return (protocol.Conn.Serve). An
+// exit after shutdown first lets shutdown's answer out (Notify).
 func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) int {
 	s.conn = protocol.NewConn(in, out, s.log)
+	s.conn.OnEnd(s.session.Shutdown)
 	err := s.conn.Serve(ctx, s)
 	s.mu.Lock()
 	shutdown, exited := s.lifecycle == stateShutdown, s.exited
@@ -44,6 +62,8 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) int {
 		// The exit notification.
 	case errors.Is(err, io.EOF):
 		s.log.Printf("the client closed the connection without the exit notification")
+	case errors.As(err, new(*protocol.WriteError)):
+		s.log.Printf("the client stopped reading: %v", err)
 	default:
 		s.log.Printf("the connection broke: %v", err)
 		return 1
@@ -66,12 +86,20 @@ const (
 	stateShutdown                     // after shutdown: only exit is left
 )
 
+// shutdownWait is how long the shutdown request waits for the requests in
+// flight to answer before it cancels them.
+const shutdownWait = time.Second
+
 // A Server is the state of one language server: one client connection. It
 // is a protocol.Handler.
 type Server struct {
-	log      *log.Logger
-	overlays *Overlays
-	conn     *protocol.Conn // set by Serve
+	log     *log.Logger
+	session *cache.Session
+	conn    *protocol.Conn // set by Serve
+	// requests are the methods of the requests that run on a snapshot
+	// (see method); tests add their own before Serve.
+	requests     map[string]method
+	shutdownWait time.Duration
 
 	mu        sync.Mutex
 	lifecycle lifecycle
@@ -80,6 +108,39 @@ type Server struct {
 	// warned holds the documents whose change failed and that the user
 	// was told about (didChange); didOpen removes a document.
 	warned map[protocol.DocumentURI]bool
+	// stale holds, per document, the requests in flight whose result a
+	// change of the document makes stale (method.contentModified). The
+	// value is the request's own token, so that a request that ends
+	// removes itself and never a newer request with the same ID.
+	stale map[protocol.DocumentURI]map[protocol.ID]*staleToken
+	// shutdownID is the ID of the shutdown request, once it came.
+	shutdownID *protocol.ID
+}
+
+type staleToken struct{}
+
+// A method is a request that works on a snapshot.
+type method struct {
+	// run does the work on the request's own goroutine, with what env
+	// gives it: the snapshot that was current when the request came, and
+	// never a newer one. ctx is done when the request is cancelled (the
+	// answer has been sent then).
+	run func(ctx context.Context, env env, params json.RawMessage) (any, error)
+	// contentModified: a change of the request's document (the
+	// textDocument.uri of its params) while it runs makes its result
+	// stale, so the change cancels it with ContentModified (LSP 3.17
+	// "ContentModified"; semantic tokens, for example). Without it, a
+	// request finishes on its snapshot, and the client gets the answer
+	// for the text it had when it asked (hover, completion, ...).
+	contentModified bool
+}
+
+// An env is what the work of a request may use.
+type env struct {
+	snapshot *cache.Snapshot
+	log      *log.Logger
+	// notify sends a notification to the client (protocol.Conn.Notify).
+	notify func(method string, params any) error
 }
 
 // New returns a server that logs to logger, which may be nil.
@@ -87,11 +148,20 @@ func New(logger *log.Logger) *Server {
 	if logger == nil {
 		logger = log.New(io.Discard, "", 0)
 	}
-	return &Server{log: logger, overlays: NewOverlays(), trace: protocol.Off, warned: make(map[protocol.DocumentURI]bool)}
+	return &Server{
+		log:          logger,
+		session:      cache.NewSession(nil),
+		requests:     map[string]method{}, // the features come with steps 11.4 to 11.9
+		shutdownWait: shutdownWait,
+		trace:        protocol.Off,
+		warned:       make(map[protocol.DocumentURI]bool),
+		stale:        make(map[protocol.DocumentURI]map[protocol.ID]*staleToken),
+	}
 }
 
-// Overlays returns the set of the open documents.
-func (s *Server) Overlays() *Overlays { return s.overlays }
+// Session returns the server's session: the snapshots of the open
+// documents.
+func (s *Server) Session() *cache.Session { return s.session }
 
 func (s *Server) state() lifecycle {
 	s.mu.Lock()
@@ -99,81 +169,153 @@ func (s *Server) state() lifecycle {
 	return s.lifecycle
 }
 
-func (s *Server) setState(l lifecycle) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.lifecycle = l
+// The notifications the server knows; another one is dropped. They run on
+// the read loop ($/cancelRequest is protocol.Conn's own).
+var notifications = map[string]func(*Server, context.Context, json.RawMessage) error{
+	"initialized":                      (*Server).initialized,
+	"$/setTrace":                       (*Server).setTrace,
+	"textDocument/didOpen":             (*Server).didOpen,
+	"textDocument/didChange":           (*Server).didChange,
+	"textDocument/didClose":            (*Server).didClose,
+	"textDocument/didSave":             (*Server).didSave,
+	"workspace/didChangeConfiguration": ignore, // no settings yet
 }
-
-// The methods the server knows. A request whose method is not here gets a
-// MethodNotFound error; a notification is dropped.
-var (
-	requests = map[string]func(*Server, context.Context, json.RawMessage) (any, error){
-		"initialize": (*Server).initialize,
-		"shutdown":   (*Server).shutdown,
-	}
-	notifications = map[string]func(*Server, context.Context, json.RawMessage) error{
-		"initialized":                      (*Server).initialized,
-		"$/setTrace":                       (*Server).setTrace,
-		"textDocument/didOpen":             (*Server).didOpen,
-		"textDocument/didChange":           (*Server).didChange,
-		"textDocument/didClose":            (*Server).didClose,
-		"textDocument/didSave":             (*Server).didSave,
-		"workspace/didChangeConfiguration": ignore, // no settings yet
-		// Requests are handled one at a time, so a $/cancelRequest always
-		// comes after its request is answered (protocol.Conn.Serve). Step
-		// 11.2 keeps the read loop in order but runs requests in
-		// goroutines, with a context per request ID that $/cancelRequest
-		// cancels (the answer is then RequestCancelled, or ContentModified
-		// when a change made the result stale).
-		"$/cancelRequest": ignore,
-	}
-)
 
 func ignore(*Server, context.Context, json.RawMessage) error { return nil }
 
-// Handle handles one request or notification (protocol.Handler).
-func (s *Server) Handle(ctx context.Context, req *protocol.Request) (any, error) {
-	if req.Method == "exit" && req.IsNotification() {
+// Notify handles one notification, on the read loop (protocol.Handler).
+func (s *Server) Notify(ctx context.Context, req *protocol.Request) error {
+	if req.Method == "exit" {
 		s.mu.Lock()
 		s.exited = true
+		shutdownID := s.shutdownID
 		s.mu.Unlock()
-		return nil, protocol.ErrStop
+		if shutdownID != nil {
+			// The client should wait for shutdown's answer before exit,
+			// but a script may not. Shutdown answers within shutdownWait
+			// (it cancels what runs longer), so its answer, and the ones
+			// before it, go out before nothing more is written.
+			ctx, cancel := context.WithTimeout(ctx, s.shutdownWait+time.Second)
+			defer cancel()
+			s.conn.Wait(ctx)
+		}
+		return protocol.ErrStop
 	}
+	// LSP 3.17 "initialize": a notification before it is dropped.
+	// "shutdown": after it, a notification is dropped too.
+	if s.state() != stateInitialized {
+		return nil
+	}
+	h, ok := notifications[req.Method]
+	if !ok {
+		// "$/" notifications may be ignored without a word (LSP 3.17 "$
+		// Notifications and Requests").
+		if !strings.HasPrefix(req.Method, "$/") {
+			s.log.Printf("ignored the notification %s", req.Method)
+		}
+		return nil
+	}
+	return h(s, ctx, req.Params)
+}
+
+// Call starts one request, on the read loop (protocol.Handler): the
+// lifecycle requests are answered here, in order; another request takes the
+// current snapshot here and does its work in the returned Work.
+func (s *Server) Call(ctx context.Context, req *protocol.Request) protocol.Work {
 	// LSP 3.17 "initialize": before it, a request gets the error
-	// ServerNotInitialized and a notification is dropped. "shutdown": after
-	// it, a request gets InvalidRequest, and a notification is dropped too.
+	// ServerNotInitialized. "shutdown": after it, a request gets
+	// InvalidRequest.
 	switch s.state() {
 	case stateNew:
 		if req.Method != "initialize" {
-			if req.IsNotification() {
-				return nil, nil
-			}
-			return nil, protocol.Errorf(protocol.ServerNotInitialized, "%s before initialize", req.Method)
+			return protocol.Reply(nil, protocol.Errorf(protocol.ServerNotInitialized, "%s before initialize", req.Method))
 		}
 	case stateShutdown:
-		if req.IsNotification() {
-			return nil, nil
-		}
-		return nil, protocol.Errorf(protocol.InvalidRequest, "%s after shutdown", req.Method)
+		return protocol.Reply(nil, protocol.Errorf(protocol.InvalidRequest, "%s after shutdown", req.Method))
 	}
-	if req.IsNotification() {
-		h, ok := notifications[req.Method]
-		if !ok {
-			// "$/" notifications may be ignored without a word (LSP
-			// 3.17 "$ Notifications and Requests").
-			if !strings.HasPrefix(req.Method, "$/") {
-				s.log.Printf("ignored the notification %s", req.Method)
-			}
-			return nil, nil
-		}
-		return nil, h(s, ctx, req.Params)
+	switch req.Method {
+	case "initialize":
+		return protocol.Reply(s.initialize(req.Params))
+	case "shutdown":
+		return s.shutdown(*req.ID)
 	}
-	h, ok := requests[req.Method]
+	m, ok := s.requests[req.Method]
 	if !ok {
-		return nil, protocol.Errorf(protocol.MethodNotFound, "method not found: %s", req.Method)
+		return protocol.Reply(nil, protocol.Errorf(protocol.MethodNotFound, "method not found: %s", req.Method))
 	}
-	return h(s, ctx, req.Params)
+	snap, release := s.session.Snapshot()
+	id := *req.ID
+	var uri protocol.DocumentURI
+	var token *staleToken
+	if m.contentModified {
+		uri = documentOf(req.Params)
+		token = s.addStale(uri, id)
+	}
+	e := env{snapshot: snap, log: s.log, notify: s.conn.Notify}
+	return func(ctx context.Context) (any, error) {
+		defer release()
+		if token != nil {
+			defer s.removeStale(uri, id, token)
+		}
+		return m.run(ctx, e, req.Params)
+	}
+}
+
+// documentOf returns the document of a request: the textDocument.uri of its
+// params, or "" when they have none.
+func documentOf(params json.RawMessage) protocol.DocumentURI {
+	var p struct {
+		TextDocument struct {
+			URI protocol.DocumentURI `json:"uri"`
+		} `json:"textDocument"`
+	}
+	// A bad URI is a decode error; the request's own decode reports it.
+	if json.Unmarshal(params, &p) != nil {
+		return ""
+	}
+	return p.TextDocument.URI
+}
+
+// addStale records the request id on uri (method.contentModified) and
+// returns its token, or nil when the request has no document.
+func (s *Server) addStale(uri protocol.DocumentURI, id protocol.ID) *staleToken {
+	if uri == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stale[uri] == nil {
+		s.stale[uri] = make(map[protocol.ID]*staleToken)
+	}
+	token := new(staleToken)
+	s.stale[uri][id] = token
+	return token
+}
+
+// removeStale removes the request id with the token from uri, unless a
+// newer request with the same ID has taken its place.
+func (s *Server) removeStale(uri protocol.DocumentURI, id protocol.ID, token *staleToken) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stale[uri][id] != token {
+		return
+	}
+	delete(s.stale[uri], id)
+	if len(s.stale[uri]) == 0 {
+		delete(s.stale, uri)
+	}
+}
+
+// modified cancels, with ContentModified, the requests in flight whose
+// result the change of uri made stale.
+func (s *Server) modified(uri protocol.DocumentURI) {
+	s.mu.Lock()
+	ids := s.stale[uri]
+	delete(s.stale, uri)
+	s.mu.Unlock()
+	for id := range ids {
+		s.conn.Cancel(id, protocol.Errorf(protocol.ContentModified, "%s changed", uri))
+	}
 }
 
 // decode decodes the params of a method into v. Wrong params are an
@@ -188,7 +330,7 @@ func decode(params json.RawMessage, v any) error {
 	return nil
 }
 
-func (s *Server) initialize(_ context.Context, params json.RawMessage) (any, error) {
+func (s *Server) initialize(params json.RawMessage) (any, error) {
 	if s.state() != stateNew {
 		return nil, protocol.Errorf(protocol.InvalidRequest, "initialize was sent twice")
 	}
@@ -223,9 +365,33 @@ func (s *Server) initialize(_ context.Context, params json.RawMessage) (any, err
 
 func (s *Server) initialized(context.Context, json.RawMessage) error { return nil }
 
-func (s *Server) shutdown(context.Context, json.RawMessage) (any, error) {
-	s.setState(stateShutdown)
-	return nil, nil
+// shutdown starts the shutdown request id. From now on, every request but
+// exit gets an error (Call). The answer waits until the requests in flight
+// have answered, for up to s.shutdownWait; then the ones left are
+// cancelled (RequestCancelled). So the answer to shutdown comes after the
+// answers to every request before it.
+func (s *Server) shutdown(id protocol.ID) protocol.Work {
+	s.mu.Lock()
+	s.lifecycle = stateShutdown
+	s.shutdownID = &id
+	s.mu.Unlock()
+	return func(ctx context.Context) (any, error) {
+		wctx, cancel := context.WithTimeout(ctx, s.shutdownWait)
+		defer cancel()
+		if s.conn.Wait(wctx, id) || ctx.Err() != nil {
+			// All answered, or the connection ended: then nothing is
+			// written any more.
+			return nil, nil
+		}
+		s.log.Printf("shutdown: cancelled the requests still running after %v", s.shutdownWait)
+		s.conn.CancelAll(protocol.Errorf(protocol.RequestCancelled, "the server shuts down"), id)
+		// The answers are written now, or being written: wait for that
+		// too, but not long (the output may be stuck).
+		wctx, cancel = context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		s.conn.Wait(wctx, id)
+		return nil, nil
+	}
 }
 
 func (s *Server) setTrace(_ context.Context, params json.RawMessage) error {
@@ -244,11 +410,17 @@ func (s *Server) didOpen(_ context.Context, params json.RawMessage) error {
 	if err := decode(params, &p); err != nil {
 		return err
 	}
-	if _, replaced := s.overlays.Open(p.TextDocument); replaced {
-		s.log.Printf("didOpen: %s was open already; it has the new text now", p.TextDocument.URI)
+	uri := p.TextDocument.URI
+	replaced, err := s.session.DidOpen(p.TextDocument)
+	if err != nil {
+		return err
+	}
+	if replaced {
+		s.log.Printf("didOpen: %s was open already; it has the new text now", uri)
+		s.modified(uri)
 	}
 	s.mu.Lock()
-	delete(s.warned, p.TextDocument.URI)
+	delete(s.warned, uri)
 	s.mu.Unlock()
 	return nil
 }
@@ -259,12 +431,18 @@ func (s *Server) didChange(_ context.Context, params json.RawMessage) error {
 		return err
 	}
 	uri, version := p.TextDocument.URI, p.TextDocument.Version
-	if old := s.overlays.Get(uri); old != nil && version <= old.Version() {
+	snap, release := s.session.Snapshot()
+	old := snap.Overlay(uri)
+	release()
+	if old != nil && version <= old.Version() {
 		// The spec wants the version to go up. The text is still the
 		// client's, so the change is kept.
 		s.log.Printf("didChange: %s goes from version %d to %d", uri, old.Version(), version)
 	}
-	_, err := s.overlays.Change(uri, version, p.ContentChanges)
+	err := s.session.DidChange(uri, version, p.ContentChanges)
+	if old != nil {
+		s.modified(uri) // a failed change made it broken: stale too
+	}
 	if err != nil {
 		s.warnBroken(uri)
 	}
@@ -292,7 +470,11 @@ func (s *Server) didClose(_ context.Context, params json.RawMessage) error {
 	if err := decode(params, &p); err != nil {
 		return err
 	}
-	return s.overlays.Close(p.TextDocument.URI)
+	if err := s.session.DidClose(p.TextDocument.URI); err != nil {
+		return err
+	}
+	s.modified(p.TextDocument.URI)
+	return nil
 }
 
 func (s *Server) didSave(_ context.Context, params json.RawMessage) error {

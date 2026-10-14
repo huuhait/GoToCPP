@@ -26,6 +26,7 @@ type lspProcess struct {
 	t      *testing.T
 	cmd    *exec.Cmd
 	in     io.WriteCloser
+	stdout io.ReadCloser
 	out    *protocol.Reader
 	stderr lockedBuffer
 	start  time.Time
@@ -69,6 +70,7 @@ func startLSP(t *testing.T, args ...string) *lspProcess {
 	if err != nil {
 		t.Fatal(err)
 	}
+	p.stdout = stdout
 	p.out = protocol.NewReader(stdout)
 	p.start = time.Now()
 	if err := p.cmd.Start(); err != nil {
@@ -181,6 +183,36 @@ func TestLSPProcessExitWithoutShutdown(t *testing.T) {
 	p.read()
 	if code := p.wait(); code != 1 {
 		t.Errorf("the end without shutdown: exit status %d, want 1", code)
+	}
+}
+
+// TestLSPClosedStdout: a client that closes the server's stdout (it stops
+// reading) doesn't kill the server with SIGPIPE: the write of an answer
+// fails, the server logs it, and exits normally (0 after shutdown).
+func TestLSPClosedStdout(t *testing.T) {
+	p := startLSP(t)
+	p.send(lspInitialize)
+	p.read()
+	p.stdout.Close()
+	// One write, so that it can't fail when the server stops reading
+	// after the failed answer to shutdown.
+	var both strings.Builder
+	for _, body := range []string{lspShutdown, lspExit} {
+		fmt.Fprintf(&both, "Content-Length: %d\r\n\r\n%s", len(body), body)
+	}
+	if _, err := io.WriteString(p.in, both.String()); err != nil {
+		t.Fatal(err)
+	}
+	p.in.Close()
+	err := p.cmd.Wait()
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		t.Errorf("gocpp lsp: %v, want exit status 0; stderr:\n%s", err, p.stderr.String())
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	if logs := p.stderr.String(); !strings.Contains(logs, "broken pipe") {
+		t.Errorf("the log has no write error:\n%s", logs)
 	}
 }
 

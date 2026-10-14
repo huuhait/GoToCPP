@@ -10,6 +10,6 @@
 //
 // The rest is gocpp's: the messages and the error codes (jsonrpc.go), the
 // Content-Length framing (stream.go), a connection that hands each message
-// to a Handler (conn.go) and the conversion between positions and byte
-// offsets (position.go).
+// to a Handler and runs the requests concurrently (conn.go), and the
+// conversion between positions and byte offsets (position.go).
 package protocol

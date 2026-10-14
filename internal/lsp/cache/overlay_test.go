@@ -1,4 +1,4 @@
-package server
+package cache
 
 import (
 	"fmt"
@@ -24,11 +24,32 @@ func edit(r *protocol.Range, text string) protocol.TextDocumentContentChangeEven
 	return protocol.TextDocumentContentChangeEvent{Range: r, Text: text}
 }
 
-func open(t *testing.T, s *Overlays, text string) {
+func open(t testing.TB, s *Session, text string) {
 	t.Helper()
-	if _, replaced := s.Open(protocol.TextDocumentItem{URI: testURI, LanguageID: "gocpp", Version: 1, Text: text}); replaced {
-		t.Fatal("the document was open already")
+	if replaced, err := s.DidOpen(protocol.TextDocumentItem{URI: testURI, LanguageID: "gocpp", Version: 1, Text: text}); replaced || err != nil {
+		t.Fatalf("the document was open already (%v)", err)
 	}
+}
+
+// get returns the document uri of the current snapshot of s.
+func get(s *Session, uri protocol.DocumentURI) *Overlay {
+	snap, release := s.Snapshot()
+	defer release()
+	return snap.Overlay(uri)
+}
+
+// change applies the changes to the document uri and returns the document
+// of the new snapshot.
+func change(s *Session, uri protocol.DocumentURI, version int32, changes []protocol.TextDocumentContentChangeEvent) (*Overlay, error) {
+	err := s.DidChange(uri, version, changes)
+	return get(s, uri), err
+}
+
+// all returns the documents of the current snapshot of s.
+func all(s *Session) []*Overlay {
+	snap, release := s.Snapshot()
+	defer release()
+	return snap.Overlays()
 }
 
 func TestChange(t *testing.T) {
@@ -77,13 +98,13 @@ func TestChange(t *testing.T) {
 		{"backward range clamped", "ab\n", []protocol.TextDocumentContentChangeEvent{edit(rng(0, 9, 0, 5), "!")}, "ab!\n"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			s := NewOverlays()
+			s := NewSession(nil)
 			open(t, s, test.text)
-			o, err := s.Change(testURI, 2, test.changes)
+			o, err := change(s, testURI, 2, test.changes)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if o.Text() != test.want || s.Get(testURI) != o {
+			if o.Text() != test.want || get(s, testURI) != o {
 				t.Errorf("the text is %q, want %q", o.Text(), test.want)
 			}
 			if o.Version() != 2 || o.LanguageID() != "gocpp" || o.URI() != testURI {
@@ -94,22 +115,22 @@ func TestChange(t *testing.T) {
 }
 
 func TestChangeErrors(t *testing.T) {
-	s := NewOverlays()
-	if _, err := s.Change(testURI, 2, []protocol.TextDocumentContentChangeEvent{edit(nil, "x")}); err == nil {
+	s := NewSession(nil)
+	if _, err := change(s, testURI, 2, []protocol.TextDocumentContentChangeEvent{edit(nil, "x")}); err == nil {
 		t.Error("a change to a document that is not open: no error")
 	}
 	open(t, s, "ab\ncd\n")
-	before := s.Get(testURI)
+	before := get(s, testURI)
 	// The second change has a range that ends before it starts: nothing
 	// changes, not even the first change.
-	_, err := s.Change(testURI, 2, []protocol.TextDocumentContentChangeEvent{
+	_, err := change(s, testURI, 2, []protocol.TextDocumentContentChangeEvent{
 		edit(rng(0, 0, 0, 1), "X"),
 		edit(rng(1, 1, 0, 1), "Y"),
 	})
 	if err == nil || !strings.Contains(err.Error(), "change 1: the range 1:1-0:1 ends before it starts") {
 		t.Errorf("err = %v", err)
 	}
-	o := s.Get(testURI)
+	o := get(s, testURI)
 	if o.Text() != "ab\ncd\n" || o.Version() != 1 || !o.Broken() {
 		t.Errorf("after a failed change: %q, version %d, broken %v; want the old text and version, broken",
 			o.Text(), o.Version(), o.Broken())
@@ -118,40 +139,40 @@ func TestChangeErrors(t *testing.T) {
 		t.Error("a failed change changed the overlay that a reader holds")
 	}
 	// It stays broken after a change that works, until it is opened again.
-	if o, err := s.Change(testURI, 3, []protocol.TextDocumentContentChangeEvent{edit(nil, "x")}); err != nil || !o.Broken() || o.Text() != "x" {
+	if o, err := change(s, testURI, 3, []protocol.TextDocumentContentChangeEvent{edit(nil, "x")}); err != nil || !o.Broken() || o.Text() != "x" {
 		t.Errorf("a change of a broken document: %v, broken %v", err, o.Broken())
 	}
-	s.Open(protocol.TextDocumentItem{URI: testURI, Version: 4, Text: "y"})
-	if s.Get(testURI).Broken() {
+	s.DidOpen(protocol.TextDocumentItem{URI: testURI, Version: 4, Text: "y"})
+	if get(s, testURI).Broken() {
 		t.Error("broken after didOpen")
 	}
 }
 
 func TestOpenClose(t *testing.T) {
-	s := NewOverlays()
+	s := NewSession(nil)
 	open(t, s, "one")
-	held := s.Get(testURI)
-	if _, replaced := s.Open(protocol.TextDocumentItem{URI: testURI, Version: 7, Text: "two"}); !replaced {
+	held := get(s, testURI)
+	if replaced, _ := s.DidOpen(protocol.TextDocumentItem{URI: testURI, Version: 7, Text: "two"}); !replaced {
 		t.Error("opening an open document again: not replaced")
 	}
-	if o := s.Get(testURI); o.Text() != "two" || o.Version() != 7 {
+	if o := get(s, testURI); o.Text() != "two" || o.Version() != 7 {
 		t.Errorf("after the second open: %q version %d", o.Text(), o.Version())
 	}
 	if held.Text() != "one" {
 		t.Errorf("an overlay that a reader holds changed to %q", held.Text())
 	}
 	other := protocol.DocumentURI("file:///w/a.gp")
-	s.Open(protocol.TextDocumentItem{URI: other, Text: "a"})
-	if all := s.All(); len(all) != 2 || all[0].URI() != other || all[1].URI() != testURI {
+	s.DidOpen(protocol.TextDocumentItem{URI: other, Text: "a"})
+	if all := all(s); len(all) != 2 || all[0].URI() != other || all[1].URI() != testURI {
 		t.Errorf("All = %v", all)
 	}
-	if err := s.Close(testURI); err != nil {
+	if err := s.DidClose(testURI); err != nil {
 		t.Fatal(err)
 	}
-	if s.Get(testURI) != nil || len(s.All()) != 1 {
+	if get(s, testURI) != nil || len(all(s)) != 1 {
 		t.Error("the closed document is still there")
 	}
-	if err := s.Close(testURI); err == nil {
+	if err := s.DidClose(testURI); err == nil {
 		t.Error("closing a document that is not open: no error")
 	}
 }
@@ -240,13 +261,13 @@ func randomChange(rnd *rand.Rand, lines int) protocol.TextDocumentContentChangeE
 func TestChangeRandom(t *testing.T) {
 	rnd := rand.New(rand.NewSource(111))
 	for doc := range 300 {
-		s := NewOverlays()
+		s := NewSession(nil)
 		start := randomText(rnd, 30)
 		open(t, s, start)
 		ref := &refDoc{units: utf16.Encode([]rune(start))}
 		history := []string{fmt.Sprintf("open %q", start)}
 		for v := int32(2); v < 60; v++ {
-			lines := s.Get(testURI).Mapper().LineCount()
+			lines := get(s, testURI).Mapper().LineCount()
 			changes := []protocol.TextDocumentContentChangeEvent{randomChange(rnd, lines)}
 			if rnd.Intn(5) == 0 {
 				// Several changes in one didChange; a later one is on
@@ -265,7 +286,7 @@ func TestChangeRandom(t *testing.T) {
 					history = append(history, fmt.Sprintf("%d:%d-%d:%d %q", r.Start.Line, r.Start.Character, r.End.Line, r.End.Character, c.Text))
 				}
 			}
-			o, err := s.Change(testURI, v, changes)
+			o, err := change(s, testURI, v, changes)
 			if err != nil {
 				// Every range is forward, and the position rules keep
 				// the order of positions, so no change fails.
@@ -289,12 +310,12 @@ func FuzzChange(f *testing.F) {
 		// Text that comes in JSON is valid UTF-8, and the client counts
 		// its UTF-16 units.
 		text, newText = strings.ToValidUTF8(text, "�"), strings.ToValidUTF8(newText, "�")
-		s := NewOverlays()
+		s := NewSession(nil)
 		open(t, s, text)
 		ref := &refDoc{units: utf16.Encode([]rune(text))}
 		c := edit(rng(l1%8, c1%12, l2%8, c2%12), newText)
 		refOK := ref.apply(c)
-		o, err := s.Change(testURI, 2, []protocol.TextDocumentContentChangeEvent{c})
+		o, err := change(s, testURI, 2, []protocol.TextDocumentContentChangeEvent{c})
 		if (err == nil) != refOK {
 			t.Fatalf("the overlay's error is %v, the reference accepted it: %v", err, refOK)
 		}
@@ -307,7 +328,7 @@ func FuzzChange(f *testing.F) {
 // TestOverlaysConcurrent reads the documents while they change (run it with
 // -race).
 func TestOverlaysConcurrent(t *testing.T) {
-	s := NewOverlays()
+	s := NewSession(nil)
 	open(t, s, "")
 	var wg sync.WaitGroup
 	done := make(chan struct{})
@@ -321,7 +342,7 @@ func TestOverlaysConcurrent(t *testing.T) {
 					return
 				default:
 				}
-				if o := s.Get(testURI); o != nil {
+				if o := get(s, testURI); o != nil {
 					// The text of an overlay never changes: its
 					// length is its version minus 1.
 					if len(o.Text()) != int(o.Version())-1 {
@@ -329,12 +350,12 @@ func TestOverlaysConcurrent(t *testing.T) {
 						return
 					}
 				}
-				s.All()
+				all(s)
 			}
 		}()
 	}
 	for v := int32(2); v <= 500; v++ {
-		if _, err := s.Change(testURI, v, []protocol.TextDocumentContentChangeEvent{edit(rng(0, 0, 0, 0), "x")}); err != nil {
+		if _, err := change(s, testURI, v, []protocol.TextDocumentContentChangeEvent{edit(rng(0, 0, 0, 0), "x")}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -343,17 +364,17 @@ func TestOverlaysConcurrent(t *testing.T) {
 }
 
 // The cost of a change of a 1 MiB text: a copy of the text and a new line
-// index (see Overlays.Change).
+// index (see Overlay.change).
 func benchmarkChange(b *testing.B, n int) {
 	text := strings.Repeat("\tfmt.Println(\"hello, world\", x+y) // a comment\n", 1<<20/48)
 	changes := make([]protocol.TextDocumentContentChangeEvent, n)
 	for i := range changes {
 		changes[i] = edit(rng(uint32(i*100), 1, uint32(i*100), 1), "x")
 	}
-	s := NewOverlays()
-	s.Open(protocol.TextDocumentItem{URI: testURI, Text: text})
+	s := NewSession(nil)
+	s.DidOpen(protocol.TextDocumentItem{URI: testURI, Text: text})
 	for b.Loop() {
-		if _, err := s.Change(testURI, 1, changes); err != nil {
+		if _, err := change(s, testURI, 1, changes); err != nil {
 			b.Fatal(err)
 		}
 	}

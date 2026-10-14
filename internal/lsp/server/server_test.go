@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/huuhait/gocpp/internal/lsp/cache"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
 	"github.com/huuhait/gocpp/internal/version"
 )
@@ -48,10 +49,20 @@ func (b *syncBuffer) String() string {
 
 func start(t *testing.T) *client {
 	t.Helper()
+	return startWith(t, nil)
+}
+
+// startWith is start with a setup of the server before it serves (tests
+// add their own request methods).
+func startWith(t *testing.T, setup func(*Server)) *client {
+	t.Helper()
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
 	c := &client{t: t, in: inW, out: protocol.NewReader(outR), code: make(chan int, 1), logs: &syncBuffer{}}
 	c.s = New(log.New(c.logs, "", 0))
+	if setup != nil {
+		setup(c.s)
+	}
 	go func() {
 		code := c.s.Serve(context.Background(), inR, outW)
 		inR.Close() // a later write of the client fails, it doesn't hang
@@ -153,6 +164,20 @@ func (c *client) wait() int {
 	return -1
 }
 
+// overlay returns the document uri of the server's current snapshot.
+func (c *client) overlay(uri protocol.DocumentURI) *cache.Overlay {
+	snap, release := c.s.Session().Snapshot()
+	defer release()
+	return snap.Overlay(uri)
+}
+
+// overlays returns the documents of the server's current snapshot.
+func (c *client) overlays() []*cache.Overlay {
+	snap, release := c.s.Session().Snapshot()
+	defer release()
+	return snap.Overlays()
+}
+
 // wantError checks that resp is an error with the code.
 func wantError[C protocol.ErrorCodes | protocol.LSPErrorCodes](t *testing.T, resp *protocol.Response, code C, msg string) {
 	t.Helper()
@@ -247,7 +272,7 @@ func TestBeforeInitialize(t *testing.T) {
 	c.notify("textDocument/didOpen", `{"textDocument":{"uri":"file:///w/a.gp","languageId":"gocpp","version":1,"text":"x"}}`)
 	c.notify("initialized", `{}`)
 	wantResult(t, c.call("initialize", initParams), initResult)
-	if all := c.s.Overlays().All(); len(all) != 0 {
+	if all := c.overlays(); len(all) != 0 {
 		t.Errorf("a didOpen before initialize opened %s", all[0].URI())
 	}
 }
@@ -280,7 +305,7 @@ func TestAfterShutdown(t *testing.T) {
 	wantError(t, c.call("textDocument/hover", `{}`), protocol.InvalidRequest, "after shutdown")
 	c.notify("textDocument/didOpen", `{"textDocument":{"uri":"file:///w/a.gp","languageId":"gocpp","version":1,"text":"x"}}`)
 	wantError(t, c.call("initialize", initParams), protocol.InvalidRequest, "")
-	if all := c.s.Overlays().All(); len(all) != 0 {
+	if all := c.overlays(); len(all) != 0 {
 		t.Errorf("a didOpen after shutdown opened %s", all[0].URI())
 	}
 	c.notify("exit", "")
@@ -354,10 +379,10 @@ func TestTextSync(t *testing.T) {
 		{"range":{"start":{"line":0,"character":5},"end":{"line":0,"character":7}},"rangeLength":2,"text":"ü"}]}`)
 	c.notify("textDocument/didSave", `{"textDocument":{"uri":"file:///w/a.gp"}}`)
 	c.call("shutdown", "") // after the notifications are handled
-	if o := c.s.Overlays().Get(uriA); o == nil || o.Version() != 2 || o.Text() != "package main\r\n\r\nfunc main() {\r\n\tprintln(\"🎉\")\r\n}\r\n" {
+	if o := c.overlay(uriA); o == nil || o.Version() != 2 || o.Text() != "package main\r\n\r\nfunc main() {\r\n\tprintln(\"🎉\")\r\n}\r\n" {
 		t.Errorf("a.gp: %+v %q", o, o.Text())
 	}
-	if o := c.s.Overlays().Get(uriB); o == nil || o.Version() != 6 || o.Text() != "// 😀ü\n" {
+	if o := c.overlay(uriB); o == nil || o.Version() != 6 || o.Text() != "// 😀ü\n" {
 		t.Errorf("b.gp: %+v %q", o, o.Text())
 	}
 }
@@ -368,7 +393,7 @@ func TestTextSyncFullAndClose(t *testing.T) {
 	c.notify("textDocument/didOpen", didOpen(uriA, 1, "old"))
 	c.notify("textDocument/didChange", `{"textDocument":{"uri":"file:///w/a.gp","version":2},"contentChanges":[{"text":"new\ntext"}]}`)
 	c.call("textDocument/hover", `{}`) // the notifications are handled now
-	if o := c.s.Overlays().Get(uriA); o == nil || o.Text() != "new\ntext" {
+	if o := c.overlay(uriA); o == nil || o.Text() != "new\ntext" {
 		t.Errorf("after a full change: %q", o.Text())
 	}
 	c.notify("textDocument/didClose", `{"textDocument":{"uri":"file:///w/a.gp"}}`)
@@ -393,23 +418,23 @@ func TestTextSyncFullAndClose(t *testing.T) {
 	}
 	c.notify("textDocument/didChange", backward)
 	c.call("textDocument/hover", `{}`) // no second message before the response
-	if o := c.s.Overlays().Get(uriB); o == nil || !o.Broken() {
+	if o := c.overlay(uriB); o == nil || !o.Broken() {
 		t.Error("b.gp is not broken")
 	}
 	// After didOpen, a new failure is told again.
 	c.notify("textDocument/didOpen", didOpen(uriB, 1, "b4"))
 	c.call("textDocument/hover", `{}`)
-	if o := c.s.Overlays().Get(uriB); o == nil || o.Broken() {
+	if o := c.overlay(uriB); o == nil || o.Broken() {
 		t.Error("b.gp is still broken after didOpen")
 	}
 	c.notify("textDocument/didChange", backward)
 	c.readNotification("window/showMessage")
 	c.notify("textDocument/didOpen", didOpen(uriB, 1, "b3"))
 	c.call("shutdown", "")
-	if o := c.s.Overlays().Get(uriA); o != nil {
+	if o := c.overlay(uriA); o != nil {
 		t.Errorf("a.gp is still open: %q", o.Text())
 	}
-	if o := c.s.Overlays().Get(uriB); o == nil || o.Text() != "b3" || o.Version() != 1 {
+	if o := c.overlay(uriB); o == nil || o.Text() != "b3" || o.Version() != 1 {
 		t.Errorf("b.gp: %q", o.Text())
 	}
 	logs := c.logs.String()

@@ -6,10 +6,17 @@
 //
 // Phase 11 fills it. The early version (v0: diagnostics, hover,
 // go-to-definition, completion, formatting) needs only Phase 01. So far
-// (step 11.1) there are:
+// (steps 11.1 and 11.2) there are:
 //   - protocol: the LSP 3.17 types (copied from gopls, see
-//     protocol/COPIED.md), JSON-RPC 2.0 over the Content-Length framing,
-//     and the conversion between positions and byte offsets;
-//   - server: the lifecycle (initialize, shutdown, exit) and the open
-//     documents, kept up to date with incremental changes.
+//     protocol/COPIED.md), JSON-RPC 2.0 over the Content-Length framing
+//     (notifications in order on the read loop, requests on their own
+//     goroutines, cancellation), and the conversion between positions and
+//     byte offsets;
+//   - cache: the session and its immutable snapshots of the open
+//     documents, with a place for the memoized pipeline (step 11.3);
+//   - debounce: work that runs after a quiet time per key (diagnostics,
+//     step 11.4);
+//   - server: the lifecycle (initialize, shutdown, exit), the open
+//     documents kept up to date with incremental changes, and the
+//     requests, each on the snapshot of its time.
 package lsp

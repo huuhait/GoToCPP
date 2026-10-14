@@ -1,6 +1,6 @@
 # Phase 11: Fast Language Server · STATE
 
-**Status:** `[~]` in progress (v0 track: 11.1 done; 11.10a grammar done)
+**Status:** `[~]` in progress (v0 track: 11.1, 11.2 done; 11.10a grammar done)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
@@ -8,7 +8,7 @@
 
 - [x] Measured go/types re-check speed with cached deps: `strings` 3 ms, `encoding/json` 5 ms, `net/http` (28.5k lines) 29 ms parse+check (2026-10-13)
 - [x] 11.1 LSP core (JSON-RPC stdio, initialize/shutdown, incremental sync, overlays; protocol types copied from gopls's generated code + generator) · *v0*
-- [~] 11.2 Snapshots + cancellation + debounce · *v0*
+- [x] 11.2 Snapshots + cancellation + debounce · *v0*
 - [ ] 11.3 Memoized pipeline · *v0*
   - [ ] per-file parse+expand cache
   - [ ] per-package check cache
@@ -70,3 +70,7 @@
   shutdownWait + 1 s) for the answers in flight, so a client that sends initialize/shutdown/exit at once
   still gets shutdown's answer (allowed by the spec; a compliant client waits for the answer anyway).
   `gocpp lsp` ignores SIGPIPE, so a client that closes our stdout gives a write error, not a signal death.
+- 2026-10-14: Job 11.2 (snapshots, cancellation, debounce: internal/lsp/cache Session/Snapshot with
+  reference counts and a State hook for 11.3; protocol.Conn with notifications in order and requests
+  concurrent, a context per ID, $/cancelRequest, ContentModified; internal/lsp/debounce with a fake
+  clock) committed, clean after 3 review rounds; stress-tested with -race -count=200 on 1–8 CPUs.

@@ -8,6 +8,8 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/huuhait/gocpp/internal/lsp/server"
 )
@@ -34,6 +36,12 @@ The flags are:
 
 // runLSP is "gocpp lsp" (phase 11 README, step 11.1).
 func runLSP(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	// A client that closes our stdout must not kill the server with
+	// SIGPIPE (Go's default for a write to a closed pipe on fd 1): the
+	// write fails instead, the server logs it and exits like after the
+	// end of its input. (SIGPIPE exists in package syscall on Windows too,
+	// where this does nothing.)
+	signal.Ignore(syscall.SIGPIPE)
 	flags := flag.NewFlagSet("gocpp lsp", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	logfile := flags.String("logfile", "", "append the log to `file`, not to standard error")
