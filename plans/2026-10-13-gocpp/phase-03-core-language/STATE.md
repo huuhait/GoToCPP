@@ -22,12 +22,12 @@
   - [ ] nil-map panics
   - [ ] snapshot range
   - [ ] hashing (strings, arrays, structs, floats, pointers)
-- [~] 3.8 Structs (job 3.8)
-  - [ ] layout, zero values, `==`, hash, `gp_fields`
-  - [ ] keyed literals in source order
-  - [ ] anonymous structs (shared canonical header)
-  - [ ] local types hoisted to namespace scope
-  - [ ] dependency ordering + recursive types
+- [x] 3.8 Structs
+  - [x] layout, zero values, `==`, hash, `gp_fields`
+  - [x] keyed literals in source order
+  - [x] anonymous structs (canonical names; the shared header is Phase 06)
+  - [x] local types hoisted to namespace scope
+  - [x] dependency ordering + recursive types
 - [ ] 3.9 Named non-struct types (`gp::newtype`) + implicit conversions where types differ + `switch` on underlying value
 - [ ] 3.10 Methods (value receivers copy, held reference for non-local receivers, pointer receivers, method values/expressions)
 - [ ] 3.11 Func values (by-value params), variadics, closures
@@ -256,3 +256,21 @@
   struct keys of 4 or 8 bytes of plain memory go into wrappedKey; static struct literals into staticLit;
   structs need gp_hash for map keys. For 3.8/3.9: a struct or named-type value read from a map is a copy
   (like arrays), so a reference to an element of `m[k]` is never stable (stableArray/varOwner).
+- 2026-10-14: Job 3.8 (structs: package, local (hoisted) and anonymous struct types, embedded fields (the
+  checker keeps embedding gated to Phase 05, as planned) and blank fields, zero values, literals in source
+  order, &T{}, field access with Go's nil panics, owners for &x.f, ==, gp_hash and map keys (wrappedKey,
+  staticLit), the fmt protocol (structs print with fmt now), a static_assert per struct from gocppSizes,
+  self-reachable assignments copied first, large structs built in their box (gp::new_init)) committed,
+  clean after 3 review rounds. Also fixed dev's two-phase rule for targets inside a plain local (`w.i,
+  s[w.i] = …`, `a[0], x[a[0]] = …`: target.root). Anonymous struct names are position-free (a local type is
+  keyed `main.T@T_1`); Phase 06's shared header must also key unexported field names by package. Implicit
+  conversions between non-identical struct types (named vs anonymous, `type B A`) report "Phase 03 step
+  3.9" everywhere (assignments, args, returns, literal elements, map keys, ==, range targets, switch). For
+  3.9: do those conversions. For 3.10: method names go through MethodName(structCName, …) like fields, so a
+  field and a method can't collide. examples/structs needs 3.9, 3.10, 3.11 and 3.15b.
+- 2026-10-14 (3.13 review, for later phases): Phase 05: a deferred call that panics at every level of a deep
+  recursion costs O(depth²) time and memory (each panic records its full stack and panic_chain walks again:
+  10 s / 412 MB at depth 10,000, Go 2.9 s / 8 MB); make stacks lazy there. Phase 13: gdb `step` on a return
+  in a function with defers enters gp::defer_frame::gp_run; `gocpp debug` should add skip rules for it and
+  std::apply/__invoke. 3.10/3.11: a deferred method call or func value must store the receiver / func value
+  as an argument evaluated at the defer statement. Phase 09: os.Exit must not unwind (no defers run).
