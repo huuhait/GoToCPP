@@ -1,6 +1,6 @@
 # Phase 02: Walking Skeleton · STATE
 
-**Status:** `[~]` in progress (steps 2.1, 2.2, 2.3, 2.6 and 2.7 done)
+**Status:** `[~]` in progress (steps 2.1–2.4, 2.6 and 2.7 done)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
@@ -19,13 +19,13 @@
   - [x] `gp::div/rem/shl/shr/f2i` (return the Go type; `MIN/-1`, `MIN%-1`, per-type float→int)
   - [x] conversions between basic types
   - [x] calls
-- [~] 2.4 Statements
-  - [ ] `var`, `:=`, `=`, parallel assignment, op-assign, `++/--`
-  - [ ] `if` with init
-  - [ ] `for` (all forms; hidden counter for `range` over int; body block before labels)
-  - [ ] `switch` via case index + native switch (`fallthrough`)
-  - [ ] labeled `break`/`continue`, `goto` (temporaries in blocks)
-  - [ ] `return` (single and multiple)
+- [x] 2.4 Statements
+  - [x] `var`, `:=`, `=`, parallel assignment, op-assign, `++/--`
+  - [x] `if` with init
+  - [x] `for` (all forms; hidden counter for `range` over int; body block before labels)
+  - [x] `switch` via case index + native switch (`fallthrough`)
+  - [x] labeled `break`/`continue`, `goto` (temporaries in blocks)
+  - [x] `return` (single and multiple)
 - [ ] 2.5 Minimal evaluation-order pass (incl. loop-condition / `else if` / `case` shapes)
 - [x] 2.6 Functions: params, multiple results (`std::tuple`), prototypes
 - [x] 2.7 Runtime v0 (`gp::string` minimal, helpers, panic as exception, print/println, unbuffered-order stdout, fmtshim, run_main, OS layer `runtime/src/os/` + no-POSIX-outside check) + C++ unit tests
@@ -98,3 +98,12 @@
   f (Go calls f first), and so does `x = a/b + f()`: `bind`'s direct path for all-new targets writes the
   values in order without temporaries. The 2.5 hoisting must cover `bind`'s direct path and the
   `forInit` path (control.go) too; parallel assignment to existing variables already matches Go.
+- 2026-10-13: Job 2.4 (statements: `stmt.go`, `control.go`, `flow.go`) committed, clean after 2 review
+  rounds; examples/fizzbuzz and primes emit and match. The reviewer's random-statement differential test
+  (~9,900 functions, both compilers, -O0/-O2/UBSan) matched Go. Deviations from README §2.4 (the
+  table shows the first design): labels are `gp_L_break`/`gp_L_continue`/`gp_cont_N` (no clash with user
+  labels), a break/continue to the innermost statement stays plain; switch has three shapes (an integer
+  tag with constant cases → a direct C++ switch; no fallthrough and no plain break to the switch → an
+  if-else chain; otherwise the case index + native switch); fewer temporaries (`a, b = b, a` uses one);
+  a range over a constant has no `gp_n`; op-assign is `x = x op y` (Phase 03 must evaluate the target
+  once). Step 2.10 should keep the random statement test, opt-in, next to the expression one.

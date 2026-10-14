@@ -70,8 +70,8 @@ func (f *funcInfo) prepare(g *gen) {
 
 // funcDecl writes the definition of a function.
 func (g *gen) funcDecl(f *funcInfo) {
-	fg := &funcGen{g: g, names: f.names, fn: f}
 	body := f.decl.Body
+	fg := &funcGen{g: g, names: f.names, fn: f, flow: newFlow(g.info, body), contLabels: make(map[ast.Stmt]string)}
 	g.w.line(g.pos(f.decl.Pos()), f.header+" {")
 	g.w.indent()
 	if f.results != nil {
@@ -158,7 +158,7 @@ func (g *gen) initFuncs() {
 					targets[i] = target{name: g.names[v]}
 				}
 			}
-			fg.bind(init.Rhs.Pos(), targets, []ast.Expr{init.Rhs})
+			fg.bind(init.Rhs.Pos(), targets, []ast.Expr{init.Rhs}, false)
 		}
 		g.w.dedent()
 		g.w.plain("}")

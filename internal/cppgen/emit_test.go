@@ -253,7 +253,23 @@ const goStackMark = "goroutine 1 [running]:\n"
 // TestExampleHello builds examples/hello, the milestone M1 program, and checks that it
 // prints its output.txt.
 func TestExampleHello(t *testing.T) {
-	dir, err := filepath.Abs(filepath.Join("..", "..", "examples", "hello"))
+	checkExample(t, "hello")
+}
+
+// TestExampleFizzbuzz and TestExamplePrimes build the other Phase 02 examples (switch, all
+// the for forms, labels) and check that they print their output.txt.
+func TestExampleFizzbuzz(t *testing.T) {
+	checkExample(t, "fizzbuzz")
+}
+
+func TestExamplePrimes(t *testing.T) {
+	checkExample(t, "primes")
+}
+
+// checkExample builds examples/<name> and checks that it prints its output.txt.
+func checkExample(t *testing.T, name string) {
+	t.Helper()
+	dir, err := filepath.Abs(filepath.Join("..", "..", "examples", name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,19 +286,19 @@ func TestUnsupported(t *testing.T) {
 	tests := []struct {
 		name, src, want string
 	}{
-		{"if", "func main() {\n\tif true {\n\t}\n}", "main.gp:4:2: cppgen: not supported yet: if statements (step 2.4)"},
-		{"for", "func main() {\n\tfor {\n\t}\n}", "main.gp:4:2: cppgen: not supported yet: for statements (step 2.4)"},
-		{"switch", "func main() {\n\tswitch {\n\t}\n}", "main.gp:4:2: cppgen: not supported yet: switch statements (step 2.4)"},
-		{"incdec", "func main() {\n\tx := 1\n\tx++\n\tprintln(x)\n}", "main.gp:5:2: cppgen: not supported yet: ++ and -- (step 2.4)"},
 		{"stringconv", "func main() {\n\tr := 'x'\n\tprintln(string(r))\n}", "main.gp:5:10: cppgen: not supported yet: conversions between strings and bytes, runes or integers (Phase 03)"},
 		{"method", "type T int\nfunc (T) M() {}\nfunc main() {}", "main.gp:3:1: cppgen: not supported yet: type declarations (Phase 03)"},
 		{"funcvalue", "func g() {}\nfunc main() {\n\tf := g\n\tf()\n}", "main.gp:5:2: cppgen: not supported yet: type func()"},
 		{"funcvalue2", "func g() {}\nfunc main() {\n\tprintln(g == nil)\n}", "main.gp:5:10: cppgen: not supported yet: function values (Phase 03)"},
 		{"complex", "func main() {\n\tc := complex(1, 2)\n\tprintln(real(c))\n}", "main.gp:4:2: cppgen: not supported yet: type complex128"},
-		{"parallel", "func main() {\n\ta, b := 1, 2\n\ta, b = b, a\n\tprintln(a, b)\n}", "main.gp:5:2: cppgen: not supported yet: the assignment = with these operands (step 2.4)"},
 		{"printf", "import \"fmt\"\nfunc main() {\n\tfmt.Printf(\"%5d\\n\", 1)\n}", `main.gp:5:13: cppgen: not supported yet: the fmt.Printf verb %5d (Phase 03)`},
 		{"sprint", "import \"fmt\"\nfunc main() {\n\tprintln(fmt.Sprint(1))\n}", "main.gp:5:10: cppgen: not supported yet: fmt.Sprint: Phase 02 has only fmt.Print, fmt.Println and fmt.Printf"},
 		{"errorresult", "import \"fmt\"\nfunc main() {\n\tn, err := fmt.Println()\n\tprintln(n, err)\n}", "main.gp:5:5: cppgen: not supported yet: type error"},
+		{"rangestring", "func main() {\n\tfor i := range \"abc\" {\n\t\tprintln(i)\n\t}\n}", "main.gp:4:17: cppgen: not supported yet: range over strings (Phase 03)"},
+		{"rangechan", "func main() {\n\tfor range make(chan int) {\n\t}\n}", "main.gp:4:12: cppgen: not supported yet: range over channels (Phase 08)"},
+		{"defer", "func main() {\n\tdefer println()\n}", "main.gp:4:2: cppgen: not supported yet: defer statements (Phase 03)"},
+		{"go", "func main() {\n\tgo println()\n}", "main.gp:4:2: cppgen: not supported yet: go statements (Phase 08)"},
+		{"insideif", "func main() {\n\tif x := 1; x > 0 {\n\t\tdefer println()\n\t}\n}", "main.gp:5:3: cppgen: not supported yet: defer statements (Phase 03)"},
 		{"nomain", "func f() {}", "main.gp:2:9: cppgen: function main is undeclared in the main package"},
 	}
 	for _, tt := range tests {
@@ -364,7 +380,8 @@ func TestRuntimeFuncNames(t *testing.T) {
 }
 
 // TestPanics checks the run-time panics of expressions (division by zero, a negative shift
-// count, a string index out of range) and the builtin panic with values of basic types: each
+// count, a string index out of range; also in x /= y and x <<= n, in a case and in a loop
+// condition) and the builtin panic with values of basic types: each
 // program prints what it prints with Go, exits with code 2, and stderr is Go's up to the
 // "goroutine 1 [running]:" line (goResult).
 func TestPanics(t *testing.T) {
@@ -373,6 +390,12 @@ func TestPanics(t *testing.T) {
 		{"div8", "var a, b int8 = -128, 0\n\tfmt.Println(a / b)"},
 		{"divu", "var a, b uint = 7, 0\n\tfmt.Println(a / b)"},
 		{"rem", "a, b := 7, 0\n\tfmt.Println(a % b)"},
+		{"div-assign", "a, b := 7, 0\n\ta /= b\n\tfmt.Println(a)"},
+		{"rem-assign8", "var a, b int8 = 7, 0\n\ta %= b\n\tfmt.Println(a)"},
+		{"shl-assign", "x, n := 1, -1\n\tx <<= n\n\tfmt.Println(x)"},
+		{"shr-assign16", "var x uint16 = 8\n\tn := -3\n\tx >>= n\n\tfmt.Println(x)"},
+		{"switch-case", "x, y := 1, 0\n\tswitch x {\n\tcase 2:\n\t\tfmt.Println(2)\n\tcase 1 / y:\n\t\tfmt.Println(1)\n\t}"},
+		{"for-cond", "for i := 3; 10/i > 0; i-- {\n\t\tfmt.Println(i)\n\t}"},
 		{"rem16", "var a, b uint16 = 7, 0\n\tfmt.Println(a % b)"},
 		{"shl", "x, n := 1, -1\n\tfmt.Println(x << n)"},
 		{"shr8", "var x int64 = 1\n\tvar n int8 = -128\n\tfmt.Println(x >> n)"},

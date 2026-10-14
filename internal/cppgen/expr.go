@@ -76,6 +76,9 @@ type funcGen struct {
 	g     *gen
 	names *funcNames
 	fn    *funcInfo // nil in gp_var_init
+
+	flow       *flow               // where break and continue go (nil in gp_var_init)
+	contLabels map[ast.Stmt]string // the label at the end of a loop's body, for continue
 }
 
 // cname returns the C++ name of the variable or function obj.
@@ -420,18 +423,11 @@ var nodeKinds = map[string]string{
 	"TypeAssertExpr": "type assertions (Phase 05)",
 	"StarExpr":       "pointers (Phase 03)",
 	"KeyValueExpr":   "key: value",
-	"IfStmt":         "if statements (step 2.4)",
-	"ForStmt":        "for statements (step 2.4)",
-	"RangeStmt":      "range loops (step 2.4)",
-	"SwitchStmt":     "switch statements (step 2.4)",
 	"TypeSwitchStmt": "type switches (Phase 05)",
 	"SelectStmt":     "select statements (Phase 08)",
 	"GoStmt":         "go statements (Phase 08)",
 	"DeferStmt":      "defer statements (Phase 03)",
 	"SendStmt":       "send statements (Phase 08)",
-	"LabeledStmt":    "labels (step 2.4)",
-	"BranchStmt":     "break, continue, goto and fallthrough (step 2.4)",
-	"IncDecStmt":     "++ and -- (step 2.4)",
 }
 
 // nodeKind names the kind of the AST node n for an error message.

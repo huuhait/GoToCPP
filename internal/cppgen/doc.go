@@ -10,7 +10,9 @@
 //   - decl.go: functions (parameters, results as a std::tuple, named results), package
 //     variables (constinit) and the package's initialization (gp_var_init, the init
 //     functions);
-//   - stmt.go and expr.go: statements and expressions, with constants folded by go/types;
+//   - stmt.go, control.go and flow.go: statements (control.go has if, for, range and switch,
+//     flow.go finds where each break and continue goes);
+//   - expr.go: expressions, with constants folded by go/types;
 //   - ops.go: the operators (with the small-integer rule and the runtime's gp::div, gp::rem,
 //     gp::shl and gp::shr), conversions (gp::f2i), s[i] and the builtins len and panic;
 //   - types.go: the C++ spelling of the types;

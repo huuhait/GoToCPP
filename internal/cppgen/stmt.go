@@ -4,13 +4,41 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"slices"
 	"strconv"
+	"strings"
 )
 
-// Statements (Phase 02 README §2.4). This step has blocks, expression statements (calls),
-// return, :=, var, and = with one value on each side; step 2.4 adds the rest (parallel and
-// op assignments, ++ and --, if, for, switch, labels, goto). Each statement is written as C++
-// lines mapped to the statement's .gp line.
+// Statements (Phase 02 README §2.4). Each statement is written as C++ lines mapped to the
+// statement's .gp line. This file has the simple statements, declarations, assignments,
+// return, blocks, labels and the branch statements; control.go has if, for and switch, and
+// flow.go finds where each break and continue goes.
+//
+//	Go                       C++
+//	x := e, var x = e        T x = e;  (an explicit type; only gp_ temporaries are auto)
+//	var x T                  T x{};  (the zero value)
+//	a, b := f()              auto gp_t0 = f(); T a = std::get<0>(gp_t0); ...
+//	x = e                    x = e;
+//	a, b = b, a              { auto gp_t0 = b; auto gp_t1 = a; a = gp_t0; b = gp_t1; }
+//	x op= y                  x = x op y, through binaryOp: x = gp::div(x, y), x = uint8_t(x + y)
+//	x++, x--                 x++; x--;  (C++ converts a small integer back with Go's wrapping)
+//	return a, b              return {a, b};
+//	L: s                     L:; s  (only for a label that a goto uses)
+//	goto L                   goto L;
+//	fallthrough              [[fallthrough]];
+//	break, continue          the same, or a goto to a label (flow.go)
+//
+// goto: Go forbids a goto over a variable declaration and into a block, and C++ forbids a
+// jump over the initialization of a variable that is still in scope at the label. So the
+// temporaries of a statement that is not a declaration are inside { } (a, b = b, a above;
+// if, for and switch put theirs in an extra block too), and a goto that Go allows never jumps
+// over a C++ initialization.
+//
+// The hook for the evaluation-order pass (step 2.5): every expression of a statement is
+// translated by fg.expr, fg.exactExpr or fg.cond, from left to right, right before its
+// statement's lines are written. So the pass can put temporaries in front of a statement (in
+// the { } of an assignment), and a condition (if, else if, loop, case) has one place where
+// its own shape goes: fg.cond, and the arms of chain (control.go).
 
 // stmts writes the statements of a block.
 func (fg *funcGen) stmts(list []ast.Stmt) {
@@ -24,14 +52,26 @@ func (fg *funcGen) stmt(s ast.Stmt) {
 	case *ast.EmptyStmt:
 	case *ast.BlockStmt:
 		fg.block(s)
-	case *ast.ExprStmt:
-		fg.line(s.Pos(), fg.expr(s.X).text+";")
+	case *ast.ExprStmt, *ast.IncDecStmt:
+		fg.line(s.Pos(), fg.simpleExpr(s)+";")
 	case *ast.ReturnStmt:
 		fg.returnStmt(s)
 	case *ast.AssignStmt:
 		fg.assignStmt(s)
 	case *ast.DeclStmt:
 		fg.declStmt(s)
+	case *ast.LabeledStmt:
+		fg.labeledStmt(s)
+	case *ast.BranchStmt:
+		fg.branchStmt(s)
+	case *ast.IfStmt:
+		fg.ifStmt(s)
+	case *ast.ForStmt:
+		fg.forStmt(s)
+	case *ast.RangeStmt:
+		fg.rangeStmt(s)
+	case *ast.SwitchStmt:
+		fg.switchStmt(s)
 	default:
 		fg.g.unsupported(s.Pos(), nodeKind(s))
 	}
@@ -45,12 +85,58 @@ func (fg *funcGen) line(pos token.Pos, text string) {
 // block writes a Go block as a C++ block, which is a scope in both languages.
 func (fg *funcGen) block(b *ast.BlockStmt) {
 	fg.line(b.Lbrace, "{")
+	fg.inner(func() { fg.stmts(b.List) })
+	fg.line(b.Rbrace, "}")
+}
+
+// inner writes what body writes one level deeper, in a new C++ scope.
+func (fg *funcGen) inner(body func()) {
 	fg.g.w.indent()
 	fg.names.openScope()
-	fg.stmts(b.List)
+	body()
 	fg.names.closeScope()
 	fg.g.w.dedent()
-	fg.line(b.Rbrace, "}")
+}
+
+// simpleExpr returns the C++ expression of a simple statement that is one: an expression
+// statement, x++ or x--, and an assignment with one target and one value (x = e, _ = e,
+// x op= e). oneExpr says which statements are.
+func (fg *funcGen) simpleExpr(s ast.Stmt) string {
+	switch s := s.(type) {
+	case *ast.ExprStmt:
+		return fg.expr(s.X).text
+	case *ast.IncDecStmt:
+		return fg.expr(s.X).at(precPostfix) + s.Tok.String()
+	case *ast.AssignStmt:
+		if oneExpr(s) {
+			lhs, rhs := s.Lhs[0], s.Rhs[0]
+			if s.Tok == token.ASSIGN {
+				var t target
+				if !isBlank(lhs) {
+					t.name = fg.expr(lhs).text
+				}
+				return t.assignExpr(fg.expr(rhs).text)
+			}
+			// x op= y is x = x op y: x is a variable (Phase 02 has no other targets),
+			// so reading it twice is reading it once.
+			op := s.Tok + (token.ADD - token.ADD_ASSIGN)
+			return fg.expr(lhs).text + " = " + fg.binaryOp(s.TokPos, op, lhs, rhs).text
+		}
+	}
+	fg.g.errorf(s.Pos(), "internal error: %s is not one C++ expression", nodeKind(s))
+	return placeholder.text
+}
+
+// oneExpr reports whether the simple statement s is one C++ expression (simpleExpr), which
+// can be the post statement of a C++ for.
+func oneExpr(s ast.Stmt) bool {
+	switch s := s.(type) {
+	case *ast.ExprStmt, *ast.IncDecStmt:
+		return true
+	case *ast.AssignStmt:
+		return s.Tok != token.DEFINE && len(s.Lhs) == 1 && len(s.Rhs) == 1
+	}
+	return false
 }
 
 // returnStmt writes return. Several results are a std::tuple, which `return {a, b};` makes
@@ -74,28 +160,23 @@ func braceList(names []string) string {
 	if len(names) == 1 {
 		return names[0]
 	}
-	s := "{"
-	for i, n := range names {
-		if i > 0 {
-			s += ", "
-		}
-		s += n
-	}
-	return s + "}"
+	return "{" + strings.Join(names, ", ") + "}"
 }
 
 func (fg *funcGen) assignStmt(s *ast.AssignStmt) {
 	switch {
 	case s.Tok == token.DEFINE:
 		fg.declare(s.Pos(), s.Lhs, s.Rhs)
-	case s.Tok == token.ASSIGN && len(s.Lhs) == 1 && len(s.Rhs) == 1:
-		var t target
-		if !isBlank(s.Lhs[0]) {
-			t.name = fg.expr(s.Lhs[0]).text
+	case oneExpr(s):
+		fg.line(s.Pos(), fg.simpleExpr(s)+";")
+	default: // a, b = b, a and a, b = f()
+		targets := make([]target, len(s.Lhs))
+		for i, e := range s.Lhs {
+			if !isBlank(e) {
+				targets[i].name = fg.expr(e).text
+			}
 		}
-		fg.line(s.Pos(), t.assign(fg.expr(s.Rhs[0]).text))
-	default:
-		fg.g.unsupported(s.Pos(), "the assignment "+s.Tok.String()+" with these operands (step 2.4)")
+		fg.bind(s.Pos(), targets, s.Rhs, true)
 	}
 }
 
@@ -133,13 +214,18 @@ type target struct {
 // assign returns the C++ statement that gives t the value: T x = value; for a new variable,
 // x = value; for an existing one, and for _ a statement that only evaluates it.
 func (t target) assign(value string) string {
-	switch {
-	case t.name == "":
-		return "static_cast<void>(" + value + ");"
-	case t.typ != "":
+	if t.typ != "" && t.name != "" {
 		return t.typ + " " + t.name + " = " + value + ";"
 	}
-	return t.name + " = " + value + ";"
+	return t.assignExpr(value) + ";"
+}
+
+// assignExpr returns the C++ expression that gives the existing variable t (or _) the value.
+func (t target) assignExpr(value string) string {
+	if t.name == "" {
+		return "static_cast<void>(" + value + ")"
+	}
+	return t.name + " = " + value
 }
 
 // declare writes a := or a var declaration of the names lhs with the values (none for var x T).
@@ -148,7 +234,25 @@ func (t target) assign(value string) string {
 // Each new variable gets an explicit C++ type: x := e is `int64_t x = e;`, and var x T is
 // `T x{};`, the zero value. A new variable whose name the values use (v := v) gets a new C++
 // name, because in C++ the new name is in scope in its own initializer (funcNames.declare).
+//
+// The temporaries of a declaration are not in { }, which would end the scope of its
+// variables too: Go doesn't allow a goto over a declaration anyway.
 func (fg *funcGen) declare(pos token.Pos, lhs, values []ast.Expr) {
+	targets := fg.newTargets(lhs, values)
+	if len(values) == 0 {
+		for _, t := range targets {
+			if t.name != "" {
+				fg.line(pos, t.typ+" "+t.name+"{};")
+			}
+		}
+		return
+	}
+	fg.bind(pos, targets, values, false)
+}
+
+// newTargets returns the targets of a declaration of the names lhs with the values, and
+// chooses the C++ names of its new variables.
+func (fg *funcGen) newTargets(lhs, values []ast.Expr) []target {
 	used := fg.usedNames(values)
 	targets := make([]target, len(lhs))
 	for i, e := range lhs {
@@ -162,58 +266,122 @@ func (fg *funcGen) declare(pos token.Pos, lhs, values []ast.Expr) {
 			targets[i] = target{name: fg.expr(id).text} // redeclared by :=
 		}
 	}
-	if len(values) == 0 {
-		for _, t := range targets {
-			if t.name != "" {
-				fg.line(pos, t.typ+" "+t.name+"{};")
-			}
-		}
-		return
-	}
-	fg.bind(pos, targets, values)
+	return targets
 }
 
 // bind writes the lines that give the targets their values, with Go's order: all values are
-// evaluated before any target changes.
+// evaluated, from left to right, before any target changes.
 //   - One value with several results (a, b := f()): the result tuple goes into a temporary,
 //     and each target gets its element.
 //   - As many values as targets: in order, directly, if every target is new (or _): a value
 //     can't use a variable that the same statement declares, which then comes into scope only
-//     in C++ (declare renames it). If some targets exist already, all values go into
-//     temporaries first, because a value can use an old target.
-func (fg *funcGen) bind(pos token.Pos, targets []target, values []ast.Expr) {
-	if len(values) == 1 && len(targets) > 1 {
-		tmp := fg.names.temp("t")
-		fg.line(pos, "auto "+tmp+" = "+fg.exactExpr(values[0]).text+";")
-		for i, t := range targets {
-			if t.name != "" {
-				fg.line(pos, t.assign("std::get<"+strconv.Itoa(i)+">("+tmp+")"))
-			}
-		}
-		return
-	}
+//     in C++ (declare renames it). If some targets exist already, the values go into
+//     temporaries first, because a value can use an old target. None is needed for a
+//     constant, or for a value without calls that reads only variables of the function and
+//     none of the targets before it (pure, reads): it is evaluated in its own assignment.
+//     The value of _ is only evaluated.
+//
+// For an assignment (stmt), the lines are one C++ line, and the temporaries are in { }.
+func (fg *funcGen) bind(pos token.Pos, targets []target, values []ast.Expr, stmt bool) {
+	var lines []string
+	temps := false
 	direct := true
 	for _, t := range targets {
 		if t.name != "" && t.typ == "" {
 			direct = false
 		}
 	}
-	if direct || len(targets) == 1 {
+	switch {
+	case len(values) == 1 && len(targets) > 1:
+		value := fg.exactExpr(values[0]).text
+		if !slices.ContainsFunc(targets, func(t target) bool { return t.name != "" }) {
+			lines = append(lines, "static_cast<void>("+value+");")
+			break
+		}
+		tmp := fg.names.temp("t")
+		temps = true
+		lines = append(lines, "auto "+tmp+" = "+value+";")
 		for i, t := range targets {
-			fg.line(pos, t.assign(fg.expr(values[i]).text))
+			if t.name != "" {
+				lines = append(lines, t.assign("std::get<"+strconv.Itoa(i)+">("+tmp+")"))
+			}
 		}
-		return
-	}
-	tmps := make([]string, len(values))
-	for i, v := range values {
-		tmps[i] = fg.names.temp("t")
-		fg.line(pos, "auto "+tmps[i]+" = "+fg.exactExpr(v).text+";")
-	}
-	for i, t := range targets {
-		if t.name != "" {
-			fg.line(pos, t.assign(tmps[i]))
+	case direct || len(targets) == 1:
+		for i, t := range targets {
+			lines = append(lines, t.assign(fg.expr(values[i]).text))
+		}
+	default:
+		// A value is evaluated in its assignment, after the targets before it changed,
+		// if that can't make a difference: a constant, or a value without calls that
+		// doesn't read those targets (or a package variable, which a call could change).
+		tmps := make([]string, len(values))
+		for i, v := range values {
+			switch {
+			case fg.constValue(v) != nil:
+			case targets[i].name == "":
+				lines = append(lines, targets[i].assign(fg.expr(v).text))
+			case fg.pure(v) && !fg.reads(v, targets[:i]):
+			default:
+				tmps[i] = fg.names.temp("t")
+				temps = true
+				lines = append(lines, "auto "+tmps[i]+" = "+fg.exactExpr(v).text+";")
+			}
+		}
+		for i, t := range targets {
+			switch {
+			case t.name == "":
+			case tmps[i] != "":
+				lines = append(lines, t.assign(tmps[i]))
+			default:
+				lines = append(lines, t.assign(fg.expr(values[i]).text))
+			}
 		}
 	}
+	switch {
+	case !stmt:
+		for _, l := range lines {
+			fg.line(pos, l)
+		}
+	case temps:
+		fg.line(pos, "{ "+strings.Join(lines, " ")+" }")
+	default:
+		fg.line(pos, strings.Join(lines, " "))
+	}
+}
+
+// pure reports whether evaluating e can't have an effect that another expression sees, and
+// can't see one: e has no calls (conversions are not calls), and it reads only constants and
+// variables of the function, which no call can change in Phase 02 (Phase 03's closures and
+// pointers can: the lowering pass decides it then).
+func (fg *funcGen) pure(e ast.Expr) bool {
+	ok := true
+	ast.Inspect(e, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.CallExpr:
+			if !fg.g.info.Types[n.Fun].IsType() {
+				ok = false
+			}
+		case *ast.Ident:
+			if v, isVar := fg.g.info.Uses[n].(*types.Var); isVar {
+				if _, local := fg.names.names[v]; !local {
+					ok = false
+				}
+			}
+		}
+		return ok
+	})
+	return ok
+}
+
+// reads reports whether e reads one of the targets.
+func (fg *funcGen) reads(e ast.Expr, targets []target) bool {
+	used := fg.usedNames([]ast.Expr{e})
+	for _, t := range targets {
+		if t.name != "" && used[t.name] {
+			return true
+		}
+	}
+	return false
 }
 
 // usedNames returns the C++ names of the variables and functions that the expressions use.
@@ -235,4 +403,40 @@ func (fg *funcGen) usedNames(list []ast.Expr) map[string]bool {
 		})
 	}
 	return used
+}
+
+// labeledStmt writes a labeled statement. The label itself is written only if a goto uses
+// it: break L and continue L go to labels of their own (flow.go). It is a label of an empty
+// statement, L:;, because C++20 doesn't allow a label at the end of a block.
+func (fg *funcGen) labeledStmt(s *ast.LabeledStmt) {
+	if l, ok := fg.g.info.Defs[s.Label].(*types.Label); ok && fg.flow.gotos[l] {
+		fg.line(s.Pos(), Escape(s.Label.Name)+":;")
+	}
+	fg.stmt(s.Stmt)
+}
+
+// branchStmt writes break, continue, goto and fallthrough.
+func (fg *funcGen) branchStmt(s *ast.BranchStmt) {
+	text := ""
+	switch s.Tok {
+	case token.GOTO:
+		text = "goto " + Escape(s.Label.Name) + ";"
+	case token.FALLTHROUGH:
+		// The last non-empty statement of a case, possibly labeled: the C++ switch falls
+		// into the next case (control.go keeps the cases in source order).
+		text = "[[fallthrough]];"
+	case token.BREAK, token.CONTINUE:
+		target := fg.flow.target[s]
+		switch {
+		case target == nil:
+			fg.g.errorf(s.Pos(), "internal error: no statement for %s", s.Tok)
+		case fg.flow.plain[s]:
+			text = s.Tok.String() + ";"
+		case s.Tok == token.BREAK:
+			text = "goto " + fg.flow.labelName(target, "break") + ";"
+		default:
+			text = "goto " + fg.contLabels[target] + ";"
+		}
+	}
+	fg.line(s.Pos(), text)
 }
