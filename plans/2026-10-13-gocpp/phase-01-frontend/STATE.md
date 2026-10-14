@@ -24,10 +24,10 @@
 - [x] 1.6 Import classifier + `FileInfo` (header package names and their rules, namespace renames) + reserved-`C` error
 - [x] 1.7 `//gocpp:` directive parser + validation + suggestions
 - [~] 1.8 AST preprocessing (jobs 1.8a: rewrites, 1.8b: namespace probe; `gp_as` comes after)
-  - [ ] drop header imports; `raylib.X` → `C.X`; undeclared `ns.X` → `C.ns.X` (package-wide name set); inject `import "C"` only where used
+  - [x] drop header imports; `raylib.X` → `C.X`; undeclared `ns.X` → `C.ns.X` (package-wide name set); inject `import "C"` only where used
   - [ ] namespace probe (one `-fsyntax-only` file, cached per include set) → `undefined: x` for non-namespaces
   - [ ] `T(opaque)` → `gp_as[T](…)`
-  - [ ] position preservation + shadowing tests
+  - [x] position preservation + shadowing tests
 - [ ] 1.9 Package loader + importer
   - [ ] dir scan, `_test.gp`, `//go:build`
   - [ ] import cycles
@@ -119,3 +119,8 @@
 - 2026-10-13: Step 1.16 (`gocpp fmt`, `internal/format`) committed, clean after 3 review rounds: byte-
   identical to gofmt 1.25.14 on all of GOROOT (stdout, stderr, exit status). One deliberate difference:
   `-w` through a symlink no longer leaves the old tail in the file (a bug gofmt itself has).
+- 2026-10-13 (manager, rewrite job 1.8a): a rename is rewritten like a namespace (`fs.path` → `C.fs.path`,
+  the full C++ path `::std::filesystem` in the record), so every new node nests inside the user's text.
+- 2026-10-13: Job 1.8a (`internal/load/rewrite.go`) committed, clean after 2 review rounds: header and
+  namespace rewrites, `import "C"`, the hint, Go scoping incl. type switches; the 5 valid spike files
+  type-check with stock go/types. Step 1.8 stays open for the probe (1.8b) and `gp_as[T]`.

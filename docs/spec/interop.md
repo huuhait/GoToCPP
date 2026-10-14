@@ -252,7 +252,7 @@ declares comes through its package or a namespace, never through `C` (`cstdio.pr
 | `C.wstr(s)`, `C.GoStringW(p)` | UTF-16 strings for Windows (Phase 14) | [Windows](#windows-headers) |
 
 - Every `.gp` file can use `C` without importing it. The front-end adds `import "C"` only to the
-  files that use it, because an unused import would be a Go error.
+  files that use it: a file that doesn't use C stays plain Go.
 - So `import "C"` in a `.gp` file is an error. There is no inline C preamble either: put C code
   in a header next to the `.gp` file.
 - **`C` is reserved** for C's built-in types. A declaration named `C` is an error:

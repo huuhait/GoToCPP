@@ -140,6 +140,16 @@ func checkFileInfo(t *testing.T, f *ast.File, fi *FileInfo) {
 		use(s, "Packages")
 	}
 	inOrder("Packages", fi.Packages)
+	for name, s := range fi.PackageNames {
+		switch {
+		case !slices.Contains(fi.Packages, s):
+			t.Errorf("PackageNames[%q] is not in Packages", name)
+		case s.Name != nil && s.Name.Name != name, name == "_", name == ".":
+			t.Errorf("PackageNames[%q] is the import %v %s", name, s.Name, s.Path.Value)
+		case fi.HeaderNames[name] != nil || fi.NamespaceRenames[name] != nil:
+			t.Errorf("PackageNames[%q] is also the name of a header or a namespace", name)
+		}
+	}
 
 	var incSpecs []*ast.ImportSpec
 	named := 0
@@ -720,6 +730,36 @@ func TestRealPackageNames(t *testing.T) {
 		specs: []string{`"myapp/C"`},
 		errs:  `x.gp:4:2: cannot import package as C - C is reserved for C's built-in types (give it another name, like import c "myapp/C")` + "\n",
 	}})
+}
+
+// TestPackageNames checks FileInfo.PackageNames (job 1.8a): the names that
+// the gocpp imports give to the file, which RewriteFile never takes as
+// namespaces.
+func TestPackageNames(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		specs []string
+		want  string // name:import index, sorted by name
+	}{
+		{"names", []string{`"fmt"`, `f "os"`, `_ "strings"`, `. "bytes"`, `"myapp/api/v1"`, `"<x.h>"`}, "f:1 fmt:0 v1:4"},
+		{"the first import has the name", []string{`"fmt"`, `fmt "os"`}, "fmt:0"},
+		{"a header before the package has it", []string{`fmt "./fmtx.h"`, `"fmt"`}, ""},
+		{"a header with the name of a package gives way", []string{`"<math.h>"`, `"math"`}, "math:1"},
+		{"not C", []string{`"C"`, `C "fmt"`}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := classifyFiles(t, map[string]string{"myapp/api/v1": "v1"}, importFile("", tc.specs...))
+			specs := importSpecs(r.file)
+			var got []string
+			for name, s := range r.info.PackageNames {
+				got = append(got, fmt.Sprintf("%s:%d", name, slices.Index(specs, s)))
+			}
+			slices.Sort(got)
+			if strings.Join(got, " ") != tc.want {
+				t.Errorf("got %q, want %q", strings.Join(got, " "), tc.want)
+			}
+		})
+	}
 }
 
 // TestPackageNameCalls checks that ClassifyImports asks for the name of a

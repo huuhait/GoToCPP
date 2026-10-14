@@ -23,14 +23,22 @@ import (
 //	"./physics.h", "native/x.hpp"    a local header (Includes)
 //	fs "::std::filesystem"           a namespace rename (NamespaceRenames)
 //
-// Before go/types runs, step 1.8 drops every import that is not in Packages
-// and rewrites the uses of header packages (raylib.X becomes C.X) and of
-// namespaces (fs.path becomes C.std.filesystem.path).
+// Before go/types runs, RewriteFile (step 1.8) drops every import that is not
+// in Packages and rewrites the uses of header packages (raylib.X becomes C.X)
+// and of namespaces (std.X becomes C.std.X, fs.path becomes C.fs.path). Its
+// Rewrite records each use.
 type FileInfo struct {
 	// Packages are the imports of gocpp packages, in source order. They are
 	// the only imports that go/types may see: step 1.8 drops all the
 	// others, also the imports that ClassifyImports reported as errors.
 	Packages []*ast.ImportSpec
+
+	// PackageNames maps the name that each gocpp import gives to the file
+	// to its import: the name in the import (f "fmt"), or else the name of
+	// the package. A blank or a dot import gives no name, and when two
+	// imports give the same name, the first one has it. For RewriteFile, a
+	// name that an import gives is never a namespace.
+	PackageNames map[string]*ast.ImportSpec
 
 	// Includes are the header imports, in source order: they become
 	// #include lines in this order. A header that is imported twice is
@@ -64,8 +72,10 @@ type Include struct {
 	// WouldBe and Why are set when Name is "": WouldBe is the name the
 	// header would have (the name given in the import, else the default
 	// name), and Why says why it has none. When code uses WouldBe as a
-	// name anyway, step 1.8 can give a hint instead of a bare error:
-	// string.strlen gets "give <string.h> a name: import cstring "<string.h>"".
+	// name anyway, RewriteFile gives a hint instead of a bare error: the
+	// error for string.strlen ends in "give it a name: import cstring
+	// "<string.h>"". Not for a header imported with _: there the name can
+	// still be a namespace.
 	WouldBe string
 	Why     NoNameReason
 
@@ -241,6 +251,7 @@ func ClassifyImports(fset *token.FileSet, f *ast.File, pkgLevel map[string]token
 		pkgLevel:    pkgLevel,
 		packageName: packageName,
 		info: &FileInfo{
+			PackageNames:     make(map[string]*ast.ImportSpec),
 			HeaderNames:      make(map[string]*Include),
 			NamespaceRenames: make(map[string]*NamespaceRename),
 		},
@@ -731,6 +742,8 @@ func (c *classifier) declareNames() {
 		case n.rename != nil:
 			c.info.NamespaceRenames[n.name] = n.rename
 			c.checkPackageLevel(n.name, n.spec, n.rename.Namespace)
+		default:
+			c.info.PackageNames[n.name] = n.spec
 		}
 	}
 }

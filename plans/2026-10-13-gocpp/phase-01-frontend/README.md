@@ -453,7 +453,8 @@ first syntax error of each line (the compiler does that even with `-e`, while go
    (cached), `gp_as[T]` conversions, shadowing tests.
 9. **1.9 Package loader + importer** (§2.6): dir scan, `_test.gp`, build constraints, cycles,
    stubs for every package the target programs import. It imports dot-imported packages before
-   the rewrite (their names are an input of `load.RewriteFile`). It joins each file's `FileInfo` with its
+   the rewrite (their names are an input of `load.RewriteFile`, and should also reach
+   `load.ClassifyImports`, so a header that gets the same name is reported). It joins each file's `FileInfo` with its
    `//gocpp:` directives. For the header names it needs the real names of the imported gocpp
    packages: it gets their paths with `load.PackagePaths`, reads those packages' package
    clauses, then calls `load.ClassifyImports` with a `packageName` function (without one, step
