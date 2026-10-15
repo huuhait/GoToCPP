@@ -166,7 +166,7 @@ translates that syntax:
 
 | gocpp | C++ | Note |
 |---|---|---|
-| `x := lib.f()` | `auto x = ::f();` | |
+| `x := lib.f()` | `auto x = gp::values(::f());` | `gp::values` copies the reference members of a pair or tuple result (`std::minmax`), and is a move for any other result |
 | `x.m`, `x.m()` with `x` opaque | `gp::deref(x).m` | `gp::deref` dereferences raw pointers and gocpp pointers (`gp::ptr`) one level, like Go's auto-deref, with Go's nil panic; values pass through. A gocpp pointer reaches it as an opaque value, for example an element of `std.vector[*Node]` or a gocpp pointer returned by a C++ template (`v[0].Name`). C++ smart pointers are not auto-dereferenced: write `(*sp).m` |
 | `a + b`, `a == b`, `v[i]` on C++ values | `a + b`, `a == b`, `v[i]` | C++ operators and C++ rules (no gocpp bounds check on C++ containers; use `.at(i)` if you want one) |
 | `std.string("hi")`, `std.vector[int](10, 0)` | `std::string("hi")`, `std::vector<int64_t>(10, 0)` | conversion syntax = constructor; several arguments allowed (divergence D5) |

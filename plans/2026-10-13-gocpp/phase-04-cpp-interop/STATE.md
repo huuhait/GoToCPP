@@ -251,4 +251,11 @@
   the same-size Go types, enums as numbers, raw pointers as addresses, C++ strings as text, classes via
   std::formatter or operator<<; a clear error at the .gp line otherwise); the runtime always flushes C's
   stdio before it writes.
+- 2026-10-15 (job 4.7, accepted): range over a C/C++ container gives C/C++ values for both the index (or key)
+  and the element, because opaque mode can't tell a vector from a map or know the element type: with the
+  cgo-like rules, `append(sorted, n)` from `for _, n := range v` (v a `std.vector[int]`) needs `int(n)`.
+  examples/cpp-std is changed to write the conversions; Phase 12 (typed interop) makes the index a Go int and
+  the element its real type. A std::string range gives byte index + C char (write `range string(s)` for
+  runes). One variable from a C/C++ call (`p := lib.f()`) goes through `gp::values` (one extra move, or one
+  copy for reference members).
 
