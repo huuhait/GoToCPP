@@ -21,8 +21,10 @@
   - [ ] `cpp-lib` (lib + headers + CMake INTERFACE flags)
 - [ ] 6.11 `compile_commands.json` + `gocpp export cmake`
 - [ ] 6.12 CLI: `list`, `env`, `clean`, build flags, build tags
+  - [ ] trusted C++ flags from the user (not from packages): `gocpp build -cxxflags=… -ldflags=…` and `GOCPP_CXXFLAGS` / `GOCPP_LDFLAGS`, which may load LLVM plugins (`-fpass-plugin=x.so`, `-fplugin=x.so`); part of the cache key (the plugin file's hash too)
+  - [ ] `gocpp build -emit-llvm` (clang only): writes each translation unit's LLVM IR (`.ll`, or `.bc` with `-emit-llvm=bc`) next to the objects, for `opt -load-pass-plugin=…` and other tools; a clear error with g++
 - [ ] 6.13 Cross-compilation: windows/amd64 via MinGW-w64 (`.exe` linked with `-static`) + Wine CI job; linux/arm64 best effort
-- [ ] 6.14 Tests: multi-package fixtures, init order vs Go, incremental-build assertions (incl. constants), build-mode consumers (incl. two c-shared libs in one process)
+- [ ] 6.14 Tests: multi-package fixtures, init order vs Go, incremental-build assertions (incl. constants), build-mode consumers (incl. two c-shared libs in one process), a tiny LLVM pass plugin loaded through `-cxxflags` (it counts functions) and `-emit-llvm` output that `opt` accepts
 
 ## Exit criteria
 
@@ -50,3 +52,9 @@
 - 2026-10-13 (your decision): C/C++ libraries from the internet are modules, and their headers are
   imported by full path (`"github.com/ocornut/imgui/imgui.h"`, package `imgui`); `<...>` is for system
   headers only. Built by gocpp from a small `cxx` recipe in gocpp.mod, no CMake (README §2.11).
+- 2026-10-15 (user): the user wants both ways of using LLVM tools: loading plugins (`.so` pass or
+  front-end plugins) into the C++ build, and getting the LLVM IR (`.ll`) out. Plugins come only
+  from the user's own flags or environment, never from a package's `//gocpp:cflags` (Phase 04's
+  allow-list keeps refusing `-fplugin` there; `GOCPP_CFLAGS_ALLOW` stays the escape hatch).
+  Both need clang; g++ gets a clear error for `-emit-llvm` and its own GCC plugins via `-cxxflags`.
+
