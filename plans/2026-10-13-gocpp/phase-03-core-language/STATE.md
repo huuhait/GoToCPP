@@ -36,7 +36,7 @@
 - [ ] 3.12 Evaluation-order lowering for every construct (+ `&&`/`||`, loop/else-if/case shapes, two-phase assignment)
 - [x] 3.13 `defer` with the single-exit shape (panics run defers, panicking defers, named results)
 - [~] 3.14 Runtime checks + Go panic messages + exit code 2 + `backtrace()` trace + `-nochecks` (keeps Go's defined results) (3.14a runtime + driver done; 3.14b emitter side + out of memory in progress)
-- [~] 3.15 Remaining builtins + `fmt` shim for composite values (slices, maps sorted, structs, `&{…}`, `String()`) (3.15a runtime shim, 3.15b emitter side done; 3.15c complex numbers in progress)
+- [x] 3.15 Remaining builtins + `fmt` shim for composite values (slices, maps sorted, structs, `&{…}`, `String()`) (3.15a runtime shim, 3.15b emitter side, 3.15c complex numbers)
 - [~] 3.16 Package-level vars (`InitOrder`) + multiple `init()`
 - [x] 3.17 `gocppSizes` + `static_assert` sync
 - [ ] 3.18 Tests: ≥ 150 run, ≥ 60 differential, sanitizer CI job
@@ -362,3 +362,8 @@
   stack in src/os/linux/os.cpp (main stack only): Phase 08 needs a per-thread alternate stack and stack bounds
   and one reporter when several threads fail at once; Phase 14 needs Windows' EXCEPTION_STACK_OVERFLOW. With
   -nochecks, calling a nil func value and `(*T).M` with a nil pointer are undefined behavior (nil checks).
+- 2026-10-14: Job 3.15c (complex64/complex128: gocpp's own gp::complex with gc's amd64 * and / (complex128div line
+  by line), constants, conversions, complex/real/imag, ==, map keys, named complex types, println and panic
+  forms, fmt printing like fmtComplex with key sorting) committed, clean after 2 review rounds. gocpp gives gc's
+  amd64 GOAMD64=v1/v2 results everywhere (arm64 and v3+ fuse a*b+c in gc); every real-Go build in the tests
+  now runs with GOAMD64=v1. Also fixed: std::complex's symmetric hash in hash.hpp.
