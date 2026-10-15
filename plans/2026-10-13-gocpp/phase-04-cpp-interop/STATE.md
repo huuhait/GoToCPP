@@ -23,7 +23,7 @@
 - [~] 4.14 `extern "C"` rule (parse-as-C, `.hpp` not wrapped by default, `//gocpp:extern-c <hdr>`, `no-extern-c`, the §2.9 error cases)
 - [x] 4.15 Directives → flags (`pkg-config`, `link`, `cflags`, `ldflags`) + the flag allow-list (port Go's security.go tables, `GOCPP_*_ALLOW`); tests use a test-only library with its own `.pc` (the dev shell hides missing flags)
 - [ ] 4.16 Local helper headers used as packages (replaces the preamble) + `C` helpers (`C.free`)
-- [~] 4.17 Interop error reporting (`.gp` line mapping, trimming, `-cpperrors=full`)
+- [x] 4.17 Interop error reporting (`.gp` line mapping, trimming, `-cpperrors=full`)
 - [ ] 4.18 Tests
   - [ ] ≥ 40 interop run tests
   - [ ] header zoo (std + SDL2 + raylib + sqlite3 + zlib) on GCC and Clang
@@ -185,4 +185,14 @@
   `++x`; `&x` only of a C/C++ variable (not in defer/go until 4.8; `return &local` is a user error); several
   values from one C/C++ value go through `gp::values` and `std::get` (README §2.5 updated). `==` on gocpp
   structs with C/C++ fields is Phase 12 (Go compares fields; only typed interop can write that).
+- 2026-10-15: Job 4.17 (cmd/gocpp/cpperrors.go: gcc's and clang's output parsed (include stacks, instantiation
+  chains, macro expansions, colors stripped); a C++ error is the user's only on a .gp line with C/C++ code or
+  through such a line's instantiation/macro/include chain, printed as `./main.gp:N: C++: <message>` + the source
+  line, exit 1; everything else stays "internal error" (exit 2); at most 10 errors, one per line, "(and N more
+  errors in gocpp's code: -cpperrors=full shows them)"; static_asserts of interop.hpp show their own message;
+  undefined references from GNU ld/gold (lld/mold from canned output) at the .gp line with a hint; `-cpperrors=full`;
+  the doubled "internal error:" prefix fixed) committed, clean after 2 review rounds. The exit criterion
+  "seeded C++-side errors at the correct .gp line" holds for the 6 seeds (tests/interop/cpp_error_*.gp) on both
+  compilers. Accepted limits: a gocpp bug on a line that also has C/C++ code counts as the user's; a multi-line
+  C/C++ expression marks all its lines.
 
