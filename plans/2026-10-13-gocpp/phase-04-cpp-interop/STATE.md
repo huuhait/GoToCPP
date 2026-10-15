@@ -130,4 +130,14 @@
   -fno-fast-math`) and `-Wno-error` come last in the compile of generated C++ and of the runtime; no safeCgoName
   check (no shell: `-DMSG=\"hi\"` works); a compile or link that fails with user flags is a user error, not
   "a bug in gocpp".
+- 2026-10-15 (4.13 review): the C sources use the C compiler of the C++ compiler's toolchain or `GOCPP_CC`
+  (not `CC`) at `-std=gnu17` (README §2.9 updated). For 4.17: `gocpp run main.gp` leaves the folder's C/C++
+  files out (like `go run main.go`); when the link then fails, say so ("gocpp run . builds the package's C
+  and C++ files") instead of "a bug in gocpp". For 4.11/4.12: C files get no `-fexceptions`; on x86-64 and
+  aarch64 Linux gcc and clang emit unwind tables anyway, so a panic unwinding through a C frame works in
+  practice but isn't guaranteed (and the trampolines stop it at C entries anyway); a package's `-fno-exceptions`
+  reaches its own .cpp files, so a panic through such a callback calls std::terminate: decide there. For 4.16:
+  an inline function in a helper header is compiled with `-fwrapv` in generated code and without it in the
+  user's .cpp, and the linker keeps one copy: document it. For Phase 14: check MinGW headers under
+  `__STRICT_ANSI__` with `-std=c++20`.
 

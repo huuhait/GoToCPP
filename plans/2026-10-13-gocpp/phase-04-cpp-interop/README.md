@@ -256,7 +256,10 @@ recoverable panics.
 ### 2.9 Building the C/C++ side
 
 - **Sources in the package directory** are compiled and linked, like cgo:
-  `.c` with `$CC -std=c17`, and `.cc/.cpp/.cxx` with `$CXX -std=c++20`, using the package's flags.
+  `.c` with the C compiler of the C++ compiler's toolchain (g++ → gcc, clang++ → clang; `GOCPP_CC` sets
+  another; `CC` is not used, because the Nix shell sets `CC=gcc` even for clang++) at `-std=gnu17`, and
+  `.cc/.cpp/.cxx` with the C++ compiler at `-std=c++20`, using the package's flags. gnu17, not c17: strict
+  ISO C hides `strdup`, `fileno` and `M_PI`, and gcc 15's default gnu23 breaks old C (`bool` keywords).
 - **Quoted includes** are looked up with `-iquote <package dir>` (as the Phase 01 namespace probe
   does), not `-I`, so a file next to the `.gp` files can't hide a system header like `<vector>`.
   The kind probe reuses the namespace probe's guard lines (Phase 01 §2.5 step 4), and a macro is
