@@ -237,8 +237,8 @@
   `const d = x + 1` is rejected only at build (lowering), not by check/the editor; check's gate calls
   `const d = h2.counter + 1` "C macros in constant expressions" although counter is a variable; a comment that
   `*p` places don't name what they point into.
-- 2026-10-15 (job 4.6, accepted): keyed C literals go through `gp::cgo::field(...) = {v}` (README §2.5
-  updated); g++ builds of generated code also get `-Werror=narrowing` (clang already rejects non-constant
+- 2026-10-15 (job 4.6, accepted): keyed C literals go through `static_assert(gp::cgo::field_ok<decltype(...)>); x.f = {v};` (README §2.5
+  updated; round 2 replaced the first `gp::cgo::field(...)` form so bit-fields work); g++ builds of generated code also get `-Werror=narrowing` (clang already rejects non-constant
   narrowing in braces); map literals of C++ maps: keys that are names are fields, any other keys make pairs
   (`std.map[std.string, int]{"a": 1}` → `{{"a", 1}}`; a key held in a variable is written `{{k, 1}}`); `&T{...}`
   of a C/C++ type waits for 4.10 (write `v := lib.T{...}` and `&v`); an inner literal with its type left out
@@ -258,4 +258,7 @@
   the element its real type. A std::string range gives byte index + C char (write `range string(s)` for
   runes). One variable from a C/C++ call (`p := lib.f()`) goes through `gp::values` (one extra move, or one
   copy for reference members).
+- 2026-10-15 (4.6 round 2): the probes now give g++ the build's error flags (`-Wno-error` + GeneratedFlags instead
+  of `-w`, because g++'s -w also turns off -Werror=narrowing), so check and build agree on narrowing in headers;
+  clang keeps -w (narrowing is an error by default).
 
