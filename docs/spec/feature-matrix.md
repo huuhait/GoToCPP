@@ -8,7 +8,7 @@ feature of gocpp. Until a phase is finished, the compiler rejects its features w
 names the phase, so you never get broken C++:
 
 ```
-./main.gp:5:8: composite types are not supported yet (Phase 03)
+./main.gp:5:12: interfaces are not supported yet (Phase 05)
 ./main.gp:9:2: package strings is not available yet (Phase 09)
 ```
 

@@ -8,5 +8,5 @@ package main
 import "<vectr>" // ERROR "cannot find header <vectr>" "header imports are not supported yet \(Phase 04\)"
 
 func main() {
-	_ = std.vector[int]{} // ERROR "composite types are not supported yet \(Phase 03\)"
+	_ = std.vector[int]{} // ERROR "C\+\+ namespaces are not supported yet \(Phase 04\)"
 }

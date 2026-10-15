@@ -9,6 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/huuhait/gocpp/internal/check"
+	"github.com/huuhait/gocpp/internal/version"
 )
 
 // The tests of gocpp check compare it with real go build 1.25.14. Each
@@ -746,9 +749,10 @@ func TestCheckWarning(t *testing.T) {
 }
 
 // examplesGates reads internal/check/testdata/gates/examples.txt: the
-// phase gate errors of each example at Phase 02, which gocpp check
-// reports now (version.Phase is 02, and the gates allow Phase 02's
-// subset). It maps each example to its error lines, as check prints them
+// phase gate errors of each example at Phase 02. gocpp check reports the
+// ones of the phases after version.Phase, so it keeps those
+// (internal/check's TestGateExamples checks that this is what each phase
+// reports). It maps each example to its error lines, as check prints them
 // for the example's folder (win32 for windows/amd64).
 func examplesGates(t *testing.T) map[string][]string {
 	t.Helper()
@@ -763,11 +767,30 @@ func examplesGates(t *testing.T) map[string][]string {
 		if n, ok := strings.CutPrefix(line, "== "); ok {
 			name = n
 			gates[name] = []string{}
-		} else if line != "" && name != "" {
+		} else if line != "" && name != "" && examplePhase(t, line) > version.Phase {
 			gates[name] = append(gates[name], line)
 		}
 	}
 	return gates
+}
+
+// exampleGateRx matches the end of a gate error line of examples.txt: the
+// phase, or "not supported in gocpp" for a feature that never comes.
+var exampleGateRx = regexp.MustCompile(`(?:not supported yet|not available yet) \(Phase (\d\d)\)$|(not supported in gocpp)$`)
+
+// examplePhase returns the phase in a gate error line of examples.txt
+// (check.Never for a feature that never comes).
+func examplePhase(t *testing.T, line string) int {
+	t.Helper()
+	m := exampleGateRx.FindStringSubmatch(line)
+	if m == nil {
+		t.Fatalf("examples.txt: %q is no gate error", line)
+	}
+	if m[2] != "" {
+		return check.Never
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
 }
 
 // TestCheckExamples runs gocpp check in the folder of each target
@@ -1091,12 +1114,8 @@ func TestCheckTypes(t *testing.T) {
 
 // typesGates are the phase gates' errors for the package of TestCheckTypes.
 const typesGates = `./main.gp:6:9: header imports are not supported yet (Phase 04)
-./main.gp:10:6: type declarations are not supported yet (Phase 03)
-./main.gp:10:12: composite types are not supported yet (Phase 03)
+./main.gp:15:7: C++ namespaces are not supported yet (Phase 04)
 ./sdl.gp:3:8: header imports are not supported yet (Phase 04)
-./sdl.gp:5:6: type declarations are not supported yet (Phase 03)
-./sdl.gp:5:13: composite types are not supported yet (Phase 03)
-./sdl.gp:6:4: pointers are not supported yet (Phase 03)
 `
 
 // TestCheckTypesConversions checks -types on conversions of opaque values,

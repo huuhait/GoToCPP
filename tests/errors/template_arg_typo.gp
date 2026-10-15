@@ -12,11 +12,11 @@ import (
 	"<vector>"
 )
 
-type Point struct{ X int } // ERROR "type declarations are not supported yet \(Phase 03\)" "composite types are not supported yet \(Phase 03\)"
+type Point struct{ X int }
 
 func main() {
-	_ = std.vector[Pointt]{}                  // ERROR "undefined: Pointt"
-	_ = std.map[std.string, strings.Buildr]{} // ERROR "undefined: strings.Buildr" "C\+\+ namespaces are not supported yet \(Phase 04\)"
+	_ = std.vector[Pointt]{}                  // ERROR "undefined: Pointt" "C\+\+ namespaces are not supported yet \(Phase 04\)"
+	_ = std.map[std.string, strings.Buildr]{} // ERROR "undefined: strings.Buildr"
 	_ = std.vector[Point]{}
 	_ = std.vector[std.vector[Undef]]{} // ERROR "undefined: Undef"
 }

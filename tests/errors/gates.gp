@@ -1,20 +1,23 @@
 // phase: 01
 
 // Features of later phases are errors that name the phase (Phase 01
-// README §2.9), one per feature per file, at its first use.
+// README §2.9), one per feature per file, at its first use. The features
+// come from Phase 05 and later, so the test keeps working while the phases
+// before them are finished.
 package main
 
 import "fmt"
 
-type Point struct{ X, Y int } // ERROR "type declarations are not supported yet \(Phase 03\)" "composite types are not supported yet \(Phase 03\)"
+type Shape interface{ Area() int } // ERROR "interfaces are not supported yet \(Phase 05\)"
 
 func Map[T any](x T) T { return x } // ERROR "generics are not supported yet \(Phase 07\)"
 
 func main() {
-	p := Point{1, 2}
-	ch := make(chan int)        // ERROR "channels are not supported yet \(Phase 08\)" "built-in function make is not supported yet \(Phase 03\)"
-	go fmt.Println(p.X, Map(1)) // ERROR "go statements are not supported yet \(Phase 08\)"
+	ch := make(chan int)   // ERROR "channels are not supported yet \(Phase 08\)"
+	go fmt.Println(Map(1)) // ERROR "go statements are not supported yet \(Phase 08\)"
 	_ = ch
-	q := Point{3, 4}
-	_ = q
+	var s Shape
+	_ = s
+	done := make(chan bool)
+	_ = done
 }

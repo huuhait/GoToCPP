@@ -11,5 +11,5 @@ func main() {
 		std := 3
 		_ = std.vector // ERROR "std.vector undefined \(type int has no field or method vector\)"
 	}
-	_ = std.vector[int]{} // ERROR "composite types are not supported yet \(Phase 03\)"
+	_ = std.vector[int]{} // ERROR "C\+\+ namespaces are not supported yet \(Phase 04\)"
 }

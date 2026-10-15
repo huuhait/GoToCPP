@@ -12,7 +12,7 @@ import (
 // interfaces, generics and channels) rejects every feature that a later
 // phase builds, with a message that names the phase:
 //
-//	./main.gp:5:8: composite types are not supported yet (Phase 03)
+//	./main.gp:5:12: interfaces are not supported yet (Phase 05)
 //
 // so that nobody gets broken C++. The tables in this file are the data:
 // the language features (features), the standard packages (stdPackages),
