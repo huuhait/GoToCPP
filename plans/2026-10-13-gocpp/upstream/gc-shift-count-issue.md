@@ -1,4 +1,4 @@
-# Draft upstream issue: gc constant shift count >= 1<<63 (not filed)
+# Draft upstream issue: gc constant shift count that does not fit in int64 (not filed)
 
 Found 2026-10-14 by gocpp's random differential tests (seed 5021, job 03-order5021). gocpp follows the
 spec; gc 1.25.14 doesn't. Not filed: the user decides whether to file it at github.com/golang/go.
@@ -10,7 +10,8 @@ What version of Go are you using? go1.25.14 linux/amd64. The rules below are unc
 The program below should print 0: x >> ^uint(0) is 0 for x >= 0 (Go spec: shifts by a count >= the width
 give 0 or -1). On amd64 it prints 16 (checked). On arm64, f compiles to `UBFIZ $4, R0, $1`, which also gives 16 (checked from the assembly; not run). On 386 it prints 0, because uint is 32 bits there. With a
 uint64 count (`x >> ^uint64(0)`), 386 also prints 16, and so do int32 and int8 x. An unsigned x is not
-affected.
+affected (the `uint64(c) >= 64` rule fires first). A count of exactly 1<<63 happens to give the
+right answer, because e-c wraps around.
 
 ```go
 package main
