@@ -227,6 +227,69 @@ func TestConcurrentWriters(t *testing.T) {
 	}
 }
 
+// TestSetWhileTrim: a trim that runs at the same time as Set may remove the
+// key folder or the version folder of the entry as empty, after Set made it
+// and before Set put its temporary file in it: Set then makes the folders
+// again, and never fails for that. Each writer removes its entry after the
+// Set, so the folders are often empty; trims run in a loop meanwhile.
+func TestSetWhileTrim(t *testing.T) {
+	dir := t.TempDir()
+	c := open(t, dir, newClock(), 0)
+	stop := make(chan struct{})
+	var trims sync.WaitGroup
+	for range 2 {
+		trims.Add(1)
+		go func() {
+			defer trims.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					c.Trim()
+				}
+			}
+		}()
+	}
+	var writers sync.WaitGroup
+	for g := range 4 {
+		writers.Add(1)
+		go func() {
+			defer writers.Done()
+			for i := range 300 {
+				k := key(fmt.Sprint(g, i))
+				if err := c.Set("summary", k, []byte("v")); err != nil {
+					t.Errorf("Set: %v", err)
+					return
+				}
+				if err := c.Remove("summary", k); err != nil {
+					t.Errorf("Remove: %v", err)
+					return
+				}
+			}
+		}()
+	}
+	writers.Wait()
+	close(stop)
+	trims.Wait()
+
+	// The rename at the end of Set can't fail for a missing folder: the
+	// temporary file keeps its folder from being removed by a trim.
+	name, _ := c.name("summary", key("rename"))
+	f, err := createTemp(filepath.Dir(name), filepath.Base(name)+tempMark+"*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	c.Trim()
+	if err := os.Rename(f.Name(), name); err != nil {
+		t.Fatalf("rename after a trim: %v", err)
+	}
+	if _, ok := c.Get("summary", key("rename")); ok {
+		t.Error("an empty file is a hit")
+	}
+}
+
 // setAt writes an entry and sets its modification time to t.
 func setAt(t *testing.T, c *Cache, k string, size int, at time.Time) string {
 	t.Helper()

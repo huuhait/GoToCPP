@@ -392,14 +392,7 @@ func (c *Cache) Set(kind string, key [sha256.Size]byte, value []byte) error {
 	sum := sha256.Sum256(value)
 	copy(header[len(magic)+8:], sum[:])
 
-	dir := filepath.Dir(name)
-	f, err := os.CreateTemp(dir, filepath.Base(name)+tempMark+"*")
-	if errors.Is(err, fs.ErrNotExist) {
-		// The folder is new, or a trim has just removed it as empty.
-		if err = os.MkdirAll(dir, 0o700); err == nil {
-			f, err = os.CreateTemp(dir, filepath.Base(name)+tempMark+"*")
-		}
-	}
+	f, err := createTemp(filepath.Dir(name), filepath.Base(name)+tempMark+"*")
 	if err != nil {
 		return err
 	}
@@ -425,6 +418,34 @@ func (c *Cache) Set(kind string, key [sha256.Size]byte, value []byte) error {
 	c.mu.Unlock()
 	c.maybeTrim(big)
 	return nil
+}
+
+// mkdirTries is how many times createTemp makes the folder again.
+const mkdirTries = 10
+
+// createTemp makes a temporary file in the folder dir of an entry, making
+// the folder (and the version folder) when it is missing: it is new, or a
+// trim has removed it as empty. A trim, in this process or in another one,
+// may also remove the folders just after they were made, before the file is
+// in them: then createTemp makes them again, a few times. Once the file is
+// in the folder, no trim can remove the folder (os.Remove fails for a folder
+// that is not empty), so the rename of the file into the entry can't fail
+// for a missing folder.
+func createTemp(dir, pattern string) (*os.File, error) {
+	for try := 0; ; try++ {
+		f, err := os.CreateTemp(dir, pattern)
+		if err == nil || !errors.Is(err, fs.ErrNotExist) || try == mkdirTries {
+			return f, err
+		}
+		// A trim can also make MkdirAll fail: with ErrNotExist when it
+		// removes the version folder after MkdirAll made it and before
+		// MkdirAll made the key folder in it, and with ErrExist when another
+		// writer made the key folder first and the trim removed it before
+		// MkdirAll looked at it. Then the next try makes the folders again.
+		if err := os.MkdirAll(dir, 0o700); err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, fs.ErrExist) {
+			return nil, err
+		}
+	}
 }
 
 // maybeTrim starts a trim in the background when one is due: the last trim
