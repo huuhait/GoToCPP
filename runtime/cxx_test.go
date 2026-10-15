@@ -34,8 +34,11 @@ import (
 // compiler only; a compiler that isn't installed is a skip, unless GOCPP_REQUIRE_CXX (a comma
 // list, "g++,clang++" in make ci) names it, which makes it a failure.
 
-// cmdTimeout bounds each compile and each run.
-const cmdTimeout = 3 * time.Minute
+// cmdTimeout bounds each compile and each run. It catches a hung command, not a
+// slow one: an -O2 compile of unit.cpp took over 3 minutes inside a loaded
+// make ci (load 30), so the bound is generous; make test's -timeout 30m bounds
+// the whole package.
+const cmdTimeout = 10 * time.Minute
 
 // baseFlags are the driver's flags (Phase 02 §2.7), plus warnings as errors for the runtime's
 // own code.
