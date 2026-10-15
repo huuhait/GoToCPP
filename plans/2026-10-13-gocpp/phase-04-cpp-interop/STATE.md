@@ -19,7 +19,7 @@
 - [ ] 4.10 `unsafe` + pointers (owning `unsafe.Pointer`, `SliceData`/`String`/`Slice` keep owners, `std::span`, `gp::ptr` → `T*`) + ASan test
 - [ ] 4.11 Callbacks (function pointers, `std::function`, `cgo.Handle`) + panic trampolines
 - [ ] 4.12 C++ exception → fatal Go-style panic; fmt shim prints C++ values (raw pointers as addresses)
-- [ ] 4.13 Compile + link package `.c/.cc/.cpp/.cxx` sources
+- [~] 4.13 Compile + link package `.c/.cc/.cpp/.cxx` sources
 - [ ] 4.14 `extern "C"` rule (parse-as-C, `.hpp` not wrapped by default, `//gocpp:extern-c <hdr>`, `no-extern-c`, the §2.9 error cases)
 - [x] 4.15 Directives → flags (`pkg-config`, `link`, `cflags`, `ldflags`) + the flag allow-list (port Go's security.go tables, `GOCPP_*_ALLOW`); tests use a test-only library with its own `.pc` (the dev shell hides missing flags)
 - [ ] 4.16 Local helper headers used as packages (replaces the preamble) + `C` helpers (`C.free`)
