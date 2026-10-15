@@ -37,7 +37,7 @@
 - [x] 3.13 `defer` with the single-exit shape (panics run defers, panicking defers, named results)
 - [~] 3.14 Runtime checks + Go panic messages + exit code 2 + `backtrace()` trace + `-nochecks` (keeps Go's defined results) (3.14a runtime + driver done; 3.14b emitter side + out of memory in progress)
 - [x] 3.15 Remaining builtins + `fmt` shim for composite values (slices, maps sorted, structs, `&{…}`, `String()`) (3.15a runtime shim, 3.15b emitter side, 3.15c complex numbers)
-- [~] 3.16 Package-level vars (`InitOrder`) + multiple `init()`
+- [x] 3.16 Package-level vars (`InitOrder`) + multiple `init()`
 - [x] 3.17 `gocppSizes` + `static_assert` sync
 - [ ] 3.18 Tests: ≥ 150 run, ≥ 60 differential, sanitizer CI job
 
@@ -368,3 +368,8 @@
   forms, fmt printing like fmtComplex with key sorting) committed, clean after 2 review rounds. gocpp gives gc's
   amd64 GOAMD64=v1/v2 results everywhere (arm64 and v3+ fuse a*b+c in gc); every real-Go build in the tests
   now runs with GOAMD64=v1. Also fixed: std::complex's symmetric hash in hash.hpp.
+- 2026-10-14: Job 3.16 (package variables of every Phase 03 type in InitOrder, constinit for constant array and
+  struct literals of numbers, bools and complex values (never for vars over 128 KiB, nor keyed arrays of more
+  than 1<<20 elements: clang can't build them at compile time), large package vars built in place in
+  gp_var_init (also inside conversions), init() traces like Go, init-cycle error tests) committed, clean after
+  3 review rounds. Left in D24: a large package var set from a call result (`var g = mk()`) or `[N]T(s)`.
