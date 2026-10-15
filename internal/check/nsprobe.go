@@ -24,8 +24,9 @@ import (
 // std in std.vector, and that Go declares nowhere, as a C++ namespace, and
 // rewrote the use to C.std.vector (load.Rewrite.Namespaces), which
 // go/types accepts without a word (FakeImportC). Before go/types runs,
-// Check asks the C++ compiler (interop.ProbeNamespaces) which of these
-// names the file's headers really declare as namespaces. For a name that
+// Check asks the C++ compiler (interop.ProbeNamespaces, the namespace mode
+// of Phase 04's kind probe, which grew out of Phase 01's namespace probe)
+// which of these names the file's headers really declare as namespaces. For a name that
 // is not a namespace, such as the typo stdd, Check undoes the rewrite:
 // stdd.vector is what the user wrote again, so go/types reports
 // "undefined: stdd" at each use, as for any other undefined name: with
@@ -47,12 +48,13 @@ import (
 // probes of all packages run at the same time (at most GOMAXPROCS, like
 // the compiles of go build), and interop caches the results.
 //
-// Not yet (Phase 04 adds the package's flags to the probe): the probe
-// can't use the flags of //gocpp:pkg-config and //gocpp:cflags, and a
-// header that is found only through them (<SDL.h> in /usr/include/SDL2)
-// would be "not found". So a package with such a directive (directives are
-// package-wide) is not probed at all: no compiler runs, its names stay
-// namespaces (opaque), and its headers are not checked.
+// Not yet (step 4.15 passes the package's flags, checked by the flag
+// allow-list, to the probe; it takes them already): the probe doesn't get
+// the flags of //gocpp:pkg-config and //gocpp:cflags, and a header that is
+// found only through them (<SDL.h> in /usr/include/SDL2) would be "not
+// found". So a package with such a directive (directives are package-wide)
+// is not probed at all: no compiler runs, its names stay namespaces
+// (opaque), and its headers are not checked.
 //
 // Check changes the program it checks: it undoes the rewrites in the ASTs
 // and in load.Rewrite (and step 1.10b rewrites conversions). A Program is
@@ -169,7 +171,8 @@ func probeNamespaces(prog *load.Program, cfg Config) map[*load.Package][]diag.Di
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
-				g.res, g.err = probe(ctx, cxx, pp.lp.Dir, g.includes, g.cands)
+				// No flags yet (see above).
+				g.res, g.err = probe(ctx, cxx, pp.lp.Dir, nil, g.includes, g.cands)
 			}()
 		}
 	}
@@ -182,6 +185,14 @@ func probeNamespaces(prog *load.Program, cfg Config) map[*load.Package][]diag.Di
 		}
 	}
 	return errs
+}
+
+// notNamespace reports whether the probe's answer k says that a name is not
+// a namespace: it is something else (NotNamespace, Macro, or another kind
+// of ProbeKinds), or nothing (a typo). Unknown is no answer (the language
+// server's probe hasn't answered yet), so the uses stay namespaces then.
+func notNamespace(k interop.Kind) bool {
+	return k != interop.Namespace && k != interop.Unknown
 }
 
 // hasFlagDirectives reports whether a file of lp has a //gocpp:pkg-config
@@ -264,12 +275,12 @@ func (pp *probedPackage) apply(fset *token.FileSet) []diag.Diagnostic {
 			}
 		default:
 			for _, c := range slices.Clone(f.Rewrite.Namespaces) {
-				if g.res.Kinds[c.Name] == interop.NotNamespace {
+				if notNamespace(g.res.Kinds[c.Name]) {
 					undoNamespace(f.Rewrite, c)
 				}
 			}
 			for _, rn := range f.Rewrite.Renames {
-				if g.res.Kinds[rn.Namespace] == interop.NotNamespace {
+				if notNamespace(g.res.Kinds[rn.Namespace]) {
 					add(rn.Pos, rn.Spec.Path.End(), rn.Namespace+" is not a namespace of the imported headers")
 				}
 			}

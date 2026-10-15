@@ -419,7 +419,7 @@ func TestOrganizeImportsProvisional(t *testing.T) {
 	cfg.CXX = func(context.Context) (build.CXX, error) {
 		return build.CXX{Path: "/fake/c++", Family: build.Clang}, nil
 	}
-	cfg.Probe = func(ctx context.Context, _ build.CXX, _ string, _, cands []string) (interop.Result, error) {
+	cfg.Probe = func(ctx context.Context, _ build.CXX, _ string, _, _, cands []string) (interop.Result, error) {
 		select {
 		case <-release:
 		case <-ctx.Done():

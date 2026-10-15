@@ -61,7 +61,7 @@ func fakeProbeConfig(phase int) Config {
 	return Config{
 		Phase: phase,
 		CXX:   func(context.Context) (build.CXX, error) { return build.CXX{}, nil },
-		Probe: func(_ context.Context, _ build.CXX, _ string, _, candidates []string) (interop.Result, error) {
+		Probe: func(_ context.Context, _ build.CXX, _ string, _, _, candidates []string) (interop.Result, error) {
 			kinds := make(map[string]interop.Kind)
 			for _, c := range candidates {
 				kinds[c] = interop.Namespace

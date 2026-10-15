@@ -236,37 +236,37 @@ var probeIncludes = []string{"<vector>", "<filesystem>", "<chrono>", "<cstdio>",
 
 var probeCases = []kindCase{
 	// A macro that opens a brace comes first: the lines after it still count.
-	{"OPEN_BRACE", NotNamespace},
+	{"OPEN_BRACE", Macro},
 	{"std", Namespace},
-	{"chrono", NotNamespace}, // only std::chrono is
-	{"stdd", NotNamespace},
-	{"fmtt", NotNamespace},
+	{"chrono", NotFound}, // only std::chrono is
+	{"stdd", NotFound},
+	{"fmtt", NotFound},
 	{"::std::filesystem", Namespace}, // a renamed namespace path
 	{"std::chrono", Namespace},       // the leading :: is optional
-	{"::std::vector", NotNamespace},  // a class template
-	{"::std::string", NotNamespace},  // a typedef
+	{"::std::vector", Template},      // a class template
+	{"::std::string", Type},          // a typedef
 	{"physics_ns", Namespace},        // from "./physics.h" next to the .gp file
 	{"vecns", Namespace},             // from vec.h, which physics.h includes
 	{"alias_ns", Namespace},          // a namespace alias
 	{"::native_ns::v1", Namespace},   // an inline namespace
 	{"inner_ns", Namespace},          // found through an inline namespace
-	{"Point", NotNamespace},          // a struct
-	{"printf", NotNamespace},         // a function
-	{"stdin", NotNamespace},          // a macro
-	{"NS_MACRO", NotNamespace},       // a macro, also when it names a namespace
-	{"class", NotNamespace},          // a C++ keyword
-	{"and", NotNamespace},            // an alternative token (&&)
+	{"Point", Type},                  // a struct
+	{"printf", Value},                // a function
+	{"stdin", Macro},                 // a macro
+	{"NS_MACRO", Macro},              // a macro, also when it names a namespace
+	{"class", NotFound},              // a C++ keyword
+	{"and", NotFound},                // an alternative token (&&)
 	{"ñandú", Namespace},             // non-ASCII names work
-	{"日本", NotNamespace},
+	{"日本", NotFound},
 }
 
-func TestProbeNamespaces(t *testing.T) {
+func TestProbeKindsNamespaces(t *testing.T) {
 	t.Parallel()
 	forEachCompiler(t, func(t *testing.T, cxx build.CXX) {
 		t.Parallel()
 		dir := testDir(t)
 		c := newCache()
-		res, err := c.probe(context.Background(), cxx, dir, probeIncludes, candsOf(probeCases))
+		res, err := c.probe(context.Background(), cxx, dir, nil, probeIncludes, candsOf(probeCases))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -276,19 +276,19 @@ func TestProbeNamespaces(t *testing.T) {
 		}
 
 		// The public function, and a quoted include without "./".
-		res, err = ProbeNamespaces(context.Background(), cxx, dir, []string{`"physics.h"`}, []string{"physics_ns", "stdd"})
+		res, err = ProbeKinds(context.Background(), cxx, dir, nil, []string{`"physics.h"`}, []string{"physics_ns", "stdd"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		checkKinds(t, res, []kindCase{{"physics_ns", Namespace}, {"stdd", NotNamespace}})
+		checkKinds(t, res, []kindCase{{"physics_ns", Namespace}, {"stdd", NotFound}})
 
 		// A struct without its ; at the end of a header doesn't hide the
 		// next line.
-		res, err = c.probe(context.Background(), cxx, dir, []string{`"nosemi.h"`, "<vector>"}, []string{"std", "stdd"})
+		res, err = c.probe(context.Background(), cxx, dir, nil, []string{`"nosemi.h"`, "<vector>"}, []string{"std", "stdd"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		checkKinds(t, res, []kindCase{{"std", Namespace}, {"stdd", NotNamespace}})
+		checkKinds(t, res, []kindCase{{"std", Namespace}, {"stdd", NotFound}})
 	})
 }
 
@@ -296,16 +296,16 @@ func TestProbeReservedNames(t *testing.T) {
 	t.Parallel()
 	forEachCompiler(t, func(t *testing.T, cxx build.CXX) {
 		t.Parallel()
-		// gp_ns_0 and gp_inc_0 are the probe's own aliases: they must not
+		// gp_kn_0 and gp_inc_0 are the probe's own names: they must not
 		// be found.
-		res, err := newCache().probe(context.Background(), cxx, t.TempDir(), []string{"<vector>"}, []string{"gp_ns_0", "std", "gp_inc_0", "::gp_inc_0_c"})
+		res, err := newCache().probe(context.Background(), cxx, t.TempDir(), nil, []string{"<vector>"}, []string{"gp_kn_0", "std", "gp_inc_0", "::gp_inc_0_c", "gp_ktmpl", "gp_kp5"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		checkKinds(t, res, []kindCase{{"gp_ns_0", NotNamespace}, {"std", Namespace}, {"gp_inc_0", NotNamespace}, {"::gp_inc_0_c", NotNamespace}})
+		checkKinds(t, res, []kindCase{{"gp_kn_0", NotFound}, {"std", Namespace}, {"gp_inc_0", NotFound}, {"::gp_inc_0_c", NotFound}, {"gp_ktmpl", NotFound}, {"gp_kp5", NotFound}})
 		// Also with include errors, where the others are Unknown.
-		res, err = newCache().probe(context.Background(), cxx, t.TempDir(), []string{"<gocpp_no_such_header.h>"}, []string{"gp_ns_0", "std"})
-		if err != nil || len(res.IncludeErrors) != 1 || res.Kinds["gp_ns_0"] != NotNamespace || res.Kinds["std"] != Unknown {
+		res, err = newCache().probe(context.Background(), cxx, t.TempDir(), nil, []string{"<gocpp_no_such_header.h>"}, []string{"gp_ns_0", "std"})
+		if err != nil || len(res.IncludeErrors) != 1 || res.Kinds["gp_ns_0"] != NotFound || res.Kinds["std"] != Unknown {
 			t.Errorf("reserved name with include errors: %+v, %v", res, err)
 		}
 	})
@@ -316,15 +316,15 @@ func TestProbeStdWithCHeaders(t *testing.T) {
 	forEachCompiler(t, func(t *testing.T, cxx build.CXX) {
 		t.Parallel()
 		// g++ declares namespace std even when no header does; clang++
-		// doesn't. Both are the compilers' own answers (ProbeNamespaces'
+		// doesn't. Both are the compilers' own answers (ProbeKinds'
 		// doc says so). <math.h> brings libstdc++'s wrapper, which
 		// declares std.
-		want := map[build.Family]Kind{build.GCC: Namespace, build.Clang: NotNamespace}[cxx.Family]
+		want := map[build.Family]Kind{build.GCC: Namespace, build.Clang: NotFound}[cxx.Family]
 		for _, c := range []struct {
 			include string
 			want    Kind
 		}{{"<stdio.h>", want}, {"<math.h>", Namespace}} {
-			res, err := newCache().probe(context.Background(), cxx, t.TempDir(), []string{c.include}, []string{"std"})
+			res, err := newCache().probe(context.Background(), cxx, t.TempDir(), nil, []string{c.include}, []string{"std"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -345,7 +345,7 @@ func TestProbeCacheReadsNoUnchangedHeaders(t *testing.T) {
 		probe := func(why string, wantReads int64) {
 			t.Helper()
 			reads := fileReads.Load()
-			res, err := c.probe(context.Background(), cxx, dir, includes, candsOf(cases))
+			res, err := c.probe(context.Background(), cxx, dir, nil, includes, candsOf(cases))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -377,15 +377,15 @@ func TestProbeHeaderSavedDuringCheck(t *testing.T) {
 		dir := testDir(t)
 		c := newCache()
 		includes := []string{"<vector>", `"./physics.h"`}
-		cases := []kindCase{{"vecns", Namespace}, {"vecns_v2", NotNamespace}}
+		cases := []kindCase{{"vecns", Namespace}, {"vecns_v2", NotFound}}
 		rewriteDuringRead(t, filepath.Join(dir, "vec.h"), "#pragma once\nnamespace vecns_v2 {}\n", time.Now().Add(-time.Hour))
-		res, err := c.probe(context.Background(), cxx, dir, includes, candsOf(cases))
+		res, err := c.probe(context.Background(), cxx, dir, nil, includes, candsOf(cases))
 		if err != nil {
 			t.Fatal(err)
 		}
 		checkKinds(t, res, cases) // what the compiler read
-		cases = []kindCase{{"vecns", NotNamespace}, {"vecns_v2", Namespace}}
-		res, err = c.probe(context.Background(), cxx, dir, includes, candsOf(cases))
+		cases = []kindCase{{"vecns", NotFound}, {"vecns_v2", Namespace}}
+		res, err = c.probe(context.Background(), cxx, dir, nil, includes, candsOf(cases))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -475,7 +475,7 @@ func TestProbeIncludeErrors(t *testing.T) {
 				if cands == nil {
 					cands = []string{"std", "stdd"}
 				}
-				res, err := newCache().probe(context.Background(), cxx, dir, c.includes, cands)
+				res, err := newCache().probe(context.Background(), cxx, dir, nil, c.includes, cands)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -550,9 +550,11 @@ func TestProbeLeavesNoFiles(t *testing.T) {
 		tmp := t.TempDir()
 		t.Setenv("TMPDIR", tmp)
 		for _, includes := range [][]string{{"<vector>", `"./physics.h"`}, {`"./bad.h"`}, {"<gocpp_no_such_header.h>"}} {
-			if _, err := newCache().probe(context.Background(), cxx, dir, includes, []string{"std"}); err != nil {
+			if _, err := newCache().probe(context.Background(), cxx, dir, nil, includes, []string{"std"}); err != nil {
 				t.Fatal(err)
 			}
+			// The macro probe: an error for the last two include sets.
+			newCache().probeMacros(context.Background(), cxx, dir, nil, includes)
 		}
 		if files, err := os.ReadDir(tmp); err != nil || len(files) > 0 {
 			t.Errorf("TMPDIR after the probes: %v, %v; want it empty", files, err)
@@ -583,16 +585,16 @@ func TestProbeNoCandidates(t *testing.T) {
 		dir := testDir(t)
 		c := newCache()
 		for _, cands := range [][]string{nil, {}, {"gp_x", "::gp_x::y"}} {
-			res, err := c.probe(context.Background(), cxx, dir, []string{"<vector>", `"./physics.h"`}, cands)
+			res, err := c.probe(context.Background(), cxx, dir, nil, []string{"<vector>", `"./physics.h"`}, cands)
 			if err != nil || len(res.Kinds) != len(cands) || res.IncludeErrors != nil {
 				t.Errorf("probe with candidates %#v = %+v, %v; want no include errors", cands, res, err)
 			}
 			for _, cand := range cands {
-				if res.Kinds[cand] != NotNamespace {
-					t.Errorf("%s: %v, want NotNamespace", cand, res.Kinds[cand])
+				if res.Kinds[cand] != NotFound {
+					t.Errorf("%s: %v, want NotFound", cand, res.Kinds[cand])
 				}
 			}
-			res, err = c.probe(context.Background(), cxx, dir, []string{"<vector>", "<gocpp_no_such_header.h>"}, cands)
+			res, err = c.probe(context.Background(), cxx, dir, nil, []string{"<vector>", "<gocpp_no_such_header.h>"}, cands)
 			if err != nil || len(res.IncludeErrors) != 1 || res.IncludeErrors[0].Index != 1 || res.IncludeErrors[0].Kind != HeaderNotFound {
 				t.Errorf("probe of a missing header with candidates %#v = %+v, %v; want its include error", cands, res, err)
 			}
@@ -612,11 +614,11 @@ func TestProbeManyCandidates(t *testing.T) {
 		var cases []kindCase
 		for i := range 100 {
 			fmt.Fprintf(&hdr, "namespace ns_%d {}\n", i)
-			cases = append(cases, kindCase{fmt.Sprintf("ns_%d", i), Namespace}, kindCase{fmt.Sprintf("nx_%d", i), NotNamespace})
+			cases = append(cases, kindCase{fmt.Sprintf("ns_%d", i), Namespace}, kindCase{fmt.Sprintf("nx_%d", i), NotFound})
 		}
 		writeFiles(t, dir, map[string]string{"many.h": hdr.String()})
 		c := newCache()
-		res, err := c.probe(context.Background(), cxx, dir, []string{"<vector>", `"./many.h"`}, candsOf(cases))
+		res, err := c.probe(context.Background(), cxx, dir, nil, []string{"<vector>", `"./many.h"`}, candsOf(cases))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -638,7 +640,7 @@ func TestProbeCache(t *testing.T) {
 		var runs int64
 		probe := func(why string, wantRun bool, cases ...kindCase) {
 			t.Helper()
-			res, err := c.probe(ctx, cxx, dir, includes, candsOf(cases))
+			res, err := c.probe(ctx, cxx, dir, nil, includes, candsOf(cases))
 			if err != nil {
 				t.Fatalf("%s: %v", why, err)
 			}
@@ -651,11 +653,11 @@ func TestProbeCache(t *testing.T) {
 				runs = n
 			}
 		}
-		probe("first call", true, kindCase{"std", Namespace}, kindCase{"stdd", NotNamespace}, kindCase{"physics_ns", Namespace})
-		probe("the same again", false, kindCase{"std", Namespace}, kindCase{"stdd", NotNamespace}, kindCase{"physics_ns", Namespace})
+		probe("first call", true, kindCase{"std", Namespace}, kindCase{"stdd", NotFound}, kindCase{"physics_ns", Namespace})
+		probe("the same again", false, kindCase{"std", Namespace}, kindCase{"stdd", NotFound}, kindCase{"physics_ns", Namespace})
 		probe("fewer candidates, another order, another spelling", false, kindCase{"::physics_ns", Namespace}, kindCase{"std", Namespace})
 		probe("a new candidate", true, kindCase{"std", Namespace}, kindCase{"vecns", Namespace})
-		probe("the new one is cached too", false, kindCase{"vecns", Namespace}, kindCase{"stdd", NotNamespace})
+		probe("the new one is cached too", false, kindCase{"vecns", Namespace}, kindCase{"stdd", NotFound})
 
 		// Another folder or other includes are another include set.
 		includes = []string{"<vector>", `"physics.h"`}
@@ -665,10 +667,10 @@ func TestProbeCache(t *testing.T) {
 
 		// A changed local header, and one that it includes.
 		writeFiles(t, dir, map[string]string{"physics.h": "#pragma once\n#include \"vec.h\"\nnamespace physics_v2 {}\n"})
-		probe("physics.h changed", true, kindCase{"physics_ns", NotNamespace}, kindCase{"physics_v2", Namespace})
+		probe("physics.h changed", true, kindCase{"physics_ns", NotFound}, kindCase{"physics_v2", Namespace})
 		probe("physics.h changed, cached", false, kindCase{"physics_v2", Namespace})
 		writeFiles(t, dir, map[string]string{"vec.h": "#pragma once\nnamespace vecns_v2 {}\n"})
-		probe("vec.h changed", true, kindCase{"vecns", NotNamespace}, kindCase{"vecns_v2", Namespace})
+		probe("vec.h changed", true, kindCase{"vecns", NotFound}, kindCase{"vecns_v2", Namespace})
 
 		// A header that changed in the last seconds may have changed
 		// while the compiler ran: the result is not cached. Its time is set
@@ -693,7 +695,7 @@ func TestProbeCache(t *testing.T) {
 		// A quoted include that was found in the system folders is hidden
 		// by a file of that name that appears next to the .gp file.
 		includes = []string{`"stdio.h"`}
-		probe("quoted system header", true, kindCase{"shadow_ns", NotNamespace})
+		probe("quoted system header", true, kindCase{"shadow_ns", NotFound})
 		writeFiles(t, dir, map[string]string{"stdio.h": "#pragma once\nnamespace shadow_ns {}\n"})
 		probe("a local stdio.h appeared", true, kindCase{"shadow_ns", Namespace})
 	})
@@ -709,7 +711,7 @@ func TestProbeCacheIncludeErrors(t *testing.T) {
 		c.errorTTL = time.Hour
 		check := func(why string, includes []string, wantRuns int64, wantErr bool) {
 			t.Helper()
-			res, err := c.probe(ctx, cxx, dir, includes, []string{"std", "missing_ns"})
+			res, err := c.probe(ctx, cxx, dir, nil, includes, []string{"std", "missing_ns"})
 			if err != nil {
 				t.Fatalf("%s: %v", why, err)
 			}
@@ -749,8 +751,8 @@ func TestProbeConcurrent(t *testing.T) {
 		ctx := context.Background()
 		setA := []string{"<vector>", `"./physics.h"`}
 		setB := []string{"<filesystem>", `"native/x.hpp"`}
-		casesA := []kindCase{{"std", Namespace}, {"physics_ns", Namespace}, {"stdd", NotNamespace}}
-		casesB := []kindCase{{"::std::filesystem", Namespace}, {"alias_ns", Namespace}, {"fmtt", NotNamespace}}
+		casesA := []kindCase{{"std", Namespace}, {"physics_ns", Namespace}, {"stdd", NotFound}}
+		casesB := []kindCase{{"::std::filesystem", Namespace}, {"alias_ns", Namespace}, {"fmtt", NotFound}}
 		var wg sync.WaitGroup
 		for i := range 24 {
 			includes, cases := setA, casesA
@@ -761,7 +763,7 @@ func TestProbeConcurrent(t *testing.T) {
 			// together they ask for all of them.
 			cases = cases[:1+(i/3)%len(cases)]
 			wg.Go(func() {
-				res, err := c.probe(ctx, cxx, dir, includes, candsOf(cases))
+				res, err := c.probe(ctx, cxx, dir, nil, includes, candsOf(cases))
 				if err != nil {
 					t.Error(err)
 					return
@@ -782,7 +784,7 @@ func TestProbeConcurrent(t *testing.T) {
 		runs := c.runs.Load()
 		for range 8 {
 			wg.Go(func() {
-				res, err := c.probe(ctx, cxx, dir, setA, candsOf(casesA))
+				res, err := c.probe(ctx, cxx, dir, nil, setA, candsOf(casesA))
 				if err != nil || res.Kinds["physics_ns"] != Namespace {
 					t.Errorf("cached probe: %+v, %v", res, err)
 				}
@@ -803,19 +805,19 @@ func TestProbeCanceled(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		c := newCache()
-		if res, err := c.probe(ctx, cxx, t.TempDir(), []string{"<vector>"}, []string{"std"}); err == nil {
+		if res, err := c.probe(ctx, cxx, t.TempDir(), nil, []string{"<vector>"}, []string{"std"}); err == nil {
 			t.Errorf("probe with a canceled context = %+v, want an error", res)
 		}
-		set, err := c.lock(context.Background(), setKey(cxx, "", []string{"<vector>"}))
+		_, unlock, err := c.kinds.lock(context.Background(), setKey(cxx, "", nil, []string{"<vector>"}))
 		if err != nil {
 			t.Fatal(err)
 		}
 		ctx, cancel = context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
-		if res, err := c.probe(ctx, cxx, "", []string{"<vector>"}, []string{"std"}); err == nil {
+		if res, err := c.probe(ctx, cxx, "", nil, []string{"<vector>"}, []string{"std"}); err == nil {
 			t.Errorf("probe while another call holds the set = %+v, want a context error", res)
 		}
-		<-set.lock
+		unlock()
 	})
 }
 
@@ -835,23 +837,23 @@ func BenchmarkProbe(b *testing.B) {
 			cxx := lookTestCompiler(b, prog, slices.Contains(required, prog) || slices.Contains(required, name))
 			dir := b.TempDir()
 			ctx := context.Background()
-			if res, err := newCache().probe(ctx, cxx, dir, includes, cands); err != nil || len(res.IncludeErrors) > 0 {
+			if res, err := newCache().probe(ctx, cxx, dir, nil, includes, cands); err != nil || len(res.IncludeErrors) > 0 {
 				b.Skipf("the probe doesn't work here: %v %v", err, res.IncludeErrors)
 			}
 			b.Run("run", func(b *testing.B) {
 				for b.Loop() {
-					if _, err := newCache().probe(ctx, cxx, dir, includes, cands); err != nil {
+					if _, err := newCache().probe(ctx, cxx, dir, nil, includes, cands); err != nil {
 						b.Fatal(err)
 					}
 				}
 			})
 			b.Run("cached", func(b *testing.B) {
 				c := newCache()
-				if _, err := c.probe(ctx, cxx, dir, includes, cands); err != nil {
+				if _, err := c.probe(ctx, cxx, dir, nil, includes, cands); err != nil {
 					b.Fatal(err)
 				}
 				for b.Loop() {
-					if _, err := c.probe(ctx, cxx, dir, includes, cands); err != nil {
+					if _, err := c.probe(ctx, cxx, dir, nil, includes, cands); err != nil {
 						b.Fatal(err)
 					}
 				}
@@ -867,11 +869,11 @@ func BenchmarkProbe(b *testing.B) {
 				writeBenchHeaders(b, dir)
 				local := append(slices.Clip(includes), `"./physics.h"`, `"./big.h"`)
 				c := newCache()
-				if _, err := c.probe(ctx, cxx, dir, local, cands); err != nil {
+				if _, err := c.probe(ctx, cxx, dir, nil, local, cands); err != nil {
 					b.Fatal(err)
 				}
 				for b.Loop() {
-					if _, err := c.probe(ctx, cxx, dir, local, cands); err != nil {
+					if _, err := c.probe(ctx, cxx, dir, nil, local, cands); err != nil {
 						b.Fatal(err)
 					}
 				}

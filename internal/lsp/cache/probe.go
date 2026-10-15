@@ -17,7 +17,8 @@ import (
 //
 // check.Check asks the C++ compiler, for each include set of a package with
 // header imports, which of the names that the loader took for namespaces
-// really are namespaces (Phase 01's namespace probe, interop.ProbeNamespaces),
+// really are namespaces (Phase 01's namespace probe, now the namespace mode
+// of the kind probe, interop.ProbeNamespaces),
 // and it finds the compiler first (build.FindCXXFor, which runs it). A probe
 // takes up to a few seconds (about 2.5 s for <vector>), so the pipeline never
 // waits for either: the check gets, at once, what the prober knows, and the
@@ -27,7 +28,7 @@ import (
 //     every probe answers Unknown. An error (no compiler) is kept for
 //     cxxRetry, then the compiler is looked for again, in the background
 //     (so one that is installed later is found without a restart).
-//   - The probe of an include set (compiler, folder, includes): the prober
+//   - The probe of an include set (compiler, folder, flags, includes): the prober
 //     keeps the answers it got, per candidate name. A name it has no answer
 //     for is Unknown (its uses stay opaque, without an error: "publish what
 //     is there"), and the prober probes it in the background, together with
@@ -85,7 +86,7 @@ type prober struct {
 	ctx      context.Context // done when the pipeline closes
 	cancel   context.CancelFunc
 	find     func(ctx context.Context) (build.CXX, error)
-	probe    func(ctx context.Context, cxx build.CXX, dir string, includes, candidates []string) (interop.Result, error)
+	probe    func(ctx context.Context, cxx build.CXX, dir string, flags, includes, candidates []string) (interop.Result, error)
 	onChange func()        // Config.OnProbe, or nil
 	sem      chan struct{} // a place for each probe that runs: at most maxProbes
 
@@ -114,6 +115,7 @@ type probeSet struct {
 	key      string // in prober.sets
 	cxx      build.CXX
 	dir      string
+	flags    []string
 	includes []string
 	lastUse  uint64
 
@@ -128,7 +130,7 @@ type probeSet struct {
 	validated time.Time // when the last probe answered
 }
 
-func newProber(find func(context.Context) (build.CXX, error), probe func(context.Context, build.CXX, string, []string, []string) (interop.Result, error), onChange func()) *prober {
+func newProber(find func(context.Context) (build.CXX, error), probe func(context.Context, build.CXX, string, []string, []string, []string) (interop.Result, error), onChange func()) *prober {
 	ctx, cancel := context.WithCancel(context.Background())
 	pr := &prober{ctx: ctx, cancel: cancel, find: find, probe: probe, onChange: onChange,
 		sem: make(chan struct{}, maxProbes), sets: make(map[string]*probeSet)}
@@ -249,14 +251,14 @@ func errText(err error) string {
 }
 
 // probeFor returns the check.Config.Probe of a check that records in r.
-func (pr *prober) probeFor(r *probeRecord) func(context.Context, build.CXX, string, []string, []string) (interop.Result, error) {
-	return func(_ context.Context, cxx build.CXX, dir string, includes, candidates []string) (interop.Result, error) {
+func (pr *prober) probeFor(r *probeRecord) func(context.Context, build.CXX, string, []string, []string, []string) (interop.Result, error) {
+	return func(_ context.Context, cxx build.CXX, dir string, flags, includes, candidates []string) (interop.Result, error) {
 		if cxx.Path == pendingCXX.Path {
 			return unknownResult(candidates), nil // r has the pending compiler
 		}
 		pr.mu.Lock()
 		defer pr.mu.Unlock()
-		set := pr.setLocked(cxx, dir, includes)
+		set := pr.setLocked(cxx, dir, flags, includes)
 		res, err, complete := set.answer(candidates)
 		r.add(probeUse{set: set, cands: slices.Clone(candidates), digest: digest(res, err, complete), complete: complete})
 		if len(set.names)+len(candidates) > maxProbeNames {
@@ -282,9 +284,10 @@ func (pr *prober) probeFor(r *probeRecord) func(context.Context, build.CXX, stri
 
 // setLocked returns the include set, new if the prober doesn't know it.
 // pr.mu is held.
-func (pr *prober) setLocked(cxx build.CXX, dir string, includes []string) *probeSet {
+func (pr *prober) setLocked(cxx build.CXX, dir string, flags, includes []string) *probeSet {
 	parts := append([]string{cxx.Path, strconv.Itoa(len(cxx.Args))}, cxx.Args...)
-	parts = append(parts, cxx.Family.String(), cxx.Version, dir)
+	parts = append(parts, cxx.Family.String(), cxx.Version, dir, strconv.Itoa(len(flags)))
+	parts = append(parts, flags...)
 	key := strings.Join(append(parts, includes...), "\x00")
 	pr.clock++
 	set := pr.sets[key]
@@ -292,7 +295,7 @@ func (pr *prober) setLocked(cxx build.CXX, dir string, includes []string) *probe
 		if len(pr.sets) >= maxProbeSets {
 			pr.evictLocked()
 		}
-		set = &probeSet{key: key, cxx: cxx, dir: dir, includes: slices.Clone(includes), names: make(map[string]bool), want: make(map[string]bool)}
+		set = &probeSet{key: key, cxx: cxx, dir: dir, flags: slices.Clone(flags), includes: slices.Clone(includes), names: make(map[string]bool), want: make(map[string]bool)}
 		pr.sets[key] = set
 	}
 	set.lastUse = pr.clock
@@ -338,7 +341,7 @@ func (pr *prober) run(set *probeSet) {
 		var err error
 		select {
 		case pr.sem <- struct{}{}:
-			res, err = pr.probe(pr.ctx, set.cxx, set.dir, set.includes, names)
+			res, err = pr.probe(pr.ctx, set.cxx, set.dir, set.flags, set.includes, names)
 			<-pr.sem
 		case <-pr.ctx.Done():
 		}
@@ -427,7 +430,11 @@ func unknownResult(candidates []string) interop.Result {
 	return r
 }
 
-// digest returns a text that is the same for the same answer.
+// digest returns a text that is the same for the same answer. Of a kind,
+// it keeps only what a check uses: a namespace, not a namespace, or no
+// answer (Unknown), so that a probe (a fake one, or one that answers with
+// more kinds) that says NotFound before a header edit and Value after it
+// doesn't make the checks stale.
 func digest(res interop.Result, err error, complete bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%v\x00%s\x00%d", complete, errText(err), len(res.IncludeErrors))
@@ -440,9 +447,21 @@ func digest(res interop.Result, err error, complete bool) string {
 	}
 	slices.Sort(names)
 	for _, name := range names {
-		fmt.Fprintf(&b, "\x00%s=%d", name, res.Kinds[name])
+		fmt.Fprintf(&b, "\x00%s=%c", name, nsClass(res.Kinds[name]))
 	}
 	return b.String()
+}
+
+// nsClass returns what a check uses of the kind k (see digest): 'n' for a
+// namespace, '?' for no answer, '-' for the rest.
+func nsClass(k interop.Kind) byte {
+	switch k {
+	case interop.Namespace:
+		return 'n'
+	case interop.Unknown:
+		return '?'
+	}
+	return '-'
 }
 
 // A probeRecord is what the compiler lookup and the probes of one check
@@ -592,6 +611,7 @@ type diskProbe struct {
 // of the diskProbe), the candidates and the answer.
 type diskProbeUse struct {
 	Dir      string
+	Flags    []string
 	Includes []string
 	Cands    []string
 	Digest   string
@@ -614,7 +634,7 @@ func (r *probeRecord) diskForm() (*diskProbe, bool) {
 			return nil, false
 		}
 		// The fields of a set that make its key never change.
-		d.Uses = append(d.Uses, diskProbeUse{Dir: u.set.dir, Includes: u.set.includes, Cands: u.cands, Digest: u.digest})
+		d.Uses = append(d.Uses, diskProbeUse{Dir: u.set.dir, Flags: u.set.flags, Includes: u.set.includes, Cands: u.cands, Digest: u.digest})
 	}
 	return d, true
 }
@@ -635,7 +655,7 @@ func (pr *prober) replay(d *diskProbe) *probeRecord {
 		}
 	}
 	for _, u := range d.Uses {
-		set := pr.setLocked(d.CXX, u.Dir, u.Includes)
+		set := pr.setLocked(d.CXX, u.Dir, u.Flags, u.Includes)
 		r.uses = append(r.uses, probeUse{set: set, cands: u.Cands, digest: u.Digest, complete: true})
 		if len(set.names)+len(u.Cands) > maxProbeNames {
 			clear(set.names)

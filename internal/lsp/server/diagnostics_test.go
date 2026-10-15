@@ -390,7 +390,7 @@ func TestDiagnosticsProbeWindow(t *testing.T) {
 	cfg.CXX = func(context.Context) (build.CXX, error) {
 		return build.CXX{Path: "/fake/c++", Family: build.Clang}, nil
 	}
-	cfg.Probe = func(_ context.Context, _ build.CXX, _ string, _, cands []string) (interop.Result, error) {
+	cfg.Probe = func(_ context.Context, _ build.CXX, _ string, _, _, cands []string) (interop.Result, error) {
 		r := interop.Result{Kinds: make(map[string]interop.Kind)}
 		for _, c := range cands {
 			r.Kinds[c] = interop.NotNamespace
@@ -560,10 +560,10 @@ func TestDiagnosticsProbe(t *testing.T) {
 	probes := make(chan time.Duration, 10)
 	cfg := testConfig()
 	cfg.CXX = nil // the real one
-	cfg.Probe = func(ctx context.Context, cxx build.CXX, dir string, includes, cands []string) (interop.Result, error) {
+	cfg.Probe = func(ctx context.Context, cxx build.CXX, dir string, flags, includes, cands []string) (interop.Result, error) {
 		<-firstSeen
 		start := time.Now()
-		r, err := interop.ProbeNamespaces(ctx, cxx, dir, includes, cands)
+		r, err := interop.ProbeNamespaces(ctx, cxx, dir, flags, includes, cands)
 		probes <- time.Since(start)
 		return r, err
 	}

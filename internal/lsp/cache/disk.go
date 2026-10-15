@@ -27,7 +27,7 @@ import (
 // hash, see filecache.Options.Version), since the export data and this
 // format belong to the binary. An entry has what summary has: the
 // loader's summary, the export data, the side table of opaque types, the
-// API hash, and the answers of the C++ compiler lookup and of the namespace
+// API hash, and the answers of the C++ compiler lookup and of the kind
 // probes that the check got (a diskProbe). Those answers are not in the
 // key (they depend on the headers and the compiler on the machine, not on
 // the files): a summary from disk asks the prober for them again
@@ -41,7 +41,9 @@ import (
 
 // diskFormat is the version of the format of an entry: a change of the
 // format must change it (and the binary's hash changes the folder anyway).
-const diskFormat = 1
+// 2: the probe uses have the flags, and the answers are the kind probe's
+// (Phase 04).
+const diskFormat = 2
 
 // diskKind is the kind of the summaries in the disk cache.
 const diskKind = "summary"

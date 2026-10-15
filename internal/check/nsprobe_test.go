@@ -128,11 +128,11 @@ type probeCall struct {
 	includes, candidates []string
 }
 
-func (r *probeRecorder) probe(ctx context.Context, cxx build.CXX, dir string, includes, candidates []string) (interop.Result, error) {
+func (r *probeRecorder) probe(ctx context.Context, cxx build.CXX, dir string, flags, includes, candidates []string) (interop.Result, error) {
 	r.mu.Lock()
 	r.calls = append(r.calls, probeCall{includes, candidates})
 	r.mu.Unlock()
-	return interop.ProbeNamespaces(ctx, cxx, dir, includes, candidates)
+	return interop.ProbeNamespaces(ctx, cxx, dir, flags, includes, candidates)
 }
 
 // loadTree writes the files into a new module example.com/m and loads it

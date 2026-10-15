@@ -92,7 +92,7 @@ func TestProbeKillsTheProcessGroup(t *testing.T) {
 			cxx := fakeCompiler(t, build.GCC, c.body)
 			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 			defer cancel()
-			if _, err := newCache().probe(ctx, cxx, t.TempDir(), []string{"<vector>"}, []string{"std"}); err == nil {
+			if _, err := newCache().probe(ctx, cxx, t.TempDir(), nil, []string{"<vector>"}, []string{"std"}); err == nil {
 				t.Fatal("probe with a broken compiler: no error")
 			}
 			data, err := os.ReadFile(cxx.Path + ".child")
@@ -125,12 +125,12 @@ func TestProbeCancelStopsTheCompiler(t *testing.T) {
 		defer cancel()
 		done := make(chan error, 1)
 		go func() {
-			_, err := newCache().probe(ctx, cxx, dir, heavy, []string{"std"})
+			_, err := newCache().probe(ctx, cxx, dir, nil, heavy, []string{"std"})
 			done <- err
 		}()
 		// Wait until the compiler works on the probe file (for g++, until
 		// cc1plus runs too).
-		probeFile := filepath.Join(tmp, "gocpp-nsprobe-")
+		probeFile := filepath.Join(tmp, "gocpp-probe-")
 		want := 1
 		if cxx.Family == build.GCC {
 			want = 2

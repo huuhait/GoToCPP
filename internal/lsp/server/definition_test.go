@@ -276,7 +276,7 @@ func TestDefinitionSystemHeader(t *testing.T) {
 	writeFile(t, sys, "mylib/vec.h", "struct vec {};\n")
 	cfg := testConfig()
 	cfg.CXX = func(context.Context) (build.CXX, error) { return build.CXX{Path: "/fake/c++", Family: build.GCC}, nil }
-	cfg.Probe = func(_ context.Context, _ build.CXX, _ string, _, cands []string) (interop.Result, error) {
+	cfg.Probe = func(_ context.Context, _ build.CXX, _ string, _, _, cands []string) (interop.Result, error) {
 		return interop.Result{Kinds: make(map[string]interop.Kind)}, nil
 	}
 	cfg.IncludeDirs = func(context.Context, build.CXX) ([]string, error) { return []string{t.TempDir(), sys}, nil }

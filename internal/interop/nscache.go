@@ -17,23 +17,24 @@ import (
 	"github.com/huuhait/gocpp/internal/build"
 )
 
-// The cache of the namespace probe keeps, per include set (compiler,
-// folder and includes), the kind of every candidate that was probed, or
-// the include errors. It checks the files that the results depend on
+// The cache of the probes keeps, per include set (compiler, folder, flags
+// and includes), the kind of every path that was probed, or the include
+// errors, and the macros. It checks the files that the results depend on
 // before it uses them.
 
-// defaultCache is the cache of ProbeNamespaces.
+// defaultCache is the cache of ProbeKinds and ProbeMacros.
 var defaultCache = newCache()
 
 const (
-	// maxSets is the number of include sets that the cache keeps. The
-	// language server runs for days, and every change to a file's imports
-	// makes a new include set; the one used least recently goes.
+	// maxSets is the number of include sets that the cache keeps, for
+	// each probe. The language server runs for days, and every change to a
+	// file's imports makes a new include set; the one used least recently
+	// goes.
 	maxSets = 64
 
-	// maxKinds is the number of candidates that an include set keeps.
-	// Misspelled names pile up while someone types; when there are more,
-	// the set keeps only the last run's candidates.
+	// maxKinds is the number of paths that an include set keeps. Misspelled
+	// names pile up while someone types; when there are more, the set
+	// keeps only the last run's paths.
 	maxKinds = 4096
 
 	// errorTTL is how long a result with include errors is used. The
@@ -50,42 +51,92 @@ const (
 	racyWindow = 2 * time.Second
 )
 
-// A cache is a namespace probe cache. Its zero value is not ready; use
-// newCache.
+// A cache is a probe cache. Its zero value is not ready; use newCache.
 type cache struct {
-	mu    sync.Mutex
-	sets  map[string]*includeSet
-	clock uint64 // counts uses, for lastUse
+	kinds  setMap[kindSet]
+	macros setMap[macroSet]
 
 	errorTTL time.Duration // errorTTL, or less in tests
 
-	// runs counts the compiler runs, for the tests.
-	runs atomic.Int64
+	// runs and macroRuns count the runs of the kind probe (one run can run
+	// the compiler again without a path that stopped it, see maxReruns) and
+	// of the macro probe, for the tests.
+	runs, macroRuns atomic.Int64
 }
 
 func newCache() *cache {
-	return &cache{sets: make(map[string]*includeSet), errorTTL: errorTTL}
+	return &cache{kinds: newSetMap[kindSet](), macros: newSetMap[macroSet](), errorTTL: errorTTL}
 }
 
-// An includeSet is what the cache knows for one include set.
-type includeSet struct {
+// A setMap keeps a T per include set, each with its own lock, and at most
+// maxSets of them.
+type setMap[T any] struct {
+	mu    sync.Mutex
+	sets  map[string]*lockedSet[T]
+	clock uint64 // counts uses, for lastUse
+}
+
+// A lockedSet is a T and its lock.
+type lockedSet[T any] struct {
 	// lock is held while the set is checked, probed or changed: a
 	// one-element semaphore, so that waiting for it can be canceled.
 	lock chan struct{}
 
-	lastUse uint64 // the cache's clock at the last use; guarded by cache.mu
+	lastUse uint64 // the map's clock at the last use; guarded by setMap.mu
+	val     T
+}
 
+func newSetMap[T any]() setMap[T] {
+	return setMap[T]{sets: make(map[string]*lockedSet[T])}
+}
+
+// lock returns the value of the include set key, locked, after it waited
+// for the lock: the probe of another call for the same set comes first,
+// and its answer may be in the cache then. unlock unlocks it.
+func (m *setMap[T]) lock(ctx context.Context, key string) (val *T, unlock func(), err error) {
+	m.mu.Lock()
+	set := m.sets[key]
+	if set == nil {
+		if len(m.sets) >= maxSets {
+			m.evictLocked()
+		}
+		set = &lockedSet[T]{lock: make(chan struct{}, 1)}
+		m.sets[key] = set
+	}
+	m.clock++
+	set.lastUse = m.clock
+	m.mu.Unlock()
+	select {
+	case set.lock <- struct{}{}:
+		return &set.val, func() { <-set.lock }, nil
+	case <-ctx.Done():
+		return nil, nil, ctx.Err()
+	}
+}
+
+// evictLocked removes the include set used least recently. A call that
+// still uses it finishes with it.
+func (m *setMap[T]) evictLocked() {
+	var oldest string
+	for key, set := range m.sets {
+		if oldest == "" || set.lastUse < m.sets[oldest].lastUse {
+			oldest = key
+		}
+	}
+	delete(m.sets, oldest)
+}
+
+// A kindSet is what the cache knows of the kinds for one include set.
+type kindSet struct {
 	filled  bool            // the fields below hold a result
 	files   []fileState     // what the result depends on
-	kinds   map[string]Kind // per candidate, without a leading ::
+	kinds   map[string]Kind // per path, without a leading ::
 	incErrs []IncludeError  // the include errors; then kinds is nil
 	expires time.Time       // when incErrs is set: when to probe again
 }
 
 // reset forgets the set's result.
-func (s *includeSet) reset() {
-	s.filled, s.files, s.kinds, s.incErrs, s.expires = false, nil, nil, nil, time.Time{}
-}
+func (s *kindSet) reset() { *s = kindSet{} }
 
 // fileReads counts the files that stateOf read, for the tests.
 var fileReads atomic.Int64
@@ -186,20 +237,31 @@ func stateOf(path string) (fileState, time.Time, error) {
 	return fileState{path: path, exists: true, hash: sha256.Sum256(data), stat: statOf(after)}, after.ModTime(), nil
 }
 
-// probe is ProbeNamespaces with the cache c.
-func (c *cache) probe(ctx context.Context, cxx build.CXX, dir string, includes, candidates []string) (Result, error) {
-	for _, inc := range includes {
-		if err := checkInclude(inc); err != nil {
-			return Result{}, err
-		}
+// probe is ProbeKinds with the cache c.
+func (c *cache) probe(ctx context.Context, cxx build.CXX, dir string, flags, includes, paths []string) (Result, error) {
+	return c.probeMode(ctx, cxx, dir, flags, includes, paths, true)
+}
+
+// probeNamespaces is ProbeNamespaces with the cache c.
+func (c *cache) probeNamespaces(ctx context.Context, cxx build.CXX, dir string, flags, includes, names []string) (Result, error) {
+	return c.probeMode(ctx, cxx, dir, flags, includes, names, false)
+}
+
+// probeMode is ProbeKinds (kinds) or ProbeNamespaces with the cache c.
+// The kinds of an include set are kept per path; an answer of the
+// namespace mode is Namespace, Macro or NotNamespace, and only
+// NotNamespace says less than ProbeKinds would.
+func (c *cache) probeMode(ctx context.Context, cxx build.CXX, dir string, flags, includes, paths []string, kinds bool) (Result, error) {
+	if err := checkArgs(flags, includes); err != nil {
+		return Result{}, fmt.Errorf("kind probe: %w", err)
 	}
-	// names are the candidates without a leading ::, each once, and parts
+	// names are the paths without a leading ::, each once, and parts
 	// their parts.
 	var names []string
 	var parts [][]string
 	seen := make(map[string]bool)
-	for _, cand := range candidates {
-		p, err := splitCandidate(cand)
+	for _, path := range paths {
+		p, err := splitPath(path)
 		if err != nil {
 			return Result{}, err
 		}
@@ -209,16 +271,16 @@ func (c *cache) probe(ctx context.Context, cxx build.CXX, dir string, includes, 
 			parts = append(parts, p)
 		}
 	}
-	// Without includes nothing can declare a namespace (a .gp file with a
-	// namespace rename but no header import): every candidate is Unknown,
-	// and the caller reports the rename. With includes, the probe runs
-	// also without candidates (or with only reserved ones, which need no
-	// probe line), to check the includes.
+	// Without includes nothing can declare anything (a .gp file with a
+	// namespace rename but no header import): every path is Unknown, and
+	// the caller reports the rename. With includes, the probe runs also
+	// without paths (or with only reserved ones, which need no probe
+	// line), to check the includes.
 	if len(includes) == 0 {
-		return result(candidates, nil, nil), nil
+		return result(paths, nil, nil, kinds), nil
 	}
 	if cxx.Family != build.Clang && cxx.Family != build.GCC {
-		return Result{}, unknownFamily(cxx)
+		return Result{}, fmt.Errorf("kind probe: %w", unknownFamily(cxx))
 	}
 	if dir != "" {
 		var err error
@@ -227,97 +289,64 @@ func (c *cache) probe(ctx context.Context, cxx build.CXX, dir string, includes, 
 		}
 	}
 
-	set, err := c.lock(ctx, setKey(cxx, dir, includes))
+	set, unlock, err := c.kinds.lock(ctx, setKey(cxx, dir, flags, includes))
 	if err != nil {
 		return Result{}, err
 	}
-	defer func() { <-set.lock }()
+	defer unlock()
 
-	if set.filled && !c.valid(set) {
+	if set.filled && !c.valid(set.files, set.incErrs != nil, set.expires) {
 		set.reset()
 	}
 	if set.filled && set.incErrs != nil {
-		return result(candidates, nil, set.incErrs), nil
+		return result(paths, nil, set.incErrs, kinds), nil
 	}
-	if set.filled && hasAll(set.kinds, names) {
-		return result(candidates, set.kinds, nil), nil
+	if set.filled && hasAll(set.kinds, names, kinds) {
+		return result(paths, set.kinds, nil, kinds), nil
 	}
 
-	// Probe all the candidates of this call, not only the new ones: the
-	// headers take the time, not the candidates, and so the answer comes
-	// from one run.
+	// Probe all the paths of this call, not only the new ones: the headers
+	// take the time, not the paths, and so the answer comes from one run.
 	c.runs.Add(1)
-	run, err := runProbe(ctx, cxx, dir, includes, parts)
+	run, err := runProbe(ctx, cxx, dir, flags, includes, parts, kinds)
 	if err != nil {
 		return Result{}, err
 	}
-	files, ok := dependsOn(run, dir, includes)
+	files, ok := dependsOn(run.deps, run.depsOK, run.incErrs != nil, run.start, dir, includes)
 	if !ok {
 		// A file may have changed while the compiler ran: answer, but
 		// don't cache.
 		set.reset()
-		return result(candidates, kindMap(names, run.kinds), run.incErrs), nil
+		return result(paths, kindMap(names, run.kinds), run.incErrs, kinds), nil
 	}
 	if run.incErrs != nil {
 		set.reset()
 		set.filled, set.files, set.incErrs = true, files, run.incErrs
 		set.expires = time.Now().Add(c.errorTTL)
-		return result(candidates, nil, run.incErrs), nil
+		return result(paths, nil, run.incErrs, kinds), nil
 	}
 	if !set.filled || !sameFiles(set.files, files) || len(set.kinds)+len(names) > maxKinds {
 		set.reset()
 		set.filled, set.files, set.kinds = true, files, make(map[string]Kind)
 	}
 	for i, name := range names {
-		set.kinds[name] = run.kinds[i]
-	}
-	return result(candidates, set.kinds, nil), nil
-}
-
-// lock returns the include set for key, locked, after it waited for the
-// lock: the probe of another call for the same set comes first, and its
-// answer may be in the cache then.
-func (c *cache) lock(ctx context.Context, key string) (*includeSet, error) {
-	c.mu.Lock()
-	set := c.sets[key]
-	if set == nil {
-		if len(c.sets) >= maxSets {
-			c.evictLocked()
-		}
-		set = &includeSet{lock: make(chan struct{}, 1)}
-		c.sets[key] = set
-	}
-	c.clock++
-	set.lastUse = c.clock
-	c.mu.Unlock()
-	select {
-	case set.lock <- struct{}{}:
-		return set, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-}
-
-// evictLocked removes the include set used least recently. A call that
-// still uses it finishes with it.
-func (c *cache) evictLocked() {
-	var oldest string
-	for key, set := range c.sets {
-		if oldest == "" || set.lastUse < c.sets[oldest].lastUse {
-			oldest = key
+		// A NotNamespace doesn't replace a kind that says more.
+		if _, ok := set.kinds[name]; !ok || run.kinds[i] != NotNamespace {
+			set.kinds[name] = run.kinds[i]
 		}
 	}
-	delete(c.sets, oldest)
+	return result(paths, set.kinds, nil, kinds), nil
 }
 
-// valid reports whether the result of the filled set can still be used.
-func (c *cache) valid(set *includeSet) bool {
-	if set.incErrs != nil && !time.Now().Before(set.expires) {
+// valid reports whether a result that depends on files can still be used.
+// A result with include errors (failed) can be used until expires.
+func (c *cache) valid(files []fileState, failed bool, expires time.Time) bool {
+	now := time.Now()
+	if failed && !now.Before(expires) {
 		return false
 	}
-	now := time.Now()
-	for i := range set.files {
-		if !set.files[i].unchanged(now) {
+	for i := range files {
+		if !files[i].unchanged(now) {
 			return false
 		}
 	}
@@ -325,30 +354,33 @@ func (c *cache) valid(set *includeSet) bool {
 }
 
 // setKey is the cache key of an include set. None of its parts can hold a
-// NUL byte (checkInclude, and paths can't), so the key can't be confused
-// with another one.
-func setKey(cxx build.CXX, dir string, includes []string) string {
-	// The compiler's own arguments (CXX="g++ -m32") come after their
-	// number, so that they can't be confused with the parts after them.
+// NUL byte (checkArgs, and paths can't), so the key can't be confused with
+// another one.
+func setKey(cxx build.CXX, dir string, flags, includes []string) string {
+	// The compiler's own arguments (CXX="g++ -m32") and the flags come
+	// after their number, so that they can't be confused with the parts
+	// after them.
 	parts := append([]string{cxx.Path, fmt.Sprint(len(cxx.Args))}, cxx.Args...)
-	parts = append(parts, cxx.Family.String(), cxx.Version, dir)
+	parts = append(parts, cxx.Family.String(), cxx.Version, dir, fmt.Sprint(len(flags)))
+	parts = append(parts, flags...)
 	return strings.Join(append(parts, includes...), "\x00")
 }
 
-// dependsOn returns the files that the result of run depends on: the
-// headers outside the system folders that the compiler read (its
-// dependency file), and for each quoted include, the file it names in dir,
-// also when that isn't there (when it appears, it hides the header that
-// was found elsewhere). ok is false when the result can't be cached: a
-// file can't be read, or it changed shortly before the compiler started
-// (racyWindow). Without a dependency file (gcc and clang write none after
-// a header that isn't found), only the quoted includes are known; that is
-// enough for a result with include errors, which expires.
-func dependsOn(run *probeRun, dir string, includes []string) (files []fileState, ok bool) {
-	if !run.depsOK && run.incErrs == nil {
+// dependsOn returns the files that the result of a run depends on: the
+// headers outside the system folders that the compiler read (deps, from
+// its dependency file; depsOK says whether there was one), and for each
+// quoted include, the file it names in dir, also when that isn't there
+// (when it appears, it hides the header that was found elsewhere). ok is
+// false when the result can't be cached: a file can't be read, or it
+// changed shortly before the compiler started (racyWindow, from start).
+// Without a dependency file (gcc and clang write none after a header that
+// isn't found), only the quoted includes are known; that is enough for a
+// result with include errors (failed), which expires.
+func dependsOn(deps []string, depsOK, failed bool, start time.Time, dir string, includes []string) (files []fileState, ok bool) {
+	if !depsOK && !failed {
 		return nil, false
 	}
-	paths := slices.Clip(run.deps)
+	paths := slices.Clip(deps)
 	if dir != "" {
 		for _, inc := range includes {
 			if inc[0] == '"' {
@@ -367,7 +399,7 @@ func dependsOn(run *probeRun, dir string, includes []string) (files []fileState,
 		}
 		seen[p] = true
 		f, mod, err := stateOf(p)
-		if err != nil || f.exists && mod.After(run.start.Add(-racyWindow)) {
+		if err != nil || f.exists && mod.After(start.Add(-racyWindow)) {
 			return nil, false
 		}
 		files = append(files, f)
@@ -393,10 +425,12 @@ func sameFiles(a, b []fileState) bool {
 	return true
 }
 
-// hasAll reports whether kinds has every name.
-func hasAll(kinds map[string]Kind, names []string) bool {
+// hasAll reports whether kinds has an answer for every name: any answer
+// for the namespace mode, a kind of ProbeKinds (not NotNamespace) for
+// allKinds.
+func hasAll(kinds map[string]Kind, names []string, allKinds bool) bool {
 	for _, n := range names {
-		if _, ok := kinds[n]; !ok {
+		if k, ok := kinds[n]; !ok || allKinds && k == NotNamespace {
 			return false
 		}
 	}
@@ -414,31 +448,37 @@ func kindMap(names []string, kinds []Kind) map[string]Kind {
 	return m
 }
 
-// result returns the Result for the candidates as the caller spelled them:
+// result returns the Result for the paths as the caller spelled them:
 // their kinds from kinds (keyed without the leading ::), or Unknown for
 // all of them when there are include errors; a reserved name is always
-// NotNamespace. The Result has its own copy of incErrs, which the cache
-// keeps.
-func result(candidates []string, kinds map[string]Kind, incErrs []IncludeError) Result {
-	r := Result{Kinds: make(map[string]Kind, len(candidates)), IncludeErrors: slices.Clone(incErrs)}
-	for _, cand := range candidates {
-		name := strings.TrimPrefix(cand, "::")
+// NotFound. For the namespace mode (not allKinds), the kinds are the
+// answers to the namespace question (nsAnswer). The Result has its own
+// copy of incErrs, which the cache keeps.
+func result(paths []string, kinds map[string]Kind, incErrs []IncludeError, allKinds bool) Result {
+	r := Result{Kinds: make(map[string]Kind, len(paths)), IncludeErrors: slices.Clone(incErrs)}
+	for _, path := range paths {
+		name := strings.TrimPrefix(path, "::")
+		k := Unknown
 		switch {
 		case reservedName(name):
-			r.Kinds[cand] = NotNamespace
+			k = NotFound
 		case incErrs == nil:
-			r.Kinds[cand] = kinds[name] // Unknown when kinds is nil
-		default:
-			r.Kinds[cand] = Unknown
+			k = kinds[name] // Unknown when kinds is nil
 		}
+		if !allKinds {
+			k = nsAnswer(k)
+		}
+		r.Kinds[path] = k
 	}
 	return r
 }
 
-// reservedName reports whether the candidate name (without a leading ::)
+// reservedName reports whether the path name (without a leading ::)
 // starts with gp_: gocpp's own names start with gp_ (ADR-010; the probe
-// file's aliases are gp_ns_0, gp_inc_0, ...), and a user's gp_ names are
-// escaped, so such a name is never a namespace a .gp file can use.
+// file's names are gp_kn_0, gp_inc_0, ...), and a user's gp_ names are
+// escaped, so such a name is never something a .gp file can use. (Only
+// the first part counts: gp_ names inside a C++ namespace are not
+// gocpp's.)
 func reservedName(name string) bool {
 	return strings.HasPrefix(name, "gp_")
 }

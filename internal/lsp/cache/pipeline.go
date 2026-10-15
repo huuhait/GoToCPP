@@ -61,7 +61,7 @@ type Config struct {
 	// the compiler once, and again cxxRetry after an error, so that a
 	// compiler installed later is found.
 	CXX   func(ctx context.Context) (build.CXX, error)
-	Probe func(ctx context.Context, cxx build.CXX, dir string, includes, candidates []string) (interop.Result, error)
+	Probe func(ctx context.Context, cxx build.CXX, dir string, flags, includes, candidates []string) (interop.Result, error)
 
 	// IncludeDirs, if not nil, replaces the compiler run that lists the
 	// system include folders of the C++ compiler cxx, for go to definition

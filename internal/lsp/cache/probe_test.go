@@ -32,7 +32,7 @@ func newFakeProbe() *fakeProbe {
 	return &fakeProbe{namespaces: []string{"std"}, started: make(chan struct{}, 100), release: make(chan struct{}, 100)}
 }
 
-func (f *fakeProbe) probe(ctx context.Context, _ build.CXX, _ string, includes, cands []string) (interop.Result, error) {
+func (f *fakeProbe) probe(ctx context.Context, _ build.CXX, _ string, _, includes, cands []string) (interop.Result, error) {
 	f.started <- struct{}{}
 	select {
 	case <-f.release:
@@ -293,5 +293,85 @@ func TestProbeTransitive(t *testing.T) {
 	}
 	if n := w.checks() - before; n != 2 {
 		t.Errorf("%d checks after getting D, want still 2", n)
+	}
+}
+
+// TestProberFlags: the package's flags are part of an include set (another
+// flag is another set, and its probe gets the flags), also for a record
+// from disk.
+func TestProberFlags(t *testing.T) {
+	var mu sync.Mutex
+	var flagsSeen [][]string
+	probe := func(_ context.Context, _ build.CXX, _ string, flags, _, cands []string) (interop.Result, error) {
+		mu.Lock()
+		flagsSeen = append(flagsSeen, slices.Clone(flags))
+		mu.Unlock()
+		r := interop.Result{Kinds: make(map[string]interop.Kind)}
+		for _, c := range cands {
+			r.Kinds[c] = interop.NotNamespace
+			if slices.Contains(flags, "-DNS") {
+				r.Kinds[c] = interop.Namespace
+			}
+		}
+		return r, nil
+	}
+	cxx := build.CXX{Path: "/fake/c++", Family: build.Clang, Version: "clang version 99"}
+	find := func(context.Context) (build.CXX, error) { return cxx, nil }
+	pr := newProber(find, probe, nil)
+	defer pr.close()
+	ctx := context.Background()
+	r := &probeRecord{pr: pr}
+	pr.findCXX(r)(ctx)
+	pr.wait()
+	if got, err := pr.findCXX(r)(ctx); err != nil || got.Path != cxx.Path {
+		t.Fatalf("compiler %v, %v", got, err)
+	}
+	ask := func(flags []string, want interop.Kind) {
+		t.Helper()
+		res, err := pr.probeFor(r)(ctx, cxx, "/d", flags, []string{"<x.h>"}, []string{"ns"})
+		if err != nil || res.Kinds["ns"] != want {
+			t.Errorf("flags %q: %v, %v; want %v", flags, res.Kinds["ns"], err, want)
+		}
+	}
+	ask([]string{"-DNS"}, interop.Unknown) // no answer yet
+	pr.wait()
+	ask([]string{"-DNS"}, interop.Namespace)
+	ask(nil, interop.Unknown) // another include set
+	pr.wait()
+	ask(nil, interop.NotNamespace)
+	ask([]string{"-DNS"}, interop.Namespace)
+	pr.mu.Lock()
+	nSets := len(pr.sets)
+	pr.mu.Unlock()
+	mu.Lock()
+	seen := slices.Clone(flagsSeen)
+	mu.Unlock()
+	if nSets != 2 || len(seen) != 2 || !slices.Equal(seen[0], []string{"-DNS"}) || seen[1] != nil {
+		t.Errorf("%d include sets, probes with the flags %q; want 2 sets, [-DNS] then none", nSets, seen)
+	}
+
+	// On disk, a use keeps its flags, and a replay probes with them. (A
+	// record with an answer that was missing is not written: a new one.)
+	r = &probeRecord{pr: pr}
+	pr.findCXX(r)(ctx)
+	ask([]string{"-DNS"}, interop.Namespace)
+	ask(nil, interop.NotNamespace)
+	d, ok := r.diskForm()
+	if !ok || len(d.Uses) != 2 || !slices.Equal(d.Uses[0].Flags, []string{"-DNS"}) || d.Uses[1].Flags != nil {
+		t.Fatalf("diskForm = %+v, %v", d, ok)
+	}
+	pr2 := newProber(find, probe, nil)
+	defer pr2.close()
+	r2 := pr2.replay(d)
+	pr2.wait()
+	if r2.stale() || r2.provisional() {
+		t.Errorf("replayed record: stale %v, provisional %v; want neither", r2.stale(), r2.provisional())
+	}
+	mu.Lock()
+	seen = slices.Clone(flagsSeen[2:])
+	mu.Unlock()
+	slices.SortFunc(seen, func(a, b []string) int { return len(a) - len(b) })
+	if len(seen) != 2 || seen[0] != nil || !slices.Equal(seen[1], []string{"-DNS"}) {
+		t.Errorf("the replay probed with the flags %q, want none and [-DNS]", seen)
 	}
 }

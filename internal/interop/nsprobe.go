@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,45 +20,68 @@ import (
 	"github.com/huuhait/gocpp/internal/build"
 )
 
-// The namespace probe (Phase 01 §2.5, step 4) decides whether a name that
-// a .gp file uses like a package (std in std.vector) is a C++ namespace.
-// It asks the C++ compiler with one small file that holds the .gp file's
-// includes and one namespace alias per candidate:
+// The kind probe (Phase 04 §2.2, probe 2) says what each C/C++ path that a
+// package uses is: a namespace, a type, a template, a value or a macro. It
+// grew out of Phase 01's namespace probe (§2.5, step 4), which decides
+// whether std in std.vector is a C++ namespace; that decision is still the
+// probe's first line per path, and the probe has a mode that asks only it
+// (ProbeNamespaces). It asks the C++ compiler with one small file that holds
+// the includes, a few helper lines, and a block of lines per path:
 //
 //	#include <vector>
 //	; template <class> struct gp_inc_0; using gp_inc_0_c = ::gp_inc_0<int>;
 //	#include "./physics.h"
 //	; template <class> struct gp_inc_1; using gp_inc_1_c = ::gp_inc_1<int>;
-//	#if defined(std)
-//	#error gp_ns_macro
+//	struct gp_kp0 {}; ...                                 (the helper lines)
+//	#if defined(std) || defined(chrono)
+//	#error gp_kind_macro
 //	#else
-//	namespace gp_ns_0 = ::std;
+//	namespace gp_kn_0 = ::std::chrono;                       namespace
+//	using gp_kt_0 = ::std::chrono;                           type
+//	constexpr bool gp_km_0 = gp_ktmpl<::std::chrono>(...);   class or alias template
+//	using gp_kv_0 = decltype(::std::chrono);                 value
+//	template <...> auto gp_kw_0() -> decltype(::std::chrono<gp_kT...>);       value template (types)
+//	template <...> auto gp_kx_0() -> decltype(::std::chrono<gp_kV...>);       value template (values)
+//	template <...> auto gp_kd_0(...) -> decltype(::std::chrono{gp_ka...});    class template (CTAD)
+//	template <...> auto gp_kc_0(...) -> decltype(::std::chrono(gp_ka...));    call
 //	#endif
 //	...
 //	namespace gp_probe_end = ::gp_probe_no_such_namespace;
 //	namespace gp_probe_eof {}
 //
 // The compiler checks it with -fsyntax-only and reports every error with
-// its line. A candidate whose lines have an error is not a namespace.
+// its line. Each line of a block tests one kind: the first line without an
+// error, in the order above, gives the path's kind (see classify). The
+// lines never instantiate a template of the headers, except a class that
+// a path goes through (::std::string::npos needs std::basic_string<char>);
+// an error inside such an instantiation belongs to the path's line (see
+// parseDiagnostics), not to the header. In the namespace mode, a block has
+// only the #if, #error, #else, the namespace line and the #endif: that is
+// the namespace probe of Phase 01, and a name that is not declared costs
+// one failed lookup instead of eight (g++ looks for spelling suggestions in
+// every failed lookup, about 0.8 ms each with <vector>).
 //
-// The other lines guard against what the headers and the candidates can do
-// to the lines after them (all seen with both compilers):
+// The other lines guard against what the headers and the paths can do to
+// the lines after them (all seen with both compilers):
 //   - The scope check after each include fails when the header doesn't end
 //     at the top level: in the middle of a declaration (int f( or int x =),
-//     which would otherwise swallow the next line and with it a candidate,
-//     or inside a block that it leaves open (extern "C" {, a namespace, a
+//     which would otherwise swallow the next line and with it a path, or
+//     inside a block that it leaves open (extern "C" {, a namespace, a
 //     class, a function, an enum). The ";" ends an unfinished declaration,
 //     a template can't have C linkage, and ::gp_inc_N is found only at the
 //     top level. So the error is on the culprit's own line, before the
 //     next header can use up the open brace (clang's recovery inside
 //     libstdc++ did that for an open extern "C" { before <vector>).
-//   - The #if keeps macros out of the alias lines: a macro that expands to
-//     an unbalanced brace would hide the lines after it, and a macro is
-//     never a namespace.
+//   - The #if keeps macros out of the C++ lines: a macro that expands to
+//     an unbalanced brace would hide the lines after it, and a path with a
+//     macro in it means what the macro says, not what its name says (a
+//     macro is never a namespace). The #error makes such a path a Macro.
+//     The macro probe (ProbeMacros) lists the same macros: both see the
+//     macros as they are after the last include.
 //   - The gp_probe_end alias always fails, and it uses no name that a
 //     header can define as a macro: its error shows that the compiler got
 //     to the end of the file, so a compiler that stops early (or prints
-//     nothing) can't make every candidate look like a namespace.
+//     nothing) can't make every path look like a namespace.
 //   - The last line takes the "expected '}' at end of input" error of what
 //     the scope checks don't catch (an open extern "C++" {); its "to match
 //     this '{'" note says which header that is.
@@ -69,51 +93,105 @@ import (
 // that #include. clang prints the stack again whenever the header changes;
 // gcc prints the stack of each #include only once, so the parser remembers
 // which include brought in each header. When an include has an error, the
-// probe can't tell anything about the candidates: they are Unknown, and the
+// probe can't tell anything about the paths: they are Unknown, and the
 // include errors are the result.
-//
-// Phase 04's kind probe grows from this one: it also tells types,
-// templates and values apart, and it gets the package's flags.
 
-// A Kind is what the namespace probe found out about a candidate name.
+// A Kind is what the kind probe found out about a C/C++ path.
 type Kind int
 
 const (
 	// Unknown means that the probe couldn't tell: an include failed
-	// (Result.IncludeErrors), or the probe failed. It is the zero value,
-	// so a candidate that is missing from Result.Kinds is Unknown too.
+	// (Result.IncludeErrors), the probe failed, or there was nothing to
+	// probe with (no includes, or the language server has no answer yet).
+	// It is the zero value, so a path that is missing from Result.Kinds is
+	// Unknown too.
 	Unknown Kind = iota
 
-	// Namespace means that the name is a C++ namespace or a namespace
+	// Namespace means that the path is a C++ namespace or a namespace
 	// alias (namespace fs = std::filesystem), possibly found through an
-	// inline namespace.
+	// inline namespace: std, std::chrono, glm.
 	Namespace
 
-	// NotNamespace means that the name is not a namespace: nothing of that
-	// name is declared, or it is a type, a template, a function, a
-	// variable or a macro.
+	// Type means that the path is a type: a class, struct, union or enum,
+	// a typedef or an alias (std::string, std::chrono::steady_clock, Color
+	// for enum class Color, a C struct name, std::size_t). What follows it
+	// is reached with :: (std::string::npos).
+	Type
+
+	// Template means that the path is a class template or an alias
+	// template, whatever its parameters are (std::vector, std::array,
+	// std::bitset, std::ratio, std::integer_sequence, std::enable_if_t,
+	// std::ranges::subrange, glm's vec<L, T, Q>): [...] after it are
+	// template arguments, and the result is a type. (An alias template of
+	// a type that is not a class, with parameters that none of gp_ktmpl's
+	// shapes takes, is NotFound.)
+	Template
+
+	// Value means that the path is an object, a function (also an overload
+	// set of functions that are not templates), an enumerator (Color::Red)
+	// or a static member (std::string::npos, std::chrono::steady_clock::now):
+	// what follows it is reached with ".", and [...] after it is an index.
+	Value
+
+	// ValueTemplate means that the path is a value that can take template
+	// arguments: a function template, an overload set with one (std::max,
+	// std::get, std::make_unique; also std::sqrt with libstdc++, whose
+	// integer overloads are templates), or a variable template
+	// (std::is_same_v, std::in_place_index). [...] after it are template
+	// arguments; the result is a value. The probe can't tell function
+	// templates from variable templates, and nothing needs it: both are
+	// spelled f<args>.
+	ValueTemplate
+
+	// Macro means that a part of the path is a macro (errno, RAYWHITE,
+	// EOF, or a macro that stands for a namespace name). The path is not
+	// probed as C++: what it means depends on the macro, and ProbeMacros
+	// says which parts are macros and whether they take arguments.
+	Macro
+
+	// NotFound means that none of the probe's lines compiled: nothing of
+	// that name is declared, or it is something that the probe doesn't
+	// classify (a concept, a class template's member without the template
+	// arguments, a non-static member function with clang), or a C++
+	// keyword. A name that starts with gp_ (reserved for gocpp) is always
+	// NotFound.
+	NotFound
+
+	// NotNamespace is ProbeNamespaces' answer for a name that is not a
+	// namespace (and not a macro): it asks nothing more about it.
 	NotNamespace
 )
 
-// String returns "Unknown", "Namespace" or "NotNamespace".
+// String returns the name of the constant, such as "Namespace".
 func (k Kind) String() string {
 	switch k {
 	case Unknown:
 		return "Unknown"
 	case Namespace:
 		return "Namespace"
+	case Type:
+		return "Type"
+	case Template:
+		return "Template"
+	case Value:
+		return "Value"
+	case ValueTemplate:
+		return "ValueTemplate"
+	case Macro:
+		return "Macro"
+	case NotFound:
+		return "NotFound"
 	case NotNamespace:
 		return "NotNamespace"
 	}
 	return fmt.Sprintf("Kind(%d)", int(k))
 }
 
-// A Result is what ProbeNamespaces found out.
+// A Result is what ProbeKinds found out.
 type Result struct {
-	// Kinds maps each candidate, spelled as it was passed, to its kind.
-	// When IncludeErrors is not empty, every candidate is Unknown, except
-	// that a name that starts with gp_ (reserved for gocpp) is always
-	// NotNamespace.
+	// Kinds maps each path, spelled as it was passed, to its kind. When
+	// IncludeErrors is not empty, every path is Unknown, except that a
+	// path that starts with gp_ (reserved for gocpp) is always NotFound.
 	Kinds map[string]Kind
 
 	// IncludeErrors are the includes that didn't work, in include order: a
@@ -127,7 +205,7 @@ type Result struct {
 // An IncludeError is an include that didn't work.
 type IncludeError struct {
 	// Index is the index of the include in the includes passed to
-	// ProbeNamespaces, and Include is that include: "<raylibb.h>".
+	// ProbeKinds, and Include is that include: "<raylibb.h>".
 	Index   int
 	Include string
 
@@ -207,12 +285,12 @@ func (e IncludeError) Error() string {
 	return e.Include + ": " + pos + ": " + e.Msg
 }
 
-// ProbeNamespaces asks the C++ compiler cxx which of the candidates are
-// C++ namespaces, given the includes of a .gp file. It runs the compiler
-// once, with -fsyntax-only, for all the candidates. With includes, it
-// runs also for an empty candidate list (or one with only reserved names),
-// to check the includes: a .gp file that imports only C headers has no
-// namespace uses, but its headers must be there.
+// ProbeKinds asks the C++ compiler cxx what each of the paths is (a
+// Kind), given the includes of a .gp file and the package's flags. It runs
+// the compiler once, with -fsyntax-only, for all the paths. With includes,
+// it runs also for an empty path list (or one with only reserved names),
+// to check the includes: a .gp file that imports only C headers may have
+// no paths, but its headers must be there.
 //
 // includes are the texts of the #include lines, in source order, each
 // with its delimiters: "<raylib.h>", "\"./physics.h\"". dir is the folder
@@ -221,56 +299,105 @@ func (e IncludeError) Error() string {
 // system folders (it is passed as -iquote, which doesn't affect <...>
 // includes). dir can be "" when there is no folder.
 //
-// A candidate is a name, such as "std", or a namespace path from a
-// namespace rename, such as "::std::filesystem" (the leading :: is
-// optional). Each part must be a C++ name: a letter or _, then letters,
-// digits and _. Result.Kinds has an entry for each candidate.
+// flags are the package's compiler flags (from //gocpp:cflags and
+// pkg-config, checked by the flag allow-list before they get here); they
+// come after -std=c++20 and -iquote dir, so -std=gnu++23 and -I folders
+// work as in the build, and before the probe's own flags, which they can't
+// turn off. The probe can't tell whether a flag is safe to run: that is
+// the caller's job.
 //
-// Without includes, every candidate is Unknown and nothing runs: nothing
-// can declare a namespace (a .gp file can have a namespace rename and no
-// header import). A candidate that starts with gp_ is NotNamespace without
-// a probe line: gocpp reserves those names (ADR-010).
+// A path is a C++ name, such as "std" or "Color" (the C-level name of a
+// header package's raylib.Color), or a qualified name, such as
+// "std::chrono::steady_clock" or "::std::filesystem" (the leading :: is
+// optional; the path is always looked up from the global namespace). Each
+// part must be a C++ name: a letter or _, then letters, digits and _.
+// Template arguments are not part of a path: for std.vector[int].iterator
+// the caller asks for std::vector. Result.Kinds has an entry for each path.
 //
-// The answers are the compiler's own, and g++ and clang++ differ in one
-// place: g++ declares namespace std even when no header does, so with only
-// C headers (<stdio.h>) std is a Namespace for g++ and NotNamespace for
-// clang++ (with <math.h>, whose libstdc++ wrapper declares std, both say
-// Namespace).
+// Without includes, every path is Unknown and nothing runs: nothing can
+// declare anything (a .gp file can have a namespace rename and no header
+// import). A path whose name starts with gp_ is NotFound without a probe
+// line: gocpp reserves those names (ADR-010).
+//
+// The answers are the compiler's own, and g++ and clang++ differ in a few
+// places:
+//   - g++ declares namespace std even when no header does, so with only C
+//     headers (<stdio.h>) std is a Namespace for g++ and NotFound for
+//     clang++ (with <math.h>, whose libstdc++ wrapper declares std, both
+//     say Namespace).
+//   - Non-static member functions: g++ says Value (std::string::size, an
+//     overload set without templates) or ValueTemplate
+//     (std::string::find); clang++ says NotFound. The same goes for an
+//     injected class name (S::S, std::string::basic_string).
+//   - A path through a class whose instantiation fails (a typedef of a
+//     broken specialization) can get any kind, and the compilers differ.
+//     It is never an include error: the header compiles on its own, and
+//     the build reports the real error at the use.
+//
+// When the compiler stops early at a fatal error on a path's lines (a
+// template instantiation that is too deep, through such a class), that
+// path is NotFound, and the probe runs again without it, at most
+// maxReruns times; after that, the probe fails as for any compiler that
+// stops early.
 //
 // An include that doesn't work (a header that isn't found, or doesn't
-// compile) is an IncludeError in the result, and then every candidate is
+// compile) is an IncludeError in the result, and then every path is
 // Unknown. The error is for the probe itself: bad arguments, a compiler
 // that doesn't run, a time limit (ctx, and at most one minute), or
-// compiler output that the probe doesn't understand. Then too the
-// candidates are Unknown, and the caller can go on without the probe.
+// compiler output that the probe doesn't understand. Then too the paths
+// are Unknown, and the caller can go on without the probe.
 //
-// The results are cached in memory, per compiler, folder and includes.
-// The cache notices changes to the headers outside the system folders
-// (the compiler's dependency list, -MMD) and to the quoted includes' files
-// in dir. It doesn't notice changes to system headers or to the
-// environment; a result with include errors is used for 5 seconds at
-// most, so that installing a missing library is noticed. (A disk cache
+// The results are cached in memory, per compiler, folder, flags and
+// includes. The cache notices changes to the headers outside the system
+// folders (the compiler's dependency list, -MMD) and to the quoted
+// includes' files in dir. It doesn't notice changes to system headers or
+// to the environment; a result with include errors is used for 5 seconds
+// at most, so that installing a missing library is noticed. (A disk cache
 // comes with the build cache of Phase 06; its key must also hold the
 // environment that changes the include paths, such as CPATH and
-// NIX_CFLAGS_COMPILE.) ProbeNamespaces is safe for concurrent use; calls
-// for the same compiler, folder and includes wait for each other, so that
-// they run the compiler once.
-func ProbeNamespaces(ctx context.Context, cxx build.CXX, dir string, includes, candidates []string) (Result, error) {
-	return defaultCache.probe(ctx, cxx, dir, includes, candidates)
+// NIX_CFLAGS_COMPILE.) ProbeKinds is safe for concurrent use; calls for
+// the same include set wait for each other, so that they run the compiler
+// once. A call with paths that the cache doesn't have probes all the paths
+// of the call again in one run: the headers take the time, not the paths.
+func ProbeKinds(ctx context.Context, cxx build.CXX, dir string, flags, includes, paths []string) (Result, error) {
+	return defaultCache.probe(ctx, cxx, dir, flags, includes, paths)
 }
 
-// probeTimeout limits one run of the probe, also when ctx has no deadline.
+// ProbeNamespaces is ProbeKinds for callers that only need to know which
+// names are namespaces (check.Check for the loader's namespace candidates,
+// and so the language server): each kind in the Result is Namespace, Macro,
+// NotNamespace (anything else, also a reserved gp_ name) or Unknown (as for
+// ProbeKinds). It asks the compiler only the namespace question, which is
+// much cheaper for names that are not declared (typos), and it shares the
+// cache with ProbeKinds: a kind that ProbeKinds found answers it too (but
+// not the other way round).
+func ProbeNamespaces(ctx context.Context, cxx build.CXX, dir string, flags, includes, names []string) (Result, error) {
+	return defaultCache.probeNamespaces(ctx, cxx, dir, flags, includes, names)
+}
+
+// nsAnswer returns the answer to the namespace question that the kind k
+// gives.
+func nsAnswer(k Kind) Kind {
+	switch k {
+	case Unknown, Namespace, Macro:
+		return k
+	}
+	return NotNamespace
+}
+
+// probeTimeout limits one run of a probe, also when ctx has no deadline.
 // The heaviest include sets take a few seconds.
 const probeTimeout = time.Minute
 
-// maxProbeOutput limits what the probe reads from the compiler. A probe
-// with 200 bad candidates prints about 20 KiB; the cascade of errors of
-// C++ headers that end up inside an open extern "C" block is 1 to 3 MiB.
-// When the output is cut, the include errors found so far still count.
+// maxProbeOutput limits what the kind probe reads from the compiler. A
+// probe with 200 bad paths prints about 0.5 MiB with g++ (each failed line
+// prints notes); the cascade of errors of C++ headers that end up inside
+// an open extern "C" block is 1 to 3 MiB. When the output is cut, the
+// include errors found so far still count.
 const maxProbeOutput = 8 << 20
 
-// waitDelay is how long the probe waits for the compiler's output after
-// the compiler exited or was stopped.
+// waitDelay is how long a probe waits for the compiler's output after the
+// compiler exited or was stopped.
 const waitDelay = 2 * time.Second
 
 // checkInclude reports what is wrong with the include text inc, if
@@ -286,17 +413,33 @@ func checkInclude(inc string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("namespace probe: bad include %q: want <header> or \"header\"", inc)
+	return fmt.Errorf("bad include %q: want <header> or \"header\"", inc)
 }
 
-// splitCandidate returns the parts of the candidate c ("::std::filesystem"
-// gives std and filesystem), or an error if c is not a name or a
-// namespace path.
-func splitCandidate(c string) ([]string, error) {
-	parts := strings.Split(strings.TrimPrefix(c, "::"), "::")
-	for _, p := range parts {
-		if !isCppName(p) {
-			return nil, fmt.Errorf("namespace probe: bad candidate %q: want a C++ name or a namespace path like ::std::filesystem", c)
+// checkArgs checks the includes and the flags of a probe call.
+func checkArgs(flags, includes []string) error {
+	for _, inc := range includes {
+		if err := checkInclude(inc); err != nil {
+			return err
+		}
+	}
+	for _, f := range flags {
+		// A command line can't hold a NUL byte, and the cache keys use it
+		// as a separator.
+		if strings.Contains(f, "\x00") {
+			return fmt.Errorf("bad flag %q: it has a NUL byte", f)
+		}
+	}
+	return nil
+}
+
+// splitPath returns the parts of the path p ("::std::filesystem" gives
+// std and filesystem), or an error if p is not a name or a qualified name.
+func splitPath(p string) ([]string, error) {
+	parts := strings.Split(strings.TrimPrefix(p, "::"), "::")
+	for _, part := range parts {
+		if !isCppName(part) {
+			return nil, fmt.Errorf("kind probe: bad path %q: want a C++ name or a qualified name like ::std::filesystem", p)
 		}
 	}
 	return parts, nil
@@ -306,7 +449,9 @@ func splitCandidate(c string) ([]string, error) {
 // letters, digits and _. Like Go (and load's check of namespace paths), it
 // allows non-ASCII letters and digits. These characters can't change the
 // lines of the probe file around the name; whether the compiler accepts
-// the name, and whether it is a keyword, the compiler decides.
+// the name, and whether it is a keyword, the compiler decides (a keyword
+// gets an error on every line of its block, and no line after it, with
+// both compilers: the tests have the keywords that start a construct).
 func isCppName(s string) bool {
 	for i, r := range s {
 		if r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r) || i == 0 && unicode.IsDigit(r) {
@@ -316,33 +461,109 @@ func isCppName(s string) bool {
 	return s != ""
 }
 
-// includeLines and blockLines are the numbers of lines of the probe file
-// per include (the #include and the scope check) and per candidate.
+// includeLines is the number of lines of the probe file per include (the
+// #include and the scope check).
+const includeLines = 2
+
+// The lines of a path's block, from its first line (blockIf). Each of the
+// C++ lines from lineNamespace to lineCall tests one kind. In the namespace
+// mode a block has only the lines up to lineNamespace, and then its #endif
+// (at the offset nsBlockEndif).
 const (
-	includeLines = 2
-	blockLines   = 5
+	blockIf        = iota // #if defined(part) || ...
+	blockError            // #error: the path has a macro
+	blockElse             // #else
+	lineNamespace         // namespace gp_kn_N = path;
+	lineType              // using gp_kt_N = path;
+	lineTemplate          // a class or alias template: gp_ktmpl<path>
+	lineValue             // using gp_kv_N = decltype(path);
+	lineValueTmplT        // decltype(path<gp_kT...>) in a template: types
+	lineValueTmplV        // decltype(path<gp_kV...>) in a template: values
+	lineBraced            // decltype(path{gp_ka...}) in a template
+	lineCall              // decltype(path(gp_ka...)) in a template
+	blockEndif            // #endif
+	blockLines            // the number of lines of a block
 )
 
+// The namespace mode's block: its #endif and its number of lines.
+const (
+	nsBlockEndif = lineNamespace + 1
+	nsBlockLines = nsBlockEndif + 1
+)
+
+// helperLines are the lines that the blocks use, after the includes. The
+// template line passes the path as a template template argument to
+// gp_ktmpl, which has one overload per shape of template parameters:
+// class... matches every template with only type parameters (std::vector,
+// std::map, std::function), auto... the ones with only values
+// (std::bitset, std::ratio), and the others std::array and std::span
+// (class, auto...), std::enable_if_t and std::conditional_t (auto,
+// class...), std::integer_sequence and std::integral_constant (class T,
+// T...), and templates of templates. A template matches several shapes
+// (template <class T> matches class... and class, auto...), so the
+// overloads take tags that make one of them the best match: gp_kp5 is the
+// best for an argument gp_kp5{}, then gp_kp4, and so on. A class template
+// of another shape (std::ranges::subrange, glm's vec<L, T, Q>) passes the
+// braced line instead (class template argument deduction), also through
+// an alias template of a class.
+const helperLines = `struct gp_kp0 {}; struct gp_kp1 : gp_kp0 {}; struct gp_kp2 : gp_kp1 {}; struct gp_kp3 : gp_kp2 {}; struct gp_kp4 : gp_kp3 {}; struct gp_kp5 : gp_kp4 {};
+template <template <class...> class> constexpr bool gp_ktmpl(gp_kp5) { return true; }
+template <template <auto...> class> constexpr bool gp_ktmpl(gp_kp4) { return true; }
+template <template <class, auto...> class> constexpr bool gp_ktmpl(gp_kp3) { return true; }
+template <template <auto, class...> class> constexpr bool gp_ktmpl(gp_kp2) { return true; }
+template <template <class gp_kU, gp_kU...> class> constexpr bool gp_ktmpl(gp_kp1) { return true; }
+template <template <template <class...> class...> class> constexpr bool gp_ktmpl(gp_kp0) { return true; }
+`
+
+// nHelperLines is the number of lines of helperLines.
+var nHelperLines = strings.Count(helperLines, "\n")
+
 // A probeFile is the source of a probe, with the places of its parts. Its
-// lines are, from line 1: includeLines lines per include, blockLines lines
-// per candidate, the canary (the alias that must fail) and the last line.
+// lines are, from line 1: includeLines lines per include, the helper lines
+// (when there are paths and all kinds are asked for), blockLen lines per
+// path, the canary (the alias that must fail) and the last line.
 type probeFile struct {
-	src       []byte
-	nIncludes int
-	nCands    int
+	src        []byte
+	nIncludes  int
+	nPaths     int
+	kinds      bool // all kinds, not only namespaces
+	blockLen   int  // blockLines, or nsBlockLines
+	firstBlock int  // the first line of the first block
 }
 
-func (p *probeFile) firstBlock() int { return includeLines*p.nIncludes + 1 }
-func (p *probeFile) canary() int     { return p.firstBlock() + blockLines*p.nCands }
+func (p *probeFile) canary() int { return p.firstBlock + p.blockLen*p.nPaths }
 
-// makeProbe returns the probe file for the includes and the candidates
-// (each split into its parts).
-func makeProbe(includes []string, cands [][]string) *probeFile {
+// helpers reports whether the line n is one of the helper lines.
+func (p *probeFile) helpers(n int) bool {
+	return n > includeLines*p.nIncludes && n < p.firstBlock
+}
+
+// block returns the index of the path whose block has the line n, and the
+// line's offset in the block, or false.
+func (p *probeFile) block(n int) (path, offset int, ok bool) {
+	if n < p.firstBlock || n >= p.canary() {
+		return 0, 0, false
+	}
+	return (n - p.firstBlock) / p.blockLen, (n - p.firstBlock) % p.blockLen, true
+}
+
+// makeProbe returns the probe file for the includes and the paths (each
+// split into its parts): with all the kind lines (kinds), or only the
+// namespace line.
+func makeProbe(includes []string, paths [][]string, kinds bool) *probeFile {
 	var b bytes.Buffer
 	for i, inc := range includes {
 		fmt.Fprintf(&b, "#include %s\n; template <class> struct gp_inc_%d; using gp_inc_%d_c = ::gp_inc_%d<int>;\n", inc, i, i, i)
 	}
-	for i, parts := range cands {
+	pf := &probeFile{nIncludes: len(includes), nPaths: len(paths), kinds: kinds, blockLen: nsBlockLines, firstBlock: includeLines*len(includes) + 1}
+	if kinds {
+		pf.blockLen = blockLines
+		if len(paths) > 0 {
+			b.WriteString(helperLines)
+			pf.firstBlock += nHelperLines
+		}
+	}
+	for i, parts := range paths {
 		b.WriteString("#if ")
 		for j, p := range parts {
 			if j > 0 {
@@ -350,16 +571,83 @@ func makeProbe(includes []string, cands [][]string) *probeFile {
 			}
 			fmt.Fprintf(&b, "defined(%s)", p)
 		}
-		fmt.Fprintf(&b, "\n#error gp_ns_macro\n#else\nnamespace gp_ns_%d = ::%s;\n#endif\n", i, strings.Join(parts, "::"))
+		p := "::" + strings.Join(parts, "::")
+		b.WriteString("\n#error gp_kind_macro\n#else\n")
+		fmt.Fprintf(&b, "namespace gp_kn_%d = %s;\n", i, p)
+		if kinds {
+			fmt.Fprintf(&b, "using gp_kt_%d = %s;\n", i, p)
+			fmt.Fprintf(&b, "constexpr bool gp_km_%d = gp_ktmpl<%s>(gp_kp5{});\n", i, p)
+			fmt.Fprintf(&b, "using gp_kv_%d = decltype(%s);\n", i, p)
+			fmt.Fprintf(&b, "template <class... gp_kT> auto gp_kw_%d() -> decltype(%s<gp_kT...>);\n", i, p)
+			fmt.Fprintf(&b, "template <auto... gp_kV> auto gp_kx_%d() -> decltype(%s<gp_kV...>);\n", i, p)
+			fmt.Fprintf(&b, "template <class... gp_kT> auto gp_kd_%d(gp_kT... gp_ka) -> decltype(%s{gp_ka...});\n", i, p)
+			fmt.Fprintf(&b, "template <class... gp_kT> auto gp_kc_%d(gp_kT... gp_ka) -> decltype(%s(gp_ka...));\n", i, p)
+		}
+		b.WriteString("#endif\n")
 	}
 	b.WriteString("namespace gp_probe_end = ::gp_probe_no_such_namespace;\n")
 	b.WriteString("namespace gp_probe_eof {}\n")
-	return &probeFile{src: b.Bytes(), nIncludes: len(includes), nCands: len(cands)}
+	pf.src = b.Bytes()
+	return pf
+}
+
+// classify returns the kind of a path whose block had errors on the lines
+// in failed (bit i for line i of the block), for a block with all the kind
+// lines. The first C++ line that compiled gives the kind, in the order of
+// the lines:
+//   - a type also passes the braced and the call lines (a functional
+//     cast), and so does a class template (class template argument
+//     deduction), so these lines count only when the lines before them
+//     failed;
+//   - the braced line is for the class templates whose parameters none of
+//     gp_ktmpl's shapes takes; a value never passes it (x{...} is not an
+//     expression for an object or a function);
+//   - the call line is for an overload set of functions, whose decltype
+//     doesn't compile (std::sqrt has templates too, so it passes a
+//     value-template line first).
+//
+// An error on the #if, #else or #endif line (a part named defined, say)
+// makes the block useless: NotFound.
+func classify(failed uint) Kind {
+	ok := func(line int) bool { return failed&(1<<line) == 0 }
+	switch {
+	case !ok(blockError):
+		return Macro
+	case !ok(blockIf) || !ok(blockElse) || !ok(blockEndif):
+		return NotFound
+	case ok(lineNamespace):
+		return Namespace
+	case ok(lineType):
+		return Type
+	case ok(lineTemplate):
+		return Template
+	case ok(lineValue):
+		return Value
+	case ok(lineValueTmplT), ok(lineValueTmplV):
+		return ValueTemplate
+	case ok(lineBraced):
+		return Template
+	case ok(lineCall):
+		return Value
+	}
+	return NotFound
+}
+
+// classifyNS is classify for a block of the namespace mode.
+func classifyNS(failed uint) Kind {
+	ok := func(line int) bool { return failed&(1<<line) == 0 }
+	switch {
+	case !ok(blockError):
+		return Macro
+	case ok(blockIf) && ok(blockElse) && ok(nsBlockEndif) && ok(lineNamespace):
+		return Namespace
+	}
+	return NotNamespace
 }
 
 // A probeRun is what one run of the probe found out.
 type probeRun struct {
-	kinds   []Kind // per candidate of the run; nil if incErrs isn't empty
+	kinds   []Kind // per path of the run; nil if incErrs isn't empty
 	incErrs []IncludeError
 
 	// deps are the headers outside the system folders that the compiler
@@ -371,10 +659,9 @@ type probeRun struct {
 	start time.Time // when the compiler started
 }
 
-// runProbe runs the probe for the candidates cands (split into parts) with
-// the compiler cxx in the folder dir (absolute, or "").
-func runProbe(ctx context.Context, cxx build.CXX, dir string, includes []string, cands [][]string) (*probeRun, error) {
-	var familyArgs []string
+// familyArgs returns the flags that make the compiler cxx print its
+// messages the way the parser reads them.
+func familyArgs(cxx build.CXX) ([]string, error) {
 	switch cxx.Family {
 	case build.Clang:
 		// -Qunused-arguments: no warnings about flags that a compiler
@@ -382,86 +669,165 @@ func runProbe(ctx context.Context, cxx build.CXX, dir string, includes []string,
 		// include brought in a note's header (the "to match this '{'" of a
 		// header that leaves a brace open). No spell checking: the probe
 		// doesn't use "did you mean", and it costs time with many
-		// misspelled candidates.
-		familyArgs = []string{"-ferror-limit=0", "-Qunused-arguments", "-fno-caret-diagnostics",
-			"-fdiagnostics-show-note-include-stack", "-fno-spell-checking"}
+		// misspelled paths.
+		return []string{"-ferror-limit=0", "-Qunused-arguments", "-fno-caret-diagnostics",
+			"-fdiagnostics-show-note-include-stack", "-fno-spell-checking", "-fmessage-length=0"}, nil
 	case build.GCC:
 		// Without macro tracking, gcc puts an error that comes from a
 		// macro at the place where the macro is used, like clang. With it,
 		// gcc prints the include stack of the header that defines the macro
 		// (<features.h> for stdio.h's __BEGIN_DECLS), and the error would
 		// go to the wrong include.
-		familyArgs = []string{"-fmax-errors=0", "-fno-diagnostics-show-caret", "-ftrack-macro-expansion=0"}
-	default:
-		return nil, unknownFamily(cxx)
+		return []string{"-fmax-errors=0", "-fno-diagnostics-show-caret", "-ftrack-macro-expansion=0", "-fmessage-length=0"}, nil
 	}
+	return nil, unknownFamily(cxx)
+}
 
-	tmp, err := os.MkdirTemp("", "gocpp-nsprobe-")
+// messageFlags are the flags (and the starts of flags) that change only how
+// the compiler prints its messages, not what the code means: the probe
+// drops them from the package's flags, because it reads the messages. A
+// flag after them can't always undo them: g++ 15 keeps
+// -fdiagnostics-format=json after a later -fdiagnostics-format=text.
+// -Werror and -Werror=x don't matter: -w turns every warning off.
+var messageFlags = []string{"-fdiagnostics-", "-fno-diagnostics-", "-fmessage-length=", "-fmax-errors=", "-ferror-limit=",
+	"-Wfatal-errors", "-Wno-fatal-errors", "-fcolor-diagnostics", "-fno-color-diagnostics", "-fcaret-diagnostics",
+	"-fno-caret-diagnostics", "-fshow-column", "-fno-show-column", "-fshow-source-location", "-fno-show-source-location",
+	"-fspell-checking", "-fno-spell-checking", "-ftemplate-backtrace-limit=", "-fconstexpr-backtrace-limit=",
+	"-fmacro-backtrace-limit=", "-ftrack-macro-expansion", "-fno-track-macro-expansion"}
+
+// probeFlags returns the package's flags without the messageFlags.
+func probeFlags(flags []string) []string {
+	return slices.DeleteFunc(slices.Clone(flags), func(f string) bool {
+		return slices.ContainsFunc(messageFlags, func(m string) bool {
+			if strings.HasSuffix(m, "=") || strings.HasSuffix(m, "-") {
+				return strings.HasPrefix(f, m)
+			}
+			return f == m || strings.HasPrefix(f, m+"=")
+		})
+	})
+}
+
+// compilerArgs returns the arguments of a probe run: -std=c++20 and
+// -iquote dir, the package's flags (without the messageFlags), the mode
+// (-fsyntax-only, or -E -dM), the probe's own flags (which the package's
+// flags can't turn off: for most flags the last one wins), the dependency
+// file and the source src.
+func compilerArgs(cxx build.CXX, mode []string, dir string, flags []string, depFile, src string) ([]string, error) {
+	fam, err := familyArgs(cxx)
 	if err != nil {
-		return nil, fmt.Errorf("namespace probe: %w", err)
+		return nil, err
 	}
-	defer os.RemoveAll(tmp)
-	// The compiler runs in dir, so a relative TMPDIR must not stay relative.
-	if tmp, err = filepath.Abs(tmp); err != nil {
-		return nil, fmt.Errorf("namespace probe: %w", err)
-	}
-	pf := makeProbe(includes, cands)
-	src := filepath.Join(tmp, "gp_probe.cpp")
-	if err := os.WriteFile(src, pf.src, 0o644); err != nil {
-		return nil, fmt.Errorf("namespace probe: %w", err)
-	}
-	depFile := filepath.Join(tmp, "gp_probe.d")
-
-	args := []string{"-fsyntax-only", "-std=c++20", "-x", "c++", "-w", "-fdiagnostics-color=never"}
-	args = append(args, familyArgs...)
-	args = append(args, "-MMD", "-MF", depFile, "-MT", "gp_probe")
+	args := []string{"-std=c++20"}
 	if dir != "" {
 		args = append(args, "-iquote", dir)
 	}
-	args = append(args, src)
+	args = append(args, probeFlags(flags)...)
+	args = append(args, mode...)
+	args = append(args, "-w", "-Wno-fatal-errors", "-fdiagnostics-color=never")
+	args = append(args, fam...)
+	args = append(args, "-MMD", "-MF", depFile, "-MT", "gp_probe", "-x", "c++", src)
+	return args, nil
+}
+
+// maxReruns is the number of times that the probe runs again without a
+// path whose lines stopped the compiler (see ProbeKinds).
+const maxReruns = 3
+
+// runProbe runs the probe for the paths (split into parts) with the
+// compiler cxx in the folder dir (absolute, or ""), with all the kind lines
+// (kinds) or only the namespace lines. When a path's lines stop the
+// compiler (errStopped), that path is NotFound (NotNamespace), and the
+// probe runs again without it.
+func runProbe(ctx context.Context, cxx build.CXX, dir string, flags, includes []string, paths [][]string, kinds bool) (*probeRun, error) {
+	stopped := NotNamespace
+	if kinds {
+		stopped = NotFound
+	}
+	all := make([]Kind, len(paths))
+	left := make([]int, len(paths)) // the indexes of the paths still probed
+	for i := range left {
+		left[i] = i
+	}
+	var start time.Time
+	for try := 0; ; try++ {
+		sub := make([][]string, len(left))
+		for j, i := range left {
+			sub[j] = paths[i]
+		}
+		run, err := runProbeOnce(ctx, cxx, dir, flags, includes, sub, kinds)
+		if try == 0 && run != nil {
+			start = run.start
+		}
+		var stop *errStopped
+		if errors.As(err, &stop) && try < maxReruns {
+			all[left[stop.path]] = stopped
+			left = slices.Delete(left, stop.path, stop.path+1)
+			if start.IsZero() {
+				start = stop.start
+			}
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !start.IsZero() {
+			run.start = start // the first run's: the files must be older than that
+		}
+		if run.incErrs != nil {
+			return run, nil
+		}
+		for j, i := range left {
+			all[i] = run.kinds[j]
+		}
+		run.kinds = all
+		return run, nil
+	}
+}
+
+// runProbeOnce runs the probe once (see runProbe).
+func runProbeOnce(ctx context.Context, cxx build.CXX, dir string, flags, includes []string, paths [][]string, kinds bool) (*probeRun, error) {
+	tmp, err := probeTemp()
+	if err != nil {
+		return nil, fmt.Errorf("kind probe: %w", err)
+	}
+	defer os.RemoveAll(tmp)
+	pf := makeProbe(includes, paths, kinds)
+	src := filepath.Join(tmp, "gp_probe.cpp")
+	if err := os.WriteFile(src, pf.src, 0o644); err != nil {
+		return nil, fmt.Errorf("kind probe: %w", err)
+	}
+	depFile := filepath.Join(tmp, "gp_probe.d")
+	args, err := compilerArgs(cxx, []string{"-fsyntax-only"}, dir, flags, depFile, src)
+	if err != nil {
+		return nil, err
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	out := &capBuffer{max: maxProbeOutput, stop: cancel}
 	start := time.Now()
-	// build.Start starts it again after ETXTBSY (a compiler wrapper that
-	// was just written).
-	cmd, err := build.Start(ctx, func() *exec.Cmd {
-		cmd := cxx.Command(ctx, args...) // with the compiler's own Args (CXX="ccache g++")
-		cmd.Dir = dir
-		cmd.Env = probeEnv(tmp, dir)
-		cmd.Stdout, cmd.Stderr = out, out
-		cmd.WaitDelay = waitDelay
-		build.InGroup(cmd)
-		return cmd
-	})
-	if err == nil {
-		err = cmd.Wait()
-		build.KillGroup(cmd) // whatever the compiler left running
-	}
+	cmd, err := runCompiler(ctx, cxx, dir, tmp, args, out, out)
 	name := cxx.Name()
-	switch {
-	case out.full:
-		// The include errors so far are enough: then the candidates are
-		// Unknown anyway.
+	if out.full {
+		// The include errors so far are enough: then the paths are Unknown
+		// anyway.
 		if run, err := readOutput(pf, out.buf.Bytes(), src, includes); err == nil && run.incErrs != nil {
 			run.start = start
 			return run, nil
 		}
-		return nil, fmt.Errorf("namespace probe: %s printed more than %d MiB", name, maxProbeOutput>>20)
-	case ctx.Err() != nil:
-		return nil, fmt.Errorf("namespace probe: %s was stopped: %w", name, ctx.Err())
-	case cmd.ProcessState == nil:
-		return nil, fmt.Errorf("namespace probe: %s didn't start: %w", name, err)
-	case errors.Is(err, exec.ErrWaitDelay):
-		return nil, fmt.Errorf("namespace probe: %s exited, but a process that it started kept its output open", name)
-	case !cmd.ProcessState.Exited():
-		return nil, fmt.Errorf("namespace probe: %s: %v%s", name, cmd.ProcessState, outputExcerpt(out.buf.Bytes()))
+		return nil, fmt.Errorf("kind probe: %s printed more than %d MiB", name, maxProbeOutput>>20)
+	}
+	if err := runFailure(ctx, name, cmd, err, out.buf.Bytes()); err != nil {
+		return nil, fmt.Errorf("kind probe: %w", err)
 	}
 
 	run, err := readOutput(pf, out.buf.Bytes(), src, includes)
 	if err != nil {
-		return nil, fmt.Errorf("namespace probe: %s: %w", name, err)
+		var stop *errStopped
+		if errors.As(err, &stop) {
+			stop.start = start
+		}
+		return nil, fmt.Errorf("kind probe: %s: %w", name, err)
 	}
 	run.start = start
 	if data, err := os.ReadFile(depFile); err == nil {
@@ -470,9 +836,75 @@ func runProbe(ctx context.Context, cxx build.CXX, dir string, includes []string,
 	return run, nil
 }
 
+// errStopped is readOutput's error when the compiler stopped at a fatal
+// error on the lines of a path, before the canary.
+type errStopped struct {
+	path  int       // the index of the path in the run
+	msg   string    // the error message
+	start time.Time // when the run started (set by runProbeOnce)
+}
+
+func (e *errStopped) Error() string { return e.msg }
+
+// probeTemp makes a new temporary folder for a probe run and returns its
+// absolute path.
+func probeTemp() (string, error) {
+	tmp, err := os.MkdirTemp("", "gocpp-probe-")
+	if err != nil {
+		return "", err
+	}
+	// The compiler runs in dir, so a relative TMPDIR must not stay relative.
+	abs, err := filepath.Abs(tmp)
+	if err != nil {
+		os.RemoveAll(tmp)
+		return "", err
+	}
+	return abs, nil
+}
+
+// runCompiler runs the compiler cxx with args in the folder dir, with the
+// temporary folder tmp, and waits for it and for its output. It runs in a
+// process group of its own, and whatever the compiler left running is
+// killed. The error is cmd.Wait's.
+func runCompiler(ctx context.Context, cxx build.CXX, dir, tmp string, args []string, stdout, stderr io.Writer) (*exec.Cmd, error) {
+	// build.Start starts it again after ETXTBSY (a compiler wrapper that
+	// was just written).
+	cmd, err := build.Start(ctx, func() *exec.Cmd {
+		cmd := cxx.Command(ctx, args...) // with the compiler's own Args (CXX="ccache g++")
+		cmd.Dir = dir
+		cmd.Env = probeEnv(tmp, dir)
+		cmd.Stdout, cmd.Stderr = stdout, stderr
+		cmd.WaitDelay = waitDelay
+		build.InGroup(cmd)
+		return cmd
+	})
+	if err == nil {
+		err = cmd.Wait()
+		build.KillGroup(cmd) // whatever the compiler left running
+	}
+	return cmd, err
+}
+
+// runFailure returns the error for a run of the compiler name that didn't
+// end on its own (cmd and err are runCompiler's, ctx the run's context, out
+// its output), or nil when it exited, also with an error status.
+func runFailure(ctx context.Context, name string, cmd *exec.Cmd, err error, out []byte) error {
+	switch {
+	case ctx.Err() != nil:
+		return fmt.Errorf("%s was stopped: %w", name, ctx.Err())
+	case cmd.ProcessState == nil:
+		return fmt.Errorf("%s didn't start: %w", name, err)
+	case errors.Is(err, exec.ErrWaitDelay):
+		return fmt.Errorf("%s exited, but a process that it started kept its output open", name)
+	case !cmd.ProcessState.Exited():
+		return fmt.Errorf("%s: %v%s", name, cmd.ProcessState, outputExcerpt(out))
+	}
+	return nil
+}
+
 // unknownFamily is the error for a compiler that is neither clang nor gcc.
 func unknownFamily(cxx build.CXX) error {
-	return fmt.Errorf("namespace probe: C++ compiler %s: unknown family %v", cxx.Path, cxx.Family)
+	return fmt.Errorf("unknown family %v of the C++ compiler %s", cxx.Family, cxx.Path)
 }
 
 // probeEnv returns the environment of the compiler: build.CompilerEnv
@@ -529,6 +961,14 @@ var (
 	// "cc1plus: fatal error: ...", "clang++: error: clang frontend command
 	// failed", or a crash ("internal compiler error").
 	otherErrRx = regexp.MustCompile(`(?:^|: )(?:fatal error|error|internal compiler error): `)
+
+	// gcc's context lines before an error in a template's instantiation:
+	// "x.h: In instantiation of 'struct B<int>':" starts a context, and
+	// "gp_probe.cpp:32:25:   required from here" is the place in the
+	// source that asked for the instantiation (gcc prints "required from
+	// 'X'" lines for the steps in between).
+	gccContextRx = regexp.MustCompile(`^.+?: (?:In [a-z ]+|At global scope)\b.*:$`)
+	gccHereRx    = regexp.MustCompile(`^(.+?):(\d+):(?:\d+:)?\s+required from here$`)
 )
 
 // A diagnostic is one error or note that the compiler reported.
@@ -541,7 +981,8 @@ type diagnostic struct {
 
 	// probeLine is the line of the probe file it belongs to: its own line
 	// when it is in the probe file, else the #include line that brought in
-	// its header. It is 0 when the probe can't tell.
+	// its header, or the line that asked for the template instantiation
+	// that it is in. It is 0 when the probe can't tell.
 	probeLine int
 }
 
@@ -554,10 +995,20 @@ func (d *diagnostic) isError() bool { return d.severity != "note" }
 // had a message before: clang prints no stack for the next message in the
 // same header, and gcc prints the stack of an #include only once. So the
 // parser remembers, for each header, the probe line that brought it in.
+//
+// An error in a header that comes from the instantiation of a template
+// that a line of the probe file asked for (the class of
+// ::BadTypedef::member, where BadTypedef is a specialization that doesn't
+// compile) belongs to that line instead: the header compiles on its own.
+// gcc says so before the error ("gp_probe.cpp:32:25:   required from
+// here", and the context stays for the next errors until another one
+// starts), clang in a note after it ("in instantiation of template class
+// 'B<int>' requested here").
 func parseDiagnostics(out []byte, probe string) []diagnostic {
 	var diags []diagnostic
 	var stack []string          // the files of the include stack just printed
 	stackLine := 0              // the stack's line in the probe file, 0 if none
+	instLine := 0               // gcc: the probe line of the instantiation context, 0 if none
 	headers := map[string]int{} // header file -> probe line
 	for line := range strings.SplitSeq(string(out), "\n") {
 		line = strings.TrimSuffix(line, "\r")
@@ -569,9 +1020,18 @@ func parseDiagnostics(out []byte, probe string) []diagnostic {
 			}
 			continue
 		}
+		if m := gccHereRx.FindStringSubmatch(line); m != nil {
+			if samePath(m[1], probe) {
+				instLine, _ = strconv.Atoi(m[2])
+			}
+			continue
+		}
 		m := diagRx.FindStringSubmatch(line)
 		if m == nil {
-			if otherErrRx.MatchString(line) {
+			switch {
+			case gccContextRx.MatchString(line):
+				instLine = 0
+			case otherErrRx.MatchString(line):
 				diags = append(diags, diagnostic{severity: "error", text: line})
 			}
 			continue
@@ -582,6 +1042,9 @@ func parseDiagnostics(out []byte, probe string) []diagnostic {
 		switch file := filepath.Clean(d.file); {
 		case samePath(d.file, probe):
 			d.probeLine = d.line
+			if d.isError() {
+				instLine = 0
+			}
 		case stackLine != 0:
 			d.probeLine = stackLine
 			headers[file] = stackLine
@@ -591,9 +1054,32 @@ func parseDiagnostics(out []byte, probe string) []diagnostic {
 		default:
 			d.probeLine = headers[file]
 		}
+		if instLine != 0 && d.isError() && !samePath(d.file, probe) {
+			d.probeLine = instLine
+		}
 		stack, stackLine = stack[:0], 0
 		if d.severity != "warning" && d.severity != "remark" { // -w leaves none anyway
 			diags = append(diags, d)
+		}
+	}
+	// clang: an error in a header, then the notes of its instantiation
+	// stack, the last one at the place that asked for it. Only the notes
+	// that end in " requested here" count (in instantiation of template
+	// class, of function template specialization, of member function, of
+	// default argument ...): clang has other wordings for other contexts
+	// ("required here", "needed here"), which the probe's lines don't make.
+	for i := range diags {
+		d := &diags[i]
+		if !d.isError() || d.file == "" || samePath(d.file, probe) {
+			continue
+		}
+		for _, note := range diags[i+1:] {
+			if note.isError() {
+				break
+			}
+			if samePath(note.file, probe) && strings.HasSuffix(note.msg, " requested here") {
+				d.probeLine = note.line
+			}
 		}
 	}
 	return diags
@@ -607,21 +1093,21 @@ func samePath(a, b string) bool {
 }
 
 // readOutput reads the compiler output out of the probe pf at the path
-// src: which candidates have errors, and which includes.
+// src: which lines of the paths have errors, and which includes.
 func readOutput(pf *probeFile, out []byte, src string, includes []string) (*probeRun, error) {
-	run := &probeRun{kinds: make([]Kind, pf.nCands)}
-	for i := range run.kinds {
-		run.kinds[i] = Namespace
-	}
+	run := &probeRun{}
+	failed := make([]uint, pf.nPaths) // per path, its lines with errors
 	canary := false
 	var unexpected []diagnostic
+	var last *diagnostic // the last error
 	diags := parseDiagnostics(out, src)
 	for i, d := range diags {
 		if !d.isError() {
 			continue
 		}
+		last = &diags[i]
 		switch n := d.probeLine; {
-		case n >= 1 && n < pf.firstBlock():
+		case n >= 1 && n <= includeLines*pf.nIncludes:
 			index := (n - 1) / includeLines
 			ie := IncludeError{Index: index, Include: includes[index], Msg: d.msg}
 			switch {
@@ -635,8 +1121,9 @@ func readOutput(pf *probeFile, out []byte, src string, includes []string) (*prob
 				ie.Kind = HeaderNotFound
 			}
 			run.incErrs = append(run.incErrs, ie)
-		case n >= pf.firstBlock() && n < pf.canary():
-			run.kinds[(n-pf.firstBlock())/blockLines] = NotNamespace
+		case n >= pf.firstBlock && n < pf.canary():
+			path, offset, _ := pf.block(n)
+			failed[path] |= 1 << offset
 		case n == pf.canary():
 			canary = true
 		case n > pf.canary() && samePath(d.file, src):
@@ -648,6 +1135,8 @@ func readOutput(pf *probeFile, out []byte, src string, includes []string) (*prob
 			}
 			unexpected = append(unexpected, d)
 		default:
+			// Also an error in the helper lines: a header that defines a
+			// macro that breaks them.
 			unexpected = append(unexpected, d)
 		}
 	}
@@ -659,14 +1148,29 @@ func readOutput(pf *probeFile, out []byte, src string, includes []string) (*prob
 		// before the syntax errors of the headers above it.
 		slices.SortStableFunc(run.incErrs, func(a, b IncludeError) int { return a.Index - b.Index })
 		run.incErrs = slices.CompactFunc(run.incErrs, func(a, b IncludeError) bool { return a.Index == b.Index })
-		run.kinds = nil
 		return run, nil
 	case len(unexpected) > 0:
 		// A driver error (a bad flag), a crash: the probe can't say what
 		// it means.
 		return nil, fmt.Errorf("unexpected error: %s", strings.ReplaceAll(unexpected[0].text, src, filepath.Base(src)))
 	case !canary:
-		return nil, fmt.Errorf("it didn't check the whole probe file (no error for its line %d)%s", pf.canary(), outputExcerpt(out))
+		msg := fmt.Sprintf("it didn't check the whole probe file (no error for its line %d)%s", pf.canary(), outputExcerpt(out))
+		if last != nil && last.severity == "fatal error" {
+			if path, _, ok := pf.block(last.probeLine); ok {
+				// A path's lines stopped the compiler (a template
+				// instantiation that is too deep).
+				return nil, &errStopped{path: path, msg: msg}
+			}
+		}
+		return nil, errors.New(msg)
+	}
+	run.kinds = make([]Kind, pf.nPaths)
+	for i, f := range failed {
+		if pf.kinds {
+			run.kinds[i] = classify(f)
+		} else {
+			run.kinds[i] = classifyNS(f)
+		}
 	}
 	return run, nil
 }
@@ -680,7 +1184,7 @@ func openBrace(d diagnostic, notes []diagnostic, pf *probeFile, src string, incl
 		if note.isError() {
 			break
 		}
-		if n := note.probeLine; n >= 1 && n < pf.firstBlock() && note.file != "" && !samePath(note.file, src) {
+		if n := note.probeLine; n >= 1 && n <= includeLines*pf.nIncludes && note.file != "" && !samePath(note.file, src) {
 			index := (n - 1) / includeLines
 			return IncludeError{Index: index, Include: includes[index], File: filepath.Clean(note.file),
 				Line: note.line, Column: note.col, Msg: d.msg + " (" + note.msg + ")"}, true

@@ -69,13 +69,14 @@ type Config struct {
 	// Result.Dep of the check that checked it.
 	Deps func(lp *load.Package) Dep
 
-	// Probe, if not nil, replaces interop.ProbeNamespaces: Check calls it
-	// once per include set of a package, with the compiler that CXX gave.
+	// Probe, if not nil, replaces interop.ProbeNamespaces: Check calls it once
+	// per include set of a package, with the compiler that CXX gave, the
+	// package's flags (none yet: step 4.15) and the namespace candidates.
 	// The language server (Phase 11, step 11.4) answers from what it knows
 	// at once (the names it doesn't know yet are Unknown, so their uses stay
 	// opaque) and runs the real probe in the background; the tests of this
 	// package use it for headers that mostly don't exist.
-	Probe func(ctx context.Context, cxx build.CXX, dir string, includes, candidates []string) (interop.Result, error)
+	Probe func(ctx context.Context, cxx build.CXX, dir string, flags, includes, candidates []string) (interop.Result, error)
 
 	// Partial, if set, type-checks the packages with load errors too, for
 	// Package.Partial only: the language server (Phase 11, step 11.5)

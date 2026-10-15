@@ -365,7 +365,7 @@ type quickProbe struct {
 	incErr bool
 }
 
-func (q *quickProbe) probe(_ context.Context, _ build.CXX, _ string, includes, cands []string) (interop.Result, error) {
+func (q *quickProbe) probe(_ context.Context, _ build.CXX, _ string, _, includes, cands []string) (interop.Result, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.calls++
