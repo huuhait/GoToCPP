@@ -556,7 +556,7 @@ func TestCheckErrors(t *testing.T) {
 	t.Setenv("GOCPP_CXX", "no-such-c++")
 	inDir(t, map[string]string{
 		"typeerr/main.gp": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(count)\n}\n",
-		"gate/main.gp":    "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tc := make(chan int, 1)\n\tfmt.Println(len(c))\n}\n",
+		"gate/main.gp":    "package main\n\nimport _ \"unsafe\"\n\n//go:linkname now time.now\nfunc now() int { return 0 }\n\nfunc main() {}\n", // a feature gocpp never has (check.Never), so no phase changes it
 		"syntax/main.gp":  "package main\n\nfunc main() {\n\tx :=\n}\n",
 		"load/main.gp":    "package main\n\nimport \"example.com/nowhere\"\n\nfunc main() {}\n",
 		"warn/main.gp":    "package main\n\nfunc main() {}\n",

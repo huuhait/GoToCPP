@@ -423,8 +423,13 @@ func quoteWord(s string) string {
 
 // MoveFile moves the file from to the path to, replacing it: with a
 // rename, or a copy when they are on different file systems. The file
-// keeps its mode.
+// keeps its mode. When to exists and isn't a regular file (a device such
+// as /dev/null, a named pipe), the program is written into it, as `go
+// build -o /dev/null` does, and from is removed.
 func MoveFile(from, to string) error {
+	if fi, err := os.Stat(to); err == nil && !fi.Mode().IsRegular() && !fi.IsDir() {
+		return writeInto(from, to)
+	}
 	if err := os.Rename(from, to); err == nil {
 		return nil
 	}
@@ -456,4 +461,25 @@ func MoveFile(from, to string) error {
 		}
 	}
 	return os.Rename(tmp.Name(), to)
+}
+
+// writeInto writes the file from into to, which exists and isn't a
+// regular file (MoveFile), and removes from.
+func writeInto(from, to string) error {
+	data, err := os.ReadFile(from)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(to, os.O_WRONLY|os.O_TRUNC, 0)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Remove(from)
 }

@@ -58,15 +58,16 @@ func (fg *funcGen) fmtFunc(c *ast.CallExpr) *types.Func {
 }
 
 // pkgFunc returns the C++ name of the function of another package that c calls, pkg.F, or ""
-// (with an error) if there is none yet.
+// (with an error) if there is none yet. (A method call, a call of a func value and T.M(x) are
+// lowered before: methods.go, closures.go.)
 func (fg *funcGen) pkgFunc(c *ast.CallExpr, sel *ast.SelectorExpr) string {
 	fn, _ := fg.g.info.Uses[sel.Sel].(*types.Func)
 	if fn == nil || fn.Pkg() == nil || fg.g.info.Selections[sel] != nil {
-		fg.g.unsupported(c.Pos(), "method calls (Phase 03)")
+		fg.g.unsupported(c.Pos(), "the call of "+types.ExprString(c.Fun))
 		return ""
 	}
 	if fn.Pkg().Path() != "fmt" || !fmtFuncs[fn.Name()] {
-		fg.g.unsupported(c.Pos(), fn.Pkg().Name()+"."+fn.Name()+": Phase 03 has only fmt.Print, Println, Printf, Sprint, Sprintln and Sprintf")
+		fg.g.unsupported(c.Pos(), "the call of "+fn.Pkg().Name()+"."+fn.Name()+" (gocpp lowers only fmt.Print, Println, Printf, Sprint, Sprintln and Sprintf)")
 		return ""
 	}
 	if fmtFormatted(fn.Name()) && len(c.Args) > 0 {

@@ -362,7 +362,7 @@ func TestUnsupported(t *testing.T) {
 	tests := []struct {
 		name, src, want string
 	}{
-		{"makechan", "func main() {\n\t_ = make(chan int)\n}", "main.gp:4:6: cppgen: not supported yet: make of chan int (Phase 03)"},
+		{"makechan", "func main() {\n\t_ = make(chan int)\n}", "main.gp:4:6: cppgen: not supported yet: make of chan int (Phase 08)"},
 		{"bytes-named-elem", "type MyByte byte\nfunc main() {\n\t_ = []MyByte(\"ab\")\n}", "main.gp:5:6: cppgen: not supported yet: the conversion from string to []MyByte"},
 		{"runes-named-elem", "type R rune\nfunc main() {\n\t_ = string([]R{'a'})\n}", "main.gp:5:6: cppgen: not supported yet: the conversion from []R to string"},
 		{"slice-tags", "func main() {\n\t_ = []struct{ Q int }([]struct {\n\t\tQ int `t:\"q\"`\n\t}{})\n}", `main.gp:4:6: cppgen: not supported yet: the conversion from []struct{Q int "t:\"q\""} to []struct{Q int}`},
@@ -375,7 +375,7 @@ func TestUnsupported(t *testing.T) {
 		{"printf-star", "import \"fmt\"\nfunc main() {\n\tfmt.Printf(\"%-*d\\n\", 1, 2)\n}", `main.gp:5:13: cppgen: not supported yet: the fmt.Printf directive %-*d (Phase 09)`},
 		{"printf-index", "import \"fmt\"\nfunc main() {\n\tfmt.Printf(\"%5.1[1]f\\n\", 1.5)\n}", `main.gp:5:13: cppgen: not supported yet: the fmt.Printf directive %5.1[1]f (Phase 09)`},
 		{"sprintf-goverb", "import \"fmt\"\nfunc main() {\n\tprintln(fmt.Sprintf(\"%-5q %T\", \"a\", 1))\n}", `main.gp:5:22: cppgen: not supported yet: the fmt.Sprintf directive %T (Phase 05)`},
-		{"errorf", "import \"fmt\"\nfunc main() {\n\t_ = fmt.Errorf(\"x\")\n}", "main.gp:5:6: cppgen: not supported yet: fmt.Errorf: Phase 03 has only fmt.Print, Println, Printf, Sprint, Sprintln and Sprintf"},
+		{"errorf", "import \"fmt\"\nfunc main() {\n\t_ = fmt.Errorf(\"x\")\n}", "main.gp:5:6: cppgen: not supported yet: the call of fmt.Errorf (gocpp lowers only fmt.Print, Println, Printf, Sprint, Sprintln and Sprintf)"},
 		{"printf-goverb", "import \"fmt\"\nfunc main() {\n\tfmt.Printf(\"%z %x\\n\", 1, 2)\n}", `main.gp:5:13: cppgen: not supported yet: the fmt.Printf directive %x (Phase 09)`},
 		{"errorresult", "import \"fmt\"\nfunc main() {\n\tn, err := fmt.Println()\n\tprintln(n, err)\n}", "main.gp:5:5: cppgen: not supported yet: type error"},
 		{"rangechan", "func main() {\n\tfor range make(chan int) {\n\t}\n}", "main.gp:4:12: cppgen: not supported yet: range over channels (Phase 08)"},

@@ -710,11 +710,20 @@ fmt.Println(ok, set()) // Go and gocpp: false true
   after the calls, while gc copies it when it inlines the literal, whose parameters then become
   locals of the caller: `f := func(a [1]bool) { fmt.Println(a[gk], setk()) }; f([1]bool{})`
   prints `false 0` in Go, where gocpp indexes with the new `gk` (and here panics). The same rule
-  and the same differences hold for the key of a map whose map call takes the key's address (a
-  `bool`, `int8`, `int16`, `uint8` or `uint16` key, a float, most arrays and structs): with `mb`
-  a `map[bool]int`, `fmt.Println(mb[ok], set())` reads the old `ok` when gc inlines `set` (step
-  3.12). A program that wants one answer evaluates the call first (`r := set(); fmt.Println(ok,
-  r)`) or passes the value it means.
+  and the same differences hold for a map key that is such a local (or a part of one, as above)
+  when the map call takes the key by address. gc's map call does that for every key of a map
+  whose value is over 128 bytes, and otherwise for a key that is neither a string nor 4 or 8
+  bytes of plain memory (an `int32`, an `int`, a pointer, a channel, or an array or a struct of
+  integers, bools, pointers and channels without padding and without blank `_` fields, such as
+  `[2]int16`; an array or a struct that holds just one string counts as a string): a `bool`,
+  `int8`, `int16`, `uint8` or `uint16` key, a float, a complex number, an interface, most arrays
+  and structs. With `mb` a `map[bool]int`, `fmt.Println(mb[ok], set())` reads the old `ok` when
+  gc inlines `set` (step 3.12). On such a slow call, a key that gc doesn't keep in registers is
+  never copied: with `ka` a `[3]int32` (an array of more than one element), `mk[ka]` reads the
+  new `ka` in Go and gocpp (a 4- or 8-byte array or struct key of a fast call is always copied,
+  in Go and gocpp: [cpp-mapping.md](cpp-mapping.md#order-of-evaluation)). The rule is `orderKey`
+  in `internal/lower/maps.go`. A program that wants one answer evaluates the call first (`r :=
+  set(); fmt.Println(ok, r)`) or passes the value it means.
 - **Phase:** [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#210-builtins-printing-and-package-initialization).
   The rule is in `internal/lower/inplace.go`; `tests/diff/fmt_closure_locals.gp` has the cases
   where both agree. Phase 15's escape analysis may get closer to gc's.

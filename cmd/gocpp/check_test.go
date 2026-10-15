@@ -779,7 +779,8 @@ func examplesGates(t *testing.T) map[string][]string {
 var exampleGateRx = regexp.MustCompile(`(?:not supported yet|not available yet) \(Phase (\d\d)\)$|(not supported in gocpp)$`)
 
 // examplePhase returns the phase in a gate error line of examples.txt
-// (check.Never for a feature that never comes).
+// (check.Never for a feature that never comes). It copies internal/check's
+// gatePhase (gates_test.go): keep the two in step.
 func examplePhase(t *testing.T, line string) int {
 	t.Helper()
 	m := exampleGateRx.FindStringSubmatch(line)

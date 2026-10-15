@@ -60,7 +60,7 @@ func (fg *funcGen) compositeLit(e *ast.CompositeLit) cppir.Expr {
 	}
 	st, ok := under(t).(*types.Slice) // also of a named slice type (litValue converts it)
 	if !ok {
-		fg.g.unsupported(e.Lbrace, "composite literals of type "+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))+" (Phase 03)")
+		fg.g.unsupported(e.Lbrace, "composite literals of type "+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types)))
 		return placeholder
 	}
 	elem := fg.g.cxxType(st.Elem(), e.Pos())
@@ -93,7 +93,13 @@ func (fg *funcGen) sliceBuiltin(c *ast.CallExpr, name string) cppir.Expr {
 	t := fg.g.info.TypeOf(arg)
 	if !isSlice(t) {
 		what := map[string]string{"make": "make of ", "append": "append to ", "copy": "copy to ", "clear": "clear of "}[name]
-		fg.g.unsupported(c.Pos(), what+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))+" (Phase 03)")
+		phase := ""
+		if _, ok := types.Unalias(t).(*types.TypeParam); ok {
+			phase = " (Phase 07)"
+		} else if _, ok := under(t).(*types.Chan); ok {
+			phase = " (Phase 08)"
+		}
+		fg.g.unsupported(c.Pos(), what+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))+phase)
 		return placeholder
 	}
 	switch name {

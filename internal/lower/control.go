@@ -650,7 +650,10 @@ func rangeKind(t types.Type) string {
 	if hasC(t) {
 		return "range over C/C++ values (gp::range, step 4.7)"
 	}
-	return "range over " + types.TypeString(t, nil) + " (Phase 03)"
+	if _, ok := types.Unalias(t).(*types.TypeParam); ok {
+		return "range over type parameters (Phase 07)"
+	}
+	return "range over " + types.TypeString(t, nil)
 }
 
 // withLead returns s, with the statements lead in front of it on its first line (a Line), if

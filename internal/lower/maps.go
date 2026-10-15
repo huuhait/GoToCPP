@@ -439,7 +439,8 @@ func (fg *funcGen) mapBuiltin(c *ast.CallExpr, name string) cppir.Expr {
 	case "clear":
 		return call("gp::clear", fg.expr(arg))
 	}
-	fg.g.unsupported(c.Pos(), name+" of "+types.TypeString(fg.g.info.TypeOf(arg), types.RelativeTo(fg.g.pkg.Types))+" (Phase 03)")
+	// go/types rejects append and copy on a map.
+	fg.g.errorf(c.Pos(), "internal error: %s of %s (a construct the checker should have rejected)", name, types.TypeString(fg.g.info.TypeOf(arg), types.RelativeTo(fg.g.pkg.Types)))
 	return placeholder
 }
 
