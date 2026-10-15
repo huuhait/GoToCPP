@@ -5,7 +5,7 @@ spec; gc 1.25.14 doesn't. Not filed: the user decides whether to file it at gith
 
 **Title:** cmd/compile: wrong result for ((x >> c) & d) << e when the constant shift count c does not fit in int64
 
-What version of Go are you using? go1.25.14 linux/amd64. The rules below are unchanged on master (checked 2026-10-15).
+What version of Go are you using? Found with go1.25.14 linux/amd64; still wrong in the latest releases go1.27.2 and go1.26.9 (both print `16 16 16` for f(3), f(-3) and an int32 variant, where the spec gives `0 24 0`). The rules below are unchanged on master (checked 2026-10-15).
 
 The program below should print 0: x >> ^uint(0) is 0 for x >= 0 (Go spec: shifts by a count >= the width
 give 0 or -1). On amd64 it prints 16 (checked). On arm64, f compiles to `UBFIZ $4, R0, $1`, which also gives 16 (checked from the assembly; not run). On 386 it prints 0, because uint is 32 bits there. With a
@@ -41,4 +41,7 @@ Checked by the manager on 2026-10-15 with go1.25.14: f(3) = 16 and f(-3) = 16 on
 on GOARCH=386, f(3) = 0 and f(-3) = 24, but x >> ^uint64(0) gives 16 for int, int32 and int8 x; unsigned x
 gives 0; a count of 1<<63 gives 0. No existing Go issue was found in a quick search, but none was done
 carefully: search the tracker before filing.
+2026-10-15: re-run with GOTOOLCHAIN=go1.27.2 and go1.26.9 (the latest stable releases): both still miscompile.
+A quick web search found related but different shift fixes (golang/go#48479, commits 8dcb317 and f2f369d),
+not this one.
 
