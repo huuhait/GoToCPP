@@ -39,7 +39,7 @@
 - [x] 3.15 Remaining builtins + `fmt` shim for composite values (slices, maps sorted, structs, `&{…}`, `String()`) (3.15a runtime shim, 3.15b emitter side, 3.15c complex numbers)
 - [x] 3.16 Package-level vars (`InitOrder`) + multiple `init()`
 - [x] 3.17 `gocppSizes` + `static_assert` sync
-- [ ] 3.18 Tests: ≥ 150 run, ≥ 60 differential, sanitizer CI job
+- [~] 3.18 Tests: ≥ 150 run, ≥ 60 differential, sanitizer CI job (job 3.18; also the weak.Pointer intrinsic, which no earlier step lowered)
 
 ## Exit criteria
 
