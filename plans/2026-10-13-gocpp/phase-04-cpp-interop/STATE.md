@@ -19,7 +19,7 @@
 - [ ] 4.10 `unsafe` + pointers (owning `unsafe.Pointer`, `SliceData`/`String`/`Slice` keep owners, `std::span`, `gp::ptr` → `T*`) + ASan test
 - [ ] 4.11 Callbacks (function pointers, `std::function`, `cgo.Handle`) + panic trampolines
 - [ ] 4.12 C++ exception → fatal Go-style panic; fmt shim prints C++ values (raw pointers as addresses)
-- [~] 4.13 Compile + link package `.c/.cc/.cpp/.cxx` sources
+- [x] 4.13 Compile + link package `.c/.cc/.cpp/.cxx` sources
 - [ ] 4.14 `extern "C"` rule (parse-as-C, `.hpp` not wrapped by default, `//gocpp:extern-c <hdr>`, `no-extern-c`, the §2.9 error cases)
 - [x] 4.15 Directives → flags (`pkg-config`, `link`, `cflags`, `ldflags`) + the flag allow-list (port Go's security.go tables, `GOCPP_*_ALLOW`); tests use a test-only library with its own `.pc` (the dev shell hides missing flags)
 - [ ] 4.16 Local helper headers used as packages (replaces the preamble) + `C` helpers (`C.free`)
@@ -140,4 +140,12 @@
   an inline function in a helper header is compiled with `-fwrapv` in generated code and without it in the
   user's .cpp, and the linker keeps one copy: document it. For Phase 14: check MinGW headers under
   `__STRICT_ANSI__` with `-std=c++20`.
+- 2026-10-15: Job 4.13 (a package's .c and .cc/.cpp/.cxx files: found with the .gp files' build rules (name
+  suffixes, `//go:build` in the leading comments, read like go/build), assembly/Fortran/SWIG/.syso are errors;
+  C with the toolchain's C compiler or GOCPP_CC at `-std=gnu17`, C++ at `-std=c++20`; `-g -O0`, the -asan
+  flags, `-iquote <pkg dir>`, `-include nofortify.h`, env then package flags, never gocpp's generated-code
+  flags; up to 8 compiles in parallel; warnings and errors under `# pkg` with `./` paths; link order: generated,
+  user, runtime objects, then the -l flags) committed, clean after 3 review rounds. The test harness now sets
+  its own XDG_CACHE_HOME, so no test writes ~/.cache/gocpp (TODO closed). The language server doesn't show
+  errors of C files (its file system lists only .gp files): fine for now, Phase 11 may add it.
 
