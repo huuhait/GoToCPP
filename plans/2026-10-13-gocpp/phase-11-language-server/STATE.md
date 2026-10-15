@@ -144,3 +144,11 @@
   as written) committed, clean after 2 review rounds. Cached p95 2.7 ms, after an edit p95 32 ms (budget
   50 ms). The language server v0 track is done (M1+v0). Deviations (completer.go header): keywords at a
   blank statement, prefix filter (no fuzzy matching), docs through resolve, one dangling-selector pass.
+- 2026-10-15 (Phase 04 job 4.4, accepted by the manager): internal/check rewrites each comparison of opaque
+  (C/C++) values to a hidden `gp_cgoh.Cmp(x == y)` so it is a Go bool (like cgo). Measured on a 3000-line package
+  that imports a header (fresh load, fake probe): with 6000 such comparisons Check takes ~165 ms vs ~125 ms
+  before (+30%, still 2 check rounds); without C comparisons no change (~119 vs ~110 ms, noise); the real
+  examples (cpp-std, raylib, sqlite) show no measurable difference. A `bool(p == nil)` shape can need one more
+  round. Such a C-heavy 3000-line package was already above the 100 ms keystroke budget before; 11.11's
+  benchmarks should include a C-heavy file, and incremental re-checking (Phase 11) is where this cost goes away.
+
