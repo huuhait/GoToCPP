@@ -29,6 +29,9 @@ int stack(uintptr_t* pcs, int max) noexcept {
     std::unique_ptr<void*[]> big;
     void** buf = local;
     if (max > small) {
+        // Under run_main's new handler (panic.hpp) a failed allocation is a fatal error
+        // before nothrow gets a null pointer: the null check is for the trace of that fatal
+        // error (out_of_memory removes the handler first) and for code without run_main.
         big.reset(new (std::nothrow) void*[static_cast<std::size_t>(max)]);
         if (!big) {
             return 0;

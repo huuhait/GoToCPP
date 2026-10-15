@@ -18,6 +18,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <vector>
 
@@ -231,6 +232,18 @@ void panic_chain(panic_error& newer, const panic_error& running) noexcept;
 // deferred calls add. A recover that stops the panic must call clear_signal (Phase 05), as Go
 // clears g.sig; a later, ordinary panic then prints no signal line.
 void clear_signal() noexcept;
+
+// fatal is Go's fatal error (runtime.throw), an error that no recover stops: it prints "fatal
+// error: <msg>", a blank line, "goroutine 1 [running]:" and the stack trace of its caller to
+// stderr, and exits with code 2 at once. Nothing unwinds, so no deferred call runs, as in Go.
+// The trace needs memory: when there is none (it is out of memory), the trace is left out or
+// cut short. It is not async-signal-safe: not for a signal handler.
+[[noreturn]] void fatal(std::string_view msg) noexcept;
+
+// out_of_memory is the new handler (std::set_new_handler) that run_main installs: an allocation
+// that fails (operator new, also std::nothrow's, so every runtime type) ends the program with
+// fatal("runtime: out of memory") where it fails, like Go, instead of throwing std::bad_alloc.
+void out_of_memory();
 
 } // namespace detail
 

@@ -36,9 +36,15 @@ type cxx struct {
 	cc      build.CXX // as build.LookCXX found it
 	missing string    // why it can't be used, or ""
 
-	rtOnce sync.Once
-	rtObjs []string // the runtime's object files, compiled by runtimeObjects
-	rtErr  error
+	rt [2]rtObjects // the runtime's object files: [0] as gocpp build compiles it, [1] with -nochecks
+}
+
+// rtObjects are the runtime's object files for one compiler and one mode, compiled once by
+// runtimeObjectsMode.
+type rtObjects struct {
+	once sync.Once
+	objs []string
+	err  error
 }
 
 var (
@@ -175,43 +181,67 @@ func includeFlag(t *testing.T) string {
 	return "-I" + filepath.Join(runtimeDir(t), "include")
 }
 
-// runtimeObjects compiles the runtime's .cpp files (rtfiles.Sources) once for this compiler
-// and returns the object files.
-func (c *cxx) runtimeObjects(t *testing.T) []string {
+// noChecksFlags returns the flags that gocpp build -nochecks adds to every compile with this
+// compiler (build.CompileFlags).
+func (c *cxx) noChecksFlags() []string {
+	return build.CompileFlags(c.cc, false, true)[len(build.Flags(c.cc, false)):]
+}
+
+// runtimeObjectsMode compiles the runtime's .cpp files (rtfiles.Sources) once for this compiler
+// and returns the object files; with nochecks, for a -nochecks build (compiled with
+// noChecksFlags, into a folder of its own).
+func (c *cxx) runtimeObjectsMode(t *testing.T, nochecks bool) []string {
 	t.Helper()
 	rt := runtimeDir(t)
-	c.rtOnce.Do(func() {
-		dir := filepath.Join(rt, "obj-"+c.name)
-		if c.rtErr = os.MkdirAll(dir, 0o755); c.rtErr != nil {
+	mode, folder, more := 0, "obj-"+c.name, []string(nil)
+	if nochecks {
+		mode, folder, more = 1, "obj-nochecks-"+c.name, c.noChecksFlags()
+	}
+	r := &c.rt[mode]
+	r.once.Do(func() {
+		dir := filepath.Join(rt, folder)
+		if r.err = os.MkdirAll(dir, 0o755); r.err != nil {
 			return
 		}
 		for i, src := range rtfiles.Sources(runtime.GOOS) {
 			obj := filepath.Join(dir, fmt.Sprintf("%d.o", i))
-			args := append(c.runtimeFlags(includeFlag(t)), "-c", filepath.Join(rt, filepath.FromSlash(src)), "-o", obj)
+			args := append(c.runtimeFlags(append([]string{includeFlag(t)}, more...)...), "-c", filepath.Join(rt, filepath.FromSlash(src)), "-o", obj)
 			out, _, code, err := command(dir, true, c.cc.Path, args...)
 			if err == nil && code != 0 {
 				err = fmt.Errorf("exit code %d", code)
 			}
 			if err != nil {
-				c.rtErr = fmt.Errorf("%s %s: %v\n%s", c.cc.Path, strings.Join(args, " "), err, out)
+				r.err = fmt.Errorf("%s %s: %v\n%s", c.cc.Path, strings.Join(args, " "), err, out)
 				return
 			}
-			c.rtObjs = append(c.rtObjs, obj)
+			r.objs = append(r.objs, obj)
 		}
 	})
-	if c.rtErr != nil {
-		t.Fatal(c.rtErr)
+	if r.err != nil {
+		t.Fatal(r.err)
 	}
-	return c.rtObjs
+	return r.objs
 }
 
 // build compiles the C++ file src (generated code) with the runtime into a program and
 // returns its path. The compiler must print nothing: no errors, and no warnings either.
 func (c *cxx) build(t *testing.T, src string) string {
 	t.Helper()
-	objs := c.runtimeObjects(t)
+	return c.buildMode(t, src, false)
+}
+
+// buildMode is build, with nochecks for a -nochecks build: the program and the runtime are
+// compiled with noChecksFlags, and the program's name ends with "-nochecks".
+func (c *cxx) buildMode(t *testing.T, src string, nochecks bool) string {
+	t.Helper()
+	objs := c.runtimeObjectsMode(t, nochecks)
 	bin := strings.TrimSuffix(src, ".cpp") + "-" + c.name
-	args := append(c.flags(includeFlag(t)), src)
+	more := []string{includeFlag(t)}
+	if nochecks {
+		bin += "-nochecks"
+		more = append(more, c.noChecksFlags()...)
+	}
+	args := append(c.flags(more...), src)
 	args = append(args, objs...)
 	args = append(args, "-o", bin)
 	out, _, code, err := command(filepath.Dir(src), true, c.cc.Path, args...)

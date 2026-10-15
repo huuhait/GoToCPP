@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/cppir"
 	"github.com/huuhait/gocpp/internal/load"
+	"github.com/huuhait/gocpp/internal/version"
 	"github.com/huuhait/gocpp/stdlib"
 )
 
@@ -178,6 +180,12 @@ func checkRuns(t *testing.T, emit emitFunc, want *result) {
 // compared.
 func checkRunsNorm(t *testing.T, emit emitFunc, want *result, norm func(result) result) {
 	t.Helper()
+	checkRunsMode(t, emit, want, norm, false)
+}
+
+// checkRunsMode is checkRunsNorm, with nochecks for a -nochecks build (cxx.buildMode).
+func checkRunsMode(t *testing.T, emit emitFunc, want *result, norm func(result) result, nochecks bool) {
+	t.Helper()
 	if want != nil && norm != nil {
 		w := norm(*want)
 		want = &w
@@ -194,7 +202,7 @@ func checkRunsNorm(t *testing.T, emit emitFunc, want *result, norm func(result) 
 			if c.missing != "" {
 				t.Skip(c.missing)
 			}
-			got := run(t, work, c.build(t, src))
+			got := run(t, work, c.buildMode(t, src, nochecks))
 			if norm != nil {
 				got = norm(got)
 			}
@@ -424,7 +432,8 @@ func TestRuntimeFuncNames(t *testing.T) {
 // of arrays (index, slicing, the conversions from slices, nil pointers to arrays), and of maps
 // (a store into a nil map, and the order of the panics of a store): each program prints what it
 // prints with Go, exits with code 2, and stderr is Go's up to the "goroutine 1 [running]:" line
-// (goResult), with the signal line of a nil dereference (its pc masked: maskPC).
+// (goResult), with the signal line of a nil dereference (its pc masked: maskPC). The cases of
+// noChecksStay also run as a -nochecks build, with the same result.
 func TestPanics(t *testing.T) {
 	tests := []struct{ name, body string }{
 		{"div", "a, b := 7, 0\n\tfmt.Println(\"before\", a/2)\n\tfmt.Println(a / b)"},
@@ -684,6 +693,40 @@ func TestPanics(t *testing.T) {
 		{"func-closure-panic", "n := 0\n\tinc := func() {\n\t\tn++\n\t\tif n == 2 {\n\t\t\tpanic(n)\n\t\t}\n\t}\n\tinc()\n\tinc()"},
 		{"func-deferred-closure", "defer func() { panic(\"in defer\") }()\n\tpanic(\"body\")"},
 		{"func-pkg-closure", "fmt.Println(gfn(2))\n\tfmt.Println(gfn(0))"},
+		// The audit of step 3.14b: the integer sizes of division, modulo and shift counts that
+		// the cases above leave out (an unsigned count never panics), the 3-index forms of
+		// arrays and pointers to arrays, a nil pointer reached through a pointer to a pointer, to
+		// an array (copied) and to a struct's array field, make with a bad capacity, a small
+		// index type and an element too big for the length, and make of a map with a negative
+		// hint, which doesn't panic, and nor do delete, clear, a read and a range of a nil map.
+		{"div16", "var a, b int16 = 7, 0\n\tfmt.Println(a / b)"},
+		{"div32", "var a, b int32 = 7, 0\n\tfmt.Println(a / b)"},
+		{"rem64", "var a, b int64 = 7, 0\n\tfmt.Println(a % b)"},
+		{"div-u8", "var a, b uint8 = 7, 0\n\tfmt.Println(a / b)"},
+		{"rem-u32", "var a, b uint32 = 7, 0\n\tfmt.Println(a % b)"},
+		{"div-u64", "var a, b uint64 = 7, 0\n\tfmt.Println(a / b)"},
+		{"rem-uintptr", "var a, b uintptr = 7, 0\n\tfmt.Println(a % b)"},
+		{"div-min", "var a int64 = -1 << 63\n\tb, z := int64(-1), int64(0)\n\tfmt.Println(a/b, a%b)\n\tfmt.Println(a / z)"},
+		{"shl-count16", "var n int16 = -1\n\tfmt.Println(1 << n)"},
+		{"shr-count32", "x := -8\n\tvar n int32 = -5\n\tfmt.Println(x >> 70, x >> n)"},
+		{"shl-count64", "var x uint8 = 1\n\tvar n int64 = -1 << 63\n\tfmt.Println(x<<200, x << n)"},
+		{"shl-unsigned-count", "var n uint64 = 1 << 63\n\tx := 3\n\tfmt.Println(x<<n, x>>n, -x>>n)\n\tm := -1\n\tfmt.Println(x << m)"},
+		{"array-index-int8", "var a [3]int\n\tvar i int8 = -1\n\tfmt.Println(a[i])"},
+		{"array-slice3-b", "a, j, k := [3]int{}, 3, 2\n\tfmt.Println(len(a[0:j:k]))"},
+		{"array-slice3-c", "a, i, j := [3]int{}, 2, 1\n\tfmt.Println(len(a[i:j:3]))"},
+		{"array-ptr-slice3", "a, k := [3]int{}, 4\n\tp := &a\n\tfmt.Println(len(p[0:1:k]))"},
+		{"array-ptr-slice3-b", "a, j, k := [3]int{}, 2, 1\n\tp := &a\n\tfmt.Println(len(p[:j:k]))"},
+		{"array-ptr-nil-slice3", "var p *[3]int\n\tfmt.Println(len(p[0:1:2]))"},
+		{"slice3-uint", "s, k := []int{1}, uint64(1<<64-1)\n\tfmt.Println(len(s[0:0:k]))"},
+		{"string-slice-uint8", "s, i, j := \"abc\", uint8(2), uint8(1)\n\tfmt.Println(s[i:j])"},
+		{"nil-ptr-ptr", "var q *int\n\tpp := &q\n\tfmt.Println(*pp == nil)\n\t**pp = 1"},
+		{"array-nil-copy", "var p *[3]int\n\ta := *p\n\tfmt.Println(a[0])"},
+		{"struct-nil-array-field", "var p *Arrs\n\tp.a[0] = 1"},
+		{"makeslice-cap-neg", "c := -1\n\tfmt.Println(len(make([]int, 0, c)))"},
+		{"makeslice-int8", "var n int8 = -1\n\tfmt.Println(len(make([]string, n)))"},
+		{"makeslice-big-elem", "n := 1 << 30\n\tfmt.Println(len(make([]Big, n)))"},
+		{"map-nil-delete", "var m map[string]int\n\tdelete(m, \"a\")\n\tclear(m)\n\tv, ok := m[\"a\"]\n\tfor range m {\n\t}\n\tfmt.Println(len(m), v, ok)\n\tm[\"a\"] = 1"},
+		{"makemap-neg", "n := -1\n\tm := make(map[int]int, n)\n\tvar h int64 = -1 << 63\n\tfmt.Println(len(m), len(make(map[string]bool, h)))\n\tpanic(\"after\")"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -724,6 +767,9 @@ func TestPanics(t *testing.T) {
 			if strings.Contains(tt.body, "two(") {
 				src += "\nfunc two() [2]int {\n\treturn [2]int{1, 2}\n}\n"
 			}
+			if strings.Contains(tt.body, "Big") {
+				src += "\ntype Big struct{ a [1 << 20]byte }\n"
+			}
 			if strings.HasPrefix(tt.name, "named-") {
 				src += "\ntype N int\n\ntype U8 uint8\n\ntype IDs []int\n\ntype Name string\n\ntype Grid [3]int\n\n" +
 					"type Ages map[string]int\n\ntype Pt struct{ a int }\n\ntype Link *Pt\n"
@@ -749,8 +795,324 @@ func TestPanics(t *testing.T) {
 				t.Fatalf("with Go, the program exits with %d, not with a panic:\n%s", want.code, want.stderr)
 			}
 			checkRunsNorm(t, emitter(gp), want, maskPCAddr)
+			if noChecksStay[tt.name] {
+				// A -nochecks build panics the same way: these checks stay (§2.9).
+				// (An index of a [0]T stays, though its message is an index error.)
+				if want != nil && tt.name != "array-empty" && removedRx.MatchString(want.stderr) {
+					t.Fatalf("noChecksStay has %s, but Go's panic is one that -nochecks removes:\n%s", tt.name, want.stderr)
+				}
+				t.Run("nochecks", func(t *testing.T) {
+					checkRunsMode(t, emitter(gp), want, maskPCAddr, true)
+				})
+			}
 		})
 	}
+}
+
+// noChecksStay are the TestPanics cases that also run as a -nochecks build, which must print
+// what Go prints: at least one for each check that -nochecks keeps (Phase 03 §2.9): division
+// and modulo by zero (also of named types and in a method), MIN / -1 (Go's result), a
+// negative shift count and Go's results for counts of the width or more, a store into a nil
+// map (also through op= and append), make with a bad length or capacity, an index of a [0]T,
+// the builtin panic, a deferred call that panics, and a panic in a closure. The cases that
+// -nochecks changes (an index, a slice expression or a conversion out of range, a nil
+// dereference or call, (*T).M with nil) are undefined behavior there, so they don't run.
+var noChecksStay = map[string]bool{
+	"div": true, "div8": true, "divu": true, "rem16": true, "div-assign": true, "rem-assign8": true,
+	"div16": true, "div32": true, "rem64": true, "div-u8": true, "rem-u32": true, "div-u64": true,
+	"rem-uintptr": true, "div-min": true, "named-div": true, "named-op-assign": true, "method-div": true,
+	"method-value-div": true, "map-nil-div": true, "rp-div": true,
+	"shl": true, "shr8": true, "shl-assign": true, "shr-assign16": true, "shl-count16": true,
+	"shr-count32": true, "shl-count64": true, "shl-unsigned-count": true, "named-shift-count": true,
+	"map-shl": true, "map-nil-shl": true,
+	"map-nil-store": true, "map-nil-inc": true, "map-nil-op-assign": true, "map-nil-append": true,
+	"map-nil-inner": true, "named-map-nil": true, "rp-nil-map": true, "map-nil-delete": true,
+	"makeslice-len": true, "makeslice-cap": true, "makeslice-huge": true, "makeslice-uint": true,
+	"makeslice-cap-huge": true, "makeslice-cap-neg": true, "makeslice-int8": true,
+	"makeslice-big-elem": true, "makemap-neg": true, "array-empty": true,
+	"panic-str": true, "panic-int": true, "defer-chain": true, "defer-return": true,
+	"func-closure-panic": true, "func-pkg-closure": true,
+}
+
+// removedRx matches the panics whose checks -nochecks removes.
+var removedRx = regexp.MustCompile(`panic: (runtime error: (index out of range|slice bounds|invalid memory address|cannot convert slice)|value method)`)
+
+// TestNoChecksCalls checks that a -nochecks build keeps no bounds or nil check (Phase 03 §2.9,
+// step 3.14b): the emitter emits no check of its own, it calls the runtime, whose checks
+// GOCPP_NOCHECKS removes. So the C++ of each run test (tests/run) that exits normally, of the
+// phases up to the one being built, compiled with -nochecks into assembly, calls none of the
+// panics of those checks (panicCallRx), and so does noChecksFmtProg, which prints every kind of
+// composite value with fmt. A run test that the emitter doesn't take yet is skipped. One
+// compiler is enough: both see the same preprocessed C++. The runtime's own object files,
+// compiled for -nochecks, use none of them either (nm -u).
+func TestNoChecksCalls(t *testing.T) {
+	progs, err := filepath.Glob(filepath.Join("..", "..", "tests", "run", "*.gp"))
+	if err != nil || len(progs) == 0 {
+		t.Fatalf("no run tests: %v", err)
+	}
+	// And the fmt shim with every kind of composite value (step 3.15b), which must add no
+	// check of its own either.
+	fmtProg := filepath.Join(t.TempDir(), "fmt_composites.gp")
+	if err := os.WriteFile(fmtProg, []byte(noChecksFmtProg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	progs = append(progs, fmtProg)
+	var c *cxx
+	for _, cc := range compilers(t) {
+		if cc.missing == "" {
+			c = cc
+			break
+		}
+	}
+	if c == nil {
+		t.Skip("no C++ compiler")
+	}
+	phaseRx := regexp.MustCompile(`^// phase: (\d\d)\n`)
+	checked := 0
+	for _, prog := range progs {
+		src, err := os.ReadFile(prog)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := phaseRx.FindSubmatch(src)
+		if m == nil {
+			t.Fatalf("%s: no phase line", prog)
+		}
+		if phase, _ := strconv.Atoi(string(m[1])); phase > version.Phase+1 || bytes.Contains(src, []byte("\n// ExitCode:")) {
+			continue
+		}
+		checked++
+		t.Run(strings.TrimSuffix(filepath.Base(prog), ".gp"), func(t *testing.T) {
+			t.Parallel()
+			abs, err := filepath.Abs(prog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cpp, err := emitPatterns(t, Config{}, filepath.Dir(abs), abs)
+			if err != nil && prog == fmtProg {
+				t.Fatal(err)
+			}
+			if err != nil {
+				t.Skipf("not emitted yet: %v", err)
+			}
+			work := t.TempDir()
+			file := filepath.Join(work, "main.gp.cpp")
+			if err := os.WriteFile(file, []byte(cpp), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			asm := filepath.Join(work, "main.s")
+			args := append(c.flags(append([]string{includeFlag(t)}, c.noChecksFlags()...)...), "-S", file, "-o", asm)
+			out, _, code, err := command(work, true, c.cc.Path, args...)
+			if err != nil || code != 0 {
+				t.Fatalf("%s %s: exit code %d %v\n%s", c.cc.Path, strings.Join(args, " "), code, err, out)
+			}
+			text, err := os.ReadFile(asm)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if calls := panicCallRx.FindAllString(string(text), -1); len(calls) != 0 {
+				t.Errorf("the -nochecks build still calls %q", slices.Compact(slices.Sorted(slices.Values(calls))))
+			}
+		})
+	}
+	if checked == 0 {
+		t.Fatal("no run test checked")
+	}
+	t.Run("runtime", func(t *testing.T) {
+		// The runtime's own files, compiled for -nochecks: none of them refers to these panics
+		// of another file (nm -u lists what an object uses from elsewhere).
+		nm, err := exec.LookPath("nm")
+		if err != nil {
+			t.Skip("no nm")
+		}
+		for _, obj := range c.runtimeObjectsMode(t, true) {
+			out, _, code, err := command(filepath.Dir(obj), false, nm, "-u", obj)
+			if err != nil || code != 0 {
+				t.Fatalf("nm -u %s: exit code %d %v", obj, code, err)
+			}
+			if calls := panicCallRx.FindAllString(string(out), -1); len(calls) != 0 {
+				t.Errorf("%s (-nochecks) calls %q", obj, slices.Compact(slices.Sorted(slices.Values(calls))))
+			}
+		}
+	})
+}
+
+// noChecksFmtProg prints composite values with fmt (TestNoChecksCalls).
+const noChecksFmtProg = `// phase: 03
+
+package main
+
+import "fmt"
+
+type P struct {
+	X, Y int
+	Name string
+	Tags []string
+}
+
+type S struct{ n int }
+
+func (s S) String() string { return fmt.Sprint("S", s.n) }
+
+type E struct{ msg string }
+
+func (e *E) Error() string { return e.msg }
+
+func main() {
+	p := &P{1, 2, "p", []string{"a", "b"}}
+	var np *P
+	grid := [2][3]int{{1, 2, 3}, {4, 5, 6}}
+	m := map[string][]int{"b": {2}, "a": {1, 1}}
+	ss := []S{{1}, {2}}
+	fmt.Println(*p, p, np, grid, m, ss, S{3}, &E{"boom"}, []*P{p, nil})
+	fmt.Printf("%v %+v %d %s %q %v\n", p, *p, grid, ss, p.Tags, m)
+	s := fmt.Sprintf("%v|%v|%5.2f|%-4d|%t", m, grid[1][:2], 3.14159, 7, true)
+	fmt.Println(s, fmt.Sprint(ss, 1, "x"), min(3, 1, 2), max(2.5, 1.0))
+	var nilMap map[int]bool
+	var nilSlice []int
+	fmt.Println(nilMap, nilSlice, len(s))
+}
+`
+
+// panicCallRx matches the mangled names of the panics of the checks that -nochecks removes
+// (gocpp/checks.hpp, bounds.hpp): gp::panic_index, panic_bounds, panic_nil (not panic_nil_map,
+// which stays) and panic_wrap.
+var panicCallRx = regexp.MustCompile(`_ZN2gp(11panic_index|12panic_bounds|9panic_nil|10panic_wrap)E`)
+
+// TestFatal checks Go's fatal errors (Phase 03 step 3.14b), which no recover stops and which
+// run no deferred calls: running out of memory (make, new and a large local variable, each
+// asking for 32 TiB or more, and a make in a deferred call that a panic runs) prints what Go
+// prints up to its "fatal error:" line, then the goroutine's trace without Go's runtime frames
+// (normFatal; for the deferred call, its frames, a panic frame and the panicking function at
+// the panic's line), and exits with code 2; a
+// recursion that overflows the stack (8 MiB here) prints Go's lines (want: Go 1.25's, checked
+// by hand, since Go needs 1 GB of stack for it) without a trace. Each also as a -nochecks
+// build. The out-of-memory cases need an allocation that big to fail: they are skipped where
+// the kernel never refuses one (vm.overcommit_memory = 1). With a sanitizer
+// (GOCPP_TEST_CXXFLAGS), which reports these itself, the test is skipped; in an optimized
+// build, the traces aren't compared.
+func TestFatal(t *testing.T) {
+	if strings.Contains(os.Getenv("GOCPP_TEST_CXXFLAGS"), "-fsanitize=") {
+		t.Skip("a sanitizer reports running out of memory and stack overflows itself")
+	}
+	const prelude = "package main\n\nimport \"fmt\"\n\n"
+	tests := []struct {
+		name, src string
+		oom       bool
+		want      *result // nil: Go's result
+	}{
+		{"oom-make", prelude + "func grow(n int) []string {\n\treturn make([]string, n/2, n)\n}\n\n" +
+			"func main() {\n\tdefer fmt.Println(\"deferred\")\n\tfmt.Println(\"start\")\n\ts := grow(1 << 41)\n\tfmt.Println(len(s))\n}\n", true, nil},
+		{"oom-new", prelude + "type Huge [1 << 45]byte\n\n" +
+			"func main() {\n\tdefer fmt.Println(\"deferred\")\n\tfmt.Println(\"start\")\n\tp := new(Huge)\n\tfmt.Println(len(p))\n}\n", true, nil},
+		{"oom-local", prelude + "func main() {\n\tdefer fmt.Println(\"deferred\")\n\tfmt.Println(\"start\")\n" +
+			"\tvar a [1 << 45]byte\n\ta[7] = 1\n\tfmt.Println(a[7])\n}\n", true, nil},
+		{"oom-defer", prelude + "func main() {\n\tfmt.Println(\"start\")\n\tdefer fmt.Println(\"not run\")\n\tdefer func() {\n" +
+			"\t\t_ = make([]byte, 1<<45)\n\t}()\n\tn := 1\n\tpanic(fmt.Sprint(\"boom\", n))\n}\n", true, nil},
+		{"stack-overflow", prelude + "var depth int\n\nfunc f(n int) int {\n\tvar a [100]int\n\ta[n%100] = n\n\tdepth++\n\treturn f(n+1) + a[n%7]\n}\n\n" +
+			"func main() {\n\tdefer fmt.Println(\"deferred\")\n\tfmt.Println(\"start\")\n\tfmt.Println(f(0))\n}\n", false,
+			&result{"start\n", "runtime: goroutine stack exceeds 1000000000-byte limit\nruntime: sp=0xX stack=[0xX, 0xX]\nfatal error: stack overflow\n", 2}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if tt.oom {
+				if mode, err := os.ReadFile("/proc/sys/vm/overcommit_memory"); err != nil || strings.TrimSpace(string(mode)) == "1" {
+					t.Skip("the kernel may give any allocation (vm.overcommit_memory = 1, or not Linux)")
+				}
+			} else if runtime.GOOS != "linux" {
+				t.Skip("the stack overflow handler is Linux's (runtime/src/os/linux)")
+			}
+			dir := t.TempDir()
+			gp := filepath.Join(dir, "main.gp")
+			if err := os.WriteFile(gp, []byte(tt.src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			want := tt.want
+			if want == nil {
+				if want = goResult(t, gp); want == nil {
+					return
+				}
+				want.stderr = normFatal(want.stderr)
+			}
+			// An optimized build (GOCPP_TEST_CXXFLAGS=-O2) can show a runtime header's line for
+			// an inlined frame (cpp-mapping.md, "Where the trace differs"): only the lines up
+			// to the goroutine's are compared then.
+			optimized := slices.ContainsFunc(testFlags(), func(f string) bool { return strings.HasPrefix(f, "-O") && f != "-O0" })
+			if optimized {
+				w := *want
+				w.stderr, _, _ = strings.Cut(w.stderr, goStackMark)
+				want = &w
+			}
+			work := t.TempDir()
+			src := filepath.Join(work, "main.gp.cpp")
+			if err := os.WriteFile(src, []byte(emitter(gp)(t, Config{OutputPath: src})), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			for _, c := range compilers(t) {
+				for _, nochecks := range []bool{false, true} {
+					name := c.name
+					if nochecks {
+						name += "-nochecks"
+					}
+					t.Run(name, func(t *testing.T) {
+						if c.missing != "" {
+							t.Skip(c.missing)
+						}
+						// The stack has a limit of 8 MiB (ulimit -s), as by default, also where
+						// the tests run without one (the recursion would fill the memory).
+						bin := c.buildMode(t, src, nochecks)
+						stdout, stderr, code, err := command(work, false, "/bin/sh", "-c", `ulimit -s 8192 2>/dev/null; exec "$0"`, bin)
+						if err != nil {
+							t.Fatal(err)
+						}
+						got := result{string(stdout), normFatal(string(stderr)), code}
+						if optimized {
+							got.stderr, _, _ = strings.Cut(got.stderr, goStackMark)
+						}
+						if got != *want {
+							t.Errorf("the program prints\nstdout:\n%s\nstderr (normalized):\n%s\nexit code %d\nwant\nstdout:\n%s\nstderr:\n%s\nexit code %d\nwhole stderr:\n%s",
+								got.stdout, got.stderr, got.code, want.stdout, want.stderr, want.code, stderr)
+						}
+					})
+				}
+			}
+		})
+	}
+}
+
+// hexRx matches a hexadecimal number.
+var hexRx = regexp.MustCompile(`0x[0-9a-f]+`)
+
+// normFatal rewrites the stderr of a fatal error so that Go's and gocpp's compare: the lines up
+// to "fatal error: ..." with each hexadecimal number as 0xX, then, if there is a trace, the
+// goroutine's (Go's after its "runtime stack:" section) as "goroutine 1 [running]:" and its
+// frames without Go's runtime frames, normalized as normTrace does, with the panic frame as
+// "panic()" alone (panicFrame). Go's other goroutines, after a blank line, are left out.
+func normFatal(stderr string) string {
+	lines := strings.Split(stderr, "\n")
+	var b strings.Builder
+	i := 0
+	for ; i < len(lines); i++ {
+		b.WriteString(hexRx.ReplaceAllString(lines[i], "0xX") + "\n")
+		if strings.HasPrefix(lines[i], "fatal error: ") {
+			i++
+			break
+		}
+	}
+	for i < len(lines) && !strings.HasPrefix(lines[i], "goroutine 1 ") {
+		i++
+	}
+	if i == len(lines) {
+		return b.String()
+	}
+	trace := "\n" + goStackMark
+	for k := i + 1; k+1 < len(lines) && lines[k] != ""; k += 2 {
+		if !strings.HasPrefix(lines[k], "runtime.") {
+			trace += lines[k] + "\n" + lines[k+1] + "\n"
+		}
+	}
+	return b.String() + panicFrame.ReplaceAllString(normTrace(trace), "panic()\n")
 }
 
 // addrRx matches the address in the signal line of a nil pointer panic, addr=0x8: Go prints the

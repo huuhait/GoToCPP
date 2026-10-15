@@ -88,6 +88,9 @@ void test_checks_off() {
                                  gp::bounds::slice3_acap),
                 none);
     CHECK_PANIC(gp::check_convert(opaque(INT64_C(3)), 2), none);
+    CHECK_PANIC(gp::check_wrap(gp::ptr<int64_t>(), "value method main.T.M called using nil *T "
+                                                   "pointer"),
+                none);
 
     // A slice index past len (inside cap), and a string index past the substring's end (inside
     // the literal): no panic, the element that is there.

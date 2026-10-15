@@ -601,12 +601,11 @@ func (fg *funcGen) methodLambda(x *ast.SelectorExpr, s *types.Selection) *cppir.
 		// The receiver is the first parameter, of the type before the dot.
 		lam.Params = append([]cppir.Param{{Type: auto, Name: "gp_r"}}, lam.Params...)
 		if isPointer(r.t) && !r.ptrRecv && len(r.path) == 0 {
-			// (*T).M of a value method: Go's wrapper checks the pointer (runtime.panicwrap).
+			// (*T).M of a value method: Go's wrapper checks the pointer (runtime.panicwrap). A
+			// runtime call, so that -nochecks removes it with the other nil checks.
 			msg := "value method " + goTypeName(r.end.(*types.Pointer).Elem()) + "." + fn.Name() +
 				" called using nil *" + r.end.(*types.Pointer).Elem().(*types.Named).Obj().Name() + " pointer"
-			check := &cppir.If{Cond: &cppir.Binary{Op: "==", X: recv, Y: lit("nullptr")},
-				Then: &cppir.Block{Inline: true, Stmts: []cppir.Stmt{&cppir.ExprStmt{X: call("gp::panic_constant", lit(cppir.CString(msg)+"_gs"))}}}}
-			lam.Body.Stmts = append(lam.Body.Stmts, check)
+			lam.Body.Stmts = append(lam.Body.Stmts, &cppir.ExprStmt{X: call("gp::check_wrap", recv, lit(cppir.CString(msg)))})
 		}
 		var ok bool
 		recv, ptr, ok = fg.recvFrom(recv, r)

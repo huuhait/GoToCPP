@@ -29,6 +29,10 @@
 #include <utility>
 #include <vector>
 
+namespace gp {
+struct panic_error; // gocpp/panic.hpp
+} // namespace gp
+
 namespace gp::detail {
 
 // exe_symbol is a function of the program's symbol table: its address in the file (before
@@ -122,5 +126,25 @@ void lines_of(std::string_view debug_line, std::string_view line_str, std::strin
 // between the stacks of a panic chain): "panic(...)" and "\t?:0", where Go shows
 // runtime.gopanic as "panic({0x...?, 0x...?})" and its line in runtime/panic.go.
 void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool complete);
+
+// fatal_trace appends the stack trace of the code that called it to out (for gp::detail::fatal,
+// panic.hpp), as a panic's trace shows it. In a deferred call that a panic runs, it shows Go's
+// shape, as panic_report does for a panic there: the deferred call's frames, a "panic" frame
+// and the stack of the running panic (and of its chain), found with run_marks. Without memory,
+// out keeps what it had.
+void fatal_trace(std::string& out) noexcept;
+
+// A run_mark is a call of defer_frame::gp_run (defer.cpp) that is running a deferred call. The
+// marks of a thread are a list, the innermost first (run_marks), each on its gp_run's stack:
+// gp_panic is the panic that is running (null for a normal return), and gp_ret gp_run's
+// return address, the pc of its caller's frame in a recorded stack.
+struct run_mark {
+    const panic_error* gp_panic;
+    uintptr_t gp_ret;
+    const run_mark* gp_next;
+};
+
+// run_marks returns the running thread's innermost run_mark, or null.
+const run_mark* run_marks() noexcept;
 
 } // namespace gp::detail

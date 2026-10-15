@@ -24,7 +24,10 @@ inline constexpr int stderr_fd = 2;
 // start prepares the process; run_main calls it first. Like Go's runtime, it makes a SIGPIPE
 // harmless (a handler that does nothing, not "ignore", so programs that the process starts get
 // the default back): a write to a broken pipe then fails with an error, and the caller decides
-// (see write_result).
+// (see write_result). On Linux it also installs a SIGSEGV handler on an alternate stack that
+// turns an overflow of the main thread's stack into Go's "fatal error: stack overflow" (exit
+// code 2) and leaves every other fault as it was (src/os/linux/os.cpp; not in a sanitizer
+// build). Windows (Phase 14) and threads (Phase 08) don't have it yet.
 void start() noexcept;
 
 // write_result is what write reports.

@@ -255,21 +255,27 @@ constexpr int64_t cap(const ptr<array<T, N>>&) noexcept {
 // evaluated in the order written (a braced list), each is stored at its key, and the elements
 // without a key are zero. The emitter turns a mixed literal ([5]int{1, 3: 2, 7}) into keys for
 // every element ({{0, 1}, {3, 2}, {4, 7}}). Each element is copied twice: into the
-// initializer_list's pair, then into the array (a Phase 15 idea: store moved values).
+// initializer_list's pair, then into the array (a Phase 15 idea: store moved values). The
+// keys are constants that Go's checker has checked: a key outside [0, N) would be a bug in the
+// generated code, and panics like an index, except with GOCPP_NOCHECKS (like slice_keyed's).
 template <typename T, int64_t N>
 constexpr array<T, N> array_keyed(std::initializer_list<std::pair<int64_t, T>> elems) {
     array<T, N> a;
     if constexpr (N > 0) {
         for (const std::pair<int64_t, T>& e : elems) {
+#ifndef GOCPP_NOCHECKS
             if (e.first < 0 || e.first >= N) [[unlikely]] {
                 detail::index_fail(e.first, N);
             }
+#endif
             a.gp_elems[static_cast<std::size_t>(e.first)] = e.second;
         }
     } else {
+#ifndef GOCPP_NOCHECKS
         if (elems.size() != 0) [[unlikely]] {
             detail::index_fail(elems.begin()->first, 0);
         }
+#endif
     }
     return a;
 }
@@ -364,16 +370,19 @@ slice<T> sub(ptr<array<T, N>> p, L lo, H hi, M max) {
 // literal or [N]T(s), built in the new block itself. The emitter writes them for a boxed
 // variable larger than 128 KiB (x := [1 << 21]int{5: 3}), where gp::new_ of the value would
 // first build it in a temporary on the C++ stack, which could overflow it (D24). The elements
-// are evaluated in source order, and the others are zero, as in array{...} and array_keyed.
+// are evaluated in source order, and the others are zero, as in array{...} and array_keyed
+// (also its check of the keys, and of the number of elements).
 template <typename T, int64_t N>
 ptr<array<T, N>> new_array(std::initializer_list<T> elems) {
     ptr<array<T, N>> p = gp::new_<array<T, N>>();
     if constexpr (N > 0) {
         std::size_t i = 0;
         for (const T& e : elems) {
+#ifndef GOCPP_NOCHECKS
             if (i >= static_cast<std::size_t>(N)) [[unlikely]] {
                 detail::index_fail(static_cast<int64_t>(i), N);
             }
+#endif
             p->gp_elems[i++] = e;
         }
     }
@@ -384,9 +393,11 @@ template <typename T, int64_t N>
 ptr<array<T, N>> new_array_keyed(std::initializer_list<std::pair<int64_t, T>> elems) {
     ptr<array<T, N>> p = gp::new_<array<T, N>>();
     for (const std::pair<int64_t, T>& e : elems) {
+#ifndef GOCPP_NOCHECKS
         if (e.first < 0 || e.first >= N) [[unlikely]] {
             detail::index_fail(e.first, N);
         }
+#endif
         if constexpr (N > 0) {
             p->gp_elems[static_cast<std::size_t>(e.first)] = e.second;
         }

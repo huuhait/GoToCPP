@@ -2,14 +2,16 @@
 // checks, with Go's messages ("runtime error: integer divide by zero").
 //
 // GOCPP_NOCHECKS, which `gocpp build -nochecks` defines for every file of the program (the
-// runtime's too), turns off the bounds and nil checks: gp::check_index here, check_slice,
-// check_slice3 and check_convert (bounds.hpp), the nil check of *p and p->f and the owner
-// check (ptr.hpp). An index out of range or a nil dereference is then undefined behavior, as
-// in C++. Everything else stays: division by zero and a negative shift count still panic
-// (C++ has undefined behavior there, and the checks cost little), Go's results for MIN / -1
-// and for a shift count of the width or more stay (arith.hpp), and so do the panics that are
-// part of what an operation does (a write to a nil map, make with a bad length, an index of a
-// [0]T, which has no element to give).
+// runtime's too), turns off the bounds and nil checks: gp::check_index and check_wrap here,
+// check_slice, check_slice3 and check_convert (bounds.hpp), the nil check of *p and p->f and
+// the owner check (ptr.hpp), the nil check of a call of a func value (func.hpp), and the
+// checks of the generated code's literal keys (array.hpp, slice.hpp). An index out of range
+// or a nil dereference is then undefined behavior, as in C++. Everything else stays: division
+// by zero and a negative shift count still panic (C++ has undefined behavior there, and the
+// checks cost little), Go's results for MIN / -1 and for a shift count of the width or more
+// stay (arith.hpp), and so do the panics that are part of what an operation does (a write to
+// a nil map, make with a bad length, append's overflow, an index of a [0]T, which has no
+// element to give) and the fatal errors (panic.hpp).
 #pragma once
 
 #include <concepts>
@@ -61,6 +63,24 @@ inline void check_index([[maybe_unused]] I i, [[maybe_unused]] int64_t len) {
         if (static_cast<uint64_t>(i) >= static_cast<uint64_t>(len)) {
             panic_index(static_cast<int64_t>(static_cast<uint64_t>(i)), false, len);
         }
+    }
+#endif
+}
+
+// panic_wrap: the panic of Go's wrapper (*T).M of a value method M, called with a nil pointer
+// (runtime.panicwrap): msg is "value method main.T.M called using nil *T pointer". Its
+// identity is a string constant's (panic.hpp), as gocpp gave it before Phase 05's
+// runtime.Error.
+[[noreturn]] void panic_wrap(const char* msg);
+
+// check_wrap: the check of that wrapper, which the emitter puts before it dereferences p. It is
+// a nil check, so with GOCPP_NOCHECKS it does nothing (the dereference is then undefined
+// behavior).
+template <typename P>
+inline void check_wrap([[maybe_unused]] const P& p, [[maybe_unused]] const char* msg) {
+#ifndef GOCPP_NOCHECKS
+    if (p == nullptr) [[unlikely]] {
+        panic_wrap(msg);
     }
 #endif
 }

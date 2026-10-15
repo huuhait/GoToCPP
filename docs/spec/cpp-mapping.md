@@ -1207,10 +1207,37 @@ Sources: [Phase 03 §2.10](../../plans/2026-10-13-gocpp/phase-03-core-language/R
 
 ## Runtime checks and panics
 
-- The runtime checks what Go checks, with Go's messages: an index (`runtime error: index out of
-  range [5] with length 3`), a slice expression, a slice to array conversion, a nil pointer
-  dereference (`*p`, `p.f`), division by zero and a negative shift count, and a store into a nil
-  map (`assignment to entry in nil map`).
+- The runtime checks what Go checks, with Go's messages and exit code 2: an index of a string,
+  a slice or an array (`runtime error: index out of range [5] with length 3`), a slice
+  expression of every form (`slice bounds out of range [:5] with capacity 3`), a slice to array
+  conversion, a nil pointer dereference (`*p`, `p.f`, a value method through a nil pointer, a
+  call of a nil func value), `(*T).M` of a value method with a nil pointer (`value method
+  main.T.M called using nil *T pointer`), division and modulo by zero of every integer type,
+  a negative shift count of a signed type, `make` with a bad length or capacity
+  (`makeslice: len out of range`, also when the element is too big for the length), a store
+  into a nil map (`assignment to entry in nil map`), and an `append` whose length overflows
+  (`growslice: len out of range`, which a slice of 1-byte empty structs (D15) can't reach: its
+  `make` fails first). Reading a nil map, `delete` and `clear` of one, and `make` of a map
+  with a negative hint don't panic, as in Go; nor does the conversion of an out-of-range float
+  to an integer, which gives the values of Go on amd64 (`gp::f2i`). TestPanics
+  (internal/cppgen) runs each check and compares stderr and the exit code with real Go.
+- Go's fatal errors, which no `recover` stops and which run no deferred calls, end the program
+  the same way, with exit code 2:
+  - **out of memory**: the runtime installs a new handler (`std::set_new_handler`), so an
+    allocation that fails anywhere (a slice, `new`, a large local variable in its box, a map,
+    a string) prints `fatal error: runtime: out of memory`, a blank line, `goroutine 1
+    [running]:` and the trace, where it fails, instead of throwing `std::bad_alloc`. That also
+    applies to C++ code that the program calls (Phase 04): like Go, a program can't recover
+    from running out of memory, even where a C++ library would catch `std::bad_alloc`. With
+    `-asan`, AddressSanitizer's allocator reports a failed allocation itself;
+  - **stack overflow** (Linux): a goroutine runs on a fixed C++ stack (the main thread's is
+    `ulimit -s`, 8 MiB by default), where Go's stack grows up to 1 GB, so a recursion stops
+    much earlier than in Go. A SIGSEGV handler on a stack of its own (`sigaltstack`) tells an
+    overflow of the main thread's stack from other faults and prints Go's lines, `runtime:
+    goroutine stack exceeds 1000000000-byte limit`, `runtime: sp=0x… stack=[0x…, 0x…]` and
+    `fatal error: stack overflow`. Other faults keep the action they had (a crash, exit code
+    139). Not with a sanitizer (it reports overflows itself), not with `ulimit -s unlimited`,
+    and not on Windows (Phase 14) or other threads (Phase 08, step 8.1) yet.
 - A panic is a C++ exception, `gp::panic_error`. Unrecovered, it prints Go's lines and then a
   stack trace: each function by its Go name, `(...)` when it has parameters, then a tab, the
   `.gp` file and line of the call (from the debug info that `#line` makes) and the offset in the
@@ -1237,13 +1264,23 @@ Sources: [Phase 03 §2.10](../../plans/2026-10-13-gocpp/phase-03-core-language/R
   program's symbol table and DWARF line table (about 2 ms). The names come back from the C++
   names: `gpkg_main::f` is `main.f`, a lambda is `main.f.func1`, `gp_init_1` is `main.init.0`.
 - `gocpp build -nochecks` (and `gocpp run -nochecks`) turns off the bounds and nil checks: an
-  index, a slice expression or a conversion out of range and a nil dereference are then
-  undefined behavior, as in C++. It defines `GOCPP_NOCHECKS` for every compile, the runtime's
-  too (whose object files are cached apart). Division by zero and a negative shift count still
-  panic, and Go's results for `MIN / -1` and for a shift by the width or more stay, because
-  without them C++ has undefined behavior and they cost little. The panics that are part of
-  an operation stay too: a write to a nil map, `make` with a bad length or capacity, and an
-  index of a `[0]T` (which has no element to give).
+  index, a slice expression or a conversion out of range, a nil dereference, a call of a nil
+  func value and `(*T).M` with a nil pointer (the check of Go's wrapper, `runtime.panicwrap`,
+  is a nil check too) are then undefined behavior, as in C++. It defines
+  `GOCPP_NOCHECKS` for every compile, the runtime's too (whose object files are cached apart).
+  The emitter writes no check of its own: every check is in a runtime function that
+  `GOCPP_NOCHECKS` empties (`gp::check_wrap` for `(*T).M`), so the generated C++ is the same
+  with and without the flag (TestNoChecksCalls checks that a `-nochecks` build of the run tests,
+  of a program that prints composite values with fmt, and of the runtime's own files calls none
+  of these panics). Code that relies on catching such a panic is undefined behavior too, even
+  when the program would end normally with the checks: `fmt` prints `<nil>` for a nil pointer
+  whose `String` or `Error` method panics on it (`fmt.Println(nc)` with a nil `*Counter` whose
+  `String` reads `c.n`), which needs the nil check, and so does a `recover` of such a panic
+  (Phase 05). So only a program that never takes one of these panics behaves the same. Division by zero and a negative shift count still panic, and
+  Go's results for `MIN / -1` and for a shift by the width or more stay, because without them
+  C++ has undefined behavior and they cost little. The panics that are part of an operation
+  stay too: a write to a nil map, `make` with a bad length or capacity, `append`'s overflow, and
+  an index of a `[0]T` (which has no element to give), and so do the fatal errors.
 
 A method prints as Go prints it: a value method (a const member function) as `main.T.M`, a
 pointer method (a static one, whose mangled name has no qualifier) as `main.(*T).M`.
@@ -1270,7 +1307,25 @@ Where the trace differs from Go's (accepted divergences):
   shows a wrapper there, `main.f.deferwrap1()`, at the line of the defer statement;
 - a call in a statement over several lines shows the statement's first line, where Go shows the
   line of the call: `fmt.Println(1,` / `2,` / `get())`, and a call after a multi-line func
-  literal in the same statement (`f(apply(func() {...}, 3), apply(func() {...}, 4))`).
+  literal in the same statement (`f(apply(func() {...}, 3), apply(func() {...}, 4))`);
+- a fatal error's report is shorter than Go's. Out of memory: Go prints a `runtime stack:`
+  section with its runtime's frames before the goroutine, a goroutine line with `gp=`, `m=` and
+  `mp=`, frames with `fp=`, `sp=` and `pc=` and its own frames (`runtime.mallocgc`,
+  `runtime.makeslice`); gocpp prints `goroutine 1 [running]:` and the program's frames, as for a
+  panic. Go's message also depends on where its heap fails: a request too big for the address
+  space (about 2^46 bytes or more) prints `runtime: out of memory: cannot allocate N-byte block
+  (M in use)` and `fatal error: out of memory`, where gocpp always prints `fatal error:
+  runtime: out of memory`, without the size. When the trace needs memory that isn't there, or
+  when the failure is a `std::bad_alloc` that C++ code threw itself, the report ends after the
+  goroutine line (or after the `fatal error` line). Go also prints its runtime's other
+  goroutines after goroutine 1 (the garbage collector's, the finalizer's, with `created by`
+  lines); gocpp has none. A fatal error in a deferred call that a panic runs shows Go's shape:
+  the deferred call's frames, `panic(...)` and the panicking function at the panic's line.
+  Stack overflow: the numbers of the `sp=`
+  line are the C++ stack's, and the report ends there, without a trace (a signal handler can't
+  safely walk the stack and read the program's file); Go prints its trace;
+- C or C++ output still in a `stdio` buffer is lost on a stack overflow (the handler can't
+  flush it); gocpp's own output is never buffered.
 
 Source: [Phase 03 §2.9](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#29-runtime-checks-and-panics-gos-exact-messages).
 

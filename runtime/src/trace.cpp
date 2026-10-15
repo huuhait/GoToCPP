@@ -1295,6 +1295,29 @@ std::pair<std::pair<const uintptr_t*, std::size_t>, bool> recorded(const panic_e
 
 } // namespace
 
+namespace {
+
+// chain_pcs appends to pcs the trace's addresses of the panic e and its chain, and returns
+// whether they are the whole stack: like Go, the frames of the last panic's deferred call, a
+// "panic" frame (the 0 address, append_trace), the frames of the panic before it, and so on
+// down to the stack of the first panic.
+bool chain_pcs(const panic_error& e, std::vector<uintptr_t>& pcs) {
+    for (const panic_error* p = &e;;) {
+        auto [st, whole] = recorded(*p);
+        if (p->gp_prev != nullptr && p->gp_inner >= 0 &&
+            static_cast<std::size_t>(p->gp_inner) <= st.second) {
+            pcs.insert(pcs.end(), st.first, st.first + p->gp_inner);
+            pcs.push_back(0);
+            p = p->gp_prev.get();
+            continue;
+        }
+        pcs.insert(pcs.end(), st.first, st.first + st.second);
+        return whole;
+    }
+}
+
+} // namespace
+
 void panic_report(std::string& out, const panic_error& e) noexcept {
     std::size_t header = 0;
     try {
@@ -1306,30 +1329,53 @@ void panic_report(std::string& out, const panic_error& e) noexcept {
         std::reverse(chain.begin(), chain.end());
         panic_report(out, chain.data(), chain.size());
         header = out.size();
-        // The trace: like Go, the frames of the last panic's deferred call, a "panic" frame
-        // (the 0 address, append_trace), the frames of the panic before it, and so on down to
-        // the stack of the first panic.
         std::vector<uintptr_t> pcs;
-        bool complete = true;
-        for (const panic_error* p = &e;;) {
-            auto [st, whole] = recorded(*p);
-            if (p->gp_prev != nullptr && p->gp_inner >= 0 &&
-                static_cast<std::size_t>(p->gp_inner) <= st.second) {
-                pcs.insert(pcs.end(), st.first, st.first + p->gp_inner);
-                pcs.push_back(0);
-                p = p->gp_prev.get();
-                continue;
-            }
-            pcs.insert(pcs.end(), st.first, st.first + st.second);
-            complete = whole;
-            break;
-        }
+        bool complete = chain_pcs(e, pcs);
         append_trace(out, pcs.data(), pcs.size(), complete);
     } catch (...) {
         // No memory for the trace (or for the header): keep what is there.
         if (header != 0) {
             out.resize(header);
         }
+    }
+}
+
+void fatal_trace(std::string& out) noexcept {
+    std::size_t start = out.size();
+    try {
+        panic_error here{gp::string()}; // records the stack, like a panic
+        auto [st, whole] = recorded(here);
+        // The innermost gp_run that runs a deferred call for a panic. Its caller's frame is the
+        // first one with its return address after those of the gp_runs inside it with the same
+        // one (a recursion that runs deferred calls, normally, at the same place).
+        const run_mark* panicking = run_marks();
+        std::size_t same = 0;
+        while (panicking != nullptr && panicking->gp_panic == nullptr) {
+            panicking = panicking->gp_next;
+        }
+        for (const run_mark* m = run_marks(); panicking != nullptr && m != panicking;
+             m = m->gp_next) {
+            same += m->gp_ret == panicking->gp_ret ? 1 : 0;
+        }
+        std::size_t caller = st.second;
+        for (std::size_t k = 0; panicking != nullptr && k < st.second; k++) {
+            if (st.first[k] == panicking->gp_ret && same-- == 0) {
+                caller = k;
+                break;
+            }
+        }
+        if (caller == st.second) {
+            append_trace(out, st.first, st.second, whole);
+            return;
+        }
+        // Like a panic's chain (chain_pcs): the deferred call's frames (gp_run's own frame is
+        // left out by append_trace), "panic", then the running panic's stack and chain.
+        std::vector<uintptr_t> pcs(st.first, st.first + caller);
+        pcs.push_back(0);
+        bool complete = chain_pcs(*panicking->gp_panic, pcs);
+        append_trace(out, pcs.data(), pcs.size(), complete);
+    } catch (...) {
+        out.resize(start);
     }
 }
 

@@ -309,7 +309,9 @@ map<K, V> make_map(H hint) {
         try {
             m.gp_get()->gp_t.reserve(static_cast<std::size_t>(n));
         } catch (const std::bad_alloc&) {
-            // No room: an empty table, which grows as it fills (Go ignores such a hint too).
+            // No room: an empty table, which grows as it fills. Under run_main's new handler a
+            // failed allocation is a fatal error instead, as in Go, so this is for C++ code
+            // that calls the runtime without run_main.
         }
     }
     return m;

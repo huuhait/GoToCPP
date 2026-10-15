@@ -3,6 +3,7 @@
 // Go panics are caught; any other exception passes through (defer.hpp).
 // Standard C++ only.
 #include <gocpp/rt.hpp>
+#include <gocpp/trace.hpp>
 
 #include <cstddef>
 #include <exception>
@@ -23,7 +24,14 @@ struct finally {
 template <typename F>
 finally(F) -> finally<F>;
 
+// The running thread's run_marks (trace.hpp).
+constinit thread_local const detail::run_mark* marks = nullptr;
+
 } // namespace
+
+const detail::run_mark* detail::run_marks() noexcept {
+    return marks;
+}
 
 defer_frame::~defer_frame() {
     // Normally gp_run has run every call. Only a frame that didn't get to it (an exception that
@@ -76,9 +84,18 @@ void defer_frame::gp_on_panic(panic_error& e) noexcept {
 }
 
 void defer_frame::gp_run() {
+    // The mark for a fatal error's trace (fatal_trace): which panic runs the deferred calls, and
+    // where this gp_run's caller is in the stack. A store and a load of a thread-local each.
+    detail::run_mark mark{
+        nullptr,
+        reinterpret_cast<uintptr_t>(__builtin_extract_return_addr(__builtin_return_address(0))),
+        marks};
+    marks = &mark;
+    finally unmark{[&mark] { marks = mark.gp_next; }};
     while (gp_top != nullptr) {
         gp_node* n = gp_top;
         gp_top = n->gp_next;
+        mark.gp_panic = gp_pending_panic;
         // The node goes when its call ends, also when an exception that is not a Go panic
         // leaves gp_run.
         finally release{[this, n] { gp_release(n); }};

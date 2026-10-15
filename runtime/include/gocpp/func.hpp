@@ -131,13 +131,16 @@ public:
         }
     }
 
-    // f(a...): calls the func, or panics like Go for nil. For a func value that nothing can
+    // f(a...): calls the func, or panics like Go for nil (a nil check: with GOCPP_NOCHECKS,
+    // checks.hpp, a call of nil is undefined behavior). For a func value that nothing can
     // change while it runs (see the top of the file).
     R operator()(A... a) const {
         R (*c)(void*, A&&...) = gp_call_;
+#ifndef GOCPP_NOCHECKS
         if (c == nullptr) [[unlikely]] {
             panic_nil();
         }
+#endif
         return c(gp_env_.get(), static_cast<A&&>(a)...);
     }
 
@@ -145,9 +148,11 @@ public:
     // closure stays alive until the call returns.
     R gp_call(A... a) const {
         R (*c)(void*, A&&...) = gp_call_;
+#ifndef GOCPP_NOCHECKS
         if (c == nullptr) [[unlikely]] {
             panic_nil();
         }
+#endif
         detail::func_keep keep{gp_env_};
         return c(keep.gp_env.get(), static_cast<A&&>(a)...);
     }

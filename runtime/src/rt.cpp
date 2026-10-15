@@ -3,6 +3,7 @@
 // gocpp/os.hpp.
 #include <gocpp/rt.hpp>
 #include <gocpp/os.hpp>
+#include <gocpp/trace.hpp>
 
 #include <array>
 #include <charconv>
@@ -190,7 +191,8 @@ namespace detail {
 
 void release_defer(std::shared_ptr<const void>&& owner) noexcept {
     // One node per release_max_depth nodes of a chain, so the allocation is rare. Without
-    // memory, drop the owner here, recursing deeper: better than losing it.
+    // memory, drop the owner here, recursing deeper: better than losing it. (Under run_main's
+    // new handler a failed allocation is a fatal error first: this is for C++ code without it.)
     release_state& st = release_tls;
     auto* n = new (std::nothrow) release_node{std::move(owner), st.gp_pending};
     if (n == nullptr) {
@@ -250,6 +252,10 @@ void panic(const gp::string& v) {
 
 void panic_constant(const gp::string& c) {
     throw panic_error{c, {panic_identity::gp_constant, 17, 0}};
+}
+
+void panic_wrap(const char* msg) {
+    panic_constant(gp::string::gp_copy(msg));
 }
 
 void panic_divide() {
@@ -472,6 +478,27 @@ void print_float(std::string& out, double v) {
     out.append(buf, sizeof buf);
 }
 
+void fatal(std::string_view msg) noexcept {
+    // Like a panic: what C or C++ code printf'd comes first. The header is written in parts,
+    // so that it needs no memory; then the trace, if there is memory for it.
+    std::fflush(nullptr);
+    write_stderr("fatal error: ");
+    write_stderr(msg);
+    write_stderr("\n\ngoroutine 1 [running]:\n");
+    std::string trace;
+    fatal_trace(trace);
+    write_stderr(trace);
+    os::exit(2);
+}
+
+void out_of_memory() {
+    // An allocation that fails while the report is made (its trace) throws std::bad_alloc
+    // now, which fatal_trace catches: the report then has no trace. Phase 08: when several
+    // threads run out of memory at once, one of them should report.
+    std::set_new_handler(nullptr);
+    fatal("runtime: out of memory");
+}
+
 void write_stderr(std::string_view s) {
     // Go's runtime print ignores write errors, also a broken pipe.
     if (!s.empty()) {
@@ -516,6 +543,7 @@ const std::vector<gp::string>& envs() noexcept {
 
 int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
     os::start();
+    std::set_new_handler(detail::out_of_memory);
     args_storage() = to_strings(os::arguments(argc, argv));
     envs_storage() = to_strings(os::environment());
     try {
@@ -530,6 +558,14 @@ int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
         std::string out;
         detail::panic_report(out, e); // with the stack trace
         detail::write_stderr(out);
+        os::exit(2);
+    } catch (const std::bad_alloc&) {
+        // An allocation failure that the new handler didn't see: a size that C++ can't even
+        // ask for (std::bad_array_new_length), or one in C++ code that threw it itself. The
+        // stack is gone: the report has no trace. The deferred calls didn't run (the generated
+        // code catches only gp::panic_error), as Go runs none after a fatal error.
+        std::fflush(nullptr);
+        detail::write_stderr("fatal error: runtime: out of memory\n");
         os::exit(2);
     }
     os::exit(0);
