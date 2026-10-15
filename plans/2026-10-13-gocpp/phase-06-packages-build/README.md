@@ -255,6 +255,38 @@ and sets GOOS/GOARCH for build constraints. Two targets matter in this phase:
   UCRT64) target UCRT; the real-Windows runs of Phase 14 cover UCRT.
 - **linux/arm64 (best effort)**; Phase 15 makes it a CI target.
 
+**The Windows toolchain is downloaded like Go's (your decision, 2026-10-15).** Go needs nothing
+installed to build for Windows. gocpp needs a C++ toolchain, so it fetches one itself, the way
+`GOTOOLCHAIN` fetches a Go toolchain:
+- **Which compiler is used:** `GOCPP_CXX` if it is set; else a MinGW-w64 compiler on the `PATH`
+  (`x86_64-w64-mingw32-clang++`, then `-g++`); else gocpp's **pinned llvm-mingw**, downloaded
+  on first use. `GOCPP_TOOLCHAIN` picks the rule: `auto` (the default: the order above),
+  `local` (never download; the error says how to install a toolchain, for offline machines and
+  CI) or `pinned` (always the pinned toolchain, even when another one is installed, so every
+  machine builds with the same compiler).
+- **What is pinned:** each gocpp release pins one llvm-mingw release, its UCRT variant (so the
+  msvcrt gap above goes away for users), with the SHA-256 of each host's archive compiled into
+  the gocpp binary, like Go's checksums for its toolchains. Hosts: Linux x86-64 (cross builds)
+  and Windows x86-64 (native builds, Phase 14).
+- **Download:** over HTTPS from llvm-mingw's GitHub releases, or from a mirror
+  (`GOCPP_TOOLCHAIN_URL`, like `GOPROXY`); checked against the pinned hash before anything is
+  unpacked; unpacked into `<gocpp cache>/toolchain/llvm-mingw-<version>-<host>/` through a
+  temporary folder and one rename, read-only, with a lock so two builds that start at once
+  download it once. `gocpp env` shows the toolchain and where it came from; `gocpp clean
+  -toolchain` removes it.
+- **Never in the editor's way:** the language server and `gocpp check` use a downloaded
+  toolchain only when it is already there; they never start a download (the server shows a
+  hint instead).
+- **NixOS:** llvm-mingw's Linux binaries are built for usual glibc systems and don't start on
+  NixOS as they are (no `/lib64/ld-linux-x86-64.so.2`). The dev shell and the Nix package keep
+  using Nix's MinGW-w64 (`GOCPP_TOOLCHAIN=local` there); on NixOS without it, gocpp says so
+  instead of downloading something that can't run. The job checks whether `nix-ld` or setting
+  the interpreter at unpack time is worth supporting.
+- **Linux targets** keep the system `g++`/`clang++` (one package-manager command on every
+  distribution). A downloaded Linux toolchain is an open idea for later (TODO.md).
+- **Tests:** a local HTTPS test server for a good download, a wrong hash, a cut-off download,
+  two builds at once and `GOCPP_TOOLCHAIN=local`; one opt-in test downloads the real archive.
+
 **Probe results on disk.** The Phase 01 namespace probe (and the Phase 04 kind probe) cache their
 results in memory only. The disk cache keeps them too; its key must include the environment that
 changes include paths (`CPATH`, `CPLUS_INCLUDE_PATH`, `C_INCLUDE_PATH`, `NIX_CFLAGS_COMPILE`) and
@@ -323,7 +355,8 @@ func main() { imgui.Begin("hello") }
     hidden visibility, trampolines), `cpp-lib` (CMake INTERFACE flags).
 11. **6.11 `compile_commands.json` + `gocpp export cmake`.**
 12. **6.12 CLI**: `list`, `env`, `clean`, all build flags, build tags.
-13. **6.13 Cross-compilation**: windows/amd64 with MinGW-w64 (`.exe` linked with `-static`) and a
+13. **6.13 Cross-compilation**: windows/amd64 with MinGW-w64 (`.exe` linked with `-static`), the
+    pinned llvm-mingw download (§2.10: `GOCPP_TOOLCHAIN`, hashes in the binary, cache, lock), and a
     CI job that runs the OS-independent run tests under Wine; linux/arm64 best effort.
 14. **6.14 Tests**: multi-package fixtures (diamond imports, cross-package embedding/interfaces),
     the 3-package init-order case against Go, incremental-build assertions (what was recompiled,

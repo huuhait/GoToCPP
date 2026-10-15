@@ -52,6 +52,7 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] **Q11 `!` in `main`:** print `<program>: <error>` and exit 1 (for `func main!()` and for `F!()` in `main`).
 - [x] **Q12 Macro style:** `macro Name(args) { ... }`, used as `#Name(...)` inside code or on top of a func, and `#Derive(...)` on a type.
 - [x] **Q14 C/C++ libraries from the internet (2026-10-13):** modules like Go's; headers imported by full path (`"github.com/ocornut/imgui/imgui.h"`); `<...>` only for system headers; built from a small `cxx` recipe in `gocpp.mod`, no CMake. (Phase 06 §2.11)
+- [x] **Q15 Toolchain like Go's (2026-10-15):** gocpp downloads its pinned llvm-mingw (UCRT, SHA-256 in the binary) when no Windows toolchain is installed, the way `GOTOOLCHAIN` fetches Go; `GOCPP_TOOLCHAIN=auto|local|pinned`. Windows needs only `gocpp.exe`. (Phase 06 §2.10, Phase 14 §2.2, Phase 15 §2.4)
 - [x] **Q13 Macros on top of a func:** both styles. Start style (runs at the start; a returned `func()` runs at the end) and wrap style (`#body()`: the macro decides how the function's code runs, e.g. `#VM()`, `#Recover()`, `#InThread()`, `#Once()`). (Phase 10 §2.2)
 
 ## Open questions (no decision needed yet)
@@ -70,6 +71,7 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 
 ## Ideas / backlog (not scheduled)
 
+- [ ] A downloaded toolchain for Linux targets too (a pinned clang + lld + libc++, or `zig c++`), so a Linux machine without `g++`/`clang++` also needs only gocpp (follows Q15)
 - [ ] Web playground: the transpiler compiled to WebAssembly, showing `.gp` → C++ live
 - [ ] `gocpp test -cover` via clang source-based coverage mapped through `#line`
 - [ ] Fuzzing in `testing` (`testing.F`)

@@ -65,7 +65,12 @@ holds the `gp::os` thread layer (Phase 08). This phase adds the Windows versions
 ### 2.2 Build driver
 
 - **Toolchain detection** for MinGW-w64 (`x86_64-w64-mingw32-clang++`, `x86_64-w64-mingw32-g++`,
-  llvm-mingw on Windows); `gocpp env` shows what it found.
+  `clang++`/`g++` of llvm-mingw or MSYS2 on Windows); `gocpp env` shows what it found. When
+  there is none, gocpp **downloads its pinned llvm-mingw** for the Windows host, the same rule and
+  code as Phase 06 §2.10 (`GOCPP_TOOLCHAIN`), so on Windows too you install only `gocpp.exe`
+  and run `gocpp build`, as with Go. Windows-specific parts: the cache under
+  `%LocalAppData%`, long paths in the archive, and a virus scanner holding a just-unpacked file
+  open (retry the rename).
 - **Outputs**: `.exe`; `c-shared` gives a `.dll` plus an import library (`.dll.a`), and `//export`
   functions are marked `__declspec(dllexport)`; `c-archive` gives a `.a`.
 - Programs are linked with **`-static`**, so an `.exe` runs without extra DLLs. Linking only
@@ -152,7 +157,8 @@ holds the `gp::os` thread layer (Phase 08). This phase adds the Windows versions
    launch template, Phase 12 probes with the Windows target.
 7. **14.7 Test infrastructure**: the Wine CI job for the whole suite (with `GOOS=windows` Go as the
    reference for OS-dependent output) and the real-Windows release checklist.
-8. **14.8 Docs**: installing gocpp on Windows (llvm-mingw or MSYS2), building for Windows from
+8. **14.8 Docs**: installing gocpp on Windows (nothing else to install: the toolchain is
+   downloaded; llvm-mingw or MSYS2 only for `GOCPP_TOOLCHAIN=local`), building for Windows from
    Linux, and a Windows interop cookbook (`MessageBoxW`, a small Win32 window, sockets).
 
 ## 4. Deliverables

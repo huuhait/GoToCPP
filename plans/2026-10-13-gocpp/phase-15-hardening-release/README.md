@@ -91,10 +91,12 @@ Linux and Windows are the targets (your decision); macOS is not.
 ### 2.4 Packaging and install
 
 - `go install github.com/huuhait/gocpp/cmd/gocpp@latest`. The runtime and stdlib are embedded,
-  so it's one binary. A C++20 compiler must be installed separately; `gocpp env` (Phase 06)
-  shows which one was found.
+  so it's one binary. For Windows targets (from Linux or on Windows) gocpp downloads its pinned
+  llvm-mingw when no toolchain is installed (Phase 06 §2.10); for Linux targets the system
+  `g++`/`clang++` is used. `gocpp env` (Phase 06) shows which one was found.
 - Release binaries via GoReleaser (linux amd64/arm64, windows amd64) with checksums. The
-  Windows zip contains `gocpp.exe` and a note on installing llvm-mingw (or MSYS2).
+  Windows zip contains `gocpp.exe`; nothing else is needed (the toolchain is downloaded on
+  first use). Each release's notes name its pinned llvm-mingw version.
 - Nix flake package (`nix run github:huuhait/gocpp`). On NixOS there's no compiler on the
   `PATH` by default, so the package wraps `gocpp` with Nix's wrapped `clang++`/`g++` (they add
   the right include and library paths). AUR, Scoop or winget packages if people ask.
