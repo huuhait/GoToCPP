@@ -99,4 +99,15 @@
   when the buffer is empty); measure it, and add a run test that mixes both through a pipe. 4.19 documents
   it, and that C literals follow C's types (`1<<40` is a `long`, which is 32-bit on Windows: write `%lld`
   with `C.longlong(x)`).
+- 2026-10-15: Job 04-rt (the runtime side of §2.12 in runtime/include/gocpp/interop.hpp and src/interop.cpp:
+  `gp::deref`, `gp::range` / `gp::range_keys`, `gp::values`, `gp::cstr`, `gp::cgo::{CString, GoString,
+  GoStringN, GoBytes, free}` with Go 1.25's behavior, implicit `std::string_view`, `std::span` and `T*`
+  conversions) committed, clean after 2 review rounds. g++ builds of generated code use
+  `-Werror=conditionally-supported`, so a class object through C's `...` is an error on both compilers;
+  runtime/reject_test.go checks what must not compile. For 4.10/4.11: that flag also rejects casts between
+  function and object pointers (`unsafe.Pointer(C.fn)`, dlsym results, callbacks with user data): do them
+  through one runtime helper built on `std::bit_cast` with a static_assert on the sizes. For 4.13:
+  GeneratedFlags must stay limited to generated files, never the user's own `.c`/`.cpp` sources. Nits left:
+  reject_test.go could match `<file>:<line>:<col>: error` for the cases whose error is at their own line;
+  a long line in docs/spec/cpp-mapping.md:213.
 
