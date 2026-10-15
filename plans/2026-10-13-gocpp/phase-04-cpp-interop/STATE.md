@@ -21,7 +21,7 @@
 - [ ] 4.12 C++ exception → fatal Go-style panic; fmt shim prints C++ values (raw pointers as addresses)
 - [ ] 4.13 Compile + link package `.c/.cc/.cpp/.cxx` sources
 - [ ] 4.14 `extern "C"` rule (parse-as-C, `.hpp` not wrapped by default, `//gocpp:extern-c <hdr>`, `no-extern-c`, the §2.9 error cases)
-- [~] 4.15 Directives → flags (`pkg-config`, `link`, `cflags`, `ldflags`) + the flag allow-list (port Go's security.go tables, `GOCPP_*_ALLOW`); tests use a test-only library with its own `.pc` (the dev shell hides missing flags)
+- [x] 4.15 Directives → flags (`pkg-config`, `link`, `cflags`, `ldflags`) + the flag allow-list (port Go's security.go tables, `GOCPP_*_ALLOW`); tests use a test-only library with its own `.pc` (the dev shell hides missing flags)
 - [ ] 4.16 Local helper headers used as packages (replaces the preamble) + `C` helpers (`C.free`)
 - [ ] 4.17 Interop error reporting (`.gp` line mapping, trimming, `-cpperrors=full`)
 - [ ] 4.18 Tests
@@ -119,4 +119,15 @@
   stack-use-after-scope): a single variable from a call that returns a pair/tuple of references also goes
   through `gp::values`. For 4.9: constants at C targets follow Go's rules (`var s *C.char = "hi"`,
   `var c C.char = 200`, `C.int(2.5)` are errors, as in cgo).
+- 2026-10-15: Job 4.15 (directives → flags: `//gocpp:pkg-config` (two runs, `--cflags` and `--libs`), `link`,
+  `cflags`, `ldflags`; Go 1.25's cgo allow-list ported to internal/build/security.go with Go's notice; trusted
+  GOCPP_CFLAGS (C and C++), GOCPP_CXXFLAGS and GOCPP_LDFLAGS; relative paths made absolute; the probes, check
+  and the language server get the checked flags (pkg-config runs in the server's background); `hasFlagDirectives`
+  removed, 1.10c's gap closed) committed, clean after 3 review rounds. gocpp-specific rules: a package can't
+  choose the system root, the toolchain, the linker or the ABI (`-m32`, `-stdlib=`, ABI macros such as
+  `_GLIBCXX_USE_CXX11_ABI`): those are choices for the whole program, made in the GOCPP_* variables; with user
+  flags, gocpp's language flags (`-std=c++20 -fwrapv -fno-strict-aliasing -ffp-contract=off -fexceptions
+  -fno-fast-math`) and `-Wno-error` come last in the compile of generated C++ and of the runtime; no safeCgoName
+  check (no shell: `-DMSG=\"hi\"` works); a compile or link that fails with user flags is a user error, not
+  "a bug in gocpp".
 
