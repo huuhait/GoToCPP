@@ -132,8 +132,8 @@ one spelling compiles (found in the audit).
 | `std.vector`, `fs.path` (namespaces; `fs` renamed with `import fs "::std::filesystem"`) | `::std::vector`, `::std::filesystem::path` | fully qualified namespaces are unambiguous |
 | `glm.vec3` (`<glm/glm.hpp>` is package `glm`, and `glm` is also a namespace) | `::glm::vec3` | the namespace is tried first, then the C-level name (probe 2) |
 | `std.chrono.steady_clock.now()`, `std.string.npos`, `ui.Color.Red` (types, from probe 2) | `::std::chrono::steady_clock::now()`, `::std::string::npos`, `::Color::Red` | class scope and `enum class` values need `::` |
-| `std.cout.flush()` (a value) | `::std::cout.flush()` | members of objects use `.` |
-| `stat.struct_stat`, `lib.enum_x`, `lib.union_y` | `struct stat`, `enum x`, `union y` | cgo convention for C tag names |
+| `std.cout.flush()`, `lib.sp.x` (values) | `gp::deref(::std::cout).flush()`, `gp::deref(::sp).x` | members of values use `.` after `gp::deref` (§2.5), which passes objects through and dereferences raw pointers with Go's nil check |
+| `stat.struct_stat`, `lib.enum_x`, `lib.union_y` | `struct ::stat`, `enum ::x`, `union ::y` | cgo convention for C tag names; qualified, so a gocpp `type stat` can't hide the tag |
 
 A header package gives access to the global (C-level) names, and C++ has only one global
 namespace. So `raylib.printf` would also compile when `<stdio.h>` is included somewhere. That's

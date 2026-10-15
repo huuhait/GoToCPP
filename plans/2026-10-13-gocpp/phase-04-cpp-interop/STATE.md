@@ -110,4 +110,13 @@
   GeneratedFlags must stay limited to generated files, never the user's own `.c`/`.cpp` sources. Nits left:
   reject_test.go could match `<file>:<line>:<col>: error` for the cases whose error is at their own line;
   a long line in docs/spec/cpp-mapping.md:213.
+- 2026-10-15 (4.2 review): decisions: C tag names are qualified (`struct ::point`); members of value paths
+  go through `gp::deref` (README §2.3); conversions of C values use one runtime helper that sends float →
+  integer through `gp::f2i` (a plain static_cast of an out-of-range float is UB); until 4.8, a func literal
+  that uses an opaque local is "not supported yet" (capture by copy loses changes made through C++
+  references); a macro used through a header package that collides with a generated name is a user error.
+  For 4.7: `p := std.minmax(3, 1)` (one variable) dangles like the two-variable form (ASan
+  stack-use-after-scope): a single variable from a call that returns a pair/tuple of references also goes
+  through `gp::values`. For 4.9: constants at C targets follow Go's rules (`var s *C.char = "hi"`,
+  `var c C.char = 200`, `C.int(2.5)` are errors, as in cgo).
 
