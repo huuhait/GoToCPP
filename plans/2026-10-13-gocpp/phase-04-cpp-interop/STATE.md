@@ -166,4 +166,13 @@
   struct with C/C++ parts is "not supported yet". Left for 4.9: a typed string constant passed to a C function
   (`const S string = "x"; cstdio.puts(S)`) is a gp::string argument and doesn't compile. Left for 4.17: errors
   from the C++ compiler at the boundary (static_asserts of gp::cgo::as / case_eq) print as internal errors.
+- 2026-10-15 (4.17 review): decision: a C++ compile error is the user's only when it is on a .gp line that
+  contains C/C++ code (a `C.`, header-package or namespace name, the first line of the statement around it, or
+  a header import line for errors inside headers), or when the innermost .gp frame of its instantiation chain
+  is such a line; an error on any other .gp line is gocpp's (internal), because almost every generated
+  statement is #line-mapped to its .gp line (5 emitter bugs on plain Go lines all looked like user errors with
+  the first rule). gcc's "in expansion of macro" note at a .gp line is the error's place. Accepted extensions of
+  README §2.11: undefined references at a .gp line (from the debug info) are user errors with a hint
+  (//gocpp:link or //gocpp:pkg-config, or `gocpp run .` when named files leave the folder's C/C++ files out);
+  the source line follows after a tab (like gocpp check), not 8 spaces.
 
