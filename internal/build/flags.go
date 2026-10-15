@@ -67,12 +67,19 @@ func Flags(cxx CXX, asan bool) []string {
 // family that has it; every other warning stays visible. The runtime's
 // own files don't get them. The emitter's tests compile with the same
 // flags (internal/cppgen, cxx_test.go).
+//
+// g++ also gets -Werror=conditionally-supported: a class object passed
+// through a C function's `...` (a gp::ptr, or the gp::cstr holder given to
+// printf or ioctl) compiles silently with g++ otherwise, and the callee
+// reads the address of a copy of the object as its pointer. clang rejects
+// it on its own (-Wnon-pod-varargs is an error by default).
+// runtime/reject_test.go checks both.
 func GeneratedFlags(cxx CXX) []string {
 	switch cxx.Family {
 	case Clang:
 		return []string{"-Wno-tautological-compare"}
 	case GCC:
-		return []string{"-Wno-overflow"}
+		return []string{"-Wno-overflow", "-Werror=conditionally-supported"}
 	}
 	return nil
 }

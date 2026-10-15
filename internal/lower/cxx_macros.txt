@@ -1375,6 +1375,7 @@ _GLIBCXX_INLINE_VERSION
 _GLIBCXX_INVOKE_H
 _GLIBCXX_IOS
 _GLIBCXX_IOSFWD
+_GLIBCXX_ITERATOR
 _GLIBCXX_LT_OBJDIR
 _GLIBCXX_MAKE_MOVE_IF_NOEXCEPT_ITERATOR
 _GLIBCXX_MAKE_MOVE_ITERATOR
@@ -1426,6 +1427,7 @@ _GLIBCXX_REFWRAP_H
 _GLIBCXX_RELEASE
 _GLIBCXX_RES_LIMITS
 _GLIBCXX_SANITIZE_STD_ALLOCATOR
+_GLIBCXX_SPAN
 _GLIBCXX_STATIC_TZDATA
 _GLIBCXX_STDC_HEADERS
 _GLIBCXX_STDEXCEPT
@@ -2028,6 +2030,7 @@ _STL_UNINITIALIZED_H
 _STL_VECTOR_H
 _STREAMBUF_ITERATOR_H
 _STREAMBUF_TCC
+_STREAM_ITERATOR_H
 _STRINGFWD_H
 _STRINGS_H
 _STRING_CONVERSIONS_H
@@ -3437,6 +3440,7 @@ __cpp_lib_concepts
 __cpp_lib_constexpr_algorithms
 __cpp_lib_constexpr_char_traits
 __cpp_lib_constexpr_dynamic_alloc
+__cpp_lib_constexpr_iterator
 __cpp_lib_constexpr_memory
 __cpp_lib_constexpr_string
 __cpp_lib_constexpr_string_view
@@ -3469,10 +3473,13 @@ __cpp_lib_is_swappable
 __cpp_lib_launder
 __cpp_lib_logical_traits
 __cpp_lib_make_from_tuple
+__cpp_lib_make_reverse_iterator
 __cpp_lib_make_unique
 __cpp_lib_math_constants
+__cpp_lib_move_iterator_concept
 __cpp_lib_node_extract
 __cpp_lib_nonmember_container_access
+__cpp_lib_null_iterators
 __cpp_lib_parallel_algorithm
 __cpp_lib_ranges
 __cpp_lib_raw_memory_algorithms
@@ -3481,6 +3488,8 @@ __cpp_lib_result_of_sfinae
 __cpp_lib_shared_ptr_arrays
 __cpp_lib_shared_ptr_weak_type
 __cpp_lib_smart_ptr_for_overwrite
+__cpp_lib_span
+__cpp_lib_ssize
 __cpp_lib_starts_ends_with
 __cpp_lib_string_udls
 __cpp_lib_string_view

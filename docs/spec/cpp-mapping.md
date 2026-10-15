@@ -210,7 +210,9 @@ $XDG_CACHE_HOME/gocpp/gen/<main module>/gpkg/<import path>/
   be the columns of the C++ code, and debuggers would show them on `.gp` lines. Valid Go can
   make the compilers warn about generated code that is right, so that code also gets
   `-Wno-tautological-compare` (clang) or `-Wno-overflow` (g++); every other warning stays
-  visible. The runtime comes from the gocpp binary: it is extracted once into the user
+  visible. g++ also gets `-Werror=conditionally-supported`: a class object such as a gocpp
+  pointer passed through a C function's `...` is then an error, as it is with clang (the callee
+  would read a copy of the object as its pointer). The runtime comes from the gocpp binary: it is extracted once into the user
   cache folder (`$XDG_CACHE_HOME` or `~/.cache` on Linux), to `gocpp/rt/<version>-<hash>/`, and
   its object files are kept there, per compiler and flags.
 - `gocpp run` exits like the program: with its exit status, or, when a signal kills the

@@ -403,7 +403,7 @@ fmt.Println(n + 1)          // fully type-checked by gocpp
 | gocpp | C++ | Note |
 |---|---|---|
 | `x := lib.f()` | `auto x = ::f();` | |
-| `x.m`, `x.m()` with `x` opaque | `gp::deref(x).m` | `gp::deref` dereferences **raw pointers only**, like Go's auto-deref; values pass through. Smart pointers are not dereferenced for you: write `(*sp).m` |
+| `x.m`, `x.m()` with `x` opaque | `gp::deref(x).m` | `gp::deref` dereferences one level of a pointer, like Go's auto-deref: a raw pointer, or a gocpp pointer (`gp::ptr`) that comes back as an opaque value, such as an element of a `std.vector[*Node]` or a gocpp pointer returned by a C++ template (`gp::deref(v[0]).Name`), with Go's nil panic for both; values pass through. C++ smart pointers are not dereferenced for you: write `(*sp).m` |
 | `a + b`, `a == b`, `v[i]` on C++ values | `a + b`, `a == b`, `v[i]` | C++ operators and C++ rules: no gocpp bounds check on C++ containers (use `.at(i)` if you want one) |
 | `std.string("hi")`, `std.vector[int](10, 0)` | `std::string("hi")`, `std::vector<int64_t>(10, 0)` | conversion syntax calls a constructor; several arguments are allowed ([D5](language.md#d5-constructor-calls-for-cc-types)) |
 | `std.vector[int]{1, 2, 3}` | `std::vector<int64_t>{1, 2, 3}` | |

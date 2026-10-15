@@ -18,11 +18,12 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `src/slice.cpp` | the parts of slices and slice bounds checks that are not templates: the bounds panics with Go's messages, `make`'s panics, and the capacity of a growing slice (Go's formula and size classes). Embedded |
 | `src/complex.cpp` | the division of complex numbers, Go's `runtime.complex128div` line by line. Embedded |
 | `src/map.cpp` | the parts of maps and key hashing that are not templates: the hash of a run of bytes (strings) and the nil map panic. Embedded |
+| `src/interop.cpp` | the parts of the interop helpers that are not templates: cgo's `C.CString`, `C.GoString`, `C.GoStringN`, `C.GoBytes` and `C.free`, each a mirror of Go's code. Embedded |
 | `src/trace.cpp` | the stack trace of a panic (`trace.hpp`): the `panic_error` constructor that records the stack, Go names from mangled C++ names, the DWARF line table reader, the frames. Standard C++ only. Embedded |
 | `src/os/linux/` | the Linux OS layer: `os.cpp`, and `trace.cpp` (the stack trace's addresses, ELF file and demangling). Phase 08 adds the Linux side of the thread layer `gp::os`. Embedded |
 | `src/os/windows/` | the Windows OS layer (Phase 14): so far only `trace.cpp`, the stack trace's addresses (no file reader yet). Embedded |
 | `files.go` | package `rtfiles`: `FS()` holds `include/` and `src/`; `Sources(goos)` lists the `.cpp` files a program is compiled with (`src/*.cpp` and `src/os/<goos>/*.cpp`) |
-| `test/` | the C++ tests (not embedded): `unit.cpp`, `slice_test.cpp`, `array_test.cpp`, `map_test.cpp`, `fmt_test.cpp`, `diff.cpp`, `fmt_diff.cpp`, `fortify.cpp` and `layout.cpp` (generated) |
+| `test/` | the C++ tests (not embedded): `unit.cpp`, `slice_test.cpp`, `array_test.cpp`, `map_test.cpp`, `fmt_test.cpp`, `interop_test.cpp`, `diff.cpp`, `fmt_diff.cpp`, `fortify.cpp` and `layout.cpp` (generated) |
 | `testdata/diff/main.go`, `testdata/fmtdiff/main.go` | the Go sides of the differential tests |
 | `*_test.go` | the Go tests that build and run the C++ tests, and the checks below |
 | `compile_flags.txt` | the flags for clangd, so the files open without false errors in an editor (the dev shell's clangd) |
@@ -34,10 +35,10 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `rt.hpp` | includes everything below, `nofortify.h` first and `sizes.hpp` last |
 | `nofortify.h` | turns `_FORTIFY_SOURCE` off at `-O0` (below) |
 | `checks.hpp` | the concepts `gp::go_int` and `gp::go_float`, and the panics of the runtime checks with Go's messages: `panic_divide`, `panic_shift`, `panic_index`, `panic_nil`; `gp::check_index`; what `GOCPP_NOCHECKS` (`gocpp build -nochecks`) turns off: the bounds checks here and in `bounds.hpp`, the nil and owner checks of `ptr.hpp` (division and shift checks stay) |
-| `string.hpp` | `gp::string` (owner, data pointer, length: 32 bytes), `"..."_gs` literals (static storage, no allocation, no owner: `gp_owner()` gives `gp::static_owner()` for them), `+`, `+=`, `==`, `<=>`, `s[i]` with Go's bounds check, `gp::len(s)`; `gp::sub` (`s[a:b]`, `s[a:]`: shares the bytes, Go's slice-bounds panics), `gp::concat` (a chain of `+`, one allocation), `gp::range_string`/`gp::range_next` (`for i, r := range s`, Go's UTF-8 decoding), `gp::rune_to_string` (`string(r)`) |
-| `ptr.hpp` | Go's pointers: `gp::ptr<T>` (`*T`: a `std::shared_ptr` with nil checks, 16 bytes), `gp::new_<T>` (`new(T)`, `&T{...}`, boxes), the aliasing constructors for pointers into objects (`&p.f`, `&s[i]`), `gp::static_ptr` (`&global`), `gp::ptr_cast` (`(*Q)(p)`), and `gp::weak_ptr<T>` with `gp::weak_make` and `gp::weak_value` (`weak.Pointer[T]`, `weak.Make`, `Value`) |
+| `string.hpp` | `gp::string` (owner, data pointer, length: 32 bytes), `"..."_gs` literals (static storage, no allocation, no owner: `gp_owner()` gives `gp::static_owner()` for them; the byte after static bytes is readable, a NUL for a literal), `+`, `+=`, `==`, `<=>`, the implicit conversion to `std::string_view` (the only implicit one: not to `std::string` or `const char*`, Phase 04 §2.6), `s[i]` with Go's bounds check, `gp::len(s)`; `gp::sub` (`s[a:b]`, `s[a:]`: shares the bytes, Go's slice-bounds panics), `gp::concat` (a chain of `+`, one allocation), `gp::range_string`/`gp::range_next` (`for i, r := range s`, Go's UTF-8 decoding), `gp::rune_to_string` (`string(r)`) |
+| `ptr.hpp` | Go's pointers: `gp::ptr<T>` (`*T`: a `std::shared_ptr` with nil checks, 16 bytes; it converts implicitly to a borrowed `T*` for C and C++, nil to `nullptr`; its conversions to `bool` and to `const volatile T*` are deleted, so `if (p)`, `p < q`, `p + 1`, `p[i]` and `delete p` don't compile), `gp::new_<T>` (`new(T)`, `&T{...}`, boxes), the aliasing constructors for pointers into objects (`&p.f`, `&s[i]`), `gp::static_ptr` (`&global`), `gp::ptr_cast` (`(*Q)(p)`), and `gp::weak_ptr<T>` with `gp::weak_make` and `gp::weak_value` (`weak.Pointer[T]`, `weak.Make`, `Value`) |
 | `bounds.hpp` | Go's checks for slice expressions in Go's order, for slices, strings and arrays: `gp::check_slice` (`x[lo:hi]`), `gp::check_slice3` (`x[lo:hi:max]`), `gp::check_convert` (`[N]T(s)`), and `gp::panic_bounds` with Go's exact messages (`slice bounds out of range [:5] with capacity 3`) |
-| `slice.hpp` | `gp::slice<T>` (`[]T`: owner, data pointer, length, capacity: 40 bytes): nil and empty slices, `s == nullptr`, `s[i]` with Go's bounds check, `gp::len`, `gp::cap`, `gp::make_slice<T>`, `gp::slice_of<T>({...})` (literals), `gp::sub` (2 and 3 indexes), `gp::append`, `gp::append_slice` (`append(s, t...)`, also a string's bytes), `gp::copy`, `gp::clear`; growth with Go's formula (only `cap >= len` is promised), overlap safe, owners released through `gp::detail::release` |
+| `slice.hpp` | `gp::slice<T>` (`[]T`: owner, data pointer, length, capacity: 40 bytes): nil and empty slices, `s == nullptr`, the implicit conversions to `std::span<T>` and `std::span<const T>` (the `len` elements; nil gives an empty span), `s[i]` with Go's bounds check, `gp::len`, `gp::cap`, `gp::make_slice<T>`, `gp::slice_of<T>({...})` (literals), `gp::sub` (2 and 3 indexes), `gp::append`, `gp::append_slice` (`append(s, t...)`, also a string's bytes), `gp::copy`, `gp::clear`; growth with Go's formula (only `cap >= len` is promised), overlap safe, owners released through `gp::detail::release` |
 | `array.hpp` | `gp::array<T, N>` (`[N]T`: an aggregate of N elements, exactly `N * sizeof(T)` bytes; `[0]T` an empty struct of 1 byte): zero values, value semantics, braced literals and `gp::array_keyed<T, N>({{k, v}, ...})` (keyed literals; `constinit` works for positional literals whose elements are constants (numbers, bools, nested arrays of them, `T()` zeros; not `"..."_gs`), and for keyed literals only of numbers, bools and nested arrays of them), `a[i]` with Go's bounds check, `==` and `gp_hash()` (map keys) when `T` is comparable (NaN != NaN), constant `gp::len`/`gp::cap` (also of a pointer to an array), the conversions `gp::to_array<N>(s)` (`[N]T(s)`, a copy) and `gp::to_array_ptr<N>(s)` (`(*[N]T)(s)`, shares the slice's array; needs `-fno-strict-aliasing`), and `gp::sub` on a `gp::ptr<gp::array<T, N>>` (slicing a boxed array: the slice shares the box) |
 | `complex.hpp` | Go's `complex64` and `complex128`: `gp::complex64` and `gp::complex128` (`gp::complex<F>`, the real part first), with Go's `+ - * /` (`*` in `float64` without C's corrections, `/` as `runtime.complex128div`), `==`, `++`, the conversions, `gp::real`, `gp::imag`, a `gp_hash()` with the float rules, and the concept `gp::go_complex` |
 | `hash.hpp` | the hashing of map keys: `gp::hash_of(k)` and the customization point `gp::hash<T>`; Go's float rules (`+0` and `-0` hash the same; every NaN hashes alike, and the map spreads NaN keys with its own count), strings by their bytes, pointers by address, complex numbers by their parts, and the protocol for structs and arrays: a member `gp_hash()` built with `gp::hash_fields(...)` or `gp::hash_elems(p, n)` (`gp::array` has one); `std::hash` for C++ types. A fixed seed; the order is not randomized (D8), but pointer keys make it differ between runs |
@@ -47,6 +48,7 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `panic.hpp` | `gp::panic_error` (the exception a panic throws, with the return addresses of its stack) and `gp::panic(v)` |
 | `fmtshim.hpp` | `gp::fmtshim::Print`, `Println`, `Printf`, `Sprint`, `Sprintln`, `Sprintf`, a stand-in for `fmt` until Phase 05 and 09: every Phase 03 value as Go's `fmt` prints it (slices, arrays, maps with Go's key order, structs, `&{...}`, addresses, `String()` and `Error()` methods, panics in them), the verbs `%v %+v %d %s %q %t %f` (and `%T`) with width, precision and the flags `- + space 0`, Go's error forms; the protocols that the emitter's types follow (`gp_fields` with `gp::field`, `gp_type_name`, `gp_value()`, `gp_String`/`gp_String_ptr`, `gp_Error`/`gp_Error_ptr`) and the type tags for `int64`, `uint64` and `uintptr` (`gp::fmtshim::typed<tag>(x)`) |
 | `main.hpp` | `gp::run_main(argc, argv, init, main)`, `gp::args()`, `gp::envs()` |
+| `interop.hpp` | the helpers for C and C++ values (Phase 04 §2.5, §2.6): `gp::deref(x)` (`x.m` on an opaque value: one level of a raw pointer or a `gp::ptr`, with Go's nil panic; anything else passes through as a reference), `gp::range(c)` and `gp::range_keys(c)` (`for i, v := range c` and `for i := range c` over anything with `begin()`/`end()` and C arrays: a temporary is held by value, random-access containers are walked by index with the length read once, maps give keys and values, the variables are copies), `gp::values(t)` (a pair or tuple with reference members as values, for `std::minmax`), `gp::cstr(s)` (a holder that converts to `const char*`: a NUL-terminated copy, or no copy for a literal), and cgo's helpers in `gp::cgo` (`CString`, `GoString`, `GoStringN`, `GoBytes`, `free`, with Go's behavior and panics). The file starts with the shapes that the emitter writes |
 | `os.hpp` | the OS layer's interface (declarations only) |
 | `trace.hpp` | not in `rt.hpp`, for the runtime's own files and tests: the stack trace of a panic (Go names from mangled C++ names, the DWARF line table reader, the frames in Go's format) |
 | `sizes.hpp` | generated from the size table in `internal/check/sizes.go`: a `static_assert` of the size and alignment of each runtime type, the numbers that `unsafe.Sizeof` gives (divergence D15) |
@@ -54,7 +56,7 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 The headers include only the standard headers they need. Every macro of a header that
 `rt.hpp` includes is in every generated file, and a Go name must not be one of them.
 
-The emitter renames such Go names, from the list in `internal/cppgen/cxx_macros.txt`. So a
+The emitter renames such Go names, from the list in `internal/lower/cxx_macros.txt`. So a
 header that starts to include a new standard header adds macros to that list: `TestMacroList`
 fails, and `go test ./internal/cppgen -run TestMacroList -update` adds them.
 
@@ -173,7 +175,7 @@ this.
 ## Tests
 
 `go test ./runtime` (also part of `make test` and `make ci`) runs:
-- `TestCXX`: compiles `test/unit.cpp`, `test/slice_test.cpp`, `test/array_test.cpp`, `test/map_test.cpp`, `test/fmt_test.cpp`, `test/trace_test.cpp`, `test/nochecks_test.cpp`, `test/diff.cpp` and `test/fmt_diff.cpp` with the embedded runtime, with g++
+- `TestCXX`: compiles `test/unit.cpp`, `test/slice_test.cpp`, `test/array_test.cpp`, `test/map_test.cpp`, `test/fmt_test.cpp`, `test/trace_test.cpp`, `test/interop_test.cpp`, `test/nochecks_test.cpp`, `test/diff.cpp` and `test/fmt_diff.cpp` with the embedded runtime, with g++
   and clang++, each at `-O0`, at `-O2` and with `-fsanitize=address,undefined` (a sanitizer
   report fails the test; this mode also writes DWARF 4, the others the compilers' DWARF 5).
   The flags are the driver's: `-std=c++20 -fwrapv -fno-strict-aliasing
@@ -233,6 +235,24 @@ this.
     outer 50; the second walk), a stack known only at its top, frames without a shown name
     (the addresses), and a broken line table (cut short or changed anywhere: no read
     outside it, which ASan checks).
+  - `interop_test.cpp` checks `interop.hpp` and the conversions at the C/C++ boundary:
+    `gp::deref` (raw pointers one level, `gp::ptr` and named pointer types, the nil panics, no
+    copy of values and temporaries, smart pointers untouched), `gp::range` and `range_keys`
+    (vectors, deques, C arrays, `std::array`, strings, spans, lists, sets, maps, multimaps,
+    views with a sentinel, temporaries held until the loop ends (ASan), a `push_back` that
+    reallocates in the body, a container that shrinks (Go's index panic), copies counted, the
+    blank-variable forms without warnings), `gp::values` (`std::minmax` with temporaries
+    (ASan) and with variables, `std::tie`, moves), the conversions (`std::string_view` only:
+    overload sets of `std::string` and `const char*` don't take a `gp::string`; spans of nil
+    and of part of an array; `T*` but not `bool` from `gp::ptr`, and `==`, `*p`, map keys and
+    `fmt` unchanged), `gp::cstr` (no copy for literals and their suffixes and for `string(r)`,
+    a copy otherwise, holders that outlive the string, char arrays) and `gp::cgo` (every char
+    pointer type, NULs, empty and nil cases, Go's panics). Run with one argument, it runs a case
+    that ends the program, which the test compares with what a cgo program printed with Go
+    1.25: `C.GoStringN(p, -1)` (fatal "out of memory"), `C.GoStringN(nil, 3)` and
+    `C.GoBytes(nil, 3)` (nil dereference), `C.GoBytes(p, -1)` ("gobytes: length out of
+    range"), `gp::deref` of a nil pointer, and, with ASan only, `std::minmax`'s references
+    without `gp::values`, which ASan must report (stack-use-after-scope).
   - `nochecks_test.cpp` is compiled with `-DGOCPP_NOCHECKS`, as `gocpp build -nochecks` does,
     runtime included: the index, slice, conversion, nil and owner checks are gone (an index
     past `len` inside `cap` reads the element, without undefined behavior), and the division
@@ -269,6 +289,12 @@ this.
     report in the asan mode.
     Every program ends with `_exit`, which skips ASan's leak check, so `gp::os::exit` runs it
     itself in an ASan build.
+- `TestRejected`: C++ uses of the runtime's types that must not compile with gocpp's flags
+  for generated code (`build.GeneratedFlags`), each checked at its line with g++ and clang++:
+  `delete p` and `p[i]` on a `gp::ptr`, `if (p)`, a `gp::ptr` or a `gp::cstr` holder through a
+  C function's `...` (g++ needs `-Werror=conditionally-supported` for these two), and
+  `gp::range` over a C array of C arrays (its message); the same code written the emitter's
+  way must compile.
 - `TestNoFortify`: the `nofortify.h` check above, with `-Werror`.
 - `TestLayout`: compiles `test/layout.cpp` (syntax only) with g++ and clang++. Its
   `static_assert`s check the sizes, alignments and field offsets of C++ structs like those the

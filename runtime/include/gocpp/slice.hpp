@@ -96,6 +96,7 @@
 #include <cstring>
 #include <initializer_list>
 #include <memory>
+#include <span>
 #include <type_traits>
 #include <utility>
 
@@ -263,6 +264,19 @@ public:
     // s == nil. Go compares slices only with nil.
     friend bool operator==(const slice& a, std::nullptr_t) noexcept {
         return a.gp_data_ == nullptr;
+    }
+
+    // A slice converts implicitly to std::span<T> and std::span<const T>, for C++ functions
+    // that take one (Phase 04 §2.7). The span sees the slice's len elements (not its capacity)
+    // and is valid while the array lives; a nil slice gives an empty span. Only the dynamic
+    // extent: std::span<T, N> isn't a conversion.
+    template <typename U>
+        requires std::is_same_v<std::remove_const_t<U>, T>
+    operator std::span<U>() const noexcept {
+        if (gp_data_ == nullptr) {
+            return std::span<U>();
+        }
+        return std::span<U>(gp_data_, static_cast<std::size_t>(gp_len_));
     }
 
     // For the runtime's own code and generated code that needs the parts: the owner of the

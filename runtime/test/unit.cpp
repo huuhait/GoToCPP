@@ -998,10 +998,11 @@ void test_ptr_basics() {
     }
     CHECK_EQ(live, 0);
 
-    // Conversions: none to another pointer type, a raw pointer or bool, as in Go; nil converts.
+    // Conversions: none to another pointer type or bool, as in Go; nil converts. The raw
+    // pointer is the one implicit conversion, for C and C++ (Phase 04 §2.7; interop_test.cpp).
     CHECK(!(std::is_convertible_v<gp::ptr<Point>, gp::ptr<Other>>));
     CHECK(!(std::is_constructible_v<gp::ptr<Other>, gp::ptr<Point>>));
-    CHECK(!(std::is_convertible_v<gp::ptr<int64_t>, int64_t*>));
+    CHECK((std::is_convertible_v<gp::ptr<int64_t>, int64_t*>));
     CHECK(!(std::is_convertible_v<gp::ptr<int64_t>, bool>));
     CHECK(!(std::is_constructible_v<bool, gp::ptr<int64_t>>));
     CHECK(!(std::is_convertible_v<int64_t*, gp::ptr<int64_t>>));

@@ -43,14 +43,18 @@ public:
     constexpr string() noexcept = default;
 
     // A string over len bytes at data, owned by owner (null for static storage: the bytes must
-    // then live as long as the program).
+    // then live as long as the program, and the byte at data[len] must be readable too, as for
+    // the static-bytes constructor below: gp_c_terminated reads it for every string without an
+    // owner).
     string(std::shared_ptr<const void> owner, const char* data, int64_t len) noexcept
         : gp_owner_(std::move(owner)), gp_data_(data), gp_len_(len) {}
 
     // A string over len bytes in static storage, such as a string literal: no owner, no
     // allocation. The constructor is constexpr, so a constinit variable (a package variable
     // with a constant value, Phase 06) can use it; "..."_gs can't be constexpr in C++20,
-    // because the owner's destructor isn't.
+    // because the owner's destructor isn't. The byte at data[len] must be readable too: a
+    // string literal has its NUL there, and a substring of static bytes ends inside them or
+    // at that NUL. gp_c_terminated (below) reads it.
     constexpr string(static_bytes_t, const char* data, int64_t len) noexcept
         : gp_data_(data), gp_len_(len) {}
 
@@ -62,6 +66,22 @@ public:
     std::string_view gp_view() const noexcept {
         return gp_len_ == 0 ? std::string_view()
                             : std::string_view(gp_data_, static_cast<std::size_t>(gp_len_));
+    }
+
+    // A string converts implicitly to std::string_view, for C++ functions that take one (Phase
+    // 04 §2.6). The view shares the bytes, so it is valid while this string (or another string
+    // with the same bytes) lives. There is no implicit conversion to std::string or const
+    // char*: with two implicit conversions, a C++ overload set f(std::string) + f(std::string_view)
+    // would be ambiguous. std::string(s) works (std::string's explicit constructor from a type
+    // that converts to std::string_view), and gp::cstr(s) gives a const char* (interop.hpp).
+    operator std::string_view() const noexcept { return gp_view(); }
+
+    // gp_c_terminated reports whether a NUL byte follows the string's bytes, so that they are
+    // already a C string (gp::cstr needs no copy). Only static bytes (a literal and its
+    // substrings) are checked: the byte after them is readable (the constructor above). A
+    // string made at run time doesn't promise anything after its last byte.
+    bool gp_c_terminated() const noexcept {
+        return gp_owner_ == nullptr && gp_data_ != nullptr && gp_data_[gp_len_] == '\0';
     }
 
     // gp_owner: the owner of the bytes, for a pointer into them (unsafe.StringData, Phase 04).

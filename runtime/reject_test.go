@@ -1,0 +1,100 @@
+package rtfiles_test
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/huuhait/gocpp/internal/build"
+)
+
+// rejectCases are C++ uses of the runtime's types that must not compile with gocpp's flags for
+// generated code (build.Flags and build.GeneratedFlags, without -Werror): each would be wrong
+// at run time, and a requires-expression can't test some of them (g++ reports an ambiguous
+// conversion in delete p as a hard error even there). The line marked "// bad" is where the
+// compiler must report an error.
+var rejectCases = []struct {
+	name, src string
+	want      string // also in the output, when not ""
+}{
+	// delete p: two conversions to object pointers (ptr.hpp), so neither is used. Otherwise
+	// it compiles and frees the object that the gocpp pointer still owns.
+	{"delete", "void f(gp::ptr<int64_t> p) {\n\tdelete p; // bad\n}\n", ""},
+	{"delete-void", "void f(gp::ptr<void> p) {\n\tdelete p; // bad\n}\n", ""},
+	// p[i]: raw pointer arithmetic without a bounds check.
+	{"index", "int64_t f(gp::ptr<int64_t> p) {\n\treturn p[1]; // bad\n}\n", ""},
+	// if (p): Go has no pointer conditions.
+	{"condition", "bool f(gp::ptr<int64_t> p) {\n\tif (p) { // bad\n\t\treturn true;\n\t}\n\treturn false;\n}\n", ""},
+	// A class object through a C function's `...`: the callee would read the address of a
+	// copy as its pointer. clang rejects it by default; g++ with -Werror=conditionally-supported.
+	{"varargs-ptr", "extern \"C\" void var(int, ...);\nvoid f(gp::ptr<int64_t> p) {\n\tvar(1, p); // bad\n}\n", ""},
+	{"varargs-cstr", "extern \"C\" void var(int, ...);\nvoid f(const gp::string& s) {\n\tvar(1, gp::cstr(s)); // bad\n}\n", ""},
+	// gp::range over a C array of C arrays: a clear message instead of an error deep inside.
+	{"range-grid", "void f() {\n\tint g[2][3] = {};\n\tfor (auto&& [i, v] : gp::range(g)) { // bad\n\t\t(void)i;\n\t\t(void)v;\n\t}\n}\n",
+		"gp::range: the elements are C arrays"},
+}
+
+// rejectControl is the same code written the way the emitter writes it: it must compile, so
+// that the cases above fail for their own reason.
+const rejectControl = `extern "C" void var(int, ...);
+void f(gp::ptr<int64_t> p, gp::ptr<void> u, const gp::string& s) {
+	var(1, p.gp_get(), gp::cstr(s).gp_ptr(), u.gp_get());
+	if (p != nullptr) {
+		(void)*p;
+	}
+	int g[2][3] = {};
+	for (auto&& i : gp::range_keys(g)) {
+		(void)g[i];
+	}
+}
+`
+
+// TestRejected compiles each of rejectCases with each compiler and checks that it fails at
+// the marked line, and that rejectControl compiles.
+func TestRejected(t *testing.T) {
+	ccs := compilers(t)
+	rt := extractRuntime(t)
+	for _, c := range ccs {
+		t.Run(c.name, func(t *testing.T) {
+			if c.missing != "" {
+				t.Skip(c.missing)
+			}
+			t.Parallel()
+			dir := t.TempDir()
+			compile := func(name, body string) (string, int) {
+				t.Helper()
+				src := filepath.Join(dir, name+".cpp")
+				if err := os.WriteFile(src, []byte("#include <gocpp/rt.hpp>\n"+body), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				args := slices.Concat(build.Flags(c.cc, false), build.GeneratedFlags(c.cc),
+					[]string{"-I", filepath.Join(rt, "include"), "-fsyntax-only", src})
+				out, _, code, err := command(dir, build.CompilerEnv(), true, c.cc.Path, args...)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return string(out), code
+			}
+			if out, code := compile("control", rejectControl); code != 0 || out != "" {
+				t.Fatalf("the control doesn't compile cleanly: exit code %d\n%s", code, out)
+			}
+			for _, tc := range rejectCases {
+				out, code := compile(tc.name, tc.src)
+				// The marked line, counted with the #include line before the case.
+				line := 2 + strings.Count(tc.src[:strings.Index(tc.src, "// bad")], "\n")
+				at := fmt.Sprintf("%s.cpp:%d:", tc.name, line)
+				want := "an error at " + at
+				if tc.want != "" {
+					want += " with " + tc.want
+				}
+				if code == 0 || !strings.Contains(out, at) || !strings.Contains(out, "error") ||
+					!strings.Contains(out, tc.want) {
+					t.Errorf("%s: exit code %d, want %s; output:\n%s", tc.name, code, want, out)
+				}
+			}
+		})
+	}
+}

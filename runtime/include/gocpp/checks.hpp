@@ -4,8 +4,10 @@
 // GOCPP_NOCHECKS, which `gocpp build -nochecks` defines for every file of the program (the
 // runtime's too), turns off the bounds and nil checks: gp::check_index and check_wrap here,
 // check_slice, check_slice3 and check_convert (bounds.hpp), the nil check of *p and p->f and
-// the owner check (ptr.hpp), the nil check of a call of a func value (func.hpp), and the
-// checks of the generated code's literal keys (array.hpp, slice.hpp). An index out of range
+// the owner check (ptr.hpp), the nil check of a call of a func value (func.hpp), the
+// checks of the generated code's literal keys (array.hpp, slice.hpp), and in interop.hpp the
+// nil check of gp::deref, the index check of gp::range and the nil checks of C.GoStringN and
+// C.GoBytes. An index out of range
 // or a nil dereference is then undefined behavior, as in C++. Everything else stays: division
 // by zero and a negative shift count still panic (C++ has undefined behavior there, and the
 // checks cost little), Go's results for MIN / -1 and for a shift count of the width or more

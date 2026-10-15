@@ -144,11 +144,12 @@ int32_t decode_rune(const char* p, int64_t n, int64_t& width) noexcept {
 namespace {
 
 // The strings of one ASCII byte each, in static storage: string(r) for r < 0x80 points here
-// and doesn't allocate.
+// and doesn't allocate. Each byte is followed by a NUL, as static bytes must be followed by a
+// readable byte (string.hpp), and then the string is a C string too (gp::cstr doesn't copy).
 constexpr auto ascii_bytes = [] {
-    std::array<char, 128> a{};
+    std::array<char, 256> a{};
     for (int i = 0; i < 128; i++) {
-        a[static_cast<std::size_t>(i)] = static_cast<char>(i);
+        a[static_cast<std::size_t>(2 * i)] = static_cast<char>(i);
     }
     return a;
 }();
@@ -158,7 +159,7 @@ constexpr auto ascii_bytes = [] {
 string rune_string(int64_t r) {
     // Go's intstring: a value that is not a valid code point is U+FFFD (EF BF BD).
     if (r >= 0 && r < 0x80) {
-        return string(static_bytes, &ascii_bytes[static_cast<std::size_t>(r)], 1);
+        return string(static_bytes, &ascii_bytes[static_cast<std::size_t>(2 * r)], 1);
     }
     if (r < 0 || r > 0x10FFFF || (r >= 0xD800 && r <= 0xDFFF)) {
         r = 0xFFFD;

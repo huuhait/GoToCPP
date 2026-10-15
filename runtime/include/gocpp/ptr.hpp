@@ -193,8 +193,9 @@ public:
     }
 
     // Copies share the block (one atomic increment); moves leave nil behind (no atomic
-    // operation). There is no implicit conversion to another pointer type, to a raw pointer
-    // or to bool: Go has none either (ptr_cast is the explicit conversion).
+    // operation). There is no implicit conversion to another gocpp pointer type: Go has none
+    // either (ptr_cast is the explicit conversion). The one implicit conversion is to the raw
+    // pointer, below.
     ptr(const ptr&) noexcept = default;
     ptr(ptr&&) noexcept = default;
     ptr& operator=(const ptr&) noexcept = default;
@@ -230,6 +231,32 @@ public:
     friend bool operator==(const ptr& a, std::nullptr_t) noexcept {
         return a.gp_sp_.get() == nullptr;
     }
+
+    // A gocpp pointer converts implicitly to T*, for C and C++ functions that take one (Phase 04
+    // §2.7): nil gives nullptr. The raw pointer is borrowed: it doesn't keep the object alive,
+    // so C must not keep it after the last gocpp pointer to the object is gone (cgo's rule).
+    // gp::ptr<void> (unsafe.Pointer) gives void*. It is implicit because in opaque mode the
+    // emitter can't know whether a C++ parameter takes T* or a gp::ptr<T>
+    // (std::vector<gp::ptr<Node>>::push_back): both work. The conversion never wins over the
+    // operators above: p == q, p == nullptr and *p match them exactly (*p keeps its nil panic).
+    //
+    // The two deleted conversions keep the raw pointer's own operations away from a gocpp
+    // pointer, which only C and C++ parameters should see:
+    //   - to bool: Go has no pointer conditions. Without it, T* would convert on to bool, and
+    //     if (p), !p, bool b = p and a call of f(bool) with p would compile; with it they choose
+    //     the deleted function. It also makes p < q, p <= q, p <=> q, p + 1, p - q and +p
+    //     ambiguous (the built-in operators of pointers and of integers both match).
+    //   - to const volatile T*: with two conversions to object pointers, delete p (a double
+    //     free) and p[i] (unchecked pointer arithmetic: past the box of a gp::ptr<gp::array>)
+    //     don't compile either. A parameter of type T*, const T*, void* or const void* still
+    //     takes p, as only T* converts to it.
+    // A C++ overload set f(bool) + f(void*) is ambiguous for p; pass p.gp_get() there. A C
+    // function's `...` doesn't convert p at all (it would get a copy of the gp::ptr): clang
+    // rejects that, and g++ does with -Werror=conditionally-supported (build.GeneratedFlags),
+    // and the emitter writes p.gp_get() there (Phase 04 steps 4.9 and 4.10).
+    operator T*() const noexcept { return gp_sp_.get(); }
+    operator bool() const = delete;
+    operator const volatile T*() const = delete;
 
     // gp_get: the address, without a nil check (null for nil). For hashing, printing and the
     // runtime's own code.

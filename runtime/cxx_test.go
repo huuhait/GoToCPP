@@ -22,8 +22,8 @@ import (
 )
 
 // The C++ tests of the runtime: test/unit.cpp, test/slice_test.cpp, test/array_test.cpp,
-// test/map_test.cpp, test/fmt_test.cpp, test/trace_test.cpp, test/defer_test.cpp and test/func_test.cpp (unit
-// tests), test/nochecks_test.cpp
+// test/map_test.cpp, test/fmt_test.cpp, test/trace_test.cpp, test/defer_test.cpp, test/func_test.cpp and
+// test/interop_test.cpp (unit tests), test/nochecks_test.cpp
 // (the unit tests of a -nochecks build, compiled with the runtime with -DGOCPP_NOCHECKS),
 // test/diff.cpp (the C++ side of a differential test against testdata/diff/main.go, run with
 // real Go) and test/fmt_diff.cpp (the same for the fmt shim, against testdata/fmtdiff/main.go).
@@ -339,6 +339,7 @@ func TestCXX(t *testing.T) {
 					trace := c.compile(t, rt, "test/trace_test.cpp", dir, m.flags, nil)
 					defers := c.compile(t, rt, "test/defer_test.cpp", dir, m.flags, nil)
 					funcs := c.compile(t, rt, "test/func_test.cpp", dir, m.flags, nil)
+					interop := c.compile(t, rt, "test/interop_test.cpp", dir, m.flags, nil)
 					nochecks := c.compile(t, rt, "test/nochecks_test.cpp", dir, append(slices.Clone(m.flags), "-DGOCPP_NOCHECKS"), nil)
 					fmtUnit := c.compile(t, rt, "test/fmt_test.cpp", dir, m.flags, nil)
 					fmtDiff := c.compile(t, rt, "test/fmt_diff.cpp", dir, m.flags, nil)
@@ -349,6 +350,10 @@ func TestCXX(t *testing.T) {
 					t.Run("trace", func(t *testing.T) { runUnit(t, trace) })
 					t.Run("defer", func(t *testing.T) { runUnit(t, defers) })
 					t.Run("func", func(t *testing.T) { runUnit(t, funcs) })
+					t.Run("interop", func(t *testing.T) {
+						runUnit(t, interop)
+						runInterop(t, interop, m.name == "asan")
+					})
 					t.Run("nochecks", func(t *testing.T) { runUnit(t, nochecks) })
 					t.Run("fmt", func(t *testing.T) { runUnit(t, fmtUnit) })
 					t.Run("fmtdiff", func(t *testing.T) {
@@ -471,6 +476,44 @@ func runPanic(t *testing.T, bin string, frames bool) {
 		if code != tc.code || string(out) != tc.out {
 			t.Errorf("%s: exit code %d, output:\n%s\nwant exit code %d, output:\n%s", tc.name, code, out, tc.code, tc.out)
 		}
+	}
+}
+
+// runInterop runs the cases of test/interop_test.cpp that end the program. The expected
+// output is what a cgo program printed with Go 1.25 (C.GoStringN(p, -1) is a fatal error, C.GoBytes
+// with a negative length a runtime error panic, a nil pointer with a length a nil dereference),
+// up to the goroutine line. The case "dangle" (std::minmax's references without gp::values)
+// runs only with ASan, which must report it: it shows that the gp::values test with
+// temporaries would catch a dangling reference.
+func runInterop(t *testing.T, bin string, asan bool) {
+	const nilPanic = "panic: runtime error: invalid memory address or nil pointer dereference\n"
+	for _, tc := range []struct {
+		name, out string
+	}{
+		{"strn-neg", "fatal error: out of memory\n\ngoroutine 1 [running]:\n"},
+		{"strn-nil", nilPanic + nilSignal + "\n\ngoroutine 1 [running]:\n"},
+		{"bytes-neg", "panic: runtime error: gobytes: length out of range\n\ngoroutine 1 [running]:\n"},
+		{"bytes-nil", nilPanic + nilSignal + "\n\ngoroutine 1 [running]:\n"},
+		{"deref-nil", nilPanic + nilSignal + "\n\ngoroutine 1 [running]:\n"},
+	} {
+		out, _, code, err := command(filepath.Dir(bin), nil, true, bin, tc.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = maskPC(cutTrace(out))
+		if code != 2 || string(out) != tc.out {
+			t.Errorf("%s: exit code %d, output:\n%s\nwant exit code 2, output:\n%s", tc.name, code, out, tc.out)
+		}
+	}
+	if !asan {
+		return
+	}
+	out, _, code, err := command(filepath.Dir(bin), nil, true, bin, "dangle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code == 0 || !bytes.Contains(out, []byte("ERROR: AddressSanitizer: stack-use-after-scope")) {
+		t.Errorf("dangle: exit code %d, output:\n%s\nwant an AddressSanitizer report (stack-use-after-scope) and a nonzero exit code", code, out)
 	}
 }
 
