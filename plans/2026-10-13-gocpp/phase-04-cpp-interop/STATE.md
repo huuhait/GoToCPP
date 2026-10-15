@@ -11,10 +11,10 @@
 - [x] 4.3 Name translation (header packages → `::name` / unqualified macros, namespaces + renames, header-and-namespace names, `::` vs `.`, macro protection with gocpp headers first)
 - [x] 4.4 Opaque value codegen (`auto`, `gp::deref`, calls, operators, constructors, `nil` → `nullptr`, untyped constants as C literals)
 - [x] 4.5 Template-vs-index rule (kind probe) + parenthesis escape
-- [ ] 4.6 Composite literals of C/C++ types (positional, keyed via assignments, init lists)
-- [ ] 4.7 `gp::range` (by-value temporaries, index walk with size read once) + `gp::values`
+- [~] 4.6 Composite literals of C/C++ types (positional, keyed via assignments, init lists)
+- [~] 4.7 `gp::range` (by-value temporaries, index walk with size read once) + `gp::values`
 - [ ] 4.8 Opaque objects in closures/defers (boxed) + copy/move/default-construct policy + `gp::result_slot`
-- [ ] 4.9 String boundary (`string_view` implicit, `std.string(s)` explicit, `gp::cstr` holder, `C.CString`, `C.GoString*`, `C.GoBytes`)
+- [~] 4.9 String boundary (`string_view` implicit, `std.string(s)` explicit, `gp::cstr` holder, `C.CString`, `C.GoString*`, `C.GoBytes`)
   - [ ] typed helpers: front-end rewrites `C.GoString` & co. into the hidden `gocpp/cgoh` package
 - [ ] 4.10 `unsafe` + pointers (owning `unsafe.Pointer`, `SliceData`/`String`/`Slice` keep owners, `std::span`, `gp::ptr` → `T*`) + ASan test
 - [ ] 4.11 Callbacks (function pointers, `std::function`, `cgo.Handle`) + panic trampolines
