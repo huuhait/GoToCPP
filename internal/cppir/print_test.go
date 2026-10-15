@@ -562,3 +562,29 @@ func TestPrintBadText(t *testing.T) {
 		}()
 	}
 }
+
+// TestPrintExternCInclude checks an #include inside extern "C" { } (step 4.14): each of its
+// three lines at the import's line (extern "C" { of the second one is at line 4 without a
+// directive, after the } at line 3), and the line after the #include too.
+func TestPrintExternCInclude(t *testing.T) {
+	checkPrint(t, `
+#include <gocpp/rt.hpp>
+#line 3 "/a.gp"
+extern "C" {
+#line 3 "/a.gp"
+#include "./c.h"
+#line 3 "/a.gp"
+}
+extern "C" {
+#line 4 "/a.gp"
+#include <lua.h>
+#line 4 "/a.gp"
+}
+#include <vector>
+`,
+		&Include{Path: "gocpp/rt.hpp", System: true},
+		&Include{Pos: gp(3), Path: "./c.h", ExternC: true},
+		&Include{Pos: gp(4), Path: "lua.h", System: true, ExternC: true},
+		&Include{Pos: gp(5), Path: "vector", System: true},
+	)
+}

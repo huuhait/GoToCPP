@@ -69,10 +69,17 @@ func (p *printer) decls(list []Decl) {
 func (p *printer) decl(d Decl) {
 	switch d := d.(type) {
 	case *Include:
+		if d.ExternC {
+			p.line(d.Pos, `extern "C" {`)
+		}
 		if d.System {
 			p.line(d.Pos, "#include <"+d.Path+">")
 		} else {
 			p.line(d.Pos, "#include "+CString(d.Path))
+		}
+		if d.ExternC {
+			// At Pos again: after the #include, the line count goes on from the next line.
+			p.line(d.Pos, "}")
 		}
 	case *Directive:
 		p.w.plain("#" + d.Text)

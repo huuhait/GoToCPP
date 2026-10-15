@@ -824,6 +824,7 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 		CXX:       p.prober.findCXX(rec),
 		Probe:     p.prober.probeFor(rec),
 		PkgConfig: p.prober.pkgConfigFor(rec),
+		CHeader:   p.prober.cheaderFor(rec),
 		Deps:      func(lp *load.Package) check.Dep { return depOf[lp] },
 		// A package with load errors (a file that doesn't parse) is
 		// type-checked too, for hover and go to definition there

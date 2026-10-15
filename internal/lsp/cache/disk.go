@@ -28,7 +28,7 @@ import (
 // format belong to the binary. An entry has what summary has: the
 // loader's summary, the export data, the side table of opaque types, the
 // API hash, and the answers of the C++ compiler lookup, of the kind
-// probes and of pkg-config that the check got (a diskProbe). Those answers are not in the
+// probes, of the C header check and of pkg-config that the check got (a diskProbe). Those answers are not in the
 // key (they depend on the headers and the compiler on the machine, not on
 // the files): a summary from disk asks the prober for them again
 // (prober.replay), and is provisional until they come and stale if they
@@ -42,8 +42,9 @@ import (
 // diskFormat is the version of the format of an entry: a change of the
 // format must change it (and the binary's hash changes the folder anyway).
 // 2: the probe uses have the flags, and the answers are the kind probe's
-// (Phase 04). 3: the answers of pkg-config (step 4.15).
-const diskFormat = 3
+// (Phase 04). 3: the answers of pkg-config (step 4.15). 4: the answers of
+// the C header check (step 4.14).
+const diskFormat = 4
 
 // diskKind is the kind of the summaries in the disk cache.
 const diskKind = "summary"

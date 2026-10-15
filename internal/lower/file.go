@@ -192,16 +192,6 @@ func (g *gen) file() *cppir.File {
 		g.errorf(g.pkg.Load.Files[0].AST.Name.Pos(), "%v", errNoMain)
 		return nil
 	}
-	for _, f := range g.pkg.Load.Files {
-		for _, d := range f.Directives {
-			if d.Name == "extern-c" || d.Name == "no-extern-c" {
-				// Step 4.14 wraps the includes in extern "C" { } by these rules; until then a
-				// build without them would fail later, or work by luck.
-				g.unsupported(d.Pos, "the //gocpp:"+d.Name+" directive (step 4.14)")
-				return nil
-			}
-		}
-	}
 	g.collect()
 	if g.err != nil {
 		return nil
@@ -267,11 +257,14 @@ func (g *gen) file() *cppir.File {
 // which follow gocpp's own headers: each file's, in file order and source order, each header
 // once, each mapped to its import, so that an error in a header is reported there. A local
 // header ("./physics.h") is found with -iquote and the package's folder (the build's flag,
-// as for the probes), so it can't hide a system header: <vector> is never looked up there.
+// as for the probes), so it can't hide a system header: <vector> is never looked up there. A C
+// header without a __cplusplus guard, and a header of //gocpp:extern-c, is included inside
+// extern "C" { } (§2.9, step 4.14: check decided which, check.Package.ExternC).
 func (g *gen) includes() []cppir.Decl {
 	var list []cppir.Decl
-	for _, ui := range unitIncludes(g.pkg.Load) {
-		inc := &cppir.Include{Pos: g.pos(ui.inc.Pos), Path: ui.inc.Path}
+	for _, ui := range unitIncludes(g.pkg.Load, g.pkg.ExternC) {
+		_, externC := interop.SplitExternC(ui.text)
+		inc := &cppir.Include{Pos: g.pos(ui.inc.Pos), Path: ui.inc.Path, ExternC: externC}
 		if ui.inc.Kind == load.SystemHeader {
 			inc.Path, inc.System = strings.TrimSuffix(strings.TrimPrefix(ui.inc.Path, "<"), ">"), true
 		}

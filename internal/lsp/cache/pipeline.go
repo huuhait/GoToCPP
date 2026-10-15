@@ -63,6 +63,11 @@ type Config struct {
 	CXX   func(ctx context.Context) (build.CXX, error)
 	Probe func(ctx context.Context, cxx build.CXX, dir string, flags, includes, candidates []string) (interop.Result, error)
 
+	// CHeader is the C header check of a local .h header (nil:
+	// interop.CheckCHeaderFor, which also looks for the C compiler). Like
+	// Probe, the pipeline calls it in the background only (probe.go).
+	CHeader func(ctx context.Context, cxx build.CXX, dir string, flags []string, include string) (interop.CHeader, error)
+
 	// PkgConfig runs pkg-config for a //gocpp:pkg-config line (nil:
 	// build.PkgConfig). Like Probe, the pipeline calls it in the background
 	// only (probe.go).
@@ -216,6 +221,9 @@ func NewPipeline(cfg Config) *Pipeline {
 	p.prober = newProber(find, probe, cfg.OnProbe)
 	if cfg.PkgConfig != nil {
 		p.prober.pc = cfg.PkgConfig
+	}
+	if cfg.CHeader != nil {
+		p.prober.cheader = cfg.CHeader
 	}
 	return p
 }

@@ -42,6 +42,12 @@ import (
 // package, at its first header import. The paths of the namespace renames
 // (fs "::std::filesystem") are checked too.
 //
+// Before the probe, Check decides which header imports the build includes
+// inside extern "C" { } (externc.go, step 4.14), and the probe gets those
+// includes marked with interop.ExternC, so that it sees the headers as the
+// build does. The errors of the extern-c and no-extern-c directives come
+// with the errors of the flags.
+//
 // These errors come first in a package's found order: the probe runs
 // before go/types. The probe runs once per include set (the files of a
 // package that have the same header imports, with all their names), the
@@ -86,14 +92,33 @@ type probedPackage struct {
 	// compiler was found, or the flags of the environment can't be read.
 	cxxErr error
 
-	// flags are the probe's flags for the package (build.ProbeFlags).
-	flags []string
+	// flags are the probe's flags for the package (build.ProbeFlags), and
+	// cflags the C flags of the C header check (GOCPP_CFLAGS, then the
+	// package's compile flags).
+	flags, cflags []string
+
+	// wrap holds the include texts of the package's header imports that
+	// the build includes inside extern "C" { } (externc.go), and cChecks
+	// the local headers that the C header check decides about, with their
+	// answers or errors.
+	wrap    map[string]bool
+	cChecks []*cCheck
+}
+
+// A cCheck is the C header check of one local header (Config.CHeader).
+type cCheck struct {
+	include string   // the #include text: "./legacy.h"
+	dir     string   // the package's folder
+	flags   []string // probedPackage.cflags
+	res     interop.CHeader
+	err     error
 }
 
 // A packageFlags is what probeNamespaces found of the flags of a package.
 type packageFlags struct {
-	flags build.PackageFlags
-	probe []string // build.ProbeFlags
+	flags   build.PackageFlags
+	probe   []string        // build.ProbeFlags
+	externC map[string]bool // probedPackage.wrap
 }
 
 // probeNamespaces reads the flags of the packages of prog that Check
@@ -117,14 +142,16 @@ func probeNamespaces(prog *load.Program, cfg Config) (map[*load.Package][]diag.D
 		}
 		pf, ferrs, pending := build.ReadPackageFlags(ctx, prog.Fset, lp, cfg.PkgConfig)
 		probeFlags := build.ProbeFlags(env, pf)
-		flagsOf[lp] = packageFlags{flags: pf, probe: probeFlags}
-		if len(ferrs) > 0 {
-			errs[lp] = ferrs
+		wrap := make(map[string]bool)
+		flagsOf[lp] = packageFlags{flags: pf, probe: probeFlags, externC: wrap}
+		externC, xerrs := readExternC(prog.Fset, lp)
+		if all := directiveOrder(lp, ferrs, xerrs); len(all) > 0 {
+			errs[lp] = all
 		}
 		if len(ferrs) > 0 || pending {
 			continue // see above
 		}
-		pp := &probedPackage{lp: lp, flags: probeFlags, cxxErr: envErr}
+		pp := &probedPackage{lp: lp, flags: probeFlags, cflags: slices.Concat(env.CFlags, pf.Compile), cxxErr: envErr, wrap: wrap}
 		byKey := make(map[string]*probeGroup)
 		for _, f := range lp.Files {
 			if f.Info == nil || f.Rewrite == nil || len(f.Info.Includes) == 0 && len(f.Rewrite.Renames) == 0 {
@@ -140,6 +167,17 @@ func probeNamespaces(prog *load.Program, cfg Config) (map[*load.Package][]diag.D
 				needCXX = needCXX || len(includes) > 0 && envErr == nil
 			}
 			g.files = append(g.files, f)
+			for i, inc := range f.Info.Includes {
+				t := includes[i]
+				if _, done := wrap[t]; done || slices.ContainsFunc(pp.cChecks, func(c *cCheck) bool { return c.include == t }) {
+					continue
+				}
+				if w, ok := externC[headerKey(inc.Kind, inc.Path)]; ok {
+					wrap[t] = w
+				} else if externCDefault(inc) {
+					pp.cChecks = append(pp.cChecks, &cCheck{include: t, dir: lp.Dir, flags: pp.cflags})
+				}
+			}
 			for _, c := range f.Rewrite.Namespaces {
 				if !slices.Contains(g.cands, c.Name) {
 					g.cands = append(g.cands, c.Name)
@@ -184,6 +222,22 @@ func probeNamespaces(prog *load.Program, cfg Config) (map[*load.Package][]diag.D
 	// without includes needs no compiler: every name is Unknown there.
 	sem := make(chan struct{}, runtime.GOMAXPROCS(0))
 	var wg sync.WaitGroup
+
+	// First the C header checks, whose answers the probes need: they get
+	// the includes as the build has them, in extern "C" { } or not.
+	cheader := cfg.CHeader
+	if cheader == nil {
+		cheader = interop.CheckCHeaderFor
+	}
+	checkCHeaders(ctx, pkgs, cxx, cxxErr, cheader, sem)
+	for _, pp := range pkgs {
+		for _, g := range pp.groups {
+			for i, t := range g.includes {
+				g.includes[i] = wrapExternC(t, pp.wrap)
+			}
+		}
+	}
+
 	for _, pp := range pkgs {
 		for _, g := range pp.groups {
 			if len(g.includes) == 0 {
@@ -214,6 +268,60 @@ func probeNamespaces(prog *load.Program, cfg Config) (map[*load.Package][]diag.D
 	return errs, flagsOf
 }
 
+// checkCHeaders runs the C header checks of the packages pkgs with
+// cheader (Config.CHeader) and the C++ compiler cxx, at most cap(sem) at
+// the same time, and puts their answers into each package's wrap. With no
+// C++ compiler (cxxErr, which the probe reports), or the language server's
+// placeholder (a compiler of no known family, whose probes answer
+// Unknown), nothing is wrapped by the default rules.
+func checkCHeaders(ctx context.Context, pkgs []*probedPackage, cxx build.CXX, cxxErr error,
+	cheader func(context.Context, build.CXX, string, []string, string) (interop.CHeader, error), sem chan struct{}) {
+	var checks []*cCheck
+	for _, pp := range pkgs {
+		if pp.cxxErr == nil {
+			checks = append(checks, pp.cChecks...)
+		}
+	}
+	if len(checks) == 0 || cxxErr != nil || cxx.Family != build.GCC && cxx.Family != build.Clang {
+		return
+	}
+	var wg sync.WaitGroup
+	for _, c := range checks {
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			c.res, c.err = cheader(ctx, cxx, c.dir, c.flags, c.include)
+		})
+	}
+	wg.Wait()
+	for _, pp := range pkgs {
+		for _, c := range pp.cChecks {
+			if c.err == nil {
+				pp.wrap[c.include] = c.res.C && !c.res.Guard
+			}
+		}
+	}
+}
+
+// directiveOrder returns the errors of the directives of lp, flags (from
+// build.ReadPackageFlags) and externC (from readExternC), each list in
+// source order, together in source order: by file, in lp's order, then by
+// place.
+func directiveOrder(lp *load.Package, flags, externC []diag.Diagnostic) []diag.Diagnostic {
+	all := slices.Concat(flags, externC)
+	fileIndex := make(map[string]int, len(lp.Files))
+	for i, f := range lp.Files {
+		fileIndex[f.Path] = i
+	}
+	slices.SortStableFunc(all, func(a, b diag.Diagnostic) int {
+		if a.Pos.Filename != b.Pos.Filename {
+			return fileIndex[a.Pos.Filename] - fileIndex[b.Pos.Filename]
+		}
+		return a.Pos.Offset - b.Pos.Offset
+	})
+	return all
+}
+
 // notNamespace reports whether the probe's answer k says that a name is not
 // a namespace: it is something else (NotNamespace, Macro, or another kind
 // of ProbeKinds), or nothing (a typo). Unknown is no answer (the language
@@ -222,18 +330,22 @@ func notNamespace(k interop.Kind) bool {
 	return k != interop.Namespace && k != interop.Unknown
 }
 
-// includeTexts returns the #include texts of the includes: <vector> for a
-// system header, "./physics.h" for a local one.
+// includeTexts returns the #include texts of the includes (includeText).
 func includeTexts(incs []*load.Include) []string {
 	texts := make([]string, len(incs))
 	for i, inc := range incs {
-		if inc.Kind == load.LocalHeader {
-			texts[i] = `"` + inc.Path + `"`
-		} else {
-			texts[i] = inc.Path
-		}
+		texts[i] = includeText(inc)
 	}
 	return texts
+}
+
+// includeText returns the #include text of the include inc: <vector> for a
+// system header, "./physics.h" for a local one.
+func includeText(inc *load.Include) string {
+	if inc.Kind == load.LocalHeader {
+		return `"` + inc.Path + `"`
+	}
+	return inc.Path
 }
 
 // apply undoes the rewrites of the names that are not namespaces in the
@@ -252,6 +364,12 @@ func (pp *probedPackage) apply(fset *token.FileSet) []diag.Diagnostic {
 	}
 	reported := make(map[*probeGroup]bool) // a group whose probe failed
 	cxxReported := false
+	cErrs := make(map[string]error) // the C header checks that failed, until reported
+	for _, c := range pp.cChecks {
+		if c.err != nil {
+			cErrs[c.include] = c.err
+		}
+	}
 	for _, f := range pp.lp.Files {
 		g := byFile[f]
 		if g == nil {
@@ -259,6 +377,13 @@ func (pp *probedPackage) apply(fset *token.FileSet) []diag.Diagnostic {
 		}
 		fileDs = fileDs[:0]
 		incs := f.Info.Includes
+		for _, inc := range incs {
+			t := includeText(inc)
+			if err := cErrs[t]; err != nil {
+				delete(cErrs, t)
+				add(inc.Pos, inc.Spec.Path.End(), "cannot check whether header "+strconv.Quote(inc.Path)+" is a C header: "+err.Error())
+			}
+		}
 		switch {
 		case len(incs) == 0:
 			// Only namespace renames: without a header, nothing declares

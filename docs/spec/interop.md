@@ -873,19 +873,58 @@ every package that depends on it, so no two translation units see a C struct wit
 layouts ([Phase 06 §2.3](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#23-header-layout-c-needs-declarations-before-use-go-doesnt)).
 
 **The `extern "C"` rule** (Phase 04). A header needs `extern "C"` when it declares C functions
-without its own `__cplusplus` guard:
-- a **local `.h`** header is wrapped only if it **parses as C** (checked once with
-  `$CC -fsyntax-only -x c`, cached) and has no `__cplusplus` guard;
-- `.hpp`, `.hh`, `.hxx`, `.h++` and `.inl` headers are C++ headers: they are not wrapped by
-  default;
-- system headers are not wrapped by default;
-- `//gocpp:extern-c <hdr>` wraps the header, whatever these defaults say, also a `.hpp` file (a C
-  header with an odd name). It is there for C libraries that ship headers without guards, such
-  as `<lua.h>`;
-- `//gocpp:no-extern-c <hdr>` turns the wrapping off for that header;
+without its own `__cplusplus` guard: without it, C++ gives the functions C++ linkage, and the
+program looks for C++-mangled names (`calc_add(int, int)`) that the C code doesn't define, so
+the link fails. gocpp includes such a header inside a block of its own:
+
+```cpp
+extern "C" {
+#include "./calc.h"
+}
+```
+
+Which headers get the block:
+- a **local `.h`** header gets it when it **is C**: the C compiler parses it as C (`$CC
+  -std=gnu17 -fsyntax-only -x c` over a file that only includes it, with `-iquote` and the
+  package folder, `GOCPP_CFLAGS` and the package's flags, as for the package's `.c` files), and
+  its own text has no `__cplusplus`. A header that doesn't parse as C (a class, a namespace, a
+  template, `#include <vector>`) is a C++ header. The C compiler is the one of the package's
+  `.c` files; without one (and without `GOCPP_CC`), the C++ compiler in C mode (`-x c`). The
+  check runs once per header and is cached (in memory, per compiler, folder, flags and header):
+  it runs again when the header changes, or a local header that it includes, or when the first
+  header that it didn't find appears in a folder where the compiler would find it: next to the
+  header that includes it, in the package folder, or in an `-I`, `-iquote`, `-isystem` or
+  `-idirafter` folder of the flags (not in the compiler's own system folders). `gocpp check` and the language server decide the same way; the
+  language server runs the check in the background, and until it answers, the header is not
+  wrapped;
+- `.hpp`, `.hh`, `.hxx`, `.h++` and `.inl` headers are C++ headers: no block by default;
+- system headers (`<...>`) get no block by default: C libraries have the guard almost always;
+- `//gocpp:extern-c <hdr>` gives the header the block, whatever these defaults say: a system
+  header without the guard (`<lua.h>`), or a C header with an odd name (`./legacy.hpp`). A header
+  that has the guard can be wrapped too: an `extern "C"` block inside another one is fine;
+- `//gocpp:no-extern-c <hdr>` takes the block away from a header, whatever the defaults say:
+  for a `.h` header that parses as C but is meant as C++ (its functions are defined in a `.cpp`
+  file, with C++ linkage);
 - `extern-c` and `no-extern-c` on the same header is an error. So is an `extern-c` or
   `no-extern-c` header that no file of the package imports, because a typo would otherwise do
   nothing. This also catches `.\legacy.h`, which becomes `.legacy.h` (the `\` escapes the `l`).
+  The default rules apply to such a header.
+
+A directive names the header as the import does: `<lua.h>`, or the path of a local header. The
+path is cleaned first, so `./legacy.h`, `legacy.h` and `sub/../legacy.h` are the same header. The
+directives of all the files of a package count for all its imports.
+
+The guard test is simple on purpose: it looks for the word `__cplusplus` in the header's own
+text. So a header whose guard is in a header that it includes (a `config.h` with a
+`BEGIN_DECLS` macro) gets the block too, which is harmless (the blocks nest), unless the other
+header has C++-only parts under `#ifdef __cplusplus`: then write `//gocpp:no-extern-c`. And a
+`__cplusplus` in a comment counts as a guard: then write `//gocpp:extern-c` if the header needs
+the block. A header that doesn't parse as C on its own (it needs another header included before
+it) is taken as C++: write `//gocpp:extern-c` for it.
+
+The compiler probes (the namespace, kind and macro probes) include the headers the same way, so
+they see what the build sees: a C header that declares `puts` before `<stdio.h>` does is an error
+in C++ without the block (C++ linkage first, then C linkage), and fine with it.
 
 Wrapping a C++ header breaks it (`extern "C" { #include <vector> }` gives over a thousand errors
 with g++), which is why the parse-as-C check matters.

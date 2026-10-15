@@ -27,6 +27,12 @@
 // can't share a run with -fsyntax-only), but it is cheap: it only
 // preprocesses.
 //
+// CheckCHeader (externc.go, step 4.14) asks the C compiler whether a local
+// header is a C header, for the extern "C" rule of internal/check. An
+// include that the build includes inside extern "C" { } is passed to the
+// probes marked with ExternC, and the probes include it inside such a
+// block too, so that they see the headers as the build does.
+//
 // Phase 12 (typed interop) adds the clang probes that ask for the real type
 // of each C/C++ name: with them, C/C++ mistakes are reported before any C++
 // is generated, editors can complete C/C++ names, and "gocpp bindgen" can

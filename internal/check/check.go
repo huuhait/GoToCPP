@@ -78,6 +78,17 @@ type Config struct {
 	// package use it for headers that mostly don't exist.
 	Probe func(ctx context.Context, cxx build.CXX, dir string, flags, includes, candidates []string) (interop.Result, error)
 
+	// CHeader, if not nil, replaces interop.CheckCHeaderFor: Check calls it
+	// once per local .h header of a package that no //gocpp:extern-c or
+	// no-extern-c names, with the C++ compiler that CXX gave, the
+	// package's folder, its C flags (GOCPP_CFLAGS, then Package.Flags.Compile)
+	// and the #include text ("./legacy.h"), to decide whether the build
+	// includes the header inside extern "C" { } (externc.go). The language
+	// server answers from what it knows at once (a header it has no answer
+	// for yet is not wrapped) and runs the real check in the background,
+	// like the probe.
+	CHeader func(ctx context.Context, cxx build.CXX, dir string, flags []string, include string) (interop.CHeader, error)
+
 	// PkgConfig, if not nil, replaces build.PkgConfig, which runs
 	// pkg-config for each //gocpp:pkg-config line of a package that Check
 	// checks (see probeNamespaces). The language server answers from what
@@ -214,6 +225,16 @@ type Package struct {
 	// interop.ProbeKinds, so that its probe shares the cache of the check.
 	ProbeFlags []string
 
+	// ExternC holds the #include texts of the package's header imports
+	// (<lua.h>, "./legacy.h") that the build includes inside extern "C"
+	// { } (Phase 04 README §2.9, step 4.14; see externc.go): the C headers
+	// without a __cplusplus guard, and the headers of //gocpp:extern-c.
+	// The namespace probe got these includes marked with interop.ExternC,
+	// and the lowerer passes them so to interop.ProbeKinds and
+	// interop.ProbeMacros too, so that the probes see the headers as the
+	// build does.
+	ExternC map[string]bool
+
 	// Partial is what go/types found in a package that was not
 	// type-checked because it has load errors (a syntax error, an import
 	// that can't be resolved, or one of a package with errors), when
@@ -338,7 +359,7 @@ func Check(prog *load.Program, cfg Config) *Result {
 			}
 			hasC[lp] = c
 			p = checkPackage(prog.Fset, lp, checked, cgoh, c && !depsFailed, probeErrs[lp])
-			p.Flags, p.ProbeFlags = flagsOf[lp].flags, flagsOf[lp].probe
+			p.Flags, p.ProbeFlags, p.ExternC = flagsOf[lp].flags, flagsOf[lp].probe, flagsOf[lp].externC
 			p.Opaque = findOpaque(prog.Fset, p)
 			checked[lp] = p.Types
 			failed[lp] = depsFailed || hasHardErrors(p.Errors)

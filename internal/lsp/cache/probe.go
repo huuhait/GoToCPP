@@ -44,6 +44,15 @@ import (
 //     than 5 s), and so is every answer when the editor reports a changed
 //     header (Pipeline.HeadersChanged).
 //
+//   - The C header check (step 4.14): whether a local .h header is a C
+//     header that the build includes inside extern "C" { }, which the C
+//     compiler says (interop.CheckCHeaderFor, check.Config.CHeader). The
+//     prober answers what it knows, per compiler, folder, flags and header
+//     (a chEntry), and a header it has no answer for yet is not wrapped;
+//     it runs the check in the background, also to find the C compiler, and
+//     checks an answer older than revalidateAfter again when a check uses
+//     it, as for the probes.
+//
 //   - pkg-config: the flags of a package's //gocpp:pkg-config lines come from
 //     pkg-config, which the prober runs in the background too, per folder and
 //     package list (a pcEntry). Until it has answered, the check gets
@@ -94,6 +103,7 @@ type prober struct {
 	cancel   context.CancelFunc
 	find     func(ctx context.Context) (build.CXX, error)
 	probe    func(ctx context.Context, cxx build.CXX, dir string, flags, includes, candidates []string) (interop.Result, error)
+	cheader  func(ctx context.Context, cxx build.CXX, dir string, flags []string, include string) (interop.CHeader, error)
 	pc       build.PkgConfigFunc // Config.PkgConfig, or build.PkgConfig
 	onChange func()              // Config.OnProbe, or nil
 	sem      chan struct{}       // a place for each probe that runs: at most maxProbes
@@ -105,6 +115,7 @@ type prober struct {
 	cxx     cxxLookup
 	sets    map[string]*probeSet
 	pcs     map[string]*pcEntry
+	chs     map[string]*chEntry
 	clock   uint64 // counts uses, for probeSet.lastUse
 	changes int64  // counts the changed answers, for the tests
 }
@@ -141,8 +152,8 @@ type probeSet struct {
 
 func newProber(find func(context.Context) (build.CXX, error), probe func(context.Context, build.CXX, string, []string, []string, []string) (interop.Result, error), onChange func()) *prober {
 	ctx, cancel := context.WithCancel(context.Background())
-	pr := &prober{ctx: ctx, cancel: cancel, find: find, probe: probe, pc: build.PkgConfig, onChange: onChange,
-		sem: make(chan struct{}, maxProbes), sets: make(map[string]*probeSet), pcs: make(map[string]*pcEntry)}
+	pr := &prober{ctx: ctx, cancel: cancel, find: find, probe: probe, cheader: interop.CheckCHeaderFor, pc: build.PkgConfig, onChange: onChange,
+		sem: make(chan struct{}, maxProbes), sets: make(map[string]*probeSet), pcs: make(map[string]*pcEntry), chs: make(map[string]*chEntry)}
 	pr.idle.L = &pr.mu
 	return pr
 }
@@ -479,13 +490,139 @@ func (pr *prober) startPCLocked(e *pcEntry) {
 	})
 }
 
-// headersChanged checks every include set again in the background.
+// A chEntry is what the prober knows of the C header check of one header:
+// the compiler, the folder, the flags and the #include text. Its fields are
+// guarded by prober.mu.
+type chEntry struct {
+	key     string // in prober.chs
+	cxx     build.CXX
+	dir     string
+	flags   []string
+	include string
+	lastUse uint64
+
+	has bool // the check has answered: res and err hold its answer
+	res interop.CHeader
+	err error
+
+	running   bool
+	validated time.Time // when the last check answered
+}
+
+// digest returns a text that is the same for the same answer of e, as a
+// check uses it: whether the header is wrapped, or the error.
+func (e *chEntry) digest() string {
+	if !e.has {
+		return "?"
+	}
+	return fmt.Sprintf("%v\x00%s", e.res.C && !e.res.Guard, errText(e.err))
+}
+
+// cheaderFor returns the check.Config.CHeader of a check that records in
+// r: the answer that the prober has, or "not a C header" (not wrapped)
+// while it runs the check in the background.
+func (pr *prober) cheaderFor(r *probeRecord) func(context.Context, build.CXX, string, []string, string) (interop.CHeader, error) {
+	return func(_ context.Context, cxx build.CXX, dir string, flags []string, include string) (interop.CHeader, error) {
+		if cxx.Path == pendingCXX.Path {
+			return interop.CHeader{}, nil // r has the pending compiler (check doesn't ask then)
+		}
+		pr.mu.Lock()
+		defer pr.mu.Unlock()
+		e := pr.chLocked(cxx, dir, flags, include)
+		r.addCH(chUse{entry: e, digest: e.digest(), complete: e.has})
+		if !e.has || time.Since(e.validated) >= revalidateAfter {
+			pr.startCHLocked(e)
+		}
+		if !e.has {
+			return interop.CHeader{}, nil
+		}
+		return e.res, e.err
+	}
+}
+
+// chLocked returns the C header entry, new if the prober doesn't know it.
+// pr.mu is held.
+func (pr *prober) chLocked(cxx build.CXX, dir string, flags []string, include string) *chEntry {
+	parts := append([]string{cxx.Path, strconv.Itoa(len(cxx.Args))}, cxx.Args...)
+	parts = append(parts, cxx.Family.String(), cxx.Version, dir, strconv.Itoa(len(flags)))
+	parts = append(parts, flags...)
+	key := strings.Join(append(parts, include), "\x00")
+	pr.clock++
+	e := pr.chs[key]
+	if e == nil {
+		if len(pr.chs) >= maxProbeSets {
+			var oldest *chEntry
+			for _, o := range pr.chs {
+				if !o.running && (oldest == nil || o.lastUse < oldest.lastUse) {
+					oldest = o
+				}
+			}
+			if oldest != nil {
+				delete(pr.chs, oldest.key)
+			}
+		}
+		e = &chEntry{key: key, cxx: cxx, dir: dir, flags: slices.Clone(flags), include: include}
+		pr.chs[key] = e
+	}
+	e.lastUse = pr.clock
+	return e
+}
+
+// startCHLocked runs the C header check of e in the background, unless it
+// runs already; like the probes, under pr.sem. pr.mu is held.
+func (pr *prober) startCHLocked(e *chEntry) {
+	if e.running || pr.closed {
+		return
+	}
+	e.running = true
+	pr.goLocked(func() {
+		var res interop.CHeader
+		var err error
+		select {
+		case pr.sem <- struct{}{}:
+			res, err = pr.cheader(pr.ctx, e.cxx, e.dir, e.flags, e.include)
+			<-pr.sem
+		case <-pr.ctx.Done():
+		}
+		pr.mu.Lock()
+		e.running = false
+		if pr.ctx.Err() != nil {
+			pr.mu.Unlock()
+			return
+		}
+		before := e.digest()
+		e.has, e.res, e.err, e.validated = true, res, err, time.Now()
+		changed := e.digest() != before
+		pr.mu.Unlock()
+		if changed {
+			pr.changed()
+		}
+	})
+}
+
+// chAnswerLocked returns the digest of what the prober knows now for the
+// C header entry e, looked up by its key (see pcAnswerLocked). pr.mu is
+// held.
+func (pr *prober) chAnswerLocked(e *chEntry) string {
+	if cur := pr.chs[e.key]; cur != nil {
+		e = cur
+	}
+	return e.digest()
+}
+
+// headersChanged checks every include set and every C header again in the
+// background.
 func (pr *prober) headersChanged() {
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
 	for _, set := range pr.sets {
 		if set.has {
 			pr.startLocked(set)
+		}
+	}
+	for _, e := range pr.chs {
+		if e.has {
+			pr.startCHLocked(e)
 		}
 	}
 }
@@ -597,6 +734,20 @@ type probeRecord struct {
 	cxxErr     string    // the error of the lookup (errText)
 	uses       []probeUse
 	pcUses     []pcUse
+	chUses     []chUse
+}
+
+// A chUse is one answer of the C header check to a check.
+type chUse struct {
+	entry    *chEntry
+	digest   string
+	complete bool
+}
+
+func (r *probeRecord) addCH(u chUse) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.chUses = append(r.chUses, u)
 }
 
 // A pcUse is one answer of pkg-config (or build.ErrPending) to a check.
@@ -637,7 +788,7 @@ func (r *probeRecord) addPC(u pcUse) {
 func (r *probeRecord) used() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.cxxUsed || len(r.uses) > 0 || len(r.pcUses) > 0
+	return r.cxxUsed || len(r.uses) > 0 || len(r.pcUses) > 0 || len(r.chUses) > 0
 }
 
 // provisional reports whether an answer was missing: the compiler was
@@ -663,6 +814,11 @@ func (r *probeRecord) provisional() bool {
 			return true
 		}
 	}
+	for _, u := range r.chUses {
+		if !u.complete {
+			return true
+		}
+	}
 	return false
 }
 
@@ -677,7 +833,7 @@ func (r *probeRecord) stale() bool {
 		return stale
 	}
 	r.mu.Lock()
-	cxxUsed, cxxGen, uses, pcUses := r.cxxUsed, r.cxxGen, r.uses, r.pcUses
+	cxxUsed, cxxGen, uses, pcUses, chUses := r.cxxUsed, r.cxxGen, r.uses, r.pcUses, r.chUses
 	r.mu.Unlock()
 	r.pr.mu.Lock()
 	defer r.pr.mu.Unlock()
@@ -686,6 +842,11 @@ func (r *probeRecord) stale() bool {
 	}
 	for _, u := range pcUses {
 		if r.pr.pcAnswerLocked(u.entry) != u.digest {
+			return true
+		}
+	}
+	for _, u := range chUses {
+		if r.pr.chAnswerLocked(u.entry) != u.digest {
 			return true
 		}
 	}
@@ -750,6 +911,14 @@ func (r *probeRecord) diskState() (stale, provisional bool) {
 			return true, false
 		}
 	}
+	for _, u := range r.chUses {
+		switch d := pr.chAnswerLocked(u.entry); {
+		case d == "?":
+			provisional = true
+		case d != u.digest:
+			return true, false
+		}
+	}
 	return false, provisional
 }
 
@@ -762,6 +931,16 @@ type diskProbe struct {
 	CXXErr     string
 	Uses       []diskProbeUse
 	PkgConfigs []diskPCUse
+	CHeaders   []diskCHUse
+}
+
+// A diskCHUse is a chUse on disk: the header of the C header check (with
+// the compiler of the diskProbe), and the answer (chEntry.digest).
+type diskCHUse struct {
+	Dir     string
+	Flags   []string
+	Include string
+	Digest  string
 }
 
 // A diskPCUse is a pcUse on disk: the folder and the packages of the
@@ -806,6 +985,12 @@ func (r *probeRecord) diskForm() (*diskProbe, bool) {
 			return nil, false
 		}
 		d.PkgConfigs = append(d.PkgConfigs, diskPCUse{Dir: u.entry.dir, Pkgs: u.entry.pkgs, Digest: u.digest})
+	}
+	for _, u := range r.chUses {
+		if !u.complete {
+			return nil, false
+		}
+		d.CHeaders = append(d.CHeaders, diskCHUse{Dir: u.entry.dir, Flags: u.entry.flags, Include: u.entry.include, Digest: u.digest})
 	}
 	return d, true
 }
@@ -852,6 +1037,13 @@ func (pr *prober) replay(d *diskProbe) *probeRecord {
 		r.pcUses = append(r.pcUses, pcUse{entry: e, digest: u.Digest, complete: true})
 		if !e.has || time.Since(e.validated) >= revalidateAfter {
 			pr.startPCLocked(e)
+		}
+	}
+	for _, u := range d.CHeaders {
+		e := pr.chLocked(d.CXX, u.Dir, u.Flags, u.Include)
+		r.chUses = append(r.chUses, chUse{entry: e, digest: u.Digest, complete: true})
+		if !e.has || time.Since(e.validated) >= revalidateAfter {
+			pr.startCHLocked(e)
 		}
 	}
 	return r

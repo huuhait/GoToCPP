@@ -152,12 +152,14 @@ func runMacroProbe(ctx context.Context, cxx build.CXX, dir string, flags, includ
 		return Macros{}, nil, start, fmt.Errorf("macro probe: %w", err)
 	}
 	defer os.RemoveAll(tmp)
-	var b strings.Builder
-	for _, inc := range includes {
-		fmt.Fprintf(&b, "#include %s\n", inc)
+	var b bytes.Buffer
+	for i, inc := range includes {
+		// The kind probe's lines, so that the headers see the same: also
+		// the extern "C" block of an include marked with ExternC.
+		writeInclude(&b, i, inc)
 	}
 	src := filepath.Join(tmp, "gp_macros.cpp")
-	if err := os.WriteFile(src, []byte(b.String()), 0o644); err != nil {
+	if err := os.WriteFile(src, b.Bytes(), 0o644); err != nil {
 		return Macros{}, nil, start, fmt.Errorf("macro probe: %w", err)
 	}
 	depFile := filepath.Join(tmp, "gp_macros.d")

@@ -19,10 +19,11 @@ import (
 
 // The cache of the probes keeps, per include set (compiler, folder, flags
 // and includes), the kind of every path that was probed, or the include
-// errors, and the macros. It checks the files that the results depend on
+// errors, and the macros; and per local header, the answer of the C header
+// check (externc.go). It checks the files that the results depend on
 // before it uses them.
 
-// defaultCache is the cache of ProbeKinds and ProbeMacros.
+// defaultCache is the cache of ProbeKinds, ProbeMacros and CheckCHeader.
 var defaultCache = newCache()
 
 const (
@@ -53,19 +54,21 @@ const (
 
 // A cache is a probe cache. Its zero value is not ready; use newCache.
 type cache struct {
-	kinds  setMap[kindSet]
-	macros setMap[macroSet]
+	kinds    setMap[kindSet]
+	macros   setMap[macroSet]
+	cheaders setMap[cHeaderSet]
 
 	errorTTL time.Duration // errorTTL, or less in tests
 
-	// runs and macroRuns count the runs of the kind probe (one run can run
-	// the compiler again without a path that stopped it, see maxReruns) and
-	// of the macro probe, for the tests.
-	runs, macroRuns atomic.Int64
+	// runs, macroRuns and cRuns count the runs of the kind probe (one run
+	// can run the compiler again without a path that stopped it, see
+	// maxReruns), of the macro probe and of the C header check, for the
+	// tests.
+	runs, macroRuns, cRuns atomic.Int64
 }
 
 func newCache() *cache {
-	return &cache{kinds: newSetMap[kindSet](), macros: newSetMap[macroSet](), errorTTL: errorTTL}
+	return &cache{kinds: newSetMap[kindSet](), macros: newSetMap[macroSet](), cheaders: newSetMap[cHeaderSet](), errorTTL: errorTTL}
 }
 
 // A setMap keeps a T per include set, each with its own lock, and at most
@@ -376,6 +379,11 @@ func setKey(cxx build.CXX, dir string, flags, includes []string) string {
 // Without a dependency file (gcc and clang write none after a header that
 // isn't found), only the quoted includes are known; that is enough for a
 // result with include errors (failed), which expires.
+//
+// A limit: a header that appears earlier on the search path than the one
+// that was found (dir/lib.h in front of inc/lib.h, found through -I) and
+// would win now is not noticed, except for the top-level quoted includes in
+// dir. The C header check has the same limit (runCHeaderCheck).
 func dependsOn(deps []string, depsOK, failed bool, start time.Time, dir string, includes []string) (files []fileState, ok bool) {
 	if !depsOK && !failed {
 		return nil, false
@@ -383,7 +391,7 @@ func dependsOn(deps []string, depsOK, failed bool, start time.Time, dir string, 
 	paths := slices.Clip(deps)
 	if dir != "" {
 		for _, inc := range includes {
-			if inc[0] == '"' {
+			if inc, _ = SplitExternC(inc); inc[0] == '"' {
 				p := inc[1 : len(inc)-1]
 				if !filepath.IsAbs(p) {
 					p = filepath.Join(dir, p)

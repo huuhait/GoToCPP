@@ -35,9 +35,9 @@ import (
 // gocpp check and the language server keep the namespace mode, which costs less while someone
 // types.
 //
-// Flags: none yet. Step 4.15 checks the package's //gocpp:pkg-config and //gocpp:cflags flags
-// with the flag allow-list; then the driver passes them to ProbeInterop (its flags argument),
-// as to the check's probe.
+// Flags: the driver passes the check's (check.Package.ProbeFlags) to ProbeInterop. The includes
+// that the build wraps in extern "C" { } (check.Package.ExternC, step 4.14) go to both probes
+// marked with interop.ExternC, as they went to the check's probe.
 
 // An Interop is what the probes found out about the C/C++ names of one package: the kind of
 // each path, per file, and the macros of the translation unit. ProbeInterop makes it, and
@@ -56,16 +56,23 @@ type includeSet struct {
 }
 
 // includeText returns the #include text of the header import inc: <vector> for a system
-// header, "./physics.h" for a local one (as check gives them to the namespace probe).
-func includeText(inc *load.Include) string {
+// header, "./physics.h" for a local one, marked with interop.ExternC when the build includes it
+// inside extern "C" { } (externC, check.Package.ExternC): as check gives them to the namespace
+// probe.
+func includeText(inc *load.Include, externC map[string]bool) string {
+	t := inc.Path
 	if inc.Kind == load.LocalHeader {
-		return `"` + inc.Path + `"`
+		t = `"` + inc.Path + `"`
 	}
-	return inc.Path
+	if externC[t] {
+		return interop.ExternC(t)
+	}
+	return t
 }
 
-// includeSets groups the files of pkg that import headers by their header imports.
-func includeSets(lp *load.Package) []*includeSet {
+// includeSets groups the files of pkg that import headers by their header imports, with the
+// includes that externC says marked with interop.ExternC.
+func includeSets(lp *load.Package, externC map[string]bool) []*includeSet {
 	var sets []*includeSet
 	byKey := make(map[string]*includeSet)
 	for _, f := range lp.Files {
@@ -74,7 +81,7 @@ func includeSets(lp *load.Package) []*includeSet {
 		}
 		var incs []string
 		for _, inc := range f.Info.Includes {
-			incs = append(incs, includeText(inc))
+			incs = append(incs, includeText(inc, externC))
 		}
 		key := strings.Join(incs, "\x00")
 		s := byKey[key]
@@ -89,7 +96,8 @@ func includeSets(lp *load.Package) []*includeSet {
 }
 
 // A unitInclude is one #include of the translation unit: the first import of a header in the
-// package's files, in file and source order.
+// package's files, in file and source order. text is its include text for the probes (with the
+// mark of interop.ExternC when the build includes it inside extern "C" { }).
 type unitInclude struct {
 	text string
 	inc  *load.Include
@@ -97,7 +105,8 @@ type unitInclude struct {
 
 // unitIncludes returns the #include lines of the translation unit of lp, after gocpp's own
 // headers: the header imports of its files, in file order and source order, each header once.
-func unitIncludes(lp *load.Package) []unitInclude {
+// externC is check.Package.ExternC.
+func unitIncludes(lp *load.Package, externC map[string]bool) []unitInclude {
 	var list []unitInclude
 	seen := make(map[string]bool)
 	for _, f := range lp.Files {
@@ -105,7 +114,7 @@ func unitIncludes(lp *load.Package) []unitInclude {
 			continue
 		}
 		for _, inc := range f.Info.Includes {
-			t := includeText(inc)
+			t := includeText(inc, externC)
 			if !seen[t] {
 				seen[t] = true
 				list = append(list, unitInclude{text: t, inc: inc})
@@ -123,7 +132,7 @@ func unitIncludes(lp *load.Package) []unitInclude {
 func ProbeInterop(ctx context.Context, cxx build.CXX, fset *token.FileSet, pkg *check.Package, flags []string) (*Interop, error) {
 	in := &Interop{kinds: make(map[*load.File]map[string]interop.Kind)}
 	lp := pkg.Load
-	sets := includeSets(lp)
+	sets := includeSets(lp, pkg.ExternC)
 	if len(sets) == 0 {
 		return in, nil
 	}
@@ -159,7 +168,7 @@ func ProbeInterop(ctx context.Context, cxx build.CXX, fset *token.FileSet, pkg *
 		}
 	}
 	var incs []string
-	for _, ui := range unitIncludes(lp) {
+	for _, ui := range unitIncludes(lp, pkg.ExternC) {
 		incs = append(incs, ui.text)
 	}
 	ms, err := interop.ProbeMacros(ctx, cxx, lp.Dir, flags, incs)
@@ -179,6 +188,10 @@ func includeError(fset *token.FileSet, s *includeSet, res interop.Result) error 
 		return nil
 	}
 	ie := res.IncludeErrors[0]
+	// The mark of interop.ExternC in plain words: the user wrote only the header.
+	if header, marked := interop.SplitExternC(ie.Include); marked {
+		ie.Include = header + ` (inside extern "C")`
+	}
 	if f := s.files[0]; ie.Index < len(f.Info.Includes) {
 		inc := f.Info.Includes[ie.Index]
 		return &Error{Pos: fset.Position(inc.Pos), Msg: "the header import doesn't work: " + ie.Error(), User: true}
@@ -192,17 +205,22 @@ func includeError(fset *token.FileSet, s *includeSet, res interop.Result) error 
 // to its probe). The driver adds them to the namespace candidates of the check's probe, so
 // that the check and the lowerer share one compiler run (see the top of interop.go). It must
 // be called before check.Check, which undoes the namespace uses of the names that are no
-// namespaces; their paths are then asked for too, which costs little.
+// namespaces; their paths are then asked for too, which costs little. The includes may have the
+// mark of interop.ExternC (check decides which ones after ProbePaths); it doesn't matter here.
 func ProbePaths(prog *load.Program) func(dir string, includes []string) []string {
 	m := make(map[string][]string)
 	for _, lp := range prog.Packages {
-		for _, s := range includeSets(lp) {
+		for _, s := range includeSets(lp, nil) {
 			key := lp.Dir + "\x00" + strings.Join(s.includes, "\x00")
 			m[key] = setPaths(s.files, nil)
 		}
 	}
 	return func(dir string, includes []string) []string {
-		return m[dir+"\x00"+strings.Join(includes, "\x00")]
+		plain := make([]string, len(includes))
+		for i, inc := range includes {
+			plain[i], _ = interop.SplitExternC(inc)
+		}
+		return m[dir+"\x00"+strings.Join(plain, "\x00")]
 	}
 }
 

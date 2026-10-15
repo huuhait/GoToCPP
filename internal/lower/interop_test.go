@@ -221,7 +221,7 @@ func TestIncludeSets(t *testing.T) {
 		"a.gp": "package main\n\nimport (\n\t\"<cstdio>\"\n\t\"./h.h\"\n)\n\nfunc main() { cstdio.puts(\"a\"); h.g(); f() }\n",
 		"b.gp": "package main\n\nimport (\n\t\"<vector>\"\n\t\"<cstdio>\"\n)\n\nfunc f() { var v std.vector[int]; _ = v; cstdio.puts(\"b\") }\n",
 	})
-	sets := includeSets(pkg.Load)
+	sets := includeSets(pkg.Load, pkg.ExternC)
 	if len(sets) != 2 || !slices.Equal(sets[0].includes, []string{"<cstdio>", `"./h.h"`}) || !slices.Equal(sets[1].includes, []string{"<vector>", "<cstdio>"}) {
 		t.Fatalf("include sets: %+v", sets)
 	}
@@ -419,5 +419,27 @@ func TestCUserErrors(t *testing.T) {
 		if !errors.As(err, &e) || e.Msg != tt.want || !e.User {
 			t.Errorf("%s:\n got %v\nwant %s (a user error)", tt.src, err, tt.want)
 		}
+	}
+}
+
+// TestIncludeErrorExternC checks the error of a header inside extern "C" { } (step 4.14): the
+// user sees the header as imported, not the mark of interop.ExternC, and ProbePaths finds the
+// paths of an include set whose includes have the mark.
+func TestIncludeErrorExternC(t *testing.T) {
+	fset, pkg, paths := checkFiles(t, map[string]string{
+		"main.gp": "package main\n\nimport \"./c.h\"\n\nfunc main() { c.f() }\n",
+		"c.h":     "int f(void);\n",
+	})
+	s := includeSets(pkg.Load, map[string]bool{`"./c.h"`: true})[0]
+	if !slices.Equal(s.includes, []string{interop.ExternC(`"./c.h"`)}) {
+		t.Fatalf("includes %q", s.includes)
+	}
+	if got := paths("", s.includes); !slices.Contains(got, "f") {
+		t.Errorf("paths of the marked include set: %q", got)
+	}
+	res := interop.Result{IncludeErrors: []interop.IncludeError{{Index: 0, Include: s.includes[0], File: "/p/c.h", Line: 1, Msg: "boom"}}}
+	err := includeError(fset, s, res)
+	if want := `main.gp:3:8: the header import doesn't work: "./c.h" (inside extern "C"): /p/c.h:1: boom`; err == nil || !strings.HasSuffix(err.(*Error).Pos.String()+": "+err.(*Error).Msg, want) {
+		t.Errorf("includeError = %v, want ...%s", err, want)
 	}
 }

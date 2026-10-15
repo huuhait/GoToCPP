@@ -52,10 +52,12 @@ type File struct {
 // An Include is `#include <Path>`, or `#include "Path"` if it is not a System header. Its
 // place is the import of the header in the .gp source (the zero Pos for gocpp's own headers),
 // so that an error in the header, or a header that isn't found, is reported at that import.
+// With ExternC, the #include is inside `extern "C" {` and `}` (a C header), each line at Pos.
 type Include struct {
-	Pos    Pos
-	Path   string
-	System bool
+	Pos     Pos
+	Path    string
+	System  bool
+	ExternC bool
 }
 
 // A Directive is a preprocessor line of its own, `#Text`: #undef Bool. It has no place in the

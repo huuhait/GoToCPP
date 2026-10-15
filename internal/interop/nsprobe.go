@@ -32,6 +32,10 @@ import (
 //	; template <class> struct gp_inc_0; using gp_inc_0_c = ::gp_inc_0<int>;
 //	#include "./physics.h"
 //	; template <class> struct gp_inc_1; using gp_inc_1_c = ::gp_inc_1<int>;
+//	extern "C" {                                (a C header: see writeInclude)
+//	#include "./legacy.h"
+//	}
+//	; template <class> struct gp_inc_2; using gp_inc_2_c = ::gp_inc_2<int>;
 //	struct gp_kp0 {}; ...                                 (the helper lines)
 //	#if defined(std) || defined(chrono)
 //	#error gp_kind_macro
@@ -293,7 +297,10 @@ func (e IncludeError) Error() string {
 // no paths, but its headers must be there.
 //
 // includes are the texts of the #include lines, in source order, each
-// with its delimiters: "<raylib.h>", "\"./physics.h\"". dir is the folder
+// with its delimiters: "<raylib.h>", "\"./physics.h\"". An include marked
+// with ExternC (a C header that the build includes inside extern "C" { })
+// is included inside such a block (see writeInclude), and an IncludeError
+// gives it with its mark. dir is the folder
 // of the .gp file: the compiler runs there, and a quoted include is looked
 // up there after the folder of the file that includes it, before the
 // system folders (it is passed as -iquote, which doesn't affect <...>
@@ -404,8 +411,9 @@ const waitDelay = 2 * time.Second
 
 // checkInclude reports what is wrong with the include text inc, if
 // anything. The text goes into the probe file as is, so it must be one
-// header name on one line.
+// header name on one line, maybe marked with ExternC.
 func checkInclude(inc string) error {
+	inc, _ = SplitExternC(inc)
 	if len(inc) >= 3 {
 		inside := inc[1 : len(inc)-1]
 		switch {
@@ -463,10 +471,6 @@ func isCppName(s string) bool {
 	return s != ""
 }
 
-// includeLines is the number of lines of the probe file per include (the
-// #include and the scope check).
-const includeLines = 2
-
 // The lines of a path's block, from its first line (blockIf). Each of the
 // C++ lines from lineNamespace to lineCall tests one kind. In the namespace
 // mode a block has only the lines up to lineNamespace, and then its #endif
@@ -521,12 +525,14 @@ template <template <template <class...> class...> class> constexpr bool gp_ktmpl
 var nHelperLines = strings.Count(helperLines, "\n")
 
 // A probeFile is the source of a probe, with the places of its parts. Its
-// lines are, from line 1: includeLines lines per include, the helper lines
-// (when there are paths and all kinds are asked for), blockLen lines per
-// path, the canary (the alias that must fail) and the last line.
+// lines are, from line 1: the lines of each include (two, or four for an
+// include marked with ExternC: see writeInclude), the helper lines (when
+// there are paths and all kinds are asked for), blockLen lines per path,
+// the canary (the alias that must fail) and the last line.
 type probeFile struct {
 	src        []byte
-	nIncludes  int
+	incStart   []int // the first line of each include's lines, and then the line after them
+	incLine    []int // the line of each #include
 	nPaths     int
 	kinds      bool // all kinds, not only namespaces
 	blockLen   int  // blockLines, or nsBlockLines
@@ -537,7 +543,56 @@ func (p *probeFile) canary() int { return p.firstBlock + p.blockLen*p.nPaths }
 
 // helpers reports whether the line n is one of the helper lines.
 func (p *probeFile) helpers(n int) bool {
-	return n > includeLines*p.nIncludes && n < p.firstBlock
+	return n >= p.incStart[len(p.incStart)-1] && n < p.firstBlock
+}
+
+// include returns the index of the include whose lines have the line n,
+// and whether n is one of the lines after the #include that check the
+// header's end (the scope check, and the } of an extern "C" block), or
+// false if n is not a line of an include.
+func (p *probeFile) include(n int) (index int, check, ok bool) {
+	last := len(p.incStart) - 1
+	if n < 1 || n >= p.incStart[last] {
+		return 0, false, false
+	}
+	index, found := slices.BinarySearch(p.incStart[:last], n)
+	if !found {
+		index-- // n is after the first line of the include
+	}
+	return index, n > p.incLine[index], true
+}
+
+// writeInclude writes the lines of the include inc, the index-th of the
+// probe file, to b:
+//
+//	#include <vector>
+//	; template <class> struct gp_inc_0; using gp_inc_0_c = ::gp_inc_0<int>;
+//
+// For an include marked with ExternC, the #include is inside an extern "C"
+// block, as in the build (lower), and the scope check comes after its }:
+//
+//	extern "C" {
+//	#include "./legacy.h"
+//	}
+//	; template <class> struct gp_inc_1; using gp_inc_1_c = ::gp_inc_1<int>;
+//
+// So the scope check still fails when the header leaves a block open (the
+// } then closes the header's block, and the template is in the extern "C"
+// block, where a template can't be) or ends inside a declaration (the }
+// is an error then). It returns the number of lines it wrote, and the
+// offset of the #include line among them.
+func writeInclude(b *bytes.Buffer, index int, inc string) (lines, at int) {
+	header, externC := SplitExternC(inc)
+	if externC {
+		b.WriteString("extern \"C\" {\n")
+		lines, at = 2, 1
+	}
+	fmt.Fprintf(b, "#include %s\n", header)
+	if externC {
+		b.WriteString("}\n")
+	}
+	fmt.Fprintf(b, "; template <class> struct gp_inc_%d; using gp_inc_%d_c = ::gp_inc_%d<int>;\n", index, index, index)
+	return lines + 2, at
 }
 
 // block returns the index of the path whose block has the line n, and the
@@ -554,10 +609,15 @@ func (p *probeFile) block(n int) (path, offset int, ok bool) {
 // namespace line.
 func makeProbe(includes []string, paths [][]string, kinds bool) *probeFile {
 	var b bytes.Buffer
+	pf := &probeFile{incStart: make([]int, 0, len(includes)+1), incLine: make([]int, 0, len(includes)), nPaths: len(paths), kinds: kinds, blockLen: nsBlockLines}
+	line := 1
 	for i, inc := range includes {
-		fmt.Fprintf(&b, "#include %s\n; template <class> struct gp_inc_%d; using gp_inc_%d_c = ::gp_inc_%d<int>;\n", inc, i, i, i)
+		n, at := writeInclude(&b, i, inc)
+		pf.incStart, pf.incLine = append(pf.incStart, line), append(pf.incLine, line+at)
+		line += n
 	}
-	pf := &probeFile{nIncludes: len(includes), nPaths: len(paths), kinds: kinds, blockLen: nsBlockLines, firstBlock: includeLines*len(includes) + 1}
+	pf.incStart = append(pf.incStart, line)
+	pf.firstBlock = line
 	if kinds {
 		pf.blockLen = blockLines
 		if len(paths) > 0 {
@@ -1108,15 +1168,16 @@ func readOutput(pf *probeFile, out []byte, src string, includes []string) (*prob
 			continue
 		}
 		last = &diags[i]
+		index, check, isInclude := pf.include(d.probeLine)
 		switch n := d.probeLine; {
-		case n >= 1 && n <= includeLines*pf.nIncludes:
-			index := (n - 1) / includeLines
+		case isInclude:
 			ie := IncludeError{Index: index, Include: includes[index], Msg: d.msg}
 			switch {
 			case !samePath(d.file, src):
 				ie.File, ie.Line, ie.Column = filepath.Clean(d.file), d.line, d.col
-			case (n-1)%includeLines == 1:
-				// The scope check after the #include.
+			case check:
+				// The scope check after the #include (or the } of its
+				// extern "C" block).
 				ie.Kind = HeaderUnclosed
 				ie.Msg = "the header ends inside a declaration or a block that it doesn't close: " + d.msg
 			case notFoundRx.MatchString(d.msg):
@@ -1186,8 +1247,7 @@ func openBrace(d diagnostic, notes []diagnostic, pf *probeFile, src string, incl
 		if note.isError() {
 			break
 		}
-		if n := note.probeLine; n >= 1 && n <= includeLines*pf.nIncludes && note.file != "" && !samePath(note.file, src) {
-			index := (n - 1) / includeLines
+		if index, _, ok := pf.include(note.probeLine); ok && note.file != "" && !samePath(note.file, src) {
 			return IncludeError{Index: index, Include: includes[index], File: filepath.Clean(note.file),
 				Line: note.line, Column: note.col, Msg: d.msg + " (" + note.msg + ")"}, true
 		}

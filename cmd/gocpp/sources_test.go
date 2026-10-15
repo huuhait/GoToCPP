@@ -12,8 +12,8 @@ import (
 )
 
 // The tests of a package's own C and C++ files in gocpp build and run
-// (Phase 04, step 4.13). Until steps 4.3 and 4.14 let .gp code call them,
-// the generated C++ calls them through testHookCPP (callSources).
+// (Phase 04, step 4.13). The generated C++ calls them through testHookCPP
+// (callSources); externc_test.go calls C functions from .gp code.
 
 // callSources sets testHookCPP for the rest of the test so that the
 // program declares the functions decls (C++ declarations) and prints the
