@@ -63,4 +63,8 @@
   runs, 6.14's function-counting test plugin would count probe files too, and the probe cache keys on the
   flags but not on the plugin file's contents. 6.12 drops plugin flags from the probe flags (in
   interop.probeFlags, as the message flags are dropped) or adds the plugin file's hash to the key.
+- 2026-10-15 (4.15 review, for 6.13 and later targets): package flags may not change the ABI (`-m32`,
+  `-mabi=`, `-mfloat-abi=`, …): Go's good list had `-mabi=lp64d` and `-mdouble-float`, and gocpp refuses
+  them. Fine for the plan's targets (linux/amd64, windows/amd64, linux/arm64); a riscv64 or loong64 target
+  would allow `-mabi=` values that equal the target's default.
 
