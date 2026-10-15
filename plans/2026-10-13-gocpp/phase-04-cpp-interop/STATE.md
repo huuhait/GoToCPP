@@ -221,4 +221,8 @@
   user's headers, only in programs with headers, because <format> costs ~0.2 s per file), else operator<<.
   For Phase 06: with several translation units the formatter/<< choice could differ between files (an ODR
   risk): decide there.
+- 2026-10-15 (4.12 review): 4.17's user-error rule is widened: an expression whose type has C/C++ parts (a gocpp
+  struct with a C++ field passed to fmt) counts as C/C++ code too (lower.HasC), so an unprintable field is the
+  user's error at the .gp line. `%T` and fmt's error forms name C types as gocpp sees them (`int32` for C.int,
+  the enum's C++ name, `char*`), not cgo's `main._Ctype_int`: accepted until Phase 13 (documented in interop.md).
 
