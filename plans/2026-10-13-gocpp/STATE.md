@@ -1,8 +1,8 @@
 # gocpp plan · STATE
 
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Current focus:** Phase 03, Core language (Phases 00–02 done; M1 reached 2026-10-14), and the language server v0 track (Phase 11: the language server v0 track is done: diagnostics, hover, definition, signature help, completion, formatting, organize imports, disk cache, VS Code client); see [TODO.md](TODO.md)
-**Last updated:** 2026-10-14
+**Current focus:** Phase 04, C/C++ interop (Phases 00–03 done; M1 reached 2026-10-14, M2 2026-10-15), and the language server v0 track (Phase 11: the language server v0 track is done: diagnostics, hover, definition, signature help, completion, formatting, organize imports, disk cache, VS Code client); see [TODO.md](TODO.md)
+**Last updated:** 2026-10-15
 
 ---
 
@@ -32,8 +32,8 @@
 - [x] **Phase 00:** Foundations & spec → [STATE](phase-00-foundations/STATE.md)
 - [x] **Phase 01:** Front-end (parse, load, type-check, `gocpp fmt`) → [STATE](phase-01-frontend/STATE.md)
 - [x] **Phase 02:** Walking skeleton → [STATE](phase-02-walking-skeleton/STATE.md) · ends with **M1**
-- [~] **Phase 03:** Core language → [STATE](phase-03-core-language/STATE.md) · ends with **M2**
-- [ ] **Phase 04:** C/C++ interop (opaque) → [STATE](phase-04-cpp-interop/STATE.md) · ends with **M3**
+- [x] **Phase 03:** Core language → [STATE](phase-03-core-language/STATE.md) · ends with **M2**
+- [~] **Phase 04:** C/C++ interop (opaque) → [STATE](phase-04-cpp-interop/STATE.md) · ends with **M3**
 - [ ] **Phase 05:** Interfaces, embedding, errors, panic/recover → [STATE](phase-05-interfaces-errors/STATE.md)
 - [ ] **Phase 06:** Packages, modules & build system → [STATE](phase-06-packages-build/STATE.md) · ends with **M4**
 - [ ] **Phase 07:** Generics → [STATE](phase-07-generics/STATE.md)
@@ -52,7 +52,7 @@
 |---|---|---|---|---|
 | [x] | **M1** `hello.gp` runs | `gocpp run examples/hello` on GCC + Clang | ~6.5 weeks | 6–8 |
 | [ ] | **L0** editor v0 (early track) | diagnostics, hover, go-to-definition, completion, `gocpp fmt` in VS Code | ~8.5 weeks (2 weeks after M1) | 8–10 |
-| [ ] | **M2** real non-interop programs | `structs`, `wordfreq-core`, `closures` + 150 run tests | ~15 weeks | 14–18 |
+| [x] | **M2** real non-interop programs | `structs`, `wordfreq-core`, `closures` + 150 run tests | ~15 weeks | 14–18 |
 | [ ] | **M3** any C/C++ header usable | `sqlite`, `raylib`/`sdl`, `cpp-std`, `mixed-sources` | ~20 weeks | 19–24 |
 | [ ] | **M4** real multi-package projects | `multi-pkg`, no-op rebuild < 200 ms; first `hello.exe` under Wine | ~29.5 weeks | 28–36 |
 | [ ] | **M5** Go-style concurrency | `workers`, TSan-clean suite | ~37.5 weeks | 35–46 |

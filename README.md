@@ -13,8 +13,8 @@ Linux and Windows.
 
 ## Status
 
-Phases 00 (foundations), 01 (the front-end) and 02 (the walking skeleton) are done; Phase 03 (the
-core language) is under way, and the language server's first version is done. What works today:
+Phases 00 (foundations), 01 (the front-end), 02 (the walking skeleton) and 03 (the core language)
+are done; Phase 04 (C/C++ interop) is under way, and the language server's first version is done. What works today:
 
 - `gocpp fmt` formats `.gp` files like gofmt (`gocpp fmt -h`).
 - `gocpp check` parses and type-checks packages, C/C++ header imports included, and prints their
@@ -22,11 +22,13 @@ core language) is under way, and the language server's first version is done. Wh
   "not supported yet (Phase NN)" error; [docs/spec/feature-matrix.md](docs/spec/feature-matrix.md)
   lists them.
 - `gocpp build`, `gocpp run` and `gocpp emit` compile programs to C++20 and build them with g++ or
-  clang++: basic types, functions, loops, `switch`, labels, pointers, slices, arrays and
-  `fmt.Println`, with Go's evaluation order and Go's panic messages and stack traces
-  (`-nochecks` turns off the bounds and nil checks). [examples/hello](examples/hello/main.gp),
-  [fizzbuzz](examples/fizzbuzz/main.gp) and [primes](examples/primes/main.gp) run, and gdb can
-  debug them at the `.gp` level. Maps, structs, methods and closures come next (Phase 03).
+  clang++: Go's core language without interfaces, generics and goroutines (basic and complex
+  types, functions, loops, `switch`, labels, pointers, slices, arrays, maps, structs, named types,
+  methods, closures, `defer`, `weak.Pointer` and a stand-in for `fmt`'s printing functions), with
+  Go's evaluation order and Go's panic messages and stack traces (`-nochecks` turns off the bounds
+  and nil checks). [examples/hello](examples/hello/main.gp), [structs](examples/structs/main.gp),
+  [closures](examples/closures/main.gp) and [wordfreq-core](examples/wordfreq-core/main.gp) run,
+  and gdb can debug them at the `.gp` level. C/C++ headers and libraries come next (Phase 04).
 - `gocpp lsp` is the language server (`gocpp lsp -h`): errors as you type, hover, go to
   definition, signature help, completion (with auto-import), formatting and organize imports. The
   VS Code extension in [editors/vscode](editors/vscode/README.md) starts it;

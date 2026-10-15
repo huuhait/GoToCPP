@@ -1,12 +1,12 @@
 # Phase 04: C/C++ Interop (opaque) · STATE
 
-**Status:** `[ ]` not started
+**Status:** `[~]` in progress
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-13
+**Last updated:** 2026-10-15
 
 ## Steps
 
-- [ ] 4.1 Compiler probes: macro list (`-dM -E`) + kind probe (namespace/type/template/value, grown from Phase 01's namespace probe), cached
+- [~] 4.1 Compiler probes: macro list (`-dM -E`) + kind probe (namespace/type/template/value, grown from Phase 01's namespace probe), cached
 - [ ] 4.2 C type translator (builtins, `struct_` tags, pointers, templates, constant args, dotted/member types, gocpp types inside)
 - [ ] 4.3 Name translation (header packages → `::name` / unqualified macros, namespaces + renames, header-and-namespace names, `::` vs `.`, macro protection with gocpp headers first)
 - [ ] 4.4 Opaque value codegen (`auto`, `gp::deref`, calls, operators, constructors, `nil` → `nullptr`, untyped constants as C literals)
@@ -40,6 +40,11 @@
 - [ ] Seeded C++-side errors reported at the correct `.gp` line
 
 ## Decisions / notes
+
+- 2026-10-15 (jobs): 4.1 (probes) and 04-rt (the runtime side of §2.12: `gp::deref`,
+  `gp::range`, `gp::values`, the string, span and pointer conversions, `gp::cstr` and the cgo
+  helpers, with C++ tests) run in parallel; the lowering steps 4.2–4.4 follow 4.1, and 4.7, 4.9
+  and 4.10 then only wire in what 04-rt built.
 
 - 2026-10-13 (spike probe): `std::minmax(1,2)` returns `std::pair<const int &, const int &>`,
   so multi-value results from C++ go through `gp::values` to avoid dangling references.

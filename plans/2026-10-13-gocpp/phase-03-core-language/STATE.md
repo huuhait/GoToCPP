@@ -1,8 +1,8 @@
 # Phase 03: Core Language · STATE
 
-**Status:** `[~]` in progress (started 2026-10-14 after M1)
+**Status:** `[x]` done (started 2026-10-14 after M1, finished 2026-10-15: M2 reached)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-13
+**Last updated:** 2026-10-15
 
 ## Steps
 
@@ -33,7 +33,7 @@
 - [x] 3.11 Func values (by-value params), variadics, closures
   - [x] capture analysis (by value vs boxed; large captures shared)
   - [x] Go 1.22 per-iteration loop variables
-- [~] 3.12 Evaluation-order lowering for every construct (+ `&&`/`||`, loop/else-if/case shapes, two-phase assignment)
+- [x] 3.12 Evaluation-order lowering for every construct (+ `&&`/`||`, loop/else-if/case shapes, two-phase assignment)
 - [x] 3.13 `defer` with the single-exit shape (panics run defers, panicking defers, named results)
 - [x] 3.14 Runtime checks + Go panic messages + exit code 2 + `backtrace()` trace + `-nochecks` (keeps Go's defined results) (3.14a runtime + driver, 3.14b check audit + fatal errors)
 - [x] 3.15 Remaining builtins + `fmt` shim for composite values (slices, maps sorted, structs, `&{…}`, `String()`) (3.15a runtime shim, 3.15b emitter side, 3.15c complex numbers)
@@ -385,3 +385,10 @@
   (the repo's sanitizer CI job; there is no CI service config), defer_repanicked at depth 200) committed, clean
   after 2 review rounds. All four exit criteria hold (checked by the reviewer twice). For Phase 07: `type WP
   weak.Pointer[T]` is gated there and needs a newtype over gp::weak_ptr.
+- 2026-10-15: Job 3.12 (evaluation order for every construct: gc's walk/order.go copied for assignments
+  (ascompatee, safeExpr of the targets, the late targets), map reads and keys (mapKeyTemp, gc's slow and fast
+  keys, the >128-byte value rule), string compares, op= and ++, defer and go (the func value first, the
+  receiver hoisted), two panics in one statement; D25 for the key copies that depend on gc's inliner) committed,
+  clean after 5 review rounds. Accepted D22 corners: two panics inside one late-target operand, multi-target
+  assignments and declarations with closure-changed variables, non-inlined call argument order
+  (TODO.md). With it every Phase 03 step is done: version.Phase = 3, and M2 is reached.
