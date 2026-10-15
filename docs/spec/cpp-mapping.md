@@ -573,11 +573,12 @@ prints the keys sorted, as Go does (step 3.15); `println(m)` is an error
 
 The order of evaluation is gc's: `m[k]` reads the table, which a call can change (also the table
 of a local map, which another variable can share), so it is read after the calls of its
-statement, like `*p` and `s[i]`; but a `bool`, `int8` or `uint8` value is copied in its place as
-an argument of `fmt`, and so is `m[string(b)]`. `len(m)` and `make` are evaluated in their places
-among the calls. A store `m[k] = v` evaluates the calls of `m` and `k`, then `v` (with its
-panics), and only then takes the entry, so `m[k] = f()` stores into the map that `m` is after
-`f` ran. A map literal is evaluated in its place among the calls, entry by entry, as gc stores
+statement, like `*p` and `s[i]`; but as an argument of `fmt`, a value that gc doesn't convert by
+value (a `bool`, `int8` or `uint8`, an array, a struct, a pointer, a map) is copied in its place
+([fmt](#fmt-and-the-builtins)), and so is `m[string(b)]`. `len(m)` and `make` are evaluated in
+their places among the calls. A store `m[k] = v` evaluates the calls of `m` and `k`, then `v`
+(with its panics), and only then takes the entry, so `m[k] = f()` stores into the map that `m`
+is after `f` ran. A map literal is evaluated in its place among the calls, entry by entry, as gc stores
 it: a panic in one entry comes before the calls of the entries after it.
 
 ## Structs
@@ -661,7 +662,8 @@ struct Line {
   pointer, is read after the calls of its statement (like `*p`), and a nil pointer panics there.
   As an argument of `fmt.Println`, a struct that is not addressable (a literal, a conversion) is
   copied in its place among the calls, unless Go converts it by value (8 bytes without pointers,
-  or a struct whose only field is a string or a slice), as gc does.
+  or a struct whose only field is a string or a slice), as gc does (the same rule for arrays,
+  pointers and maps: [fmt](#fmt-and-the-builtins)).
 - **Larger than 128 KiB**: like arrays, a local variable is boxed and a parameter is passed by
   reference; a literal that initializes a new variable, and `&Big{...}`, is made in its block,
   `gp::new_init<Big>([&](Big& gp_b) { gp_b.n = 3; })` (the zero value, then the given fields); other
@@ -996,6 +998,81 @@ int64_t load(int64_t n) {
   ends the program without running the deferred calls, as in Go.
 
 Source: [Phase 03 §2.8](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#28-defer-without-recover).
+
+## fmt and the builtins
+
+Until Go's own `fmt` comes (interfaces in Phase 05, the whole package in Phase 09), `fmt.Print`,
+`Println`, `Printf`, `Sprint`, `Sprintln` and `Sprintf` are the runtime's stand-in, `gp::fmtshim`
+(`runtime/include/gocpp/fmtshim.hpp`, which mirrors Go 1.25's `fmt`). The `Sprint` functions
+return a `gp::string`.
+
+```go
+var big int64 = 5
+fmt.Println(s, m, &p, Celsius(1.5))
+fmt.Printf("%5d|%-6.2f|%s\n", n, f, big)
+msg := fmt.Sprint(two())       // two() (int, string)
+```
+```cpp
+int64_t big = 5;
+gp::fmtshim::Println(s, m, p, Celsius(1.5));
+gp::fmtshim::Printf("%5d|%-6.2f|%s\n"_gs, n, f, gp::fmtshim::typed<gp::fmtshim::tag::int64>(big));
+gp::string msg = std::apply([](const auto&... gp_a) { return gp::fmtshim::Sprint(gp_a...); }, two());
+```
+
+- **Every value of Phase 03 prints as in Go**: slices and arrays `[1 2 3]`, maps `map[a:1 b:2]`
+  with the keys sorted (Go's `internal/fmtsort`: numbers by value with NaN first, strings by
+  bytes, `false` before `true`, arrays and structs part by part), structs `{1 2}` (`%+v`
+  `{X:1 Y:2}`), a pointer to a struct, array, slice or map `&{1 2}` at the top level (any other
+  pointer, and one inside a composite value, prints its address; nil is `<nil>`), named types as
+  their values, and a `String()` (or `Error()`) method of the value's method set where Go's `fmt`
+  calls it (for `%v %s %q`, not `%d`; a method on the pointer only for the pointer).
+- **Printf**: the verbs `%v %+v %d %s %q %t %f` and `%%`, the flags `-`, `+`, space and `0`, a
+  width and a precision (`%5d`, `%-8s`, `%.2f`, `%08.3f`); each element of a composite value is
+  formatted by the verb, as in Go (`[    1     2]` for `%5d`). Go's error forms are kept:
+  `%!d(string=hi)`, `%!s(main.Celsius=1.5)`, `%!d(MISSING)`, `%!(EXTRA int=2)`, and a character
+  that is no verb of Go's `fmt` (`%z`) prints `%!z(int=5)`. The phase gate stops the rest: `%T`
+  and `%w` (Phase 05), the `#` flag, `*`, `[n]` and the other verbs (`%x %c %e %g %p`, Phase 09),
+  and a format that is not a constant.
+- **Type tags**: Go's `int` and `int64` are both `int64_t`, and `uint`, `uint64` and `uintptr`
+  all `uint64_t`, but the error forms name the Go type. An argument whose type has `int64`,
+  `uint64` or `uintptr` in an unnamed part gets its tag: `gp::fmtshim::typed<tag::int64>(x)`,
+  `typed<tag::slice<tag::uint64>>(s)`, `typed<tag::map<tag::none, tag::uintptr>>(m)`,
+  `typed<tag::ptr<tag::array<tag::int64>>>(p)`; structs and named types carry their own tags
+  ([structs](#structs), [named types](#named-types)). `fmt.Println(f())` of a call with several
+  results passes them through `std::apply` without tags: Print, Println, Sprint and Sprintln
+  never print a type's name, and `fmt.Printf(g())` (the format is `g`'s first result) needs a
+  format that is not a constant, which comes in Phase 09, together with the tags on that path.
+- **Arguments are values at the call**: the shim takes each argument by value, as Go copies it
+  into an interface. The order of evaluation is gc's: a variable (also a slice, an array, a map
+  or a pointer) is read after the calls of its statement, so `fmt.Println(s, grow())` prints the
+  `s` that `grow` made; a value that is not addressable is copied in its place among the calls,
+  unless gc converts it by value (a 2-, 4- or 8-byte value without pointers, a string, a slice):
+  `fmt.Println(m["k"], change())` prints the old `m["k"]` for a map of arrays, structs, pointers
+  or maps, and the new one for a map of ints or slices.
+- **A local that a closure changes**: gc also copies such an argument in place when it is a
+  small local variable (and a field of one), unless its escape analysis moved the variable to the
+  heap, which depends on gc's inliner: `ok := false; set := func() bool { ok = true; return ok };
+  fmt.Println(ok, set())` prints `false true`. gocpp approximates it with a rule on the code
+  (`lower/inplace.go`): it copies such a local when every func literal that captures it is called
+  at once or held by a local that is only ever called, and has no `defer`, `go` or `recover` in
+  its own body; otherwise it reads the new value. A part of a plain local that gc keeps in
+  registers is copied too where an index could change: `fmt.Println(one[k], setk())` of a
+  `var one [1]bool` reads `one[k]` before `setk` runs, as in Go. A parameter of a func literal
+  is read after the calls, while gc copies it when it inlines the literal (its parameters become
+  the caller's locals): `f := func(a [1]bool) { fmt.Println(a[gk], setk()) }; f([1]bool{})`
+  prints `false 0` in Go and panics in gocpp ([D25](language.md#d25-fmt-arguments-that-a-closure-changes)). Where gc's inlining budget decides otherwise,
+  the output can differ ([D25](language.md#d25-fmt-arguments-that-a-closure-changes)).
+- **`min` and `max`** of non-constant values are `gp::min<T>(x, y, ...)` and `gp::max<T>(...)`
+  (`gocpp/minmax.hpp`), with `T` the result type, Go's rules for floats (a NaN wins, `-0` is less
+  than `+0`) and strings; named types compare their values. A constant call is folded. Like
+  `len`, they are evaluated in their places among the calls.
+- **`print` and `println`** (`gocpp/print.hpp`) write to stderr in the runtime's format; a pointer
+  prints its address (`0x0` for nil). A slice or a map is a compile error
+  ([D23](language.md#d23-print-and-println-of-a-slice-or-a-map)), and so are arrays and structs, as
+  in Go.
+- Complex numbers (`complex`, `real`, `imag`, and printing them) are not built yet.
+
+Source: [Phase 03 §2.10](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#210-builtins-printing-and-package-initialization).
 
 ## Package initialization
 

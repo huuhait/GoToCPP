@@ -53,7 +53,9 @@
 // part without int64, uint64 or uintptr). Only an argument whose type has one of these three
 // in an unnamed part needs a tag: a struct field gets its tag in gp_fields, and a named type
 // over such a type in gp_value_tag (below). typed() copies the value, so the emitter may keep
-// it in a temporary like any other argument (evaluation order, internal/lower/order.go).
+// it in a temporary like any other argument (evaluation order, internal/lower/order.go). An
+// array or struct larger than 128 KiB comes as heap(gp::new_<A>(a)) (heap_value, below), a copy
+// on the heap.
 //
 // The protocols that the emitter's types follow (steps 3.8, 3.9, 3.10; the names start with
 // gp_, which no escaped Go name does, and Go methods are C++ members of their own names, so
@@ -173,6 +175,19 @@ struct typed_value {
 template <typename Tag, typename T>
 typed_value<Tag, T> typed(T v) {
     return typed_value<Tag, T>{std::move(v)};
+}
+
+// heap_value is an array or struct larger than 128 KiB that the emitter copied to the heap at
+// the call, heap(gp::new_<A>(a)), because a copy by value would be on the C++ stack, which
+// doesn't grow (D24). It prints as the value, not as a pointer.
+template <typename T>
+struct heap_value {
+    gp::ptr<T> gp_p;
+};
+
+template <typename T>
+heap_value<T> heap(gp::ptr<T> p) {
+    return heap_value<T>{std::move(p)};
 }
 
 namespace detail {
@@ -896,6 +911,16 @@ arg make_arg(const T& v) {
 template <typename Tag, typename T>
 arg make_arg(const typed_value<Tag, T>& v) {
     return detail::make_tagged_arg<Tag>(v.gp_v);
+}
+
+template <typename T>
+arg make_arg(const heap_value<T>& v) {
+    return detail::make_tagged_arg<tag::none>(*v.gp_p);
+}
+
+template <typename Tag, typename T>
+arg make_arg(const typed_value<Tag, heap_value<T>>& v) {
+    return detail::make_tagged_arg<Tag>(*v.gp_v.gp_p);
 }
 
 // The formatting, as Go's fmt.Sprint, Sprintln and Sprintf do it. They append to out.

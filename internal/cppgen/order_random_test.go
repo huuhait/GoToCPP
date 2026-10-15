@@ -41,8 +41,10 @@ import (
 // elements of a package slice and a package array of structs, and of a boxed local struct that
 // the calls change through a pointer; keyed literals whose values Go evaluates in source order,
 // assignments of whole structs, &s.f that shares the struct's owner, == of structs, structs
-// printed by fmt, and assignments whose first target is a part of a plain local struct or array
-// (lw.a, lar[i]) and whose later target has an operand that reads it (gsl[lw.a & 3]),
+// printed by fmt (and slices, arrays, maps and pointers, and small locals that a closure which
+// doesn't escape changes, step 3.15: fmtArg), and assignments whose first target is a part of a
+// plain local struct or array (lw.a, lar[i]) and whose later target has an operand that reads
+// it (gsl[lw.a & 3]),
 // defer (step 3.13): deferred fmt.Println and e calls, whose arguments are evaluated at the
 // defer statement and which run when their function returns or panics, named types (step
 // 3.9): a named int8, gn, with arithmetic that wraps (also division, shifts and op=), and a named
@@ -484,6 +486,12 @@ func (g *progGen) program() string {
 	g.printf("}")
 	g.printf("lc := func() int { return l0 + l2 + g0 }")
 	g.printf("_, _ = next, lc")
+	// flip is a closure that is only called (it doesn't escape), which changes small locals:
+	// as fmt's arguments, gc copies sb, s8, sa and sp in place (their values need an address),
+	// and reads si after the calls (step 3.15, lower/inplace.go).
+	g.printf("sb, s8, sa, sp, si := false, int8(1), [1]int8{1}, struct{ a, b int8 }{1, 2}, 1")
+	g.printf("flip := func(t int) int { sb = !sb; s8 += int8(t); sa[0] -= int8(t); sp.a += int8(t); si += t; return t }")
+	g.printf("flip(0) // a use that is a call: _ = flip would make it escape (also in gc)")
 	g.printf("var mv int")
 	g.printf("var mok bool")
 	g.main = true
@@ -502,6 +510,7 @@ func (g *progGen) program() string {
 	g.printf("}")
 	g.printf("fmt.Println(gst, gss[0], gss[1], gsa[0], gsa[1], *pst, lst, *pfa, *lfp, gst == lst, lw, lar[0], lar[1])")
 	g.printf("fmt.Println(gn, gns[0], gns[1], gns[2], gns[3], len(gns))")
+	g.printf("fmt.Println(sb, s8, sa, sp, si)")
 	g.printf("if pc != nil {")
 	g.printf("\tfmt.Println(*pc)")
 	g.printf("}")
@@ -1044,7 +1053,7 @@ func (g *progGen) stmt() {
 		if g.chance(0.15) {
 			// Step 3.13: the arguments are evaluated now, the call runs when the function
 			// returns (also through a panic), the last deferred one first.
-			g.printf("defer fmt.Println(%s)", g.args(1+g.r.Intn(4)))
+			g.printf("defer fmt.Println(%s)", g.fmtArgs(1+g.r.Intn(4)))
 			break
 		}
 		if g.chance(0.05) {
@@ -1052,7 +1061,11 @@ func (g *progGen) stmt() {
 			g.printf("defer gfn(%s)", g.expr(2))
 			break
 		}
-		g.printf("fmt.Println(%s)", g.args(1+g.r.Intn(4)))
+		if g.main && g.chance(0.2) {
+			g.printf("fmt.Println(%s)", g.smallArgs())
+			break
+		}
+		g.printf("fmt.Println(%s)", g.fmtArgs(1+g.r.Intn(4)))
 	case 2:
 		if g.chance(0.15) {
 			if g.chance(0.4) {
@@ -1266,8 +1279,22 @@ func (g *progGen) condList() string {
 
 // args returns arguments for fmt.Println or println: ints, bools, bytes, strings.
 func (g *progGen) args(n int) string {
+	return g.argList(n, false)
+}
+
+// fmtArgs returns arguments for fmt.Println: those of args, and composite values.
+func (g *progGen) fmtArgs(n int) string {
+	return g.argList(n, true)
+}
+
+// argList returns n arguments of args, and with composite also of fmtArg.
+func (g *progGen) argList(n int, composite bool) string {
 	list := make([]string, n)
 	for i := range list {
+		if composite && g.chance(0.2) {
+			list[i] = g.fmtArg()
+			continue
+		}
 		switch g.r.Intn(9) {
 		case 0:
 			list[i] = g.cond(2)
@@ -1292,6 +1319,48 @@ func (g *progGen) args(n int) string {
 		default:
 			list[i] = g.expr(3)
 		}
+	}
+	return strings.Join(list, ", ")
+}
+
+// fmtArg returns a composite value for fmt.Println (step 3.15): a slice, an array, a map, a
+// struct or a pointer to one of them, as a variable (read after the calls of its statement), a
+// map read, a literal or a sub-slice (which gc copies or evaluates in their places among the
+// calls). None prints an address: S has no pointers, and a pointer prints as &{...} or <nil>
+// at the top level.
+func (g *progGen) fmtArg() string {
+	vars := []string{"gsl", "gal", "gar", "gas", "gmp", "gml", "gms", "gst", "*pst", "pst", "gss", "gsa", "gns", "pla", "&gar", "&gsl"}
+	if g.main {
+		vars = append(vars, "ls", "la", "lap", "lst", "lm", "lw", "lar", "las")
+		if g.chance(0.5) {
+			// The small locals that flip changes, and flip.
+			return []string{"sb", "s8", "sa", "sp", "si", "flip(" + strconv.Itoa(1+g.r.Intn(9)) + ")"}[g.r.Intn(6)]
+		}
+	}
+	switch g.r.Intn(6) {
+	case 0:
+		return "gms[" + g.expr(1) + " & 3]"
+	case 1:
+		return "[2]int{" + g.expr(1) + ", " + g.expr(1) + "}"
+	case 2:
+		return g.structLit()
+	case 3:
+		return "gsl[" + g.expr(1) + " & 1:]"
+	}
+	return vars[g.r.Intn(len(vars))]
+}
+
+// smallArgs returns arguments for fmt.Println in main: the small locals that flip changes, before
+// and after a call of flip, with other arguments between them.
+func (g *progGen) smallArgs() string {
+	small := []string{"sb", "s8", "sa", "sp", "si"}
+	var list []string
+	for range 1 + g.r.Intn(3) {
+		list = append(list, small[g.r.Intn(len(small))])
+	}
+	list = append(list, g.fmtArgs(g.r.Intn(2)+1), "flip("+strconv.Itoa(1+g.r.Intn(9))+")")
+	for range g.r.Intn(3) {
+		list = append(list, small[g.r.Intn(len(small))])
 	}
 	return strings.Join(list, ", ")
 }

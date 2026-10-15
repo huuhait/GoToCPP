@@ -9,20 +9,19 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/huuhait/gocpp/internal/cppir"
 )
 
 // Expressions (Phase 02 README §2.3): constants (folded by go/types), variables, calls of
-// user functions, of the builtins len, print, println and panic and of fmt.Print, Println and
-// Printf (gp::fmtshim), the byte s[i] of a string, the substring s[a:b], conversions between
-// basic types (also string(r)), every operator of the Phase 02 subset with string
-// concatenation (ops.go), pointers (step 3.3): *p, &x (addr.go), new(T), nil, p == q, and
-// a boxed variable x (box.go), which is (*x), slices (step 3.5, slices.go), arrays (step
-// 3.6, arrays.go) and structs (step 3.8, structs.go). The rest is
-// reported as "not supported yet": the phase gates of internal/check reject it before, with a
-// message for the user.
+// user functions, of the builtins len, print, println, panic, min and max (builtins.go) and of
+// package fmt (gp::fmtshim, fmtcall.go), the byte s[i] of a string, the substring s[a:b],
+// conversions between basic types (also string(r)), every operator of the Phase 02 subset
+// with string concatenation (ops.go), pointers (step 3.3): *p, &x (addr.go), new(T), nil,
+// p == q, and a boxed variable x (box.go), which is (*x), slices (step 3.5, slices.go), arrays
+// (step 3.6, arrays.go) and structs (step 3.8, structs.go). The rest is reported as "not
+// supported yet": the phase gates of internal/check reject it before, with a message for the
+// user.
 //
 // Every expression that is not a constant has exactly its Go type in C++ (int8 is int8_t, not
 // the int that C++ arithmetic gives: ops.go casts the small integer types back), so that a
@@ -87,6 +86,11 @@ type funcGen struct {
 	// singleDefs are the local variables that only their declaration gives a value
 	// (panicid.go), found on first use.
 	singleDefs map[*types.Var]ast.Expr
+	// inPlace are the boxed locals that an argument of fmt copies in place (inplace.go),
+	// found on first use, for the code inPlaceTop.
+	inPlace       map[*types.Var]bool
+	inPlaceParams map[*types.Var]bool // the parameters, receivers and results in inPlaceTop
+	inPlaceTop    ast.Node
 
 	// out are the open statement lists, innermost last (stmt.go: add, push, pop).
 	out []frame
@@ -298,6 +302,8 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 				}
 			case "len", "cap", "panic", "new", "make", "append", "copy", "clear", "delete":
 				return fg.builtin(c, obj.Name())
+			case "min", "max":
+				return fg.minMax(c, obj.Name()) // builtins.go
 			default:
 				fg.g.unsupported(c.Pos(), "the builtin "+obj.Name())
 				return placeholder
@@ -336,23 +342,10 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 				fg.g.unsupported(a.Pos(), "printing a func value")
 				return placeholder
 			}
-			if t := fg.g.info.TypeOf(a); t != nil && isPointer(t) {
-				fg.g.unsupported(a.Pos(), "printing a pointer (Phase 03 step 3.15)")
-				return placeholder
-			}
-			if t := fg.g.info.TypeOf(a); t != nil && isSlice(t) {
-				fg.g.unsupported(a.Pos(), "printing a slice (Phase 03 step 3.15)")
-				return placeholder
-			}
-			if t := fg.g.info.TypeOf(a); t != nil && isArray(t) {
-				fg.g.unsupported(a.Pos(), "printing an array (Phase 03 step 3.15)")
-				return placeholder
-			}
-			if t := fg.g.info.TypeOf(a); t != nil && isMap(t) {
-				fg.g.unsupported(a.Pos(), "printing a map (Phase 03 step 3.15)")
-				return placeholder
-			}
 		}
+	}
+	if fn := fg.fmtFunc(c); fn != nil {
+		return fg.fmtCall(c, fn, callee) // fmtcall.go
 	}
 
 	// f(g()), where g has several results: the arguments are g's results. A function of the
@@ -420,76 +413,6 @@ func (g *gen) funcCallName(name string, args []types.Type) string {
 		}
 	}
 	return name
-}
-
-// fmtFuncs are the functions of package fmt that the runtime's stand-in has (gp::fmtshim, until
-// Phase 05 and 09 bring the real fmt).
-var fmtFuncs = map[string]bool{"Print": true, "Println": true, "Printf": true}
-
-// pkgFunc returns the C++ name of the function of another package that c calls, pkg.F, or ""
-// (with an error) if there is none yet.
-func (fg *funcGen) pkgFunc(c *ast.CallExpr, sel *ast.SelectorExpr) string {
-	fn, _ := fg.g.info.Uses[sel.Sel].(*types.Func)
-	if fn == nil || fn.Pkg() == nil || fg.g.info.Selections[sel] != nil {
-		fg.g.unsupported(c.Pos(), "method calls (Phase 03)")
-		return ""
-	}
-	if fn.Pkg().Path() != "fmt" || !fmtFuncs[fn.Name()] {
-		fg.g.unsupported(c.Pos(), fn.Pkg().Name()+"."+fn.Name()+": Phase 02 has only fmt.Print, fmt.Println and fmt.Printf")
-		return ""
-	}
-	if fn.Name() == "Printf" && len(c.Args) > 0 {
-		if tv := fg.g.info.Types[c.Args[0]]; tv.Value != nil && tv.Value.Kind() == constant.String {
-			if verb, ok := printfVerbs(constant.StringVal(tv.Value)); !ok {
-				fg.g.unsupported(c.Args[0].Pos(), "the fmt.Printf verb "+verb+" (Phase 03)")
-				return ""
-			}
-		}
-	}
-	return "gp::fmtshim::" + fn.Name()
-}
-
-// printfVerbs reports whether the Printf format uses only what gp::fmtshim::Printf knows: the
-// verbs %v %d %s %t %f and %%, without flags, width, precision or argument indexes, and any
-// character that is no verb of Go's fmt (%z, %!, %é), for which fmtshim writes Go's error form
-// %!z(int=5), as Go does. If not, it returns the first directive that it doesn't know. The
-// format is parsed like Go's fmt.(*pp).doPrintf and the phase gate (internal/check,
-// checkFormat and verbPhase), so the emitter accepts exactly what the gate lets through in
-// Phase 02. (A % at the end is Go's %!(NOVERB), which fmtshim prints too.)
-func printfVerbs(format string) (string, bool) {
-	for i := 0; i < len(format); {
-		if format[i] != '%' {
-			i++
-			continue
-		}
-		start := i
-		i++
-		if i < len(format) && (strings.IndexByte("#0+- [*", format[i]) >= 0 || '1' <= format[i] && format[i] <= '9' ||
-			format[i] == '.' && i+1 < len(format)) {
-			// Flags, an argument index, a width or a precision (a . at the end is the verb).
-			end := i + 1
-			for end < len(format) && !isLetter(format[end-1]) {
-				end++
-			}
-			return format[start:end], false
-		}
-		if i == len(format) {
-			break
-		}
-		verb, size := utf8.DecodeRuneInString(format[i:])
-		i += size
-		if strings.ContainsRune(goVerbs, verb) && !strings.ContainsRune("vdstf%", verb) {
-			return format[start:i], false
-		}
-	}
-	return "", true
-}
-
-// goVerbs are the verbs of Go's fmt (and %w of fmt.Errorf), as internal/check has them.
-const goVerbs = "vTtbcdoOqxXUeEfFgGspw%"
-
-func isLetter(c byte) bool {
-	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'
 }
 
 // constant returns the C++ literal of the constant v of type t (Phase 02 README §2.3): a

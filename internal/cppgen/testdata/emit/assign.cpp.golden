@@ -140,9 +140,9 @@ void main() {
     gp::fmtshim::Println(u32);
     uint64_t u64 = 5;
     u64 = u64 - 6;
-    gp::fmtshim::Println(u64);
+    gp::fmtshim::Println(gp::fmtshim::typed<gp::fmtshim::tag::uint64>(u64));
     u64 = u64 / 3;
-    gp::fmtshim::Println(u64);
+    gp::fmtshim::Println(gp::fmtshim::typed<gp::fmtshim::tag::uint64>(u64));
     int32_t r = 97;
     r = r + 2;
     gp::fmtshim::Println(r);

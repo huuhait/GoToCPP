@@ -20,6 +20,7 @@
 #include <gocpp/func.hpp>
 #include <gocpp/arith.hpp>
 #include <gocpp/newtype.hpp>
+#include <gocpp/minmax.hpp>
 #include <gocpp/print.hpp>
 #include <gocpp/panic.hpp>
 #include <gocpp/defer.hpp>

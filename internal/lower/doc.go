@@ -81,6 +81,11 @@
 //   - named.go: the named types that aren't structs (step 3.9): their C++ structs over
 //     gp::newtype, the conversions to and from them, and Go's implicit conversions between types
 //     that are not identical (also between struct types), found before a function is lowered;
+//   - fmtcall.go: the calls of package fmt (step 3.15): gp::fmtshim's Print, Println, Printf,
+//     Sprint, Sprintln and Sprintf, the arguments with their type tags, and the format check;
+//   - inplace.go: the boxed locals that an argument of fmt copies in place, as gc does when no
+//     escaping closure captures them (step 3.15, order.go: copied);
+//   - builtins.go: the builtins min and max (step 3.15);
 //   - ops.go: the operators (with the small-integer rule and the runtime's gp::div, gp::rem,
 //     gp::shl and gp::shr), conversions (gp::f2i), s[i] and the builtins len and panic;
 //   - types.go: the C++ spelling of the types;

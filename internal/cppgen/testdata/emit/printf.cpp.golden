@@ -5,14 +5,14 @@ namespace gpkg_main {
 
 void main();
 
-#line 10 "$DIR/printf.gp"
+#line 9 "$DIR/printf.gp"
 void main() {
     int64_t n = 5;
-#line 11 "$DIR/printf.gp"
+#line 10 "$DIR/printf.gp"
     gp::string s = "str"_gs;
-#line 11 "$DIR/printf.gp"
+#line 10 "$DIR/printf.gp"
     bool ok = true;
-#line 11 "$DIR/printf.gp"
+#line 10 "$DIR/printf.gp"
     double f = 2.5;
     uint8_t b = 200;
     int8_t i8 = -3;

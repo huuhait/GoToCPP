@@ -14,7 +14,7 @@ void main() {
     gp::fmtshim::Println(a / 2, a % 2, -a / 2, -a % 2, a / -3, a % -3, b / 2, b % 2);
     int64_t m1 = -1;
     int64_t i64 = INT64_MIN;
-    gp::fmtshim::Println(gp::div(i64, m1), gp::rem(i64, m1), gp::div(i64, -1), gp::rem(i64, -1), i64 / 2, i64 % 2, i64 / -2);
+    gp::fmtshim::Println(gp::fmtshim::typed<gp::fmtshim::tag::int64>(gp::div(i64, m1)), gp::fmtshim::typed<gp::fmtshim::tag::int64>(gp::rem(i64, m1)), gp::fmtshim::typed<gp::fmtshim::tag::int64>(gp::div(i64, -1)), gp::fmtshim::typed<gp::fmtshim::tag::int64>(gp::rem(i64, -1)), gp::fmtshim::typed<gp::fmtshim::tag::int64>(i64 / 2), gp::fmtshim::typed<gp::fmtshim::tag::int64>(i64 % 2), gp::fmtshim::typed<gp::fmtshim::tag::int64>(i64 / -2));
     int32_t i32 = INT32_MIN;
     gp::fmtshim::Println(gp::div(i32, int32_t(m1)), gp::rem(i32, int32_t(m1)), gp::div(i32, -1), gp::rem(i32, -1), i32 / 7, i32 % 7);
     int16_t i16 = -32768;
@@ -25,7 +25,7 @@ void main() {
     uint8_t u8 = 250;
     gp::fmtshim::Println(u / 3, u % 10, gp::div(u, u), u32 / 7, u32 % 7, uint8_t(u8 / 3), uint8_t(u8 % 7), gp::div(u8, u8));
     uint64_t two = 2;
-    gp::fmtshim::Println(gp::div(u, two), gp::rem(u, two), gp::div(int64_t(100), a), gp::rem(int64_t(100), a), gp::div(int64_t(-100), a));
+    gp::fmtshim::Println(gp::fmtshim::typed<gp::fmtshim::tag::uint64>(gp::div(u, two)), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(gp::rem(u, two)), gp::div(int64_t(100), a), gp::rem(int64_t(100), a), gp::div(int64_t(-100), a));
     double f = 7.0;
 #line 26 "$DIR/divrem.gp"
     double g = -2.0;

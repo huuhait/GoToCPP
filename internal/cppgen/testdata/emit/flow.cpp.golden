@@ -183,7 +183,7 @@ void main() {
         if (i == 2) {
             break;
         }
-        gp::fmtshim::Println("i"_gs, i);
+        gp::fmtshim::Println("i"_gs, gp::fmtshim::typed<gp::fmtshim::tag::uint64>(i));
     }
 #line 121 "$DIR/flow.gp"
     for (int64_t gp_i3 = 0; gp_i3 < 4; gp_i3++) {

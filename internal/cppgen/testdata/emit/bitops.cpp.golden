@@ -23,7 +23,7 @@ void main() {
     gp::fmtshim::Println(~i32, ~u32, u32 & ~UINT32_C(4278190080), i32 & ~2147483647, u32 ^ 65535);
     int64_t i64 = INT64_MIN;
     uint64_t u64 = UINT64_C(9223372036854775809);
-    gp::fmtshim::Println(~i64, i64 & ~-1, ~u64, u64 & ~1, u64 & ~UINT64_C(9223372036854775808), u64 | UINT64_C(4611686018427387904));
+    gp::fmtshim::Println(gp::fmtshim::typed<gp::fmtshim::tag::int64>(~i64), gp::fmtshim::typed<gp::fmtshim::tag::int64>(i64 & ~-1), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(~u64), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(u64 & ~1), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(u64 & ~UINT64_C(9223372036854775808)), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(u64 | UINT64_C(4611686018427387904)));
 #line 23 "$DIR/bitops.gp"
     gp::fmtshim::Println((a & b) + 1, a + (b & 1), (a | b) + 1, (a + b) | 1, a ^ (b * 2), (a * b) ^ 2, (a & ~b) + 1, a + (b & ~1), (a & b) == 8, (a | b) != 0);
     gp::fmtshim::Println(((a & b) | a) ^ b, (a | b) & (a ^ b), (a << 1) & b, (a & b) << 1, -a & b, ~a & b, a & -b);

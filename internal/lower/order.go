@@ -32,18 +32,19 @@ import (
 //   - a slice expression s[a:b] (Phase 03), with its bounds: gc copies it into a temporary
 //     in its place, so it reads s and panics there, and its bounds that are not a name, a
 //     constant or len or cap of a name are copied in their places first (collect, cheap);
-//   - an argument of fmt.Print, Println or Printf (a ...any parameter) of a one-byte type
-//     (bool, int8, uint8) that is not a variable: so fmt.Println(s[i], grow()) panics before
-//     grow runs, and fmt.Println(x == 1, f()) compares the old x, while fmt.Println(x, f())
-//     prints the new x. gc's rule (walk/order.go, OCONVIFACE and addrTemp): a conversion of
-//     a value to an interface copies the value into a temporary in its place when the value
-//     is not addressable (not a variable; a local variable is copied too, which can't be
-//     seen) and its type is not one that the runtime converts by value: a 2-, 4- or 8-byte
-//     scalar, a string or a slice (dataWordFuncName). In Phase 02 only fmt's arguments are
-//     converted to interfaces, and only bool, int8 and uint8 are copied, and structs (step
-//     3.8, by gc's rule in Go's sizes: copiedStruct). Phase 03 must extend this to every
-//     conversion to an interface (any parameters, assignments to interface variables, panic)
-//     and to the other types gc copies (complex numbers, arrays).
+//   - an argument of fmt's Print and Sprint functions (a ...any parameter) that is not a
+//     variable and whose value gc doesn't convert by value: so fmt.Println(str[i], grow())
+//     panics before grow runs, fmt.Println(x == 1, f()) compares the old x and
+//     fmt.Println(m[k], f()) of a map of arrays prints the old m[k], while fmt.Println(x, f())
+//     prints the new x. gc's rule (walk/order.go, OCONVIFACE and addrTemp): a conversion of a
+//     value to an interface copies the value into a temporary in its place when the value is
+//     not addressable (not a variable; a local variable is copied too, which only a closure
+//     can see: inplace.go approximates gc's rule for it) and its type is not one that the
+//     runtime converts by value: a 2-, 4- or 8-byte scalar, a string or a slice
+//     (dataWordFuncName; convCopied in structs.go has the rule in Go's sizes): so bools, int8,
+//     uint8, structs, arrays, pointers and maps are copied. Only fmt's
+//     arguments are converted to interfaces in Phase 03; Phase 05 must extend this to every
+//     conversion to an interface (any parameters, assignments to interface variables, panic).
 //
 // The rest stays where it is, and its order matters only where it can be seen:
 //   - a read of a package variable, which any call can change (Phase 03: collect sees only
@@ -69,8 +70,8 @@ import (
 // Slices add units (step 3.5), each evaluated in its place among the calls, as gc copies them
 // into temporaries: append, copy and clear (calls: they write elements that other slices can
 // see), make (it can panic), cap (like len), []byte(s) and []rune(s) (gc's OSTR2BYTES and
-// OSTR2RUNES). The elements of a composite literal are ordered like the operands of an
-// operator (gc reads the variables in them after the calls).
+// OSTR2RUNES), and min and max (step 3.15, like len). The elements of a composite literal are
+// ordered like the operands of an operator (gc reads the variables in them after the calls).
 //
 // A call of a func value (step 3.11, closures.go) has the func value in its own scope, first.
 // gc evaluates a func value that has a call in it (f(), fs[i()], m[k()]) as a whole into a
@@ -246,20 +247,27 @@ func (fg *funcGen) analyzeCopied(seq bool, list []ast.Expr, copy func(i int, e a
 }
 
 // copied reports whether gc copies the argument e of fmt's ...any into a temporary in its
-// place among the calls: a value of a one-byte type that is not a variable (and not a unit
-// already), or a struct that is not addressable, unless gc converts it by value
-// (copiedStruct).
+// place among the calls: a value that is not addressable (and not a unit already), unless gc
+// converts it by value (convCopied): a bool, a comparison, a byte s[i] of a string, a map read
+// m[k] of an array, a struct, a pointer or a map, a composite literal.
 func (fg *funcGen) copied(e ast.Expr) bool {
 	e = ast.Unparen(e)
 	if _, ok := fg.temps[e]; ok || fg.constValue(e) != nil {
 		return false
 	}
 	switch x := e.(type) {
-	case *ast.Ident, *ast.StarExpr:
-		return false // a variable: addressable (a local that is not boxed is copied, unseen)
+	case *ast.Ident:
+		// A variable: addressable, read after the calls; but gc copies a local in place, which
+		// a closure can see (inplace.go). (A local that is not boxed is copied too, unseen.)
+		v, ok := fg.g.info.Uses[x].(*types.Var)
+		return ok && fg.inPlaceLocal(v)
+	case *ast.StarExpr:
+		return false // a variable: addressable
 	case *ast.IndexExpr, *ast.SelectorExpr:
 		if fg.addressable(x) {
-			return false // an element of a slice or of an addressable array, a field: like *p
+			// An element of a slice or of an addressable array, a field: like *p; but a part
+			// of a local that gc copies in place is copied too (inplace.go: inPlacePart).
+			return fg.inPlacePart(x)
 		}
 	case *ast.CallExpr:
 		if !fg.g.info.Types[x.Fun].IsType() {
@@ -270,18 +278,7 @@ func (fg *funcGen) copied(e ast.Expr) bool {
 			return false
 		}
 	}
-	if t := fg.g.info.TypeOf(e); isStruct(t) {
-		return copiedStruct(t) // structs.go
-	}
-	b := underBasic(fg.g.info.TypeOf(e)) // gc's rule is on the kind: also a named bool
-	if b == nil {
-		return false
-	}
-	switch b.Kind() {
-	case types.Bool, types.UntypedBool, types.Int8, types.Uint8:
-		return true
-	}
-	return false
+	return convCopied(fg.g.info.TypeOf(e)) // structs.go
 }
 
 // collect adds the items of e, the expression root of the scope's list or an operand below
@@ -332,6 +329,12 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 			sc.calls = append(sc.calls, x) // new(T) has no effect: its argument is a type
 			return
 		}
+		if fg.isBuiltin(x, "min") || fg.isBuiltin(x, "max") {
+			// min and max have no effect of their own, but gc evaluates them in their places
+			// among the calls, like len (walk/order.go: OMIN, OMAX).
+			fg.collectInPlace(sc, x, x.Args, effect{}, root, up)
+			return
+		}
 		if fg.isBuiltin(x, "make") {
 			// make([]T, n): in its place among the calls (gc copies it), and it panics for a
 			// bad length (a constant one is checked by go/types, also against a constant
@@ -349,8 +352,8 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		if sel, ok := x.Fun.(*ast.SelectorExpr); ok {
 			if fn, ok := fg.g.info.Uses[sel.Sel].(*types.Func); ok && fn.Pkg() != nil && fn.Pkg().Path() == "fmt" {
 				iface = 0
-				if fn.Name() == "Printf" {
-					iface = 1 // the format is a string
+				if fmtFormatted(fn.Name()) {
+					iface = 1 // the format is a string (fmtcall.go)
 				}
 			}
 		}

@@ -9,7 +9,7 @@ Everything this document doesn't mention works as the Go spec says.
 | | |
 |---|---|
 | Status | v0, written in Phase 00 from the plan. Each phase updates it when it builds a feature |
-| Source | [Phase 00 §2.2](../../plans/2026-10-13-gocpp/phase-00-foundations/README.md#22-the-language-as-a-diff-against-go) (the divergence list D1–D21; D22 from the Phase 02 evaluation-order work, D23 from Phase 03 steps 3.5 and 3.7, D24 from step 3.6) and the phase READMEs linked in each section |
+| Source | [Phase 00 §2.2](../../plans/2026-10-13-gocpp/phase-00-foundations/README.md#22-the-language-as-a-diff-against-go) (the divergence list D1–D21; D22 from the Phase 02 evaluation-order work, D23 from Phase 03 steps 3.5 and 3.7, D24 from step 3.6, D25 from step 3.15) and the phase READMEs linked in each section |
 | See also | [cpp-mapping.md](cpp-mapping.md) (what the C++ output looks like), [interop.md](interop.md) (using C and C++), [feature-matrix.md](feature-matrix.md) (the phase of each feature) |
 
 **How to read it.** Each section starts with an example. Then it says what Go does, what gocpp
@@ -46,6 +46,7 @@ The [feature matrix](feature-matrix.md) lists every feature with the phase that 
 | [D22](#d22-which-of-two-run-time-panics-is-reported) | one panic message, fixed by the compiler | with two possible panics and no call between them, the other message can appear | 02 |
 | [D23](#d23-print-and-println-of-a-slice-or-a-map) | `println(s)` prints `[3/3]0xc000012345`, `println(m)` `0xc000012345` | an error: use `fmt.Println` | 03 |
 | [D24](#d24-large-values-on-the-c-stack) | the stack grows for any value | a result or a temporary array or struct over 128 KiB can overflow the C++ stack | 03 |
+| [D25](#d25-fmt-arguments-that-a-closure-changes) | whether `fmt.Println(ok, set())` prints the old `ok` depends on gc's inliner | a rule on the code approximates it; a closure gc doesn't inline can print differently | 03 |
 
 The three things gocpp adds have their own sections:
 [header imports](#header-imports), [must functions and must calls](#must-functions-and-must-calls)
@@ -640,6 +641,48 @@ func main() {
   makes when its value is reached through a pointer or a slice (`b = *p`, which gocpp copies
   first so that the store can't free the value while it reads it).
 - **Phase:** [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#23-strings-slices-arrays-maps).
+
+
+## D25. fmt arguments that a closure changes
+
+```go
+ok := false
+set := func() bool { ok = true; return ok }
+fmt.Println(ok, set()) // Go and gocpp: false true
+```
+
+- **Go:** the spec leaves open when `ok` is read. gc copies an argument of `fmt`'s `...any` whose
+  value needs an address (a `bool`, `int8`, `uint8`, an array or a struct that isn't 2, 4 or 8
+  bytes without pointers) into a temporary in its place among the calls, also when it is a local
+  variable (not a parameter or a result) whose address is not taken and that fits in registers
+  (at most 32 bytes, an array of at most one element, a struct of at most 4 fields), and also
+  for a part of such a local (so `fmt.Println(one[k], setk())` of a `var one [1]bool` indexes
+  with the old `k` even when `setk` changes `k`; gocpp does the same). Whether `ok` is such a
+  local depends on gc's inliner and escape analysis: when gc inlines every call of the closure,
+  `ok` stays a plain local and the old value prints; when it doesn't, the closure captures `ok`
+  by reference, and the new value prints. gc
+  never inlines a closure whose own body has a `defer` or `go` statement or calls `recover`, and
+  inlines one whose cost is at most 80 nodes, 160 for a closure (doubled), 800 for a closure that
+  is called once; inside a function of more than 5,000 nodes the limits are 20 and 40, and still
+  800 for a closure called once.
+- **gocpp:** it has no inliner, so a rule on the code decides. The old value is printed when every
+  func literal that captures the local is called at once (`func() { ... }()`), or initializes a
+  local (`f := func() ...`) that is only ever called, in the same function (never assigned again,
+  stored, passed, returned, deferred, used as a value such as `_ = f`, or used in another func
+  literal), and none of them has a `defer` or `go` statement or a `recover` call in its own body.
+  Otherwise the new value is printed. Where gc decides by the cost instead, the output differs:
+  gocpp prints the old value where gc doesn't inline the closure because it is too large, which
+  mostly happens for a closure called more than once (over 160 nodes) or inside a very large
+  function (over 40), and it prints the new value where gc keeps a local for a closure stored in
+  a local that doesn't escape. gocpp also reads a parameter of a func literal (and a part of one)
+  after the calls, while gc copies it when it inlines the literal, whose parameters then become
+  locals of the caller: `f := func(a [1]bool) { fmt.Println(a[gk], setk()) }; f([1]bool{})`
+  prints `false 0` in Go, where gocpp indexes with the new `gk` (and here panics). A program that
+  wants one answer evaluates the call first
+  (`r := set(); fmt.Println(ok, r)`) or passes the value it means.
+- **Phase:** [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#210-builtins-printing-and-package-initialization).
+  The rule is in `internal/lower/inplace.go`; `tests/diff/fmt_closure_locals.gp` has the cases
+  where both agree. Phase 15's escape analysis may get closer to gc's.
 
 ---
 

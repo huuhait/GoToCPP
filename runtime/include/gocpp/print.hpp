@@ -2,8 +2,9 @@
 //
 // They write to standard error, in the number format of Go's runtime, which is not fmt's:
 // println(1.5, 3.0, -0.25, 'x') prints "+1.500000e+000 +3.000000e+000 -2.500000e-001 120",
-// and a nil pointer prints "0x0". Each call is one write, and nothing is buffered, so output
-// to stdout and stderr appears in the order the program writes it, like Go's.
+// and a pointer prints its address ("0x0" for nil). Each call is one write, and nothing is
+// buffered, so output to stdout and stderr appears in the order the program writes it, like
+// Go's. Slices and maps are a compile error (divergence D23), arrays and structs too (as in Go).
 #pragma once
 
 #include <gocpp/checks.hpp>
@@ -45,6 +46,9 @@ void append_print(std::string& out, const T& v) {
         print_hex(out, static_cast<uint64_t>(reinterpret_cast<uintptr_t>(v)));
     } else if constexpr (std::is_null_pointer_v<T>) {
         out += "0x0";
+    } else if constexpr (requires { v.gp_shared(); }) {
+        // A Go pointer (gp::ptr): its address, 0x0 for nil.
+        print_hex(out, static_cast<uint64_t>(reinterpret_cast<uintptr_t>(v.gp_get())));
     } else if constexpr (requires { v.gp_value(); }) {
         append_print(out, v.gp_value()); // a named type (gp::newtype): as its underlying value
     } else {

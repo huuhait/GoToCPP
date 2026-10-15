@@ -434,15 +434,20 @@ func (fg *funcGen) structConversion(c *ast.CallExpr, to, from types.Type, x cppi
 }
 
 // goSizes are Go's own sizes (gc on amd64), for gc's rule of which values it copies into a
-// temporary where they are converted to an interface (copiedStruct).
+// temporary where they are converted to an interface (convCopied).
 var goSizes = types.SizesFor("gc", "amd64")
 
-// copiedStruct reports whether gc copies a value of the struct type t that is not addressable
-// into a temporary in its place among the calls, where it is converted to an interface (an
-// argument of fmt.Println: order.go, copied): unless the runtime converts it by value
-// (walk/convert.go: dataWordFuncName), when it is 2 bytes, 4 or 8 bytes without pointers (in
-// Go's sizes, not gocpp's), or its only part is a string or a slice.
-func copiedStruct(t types.Type) bool {
+// convCopied reports whether gc copies a value of type t that is not addressable into a
+// temporary in its place among the calls, where it is converted to an interface (an argument of
+// fmt.Println: order.go, copied): unless the runtime converts it by value (walk/convert.go:
+// dataWordFuncName), when it is 2 bytes, 4 or 8 bytes without pointers (in Go's sizes, not
+// gocpp's), or its only part is a string or a slice. So bool, int8, uint8, structs and arrays of
+// other sizes, pointers and maps (8 bytes, but pointers) are copied; int, float64, string and
+// slices are not.
+func convCopied(t types.Type) bool {
+	if b := underBasic(t); b != nil && b.Kind() == types.UntypedBool {
+		return true // a comparison: a bool
+	}
 	size, align, ptrs := goSizes.Sizeof(t), goSizes.Alignof(t), goHasPointers(t)
 	switch {
 	case size == 2 && align == 2, size == 4 && align == 4 && !ptrs, size == 8 && align == 8 && !ptrs:

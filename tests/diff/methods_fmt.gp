@@ -90,6 +90,6 @@ func main() {
 	h := Holder{P: &P{1}, V: V{2}, PV: &V{3}, E: E{4}, h: V{5}, C: 6}
 	fmt.Println(h)
 	fmt.Printf("%v|%s\n", h, h)
-	fmt.Println(struct{ A, B IDs }{IDs{1, 2, 3}, nil}) // (a slice prints with step 3.15b)
+	fmt.Println(struct{ A, B IDs }{IDs{1, 2, 3}, nil})
 	fmt.Println([]V{{1}, {2}}[1], map[string]V{"a": {8}}["a"])
 }
