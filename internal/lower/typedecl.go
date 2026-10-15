@@ -470,12 +470,12 @@ func (g *gen) structDef(si *structInfo) []cppir.Decl {
 }
 
 // zeroInit returns the default member initializer of a field of type t, its zero value: 0 or
-// false for the basic types other than strings, or nil for a class type, whose default
-// constructor makes its zero value.
+// false for the basic types other than strings and complex numbers, or nil for a class type
+// (also gp::complex128), whose default constructor makes its zero value.
 func zeroInit(t types.Type) cppir.Expr {
 	b := basicOf(t)
 	switch {
-	case b == nil || b.Info()&types.IsString != 0:
+	case b == nil || b.Info()&(types.IsString|types.IsComplex) != 0:
 		return nil
 	case b.Info()&types.IsBoolean != 0:
 		return lit("false")

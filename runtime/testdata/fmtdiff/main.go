@@ -231,6 +231,8 @@ func main() {
 		mutateCase()
 	case "fmt-embedded":
 		embeddedCase()
+	case "fmt-complex":
+		complexCase()
 	default:
 		fmt.Println("unknown case", os.Args[1])
 		os.Exit(3)
@@ -572,4 +574,35 @@ func embeddedCase() {
 	fmt.Printf("%+v\n", &t)
 	fmt.Println([]Top{t}, map[int]Top{1: t})
 	fmt.Println(e, struct{ emb }{e}, struct{ x emb }{e})
+}
+
+// complexCase: complex numbers as fmt's fmtComplex prints them (step 3.15c): each part as a
+// float of half the size, the imaginary part always signed, a width and a precision for each
+// part, the error forms with the whole number, complex map keys sorted (real part, then
+// imaginary part, NaN first), and random values of both sizes.
+func complexCase() {
+	nan, inf := math.NaN(), math.Inf(1)
+	c := []complex128{0, complex(math.Copysign(0, -1), math.Copysign(0, -1)), 1.5 - 2i, complex(inf, nan),
+		complex(nan, -inf), 1e21 + 1e-7i, complex(5e-324, math.MaxFloat64), 123456 - 0.0001i}
+	fmt.Println(c)
+	fmt.Printf("%v\n%.2f\n%9.3f|%-9.1f|%+v|% .1f|%07.2f\n", c, c[:3], c[2], c[2], c[2], c[2], c[2])
+	c64 := []complex64{0.1 + 0.2i, complex(float32(1.0/3), 16777216), complex(3.4028235e38, 1e-45)}
+	fmt.Println(c64)
+	fmt.Printf("%v|%.3f|%6.2v\n", c64, c64, c64[:1])
+	fmt.Printf("%d|%s|%q|%t|%5d\n", c[2], c64[0], c[2], c64[0], c[2])
+	fmt.Printf("%d\n", []complex64{1, 2i})
+	m := map[complex128]int{2: 1, 1i: 2, -1: 3, complex(nan, 0): 4, complex(1, nan): 5, complex(1, -1): 6,
+		complex(-inf, 5): 7, 1 + 1i: 8, complex(nan, 1): 9}
+	fmt.Println(m)
+	fmt.Println(map[complex64]string{1: "a", 1i: "b", -1i: "c", 0: "d"})
+	x := uint64(0x9E3779B97F4A7C15)
+	for i := 0; i < 300; i++ {
+		x = x*6364136223846793005 + 1442695040888963407
+		re := float64(int64(x>>11)%2000001-1000000) / 1000 / 7
+		x = x*6364136223846793005 + 1442695040888963407
+		im := math.Float64frombits(x)
+		v := complex(re, im)
+		fmt.Println(v, complex64(v))
+		fmt.Printf("%f %.3f %10.4v\n", v, complex64(v), v)
+	}
 }

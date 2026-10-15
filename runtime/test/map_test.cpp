@@ -421,7 +421,28 @@ void test_floats() {
     CHECK(biggest < 10);
     CHECK(gp::hash_of(1.0) != gp::hash_of(2.0));
 
-    // Complex keys (Go's complex128): each part like a float.
+    // Complex keys (Go's complex128, gp::complex128): each part like a float.
+    {
+        using g128 = gp::complex128;
+        gp::map<g128, int64_t> g = gp::make_map<g128, int64_t>();
+        gp::set(g, g128(1, -0.0), 1);
+        gp::set(g, g128(1, 0.0), 2);
+        gp::set(g, g128(nan, 0), 3);
+        gp::set(g, g128(nan, 0), 4);
+        gp::set(g, g128(0, nan), 5);
+        gp::set(g, g128(0, 1), 6);
+        gp::ref(g, g128(0, 1)) += 10;
+        CHECK_EQ(gp::len(g), INT64_C(5));
+        CHECK_EQ(gp::get(g, g128(1, 0)), INT64_C(2));
+        CHECK_EQ(gp::get(g, g128(-0.0, 1)), INT64_C(16));
+        CHECK_EQ(gp::get(g, g128(nan, 0)), INT64_C(0));
+        CHECK_EQ(count(g), INT64_C(5));
+        gp::map<gp::complex64, int64_t> g64 = gp::make_map<gp::complex64, int64_t>();
+        gp::set(g64, gp::complex64(2, 3), 6);
+        CHECK_EQ(gp::get(g64, gp::complex64(2, 3)), INT64_C(6));
+        CHECK_EQ(gp::get(g64, gp::complex64(3, 2)), INT64_C(0));
+    }
+    // std::complex keys (C++ code, Phase 04): the same rules, through real() and imag().
     using c128 = std::complex<double>;
     gp::map<c128, int64_t> c = gp::make_map<c128, int64_t>();
     gp::set(c, c128(1, -0.0), 1);
@@ -434,6 +455,7 @@ void test_floats() {
     CHECK_EQ(gp::get(c, c128(nan, 0)), INT64_C(0));
     CHECK_EQ(count(c), INT64_C(4));
     CHECK(gp::hash_of(c128(-0.0, 0.0)) == gp::hash_of(c128(0.0, -0.0)));
+    CHECK(gp::hash_of(c128(1, 2)) != gp::hash_of(c128(2, 1))); // the parts in order
     gp::map<std::complex<float>, int64_t> c64 = gp::make_map<std::complex<float>, int64_t>();
     gp::set(c64, std::complex<float>(2, 3), 6);
     CHECK_EQ(gp::get(c64, std::complex<float>(2, 3)), INT64_C(6));

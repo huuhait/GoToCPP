@@ -212,6 +212,7 @@ func sourcePath(t *testing.T, p string) string {
 // The cases of the differential test (the case names of testdata/diff/main.go).
 var diffCases = []string{"println", "fmt", "floats", "arith", "f2i", "strings", "order",
 	"panic-str", "panic-multi", "panic-empty", "panic-int", "panic-float", "panic-bool",
+	"complex", "panic-complex", "panic-complex64",
 	"div", "rem", "shl", "shr", "index", "negindex", "uindex", "exit0", "big", "bigerr",
 	"ptr", "nil-deref", "nil-store", "nil-field", "nil-method", "nil-addr",
 	"substr", "utf8", "substr-alen", "substr-b", "substr-neg", "substr-from"}
@@ -235,7 +236,7 @@ var mapDiffCases = []string{"maps", "map-floats", "map-nil", "map-nil-ref", "map
 // against testdata/fmtdiff/main.go.
 var fmtDiffCases = []string{"fmt-slices", "fmt-maps", "fmt-structs", "fmt-pointers", "fmt-methods",
 	"fmt-panics", "fmt-verbs", "fmt-quote", "fmt-floats", "fmt-typed", "fmt-sprint", "fmt-errors",
-	"fmt-big", "fmt-runes", "fmt-mutate", "fmt-embedded"}
+	"fmt-big", "fmt-runes", "fmt-mutate", "fmt-embedded", "fmt-complex"}
 
 func init() {
 	diffCases = append(diffCases, sliceDiffCases...)
@@ -290,7 +291,9 @@ func goProgramResults(t *testing.T, src string, cases []string) (map[string]resu
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "godiff")
 	abs := sourcePath(t, src)
-	out, _, code, err := command(".", nil, true, gocmd, "build", "-o", bin, abs)
+	// GOAMD64=v1: gc fuses a*b + c from v3 on, and gocpp gives the results without fusing.
+	goEnv := append(os.Environ(), "GOAMD64=v1")
+	out, _, code, err := command(".", goEnv, true, gocmd, "build", "-o", bin, abs)
 	if err != nil || code != 0 {
 		t.Fatalf("go build %s: exit %d %v\n%s", src, code, err, out)
 	}
@@ -367,6 +370,9 @@ func TestCXX(t *testing.T) {
 							t.Run(name, func(t *testing.T) {
 								if name == "f2i" && runtime.GOARCH != "amd64" {
 									t.Skipf("gocpp copies Go's float → int conversions on amd64; this Go is %s", runtime.GOARCH)
+								}
+								if name == "complex" && runtime.GOARCH != "amd64" {
+									t.Skipf("gocpp copies Go's complex * and / on amd64 (other Go ports fuse a*b + c); this Go is %s", runtime.GOARCH)
 								}
 								runDiff(t, diff, name, want[name])
 							})

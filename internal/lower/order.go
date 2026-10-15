@@ -70,8 +70,9 @@ import (
 // Slices add units (step 3.5), each evaluated in its place among the calls, as gc copies them
 // into temporaries: append, copy and clear (calls: they write elements that other slices can
 // see), make (it can panic), cap (like len), []byte(s) and []rune(s) (gc's OSTR2BYTES and
-// OSTR2RUNES), and min and max (step 3.15, like len). The elements of a composite literal are
-// ordered like the operands of an operator (gc reads the variables in them after the calls).
+// OSTR2RUNES), min and max (step 3.15, like len), and complex, real and imag (step 3.15c,
+// like len). The elements of a composite literal are ordered like the operands of an operator
+// (gc reads the variables in them after the calls).
 //
 // A call of a func value (step 3.11, closures.go) has the func value in its own scope, first.
 // gc evaluates a func value that has a call in it (f(), fs[i()], m[k()]) as a whole into a
@@ -332,6 +333,13 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		if fg.isBuiltin(x, "min") || fg.isBuiltin(x, "max") {
 			// min and max have no effect of their own, but gc evaluates them in their places
 			// among the calls, like len (walk/order.go: OMIN, OMAX).
+			fg.collectInPlace(sc, x, x.Args, effect{}, root, up)
+			return
+		}
+		if fg.isBuiltin(x, "complex") || fg.isBuiltin(x, "real") || fg.isBuiltin(x, "imag") {
+			// complex, real and imag have no effect of their own, but gc evaluates them in
+			// their places among the calls, like len (walk/order.go: OCOMPLEX, OREAL, OIMAG):
+			// real(g) + f() reads the package variable g before f runs (complex.go).
 			fg.collectInPlace(sc, x, x.Args, effect{}, root, up)
 			return
 		}

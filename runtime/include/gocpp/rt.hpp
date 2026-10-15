@@ -16,6 +16,7 @@
 #include <gocpp/slice.hpp>
 #include <gocpp/array.hpp>
 #include <gocpp/hash.hpp>
+#include <gocpp/complex.hpp>
 #include <gocpp/map.hpp>
 #include <gocpp/func.hpp>
 #include <gocpp/arith.hpp>

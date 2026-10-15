@@ -9,9 +9,10 @@
 //     bool, integers, enums     the value, mixed
 //     float32, float64          +0 and -0 hash the same (they are equal); every NaN hashes
 //                               to one fixed value (below); any other value by its bits
-//     complex-like types        the two parts, each like a float (std::complex, or any type
-//                               with real() and imag() that return floats; Go's complex64 and
-//                               complex128, when the emitter has them)
+//     complex numbers           the two parts, each like a float: Go's complex64 and
+//                               complex128 (gp::complex, gocpp/complex.hpp, by its gp_hash),
+//                               and std::complex or any type with real() and imag() that
+//                               return floats (C++ types, Phase 04)
 //     gp::string                its bytes
 //     gp::ptr, gp::weak_ptr     the address, which is what == compares (not the owner)
 //     a type with gp_hash()     v.gp_hash(): structs and arrays (below)
@@ -76,7 +77,9 @@ constexpr uint64_t hash_mix(uint64_t x) noexcept {
     return x;
 }
 
-// hash_combine: h followed by x. The order matters: (a, b) and (b, a) hash differently.
+// hash_combine: h followed by x. One call is symmetric (mix(h ^ x)): the order matters only
+// when the calls are chained from a seed, as hash_fields and hash_elems do, so (a, b) and
+// (b, a) hash differently there.
 constexpr std::size_t hash_combine(std::size_t h, std::size_t x) noexcept {
     return static_cast<std::size_t>(hash_mix(static_cast<uint64_t>(h) ^ static_cast<uint64_t>(x)));
 }
@@ -122,8 +125,8 @@ concept has_gp_hash = requires(const T& v) {
     { v.gp_hash() } -> std::convertible_to<std::size_t>;
 };
 
-// complex_like: std::complex<float> and std::complex<double> (Go's complex64 and complex128),
-// without including <complex> here.
+// complex_like: std::complex<float> and std::complex<double> (C++ types; Go's complex64 and
+// complex128 are gp::complex, which has a gp_hash), without including <complex> here.
 template <typename T>
 concept complex_like = requires(const T& c) {
     { c.real() } -> go_float;
@@ -149,7 +152,10 @@ struct hash {
             // Before complex_like: a Go struct may have methods named real and imag.
             return static_cast<std::size_t>(v.gp_hash());
         } else if constexpr (detail::complex_like<T>) {
-            return detail::hash_combine(detail::hash_float(v.real()), detail::hash_float(v.imag()));
+            // In order from the seed, like hash_fields: hash_combine alone is symmetric.
+            auto h = static_cast<std::size_t>(detail::hash_seed);
+            h = detail::hash_combine(h, detail::hash_float(v.real()));
+            return detail::hash_combine(h, detail::hash_float(v.imag()));
         } else if constexpr (requires { std::hash<T>{}(v); }) {
             return std::hash<T>{}(v);
         } else {

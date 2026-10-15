@@ -731,6 +731,31 @@ void pp_float(printer& p, double v, int size, char32_t verb, type_fn type) {
     }
 }
 
+// pp_complex is fmtComplex: "(", the parts as floats of half the size with the verb, the
+// imaginary part always with a sign, "i)". A verb that doesn't fit is found first, so the
+// error form holds the whole number: %!d(complex128=(1+2i)). (Go's other float verbs, %e %g
+// %x and so on, come with Go's fmt in Phase 09; here they are bad verbs, as for floats.)
+void pp_complex(printer& p, double re, double im, int size, char32_t verb, type_fn type) {
+    switch (verb) {
+    case 'v':
+    case 'f': {
+        bool old_plus = p.plus;
+        p.buf += '(';
+        pp_float(p, re, size / 2, verb, type);
+        // The imaginary part always has a sign.
+        p.plus = true;
+        pp_float(p, im, size / 2, verb, type);
+        p.buf += "i)";
+        p.plus = old_plus;
+        return;
+    }
+    default:
+        bad_verb_begin(p, verb, type);
+        pp_complex(p, re, im, size, 'v', type);
+        bad_verb_end(p);
+    }
+}
+
 void pp_string(printer& p, std::string_view v, char32_t verb, type_fn type) {
     switch (verb) {
     case 'v':

@@ -8,6 +8,9 @@
 //                                       decimal exponent is < -4 or >= 6 (123456, 1e+06,
 //                                       0.0001, 1e-05), and +Inf, -Inf, NaN; a float32 with
 //                                       its own shortest digits (float32(0.1) is 0.1)
+//     complex64, complex128             (1+2i): each part as a float of half the size, the
+//                                       imaginary part always with its sign, (1.00-2.00i)
+//                                       for %.2f; a width pads each part (fmtComplex)
 //     []T, [N]T                         [1 2 3], nested [[1 2] [3]], nil and empty []; a verb
 //                                       applies to each element. %s and %q of a slice or array
 //                                       of bytes (elements of kind uint8) print the bytes as a
@@ -102,6 +105,7 @@
 //     argument-dependent lookup: such a function would also match a value that converts to T.
 //
 // Map keys sort as internal/fmtsort.compare does: numbers by value with NaN first (-0 == +0),
+// complex numbers by the real part, then the imaginary part (each so),
 // strings by their bytes, false before true, pointers by address, arrays element by element,
 // structs field by field, named types by their underlying values; the sort is stable over the
 // map's order (several NaN keys print in that order, which Go randomizes). The keys and values
@@ -119,6 +123,7 @@
 
 #include <gocpp/array.hpp>
 #include <gocpp/checks.hpp>
+#include <gocpp/complex.hpp>
 #include <gocpp/map.hpp>
 #include <gocpp/panic.hpp>
 #include <gocpp/ptr.hpp>
@@ -233,6 +238,8 @@ void fmt_0x64(printer& p, uint64_t v, bool leading0x);
 void pp_bool(printer& p, bool v, char32_t verb, type_fn type);
 void pp_int(printer& p, uint64_t v, bool is_signed, char32_t verb, type_fn type);
 void pp_float(printer& p, double v, int size, char32_t verb, type_fn type);
+// pp_complex is fmtComplex: size is 64 for a complex64, 128 for a complex128.
+void pp_complex(printer& p, double re, double im, int size, char32_t verb, type_fn type);
 void pp_string(printer& p, std::string_view v, char32_t verb, type_fn type);
 void pp_bytes(printer& p, std::string_view v, char32_t verb); // %s and %q of bytes
 
@@ -416,6 +423,10 @@ void type_name(std::string& out) {
         out += "float32";
     } else if constexpr (std::is_same_v<T, double>) {
         out += "float64";
+    } else if constexpr (std::is_same_v<T, gp::complex64>) {
+        out += "complex64";
+    } else if constexpr (std::is_same_v<T, gp::complex128>) {
+        out += "complex128";
     } else if constexpr (std::is_same_v<T, gp::string>) {
         out += "string";
     } else if constexpr (slice_of<T>::value) {
@@ -566,7 +577,7 @@ void print_kind(printer& p, const T& v, char32_t verb, int depth, access ro, typ
 // named ones without methods), so nothing can change while it prints.
 template <typename T>
 constexpr bool runs_no_code() {
-    if constexpr (std::is_same_v<T, bool> || go_int<T> || go_float<T> ||
+    if constexpr (std::is_same_v<T, bool> || go_int<T> || go_float<T> || go_complex<T> ||
                   std::is_same_v<T, gp::string>) {
         return true;
     } else if constexpr (named_type<T>) {
@@ -659,6 +670,14 @@ int compare(const T& a, const T& b) {
             return an && bn ? 0 : an ? -1 : 1;
         }
         return a < b ? -1 : a > b ? 1 : 0;
+    } else if constexpr (go_complex<T>) {
+        // The real parts, then the imaginary parts, each like a float. A named complex type
+        // comes here through its value (named_type, below), never through the < that
+        // gp::newtype declares for every number type: complex numbers have no order.
+        if (int c = detail::compare(a.gp_re, b.gp_re); c != 0) {
+            return c;
+        }
+        return detail::compare(a.gp_im, b.gp_im);
     } else if constexpr (std::is_same_v<T, gp::string>) {
         auto c = a <=> b;
         return c < 0 ? -1 : c > 0 ? 1 : 0;
@@ -821,6 +840,9 @@ void print_kind(printer& p, const T& v, char32_t verb, int depth, access ro, typ
         detail::pp_float(p, static_cast<double>(v), 32, verb, type);
     } else if constexpr (std::is_same_v<T, double>) {
         detail::pp_float(p, v, 64, verb, type);
+    } else if constexpr (go_complex<T>) {
+        detail::pp_complex(p, static_cast<double>(v.gp_re), static_cast<double>(v.gp_im),
+                           static_cast<int>(sizeof(T) * 8), verb, type);
     } else if constexpr (std::is_same_v<T, gp::string>) {
         detail::pp_string(p, v.gp_view(), verb, type);
     } else if constexpr (slice_of<T>::value) {

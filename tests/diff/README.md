@@ -34,7 +34,8 @@ How it runs:
 
 1. Real Go: the harness copies the file into a temporary module as `small_int_wrap.go`, with a
    `go.mod` that says `go 1.25`, builds it with `go build` (with `GOTOOLCHAIN=local`,
-   `GOWORK=off` and no `GOFLAGS`) and runs the binary. It doesn't use `go run`, because
+   `GOWORK=off`, no `GOFLAGS` and `GOAMD64=v1`: from v3 on gc fuses `a*b + c`, and gocpp gives
+   the results without fusing) and runs the binary. It doesn't use `go run`, because
    `go run` turns every failing exit code into 1. If Go can't build the file, the test fails:
    a diff test must be a valid Go 1.25 program.
 2. gocpp: `gocpp run small_int_wrap.gp`, once per C++ compiler.

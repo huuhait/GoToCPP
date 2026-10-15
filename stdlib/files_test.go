@@ -33,7 +33,11 @@ func goListStd(t *testing.T) ([]string, string) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("no go command")
 	}
-	out, err := exec.Command("go", "list", "std").Output()
+	// GOAMD64=v1: the list depends on it (runtime/race/internal/amd64v1 or amd64v3), and std.txt
+	// is written with the default, v1.
+	list := exec.Command("go", "list", "std")
+	list.Env = append(os.Environ(), "GOAMD64=v1")
+	out, err := list.Output()
 	if err != nil {
 		t.Fatalf("go list std: %v", err)
 	}

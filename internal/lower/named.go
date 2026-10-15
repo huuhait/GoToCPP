@@ -38,8 +38,8 @@ import (
 //	(*B)(pa)                    gp::ptr_cast<B>(pa)
 //	buf[:] (type Buf [8]byte)   gp::sub(gp::base_ptr(buf), 0)  (buf boxed: a gp::ptr<Buf>)
 //
-// Which named types: a defined type over a basic type (not complex), a string, a slice, an array,
-// a map, a pointer or a func type (step 3.11: type Handler func(int) is a gp::func<void(int64_t)>,
+// Which named types: a defined type over a basic type (also complex, step 3.15c), a string, a
+// slice, an array, a map, a pointer or a func type (step 3.11: type Handler func(int) is a gp::func<void(int64_t)>,
 // called as one), also one declared in a function (moved to the namespace like a local struct,
 // typedecl.go). Over a struct it is a struct of its own (typedecl.go); over an interface or a
 // channel it comes with those types (Phase 05, Phase 08). Its methods (step 3.10, methods.go)

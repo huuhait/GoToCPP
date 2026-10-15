@@ -265,6 +265,11 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 	if tv := fg.g.info.Types[c.Fun]; tv.IsType() {
 		return fg.conversion(c, tv.Type)
 	}
+	for _, name := range []string{"complex", "real", "imag"} {
+		if fg.isBuiltin(c, name) {
+			return fg.complexBuiltin(c, name) // complex.go
+		}
+	}
 	if !fg.ordered[c] {
 		fg.g.errorf(c.Pos(), "internal error: a call whose evaluation order was not decided")
 		return placeholder
@@ -400,16 +405,17 @@ func (fg *funcGen) argTypes(args []ast.Expr) []types.Type {
 // the call is ambiguous; a gp::slice argument would find gp::append and gp::copy, a
 // std::vector (Phase 04) std::sort. A qualified name, gpkg_main::len(s), turns ADL off. ADL
 // looks only at class (and enum) types: when every argument has a fundamental C++ type
-// (bool and the number types), the plain name is safe, and it stays, because it is easier to
-// read. Every call by the name of a function must go through here: of the package's
-// functions now, and from Phase 03 on of methods, other packages' functions and func values.
+// (bool, the integer and the float types; not complex numbers, which are gp::complex128), the
+// plain name is safe, and it stays, because it is easier to read. Every call by the name of a
+// function must go through here: of the package's functions now, and from Phase 03 on of
+// methods, other packages' functions and func values.
 func (g *gen) funcCallName(name string, args []types.Type) string {
 	if strings.HasPrefix(name, g.ns+"::") {
 		return name // qualified already (cname, in a method)
 	}
 	for _, t := range args {
-		if b := basicOf(t); b == nil || b.Info()&types.IsString != 0 {
-			return g.ns + "::" + name
+		if b := basicOf(t); b == nil || b.Info()&(types.IsString|types.IsComplex) != 0 {
+			return g.ns + "::" + name // gp::complex128 is a class too (gp::real)
 		}
 	}
 	return name
@@ -429,6 +435,8 @@ func (g *gen) funcCallName(name string, args []types.Type) string {
 //     .0 if it would read as an integer), and for float32 as the same float32, with an f
 //     suffix: 0.1f. A float32 constant that is a double literal would print with the digits
 //     of the double.
+//   - Complex numbers (step 3.15c): gp::complex128(1.0, 2.0), each part a float literal, and
+//     gp::complex64(1.0f, 2.0f) (complex.go).
 //   - Strings: "..."_gs, a gp::string over the literal's bytes (cppir.CString's escapes).
 //   - Booleans: true and false.
 //   - A named type over one of them (step 3.9): T(literal), Celsius(1.5).
@@ -458,6 +466,12 @@ func (g *gen) constant(v constant.Value, t types.Type, pos token.Pos, exact bool
 		return x
 	case info&types.IsFloat != 0:
 		return floatLiteral(v, b.Kind() == types.Float32)
+	case info&types.IsComplex != 0:
+		kind := b.Kind()
+		if kind == types.UntypedComplex {
+			kind = types.Complex128
+		}
+		return complexConstant(v, kind) // complex.go
 	}
 	g.unsupported(pos, "constants of type "+b.Name())
 	return placeholder

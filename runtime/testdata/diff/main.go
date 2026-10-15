@@ -67,6 +67,13 @@ func main() {
 		panic(1.5)
 	case "panic-bool":
 		panic(true)
+	case "complex":
+		complexCase()
+	case "panic-complex":
+		c := complex(1.5, -2)
+		panic(c)
+	case "panic-complex64":
+		panic(complex64(complex(0.1, math.Inf(1))))
 	case "div":
 		z := 0
 		fmt.Println(10 / z)
@@ -1159,4 +1166,96 @@ func mapFloatsCase() {
 	ck[complex(nan, 0)] = 3
 	ck[complex(nan, 0)] = 4
 	fmt.Println(len(ck), ck[complex(1, 0)], ck[complex(nan, 0)])
+}
+
+// fbits is the bits of f, the same for every NaN (Go doesn't promise a NaN's sign or payload).
+func fbits(f float64) uint64 {
+	if f != f {
+		return 0x7ff8000000000000
+	}
+	return math.Float64bits(f)
+}
+
+// fbits32 is fbits for a float32.
+func fbits32(f float32) uint32 {
+	if f != f {
+		return 0x7fc00000
+	}
+	return math.Float32bits(f)
+}
+
+func printc(c complex128) {
+	println(fbits(real(c)), fbits(imag(c)))
+}
+
+func printc64(c complex64) {
+	println(fbits32(real(c)), fbits32(imag(c)))
+}
+
+// complexCase: Go's complex arithmetic (step 3.15c, gocpp/complex.hpp). First every pair of
+// complex numbers whose parts are special values (zeros, infinities, NaN, the largest and the
+// smallest float64, like Go's test/cmplxdivide.go), multiplied and divided as complex128 and as
+// complex64; then random values (decimal-looking ones at many scales and random bit patterns)
+// through every operator and conversion. The results are the bits of the parts, which are
+// Go's on amd64 with GOAMD64=v1 (runtime/cxx_test.go builds this with it; arm64, and v3 or
+// higher, fuse a*b + c).
+func complexCase() {
+	vals := []float64{0, math.Copysign(0, -1), 1, -1, 2, 1e308, 5e-324, math.NaN(), math.Inf(1), math.Inf(-1)}
+	var cs []complex128
+	for _, r := range vals {
+		for _, i := range vals {
+			cs = append(cs, complex(r, i))
+		}
+	}
+	for _, a := range cs {
+		for _, b := range cs {
+			m, d := a*b, a/b
+			a64, b64 := complex64(a), complex64(b)
+			m64, d64 := a64*b64, a64/b64
+			println(fbits(real(m)), fbits(imag(m)), fbits(real(d)), fbits(imag(d)),
+				fbits32(real(m64)), fbits32(imag(m64)), fbits32(real(d64)), fbits32(imag(d64)))
+		}
+	}
+
+	x := uint64(0x9E3779B97F4A7C15)
+	next := func() uint64 {
+		x = x*6364136223846793005 + 1442695040888963407
+		return x
+	}
+	scales := []float64{1e-300, 1e-10, 1e-3, 0.1, 1, 10, 1e5, 1e20, 1e300}
+	decimal := func() float64 {
+		v := next()
+		h := float64(int64(v>>11)%2000001-1000000) / 1000
+		return h / 7 * scales[v%uint64(len(scales))]
+	}
+	for i := 0; i < 2000; i++ {
+		var a, b complex128
+		if i%2 == 0 {
+			a = complex(decimal(), decimal())
+			b = complex(decimal(), decimal())
+		} else {
+			a = complex(math.Float64frombits(next()), math.Float64frombits(next()))
+			b = complex(math.Float64frombits(next()), math.Float64frombits(next()))
+		}
+		printc(a + b)
+		printc(a - b)
+		printc(a * b)
+		printc(a / b)
+		printc(-a)
+		println(a == b, a != b, a == a, real(a) == real(b))
+		a64, b64 := complex64(a), complex64(b)
+		printc64(a64)
+		printc64(a64 + b64)
+		printc64(a64 - b64)
+		printc64(a64 * b64)
+		printc64(a64 / b64)
+		printc64(-a64)
+		printc(complex128(a64))
+		println(a64 == b64, a64 != a64)
+		println(a, a64)
+		a++
+		a64--
+		printc(a)
+		printc64(a64)
+	}
 }

@@ -549,13 +549,20 @@ type Pointers struct {
 	pp **Small
 }
 
+type Complex struct {
+	b   bool
+	c64 complex64
+	x   int8
+	c   complex128
+	f   float32
+}
+
 func main() {}
 `
 
 // layoutCPP returns runtime/test/layout.cpp: the structs of layoutSrc in
 // C++, with static_asserts of their sizes, alignments and field offsets
-// from gocppSizes, and of the pending rows of the table whose C++ type is
-// a standard type (std::complex), which the runtime doesn't include yet.
+// from gocppSizes.
 func layoutCPP(t *testing.T) []byte {
 	t.Helper()
 	info := &types.Info{Defs: make(map[*ast.Ident]types.Object)}
@@ -569,18 +576,11 @@ func layoutCPP(t *testing.T) []byte {
 // g++ and clang++, and TestWindowsSyntax with MinGW-w64; it has no code to run.
 #include <gocpp/rt.hpp>
 
-#include <complex>
 #include <cstddef>
 #include <cstdint>
 
 `)
-	for _, r := range runtimeTypes {
-		if r.pending != "" && strings.HasPrefix(r.cpp, "std::") {
-			fmt.Fprintf(&b, "static_assert(sizeof(%s) == %d && alignof(%s) == %d);\n",
-				r.cpp, r.layout.size, r.cpp, r.layout.align)
-		}
-	}
-	b.WriteString("\nnamespace layout_test {\n")
+	b.WriteString("namespace layout_test {\n")
 	var s gocppSizes
 	// The structs in source order (a struct's fields come before it).
 	var names []*types.TypeName

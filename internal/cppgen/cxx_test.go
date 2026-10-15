@@ -255,11 +255,23 @@ func run(t *testing.T, dir, bin string) result {
 // (build.CompilerEnv: LC_ALL=C, so that the messages are the same everywhere). combined
 // merges stdout and stderr into one stream; otherwise they are separate.
 func command(dir string, combined bool, name string, args ...string) (stdout, stderr []byte, code int, err error) {
+	return commandEnv(dir, build.CompilerEnv(), combined, name, args...)
+}
+
+// goCommand runs the go command (goCmd) with the arguments in dir, its output combined, with
+// GOAMD64=v1: from v3 on gc fuses a*b + c into one instruction, which rounds differently, and
+// gocpp gives the results without fusing (docs/spec/cpp-mapping.md, "Complex numbers").
+func goCommand(dir string, args ...string) (stdout, stderr []byte, code int, err error) {
+	return commandEnv(dir, append(build.CompilerEnv(), "GOAMD64=v1"), true, goCmd, args...)
+}
+
+// commandEnv is command with the environment env.
+func commandEnv(dir string, env []string, combined bool, name string, args ...string) (stdout, stderr []byte, code int, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
-	cmd.Env = build.CompilerEnv()
+	cmd.Env = env
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out
 	if combined {

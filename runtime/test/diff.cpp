@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
-#include <complex>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -86,6 +85,96 @@ void floats_case() {
         fmt::Println(f, g, h, k, k32);
         gp::println(f, g, h, k, k32);
         fmt::Printf("%f %f %f %v\n"_gs, f, g, k, k32);
+    }
+}
+
+// fbits is the bits of f, the same for every NaN (Go doesn't promise a NaN's sign or payload).
+uint64_t fbits(double f) {
+    if (f != f) {
+        return UINT64_C(0x7ff8000000000000);
+    }
+    return std::bit_cast<uint64_t>(f);
+}
+
+uint32_t fbits32(float f) {
+    if (f != f) {
+        return UINT32_C(0x7fc00000);
+    }
+    return std::bit_cast<uint32_t>(f);
+}
+
+void printc(gp::complex128 c) {
+    gp::println(fbits(gp::real(c)), fbits(gp::imag(c)));
+}
+
+void printc64(gp::complex64 c) {
+    gp::println(fbits32(gp::real(c)), fbits32(gp::imag(c)));
+}
+
+void complex_case() {
+    const double vals[] = {0, std::copysign(0.0, -1.0), 1, -1, 2, 1e308, 5e-324, nan, inf, -inf};
+    std::vector<gp::complex128> cs;
+    for (double r : vals) {
+        for (double i : vals) {
+            cs.push_back(gp::complex128(r, i));
+        }
+    }
+    for (gp::complex128 a : cs) {
+        for (gp::complex128 b : cs) {
+            gp::complex128 m = a * b, d = a / b;
+            gp::complex64 a64 = gp::complex64(a), b64 = gp::complex64(b);
+            gp::complex64 m64 = a64 * b64, d64 = a64 / b64;
+            gp::println(fbits(gp::real(m)), fbits(gp::imag(m)), fbits(gp::real(d)),
+                        fbits(gp::imag(d)), fbits32(gp::real(m64)), fbits32(gp::imag(m64)),
+                        fbits32(gp::real(d64)), fbits32(gp::imag(d64)));
+        }
+    }
+
+    uint64_t x = UINT64_C(0x9E3779B97F4A7C15);
+    auto next = [&x] {
+        x = x * UINT64_C(6364136223846793005) + UINT64_C(1442695040888963407);
+        return x;
+    };
+    const double scales[] = {1e-300, 1e-10, 1e-3, 0.1, 1, 10, 1e5, 1e20, 1e300};
+    const uint64_t nscales = sizeof scales / sizeof scales[0];
+    auto decimal = [&] {
+        uint64_t v = next();
+        double h = static_cast<double>(static_cast<int64_t>(v >> 11) % 2000001 - 1000000) / 1000;
+        return h / 7 * scales[v % nscales];
+    };
+    for (int64_t i = 0; i < 2000; i++) {
+        gp::complex128 a, b;
+        // The parts in Go's order: complex(f(), g()) calls f first.
+        if (i % 2 == 0) {
+            double ar = decimal(), ai = decimal(), br = decimal(), bi = decimal();
+            a = gp::complex128(ar, ai);
+            b = gp::complex128(br, bi);
+        } else {
+            double ar = std::bit_cast<double>(next()), ai = std::bit_cast<double>(next());
+            double br = std::bit_cast<double>(next()), bi = std::bit_cast<double>(next());
+            a = gp::complex128(ar, ai);
+            b = gp::complex128(br, bi);
+        }
+        printc(a + b);
+        printc(a - b);
+        printc(a * b);
+        printc(a / b);
+        printc(-a);
+        gp::println(a == b, a != b, a == a, gp::real(a) == gp::real(b));
+        gp::complex64 a64 = gp::complex64(a), b64 = gp::complex64(b);
+        printc64(a64);
+        printc64(a64 + b64);
+        printc64(a64 - b64);
+        printc64(a64 * b64);
+        printc64(a64 / b64);
+        printc64(-a64);
+        printc(gp::complex128(a64));
+        gp::println(a64 == b64, a64 != a64);
+        gp::println(a, a64);
+        a++;
+        a64--;
+        printc(a);
+        printc64(a64);
     }
 }
 
@@ -396,6 +485,13 @@ void main() {
         gp::panic(1.5);
     } else if (c == "panic-bool") {
         gp::panic(true);
+    } else if (c == "complex") {
+        complex_case();
+    } else if (c == "panic-complex") {
+        gp::complex128 z = gp::complex128(1.5, -2.0);
+        gp::panic(z);
+    } else if (c == "panic-complex64") {
+        gp::panic(gp::complex64(gp::complex128(0.1, inf)));
     } else if (c == "div") {
         int64_t z = 0;
         fmt::Println(gp::div(INT64_C(10), z));
@@ -1313,7 +1409,7 @@ void map_floats_case() {
     gp::set(ek, empty{}, 1);
     gp::ref(ek, empty{}) += 5;
     fmt::Println(gp::len(ek), gp::get(ek, empty{}));
-    using c128 = std::complex<double>;
+    using c128 = gp::complex128;
     gp::map<c128, int64_t> ck = gp::map_of<c128, int64_t>({});
     gp::set(ck, c128(1, negz), 1);
     gp::set(ck, c128(1, 0), 2);

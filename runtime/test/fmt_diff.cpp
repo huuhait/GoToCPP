@@ -7,6 +7,7 @@
 #include <gocpp/rt.hpp>
 #include <gocpp/os.hpp>
 
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -675,6 +676,46 @@ void floats_case() {
     fmt::Println();
 }
 
+void complex_case() {
+    using c128 = gp::complex128;
+    using c64 = gp::complex64;
+    const double negz = std::copysign(0.0, -1.0);
+    gp::slice<c128> c =
+        S<c128>({c128(0, 0), c128(negz, negz), c128(1.5, -2), c128(inf, nan), c128(nan, -inf),
+                 c128(1e21, 1e-7), c128(5e-324, 1.7976931348623157e308), c128(123456, -0.0001)});
+    fmt::Println(c);
+    fmt::Printf("%v\n%.2f\n%9.3f|%-9.1f|%+v|% .1f|%07.2f\n"_gs, c, gp::sub(c, 0, 3), c[2], c[2],
+                c[2], c[2], c[2]);
+    gp::slice<c64> g =
+        S<c64>({c64(0.1f, 0.2f), c64(1.0f / 3, 16777216.0f), c64(3.4028235e38f, 1e-45f)});
+    fmt::Println(g);
+    fmt::Printf("%v|%.3f|%6.2v\n"_gs, g, g, gp::sub(g, 0, 1));
+    fmt::Printf("%d|%s|%q|%t|%5d\n"_gs, c[2], g[0], c[2], g[0], c[2]);
+    fmt::Printf("%d\n"_gs, S<c64>({c64(1, 0), c64(0, 2)}));
+    fmt::Println(M<c128, int64_t>({{c128(2, 0), 1},
+                                   {c128(0, 1), 2},
+                                   {c128(-1, 0), 3},
+                                   {c128(nan, 0), 4},
+                                   {c128(1, nan), 5},
+                                   {c128(1, -1), 6},
+                                   {c128(-inf, 5), 7},
+                                   {c128(1, 1), 8},
+                                   {c128(nan, 1), 9}}));
+    fmt::Println(M<c64, gp::string>(
+        {{c64(1, 0), "a"_gs}, {c64(0, 1), "b"_gs}, {c64(0, -1), "c"_gs}, {c64(0, 0), "d"_gs}}));
+    uint64_t x = UINT64_C(0x9E3779B97F4A7C15);
+    for (int i = 0; i < 300; i++) {
+        x = x * UINT64_C(6364136223846793005) + UINT64_C(1442695040888963407);
+        double re =
+            static_cast<double>(static_cast<int64_t>(x >> 11) % 2000001 - 1000000) / 1000 / 7;
+        x = x * UINT64_C(6364136223846793005) + UINT64_C(1442695040888963407);
+        double im = std::bit_cast<double>(x);
+        c128 v(re, im);
+        fmt::Println(v, c64(v));
+        fmt::Printf("%f %.3f %10.4v\n"_gs, v, c64(v), v);
+    }
+}
+
 void typed_case() {
     int64_t i64 = 5;
     uint64_t u64 = 6;
@@ -942,6 +983,8 @@ void main() {
         mutate_case();
     } else if (c == "fmt-embedded") {
         embedded_case();
+    } else if (c == "fmt-complex") {
+        complex_case();
     } else {
         fmt::Println("unknown case"_gs, gp::args()[1]);
         gp::os::exit(3);

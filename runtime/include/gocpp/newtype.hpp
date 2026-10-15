@@ -14,7 +14,8 @@
 //
 // gp::newtype<D, U> has two shapes (D is the named type itself, CRTP):
 //
-//   - Over a number or bool U, it holds the value, gp_v, and has every operator that Go gives
+//   - Over a number or bool U (also gp::complex64 and gp::complex128, gocpp/complex.hpp, whose
+//     own operators are Go's), it holds the value, gp_v, and has every operator that Go gives
 //     the type, each on two D and giving a D (a comparison gives bool): + - * / % & | ^ << >>,
 //     unary - ~ !, == != < <= > >=, the compound assignments and ++ --. The result is
 //     converted back to U, so the small integer types wrap as in Go (C++ computes them in int);
@@ -44,6 +45,7 @@
 #include <gocpp/arith.hpp>
 #include <gocpp/array.hpp>
 #include <gocpp/checks.hpp>
+#include <gocpp/complex.hpp>
 #include <gocpp/func.hpp>
 #include <gocpp/hash.hpp>
 #include <gocpp/map.hpp>
@@ -58,7 +60,7 @@
 
 namespace gp {
 
-template <typename D, typename U, bool = std::is_class_v<U>>
+template <typename D, typename U, bool = std::is_class_v<U> && !go_complex<U>>
 struct newtype;
 
 namespace detail {
@@ -159,11 +161,11 @@ struct newtype<D, U, false> {
     }
 
     constexpr D& operator++() noexcept {
-        gp_v = U(gp_v + 1);
+        gp_v = U(gp_v + U(1));
         return static_cast<D&>(*this);
     }
     constexpr D& operator--() noexcept {
-        gp_v = U(gp_v - 1);
+        gp_v = U(gp_v - U(1));
         return static_cast<D&>(*this);
     }
     constexpr D operator++(int) noexcept {

@@ -8,6 +8,7 @@
 // step with the table. Structs and arrays are computed from them (runtime/test/layout.cpp).
 #pragma once
 
+#include <gocpp/complex.hpp>
 #include <gocpp/string.hpp>
 #include <gocpp/ptr.hpp>
 #include <gocpp/slice.hpp>
@@ -41,6 +42,10 @@ static_assert(sizeof(float) == 4, "float32: 4 bytes");
 static_assert(alignof(float) == 4, "float32: alignment 4");
 static_assert(sizeof(double) == 8, "float64: 8 bytes");
 static_assert(alignof(double) == 8, "float64: alignment 8");
+static_assert(sizeof(gp::complex64) == 8, "complex64: 8 bytes");
+static_assert(alignof(gp::complex64) == 4, "complex64: alignment 4");
+static_assert(sizeof(gp::complex128) == 16, "complex128: 16 bytes");
+static_assert(alignof(gp::complex128) == 8, "complex128: alignment 8");
 static_assert(sizeof(gp::string) == 32, "string: 32 bytes");
 static_assert(alignof(gp::string) == 8, "string: alignment 8");
 static_assert(sizeof(gp::ptr<int64_t>) == 16, "*int: 16 bytes");
@@ -62,7 +67,5 @@ static_assert(alignof(gp::func<void()>) == 8, "func(): alignment 8");
 
 // Not in the runtime yet. When a step adds one of these types, TestSizesTable fails until
 // its row in the table is no longer pending; then this file asserts it.
-//   complex64, std::complex<float>: 8 bytes, alignment 4 (complex numbers)
-//   complex128, std::complex<double>: 16 bytes, alignment 8 (complex numbers)
 //   any, gp::any: 32 bytes, alignment 8 (Phase 05)
 //   chan int, gp::chan<int64_t>: 16 bytes, alignment 8 (Phase 08)

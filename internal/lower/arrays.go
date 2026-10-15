@@ -221,7 +221,7 @@ func (g *gen) constArrayLit(e *ast.CompositeLit) cppir.Expr {
 		}
 		tv := g.info.Types[x]
 		b := underBasic(tv.Type) // Celsius(1.5) is constexpr too
-		if tv.Value == nil || b == nil || b.Info()&(types.IsNumeric|types.IsBoolean) == 0 || b.Info()&types.IsComplex != 0 {
+		if tv.Value == nil || b == nil || b.Info()&(types.IsNumeric|types.IsBoolean) == 0 {
 			return nil
 		}
 		return g.constant(tv.Value, tv.Type, x.Pos(), false)

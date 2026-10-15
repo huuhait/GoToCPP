@@ -164,12 +164,10 @@ var runtimeTypes = []runtimeType{
 	{goType: "uintptr", cpp: "uintptr_t", layout: basicLayouts[types.Uintptr]},
 	{goType: "float32", cpp: "float", layout: basicLayouts[types.Float32]},
 	{goType: "float64", cpp: "double", layout: basicLayouts[types.Float64]},
-	// The emitter has no complex numbers yet; when the runtime includes
-	// <complex> for them, sizes.hpp asserts these (layout.cpp does now).
-	{goType: "complex64", cpp: "std::complex<float>", layout: basicLayouts[types.Complex64],
-		defined: `#include <complex>`, pending: "complex numbers"},
-	{goType: "complex128", cpp: "std::complex<double>", layout: basicLayouts[types.Complex128],
-		defined: `#include <complex>`, pending: "complex numbers"},
+	{goType: "complex64", cpp: "gp::complex64", layout: basicLayouts[types.Complex64],
+		defined: `(?:class|struct) complex\b`},
+	{goType: "complex128", cpp: "gp::complex128", layout: basicLayouts[types.Complex128],
+		defined: `(?:class|struct) complex\b`},
 	{goType: "string", cpp: "gp::string", layout: layoutString, defined: `class string\b`},
 	{goType: "*int", cpp: "gp::ptr<int64_t>", layout: layoutPointer, defined: `class ptr\b`},
 	{goType: "unsafe.Pointer", cpp: "gp::ptr<void>", layout: layoutPointer, defined: `class ptr\b`},

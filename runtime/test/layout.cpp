@@ -6,12 +6,8 @@
 // g++ and clang++, and TestWindowsSyntax with MinGW-w64; it has no code to run.
 #include <gocpp/rt.hpp>
 
-#include <complex>
 #include <cstddef>
 #include <cstdint>
-
-static_assert(sizeof(std::complex<float>) == 8 && alignof(std::complex<float>) == 4);
-static_assert(sizeof(std::complex<double>) == 16 && alignof(std::complex<double>) == 8);
 
 namespace layout_test {
 
@@ -96,5 +92,19 @@ static_assert(offsetof(Pointers, u) == 32);
 static_assert(offsetof(Pointers, pn) == 48);
 static_assert(offsetof(Pointers, r) == 64);
 static_assert(offsetof(Pointers, pp) == 72);
+
+struct Complex {
+    bool b;
+    gp::complex64 c64;
+    int8_t x;
+    gp::complex128 c;
+    float f;
+};
+static_assert(sizeof(Complex) == 40 && alignof(Complex) == 8);
+static_assert(offsetof(Complex, b) == 0);
+static_assert(offsetof(Complex, c64) == 4);
+static_assert(offsetof(Complex, x) == 12);
+static_assert(offsetof(Complex, c) == 16);
+static_assert(offsetof(Complex, f) == 32);
 
 } // namespace layout_test

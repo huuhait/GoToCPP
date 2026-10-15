@@ -132,7 +132,7 @@ func goTraceFlags(t *testing.T, gp string, flags ...string) string {
 	}
 	bin := filepath.Join(dir, "prog")
 	args := append(append([]string{"build"}, flags...), "-o", bin, "main.go")
-	out, _, code, err := command(dir, true, goCmd, args...)
+	out, _, code, err := goCommand(dir, args...)
 	if err != nil || code != 0 {
 		t.Fatalf("go build: exit code %d %v\n%s", code, err, out)
 	}

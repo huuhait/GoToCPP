@@ -9,6 +9,7 @@
 #include <gocpp/rt.hpp>
 #include <gocpp/os.hpp>
 
+#include <bit>
 #include <cmath>
 #include <concepts>
 #include <cstdint>
@@ -753,6 +754,126 @@ void test_panic() {
     CHECK(!std::is_base_of_v<std::exception, gp::panic_error>);
 }
 
+// --- complex numbers (gocpp/complex.hpp) ---
+
+// A named complex type, as the emitter writes type N complex128 (step 3.9).
+struct NamedC : gp::newtype<NamedC, gp::complex128> {
+    using gp::newtype<NamedC, gp::complex128>::newtype;
+};
+
+// cbits returns the bits of c's parts, so that -0 and +0 differ (NaN parts are compared
+// with each other only where both are NaN, below).
+std::string cbits(gp::complex128 c) {
+    return std::to_string(std::bit_cast<uint64_t>(gp::real(c))) + "," +
+           std::to_string(std::bit_cast<uint64_t>(gp::imag(c)));
+}
+
+bool is_nan(double f) {
+    return f != f;
+}
+
+void test_complex() {
+    using c128 = gp::complex128;
+    using c64 = gp::complex64;
+    const double inf = std::numeric_limits<double>::infinity();
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+
+    static_assert(sizeof(c64) == 8 && alignof(c64) == 4);
+    static_assert(sizeof(c128) == 16 && alignof(c128) == 8);
+    static_assert(std::is_trivially_copyable_v<c128> && std::is_standard_layout_v<c64>);
+    static_assert(gp::go_complex<c64> && gp::go_complex<const c128> && !gp::go_complex<double>);
+    static_assert(!std::is_convertible_v<double, c128>); // complex(re) is explicit
+    static_assert(!std::is_convertible_v<c64, c128> && !std::is_convertible_v<c128, c64>);
+    // constexpr: a package variable with a constant value is constinit.
+    constexpr c128 k = c128(1, 2) * c128(3, 4) + c128(1, 0) - -c128(0, 1);
+    static_assert(k == c128(-4, 11));
+    CHECK_TYPE(gp::real(c64(1, 2)), float);
+    CHECK_TYPE(gp::imag(c128(1, 2)), double);
+    CHECK_TYPE(c64(1, 2) / c64(3, 4), c64);
+    CHECK(c128() == c128(0, 0) && cbits(c128()) == cbits(c128(0.0, 0.0)));
+
+    // + - * / and unary - on ordinary values (Go: (1+2i)/(3+4i) = (0.44+0.08i)).
+    CHECK(c128(1, 2) + c128(3, 4) == c128(4, 6));
+    CHECK(c128(1, 2) - c128(3, 4) == c128(-2, -2));
+    CHECK(c128(1, 2) * c128(3, 4) == c128(-5, 10));
+    CHECK_EQ(cbits(c128(1, 2) / c128(3, 4)), cbits(c128(0.44, 0.08)));
+    CHECK_EQ(cbits(-c128(0, 0)), cbits(c128(-0.0, -0.0)));
+    CHECK(c128(1, nan) != c128(1, nan) && !(c128(nan, 0) == c128(nan, 0)));
+    CHECK(c128(-0.0, 0) == c128(0, -0.0));
+
+    // Division by zero: infinities or NaN, no panic (Go's complex128div, C99's G.5.1).
+    c128 q = c128(1, 1) / c128(0, 0);
+    CHECK(gp::real(q) == inf && gp::imag(q) == inf);
+    q = c128(-1, 0) / c128(-0.0, 0);
+    CHECK(gp::real(q) == inf && is_nan(gp::imag(q))); // copysign(inf, -0) * -1, ... * 0
+    q = c128(0, 0) / c128(0, 0);
+    CHECK(is_nan(gp::real(q)) && is_nan(gp::imag(q)));
+    q = c128(inf, 1) / c128(2, 3);
+    CHECK(gp::real(q) == inf && gp::imag(q) == -inf);
+    q = c128(1, 2) / c128(inf, -inf);
+    CHECK_EQ(cbits(q), cbits(c128(-0.0, 0.0)));
+    // Multiplication has no recovery of infinities, as in Go: (Inf+0i)*2 = (+Inf+NaNi).
+    q = c128(inf, 0) * c128(2, 0);
+    CHECK(gp::real(q) == inf && is_nan(gp::imag(q)));
+    q = c128(inf, inf) * c128(0, 1);
+    CHECK(is_nan(gp::real(q)) && is_nan(gp::imag(q)));
+
+    // complex64: * in float64, rounded back. In float32, (1+2^-13)(1-2^-13) - 1*1 would be 0.
+    const float e = 1.0f / 8192;
+    c64 p = c64(1 + e, 1) * c64(1 - e, 1);
+    CHECK(gp::real(p) == -1.0f / 67108864);
+    CHECK(gp::imag(p) == 2.0f);
+    // / through complex128: (1+1i)/(3+0i) rounds each part of 0.333... once.
+    CHECK(gp::real(c64(1, 1) / c64(3, 0)) == 1.0f / 3);
+    c64 z64 = c64(1, -1) / c64(0, 0);
+    CHECK(gp::real(z64) == std::numeric_limits<float>::infinity() &&
+          gp::imag(z64) == -std::numeric_limits<float>::infinity());
+
+    // Conversions round each part.
+    c64 r = c64(c128(0.1, 1e40));
+    CHECK(gp::real(r) == 0.1f);
+    CHECK(gp::imag(r) == std::numeric_limits<float>::infinity());
+    CHECK_EQ(cbits(c128(c64(0.1f, -0.0f))), cbits(c128(static_cast<double>(0.1f), -0.0)));
+
+    // c++ and c-- add (1+0i): a -0 imaginary part becomes +0, as in Go.
+    c128 inc = c128(-0.0, -0.0);
+    c128 old = inc++;
+    CHECK_EQ(cbits(old), cbits(c128(-0.0, -0.0)));
+    CHECK_EQ(cbits(inc), cbits(c128(1, 0)));
+    --inc;
+    CHECK_EQ(cbits(inc), cbits(c128(0, 0)));
+    c64 acc = c64(1, 1);
+    acc += c64(1, 0);
+    acc *= c64(0, 1);
+    acc -= c64(1, 1);
+    acc /= c64(0, 2);
+    CHECK(acc == c64(0.5f, 1.0f));
+
+    // A named complex type: newtype's operators, ++ through (1+0i).
+    NamedC n(c128(1, -0.0));
+    n++;
+    CHECK_EQ(cbits(n.gp_value()), cbits(c128(2, 0)));
+    n = n * NamedC(c128(0, 1)) / NamedC(c128(2, 0));
+    CHECK(n == NamedC(c128(0, 1)));
+    CHECK(-n == NamedC(c128(-0.0, -1)) && n != NamedC(c128(0, 2)));
+    CHECK_EQ(gp::hash_of(n), gp::hash_of(c128(0, 1)));
+
+    // Hashes: +0 and -0 are equal, every NaN hashes alike.
+    CHECK_EQ(gp::hash_of(c128(0.0, -0.0)), gp::hash_of(c128(-0.0, 0.0)));
+    CHECK_EQ(gp::hash_of(c128(nan, 1)), gp::hash_of(c128(-nan, 1)));
+    CHECK(gp::hash_of(c128(1, 2)) != gp::hash_of(c128(2, 1)));
+    CHECK_EQ(gp::hash_of(c64(1, 2)), gp::hash_of(c64(1, 2)));
+
+    // print and panic: Go's runtime format, (+1.000000e+000-2.000000e+000i).
+    CHECK_EQ(print_all(c128(1, -2)), std::string("(+1.000000e+000-2.000000e+000i)"));
+    CHECK_EQ(print_all(c64(nan, std::numeric_limits<float>::infinity())),
+             std::string("(NaN+Infi)"));
+    CHECK_EQ(print_all(c128(-0.0, 0), NamedC(c128(0.5, 0))),
+             std::string("(-0.000000e+000+0.000000e+000i)(+5.000000e-001+0.000000e+000i)"));
+    CHECK_PANIC(gp::panic(c128(1.5, 2)), "(+1.500000e+000+2.000000e+000i)");
+    CHECK_PANIC(gp::panic_constant(c64(0, 1)), "(+0.000000e+000+1.000000e+000i)");
+}
+
 // --- pointers (gocpp/ptr.hpp) ---
 
 const char* const nil_msg = "runtime error: invalid memory address or nil pointer dereference";
@@ -1380,6 +1501,7 @@ void run_tests() {
     test_print();
     test_fmt();
     test_panic();
+    test_complex();
     test_ptr_basics();
     test_ptr_nil();
     test_ptr_ownership();

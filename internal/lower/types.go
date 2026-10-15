@@ -29,14 +29,14 @@ import (
 //	type Celsius float64     Celsius, a struct over gp::newtype<Celsius, double> (Phase 03 step
 //	type IDs []int           3.9, named.go), IDs over gp::newtype<IDs, gp::slice<int64_t>>
 //	func(A, B) R             gp::func<R(A, B)> (Phase 03 step 3.11, closures.go)
+//	complex64, complex128    gp::complex64, gp::complex128 (Phase 03 step 3.15c, complex.go)
 //
 // An untyped constant has the C++ type of its default type (untyped int → int64_t, untyped
-// rune → int32_t, untyped float → double), but go/types records the type that a constant
-// converts to, so the emitter seldom needs it.
+// rune → int32_t, untyped float → double, untyped complex → gp::complex128), but go/types
+// records the type that a constant converts to, so the emitter seldom needs it.
 //
-// Not yet: complex64 and complex128 (std::complex, not in the Phase 02 subset), and the other
-// composite types (interfaces and error: Phase 05; channels: Phase 08), also named ones. For
-// these, cxxType reports "not supported yet".
+// Not yet: the other composite types (interfaces and error: Phase 05; channels: Phase 08), also
+// named ones. For these, cxxType reports "not supported yet".
 
 // basicTypes are the C++ spellings of the basic types, by kind.
 var basicTypes = map[types.BasicKind]string{
@@ -56,11 +56,15 @@ var basicTypes = map[types.BasicKind]string{
 	types.Float64: "double",
 	types.String:  "gp::string",
 
-	types.UntypedBool:   "bool",
-	types.UntypedInt:    "int64_t",
-	types.UntypedRune:   "int32_t",
-	types.UntypedFloat:  "double",
-	types.UntypedString: "gp::string",
+	types.Complex64:  "gp::complex64", // Phase 03 step 3.15c, complex.go
+	types.Complex128: "gp::complex128",
+
+	types.UntypedBool:    "bool",
+	types.UntypedInt:     "int64_t",
+	types.UntypedRune:    "int32_t",
+	types.UntypedFloat:   "double",
+	types.UntypedComplex: "gp::complex128",
+	types.UntypedString:  "gp::string",
 }
 
 // basicOf returns the basic type of t (through aliases), or nil if t is not a basic type

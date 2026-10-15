@@ -791,9 +791,11 @@ func (c *config) goBuild(t *testing.T, p *program) (prog string, build result) {
 		t.Fatal(err)
 	}
 	prog = filepath.Join(dir, "prog"+exe)
+	// Only the Go that runs the tests, no workspace; GOAMD64=v1, because gc fuses a*b + c from
+	// v3 on and gocpp gives the results without fusing (docs/spec/cpp-mapping.md).
 	return prog, c.run(t, job{
 		dir:      dir,
-		env:      []string{"GOTOOLCHAIN=local", "GOWORK=off", "GOFLAGS="}, // only the Go that runs the tests, no workspace
+		env:      []string{"GOTOOLCHAIN=local", "GOWORK=off", "GOFLAGS=", "GOAMD64=v1"},
 		name:     "go",
 		args:     []string{"build", "-o", prog, "."},
 		show:     "go build (" + p.path + " copied to " + goFile + ")",

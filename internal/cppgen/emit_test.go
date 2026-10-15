@@ -258,7 +258,7 @@ func goResult(t *testing.T, gps ...string) *result {
 		}
 		args = append(args, name)
 	}
-	out, _, code, err := command(dir, true, goCmd, args...)
+	out, _, code, err := goCommand(dir, args...)
 	if err != nil || code != 0 {
 		t.Fatalf("go build %s: exit code %d %v\n%s", strings.Join(gps, " "), code, err, out)
 	}
@@ -322,11 +322,9 @@ func TestUnsupported(t *testing.T) {
 		{"slice-tags", "func main() {\n\t_ = []struct{ Q int }([]struct {\n\t\tQ int `t:\"q\"`\n\t}{})\n}", `main.gp:4:6: cppgen: not supported yet: the conversion from []struct{Q int "t:\"q\""} to []struct{Q int}`},
 		{"struct-slice-tags", "type W struct{ S []struct{ Q int `t:\"q\"` } }\ntype V struct{ S []struct{ Q int } }\nfunc main() {\n\t_ = V(W{})\n}", "main.gp:6:6: cppgen: not supported yet: the conversion from W to V, whose fields differ in struct tags inside a slice or a map"},
 		{"struct-map-tags", "type W struct{ M map[int]struct{ Q int `t:\"q\"` } }\ntype V struct{ M map[int]struct{ Q int } }\nfunc main() {\n\t_ = V(W{})\n}", "main.gp:6:6: cppgen: not supported yet: the conversion from W to V, whose fields differ in struct tags inside a slice or a map"},
-		{"namedcomplex", "type Z complex128\nfunc main() {}", "main.gp:3:6: cppgen: not supported yet: type complex128"},
 		{"printfunc", "import \"fmt\"\nfunc main() {\n\tfmt.Println(1, main)\n}", "main.gp:5:17: cppgen: not supported yet: printing a func value"},
 		{"printlnfunc", "func g() {}\nfunc main() {\n\tprintln(g)\n}", "main.gp:5:10: cppgen: not supported yet: printing a func value with println"},
 		{"printfuncfield", "import \"fmt\"\ntype T struct{ f func() }\nfunc main() {\n\tfmt.Println(T{})\n}", "main.gp:6:14: cppgen: not supported yet: printing a func value"},
-		{"complex", "func main() {\n\tc := complex(1, 2)\n\tprintln(real(c))\n}", "main.gp:4:2: cppgen: not supported yet: type complex128"},
 		{"printf", "import \"fmt\"\nfunc main() {\n\tfmt.Printf(\"%#v\\n\", 1)\n}", `main.gp:5:13: cppgen: not supported yet: the fmt.Printf directive %#v (Phase 09)`},
 		{"printf-star", "import \"fmt\"\nfunc main() {\n\tfmt.Printf(\"%-*d\\n\", 1, 2)\n}", `main.gp:5:13: cppgen: not supported yet: the fmt.Printf directive %-*d (Phase 09)`},
 		{"printf-index", "import \"fmt\"\nfunc main() {\n\tfmt.Printf(\"%5.1[1]f\\n\", 1.5)\n}", `main.gp:5:13: cppgen: not supported yet: the fmt.Printf directive %5.1[1]f (Phase 09)`},
@@ -621,6 +619,16 @@ func TestPanics(t *testing.T) {
 		{"rp-int32-conv", "n := 100000\n\tdefer panic(int32(n))\n\tpanic(int32(n))"},
 		{"rp-float-conv", "f := 1.5\n\tdefer panic(float64(f))\n\tpanic(float64(f))"},
 		{"rp-var-decl", "var s = \"long string\"\n\tdefer panic(s)\n\tpanic(\"long string\")"},
+		// Complex numbers (step 3.15c): printed like println; gc converts a value with a new
+		// allocation (a chain prints both), a constant from read-only data (printed once).
+		{"panic-complex", "c := complex(1.5, -2)\n\tpanic(c * c)"},
+		{"panic-complex64", "var c complex64 = 1i\n\tc /= 0\n\tpanic(c)"},
+		{"panic-complex-const", "panic(1 + 2i)"},
+		{"rp-complex-const", "defer panic(1i)\n\tpanic(1i)"},
+		{"rp-complex-const64", "defer panic(complex64(2))\n\tpanic(complex64(2))"},
+		{"rp-complex-consts", "defer panic(1 + 1i)\n\tpanic(1 + 2i)"},
+		{"rp-complex-var", "c := 1i\n\tc++\n\tdefer panic(c)\n\tpanic(c)"},
+		{"rp-complex-single-def", "c := 2i\n\tdefer panic(c)\n\tpanic(c)"},
 		// Named types (step 3.9): division and shifts of named integers (also op= and a named
 		// count), indexes and bounds of named slices, strings and arrays (also a named index),
 		// a nil named map, a nil named pointer, and a short slice converted to a named array.

@@ -8,6 +8,8 @@
 #pragma once
 
 #include <gocpp/checks.hpp>
+#include <gocpp/complex.hpp>
+#include <gocpp/hash.hpp>
 #include <gocpp/print.hpp>
 #include <gocpp/string.hpp>
 
@@ -27,7 +29,7 @@ namespace gp {
 // printpanics), also without recover. The data pointer is gc's: a value converted to `any` is
 // unique (a new allocation) unless gc puts it in static data (cmd/compile walk/convert.go
 // dataWord, walk/order.go addrTemp, runtime/iface.go convT*), so a panic_identity is:
-//   - unique (gp_kind 0): never the same as another one;
+//   - unique (gp_kind 0): never the same as another one (also every complex value);
 //   - a value in the runtime's static data (value): a bool or a 1-byte integer (any value),
 //     a 2-, 4- or 8-byte integer or float whose bits are below 256 (runtime.staticuint64s),
 //     and the empty string (runtime.zeroVal); the same for the same type and bits;
@@ -113,6 +115,10 @@ constexpr uint8_t go_kind() {
         return 7;
     } else if constexpr (std::is_same_v<T, float>) {
         return 13;
+    } else if constexpr (std::is_same_v<T, complex64>) {
+        return 15;
+    } else if constexpr (std::is_same_v<T, complex128>) {
+        return 16;
     } else {
         return 14;
     }
@@ -133,10 +139,18 @@ uint64_t bits_of(const T& v) {
         uint32_t b;
         std::memcpy(&b, &v, 4);
         return b;
-    } else {
+    } else if constexpr (sizeof(T) == 8) {
         uint64_t b;
         std::memcpy(&b, &v, 8);
         return b;
+    } else {
+        // A complex128: both parts, mixed into 64 bits (a panic_identity compares the text
+        // too, so two different constants are the same only if both collide).
+        static_assert(std::is_same_v<T, complex128>);
+        uint64_t re, im;
+        std::memcpy(&re, &v.gp_re, 8);
+        std::memcpy(&im, &v.gp_im, 8);
+        return re ^ hash_mix(im);
     }
 }
 
@@ -154,25 +168,28 @@ gp::string print_text(const T& v) {
 
 // panic(v) and panic_constant(c): Go's builtin panic for a value of a basic type, which is not
 // a constant (v) or is one (c): the emitter says which, since gc gives them different data
-// pointers (panic_identity). A string is the text as it is; a bool or a number prints like the
-// builtin print does (panic(1.5) prints "panic: +1.500000e+000", as in Go). K is the go/types
-// BasicKind of the Go type when the C++ type doesn't say it (int64, uint64, uintptr), else 0.
+// pointers (panic_identity). A string is the text as it is; a bool or a number (also a complex
+// one) prints like the builtin print does (panic(1.5) prints "panic: +1.500000e+000", as in
+// Go). K is the go/types BasicKind of the Go type when the C++ type doesn't say it (int64,
+// uint64, uintptr), else 0.
 [[noreturn]] void panic(const gp::string& v);
 [[noreturn]] void panic_constant(const gp::string& c);
 
 template <uint8_t K = 0, typename T>
-    requires std::is_same_v<T, bool> || go_int<T> || go_float<T>
+    requires std::is_same_v<T, bool> || go_int<T> || go_float<T> || go_complex<T>
 [[noreturn]] void panic(const T& v) {
     uint64_t bits = detail::bits_of(v);
     panic_identity id;
-    if (sizeof(T) == 1 || bits < 256) {
+    // gc converts a complex number to an interface with a new allocation (convTnoptr: a
+    // complex64 has 8 bytes but alignment 4, a complex128 16 bytes), so its identity is unique.
+    if (!go_complex<T> && (sizeof(T) == 1 || bits < 256)) {
         id = {panic_identity::gp_value, K != 0 ? K : detail::go_kind<T>(), bits};
     }
     detail::throw_panic(detail::print_text(v), id);
 }
 
 template <uint8_t K = 0, typename T>
-    requires std::is_same_v<T, bool> || go_int<T> || go_float<T>
+    requires std::is_same_v<T, bool> || go_int<T> || go_float<T> || go_complex<T>
 [[noreturn]] void panic_constant(const T& c) {
     uint8_t kind = sizeof(T) == 1 ? panic_identity::gp_value : panic_identity::gp_constant;
     detail::throw_panic(detail::print_text(c),

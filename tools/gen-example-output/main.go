@@ -420,9 +420,10 @@ func hasTests(dir string) bool {
 }
 
 // goEnv is the environment of every go command: no workspace file and no
-// toolchain download can change what is built.
+// toolchain download can change what is built, and GOAMD64=v1, because gc
+// fuses a*b + c from v3 on and gocpp gives the results without fusing.
 func goEnv() []string {
-	return append(os.Environ(), "GOWORK=off", "GOTOOLCHAIN=local")
+	return append(os.Environ(), "GOWORK=off", "GOTOOLCHAIN=local", "GOAMD64=v1")
 }
 
 // goCmd runs the go command in dir and fails with its output.

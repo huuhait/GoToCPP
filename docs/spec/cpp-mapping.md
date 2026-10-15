@@ -79,7 +79,8 @@ Source: [Phase 02 §2.1](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/
 | `int`, `uint` | `int64_t`, `uint64_t` (64-bit targets, like Go) | gocpp has only 64-bit targets ([D9](language.md#d9-64-bit-targets-only)); signed overflow wraps as in Go, because all C++ is compiled with `-fwrapv` |
 | `int8` … `int64`, `uint8` … `uint64`, `uintptr` | `int8_t` … `int64_t`, `uint8_t` … `uint64_t`, `uintptr_t` | results of `int8`, `int16`, `uint8` and `uint16` arithmetic are cast back (`uint8_t(a + b)`), because C++ turns these types into `int` first |
 | `byte`, `rune` | `uint8_t`, `int32_t` | in Go too, `byte` is `uint8` and `rune` is `int32` |
-| `float32`, `float64`, `complex64`, `complex128` | `float`, `double`, `std::complex<float>`, `std::complex<double>` | compiled with `-ffp-contract=off`, so the C++ compiler doesn't fuse floating-point operations |
+| `float32`, `float64` | `float`, `double` | compiled with `-ffp-contract=off`, so the C++ compiler doesn't fuse floating-point operations: the results are gc's on amd64 with `GOAMD64=v1` or `v2`, everywhere (from `v3` on, and on arm64, gc fuses `a*b + c` itself) |
+| `complex64`, `complex128` | `gp::complex64`, `gp::complex128` (`gp::complex<float>`, `gp::complex<double>`) | 8 and 16 bytes, the real part first, as in Go; not `std::complex`: `*` and `/` follow Go's rules for infinities and NaN ([complex numbers](#complex-numbers)) |
 | `bool` | `bool` | the same type in both languages |
 | `string` | `gp::string` (immutable bytes, usually UTF-8; cheap substrings) | 32 bytes: owner, data pointer, length. A literal `"hi"` becomes `"hi"_gs` and points at static storage (no allocation); `s[a:b]` shares the bytes |
 | `[N]T` | `gp::array<T, N>` (value type, bounds checked) | wraps `std::array`; assignment copies it, as in Go; `==` exists when the elements are comparable ([arrays](#arrays)) |
@@ -566,7 +567,8 @@ Keys can be bools, numbers, strings, pointers, and arrays and comparable structs
 array or struct value `m[k]` is a copy, so `m[k][i]` and `m[k].f` can be read but not assigned,
 as in Go.
 Floats follow Go: `+0` and `-0` are one key (a store keeps the new key), and a NaN key is
-never found again, so each `m[NaN] = v` adds an entry. The order of a range is unspecified and
+never found again, so each `m[NaN] = v` adds an entry. A complex key follows the same rules for
+each part ([complex numbers](#complex-numbers)). The order of a range is unspecified and
 not Go's, and not randomized ([D8](language.md#d8-map-order-is-not-randomized)). `fmt.Println(m)`
 prints the keys sorted, as Go does (step 3.15); `println(m)` is an error
 ([D23](language.md#d23-print-and-println-of-a-slice-or-a-map)).
@@ -580,6 +582,46 @@ their places among the calls. A store `m[k] = v` evaluates the calls of `m` and 
 (with its panics), and only then takes the entry, so `m[k] = f()` stores into the map that `m`
 is after `f` ran. A map literal is evaluated in its place among the calls, entry by entry, as gc stores
 it: a panic in one entry comes before the calls of the entries after it.
+
+## Complex numbers
+
+`complex64` and `complex128` are `gp::complex64` and `gp::complex128` (`gocpp/complex.hpp`): a
+struct of two floats, the real part first (8 bytes with alignment 4, and 16 bytes with alignment
+8, as in Go), with only operators and `gp_`-prefixed members. gocpp doesn't use `std::complex`,
+because its `*` and `/` follow C's Annex G and differ between C++ libraries; each operation here is
+what Go's compiler (gc) does on amd64 with `GOAMD64=v1` or `v2`, so the results are Go's bit for bit (the sign and payload
+of a NaN aside, which Go doesn't promise either).
+
+| gocpp | C++ | Notes |
+|---|---|---|
+| `var c complex128`, `1 + 2i`, `var k complex64 = 1.0 / 3` | `gp::complex128 c{};`, `gp::complex128(1.0, 2.0)`, `gp::complex64(0.33333334f, 0.0f)` | go/types folds every constant expression exactly; a `complex64` constant has `float32` parts, each rounded once. A constant never has a `-0` part. Constructors are `constexpr`, so a package variable with a constant value is `constinit` |
+| `complex(r, i)`, `real(c)`, `imag(c)` | `gp::complex128(r, i)`, `gp::real(c)`, `gp::imag(c)` | `complex64` from `float32` parts; a part of a named float type is its value. Like `len`, gc evaluates them in their places among the calls: in `real(g) + f()` the package variable `g` is read before `f` runs |
+| `a + b`, `a - b` | `a + b`, `a - b` | each part, in the parts' own type |
+| `a * b` | `a * b` | `(ar*br - ai*bi) + (ar*bi + ai*br)i`, always in `float64` (a `complex64` is widened, and the parts are rounded back), never fused (`-ffp-contract=off`) and without C's recovery of infinities: `(Inf+0i) * 2` is `(+Inf+NaNi)`, as in Go |
+| `a / b` | `a / b` | Go's `runtime.complex128div` (`runtime/src/complex.cpp`): Smith's algorithm with C99's corrections when both parts are NaN; a `complex64` is divided as a `complex128` and rounded back. A division by zero gives infinities or NaN and never panics |
+| `-a`, `+a` | `-a`, `a` | `-` negates each part: `-(0+0i)` is `(-0-0i)` |
+| `a == b`, `a != b` | `a == b`, `a != b` | both parts equal; a NaN part is never equal |
+| `c++`, `c--`, `c += x` | `c++`, `c--`, `c = c + x` | `++` adds `(1+0i)`: the imaginary part gets `+ 0`, so a `-0` part becomes `+0`, as in Go |
+| `complex64(c)`, `complex128(c)` | `gp::complex64(c)`, `gp::complex128(c)` | each part converted; the constructor is `explicit`, as Go needs a conversion |
+| `type Phasor complex128` | `struct Phasor : gp::newtype<Phasor, gp::complex128>` | a named type holds the value and has its operators ([named types](#named-types)); `real(p)` is `gp::real(p.gp_value())` |
+| `println(c)`, `panic(c)` | `gp::println(c)`, `gp::panic(c)` | Go's runtime format, each part like a float: `(+1.000000e+000-2.000000e+000i)` |
+| `m[c]` (a complex key) | `gp::get(m, c)` | hashes both parts with the float rules: `+0` and `-0` are one key, a key with a NaN part is never found again |
+
+`fmt` (the shim, `gp::fmtshim`) prints them as Go's `fmtComplex` does: `(1.5-2i)`, each part as
+a float of half the size (a `complex64` has `float32` parts) with the verb, the imaginary part
+always with a sign, a width and a precision for each part (`%8.2f` is `(    1.50   -2.00i)`); a
+verb that doesn't fit gives the error form with the whole number, `%!d(complex128=(1.5-2i))` (the
+C++ type names `complex64` and `complex128`, so no type tag is needed). Phase 03 has `%v` and
+`%f`; `%e`, `%g`, `%x` and the rest come with Go's `fmt` (Phase 09). Complex map keys print
+sorted by the real part, then the imaginary part, each with `cmp.Compare`'s rules (NaN first,
+`-0 == +0`); a named complex type sorts by its value, never by the `<` that `gp::newtype`
+declares. As for any value, gc copies a complex argument that is not a variable into an
+interface in its place among the calls. gc fuses `x*y + z`
+into one instruction on arm64, and on amd64 from `GOAMD64=v3` on, so its complex products and
+quotients can differ there in the last bit; gocpp gives the unfused results (amd64's at
+`GOAMD64=v1` and `v2`) everywhere, and the tests compare with Go built with `GOAMD64=v1`.
+
+Source: [Phase 03 §2.10](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#210-builtins-printing-and-package-initialization).
 
 ## Structs
 
@@ -766,7 +808,7 @@ of a named type over `uint32`, `uint64` or `string` is read before `x`, like an 
 because gc converts it to its fast map call's key type.
 
 **Not yet**: named func types (step 3.11), named interface types (Phase 05), named channel types
-(Phase 08), named complex types, and methods (step 3.10); the conversions between strings and
+(Phase 08), and methods (step 3.10); the conversions between strings and
 slices of named byte or rune types (`[]MyByte(s)`, `string([]R{...})` for `type R rune`), and
 between slice types (or structs with slice or map fields) whose element structs differ only in
 their tags (`[]struct{ Q int }(s)` of a `[]struct{ Q int "t" }`): Go shares the elements there,
