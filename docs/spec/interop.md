@@ -741,7 +741,8 @@ with status 1. The warnings of files that compile are shown the same way, and th
 
 A program that doesn't link while the package has C or C++ files (a function that no file
 defines, a second `main`) is reported as the program's link error too, with the list of the files,
-and exit status 1. `gocpp build -x` shows every compile and the link.
+and exit status 1 (a function that a header declares and nothing defines is reported at the `.gp`
+line that calls it: see [Errors in interop code](#errors-in-interop-code)). `gocpp build -x` shows every compile and the link.
 
 **Objects and the link.** The object files go into the work folder as `$WORK/cobj/<file>.o`
 (`a.c.o` and `a.cpp.o`, so a C file and a C++ file can have the same base name). The files
@@ -927,16 +928,75 @@ Source: [Phase 04 §2.10](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/READ
 ## Errors in interop code
 
 ```text
-main.gp:14: C++: no member named 'push_bak' in 'std::vector<long>'
-        nums.push_bak(4)
+# command-line-arguments
+./main.gp:14: C++: no member named 'push_bak' in 'std::vector<long>'
+	nums.push_bak(4)
 ```
 
-- In opaque mode, the C++ compiler finds mistakes in C/C++ code. These errors are **your**
-  errors, not internal ones.
-- In Phase 04, `#line` makes them point at the `.gp` line. `#line` carries no column, so the
-  message shows the line only.
-- The driver prints them in gocpp style. Template backtrace noise is trimmed to the first error
-  plus the lines that point into `.gp` files; `-cpperrors=full` shows everything.
+In opaque mode, the C++ compiler finds the mistakes in C/C++ code: a C function called with the
+wrong arguments, a C++ template that doesn't accept your type. In a package that uses C or C++
+(a header import, or `C`), these errors are **your** errors, not internal ones. `gocpp build` and
+`gocpp run` print them like `gocpp check` prints its errors, under the package's line, and exit
+with status 1:
+
+- **The place** is the `.gp` line (through `#line`). `#line` carries no column, so the message
+  shows the line only: `./main.gp:14:`. The source line follows, after a tab.
+- **The message** is the compiler's first message for that line, after `C++: `, without the
+  compiler's `error: ` and its colors, and with plain quotes (`'`, also where gcc writes `‘’`). The
+  C++ type names stay as the compiler writes them (Phase 13 translates them).
+- **Which errors are yours.** Nearly every generated line of C++ has the `#line` of its `.gp`
+  line, so the line alone can't tell your error from a bug in gocpp. An error is yours only when
+  it comes from a `.gp` line **with C or C++ code**: a line of an expression that uses `C` or a
+  header package or namespace (`cstdio.printf`, `std.vector`, `C.int`), or that is a C/C++ value
+  (a variable of a C type, a C call's result); the first line of the statement around such an
+  expression; or a header import line. Then it is yours when it is at that line; or in a header
+  (a system header, a library's, or one of your own), in a macro that the line uses (gcc's note
+  "in expansion of macro"); or in a header whose template the line instantiated: the template
+  backtrace (gcc's "required from here", clang's "in instantiation of ... requested here") leads
+  to the line, and the error is reported there with the first message. That includes gocpp's
+  interop helpers (`gocpp/interop.hpp`: `C.int(x)`, a `switch` on a C value, `gp::range`, ...);
+  for a `static_assert` there, the message is the `static_assert`'s own text, which is written
+  for you:
+
+  ```text
+  ./main.gp:12: C++: a switch on a C/C++ value needs a number, an enum or a pointer
+  	case p:
+  ```
+
+  And, as the first error, an error in a header that a `.gp` import includes, outside any
+  template: a header that doesn't compile as C++, reported at the import line.
+- **Which errors are gocpp's.** When the first error is at a `.gp` line without C or C++ code
+  (also through a template or a macro), in the generated lines that have no `.gp` line, or in
+  gocpp's runtime outside `gocpp/interop.hpp` (also a header template that the runtime
+  instantiated), the build stops with "internal error: generated C++ did not compile", the
+  compiler's first errors, and the work folder (exit status 2), as in a package without C or C++.
+  With compile flags of the package or of the environment, it says "did not compile with the
+  flags below" instead, and exits with 1.
+- **Trimming.** Only the first error of each `.gp` line is shown, and the notes and backtraces are
+  left out. The errors after the first one that lead to no `.gp` line of their own (a follow-on in
+  the same template, which clang reports without a backtrace) are left out too; when some of them
+  are in gocpp's code, a last line says how many: "(and 2 more errors in gocpp's code:
+  -cpperrors=full shows them)". A template
+  backtrace that passes more `.gp` lines shows them after the source line (`./main.gp:30: from
+  here`). The errors are sorted by place; after 10 comes "too many errors", like `go build`.
+- **`-cpperrors=full`** (a flag of `gocpp build` and `gocpp run`) shows the compiler's whole output
+  instead, under the package's line, with the package's folder written as `./`.
+- **Link errors.** A function that a header declares but that nothing the program links defines
+  (a library without its `//gocpp:link` or `//gocpp:pkg-config` line, a missing `.c` file) is your
+  error too, at the `.gp` line that uses it (from the debug information; GNU ld, lld and mold are
+  understood), with the symbol as the linker writes it (demangled) and a hint:
+
+  ```text
+  # command-line-arguments
+  ./main.gp:15: C++: undefined reference to 'sqlite3_libversion_number'
+  	fmt.Println(int(sqlite3.sqlite3_libversion_number()))
+  	(the headers declare it, but the program links no definition: add the library with //gocpp:link or //gocpp:pkg-config, or the C or C++ file that defines it to the package)
+  ```
+
+  `gocpp run main.gp`, like `go run main.go`, builds only the named files, so the folder's C and
+  C++ files are left out: then the hint says that `gocpp run .` builds them too. A missing symbol
+  of gocpp's own (`gp::`, `gpkg_`) stays an internal error, and a use that the linker can't place
+  at a `.gp` line gets the linker's own first lines (see [C and C++ sources in a package](#c-and-c-sources-in-a-package)).
 - Phase 12 reports many of these errors earlier, before the C++ compile.
 
 From Phase 13 on, the same error looks like this:

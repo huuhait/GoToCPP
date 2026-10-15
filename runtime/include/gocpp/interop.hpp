@@ -437,9 +437,8 @@ namespace cgo {
 template <typename T, typename X>
 constexpr T as(X&& x) {
     using F = std::remove_cvref_t<std::decay_t<X>>;
-    static_assert(
-        !(std::is_pointer_v<F> && std::is_arithmetic_v<T>),
-        "gocpp: a C pointer can't be converted to a number: use unsafe.Pointer (step 4.10)");
+    static_assert(!(std::is_pointer_v<F> && std::is_arithmetic_v<T>),
+                  "gocpp: a C pointer can't be converted to a number: use unsafe.Pointer");
     static_assert(
         !std::is_same_v<T, bool> || std::is_same_v<F, bool>,
         "gocpp: only a bool converts to bool, as in Go: compare the value instead (x != 0)");
@@ -511,9 +510,8 @@ void free(void* p) noexcept;
 // not Go's ==, and a C struct has none.
 template <typename A, typename B>
 constexpr bool case_eq(const A& tag, const B& v) {
-    static_assert(
-        std::is_scalar_v<A>,
-        "gocpp: a switch on a C/C++ value needs a number, an enum or a pointer (step 4.4)");
+    static_assert(std::is_scalar_v<A>,
+                  "gocpp: a switch on a C/C++ value needs a number, an enum or a pointer");
     return tag == v;
 }
 

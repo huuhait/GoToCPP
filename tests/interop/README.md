@@ -44,3 +44,24 @@ are not `.gp` files are not tests. Libraries such as SDL can write to stderr; sa
 The file [vector](vector) (no extension) is not a header of a test: it is an `#error`, which
 shows that a file next to the `.gp` files can't hide a system header (`<vector>`), because local
 headers are found with `-iquote` and the package's folder ([quoted_headers.gp](quoted_headers.gp)).
+
+## Interop error tests
+
+A test with `// ERROR` comments is an interop error test: a program whose C++ doesn't compile or
+link because of an error in the program (Phase 04 README §2.11, step 4.17), which `gocpp check`
+can't see. The harness builds it with each compiler, `gocpp build -o <temp>/prog file.gp` (with
+the flags of `GOCPP_FLAGS`), and it passes when the build exits with 1 and reports exactly the
+errors of the `// ERROR` comments, on their lines, and nothing else. The comments work as in
+[tests/errors](../errors/README.md); a regexp must match the message of both compilers, after
+`C++: `. The line after the errors that counts the errors left out ("(and 1 more error in gocpp's
+code: -cpperrors=full shows it)") is allowed. Such a test has no `// Output:` block and no
+`// ExitCode:` or `// Stderr:` line; it may have `// pkg-config:` and `//go:build`.
+[cpp_error_arguments.gp](cpp_error_arguments.gp):
+
+```go
+func main() {
+	cstdio.printf(format(), 1) // ERROR "C\+\+: (cannot convert|no viable conversion from) 'gp::string' to 'const char ?\*'"
+	_ = cstdlib.abs(1, 2)      // ERROR "C\+\+: too many arguments to function"
+	cstdio.puts("ok")
+}
+```

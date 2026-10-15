@@ -74,6 +74,9 @@ func (d *driver) sourceWarnings(pkg *check.Package) func([]byte) {
 // written as gocpp check writes it: "./" for the current folder.
 func (d *driver) shortenDir(pkg *check.Package, out string) string {
 	dir := pkg.Load.Dir + string(filepath.Separator)
+	// A compiler writes a local header found through -iquote <dir> as
+	// <dir>/./a.h: that is ./a.h, not ././a.h.
+	out = strings.ReplaceAll(out, dir+"."+string(filepath.Separator), dir)
 	short := strings.TrimSuffix(diag.ShortFileName(d.check.dir, dir+"x"), "x")
 	if short == dir {
 		return out

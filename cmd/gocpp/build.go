@@ -69,7 +69,20 @@ GOCPP_CC, else the one that goes with the C++ compiler (gcc for g++,
 clang for clang++), the others with -std=c++20 and the C++ compiler. An
 error in them is an error of the program: exit status 1.
 
-The C++ that gocpp writes must always compile. If it doesn't, that is a
+In a package that uses C or C++ (a header import, or C), an error of
+the C++ compiler that comes from a .gp line with C or C++ code (a use of
+C, of a header package or a namespace, or of a C/C++ value; a header
+import) is an error of the program:
+a C function called with the wrong arguments, a C++ template that
+doesn't accept a type. gocpp build prints it at the .gp line, like gocpp
+check's errors, with "C++: ", the compiler's first message and the
+source line, and exits with status 1. The notes and template backtraces
+are left out; -cpperrors=full shows the compiler's whole output. A
+function that the headers declare but that nothing in the program
+defines (a missing library or C file) is such an error too, at the .gp
+line that uses it.
+
+Any other C++ that gocpp writes must compile. If it doesn't, that is a
 bug in gocpp: gocpp build prints "internal error: generated C++ did not
 compile", the first errors of the compiler, which point at the .gp
 lines, and the work folder, which it keeps; it exits with status 2.
@@ -79,6 +92,10 @@ The build flags (of build and run) are:
 	-asan
 		build with AddressSanitizer and UndefinedBehaviorSanitizer:
 		the program stops at the first report, with exit status 1
+	-cpperrors mode
+		short (the default) or full: full shows the whole output of
+		the C++ compiler or the linker when the program's C++ doesn't
+		compile or link
 	-nochecks
 		build without the bounds and nil checks, for speed: an index
 		or slice expression out of range, a slice to array conversion
@@ -149,12 +166,16 @@ type buildFlags struct {
 	work     bool   // -work
 	asan     bool   // -asan
 	nochecks bool   // -nochecks
+
+	cppErrors cppErrorsMode // -cpperrors: "short" or "full"
 }
 
 func (f *buildFlags) register(flags *flag.FlagSet, withOutput bool) {
 	if withOutput {
 		flags.StringVar(&f.output, "o", "", "write the program to this file or folder")
 	}
+	f.cppErrors = "short"
+	flags.Var(&f.cppErrors, "cpperrors", "how much of the C++ compiler's errors to show: short or full")
 	flags.BoolVar(&f.asan, "asan", false, "build with AddressSanitizer and UndefinedBehaviorSanitizer")
 	flags.BoolVar(&f.nochecks, "nochecks", false, "build without the bounds and nil checks (division and shift checks stay)")
 	flags.BoolVar(&f.work, "work", false, "print the name of the work folder and keep it")
@@ -468,16 +489,27 @@ func (d *driver) emit(w io.Writer, pkg *check.Package, out string, cxx *build.CX
 	if err == nil {
 		return 0
 	}
+	return d.emitFailed(pkg, err)
+}
+
+// emitFailed prints the error err of the emitter for pkg and returns the
+// exit status (see emit).
+func (d *driver) emitFailed(pkg *check.Package, err error) int {
 	var e *cppgen.Error
 	if errors.As(err, &e) && e.User && e.Pos.IsValid() {
 		fmt.Fprintf(d.stderr, "# %s\n%s:%d:%d: %s\n", pkg.Load.ImportPath,
 			diag.ShortFileName(d.check.dir, e.Pos.Filename), e.Pos.Line, e.Pos.Column, e.Msg)
 		return exitErrors
 	}
-	if errors.As(err, &e) && e.Pos.IsValid() {
+	// The lowering writes some of its messages with "internal error: "
+	// already (a state that must not happen): the prefix comes once.
+	switch {
+	case errors.As(err, &e) && e.Pos.IsValid():
 		fmt.Fprintf(d.stderr, "# %s\n%s:%d:%d: internal error: %s\n", pkg.Load.ImportPath,
-			diag.ShortFileName(d.check.dir, e.Pos.Filename), e.Pos.Line, e.Pos.Column, e.Msg)
-	} else {
+			diag.ShortFileName(d.check.dir, e.Pos.Filename), e.Pos.Line, e.Pos.Column, strings.TrimPrefix(e.Msg, "internal error: "))
+	case errors.As(err, &e):
+		fmt.Fprintf(d.stderr, "# %s\ninternal error: %s\n", pkg.Load.ImportPath, strings.TrimPrefix(e.Msg, "internal error: "))
+	default:
 		fmt.Fprintf(d.stderr, "# %s\ninternal error: %v\n", pkg.Load.ImportPath, err)
 	}
 	fmt.Fprintln(d.stderr, "(gocpp checked the package, but its C++ emitter can't write it: this is a bug in gocpp, or a feature that is not built yet)")
@@ -671,6 +703,12 @@ func (d *driver) compile(patterns []string) (*program, int) {
 			d.sourceFailed(pkg, ce)
 			return nil, exitErrors
 		}
+		if errors.As(err, &ce) && ce.Link && d.cppLinkFailed(pkg, ce, env) {
+			return nil, exitErrors
+		}
+		if errors.As(err, &ce) && !ce.Link && ce.What == "the generated C++" && d.cppCompileFailed(pkg, ce, src) {
+			return nil, exitErrors
+		}
 		if errors.As(err, &ce) && ce.Link && (len(pkg.Flags.Link) > 0 || len(env.LDFlags) > 0 || hasSources(pkg.Load)) {
 			d.linkFailed(pkg, ce, env)
 			return nil, exitErrors
@@ -750,10 +788,16 @@ func (d *driver) compileFailed(pkg *check.Package, e *build.CompileError, work s
 		fmt.Fprintf(d.stderr, "# %s\ninternal error: %s %s\n", pkg.Load.ImportPath, what, verb)
 	}
 	var shown []string
+	if d.flags.cppErrors.full() {
+		if out := strings.TrimRight(string(e.Output), "\n"); out != "" {
+			shown = strings.Split(d.shortenDir(pkg, out), "\n")
+		}
+	}
+	full := len(shown) > 0
 	sc := bufio.NewScanner(bytes.NewReader(e.Output))
 	sc.Buffer(nil, 1<<20)
-	for sc.Scan() && len(shown) < maxShownErrors {
-		line := sc.Text()
+	for !full && sc.Scan() && len(shown) < maxShownErrors {
+		line := cleanCompilerLine(sc.Text())
 		if m := cxxError.FindStringSubmatch(line); m != nil {
 			file := m[1]
 			if strings.HasSuffix(file, ".gp") {
@@ -795,8 +839,11 @@ func (d *driver) compileFailed(pkg *check.Package, e *build.CompileError, work s
 func (d *driver) linkFailed(pkg *check.Package, e *build.CompileError, env build.EnvFlags) {
 	fmt.Fprintf(d.stderr, "# %s\nthe program did not link: %v\n", pkg.Load.ImportPath, e.Err)
 	lines := strings.SplitN(strings.TrimSpace(string(e.Output)), "\n", maxShownErrors+1)
+	if d.flags.cppErrors.full() {
+		lines = strings.Split(strings.TrimSpace(string(e.Output)), "\n")
+	}
 	for i, line := range lines {
-		if i < maxShownErrors && line != "" {
+		if (i < maxShownErrors || d.flags.cppErrors.full()) && line != "" {
 			fmt.Fprintln(d.stderr, line)
 		}
 	}

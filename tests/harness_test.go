@@ -390,11 +390,18 @@ func TestDiff(t *testing.T) {
 }
 
 // TestInterop runs the programs in tests/interop like TestRun; a test is
-// skipped when a library of its // pkg-config: line is missing. See
-// tests/interop/README.md.
+// skipped when a library of its // pkg-config: line is missing. A test with
+// // ERROR comments is built instead, and the build must fail with those
+// errors (interopErrorsTest). See tests/interop/README.md.
 func TestInterop(t *testing.T) {
 	c := setup(t)
-	c.runPrograms(t, "tests/interop", loadTests(t, interopFormat), c.runTest)
+	c.runPrograms(t, "tests/interop", loadTests(t, interopFormat), func(t *testing.T, p *program) {
+		if p.wants != nil {
+			c.interopErrorsTest(t, p)
+			return
+		}
+		c.runTest(t, p)
+	})
 }
 
 // TestExamples runs the target programs in examples/: each folder with a
@@ -451,8 +458,19 @@ func loadTests(t *testing.T, f format) []*program {
 	for _, name := range names {
 		p := &program{name: strings.TrimSuffix(name, ".gp"), path: "tests/" + f.kind + "/" + name, dir: dir, arg: name}
 		src, err := os.ReadFile(filepath.Join(dir, name))
+		pf := f
+		if err == nil && f.kind == "interop" {
+			// An interop test with // ERROR comments is an error test of
+			// the build.
+			if p.wants, err = parseErrors(p.path, src); err == nil && len(p.wants) > 0 {
+				pf = interopErrorsFormat
+				if !wantsErrors(p.wants) {
+					err = fmt.Errorf("%s: an interop error test needs a // ERROR comment (// WARNING alone is not checked here)", p.path)
+				}
+			}
+		}
 		if err == nil {
-			p.header, err = f.parse(p.path, src)
+			p.header, err = pf.parse(p.path, src)
 		}
 		if err == nil && f.kind == "errors" {
 			p.wants, err = parseErrors(p.path, src)
@@ -676,6 +694,38 @@ func (c *config) errorsTest(t *testing.T, p *program) {
 		t.Errorf("%s:\n\t%s\noutput:\n%s", r.cmd, strings.Join(problems, "\n\t"), indent(string(r.stdout)))
 	}
 }
+
+// interopErrorsTest builds an interop error test with each compiler
+// (gocpp build, with the flags of GOCPP_FLAGS): the build must fail with
+// exit code 1 and report the errors of the // ERROR comments, at their .gp
+// lines, and nothing else: the C++ compiler's and the linker's errors of
+// the user's code, which gocpp check can't see.
+func (c *config) interopErrorsTest(t *testing.T, p *program) {
+	c.forEachCompiler(t, func(t *testing.T, cc compiler) {
+		args := append(append([]string{"build"}, c.flags...), "-o", filepath.Join(t.TempDir(), "prog"), p.arg)
+		j := gocppJob(p.dir, nil, cc.cxx, p.header.phase, args...)
+		j.combined = true
+		r := c.run(t, j)
+		if r.problem != "" {
+			t.Fatalf("%s: %s\noutput:\n%s", r.cmd, r.problem, indent(string(r.stdout)))
+		}
+		diags, other := parseDiagnostics(string(r.stdout))
+		// gocpp's count of the errors it leaves out ("(and 2 more errors
+		// in gocpp's code: ...)") is no error.
+		other = slices.DeleteFunc(other, othersLineRx.MatchString)
+		problems := matchErrors(p.arg, p.wants, diags, other)
+		if r.exit != 1 {
+			problems = append([]string{fmt.Sprintf("%s, want exit code 1", r.status)}, problems...)
+		}
+		if len(problems) > 0 {
+			t.Errorf("%s:\n\t%s\noutput:\n%s", r.cmd, strings.Join(problems, "\n\t"), indent(string(r.stdout)))
+		}
+	})
+}
+
+// othersLineRx matches the line after the errors of an interop error test
+// that counts the compiler's errors that gocpp left out.
+var othersLineRx = regexp.MustCompile(`^\(and \d+ more errors? in gocpp's code: -cpperrors=full shows (it|them)\)$`)
 
 // checkJob returns the job that checks the error test file in dir:
 // gocpp check -e file. -e reports every error, not only the first 10 (Go's

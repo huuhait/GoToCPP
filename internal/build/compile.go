@@ -88,6 +88,7 @@ type Builder struct {
 type CompileError struct {
 	What    string // what was compiled: "the generated C++", "the runtime", "the C file a.c"
 	Source  string // the package's C or C++ file that didn't compile (absolute), or ""
+	Include string // for the generated C++: the runtime's include folder (its headers are gocpp's), or ""
 	Link    bool   // the link failed, not a compile
 	Command string // the command, as Trace shows it
 	Output  []byte // what the compiler printed (stdout and stderr in one stream)
@@ -160,6 +161,10 @@ func (b *Builder) Program(ctx context.Context, src, out string) error {
 		return err
 	}
 	if genErr != nil {
+		var ce *CompileError
+		if errors.As(genErr, &ce) {
+			ce.Include = filepath.Join(rtDir, "include")
+		}
 		return genErr
 	}
 	// The libraries after the object files that use them, as a linker

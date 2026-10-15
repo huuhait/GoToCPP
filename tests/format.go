@@ -100,6 +100,11 @@ var (
 	interopFormat = format{"interop", outputLine | exitCodeLine | stderrLine | pkgConfigLine | lsanLine | goBuildLine, true}
 	debugFormat   = format{"debug", goBuildLine, true} // and the // gdb: comments (debug.go)
 
+	// An interop error test (a test in tests/interop with // ERROR
+	// comments) is built, not run: it has no // Output: block and no
+	// // ExitCode: or // Stderr: line.
+	interopErrorsFormat = format{"interop", pkgConfigLine | goBuildLine, true}
+
 	// An example's main.gp is a normal program with doc comments, which may
 	// start like a comment line of another format ("// Output: a table"),
 	// so there the lines that examples don't use, and the optional lines

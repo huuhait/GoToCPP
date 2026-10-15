@@ -136,6 +136,9 @@ func TestParseHeaderMalformed(t *testing.T) {
 		{"diff_with_exitcode.gp", diffFormat, `2: tests in tests/diff have no "// ExitCode:" line (see tests/diff/README.md)`},
 		{"run_ok.gp", goldenFormat, `11: tests in tests/golden have no "// Output:" line`},
 		{"run_all_lines.gp", errorsFormat, `2: tests in tests/errors have no "// ExitCode:" line`},
+		// An interop error test (// ERROR comments) is built, not run.
+		{"run_ok.gp", interopErrorsFormat, `11: tests in tests/interop have no "// Output:" line`},
+		{"run_all_lines.gp", interopErrorsFormat, `2: tests in tests/interop have no "// ExitCode:" line`},
 
 		{"diff_bad_mode.gp", diffFormat, `2: bad "// diff:" line: want "stderr" or "combined", not "both"`},
 		{"diff_twice.gp", diffFormat, `3: a second "// diff:" line`},
