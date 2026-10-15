@@ -7,9 +7,9 @@
 ## Steps
 
 - [x] 4.1 Compiler probes: macro list (`-dM -E`) + kind probe (namespace/type/template/value, grown from Phase 01's namespace probe), cached
-- [~] 4.2 C type translator (builtins, `struct_` tags, pointers, templates, constant args, dotted/member types, gocpp types inside)
-- [~] 4.3 Name translation (header packages → `::name` / unqualified macros, namespaces + renames, header-and-namespace names, `::` vs `.`, macro protection with gocpp headers first)
-- [ ] 4.4 Opaque value codegen (`auto`, `gp::deref`, calls, operators, constructors, `nil` → `nullptr`, untyped constants as C literals)
+- [x] 4.2 C type translator (builtins, `struct_` tags, pointers, templates, constant args, dotted/member types, gocpp types inside)
+- [x] 4.3 Name translation (header packages → `::name` / unqualified macros, namespaces + renames, header-and-namespace names, `::` vs `.`, macro protection with gocpp headers first)
+- [~] 4.4 Opaque value codegen (`auto`, `gp::deref`, calls, operators, constructors, `nil` → `nullptr`, untyped constants as C literals)
 - [ ] 4.5 Template-vs-index rule (kind probe) + parenthesis escape
 - [ ] 4.6 Composite literals of C/C++ types (positional, keyed via assignments, init lists)
 - [ ] 4.7 `gp::range` (by-value temporaries, index walk with size read once) + `gp::values`
@@ -148,4 +148,22 @@
   user, runtime objects, then the -l flags) committed, clean after 3 review rounds. The test harness now sets
   its own XDG_CACHE_HOME, so no test writes ~/.cache/gocpp (TODO closed). The language server doesn't show
   errors of C files (its file system lists only .gp files): fine for now, Phase 11 may add it.
+- 2026-10-15: Job 4.2 (steps 4.2 and 4.3 plus the first part of 4.4) committed, clean after 4 review rounds.
+  The build runs ProbeKinds once per include set with every dotted path (check's probe in build/run/emit asks
+  for the same paths and flags, so it is one compiler run, plus one `-E -dM`); `gocpp check` and the language
+  server stay in the namespace mode. Includes: rt.hpp first, then each file's headers in source order with
+  `#line`; `-iquote <pkg dir>` only with a local header. Macro protection: the package's own names that are
+  header macros get a `_` suffix, other generated names that are header macros are `#undef`ed after the
+  includes, and a macro used through a header package that clashes with a generated name is a user error.
+  Names per README §2.3 (tags `struct ::point`, members of value paths through `gp::deref`); types per §2.4.
+  Values: C calls, `x := lib.f()` (auto), constructors, untyped constants as C literals, `nil` → nullptr,
+  conversions through `gp::cgo::as` (float → integer via gp::f2i), switch on scalar C values
+  (`gp::cgo::case_eq`), methods with C parameters. A guard (internal/lower/cguard.go) allows C/C++ values only
+  in the lowered forms and places; everything else is "not supported yet (step N)", and later jobs open it up.
+  Like cgo: a C/C++ value into a gocpp-typed target, or a typed gocpp value into a C-typed target, is a user
+  error ("convert it, int(x)" / "C.int(x)"); arguments of C/C++ functions keep C++'s conversion rules
+  (documented; Phase 12 makes them exact). Until 4.8, a func literal that uses an opaque local or a local
+  struct with C/C++ parts is "not supported yet". Left for 4.9: a typed string constant passed to a C function
+  (`const S string = "x"; cstdio.puts(S)`) is a gp::string argument and doesn't compile. Left for 4.17: errors
+  from the C++ compiler at the boundary (static_asserts of gp::cgo::as / case_eq) print as internal errors.
 
