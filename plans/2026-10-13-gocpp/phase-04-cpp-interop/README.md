@@ -249,9 +249,11 @@ the C library's own cleanup (locks, memory, sqlite state). So every gocpp functi
 (callbacks, and Phase 06's `//export` functions) is called through a `noexcept` **trampoline**
 that catches any panic, prints it Go-style and exits with code 2.
 
-**C++ exceptions (first version).** If a C++ call throws into gocpp code, the program stops with
-a Go-style `panic: C++ exception: <what()>` and exit code 2. Phase 05 turns these into normal,
-recoverable panics.
+**C++ exceptions (first version).** If a C++ exception that no C++ code catches reaches gocpp code,
+the program stops like an unrecovered Go panic: `panic: C++ exception std::out_of_range: <what()>`
+(`panic: C++ exception of type int` for a throw that isn't a std::exception), the goroutine trace at
+the throw point, and exit code 2. As with cgo, no deferred call runs and `recover` can't stop it
+(divergence D26). Phase 05 turns these into normal, recoverable panics that run the defers.
 
 ### 2.9 Building the C/C++ side
 

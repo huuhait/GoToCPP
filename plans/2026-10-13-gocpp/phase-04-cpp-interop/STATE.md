@@ -212,4 +212,13 @@
   `__cplusplus` in a comment counts; a header that appears earlier on the search path isn't noticed (the same
   as ProbeKinds). Nits left: a table test for missingRx/missingPlaces/includeFolders (Windows paths), one long
   line in interop.md.
+- 2026-10-15 (job 4.12, accepted): the program-ending path for C++ exceptions is a terminate handler set by
+  run_main (the search for a handler fails before any frame unwinds, so the trace is the throw's); no defers
+  or destructors run (D26; README §2.8 updated). The 4.2 decision changed: the runtime always flushes C's
+  stdout and stderr before it writes (fflush on an empty buffer costs ~3 ns), because flushing only in
+  programs with headers, or only stderr, still broke the order on a shared pipe. Printing of C++ class values
+  uses std::formatter when `__cpp_lib_format` is there (through a tail include `gocpp/fmtcxx.hpp` after the
+  user's headers, only in programs with headers, because <format> costs ~0.2 s per file), else operator<<.
+  For Phase 06: with several translation units the formatter/<< choice could differ between files (an ODR
+  risk): decide there.
 
