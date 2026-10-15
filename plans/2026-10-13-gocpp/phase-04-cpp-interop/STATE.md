@@ -9,8 +9,8 @@
 - [x] 4.1 Compiler probes: macro list (`-dM -E`) + kind probe (namespace/type/template/value, grown from Phase 01's namespace probe), cached
 - [x] 4.2 C type translator (builtins, `struct_` tags, pointers, templates, constant args, dotted/member types, gocpp types inside)
 - [x] 4.3 Name translation (header packages → `::name` / unqualified macros, namespaces + renames, header-and-namespace names, `::` vs `.`, macro protection with gocpp headers first)
-- [~] 4.4 Opaque value codegen (`auto`, `gp::deref`, calls, operators, constructors, `nil` → `nullptr`, untyped constants as C literals)
-- [~] 4.5 Template-vs-index rule (kind probe) + parenthesis escape
+- [x] 4.4 Opaque value codegen (`auto`, `gp::deref`, calls, operators, constructors, `nil` → `nullptr`, untyped constants as C literals)
+- [x] 4.5 Template-vs-index rule (kind probe) + parenthesis escape
 - [ ] 4.6 Composite literals of C/C++ types (positional, keyed via assignments, init lists)
 - [ ] 4.7 `gp::range` (by-value temporaries, index walk with size read once) + `gp::values`
 - [ ] 4.8 Opaque objects in closures/defers (boxed) + copy/move/default-construct policy + `gp::result_slot`
@@ -225,4 +225,16 @@
   struct with a C++ field passed to fmt) counts as C/C++ code too (lower.HasC), so an unprintable field is the
   user's error at the .gp line. `%T` and fmt's error forms name C types as gocpp sees them (`int32` for C.int,
   the enum's C++ name, `char*`), not cgo's `main._Ctype_int`: accepted until Phase 13 (documented in interop.md).
+- 2026-10-15: Job 4.4 (steps 4.4 and 4.5) committed, clean after 3 review rounds. Members of C/C++ values go
+  through gp::deref; operators keep Go's operand order (order.go names only real temporaries: calls,
+  constructors, constants, operator results, and the temporary a place is in as `auto&&`, so references into
+  them stay alive; places like `v[i]` pass as they are; hoisted values move with a cast, never `std::move`);
+  comparisons are Go bools (check rewrites them to `gp_cgoh.Cmp`); `[...]` after a Template/ValueTemplate is
+  template arguments, else an index, `(x)[i]`/`(x).m` escape; member calls and C++ callables; `&x` of C/C++
+  variables and globals; move-only values (unique_ptr in containers); gocpp containers of C values (len, range,
+  slicing, comma-ok) lower like any gocpp container. sqlite_memory.gp passes. Left (TODO.md): `for i, x = range
+  arr` into an existing C-typed variable is an internal error from check's opaque pass (older than this job);
+  `const d = x + 1` is rejected only at build (lowering), not by check/the editor; check's gate calls
+  `const d = h2.counter + 1` "C macros in constant expressions" although counter is a variable; a comment that
+  `*p` places don't name what they point into.
 
