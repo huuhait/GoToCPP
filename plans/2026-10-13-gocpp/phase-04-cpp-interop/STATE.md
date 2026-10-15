@@ -175,4 +175,14 @@
   README §2.11: undefined references at a .gp line (from the debug info) are user errors with a hint
   (//gocpp:link or //gocpp:pkg-config, or `gocpp run .` when named files leave the folder's C/C++ files out);
   the source line follows after a tab (like gocpp check), not 8 spaces.
+- 2026-10-15 (job 4.4, decisions accepted): like cgo, a typed gocpp number, bool or string next to a C/C++
+  value in an operator or `op=` is a user error ("mismatched types C.int and int: convert one of them");
+  untyped constants are C literals, nil is nullptr, other gocpp values (pointers, structs) follow C++ rules, a
+  shift count may be any gocpp integer. This replaces docs/spec/interop.md's old "Phase 12 compatibility" line
+  that mixed arithmetic follows C++ rules in opaque mode. Places with C++ types (`v[i]`, `m[k]`, `p.m`) take
+  gocpp values by C++ conversions, like C function arguments; a call is never a place (Go's rule). Conditions
+  must be bools (`gp::cgo::cond`); `*p` goes through `gp::cgo::star` (Go's nil panic for raw pointers); `x++` is
+  `++x`; `&x` only of a C/C++ variable (not in defer/go until 4.8; `return &local` is a user error); several
+  values from one C/C++ value go through `gp::values` and `std::get` (README §2.5 updated). `==` on gocpp
+  structs with C/C++ fields is Phase 12 (Go compares fields; only typed interop can write that).
 

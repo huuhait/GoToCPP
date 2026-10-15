@@ -176,7 +176,7 @@ translates that syntax:
 | `nil` compared to or assigned to a C pointer | `nullptr` | |
 | `switch` on a C/C++ value with C/C++ constants as cases (`case windows.WM_DESTROY:`, enum constants) | an `if`/`else` chain with C++ `==` | macros and enum constants work as case values; Go's rule against duplicate constant cases can't be checked for opaque values, the C++ compiler or Phase 12 does it |
 | `for i, v := range cppContainer` | `for (auto&& [i, v] : gp::range(c))` | `gp::range` works for anything with `begin()/end()` and for C arrays. A temporary container is **stored by value** inside `gp::range` (a reference would dangle under C++20). Random-access containers are walked by index with the size read **once**, as Go reads the length once (a `push_back` in the body would otherwise break the iterators). One variable = index (key for maps), like Go. `v` is a **copy**, like Go |
-| `a, b := std.minmax(x, y)` | `auto [a, b] = gp::values(std::minmax(x, y));` | `std::minmax` returns `pair<const int&, const int&>` (spike probe). With temporary arguments the references would dangle (and with variables they alias them), so `gp::values` copies reference members into values |
+| `a, b := std.minmax(x, y)` | `auto gp_t0 = gp::values(std::minmax(x, y)); auto a = std::get<0>(gp_t0); auto b = std::get<1>(gp_t0);` (one shape for `:=`, `=`, `_` and shadowing) | `std::minmax` returns `pair<const int&, const int&>` (spike probe). With temporary arguments the references would dangle (and with variables they alias them), so `gp::values` copies reference members into values |
 
 **Untyped constants next to C/C++ values** (call arguments, operands of operators, index
 expressions, values assigned to C/C++ objects: `ages["bob"] = 31`, `s += "!"`,
