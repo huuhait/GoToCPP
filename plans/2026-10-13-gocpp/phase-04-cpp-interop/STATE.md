@@ -20,7 +20,7 @@
 - [ ] 4.11 Callbacks (function pointers, `std::function`, `cgo.Handle`) + panic trampolines
 - [~] 4.12 C++ exception → fatal Go-style panic; fmt shim prints C++ values (raw pointers as addresses)
 - [x] 4.13 Compile + link package `.c/.cc/.cpp/.cxx` sources
-- [~] 4.14 `extern "C"` rule (parse-as-C, `.hpp` not wrapped by default, `//gocpp:extern-c <hdr>`, `no-extern-c`, the §2.9 error cases)
+- [x] 4.14 `extern "C"` rule (parse-as-C, `.hpp` not wrapped by default, `//gocpp:extern-c <hdr>`, `no-extern-c`, the §2.9 error cases)
 - [x] 4.15 Directives → flags (`pkg-config`, `link`, `cflags`, `ldflags`) + the flag allow-list (port Go's security.go tables, `GOCPP_*_ALLOW`); tests use a test-only library with its own `.pc` (the dev shell hides missing flags)
 - [ ] 4.16 Local helper headers used as packages (replaces the preamble) + `C` helpers (`C.free`)
 - [x] 4.17 Interop error reporting (`.gp` line mapping, trimming, `-cpperrors=full`)
@@ -201,4 +201,15 @@
   len/cap/append of gocpp slices with C element types lower as for any slice; `v, ok := m[k]` on a C++ map is
   a user error ("assignment mismatch", hint: find/count). Accepted differences from cgo: `n << x` (gocpp value
   shifted by a C count) is an error, and `C.int + C.uint` follows C++ (cgo rejects it).
+- 2026-10-15: Job 4.14 (the extern "C" rule) committed, clean after 3 review rounds. A local `.h` is wrapped when
+  it parses as C (`-std=gnu17 -x c`, the package's C flags; the C compiler, or the C++ compiler in C mode when
+  there is none) and its own text has no `__cplusplus`; `//gocpp:extern-c` / `no-extern-c` override, with the
+  two error cases at the directive. check decides once (Package.ExternC); every probe and the build get the
+  same marked includes, so they agree. The C check is cached against its dependency list (from `-MMD`, or a
+  `-E -MM -MG` pass when the parse fails; a missing header is watched where the compiler would find it), and
+  in the language server it runs in the prober's background (answers provisional until it returns), so a
+  keystroke never waits for a compiler. Limits (documented): a guard inside an included header isn't seen; a
+  `__cplusplus` in a comment counts; a header that appears earlier on the search path isn't noticed (the same
+  as ProbeKinds). Nits left: a table test for missingRx/missingPlaces/includeFolders (Windows paths), one long
+  line in interop.md.
 
