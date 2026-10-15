@@ -3,19 +3,68 @@
 
 namespace gpkg_main {
 
+struct point;
+struct named;
+struct grid;
+struct bigBlock;
+
+struct point {
+    int64_t x = 0;
+    int64_t y = 0;
+    bool ok = false;
+    bool operator==(const point&) const = default;
+    std::size_t gp_hash() const {
+        return gp::hash_fields(x, y, ok);
+    }
+    static constexpr const char* gp_type_name = "main.point";
+    static constexpr auto gp_fields = gp::fields(gp::field(&point::x, "x", false, false), gp::field(&point::y, "y", false, false), gp::field(&point::ok, "ok", false, false));
+};
+static_assert(sizeof(point) == 24 && alignof(point) == 8);
+
+struct named {
+    gp::string name;
+    int64_t n = 0;
+    bool operator==(const named&) const = default;
+    std::size_t gp_hash() const {
+        return gp::hash_fields(name, n);
+    }
+    static constexpr const char* gp_type_name = "main.named";
+    static constexpr auto gp_fields = gp::fields(gp::field(&named::name, "name", false, false), gp::field(&named::n, "n", false, false));
+};
+static_assert(sizeof(named) == 40 && alignof(named) == 8);
+
+struct grid : gp::newtype<grid, gp::array<gp::array<int8_t, 2>, 2>> {
+    using gp::newtype<grid, gp::array<gp::array<int8_t, 2>, 2>>::newtype;
+    static constexpr const char* gp_type_name = "main.grid";
+};
+static_assert(sizeof(grid) == 4 && alignof(grid) == 1);
+
+struct bigBlock {
+    gp::array<int64_t, 32768> cells;
+    gp::string tag;
+    bool operator==(const bigBlock&) const = default;
+    std::size_t gp_hash() const {
+        return gp::hash_fields(cells, tag);
+    }
+    static constexpr const char* gp_type_name = "main.bigBlock";
+    static constexpr auto gp_fields = gp::fields(gp::field(&bigBlock::cells, "cells", false, false), gp::field(&bigBlock::tag, "tag", false, false));
+};
+static_assert(sizeof(bigBlock) == 262176 && alignof(bigBlock) == 8);
+
+point scale(int64_t f);
 int64_t next(gp::string name);
 std::tuple<int64_t, gp::string> pair();
 void gp_init_1();
 void gp_init_2();
 void main();
 
-#line 7 "$DIR/pkgvars.gp"
+#line 8 "$DIR/pkgvars.gp"
 constinit int64_t a{};
 constinit int64_t b{};
 constinit int64_t c{};
-#line 9 "$DIR/pkgvars.gp"
+#line 10 "$DIR/pkgvars.gp"
 constinit gp::string d{};
-#line 13 "$DIR/pkgvars.gp"
+#line 14 "$DIR/pkgvars.gp"
 constinit int64_t n = 42;
 constinit int64_t big = INT64_C(4611686018427387904);
 constinit gp::string s{gp::static_bytes, "str", 3};
@@ -26,8 +75,27 @@ constinit int64_t zero{};
 constinit gp::string zeroS{};
 constinit int64_t counter = 0;
 constinit int64_t initCount{};
+#line 47 "$DIR/pkgvars.gp"
+constinit point origin{};
+constinit point unit{1, 1, true};
+constinit point onlyY{.y = 2};
+constinit gp::array<point, 3> pts = gp::array_keyed<point, 3>({{1, point{.x = 4}}});
+constinit grid cells = grid(gp::array<gp::array<int8_t, 2>, 2>{gp::array<int8_t, 2>{1, 2}, gp::array<int8_t, 2>{3, 4}});
+#line 56 "$DIR/pkgvars.gp"
+constinit named nm{};
+constinit gp::slice<int64_t> list{};
+constinit gp::map<gp::string, int64_t> table{};
+constinit gp::ptr<point> pp{};
+constinit point scaled{};
+constinit gp::func<int64_t()> ref{};
+constinit bigBlock huge{};
+constinit gp::array<int64_t, 32768> hugeA{};
 
-#line 27 "$DIR/pkgvars.gp"
+#line 66 "$DIR/pkgvars.gp"
+point scale(int64_t f) {
+    return point{unit.x * f, unit.y * f, unit.ok};
+}
+
 int64_t next(gp::string name) {
     counter = counter + 1;
     gp::println("init"_gs, name, counter);
@@ -52,20 +120,32 @@ void main() {
     gp::fmtshim::Println(a, b, c, d, n, big, s, empty, f, t, zero, zeroS, int64_t(7), initCount);
     n = n + 7;
     gp::fmtshim::Println(n);
+    gp::fmtshim::Println(origin.ok, unit.x, onlyY.y, pts[1].x, cells[1][0], nm.name, nm.n, gp::len(list), gp::get(table, "a"_gs));
+    pp->x = 10;
+    { auto gp_t0 = ref.gp_call(); gp::fmtshim::Println(unit.x, scaled.y, gp_t0, huge.tag, huge.cells[1], hugeA[0], hugeA[2]); }
 }
 
 void gp_var_init() {
-#line 8 "$DIR/pkgvars.gp"
+#line 9 "$DIR/pkgvars.gp"
     b = gpkg_main::next("b"_gs);
-#line 7 "$DIR/pkgvars.gp"
+#line 8 "$DIR/pkgvars.gp"
     a = b + 1;
-#line 9 "$DIR/pkgvars.gp"
+#line 10 "$DIR/pkgvars.gp"
     auto gp_t0 = pair();
-#line 9 "$DIR/pkgvars.gp"
+#line 10 "$DIR/pkgvars.gp"
     c = std::get<0>(gp_t0);
-#line 9 "$DIR/pkgvars.gp"
+#line 10 "$DIR/pkgvars.gp"
     d = std::get<1>(gp_t0);
     static_cast<void>(gpkg_main::next("blank"_gs));
+#line 56 "$DIR/pkgvars.gp"
+    nm = named{"n"_gs, n};
+    list = gp::slice_of<int64_t>({n, 7});
+    table = gp::map_of<gp::string, int64_t>({{"a"_gs, 1}});
+    pp = gp::static_ptr(unit);
+    scaled = scale(2);
+    ref = gp::func<int64_t()>([]<int = 1>() mutable -> int64_t { return unit.x + counter; });
+    huge.cells[1] = n; huge.tag = "huge"_gs;
+    hugeA[0] = n; hugeA[2] = 7;
 }
 
 void gp_init_funcs() {

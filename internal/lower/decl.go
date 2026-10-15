@@ -224,8 +224,8 @@ func moved(typ cppir.Type, x cppir.Expr) cppir.Expr {
 // initializer is a constant gets its value at compile time, one whose initializer is nil (var
 // s []int = nil) is its zero value, and the others start at their zero value and get their
 // values in gp_var_init, in Go's order (types.Info.InitOrder). A slice literal needs its
-// array on the heap, so it is never constinit; an array literal of number and bool constants is
-// (constArray).
+// array on the heap, so it is never constinit; an array or a struct literal of number and bool
+// constants is (constLit, pkgvars.go).
 func (g *gen) packageVars() {
 	byVar := make(map[*types.Var]*types.Initializer)
 	for _, init := range g.info.InitOrder {
@@ -245,15 +245,15 @@ func (g *gen) packageVars() {
 			} else {
 				value = g.constant(c, v.Type(), v.Pos(), false)
 			}
-		} else if x := g.constArray(byVar[v]); x != nil {
-			value = x // an array literal of constants (arrays.go)
+		} else if x := g.constLit(byVar[v]); x != nil {
+			value = x // an array or a struct literal of constants (pkgvars.go)
 		}
 		d := varDecl(g.pos(v.Pos()), typ, g.names[v], value)
 		d.Specs = []string{"constinit"}
 		g.decl(d)
 	}
 	for _, init := range g.info.InitOrder {
-		if constInit(g.info, init) == nil && !nilInit(g.info, init) && g.constArray(init) == nil {
+		if constInit(g.info, init) == nil && !nilInit(g.info, init) && g.constLit(init) == nil {
 			g.varInits = true
 		}
 	}
@@ -293,7 +293,7 @@ func (g *gen) initFuncs() {
 		fn := &cppir.Func{Result: typeName("void"), Name: "gp_var_init", Body: &cppir.Block{}}
 		fg.push(&fn.Body.Stmts, nil)
 		for _, init := range g.info.InitOrder {
-			if constInit(g.info, init) != nil || nilInit(g.info, init) || g.constArray(init) != nil {
+			if constInit(g.info, init) != nil || nilInit(g.info, init) || g.constLit(init) != nil {
 				continue
 			}
 			fg.top = init.Rhs
@@ -302,6 +302,9 @@ func (g *gen) initFuncs() {
 				g.noteConversion(init.Rhs, init.Lhs[0].Type()) // named.go
 			}
 			g.noteConversions(init.Rhs, nil)
+			if fg.largeInit(init) { // built in the variable (pkgvars.go)
+				continue
+			}
 			targets := make([]target, len(init.Lhs))
 			for i, v := range init.Lhs {
 				if v.Name() != "_" {

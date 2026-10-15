@@ -182,53 +182,6 @@ func hasKeys(e *ast.CompositeLit) bool {
 	return false
 }
 
-// constArray returns the C++ initializer of a package variable whose initializer is an array
-// literal that C++ can evaluate at compile time (array.hpp): every element a number or a bool
-// constant, or a nested literal of the same kind, positional or keyed. The variable is then
-// constinit with it (packageVars), and gp_var_init doesn't set it. The outer literal is a braced
-// list, garr{1, 2, 3}. Others (strings, pointers, any element that is not a constant) return nil.
-func (g *gen) constArray(init *types.Initializer) cppir.Expr {
-	if init == nil || len(init.Lhs) != 1 || init.Lhs[0].Name() == "_" {
-		return nil
-	}
-	cl, ok := ast.Unparen(init.Rhs).(*ast.CompositeLit)
-	if !ok || !isArray(g.info.TypeOf(cl)) {
-		return nil
-	}
-	x := g.constArrayLit(cl)
-	if x == nil {
-		return nil
-	}
-	// A literal of an unnamed array type for a variable of a named one (var g Grid = [3]int{...})
-	// is converted to it (step 3.9).
-	x = g.convertTo(g.info.TypeOf(cl), init.Lhs[0].Type(), x, cl.Pos())
-	if l, ok := x.(*cppir.InitList); ok {
-		l.Type = nil // the variable's braced initializer
-	}
-	return x
-}
-
-// constArrayLit returns the C++ of the array literal e if C++ can evaluate it at compile time
-// (constArray), or nil.
-func (g *gen) constArrayLit(e *ast.CompositeLit) cppir.Expr {
-	var elem func(x ast.Expr) cppir.Expr
-	elem = func(x ast.Expr) cppir.Expr {
-		if l, ok := ast.Unparen(x).(*ast.CompositeLit); ok {
-			if !isArray(g.info.TypeOf(l)) {
-				return nil
-			}
-			return g.arrayLitValue(l, elem)
-		}
-		tv := g.info.Types[x]
-		b := underBasic(tv.Type) // Celsius(1.5) is constexpr too
-		if tv.Value == nil || b == nil || b.Info()&(types.IsNumeric|types.IsBoolean) == 0 {
-			return nil
-		}
-		return g.constant(tv.Value, tv.Type, x.Pos(), false)
-	}
-	return g.arrayLitValue(e, elem)
-}
-
 // arrayIndex returns the C++ of a[i] for an array a, a T& that can be assigned (gp::array's
 // operator[], which checks the bounds), or of p[i] for a pointer p to an array, (*p)[i]: a nil
 // p panics with the nil dereference before the index is checked, as in Go.

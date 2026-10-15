@@ -513,7 +513,7 @@ and returning an array copies it, as in Go.
 | `for i, v := range a` | `for (auto gp_it0 = gp::range_array_copy(a); gp::range_next(gp_it0);) { int64_t i = gp_it0.gp_i; T v = gp_it0.gp_v(); ...` | over a copy of `a`, as in Go; `gp::range_array(a)` without the copy where the body can't change `a`; `gp::range_array(p)` through a pointer (the body's writes are seen) |
 | `for i := range a` | `for (int64_t gp_i0 = 0; gp_i0 < N; gp_i0++) { int64_t i = gp_i0; ...` | `a` is not evaluated (`for i := range p` of a nil `p` doesn't panic), unless it has a call: `gp::len(f())` |
 | `x := [1 << 21]int{5: 3}` (over 128 KiB) | `gp::ptr<gp::array<int64_t, 2097152>> x = gp::new_array_keyed<int64_t, 2097152>({{5, 3}});` | boxed, and built in its box (below) |
-| `var garr = [3]int{1, 2, 3}` | `constinit gp::array<int64_t, 3> garr{1, 2, 3};` | an array literal of number and bool constants is set at compile time; the others in `gp_var_init` |
+| `var garr = [3]int{1, 2, 3}` | `constinit gp::array<int64_t, 3> garr{1, 2, 3};` | an array literal of number and bool constants is set at compile time; the others in `gp_var_init` ([package initialization](#package-initialization)) |
 
 **Range copies.** Go ranges over a copy of an array, so `for _, v := range a { a[1] = 100 }`
 still sees the old `a[1]`. gocpp makes that copy only where the body could change the array:
@@ -1135,15 +1135,65 @@ Here package `main` imports `b` and `c`, and `b` imports `z`. Go 1.25 runs the i
 `c`, `z`, `b`, `main`.
 
 - **Inside a package**, package-level variables are set in Go's dependency order
-  (`types.Info.InitOrder` from `go/types`), inside a generated `gp_var_init()`. Then the `init()`
-  functions (renamed `gp_init_1` … `gp_init_n`) run in source order from `gp_init_funcs()`.
+  (`types.Info.InitOrder` from `go/types`), inside a generated `gp_var_init()`: a variable comes
+  after every variable that its initializer refers to, also through functions, methods, method
+  values and func literals, and otherwise in declaration order, across the files of the
+  package (which the loader sorts by name, as the go command does). `var a, b = f()` calls `f`
+  once (`auto gp_t0 = f(); a = std::get<0>(gp_t0); ...`) and `var _ = f()` still calls `f`.
+  Then the `init()` functions (renamed `gp_init_1` … `gp_init_n`) run in source order, file by
+  file, from `gp_init_funcs()`, each to its end (its deferred calls too) before the next. `init`
+  can't be called or referred to (`undefined: init`, go/types' error, as in Go).
+
+  ```go
+  var total = sum(values) // after values
+  var values = []int{1, 2}
+  var origin = point{1, 2}
+  var cells = [1 << 21]int{0: f()}
+
+  func init() { println(total) }
+  ```
+
+  ```cpp
+  constinit int64_t total{};
+  constinit gp::slice<int64_t> values{};
+  constinit point origin{1, 2};                  // a literal of constants: at compile time
+  constinit gp::array<int64_t, 2097152> cells{};
+
+  void gp_init_1() { gp::println(total); }
+
+  void gp_var_init() {
+      values = gp::slice_of<int64_t>({1, 2});
+      total = sum(values);
+      cells[0] = f();                            // built in place: no 16 MiB temporary
+  }
+
+  void gp_init_funcs() { gp_init_1(); }
+  ```
+
+- A panic during initialization prints Go's trace: the initializers of the package variables
+  are in `main.init` (at the variable's line), the init functions are `main.init.0`,
+  `main.init.1`, … in source order across the files, and a func literal is `main.init.func1` in
+  a variable's initializer and `main.init.0.func1` in an init function.
 - **Across packages**, gocpp uses Go's rule since Go 1.21: sort all packages by import path, then
   again and again initialize the **first** package in that list whose imports are all
   initialized. The driver computes this order at link time and generates `gp_init_all()`.
-- Package variables are declared `constinit`, so C++ runs no dynamic initializers of its own. A
-  variable with a constant value gets it at compile time (also an array literal of number and
-  bool constants); the others are assigned in `gp_var_init()`. Variables of C++ types that can't be constant-initialized use `gp::lazy<T>`
-  storage, which is constructed in `gp_var_init()`.
+- Package variables are declared `constinit`, so C++ runs no dynamic initializers of its own,
+  and no static initializer can read a variable of another C++ file before `gp_var_init()` has
+  run (C++'s "static initialization order fiasco" can't happen). A variable with a constant
+  value gets it at compile time (a string through `gp::static_bytes`), and so does an array or
+  a struct literal whose values are number and bool constants or nested literals of the same
+  kind, in a type made of numbers (also complex ones) and bools only (`point{1, 2}`, `point{y:
+  2}`, `[3]point{1: {x: 4}}`; not strings, pointers, slices or maps, which are not literal types
+  in C++); `var x T` is its zero value, `T x{};`. The others are zero at first and assigned in `gp_var_init()`.
+  A variable larger than 128 KiB lives in static storage, never on the stack, and is never
+  constinit with a literal (clang++ can't build a keyed literal of more than 1 << 20 elements at
+  compile time); when a literal initializes it, also inside a conversion between types with the
+  same underlying type, `gp_var_init()` stores the literal's elements and fields into the
+  variable one by one (the variable is still zero then, and Go's initialization-cycle rule means
+  nothing in the initializer can read it), so the value is never a temporary on the C++ stack. Any other
+  initializer of such a variable (a call's result) is one ([D24](language.md#d24-large-values-on-the-c-stack)).
+  Variables of C++ types that can't be constant-initialized use `gp::lazy<T>` storage, which is
+  constructed in `gp_var_init()` (Phase 06).
 - `gp::run_main(argc, argv, init, main)` stores the arguments (for `os.Args`), runs the init
   function, runs `main`, and exits with code 0. An unrecovered panic prints `panic: <message>`,
   `goroutine 1 [running]:` and a stack trace, and exits with code 2, as in Go (see

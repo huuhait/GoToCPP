@@ -92,7 +92,7 @@ void main();
 
 #line 25 "$DIR/methodvalues.gp"
 constinit gp::ptr<T> g{};
-constinit T gv{};
+constinit T gv{10};
 
 #line 14 "$DIR/methodvalues.gp"
 int64_t T::M() const {
@@ -272,7 +272,6 @@ void main() {
 void gp_var_init() {
 #line 25 "$DIR/methodvalues.gp"
     g = gp::new_<T>(T{1});
-    gv = T{10};
 }
 
 } // namespace gpkg_main

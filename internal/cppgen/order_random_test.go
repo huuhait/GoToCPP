@@ -57,7 +57,8 @@ import (
 // argument changes it), of an element of a package slice of funcs, of a counter closure of main
 // that changes a boxed variable, of a closure that reads locals of main and a package variable
 // when it runs, of func literals called at once, and deferred calls of the package func
-// variable.
+// variable, and package variables (step 3.16) whose initializers call e and the methods, in
+// Go's initialization order.
 // It compares what each prints with real Go, on both compilers.
 //
 //	GOCPP_RANDOM_TESTS=1 go test ./internal/cppgen -run TestRandomOrder
@@ -514,9 +515,30 @@ func (g *progGen) program() string {
 	g.printf("if pc != nil {")
 	g.printf("\tfmt.Println(*pc)")
 	g.printf("}")
+	g.printf("fmt.Println(gi0, gi1, gok, gi2)")
 	g.indent--
 	g.printf("}")
+	g.pkgVars()
 	return g.b.String()
+}
+
+// pkgVars writes package variables whose initializers call e and the methods and read the
+// package variables (step 3.16), after main: Go initializes them before main, in its order
+// (types.Info.InitOrder), after every variable that they refer to, also through e, so gi1 and
+// gok (one map read for two variables) come before gi0, and the blank variable's initializer
+// runs too. They have their own random numbers and tags from 1000 on, so main is the same
+// program as without them. They call no helper, which may read through pl, nil until main.
+func (g *progGen) pkgVars() {
+	g.r = rand.New(rand.NewSource(g.r.Int63()))
+	g.tag = 1000
+	g.main, g.helpers = false, 0
+	g.locals = []string{"g0", "g1", "gz"}
+	g.ptrs = []string{"pg", "psl", "gpa", "pfa"}
+	g.printf("")
+	g.printf("var gi0 = %s + gi1", g.expr(3))
+	g.printf("var gi1, gok = gmp[%s & 3]", g.expr(2))
+	g.printf("var _ = e(%d, %s)", g.nextTag(), g.expr(2))
+	g.printf("var gi2 = %s", g.expr(3))
 }
 
 func (g *progGen) printf(format string, args ...any) {

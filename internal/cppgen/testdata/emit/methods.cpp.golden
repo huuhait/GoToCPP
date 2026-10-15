@@ -256,7 +256,7 @@ void main();
 constinit int64_t X = 100;
 #line 157 "$DIR/methods.gp"
 constinit gp::ptr<T> g{};
-constinit T gv{};
+constinit T gv{10};
 constinit gp::slice<T> gs{};
 
 #line 17 "$DIR/methods.gp"
@@ -682,7 +682,7 @@ void main() {
 void gp_var_init() {
 #line 157 "$DIR/methods.gp"
     g = gp::new_<T>(T{1});
-    gv = T{10};
+#line 159 "$DIR/methods.gp"
     gs = gp::slice_of<T>({T{100}, T{200}});
 }
 

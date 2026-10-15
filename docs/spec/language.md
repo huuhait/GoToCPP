@@ -640,6 +640,12 @@ func main() {
   `f(Big{n: 3})`) is a temporary on the stack, and so is the copy that an assignment of a struct
   makes when its value is reached through a pointer or a slice (`b = *p`, which gocpp copies
   first so that the store can't free the value while it reads it).
+- **Package variables** of such types are in static storage, never on the stack. A literal that
+  initializes one, also inside a conversion (`block([1 << 21]int{...})`), is stored into the
+  variable element by element and field by field when the package is initialized (`var grid =
+  [1 << 21]int{0: f()}`), so it is never a temporary either. A package variable initialized by
+  a call's result (`var grid = makeGrid()`) gets it through a temporary on the stack, like a
+  local's result.
 - **Phase:** [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#23-strings-slices-arrays-maps).
 
 

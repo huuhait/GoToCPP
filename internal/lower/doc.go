@@ -43,6 +43,9 @@
 //   - decl.go: functions (parameters, results as a std::tuple, named results), package
 //     variables (constinit) and the package's initialization (gp_var_init, the init
 //     functions);
+//   - pkgvars.go: package variables (step 3.16): the array and struct literals of constants that
+//     C++ initializes at compile time (constinit), and the variables larger than 128 KiB that
+//     gp_var_init builds in place from a literal;
 //   - stmt.go, control.go and flow.go: statements (control.go has if, for, range and switch,
 //     flow.go finds where each break and continue goes), and the statement lists (add, push,
 //     pop);
@@ -54,7 +57,7 @@
 //   - addr.go: &x, the owner table (every pointer shares the owner of what it points into);
 //   - slices.go: slices (step 3.5): literals, make, append, copy, clear, the conversions
 //     between strings and slices, and the move of s in s = append(s, x);
-//   - arrays.go: arrays (step 3.6): literals (constinit ones too), a[i] and p[i], slicing,
+//   - arrays.go: arrays (step 3.6): literals, a[i] and p[i], slicing,
 //     the owner of &a[i] (addrOf), the conversions from slices, and range over arrays (with a
 //     copy only where the body could change the array);
 //   - maps.go: maps (step 3.7): literals in gc's order, m[k] reads and stores, op= and ++ on an
