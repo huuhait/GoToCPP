@@ -195,4 +195,10 @@
   "seeded C++-side errors at the correct .gp line" holds for the 6 seeds (tests/interop/cpp_error_*.gp) on both
   compilers. Accepted limits: a gocpp bug on a line that also has C/C++ code counts as the user's; a multi-line
   C/C++ expression marks all its lines.
+- 2026-10-15 (4.4 review, decisions): comparisons of C/C++ values are Go bools (like cgo: `var b bool = x == 3`,
+  `return p == nil`); conditions accept class types that convert implicitly to bool (std::vector<bool>'s proxy);
+  `&lib.global` is allowed (static lifetime); `&i` of a per-iteration loop variable of C/C++ type waits for 4.8;
+  len/cap/append of gocpp slices with C element types lower as for any slice; `v, ok := m[k]` on a C++ map is
+  a user error ("assignment mismatch", hint: find/count). Accepted differences from cgo: `n << x` (gocpp value
+  shifted by a C count) is an error, and `C.int + C.uint` follows C++ (cgo rejects it).
 
