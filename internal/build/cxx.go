@@ -42,7 +42,8 @@ func (f Family) String() string {
 	return fmt.Sprintf("Family(%d)", int(f))
 }
 
-// A CXX is a C++ compiler, as FindCXX or LookCXX found it.
+// A CXX is a C++ compiler, as FindCXX or LookCXX found it, or a C
+// compiler (C set), as FindCC found it.
 type CXX struct {
 	// Path is the absolute path of the compiler program, as it was found
 	// in PATH (symbolic links are not resolved).
@@ -67,6 +68,10 @@ type CXX struct {
 	// rejects a compiler older than MinClang or MinGCC.
 	Major int
 
+	// C says that this is a C compiler (FindCC), not a C++ compiler: it is
+	// detected with -x c, and messages call it "the C compiler".
+	C bool
+
 	// stamp is the program file as LookCXX saw it (its real path, size
 	// and modification time), for the cache keys of the runtime's object
 	// files: a compiler that was replaced by another with the same version
@@ -87,6 +92,14 @@ func (c CXX) Command(ctx context.Context, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, c.Path, append(slices.Clip(c.Args), args...)...)
 	cmd.Env = CompilerEnv()
 	return cmd
+}
+
+// kind returns "C compiler" or "C++ compiler", for messages.
+func (c CXX) kind() string {
+	if c.C {
+		return "C compiler"
+	}
+	return "C++ compiler"
 }
 
 // Name returns the compiler as messages show it: the base name of Path,
@@ -173,25 +186,27 @@ func SplitCommand(s string) ([]string, error) {
 // is cached for the program file, so another call runs nothing while the
 // file stays the same.
 func LookCXX(ctx context.Context, prog string) (CXX, error) {
-	return lookCommand(ctx, prog, nil)
+	return lookCommand(ctx, prog, nil, false)
 }
 
-// lookCommand is LookCXX for the program prog with the arguments args.
-func lookCommand(ctx context.Context, prog string, args []string) (CXX, error) {
+// lookCommand is LookCXX for the program prog with the arguments args, for
+// a C compiler with c.
+func lookCommand(ctx context.Context, prog string, args []string, c bool) (CXX, error) {
+	kind := CXX{C: c}.kind()
 	show := strings.Join(append([]string{prog}, args...), " ")
 	path, err := exec.LookPath(prog)
 	if err != nil {
-		return CXX{}, fmt.Errorf("the C++ compiler %q was not found: %w", show, err)
+		return CXX{}, fmt.Errorf("the %s %q was not found: %w", kind, show, err)
 	}
 	// A relative path ("./bin/c++") must not change meaning when the
 	// compiler later runs in another folder.
 	if path, err = filepath.Abs(path); err != nil {
-		return CXX{}, fmt.Errorf("the C++ compiler %q: %w", show, err)
+		return CXX{}, fmt.Errorf("the %s %q: %w", kind, show, err)
 	}
 	if len(args) == 0 {
 		args = nil // the same CXX as LookCXX's
 	}
-	return lookPath(ctx, path, slices.Clone(args))
+	return lookPath(ctx, path, slices.Clone(args), c)
 }
 
 // detectTimeout limits each run of the compiler in LookCXX, also when ctx
@@ -242,23 +257,27 @@ func commandKey(path string, args []string) string {
 }
 
 // lookPath returns the compiler at the absolute path path, run with the
-// arguments args, from the cache when the program file hasn't changed.
+// arguments args (a C compiler with c), from the cache when the program
+// file hasn't changed.
 // (With arguments, the program is often a launcher such as ccache, and
 // only its file is watched: a cached answer stays while the process
 // runs, even if the compiler that it starts changes.)
-func lookPath(ctx context.Context, path string, args []string) (CXX, error) {
+func lookPath(ctx context.Context, path string, args []string, c bool) (CXX, error) {
 	stamp, err := stampOf(path)
 	if err != nil {
-		return CXX{}, fmt.Errorf("the C++ compiler %s: %w", path, err)
+		return CXX{}, fmt.Errorf("the %s %s: %w", CXX{C: c}.kind(), path, err)
 	}
 	key := commandKey(path, args)
+	if c {
+		key = "c\x00" + key
+	}
 	detected.Lock()
 	d, ok := detected.m[key]
 	detected.Unlock()
 	if ok && d.stamp == stamp {
 		return d.cxx, nil
 	}
-	cxx, err := detect(ctx, CXX{Path: path, Args: args, stamp: stamp})
+	cxx, err := detect(ctx, CXX{Path: path, Args: args, C: c, stamp: stamp})
 	if err != nil {
 		return CXX{}, err
 	}
@@ -268,7 +287,7 @@ func lookPath(ctx context.Context, path string, args []string) (CXX, error) {
 	return cxx, nil
 }
 
-// detect runs the compiler c (Path and Args set) to find out its version
+// detect runs the compiler c (Path, Args and C set) to find out its version
 // line, its family and its major version.
 func detect(ctx context.Context, c CXX) (CXX, error) {
 	show := c.Path
@@ -281,22 +300,26 @@ func detect(ctx context.Context, c CXX) (CXX, error) {
 	}
 	c.Version = firstLine(out)
 	if c.Version == "" {
-		return CXX{}, fmt.Errorf("the C++ compiler %s printed nothing for --version", show)
+		return CXX{}, fmt.Errorf("the %s %s printed nothing for --version", c.kind(), show)
 	}
 	// "-x c++ -" reads an empty C++ file from stdin (exec gives the
 	// program the null device), so this works without a temporary file.
-	out, err = runDetect(ctx, c, show, "-dM", "-E", "-x", "c++", "-")
+	lang := "c++"
+	if c.C {
+		lang = "c"
+	}
+	out, err = runDetect(ctx, c, show, "-dM", "-E", "-x", lang, "-")
 	if err != nil {
 		return CXX{}, err
 	}
 	c.Family, c.Major = familyOf(out)
 	switch {
 	case c.Family == 0:
-		return CXX{}, fmt.Errorf("the C++ compiler %s (%s) is neither clang nor gcc: it defines neither __clang__ nor __GNUC__", show, c.Version)
+		return CXX{}, fmt.Errorf("the %s %s (%s) is neither clang nor gcc: it defines neither __clang__ nor __GNUC__", c.kind(), show, c.Version)
 	case c.Family == Clang && c.Major < MinClang:
-		return CXX{}, fmt.Errorf("the C++ compiler %s (%s) is too old: gocpp needs clang %d or newer", show, c.Version, MinClang)
+		return CXX{}, fmt.Errorf("the %s %s (%s) is too old: gocpp needs clang %d or newer", c.kind(), show, c.Version, MinClang)
 	case c.Family == GCC && c.Major < MinGCC:
-		return CXX{}, fmt.Errorf("the C++ compiler %s (%s) is too old: gocpp needs gcc %d or newer", show, c.Version, MinGCC)
+		return CXX{}, fmt.Errorf("the %s %s (%s) is too old: gocpp needs gcc %d or newer", c.kind(), show, c.Version, MinGCC)
 	}
 	return c, nil
 }
@@ -324,14 +347,14 @@ func runDetect(ctx context.Context, c CXX, show string, args ...string) ([]byte,
 	what := strings.Join(args, " ")
 	switch {
 	case ctx.Err() != nil:
-		return nil, fmt.Errorf("the C++ compiler %s: %s: %w", show, what, ctx.Err())
+		return nil, fmt.Errorf("the %s %s: %s: %w", c.kind(), show, what, ctx.Err())
 	case err != nil:
 		if msg := firstLine(stderr.buf.Bytes()); msg != "" {
-			return nil, fmt.Errorf("the C++ compiler %s: %s failed: %v: %s", show, what, err, msg)
+			return nil, fmt.Errorf("the %s %s: %s failed: %v: %s", c.kind(), show, what, err, msg)
 		}
-		return nil, fmt.Errorf("the C++ compiler %s: %s failed: %v", show, what, err)
+		return nil, fmt.Errorf("the %s %s: %s failed: %v", c.kind(), show, what, err)
 	case stdout.full:
-		return nil, fmt.Errorf("the C++ compiler %s: %s printed more than %d bytes", show, what, maxDetectOutput)
+		return nil, fmt.Errorf("the %s %s: %s printed more than %d bytes", c.kind(), show, what, maxDetectOutput)
 	}
 	return stdout.buf.Bytes(), nil
 }

@@ -593,8 +593,9 @@ pkg-config sdl2
 ```
 
 **Sources.** The C and C++ files in the package directory are compiled and linked, like cgo does:
-`.c` with `$CC -std=c17`, and `.cc`, `.cpp`, `.cxx` with `$CXX -std=c++20`, using the package's
-flags.
+`.c` with the C compiler and `-std=gnu17`, and `.cc`, `.cpp`, `.cxx` with the C++ compiler and
+`-std=c++20`, using the package's flags ([C and C++ sources in a
+package](#c-and-c-sources-in-a-package)).
 
 **Directives** are line comments before the `package` clause, like `//go:build`.
 
@@ -639,6 +640,89 @@ The rules for directives:
 - A directive can be repeated, and the repeats add up: two `//gocpp:link` lines link the
   libraries of both.
 
+### C and C++ sources in a package
+
+The C and C++ files in the folder of a package are part of the package, as in cgo: `gocpp build`
+and `gocpp run` compile them and link them into the program. A `.gp` file calls them through a
+header next to them ([Small helpers](#small-helpers-a-header-next-to-the-gp-file)).
+
+**Which files.**
+- `.c` files are C. `.cc`, `.cpp` and `.cxx` files are C++. These are cgo's extensions: `.c++`
+  and `.C` files are not compiled, and neither are headers (`.h`, `.hpp`, …).
+- Files whose names start with `_` or `.` are left out, as for `.gp` files.
+- The build constraints of `.gp` files apply: a suffix of the file name (`io_linux.c`,
+  `gl_windows.cpp`, `simd_amd64.c`), and a `//go:build` line in the comments at the top of the
+  file, before any code. A broken `//go:build` line is an error at the file.
+
+  ```c
+  // A helper for Windows only.
+  //go:build windows
+
+  #include <windows.h>
+  ```
+- Only a package folder has them: `gocpp run main.gp` builds only `main.gp`, like
+  `go run main.go`. Use `gocpp run .` for a package with C or C++ files.
+- Until Phase 06 a program is one package, so these are the files of the main package.
+- Assembly (`.s`, `.S`, `.sx`), Objective-C (`.m`), Fortran (`.f`, `.F`, `.for`, `.f90`), SWIG
+  (`.swig`, `.swigcxx`) and `.syso` files, which cgo also builds or links, are an error: gocpp
+  doesn't build them, and the program would miss their code.
+
+  ```text
+  ./start.S: assembly files (.S) are not supported: gocpp compiles only the .c, .cc, .cpp and .cxx files of a package
+  ```
+
+**Which compiler.** The C++ files are compiled with the C++ compiler of the build (`GOCPP_CXX`,
+else `CXX`, else `clang++`, else `g++`). The C files are compiled with the compiler in
+`GOCPP_CC`, which, like `GOCPP_CXX`, can hold arguments after the program. Without it, gocpp
+takes the C compiler of the same toolchain as the C++ compiler, from the same folder, else from
+`PATH`: `gcc` for `g++`, `clang` for `clang++`, `clang-18` for `clang++-18`,
+`x86_64-w64-mingw32-gcc` for `x86_64-w64-mingw32-g++`, and `ccache gcc` for `ccache g++`. The
+other arguments in `GOCPP_CXX` go to the C compiler too, so a C++-only one (`GOCPP_CXX="g++
+-fno-rtti"`) makes gcc warn at each `.c` file: set `GOCPP_CC` then. `CC` is not used: a Nix shell
+sets `CC=gcc` also when you build with `clang++`. Mixing two compilers in one program is not
+supported: gocpp doesn't check that `GOCPP_CC` is of the same family as the C++ compiler, and only
+warns about it with `-asan`. A C compiler is only looked for when the package has `.c` files.
+
+**Which flags.** Each compile gets, in this order:
+
+| Flags | Why |
+|---|---|
+| `-g -O0`, and for clang `-Qunused-arguments` | a debug build, like the generated C++; the `-O` is always explicit (a hardened Nix compiler wrapper turns a missing `-O` into `-O2`) |
+| with `-asan`: `-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all` | the sanitizers see the bugs of your C and C++ code too |
+| `-std=gnu17` (C) or `-std=c++20` (C++) | the language: the same C with both compilers, with the POSIX and GNU names of glibc (`strdup`, `fileno`, `M_PI`), as C++ has them; not the newest C (gcc 15's default is `gnu23`, where `bool` and `true` are keywords and `f()` means `f(void)`, which breaks old C code) |
+| `-iquote <package folder>` | `#include "x.h"` finds the headers next to the file, and no file there can hide a system header like `<vector>` |
+| `-include <runtime>/include/gocpp/nofortify.h` | a hardened Nix compiler wrapper adds `-D_FORTIFY_SOURCE` after all flags, which warns at `-O0`; the header turns it off when nothing is optimized |
+| `GOCPP_CFLAGS`, and for C++ `GOCPP_CXXFLAGS` after it | the trusted flags of the environment |
+| the package's compile flags | `//gocpp:cflags` and `pkg-config --cflags`, after the allow-list |
+| `-c -x c` or `-c -x c++`, the file, `-o` the object file | |
+
+Your flags come after gocpp's, so they win: a package can build its own files with `-O2`, `-Wall
+-Werror` or `-std=gnu11`. A package's compile flags go to both languages, though (and to the
+generated C++, where gocpp's language flags win), so a `-std=` for one language breaks the files of
+the other; there is no variable for C only yet. The flags that gocpp's generated C++ gets are not
+for your code: not the language flags (`-fwrapv`, `-fno-strict-aliasing`, `-ffp-contract=off`,
+which give Go's semantics, not C's), not `-Wno-error`, and not the warning flags of generated
+C++. `-nochecks` changes nothing here.
+
+**Errors.** An error in your own file is your error, not gocpp's: `gocpp build` prints the
+compiler's output under the package's line, with the paths as `gocpp check` writes them, and exits
+with status 1. The warnings of files that compile are shown the same way, and the build goes on.
+
+```text
+# command-line-arguments
+./bad.c:2:9: error: 'missing' undeclared (first use in this function)
+```
+
+A program that doesn't link while the package has C or C++ files (a function that no file
+defines, a second `main`) is reported as the program's link error too, with the list of the files,
+and exit status 1. `gocpp build -x` shows every compile and the link.
+
+**Objects and the link.** The object files go into the work folder as `$WORK/cobj/<file>.o`
+(`a.c.o` and `a.cpp.o`, so a C file and a C++ file can have the same base name). The files
+compile at the same time, up to 8, while the generated C++ compiles. The link gets them after the
+generated object file and before the runtime's object files and the libraries. Phase 06 keeps them
+in the build cache and gives `-p`.
+
 ### Flags and the allow-list
 
 The flags of a package come from its directives:
@@ -668,8 +752,8 @@ comes right before the source: `-std=c++20`, `-fwrapv`, `-fno-strict-aliasing`,
 `-ffp-contract=off`, `-fexceptions` and `-fno-fast-math`. The generated C++ relies on them (Go's
 wrapping integers, its exact floating-point results, panics as C++ exceptions), and for each of
 them the last one wins with g++ and clang++. So `-std=c++17`, `-ffast-math`, `-fstrict-aliasing`
-or `-fno-exceptions` in a package's flags change nothing there (the C standard of a package's own
-`.c` files is another matter, Phase 04 step 4.13). A package can still choose `-O…` and `-g…`
+or `-fno-exceptions` in a package's flags change nothing there (a package's own C and C++ files get
+its flags after gocpp's, see [C and C++ sources in a package](#c-and-c-sources-in-a-package)). A package can still choose `-O…` and `-g…`
 (`-Ofast` acts as `-O3` then: its fast math is turned off again, and clang notes that). A
 `-Wno-error` comes after them too, so a package's `-Werror -Wshadow` doesn't fail valid Go code
 (`i := i` in a loop), while gocpp's own `-Werror=…` checks stay errors. When `GOCPP_CFLAGS` or
@@ -745,8 +829,8 @@ escapes):
 
 `GOCPP_CFLAGS` goes to the C++ compiles too, unlike cgo's `CGO_CFLAGS` (Go uses `CGO_CPPFLAGS`
 for flags of both languages): it is like `//gocpp:cflags`, which is for both. So it is for flags
-such as `-I`, `-D` or `-O2`, not `-std=c17`; a flag for one language goes into `GOCPP_CXXFLAGS`
-(C++ only; C-only flags come with the C sources of step 4.13).
+such as `-I`, `-D` or `-O2`, not `-std=gnu11`; a flag for one language goes into `GOCPP_CXXFLAGS`
+(C++ only; there is no variable for C only yet).
 
 They come before the package's own compile flags, so their `-I` folders are searched first. As
 they also go to the runtime, they are part of the key of the runtime's cached object files: a flag

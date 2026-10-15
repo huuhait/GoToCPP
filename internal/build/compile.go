@@ -53,17 +53,34 @@ type Builder struct {
 
 	// Package are the flags of the program's package, after the allow-list
 	// (check.Package.Flags): Compile goes to the compile of the generated
-	// C++, after the environment's flags, and Link to the link, after the
-	// object files. Until Phase 06, a program is one package.
+	// C++ and of the package's C and C++ files, after the environment's
+	// flags, and Link to the link, after the object files. Until Phase 06,
+	// a program is one package.
 	Package PackageFlags
+
+	// Dir is the folder of the program's package, and CFiles and CXXFiles
+	// are the names of its C and C++ files there (load.Package): Program
+	// compiles them (see sources.go) and links them in. CC is the C
+	// compiler (FindCC); it is needed only with CFiles.
+	Dir              string
+	CFiles, CXXFiles []string
+	CC               CXX
+
+	// SourceWarnings, if not nil, gets what the compiler printed for a C
+	// or C++ file of the package that compiled (its warnings), instead of
+	// Stderr: the driver shows them under the package's name, as errors in
+	// these files. It is called for one file at a time.
+	SourceWarnings func(out []byte)
 
 	traceMu sync.Mutex
 }
 
-// A CompileError is a compile or a link that failed. In Phase 02 there is
-// no user C++ yet, so it is a gocpp bug.
+// A CompileError is a compile or a link that failed. For the generated
+// C++ and the runtime, without flags of the user, it is a gocpp bug; for a
+// C or C++ file of the package (Source), an error of the user.
 type CompileError struct {
-	What    string // what was compiled: "the generated C++", "the runtime"
+	What    string // what was compiled: "the generated C++", "the runtime", "the C file a.c"
+	Source  string // the package's C or C++ file that didn't compile (absolute), or ""
 	Link    bool   // the link failed, not a compile
 	Command string // the command, as Trace shows it
 	Output  []byte // what the compiler printed (stdout and stderr in one stream)
@@ -84,8 +101,9 @@ func (e *CompileError) Unwrap() error { return e.Err }
 const maxCompileOutput = 4 << 20
 
 // Program compiles the C++ file src (the output of gocpp's emitter) and
-// links it with the runtime into the program out. Both paths are
-// absolute. A compile or link that fails is a *CompileError.
+// the package's C and C++ files (CFiles, CXXFiles), and links them with
+// the runtime into the program out. Both paths are absolute. A compile or
+// link that fails is a *CompileError.
 func (b *Builder) Program(ctx context.Context, src, out string) error {
 	// With flags of the environment, the runtime's compiles get gocpp's
 	// language flags after them too (as the generated C++ does), then
@@ -117,13 +135,26 @@ func (b *Builder) Program(ctx context.Context, src, out string) error {
 		compile = slices.Concat(CompileFlags(b.CXX, b.ASan, b.NoChecks), []string{"-I", filepath.Join(rtDir, "include")},
 			user, LanguageFlags(), []string{"-Wno-error"}, GeneratedFlags(b.CXX), []string{"-c", "-x", "c++", src, "-o", obj})
 	}
-	if err := b.run(ctx, "the generated C++", false, compile); err != nil {
+	// The package's C and C++ files compile at the same time. An error in
+	// them is reported first: it is the user's.
+	var srcObjs []string
+	srcErr := make(chan error, 1)
+	go func() {
+		var err error
+		srcObjs, err = b.compileSources(ctx, rtDir)
+		srcErr <- err
+	}()
+	genErr := b.run(ctx, b.CXX, "the generated C++", false, compile)
+	if err := <-srcErr; err != nil {
 		return err
+	}
+	if genErr != nil {
+		return genErr
 	}
 	// The libraries after the object files that use them, as a linker
 	// that reads its inputs once (GNU ld with static libraries) needs.
-	link := slices.Concat(Flags(b.CXX, b.ASan), []string{obj}, rtObjs, b.Package.Link, b.Env.LDFlags, []string{"-o", out})
-	return b.run(ctx, "the generated C++", true, link)
+	link := slices.Concat(Flags(b.CXX, b.ASan), []string{obj}, srcObjs, rtObjs, b.Package.Link, b.Env.LDFlags, []string{"-o", out})
+	return b.run(ctx, b.CXX, "the generated C++", true, link)
 }
 
 // runtime returns the folder of the runtime and its object files for the
@@ -227,7 +258,7 @@ func (b *Builder) compileRuntime(ctx context.Context, dir, objDir string, srcs, 
 	for i, s := range srcs {
 		objs[i] = filepath.Join(objDir, runtimeObjectName(s))
 		args := slices.Concat(flags, []string{"-I", filepath.Join(dir, "include"), "-c", filepath.Join(dir, filepath.FromSlash(s)), "-o", objs[i]})
-		wg.Go(func() { errs[i] = b.run(ctx, "the runtime", false, args) })
+		wg.Go(func() { errs[i] = b.run(ctx, b.CXX, "the runtime", false, args) })
 	}
 	wg.Wait()
 	for _, err := range errs {
@@ -281,15 +312,27 @@ func (b *Builder) runtimeKey(srcs, flags []string) string {
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
-// run runs the compiler with args in Work. what and link describe the
+// run runs the compiler c with args in Work. what and link describe the
 // step for a CompileError. On success, what the compiler printed (its
 // warnings) goes to Stderr.
-func (b *Builder) run(ctx context.Context, what string, link bool, args []string) error {
-	show := b.show(args)
+func (b *Builder) run(ctx context.Context, c CXX, what string, link bool, args []string) error {
+	out, err := b.runOutput(ctx, c, what, link, args)
+	if len(out) > 0 && b.Stderr != nil {
+		b.traceMu.Lock()
+		b.Stderr.Write(out)
+		b.traceMu.Unlock()
+	}
+	return err
+}
+
+// runOutput is run, but it returns what the compiler printed when it
+// succeeds instead of writing it to Stderr.
+func (b *Builder) runOutput(ctx context.Context, c CXX, what string, link bool, args []string) ([]byte, error) {
+	show := b.show(c, args)
 	b.trace(show)
 	out := &limitBuffer{max: maxCompileOutput}
 	cmd, err := Start(ctx, func() *exec.Cmd {
-		cmd := b.CXX.Command(ctx, args...)
+		cmd := c.Command(ctx, args...)
 		cmd.Dir = b.Work
 		cmd.Stdout, cmd.Stderr = out, out
 		// A process that the compiler started and that keeps the output
@@ -303,27 +346,22 @@ func (b *Builder) run(ctx context.Context, what string, link bool, args []string
 		KillGroup(cmd) // whatever the compiler left running
 	}
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return nil, ctx.Err()
 	}
 	if err != nil {
 		var exit *exec.ExitError
 		if !errors.As(err, &exit) && cmd.ProcessState == nil {
-			return fmt.Errorf("running the C++ compiler %s: %w", b.CXX.Name(), err)
+			return nil, fmt.Errorf("running the %s %s: %w", c.kind(), c.Name(), err)
 		}
-		return &CompileError{What: what, Link: link, Command: show, Output: out.buf.Bytes(), Err: err}
+		return nil, &CompileError{What: what, Link: link, Command: show, Output: out.buf.Bytes(), Err: err}
 	}
-	if out.buf.Len() > 0 && b.Stderr != nil {
-		b.traceMu.Lock()
-		b.Stderr.Write(out.buf.Bytes())
-		b.traceMu.Unlock()
-	}
-	return nil
+	return out.buf.Bytes(), nil
 }
 
-// show returns the compiler command with args as a shell line, with Work
-// written as $WORK.
-func (b *Builder) show(args []string) string {
-	words := append([]string{b.CXX.Path}, b.CXX.Args...)
+// show returns the command of the compiler c with args as a shell line,
+// with Work written as $WORK.
+func (b *Builder) show(c CXX, args []string) string {
+	words := append([]string{c.Path}, c.Args...)
 	words = append(words, args...)
 	var s strings.Builder
 	for i, w := range words {

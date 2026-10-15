@@ -88,6 +88,15 @@ func TestMain(m *testing.M) {
 		fatalf("tests: go build ./cmd/gocpp: %v\n%s", err, out)
 	}
 	repoRoot, gocppBin = root, bin
+	// The gocpp runs get a cache folder of their own for the runtime's
+	// object files, so that the tests never write the user's
+	// ~/.cache/gocpp (the runtime is compiled once per compiler and flags,
+	// about a second). The Go of the diff tests finds its build cache
+	// through XDG_CACHE_HOME too, so GOCACHE keeps it first.
+	if out, err := exec.Command("go", "env", "GOCACHE").Output(); err == nil && len(bytes.TrimSpace(out)) > 0 {
+		os.Setenv("GOCACHE", string(bytes.TrimSpace(out)))
+	}
+	os.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 	killOnSignal(tmp)
 	// run stops each command before go test's -timeout runs out. If a test
 	// hangs somewhere else, the test binary panics at the timeout without

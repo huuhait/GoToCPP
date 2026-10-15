@@ -207,6 +207,14 @@ type Package struct {
 	// cycle not allowed" error.
 	Imports map[string]*Package
 
+	// CFiles are the C files (.c) of the package, and CXXFiles its C++
+	// files (.cc, .cpp, .cxx): their names in Dir, by name, that the build
+	// constraints keep, like go/build's CFiles and CXXFiles (see
+	// sources.go). gocpp build compiles them and links them with the
+	// package. A package of .gp files named on the command line has none,
+	// like go run a.go, which builds only the files it names.
+	CFiles, CXXFiles []string
+
 	// Errors are the errors and warnings of the package, in the order
 	// they were found. It is never nil.
 	Errors *diag.List
@@ -915,7 +923,11 @@ func (l *loader) read(p *Package, named []string, tests bool) (internalTests boo
 		}
 		for _, e := range entries {
 			name := e.Name()
-			if e.IsDir() || !strings.HasSuffix(name, ".gp") || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+			if e.IsDir() || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+				continue
+			}
+			if !strings.HasSuffix(name, ".gp") {
+				l.addSource(p, name) // a C or C++ file
 				continue
 			}
 			if isTestFile(name) && !tests {

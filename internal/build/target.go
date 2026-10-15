@@ -48,10 +48,11 @@ func FindCXXFor(ctx context.Context, goos, goarch string) (CXX, error) {
 }
 
 // cxxFromEnv returns the compiler that the environment variable name
-// (GOCPP_CXX or CXX) names, and whether it is set. Its value is a program
-// and maybe arguments, split into words by SplitCommand ("ccache g++").
-// This is the one place that reads them, for FindCXX and FindCXXFor. An
-// error says which variable it came from.
+// (GOCPP_CXX or CXX, or GOCPP_CC for the C compiler) names, and whether it
+// is set. Its value is a program and maybe arguments, split into words by
+// SplitCommand ("ccache g++"). This is the one place that reads them, for
+// FindCXX, FindCXXFor and FindCC. An error says which variable it came
+// from.
 func cxxFromEnv(ctx context.Context, name string) (CXX, bool, error) {
 	value := os.Getenv(name)
 	if value == "" {
@@ -64,7 +65,7 @@ func cxxFromEnv(ctx context.Context, name string) (CXX, bool, error) {
 	if len(words) == 0 {
 		return CXX{}, true, fmt.Errorf("%s=%q names no program", name, value)
 	}
-	cxx, err := lookCommand(ctx, words[0], words[1:])
+	cxx, err := lookCommand(ctx, words[0], words[1:], name == "GOCPP_CC")
 	if err != nil {
 		return CXX{}, true, fmt.Errorf("%s: %w", name, err)
 	}

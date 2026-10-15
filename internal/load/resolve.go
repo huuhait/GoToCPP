@@ -358,11 +358,16 @@ func newMatcher(goos, goarch string, tags []string) *matcher {
 // package. It returns the message for a broken build constraint (then the
 // file is not in the package), such as "multiple //go:build comments".
 //
-// It uses go/build's MatchFile, which knows only .go files, so it asks
-// about the same name with .go. A file whose package clause or imports
-// MatchFile can't read is in the package: the parser reports the error.
+// It uses go/build's MatchFile, which knows .go files and not .gp files, so
+// it asks about the same name with .go. A file whose package clause or
+// imports MatchFile can't read is in the package: the parser reports the
+// error. Other files (a C source: x_linux.c, //go:build at its top) keep
+// their names.
 func (m *matcher) file(name string, src []byte) (bool, string) {
-	goName := strings.TrimSuffix(name, ".gp") + ".go"
+	goName := name
+	if strings.HasSuffix(name, ".gp") {
+		goName = strings.TrimSuffix(name, ".gp") + ".go"
+	}
 	m.src = src
 	ok, err := m.ctxt.MatchFile("", goName)
 	m.src = nil

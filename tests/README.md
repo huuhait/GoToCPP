@@ -142,6 +142,11 @@ files, the examples and the variables above (also `DISPLAY` and `WAYLAND_DISPLAY
 see the compilers, gdb or the libraries: after you change those, run with `-count=1`. (Like any
 flag outside go test's short list, `-update` turns the cache off by itself.)
 
+gocpp's own cache is another matter: the gocpp commands of the tests run with `XDG_CACHE_HOME`
+in the harness's temporary folder, so they compile the runtime once per compiler and flags
+(about a second each) and never write your `~/.cache/gocpp`. The Go of the diff tests keeps
+its usual build cache (`GOCACHE`).
+
 ## testdata/
 
 [testdata/](testdata) holds the inputs of the harness's own unit tests

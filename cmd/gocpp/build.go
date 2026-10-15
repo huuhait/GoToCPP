@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -59,6 +60,13 @@ link and pkg-config lines, which an allow-list like go build's checks
 (GOCPP_CFLAGS_ALLOW and GOCPP_LDFLAGS_ALLOW allow more flags), and from
 GOCPP_CFLAGS and GOCPP_CXXFLAGS (every compile) and GOCPP_LDFLAGS (the
 link), which are trusted and not checked. PKG_CONFIG names pkg-config.
+
+The C and C++ files in the folder of the package (.c, and .cc, .cpp,
+.cxx), with the build constraints of .gp files, are compiled and linked
+into the program too: the .c files with -std=gnu17 and the C compiler in
+GOCPP_CC, else the one that goes with the C++ compiler (gcc for g++,
+clang for clang++), the others with -std=c++20 and the C++ compiler. An
+error in them is an error of the program: exit status 1.
 
 The C++ that gocpp writes must always compile. If it doesn't, that is a
 bug in gocpp: gocpp build prints "internal error: generated C++ did not
@@ -253,6 +261,10 @@ type driver struct {
 
 	// files says that the package is a list of .gp files.
 	files bool
+
+	// pkgLine says that the "# <package>" line of the output of the
+	// package's C and C++ files is printed (sourcesHeader).
+	pkgLine bool
 
 	// ctx is canceled when gocpp gets SIGINT, SIGTERM or SIGHUP while it
 	// builds; stopped is then the signal (see watchSignals).
@@ -509,6 +521,10 @@ func (d *driver) compile(patterns []string) (*program, int) {
 		return nil, exitErrors
 	}
 	cxx, err := build.FindCXXFor(d.ctx, d.check.goos, d.check.goarch) // the probe's compiler too
+	var cc build.CXX
+	if err == nil && len(pkg.Load.CFiles) > 0 {
+		cc, err = d.findCC(cxx)
+	}
 	if err != nil {
 		if sig := d.interrupted(); sig != nil {
 			return nil, stopStatus(sig)
@@ -560,7 +576,8 @@ func (d *driver) compile(patterns []string) (*program, int) {
 	}
 
 	b := &build.Builder{CXX: cxx, ASan: d.flags.asan, NoChecks: d.flags.nochecks, GOOS: d.check.goos, Work: work, Stderr: d.stderr,
-		Env: env, Package: pkg.Flags}
+		Env: env, Package: pkg.Flags, Dir: pkg.Load.Dir, CFiles: pkg.Load.CFiles, CXXFiles: pkg.Load.CXXFiles, CC: cc,
+		SourceWarnings: d.sourceWarnings(pkg)}
 	if cache, err := os.UserCacheDir(); err == nil {
 		b.Cache = filepath.Join(cache, "gocpp")
 	}
@@ -573,7 +590,11 @@ func (d *driver) compile(patterns []string) (*program, int) {
 			return nil, stopStatus(sig)
 		}
 		var ce *build.CompileError
-		if errors.As(err, &ce) && ce.Link && (len(pkg.Flags.Link) > 0 || len(env.LDFlags) > 0) {
+		if errors.As(err, &ce) && ce.Source != "" {
+			d.sourceFailed(pkg, ce)
+			return nil, exitErrors
+		}
+		if errors.As(err, &ce) && ce.Link && (len(pkg.Flags.Link) > 0 || len(env.LDFlags) > 0 || hasSources(pkg.Load)) {
 			d.linkFailed(pkg, ce, env)
 			return nil, exitErrors
 		}
@@ -689,8 +710,9 @@ func (d *driver) compileFailed(pkg *check.Package, e *build.CompileError, work s
 }
 
 // linkFailed prints the error of a link that failed with link flags of the
-// package's directives or of GOCPP_LDFLAGS: a library that isn't
-// installed, or a wrong flag, is more likely than a bug in gocpp. It shows
+// package's directives or of GOCPP_LDFLAGS, or with the package's own C and
+// C++ files: a library that isn't installed, a wrong flag or a function
+// that the user's C doesn't define is more likely than a bug in gocpp. It shows
 // the linker's first lines, like go build shows those of an external link
 // that fails, and the flags.
 func (d *driver) linkFailed(pkg *check.Package, e *build.CompileError, env build.EnvFlags) {
@@ -706,6 +728,9 @@ func (d *driver) linkFailed(pkg *check.Package, e *build.CompileError, env build
 	}
 	if len(env.LDFlags) > 0 {
 		fmt.Fprintf(d.stderr, "(GOCPP_LDFLAGS: %s)\n", strings.Join(env.LDFlags, " "))
+	}
+	if hasSources(pkg.Load) {
+		fmt.Fprintf(d.stderr, "(the package's C and C++ files: %s)\n", strings.Join(slices.Concat(pkg.Load.CFiles, pkg.Load.CXXFiles), " "))
 	}
 }
 
