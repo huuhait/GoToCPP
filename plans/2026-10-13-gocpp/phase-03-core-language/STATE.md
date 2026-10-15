@@ -35,7 +35,7 @@
   - [x] Go 1.22 per-iteration loop variables
 - [~] 3.12 Evaluation-order lowering for every construct (+ `&&`/`||`, loop/else-if/case shapes, two-phase assignment)
 - [x] 3.13 `defer` with the single-exit shape (panics run defers, panicking defers, named results)
-- [~] 3.14 Runtime checks + Go panic messages + exit code 2 + `backtrace()` trace + `-nochecks` (keeps Go's defined results) (3.14a runtime + driver done; 3.14b emitter side + out of memory in progress)
+- [x] 3.14 Runtime checks + Go panic messages + exit code 2 + `backtrace()` trace + `-nochecks` (keeps Go's defined results) (3.14a runtime + driver, 3.14b check audit + fatal errors)
 - [x] 3.15 Remaining builtins + `fmt` shim for composite values (slices, maps sorted, structs, `&{…}`, `String()`) (3.15a runtime shim, 3.15b emitter side, 3.15c complex numbers)
 - [x] 3.16 Package-level vars (`InitOrder`) + multiple `init()`
 - [x] 3.17 `gocppSizes` + `static_assert` sync
@@ -373,3 +373,10 @@
   than 1<<20 elements: clang can't build them at compile time), large package vars built in place in
   gp_var_init (also inside conversions), init() traces like Go, init-cycle error tests) committed, clean after
   3 review rounds. Left in D24: a large package var set from a call result (`var g = mk()`) or `[N]T(s)`.
+- 2026-10-14: Job 3.14b (an audit of every Phase 03 check vs Go (TestPanics, also as -nochecks builds), fatal
+  errors like Go's: out of memory via std::set_new_handler (no defers run; the trace chains a running panic
+  through gp_run's run_mark) and stack overflow via a SIGSEGV handler on an alternate stack (main stack only,
+  stack top from AT_EXECFN), -nochecks completeness (func-value nil calls, (*T).M's panicwrap, array literal
+  checks; TestNoChecksCalls)) committed, clean after 2 review rounds. Cost: one thread-local store/restore per
+  gp_run (+1–3.5 ns per call of a function with defers; Phase 15 may look). For Phase 15: mark
+  defer_frame::gp_run [[gnu::noinline]] before LTO, since run_mark uses __builtin_return_address(0).
