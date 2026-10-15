@@ -356,3 +356,9 @@
   pointers) committed, clean after 4 review rounds (the last finding, parameters of inlined func literals,
   documented in D25). All three Phase 03 exit examples (structs, wordfreq-core, closures) and
   tests/run/slices_append pass. %T stays gated to Phase 05.
+- 2026-10-14 (3.14b, for later phases): the out-of-memory fatal error comes from std::set_new_handler in
+  run_main, so a C++ library that catches std::bad_alloc to recover can't (documented: running out of memory
+  always ends the program, as in Go). The stack-overflow report is a SIGSEGV handler on a 64 KiB alternate
+  stack in src/os/linux/os.cpp (main stack only): Phase 08 needs a per-thread alternate stack and stack bounds
+  and one reporter when several threads fail at once; Phase 14 needs Windows' EXCEPTION_STACK_OVERFLOW. With
+  -nochecks, calling a nil func value and `(*T).M` with a nil pointer are undefined behavior (nil checks).
