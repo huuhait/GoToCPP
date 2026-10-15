@@ -323,10 +323,6 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 			case "print", "println":
 				callee, template = "gp::"+obj.Name(), true
 				for _, a := range c.Args {
-					if t := fg.g.info.TypeOf(a); t == nil || hasC(t) {
-						fg.g.unsupported(a.Pos(), "printing C/C++ values (step 4.12): convert the value to a gocpp type first, int(x)")
-						return placeholder
-					}
 					if t := fg.g.info.TypeOf(a); t != nil && isFunc(t) {
 						// Go prints the func's code address.
 						fg.g.unsupported(a.Pos(), "printing a func value with "+obj.Name())
@@ -381,10 +377,6 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 
 	if template {
 		for _, a := range c.Args {
-			if t := fg.g.info.TypeOf(a); t == nil || hasC(t) {
-				fg.g.unsupported(a.Pos(), "printing C/C++ values (step 4.12): convert the value to a gocpp type first, int(x)")
-				return placeholder
-			}
 			if t := fg.g.info.TypeOf(a); t != nil && hasFunc(t) {
 				// Go prints a func's code address (closures.go).
 				fg.g.unsupported(a.Pos(), "printing a func value")
@@ -407,8 +399,13 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 		}
 		if template {
 			// std::apply needs a callable object. The elements of the tuple have their
-			// Go types: [](const auto&... gp_a) { gp::println(gp_a...); }
-			body := &cppir.ExprStmt{X: call(callee, &cppir.Expand{X: cxxName("gp_a")})}
+			// Go types: [](const auto&... gp_a) { gp::println(gp_a...); }, and results with
+			// C/C++ parts go through gp::cgo::print_arg (fmtcall.go).
+			var elem cppir.Expr = cxxName("gp_a")
+			if hasC(fg.g.info.TypeOf(c.Args[0])) {
+				elem = call("gp::cgo::print_arg", elem)
+			}
+			body := &cppir.ExprStmt{X: call(callee, &cppir.Expand{X: elem})}
 			fn = &cppir.Lambda{
 				Params: []cppir.Param{{Type: &cppir.Ref{Elem: &cppir.Const{Elem: typeName("auto")}}, Pack: true, Name: "gp_a"}},
 				Body:   &cppir.Block{Stmts: []cppir.Stmt{body}, Inline: true},
@@ -420,6 +417,9 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 	}
 	if sig != nil {
 		return &cppir.Call{Fun: cxxName(callee), Args: fg.callArgs(c, sig)} // closures.go: variadics
+	}
+	if template {
+		return &cppir.Call{Fun: cxxName(callee), Args: fg.printArgs(c.Args)} // print, println: fmtcall.go
 	}
 	return &cppir.Call{Fun: cxxName(callee), Args: fg.exprs(c.Args, template)}
 }

@@ -20,8 +20,10 @@ namespace gp {
 // gp::os::exit, which flushes C stdio and runs no C++ static destructors, so run_main never
 // returns; the int result is there for the shape of main. It also installs the new handler
 // gp::detail::out_of_memory (panic.hpp): an allocation that fails is Go's fatal error
-// "runtime: out of memory" (exit code 2, no deferred calls), not a std::bad_alloc; and
-// gp::os::start catches a stack overflow (Linux).
+// "runtime: out of memory" (exit code 2, no deferred calls), not a std::bad_alloc; the
+// terminate handler gp::detail::on_terminate (panic.hpp): a C++ exception that nothing catches
+// ends the program like an unrecovered panic, before anything unwinds; and gp::os::start
+// catches a stack overflow (Linux).
 [[noreturn]] int run_main(int argc, char** argv, void (*init)(), void (*main)());
 
 // args are the program's arguments, the program name first (for os.Args, Phase 09), and envs

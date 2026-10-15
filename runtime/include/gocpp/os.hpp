@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <typeinfo>
 #include <vector>
 
 namespace gp::detail {
@@ -86,5 +87,12 @@ bool read_exe(gp::detail::exe_image& img);
 // it isn't one. Itanium C++ ABI names (GCC and Clang, also on MinGW); clang-cl's MSVC names
 // come later.
 std::string demangle(const std::string& name);
+
+// current_exception_type returns the type of the exception that the calling thread is
+// handling (in a catch block, or in std::terminate's handler), from the C++ ABI
+// (abi::__cxa_current_exception_type), or null when there is none or the C++ library can't
+// tell. It works without C++'s type information (-fno-rtti), for an exception of any type,
+// as it was thrown (std::out_of_range, int).
+const std::type_info* current_exception_type() noexcept;
 
 } // namespace gp::os

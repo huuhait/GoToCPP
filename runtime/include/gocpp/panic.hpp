@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <exception>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -244,6 +245,41 @@ void clear_signal() noexcept;
 // that fails (operator new, also std::nothrow's, so every runtime type) ends the program with
 // fatal("runtime: out of memory") where it fails, like Go, instead of throwing std::bad_alloc.
 void out_of_memory();
+
+// C++ exceptions (Phase 04 README §2.8, first version; docs/spec/interop.md "C++ exceptions").
+// An exception that C++ code throws and nothing catches ends the program like an unrecovered Go
+// panic: "panic: " + cxx_exception_text, the goroutine's stack trace where it was thrown, exit
+// code 2. on_terminate does that: it is the terminate handler (std::set_terminate) that run_main
+// installs. The C++ ABI (GCC and Clang, Linux and MinGW) looks for a handler before it unwinds
+// anything, and calls std::terminate on the stack of the throw when it finds none, so nothing
+// has unwound yet: no deferred call and no C++ destructor has run (Go runs the deferred calls
+// of a panic; Phase 05 turns these exceptions into recoverable Go panics where they enter gocpp
+// code), and the trace shows the frames of the throw, the innermost first. (A catch that throws
+// the exception again, catch (...) { throw; } in C++ code, or a noexcept function that it
+// reaches, has unwound the frames inside it: the trace starts there.) Generated code catches
+// only gp::panic_error, so the exception passes all of it.
+//
+// on_terminate prints, after C's stdio is flushed:
+//   - for a Go panic (a gp::panic_error that reached a noexcept C++ function), what run_main
+//     prints for it;
+//   - for a std::bad_alloc that the new handler didn't see (std::bad_array_new_length of new
+//     int[-1], or one that C++ code throws), Go's fatal error "runtime: out of memory" with the
+//     trace of the throw (fatal);
+//   - for any other exception, the chain of the Go panic that runs (a deferred call threw it),
+//     then "panic: " + cxx_exception_text, and the trace of the throw (fatal_trace);
+//   - without an exception (std::terminate called for another reason: a std::thread that is
+//     destroyed while it runs), the C++ library's own message: the handler before it runs.
+// A destructor that throws while a Go panic unwinds the stack (a C++ destructor that is
+// noexcept(false)) makes C++ call std::terminate with the new exception: the report shows only
+// that one, the Go panic is lost (Phase 05 can chain them).
+
+// cxx_exception_text is what an unrecovered C++ exception e prints after "panic: ": "C++
+// exception <type>: <what()>" for a std::exception (only "C++ exception <type>" when what() is
+// empty), "C++ exception of type <type>" for anything else (throw 42: "C++ exception of type
+// int"). The type is the type it was thrown with, its C++ name demangled (std::out_of_range).
+std::string cxx_exception_text(const std::exception_ptr& e);
+
+[[noreturn]] void on_terminate() noexcept;
 
 } // namespace detail
 

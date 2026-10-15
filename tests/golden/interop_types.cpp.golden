@@ -5,6 +5,7 @@
 #include <bitset>
 #include <cstdio>
 #include <vector>
+#include <gocpp/fmtcxx.hpp>
 
 namespace gpkg_main {
 

@@ -120,8 +120,40 @@
 // array that holds it is held (its owner copied), and so is a pointer's target, so nothing
 // that is being printed can be freed.
 //
+// C/C++ values (Phase 04 README §2.12, step 4.12; docs/spec/interop.md "Printing C/C++
+// values"). The emitter passes an argument with a C/C++ part through gp::cgo::fmt_arg
+// (gocpp/interop.hpp), which reports a type that can't be printed at the call's .gp line
+// (printable, below). They print by their C++ type, as Go prints the matching Go type:
+//
+//     C/C++ numbers, bool               as the Go type of the same kind, size and sign: C.int
+//                                       is int32, C.char int8 (a number, as in cgo), C.double
+//                                       float64, size_t uint64; %T names that Go type (int
+//                                       for a long, as C++ can't tell it from int64_t, and
+//                                       int64 for a long long)
+//     enums                             their number; %T and the error forms name the C++ type
+//     raw pointers (T*, char*, void*,   their address, as Go prints a pointer that is no
+//     function pointers)                &{...}: 0x7ffd5e8c, <nil> for null, %d in decimal; a
+//                                       char* is never read as a string (it may be null or
+//                                       point anywhere): C.GoString(p) gives the text
+//     nullptr_t                         <nil>, %!d(<nil>), as Go's nil interface
+//     std::string, std::string_view     as Go strings (%v %s %q; Print puts no space next to
+//                                       them); %T std::string, std::string_view
+//     any other C/C++ class type        its text, through std::formatter<T> when the program
+//                                       has one for it (gocpp/fmtcxx.hpp), else through its
+//                                       operator<<; like a Go value with a String method: the
+//                                       text for %v %s %q, the error form with the text for
+//                                       the other verbs (%!d(Point=(1, 2))); no formatter and
+//                                       no operator<< is a compile error at the .gp line
+//
+// %T and the error forms name a C/C++ type by its C++ name, demangled (std::vector<long,
+// std::allocator<long> >, char*; Phase 13 translates them back to gocpp names).
+//
 // Each call formats everything first and then writes it with one write, and nothing is
-// buffered, so the output order is Go's (Go's os.Stdout isn't buffered either).
+// buffered, so the output order is Go's (Go's os.Stdout isn't buffered either). C's stdio has
+// a buffer of its own: Print, Println and Printf flush C's stdout and stderr
+// (gp::detail::flush_c_stdio) before they write, so a printf that came before them comes out
+// before them, also into a pipe (Phase 04 STATE, job 4.2's decision; about 3 ns a stream when
+// C's buffer is empty, against at least 50 ns for the write).
 #pragma once
 
 #include <gocpp/array.hpp>
@@ -136,10 +168,12 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <ostream>
 #include <string>
 #include <string_view>
 #include <tuple>
 #include <type_traits>
+#include <typeinfo>
 #include <utility>
 #include <vector>
 
@@ -271,6 +305,18 @@ void append_float(std::string& out, double v, char fmt, int prec, int bits);
 // is_print is strconv.IsPrint.
 bool is_print(char32_t r) noexcept;
 
+// --- C/C++ values (Phase 04 README §2.12, step 4.12; the rules are above, at "C/C++ values") ---
+
+// cxx_type_name appends the C++ name of the type t, demangled ("std::vector<long,
+// std::allocator<long> >", "char*"): what %T and the error forms print for a C/C++ type.
+void cxx_type_name(std::string& out, const std::type_info& t);
+
+// stream_text appends what put writes to a std::ostream: put(os, v) is os << *v for v's type.
+void stream_text(std::string& out, void (*put)(std::ostream&, const void*), const void* v);
+
+// bad_verb_nil writes Go's error form for a nil value without a type, %!d(<nil>).
+void bad_verb_nil(printer& p, char32_t verb);
+
 // --- the types ---
 
 template <typename T>
@@ -354,6 +400,51 @@ const base_t<T>& base_value(const T& v) {
     }
 }
 
+// cxx_string: the C++ strings, which print as Go strings.
+template <typename T>
+inline constexpr bool cxx_string =
+    std::is_same_v<T, std::string> || std::is_same_v<T, std::string_view>;
+
+// cxx_formatter<T>: whether T has a std::formatter<T, char> (gp_ok), and gp_append(out, v),
+// which appends std::format("{}", v). gocpp/fmtcxx.hpp, which generated code includes after the
+// program's C/C++ headers, specializes it when they brought in <format>: a type can have a
+// std::formatter only then, and a program without it doesn't pay for <format>.
+template <typename T>
+struct cxx_formatter {
+    static constexpr bool gp_ok = false;
+};
+
+// cxx_streamable: os << v works for a T v, through the operator<< that C++ finds for it: one
+// of the C++ library, or one in T's namespace (the global one for a type there), which the
+// program's headers may declare after this header (argument-dependent lookup at the point of
+// instantiation).
+template <typename T>
+concept cxx_streamable = requires(std::ostream& os, const T& v) { os << v; };
+
+// cxx_text_type: a C/C++ class (or union) type that prints as text: through its
+// std::formatter when it has one, else through its operator<<.
+template <typename T>
+concept cxx_text_type =
+    (std::is_class_v<T> || std::is_union_v<T>) && (cxx_formatter<T>::gp_ok || cxx_streamable<T>);
+
+// cxx_text appends the text of the C/C++ value v (cxx_text_type).
+template <typename T>
+void cxx_text(std::string& out, const T& v) {
+    if constexpr (cxx_formatter<T>::gp_ok) {
+        cxx_formatter<T>::gp_append(out, v);
+    } else {
+        detail::stream_text(
+            out, [](std::ostream& os, const void* x) { os << *static_cast<const T*>(x); }, &v);
+    }
+}
+
+// raw_address is the address in a raw C/C++ pointer (to an object or a function).
+template <typename T>
+uint64_t raw_address(T v) noexcept {
+    static_assert(std::is_pointer_v<T>);
+    return static_cast<uint64_t>(reinterpret_cast<std::uintptr_t>(v));
+}
+
 // The parts of a tag: tag::slice<E> has the element E, tag::map<K, V> the key and the value.
 // The parts of tag::none are tag::none.
 template <typename Tag>
@@ -410,15 +501,18 @@ constexpr void check_tag() {
 template <typename T>
 constexpr const char* int_type_name() {
     if constexpr (std::is_signed_v<T>) {
-        return sizeof(T) == 1   ? "int8"
-               : sizeof(T) == 2 ? "int16"
-               : sizeof(T) == 4 ? "int32"
-                                : "int";
+        // A C integer type of 8 bytes that isn't int64_t (long long on Linux) is int64.
+        return sizeof(T) == 1               ? "int8"
+               : sizeof(T) == 2             ? "int16"
+               : sizeof(T) == 4             ? "int32"
+               : std::is_same_v<T, int64_t> ? "int"
+                                            : "int64";
     } else {
-        return sizeof(T) == 1   ? "uint8"
-               : sizeof(T) == 2 ? "uint16"
-               : sizeof(T) == 4 ? "uint32"
-                                : "uint";
+        return sizeof(T) == 1                ? "uint8"
+               : sizeof(T) == 2              ? "uint16"
+               : sizeof(T) == 4              ? "uint32"
+               : std::is_same_v<T, uint64_t> ? "uint"
+                                             : "uint64";
     }
 }
 
@@ -470,6 +564,19 @@ void type_name(std::string& out) {
         out += ']';
     } else if constexpr (struct_type<T> || named_type<T>) {
         out += T::gp_type_name;
+    } else if constexpr (std::is_same_v<T, std::string>) {
+        out += "std::string";
+    } else if constexpr (std::is_same_v<T, std::string_view>) {
+        out += "std::string_view";
+    } else if constexpr (std::is_null_pointer_v<T>) {
+        out += "<nil>"; // as Go's %T of a nil interface
+    } else if constexpr (std::is_enum_v<T> || std::is_pointer_v<T> || std::is_class_v<T> ||
+                         std::is_union_v<T>) {
+#if defined(__cpp_rtti) || defined(__GXX_RTTI)
+        detail::cxx_type_name(out, typeid(T));
+#else
+        out += "?"; // the program's flags turned C++'s type information off (-fno-rtti)
+#endif
     } else {
         static_assert(always_false<T>, "fmtshim: a value of this type can't be printed yet");
     }
@@ -731,6 +838,12 @@ int compare(const T& a, const T& b) {
         return c;
     } else if constexpr (named_type<T>) {
         return detail::compare(a.gp_value(), b.gp_value());
+    } else if constexpr (std::is_enum_v<T>) {
+        return detail::compare(static_cast<std::underlying_type_t<T>>(a),
+                               static_cast<std::underlying_type_t<T>>(b));
+    } else if constexpr (std::is_pointer_v<T>) {
+        uint64_t x = detail::raw_address(a), y = detail::raw_address(b);
+        return x < y ? -1 : x > y ? 1 : 0;
     } else {
         static_assert(always_false<T>, "fmtshim: a map key of this type can't be printed yet");
     }
@@ -824,6 +937,17 @@ template <typename T>
 inline constexpr bool composite = slice_of<T>::value || array_of<T>::value || map_of<T>::value ||
                                   struct_type<T> || weak_of<T>::value;
 
+// print_address prints the address u of a pointer with %v (0xc000012345, <nil> for 0) or %d.
+inline void print_address(printer& p, uint64_t u, char32_t verb, type_fn type) {
+    if (verb == 'd') {
+        detail::pp_int(p, u, false, verb, type);
+    } else if (u == 0) {
+        detail::pad(p, "<nil>");
+    } else {
+        detail::fmt_0x64(p, u, !p.sharp);
+    }
+}
+
 template <typename Tag, typename E>
 void print_pointer(printer& p, const gp::ptr<E>& v, char32_t verb, int depth, access ro,
                    type_fn type) {
@@ -836,22 +960,27 @@ void print_pointer(printer& p, const gp::ptr<E>& v, char32_t verb, int depth, ac
         }
     }
     auto u = static_cast<uint64_t>(reinterpret_cast<std::uintptr_t>(v.gp_get()));
-    switch (verb) {
-    case 'v':
-        if (u == 0) {
-            detail::pad(p, "<nil>");
-        } else {
-            detail::fmt_0x64(p, u, !p.sharp);
-        }
-        break;
-    case 'd':
-        detail::pp_int(p, u, false, verb, type);
-        break;
-    default:
-        detail::bad_verb_begin(p, verb, type);
-        detail::print_kind<Tag>(p, v, 'v', 0, ro, type);
-        detail::bad_verb_end(p);
+    if (verb == 'v' || verb == 'd') {
+        detail::print_address(p, u, verb, type);
+        return;
     }
+    detail::bad_verb_begin(p, verb, type);
+    detail::print_kind<Tag>(p, v, 'v', 0, ro, type);
+    detail::bad_verb_end(p);
+}
+
+// print_raw_pointer prints a raw C/C++ pointer (to an object, also a char*, or to a function):
+// its address, as Go prints a pointer that is no &{...}; the target is never read.
+template <typename T>
+void print_raw_pointer(printer& p, T v, char32_t verb, type_fn type) {
+    uint64_t u = detail::raw_address(v);
+    if (verb == 'v' || verb == 'd') {
+        detail::print_address(p, u, verb, type);
+        return;
+    }
+    detail::bad_verb_begin(p, verb, type);
+    detail::print_address(p, u, 'v', type);
+    detail::bad_verb_end(p);
 }
 
 // unsafe_pointer_name is the Go type name of the unsafe.Pointer inside a weak.Pointer.
@@ -930,6 +1059,26 @@ void print_kind(printer& p, const T& v, char32_t verb, int depth, access ro, typ
         detail::print_struct(p, v, verb, depth, ro);
     } else if constexpr (named_type<T>) {
         detail::print_kind<typename value_tag<T>::type>(p, v.gp_value(), verb, depth, ro, type);
+    } else if constexpr (std::is_enum_v<T>) {
+        // A C/C++ enum: its number, with the enum's type in an error form.
+        detail::print_kind<tag::none>(p, static_cast<std::underlying_type_t<T>>(v), verb, depth, ro,
+                                      type);
+    } else if constexpr (std::is_pointer_v<T>) {
+        detail::print_raw_pointer(p, v, verb, type);
+    } else if constexpr (std::is_null_pointer_v<T>) {
+        if (verb == 'v') {
+            detail::pad(p, "<nil>");
+        } else {
+            detail::bad_verb_nil(p, verb);
+        }
+    } else if constexpr (cxx_string<T>) {
+        detail::pp_string(p, std::string_view(v), verb, type);
+    } else if constexpr (cxx_text_type<T>) {
+        // Like a value with a String method: the text for %v, %s and %q, Go's error form with
+        // the text for the other verbs.
+        std::string text;
+        detail::cxx_text(text, v);
+        detail::pp_string(p, text, verb, type);
     } else {
         static_assert(always_false<T>, "fmtshim: a value of this type can't be printed yet");
     }
@@ -986,7 +1135,7 @@ arg make_tagged_arg(const T& v) {
     arg a{&v,
           &detail::print_arg<Tag, T>,
           &detail::type_name<Tag, T>,
-          std::is_same_v<B, gp::string>,
+          std::is_same_v<B, gp::string> || cxx_string<B>,
           0,
           0};
     if constexpr (go_int<B>) {
@@ -1018,18 +1167,94 @@ arg make_arg(const typed_value<Tag, heap_value<T>>& v) {
     return detail::make_tagged_arg<Tag>(*v.gp_v.gp_p);
 }
 
+// printable<T>(): whether fmt can print a T, all the way down: every C/C++ type in it is a
+// number, a bool, an enum, a raw pointer, nullptr_t, a C++ string or a cxx_text_type (a C/C++
+// type in a gocpp struct, slice, array, map or behind a gocpp pointer counts too). Seen are
+// the gocpp structs and named types that are being checked further out, so a recursive type
+// (type Node struct { kids []Node }) ends.
+template <typename T, typename... Seen>
+constexpr bool printable();
+
+template <typename F, typename... Seen>
+struct fields_printable;
+template <typename... F, typename... Seen>
+struct fields_printable<std::tuple<F...>, Seen...> {
+    static constexpr bool value = (printable<typename F::gp_type, Seen...>() && ...);
+};
+
+template <typename T, typename... Seen>
+constexpr bool printable() {
+    if constexpr ((std::is_same_v<T, Seen> || ...)) {
+        return true;
+    } else if constexpr (std::is_same_v<T, bool> || go_int<T> || go_float<T> || go_complex<T> ||
+                         std::is_same_v<T, gp::string>) {
+        return true;
+    } else if constexpr (slice_of<T>::value) {
+        return printable<typename slice_of<T>::elem, Seen...>();
+    } else if constexpr (array_of<T>::value) {
+        return printable<typename array_of<T>::elem, Seen...>();
+    } else if constexpr (map_of<T>::value) {
+        // A map key with a C/C++ part is the C++ compiler's (internal/lower: typeExpr); the keys
+        // that sort here are numbers, enums and pointers.
+        using K = typename map_of<T>::key;
+        return printable<K, Seen...>() && printable<typename map_of<T>::mapped, Seen...>() &&
+               !cxx_string<K> && !cxx_text_type<K>;
+    } else if constexpr (ptr_of<T>::value) {
+        return printable<typename ptr_of<T>::elem, Seen...>(); // &{...} prints the target
+    } else if constexpr (weak_of<T>::value) {
+        return true; // an address
+    } else if constexpr (struct_type<T>) {
+        return fields_printable<std::remove_cvref_t<decltype(T::gp_fields)>, T, Seen...>::value;
+    } else if constexpr (named_type<T>) {
+        return printable<underlying_t<T>, T, Seen...>();
+    } else {
+        return std::is_enum_v<T> || std::is_pointer_v<T> || std::is_null_pointer_v<T> ||
+               cxx_string<T> || cxx_text_type<T>;
+    }
+}
+
+// printable_arg: printable, for an argument as the emitter writes it (typed, heap).
+template <typename T>
+inline constexpr bool printable_arg = printable<T>();
+template <typename Tag, typename T>
+inline constexpr bool printable_arg<typed_value<Tag, T>> = printable_arg<T>;
+template <typename T>
+inline constexpr bool printable_arg<heap_value<T>> = printable<T>();
+
+// cxx_arg is an argument with a C/C++ part, from gp::cgo::fmt_arg (gocpp/interop.hpp), which
+// reports one that can't be printed at the call's .gp line. Such an argument then prints
+// nothing, so that the error isn't reported again inside this header.
+template <typename T>
+struct cxx_arg {
+    T gp_v;
+};
+
+inline void print_none(printer&, const void*, char32_t) {}
+inline void type_none(std::string&) {}
+
+template <typename T>
+arg make_arg(const cxx_arg<T>& v) {
+    if constexpr (printable_arg<T>) {
+        return detail::make_arg(v.gp_v);
+    } else {
+        return arg{&v, &detail::print_none, &detail::type_none, false, 0, 0};
+    }
+}
+
 // The formatting, as Go's fmt.Sprint, Sprintln and Sprintf do it. They append to out.
 void sprint(std::string& out, const arg* args, std::size_t n);
 void sprintln(std::string& out, const arg* args, std::size_t n);
 void sprintf(std::string& out, std::string_view format, const arg* args, std::size_t n);
 
-// write_stdout writes the bytes to standard output with one write.
+// write_stdout writes the bytes to standard output with one write, after
+// gp::detail::flush_c_stdio.
 void write_stdout(std::string_view s);
 
 // field_info is one field of a struct's gp_fields (gp::field).
 template <typename C, typename M, typename Tag>
 struct field_info {
     using gp_tag = Tag;
+    using gp_type = M;
     M C::* gp_member;
     const char* gp_name;
     bool gp_exported;

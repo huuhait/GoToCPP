@@ -208,6 +208,12 @@ func hasC(t types.Type) bool {
 	return hasCSeen(t, make(map[*types.Named]bool))
 }
 
+// HasC is hasC for the driver, which reports a C++ error on a .gp line with such a value as the
+// user's (cmd/gocpp/cpperrors.go).
+func HasC(t types.Type) bool {
+	return hasC(t)
+}
+
 func hasCSeen(t types.Type, seen map[*types.Named]bool) bool {
 	switch t := types.Unalias(t).(type) {
 	case *types.Named:

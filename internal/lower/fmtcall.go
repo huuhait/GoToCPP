@@ -32,6 +32,17 @@ import (
 //
 // A nil value has its type: []int(nil) is gp::slice<int64_t>(), (*T)(nil) gp::ptr<T>(nullptr)
 // (an untyped nil, fmt.Println(nil), is a nil interface: Phase 05).
+//
+// An argument with a C/C++ part (a C/C++ value, or a gocpp value with one inside: hasC) goes
+// through gp::cgo::fmt_arg (gocpp/interop.hpp), and one of the builtin print and println
+// through gp::cgo::print_arg (Phase 04 README §2.12, step 4.12). Lowering doesn't know the C++
+// type of a C/C++ value; the runtime prints it by that type, and the helper's static_assert
+// reports a type that can't be printed at the call's .gp line, as the user's error:
+//
+//	fmt.Println(v, n)     // v is a std.vector[int], n a C.int
+//	gp::fmtshim::Println(gp::cgo::fmt_arg(v), gp::cgo::fmt_arg(n));
+//	println(cstdio.EOF)
+//	gp::println(gp::cgo::print_arg(EOF));
 
 // fmtFuncs are the functions of package fmt that the runtime's stand-in has.
 var fmtFuncs = map[string]bool{
@@ -106,7 +117,23 @@ func (fg *funcGen) fmtArg(e ast.Expr) cppir.Expr {
 	if (isArray(t) || isStruct(t)) && largeVar(t) {
 		x = call("gp::fmtshim::heap", largeBox(fg.g.cxxType(t, e.Pos()), x)) // arrays.go
 	}
-	return fmtTyped(t, x)
+	x = fmtTyped(t, x)
+	if t == nil || hasC(t) {
+		x = call("gp::cgo::fmt_arg", x)
+	}
+	return x
+}
+
+// printArgs returns the C++ of the arguments of the builtin print or println: each with its
+// exact type (exactExpr), a C/C++ value through gp::cgo::print_arg.
+func (fg *funcGen) printArgs(args []ast.Expr) []cppir.Expr {
+	xs := fg.exprs(args, true)
+	for i, a := range args {
+		if t := fg.g.info.TypeOf(a); t == nil || hasC(t) {
+			xs[i] = call("gp::cgo::print_arg", xs[i])
+		}
+	}
+	return xs
 }
 
 // fmtTyped returns x, a value of the Go type t, with its type tag, if t needs one:
@@ -130,7 +157,11 @@ func fmtTyped(t types.Type, x cppir.Expr) cppir.Expr {
 // Phase 09's tuple path must give each result its tag.
 func (fg *funcGen) fmtTupleCall(c *ast.CallExpr, callee string) cppir.Expr {
 	params := []cppir.Param{{Type: &cppir.Ref{Elem: &cppir.Const{Elem: typeName("auto")}}, Pack: true, Name: "gp_a"}}
-	x := call(callee, &cppir.Expand{X: cxxName("gp_a")})
+	var arg cppir.Expr = cxxName("gp_a")
+	if hasC(fg.g.info.TypeOf(c.Args[0])) {
+		arg = call("gp::cgo::fmt_arg", arg) // results with C/C++ parts
+	}
+	x := call(callee, &cppir.Expand{X: arg})
 	var body cppir.Stmt = &cppir.ExprStmt{X: x}
 	if strings.HasPrefix(callee, "gp::fmtshim::S") {
 		body = &cppir.Return{X: x}

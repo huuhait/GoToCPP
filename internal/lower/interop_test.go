@@ -143,7 +143,7 @@ func TestCNames(t *testing.T) {
 	}
 	cpp := string(cppir.Print(f, ""))
 	for _, want := range []string{
-		"#include <lib.h>\n#include <vector>\n#undef run_main\n",
+		"#include <lib.h>\n#include <vector>\n#include <gocpp/fmtcxx.hpp>\n#undef run_main\n",
 		`::f(1, "s", 2.5, 'c', nullptr, true, -3, 4611686018427387904, UINT64_C(9223372036854775808), 9223372036854775808ULL);`,
 		"auto m = MAC;",
 		"::std::vector<::gpkg_main::Point> v{};",
@@ -235,7 +235,7 @@ func TestIncludeSets(t *testing.T) {
 	}
 	cpp := withDir(string(cppir.Print(f, "")), pkg.Load.Dir)
 	for _, want := range []string{
-		"#include <gocpp/rt.hpp>\n#line 4 \"$DIR/a.gp\"\n#include <cstdio>\n#include \"./h.h\"\n#line 4 \"$DIR/b.gp\"\n#include <vector>\n\n",
+		"#include <gocpp/rt.hpp>\n#line 4 \"$DIR/a.gp\"\n#include <cstdio>\n#include \"./h.h\"\n#line 4 \"$DIR/b.gp\"\n#include <vector>\n#include <gocpp/fmtcxx.hpp>\n\n",
 		`::puts("a");`, "::g();", `puts("b");`, "::std::vector<int64_t> v{};",
 	} {
 		if !strings.Contains(cpp, want) {
@@ -309,10 +309,6 @@ func TestCGuard(t *testing.T) {
 		"std::string::npos": interop.Value, "std::vector": interop.Template, "std::swap": interop.ValueTemplate,
 	}
 	tests := []struct{ src, want string }{
-		{"fmt.Println(lib.EOF)", "printing C/C++ values (step 4.12)"},
-		{"fmt.Println(std.string.npos)", "printing C/C++ values (step 4.12)"},
-		{"println(lib.f())", "printing C/C++ values (step 4.12)"},
-		{"var p *lib.FILE; fmt.Println(p)", "printing C/C++ values (step 4.12)"},
 		{"var v std.vector[int]; f := func() { _ = v }; f()", "C/C++ values in closures (a func literal that uses v: step 4.8)"},
 		{"var v, w std.vector[int]; defer func() { std.swap(v, w) }()", "C/C++ values in closures (a func literal that uses v: step 4.8)"},
 		{"var h H; f := func() { _ = h.p }; f()", "C/C++ values in closures (a func literal that uses h: step 4.8)"},
@@ -570,5 +566,35 @@ func main() {
 	}
 	if strings.Contains(cpp, "gp::ptr<unsigned int>") || strings.Contains(cpp, "gp::new_<unsigned int>") {
 		t.Errorf("&x of a C variable boxed it:\n%s", cpp)
+	}
+}
+
+// TestCPrint checks how arguments with C/C++ parts reach fmt and print (fmtcall.go, step
+// 4.12): through gp::cgo::fmt_arg and gp::cgo::print_arg, and gocpp/fmtcxx.hpp after the
+// C/C++ includes.
+func TestCPrint(t *testing.T) {
+	kinds := map[string]interop.Kind{"f": interop.Value, "EOF": interop.Macro, "FILE": interop.Type}
+	src := "package main\n\nimport (\n\t\"fmt\"\n\n\t\"<lib.h>\"\n)\n\n" +
+		"type H struct{ q C.int }\n\nfunc two() (C.int, int) { return 1, 2 }\n\n" +
+		"func main() {\n\tvar h H\n\tvar p *lib.FILE\n" +
+		"\tfmt.Println(lib.EOF, 1, h, p)\n\tfmt.Printf(\"%d\\n\", lib.f())\n\t_ = fmt.Sprint(two())\n" +
+		"\tprintln(lib.f(), 2)\n\tprintln(two())\n}\n"
+	fset, pkg, _ := checkInterop(t, src)
+	f, err := Package(fset, pkg, fakeInterop(pkg, kinds))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cpp := string(cppir.Print(f, ""))
+	for _, want := range []string{
+		"#include <lib.h>\n#include <gocpp/fmtcxx.hpp>\n",
+		"gp::fmtshim::Println(gp::cgo::fmt_arg(EOF), int64_t(1), gp::cgo::fmt_arg(h), gp::cgo::fmt_arg(p));",
+		`gp::fmtshim::Printf("%d\n"_gs, gp::cgo::fmt_arg(::f()));`,
+		"gp::fmtshim::Sprint(gp::cgo::fmt_arg(gp_a)...)",
+		"gp::println(gp::cgo::print_arg(::f()), int64_t(2));",
+		"gp::println(gp::cgo::print_arg(gp_a)...)",
+	} {
+		if !strings.Contains(cpp, want) {
+			t.Errorf("the C++ has no %q:\n%s", want, cpp)
+		}
 	}
 }

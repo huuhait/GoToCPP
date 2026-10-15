@@ -32,6 +32,8 @@
 
 #include <gocpp/arith.hpp>
 #include <gocpp/checks.hpp>
+#include <gocpp/fmtshim.hpp>
+#include <gocpp/print.hpp>
 #include <gocpp/ptr.hpp>
 #include <gocpp/slice.hpp>
 #include <gocpp/string.hpp>
@@ -554,6 +556,29 @@ constexpr decltype(auto) star(X&& x) {
     } else {
         return *std::forward<X>(x);
     }
+}
+
+// fmt_arg(x) is an argument of fmt.Print, Println, Printf and the Sprint functions that has a
+// C/C++ part (a C/C++ value, or a gocpp value with one inside, Phase 04 §2.12): the value, for
+// gp::fmtshim, after a check that fmt can print every part of it (gocpp/fmtshim.hpp, "C/C++
+// values"). It is here so that the error is the user's, at the call's .gp line.
+template <typename T>
+auto fmt_arg(T x) {
+    static_assert(fmtshim::detail::printable_arg<T>,
+                  "gocpp: fmt can't print a C++ type in this value: it has no std::formatter and "
+                  "no operator<< (print its parts, or declare an operator<< for it; an operator<< "
+                  "must be declared in the type's namespace)");
+    return fmtshim::detail::cxx_arg<T>{std::move(x)};
+}
+
+// print_arg(x) is the same for an argument of the builtin print and println, which print a
+// C/C++ number, bool, enum, raw pointer, nullptr or C++ string (gocpp/print.hpp).
+template <typename T>
+auto print_arg(T x) {
+    static_assert(gp::detail::print_ok<T>,
+                  "gocpp: print and println can't print a C++ object: use fmt.Println, or "
+                  "print its parts");
+    return gp::detail::cxx_print<T>{std::move(x)};
 }
 
 } // namespace cgo

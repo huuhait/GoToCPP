@@ -62,8 +62,9 @@ func (e *Error) Error() string {
 //
 // A package with header imports (Phase 04) needs in, what the compiler probes found out about
 // its C/C++ names (ProbeInterop); then the C/C++ includes follow gocpp's own header, in source
-// order, and the macros that collide with the names of the generated code are #undef'd after
-// them (macros.go). in may be nil for a package without header imports.
+// order, then gocpp/fmtcxx.hpp (fmt's use of the headers' std::formatters), and the macros that
+// collide with the names of the generated code are #undef'd after them (macros.go). in may be
+// nil for a package without header imports.
 //
 // For a construct that it can't translate, Package returns an *Error.
 func Package(fset *token.FileSet, pkg *check.Package, in *Interop) (*cppir.File, error) {
@@ -212,6 +213,8 @@ func (g *gen) file() *cppir.File {
 			return nil
 		}
 		f.Decls = append(f.Decls, incs...)
+		// fmt's std::formatter support, which needs to come after the headers (fmtcxx.hpp).
+		f.Decls = append(f.Decls, &cppir.Include{Path: "gocpp/fmtcxx.hpp", System: true})
 	}
 	f.Decls = append(f.Decls, &cppir.Blank{})
 	ns := &cppir.Namespace{Name: g.ns}

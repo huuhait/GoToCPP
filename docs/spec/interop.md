@@ -654,13 +654,73 @@ func main() {
   library's own cleanup (locks, memory, sqlite state). So every gocpp function that C can call
   is called through a `noexcept` **trampoline**. It catches any panic, prints it Go-style and
   exits with code 2.
-- **C++ exceptions.** In Phase 04, a C++ exception that reaches gocpp code stops the program with
-  a Go-style `panic: C++ exception: <what()>` and exit code 2. From Phase 05 on, it becomes a
-  normal panic that `recover()` can catch; its value has the type `gp::CppException`, and
-  `Error()` returns `what()`.
+- **C++ exceptions.** In Phase 04, a C++ exception that nothing catches ends the program like an
+  unrecovered Go panic, with exit code 2 (see [C++ exceptions](#c-exceptions) below). From
+  Phase 05 on, it becomes a normal panic that `recover()` can catch; its value has the type
+  `gp::CppException`, and `Error()` returns `what()`.
 - **Calling gocpp from C.** Functions marked `//export Name` become `extern "C"` functions in the
   `c-archive` and `c-shared` build modes, with cgo's rules for the allowed types. Every export
   goes through a trampoline too ([Phase 06 §2.7](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#27-build-modes--buildmode-like-go)).
+
+### C++ exceptions
+
+```go
+func parse(s string) int {
+	return int(std.stoi(std.string(s))) // throws std::invalid_argument for "x"
+}
+
+func main() {
+	defer fmt.Println("deferred") // not run in Phase 04
+	fmt.Println(parse("x"))
+}
+```
+
+```
+panic: C++ exception std::invalid_argument: stoi
+
+goroutine 1 [running]:
+main.parse(...)
+	/home/me/prog/main.gp:2 +0x44
+main.main()
+	/home/me/prog/main.gp:7 +0x6b
+exit status 2
+```
+
+- **The message.** A `std::exception` prints `panic: C++ exception <type>: <what()>` (only
+  `<type>` when `what()` is empty); anything else prints its type: `throw 42` gives
+  `panic: C++ exception of type int`. The type is the one the exception was thrown with, its C++
+  name (`std::out_of_range`, not the `std::exception` it may be caught as), also in a program
+  built with `-fno-rtti`. A newline in `what()` is followed by a tab, as in Go's panic messages.
+- **The trace** is the stack where the exception was thrown, innermost first, with the frames of
+  C++ functions that are in the program (a helper in a header shows as `vec_at(std::vector<long,
+  std::allocator<long> > const&, unsigned long)` and its header line); the C++ library's own
+  frames are left out, as Go leaves out its runtime's. If C++ code caught the exception and threw
+  it again (`catch (...) { throw; }`), or it reached a `noexcept` function, the trace starts
+  there.
+- **Nothing runs on the way out in Phase 04:** no deferred call, no C++ destructor, and
+  `recover()` can't stop it. The C++ library looks for a `catch` before it unwinds any frame;
+  gocpp's code catches only its own panics, so the library finds none and ends the program on the
+  stack of the throw (std::terminate, where gocpp prints the report). Go would run the deferred
+  calls of a panic; Phase 05 turns the exception into a Go panic where it enters gocpp code, and
+  then they run ([D26](language.md#d26-c-exceptions)).
+- **A deferred call that throws while a Go panic runs** prints both, like a panic in a deferred
+  call: `panic: boom`, then `	panic: C++ exception std::runtime_error: ...`, and the trace shows
+  the deferred call on top of the panicking function.
+- **A `std::bad_alloc`** that C++ code throws itself (or `std::bad_array_new_length`: `new
+  int[n]` with a negative `n`), which the runtime's new handler doesn't see, prints Go's `fatal
+  error: runtime: out of memory`, as gocpp's own allocations do, with the trace where it was
+  thrown.
+- **A Go panic that reaches a `noexcept` C++ function** (C++ calls `std::terminate` there) prints
+  the panic's normal report. A C++ destructor that throws (one declared `noexcept(false)`) while
+  a Go panic unwinds its frame makes C++ end the program with the new exception: the report shows
+  only the C++ exception, and the Go panic is lost (Phase 05 can chain them). Without any exception, `std::terminate` (a `std::thread` destroyed
+  while it runs) keeps the C++ library's message and aborts.
+- **C files and `-fno-exceptions`.** C sources get no `-fexceptions`, and a package's
+  `-fno-exceptions` reaches its own `.cpp` files (not the generated code, which always has
+  `-fexceptions`). An exception that the C++ library throws still passes through such frames and
+  ends the program the same way (the search doesn't need their handlers; a frame without unwind
+  tables ends the search, which also ends the program there).
+- An exception that C++ code catches itself is C++'s business: gocpp doesn't see it.
 
 Source: [Phase 04 §2.8](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#28-callbacks-and-panics-crossing-c-code),
 [Phase 05 §2.7](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md#27-panic--recover--defer-full-version).
@@ -677,6 +737,7 @@ fmt.Println(&s) // a raw pointer prints as an address
 - **Printing.** `fmt` prints a C++ value through `std::formatter<T>` when it exists, otherwise
   through `operator<<`. **Raw pointers, `char*` included, print as addresses**, as Go prints
   pointers. (Printing a `char*` as a C string would crash, or silence stdout, when it is null.)
+  The details are in [Printing C/C++ values](#printing-cc-values) below.
 - **In an `any`.** A C/C++ value stored in an interface gets a *foreign* type descriptor, named
   after its C++ spelling. Equality, hashing and printing use whatever the C++ type supports
   (`operator==`, `std::hash`, `std::formatter` or `operator<<`) ([Phase 05 §2.2](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md#22-type-descriptors-chosen-by-the-go-type)).
@@ -684,6 +745,50 @@ fmt.Println(&s) // a raw pointer prints as an address
   invalid types compare equal. So gocpp checks method signatures with C/C++ types itself: a
   `static_assert` at each static conversion, and a comparison by source spelling at run time
   ([Phase 05 §2.3](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md#23-interface-values-and-itabs)).
+
+### Printing C/C++ values
+
+```go
+var n C.int = 7
+p := geo.make_point(1, 2)          // a C++ struct with an operator<<
+fmt.Println(n, C.char('a'), geo.RED, std.string("bob"), p, geo.null_name())
+// 7 97 5 bob (1, 2) <nil>
+fmt.Printf("%d|%q|%5v\n", n, std.string("x"), p) // 7|"x"|(1, 2)
+println(n, geo.RED, std.string("bob"))           // 7 5 bob (to stderr)
+```
+
+`fmt.Print`, `Println`, `Printf` and the `Sprint` functions print a C/C++ value by its C++ type,
+also inside a gocpp value (a struct field, a slice element):
+
+| C/C++ value | Prints as |
+|---|---|
+| a number or a `bool` (`C.int`, `C.double`, `C.size_t`, …) | the Go type of the same kind and size: `C.int` as `int32`, `C.char` as `int8` (a number, as in cgo), `C.double` as `float64`, with all of fmt's verbs |
+| an enum | its number |
+| a raw pointer (`T*`, `char*`, `void*`, a function pointer) | its address, as Go prints a pointer that isn't `&{...}`: `0x7ffd5e8c`, `<nil>` for null, `%d` in decimal. A `char*` is never read as a string (it may be null, or point anywhere): `C.GoString(p)` gives the text |
+| `nullptr_t` | `<nil>`, as Go's nil interface |
+| `std::string`, `std::string_view` | a Go string (`%v %s %q`, and `fmt.Print` puts no space next to it) |
+| any other class type | its text: `std::formatter<T>` when the program has one for it, else its `operator<<` (declared in the type's namespace, or in the global one for a type there: C++ finds it by argument-dependent lookup). Like a Go value with a `String` method, `%v %s %q` print the text, the other verbs Go's error form with it: `%!d(Point=(1, 2))` |
+| a type with neither (a C struct) | a compile error at the `.gp` line: `fmt can't print a C++ type in this value: it has no std::formatter and no operator<<`. Print its fields, or declare an `operator<<` in a helper header |
+
+- **`%T` and the error forms** name a C number by the Go type above (`int32`; `int` for a `long`,
+  which C++ can't tell from gocpp's `int`, and `int64` for a `long long`), and any other C/C++
+  type by its C++ name (`Point`, `char const*`, `std::string`, `std::vector<long,
+  std::allocator<long> >`); Phase 13 translates C++ names back to gocpp names. cgo's `%T` prints
+  `main._Ctype_int`.
+- **`std::formatter` costs nothing when unused.** gocpp looks for one only when the program's
+  headers bring in `<format>` (a type can have one only then): the generated code includes
+  `gocpp/fmtcxx.hpp` after the headers, which uses `<format>` only if it is there already.
+- **The builtin `print` and `println`** print C/C++ numbers, bools, enums, raw pointers (`0x0`
+  for null), `nullptr` and C++ strings in their own format, and reject other C++ objects at the
+  `.gp` line (as Go's `println` rejects structs): use `fmt.Println`.
+- **C's stdio and fmt.** C's `stdout` has a buffer when it is not a terminal (a pipe, a file),
+  and gocpp's `fmt` writes without one, as Go does. So `fmt.Print*`, `print` and `println` flush
+  C's `stdout` and `stderr` (`fflush`) before they write: a `printf` that comes before a
+  `fmt.Println` in the program comes out before it, also through a pipe. That costs about 3 ns a
+  stream when the buffer is empty, against at least 50 ns for the write itself. What `printf`
+  writes after the last `fmt` call is flushed at the end of the program.
+- A value that can't be copied (`std::unique_ptr`) can't be printed, as `fmt` takes its
+  arguments by value; print what it points to.
 
 Source: [Phase 04 §2.12](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#212-runtime-helpers-added-in-this-phase).
 

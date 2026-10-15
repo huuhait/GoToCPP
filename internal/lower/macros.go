@@ -13,7 +13,8 @@ import (
 // and #define string ... would break gp::string. Two rules keep the generated code safe:
 //
 //  1. gocpp's own headers (gocpp/rt.hpp) come first, before the C/C++ includes, so no header
-//     macro reaches the runtime's code.
+//     macro reaches the runtime's code. (gocpp/fmtcxx.hpp comes after them, because it looks
+//     for the headers' <format>; its own names start with gp_.)
 //  2. The names after the includes:
 //     - a name of the package (a variable, a function, a type, a field, a label) that is a macro
 //       of the headers (interop.ProbeMacros) gets a _ suffix, like a name that is a macro of the

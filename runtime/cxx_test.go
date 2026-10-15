@@ -23,7 +23,7 @@ import (
 
 // The C++ tests of the runtime: test/unit.cpp, test/slice_test.cpp, test/array_test.cpp,
 // test/map_test.cpp, test/fmt_test.cpp, test/trace_test.cpp, test/defer_test.cpp, test/func_test.cpp and
-// test/interop_test.cpp (unit tests), test/nochecks_test.cpp
+// test/interop_test.cpp and test/cxxvalue_test.cpp (unit tests), test/nochecks_test.cpp
 // (the unit tests of a -nochecks build, compiled with the runtime with -DGOCPP_NOCHECKS),
 // test/diff.cpp (the C++ side of a differential test against testdata/diff/main.go, run with
 // real Go) and test/fmt_diff.cpp (the same for the fmt shim, against testdata/fmtdiff/main.go).
@@ -340,6 +340,7 @@ func TestCXX(t *testing.T) {
 					defers := c.compile(t, rt, "test/defer_test.cpp", dir, m.flags, nil)
 					funcs := c.compile(t, rt, "test/func_test.cpp", dir, m.flags, nil)
 					interop := c.compile(t, rt, "test/interop_test.cpp", dir, m.flags, nil)
+					cxxValue := c.compile(t, rt, "test/cxxvalue_test.cpp", dir, m.flags, nil)
 					nochecks := c.compile(t, rt, "test/nochecks_test.cpp", dir, append(slices.Clone(m.flags), "-DGOCPP_NOCHECKS"), nil)
 					fmtUnit := c.compile(t, rt, "test/fmt_test.cpp", dir, m.flags, nil)
 					fmtDiff := c.compile(t, rt, "test/fmt_diff.cpp", dir, m.flags, nil)
@@ -353,6 +354,10 @@ func TestCXX(t *testing.T) {
 					t.Run("interop", func(t *testing.T) {
 						runUnit(t, interop)
 						runInterop(t, interop, m.name == "asan")
+					})
+					t.Run("cxxvalue", func(t *testing.T) {
+						runUnit(t, cxxValue)
+						runCxxValue(t, cxxValue, m.name != "O2", m.name == "asan")
 					})
 					t.Run("nochecks", func(t *testing.T) { runUnit(t, nochecks) })
 					t.Run("fmt", func(t *testing.T) { runUnit(t, fmtUnit) })
@@ -514,6 +519,53 @@ func runInterop(t *testing.T, bin string, asan bool) {
 	}
 	if code == 0 || !bytes.Contains(out, []byte("ERROR: AddressSanitizer: stack-use-after-scope")) {
 		t.Errorf("dangle: exit code %d, output:\n%s\nwant an AddressSanitizer report (stack-use-after-scope) and a nonzero exit code", code, out)
+	}
+}
+
+// runCxxValue checks the cases of test/cxxvalue_test.cpp that end the program (step 4.12): a
+// C++ exception that nothing catches ends it like a Go panic (a std::bad_alloc like Go's fatal
+// error "out of memory"), with the trace of the throw
+// (exact only when frames says that the build keeps every frame, not at -O2), and C's stdio
+// comes out in the program's order next to fmt and println, through one pipe.
+//
+// bad-array is new int[-1]: g++ throws std::bad_array_new_length (on_terminate's fatal error),
+// clang++ asks operator new for SIZE_MAX bytes (the new handler's): the same report. With ASan,
+// whose allocator reports the clang++ request itself, it doesn't run.
+func runCxxValue(t *testing.T, bin string, frames, asan bool) {
+	for _, tc := range []struct {
+		name, out string
+		frame     string // a frame that the trace must show (with frames)
+	}{
+		{"throw-std", "panic: C++ exception std::out_of_range: index 5\n\ngoroutine 1 [running]:\n", "(anonymous namespace)::throw_range(int)"},
+		{"throw-int", "panic: C++ exception of type int\n\ngoroutine 1 [running]:\n", ""},
+		{"throw-in-defer", "panic: first\n\tpanic: C++ exception std::logic_error: from a deferred call\n\ngoroutine 1 [running]:\n", "(anonymous namespace)::throw_deferred()"},
+		{"panic-noexcept", "panic: go panic\n\ngoroutine 1 [running]:\n", ""},
+		{"bad-array", "fatal error: runtime: out of memory\n\ngoroutine 1 [running]:\n", "(anonymous namespace)::alloc_ints(long)"},
+		{"bad-alloc", "fatal error: runtime: out of memory\n\ngoroutine 1 [running]:\n", "(anonymous namespace)::throw_bad_alloc()"},
+	} {
+		if asan && tc.name == "bad-array" {
+			continue
+		}
+		out, _, code, err := command(filepath.Dir(bin), nil, true, bin, tc.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if head := cutTrace(out); code != 2 || string(head) != tc.out {
+			t.Errorf("%s: exit code %d, output:\n%s\nwant exit code 2, output:\n%s", tc.name, code, out, tc.out)
+		}
+		if frames && tc.frame != "" && !bytes.Contains(out, []byte("\n"+tc.frame+"\n\t")) {
+			t.Errorf("%s: the trace has no frame %s:\n%s", tc.name, tc.frame, out)
+		}
+	}
+	// (std::terminate without an exception aborts, with the C++ library's message: not run
+	// here, because an abort may leave a core dump.)
+	out, _, code, err := command(filepath.Dir(bin), nil, true, bin, "stdio")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const order = "1 printf\n2 fmt\n3 printf\n4 println\n5 fputs stderr\n6 fmt\n7 printf, flushed at the end\n"
+	if code != 0 || string(out) != order {
+		t.Errorf("stdio: exit code %d, output:\n%s\nwant exit code 0, output:\n%s", code, out, order)
 	}
 }
 

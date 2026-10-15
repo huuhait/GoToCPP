@@ -186,4 +186,8 @@ std::string demangle(const std::string& name) {
     return std::string(s.get());
 }
 
+const std::type_info* current_exception_type() noexcept {
+    return abi::__cxa_current_exception_type();
+}
+
 } // namespace gp::os

@@ -9,6 +9,8 @@
 #include <charconv>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -562,6 +564,8 @@ void bad_arg(printer& p, char32_t verb, const char* what) {
 } // namespace
 
 void write_stdout(std::string_view s) {
+    // What C or C++ code printf'd before comes first (fmtshim.hpp): C's stdout has a buffer.
+    gp::detail::flush_c_stdio();
     // fmt writes through os.Stdout, which ends the program with SIGPIPE on a broken pipe.
     if (!s.empty() &&
         os::write(os::stdout_fd, s.data(), s.size()) == os::write_result::broken_pipe) {
@@ -688,6 +692,30 @@ void bad_verb_begin(printer& p, char32_t verb, type_fn type) {
 void bad_verb_end(printer& p) {
     p.buf += ')';
     p.erroring = false;
+}
+
+void bad_verb_nil(printer& p, char32_t verb) {
+    p.buf += "%!";
+    append_rune(p.buf, verb);
+    p.buf += "(<nil>)";
+}
+
+// --- C/C++ values ---
+
+void cxx_type_name(std::string& out, const std::type_info& t) {
+    // g++ starts the name of a type that is local to a file with '*'.
+    std::string name = t.name();
+    if (!name.empty() && name[0] == '*') {
+        name.erase(0, 1);
+    }
+    std::string d = os::demangle(name);
+    out += d.empty() ? name : d;
+}
+
+void stream_text(std::string& out, void (*put)(std::ostream&, const void*), const void* v) {
+    std::ostringstream os;
+    put(os, v);
+    out += std::move(os).str();
 }
 
 void pp_bool(printer& p, bool v, char32_t verb, type_fn type) {

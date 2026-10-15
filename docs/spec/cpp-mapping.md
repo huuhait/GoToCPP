@@ -1160,6 +1160,8 @@ int64_t load(int64_t n) {
 - **Only a Go panic** (`gp::panic_error`) is caught. Any other C++ exception goes on at once,
   without running the deferred calls: a forced unwind (`pthread_exit` in C code, Phase 04) must
   pass untouched, and Phase 05 turns C++ exceptions into Go panics where they enter Go code.
+  Until then, a C++ exception that nothing catches ends the program with a Go-style report
+  before anything unwinds ([interop.md](interop.md#c-exceptions)).
 - **Stack:** the frame is 96 bytes, with room for one call (more go to the heap). At `-O0` a
   function with one defer takes about 160 to 185 bytes of C++ stack per call (g++, clang++),
   where the same function without it takes 24 to 32: with the default 8 MiB stack, a recursion
@@ -1447,10 +1449,11 @@ Where the trace differs from Go's (accepted divergences):
   panic. Go's message also depends on where its heap fails: a request too big for the address
   space (about 2^46 bytes or more) prints `runtime: out of memory: cannot allocate N-byte block
   (M in use)` and `fatal error: out of memory`, where gocpp always prints `fatal error:
-  runtime: out of memory`, without the size. When the trace needs memory that isn't there, or
-  when the failure is a `std::bad_alloc` that C++ code threw itself, the report ends after the
-  goroutine line (or after the `fatal error` line). Go also prints its runtime's other
-  goroutines after goroutine 1 (the garbage collector's, the finalizer's, with `created by`
+  runtime: out of memory`, without the size. When the trace needs memory that isn't there, the
+  report ends after the goroutine line (or after the `fatal error` line). A `std::bad_alloc`
+  that C++ code throws itself (or `std::bad_array_new_length`, `new int[-1]`) gives the same
+  report, with the trace where it was thrown (Phase 04, step 4.12: nothing unwinds before).
+  Go also prints its runtime's other goroutines after goroutine 1 (the garbage collector's, the finalizer's, with `created by`
   lines); gocpp has none. A fatal error in a deferred call that a panic runs shows Go's shape:
   the deferred call's frames, `panic(...)` and the panicking function at the panic's line.
   Stack overflow: the numbers of the `sp=`

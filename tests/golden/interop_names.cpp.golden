@@ -12,6 +12,7 @@
 #include <vector>
 #line 17 "$ROOT/tests/golden/interop_names.gp"
 #include "./cnames.h"
+#include <gocpp/fmtcxx.hpp>
 #undef tuple
 
 namespace gpkg_main {

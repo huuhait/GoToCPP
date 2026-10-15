@@ -16,6 +16,7 @@ import (
 	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/diag"
+	"github.com/huuhait/gocpp/internal/lower"
 )
 
 // This file reports the errors of the C++ compiler and of the linker in a
@@ -136,14 +137,23 @@ func cppLines(fset *token.FileSet, pkg *check.Package) cppLineSet {
 
 // isCppExpr reports whether the expression e of pkg is C or C++ code: a
 // selector on C (C.int, C.std.vector, a header package's function after
-// the loader's rewrite) or an opaque expression.
+// the loader's rewrite), an opaque expression, or a gocpp value with a
+// C/C++ part (a struct with a C/C++ field, which fmt prints through C++:
+// step 4.12).
 func isCppExpr(pkg *check.Package, e ast.Expr) bool {
 	if sel, ok := e.(*ast.SelectorExpr); ok {
 		if id, ok := sel.X.(*ast.Ident); ok && id.Name == "C" {
 			return true
 		}
 	}
-	return pkg.Opaque.IsOpaque(e)
+	if pkg.Opaque.IsOpaque(e) {
+		return true
+	}
+	if pkg.Info == nil {
+		return false
+	}
+	tv, ok := pkg.Info.Types[e]
+	return ok && tv.IsValue() && tv.Type != nil && lower.HasC(tv.Type)
 }
 
 // A cxxLoc is a place in a file that the compiler names, without the

@@ -5,11 +5,14 @@
 #include <gocpp/os.hpp>
 #include <gocpp/trace.hpp>
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <memory>
 #include <new>
 #include <string>
@@ -492,6 +495,94 @@ void fatal(std::string_view msg) noexcept {
     os::exit(2);
 }
 
+namespace {
+
+// The terminate handler before on_terminate, which on_terminate leaves the cases without an
+// exception to.
+std::terminate_handler cxx_terminate = nullptr;
+
+} // namespace
+
+std::string cxx_exception_text(const std::exception_ptr& e) {
+    std::string type;
+    const char* what = nullptr;
+    try {
+        std::rethrow_exception(e);
+    } catch (const std::exception& x) {
+        what = x.what(); // the exception lives on in e
+    } catch (...) {
+    }
+    // The type it was thrown with, also without RTTI (the program's flags may have -fno-rtti):
+    // from the C++ ABI, which tells it only inside a handler.
+    try {
+        std::rethrow_exception(e);
+    } catch (...) {
+        if (const std::type_info* t = os::current_exception_type(); t != nullptr) {
+            fmtshim::detail::cxx_type_name(type, *t);
+        }
+    }
+    if (type.empty()) {
+        type = "?";
+    }
+    std::string text = "C++ exception ";
+    if (what == nullptr) {
+        text += "of type ";
+        text += type;
+        return text;
+    }
+    text += type;
+    if (*what != '\0') {
+        text += ": ";
+        text += what;
+    }
+    return text;
+}
+
+void on_terminate() noexcept {
+    std::exception_ptr e = std::current_exception();
+    if (e == nullptr) {
+        if (cxx_terminate != nullptr && cxx_terminate != &on_terminate) {
+            cxx_terminate();
+        }
+        std::abort();
+    }
+    // What C or C++ code printf'd comes first, as for a panic.
+    std::fflush(nullptr);
+    std::string out;
+    try {
+        std::rethrow_exception(e);
+    } catch (const panic_error& p) {
+        panic_report(out, p); // a Go panic: run_main's report (the exception lives on in e)
+        write_stderr(out);
+        os::exit(2);
+    } catch (const std::bad_alloc&) {
+        // An allocation failure that the new handler didn't see (it ends the program itself):
+        // a size that C++ can't even ask for (std::bad_array_new_length, new int[-1]), or a
+        // std::bad_alloc that C++ code threw itself. Go's fatal error, with the trace of the
+        // throw.
+        fatal("runtime: out of memory");
+    } catch (...) {
+    }
+    // The Go panic that is running, if a deferred call threw the exception: Go prints the
+    // chain, the first panic first, as for a panic in a deferred call.
+    const run_mark* m = run_marks();
+    while (m != nullptr && m->gp_panic == nullptr) {
+        m = m->gp_next;
+    }
+    std::vector<const panic_error*> chain;
+    for (const panic_error* p = m != nullptr ? m->gp_panic : nullptr; p != nullptr;
+         p = p->gp_prev.get()) {
+        chain.push_back(p);
+    }
+    std::reverse(chain.begin(), chain.end());
+    panic_error here{gp::string::gp_copy(cxx_exception_text(e))};
+    chain.push_back(&here);
+    panic_report(out, chain.data(), chain.size());
+    fatal_trace(out); // the stack of the throw (and the running panic's, as Go shows it)
+    write_stderr(out);
+    os::exit(2);
+}
+
 void out_of_memory() {
     // An allocation that fails while the report is made (its trace) throws std::bad_alloc
     // now, which fatal_trace catches: the report then has no trace. Phase 08: when several
@@ -500,7 +591,14 @@ void out_of_memory() {
     fatal("runtime: out of memory");
 }
 
+void flush_c_stdio() noexcept {
+    std::fflush(stdout);
+    std::fflush(stderr);
+}
+
 void write_stderr(std::string_view s) {
+    // What C or C++ code printf'd before comes first (print.hpp).
+    flush_c_stdio();
     // Go's runtime print ignores write errors, also a broken pipe.
     if (!s.empty()) {
         os::write(os::stderr_fd, s.data(), s.size());
@@ -545,6 +643,7 @@ const std::vector<gp::string>& envs() noexcept {
 int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
     os::start();
     std::set_new_handler(detail::out_of_memory);
+    detail::cxx_terminate = std::set_terminate(detail::on_terminate);
     args_storage() = to_strings(os::arguments(argc, argv));
     envs_storage() = to_strings(os::environment());
     try {
@@ -560,15 +659,10 @@ int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
         detail::panic_report(out, e); // with the stack trace
         detail::write_stderr(out);
         os::exit(2);
-    } catch (const std::bad_alloc&) {
-        // An allocation failure that the new handler didn't see: a size that C++ can't even
-        // ask for (std::bad_array_new_length), or one in C++ code that threw it itself. The
-        // stack is gone: the report has no trace. The deferred calls didn't run (the generated
-        // code catches only gp::panic_error), as Go runs none after a fatal error.
-        std::fflush(nullptr);
-        detail::write_stderr("fatal error: runtime: out of memory\n");
-        os::exit(2);
     }
+    // Any other exception (a C++ exception, also a std::bad_alloc that C++ code throws) finds
+    // no catch, so the C++ library calls detail::on_terminate on the stack of the throw, before
+    // anything unwinds.
     os::exit(0);
 }
 

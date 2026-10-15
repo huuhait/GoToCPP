@@ -23,7 +23,7 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `src/os/linux/` | the Linux OS layer: `os.cpp`, and `trace.cpp` (the stack trace's addresses, ELF file and demangling). Phase 08 adds the Linux side of the thread layer `gp::os`. Embedded |
 | `src/os/windows/` | the Windows OS layer (Phase 14): so far only `trace.cpp`, the stack trace's addresses (no file reader yet). Embedded |
 | `files.go` | package `rtfiles`: `FS()` holds `include/` and `src/`; `Sources(goos)` lists the `.cpp` files a program is compiled with (`src/*.cpp` and `src/os/<goos>/*.cpp`) |
-| `test/` | the C++ tests (not embedded): `unit.cpp`, `slice_test.cpp`, `array_test.cpp`, `map_test.cpp`, `fmt_test.cpp`, `interop_test.cpp`, `diff.cpp`, `fmt_diff.cpp`, `fortify.cpp` and `layout.cpp` (generated) |
+| `test/` | the C++ tests (not embedded): `unit.cpp`, `slice_test.cpp`, `array_test.cpp`, `map_test.cpp`, `fmt_test.cpp`, `interop_test.cpp`, `cxxvalue_test.cpp`, `diff.cpp`, `fmt_diff.cpp`, `fortify.cpp` and `layout.cpp` (generated) |
 | `testdata/diff/main.go`, `testdata/fmtdiff/main.go` | the Go sides of the differential tests |
 | `*_test.go` | the Go tests that build and run the C++ tests, and the checks below |
 | `compile_flags.txt` | the flags for clangd, so the files open without false errors in an editor (the dev shell's clangd) |
@@ -44,11 +44,12 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `hash.hpp` | the hashing of map keys: `gp::hash_of(k)` and the customization point `gp::hash<T>`; Go's float rules (`+0` and `-0` hash the same; every NaN hashes alike, and the map spreads NaN keys with its own count), strings by their bytes, pointers by address, complex numbers by their parts, and the protocol for structs and arrays: a member `gp_hash()` built with `gp::hash_fields(...)` or `gp::hash_elems(p, n)` (`gp::array` has one); `std::hash` for C++ types. A fixed seed; the order is not randomized (D8), but pointer keys make it differ between runs |
 | `map.hpp` | `gp::map<K, V>` (`map[K]V`: a `std::shared_ptr` to a `std::unordered_map`, 16 bytes): nil maps (reads give zero values, writes panic with `assignment to entry in nil map`), `gp::make_map`, `gp::map_of` (literals), `gp::get`, `gp::lookup` (comma-ok), `gp::set`, `gp::ref` (`m[k] op= v`), `gp::erase`, `gp::len`, `gp::clear`, and `gp::range_map` / `gp::range_next` (a snapshot of the entries, which skips the ones deleted meanwhile); reads never insert, NaN keys and the key replacement on a store work as in Go, the table is released through `gp::detail::release` |
 | `arith.hpp` | `gp::div`, `gp::rem`, `gp::shl`, `gp::shr` and `gp::f2i<T>`, each returning the Go type |
-| `print.hpp` | the builtins `gp::print` and `gp::println`: stderr, in Go's runtime number format (`+1.500000e+000`) |
+| `print.hpp` | the builtins `gp::print` and `gp::println`: stderr, in Go's runtime number format (`+1.500000e+000`); C/C++ numbers, enums, raw pointers and C++ strings too (step 4.12) |
 | `panic.hpp` | `gp::panic_error` (the exception a panic throws, with the return addresses of its stack) and `gp::panic(v)` |
-| `fmtshim.hpp` | `gp::fmtshim::Print`, `Println`, `Printf`, `Sprint`, `Sprintln`, `Sprintf`, a stand-in for `fmt` until Phase 05 and 09: every Phase 03 value as Go's `fmt` prints it (slices, arrays, maps with Go's key order, structs, `&{...}`, addresses, `String()` and `Error()` methods, panics in them), the verbs `%v %+v %d %s %q %t %f` (and `%T`) with width, precision and the flags `- + space 0`, Go's error forms; the protocols that the emitter's types follow (`gp_fields` with `gp::field`, `gp_type_name`, `gp_value()`, `gp_String`/`gp_String_ptr`, `gp_Error`/`gp_Error_ptr`) and the type tags for `int64`, `uint64` and `uintptr` (`gp::fmtshim::typed<tag>(x)`) |
+| `fmtshim.hpp` | `gp::fmtshim::Print`, `Println`, `Printf`, `Sprint`, `Sprintln`, `Sprintf`, a stand-in for `fmt` until Phase 05 and 09: every Phase 03 value as Go's `fmt` prints it (slices, arrays, maps with Go's key order, structs, `&{...}`, addresses, `String()` and `Error()` methods, panics in them), the verbs `%v %+v %d %s %q %t %f` (and `%T`) with width, precision and the flags `- + space 0`, Go's error forms; the protocols that the emitter's types follow (`gp_fields` with `gp::field`, `gp_type_name`, `gp_value()`, `gp_String`/`gp_String_ptr`, `gp_Error`/`gp_Error_ptr`) and the type tags for `int64`, `uint64` and `uintptr` (`gp::fmtshim::typed<tag>(x)`); C/C++ values (step 4.12): C numbers as the Go types of their size, enums as numbers, raw pointers as addresses, C++ strings as strings, other class types through `std::formatter` or `operator<<` |
+| `fmtcxx.hpp` | not in `rt.hpp`: generated code with C/C++ includes includes it after them, and it lets `fmt` use a type's `std::formatter` when the program's headers brought in `<format>` (so other programs don't pay for `<format>`) |
 | `main.hpp` | `gp::run_main(argc, argv, init, main)`, `gp::args()`, `gp::envs()` |
-| `interop.hpp` | the helpers for C and C++ values (Phase 04 §2.5, §2.6): `gp::deref(x)` (`x.m` on an opaque value: one level of a raw pointer or a `gp::ptr`, with Go's nil panic; anything else passes through as a reference), `gp::range(c)` and `gp::range_keys(c)` (`for i, v := range c` and `for i := range c` over anything with `begin()`/`end()` and C arrays: a temporary is held by value, random-access containers are walked by index with the length read once, maps give keys and values, the variables are copies), `gp::values(t)` (a pair or tuple with reference members as values, for `std::minmax`), `gp::cstr(s)` (a holder that converts to `const char*`: a NUL-terminated copy, or no copy for a literal), and cgo's helpers in `gp::cgo` (`CString`, `GoString`, `GoStringN`, `GoBytes`, `free`, with Go's behavior and panics). The file starts with the shapes that the emitter writes |
+| `interop.hpp` | the helpers for C and C++ values (Phase 04 §2.5, §2.6): `gp::deref(x)` (`x.m` on an opaque value: one level of a raw pointer or a `gp::ptr`, with Go's nil panic; anything else passes through as a reference), `gp::range(c)` and `gp::range_keys(c)` (`for i, v := range c` and `for i := range c` over anything with `begin()`/`end()` and C arrays: a temporary is held by value, random-access containers are walked by index with the length read once, maps give keys and values, the variables are copies), `gp::values(t)` (a pair or tuple with reference members as values, for `std::minmax`), `gp::cstr(s)` (a holder that converts to `const char*`: a NUL-terminated copy, or no copy for a literal), cgo's helpers in `gp::cgo` (`CString`, `GoString`, `GoStringN`, `GoBytes`, `free`, with Go's behavior and panics), and `gp::cgo::fmt_arg` / `print_arg`, which check at the `.gp` line that `fmt` and `print` can print a C/C++ value. The file starts with the shapes that the emitter writes |
 | `os.hpp` | the OS layer's interface (declarations only) |
 | `trace.hpp` | not in `rt.hpp`, for the runtime's own files and tests: the stack trace of a panic (Go names from mangled C++ names, the DWARF line table reader, the frames in Go's format) |
 | `sizes.hpp` | generated from the size table in `internal/check/sizes.go`: a `static_assert` of the size and alignment of each runtime type, the numbers that `unsafe.Sizeof` gives (divergence D15) |
@@ -120,8 +121,15 @@ What they do, in short:
   method names) with `static_assert`s.
 - **Output order is Go's.** Nothing is buffered: each `print`, `println` and `fmtshim` call
   formats its text first and writes it with one `write` call, unless the OS takes only part of
-  it (then the OS layer writes the rest). `run_main` ends the program through the OS layer,
-  which flushes C stdio and exits at once (no C++ static destructors).
+  it (then the OS layer writes the rest). Before it writes, it flushes C's `stdout` and
+  `stderr` (`gp::detail::flush_c_stdio`, about 3 ns each when empty), so what C code
+  `printf`'d before comes first, also into a pipe. `run_main` ends the program through the OS
+  layer, which flushes C stdio and exits at once (no C++ static destructors).
+- **A C++ exception that nothing catches** ends the program like an unrecovered panic (step
+  4.12): `run_main` installs a terminate handler (`gp::detail::on_terminate`, `panic.hpp`), which
+  the C++ library calls on the stack of the throw, before anything unwinds; it prints `panic:
+  C++ exception <type>: <what()>` and the trace of the throw, and exits with code 2. No deferred
+  call runs (Phase 05 makes these exceptions Go panics).
 - **Writes behave like Go's.** A non-blocking stdout or stderr that is full makes the program
   wait (`poll`); it doesn't lose the rest. SIGPIPE works as in Go: at start the OS layer
   installs a handler that does nothing (not "ignore", so programs that the process starts get
@@ -175,7 +183,7 @@ this.
 ## Tests
 
 `go test ./runtime` (also part of `make test` and `make ci`) runs:
-- `TestCXX`: compiles `test/unit.cpp`, `test/slice_test.cpp`, `test/array_test.cpp`, `test/map_test.cpp`, `test/fmt_test.cpp`, `test/trace_test.cpp`, `test/interop_test.cpp`, `test/nochecks_test.cpp`, `test/diff.cpp` and `test/fmt_diff.cpp` with the embedded runtime, with g++
+- `TestCXX`: compiles `test/unit.cpp`, `test/slice_test.cpp`, `test/array_test.cpp`, `test/map_test.cpp`, `test/fmt_test.cpp`, `test/trace_test.cpp`, `test/interop_test.cpp`, `test/cxxvalue_test.cpp`, `test/nochecks_test.cpp`, `test/diff.cpp` and `test/fmt_diff.cpp` with the embedded runtime, with g++
   and clang++, each at `-O0`, at `-O2` and with `-fsanitize=address,undefined` (a sanitizer
   report fails the test; this mode also writes DWARF 4, the others the compilers' DWARF 5).
   The flags are the driver's: `-std=c++20 -fwrapv -fno-strict-aliasing
@@ -253,6 +261,17 @@ this.
     `C.GoBytes(nil, 3)` (nil dereference), `C.GoBytes(p, -1)` ("gobytes: length out of
     range"), `gp::deref` of a nil pointer, and, with ASan only, `std::minmax`'s references
     without `gp::values`, which ASan must report (stack-use-after-scope).
+  - `cxxvalue_test.cpp` checks step 4.12: how `fmt` and `print` print C/C++ values (C numbers
+    and their `%T`, enums, raw pointers of every kind and null ones, `nullptr`, C++ strings,
+    class types through `operator<<` and `std::formatter`, the formatter first; C/C++ values in
+    gocpp structs, slices and pointers; the error forms), the `printable` checks (recursive
+    structs end), and the text of C++ exceptions (`std::exception` subclasses, an empty
+    `what()`, `throw 42`, a class that is no `std::exception`, the thrown type after a
+    rethrow). Run with one argument, it runs a case that ends the program: an uncaught
+    `std::out_of_range` (with a deferred call that must not run, and the throwing function in
+    the trace), `throw 7`, a C++ exception from a deferred call while a Go panic runs (Go's
+    chain), a Go panic through a `noexcept` function, and `printf`, `fmt` and `println` mixed
+    in one pipe, in the program's order.
   - `nochecks_test.cpp` is compiled with `-DGOCPP_NOCHECKS`, as `gocpp build -nochecks` does,
     runtime included: the index, slice, conversion, nil and owner checks are gone (an index
     past `len` inside `cap` reads the element, without undefined behavior), and the division

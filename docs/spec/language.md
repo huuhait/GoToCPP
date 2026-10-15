@@ -9,7 +9,7 @@ Everything this document doesn't mention works as the Go spec says.
 | | |
 |---|---|
 | Status | v0, written in Phase 00 from the plan. Each phase updates it when it builds a feature |
-| Source | [Phase 00 §2.2](../../plans/2026-10-13-gocpp/phase-00-foundations/README.md#22-the-language-as-a-diff-against-go) (the divergence list D1–D21; D22 from the Phase 02 evaluation-order work, D23 from Phase 03 steps 3.5 and 3.7, D24 from step 3.6, D25 from step 3.15) and the phase READMEs linked in each section |
+| Source | [Phase 00 §2.2](../../plans/2026-10-13-gocpp/phase-00-foundations/README.md#22-the-language-as-a-diff-against-go) (the divergence list D1–D21; D22 from the Phase 02 evaluation-order work, D23 from Phase 03 steps 3.5 and 3.7, D24 from step 3.6, D25 from step 3.15, D26 from Phase 04 step 4.12) and the phase READMEs linked in each section |
 | See also | [cpp-mapping.md](cpp-mapping.md) (what the C++ output looks like), [interop.md](interop.md) (using C and C++), [feature-matrix.md](feature-matrix.md) (the phase of each feature) |
 
 **How to read it.** Each section starts with an example. Then it says what Go does, what gocpp
@@ -47,6 +47,7 @@ The [feature matrix](feature-matrix.md) lists every feature with the phase that 
 | [D23](#d23-print-and-println-of-a-slice-or-a-map) | `println(s)` prints `[3/3]0xc000012345`, `println(m)` `0xc000012345` | an error: use `fmt.Println` | 03 |
 | [D24](#d24-large-values-on-the-c-stack) | the stack grows for any value | a result or a temporary array or struct over 128 KiB can overflow the C++ stack | 03 |
 | [D25](#d25-fmt-arguments-that-a-closure-changes) | whether `fmt.Println(ok, set())` prints the old `ok` depends on gc's inliner | a rule on the code approximates it; a closure gc doesn't inline can print differently | 03 |
+| [D26](#d26-c-exceptions) | a C++ exception that leaves C++ code under cgo aborts the program | a Go-style panic report; recoverable from Phase 05 on | 04, 05 |
 
 The three things gocpp adds have their own sections:
 [header imports](#header-imports), [must functions and must calls](#must-functions-and-must-calls)
@@ -727,6 +728,36 @@ fmt.Println(ok, set()) // Go and gocpp: false true
 - **Phase:** [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#210-builtins-printing-and-package-initialization).
   The rule is in `internal/lower/inplace.go`; `tests/diff/fmt_closure_locals.gp` has the cases
   where both agree. Phase 15's escape analysis may get closer to gc's.
+
+## D26. C++ exceptions
+
+```go
+func main() {
+	defer fmt.Println("deferred")             // Phase 04: not run
+	fmt.Println(std.stoi(std.string("x")))    // throws std::invalid_argument
+}
+// panic: C++ exception std::invalid_argument: stoi
+//
+// goroutine 1 [running]:
+// main.main()
+// 	/home/me/prog/main.gp:3 +0x6b
+// exit status 2
+```
+
+- **Go:** Go has no exceptions. Under cgo, a C++ exception that leaves C++ code ends the program:
+  the C++ library's "terminate called after throwing an instance of 'std::invalid_argument'",
+  then Go's `SIGABRT: abort` dump, exit status 2; the deferred calls don't run.
+- **gocpp:** in Phase 04 the program ends the same way, but with a Go-style report: `panic: C++
+  exception <type>: <what()>` (`of type int` for an exception that is no `std::exception`), the
+  goroutine's trace where the exception was thrown, exit code 2. As under cgo, nothing runs on the
+  way out: no deferred call, no C++ destructor, and `recover()` can't stop it. A C++ destructor
+  that throws while a Go panic unwinds its frame ends the program with that exception's report,
+  without the Go panic. From Phase 05 on,
+  the exception becomes a Go panic where it enters gocpp code: the deferred calls run, and
+  `recover()` returns a `gp::CppException` whose `Error()` is `what()`
+  ([interop.md](interop.md#c-exceptions)).
+- **Phase:** [04](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#28-callbacks-and-panics-crossing-c-code),
+  [05](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md#27-panic--recover--defer-full-version).
 
 ---
 

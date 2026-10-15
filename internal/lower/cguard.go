@@ -546,7 +546,7 @@ func (g *gen) cPlaceOK(e ast.Expr, parent ast.Node) bool {
 				}
 				switch b.Name() {
 				case "print", "println":
-					g.unsupported(e.Pos(), "printing C/C++ values (step 4.12): convert the value to a gocpp type first, int(x)")
+					return true // gp::cgo::print_arg (fmtcall.go)
 				case "len", "cap":
 					g.userError(e.Pos(), "invalid argument: %s (C/C++ value) for built-in %s: call its C++ function, %s.size() or std.size(%s)",
 						g.srcText(e), b.Name(), g.srcText(e), g.srcText(e))
@@ -560,8 +560,7 @@ func (g *gen) cPlaceOK(e ast.Expr, parent ast.Node) bool {
 		}
 		if sel, ok := ast.Unparen(p.Fun).(*ast.SelectorExpr); ok {
 			if fn, ok := g.info.Uses[sel.Sel].(*types.Func); ok && fn.Pkg() != nil && fn.Pkg().Path() == "fmt" {
-				g.unsupported(e.Pos(), "printing C/C++ values (step 4.12): convert the value to a gocpp type first, int(x)")
-				return false
+				return true // gp::cgo::fmt_arg (fmtcall.go)
 			}
 		}
 		if sel, ok := ast.Unparen(p.Fun).(*ast.SelectorExpr); ok {
