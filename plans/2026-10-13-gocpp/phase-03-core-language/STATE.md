@@ -39,14 +39,14 @@
 - [x] 3.15 Remaining builtins + `fmt` shim for composite values (slices, maps sorted, structs, `&{…}`, `String()`) (3.15a runtime shim, 3.15b emitter side, 3.15c complex numbers)
 - [x] 3.16 Package-level vars (`InitOrder`) + multiple `init()`
 - [x] 3.17 `gocppSizes` + `static_assert` sync
-- [~] 3.18 Tests: ≥ 150 run, ≥ 60 differential, sanitizer CI job (job 3.18; also the weak.Pointer intrinsic, which no earlier step lowered)
+- [x] 3.18 Tests: ≥ 150 run, ≥ 60 differential, sanitizer CI job (also the weak.Pointer intrinsic, which no earlier step lowered)
 
 ## Exit criteria
 
-- [ ] `structs`, `wordfreq-core`, `closures` pass on GCC and Clang
-- [ ] ≥ 150 run + ≥ 60 differential tests green on both compilers (incl. the audit cases)
-- [ ] ASan + UBSan clean; LSan clean except marked cycle tests
-- [ ] Recursive data structure test (tree, list, graph with `weak.Pointer`) passes
+- [x] `structs`, `wordfreq-core`, `closures` pass on GCC and Clang
+- [x] ≥ 150 run + ≥ 60 differential tests green on both compilers (incl. the audit cases) (157 run, 112 diff at phase 03)
+- [x] ASan + UBSan clean; LSan clean except marked cycle tests (`make ci-sanitize`; `// lsan: cycle` on closures_recursive and emit/closures)
+- [x] Recursive data structure test (tree, list, graph with `weak.Pointer`) passes (tests/run/recursive_structures.gp)
 
 ## Decisions / notes
 
@@ -380,3 +380,8 @@
   checks; TestNoChecksCalls)) committed, clean after 2 review rounds. Cost: one thread-local store/restore per
   gp_run (+1–3.5 ns per call of a function with defers; Phase 15 may look). For Phase 15: mark
   defer_frame::gp_run [[gnu::noinline]] before LTO, since run_mark uses __builtin_return_address(0).
+- 2026-10-14: Job 3.18 (the weak.Pointer intrinsic with its stdlib stub, tests/run/recursive_structures.gp, run tests
+  133 → 159 incl. audit_* cases, `// lsan: cycle` and `// divergence: Dn` harness directives, `make ci-sanitize`
+  (the repo's sanitizer CI job; there is no CI service config), defer_repanicked at depth 200) committed, clean
+  after 2 review rounds. All four exit criteria hold (checked by the reviewer twice). For Phase 07: `type WP
+  weak.Pointer[T]` is gated there and needs a newtype over gp::weak_ptr.
