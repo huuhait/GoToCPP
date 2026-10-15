@@ -213,12 +213,14 @@ locals that are not boxed are moved where Go semantics allow, and every construc
 | bytes | `C.GoBytes(p, n)` or `unsafe.Slice((*byte)(p), n)` |
 
 **Typed helpers.** `FakeImportC` makes *every* `C.x` opaque, which would include our own helpers,
-so `s := C.GoString(p)` would leave `s` untyped. The Phase 01 preprocessing therefore rewrites
-`C.CString`, `C.GoString`, `C.GoStringN` and `C.GoBytes` into calls to a small hidden gocpp
-package (`gocpp/cgoh`) with real declarations, for example `func GoString(p unsafe.Pointer)
-string`. Opaque arguments still pass silently, and the results get real gocpp types, so
-`s + "!"` and `strings.ToUpper(s)` are fully type-checked. `C.cstr` stays opaque, because its
-holder must stay a C++ object.
+so `s := C.GoString(p)` would leave `s` untyped. So before the first type check of a package with
+C in it, internal/check rewrites `C.CString`, `C.GoString`, `C.GoStringN`, `C.GoBytes`, `C.free`
+and `C.cstr` into calls of the hidden gocpp package (`gocpp/cgoh`, imported as `gp_cgoh`) with real
+declarations, for example `func GoString(p *char) string` (any C char pointer passes; an opaque
+argument is silent). The results get real gocpp types, so `s + "!"` and `strings.ToUpper(s)` are
+fully type-checked; a wrong gocpp argument gets Go's error. `C.cstr`'s parameter is typed too, but
+its result stays opaque, because its holder must stay a C++ object. Error messages and hovers show
+the helpers as the user wrote them (`C.GoString`).
 
 ### 2.7 Pointers, `unsafe` and slices at the boundary
 
