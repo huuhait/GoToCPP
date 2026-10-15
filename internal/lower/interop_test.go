@@ -188,14 +188,11 @@ func TestCNameErrors(t *testing.T) {
 			"std.vector is a C++ template: give it its template arguments before .iterator (std.vector[T].iterator)", true},
 		{"lib.g()", map[string]interop.Kind{"g": interop.Unknown},
 			"internal error: the compiler probe has no answer for lib.g (::g)", false},
-		{"lib.g(1) + 1", map[string]interop.Kind{"g": interop.Value},
-			"not supported yet: the operator + on C/C++ values (step 4.4)", false},
+		{"_ = std.vector[int].npos[0]", map[string]interop.Kind{"std::vector": interop.Template},
+			"the compiler probe can't tell whether std.vector[int].npos is a C/C++ type or a value: if it is a value, write (std.vector[int].npos)", true},
 	}
 	for _, tt := range tests {
 		src := "package main\n\nimport (\n\t\"<lib.h>\"\n\t\"<vector>\"\n)\n\nfunc main() {\n\t" + tt.src + "\n}\n"
-		if strings.HasPrefix(tt.src, "lib.g(1) +") {
-			src = strings.Replace(src, "\t"+tt.src, "\t_ = "+tt.src, 1)
-		}
 		if strings.HasPrefix(tt.src, "var ") {
 			src = strings.Replace(src, "\n}\n", "\n\t_ = x\n}\n", 1)
 			src = strings.Replace(src, "var v ", "var x ", 1)
@@ -308,45 +305,46 @@ func TestCxxNames(t *testing.T) {
 // each one is "not supported yet" with its step, never broken C++ or a crash.
 func TestCGuard(t *testing.T) {
 	kinds := map[string]interop.Kind{
-		"f": interop.Value, "EOF": interop.Macro, "FILE": interop.Type, "std::string": interop.Type,
+		"f": interop.Value, "g": interop.Value, "EOF": interop.Macro, "FILE": interop.Type, "std::string": interop.Type,
 		"std::string::npos": interop.Value, "std::vector": interop.Template, "std::swap": interop.ValueTemplate,
 	}
 	tests := []struct{ src, want string }{
 		{"fmt.Println(lib.EOF)", "printing C/C++ values (step 4.12)"},
 		{"fmt.Println(std.string.npos)", "printing C/C++ values (step 4.12)"},
 		{"println(lib.f())", "printing C/C++ values (step 4.12)"},
-		{"var p *lib.FILE; fmt.Println(p == nil)", "the operator == on C/C++ values (step 4.4)"},
-		{"var d C.double; fmt.Println(-d)", "the operator - on C/C++ values (step 4.4)"},
-		{"var d C.double; fmt.Println(d > 1)", "the operator > on C/C++ values (step 4.4)"},
-		{"fmt.Println(lib.f() > 1)", "the operator > on C/C++ values (step 4.4)"},
-		{"var d C.double; d += 1", "the operator += on C/C++ values (step 4.4)"},
-		{"x := lib.f(); x++", "the operator ++ on C/C++ values (step 4.4)"},
-		{"var v std.vector[int]; _ = len(v)", "len of C/C++ values (step 4.4)"},
+		{"var p *lib.FILE; fmt.Println(p)", "printing C/C++ values (step 4.12)"},
 		{"var v std.vector[int]; f := func() { _ = v }; f()", "C/C++ values in closures (a func literal that uses v: step 4.8)"},
 		{"var v, w std.vector[int]; defer func() { std.swap(v, w) }()", "C/C++ values in closures (a func literal that uses v: step 4.8)"},
 		{"var h H; f := func() { _ = h.p }; f()", "C/C++ values in closures (a func literal that uses h: step 4.8)"},
 		{"_ = func(x C.int) {}", "func literals with C/C++ parameters or results (step 4.11)"},
 		{"var x std.vector[func(int) int]; _ = x", "func types as C++ template arguments (step 4.11)"},
-		{"var h H; switch h { case h: }", "switch on values with C/C++ parts (step 4.4)"},
-		{"var h, k H; _ = h == k", "== on values with C/C++ parts (step 4.4)"},
+		{"var h H; switch h { case h: }", "switch on values with C/C++ parts (Phase 12)"},
+		{"var h, k H; _ = h == k", "== on values with C/C++ parts (Phase 12)"},
 		{"var m map[H]int; _ = m", "this use of a C/C++ type (a later step of Phase 04)"},
 		{"var a A; _ = a", "aliases of C/C++ types (A): write the C/C++ type (a later step of Phase 04)"},
 		{"var v std.vector[int]; for range v {}", "range over C/C++ values (gp::range, step 4.7)"},
-		{"var v std.vector[int]; v.push_back(1)", "member calls on C/C++ values (gp::deref, step 4.4)"},
+		{"var v std.vector[int]; defer v.clear()", "deferred calls of members of C/C++ values (the C++ object must outlive the function: step 4.8)"},
 		{"_ = std.vector[int]{1}", "composite literals of C/C++ types (step 4.6)"},
-		{"var p *lib.FILE; _ = *p", "* of C/C++ pointers (step 4.4)"},
-		{"x := lib.f(); _ = &x", "& of C/C++ values (step 4.10)"},
-		{"var xs []C.int; _ = xs[0]", "indexing C/C++ values (step 4.5)"},
-		{"_ = H{p: nil, q: lib.f()}", "C/C++ values in composite literals (step 4.4)"},
+		{"var v std.vector[int]; _ = &v[0]", "& of C/C++ values other than variables (step 4.10)"},
+		{"for i := C.int(0); i < 3; i++ { lib.f(&i) }", "& of a C/C++ loop variable (i: each iteration has its own in Go; step 4.8)"},
+		{"var p *lib.FILE; defer lib.f(&p)", "& of a C/C++ local in a defer or go statement (the local must outlive the function: step 4.8)"},
+		{"var h H; _ = &h.q", "& of C/C++ values other than variables (step 4.10)"},
+		{"var p *C.char; _ = p[1:]", "slicing C/C++ values (step 4.10)"},
+		{"_ = H{p: nil, q: lib.f()}", "C/C++ values in composite literals (step 4.6)"},
 		{"var h H; w := func() int { return len(h.s) }; _ = w", "C/C++ values in closures (a func literal that uses h: step 4.8)"},
-		{"if lib.f() {}", "C/C++ values as conditions (step 4.4)"},
-		{"a, b := lib.f(); _, _ = a, b", "several values from one C/C++ value (gp::values, step 4.7)"},
-		{"_ = string(lib.f())", "conversions of C/C++ values to string (steps 4.4 and 4.9)"},
-		{"_ = (*C.char)(nil)", "conversions to this C/C++ type (steps 4.4 and 4.10)"},
+		{"_ = string(lib.f())", "conversions of C/C++ values to string (step 4.9)"},
+		{"_ = (*C.char)(nil)", "conversions to this C/C++ type (steps 4.9 and 4.10)"},
+		{"lib.f(1, lib.g()...)", "... in a call of a C/C++ function"},
+		{"var v std.vector[int]; v.push_back(lib.g()...)", "... in a call of a C/C++ function"},
+		{"var v std.vector[int]; _ = append([]int{}, v...)", "append of C/C++ values"},
+		{"var p *C.int; _ = unsafe.Slice(p, 2)", "unsafe.Slice of C/C++ values (step 4.10)"},
+		{"p := lib.f(); p, p.next = lib.f(), nil", "an assignment that changes p and stores into a member or an element of p: write two assignments"},
+		{"v := lib.f(); v, v[0] = lib.f(), 1", "an assignment that changes v and stores into a member or an element of v: write two assignments"},
+		{"p := lib.f(); p.a, p.a.b = 1, 2", "an assignment that changes p.a and stores into a member or an element of p.a: write two assignments"},
 	}
 	for _, tt := range tests {
-		src := "package main\n\nimport (\n\t\"fmt\"\n\n\t\"<lib.h>\"\n\t\"<vector>\"\n)\n\n" +
-			"var _ = fmt.Sprint\n\ntype H struct {\n\tp *lib.FILE\n\tq C.int\n\ts string\n}\n\ntype A = C.int\n\n" +
+		src := "package main\n\nimport (\n\t\"fmt\"\n\t\"unsafe\"\n\n\t\"<lib.h>\"\n\t\"<vector>\"\n)\n\n" +
+			"var _ = fmt.Sprint\n\nvar _ unsafe.Pointer\n\ntype H struct {\n\tp *lib.FILE\n\tq C.int\n\ts string\n}\n\ntype A = C.int\n\n" +
 			"func main() {\n\t" + tt.src + "\n}\n"
 		fset, pkg, _ := checkInterop(t, src)
 		_, err := Package(fset, pkg, fakeInterop(pkg, kinds))
@@ -360,16 +358,17 @@ func TestCGuard(t *testing.T) {
 // TestCUserErrors checks the user errors of C/C++ values at gocpp targets and conversions that Go
 // doesn't allow (cguard.go: targetOK, cConvOK), and that the forms next to them lower.
 func TestCUserErrors(t *testing.T) {
-	kinds := map[string]interop.Kind{"f": interop.Value, "pow": interop.Value, "FILE": interop.Type,
-		"EOF": interop.Macro, "MODE_B": interop.Value, "std::string": interop.Type}
+	kinds := map[string]interop.Kind{"f": interop.Value, "g": interop.Value, "pow": interop.Value, "FILE": interop.Type,
+		"EOF": interop.Macro, "MODE_B": interop.Value, "std::string": interop.Type, "std::vector": interop.Template,
+		"std::minmax": interop.ValueTemplate, "std::map": interop.Template}
 	tests := []struct{ src, want string }{
 		{"var iv int = lib.pow(10, 30); _ = iv",
-			"cannot use lib.pow(10, 30) (C/C++ value) as int value in variable declaration: convert it, int(x)"},
+			"cannot use lib.pow(10, 30) (C/C++ value) as int value in variable declaration: convert it, int(lib.pow(10, 30))"},
 		{"var iv int; iv = lib.f(); _ = iv",
-			"cannot use lib.f() (C/C++ value) as int value in assignment: convert it, int(x)"},
-		{"gi(lib.f())", "cannot use lib.f() (C/C++ value) as int value in argument to gi: convert it, int(x)"},
+			"cannot use lib.f() (C/C++ value) as int value in assignment: convert it, int(lib.f())"},
+		{"gi(lib.f())", "cannot use lib.f() (C/C++ value) as int value in argument to gi: convert it, int(lib.f())"},
 		{"gs(std.string(\"x\"))",
-			`cannot use std.string("x") (C/C++ value) as string value in argument to gs: convert it, string(x) (step 4.9)`},
+			`cannot use std.string("x") (C/C++ value) as string value in argument to gs: convert it, string(std.string("x")) (step 4.9)`},
 		{"_ = ri", ""},
 		{"var p *lib.FILE; _ = uintptr(p)", "cannot convert p (C pointer) to type uintptr: use unsafe.Pointer (step 4.10)"},
 		{"var p *lib.FILE; _ = int(p)", "cannot convert p (C pointer) to type int: use unsafe.Pointer (step 4.10)"},
@@ -377,17 +376,55 @@ func TestCUserErrors(t *testing.T) {
 		{"var p *lib.FILE; _ = bool(p)", "cannot convert p (C pointer) to type bool: compare it: p != nil"},
 		// gocpp values at C/C++ targets: as cgo, a user error.
 		{"fv := 1e30; var i3 C.int = fv; _ = i3",
-			"cannot use fv (variable of type float64) as C.int value in variable declaration: convert it, C.int(x)"},
+			"cannot use fv (variable of type float64) as C.int value in variable declaration: convert it, C.int(fv)"},
 		{"nv := 1 << 40; var i4 C.int; i4 = nv; _ = i4",
-			"cannot use nv (variable of type int) as C.int value in assignment: convert it, C.int(x)"},
+			"cannot use nv (variable of type int) as C.int value in assignment: convert it, C.int(nv)"},
 		{"fv := 1e30; var q Q; q.Put(fv)",
-			"cannot use fv (variable of type float64) as C.int value in argument to q.Put: convert it, C.int(x)"},
+			"cannot use fv (variable of type float64) as C.int value in argument to q.Put: convert it, C.int(fv)"},
 		{"var q Q; q.n = len(\"ab\")",
-			"cannot use len(\"ab\") (constant 2 of type int) as C.int value in assignment: convert it, C.int(x)"},
+			"cannot use len(\"ab\") (constant 2 of type int) as C.int value in assignment: convert it, C.int(len(\"ab\"))"},
 		{"_ = rc", ""},
 		{"var s string; var p *lib.FILE = s; _ = p",
-			"cannot use s (variable of type string) as *lib.FILE value in variable declaration: convert it, (*lib.FILE)(x)"},
+			"cannot use s (variable of type string) as *lib.FILE value in variable declaration: convert it, (*lib.FILE)(s)"},
 		{"var ci C.int; _ = bool(ci)", "cannot convert ci (C/C++ value of type C.int) to type bool"},
+		// Operators where gocpp values meet C/C++ values: as cgo, mismatched types.
+		{"var x C.int; n := 2; _ = x + n", "invalid operation: x + n (mismatched types C.int and int): convert one of them: int(x) or C.int(n)"},
+		{"n := 2; _ = n < lib.f()", "invalid operation: n < lib.f() (mismatched types int and C/C++ value): convert n to a C type, C.long(n) or C.size_t(n), or a C/C++ number to int, int(lib.f())"},
+		{"var b B; _ = lib.f() == b", "invalid operation: lib.f() == b (mismatched types C/C++ value and B): convert b to a C type, C.long(b) or C.size_t(b), or a C/C++ number to B, B(lib.f())"},
+		{"var v std.vector[int]; n := 2; _ = v.begin() + n", "invalid operation: v.begin() + n (mismatched types C/C++ value and int): convert n to a C type, C.long(n) or C.size_t(n), or a C/C++ number to int, int(v.begin())"},
+		{"var p *C.char; n := 2; _ = p + n", "invalid operation: p + n (mismatched types *C.char and int): convert n to a C type, C.long(n) or C.size_t(n)"},
+		{"var x C.int; _ = x * int(2)", "invalid operation: x * int(2) (mismatched types C.int and int): convert one of them: int(x) or C.int(int(2))"},
+		{"var s std.string; gs := \"x\"; _ = s == gs", "invalid operation: s == gs (mismatched types C/C++ value and string): convert the string: std.string(gs)"},
+		{"var x C.int; n := 2; x += n", "invalid operation: x += n (mismatched types C.int and int): convert one of them: int(x) or C.int(n)"},
+		{"n := 2; n -= lib.f()", "invalid operation: n -= lib.f() (mismatched types int and C/C++ value): convert n to a C type, C.long(n) or C.size_t(n), or a C/C++ number to int, int(lib.f())"},
+		{"n := 2; _ = n << lib.f()", "invalid operation: n << lib.f() (shift count lib.f() is a C/C++ value): convert it, uint(lib.f())"},
+		{"n := 2; n <<= lib.f()", "invalid operation: n <<= lib.f() (shift count lib.f() is a C/C++ value): convert it, uint(lib.f())"},
+		// Go's other rules that go/types can't check without the C/C++ types.
+		{"var v std.vector[int]; v.at(0) = 5", "cannot assign to v.at(0) (neither addressable nor a map index expression)"},
+		{"var v std.vector[int]; v.back()++", "cannot assign to v.back() (neither addressable nor a map index expression)"},
+		{"var v std.vector[int]; v.back() += 1", "cannot assign to v.back() (neither addressable nor a map index expression)"},
+		{"var v std.vector[int]; v[0]", "v[0] (C/C++ value) is not used"},
+		{"var v std.vector[int]; _ = len(v)", "invalid argument: v (C/C++ value) for built-in len: call its C++ function, v.size() or std.size(v)"},
+		{"var v std.vector[int]; _ = max(v.size(), 1)", "invalid argument: v.size() (C/C++ value) for built-in max: use std.max, or convert it first"},
+		{"var v std.vector[int]; _ = v[1, 2]", "invalid operation: v[1, 2] (a C/C++ value takes one index)"},
+		{"var a, b int = std.minmax(1, 2); _, _ = a, b",
+			"cannot use std.minmax(1, 2) (C/C++ value) as int value in variable declaration: declare new variables for its values (a, b := x), and convert those"},
+		{"a := 0; a, b := std.minmax(1, 2); _, _ = a, b",
+			"cannot use std.minmax(1, 2) (C/C++ value) as int value in assignment: declare new variables for its values (a, b := x), and convert those"},
+		{"_ = rp", ""},
+		{"lib.f(&lib.g); p := &lib.g; _ = p", ""},
+		{"var x C.int; const d = x + 1", "x + 1 (C/C++ value) is not constant"},
+		{"var x C.int; const c = x == 2", "x == 2 (C/C++ value) is not constant"},
+		{"const k = lib.f()", "lib.f() (C/C++ value) is not constant"},
+		{"const k C.int = 1 << 3; const j = C.int(2)", ""},
+		{"var xs []C.int; _ = xs[1:]; var arr [3]C.int; for i, v := range arr { _, _ = i, v }; m := make(map[int]C.int); v, ok := m[1]; _, _ = v, ok", ""},
+		{"var cs []C.int; n := 1; cs = append(cs, n)", "cannot use n (variable of type int) as C.int value in argument to append: convert it, C.int(n)"},
+		{"var cs []C.int; cs = append(cs, 1, C.int(2)); ds := make([]C.int, 2); copy(ds, cs); m := make(map[C.int]C.double); delete(m, 1); clear(ds); _ = len(cs) + cap(ds) + len(m)", ""},
+		{"var m std.map[int, int]; v, ok := m[1]; _, _ = v, ok",
+			"assignment mismatch: 2 variables but m[1] is 1 value: a C++ map has no comma-ok form, use m.find(k) != m.end() or m.count(k) == 1"},
+		{"p := lib.f(); var a, b = p.value; _, _ = a, b", "assignment mismatch: 2 variables but p.value is 1 value"},
+		{"_ = std.vector[int].iterator.x",
+			"the compiler probe can't tell whether std.vector[int].iterator is a C/C++ type or a value: if it is a value, write (std.vector[int].iterator).x"},
 		// These lower.
 		{"var q Q; q.Put(5); pq := &q; pq.Put(6); _ = q.Size; _ = Q.Size; _ = int(q.Size())", ""},
 		{"var ci C.int; switch ci { case 3, lib.EOF, lib.MODE_B: }", ""},
@@ -395,17 +432,21 @@ func TestCUserErrors(t *testing.T) {
 		{"fv := 1e30; var a C.int = 5; var b C.double = 2.5; var c C.int = C.int(fv); var q Q; q.Put(7); lib.f(fv, 'x'); _, _, _ = a, b, c", ""},
 	}
 	for _, tt := range tests {
-		src := "package main\n\nimport (\n\t\"<lib.h>\"\n\t\"<string>\"\n)\n\n" +
-			"type Q struct{ n C.int }\n\nfunc (q *Q) Put(n C.int) { q.n = n }\n\nfunc (q Q) Size() C.int { return q.n }\n\n" +
+		src := "package main\n\nimport (\n\t\"<lib.h>\"\n\t\"<map>\"\n\t\"<string>\"\n\t\"<vector>\"\n)\n\n" +
+			"type Q struct{ n C.int }\n\ntype B bool\n\nfunc (q *Q) Put(n C.int) { q.n = n }\n\nfunc (q Q) Size() C.int { return q.n }\n\n" +
 			"func gi(n int) {}\n\nfunc gs(s string) {}\n\n" +
 			"func main() {\n\t" + tt.src + "\n}\n"
 		if tt.src == "_ = rc" {
 			src += "\nfunc rc() C.int { n := 5; return n }\n"
-			tt.want = "cannot use n (variable of type int) as C.int value in return statement: convert it, C.int(x)"
+			tt.want = "cannot use n (variable of type int) as C.int value in return statement: convert it, C.int(n)"
+		}
+		if tt.src == "_ = rp" {
+			src += "\nfunc rp() **lib.FILE { var p *lib.FILE; return &p }\n"
+			tt.want = "&p of a C/C++ local can't be a result: C/C++ values follow C++'s lifetime rules, and p ends with the function"
 		}
 		if tt.src == "_ = ri" {
 			src += "\nfunc ri() int { return lib.f() }\n"
-			tt.want = "cannot use lib.f() (C/C++ value) as int value in return statement: convert it, int(x)"
+			tt.want = "cannot use lib.f() (C/C++ value) as int value in return statement: convert it, int(lib.f())"
 		}
 		fset, pkg, _ := checkInterop(t, src)
 		_, err := Package(fset, pkg, fakeInterop(pkg, kinds))
@@ -441,5 +482,93 @@ func TestIncludeErrorExternC(t *testing.T) {
 	err := includeError(fset, s, res)
 	if want := `main.gp:3:8: the header import doesn't work: "./c.h" (inside extern "C"): /p/c.h:1: boom`; err == nil || !strings.HasSuffix(err.(*Error).Pos.String()+": "+err.(*Error).Msg, want) {
 		t.Errorf("includeError = %v, want ...%s", err, want)
+	}
+}
+
+// TestCValues checks the C++ of the operations on C/C++ values (cvalues.go, steps 4.4 and 4.5):
+// members, calls, indexes, operators, conditions, op= and ++, &x, several values, and the
+// template-vs-index rule.
+func TestCValues(t *testing.T) {
+	src := `package main
+
+import (
+	"<lib.h>"
+	"<vector>"
+)
+
+func main() {
+	var v std.vector[int]
+	p := lib.head()
+	v.push_back(1)
+	_ = p.next.value
+	lib.fn()(2)
+	_ = v[0] + 1
+	_ = lib.table[2]
+	_ = (lib.tmpl)[1]
+	_ = lib.tmpl[C.int](3)
+	_ = std.get[0](v)
+	n := 3
+	_ = v[n] << n
+	var x C.uint = 5
+	_ = x &^ 3
+	_ = ^x
+	_ = -x
+	_ = *p
+	_ = p == nil
+	if v.empty() || p != nil && !lib.ok {
+	}
+	for it := v.begin(); it != v.end(); it++ {
+	}
+	x += 2
+	x &^= 1
+	x--
+	lib.out(&x)
+	lo, hi := std.minmax(1, 2)
+	_, _ = lo, hi
+}
+`
+	fset, pkg, _ := checkInterop(t, src)
+	kinds := map[string]interop.Kind{
+		"head": interop.Value, "fn": interop.Value, "table": interop.Value, "tmpl": interop.ValueTemplate,
+		"ok": interop.Value, "out": interop.Value, "std::vector": interop.Template, "std::get": interop.ValueTemplate,
+		"std::minmax": interop.ValueTemplate,
+	}
+	f, err := Package(fset, pkg, fakeInterop(pkg, kinds))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cpp := string(cppir.Print(f, ""))
+	for _, want := range []string{
+		"auto p = ::head();",
+		"gp::deref(v).push_back(1);",
+		"static_cast<void>(gp::deref(gp::deref(p).next).value);",
+		"::fn()(2);",
+		"static_cast<void>(v[0] + 1);",
+		"static_cast<void>(::table[2]);",
+		"static_cast<void>(::tmpl[1]);",      // (x)[i] is an index
+		"static_cast<void>(::tmpl<int>(3));", // x[T](...) of a template is its instance
+		"static_cast<void>(::std::get<0>(v));",
+		"static_cast<void>(v[n] << n);",
+		"static_cast<void>(x & ~3);",
+		"static_cast<void>(~x);",
+		"static_cast<void>(-x);",
+		"static_cast<void>(gp::cgo::star(p));",
+		"static_cast<void>(gp::cgo::to_bool(p == nullptr));", // a comparison is a gocpp bool
+		"if (gp::cgo::cond(gp::deref(v).empty()) || (p != nullptr && !gp::cgo::cond(::ok))) {",
+		"for (auto it = gp::deref(v).begin(); it != gp::deref(v).end(); ++it) {",
+		"x += 2;",
+		"x &= ~1;",
+		"--x;",
+		"::out(&x);",
+		"auto gp_t0 = gp::values(::std::minmax(1, 2));", // the references of the pair are copied
+		"auto lo = std::get<0>(gp_t0);",
+		"auto hi = std::get<1>(gp_t0);",
+	} {
+		if !strings.Contains(cpp, want) {
+			t.Errorf("no %q in the C++:\n%s", want, cpp)
+		}
+	}
+	if strings.Contains(cpp, "gp::ptr<unsigned int>") || strings.Contains(cpp, "gp::new_<unsigned int>") {
+		t.Errorf("&x of a C variable boxed it:\n%s", cpp)
 	}
 }

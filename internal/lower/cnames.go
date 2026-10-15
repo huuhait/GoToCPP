@@ -30,8 +30,13 @@ import (
 // comes ::, after a value comes . (a member of an object). A name that the probe found nothing
 // for is the user's error (a typo, or a header that isn't imported), reported here, at its
 // place: the check can't know it. A parenthesized value, (lib.x).m, is not a path: a member of
-// it is a member access on a C/C++ value, which comes with gp::deref and the parenthesis escape
-// of §6 (steps 4.4 and 4.5).
+// it is a member access on a C/C++ value, gp::deref(::x).m (cvalues.go), and (lib.x)[i] is an
+// index, never a template's arguments: the parenthesis escape of §6 (step 4.5).
+//
+// The template-vs-index rule (step 4.5): x[...] after a C/C++ name is a template's arguments when
+// the kind probe says the name is a template (a class or alias template: std.vector[int]) or a
+// function or variable template (std.make_unique[T](), std.get[0](t), std.is_same_v[A, B]),
+// and an index of a value otherwise (lib.table[1]). Phase 12 makes it exact.
 //
 // Every name of a C/C++ name that lowering writes is kept (cNames), so that the macro
 // protection (macros.go) never #undefs a macro that the code uses through a header package.
@@ -145,7 +150,7 @@ func (g *gen) cRefOf(e ast.Expr) (cRef, bool) {
 		switch r.kind {
 		case interop.Template, interop.ValueTemplate:
 		default:
-			// An index of a C/C++ value (lib.arr[3]) is an operator: step 4.4.
+			// An index of a C/C++ value (lib.arr[3]): C++'s operator[] (cvalues.go).
 			return cRef{}, false
 		}
 		name, ok := r.x.(*cppir.Name)
@@ -156,7 +161,7 @@ func (g *gen) cRefOf(e ast.Expr) (cRef, bool) {
 		for i, a := range ix.indices {
 			args[i] = g.templateArg(a)
 		}
-		out := cRef{x: g.cNode(&cppir.Name{Name: name.Name, Args: args}).(*cppir.Name), kind: interop.Type, kinds: r.kinds, src: r.src + "[...]"}
+		out := cRef{x: g.cNode(&cppir.Name{Name: name.Name, Args: args}).(*cppir.Name), kind: interop.Type, kinds: r.kinds, src: g.srcText(x)}
 		if r.kind == interop.ValueTemplate {
 			out.kind = interop.Value
 		}
@@ -235,15 +240,14 @@ func (g *gen) cMember(r cRef, sel *ast.Ident) cRef {
 	if r.isValue() {
 		// A member of a value: gp::deref passes an object through and dereferences a raw
 		// pointer with Go's nil check (gocpp/interop.hpp), as Go's x.m does.
-		g.noteCName(sel.Name, sel.Pos())
-		m := &cppir.Member{X: call("gp::deref", r.x), Name: sel.Name}
-		return cRef{x: g.cNode(m).(*cppir.Member), kind: interop.Value, kinds: r.kinds, src: src}
+		return cRef{x: g.cMemberOf(r.x, sel), kind: interop.Value, kinds: r.kinds, src: src}
 	}
 	if r.path == "" {
 		if r.kind == interop.Unknown {
 			// After a member of a type that comes after template arguments
-			// (std.vector[int].iterator.x): the probe can't tell whether it is a type or a value.
-			g.unsupported(sel.Pos(), "a member of "+r.src+", which the kind probe can't tell a type or a value (step 4.5)")
+			// (std.vector[int].iterator.x): the probe can't tell whether it is a type or a value
+			// (Phase 04 §6). A parenthesized value is always a value.
+			g.userError(sel.Pos(), "the compiler probe can't tell whether %s is a C/C++ type or a value: if it is a value, write (%s).%s", r.src, r.src, sel.Name)
 			return cRef{x: placeholder, kind: interop.Value, src: src}
 		}
 		// After template arguments: a nested type or a static member, both with ::.

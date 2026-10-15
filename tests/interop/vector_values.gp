@@ -4,7 +4,7 @@
 // template arguments (a struct, a gocpp pointer), constant template arguments, member types,
 // and C++ values passed to and returned from functions, in struct fields and in package
 // variables. The values are used only through C++ functions (std.size, std.empty) here: the
-// operators and the member calls come in step 4.4.
+// operators and the member calls are vector_ops.gp's.
 package main
 
 import (

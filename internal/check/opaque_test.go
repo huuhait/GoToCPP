@@ -651,7 +651,8 @@ func TestOpaqueExamples(t *testing.T) {
 			{`rl.InitWindow(width, height, "gocpp + raylib")`, "width", "width", "typed"},
 			{"smoke := std.getenv", "std", `C.std.getenv("GOCPP_SMOKE") != nil`, "opaque"},
 			{"frames := run(ball, smoke)", "run", "run(ball, smoke)", "typed"},
-			{"frames := run(ball, smoke)", "smoke", "smoke", "opaque"},
+			// A comparison of C/C++ values is a bool (Check's rewrite, Compare).
+			{"frames := run(ball, smoke)", "smoke", "smoke", "typed"},
 		}},
 		{"mixed-sources", "linux", []labelCase{
 			{"xs := []C.int{4, -2, 9, 7}", "[]", "[]C.int{…}", "opaque"},

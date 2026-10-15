@@ -10,8 +10,7 @@ import (
 	"github.com/huuhait/gocpp/internal/interop"
 )
 
-// C/C++ values in gocpp code (Phase 04 README §2.5): the part of step 4.4 that the C type
-// translator and the names need to be tested.
+// C/C++ values in gocpp code (Phase 04 README §2.5, steps 4.4 and 4.5):
 //
 //	cstdio.printf("%d\n", 5)            ::printf("%d\n", 5);       (a call as a statement)
 //	var n C.int = cstdio.puts("x")      int n = ::puts("x");       (an initializer of a C type)
@@ -22,14 +21,27 @@ import (
 //	int(cmath.floor(x))                 gp::cgo::as<int64_t>(::floor(x)) (a conversion to a gocpp
 //	                                    type, gp_cgoh.As[int](...) after the check's rewrite)
 //	return n, f(v) (C types)            return n; ::f(v)
+//	x.m, x.m(1), x.m.n (x opaque)       gp::deref(x).m, gp::deref(x).m(1), gp::deref(gp::deref(x).m).n
+//	f()(), v[0](x) (C++ callables)      f()(), v[0](x)
+//	v[i], m["k"] (not a template)       v[i], m["k"]               (C++'s operator[]: no bounds check)
+//	a + b, a == b, a << n, a &^ b       a + b, a == b, a << n, a & ~b (C++'s operators and rules)
+//	p == nil                            p == nullptr
+//	-x, +x, ^x, !x                      -x, +x, ~x, !x
+//	*p                                  gp::cgo::star(p)           (Go's nil check for a raw pointer)
+//	&x (x a C/C++ variable)             &x                         (a raw C++ address, §2.7)
+//	if ok, for x.valid() (opaque bool)  if (gp::cgo::cond(ok)), for (; gp::cgo::cond(gp::deref(x).valid()); )
+//	s += "!", it++, d--                 s += "!", ++it, --d        (stmt.go)
+//	a, b := std.minmax(x, y)            auto [a, b] = gp::values(::std::minmax(x, y)); (stmt.go)
 //
 // An untyped constant where a C/C++ value takes it (an argument of a C/C++ function, the value of
-// a variable or a result of a C/C++ type, a template argument) is a plain C literal (cConstant):
-// "x" is a string literal there, not a gp::string, and 5 an int.
+// a variable or a result of a C/C++ type, a template argument, an operand or an index next to a
+// C/C++ value) is a plain C literal (cConstant): "x" is a string literal there, not a gp::string,
+// and 5 an int. A typed gocpp number, bool or string next to a C/C++ value in an operator is a
+// user error, as in cgo (cguard.go: mismatched types): C++ would convert one of them silently.
 //
-// Every opaque expression goes through opaqueExpr: what it doesn't translate yet (operators,
-// member access on C/C++ values with gp::deref, composite literals, range) is reported as "not
-// supported yet", never written as broken C++.
+// Every opaque expression goes through opaqueExpr: what it doesn't translate yet (composite
+// literals, slicing, range, &x of anything but a variable) is reported by the guard (cguard.go)
+// as "not supported yet", never written as broken C++.
 
 // varType returns the C++ type of the variable v (also a parameter, a result or a struct field):
 // its gocpp type, or, for a type with C/C++ parts, the C++ of the type expression it was declared
@@ -104,8 +116,9 @@ func (fg *funcGen) opaqueExpr(e ast.Expr) cppir.Expr {
 	case *ast.ParenExpr:
 		return fg.expr(x.X)
 	case *ast.Ident:
-		if v, ok := fg.g.info.Uses[x].(*types.Var); ok && fg.isBoxed(v) {
-			fg.g.unsupported(x.Pos(), "C/C++ values in closures, defers and behind & (step 4.8)")
+		if v, ok := fg.g.info.Uses[x].(*types.Var); ok && fg.isBoxed(v) && !gocppContainer(v.Type()) {
+			// (A gocpp array of C/C++ values in a box, arr[:], is a gocpp value: ident.)
+			fg.g.unsupported(x.Pos(), "C/C++ values in closures and defers (step 4.8)")
 			return placeholder
 		}
 		return fg.ident(x)
@@ -115,14 +128,160 @@ func (fg *funcGen) opaqueExpr(e ast.Expr) cppir.Expr {
 		if r, ok := fg.g.cRefOf(x); ok {
 			return fg.g.cValue(r, x)
 		}
-		if sel, ok := x.(*ast.SelectorExpr); ok && fg.g.info.Selections[sel] != nil {
-			// A field of a C/C++ type of a gocpp struct, or a method value or expression of a
-			// gocpp type with C/C++ parameters or results (structs.go, methods.go).
-			return fg.selector(sel)
+		switch y := x.(type) {
+		case *ast.SelectorExpr:
+			if fg.g.info.Selections[y] != nil {
+				// A field of a C/C++ type of a gocpp struct, or a method value or expression of a
+				// gocpp type with C/C++ parameters or results (structs.go, methods.go).
+				return fg.selector(y)
+			}
+			return fg.g.cMemberOf(fg.expr(y.X), y.Sel)
+		case *ast.IndexExpr:
+			if gocppContainer(fg.g.info.TypeOf(y.X)) {
+				return fg.index(y) // of a gocpp slice, array or map of C/C++ values: Go's index
+			}
+			// C++'s operator[] (Phase 04 README §2.5): no gocpp bounds check, and a std::map
+			// inserts the key.
+			return &cppir.Index{X: fg.expr(y.X), Index: fg.cValueOf(y.Index)}
+		}
+	case *ast.BinaryExpr:
+		return fg.cBinary(x.Op, x.X, x.Y)
+	case *ast.UnaryExpr:
+		return fg.cUnary(x)
+	case *ast.SliceExpr:
+		if gocppContainer(fg.g.info.TypeOf(x.X)) {
+			return fg.slice(x) // of a gocpp slice or array of C/C++ values: Go's (ops.go)
+		}
+	case *ast.StarExpr:
+		// C++'s *x, but with Go's nil check for a raw pointer (and a gocpp pointer that comes
+		// back from C++), gocpp/interop.hpp.
+		return call("gp::cgo::star", fg.expr(x.X))
+	}
+	fg.g.errorf(e.Pos(), "internal error: an opaque %s that the guard let through (cguard.go)", nodeKind(e))
+	return placeholder
+}
+
+// cMemberOf returns the C++ of the member name of the C/C++ value x: gp::deref(x).name, which
+// dereferences a raw pointer (and a gocpp pointer) one level with Go's nil check and passes an
+// object through, like Go's x.m (gocpp/interop.hpp). The name is a C/C++ name (macros.go): a
+// member can be a macro (glibc's st_mtime).
+func (g *gen) cMemberOf(x cppir.Expr, name *ast.Ident) cppir.Expr {
+	g.noteCName(name.Name, name.Pos())
+	return g.cNode(&cppir.Member{X: call("gp::deref", x), Name: name.Name}).(*cppir.Member)
+}
+
+// opaqueCallee reports whether c calls a C/C++ value that is not a C/C++ name: a member of a
+// C/C++ value (v.push_back), or a C++ callable (f()(), v[0](x), a function pointer in a
+// variable). Its arguments are C/C++ arguments (cArgs), and C++ evaluates the callee first.
+func (g *gen) opaqueCallee(c *ast.CallExpr) bool {
+	if !g.pkg.Opaque.IsOpaque(c.Fun) || g.info.Types[c.Fun].IsType() || g.pkg.Conversion(c) != nil || g.calledSig(c) != nil {
+		return false
+	}
+	if sel, ok := ast.Unparen(c.Fun).(*ast.SelectorExpr); ok && g.info.Selections[sel] != nil {
+		return false // a method of a gocpp type with C/C++ parameters (methods.go)
+	}
+	_, ok := g.cRefOf(c.Fun)
+	return !ok
+}
+
+// opaqueCall returns the C++ of the call c of a C/C++ value (opaqueCallee).
+func (fg *funcGen) opaqueCall(c *ast.CallExpr) cppir.Expr {
+	if c.Ellipsis.IsValid() {
+		fg.g.unsupported(c.Ellipsis, "... in a call of a C/C++ function")
+		return placeholder
+	}
+	return &cppir.Call{Fun: fg.expr(c.Fun), Args: fg.cArgs(c.Args)}
+}
+
+// cBinary returns the C++ of x op y where x or y is a C/C++ value: C++'s operator, with C++'s
+// rules (Phase 04 README §2.5), its operands evaluated from left to right like Go's (order.go
+// moved what needs it into temporaries). An untyped constant is a C literal, nil is nullptr
+// (cValueOf). The operands of && and || are conditions (cBool). The parentheses are those of
+// the gocpp operators (ops.go), which C++ doesn't need but g++ -Wall and the reader do.
+func (fg *funcGen) cBinary(op token.Token, x, y ast.Expr) cppir.Expr {
+	switch op {
+	case token.LAND, token.LOR:
+		a, b := fg.cBool(x), fg.cBool(y)
+		if op == token.LOR {
+			return groupExprs(a, "||", b, precLogOr, precLogAnd)
+		}
+		return &cppir.Binary{Op: "&&", X: a, Y: b}
+	}
+	a, b := fg.cValueOf(x), fg.cValueOf(y)
+	switch op {
+	case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ:
+		return &cppir.Binary{Op: op.String(), X: at(a, precShift), Y: at(b, precShift)}
+	case token.SHL, token.SHR:
+		// clang warns about a + b << 3 (-Wshift-op-parentheses).
+		return &cppir.Binary{Op: op.String(), X: at(a, precUnary), Y: b}
+	case token.AND:
+		return groupExprs(a, "&", b, precBitAnd, precUnary-1)
+	case token.OR:
+		return groupExprs(a, "|", b, precBitOr, precUnary-1)
+	case token.XOR:
+		return groupExprs(a, "^", b, precBitXor, precUnary-1)
+	case token.AND_NOT:
+		if cppir.Prec(a) != precBitAnd {
+			a = at(a, precUnary)
+		}
+		return &cppir.Binary{Op: "&", X: a, Y: &cppir.Unary{Op: "~", X: b}}
+	}
+	return &cppir.Binary{Op: op.String(), X: a, Y: b}
+}
+
+// cAssignOp returns the C++ operator of the assignment operation tok (+=, &^=) on a C/C++
+// target, and whether its value is complemented first (x &^= y is x &= ~y).
+func cAssignOp(tok token.Token) (string, bool) {
+	if tok == token.AND_NOT_ASSIGN {
+		return "&=", true
+	}
+	return tok.String(), false
+}
+
+// cUnary returns the C++ of a unary operator on a C/C++ value: -x, +x, !x and ^x (C++'s ~x),
+// and &x of a C/C++ variable, a raw C++ address (Phase 04 README §2.7: C++'s lifetime rules).
+func (fg *funcGen) cUnary(e *ast.UnaryExpr) cppir.Expr {
+	switch e.Op {
+	case token.NOT:
+		return &cppir.Unary{Op: "!", X: fg.cBool(e.X)}
+	case token.SUB, token.ADD:
+		return &cppir.Unary{Op: e.Op.String(), X: fg.expr(e.X)}
+	case token.XOR:
+		return &cppir.Unary{Op: "~", X: fg.expr(e.X)}
+	case token.AND:
+		return &cppir.Unary{Op: "&", X: fg.expr(e.X)}
+	}
+	fg.g.errorf(e.OpPos, "internal error: the operator %s on a C/C++ value that the guard let through (cguard.go)", e.Op)
+	return placeholder
+}
+
+// cBool returns the C++ of e as a condition (of an if, a for, a case of a switch without a tag)
+// or an operand of &&, || and !: a C/C++ value that is not a comparison or a logical operator
+// goes through gp::cgo::cond, which accepts only a bool, as Go does (C++ would take a C int or a
+// pointer). A gocpp value is a bool already (go/types checked it).
+func (fg *funcGen) cBool(e ast.Expr) cppir.Expr {
+	if c, ok := ast.Unparen(e).(*ast.CallExpr); ok && fg.temps[ast.Unparen(e)] == "" {
+		if conv := fg.g.pkg.Conversion(c); conv != nil && conv.Kind == check.Compare {
+			// A comparison of C/C++ values as a condition: C++ makes it a bool there.
+			return fg.expr(c.Args[0])
 		}
 	}
-	fg.g.unsupported(e.Pos(), "this operation on C/C++ values (step 4.4)")
-	return placeholder
+	x := fg.expr(e)
+	if !fg.g.pkg.Opaque.IsOpaque(e) {
+		return x
+	}
+	switch u := ast.Unparen(e).(type) {
+	case *ast.BinaryExpr:
+		switch u.Op {
+		case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ, token.LAND, token.LOR:
+			return x
+		}
+	case *ast.UnaryExpr:
+		if u.Op == token.NOT {
+			return x
+		}
+	}
+	return call("gp::cgo::cond", x)
 }
 
 // cValue returns the C++ of the C/C++ name r, written as e, used as a value.
@@ -168,17 +327,6 @@ func (fg *funcGen) cCall(c *ast.CallExpr) (cppir.Expr, bool) {
 	return &cppir.Call{Fun: r.x, Args: args}, true
 }
 
-// isCCall reports whether e is a call of a C/C++ function (not of a gocpp function with C/C++
-// results).
-func (fg *funcGen) isCCall(e ast.Expr) bool {
-	c, ok := ast.Unparen(e).(*ast.CallExpr)
-	if !ok || !fg.g.pkg.Opaque.IsOpaque(c) {
-		return false
-	}
-	_, ok = fg.g.cRefOf(c.Fun)
-	return ok
-}
-
 // isBuiltinC reports whether the C++ name s is a C type of cBuiltins.
 func isBuiltinC(s string) bool {
 	for _, b := range cBuiltins {
@@ -194,13 +342,29 @@ func isBuiltinC(s string) bool {
 func (fg *funcGen) cArgs(list []ast.Expr) []cppir.Expr {
 	xs := make([]cppir.Expr, len(list))
 	for i, a := range list {
-		xs[i] = fg.cValueOf(a)
+		xs[i] = fg.cMoved(a, fg.cValueOf(a))
 	}
 	return xs
 }
 
+// opaqueMember returns fun as a member x.m of a C/C++ value (not a C/C++ name, nor a field or a
+// method of a gocpp type), or nil.
+func (g *gen) opaqueMember(fun ast.Expr) *ast.SelectorExpr {
+	sel, ok := ast.Unparen(fun).(*ast.SelectorExpr)
+	if !ok || !g.pkg.Opaque.IsOpaque(sel) || g.info.Selections[sel] != nil {
+		return nil
+	}
+	if _, ok := g.cRefOf(sel); ok {
+		return nil
+	}
+	return sel
+}
+
 // cValueOf returns the C++ of e where a C/C++ value takes it (cArgs).
 func (fg *funcGen) cValueOf(e ast.Expr) cppir.Expr {
+	if _, ok := fg.temps[ast.Unparen(e)]; ok {
+		return fg.expr(ast.Unparen(e)) // order.go named it (nameOperands)
+	}
 	tv := fg.g.info.Types[e]
 	switch {
 	case tv.Value != nil:
@@ -215,14 +379,22 @@ func (fg *funcGen) cValueOf(e ast.Expr) cppir.Expr {
 // (gp_cgoh.As[T](x) after the check's rewrite): gp::cgo::as<T>(x) for a number or a bool, which
 // is Go's conversion also where a static_cast is undefined behavior (a float out of range).
 func (fg *funcGen) asConversion(c *ast.CallExpr, conv *check.Conversion) cppir.Expr {
+	if conv.Kind == check.Compare {
+		// x == y of C/C++ values, gp_cgoh.Cmp(x == y): a Go bool, as in cgo.
+		return call("gp::cgo::to_bool", fg.expr(c.Args[0]))
+	}
 	if conv.Kind != check.AsCall || len(c.Args) != 1 {
-		fg.g.unsupported(c.Pos(), "this conversion of a C/C++ value (step 4.4)")
+		fg.g.unsupported(c.Pos(), "this conversion of a C/C++ value")
 		return placeholder
 	}
 	to := fg.g.info.TypeOf(c)
 	b := basicOf(to)
 	if b == nil || b.Info()&(types.IsNumeric|types.IsBoolean) == 0 || b.Info()&types.IsComplex != 0 || isNewtype(to) {
-		fg.g.unsupported(c.Pos(), "conversions of C/C++ values to "+types.TypeString(to, types.RelativeTo(fg.g.pkg.Types))+" (steps 4.4 and 4.9)")
+		step := " (step 4.9)"
+		if b == nil || b.Info()&types.IsString == 0 {
+			step = "" // a named type, a complex number, a pointer, a slice, ...
+		}
+		fg.g.unsupported(c.Pos(), "conversions of C/C++ values to "+types.TypeString(to, types.RelativeTo(fg.g.pkg.Types))+step)
 		return placeholder
 	}
 	return templateCall("gp::cgo::as", []cppir.Node{fg.g.cxxType(to, c.Pos())}, fg.expr(c.Args[0]))

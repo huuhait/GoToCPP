@@ -83,7 +83,7 @@ void main() {
     gp::map<gp::string, ::FILE*> cm{};
     gp::array<double, 4> ca{};
     gp::ptr<gp::slice<int>> pv{};
-    auto gp_t0 = gp::cgo::as<int>(l); int64_t n = gp::cgo::as<int64_t>(i) + gp::cgo::as<int64_t>(gp_t0) + gp::cgo::as<int64_t>(gp::cgo::as<unsigned long long>(z));
+    int64_t n = gp::cgo::as<int64_t>(i) + gp::cgo::as<int64_t>(gp::cgo::as<int>(l)) + gp::cgo::as<int64_t>(gp::cgo::as<unsigned long long>(z));
     static_cast<void>(c); static_cast<void>(sc); static_cast<void>(uc); static_cast<void>(s); static_cast<void>(us); static_cast<void>(ui); static_cast<void>(ul); static_cast<void>(ll); static_cast<void>(ull); static_cast<void>(f); static_cast<void>(d); static_cast<void>(v); static_cast<void>(pts); static_cast<void>(nodes);
     static_cast<void>(it); static_cast<void>(cs); static_cast<void>(cm); static_cast<void>(ca); static_cast<void>(pv); static_cast<void>(n); static_cast<void>(files);
 }

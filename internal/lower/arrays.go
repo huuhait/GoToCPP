@@ -294,7 +294,7 @@ func (fg *funcGen) ownerOf(e ast.Expr) (ast.Expr, int) {
 // (to slice it, (*p)[:]) is p.
 func (fg *funcGen) addrOf(e ast.Expr) cppir.Expr {
 	owner, kind := fg.ownerOf(e)
-	typ := ptrType(fg.g.cxxType(fg.g.info.TypeOf(e), e.Pos()))
+	typ := ptrType(fg.typeOfExpr(e))
 	switch kind {
 	case ownerPkg:
 		return call("gp::static_ptr", fg.expr(e))
@@ -719,4 +719,16 @@ func (fg *funcGen) pureBuiltin(c *ast.CallExpr) bool {
 		}
 	}
 	return false
+}
+
+// typeOfExpr returns the C++ type of the expression e: of its Go type, or, for a variable of a
+// type with C/C++ parts ([3]C.int), of its declaration (varType).
+func (fg *funcGen) typeOfExpr(e ast.Expr) cppir.Type {
+	t := fg.g.info.TypeOf(e)
+	if id, ok := ast.Unparen(e).(*ast.Ident); ok && !complete(t) {
+		if v, ok := fg.g.info.Uses[id].(*types.Var); ok {
+			return fg.g.varType(v, id.Pos())
+		}
+	}
+	return fg.g.cxxType(t, e.Pos())
 }

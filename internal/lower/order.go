@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/huuhait/gocpp/internal/cppir"
+	"github.com/huuhait/gocpp/internal/interop"
 )
 
 // The evaluation order (Phase 02 README §2.5).
@@ -519,6 +520,9 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		sc.items = append(sc.items, it)
 	}
 	below := &orderStep{node: e, up: up} // for the operands of e
+	if fg.g.pkg.Opaque.IsOpaque(e) && fg.collectOpaque(sc, e, root, up, add) {
+		return
+	}
 	switch x := e.(type) {
 	case *ast.Ident:
 		if v, ok := fg.g.info.Uses[x].(*types.Var); ok && (isPkgVar(v) || fg.isBoxed(v)) {
@@ -715,6 +719,97 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		}
 		add(&orderItem{unit: true, eff: eff, inner: []*orderScope{in}})
 	}
+}
+
+// collectOpaque is collect for the opaque expression e (a C/C++ value, cvalues.go) where its
+// order differs from that of a gocpp expression, and reports whether it is one of those; add adds
+// an item for e. C++'s operators on C/C++ values have no effect of their own here (an operator of
+// a C++ class is a call, but one that doesn't change what the statement can see, as a rule):
+//   - a call of a member of a C/C++ value or of a C++ callable (opaqueCallee) is a unit, whose
+//     scope is the callee and the arguments: C++ evaluates the callee (and the object of a
+//     member, the receiver) first (objFirst);
+//   - a member x.m reads memory that a call can change (x can be a pointer), and panics for a
+//     nil pointer (gp::deref);
+//   - an index v[i] reads it too (C++'s operator[] doesn't panic: no bounds check);
+//   - a binary operator, except && and ||, is its operands.
+//
+// The other opaque expressions (*p, a unary operator, a C/C++ name, a call of a C/C++
+// function) are ordered like gocpp's.
+func (fg *funcGen) collectOpaque(sc *orderScope, e ast.Expr, root int, up *orderStep, add func(*orderItem)) bool {
+	below := &orderStep{node: e, up: up}
+	switch x := e.(type) {
+	case *ast.CallExpr:
+		if r, ok := fg.g.cRefOf(x.Fun); ok {
+			if n, ok := r.x.(*cppir.Name); !ok || r.kind != interop.Type || n.Args != nil || !isBuiltinC(n.Name) {
+				return false // a call of a C/C++ function or a constructor: a call
+			}
+			// C.int(x), a conversion: its operand.
+			sc.calls = append(sc.calls, x)
+			for _, a := range x.Args {
+				fg.collect(sc, a, root, up)
+			}
+			return true
+		}
+		if !fg.g.opaqueCallee(x) {
+			return false
+		}
+		// The callee first (root 0): of a member x.m(args), its object x, which C++ evaluates
+		// with the member (gp::deref's nil check too) before the arguments, so the member's
+		// own read doesn't wait for the arguments' calls.
+		args := &orderScope{objFirst: true}
+		if sel := fg.g.opaqueMember(x.Fun); sel != nil {
+			fg.collect(args, sel.X, 0, &orderStep{node: sel})
+		} else {
+			fg.collect(args, x.Fun, 0, nil)
+		}
+		for i, a := range x.Args {
+			fg.collect(args, a, i+1, nil)
+		}
+		args.plan()
+		add(&orderItem{unit: true, inner: []*orderScope{args}, eff: effect{call: true}, force: fg.force[x]})
+	case *ast.SelectorExpr:
+		if r, ok := fg.g.cRefOf(x); ok {
+			fg.collectCName(r, add)
+			return true
+		}
+		if fg.g.info.Selections[x] != nil {
+			return false
+		}
+		fg.collect(sc, x.X, root, below)
+		add(&orderItem{eff: effect{read: true, panics: true}})
+	case *ast.IndexExpr:
+		if r, ok := fg.g.cRefOf(x); ok {
+			fg.collectCName(r, add)
+			return true
+		}
+		if gocppContainer(fg.g.info.TypeOf(x.X)) {
+			return false // a gocpp slice, array or map of C/C++ values: ordered as any other
+		}
+		fg.collect(sc, x.X, root, below)
+		fg.collect(sc, x.Index, root, below)
+		add(&orderItem{eff: effect{read: true}})
+	case *ast.BinaryExpr:
+		if x.Op == token.LAND || x.Op == token.LOR {
+			return false
+		}
+		fg.collect(sc, x.X, root, below)
+		fg.collect(sc, x.Y, root, below)
+	default:
+		return false
+	}
+	return true
+}
+
+// collectCName adds the item of the C/C++ name r, used as a value, with add: a C/C++ variable
+// (lib.counter, std.cout, an instance of a variable template) is memory that a call can change,
+// like a package variable, and a member of one (globals.sp.x: gp::deref(::sp).x) panics for a
+// nil pointer too. Types, namespaces and macros have none.
+func (fg *funcGen) collectCName(r cRef, add func(*orderItem)) {
+	if r.kind != interop.Value && r.kind != interop.ValueTemplate {
+		return
+	}
+	_, member := r.x.(*cppir.Member)
+	add(&orderItem{eff: effect{read: true, panics: member}})
 }
 
 // calleeCopied reports whether gc evaluates the func value e of a call into a temporary before
@@ -1028,10 +1123,10 @@ func (fg *funcGen) emitItem(it *orderItem, pre *[]cppir.Stmt) {
 		// r := x; if r { r = y } (for ||: if !r)
 		fg.emitScope(it.inner[0], pre)
 		t := fg.names.temp("t")
-		*pre = append(*pre, varDecl(cppir.Pos{}, fg.boolType(it.e), t, fg.expr(it.bin.X)))
+		*pre = append(*pre, varDecl(cppir.Pos{}, fg.boolType(it.e), t, fg.cBool(it.bin.X)))
 		var inner []cppir.Stmt
 		fg.emitScope(it.inner[1], &inner)
-		inner = append(inner, &cppir.ExprStmt{X: &cppir.Assign{Op: "=", X: cxxName(t), Y: fg.expr(it.bin.Y)}})
+		inner = append(inner, &cppir.ExprStmt{X: &cppir.Assign{Op: "=", X: cxxName(t), Y: fg.cBool(it.bin.Y)}})
 		var cond cppir.Expr = cxxName(t)
 		if it.bin.Op == token.LOR {
 			cond = &cppir.Unary{Op: "!", X: cond}
@@ -1044,13 +1139,137 @@ func (fg *funcGen) emitItem(it *orderItem, pre *[]cppir.Stmt) {
 		fg.emitScope(in, pre)
 	}
 	var typ cppir.Type = typeName("auto")
-	if it.bin != nil {
+	switch {
+	case it.bin != nil:
 		typ = fg.boolType(it.e)
+	case fg.objectOf(it):
+		typ = typeName("auto&&")
+		fg.nameOperands(it.e, pre)
 	}
 	x := fg.exactExpr(it.e)
 	t := fg.names.temp("t")
 	*pre = append(*pre, varDecl(cppir.Pos{}, typ, t, x))
 	fg.temps[it.e] = t
+	if it.bin == nil && typ.(*cppir.TypeName).Name == "auto" && fg.g.pkg.Opaque.IsOpaque(it.e) {
+		fg.markAuto(t)
+	}
+}
+
+// markAuto records that the temporary t is a copy of a C/C++ value that only its one use reads,
+// which can move it (cMoved).
+func (fg *funcGen) markAuto(t string) {
+	if fg.autoTemps == nil {
+		fg.autoTemps = make(map[string]bool)
+	}
+	fg.autoTemps[t] = true
+}
+
+// cMoved returns x, the C++ of e, as an rvalue if it is a temporary that markAuto recorded:
+// static_cast<decltype(gp_t0)&&>(gp_t0) (std::move, as decl.go's moved writes it), so that a value that can't be copied (a std::unique_ptr) goes where the
+// expression would have gone without the temporary, and nothing is copied twice.
+func (fg *funcGen) cMoved(e ast.Expr, x cppir.Expr) cppir.Expr {
+	if n, ok := x.(*cppir.Name); ok && fg.autoTemps[n.Name] && fg.temps[ast.Unparen(e)] == n.Name {
+		return movedName(n.Name)
+	}
+	return x
+}
+
+// nameOperands puts the operands of the call e, whose result goes into an auto&& temporary as an
+// object (objectOf), into named temporaries first, in C++'s order (the object of a member call,
+// then the arguments), where they are temporaries: a C++ function may return a reference into
+// them (std::max(a, b) of two temporaries, s.append(x) of a temporary s returns *this), which
+// would dangle after the temporary's declaration otherwise. A temporary argument (a call, a
+// constructor, a constant, an operator's result) becomes a copy, auto, moved into the call; the
+// object of a member call becomes a reference, auto&&, with its own operands named the same way
+// (nameObject). A name, and a place (v[i], x.m, *p), stays as it is, so a C++ function that
+// takes a reference gets the place itself (P& pick(P&, P&)); only a temporary that a place is
+// in, f()[0], is named (namePlace).
+func (fg *funcGen) nameOperands(e ast.Expr, pre *[]cppir.Stmt) {
+	c, ok := ast.Unparen(e).(*ast.CallExpr)
+	if !ok {
+		return
+	}
+	if sel := fg.g.opaqueMember(c.Fun); sel != nil {
+		fg.nameObject(sel.X, pre)
+	}
+	if r, ok := fg.g.cRefOf(c.Fun); ok && r.kind == interop.Type {
+		return // a constructor: its object is the new one, which auto&& keeps alive
+	}
+	for _, a := range c.Args {
+		if fg.namedOrPlace(a, pre) {
+			continue
+		}
+		// A temporary (also a constant: std::max(n, int64_t(0))).
+		t := fg.names.temp("t")
+		*pre = append(*pre, varDecl(cppir.Pos{}, typeName("auto"), t, fg.cValueOf(a)))
+		fg.temps[ast.Unparen(a)] = t
+		fg.markAuto(t)
+	}
+}
+
+// nameObject names the object x of a member or an element that a reference will keep: a
+// temporary goes into an auto&& temporary, after its own operands (nameOperands); a name or a
+// place stays (namePlace).
+func (fg *funcGen) nameObject(x ast.Expr, pre *[]cppir.Stmt) {
+	if fg.namedOrPlace(x, pre) {
+		return
+	}
+	fg.nameOperands(x, pre)
+	t := fg.names.temp("t")
+	*pre = append(*pre, varDecl(cppir.Pos{}, typeName("auto&&"), t, fg.expr(x)))
+	fg.temps[ast.Unparen(x)] = t
+}
+
+// namedOrPlace reports whether x is a name (a variable, a C/C++ name, a temporary of the order)
+// or a place (an element, a member, *p), which C++ evaluates to an object that outlives the
+// statement, and names the temporary that a place is in, if there is one (f()[0], f().m).
+func (fg *funcGen) namedOrPlace(x ast.Expr, pre *[]cppir.Stmt) bool {
+	u := ast.Unparen(x)
+	if fg.temps[u] != "" {
+		return true
+	}
+	switch y := u.(type) {
+	case *ast.Ident:
+		return true
+	case *ast.SelectorExpr:
+		if _, ok := fg.g.cRefOf(y); ok {
+			return true // a C/C++ name: a global, a function
+		}
+		if fg.g.opaqueMember(y) != nil || fg.g.info.Selections[y] != nil {
+			fg.nameObject(y.X, pre) // a member: of the object y.X
+			return true
+		}
+	case *ast.IndexExpr, *ast.IndexListExpr:
+		if _, ok := fg.g.cRefOf(y); ok {
+			return true
+		}
+		if ix, ok := y.(*ast.IndexExpr); ok {
+			fg.nameObject(ix.X, pre) // an element (the index is a value the place doesn't keep)
+			return true
+		}
+	case *ast.StarExpr:
+		return true // *p: what the pointer points to
+	}
+	return false
+}
+
+// objectOf reports whether the unit it is a C/C++ value whose member or element the expression
+// uses (it.e is the X of an opaque x.m or x[i]): a call such as v.back() in v.back().n = 1 or
+// v.back().push_back(x). Its temporary is then a reference, auto&&, so that the member or the
+// element is the object's own, as in C++ without the temporary. Every other temporary is a copy
+// of the value, as Go's results are, which also keeps a reference that a C++ function returns
+// into its temporary arguments from dangling (std::max(n, int64_t(0))).
+func (fg *funcGen) objectOf(it *orderItem) bool {
+	if it.up == nil || !fg.g.pkg.Opaque.IsOpaque(it.e) {
+		return false
+	}
+	switch x := it.up.node.(type) {
+	case *ast.SelectorExpr:
+		return ast.Unparen(x.X) == it.e && fg.g.pkg.Opaque.IsOpaque(x)
+	case *ast.IndexExpr:
+		return ast.Unparen(x.X) == it.e && fg.g.pkg.Opaque.IsOpaque(x)
+	}
+	return false
 }
 
 // emitPanic writes the statement that evaluates the item it, which can panic, before its

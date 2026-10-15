@@ -297,6 +297,9 @@ func hiddenNodes(p *check.Package) *hiddenSet {
 			if c.Kind == check.UnusedStmt {
 				h.unused[c.Call] = c.Type
 			}
+		case check.Compare:
+			hide(c.Call.Fun, nil)          // the call stands for the comparison, a bool:
+			h.nodes[c.Call.Args[0]] = true // one row for it, not the opaque one inside
 		case check.Deferred:
 			if inner, ok := c.Call.Args[0].(*ast.CallExpr); ok {
 				h.nodes[inner] = true

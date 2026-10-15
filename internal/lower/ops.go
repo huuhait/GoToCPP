@@ -147,7 +147,7 @@ func (fg *funcGen) constValue(e ast.Expr) constant.Value {
 func (fg *funcGen) binary(e *ast.BinaryExpr) cppir.Expr {
 	if t := fg.g.info.TypeOf(e.X); (e.Op == token.EQL || e.Op == token.NEQ) && t != nil && cmpHasC(t) {
 		// A struct or an array with a C/C++ part: its == is the C++ compiler's (typedecl.go).
-		fg.g.unsupported(e.OpPos, "== on values with C/C++ parts (step 4.4)")
+		fg.g.unsupported(e.OpPos, "== on values with C/C++ parts (Phase 12)")
 		return placeholder
 	}
 	if (e.Op == token.SHL || e.Op == token.SHR) && fg.constValue(e.X) != nil {
@@ -298,7 +298,11 @@ func (fg *funcGen) infix(x ast.Expr, op string, y ast.Expr) cppir.Expr {
 // without them, but they are easy to misread, and g++ -Wall warns), and so is an && inside
 // ||.
 func (fg *funcGen) grouped(x ast.Expr, op string, y ast.Expr, prec, loose int) cppir.Expr {
-	a, b := fg.expr(x), fg.expr(y)
+	return groupExprs(fg.expr(x), op, fg.expr(y), prec, loose)
+}
+
+// groupExprs is grouped for the C++ operands a and b.
+func groupExprs(a cppir.Expr, op string, b cppir.Expr, prec, loose int) cppir.Expr {
 	if p := cppir.Prec(a); p < prec || p <= loose && p != prec {
 		a = &cppir.Paren{X: a}
 	}
@@ -397,7 +401,7 @@ func (fg *funcGen) index(e *ast.IndexExpr) cppir.Expr {
 		return fg.arrayIndex(e) // arrays.go
 	}
 	if !isString(t) && !isSlice(t) {
-		fg.g.unsupported(e.Lbrack, "index expressions on "+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))+" (Phase 03)")
+		fg.g.notLowered(e.Lbrack, "index expressions on", t)
 		return placeholder
 	}
 	return &cppir.Index{X: fg.expr(e.X), Index: fg.intExpr(e.Index)}
@@ -417,7 +421,7 @@ func (fg *funcGen) slice(e *ast.SliceExpr) cppir.Expr {
 		return fg.arraySlice(e) // arrays.go
 	}
 	if !isString(t) && !isSlice(t) {
-		fg.g.unsupported(e.Lbrack, "slice expressions on "+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))+" (Phase 03 step 3.6)")
+		fg.g.notLowered(e.Lbrack, "slice expressions on", t)
 		return placeholder
 	}
 	x := fg.movedExpr(e.X)
@@ -462,7 +466,7 @@ func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 		// len and cap of an array, or of a pointer to one, are N: a constant unless the
 		// argument has calls (gp::len(f()) evaluates f, and doesn't dereference a pointer).
 		if s := underBasic(t); !isSlice(t) && arrayOf(t) == nil && !(name == "len" && isMap(t)) && (name == "cap" || s == nil || s.Info()&types.IsString == 0) {
-			fg.g.unsupported(c.Pos(), name+" of "+tname+" (Phase 03)")
+			fg.g.notLowered(c.Pos(), name+" of", t)
 			return placeholder
 		}
 		return call("gp::"+name, arrayPtrValue(t, fg.expr(arg)))
@@ -604,4 +608,20 @@ func (fg *funcGen) convertValue(c *ast.CallExpr, to, from types.Type, x cppir.Ex
 		return &cppir.Call{Fun: f2i, Args: []cppir.Expr{x}}
 	}
 	return call(ct, x)
+}
+
+// notLowered reports what of the type t (index expressions on, len of) lowering doesn't write:
+// "not supported yet" with the phase that brings it, for a type parameter (Phase 07) or a
+// channel (Phase 08); for any other type, which go/types rejects there, an internal error.
+func (g *gen) notLowered(pos token.Pos, what string, t types.Type) {
+	ts := types.TypeString(t, types.RelativeTo(g.pkg.Types))
+	if _, ok := types.Unalias(t).(*types.TypeParam); ok {
+		g.unsupported(pos, what+" "+ts+" (Phase 07)")
+		return
+	}
+	if _, ok := under(t).(*types.Chan); ok {
+		g.unsupported(pos, what+" "+ts+" (Phase 08)")
+		return
+	}
+	g.errorf(pos, "internal error: %s %s (a construct the checker should have rejected)", what, ts)
 }

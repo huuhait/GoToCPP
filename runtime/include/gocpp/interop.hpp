@@ -21,6 +21,9 @@
 //     C.free(p)                   gp::cgo::free(p)
 //     int(x), C.int(d) (x, d C/C++ gp::cgo::as<int64_t>(x), gp::cgo::as<int>(d)
 //       values or gocpp numbers)
+//     *x (x opaque)               gp::cgo::star(x)
+//     if x (x an opaque bool)     if (gp::cgo::cond(x))
+//     b := x == y (x, y opaque)   bool b = gp::cgo::to_bool(x == y);
 //
 // The conversions at the boundary are members of the runtime types themselves: gp::string to
 // std::string_view (string.hpp), gp::slice<T> to std::span<T> (slice.hpp) and gp::ptr<T> to
@@ -513,6 +516,44 @@ constexpr bool case_eq(const A& tag, const B& v) {
     static_assert(std::is_scalar_v<A>,
                   "gocpp: a switch on a C/C++ value needs a number, an enum or a pointer");
     return tag == v;
+}
+
+// cond(x) is a C/C++ value x used as a condition (if, for, &&, ||, !; Phase 04 §2.5): Go has
+// only bool conditions, so a C int (if isdigit(c)), a pointer (if p) or an object with only an
+// explicit operator bool (std::optional) is a clear C++ error here, where C++ would convert it
+// silently. A bool passes, and so does an object that converts to bool implicitly, as the
+// proxy of a std::vector<bool> element does (if bs[0]). The emitter writes it only for a
+// condition that is not a comparison or a logical operator, which give a bool anyway.
+template <typename X>
+constexpr bool cond(const X& x) {
+    static_assert(std::is_same_v<X, bool> ||
+                      (std::is_class_v<X> && std::is_convertible_v<const X&, bool>),
+                  "gocpp: non-boolean condition: a C/C++ value used as a condition must be a "
+                  "bool (compare it: x != 0, p != nil)");
+    return x;
+}
+
+// to_bool(x) is the result of a comparison of C/C++ values (x == y, p == nil, a < b), a Go bool
+// as in cgo (Phase 04 §2.5): the bool of a C++ comparison, or the result of a class's operator==
+// that converts to bool.
+template <typename X>
+constexpr bool to_bool(const X& x) {
+    static_assert(std::is_convertible_v<const X&, bool>,
+                  "gocpp: the result of this C++ comparison doesn't convert to bool");
+    return x;
+}
+
+// star(x) is *x for a C/C++ value x (opaque mode): a raw pointer to an object is dereferenced
+// with Go's nil check (gp::deref), and so is a gocpp pointer; everything else is C++'s *x, so
+// C++ smart pointers and iterators keep their own operator* ((*sp).m, *it).
+template <typename X>
+constexpr decltype(auto) star(X&& x) {
+    using V = std::remove_cvref_t<X>;
+    if constexpr (detail::raw_object_pointer<V> || detail::gp_pointer<V>) {
+        return gp::deref(std::forward<X>(x));
+    } else {
+        return *std::forward<X>(x);
+    }
 }
 
 } // namespace cgo

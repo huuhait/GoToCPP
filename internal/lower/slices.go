@@ -105,7 +105,14 @@ func (fg *funcGen) sliceBuiltin(c *ast.CallExpr, name string) cppir.Expr {
 	switch name {
 	case "make":
 		// make([]T, n) and make([]T, n, c): the type is the first argument.
-		elem := fg.g.cxxType(under(t).(*types.Slice).Elem(), arg.Pos())
+		var elem cppir.Type
+		if et := under(t).(*types.Slice).Elem(); complete(et) {
+			elem = fg.g.cxxType(et, arg.Pos())
+		} else if at, ok := ast.Unparen(arg).(*ast.ArrayType); ok {
+			elem = fg.g.typeExpr(at.Elt) // make([]C.int, n): from the type expression
+		} else {
+			elem = fg.g.cxxType(et, arg.Pos()) // (reports it)
+		}
 		args := make([]cppir.Expr, len(c.Args)-1)
 		for i, a := range c.Args[1:] {
 			args[i] = fg.intExpr(a)
@@ -180,6 +187,9 @@ func elemKind(t types.Type) types.BasicKind {
 func (fg *funcGen) movedExpr(e ast.Expr) cppir.Expr {
 	x := fg.expr(e)
 	if fg.moves[e] {
+		if t := fg.g.info.TypeOf(e); !complete(t) {
+			return x // a slice of C/C++ values, []C.int: no C++ type to name; a copy shares the array
+		}
 		return moved(fg.g.cxxType(fg.g.info.TypeOf(e), e.Pos()), x)
 	}
 	return x
@@ -280,11 +290,11 @@ func (fg *funcGen) storedExpr(rhs ast.Expr) cppir.Expr {
 		if to, ok := fg.g.implicit[rhs]; ok {
 			t = to // the temporary holds the value converted to the target's type (step 3.9)
 		}
-		if t != nil && isClass(t) && !fg.g.info.Types[rhs].IsNil() {
+		if t != nil && complete(t) && isClass(t) && !fg.g.info.Types[rhs].IsNil() { // (not a C/C++ value: auto)
 			return moved(fg.g.cxxType(t, rhs.Pos()), x)
 		}
 	}
-	return fg.sharedCopy(rhs, x) // n = n.kids[0] (structs.go)
+	return fg.sharedCopy(rhs, fg.cMoved(rhs, x)) // n = n.kids[0] (structs.go); a C/C++ value's temporary
 }
 
 // baseVar returns the variable that the slice s (a variable, *p, v[i] or v.f, sameVar) is or is

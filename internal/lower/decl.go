@@ -219,6 +219,12 @@ func moved(typ cppir.Type, x cppir.Expr) cppir.Expr {
 	return &cppir.Cast{Kind: "static_cast", Type: &cppir.Ref{Elem: typ, RValue: true}, X: x}
 }
 
+// movedName is moved for the variable name, whose C++ type gocpp doesn't name (auto, a C/C++
+// value): static_cast<decltype(name)&&>(name).
+func movedName(name string) cppir.Expr {
+	return moved(typeName("decltype("+name+")"), cxxName(name))
+}
+
 // packageVars adds the package variables. Each one is constinit, so C++ runs no dynamic
 // initialization of its own (whose order across files C++ doesn't define): a variable whose
 // initializer is a constant gets its value at compile time, one whose initializer is nil (var

@@ -415,23 +415,102 @@ fmt.Println(n + 1)          // fully type-checked by gocpp
 |---|---|---|
 | `x := lib.f()` | `auto x = ::f();` | |
 | `x.m`, `x.m()` with `x` opaque | `gp::deref(x).m` | `gp::deref` dereferences one level of a pointer, like Go's auto-deref: a raw pointer, or a gocpp pointer (`gp::ptr`) that comes back as an opaque value, such as an element of a `std.vector[*Node]` or a gocpp pointer returned by a C++ template (`gp::deref(v[0]).Name`), with Go's nil panic for both; values pass through. C++ smart pointers are not dereferenced for you: write `(*sp).m` |
-| `a + b`, `a == b`, `v[i]` on C++ values | `a + b`, `a == b`, `v[i]` | C++ operators and C++ rules: no gocpp bounds check on C++ containers (use `.at(i)` if you want one) |
+| `p.next.value`, `lib.get_fn()(2)` | `gp::deref(gp::deref(p).next).value`, `::get_fn()(2)` | chains of members, and calls of anything C++ can call (function pointers, objects with `operator()`) |
+| `*p`, `(*sp).m` | `gp::cgo::star(p)`, `gp::deref(gp::cgo::star(sp)).m` | a raw pointer (and a gocpp pointer) gets Go's nil panic; smart pointers and iterators keep their own `operator*` |
+| `a + b`, `a == b`, `v[i]` on C++ values | `a + b`, `a == b`, `v[i]` | C++ operators and C++ rules: no gocpp bounds check on C++ containers (use `.at(i)` if you want one), and `m[k]` of a `std::map` inserts `k` |
+| `^x`, `x &^ y`, `x &^= y` | `~x`, `x & ~y`, `x &= ~y` | Go's spellings of C++'s operators |
+| `s += "!"`, `it++`, `n--` | `s += "!"`, `++it`, `--n` | C++'s own `op=` (a class's `operator+=`), and the prefix `++`, which an iterator needs no copy for |
+| `b := p == nil`, `var ok bool = x < 3` | `bool b = gp::cgo::to_bool(p == nullptr);` | a comparison of C/C++ values is a Go `bool`, as in cgo: it goes into bool variables, results, gocpp functions and `fmt`, with `!`, `&&` and `\|\|`. Unlike Go's untyped bool, a named bool type needs a conversion, `B(x == 3)`. `gp::cgo::to_bool` checks that a class's `operator==` gives something that converts to bool |
+| `if v.empty()`, `for !done` | `if (gp::cgo::cond(gp::deref(v).empty()))` | a condition must be a bool, as in Go: a C `int` (`if isdigit(c)`), a pointer (`if p`) or a `std::optional` is a C++ compile error; compare it (`!= 0`, `!= nil`). An object that converts to bool implicitly, such as a `std::vector<bool>` element (`if bs[0]`), is fine. A comparison needs no check |
+| `&x` (`x` a C/C++ variable), `&lib.global` | `&x`, `&::global` | a raw C++ address: C++'s lifetime rules ([below](#pointers-unsafe-and-slices-at-the-boundary)) |
 | `std.string("hi")`, `std.vector[int](10, 0)` | `std::string("hi")`, `std::vector<int64_t>(10, 0)` | conversion syntax calls a constructor; several arguments are allowed ([D5](language.md#d5-constructor-calls-for-cc-types)) |
 | `std.vector[int]{1, 2, 3}` | `std::vector<int64_t>{1, 2, 3}` | |
 | `SDL.SDL_Rect{0, 0, 640, 480}` | `SDL_Rect{0, 0, 640, 480}` | positional: aggregate initialization |
 | `SDL.SDL_Rect{w: 640, h: 480}` | `[&]{ SDL_Rect gp_t{}; gp_t.w = 640; gp_t.h = 480; return gp_t; }()` | keyed: field assignments, because GCC rejects designated initializers out of declaration order, and opaque mode doesn't know the order. Keyed literals with array fields are an error until Phase 12 |
 | `nil` compared with or assigned to a C pointer | `nullptr` | |
 | `for i, v := range cppContainer` | `for (auto&& [i, v] : gp::range(c))` | works for anything with `begin()`/`end()` and for C arrays. `v` is a **copy**, like Go. One variable is the index (the key for maps), like Go. A temporary container is kept alive by value, and random-access containers are walked by index with the size read **once**, as Go reads the length once |
-| `a, b := std.minmax(x, y)` | `auto [a, b] = gp::values(std::minmax(x, y));` | C++ results that are references (`std::minmax` returns `pair<const int&, const int&>`) are copied into values, so they can't dangle |
+| `a, b := std.minmax(x, y)` | `auto gp_t0 = gp::values(std::minmax(x, y)); auto a = std::get<0>(gp_t0); auto b = std::get<1>(gp_t0);` | C++ results that are references (`std::minmax` returns `pair<const int&, const int&>`) are copied into values, so they can't dangle. Also with `=`, `_` and variables that exist. (One variable, `p := std.minmax(x, y)`, still keeps the references until step 4.7) |
+
+**gocpp values next to C/C++ values.** As in cgo, a typed gocpp number, bool or string next to a
+C/C++ value in an operator is an error, because C++ would convert one of them without a word
+(`n + v.size()` would turn a negative `n` into a huge unsigned number):
+
+```go
+var x C.int = 2
+n := 3
+_ = x + 1      // fine: 1 is a C literal
+_ = int(x) + n // fine: both are gocpp ints
+_ = x + n      // invalid operation: x + n (mismatched types C.int and int): convert one of them: int(x) or C.int(n)
+_ = v.begin() + C.long(k) // an iterator and a C long: fine (v.begin() + k is the error, with this hint)
+_ = x << n     // fine: Go allows a shift count of any integer type
+_ = n << x     // invalid operation: n << x (shift count x is a C/C++ value): convert it, uint(x)
+```
+
+The same holds for `x op= y`. When gocpp doesn't know the C/C++ side's type, or it is no number
+(an iterator, a pointer), the hint is to convert the gocpp side, `C.long(n)` or `C.size_t(n)`. A
+string next to a C++ string needs `std.string(s)`. (`C.int + C.uint` follows C++'s rules, where
+cgo rejects it.) Other gocpp
+values meet C++'s operators as they are: a gocpp pointer compares with a gocpp pointer that a
+C++ container holds (`nodes[0] == n`), and the operands of `&&` and `||` are bools anyway.
+
+**Places.** `v[i]`, `m[k]`, `p.m` and `*p` of C/C++ values can be assigned, changed with `op=`,
+`++` and `--`. Their types are C++'s, so a gocpp value stored there converts with C++'s rules
+(`ages["carol"] = n`), as an argument of a C/C++ function does. A call is no place, as in Go,
+also where C++ returns a reference: `v.at(0) = 5` is "cannot assign to v.at(0) (neither
+addressable nor a map index expression)"; write `v[0] = 5`. A new variable is a copy, as Go's
+values are, also of a C++ reference: `x := v[0]` and `all := lib.the_list()` copy (`auto`).
+Several variables take one C/C++ value only from a call that gives a pair or a tuple
+(`a, b := std.minmax(x, y)`): `v, ok := ages["bob"]` is "assignment mismatch: 2 variables but
+ages["bob"] is 1 value", because a C++ map has no comma-ok form (use `ages.find(k)` or
+`ages.count(k)`).
+
+**Templates or indexes (step 4.5).** `x[...]` after a C/C++ name gives template arguments when the
+kind probe says the name is a template: a class or alias template (`std.vector[int]`) or a
+function or variable template (`std.make_unique[std.string]("x")`, `std.get[0](t)`,
+`std.is_same_v[A, B]`, `std.in_place_index[1]`). After anything else it is an index
+(`lib.table[1]`, `v[i]`). In parentheses, a C/C++ value is always a value: `(x)[i]` is an index
+and `(x).m` a member with `.`. When the probe can't tell (a member of a template's instance,
+`std.vector[int].iterator.x`), gocpp says so and suggests the parenthesized form.
+
+**Order of evaluation.** The operands are evaluated in Go's order, also where C++ leaves the order
+open (a call's arguments, the operands of `+`): gocpp moves calls into temporaries where it
+must, as for gocpp code; nothing else goes into a temporary. A temporary is a copy of the value,
+as Go's results are, and it is moved into its one use, so a value that can only be moved
+(`lib.take(std.make_unique[C.int](1), f())`) still works. An object whose member or element is
+used next (`lib.the_list()[0] = f()`) stays the object itself (`auto&&`), and its own operands
+that are temporaries (calls, constructors, constants) go into named temporaries first, so that a
+reference that a C++ function returns into them (`std.max(std.string("a"), std.string("b"))[0]`,
+`s.append(x)` of a temporary `s`) can't dangle. Its other operands, names and places
+(`lib.pick(v[0], v[1]).x = f()` with `P& pick(P&, P&)`), go to it as they are. A C/C++ global is read after the calls of its statement,
+like a package variable. The object of a member call, with its member, is evaluated before its
+arguments, as C++ does.
+
+**C++'s rules for C values.** Signed integers wrap on overflow (gocpp compiles with `-fwrapv`), but
+an integer division by zero and a shift by a negative count or by the width or more are C++'s
+undefined behavior, not Go panics. `^x` of a C `unsigned char` gives an `int` (C++'s promotions).
+
+**Builtins.** `len`, `cap`, `min` and `max` don't take C/C++ values: call the C++ functions
+(`v.size()`, `std.size(v)`, `std.max(a, b)`). A gocpp slice, array or map of C/C++ values
+(`var xs []C.int`) is a gocpp value: `len`, `cap`, `append`, `copy`, `clear`, `delete`, its
+index (with Go's bounds checks), slicing (`xs[1:]` shares the array), `range` (the elements are
+copies) and `v, ok := m[k]` work as for any other.
+
+**Constants.** A constant can't be made from a C/C++ variable or call: `const d = x + 1` with
+`var x C.int` is "x + 1 (C/C++ value) is not constant", as in Go. (C macros in constants come
+with Phase 12.)
+
+**gocpp values inside C++ values.** A gocpp value that comes back through C++ (a field of an
+element of a `std.vector[*Node]`: `nodes[0].N`) has no gocpp type for the compiler: it is a
+C/C++ value. Convert it (`int(nodes[0].N)`); strings (`string(x)`) come with step 4.9.
 
 A C/C++ value doesn't convert implicitly to a gocpp type, as in cgo: `var n int = cmath.pow(10, 30)`
 is an error ("cannot use cmath.pow(10, 30) (C/C++ value) as int value in variable declaration:
-convert it, int(x)"), also in an assignment, an argument and a return. `int(x)` converts with Go's
+convert it, int(cmath.pow(10, 30))"), also in an assignment, an argument and a return. `int(x)` converts with Go's
 rules (`gp::cgo::as`: a float out of range gives Go's result, not C++'s undefined behavior). A C
 pointer converts to a number only through `unsafe.Pointer`, and only a bool converts to bool.
 The other way round too: a typed gocpp value doesn't go implicitly into a C/C++ variable, field,
 parameter of a gocpp function or result (`fv := 1e30; var i C.int = fv` is "cannot use fv
-(variable of type float64) as C.int value in variable declaration: convert it, C.int(x)"); an
+(variable of type float64) as C.int value in variable declaration: convert it, C.int(fv)"); an
 untyped constant does (it is a C literal there). An argument of a C/C++ function is different:
 gocpp doesn't know the parameter's type, so C++'s rules convert it (a gocpp float passed to a C
 integer parameter out of its range is undefined behavior: write `C.int(x)`). Phase 12 (typed
@@ -444,7 +523,8 @@ cstdio.printf("%d\n", 5) // 5 is a C int, as printf expects
 m := std.max(n, int(0))  // std.max(n, 0) would not compile: int64_t vs int
 ```
 
-An untyped constant passed to C/C++ is written as a plain C literal with C's default type (`5`
+An untyped constant passed to C/C++, or used next to a C/C++ value (an operand, an index, the
+value of `m["k"] = 1` or `s += "!"`), is written as a plain C literal with C's default type (`5`
 is an `int`, `2.0` is a `double`, `"x.txt"` is a string literal). That is what C APIs expect. A
 C++ template that deduces one type from two arguments then needs a typed constant: write
 `std.max(n, int(0))`, not `std.max(n, 0)`.
@@ -535,7 +615,18 @@ lib.print_all(nums) // a C++ function that takes std::span<int>
   must not keep it after the gocpp object dies. This is the same rule as cgo's pointer-passing
   rules.
 - `&x`, where `x` has a C/C++ type, is a raw C++ address. **C/C++ values follow C++ lifetime
-  rules.** gocpp's safety covers gocpp types, not C/C++ types.
+  rules.** gocpp's safety covers gocpp types, not C/C++ types. A local ends with its block (not
+  when nothing points to it any more, as in Go), so:
+  - `return &x` of a local is an error;
+  - `&x` of a local in a `defer` or `go` statement, and of a loop variable (Go gives each
+    iteration its own), are not supported yet (step 4.8 keeps such a local alive);
+  - every other pointer to a local is the program's to keep valid: `g = &x`, `h.p = &x` and
+    `p := &x; return p` compile, and dangle after `x`'s block ends (ASan finds it). A C function
+    must not keep `&x` after that either (a callback's user data, `sqlite3_bind_text` with
+    `SQLITE_STATIC`).
+
+  `&lib.global` is the address of a C/C++ global, which lives as long as the program. Today `&x`
+  takes only a variable or a global; `&v[i]` and `&s.f` come with step 4.10.
 
 Source: [Phase 04 §2.7](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#27-pointers-unsafe-and-slices-at-the-boundary).
 
@@ -1115,8 +1206,9 @@ generated "probe" files, the way cgo asks gcc about C names.
   (`raylib.printf`) gets a warning.
 - **`gocpp bindgen <header>`** writes a readable gocpp view of a C/C++ header.
 - **Compatibility rule:** typed mode never rejects a program that opaque mode and the C++
-  compiler accepted. Mixed C/gocpp arithmetic follows C++'s conversion rules, as in opaque mode;
-  narrowing conversions get a `gocpp vet` warning instead of an error.
+  compiler accepted. A typed gocpp number next to a C/C++ value is an error, as in opaque mode
+  and cgo ("mismatched types"); arithmetic between C/C++ values follows C++'s conversion rules,
+  and narrowing conversions there get a `gocpp vet` warning instead of an error.
 - **Modes:** `-interop=typed|opaque`. Opaque stays the default until typed mode passes the whole
   Phase 04 suite; then the default switches to typed. Probing needs `clang++`, also when the build
   uses `g++`; without clang, gocpp warns once and uses opaque mode.

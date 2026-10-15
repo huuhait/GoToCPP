@@ -38,6 +38,8 @@ func conversionList(fset *token.FileSet, p *Package) string {
 			b.WriteString(" (unused)")
 		case Deferred:
 			b.WriteString(" (deferred)")
+		case Compare:
+			b.WriteString(" (compare)")
 		}
 		b.WriteString("\n")
 	}
@@ -1003,5 +1005,71 @@ func TestConversionValid(t *testing.T) {
 				t.Errorf("checked %d times, want %d", p.checks, c.checks)
 			}
 		})
+	}
+}
+
+// TestComparisons checks the rewrite of comparisons of opaque values to
+// gp_cgoh.Cmp(x == y) (Compare): they are bools, as cgo's comparisons of C
+// values, so a variable declared from one is a bool, later mistakes with it
+// are reported, the messages show the comparison as the user wrote it, a
+// conversion of a comparison is a Go conversion, and a comparison where Go
+// needs a constant, or of values that an error made invalid, stays.
+func TestComparisons(t *testing.T) {
+	src := `package main
+
+import (
+	"<lib.h>"
+)
+
+func isNil(p *C.char) bool { return p == nil }
+
+func main() {
+	var p *C.char
+	b := p == nil
+	c := lib.f() < 3 && !(lib.g() != lib.h())
+	d := bool(lib.f() >= 2)
+	_ = isNil(p) || b || c || d
+	_ = b + 1
+	var n int = lib.f() == 1
+	_ = n
+	var arr [lib.N]int
+	_ = arr
+	e := undefinedName == lib.f()
+	_ = e
+}
+`
+	root := writeTree(t, map[string]string{"gocpp.mod": "module example.com/m\n", "main.gp": src})
+	prog, r := loadAndCheck(t, load.Config{}, root, ".")
+	want := "# example.com/m\n" +
+		"./main.gp:15:6: invalid operation: b + 1 (mismatched types bool and untyped int)\n" +
+		"./main.gp:16:14: cannot use lib.f() == 1 (value of type bool) as int value in variable declaration\n" +
+		"./main.gp:20:7: undefined: undefinedName\n"
+	got := errorText(t, prog, r, root, true)
+	got = strings.ReplaceAll(got, "C.f()", "lib.f()")
+	if got != want {
+		t.Errorf("errors:\n%s\nwant:\n%s", got, want)
+	}
+	p := mainPkg(t, prog, r)
+	for name, typ := range map[string]string{"b": "bool", "c": "bool", "d": "bool", "e": "invalid type"} {
+		if got := localType(t, p, name).String(); got != typ {
+			t.Errorf("%s has the type %s, want %s", name, got, typ)
+		}
+	}
+	wantConv := "7:37 p == nil (compare)\n" +
+		"11:7 p == nil (compare)\n" +
+		"12:7 C.f() < 3 (compare)\n" +
+		"12:24 C.g() != C.h() (compare)\n" +
+		"13:12 C.f() >= 2 (compare)\n" +
+		"16:14 C.f() == 1 (compare)\n"
+	if got := conversionList(prog.Fset, p); got != wantConv {
+		t.Errorf("conversions:\n%s\nwant:\n%s", got, wantConv)
+	}
+	for _, c := range p.Conversions {
+		if got := p.Info.Types[c.Call].Type; got != types.Typ[types.Bool] {
+			t.Errorf("%s has the type %v, want bool", c, got)
+		}
+		if arg := c.Call.Args[0]; c.Call.Pos() != arg.Pos() || c.Call.End() != arg.End() {
+			t.Errorf("%s: the call is at %d-%d, the comparison at %d-%d", c, c.Call.Pos(), c.Call.End(), arg.Pos(), arg.End())
+		}
 	}
 }

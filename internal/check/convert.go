@@ -87,6 +87,15 @@ const (
 	// Deferred: the call of a go or defer statement became
 	// T(gp_cgoh.Value[T](x)).
 	Deferred
+
+	// Compare: a comparison of opaque values x == y (also !=, <, <=, >,
+	// >=) became gp_cgoh.Cmp(x == y), a bool, as cgo's comparisons of C
+	// values are (Phase 04 step 4.4): var ok bool = p == nil, b := x < 3.
+	// Call.Fun is the selector gp_cgoh.Cmp at the place of the comparison,
+	// Call.Args[0] the comparison, and Type is nil. Unlike Go's untyped
+	// bool, the result has the type bool: a named bool type needs a
+	// conversion, B(x == 3).
+	Compare
 )
 
 // Pos returns the place of the conversion: the start of T.
@@ -106,6 +115,9 @@ func (c *Conversion) Arg() ast.Expr {
 // is not in the AST, with the Type and the argument of Call. Messages and
 // the editor can show it.
 func (c *Conversion) Original() *ast.CallExpr {
+	if c.Kind == Compare {
+		return c.Call // (String shows the comparison)
+	}
 	return &ast.CallExpr{
 		Fun:    c.Type,
 		Lparen: c.Call.Lparen,
@@ -118,6 +130,9 @@ func (c *Conversion) Original() *ast.CallExpr {
 // (types.ExprString), also with conversions inside x.
 func (c *Conversion) String() string {
 	cv := &converter{names: map[string]bool{c.name: true}}
+	if c.Kind == Compare {
+		return cv.fixMessage(types.ExprString(c.Call.Args[0]))
+	}
 	return cv.fixMessage(types.ExprString(c.Original()))
 }
 
@@ -156,6 +171,8 @@ func (p *Package) rewriteNodes() (hidden, skipTypes map[ast.Node]bool) {
 			inner := c.Call.Args[0].(*ast.CallExpr)
 			hide(inner.Fun)
 			skipTypes[inner] = true
+		case Compare:
+			hide(c.Call.Fun) // the call stands for the comparison, a bool
 		}
 	}
 	return hidden, skipTypes
@@ -218,6 +235,7 @@ const (
 	asName     = "As"
 	unusedName = "Unused"
 	valueName  = "Value"
+	cmpName    = "Cmp"
 )
 
 // unusedExpr is the go/types error code of an expression that is not used
@@ -240,6 +258,10 @@ func newCgohPackage() *types.Package {
 	fn(asName, func(T types.Type) types.Type { return T })
 	fn(unusedName, func(T types.Type) types.Type { return types.NewArray(T, 1) })
 	fn(valueName, func(T types.Type) types.Type { return T })
+	// func Cmp(x any) bool
+	cmp := types.NewSignatureType(nil, nil, nil, types.NewTuple(types.NewParam(token.NoPos, pkg, "x", anyType)),
+		types.NewTuple(types.NewParam(token.NoPos, pkg, "", types.Typ[types.Bool])), false)
+	pkg.Scope().Insert(types.NewFunc(token.NoPos, pkg, cmpName, cmp))
 	pkg.MarkComplete()
 	return pkg
 }
@@ -265,7 +287,28 @@ func cgohCall(call *ast.CallExpr, info *types.Info) (string, ast.Expr) {
 	return "", nil
 }
 
+// cmpCall reports whether call is gp_cgoh.Cmp(x) (a rewritten comparison).
+func cmpCall(call *ast.CallExpr, info *types.Info) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != cmpName || len(call.Args) != 1 {
+		return false
+	}
+	id, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	pn, ok := info.Uses[id].(*types.PkgName)
+	return ok && pn.Imported().Path() == load.CgohPath
+}
+
 // A converter rewrites the conversions of opaque values in one package.
+//
+// It rewrites the comparisons of opaque values too, x == y to
+// gp_cgoh.Cmp(x == y) (see Compare), with the same analysis: a
+// comparison whose operands are opaque (a.state), not where Go needs a
+// constant. A comparison waits for the conversions of its round, and a
+// conversion of a comparison (bool(p == nil)) for the comparison's
+// rewrite, after which it is a Go conversion.
 //
 // After a check of the package, rewrite finds each call T(x) that is a
 // conversion (Info.Types[Fun] is a type) with one argument x that has no
@@ -380,10 +423,12 @@ func (cv *converter) rewrite(p *Package, errs []token.Pos) bool {
 	// The files need no version check: go/types checks a file with an
 	// older //go:build version (go1.17) as go1.21, which has generics.
 	var cands []candidate
+	var cmps []cmpCandidate
 	for _, f := range cv.lp.Files {
 		cands = append(cands, opaqueConversions(f.AST, p.Info)...)
+		cmps = append(cmps, opaqueComparisons(f.AST, p.Info)...)
 	}
-	if len(cands) == 0 {
+	if len(cands) == 0 && len(cmps) == 0 {
 		return false
 	}
 	if cv.decls == nil {
@@ -399,11 +444,15 @@ func (cv *converter) rewrite(p *Package, errs []token.Pos) bool {
 		errs:  slices.Sorted(slices.Values(errs)),
 		decls: cv.decls,
 		cands: make(map[*ast.CallExpr]bool, len(cands)),
+		cmps:  make(map[*ast.BinaryExpr]bool, len(cmps)),
 		memo:  make(map[types.Object]state),
 		types: make(map[*types.TypeName]state),
 	}
 	for _, c := range cands {
 		a.cands[c.call] = true
+	}
+	for _, c := range cmps {
+		a.cmps[c.cmp] = true
 	}
 	n := 0
 	for _, c := range cands {
@@ -417,7 +466,109 @@ func (cv *converter) rewrite(p *Package, errs []token.Pos) bool {
 		cv.rewriteCall(c)
 		n++
 	}
+	for _, c := range cmps {
+		if a.errorIn(c.cmp) || max(a.state(c.cmp.X), a.state(c.cmp.Y)) != opaque {
+			continue
+		}
+		cv.rewriteCmp(c)
+		n++
+	}
 	return n > 0
+}
+
+// A cmpCandidate is a comparison whose operands have no type, and the
+// field that holds it.
+type cmpCandidate struct {
+	cmp  *ast.BinaryExpr
+	file *ast.File
+	slot *ast.Expr
+}
+
+// opaqueComparisons returns the comparisons in f, in source order, that
+// have no type, except those where Go needs a constant (as
+// opaqueConversions).
+func opaqueComparisons(f *ast.File, info *types.Info) []cmpCandidate {
+	var consts []ast.Node
+	var cands []cmpCandidate
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.GenDecl:
+			if n.Tok == token.CONST {
+				consts = append(consts, n)
+			}
+		case *ast.ArrayType:
+			if n.Len != nil {
+				consts = append(consts, n.Len)
+			}
+		}
+		if call, ok := n.(*ast.CallExpr); ok && cmpCall(call, info) {
+			return true // rewritten already
+		}
+		for _, slot := range exprSlots(n) {
+			b, ok := (*slot).(*ast.BinaryExpr)
+			if !ok {
+				continue
+			}
+			switch b.Op {
+			case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ:
+			default:
+				continue
+			}
+			if tv, ok := info.Types[b]; ok && isValidType(tv.Type) {
+				continue
+			}
+			if slices.ContainsFunc(consts, func(c ast.Node) bool { return c.Pos() <= b.Pos() && b.End() <= c.End() }) {
+				continue
+			}
+			cands = append(cands, cmpCandidate{cmp: b, file: f, slot: slot})
+		}
+		return true
+	})
+	return cands
+}
+
+// exprSlots returns the fields (and slice elements) of the node n that
+// hold expressions, so that one can be replaced.
+func exprSlots(n ast.Node) []*ast.Expr {
+	if n == nil {
+		return nil
+	}
+	v := reflect.ValueOf(n)
+	if v.Kind() != reflect.Pointer || v.Elem().Kind() != reflect.Struct {
+		return nil
+	}
+	exprType := reflect.TypeFor[ast.Expr]()
+	var slots []*ast.Expr
+	s := v.Elem()
+	for i := range s.NumField() {
+		f := s.Field(i)
+		switch {
+		case f.Type() == exprType && !f.IsNil():
+			slots = append(slots, f.Addr().Interface().(*ast.Expr))
+		case f.Kind() == reflect.Slice && f.Type().Elem() == exprType:
+			for j := range f.Len() {
+				slots = append(slots, f.Index(j).Addr().Interface().(*ast.Expr))
+			}
+		}
+	}
+	return slots
+}
+
+// rewriteCmp rewrites the comparison of c to gp_cgoh.Cmp(x == y) (see
+// Compare), at the place of the comparison, and adds the import of
+// gocpp/cgoh to the file if it has none.
+func (cv *converter) rewriteCmp(c cmpCandidate) {
+	name := cv.importName(c.file)
+	b := c.cmp
+	*c.slot = &ast.CallExpr{
+		Fun: &ast.SelectorExpr{
+			X:   &ast.Ident{NamePos: b.Pos(), Name: name},
+			Sel: &ast.Ident{NamePos: b.Pos(), Name: cmpName},
+		},
+		Lparen: b.Pos(),
+		Args:   []ast.Expr{b},
+		Rparen: b.End() - 1,
+	}
 }
 
 // opaqueConversions returns the conversions in f, in source order, whose
@@ -667,6 +818,7 @@ func (cv *converter) packageName() string {
 // value") into T.
 func (cv *converter) fixMessage(msg string) string {
 	for name := range cv.names {
+		msg = unwrapCmp(msg, name+"."+cmpName+"(")
 		msg = unwrap(msg, name+"."+valueName+"[", valueName)
 		msg = unwrap(msg, name+"."+unusedName+"[", unusedName)
 		msg = unwrap(msg, name+"."+asName+"[", asName)
@@ -727,6 +879,29 @@ func unwrap(msg, prefix, fun string) string {
 	}
 }
 
+// unwrapCmp turns each prefix + x + ")" in msg, a rewritten comparison
+// gp_cgoh.Cmp(x), into x.
+func unwrapCmp(msg, prefix string) string {
+	from := 0
+	for {
+		i := strings.Index(msg[from:], prefix)
+		if i < 0 {
+			return msg
+		}
+		i += from
+		from = i + 1
+		if i > 0 && isNameByte(msg[i-1]) {
+			continue
+		}
+		end := closing(msg, i+len(prefix))
+		if end < 0 {
+			continue
+		}
+		msg = msg[:i] + msg[i+len(prefix):end-1] + msg[end:]
+		from = i
+	}
+}
+
 // closing returns the index after the bracket that closes the one before
 // msg[i:], or -1. Brackets in string and rune literals (struct tags) don't
 // count.
@@ -772,6 +947,10 @@ func findConversions(lp *load.Package, info *types.Info) []*Conversion {
 		ast.Inspect(f.AST, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
+				return true
+			}
+			if cmpCall(call, info) {
+				cs = append(cs, &Conversion{Call: call, Kind: Compare, name: name})
 				return true
 			}
 			switch fun, typ := cgohCall(call, info); fun {

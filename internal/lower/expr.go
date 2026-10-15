@@ -91,6 +91,10 @@ type funcGen struct {
 	inPlace       map[*types.Var]bool
 	inPlaceParams map[*types.Var]bool // the parameters, receivers and results in inPlaceTop
 	inPlaceTop    ast.Node
+	// commaOKs are the reads v, ok := m[k] of maps of C/C++ values (maps.go: commaOK).
+	commaOKs map[*ast.IndexExpr]bool
+	// autoTemps are the temporaries of the order that are copies of C/C++ values (cMoved).
+	autoTemps map[string]bool
 	// places are the expressions of the code placesTop that are used as places (order.go:
 	// place), found on first use.
 	places    map[ast.Expr]bool
@@ -299,6 +303,9 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 	if x, ok := fg.cCall(c); ok {
 		return x // of a C/C++ function (cvalues.go)
 	}
+	if fg.g.opaqueCallee(c) {
+		return fg.opaqueCall(c) // of a member of a C/C++ value, or a C++ callable (cvalues.go)
+	}
 	if x := fg.weakMake(c); x != nil {
 		return x // weak.Make(p), weak.Make[T](p) (weak.go)
 	}
@@ -355,16 +362,12 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 				callee = fg.g.funcCallName(callee, fg.argTypes(c.Args))
 			}
 		default:
-			fg.g.unsupported(c.Pos(), "calls of function values (Phase 03)")
+			fg.g.errorf(c.Pos(), "internal error: the call of %s, which is no function", fun.Name)
 			return placeholder
 		}
 	case *ast.SelectorExpr:
 		if sel := fg.g.info.Selections[fun]; sel != nil && sel.Kind() == types.MethodVal {
 			return fg.methodCall(c, fun, sel) // methods.go
-		}
-		if fg.g.pkg.Opaque.IsOpaque(fun) {
-			fg.g.unsupported(fun.Sel.Pos(), "member calls on C/C++ values (gp::deref, step 4.4)")
-			return placeholder
 		}
 		callee = fg.pkgFunc(c, fun)
 		if callee == "" {
@@ -574,12 +577,12 @@ func floatLiteral(v constant.Value, float32 bool) cppir.Expr {
 var nodeKinds = map[string]string{
 	"BadExpr":        "a bad expression",
 	"BasicLit":       "a literal",
-	"CompositeLit":   "composite literals (Phase 03)",
-	"FuncLit":        "function literals (Phase 03)",
-	"SelectorExpr":   "selectors (Phase 03)",
-	"IndexExpr":      "index expressions (Phase 03)",
+	"CompositeLit":   "composite literals",
+	"FuncLit":        "function literals",
+	"SelectorExpr":   "selectors",
+	"IndexExpr":      "index expressions",
 	"IndexListExpr":  "instantiations (Phase 07)",
-	"SliceExpr":      "slice expressions (Phase 03)",
+	"SliceExpr":      "slice expressions",
 	"TypeAssertExpr": "type assertions (Phase 05)",
 	"StarExpr":       "pointer types",
 	"KeyValueExpr":   "key: value",

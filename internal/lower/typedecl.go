@@ -513,7 +513,8 @@ func (g *gen) structDef(si *structInfo) []cppir.Decl {
 	s.Members = append(s.Members, g.methodDecls(si)...) // methods.go
 	if cpart {
 		// gocpp doesn't know the size of a C/C++ type (check.Sizes guesses a word), and Go's ==
-		// on such a struct comes with the operators on C/C++ values (step 4.4).
+		// on such a struct compares the fields of a C struct, which have no == in C++: typed
+		// interop (Phase 12) writes it.
 		return []cppir.Decl{s}
 	}
 	return []cppir.Decl{s, g.layoutAssert(si)} // named.go

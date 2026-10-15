@@ -179,8 +179,10 @@ type analysis struct {
 
 	decls map[token.Pos][]declNode
 
-	// cands holds the conversions found in this round.
+	// cands holds the conversions found in this round, and cmps the
+	// comparisons.
 	cands map[*ast.CallExpr]bool
+	cmps  map[*ast.BinaryExpr]bool
 
 	// memo holds the state of each object looked at (unknown while it is
 	// being looked at: a cycle of values is an initialization cycle), and
@@ -231,6 +233,9 @@ func (a *analysis) state(e ast.Expr) state {
 	}
 	if ok && tv.IsType() {
 		return a.typeExprState(e) // []C.int in make([]C.int, 3)
+	}
+	if b, ok := e.(*ast.BinaryExpr); ok && a.cmps[b] {
+		return waiting // a comparison that this round rewrites to a bool
 	}
 	if call, ok := e.(*ast.CallExpr); ok {
 		if a.cands[call] {

@@ -214,6 +214,36 @@ void test_deref() {
     static_assert(std::is_same_v<decltype(gp::deref(vp)), void*&>, "void* has no members");
 }
 
+// gp::cgo::star: *x of a C/C++ value. Raw and gocpp pointers get Go's nil check (gp::deref), the
+// rest keeps C++'s operator* (smart pointers, iterators). gp::cgo::cond: a bool condition.
+void test_star_cond() {
+    S s{6};
+    S* p = &s;
+    static_assert(std::is_same_v<decltype(gp::cgo::star(p)), S&>);
+    gp::cgo::star(p).a = 7;
+    CHECK_EQ(s.a, int64_t(7));
+    S* nilp = nullptr;
+    CHECK_EQ(panic_text([&] { (void)gp::cgo::star(nilp).a; }), nil_msg);
+    gp::ptr<S> gp = gp::new_<S>(S{3});
+    static_assert(std::is_same_v<decltype(gp::cgo::star(gp)), S&>);
+    CHECK_EQ(gp::cgo::star(gp).a, int64_t(3));
+    auto up = std::make_unique<S>(S{9});
+    static_assert(std::is_same_v<decltype(gp::cgo::star(up)), S&>, "a smart pointer's own *");
+    CHECK_EQ(gp::cgo::star(up).twice(), int64_t(18));
+    std::vector<int> v{4, 5};
+    auto it = v.begin();
+    gp::cgo::star(it) = 40;
+    CHECK_EQ(v[0], 40);
+    CHECK_EQ(gp::cgo::star(v.begin() + 1), 5);
+    CHECK(gp::cgo::cond(v.size() == 2));
+    CHECK(!gp::cgo::cond(v.empty()));
+    std::vector<bool> bs{true, false};
+    CHECK(gp::cgo::cond(bs[0]) && !gp::cgo::cond(bs[1])); // the proxy converts to bool
+    // to_bool: a comparison of C/C++ values is a Go bool.
+    static_assert(std::is_same_v<decltype(gp::cgo::to_bool(v.size() == 2)), bool>);
+    CHECK(gp::cgo::to_bool(it == v.begin()) && !gp::cgo::to_bool(p == nullptr));
+}
+
 // --- gp::range and gp::range_keys ---
 
 std::vector<std::string> long_strings() {
@@ -962,6 +992,7 @@ void test_cgo() {
 void run_tests() {
     test_as();
     test_deref();
+    test_star_cond();
     test_range_vector();
     test_range_temporary();
     test_range_other();

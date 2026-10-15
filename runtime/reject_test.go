@@ -35,6 +35,11 @@ var rejectCases = []struct {
 	// gp::range over a C array of C arrays: a clear message instead of an error deep inside.
 	{"range-grid", "void f() {\n\tint g[2][3] = {};\n\tfor (auto&& [i, v] : gp::range(g)) { // bad\n\t\t(void)i;\n\t\t(void)v;\n\t}\n}\n",
 		"gp::range: the elements are C arrays"},
+	// if (isdigit(c)), if (p): Go has only bool conditions (gp::cgo::cond, Phase 04 §2.5).
+	{"cond-int", "bool f(int c) {\n\treturn gp::cgo::cond(c); // bad\n}\n", "non-boolean condition"},
+	{"cond-pointer", "bool f(const char* p) {\n\treturn gp::cgo::cond(p); // bad\n}\n", "non-boolean condition"},
+	// std::optional converts to bool only explicitly: not a Go condition either.
+	{"cond-optional", "#include <optional>\nbool f(std::optional<int> o) {\n\treturn gp::cgo::cond(o); // bad\n}\n", "non-boolean condition"},
 }
 
 // rejectControl is the same code written the way the emitter writes it: it must compile, so
@@ -48,6 +53,14 @@ void f(gp::ptr<int64_t> p, gp::ptr<void> u, const gp::string& s) {
 	int g[2][3] = {};
 	for (auto&& i : gp::range_keys(g)) {
 		(void)g[i];
+	}
+	const char* c = "x";
+	if (gp::cgo::cond(c != nullptr) && gp::cgo::cond(g[0][0] == 0) && gp::cgo::to_bool(c == nullptr)) {
+		(void)c;
+	}
+	std::vector<bool> bs{true};
+	if (gp::cgo::cond(bs[0])) { // a class that converts to bool implicitly
+		(void)bs;
 	}
 }
 `

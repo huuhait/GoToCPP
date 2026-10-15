@@ -19,7 +19,8 @@ import (
 // A pre-pass over the function (boxedVars, before any of it is lowered) decides it for each
 // variable of the function: the locals, the parameters, the receiver and the named results,
 // also those of the function literals inside it. A variable is boxed if the function:
-//   - takes its address, or the address of anything inside it: &x, &x.f, &x.arr[i] (boxAddr);
+//   - takes its address, or the address of anything inside it: &x, &x.f, &x.arr[i] (boxAddr),
+//     except &x of a variable of a C/C++ type, a raw C++ address (cAddr);
 //   - calls a pointer method on it or inside it, x.Inc() or x.f.Inc(), which is (&x).Inc(), or
 //     makes a method value of one, x.Inc (boxMethod);
 //   - slices an array that is it or is inside it: arr[:], x.arr[:] (boxSliced);
@@ -142,7 +143,7 @@ func boxedVars(info *types.Info, fn ast.Node) map[*types.Var]boxReason {
 				}
 			}
 		case *ast.UnaryExpr:
-			if n.Op == token.AND {
+			if n.Op == token.AND && !cAddr(info, n) {
 				b.mark(b.root(n.X), boxAddr)
 			}
 		case *ast.SelectorExpr:
@@ -210,6 +211,17 @@ func boxedVars(info *types.Info, fn ast.Node) map[*types.Var]boxReason {
 		}
 	}
 	return b.boxed
+}
+
+// cAddr reports whether e is &x of a variable x of a C/C++ type: a raw C++ address (Phase 04
+// README §2.7, cvalues.go), which follows C++'s lifetime rules, so x is not boxed for it.
+func cAddr(info *types.Info, e *ast.UnaryExpr) bool {
+	id, ok := ast.Unparen(e.X).(*ast.Ident)
+	if !ok {
+		return false
+	}
+	v, ok := info.Uses[id].(*types.Var)
+	return ok && !complete(v.Type())
 }
 
 // largeVar reports whether a local variable of type t is too large for the C++ stack

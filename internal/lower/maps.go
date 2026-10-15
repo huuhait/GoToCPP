@@ -60,10 +60,19 @@ func isMap(t types.Type) bool {
 // that is not deduced), so a constant needs no exact type.
 func (fg *funcGen) mapRead(e *ast.IndexExpr) cppir.Expr {
 	fun := "gp::get"
-	if isTuple(fg.g.info.TypeOf(e)) {
+	if isTuple(fg.g.info.TypeOf(e)) || fg.commaOKs[e] {
 		fun = "gp::lookup"
 	}
 	return call(fun, fg.expr(e.X), fg.expr(e.Index))
+}
+
+// commaOK records that the read m[k] gives two values (bind), where go/types has no tuple type
+// for it: a map of C/C++ values (map[string]C.int).
+func (fg *funcGen) commaOK(e *ast.IndexExpr) {
+	if fg.commaOKs == nil {
+		fg.commaOKs = make(map[*ast.IndexExpr]bool)
+	}
+	fg.commaOKs[e] = true
 }
 
 // mapIndex returns e as m[k] if it is an index expression on a map, or nil.
@@ -429,7 +438,13 @@ func (fg *funcGen) mapBuiltin(c *ast.CallExpr, name string) cppir.Expr {
 	switch name {
 	case "make":
 		mt := under(fg.g.info.TypeOf(arg)).(*types.Map)
-		targs := []cppir.Node{fg.g.cxxType(mt.Key(), arg.Pos()), fg.g.cxxType(mt.Elem(), arg.Pos())}
+		var targs []cppir.Node
+		if at, ok := ast.Unparen(arg).(*ast.MapType); ok && !complete(mt) {
+			// map[string]C.int: the C/C++ parts from the type expression (ctypes.go).
+			targs = []cppir.Node{fg.g.typeExpr(at.Key), fg.g.typeExpr(at.Value)}
+		} else {
+			targs = []cppir.Node{fg.g.cxxType(mt.Key(), arg.Pos()), fg.g.cxxType(mt.Elem(), arg.Pos())}
+		}
 		if len(c.Args) == 1 {
 			return templateCall("gp::make_map", targs)
 		}

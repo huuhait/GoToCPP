@@ -6,6 +6,7 @@ import (
 	"go/types"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/huuhait/gocpp/internal/cppir"
 )
@@ -190,6 +191,9 @@ func (fg *funcGen) forceTarget(s ast.Stmt) {
 	if !ok || a.Tok == token.ASSIGN || a.Tok == token.DEFINE || len(a.Lhs) != 1 {
 		return
 	}
+	if fg.g.pkg.Opaque.IsOpaque(a.Lhs[0]) {
+		return // C++'s x op= y evaluates x once (simpleExpr)
+	}
 	ast.Inspect(a.Lhs[0], func(n ast.Node) bool {
 		if c, ok := n.(*ast.CallExpr); ok && !fg.g.info.Types[c.Fun].IsType() {
 			fg.force[c] = true
@@ -240,6 +244,12 @@ func (fg *funcGen) simpleScope(s ast.Stmt) (list []ast.Expr, rank func(*orderIte
 func (fg *funcGen) targetOperands(lhs []ast.Expr) []ast.Expr {
 	var ops []ast.Expr
 	for _, e := range lhs {
+		if _, ok := ast.Unparen(e).(*ast.Ident); !ok && fg.g.pkg.Opaque.IsOpaque(e) {
+			// A place of a C/C++ value (v[i], x.m, *p): the target as a whole, so that order.go
+			// sees what its parts are to it (an object whose member it is: objectOf).
+			ops = append(ops, e)
+			continue
+		}
 		switch x := ast.Unparen(e).(type) {
 		case *ast.StarExpr:
 			ops = append(ops, x.X)
@@ -323,10 +333,24 @@ func (fg *funcGen) simpleExpr(s ast.Stmt) cppir.Expr {
 	case *ast.ExprStmt:
 		return fg.expr(s.X)
 	case *ast.IncDecStmt:
+		if fg.g.pkg.Opaque.IsOpaque(s.X) {
+			// C++'s ++it: an iterator's ++ without the copy of it++ (the same for a number).
+			return &cppir.Unary{Op: s.Tok.String(), X: fg.expr(s.X)}
+		}
 		return &cppir.Postfix{X: fg.expr(s.X), Op: s.Tok.String()}
 	case *ast.AssignStmt:
 		if oneExpr(s) {
 			lhs, rhs := s.Lhs[0], s.Rhs[0]
+			if s.Tok != token.ASSIGN && (fg.g.pkg.Opaque.IsOpaque(lhs) || fg.g.pkg.Opaque.IsOpaque(rhs)) {
+				// C++'s x op= y on a C/C++ value (a class's own operator+=: s += "!"), which
+				// evaluates x once; x &^= y is x &= ~y.
+				op, not := cAssignOp(s.Tok)
+				y := fg.cValueOf(rhs)
+				if not {
+					y = &cppir.Unary{Op: "~", X: y}
+				}
+				return &cppir.Assign{Op: op, X: fg.expr(lhs), Y: y}
+			}
 			if s.Tok == token.ASSIGN {
 				var t target // _
 				if !isBlank(lhs) {
@@ -467,6 +491,8 @@ type target struct {
 	// gtype is the Go type of the target (nil for _), which a value of another type converts to
 	// (bind: one value with several results, step 3.9).
 	gtype types.Type
+	// src is the left side of an assignment (lhs), nil for a new variable.
+	src ast.Expr
 
 	// What a store to the target changes, for gc's ascompatee (affected): the local variable
 	// gcVar (the variable itself, or the struct or array value that the target is a part of),
@@ -485,7 +511,7 @@ func varTarget(name string) target {
 
 // lhs returns the target of the left side e of an assignment, which is not _.
 func (fg *funcGen) lhs(e ast.Expr) target {
-	t := target{x: fg.expr(e), gtype: fg.g.info.TypeOf(e)}
+	t := target{x: fg.expr(e), gtype: fg.g.info.TypeOf(e), src: e}
 	switch x := ast.Unparen(e).(type) {
 	case *ast.Ident:
 		if v, ok := fg.g.info.Uses[x].(*types.Var); ok {
@@ -577,7 +603,38 @@ func (fg *funcGen) saveOperands(pos cppir.Pos, targets []target, i int) []cppir.
 		fg.temps[ast.Unparen(e)] = tmp // evaluated now (bind's targetCopies skips it)
 		return cxxName(tmp)
 	}
+	// objectSaved reports a place of a C/C++ value (x[k], x.m) whose object x an assignment
+	// before it changes (p, p.value = q, 5; also p.next, p.next.value = ...): x would have to be
+	// evaluated first, but gocpp can't tell a pointer, which a copy keeps, from an object, which
+	// a copy loses. (A change through another pointer follows C++'s rules.)
+	opaque := fg.g.pkg.Opaque.IsOpaque
+	objectSaved := func(x ast.Expr) bool {
+		xs := fg.g.srcText(x)
+		for _, b := range targets[:i] {
+			if b.src == nil || b.blank() {
+				continue
+			}
+			if bs := fg.g.srcText(b.src); xs == bs || strings.HasPrefix(xs, bs+".") || strings.HasPrefix(xs, bs+"[") {
+				fg.g.unsupported(x.Pos(), "an assignment that changes "+bs+" and stores into a member or an element of "+xs+": write two assignments")
+				return true
+			}
+		}
+		return false
+	}
 	switch {
+	case t.ptr != nil && opaque(t.ptr):
+		// *p of a C/C++ pointer or iterator: a copy of p keeps the place (gp::cgo::star).
+		if p := save(t.ptr, nil); p != nil {
+			targets[i].x = call("gp::cgo::star", p)
+		}
+	case t.index != nil && opaque(t.index):
+		if !objectSaved(t.index.X) {
+			if idx := save(t.index.Index, nil); idx != nil {
+				targets[i].x = &cppir.Index{X: fg.expr(t.index.X), Index: idx}
+			}
+		}
+	case t.field != nil && opaque(t.field) && fg.g.info.Selections[t.field] == nil:
+		objectSaved(t.field.X) // a member of a C/C++ value
 	case t.ptr != nil:
 		if p := save(t.ptr, nil); p != nil {
 			targets[i].x = deref(p)
@@ -763,7 +820,7 @@ func (fg *funcGen) newTargets(lhs []ast.Expr) []target {
 		if obj, ok := fg.g.info.Defs[id].(*types.Var); ok {
 			t := target{typ: fg.g.varType(obj, id.Pos()), shadow: fg.shadowing(obj), box: fg.isBoxed(obj), gtype: obj.Type()}
 			t.large = t.box && largeVar(obj.Type())
-			t.class = isClass(obj.Type())
+			t.class = isClass(obj.Type()) && complete(obj.Type()) // (a C/C++ value may be auto)
 			if fg.loopInit {
 				// A variable of a 3-clause for that is boxed (its address is taken in the
 				// loop) is a per-iteration copy in gc; the init stores to a plain local.
@@ -894,10 +951,17 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 		}
 	}
 	switch {
-	case len(values) == 1 && len(targets) > 1 && fg.isCCall(values[0]):
-		fg.g.unsupported(values[0].Pos(), "several values from one C/C++ value (gp::values, step 4.7)")
 	case len(values) == 1 && len(targets) > 1:
+		if ix := fg.mapIndex(values[0]); ix != nil && fg.g.pkg.Opaque.IsOpaque(ix) {
+			fg.commaOK(ix) // v, ok := m[k] of a map of C/C++ values: go/types has no tuple for it
+		}
 		value := fg.exactExpr(values[0])
+		if _, isCall := ast.Unparen(values[0]).(*ast.CallExpr); isCall && fg.g.pkg.Opaque.IsOpaque(values[0]) {
+			// a, b := std.minmax(x, y): a C++ pair or tuple (Phase 04 README §2.5), whose
+			// members gp::values copies, so that references into temporaries can't dangle:
+			// auto gp_t0 = gp::values(::std::minmax(x, y)); auto a = std::get<0>(gp_t0); ...
+			value = call("gp::values", value)
+		}
 		if !slices.ContainsFunc(targets, func(t target) bool { return !t.blank() }) {
 			lines = append(lines, &cppir.ExprStmt{Pos: p, X: voidCast(value)})
 			break
@@ -1010,6 +1074,8 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 				assign(box, moved(box.typ, cxxName(tmps[i])))
 			case tmps[i] != "" && t.typ != nil && t.class:
 				assign(t, moved(t.typ, cxxName(tmps[i]))) // the temporary is not used again
+			case tmps[i] != "" && fg.g.pkg.Opaque.IsOpaque(values[i]):
+				assign(t, movedName(tmps[i])) // a C/C++ value: the same
 			default:
 				assign(t, cxxName(tmps[i]))
 			}

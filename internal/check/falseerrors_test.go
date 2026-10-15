@@ -333,7 +333,7 @@ func TestFalseErrorsConversions(t *testing.T) {
 		// The errors at the arguments: mismatched types (n + h), and an
 		// operator that go/types doesn't know on Handle.
 		"n := 1\nvar h Handle\nk := int(n + h)",
-		"var h Handle\nk := int(h < h)",
+		"var h Handle\nk := int(h % h)",
 		// The error is inside the argument.
 		"k := int((std.vector[std.vector[int]]{{1, 2}}).size())",
 	} {

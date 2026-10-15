@@ -51,7 +51,7 @@ import (
 // if (!c) break; an if-else chain in a block of the else branch (chain).
 func (fg *funcGen) cond(e ast.Expr) ([]cppir.Stmt, cppir.Expr) {
 	pre := fg.order(false, e)
-	return pre, fg.expr(e)
+	return pre, fg.cBool(e) // a C/C++ value must be a bool (cvalues.go)
 }
 
 // oneLine returns the statements pre as one line, or none. Its place is set where it is
@@ -375,12 +375,12 @@ func (fg *funcGen) forInit(s ast.Stmt) (cppir.Stmt, bool) {
 		if !ok || isBlank(e) {
 			return nil, false // _ or a variable that exists
 		}
-		t := fg.g.cxxType(obj.Type(), e.Pos())
+		t := fg.g.varType(obj, e.Pos()) // auto for a C/C++ value (cvalues.go)
 		if fg.isBoxed(obj) {
 			t = ptrType(t)
 		}
-		if typ != nil && cppir.TypeString(t) != cppir.TypeString(typ) {
-			return nil, false
+		if typ != nil && (cppir.TypeString(t) != cppir.TypeString(typ) || cppir.TypeString(t) == "auto") {
+			return nil, false // (auto it = v.begin(), n = 0 would deduce two types)
 		}
 		typ = t
 	}
@@ -581,7 +581,7 @@ func (fg *funcGen) rangeIter(s *ast.RangeStmt, start string, value func(it cppir
 				fg.g.errorf(v.e.Pos(), "internal error: a range variable without an object")
 				continue
 			}
-			v.typ = fg.g.cxxType(v.obj.Type(), v.e.Pos())
+			v.typ = fg.g.varType(v.obj, v.e.Pos()) // auto for a C/C++ element (cvalues.go): a copy
 		}
 		vars = append(vars, v)
 	}
@@ -695,7 +695,7 @@ func (fg *funcGen) switchStmt(s *ast.SwitchStmt) {
 	if s.Tag != nil {
 		if t := fg.g.info.TypeOf(s.Tag); t != nil && complete(t) && cmpHasC(t) {
 			// A gocpp struct or array with a C/C++ part has no == in C++ (typedecl.go).
-			fg.g.unsupported(s.Tag.Pos(), "switch on values with C/C++ parts (step 4.4)")
+			fg.g.unsupported(s.Tag.Pos(), "switch on values with C/C++ parts (Phase 12)")
 			return
 		}
 		// A C/C++ value: each case is gp::cgo::case_eq(tag, v), C++'s == for a number, an
