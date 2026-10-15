@@ -6,11 +6,12 @@ embedded in the `gocpp` binary, and the loader finds the standard packages here.
 
 ## What is here now (Phase 01)
 
-- **Declaration stubs** for 24 packages, one file each (`fmt/fmt.gp`, `encoding/json/json.gp`):
+- **Declaration stubs** for 25 packages, one file each (`fmt/fmt.gp`, `encoding/json/json.gp`):
   every standard package that the target programs in `examples/` import (also in their
   `_test.gp` files and in the multi-pkg example's own packages), plus the packages that those
   stubs need (`io/fs` and `time` for `os`, `unicode` for `strings`, `context` for `testing`,
-  `encoding` for `flag`).
+  `encoding` for `flag`), and `weak`, whose `Pointer`, `Make` and `Value` the compiler turns
+  into the runtime's `gp::weak_ptr` (an intrinsic from Phase 03, Phase 03 README §2.2).
 
   A stub holds Go's exported declarations with their doc comments, but no code: functions have
   no body, and variables have no value. So programs that import these packages type-check, and

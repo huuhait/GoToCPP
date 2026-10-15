@@ -452,6 +452,9 @@ func (fg *funcGen) methodCall(c *ast.CallExpr, x *ast.SelectorExpr, s *types.Sel
 // call through ->, which panics for nil; a pointer method is a static call with the pointer,
 // T::PM(p, args).
 func (g *gen) callMethod(recv cppir.Expr, ptr bool, fn *types.Func, r recvPath, args []cppir.Expr, pos token.Pos) cppir.Expr {
+	if weakFunc(fn, "Value") {
+		return weakValue(recv, ptr) // weak.go
+	}
 	base := r.end
 	if p, ok := under(base).(*types.Pointer); ok {
 		base = p.Elem()
@@ -603,8 +606,9 @@ func (fg *funcGen) methodLambda(x *ast.SelectorExpr, s *types.Selection) *cppir.
 		if isPointer(r.t) && !r.ptrRecv && len(r.path) == 0 {
 			// (*T).M of a value method: Go's wrapper checks the pointer (runtime.panicwrap). A
 			// runtime call, so that -nochecks removes it with the other nil checks.
-			msg := "value method " + goTypeName(r.end.(*types.Pointer).Elem()) + "." + fn.Name() +
-				" called using nil *" + r.end.(*types.Pointer).Elem().(*types.Named).Obj().Name() + " pointer"
+			base := r.end.(*types.Pointer).Elem().(*types.Named)
+			msg := "value method " + wrapperName(base, true) + "." + fn.Name() +
+				" called using nil *" + wrapperName(base, false) + " pointer"
 			lam.Body.Stmts = append(lam.Body.Stmts, &cppir.ExprStmt{X: call("gp::check_wrap", recv, lit(cppir.CString(msg)))})
 		}
 		var ok bool
@@ -631,6 +635,20 @@ func (fg *funcGen) methodLambda(x *ast.SelectorExpr, s *types.Selection) *cppir.
 	}
 	lam.Body.Stmts = append(lam.Body.Stmts, &cppir.Return{X: fg.g.callMethod(recv, ptr, fn, r, args, x.Pos())})
 	return lam
+}
+
+// wrapperName returns the name of the named type n as Go's wrapper for (*T).M writes it in its
+// nil panic (runtime.panicwrap): main.T (with the package when pkg is set), or for an
+// instantiated generic type its type arguments as [...]: weak.Pointer[...], Pointer[...].
+func wrapperName(n *types.Named, pkg bool) string {
+	name := n.Obj().Name()
+	if pkg && n.Obj().Pkg() != nil {
+		name = n.Obj().Pkg().Name() + "." + name // as goTypeName names it
+	}
+	if n.TypeArgs().Len() > 0 {
+		name += "[...]"
+	}
+	return name
 }
 
 // methodExpr returns e as a method expression (T.M, (*T).PM) and its selection, or nil.

@@ -327,8 +327,9 @@ func TestRunVsGo(t *testing.T) {
 	var n vsGoCount
 	// The cleanup runs after the parallel subtests.
 	t.Cleanup(func() {
-		compared, rejected := n.compared.Load(), n.rejected.Load()
-		t.Logf("tests/run: compared %d with real Go, skipped %d (go build rejects them)", compared, rejected)
+		compared, rejected, diverges := n.compared.Load(), n.rejected.Load(), n.diverges.Load()
+		t.Logf("tests/run: compared %d with real Go, skipped %d (go build rejects them) and %d (// divergence:)",
+			compared, rejected, diverges)
 		if compared == 0 {
 			t.Error("no test was compared with real Go")
 		}
@@ -341,9 +342,10 @@ func TestRunVsGo(t *testing.T) {
 }
 
 // vsGoCount counts the tests of TestRunVsGo: those compared with real Go,
-// and those skipped because go build rejects their code.
+// those skipped because go build rejects their code, and those skipped
+// because they show a divergence (// divergence:).
 type vsGoCount struct {
-	compared, rejected atomic.Int64
+	compared, rejected, diverges atomic.Int64
 }
 
 // TestErrors checks the files in tests/errors with gocpp check: it must
@@ -581,13 +583,27 @@ func (c *config) runTest(t *testing.T, p *program) {
 		stderr:   p.header.stderr,
 	}
 	c.forEachCompiler(t, func(t *testing.T, cc compiler) {
-		checkRun(t, c.run(t, gocppJob(p.dir, nil, cc.cxx, p.header.phase, c.runArgs(p.arg)...)), want)
+		checkRun(t, c.run(t, gocppJob(p.dir, runEnv(p.header), cc.cxx, p.header.phase, c.runArgs(p.arg)...)), want)
 	})
+}
+
+// runEnv returns the environment that gocpp run gets for the test with the header h, on top of
+// the harness's own: for a test that leaks a reference cycle on purpose (// lsan: cycle), the
+// ASAN_OPTIONS that turn LeakSanitizer off (lsanEnv), which the program inherits.
+func runEnv(h *header) []string {
+	if !h.cycle {
+		return nil
+	}
+	return []string{lsanEnv(os.Getenv("ASAN_OPTIONS"))}
 }
 
 // runVsGoTest builds a run test with real Go, runs it like gocpp run runs
 // it, and checks the result against the test's expectations.
 func (c *config) runVsGoTest(t *testing.T, p *program, n *vsGoCount) {
+	if d := p.header.diverges; d != "" {
+		n.diverges.Add(1)
+		t.Skipf("%s shows divergence %s of docs/spec/language.md (its // divergence: line), so real Go does something else", p.path, d)
+	}
 	prog, build := c.goBuild(t, p)
 	if build.problem != "" {
 		t.Fatalf("%s: %s\n%s", build.cmd, build.problem, indent(string(build.stdout)))
@@ -708,7 +724,7 @@ func (c *config) diffTest(t *testing.T, p *program) {
 	mode := p.header.diff
 	ref := c.goReference(t, p, mode == diffCombined)
 	c.forEachCompiler(t, func(t *testing.T, cc compiler) {
-		j := gocppJob(p.dir, nil, cc.cxx, p.header.phase, c.runArgs(p.arg)...)
+		j := gocppJob(p.dir, runEnv(p.header), cc.cxx, p.header.phase, c.runArgs(p.arg)...)
 		j.combined = mode == diffCombined
 		r := c.run(t, j)
 		if r.problem != "" {

@@ -878,9 +878,19 @@ gp::ptr<Counter> NewCounter() {
   pointer types whose base types have identical underlying types, `(*Q)(p)`, is
   `gp::ptr_cast<Q>(p)` (`(*B)(pa)` for `type B A`); `(*int)(nil)` is
   `gp::ptr<int64_t>(nullptr)`. `&*p` is `gp::ptr<T>(p, &*p)`: Go's `&*p` panics for a nil `p`.
-- `weak.Pointer[T]` is `gp::weak_ptr<T>`: `weak.Make(p)` is `gp::weak_make(p)` and
-  `w.Value()` is `gp::weak_value(w)` (free functions, since runtime types have no plain-named
-  members). `weak` is a compiler intrinsic until generics come (Phase 07).
+- `weak.Pointer[T]` is `gp::weak_ptr<T>`: `weak.Make(p)` is `gp::weak_make<T>(p)` (the type
+  argument written out, so that `weak.Make[T](nil)` works) and `w.Value()` is
+  `gp::weak_value(w)` (free functions, since runtime types have no plain-named members); through
+  a pointer, `pw.Value()` is `gp::weak_value(*pw)`, which panics for a nil `pw`.
+  `weak.Pointer[T]{}` is `gp::weak_ptr<T>{}`, and `==` compares the addresses the weak pointers
+  were made from (also after the target is gone, as in Go). Method values (`f := w.Value`) and
+  method expressions (`weak.Pointer[T].Value`) call `gp::weak_value` too. `weak` is a compiler
+  intrinsic until generics come (Phase 07): the stub `stdlib/weak` gives go/types Go's
+  declarations, and a type defined over it (`type WP weak.Pointer[T]`, not an alias) is gated to
+  Phase 07. fmt prints a weak pointer as Go prints the struct Go declares for it,
+  `struct { _ [0]*T; u unsafe.Pointer }`: `{[] <nil>}` for the zero value, `{[] 0xc000012345}`
+  otherwise (gocpp's address is the one the weak pointer was made from, Go's that of its own
+  handle: both differ from run to run), and `%T` names it `weak.Pointer[main.T]`.
 - Freeing a long chain (a list of millions of nodes) doesn't recurse deeply: past a depth of
   128, the runtime puts the rest on a per-thread list and frees it in a loop.
 

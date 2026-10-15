@@ -76,6 +76,16 @@ func link(a, b *Node) {
   (A points to B, and B points to A) is never freed. Break it with Go 1.24's `weak` package:
   `weak.Make(p)` and `wp.Value()`. `gocpp vet` warns about obvious cycles, such as a closure that
   refers to itself (Phase 13).
+- `wp.Value()` is nil as soon as the last strong pointer to the target goes away, at a known
+  point of the program. In Go it is nil only after a garbage collection has found the target
+  unreachable, which may be much later (and, for small objects that share their memory with
+  others, maybe never). So a program that prints whether a weak pointer is still alive prints
+  `false` in gocpp where Go may print `true` (tests/run/weak_expire.gp shows the gocpp side).
+  While the program still uses a strong pointer to the target, both agree; Go may already return
+  nil when the only strong pointer is a variable that is still in scope but no longer used (its
+  docs point to `runtime.KeepAlive`). The other way round, a target inside a leaked cycle stays
+  alive forever in gocpp, so its weak pointers never become nil, while Go frees the cycle and
+  returns nil after a garbage collection.
 - A weak pointer doesn't keep its target alive, but it keeps its memory: `new` and `&T{}` put
   the value and its counts in one allocation, so after the last strong pointer goes, the value
   is destroyed and its memory (`unsafe.Sizeof` of the value) stays until the last weak pointer

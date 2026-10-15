@@ -313,6 +313,22 @@ func isWeakPointer(n *types.Named) bool {
 	return obj.Name() == "Pointer" && obj.Pkg() != nil && obj.Pkg().Path() == "weak"
 }
 
+// weakDefined reports whether t is a type defined over weak.Pointer[T] (type WP
+// weak.Pointer[T]): a named type that is not weak.Pointer itself, whose underlying type is the
+// struct that package weak declares (its fields belong to package weak).
+func weakDefined(t types.Type) bool {
+	n, ok := t.(*types.Named)
+	if !ok || isWeakPointer(n) {
+		return false
+	}
+	st, ok := n.Underlying().(*types.Struct)
+	if !ok || st.NumFields() == 0 {
+		return false
+	}
+	pkg := st.Field(0).Pkg()
+	return pkg != nil && pkg.Path() == "weak"
+}
+
 // sizeCallError checks the calls of unsafe.Sizeof, unsafe.Alignof and
 // unsafe.Offsetof in e (also through a dot import of unsafe), after
 // types.CheckExpr checked e. CheckExpr computes them with Go's sizes, not

@@ -1,9 +1,10 @@
 // The unit tests of the fmt shim (gocpp/fmtshim.hpp) for what the differential test
 // (test/fmt_diff.cpp against runtime/testdata/fmtdiff/main.go) can't compare with real Go:
-// addresses, the order of pointer keys, which types count as having String and Error methods
-// (checked at compile time), the type names of the tags, argument-dependent lookup, and the
-// speed of a big slice. runtime/cxx_test.go compiles this file with the runtime's .cpp files,
-// with g++ and clang++, at -O0, at -O2 and with ASan + UBSan, and runs it like test/unit.cpp.
+// addresses (also of weak pointers), the order of pointer keys, which types count as having
+// String and Error methods (checked at compile time), the type names of the tags,
+// argument-dependent lookup, and the speed of a big slice. runtime/cxx_test.go compiles this
+// file with the runtime's .cpp files, with g++ and clang++, at -O0, at -O2 and with ASan + UBSan,
+// and runs it like test/unit.cpp.
 // It prints "ok: N checks" and exits 0, or prints each failed check and exits 1.
 #include <gocpp/rt.hpp>
 #include <gocpp/os.hpp>
@@ -289,6 +290,59 @@ void test_type_names() {
     CHECK_EQ(T(uint64_t(1)), "uint");
 }
 
+// Weak pointers print as Go's weak.Pointer struct, { _ [0]*T; u unsafe.Pointer }, with the
+// address they were made from (also after the target is gone); they sort by it as map keys.
+void test_weak() {
+    gp::ptr<Point> p = gp::new_<Point>(Point{1, 2});
+    gp::weak_ptr<Point> w = gp::weak_make(p);
+    gp::weak_ptr<Point> z;
+    std::string a = hex(p.gp_get());
+    CHECK_EQ(str(fmt::Sprint(w, z)), "{[] " + a + "} {[] <nil>}");
+    CHECK_EQ(str(fmt::Sprintf("%+v|%d|%s|%d"_gs, w, w, w, z)),
+             "{_:[] u:" + a + "}|{[] " + dec(p.gp_get()) + "}|{[] %!s(unsafe.Pointer=" + a +
+                 ")}|{[] 0}");
+    CHECK_EQ(str(fmt::Sprintf("%7v|%-7v|%q"_gs, z, z, z)),
+             "{[]   <nil>}|{[] <nil>  }|{[] %!q(unsafe.Pointer=<nil>)}");
+    CHECK_EQ(str(fmt::Sprint(gp::slice_of<gp::weak_ptr<Point>>({w, z}))),
+             "[{[] " + a + "} {[] <nil>}]");
+    // A pointer to a weak pointer prints &{...} at the top level, as one to a struct, and its
+    // address below it.
+    gp::ptr<gp::weak_ptr<Point>> pw = gp::new_<gp::weak_ptr<Point>>(w);
+    CHECK_EQ(str(fmt::Sprintf("%v|%+v"_gs, pw, gp::new_<gp::weak_ptr<Point>>())),
+             "&{[] " + a + "}|&{_:[] u:<nil>}");
+    CHECK_EQ(str(fmt::Sprint(gp::slice_of<gp::ptr<gp::weak_ptr<Point>>>({pw}))),
+             "[" + hex(pw.gp_get()) + "]");
+    p = nullptr; // the target is gone: the weak pointer keeps its address
+    CHECK_EQ(str(fmt::Sprint(w)), "{[] " + a + "}");
+    CHECK(gp::weak_value(w) == nullptr);
+
+    std::vector<gp::ptr<int64_t>> ps;
+    gp::map<gp::weak_ptr<int64_t>, int64_t> m = gp::make_map<gp::weak_ptr<int64_t>, int64_t>();
+    for (int64_t i = 0; i < 6; i++) {
+        ps.push_back(gp::new_<int64_t>(i));
+        gp::set(m, gp::weak_make(ps.back()), i);
+    }
+    gp::set(m, gp::weak_ptr<int64_t>(), INT64_C(-1));
+    std::sort(ps.begin(), ps.end(), [](const gp::ptr<int64_t>& x, const gp::ptr<int64_t>& y) {
+        return reinterpret_cast<std::uintptr_t>(x.gp_get()) <
+               reinterpret_cast<std::uintptr_t>(y.gp_get());
+    });
+    std::string want = "map[{[] <nil>}:-1";
+    for (const auto& q : ps) {
+        want += " {[] " + hex(q.gp_get()) + "}:" + std::to_string(*q);
+    }
+    CHECK_EQ(str(fmt::Sprint(m)), want + "]");
+
+    auto T = [](auto v) { return str(fmt::Sprintf("%T"_gs, v)); };
+    CHECK_EQ(T(z), "weak.Pointer[main.Point]");
+    CHECK_EQ(T(gp::slice<gp::weak_ptr<gp::ptr<Point>>>()), "[]weak.Pointer[*main.Point]");
+    CHECK_EQ(T(gp::weak_ptr<int64_t>()), "weak.Pointer[int]");
+    CHECK_EQ(T(typed<tag::weak<tag::int64>>(gp::weak_ptr<int64_t>())), "weak.Pointer[int64]");
+    CHECK_EQ(T(typed<tag::map<tag::none, tag::weak<tag::uint64>>>(
+                 gp::map<gp::string, gp::weak_ptr<uint64_t>>())),
+             "map[string]weak.Pointer[uint64]");
+}
+
 // typed() copies the value, so a typed argument can be kept in a temporary.
 void test_typed_copy() {
     gp::slice<int64_t> s = gp::slice_of<int64_t>({1, 2});
@@ -351,6 +405,7 @@ void run_tests() {
     test_methods();
     test_type_names();
     test_typed_copy();
+    test_weak();
     test_adl();
     test_sprint();
     std::string speed = test_speed();

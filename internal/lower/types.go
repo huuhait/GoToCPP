@@ -30,6 +30,7 @@ import (
 //	type IDs []int           3.9, named.go), IDs over gp::newtype<IDs, gp::slice<int64_t>>
 //	func(A, B) R             gp::func<R(A, B)> (Phase 03 step 3.11, closures.go)
 //	complex64, complex128    gp::complex64, gp::complex128 (Phase 03 step 3.15c, complex.go)
+//	weak.Pointer[T]          gp::weak_ptr<T> (Phase 03 step 3.18, weak.go)
 //
 // An untyped constant has the C++ type of its default type (untyped int → int64_t, untyped
 // rune → int32_t, untyped float → double, untyped complex → gp::complex128), but go/types
@@ -96,6 +97,9 @@ func (g *gen) cxxType(t types.Type, pos token.Pos) cppir.Type {
 	case *types.Struct:
 		return g.structType(t, pos) // typedecl.go
 	case *types.Named:
+		if isWeakPointer(t) {
+			return weakType(g.cxxType(weakElem(t), pos)) // weak.go
+		}
 		if isStruct(t) || isNewtype(t) {
 			return g.structType(t, pos) // typedecl.go; a gp::newtype: named.go
 		}

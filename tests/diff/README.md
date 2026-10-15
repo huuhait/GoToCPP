@@ -70,9 +70,11 @@ func main() {
 }
 ```
 
-Besides the phase line, a diff test may have only the `// diff:` line and a `//go:build` line
-(see [tests/README.md](../README.md)): `// Output:`, `// ExitCode:` and the other lines of
-[run tests](../run/README.md) are errors here.
+Besides the phase line, a diff test may have only the `// diff:` line, a `//go:build` line
+(see [tests/README.md](../README.md)) and `// lsan: cycle`, for a program that leaks a reference
+cycle on purpose, which a sanitizer run then runs without LeakSanitizer
+([tests/README.md](../README.md#sanitizers)): `// Output:`, `// ExitCode:` and the other lines
+of [run tests](../run/README.md) are errors here.
 
 A test of behavior that differs between machines in Go itself gets a `//go:build` line. The
 phase line stays the first line, and Go wants an empty line after the `//go:build` line (else

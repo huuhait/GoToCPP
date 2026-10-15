@@ -52,6 +52,29 @@ A test is also skipped, with a message, when:
 Each runner logs how many tests it found, skipped (by reason) and found malformed (`-v` shows
 the log).
 
+## Sanitizers
+
+`make ci-sanitize` is the sanitizer job: it runs the tests that run programs (`TestRun`,
+`TestDiff`, `TestInterop`, `TestExamples`) with `GOCPP_FLAGS=-asan`, so every program is built
+with AddressSanitizer, LeakSanitizer and UndefinedBehaviorSanitizer and fails on the first
+report, and then the emitter's tests in `internal/cppgen` with the same sanitizers in
+`GOCPP_TEST_CXXFLAGS`; with g++ and clang++, and `-parallel 2`. Every test must be clean, with one
+exception: a test that leaks a reference cycle on purpose (reference counting never frees a cycle,
+divergence D1 in [docs/spec/language.md](../docs/spec/language.md)) says so with a line in its
+header,
+
+```go
+// phase: 03
+// lsan: cycle
+```
+
+and then runs with `ASAN_OPTIONS=detect_leaks=0` (after the `ASAN_OPTIONS` of the environment),
+so LeakSanitizer is off for that test only; AddressSanitizer and UBSan stay on. The line is
+allowed in run, diff and interop tests, and in `internal/cppgen/testdata/emit`. It is set with or
+without `-asan` (without, it changes nothing), so the command that a failing test shows has it.
+Today two tests have it: `tests/run/closures_recursive.gp` and
+`internal/cppgen/testdata/emit/closures.gp`, both a closure that calls itself through a variable.
+
 ## Compilers
 
 Each run, interop, diff, golden, debug and example test runs once per C++ compiler, as the
@@ -92,7 +115,7 @@ missing compiler).
 | `GOCPP_FLAGS` | none | more flags for `gocpp run`, split on spaces, for example `GOCPP_FLAGS=-asan` for a sanitizer run |
 | `GOCPP_TEST_PHASE` | `Phase` of internal/version | run the tests up to this phase (00 to 15), for example `GOCPP_TEST_PHASE=01` while you build Phase 01 |
 | `GOCPP_GATE_PHASE` | set per test | not set by you: for gocpp's own development and tests, gocpp's phase gates accept the features up to this phase (`cmd/gocpp/gatephase.go`). For a test whose `// phase:` comes after `Phase` of internal/version (one that runs only with `GOCPP_TEST_PHASE`), the harness passes that test's phase to its gocpp commands, so the test can use the features of its phase before the phase is finished. A test of a finished phase gets none, so an error test still sees the gates of later phases. It never turns the gates of finished phases back on |
-| `GOCPP_RUN_VS_GO` | none | `1`: `TestRunVsGo` builds each test in `tests/run` with real Go (`go build`, like a diff test) and checks the test's `// Output:` block (compared like `TestRun` compares), `// ExitCode:` and `// Stderr:` regexps against what the Go binary does, so that an expected output pasted from Go can't drift. It checks the tests of every phase, runs no C++ compiler, and skips a test whose code `go build` rejects (an error at a line of the program: gocpp-only code). Any other `go build` failure fails the test, and a run that compares no test fails too. Off, `TestRunVsGo` is a skip: `GOCPP_RUN_VS_GO=1 go test ./tests/... -run RunVsGo` |
+| `GOCPP_RUN_VS_GO` | none | `1`: `TestRunVsGo` builds each test in `tests/run` with real Go (`go build`, like a diff test) and checks the test's `// Output:` block (compared like `TestRun` compares), `// ExitCode:` and `// Stderr:` regexps against what the Go binary does, so that an expected output pasted from Go can't drift. It checks the tests of every phase, runs no C++ compiler, and skips a test whose code `go build` rejects (an error at a line of the program: gocpp-only code) and a test with a `// divergence: Dn` line (it shows a divergence of [docs/spec/language.md](../docs/spec/language.md), so Go does something else on purpose). Any other `go build` failure fails the test, and a run that compares no test fails too. Off, `TestRunVsGo` is a skip: `GOCPP_RUN_VS_GO=1 go test ./tests/... -run RunVsGo` |
 | `GOCPP_TEST_TIMEOUT` | `2m` | the time limit of one command (one `gocpp run`, one `go build`), as a Go duration |
 
 `make` passes them on: `GOCPP_CXX=g++ make test`. `GOCPP_REQUIRE_CXX= make ci` turns the

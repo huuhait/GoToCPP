@@ -1,9 +1,10 @@
 // phase: 03
+// lsan: cycle
 
 // Recursion through a variable: the closure captures the variable that holds it. The variable is
 // boxed (captured and assigned), so the closure calls itself through the box. Such a closure and
 // its box hold each other, a reference cycle that is never freed (D1): fine for a program, but
-// LeakSanitizer reports it (a test that builds a cycle on purpose).
+// LeakSanitizer would report it, so the // lsan: cycle line turns it off for this test.
 package main
 
 import "fmt"

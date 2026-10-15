@@ -230,7 +230,7 @@ func (fg *funcGen) funcRef(fn *types.Func, pos token.Pos) cppir.Expr {
 // type, a func literal, the result of a call, an element; not a function of the package, a
 // builtin, a conversion or a function of another package.
 func (fg *funcGen) funcValueCall(c *ast.CallExpr) bool {
-	if fg.g.info.Types[c.Fun].IsType() {
+	if fg.g.info.Types[c.Fun].IsType() || fg.isWeakMake(c) {
 		return false
 	}
 	switch fun := ast.Unparen(c.Fun).(type) {

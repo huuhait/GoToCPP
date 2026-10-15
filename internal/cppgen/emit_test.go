@@ -146,7 +146,7 @@ func TestEmit(t *testing.T) {
 				t.Logf("the output is compared with Go's only on %s (Phase 02 README §2.3)", arch)
 				goWant = nil
 			}
-			checkRuns(t, emit, goWant)
+			checkRunsEnv(t, emit, goWant, nil, cycleEnv(t, gps[0]))
 		})
 	}
 }
@@ -168,6 +168,32 @@ func goarchOnly(t *testing.T, gp string) string {
 	return ""
 }
 
+// cycleEnv returns the environment change for the program in the .gp file gp if it has a
+// "// lsan: cycle" line in its header (the comment lines before the package clause), as in
+// tests/README.md: it leaks a reference cycle on purpose (D1), so a sanitizer run
+// (GOCPP_TEST_CXXFLAGS with -fsanitize=address) turns LeakSanitizer off for it with
+// ASAN_OPTIONS=detect_leaks=0, after the options of the environment. Else nil.
+func cycleEnv(t *testing.T, gp string) []string {
+	t.Helper()
+	src, err := os.ReadFile(gp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range strings.Split(string(src), "\n") {
+		l = strings.TrimSpace(l)
+		if l != "" && !strings.HasPrefix(l, "//") {
+			break // the package clause: the header ends
+		}
+		if l == "// lsan: cycle" {
+			if o := os.Getenv("ASAN_OPTIONS"); o != "" {
+				return []string{"ASAN_OPTIONS=" + o + ":detect_leaks=0"}
+			}
+			return []string{"ASAN_OPTIONS=detect_leaks=0"}
+		}
+	}
+	return nil
+}
+
 // checkRuns writes the C++ of a program to a file (with Config.OutputPath set to it), builds
 // it with each compiler, runs it, and compares what it prints and its exit code with want
 // (nil: nothing to compare with, only build and run).
@@ -186,6 +212,18 @@ func checkRunsNorm(t *testing.T, emit emitFunc, want *result, norm func(result) 
 // checkRunsMode is checkRunsNorm, with nochecks for a -nochecks build (cxx.buildMode).
 func checkRunsMode(t *testing.T, emit emitFunc, want *result, norm func(result) result, nochecks bool) {
 	t.Helper()
+	checkRunsWith(t, emit, want, norm, nochecks, nil)
+}
+
+// checkRunsEnv is checkRunsNorm, where the program runs with the environment changes env.
+func checkRunsEnv(t *testing.T, emit emitFunc, want *result, norm func(result) result, env []string) {
+	t.Helper()
+	checkRunsWith(t, emit, want, norm, false, env)
+}
+
+// checkRunsWith is checkRunsNorm with nochecks (checkRunsMode) and env (checkRunsEnv).
+func checkRunsWith(t *testing.T, emit emitFunc, want *result, norm func(result) result, nochecks bool, env []string) {
+	t.Helper()
 	if want != nil && norm != nil {
 		w := norm(*want)
 		want = &w
@@ -202,7 +240,7 @@ func checkRunsMode(t *testing.T, emit emitFunc, want *result, norm func(result) 
 			if c.missing != "" {
 				t.Skip(c.missing)
 			}
-			got := run(t, work, c.buildMode(t, src, nochecks))
+			got := runEnv(t, work, env, c.buildMode(t, src, nochecks))
 			if norm != nil {
 				got = norm(got)
 			}

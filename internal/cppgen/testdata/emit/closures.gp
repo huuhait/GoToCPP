@@ -1,13 +1,13 @@
-// Func values, closures and variadics (Phase 03 step 3.11): func types as gp::func, functions
-// of the package as values (gp::func_of), nil and == nil, func values passed, returned and
-// stored in slices, maps and struct fields, calls of them (gp_call where the call could change
-// them), func literals as lambdas with their captures (by value when never changed, the box
-// otherwise), nested closures, captured parameters, named results and loop variables (Go 1.22:
-// one box per iteration), recursion through a variable, literals called at once, deferred
-// literals that change a named result, deferred func values, closures in package variables,
-// variadic functions (no arguments, several, f(s...) sharing the slice, f(g()) with g's results),
-// named func types (a func literal passed as one), and the order of a func value and its
-// arguments.
+// Func values, closures and variadics (Phase 03 step 3.11): func types as gp::func, functions of
+// the package as values (gp::func_of), nil and == nil, func values passed, returned and stored
+// in slices, maps and struct fields, calls of them (gp_call where the call could change them),
+// func literals as lambdas with their captures (by value when never changed, the box otherwise),
+// nested closures, captured parameters, named results and loop variables (Go 1.22: one box per
+// iteration), recursion through a variable, literals called at once, deferred literals that
+// change a named result, deferred func values, closures in package variables, variadic functions
+// (no arguments, several, f(s...) sharing the slice, f(g()) with g's results), named func types
+// (a func literal passed as one), and the order of a func value and its arguments.
+// lsan: cycle
 package main
 
 import "fmt"
@@ -172,7 +172,7 @@ func main() {
 	outer(5)()
 	fmt.Println("count", count)
 
-	// Recursion through a variable.
+	// Recursion through a variable: a cycle that is never freed (D1; see "lsan: cycle" above).
 	var fib func(int) int
 	fib = func(n int) int {
 		if n < 2 {

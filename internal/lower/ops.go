@@ -179,11 +179,12 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.
 		if (op == token.EQL || op == token.NEQ) && (isPointer(fg.typeOf(x)) || isPointer(fg.typeOf(y)) ||
 			isSlice(fg.typeOf(x)) || isSlice(fg.typeOf(y)) || isArray(fg.typeOf(x)) ||
 			isMap(fg.typeOf(x)) || isMap(fg.typeOf(y)) || isStruct(fg.typeOf(x)) ||
-			isFunc(fg.typeOf(x)) || isFunc(fg.typeOf(y))) {
+			isFunc(fg.typeOf(x)) || isFunc(fg.typeOf(y)) || isWeakPointer(fg.typeOf(x))) {
 			// p == q compares the addresses, p == nil is p == nullptr (gp::ptr's ==; C++20
 			// writes != and nil == p from it). A slice or a map compares only with nil:
 			// s == nullptr, and so does a func (step 3.11). Arrays compare their elements (gp::array's ==), structs their
-			// fields (the generated operator==, typedecl.go).
+			// fields (the generated operator==, typedecl.go), weak pointers the addresses
+			// they were made from (gp::weak_ptr's ==, weak.go).
 			return &cppir.Binary{Op: op.String(), X: at(a, precShift), Y: at(b, precShift)}
 		}
 		if fg.operandType(pos, op, x) == nil {
@@ -563,6 +564,11 @@ func (fg *funcGen) convertValue(c *ast.CallExpr, to, from types.Type, x cppir.Ex
 	}
 	if isMap(to) {
 		return fg.mapConversion(c, to, from, x) // maps.go
+	}
+	if isWeakPointer(to) {
+		// weak.Pointer[T](w), A(w) for an alias A: only identity conversions reach here, since a
+		// type defined over weak.Pointer is gated (weak.go).
+		return x
 	}
 	tb, fb := basicOf(to), basicOf(from)
 	if tb == nil || fb == nil {

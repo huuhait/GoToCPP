@@ -793,6 +793,12 @@ func (g *gateChecker) checkTypes() {
 		switch obj := obj.(type) {
 		case *types.Var, *types.Const:
 			g.typeUses(obj.Type(), id.Pos(), id.End(), &typeWalk{seen: make(map[types.Type]bool)})
+		case *types.TypeName:
+			// type WP weak.Pointer[T]: the intrinsic (weak.Pointer[T] itself and its aliases)
+			// is a runtime class; a type defined over it waits for the generics.
+			if f := &features[featGenerics]; !obj.IsAlias() && weakDefined(obj.Type()) && f.Phase > g.phase {
+				g.report(id.Pos(), id.End(), gateMessage("a type defined as weak.Pointer[T]", false, f.Phase), f.Phase)
+			}
 		}
 	}
 	for id := range g.info.Instances {

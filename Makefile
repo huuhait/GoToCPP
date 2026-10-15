@@ -47,6 +47,30 @@ test:
 test-programs:
 	$(GO) test -count=1 -v ./tests/...
 
+# The sanitizer job (Phase 03 exit criteria): the test programs that run code
+# (tests/run, tests/diff, tests/interop and examples/) with gocpp run -asan
+# (AddressSanitizer, LeakSanitizer and UndefinedBehaviorSanitizer; a test
+# marked "// lsan: cycle" leaks a reference cycle on purpose and runs without
+# LeakSanitizer), then the emitter's tests, which build and run programs
+# (internal/cppgen), with the same sanitizers in GOCPP_TEST_CXXFLAGS; with
+# both g++ and clang++. internal/cppgen's TestFatal skips itself here (a
+# sanitizer reports running out of memory and stack overflows on its own, and
+# the runtime's stack-overflow handler is off under ASan). The runtime's own
+# C++ tests have a sanitizer mode in make test already. -parallel 2, because
+# sanitized builds and programs are big. The repo has no CI service yet
+# (TODO.md, Q9), so this target is the CI job: run it next to make ci when a
+# change touches the runtime, the emitter or the tests. GOCPP_TEST_PHASE=03
+# make ci-sanitize runs the tests of a phase that is being built.
+SANITIZE_FLAGS = -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all
+.PHONY: ci-sanitize
+ci-sanitize: export GOCPP_REQUIRE_CXX ?= g++,clang++
+ci-sanitize:
+	GOCPP_FLAGS="$(GOCPP_FLAGS) -asan" $(GO) test -count=1 -timeout 60m -parallel 2 \
+		-run '^(TestRun|TestDiff|TestInterop|TestExamples)$$' ./tests/...
+	GOCPP_TEST_CXXFLAGS="$(GOCPP_TEST_CXXFLAGS) $(SANITIZE_FLAGS)" \
+		$(GO) test -count=1 -timeout 60m -parallel 2 ./internal/cppgen/...
+	@echo "make ci-sanitize: all checks passed"
+
 # Fails if gofmt lists a Go file outside LINT_SKIP, then runs go vet.
 lint:
 	@bad=$$(find . \( $(LINT_SKIP) \) -prune -o -type f -name '*.go' -exec $(GOFMT) -l {} +) || exit 1; \

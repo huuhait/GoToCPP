@@ -69,7 +69,7 @@ func (fg *funcGen) addr(e *ast.UnaryExpr) cppir.Expr {
 		}
 		fg.g.unsupported(e.Pos(), "&*p where p is not a variable")
 	case *ast.CompositeLit:
-		if t := fg.g.info.TypeOf(x); isArray(t) || isStruct(t) {
+		if t := fg.g.info.TypeOf(x); isArray(t) || isStruct(t) || isWeakPointer(t) {
 			// &[N]T{...}, &T{...}: a new block that holds the literal, gp::new_<A>(A{...}); one
 			// larger than 128 KiB is built in the block itself (largeBox, arrays.go).
 			if largeVar(t) {

@@ -22,6 +22,9 @@
 //                                       pointer (also one inside a composite value) prints its
 //                                       address, 0xc000012345; nil is <nil>. %d prints the
 //                                       address in decimal
+//     weak.Pointer[T] (gp::weak_ptr)    as Go's struct { _ [0]*T; u unsafe.Pointer }: {[] <nil>},
+//                                       {[] 0xc000012345} (the address it was made from); %+v
+//                                       {_:[] u:<nil>}; %d the address in decimal
 //     structs                           {1 2}; %+v {X:1 Y:2}; through the struct protocol below
 //     named types                       as their underlying type, through the protocol below
 //     a String() or Error() method      used for %v and %s (and %q, %x, %X) and by Print and
@@ -51,14 +54,14 @@
 //     map[string]uint64, *[3]int64
 //         tag::map<tag::none, tag::uint64>, tag::ptr<tag::array<tag::int64>>
 //
-// A tag mirrors the type: tag::slice<E>, tag::array<E>, tag::map<K, V>, tag::ptr<E>, the
-// leaves tag::int64, tag::uint64, tag::uintptr, and tag::none for "the C++ type says it" (any
-// part without int64, uint64 or uintptr). Only an argument whose type has one of these three
-// in an unnamed part needs a tag: a struct field gets its tag in gp_fields, and a named type
-// over such a type in gp_value_tag (below). typed() copies the value, so the emitter may keep
-// it in a temporary like any other argument (evaluation order, internal/lower/order.go). An
-// array or struct larger than 128 KiB comes as heap(gp::new_<A>(a)) (heap_value, below), a copy
-// on the heap.
+// A tag mirrors the type: tag::slice<E>, tag::array<E>, tag::map<K, V>, tag::ptr<E>,
+// tag::weak<E> (weak.Pointer[E]), the leaves tag::int64, tag::uint64, tag::uintptr, and
+// tag::none for "the C++ type says it" (any part without int64, uint64 or uintptr). Only an
+// argument whose type has one of these three in an unnamed part needs a tag: a struct field gets
+// its tag in gp_fields, and a named type over such a type in gp_value_tag (below). typed()
+// copies the value, so the emitter may keep it in a temporary like any other argument
+// (evaluation order, internal/lower/order.go). An array or struct larger than 128 KiB comes as
+// heap(gp::new_<A>(a)) (heap_value, below), a copy on the heap.
 //
 // The protocols that the emitter's types follow (steps 3.8, 3.9, 3.10; the names start with
 // gp_, which no escaped Go name does, and Go methods are C++ members of their own names, so
@@ -151,6 +154,8 @@ template <typename K, typename V>
 struct map_tag {};
 template <typename E>
 struct ptr_tag {};
+template <typename E>
+struct weak_tag {};
 } // namespace detail
 
 // The type tags (above). Each is only a name: none holds data. (The composite ones are aliases,
@@ -169,6 +174,8 @@ template <typename K, typename V>
 using map = detail::map_tag<K, V>;
 template <typename E>
 using ptr = detail::ptr_tag<E>;
+template <typename E>
+using weak = detail::weak_tag<E>;
 } // namespace tag
 
 // typed_value is a value with its type tag: what typed<Tag>(v) gives.
@@ -296,6 +303,13 @@ struct ptr_of<gp::ptr<E>> : std::true_type {
     using elem = E;
 };
 
+template <typename T>
+struct weak_of : std::false_type {};
+template <typename E>
+struct weak_of<gp::weak_ptr<E>> : std::true_type {
+    using elem = E;
+};
+
 // A struct of the emitter: it has gp_fields.
 template <typename T>
 concept struct_type = requires { T::gp_fields; };
@@ -360,6 +374,10 @@ template <typename E>
 struct tag_parts<tag::ptr<E>> {
     using elem = E;
 };
+template <typename E>
+struct tag_parts<tag::weak<E>> {
+    using elem = E;
+};
 template <typename K, typename V>
 struct tag_parts<tag::map<K, V>> {
     using key = K;
@@ -383,7 +401,8 @@ constexpr void check_tag() {
         static_assert((slice_of<T>::value && tag_is<Tag, slice_tag>) ||
                           (array_of<T>::value && tag_is<Tag, array_tag>) ||
                           (map_of<T>::value && tag_is<Tag, map_tag>) ||
-                          (ptr_of<T>::value && tag_is<Tag, ptr_tag>),
+                          (ptr_of<T>::value && tag_is<Tag, ptr_tag>) ||
+                          (weak_of<T>::value && tag_is<Tag, weak_tag>),
                       "fmtshim: the tag doesn't fit the type");
     }
 }
@@ -445,6 +464,10 @@ void type_name(std::string& out) {
     } else if constexpr (ptr_of<T>::value) {
         out += '*';
         detail::type_name<typename parts::elem, typename ptr_of<T>::elem>(out);
+    } else if constexpr (weak_of<T>::value) {
+        out += "weak.Pointer[";
+        detail::type_name<typename parts::elem, typename weak_of<T>::elem>(out);
+        out += ']';
     } else if constexpr (struct_type<T> || named_type<T>) {
         out += T::gp_type_name;
     } else {
@@ -685,6 +708,10 @@ int compare(const T& a, const T& b) {
         auto x = reinterpret_cast<std::uintptr_t>(a.gp_get());
         auto y = reinterpret_cast<std::uintptr_t>(b.gp_get());
         return x < y ? -1 : x > y ? 1 : 0;
+    } else if constexpr (weak_of<T>::value) {
+        // Go's weak.Pointer is a struct whose only field that compares is an unsafe.Pointer.
+        auto x = a.gp_addr(), y = b.gp_addr();
+        return x < y ? -1 : x > y ? 1 : 0;
     } else if constexpr (array_of<T>::value) {
         if constexpr (array_of<T>::len > 0) {
             for (std::size_t i = 0; i < static_cast<std::size_t>(array_of<T>::len); i++) {
@@ -791,10 +818,11 @@ void print_struct(printer& p, const T& v, char32_t verb, int depth, access ro) {
     p.buf += '}';
 }
 
-// A pointer prints &{...} at the top level when it points to one of these.
+// A pointer prints &{...} at the top level when it points to one of these (a weak pointer is
+// a struct for Go: &{[] <nil>}).
 template <typename T>
-inline constexpr bool composite =
-    slice_of<T>::value || array_of<T>::value || map_of<T>::value || struct_type<T>;
+inline constexpr bool composite = slice_of<T>::value || array_of<T>::value || map_of<T>::value ||
+                                  struct_type<T> || weak_of<T>::value;
 
 template <typename Tag, typename E>
 void print_pointer(printer& p, const gp::ptr<E>& v, char32_t verb, int depth, access ro,
@@ -826,6 +854,49 @@ void print_pointer(printer& p, const gp::ptr<E>& v, char32_t verb, int depth, ac
     }
 }
 
+// unsafe_pointer_name is the Go type name of the unsafe.Pointer inside a weak.Pointer.
+inline void unsafe_pointer_name(std::string& out) {
+    out += "unsafe.Pointer";
+}
+
+// print_weak prints a weak pointer as Go prints its weak.Pointer, the struct
+// struct { _ [0]*T; u unsafe.Pointer }: {[] 0xc000012345}, {[] <nil>} for the zero value,
+// {_:[] u:<nil>} for %+v; the verb applies to u as to a pointer that is no &{...} (an
+// unexported field). gocpp prints the address the weak pointer was made from, Go the address
+// of its own handle: both are addresses that differ from run to run.
+template <typename E>
+void print_weak(printer& p, const gp::weak_ptr<E>& v, char32_t verb) {
+    p.buf += '{';
+    if (p.plus_v) {
+        p.buf += "_:";
+    }
+    p.buf += "[] ";
+    if (p.plus_v) {
+        p.buf += "u:";
+    }
+    auto u = static_cast<uint64_t>(v.gp_addr());
+    auto value = [&] {
+        if (u == 0) {
+            detail::pad(p, "<nil>");
+        } else {
+            detail::fmt_0x64(p, u, !p.sharp);
+        }
+    };
+    switch (verb) {
+    case 'v':
+        value();
+        break;
+    case 'd':
+        detail::pp_int(p, u, false, verb, &detail::unsafe_pointer_name);
+        break;
+    default:
+        detail::bad_verb_begin(p, verb, &detail::unsafe_pointer_name);
+        value();
+        detail::bad_verb_end(p);
+    }
+    p.buf += '}';
+}
+
 // print_kind prints v by its kind, without its methods (printValue's switch). type is the Go
 // type of the value, which a named type keeps for its underlying value.
 template <typename Tag, typename T>
@@ -853,6 +924,8 @@ void print_kind(printer& p, const T& v, char32_t verb, int depth, access ro, typ
         detail::print_map<Tag>(p, v, verb, depth, ro);
     } else if constexpr (ptr_of<T>::value) {
         detail::print_pointer<Tag>(p, v, verb, depth, ro, type);
+    } else if constexpr (weak_of<T>::value) {
+        detail::print_weak(p, v, verb);
     } else if constexpr (struct_type<T>) {
         detail::print_struct(p, v, verb, depth, ro);
     } else if constexpr (named_type<T>) {

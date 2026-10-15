@@ -66,6 +66,8 @@ func (fg *funcGen) litValue(e *ast.CompositeLit, t types.Type) cppir.Expr {
 		return fg.arrayLit(e) // arrays.go
 	case isStruct(t):
 		return fg.structLit(e, t)
+	case isWeakPointer(t):
+		return &cppir.InitList{Type: fg.g.cxxType(t, e.Lbrace)} // weak.Pointer[T]{}, the only literal (weak.go)
 	}
 	return fg.g.wrapNamed(t, fg.compositeLit(e), e.Lbrace) // slices.go
 }
@@ -450,7 +452,7 @@ func convCopied(t types.Type) bool {
 	}
 	size, align, ptrs := goSizes.Sizeof(t), goSizes.Alignof(t), goHasPointers(t)
 	switch {
-	case size == 2 && align == 2, size == 4 && align == 4 && !ptrs, size == 8 && align == 8 && !ptrs:
+	case size == 2 && align == 2 && !ptrs, size == 4 && align == 4 && !ptrs, size == 8 && align == 8 && !ptrs:
 		return false
 	}
 	if c := soleComponent(t); c != nil && (isString(c) || isSlice(c)) {
@@ -461,8 +463,15 @@ func convCopied(t types.Type) bool {
 
 // goHasPointers reports whether a value of type t holds a pointer in Go's layout (gc's
 // HasPointers): a string, pointer, slice, map, chan, func or interface, or an array or a struct
-// with one.
+// with one. A weak.Pointer holds one (an unsafe.Pointer that its stub leaves out, weak.go).
+//
+// For a type with a weak.Pointer in it, goSizes gives less than Go (the stub's struct has no
+// unsafe.Pointer), but every such type has pointers, which is all that convCopied needs: Go
+// copies it (no type with pointers is 2 bytes in Go, hence the !ptrs there too).
 func goHasPointers(t types.Type) bool {
+	if isWeakPointer(t) {
+		return true
+	}
 	switch u := under(t).(type) {
 	case *types.Basic:
 		return u.Info()&types.IsString != 0 || u.Kind() == types.UnsafePointer

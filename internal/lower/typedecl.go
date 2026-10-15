@@ -173,6 +173,11 @@ func (g *gen) typeSpec(spec *ast.TypeSpec, local bool) {
 	if !isStruct(named) && !g.newtypeOK(spec, named) { // named.go
 		return
 	}
+	if weakStruct(named) {
+		// type WP weak.Pointer[T]: a struct for Go, but gp::weak_ptr is a runtime class (weak.go).
+		g.unsupported(spec.Pos(), "a type defined as weak.Pointer[T] (use weak.Pointer[T] itself, or an alias)")
+		return
+	}
 	td := g.tdecls()
 	name := TypeName(tn.Name())
 	if local {
@@ -321,10 +326,11 @@ func (g *gen) fieldName(t types.Type, i int, pos token.Pos) string {
 	return si.fields[i]
 }
 
-// isStruct reports whether t is a struct type (through names and aliases).
+// isStruct reports whether t is a struct type (through names and aliases), other than
+// weak.Pointer[T], whose Go declaration is a struct.
 func isStruct(t types.Type) bool {
 	_, ok := under(t).(*types.Struct)
-	return ok
+	return ok && !isWeakPointer(t) // weak.go: a runtime type of its own
 }
 
 // structDecls returns the declarations of all the structs (see the top): the forward
@@ -495,6 +501,10 @@ func fmtTag(t types.Type) string {
 		return tag + "none"
 	}
 	switch t := types.Unalias(t).(type) {
+	case *types.Named:
+		if isWeakPointer(t) && fmtTag(weakElem(t)) != "" {
+			return tag + "weak<" + elem(weakElem(t)) + ">" // weak.Pointer[int64] (weak.go)
+		}
 	case *types.Basic:
 		switch t.Kind() {
 		case types.Int64:
@@ -542,6 +552,9 @@ func typeString(t types.Type, named func(*types.Named) string) string {
 	case *types.Basic:
 		return types.Typ[t.Kind()].Name() // byte is uint8, rune int32
 	case *types.Named:
+		if isWeakPointer(t) {
+			return named(t) + "[" + str(weakElem(t)) + "]" // weak.Pointer[main.T] (weak.go)
+		}
 		return named(t)
 	case *types.Pointer:
 		return "*" + str(t.Elem())

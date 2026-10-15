@@ -34,27 +34,31 @@ const goMinor = 25
 
 // The comment lines of the test formats. Each one starts a line.
 const (
-	phaseLine       = "// phase: NN" // the form of the first line, for messages
-	outputPrefix    = "// Output:"
-	exitCodePrefix  = "// ExitCode:"
-	stderrPrefix    = "// Stderr:"
-	pkgConfigPrefix = "// pkg-config:"
-	displayPrefix   = "// display:"
-	diffPrefix      = "// diff:"
-	goBuildPrefix   = "//go:build"
+	phaseLine        = "// phase: NN" // the form of the first line, for messages
+	outputPrefix     = "// Output:"
+	exitCodePrefix   = "// ExitCode:"
+	stderrPrefix     = "// Stderr:"
+	pkgConfigPrefix  = "// pkg-config:"
+	displayPrefix    = "// display:"
+	diffPrefix       = "// diff:"
+	lsanPrefix       = "// lsan:"
+	divergencePrefix = "// divergence:"
+	goBuildPrefix    = "//go:build"
 )
 
 // A lineSet is a set of the optional comment lines.
-type lineSet uint8
+type lineSet uint16
 
 const (
-	outputLine    lineSet = 1 << iota // the // Output: block; required where it is allowed
-	exitCodeLine                      // // ExitCode: N
-	stderrLine                        // // Stderr: regexp
-	pkgConfigLine                     // // pkg-config: lib...
-	displayLine                       // // display: required
-	diffLine                          // // diff: stderr, // diff: combined
-	goBuildLine                       // //go:build expr
+	outputLine     lineSet = 1 << iota // the // Output: block; required where it is allowed
+	exitCodeLine                       // // ExitCode: N
+	stderrLine                         // // Stderr: regexp
+	pkgConfigLine                      // // pkg-config: lib...
+	displayLine                        // // display: required
+	diffLine                           // // diff: stderr, // diff: combined
+	lsanLine                           // // lsan: cycle
+	divergenceLine                     // // divergence: D1
+	goBuildLine                        // //go:build expr
 )
 
 // optionalLines lists the optional comment lines with their prefixes.
@@ -68,6 +72,8 @@ var optionalLines = []struct {
 	{pkgConfigLine, pkgConfigPrefix},
 	{displayLine, displayPrefix},
 	{diffLine, diffPrefix},
+	{lsanLine, lsanPrefix},
+	{divergenceLine, divergencePrefix},
 	{goBuildLine, goBuildPrefix},
 }
 
@@ -85,13 +91,13 @@ type format struct {
 	strict  bool    // an optional line that is not allowed, or not in the header, is an error; otherwise it is ignored
 }
 
-// Every format honors //go:build lines.
+// Every format honors //go:build lines. The tests that run a program take // lsan: cycle.
 var (
-	runFormat     = format{"run", outputLine | exitCodeLine | stderrLine | goBuildLine, true}
+	runFormat     = format{"run", outputLine | exitCodeLine | stderrLine | lsanLine | divergenceLine | goBuildLine, true}
 	errorsFormat  = format{"errors", goBuildLine, true}
 	goldenFormat  = format{"golden", goBuildLine, true}
-	diffFormat    = format{"diff", diffLine | goBuildLine, true}
-	interopFormat = format{"interop", outputLine | exitCodeLine | stderrLine | pkgConfigLine | goBuildLine, true}
+	diffFormat    = format{"diff", diffLine | lsanLine | goBuildLine, true}
+	interopFormat = format{"interop", outputLine | exitCodeLine | stderrLine | pkgConfigLine | lsanLine | goBuildLine, true}
 	debugFormat   = format{"debug", goBuildLine, true} // and the // gdb: comments (debug.go)
 
 	// An example's main.gp is a normal program with doc comments, which may
@@ -110,6 +116,8 @@ type header struct {
 	pkgConfig []string         // the pkg-config packages the test needs (// pkg-config: ...)
 	display   bool             // the program needs a display (// display: required)
 	diff      string           // a diff test's mode (// diff: ...): diffStdout, diffStderr or diffCombined
+	cycle     bool             // the program leaks a reference cycle on purpose (// lsan: cycle)
+	diverges  string           // the divergence of docs/spec/language.md that the test shows (// divergence: D1), or ""
 	build     constraint.Expr  // the //go:build constraint, or nil
 	buildLine string           // the //go:build line, for messages
 }
@@ -171,6 +179,18 @@ func (f format) parse(path string, src []byte) (*header, error) {
 	return h, nil
 }
 
+// lsanEnv returns the environment change of a test that leaks a reference cycle on purpose
+// (// lsan: cycle): ASAN_OPTIONS with detect_leaks=0 after the options in asanOptions (the
+// ASAN_OPTIONS of the harness's environment), so that LeakSanitizer doesn't report the cycle in
+// a sanitizer run (GOCPP_FLAGS=-asan). The later option wins, so it also wins over a
+// detect_leaks=1 there.
+func lsanEnv(asanOptions string) string {
+	if asanOptions == "" {
+		return "ASAN_OPTIONS=detect_leaks=0"
+	}
+	return "ASAN_OPTIONS=" + asanOptions + ":detect_leaks=0"
+}
+
 // optionalLine returns which optional line line is, with its prefix and the
 // text after it, or 0 if it is none.
 func optionalLine(line string) (l lineSet, prefix, rest string) {
@@ -184,6 +204,10 @@ func optionalLine(line string) (l lineSet, prefix, rest string) {
 
 // exitCodeRx matches the number of an // ExitCode: line.
 var exitCodeRx = regexp.MustCompile(`^\d{1,3}$`)
+
+// divergenceRx matches the value of a // divergence: line, a divergence of
+// docs/spec/language.md: D1, D23.
+var divergenceRx = regexp.MustCompile(`^D[1-9]\d*$`)
 
 // set records the optional line l: the whole line is line, the text after
 // its prefix is rest. seen holds the lines read before it; only // Stderr:
@@ -233,6 +257,17 @@ func (h *header) set(l lineSet, line, rest string, seen lineSet) error {
 		default:
 			return fmt.Errorf("bad %q line: want %q or %q, not %q", diffPrefix, diffStderr, diffCombined, s)
 		}
+	case lsanLine:
+		if s := strings.TrimSpace(rest); s != "cycle" {
+			return fmt.Errorf("bad %q line: want \"// lsan: cycle\", not %q", lsanPrefix, line)
+		}
+		h.cycle = true
+	case divergenceLine:
+		s := strings.TrimSpace(rest)
+		if !divergenceRx.MatchString(s) {
+			return fmt.Errorf("bad %q line: want a divergence of docs/spec/language.md, such as D1, not %q", divergencePrefix, s)
+		}
+		h.diverges = s
 	case goBuildLine:
 		expr, err := constraint.Parse(line)
 		if err != nil {

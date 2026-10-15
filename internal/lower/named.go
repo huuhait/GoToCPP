@@ -65,10 +65,10 @@ import (
 // assigned (rangeIter).
 
 // isNewtype reports whether t is a named type that becomes a gp::newtype: a defined type whose
-// underlying type is not a struct (through aliases).
+// underlying type is not a struct (through aliases), other than weak.Pointer[T] (weak.go).
 func isNewtype(t types.Type) bool {
 	n, ok := types.Unalias(t).(*types.Named)
-	return ok && n.Obj().Pkg() != nil && !isStruct(n)
+	return ok && n.Obj().Pkg() != nil && !isStruct(n) && !isWeakPointer(n)
 }
 
 // underBasic returns the basic type under t (through names and aliases: Celsius gives float64),

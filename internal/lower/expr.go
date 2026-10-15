@@ -274,6 +274,9 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 		fg.g.errorf(c.Pos(), "internal error: a call whose evaluation order was not decided")
 		return placeholder
 	}
+	if x := fg.weakMake(c); x != nil {
+		return x // weak.Make(p), weak.Make[T](p) (weak.go)
+	}
 	if fg.funcValueCall(c) {
 		return fg.callValue(c) // closures.go
 	}

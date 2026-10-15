@@ -92,6 +92,8 @@
 //   - ops.go: the operators (with the small-integer rule and the runtime's gp::div, gp::rem,
 //     gp::shl and gp::shr), conversions (gp::f2i), s[i] and the builtins len and panic;
 //   - types.go: the C++ spelling of the types;
+//   - weak.go: weak pointers (step 3.18): weak.Pointer[T] as the runtime's gp::weak_ptr<T>,
+//     weak.Make and Value, a compiler intrinsic until generics (Phase 07);
 //   - complex.go: complex numbers (step 3.15c): their constants and the builtins complex, real
 //     and imag (the operators are ops.go's, the runtime's gp::complex has Go's rules);
 //   - names.go: the C++ names: a _ suffix for C++ keywords, compiler words and macros

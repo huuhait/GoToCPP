@@ -30,12 +30,14 @@ type headerView struct {
 	pkgConfig []string
 	display   bool
 	diff      string
+	cycle     bool
+	diverges  string
 	build     string
 }
 
 func view(h *header) headerView {
 	v := headerView{phase: h.phase, output: h.output, exitCode: h.exitCode, pkgConfig: h.pkgConfig,
-		display: h.display, diff: h.diff, build: h.buildLine}
+		display: h.display, diff: h.diff, cycle: h.cycle, diverges: h.diverges, build: h.buildLine}
 	for _, rx := range h.stderr {
 		v.stderr = append(v.stderr, rx.String())
 	}
@@ -78,6 +80,8 @@ func TestParseHeader(t *testing.T) {
 		{"diff_ok.gp", errorsFormat, headerView{phase: 2}},
 		{"diff_stderr.gp", diffFormat, headerView{phase: 2, diff: "stderr"}},
 		{"diff_combined.gp", diffFormat, headerView{phase: 2, diff: "combined"}},
+		{"run_lsan_divergence.gp", runFormat, headerView{phase: 3, cycle: true, diverges: "D1"}},
+		{"diff_lsan.gp", diffFormat, headerView{phase: 3, cycle: true}},
 		// Every format honors a //go:build line in the header.
 		{"gobuild_ok.gp", runFormat, headerView{phase: 14, build: "//go:build linux || windows"}},
 		{"gobuild_ok.gp", interopFormat, headerView{phase: 14, build: "//go:build linux || windows"}},
@@ -140,12 +144,31 @@ func TestParseHeaderMalformed(t *testing.T) {
 		{"gobuild_bad.gp", runFormat, `3: bad "//go:build" line: unexpected end of expression`},
 		{"gobuild_twice.gp", goldenFormat, `4: a second "//go:build" line`},
 		{"gobuild_after_package.gp", runFormat, `5: a "//go:build" line belongs at the top of the file, before the package clause`},
+
+		{"lsan_bad.gp", runFormat, `2: bad "// lsan:" line: want "// lsan: cycle", not "// lsan: leaks"`},
+		{"lsan_twice.gp", runFormat, `3: a second "// lsan:" line`},
+		{"diff_lsan.gp", goldenFormat, `2: tests in tests/golden have no "// lsan:" line`},
+		{"diff_lsan.gp", errorsFormat, `2: tests in tests/errors have no "// lsan:" line`},
+		{"divergence_bad.gp", runFormat, `2: bad "// divergence:" line: want a divergence of docs/spec/language.md, such as D1, not "1"`},
+		{"divergence_in_diff.gp", diffFormat, `2: tests in tests/diff have no "// divergence:" line`},
 	}
 	for _, tt := range tests {
 		path := "testdata/header/" + tt.file
 		_, err := tt.f.parse(path, readFile(t, path))
 		if want := path + ":" + tt.err; err == nil || !strings.HasPrefix(err.Error(), want) {
 			t.Errorf("%s as a %s test:\n got error %v\nwant error %s...", tt.file, tt.f.kind, err, want)
+		}
+	}
+}
+
+func TestLsanEnv(t *testing.T) {
+	for _, tt := range []struct{ env, want string }{
+		{"", "ASAN_OPTIONS=detect_leaks=0"},
+		{"abort_on_error=1", "ASAN_OPTIONS=abort_on_error=1:detect_leaks=0"},
+		{"detect_leaks=1", "ASAN_OPTIONS=detect_leaks=1:detect_leaks=0"}, // the later one wins
+	} {
+		if got := lsanEnv(tt.env); got != tt.want {
+			t.Errorf("lsanEnv(%q) = %q, want %q", tt.env, got, tt.want)
 		}
 	}
 }

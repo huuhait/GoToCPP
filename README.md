@@ -48,6 +48,7 @@ with the committed `.envrc` (run `direnv allow` once).
 
 ```sh
 make ci           # every required check: lint, test, build
+make ci-sanitize  # the test programs and emitter tests with ASan, LSan and UBSan
 make build        # build bin/gocpp
 make test         # go test ./...
 make lint         # gofmt check (not spikes/ or testdata/), then go vet ./...

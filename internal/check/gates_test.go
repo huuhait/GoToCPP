@@ -223,10 +223,11 @@ func main() {
 		want: []string{"6:14: fmt.Sprintf is not available yet (Phase 03)"}},
 	{name: "fmt.Sprintf/dot import", phase: 3, src: "package main\n\nimport . \"fmt\"\n\nfunc main() {\n\tprintln(Sprint(1))\n\tPrintln()\n}\n",
 		want: []string{"6:10: fmt.Sprint is not available yet (Phase 03)"}},
-	{name: "weak", phase: 3, src: "package main\n\nimport \"weak\"\n\nfunc main() {}\n",
-		want: []string{"3:8: package weak is not available yet (Phase 03)"},
-		// No stub yet: from its phase on, the loader's error stays.
-		wantAt: []string{"3:8: package weak is not available yet (Phase 09)"}},
+	{name: "weak", phase: 3, src: "package main\n\nimport \"weak\"\n\nfunc main() {\n\tvar w weak.Pointer[int]\n\tprintln(w.Value() == nil)\n}\n",
+		want: []string{"3:8: package weak is not available yet (Phase 03)", "7:10: pointers are not supported yet (Phase 03)"}},
+	{name: "weak/defined type", phase: 7, before: 3,
+		src:  "package main\n\nimport \"weak\"\n\ntype WP weak.Pointer[int]\n\ntype A = weak.Pointer[int]\n\nfunc main() {\n\tvar a A\n\tprintln(a.Value() == nil, WP(a) == WP{})\n}\n",
+		want: []string{"5:6: a type defined as weak.Pointer[T] is not supported yet (Phase 07)"}},
 
 	// Phase 04.
 	{name: "header imports", phase: 4, src: "package main\n\nimport \"<stdio.h>\"\n\nfunc main() {\n\tstdio.puts(\"x\")\n}\n",
@@ -464,7 +465,8 @@ func TestGateTables(t *testing.T) {
 // TestStdPackagesMatchStubs checks that every package with a stub is in
 // stdPackages, with the phase that the stub says replaces it.
 func TestStdPackagesMatchStubs(t *testing.T) {
-	re := regexp.MustCompile(`// type-check\. Phase (\d\d) replaces it`)
+	// The phase that replaces the stub, or that maps it to a compiler intrinsic (weak).
+	re := regexp.MustCompile(`// (?:type-check\. Phase (\d\d) replaces it|\S+ \(a Phase (\d\d) intrinsic\))`)
 	n := 0
 	err := fs.WalkDir(stdlib.FS(), ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".gp") {
@@ -481,7 +483,7 @@ func TestStdPackagesMatchStubs(t *testing.T) {
 			return nil
 		}
 		n++
-		stub, _ := strconv.Atoi(string(m[1]))
+		stub, _ := strconv.Atoi(string(m[1]) + string(m[2])) // one of them is empty
 		row := lookupStdPackage(pkg)
 		switch {
 		case row == nil:

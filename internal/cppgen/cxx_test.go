@@ -270,7 +270,13 @@ type result struct {
 // the tests compare the output up to it.
 func run(t *testing.T, dir, bin string) result {
 	t.Helper()
-	stdout, stderr, code, err := command(dir, false, bin)
+	return runEnv(t, dir, nil, bin)
+}
+
+// runEnv is run with the environment changes env (KEY=value) on top of the compiler's.
+func runEnv(t *testing.T, dir string, env []string, bin string) result {
+	t.Helper()
+	stdout, stderr, code, err := commandEnv(dir, append(build.CompilerEnv(), env...), false, bin)
 	if err != nil {
 		t.Fatal(err)
 	}
