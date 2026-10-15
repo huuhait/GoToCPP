@@ -92,4 +92,11 @@
   `if (p)`, `delete p` and `p[i]` don't compile (as in Phase 03); the cost is that an `f(bool)` + `f(void*)`
   overload pair is ambiguous for a gocpp pointer (pass `p.gp_get()`). `gp::deref` also dereferences `gp::ptr`
   (README §2.5).
+- 2026-10-15 (job 4.2, for 4.12 and 4.19): `fmt` writes with write(2) and C's stdio buffers, so `printf` and
+  `fmt.Println` in one program come out in the wrong order when stdout is a pipe. Go with cgo has the same
+  problem, but gocpp programs mix them far more often. Decision for 4.12: the fmt shim and `print`/`println`
+  call `fflush(stdout)` (resp. `stderr`) before they write when the program imports a C/C++ header (cheap
+  when the buffer is empty); measure it, and add a run test that mixes both through a pipe. 4.19 documents
+  it, and that C literals follow C's types (`1<<40` is a `long`, which is 32-bit on Windows: write `%lld`
+  with `C.longlong(x)`).
 
