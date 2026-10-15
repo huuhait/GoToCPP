@@ -58,8 +58,18 @@ import (
 // that changes a boxed variable, of a closure that reads locals of main and a package variable
 // when it runs, of func literals called at once, and deferred calls of the package func
 // variable, and package variables (step 3.16) whose initializers call e and the methods, in
-// Go's initialization order.
-// It compares what each prints with real Go, on both compilers.
+// Go's initialization order. In most programs (panicky), statements and operands with
+// operations that panic about half of the time (step 3.12: risky, panicStmt) check that the
+// panic is the one Go reports: two of them as arguments, operands, elements of composite
+// literals, on the right of && and ||, in else if and case conditions, switch tags, loop
+// conditions and post statements, the values and targets of assignments with one or several
+// targets (also op=, ++, stores into a nil map and declarations of boxed variables), deferred
+// calls, calls of methods and func values, returns of helpers with named results and defers,
+// map reads with such keys (also of a map whose key gc copies among the calls, and reads of a
+// bool-keyed map with an addressable key that the calls change, gmb[gb]) and ordering
+// comparisons of strings (whose operands gc evaluates first), and targets with them in a copied
+// index (s[x & 7]).
+// It compares what each prints with real Go, on both compilers, also the panic message.
 //
 //	GOCPP_RANDOM_TESTS=1 go test ./internal/cppgen -run TestRandomOrder
 //
@@ -88,25 +98,9 @@ func TestRandomOrder(t *testing.T) {
 			if err := os.WriteFile(gp, []byte(src), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			checkRunsNorm(t, emitter(gp), goResult(t, gp), samePanics)
+			checkRunsNorm(t, emitter(gp), goResult(t, gp), maskPCAddr)
 		})
 	}
-}
-
-// samePanics makes the run-time panics of the operators one message: when one expression has
-// two that both fail, with no call between them, gocpp may report the other one than Go
-// (order.go).
-func samePanics(r result) result {
-	if r.code == 2 {
-		lines := strings.Split(r.stderr, "\n")
-		for i, l := range lines {
-			if strings.HasPrefix(l, "panic: runtime error: ") {
-				lines[i] = "panic: runtime error: (one of the operators)"
-			}
-		}
-		r.stderr = strings.Join(lines, "\n")
-	}
-	return r
 }
 
 func envInt(t *testing.T, name string, def int) int {
@@ -142,6 +136,10 @@ type progGen struct {
 	helpers int      // the helpers h0, k0, ... that the code may call (only earlier ones: no recursion)
 	ptrs    []string // the *int variables in scope that may be read and written through
 	main    bool     // in main, whose local slice ls and local array la are in scope
+	// panicky: the program has statements with several operations that panic about half of
+	// the time each (panicStmt), and such operations as leaves (risky), so it often ends with a
+	// panic whose message shows which of them Go evaluates first (step 3.12).
+	panicky bool
 }
 
 const randomPrelude = `package main
@@ -246,6 +244,18 @@ var gsa [2]S
 var pst = &gst
 var pls *S
 var pfa = &gst.b
+
+// pss and gpi hold a nil pointer, gmn is a nil map, gm8 a map whose key gc copies among the
+// calls: the risky operations use them (step 3.12).
+var pss = []*S{&gst, nil}
+var gpi = []*int{&g1, nil}
+var gmn map[int]int
+var gm8 = map[int8]int{1: 2}
+var gk8 = []int8{1, 2}
+
+// gmb has bool keys, which gc's map call takes by address: gmb[gb] reads gb where the map is,
+// after the calls of its statement (e flips gb).
+var gmb = map[bool]int{false: 3, true: -4}
 
 func restruct(tag int) {
 	switch tag % 6 {
@@ -426,15 +436,35 @@ func viaE(f func(S, int, int) int, s S, tag, v int) int { return f(s, tag, v) }
 
 func (g *progGen) program() string {
 	g.b.WriteString(randomPrelude)
-	// Helpers with several results and returns: each may call e, and only e.
+	g.panicky = g.chance(0.6)
+	// Helpers with several results and returns: each may call e, and only e. In a panicky
+	// program a helper may have named results and a defer (gc's ascompatee evaluates the values
+	// of a return after the first one early when the function has defers: step 3.12).
 	for i := range 3 {
 		g.helpers = i
-		g.printf("func h%d(p int) (int, int) {", i)
+		named, deferred := g.panicky && g.chance(0.3), g.panicky && g.chance(0.4)
+		if named {
+			g.printf("func h%d(p int) (r0, r1 int) {", i)
+		} else {
+			g.printf("func h%d(p int) (int, int) {", i)
+		}
 		g.indent++
+		if deferred {
+			g.printf("defer func() {}()")
+		}
 		g.locals = []string{"p"}
 		g.paramPtr()
 		g.stmts(2)
-		g.printf("return %s, %s", g.expr(3), g.expr(3))
+		x, y := g.expr(3), g.expr(3)
+		if g.panicky && g.chance(0.4) {
+			x, y = g.risky(), g.risky()
+		}
+		if named && g.chance(0.5) {
+			g.printf("r0, r1 = %s, %s", x, y)
+			g.printf("return")
+		} else {
+			g.printf("return %s, %s", x, y)
+		}
 		g.indent--
 		g.printf("}")
 		g.printf("")
@@ -1046,6 +1076,10 @@ func (g *progGen) namedStmt() {
 }
 
 func (g *progGen) stmt() {
+	if g.panicky && g.chance(1.0/30) {
+		g.panicStmt()
+		return
+	}
 	k := g.r.Intn(26)
 	if k >= 24 {
 		g.namedStmt()
@@ -1439,6 +1473,190 @@ func (g *progGen) bound() string {
 	return g.nonConst(2) + " & 3"
 }
 
+// risky returns an int operation that panics about half of the time (step 3.12): an index out
+// of range of gsl (5 elements), gar (4), gs (5 bytes or more), gal (2) and in main ls (4) and la
+// (4), a division or remainder by 0, a negative shift count, and a field or a read through a
+// nil pointer. Its operands may call e, which changes them.
+func (g *progGen) risky() string {
+	x := g.nonConst(1)
+	k := g.r.Intn(10)
+	if g.main && k >= 8 {
+		return []string{"ls", "la"}[k-8] + "[" + x + " & 7]"
+	}
+	switch k {
+	case 0:
+		return "gsl[" + x + " & 7]"
+	case 1:
+		return "gar[" + x + " & 7]"
+	case 2:
+		return "int(gs[" + x + " & 7])"
+	case 3:
+		return "gal[" + x + " & 3]"
+	case 4:
+		return "(" + g.expr(1) + " / (" + x + " & 1))"
+	case 5:
+		return "(" + g.expr(1) + " % (" + x + " & 1))"
+	case 6:
+		return "(" + g.expr(1) + " << (" + x + "&3 - 1))"
+	case 7:
+		if g.chance(0.3) {
+			// gc evaluates a map read's key first (walkFirst), also a key of a type that its
+			// map call takes the address of (int8: orderKey).
+			switch g.r.Intn(3) {
+			case 0:
+				return "gmp[" + g.risky() + "]"
+			case 1:
+				return "gm8[gk8[" + x + " & 3]]" // addressable: read where the map is
+			}
+			return "gm8[int8(" + g.risky() + ")]"
+		}
+		return "pss[" + x + " & 1].a"
+	}
+	return "*gpi[" + x + " & 1]"
+}
+
+// riskyTarget returns the target of an assignment whose store can panic: an element out of
+// range, a field or a store through a nil pointer, an entry of a nil map; or a target.
+func (g *progGen) riskyTarget() string {
+	x := g.nonConst(1)
+	if g.chance(0.2) {
+		x = g.risky() // gc evaluates such an index (x & 7) before the value, an index alone after it
+	}
+	switch g.r.Intn(6) {
+	case 0:
+		return "gsl[" + x + " & 7]"
+	case 1:
+		return "gar[" + x + " & 7]"
+	case 2:
+		return "pss[" + x + " & 1].b"
+	case 3:
+		return "gmn[" + x + "]"
+	case 4:
+		return "*gpi[" + x + " & 1]"
+	}
+	return g.target()
+}
+
+// panicStmt writes a statement with several operations that can panic (risky), in one of the
+// places where C++ and Go may order them differently (step 3.12): the arguments of a call (fmt,
+// println, a function, a method, a func value), the operands of an operator, the elements of a
+// composite literal, the right side of && and ||, the condition of an else if, a switch tag and
+// its cases, the condition and the post statement of a loop, the values and targets of an
+// assignment (also with op= and a nil map), a declaration (also of a variable whose address is
+// taken), and a deferred call.
+func (g *progGen) panicStmt() {
+	r := g.risky
+	switch g.r.Intn(16) {
+	case 0:
+		g.printf("fmt.Println(%s, %s, %s)", r(), g.expr(1), r())
+	case 1:
+		g.printf("println(%s, %s)", r(), r())
+	case 2:
+		g.printf("_ = both(%s, %s)", r(), r())
+	case 3:
+		op := []string{"+", "-", "*", "==", "<", "!=", "^"}[g.r.Intn(7)]
+		if g.chance(0.25) {
+			// An ordering comparison of strings: gc evaluates its operands first.
+			g.printf("fmt.Println(%s == 0 == (gs[%s&7:] < gs[:%s&7]))", r(), r(), r())
+			break
+		}
+		g.printf("fmt.Println(%s %s %s)", r(), op, r())
+	case 4:
+		switch g.r.Intn(4) {
+		case 0:
+			g.printf("fmt.Println([]int{%s, %s})", r(), r())
+		case 1:
+			g.printf("fmt.Println([2]int{%s, %s})", r(), r())
+		case 2:
+			g.printf("fmt.Println(S{b: %s, a: %s})", r(), r())
+		default:
+			g.printf("fmt.Println(map[int]int{%s: %s})", r(), r())
+		}
+	case 5:
+		g.printf("fmt.Println(%s && %s > 0 || %s < 0, %s)", g.cond(1), r(), r(), g.expr(1))
+	case 6:
+		g.printf("if %s {", g.cond(1))
+		g.printf("} else if %s > %s {", r(), r())
+		g.printf("\tfmt.Println(\"else if\")")
+		g.printf("}")
+	case 7:
+		if g.chance(0.5) {
+			g.printf("switch %s + %s {", r(), r())
+		} else {
+			g.printf("switch %s {", g.expr(1))
+			g.printf("case %s:", g.nonConst(1))
+		}
+		g.printf("case %s, %s:", r(), r())
+		g.printf("\tfmt.Println(\"case\")")
+		g.printf("}")
+	case 8:
+		g.nvars++
+		c := "c" + strconv.Itoa(g.nvars)
+		switch k := g.r.Intn(3); {
+		case k == 0:
+			g.printf("for %s := 0; %s < 3 && %s > %s; %s++ {", c, c, r(), r(), c)
+		case k == 1:
+			// Two loop variables, one of them boxed: gc evaluates the init like a plain
+			// declaration (the boxed one is a copy per iteration).
+			d := "d" + strconv.Itoa(g.nvars)
+			g.printf("for %s, %s := %s, %s; %s < %s && %s < 3; %s++ {", c, d, r(), r(), c, d, c, c)
+			g.printf("	pc = &%s", c)
+		default:
+			g.printf("for %s := 0; %s < 3; %s, _ = %s+1, %s+%s {", c, c, c, c, r(), r())
+		}
+		g.printf("\tfmt.Println(%q, %s)", c, c)
+		g.printf("}")
+	case 9:
+		a, b := g.riskyTarget(), g.riskyTarget()
+		if a == b {
+			b = "_"
+		}
+		g.printf("%s, %s = %s, %s", a, b, r(), r())
+	case 10:
+		ops := []string{"+=", "-=", "*=", "^=", "/=", "%="}
+		g.printf("%s %s %s", g.riskyTarget(), ops[g.r.Intn(len(ops))], r())
+	case 11:
+		x, y := r(), r() // before a and b are in scope
+		a, b := g.newVar(), g.newVar()
+		if g.chance(0.5) {
+			g.printf("%s, %s := %s, %s", a, b, x, y)
+		} else {
+			g.printf("var %s, %s = %s, %s", a, b, x, y)
+		}
+		if g.chance(0.5) {
+			g.printf("pc = &%s // a boxed variable: gc evaluates the values after it early", a)
+		}
+		g.printf("fmt.Println(%s, %s)", a, b)
+	case 12:
+		switch g.r.Intn(4) {
+		case 0:
+			g.printf("_ = gfn(%s + %s)", r(), r())
+		case 1:
+			g.printf("_ = gfs[%s & 3](%s)", g.nonConst(1), r())
+		case 2:
+			g.printf("_ = pss[%s & 1].mv(%d, %s)", g.nonConst(1), g.nextTag(), r())
+		default:
+			g.printf("_ = gsa[%s & 3].mv(%d, %s)", g.nonConst(1), g.nextTag(), r())
+		}
+	case 13:
+		// gc evaluates a deferred call's func value and receiver first, then its arguments.
+		switch g.r.Intn(4) {
+		case 0:
+			g.printf("defer fmt.Println(%s, %s)", r(), r())
+		case 1:
+			g.printf("defer gfs[%s & 3](%s)", g.nonConst(1), r())
+		case 2:
+			g.printf("defer pss[%s & 1].mv(%d, %s)", g.nonConst(1), g.nextTag(), r())
+		default:
+			g.printf("defer gsa[%s & 3].mv(%d, %s)", g.nonConst(1), g.nextTag(), r())
+		}
+	case 14:
+		g.printf("%s = %s + %s", g.riskyTarget(), r(), r())
+	default:
+		g.printf("%s++", g.riskyTarget())
+	}
+}
+
 // divisor returns a divisor: usually one that can't be 0.
 func (g *progGen) divisor() string {
 	if g.chance(0.02) {
@@ -1463,6 +1681,9 @@ func isConstText(x string) bool {
 }
 
 func (g *progGen) leaf() string {
+	if g.panicky && g.chance(0.015) {
+		return g.risky()
+	}
 	switch g.r.Intn(6) {
 	case 0:
 		return strconv.Itoa(g.r.Intn(10))
@@ -1484,7 +1705,7 @@ func (g *progGen) leaf() string {
 		if x := g.named(1); g.chance(0.2) && !isConstText(x) {
 			return "int(" + x + ")" // (a constant would make a case of a switch a duplicate)
 		}
-		return []string{"g0", "g1", "len(gs)", "int(g8)", "len(gmp)"}[g.r.Intn(5)]
+		return []string{"g0", "g1", "len(gs)", "int(g8)", "len(gmp)", "gmb[gb]"}[g.r.Intn(6)]
 	default:
 		if g.chance(0.2) {
 			return g.method(1)

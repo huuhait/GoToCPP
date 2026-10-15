@@ -31,7 +31,7 @@ import (
 // can inline it at all: its own body has no defer or go statement and no recover call
 // (notInlined). A local that box.go boxes only because closures capture and change it
 // (boxCaptured), of a type that convCopied and canSSA accept, and that only such closures
-// capture, is copied in place like gc does, and so is a part of it whose type convCopied accepts
+// capture, is copied in place like gc does (also as a key of a slow map call: ssaKey), and so is a part of it whose type convCopied accepts
 // (outerVar: t.ok, a[0].ok); any other boxed local is read after the calls. gc can differ
 // (divergence D25 in docs/spec/language.md): it doesn't inline a closure that costs more than 160
 // nodes (800 when it is called once; 40 inside a function of more than 5,000 nodes) and then
@@ -161,7 +161,7 @@ func inPlaceLocals(info *types.Info, top ast.Node, boxed map[*types.Var]boxReaso
 	}
 	in = make(map[*types.Var]bool)
 	for v, r := range boxed {
-		if r != boxCaptured || params[v] || !convCopied(v.Type()) || !canSSA(v.Type()) {
+		if r != boxCaptured || params[v] || !canSSA(v.Type()) {
 			continue
 		}
 		ok := true
@@ -293,11 +293,37 @@ func canSSA(t types.Type) bool {
 
 // inPlaceLocal reports whether v is a boxed local that an argument of fmt copies in place.
 func (fg *funcGen) inPlaceLocal(v *types.Var) bool {
+	return convCopied(v.Type()) && fg.ssaLocal(v)
+}
+
+// ssaLocal reports whether v is a boxed local that gc keeps in registers (above, without
+// convCopied: inPlaceLocals), which its addrTemp copies in place: as an argument of fmt that
+// needs an address (inPlaceLocal) and as a key of a slow map call (orderKey: ssaKey).
+func (fg *funcGen) ssaLocal(v *types.Var) bool {
 	if !fg.isBoxed(v) || fg.top == nil {
 		return false
 	}
 	fg.findInPlace()
 	return fg.inPlace[v]
+}
+
+// ssaKey reports whether gc's addrTemp copies the addressable key k of a slow map call in place
+// (orderKey): k is a local that gc keeps in registers or a part of one (outerVar), which in
+// gocpp is a boxed local that only closures that gc inlines change (ssaLocal), or a plain local
+// read through an index that a call can change (varIndex; as inPlacePart, without convCopied).
+func (fg *funcGen) ssaKey(k ast.Expr) bool {
+	v := fg.outerVar(k)
+	if v == nil || fg.top == nil {
+		return false
+	}
+	if fg.isBoxed(v) {
+		return fg.ssaLocal(v)
+	}
+	if v.Parent() == nil || v.Parent() == fg.g.pkg.Types.Scope() || !canSSA(v.Type()) || !fg.varIndex(k) {
+		return false
+	}
+	fg.findInPlace()
+	return !fg.inPlaceParams[v]
 }
 
 // findInPlace runs inPlaceLocals for fg.top, once (gp_var_init changes top for each package

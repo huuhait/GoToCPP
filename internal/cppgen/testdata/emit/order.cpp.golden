@@ -130,33 +130,33 @@ void main() {
 #line 110 "$DIR/order.gp"
     auto gp_t29 = inc(); int64_t a = x; int64_t b = gp_t29;
     gp::fmtshim::Println(a, b);
-    { auto gp_t30 = inc(); auto gp_t31 = x; a = gp_t31; b = gp_t30; }
+    { auto gp_t30 = inc(); a = x; b = gp_t30; }
     gp::fmtshim::Println(a, b);
-    { auto gp_t32 = inc() + a; a = b; b = gp_t32; }
+    { auto gp_t31 = inc() + a; a = b; b = gp_t31; }
     gp::fmtshim::Println(a, b);
     int64_t p = next();
 #line 116 "$DIR/order.gp"
     int64_t q = n;
     gp::fmtshim::Println(p, q);
-    { auto gp_t33 = inc(); x = x + gp_t33; }
+    { auto gp_t32 = inc(); x = x + gp_t32; }
     gp::fmtshim::Println(x);
-    { auto gp_t34 = inc(); a = x - gp_t34; }
+    { auto gp_t33 = inc(); a = x - gp_t33; }
     gp::fmtshim::Println(a);
-    { auto gp_t35 = inc(); static_cast<void>(g(x, gp_t35)); }
+    { auto gp_t34 = inc(); static_cast<void>(g(x, gp_t34)); }
 #line 125 "$DIR/order.gp"
     {
 #line 125 "$DIR/order.gp"
-        auto gp_t36 = inc();
+        auto gp_t35 = inc();
 #line 125 "$DIR/order.gp"
-        if (x == gp_t36) {
+        if (x == gp_t35) {
             gp::fmtshim::Println("never"_gs);
         } else if (next() > 100) {
             gp::fmtshim::Println("never"_gs);
         } else {
 #line 129 "$DIR/order.gp"
-            auto gp_t37 = inc();
+            auto gp_t36 = inc();
 #line 129 "$DIR/order.gp"
-            if (g(x, gp_t37) > 0) {
+            if (g(x, gp_t36) > 0) {
                 gp::fmtshim::Println("else if"_gs, x);
             }
 #line 131 "$DIR/order.gp"
@@ -171,7 +171,7 @@ void main() {
             gp::fmtshim::Println("never"_gs);
         } else {
 #line 134 "$DIR/order.gp"
-            auto gp_t38 = inc(); int64_t w = g(x, gp_t38);
+            auto gp_t37 = inc(); int64_t w = g(x, gp_t37);
 #line 134 "$DIR/order.gp"
             if (w < 0) {
                 gp::fmtshim::Println("never"_gs);
@@ -186,7 +186,7 @@ void main() {
     x = 0;
     for (;;) {
 #line 142 "$DIR/order.gp"
-        auto gp_t39 = inc(); auto gp_t40 = g(x, gp_t39); if (!(x < gp_t40 && x < 4)) break;
+        auto gp_t38 = inc(); auto gp_t39 = g(x, gp_t38); if (!(x < gp_t39 && x < 4)) break;
         if (x == 2) {
             continue;
         }
@@ -195,7 +195,7 @@ void main() {
     x = 0;
     for (int64_t i = 0;; i++) {
 #line 149 "$DIR/order.gp"
-        auto gp_t41 = inc(); if (!(i < x + gp_t41 && i < 3)) break;
+        auto gp_t40 = inc(); if (!(i < x + gp_t40 && i < 3)) break;
         gp::fmtshim::Println("3-clause"_gs, i, x);
     }
     x = 0;
@@ -210,21 +210,21 @@ void main() {
 #line 158 "$DIR/order.gp"
         gp_cont_0:;
 #line 153 "$DIR/order.gp"
-        { auto gp_t42 = inc(); i = i + x - gp_t42 + 2; }
+        { auto gp_t41 = inc(); i = i + x - gp_t41 + 2; }
 #line 158 "$DIR/order.gp"
     }
     x = 0;
 #line 161 "$DIR/order.gp"
     {
 #line 161 "$DIR/order.gp"
-        auto gp_t43 = inc(); int64_t i = x; int64_t j = gp_t43;
+        auto gp_t42 = inc(); int64_t i = x; int64_t j = gp_t42;
 #line 161 "$DIR/order.gp"
         for (; i < 3; i++) {
 #line 161 "$DIR/order.gp"
             {
                 for (int64_t k = 0;; k++) {
 #line 162 "$DIR/order.gp"
-                    auto gp_t44 = inc(); if (!(k < x + gp_t44)) break;
+                    auto gp_t43 = inc(); if (!(k < x + gp_t43)) break;
                     if (k == 1) {
                         goto gp_outer_continue;
                     }
@@ -240,9 +240,9 @@ void main() {
     x = 1;
     {
 #line 170 "$DIR/order.gp"
-        auto gp_t45 = inc();
+        auto gp_t44 = inc();
 #line 170 "$DIR/order.gp"
-        for (int64_t gp_i0 = 0, gp_n0 = g(x, gp_t45) / 10; gp_i0 < gp_n0; gp_i0++) {
+        for (int64_t gp_i0 = 0, gp_n0 = g(x, gp_t44) / 10; gp_i0 < gp_n0; gp_i0++) {
 #line 170 "$DIR/order.gp"
             int64_t i = gp_i0;
             gp::fmtshim::Println("range"_gs, i);
@@ -253,20 +253,20 @@ void main() {
     x = 1;
     {
 #line 176 "$DIR/order.gp"
-        auto gp_t46 = inc(); auto gp_tag0 = g(x, gp_t46);
+        auto gp_t45 = inc(); auto gp_tag0 = g(x, gp_t45);
         if (gp_tag0 == next()) {
             gp::fmtshim::Println("never"_gs);
         } else {
 #line 179 "$DIR/order.gp"
-            auto gp_t47 = inc();
+            auto gp_t46 = inc();
 #line 179 "$DIR/order.gp"
-            if (gp_tag0 == g(x, gp_t47) || gp_tag0 == next()) {
+            if (gp_tag0 == g(x, gp_t46) || gp_tag0 == next()) {
                 gp::fmtshim::Println("case"_gs, x, n);
             } else {
 #line 181 "$DIR/order.gp"
-                auto gp_t48 = inc();
+                auto gp_t47 = inc();
 #line 181 "$DIR/order.gp"
-                if (gp_tag0 == g(x, gp_t48)) {
+                if (gp_tag0 == g(x, gp_t47)) {
                     gp::fmtshim::Println("never"_gs);
                 }
 #line 183 "$DIR/order.gp"
@@ -280,13 +280,13 @@ void main() {
         auto gp_tag1 = x;
         {
 #line 185 "$DIR/order.gp"
-            bool gp_t49 = gp_tag1 == 0;
+            bool gp_t48 = gp_tag1 == 0;
 #line 185 "$DIR/order.gp"
-            if (!gp_t49) { auto gp_t50 = inc(); gp_t49 = gp_tag1 == g(x, gp_t50); }
+            if (!gp_t48) { auto gp_t49 = inc(); gp_t48 = gp_tag1 == g(x, gp_t49); }
 #line 185 "$DIR/order.gp"
-            if (!gp_t49) { gp_t49 = gp_tag1 == inc(); }
+            if (!gp_t48) { gp_t48 = gp_tag1 == inc(); }
 #line 185 "$DIR/order.gp"
-            if (gp_t49) {
+            if (gp_t48) {
                 gp::fmtshim::Println("case list"_gs, x);
             } else {
                 gp::fmtshim::Println("default"_gs, x);
@@ -299,11 +299,11 @@ void main() {
     if (gpkg_main::t("i"_gs, false)) {
     } else {
 #line 192 "$DIR/order.gp"
-        bool gp_t51 = gpkg_main::t("j"_gs, false);
+        bool gp_t50 = gpkg_main::t("j"_gs, false);
 #line 192 "$DIR/order.gp"
-        if (!gp_t51) { auto gp_t52 = inc(); gp_t51 = g(x, gp_t52) > 0; }
+        if (!gp_t50) { auto gp_t51 = inc(); gp_t50 = g(x, gp_t51) > 0; }
 #line 192 "$DIR/order.gp"
-        if (gp_t51) {
+        if (gp_t50) {
             gp::fmtshim::Println("tagless"_gs, x);
         }
 #line 194 "$DIR/order.gp"

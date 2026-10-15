@@ -44,39 +44,39 @@ void main() {
     int64_t j = 12;
     uint8_t lo = 1;
     int16_t hi = 4;
-    gp::fmtshim::Println(gp::sub(s, i, j), gp::sub(s, i), gp::sub(s, 0, 5), s, gp::sub(s, j), gp::sub(s, lo, hi), gp::sub(s, lo), gp::sub(s, 0, hi), gp::len(gp::sub(s, 3, 3)));
-    gp::fmtshim::Println(gp::sub(s, 0), gp::sub(s, 1, 4) == "ell"_gs, gp::sub(gp::sub(s, i, j), 1, 3), gp::sub("literal"_gs, 3), gp::sub(s, gp::len(s) - 1), gp::sub(gp::sub(s, i), 0, 2));
-    { auto gp_t0 = next(); auto gp_t1 = gp::sub(s, gp_t0, next()); auto gp_t2 = gp::sub(s, next()); gp::fmtshim::Println(gp_t1, gp_t2, calls); }
+    { auto gp_t0 = gp::sub(s, i, j); auto gp_t1 = gp::sub(s, i); auto gp_t2 = gp::sub(s, 0, 5); auto gp_t3 = gp::sub(s, j); auto gp_t4 = gp::sub(s, lo, hi); auto gp_t5 = gp::sub(s, lo); auto gp_t6 = gp::sub(s, 0, hi); gp::fmtshim::Println(gp_t0, gp_t1, gp_t2, s, gp_t3, gp_t4, gp_t5, gp_t6, gp::len(gp::sub(s, 3, 3))); }
+    { auto gp_t7 = gp::sub(s, 1, 4) == "ell"_gs; auto gp_t8 = gp::sub(gp::sub(s, i, j), 1, 3); auto gp_t9 = gp::sub("literal"_gs, 3); auto gp_t10 = gp::sub(s, gp::len(s) - 1); gp::fmtshim::Println(gp::sub(s, 0), gp_t7, gp_t8, gp_t9, gp_t10, gp::sub(gp::sub(s, i), 0, 2)); }
+    { auto gp_t11 = next(); auto gp_t12 = gp::sub(s, gp_t11, next()); auto gp_t13 = gp::sub(s, next()); gp::fmtshim::Println(gp_t12, gp_t13, calls); }
 #line 45 "$DIR/substr.gp"
-    gp::string t = gp::concat(gp::sub(s, 0, 5), "!"_gs, gp::sub(s, i), "?"_gs);
+    auto gp_t14 = gp::sub(s, 0, 5); gp::string t = gp::concat(gp_t14, "!"_gs, gp::sub(s, i), "?"_gs);
     gp::string u = gp::concat(s, t, gp::sub(s, 0, 1));
-    gp::fmtshim::Println(t, u, gp::len(t + u), t[5], gp::sub(s, 0, 0) == ""_gs);
+    { auto gp_t15 = t[5]; gp::fmtshim::Println(t, u, gp::len(t + u), gp_t15, gp::sub(s, 0, 0) == ""_gs); }
     gp::string w = ""_gs;
     for (int64_t k = 0; k < 5; k++) {
         w = gp::concat(w, gp::sub(s, k, k + 1), "-"_gs);
         w = w + "|"_gs;
     }
     gp::fmtshim::Println(w, gp::len(w));
-    { auto gp_t3 = grow(); gp::fmtshim::Println(gp::concat(g, gp_t3, g), g); }
+    { auto gp_t16 = grow(); gp::fmtshim::Println(gp::concat(g, gp_t16, g), g); }
     gp::string x = "a"_gs;
     x = gp::concat(x, x, x);
     x = gp::concat(x, x, "b"_gs);
     gp::fmtshim::Println(x, gp::concat("c"_gs, x, "d"_gs, grow()));
 #line 62 "$DIR/substr.gp"
     reset();
-    { auto gp_t4 = gp::sub(g, n); gp::fmtshim::Println(gp_t4, shift()); }
+    { auto gp_t17 = gp::sub(g, n); gp::fmtshim::Println(gp_t17, shift()); }
     reset();
-    { auto gp_t5 = gp::sub(g, 1, n + 1); auto gp_t6 = gp::sub(g, n, gp::len(g)); gp::fmtshim::Println(gp_t5, gp_t6, shift()); }
+    { auto gp_t18 = gp::sub(g, 1, n + 1); auto gp_t19 = gp::sub(g, n, gp::len(g)); gp::fmtshim::Println(gp_t18, gp_t19, shift()); }
     reset();
-    auto gp_t7 = gp::sub(g, n); auto gp_t8 = shift(); gp::string y = gp_t7 + gp::sub(g, 0, gp_t8);
+    auto gp_t20 = gp::sub(g, n); auto gp_t21 = shift(); gp::string y = gp_t20 + gp::sub(g, 0, gp_t21);
     reset();
-    { auto gp_t9 = gp::len(gp::sub(g, n)); auto gp_t10 = gp::sub(g, n) == "bcdef"_gs; auto gp_t11 = gp::sub(g, n); auto gp_t12 = shift(); gp::fmtshim::Println(y, gp_t9, gp_t10, g + gp_t11, g + "-"_gs, gp_t12); }
+    { auto gp_t22 = gp::len(gp::sub(g, n)); auto gp_t23 = gp::sub(g, n) == "bcdef"_gs; auto gp_t24 = gp::sub(g, n); auto gp_t25 = shift(); gp::fmtshim::Println(y, gp_t22, gp_t23, g + gp_t24, g + "-"_gs, gp_t25); }
     reset();
-    { auto gp_t13 = n + 0; auto gp_t14 = shift() + 2; auto gp_t15 = gp::sub(g, gp_t13, gp_t14); gp::fmtshim::Println(gp_t15, n); }
+    { auto gp_t26 = n + 0; auto gp_t27 = shift() + 2; auto gp_t28 = gp::sub(g, gp_t26, gp_t27); gp::fmtshim::Println(gp_t28, n); }
     reset();
-    { auto gp_t16 = shift() + 2; auto gp_t17 = gp::sub(g, n, gp_t16); gp::fmtshim::Println(gp_t17, n); }
+    { auto gp_t29 = shift() + 2; auto gp_t30 = gp::sub(g, n, gp_t29); gp::fmtshim::Println(gp_t30, n); }
     reset();
-    { auto gp_t18 = gp::sub(gp::sub(g, 0, n + 1), n); auto gp_t19 = shift(); gp::fmtshim::Println(gp_t18, gp_t19, gp::sub(gp::sub(g, n), 0, n)); }
+    { auto gp_t31 = gp::sub(gp::sub(g, 0, n + 1), n); auto gp_t32 = shift(); gp::fmtshim::Println(gp_t31, gp_t32, gp::sub(gp::sub(g, n), 0, n)); }
 }
 
 } // namespace gpkg_main

@@ -43,7 +43,7 @@ The [feature matrix](feature-matrix.md) lists every feature with the phase that 
 | [D19](#d19-c-is-a-reserved-name) | `C` is an ordinary name | `C` is reserved for C's built-in types and helpers | 01 |
 | [D20](#d20-type-names-with-more-than-one-dot) | a type name has at most one dot | `std.chrono.seconds`, `std.vector[int].iterator` | 01, 04 |
 | [D21](#d21-range-over-c-containers) | `range` over Go types only | also over C++ containers and C arrays | 04 |
-| [D22](#d22-which-of-two-run-time-panics-is-reported) | one panic message, fixed by the compiler | with two possible panics and no call between them, the other message can appear | 02 |
+| [D22](#d22-which-of-two-run-time-panics-is-reported) | one panic message, fixed by the compiler | the same one, except in three rare corners (assignments and declarations with several targets, calls that gc doesn't inline) | 02, 03 |
 | [D23](#d23-print-and-println-of-a-slice-or-a-map) | `println(s)` prints `[3/3]0xc000012345`, `println(m)` `0xc000012345` | an error: use `fmt.Println` | 03 |
 | [D24](#d24-large-values-on-the-c-stack) | the stack grows for any value | a result or a temporary array or struct over 128 KiB can overflow the C++ stack | 03 |
 | [D25](#d25-fmt-arguments-that-a-closure-changes) | whether `fmt.Println(ok, set())` prints the old `ok` depends on gc's inliner | a rule on the code approximates it; a closure gc doesn't inline can print differently | 03 |
@@ -587,17 +587,33 @@ for i, n := range nums { // i is the index, n is a copy of the element
 
 ```go
 s, i, z := "abc", 5, 0
-fmt.Println(s[i], 7/z) // Go: "index out of range [5] with length 3"; gocpp may report the division
+fmt.Println(s[i], 7/z) // Go and gocpp: "index out of range [5] with length 3"
+x, y, n := []int{1}, []int{1, 2}, 0
+n, x[x[i]+y[i]] = 1, 2 // Go checks x[i] first; gocpp may check y[i] first
 ```
 
-- **Go:** the spec leaves this order open; Go's compiler (gc) happens to check the index first.
-- **gocpp:** when one expression holds two operations that can panic at run time (an integer
-  division or remainder by zero, a negative shift count, an index out of range) and no function
-  call between them decides which runs first, gocpp may report the other of the two panics. The
-  program still panics and exits with code 2, and every call, all output and every value read
-  happen in Go's order; only the panic message can differ. Keeping gc's order here would need a
-  temporary for every such operation, which makes the C++ much harder to read.
-- **Phase:** [02](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/README.md#25-evaluation-order-minimal-version-here-already).
+- **Go:** the spec leaves this order open; Go's compiler (gc) checks from left to right, after
+  the calls, with its own rules for assignments (see
+  [cpp-mapping.md](cpp-mapping.md#order-of-evaluation)).
+- **gocpp:** since Phase 03 step 3.12 it reports the same panic as gc: an operation that can
+  panic (an integer division or remainder by zero, a negative shift count, an index or a slice
+  bound out of range, a nil pointer) goes into a temporary before the statement when C++ could
+  evaluate another one first. Three corners are left, where the other message can appear:
+  - two such operations inside one operand of a target of an assignment with several targets
+    (`s[a[i]+b[j]], x = 1, 2`);
+  - an assignment or a declaration with several targets (`var x, y = s[i], a[j]`) whose values
+    gc evaluates early or late by whether a variable's address is taken, where gocpp asks
+    whether the variable is boxed: the two differ only for a variable that a closure changes, as
+    in [D25](#d25-fmt-arguments-that-a-closure-changes);
+  - the arguments of a call of a function that gc doesn't inline, `h(s[i], m[a[j]])`: gc then
+    evaluates the panics in a map key (or a string comparison) of a later argument before the
+    earlier arguments, while for a function that it inlines it goes from left to right, as gocpp
+    always does.
+
+  The program still panics and exits with code 2, and every call, all output and every value
+  read happen in Go's order; only the panic message can differ.
+- **Phase:** [02](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/README.md#25-evaluation-order-minimal-version-here-already),
+  narrowed in [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#27-evaluation-order).
 
 ## D23. print and println of a slice or a map
 
@@ -693,9 +709,12 @@ fmt.Println(ok, set()) // Go and gocpp: false true
   a local that doesn't escape. gocpp also reads a parameter of a func literal (and a part of one)
   after the calls, while gc copies it when it inlines the literal, whose parameters then become
   locals of the caller: `f := func(a [1]bool) { fmt.Println(a[gk], setk()) }; f([1]bool{})`
-  prints `false 0` in Go, where gocpp indexes with the new `gk` (and here panics). A program that
-  wants one answer evaluates the call first
-  (`r := set(); fmt.Println(ok, r)`) or passes the value it means.
+  prints `false 0` in Go, where gocpp indexes with the new `gk` (and here panics). The same rule
+  and the same differences hold for the key of a map whose map call takes the key's address (a
+  `bool`, `int8`, `int16`, `uint8` or `uint16` key, a float, most arrays and structs): with `mb`
+  a `map[bool]int`, `fmt.Println(mb[ok], set())` reads the old `ok` when gc inlines `set` (step
+  3.12). A program that wants one answer evaluates the call first (`r := set(); fmt.Println(ok,
+  r)`) or passes the value it means.
 - **Phase:** [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#210-builtins-printing-and-package-initialization).
   The rule is in `internal/lower/inplace.go`; `tests/diff/fmt_closure_locals.gp` has the cases
   where both agree. Phase 15's escape analysis may get closer to gc's.

@@ -14,18 +14,18 @@ gp::string join(gp::string a, gp::string b) {
 void main() {
     gp::string s = "h\303\251llo"_gs;
     gp::string t = gp::concat(s, ", "_gs, "world"_gs);
-    gp::fmtshim::Println(s, t, gp::len(s), gp::len(t), int64_t(6), int64_t(0), s[0], s[1], s[2], s[gp::len(s) - 1]);
-    { auto gp_t0 = gpkg_main::join(s, t); gp::fmtshim::Println(gp_t0, gp::len(gpkg_main::join(""_gs, ""_gs)), s == "h\303\251llo"_gs, s + ""_gs == s, t > s, ""_gs < s); }
+    { auto gp_t0 = s[0]; auto gp_t1 = s[1]; auto gp_t2 = s[2]; gp::fmtshim::Println(s, t, gp::len(s), gp::len(t), int64_t(6), int64_t(0), gp_t0, gp_t1, gp_t2, s[gp::len(s) - 1]); }
+    { auto gp_t3 = gpkg_main::join(s, t); gp::fmtshim::Println(gp_t3, gp::len(gpkg_main::join(""_gs, ""_gs)), s == "h\303\251llo"_gs, s + ""_gs == s, t > s, ""_gs < s); }
     uint8_t i = 4;
     int16_t j = 2;
-    gp::fmtshim::Println(s[i], s[j], uint8_t(s[i] + s[j]), s[i] == 108, s[0] >= 97 && s[0] <= 122, uint8_t(s[1] - 48) <= 9);
+    { auto gp_t4 = s[i]; auto gp_t5 = s[j]; auto gp_t6 = s[i]; auto gp_t7 = uint8_t(gp_t6 + s[j]); auto gp_t8 = s[i] == 108; bool gp_t9 = s[0] >= 97 && s[0] <= 122; gp::fmtshim::Println(gp_t4, gp_t5, gp_t7, gp_t8, gp_t9, uint8_t(s[1] - 48) <= 9); }
     int64_t n = 0;
     gp::string digits = "2026x"_gs;
     n = n * 10 + int64_t(uint8_t(digits[0] - 48));
     n = n * 10 + int64_t(uint8_t(digits[1] - 48));
     n = n * 10 + int64_t(uint8_t(digits[2] - 48));
     n = n * 10 + int64_t(uint8_t(digits[3] - 48));
-    gp::fmtshim::Println(n, uint8_t(digits[4] - 48) <= 9, uint8_t(digits[4] - 48), s == s, "abc"_gs[uint8_t(i - 3)]);
+    { auto gp_t10 = uint8_t(digits[4] - 48) <= 9; auto gp_t11 = uint8_t(digits[4] - 48); gp::fmtshim::Println(n, gp_t10, gp_t11, s == s, "abc"_gs[uint8_t(i - 3)]); }
     gp::string empty{};
     gp::fmtshim::Println(empty == ""_gs, gp::len(empty), empty + empty == ""_gs, gp::concat("x"_gs, empty, "y"_gs));
     gp::println(s, t + "!"_gs, s[0]);

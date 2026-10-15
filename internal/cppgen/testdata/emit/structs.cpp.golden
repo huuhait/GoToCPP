@@ -358,7 +358,7 @@ void main() {
     { auto gp_t0 = f(1); auto gp_t1 = Point{.X = f(2), .Y = gp_t0}; auto gp_t2 = Point{f(3), f(4)}; auto gp_t3 = Point{.X = f(5), .Y = x}; gp::fmtshim::Println(gp_t1, gp_t2, gp_t3, gpt); }
     gp::slice<Rect> rects = gp::slice_of<Rect>({Rect{.Min = Point{1, 1}}, Rect{.Max = Point{.X = 2}}});
     gp::slice<gp::ptr<Point>> ptrs = gp::slice_of<gp::ptr<Point>>({gp::new_<Point>(Point{1, 2}), gp::new_<Point>(Point{3, 4})});
-    gp::fmtshim::Println(rects[0], rects[1], *ptrs[1], gp::len(ptrs));
+    { static_cast<void>(rects[0]); static_cast<void>(rects[1]); gp::fmtshim::Println(rects[0], rects[1], *ptrs[1], gp::len(ptrs)); }
 #line 148 "$DIR/structs.gp"
     (*q).X = 10;
     (*q).Y = (*q).Y + 3;
@@ -366,7 +366,7 @@ void main() {
     gp::ptr<Point> pp = q;
     pp->Y = pp->Y * 2;
     pp->X--;
-    gp::fmtshim::Println((*q), pp->X, *pp);
+    { auto gp_t4 = pp->X; gp::fmtshim::Println((*q), gp_t4, *pp); }
     grect.Min.Y = 2;
     gptr->X = gptr->X + 10;
     gpkg_main::pick(q)->Y++;
@@ -384,7 +384,7 @@ void main() {
     *pe = 50;
     gp::ptr<int64_t> pm = gp::field_ptr(mk(), &Outer::X);
     gp::ptr<int64_t> pd = gp::field_ptr(mk()->Mid, &Mid::M);
-    gp::fmtshim::Println((*b), grect, (*q), ps[0], *pm, *pd);
+    { static_cast<void>(ps[0]); auto gp_t5 = *pm; gp::fmtshim::Println((*b), grect, (*q), ps[0], gp_t5, *pd); }
 #line 176 "$DIR/structs.gp"
     double zero = 0.0;
     gp_anon_b79b937cf52eaff0 nan{zero / zero};
@@ -394,7 +394,7 @@ void main() {
     Rect r1{Point{0, 0}, Point{4, 3}};
     Rect r2 = r1;
     r2.Max.X = 100;
-    { auto gp_t4 = gpkg_main::area(r1); gp::fmtshim::Println(gp_t4, r1, r2, gpkg_main::grow(r1, 1), r1 == r2); }
+    { auto gp_t6 = gpkg_main::area(r1); gp::fmtshim::Println(gp_t6, r1, r2, gpkg_main::grow(r1, 1), r1 == r2); }
     Line l{};
     l.R = r1;
     l.Name = "l"_gs;
@@ -412,12 +412,12 @@ void main() {
     po->Inner.A = po->Inner.A + 5;
     po->Inner.A = po->Inner.A * 2;
     (*o).Mid->Deep = gp::new_<Deep>(Deep{.D = 7});
-    { auto gp_t5 = mk(); auto gp_t6 = mk(); gp::fmtshim::Println((*o).Inner.A, (*o).Inner.b, (*o).Mid->M, (*o).Inner, (*o).X, po->Mid->Deep->D, gp_t5->Mid->Deep->D, gp_t6->X); }
+    { auto gp_t7 = mk(); auto gp_t8 = mk(); auto gp_t9 = (*o).Mid->M; auto gp_t10 = po->Mid->Deep->D; auto gp_t11 = gp_t7->Mid->Deep->D; gp::fmtshim::Println((*o).Inner.A, (*o).Inner.b, gp_t9, (*o).Inner, (*o).X, gp_t10, gp_t11, gp_t8->X); }
     gp::ptr<int64_t> pa = gp::ptr<int64_t>(o, &(*o).Inner.A);
     *pa = 100;
     gp::ptr<int64_t> pdd = gp::field_ptr((*o).Mid->Deep, &Deep::D);
     *pdd = 70;
-    gp::fmtshim::Println((*o).Inner.A, (*o).Mid->Deep->D, *pdd);
+    { auto gp_t12 = (*o).Mid->Deep->D; gp::fmtshim::Println((*o).Inner.A, gp_t12, *pdd); }
 #line 212 "$DIR/structs.gp"
     gp::ptr<Node> list{};
     for (int64_t gp_i0 = 0; gp_i0 < 4; gp_i0++) {
@@ -440,28 +440,28 @@ void main() {
     gp::ptr<Point> p1 = gp::new_<Point>(Point{1, 2});
 #line 229 "$DIR/structs.gp"
     gp::ptr<Point> p2 = gp::new_<Point>(Point{3, 4});
-    { auto gp_t7 = p1; p1 = p2; gp_t7->X = 100; }
-    gp::fmtshim::Println(*p1, *p2);
+    { auto gp_t13 = p1; p1 = p2; gp_t13->X = 100; }
+    { static_cast<void>(*p1); gp::fmtshim::Println(*p1, *p2); }
     int64_t i = 0;
-    { auto gp_t8 = i; i = 1; ps[gp_t8].Y = 60; }
+    { auto gp_t14 = i; i = 1; ps[gp_t14].Y = 60; }
     ps = gp::append(static_cast<gp::slice<Point>&&>(ps), Point{});
     for (auto gp_it0 = gp::range_slice(gp::slice_of<int64_t>({7, 8})); gp::range_next(gp_it0);) {
 #line 235 "$DIR/structs.gp"
         ps[1].X = gp_it0.gp_v();
     }
-    gp::fmtshim::Println(ps[0], ps[1], i);
-    { auto gp_t9 = (*q).Y; auto gp_t10 = (*q).X; (*q).X = gp_t9; (*q).Y = gp_t10; }
+    { static_cast<void>(ps[0]); gp::fmtshim::Println(ps[0], ps[1], i); }
+    { auto gp_t15 = (*q).X; (*q).X = (*q).Y; (*q).Y = gp_t15; }
     gp::fmtshim::Println((*q));
 #line 242 "$DIR/structs.gp"
     Words wl{};
-    { auto gp_t11 = wl.Words_; wl.Words_ = 1; ps[gp_t11].X = 70; }
+    { auto gp_t16 = wl.Words_; wl.Words_ = 1; ps[gp_t16].X = 70; }
     gp::array<int64_t, 2> la{};
-    { auto gp_t12 = la[0]; la[0] = 1; ps[gp_t12].Y = 80; }
-    gp::fmtshim::Println(ps[0], ps[1], wl.Words_, la[0]);
+    { auto gp_t17 = la[0]; la[0] = 1; ps[gp_t17].Y = 80; }
+    { static_cast<void>(ps[0]); gp::fmtshim::Println(ps[0], ps[1], wl.Words_, la[0]); }
     gp::ptr<Deep> e0 = gp::new_<Deep>(Deep{});
     Mid m{.Deep = e0};
-    { auto gp_t13 = m.Deep; m.Deep = gp::new_<Deep>(Deep{.D = 9}); gp_t13->D = 5; }
-    gp::fmtshim::Println(e0->D, m.Deep->D);
+    { auto gp_t18 = m.Deep; m.Deep = gp::new_<Deep>(Deep{.D = 9}); gp_t18->D = 5; }
+    { auto gp_t19 = e0->D; gp::fmtshim::Println(gp_t19, m.Deep->D); }
 #line 253 "$DIR/structs.gp"
     Words w{.Words_ = 1, .class_ = "c"_gs, .new_ = 2.5, .arr = gp::array<int64_t, 3>{1, 2, 3}};
     w.arr[1] = 20;
@@ -485,7 +485,7 @@ void main() {
     bp->n = 8;
     gp::ptr<Big> big2 = gp::new_init<Big>([&](Big& gp_b) { gp_b.n = f(6); });
     gp::ptr<Big> bp2 = gp::new_init<Big>([&](Big& gp_b) { gp_b.data[5] = 1; gp_b.n = x; });
-    { auto gp_t14 = gpkg_main::sum((*big)); auto gp_t15 = gpkg_main::sum(*bp); auto gp_t16 = gpkg_main::sum((*big2)); gp::fmtshim::Println(gp_t14, gp_t15, gp_t16, gpkg_main::sum(*bp2)); }
+    { auto gp_t20 = gpkg_main::sum((*big)); auto gp_t21 = gpkg_main::sum(*bp); auto gp_t22 = gpkg_main::sum((*big2)); gp::fmtshim::Println(gp_t20, gp_t21, gp_t22, gpkg_main::sum(*bp2)); }
 #line 282 "$DIR/structs.gp"
     gp::ptr<gp::array<Point, 2>> arr = gp::new_<gp::array<Point, 2>>(gp::array<Point, 2>{Point{1, 2}, Point{3, 4}});
     (*arr)[1].Y++;

@@ -91,6 +91,10 @@ type funcGen struct {
 	inPlace       map[*types.Var]bool
 	inPlaceParams map[*types.Var]bool // the parameters, receivers and results in inPlaceTop
 	inPlaceTop    ast.Node
+	// places are the expressions of the code placesTop that are used as places (order.go:
+	// place), found on first use.
+	places    map[ast.Expr]bool
+	placesTop ast.Node
 
 	// out are the open statement lists, innermost last (stmt.go: add, push, pop).
 	out []frame
@@ -100,6 +104,13 @@ type funcGen struct {
 	// that was opened last.
 	shadows int
 	fresh   bool
+	// loopInit: the statement being lowered is the init of a 3-clause for (bind).
+	loopInit bool
+	// deferCall is the call of the defer statement being ordered (order.go: gc evaluates its
+	// func value and receiver first, from left to right), and opTarget the target of the x op=
+	// y being ordered (emitPanic binds it once).
+	deferCall *ast.CallExpr
+	opTarget  ast.Expr
 }
 
 // newFuncGen returns the funcGen of a function (fn and flow are nil in gp_var_init).

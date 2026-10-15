@@ -22,7 +22,7 @@ void inc(gp::ptr<int64_t> p) {
 }
 
 void swap(gp::ptr<int64_t> a, gp::ptr<int64_t> b) {
-    { auto gp_t0 = *b; auto gp_t1 = *a; *a = gp_t0; *b = gp_t1; }
+    { auto gp_t0 = *a; *a = *b; *b = gp_t0; }
 }
 
 #line 25 "$DIR/pointers.gp"
@@ -60,34 +60,34 @@ void main() {
     gpkg_main::inc((*p));
     gp::ptr<int64_t> q = (*p);
     *q = *q * 2;
-    gp::fmtshim::Println((*x), *(*p), *q, (*p) == q, (*p) == x, (*p) != nullptr);
+    { auto gp_t0 = (*p) == q; auto gp_t1 = (*p) == x; auto gp_t2 = (*p) != nullptr; auto gp_t3 = *(*p); gp::fmtshim::Println((*x), gp_t3, *q, gp_t0, gp_t1, gp_t2); }
 #line 53 "$DIR/pointers.gp"
     gp::ptr<int64_t> y = gp::new_<int64_t>(2);
     gpkg_main::swap(x, y);
     gp::fmtshim::Println((*x), (*y));
 #line 57 "$DIR/pointers.gp"
-    auto gp_t0 = gpkg_main::grow(21, "hi"_gs);
+    auto gp_t4 = gpkg_main::grow(21, "hi"_gs);
 #line 57 "$DIR/pointers.gp"
-    gp::ptr<int64_t> n = std::get<0>(gp_t0);
+    gp::ptr<int64_t> n = std::get<0>(gp_t4);
 #line 57 "$DIR/pointers.gp"
-    gp::ptr<gp::string> s = std::get<1>(gp_t0);
-    gp::fmtshim::Println(*n, *s);
-    auto gp_t1 = named();
+    gp::ptr<gp::string> s = std::get<1>(gp_t4);
+    { auto gp_t5 = *n; gp::fmtshim::Println(gp_t5, *s); }
+    auto gp_t6 = named();
 #line 59 "$DIR/pointers.gp"
-    int64_t r = std::get<0>(gp_t1);
+    int64_t r = std::get<0>(gp_t6);
 #line 59 "$DIR/pointers.gp"
-    gp::ptr<int64_t> rp = std::get<1>(gp_t1);
+    gp::ptr<int64_t> rp = std::get<1>(gp_t6);
     gp::fmtshim::Println(r, *rp);
 #line 62 "$DIR/pointers.gp"
     gptr = gp::static_ptr(g);
     *gptr = *gptr + 4;
     (*gaddr)++;
     *gnew = 7;
-    gp::fmtshim::Println(g, *gptr, *gnew, gptr == gaddr);
+    { auto gp_t7 = gptr == gaddr; auto gp_t8 = *gptr; gp::fmtshim::Println(g, gp_t8, *gnew, gp_t7); }
 #line 68 "$DIR/pointers.gp"
     gp::ptr<gp::ptr<int64_t>> pp = p;
     **pp = **pp + 1;
-    { auto gp_t2 = gpkg_main::pick(*pp); *gp_t2 = *gp_t2 + 100; }
+    { auto gp_t9 = gpkg_main::pick(*pp); *gp_t9 = *gp_t9 + 100; }
     gp::fmtshim::Println((*x), **pp);
 #line 73 "$DIR/pointers.gp"
     gp::ptr<int64_t> np{};
@@ -131,7 +131,7 @@ void main() {
 #line 100 "$DIR/pointers.gp"
     gp::ptr<int64_t> b = gp::new_<int64_t>(2);
     gp::ptr<int64_t> pa = a;
-    { auto gp_t3 = pa; pa = b; *gp_t3 = 5; }
+    { auto gp_t10 = pa; pa = b; *gp_t10 = 5; }
     gp::fmtshim::Println((*a), (*b), *pa);
 #line 106 "$DIR/pointers.gp"
     gp::ptr<int64_t> cnt = gp::new_<int64_t>(0);
@@ -141,12 +141,12 @@ void main() {
             i++;
         }
 #line 107 "$DIR/pointers.gp"
-        { auto gp_t4 = gpkg_main::pick(cnt); *gp_t4 = *gp_t4 + 1; }
+        { auto gp_t11 = gpkg_main::pick(cnt); *gp_t11 = *gp_t11 + 1; }
 #line 109 "$DIR/pointers.gp"
     }
     gp::fmtshim::Println((*cnt));
 #line 113 "$DIR/pointers.gp"
-    { auto gp_t5 = gpkg_main::bump((*p)); gp::fmtshim::Println((*x) + gp_t5, (*x)); }
+    { auto gp_t12 = gpkg_main::bump((*p)); gp::fmtshim::Println((*x) + gp_t12, (*x)); }
 }
 
 int64_t bump(gp::ptr<int64_t> p) {

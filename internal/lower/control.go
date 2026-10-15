@@ -268,7 +268,9 @@ func (fg *funcGen) forStmt(s *ast.ForStmt) {
 			fg.fresh = true
 			wrapped = true
 			mark := fg.shadows
+			fg.loopInit = true // bind: the loop's variables are its own copies for gc
 			fg.stmt(s.Init)
+			fg.loopInit = false
 			shadows = fg.initShadows(mark)
 		}
 	}

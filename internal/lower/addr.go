@@ -27,6 +27,7 @@ import (
 //	&s[j][i] (s is [][N]T)   the slice's array        gp::ptr<T>(s.gp_owner(), &s[j][i])
 //	&f()[i] (f() is *[N]T)   the array's block        gp::elem_ptr(f(), i)
 //	&[N]T{...}               a new block              gp::new_<A>(A{...})
+//	&[]T{...}, &map[K]V{...} a new block              gp::new_<S>(gp::slice_of<T>({...}))
 //
 // Structs (step 3.8, structs.go), with the same addrOf, each a pointer that shares the owner of
 // the object it points into (gp::ptr's aliasing constructor):
@@ -69,15 +70,14 @@ func (fg *funcGen) addr(e *ast.UnaryExpr) cppir.Expr {
 		}
 		fg.g.unsupported(e.Pos(), "&*p where p is not a variable")
 	case *ast.CompositeLit:
-		if t := fg.g.info.TypeOf(x); isArray(t) || isStruct(t) || isWeakPointer(t) {
-			// &[N]T{...}, &T{...}: a new block that holds the literal, gp::new_<A>(A{...}); one
-			// larger than 128 KiB is built in the block itself (largeBox, arrays.go).
-			if largeVar(t) {
-				return largeBox(fg.g.cxxType(t, x.Pos()), fg.expr(x))
-			}
-			return newBox(fg.g.cxxType(t, x.Pos()), fg.expr(x))
+		// &[N]T{...}, &T{...}, &weak.Pointer[T]{}, &[]T{...}, &map[K]V{...}: a new block that
+		// holds the literal, gp::new_<A>(A{...}), as Go boxes it; an array or a struct larger
+		// than 128 KiB is built in the block itself (largeBox, arrays.go).
+		t := fg.g.info.TypeOf(x)
+		if largeVar(t) {
+			return largeBox(fg.g.cxxType(t, x.Pos()), fg.expr(x))
 		}
-		fg.g.unsupported(e.Pos(), "&T{...} of a slice or map literal")
+		return newBox(fg.g.cxxType(t, x.Pos()), fg.expr(x))
 	case *ast.SelectorExpr:
 		return fg.addrOf(x) // a field: arrays.go and structs.go
 	case *ast.IndexExpr:

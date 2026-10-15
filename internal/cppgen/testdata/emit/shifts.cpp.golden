@@ -30,7 +30,7 @@ void main() {
     int8_t s = 2;
     int64_t one = gp::shl(int64_t(1), n);
     uint32_t w = gp::shl(uint32_t(1), n);
-    gp::fmtshim::Println(gp::fmtshim::typed<gp::fmtshim::tag::int64>(gp::shl(x, s)), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(gp::shr(y, s)), one, w, gp::shl(int64_t(1), s), int8_t(64));
+    { auto gp_t0 = gp::shl(x, s); auto gp_t1 = gp::shr(y, s); gp::fmtshim::Println(gp::fmtshim::typed<gp::fmtshim::tag::int64>(gp_t0), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(gp_t1), one, w, gp::shl(int64_t(1), s), int8_t(64)); }
     gp::fmtshim::Println(gp::fmtshim::typed<gp::fmtshim::tag::int64>(gp::shl(x, n) + 1), gp::fmtshim::typed<gp::fmtshim::tag::int64>(gp::shl(x, n + 1)), gp::fmtshim::typed<gp::fmtshim::tag::int64>(x + gp::shl(int64_t(1), n)), gp::fmtshim::typed<gp::fmtshim::tag::int64>(x + gp::shr(int64_t(1), n)));
 }
 

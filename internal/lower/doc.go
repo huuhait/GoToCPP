@@ -51,7 +51,9 @@
 //     pop);
 //   - expr.go: expressions, with constants folded by go/types;
 //   - order.go: Go's order of evaluation: the calls (and the other things whose order can be
-//     seen) that C++ could evaluate in another order go into gp_ temporaries first;
+//     seen, also two operations that can panic, step 3.12) that C++ could evaluate in another
+//     order go into gp_ temporaries first; stmt.go's bind has gc's order for assignments with
+//     several targets (ascompatee);
 //   - box.go: the boxing analysis, a pre-pass over each function that decides which of its
 //     variables live in a box on the heap (gp::ptr<T> x = gp::new_<T>(...), each use (*x));
 //   - addr.go: &x, the owner table (every pointer shares the owner of what it points into);

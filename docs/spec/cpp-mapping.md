@@ -259,7 +259,8 @@ int64_t count(gp::slice<gp::string> names) {
   and func values take their arguments the same way.
 - **Order of evaluation:** Go evaluates calls left to right, C++ doesn't promise that (and g++ and
   clang++ really differ). So calls are moved into `gp_` temporaries in Go's order where it
-  matters: `fmt.Println(next(), next())` becomes `auto gp_t1 = next();` followed by the call.
+  matters: `fmt.Println(next(), next())` becomes `auto gp_t1 = next();` followed by the call
+  (see [order of evaluation](#order-of-evaluation)).
 - **Func values and closures** are `gp::func<...>` values; see [closures](#closures).
 
 Sources: [Phase 02 §2.4–2.5](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/README.md#24-statements-the-important-rules),
@@ -285,6 +286,125 @@ bool big = std::get<1>(gp_t0);
   `{ auto gp_t0 = b; auto gp_t1 = a; a = gp_t0; b = gp_t1; }`.
 
 Source: [Phase 02 §2.4](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/README.md#24-statements-the-important-rules).
+
+## Order of evaluation
+
+Go evaluates the calls of a statement from left to right. C++ leaves the order of a call's
+arguments and of the operands of most operators open, and g++ and clang++ really choose
+differently (g++ often goes from right to left). gocpp gives Go's order, and where the spec
+leaves it open, the order of Go's compiler gc (its `walk/order.go` and `walk/assign.go`), since
+that is what programs see. It moves the parts whose order matters into `gp_` temporaries in
+front of the statement, and only where C++ could get the order wrong:
+
+```go
+fmt.Println(next(), next())  // Go: 1 2
+fmt.Println(s[i], a[j])      // both out of range: Go reports i
+s[i] += a[j]
+```
+
+```cpp
+{ auto gp_t0 = next(); gp::fmtshim::Println(gp_t0, next()); }
+{ auto gp_t1 = s[i]; gp::fmtshim::Println(gp_t1, a[j]); }
+{ auto& gp_r0 = s[i]; gp_r0 = gp_r0 + a[j]; }
+```
+
+**What is evaluated when.** As in gc, the statement's calls come first, in order, each with its
+own arguments just before it. A few other things are evaluated in their places among the calls,
+as if they were calls: `len`, `cap`, `min`, `max`, `complex`, `real` and `imag`, `make`,
+`append`, `copy`, `clear`, a slice expression `s[a:b]` (whose bounds that are not a name, a
+constant or `len` of a name are copied first), `[]byte(s)` and `[]rune(s)`, a map literal, `x
+&& y` and `x || y` as a whole, an argument of `fmt.Print*` that gc copies (see [fmt and the
+builtins](#fmt-and-the-builtins)), and some keys of a map read or store, which gc copies
+(its `mapKeyTemp`): when its map call takes the key's address (a key of type `bool`, `int8`,
+`int16`, `uint8`, `uint16`, a float or a complex number, most arrays and structs, or any key of a
+map whose values are larger than 128 bytes), a key that is not addressable (`m[!b]`, `m[x+1]`;
+an addressable one, `m[b]` or `m[bs[i]]`, is read where the map is), and an array or a struct of
+4 or 8 bytes of plain memory (`[2]int32`), always.
+Everything else is evaluated after all of them: the reads of memory that a call can change (a
+package or boxed variable, `*p`, `p.f`, an element of a slice, `m[k]`) and the operations that
+can panic (an index, a nil pointer, a division by zero, a negative shift count, a slice to array
+conversion). So in `x + f()` the new `x` is read, and `a/b + f()` calls `f` before it panics.
+They go from left to right, except that the key of a map read and the operands of an ordering
+comparison of strings (`<`, `<=`, `>`, `>=`, not `==`) go before the rest of their expression:
+gc makes those runtime calls and evaluates their arguments first, so `s[i] + m[a[j]]` checks
+`j` first.
+
+**Two operations that panic.** When two of them would fail, Go reports the first one it
+evaluates, and so does gocpp: the first goes into a temporary when C++ could evaluate the other
+one first (an argument next to another argument, an operand next to another operand). The
+target of `x op= y` is bound once, `auto& gp_r0 = s[i];`, since nothing runs between its check
+and its store (unless only the statement holds it, as in `[]int{1, 2}[i] += x`). Another place
+that the statement uses as one (the operand of `&`, a sliced array) and an array or a struct
+value are only checked in front, with `static_cast<void>(...)`, and evaluated again in the
+statement, which gives the same result. There are three places where gc doesn't go from left to
+right:
+
+- in `x = v`, the panics of `v` come before those of the operands of `x` (`s[a[i]] = t[j]`
+  checks `j` first), except in the parts of the operands that gc copies first, which are not a
+  name, a field, `*p` or an index of an array, a slice or a string (`s[a[i]&1] = t[j]`,
+  `s[-a[i]] = t[j]`, `s[int(u[i])] = t[j]` and `s[m[a[i]]] = t[j]` check `i` first; a conversion
+  to the value's own type is no conversion); in `m[k] = v` and `m[k] op= v` (but not `/=` and
+  `%=`) they come before all of the key; each entry of a map literal is such a store; each store
+  of an assignment with several targets that is evaluated late (below) follows the same rule, and
+  so do `x op= y` and `x++`, as `x = x op y`: the copied parts of `x` first, then the rest of `x`,
+  then `y`;
+- a call of a func value checks its arguments before the func value (`fs[i](a[j])` checks `j`
+  first); a func value with a call in it (`mk()(x)`) is evaluated before the arguments;
+- the receiver of a method call is the first argument: its calls go first, its reads and its nil
+  check with the other arguments.
+
+A deferred call is the exception to the second rule: gc copies its func value, its receiver and
+then its arguments into new variables, in that order, so `defer fs[i](a[j])` checks `i` first,
+and `defer p.M(s[i])` with a nil `p` panics for `p` (the receiver is an argument of
+`gp_push_call` there, which C++ doesn't order, so it goes into a temporary or is checked first).
+
+**Assignments** follow Go's two-phase rule: first the operands of the targets' index
+expressions and pointer indirections and the values, then the stores, from left to right:
+`a, b = b, a` and `p, *p = q, 5` (stores through the old `p`). Which of the operands and values
+are evaluated before all the stores is gc's rule (`ascompatee`): an operand or a value goes
+early, into a temporary, when a store before it could change it (it reads a variable stored
+before, or memory after a store to memory: a package or boxed variable, `*p`, `s[i]`, `m[k]`;
+in a function with defers, everything after a store to a result); the others are evaluated
+late, in their own store, value first. That decides which panic a statement with several
+targets reports:
+
+```go
+a, b := s[i], t[j]  // Go checks i first: a and b are plain locals
+x, y = s[i], t[j]   // x is a package variable: t[j] is evaluated early, Go checks j first
+```
+
+```cpp
+int64_t a = s[i]; int64_t b = t[j];
+{ auto gp_t0 = t[j]; x = s[i]; y = gp_t0; }
+```
+
+A store `m[k], x = v, 1` whose value can panic takes the entry first, as gc does (the key's
+check and a nil map's panic come before the value's): `auto& gp_r0 = gp::ref(m, k); gp_r0 =
+v;`. A `return a, b` in a function with defers assigns the results like an assignment (so its
+values after the first are evaluated early); without defers it is `return {a, b};`, which C++
+evaluates in order.
+
+**Where the temporaries go.**
+
+- A simple statement, a return and a deferred call: in front of it, in a block `{ ... }`, so that
+  a `goto` never jumps over their initialization; a declaration has them on its line, without
+  the block (its names must stay in scope).
+- The condition of a loop: at the top of the body, followed by `if (!cond) break;` (the
+  condition runs before every iteration, and `continue` goes there too). A post statement that
+  needs temporaries is written at the end of the body, where `continue` jumps.
+- An `else if` condition and a `case` expression: in the `else` branch, since they run only when
+  the conditions before them failed. In a case list, the expressions after the first set a
+  `bool` only while the ones before didn't match, as Go stops at the first match.
+- The right side of `&&` and `||`, when it needs temporaries: in an `if` on the left side's
+  value, `bool gp_t0 = x; if (gp_t0) { ...; gp_t0 = y; }`, so it still runs only when Go runs it.
+
+Not needed: a temporary next to constants and plain local variables (which only an assignment
+can change), and in the lists that C++ evaluates in order: the elements of a braced list
+(composite literals, `return {a, b}`) and declarations one after the other.
+
+Sources: [Phase 02 §2.5](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/README.md#25-evaluation-order-minimal-version-here-already),
+[Phase 03 §2.7](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#27-evaluation-order),
+[D22](language.md#d22-which-of-two-run-time-panics-is-reported).
 
 ## Methods
 

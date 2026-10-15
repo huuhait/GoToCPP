@@ -65,7 +65,7 @@ void main() {
     uint8_t u = 200;
     u = uint8_t(u + 100);
     double f = 2.75;
-    gp::fmtshim::Println(gp::div(a, b), gp::rem(a, b), gp::shl(int64_t(1), b), small, u, gp::f2i<int64_t>(f * 2.0));
+    { auto gp_t7 = gp::div(a, b); auto gp_t8 = gp::rem(a, b); gp::fmtshim::Println(gp_t7, gp_t8, gp::shl(int64_t(1), b), small, u, gp::f2i<int64_t>(f * 2.0)); }
     gp::fmtshim::Printf("%d %s %t %v\n"_gs, q, x, q > r, f);
 }
 

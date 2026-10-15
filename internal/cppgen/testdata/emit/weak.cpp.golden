@@ -28,8 +28,8 @@ void main() {
     gp::ptr<gp::weak_ptr<Node>> pw = w;
     gp::func<gp::ptr<Node>()> get = gp::func<gp::ptr<Node>()>([gp_r = (*w)](auto&&... gp_a) { return gp::weak_value(gp_r); });
     gp::func<gp::ptr<Node>(gp::weak_ptr<Node>)> value = gp::func<gp::ptr<Node>(gp::weak_ptr<Node>)>([](auto&& gp_r, auto&&... gp_a) { return gp::weak_value(gp_r); });
-    { auto gp_t0 = gp::weak_value(kid->parent); auto gp_t1 = gp::weak_value(*pw); auto gp_t2 = get(); auto gp_t3 = value((*w)); gp::fmtshim::Println(gp_t0->val, gp_t1->val, gp_t2->val, gp_t3->val); }
-    { auto gp_t4 = z == gp::weak_make<Node>(nullptr); auto gp_t5 = (*w) == kid->parent; gp::fmtshim::Println(z == gp::weak_ptr<Node>{}, gp_t4, gp_t5, gp::weak_value(z) == nullptr); }
+    { auto gp_t0 = gp::weak_value(kid->parent); auto gp_t1 = gp::weak_value(*pw); auto gp_t2 = get(); auto gp_t3 = value((*w)); auto gp_t4 = gp_t0->val; auto gp_t5 = gp_t1->val; auto gp_t6 = gp_t2->val; gp::fmtshim::Println(gp_t4, gp_t5, gp_t6, gp_t3->val); }
+    { auto gp_t7 = z == gp::weak_make<Node>(nullptr); auto gp_t8 = (*w) == kid->parent; gp::fmtshim::Println(z == gp::weak_ptr<Node>{}, gp_t7, gp_t8, gp::weak_value(z) == nullptr); }
     gp::map<gp::weak_ptr<Node>, int64_t> m = gp::map_of<gp::weak_ptr<Node>, int64_t>({{(*w), 1}});
     gp::ref(m, gp::weak_make<Node>(root))++;
     gp::fmtshim::Println(gp::get(m, (*w)), gp::len(m), z);

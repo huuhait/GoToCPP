@@ -168,7 +168,13 @@ func (fg *funcGen) inner(list *[]cppir.Stmt, end *cppir.Pos, endPos token.Pos, b
 // returns the temporaries that go in front of it, and its C++ expression.
 func (fg *funcGen) simple(s ast.Stmt) ([]cppir.Stmt, cppir.Expr) {
 	fg.forceTarget(s)
-	pre := fg.order(false, fg.simpleScope(s)...)
+	list, rank := fg.simpleScope(s)
+	sc := &orderScope{rank: rank, copy: fg.simpleKeys(s)}
+	if a, ok := s.(*ast.AssignStmt); ok && a.Tok != token.ASSIGN && a.Tok != token.DEFINE && len(a.Lhs) == 1 {
+		fg.opTarget = ast.Unparen(a.Lhs[0])
+	}
+	pre := fg.orderWith(sc, list...)
+	fg.opTarget = nil
 	if c := fg.appendInPlace(s); c != nil {
 		fg.ordered[c] = true // its arguments are in the statement's scope
 	}
@@ -195,26 +201,35 @@ func (fg *funcGen) forceTarget(s ast.Stmt) {
 // simpleScope returns the expressions that a simple statement that is one C++ expression
 // evaluates, in any order: x op= y reads x too, and x = y evaluates the operands of its target
 // (targetOperands) before y, as gc does. In s = append(s, ...) (appendInPlace), the append is
-// not a unit of its own: its arguments are in the statement's scope.
-func (fg *funcGen) simpleScope(s ast.Stmt) []ast.Expr {
+// not a unit of its own: its arguments are in the statement's scope. rank says when Go evaluates
+// the panicking parts of each expression (orderScope): in x = y, the target's operands after y
+// except the parts that gc copies first (storeRank: s[a[i]] = t[j] checks j before i, s[a[i]&1] =
+// t[j] i before j), in x op= y and x++ x's copied parts, then the rest of x, then y (opRank), and
+// in m[k] op= y with an op other than / and %, m[k] after y (gc's safeMapRHS copies y first).
+func (fg *funcGen) simpleScope(s ast.Stmt) (list []ast.Expr, rank func(*orderItem) int) {
 	switch s := s.(type) {
 	case *ast.ExprStmt:
-		return []ast.Expr{s.X}
+		return []ast.Expr{s.X}, nil
 	case *ast.IncDecStmt:
-		return []ast.Expr{s.X}
+		return []ast.Expr{s.X}, fg.opRank(s.X)
 	case *ast.AssignStmt:
 		if c := fg.appendInPlace(s); c != nil {
-			return append(fg.targetOperands(s.Lhs), c.Args...)
+			ops := fg.targetOperands(s.Lhs)
+			return append(ops, c.Args...), fg.storeRank(s.Lhs[0], len(ops))
 		}
 		if fg.mapAppend(s) != nil {
-			return nil // m[k] = append(m[k], ...): ordered by mapPre (maps.go)
+			return nil, nil // m[k] = append(m[k], ...): ordered by mapPre (maps.go)
 		}
 		if s.Tok == token.ASSIGN {
-			return append(fg.targetOperands(s.Lhs), s.Rhs...)
+			ops := fg.targetOperands(s.Lhs)
+			return append(ops, s.Rhs...), fg.storeRank(s.Lhs[0], len(ops))
 		}
-		return []ast.Expr{s.Lhs[0], s.Rhs[0]}
+		if fg.mapIndex(s.Lhs[0]) != nil && s.Tok != token.QUO_ASSIGN && s.Tok != token.REM_ASSIGN {
+			return []ast.Expr{s.Lhs[0], s.Rhs[0]}, rootRank(1)
+		}
+		return []ast.Expr{s.Lhs[0], s.Rhs[0]}, fg.opRank(s.Lhs[0])
 	}
-	return nil
+	return nil, nil
 }
 
 // targetOperands returns the operands of the targets of an assignment that are evaluated with
@@ -237,6 +252,52 @@ func (fg *funcGen) targetOperands(lhs []ast.Expr) []ast.Expr {
 	return ops
 }
 
+// simpleKeys returns the copy function (orderScope) of the simple statement s (simpleScope):
+// the key of a map entry that x = v stores to, which gc may copy first (orderKey). (In m[k] op= v
+// and m[k]++, collectMapIndex sees it.)
+func (fg *funcGen) simpleKeys(s ast.Stmt) func(int, ast.Expr) bool {
+	if a, ok := s.(*ast.AssignStmt); ok && a.Tok == token.ASSIGN && fg.mapAppend(s) == nil {
+		return fg.orderKeys(a.Lhs)
+	}
+	return nil
+}
+
+// storeRank returns the rank function (orderScope) of x = v, whose target x has its n operands
+// first in the list: an entry of a map waits for v as a whole (safeMapRHS copies v first), another
+// target only with the parts that gc doesn't copy first (targetCopies: walkAssign's safeExpr
+// copies them, then evaluates v, then the place).
+func (fg *funcGen) storeRank(x ast.Expr, n int) func(*orderItem) int {
+	if fg.mapIndex(x) != nil {
+		return rootRank(n)
+	}
+	copies := fg.targetCopies(x)
+	return func(it *orderItem) int {
+		if it.root < n && !inCopies(it, copies) {
+			return 1
+		}
+		return 0
+	}
+}
+
+// opRank returns the rank function (orderScope) of x op= y and x++, with x at the index 0 of the
+// list (nil for a map entry, which maps.go orders): gc rewrites them as x = x op y after its
+// safeExpr copied the parts of x (targetCopies), so those come first, then the rest of x, then y.
+func (fg *funcGen) opRank(x ast.Expr) func(*orderItem) int {
+	copies := fg.targetCopies(x)
+	if fg.mapIndex(x) != nil || len(copies) == 0 {
+		return nil
+	}
+	return func(it *orderItem) int {
+		switch {
+		case it.root > 0:
+			return 2
+		case inCopies(it, copies):
+			return 0
+		}
+		return 1
+	}
+}
+
 // postInHead reports whether the post statement of a 3-clause for goes into the C++ for's
 // head: when it is one C++ expression without temporaries.
 func (fg *funcGen) postInHead(post ast.Stmt) bool {
@@ -246,7 +307,8 @@ func (fg *funcGen) postInHead(post ast.Stmt) bool {
 // simpleNeedsPre reports whether simple(s) would return temporaries, without writing anything.
 func (fg *funcGen) simpleNeedsPre(s ast.Stmt) bool {
 	fg.forceTarget(s)
-	return fg.needsPre(false, fg.simpleScope(s)...) || fg.mapNeedsPre(s)
+	list, rank := fg.simpleScope(s)
+	return fg.analyzeWith(&orderScope{rank: rank, copy: fg.simpleKeys(s)}, list).pre || fg.mapNeedsPre(s)
 }
 
 // simpleExpr returns the C++ expression of a simple statement that is one: an expression
@@ -383,22 +445,14 @@ func isBlank(e ast.Expr) bool {
 // A target is the left side of one value in a declaration or an assignment. The zero target
 // is _.
 type target struct {
-	x    cppir.Expr // the C++ of the left side, or nil for _
-	typ  cppir.Type // the C++ type of a new variable (of its value if boxed), or nil (an existing one, _)
-	name string     // the C++ name of the variable that x is (reads), or "" for _ or another target
-	// root is the C++ name of the local variable that the target is a part of, a field or an
-	// element of an array in it (w.f, a[i], w.arr[i].g; box.go's root), or "": an expression
-	// that reads that variable reads the target too (affected).
-	root string
+	x      cppir.Expr // the C++ of the left side, or nil for _
+	typ    cppir.Type // the C++ type of a new variable (of its value if boxed), or nil (an existing one, _)
+	name   string     // the C++ name of the variable that x is (reads), or "" for _ or another target
+	shadow bool       // a new variable that shadows a variable or function of an outer scope
+	class  bool       // a new variable of a C++ class type (gp::string), which a temporary is moved into
+	box    bool       // a new variable that is boxed (box.go): gp::ptr<T> x = gp::new_<T>(value);
+	large  bool       // a boxed new variable larger than 128 KiB, built in its box (largeBox, arrays.go)
 
-	shadow bool // a new variable that shadows a variable or function of an outer scope
-	class  bool // a new variable of a C++ class type (gp::string), which a temporary is moved into
-	box    bool // a new variable that is boxed (box.go): gp::ptr<T> x = gp::new_<T>(value);
-	large  bool // a boxed new variable larger than 128 KiB, built in its box (largeBox, arrays.go)
-
-	// mem: storing to the target writes memory that other expressions can read: a boxed or a
-	// package variable, or a target that is not a variable (*p, s[i]).
-	mem bool
 	// ptr is the pointer operand p of a target *p, index a target s[i] and field a target x.f
 	// (step 3.8), whose operands (p; s and i; those of x.f: selectorOperands) bind evaluates into
 	// temporaries first when an assignment before it can change them (gc's ascompatee:
@@ -413,6 +467,15 @@ type target struct {
 	// gtype is the Go type of the target (nil for _), which a value of another type converts to
 	// (bind: one value with several results, step 3.9).
 	gtype types.Type
+
+	// What a store to the target changes, for gc's ascompatee (affected): the local variable
+	// gcVar (the variable itself, or the struct or array value that the target is a part of),
+	// memory that other expressions can read (gcMem: a package or a boxed variable, *p, s[i],
+	// m[k], p.f), or a result of a function with defers (gcDefer: a later panic shows it to the
+	// deferred calls).
+	gcVar   *types.Var
+	gcMem   bool
+	gcDefer bool
 }
 
 // varTarget returns the target of the existing variable whose C++ name is name.
@@ -422,7 +485,7 @@ func varTarget(name string) target {
 
 // lhs returns the target of the left side e of an assignment, which is not _.
 func (fg *funcGen) lhs(e ast.Expr) target {
-	t := target{x: fg.expr(e), mem: true, gtype: fg.g.info.TypeOf(e)}
+	t := target{x: fg.expr(e), gtype: fg.g.info.TypeOf(e)}
 	switch x := ast.Unparen(e).(type) {
 	case *ast.Ident:
 		if v, ok := fg.g.info.Uses[x].(*types.Var); ok {
@@ -431,7 +494,6 @@ func (fg *funcGen) lhs(e ast.Expr) target {
 			} else {
 				t.name = fg.g.names[v]
 			}
-			t.mem = isPkgVar(v) || fg.isBoxed(v)
 		}
 	case *ast.StarExpr:
 		t.ptr = x.X
@@ -443,12 +505,59 @@ func (fg *funcGen) lhs(e ast.Expr) target {
 	case *ast.SelectorExpr:
 		t.field = x
 	}
-	if _, ok := ast.Unparen(e).(*ast.Ident); !ok {
-		if v := (&boxer{info: fg.g.info}).root(e); v != nil {
-			t.root = fg.cname(v, e.Pos())
+	fg.gcTarget(&t, e)
+	return t
+}
+
+// gcTarget sets what a store to the target t, the left side e, changes, as gc's ascompatee
+// sees it (target.gcVar): it goes through the fields of struct values and the elements of
+// arrays to the variable they are in; a variable that is not local or is boxed, and any other
+// place, is memory.
+func (fg *funcGen) gcTarget(t *target, e ast.Expr) {
+	for {
+		switch x := ast.Unparen(e).(type) {
+		case *ast.IndexExpr:
+			if isArray(fg.g.info.TypeOf(x.X)) {
+				e = x.X
+				continue
+			}
+		case *ast.SelectorExpr:
+			if s := fg.g.info.Selections[x]; s != nil && s.Kind() == types.FieldVal && !s.Indirect() {
+				e = x.X
+				continue
+			}
+		case *ast.Ident:
+			if v, ok := fg.g.info.Uses[x].(*types.Var); ok {
+				fg.gcVarTarget(t, v)
+				return
+			}
+		}
+		t.gcMem = true
+		return
+	}
+}
+
+// gcVarTarget sets what a store to the variable v, the target t, changes (gcTarget).
+func (fg *funcGen) gcVarTarget(t *target, v *types.Var) {
+	switch {
+	case isPkgVar(v) || fg.isBoxed(v):
+		t.gcMem = true
+	case fg.fn != nil && fg.fn.defers != nil && fg.isResult(v):
+		t.gcDefer = true
+	default:
+		t.gcVar = v
+	}
+}
+
+// isResult reports whether v is a result of the function.
+func (fg *funcGen) isResult(v *types.Var) bool {
+	res := fg.fn.sig.Results()
+	for i := range res.Len() {
+		if res.At(i) == v {
+			return true
 		}
 	}
-	return t
+	return false
 }
 
 // saveOperands evaluates the operands of the target targets[i] into temporaries (the
@@ -465,6 +574,7 @@ func (fg *funcGen) saveOperands(pos cppir.Pos, targets []target, i int) []cppir.
 		}
 		tmp := fg.names.temp("t")
 		lines = append(lines, varDecl(pos, typeName("auto"), tmp, fg.exactExpr(e)))
+		fg.temps[ast.Unparen(e)] = tmp // evaluated now (bind's targetCopies skips it)
 		return cxxName(tmp)
 	}
 	switch {
@@ -654,6 +764,13 @@ func (fg *funcGen) newTargets(lhs []ast.Expr) []target {
 			t := target{typ: fg.g.cxxType(obj.Type(), id.Pos()), shadow: fg.shadowing(obj), box: fg.isBoxed(obj), gtype: obj.Type()}
 			t.large = t.box && largeVar(obj.Type())
 			t.class = isClass(obj.Type())
+			if fg.loopInit {
+				// A variable of a 3-clause for that is boxed (its address is taken in the
+				// loop) is a per-iteration copy in gc; the init stores to a plain local.
+				t.gcVar = obj
+			} else {
+				fg.gcVarTarget(&t, obj)
+			}
 			if t.shadow {
 				t.name = fg.names.name(obj) // declLines puts it into its scope
 			} else {
@@ -690,6 +807,16 @@ func (fg *funcGen) newTargets(lhs []ast.Expr) []target {
 // The values are ordered first (order.go), as a list that C++ evaluates in order: the values
 // that are evaluated before the assignments are in their order, and the others are inert.
 // For an assignment (stmt), the statements are one C++ line, and the temporaries are in { }.
+//
+// The operations that can panic follow gc's ascompatee (walk/assign.go), which decides which
+// of two panics is reported: for each target in order, the operands of the target and then the
+// value are evaluated early, before all stores, if a store before them can change them
+// (affected: also every value after a store to a result of a function with defers, or after a
+// store to memory a value that reads memory); the others are evaluated late, each in its own
+// store, after the stores before it (the value first, then the target's place and its check).
+// So a, b := s[i], t[j] checks i first, but x, y = s[i], t[j] with a package variable x checks
+// j first. The order pass leaves those operations to bind (keepPanics); the parts of one value
+// are ordered where it is evaluated (valuePanics).
 // A declaration whose values need temporaries in front is one line too, except the result
 // tuple's (Phase 02 README §2.1).
 func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr, stmt bool) {
@@ -697,7 +824,7 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 	// The operands of the targets (*p) are evaluated first, but their reads are where the
 	// stores are, after the values: then the list is not in C++'s order.
 	ops := fg.targetOperands(lhs)
-	pre := fg.order(len(values) > 1 && ops == nil, append(ops, values...)...)
+	pre := fg.orderWith(&orderScope{seq: len(values) > 1 && ops == nil, keepPanics: true, hoistRoots: len(ops), copy: fg.orderKeys(lhs)}, append(ops, values...)...)
 	if lhs != nil {
 		// The targets of an assignment, translated after the order: their operands may be
 		// in temporaries.
@@ -726,6 +853,34 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 			lines = append(lines, saved...)
 		}
 	}
+	// copies evaluates the parts of the target lhs[i] that gc copies before a late store's value
+	// (targetCopies) and that can panic into temporaries, where that store is, and makes the
+	// target read them. (The calls in them are in temporaries already: hoistRoots.)
+	copies := func(i int) {
+		if lhs == nil || isBlank(lhs[i]) || targets[i].mapX != nil {
+			return
+		}
+		copied := false
+		for _, e := range fg.targetCopies(lhs[i]) {
+			if fg.panicky(e) {
+				temps, joined, copied = true, true, true
+				lines = append(lines, fg.valuePanics(e)...)
+				tmp := fg.names.temp("t")
+				lines = append(lines, varDecl(p, typeName("auto"), tmp, fg.exactExpr(e)))
+				fg.temps[ast.Unparen(e)] = tmp
+			}
+		}
+		if copied {
+			targets[i] = fg.lhs(lhs[i]) // with the temporaries (also saveOperands')
+		}
+	}
+	// panics orders the operations of the value v that can panic, where it is evaluated.
+	panics := func(v ast.Expr) {
+		if checks := fg.valuePanics(v); len(checks) > 0 {
+			temps, joined = true, true
+			lines = append(lines, checks...)
+		}
+	}
 	direct := len(values) == len(targets)
 	for i, t := range targets {
 		if !direct {
@@ -734,8 +889,8 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 		if !t.blank() && t.typ == nil && len(targets) > 1 {
 			direct = false // a value after an old target may read it, also in a call
 		}
-		if fg.reads(values[i], early(targets, i)) {
-			direct = false
+		if fg.reads(values[i], early(targets, i)) || fg.affected(values[i], targets[:i]) && !fg.inert(values[i]) {
+			direct = false // gc evaluates it before the stores (bind's panics)
 		}
 	}
 	switch {
@@ -765,47 +920,96 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 		}
 	case direct:
 		for i, t := range targets {
+			panics(values[i])
 			assign(t, fg.storedValue(t, values[i]))
 		}
 	default:
-		// A value is evaluated in its assignment, after the targets before it changed,
-		// if that can't make a difference: a constant, or a value without an effect that
-		// doesn't read a target too early.
+		// A value is evaluated in its assignment, after the targets before it changed, if
+		// that can't make a difference and gc does it there too (late): a constant, or a
+		// value without calls that the stores before it can't change (affected) and that
+		// doesn't read a target too early in C++ (a new variable is in scope in its own
+		// initializer).
 		tmps := make([]string, len(values))
+		late := make([]bool, len(values))
+		// A value that gc evaluates late but that C++ can't evaluate in its own store, since
+		// it reads the name of a new variable declared before (p, q := 1, p+1 with an outer
+		// p), goes into a temporary after the early ones, and so do the late values before it
+		// (lateTemp): a declaration's stores can't panic, so that keeps gc's order.
+		lateTemp := make([]bool, len(values))
+		last := -1
+		for i, v := range values {
+			if fg.constValue(v) == nil && fg.gcLate(v, targets, i) && !fg.lateValue(v, targets, i) {
+				last = i
+			}
+		}
+		if !slices.ContainsFunc(values[:last+1], fg.panicky) {
+			last = -1 // the order can't be seen: the value alone goes early
+		}
+		for i, v := range values[:last+1] {
+			lateTemp[i] = fg.constValue(v) == nil && fg.gcLate(v, targets, i)
+		}
+		temp := func(i int) {
+			v := values[i]
+			panics(v)
+			if targets[i].blank() {
+				lines = append(lines, targets[i].assign(p, fg.expr(v)))
+				return
+			}
+			tmps[i] = fg.names.temp("t")
+			temps, joined = true, true
+			if t := targets[i]; t.large {
+				// A large boxed variable: the temporary is its box, built in place
+				// (largeBox, arrays.go), which the variable takes over.
+				lines = append(lines, varDecl(p, ptrType(t.typ), tmps[i], largeBox(t.typ, fg.expr(v))))
+			} else if typ := targets[i].typ; typ != nil {
+				lines = append(lines, varDecl(p, typ, tmps[i], fg.expr(v)))
+			} else {
+				lines = append(lines, varDecl(p, typeName("auto"), tmps[i], fg.exactExpr(v)))
+			}
+		}
 		for i, v := range values {
 			save(i)
 			switch {
+			case lateTemp[i]:
 			case fg.constValue(v) != nil:
-			case targets[i].blank():
-				lines = append(lines, targets[i].assign(p, fg.expr(v)))
-			case fg.inert(v) && !fg.reads(v, early(targets, i)):
+				late[i] = true
+			case fg.lateValue(v, targets, i):
+				late[i] = true
 			default:
-				tmps[i] = fg.names.temp("t")
-				temps, joined = true, true
-				if t := targets[i]; t.large {
-					// A large boxed variable: the temporary is its box, built in place
-					// (largeBox, arrays.go), which the variable takes over.
-					lines = append(lines, varDecl(p, ptrType(t.typ), tmps[i], largeBox(t.typ, fg.expr(v))))
-				} else if typ := targets[i].typ; typ != nil {
-					lines = append(lines, varDecl(p, typ, tmps[i], fg.expr(v)))
-				} else {
-					lines = append(lines, varDecl(p, typeName("auto"), tmps[i], fg.exactExpr(v)))
-				}
+				temp(i)
+			}
+		}
+		for i := range values {
+			if lateTemp[i] {
+				temp(i)
 			}
 		}
 		for i, t := range targets {
 			switch {
+			case t.blank() && late[i]:
+				panics(values[i])
+				lines = append(lines, t.assign(p, fg.expr(values[i])))
 			case t.blank():
+			case late[i] && t.mapX != nil && fg.panicky(values[i]):
+				// gc takes the entry before it evaluates a value that can panic: the key's
+				// check and a nil map's panic come first (and the key stays in the map).
+				panics(values[i])
+				r := fg.names.temp("r")
+				lines = append(lines, varDecl(p, typeName("auto&"), r, call("gp::ref", t.mapX, t.mapK)),
+					&cppir.ExprStmt{Pos: p, X: &cppir.Assign{Op: "=", X: cxxName(r), Y: fg.expr(values[i])}})
+				temps, joined = true, true
+			case late[i]:
+				copies(i)
+				panics(values[i])
+				assign(t, fg.storedValue(t, values[i]))
 			case tmps[i] != "" && t.large:
 				box := t // the temporary is the box: moved into the variable
 				box.typ, box.box, box.large = ptrType(t.typ), false, false
 				assign(box, moved(box.typ, cxxName(tmps[i])))
 			case tmps[i] != "" && t.typ != nil && t.class:
 				assign(t, moved(t.typ, cxxName(tmps[i]))) // the temporary is not used again
-			case tmps[i] != "":
-				assign(t, cxxName(tmps[i]))
 			default:
-				assign(t, fg.storedValue(t, values[i]))
+				assign(t, cxxName(tmps[i]))
 			}
 		}
 	}
@@ -821,6 +1025,50 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 	default:
 		fg.add(&cppir.Line{Pos: p, Stmts: lines})
 	}
+}
+
+// lateValue reports whether bind evaluates the value v of targets[i] late, in its own store: gc
+// does (gcLate), and it doesn't read a variable that C++ declares or changes before (reads,
+// without the targets that are not variables: affected sees those).
+func (fg *funcGen) lateValue(v ast.Expr, targets []target, i int) bool {
+	if !fg.gcLate(v, targets, i) {
+		return false
+	}
+	var names []target
+	for _, t := range early(targets, i) {
+		if t.name != "" {
+			names = append(names, t)
+		}
+	}
+	return !fg.reads(v, names)
+}
+
+// gcLate reports whether gc evaluates the value v of targets[i] late, in its own store (bind):
+// it has no call left (order.go put them into temporaries) and no store before it can change
+// it (affected).
+func (fg *funcGen) gcLate(v ast.Expr, targets []target, i int) bool {
+	for _, it := range fg.analyze(false, []ast.Expr{v}).items {
+		if it.unit {
+			return false
+		}
+	}
+	return !fg.affected(v, targets[:i])
+}
+
+// valuePanics returns the statements that order the operations of the value v that can panic
+// (planPanics), where bind evaluates it: its calls are in temporaries already.
+func (fg *funcGen) valuePanics(v ast.Expr) []cppir.Stmt {
+	return fg.orderWith(&orderScope{}, v)
+}
+
+// panicky reports whether evaluating e can panic (after the order: calls are in temporaries).
+func (fg *funcGen) panicky(e ast.Expr) bool {
+	for _, it := range fg.analyze(false, []ast.Expr{e}).items {
+		if it.eff.panics || it.eff.call {
+			return true
+		}
+	}
+	return false
 }
 
 // storedValue returns the C++ of the value v of the target t: for a target that exists, copied
@@ -866,24 +1114,76 @@ func (fg *funcGen) reads(e ast.Expr, targets []target) bool {
 }
 
 // affected reports whether an assignment to one of the targets (which come before the
-// expression e in an assignment) can change the value of e, so that e must be evaluated before
-// them (gc's ascompatee: affected): e reads one of the targets, also the variable that a
-// target is a part of (w in w.i, s[w.i] = 1, 3, or a in a[0], x[a[0]] = 1, 2: target.root), or
-// one of them writes memory (target.mem) and e reads memory (a boxed or a package variable, *p:
-// !inert).
+// expression e in an assignment) can change the value of e, so that gc evaluates e before them
+// (walk/assign.go's ascompatee: affected): e reads the variable that one of them is or is a
+// part of (gcVar: w in w.i, s[w.i] = 1, 3, or a in a[0], x[a[0]] = 1, 2), or one of them
+// writes memory and e reads memory (gcReadsMemory), or one of them is a result of a function
+// with defers. gc's rule decides, also where the value can't change: it is also the order of
+// the panics (bind).
 func (fg *funcGen) affected(e ast.Expr, targets []target) bool {
-	used := fg.usedNames([]ast.Expr{e})
+	assigned := make(map[*types.Var]bool)
 	mem := false
 	for _, t := range targets {
 		switch {
 		case t.blank():
-		case t.name != "" && used[t.name], t.root != "" && used[t.root]:
+		case t.gcDefer:
 			return true
-		case t.mem:
+		case t.gcMem:
 			mem = true
+		case t.gcVar != nil:
+			assigned[t.gcVar] = true
 		}
 	}
-	return mem && !fg.inert(e)
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		if found || n == nil {
+			return false
+		}
+		if x, ok := n.(ast.Expr); ok && (fg.temps[x] != "" || fg.constValue(x) != nil) {
+			return false // a temporary of the order (a local), a constant
+		}
+		if id, ok := n.(*ast.Ident); ok {
+			if v, ok := fg.g.info.Uses[id].(*types.Var); ok {
+				found = assigned[v] || mem && (isPkgVar(v) || fg.isBoxed(v))
+			}
+			return !found
+		}
+		found = mem && fg.gcReadsMemory(n)
+		return !found
+	})
+	return found
+}
+
+// gcReadsMemory reports whether gc's readsMemory says the node n (not a name) may read memory:
+// every operation but arithmetic, && and ||, conversions, fields of struct values, literals
+// and parentheses (conservatively also comparisons, !, len and composite literals).
+func (fg *funcGen) gcReadsMemory(n ast.Node) bool {
+	switch x := n.(type) {
+	case *ast.BasicLit, *ast.ParenExpr, *ast.KeyValueExpr:
+		return false
+	case *ast.BinaryExpr:
+		switch x.Op {
+		case token.ADD, token.SUB, token.MUL, token.QUO, token.REM, token.AND, token.OR, token.XOR,
+			token.AND_NOT, token.SHL, token.SHR, token.LAND, token.LOR:
+			return false
+		}
+	case *ast.UnaryExpr:
+		switch x.Op {
+		case token.SUB, token.ADD, token.XOR:
+			return false
+		}
+	case *ast.CallExpr:
+		if fg.g.info.Types[x.Fun].IsType() && len(x.Args) == 1 {
+			// A conversion; string(b), []byte(s) and []rune(s) read the bytes.
+			from, to := fg.g.info.TypeOf(x.Args[0]), fg.g.info.TypeOf(x)
+			return isString(from) && isSlice(to) || isSlice(from) && isString(to)
+		}
+	case *ast.SelectorExpr:
+		if s := fg.g.info.Selections[x]; s != nil && s.Kind() == types.FieldVal {
+			return s.Indirect()
+		}
+	}
+	return true
 }
 
 // usedNames returns the C++ names of the variables and functions that the expressions use,

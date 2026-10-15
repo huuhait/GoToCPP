@@ -319,8 +319,8 @@ std::tuple<int64_t, int64_t> Point::Swap() const {
     gp::defer_frame gp_df; try {
         gp_df.gp_push_call([](auto&& gp_a0) { Point::Move(gp_a0, 100, 100); }, p);
         gp_df.gp_push(show, "deferred"_gs, (*p).Add(Point{}));
-        { auto gp_t0 = (*p).Y; auto gp_t1 = (*p).X; (*p).X = gp_t0; (*p).Y = gp_t1; }
-        { auto gp_t2 = (*p).X; auto gp_t3 = (*p).Y; x = gp_t2; y = gp_t3; } goto gp_ret0;
+        { auto gp_t0 = (*p).X; (*p).X = (*p).Y; (*p).Y = gp_t0; }
+        { auto gp_t1 = (*p).Y; x = (*p).X; y = gp_t1; } goto gp_ret0;
     } catch (gp::panic_error& gp_e) {
 #line 70 "$DIR/methods.gp"
         gp_df.gp_on_panic(gp_e);
@@ -462,7 +462,7 @@ gpkg_main::Point Words::Reset(gp::ptr<Words> w, gpkg_main::Point p) {
 #line 126 "$DIR/methods.gp"
     gpkg_main::Point q{};
 #line 126 "$DIR/methods.gp"
-    { auto gp_t0 = w->Point; q = gp_t0; w->Point = p; }
+    q = w->Point; w->Point = p;
 #line 126 "$DIR/methods.gp"
     return q;
 #line 126 "$DIR/methods.gp"

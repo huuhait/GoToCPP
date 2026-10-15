@@ -392,9 +392,15 @@ func (r recvPath) endPtr() bool { return isPointer(r.end) }
 // promotion through an embedded pointer, read memory through the pointer, which a call can
 // change, and panic for nil: after the calls of the scope, as gc does.
 func (fg *funcGen) analyzeMethod(c *ast.CallExpr, x *ast.SelectorExpr, s *types.Selection) *orderScope {
-	sc := &orderScope{}
+	// A value method is a member call, recv.M(args) or recv->M(args), whose object C++
+	// evaluates first; a pointer method is a static call, T::PM(recv, args).
+	// A deferred call's receiver is an argument of gp_push_call (deferThunk).
+	sc := &orderScope{objFirst: !pathOf(s).ptrRecv && c != fg.deferCall}
 	if _, stored := fg.recvs[x]; !stored {
 		fg.collectRecv(sc, x, s, 0, nil)
+		for _, it := range sc.items {
+			it.recv = it.e == x // emitPanic checks *p for it, not the method value x
+		}
 	}
 	for i, a := range c.Args {
 		fg.collect(sc, a, i+1, nil)

@@ -199,8 +199,9 @@ func (fg *funcGen) deferReturn(s *ast.ReturnStmt) {
 	for i, n := range fg.fn.results {
 		targets[i] = varTarget(n)
 		targets[i].gtype = res.At(i).Type() // which return f() converts to (step 3.9)
+		targets[i].gcDefer = true           // gc's ascompatee: a result, with defers
 		if fg.isBoxed(res.At(i)) {
-			targets[i].x, targets[i].mem = &cppir.Paren{X: deref(cxxName(n))}, true
+			targets[i].x = &cppir.Paren{X: deref(cxxName(n))}
 		}
 	}
 	var lines []cppir.Stmt
@@ -220,7 +221,13 @@ func (fg *funcGen) deferReturn(s *ast.ReturnStmt) {
 func (fg *funcGen) deferStmt(s *ast.DeferStmt) {
 	p := fg.g.pos(s.Pos())
 	c := s.Call
-	pre := fg.order(false, c) // the arguments' order, as for the call as a statement
+	// The arguments' order, as for the call as a statement, except that gc evaluates the func
+	// value and the receiver first (its normalizeGoDeferCall copies them, then the arguments,
+	// into new variables, in order), so a func value isn't late and a receiver is an argument
+	// of gp_push_call, not the object of a member call (order.go).
+	fg.deferCall = c
+	pre := fg.order(false, c)
+	fg.deferCall = nil
 	var push cppir.Expr
 	switch fn := fg.deferredFunc(c); {
 	case fn != nil:

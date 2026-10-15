@@ -18,16 +18,20 @@ constinit gp::map<int64_t, int64_t> gcount{};
 
 void sortStrs(gp::slice<gp::string> s) {
     for (int64_t i = 1; i < gp::len(s); i++) {
-        for (int64_t j = i; j > 0 && s[j] < s[j - 1]; j--) {
-            { auto gp_t0 = s[j - 1]; auto gp_t1 = s[j]; s[j] = gp_t0; s[j - 1] = gp_t1; }
+        for (int64_t j = i;; j--) {
+#line 22 "$DIR/maps.gp"
+            bool gp_t0 = j > 0; if (gp_t0) { auto gp_t1 = s[j]; gp_t0 = gp_t1 < s[j - 1]; } if (!gp_t0) break;
+            { auto gp_t2 = s[j]; s[j] = s[j - 1]; s[j - 1] = gp_t2; }
         }
     }
 }
 
 void sortInts(gp::slice<int64_t> s) {
     for (int64_t i = 1; i < gp::len(s); i++) {
-        for (int64_t j = i; j > 0 && s[j] < s[j - 1]; j--) {
-            { auto gp_t0 = s[j - 1]; auto gp_t1 = s[j]; s[j] = gp_t0; s[j - 1] = gp_t1; }
+        for (int64_t j = i;; j--) {
+#line 30 "$DIR/maps.gp"
+            bool gp_t0 = j > 0; if (gp_t0) { auto gp_t1 = s[j]; gp_t0 = gp_t1 < s[j - 1]; } if (!gp_t0) break;
+            { auto gp_t2 = s[j]; s[j] = s[j - 1]; s[j - 1] = gp_t2; }
         }
     }
 }
@@ -245,9 +249,9 @@ void main() {
         gp::set(byLen, n, gp::len(ws));
     }
     gpkg_main::showInts(byLen);
-    gp::fmtshim::Println(gp::get(groups, 2)[0], gp::get(groups, 2)[1], gp::get(groups, 2)[2], gp::get(groups, 5)[0], gp::len(gp::get(groups, 4)));
+    { auto gp_t6 = gp::len(gp::get(groups, 4)); auto gp_t7 = gp::get(groups, 2)[0]; auto gp_t8 = gp::get(groups, 2)[1]; auto gp_t9 = gp::get(groups, 2)[2]; gp::fmtshim::Println(gp_t7, gp_t8, gp_t9, gp::get(groups, 5)[0], gp_t6); }
     gp::map<gp::string, gp::slice<int64_t>> gs = gp::map_of<gp::string, gp::slice<int64_t>>({{"x"_gs, gp::slice_of<int64_t>({1, 2})}});
-    { auto gp_t6 = gp::get(gs, "x"_gs); gp::slice<int64_t>& gp_r0 = gp::ref(gs, "x"_gs); gp_r0 = gp::append_slice(static_cast<gp::slice<int64_t>&&>(gp_r0), gp_t6); }
+    { auto gp_t10 = gp::get(gs, "x"_gs); gp::slice<int64_t>& gp_r0 = gp::ref(gs, "x"_gs); gp_r0 = gp::append_slice(static_cast<gp::slice<int64_t>&&>(gp_r0), gp_t10); }
     { gp::slice<int64_t>& gp_r1 = gp::ref(gs, "y"_gs); gp_r1 = gp::append(static_cast<gp::slice<int64_t>&&>(gp_r1)); }
     gp::fmtshim::Println(gp::len(gp::get(gs, "x"_gs)), gp::get(gs, "x"_gs)[3], gp::get(gs, "y"_gs) == nullptr, gp::len(gs));
     gp::get(gs, "x"_gs)[0] = 100;
@@ -358,7 +362,7 @@ void main() {
     *pb = nullptr;
     gp::fmtshim::Println((*boxed) == nullptr, gp::len(*pb));
     gp::ptr<gp::map<int64_t, bool>> pm = gp::new_<gp::map<int64_t, bool>>();
-    gp::fmtshim::Println(*pm == nullptr, gp::get(*pm, 1));
+    { auto gp_t11 = *pm == nullptr; gp::fmtshim::Println(gp_t11, gp::get(*pm, 1)); }
     gnil = gp::map_of<gp::string, int64_t>({});
     gp::set(gnil, "now"_gs, 1);
     gpkg_main::show(gnil);

@@ -5,6 +5,7 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
+	"slices"
 
 	"github.com/huuhait/gocpp/internal/cppir"
 )
@@ -56,7 +57,8 @@ import (
 //     runs first and the new value is read (and *p's nil check panics after f ran);
 //   - an operation that can panic: an integer division or remainder by a non-constant
 //     (gp::div), a shift by a non-constant signed count (gp::shl), and s[i] (out of range). gc
-//     evaluates them after the calls of their scope: a/b + f() calls f first, then panics;
+//     evaluates them after the calls of their scope: a/b + f() calls f first, then panics
+//     (and two of them in gc's order: see below);
 //   - an element of a slice, s[i] (step 3.5), which a call can change through another slice of
 //     the same array: a read, like *p, also of a local slice; string(b) reads b's bytes;
 //   - an element of an array (step 3.6, arrays.go): a read of the variable it is in (so after
@@ -86,11 +88,31 @@ import (
 // evaluated in their places among the calls; a map literal is evaluated as a whole in its place
 // among the calls, entry by entry (collectMapLit).
 //
-// A divergence (the manager's decision, 2.5 review): gc also evaluates two such operations
-// from left to right (with both out of range, s[i] == s[j] reports i), but gocpp doesn't keep
-// that order: it would need temporaries in common code (fmt.Println(s[i], s[j])), and the
-// only difference is which of the two panic messages is printed. Calls, output and the values
-// that are read keep Go's order.
+// Two operations that can panic are evaluated in gc's order too (step 3.12; until then this was
+// divergence D22), because the order decides which panic message is printed: with both out of
+// range, s[i] == a[j] reports i. gc evaluates them after the units of their scope (a key that
+// gc's mapKeyTemp copies is one: orderKey), from left to right (post order), with exceptions
+// (goOrder). In one expression, the key of a map read and the operands of an ordering comparison
+// of strings come first (walkFirst: walk makes them runtime calls and walkCall1 copies their
+// arguments first). And a scope ranks its items (orderScope.rank): the operands of the target
+// of x = v come after v (its SSA evaluates v first, then the place), except the parts that
+// walkAssign's safeExpr copies first (storeRank: s[a[i]&1] = v checks i before v); x op= y and
+// x++ copy those parts, then evaluate the rest of x, then y (opRank); the key of a map store
+// m[k] = v and of m[k] op= v for an op other than / and % comes after v (safeMapRHS copies v
+// first), also in each entry of a map literal (stored as m[k] = v); and a func value without a
+// call comes after its call's arguments (walkCall1 copies the arguments that can panic first),
+// but not in a defer statement, which evaluates its func value and receiver first (deferCall).
+// Where C++ could evaluate two of them in another order (the arguments of a call, the operands of
+// an operator), the first goes before the expression (planPanics), after all the units:
+//
+//	fmt.Println(s[i], a[j])   { auto gp_t0 = s[i]; gp::fmtshim::Println(gp_t0, a[j]); }
+//	s[i] += a[j]              { auto& gp_r0 = s[i]; gp_r0 = gp_r0 + a[j]; }
+//
+// The target of op= is bound once by reference (emitPanic). Another place that the expression
+// uses as one (the operand of &, a sliced array: place) and a value that isn't cheap to copy (an
+// array, a struct) is only checked there and evaluated again in the expression, with the same
+// result (never for an expression with a call: assertNoCall). An assignment with several targets
+// has its own order, gc's ascompatee (bind, stmt.go: keepPanics).
 //
 // Reads of the function's own variables that are not boxed are not effects: such a variable
 // can change only by an assignment, and an expression has none. Every variable whose address
@@ -123,7 +145,9 @@ import (
 //     else if with an init statement (they run only if the conditions before them failed);
 //     in a case list, an expression after the first one sets a bool only if the ones before
 //     didn't match (caseCond);
-//   - the right side of && or ||: inside an if on the left side's value.
+//   - the right side of && or ||: inside an if on the left side's value;
+//   - the operations that can panic and go before the expression (planPanics): after the units
+//     of their scope, in the same place.
 //
 // Each funcGen.order call orders one scope: it returns the statements of the temporaries,
 // in order, and from then on fg.expr writes a temporary's name for its expression. Every
@@ -145,10 +169,10 @@ func (e effect) or(f effect) effect {
 }
 
 // conflict reports whether the order in which a and b are evaluated can be seen, where both
-// have an effect: one of them is a call. The order of two panicking operations is not kept
-// (see the top of the file).
+// have an effect: one of them is a call, or both can panic (then the order decides which
+// panic message is printed).
 func conflict(a, b effect) bool {
-	return a.call || b.call
+	return a.call || b.call || a.panics && b.panics
 }
 
 // An orderItem is a part of a scope whose place in the order matters: a unit (a call, len,
@@ -164,6 +188,8 @@ type orderItem struct {
 	block bool            // x && y or x || y whose y needs temporaries: written as an if
 	bin   *ast.BinaryExpr // the expression of && and ||
 	force bool            // a call that must go into a temporary (fg.force)
+	recv  bool            // the read of a method call's receiver through a pointer (analyzeMethod)
+	first bool            // gc evaluates it before the other items of its expression (walkFirst)
 }
 
 // An orderStep is one operator above an item: a linked list up to the top of its expression.
@@ -183,6 +209,27 @@ type orderScope struct {
 	hoist []*orderItem // the units that go into temporaries, in Go's order
 	pre   bool         // writing the scope needs statements before it
 	calls []ast.Expr   // the calls in the scope that are not units (len of a local): ordered too
+
+	// rank says when Go evaluates the item it, which is not a unit, against the other such
+	// items (nil: all 0): the items of a lower rank come first, and those of one rank are in
+	// post order. The operands of the target of x = v come after v (except their parts that gc
+	// copies first: storeRank), the func value of a call after the arguments (rootRank).
+	rank func(it *orderItem) int
+	// hoistRoots: the units of the expressions before this index of the list always go into
+	// temporaries (bind: gc's order pass evaluates every call before the stores).
+	hoistRoots int
+	// copy reports whether the expression e at the index i of the list is a unit of its own,
+	// evaluated in its place among the calls (analyzeWith; nil: none is): a key that gc's
+	// mapKeyTemp copies (orderKey).
+	copy func(i int, e ast.Expr) bool
+	// objFirst: the expression root 0 is the object of a C++ member call, x.M(args), which
+	// C++ evaluates before the arguments (the other roots).
+	objFirst bool
+	// keepPanics: the panicking items are left where they are (bind orders them itself).
+	keepPanics bool
+	// panics are the items that are not units but can panic and go before the expression,
+	// after the units, in Go's order (planPanics).
+	panics []*orderItem
 }
 
 // effect returns the effect of the whole scope.
@@ -201,6 +248,172 @@ func (fg *funcGen) order(seq bool, list ...ast.Expr) []cppir.Stmt {
 	var pre []cppir.Stmt
 	fg.emitScope(fg.analyze(seq, list), &pre)
 	return pre
+}
+
+// goOrder returns the items that are not units in the order in which Go evaluates them:
+// in post order, except that in the items of one expression of the list the parts that gc's walk
+// evaluates first (walkFirst) go before the others, and then by rank (orderScope.rank).
+func goOrder(items []*orderItem, rank func(*orderItem) int) []*orderItem {
+	out := make([]*orderItem, 0, len(items))
+	for i := 0; i < len(items); {
+		j := i
+		for j < len(items) && items[j].root == items[i].root {
+			j++
+		}
+		for _, it := range items[i:j] {
+			if it.first {
+				out = append(out, it)
+			}
+		}
+		for _, it := range items[i:j] {
+			if !it.first {
+				out = append(out, it)
+			}
+		}
+		i = j
+	}
+	if rank != nil {
+		slices.SortStableFunc(out, func(a, b *orderItem) int { return rank(a) - rank(b) })
+	}
+	return out
+}
+
+// walkFirst reports whether gc evaluates the item e, below the operators up, before the other
+// items of its expression that are not units: gc's walk turns a map read m[k] and an ordering
+// comparison of strings (<, <=, >, >=) into calls of the runtime, and walkCall1 copies their
+// arguments that can panic into temporaries in front of the statement, so the panics in a map
+// read's key and in the operands of such a comparison come first: s[i] + m[a[j]] checks j
+// first. (The arguments of fmt's and println's calls are such calls too, but they are copied
+// in order, which is post order already.)
+func (fg *funcGen) walkFirst(e ast.Expr, up *orderStep) bool {
+	for st := up; st != nil; st = st.up {
+		switch x := st.node.(type) {
+		case *ast.IndexExpr:
+			if isMap(fg.g.info.TypeOf(x.X)) && !fg.stores[x] && within(e, x.Index) {
+				return true
+			}
+		case *ast.BinaryExpr:
+			switch x.Op {
+			case token.LSS, token.LEQ, token.GTR, token.GEQ:
+				if isString(fg.g.info.TypeOf(x.X)) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// within reports whether the expression e is a part of the expression x.
+func within(e, x ast.Expr) bool {
+	return x.Pos() <= e.Pos() && e.End() <= x.End()
+}
+
+// rootRank returns a rank function (orderScope) that puts the items of the expressions before
+// the index n of the scope's list after the others.
+func rootRank(n int) func(*orderItem) int {
+	return func(it *orderItem) int {
+		if it.root < n {
+			return 1
+		}
+		return 0
+	}
+}
+
+// gcCopied reports whether gc's safeExpr (walk/expr.go) copies e, a part of the target of a
+// store, into a temporary before the store's value is evaluated: e is not a name, a constant,
+// len or cap, a field, *p or an index of an array, a slice or a string (whose own operands it
+// looks at in turn). A map read is copied: walk makes it a call of the runtime.
+func (fg *funcGen) gcCopied(e ast.Expr) bool {
+	e = ast.Unparen(e)
+	if fg.temps[e] != "" || fg.constValue(e) != nil {
+		return false
+	}
+	switch x := e.(type) {
+	case *ast.Ident, *ast.SelectorExpr, *ast.StarExpr:
+		return false
+	case *ast.IndexExpr:
+		return isMap(fg.g.info.TypeOf(x.X))
+	case *ast.CallExpr:
+		if fg.sameConversion(x) {
+			return false // no conversion in gc: partCopies looks at its operand
+		}
+		return !fg.isBuiltin(x, "len") && !fg.isBuiltin(x, "cap")
+	}
+	return true
+}
+
+// sameConversion reports whether c converts a value to its own type (uint(u) of a uint u),
+// which gc's typecheck drops.
+func (fg *funcGen) sameConversion(c *ast.CallExpr) bool {
+	return fg.g.info.Types[c.Fun].IsType() && len(c.Args) == 1 &&
+		types.Identical(fg.g.info.TypeOf(c), fg.g.info.TypeOf(c.Args[0]))
+}
+
+// targetCopies returns the parts of the target e of a store that gc copies into temporaries
+// before the store's value (gcCopied, walkAssign's safeExpr), in its order. The target itself
+// is the place (a map entry m[k] too, whose own order is maps.go's).
+func (fg *funcGen) targetCopies(e ast.Expr) []ast.Expr {
+	switch x := ast.Unparen(e).(type) {
+	case *ast.IndexExpr:
+		return append(fg.partCopies(x.X), fg.partCopies(x.Index)...)
+	case *ast.StarExpr:
+		return fg.partCopies(x.X)
+	case *ast.SelectorExpr:
+		return fg.partCopies(x.X)
+	}
+	return nil
+}
+
+// partCopies is targetCopies for a part e of a target.
+func (fg *funcGen) partCopies(e ast.Expr) []ast.Expr {
+	if fg.gcCopied(e) {
+		return []ast.Expr{e}
+	}
+	if c, ok := ast.Unparen(e).(*ast.CallExpr); ok && fg.sameConversion(c) {
+		return fg.partCopies(c.Args[0])
+	}
+	return fg.targetCopies(e)
+}
+
+// inCopies reports whether the item it is a part of one of the expressions copies.
+func inCopies(it *orderItem, copies []ast.Expr) bool {
+	for _, c := range copies {
+		if within(it.e, c) {
+			return true
+		}
+	}
+	return false
+}
+
+// assertNoCall reports an internal error if e, which an order statement evaluates twice (a check
+// in front, then the expression), still has a call: it would run twice.
+func (fg *funcGen) assertNoCall(e ast.Expr) {
+	for _, it := range fg.analyze(false, []ast.Expr{e}).items {
+		if it.eff.call {
+			fg.g.errorf(e.Pos(), "internal error: an expression with a call is evaluated twice (order.go)")
+			return
+		}
+	}
+}
+
+// orderWith is order for a scope with the options of sc (rank, copy, objFirst, keepPanics), which
+// it fills.
+func (fg *funcGen) orderWith(sc *orderScope, list ...ast.Expr) []cppir.Stmt {
+	var pre []cppir.Stmt
+	fg.emitScope(fg.analyzeWith(sc, list), &pre)
+	return pre
+}
+
+// analyzeWith is analyze for a scope with the options of sc, which it fills and returns.
+func (fg *funcGen) analyzeWith(sc *orderScope, list []ast.Expr) *orderScope {
+	copy := sc.copy
+	if copy == nil {
+		copy = func(int, ast.Expr) bool { return false }
+	}
+	fg.collectScope(sc, list, copy)
+	sc.plan()
+	return sc
 }
 
 // needsPre reports whether order(seq, list...) would return statements, without writing
@@ -230,7 +443,14 @@ func (fg *funcGen) analyzeArgs(seq bool, list []ast.Expr, iface int) *orderScope
 // of its own: gc copies it into a temporary in its place among the calls (an argument of fmt's
 // ...any, a bound of a slice expression).
 func (fg *funcGen) analyzeCopied(seq bool, list []ast.Expr, copy func(i int, e ast.Expr) bool) *orderScope {
-	sc := &orderScope{seq: seq}
+	sc := fg.collectScope(&orderScope{seq: seq}, list, copy)
+	sc.plan()
+	return sc
+}
+
+// collectScope adds the items of the expressions list to sc, as analyzeCopied does, and returns
+// it, without planning it.
+func (fg *funcGen) collectScope(sc *orderScope, list []ast.Expr, copy func(i int, e ast.Expr) bool) *orderScope {
 	for i, e := range list {
 		if copy(i, e) {
 			in := fg.analyze(false, []ast.Expr{e})
@@ -243,7 +463,6 @@ func (fg *funcGen) analyzeCopied(seq bool, list []ast.Expr, copy func(i int, e a
 		}
 		fg.collect(sc, e, i, nil)
 	}
-	sc.plan()
 	return sc
 }
 
@@ -292,6 +511,7 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 	}
 	add := func(it *orderItem) {
 		it.e, it.root, it.up = e, root, up
+		it.first = !it.unit && fg.walkFirst(e, up)
 		sc.items = append(sc.items, it)
 	}
 	below := &orderStep{node: e, up: up} // for the operands of e
@@ -379,8 +599,16 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		if sel, s := fg.methodSel(x); sel != nil {
 			args = fg.analyzeMethod(x, sel, s)
 		} else if fg.funcValueCall(x) {
+			// gc evaluates the arguments that can panic before a func value without a call
+			// (walk's walkCall1 copies them into temporaries first): fs[i](a[j]) checks j first;
+			// but a deferred call evaluates its func value first (deferStmt).
 			list := append([]ast.Expr{x.Fun}, x.Args...)
-			args = fg.analyzeCopied(false, list, func(i int, e ast.Expr) bool { return i == 0 && fg.calleeCopied(e) })
+			sc := &orderScope{}
+			if x != fg.deferCall {
+				sc.rank = rootRank(1) // the func value, root 0
+			}
+			args = fg.collectScope(sc, list, func(i int, e ast.Expr) bool { return i == 0 && fg.calleeCopied(e) })
+			args.plan()
 		} else {
 			args = fg.analyzeArgs(false, x.Args, iface)
 		}
@@ -588,7 +816,8 @@ func (fg *funcGen) binaryPanics(e *ast.BinaryExpr) bool {
 // part of its units, in Go's order, such that the C++ of the rest evaluates every remaining
 // unit before everything that Go evaluates after it and whose order with it can be seen.
 // Only units go into temporaries: the other items are evaluated after all units, in Go as
-// in the C++ of the rest.
+// in the C++ of the rest, except the panicking ones that C++ could evaluate in another order
+// than Go (planPanics): those go before the expression too, after all the units.
 //
 // The rest is right exactly when each unit in it is right on its own (C++ evaluates it before
 // the later units and the other items that it conflicts with), so the shortest part ends
@@ -602,11 +831,12 @@ func (sc *orderScope) plan() {
 			others = append(others, it)
 		}
 	}
+	others = goOrder(others, sc.rank) // in Go's order
 	// An && or || whose right side needs temporaries is an if: it can't stay inside the
 	// C++ expression.
 	n := 0
 	for i, u := range units {
-		if u.block || u.force {
+		if u.block || u.force || u.root < sc.hoistRoots {
 			n = i + 1
 		}
 	}
@@ -614,6 +844,11 @@ func (sc *orderScope) plan() {
 		if !sc.first(units[i], units[i+1:], others) {
 			n = i + 1
 			break
+		}
+	}
+	if !sc.keepPanics {
+		if sc.panics = sc.planPanics(others); len(sc.panics) > 0 {
+			n = len(units) // Go evaluates them after all the units
 		}
 	}
 	// A unit that stays in the expression writes its own temporaries in front of the
@@ -625,7 +860,7 @@ func (sc *orderScope) plan() {
 		}
 	}
 	sc.hoist = units[:n]
-	sc.pre = n > 0
+	sc.pre = n > 0 || len(sc.panics) > 0
 	for _, u := range units[n:] {
 		sc.pre = sc.pre || u.inner[0].pre
 	}
@@ -634,46 +869,115 @@ func (sc *orderScope) plan() {
 // first reports whether C++ evaluates the unit u before the later units and the other items,
 // wherever Go's order can be seen.
 func (sc *orderScope) first(u *orderItem, later, others []*orderItem) bool {
-	var above map[ast.Expr]bool // the operators above u
-	var elems map[ast.Expr]int  // the composite literals above u: the element u is in
-	for st := u.up; st != nil; st = st.up {
-		if above == nil {
-			above = make(map[ast.Expr]bool)
-		}
-		above[st.node] = true
-		if st.elem > 0 {
-			if elems == nil {
-				elems = make(map[ast.Expr]int)
-			}
-			elems[st.node] = st.elem
-		}
-	}
-	before := func(b *orderItem) bool {
-		// An operator above u runs after its operands; a list that C++ evaluates in order
-		// keeps the order of its expressions, also the braced list of a composite literal
-		// ([]int{f(), g()}). Everything else is unordered in C++ (or ordered only since
-		// C++17, as s[i], which gocpp doesn't rely on).
-		if above[b.e] || sc.seq && u.root < b.root {
-			return true
-		}
-		for st := b.up; st != nil && elems != nil; st = st.up {
-			if e, ok := elems[st.node]; ok && st.elem > e {
-				return true
-			}
-		}
-		return false
-	}
 	for _, b := range later {
-		if conflict(u.eff, b.eff) && !before(b) {
+		if conflict(u.eff, b.eff) && !sc.cxxBefore(u, b) {
 			return false
 		}
 	}
 	for _, b := range others {
-		if conflict(u.eff, b.eff) && !before(b) {
+		if conflict(u.eff, b.eff) && !sc.cxxBefore(u, b) {
 			return false
 		}
 	}
 	return true
+}
+
+// cxxBefore reports whether the C++ of the scope evaluates the item a before the item b, both
+// in the expressions of the scope: an operator above a runs after its operands; a list that
+// C++ evaluates in order keeps the order of its expressions, also the braced list of a
+// composite literal ([]int{f(), g()}), and the object of a member call is evaluated before
+// its arguments (objFirst). Everything else is unordered in C++ (or ordered only since C++17,
+// as s[i] and a = b, which gocpp doesn't rely on here).
+func (sc *orderScope) cxxBefore(a, b *orderItem) bool {
+	if sc.seq && a.root < b.root || sc.objFirst && a.root == 0 && b.root > 0 {
+		return true
+	}
+	elems := make(map[ast.Expr]int) // the composite literals above a: the element a is in
+	for st := a.up; st != nil; st = st.up {
+		if st.node == b.e {
+			return true
+		}
+		if st.elem > 0 {
+			elems[st.node] = st.elem
+		}
+	}
+	for st := b.up; st != nil && len(elems) > 0; st = st.up {
+		if e, ok := elems[st.node]; ok && st.elem > e {
+			return true
+		}
+	}
+	return false
+}
+
+// planPanics returns the items of others (the items that are not units, in Go's order) that
+// can panic and must be evaluated before the scope's expression, so that C++ checks them in
+// Go's order: fmt.Println(s[i], a[i]) checks s[i] first in Go, but g++ evaluates a call's
+// arguments from right to left. The rest of the expression then reads their temporaries.
+//
+// An item p can stay in the expression if C++ evaluates it before each later one that can
+// panic: one above it, a later one of a list that C++ evaluates in order (cxxBefore), or one
+// in an item that goes before the expression after the one that p is in. So the items are
+// chosen from the last to the first: when p's turn comes, the items above it and the later
+// ones are chosen already. If any is chosen, Go evaluates it after all the units, so they go
+// into temporaries first (plan).
+func (sc *orderScope) planPanics(others []*orderItem) []*orderItem {
+	var ps []*orderItem
+	for _, it := range others {
+		if it.eff.panics {
+			ps = append(ps, it)
+		}
+	}
+	if len(ps) < 2 {
+		return nil
+	}
+	index := make(map[*orderItem]int, len(ps))
+	byExpr := make(map[ast.Expr]*orderItem, len(ps))
+	for i, p := range ps {
+		index[p] = i
+		byExpr[p.e] = p
+	}
+	chosen := make(map[*orderItem]bool)
+	// in returns the chosen item that p is evaluated in: p itself (with self), or the nearest
+	// chosen item above it; nil for the expression.
+	in := func(p *orderItem, self bool) *orderItem {
+		if self && chosen[p] {
+			return p
+		}
+		for st := p.up; st != nil; st = st.up {
+			if q := byExpr[st.node]; q != nil && chosen[q] {
+				return q
+			}
+		}
+		return nil
+	}
+	// before reports whether C++ evaluates p (not chosen yet) before q.
+	before := func(p, q *orderItem) bool {
+		cp, cq := in(p, false), in(q, true)
+		switch {
+		case cp == cq:
+			return sc.cxxBefore(p, q) // in the same expression
+		case cp == nil:
+			return false // q's temporary comes first
+		case cq == nil:
+			return true
+		}
+		return index[cp] < index[cq] // the temporaries are in Go's order
+	}
+	for i := len(ps) - 2; i >= 0; i-- {
+		for _, q := range ps[i+1:] {
+			if !before(ps[i], q) {
+				chosen[ps[i]] = true
+				break
+			}
+		}
+	}
+	var list []*orderItem
+	for _, p := range ps {
+		if chosen[p] {
+			list = append(list, p)
+		}
+	}
+	return list
 }
 
 // emitScope writes the temporaries of the scope to pre, and registers them (fg.temps).
@@ -685,6 +989,9 @@ func (fg *funcGen) emitScope(sc *orderScope, pre *[]cppir.Stmt) {
 	for _, it := range sc.hoist {
 		fg.emitItem(it, pre)
 		hoisted[it] = true
+	}
+	for _, it := range sc.panics {
+		fg.emitPanic(it, pre)
 	}
 	for _, it := range sc.items {
 		if it.unit && !hoisted[it] {
@@ -735,6 +1042,78 @@ func (fg *funcGen) emitItem(it *orderItem, pre *[]cppir.Stmt) {
 	fg.temps[it.e] = t
 }
 
+// emitPanic writes the statement that evaluates the item it, which can panic, before its
+// expression (planPanics): auto gp_t0 = s[i]; whose temporary the expression reads. The target
+// of x op= y is bound by reference instead (heldPlace), and the receiver of a deferred value
+// method through a pointer is checked (*p). Another place that the expression uses as one (the
+// operand of &: places) or a value that is not cheap to copy is only checked,
+// static_cast<void>(s[i]);, and evaluated again in the expression: that has the same result,
+// since nothing between the two changes it (the calls of the scope came before).
+func (fg *funcGen) emitPanic(it *orderItem, pre *[]cppir.Stmt) {
+	if it.e == fg.opTarget && fg.heldPlace(it.e) {
+		// The target of x op= y: bound once, auto& gp_r0 = s[i]; gp_r0 = gp_r0 + y;, since
+		// nothing between its check and its store can change it or free it.
+		r := fg.names.temp("r")
+		*pre = append(*pre, varDecl(cppir.Pos{}, typeName("auto&"), r, fg.expr(it.e)))
+		fg.temps[it.e] = r
+		return
+	}
+	if it.recv {
+		// The receiver of a deferred value method through a pointer: *p's nil check.
+		x := it.e.(*ast.SelectorExpr)
+		fg.assertNoCall(x.X) // evaluated again by the deferred call
+		recv, ptr := fg.recvExpr(x, pathOf(fg.g.info.Selections[x]), false)
+		if ptr {
+			recv = deref(recv)
+		}
+		*pre = append(*pre, &cppir.ExprStmt{X: voidCast(recv)})
+		return
+	}
+	if fg.place(it.e) || !cheapCopy(fg.g.info.TypeOf(it.e)) {
+		fg.assertNoCall(it.e)
+		*pre = append(*pre, &cppir.ExprStmt{X: voidCast(fg.expr(it.e))})
+		return
+	}
+	t := fg.names.temp("t")
+	*pre = append(*pre, varDecl(cppir.Pos{}, typeName("auto"), t, fg.exactExpr(it.e)))
+	fg.temps[it.e] = t
+}
+
+// heldPlace reports whether the place e is held by something that outlives its statement (a
+// reference to it stays valid): it is reached from a variable, a temporary of the order or a
+// map's entry, through fields, elements and pointers, and not from a composite literal
+// ([]int{1, 2}[i]), whose array only the statement's temporary holds.
+func (fg *funcGen) heldPlace(e ast.Expr) bool {
+	for {
+		e = ast.Unparen(e)
+		if _, ok := fg.temps[e]; ok {
+			return true
+		}
+		switch x := e.(type) {
+		case *ast.Ident:
+			return true
+		case *ast.IndexExpr:
+			e = x.X
+		case *ast.SelectorExpr:
+			e = x.X
+		case *ast.StarExpr:
+			e = x.X
+		default:
+			return false
+		}
+	}
+}
+
+// cheapCopy reports whether a value of type t is cheap to copy into a temporary: not an array
+// or a struct (a basic type, a pointer, a string, a slice, a map, a func value).
+func cheapCopy(t types.Type) bool {
+	switch under(t).(type) {
+	case *types.Array, *types.Struct, *types.Tuple:
+		return false
+	}
+	return t != nil
+}
+
 // boolType returns the C++ type of the temporary of e, an && or ||: bool, or the named bool type
 // (type ok bool, step 3.9) that it has.
 func (fg *funcGen) boolType(e ast.Expr) cppir.Type {
@@ -751,4 +1130,75 @@ func withPre(pos cppir.Pos, pre []cppir.Stmt, s cppir.Stmt) cppir.Stmt {
 		return s
 	}
 	return &cppir.Block{Pos: pos, Stmts: append(pre, s), Inline: true}
+}
+
+// place reports whether the C++ of e is used as a place, not only for its value (emitPanic):
+// the target of an assignment, x op= y, x++ and a range, the operand of &, an array that is
+// sliced, the receiver of a pointer method that Go takes the address of, and the struct or
+// array value that such a place is a field or an element of.
+func (fg *funcGen) place(e ast.Expr) bool {
+	if fg.top == nil {
+		return true
+	}
+	if fg.places == nil || fg.placesTop != fg.top {
+		fg.places, fg.placesTop = findPlaces(fg.g.info, fg.top), fg.top
+	}
+	return fg.places[e]
+}
+
+// findPlaces returns the expressions of the code top that are used as places (place).
+func findPlaces(info *types.Info, top ast.Node) map[ast.Expr]bool {
+	places := make(map[ast.Expr]bool)
+	mark := func(e ast.Expr) {
+		for {
+			e = ast.Unparen(e)
+			places[e] = true
+			switch x := e.(type) {
+			case *ast.SelectorExpr:
+				if s := info.Selections[x]; s == nil || s.Kind() != types.FieldVal || s.Indirect() {
+					return
+				}
+				e = x.X
+			case *ast.IndexExpr:
+				if !isArray(info.TypeOf(x.X)) {
+					return
+				}
+				e = x.X
+			default:
+				return
+			}
+		}
+	}
+	ast.Inspect(top, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.UnaryExpr:
+			if x.Op == token.AND {
+				mark(x.X)
+			}
+		case *ast.AssignStmt:
+			for _, l := range x.Lhs {
+				mark(l)
+			}
+		case *ast.IncDecStmt:
+			mark(x.X)
+		case *ast.RangeStmt:
+			for _, t := range []ast.Expr{x.Key, x.Value} {
+				if t != nil {
+					mark(t)
+				}
+			}
+		case *ast.SliceExpr:
+			if isArray(info.TypeOf(x.X)) {
+				mark(x.X)
+			}
+		case *ast.SelectorExpr:
+			if s := info.Selections[x]; s != nil && s.Kind() == types.MethodVal {
+				if sig, ok := s.Obj().Type().(*types.Signature); ok && sig.Recv() != nil && isPointer(sig.Recv().Type()) && !isPointer(info.TypeOf(x.X)) {
+					mark(x.X) // &x of x.PM
+				}
+			}
+		}
+		return true
+	})
+	return places
 }

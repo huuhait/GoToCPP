@@ -277,7 +277,7 @@ void numbers() {
 void composites() {
     Name n = Name("gopher"_gs);
     Name n2 = Name(Name(gp::sub(n, 1, 4)) + Name("!"_gs));
-    gp::fmtshim::Println(n2, gp::len(n2), n2 < n, n[0], Name(gp::sub(n, 0, 2)).gp_value(), gp::to_bytes(n.gp_value())[1], Name(gp::to_string(gp::slice_of<uint8_t>({104, 105}))));
+    { auto gp_t0 = n[0]; auto gp_t1 = Name(gp::sub(n, 0, 2)); gp::fmtshim::Println(n2, gp::len(n2), n2 < n, gp_t0, gp_t1.gp_value(), gp::to_bytes(n.gp_value())[1], Name(gp::to_string(gp::slice_of<uint8_t>({104, 105})))); }
     for (auto gp_it0 = gp::range_string(Name(gp::sub(n, 0, 2))); gp::range_next(gp_it0);) {
 #line 144 "$DIR/namedtypes.gp"
         int64_t i = gp_it0.gp_i; int32_t r = gp_it0.gp_r;
@@ -290,15 +290,15 @@ void composites() {
         gp::fmtshim::Println("oph!"_gs);
     }
     IDs ids{};
-    { auto gp_t0 = gpkg_main::count(ids); gp::fmtshim::Println(ids == nullptr, gp_t0, gpkg_main::count(nullptr)); }
+    { auto gp_t2 = gpkg_main::count(ids); gp::fmtshim::Println(ids == nullptr, gp_t2, gpkg_main::count(nullptr)); }
     ids = IDs(gp::append(static_cast<IDs&&>(ids), 1, 2, 3));
     ids = IDs(gp::sub(static_cast<IDs&&>(ids), 1));
     IDs ids2 = IDs(gp::make_slice<int64_t>(2));
     ids2[1] = 7;
-    { auto gp_t1 = gpkg_main::sum(ids); auto gp_t2 = gpkg_main::sum(ids2); auto gp_t3 = gpkg_main::count(IDs(gp::slice_of<int64_t>({5}))); gp::fmtshim::Println(gp::len(ids), ids[0], gp_t1, gp_t2, gp_t3); }
+    { auto gp_t3 = gpkg_main::sum(ids); auto gp_t4 = gpkg_main::sum(ids2); auto gp_t5 = gpkg_main::count(IDs(gp::slice_of<int64_t>({5}))); gp::fmtshim::Println(gp::len(ids), ids[0], gp_t3, gp_t4, gp_t5); }
     ids = IDs(ints());
     gp::slice<int64_t> plain = ids;
-    { auto gp_t4 = gpkg_main::count(IDs(ints())); gp::fmtshim::Println(gp_t4, gpkg_main::sum(plain), gp::len(ids.gp_value()), gp::len(IDs(plain))); }
+    { auto gp_t6 = gpkg_main::count(IDs(ints())); gp::fmtshim::Println(gp_t6, gpkg_main::sum(plain), gp::len(ids.gp_value()), gp::len(IDs(plain))); }
     gp::ptr<Grid> g = gp::new_<Grid>(Grid(gp::array<int64_t, 3>{1, 2, 3}));
     (*g)[1] = 20;
     gp::slice<int64_t> part = gp::sub(gp::base_ptr(g), 0, 2);
@@ -311,11 +311,11 @@ void composites() {
     Ages ages = Ages(gp::map_of<Name, int64_t>({{Name("ann"_gs), 30}}));
     gp::set(ages, Name("bob"_gs), 25);
     gp::ref(ages, Name("ann"_gs))++;
-    auto gp_t5 = gp::lookup(ages, Name("bob"_gs));
+    auto gp_t7 = gp::lookup(ages, Name("bob"_gs));
 #line 173 "$DIR/namedtypes.gp"
-    int64_t age = std::get<0>(gp_t5);
+    int64_t age = std::get<0>(gp_t7);
 #line 173 "$DIR/namedtypes.gp"
-    bool found = std::get<1>(gp_t5);
+    bool found = std::get<1>(gp_t7);
     gp::fmtshim::Println(gp::len(ages), gp::get(ages, Name("ann"_gs)), age, found, gp::get(ages, n));
     gp::map<Color, Celsius> byColor = gp::map_of<Color, Celsius>({{Color(0), Celsius(1.5)}});
     gp::ref(byColor, Color(2)) += Celsius(2.0);
@@ -323,7 +323,7 @@ void composites() {
     Link l = Link(gp::new_<Node>(Node{.val = 1}));
     l->next = Link(gp::new_<Node>(Node{.val = 2}));
     gp::ptr<Node> p = l;
-    gp::fmtshim::Println(l->val, l->next->val, p->val, l != nullptr, l.gp_value() == p);
+    { auto gp_t8 = l->val; auto gp_t9 = l->next->val; gp::fmtshim::Println(gp_t8, gp_t9, p->val, l != nullptr, l.gp_value() == p); }
 #line 184 "$DIR/namedtypes.gp"
     Pair pr{Local(1), Local(2)};
     pr.a = pr.a + pr.b * Local(10);

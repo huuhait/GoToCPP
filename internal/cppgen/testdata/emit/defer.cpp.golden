@@ -286,10 +286,10 @@ void builtins() {
         gp_df.gp_push_call([](auto&& gp_a0) { gp::fmtshim::Println("after delete"_gs, gp_a0); }, gp::len(m));
         gp_df.gp_push_call([](auto&& gp_a0) { gp::erase(gp_a0, "a"_gs); }, m);
         gp::slice<int64_t> s = gp::slice_of<int64_t>({1, 2, 3});
-        gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1, auto&& gp_a2) { gp::fmtshim::Println("after copy"_gs, gp_a0, gp_a1, gp_a2); }, s[0], s[1], s[2]);
+        { auto gp_t0 = s[0]; auto gp_t1 = s[1]; gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1, auto&& gp_a2) { gp::fmtshim::Println("after copy"_gs, gp_a0, gp_a1, gp_a2); }, gp_t0, gp_t1, s[2]); }
         gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp::copy(gp_a0, gp_a1); }, s, gp::slice_of<int64_t>({7, 8}));
         gp::slice<int64_t> c = gp::slice_of<int64_t>({4, 5});
-        gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp::fmtshim::Println("after clear"_gs, gp_a0, gp_a1); }, c[0], c[1]);
+        { auto gp_t2 = c[0]; gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp::fmtshim::Println("after clear"_gs, gp_a0, gp_a1); }, gp_t2, c[1]); }
         gp_df.gp_push_call([](auto&& gp_a0) { gp::clear(gp_a0); }, c);
         gp_df.gp_push_call([](auto&&...) { gp::print("print "_gs, int64_t(1), "\n"_gs); });
         gp_df.gp_push_call([](auto&&...) { gp::println(); });

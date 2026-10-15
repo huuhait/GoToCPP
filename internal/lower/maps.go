@@ -154,7 +154,9 @@ func (fg *funcGen) collectMapLit(sc *orderScope, x *ast.CompositeLit, root int, 
 	var eff effect
 	force := false
 	for _, kv := range dynamics {
-		in := fg.analyze(true, []ast.Expr{kv.Key, kv.Value})
+		// gc stores each entry as m[k] = v (walk/order.go: OMAPLIT), which evaluates the
+		// panicking parts of v before those of k (safeMapRHS); the braced list is in order.
+		in := fg.analyzeWith(&orderScope{seq: true, rank: rootRank(1), copy: fg.entryKey(x)}, []ast.Expr{kv.Key, kv.Value})
 		inner = append(inner, in)
 		eff = eff.or(in.effect())
 		force = force || in.pre
@@ -166,6 +168,13 @@ func (fg *funcGen) collectMapLit(sc *orderScope, x *ast.CompositeLit, root int, 
 		return
 	}
 	sc.items = append(sc.items, &orderItem{e: x, unit: true, eff: eff, root: root, up: up, inner: inner, force: force})
+}
+
+// entryKey returns the copy function (orderScope) of an entry of the map literal e, whose key
+// is the expression 0: gc stores the entry as m[k] = v, with a key that it may copy first
+// (orderKey).
+func (fg *funcGen) entryKey(e *ast.CompositeLit) func(int, ast.Expr) bool {
+	return func(i int, k ast.Expr) bool { return i == 0 && fg.orderKey(e, k) }
 }
 
 // emitMapLit writes the temporary of the map literal e, a unit of the order (order.go:
@@ -205,7 +214,7 @@ func (fg *funcGen) emitMapLit(it *orderItem, e *ast.CompositeLit, pre *[]cppir.S
 	*pre = append(*pre, varDecl(cppir.Pos{}, fg.g.cxxType(fg.g.info.TypeOf(e), e.Pos()), t, fg.g.wrapNamed(fg.g.info.TypeOf(e), start, e.Pos())))
 	for _, kv := range dynamics {
 		// The arguments of gp::set are not in order: the entry's own scope, as a store.
-		*pre = append(*pre, fg.order(false, kv.Key, kv.Value)...)
+		*pre = append(*pre, fg.orderWith(&orderScope{rank: rootRank(1), copy: fg.entryKey(e)}, kv.Key, kv.Value)...)
 		*pre = append(*pre, &cppir.ExprStmt{X: call("gp::set", cxxName(t), fg.expr(kv.Key), fg.expr(kv.Value))})
 	}
 	fg.temps[e] = t
@@ -223,8 +232,167 @@ func (fg *funcGen) collectMapIndex(sc *orderScope, x *ast.IndexExpr, root int, u
 	}
 	below := &orderStep{node: x, up: up}
 	fg.collect(sc, x.X, root, below)
-	fg.collect(sc, x.Index, root, below)
+	if fg.orderKey(x.X, x.Index) {
+		// gc copies the key into a temporary in its place among the calls (orderKey).
+		in := fg.analyze(false, []ast.Expr{x.Index})
+		if eff := in.effect(); eff.any() {
+			sc.items = append(sc.items, &orderItem{e: ast.Unparen(x.Index), unit: true, eff: eff, root: root, up: below, inner: []*orderScope{in}})
+		} else {
+			sc.calls = append(sc.calls, in.calls...)
+		}
+	} else {
+		fg.collect(sc, x.Index, root, below)
+	}
 	sc.items = append(sc.items, &orderItem{e: x, root: root, up: up, eff: effect{read: true}})
+}
+
+// orderKey reports whether gc's order pass copies the key k of the map m (a read or a store)
+// into a temporary in its place among the calls, like a call (walk/order.go: mapKeyTemp, from
+// Go 1.25's source):
+//   - a slow map call (mapfast is mapslow: the value is larger than 128 bytes, or the key's
+//     algorithm is not AMEM32, AMEM64 or ASTRING: gcMapFast) takes the key's address, and
+//     addrTemp copies a key that isn't addressable (gcAddressable); an addressable one (a
+//     variable, an element of a slice, *p, p.f) is read where the map is, except a local that
+//     SSA can hold (addrTemp copies it too), which a closure that gc inlines can change: ssaKey,
+//     inplace.go's rule for fmt (divergence D25 where gc's inliner decides otherwise).
+//   - a fast call takes the key by value: one of the call's own kind (an integer, a pointer, a
+//     string, also of a named type) is never copied; an array or a struct of 4 or 8 bytes of
+//     plain memory (or one with the alg of a string) goes "through memory" into a temporary,
+//     always.
+//
+// A constant key, or a static composite literal, is read-only data: its place doesn't matter.
+func (fg *funcGen) orderKey(m, k ast.Expr) bool {
+	mt, ok := under(fg.g.info.TypeOf(m)).(*types.Map)
+	if !ok || fg.staticLit(k) {
+		return false
+	}
+	if !gcMapFast(mt) {
+		return !fg.gcAddressable(k) || fg.ssaKey(k)
+	}
+	switch under(mt.Key()).(type) {
+	case *types.Basic, *types.Pointer, *types.Chan:
+		return false
+	}
+	return true
+}
+
+// gcMapFast reports whether gc uses a fast map call for the map type m (walk/walk.go: mapfast):
+// its value is at most 128 bytes (abi.OldMapMaxElemBytes) and its key's algorithm is AMEM32,
+// AMEM64 or ASTRING (reflectdata.AlgType).
+func gcMapFast(m *types.Map) bool {
+	if goSizes.Sizeof(m.Elem()) > 128 {
+		return false
+	}
+	switch a, size := gcAlg(m.Key()); {
+	case a == algString:
+		return true
+	case a == algMem:
+		return size == 4 || size == 8
+	}
+	return false
+}
+
+// The algorithm kinds of gc's types/alg.go that gcMapFast needs; the others are algOther.
+const (
+	algMem = iota
+	algString
+	algOther
+)
+
+// gcAlg returns the equality algorithm of t as gc's types.CalcSize computes it, and t's size:
+// plain memory for integers, bools, pointers and channels, and for arrays and structs of them
+// without blank fields and padding; a one-field struct and a one-element array have the alg of
+// their element; strings have their own; floats, complex numbers, interfaces and the rest are
+// other.
+//
+// (reflectdata.AlgType also keeps AMEM for a type aligned less than the target's alignment and
+// than its size, [2]int16 on a strict 32-bit target: never on amd64 and arm64, whose
+// Arch.Alignment is 1; a 32-bit target would need it.)
+func gcAlg(t types.Type) (int, int64) {
+	size := goSizes.Sizeof(t)
+	switch u := under(t).(type) {
+	case *types.Basic:
+		switch {
+		case u.Info()&types.IsString != 0:
+			return algString, size
+		case u.Info()&(types.IsFloat|types.IsComplex) != 0:
+			return algOther, size
+		}
+		return algMem, size
+	case *types.Pointer, *types.Chan:
+		return algMem, size
+	case *types.Array:
+		a, _ := gcAlg(u.Elem())
+		switch {
+		case a == algMem, u.Len() == 0:
+			return algMem, size
+		case u.Len() == 1:
+			return a, size
+		}
+		return algOther, size
+	case *types.Struct:
+		if u.NumFields() == 1 && u.Field(0).Name() != "_" {
+			a, _ := gcAlg(u.Field(0).Type())
+			return a, size
+		}
+		fields := make([]*types.Var, u.NumFields())
+		for i := range fields {
+			fields[i] = u.Field(i)
+		}
+		offsets := goSizes.Offsetsof(fields)
+		for i, f := range fields {
+			end := size
+			if i+1 < len(fields) {
+				end = offsets[i+1]
+			}
+			a, fs := gcAlg(f.Type())
+			if a != algMem || f.Name() == "_" || offsets[i]+fs != end {
+				return algOther, size
+			}
+		}
+		return algMem, size
+	}
+	return algOther, size
+}
+
+// gcAddressable reports whether gc's ir.IsAddressable says e is addressable: a variable, *p, an
+// element of a slice or through a pointer to an array, a field through a pointer, and an element
+// or a field of an addressable array or struct (not of a string, a map read or a call).
+func (fg *funcGen) gcAddressable(e ast.Expr) bool {
+	switch x := ast.Unparen(e).(type) {
+	case *ast.Ident:
+		_, ok := fg.g.info.Uses[x].(*types.Var)
+		return ok
+	case *ast.StarExpr:
+		return true
+	case *ast.IndexExpr:
+		switch t := fg.g.info.TypeOf(x.X); {
+		case isArray(t):
+			return fg.gcAddressable(x.X)
+		case isSlice(t), arrayPtr(t) != nil:
+			return true
+		}
+	case *ast.SelectorExpr:
+		if s := fg.g.info.Selections[x]; s != nil {
+			return s.Kind() == types.FieldVal && (s.Indirect() || fg.gcAddressable(x.X))
+		}
+		_, ok := fg.g.info.Uses[x.Sel].(*types.Var) // pkg.V
+		return ok
+	}
+	return false
+}
+
+// orderKeys returns the copy function (orderScope) for the expressions list that starts with
+// the operands of the targets lhs (targetOperands): the key of a map entry that gc copies
+// first (orderKey).
+func (fg *funcGen) orderKeys(lhs []ast.Expr) func(int, ast.Expr) bool {
+	keys := make(map[ast.Expr]bool)
+	for _, e := range lhs {
+		if x := fg.mapIndex(e); x != nil && ast.Unparen(e) == x && fg.orderKey(x.X, x.Index) {
+			keys[x.Index] = true
+		}
+	}
+	return func(_ int, e ast.Expr) bool { return keys[e] }
 }
 
 // bytesKey reports whether the key e is string(b), a conversion of a []byte.

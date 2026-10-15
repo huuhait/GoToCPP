@@ -132,7 +132,7 @@ void main() {
     gp::fmtshim::Println((*grid)[1][0], row[0], (*grid)[0][2]);
     gp::slice<gp::array<int64_t, 3>> rs = rows();
     rs[1][2] = 60;
-    gp::fmtshim::Println(rs[1][2], gp::len(rs), rs[0] == gp::array<int64_t, 3>{1, 2, 3});
+    { auto gp_t1 = rs[0] == gp::array<int64_t, 3>{1, 2, 3}; gp::fmtshim::Println(rs[1][2], gp::len(rs), gp_t1); }
 #line 127 "$DIR/arrays.gp"
     gp::ptr<gp::array<int64_t, 3>> p = a;
     (*p)[1] = 200;
@@ -161,7 +161,7 @@ void main() {
     ps[0] = -1;
     gp::slice<int64_t> r2 = gp::sub(gp::ptr<gp::array<int64_t, 3>>(grid, &(*grid)[1]), 0);
     r2[1] = 50;
-    { auto gp_t1 = gp::len(gp::sub(mk(), 1)); gp::fmtshim::Println((*a)[1], (*grid)[1][1], gp_t1); }
+    { auto gp_t2 = gp::len(gp::sub(mk(), 1)); gp::fmtshim::Println((*a)[1], (*grid)[1][1], gp_t2); }
 #line 158 "$DIR/arrays.gp"
     gp::ptr<int64_t> q = gp::ptr<int64_t>(a, &(*a)[2]);
     *q = 3;
@@ -178,7 +178,7 @@ void main() {
     (*qm)++;
     gpkg_main::show((*a));
     gpkg_main::show(glit);
-    gp::fmtshim::Println((*grid)[1][2], rs[0][1], *qm, *qn);
+    { static_cast<void>(rs[0]); auto gp_t3 = *qm; gp::fmtshim::Println((*grid)[1][2], rs[0][1], gp_t3, *qn); }
 #line 176 "$DIR/arrays.gp"
     gp::slice<int64_t> sl = gp::slice_of<int64_t>({1, 2, 3, 4});
     gp::array<int64_t, 3> arr = gp::to_array<3>(sl);
@@ -186,7 +186,7 @@ void main() {
     gp::ptr<gp::array<int64_t, 2>> ap = gp::to_array_ptr<2>(sl);
     (*ap)[1] = 22;
     gp::slice<int64_t> nilsl{};
-    gp::fmtshim::Println(arr[0], sl[0], sl[1], int64_t(2), gp::to_array_ptr<0>(nilsl) == nullptr, gp::to_array<0>(nilsl) == empty);
+    { auto gp_t4 = gp::to_array<0>(nilsl) == empty; auto gp_t5 = sl[0]; gp::fmtshim::Println(arr[0], gp_t5, sl[1], int64_t(2), gp::to_array_ptr<0>(nilsl) == nullptr, gp_t4); }
 #line 185 "$DIR/arrays.gp"
     for (auto gp_it0 = gp::range_array_copy((*a)); gp::range_next(gp_it0);) {
 #line 185 "$DIR/arrays.gp"
@@ -261,16 +261,16 @@ void main() {
         vp = gp::append(static_cast<gp::slice<gp::ptr<int64_t>>&&>(vp), v);
     }
     *vp[0] = 9;
-    gp::fmtshim::Println(*vp[0], *vp[1], b[0]);
+    { auto gp_t6 = *vp[0]; gp::fmtshim::Println(gp_t6, *vp[1], b[0]); }
 #line 237 "$DIR/arrays.gp"
     gp::ptr<gp::array<int64_t, 32768>> big = gp::new_array_keyed<int64_t, 32768>({{2, 5}});
     gp::ptr<gp::array<int64_t, 32768>> big2 = gp::new_to_array<32768>(gp::make_slice<int64_t>(32768));
-    { auto gp_t2 = gpkg_main::sumBig((*big), 1); auto gp_t3 = gpkg_main::sumBig((*big2), 0); gp::fmtshim::Println(gp_t2, (*big)[0], gp_t3); }
+    { auto gp_t7 = gpkg_main::sumBig((*big), 1); auto gp_t8 = gpkg_main::sumBig((*big2), 0); gp::fmtshim::Println(gp_t7, (*big)[0], gp_t8); }
 #line 242 "$DIR/arrays.gp"
     gp::array<int64_t, 2> c{1, 2};
     c = gp::array<int64_t, 2>{9, 9}; c[0] = 5;
     int64_t n = 0;
-    { auto gp_t4 = n; n = 1; c[gp_t4] = 7; }
+    { auto gp_t9 = n; n = 1; c[gp_t9] = 7; }
     gp::fmtshim::Println(c[0], c[1], n);
 }
 

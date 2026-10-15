@@ -63,11 +63,20 @@ const fv = "var gfv = func(v int) int {\n\tfmt.Println(\"old gfv\", v)\n\treturn
 	"func setfv() int {\n\tgfv = func(v int) int {\n\t\tfmt.Println(\"new gfv\", v)\n\t\treturn v\n\t}\n\treturn 1\n}\n\n" +
 	"func mkfv() func(int) {\n\tfmt.Println(\"mkfv\")\n\treturn nil\n}\n\n"
 
+// two has the variables for the cases of TestOrderPanics with two operations that both panic
+// (step 3.12): a package slice and array (an index 5 is out of range in both, with another
+// length), a nil pointer and a nil map, and r2 and r3, which return two such values with and
+// without defers.
+const two = "var gs2 = []int{1, 2, 3}\n\nvar ga2 = [2]int{1, 2}\n\ntype P2 struct{ a, b int }\n\nvar gp2 *P2\n\n" +
+	"var gm2 map[int]int\n\nfunc g2(a, b int) int {\n\treturn a + b\n}\n\n" +
+	"func r2(i int) (int, int) {\n\treturn gs2[i], ga2[i]\n}\n\n" +
+	"func r3(i int) (int, int) {\n\tdefer func() {}()\n\treturn gs2[i], ga2[i]\n}\n\n" +
+	"func r4(i int) (a, b int) {\n\tdefer func() {}()\n\ta, b = gs2[i], ga2[i]\n\treturn\n}\n\n"
+
 // TestOrderPanics checks the order of calls and of the operations that can panic (order.go)
 // against real Go: gc calls f first in a/b + f() and panics after it, and reads s after grow
 // in int(s[i]) + grow(). Each program panics, with Go's output and exit code 2, on both
-// compilers. (Which of two panicking operations without a call between them panics first is
-// not kept: see order.go.)
+// compilers, also which of two operations that both panic reports its panic (step 3.12).
 func TestOrderPanics(t *testing.T) {
 	tests := []struct{ name, decls, body string }{
 		{"div-call", "", "a, b := 7, 0\n\tfmt.Println(a/b + f())"},
@@ -223,6 +232,118 @@ func TestOrderPanics(t *testing.T) {
 		{"func-elem-call-index", fv, "fs := []func(int) int{gfv, gfv}\n\tfs[id(1)](func() int { fs[1] = nil; return 1 }())\n\tpanic(\"end\")"},
 		{"func-elem-index", fv, "fs := []func(int) int{gfv, gfv}\n\ti := 1\n\tfs[i](func() int { fs[1] = nil; return 1 }())"},
 		{"func-defer-closure-args", "", "defer func(a, b int) { fmt.Println(\"deferred\", a, b, x) }(f(), id(x))\n\tx = 100\n\tpanic(\"end\")"},
+		// Two operations that panic (step 3.12): Go reports the one it evaluates first, from
+		// left to right, also where C++ leaves the order open (arguments, operands, keyed
+		// struct literals); a unit (a slice expression, &&) in its place among the calls,
+		// before the others; a func value after its arguments; in x = v, v before the target's
+		// operands, and the value of a map store before its key (but not for /= and %=); the
+		// values of an assignment with several targets as gc's ascompatee orders them (early,
+		// before the stores, when a store before them can change them, else late, in their
+		// own store), also a return in a function with defers and a nil map's store.
+		{"two-args", two, "i := 5\n\tfmt.Println(gs2[i], ga2[i])"},
+		{"two-call-args", two, "i := 5\n\tg2(gs2[i], ga2[i])"},
+		{"two-plus", two, "i := 5\n\tfmt.Println(gs2[i] + ga2[i])"},
+		{"two-compare", two, "i := 5\n\tfmt.Println(ga2[i] == gs2[i])"},
+		{"two-div-index", two, "i, z := 5, 0\n\tfmt.Println(gs2[0]/z + ga2[i])"},
+		{"two-shift", two, "i, n := 5, -1\n\tfmt.Println(gs2[0]<<n+ga2[i], gs2[i])"},
+		{"two-deref", two, "i := 5\n\tvar p *int\n\tfmt.Println(gs2[i] + *p)"},
+		{"two-field", two, "i := 5\n\tfmt.Println(gs2[i], gp2.b)"},
+		{"two-unary", two, "i := 5\n\tfmt.Println(-gs2[i] + ^ga2[i])"},
+		{"two-conv", two, "i := 5\n\tfmt.Println(float64(gs2[i]) + float64(ga2[i]))"},
+		{"two-keyed-struct", two, "i := 5\n\tfmt.Println(P2{b: gs2[i], a: ga2[i]})"},
+		{"two-map-literal", two, "i := 5\n\tfmt.Println(map[int]int{gs2[i]: ga2[i]})"},
+		{"two-and", two, "i := 5\n\tfmt.Println(x > 0 && ga2[i] > 0, gs2[i])"},
+		{"two-or-right", two, "i := 5\n\tfmt.Println(f() > 9 || gs2[i] > ga2[i])"},
+		{"two-slice-expr", two, "i := 5\n\tfmt.Println(gs2[i:], ga2[i])"},
+		{"two-slice-expr-later", two, "i := 5\n\tfmt.Println(ga2[i], gs2[i:])"},
+		{"two-substrings", two, "i := 5\n\tfmt.Println(s[i:] < s[:i])"},
+		{"two-append", two, "i := 5\n\tgs2 = append(gs2, gs2[i], ga2[i])"},
+		{"two-copy", two, "i := 5\n\tcopy(gs2[i:], ga2[i:])"},
+		{"two-min", two, "i := 5\n\tfmt.Println(min(gs2[i], ga2[i]))"},
+		{"two-println", two, "i := 5\n\tprintln(gs2[i], ga2[i])"},
+		{"two-printf", two, "i := 5\n\tfmt.Printf(\"%d %d\\n\", gs2[i], ga2[i])"},
+		{"two-defer", two, "i := 5\n\tdefer fmt.Println(gs2[i], ga2[i])"},
+		// A deferred call evaluates its func value and its receiver first (gc copies them, then
+		// the arguments, into new variables), unlike a call.
+		{"two-defer-func-value", two, "i, j := 5, 7\n\tfs := []func(int) int{id}\n\tdefer fs[i](gs2[j])"},
+		{"two-defer-value-recv", two + mt, "i := 5\n\tdefer grs[i].get(gs2[i])"},
+		{"two-defer-nil-recv", two + mt, "i := 5\n\tvar p *R\n\tdefer p.get(gs2[i])"},
+		{"two-defer-pkg-nil-recv", two + mt, "i := 5\n\tdefer gr.get(gs2[i])"},
+		{"two-defer-call-recv", two + mt, "i := 5\n\tdefer mkr().get(gs2[i])"},
+		{"two-defer-named-recv", two + nt + "func (n N) nv(a int) int {\n\treturn int(n) + a\n}\n\n", "i := 5\n\tdefer gns[i].nv(ga2[i])"},
+		{"two-op-assign-bound", two, "i, k := 5, 0\n\tc := [][]int{{1}}\n\tc[0][k] += gs2[k] * ga2[k]\n\tfmt.Println(c)\n\tc[0][i] += gs2[k] * ga2[i]"},
+		{"two-method-ptr-recv", two + mt, "i := 5\n\tgrs[i].put(ga2[i])"},
+		{"two-func-value", two, "i := 5\n\tfs := []func(int) int{id}\n\tfmt.Println(fs[i](ga2[i]))"},
+		{"two-func-nil", two, "i := 5\n\tvar fn func(int, int) int\n\tfn(gs2[i], ga2[i])"},
+		{"two-addr", two, "i := 5\n\tfmt.Println(&gs2[i] == &ga2[i])"},
+		{"two-return", two, "fmt.Println(r2(5))"},
+		{"two-return-defer", two, "fmt.Println(r3(5))"},
+		{"two-named-defer", two, "fmt.Println(r4(5))"},
+		{"two-store", two, "i := 5\n\tgs2[i] = ga2[i]"},
+		{"two-store-operand", two, "i := 5\n\tgs2[ga2[i]] = gs2[i+1]"},
+		// gc copies the parts of a target that are not a name, a field, *p or an index first
+		// (walkAssign's safeExpr), also in the late stores of several targets.
+		{"two-store-copied", two, "i := 5\n\tgs2[ga2[i]&1] = gs2[i+1]"},
+		{"two-store-copied-deref", two, "i := 5\n\tps := []*int{nil}\n\t*ps[ga2[i]&1] = gs2[i+1]"},
+		// A call in a copied part runs once (it is a temporary of the order); the panics of a
+		// negation, a complement and a conversion are copied too, a conversion to the same type
+		// isn't one; a map read in a target is a copied call; x op= y and x++ copy first.
+		{"two-copied-call-once", two, "k := 0\n\tgs2[(8*f())&1], k = 1, 2\n\tfmt.Println(gs2, k)\n\tpanic(\"end\")"},
+		{"two-copied-call-once-late", two, "k := 0\n\tk, gs2[(8*f())&1] = 1, 2\n\tfmt.Println(gs2, k)\n\tpanic(\"end\")"},
+		{"two-copied-call-once-array", two, "k := 0\n\tga2[(8*f())&1], ga2[k&1] = 1, 2\n\tfmt.Println(ga2)\n\tpanic(\"end\")"},
+		{"two-store-copied-neg", two, "i := 5\n\tgs2[-ga2[i]] = gs2[i+1]"},
+		{"two-store-copied-not", two, "i := 5\n\tgs2[^ga2[i]] = gs2[i+1]"},
+		{"two-store-copied-conv", two, "i := 5\n\tu := []uint{1}\n\tgs2[int(u[i])] = gs2[i+1]"},
+		{"two-store-same-conv", two, "i := 5\n\tu := []uint{1}\n\tgs2[uint(u[i])] = gs2[i+1]"},
+		{"two-store-copied-map-read", two, "i := 5\n\tms := map[int][]int{}\n\tms[ga2[i]][0] = gs2[i+1]"},
+		{"two-store-copied-map-key", two, "i := 5\n\tgs2[gm2[ga2[i]]] = gs2[i+1]"},
+		{"two-multi-copied-map-read", two, "i, k := 5, 0\n\tms := map[int][]int{}\n\tk, ms[ga2[i]][0] = 1, gs2[i+1]\n\tfmt.Println(k)"},
+		{"two-op-assign-copied", two, "i := 5\n\tvar np *struct{ arr [2]int }\n\tnp.arr[ga2[i]&1] += gs2[i+1]"},
+		{"two-inc-copied", two, "i := 5\n\tvar np *struct{ arr [2]int }\n\tnp.arr[ga2[i]&1]++"},
+		{"two-op-assign-copied-index", two, "i := 5\n\tvar ps []*struct{ arr [2]int }\n\tps[0].arr[ga2[i]&1] += 1"},
+		// gc's walk makes a map read and a string ordering comparison runtime calls, whose
+		// arguments that can panic it evaluates first; fmt's arguments are such calls too, in
+		// order. A key of type int8 (and bool, floats, arrays, structs) is copied among the calls.
+		{"two-map-read-key", two, "i := 5\n\tx := gs2[i+1] + gm2[ga2[i]]\n\tfmt.Println(x)"},
+		{"two-map-read-key-div", two, "z := 0\n\tx := gs2[6] + gm2[ga2[0]/z]\n\tfmt.Println(x)"},
+		{"two-map-read-fmt", two, "i := 5\n\tfmt.Println(gs2[i+1], gm2[ga2[i]])"},
+		{"two-string-less", two, "i := 5\n\tss := []string{\"a\"}\n\tfmt.Println(gs2[i+1] == 0 == (ss[i] < \"b\"))"},
+		{"two-string-equal", two, "i := 5\n\tss := []string{\"a\"}\n\tfmt.Println(gs2[i+1] == 0 == (ss[i] == \"b\"))"},
+		{"two-slow-key", two, "i := 5\n\tmb := map[int8]int{}\n\tfmt.Println(gs2[i+1] + mb[int8(ga2[i])] + f())"},
+		// A key of a slow map call that is addressable is read where the map is, after the calls
+		// (addrTemp copies only the others); an array key of 8 bytes is always copied.
+		{"slow-key-addressable", two, "i := 5\n\tmb := map[bool]int{}\n\tbs := []bool{true}\n\tfmt.Println(mb[bs[i]] + f())"},
+		{"slow-key-addressable-store", two, "i := 5\n\tmb := map[bool]int{}\n\tbs := []bool{true}\n\tmb[bs[i]] = f()"},
+		{"slow-key-addressable-op-assign", two, "i := 5\n\tm8 := map[int8]int{}\n\tks := []int8{1}\n\tm8[ks[i]] += f()"},
+		{"slow-key-addressable-literal", two, "i := 5\n\tbs := []bool{true}\n\tfmt.Println(map[bool]int{bs[i]: f()})"},
+		{"slow-key-big-value", two, "i := 5\n\tmbig := map[int][17]int{}\n\tfmt.Println(mbig[gs2[i]][0] + f())"},
+		{"slow-key-pkg-var", "var gbk bool\n\nvar mbk = map[bool]int{false: 10, true: 20}\n\nfunc flipk() int {\n\tgbk = !gbk\n\treturn 1\n}\n\n",
+			"fmt.Println(mbk[gbk] + flipk())\n\tmbk[gbk] = flipk()\n\tfmt.Println(mbk)\n\tpanic(\"end\")"},
+		// A local that gc keeps in registers is copied too, also when a closure that gc inlines
+		// changes it (inplace.go, D25); not for a fast map, nor when the closure escapes.
+		{"slow-key-closure-local", "", "mbl := map[bool]int{false: 10, true: 20}\n\tlb := false\n\tflip := func() int {\n\t\tlb = !lb\n\t\treturn 1\n\t}\n\tfmt.Println(mbl[lb] + flip())\n\tx := mbl[lb] + flip()\n\tfmt.Println(x)\n\tpanic(\"end\")"},
+		{"fast-key-closure-local", "", "mi := map[int]int{0: 10, 1: 20}\n\tli := 0\n\tinc := func() int {\n\t\tli++\n\t\treturn 1\n\t}\n\tfmt.Println(mi[li] + inc())\n\tpanic(\"end\")"},
+		{"slow-key-closure-escapes", "var gfk func() int\n\n", "mbl := map[bool]int{false: 10, true: 20}\n\tlb := false\n\tgfk = func() int {\n\t\tlb = !lb\n\t\treturn 1\n\t}\n\tfmt.Println(mbl[lb] + gfk())\n\tpanic(\"end\")"},
+		{"fast-cast-key", two, "i := 5\n\tm := map[[2]int32]int{}\n\tks := [][2]int32{{}}\n\tfmt.Println(m[ks[i]] + f())"},
+		{"two-slow-key-store", two, "i := 5\n\tmb := map[bool]int{}\n\tbs := []bool{true}\n\tmb[!bs[i]] = gs2[i+1] + f()"},
+		{"two-multi-store-copied", two, "i, b := 5, 0\n\tgs2[ga2[i]&1], b = gs2[i+1], 1\n\tfmt.Println(b)"},
+		{"two-op-assign", two, "i := 5\n\tgs2[i] += ga2[i]"},
+		{"two-map-store", two, "i := 5\n\tm := map[int]int{}\n\tm[gs2[i]] = ga2[i]"},
+		{"two-map-op-assign", two, "i := 5\n\tm := map[int]int{}\n\tm[gs2[i]] += ga2[i]"},
+		{"two-map-div-assign", two, "i := 5\n\tm := map[int]int{}\n\tm[gs2[i]] /= ga2[i]"},
+		{"two-multi-pkg", two, "i := 5\n\tga2[i], gs2[i] = ga2[i+1], gs2[i+1]"},
+		{"two-multi-local", two, "i := 5\n\ta, b := 0, 0\n\ta, b = gs2[i], ga2[i]\n\tfmt.Println(a, b)"},
+		{"two-multi-boxed", two, "i := 5\n\ta, b := gs2[i], ga2[i]\n\tfmt.Println(&a != nil, b)"},
+		{"two-multi-map-nil", two, "i := 5\n\ta := 0\n\tgm2[gs2[0]], a = ga2[i], 1\n\tfmt.Println(a)"},
+		{"two-multi-map-key", two, "i := 5\n\tx, gm2[gs2[i]] = ga2[i], 1"},
+		{"two-multi-ptr", two, "i := 5\n\tvar p *int\n\t*p, x = 1, ga2[i]"},
+		{"two-multi-field", two, "i := 5\n\tvar ps []*P2\n\tps[0].a, ps[i].b = 1, 2"},
+		{"two-shadow", two, "z, p := 0, 1\n\t{\n\t\tv, p := 7/z, ga2[p+4]\n\t\tfmt.Println(v, p)\n\t}"},
+		{"two-else-if", two, "i := 5\n\tif f() > 100 {\n\t} else if gs2[i] > ga2[i] {\n\t}"},
+		{"two-case", two, "i := 5\n\tswitch f() {\n\tcase 1:\n\tcase gs2[i] + ga2[i]:\n\t}"},
+		{"two-switch-tag", two, "i := 5\n\tswitch gs2[i] + ga2[i] {\n\t}"},
+		{"two-for-cond", two, "i := 5\n\tfor gs2[i] > ga2[i] {\n\t}"},
+		{"two-for-post", two, "i := 5\n\tfor j := 0; j < 3; j += gs2[i] + ga2[i] {\n\t\tfmt.Println(j)\n\t}"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -268,8 +389,8 @@ func TestOrderTemps(t *testing.T) {
 		{"a, z := 7, 0\n\tfmt.Println(a/z + f())", "{ auto gp_t0 = f(); gp::fmtshim::Println(gp::div(a, z) + gp_t0); }"},
 		{"for x < f() {\n\t}", "auto gp_t0 = f(); if (!(x < gp_t0)) break;"},
 		{"if f() > 0 && g(x, f()) > 0 {\n\t}", "bool gp_t0 = f() > 0; if (gp_t0) { auto gp_t1 = f(); gp_t0 = g(x, gp_t1) > 0; }"},
-		{"s, i, j := \"ab\", 1, 0\n\tfmt.Println(s[i], s[j], s[i] == s[j])", "gp::fmtshim::Println(s[i], s[j], s[i] == s[j]);"},
-		{"a, b := 7, 0\n\tfmt.Println(a/b, 1<<b, a%b)", "gp::fmtshim::Println(gp::div(a, b), gp::shl(int64_t(1), b), gp::rem(a, b));"},
+		{"s, i, j := \"ab\", 1, 0\n\tfmt.Println(s[i], s[j], s[i] == s[j])", "{ auto gp_t0 = s[i]; auto gp_t1 = s[j]; auto gp_t2 = s[i]; gp::fmtshim::Println(gp_t0, gp_t1, gp_t2 == s[j]); }"},
+		{"a, b := 7, 0\n\tfmt.Println(a/b, 1<<b, a%b)", "{ auto gp_t0 = gp::div(a, b); auto gp_t1 = gp::shl(int64_t(1), b); gp::fmtshim::Println(gp_t0, gp_t1, gp::rem(a, b)); }"},
 		{"fmt.Println(x == 2, f())", "{ auto gp_t0 = x == 2; gp::fmtshim::Println(gp_t0, f()); }"},
 		{"println(x == 2, f())", "{ auto gp_t0 = f(); gp::println(x == 2, gp_t0); }"},
 		// Pointers (step 3.3): a boxed variable and *p are read after the calls, like x; a
@@ -284,7 +405,7 @@ func TestOrderTemps(t *testing.T) {
 		{"p := &x\n\t*h(p) += 1", "{ auto gp_t0 = gpkg_main::h(p); *gp_t0 = *gp_t0 + 1; }"},
 		{"p := &x\n\t*h(p) = f()", "{ auto gp_t0 = gpkg_main::h(p); *gp_t0 = f(); }"},
 		{"p := &x\n\t(*h(p))++", "(*gpkg_main::h(p))++;"},
-		{"p, q := &x, new(int)\n\t*p, *q = *q, *p", "{ auto gp_t0 = *q; auto gp_t1 = *p; *p = gp_t0; *q = gp_t1; }"},
+		{"p, q := &x, new(int)\n\t*p, *q = *q, *p", "{ auto gp_t0 = *p; *p = *q; *q = gp_t0; }"},
 		{"p, q := &x, new(int)\n\tp, *p = q, 1", "{ auto gp_t0 = p; p = q; *gp_t0 = 1; }"},
 		{"l := 1\n\tp := &l\n\tswitch l {\n\tcase f():\n\t}\n\t_ = p", "auto gp_tag0 = (*l);"},
 		// Slices (step 3.5): an element is read after the calls (a call can change it through
@@ -313,7 +434,7 @@ func TestOrderTemps(t *testing.T) {
 		{"ls := []int{1}\n\tls[0]++", "ls[0]++;"},
 		{"ls := []int{1}\n\tls, ls[0] = nil, 2", "{ auto gp_t0 = ls; ls = nullptr; gp_t0[0] = 2; }"},
 		{"ls := []int{1}\n\ti := 0\n\ti, ls[i] = 1, 2", "{ auto gp_t0 = i; i = 1; ls[gp_t0] = 2; }"},
-		{"ls := []int{1}\n\tls[0], ls[0] = ls[0], f()", "{ auto gp_t0 = f(); auto gp_t1 = ls[0]; ls[0] = gp_t1; ls[0] = gp_t0; }"},
+		{"ls := []int{1}\n\tls[0], ls[0] = ls[0], f()", "{ auto gp_t0 = f(); ls[0] = ls[0]; ls[0] = gp_t0; }"},
 		{"ls := []int{1}\n\tls = append(ls, 1)", "ls = gp::append(static_cast<gp::slice<int64_t>&&>(ls), 1);"},
 		{"ls := []int{1}\n\tls = append(ls, f())", "ls = gp::append(static_cast<gp::slice<int64_t>&&>(ls), f());"},
 		{"ls := []int{1}\n\tls = append(ls, ls[0])", "ls = gp::append(ls, ls[0]);"},
@@ -330,7 +451,7 @@ func TestOrderTemps(t *testing.T) {
 		{"gg[0] = gg[0][1:]", "gg[0] = gp::sub(gg[0], 1);"},
 		{"gg[0] = gg[0][1:f()]", "{ auto gp_t0 = f(); auto gp_t1 = gp::sub(gg[0], 1, gp_t0); gg[0] = static_cast<gp::slice<int64_t>&&>(gp_t1); }"},
 		{"gg[0] = mk()", "{ auto gp_t0 = mk(); gg[0] = static_cast<gp::slice<int64_t>&&>(gp_t0); }"},
-		{"var j, k int\n\tgg[k] = append(gg[k], gg[j][0])", "gg[k] = gp::append(gg[k], gg[j][0]);"},
+		{"var j, k int\n\tgg[k] = append(gg[k], gg[j][0])", "{ auto gp_t0 = gg[k]; gg[k] = gp::append(gp_t0, gg[j][0]); }"},
 		{"ss := [][]int{{1}}\n\tss[0] = ss[0][1:]", "ss[0] = gp::sub(ss[0], 1);"},
 		{"gsl = append(gsl, 1)", "gsl = gp::append(static_cast<gp::slice<int64_t>&&>(gsl), 1);"},
 		{"gsl = append(gsl, f())", "{ auto gp_t0 = f(); gsl = gp::append(static_cast<gp::slice<int64_t>&&>(gsl), gp_t0); }"},
@@ -438,7 +559,7 @@ func TestOrderTemps(t *testing.T) {
 		{"lm := map[int][]int{}\n\tlm[1] = append(lm[2], 1)", "gp::set(lm, 1, gp::append(gp::get(lm, 2), 1));"},
 		{"lm := map[int][]int{}\n\tp := &lm\n\tk := 1\n\t(*p)[k+1] = append((*p)[k+1], f())", "{ auto gp_t0 = *p; auto gp_t1 = f(); gp::slice<int64_t>& gp_r0 = gp::ref(gp_t0, k + 1); gp_r0 = gp::append(static_cast<gp::slice<int64_t>&&>(gp_r0), gp_t1); }"},
 		{"lm := map[int]int{}\n\tv, ok := lm[1]\n\t_, _ = v, ok", "auto gp_t0 = gp::lookup(lm, 1);"},
-		{"lm := map[int]int{}\n\tlm[1], lm[2] = lm[2], lm[1]", "{ auto gp_t0 = gp::get(lm, 2); auto gp_t1 = gp::get(lm, 1); gp::set(lm, 1, gp_t0); gp::set(lm, 2, gp_t1); }"},
+		{"lm := map[int]int{}\n\tlm[1], lm[2] = lm[2], lm[1]", "{ auto gp_t0 = gp::get(lm, 1); gp::set(lm, 1, gp::get(lm, 2)); gp::set(lm, 2, gp_t0); }"},
 		{"lm := map[int]int{}\n\tlm, lm[1] = nil, 2", "{ auto gp_t0 = lm; lm = nullptr; gp::set(gp_t0, 1, 2); }"},
 		{"lm := map[int]int{1: 2, 3: f()}\n\t_ = lm", "gp::map<int64_t, int64_t> lm = gp::map_of<int64_t, int64_t>({{1, 2}, {3, f()}});"},
 		{"lm := map[int]int{3: f(), 1: 2}\n\t_ = lm", "gp::map<int64_t, int64_t> lm = gp::map_of<int64_t, int64_t>({{1, 2}, {3, f()}});"},
@@ -485,8 +606,8 @@ func TestOrderTemps(t *testing.T) {
 		// it: a later target's operand that reads the local is saved first (Go's two phases).
 		{"var w Pt\n\tls := []int{0, 0}\n\tw.a, ls[w.a] = 1, 3", "{ auto gp_t0 = w.a; w.a = 1; ls[gp_t0] = 3; }"},
 		{"la := [2]int{}\n\tlx := [3]int{}\n\tla[0], lx[la[0]] = 1, 2", "{ auto gp_t0 = la[0]; la[0] = 1; lx[gp_t0] = 2; }"},
-		{"var w Tree\n\tw.next, w.next.next = &Tree{}, nil", "{ auto gp_t0 = w.next; auto gp_t1 = nullptr; w.next = gp::new_<Tree>(Tree{}); gp_t0->next = gp_t1; }"},
-		{"ws := [1]Tree{}\n\tws[0].next, ws[0].next.next = nil, nil", "{ auto gp_t0 = ws[0].next; auto gp_t1 = nullptr; ws[0].next = nullptr; gp_t0->next = gp_t1; }"},
+		{"var w Tree\n\tw.next, w.next.next = &Tree{}, nil", "{ auto gp_t0 = w.next; w.next = gp::new_<Tree>(Tree{}); gp_t0->next = nullptr; }"},
+		{"ws := [1]Tree{}\n\tws[0].next, ws[0].next.next = nil, nil", "{ auto gp_t0 = ws[0].next; ws[0].next = nullptr; gp_t0->next = nullptr; }"},
 		{"var w Pt\n\tls := []int{0, 0}\n\tfor w.a, ls[w.a] = range ls {\n\t}", "auto gp_t0 = w.a; w.a = gp_it0.gp_i; ls[gp_t0] = gp_it0.gp_v();"},
 		{"var w Pt\n\tw.a, w.b = w.b, w.a", "{ auto gp_t0 = w.a; w.a = w.b; w.b = gp_t0; }"},
 		// Embedded pointers: the pointer of a promoted field is saved like p of p.f.
@@ -562,6 +683,24 @@ func TestOrderTemps(t *testing.T) {
 		{"i := gst.inc\n\t_ = i", "gp::func<int64_t(int64_t)> i = gp::func<int64_t(int64_t)>([gp_r = gp::static_ptr(gst)](auto&&... gp_a) { return Pt::inc(gp_r, gp_a...); });"},
 		{"fs := []func() int{gst.sum, mkf()}\n\t_ = fs", "auto gp_t0 = mkf(); gp::slice<gp::func<int64_t()>> fs = gp::slice_of<gp::func<int64_t()>>({gp::func<int64_t()>([gp_r = gst](auto&&... gp_a) { return gp_r.sum(gp_a...); }), gp_t0});"},
 		{"_ = Pt.add(gst, f())", "{ auto gp_t0 = f(); static_cast<void>([](auto&& gp_r, auto&&... gp_a) { return gp_r.add(gp_a...); }(gst, gp_t0)); }"},
+		// Two operations that can panic (step 3.12): the first goes into a temporary when C++
+		// could evaluate the other first; a place (the target of op=, the operand of &) or a
+		// struct is only checked first; none is needed in a list that C++ evaluates in order;
+		// a map store's value goes first; with several targets, gc's ascompatee order.
+		{"i := 1\n\tfmt.Println(gsl[i], ga[i])", "{ auto gp_t0 = gsl[i]; gp::fmtshim::Println(gp_t0, ga[i]); }"},
+		{"i := 1\n\t_ = gsl[i] + ga[i]*2", "{ auto gp_t0 = gsl[i]; static_cast<void>(gp_t0 + ga[i] * 2); }"},
+		{"i := 1\n\t[]int{1}[i] += ga[i]", "{ static_cast<void>(gp::slice_of<int64_t>({1})[i]); gp::slice_of<int64_t>({1})[i] = gp::slice_of<int64_t>({1})[i] + ga[i]; }"},
+		{"i := 1\n\tdefer fmt.Println(gsl[i], ga[i])", "{ auto gp_t0 = gsl[i]; gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp::fmtshim::Println(gp_a0, gp_a1); }, gp_t0, ga[i]); }"},
+		{"i := 1\n\tgsl[i] += ga[i]", "{ auto& gp_r0 = gsl[i]; gp_r0 = gp_r0 + ga[i]; }"},
+		{"i := 1\n\tfmt.Println(&gsl[i] == &ga[i])", "{ static_cast<void>(gsl[i]); gp::fmtshim::Println(gp::ptr<int64_t>(gsl.gp_owner(), &gsl[i]) == gp::static_ptr(ga[i])); }"},
+		{"i := 1\n\tfmt.Println(gsts[i], ga[i])", "{ static_cast<void>(gsts[i]); gp::fmtshim::Println(gsts[i], ga[i]); }"},
+		{"i := 1\n\t_ = []int{gsl[i], ga[i]}", "static_cast<void>(gp::slice_of<int64_t>({gsl[i], ga[i]}));"},
+		{"i := 1\n\t_ = Pt{b: gsl[i], a: ga[i]}", "{ auto gp_t0 = gsl[i]; static_cast<void>(Pt{.a = ga[i], .b = gp_t0}); }"},
+		{"i := 1\n\tgm[gsl[i]] = ga[i]", "{ auto gp_t0 = ga[i]; gp::set(gm, gsl[i], gp_t0); }"},
+		{"i := 1\n\tgsl[ga[i]] = gsl[i]", "{ auto gp_t0 = gsl[i]; gsl[ga[i]] = gp_t0; }"},
+		{"i := 1\n\ta := 0\n\tgm[gsl[i]], a = ga[i], 1\n\t_ = a", "{ auto& gp_r0 = gp::ref(gm, gsl[i]); gp_r0 = ga[i]; a = 1; }"},
+		{"i := 1\n\tx, ga[0] = gsl[i], ga[i]", "{ auto gp_t0 = ga[i]; x = gsl[i]; ga[0] = gp_t0; }"},
+		{"i := 1\n\ta, b := gsl[i], ga[i]\n\t_, _ = &a, b", "int64_t gp_t0 = ga[i]; gp::ptr<int64_t> a = gp::new_<int64_t>(gsl[i]); int64_t b = gp_t0;"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.body, func(t *testing.T) {

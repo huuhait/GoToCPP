@@ -21,17 +21,17 @@ void main() {
 #line 17 "$DIR/smallint.gp"
     uint8_t b = 100;
     gp::fmtshim::Println(uint8_t(a + b), uint8_t(a + b) > 250, uint8_t(uint8_t(uint8_t(a - b) - b) - b), uint8_t(a * b), uint8_t(-a), uint8_t(~a), a);
-    { auto gp_t0 = add8(a, b); auto gp_t1 = uint8_t(add8(a, b) / 2); gp::fmtshim::Println(gp_t0, gp_t1, uint8_t(uint8_t(a + b) / 2), gp::div(a, b), gp::rem(a, b), uint8_t(a / 3), uint8_t(a % 7)); }
+    { auto gp_t0 = add8(a, b); auto gp_t1 = uint8_t(add8(a, b) / 2); auto gp_t2 = gp::div(a, b); gp::fmtshim::Println(gp_t0, gp_t1, uint8_t(uint8_t(a + b) / 2), gp_t2, gp::rem(a, b), uint8_t(a / 3), uint8_t(a % 7)); }
     int8_t i8 = -128;
 #line 20 "$DIR/smallint.gp"
     int8_t m1 = -1;
-    gp::fmtshim::Println(int8_t(i8 * m1), int8_t(-i8), int8_t(i8 - 1), int8_t(i8 + i8), int8_t(~i8), gp::div(i8, m1), gp::rem(i8, m1), int8_t(i8 * -1), int8_t(i8 / 2));
+    { auto gp_t3 = gp::div(i8, m1); gp::fmtshim::Println(int8_t(i8 * m1), int8_t(-i8), int8_t(i8 - 1), int8_t(i8 + i8), int8_t(~i8), gp_t3, gp::rem(i8, m1), int8_t(i8 * -1), int8_t(i8 / 2)); }
     int16_t x16 = 32767;
     uint16_t u16 = 65535;
     gp::fmtshim::Println(int16_t(x16 + 1), int16_t(x16 * x16), int16_t(int16_t(-x16) - 2), uint16_t(u16 + 1), uint16_t(u16 * u16), uint16_t(u16 << 1), uint16_t(u16 << 15), uint16_t(u16 >> 15), gp::shl(u16, 16));
     gp::fmtshim::Println(uint16_t(u16 & 65280), uint16_t(u16 | 1), uint16_t(u16 ^ 3855), uint16_t(u16 & ~255), uint16_t(~u16));
     gp::println(uint8_t(a + b), int8_t(i8 * m1), int16_t(x16 + 1), uint16_t(u16 + 1));
-    { auto gp_t2 = gpkg_main::digit("7x"_gs, 0); auto gp_t3 = gpkg_main::digit("7x"_gs, 1); gp::fmtshim::Println(gp_t2, gp_t3, gpkg_main::digit("a/"_gs, 1)); }
+    { auto gp_t4 = gpkg_main::digit("7x"_gs, 0); auto gp_t5 = gpkg_main::digit("7x"_gs, 1); gp::fmtshim::Println(gp_t4, gp_t5, gpkg_main::digit("a/"_gs, 1)); }
 #line 29 "$DIR/smallint.gp"
     uint8_t c = 255;
 #line 29 "$DIR/smallint.gp"
