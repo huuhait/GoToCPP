@@ -167,7 +167,7 @@ translates that syntax:
 | gocpp | C++ | Note |
 |---|---|---|
 | `x := lib.f()` | `auto x = ::f();` | |
-| `x.m`, `x.m()` with `x` opaque | `gp::deref(x).m` | `gp::deref` dereferences **raw pointers only**, like Go's auto-deref; values pass through. Smart pointers are not auto-dereferenced: write `(*sp).m` |
+| `x.m`, `x.m()` with `x` opaque | `gp::deref(x).m` | `gp::deref` dereferences raw pointers and gocpp pointers (`gp::ptr`) one level, like Go's auto-deref, with Go's nil panic; values pass through. A gocpp pointer reaches it as an opaque value, for example an element of `std.vector[*Node]` or a gocpp pointer returned by a C++ template (`v[0].Name`). C++ smart pointers are not auto-dereferenced: write `(*sp).m` |
 | `a + b`, `a == b`, `v[i]` on C++ values | `a + b`, `a == b`, `v[i]` | C++ operators and C++ rules (no gocpp bounds check on C++ containers; use `.at(i)` if you want one) |
 | `std.string("hi")`, `std.vector[int](10, 0)` | `std::string("hi")`, `std::vector<int64_t>(10, 0)` | conversion syntax = constructor; several arguments allowed (divergence D5) |
 | `std.vector[int]{1, 2, 3}` | `std::vector<int64_t>{1, 2, 3}` | |
@@ -206,7 +206,7 @@ locals that are not boxed are moved where Go semantics allow, and every construc
 | untyped string constant → any C/C++ parameter | a raw C literal `"hello"` (Phase 01 keeps untyped constants) |
 | `string` → `std::string_view` | implicit conversion on `gp::string` |
 | `string` → `std::string` | explicit: `std.string(s)`. (Implicit conversions to both `std::string` and `std::string_view` are ambiguous for overloaded C++ functions and don't work with templates, so only `std::string_view` is implicit.) |
-| `string` → `const char*` | `C.cstr(s)`: returns a small **holder** object that owns a NUL-terminated copy and converts to `const char*`. It lives at least until the end of the statement, even when the evaluation-order pass moves it into a named temporary (it is never turned into a raw pointer early); a holder stored in a variable (`name := C.cstr(s)`) lives as long as that variable. No copy if the bytes are already NUL-terminated (literals) |
+| `string` → `const char*` | `C.cstr(s)`: returns a small **holder** object that owns a NUL-terminated copy and converts to `const char*`. It lives at least until the end of the statement, even when the evaluation-order pass moves it into a named temporary (it is never turned into a raw pointer early); a holder stored in a variable (`name := C.cstr(s)`) lives as long as that variable. No copy if the bytes are already NUL-terminated (literals). A holder can't go through a C `...` parameter (`printf`, `curl_easy_setopt`, `ioctl`): clang rejects it, and g++ would pass a stack copy silently, so g++ builds use `-Werror=conditionally-supported` and the emitter writes `gp::cstr(s).gp_ptr()` for variadic arguments; the evaluation-order pass then hoists the holder, never the raw pointer (the same for a `gp::ptr` through `...`: `.gp_get()`) |
 | `string` → owned `char*` | `C.CString(s)` (cgo-compatible, `malloc`; free with `C.free(p)`) |
 | `char*` → `string` | `C.GoString(p)`, `C.GoStringN(p, n)` (cgo-compatible; they accept any char pointer: `char*`, `const char*`, `unsigned char*` as from `sqlite3_column_text`) |
 | `std::string` / `string_view` → `string` | `string(x)` conversion |

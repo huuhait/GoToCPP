@@ -82,3 +82,14 @@
   differences are listed in the ProbeKinds doc (non-static members, injected class names: g++ answers,
   clang++ says NotFound). Doc nits left: a variadic concept is ValueTemplate, not NotFound; Result.Kinds'
   doc of gp_ names in namespace mode.
+- 2026-10-15 (04-rt review, for 4.7, 4.9, 4.10): `gp::range` keeps only prvalues by value, so a range over a
+  member of a temporary (`for _, x := range f().items`, where f returns the only `*Node`) is a
+  heap-use-after-free; 4.7 hoists a range expression that is neither a variable nor a prvalue into a local
+  (Go evaluates it once anyway). 4.9/4.10: variadic C arguments get `.gp_ptr()` / `.gp_get()` (README §2.6).
+  4.10: a string made over C memory (`unsafe.String` from a C pointer) needs a non-null owner marker, because
+  a null owner promises a readable byte at `data[len]` (gp::cstr's no-copy path reads it). `gp::ptr` converts
+  implicitly to `T*` (borrowed, §2.7); its conversions to `bool` and to `const volatile T*` are deleted, so
+  `if (p)`, `delete p` and `p[i]` don't compile (as in Phase 03); the cost is that an `f(bool)` + `f(void*)`
+  overload pair is ambiguous for a gocpp pointer (pass `p.gp_get()`). `gp::deref` also dereferences `gp::ptr`
+  (README §2.5).
+
