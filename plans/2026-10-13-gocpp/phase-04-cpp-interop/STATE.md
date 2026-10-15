@@ -7,8 +7,8 @@
 ## Steps
 
 - [x] 4.1 Compiler probes: macro list (`-dM -E`) + kind probe (namespace/type/template/value, grown from Phase 01's namespace probe), cached
-- [ ] 4.2 C type translator (builtins, `struct_` tags, pointers, templates, constant args, dotted/member types, gocpp types inside)
-- [ ] 4.3 Name translation (header packages → `::name` / unqualified macros, namespaces + renames, header-and-namespace names, `::` vs `.`, macro protection with gocpp headers first)
+- [~] 4.2 C type translator (builtins, `struct_` tags, pointers, templates, constant args, dotted/member types, gocpp types inside)
+- [~] 4.3 Name translation (header packages → `::name` / unqualified macros, namespaces + renames, header-and-namespace names, `::` vs `.`, macro protection with gocpp headers first)
 - [ ] 4.4 Opaque value codegen (`auto`, `gp::deref`, calls, operators, constructors, `nil` → `nullptr`, untyped constants as C literals)
 - [ ] 4.5 Template-vs-index rule (kind probe) + parenthesis escape
 - [ ] 4.6 Composite literals of C/C++ types (positional, keyed via assignments, init lists)
@@ -21,7 +21,7 @@
 - [ ] 4.12 C++ exception → fatal Go-style panic; fmt shim prints C++ values (raw pointers as addresses)
 - [ ] 4.13 Compile + link package `.c/.cc/.cpp/.cxx` sources
 - [ ] 4.14 `extern "C"` rule (parse-as-C, `.hpp` not wrapped by default, `//gocpp:extern-c <hdr>`, `no-extern-c`, the §2.9 error cases)
-- [ ] 4.15 Directives → flags (`pkg-config`, `link`, `cflags`, `ldflags`) + the flag allow-list (port Go's security.go tables, `GOCPP_*_ALLOW`); tests use a test-only library with its own `.pc` (the dev shell hides missing flags)
+- [~] 4.15 Directives → flags (`pkg-config`, `link`, `cflags`, `ldflags`) + the flag allow-list (port Go's security.go tables, `GOCPP_*_ALLOW`); tests use a test-only library with its own `.pc` (the dev shell hides missing flags)
 - [ ] 4.16 Local helper headers used as packages (replaces the preamble) + `C` helpers (`C.free`)
 - [ ] 4.17 Interop error reporting (`.gp` line mapping, trimming, `-cpperrors=full`)
 - [ ] 4.18 Tests
