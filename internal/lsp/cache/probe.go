@@ -44,6 +44,13 @@ import (
 //     than 5 s), and so is every answer when the editor reports a changed
 //     header (Pipeline.HeadersChanged).
 //
+//   - pkg-config: the flags of a package's //gocpp:pkg-config lines come from
+//     pkg-config, which the prober runs in the background too, per folder and
+//     package list (a pcEntry). Until it has answered, the check gets
+//     build.ErrPending, and the package is not probed (its uses stay opaque);
+//     an answer older than revalidateAfter is checked again in the background
+//     when a check uses it, so that a .pc file that changes is noticed.
+//
 // Each check records what it got (a probeRecord). A checked package whose
 // record would now get other answers is stale (Package.Stale): the caches
 // drop it when it is asked for (checked, summaryOf), and the language
@@ -87,8 +94,9 @@ type prober struct {
 	cancel   context.CancelFunc
 	find     func(ctx context.Context) (build.CXX, error)
 	probe    func(ctx context.Context, cxx build.CXX, dir string, flags, includes, candidates []string) (interop.Result, error)
-	onChange func()        // Config.OnProbe, or nil
-	sem      chan struct{} // a place for each probe that runs: at most maxProbes
+	pc       build.PkgConfigFunc // Config.PkgConfig, or build.PkgConfig
+	onChange func()              // Config.OnProbe, or nil
+	sem      chan struct{}       // a place for each probe that runs: at most maxProbes
 
 	mu      sync.Mutex
 	idle    sync.Cond // on mu: signalled when active goes to 0
@@ -96,6 +104,7 @@ type prober struct {
 	closed  bool
 	cxx     cxxLookup
 	sets    map[string]*probeSet
+	pcs     map[string]*pcEntry
 	clock   uint64 // counts uses, for probeSet.lastUse
 	changes int64  // counts the changed answers, for the tests
 }
@@ -132,8 +141,8 @@ type probeSet struct {
 
 func newProber(find func(context.Context) (build.CXX, error), probe func(context.Context, build.CXX, string, []string, []string, []string) (interop.Result, error), onChange func()) *prober {
 	ctx, cancel := context.WithCancel(context.Background())
-	pr := &prober{ctx: ctx, cancel: cancel, find: find, probe: probe, onChange: onChange,
-		sem: make(chan struct{}, maxProbes), sets: make(map[string]*probeSet)}
+	pr := &prober{ctx: ctx, cancel: cancel, find: find, probe: probe, pc: build.PkgConfig, onChange: onChange,
+		sem: make(chan struct{}, maxProbes), sets: make(map[string]*probeSet), pcs: make(map[string]*pcEntry)}
 	pr.idle.L = &pr.mu
 	return pr
 }
@@ -366,6 +375,110 @@ func (pr *prober) run(set *probeSet) {
 	}
 }
 
+// A pcEntry is what the prober knows of the pkg-config run for one
+// //gocpp:pkg-config line: the folder and the packages. Its fields are
+// guarded by prober.mu.
+type pcEntry struct {
+	key     string // in prober.pcs
+	dir     string
+	pkgs    []string
+	lastUse uint64
+
+	has          bool // pkg-config has answered: cflags, libs and err hold its answer
+	cflags, libs []string
+	err          error
+
+	running   bool
+	validated time.Time // when the last run answered
+}
+
+// digest returns a text that is the same for the same answer of e.
+func (e *pcEntry) digest() string {
+	if !e.has {
+		return "?"
+	}
+	return strings.Join(e.cflags, "\x00") + "\x01" + strings.Join(e.libs, "\x00") + "\x01" + errText(e.err)
+}
+
+// pkgConfigFor returns the check.Config.PkgConfig of a check that records
+// in r: the answer that the prober has, or build.ErrPending while it runs
+// pkg-config in the background.
+func (pr *prober) pkgConfigFor(r *probeRecord) build.PkgConfigFunc {
+	return func(_ context.Context, dir string, pkgs []string) ([]string, []string, error) {
+		pr.mu.Lock()
+		defer pr.mu.Unlock()
+		e := pr.pcLocked(dir, pkgs)
+		r.addPC(pcUse{entry: e, digest: e.digest(), complete: e.has})
+		switch {
+		case !e.has:
+			pr.startPCLocked(e)
+			return nil, nil, build.ErrPending
+		case time.Since(e.validated) >= revalidateAfter:
+			pr.startPCLocked(e)
+		}
+		return slices.Clone(e.cflags), slices.Clone(e.libs), e.err
+	}
+}
+
+// pcLocked returns the pkg-config entry of dir and pkgs, new if the prober
+// doesn't know it. pr.mu is held.
+func (pr *prober) pcLocked(dir string, pkgs []string) *pcEntry {
+	key := strings.Join(append([]string{dir}, pkgs...), "\x00")
+	pr.clock++
+	e := pr.pcs[key]
+	if e == nil {
+		if len(pr.pcs) >= maxProbeSets {
+			var oldest *pcEntry
+			for _, o := range pr.pcs {
+				if !o.running && (oldest == nil || o.lastUse < oldest.lastUse) {
+					oldest = o
+				}
+			}
+			if oldest != nil {
+				delete(pr.pcs, oldest.key)
+			}
+		}
+		e = &pcEntry{key: key, dir: dir, pkgs: slices.Clone(pkgs)}
+		pr.pcs[key] = e
+	}
+	e.lastUse = pr.clock
+	return e
+}
+
+// startPCLocked runs pkg-config for e in the background, unless it runs
+// already. Like the probes, at most maxProbes run at the same time (they
+// share pr.sem): opening a workspace with many such packages doesn't start
+// them all at once. pr.mu is held.
+func (pr *prober) startPCLocked(e *pcEntry) {
+	if e.running || pr.closed {
+		return
+	}
+	e.running = true
+	pr.goLocked(func() {
+		var cflags, libs []string
+		var err error
+		select {
+		case pr.sem <- struct{}{}:
+			cflags, libs, err = pr.pc(pr.ctx, e.dir, e.pkgs)
+			<-pr.sem
+		case <-pr.ctx.Done():
+		}
+		pr.mu.Lock()
+		e.running = false
+		if pr.ctx.Err() != nil {
+			pr.mu.Unlock()
+			return
+		}
+		before := e.digest()
+		e.has, e.cflags, e.libs, e.err, e.validated = true, cflags, libs, err, time.Now()
+		changed := e.digest() != before
+		pr.mu.Unlock()
+		if changed {
+			pr.changed()
+		}
+	})
+}
+
 // headersChanged checks every include set again in the background.
 func (pr *prober) headersChanged() {
 	pr.mu.Lock()
@@ -483,6 +596,14 @@ type probeRecord struct {
 	cxx        build.CXX // the compiler that the check got
 	cxxErr     string    // the error of the lookup (errText)
 	uses       []probeUse
+	pcUses     []pcUse
+}
+
+// A pcUse is one answer of pkg-config (or build.ErrPending) to a check.
+type pcUse struct {
+	entry    *pcEntry
+	digest   string
+	complete bool
 }
 
 // A probeUse is one answer of a probe to a check.
@@ -505,11 +626,18 @@ func (r *probeRecord) add(u probeUse) {
 	r.uses = append(r.uses, u)
 }
 
-// used reports whether the check asked for the compiler or a probe.
+func (r *probeRecord) addPC(u pcUse) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.pcUses = append(r.pcUses, u)
+}
+
+// used reports whether the check asked for the compiler, a probe or
+// pkg-config.
 func (r *probeRecord) used() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.cxxUsed || len(r.uses) > 0
+	return r.cxxUsed || len(r.uses) > 0 || len(r.pcUses) > 0
 }
 
 // provisional reports whether an answer was missing: the compiler was
@@ -530,6 +658,11 @@ func (r *probeRecord) provisional() bool {
 			return true
 		}
 	}
+	for _, u := range r.pcUses {
+		if !u.complete {
+			return true
+		}
+	}
 	return false
 }
 
@@ -544,12 +677,17 @@ func (r *probeRecord) stale() bool {
 		return stale
 	}
 	r.mu.Lock()
-	cxxUsed, cxxGen, uses := r.cxxUsed, r.cxxGen, r.uses
+	cxxUsed, cxxGen, uses, pcUses := r.cxxUsed, r.cxxGen, r.uses, r.pcUses
 	r.mu.Unlock()
 	r.pr.mu.Lock()
 	defer r.pr.mu.Unlock()
 	if cxxUsed && r.pr.cxx.gen != cxxGen {
 		return true
+	}
+	for _, u := range pcUses {
+		if r.pr.pcAnswerLocked(u.entry) != u.digest {
+			return true
+		}
 	}
 	for _, u := range uses {
 		set := u.set
@@ -561,6 +699,16 @@ func (r *probeRecord) stale() bool {
 		}
 	}
 	return false
+}
+
+// pcAnswerLocked returns the digest of what the prober knows now for the
+// pkg-config entry e: an entry that was evicted is looked up by its key,
+// as it may be there again with a newer answer. pr.mu is held.
+func (pr *prober) pcAnswerLocked(e *pcEntry) string {
+	if cur := pr.pcs[e.key]; cur != nil {
+		e = cur
+	}
+	return e.digest()
 }
 
 // diskState compares the answers of the record r from disk (see replay)
@@ -594,6 +742,14 @@ func (r *probeRecord) diskState() (stale, provisional bool) {
 			return true, false
 		}
 	}
+	for _, u := range r.pcUses {
+		switch d := pr.pcAnswerLocked(u.entry); {
+		case d == "?":
+			provisional = true
+		case d != u.digest:
+			return true, false
+		}
+	}
 	return false, provisional
 }
 
@@ -601,10 +757,19 @@ func (r *probeRecord) diskState() (stale, provisional bool) {
 // probes of a check answered, all of it (a provisional record is never
 // written).
 type diskProbe struct {
-	CXXUsed bool
-	CXX     build.CXX
-	CXXErr  string
-	Uses    []diskProbeUse
+	CXXUsed    bool
+	CXX        build.CXX
+	CXXErr     string
+	Uses       []diskProbeUse
+	PkgConfigs []diskPCUse
+}
+
+// A diskPCUse is a pcUse on disk: the folder and the packages of the
+// pkg-config run, and the answer (pcEntry.digest).
+type diskPCUse struct {
+	Dir    string
+	Pkgs   []string
+	Digest string
 }
 
 // A diskProbeUse is a probeUse on disk: the include set (with the compiler
@@ -636,14 +801,21 @@ func (r *probeRecord) diskForm() (*diskProbe, bool) {
 		// The fields of a set that make its key never change.
 		d.Uses = append(d.Uses, diskProbeUse{Dir: u.set.dir, Flags: u.set.flags, Includes: u.set.includes, Cands: u.cands, Digest: u.digest})
 	}
+	for _, u := range r.pcUses {
+		if !u.complete {
+			return nil, false
+		}
+		d.PkgConfigs = append(d.PkgConfigs, diskPCUse{Dir: u.entry.dir, Pkgs: u.entry.pkgs, Digest: u.digest})
+	}
 	return d, true
 }
 
 // replay returns the record of a summary from disk with the answers d, and
 // asks the prober for them in the background as the check did: it looks
 // for the compiler (if it hasn't yet), and probes each include set with the
-// compiler of d (the one that the check got), unless the prober knows the
-// answers. When they come, the record is no longer provisional, and it is
+// compiler of d (the one that the check got) and runs pkg-config for each
+// //gocpp:pkg-config line of d, unless the prober knows the answers (and
+// they are newer than revalidateAfter). When they come, the record is no longer provisional, and it is
 // stale if they differ (Config.OnProbe says when).
 func (pr *prober) replay(d *diskProbe) *probeRecord {
 	r := &probeRecord{pr: pr, disk: true, cxxUsed: d.CXXUsed, cxx: d.CXX, cxxErr: d.CXXErr}
@@ -673,6 +845,13 @@ func (pr *prober) replay(d *diskProbe) *probeRecord {
 			pr.startLocked(set)
 		case time.Since(set.validated) >= revalidateAfter:
 			pr.startLocked(set)
+		}
+	}
+	for _, u := range d.PkgConfigs {
+		e := pr.pcLocked(u.Dir, u.Pkgs)
+		r.pcUses = append(r.pcUses, pcUse{entry: e, digest: u.Digest, complete: true})
+		if !e.has || time.Since(e.validated) >= revalidateAfter {
+			pr.startPCLocked(e)
 		}
 	}
 	return r

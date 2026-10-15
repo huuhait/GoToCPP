@@ -9,8 +9,10 @@
 // (cxx.go), the flags (flags.go), the embedded runtime, extracted once
 // into the cache folder with its object files (runtime.go), one-package
 // builds (compile.go: Builder) and the process groups of the compilers
-// (proc_unix.go), which the namespace probe uses too. Phase 04 adds C/C++ sources and
-// link flags. Phase 06 adds the action graph, the cache, parallel builds,
+// (proc_unix.go), which the namespace probe uses too. Phase 04 adds the
+// flags of packages (pkgflags.go: the //gocpp: directives and pkg-config,
+// checked by the go command's flag allow-list, security.go) and C/C++
+// sources. Phase 06 adds the action graph, the cache, parallel builds,
 // build modes, compile_commands.json and the first Windows builds, and
 // Phase 14 finishes Windows.
 package build

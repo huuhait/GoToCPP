@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -373,5 +374,204 @@ func TestProberFlags(t *testing.T) {
 	slices.SortFunc(seen, func(a, b []string) int { return len(a) - len(b) })
 	if len(seen) != 2 || seen[0] != nil || !slices.Equal(seen[1], []string{"-DNS"}) {
 		t.Errorf("the replay probed with the flags %q, want none and [-DNS]", seen)
+	}
+}
+
+// A fakePkgConfig answers pkg-config runs with cflags, or with err. A run
+// waits until the test lets it go (release).
+type fakePkgConfig struct {
+	mu      sync.Mutex
+	runs    int
+	cflags  []string
+	err     error
+	started chan struct{}
+	release chan struct{}
+}
+
+func newFakePkgConfig(cflags ...string) *fakePkgConfig {
+	return &fakePkgConfig{cflags: cflags, started: make(chan struct{}, 100), release: make(chan struct{}, 100)}
+}
+
+func (f *fakePkgConfig) run(ctx context.Context, _ string, _ []string) ([]string, []string, error) {
+	f.started <- struct{}{}
+	select {
+	case <-f.release:
+	case <-ctx.Done():
+		return nil, nil, ctx.Err()
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.runs++
+	return slices.Clone(f.cflags), []string{"-llib"}, f.err
+}
+
+// TestProbePkgConfig: the check of a package with //gocpp:pkg-config
+// doesn't wait for pkg-config: it is provisional, and its package is not
+// probed, until pkg-config answers in the background; then the check is
+// stale, and the next one probes with the flags. An old answer is checked
+// again in the background when a check uses it; an error then makes the
+// checks stale, and the next one has the error at the directive.
+func TestProbePkgConfig(t *testing.T) {
+	f := newFakeProbe()
+	pc := newFakePkgConfig("-DLIB")
+	changes := make(chan struct{}, 100)
+	src := "//gocpp:pkg-config lib\npackage main\n\nimport \"<vector>\"\n\nfunc main() {\n\tvar v std.vector[int]\n\tvar w stdd.vector[int]\n\t_, _ = v, w\n}\n"
+	cfg := testConfig()
+	cfg.CXX = func(context.Context) (build.CXX, error) {
+		return build.CXX{Path: "/fake/c++", Family: build.Clang}, nil
+	}
+	cfg.Probe = f.probe
+	cfg.PkgConfig = pc.run
+	cfg.OnProbe = func() { changes <- struct{}{} }
+	w := newWorld(t, cfg, map[string]string{"gocpp.mod": "module m\n", "main.gp": src})
+	t.Cleanup(w.p.Close)
+	pr := w.p.prober
+	pr.mu.Lock()
+	pr.lookCXXLocked()
+	pr.mu.Unlock()
+	<-changes // the compiler was found
+	pr.wait()
+
+	pkg := w.pkg(".")
+	if !pkg.Provisional() || w.errs(pkg) != "" {
+		t.Fatalf("first check: provisional %v, errors:\n%s", pkg.Provisional(), w.errs(pkg))
+	}
+	<-pc.started // pkg-config runs, held
+	if len(f.started) != 0 {
+		t.Error("the package was probed without its flags")
+	}
+	pc.release <- struct{}{}
+	<-changes
+	pr.wait()
+	if !pkg.Stale() {
+		t.Fatal("the first check is not stale after pkg-config answered")
+	}
+	w.pkg(".") // probes with the flags, in the background
+	f.release <- struct{}{}
+	pr.wait()
+	pkg = w.pkg(".")
+	if pkg.Provisional() || !strings.Contains(w.errs(pkg), "undefined: stdd") {
+		t.Errorf("after pkg-config and the probe: provisional %v, errors:\n%s", pkg.Provisional(), w.errs(pkg))
+	}
+	pr.mu.Lock()
+	var flags [][]string
+	for _, set := range pr.sets {
+		flags = append(flags, set.flags)
+	}
+	pr.mu.Unlock()
+	if want := slices.Concat([]string{"-DLIB"}, build.LanguageFlags()); len(flags) != 1 || !slices.Equal(flags[0], want) {
+		t.Errorf("the probes had the flags %q, want %q", flags, want)
+	}
+
+	// The answer gets old, and pkg-config now fails: a check that uses the
+	// old answer runs pkg-config again in the background.
+	pc.mu.Lock()
+	pc.err = errors.New("pkg-config --cflags -- lib: exit status 1")
+	pc.mu.Unlock()
+	pr.mu.Lock()
+	for _, e := range pr.pcs {
+		e.validated = time.Time{}
+	}
+	pr.mu.Unlock()
+	w.open("main.gp", src+"\n")
+	old := w.pkg(".")
+	<-pc.started
+	pc.release <- struct{}{}
+	<-changes
+	pr.wait()
+	if !old.Stale() {
+		t.Fatal("the check with the old answer is not stale")
+	}
+	if errs := w.errs(w.pkg(".")); !strings.Contains(errs, "main.gp:1:1: pkg-config --cflags -- lib: exit status 1") {
+		t.Errorf("errors after pkg-config failed:\n%s", errs)
+	}
+	if pc.runs != 2 {
+		t.Errorf("%d pkg-config runs, want 2", pc.runs)
+	}
+}
+
+// TestProberPkgConfigDisk: a record keeps its pkg-config answers on disk,
+// and a replay runs pkg-config again: provisional until it answers, then
+// stale if the answer differs.
+func TestProberPkgConfigDisk(t *testing.T) {
+	pc := newFakePkgConfig("-DA")
+	find := func(context.Context) (build.CXX, error) {
+		return build.CXX{Path: "/fake/c++", Family: build.Clang}, nil
+	}
+	probe := newFakeProbe().probe
+	pr := newProber(find, probe, nil)
+	pr.pc = pc.run
+	defer pr.close()
+	ctx := context.Background()
+	r := &probeRecord{pr: pr}
+	if _, _, err := pr.pkgConfigFor(r)(ctx, "/d", []string{"lib"}); err != build.ErrPending {
+		t.Fatalf("the first answer: %v, want build.ErrPending", err)
+	}
+	if _, ok := r.diskForm(); ok {
+		t.Error("a record with a pending answer can be written")
+	}
+	pc.release <- struct{}{}
+	pr.wait()
+	r = &probeRecord{pr: pr}
+	cflags, libs, err := pr.pkgConfigFor(r)(ctx, "/d", []string{"lib"})
+	if err != nil || !slices.Equal(cflags, []string{"-DA"}) || !slices.Equal(libs, []string{"-llib"}) || r.provisional() || r.stale() {
+		t.Fatalf("the answer: %q, %q, %v; provisional %v, stale %v", cflags, libs, err, r.provisional(), r.stale())
+	}
+	d, ok := r.diskForm()
+	if !ok || len(d.PkgConfigs) != 1 || d.PkgConfigs[0].Dir != "/d" || !slices.Equal(d.PkgConfigs[0].Pkgs, []string{"lib"}) {
+		t.Fatalf("diskForm = %+v, %v", d, ok)
+	}
+
+	for _, c := range []struct {
+		cflags []string
+		stale  bool
+	}{{[]string{"-DA"}, false}, {[]string{"-DB"}, true}} {
+		pc.mu.Lock()
+		pc.cflags = c.cflags
+		pc.mu.Unlock()
+		pr2 := newProber(find, probe, nil)
+		pr2.pc = pc.run
+		r2 := pr2.replay(d)
+		<-pc.started
+		if !r2.provisional() {
+			t.Errorf("%q: the replayed record is not provisional while pkg-config runs", c.cflags)
+		}
+		pc.release <- struct{}{}
+		pr2.wait()
+		if r2.provisional() || r2.stale() != c.stale {
+			t.Errorf("%q: the replayed record: provisional %v, stale %v; want stale %v", c.cflags, r2.provisional(), r2.stale(), c.stale)
+		}
+		pr2.close()
+	}
+}
+
+// TestProberPkgConfigLimit: the pkg-config runs share the places of the
+// probes, so at most maxProbes run at the same time.
+func TestProberPkgConfigLimit(t *testing.T) {
+	pc := newFakePkgConfig("-DA")
+	find := func(context.Context) (build.CXX, error) {
+		return build.CXX{Path: "/fake/c++", Family: build.Clang}, nil
+	}
+	pr := newProber(find, newFakeProbe().probe, nil)
+	pr.pc = pc.run
+	defer pr.close()
+	r := &probeRecord{pr: pr}
+	const n = maxProbes + 3
+	for i := range n {
+		pr.pkgConfigFor(r)(context.Background(), "/d", []string{fmt.Sprint("lib", i)})
+	}
+	for range maxProbes {
+		<-pc.started
+	}
+	time.Sleep(50 * time.Millisecond) // a run that shouldn't start would by now
+	if extra := len(pc.started); extra != 0 {
+		t.Errorf("%d pkg-config runs at the same time, want at most %d", maxProbes+extra, maxProbes)
+	}
+	for range n {
+		pc.release <- struct{}{}
+	}
+	pr.wait()
+	if pc.runs != n {
+		t.Errorf("%d runs, want %d", pc.runs, n)
 	}
 }

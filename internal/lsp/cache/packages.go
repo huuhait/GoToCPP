@@ -813,17 +813,18 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 	reportImportErrors(prog, root)
 	sum := &summary{importPath: root.ImportPath, load: root.Summary()}
 
-	// The compiler and the probes answer at once, from what the prober
-	// knows (probe.go); rec keeps what they answered.
+	// The compiler, the probes and pkg-config answer at once, from what
+	// the prober knows (probe.go); rec keeps what they answered.
 	rec := &probeRecord{pr: p.prober}
 	r := check.Check(prog, check.Config{
-		Phase:   p.cfg.Phase,
-		GOOS:    p.cfg.GOOS,
-		GOARCH:  p.cfg.GOARCH,
-		Context: ctx,
-		CXX:     p.prober.findCXX(rec),
-		Probe:   p.prober.probeFor(rec),
-		Deps:    func(lp *load.Package) check.Dep { return depOf[lp] },
+		Phase:     p.cfg.Phase,
+		GOOS:      p.cfg.GOOS,
+		GOARCH:    p.cfg.GOARCH,
+		Context:   ctx,
+		CXX:       p.prober.findCXX(rec),
+		Probe:     p.prober.probeFor(rec),
+		PkgConfig: p.prober.pkgConfigFor(rec),
+		Deps:      func(lp *load.Package) check.Dep { return depOf[lp] },
 		// A package with load errors (a file that doesn't parse) is
 		// type-checked too, for hover and go to definition there
 		// (check.Package.Partial); its diagnostics stay the same.

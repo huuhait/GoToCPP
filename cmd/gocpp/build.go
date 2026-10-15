@@ -54,6 +54,12 @@ hold arguments after the program (CXX="ccache g++"). The runtime is
 extracted once into the user cache folder (gocpp/rt in $XDG_CACHE_HOME,
 or in ~/.cache on Linux), and its object files are kept there.
 
+The C and C++ flags of a package come from its //gocpp:cflags, ldflags,
+link and pkg-config lines, which an allow-list like go build's checks
+(GOCPP_CFLAGS_ALLOW and GOCPP_LDFLAGS_ALLOW allow more flags), and from
+GOCPP_CFLAGS and GOCPP_CXXFLAGS (every compile) and GOCPP_LDFLAGS (the
+link), which are trusted and not checked. PKG_CONFIG names pkg-config.
+
 The C++ that gocpp writes must always compile. If it doesn't, that is a
 bug in gocpp: gocpp build prints "internal error: generated C++ did not
 compile", the first errors of the compiler, which point at the .gp
@@ -292,6 +298,10 @@ func newDriver(name string, f *buildFlags, stdout, stderr io.Writer) (*driver, i
 		return nil, exitErrors
 	}
 	d := &driver{name: name, flags: f, check: c, stdout: stdout, stderr: stderr, done: make(chan struct{})}
+	if f.x {
+		// -x shows the runs of pkg-config too, as go build -x does.
+		c.pkgConfig = build.TracePkgConfig(func(line string) { fmt.Fprintln(stderr, line) })
+	}
 	d.ctx, d.cancel = context.WithCancel(context.Background())
 	// The checks (the namespace probe) stop like the build.
 	c.ctx, c.stopped = d.ctx, d.interrupted
@@ -493,6 +503,11 @@ func (d *driver) compile(patterns []string) (*program, int) {
 	if pkg == nil {
 		return nil, code
 	}
+	env, err := build.ReadEnvFlags()
+	if err != nil {
+		fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
+		return nil, exitErrors
+	}
 	cxx, err := build.FindCXXFor(d.ctx, d.check.goos, d.check.goarch) // the probe's compiler too
 	if err != nil {
 		if sig := d.interrupted(); sig != nil {
@@ -544,7 +559,8 @@ func (d *driver) compile(patterns []string) (*program, int) {
 		return nil, exitErrors
 	}
 
-	b := &build.Builder{CXX: cxx, ASan: d.flags.asan, NoChecks: d.flags.nochecks, GOOS: d.check.goos, Work: work, Stderr: d.stderr}
+	b := &build.Builder{CXX: cxx, ASan: d.flags.asan, NoChecks: d.flags.nochecks, GOOS: d.check.goos, Work: work, Stderr: d.stderr,
+		Env: env, Package: pkg.Flags}
 	if cache, err := os.UserCacheDir(); err == nil {
 		b.Cache = filepath.Join(cache, "gocpp")
 	}
@@ -557,9 +573,30 @@ func (d *driver) compile(patterns []string) (*program, int) {
 			return nil, stopStatus(sig)
 		}
 		var ce *build.CompileError
+		if errors.As(err, &ce) && ce.Link && (len(pkg.Flags.Link) > 0 || len(env.LDFlags) > 0) {
+			d.linkFailed(pkg, ce, env)
+			return nil, exitErrors
+		}
 		if errors.As(err, &ce) {
 			keep = true
-			d.compileFailed(pkg, ce, work)
+			// With flags of the package or of the environment, the flags
+			// may be the cause: not reported as a bug in gocpp.
+			var flags []string
+			if ce.What != "the runtime" && len(pkg.Flags.Compile) > 0 {
+				flags = append(flags, "the compile flags of the package's //gocpp: directives: "+strings.Join(pkg.Flags.Compile, " "))
+			}
+			for _, v := range []struct {
+				name  string
+				flags []string
+			}{{"GOCPP_CFLAGS", env.CFlags}, {"GOCPP_CXXFLAGS", env.CXXFlags}} {
+				if len(v.flags) > 0 {
+					flags = append(flags, v.name+": "+strings.Join(v.flags, " "))
+				}
+			}
+			d.compileFailed(pkg, ce, work, flags)
+			if len(flags) > 0 {
+				return nil, exitErrors
+			}
 			return nil, exitInternal
 		}
 		fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
@@ -592,8 +629,11 @@ var cxxError = regexp.MustCompile(`^(.+?):(\d+):(\d+): (?:fatal )?error: `)
 // failed (Phase 02 README §2.7, step 2.9): in Phase 02 the C++ is all
 // gocpp's, so it is a bug. It shows the first errors of the compiler,
 // which point at the .gp lines thanks to the #line directives, and keeps
-// the work folder with the C++ and the compiler's whole output.
-func (d *driver) compileFailed(pkg *check.Package, e *build.CompileError, work string) {
+// the work folder with the C++ and the compiler's whole output. flags,
+// when there are any, describe the flags of the package or of the
+// environment that the compile had: then the error says that the build
+// failed with them, not that it is a bug in gocpp.
+func (d *driver) compileFailed(pkg *check.Package, e *build.CompileError, work string, flags []string) {
 	log := "compile.log"
 	verb := "did not compile"
 	if e.Link {
@@ -606,7 +646,11 @@ func (d *driver) compileFailed(pkg *check.Package, e *build.CompileError, work s
 	if e.What == "the runtime" {
 		what = "gocpp's runtime"
 	}
-	fmt.Fprintf(d.stderr, "# %s\ninternal error: %s %s\n", pkg.Load.ImportPath, what, verb)
+	if len(flags) > 0 {
+		fmt.Fprintf(d.stderr, "# %s\n%s %s with the flags below\n", pkg.Load.ImportPath, what, verb)
+	} else {
+		fmt.Fprintf(d.stderr, "# %s\ninternal error: %s %s\n", pkg.Load.ImportPath, what, verb)
+	}
 	var shown []string
 	sc := bufio.NewScanner(bytes.NewReader(e.Output))
 	sc.Buffer(nil, 1<<20)
@@ -634,7 +678,35 @@ func (d *driver) compileFailed(pkg *check.Package, e *build.CompileError, work s
 	for _, line := range shown {
 		fmt.Fprintln(d.stderr, line)
 	}
+	if len(flags) > 0 {
+		for _, f := range flags {
+			fmt.Fprintf(d.stderr, "(%s)\n", f)
+		}
+		fmt.Fprintf(d.stderr, "The work folder is kept: %s\n(the C++ is there, and the compiler's whole output is in %s)\n", work, log)
+		return
+	}
 	fmt.Fprintf(d.stderr, "This is a bug in gocpp. The work folder is kept: %s\n(the C++ is there, and the compiler's whole output is in %s)\n", work, log)
+}
+
+// linkFailed prints the error of a link that failed with link flags of the
+// package's directives or of GOCPP_LDFLAGS: a library that isn't
+// installed, or a wrong flag, is more likely than a bug in gocpp. It shows
+// the linker's first lines, like go build shows those of an external link
+// that fails, and the flags.
+func (d *driver) linkFailed(pkg *check.Package, e *build.CompileError, env build.EnvFlags) {
+	fmt.Fprintf(d.stderr, "# %s\nthe program did not link: %v\n", pkg.Load.ImportPath, e.Err)
+	lines := strings.SplitN(strings.TrimSpace(string(e.Output)), "\n", maxShownErrors+1)
+	for i, line := range lines {
+		if i < maxShownErrors && line != "" {
+			fmt.Fprintln(d.stderr, line)
+		}
+	}
+	if len(pkg.Flags.Link) > 0 {
+		fmt.Fprintf(d.stderr, "(the link flags of the package's //gocpp: directives: %s)\n", strings.Join(pkg.Flags.Link, " "))
+	}
+	if len(env.LDFlags) > 0 {
+		fmt.Fprintf(d.stderr, "(GOCPP_LDFLAGS: %s)\n", strings.Join(env.LDFlags, " "))
+	}
 }
 
 // build is gocpp build: it builds the program and moves it to its place.

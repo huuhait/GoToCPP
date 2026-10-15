@@ -1,7 +1,7 @@
 //gocpp:pkg-config raylib
 
-// raylib as a renamed header package with //gocpp:pkg-config (not probed
-// until Phase 04): macros as values, C structs, vectors.
+// raylib as a renamed header package with //gocpp:pkg-config (probed with
+// the flags that pkg-config gives): macros as values, C structs, vectors.
 package main
 
 import rl "<raylib.h>"

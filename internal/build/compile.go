@@ -45,6 +45,18 @@ type Builder struct {
 	// Stderr gets what a compiler prints when it succeeds: its warnings.
 	Stderr io.Writer
 
+	// Env are the trusted flags of the environment (ReadEnvFlags): the C++
+	// ones go to every compile, also of the runtime (so they are part of
+	// the key of the runtime's object files), and GOCPP_LDFLAGS to the
+	// link, after the package's link flags.
+	Env EnvFlags
+
+	// Package are the flags of the program's package, after the allow-list
+	// (check.Package.Flags): Compile goes to the compile of the generated
+	// C++, after the environment's flags, and Link to the link, after the
+	// object files. Until Phase 06, a program is one package.
+	Package PackageFlags
+
 	traceMu sync.Mutex
 }
 
@@ -75,17 +87,42 @@ const maxCompileOutput = 4 << 20
 // links it with the runtime into the program out. Both paths are
 // absolute. A compile or link that fails is a *CompileError.
 func (b *Builder) Program(ctx context.Context, src, out string) error {
+	// With flags of the environment, the runtime's compiles get gocpp's
+	// language flags after them too (as the generated C++ does), then
+	// -Wno-error (valid code must not fail for a warning that a user's
+	// -Werror -Wshadow turns into an error) and -x c++, which comes right
+	// before each runtime source. All of them are part of the key of the
+	// runtime's object files.
 	flags := CompileFlags(b.CXX, b.ASan, b.NoChecks)
+	if env := b.Env.CXXCompile(); len(env) > 0 {
+		flags = slices.Concat(flags, env, LanguageFlags(), []string{"-Wno-error", "-x", "c++"})
+	}
 	rtDir, rtObjs, rtErr := b.runtime(ctx, flags)
 	if rtErr != nil {
 		return rtErr
 	}
 	obj := filepath.Join(b.Work, strings.TrimSuffix(filepath.Base(src), ".cpp")+".o")
-	compile := slices.Concat(flags, GeneratedFlags(b.CXX), []string{"-I", filepath.Join(rtDir, "include"), "-c", src, "-o", obj})
+	// The runtime's include folder comes before the package's -I folders,
+	// so that no package folder can hide a gocpp/ header. After the flags
+	// of the environment and of the package come gocpp's language flags
+	// and those of generated C++ again, and -x c++ right before the source,
+	// so that no flag of a package (-std=c++17, -ffast-math, -x c) turns
+	// them off: for each of them the last one wins. -Wno-error comes before
+	// the flags of generated C++: a package's -Werror -Wshadow must not make
+	// valid Go fail (for i := ...; { i := i }), and the -Werror= of
+	// GeneratedFlags (g++'s conditionally-supported) stays an error.
+	// Without such flags the command stays short (-x shows it).
+	compile := slices.Concat(CompileFlags(b.CXX, b.ASan, b.NoChecks), GeneratedFlags(b.CXX), []string{"-I", filepath.Join(rtDir, "include"), "-c", src, "-o", obj})
+	if user := slices.Concat(b.Env.CXXCompile(), b.Package.Compile); len(user) > 0 {
+		compile = slices.Concat(CompileFlags(b.CXX, b.ASan, b.NoChecks), []string{"-I", filepath.Join(rtDir, "include")},
+			user, LanguageFlags(), []string{"-Wno-error"}, GeneratedFlags(b.CXX), []string{"-c", "-x", "c++", src, "-o", obj})
+	}
 	if err := b.run(ctx, "the generated C++", false, compile); err != nil {
 		return err
 	}
-	link := slices.Concat(Flags(b.CXX, b.ASan), []string{obj}, rtObjs, []string{"-o", out})
+	// The libraries after the object files that use them, as a linker
+	// that reads its inputs once (GNU ld with static libraries) needs.
+	link := slices.Concat(Flags(b.CXX, b.ASan), []string{obj}, rtObjs, b.Package.Link, b.Env.LDFlags, []string{"-o", out})
 	return b.run(ctx, "the generated C++", true, link)
 }
 

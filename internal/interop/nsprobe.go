@@ -301,10 +301,12 @@ func (e IncludeError) Error() string {
 //
 // flags are the package's compiler flags (from //gocpp:cflags and
 // pkg-config, checked by the flag allow-list before they get here); they
-// come after -std=c++20 and -iquote dir, so -std=gnu++23 and -I folders
-// work as in the build, and before the probe's own flags, which they can't
-// turn off. The probe can't tell whether a flag is safe to run: that is
-// the caller's job.
+// come after -std=c++20 and -iquote dir, so -I folders work as in the
+// build, and before the probe's own flags, which they can't turn off. (The
+// callers' flags end with build.LanguageFlags, as the build's compile does,
+// so a package's -std= doesn't change the standard here either.) The
+// probe can't tell whether a flag is safe to run: that is the caller's
+// job.
 //
 // A path is a C++ name, such as "std" or "Color" (the C-level name of a
 // header package's raylib.Color), or a qualified name, such as

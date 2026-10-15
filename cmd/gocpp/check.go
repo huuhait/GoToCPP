@@ -19,6 +19,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/diag"
 	"github.com/huuhait/gocpp/internal/load"
@@ -158,6 +159,10 @@ type checkCommand struct {
 	// signalContext, and the driver of build, run and emit).
 	ctx     context.Context
 	stopped func() os.Signal
+
+	// pkgConfig, if not nil, runs pkg-config for the flags of the packages
+	// (check.Config.PkgConfig): gocpp build -x and run -x print the runs.
+	pkgConfig build.PkgConfigFunc
 }
 
 // run checks the packages of the patterns and returns the exit status.
@@ -226,7 +231,7 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 	// terminal's signal doesn't reach, so the canceled context is what
 	// kills it. Then gocpp prints nothing more and dies of the signal
 	// (stopStatus), like build and run.
-	r := check.Check(prog, check.Config{Phase: phase, GOOS: c.goos, GOARCH: c.goarch, Context: c.ctx})
+	r := check.Check(prog, check.Config{Phase: phase, GOOS: c.goos, GOARCH: c.goarch, Context: c.ctx, PkgConfig: c.pkgConfig})
 	if c.ctx != nil && c.ctx.Err() != nil {
 		if sig := c.stopped(); sig != nil {
 			return prog, nil, stopStatus(sig)

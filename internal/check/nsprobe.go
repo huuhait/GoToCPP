@@ -48,13 +48,18 @@ import (
 // probes of all packages run at the same time (at most GOMAXPROCS, like
 // the compiles of go build), and interop caches the results.
 //
-// Not yet (step 4.15 passes the package's flags, checked by the flag
-// allow-list, to the probe; it takes them already): the probe doesn't get
-// the flags of //gocpp:pkg-config and //gocpp:cflags, and a header that is
-// found only through them (<SDL.h> in /usr/include/SDL2) would be "not
-// found". So a package with such a directive (directives are package-wide)
-// is not probed at all: no compiler runs, its names stay namespaces
-// (opaque), and its headers are not checked.
+// The probe gets the package's flags (build.ReadPackageFlags): the trusted
+// flags of the environment (GOCPP_CFLAGS, GOCPP_CXXFLAGS), then those of
+// //gocpp:cflags and //gocpp:pkg-config, after the flag allow-list, so a
+// header that is found only through them (<SDL.h> in /usr/include/SDL2) is
+// found. The flags are read first, for every package that Check checks,
+// also one without header imports: their errors (a flag that the
+// allow-list refuses, a pkg-config package that isn't installed) are the
+// package's first errors, at the directives. A package with such an error
+// is not probed, as the flags it would need are missing: its names stay
+// namespaces (opaque), and its headers are not checked. The same goes
+// while the language server runs pkg-config in the background
+// (build.ErrPending).
 //
 // Check changes the program it checks: it undoes the rewrites in the ASTs
 // and in load.Rewrite (and step 1.10b rewrites conversions). A Program is
@@ -78,22 +83,48 @@ type probedPackage struct {
 	groups []*probeGroup
 
 	// cxxErr is set when the package has header imports and no C++
-	// compiler was found.
+	// compiler was found, or the flags of the environment can't be read.
 	cxxErr error
+
+	// flags are the probe's flags for the package (build.ProbeFlags).
+	flags []string
 }
 
-// probeNamespaces runs the namespace probe for the packages of prog that
-// Check checks (not Incomplete), undoes the rewrite of each use of a name
-// that is not a namespace (see above), and returns the errors of each
-// package, in the order they were found.
-func probeNamespaces(prog *load.Program, cfg Config) map[*load.Package][]diag.Diagnostic {
+// A packageFlags is what probeNamespaces found of the flags of a package.
+type packageFlags struct {
+	flags build.PackageFlags
+	probe []string // build.ProbeFlags
+}
+
+// probeNamespaces reads the flags of the packages of prog that Check
+// checks (not Incomplete), runs the namespace probe for them, undoes the
+// rewrite of each use of a name that is not a namespace (see above), and
+// returns the errors of each package, in the order they were found, and
+// the flags of each package.
+func probeNamespaces(prog *load.Program, cfg Config) (map[*load.Package][]diag.Diagnostic, map[*load.Package]packageFlags) {
+	ctx := cfg.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	env, envErr := build.ReadEnvFlags()
+	errs := make(map[*load.Package][]diag.Diagnostic)
+	flagsOf := make(map[*load.Package]packageFlags)
 	var pkgs []*probedPackage
 	needCXX := false
 	for _, lp := range prog.Packages {
-		if lp.Incomplete || hasFlagDirectives(lp) {
+		if lp.Incomplete {
 			continue
 		}
-		pp := &probedPackage{lp: lp}
+		pf, ferrs, pending := build.ReadPackageFlags(ctx, prog.Fset, lp, cfg.PkgConfig)
+		probeFlags := build.ProbeFlags(env, pf)
+		flagsOf[lp] = packageFlags{flags: pf, probe: probeFlags}
+		if len(ferrs) > 0 {
+			errs[lp] = ferrs
+		}
+		if len(ferrs) > 0 || pending {
+			continue // see above
+		}
+		pp := &probedPackage{lp: lp, flags: probeFlags, cxxErr: envErr}
 		byKey := make(map[string]*probeGroup)
 		for _, f := range lp.Files {
 			if f.Info == nil || f.Rewrite == nil || len(f.Info.Includes) == 0 && len(f.Rewrite.Renames) == 0 {
@@ -106,7 +137,7 @@ func probeNamespaces(prog *load.Program, cfg Config) map[*load.Package][]diag.Di
 				g = &probeGroup{includes: includes}
 				byKey[key] = g
 				pp.groups = append(pp.groups, g)
-				needCXX = needCXX || len(includes) > 0
+				needCXX = needCXX || len(includes) > 0 && envErr == nil
 			}
 			g.files = append(g.files, f)
 			for _, c := range f.Rewrite.Namespaces {
@@ -124,14 +155,10 @@ func probeNamespaces(prog *load.Program, cfg Config) map[*load.Package][]diag.Di
 			pkgs = append(pkgs, pp)
 		}
 	}
-	if len(pkgs) == 0 {
-		return nil
+	if len(pkgs) == 0 || ctx.Err() != nil {
+		return errs, flagsOf
 	}
 
-	ctx := cfg.Context
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	var cxx build.CXX
 	var cxxErr error
 	if needCXX {
@@ -164,6 +191,8 @@ func probeNamespaces(prog *load.Program, cfg Config) map[*load.Package][]diag.Di
 			}
 			if cxxErr != nil {
 				pp.cxxErr = cxxErr
+			}
+			if pp.cxxErr != nil {
 				continue
 			}
 			wg.Add(1)
@@ -171,20 +200,18 @@ func probeNamespaces(prog *load.Program, cfg Config) map[*load.Package][]diag.Di
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
-				// No flags yet (see above).
-				g.res, g.err = probe(ctx, cxx, pp.lp.Dir, nil, g.includes, g.cands)
+				g.res, g.err = probe(ctx, cxx, pp.lp.Dir, pp.flags, g.includes, g.cands)
 			}()
 		}
 	}
 	wg.Wait()
 
-	errs := make(map[*load.Package][]diag.Diagnostic, len(pkgs))
 	for _, pp := range pkgs {
 		if ds := pp.apply(prog.Fset); len(ds) > 0 {
-			errs[pp.lp] = ds
+			errs[pp.lp] = append(errs[pp.lp], ds...)
 		}
 	}
-	return errs
+	return errs, flagsOf
 }
 
 // notNamespace reports whether the probe's answer k says that a name is not
@@ -193,23 +220,6 @@ func probeNamespaces(prog *load.Program, cfg Config) map[*load.Package][]diag.Di
 // server's probe hasn't answered yet), so the uses stay namespaces then.
 func notNamespace(k interop.Kind) bool {
 	return k != interop.Namespace && k != interop.Unknown
-}
-
-// hasFlagDirectives reports whether a file of lp has a //gocpp:pkg-config
-// or //gocpp:cflags directive, whose flags can change where the headers are
-// found.
-//
-// TODO(phase 04): probe such a package with its flags (pkg-config --cflags
-// and the cflags), instead of not at all.
-func hasFlagDirectives(lp *load.Package) bool {
-	for _, f := range lp.Files {
-		for _, d := range f.Directives {
-			if d.Name == "pkg-config" || d.Name == "cflags" {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // includeTexts returns the #include texts of the includes: <vector> for a

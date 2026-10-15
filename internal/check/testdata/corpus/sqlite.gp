@@ -1,6 +1,7 @@
 //gocpp:pkg-config sqlite3
 
-// sqlite3 with //gocpp:pkg-config: a C pointer filled by an out
+// sqlite3 with //gocpp:pkg-config (probed with the flags that pkg-config
+// gives): a C pointer filled by an out
 // parameter, error codes, callbacks through C strings.
 package main
 

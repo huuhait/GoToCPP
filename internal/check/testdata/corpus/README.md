@@ -25,7 +25,7 @@ the front-end, not the gates (Phase 01 README §5).
 | `localheaders.gp` | a local C header (structs, a typedef, an enum, a macro) and a C++ header with namespaces (`geo`, `geo.detail`); named types over C structs with methods, map keys, constants, indexes, `append` and `min` |
 | `shadowing.gp` | locals, parameters, results, fields, range and switch variables named like namespaces and header packages |
 | `sdl.gp` | SDL2 found without the directive (probed): pointers to C structs, flags, events, a C struct literal |
-| `raylib.gp`, `sqlite.gp` | raylib and sqlite3 with `//gocpp:pkg-config` (not probed until Phase 04) |
+| `raylib.gp`, `sqlite.gp` | raylib and sqlite3 with `//gocpp:pkg-config`, probed with the flags that pkg-config gives |
 | `crosspkg.gp` | opaque values of another package (`clib`): variables, results, named types over C types, a Go struct with C fields |
 | `conversions.gp` | conversions of opaque values to Go types (they stay typed), C's built-in types |
 | `closures_generics.gp` | opaque values captured by closures, method values, generic calls, `defer`, `go` |

@@ -71,12 +71,19 @@ type Config struct {
 
 	// Probe, if not nil, replaces interop.ProbeNamespaces: Check calls it once
 	// per include set of a package, with the compiler that CXX gave, the
-	// package's flags (none yet: step 4.15) and the namespace candidates.
+	// package's flags (Package.ProbeFlags) and the namespace candidates.
 	// The language server (Phase 11, step 11.4) answers from what it knows
 	// at once (the names it doesn't know yet are Unknown, so their uses stay
 	// opaque) and runs the real probe in the background; the tests of this
 	// package use it for headers that mostly don't exist.
 	Probe func(ctx context.Context, cxx build.CXX, dir string, flags, includes, candidates []string) (interop.Result, error)
+
+	// PkgConfig, if not nil, replaces build.PkgConfig, which runs
+	// pkg-config for each //gocpp:pkg-config line of a package that Check
+	// checks (see probeNamespaces). The language server answers from what
+	// it knows and runs pkg-config in the background; while it has no
+	// answer, it returns build.ErrPending, and the package is not probed.
+	PkgConfig build.PkgConfigFunc
 
 	// Partial, if set, type-checks the packages with load errors too, for
 	// Package.Partial only: the language server (Phase 11, step 11.5)
@@ -162,7 +169,8 @@ type Package struct {
 	// Errors are the diagnostics of the package, as go build prints them.
 	// For a package that was not type-checked, it is Load.Errors. For a
 	// checked package, it is a new list: the warnings of Load.Errors (such
-	// a package has no load errors), then the errors of the namespace
+	// a package has no load errors), then the errors of its flags (at the
+	// //gocpp: directives), then the errors of the namespace
 	// probe about the header imports and the namespace renames (the
 	// "undefined: stdd" of a name that is no namespace comes from
 	// go/types, see Check), then the errors of go/types and of
@@ -192,6 +200,19 @@ type Package struct {
 	// declared with C/C++ types (see Opaque). It is nil if the package
 	// was not type-checked.
 	Opaque *Opaque
+
+	// Flags are the C/C++ flags of the package's directives and of
+	// pkg-config, after the flag allow-list (build.ReadPackageFlags): the
+	// build compiles the package's C++ with Flags.Compile and links the
+	// program with Flags.Link. They are empty for a package that was not
+	// type-checked, and they lack the flags of a directive with an error.
+	Flags build.PackageFlags
+
+	// ProbeFlags are the flags that the namespace probe got for the
+	// package (build.ProbeFlags: the trusted flags of the environment, then
+	// Flags.Compile). The lowerer passes the same flags to
+	// interop.ProbeKinds, so that its probe shares the cache of the check.
+	ProbeFlags []string
 
 	// Partial is what go/types found in a package that was not
 	// type-checked because it has load errors (a syntax error, an import
@@ -238,7 +259,9 @@ func (p *Package) Checked() bool {
 // the type T (Phase 01 README §2.5 step 5): see Conversion. A package
 // without such conversions is checked once.
 //
-// Before any of this, Check runs the namespace probe for every file with
+// Before any of this, Check reads the C/C++ flags of each package
+// (Package.Flags: its //gocpp: directives and pkg-config, through the flag
+// allow-list) and runs the namespace probe, with them, for every file with
 // header imports or namespace renames (Phase 01 README §2.5 step 4, see
 // probeNamespaces): a name that the loader took as a namespace (stdd in
 // stdd.vector) but that the file's headers don't declare as one is
@@ -275,7 +298,7 @@ func Check(prog *load.Program, cfg Config) *Result {
 	hasC := make(map[*load.Package]bool)
 	r.hasC, r.failed = hasC, failed
 	cgoh := newCgohPackage()
-	probeErrs := probeNamespaces(prog, cfg)
+	probeErrs, flagsOf := probeNamespaces(prog, cfg)
 	if cfg.Context != nil && cfg.Context.Err() != nil {
 		return r
 	}
@@ -315,6 +338,7 @@ func Check(prog *load.Program, cfg Config) *Result {
 			}
 			hasC[lp] = c
 			p = checkPackage(prog.Fset, lp, checked, cgoh, c && !depsFailed, probeErrs[lp])
+			p.Flags, p.ProbeFlags = flagsOf[lp].flags, flagsOf[lp].probe
 			p.Opaque = findOpaque(prog.Fset, p)
 			checked[lp] = p.Types
 			failed[lp] = depsFailed || hasHardErrors(p.Errors)

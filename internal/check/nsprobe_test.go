@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/huuhait/gocpp/internal/build"
+	"github.com/huuhait/gocpp/internal/build/testlib"
 	"github.com/huuhait/gocpp/internal/interop"
 	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/stdlib"
@@ -125,12 +126,12 @@ type probeRecorder struct {
 }
 
 type probeCall struct {
-	includes, candidates []string
+	flags, includes, candidates []string
 }
 
 func (r *probeRecorder) probe(ctx context.Context, cxx build.CXX, dir string, flags, includes, candidates []string) (interop.Result, error) {
 	r.mu.Lock()
-	r.calls = append(r.calls, probeCall{includes, candidates})
+	r.calls = append(r.calls, probeCall{flags, includes, candidates})
 	r.mu.Unlock()
 	return interop.ProbeNamespaces(ctx, cxx, dir, flags, includes, candidates)
 }
@@ -420,7 +421,7 @@ func main() {
 		if got != "" {
 			t.Errorf("errors:\n%s", got)
 		}
-		want := []probeCall{{[]string{"<filesystem>", "<vector>", `"./shapes.h"`}, []string{"geo", "::std::filesystem"}}}
+		want := []probeCall{{nil, []string{"<filesystem>", "<vector>", `"./shapes.h"`}, []string{"geo", "::std::filesystem"}}}
 		if !slices.EqualFunc(rec.calls, want, func(a, b probeCall) bool {
 			return slices.Equal(a.includes, b.includes) && slices.Equal(a.candidates, b.candidates)
 		}) {
@@ -597,11 +598,13 @@ $`)
 	})
 }
 
-// TestProbeFlagDirectives checks that a package with a //gocpp:pkg-config
-// or //gocpp:cflags directive (in any of its files) is not probed, because
-// the probe can't use their flags yet (Phase 04): a missing header and a
-// typo give no errors there, and the uses stay opaque. The same files
-// without the directive get the errors.
+// TestProbeFlagDirectives checks that the probe gets the flags of a
+// package's //gocpp:cflags (in any of its files), then gocpp's language
+// flags, and that a package whose
+// flags have an error (a flag that the allow-list refuses, a pkg-config
+// package that isn't there) is not probed: the error is at the directive,
+// the uses stay opaque, and a missing header gets no error. The same goes
+// while pkg-config has no answer yet (build.ErrPending).
 func TestProbeFlagDirectives(t *testing.T) {
 	t.Parallel()
 	const main = `package main
@@ -613,25 +616,107 @@ import (
 
 func main() { _ = std.vector[int]{}; _ = stdd.x }
 `
+	failingPkgConfig := func(_ context.Context, _ string, pkgs []string) ([]string, []string, error) {
+		if pkgs[0] == "pending" {
+			return nil, nil, build.ErrPending
+		}
+		return nil, nil, errors.New("pkg-config --cflags -- " + pkgs[0] + ": exit status 1")
+	}
 	forEachCompiler(t, func(t *testing.T, cxx build.CXX) {
 		t.Parallel()
-		for _, dir := range []string{"//gocpp:pkg-config gocpp-no-such-lib\n", "//gocpp:cflags -I/nowhere\n"} {
+		// The flags of //gocpp:cflags reach the probe, after those of the
+		// environment (none in the tests).
+		rec := new(probeRecorder)
+		cfg := probeConfig(cxx, LastPhase)
+		cfg.Probe = rec.probe
+		prog, root := loadTree(t, map[string]string{"main.gp": main, "flags.gp": "//gocpp:cflags -I/nowhere -DX\npackage main\n"})
+		r := Check(prog, cfg)
+		if got, want := errorText(t, prog, r, root, true), "# example.com/m\n./main.gp:5:2: cannot find header <gocpp_no_such_header.h>\n"; got != want {
+			t.Errorf("with //gocpp:cflags: errors:\n%s\nwant:\n%s", got, want)
+		}
+		p := mainPkg(t, prog, r)
+		// gocpp's language flags come last (build.LanguageFlags).
+		want := []string{"-I/nowhere", "-DX"}
+		probeWant := slices.Concat(want, build.LanguageFlags())
+		if len(rec.calls) != 1 || !slices.Equal(rec.calls[0].flags, probeWant) ||
+			!slices.Equal(p.ProbeFlags, probeWant) || !slices.Equal(p.Flags.Compile, want) {
+			t.Errorf("probe calls %+v, Package.ProbeFlags %q, Flags %+v; want one call with %q", rec.calls, p.ProbeFlags, p.Flags, probeWant)
+		}
+
+		for _, c := range []struct{ dir, want string }{
+			{"//gocpp:pkg-config gocpp-no-such-lib\n", "./flags.gp:1:1: pkg-config --cflags -- gocpp-no-such-lib: exit status 1\n"},
+			{"//gocpp:cflags -fplugin=./x.so\n", "./flags.gp:1:1: invalid flag in //gocpp:cflags: -fplugin=./x.so\n"},
+			{"//gocpp:pkg-config pending\n", ""},
+		} {
 			rec := new(probeRecorder)
 			cfg := probeConfig(cxx, LastPhase)
 			cfg.Probe = rec.probe
-			prog, root := loadTree(t, map[string]string{"main.gp": main, "flags.gp": dir + "package main\n"})
-			if got := errorText(t, prog, Check(prog, cfg), root, true); got != "" || len(rec.calls) != 0 {
-				t.Errorf("with %q: errors:\n%s\nprobe calls: %q; want none", dir, got, rec.calls)
+			cfg.PkgConfig = failingPkgConfig
+			prog, root := loadTree(t, map[string]string{"main.gp": main, "flags.gp": c.dir + "package main\n"})
+			want := c.want
+			if want != "" {
+				want = "# example.com/m\n" + want
+			}
+			if got := errorText(t, prog, Check(prog, cfg), root, true); got != want || len(rec.calls) != 0 {
+				t.Errorf("with %q: errors:\n%s\nprobe calls: %q; want:\n%s\nand no probe", c.dir, got, rec.calls, want)
 			}
 			p := mainPkg(t, prog, Check(prog, cfg))
 			f := prog.Roots[0].Files[slices.IndexFunc(prog.Roots[0].Files, func(f *load.File) bool { return strings.HasSuffix(f.Path, "main.gp") })]
 			if !p.Opaque.IsOpaque(compositeLitAt(t, prog, f, 8)) || len(f.Rewrite.Namespaces) != 2 {
-				t.Errorf("with %q: the uses are not opaque namespace uses any more", dir)
+				t.Errorf("with %q: the uses are not opaque namespace uses any more", c.dir)
 			}
 		}
-		got := probeErrors(t, probeConfig(cxx, LastPhase), map[string]string{"main.gp": main, "flags.gp": "package main\n"})
-		if want := "# example.com/m\n./main.gp:5:2: cannot find header <gocpp_no_such_header.h>\n"; got != want {
-			t.Errorf("without the directive: errors:\n%s\nwant:\n%s", got, want)
+	})
+}
+
+// TestProbePkgConfig checks the probe of a package with //gocpp:pkg-config
+// with the real pkg-config and gptestlib (internal/build/testlib): its
+// header and its namespace gptl are found only with the flags of its .pc
+// file (-I and -DGPTESTLIB_ON), which is in a folder of PKG_CONFIG_PATH
+// only. The trusted flags of GOCPP_CFLAGS reach the probe too.
+func TestProbePkgConfig(t *testing.T) {
+	testlib.NeedPkgConfig(t)
+	prefix := filepath.Clean(t.TempDir())
+	pcDir := testlib.Install(t, prefix, nil)
+	const main = `package main
+
+import "<gptestlib.h>"
+
+func main() { _ = gptl.twice(2); _ = gptll.twice(2); _ = gptestlib.gptestlib_answer() }
+`
+	forEachCompiler(t, func(t *testing.T, cxx build.CXX) {
+		t.Setenv("PKG_CONFIG_PATH", pcDir)
+		t.Setenv("PKG_CONFIG", "")
+		t.Setenv("GOCPP_CFLAGS", "")
+		files := map[string]string{"main.gp": main, "flags.gp": "//gocpp:pkg-config gptestlib\npackage main\n"}
+		const want = "# example.com/m\n./main.gp:5:38: undefined: gptll\n"
+		prog, root := loadTree(t, files)
+		r := Check(prog, probeConfig(cxx, LastPhase))
+		if got := errorText(t, prog, r, root, true); got != want {
+			t.Errorf("errors:\n%s\nwant:\n%s", got, want)
+		}
+		p := mainPkg(t, prog, r)
+		if !slices.Contains(p.ProbeFlags, "-DGPTESTLIB_ON") || !slices.Contains(p.Flags.Link, "-lgptestlib") {
+			t.Errorf("Package.ProbeFlags %q, Flags %+v: not those of gptestlib.pc", p.ProbeFlags, p.Flags)
+		}
+
+		// Without the .pc file: the pkg-config error, and no probe.
+		t.Setenv("PKG_CONFIG_PATH", t.TempDir())
+		got := probeErrors(t, probeConfig(cxx, LastPhase), files)
+		if !regexp.MustCompile(`^# example.com/m\n\./flags\.gp:1:1: pkg-config --cflags -- gptestlib: exit status 1\n(\t.*\n)+$`).MatchString(got) {
+			t.Errorf("without the .pc file: errors:\n%s", got)
+		}
+
+		// GOCPP_CFLAGS instead of the directive: trusted, and the probe
+		// gets them.
+		t.Setenv("GOCPP_CFLAGS", "-I"+filepath.Join(prefix, "include")+" -DGPTESTLIB_ON")
+		delete(files, "flags.gp")
+		if got := probeErrors(t, probeConfig(cxx, LastPhase), files); got != want {
+			t.Errorf("with GOCPP_CFLAGS: errors:\n%s\nwant:\n%s", got, want)
+		}
+		t.Setenv("GOCPP_CFLAGS", "'-DA")
+		if got, want := probeErrors(t, probeConfig(cxx, LastPhase), files), "# example.com/m\n./main.gp:3:8: cannot check the header imports: GOCPP_CFLAGS: unterminated ' string\n"; got != want {
+			t.Errorf("with a bad GOCPP_CFLAGS: errors:\n%s\nwant:\n%s", got, want)
 		}
 	})
 }
@@ -761,8 +846,8 @@ func TestProbeCache(t *testing.T) {
 // with the real probe: exactly the errors that they give with a probe that
 // takes every name as a namespace (their gate errors at Phase 01, none
 // without the gates), so the probe finds no false errors in them. (raylib
-// and sqlite have //gocpp:pkg-config lines, so they are not probed: see
-// hasFlagDirectives.) For windows, the probe runs the MinGW-w64 cross
+// and sqlite have //gocpp:pkg-config lines: where pkg-config doesn't find
+// them, both checks report that, and neither probes.) For windows, the probe runs the MinGW-w64 cross
 // compiler (the host compilers have no <windows.h>), if there is one.
 func TestProbeExamples(t *testing.T) {
 	t.Parallel()

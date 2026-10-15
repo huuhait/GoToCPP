@@ -191,9 +191,11 @@ func main() {
   compiler in `GOCPP_CXX`, else the usual one (`CXX`, `clang++`, `g++`). When checking for
   another system, it is `GOCPP_CXX`, else the known cross compiler (`x86_64-w64-mingw32-g++` for
   windows/amd64). A program without header imports needs no compiler.
-- For now, a package with a `//gocpp:pkg-config` or `//gocpp:cflags` line is not checked this
-  way, because the check can't use those flags yet (Phase 04 adds them). Its namespace names are
-  checked when the C++ code is compiled.
+- **The check uses the package's flags**: those of `//gocpp:pkg-config` and `//gocpp:cflags`,
+  and `GOCPP_CFLAGS` and `GOCPP_CXXFLAGS` ([Flags](#flags-and-the-allow-list)), so a header that
+  only `pkg-config --cflags` finds (`<SDL.h>` in `/usr/include/SDL2`) is found. When these flags
+  have an error (a flag that is not allowed, a pkg-config package that isn't installed), the
+  error is at the directive, and the package's header imports are not checked until it is fixed.
 - **Rename a namespace** when it is long or clashes with another name:
   `import fs "::std::filesystem"`, or `import cfmt "::fmt"` next to gocpp's `fmt`.
 - A namespace import **without a name** (`import "::std"`) is an error, because namespaces need
@@ -598,7 +600,7 @@ flags.
 
 | Directive | Arguments | Effect |
 |---|---|---|
-| `//gocpp:pkg-config sdl2` | one or more package names | runs `pkg-config --cflags --libs sdl2` and adds the flags it prints, if they are allowed |
+| `//gocpp:pkg-config sdl2` | one or more package names | runs `pkg-config --cflags -- sdl2` and `pkg-config --libs -- sdl2` and adds the flags they print, if they are allowed |
 | `//gocpp:link m pthread` | one or more library names | adds `-lm -lpthread` |
 | `//gocpp:cflags ...`, `//gocpp:ldflags ...` | one or more flags | adds the flags, if they are allowed |
 | `//gocpp:extern-c <hdr>` | one header | wraps that header in `extern "C"` (for C libraries whose headers lack the guard, such as `<lua.h>`) |
@@ -631,14 +633,126 @@ The rules for directives:
   it doesn't start with `-`: `//gocpp:link stdc++ boost_system-mt`. Flags go into `cflags` and
   `ldflags`.
 - Flags that can run code at build time, such as `-fplugin=…`, `-B` or `@file`, are refused, as
-  in Go. gocpp checks `cflags`, `ldflags` and the output of pkg-config against Go's list of
-  allowed flags (Phase 04), also those of `gocpp.mod` and of every dependency (Phase 06). The
-  regexps in `GOCPP_CFLAGS_ALLOW` and `GOCPP_LDFLAGS_ALLOW` allow more flags, like cgo's
-  `CGO_CFLAGS_ALLOW`.
+  in Go ([Flags](#flags-and-the-allow-list)).
 - A header is written like its import path, without the Go quotes: `<lua.h>`, or a path that
   ends in `.h`, `.hh`, `.hpp`, `.hxx`, `.h++` or `.inl`, such as `./legacy.h`.
 - A directive can be repeated, and the repeats add up: two `//gocpp:link` lines link the
   libraries of both.
+
+### Flags and the allow-list
+
+The flags of a package come from its directives:
+
+- `//gocpp:cflags` gives compile flags and `//gocpp:ldflags` link flags, as written. A relative
+  path is made absolute from the package folder, because the compiler doesn't run there: the
+  path of `-I`, `-F`, `-isystem` and `-L` (joined, as in `-Iinc`, or the next argument), a file
+  for the linker (`libfoo.a`, `./x.o`), and the file of `-include` when the package folder has
+  it (else it is looked up through the include path). `-I=dir` and `-I $SYSROOT/dir` are
+  relative to the sysroot and stay.
+- `//gocpp:link m pthread` gives the link flags `-lm -lpthread`.
+- `//gocpp:pkg-config sdl2 x11` runs `pkg-config --cflags -- sdl2 x11` (compile flags) and
+  `pkg-config --libs -- sdl2 x11` (link flags) in the package folder, once per line, and splits
+  the output like a shell would. The program is the first word of `PKG_CONFIG`, else
+  `pkg-config`; it reads its own environment (`PKG_CONFIG_PATH`, `PKG_CONFIG_LIBDIR`, …).
+  `--static` comes with static builds (Phase 06).
+
+The flags add up in source order: the lines of a file from top to bottom, and the files of the
+package in the order of their names. A package's flags apply to the whole package. The compile of
+the package's C++ gets its compile flags, and the namespace probe of `gocpp check` and of the
+editor gets them too. The link gets the link flags after the object files, so that a static
+library comes after the code that uses it.
+
+**gocpp's own flags win.** In the compile of the generated C++ and in the probes, gocpp's
+language flags come again after the flags of the environment and of the package, and `-x c++`
+comes right before the source: `-std=c++20`, `-fwrapv`, `-fno-strict-aliasing`,
+`-ffp-contract=off`, `-fexceptions` and `-fno-fast-math`. The generated C++ relies on them (Go's
+wrapping integers, its exact floating-point results, panics as C++ exceptions), and for each of
+them the last one wins with g++ and clang++. So `-std=c++17`, `-ffast-math`, `-fstrict-aliasing`
+or `-fno-exceptions` in a package's flags change nothing there (the C standard of a package's own
+`.c` files is another matter, Phase 04 step 4.13). A package can still choose `-O…` and `-g…`
+(`-Ofast` acts as `-O3` then: its fast math is turned off again, and clang notes that). A
+`-Wno-error` comes after them too, so a package's `-Werror -Wshadow` doesn't fail valid Go code
+(`i := i` in a loop), while gocpp's own `-Werror=…` checks stay errors. When `GOCPP_CFLAGS` or
+`GOCPP_CXXFLAGS` are set, the runtime's compiles get the same language flags, `-Wno-error` and
+`-x c++` after them.
+
+**The allow-list.** Every flag, also those that pkg-config prints, is checked against the go
+command's list of allowed flags (`cmd/go/internal/work/security.go`, BSD-licensed, ported
+with the changes below), before any compiler, probe or linker runs: `gocpp check` and the editor run probes
+as soon as a folder is opened, so a cloned repository must not be able to run code through its
+flags. The list has the usual compile flags (`-D`, `-U`, `-I`, `-O`, `-W…`, `-f(no-)rtti`,
+`-f(no-)exceptions`, `-std=`, `-fsanitize=`, `-include`, `-isystem`, …) and link
+flags (`-l`, `-L`, `-pthread`, `-Wl,-rpath,…`, `-Wl,--as-needed`, library files such as
+`libfoo.a`, …). Flags that run code are refused: `-fplugin=`, `-fpass-plugin=`, `-specs=`,
+`-wrapper`, `@file`, `-Wl,-plugin`, `-Xclang`.
+
+gocpp also refuses, in a package's flags, the choices for the whole program, with the reason in
+the message. They belong to the user, in `GOCPP_CFLAGS`, `GOCPP_CXXFLAGS` and `GOCPP_LDFLAGS`
+(the flags of the environment stay trusted):
+
+- the system root and the toolchain: `--sysroot`, `--sysroot=`, `-isysroot`, `--gcc-toolchain=`,
+  `--gcc-install-dir=`, `--prefix`, `-B`;
+- the linker: `-fuse-ld=`, `--ld-path=`;
+- the target and the ABI, as the package's code must link with and match gocpp's runtime: `-m32`, `-m64`, `-target`, `-arch`, `-mabi=`, `-mfloat-abi=`,
+  `-msoft-float` (and `-msingle-float`, `-mdouble-float`), `-m(no-)ms-bitfields`;
+- `-stdlib=`, which selects another C++ standard library than the runtime's;
+- `-D` and `-U` of the macros that change the ABI of the C++ standard library:
+  `_GLIBCXX_DEBUG` (and `_GLIBCXX_DEBUG_PEDANTIC`), `_GLIBCXX_USE_CXX11_ABI`, `_LIBCPP_ABI_…` and
+  `_LIBCPP_DEBUG`, also through `-Wp,-D…`. `_GLIBCXX_ASSERTIONS` only adds checks and is allowed,
+  and so is every other macro (`-D_REENTRANT`, `-D_FILE_OFFSET_BITS=64`).
+
+A refused flag is an error at its line, like Go's:
+
+```text
+./main.gp:1:1: invalid flag in //gocpp:cflags: -fplugin=./x.so
+./main.gp:2:1: invalid flag in pkg-config --cflags: -fplugin=/evil.so
+./main.gp:3:1: invalid flag in //gocpp:cflags: -I without argument
+./main.gp:4:1: invalid flag in //gocpp:cflags: -m32 (it changes the ABI, and the package's code would no longer match gocpp's runtime; $GOCPP_CFLAGS_ALLOW can allow it)
+```
+
+and none of that line's flags are used. A pkg-config package that isn't installed is an error at
+its line too, with pkg-config's message. These are package errors: `gocpp build` stops before it
+compiles anything. When the generated C++ doesn't compile or the program doesn't link with the
+flags of the package or of the environment, `gocpp build` prints the compiler's errors and the
+flags, and exits with status 1 (without the flags, that would be a bug in gocpp). `gocpp build
+-x` prints the pkg-config runs, like `go build -x`.
+
+These variables change the list, like cgo's `CGO_CFLAGS_ALLOW` and friends. Each is a regular
+expression (Go syntax) that must match a whole flag:
+
+| Variable | Effect |
+|---|---|
+| `GOCPP_CFLAGS_ALLOW` | allows more compile flags (`cflags`, `pkg-config --cflags`) |
+| `GOCPP_CFLAGS_DISALLOW` | refuses compile flags, also allowed ones; it wins over `_ALLOW` |
+| `GOCPP_LDFLAGS_ALLOW` | allows more link flags (`ldflags`, `link`, `pkg-config --libs`) |
+| `GOCPP_LDFLAGS_DISALLOW` | refuses link flags, also allowed ones |
+
+Unlike cgo, gocpp doesn't also check each argument for "unsafe" characters (go/build's
+`safeCgoName`, which makes `-DNAME=\"x\"` a "malformed #cgo argument" in Go 1.25): gocpp never
+passes flags through a shell, only as arguments of a program, and the allow-list already refuses
+what a compiler or linker would read as a flag or a response file of its own. So
+`//gocpp:cflags -DMSG=\"hi\"` defines a string macro, which cgo can't.
+
+**Flags from the environment** are trusted, as cgo's `CGO_CFLAGS` are: the user chose them, so
+they are not checked. They are split like `CC` is (spaces separate, quotes keep spaces, no
+escapes):
+
+| Variable | Goes to |
+|---|---|
+| `GOCPP_CFLAGS` | every C and C++ compile, the runtime's too, and the probes |
+| `GOCPP_CXXFLAGS` | every C++ compile, the runtime's too, and the probes |
+| `GOCPP_LDFLAGS` | the link, after the package's link flags |
+
+`GOCPP_CFLAGS` goes to the C++ compiles too, unlike cgo's `CGO_CFLAGS` (Go uses `CGO_CPPFLAGS`
+for flags of both languages): it is like `//gocpp:cflags`, which is for both. So it is for flags
+such as `-I`, `-D` or `-O2`, not `-std=c17`; a flag for one language goes into `GOCPP_CXXFLAGS`
+(C++ only; C-only flags come with the C sources of step 4.13).
+
+They come before the package's own compile flags, so their `-I` folders are searched first. As
+they also go to the runtime, they are part of the key of the runtime's cached object files: a flag
+such as `-stdlib=libc++` must be the same for every part of a program. The compiler itself reads
+`CPATH`, `CPLUS_INCLUDE_PATH` and `C_INCLUDE_PATH` (and a Nix compiler wrapper
+`NIX_CFLAGS_COMPILE`), in the probes and the builds alike.
 
 **Module-wide settings** go into `gocpp.mod` (`cflags`, `pkg-config`, …). Packages add their own
 with directives.

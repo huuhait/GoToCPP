@@ -63,6 +63,11 @@ type Config struct {
 	CXX   func(ctx context.Context) (build.CXX, error)
 	Probe func(ctx context.Context, cxx build.CXX, dir string, flags, includes, candidates []string) (interop.Result, error)
 
+	// PkgConfig runs pkg-config for a //gocpp:pkg-config line (nil:
+	// build.PkgConfig). Like Probe, the pipeline calls it in the background
+	// only (probe.go).
+	PkgConfig build.PkgConfigFunc
+
 	// IncludeDirs, if not nil, replaces the compiler run that lists the
 	// system include folders of the C++ compiler cxx, for go to definition
 	// on a header import (Pipeline.HeaderFile; the tests use it).
@@ -209,6 +214,9 @@ func NewPipeline(cfg Config) *Pipeline {
 		probe = interop.ProbeNamespaces
 	}
 	p.prober = newProber(find, probe, cfg.OnProbe)
+	if cfg.PkgConfig != nil {
+		p.prober.pc = cfg.PkgConfig
+	}
 	return p
 }
 
