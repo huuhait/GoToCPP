@@ -19,12 +19,15 @@
 //     C.GoStringN(p, n)           gp::cgo::GoStringN(p, n)
 //     C.GoBytes(p, n)             gp::cgo::GoBytes(p, n)
 //     C.free(p)                   gp::cgo::free(p)
+//     int(x), C.int(d) (x, d C/C++ gp::cgo::as<int64_t>(x), gp::cgo::as<int>(d)
+//       values or gocpp numbers)
 //
 // The conversions at the boundary are members of the runtime types themselves: gp::string to
 // std::string_view (string.hpp), gp::slice<T> to std::span<T> (slice.hpp) and gp::ptr<T> to
 // T* (ptr.hpp).
 #pragma once
 
+#include <gocpp/arith.hpp>
 #include <gocpp/checks.hpp>
 #include <gocpp/ptr.hpp>
 #include <gocpp/slice.hpp>
@@ -33,6 +36,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -388,12 +392,72 @@ int64_t c_length(N n) noexcept {
     return static_cast<int64_t>(n);
 }
 
+// narrow_float<T>(x) is Go's T(x) for a floating x of a type with more precision than T
+// (float(x) for a double, double(x) for a long double): rounded to the nearest T, and ±Inf
+// beyond the largest T (C++ makes a value out of T's range undefined behavior). A value above the
+// largest T but below it plus half a unit in the last place rounds down to it, as in Go.
+template <typename T, typename F>
+T narrow_float(F x) noexcept {
+    if (x != x) {
+        return std::numeric_limits<T>::quiet_NaN();
+    }
+    constexpr F max = static_cast<F>(std::numeric_limits<T>::max());
+    // Half a unit in the last place of T's largest value: 2^(max_exponent - digits - 1).
+    constexpr F half_ulp = [] {
+        F h = 1;
+        for (int i = 0;
+             i < std::numeric_limits<T>::max_exponent - std::numeric_limits<T>::digits - 1; i++) {
+            h *= 2;
+        }
+        return h;
+    }();
+    F a = x < 0 ? -x : x;
+    if (a > max) {
+        T r = a >= max + half_ulp ? std::numeric_limits<T>::infinity()
+                                  : std::numeric_limits<T>::max();
+        return x < 0 ? -r : r;
+    }
+    return static_cast<T>(x);
+}
+
 } // namespace detail
 
 // gp::cgo: cgo's C.CString, C.GoString, C.GoStringN, C.GoBytes and C.free, with cgo's exact
-// behavior (cmd/cgo/out.go and runtime/string.go of Go 1.25). Phase 01 rewrites C.CString & co.
-// into the typed gocpp/cgoh package, which the emitter writes as these functions.
+// behavior (cmd/cgo/out.go and runtime/string.go of Go 1.25), and as<T>, Go's conversions of
+// C/C++ values. Phase 01 rewrites C.CString & co. into the typed gocpp/cgoh package, which the
+// emitter writes as these functions.
 namespace cgo {
+
+// as<T>(x) is a Go conversion T(x) where x is a C/C++ value or T is a C type: int(cmath.floor(d))
+// is as<int64_t>(::floor(d)), C.int(d) is as<int>(d). A floating x to an integer T goes through
+// gp::f2i, which gives Go's results (amd64) for values out of T's range, NaN and ±Inf, where a
+// static_cast is undefined behavior; a floating x to a floating T with less precision gives ±Inf
+// out of range (narrow_float); everything else is static_cast<T>(x), also for C++ class types
+// (static_cast<bool>(std::cout)).
+template <typename T, typename X>
+constexpr T as(X&& x) {
+    using F = std::remove_cvref_t<std::decay_t<X>>;
+    static_assert(
+        !(std::is_pointer_v<F> && std::is_arithmetic_v<T>),
+        "gocpp: a C pointer can't be converted to a number: use unsafe.Pointer (step 4.10)");
+    static_assert(
+        !std::is_same_v<T, bool> || std::is_same_v<F, bool>,
+        "gocpp: only a bool converts to bool, as in Go: compare the value instead (x != 0)");
+    if constexpr (std::is_floating_point_v<F> && go_int<T>) {
+        double d;
+        if constexpr (std::numeric_limits<F>::digits > std::numeric_limits<double>::digits) {
+            d = detail::narrow_float<double>(x); // a long double: through double, as Go has none
+        } else {
+            d = static_cast<double>(x);
+        }
+        return f2i<T>(d);
+    } else if constexpr (std::is_floating_point_v<F> && std::is_floating_point_v<T> &&
+                         (std::numeric_limits<F>::digits > std::numeric_limits<T>::digits)) {
+        return detail::narrow_float<T>(x);
+    } else {
+        return static_cast<T>(std::forward<X>(x));
+    }
+}
 
 // CString(s) is C.CString: a copy of every byte of s and a NUL, in C's heap (malloc); free it
 // with C.free. A NUL inside s ends the C string early, as in Go. CString("") is a new "" (not
@@ -441,6 +505,17 @@ slice<uint8_t> GoBytes(const void* p, N n) {
 
 // free(p) is C.free: C's free. A null p does nothing.
 void free(void* p) noexcept;
+
+// case_eq(tag, v) is a case v of a switch on the C/C++ value tag: tag == v, in an if/else chain
+// (Phase 04 §2.5). The tag must be a number, an enum or a pointer: C++'s == of a class type is
+// not Go's ==, and a C struct has none.
+template <typename A, typename B>
+constexpr bool case_eq(const A& tag, const B& v) {
+    static_assert(
+        std::is_scalar_v<A>,
+        "gocpp: a switch on a C/C++ value needs a number, an enum or a pointer (step 4.4)");
+    return tag == v;
+}
 
 } // namespace cgo
 

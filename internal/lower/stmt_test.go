@@ -17,7 +17,7 @@ func TestReads(t *testing.T) {
 	id := ast.NewIdent("v")
 	fg := &funcGen{
 		g:     &gen{info: &types.Info{Uses: map[*ast.Ident]types.Object{id: v}}, names: map[types.Object]string{}},
-		names: newFuncNames(),
+		names: (&gen{}).newFuncNames(),
 		temps: map[ast.Expr]string{},
 	}
 	fg.names.names[v] = "v"

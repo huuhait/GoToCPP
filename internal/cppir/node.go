@@ -49,11 +49,19 @@ type File struct {
 
 // ---- Declarations ----
 
-// An Include is `#include <Path>`, or `#include "Path"` if it is not a System header. It has
-// no place in the .gp source.
+// An Include is `#include <Path>`, or `#include "Path"` if it is not a System header. Its
+// place is the import of the header in the .gp source (the zero Pos for gocpp's own headers),
+// so that an error in the header, or a header that isn't found, is reported at that import.
 type Include struct {
+	Pos    Pos
 	Path   string
 	System bool
+}
+
+// A Directive is a preprocessor line of its own, `#Text`: #undef Bool. It has no place in the
+// .gp source.
+type Directive struct {
+	Text string
 }
 
 // A Namespace is
@@ -497,6 +505,7 @@ type FuncType struct {
 }
 
 func (*Include) node()      {}
+func (*Directive) node()    {}
 func (*Namespace) node()    {}
 func (*Func) node()         {}
 func (*Struct) node()       {}
@@ -508,6 +517,7 @@ func (*Comment) node()      {}
 func (*Blank) node()        {}
 
 func (*Include) decl()      {}
+func (*Directive) decl()    {}
 func (*Namespace) decl()    {}
 func (*Func) decl()         {}
 func (*Struct) decl()       {}

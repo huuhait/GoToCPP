@@ -196,7 +196,7 @@ func TestReservedLists(t *testing.T) {
 // temporaries.
 func TestFuncNames(t *testing.T) {
 	v := func(name string) types.Object { return types.NewVar(token.NoPos, nil, name, types.Typ[types.Int]) }
-	f := newFuncNames()
+	f := (&gen{}).newFuncNames()
 	for _, n := range []string{"v", "v_1", "new_1", "x"} {
 		f.reserve(n) // names that the function declares or uses
 	}

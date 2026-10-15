@@ -170,6 +170,10 @@ func (g *gen) typeSpec(spec *ast.TypeSpec, local bool) {
 	if named == nil {
 		return
 	}
+	if !complete(named) {
+		g.unsupported(spec.Pos(), "named types declared over C/C++ types ("+tn.Name()+", a later step of Phase 04)")
+		return
+	}
 	if !isStruct(named) && !g.newtypeOK(spec, named) { // named.go
 		return
 	}
@@ -179,10 +183,10 @@ func (g *gen) typeSpec(spec *ast.TypeSpec, local bool) {
 		return
 	}
 	td := g.tdecls()
-	name := TypeName(tn.Name())
+	name := g.typeName(tn.Name())
 	if local {
 		base := name
-		for i := 1; td.used[name] || reserved[name]; i++ {
+		for i := 1; td.used[name] || reserved[name] || g.isMacro(name); i++ {
 			name = base + "_" + strconv.Itoa(i)
 			if strings.HasPrefix(name, "gp_") {
 				name += "_" // not like a generated name: gp_x_1_ (funcNames.newName)
@@ -214,7 +218,7 @@ func (g *gen) addStruct(t types.Type, name, goName string) *structInfo {
 			si.fields[i] = "gp_blank" + strconv.Itoa(blanks)
 			blanks++
 		} else {
-			si.fields[i] = MethodName(name, f.Name())
+			si.fields[i] = g.methodName(name, f.Name())
 		}
 	}
 	td := g.tdecls()
@@ -311,6 +315,9 @@ func (g *gen) structType(t types.Type, pos token.Pos) cppir.Type {
 	if si == nil {
 		return typeName("gp_unsupported")
 	}
+	if g.inTemplate > 0 {
+		return typeName("::" + g.ns + "::" + si.name) // a C++ template's argument (ctypes.go)
+	}
 	if td := g.tdecls(); td.hidden[si.name] || td.members[si.name] {
 		return typeName(g.ns + "::" + si.name)
 	}
@@ -362,6 +369,9 @@ func (g *gen) structDecls() []cppir.Decl {
 			for _, dep := range g.byValue(si.st.Field(i).Type()) {
 				define(dep)
 			}
+			for _, dep := range g.cTypeDeps(si.st.Field(i)) {
+				define(dep)
+			}
 		}
 		decls = append(decls, g.structDef(si)...)
 		decls = append(decls, &cppir.Blank{})
@@ -374,6 +384,30 @@ func (g *gen) structDecls() []cppir.Decl {
 		decls = append(decls, g.hookDefs(si)...)
 	}
 	return decls
+}
+
+// cTypeDeps returns the structs of the package in the C/C++ type of the field f
+// (std.array[Point, 4], std.vector[Node]), which a C++ template may hold by value: they are
+// defined before f's struct (a cycle is cut where it closes, as for byValue).
+func (g *gen) cTypeDeps(f *types.Var) []*structInfo {
+	if complete(f.Type()) {
+		return nil
+	}
+	e := g.pkg.Opaque.TypeExpr(f)
+	if e == nil {
+		return nil
+	}
+	var deps []*structInfo
+	ast.Inspect(e, func(n ast.Node) bool {
+		if x, ok := n.(ast.Expr); ok {
+			if tv, ok := g.info.Types[x]; ok && tv.IsType() && complete(tv.Type) {
+				deps = append(deps, g.byValue(tv.Type)...)
+				return false
+			}
+		}
+		return true
+	})
+	return deps
 }
 
 // fieldCount returns the number of fields of the struct si (0 for a gp::newtype).
@@ -418,13 +452,18 @@ func (g *gen) structDef(si *structInfo) []cppir.Decl {
 	var compared []string // the non-blank fields
 	for i := range si.st.NumFields() {
 		f := si.st.Field(i)
-		d := varDecl(cppir.Pos{}, g.cxxType(f.Type(), f.Pos()), si.fields[i], zeroInit(f.Type()))
+		init := zeroInit(f.Type())
+		if !complete(f.Type()) {
+			init = &cppir.InitList{} // a C/C++ type (ctypes.go): value-initialized, T f{};
+		}
+		d := varDecl(cppir.Pos{}, g.varType(f, f.Pos()), si.fields[i], init)
 		s.Members = append(s.Members, d)
 		if f.Name() != "_" {
 			compared = append(compared, si.fields[i])
 		}
 	}
-	if types.Comparable(si.t) {
+	cpart := hasCFields(si.st) // a field of a C/C++ type: == and the layout are the C++ compiler's
+	if types.Comparable(si.t) && !cpart {
 		self := &cppir.Ref{Elem: &cppir.Const{Elem: typeName(si.name)}}
 		eq := &cppir.Func{Result: typeName("bool"), Name: "operator==", Params: []cppir.Param{{Type: self}}, Quals: []string{"const", "= default"}}
 		if len(compared) < si.st.NumFields() {
@@ -472,7 +511,34 @@ func (g *gen) structDef(si *structInfo) []cppir.Decl {
 		Vars: []cppir.Declarator{{Name: "gp_fields", Init: call("gp::fields", fields...)}}}
 	s.Members = append(s.Members, name, info)
 	s.Members = append(s.Members, g.methodDecls(si)...) // methods.go
-	return []cppir.Decl{s, g.layoutAssert(si)}          // named.go
+	if cpart {
+		// gocpp doesn't know the size of a C/C++ type (check.Sizes guesses a word), and Go's ==
+		// on such a struct comes with the operators on C/C++ values (step 4.4).
+		return []cppir.Decl{s}
+	}
+	return []cppir.Decl{s, g.layoutAssert(si)} // named.go
+}
+
+// hasCFields reports whether the struct st has a field of a C/C++ type by value (also in an array
+// or a struct field), whose size and == only the C++ compiler knows.
+func hasCFields(st *types.Struct) bool {
+	for i := range st.NumFields() {
+		t := st.Field(i).Type()
+		for {
+			a, ok := under(t).(*types.Array)
+			if !ok {
+				break
+			}
+			t = a.Elem()
+		}
+		if !complete(t) {
+			return true
+		}
+		if s, ok := under(t).(*types.Struct); ok && hasCFields(s) {
+			return true
+		}
+	}
+	return false
 }
 
 // zeroInit returns the default member initializer of a field of type t, its zero value: 0 or

@@ -27,6 +27,7 @@ import (
 	"github.com/huuhait/gocpp/internal/cppgen"
 	"github.com/huuhait/gocpp/internal/diag"
 	"github.com/huuhait/gocpp/internal/load"
+	"github.com/huuhait/gocpp/internal/lower"
 )
 
 // The help texts of gocpp build, run and emit. "gocpp build -h" prints
@@ -240,7 +241,7 @@ func runEmit(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		return code
 	}
 	var b bytes.Buffer
-	if code := d.emit(&b, pkg, ""); code != 0 {
+	if code := d.emit(&b, pkg, "", nil); code != 0 {
 		return code
 	}
 	if _, err := stdout.Write(b.Bytes()); err != nil {
@@ -299,7 +300,7 @@ var stopSigs = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
 // newDriver returns the driver of the command name, or nil and the exit
 // status when it can't start.
 func newDriver(name string, f *buildFlags, stdout, stderr io.Writer) (*driver, int) {
-	c := &checkCommand{stdout: stdout, stderr: stderr}
+	c := &checkCommand{stdout: stdout, stderr: stderr, kinds: true}
 	var err error
 	if c.goos, c.goarch, err = target(); err != nil {
 		fmt.Fprintf(stderr, "gocpp: %v\n", err) // go exits with 2 too
@@ -453,14 +454,26 @@ func (d *driver) load(patterns []string) (*check.Package, int) {
 
 // emit writes the C++ of pkg to w, with the output path out for the
 // #line directives of the generated lines (cppgen.Config.OutputPath; ""
-// for gocpp emit). It returns the exit status: an emitter error is an
-// internal error, as the checker accepted the package.
-func (d *driver) emit(w io.Writer, pkg *check.Package, out string) int {
-	err := cppgen.EmitPackage(w, d.check.fset, pkg, cppgen.Config{OutputPath: out})
+// for gocpp emit). cxx is the C++ compiler of the build, for the probes of
+// a package with header imports, or nil (gocpp emit finds it then). It
+// returns the exit status: an emitter error is an internal error, as the
+// checker accepted the package, except for the errors of C/C++ names that
+// only the compiler's probes find (cppgen.Error.User).
+func (d *driver) emit(w io.Writer, pkg *check.Package, out string, cxx *build.CXX) int {
+	in, code := d.probe(pkg, cxx)
+	if code != 0 {
+		return code
+	}
+	err := cppgen.EmitPackage(w, d.check.fset, pkg, cppgen.Config{OutputPath: out, Interop: in})
 	if err == nil {
 		return 0
 	}
 	var e *cppgen.Error
+	if errors.As(err, &e) && e.User && e.Pos.IsValid() {
+		fmt.Fprintf(d.stderr, "# %s\n%s:%d:%d: %s\n", pkg.Load.ImportPath,
+			diag.ShortFileName(d.check.dir, e.Pos.Filename), e.Pos.Line, e.Pos.Column, e.Msg)
+		return exitErrors
+	}
 	if errors.As(err, &e) && e.Pos.IsValid() {
 		fmt.Fprintf(d.stderr, "# %s\n%s:%d:%d: internal error: %s\n", pkg.Load.ImportPath,
 			diag.ShortFileName(d.check.dir, e.Pos.Filename), e.Pos.Line, e.Pos.Column, e.Msg)
@@ -469,6 +482,67 @@ func (d *driver) emit(w io.Writer, pkg *check.Package, out string) int {
 	}
 	fmt.Fprintln(d.stderr, "(gocpp checked the package, but its C++ emitter can't write it: this is a bug in gocpp, or a feature that is not built yet)")
 	return exitInternal
+}
+
+// probe runs the C++ compiler's probes for the C/C++ names of pkg
+// (lower.ProbeInterop, Phase 04 §2.2) with the compiler cxx, or with the
+// compiler of the target when cxx is nil. A package without header imports
+// needs none. It returns the probes' answers, or nil and the exit status.
+//
+// The probes get the flags that the check's namespace probe got
+// (check.Package.ProbeFlags: the environment's trusted flags, then the
+// package's flags after the allow-list), so that the kind probe finds the
+// check's run in interop's cache.
+func (d *driver) probe(pkg *check.Package, cxx *build.CXX) (*lower.Interop, int) {
+	has := false
+	for _, f := range pkg.Load.Files {
+		has = has || f.Info != nil && len(f.Info.Includes) > 0
+	}
+	if !has {
+		return nil, 0
+	}
+	if cxx == nil {
+		c, err := build.FindCXXFor(d.ctx, d.check.goos, d.check.goarch)
+		if err != nil {
+			if sig := d.interrupted(); sig != nil {
+				return nil, stopStatus(sig)
+			}
+			fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
+			return nil, exitErrors
+		}
+		cxx = &c
+	}
+	in, err := lower.ProbeInterop(d.ctx, *cxx, d.check.fset, pkg, pkg.ProbeFlags)
+	if err == nil {
+		return in, 0
+	}
+	if sig := d.interrupted(); sig != nil {
+		return nil, stopStatus(sig)
+	}
+	var e *lower.Error
+	if errors.As(err, &e) && e.Pos.IsValid() {
+		fmt.Fprintf(d.stderr, "# %s\n%s:%d:%d: %s\n", pkg.Load.ImportPath,
+			diag.ShortFileName(d.check.dir, e.Pos.Filename), e.Pos.Line, e.Pos.Column, e.Msg)
+	} else {
+		fmt.Fprintf(d.stderr, "# %s\n%v\n", pkg.Load.ImportPath, err)
+	}
+	return nil, exitErrors
+}
+
+// importsLocalHeader reports whether a file of pkg imports a local header
+// ("./physics.h").
+func importsLocalHeader(pkg *check.Package) bool {
+	for _, f := range pkg.Load.Files {
+		if f.Info == nil {
+			continue
+		}
+		for _, inc := range f.Info.Includes {
+			if inc.Kind == load.LocalHeader {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // programName returns the name of the program of pkg, without .exe: the
@@ -560,7 +634,7 @@ func (d *driver) compile(patterns []string) (*program, int) {
 	}
 	src := filepath.Join(work, cppName)
 	var cpp bytes.Buffer
-	if code := d.emit(&cpp, pkg, src); code != 0 {
+	if code := d.emit(&cpp, pkg, src, &cxx); code != 0 {
 		return nil, code
 	}
 	data := cpp.Bytes()
@@ -578,6 +652,9 @@ func (d *driver) compile(patterns []string) (*program, int) {
 	b := &build.Builder{CXX: cxx, ASan: d.flags.asan, NoChecks: d.flags.nochecks, GOOS: d.check.goos, Work: work, Stderr: d.stderr,
 		Env: env, Package: pkg.Flags, Dir: pkg.Load.Dir, CFiles: pkg.Load.CFiles, CXXFiles: pkg.Load.CXXFiles, CC: cc,
 		SourceWarnings: d.sourceWarnings(pkg)}
+	if importsLocalHeader(pkg) {
+		b.PackageDir = pkg.Load.Dir // -iquote for "./physics.h"
+	}
 	if cache, err := os.UserCacheDir(); err == nil {
 		b.Cache = filepath.Join(cache, "gocpp")
 	}

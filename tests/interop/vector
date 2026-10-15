@@ -1,0 +1,4 @@
+// Not a header of the tests: it shows that a file next to the .gp files can't hide a system
+// header. The local headers of a package are found with -iquote <package folder>, which
+// <vector> never looks at (with -I it would, and this file would be included instead).
+#error "tests/interop/vector hid the system header <vector>"

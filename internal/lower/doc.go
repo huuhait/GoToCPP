@@ -37,9 +37,9 @@
 //
 // # Files
 //
-//   - file.go: Package, the translation unit (#include <gocpp/rt.hpp>, the flat package
-//     namespace gpkg_main, the prototypes, the C++ main wrapper, which calls gp::run_main),
-//     and small constructors of cppir nodes;
+//   - file.go: Package, the translation unit (#include <gocpp/rt.hpp>, then the C/C++ includes,
+//     the flat package namespace gpkg_main, the prototypes, the C++ main wrapper, which calls
+//     gp::run_main), and small constructors of cppir nodes;
 //   - decl.go: functions (parameters, results as a std::tuple, named results), package
 //     variables (constinit) and the package's initialization (gp_var_init, the init
 //     functions);
@@ -98,6 +98,12 @@
 //     weak.Make and Value, a compiler intrinsic until generics (Phase 07);
 //   - complex.go: complex numbers (step 3.15c): their constants and the builtins complex, real
 //     and imag (the operators are ops.go's, the runtime's gp::complex has Go's rules);
+//   - interop.go, cnames.go, ctypes.go, cvalues.go and macros.go: C/C++ in gocpp code (Phase 04
+//     steps 4.2 and 4.3, and the start of 4.4): the compiler probes in the build (ProbeInterop),
+//     the C++ names of the C/C++ names (::printf, EOF, ::std::chrono::steady_clock::now,
+//     ::std::cout.flush), the C++ types of the C/C++ type expressions (FILE*,
+//     ::std::vector<int64_t>), calls of C/C++ functions with C literals, and the protection of
+//     the generated names from the headers' macros (#undef, and _ on the package's own names);
 //   - names.go: the C++ names: a _ suffix for C++ keywords, compiler words and macros
 //     (cxx_words.txt, cxx_macros.txt) and for user names that start with gp_, which are the
 //     generated code's; the names of local variables, which keep their Go names, also when

@@ -19,6 +19,11 @@ type Config struct {
 	// so that a debugger and the line table don't show it at unrelated .gp lines. gocpp emit,
 	// which prints the C++, leaves it empty.
 	OutputPath string
+
+	// Interop is what the C++ compiler's probes found out about the C/C++ names of the package
+	// (lower.ProbeInterop, Phase 04): a package with header imports needs it. nil for a
+	// package without.
+	Interop *lower.Interop
 }
 
 // An Error is a problem that stops EmitPackage: mostly a construct that the emitter can't
@@ -29,6 +34,11 @@ type Config struct {
 type Error struct {
 	Pos token.Position // where in the .gp source; may be invalid
 	Msg string         // without the position and the "cppgen: " prefix
+
+	// User says that the error is in the user's code, not gocpp's (lower.Error.User): a
+	// C/C++ name that the imported headers don't declare, which only the compiler's probes
+	// find out. The driver reports it as an error of the program, not as an internal error.
+	User bool
 }
 
 func (e *Error) Error() string {
@@ -55,11 +65,11 @@ func EmitPackage(w io.Writer, fset *token.FileSet, pkg *check.Package, cfg Confi
 	case pkg.Errors.HasErrors():
 		return fmt.Errorf("cppgen: package %s has errors", pkg.Load.ImportPath)
 	}
-	f, err := lower.Package(fset, pkg)
+	f, err := lower.Package(fset, pkg, cfg.Interop)
 	if err != nil {
 		var le *lower.Error
 		if errors.As(err, &le) {
-			return &Error{Pos: le.Pos, Msg: le.Msg}
+			return &Error{Pos: le.Pos, Msg: le.Msg, User: le.User}
 		}
 		return err
 	}

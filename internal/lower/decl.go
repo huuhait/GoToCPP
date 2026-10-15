@@ -48,7 +48,7 @@ type funcInfo struct {
 func (f *funcInfo) prepare(g *gen) {
 	f.sig, f.body, f.pos, f.top = f.obj.Signature(), f.decl.Body, f.decl.Pos(), f.decl
 	f.boxed = boxedVars(g.info, f.decl)
-	f.names = newFuncNames()
+	f.names = g.newFuncNames()
 	// A new name must not hide anything that the function refers to (funcNames).
 	ast.Inspect(f.decl, func(n ast.Node) bool {
 		if id, ok := n.(*ast.Ident); ok {
@@ -59,10 +59,10 @@ func (f *funcInfo) prepare(g *gen) {
 			switch obj := obj.(type) {
 			case *types.Var:
 				if !obj.IsField() { // a field is always reached by x.f: it hides nothing
-					f.names.reserve(Escape(obj.Name()))
+					f.names.reserve(g.escape(obj.Name()))
 				}
 			case *types.Func:
-				f.names.reserve(Escape(obj.Name()))
+				f.names.reserve(g.escape(obj.Name()))
 			}
 		}
 		return true
@@ -86,7 +86,7 @@ func (f *funcInfo) signature(g *gen) {
 	f.params = make([]cppir.Param, sig.Params().Len())
 	for i := range sig.Params().Len() {
 		p := sig.Params().At(i)
-		f.params[i].Type = g.cxxType(p.Type(), f.pos)
+		f.params[i].Type = g.varType(p, f.pos)
 		if largeVar(p.Type()) {
 			// A parameter larger than 128 KiB: a copy on the C++ stack could overflow it
 			// (D24), so the caller passes a reference, and the function copies the value
@@ -148,7 +148,7 @@ func (fg *funcGen) funcBody() {
 		res := f.sig.Results()
 		for i := range res.Len() {
 			r := res.At(i)
-			typ := g.cxxType(r.Type(), r.Pos())
+			typ := g.varType(r, r.Pos())
 			if f.boxed[r] != 0 {
 				fg.add(varDecl(g.pos(r.Pos()), ptrType(typ), f.results[i], newBox(typ, nil)))
 			} else {
@@ -192,7 +192,7 @@ func (fg *funcGen) paramBoxes() bool {
 	sc := &cppir.Scope{Pos: p}
 	for _, v := range f.args {
 		name := fg.names.names[v]
-		typ := g.cxxType(v.Type(), v.Pos())
+		typ := g.varType(v, v.Pos())
 		var arg cppir.Expr = cxxName(name)
 		if isClass(v.Type()) && !largeVar(v.Type()) {
 			arg = moved(typ, arg) // a large parameter is a const reference (prepare): copied
@@ -234,6 +234,12 @@ func (g *gen) packageVars() {
 		}
 	}
 	for _, v := range g.vars {
+		if !complete(v.Type()) {
+			// A C/C++ type (ctypes.go): its zero value, and the value in gp_var_init. Not
+			// constinit: a C++ class may have a constructor that isn't constexpr.
+			g.decl(varDecl(g.pos(v.Pos()), g.varType(v, v.Pos()), g.names[v], &cppir.InitList{}))
+			continue
+		}
 		typ := g.cxxType(v.Type(), v.Pos())
 		var value cppir.Expr = &cppir.InitList{} // the zero value
 		if c := constInit(g.info, byVar[v]); c != nil {
@@ -286,7 +292,7 @@ func nilInit(info *types.Info, init *types.Initializer) bool {
 // gp_var_init are mapped to the initializers.
 func (g *gen) initFuncs() {
 	if g.varInits {
-		fg := newFuncGen(g, newFuncNames(), nil)
+		fg := newFuncGen(g, g.newFuncNames(), nil)
 		g.prepareVarInits(fg)
 		defer g.hide(fg.names.taken)() // a closure's variable named like a type hides it
 		fg.names.openScope()
@@ -349,13 +355,13 @@ func (g *gen) prepareVarInits(fg *funcGen) {
 							switch obj := g.info.Uses[id].(type) {
 							case *types.Var:
 								if !obj.IsField() {
-									fg.names.reserve(Escape(obj.Name()))
+									fg.names.reserve(g.escape(obj.Name()))
 								}
 							case *types.Func:
-								fg.names.reserve(Escape(obj.Name()))
+								fg.names.reserve(g.escape(obj.Name()))
 							}
 							if obj, ok := g.info.Defs[id].(*types.Var); ok {
-								fg.names.reserve(Escape(obj.Name()))
+								fg.names.reserve(g.escape(obj.Name()))
 							}
 						}
 						return true

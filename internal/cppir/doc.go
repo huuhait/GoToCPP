@@ -4,9 +4,9 @@
 //	typed AST ──► internal/lower (analysis + rewrites) ──► cppir (this tree) ──► Print
 //
 // The tree maps 1:1 to C++ syntax: a File holds declarations (Namespace, Func, Struct,
-// VarDecl, Include, Comment, Blank), a Func's Body holds statements (Block, If, For, While,
-// Switch, Return, ...), and statements hold expressions (Name, Lit, Call, Binary, Lambda, ...)
-// and types (TypeName, Ref, Ptr, Const, FuncType). It knows nothing about Go: internal/lower
+// VarDecl, Include, Directive, Comment, Blank), a Func's Body holds statements (Block, If, For,
+// While, Switch, Return, ...), and statements hold expressions (Name, Lit, Call, Binary,
+// Lambda, ...) and types (TypeName, Ref, Ptr, Const, FuncType). It knows nothing about Go: internal/lower
 // decides what the C++ is (Go's order of evaluation, the names, the casts, the shapes of the
 // statements), and builds it here; Print only writes it.
 //

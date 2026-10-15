@@ -761,7 +761,7 @@ func (fg *funcGen) newTargets(lhs []ast.Expr) []target {
 			continue
 		}
 		if obj, ok := fg.g.info.Defs[id].(*types.Var); ok {
-			t := target{typ: fg.g.cxxType(obj.Type(), id.Pos()), shadow: fg.shadowing(obj), box: fg.isBoxed(obj), gtype: obj.Type()}
+			t := target{typ: fg.g.varType(obj, id.Pos()), shadow: fg.shadowing(obj), box: fg.isBoxed(obj), gtype: obj.Type()}
 			t.large = t.box && largeVar(obj.Type())
 			t.class = isClass(obj.Type())
 			if fg.loopInit {
@@ -894,6 +894,8 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 		}
 	}
 	switch {
+	case len(values) == 1 && len(targets) > 1 && fg.isCCall(values[0]):
+		fg.g.unsupported(values[0].Pos(), "several values from one C/C++ value (gp::values, step 4.7)")
 	case len(values) == 1 && len(targets) > 1:
 		value := fg.exactExpr(values[0])
 		if !slices.ContainsFunc(targets, func(t target) bool { return !t.blank() }) {
@@ -1215,7 +1217,7 @@ func (fg *funcGen) usedNames(list []ast.Expr) map[string]bool {
 // it: break L and continue L go to labels of their own (flow.go).
 func (fg *funcGen) labeledStmt(s *ast.LabeledStmt) {
 	if l, ok := fg.g.info.Defs[s.Label].(*types.Label); ok && fg.flow.gotos[l] {
-		fg.add(&cppir.Label{Pos: fg.g.pos(s.Pos()), Name: Escape(s.Label.Name)})
+		fg.add(&cppir.Label{Pos: fg.g.pos(s.Pos()), Name: fg.g.escape(s.Label.Name)})
 	}
 	fg.stmt(s.Stmt)
 }
@@ -1225,7 +1227,7 @@ func (fg *funcGen) branchStmt(s *ast.BranchStmt) {
 	p := fg.g.pos(s.Pos())
 	switch s.Tok {
 	case token.GOTO:
-		fg.add(&cppir.Goto{Pos: p, Label: Escape(s.Label.Name)})
+		fg.add(&cppir.Goto{Pos: p, Label: fg.g.escape(s.Label.Name)})
 	case token.FALLTHROUGH:
 		// The last non-empty statement of a case, possibly labeled: the C++ switch falls
 		// into the next case (control.go keeps the cases in source order).

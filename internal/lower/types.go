@@ -93,6 +93,9 @@ func (g *gen) cxxType(t types.Type, pos token.Pos) cppir.Type {
 	case *types.Array:
 		return arrayType(g.cxxType(t.Elem(), pos), t.Len())
 	case *types.Map:
+		if cmpHasC(t.Key()) {
+			break // its gp_hash and == are the C++ compiler's (typedecl.go)
+		}
 		return mapType(g.cxxType(t.Key(), pos), g.cxxType(t.Elem(), pos))
 	case *types.Struct:
 		return g.structType(t, pos) // typedecl.go
@@ -112,6 +115,10 @@ func (g *gen) cxxType(t types.Type, pos token.Pos) cppir.Type {
 		}
 		return &cppir.TypeName{Name: "std::tuple", Args: args}
 	}
+	if hasC(t) {
+		g.unsupported(pos, "this use of a C/C++ type (a later step of Phase 04)")
+		return typeName("gp_unsupported")
+	}
 	g.unsupported(pos, "type "+types.TypeString(t, types.RelativeTo(g.pkg.Types)))
 	return typeName("gp_unsupported")
 }
@@ -123,8 +130,15 @@ func (g *gen) resultType(sig *types.Signature, pos token.Pos) cppir.Type {
 	case 0:
 		return typeName("void")
 	case 1:
-		return g.cxxType(r.At(0).Type(), pos)
+		return g.varType(r.At(0), pos)
 	default:
+		if !complete(r) {
+			args := make([]cppir.Node, r.Len())
+			for i := range r.Len() {
+				args[i] = g.varType(r.At(i), pos) // C/C++ types (ctypes.go)
+			}
+			return &cppir.TypeName{Name: "std::tuple", Args: args}
+		}
 		return g.cxxType(r, pos)
 	}
 }

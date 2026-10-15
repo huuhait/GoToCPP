@@ -22,7 +22,9 @@ import (
 	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/diag"
+	"github.com/huuhait/gocpp/internal/interop"
 	"github.com/huuhait/gocpp/internal/load"
+	"github.com/huuhait/gocpp/internal/lower"
 	"github.com/huuhait/gocpp/internal/syntax/parser"
 	"github.com/huuhait/gocpp/internal/syntax/scanner"
 	"github.com/huuhait/gocpp/stdlib"
@@ -163,6 +165,13 @@ type checkCommand struct {
 	// pkgConfig, if not nil, runs pkg-config for the flags of the packages
 	// (check.Config.PkgConfig): gocpp build -x and run -x print the runs.
 	pkgConfig build.PkgConfigFunc
+
+	// kinds: the namespace probe asks the kind probe also about the C/C++
+	// paths that the lowerer will ask about (lower.ProbePaths), so that
+	// the build runs the compiler once per include set. build, run and
+	// emit set it; check and the language server keep the cheaper
+	// namespace mode.
+	kinds bool
 }
 
 // run checks the packages of the patterns and returns the exit status.
@@ -231,7 +240,20 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 	// terminal's signal doesn't reach, so the canceled context is what
 	// kills it. Then gocpp prints nothing more and dies of the signal
 	// (stopStatus), like build and run.
-	r := check.Check(prog, check.Config{Phase: phase, GOOS: c.goos, GOARCH: c.goarch, Context: c.ctx, PkgConfig: c.pkgConfig})
+	cfg := check.Config{Phase: phase, GOOS: c.goos, GOARCH: c.goarch, Context: c.ctx, PkgConfig: c.pkgConfig}
+	if c.kinds {
+		paths := lower.ProbePaths(prog)
+		cfg.Probe = func(ctx context.Context, cxx build.CXX, dir string, flags, includes, cands []string) (interop.Result, error) {
+			all := slices.Clip(cands)
+			for _, p := range paths(dir, includes) {
+				if !slices.Contains(cands, p) {
+					all = append(all, p)
+				}
+			}
+			return interop.ProbeKinds(ctx, cxx, dir, flags, includes, all)
+		}
+	}
+	r := check.Check(prog, cfg)
 	if c.ctx != nil && c.ctx.Err() != nil {
 		if sig := c.stopped(); sig != nil {
 			return prog, nil, stopStatus(sig)

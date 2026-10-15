@@ -72,6 +72,13 @@ type Builder struct {
 	// these files. It is called for one file at a time.
 	SourceWarnings func(out []byte)
 
+	// PackageDir is the folder of the package's .gp files, or "". The
+	// compile of the generated C++ gets -iquote PackageDir, so that its
+	// local header imports (#include "./physics.h") are found there, as by
+	// the compiler probes (internal/interop), and never a system header:
+	// -iquote, unlike -I, doesn't apply to #include <vector>.
+	PackageDir string
+
 	traceMu sync.Mutex
 }
 
@@ -130,9 +137,13 @@ func (b *Builder) Program(ctx context.Context, src, out string) error {
 	// valid Go fail (for i := ...; { i := i }), and the -Werror= of
 	// GeneratedFlags (g++'s conditionally-supported) stays an error.
 	// Without such flags the command stays short (-x shows it).
-	compile := slices.Concat(CompileFlags(b.CXX, b.ASan, b.NoChecks), GeneratedFlags(b.CXX), []string{"-I", filepath.Join(rtDir, "include"), "-c", src, "-o", obj})
+	var quote []string // -iquote: PackageDir
+	if b.PackageDir != "" {
+		quote = []string{"-iquote", b.PackageDir}
+	}
+	compile := slices.Concat(CompileFlags(b.CXX, b.ASan, b.NoChecks), GeneratedFlags(b.CXX), quote, []string{"-I", filepath.Join(rtDir, "include"), "-c", src, "-o", obj})
 	if user := slices.Concat(b.Env.CXXCompile(), b.Package.Compile); len(user) > 0 {
-		compile = slices.Concat(CompileFlags(b.CXX, b.ASan, b.NoChecks), []string{"-I", filepath.Join(rtDir, "include")},
+		compile = slices.Concat(CompileFlags(b.CXX, b.ASan, b.NoChecks), quote, []string{"-I", filepath.Join(rtDir, "include")},
 			user, LanguageFlags(), []string{"-Wno-error"}, GeneratedFlags(b.CXX), []string{"-c", "-x", "c++", src, "-o", obj})
 	}
 	// The package's C and C++ files compile at the same time. An error in

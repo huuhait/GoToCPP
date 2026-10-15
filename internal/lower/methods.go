@@ -121,7 +121,7 @@ func (f *funcInfo) prepareRecv(g *gen) []cppir.Param {
 	if m.si == nil {
 		return nil
 	}
-	m.member = MethodName(m.si.name, f.obj.Name())
+	m.member = g.methodName(m.si.name, f.obj.Name())
 	m.hidden = g.memberNames(m.si)
 	f.name = m.si.name + "::" + m.member
 	v := m.recv
@@ -183,7 +183,7 @@ func (g *gen) methodNames(si *structInfo) []string {
 	var names []string
 	for i := range named.NumMethods() {
 		if m := named.Method(i); m.Name() != "_" {
-			names = append(names, MethodName(si.name, m.Name()))
+			names = append(names, g.methodName(si.name, m.Name()))
 		}
 	}
 	return names
@@ -469,7 +469,7 @@ func (g *gen) callMethod(recv cppir.Expr, ptr bool, fn *types.Func, r recvPath, 
 	if si == nil {
 		return placeholder
 	}
-	member := MethodName(si.name, fn.Name())
+	member := g.methodName(si.name, fn.Name())
 	if r.ptrRecv {
 		owner := cppir.TypeString(g.structType(base, pos))
 		return &cppir.Call{Fun: cxxName(owner + "::" + member), Args: append([]cppir.Expr{recv}, args...)}
@@ -755,7 +755,7 @@ func (g *gen) hookDefs(si *structInfo) []cppir.Decl {
 		var recv cppir.Expr
 		ptr := false
 		d := &cppir.Func{Result: typeName("gp::string"), Name: si.name + "::" + h.name}
-		fg := newFuncGen(g, newFuncNames(), nil)
+		fg := newFuncGen(g, g.newFuncNames(), nil)
 		var base cppir.Expr // where the path starts: the pointer gp_p (to *T), or *this (a T)
 		if h.ptr {
 			d.Params = []cppir.Param{h.param(si)}
@@ -764,7 +764,7 @@ func (g *gen) hookDefs(si *structInfo) []cppir.Decl {
 			d.Quals = []string{"const"}
 			if len(r.path) == 0 && !r.ptrRecv {
 				// The struct's own value method: String().
-				member := MethodName(si.name, fn.Name())
+				member := g.methodName(si.name, fn.Name())
 				d.Body = &cppir.Block{Stmts: []cppir.Stmt{&cppir.Return{X: call(member)}}}
 				decls = append(decls, d, &cppir.Blank{})
 				continue

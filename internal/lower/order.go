@@ -498,7 +498,11 @@ func (fg *funcGen) copied(e ast.Expr) bool {
 			return false
 		}
 	}
-	return convCopied(fg.g.info.TypeOf(e)) // structs.go
+	t := fg.g.info.TypeOf(e)
+	if t == nil || hasC(t) {
+		return false // a C/C++ value: lowering reports it where it is used (cguard.go)
+	}
+	return convCopied(t) // structs.go
 }
 
 // collect adds the items of e, the expression root of the scope's list or an operand below
@@ -525,6 +529,13 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		fg.collect(sc, x.X, root, below)
 		add(&orderItem{eff: effect{read: true, panics: true}})
 	case *ast.CallExpr:
+		if fg.g.pkg.Conversion(x) != nil {
+			// A conversion of a C/C++ value, gp_cgoh.As[T](x) (cvalues.go): its operand.
+			for _, a := range x.Args {
+				fg.collect(sc, a, root, up)
+			}
+			return
+		}
 		if fg.g.info.Types[x.Fun].IsType() {
 			to := fg.g.info.TypeOf(x)
 			if len(x.Args) == 1 && isSlice(to) && isString(fg.g.info.TypeOf(x.Args[0])) {

@@ -389,7 +389,7 @@ func (fg *funcGen) forInit(s ast.Stmt) (cppir.Stmt, bool) {
 	for i, e := range a.Rhs {
 		used := fg.usedNames([]ast.Expr{e})
 		for _, id := range a.Lhs[:i+1] {
-			if used[Escape(id.(*ast.Ident).Name)] {
+			if used[fg.g.escape(id.(*ast.Ident).Name)] {
 				return nil, false
 			}
 		}
@@ -647,6 +647,9 @@ func rangeKind(t types.Type) string {
 	case *types.Chan:
 		return "range over channels (Phase 08)"
 	}
+	if hasC(t) {
+		return "range over C/C++ values (gp::range, step 4.7)"
+	}
 	return "range over " + types.TypeString(t, nil) + " (Phase 03)"
 }
 
@@ -686,6 +689,17 @@ func withLead(pos cppir.Pos, lead []cppir.Stmt, s cppir.Stmt) cppir.Stmt {
 // C++ switches, each case is a block, so that a case label doesn't jump over the
 // initialization of a variable of another case.
 func (fg *funcGen) switchStmt(s *ast.SwitchStmt) {
+	if s.Tag != nil {
+		if t := fg.g.info.TypeOf(s.Tag); t != nil && complete(t) && cmpHasC(t) {
+			// A gocpp struct or array with a C/C++ part has no == in C++ (typedecl.go).
+			fg.g.unsupported(s.Tag.Pos(), "switch on values with C/C++ parts (step 4.4)")
+			return
+		}
+		// A C/C++ value: each case is gp::cgo::case_eq(tag, v), C++'s == for a number, an
+		// enum or a pointer (README §2.5), and a clear C++ error for anything else.
+		defer func(old bool) { fg.cTag = old }(fg.cTag)
+		fg.cTag = fg.g.pkg.Opaque.IsOpaque(s.Tag)
+	}
 	end := s.Body.Rbrace
 	wrapped := false
 	wrap := func() {
@@ -882,7 +896,11 @@ func (fg *funcGen) caseCond(tag, boolTag cppir.Expr, list []ast.Expr) ([]*cppir.
 			}
 		} else {
 			pres[i] = fg.order(false, e)
-			parts[i] = &cppir.Binary{Op: "==", X: tag, Y: at(fg.expr(e), precShift)}
+			if fg.cTag {
+				parts[i] = call("gp::cgo::case_eq", tag, fg.cValueOf(e)) // cvalues.go
+			} else {
+				parts[i] = &cppir.Binary{Op: "==", X: tag, Y: at(fg.expr(e), precShift)}
+			}
 		}
 	}
 	if lazy < 0 {

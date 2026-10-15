@@ -19,10 +19,11 @@
 // (for the files of a package with the same header imports): then its
 // paths come from the cache, or from one more run of the compiler for the
 // paths that the check didn't ask for. To keep one run per include set,
-// the build can pass all the paths of a file's C/C++ uses to the check's
-// probe call (step 4.3 decides how); the language server keeps asking only
-// for the namespace candidates, so that new member names don't start new
-// runs while someone types. The macro probe is a run of its own (-E -dM
+// gocpp build, run and emit give the check a probe (check.Config.Probe)
+// that asks ProbeKinds for the candidates and all the paths that the
+// lowerer will ask for (lower.ProbePaths); gocpp check and the language
+// server keep asking only for the namespace candidates, so that new member
+// names don't start new runs while someone types. The macro probe is a run of its own (-E -dM
 // can't share a run with -fsyntax-only), but it is cheap: it only
 // preprocesses.
 //

@@ -12,11 +12,13 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <limits>
 #include <list>
 #include <map>
 #include <memory>
@@ -118,6 +120,34 @@ struct NamedPtr : gp::newtype<NamedPtr, gp::ptr<S>> {
 };
 
 // --- gp::deref ---
+
+// gp::cgo::as: Go's conversions of C/C++ values (int(x), C.int(d)), with Go's results where a
+// static_cast would be undefined behavior (checked with Go 1.25 on amd64).
+void test_as() {
+    volatile double big = 1e300, nan = std::numeric_limits<double>::quiet_NaN();
+    CHECK(gp::cgo::as<int64_t>(2.9) == 2);
+    CHECK(gp::cgo::as<int64_t>(-2.9) == -2);
+    CHECK(gp::cgo::as<int64_t>(double(big)) == INT64_MIN); // Go: int(1e300) is MinInt64
+    CHECK(gp::cgo::as<int64_t>(double(nan)) == INT64_MIN);
+    CHECK(gp::cgo::as<int>(double(big)) == INT32_MIN); // C.int: int32
+    CHECK(gp::cgo::as<uint8_t>(300.0) == 44);          // through int32, low bits
+    CHECK(gp::cgo::as<unsigned long long>(double(big)) == (uint64_t(1) << 63));
+    CHECK(gp::cgo::as<long long>(2.5f) == 2);
+    CHECK(gp::cgo::as<long long>(1e300L) == INT64_MIN);
+    CHECK(std::isinf(gp::cgo::as<float>(double(big))) && gp::cgo::as<float>(-double(big)) < 0);
+    CHECK(std::isnan(gp::cgo::as<float>(double(nan))));
+    CHECK(gp::cgo::as<float>(0x1.fffffefp127) == std::numeric_limits<float>::max()); // rounds down
+    CHECK(std::isinf(gp::cgo::as<float>(0x1.ffffffp127)));                           // half way: up
+    CHECK(gp::cgo::as<float>(1.5) == 1.5f);
+    CHECK(gp::cgo::as<double>(3) == 3.0);
+    CHECK(gp::cgo::as<int>(int64_t(1) << 40) == 0); // integers: C++20 wraps, like Go
+    CHECK(gp::cgo::as<bool>(true) == true); // only a bool converts to bool (a static_assert)
+    // case_eq: a case of a switch on a C/C++ value, C++'s == for numbers, enums and pointers.
+    enum mode { mode_a, mode_b };
+    CHECK(gp::cgo::case_eq(-1, EOF));
+    CHECK(gp::cgo::case_eq(mode_b, 1));
+    CHECK(!gp::cgo::case_eq(static_cast<const char*>(nullptr), "x"));
+}
 
 void test_deref() {
     S s{21};
@@ -930,6 +960,7 @@ void test_cgo() {
 }
 
 void run_tests() {
+    test_as();
     test_deref();
     test_range_vector();
     test_range_temporary();

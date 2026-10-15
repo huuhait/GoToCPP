@@ -113,10 +113,13 @@ func Escape(name string) string {
 // or std would hide the namespaces gp:: and std:: inside it (a name before :: finds types), and
 // one named like a package's namespace (gpkg_main) would hide that.
 func TypeName(name string) string {
-	return escapeAvoiding(name, func(s string) bool {
-		// (A name that ends in _ is free again: gpkg_x is gpkg_x_, as gp_x is gp_x_.)
-		return s == "gp" || s == "std" || strings.HasPrefix(s, "gpkg_") && !strings.HasSuffix(s, "_")
-	})
+	return escapeAvoiding(name, typeAvoid)
+}
+
+// typeAvoid reports whether a type at namespace scope can't have the C++ name s (TypeName).
+func typeAvoid(s string) bool {
+	// (A name that ends in _ is free again: gpkg_x is gpkg_x_, as gp_x is gp_x_.)
+	return s == "gp" || s == "std" || strings.HasPrefix(s, "gpkg_") && !strings.HasSuffix(s, "_")
 }
 
 // MethodName returns the C++ name of the method method of the type whose C++ name is typ: as
@@ -218,14 +221,23 @@ type funcNames struct {
 
 	// temps counts the temporaries of each kind (temp).
 	temps map[string]int
+
+	// avoid reports whether a name is a macro of the package's headers (macros.go), which a
+	// C++ name must not be either; nil if there are none.
+	avoid func(string) bool
 }
 
-func newFuncNames() *funcNames {
-	return &funcNames{
+// newFuncNames returns the names of a function of the package of g.
+func (g *gen) newFuncNames() *funcNames {
+	f := &funcNames{
 		taken: make(map[string]bool),
 		names: make(map[types.Object]string),
 		temps: make(map[string]int),
 	}
+	if len(g.macros) > 0 {
+		f.avoid = g.isMacro
+	}
+	return f
 }
 
 // reserve marks a C++ name as one that a new name must not be: the name of an object that the
@@ -241,7 +253,7 @@ func (f *funcNames) closeScope() { f.scopes = f.scopes[:len(f.scopes)-1] }
 // declare chooses the C++ name of the variable obj, declared in the innermost C++ scope: its
 // escaped Go name, or a new name if the scope has that one already (see funcNames).
 func (f *funcNames) declare(obj types.Object) string {
-	name := Escape(obj.Name())
+	name := escapeAvoiding(obj.Name(), f.avoid)
 	scope := f.scopes[len(f.scopes)-1]
 	if scope[name] {
 		name = f.newName(obj.Name())
@@ -254,7 +266,7 @@ func (f *funcNames) declare(obj types.Object) string {
 // name chooses the C++ name of a variable that a declaration shadows another one with: its
 // escaped Go name. The declaration then puts it into a scope with enter.
 func (f *funcNames) name(obj types.Object) string {
-	name := Escape(obj.Name())
+	name := escapeAvoiding(obj.Name(), f.avoid)
 	f.names[obj] = name
 	return name
 }
@@ -278,7 +290,7 @@ func (f *funcNames) newName(name string) string {
 		if strings.HasPrefix(s, "gp_") {
 			s += "_"
 		}
-		if !reserved[s] && !f.taken[s] {
+		if !reserved[s] && !f.taken[s] && (f.avoid == nil || !f.avoid(s)) {
 			f.taken[s] = true
 			return s
 		}

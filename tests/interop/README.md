@@ -40,3 +40,7 @@ needs its own `//gocpp:pkg-config` directive.
 A header that a test includes from this folder (`"./helper.h"`) lives next to it; files that
 are not `.gp` files are not tests. Libraries such as SDL can write to stderr; say so with a
 `// Stderr:` line, because without one stderr must be empty.
+
+The file [vector](vector) (no extension) is not a header of a test: it is an `#error`, which
+shows that a file next to the `.gp` files can't hide a system header (`<vector>`), because local
+headers are found with `-iquote` and the package's folder ([quoted_headers.gp](quoted_headers.gp)).

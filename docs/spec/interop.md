@@ -302,8 +302,8 @@ and [§2.6](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#26-strin
 | `std.vector`, `fs.path` (namespaces; `fs` renamed with `import fs "::std::filesystem"`) | `::std::vector`, `::std::filesystem::path` | fully qualified namespaces are unambiguous |
 | `glm.vec3` (`<glm/glm.hpp>` is package `glm`, and `glm` is also a namespace) | `::glm::vec3` | the namespace is tried first, then the C-level name |
 | `std.chrono.steady_clock.now()`, `std.string.npos`, `ui.Color.Red` (types) | `::std::chrono::steady_clock::now()`, `::std::string::npos`, `::Color::Red` | class scope and `enum class` values need `::` |
-| `std.cout.flush()` (a value) | `::std::cout.flush()` | members of objects use `.` |
-| `stat.struct_stat`, `lib.enum_x`, `lib.union_y` | `struct stat`, `enum x`, `union y` | cgo's convention for C tag names |
+| `std.cout.flush()`, `lib.sp.x` (values) | `gp::deref(::std::cout).flush()`, `gp::deref(::sp).x` | members of values use `.` after `gp::deref`, which passes objects through and dereferences raw pointers with Go's nil check |
+| `stat.struct_stat`, `lib.enum_x`, `lib.union_y` | `struct ::stat`, `enum ::x`, `union ::y` | cgo's convention for C tag names; qualified, so a gocpp `type stat` can't hide the tag |
 
 ### The two compiler probes
 
@@ -329,11 +329,20 @@ makes all of these exact.
 - A header may define a macro that collides with a name gocpp emits (X11's `#define Bool int`
   would break `atomic.Bool` and `flag.Bool`). So gocpp headers are included **before** C/C++
   headers.
-- After the C/C++ includes, each macro that collides with a gocpp name used in the file (and is
-  not itself used through a header package) is `#undef`ed, or saved and restored with
-  `push_macro`/`pop_macro`. The macro list from probe 1 makes this exact.
-- gocpp's own names that collide with macros are renamed (`errno` → `errno_`,
-  [cpp-mapping.md](cpp-mapping.md#names-inside-a-package)).
+- The package's own names that collide with a macro of its headers get a `_`, like the names that
+  collide with the runtime's macros (`errno` → `errno_`,
+  [cpp-mapping.md](cpp-mapping.md#names-inside-a-package)): `type Bool bool` next to X11's
+  `#define Bool int` is the C++ struct `Bool_` (`%T` still says `main.Bool`). So the header's other
+  macros that expand to `Bool` keep working.
+- Every other name that the generated code uses and that is a macro of the headers (a name of the
+  runtime or of another gocpp package, such as `Println` in `gp::fmtshim::Println`) is `#undef`ed
+  after the C/C++ includes. The macro list from probe 1 makes this exact. `#undef` is enough (no
+  `push_macro`/`pop_macro`): every C/C++ include comes before the generated code, so nothing
+  after it needs the macro again.
+- A macro that the program uses through its header package (`p.Println(3)`) and whose name the
+  generated code needs for something else (`fmt.Println`) can't be both: the build stops with an
+  error at the macro's use. Call the macro from a small helper header instead
+  ([below](#small-helpers-a-header-next-to-the-gp-file)).
 
 Sources: [Phase 04 §2.2](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#22-the-two-compiler-probes-macros-and-kinds),
 [§2.3](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#23-name-translation).
@@ -415,6 +424,19 @@ fmt.Println(n + 1)          // fully type-checked by gocpp
 | `for i, v := range cppContainer` | `for (auto&& [i, v] : gp::range(c))` | works for anything with `begin()`/`end()` and for C arrays. `v` is a **copy**, like Go. One variable is the index (the key for maps), like Go. A temporary container is kept alive by value, and random-access containers are walked by index with the size read **once**, as Go reads the length once |
 | `a, b := std.minmax(x, y)` | `auto [a, b] = gp::values(std::minmax(x, y));` | C++ results that are references (`std::minmax` returns `pair<const int&, const int&>`) are copied into values, so they can't dangle |
 
+A C/C++ value doesn't convert implicitly to a gocpp type, as in cgo: `var n int = cmath.pow(10, 30)`
+is an error ("cannot use cmath.pow(10, 30) (C/C++ value) as int value in variable declaration:
+convert it, int(x)"), also in an assignment, an argument and a return. `int(x)` converts with Go's
+rules (`gp::cgo::as`: a float out of range gives Go's result, not C++'s undefined behavior). A C
+pointer converts to a number only through `unsafe.Pointer`, and only a bool converts to bool.
+The other way round too: a typed gocpp value doesn't go implicitly into a C/C++ variable, field,
+parameter of a gocpp function or result (`fv := 1e30; var i C.int = fv` is "cannot use fv
+(variable of type float64) as C.int value in variable declaration: convert it, C.int(x)"); an
+untyped constant does (it is a C literal there). An argument of a C/C++ function is different:
+gocpp doesn't know the parameter's type, so C++'s rules convert it (a gocpp float passed to a C
+integer parameter out of its range is undefined behavior: write `C.int(x)`). Phase 12 (typed
+interop) knows the parameter types and makes this exact.
+
 ### Untyped constants in C/C++ calls
 
 ```go
@@ -426,6 +448,10 @@ An untyped constant passed to C/C++ is written as a plain C literal with C's def
 is an `int`, `2.0` is a `double`, `"x.txt"` is a string literal). That is what C APIs expect. A
 C++ template that deduces one type from two arguments then needs a typed constant: write
 `std.max(n, int(0))`, not `std.max(n, 0)`.
+
+Not yet (step 4.9 and Phase 12): such constants are not checked against Go's rules for the C/C++
+type, as cgo checks them: `var s *C.char = "hi"`, `var c C.char = 200` and `C.int(2.5)` are
+accepted, and the C++ compiler converts (or truncates) them.
 
 ### C/C++ objects in closures and `defer`
 

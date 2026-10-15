@@ -111,6 +111,8 @@ type funcGen struct {
 	// y being ordered (emitPanic binds it once).
 	deferCall *ast.CallExpr
 	opTarget  ast.Expr
+	// cTag: the switch being lowered has a C/C++ value as its tag (control.go: caseCond).
+	cTag bool
 }
 
 // newFuncGen returns the funcGen of a function (fn and flow are nil in gp_var_init).
@@ -172,7 +174,13 @@ func (fg *funcGen) expr(e ast.Expr) cppir.Expr {
 func (fg *funcGen) value(e ast.Expr) cppir.Expr {
 	// A constant is folded: go/types computed its value and the type it converts to.
 	if tv, ok := fg.g.info.Types[e]; ok && tv.Value != nil {
+		if fg.g.cConsts[e] {
+			return fg.g.cConstant(tv.Value, tv.Type, e.Pos()) // a C/C++ value (cvalues.go)
+		}
 		return fg.g.constant(tv.Value, fg.g.untypedCount(e, tv.Type), e.Pos(), false)
+	}
+	if fg.g.pkg.Opaque.IsOpaque(e) {
+		return fg.opaqueExpr(e) // a C/C++ value (cvalues.go)
 	}
 	switch e := e.(type) {
 	case *ast.ParenExpr:
@@ -281,9 +289,15 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 			return fg.complexBuiltin(c, name) // complex.go
 		}
 	}
+	if conv := fg.g.pkg.Conversion(c); conv != nil {
+		return fg.asConversion(c, conv) // of a C/C++ value (cvalues.go), not a call
+	}
 	if !fg.ordered[c] {
 		fg.g.errorf(c.Pos(), "internal error: a call whose evaluation order was not decided")
 		return placeholder
+	}
+	if x, ok := fg.cCall(c); ok {
+		return x // of a C/C++ function (cvalues.go)
 	}
 	if x := fg.weakMake(c); x != nil {
 		return x // weak.Make(p), weak.Make[T](p) (weak.go)
@@ -302,6 +316,10 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 			case "print", "println":
 				callee, template = "gp::"+obj.Name(), true
 				for _, a := range c.Args {
+					if t := fg.g.info.TypeOf(a); t == nil || hasC(t) {
+						fg.g.unsupported(a.Pos(), "printing C/C++ values (step 4.12): convert the value to a gocpp type first, int(x)")
+						return placeholder
+					}
 					if t := fg.g.info.TypeOf(a); t != nil && isFunc(t) {
 						// Go prints the func's code address.
 						fg.g.unsupported(a.Pos(), "printing a func value with "+obj.Name())
@@ -344,6 +362,10 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 		if sel := fg.g.info.Selections[fun]; sel != nil && sel.Kind() == types.MethodVal {
 			return fg.methodCall(c, fun, sel) // methods.go
 		}
+		if fg.g.pkg.Opaque.IsOpaque(fun) {
+			fg.g.unsupported(fun.Sel.Pos(), "member calls on C/C++ values (gp::deref, step 4.4)")
+			return placeholder
+		}
 		callee = fg.pkgFunc(c, fun)
 		if callee == "" {
 			return placeholder
@@ -356,6 +378,10 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 
 	if template {
 		for _, a := range c.Args {
+			if t := fg.g.info.TypeOf(a); t == nil || hasC(t) {
+				fg.g.unsupported(a.Pos(), "printing C/C++ values (step 4.12): convert the value to a gocpp type first, int(x)")
+				return placeholder
+			}
 			if t := fg.g.info.TypeOf(a); t != nil && hasFunc(t) {
 				// Go prints a func's code address (closures.go).
 				fg.g.unsupported(a.Pos(), "printing a func value")

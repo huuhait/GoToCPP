@@ -70,10 +70,12 @@ func (p *printer) decl(d Decl) {
 	switch d := d.(type) {
 	case *Include:
 		if d.System {
-			p.w.plain("#include <" + d.Path + ">")
+			p.line(d.Pos, "#include <"+d.Path+">")
 		} else {
-			p.w.plain("#include " + CString(d.Path))
+			p.line(d.Pos, "#include "+CString(d.Path))
 		}
+	case *Directive:
+		p.w.plain("#" + d.Text)
 	case *Namespace:
 		name := ""
 		if d.Name != "" {

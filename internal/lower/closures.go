@@ -77,7 +77,7 @@ func (g *gen) funcType(sig *types.Signature, pos token.Pos) cppir.Type {
 	params := make([]cppir.Type, sig.Params().Len())
 	for i := range params {
 		t := sig.Params().At(i).Type()
-		params[i] = g.cxxType(t, pos)
+		params[i] = g.varType(sig.Params().At(i), pos) // also a C/C++ type (cvalues.go)
 		if largeVar(t) {
 			params[i] = &cppir.Ref{Elem: &cppir.Const{Elem: params[i]}}
 		}

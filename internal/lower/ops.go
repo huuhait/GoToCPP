@@ -145,6 +145,11 @@ func (fg *funcGen) constValue(e ast.Expr) constant.Value {
 }
 
 func (fg *funcGen) binary(e *ast.BinaryExpr) cppir.Expr {
+	if t := fg.g.info.TypeOf(e.X); (e.Op == token.EQL || e.Op == token.NEQ) && t != nil && cmpHasC(t) {
+		// A struct or an array with a C/C++ part: its == is the C++ compiler's (typedecl.go).
+		fg.g.unsupported(e.OpPos, "== on values with C/C++ parts (step 4.4)")
+		return placeholder
+	}
 	if (e.Op == token.SHL || e.Op == token.SHR) && fg.constValue(e.X) != nil {
 		// A constant shifted by a count that is not a constant: the constant has the type
 		// of the shift (the spec, "Operators"), which go/types may not record for the
