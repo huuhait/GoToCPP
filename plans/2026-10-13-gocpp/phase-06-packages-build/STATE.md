@@ -58,4 +58,9 @@
   from the user's own flags or environment, never from a package's `//gocpp:cflags` (Phase 04's
   allow-list keeps refusing `-fplugin` there; `GOCPP_CFLAGS_ALLOW` stays the escape hatch).
   Both need clang; g++ gets a clear error for `-emit-llvm` and its own GCC plugins via `-cxxflags`.
+- 2026-10-15 (4.15 review, for 6.12/6.14): environment flags (GOCPP_CFLAGS, GOCPP_CXXFLAGS) also reach the
+  compiler probes, so a plugin in them (`-fplugin=`, `-fpass-plugin=`) would load in every probe the editor
+  runs, 6.14's function-counting test plugin would count probe files too, and the probe cache keys on the
+  flags but not on the plugin file's contents. 6.12 drops plugin flags from the probe flags (in
+  interop.probeFlags, as the message flags are dropped) or adds the plugin file's hash to the key.
 
