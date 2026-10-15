@@ -671,8 +671,17 @@ func TestProbeCache(t *testing.T) {
 		probe("vec.h changed", true, kindCase{"vecns", NotNamespace}, kindCase{"vecns_v2", Namespace})
 
 		// A header that changed in the last seconds may have changed
-		// while the compiler ran: the result is not cached.
-		if err := os.WriteFile(filepath.Join(dir, "vec.h"), []byte("#pragma once\nnamespace vecns_v3 {}\n"), 0o644); err != nil {
+		// while the compiler ran: the result is not cached. Its time is set
+		// an hour ahead (as if it changed after the compiler started), so
+		// that it stays within racyWindow of every probe below, however
+		// long they take: with the time of the write, a probe that starts
+		// more than racyWindow later (a slow compiler under load) caches it.
+		vec := filepath.Join(dir, "vec.h")
+		if err := os.WriteFile(vec, []byte("#pragma once\nnamespace vecns_v3 {}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		soon := time.Now().Add(time.Hour)
+		if err := os.Chtimes(vec, soon, soon); err != nil {
 			t.Fatal(err)
 		}
 		probe("vec.h just changed", true, kindCase{"vecns_v3", Namespace})

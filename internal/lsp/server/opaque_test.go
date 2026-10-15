@@ -2,6 +2,7 @@ package server
 
 import (
 	"testing"
+	"time"
 
 	"github.com/huuhait/gocpp/internal/lsp/cache/filecache"
 	"github.com/huuhait/gocpp/internal/lsp/debounce"
@@ -126,9 +127,17 @@ func TestHoverOpaqueImport(t *testing.T) {
 
 // TestHoverOpaqueDisk: a second server, whose lib comes from the disk
 // cache, shows the same.
+//
+// lib imports a header, so its first check may go on before the compiler
+// lookup (in the background) has answered: that check is provisional, and
+// its summary is not written. lib is written when it is checked again
+// after the answer (the server rechecks main, which is stale then). So the
+// first server waits for that write before it shuts down; a shutdown
+// before it would leave the disk cache empty (under load, the recheck
+// comes late).
 func TestHoverOpaqueDisk(t *testing.T) {
 	root, dir := writeTree(t, opaqueFiles), t.TempDir()
-	run := func() (hits int64) {
+	run := func(waitWrite bool) (hits int64) {
 		t.Helper()
 		disk, err := filecache.Open(filecache.Options{Dir: dir, Version: "gocpp-test"})
 		if err != nil {
@@ -143,13 +152,21 @@ func TestHoverOpaqueDisk(t *testing.T) {
 		c.open("main.gp", opaqueFiles["main.gp"])
 		checkOpaque(t, c)
 		hits, _, _ = c.s.pipeline.DiskStats()
+		for deadline := time.Now().Add(30 * time.Second); waitWrite; time.Sleep(time.Millisecond) {
+			if _, _, writes := c.s.pipeline.DiskStats(); writes > 0 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("the first server wrote no summary to disk")
+			}
+		}
 		c.call("shutdown", "")
 		c.notify("exit", "")
 		c.wait()
 		return hits
 	}
-	run()
-	if hits := run(); hits == 0 {
+	run(true)
+	if hits := run(false); hits == 0 {
 		t.Error("the second server read no summary from disk")
 	}
 }
