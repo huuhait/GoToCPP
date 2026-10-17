@@ -58,9 +58,7 @@ and the Phase 04 interop tests on g++ and clang++, normally and with ASan/UBSan)
 reached 400-550 on 128 cores. At that load timing-based tests fail at random (probe timeouts, `TestLSPProcess`,
 `TestProbeCancelStopsTheCompiler`, deliberate-crash tests stalling in systemd-coredump, the `WaitDelay` bug): rerun
 a failing test alone before believing it, and keep the number of simultaneous heavy jobs near the core count.
-Known fix in flight: `fix/pch-ice` (g++ crashed with the precompiled header in `TestProgramParallel`: the header
-build named its temp file by pid, so Builders in one process shared it; fixed with unique temp names, a
-per-process single-flight and a fallback when the compiler dies with the header).
+The g++ crash with the precompiled header (`fix/pch-ice`) is fixed and merged (unique temp names, per-process single-flight, fallback when the compiler dies).
 
 Measured and rejected: scratch files in `/dev/shm` (no change); `mold` saves only 40-90 ms per build
 (`GOCPP_LDFLAGS=-fuse-ld=mold` with `mold` in the dev shell if wanted). The object cache only helps an
@@ -102,3 +100,17 @@ Use isolated test caches as in `tests/README.md`; never write the user's real
 `~/.cache/gocpp` from tests. Do not run GUI programs, Xvfb or xvfb-run. Select only the
 non-GUI cpp-std, mixed-sources and sqlite examples for run checks; build/link raylib only.
 NixOS has no `/bin/bash`: run scripts with `bash script.sh`.
+
+## State at 2026-10-17 (end of the second big wave)
+
+`dev` (60f6be7) now also has: 10.1 (parser/printer for `!` and macros), 6.1 (gocpp.mod), 5.1-5.3 (runtime type descriptors and
+interfaces), 4.8 (opaque objects in closures/defers), the precompiled-header crash fix, and the cmd/gocpp object-cache test fix.
+Verified on `dev` at 60f6be7: staticcheck, the Phase 04 interop tests (normal and ASan) green; `make ci` had only three timing
+failures that each pass alone (TestLSPProcess, TestScales, the fmt speed check: see TODO.md).
+
+Waiting in worktrees next to the main checkout (agents resumable; details in the dated STATE notes when they merge): 4.10 (unsafe and
+pointers: reviewers asked to make every gocpp-side `*C.T` a `gp::cptr<T>`; reconciling with 4.8), 8.15/8.1 (thread layer and goroutine
+runtime: confirmation review), 11.8/11.9 (language server: confirmation review), 6.1b (module header imports) and 6.1c (module
+downloads) just started. Decisions Q16/Q17 (TODO.md): libraries from the internet are built NOW; local headers import by the
+project's module path like Go packages (`import "github.com/huuhait/project/native/x.h"`). Next after 6.1b: 6.1d (read and build
+the `cxx` recipes).
