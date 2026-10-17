@@ -12,12 +12,12 @@
 - [x] Spike: `macro` declarations + on-top macros (`Trace` enter/exit incl. on panic, `Locked` with 100 concurrent calls, race-clean) as plain Go after rewrite (2026-10-13)
 - [x] Spike: must functions `func f!() T` on stock go/types: check 1 has 5 expected errors, check 2 has 0; the program runs right for a good config, a missing port and a missing file (2026-10-13)
 - [x] Spike: wrap-style macros with `#body()` (`VM`, `Recover`, `InThread`, `Once`) as plain Go after rewrite, race-clean (2026-10-13)
-- [ ] 10.1 Parser + printer
-  - [ ] patch #4: `name!(`, `name![` (non-keyword identifiers only; `if!(a)` etc. unchanged), in calls and `func` declarations
-  - [ ] patch #5: `#Name`
-  - [ ] patch #6: `macro` declarations (package level), `lazy T` params, package-level on-top `#Name(...)` lines
-  - [ ] `go/printer` fork printing `macro`, `lazy`, `func f!()`, on-top macros; `gocpp fmt` switches to it
-  - [ ] tests + round-trip
+- [x] 10.1 Parser + printer
+  - [x] patch #4: `name!(`, `name![` (non-keyword identifiers only; `if!(a)` etc. unchanged), in calls and `func` declarations
+  - [x] patch #5: `#Name`
+  - [x] patch #6: `macro` declarations (package level), `lazy T` params, package-level on-top `#Name(...)` lines
+  - [x] `go/printer` fork printing `macro`, `lazy`, `func f!()`, on-top macros; `gocpp fmt` switches to it
+  - [x] tests + round-trip
 - [ ] 10.2 Hidden packages `gocpp/must` (M1, M2, M3, Any) and `gocpp/macro` (Site + `Outer`), aliased `gp_must`/`gp_macro`
 - [ ] 10.3 `F!` call rewrite + post-check on every form (`Identical` to `error`) + friendly error messages
 - [ ] 10.4 Must functions
@@ -83,3 +83,17 @@
   style and a wrap style (`#body()`, e.g. `#VM`). Both new designs were validated by spikes; the
   must functions need a second type check (only for packages that use them). Size raised to 6–7
   weeks.
+- 2026-10-17: Job 10.1 merged after a clean round-2 review (parser patches 4-6, printer fork, gpast, ParserMode).
+  Decisions: (1) macros and `!`/`#` forms are marked INSIDE the stock go/ast nodes (names with `!`/`#`, a macro
+  declaration is a FuncDecl named `#Name`, lazy is a UnaryExpr with Op token.ILLEGAL, an on-top line is a GenDecl
+  with Tok token.ILLEGAL holding a ValueSpec named `_`), not in a side table: a node a pass copies keeps its mark;
+  the price is that go/types is SILENT about `F!(x)` and `#M(x)`, so every pass from 10.2 on must call
+  `gpast.Leftovers` before go/types as an invariant, and use `gpast.DeclNameEnd` for a macro declaration's name
+  span and `gpast.MacroBase` for export filters; (2) the mode bit `Phase10Syntax` is off by default and nothing
+  but `gocpp fmt` and the LSP's formatting sets it: internal/load must pass it when the gate phase is >= 10;
+  (3) `gocpp fmt` formats the new syntax before Phase 10 exists (like interfaces before Phase 05); (4) the printer
+  fork is needed only for macro, lazy and on-top lines (the stock printer prints `func f!()`, `F!(x)`, `#Name(...)`
+  as written: the spike was right); (5) known: a comment between an on-top line and its declaration gets a blank
+  line before it (gofmt's rule for comments between top-level declarations), on-top macro arguments are not
+  walked by the legacy object resolver (only matters with SkipObjectResolution off), internal/format/parens.go's
+  workaround could now be simplified.
