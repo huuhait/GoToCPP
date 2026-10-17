@@ -48,14 +48,19 @@ and the Phase 04 interop tests on g++ and clang++, normally and with ASan/UBSan)
 - `c16cdb2` cmd/gocpp tests no longer depend on the object cache (`TestMain` turns it off; `TestObjCacheOffByDefault`
   guards it): a `-x` test failed or passed depending on machine speed.
 - 4.16 (helper headers as packages) merged as `b72404c`; see phase-04 STATE.
+- `1477a68` **WaitDelay and core dumps**: a compiler that exited 0 but kept its output open was reported as a
+  failure under load (`gocpp's runtime did not compile ... WaitDelay expired`); the tests that crash a program on
+  purpose no longer stall in systemd-coredump (prctl(PR_SET_DUMPABLE, 0)); the probe cancel and output-limit tests are
+  load-proof. Verified on `dev`: `make ci` green (1404 s at load ~400), staticcheck, Phase 04 interop (ASan
+  fully green; the normal run had only a `g++ --version` detection timeout under load, which passes alone).
 
 **Machine load warning (2026-10-17):** with a dozen coder, reviewer and verification jobs at once the load average
 reached 400-550 on 128 cores. At that load timing-based tests fail at random (probe timeouts, `TestLSPProcess`,
 `TestProbeCancelStopsTheCompiler`, deliberate-crash tests stalling in systemd-coredump, the `WaitDelay` bug): rerun
 a failing test alone before believing it, and keep the number of simultaneous heavy jobs near the core count.
-Known fixes in flight: `fix/waitdelay` (a compiler that exited 0 but kept its output open was reported as a
-failure; crash tests no longer dump core), `fix/pch-ice` (g++ crashed with the precompiled header in
-`TestProgramParallel`).
+Known fix in flight: `fix/pch-ice` (g++ crashed with the precompiled header in `TestProgramParallel`: the header
+build named its temp file by pid, so Builders in one process shared it; fixed with unique temp names, a
+per-process single-flight and a fallback when the compiler dies with the header).
 
 Measured and rejected: scratch files in `/dev/shm` (no change); `mold` saves only 40-90 ms per build
 (`GOCPP_LDFLAGS=-fuse-ld=mold` with `mold` in the dev shell if wanted). The object cache only helps an
