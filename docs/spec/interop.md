@@ -424,9 +424,9 @@ fmt.Println(n + 1)          // fully type-checked by gocpp
 | `if v.empty()`, `for !done` | `if (gp::cgo::cond(gp::deref(v).empty()))` | a condition must be a bool, as in Go: a C `int` (`if isdigit(c)`), a pointer (`if p`) or a `std::optional` is a C++ compile error; compare it (`!= 0`, `!= nil`). An object that converts to bool implicitly, such as a `std::vector<bool>` element (`if bs[0]`), is fine. A comparison needs no check |
 | `&x` (`x` a C/C++ variable), `&lib.global` | `&x`, `&::global` | a raw C++ address: C++'s lifetime rules ([below](#pointers-unsafe-and-slices-at-the-boundary)) |
 | `std.string("hi")`, `std.vector[int](10, 0)` | `std::string("hi")`, `std::vector<int64_t>(10, 0)` | conversion syntax calls a constructor; several arguments are allowed ([D5](language.md#d5-constructor-calls-for-cc-types)) |
-| `std.vector[int]{1, 2, 3}` | `std::vector<int64_t>{1, 2, 3}` | |
+| `std.vector[int]{1, 2, 3}`, `std.map[std.string, int]{"a": 1}` | `std::vector<int64_t>{1, 2, 3}`, `gp::cgo::map_t<std::map<std::string, int64_t>>{{"a", 1}}` | C++'s braced initialization; keys that are not names make a C++ map's pairs ([composite literals](#composite-literals-of-cc-types)) |
 | `SDL.SDL_Rect{0, 0, 640, 480}` | `SDL_Rect{0, 0, 640, 480}` | positional: aggregate initialization |
-| `SDL.SDL_Rect{w: 640, h: 480}` | `[&]{ SDL_Rect gp_t{}; gp_t.w = 640; gp_t.h = 480; return gp_t; }()` | keyed: field assignments, because GCC rejects designated initializers out of declaration order, and opaque mode doesn't know the order. Keyed literals with array fields are an error until Phase 12 |
+| `SDL.SDL_Rect{w: 640, h: 480}` | `[&]() { SDL_Rect gp_t0{}; static_assert(gp::cgo::field_ok<decltype(gp_t0.w)>); gp_t0.w = {640}; ...; return gp_t0; }()` | keyed: field assignments, because GCC rejects designated initializers out of declaration order, and opaque mode doesn't know the order. Keyed literals with array fields are an error until Phase 12 |
 | `nil` compared with or assigned to a C pointer | `nullptr` | |
 | `for i, v := range cppContainer` | `for (auto&& [i, v] : gp::range(c))` | works for anything with `begin()`/`end()` and for C arrays. `v` is a **copy**, like Go. One variable is the index (the key for maps), like Go. A temporary container is kept alive by value, and random-access containers are walked by index with the size read **once**, as Go reads the length once |
 | `a, b := std.minmax(x, y)` | `auto gp_t0 = gp::values(std::minmax(x, y)); auto a = std::get<0>(gp_t0); auto b = std::get<1>(gp_t0);` | C++ results that are references (`std::minmax` returns `pair<const int&, const int&>`) are copied into values, so they can't dangle. Also with `=`, `_` and variables that exist. (One variable, `p := std.minmax(x, y)`, still keeps the references until step 4.7) |
@@ -515,6 +515,64 @@ untyped constant does (it is a C literal there). An argument of a C/C++ function
 gocpp doesn't know the parameter's type, so C++'s rules convert it (a gocpp float passed to a C
 integer parameter out of its range is undefined behavior: write `C.int(x)`). Phase 12 (typed
 interop) knows the parameter types and makes this exact.
+
+### Composite literals of C/C++ types
+
+A literal of a C/C++ type is C++'s braced initialization (step 4.6). C++ decides what the braces
+do: aggregate initialization for a C struct, a constructor, or a `std::initializer_list`
+(`std::vector`, `std::map`):
+
+```go
+r := SDL.SDL_Rect{0, 0, 640, 480}            // SDL_Rect{0, 0, 640, 480}
+v := std.vector[int]{5, 3, 8}                // std::vector<int64_t>{5, 3, 8}
+p := std.pair[int, std.string]{7, "seven"}   // a constructor
+boxes := std.vector[lib.Box]{{{0, 0}, {2, 2}}, {}} // inner literals may leave their type out
+line := lib.Line{a: {1, 2}, b: lib.Vec{y: 3}}       // also in a keyed literal
+```
+
+- **Positional** literals keep C++'s rules, also the narrowing rule: `lib.Vec{1, n}` with a gocpp
+  `int` n and a C `int` field is a C++ error at the `.gp` line (with both compilers; gocpp makes
+  it an error for g++ too), as cgo rejects it. Write `C.int(n)`.
+- **Keyed** literals whose keys are names set those fields in the literal's order, and the fields
+  left out are zero: `[&]() { T gp_t0{}; static_assert(gp::cgo::field_ok<decltype(gp_t0.w)>);
+  gp_t0.w = {640}; return gp_t0; }()` (bit-fields work too). The values are braced (`{640}`), so
+  the narrowing rule holds here too. An **array field** can't be set this way (C++ can't assign
+  arrays): "a keyed literal of a C/C++ type can't set an array field (until Phase 12): write a
+  positional literal". Duplicate field names are an error, as in Go.
+- **Keyed** literals whose keys are not names are a C++ map's: `std.map[std.string, int]{"a": 1,
+  "b": 2}` is `gp::cgo::map_t<std::map<...>>{{"a", 1}, {"b", 2}}`, and so is the C++ spelling
+  `std.map[std.string, int]{{"a", 1}}`. The type must be a map (it has a `mapped_type`): Go's index
+  keys of a sequence, `std.vector[int]{2: 7}`, are an error, "a keyed literal of a C++ type with
+  keys that aren't field names needs a map (std.map, std.unordered_map, ...)", because a braced
+  list of pairs would silently make other elements. Duplicate constant keys of a `std.map` or a
+  `std.unordered_map` are an error, as in Go; a `std.multimap` takes them. Names and other keys in
+  one literal, or keyed and positional elements, are an error.
+- **Every name as a key is a field name**, also a variable or a named constant: in
+  `std.map[int, std.string]{Red: "red"}`, `Red` is taken as a field. Put such a key in
+  parentheses, `{(Red): "red"}`, or write the pair, `{{k, 1}}`.
+- An **inner literal** in a literal of a C/C++ type may leave its type out, also where Go wouldn't
+  allow it (a struct field): it is a braced list, and C++ decides what it is. A keyed one needs
+  its type, `std.vector[lib.Vec]{lib.Vec{y: 1}}`, because the assignments need a type to start
+  from. Because C++ decides, `std.vector[*Node]{{}}` holds a nil gocpp pointer, not a new
+  `&Node{}` as Go's `[]*Node{{}}` does.
+- **Careful with C++ constructors:** `std.vector[std.string]{{"a", "b"}}` and
+  `std.string{"a", "b"}` pick `std::string`'s constructor from two iterators, which reads from
+  `"a"` to `"b"`: undefined behavior (g++ throws a `length_error`, clang `-asan` reports a
+  global-buffer-overflow). Write `std.vector[std.string]{"a", "b"}`.
+- The elements are evaluated in Go's order, from left to right (keys before their values); untyped
+  constants are C literals, `nil` is `nullptr`.
+- `&T{...}` of a C/C++ type is not supported yet (step 4.10): a gocpp `*T` of a C/C++ type is a raw
+  pointer, which can't own the new object. Declare a variable and take its address:
+  `v := lib.Vec{1, 2}; p := &v` (C++'s lifetime rules).
+- A package variable can take its type from the literal: `var origin = lib.Vec{y: 1}`.
+
+**gocpp literals with C/C++ parts** are gocpp values with Go's rules: `[]C.int{1, 2}`,
+`[...]C.double{0.5}`, `[2]lib.Vec{{1, 2}}` (an inner literal leaves its type out, as in Go),
+`map[string]C.int{"a": 1}` and a gocpp struct with C fields (`Shape{box: lib.Box{}, n: 4}`);
+`&[]C.int{1}` is a gocpp pointer to a new slice, as in Go. Where
+both types are known, cgo's rule holds: a typed gocpp value into a C element or field is an error,
+"cannot use n (variable of type int) as C.int value in array or slice literal: convert it,
+C.int(n)", and a C/C++ value into a gocpp element too ("convert it, int(x)").
 
 ### Untyped constants in C/C++ calls
 
@@ -1282,6 +1340,8 @@ Source: [Phase 14 §2.4](../../plans/2026-10-13-gocpp/phase-14-windows/README.md
 | a struct that embeds a C/C++ type, with promoted access (`struct{ std.vector[int] }`, then `mv.push_back(1)`) | the error "not supported yet (Phase 12)" | name the field: `mv.vector.push_back(1)` |
 | a C macro as a compile-time constant (`var buf [cstdio.BUFSIZ]byte`) | the error "not supported yet (Phase 12)" | |
 | a keyed literal of a C struct with array fields | an error | a positional literal (aggregate initialization) |
+| the types of a C struct's fields in a literal | unknown: a gocpp value goes in by C++'s rules (narrowing is an error) | convert it to the C type, `C.int(n)` |
+| too few values in a positional literal of a C/C++ type (`lib.Vec{1}`) | the fields left are zero (C++'s aggregate initialization); Go and cgo say "too few values in struct literal", but gocpp can't count the fields of a C struct | write every value, or use a keyed literal |
 | `.` vs `::`, template vs index | decided by the kind probe; when it can't tell, gocpp falls back to `.` | write `(x).m` or `(v)[i]`: a parenthesized C++ value is always a value ([the probes](#the-two-compiler-probes)) |
 | a smart pointer before `.` | not dereferenced for you | write `(*sp).m` |
 | mistakes in C/C++ code | reported by the C++ compiler, at the `.gp` line | |

@@ -58,12 +58,12 @@ func (fg *funcGen) compositeLit(e *ast.CompositeLit) cppir.Expr {
 	if isMap(t) {
 		return fg.mapLit(e) // step 3.7, maps.go
 	}
-	st, ok := under(t).(*types.Slice) // also of a named slice type (litValue converts it)
+	_, ok := under(t).(*types.Slice) // also of a named slice type (litValue converts it)
 	if !ok {
 		fg.g.unsupported(e.Lbrace, "composite literals of type "+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types)))
 		return placeholder
 	}
-	elem := fg.g.cxxType(st.Elem(), e.Pos())
+	elem := fg.g.litPartType(e, t, elemOf) // (also C/C++ elements: []C.int, clits.go)
 	keyed := false
 	for _, elt := range e.Elts {
 		if _, ok := elt.(*ast.KeyValueExpr); ok {

@@ -676,12 +676,19 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		// The elements, like the operands of an operator: gc orders them (and reads the
 		// variables in them) as the operands of an expression. The keys of a slice literal
 		// are constants; the values of a keyed struct literal are in the fields' order in
-		// C++ (litElem, structs.go).
+		// C++ (litElem, structs.go). The keys of a C++ map's literal are values too, each
+		// before its value in the list of pairs, {{k, v}, ...} (clits.go).
+		pairs := fg.g.cPairs(x)
 		for i, elt := range x.Elts {
+			elem := fg.litElem(x, i)
 			if kv, ok := elt.(*ast.KeyValueExpr); ok {
+				if pairs {
+					fg.collect(sc, kv.Key, root, &orderStep{node: e, up: up, elem: 2*i + 1})
+					elem = 2*i + 2
+				}
 				elt = kv.Value
 			}
-			fg.collect(sc, elt, root, &orderStep{node: e, up: up, elem: fg.litElem(x, i)})
+			fg.collect(sc, elt, root, &orderStep{node: e, up: up, elem: elem})
 		}
 	case *ast.SelectorExpr:
 		// x.f reads x (its own item), and through a pointer also memory that a call can

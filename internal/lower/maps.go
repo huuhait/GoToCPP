@@ -94,8 +94,11 @@ func (fg *funcGen) mapRef(x *ast.IndexExpr) cppir.Expr {
 // list C++ evaluates in order, entry by entry, in gc's order (mapEntries). Elided types of
 // composite keys and values (map[string][]int{"a": {1, 2}}) are go/types' to fill in.
 func (fg *funcGen) mapLit(e *ast.CompositeLit) cppir.Expr {
-	mt := under(fg.g.info.TypeOf(e)).(*types.Map)
-	key, elem := fg.g.cxxType(mt.Key(), e.Pos()), fg.g.cxxType(mt.Elem(), e.Pos())
+	t := fg.g.litType(e)
+	// The map type first, with its own checks (a key with C/C++ parts is not supported yet), then
+	// its parts (map[string]C.int: clits.go).
+	fg.g.litPartType(e, t, nil)
+	key, elem := fg.g.litPartType(e, t, keyOf), fg.g.litPartType(e, t, elemOf)
 	var pairs []cppir.Expr
 	for _, kv := range fg.mapEntries(e) {
 		pairs = append(pairs, &cppir.InitList{Elems: []cppir.Expr{fg.expr(kv.Key), fg.expr(kv.Value)}})
@@ -206,8 +209,9 @@ func (fg *funcGen) emitMapLit(it *orderItem, e *ast.CompositeLit, pre *[]cppir.S
 		fg.temps[e] = t
 		return
 	}
-	mt := under(fg.g.info.TypeOf(e)).(*types.Map)
-	key, elem := fg.g.cxxType(mt.Key(), e.Pos()), fg.g.cxxType(mt.Elem(), e.Pos())
+	lt := fg.g.litType(e)
+	typ := fg.g.litPartType(e, lt, nil) // (first: its own checks, as in mapLit)
+	key, elem := fg.g.litPartType(e, lt, keyOf), fg.g.litPartType(e, lt, elemOf)
 	statics, dynamics := fg.splitEntries(e)
 	var start cppir.Expr
 	if len(statics) == 0 {
@@ -220,7 +224,7 @@ func (fg *funcGen) emitMapLit(it *orderItem, e *ast.CompositeLit, pre *[]cppir.S
 		start = templateCall("gp::map_of", []cppir.Node{key, elem}, &cppir.InitList{Elems: pairs})
 	}
 	// A literal of a named map type (step 3.9) is one in its temporary of that type.
-	*pre = append(*pre, varDecl(cppir.Pos{}, fg.g.cxxType(fg.g.info.TypeOf(e), e.Pos()), t, fg.g.wrapNamed(fg.g.info.TypeOf(e), start, e.Pos())))
+	*pre = append(*pre, varDecl(cppir.Pos{}, typ, t, fg.g.wrapNamed(lt, start, e.Pos())))
 	for _, kv := range dynamics {
 		// The arguments of gp::set are not in order: the entry's own scope, as a store.
 		*pre = append(*pre, fg.orderWith(&orderScope{rank: rootRank(1), copy: fg.entryKey(e)}, kv.Key, kv.Value)...)

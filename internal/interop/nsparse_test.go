@@ -808,8 +808,10 @@ exit 0`
 		family    build.Family
 		want, not []string
 	}{
-		{build.Clang, []string{"-ferror-limit=0", "-Qunused-arguments", "-fno-caret-diagnostics", "-fdiagnostics-show-note-include-stack"}, []string{"-fmax-errors=0"}},
-		{build.GCC, []string{"-fmax-errors=0", "-fno-diagnostics-show-caret", "-ftrack-macro-expansion=0"}, []string{"-Qunused-arguments", "-ferror-limit=0"}},
+		{build.Clang, []string{"-w", "-ferror-limit=0", "-Qunused-arguments", "-fno-caret-diagnostics", "-fdiagnostics-show-note-include-stack"}, []string{"-fmax-errors=0"}},
+		// g++: no -w, which would turn off the build's -Werror=narrowing (quietFlags).
+		{build.GCC, []string{"-Wno-error", "-Werror=narrowing", "-Werror=conditionally-supported", "-fmax-errors=0", "-fno-diagnostics-show-caret",
+			"-ftrack-macro-expansion=0"}, []string{"-w", "-Qunused-arguments", "-ferror-limit=0"}},
 	} {
 		t.Run(c.family.String(), func(t *testing.T) {
 			// The folders first: t.TempDir uses TMPDIR too.
@@ -830,7 +832,7 @@ exit 0`
 				t.Fatal(err)
 			}
 			args := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
-			for _, w := range append([]string{"-fsyntax-only", "-std=c++20", "-w", "-iquote", "-MMD"}, c.want...) {
+			for _, w := range append([]string{"-fsyntax-only", "-std=c++20", "-iquote", "-MMD"}, c.want...) {
 				if !slices.Contains(args, w) {
 					t.Errorf("args %q: no %s", args, w)
 				}

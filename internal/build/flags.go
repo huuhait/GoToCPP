@@ -74,12 +74,17 @@ func Flags(cxx CXX, asan bool) []string {
 // reads the address of a copy of the object as its pointer. clang rejects
 // it on its own (-Wnon-pod-varargs is an error by default).
 // runtime/reject_test.go checks both.
+//
+// And g++ gets -Werror=narrowing: a narrowing conversion in a braced list (a gocpp int64_t into
+// a C int field of a literal, lib.Point{1, n}, Phase 04 §2.5) is an error in C++, which clang
+// reports, while g++ only warns for a value that is not a constant. Both compilers then reject
+// the same programs.
 func GeneratedFlags(cxx CXX) []string {
 	switch cxx.Family {
 	case Clang:
 		return []string{"-Wno-tautological-compare"}
 	case GCC:
-		return []string{"-Wno-overflow", "-Werror=conditionally-supported"}
+		return []string{"-Wno-overflow", "-Werror=conditionally-supported", "-Werror=narrowing"}
 	}
 	return nil
 }

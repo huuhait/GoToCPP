@@ -600,6 +600,35 @@ func TestProbeKindsMessageFlags(t *testing.T) {
 	})
 }
 
+// TestProbeGeneratedErrors checks that the probes reject what the build of
+// generated C++ rejects (quietFlags): with g++ too, a narrowing conversion
+// in an inline function of a local header is an error of the header (the
+// build's -Werror=narrowing), also when the package's flags have -Wall and
+// -Werror, and a header with a warning only (a sign comparison) is fine.
+func TestProbeGeneratedErrors(t *testing.T) {
+	t.Parallel()
+	forEachCompiler(t, func(t *testing.T, cxx build.CXX) {
+		t.Parallel()
+		dir := t.TempDir()
+		writeFiles(t, dir, map[string]string{
+			"narrow.h": "#pragma once\n#include <cstdint>\nstruct NP { int x; };\ninline NP narrow_np(int64_t a) { return NP{a}; }\n",
+			"warn.h":   "#pragma once\nnamespace warn_ns {}\ninline bool warn_cmp(int a, unsigned b) { return a < b; }\n",
+		})
+		for _, flags := range [][]string{nil, {"-Wall", "-Wextra", "-Werror"}} {
+			res, err := newCache().probe(context.Background(), cxx, dir, flags, []string{`"./narrow.h"`}, []string{"NP"})
+			if err != nil || len(res.IncludeErrors) != 1 || res.IncludeErrors[0].Kind != HeaderErrors {
+				t.Errorf("narrow.h with flags %q: %+v, %v; want an error in the header", flags, res, err)
+			}
+			cases := []kindCase{{"warn_ns", Namespace}}
+			res, err = newCache().probe(context.Background(), cxx, dir, append(flags, "-Wsign-compare"), []string{`"./warn.h"`}, candsOf(cases))
+			if err != nil || len(res.IncludeErrors) > 0 {
+				t.Fatalf("warn.h with flags %q: %+v, %v", flags, res, err)
+			}
+			checkKinds(t, res, cases)
+		}
+	})
+}
+
 // BenchmarkNamespaceProbe measures what the language server's probe costs
 // with misspelled names: <vector>, std and 20 names that are not
 // declared, in the namespace mode and with all the kinds.

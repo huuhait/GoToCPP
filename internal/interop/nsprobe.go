@@ -750,7 +750,8 @@ func familyArgs(cxx build.CXX) ([]string, error) {
 // drops them from the package's flags, because it reads the messages. A
 // flag after them can't always undo them: g++ 15 keeps
 // -fdiagnostics-format=json after a later -fdiagnostics-format=text.
-// -Werror and -Werror=x don't matter: -w turns every warning off.
+// -Werror and -Werror=x don't matter: -w (clang) or -Wno-error (g++, see
+// quietFlags) comes after them.
 var messageFlags = []string{"-fdiagnostics-", "-fno-diagnostics-", "-fmessage-length=", "-fmax-errors=", "-ferror-limit=",
 	"-Wfatal-errors", "-Wno-fatal-errors", "-fcolor-diagnostics", "-fno-color-diagnostics", "-fcaret-diagnostics",
 	"-fno-caret-diagnostics", "-fshow-column", "-fno-show-column", "-fshow-source-location", "-fno-show-source-location",
@@ -785,10 +786,27 @@ func compilerArgs(cxx build.CXX, mode []string, dir string, flags []string, depF
 	}
 	args = append(args, probeFlags(flags)...)
 	args = append(args, mode...)
-	args = append(args, "-w", "-Wno-fatal-errors", "-fdiagnostics-color=never")
+	args = append(args, quietFlags(cxx)...)
+	args = append(args, "-Wno-fatal-errors", "-fdiagnostics-color=never")
 	args = append(args, fam...)
 	args = append(args, "-MMD", "-MF", depFile, "-MT", "gp_probe", "-x", "c++", src)
 	return args, nil
+}
+
+// quietFlags returns the probe's flags for warnings: none count, but the
+// warnings that the build of generated C++ makes errors are errors here too
+// (build.GeneratedFlags), so that a header that the build rejects (a
+// narrowing conversion in an inline function of a local header, an error
+// only with g++'s -Werror=narrowing) is an include error of gocpp check too.
+// clang++ gets -w, which leaves its errors by default (narrowing, a class
+// through `...`) errors. g++'s -w would turn off -Werror=narrowing too, so
+// g++ gets -Wno-error and those flags instead; the warnings that it still
+// prints are dropped when the output is read.
+func quietFlags(cxx build.CXX) []string {
+	if cxx.Family == build.GCC {
+		return append([]string{"-Wno-error"}, build.GeneratedFlags(cxx)...)
+	}
+	return []string{"-w"}
 }
 
 // maxReruns is the number of times that the probe runs again without a
@@ -1120,7 +1138,7 @@ func parseDiagnostics(out []byte, probe string) []diagnostic {
 			d.probeLine = instLine
 		}
 		stack, stackLine = stack[:0], 0
-		if d.severity != "warning" && d.severity != "remark" { // -w leaves none anyway
+		if d.severity != "warning" && d.severity != "remark" { // (g++ prints some: quietFlags)
 			diags = append(diags, d)
 		}
 	}

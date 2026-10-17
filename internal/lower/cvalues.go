@@ -39,13 +39,14 @@ import (
 // and 5 an int. A typed gocpp number, bool or string next to a C/C++ value in an operator is a
 // user error, as in cgo (cguard.go: mismatched types): C++ would convert one of them silently.
 //
-// Every opaque expression goes through opaqueExpr: what it doesn't translate yet (composite
-// literals, slicing, range, &x of anything but a variable) is reported by the guard (cguard.go)
-// as "not supported yet", never written as broken C++.
+// Every opaque expression goes through opaqueExpr: what it doesn't translate yet (slicing, range,
+// &x of anything but a variable) is reported by the guard (cguard.go) as "not supported yet",
+// never written as broken C++. Composite literals are clits.go's.
 
 // varType returns the C++ type of the variable v (also a parameter, a result or a struct field):
 // its gocpp type, or, for a type with C/C++ parts, the C++ of the type expression it was declared
-// with; auto for a local declared from a C/C++ value without a type (x := lib.f()).
+// with, or of the composite literal that a package variable without a type is declared from;
+// auto for a local declared from a C/C++ value without a type (x := lib.f()).
 func (g *gen) varType(v *types.Var, pos token.Pos) cppir.Type {
 	if complete(v.Type()) {
 		return g.cxxType(v.Type(), pos)
@@ -55,6 +56,9 @@ func (g *gen) varType(v *types.Var, pos token.Pos) cppir.Type {
 	}
 	if e := g.sigTypes()[v]; e != nil {
 		return g.typeExpr(e)
+	}
+	if lit := g.pkgVarLit(v); lit != nil {
+		return g.typeWith(v.Type(), lit.Type, pos) // the literal's type, with an inferred array's length (clits.go)
 	}
 	if v.IsField() || v.Parent() == nil || v.Parent() == g.pkg.Types.Scope() {
 		g.unsupported(pos, "package variables of C/C++ values without a type ("+v.Name()+"): write its type, var "+v.Name()+" T = ...")
@@ -152,6 +156,8 @@ func (fg *funcGen) opaqueExpr(e ast.Expr) cppir.Expr {
 		if gocppContainer(fg.g.info.TypeOf(x.X)) {
 			return fg.slice(x) // of a gocpp slice or array of C/C++ values: Go's (ops.go)
 		}
+	case *ast.CompositeLit:
+		return fg.compLit(x) // of a C/C++ type, or a gocpp one with C/C++ parts (clits.go)
 	case *ast.StarExpr:
 		// C++'s *x, but with Go's nil check for a raw pointer (and a gocpp pointer that comes
 		// back from C++), gocpp/interop.hpp.
@@ -249,6 +255,9 @@ func (fg *funcGen) cUnary(e *ast.UnaryExpr) cppir.Expr {
 	case token.XOR:
 		return &cppir.Unary{Op: "~", X: fg.expr(e.X)}
 	case token.AND:
+		if _, ok := ast.Unparen(e.X).(*ast.CompositeLit); ok {
+			return fg.addr(e) // &[]C.int{1}: a gocpp literal in a new block (addr.go)
+		}
 		return &cppir.Unary{Op: "&", X: fg.expr(e.X)}
 	}
 	fg.g.errorf(e.OpPos, "internal error: the operator %s on a C/C++ value that the guard let through (cguard.go)", e.Op)
@@ -416,11 +425,11 @@ func (g *gen) markAllCValues() {
 	}
 }
 
-// markCValues finds the untyped constants in n that are the values of C/C++ variables and
-// results (var n C.int = 5, n = 5, return 5 from a func with a C/C++ result), which are C literals
-// there (cConstant): go/types doesn't convert them, as it has no type for the variable. (nil is
-// nullptr there anyway.) sig is
-// the signature of the function that n is the body of (nil for a package variable's value).
+// markCValues finds the untyped constants in n that are the values of C/C++ variables, results
+// and elements (var n C.int = 5, n = 5, return 5 from a func with a C/C++ result, []C.int{5}),
+// which are C literals there (cConstant): go/types doesn't convert them, as it has no type for
+// the target. (nil is nullptr there anyway.) sig is the signature of the function that n is the
+// body of (nil for a package variable's value).
 func (g *gen) markCValues(n ast.Node, sig *types.Signature) {
 	mark := func(e ast.Expr, cTarget bool) {
 		if tv, ok := g.info.Types[e]; ok && cTarget && tv.Value != nil {
@@ -459,6 +468,20 @@ func (g *gen) markCValues(n ast.Node, sig *types.Signature) {
 			if sig != nil && sig.Results().Len() == len(s.Results) {
 				for i, v := range s.Results {
 					mark(v, !complete(sig.Results().At(i).Type()))
+				}
+			}
+		case *ast.CompositeLit:
+			// The elements of a gocpp literal that go to C/C++ types ([]C.int{1}, P{n: 1} with a
+			// field n C.int; clits.go). A literal of a C/C++ type writes its own (cValueOf).
+			for _, elt := range s.Elts {
+				parts := []ast.Expr{elt}
+				if kv, ok := elt.(*ast.KeyValueExpr); ok {
+					parts = []ast.Expr{kv.Key, kv.Value}
+				}
+				for _, x := range parts {
+					if t, ok := g.litTarget(s, x); ok {
+						mark(x, !complete(t.to))
+					}
 				}
 			}
 		case *ast.FuncLit:

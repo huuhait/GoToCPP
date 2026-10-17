@@ -139,8 +139,9 @@ type gen struct {
 	// The C/C++ names (Phase 04): what the compiler probes found out (interop.go), the uses of
 	// header packages and namespaces by their selectors and the probe's answers for each
 	// (cnames.go), the names of the C/C++ names that the code writes (macros.go), the type
-	// expressions of the parameters and results (cvalues.go: sigTypes), and the untyped
-	// constants that are C/C++ values (cvalues.go: markCValues).
+	// expressions of the parameters and results (cvalues.go: sigTypes), the untyped constants that
+	// are C/C++ values (cvalues.go: markCValues), and the type expressions of the composite
+	// literals whose type is left out (clits.go: elidedTypes).
 	interop  *Interop
 	macros   map[string]bool
 	cuses    map[*ast.SelectorExpr]*load.CppUse
@@ -149,6 +150,7 @@ type gen struct {
 	cNodes   []cppir.Node
 	sigExprs map[*types.Var]ast.Expr
 	cConsts  map[ast.Expr]bool
+	elided   map[*ast.CompositeLit]ast.Expr
 
 	// inTemplate counts the C++ template arguments being lowered (ctypes.go: templateArg),
 	// in which the package's types are fully qualified.

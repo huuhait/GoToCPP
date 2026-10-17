@@ -320,13 +320,16 @@ func TestCGuard(t *testing.T) {
 		{"var a A; _ = a", "aliases of C/C++ types (A): write the C/C++ type (a later step of Phase 04)"},
 		{"var v std.vector[int]; for range v {}", "range over C/C++ values (gp::range, step 4.7)"},
 		{"var v std.vector[int]; defer v.clear()", "deferred calls of members of C/C++ values (the C++ object must outlive the function: step 4.8)"},
-		{"_ = std.vector[int]{1}", "composite literals of C/C++ types (step 4.6)"},
+		{"_ = &lib.FILE{}", "&T{...} of C/C++ types (lib.FILE, step 4.10): declare a variable, v := lib.FILE{...}, and use &v"},
+		{"_ = []*lib.FILE{{}}", "&T{...} of C/C++ types (lib.FILE, step 4.10): declare a variable, v := lib.FILE{...}, and use &v"},
+		{"m := map[lib.FILE]int{{}: 1}; _ = m", "this type with C/C++ parts: map[C.FILE]int"},
+		{"m := []map[lib.FILE]int{{}}; _ = m", "this type with C/C++ parts: map[C.FILE]int"},
+		{"p := &struct{ n C.int }{1}; _ = p", "this type with C/C++ parts: struct{n C.int}"},
 		{"var v std.vector[int]; _ = &v[0]", "& of C/C++ values other than variables (step 4.10)"},
 		{"for i := C.int(0); i < 3; i++ { lib.f(&i) }", "& of a C/C++ loop variable (i: each iteration has its own in Go; step 4.8)"},
 		{"var p *lib.FILE; defer lib.f(&p)", "& of a C/C++ local in a defer or go statement (the local must outlive the function: step 4.8)"},
 		{"var h H; _ = &h.q", "& of C/C++ values other than variables (step 4.10)"},
 		{"var p *C.char; _ = p[1:]", "slicing C/C++ values (step 4.10)"},
-		{"_ = H{p: nil, q: lib.f()}", "C/C++ values in composite literals (step 4.6)"},
 		{"var h H; w := func() int { return len(h.s) }; _ = w", "C/C++ values in closures (a func literal that uses h: step 4.8)"},
 		{"_ = string(lib.f())", "conversions of C/C++ values to string (step 4.9)"},
 		{"_ = (*C.char)(nil)", "conversions to this C/C++ type (steps 4.9 and 4.10)"},
@@ -356,7 +359,8 @@ func TestCGuard(t *testing.T) {
 func TestCUserErrors(t *testing.T) {
 	kinds := map[string]interop.Kind{"f": interop.Value, "g": interop.Value, "pow": interop.Value, "FILE": interop.Type,
 		"EOF": interop.Macro, "MODE_B": interop.Value, "std::string": interop.Type, "std::vector": interop.Template,
-		"std::minmax": interop.ValueTemplate, "std::map": interop.Template}
+		"std::minmax": interop.ValueTemplate, "std::map": interop.Template,
+		"std::unordered_map": interop.Template, "std::multimap": interop.Template}
 	tests := []struct{ src, want string }{
 		{"var iv int = lib.pow(10, 30); _ = iv",
 			"cannot use lib.pow(10, 30) (C/C++ value) as int value in variable declaration: convert it, int(lib.pow(10, 30))"},
@@ -421,6 +425,28 @@ func TestCUserErrors(t *testing.T) {
 		{"p := lib.f(); var a, b = p.value; _, _ = a, b", "assignment mismatch: 2 variables but p.value is 1 value"},
 		{"_ = std.vector[int].iterator.x",
 			"the compiler probe can't tell whether std.vector[int].iterator is a C/C++ type or a value: if it is a value, write (std.vector[int].iterator).x"},
+		// Composite literals (clits.go): gocpp literals with C/C++ parts follow cgo's rules; the
+		// literals of C/C++ types follow C++'s, with Go's rules for their form.
+		{"n := 1; _ = []C.int{n}", "cannot use n (variable of type int) as C.int value in array or slice literal: convert it, C.int(n)"},
+		{"_ = map[string]C.int{\"a\": len(\"ab\")}",
+			"cannot use len(\"ab\") (constant 2 of type int) as C.int value in map literal: convert it, C.int(len(\"ab\"))"},
+		{"n := 1; _ = Q{n: n}", "cannot use n (variable of type int) as C.int value in struct literal: convert it, C.int(n)"},
+		{"_ = [][]C.int{{1}, {int(2)}}", "cannot use int(2) (constant 2 of type int) as C.int value in array or slice literal: convert it, C.int(int(2))"},
+		{"_ = []int{lib.f()}", "cannot use lib.f() (C/C++ value) as int value in array or slice literal: convert it, int(lib.f())"},
+		{"_ = map[string]B{\"a\": lib.f()}", "cannot use lib.f() (C/C++ value) as B value in map literal: convert it, B(lib.f())"},
+		{"_ = C.int{1}", "invalid composite literal type C.int"},
+		{"_ = lib.FILE{a: 1, 2}", "mixture of field:value, key:value and value elements in a literal of lib.FILE"},
+		{"_ = std.map[int, int]{1: 2, k: 3}", "mixture of field:value, key:value and value elements in a literal of std.map[int, int]"},
+		{"_ = lib.FILE{a: 1, b: 2, a: 3}", "duplicate field name a in struct literal"},
+		{"_ = std.map[std.string, int]{\"a\": 2, \"b\": 3, \"a\": 4}", "duplicate key \"a\" in map literal"},
+		{"_ = std.unordered_map[float64, int]{1: 2, 1.0: 3}", "duplicate key 1.0 in map literal"},
+		{"_ = std.vector[std.map[int, int]]{{1: 2}}", "missing type in composite literal: a keyed literal in a literal of a C/C++ type needs its type (T{f: v})"},
+		{"_ = std.multimap[int, int]{1: 2, 1: 3}; _ = std.map[int, int]{(1): 2}", ""},
+		{"p := &[]C.int{1}; q := &[2]lib.FILE{}; _ = len(*p) + len(q)", ""},
+		{"_ = std.vector[lib.FILE]{{}, {a: 1}}", "missing type in composite literal: a keyed literal in a literal of a C/C++ type needs its type (T{f: v})"},
+		{"_ = std.vector[int]{1, 2}; _ = std.map[std.string, int]{\"a\": 1, \"b\": lib.f()}; _ = std.map[int, int]{{1, 2}}; n := 3; _ = lib.FILE{n, 2.5, nil}", ""},
+		{"_ = lib.FILE{a: lib.f(), b: nil, c: std.vector[lib.FILE]{{1, 2}}}; _ = std.vector[lib.FILE]{lib.FILE{a: 1}}", ""},
+		{"_ = []C.int{1, C.int(2)}; _ = [...]C.int{1}; _ = map[string]C.int{\"a\": 1}; _ = Q{n: 5}; _ = Q{lib.f()}; _ = []lib.FILE{{}, {a: 1}}; _ = []*[]C.int{{1}}", ""},
 		// These lower.
 		{"var q Q; q.Put(5); pq := &q; pq.Put(6); _ = q.Size; _ = Q.Size; _ = int(q.Size())", ""},
 		{"var ci C.int; switch ci { case 3, lib.EOF, lib.MODE_B: }", ""},
@@ -595,6 +621,70 @@ func TestCPrint(t *testing.T) {
 	} {
 		if !strings.Contains(cpp, want) {
 			t.Errorf("the C++ has no %q:\n%s", want, cpp)
+		}
+	}
+}
+
+// TestCLiterals checks the C++ of composite literals with C/C++ types (clits.go, step 4.6):
+// positional and keyed literals of C/C++ types, a C++ map's pairs, inner literals without their
+// types, tag names, and gocpp literals with C/C++ parts.
+func TestCLiterals(t *testing.T) {
+	src := `package main
+
+import (
+	"<lib.h>"
+	"<map>"
+	"<vector>"
+)
+
+type P struct {
+	d lib.Vec
+	n C.int
+}
+
+func f() C.int { return 1 }
+
+func main() {
+	_ = lib.Vec{1, f()}
+	_ = lib.Vec{y: 2, x: f()}
+	_ = lib.Box{max: {1, 2}, min: lib.Vec{}}
+	_ = std.vector[lib.Vec]{{1, 2}, {}}
+	_ = std.map[int, int]{1: 2, 3: f()}
+	_ = lib.struct_pt{1, 2}
+	_ = lib.struct_pt{x: 1}
+	_ = []C.int{1, f()}
+	_ = [...]C.double{1.5, 2}
+	_ = []lib.Vec{{1, 2}, {y: 3}}
+	_ = map[string]C.int{"a": 1}
+	_ = P{d: lib.Vec{1, 2}, n: 3}
+}
+`
+	fset, pkg, _ := checkInterop(t, src)
+	kinds := map[string]interop.Kind{"Vec": interop.Type, "Box": interop.Type, "std::vector": interop.Template,
+		"std::map": interop.Template}
+	f, err := Package(fset, pkg, fakeInterop(pkg, kinds))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cpp := string(cppir.Print(f, ""))
+	for _, want := range []string{
+		"static_cast<void>(::Vec{1, f()});",
+		"static_cast<void>([&]() { ::Vec gp_t0{}; static_assert(gp::cgo::field_ok<decltype(gp_t0.y)>); gp_t0.y = {2}; " +
+			"static_assert(gp::cgo::field_ok<decltype(gp_t0.x)>); gp_t0.x = {f()}; return gp_t0; }());",
+		"static_cast<void>([&]() { ::Box gp_t1{}; static_assert(gp::cgo::field_ok<decltype(gp_t1.max)>); gp_t1.max = {1, 2}; " +
+			"static_assert(gp::cgo::field_ok<decltype(gp_t1.min)>); gp_t1.min = ::Vec{}; return gp_t1; }());",
+		"static_cast<void>(::std::vector<::Vec>{{1, 2}, {}});",
+		"static_cast<void>(gp::cgo::map_t<::std::map<int64_t, int64_t>>{{1, 2}, {3, f()}});",
+		"static_cast<void>(std::type_identity_t<struct ::pt>{1, 2});",
+		"static_cast<void>([&]() { struct ::pt gp_t2{}; static_assert(gp::cgo::field_ok<decltype(gp_t2.x)>); gp_t2.x = {1}; return gp_t2; }());",
+		"static_cast<void>(gp::slice_of<int>({1, f()}));",
+		"static_cast<void>(gp::array<double, 2>{1.5, 2});",
+		"static_cast<void>(gp::slice_of<::Vec>({::Vec{1, 2}, [&]() { ::Vec gp_t3{}; static_assert(gp::cgo::field_ok<decltype(gp_t3.y)>); gp_t3.y = {3}; return gp_t3; }()}));",
+		"static_cast<void>(gp::map_of<gp::string, int>({{\"a\"_gs, 1}}));",
+		"static_cast<void>(P{.d = ::Vec{1, 2}, .n = 3});",
+	} {
+		if !strings.Contains(cpp, want) {
+			t.Errorf("no %q in the C++:\n%s", want, cpp)
 		}
 	}
 }

@@ -545,6 +545,37 @@ constexpr bool to_bool(const X& x) {
     return x;
 }
 
+// field_ok<F> checks the type F of a field that a keyed literal of a C/C++ type sets by an
+// assignment (Phase 04 §2.5): [&] { T gp_t0{}; static_assert(gp::cgo::field_ok<decltype(gp_t0.w)>);
+// gp_t0.w = {640}; return gp_t0; }(). decltype names the type without a reference to the field,
+// so a bit-field works too. An array can't be assigned, so an array field is a clear error here
+// (field_check's own message; field_ok itself is always true) until Phase 12 writes designated
+// initializers, which need the fields' order.
+template <typename F>
+struct field_check {
+    static_assert(!std::is_array_v<F>,
+                  "gocpp: a keyed literal of a C/C++ type can't set an array field (until Phase "
+                  "12): write a positional literal, T{a, b, c}");
+    static constexpr bool gp_ok = true;
+};
+template <typename F>
+inline constexpr bool field_ok = field_check<F>::gp_ok;
+
+// map_t<T> is the C++ map type T of a keyed literal whose keys are not field names,
+// std.map[std.string, int]{"a": 1}, written gp::cgo::map_t<T>{{"a", 1}} (Phase 04 §2.5). A type
+// without a mapped_type is an error: Go's keys of a sequence (std.vector[int]{2: 7}) are indexes,
+// which a braced list of pairs would silently turn into elements.
+template <typename T>
+struct map_literal {
+    static_assert(
+        requires { typename T::mapped_type; },
+        "gocpp: a keyed literal of a C++ type with keys that aren't field names needs a "
+        "map (std.map, std.unordered_map, ...)");
+    using gp_type = T;
+};
+template <typename T>
+using map_t = typename map_literal<T>::gp_type;
+
 // star(x) is *x for a C/C++ value x (opaque mode): a raw pointer to an object is dereferenced
 // with Go's nil check (gp::deref), and so is a gocpp pointer; everything else is C++'s *x, so
 // C++ smart pointers and iterators keep their own operator* ((*sp).m, *it).

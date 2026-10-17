@@ -46,9 +46,12 @@ import (
 // an outer literal whose type is elided, {...} for &T{...} ([]*Point{{1, 2}}): a new block that
 // holds the value.
 func (fg *funcGen) compLit(e *ast.CompositeLit) cppir.Expr {
+	if fg.g.cxxLit(e) {
+		return fg.cLit(e) // a literal of a C/C++ type (clits.go)
+	}
 	t := fg.g.info.TypeOf(e)
 	if p, ok := under(t).(*types.Pointer); ok {
-		typ := fg.g.cxxType(p.Elem(), e.Pos())
+		typ := fg.g.litPartType(e, p.Elem(), nil) // (with C/C++ parts: []*[]C.int{{1}})
 		if largeVar(p.Elem()) {
 			return largeBox(typ, fg.litValue(e, p.Elem()))
 		}

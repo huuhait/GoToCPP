@@ -136,7 +136,7 @@ func (b *Builder) Program(ctx context.Context, src, out string) error {
 	// them off: for each of them the last one wins. -Wno-error comes before
 	// the flags of generated C++: a package's -Werror -Wshadow must not make
 	// valid Go fail (for i := ...; { i := i }), and the -Werror= of
-	// GeneratedFlags (g++'s conditionally-supported) stays an error.
+	// GeneratedFlags (g++'s conditionally-supported and narrowing) stays an error.
 	// Without such flags the command stays short (-x shows it).
 	var quote []string // -iquote: PackageDir
 	if b.PackageDir != "" {

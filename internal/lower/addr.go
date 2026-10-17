@@ -73,11 +73,12 @@ func (fg *funcGen) addr(e *ast.UnaryExpr) cppir.Expr {
 		// &[N]T{...}, &T{...}, &weak.Pointer[T]{}, &[]T{...}, &map[K]V{...}: a new block that
 		// holds the literal, gp::new_<A>(A{...}), as Go boxes it; an array or a struct larger
 		// than 128 KiB is built in the block itself (largeBox, arrays.go).
+		// (Also of a gocpp type with C/C++ parts, &[]C.int{1}: clits.go.)
 		t := fg.g.info.TypeOf(x)
 		if largeVar(t) {
-			return largeBox(fg.g.cxxType(t, x.Pos()), fg.expr(x))
+			return largeBox(fg.g.litPartType(x, t, nil), fg.expr(x))
 		}
-		return newBox(fg.g.cxxType(t, x.Pos()), fg.expr(x))
+		return newBox(fg.g.litPartType(x, t, nil), fg.expr(x))
 	case *ast.SelectorExpr:
 		return fg.addrOf(x) // a field: arrays.go and structs.go
 	case *ast.IndexExpr:

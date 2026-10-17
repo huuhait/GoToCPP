@@ -22,11 +22,13 @@ import (
 //     path through gp::deref, a template's instance), a gocpp field of a C/C++ type, a call of a
 //     C/C++ function, of a function of the package, of a member of a C/C++ value or of a C++
 //     callable, a member (gp::deref) and an index of a C/C++ value, the operators (binary, unary
-//     but <-, *p) and &x of a C/C++ variable, in parentheses or not;
+//     but <-, *p) and &x of a C/C++ variable, a composite literal of a C/C++ type or a gocpp one
+//     with C/C++ parts (clits.go: cLitOK), in parentheses or not;
 //   - their places: a statement (a call), the value of a variable, an assignment with = or op=,
 //     ++ and --, a return value, an argument of a C/C++ function, of a function of the package,
 //     of a C++ callable or of a conversion to a gocpp type (int(x)), an operand, an index, a
-//     condition, the tag and the cases of a switch, a deferred call of a C/C++ function.
+//     condition, the tag and the cases of a switch, a deferred call of a C/C++ function, an
+//     element of a composite literal.
 //
 // A func literal that uses an opaque local of the function around it is not supported either
 // until step 4.8: it captures it by copy, and a change through a C++ reference (std.swap) would
@@ -34,8 +36,8 @@ import (
 // is gone when the defers run, until step 4.8 boxes it.
 //
 // The rules of cgo where gocpp values meet C/C++ values (the mismatched types of cOperandsOK,
-// the targets of targetOK and gocppTargetOK) are user errors here too: go/types has no types
-// for the C/C++ side, so it can't report them.
+// the targets of targetOK and gocppTargetOK, also the elements and fields of gocpp literals) are
+// user errors here too: go/types has no types for the C/C++ side, so it can't report them.
 
 // checkCUses reports the first use of a C/C++ value that lowering doesn't translate yet.
 func (g *gen) checkCUses() {
@@ -79,6 +81,16 @@ func (w *cWalk) visit(n ast.Node) bool {
 	case *ast.GenDecl:
 		if x.Tok == token.CONST && !w.constsOK(x) {
 			return false
+		}
+	case *ast.KeyValueExpr:
+		if len(w.stack) > 0 {
+			if lit, ok := w.stack[len(w.stack)-1].(*ast.CompositeLit); ok && w.g.cxxLit(lit) && cLitForm(lit) == litFields {
+				// A field name of a literal of a C/C++ type (clits.go): only the value is checked.
+				w.stack = append(w.stack, n)
+				ast.Inspect(x.Value, w.visit)
+				w.stack = w.stack[:len(w.stack)-1]
+				return false
+			}
 		}
 	case *ast.ValueSpec:
 		// Its type is a type expression: only the values are checked.
@@ -297,6 +309,14 @@ func (g *gen) cExprOK(e ast.Expr, lits []*ast.FuncLit) bool {
 					return true // &lib.global: a C/C++ global, which lives as long as the program
 				}
 			}
+			if lit, ok := ast.Unparen(x.X).(*ast.CompositeLit); ok {
+				if !g.cxxLit(lit) {
+					return true // &[]C.int{1}: a gocpp literal, in a new block (gp::ptr), as in Go
+				}
+				t := g.srcText(lit.Type)
+				g.unsupported(x.OpPos, "&T{...} of C/C++ types ("+t+", step 4.10): declare a variable, v := "+t+"{...}, and use &v")
+				return false
+			}
 			g.unsupported(x.OpPos, "& of C/C++ values other than variables (step 4.10)")
 			return false
 		case token.ARROW:
@@ -307,7 +327,7 @@ func (g *gen) cExprOK(e ast.Expr, lits []*ast.FuncLit) bool {
 	case *ast.StarExpr:
 		return true // gp::cgo::star(x)
 	case *ast.CompositeLit:
-		g.unsupported(x.Lbrace, "composite literals of C/C++ types (step 4.6)")
+		return g.cLitOK(x) // clits.go
 	case *ast.SliceExpr:
 		if gocppContainer(g.info.TypeOf(x.X)) {
 			return true // ss[1:] of a gocpp slice or array of C/C++ values: Go's slicing
@@ -576,8 +596,7 @@ func (g *gen) cPlaceOK(e ast.Expr, parent ast.Node) bool {
 			return true // ss[1:] of a gocpp slice or array of C/C++ values (or a C/C++ bound)
 		}
 	case *ast.KeyValueExpr, *ast.CompositeLit:
-		g.unsupported(e.Pos(), "C/C++ values in composite literals (step 4.6)")
-		return false
+		return true // an element of a literal: targetOK checks where it goes (clits.go: litTarget)
 	case *ast.RangeStmt:
 		if p.X == e && gocppContainer(g.info.TypeOf(e)) || p.X != e {
 			// A gocpp slice, array or map of C/C++ values (Go's range: the elements are
@@ -803,6 +822,17 @@ func (w *cWalk) targetOf(e ast.Expr, parent ast.Node) valueTarget {
 			}
 		}
 		t.context = "argument to " + g.srcText(p.Fun)
+	case *ast.CompositeLit, *ast.KeyValueExpr:
+		lit, ok := p.(*ast.CompositeLit)
+		for i := len(w.stack) - 1; !ok && i > 0; i-- {
+			if w.stack[i] == p {
+				lit, ok = w.stack[i-1].(*ast.CompositeLit)
+				break
+			}
+		}
+		if ok {
+			t, _ = g.litTarget(lit, e) // clits.go
+		}
 	}
 	return t
 }

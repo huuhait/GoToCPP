@@ -122,9 +122,9 @@ func (g *gen) arrayLitOf(e *ast.CompositeLit, elem func(ast.Expr) cppir.Expr) cp
 		index++
 	}
 	if !hasKeys(e) {
-		return &cppir.InitList{Type: g.cxxType(t, e.Lbrace), Elems: elems}
+		return &cppir.InitList{Type: g.litPartType(e, t, nil), Elems: elems} // ([2]C.int: clits.go)
 	}
-	targs := []cppir.Node{g.cxxType(at.Elem(), e.Lbrace), lit(strconv.FormatInt(at.Len(), 10))}
+	targs := []cppir.Node{g.litPartType(e, t, elemOf), lit(strconv.FormatInt(at.Len(), 10))}
 	return templateCall("gp::array_keyed", targs, &cppir.InitList{Elems: pairs})
 }
 
