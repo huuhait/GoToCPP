@@ -128,7 +128,7 @@ const (
 // The environment variables of the probe cache on disk.
 const (
 	// EnvNoProbeCache turns the cache on disk off when it is set to
-	// anything but "", "0" or "false": the probes always run the compiler
+	// anything but "", "0" or "false" in any case (build.EnvOff): the probes always run the compiler
 	// (the memory cache stays).
 	EnvNoProbeCache = "GOCPP_NOPROBECACHE"
 
@@ -153,7 +153,7 @@ type diskStore struct {
 // environment each time, not once at the start: the variables can change
 // while a test runs.
 func probeDiskDir() string {
-	if v := os.Getenv(EnvNoProbeCache); v != "" && v != "0" && v != "false" {
+	if build.EnvOff(EnvNoProbeCache) {
 		return ""
 	}
 	if d := os.Getenv(EnvProbeCache); d != "" {
@@ -212,14 +212,6 @@ var selfID = sync.OnceValue(func() string {
 	return id
 })
 
-// nativeFlag reports whether s asks the compiler for the host's CPU
-// (-march=native, ...): then the macros (and so the answers) depend on the
-// machine, and a cache folder that two machines share (a home folder over
-// NFS) would serve one machine the other's answer.
-func nativeFlag(s string) bool {
-	return strings.Contains(s, "-march=native") || strings.Contains(s, "-mtune=native") || strings.Contains(s, "-mcpu=native")
-}
-
 // A diskKey names an entry.
 type diskKey struct {
 	path string // the entry's file
@@ -243,10 +235,8 @@ func (d *diskStore) keyFor(kind string, cxx build.CXX, dir string, flags, includ
 	}
 	// Results that depend on the host's CPU stay in memory.
 	env := build.KeyEnv()
-	for _, list := range [][]string{flags, cxx.Args, env} {
-		if slices.ContainsFunc(list, nativeFlag) {
-			return diskKey{}, false
-		}
+	if build.NativeArch(flags...) || build.NativeArch(cxx.Args...) || build.NativeArch(env...) {
+		return diskKey{}, false
 	}
 	var b strings.Builder
 	part := func(parts ...string) {

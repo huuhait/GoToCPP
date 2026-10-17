@@ -1212,10 +1212,12 @@ func TestDiskCacheEnv(t *testing.T) {
 		if count() != 3 {
 			t.Errorf("%d entries in %s, want 3", count(), folder)
 		}
-		c = env("0", folder)
-		s.ask(t, c)
-		if n := runsOf(c); n != [3]int64{} {
-			t.Errorf("GOCPP_NOPROBECACHE=0: runs %v, want none", n)
+		for _, off := range []string{"0", "false", "FALSE", "False"} {
+			c = env(off, folder)
+			s.ask(t, c)
+			if n := runsOf(c); n != [3]int64{} {
+				t.Errorf("GOCPP_NOPROBECACHE=%s: runs %v, want none", off, n)
+			}
 		}
 		c = env("1", folder)
 		s.ask(t, c)

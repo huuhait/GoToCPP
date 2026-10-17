@@ -112,6 +112,8 @@ func TestBuildSources(t *testing.T) {
 			t.Fatalf("gocpp run . = %+v, want exit 0 and the answers of the C and C++ files", r)
 		}
 
+		// The run above stored the objects in the object cache; -x shows the compiles.
+		t.Setenv("GOCPP_NOOBJCACHE", "1")
 		r := gocppRun("", false, "build", "-x", "-o", filepath.Join(dir, "prog"), ".")
 		if r.code != 0 {
 			t.Fatalf("gocpp build -x = %+v", r)
@@ -276,6 +278,7 @@ func TestSourcesASan(t *testing.T) {
 		if r.code != 1 || !strings.Contains(r.stderr, "ERROR: AddressSanitizer: heap-buffer-overflow") {
 			t.Errorf("gocpp run -asan of a heap overflow in a C file = %+v, want exit 1 and an AddressSanitizer report", r)
 		}
+		t.Setenv("GOCPP_NOOBJCACHE", "1") // the run above stored the object; -x shows the compile
 		r = gocppRun("", false, "run", "-asan", "-x", ".")
 		workDir(t, r.stderr)
 		if !regexp.MustCompile(`(?m)^\S+ -g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all .* -c -x c \S+/a\.c `).MatchString(r.stderr) {

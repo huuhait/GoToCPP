@@ -71,13 +71,16 @@ ci-sanitize:
 		$(GO) test -count=1 -timeout 60m -parallel 2 ./internal/cppgen/...
 	@echo "make ci-sanitize: all checks passed"
 
-# Fails if gofmt lists a Go file outside LINT_SKIP, then runs go vet.
+# Fails if gofmt lists a Go file outside LINT_SKIP, then runs go vet, also for
+# windows and darwin (a file with a build tag that only one system compiles).
 lint:
 	@bad=$$(find . \( $(LINT_SKIP) \) -prune -o -type f -name '*.go' -exec $(GOFMT) -l {} +) || exit 1; \
 	if [ -n "$$bad" ]; then \
 		echo "gofmt: these files need formatting (gofmt -w):"; echo "$$bad"; exit 1; \
 	fi
 	$(GO) vet ./...
+	GOOS=windows $(GO) vet ./...
+	GOOS=darwin $(GO) vet ./...
 
 staticcheck:
 	$(STATICCHECK) ./...

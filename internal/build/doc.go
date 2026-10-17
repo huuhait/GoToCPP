@@ -12,7 +12,9 @@
 // (proc_unix.go), which the namespace probe uses too. Phase 04 adds the
 // flags of packages (pkgflags.go: the //gocpp: directives and pkg-config,
 // checked by the go command's flag allow-list, security.go) and C/C++
-// sources. Phase 06 adds the action graph, the cache, parallel builds,
+// sources. The object cache (objcache.go) keeps the objects of the
+// generated C++ and of the package's own C and C++ files by content hash;
+// an unchanged program is only linked. Phase 06 adds the action graph, the cache, parallel builds,
 // build modes, compile_commands.json and the first Windows builds, and
 // Phase 14 finishes Windows.
 package build

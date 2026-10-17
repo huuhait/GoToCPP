@@ -206,8 +206,9 @@ func TestProgramNoChecks(t *testing.T) {
 				t.Errorf("the link has -DGOCPP_NOCHECKS: %s", line)
 			}
 		}
-		if want := len(rtfiles.Sources(runtime.GOOS)) + 1; compiles != want {
-			t.Errorf("nochecks=%v: -x shows %d compiles, want %d (the runtime's and the program's):\n%s", c.nochecks, compiles, want, trace.String())
+		// The runtime's, the program's and the precompiled header (pch.go).
+		if want := len(rtfiles.Sources(runtime.GOOS)) + 2; compiles != want {
+			t.Errorf("nochecks=%v: -x shows %d compiles, want %d (the runtime's, the program's and the header's):\n%s", c.nochecks, compiles, want, trace.String())
 		}
 	}
 	dir, _ := ExtractRuntime(cache)
@@ -309,5 +310,78 @@ func TestKeyEnv(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != "NIX_ENFORCE_NO_NATIVE=1" || !sort.StringsAreSorted(env) {
 		t.Errorf("KeyEnv() = %v (sorted: %v), want NIX_ENFORCE_NO_NATIVE=1 and not the unrelated variable", env, sort.StringsAreSorted(env))
+	}
+}
+
+func TestPrecompiledHeader(t *testing.T) {
+	// The first build of a runtime and flags builds the precompiled header of rt.hpp, the next
+	// builds use it, a broken one is replaced without failing the build, and the flags of the
+	// user (-D, -std) never use it. Without the object cache, which would not compile again.
+	t.Setenv("GOCPP_NOOBJCACHE", "1")
+	const prog = "#include <gocpp/rt.hpp>\n#include <cstdio>\nint main() { std::puts(\"pch\"); }\n"
+	for _, name := range []string{"clang++", "g++"} {
+		t.Run(name, func(t *testing.T) {
+			cxx, err := LookCXX(context.Background(), name)
+			if err != nil {
+				t.Skip("no C++ compiler:", err)
+			}
+			cache := t.TempDir()
+			build := func(flags []string) (trace string) {
+				work := t.TempDir()
+				src := filepath.Join(work, "p.cpp")
+				if err := os.WriteFile(src, []byte(prog), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				var tr strings.Builder
+				b := &Builder{CXX: cxx, GOOS: runtime.GOOS, Work: work, Cache: cache, Trace: &tr, Stderr: os.Stderr}
+				b.Package.Compile = flags
+				bin := filepath.Join(work, "p")
+				if err := b.Program(context.Background(), src, bin); err != nil {
+					var ce *CompileError
+					if errors.As(err, &ce) {
+						t.Fatalf("%v\n%s\n%s", ce, ce.Command, ce.Output)
+					}
+					t.Fatal(err)
+				}
+				if out, err := exec.Command(bin).Output(); err != nil || string(out) != "pch\n" {
+					t.Fatalf("the program prints %q, %v", out, err)
+				}
+				return tr.String()
+			}
+			uses := func(trace string) bool {
+				for _, line := range strings.Split(trace, "\n") {
+					if strings.HasPrefix(line, cxx.Path+" ") && strings.Contains(line, "p.cpp") &&
+						(strings.Contains(line, " -include-pch ") || strings.Contains(line, " -include ")) {
+						return true
+					}
+				}
+				return false
+			}
+			// The first build builds the header while the runtime compiles; whether the
+			// program's compile finds it ready depends on which finishes first.
+			build(nil)
+			dir, _ := ExtractRuntime(cache)
+			found, _ := filepath.Glob(filepath.Join(dir, "pch", "*", "rt.hpp.[pg]ch"))
+			if len(found) != 1 {
+				t.Fatalf("the first build left %q, want one precompiled header", found)
+			}
+			assertNoTemp(t, filepath.Dir(found[0]))
+			second := build(nil)
+			if !uses(second) {
+				t.Errorf("the second build doesn't use the header:\n%s", second)
+			}
+			if strings.Contains(second, "c++-header") {
+				t.Errorf("the second build builds the header again:\n%s", second)
+			}
+			if user := build([]string{"-DGOCPP_USER_FLAG=1"}); uses(user) {
+				t.Errorf("a build with flags of the user uses the header:\n%s", user)
+			}
+			// A header that the compiler can't use is replaced, and the build works.
+			if err := os.WriteFile(found[0], []byte("not a precompiled header"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			build(nil)
+			build(nil)
+		})
 	}
 }

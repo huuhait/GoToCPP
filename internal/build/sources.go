@@ -170,7 +170,9 @@ func (b *Builder) compileSources(ctx context.Context, rtDir string) ([]string, e
 		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			out, err := b.runOutput(ctx, s.c, what+s.file, false, args)
+			out, err := b.compileCached(ctx, s.c, file, objs[i], args, func(args []string) ([]byte, error) {
+				return b.runOutput(ctx, s.c, what+s.file, false, args)
+			}, nil)
 			var ce *CompileError
 			if errors.As(err, &ce) {
 				ce.Source = file

@@ -38,6 +38,11 @@ type Builder struct {
 	// this build only.
 	Cache string
 
+	// KeepWork says that the work folder is kept for the user (gocpp build -work): the object
+	// cache is not used then, so that its files have real paths in them (the debug info of
+	// the objects the cache makes names a folder that doesn't exist).
+	KeepWork bool
+
 	// Trace, if not nil, gets each command before it runs, as a shell
 	// line, with Work written as $WORK (gocpp build -x).
 	Trace io.Writer
@@ -79,6 +84,8 @@ type Builder struct {
 	// -iquote, unlike -I, doesn't apply to #include <vector>.
 	PackageDir string
 
+	pchDone chan struct{}  // closed when the precompiled header that startPCH started is built
+	stores  sync.WaitGroup // the stores of the object cache that are running (objcache.go)
 	traceMu sync.Mutex
 }
 
@@ -123,6 +130,8 @@ func (b *Builder) Program(ctx context.Context, src, out string) error {
 	if env := b.Env.CXXCompile(); len(env) > 0 {
 		flags = slices.Concat(flags, env, LanguageFlags(), []string{"-Wno-error", "-x", "c++"})
 	}
+	defer b.waitPCH() // a header that is still being built is finished, not left half done
+	defer b.stores.Wait()
 	rtDir, rtObjs, rtErr := b.runtime(ctx, flags)
 	if rtErr != nil {
 		return rtErr
@@ -156,7 +165,41 @@ func (b *Builder) Program(ctx context.Context, src, out string) error {
 		srcObjs, err = b.compileSources(ctx, rtDir)
 		srcErr <- err
 	}()
-	genErr := b.run(ctx, b.CXX, "the generated C++", false, compile)
+	// A plain compile uses the precompiled header of the runtime when there is one (pch.go; the
+	// first build with new flags has none yet: startPCH builds it while the runtime compiles).
+	pc := b.precompiled(rtDir)
+	// The cache (objcache.go) keys the plain compile; the precompiled header only makes the
+	// compile that a miss runs faster.
+	usedPCH := false
+	runGen := func(args []string) ([]byte, error) {
+		usedPCH = false
+		if pc == nil || !pc.ready() {
+			return b.runOutput(ctx, b.CXX, "the generated C++", false, args)
+		}
+		usedPCH = true
+		withPCH := slices.Insert(slices.Clone(args), slices.Index(args, "-c"), pc.args()...)
+		out, err := b.runOutput(ctx, b.CXX, "the generated C++", false, withPCH)
+		var ce *CompileError
+		if errors.As(err, &ce) && pchRefused(ce.Output, pc.file) {
+			// The compiler may have refused the header (it is out of date): compile again
+			// without it, and remove it if that works.
+			usedPCH = false
+			out, err := b.runOutput(ctx, b.CXX, "the generated C++", false, args)
+			if err == nil {
+				pc.remove()
+			}
+			return out, err
+		}
+		return out, err
+	}
+	pchDeps := func() string { // g++ doesn't list the headers that its precompiled header replaced
+		if usedPCH {
+			return pc.depfile()
+		}
+		return ""
+	}
+	genOut, genErr := b.compileCached(ctx, b.CXX, src, obj, compile, runGen, pchDeps)
+	b.warn(genOut)
 	if err := <-srcErr; err != nil {
 		return err
 	}
@@ -179,6 +222,7 @@ func (b *Builder) runtime(ctx context.Context, flags []string) (dir string, objs
 	srcs := rtfiles.Sources(b.GOOS)
 	if b.Cache != "" {
 		if dir, err = ExtractRuntime(b.Cache); err == nil {
+			b.startPCH(ctx, dir) // while the runtime's object files compile
 			if objs, err = b.cachedObjects(ctx, dir, srcs, flags); err == nil {
 				return dir, objs, nil
 			}
@@ -311,14 +355,7 @@ func keyEnv(name string) bool {
 // caches of the compiler's results (the runtime's object files, the probe
 // results of internal/interop).
 func KeyEnv() []string {
-	var env []string
-	for _, kv := range os.Environ() {
-		if name, _, _ := strings.Cut(kv, "="); keyEnv(name) {
-			env = append(env, kv)
-		}
-	}
-	slices.Sort(env)
-	return env
+	return environ(keyEnv)
 }
 
 // runtimeKey returns the name of the folder of the runtime's object files
@@ -333,15 +370,33 @@ func (b *Builder) runtimeKey(srcs, flags []string) string {
 		}
 		h.Write([]byte{'\n'})
 	}
-	write(b.CXX.Path)
-	write(b.CXX.Args...)
-	write(b.CXX.Family.String(), b.CXX.Version)
-	st := b.CXX.stamp
-	write(st.real, fmt.Sprint(st.size), fmt.Sprint(st.modTime))
+	writeCompiler(write, b.CXX)
 	write(flags...)
 	write(srcs...)
 	write(KeyEnv()...)
 	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// writeCompiler writes what tells compilers apart to a key: the path, the arguments, the
+// family, the version and the identity of the program file.
+func writeCompiler(write func(parts ...string), c CXX) {
+	write(c.Path)
+	write(c.Args...)
+	write(c.Family.String(), c.Version)
+	st := c.stamp
+	write(st.real, fmt.Sprint(st.size), fmt.Sprint(st.modTime))
+}
+
+// environ returns the entries NAME=value of the environment whose name keep accepts, sorted.
+func environ(keep func(name string) bool) []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if name, _, _ := strings.Cut(kv, "="); keep(name) {
+			env = append(env, kv)
+		}
+	}
+	slices.Sort(env)
+	return env
 }
 
 // run runs the compiler c with args in Work. what and link describe the
@@ -349,12 +404,17 @@ func (b *Builder) runtimeKey(srcs, flags []string) string {
 // warnings) goes to Stderr.
 func (b *Builder) run(ctx context.Context, c CXX, what string, link bool, args []string) error {
 	out, err := b.runOutput(ctx, c, what, link, args)
+	b.warn(out)
+	return err
+}
+
+// warn writes what a compiler printed when it succeeded to Stderr.
+func (b *Builder) warn(out []byte) {
 	if len(out) > 0 && b.Stderr != nil {
 		b.traceMu.Lock()
 		b.Stderr.Write(out)
 		b.traceMu.Unlock()
 	}
-	return err
 }
 
 // runOutput is run, but it returns what the compiler printed when it
@@ -399,6 +459,11 @@ func (b *Builder) show(c CXX, args []string) string {
 	for i, w := range words {
 		if i > 0 {
 			s.WriteByte(' ')
+		}
+		// The prefix map of the object cache names the work folder: written as $WORK too.
+		if rest, ok := strings.CutPrefix(w, "-ffile-prefix-map="+b.Work+"="); ok && b.Work != "" {
+			s.WriteString("-ffile-prefix-map=$WORK=" + quoteWord(rest))
+			continue
 		}
 		s.WriteString(ShellQuoteWork(w, b.Work))
 	}

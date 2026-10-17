@@ -59,6 +59,19 @@ C++ compiler's answers about C/C++ headers (gocpp/probe), as long as the
 headers, flags and compiler are the same; GOCPP_NOPROBECACHE=1 turns that
 off.
 
+The object files that the C++ compiler makes from the generated C++ and
+from the package's C and C++ files are kept there too (gocpp/obj), named
+by a hash of everything the compile read: the C++, the flags, the
+compiler and every header it included. A build in which none of that
+changed doesn't compile again, it only links. A compile that printed a
+warning or failed is never kept, so the warning comes every time, and
+neither is one with flags that read files the cache can't see (@file,
+-march=native, -save-temps), with __DATE__ or __has_include, or in a
+package with a very large number of headers in many folders; -x prints
+"# not cached: <reason>" for them. -work doesn't use it. GOCPP_NOOBJCACHE (any value except empty, 0 and false)
+turns it off, and GOCPP_OBJCACHE_SIZE (bytes, or with a K, M or G suffix;
+2G by default) limits its size: the oldest files go first.
+
 The C and C++ flags of a package come from its //gocpp:cflags, ldflags,
 link and pkg-config lines, which an allow-list like go build's checks
 (GOCPP_CFLAGS_ALLOW and GOCPP_LDFLAGS_ALLOW allow more flags), and from
@@ -107,7 +120,8 @@ The build flags (of build and run) are:
 		zero and a negative shift count still panic, and the results
 		that Go defines stay (MIN / -1, shifts by the width or more)
 	-work
-		print the name of the work folder and keep it
+		print the name of the work folder and keep it (the object cache
+		is not used, so that its files have real paths in them)
 	-x
 		print the commands
 
@@ -181,7 +195,7 @@ func (f *buildFlags) register(flags *flag.FlagSet, withOutput bool) {
 	flags.Var(&f.cppErrors, "cpperrors", "how much of the C++ compiler's errors to show: short or full")
 	flags.BoolVar(&f.asan, "asan", false, "build with AddressSanitizer and UndefinedBehaviorSanitizer")
 	flags.BoolVar(&f.nochecks, "nochecks", false, "build without the bounds and nil checks (division and shift checks stay)")
-	flags.BoolVar(&f.work, "work", false, "print the name of the work folder and keep it")
+	flags.BoolVar(&f.work, "work", false, "print the name of the work folder and keep it (without the object cache)")
 	flags.BoolVar(&f.x, "x", false, "print the commands")
 }
 
@@ -684,7 +698,7 @@ func (d *driver) compile(patterns []string) (*program, int) {
 		return nil, exitErrors
 	}
 
-	b := &build.Builder{CXX: cxx, ASan: d.flags.asan, NoChecks: d.flags.nochecks, GOOS: d.check.goos, Work: work, Stderr: d.stderr,
+	b := &build.Builder{CXX: cxx, ASan: d.flags.asan, NoChecks: d.flags.nochecks, GOOS: d.check.goos, Work: work, Stderr: d.stderr, KeepWork: d.flags.work,
 		Env: env, Package: pkg.Flags, Dir: pkg.Load.Dir, CFiles: pkg.Load.CFiles, CXXFiles: pkg.Load.CXXFiles, CC: cc,
 		SourceWarnings: d.sourceWarnings(pkg)}
 	if importsLocalHeader(pkg) {

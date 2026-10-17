@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/huuhait/gocpp/internal/build"
 )
@@ -416,6 +417,9 @@ func TestWorkRemoved(t *testing.T) {
 
 func TestTraceCommands(t *testing.T) {
 	forEachCXX(t, func(t *testing.T, c testCXX) {
+		// Without the object cache (internal/build/objcache.go), which would show a "cache
+		// hit" line for the compile, or add its flags; TestTraceCacheHit has those.
+		t.Setenv("GOCPP_NOOBJCACHE", "1")
 		inDir(t, map[string]string{"hello.gp": helloSrc})
 		r := gocppRun("", false, "run", "-x", "hello.gp", "arg 1")
 		if r.code != 0 {
@@ -431,8 +435,9 @@ func TestTraceCommands(t *testing.T) {
 		}
 		want := []*regexp.Regexp{
 			regexp.MustCompile(`^# gocpp emit > \$WORK/hello\.gp\.cpp$`),
-			// The generated C++ gets the warning flags of its family.
-			regexp.MustCompile(`^` + regexp.QuoteMeta(c.cxx.Path+" "+flags+" "+strings.Join(build.GeneratedFlags(c.cxx), " ")+" -I ") + `\S+/include -c \$WORK/hello\.gp\.cpp -o \$WORK/hello\.gp\.o$`),
+			// The generated C++ gets the warning flags of its family, and the precompiled
+			// header of the runtime when it is ready (internal/build/pch.go).
+			regexp.MustCompile(`^` + regexp.QuoteMeta(c.cxx.Path+" "+flags+" "+strings.Join(build.GeneratedFlags(c.cxx), " ")+" -I ") + `\S+/include (-include(-pch)? \S+ )?-c \$WORK/hello\.gp\.cpp -o \$WORK/hello\.gp\.o$`),
 			regexp.MustCompile(`^` + regexp.QuoteMeta(c.cxx.Path+" "+flags+" $WORK/hello.gp.o ") + `(\S+\.o ?)+ -o \$WORK/hello$`),
 			regexp.MustCompile(`^\$WORK/hello 'arg 1'$`),
 		}
@@ -457,6 +462,45 @@ func TestTraceCommands(t *testing.T) {
 		if got[5] != "to stderr 12" {
 			t.Errorf("after the commands comes %q, want the program's stderr", got[5])
 		}
+	})
+}
+
+func TestTraceCacheHit(t *testing.T) {
+	// The second build of a program that did not change doesn't compile it again: -x shows a
+	// "cache hit" line instead of the compile, and the link still runs. The program has a
+	// text of its own, so that the first build misses whatever the shared cache holds.
+	forEachCXX(t, func(t *testing.T, c testCXX) {
+		src := strings.Replace(helloSrc, "hello, gocpp", fmt.Sprintf("hello from %s %d", c.name, time.Now().UnixNano()), 1)
+		inDir(t, map[string]string{"hello.gp": src})
+		compile := regexp.MustCompile(`(?m)^\S+ .* -c \$WORK/hello\.gp\.cpp -o \$WORK/hello\.gp\.o( |$)`)
+		link := regexp.MustCompile(`(?m)^\S+ .* \$WORK/hello\.gp\.o .* -o \$WORK/hello$`)
+		first := gocppRun("", false, "build", "-x", "hello.gp")
+		second := gocppRun("", false, "build", "-x", "hello.gp")
+		workDir(t, first.stderr)
+		workDir(t, second.stderr)
+		if first.code != 0 || second.code != 0 {
+			t.Fatalf("gocpp build -x: %+v, %+v", first, second)
+		}
+		if !compile.MatchString(first.stderr) || !strings.Contains(first.stderr, " -MD -MF $WORK/hello.gp.o.d -ffile-prefix-map=$WORK=/gocpp-work") || strings.Contains(first.stderr, "# cache hit") {
+			t.Errorf("the first build doesn't compile:\n%s", first.stderr)
+		}
+		if compile.MatchString(second.stderr) || !regexp.MustCompile(`(?m)^# cache hit hello\.gp\.cpp [0-9a-f]{16}$`).MatchString(second.stderr) || !link.MatchString(second.stderr) {
+			t.Errorf("the second build compiles, or doesn't link:\n%s", second.stderr)
+		}
+		// GOCPP_NOOBJCACHE turns the cache off, and so does -work (it keeps the work folder,
+		// whose files should have real paths).
+		for _, c := range []struct {
+			env  string
+			args []string
+		}{{"1", nil}, {"", []string{"-work"}}} {
+			t.Setenv("GOCPP_NOOBJCACHE", c.env)
+			off := gocppRun("", false, slices.Concat([]string{"build", "-x"}, c.args, []string{"hello.gp"})...)
+			workDir(t, off.stderr)
+			if off.code != 0 || !compile.MatchString(off.stderr) || strings.Contains(off.stderr, "# cache hit") || strings.Contains(off.stderr, " -MD ") {
+				t.Errorf("a build with GOCPP_NOOBJCACHE=%q %v:\n%s", c.env, c.args, off.stderr)
+			}
+		}
+		t.Setenv("GOCPP_NOOBJCACHE", "0") // not off
 	})
 }
 
