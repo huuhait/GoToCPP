@@ -64,6 +64,12 @@ func TestMain(m *testing.M) {
 	os.Setenv("TMPDIR", tmp)
 	os.Setenv("XDG_CACHE_HOME", cache)
 	os.Setenv("GOCPP_LSP_CACHE", filepath.Join(cache, "gocpp-lsp")) // also on Windows, which has no XDG_CACHE_HOME
+	// The object cache is off unless a test turns it on (t.Setenv("GOCPP_NOOBJCACHE", "0"), as
+	// TestTraceCacheHit does): with it on, a rebuild of a program may be a "cache hit" with no
+	// compile line in -x, or not, depending on how old its files are (the racy window,
+	// internal/build/objcache.go), so a test that reads the compile lines would pass or fail
+	// with the speed of the machine.
+	os.Setenv("GOCPP_NOOBJCACHE", "1")
 	code := m.Run()
 	entries, _ := os.ReadDir(tmp)
 	for _, e := range entries {
@@ -465,11 +471,35 @@ func TestTraceCommands(t *testing.T) {
 	})
 }
 
+// TestObjCacheOffByDefault guards TestMain's GOCPP_NOOBJCACHE: the tests that read the compile
+// lines of -x (TestBuildPkgConfig, TestBuildEnvFlags, TestRuntimeCache, ...) don't turn the
+// cache off one by one, so without the default a rebuild of the same program would be a
+// "cache hit" (TestTraceCacheHit) or not by the speed of the machine. Here it is the same
+// program twice, which hits when the cache is on: both builds must compile.
+func TestObjCacheOffByDefault(t *testing.T) {
+	if !build.EnvOff("GOCPP_NOOBJCACHE") {
+		t.Fatalf("GOCPP_NOOBJCACHE=%q in a test: TestMain must turn the object cache off", os.Getenv("GOCPP_NOOBJCACHE"))
+	}
+	c := anyCXX(t)
+	t.Setenv("GOCPP_CXX", c.name)
+	t.Setenv("CXX", "")
+	inDir(t, map[string]string{"hello.gp": helloSrc})
+	compile := regexp.MustCompile(`(?m)^\S+ .* -c \$WORK/hello\.gp\.cpp -o \$WORK/hello\.gp\.o( |$)`)
+	for i := 1; i <= 2; i++ {
+		r := gocppRun("", false, "build", "-x", "hello.gp")
+		workDir(t, r.stderr)
+		if r.code != 0 || !compile.MatchString(r.stderr) || strings.Contains(r.stderr, "# cache hit") {
+			t.Errorf("build %d of the same program: no compile line or a cache hit, with the object cache off:\n%s", i, r.stderr)
+		}
+	}
+}
+
 func TestTraceCacheHit(t *testing.T) {
 	// The second build of a program that did not change doesn't compile it again: -x shows a
 	// "cache hit" line instead of the compile, and the link still runs. The program has a
 	// text of its own, so that the first build misses whatever the shared cache holds.
 	forEachCXX(t, func(t *testing.T, c testCXX) {
+		t.Setenv("GOCPP_NOOBJCACHE", "0") // TestMain turns the cache off for the tests
 		src := strings.Replace(helloSrc, "hello, gocpp", fmt.Sprintf("hello from %s %d", c.name, time.Now().UnixNano()), 1)
 		inDir(t, map[string]string{"hello.gp": src})
 		compile := regexp.MustCompile(`(?m)^\S+ .* -c \$WORK/hello\.gp\.cpp -o \$WORK/hello\.gp\.o( |$)`)

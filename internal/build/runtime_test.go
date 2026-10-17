@@ -156,7 +156,9 @@ func TestProgramParallel(t *testing.T) {
 
 func TestProgramNoChecks(t *testing.T) {
 	// -nochecks defines GOCPP_NOCHECKS for the program's compile and the
-	// runtime's, not for the link, and its runtime objects are cached apart.
+	// runtime's, not for the link, and its runtime objects are cached apart. It counts the
+	// compiles in -x, so the object cache (which would show a "cache hit") is off.
+	t.Setenv("GOCPP_NOOBJCACHE", "1")
 	cxx, err := LookCXX(context.Background(), "g++")
 	if err != nil {
 		if cxx, err = LookCXX(context.Background(), "clang++"); err != nil {
