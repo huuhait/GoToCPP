@@ -13,7 +13,7 @@
 - [x] 4.5 Template-vs-index rule (kind probe) + parenthesis escape
 - [x] 4.6 Composite literals of C/C++ types (positional, keyed via assignments, init lists)
 - [x] 4.7 `gp::range` (by-value temporaries, index walk with size read once) + `gp::values`
-- [ ] 4.8 Opaque objects in closures/defers (boxed) + copy/move/default-construct policy + `gp::result_slot`
+- [x] 4.8 Opaque objects in closures/defers (boxed) + copy/move/default-construct policy + `gp::result_slot`
 - [x] 4.9 String boundary (`string_view` implicit, `std.string(s)` explicit, `gp::cstr` holder, `C.CString`, `C.GoString*`, `C.GoBytes`)
   - [x] typed helpers: front-end rewrites `C.GoString` & co. into the hidden `gocpp/cgoh` package
 - [ ] 4.10 `unsafe` + pointers (owning `unsafe.Pointer`, `SliceData`/`String`/`Slice` keep owners, `std::span`, `gp::ptr` → `T*`) + ASan test
@@ -307,3 +307,17 @@
   when an undefined symbol is in that .cpp and the file has no extern "C"). The automatic extern "C" decision is
   unchanged; whether a `.h` with a same-stem `.cpp` should be treated as C++ automatically is a TODO question.
   `C.free(unsafe.Pointer(p))` and `(*C.char)(malloc(..))` still wait for 4.10.
+- 2026-10-17: Job 4.8 merged after a clean round-5 review (five review rounds; the lifetime design changed twice).
+  Decisions: (1) an opaque local used by a closure or defer is boxed (a gp::ptr built in place), NEVER captured by copy;
+  (2) the plan text says `std::make_shared<T>`: boxes are `gp::ptr<T>` made with allocate_shared and a custom allocator so
+  non-movable types work; (3) `result_slot` members are `gp_set`/`gp_take`/`operator=` (runtime types may only have
+  gp_-prefixed members): Phase 05 and ADR-011 wrote `.set`/`.take`: Phase 05's 5.10 must use the gp_ names; (4) deferred
+  member calls read the object path when the call runs (a raw pointer local reassigned before return calls on the new
+  pointer: documented difference from Go); a nil gocpp pointer receiver panics at the defer statement; (5) hold rule and its
+  cost are in docs/spec/interop.md; NOT tracked: an address stored by a Go function it was passed to, C++ functions that keep a
+  pointer (TODO.md: interprocedural escape analysis for opaque locals); (6) every `a, b := f()` of opaque results moves the
+  members out of the tuple (std::get<N>(static_cast<decltype(t)&&>(t))), `gp::values` still copies reference members first;
+  (7) every gocpp struct field of a C/C++ type that is not a raw pointer or a C number carries a
+  static_assert(gp::cgo::field_zero<T>) at its .gp line (cost: one assert per field in generated structs); (8) job 4.10
+  (unsafe/pointers) reconciles with this: addrHeld takes the ROOT identifier of an address operand (rootIdentOf), 4.10 widens
+  cAddr, `&T{}` of a C type must be built in place (not gp::new_), `cpperrors.go` userFacingHeaders gets unsafe.hpp.
