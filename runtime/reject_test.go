@@ -35,6 +35,11 @@ var rejectCases = []struct {
 	// gp::range over a C array of C arrays: a clear message instead of an error deep inside.
 	{"range-grid", "void f() {\n\tint g[2][3] = {};\n\tfor (auto&& [i, v] : gp::range(g)) { // bad\n\t\t(void)i;\n\t\t(void)v;\n\t}\n}\n",
 		"gp::range: the elements are C arrays"},
+	// gp::range over a C number or a value without begin() and end(): a message for users.
+	{"range-number", "void f() {\n\tint n = 3;\n\tfor (auto&& i : gp::range_keys(n)) { // bad\n\t\t(void)i;\n\t}\n}\n",
+		"gp::range: range over a C number"},
+	{"range-object", "struct S {};\nvoid f() {\n\tS s;\n\tfor (auto&& [i, v] : gp::range(s)) { // bad\n\t\t(void)i;\n\t\t(void)v;\n\t}\n}\n",
+		"gp::range: range over a C/C++ value without begin() and end()"},
 	// if (isdigit(c)), if (p): Go has only bool conditions (gp::cgo::cond, Phase 04 §2.5).
 	{"cond-int", "bool f(int c) {\n\treturn gp::cgo::cond(c); // bad\n}\n", "non-boolean condition"},
 	{"cond-pointer", "bool f(const char* p) {\n\treturn gp::cgo::cond(p); // bad\n}\n", "non-boolean condition"},

@@ -292,16 +292,16 @@ void test_range_vector() {
 
     // The forms with a blank variable (and none at all) compile without warnings (-Werror).
     int64_t sum = 0;
-    for ([[maybe_unused]] auto&& [gp_k, x] : gp::range(v)) {
+    for (auto&& x : gp::range_values(v)) {
         sum += x;
     }
     CHECK_EQ(sum, int64_t(60));
     int n = 0;
-    for ([[maybe_unused]] auto&& gp_k : gp::range_keys(v)) {
+    for ([[maybe_unused]] auto&& gp_k : gp::range_skip(v)) {
         n++;
     }
     CHECK_EQ(n, 3);
-    for ([[maybe_unused]] auto&& [gp_k, gp_v] : gp::range(v)) {
+    for ([[maybe_unused]] auto&& gp_k : gp::range_skip(v)) {
     }
 
     // The length is read once: a push_back that reallocates doesn't break the loop, and the
@@ -537,6 +537,27 @@ void test_range_maps() {
         got += k.substr(0, 1) + v.substr(0, 1);
     }
     CHECK_EQ(got, std::string("kv"));
+    // No discarded binding requires a copy, even if both key and element are move-only.
+    std::map<std::unique_ptr<int>, std::unique_ptr<int>> owners;
+    owners.emplace(std::make_unique<int>(3), std::make_unique<int>(7));
+    int visited = 0;
+    for ([[maybe_unused]] auto&& step : gp::range_skip(owners)) {
+        ++visited;
+    }
+    CHECK_EQ(visited, 1);
+    CHECK_EQ(*owners.begin()->first, 3);
+    std::map<int, std::unique_ptr<int>> mapped;
+    mapped.emplace(3, std::make_unique<int>(7));
+    for (auto&& key : gp::range_keys(mapped)) {
+        CHECK_EQ(key, 3);
+    }
+    std::map<std::unique_ptr<int>, int> keyed;
+    keyed.emplace(std::make_unique<int>(3), 7);
+    for (auto&& value : gp::range_values(keyed)) {
+        CHECK_EQ(value, 7);
+        value = 0;
+    }
+    CHECK_EQ(keyed.begin()->second, 7);
 }
 
 // --- gp::values ---
@@ -605,6 +626,34 @@ void test_values() {
     copy.a = 4;
     CHECK_EQ(sv.a, int64_t(3));
     CHECK_EQ(copy.a, int64_t(4));
+
+    // One variable from a C/C++ call, x := lib.f() (step 4.7): a result that is no pair or tuple
+    // costs one move and no copy over auto x = f(), and a reference result is copied, as auto
+    // copies it. A C array decays to a pointer, as with auto.
+    struct moved {
+        int* moves;
+        explicit moved(int* m) : moves(m) {}
+        moved(const moved& o) : moves(o.moves) { counted::copies++; }
+        moved(moved&& o) noexcept : moves(o.moves) { ++*moves; }
+    };
+    int moves = 0;
+    counted::copies = 0;
+    auto mv = gp::values(moved(&moves));
+    CHECK_EQ(moves, 1);
+    CHECK_EQ(counted::copies, 0);
+    moved named_mv(&moves);
+    moved& ref_mv = named_mv;
+    moves = 0;
+    auto mv2 = gp::values(ref_mv);
+    CHECK_EQ(moves, 0);
+    CHECK_EQ(counted::copies, 1);
+    (void)mv;
+    (void)mv2;
+    static int arr[3] = {1, 2, 3};
+    static_assert(std::is_same_v<decltype(gp::values(arr)), int*>);
+    static_assert(std::is_same_v<decltype(gp::values(std::string("s"))), std::string>);
+    auto p1 = gp::values(std::minmax(std::string(40, 'q'), std::string(40, 'p')));
+    CHECK_EQ(p1.first, std::string(40, 'p'));
 }
 
 // --- the conversions at the boundary ---

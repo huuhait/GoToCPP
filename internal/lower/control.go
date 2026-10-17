@@ -422,6 +422,10 @@ func (fg *funcGen) forInit(s ast.Stmt) (cppir.Stmt, bool) {
 // a value variable is the same loop with n = N, where the array is not evaluated unless it has
 // calls (gp::len(f()), arrays.go: rangeCount).
 func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
+	if fg.g.cRange(s) {
+		fg.rangeC(s) // a C++ container or a C array (crange.go)
+		return
+	}
 	xt := fg.g.info.TypeOf(s.X)
 	b := underBasic(xt) // also a named string or integer type (step 3.9)
 	switch {
@@ -648,7 +652,7 @@ func rangeKind(t types.Type) string {
 		return "range over channels (Phase 08)"
 	}
 	if hasC(t) {
-		return "range over C/C++ values (gp::range, step 4.7)"
+		return "range over C/C++ values of this kind"
 	}
 	if _, ok := types.Unalias(t).(*types.TypeParam); ok {
 		return "range over type parameters (Phase 07)"

@@ -27,13 +27,18 @@ import (
 //     lib.CB[1:n] (it stops at the value);
 //   - skipMapValue: the value of an element of a map literal whose key
 //     type is a named type over a C/C++ type, map[Handle]int{1: n} (it
-//     stops at the key, which it can't assign).
+//     stops at the key, which it can't assign);
+//   - skipRange: a target of a range that assigns, for k, v = range c, when
+//     c is opaque, or a gocpp container of C/C++ values for the value
+//     (var arr [3]C.int): go/types has no type for the key or the value
+//     then, so it doesn't look at the target. A blank target is a blank
+//     name on the left of an assignment (blankFrom).
 //
 // A root counts only when go/types really stopped at its near expression
-// (see stopped), but for skipGeneric and skipMapValue; else go/types
-// checked the root as usual. A root of skipCall, skipSlice or skipMapValue
-// also counts only when go/types recorded nothing in it (a C function,
-// C.f(n), has its arguments checked). After go/types, checkSkipped gives
+// (see stopped), but for skipGeneric, skipMapValue and skipRange; else
+// go/types checked the root as usual. A root of skipCall, skipSlice,
+// skipMapValue or skipRange also counts only when go/types recorded
+// nothing in it (a C function, C.f(n), has its arguments checked). After go/types, checkSkipped gives
 // these roots real types with types.CheckExpr, where it can (the same way
 // as the type arguments of opaque instantiations). Each expression in a root that still has no
 // type afterwards is opaque when the root's near expression says so (see
@@ -55,6 +60,7 @@ const (
 	skipCall
 	skipSlice
 	skipMapValue
+	skipRange
 )
 
 // addSkipped records the skipped root root, whose near expression is near,
@@ -62,7 +68,7 @@ const (
 // maps to it, until a root inside it (found later, because collect walks
 // the files top-down) takes over its own part.
 func (op *opaquePass) addSkipped(root, near ast.Expr, kind skipKind) {
-	if kind != skipGeneric && kind != skipMapValue && !op.stopped(near) {
+	if kind != skipGeneric && kind != skipMapValue && kind != skipRange && !op.stopped(near) {
 		return
 	}
 	sk := &skipped{root: root, near: near, kind: kind}
@@ -110,9 +116,9 @@ func (op *opaquePass) collectCall(call *ast.CallExpr) {
 	}
 }
 
-// addUnrecorded records the skipped root root (of skipCall, skipSlice or
-// skipMapValue) if go/types recorded nothing in it (and, but for
-// skipMapValue, stopped at near).
+// addUnrecorded records the skipped root root (of skipCall, skipSlice,
+// skipMapValue or skipRange) if go/types recorded nothing in it (and, but
+// for skipMapValue and skipRange, stopped at near).
 func (op *opaquePass) addUnrecorded(root, near ast.Expr, kind skipKind) {
 	if root != nil && !recordedIn(root, op.info) {
 		op.addSkipped(root, near, kind)
@@ -261,6 +267,9 @@ func checkSkipped(fset *token.FileSet, pkg *types.Package, files []*ast.File, in
 			report(pos, err)
 		} else if err := sizeCallError(fset, sk.root, info, "next to a C/C++ expression"); err != nil {
 			report(pos, err) // CheckExpr computed it with Go's sizes (see gocppSizes)
+		}
+		if _, ok := ast.Unparen(sk.root).(*ast.Ident); ok && sk.kind == skipRange {
+			continue // assigning to a variable doesn't use it, as in Go (i in for i = range c)
 		}
 		u.mark(sk.root)
 	}

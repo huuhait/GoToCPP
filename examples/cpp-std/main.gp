@@ -26,7 +26,7 @@ func main() {
 	std.sort(nums.begin(), nums.end())
 	var sorted []int
 	for _, n := range nums {
-		sorted = append(sorted, n)
+		sorted = append(sorted, int(n))
 	}
 	fmt.Println("sorted:", sorted, "size:", int(nums.size()))
 	fmt.Println("front:", nums.front(), "back:", nums.back(), "at(1):", nums.at(1))

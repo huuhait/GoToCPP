@@ -577,10 +577,14 @@ for i, n := range nums { // i is the index, n is a copy of the element
 
 - **Go:** `range` works on arrays, slices, strings, maps, channels, integers and functions.
 - **gocpp:** `range` also works on C++ containers (anything with `begin()` and `end()`) and on
-  C arrays. The value (and a map's key) gets C++'s element type. As in Go, with one loop
-  variable you get the index (the key for maps), and the value is a copy. A random-access
-  container is walked by index with its size read once, as Go reads the length once, so a
-  `push_back` in the body doesn't break the loop.
+  C arrays. The value (and a map's key) gets C++'s element type, and the index is a C/C++ value
+  too (convert it, `int(i)`). As in Go, with one loop variable you get the index (the key for
+  maps), and the value is a copy. A `std::string` gives its bytes as C chars, not runes. A
+  random-access container is walked by index with its size read once, as Go reads the length
+  once, so a `push_back` in the body doesn't break the loop; a body that shrinks it panics with
+  Go's "index out of range" when the walk reaches an index past the new end. Lists, sets and
+  maps are walked with their iterators, which follow C++'s invalidation rules (erasing the
+  current element is undefined behavior, as in C++).
 - **Phase:** [04](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#25-values-and-operations-opaque).
   The C++ form is in [interop.md](interop.md#operations-on-cc-values).
 

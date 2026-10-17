@@ -16,6 +16,7 @@ readable"):
 | [funcs.gp](funcs.gp) | several and named results, a shadowed variable (`q := q * 10`), Go's order of evaluation for calls (`gp_` temporaries), parallel assignment, `gp::div`, `gp::rem`, `gp::shl`, small integers, float to int, `fmt` |
 | [interop_names.gp](interop_names.gp) | Phase 04: the C++ names of C/C++ names (step 4.3): header packages fully qualified (`::printf`), macros unqualified (`EOF`, `errno`), namespaces and a namespace rename, a header package that is also a namespace ([cnames.h](cnames.h)), `::` after a type and `gp::deref(...).` after an object, cgo's tag names, the C/C++ includes after gocpp's header (and `gocpp/fmtcxx.hpp` after them), a gocpp name renamed for a macro (`Bool_`) and a macro `#undef`ed for the runtime (`tuple`) |
 | [interop_types.gp](interop_types.gp) | Phase 04: the C++ types of C/C++ type expressions (step 4.2): cgo's C types, raw pointers, templates with gocpp types and constants as arguments, a member type, slices, maps and arrays of C types, a struct with C/C++ fields (no `==`, `gp_hash` or layout check), parameters, results and package variables of C/C++ types |
+| [interop_range.gp](interop_range.gp) | Phase 04: `range` over C/C++ values (step 4.7): `gp::range` for the index and the element, `gp::range_keys` for the index, `gp::range_skip` over a temporary container (its constructor arguments in named temporaries), and the copies of a pair result (`gp::values`) |
 
 [hello.gp](hello.gp):
 

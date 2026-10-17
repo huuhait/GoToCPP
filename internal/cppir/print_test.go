@@ -169,6 +169,30 @@ void f() {
 	)
 }
 
+// TestPrintConstexpr checks template branch selection in inline and multiline lambdas.
+func TestPrintConstexpr(t *testing.T) {
+	branch := &If{Constexpr: true, Cond: n("a"), Then: &Block{Stmts: []Stmt{&Return{X: n("x")}}, Inline: true},
+		Else: &If{Constexpr: true, Cond: n("b"), Then: &Block{Stmts: []Stmt{&Return{X: n("y")}}, Inline: true}}}
+	x := &Lambda{Default: "&", Template: []Param{{Type: tn("typename"), Name: "R", Default: cl("decltype", cl("f"))}},
+		Body: &Block{Inline: true, Stmts: []Stmt{branch}}}
+	want := "[&]<typename R = decltype(f())>() { if constexpr (a) { return x; } else if constexpr (b) { return y; } }"
+	if got := ExprString(x); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	branch.Then.(*Block).Inline = false
+	branch.Else.(*If).Then.(*Block).Inline = false
+	checkPrint(t, `
+#line 1 "/a.gp"
+void f() {
+    if constexpr (a) {
+        return x;
+    } else if constexpr (b) {
+        return y;
+    }
+}
+`, fn(0, branch))
+}
+
 // TestPrintControl checks if-else chains, the loops, a switch with } break; and labels.
 func TestPrintControl(t *testing.T) {
 	chain := &If{Pos: gp(2), Cond: n("a"), Then: &Block{Stmts: []Stmt{es(gp(3), cl("x"))}},
@@ -185,6 +209,7 @@ func TestPrintControl(t *testing.T) {
 		Post: &Postfix{X: n("i"), Op: "++"},
 		Body: &Block{Stmts: []Stmt{&Goto{Pos: gp(14), Label: "gp_L_continue"}, &Label{Pos: gp(15), Name: "gp_L_continue"}}, End: gp(15)}}
 	noInit := &For{Pos: gp(16), Cond: n("c"), Post: &Assign{Op: "+=", X: n("i"), Y: l("2")}, Body: &Block{End: gp(16), Inline: true}}
+	ranged := &For{Pos: gp(16), Decl: "auto&& [i, v]", Range: cl("gp::range", n("c")), Body: &Block{End: gp(16), Inline: true}}
 	loop := &While{Pos: gp(17), Cond: bin("<", n("i"), l("3")), Body: &Block{Stmts: []Stmt{es(gp(18), &Postfix{X: n("i"), Op: "++"})}, End: gp(19)}}
 	sw := &Switch{Pos: gp(20), Tag: n("x"), Cases: []*Case{
 		{Pos: gp(21), Values: []Expr{l("1"), l("2")}, Body: []Stmt{&Attr{Pos: gp(22), Name: "fallthrough"}}, End: gp(22)},
@@ -211,6 +236,8 @@ void f() {
 #line 15 "/a.gp"
     }
     for (; c; i += 2) {}
+#line 16 "/a.gp"
+    for (auto&& [i, v] : gp::range(c)) {}
     while (i < 3) {
         i++;
     }
@@ -230,7 +257,7 @@ void f() {
 #line 28 "/a.gp"
 }
 `,
-		fn(28, chain, forever, counted, noInit, loop, sw, tagged, &Return{Pos: gp(28)}),
+		fn(28, chain, forever, counted, noInit, ranged, loop, sw, tagged, &Return{Pos: gp(28)}),
 	)
 }
 

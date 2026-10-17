@@ -64,7 +64,9 @@ import (
 // value, also comes from C/C++ when that value has a named type over a
 // C/C++ type: range v with type V C.vec. A blank name on the left of an
 // assignment comes from C/C++ when a value on the right does: go/types
-// doesn't record it when the values are invalid.) An object of another
+// doesn't record it when the values are invalid; so does one of a range
+// that assigns, for _, v = range c, when c does, and the other targets
+// there are skipped expressions, skipRange.) An object of another
 // package comes from C/C++ when its type is not complete (that package's
 // own opaque pass checked where the type came from).
 //
@@ -160,6 +162,7 @@ func findOpaque(fset *token.FileSet, p *Package) *Opaque {
 	op.conversion = p.Conversion
 	op.label(files)
 	if !typesMayBeIncomplete(p.Errors) {
+		op.unusedRangeVars(fset, p)
 		for _, e := range op.bad {
 			p.Errors.Add(diag.Diagnostic{
 				Pos: fset.Position(e.Pos()),
@@ -169,6 +172,72 @@ func findOpaque(fset *token.FileSet, p *Package) *Opaque {
 		}
 	}
 	return op.result
+}
+
+// unusedRangeVars adds the "declared and not used" errors that go/types leaves out for the
+// variables of a range that declares them over a value or element it has no type for (range
+// over a C/C++ value, or the element of a gocpp container of C/C++ values): it gives such a
+// variable an invalid type and counts it as used, to avoid follow-on errors. With no other error
+// that could leave a type incomplete, an invalid type is the opaque value's, so Go's rule
+// applies: for i, x := range v {} must use i and x, or write _. The use is any name that
+// go/types recorded for the variable (an assignment that only writes it counts, which Go
+// doesn't).
+func (op *opaquePass) unusedRangeVars(fset *token.FileSet, p *Package) {
+	var used map[types.Object]bool
+	for _, f := range p.Load.Files {
+		ast.Inspect(f.AST, func(n ast.Node) bool {
+			r, ok := n.(*ast.RangeStmt)
+			if !ok || r.Tok != token.DEFINE {
+				return true
+			}
+			for _, e := range []ast.Expr{r.Key, r.Value} {
+				id, ok := e.(*ast.Ident)
+				if !ok || id.Name == "_" {
+					continue
+				}
+				obj := op.info.Defs[id]
+				if obj == nil || obj.Type() != types.Typ[types.Invalid] {
+					continue
+				}
+				if used == nil {
+					used = make(map[types.Object]bool, len(op.info.Uses))
+					for _, o := range op.info.Uses {
+						used[o] = true
+					}
+				}
+				if !used[obj] && !namedAsKey(r.Body, id.Name) {
+					p.Errors.Add(diag.Diagnostic{
+						Pos:  fset.Position(id.Pos()),
+						Msg:  "declared and not used: " + id.Name,
+						Soft: true,
+						Code: diag.UnusedVar,
+					})
+				}
+			}
+			return true
+		})
+	}
+}
+
+// namedAsKey reports whether body has a composite literal with a key that is the bare name name
+// (std.map[int, int]{i: 3}). Such a key can name a variable or a field of a C/C++ struct
+// (C.Rect{w: 640}), so go/types and the skipped-expression pass record no use of it
+// (markKeyName); the range variable is conservatively used then, as markKeyName counts it.
+func namedAsKey(body *ast.BlockStmt, name string) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		if lit, ok := n.(*ast.CompositeLit); ok {
+			for _, e := range lit.Elts {
+				if kv, ok := e.(*ast.KeyValueExpr); ok {
+					if id, ok := ast.Unparen(kv.Key).(*ast.Ident); ok && id.Name == name {
+						found = true
+					}
+				}
+			}
+		}
+		return !found
+	})
+	return found
 }
 
 // unusedLabel is the go/types error code of "label L declared and not
@@ -318,13 +387,18 @@ func (op *opaquePass) collect(n ast.Node) bool {
 	case *ast.AssignStmt:
 		op.collectAssign(n)
 	case *ast.RangeStmt:
-		if n.Tok == token.DEFINE {
-			for _, e := range []ast.Expr{n.Key, n.Value} {
-				if id, ok := e.(*ast.Ident); ok {
-					if obj := op.info.Defs[id]; obj != nil {
-						op.decls[obj] = decl{init: n.X}
-					}
+		for _, e := range []ast.Expr{n.Key, n.Value} {
+			id, _ := e.(*ast.Ident)
+			switch {
+			case e == nil:
+			case n.Tok == token.DEFINE:
+				if obj := op.info.Defs[id]; id != nil && obj != nil {
+					op.decls[obj] = decl{init: n.X}
 				}
+			case id != nil && id.Name == "_":
+				op.blankFrom[id] = []ast.Expr{n.X} // for _, v = range c
+			default:
+				op.addUnrecorded(e, n.X, skipRange)
 			}
 		}
 	case *ast.TypeSwitchStmt:

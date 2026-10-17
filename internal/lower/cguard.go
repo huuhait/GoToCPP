@@ -28,7 +28,8 @@ import (
 //     ++ and --, a return value, an argument of a C/C++ function, of a function of the package,
 //     of a C++ callable or of a conversion to a gocpp type (int(x)), an operand, an index, a
 //     condition, the tag and the cases of a switch, a deferred call of a C/C++ function, an
-//     element of a composite literal.
+//     element of a composite literal, the range expression and the variables of a range
+//     (crange.go; a range that assigns needs C/C++ targets: rangeTargetOK).
 //
 // A func literal that uses an opaque local of the function around it is not supported either
 // until step 4.8: it captures it by copy, and a change through a C++ reference (std.swap) would
@@ -155,7 +156,7 @@ func (w *cWalk) check(e ast.Expr) bool {
 		return false
 	}
 	if !g.pkg.Opaque.IsOpaque(e) {
-		if _, ok := e.(*ast.ParenExpr); !ok && !w.gocppTargetOK(e, parent) {
+		if _, ok := e.(*ast.ParenExpr); !ok && (!w.gocppTargetOK(e, parent) || !g.rangeTargetOK(e, parent)) {
 			return false
 		}
 		return true
@@ -623,13 +624,12 @@ func (g *gen) cPlaceOK(e ast.Expr, parent ast.Node) bool {
 	case *ast.KeyValueExpr, *ast.CompositeLit:
 		return true // an element of a literal: targetOK checks where it goes (clits.go: litTarget)
 	case *ast.RangeStmt:
-		if p.X == e && gocppContainer(g.info.TypeOf(e)) || p.X != e {
-			// A gocpp slice, array or map of C/C++ values (Go's range: the elements are
-			// copies), or a range variable of a C/C++ type.
-			return true
+		if p.Tok == token.ASSIGN && (e == ast.Unparen(p.Key) || e == ast.Unparen(p.Value)) {
+			return g.assignableOK(e)
 		}
-		g.unsupported(e.Pos(), "range over C/C++ values (gp::range, step 4.7)")
-		return false
+		// A gocpp slice, array or map of C/C++ values (Go's range: the elements are copies), a
+		// C++ container or a C array (gp::range: crange.go), or a range variable of a C/C++ type.
+		return true
 	case *ast.BinaryExpr, *ast.UnaryExpr, *ast.StarExpr:
 		return true // the operator is opaque too, and checked (cExprOK)
 	}
@@ -951,6 +951,28 @@ func (w *cWalk) gocppTargetOK(e ast.Expr, parent ast.Node) bool {
 	}
 	g.userError(e.Pos(), "cannot use %s (%s of type %s) as %s value in %s%s", g.srcText(e), what,
 		types.TypeString(tv.Type, types.RelativeTo(g.pkg.Types)), ts, t.context, hint)
+	return false
+}
+
+// rangeTargetOK reports whether e, if it is a target of a range over a C/C++ value that assigns
+// (for i, v = range c), is not a gocpp-typed one, and reports a user error if it is: the index,
+// the key and the element are C/C++ values (crange.go), which don't go into gocpp variables
+// implicitly (gocppTargetOK). A new variable (:=) can be converted in the body.
+func (g *gen) rangeTargetOK(e ast.Expr, parent ast.Node) bool {
+	r, ok := parent.(*ast.RangeStmt)
+	if !ok || r.Tok != token.ASSIGN || e != ast.Unparen(r.Key) && e != ast.Unparen(r.Value) || isBlank(e) || !g.cRange(r) {
+		return true
+	}
+	t := g.info.TypeOf(e)
+	if t == nil || !complete(t) {
+		return true
+	}
+	what := "the element"
+	if e == ast.Unparen(r.Key) {
+		what = "the index or key"
+	}
+	g.userError(e.Pos(), "cannot assign %s of range over %s (a C/C++ value) to %s of type %s: declare a new variable with :=, and convert it, %s(x)",
+		what, g.srcText(r.X), g.srcText(e), types.TypeString(t, types.RelativeTo(g.pkg.Types)), types.TypeString(t, types.RelativeTo(g.pkg.Types)))
 	return false
 }
 

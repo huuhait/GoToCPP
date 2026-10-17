@@ -115,10 +115,10 @@ import (
 // result (never for an expression with a call: assertNoCall). An assignment with several targets
 // has its own order, gc's ascompatee (bind, stmt.go: keepPanics).
 //
-// Reads of the function's own variables that are not boxed are not effects: such a variable
-// can change only by an assignment, and an expression has none. Every variable whose address
-// is taken, or that a closure captures and that changes, is boxed (box.go), and a read of it is
-// one (above). A statement that assigns several variables (a, b = b, a) keeps its own rule
+// Reads of the function's own variables are not effects unless they can change in a call:
+// boxed Go variables (box.go), or C/C++ locals whose raw address or possible reference was
+// exposed (memoryVar). Address exposure is independent of boxing: &k of a C.int stays raw.
+// A statement that assigns several variables (a, b = b, a) keeps its own rule
 // (bind, stmt.go). Constants are never effects. Nor is &x: the box of x, and the address of a
 // package variable, never change while a statement runs.
 //
@@ -525,7 +525,7 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 	}
 	switch x := e.(type) {
 	case *ast.Ident:
-		if v, ok := fg.g.info.Uses[x].(*types.Var); ok && (isPkgVar(v) || fg.isBoxed(v)) {
+		if v, ok := fg.g.info.Uses[x].(*types.Var); ok && fg.memoryVar(v) {
 			add(&orderItem{eff: effect{read: true}})
 		}
 	case *ast.StarExpr:
@@ -726,6 +726,48 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		}
 		add(&orderItem{unit: true, eff: eff, inner: []*orderScope{in}})
 	}
+}
+
+// memoryVar reports whether a call can change v. C/C++ addresses do not box a local, and an
+// opaque parameter may be T& even without an explicit &: remember both forms of exposure
+// separately from the Go escape/boxing analysis. The pass is conservative across the function,
+// as boxedVars is, and includes closures in the same outer function.
+func (fg *funcGen) memoryVar(v *types.Var) bool {
+	if isPkgVar(v) || fg.isBoxed(v) {
+		return true
+	}
+	if fg.exposed == nil {
+		fg.exposed = make(map[*types.Var]bool)
+		b := &boxer{info: fg.g.info}
+		mark := func(e ast.Expr) {
+			ast.Inspect(e, func(n ast.Node) bool {
+				if id, ok := n.(*ast.Ident); ok {
+					if v := b.localVar(id); v != nil && !complete(v.Type()) {
+						fg.exposed[v] = true
+					}
+				}
+				return true
+			})
+		}
+		ast.Inspect(fg.top, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.UnaryExpr:
+				if x.Op == token.AND {
+					if v := b.root(x.X); v != nil {
+						fg.exposed[v] = true
+					}
+				}
+			case *ast.CallExpr:
+				if fg.g.pkg.Opaque.IsOpaque(x) && fg.g.calledSig(x) == nil && fg.g.pkg.Conversion(x) == nil {
+					for _, a := range x.Args {
+						mark(a)
+					}
+				}
+			}
+			return true
+		})
+	}
+	return fg.exposed[v]
 }
 
 // collectOpaque is collect for the opaque expression e (a C/C++ value, cvalues.go) where its
@@ -1153,7 +1195,15 @@ func (fg *funcGen) emitItem(it *orderItem, pre *[]cppir.Stmt) {
 		typ = typeName("auto&&")
 		fg.nameOperands(it.e, pre)
 	}
+	if fg.rangeLifetimes {
+		// A hoisted view can refer into its own temporary constructor arguments too.
+		// Retain them before materializing it, not after its full-expression has ended.
+		fg.rangeOperand(it.e, pre)
+	}
 	x := fg.exactExpr(it.e)
+	if typ.(*cppir.TypeName).Name == "auto" {
+		x = fg.ownedValue(it.e, x) // a copy, also of a C++ pair of references (crange.go)
+	}
 	t := fg.names.temp("t")
 	*pre = append(*pre, varDecl(cppir.Pos{}, typ, t, x))
 	fg.temps[it.e] = t
@@ -1181,7 +1231,8 @@ func (fg *funcGen) cMoved(e ast.Expr, x cppir.Expr) cppir.Expr {
 	return x
 }
 
-// nameOperands puts the operands of the call e, whose result goes into an auto&& temporary as an
+// nameOperands puts the operands of the call or braced C++ constructor e, whose result goes into
+// an auto&& temporary as an
 // object (objectOf), into named temporaries first, in C++'s order (the object of a member call,
 // then the arguments), where they are temporaries: a C++ function may return a reference into
 // them (std::max(a, b) of two temporaries, s.append(x) of a temporary s returns *this), which
@@ -1192,21 +1243,58 @@ func (fg *funcGen) cMoved(e ast.Expr, x cppir.Expr) cppir.Expr {
 // takes a reference gets the place itself (P& pick(P&, P&)); only a temporary that a place is
 // in, f()[0], is named (namePlace).
 func (fg *funcGen) nameOperands(e ast.Expr, pre *[]cppir.Stmt) {
-	c, ok := ast.Unparen(e).(*ast.CallExpr)
-	if !ok {
+	var args []ast.Expr
+	braced := false
+	switch x := ast.Unparen(e).(type) {
+	case *ast.CallExpr:
+		if sel := fg.g.opaqueMember(x.Fun); sel != nil {
+			fg.nameObject(sel.X, pre)
+		} else if fg.g.opaqueCallee(x) {
+			fg.nameObject(x.Fun, pre) // a temporary callable can return a reference into itself
+		}
+		args = x.Args
+	case *ast.CompositeLit:
+		if !fg.g.cxxLit(x) {
+			return
+		}
+		braced = true
+		pairs := fg.g.cPairs(x)
+		for _, a := range x.Elts {
+			if kv, ok := a.(*ast.KeyValueExpr); ok {
+				if pairs {
+					args = append(args, kv.Key)
+				}
+				a = kv.Value
+			}
+			args = append(args, a)
+		}
+	default:
 		return
 	}
-	if sel := fg.g.opaqueMember(c.Fun); sel != nil {
-		fg.nameObject(sel.X, pre)
-	}
-	if r, ok := fg.g.cRefOf(c.Fun); ok && r.kind == interop.Type {
-		return // a constructor: its object is the new one, which auto&& keeps alive
-	}
-	for _, a := range c.Args {
+	for _, a := range args {
+		if braced && fg.constValue(a) != nil {
+			continue // retain literal constants for C++'s braced narrowing checks
+		}
+		if fg.nullConstant(a) {
+			// Only a literal 0 is a null pointer constant in C++: in an int variable it would
+			// no longer convert to the const char* of a factory (for range lib.f(0), f(1-1)).
+			// The cost is that it isn't retained for a function that returns a reference to it.
+			continue
+		}
+		if lit, ok := ast.Unparen(a).(*ast.CompositeLit); ok {
+			if _, known := fg.g.litTypeExpr(lit); !known {
+				// A bare braced list has no deducible auto type: keep its shape and retain
+				// backing operands inside it (std.vector[View]{{make_string()}}).
+				fg.nameOperands(a, pre)
+				continue
+			}
+		}
 		if fg.namedOrPlace(a, pre) {
 			continue
 		}
-		// A temporary (also a constant: std::max(n, int64_t(0))).
+		// A temporary (also a constant: std::max(n, int64_t(0))). Its own backing
+		// operands must live too, e.g. string_view(string(...)) passed to a view factory.
+		fg.nameOperands(a, pre)
 		t := fg.names.temp("t")
 		*pre = append(*pre, varDecl(cppir.Pos{}, typeName("auto"), t, fg.cValueOf(a)))
 		fg.temps[ast.Unparen(a)] = t
@@ -1255,7 +1343,8 @@ func (fg *funcGen) namedOrPlace(x ast.Expr, pre *[]cppir.Stmt) bool {
 			return true
 		}
 	case *ast.StarExpr:
-		return true // *p: what the pointer points to
+		fg.nameObject(y.X, pre) // *make_unique(): retain the owner, not a container copy
+		return true
 	}
 	return false
 }
@@ -1438,4 +1527,26 @@ func findPlaces(info *types.Info, top ast.Node) map[ast.Expr]bool {
 		return true
 	})
 	return places
+}
+
+// nullConstant reports whether e is an untyped constant expression with the value 0 (0, 0x0, 1-1,
+// 'a'-'a'): the C++ that gocpp writes for it is the literal 0, the only expression that C++ takes
+// as a null pointer constant. A typed zero (int(0), a typed constant) is not one: it is written
+// with its type, and an int is no pointer in C++ either.
+func (fg *funcGen) nullConstant(e ast.Expr) bool {
+	tv, ok := fg.g.info.Types[e]
+	if !ok || tv.Value == nil || tv.Value.Kind() != constant.Int || constant.Sign(tv.Value) != 0 {
+		return false
+	}
+	typed := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.CallExpr: // a conversion: int(0)
+			typed = true
+		case *ast.Ident: // a named constant: it is a name, which stays one
+			typed = typed || fg.g.info.Uses[n] != nil
+		}
+		return !typed
+	})
+	return !typed
 }

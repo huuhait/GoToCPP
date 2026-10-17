@@ -44,7 +44,7 @@ void main() {
     ::std::vector<int64_t> v{};
     ::std::filesystem::path p{};
     ::cnames::vec3 w{};
-    auto k = ::color_value(::Color::Red);
+    auto k = [&]<typename gp_R0>(std::type_identity<gp_R0>) { if constexpr (gp::detail::is_values<gp_R0>) { return gp::values<gp_R0>(::color_value(::Color::Red)); } else { return (::color_value(::Color::Red)); } }(std::type_identity<decltype(::color_value(::Color::Red))>());
     static_cast<void>(::std::chrono::steady_clock::now());
     auto m = ::std::string::npos;
     gp::deref(::std::cout).flush();

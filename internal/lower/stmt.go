@@ -1027,7 +1027,9 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 				// A large boxed variable: the temporary is its box, built in place
 				// (largeBox, arrays.go), which the variable takes over.
 				lines = append(lines, varDecl(p, ptrType(t.typ), tmps[i], largeBox(t.typ, fg.expr(v))))
-			} else if typ := targets[i].typ; typ != nil {
+			} else if typ := targets[i].typ; typ != nil && targets[i].auto() {
+				lines = append(lines, varDecl(p, typ, tmps[i], fg.ownedValue(v, fg.expr(v))))
+			} else if typ != nil {
 				lines = append(lines, varDecl(p, typ, tmps[i], fg.expr(v)))
 			} else {
 				lines = append(lines, varDecl(p, typeName("auto"), tmps[i], fg.exactExpr(v)))
@@ -1146,7 +1148,17 @@ func (fg *funcGen) storedValue(t target, v ast.Expr) cppir.Expr {
 	if t.typ == nil && !t.blank() {
 		return fg.sharedCopy(v, x)
 	}
+	if t.auto() {
+		return fg.ownedValue(v, x) // p := std.minmax(3, 1) (crange.go)
+	}
 	return x
+}
+
+// auto reports whether t is a new variable declared with auto: from a C/C++ value without a
+// type (x := lib.f()).
+func (t target) auto() bool {
+	n, ok := t.typ.(*cppir.TypeName)
+	return ok && n.Name == "auto"
 }
 
 // early returns the targets that the value of targets[i] must not read when it is evaluated

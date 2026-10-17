@@ -83,6 +83,9 @@ type funcGen struct {
 	// boxed are the variables of the function that live in a box (box.go): nil in
 	// gp_var_init, which has none.
 	boxed map[*types.Var]boxReason
+	// exposed are raw-addressed locals or opaque locals passed to an unknown C++
+	// parameter (possibly T&). They can change in calls without requiring a Go box.
+	exposed map[*types.Var]bool
 	// singleDefs are the local variables that only their declaration gives a value
 	// (panicid.go), found on first use.
 	singleDefs map[*types.Var]ast.Expr
@@ -95,6 +98,8 @@ type funcGen struct {
 	commaOKs map[*ast.IndexExpr]bool
 	// autoTemps are the temporaries of the order that are copies of C/C++ values (cMoved).
 	autoTemps map[string]bool
+	// rangeLifetimes retains backing operands even when order hoists a nested range call.
+	rangeLifetimes bool
 	// places are the expressions of the code placesTop that are used as places (order.go:
 	// place), found on first use.
 	places    map[ast.Expr]bool

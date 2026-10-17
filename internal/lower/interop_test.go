@@ -319,7 +319,6 @@ func TestCGuard(t *testing.T) {
 		{"var h, k H; _ = h == k", "== on values with C/C++ parts (Phase 12)"},
 		{"var m map[H]int; _ = m", "this use of a C/C++ type (a later step of Phase 04)"},
 		{"var a A; _ = a", "aliases of C/C++ types (A): write the C/C++ type (a later step of Phase 04)"},
-		{"var v std.vector[int]; for range v {}", "range over C/C++ values (gp::range, step 4.7)"},
 		{"var v std.vector[int]; defer v.clear()", "deferred calls of members of C/C++ values (the C++ object must outlive the function: step 4.8)"},
 		{"_ = &lib.FILE{}", "&T{...} of C/C++ types (lib.FILE, step 4.10): declare a variable, v := lib.FILE{...}, and use &v"},
 		{"_ = []*lib.FILE{{}}", "&T{...} of C/C++ types (lib.FILE, step 4.10): declare a variable, v := lib.FILE{...}, and use &v"},
@@ -493,6 +492,22 @@ func TestCUserErrors(t *testing.T) {
 		{"const k = lib.f()", "lib.f() (C/C++ value) is not constant"},
 		{"const k C.int = 1 << 3; const j = C.int(2)", ""},
 		{"var xs []C.int; _ = xs[1:]; var arr [3]C.int; for i, v := range arr { _, _ = i, v }; m := make(map[int]C.int); v, ok := m[1]; _, _ = v, ok", ""},
+		// The targets of a range over a C/C++ value that assigns.
+		{"var v std.vector[int]; i := 0; for i = range v {}; _ = i",
+			"cannot assign the index or key of range over v (a C/C++ value) to i of type int: declare a new variable with :=, and convert it, int(x)"},
+		{"var v std.vector[int]; var s string; for _, s = range v {}; _ = s",
+			"cannot assign the element of range over v (a C/C++ value) to s of type string: declare a new variable with :=, and convert it, string(x)"},
+		{"var v std.vector[int]; xs := []int{0}; for _, xs[0] = range v {}",
+			"cannot assign the element of range over v (a C/C++ value) to xs[0] of type int: declare a new variable with :=, and convert it, int(x)"},
+		{"var v std.vector[C.double]; var n int; for _, (n) = range v {}; _ = n",
+			"cannot assign the element of range over v (a C/C++ value) to n of type int: declare a new variable with :=, and convert it, int(x)"},
+		{"var v std.vector[int]; var i int; for (i) = range v {}; _ = i",
+			"cannot assign the index or key of range over v (a C/C++ value) to i of type int: declare a new variable with :=, and convert it, int(x)"},
+		{"var dst, src std.vector[C.int]; for _, dst.at(0) = range src {}",
+			"cannot assign to dst.at(0) (neither addressable nor a map index expression)"},
+		{"var dst, src std.vector[C.int]; for _, (dst.at(0)) = range src {}",
+			"cannot assign to dst.at(0) (neither addressable nor a map index expression)"},
+		{"var v std.vector[int]; var i, x C.long; for i, x = range v {}; for _, _ = range v {}; _, _ = i, x", ""},
 		{"var cs []C.int; n := 1; cs = append(cs, n)", "cannot use n (variable of type int) as C.int value in argument to append: convert it, C.int(n)"},
 		{"var cs []C.int; cs = append(cs, 1, C.int(2)); ds := make([]C.int, 2); copy(ds, cs); m := make(map[C.int]C.double); delete(m, 1); clear(ds); _ = len(cs) + cap(ds) + len(m)", ""},
 		{"var m std.map[int, int]; v, ok := m[1]; _, _ = v, ok",
@@ -626,6 +641,22 @@ func main() {
 	lib.out(&x)
 	lo, hi := std.minmax(1, 2)
 	_, _ = lo, hi
+	mm := std.minmax(1, 2)
+	_ = mm
+	for i, e := range v {
+		_, _ = i, e
+	}
+	for k := range lib.table {
+		_ = k
+	}
+	for range lib.head().items {
+	}
+	var j, w C.long
+	for j, w = range v {
+	}
+	for _, w = range v {
+	}
+	_, _ = j, w
 }
 `
 	fset, pkg, _ := checkInterop(t, src)
@@ -640,7 +671,9 @@ func main() {
 	}
 	cpp := string(cppir.Print(f, ""))
 	for _, want := range []string{
-		"auto p = ::head();",
+		"auto p = [&]<typename gp_R0>(std::type_identity<gp_R0>)",
+		"}(std::type_identity<decltype(::head())>());",                      // the type is outside the lambda (clang and captures)
+		"return gp::values<gp_R0>(::head()); } else { return (::head()); }", // a pair of references would be copied
 		"gp::deref(v).push_back(1);",
 		"static_cast<void>(gp::deref(gp::deref(p).next).value);",
 		"::fn()(2);",
@@ -664,6 +697,16 @@ func main() {
 		"auto gp_t0 = gp::values(::std::minmax(1, 2));", // the references of the pair are copied
 		"auto lo = std::get<0>(gp_t0);",
 		"auto hi = std::get<1>(gp_t0);",
+		"auto mm = [&]<typename gp_R1>(std::type_identity<gp_R1>)",
+		"return gp::values<gp_R1>(::std::minmax(1, 2)); } else { return (::std::minmax(1, 2)); }", // one variable too
+		"for (auto&& [i, e] : gp::range(v)) {",
+		"for (auto&& k : gp::range_keys(::table)) {",
+		"auto&& gp_t1 = ::head();", // the object of items lives as long as the loop
+		"for ([[maybe_unused]] auto&& gp_k0 : gp::range_skip(gp::deref(gp_t1).items)) {",
+		"for (auto&& [gp_k1, gp_v0] : gp::range(v)) {",
+		"j = static_cast<decltype(gp_k1)&&>(gp_k1); w = static_cast<decltype(gp_v0)&&>(gp_v0);",
+		"for (auto&& gp_v1 : gp::range_values(v)) {",
+		"w = static_cast<decltype(gp_v1)&&>(gp_v1);",
 	} {
 		if !strings.Contains(cpp, want) {
 			t.Errorf("no %q in the C++:\n%s", want, cpp)

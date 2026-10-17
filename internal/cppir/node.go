@@ -279,20 +279,25 @@ type Line struct {
 // The If is one line, if (!c) break;, unless Then is a Block that is not inline or Else goes
 // on over more lines (then Then is written over several lines, whatever it is).
 type If struct {
-	Pos  Pos
-	Cond Expr
-	Then Stmt
-	Else Stmt // nil, an *If or a *Block (another statement makes `} else stmt`)
+	Constexpr bool // if constexpr: a discarded branch of a template
+	Pos       Pos
+	Cond      Expr
+	Then      Stmt
+	Else      Stmt // nil, an *If or a *Block (another statement makes `} else stmt`)
 }
 
 // A For is `for (Init Cond; Post) {` at Pos, the body, and `}` at Body.End. Init is a VarDecl
-// or an ExprStmt (written with its ;), or nil; Cond and Post may be nil: for (;;) {.
+// or an ExprStmt (written with its ;), or nil; Cond and Post may be nil: for (;;) {. With a
+// Range, it is the range-based `for (Decl : Range) {` instead (Init, Cond and Post are nil):
+// Decl is written as it is, `auto&& [i, v]`.
 type For struct {
-	Pos  Pos
-	Init Stmt
-	Cond Expr
-	Post Expr
-	Body *Block
+	Pos   Pos
+	Init  Stmt
+	Cond  Expr
+	Post  Expr
+	Decl  string
+	Range Expr
+	Body  *Block
 }
 
 // A While is `while (Cond) {` at Pos, the body, and `}` at Body.End.

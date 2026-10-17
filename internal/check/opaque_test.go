@@ -619,8 +619,8 @@ func TestOpaqueExamples(t *testing.T) {
 			{"nums := std.vector[int]{5, 3, 8, 1}", "int", "int", "typed"},
 			{"nums := std.vector[int]{5, 3, 8, 1}", "5", "5", "typed"},
 			{"nums.push_back(4)", "nums", "nums.push_back(4)", "opaque"},
-			{"sorted = append(sorted, n)", "sorted", "sorted", "typed"},
-			{"sorted = append(sorted, n)", "n)", "n", "opaque"},
+			{"sorted = append(sorted, int(n))", "sorted", "sorted", "typed"},
+			{"sorted = append(sorted, int(n))", "n)", "n", "opaque"},
 			{"lo, hi := std.minmax(3, 1)", "std", "C.std.minmax(3, 1)", "opaque"},
 			{`fmt.Println("minmax:", lo, hi)`, "fmt", `fmt.Println("minmax:", lo, hi)`, "typed"},
 			{`fmt.Println("minmax:", lo, hi)`, "lo", "lo", "opaque"},
@@ -1097,6 +1097,77 @@ func main() {
 			t.Errorf("%s: %s has type %v and value %v, want %s %d", c.marker, c.src, tv.Type, tv.Value, c.typ, c.val)
 		}
 	}
+}
+
+// TestOpaqueRangeTargets checks the targets of a range over an opaque
+// value that assigns, and the value's target of one over a gocpp array of
+// C values (skipRange): go/types doesn't look at them, so the
+// pass checks them, a C/C++ variable is opaque and a gocpp one typed, a
+// blank one is opaque, a variable that is only assigned there is "declared
+// and not used" as in Go, and an undefined name is reported.
+func TestOpaqueRangeTargets(t *testing.T) {
+	src := `package main
+
+import "<lib.h>"
+
+func main() {
+	cv := lib.foo()
+	var ci, ce C.int
+	gi := 0
+	var ys []C.int
+	n := 1
+	for ci, ce = range cv { // assign
+	}
+	for gi = range cv { // gocpp
+	}
+	for _, ys[n-1] = range cv { // elem
+	}
+	var arr [2]C.int
+	for gi, ci = range arr { // array
+	}
+	_, _, _ = ci, ce, gi
+
+}
+`
+	prog, p := checkMain(t, map[string]string{"main.gp": src})
+	checkLabels(t, prog, p, src, []labelCase{
+		{"// assign", "ci", "ci", "opaque"},
+		{"// assign", "ce", "ce", "opaque"},
+		{"// gocpp", "gi", "gi", "typed"},
+		{"// elem", "ys", "ys[n - 1]", "opaque"},
+		{"// elem", "n", "n - 1", "typed"},
+		{"// array", "gi", "gi", "typed"},
+		{"// array", "ci", "ci", "opaque"},
+	})
+	bad := `package main
+
+import "<lib.h>"
+
+func main() {
+	cv := lib.foo()
+	var only C.int
+	for only = range cv {
+	}
+	for _, undefined = range cv {
+	}
+}
+`
+	root := writeTree(t, map[string]string{"gocpp.mod": "module example.com/m\n", "main.gp": bad})
+	prog, r := loadAndCheck(t, load.Config{}, root, ".")
+	want := "# example.com/m\n" +
+		"./main.gp:7:6: declared and not used: only\n" +
+		"./main.gp:10:9: undefined: undefined\n"
+	if errs := errorText(t, prog, r, root, true); errs != want {
+		t.Errorf("errors:\n%s\nwant:\n%s", errs, want)
+	}
+	// Parentheses do not turn an assignment-only target into a use.
+	bad = strings.Replace(bad, "for only =", "for (only) =", 1)
+	root = writeTree(t, map[string]string{"gocpp.mod": "module example.com/m\n", "main.gp": bad})
+	prog, r = loadAndCheck(t, load.Config{}, root, ".")
+	if errs := errorText(t, prog, r, root, true); errs != want {
+		t.Errorf("parenthesized errors:\n%s\nwant:\n%s", errs, want)
+	}
+
 }
 
 // TestOpaqueSkippedErrors checks that a mistake in an expression that

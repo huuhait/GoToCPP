@@ -348,7 +348,7 @@ func trailingScope(s Stmt) (*Scope, []Stmt, Pos) {
 // not inline, or its Else goes on over more lines. Then a Then that is inline, or not a
 // block, is written as a block over several lines too.
 func (p *printer) ifStmt(s *If, lead string, at Pos) {
-	p.line(at, lead+"if ("+p.expr(s.Cond)+") {")
+	p.line(at, lead+p.ifHead(s)+" {")
 	then := thenBlock(s)
 	p.indented(then.Stmts)
 	end := then.End
@@ -360,7 +360,7 @@ func (p *printer) ifStmt(s *If, lead string, at Pos) {
 		case *If:
 			if multiline(x) {
 				b := thenBlock(x)
-				p.line(x.Pos, "} else if ("+p.expr(x.Cond)+") {")
+				p.line(x.Pos, "} else "+p.ifHead(x)+" {")
 				p.indented(b.Stmts)
 				end, e = b.End, x.Else
 				continue
@@ -378,6 +378,15 @@ func (p *printer) ifStmt(s *If, lead string, at Pos) {
 	}
 }
 
+// ifHead is shared by the inline and multiline forms, including else-if branches.
+func (p *printer) ifHead(s *If) string {
+	keyword := "if"
+	if s.Constexpr {
+		keyword += " constexpr"
+	}
+	return keyword + " (" + p.expr(s.Cond) + ")"
+}
+
 // thenBlock returns the Then of s as a block (a statement that is not one is the only
 // statement of a block without an End: it is followed by an else).
 func thenBlock(s *If) *Block {
@@ -388,6 +397,9 @@ func thenBlock(s *If) *Block {
 }
 
 func (p *printer) forHead(s *For) string {
+	if s.Range != nil {
+		return "for (" + s.Decl + " : " + p.expr(s.Range) + ")"
+	}
 	head := "for ("
 	if s.Init != nil {
 		head += p.inline(s.Init)
@@ -458,7 +470,7 @@ func (p *printer) inline(s Stmt) string {
 	case *Line:
 		return p.joined(s.Stmts, false)
 	case *If:
-		text := "if (" + p.expr(s.Cond) + ") " + p.inline(s.Then)
+		text := p.ifHead(s) + " " + p.inline(s.Then)
 		if s.Else != nil {
 			text += " else " + p.inline(s.Else)
 		}

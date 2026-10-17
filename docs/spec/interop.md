@@ -389,7 +389,7 @@ Source: [Phase 04 §2.4](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/READM
 ### Typed and opaque expressions
 
 ```go
-x := lib.f()                // opaque: auto x = ::f();
+x := lib.f()                // opaque: auto x = ...; owns pair/tuple reference members
 var total int = arr.size()  // typed: total is a gocpp int (int64_t total = ...)
 n := int(cstring.strlen(p)) // typed: n is a gocpp int
 fmt.Println(n + 1)          // fully type-checked by gocpp
@@ -413,7 +413,7 @@ fmt.Println(n + 1)          // fully type-checked by gocpp
 
 | gocpp | C++ | Note |
 |---|---|---|
-| `x := lib.f()` | `auto x = ::f();` | |
+| `x := lib.f()` | `auto x = [&]<typename R>(std::type_identity<R>) { if constexpr (gp::detail::is_values<R>) { return gp::values<R>(::f()); } else { return (::f()); } }(std::type_identity<decltype(::f())>());` | the dependent branch owns pair/tuple reference members before argument temporaries die; ordinary results preserve guaranteed prvalue elision, including nonmovable types. The call is evaluated once (its type is taken outside the lambda, so a func literal in the arguments can capture a local, also for clang; a constructor, a conversion and a gocpp function need no wrapper) |
 | `x.m`, `x.m()` with `x` opaque | `gp::deref(x).m` | `gp::deref` dereferences one level of a pointer, like Go's auto-deref: a raw pointer, or a gocpp pointer (`gp::ptr`) that comes back as an opaque value, such as an element of a `std.vector[*Node]` or a gocpp pointer returned by a C++ template (`gp::deref(v[0]).Name`), with Go's nil panic for both; values pass through. C++ smart pointers are not dereferenced for you: write `(*sp).m` |
 | `p.next.value`, `lib.get_fn()(2)` | `gp::deref(gp::deref(p).next).value`, `::get_fn()(2)` | chains of members, and calls of anything C++ can call (function pointers, objects with `operator()`) |
 | `*p`, `(*sp).m` | `gp::cgo::star(p)`, `gp::deref(gp::cgo::star(sp)).m` | a raw pointer (and a gocpp pointer) gets Go's nil panic; smart pointers and iterators keep their own `operator*` |
@@ -428,8 +428,8 @@ fmt.Println(n + 1)          // fully type-checked by gocpp
 | `SDL.SDL_Rect{0, 0, 640, 480}` | `SDL_Rect{0, 0, 640, 480}` | positional: aggregate initialization |
 | `SDL.SDL_Rect{w: 640, h: 480}` | `[&]() { SDL_Rect gp_t0{}; static_assert(gp::cgo::field_ok<decltype(gp_t0.w)>); gp_t0.w = {640}; ...; return gp_t0; }()` | keyed: field assignments, because GCC rejects designated initializers out of declaration order, and opaque mode doesn't know the order. Keyed literals with array fields are an error until Phase 12 |
 | `nil` compared with or assigned to a C pointer | `nullptr` | |
-| `for i, v := range cppContainer` | `for (auto&& [i, v] : gp::range(c))` | works for anything with `begin()`/`end()` and for C arrays. `v` is a **copy**, like Go. One variable is the index (the key for maps), like Go. A temporary container is kept alive by value, and random-access containers are walked by index with the size read **once**, as Go reads the length once |
-| `a, b := std.minmax(x, y)` | `auto gp_t0 = gp::values(std::minmax(x, y)); auto a = std::get<0>(gp_t0); auto b = std::get<1>(gp_t0);` | C++ results that are references (`std::minmax` returns `pair<const int&, const int&>`) are copied into values, so they can't dangle. Also with `=`, `_` and variables that exist. (One variable, `p := std.minmax(x, y)`, still keeps the references until step 4.7) |
+| `for i, v := range cppContainer` | `for (auto&& [i, v] : gp::range(c))` | works for anything with `begin()`/`end()` and for C arrays. `v` is a **copy**, like Go. One variable is the index (the key for maps), like Go. A temporary container is kept alive by value, and random-access containers are walked by index with the size read **once**, as Go reads the length once ([below](#range-over-c-containers-and-c-arrays)) |
+| `a, b := std.minmax(x, y)` | `auto gp_t0 = gp::values(std::minmax(x, y)); auto a = std::get<0>(gp_t0); auto b = std::get<1>(gp_t0);` | C++ results that are references (`std::minmax` returns `pair<const int&, const int&>`) are copied into values, so they can't dangle. Also with `=`, `_` and variables that exist, and for one variable, `p := std.minmax(x, y)` (the dependent branch selects `gp::values`, as above). `p = std.minmax(x, y)` into a `p` that exists copies the values anyway |
 
 **gocpp values next to C/C++ values.** As in cgo, a typed gocpp number, bool or string next to a
 C/C++ value in an operator is an error, because C++ would convert one of them without a word
@@ -458,7 +458,8 @@ C++ container holds (`nodes[0] == n`), and the operands of `&&` and `||` are boo
 (`ages["carol"] = n`), as an argument of a C/C++ function does. A call is no place, as in Go,
 also where C++ returns a reference: `v.at(0) = 5` is "cannot assign to v.at(0) (neither
 addressable nor a map index expression)"; write `v[0] = 5`. A new variable is a copy, as Go's
-values are, also of a C++ reference: `x := v[0]` and `all := lib.the_list()` copy (`auto`).
+values are, also of a C++ reference: `x := v[0]` and `all := lib.the_list()` copy (`auto`), and
+so is a temporary that gocpp makes for the order of evaluation.
 Several variables take one C/C++ value only from a call that gives a pair or a tuple
 (`a, b := std.minmax(x, y)`): `v, ok := ages["bob"]` is "assignment mismatch: 2 variables but
 ages["bob"] is 1 value", because a C++ map has no comma-ok form (use `ages.find(k)` or
@@ -574,6 +575,77 @@ line := lib.Line{a: {1, 2}, b: lib.Vec{y: 3}}       // also in a keyed literal
 both types are known, cgo's rule holds: a typed gocpp value into a C element or field is an error,
 "cannot use n (variable of type int) as C.int value in array or slice literal: convert it,
 C.int(n)", and a C/C++ value into a gocpp element too ("convert it, int(x)").
+
+### range over C++ containers and C arrays
+
+```go
+v := lib.scores()                // a std::vector<int>
+for i, x := range v {            // for (auto&& [i, x] : gp::range(v)) {
+	v.push_back(x)                // not visited: the size was read once
+}
+for k, n := range ages {         // a std::map: the key and a copy of the value
+	fmt.Println(int(k.size()), int(n))
+}
+for i := range lib.table {       // int table[8] in the header: the index
+	lib.table[i] = 0
+}
+for _, s := range f().items {    // f() stays alive for the whole loop
+}
+```
+
+- `range` works over anything with `begin()` and `end()`: C++ containers, views
+  (`std.views.iota(0, 5)`), spans and C arrays reached through a header. The four forms of Go
+  work, with `:=` and with `=` (`for i, v = range c`), and with labels, `break`, `continue` and
+  `defer` in the body.
+- One variable is the index, or the key of a map (`std::map`, `std::unordered_map` and their
+  multi forms), as in Go. The value is a **copy** of the element (of the mapped value): changing
+  it doesn't change the container. Each iteration has its own variables (Go 1.22). A blank
+  target copies nothing: `for range c`, `for _ = range c`, and `for _, _ = range c` only
+  advance; `for k := range m` does not copy a mapped value, and `for _, v := range m` does
+  not copy a map key. These walks also work when the discarded type is noncopyable.
+- The index and the key are C/C++ values (the index is a C++ `int64_t`, gocpp's `int`): gocpp
+  doesn't know in opaque mode whether the container is a map. Convert them, `int(i)`. For the
+  same reason, a range that assigns (`=`) needs C/C++ targets: `var i int; for i = range v`
+  is an error ("declare a new variable with :=, and convert it").
+- A `std::string` is a C++ container of `char`: `range` gives the byte index and each byte as a
+  C `char`, not runes as Go's range over a string does. For runes, convert it to a gocpp string
+  first, `range string(s)`.
+- The range expression is evaluated **once**. A temporary container (`range lib.squares(4)`) is
+  held by value inside `gp::range`. The temporaries that the expression needs otherwise go into
+  named temporaries before the loop: the object of a member (`f().items`, where `f` may return
+  the only pointer to it), and the object and temporary arguments of a call that can return a
+  reference into them (`lib.longer(lib.squares(2), lib.squares(3))`), a dereference's owner
+  (`*lib.vector_owner()`), a temporary callable (`lib.make_reader()()`), and constructor
+  backing arguments (`std.string_view(std.string("long heap-backed text"))`). C++'s own
+  range-for would destroy them before the body runs. Two limits: a literal `0` argument stays
+  as it is, because only a literal `0` is a null pointer constant in C++ (`range lib.from_cstr(0)`,
+  also `1 - 1`), so it is not retained for a function that returns a reference into it; and a
+  temporary that **C++ itself creates by an implicit conversion inside the call**
+  (`range p.first_ref("a long string literal")` for `const std::string& first_ref(const
+  std::string&)`, an implicit constructor `Rng(int)`) dies at the end of the range expression, as
+  in C++'s own range-for, so a reference the call returns into it dangles (AddressSanitizer:
+  stack-use-after-scope). Make the temporary yourself (`std.string("...")`), which gocpp keeps.
+- **Random-access containers** (`std::vector`, `std::deque`, `std::array`, `std::string`,
+  `std::span`, random-access views, C arrays) are walked by index, with the size read once, as Go
+  reads a slice's length once. A `push_back` in the body is not visited and doesn't break the walk
+  when the vector reallocates; a write to a later element is seen when the walk gets there (a
+  difference from Go, where `range arr` over an array walks a copy, and only a slice is seen
+  changing: the walk here is over the C array or `std::array` itself). If the
+  body **shrinks** the container, the walk panics when it reaches an index past the new end, with
+  Go's message (`index out of range [2] with length 2`), instead of reading a destroyed element.
+- **Other containers** (`std::list`, `std::set`, maps, other views) are walked with their
+  iterators, which follow **C++'s invalidation rules**: inserting into a `std::map` or a
+  `std::list` during the loop is fine (a new key after the current one is visited, one before it
+  is not; Go may or may not produce a new key), but erasing the current element, or an insert that
+  makes a `std::unordered_map` rehash, is undefined behavior, as in C++.
+- What doesn't work is a C++ error at the `range` line with a message: the rows of a C array of
+  arrays (`int grid[2][3]`) can't be copied into the loop variable (use `for i := range grid`
+  and `grid[i]`), a C number is no range (convert it, `range int(n)`), and a value without
+  `begin()` and `end()` isn't either. An element that can't be copied (`std::unique_ptr`) can
+  still be discarded: use the key/index form and `c[i]`, or no
+  bindings. A noncopyable map key can likewise be discarded when requesting only its value.
+- The variables follow Go's rule: `for i, x := range v {}` is an error ("declared and not used") for each variable the body doesn't use; write `_` or leave the variables out. One difference: any use that the checker records counts, also a write (`for i := range v { i++ }` and `k = 1` are accepted, where Go reports the variable), and a variable named as a bare key of a literal in the body (`std.map[int, int]{i: 3}`, where the key may be a C struct field) counts as used.
+- A closure can't use the loop variables yet (step 4.8), nor can `&v`.
 
 ### Untyped constants in C/C++ calls
 

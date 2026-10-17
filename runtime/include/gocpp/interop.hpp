@@ -13,6 +13,7 @@
 //     i, v = range c              for (auto&& [gp_k, gp_v] : gp::range(c)) {
 //       (assigning)                   i = gp_k; v = gp_v; ...
 //     a, b := std.minmax(x, y)    auto [a, b] = gp::values(std::minmax(x, y));
+//     p := std.minmax(x, y)       auto p = gp::values(std::minmax(x, y));
 //     C.cstr(s)                   gp::cstr(s), and gp::cstr(s).gp_ptr() as a C/C++ argument
 //     C.CString(s)                gp::cgo::CString(s)
 //     C.GoString(p)               gp::cgo::GoString(p)
@@ -123,7 +124,8 @@ concept by_index = !map_like<C> && std::random_access_iterator<range_iter_t<C>> 
 // passed: an lvalue reference (C& or const C&) for a named container, which the view refers
 // to, or a plain type for a temporary, which the view holds by value (moved in). The loop's
 // range-init then keeps it alive: under C++20 a reference to a temporary inside it would
-// dangle. Keys selects the one-variable form: only the index (the key for maps).
+// dangle. Key and Value select only the bindings that the loop uses; no unused key or
+// element is copied.
 //
 // Each step gives a new value: std::pair<int64_t, V> (index, copy of the element) or
 // std::pair<K, M> (copy of the key, copy of the mapped value), and int64_t or K for
@@ -137,15 +139,28 @@ concept by_index = !map_like<C> && std::random_access_iterator<range_iter_t<C>> 
 // follows C++'s rules: a change in the body that invalidates the current iterator (erasing the
 // current element of a std::map, an insert that rehashes a std::unordered_map) is undefined
 // behavior, as it is in C++.
-template <typename C, bool Keys>
+template <typename C, bool Key, bool Value>
 class range_view {
     using container = std::remove_reference_t<C>;
+    // Why a range over a C/C++ value can't work, with a message for users (before the errors
+    // that the members below would give): a C number (Go's range over an integer needs a gocpp
+    // integer), or a value without begin() and end().
+    static_assert(!std::is_arithmetic_v<container>,
+                  "gp::range: range over a C number: convert it to a gocpp integer, int(n)");
+    static_assert(
+        std::is_arithmetic_v<container> ||
+            requires(container& c) {
+                std::ranges::begin(c);
+                std::ranges::end(c);
+            },
+        "gp::range: range over a C/C++ value without begin() and end(): it works over C++ "
+        "containers, views and C arrays");
     using iter = range_iter_t<container>;
     using value = std::iter_value_t<iter>;
 
     // Go's range over [2][3]int copies each [3]int into v, but a C array can't be copied into
     // a std::pair; range_keys and grid[i] work.
-    static_assert(Keys || !std::is_array_v<value>,
+    static_assert(!Value || !std::is_array_v<value>,
                   "gp::range: the elements are C arrays, which can't be copied into the loop "
                   "variable; use gp::range_keys(c) and c[i]");
 
@@ -162,15 +177,21 @@ public:
         int64_t gp_n;
 
         auto operator*() const {
-            if constexpr (Keys) {
+            if constexpr (!Value) {
                 return gp_i; // the element isn't read
             } else {
                 container& c = gp_v->gp_c_;
                 if constexpr (!std::is_array_v<container>) {
                     gp::check_index(gp_i, static_cast<int64_t>(std::ranges::size(c)));
                 }
-                return std::pair<int64_t, value>(
-                    gp_i, std::ranges::begin(c)[static_cast<std::iter_difference_t<iter>>(gp_i)]);
+                if constexpr (Key) {
+                    return std::pair<int64_t, value>(
+                        gp_i,
+                        std::ranges::begin(c)[static_cast<std::iter_difference_t<iter>>(gp_i)]);
+                } else {
+                    return value(
+                        std::ranges::begin(c)[static_cast<std::iter_difference_t<iter>>(gp_i)]);
+                }
             }
         }
         index_cursor& operator++() noexcept {
@@ -189,16 +210,22 @@ public:
         int64_t gp_i;
 
         auto operator*() const {
-            if constexpr (map_like<container>) {
+            if constexpr (!Key && !Value) {
+                return gp_i; // no binding: do not dereference or copy a discarded map key
+            } else if constexpr (map_like<container>) {
                 using key = std::remove_cv_t<typename container::key_type>;
-                if constexpr (Keys) {
+                if constexpr (!Value) {
                     return key(gp_it->first);
+                } else if constexpr (!Key) {
+                    return typename container::mapped_type(gp_it->second);
                 } else {
                     return std::pair<key, typename container::mapped_type>(gp_it->first,
                                                                            gp_it->second);
                 }
-            } else if constexpr (Keys) {
+            } else if constexpr (!Value) {
                 return gp_i;
+            } else if constexpr (!Key) {
+                return value(*gp_it);
             } else {
                 return std::pair<int64_t, value>(gp_i, *gp_it);
             }
@@ -239,16 +266,28 @@ template <typename C>
 auto range(C&& c) {
     static_assert(!(std::is_array_v<std::remove_reference_t<C>> && !std::is_lvalue_reference_v<C>),
                   "gp::range: a temporary C array can't be walked");
-    return detail::range_view<C, false>(std::forward<C>(c));
+    return detail::range_view<C, true, true>(std::forward<C>(c));
 }
 
-// range_keys(c) is `for i := range c` (and `for range c`): only the index, or the key for a
+// range_keys(c) is `for i := range c`: only the index, or the key for a
 // map. No element is copied.
 template <typename C>
 auto range_keys(C&& c) {
     static_assert(!(std::is_array_v<std::remove_reference_t<C>> && !std::is_lvalue_reference_v<C>),
                   "gp::range_keys: a temporary C array can't be walked");
-    return detail::range_view<C, true>(std::forward<C>(c));
+    return detail::range_view<C, true, false>(std::forward<C>(c));
+}
+
+// range_values(c) is `for _, v := range c`: copy only the element (the mapped value).
+// range_skip(c) is `for range c`, `for _ = range c`, or `for _, _ = range c`: advance only.
+// In particular, a discarded noncopyable map key or element must not prevent the walk.
+template <typename C>
+auto range_values(C&& c) {
+    return detail::range_view<C, false, true>(std::forward<C>(c));
+}
+template <typename C>
+auto range_skip(C&& c) {
+    return detail::range_view<C, false, false>(std::forward<C>(c));
 }
 
 // --- values: multiple results from C++ ---
@@ -264,6 +303,11 @@ template <typename T>
 inline constexpr bool is_tuple = false;
 template <typename... Ts>
 inline constexpr bool is_tuple<std::tuple<Ts...>> = true;
+
+// is_values<R>: R (a result type, with or without references) is a pair or a tuple.
+template <typename R>
+inline constexpr bool is_values =
+    is_pair<std::remove_cvref_t<R>> || is_tuple<std::remove_cvref_t<R>>;
 
 // value_member is member I of the pair or tuple t, for a copy or a move: a reference member
 // (lvalue or rvalue reference) as an lvalue, so it is copied and what it refers to is left
@@ -293,7 +337,14 @@ auto values_of(T&& t, std::index_sequence<I...>) {
 // temporary arguments the references would dangle after the statement, and with variables
 // they would alias them. A reference member is always copied, also an rvalue reference
 // (std::forward_as_tuple(std::move(x)) leaves x alone); members that are values are moved from
-// a temporary. Anything else is returned as a copy (or moved).
+// a temporary. Anything else is returned as a copy, or moved from a temporary, as auto would
+// declare it (an array decays to a pointer).
+//
+// For one new variable or an ordering temporary from an opaque call, the emitter selects this
+// helper in a dependent if constexpr only for pairs/tuples. An ordinary result returns directly
+// from the immediately-invoked lambda: this preserves guaranteed prvalue elision, including a
+// deleted move/copy constructor, while reference members are still copied before the call's
+// temporary arguments die. A value-taking helper alone cannot preserve that elision.
 template <typename T>
 auto values(T&& t) {
     using V = std::remove_cvref_t<T>;
@@ -303,7 +354,7 @@ auto values(T&& t) {
         return detail::values_of<std::tuple>(std::forward<T>(t),
                                              std::make_index_sequence<std::tuple_size_v<V>>{});
     } else {
-        return V(std::forward<T>(t));
+        return std::decay_t<T>(std::forward<T>(t));
     }
 }
 

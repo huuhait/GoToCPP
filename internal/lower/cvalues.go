@@ -16,7 +16,8 @@ import (
 //	cstdio.printf("%d\n", 5)            ::printf("%d\n", 5);       (a call as a statement)
 //	var n C.int = cstdio.puts("x")      int n = ::puts("x");       (an initializer of a C type)
 //	var v std.vector[int]               ::std::vector<int64_t> v{}; (the zero value: value-initialized)
-//	x := cmath.sqrt(2.0)                auto x = ::sqrt(2.0);
+//	x := cmath.sqrt(2.0)                auto x = ...; (preserves ordinary prvalue elision and owns
+//	                                    pair/tuple reference members: crange.go's ownedValue)
 //	C.int(n), C.ulonglong(n)            gp::cgo::as<int>(n), gp::cgo::as<unsigned long long>(n)
 //	std.string("hi")                    ::std::string("hi")        (a constructor)
 //	int(cmath.floor(x))                 gp::cgo::as<int64_t>(::floor(x)) (a conversion to a gocpp
@@ -32,7 +33,8 @@ import (
 //	&x (x a C/C++ variable)             &x                         (a raw C++ address, §2.7)
 //	if ok, for x.valid() (opaque bool)  if (gp::cgo::cond(ok)), for (; gp::cgo::cond(gp::deref(x).valid()); )
 //	s += "!", it++, d--                 s += "!", ++it, --d        (stmt.go)
-//	a, b := std.minmax(x, y)            auto [a, b] = gp::values(::std::minmax(x, y)); (stmt.go)
+//	a, b := std.minmax(x, y)            auto gp_t0 = gp::values(::std::minmax(x, y)); (stmt.go)
+//	for i, v := range c                 for (auto&& [i, v] : gp::range(c)) { (crange.go)
 //
 // An untyped constant where a C/C++ value takes it (an argument of a C/C++ function, the value of
 // a variable or a result of a C/C++ type, a template argument, an operand or an index next to a
@@ -40,7 +42,7 @@ import (
 // and 5 an int. A typed gocpp number, bool or string next to a C/C++ value in an operator is a
 // user error, as in cgo (cguard.go: mismatched types): C++ would convert one of them silently.
 //
-// Every opaque expression goes through opaqueExpr: what it doesn't translate yet (slicing, range,
+// Every opaque expression goes through opaqueExpr: what it doesn't translate yet (slicing,
 // &x of anything but a variable) is reported by the guard (cguard.go) as "not supported yet",
 // never written as broken C++. Composite literals are clits.go's.
 
