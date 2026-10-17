@@ -340,13 +340,9 @@ func includeTexts(incs []*load.Include) []string {
 }
 
 // includeText returns the #include text of the include inc: <vector> for a
-// system header, "./physics.h" for a local one.
-func includeText(inc *load.Include) string {
-	if inc.Kind == load.LocalHeader {
-		return `"` + inc.Path + `"`
-	}
-	return inc.Path
-}
+// system header, "./physics.h" for a local one, and the quoted absolute file
+// of a module header.
+func includeText(inc *load.Include) string { return inc.IncludeText() }
 
 // apply undoes the rewrites of the names that are not namespaces in the
 // files of pp and returns the errors of the probe, in file order and, in

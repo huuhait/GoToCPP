@@ -12,6 +12,8 @@
 //
 // The module file is read whole (package gocppmod): its require and replace
 // lines say where the packages of other modules are, a folder of their own
-// or vendor/ (modules.go; nothing is downloaded), and docs/spec/modules.md
-// describes it for users.
+// or vendor/ (modules.go; the download hook is a stub, moddir.go), and
+// docs/spec/modules.md describes it for users. A quoted header import with a
+// dot in its first element ("github.com/ocornut/imgui/imgui.h") is a header
+// of a module, the project's own or a required one (moduleheader.go).
 package load

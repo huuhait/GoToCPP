@@ -320,10 +320,23 @@ import (
 func main() { imgui.Begin("hello") }
 ```
 
-- **Path rule:** a quoted import whose first element has a dot (a domain, like Go's module paths)
-  and that ends in a header extension is a *module header*: the longest `require`d module path
-  that is a prefix names the module, and the rest is the file inside it. Its package name is the
-  file name, as for every header. `"native/x.h"` and `"./x.h"` stay local headers.
+- **Path rule (built in 6.1b):** a quoted import whose first element has a dot (a domain, like Go's
+  module paths) and that ends in a header extension is a *module header*: the longest module path
+  that is a prefix names the module, and the rest is the file inside it. The candidate modules are
+  the project's **own** module and every `require`d module, resolved like the packages of a module
+  (`vendor/`, `replace`, and the download hook `moduleDir`, a stub until 6.1c). Its package name is
+  the file name, as for every header. `"native/x.h"` and `"./x.h"` stay local headers. See
+  [docs/spec/modules.md](../../../docs/spec/modules.md#module-headers) for the messages.
+- **Include (built in 6.1b):** the generated `#include` has the **absolute file name** (a header in
+  the package folder or in another module with the same relative name can't take its place), and the
+  module's root folder is a `-iquote` of every compile and probe of the package (not `-I`: a `string.h`
+  at a module root would hide the system's)
+  (`load.Package.IncludeDirs`, added by `build.ReadPackageFlags`), so library headers that include
+  each other by relative or module-relative names (`imgui.h` includes `"imconfig.h"`; a backend
+  includes `"imgui.h"`) compile and probe the same way. The probe cache keys have the flags, so they
+  change with the include folders. Headers that a library wants found as `<x.h>` belong to the recipe's `include` folders. Hooks for 6.1d:
+  `loader.moduleIncludeDirs` (those folders, which can use `-I` or `-isystem`); the flags of a dependency's own `gocpp.mod` (pkg-config, defines) are **not** applied until
+  the allow-list question for dependency flags is answered.
 - **Download** like Go modules: a tagged archive (or a commit), its hash in `gocpp.sum`, a
   read-only module cache, `gocpp mod vendor` for offline builds.
 - **Build** with gocpp's own driver from the `cxx` recipe: the listed sources, include folders,

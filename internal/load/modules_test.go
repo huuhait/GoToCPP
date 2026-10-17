@@ -154,10 +154,6 @@ func TestReplaceErrors(t *testing.T) {
 			"module github.com/huuhait/mathx is replaced by ../missing, but the replacement folder $ROOT/missing does not exist"},
 		{"a file, not a folder", head + "replace github.com/huuhait/mathx => ../vecs/vecs.gp\n", nil,
 			"module github.com/huuhait/mathx is replaced by ../vecs/vecs.gp, but the replacement folder $ROOT/vecs/vecs.gp does not exist"},
-		{"no gocpp.mod", head + "replace github.com/huuhait/mathx => ../plain\n", map[string]string{"plain/p.gp": "package p\n"},
-			"module github.com/huuhait/mathx is replaced by ../plain, which has no gocpp.mod file"},
-		{"gocpp.mod in a parent only", head + "replace github.com/huuhait/mathx => ../mathx/geom\n", nil,
-			"module github.com/huuhait/mathx is replaced by ../mathx/geom, which has no gocpp.mod file"},
 		{"other module path", head + "replace github.com/huuhait/mathx => ../vecs\n", nil,
 			"module github.com/huuhait/mathx is replaced by ../vecs, but the gocpp.mod there declares its path as example.com/vecs"},
 		{"broken module line", head + "replace github.com/huuhait/mathx => ../broken\n", map[string]string{"broken/gocpp.mod": "gocpp 0.1\n"},
@@ -521,9 +517,9 @@ replace example.com/fork => example.org/fork v1.0.1
 
 // TestHeadersUnchanged checks that the require, replace and vendor lines of
 // gocpp.mod change nothing for the imports that are not packages: local
-// headers (quoted), system headers (<...>), namespaces, and a header path
-// that looks like a module header (Phase 06 §2.11: not resolved yet, the same
-// as without the lines).
+// headers (quoted), system headers (<...>), namespaces, and the headers of a
+// module (Phase 06 §2.11, moduleheader.go), which the lines of other modules
+// and the settings don't change.
 func TestHeadersUnchanged(t *testing.T) {
 	const mainGp = `package main
 
@@ -534,7 +530,7 @@ import (
 	"./native/x.h"
 	"native/y.hpp"
 	"github.com/huuhait/mathx/z.h"
-	"example.com/other/w.hpp"
+	"github.com/huuhait/mathx/sub/w.hpp"
 	"::std::filesystem"
 
 	"example.com/app/sub"
@@ -553,6 +549,8 @@ func main() { fmt.Println(x.A, y.B, stdio.puts, std.vector[int]{}, sub.S, mathx.
 		"vendor/c/c.h":    "int c;\n",
 		"vendor/c/c.c":    "int c;\n",
 		"mathx/mathx.gp":  "package mathx\n\nconst Unit = 0\n",
+		"mathx/z.h":       "int z;\n",
+		"mathx/sub/w.hpp": "int w;\n",
 		"mathx/gocpp.mod": "module github.com/huuhait/mathx\n",
 	}
 	run := func(mod string) (string, []string) {

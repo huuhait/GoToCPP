@@ -60,10 +60,7 @@ type includeSet struct {
 // inside extern "C" { } (externC, check.Package.ExternC): as check gives them to the namespace
 // probe.
 func includeText(inc *load.Include, externC map[string]bool) string {
-	t := inc.Path
-	if inc.Kind == load.LocalHeader {
-		t = `"` + inc.Path + `"`
-	}
+	t := inc.IncludeText()
 	if externC[t] {
 		return interop.ExternC(t)
 	}

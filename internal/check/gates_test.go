@@ -232,6 +232,13 @@ func main() {
 	// Phase 04.
 	{name: "header imports", phase: 4, src: "package main\n\nimport \"<stdio.h>\"\n\nfunc main() {\n\tstdio.puts(\"x\")\n}\n",
 		want: []string{"3:8: header imports are not supported yet (Phase 04)"}},
+	// A module header is a header import of Phase 04 too: at the same place, the first gate wins.
+	{name: "module headers", phase: 4, files: map[string]string{
+		"gocpp.mod":  "module example.com/m\n",
+		"main.gp":    "package main\n\nimport \"example.com/m/native/x.h\"\n\nfunc main() {\n\tx.f()\n}\n",
+		"native/x.h": "void f();\n",
+	},
+		want: []string{"# example.com/m", "3:8: header imports are not supported yet (Phase 04)"}},
 	{name: "namespaces", phase: 4, src: "package main\n\nimport \"<vector>\"\n\nfunc main() {\n\tv := std.vector[int]{}\n\tv.push_back(1)\n}\n",
 		want: []string{
 			"3:8: header imports are not supported yet (Phase 04)",
@@ -323,8 +330,6 @@ func main() {
 		want: []string{"# example.com/m", "3:8: programs of more than one package are not supported yet (Phase 06)"}},
 	{name: "export", phase: 6, src: "package main\n\n//export F\nfunc F() {}\n\nfunc main() {}\n",
 		want: []string{"3:1: //export functions are not supported yet (Phase 06)"}},
-	{name: "module headers", phase: 6, src: "package main\n\nimport \"github.com/ocornut/imgui/imgui.h\"\n\nfunc main() {\n\timgui.NewFrame()\n}\n",
-		want: []string{"3:8: module headers are not supported yet (Phase 06)"}},
 
 	// Phase 07.
 	{name: "generics", phase: 7, src: "package main\n\nfunc F[T any](x T) T { return x }\n\nfunc main() {\n\tprintln(F(1))\n}\n",

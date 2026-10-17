@@ -36,6 +36,11 @@ const includeDirsTimeout = 10 * time.Second
 // compiler run of about 20 ms, which the first call waits for). An absolute
 // path is the file itself, as for the compiler: no folder is searched.
 func (p *Pipeline) HeaderFile(ctx context.Context, dir string, inc *load.Include) (string, error) {
+	if inc.File != "" {
+		// A module header: the loader found the file, on disk or in the
+		// overlay of the snapshot (an unsaved buffer), so it is not looked at again.
+		return filepath.FromSlash(inc.File), nil
+	}
 	name := strings.TrimSuffix(strings.TrimPrefix(inc.Path, "<"), ">")
 	if filepath.IsAbs(filepath.FromSlash(name)) {
 		if path := filepath.Clean(filepath.FromSlash(name)); isFile(path) {

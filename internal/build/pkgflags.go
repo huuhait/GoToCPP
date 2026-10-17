@@ -46,6 +46,10 @@ import (
 // GOCPP_CFLAGS_DISALLOW and GOCPP_LDFLAGS_DISALLOW refuse flags, also allowed
 // ones, like CGO_CFLAGS_ALLOW and its friends.
 //
+// The folders of the modules whose headers the package imports
+// (load.Package.IncludeDirs, Phase 06 step 6.1b) come after these, as
+// -iquote compile flags: they are the loader's own, so the allow-list doesn't see them.
+//
 // The flags add up in source order: the lines of a file from top to bottom,
 // the files in the package's order (by name). Directives are package-wide:
 // the flags of every file apply to the whole package.
@@ -333,6 +337,24 @@ func ReadPackageFlags(ctx context.Context, fset *token.FileSet, lp *load.Package
 				flags.Link = append(flags.Link, libs...)
 			}
 		}
+	}
+	// The folders of the modules whose headers the package imports
+	// (load.Package.IncludeDirs): a module header is included by its
+	// absolute name, and the headers of its library include each other by
+	// their names in the module, so the module's folders are on the include
+	// path of every compile and probe of the package. They come from the
+	// loader, not from a directive, so the allow-list doesn't check them.
+	// The flags of the module's own gocpp.mod do not come here (yet).
+	//
+	// They are -iquote folders, like the package's own folder in the probes: a
+	// quoted include ("imconfig.h", "backends/x.h") finds the module's files,
+	// and an angle include (<cstring>, <string.h>) never does, so a file of
+	// the module that is named like a system header can't hide the real one.
+	// (-I would put the folder before the system folders.) The headers that a
+	// library wants found as <x.h> belong to the include folders of its recipe
+	// (job 6.1d), which can use -I or -isystem.
+	for _, dir := range lp.IncludeDirs {
+		flags.Compile = append(flags.Compile, "-iquote", dir)
 	}
 	return flags, errs, pending
 }

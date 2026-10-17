@@ -578,6 +578,18 @@ func (d *driver) probe(pkg *check.Package, cxx *build.CXX) (*lower.Interop, int)
 	return nil, exitErrors
 }
 
+// directiveCompileFlags returns the compile flags of pkg that come from its
+// //gocpp: directives and pkg-config: Flags.Compile without the include folders
+// of the modules whose headers it imports (build.ReadPackageFlags puts those
+// last, as -iquote folder), which are the loader's, not the user's flags.
+func directiveCompileFlags(pkg *check.Package) []string {
+	flags := pkg.Flags.Compile
+	if n := 2 * len(pkg.Load.IncludeDirs); n <= len(flags) {
+		flags = flags[:len(flags)-n]
+	}
+	return flags
+}
+
 // importsLocalHeader reports whether a file of pkg imports a local header
 // ("./physics.h").
 func importsLocalHeader(pkg *check.Package) bool {
@@ -735,8 +747,8 @@ func (d *driver) compile(patterns []string) (*program, int) {
 			// With flags of the package or of the environment, the flags
 			// may be the cause: not reported as a bug in gocpp.
 			var flags []string
-			if ce.What != "the runtime" && len(pkg.Flags.Compile) > 0 {
-				flags = append(flags, "the compile flags of the package's //gocpp: directives: "+strings.Join(pkg.Flags.Compile, " "))
+			if directive := directiveCompileFlags(pkg); ce.What != "the runtime" && len(directive) > 0 {
+				flags = append(flags, "the compile flags of the package's //gocpp: directives: "+strings.Join(directive, " "))
 			}
 			for _, v := range []struct {
 				name  string

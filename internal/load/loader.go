@@ -103,6 +103,11 @@ type Config struct {
 	// that a load sees what the snapshot sees, also what decides how the
 	// imports resolve (which folders exist, which gocpp.mod files).
 	FS FileSystem
+
+	// ModuleDir, if not nil, gives the folder of a required module that is
+	// neither replaced by a local folder nor vendored (see moddir.go). If it
+	// is nil, Load uses the default, which downloads nothing yet.
+	ModuleDir ModuleDirFunc
 }
 
 // A FileSystem is what Load reads the files on disk with (Config.FS). The
@@ -269,6 +274,15 @@ type Package struct {
 	// and the loader never changes it (Config.Deps).
 	summary bool
 
+	// IncludeDirs are the folders that the C++ compiler needs for the module
+	// headers that the package imports (Include.File): the root folder of
+	// each module with such a header, in the order of the imports, each
+	// once. The build passes them as -iquote to the compiles and to the probes
+	// (build.ReadPackageFlags adds them to the compile flags), so that a
+	// header finds the headers of its library that it includes by their
+	// names in the module ("imconfig.h", "backends/x.h").
+	IncludeDirs []string
+
 	// main is the main module of the program, for a package that is not
 	// in it (a package of a required module): its require and replace
 	// lines say where every import goes. It is nil for a root, whose
@@ -406,6 +420,11 @@ type Module struct {
 	// Vendored is true for a module that comes from the vendor folder of
 	// the main module.
 	Vendored bool
+
+	// cached is true for a module whose folder moduleDir gave (Config.ModuleDir,
+	// moddir.go): like a vendored module, it needs no gocpp.mod file, and
+	// the gocpp.mod files above its folder are not its own.
+	cached bool
 
 	// file is the parsed gocpp.mod, or nil: for a vendored module, when
 	// the file can't be read, and for a Module that Config.Deps or a
@@ -1254,6 +1273,7 @@ func (l *loader) process(p *Package) {
 	for _, f := range p.Files {
 		f.Info = ClassifyImports(l.fset, f.AST, pkgLevel, packageName, dotNames, p.Errors)
 	}
+	l.moduleHeaders(p) // moduleheader.go
 
 	// The errors of the imports, once for each path, at its first import
 	// that ClassifyImports took as a gocpp package, like the go command.

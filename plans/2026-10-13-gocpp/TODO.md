@@ -69,6 +69,10 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 
 - [ ] testify (Phase 09 §2.7): a gocpp drop-in with testify's API first, or wait until the real module compiles? Fuzzing (`testing.F`) and `-cover` into the plan proper?
 
+- [ ] Module headers: symlinks inside a DOWNLOADED (cached) module are followed by the loader: add EvalSymlinks + prefix check against the module dir for cached modules once 6.1c merges (6.1c rejects links at extraction, so low risk).
+
+- [ ] Module headers: Windows reserved device names (`con.h`, `aux.h`, `nul.h`) are not rejected by the path check (modules.md, "Limits"); reject them with the Windows work (Phase 14).
+
 - [ ] C/C++ modules (Phase 06 §2.11): a shared recipe index? an opt-in CMake fallback for big libraries? download them before Phase 15?
 
 - [ ] Operator overloading or destructors for gocpp types? Go has neither; revisit after v0.1.

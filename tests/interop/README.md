@@ -48,6 +48,15 @@ folder, so the folder's C and C++ files are compiled and linked. [helper_pair/](
 built. The `// phase:`, `// Output:` and `// ERROR`
 lines are those of `main.gp`; the other files of the folder are not tests.
 
+[module_header_own/](module_header_own), [module_header_required/](module_header_required) and
+[module_header_vendor/](module_header_vendor) and [module_header_plain/](module_header_plain) are the **module header** tests (Phase 06 step 6.1b): each
+folder has a `gocpp.mod`, and `main.gp` imports headers by a module path
+(`"example.com/headers/native/counter.hpp"`: a header of the project's own module; a required module
+replaced by `third_party/mathlib`; a required module in `vendor/`; a replace to a plain C++ repository with no
+`gocpp.mod`). The first two have a `string.h` at the module root (an `#error`) that must not hide the
+system's. The headers include each other by
+names inside their module, which works because the module's folder is on the include path.
+
 A header that a test includes from this folder (`"./helper.h"`) lives next to it; files that
 are not `.gp` files are not tests. Libraries such as SDL can write to stderr; say so with a
 `// Stderr:` line, because without one stderr must be empty.

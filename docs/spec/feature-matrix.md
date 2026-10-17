@@ -55,6 +55,7 @@ string, conversions between number types, the built-in functions
 | C types and helpers | 04 | `C.int`, `C.size_t`, `C.CString`, `C.free`, `C.cstr`, `C.GoString`, `C.GoStringN`, `C.GoBytes`. |
 | `//gocpp:` directives | 04 | `//gocpp:pkg-config`, `link`, `cflags`, `ldflags`, `extern-c`, `no-extern-c`. |
 | functions without a body | 04 | Native functions: the body is in a C or C++ file of the package. |
+| module headers | 04 | `import "github.com/ocornut/imgui/imgui.h"`, and `import "<own module>/native/x.h"` for a header in the project. |
 | interfaces | 05 | Interface types, conversions to them, interface embedding. |
 | any values | 05 | Exemption: the `...any` parameters of `fmt.Print`, `fmt.Println` and `fmt.Printf` take values of basic types from Phase 02, and those of `fmt.Sprint`, `fmt.Sprintf` and `fmt.Sprintln` from Phase 03. A `nil` argument needs Phase 05. |
 | error values | 05 | The `error` type. Exemption: a call of `fmt.Print`, `fmt.Println` or `fmt.Printf` as a statement, which drops its results, works from Phase 02; using the results needs Phase 05. |
@@ -64,7 +65,6 @@ string, conversions between number types, the built-in functions
 | panic with a value of a non-basic type | 05 | `panic(err)`, `panic(myStruct)`. |
 | programs of more than one package | 06 | Importing packages of your module (`gocpp.mod`). The standard packages are fine. |
 | `//export` functions | 06 | Functions that C code can call (`-buildmode=c-archive`, `c-shared`). |
-| module headers | 06 | `import "github.com/ocornut/imgui/imgui.h"`. |
 | generics | 07 | Generic functions and types, generic aliases, constraints with type sets, instantiating generic standard functions. Exemption: `weak.Pointer[T]` from Phase 03. |
 | range over functions | 07 | Iterators: `iter.Seq`, `iter.Seq2`. |
 | go statements | 08 | One OS thread per goroutine (divergence D7). |

@@ -248,7 +248,7 @@ func (g *gateChecker) checkImports(f *load.File) {
 		for _, inc := range info.Includes {
 			end := inc.Pos + token.Pos(len(inc.Path)+2)
 			g.feature(featHeaderImports, inc.Pos, end)
-			if inc.Kind == load.LocalHeader && isModuleHeader(inc.Path) {
+			if inc.Kind == load.LocalHeader && load.IsModuleHeaderPath(inc.Path) {
 				g.feature(featModuleHeaders, inc.Pos, end)
 			}
 		}
@@ -273,17 +273,6 @@ func (g *gateChecker) checkImports(f *load.File) {
 			g.report(spec.Path.Pos(), spec.Path.End(), pkgMessage(path, phase), phase)
 		}
 	}
-}
-
-// isModuleHeader reports whether the local header path is a module header
-// (Phase 06 README §2.11): its first element has a dot, and it is not
-// relative ("./x.h", "../x.h").
-func isModuleHeader(path string) bool {
-	if strings.HasPrefix(path, ".") {
-		return false
-	}
-	first, _, _ := strings.Cut(path, "/")
-	return strings.Contains(first, ".") && strings.Contains(path, "/")
 }
 
 // checkComments finds the //go: lines that gocpp code can't use.

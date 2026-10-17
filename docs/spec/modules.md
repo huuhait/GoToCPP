@@ -147,16 +147,18 @@ replace example.com/vecs v1.0.0 => /home/me/src/vecs     // absolute
 
 A folder is absolute or starts with `./` or `../` (`.` and `..` too; the Windows spellings `.\`,
 `C:\...` are read, too, but write `/` in a `replace` path so that the file works on every system:
-`..\x` is not a path on Linux). The folder must exist, have a `gocpp.mod` file, and that file must declare
+`..\x` is not a path on Linux). The folder must exist. If it has a `gocpp.mod` file, that file must declare
 the replaced module path: `module github.com/huuhait/mathx is replaced by ../other, but the gocpp.mod
-there declares its path as example.com/other`. The folder is checked when a package imports the
+there declares its path as example.com/other`. A folder **without** `gocpp.mod` is accepted: a git
+clone of a plain C or C++ library is the module of the `replace` line, with its headers and any `.gp`
+packages in it (the usual way to work on a library locally). The folder is checked when a package imports the
 module, so a stale `replace` does not break a build that does not use it. `gocpp list` (step 6.12) will
 check them all, with `load.ListModules`.
 
 A `replace` line with a version replaces only that version of the module; one without a version
 replaces every version, and the more specific line wins. A replacement that is another module with a
-version (`replace a => b v1.0.1`) is read, but cannot be used: gocpp can not download it yet. The error
-says so.
+version (`replace a => b v1.0.1`) is read, but cannot be used until the module downloads exist: gocpp can not
+download it yet. The error says so.
 
 A package of a replaced module has the replaced module as its module, with the version of the
 `require` line.
@@ -213,17 +215,89 @@ in Phase 11 (TODO.md):
 - In a vendored project, the language server loads the vendored packages by their folders under
   `vendor/`. The loader now gives them the import path of the vendored module (see above), and a trial
   of the cache with such a project showed no error of its own, but no test of the server covers it.
+- Module headers: a header of the package's own module resolves in the editor (go to definition opens the
+  file); a header of a required module has the first limit above. The server needs no setting for it: it
+  uses the loader, with the files of its snapshot, and the `-iquote` folders reach its probes through the flags of
+  the package.
 
-## Module headers (not yet)
+## Module headers
 
-[Phase 06 §2.11](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#211-c-and-c-libraries-from-the-internet-your-decision-2026-10-13)
-plans imports of headers by the full path of a module (`"github.com/ocornut/imgui/imgui.h"`). That is
-not implemented: such an import is a local header, as before, whatever `require` and `replace` lines
-the module has. Quoted local headers (`"./x.h"`, `"native/y.hpp"`), system headers (`<vector>`) and
-namespaces (`::std::filesystem`) are not affected by `gocpp.mod` at all.
+A C or C++ header is imported by the full path of the module that has it, like a package. A quoted
+import whose **first path element has a dot** (a domain, as in Go's module paths) and that ends in a
+header extension (`.h .hpp .hh .hxx .h++ .inl`) is a **module header**:
+
+```go
+import (
+	"github.com/huuhait/game/native/physics.h"   // native/physics.h in this project's own module
+	"github.com/ocornut/imgui/imgui.h"           // imgui.h in a required module (package imgui)
+	"./local.h"                                  // next to the .gp file: not a module header
+	"native/x.hpp"                               // next to the .gp file too: no dot in "native"
+)
+```
+
+- **Which module.** Of the package's own module (`module github.com/huuhait/game` in `gocpp.mod`) and
+  the modules that the main module requires, the one with the longest module path that is a prefix of the
+  import path names the module, as for packages ([Import path to folder](#import-path-to-folder)); the
+  rest of the path is the file in the module's folder. The own module needs no `require`
+  (`github.com/huuhait/game/native/physics.h` is `native/physics.h` in the module root, from any
+  package of the module). A required module is found like a package's module: `vendor/` if the project
+  is vendored, else its `replace` folder, else the download hook (a stub for now: `gocpp can't download
+  modules yet`). A required module needs no `gocpp.mod` file: a plain C or C++ repository works
+  as a `replace` folder, a vendored module or a downloaded one; if the replacement folder has a
+  `gocpp.mod`, its `module` line must match.
+- **The name** of the header package is the file name, as for every header (`imgui.h` is `imgui`,
+  `imgui_impl_glfw.h` is `imgui_impl_glfw`, `my-lib.h` is `my_lib`), and `rl "github.com/.../raylib.h"`
+  renames it.
+- **Not a module header:** `"./x.h"`, `"../x.h"` and any path whose first element has no dot
+  (`"native/x.h"`, `"x.h"`) stay headers of the package folder, whatever `gocpp.mod` says. A header
+  in a folder with a dot in its name is written `"./third.party/x.h"`. System headers (`<vector>`) and
+  namespaces (`::std::filesystem`) are not affected either.
+- **The C++ include** has the absolute name of the file (`#include "/src/game/native/physics.h"`), so
+  the compiler finds exactly that file and a header of the same name in the package folder or in another
+  module can't take its place (`gocpp emit` shows that absolute name, so the C++ of two machines differs there). The module's folder is also an `-iquote` folder of the compiles and of the
+  probes of the package, so the headers of a library can include each other by their names in the
+  library with quotes (`"imconfig.h"` next to it, `"backends/x.h"` or `"imgui.h"` from a sub-folder; the package folder is searched before the module's folder, so a file of the package with the same name as a root-relative include of the library is found first). It
+  is `-iquote`, not `-I`, on purpose: a file of the module named like a system header (`string.h`,
+  `time.h`, `assert.h`) must not hide `<cstring>` or `<string.h>`. The headers that a library wants found
+  as `<x.h>` need the `include` folders of its recipe (step 6.1d, which can use `-I` or `-isystem`). The flags of the module's own
+  `gocpp.mod` (`cflags`, `pkg-config`, the `include` folders of a `cxx` recipe) are not applied yet:
+  recipes come with step 6.1d, and the allow-list rule for the flags of a dependency is an open point.
+  `//gocpp:cflags` of the package still works.
+- **`extern "C"`.** A module header is decided like a local one: a `.h` header that has no
+  `__cplusplus` guard and compiles as C is included inside `extern "C" { }`; `//gocpp:extern-c
+  github.com/ocornut/imgui/imgui.h` and `//gocpp:no-extern-c` name it by the import path as written.
+- **Errors**, at the import:
+
+  | Import | Message |
+  |---|---|
+  | no module has the path | `no required module provides header example.net/x/y.h; add the module that has it to gocpp.mod with a require line, check the path for a typo, or for a header in a folder of the package write "./example.net/x/y.h"` (`...: gocpp.mod file not found in DIR or any parent directory` outside every module; a `replace` without `require` says what to add) |
+  | file not in the own module | `header example.com/app/native/x.h is not in module example.com/app (/src/app/native/x.h)` |
+  | file not in a required module | `module example.org/lib@v1.0.0 found (/src/lib), but does not contain header example.org/lib/x.h` |
+  | module not available | `header example.org/lib/x.h: module example.org/lib@v1.0.0 is required, but is not available: gocpp can't download modules yet (replace it with a local folder: ..., or vendor it)` |
+  | the path is a folder | `header example.org/lib/x.h (/src/lib/x.h) is a folder, not a file` |
+  | a bad path element | `invalid header path "example.org/lib/../../etc/passwd.h": path element ".." is not allowed (a module header is inside its module)`; also an empty element (`a//b.h`), `.`, an element with `:` (a drive letter or a stream name), one that ends in a dot or a space |
+  | `\` in the path | `invalid header path "...": use / in header paths` |
+
+  The path is checked as text before any file is looked at, so a header outside its module (`..`, an
+  absolute path after the module path) is rejected. gocpp follows symbolic links, and a link in the module can lead out of it
+  (`native/leak.h -> /outside/file.h` is accepted and read by the compiler): that is the user's own choice for
+  the own, replaced and vendored modules. Links inside downloaded modules are rejected when the archive is
+  extracted (step 6.1c).
+- **Limits.** A folder with its own `gocpp.mod` inside the own or a required module is accepted for
+  headers (the module is chosen by the path prefix only; packages reject such a folder). The same file
+  named by two spellings (two import paths, or a symbolic link) is included twice (include guards or
+  `#pragma once` decide). Windows reserved device names (`con.h`, `aux.h`) are not rejected.
+- **Single package for now.** A program is still one package until step 6.2: the headers work from the
+  main package, and the loader resolves them from every package.
 
 ## For tools
 
+- `load.Include.File` and `Include.Module` are set for a module header; `Include.IncludeText()` is the
+  text after `#include`; `load.IsModuleHeaderPath` is the shape rule; `Package.IncludeDirs` are the
+  folders of the modules whose headers a package imports (`build.ReadPackageFlags` makes them `-iquote`).
+- `load.Config.ModuleDir` (default: `moduleDir`, internal/load/moddir.go) is the one place that gives the
+  folder of a required module that is neither replaced by a local folder nor vendored; the module
+  downloads (step 6.1c) provide it.
 - `load.FindModule(dir)` is the module of a folder; `Module.File()` is its parsed `gocpp.mod`
   (`gocppmod.File`, with the syntax tree for tools that edit it).
 - `load.ListModules(cfg, dir)` lists the required modules with the folder of each, whether it is

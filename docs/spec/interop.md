@@ -77,13 +77,16 @@ Source: [Phase 04 §2.1](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/READM
 | `"fmt"`, `"myapp/engine"` | gocpp package | `#include "gpkg/…/pkg.hpp"` | `fmt.X`, `engine.X` |
 | `"<raylib.h>"`, `"<SDL2/SDL.h>"`, `"<cstdio>"`, `"<vector>"` | system header | `#include <raylib.h>` | a package named after the file: `raylib.X`, `SDL.X`, `cstdio.X` |
 | `"./physics.h"`, `"native/x.hpp"` (the path ends in `.h .hh .hpp .hxx .h++ .inl`) | local header (looked up next to the `.gp` file, then in the include directories) | `#include "…"` | `physics.X`, `x.X` |
+| `"github.com/huuhait/game/native/x.h"`, `"github.com/ocornut/imgui/imgui.h"` (first element has a dot, ends in a header extension) | module header: a file of the project's own module or of a required module ([Module headers](modules.md#module-headers)) | `#include "/abs/path/to/x.h"`, the module's folder is `-iquote` | `x.X`, `imgui.X` |
 | `rl "<raylib.h>"`, `_ "<GL/gl.h>"` | a header with a name you choose, or with no name | as above | `rl.X`, or no name |
 | `fs "::std::filesystem"` | a C++ namespace with a new name (optional) | nothing (it is just a name) | `fs.path` → `::std::filesystem::path` |
 | `"::std"` (no name) | an error: namespaces need no import | — | the message says: use `std.X` directly, or rename it: `import cstd "::std"` |
 
 No new syntax is needed: the shape of the import path says what it is. A path in `<...>` is a
 system header. A path that ends in `.h`, `.hh`, `.hpp`, `.hxx`, `.h++` or `.inl` is a local
-header. A path that starts with `::` is a namespace. Every other path is a gocpp package, but a
+header, or, when its first element has a dot (`github.com/...`), a module header, which names a file in
+a module like a Go import names a package: the longest module path that is a prefix says which module,
+the project's own module included. A path that starts with `::` is a namespace. Every other path is a gocpp package, but a
 path that starts with `./` or `../` must be a header.
 
 ### Header packages and their names
@@ -136,6 +139,33 @@ import (
 - C++ has only one global namespace, so a C-level name compiles through any header package:
   `raylib.printf` works when `<stdio.h>` is included somewhere. That is harmless; typed interop
   (Phase 12) knows which header declares what and turns it into a warning.
+
+### Module headers
+
+```go
+import (
+	"github.com/huuhait/game/native/physics.h"  // physics.h in this project (module github.com/huuhait/game)
+	"github.com/ocornut/imgui/imgui.h"          // a header of a required module
+)
+```
+
+A module header is a header package like any other (the name is the file name; `extern "C"`, the
+probes and the namespaces work as for a local header), with these differences
+([the full rules and messages](modules.md#module-headers)):
+
+- The module's folder is found like the folder of a package: the project's own module needs no `require`,
+  a required module comes from `vendor/`, its `replace` folder, or (later) the module cache.
+- The `#include` has the **absolute name of the file**, so the C++ compiler takes exactly that file, and the
+  folder of the module is an `-iquote` folder of the build and of every probe (the kind, namespace and macro
+  probes and the C header check run with it, and their cache keys have it). A library's headers then include
+  each other by their own names in quotes (`#include "imconfig.h"` in `imgui.h`, `#include "imgui.h"` in
+  `backends/imgui_impl_glfw.h`). It is `-iquote` and not `-I`, so a `string.h` or `time.h` at the module root
+  never hides the system header for `<cstring>`; a library that wants `<imgui.h>` to work needs the `include`
+  folders of its recipe (step 6.1d).
+- The `include` folders, defines and `pkg-config` packages of a library's recipe, and the flags in the
+  `gocpp.mod` of a dependency, are **not** applied yet. Use `//gocpp:cflags` and `//gocpp:pkg-config` in the
+  package for now.
+- `"./x.h"` and `"native/x.h"` are unchanged: next to the `.gp` file.
 
 ### Namespaces are packages
 
@@ -1476,7 +1506,10 @@ Which headers get the block:
 
 A directive names the header as the import does: `<lua.h>`, or the path of a local header. The
 path is cleaned first, so `./legacy.h`, `legacy.h` and `sub/../legacy.h` are the same header. The
-directives of all the files of a package count for all its imports.
+directives of all the files of a package count for all its imports. A module header
+([Module headers](#module-headers)) is named by its full import path
+(`//gocpp:extern-c github.com/lib/x/api.h`), and the default rules treat it like a local header: the C
+header check runs with the module's folder as `-iquote`.
 
 The guard test is simple on purpose: it looks for the word `__cplusplus` in the header's own
 text. So a header whose guard is in a header that it includes (a `config.h` with a

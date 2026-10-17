@@ -19,11 +19,13 @@ import (
 //
 //   - in vendor/<module path> of the main module, if vendor/modules.txt
 //     exists (then it must match gocpp.mod: gocppmod.CheckVendor), or else
-//   - in the folder of its replace line, which must hold a gocpp.mod file
-//     for the same module path.
+//   - in the folder of its replace line. If a gocpp.mod file is there, it
+//     must be for the same module path; a folder without one (a plain C or
+//     C++ repository) is the module as it is.
 //
-// Nothing is downloaded: a required module with neither is an error that
-// says so. There is no version selection yet, so only the main module's own
+// Nothing is downloaded by the loader itself: a required module with neither
+// is asked of the download hook (moddir.go), which is a stub that says "can't
+// download modules yet" until job 6.1c. There is no version selection yet, so only the main module's own
 // require and replace lines count: the lines of a required module's gocpp.mod
 // are read (its module line, its errors) but not followed.
 
@@ -111,7 +113,7 @@ func (l *loader) inRequired(from *Package, req *gocppmod.Require, path string) (
 	if !l.isDir(dir) {
 		return location{}, fmt.Sprintf("module %s@%s found (%s), but does not contain package %s", req.Path, req.Version, mod.Dir, path)
 	}
-	if m := l.module(dir); !mod.Vendored && (m == nil || m.Dir != mod.Dir) {
+	if m := l.module(dir); !mod.Vendored && !mod.cached && (m == nil || m.Dir != mod.Dir) {
 		// A gocpp.mod file inside the module: the package is in another
 		// module, which is not required.
 		return location{}, "no required module provides package " + path
@@ -146,12 +148,23 @@ func (l *loader) resolveRequire(main *Module, req *gocppmod.Require) (*Module, s
 	}
 	rep := replacement(main.file, req)
 	if rep == nil {
-		return nil, fmt.Sprintf("module %s@%s is required, but is not available: gocpp can't download modules yet "+
-			"(replace it with a local folder: replace %s => ../dir, or vendor it)", req.Path, req.Version, req.Path)
+		// Neither vendored nor replaced: the download hook (moddir.go).
+		mod, err := l.downloadedModule(req.Path, req.Version,
+			fmt.Sprintf(" (replace it with a local folder: replace %s => ../dir, or vendor it)", req.Path))
+		if err != nil {
+			return nil, fmt.Sprintf("module %s@%s is required, but is not available: %v", req.Path, req.Version, err)
+		}
+		return mod, ""
 	}
 	if !rep.Local() {
-		return nil, fmt.Sprintf("module %s is replaced by %s@%s, which is not a local folder: gocpp can't download modules yet",
-			req.Path, rep.NewPath, rep.NewVersion)
+		mod, err := l.downloadedModule(rep.NewPath, rep.NewVersion, "")
+		if err != nil {
+			return nil, fmt.Sprintf("module %s is replaced by %s@%s, which is not a local folder: %v",
+				req.Path, rep.NewPath, rep.NewVersion, err)
+		}
+		// The files of the replacement are the module req.Path of the program.
+		mod.Path, mod.Version = req.Path, req.Version
+		return mod, ""
 	}
 	dir := filepath.FromSlash(rep.NewPath)
 	if !filepath.IsAbs(dir) {
@@ -162,7 +175,10 @@ func (l *loader) resolveRequire(main *Module, req *gocppmod.Require) (*Module, s
 	case !l.isDir(dir):
 		return nil, fmt.Sprintf("module %s is replaced by %s, but the replacement folder %s does not exist", req.Path, rep.NewPath, dir)
 	case !l.hasModFile(dir):
-		return nil, fmt.Sprintf("module %s is replaced by %s, which has no %s file", req.Path, rep.NewPath, modFile)
+		// A plain C or C++ repository (a git clone of a library) has no
+		// gocpp.mod: its folder is the module req.Path, like a vendored or
+		// downloaded one.
+		return &Module{Path: req.Path, Dir: dir, Version: req.Version, cached: true}, ""
 	}
 	mod := l.module(dir)
 	switch {

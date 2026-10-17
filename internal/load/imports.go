@@ -86,6 +86,35 @@ type Include struct {
 	// Spec is the import that the header comes from, which step 1.8
 	// drops from the AST.
 	Spec *ast.ImportSpec
+
+	// Module is the module that has the header, and File the absolute name
+	// of the header file (slash-separated), for a module header: a local
+	// header whose path starts with a module path, such as
+	// "github.com/ocornut/imgui/imgui.h" (IsModuleHeaderPath). The loader
+	// sets them (module headers, moduleheader.go); ClassifyImports does
+	// not know the modules. Both are zero for every other header.
+	Module *Module
+	File   string
+}
+
+// Target returns the file name of the header as the #include line and the
+// probes write it: the absolute File of a module header, else Path. For a
+// system header it is the path with its <>, which the caller takes off.
+func (inc *Include) Target() string {
+	if inc.File != "" {
+		return inc.File
+	}
+	return inc.Path
+}
+
+// IncludeText returns the text after #include for the header: <vector> for a
+// system header, "./physics.h" for a local one and "/home/me/p/native/x.h"
+// (the absolute File) for a module header.
+func (inc *Include) IncludeText() string {
+	if inc.Kind == LocalHeader {
+		return `"` + inc.Target() + `"`
+	}
+	return inc.Path
 }
 
 // A HeaderKind says how a header is included.
@@ -99,7 +128,10 @@ const (
 	// LocalHeader is a path that ends in .h, .hh, .hpp, .hxx, .h++ or
 	// .inl: "./physics.h", "native/x.hpp", "../shared/x.h". It is looked
 	// up next to the .gp file, then in the include folders (Phase 04), and
-	// becomes #include "./physics.h".
+	// becomes #include "./physics.h". A path whose first element has a
+	// dot ("github.com/ocornut/imgui/imgui.h") is a module header: the
+	// loader looks it up in the module whose path starts it, and the
+	// #include has the absolute name of the file (Include.File).
 	LocalHeader
 )
 
@@ -791,6 +823,20 @@ func isLocalHeader(p string) bool {
 		}
 	}
 	return false
+}
+
+// IsModuleHeaderPath reports whether the local header path p (without
+// quotes) is a module header (Phase 06 README §2.11): a path whose first
+// element has a dot, like the domain at the start of a module path, with
+// more elements after it, that is not relative ("./x.h", "../x.h", ".h/x.h").
+// "native/x.h" and "x.h" are local headers of the package folder. The
+// extension is not checked: ClassifyImports does that.
+func IsModuleHeaderPath(p string) bool {
+	if strings.HasPrefix(p, ".") {
+		return false
+	}
+	first, rest, ok := strings.Cut(p, "/")
+	return ok && rest != "" && strings.Contains(first, ".")
 }
 
 // isSourceFile reports whether the path p ends in the extension of a C or

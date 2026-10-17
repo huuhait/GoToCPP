@@ -273,7 +273,7 @@ func (g *gen) includes() []cppir.Decl {
 	var list []cppir.Decl
 	for _, ui := range unitIncludes(g.pkg.Load, g.pkg.ExternC) {
 		_, externC := interop.SplitExternC(ui.text)
-		inc := &cppir.Include{Pos: g.pos(ui.inc.Pos), Path: ui.inc.Path, ExternC: externC}
+		inc := &cppir.Include{Pos: g.pos(ui.inc.Pos), Path: ui.inc.Target(), ExternC: externC}
 		if ui.inc.Kind == load.SystemHeader {
 			inc.Path, inc.System = strings.TrimSuffix(strings.TrimPrefix(ui.inc.Path, "<"), ">"), true
 		}

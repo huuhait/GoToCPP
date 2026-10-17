@@ -83,6 +83,7 @@ const (
 	featCNames
 	featDirectives
 	featNativeFuncs
+	featModuleHeaders
 
 	// Phase 05.
 	featInterfaces
@@ -96,7 +97,6 @@ const (
 	// Phase 06.
 	featMultiPackage
 	featExport
-	featModuleHeaders
 
 	// Phase 07.
 	featGenerics
@@ -243,6 +243,9 @@ var features = [numFeatures]feature{
 	{id: featNativeFuncs, Name: "functions without a body", Plural: true, Phase: 4,
 		Detect: "a func declaration without a body",
 		Notes:  "Native functions: the body is in a C or C++ file of the package."},
+	{id: featModuleHeaders, Name: "module headers", Plural: true, Phase: 4,
+		Detect: "a local header import whose first path element has a dot (load.IsModuleHeaderPath)",
+		Notes:  "`import \"github.com/ocornut/imgui/imgui.h\"`, and `import \"<own module>/native/x.h\"` for a header in the project."},
 
 	{id: featInterfaces, Name: "interfaces", Plural: true, Phase: 5,
 		Detect: "an interface type with methods or embedded interfaces",
@@ -271,9 +274,6 @@ var features = [numFeatures]feature{
 	{id: featExport, Name: "//export functions", Plural: true, Phase: 6,
 		Detect: "an //export line in the doc comment of a func",
 		Notes:  "Functions that C code can call (`-buildmode=c-archive`, `c-shared`)."},
-	{id: featModuleHeaders, Name: "module headers", Plural: true, Phase: 6,
-		Detect: "a local header import whose first path element has a dot",
-		Notes:  "`import \"github.com/ocornut/imgui/imgui.h\"`."},
 
 	{id: featGenerics, Name: "generics", Plural: true, Phase: 7,
 		Detect: "type parameters (FuncType, TypeSpec), info.Instances, type sets and comparable",
