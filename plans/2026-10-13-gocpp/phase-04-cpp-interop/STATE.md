@@ -22,7 +22,7 @@
 - [x] 4.13 Compile + link package `.c/.cc/.cpp/.cxx` sources
 - [x] 4.14 `extern "C"` rule (parse-as-C, `.hpp` not wrapped by default, `//gocpp:extern-c <hdr>`, `no-extern-c`, the §2.9 error cases)
 - [x] 4.15 Directives → flags (`pkg-config`, `link`, `cflags`, `ldflags`) + the flag allow-list (port Go's security.go tables, `GOCPP_*_ALLOW`); tests use a test-only library with its own `.pc` (the dev shell hides missing flags)
-- [ ] 4.16 Local helper headers used as packages (replaces the preamble) + `C` helpers (`C.free`)
+- [x] 4.16 Local helper headers used as packages (replaces the preamble) + `C` helpers (`C.free`)
 - [x] 4.17 Interop error reporting (`.gp` line mapping, trimming, `-cpperrors=full`)
 - [ ] 4.18 Tests
   - [ ] ≥ 40 interop run tests
@@ -296,3 +296,14 @@
   times (about 3^d growth for closures nested d deep); `std.map[int,int]{k: 3}` with a variable key is read as a
   field designator by the emitter (pre-existing, not 4.7). Full Phase 04 examples still wait for 4.8, 4.10 and
   4.11.
+- 2026-10-17: Job 4.16 merged as b72404c after a clean round-3 review. Most of it already worked after 4.9, 4.13
+  and 4.14 (a local .h/.hpp with or without a .c/.cpp next to it is a package; edits are picked up on the next
+  build with the object cache on), so it adds folder tests in the interop harness (an interop test can be a folder
+  with main.gp run as `gocpp run .`), eight tests (helper_header, helper_pair, helper_c_pair, helper_h_cpp_pair,
+  helper_h_cpp_guards, helper_h_cpp_error, helper_sources, helper_pair_error) plus tests/errors/import_c_preamble,
+  the docs ("Small helpers"), and a link-error hint for the one real gap the review found: a `.h` that parses as C
+  is wrapped in extern "C" for the generated code, but the package's own `.cpp` includes it unwrapped, so a
+  `.h` + `.cpp` pair does not link (fix: `//gocpp:no-extern-c ./x.h` or guards in the header; the hint fires only
+  when an undefined symbol is in that .cpp and the file has no extern "C"). The automatic extern "C" decision is
+  unchanged; whether a `.h` with a same-stem `.cpp` should be treated as C++ automatically is a TODO question.
+  `C.free(unsafe.Pointer(p))` and `(*C.char)(malloc(..))` still wait for 4.10.
