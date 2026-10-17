@@ -1,6 +1,6 @@
 # Phase 04: C/C++ Interop (opaque) · STATE
 
-**Status:** `[~]` paused for server migration (4.7 remains unapproved WIP)
+**Status:** `[~]` in progress (4.6, 4.7 and 4.9 merged; 4.8, 4.10, 4.11, 4.16 and the closeout remain)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-16
 
@@ -12,7 +12,7 @@
 - [x] 4.4 Opaque value codegen (`auto`, `gp::deref`, calls, operators, constructors, `nil` → `nullptr`, untyped constants as C literals)
 - [x] 4.5 Template-vs-index rule (kind probe) + parenthesis escape
 - [x] 4.6 Composite literals of C/C++ types (positional, keyed via assignments, init lists)
-- [~] 4.7 `gp::range` (by-value temporaries, index walk with size read once) + `gp::values`
+- [x] 4.7 `gp::range` (by-value temporaries, index walk with size read once) + `gp::values`
 - [ ] 4.8 Opaque objects in closures/defers (boxed) + copy/move/default-construct policy + `gp::result_slot`
 - [x] 4.9 String boundary (`string_view` implicit, `std.string(s)` explicit, `gp::cstr` holder, `C.CString`, `C.GoString*`, `C.GoBytes`)
   - [x] typed helpers: front-end rewrites `C.GoString` & co. into the hidden `gocpp/cgoh` package
@@ -281,3 +281,18 @@
   job/04-4.7 at b3300cf, not merged or marked done. Its eight original findings passed independent probes
   and final-source CI passed, but service errors interrupted the additional literal-zero edge check and
   final approval. See ../HANDOFF.md. No later jobs, push or transfer were started.
+- 2026-10-16: Job 4.7 merged as 3a34afc after a clean round-3 review. The preserved WIP branch (job/04-4.7) came
+  back from the remote after the migration, so it was rebased onto 4.9 (one conflict: a header comment) rather
+  than redone. Review rounds: (1) a Clang-only regression, `x := lib.f(..., func literal capturing a Go local)`,
+  because the wrapper put the call in a lambda's default template argument; fixed by passing the result type from
+  outside the lambda; the literal-0 edge from the handoff was real (`for range lib.f(0)` with a `const char*`
+  parameter: the argument was hoisted into an int), fixed by leaving an untyped constant zero in place
+  (`nullConstant`; the cost is that a literal 0 is not retained for a function returning a reference into it);
+  unused range variables over C/C++ values are now reported (`unusedRangeVars`; a write counts as a use, and a
+  bare name used as a literal key counts as used: both documented false negatives); (2) round 2 found a false
+  "declared and not used" for a range variable used as a bare literal key, fixed with `namedAsKey`; (3) clean.
+  Manager reran make ci (802 s), staticcheck and all Phase 04 interop fixtures on GCC and Clang normally and with
+  ASan/UBSan: all exit 0. Known and accepted: the wrapper of an opaque `x := lib.f()` writes the call text three
+  times (about 3^d growth for closures nested d deep); `std.map[int,int]{k: 3}` with a variable key is read as a
+  field designator by the emitter (pre-existing, not 4.7). Full Phase 04 examples still wait for 4.8, 4.10 and
+  4.11.

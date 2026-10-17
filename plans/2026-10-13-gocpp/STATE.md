@@ -1,10 +1,9 @@
 # gocpp plan · STATE
 
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Current focus:** Paused for server migration. Phase 04: 4.6 and 4.9 merged and verified; 4.7 saved as unapproved WIP on job/04-4.7. Phases 00–03 and the Phase 11 editor v0 track are done. See [HANDOFF.md](HANDOFF.md) before resuming.
+**Current focus:** Phase 04: 4.6, 4.7 and 4.9 merged and verified; next 4.8, 4.10, 4.11 and 4.16, then the closeout (4.18/4.19). Phases 00–03 and the Phase 11 editor v0 track are done. See [HANDOFF.md](HANDOFF.md).
 **Last updated:** 2026-10-16
-**Pause boundary (user request, 2026-10-16):** finish the current batch (4.6, 4.7 and 4.9) through clean reviews, manager verification and commits, then stop before starting another job. Leave a handoff checkpoint for migration to the user's higher-core/RAM server. Do not push or transfer without their request.
-**Migration checkpoint:** [HANDOFF.md](HANDOFF.md) is current. All source changes are committed on dev or the explicitly unapproved job/04-4.7 branch. Resume only when the user asks; the interrupted 4.7 verification is not waived.
+**Migration:** done; the project runs on the larger server (128 cores, about 200 GB RAM). [HANDOFF.md](HANDOFF.md) says what is where.
 
 ---
 
