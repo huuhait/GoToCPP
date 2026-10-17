@@ -10,6 +10,8 @@
 // packages in dependency order whose ASTs are ready for go/types with
 // FakeImportC (step 1.10).
 //
-// Phase 01 reads only the module line of gocpp.mod. Phase 06 reads the rest
-// (require, replace) and adds vendor/.
+// The module file is read whole (package gocppmod): its require and replace
+// lines say where the packages of other modules are, a folder of their own
+// or vendor/ (modules.go; nothing is downloaded), and docs/spec/modules.md
+// describes it for users.
 package load

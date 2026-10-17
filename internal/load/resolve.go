@@ -8,10 +8,10 @@ import (
 	"io"
 	"io/fs"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/huuhait/gocpp/internal/diag"
+	"github.com/huuhait/gocpp/internal/load/gocppmod"
 )
 
 // CgohPath is the import path of the hidden package that the type checker
@@ -61,7 +61,7 @@ func (l *loader) resolve(from *Package, path string, at token.Position) (*Packag
 			return p, ""
 		}
 		p := l.newPackage(loc.importPath, loc.dir, loc.std, loc.mod)
-		p.at = at
+		p.at, p.main = at, from.mainModule()
 		g.byPath[loc.importPath] = p
 		return p, ""
 	}
@@ -79,7 +79,7 @@ func (l *loader) resolve(from *Package, path string, at token.Position) (*Packag
 		}
 	}
 	p := l.newPackage(loc.importPath, loc.dir, loc.std, loc.mod)
-	p.at = at
+	p.at, p.main = at, from.mainModule()
 	l.byPath[loc.importPath] = p
 	return p, ""
 }
@@ -132,16 +132,26 @@ func (l *loader) find(from *Package, path string) (location, string) {
 		// A standard package can import only standard packages.
 		return location{}, l.notInStd(path)
 	}
+	own := -1 // the length of the path of the module of from, if path is in it
 	if mod := from.Module; mod != nil && mod.Path != "" && inModule(path, mod.Path) {
+		own = len(mod.Path)
+	}
+	// A required module whose path is longer than the module's own is the
+	// one that has the package (Go: the longest module path wins).
+	if req := l.findRequire(from, path); req != nil && len(req.Path) > own {
+		return l.inRequired(from, req, path)
+	}
+	if own >= 0 {
+		mod := from.Module
 		dir := filepath.Join(mod.Dir, filepath.FromSlash(strings.TrimPrefix(path[len(mod.Path):], "/")))
 		if !l.isDir(dir) {
 			return location{}, fmt.Sprintf("package %s is not in module %s (%s)", path, mod.Path, dir)
 		}
-		if m := l.module(dir); m == nil || m.Dir != mod.Dir {
+		if m := l.module(dir); !mod.Vendored && (m == nil || m.Dir != mod.Dir) {
 			// A gocpp.mod file between dir and the module root: dir is in
-			// another module, which Phase 06 can require. The messages are
-			// go build's: for a pattern (from is no package then), and for
-			// an import.
+			// another module, which the main module must require. The
+			// messages are go build's: for a pattern (from is no package
+			// then), and for an import.
 			if from.ImportPath == "" {
 				return location{}, fmt.Sprintf("main module (%s) does not contain package %s", mod.Path, path)
 			}
@@ -157,8 +167,7 @@ func (l *loader) find(from *Package, path string) (location, string) {
 		return location{}, fmt.Sprintf("no required module provides package %s: "+
 			"gocpp.mod file not found in %s or any parent directory", path, from.Dir)
 	}
-	// Phase 06 adds the require lines of gocpp.mod.
-	return location{}, "no required module provides package " + path
+	return location{}, "no required module provides package " + path + l.replacedHint(from, path)
 }
 
 // notInStd returns the error for the import of a path that is not a
@@ -254,7 +263,7 @@ func (l *loader) module(dir string) *Module {
 		walked = append(walked, d)
 		name := filepath.Join(d, modFile)
 		if data, err := l.readAbs(name); err == nil {
-			mod = &Module{Path: l.readModFile(name, data), Dir: d}
+			mod = l.readModFile(name, d, data)
 			break
 		} else if fi, statErr := l.cfg.FS.Stat(name); statErr == nil && !fi.IsDir() {
 			l.prog.Errors.Errorf(token.Position{Filename: name}, "%s", err)
@@ -273,50 +282,29 @@ func (l *loader) module(dir string) *Module {
 	return mod
 }
 
-// readModFile returns the module path from the module line of the
-// gocpp.mod file name with the contents data, or "" after an error.
-// Phase 01 reads only this line; Phase 06 parses the rest of the file.
-func (l *loader) readModFile(name string, data []byte) string {
-	errAt := func(line int, format string, args ...any) {
-		l.prog.Errors.Add(diag.Diagnostic{Pos: token.Position{Filename: name, Line: line}, Msg: fmt.Sprintf(format, args...)})
+// readModFile reads the gocpp.mod file name with the contents data, and
+// reports its errors in Program.Errors, like the go command (file:line:
+// message). It returns the module of the file (its Path is "" after an
+// error in the module line).
+func (l *loader) readModFile(name, dir string, data []byte) *Module {
+	f, errs := gocppmod.Parse(name, data, func(p string) (bool, string) {
+		return checkImportPath(p) == "" && goImportPathOK(p) && !IsHeaderOrNamespace(p), ""
+	})
+	for _, e := range errs {
+		pos := token.Position{Filename: e.Filename, Line: e.Pos.Line}
+		if e.Pos.LineRune > 1 {
+			pos.Column = e.Pos.LineRune
+		}
+		l.prog.Errors.Add(diag.Diagnostic{Pos: pos, Msg: e.Err})
 	}
-	modPath, found := "", false
-	for i, line := range strings.Split(string(data), "\n") {
-		if c := strings.Index(line, "//"); c >= 0 {
-			line = line[:c]
-		}
-		fields := strings.Fields(line)
-		if len(fields) == 0 || fields[0] != "module" {
-			continue
-		}
-		if found {
-			errAt(i+1, "repeated module statement")
-			continue
-		}
-		found = true
-		if len(fields) != 2 {
-			errAt(i+1, "usage: module module/path")
-			continue
-		}
-		p := fields[1]
-		if strings.HasPrefix(p, `"`) || strings.HasPrefix(p, "`") {
-			u, err := strconv.Unquote(p)
-			if err != nil {
-				errAt(i+1, "invalid quoted string: %s", p)
-				continue
-			}
-			p = u
-		}
-		if checkImportPath(p) != "" || !goImportPathOK(p) || IsHeaderOrNamespace(p) {
-			errAt(i+1, "invalid module path %q", p)
-			continue
-		}
-		modPath = p
-	}
-	if !found {
+	if !f.HasModuleLine() && len(data) <= gocppmod.MaxFileSize {
 		l.prog.Errors.Errorf(token.Position{Filename: name}, "missing module declaration")
 	}
-	return modPath
+	mod := &Module{Dir: dir, file: f}
+	if f.Module != nil {
+		mod.Path = f.Module.Path
+	}
+	return mod
 }
 
 // A matcher decides which .gp files of a folder are in the package, by

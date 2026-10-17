@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/huuhait/gocpp/internal/diag"
+	"github.com/huuhait/gocpp/internal/load/gocppmod"
 	"github.com/huuhait/gocpp/internal/syntax/parser"
 	"github.com/huuhait/gocpp/internal/syntax/scanner"
 )
@@ -267,6 +268,22 @@ type Package struct {
 	// summary is set for a package that Summary made: it has no files,
 	// and the loader never changes it (Config.Deps).
 	summary bool
+
+	// main is the main module of the program, for a package that is not
+	// in it (a package of a required module): its require and replace
+	// lines say where every import goes. It is nil for a root, whose
+	// module is the main module.
+	main *Module
+}
+
+// mainModule returns the main module of the program that p is in: the
+// module of the root packages. Only its gocpp.mod file has the require and
+// replace lines that count (as in Go).
+func (p *Package) mainModule() *Module {
+	if p.main != nil {
+		return p.main
+	}
+	return p.Module
 }
 
 // Summary returns what a later Load needs of p when Config.Deps gives it,
@@ -367,16 +384,44 @@ type File struct {
 	Test bool
 }
 
-// A Module is a tree of packages with a gocpp.mod file at its top. Phase
-// 01 reads only the module line of gocpp.mod; Phase 06 reads the rest.
+// A Module is a tree of packages with a gocpp.mod file at its top. Module.File
+// has the parsed file; the build reads the module-wide settings from it
+// (docs/spec/modules.md).
 type Module struct {
 	// Path is the module path from the module line: example.com/app. It
 	// is "" if gocpp.mod has no valid module line (Program.Errors says
 	// why).
 	Path string
 
-	// Dir is the absolute folder that holds gocpp.mod.
+	// Dir is the absolute folder that holds gocpp.mod. For a vendored
+	// module (Vendored), it is the folder in vendor/ that holds its
+	// packages: a vendored module has no gocpp.mod file there.
 	Dir string
+
+	// Version is the version of a module that the main module requires,
+	// such as v1.2.3. It is "" for the main module, and for a module
+	// that no loaded package imports yet.
+	Version string
+
+	// Vendored is true for a module that comes from the vendor folder of
+	// the main module.
+	Vendored bool
+
+	// file is the parsed gocpp.mod, or nil: for a vendored module, when
+	// the file can't be read, and for a Module that Config.Deps or a
+	// disk cache made again. It is not part of the exported fields, so
+	// that a Module can be encoded (gob) as before.
+	file *gocppmod.File
+}
+
+// File returns the parsed gocpp.mod file of the module, or nil if the module
+// has none (a vendored module) or it could not be read. The caller must not
+// change it.
+func (m *Module) File() *gocppmod.File {
+	if m == nil {
+		return nil
+	}
+	return m.file
 }
 
 // commandLine is the import path of the .gp files named on the command
@@ -400,7 +445,9 @@ const commandLine = "command-line-arguments"
 // The import paths of a package are resolved like this: a path that has a
 // folder in Config.Stdlib is a standard package. Otherwise a path in the
 // module of the package (found by walking up from its folder to a
-// gocpp.mod file) is the folder of that name in the module. A package
+// gocpp.mod file) is the folder of that name in the module. A path in a
+// module that the main module requires is in the folder of its replace line
+// or in vendor/ (see modules.go; the longest module path wins). A package
 // without a module can import only standard packages, and so can a
 // standard package. Every package is loaded once, also when many packages
 // import it. "C", headers and namespaces are not packages: ClassifyImports
@@ -433,14 +480,20 @@ type loader struct {
 	fset     *token.FileSet
 	prog     *Program
 	match    *matcher
-	byPath   map[string]*Package // the importable packages, by import path
-	modules  map[string]*Module  // the module of each folder looked at (nil: none)
-	stdDirs  map[string]bool     // whether each path has a folder in Stdlib with .gp files
-	rootDirs map[string]bool     // the folders of the root packages
-	stack    []stackEntry        // the packages being loaded, from the root
-	graph    *testGraph          // the import graph of the test being loaded, or nil
-	state    map[*Package]loadState
-	all      []*Package // the packages, in the order they started loading
+	byPath   map[string]*Package       // the importable packages, by import path
+	modules  map[string]*Module        // the module of each folder looked at (nil: none)
+	vendors  map[string]*vendorState   // the vendor folder of each main module looked at (nil: none)
+	required map[string]resolvedModule // where each required module is (modules.go)
+
+	// patternMain is the main module while a root package that an import
+	// path names is made (loadImportPattern), else nil.
+	patternMain *Module
+	stdDirs     map[string]bool // whether each path has a folder in Stdlib with .gp files
+	rootDirs    map[string]bool // the folders of the root packages
+	stack       []stackEntry    // the packages being loaded, from the root
+	graph       *testGraph      // the import graph of the test being loaded, or nil
+	state       map[*Package]loadState
+	all         []*Package // the packages, in the order they started loading
 
 	// overlayDirs holds the base names of the files of Config.Overlay, by
 	// folder.
@@ -492,6 +545,8 @@ func newLoader(cfg Config) *loader {
 		match:    newMatcher(cfg.GOOS, cfg.GOARCH, cfg.Tags),
 		byPath:   make(map[string]*Package),
 		modules:  make(map[string]*Module),
+		vendors:  make(map[string]*vendorState),
+		required: make(map[string]resolvedModule),
 		stdDirs:  make(map[string]bool),
 		rootDirs: make(map[string]bool),
 		state:    make(map[*Package]loadState),
@@ -506,7 +561,12 @@ func newLoader(cfg Config) *loader {
 
 // newPackage returns a new package that is not loaded yet.
 func (l *loader) newPackage(importPath, dir string, std bool, mod *Module) *Package {
+	var main *Module
+	if l.patternMain != nil && l.patternMain != mod {
+		main = l.patternMain
+	}
 	return &Package{
+		main:       main,
 		ImportPath: importPath,
 		Dir:        dir,
 		Std:        std,
@@ -569,6 +629,12 @@ func (l *loader) loadPattern(pat string) {
 		return
 	}
 	mod := l.module(dir)
+	if vm, path := l.vendoredFolder(mod, dir); vm != nil {
+		l.patternMain = mod
+		l.loadRootAt(path, dir, false, vm)
+		l.patternMain = nil
+		return
+	}
 	importPath := commandLine
 	if mod != nil && mod.Path != "" {
 		// dir is in mod.Dir: module walked up from it.
@@ -592,7 +658,11 @@ func (l *loader) loadImportPattern(pat string) {
 		l.prog.Errors.Errorf(token.Position{}, "%s", msg)
 		return
 	}
+	// The package may be in a required module, but the main module is the
+	// one of Config.Dir: its gocpp.mod says where the imports go.
+	l.patternMain = from.Module
 	l.loadRootAt(loc.importPath, loc.dir, loc.std, loc.mod)
+	l.patternMain = nil
 }
 
 // loadRootAt loads the package in the folder dir as a root. Without Tests,

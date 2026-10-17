@@ -35,6 +35,17 @@ pkg-config sdl2
   (`vX.Y.Z`), a module cache in `$GOCPPMODCACHE`, hashes in `gocpp.sum`, and Go's minimal
   version selection.
 
+## Implementation note (Phase 06 step 6.1)
+
+The "small parser of our own" was chosen: `golang.org/x/mod` is not a requirement of the gocpp module,
+and the version that `golang.org/x/tools` needs (v0.35.0) is not in the offline module cache of the
+build machines (the newer ones would pull in a newer `x/tools` and `x/sync`). `internal/load/gocppmod`
+(about 1300 lines with the vendor list and its checks) reads `go.mod` syntax and does what the ADR asked of lax mode,
+with `replace` and the gocpp lines read as ordinary statements. It also reports every broken statement
+instead of stopping at the first one, keeps unknown statements and brace blocks, and writes the file
+back (`Format`). Switching to `x/mod/modfile` later is possible: the syntax tree is close to its shape.
+See [docs/spec/modules.md](../spec/modules.md).
+
 ## Alternatives
 
 - **A new module format** (rejected): one more format to learn, while `go.mod` syntax fits and

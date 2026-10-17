@@ -5,6 +5,7 @@
 | [language.md](language.md) | The language. gocpp is Go (go1.25) except for a short list of differences (D1–D21), plus three additions: header imports, `!` (must functions and must calls) and macros |
 | [cpp-mapping.md](cpp-mapping.md) | What the generated C++ looks like: types, names, files, functions, methods, structs, multiple results and package initialization |
 | [interop.md](interop.md) | Using C and C++ from gocpp: header packages and namespaces, `C`, name and type translation, strings and pointers at the boundary, callbacks, building C/C++ sources |
+| [modules.md](modules.md) | Modules: the `gocpp.mod` file, how the module of a folder is found, `require`, `replace` with local folders, `vendor/`, and how an import path becomes a folder |
 | [feature-matrix.md](feature-matrix.md) | Which phase brings each feature and standard package. Generated from the compiler's gate table, so it always matches what `gocpp check` accepts |
 
 The first three are **v0**: written in Phase 00 from the plan in
