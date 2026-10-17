@@ -59,7 +59,7 @@ func TestUserCXXErrors(t *testing.T) {
 				"                 from " + tRT + "/gocpp/ptr.hpp:89,\n" +
 				"                 from " + tGen + ":2:\n" +
 				"/usr/include/stdio.h:366:43: note: initializing argument 1 of 'int printf(const char*, ...)'\n",
-			want: []want{{7, "cannot convert 'gp::string' to 'const char*'", nil}},
+			want: []want{{7, "cannot convert 'gp::string' to 'const char*'" + cstrHint, nil}},
 		},
 		{
 			name: "clang: at a .gp line, with a note in the runtime",
@@ -68,7 +68,17 @@ func TestUserCXXErrors(t *testing.T) {
 				tRT + "/gocpp/string.hpp:77:5: note: candidate function\n" +
 				"/usr/include/stdio.h:366:43: note: passing argument to parameter '__format' here\n" +
 				"1 error generated.\n",
-			want: []want{{7, "no viable conversion from 'gp::string' to 'const char *'", nil}},
+			want: []want{{7, "no viable conversion from 'gp::string' to 'const char *'" + cstrHint, nil}},
+		},
+		{
+			name: "gcc: a gocpp string for a char* parameter (C.cstr gives a const char*)",
+			out:  tGP + ":7:14: error: cannot convert 'gp::string' to 'char*'\n",
+			want: []want{{7, "cannot convert 'gp::string' to 'char*'" + charPtrHint, nil}},
+		},
+		{
+			name: "clang: a gocpp string for a char* parameter",
+			out:  tGP + ":7:14: error: no viable conversion from 'gp::string' to 'char *'\n1 error generated.\n",
+			want: []want{{7, "no viable conversion from 'gp::string' to 'char *'" + charPtrHint, nil}},
 		},
 		{
 			name: "gcc: deep in a system header, the context kept for the next errors",
@@ -311,7 +321,7 @@ func TestCppErrors(t *testing.T) {
 		// The short report: exit 1, the error at the .gp line with the
 		// source line, and no work folder kept.
 		r := gocppRun("", false, "build", ".")
-		if !regexp.MustCompile(`^# command-line-arguments\n\./main\.gp:9: C\+\+: (cannot convert|no viable conversion from) 'gp::string' to 'const char ?\*'\n\tcstdio\.printf\(format\(\), 1\)\n$`).MatchString(r.stderr) ||
+		if !regexp.MustCompile(`^# command-line-arguments\n\./main\.gp:9: C\+\+: (cannot convert|no viable conversion from) 'gp::string' to 'const char ?\*' \(a gocpp string is no C string: pass C\.cstr\(s\), or C\.CString\(s\) for a copy that C keeps\)\n\tcstdio\.printf\(format\(\), 1\)\n$`).MatchString(r.stderr) ||
 			r.code != 1 {
 			t.Errorf("gocpp build = %+v, want exit 1 and the error at ./main.gp:9", r)
 		}

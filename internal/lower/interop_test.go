@@ -8,6 +8,7 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -331,8 +332,7 @@ func TestCGuard(t *testing.T) {
 		{"var h H; _ = &h.q", "& of C/C++ values other than variables (step 4.10)"},
 		{"var p *C.char; _ = p[1:]", "slicing C/C++ values (step 4.10)"},
 		{"var h H; w := func() int { return len(h.s) }; _ = w", "C/C++ values in closures (a func literal that uses h: step 4.8)"},
-		{"_ = string(lib.f())", "conversions of C/C++ values to string (step 4.9)"},
-		{"_ = (*C.char)(nil)", "conversions to this C/C++ type (steps 4.9 and 4.10)"},
+		{"_ = (*C.char)(nil)", "conversions to this C/C++ type (step 4.10)"},
 		{"lib.f(1, lib.g()...)", "... in a call of a C/C++ function"},
 		{"var v std.vector[int]; v.push_back(lib.g()...)", "... in a call of a C/C++ function"},
 		{"var v std.vector[int]; _ = append([]int{}, v...)", "append of C/C++ values"},
@@ -368,12 +368,87 @@ func TestCUserErrors(t *testing.T) {
 			"cannot use lib.f() (C/C++ value) as int value in assignment: convert it, int(lib.f())"},
 		{"gi(lib.f())", "cannot use lib.f() (C/C++ value) as int value in argument to gi: convert it, int(lib.f())"},
 		{"gs(std.string(\"x\"))",
-			`cannot use std.string("x") (C/C++ value) as string value in argument to gs: convert it, string(std.string("x")) (step 4.9)`},
+			`cannot use std.string("x") (C/C++ value) as string value in argument to gs: convert it, string(std.string("x"))`},
 		{"_ = ri", ""},
 		{"var p *lib.FILE; _ = uintptr(p)", "cannot convert p (C pointer) to type uintptr: use unsafe.Pointer (step 4.10)"},
 		{"var p *lib.FILE; _ = int(p)", "cannot convert p (C pointer) to type int: use unsafe.Pointer (step 4.10)"},
 		{"var p *lib.FILE; _ = C.int(p)", "cannot convert p (C pointer) to type C.int: use unsafe.Pointer (step 4.10)"},
 		{"var p *lib.FILE; _ = bool(p)", "cannot convert p (C pointer) to type bool: compare it: p != nil"},
+		{"var p *C.char; _ = string(p)", "cannot convert p (C pointer) to type string: use C.GoString(p)"},
+		// The cgo helpers and C.cstr (step 4.9, cstrings.go).
+		{"f := C.GoString; _ = f", "must call C.GoString"},
+		{"_ = C.nosuch", `undefined: C.nosuch (C has only C's built-in types and the helpers C.CString, C.GoString, C.GoStringN, C.GoBytes, C.free and C.cstr; a C/C++ name comes through its header: import "<header.h>")`},
+		{"_ = C.cstr(\"x\")", `C.cstr("x") can be only an argument of a C/C++ function or the value of a new variable (name := C.cstr("x")): its C string lives only as long as that; for a C string that lives longer, use C.CString and C.free`},
+		{"var p *C.char = C.cstr(\"x\"); _ = p", `C.cstr("x") can be only an argument of a C/C++ function or the value of a new variable (name := C.cstr("x")): its C string lives only as long as that; for a C string that lives longer, use C.CString and C.free`},
+		{"var q Q; q.Put(C.int(lib.f(C.cstr(\"x\")))); _ = lib.g(C.int(C.cstr(\"x\")))", `C.cstr("x") can be only an argument of a C/C++ function or the value of a new variable (name := C.cstr("x")): its C string lives only as long as that; for a C string that lives longer, use C.CString and C.free`},
+		{"_ = C.GoString(C.cstr(\"x\"))", `C.cstr("x") can be only an argument of a C/C++ function or the value of a new variable (name := C.cstr("x")): its C string lives only as long as that; for a C string that lives longer, use C.CString and C.free`},
+		{"s := \"x\"; n := C.cstr(s); lib.f(n, C.cstr(s+\"!\")); n = C.cstr(\"y\"); var m = C.cstr(s); lib.f(m); var v std.vector[int]; v.push_back(lib.g(C.cstr(s))); _ = std.string(C.cstr(s))", ""},
+		{"s := C.GoString(lib.f()); t := C.GoStringN(lib.f(), 3) + s + \"!\"; b := C.GoBytes(lib.f(), 2); p := C.CString(t); C.free(p); defer C.free(lib.g()); _, _ = string(b), C.GoString(nil)", ""},
+		{"_ = string(lib.f()); var cs std.string; var gs string = string(cs) + \"!\"; _ = gs", ""},
+		{"_ = lib.FILE{a: C.cstr(\"x\")}", "C.cstr(\"x\") (C.cstr holder) cannot be stored in a composite literal: its C string could outlive the holder; use C.CString and C.free for a retained C string"},
+		{"_ = lib.FILE{C.cstr(\"x\")}", "C.cstr(\"x\") (C.cstr holder) cannot be stored in a composite literal: its C string could outlive the holder; use C.CString and C.free for a retained C string"},
+		{"h := C.cstr(\"x\"); h2 := h; var h3 = h2; _ = lib.FILE{a: h3}", "h3 (C.cstr holder) cannot be stored in a composite literal: its C string could outlive the holder; use C.CString and C.free for a retained C string"},
+		{"h := C.cstr(\"x\"); h2 := h; _ = lib.FILE{h2}", "h2 (C.cstr holder) cannot be stored in a composite literal: its C string could outlive the holder; use C.CString and C.free for a retained C string"},
+		// Untyped constants at C targets: Go's rules (cconsts.go).
+		{"var c C.char = 200; _ = c", "cannot use 200 (untyped int constant) as C.char value in variable declaration (overflows)"},
+		{"var c C.uchar; c = -1; _ = c", "cannot use -1 (untyped int constant) as C.uchar value in assignment (overflows)"},
+		{"var i C.int = 2.5; _ = i", "cannot use 2.5 (untyped float constant) as C.int value in variable declaration (truncated)"},
+		{"var f C.float = 1e300; _ = f", "cannot use 1e300 (untyped float constant 1e+300) as C.float value in variable declaration (overflows)"},
+		{"var s *C.char = \"hi\"; _ = s", `cannot use "hi" (untyped string constant) as *C.char value in variable declaration`},
+		{"var x C.int = \"x\"; _ = x", `cannot use "x" (untyped string constant) as C.int value in variable declaration`},
+		{"var q Q; q.n = 1 << 40", "cannot use 1 << 40 (untyped int constant 1099511627776) as C.int value in assignment (overflows)"},
+		{"var q Q; q.Put(1 << 31)", "cannot use 1 << 31 (untyped int constant 2147483648) as C.int value in argument to q.Put (overflows)"},
+		{"_ = rk", ""},
+		{"_ = C.int(2.5)", "cannot convert 2.5 (untyped float constant) to type C.int"},
+		{"_ = C.char(200)", "constant 200 overflows C.char"},
+		{"_ = C.ulonglong(-1)", "constant -1 overflows C.ulonglong"},
+		{"_ = C.int(true)", "cannot convert true (untyped bool constant) to type C.int"},
+		{"_ = C.int(1e10)", "cannot convert 1e10 (untyped float constant 10000000000) to type C.int"},
+		{"var i C.int = 1e10; _ = i", "cannot use 1e10 (untyped float constant 1e+10) as C.int value in variable declaration (truncated)"},
+		{"var i C.int = 1 + 2i; _ = i", "cannot use 1 + 2i (untyped complex constant (1 + 2i)) as C.int value in variable declaration (truncated)"},
+		{"var x C.int; x += 1 << 40", "1 << 40 (untyped int constant 1099511627776) overflows C.int"},
+		{"var c C.char; c -= 2.5", "2.5 (untyped float constant) truncated to C.char"},
+		{"var c C.char; _ = c + 300", "300 (untyped int constant) overflows C.char"},
+		{"var c C.char; _ = c == 300", "300 (untyped int constant) overflows C.char"},
+		{"var c C.char; _ = 300 < c", "300 (untyped int constant) overflows C.char"},
+		{"var c C.char; _ = c + 1i", "1i (untyped complex constant (0 + 1i)) truncated to C.char"},
+		{"var c C.char; _ = c == \"x\"", `invalid operation: c == "x" (mismatched types C.char and untyped string)`},
+		{"var c C.char; _ = true == c", "invalid operation: true == c (mismatched types untyped bool and C.char)"},
+		{"var q Q; q.n += 1 << 31", "1 << 31 (untyped int constant 2147483648) overflows C.int"},
+		{"var p *lib.FILE; _ = p == 0", "invalid operation: p == 0 (mismatched types *lib.FILE and untyped int)"},
+		{"var c C.char; var d C.double = 1 + 0i; c += 127 - 1; _ = c + 'a'; _ = c << 300; _ = d * 1e300; _ = c == -128; _ = d", ""},
+		{"var c C.char = -128; var u C.uchar = 'x'; var i C.int = 2.0; var d C.double = 1e300; var z C.size_t = 1 << 63; var p *C.char = nil; _, _, _, _, _, _ = c, u, i, d, z, p; _ = C.double(3) + C.double(C.int(-1))", ""},
+		// Known C element, dereference, conversion and declared function-result types.
+		{"var a [1]C.char; a[0] = 200", "cannot use 200 (untyped int constant) as C.char value in assignment (overflows)"},
+		{"var a [1]C.int; a[0] = 2.5", "cannot use 2.5 (untyped float constant) as C.int value in assignment (truncated)"},
+		{"var a []C.char; a[0] = 200", "cannot use 200 (untyped int constant) as C.char value in assignment (overflows)"},
+		{"a := make([]C.char, 1); a[0] = 200", "cannot use 200 (untyped int constant) as C.char value in assignment (overflows)"},
+		{"m := make(map[int]C.char); m[1] = 200", "cannot use 200 (untyped int constant) as C.char value in assignment (overflows)"},
+		{"var a [1][1]C.char; a[0][0] = 200", "cannot use 200 (untyped int constant) as C.char value in assignment (overflows)"},
+		{"var n C.char; p := &n; *p = 200", "cannot use 200 (untyped int constant) as C.char value in assignment (overflows)"},
+		{"var p *C.int; *p = 2.5", "cannot use 2.5 (untyped float constant) as C.int value in assignment (truncated)"},
+		{"var a [1]C.char; a[0] += 200", "200 (untyped int constant) overflows C.char"},
+		{"var a [1]C.char; _ = a[0] == 300", "300 (untyped int constant) overflows C.char"},
+		{"var a [1]C.char; _ = a[0] + 300", "300 (untyped int constant) overflows C.char"},
+		{"var n C.char; p := &n; _ = *p + 300", "300 (untyped int constant) overflows C.char"},
+		{"m := make(map[int]C.char); m[1] += 300", "300 (untyped int constant) overflows C.char"},
+		{"_ = C.char(1) + 300", "300 (untyped int constant) overflows C.char"},
+		{"_ = C.char(1) == 300", "300 (untyped int constant) overflows C.char"},
+		{"c := C.char(1); _ = c + 300", "300 (untyped int constant) overflows C.char"},
+		{"var q Q; _ = q.Size() + (1 << 40)", "1 << 40 (untyped int constant 1099511627776) overflows C.int"},
+		{"_ = getchar() == 300", "300 (untyped int constant) overflows C.char"},
+		{"c := getchar(); _ = c + 300", "300 (untyped int constant) overflows C.char"},
+		// C++ operator results stay unknown: promotions and overloaded operators need not
+		// return either operand's type. Declared C operands above still get overflow checks.
+		{"var c C.char = 1; var d C.double = 0.5; mixed := c + d; _ = mixed + 0.5", ""},
+		{"s := lib.f() + C.char('!'); _ = s == \"word!\"", ""},
+		{"var p *C.char = C.CString(\"abcd\"); defer C.free(p); d := p - p; _ = d == 0; _ = (p - p) == 0", ""},
+		{"var c C.char = 1; promoted := +c; _ = promoted == 300", ""},
+		// Explicit C conversions check ANY constant, not just untyped ones.
+		{"const big int64 = 1 << 40; _ = C.int(big)", "constant 1099511627776 overflows C.int"},
+		{"const frac float64 = 2.5; _ = C.int(frac)", "cannot convert frac (constant 2.5 of type float64) to type C.int"},
+		{"_ = C.char(uint16(200))", "constant 200 overflows C.char"},
+		{"const n int64 = 100; const f float64 = 2; const z complex128 = 1 + 0i; _ = C.int(n); _ = C.int(f); _ = C.double(z); _ = lib.f() + 300", ""},
 		// gocpp values at C/C++ targets: as cgo, a user error.
 		{"fv := 1e30; var i3 C.int = fv; _ = i3",
 			"cannot use fv (variable of type float64) as C.int value in variable declaration: convert it, C.int(fv)"},
@@ -456,7 +531,7 @@ func TestCUserErrors(t *testing.T) {
 	for _, tt := range tests {
 		src := "package main\n\nimport (\n\t\"<lib.h>\"\n\t\"<map>\"\n\t\"<string>\"\n\t\"<vector>\"\n)\n\n" +
 			"type Q struct{ n C.int }\n\ntype B bool\n\nfunc (q *Q) Put(n C.int) { q.n = n }\n\nfunc (q Q) Size() C.int { return q.n }\n\n" +
-			"func gi(n int) {}\n\nfunc gs(s string) {}\n\n" +
+			"func gi(n int) {}\n\nfunc gs(s string) {}\n\nfunc getchar() C.char { return 1 }\n\n" +
 			"func main() {\n\t" + tt.src + "\n}\n"
 		if tt.src == "_ = rc" {
 			src += "\nfunc rc() C.int { n := 5; return n }\n"
@@ -465,6 +540,10 @@ func TestCUserErrors(t *testing.T) {
 		if tt.src == "_ = rp" {
 			src += "\nfunc rp() **lib.FILE { var p *lib.FILE; return &p }\n"
 			tt.want = "&p of a C/C++ local can't be a result: C/C++ values follow C++'s lifetime rules, and p ends with the function"
+		}
+		if tt.src == "_ = rk" {
+			src += "\nfunc rk() C.schar { return 128 }\n"
+			tt.want = "cannot use 128 (untyped int constant) as C.schar value in return statement (overflows)"
 		}
 		if tt.src == "_ = ri" {
 			src += "\nfunc ri() int { return lib.f() }\n"
@@ -592,6 +671,53 @@ func main() {
 	}
 	if strings.Contains(cpp, "gp::ptr<unsigned int>") || strings.Contains(cpp, "gp::new_<unsigned int>") {
 		t.Errorf("&x of a C variable boxed it:\n%s", cpp)
+	}
+}
+
+// TestCStringLowering checks holders moved by evaluation ordering: the temporary owns the
+// holder, never its pointer, and the call gets .gp_ptr() at its use (also for holder copies).
+// CString results compare like C pointers, with comparisons rewritten to a gocpp bool.
+func TestCStringLowering(t *testing.T) {
+	src := `package main
+
+import "<cstdio>"
+
+func mk(s string) string { return s + "!" }
+func f() C.int { return 7 }
+func main() {
+	s := "gocpp"
+	cstdio.printf("%s %d %s", C.cstr(mk(s)), f(), C.cstr(mk("x") + s))
+	h := C.cstr(s)
+	h2 := h
+	var h3 = h2
+	cstdio.printf("%s %s", h2, h3)
+	x := C.CString(s)
+	_ = x == nil
+	_ = x == x
+	_ = C.CString(s) != nil
+	C.free(x)
+}
+`
+	fset, pkg, _ := checkInterop(t, src)
+	f, err := Package(fset, pkg, fakeInterop(pkg, map[string]interop.Kind{"printf": interop.Value}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cpp := string(cppir.Print(f, ""))
+	holder := regexp.MustCompile(`auto (gp_t[0-9]+) = gp::cstr\([^;]+;`).FindStringSubmatch(cpp)
+	if len(holder) != 2 || strings.Contains(holder[0], ".gp_ptr()") {
+		t.Fatalf("no owning holder temporary in the C++:\n%s", cpp)
+	}
+	for _, want := range []string{
+		`::printf("%s %d %s", ` + holder[1] + ".gp_ptr(),",
+		`::printf("%s %s", h2.gp_ptr(), h3.gp_ptr());`,
+		"gp::cgo::to_bool(x == nullptr)",
+		"gp::cgo::to_bool(x == x)",
+		"gp::cgo::to_bool(gp::cgo::CString(s) != nullptr)",
+	} {
+		if !strings.Contains(cpp, want) {
+			t.Errorf("no %q in the C++:\n%s", want, cpp)
+		}
 	}
 }
 

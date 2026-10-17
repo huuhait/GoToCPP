@@ -6,6 +6,7 @@ import (
 	"go/types"
 	"strings"
 
+	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/cppir"
 	"github.com/huuhait/gocpp/internal/interop"
 	"github.com/huuhait/gocpp/internal/load"
@@ -191,7 +192,12 @@ func (g *gen) cBuiltin(sel *ast.SelectorExpr) cRef {
 	if s, ok := cBuiltins[sel.Sel.Name]; ok {
 		return cRef{x: g.cName(s, sel.Sel.Pos()), kind: interop.Type, src: "C." + sel.Sel.Name}
 	}
-	g.unsupported(sel.Pos(), "C."+sel.Sel.Name+" (C has only C's built-in types and the helpers; the helpers come in steps 4.9 and 4.16)")
+	if _, ok := check.CgoHelperDocs[sel.Sel.Name]; ok {
+		// A helper that is not called (f := C.GoString): check rewrites only calls.
+		g.userError(sel.Pos(), "must call C.%s", sel.Sel.Name)
+	} else {
+		g.userError(sel.Pos(), "undefined: C.%s (C has only C's built-in types and the helpers C.CString, C.GoString, C.GoStringN, C.GoBytes, C.free and C.cstr; a C/C++ name comes through its header: import \"<header.h>\")", sel.Sel.Name)
+	}
 	return cRef{x: placeholder, kind: interop.Value, src: "C." + sel.Sel.Name}
 }
 

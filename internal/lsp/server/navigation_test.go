@@ -287,6 +287,34 @@ func TestHoverCAndTypeSwitch(t *testing.T) {
 	}
 }
 
+// TestHoverCgoHelpers: check rewrote C.GoString(p) to a function of its hidden package with a
+// real declaration (Phase 04 step 4.9): the result has its type (s is a string), the helper
+// shows cgo's declaration, C shows C's line, and the names inside the call are found where the
+// user wrote them. A conversion of a C value, int(x), is rewritten too (gp_cgoh.As[int](x)).
+func TestHoverCgoHelpers(t *testing.T) {
+	src := "package main\n\nfunc main() {\n\tvar p *C.char\n\ts := C.GoString(p)\n\tc := C.CString(s)\n\tC.free(c)\n\tn := int(C.int(len(s)))\n\t_ = n\n}\n"
+	files := map[string]string{"gocpp.mod": "module example.com/c\n", "main.gp": src}
+	c := startNav(t, testConfig(), files, plainInit)
+	c.open("main.gp", src)
+	cHover := "package C\nC's built-in types and helpers (`C.int`, `C.size_t`, `C.CString`), which need no import in gocpp. Their types are opaque to gocpp: the C++ compiler checks them."
+	for _, tc := range []hoverCase{
+		{"|s := C", "var s string", "s"},
+		{"s := C.GoStr|ing", "func C.GoString(p *C.char) string\nC.GoString copies the C string at p, up to its NUL, into a gocpp string. A nil p gives \"\". p may be any char pointer (const char*, unsigned char*).", "GoString"},
+		{"s := |C.GoString", cHover, "C"},
+		{"GoString(|p)", "var p *C.char", "p"},
+		{"C.CString(|s)", "var s string", "s"},
+		{"C.fr|ee(c)", "func C.free(p unsafe.Pointer)\nC.free frees memory of C's heap, as C's free (C.CString's copies). A nil p does nothing.", "free"},
+		{"|c := C", "var c // C/C++\nIts type comes from C/C++ and is opaque to gocpp: the C++ compiler checks it.", "c"},
+		{"|n := int", "var n int", "n"},
+		{"int(C.int(len(|s", "var s string", "s"},
+	} {
+		text, rng := c.hover("main.gp", src, tc.mark)
+		if text != tc.text || rng != tc.rng {
+			t.Errorf("hover at %q:\n%s\n(range %q), want\n%s\n(range %q)", tc.mark, text, rng, tc.text, tc.rng)
+		}
+	}
+}
+
 // builtinDoc returns the doc comment of the predeclared name in Go's
 // builtin.go.
 func builtinDoc(t *testing.T, name string) string {

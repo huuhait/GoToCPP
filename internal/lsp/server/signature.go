@@ -10,6 +10,7 @@ import (
 
 	"golang.org/x/tools/go/ast/astutil"
 
+	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
 )
 
@@ -129,6 +130,12 @@ loop:
 	if fn == nil {
 		return nil, nil, nil
 	}
+	if sel, ok := ast.Unparen(fn).(*ast.SelectorExpr); ok {
+		if name := check.CgoHelperOf(sel, q.info); name != "" {
+			// A cgo helper, which check rewrote to its hidden package: cgo's declaration.
+			return cgoHelperSignature(name), call, nil
+		}
+	}
 	tv, ok := q.info.Types[fn]
 	if !ok || tv.IsType() || tv.Type == nil {
 		return nil, nil, nil // a C/C++ function (opaque), a conversion, or broken code
@@ -204,4 +211,20 @@ func activeParameter(s *signatureInfo, pos token.Pos, call *ast.CallExpr) *uint3
 		}
 	}
 	return &active
+}
+
+// cgoHelperSignature returns the signature of the cgo helper name (GoString) as
+// check.CgoHelperDocs declares it: "func C.GoString(p *C.char) string".
+func cgoHelperSignature(name string) *signatureInfo {
+	d := check.CgoHelperDocs[name]
+	decl := strings.TrimPrefix(d[0], "func C."+name+"(")
+	params, results, _ := strings.Cut(decl, ")")
+	s := &signatureInfo{name: name, doc: d[1] + "\n"} // (a doc comment's text ends in a newline)
+	if params != "" {
+		s.params = strings.Split(params, ", ")
+	}
+	if r := strings.TrimSpace(results); r != "" {
+		s.results = []string{r}
+	}
+	return s
 }

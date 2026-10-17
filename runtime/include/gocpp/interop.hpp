@@ -13,7 +13,7 @@
 //     i, v = range c              for (auto&& [gp_k, gp_v] : gp::range(c)) {
 //       (assigning)                   i = gp_k; v = gp_v; ...
 //     a, b := std.minmax(x, y)    auto [a, b] = gp::values(std::minmax(x, y));
-//     C.cstr(s)                   gp::cstr(s)
+//     C.cstr(s)                   gp::cstr(s), and gp::cstr(s).gp_ptr() as a C/C++ argument
 //     C.CString(s)                gp::cgo::CString(s)
 //     C.GoString(p)               gp::cgo::GoString(p)
 //     C.GoStringN(p, n)           gp::cgo::GoStringN(p, n)
@@ -21,6 +21,7 @@
 //     C.free(p)                   gp::cgo::free(p)
 //     int(x), C.int(d) (x, d C/C++ gp::cgo::as<int64_t>(x), gp::cgo::as<int>(d)
 //       values or gocpp numbers)
+//     string(x) (x a std::string) gp::cgo::as<gp::string>(x)
 //     *x (x opaque)               gp::cgo::star(x)
 //     if x (x an opaque bool)     if (gp::cgo::cond(x))
 //     b := x == y (x, y opaque)   bool b = gp::cgo::to_bool(x == y);
@@ -425,11 +426,30 @@ T narrow_float(F x) noexcept {
     return static_cast<T>(x);
 }
 
+// to_go_string(x) is Go's string(x) of a C/C++ value x (as<string>, which checks the type of x
+// first): a gocpp string that comes through C++ (an element of a std::vector<gp::string>) as it
+// is; a copy of the bytes of a std::string, a std::string_view or any other C++ type that
+// converts to std::string_view; and for a C integer or enum the UTF-8 encoding of the rune x, as
+// Go's string(r).
+template <typename X>
+string to_go_string(const X& x) {
+    using F = std::remove_cvref_t<X>;
+    if constexpr (std::is_base_of_v<string, F>) {
+        return x;
+    } else if constexpr (go_int<F>) {
+        return rune_to_string(x);
+    } else if constexpr (std::is_enum_v<F>) {
+        return rune_to_string(static_cast<std::underlying_type_t<F>>(x));
+    } else {
+        return string::gp_copy(std::string_view(x));
+    }
+}
+
 } // namespace detail
 
 // gp::cgo: cgo's C.CString, C.GoString, C.GoStringN, C.GoBytes and C.free, with cgo's exact
 // behavior (cmd/cgo/out.go and runtime/string.go of Go 1.25), and as<T>, Go's conversions of
-// C/C++ values. Phase 01 rewrites C.CString & co. into the typed gocpp/cgoh package, which the
+// C/C++ values. The checker rewrites C.CString & co. into the typed gocpp/cgoh package, which the
 // emitter writes as these functions.
 namespace cgo {
 
@@ -437,8 +457,8 @@ namespace cgo {
 // is as<int64_t>(::floor(d)), C.int(d) is as<int>(d). A floating x to an integer T goes through
 // gp::f2i, which gives Go's results (amd64) for values out of T's range, NaN and ±Inf, where a
 // static_cast is undefined behavior; a floating x to a floating T with less precision gives ±Inf
-// out of range (narrow_float); everything else is static_cast<T>(x), also for C++ class types
-// (static_cast<bool>(std::cout)).
+// out of range (narrow_float); string(x) copies the bytes of a C++ string (to_go_string);
+// everything else is static_cast<T>(x), also for C++ class types (static_cast<bool>(std::cout)).
 template <typename T, typename X>
 constexpr T as(X&& x) {
     using F = std::remove_cvref_t<std::decay_t<X>>;
@@ -447,7 +467,24 @@ constexpr T as(X&& x) {
     static_assert(
         !std::is_same_v<T, bool> || std::is_same_v<F, bool>,
         "gocpp: only a bool converts to bool, as in Go: compare the value instead (x != 0)");
-    if constexpr (std::is_floating_point_v<F> && go_int<T>) {
+    if constexpr (std::is_same_v<T, string>) {
+        // Here, not in to_go_string, so that the error names the place of the conversion. A C
+        // string (a char pointer or array) has no length to convert: cgo's form is
+        // C.GoString(p).
+        using R = std::remove_cvref_t<X>;
+        static_assert(!std::is_pointer_v<R> && !std::is_array_v<R>,
+                      "gocpp: string(p) of a C string: use C.GoString(p) (or C.GoStringN(p, n))");
+        static_assert(std::is_base_of_v<string, R> || go_int<R> || std::is_enum_v<R> ||
+                          std::is_pointer_v<R> || std::is_array_v<R> ||
+                          std::is_convertible_v<const R&, std::string_view>,
+                      "gocpp: string(x) needs a std::string, a std::string_view or a C++ value "
+                      "that converts to std::string_view");
+        if constexpr (!std::is_pointer_v<R> && !std::is_array_v<R>) {
+            return detail::to_go_string(x);
+        } else {
+            return string();
+        }
+    } else if constexpr (std::is_floating_point_v<F> && go_int<T>) {
         double d;
         if constexpr (std::numeric_limits<F>::digits > std::numeric_limits<double>::digits) {
             d = detail::narrow_float<double>(x); // a long double: through double, as Go has none

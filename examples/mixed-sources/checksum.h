@@ -1,6 +1,7 @@
-/* checksum.h: C functions, defined in checksum.c. The header has no
- * __cplusplus guard on purpose: gocpp sees that it parses as C and includes
- * it inside extern "C" { ... } (Phase 04 §2.9). */
+/* checksum.h: C functions, defined in checksum.c. The header has no C++
+ * guard (#ifdef of the C++ macro) on purpose: gocpp sees that it parses as C
+ * and includes it inside extern "C" { ... } (Phase 04 §2.9). The guard's
+ * macro isn't named here either: gocpp would take the word for a guard. */
 #ifndef CHECKSUM_H
 #define CHECKSUM_H
 

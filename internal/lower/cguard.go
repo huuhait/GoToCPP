@@ -104,6 +104,22 @@ func (w *cWalk) visit(n ast.Node) bool {
 		if fn, ok := w.g.info.Defs[x.Name].(*types.Func); ok {
 			w.funcs, w.sigs = append(w.funcs, x), append(w.sigs, fn.Signature())
 		}
+	case *ast.CallExpr:
+		if w.g.cgoHelper(x) != "" {
+			// A cgo helper (cstrings.go): its function is no C/C++ value, its arguments are.
+			if !w.check(x) {
+				return false
+			}
+			w.stack = append(w.stack, n)
+			for _, a := range x.Args {
+				ast.Inspect(a, w.visit)
+			}
+			w.stack = w.stack[:len(w.stack)-1]
+			return false
+		}
+		if !w.check(x) {
+			return false
+		}
 	case *ast.FuncLit:
 		if w.g.pkg.Opaque.IsOpaque(x) {
 			w.g.unsupported(x.Pos(), "func literals with C/C++ parameters or results (step 4.11)")
@@ -269,6 +285,9 @@ func (g *gen) cExprOK(e ast.Expr, lits []*ast.FuncLit) bool {
 		if _, ok := g.cRefOf(x.Fun); ok {
 			return true
 		}
+		if g.cgoHelper(x) != "" {
+			return true // C.CString(s), C.cstr(s): a C pointer, a holder (cstrings.go)
+		}
 		if g.calledSig(x) != nil {
 			return true // a function or a method of the package
 		}
@@ -279,7 +298,7 @@ func (g *gen) cExprOK(e ast.Expr, lits []*ast.FuncLit) bool {
 		}
 		switch ast.Unparen(x.Fun).(type) {
 		case *ast.StarExpr, *ast.ArrayType, *ast.MapType, *ast.FuncType, *ast.InterfaceType, *ast.ChanType:
-			g.unsupported(x.Pos(), "conversions to this C/C++ type (steps 4.9 and 4.10)")
+			g.unsupported(x.Pos(), "conversions to this C/C++ type (step 4.10)")
 			return false
 		}
 		return true // a member of a C/C++ value, or a C++ callable (opaqueCallee)
@@ -491,6 +510,9 @@ func (g *gen) calledSig(c *ast.CallExpr) *types.Signature {
 // cPlaceOK reports whether lowering translates the opaque expression e in its place, the node
 // parent (the first one above it that is not a parenthesis), and reports why not if it doesn't.
 func (g *gen) cPlaceOK(e ast.Expr, parent ast.Node) bool {
+	if g.isHolder(e) && !g.cstrPlaceOK(e, parent) {
+		return false
+	}
 	switch p := parent.(type) {
 	case *ast.ExprStmt:
 		if _, ok := ast.Unparen(e).(*ast.CallExpr); ok {
@@ -530,6 +552,9 @@ func (g *gen) cPlaceOK(e ast.Expr, parent ast.Node) bool {
 	case *ast.CallExpr:
 		if containsExpr(p.Fun, e) {
 			return true // checked as the call (cExprOK)
+		}
+		if g.cgoHelper(p) != "" {
+			return true // an argument of a cgo helper, C.GoString(p) (cstrings.go)
 		}
 		if r, ok := g.cRefOf(p.Fun); ok {
 			if n, ok := r.x.(*cppir.Name); ok && r.kind == interop.Type && isBuiltinC(n.Name) {
@@ -774,6 +799,7 @@ func (w *cWalk) targetOf(e ast.Expr, parent ast.Node) valueTarget {
 		for i, v := range p.Rhs {
 			if containsExpr(v, e) && !isBlank(p.Lhs[i]) {
 				t.to, t.v = g.info.TypeOf(p.Lhs[i]), g.varOf(p.Lhs[i])
+				t.texpr = g.valueTypeExpr(p.Lhs[i])
 			}
 		}
 		t.context = "assignment"
@@ -794,10 +820,8 @@ func (w *cWalk) targetOf(e ast.Expr, parent ast.Node) valueTarget {
 				// append(xs, n) of a []C.int xs: the elements go to C.int.
 				if sl, ok := under(g.info.TypeOf(p.Args[0])).(*types.Slice); ok {
 					t := valueTarget{to: sl.Elem(), context: "argument to append"}
-					if v := g.varOf(p.Args[0]); v != nil {
-						if at, ok := g.typeExprOf(v).(*ast.ArrayType); ok {
-							t.texpr = at.Elt
-						}
+					if at, ok := ast.Unparen(g.valueTypeExpr(p.Args[0])).(*ast.ArrayType); ok {
+						t.texpr = at.Elt
 					}
 					return t
 				}
@@ -869,7 +893,7 @@ func (w *cWalk) targetOK(e ast.Expr, parent ast.Node) bool {
 	case t.multi:
 		hint = ": declare new variables for its values (a, b := x), and convert those"
 	case b != nil && b.Info()&types.IsString != 0:
-		hint = ": convert it, string(" + g.srcText(e) + ") (step 4.9)"
+		hint = ": convert it, string(" + g.srcText(e) + ")"
 	case b != nil:
 		hint = ": convert it, " + ts + "(" + g.srcText(e) + ")"
 	}
@@ -881,16 +905,25 @@ func (w *cWalk) targetOK(e ast.Expr, parent ast.Node) bool {
 // gocpp target or to none, and reports a user error, as cgo's, if it goes to a C/C++ variable,
 // parameter or result (var i C.int = f, q.Put(f) with Put(n C.int)): C++ would convert it
 // implicitly, with C++'s rules (a float out of an int's range is undefined behavior). An untyped
-// constant is a C literal there (cvalues.go), and nil is nullptr. (An argument of a C/C++
-// function has a parameter type that gocpp doesn't know: C++'s rules apply, Phase 04 §2.5.)
+// constant is a C literal there (cvalues.go), if Go allows its value there (cConstOK), and nil is
+// nullptr. (An argument of a C/C++ function has a parameter type that gocpp doesn't know: C++'s
+// rules apply, Phase 04 §2.5.)
 func (w *cWalk) gocppTargetOK(e ast.Expr, parent ast.Node) bool {
 	g := w.g
 	tv, ok := g.info.Types[e]
 	if !ok || !tv.IsValue() || tv.Type == nil || !complete(tv.Type) || tv.IsNil() {
 		return true
 	}
+	if tv.Value != nil {
+		if handled, valid := g.cConstConversion(e, tv, parent); handled {
+			return valid // explicit C conversions check typed constants too
+		}
+	}
 	if b, ok := tv.Type.(*types.Basic); ok && b.Info()&types.IsUntyped != 0 {
-		return true // an untyped constant: a C literal
+		if tv.Value != nil {
+			return w.cConstOK(e, tv, parent) // a C literal, if Go allows it there (cconsts.go)
+		}
+		return true
 	}
 	t := w.targetOf(e, parent)
 	if t.to == nil || complete(t.to) {
@@ -942,6 +975,9 @@ func (g *gen) cConvOK(e ast.Expr, to types.Type, toName string) bool {
 	}
 	b := underBasic(to)
 	switch {
+	case kind == "pointer" && b != nil && b.Info()&types.IsString != 0:
+		g.userError(e.Pos(), "cannot convert %s (C pointer) to type %s: use C.GoString(%s)", g.srcText(e), toName, g.srcText(e))
+		return false
 	case kind == "pointer" && b != nil && b.Info()&types.IsBoolean != 0:
 		g.userError(e.Pos(), "cannot convert %s (C pointer) to type bool: compare it: %s != nil", g.srcText(e), g.srcText(e))
 		return false
@@ -959,23 +995,7 @@ func (g *gen) cConvOK(e ast.Expr, to types.Type, toName string) bool {
 // parameter or a field of a C/C++ type): "pointer" (*cstdio.FILE), "number" (C.int, C.double),
 // or "" if gocpp doesn't know; and the type as the user wrote it.
 func (g *gen) cKind(e ast.Expr) (string, string) {
-	var obj types.Object
-	switch x := ast.Unparen(e).(type) {
-	case *ast.Ident:
-		obj = g.info.Uses[x]
-	case *ast.SelectorExpr:
-		if s := g.info.Selections[x]; s != nil && s.Kind() == types.FieldVal {
-			obj = s.Obj()
-		}
-	}
-	v, ok := obj.(*types.Var)
-	if !ok {
-		return "", ""
-	}
-	te := g.typeExprOf(v)
-	if te == nil {
-		return "", ""
-	}
+	te := g.valueTypeExpr(e)
 	switch t := ast.Unparen(te).(type) {
 	case *ast.StarExpr:
 		return "pointer", g.srcText(te)
@@ -987,9 +1007,9 @@ func (g *gen) cKind(e ast.Expr) (string, string) {
 	return "", ""
 }
 
-// srcText returns e as the user wrote it: std.vector, cstdio.printf, not the C.std.vector and
-// C.printf of the loader's rewrite (the uses of header packages and namespaces get their names
-// back while it prints).
+// srcText returns e as the user wrote it: std.vector, cstdio.printf, C.cstr, not the
+// C.std.vector and C.printf of the loader's rewrite or check's gp_cgoh.Cstr (the uses of header
+// packages and namespaces and the cgo helpers get their names back while it prints).
 func (g *gen) srcText(e ast.Expr) string {
 	g.cUse(nil) // the uses, by their selectors
 	var restore []func()
@@ -1000,6 +1020,17 @@ func (g *gen) srcText(e ast.Expr) string {
 			restore = append(restore, func() { sel.X = x })
 		}
 	}
+	ast.Inspect(e, func(n ast.Node) bool {
+		if c, ok := n.(*ast.CallExpr); ok {
+			if name := g.cgoHelper(c); name != "" {
+				sel := ast.Unparen(c.Fun).(*ast.SelectorExpr)
+				x, s := sel.X, sel.Sel
+				sel.X, sel.Sel = &ast.Ident{NamePos: x.Pos(), Name: "C"}, &ast.Ident{NamePos: s.Pos(), Name: name}
+				restore = append(restore, func() { sel.X, sel.Sel = x, s })
+			}
+		}
+		return true
+	})
 	s := types.ExprString(e)
 	for _, r := range restore {
 		r()

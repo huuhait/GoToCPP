@@ -501,7 +501,8 @@ with Phase 12.)
 
 **gocpp values inside C++ values.** A gocpp value that comes back through C++ (a field of an
 element of a `std.vector[*Node]`: `nodes[0].N`) has no gocpp type for the compiler: it is a
-C/C++ value. Convert it (`int(nodes[0].N)`); strings (`string(x)`) come with step 4.9.
+C/C++ value. Convert it (`int(nodes[0].N)`, `string(nodes[0].Name)`); a string that comes back
+this way compares with a string constant as in Go (`nodes[0].Name == "a"`).
 
 A C/C++ value doesn't convert implicitly to a gocpp type, as in cgo: `var n int = cmath.pow(10, 30)`
 is an error ("cannot use cmath.pow(10, 30) (C/C++ value) as int value in variable declaration:
@@ -587,9 +588,25 @@ is an `int`, `2.0` is a `double`, `"x.txt"` is a string literal). That is what C
 C++ template that deduces one type from two arguments then needs a typed constant: write
 `std.max(n, int(0))`, not `std.max(n, 0)`.
 
-Not yet (step 4.9 and Phase 12): such constants are not checked against Go's rules for the C/C++
-type, as cgo checks them: `var s *C.char = "hi"`, `var c C.char = 200` and `C.int(2.5)` are
-accepted, and the C++ compiler converts (or truncates) them.
+A constant for a variable, field, result or parameter of a gocpp function declared with one of
+C's built-in types, and a constant converted to one, follow Go's rules, as in cgo: the value must
+fit, and only `nil` goes to a C pointer. The same check applies to declared C elements and
+pointed-to values in assignment, and to constants next to known C operands in arithmetic,
+comparison and `op=`. An explicit C conversion checks typed constants too; conversions of
+variables still use runtime Go conversion rules.
+
+```go
+var c C.char = 200   // cannot use 200 (untyped int constant) as C.char value in variable declaration (overflows)
+var n C.int = 2.5    // ... as C.int value in variable declaration (truncated)
+var s *C.char = "hi" // cannot use "hi" (untyped string constant) as *C.char value in variable declaration
+_ = C.int(2.5)       // cannot convert 2.5 (untyped float constant) to type C.int
+_ = C.char(200)      // constant 200 overflows C.char
+```
+
+The ranges are cgo's on gocpp's targets (x86-64): `C.char` is signed, `C.long` has 64 bits (on
+Windows it has 32: gocpp doesn't check that difference yet). A constant for any other C/C++ type
+(a header's typedef, `std.string`) and an argument of a C/C++ function are the C++ compiler's to
+check: gocpp doesn't know those types in opaque mode.
 
 ### C/C++ objects in closures and `defer`
 
@@ -628,22 +645,67 @@ fmt.Println(strings.ToUpper(s + "!"))
 
 | From → To | How |
 |---|---|
-| untyped string constant → any C/C++ parameter | a raw C literal `"hello"` |
+| string constant → any C/C++ parameter | a raw C literal `"hello"`, also for a typed constant (`const S string = "x"; cstdio.puts(S)`) |
 | `string` → `std::string_view` | implicit conversion |
 | `string` → `std::string` | explicit: `std.string(s)` |
-| `string` → `const char*` | `C.cstr(s)`: a small **holder** object that owns a NUL-terminated copy and converts to `const char*`. It lives at least until the end of the statement. No copy is made when the bytes are already NUL-terminated (literals) |
+| `string` → `const char*` | `C.cstr(s)`: a small **holder** object that owns a NUL-terminated copy and converts to `const char*`. It lives until the end of the statement, or as long as the variable it is in (`name := C.cstr(s)`). No copy is made when the bytes are already NUL-terminated (literals) |
 | `string` → owned `char*` | `C.CString(s)` (cgo-compatible, uses `malloc`; free it with `C.free(p)`) |
-| `char*` → `string` | `C.GoString(p)`, `C.GoStringN(p, n)` (cgo-compatible) |
-| `std::string` or `std::string_view` → `string` | a conversion: `string(x)` |
+| `char*` → `string` | `C.GoString(p)`, `C.GoStringN(p, n)` (cgo-compatible; any char pointer: `char*`, `const char*`, `unsigned char*`; a nil `p` gives `""`) |
+| `std::string` or `std::string_view` → `string` | a conversion: `string(x)`, which copies the bytes |
 | bytes | `C.GoBytes(p, n)`, or `unsafe.Slice((*byte)(p), n)` |
 
 - Only `std::string_view` is implicit. Implicit conversions to both `std::string` and
   `std::string_view` would be ambiguous for overloaded C++ functions and would not work with
   templates.
-- **The helpers have real types.** `C.CString`, `C.GoString`, `C.GoStringN` and `C.GoBytes` are
-  rewritten into calls of a hidden gocpp package with real declarations, so `s := C.GoString(p)`
-  gives `s` the type `string`, and `s + "!"` and `strings.ToUpper(s)` are fully type-checked.
-  `C.cstr` stays opaque, because its holder must stay a C++ object.
+- **The helpers have real types.** `C.CString`, `C.GoString`, `C.GoStringN`, `C.GoBytes`,
+  `C.free` and `C.cstr` are rewritten into calls of a hidden gocpp package with cgo's
+  declarations:
+
+  ```go
+  func C.CString(s string) *C.char
+  func C.GoString(p *C.char) string
+  func C.GoStringN(p *C.char, n C.int) string
+  func C.GoBytes(p unsafe.Pointer, n C.int) []byte
+  func C.free(p unsafe.Pointer)
+  func C.cstr(s string) C.cstr // the holder, a C++ object
+  ```
+
+  So `s := C.GoString(p)` gives `s` the type `string`, `s + "!"` and `strings.ToUpper(s)` are
+  fully type-checked, and a gocpp value of the wrong type is Go's error, as in cgo:
+  `C.GoStringN(p, n)` with `n int` is "cannot use n (variable of type int) as C.int value in
+  argument to C.GoStringN". A C/C++ value passes as it is: any char pointer goes to `C.GoString`,
+  and `C.free(p)` takes a C pointer without the `unsafe.Pointer(p)` that cgo needs (that form
+  comes with step 4.10). The results of `C.CString` and `C.cstr` are C/C++ values. A helper must
+  be called (`f := C.GoString` is "must call C.GoString").
+- **Where `C.cstr` can go.** Its C string lives only as long as its holder, so `C.cstr(s)` can be
+  only an argument of a C/C++ function (also of a constructor, a member function or a C++
+  callable) or the value of a new variable (`name := C.cstr(s)`, `var name = C.cstr(s)`, and
+  `name = C.cstr(t)` for such a variable). Anywhere else (a result, a field of a C struct, a
+  `*C.char` variable) it is an error that says to use `C.CString`. This also rejects holder
+  variables and their copies in any composite literal, keyed or positional: neither a direct
+  holder nor its `const char*` may escape through field initialization. A holder (`C.cstr(s)` or such
+  a variable) is passed as its `const char*` to every C/C++ function, so it goes through C's `...`
+  too: `cstdio.printf("%s", C.cstr(s))` is `::printf("%s", gp::cstr(s).gp_ptr())`.
+- **The function must not keep the pointer.** gocpp can't see what a C/C++ function or object
+  does with the `const char*` it gets, so one that keeps it after the statement dangles: a C API
+  that stores the pointer (use `C.CString`, and `C.free` it when the API is done with it), or a
+  view of it, `v := std.string_view(C.cstr(s))` (a use after scope at the next use of `v`: write
+  `std.string_view(s)`, or `std.string(s)` for a copy). These follow C++'s lifetime rules, as C/C++
+  values do ([pointers](#pointers-unsafe-and-slices-at-the-boundary)).
+- **A gocpp string is no C string.** `cstdio.puts(s)` doesn't compile: in opaque mode gocpp
+  doesn't know that `puts` takes a `const char*`, so the C++ compiler reports it at the `.gp` line,
+  with a hint: "C++: cannot convert 'gp::string' to 'const char*' (a gocpp string is no C string:
+  pass C.cstr(s), or C.CString(s) for a copy that C keeps)". `string(p)` of a C pointer is an
+  error too ("use C.GoString(p)"), as in cgo.
+- **Strings that come through C++.** A gocpp string reached through a C++ value (a field of an
+  element of a `std.vector[*Node]`) compares with a string constant as in Go (`nodes[0].Name ==
+  "a"`), and `string(nodes[0].Name)` gives it its gocpp type.
+- A string constant passed to a C++ function that takes a gocpp string (`v.push_back("x")` of a
+  `std.vector[string]`, `m["k"]` of a `std.map[string, int]`) is a C literal too, which converts
+  implicitly to a gocpp string: a copy of its bytes. The one cost: a C++ overload set with a gocpp
+  string next to `std::string_view` or `std::string`, `f("x")`, is ambiguous for a constant (pass
+  `std.string("x")` or a gocpp string variable). A gocpp string itself converts only to
+  `std::string_view`, and a C `char*` never converts to a gocpp string (`C.GoString(p)` copies one).
 - Typed interop (Phase 12) will convert a `string` passed to a `const char*` parameter
   automatically, except for functions that keep the pointer ([below](#what-typed-interop-will-add)).
 

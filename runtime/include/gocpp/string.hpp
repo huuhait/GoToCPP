@@ -61,6 +61,17 @@ public:
     // gp_copy returns a string that owns a copy of the bytes of v.
     static string gp_copy(std::string_view v);
 
+    // A C++ string literal converts implicitly to a string, a copy of its bytes (Phase 04 step
+    // 4.9): a string constant passed to C/C++ is a C literal (§2.5), and a C++ function that
+    // takes a gocpp string gets one then (v.push_back("x") of a std.vector[string], m["k"] of a
+    // std.map[string, int]). It copies, never points at the array: a C struct's char name[16]
+    // or a local array binds here too. The literal is its N - 1 bytes before its NUL (also a
+    // \000 inside it), a char array without a NUL at its end all its N bytes. The cost: a C++
+    // overload set with a gocpp string next to std::string_view or std::string, f("x"), is
+    // ambiguous. A char pointer doesn't convert (it has no length and no owner).
+    template <std::size_t N>
+    string(const char (&b)[N]) : string(gp_copy(gp_literal_view(b))) {}
+
     // gp_data and gp_view give the bytes. gp_data may be null when the string is empty.
     const char* gp_data() const noexcept { return gp_data_; }
     std::string_view gp_view() const noexcept {
@@ -137,9 +148,31 @@ public:
         return a.gp_len_ <=> b.gp_len_;
     }
 
+    // A string compared with a C++ string literal: the literal of an untyped string constant
+    // next to a C/C++ value (Phase 04 §2.5), where the string comes through C++
+    // (nodes[0].Name == "a", with nodes a std.vector[*Node]), as Go compares them. The literal is
+    // its N - 1 bytes before its NUL, also a \000 inside it; a char array without a NUL at its
+    // end (a C struct's char name[4]) is its N bytes. These exact matches compare without the
+    // copy of the implicit conversion above (C++20 adds the reversed ones and !=, <, ...).
+    template <std::size_t N>
+    friend bool operator==(const string& a, const char (&b)[N]) noexcept {
+        return a.gp_view() == gp_literal_view(b);
+    }
+    template <std::size_t N>
+    friend std::strong_ordering operator<=>(const string& a, const char (&b)[N]) noexcept {
+        int c = a.gp_view().compare(gp_literal_view(b)); // as unsigned bytes (char_traits<char>)
+        return c == 0 ? std::strong_ordering::equal
+                      : (c < 0 ? std::strong_ordering::less : std::strong_ordering::greater);
+    }
+
     friend int64_t len(const string& s) noexcept;
 
 private:
+    template <std::size_t N>
+    static std::string_view gp_literal_view(const char (&b)[N]) noexcept {
+        return std::string_view(b, N > 0 && b[N - 1] == '\0' ? N - 1 : N);
+    }
+
     std::shared_ptr<const void> gp_owner_;
     const char* gp_data_ = nullptr;
     int64_t gp_len_ = 0;

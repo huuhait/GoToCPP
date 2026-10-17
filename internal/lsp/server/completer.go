@@ -434,7 +434,7 @@ func (c *completer) qualified(name string, pos token.Pos) {
 		_, obj = scope.LookupParent(name, pos)
 	}
 	if pn, ok := obj.(*types.PkgName); ok {
-		if pn.Imported().Path() != "C" {
+		if pn.Imported().Path() != "C" && pn.Imported().Path() != load.CgohPath {
 			c.packageMembers(pn.Imported(), stdScore, nil, nil)
 		}
 		return
@@ -555,8 +555,8 @@ func (c *completer) lexical() {
 			if declScope != scope || c.names[name] {
 				continue // declared after the cursor, or shadowed
 			}
-			if pn, ok := obj.(*types.PkgName); ok && pn.Imported().Path() == "C" {
-				continue // the import "C" that the loader adds
+			if pn, ok := obj.(*types.PkgName); ok && (pn.Imported().Path() == "C" || pn.Imported().Path() == load.CgohPath) {
+				continue // the import "C" that the loader adds, and check's hidden import (gp_cgoh)
 			}
 			if name == "iota" && obj.Parent() == types.Universe && !inConst {
 				continue

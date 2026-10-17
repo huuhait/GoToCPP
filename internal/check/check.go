@@ -406,6 +406,9 @@ func hasHardErrors(l *diag.List) bool {
 func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package,
 	cgoh *types.Package, convert bool, probeErrs []diag.Diagnostic) *Package {
 	cv := newConverter(fset, lp, cgoh)
+	if convert {
+		cv.rewriteHelpers() // C.GoString(p) and the other cgo helpers (cgohelpers.go)
+	}
 	p, errs := checkFiles(fset, lp, checked, cv, probeErrs, convert)
 	p.checks = 1
 	for convert && cv.rewrite(p, errs) {

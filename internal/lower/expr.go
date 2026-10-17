@@ -178,8 +178,8 @@ func (fg *funcGen) expr(e ast.Expr) cppir.Expr {
 func (fg *funcGen) value(e ast.Expr) cppir.Expr {
 	// A constant is folded: go/types computed its value and the type it converts to.
 	if tv, ok := fg.g.info.Types[e]; ok && tv.Value != nil {
-		if fg.g.cConsts[e] {
-			return fg.g.cConstant(tv.Value, tv.Type, e.Pos()) // a C/C++ value (cvalues.go)
+		if fg.g.cConsts[ast.Unparen(e)] {
+			return fg.g.cConstantOf(e) // a C/C++ value (cvalues.go)
 		}
 		return fg.g.constant(tv.Value, fg.g.untypedCount(e, tv.Type), e.Pos(), false)
 	}
@@ -299,6 +299,9 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 	if !fg.ordered[c] {
 		fg.g.errorf(c.Pos(), "internal error: a call whose evaluation order was not decided")
 		return placeholder
+	}
+	if name := fg.g.cgoHelper(c); name != "" {
+		return fg.cgoHelperCall(c, name) // C.GoString(p) and the other cgo helpers (cstrings.go)
 	}
 	if x, ok := fg.cCall(c); ok {
 		return x // of a C/C++ function (cvalues.go)

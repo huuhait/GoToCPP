@@ -151,6 +151,10 @@ type gen struct {
 	sigExprs map[*types.Var]ast.Expr
 	cConsts  map[ast.Expr]bool
 	elided   map[*ast.CompositeLit]ast.Expr
+	holders  map[*types.Var]bool // the variables that hold a C.cstr holder (cstrings.go)
+
+	cConstKinds   map[ast.Expr]types.BasicKind // known C numeric targets, for exact constant emission
+	initialValues map[*types.Var]ast.Expr      // initializers of inferred locals, for known C types
 
 	// inTemplate counts the C++ template arguments being lowered (ctypes.go: templateArg),
 	// in which the package's types are fully qualified.

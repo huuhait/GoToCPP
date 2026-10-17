@@ -290,6 +290,8 @@ func TestCompletionScope(t *testing.T) {
 		{name: "no iota outside const", text: inMain("\tx := io|\n"), not: []string{"iota"}},
 		{name: "iota in const", text: inMain("\tconst k = io|\n"), want: []string{"iota"}},
 		{name: "no C", text: inMain("\tx := C|\n"), not: []string{"C"}},
+		// check's hidden import of the cgo helpers (C.GoString) is no name of the file.
+		{name: "no gp_cgoh", text: inMain("\t_ = C.GoString(nil)\n\tx := gp|\n"), not: []string{"gp_cgoh"}},
 		{name: "a name being declared", text: inMain("\tvar cou| int\n"), not: []string{"count", "Count"}},
 	})
 }

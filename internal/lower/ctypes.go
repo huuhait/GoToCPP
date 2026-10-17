@@ -252,6 +252,20 @@ func hasCSeen(t types.Type, seen map[*types.Named]bool) bool {
 	return !complete(t)
 }
 
+// cConstantOf emits the constant e in a C context. At a known integer target the exact
+// go/constant integer is preserved, including floating and zero-imaginary complex constants.
+func (g *gen) cConstantOf(e ast.Expr) cppir.Expr {
+	tv := g.info.Types[e]
+	kind := g.cConstKinds[ast.Unparen(e)]
+	if types.Typ[kind].Info()&types.IsInteger != 0 {
+		return cInt(constant.ToInt(tv.Value), e.Pos(), g)
+	}
+	if (kind == types.Float32 || kind == types.Float64) && tv.Value.Kind() == constant.Complex {
+		return floatLiteral(constant.ToFloat(constant.Real(tv.Value)), kind == types.Float32)
+	}
+	return g.cConstant(tv.Value, tv.Type, e.Pos())
+}
+
 // cConstant returns the C++ of the constant v of type t where a C/C++ value takes it: an
 // argument of a C/C++ function, a template argument, the value of a variable of a C/C++ type
 // (§2.5). An untyped constant is a plain C literal with C's default types: 5 is an int (a
@@ -278,6 +292,11 @@ func (g *gen) cConstant(v constant.Value, t types.Type, pos token.Pos) cppir.Exp
 		return cInt(v, pos, g)
 	case constant.Float:
 		return floatLiteral(v, false)
+	case constant.Complex:
+		if constant.Sign(constant.Imag(v)) == 0 {
+			// 1 + 0i for a C.double: Go makes it the real number (cconsts.go checks it fits).
+			return floatLiteral(constant.ToFloat(constant.Real(v)), false)
+		}
 	}
 	g.unsupported(pos, "the constant "+v.String()+" as a C/C++ value")
 	return placeholder

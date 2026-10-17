@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/tools/go/types/typeutil"
 
+	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
 	"github.com/huuhait/gocpp/internal/syntax/parser"
@@ -115,6 +116,18 @@ func (q *query) hover(ctx context.Context) (*hoverResult, protocol.Range, error)
 	}
 	obj := q.objectAt(id)
 	rng := q.rangeOf(id.Pos(), id.End())
+	if len(path) > 0 {
+		// A cgo helper, C.GoString, which check rewrote to a function of its hidden package.
+		if sel, ok := path[len(path)-1].(*ast.SelectorExpr); ok {
+			if name := check.CgoHelperOf(sel, q.info); name != "" {
+				if id == sel.X {
+					return cHover(), q.rangeOf(id.Pos(), id.Pos()+1), nil // (the user's C)
+				}
+				d := check.CgoHelperDocs[name]
+				return &hoverResult{signature: d[0], text: d[1]}, rng, nil
+			}
+		}
+	}
 	if obj == nil {
 		if h := q.typeSwitchHover(id, path); h != nil {
 			return h, rng, nil
@@ -137,11 +150,7 @@ func (q *query) hover(ctx context.Context) (*hoverResult, protocol.Range, error)
 	}
 	if pn, ok := obj.(*types.PkgName); ok {
 		if pn.Imported().Path() == "C" {
-			h := &hoverResult{
-				signature: "package C",
-				text:      "C's built-in types and helpers (`C.int`, `C.size_t`, `C.CString`), which need no import in gocpp. Their types are opaque to gocpp: the C++ compiler checks them.",
-			}
-			return h, rng, nil
+			return cHover(), rng, nil
 		}
 		dep := q.lp.Imports[pn.Imported().Path()]
 		if dep == nil {
@@ -156,6 +165,14 @@ func (q *query) hover(ctx context.Context) (*hoverResult, protocol.Range, error)
 	}
 	h, err := q.objectHover(ctx, obj, id, path)
 	return h, rng, err
+}
+
+// cHover returns the hover of C (C.int, C.GoString).
+func cHover() *hoverResult {
+	return &hoverResult{
+		signature: "package C",
+		text:      "C's built-in types and helpers (`C.int`, `C.size_t`, `C.CString`), which need no import in gocpp. Their types are opaque to gocpp: the C++ compiler checks them.",
+	}
 }
 
 // typeSwitchHover returns the hover of the name id of a type switch where

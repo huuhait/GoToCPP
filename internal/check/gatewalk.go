@@ -636,6 +636,10 @@ func (g *gateChecker) visitSelector(sel *ast.SelectorExpr) {
 				}
 				return
 			}
+			if path == load.CgohPath && CgoHelperOf(sel, g.info) != "" {
+				g.node(featCNames, sel) // C.GoString(p), which Check rewrote (cgohelpers.go)
+				return
+			}
 			if g.info.Uses[sel.Sel] == nil {
 				// Not in the stub, like errors.Wrapf: go/types says
 				// "undefined: errors.Wrapf", the gate says when it comes.

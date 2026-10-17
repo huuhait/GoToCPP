@@ -199,11 +199,23 @@ func (q *query) contains(n ast.Node) bool {
 // identAt returns the name at pos in f and the nodes around it, from the
 // file down (without the name), or nil. A name that ends at pos counts too
 // (the cursor right after it) when no name starts or goes on there.
+//
+// The names of the hidden import that check added (check.HiddenImport) are
+// longer than the text they stand for, so they count only at their first
+// character, and only as the C of a cgo helper (C.GoString): elsewhere the
+// user's own name at that place is found (T in check's gp_cgoh.As[T](x)).
 func identAt(f *ast.File, pos token.Pos) (*ast.Ident, []ast.Node) {
 	var id, after *ast.Ident
 	var path, afterPath []ast.Node
+	hidden := check.HiddenImport(f)
 	ast.PreorderStack(f, nil, func(n ast.Node, stack []ast.Node) bool {
 		if id != nil || n.Pos() > pos || pos > n.End() {
+			return false
+		}
+		if x, ok := n.(*ast.Ident); ok && hidden != "" && x.Name == hidden {
+			if sel, ok := stack[len(stack)-1].(*ast.SelectorExpr); ok && sel.X == x && check.IsHelperSelector(sel) && pos == x.Pos() {
+				id, path = x, slices.Clone(stack)
+			}
 			return false
 		}
 		if x, ok := n.(*ast.Ident); ok {

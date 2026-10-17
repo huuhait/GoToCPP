@@ -678,6 +678,52 @@ void test_string_view() {
     CHECK_EQ(gp::get(m, gp::concat("k"_gs, ""_gs)), int64_t(1));
     CHECK_EQ(str(gp::fmtshim::Sprint(s, "x"_gs)), std::string("abc\0dx", 6));
     CHECK_EQ(str(gp::fmtshim::Sprintf("%q"_gs, "a"_gs)), std::string("\"a\""));
+
+    // A gocpp string that comes through C++ compares with the C literal of a string constant
+    // (nodes[0].Name == "a", Phase 04 step 4.9): the literal's bytes before its NUL, also a NUL
+    // inside it; a char array without a NUL at its end is all its bytes.
+    CHECK(gp::sub(s, 0, 3) == "abc");
+    CHECK("abc" == gp::sub(s, 0, 3));
+    CHECK(s == "abc\0d");
+    CHECK(s != "abc");
+    CHECK(gp::string() == "");
+    CHECK(gp::sub(s, 0, 3) < "abd" && "abd" > gp::sub(s, 0, 3) && gp::sub(s, 0, 3) >= "ab");
+    CHECK("\xff"_gs > "a"); // as unsigned bytes, like Go
+    const char arr[2] = {'a', 'b'};
+    CHECK("ab"_gs == arr);
+    CHECK(NamedStr("x"_gs) == "x");
+
+    // A C++ string literal converts implicitly to a gocpp string, a copy (step 4.9): for C++
+    // functions that take one (v.push_back("x") of a std.vector[string]).
+    std::vector<gp::string> names;
+    names.push_back("x");
+    names.emplace_back("y\0z");
+    std::vector<gp::string> lits{"a", "b"};
+    CHECK(names[0] == "x"_gs && gp::len(names[1]) == 3 && lits[1] == "b"_gs);
+    std::map<gp::string, int64_t> ages;
+    ages["bob"] = 31;
+    CHECK(ages.count("bob") == 1 && ages.find("eve") == ages.end());
+    gp::string lit = "lit";
+    CHECK(lit == "lit"_gs && !lit.gp_c_terminated()); // a copy, with an owner
+    char local[4] = {'a', 'b', 'c', 'd'};             // no NUL at its end: all its bytes
+    gp::string copied = local;
+    local[0] = 'z';
+    CHECK(copied == "abcd"_gs);
+    static_assert(!std::is_convertible_v<const char*, gp::string>, "a char pointer has no length");
+
+    // string(x) of a C++ string: a copy of its bytes (gp::cgo::as<gp::string>).
+    std::string cs("x\0y", 3);
+    gp::string c = gp::cgo::as<gp::string>(cs);
+    cs[0] = 'z';
+    CHECK(c == "x\0y"_gs);
+    CHECK(gp::cgo::as<gp::string>(std::string_view("view")) == "view"_gs);
+    CHECK(gp::len(gp::cgo::as<gp::string>(std::string())) == 0);
+    CHECK(gp::cgo::as<gp::string>(s).gp_data() == s.gp_data()); // a gocpp string: no copy
+    CHECK(gp::cgo::as<gp::string>(65) == "A"_gs);               // string(r) of a C integer
+    CHECK(gp::cgo::as<gp::string>('a') == "a"_gs);
+    CHECK(gp::cgo::as<gp::string>(-1) == "\uFFFD"_gs);
+    enum letter { letter_b = 'b' };
+    CHECK(gp::cgo::as<gp::string>(letter_b) == "b"_gs);
 }
 
 int64_t span_sum(std::span<const int64_t> s) {

@@ -137,12 +137,12 @@ func cppLines(fset *token.FileSet, pkg *check.Package) cppLineSet {
 
 // isCppExpr reports whether the expression e of pkg is C or C++ code: a
 // selector on C (C.int, C.std.vector, a header package's function after
-// the loader's rewrite), an opaque expression, or a gocpp value with a
-// C/C++ part (a struct with a C/C++ field, which fmt prints through C++:
-// step 4.12).
+// the loader's rewrite), a cgo helper (C.GoString, which check rewrote),
+// an opaque expression, or a gocpp value with a C/C++ part (a struct with
+// a C/C++ field, which fmt prints through C++: step 4.12).
 func isCppExpr(pkg *check.Package, e ast.Expr) bool {
 	if sel, ok := e.(*ast.SelectorExpr); ok {
-		if id, ok := sel.X.(*ast.Ident); ok && id.Name == "C" {
+		if id, ok := sel.X.(*ast.Ident); ok && id.Name == "C" || pkg.IsCgoHelper(sel) {
 			return true
 		}
 	}
@@ -385,8 +385,27 @@ func (c *cxxClassifier) userMessage(d cxxDiag) string {
 			msg = strings.TrimPrefix(m[1], "gocpp: ")
 		}
 	}
+	if m := cstrRx.FindStringSubmatch(msg); m != nil {
+		if m[1] != "" {
+			msg += cstrHint
+		} else {
+			msg += charPtrHint
+		}
+	}
 	return msg
 }
+
+// cstrRx matches gcc's and clang's error for a gocpp string passed where C wants a C string,
+// cstdio.puts(s): a gp::string converts only to std::string_view (Phase 04 README §2.6). The
+// group is "const " for a const char*.
+var cstrRx = regexp.MustCompile(`^(?:cannot convert|no viable conversion from) 'gp::string' to '(const )?char ?\*'`)
+
+// cstrHint is the hint after cstrRx's errors for a const char*, charPtrHint for a char*, which
+// C.cstr's const char* doesn't give.
+const (
+	cstrHint    = " (a gocpp string is no C string: pass C.cstr(s), or C.CString(s) for a copy that C keeps)"
+	charPtrHint = " (a gocpp string is no C string: a char* parameter gets a copy that C may change, C.CString(s), freed with C.free)"
+)
 
 // A cppError is an error of the user's code that the C++ compiler or the
 // linker found, at a .gp line.

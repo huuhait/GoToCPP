@@ -75,7 +75,7 @@ func main() {
 	x := cstring.strlen(p)
 	m := int(x)
 	f := float64(C.sqrt(2))
-	b := []byte(C.GoString(p))
+	b := []byte(C.getenv(p))
 	pt := (*Point)(C.malloc(16))
 	fmt.Println(int(cstring.strlen(p)), m, f, b, pt.X, length(p))
 	_ = n + "x"
@@ -116,7 +116,7 @@ func main() {
 		"17:7 int(cstring.strlen(p))\n" +
 		"19:7 int(x)\n" +
 		"20:7 float64(C.sqrt(2))\n" +
-		"21:7 []byte(C.GoString(p))\n" +
+		"21:7 []byte(C.getenv(p))\n" +
 		"22:8 (*Point)(C.malloc(16))\n" +
 		"23:14 int(cstring.strlen(p))\n" +
 		"27:2 int(C.y()) (unused)\n" +

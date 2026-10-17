@@ -59,7 +59,7 @@ func printTypes(w io.Writer, cwd string, fset *token.FileSet, p *check.Package) 
 			fset:   fset,
 			info:   p.Info,
 			opaque: p.Opaque,
-			qual:   types.RelativeTo(p.Types),
+			qual:   cQualifier(p.Types),
 			src:    src,
 			name:   diag.ShortFileName(cwd, f.Path),
 			skip:   namespaceRoots(f),
@@ -414,4 +414,16 @@ func namespaceRoots(f *load.File) map[ast.Expr]bool {
 		}
 	}
 	return skip
+}
+
+// cQualifier is types.RelativeTo(pkg), but it names check's hidden package of the cgo helpers C,
+// as the user writes the helpers' types: *C.char, C.int (check.CgoHelper).
+func cQualifier(pkg *types.Package) types.Qualifier {
+	rel := types.RelativeTo(pkg)
+	return func(p *types.Package) string {
+		if p.Path() == load.CgohPath {
+			return "C"
+		}
+		return rel(p)
+	}
 }

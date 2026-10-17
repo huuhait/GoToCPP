@@ -46,6 +46,8 @@ func main() {
 	f := Sum
 	f(1)
 	println(Sum())
+	c := C.CString(C.GoStringN(nil, 0))
+	C.free(c)
 }
 `,
 	"engine.hpp": "void start(int);\n",
@@ -127,6 +129,10 @@ func TestSignatureHelp(t *testing.T) {
 		// A function value: no name, no doc.
 		{"f(|1)", "f(base int, nums ...int) int", 0, ""},
 		{"Sum(|))", sum, 0, sumDoc},
+		// The cgo helpers, which check rewrote: cgo's declarations, as the user writes them.
+		{"C.CString(|C.Go", "CString(s string) *C.char", 0, "plaintext: C.CString copies the bytes of s and a NUL into C's heap (malloc). Free the copy with C.free.\n"},
+		{"C.GoStringN(nil, |0)", "GoStringN(p *C.char, n C.int) string", 1, "plaintext: C.GoStringN copies the n bytes at p into a gocpp string, NUL bytes too.\n"},
+		{"C.free(|c)", "free(p unsafe.Pointer)", 0, "plaintext: C.free frees memory of C's heap, as C's free (C.CString's copies). A nil p does nothing.\n"},
 		// Nothing: a C/C++ function (opaque), outside a call.
 		{"engine.start(|1)", "", -1, ""},
 		{"var |t T", "", -1, ""},

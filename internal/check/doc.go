@@ -19,7 +19,10 @@
 // Check rewrites such a conversion T(x) to gp_cgoh.As[T](x), a call of a
 // generic function of the hidden package gocpp/cgoh, and checks the
 // package again: then n is an int, and later mistakes with n are reported
-// (Conversion, converter).
+// (Conversion, converter). Before the first check of such a package, the
+// calls of cgo's helpers (C.GoString(p), C.CString(s), C.cstr(s), ...)
+// become calls of functions of the same hidden package with cgo's
+// declarations, so that s := C.GoString(p) is a string (cgohelpers.go).
 //
 // After the last check, the opaque pass (Package.Opaque) labels every
 // expression typed or opaque (it comes from C/C++ and has no complete

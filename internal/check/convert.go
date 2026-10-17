@@ -262,6 +262,7 @@ func newCgohPackage() *types.Package {
 	cmp := types.NewSignatureType(nil, nil, nil, types.NewTuple(types.NewParam(token.NoPos, pkg, "x", anyType)),
 		types.NewTuple(types.NewParam(token.NoPos, pkg, "", types.Typ[types.Bool])), false)
 	pkg.Scope().Insert(types.NewFunc(token.NoPos, pkg, cmpName, cmp))
+	addHelpers(pkg) // the cgo helpers (cgohelpers.go)
 	pkg.MarkComplete()
 	return pkg
 }
@@ -818,6 +819,7 @@ func (cv *converter) packageName() string {
 // value") into T.
 func (cv *converter) fixMessage(msg string) string {
 	for name := range cv.names {
+		msg = fixHelpers(msg, name)
 		msg = unwrapCmp(msg, name+"."+cmpName+"(")
 		msg = unwrap(msg, name+"."+valueName+"[", valueName)
 		msg = unwrap(msg, name+"."+unusedName+"[", unusedName)

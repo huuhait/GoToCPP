@@ -40,6 +40,15 @@ var rejectCases = []struct {
 	{"cond-pointer", "bool f(const char* p) {\n\treturn gp::cgo::cond(p); // bad\n}\n", "non-boolean condition"},
 	// std::optional converts to bool only explicitly: not a Go condition either.
 	{"cond-optional", "#include <optional>\nbool f(std::optional<int> o) {\n\treturn gp::cgo::cond(o); // bad\n}\n", "non-boolean condition"},
+	// string(p) of a C string: cgo's form is C.GoString(p) (Phase 04 step 4.9).
+	{"string-of-pointer", "gp::string f(const char* p) {\n\treturn gp::cgo::as<gp::string>(p); // bad\n}\n", "use C.GoString(p)"},
+	{"string-of-array", "gp::string f() {\n\tchar a[4] = \"abc\";\n\treturn gp::cgo::as<gp::string>(a); // bad\n}\n", "use C.GoString(p)"},
+	{"string-of-class", "struct V {};\ngp::string f() {\n\treturn gp::cgo::as<gp::string>(V{}); // bad\n}\n", "string(x) needs a std::string"},
+	// No implicit conversion makes a gp::string from a C string: a C char* has no owner.
+	{"string-from-pointer", "void g(const gp::string&);\nvoid f(const char* p) {\n\tg(p); // bad\n}\n", ""},
+	// A gocpp string still converts only to std::string_view: f(std::string) + f(const char*)
+	// doesn't take it.
+	{"string-to-overloads", "#include <string>\nvoid h(std::string);\nvoid h(const char*);\nvoid f(const gp::string& s) {\n\th(s); // bad\n}\n", ""},
 }
 
 // rejectControl is the same code written the way the emitter writes it: it must compile, so
@@ -62,6 +71,8 @@ void f(gp::ptr<int64_t> p, gp::ptr<void> u, const gp::string& s) {
 	if (gp::cgo::cond(bs[0])) { // a class that converts to bool implicitly
 		(void)bs;
 	}
+	(void)gp::cgo::as<gp::string>(std::string("x"));
+	(void)(s == "x");
 }
 `
 

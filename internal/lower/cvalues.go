@@ -2,6 +2,7 @@ package lower
 
 import (
 	"go/ast"
+	"go/constant"
 	"go/token"
 	"go/types"
 
@@ -180,7 +181,8 @@ func (g *gen) cMemberOf(x cppir.Expr, name *ast.Ident) cppir.Expr {
 // C/C++ value (v.push_back), or a C++ callable (f()(), v[0](x), a function pointer in a
 // variable). Its arguments are C/C++ arguments (cArgs), and C++ evaluates the callee first.
 func (g *gen) opaqueCallee(c *ast.CallExpr) bool {
-	if !g.pkg.Opaque.IsOpaque(c.Fun) || g.info.Types[c.Fun].IsType() || g.pkg.Conversion(c) != nil || g.calledSig(c) != nil {
+	if !g.pkg.Opaque.IsOpaque(c.Fun) || g.info.Types[c.Fun].IsType() || g.pkg.Conversion(c) != nil || g.calledSig(c) != nil ||
+		g.cgoHelper(c) != "" {
 		return false
 	}
 	if sel, ok := ast.Unparen(c.Fun).(*ast.SelectorExpr); ok && g.info.Selections[sel] != nil {
@@ -347,10 +349,21 @@ func isBuiltinC(s string) bool {
 }
 
 // cArgs returns the C++ of the arguments of a call of a C/C++ function: an untyped constant is a
-// plain C literal (cConstant), nil is nullptr, and a gocpp value has its gocpp type.
+// plain C literal (cConstant), and so is a typed string constant (const S string = "x";
+// cstdio.puts(S): its value is known, and a gp::string would not convert to const char*), nil
+// is nullptr, a holder of C.cstr its const char* (holder.gp_ptr(), also through a C `...`:
+// cstrings.go), and a gocpp value has its gocpp type.
 func (fg *funcGen) cArgs(list []ast.Expr) []cppir.Expr {
 	xs := make([]cppir.Expr, len(list))
 	for i, a := range list {
+		if tv := fg.g.info.Types[a]; tv.Value != nil && tv.Value.Kind() == constant.String && fg.temps[ast.Unparen(a)] == "" {
+			xs[i] = lit(cppir.CString(constant.StringVal(tv.Value)))
+			continue
+		}
+		if fg.g.isHolder(a) {
+			xs[i] = &cppir.Call{Fun: &cppir.Member{X: fg.cValueOf(a), Name: "gp_ptr"}}
+			continue
+		}
 		xs[i] = fg.cMoved(a, fg.cValueOf(a))
 	}
 	return xs
@@ -377,7 +390,7 @@ func (fg *funcGen) cValueOf(e ast.Expr) cppir.Expr {
 	tv := fg.g.info.Types[e]
 	switch {
 	case tv.Value != nil:
-		return fg.g.cConstant(tv.Value, tv.Type, e.Pos())
+		return fg.g.cConstantOf(e)
 	case tv.IsNil():
 		return lit("nullptr")
 	}
@@ -385,8 +398,10 @@ func (fg *funcGen) cValueOf(e ast.Expr) cppir.Expr {
 }
 
 // asConversion returns the C++ of the conversion conv of a C/C++ value to a gocpp type
-// (gp_cgoh.As[T](x) after the check's rewrite): gp::cgo::as<T>(x) for a number or a bool, which
-// is Go's conversion also where a static_cast is undefined behavior (a float out of range).
+// (gp_cgoh.As[T](x) after the check's rewrite): gp::cgo::as<T>(x) for a number, a bool or a
+// string, which is Go's conversion also where a static_cast is undefined behavior (a float out
+// of range); string(x) copies the bytes of a std::string or std::string_view (and is Go's
+// string(r) of a C integer).
 func (fg *funcGen) asConversion(c *ast.CallExpr, conv *check.Conversion) cppir.Expr {
 	if conv.Kind == check.Compare {
 		// x == y of C/C++ values, gp_cgoh.Cmp(x == y): a Go bool, as in cgo.
@@ -398,12 +413,9 @@ func (fg *funcGen) asConversion(c *ast.CallExpr, conv *check.Conversion) cppir.E
 	}
 	to := fg.g.info.TypeOf(c)
 	b := basicOf(to)
-	if b == nil || b.Info()&(types.IsNumeric|types.IsBoolean) == 0 || b.Info()&types.IsComplex != 0 || isNewtype(to) {
-		step := " (step 4.9)"
-		if b == nil || b.Info()&types.IsString == 0 {
-			step = "" // a named type, a complex number, a pointer, a slice, ...
-		}
-		fg.g.unsupported(c.Pos(), "conversions of C/C++ values to "+types.TypeString(to, types.RelativeTo(fg.g.pkg.Types))+step)
+	if b == nil || b.Info()&(types.IsNumeric|types.IsBoolean|types.IsString) == 0 || b.Info()&types.IsComplex != 0 || isNewtype(to) {
+		// A named type, a complex number, a pointer, a slice, ...
+		fg.g.unsupported(c.Pos(), "conversions of C/C++ values to "+types.TypeString(to, types.RelativeTo(fg.g.pkg.Types)))
 		return placeholder
 	}
 	return templateCall("gp::cgo::as", []cppir.Node{fg.g.cxxType(to, c.Pos())}, fg.expr(c.Args[0]))
