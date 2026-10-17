@@ -29,7 +29,7 @@ LINT_SKIP = -path ./spikes -o -path ./.git -o -name testdata
 # first time. v0.7.0 is the newest release that works with Go 1.25.
 STATICCHECK ?= $(GO) run honnef.co/go/tools/cmd/staticcheck@v0.7.0
 
-.PHONY: build test lint staticcheck ci clean
+.PHONY: build test lint staticcheck ci clean quick
 
 build:
 	$(GO) build -o bin/gocpp ./cmd/gocpp
@@ -96,6 +96,15 @@ $(VSCODE_DIR)/node_modules/.package-lock.json: $(VSCODE_DIR)/package-lock.json
 
 ci: $(CI_CHECKS)
 	@echo "make ci: all checks passed"
+
+# The edit-test loop: only what differs from the merge base with dev (gofmt, vet and the tests
+# of the changed Go packages, the changed test fixtures with one compiler, a small smoke set,
+# and for runtime/ changes its fast tests and the debug-mode C++ tests), in a minute or two
+# instead of the ten of make ci. It is not a gate: run make ci and make staticcheck before a
+# change is handed over or merged, and make ci-sanitize when it touches the runtime or the
+# emitter. QUICKFLAGS="-base main" or "-n" (print only) pass flags to tools/quick.
+quick:
+	$(GO) run ./tools/quick $(QUICKFLAGS)
 
 clean:
 	rm -rf bin
