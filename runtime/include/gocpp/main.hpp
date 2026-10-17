@@ -22,8 +22,11 @@ namespace gp {
 // gp::detail::out_of_memory (panic.hpp): an allocation that fails is Go's fatal error
 // "runtime: out of memory" (exit code 2, no deferred calls), not a std::bad_alloc; the
 // terminate handler gp::detail::on_terminate (panic.hpp): a C++ exception that nothing catches
-// ends the program like an unrecovered panic, before anything unwinds; and gp::os::start
-// catches a stack overflow (Linux).
+// ends the program like an unrecovered panic, before anything unwinds; gp::os::start catches a
+// stack overflow of the main thread and of every thread that gp::os::thread_start starts, with
+// the hook that run_main sets, which prints Go's lines (Linux); and the calling thread becomes
+// the main goroutine, with the id 1 (gocpp/goroutine.hpp), which a panic reports. A panic in
+// another goroutine ends the program the same way (gp::detail::exit_with_panic).
 [[noreturn]] int run_main(int argc, char** argv, void (*init)(), void (*main)());
 
 // args are the program's arguments, the program name first (for os.Args, Phase 09), and envs

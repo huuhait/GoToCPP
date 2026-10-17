@@ -2,6 +2,7 @@
 // run_main (fmt's formats are in fmt.cpp). Standard C++ only: the OS is reached through
 // gocpp/os.hpp.
 #include <gocpp/rt.hpp>
+#include <gocpp/goroutine.hpp>
 #include <gocpp/os.hpp>
 #include <gocpp/trace.hpp>
 
@@ -371,7 +372,10 @@ void panic_report(std::string& out, const panic_error* const* chain, std::size_t
         print_hex(out, static_cast<uint64_t>(signal_pc));
         out += ']';
     }
-    out += "\n\ngoroutine 1 [running]:\n";
+    // Go names the goroutine that panics: 1 is the main one.
+    out += "\n\ngoroutine ";
+    print_uint(out, goroutine_id());
+    out += " [running]:\n";
 }
 
 // --- the runtime's print format (Go's runtime/print.go) ---
@@ -483,12 +487,23 @@ void print_float(std::string& out, double v) {
 }
 
 void fatal(std::string_view msg) noexcept {
+    // One goroutine reports (claim_death); one that is already doing it goes on.
+    claim_death();
     // Like a panic: what C or C++ code printf'd comes first. The header is written in parts,
     // so that it needs no memory; then the trace, if there is memory for it.
     std::fflush(nullptr);
     write_stderr("fatal error: ");
     write_stderr(msg);
-    write_stderr("\n\ngoroutine 1 [running]:\n");
+    char line[64]; // "\n\ngoroutine N [running]:\n"
+    char* p = line;
+    for (const char* c = "\n\ngoroutine "; *c != '\0'; c++) {
+        *p++ = *c;
+    }
+    p = std::to_chars(p, line + 40, goroutine_id()).ptr;
+    for (const char* c = " [running]:\n"; *c != '\0'; c++) {
+        *p++ = *c;
+    }
+    write_stderr(std::string_view(line, static_cast<std::size_t>(p - line)));
     std::string trace;
     fatal_trace(trace);
     write_stderr(trace);
@@ -546,6 +561,7 @@ void on_terminate() noexcept {
         }
         std::abort();
     }
+    claim_death(); // one goroutine reports
     // What C or C++ code printf'd comes first, as for a panic.
     std::fflush(nullptr);
     std::string out;
@@ -583,6 +599,17 @@ void on_terminate() noexcept {
     os::exit(2);
 }
 
+void exit_with_panic(const panic_error& e) noexcept {
+    claim_death(); // one goroutine reports
+    // gocpp's own output is never buffered, but C or C++ code that the program calls may
+    // have printf'd: that comes first, as it happened before the panic.
+    std::fflush(nullptr);
+    std::string out;
+    panic_report(out, e); // with the stack trace
+    write_stderr(out);
+    os::exit(2);
+}
+
 void out_of_memory() {
     // An allocation that fails while the report is made (its trace) throws std::bad_alloc
     // now, which fatal_trace catches: the report then has no trace. Phase 08: when several
@@ -610,6 +637,67 @@ void write_stderr(std::string_view s) {
 // --- run_main ---
 
 namespace {
+
+// put_hex and put_str append to a buffer without allocating, for on_stack_overflow.
+char* put_hex(char* p, uintptr_t v) noexcept {
+    char digits[16];
+    int n = 0;
+    do {
+        digits[n++] = "0123456789abcdef"[v % 16];
+        v /= 16;
+    } while (v != 0);
+    *p++ = '0';
+    *p++ = 'x';
+    while (n > 0) {
+        *p++ = digits[--n];
+    }
+    return p;
+}
+
+char* put_str(char* p, const char* s) noexcept {
+    while (*s != '\0') {
+        *p++ = *s++;
+    }
+    return p;
+}
+
+// on_stack_overflow is the OS layer's hook (os::set_stack_overflow_hook): a thread ran past the
+// end of its stack. It prints Go's lines for it, the stack in the second one being the thread's
+// [lo, hi), and ends the program with code 2. It runs in a signal handler (or the like): it
+// only formats numbers into a buffer and calls write and exit_now, no allocation and no lock
+// (claim_death only uses atomics and sleeps). It prints no stack trace (Go does): walking the
+// stack and reading the program's file there isn't safe, the fault may be inside malloc. For the
+// same reason it doesn't flush C's stdio: what C code printf'd and didn't flush is lost.
+void on_stack_overflow(const os::stack_fault& f) noexcept {
+    detail::claim_death();
+    char buf[320];
+    char* p = put_str(buf, "runtime: goroutine stack exceeds 1000000000-byte limit\n"
+                           "runtime: sp=");
+    p = put_hex(p, f.gp_sp);
+    p = put_str(p, " stack=[");
+    p = put_hex(p, f.gp_lo);
+    p = put_str(p, ", ");
+    p = put_hex(p, f.gp_hi);
+    p = put_str(p, "]\nfatal error: stack overflow\n");
+    // Go's blank line and "goroutine N [running]:" (without a trace, and without Go's "runtime
+    // stack:" section); a thread that has no goroutine record has no line.
+    if (uint64_t id = detail::current_goroutine_id(); id != 0) {
+        p = put_str(p, "\ngoroutine ");
+        char digits[20];
+        int n = 0;
+        do {
+            digits[n++] = static_cast<char>('0' + id % 10);
+            id /= 10;
+        } while (id != 0);
+        while (n > 0) {
+            *p++ = digits[--n];
+        }
+        p = put_str(p, " [running]:\n");
+    }
+    // Nothing to do when the write fails.
+    os::write(os::stderr_fd, buf, static_cast<std::size_t>(p - buf));
+    os::exit_now(2);
+}
 
 std::vector<gp::string>& args_storage() {
     static std::vector<gp::string> v;
@@ -641,6 +729,9 @@ const std::vector<gp::string>& envs() noexcept {
 }
 
 int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
+    // The main goroutine is registered first: its id is 1.
+    detail::goroutine_id();
+    os::set_stack_overflow_hook(on_stack_overflow);
     os::start();
     std::set_new_handler(detail::out_of_memory);
     detail::cxx_terminate = std::set_terminate(detail::on_terminate);
@@ -652,13 +743,7 @@ int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
         }
         main();
     } catch (const panic_error& e) {
-        // gocpp's own output is never buffered, but C or C++ code that the program calls may
-        // have printf'd: that comes first, as it happened before the panic.
-        std::fflush(nullptr);
-        std::string out;
-        detail::panic_report(out, e); // with the stack trace
-        detail::write_stderr(out);
-        os::exit(2);
+        detail::exit_with_panic(e);
     }
     // Any other exception (a C++ exception, also a std::bad_alloc that C++ code throws) finds
     // no catch, so the C++ library calls detail::on_terminate on the stack of the throw, before

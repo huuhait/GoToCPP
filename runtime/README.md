@@ -21,10 +21,11 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `src/type.cpp` | the parts of type descriptors and interface values that are not templates (`type.hpp`, `iface.hpp`): the interning table of composite descriptors, Go's names for composite types, the itab builder and the itab cache (append-only tables, read without a lock). Standard C++ only. Embedded |
 | `src/interop.cpp` | the parts of the interop helpers that are not templates: cgo's `C.CString`, `C.GoString`, `C.GoStringN`, `C.GoBytes` and `C.free`, each a mirror of Go's code. Embedded |
 | `src/trace.cpp` | the stack trace of a panic (`trace.hpp`): the `panic_error` constructor that records the stack, Go names from mangled C++ names, the DWARF line table reader, the frames. Standard C++ only. Embedded |
-| `src/os/linux/` | the Linux OS layer: `os.cpp`, and `trace.cpp` (the stack trace's addresses, ELF file and demangling). Phase 08 adds the Linux side of the thread layer `gp::os`. Embedded |
-| `src/os/windows/` | the Windows OS layer (Phase 14): so far only `trace.cpp`, the stack trace's addresses (no file reader yet). Embedded |
+| `src/goroutine.cpp` | the goroutine runtime (Phase 08, step 8.1): the threads, the ids and the count, the end of a goroutine that panics, and `claim_death` (one report when several goroutines die at once). Standard C++ only; the OS is `gp::os`. Embedded |
+| `src/os/linux/` | the Linux OS layer: `os.cpp`, `thread.cpp` (the thread layer of Phase 08: detached pthreads with a stack size and a guard, the thread's slot, the stack bounds, the SIGSEGV handler on each thread's alternate stack that calls the stack-overflow hook), `linux.hpp` (shared by the two) and `trace.cpp` (the stack trace's addresses, ELF file and demangling). Embedded |
+| `src/os/windows/` | the Windows OS layer (Phase 14): so far only `trace.cpp`, the stack trace's addresses (no file reader yet); the thread layer's Windows version (`CreateThread`, a vectored exception handler for the stack overflow) comes with it. Embedded |
 | `files.go` | package `rtfiles`: `FS()` holds `include/` and `src/`; `Sources(goos)` lists the `.cpp` files a program is compiled with (`src/*.cpp` and `src/os/<goos>/*.cpp`) |
-| `test/` | the C++ tests (not embedded): `unit.cpp`, `slice_test.cpp`, `array_test.cpp`, `map_test.cpp`, `fmt_test.cpp`, `interop_test.cpp`, `cxxvalue_test.cpp`, `type_test.cpp`, `iface_test.cpp`, `diff.cpp`, `fmt_diff.cpp`, `fortify.cpp` and `layout.cpp` (generated) |
+| `test/` | the C++ tests (not embedded): `unit.cpp`, `slice_test.cpp`, `array_test.cpp`, `map_test.cpp`, `fmt_test.cpp`, `thread_test.cpp`, `goroutine_test.cpp`, `interop_test.cpp`, `cxxvalue_test.cpp`, `type_test.cpp`, `iface_test.cpp`, `diff.cpp`, `fmt_diff.cpp`, `fortify.cpp` and `layout.cpp` (generated), and the header `threads_ended.hpp` (the test programs that start threads wait with it until the threads have left `/proc/self/task` before they end: a thread that just ended can make LeakSanitizer's stop-the-world at exit print "Unable to get registers from thread") |
 | `testdata/diff/main.go`, `testdata/fmtdiff/main.go` | the Go sides of the differential tests |
 | `*_test.go` | the Go tests that build and run the C++ tests, and the checks below |
 | `compile_flags.txt` | the flags for clangd, so the files open without false errors in an editor (the dev shell's clangd) |
@@ -54,7 +55,9 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `main.hpp` | `gp::run_main(argc, argv, init, main)`, `gp::args()`, `gp::envs()` |
 | `interop.hpp` | the helpers for C and C++ values (Phase 04 §2.5, §2.6): `gp::deref(x)` (`x.m` on an opaque value: one level of a raw pointer or a `gp::ptr`, with Go's nil panic; anything else passes through as a reference), `gp::range(c)` and `gp::range_keys(c)` (`for i, v := range c` and `for i := range c` over anything with `begin()`/`end()` and C arrays: a temporary is held by value, random-access containers are walked by index with the length read once, maps give keys and values, the variables are copies), `gp::values(t)` (a pair or tuple with reference members as values, for `std::minmax`), `gp::cstr(s)` (a holder that converts to `const char*`: a NUL-terminated copy, or no copy for a literal), cgo's helpers in `gp::cgo` (`CString`, `GoString`, `GoStringN`, `GoBytes`, `free`, with Go's behavior and panics), the boxes of C/C++ objects that closures and deferred calls use (`gp::cgo::box`, `box_as<T>`, `new_box<T>`: the object is built in the box from its initializer, `renew`, `result_of`, `defer_arg`, `keep`), `gp::cgo::as<T>(x)`, Go's conversions of C/C++ values (`string(x)` of a `std::string` or `std::string_view` copies its bytes; of a C string it is an error that says `C.GoString(p)`), and `gp::cgo::fmt_arg` / `print_arg`, which check at the `.gp` line that `fmt` and `print` can print a C/C++ value. The file starts with the shapes that the emitter writes |
 | `result.hpp` | `gp::result_slot<R>`, the variable of an unnamed result of a function with defers (Phase 04 step 4.8; Phase 05 uses it for every result): a pointer for a reference result, the value itself for a type that can be default-constructed and assigned, a buffer and a flag for any other (no default constructor, not assignable); `gp_set(v)` (or `=`) and `gp_take()`; a result type with no move is a `static_assert` at the return statement |
-| `os.hpp` | the OS layer's interface (declarations only) |
+| `os.hpp` | the OS layer's interface (declarations only): the files and the process, the stack trace's addresses, and the thread layer (`thread_start` with a stack size, `tls_get`/`tls_set`, `stack_bounds`, `set_stack_overflow_hook`, `exit_now`) |
+| `waiter.hpp` | not in `rt.hpp` yet (step 8.2 adds it with `goroutine.hpp`, when the emitter uses them; the new standard headers they bring in go into `internal/lower/cxx_macros.txt` then): `gp::waiter`, how a goroutine blocks: one permit, `gp_park` (also `gp_park_for`, `gp_park_until`) and `gp_unpark`; an unpark before the park is not lost, unparks don't add up, and the caller loops on its own condition |
+| `goroutine.hpp` | not in `rt.hpp` yet: `gp::go(f)` (a detached OS thread, 8 MiB stack, an id, counted), `gp::num_goroutine()`, and in `detail` the goroutine's record (`this_goroutine`, its id and its own waiter), `stack_size`/`set_stack_size`, `go_start` with a stack size, and `claim_death` |
 | `trace.hpp` | not in `rt.hpp`, for the runtime's own files and tests: the stack trace of a panic (Go names from mangled C++ names, the DWARF line table reader, the frames in Go's format) |
 | `sizes.hpp` | generated from the size table in `internal/check/sizes.go`: a `static_assert` of the size and alignment of each runtime type, the numbers that `unsafe.Sizeof` gives (divergence D15) |
 
@@ -153,10 +156,43 @@ its cache.
 ## The OS rule
 
 The runtime may reach the operating system **only** through `src/os/`: writing to a file
-descriptor, exiting, the program's arguments and the environment (`gocpp/os.hpp`). Phase 08 adds
-the thread layer `gp::os` there: starting a thread with a stack size, thread-local storage and
-the stack-overflow hook. Everything else uses standard C++ (`std::chrono`, `<atomic>`,
-`std::filesystem`), so the same code builds on Linux and Windows.
+descriptor, exiting, the program's arguments and the environment (`gocpp/os.hpp`), and the
+thread layer of Phase 08: starting a detached thread with a stack size (`thread_start`), the
+thread's slot (`tls_get`, `tls_set`), the stack bounds and the stack-overflow hook. Everything
+else uses standard C++ (`std::chrono`, `<atomic>`, `std::filesystem`, `std::mutex`,
+`std::condition_variable`), so the same code builds on Linux and Windows.
+
+The thread layer, in short (`os.hpp` has the contract, `src/os/linux/thread.cpp` the Linux version):
+- **Goroutines are threads** (ADR-007; the goroutine runtime is step 8.1), started by `os::thread_start(fn, arg, stack_size)`:
+  detached, with the stack size rounded up (the OS has a minimum and may reuse a bigger cached
+  stack), a guard of 256 KiB below the stack (a frame that is probed page by page, as every
+  frame of the compiles of gocpp is with `-fstack-clash-protection`, faults there and not in
+  another thread's stack; without the flag a frame of more than 256 KiB can skip over the guard,
+  and the first write may land in a neighbor's stack without a fault), and a 64 KiB alternate signal stack that is extra, not part of
+  the size asked for. It returns 0 or the OS's error code.
+- **The stack-overflow hook.** The OS layer finds the overflow (a fault in the guard or near the
+  end of the thread's own stack, with the stack pointer near it too: other faults, and threads
+  that the runtime didn't start, keep the old action, the crash) and calls the hook that
+  `run_main` sets (`on_stack_overflow` in `src/rt.cpp`: Go's three lines, exit code 2). The hook
+  is portable code that only formats numbers and calls `os::write` and `os::exit_now`, the
+  async-signal-safe parts of the interface, so the Windows version (a vectored exception
+  handler, Phase 14) needs only the detection. A sanitizer build has no handler of the
+  runtime's (AddressSanitizer reports the overflow itself, `stack-overflow`; ThreadSanitizer
+  only crashes on a goroutine's stack).
+  The report is Go's three lines, then a blank line and `goroutine N [running]:` (when the thread
+  is a goroutine), without a trace and without Go's `runtime stack:` section. It does not flush
+  C's stdio (it runs in a signal handler): what C code printf'd and has not flushed is lost.
+  When several threads die at once (`claim_death`, `goroutine.hpp`), one reports and the others
+  wait for the process to end, for at most 30 seconds: then they end it with code 2, so that a
+  reporter that is stuck (it needs malloc's lock, which a waiting thread's own overflow
+  interrupted) can't hang the program.
+- **`no_core_dump()`** (`PR_SET_DUMPABLE 0`): the tests that die of SIGSEGV on purpose call it,
+  because with a `core_pattern` that pipes to systemd-coredump a dying process is held for
+  minutes on a loaded machine, and `ulimit -c 0` does not help.
+- **Thread-local storage**: `thread_local` of a trivial type with constant initialization is
+  fine in portable code (the runtime has several); the thread's slot (one pointer, null at first)
+  is what the goroutine runtime keeps its record in, and what a Windows exception handler can
+  read.
 
 `TestNoOSHeadersOutsideOS` checks this in `make ci`: outside `src/os/`, every file of `runtime/`
 (whatever its name, since C++ can include any file; only the Go files, `README.md` and
@@ -191,7 +227,7 @@ this.
   and clang++, each at `-O0`, at `-O2` and with `-fsanitize=address,undefined` (a sanitizer
   report fails the test; this mode also writes DWARF 4, the others the compilers' DWARF 5).
   The flags are the driver's: `-std=c++20 -fwrapv -fno-strict-aliasing
-  -ffp-contract=off -g`, plus `-Wall -Wextra -Werror`, and `-Qunused-arguments` for clang.
+  -ffp-contract=off -fstack-clash-protection -g`, plus `-Wall -Wextra -Werror`, and `-Qunused-arguments` for clang.
   - `unit.cpp` checks every helper: strings, `div`/`rem`/`shl`/`shr` for every integer type
     (`MIN / -1`, shifts by 0, width - 1, width, 200, a negative count), `f2i` at the
     boundaries and for NaN and ±Inf, the print and `fmt` formats, panics, `run_main`, and the
@@ -247,6 +283,53 @@ this.
     outer 50; the second walk), a stack known only at its top, frames without a shown name
     (the addresses), and a broken line table (cut short or changed anywhere: no read
     outside it, which ASan checks).
+  - `thread_test.cpp` checks the thread layer of Phase 08 (step 8.15): `thread_start` (stack sizes
+    from 1 byte to 8 MiB: the bounds hold the frame, most of the stack can be used, 64 threads at
+    once on different threads, the OS's error for a size that no OS gives and then no call of
+    the function), the thread's slot (null at the start, one per thread, a thread of the C++
+    library has none and no bounds), the main thread's stack bounds, setting the hook, 2,000
+    threads started and ended in a row, and deep recursion that fits in a stack (no false
+    overflow). Nothing depends on timing: threads wait on atomics, with a limit of two minutes.
+    Run with one argument, it runs a case that ends the process, which `thread_test.go` checks:
+    stack overflows of the main thread and of threads (the 8 MiB stack, 256 KiB, frames of 100
+    KB, four threads at once: one report, `sp` near the end of the stack printed in the stack
+    of Go's second line), the hook's arguments, and the faults that must stay crashes: a wild
+    store and an overflow of a `std::thread`. More cases: a write in the guard (200 KiB below the
+    stack, with another thread's stack just below it), a wild write with the stack pointer near
+    the end of the stack, and a `raise(SIGSEGV)` on the main thread and on a thread must all
+    crash with SIGSEGV and no Go message, and a frame of 4 MB on a 1 MiB stack with six threads
+    next to it (the case that needs `-fstack-clash-protection`) must report the overflow. With ASan the overflows are the sanitizer's
+    report instead (`stack-overflow`).
+  - `TestThreadTSan` builds `thread_test.cpp` with ThreadSanitizer (a mode that only this test
+    has so far; step 8.12 makes it a mode of the whole concurrency suite), with each compiler:
+    no TSan warning.
+  - `goroutine_test.cpp` checks `gp::waiter` and the goroutine runtime (Phase 08, step 8.1; the
+    thread layer is `thread_test.cpp`): the waiter (unpark before park, permits that don't add up, timed
+    parks that take at least their time, a time very far away, a float duration, a thread
+    unparked from another, 20,000 ping-pong turns, eight threads unparking one waiter, an owner
+    that destroys the waiter as soon as its park returns), goroutine ids (the main one is 1, the
+    others are distinct and stable) and the count (exact the moment `go` returns, back to 1
+    after the closures are destroyed), a goroutine of a goroutine and a move-only closure, a
+    goroutine's own waiter, 1,000 goroutines alive at once, the default and the set stack size
+    (below 1 MiB it is 1 MiB), deep recursion that fits in a goroutine's stack, the report's
+    `goroutine N` line, a thread that no `go` statement started, and 2,000 goroutines started
+    and ended in a row. Nothing depends on timing: threads wait on waiters and atomics, with
+    a limit of two minutes. Run with one argument, it runs a case that ends the process, which
+    `goroutine_test.go` checks: a panic in a goroutine (Go's report with the goroutine's number,
+    the unwound destructors first, the goroutine's frames and none of libc's), in a goroutine
+    of a goroutine, eight goroutines panicking at once (one report), a C++ exception and a fatal
+    error in a goroutine, a nil dereference with Go's signal line, a panic in the main goroutine
+    with another alive (`goroutine 1`), the failure to start a thread (Go's message, also with
+    three goroutines alive: `have 4 already`), stack overflows on goroutine stacks (the default
+    8 MiB stack, 256 KiB, frames of 100 KB, four goroutines at once: one report, `sp` near the end
+    of the stack in the stack printed, then `goroutine N [running]:`), the hook's arguments, a
+    wild store in a goroutine (a crash), and `claim_death`: after the main goroutine claims it, a
+    goroutine that calls it never comes back. With a sanitizer the overflows are the sanitizer's
+    report instead (`stack-overflow` of ASan).
+  - `TestGoroutineTSan` builds `goroutine_test.cpp` with ThreadSanitizer (a mode that only
+    this test has so far; step 8.12 makes it a mode of the whole concurrency suite), with each
+    compiler: the unit tests, and the cases that end the process, none of which may print a TSan
+    warning.
   - `interop_test.cpp` checks `interop.hpp`, `result.hpp` (the slots of every storage, boxes of types that can't be copied, moved or default-constructed) and the conversions at the C/C++ boundary:
     `gp::deref` (raw pointers one level, `gp::ptr` and named pointer types, the nil panics, no
     copy of values and temporaries, smart pointers untouched), `gp::range` and `range_keys`

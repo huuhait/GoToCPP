@@ -201,7 +201,8 @@ template <uint8_t K = 0, typename T>
 namespace detail {
 
 // panic_report appends what Go prints for an unrecovered panic with this text, up to the
-// stack trace: "panic: " + text + "\n\ngoroutine 1 [running]:\n". As in Go, each newline in
+// stack trace: "panic: " + text + "\n\ngoroutine N [running]:\n", with the id N of the goroutine
+// that calls it (1 for the main goroutine, gocpp/goroutine.hpp). As in Go, each newline in
 // the text is followed by a tab. When the goroutine has a signal (below), Go's signal line
 // comes after the text, before the blank line.
 void panic_report(std::string& out, const gp::string& text);
@@ -215,7 +216,7 @@ void panic_report(std::string& out, const panic_error* const* chain, std::size_t
 // panic_report(out, e) is the whole report of the unrecovered panic e, as run_main prints it:
 // the lines above for e's chain, then the stack trace of e (gocpp/trace.hpp), with the frames
 // of the panics before it in the chain (gp_inner). If the trace can't be made (no memory), the
-// report ends after the "goroutine 1 [running]:" line.
+// report ends after the "goroutine N [running]:" line.
 void panic_report(std::string& out, const panic_error& e) noexcept;
 
 // panic_chain is called by defer_frame::gp_run when the deferred call that it ran panicked with
@@ -235,11 +236,17 @@ void panic_chain(panic_error& newer, const panic_error& running) noexcept;
 void clear_signal() noexcept;
 
 // fatal is Go's fatal error (runtime.throw), an error that no recover stops: it prints "fatal
-// error: <msg>", a blank line, "goroutine 1 [running]:" and the stack trace of its caller to
+// error: <msg>", a blank line, "goroutine N [running]:" and the stack trace of its caller to
 // stderr, and exits with code 2 at once. Nothing unwinds, so no deferred call runs, as in Go.
 // The trace needs memory: when there is none (it is out of memory), the trace is left out or
 // cut short. It is not async-signal-safe: not for a signal handler.
 [[noreturn]] void fatal(std::string_view msg) noexcept;
+
+// exit_with_panic ends the program because the panic e reached the top of a goroutine (run_main
+// for the main one, the start of every other one): it claims the right to report (claim_death,
+// gocpp/goroutine.hpp: when several goroutines die at once, one reports), flushes C's stdio,
+// prints panic_report(e) with its stack trace to stderr and exits with code 2.
+[[noreturn]] void exit_with_panic(const panic_error& e) noexcept;
 
 // out_of_memory is the new handler (std::set_new_handler) that run_main installs: an allocation
 // that fails (operator new, also std::nothrow's, so every runtime type) ends the program with

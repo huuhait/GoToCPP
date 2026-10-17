@@ -205,7 +205,7 @@ $XDG_CACHE_HOME/gocpp/gen/<main module>/gpkg/<import path>/
   [first example](#a-first-example).
 - Until then, `gocpp build` and `gocpp run` write that file into a temporary work folder
   (`-work` keeps it, `-x` shows the commands) and compile it with
-  `-std=c++20 -fwrapv -fno-strict-aliasing -ffp-contract=off -g -gno-column-info -O0`, plus
+  `-std=c++20 -fwrapv -fno-strict-aliasing -ffp-contract=off -fstack-clash-protection -g -gno-column-info -O0`, plus
   `-Qunused-arguments` for clang. The debug info has no columns (`-gno-column-info`): they would
   be the columns of the C++ code, and debuggers would show them on `.gp` lines. Valid Go can
   make the compilers warn about generated code that is right, so that code also gets
@@ -1374,14 +1374,19 @@ Sources: [Phase 03 §2.10](../../plans/2026-10-13-gocpp/phase-03-core-language/R
     applies to C++ code that the program calls (Phase 04): like Go, a program can't recover
     from running out of memory, even where a C++ library would catch `std::bad_alloc`. With
     `-asan`, AddressSanitizer's allocator reports a failed allocation itself;
-  - **stack overflow** (Linux): a goroutine runs on a fixed C++ stack (the main thread's is
-    `ulimit -s`, 8 MiB by default), where Go's stack grows up to 1 GB, so a recursion stops
-    much earlier than in Go. A SIGSEGV handler on a stack of its own (`sigaltstack`) tells an
-    overflow of the main thread's stack from other faults and prints Go's lines, `runtime:
-    goroutine stack exceeds 1000000000-byte limit`, `runtime: sp=0x… stack=[0x…, 0x…]` and
-    `fatal error: stack overflow`. Other faults keep the action they had (a crash, exit code
-    139). Not with a sanitizer (it reports overflows itself), not with `ulimit -s unlimited`,
-    and not on Windows (Phase 14) or other threads (Phase 08, step 8.1) yet.
+  - **stack overflow** (Linux): a goroutine runs on a fixed C++ stack (8 MiB by default; the
+    main thread's is `ulimit -s`, 8 MiB by default too), where Go's stack grows up to 1 GB, so a
+    recursion stops much earlier than in Go. Each goroutine's stack has a guard of 256 KiB below
+    it (a frame is probed page by page, because `-fstack-clash-protection` is one of the compile
+    flags, so it cannot skip over the guard), and every thread that the runtime started (and the main thread) has a SIGSEGV handler on
+    an alternate signal stack (`sigaltstack`) that tells an overflow of its own stack from other
+    faults and prints Go's lines, `runtime: goroutine stack exceeds 1000000000-byte limit`,
+    `runtime: sp=0x… stack=[0x…, 0x…]` (the thread's stack) and `fatal error: stack overflow`,
+    exit code 2. When several goroutines overflow at once, one reports. Other faults keep the
+    action they had (a crash, exit code 139), and so does an overflow of a thread that the runtime
+    didn't start (a C library's thread, a `std::thread`). Not with a sanitizer (it reports
+    overflows itself: AddressSanitizer prints `stack-overflow`, exit code 1), not with `ulimit -s
+    unlimited` for the main thread, and not on Windows (Phase 14) yet.
 - A panic is a C++ exception, `gp::panic_error`. Unrecovered, it prints Go's lines and then a
   stack trace: each function by its Go name, `(...)` when it has parameters, then a tab, the
   `.gp` file and line of the call (from the debug info that `#line` makes) and the offset in the
@@ -1467,8 +1472,10 @@ Where the trace differs from Go's (accepted divergences):
   lines); gocpp has none. A fatal error in a deferred call that a panic runs shows Go's shape:
   the deferred call's frames, `panic(...)` and the panicking function at the panic's line.
   Stack overflow: the numbers of the `sp=`
-  line are the C++ stack's, and the report ends there, without a trace (a signal handler can't
-  safely walk the stack and read the program's file); Go prints its trace;
+  line are the C++ stack's, and the report ends after `goroutine N [running]:`, without a trace
+  and without Go's `runtime stack:` section (a signal handler can't safely walk the stack and
+  read the program's file); Go prints its trace. When several goroutines fail at once, one
+  reports and the others wait up to 30 seconds for the process to end;
 - C or C++ output still in a `stdio` buffer is lost on a stack overflow (the handler can't
   flush it); gocpp's own output is never buffered.
 
@@ -1638,6 +1645,43 @@ conversion, so a C type that `go/types` can't tell from another is a compile err
 instead of a call with the wrong signature (`runtime/reject_test.go`). An interface struct doesn't
 convert to another one by copying (`B b = a;` doesn't compile), and `gp::to_iface` doesn't box an
 interface value.
+
+## Goroutines
+
+Goroutine support is built in Phase 08; step 8.1 has its runtime, which the `go` statement
+(step 8.2) will use. The shapes (`runtime/include/gocpp/goroutine.hpp`, `waiter.hpp`):
+
+- `gp::go(f)` starts `f` as a goroutine: one detached OS thread with its own stack, 8 MiB by
+  default (a program may set it down to 1 MiB). There is no scheduler. Go evaluates the function
+  and the arguments of a `go` statement first, in the calling goroutine; the emitter will pass a
+  closure that holds the values.
+- Every goroutine has an id, for the panic message: the main goroutine is 1, the others count up
+  from 2. `gp::num_goroutine()` is `runtime.NumGoroutine`: the main goroutine, plus each
+  goroutine from the moment `go` returns until its function has returned and its closure is
+  destroyed. A thread that no `go` statement started (a C library's thread, a `std::thread`)
+  gets a goroutine id of its own the first time it enters gocpp code, and does not count.
+- An unrecovered panic in a goroutine ends the whole program, as in Go: after the goroutine's
+  stack has unwound (destructors ran), it prints `panic: <value>`, a blank line,
+  `goroutine N [running]:` and the goroutine's stack trace, and exits with code 2. A C++
+  exception that nothing catches and a fatal error do the same, with the goroutine's number.
+  When several goroutines die at once, one prints and the others wait for the process to end (at
+  most 30 seconds, then they end it with code 2: a reporter that is stuck can't hang the program).
+  Go's trace ends with a line `created by main.main in goroutine 1` and a place; gocpp's has no
+  such line (the trace stops at the goroutine's first frame).
+- `gp::waiter` is how a goroutine blocks (channels, `select`, `sync` and timers, steps 8.3
+  to 8.8 use it): `gp_park()` waits for the waiter's one permit and takes it, `gp_unpark()`
+  makes it available. An unpark before the park is not lost; unparks don't add up; the caller
+  loops on its own condition, as with a condition variable. `gp_park_for` and `gp_park_until`
+  give up at a time.
+- If the OS can't start a thread, the program ends with Go's fatal error: `runtime: failed to
+  create new OS thread (have N already; errno=E)`, then `fatal error: newosproc`, exit code 2.
+
+Everything the OS does for this is behind `gp::os` (`runtime/include/gocpp/os.hpp`, the Linux
+version in `runtime/src/os/linux/thread.cpp`): starting a detached thread with a stack size,
+a thread slot, the stack bounds, and the stack-overflow hook. The Windows version is Phase 14.
+
+Source: [Phase 08 §2.2](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md#22-goroutines--os-threads),
+[ADR-007](../adr/007-goroutines-os-threads.md).
 
 ## `#line` and debugging
 

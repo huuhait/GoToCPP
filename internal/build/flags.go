@@ -14,7 +14,12 @@ import "slices"
 // lines to; lldb and editors would point at the wrong place in a .gp line.
 // -fno-strict-aliasing: gp::ptr_cast and gp::to_array_ptr (the runtime's
 // pointer conversions) access objects through another type, and need it.
-var debugFlags = []string{"-std=c++20", "-fwrapv", "-fno-strict-aliasing", "-ffp-contract=off", "-g", "-gno-column-info", "-O0"}
+// -fstack-clash-protection: a frame of more than a page (a big local array) touches its pages
+// from the top down, so the first access past the end of a goroutine's stack lands in the
+// guard below it (runtime/include/gocpp/os.hpp), not in the stack of another thread. Without
+// it, a frame bigger than the guard (256 KiB) can skip over the guard. (Windows targets
+// ignore it: their frames are probed anyway.)
+var debugFlags = []string{"-std=c++20", "-fwrapv", "-fno-strict-aliasing", "-ffp-contract=off", "-fstack-clash-protection", "-g", "-gno-column-info", "-O0"}
 
 // asanFlags are the flags that -asan adds, to the compiles and to the
 // link: AddressSanitizer and UndefinedBehaviorSanitizer, like the

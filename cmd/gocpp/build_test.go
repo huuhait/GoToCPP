@@ -435,7 +435,7 @@ func TestTraceCommands(t *testing.T) {
 		lines := strings.Split(strings.TrimSuffix(r.stderr, "\n"), "\n")
 		// The runtime may have been compiled before; the program's commands
 		// are the last ones.
-		flags := "-std=c++20 -fwrapv -fno-strict-aliasing -ffp-contract=off -g -gno-column-info -O0"
+		flags := "-std=c++20 -fwrapv -fno-strict-aliasing -ffp-contract=off -fstack-clash-protection -g -gno-column-info -O0"
 		if c.cxx.Family == build.Clang {
 			flags += " -Qunused-arguments"
 		}

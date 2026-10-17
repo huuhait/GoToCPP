@@ -8,6 +8,7 @@
 // (LeakSanitizer included), and runs it like test/unit.cpp. It prints "ok: N checks" and
 // exits 0, or prints each failed check and exits 1.
 #include <gocpp/rt.hpp>
+#include "threads_ended.hpp"
 #include <gocpp/os.hpp>
 
 #include <cmath>
@@ -769,6 +770,7 @@ void run_tests() {
     test_foreign();
     test_opaque();
     test_every_kind();
+    rt_test::threads_ended(); // see threads_ended.hpp
     if (failures > 0) {
         std::string msg =
             "FAIL: " + std::to_string(failures) + " of " + std::to_string(checks) + " checks\n";

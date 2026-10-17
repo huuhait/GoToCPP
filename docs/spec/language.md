@@ -223,7 +223,9 @@ wg.Wait()
 - **gocpp:** every `go` statement starts a real OS thread. There is no goroutine scheduler, now or
   later. Tens of thousands of goroutines are fine; millions are not.
 - Each thread gets an 8 MiB stack by default (memory is only used when a page is touched). A
-  stack overflow prints `fatal error: stack overflow` and exits with code 2.
+  stack overflow, on a goroutine's stack or the main one, prints `fatal error: stack overflow`
+  and exits with code 2. An unrecovered panic in any goroutine prints `goroutine N [running]:`
+  and exits with code 2, as in Go.
 - The Go names stay: `go`, "goroutine", `runtime.NumGoroutine`. `runtime.LockOSThread` always
   holds, because every goroutine already has its own thread. `runtime.GOMAXPROCS` remembers the
   value you set, but gocpp doesn't use it for scheduling.

@@ -21,9 +21,9 @@ import (
 )
 
 // The C++ tests of the runtime: test/unit.cpp, test/slice_test.cpp, test/array_test.cpp,
-// test/map_test.cpp, test/fmt_test.cpp, test/trace_test.cpp, test/defer_test.cpp, test/func_test.cpp and
-// test/interop_test.cpp and test/cxxvalue_test.cpp, test/type_test.cpp and test/iface_test.cpp (unit
-// tests), test/nochecks_test.cpp
+// test/map_test.cpp, test/fmt_test.cpp, test/trace_test.cpp, test/defer_test.cpp, test/func_test.cpp,
+// test/thread_test.cpp, test/goroutine_test.cpp and test/interop_test.cpp and test/cxxvalue_test.cpp,
+// test/type_test.cpp and test/iface_test.cpp (unit tests), test/nochecks_test.cpp
 // (the unit tests of a -nochecks build, compiled with the runtime with -DGOCPP_NOCHECKS),
 // test/diff.cpp (the C++ side of a differential test against testdata/diff/main.go, run with
 // real Go) and test/fmt_diff.cpp (the same for the fmt shim, against testdata/fmtdiff/main.go).
@@ -42,7 +42,7 @@ const cmdTimeout = 10 * time.Minute
 
 // baseFlags are the driver's flags (Phase 02 §2.7), plus warnings as errors for the runtime's
 // own code.
-var baseFlags = []string{"-std=c++20", "-fwrapv", "-fno-strict-aliasing", "-ffp-contract=off", "-g",
+var baseFlags = []string{"-std=c++20", "-fwrapv", "-fno-strict-aliasing", "-ffp-contract=off", "-fstack-clash-protection", "-g",
 	"-Wall", "-Wextra", "-Werror"}
 
 // The modes: the driver's debug build, an optimized build, and the sanitizers. With
@@ -311,6 +311,8 @@ func TestCXX(t *testing.T) {
 						{src: "test/func_test.cpp", weight: 3},
 						{src: "test/type_test.cpp", weight: 4},
 						{src: "test/iface_test.cpp", weight: 7},
+						{src: "test/thread_test.cpp", weight: 3},
+						{src: "test/goroutine_test.cpp", weight: 3},
 						{src: "test/nochecks_test.cpp", flags: []string{"-DGOCPP_NOCHECKS"}, weight: 3},
 					})
 
@@ -350,6 +352,18 @@ func TestCXX(t *testing.T) {
 						t.Parallel()
 						runUnit(t, bins.bin(t, "test/iface_test.cpp"))
 						runIface(t, bins.bin(t, "test/iface_test.cpp"))
+					})
+					t.Run("thread", func(t *testing.T) {
+						t.Parallel()
+						bin := bins.bin(t, "test/thread_test.cpp")
+						runUnit(t, bin)
+						runThread(t, bin, m.name)
+					})
+					t.Run("goroutine", func(t *testing.T) {
+						t.Parallel()
+						bin := bins.bin(t, "test/goroutine_test.cpp")
+						runUnit(t, bin)
+						runGoroutine(t, bin, m.name)
 					})
 					t.Run("interop", func(t *testing.T) {
 						t.Parallel()
