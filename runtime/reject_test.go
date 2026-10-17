@@ -54,6 +54,29 @@ var rejectCases = []struct {
 	// A gocpp string still converts only to std::string_view: f(std::string) + f(const char*)
 	// doesn't take it.
 	{"string-to-overloads", "#include <string>\nvoid h(std::string);\nvoid h(const char*);\nvoid f(const gp::string& s) {\n\th(s); // bad\n}\n", ""},
+	// Interfaces (Phase 05, steps 5.2 and 5.3). A method table entry whose thunk has another C++
+	// type than the method's signature: C types are all invalid for go/types, so `Get() C.int`
+	// may be taken for `Get() C.double`; the call through the itab would then call the thunk with
+	// the wrong signature.
+	{"method-thunk", "int64_t thunk(const gp::iface&);\nauto m = gp::method_of<double()>(\"Area\", nullptr, \"func() float64\", &thunk); // bad\n",
+		"the thunk's type is not R(const gp::iface&, A...)"},
+	// The same check, at a static conversion site: the emitter's static_assert.
+	{"slot-thunk", "int64_t thunk(const gp::iface&);\nstatic_assert(gp::thunk_matches<double(), decltype(&thunk)>, \"gocpp: the thunk of T.Get has another C++ type than the interface's slot\"); // bad\n",
+		"the thunk of T.Get has another C++ type than the interface's slot"},
+	{"slot-thunk-arg", "void thunk(const gp::iface&, double);\nstatic_assert(gp::thunk_matches<void(int64_t), decltype(&thunk)>, \"slot\"); // bad\n", "slot"},
+	// An interface struct converts to another one only through a conversion that checks the
+	// methods (Phase 05 step 5.4), never by copying: the itab would be the wrong one.
+	{"iface-to-iface", "struct A : gp::iface { using gp::iface::iface; };\nstruct B : gp::iface { using gp::iface::iface; };\nB f(const A& a) {\n\treturn a; // bad\n}\n", ""},
+	{"iface-to-iface-copy", "struct A : gp::iface { using gp::iface::iface; };\nstruct B : gp::iface { using gp::iface::iface; };\nB f(const A& a) {\n\tB b(a); // bad\n\treturn b;\n}\n", ""},
+	// An interface value is converted, not boxed: gp::to_iface of one would hide it in a box.
+	{"box-iface", "struct A : gp::iface { using gp::iface::iface; static const gp::type_desc* gp_desc(); };\nvoid f(const A& a, const gp::type_desc* td) {\n\t(void)gp::to_iface<A>(a, td); // bad\n}\n",
+		"an interface value is converted to another interface type, not boxed"},
+	// nil of an interface type is Shape(): the nullptr constructor is explicit, so 0 or nullptr
+	// can't become an interface by accident (any z = 0).
+	{"nil-zero", "void f() {\n\tgp::any z = 0; // bad\n\t(void)z;\n}\n", ""},
+	{"nil-implicit", "struct A : gp::iface { using gp::iface::iface; };\nA f() {\n\treturn nullptr; // bad\n}\n", ""},
+	// to_iface needs an interface struct for the result.
+	{"to-iface-int", "void f(const gp::type_desc* td) {\n\t(void)gp::to_iface<int>(1, td); // bad\n}\n", "I is an interface struct"},
 }
 
 // rejectControl is the same code written the way the emitter writes it: it must compile, so
@@ -78,6 +101,28 @@ void f(gp::ptr<int64_t> p, gp::ptr<void> u, const gp::string& s) {
 	}
 	(void)gp::cgo::as<gp::string>(std::string("x"));
 	(void)(s == "x");
+}
+
+// Interfaces, written as the emitter writes them: a thunk whose C++ type is the slot's, a
+// method table entry, every interface value converting to any, and a static conversion.
+double gp_thunk(const gp::iface&);
+struct CA : gp::iface {
+	using gp::iface::iface;
+	static const gp::type_desc* gp_desc();
+};
+static_assert(gp::thunk_matches<double(), decltype(&gp_thunk)>, "the thunk of CA.Area");
+static_assert(gp::thunk_matches<void(int64_t, gp::string), void(const gp::iface&, int64_t, gp::string)>, "args");
+void g(const CA& a, const gp::type_desc* td) {
+	gp::method m = gp::method_of<double()>("Area", nullptr, "func() float64", &gp_thunk);
+	gp::any x = a;
+	CA nil{nullptr};
+	CA b = gp::to_iface<CA>(int64_t(1), td);
+	(void)m;
+	(void)x;
+	(void)(nil == nullptr);
+	(void)gp::unbox<gp::ptr<int64_t>>(b);
+	(void)gp::unbox<int64_t>(b);
+	(void)gp::icall<double()>(b, 0);
 }
 `
 

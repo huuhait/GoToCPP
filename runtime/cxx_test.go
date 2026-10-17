@@ -22,7 +22,8 @@ import (
 
 // The C++ tests of the runtime: test/unit.cpp, test/slice_test.cpp, test/array_test.cpp,
 // test/map_test.cpp, test/fmt_test.cpp, test/trace_test.cpp, test/defer_test.cpp, test/func_test.cpp and
-// test/interop_test.cpp and test/cxxvalue_test.cpp (unit tests), test/nochecks_test.cpp
+// test/interop_test.cpp and test/cxxvalue_test.cpp, test/type_test.cpp and test/iface_test.cpp (unit
+// tests), test/nochecks_test.cpp
 // (the unit tests of a -nochecks build, compiled with the runtime with -DGOCPP_NOCHECKS),
 // test/diff.cpp (the C++ side of a differential test against testdata/diff/main.go, run with
 // real Go) and test/fmt_diff.cpp (the same for the fmt shim, against testdata/fmtdiff/main.go).
@@ -308,6 +309,8 @@ func TestCXX(t *testing.T) {
 						{src: "test/trace_test.cpp", weight: 3},
 						{src: "test/defer_test.cpp", weight: 3},
 						{src: "test/func_test.cpp", weight: 3},
+						{src: "test/type_test.cpp", weight: 4},
+						{src: "test/iface_test.cpp", weight: 7},
 						{src: "test/nochecks_test.cpp", flags: []string{"-DGOCPP_NOCHECKS"}, weight: 3},
 					})
 
@@ -338,6 +341,15 @@ func TestCXX(t *testing.T) {
 					t.Run("func", func(t *testing.T) {
 						t.Parallel()
 						runUnit(t, bins.bin(t, "test/func_test.cpp"))
+					})
+					t.Run("type", func(t *testing.T) {
+						t.Parallel()
+						runUnit(t, bins.bin(t, "test/type_test.cpp"))
+					})
+					t.Run("iface", func(t *testing.T) {
+						t.Parallel()
+						runUnit(t, bins.bin(t, "test/iface_test.cpp"))
+						runIface(t, bins.bin(t, "test/iface_test.cpp"))
 					})
 					t.Run("interop", func(t *testing.T) {
 						t.Parallel()
@@ -534,6 +546,31 @@ func runInterop(t *testing.T, bin string, asan bool) {
 	}
 	if code == 0 || !bytes.Contains(out, []byte("ERROR: AddressSanitizer: stack-use-after-scope")) {
 		t.Errorf("dangle: exit code %d, output:\n%s\nwant an AddressSanitizer report (stack-use-after-scope) and a nonzero exit code", code, out)
+	}
+}
+
+// runIface runs the cases of test/iface_test.cpp that end the program (Phase 05 steps 5.2 and
+// 5.3): the fatal errors of the runtime that only a bug in the emitter can reach, each with its
+// message and exit code 2, up to the goroutine line.
+func runIface(t *testing.T, bin string) {
+	const sorted = " are not sorted (exported names first, then by name and package: gocpp/type.hpp)"
+	for _, tc := range []struct{ name, msg string }{
+		{"unsorted-type", "the methods of main.Unsorted" + sorted},
+		{"unsorted-iface", "the methods of an interface type" + sorted},
+		{"unsorted-iface-desc", "the methods of main.BadIface" + sorted},
+		{"bad-conversion", "main.Rect does not implement main.Shape: missing method Scale"},
+		{"bad-unbox", "unbox of the nil interface"},
+		{"interface-name", "the interface type interface { Z1() } is also given the name interface { Z1(); } (every site must pass the same name)"},
+		{"getitab-concrete", "getitab needs an interface type and a concrete type"},
+	} {
+		out, _, code, err := command(filepath.Dir(bin), nil, true, bin, tc.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "fatal error: gocpp: internal error: " + tc.msg + "\n\n" + goStackMark
+		if got := cutTrace(out); code != 2 || string(got) != want {
+			t.Errorf("%s: exit code %d, output:\n%s\nwant exit code 2, output:\n%s", tc.name, code, got, want)
+		}
 	}
 }
 

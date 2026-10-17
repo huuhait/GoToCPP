@@ -187,7 +187,7 @@ var runtimeTypes = []runtimeType{
 	{goType: "func()", cpp: "gp::func<void()>", layout: layoutFunc,
 		defined: `(?:class|struct) func\b`, pending: ""},
 	{goType: "any", cpp: "gp::any", layout: layoutInterface,
-		defined: `(?:class|struct) any\b`, pending: "Phase 05"},
+		defined: `(?:class|struct) any\b`, pending: ""},
 	{goType: "chan int", cpp: "gp::chan<int64_t>", layout: layoutChan,
 		defined: `(?:class|struct) chan\b`, pending: "Phase 08"},
 }

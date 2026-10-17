@@ -18,12 +18,13 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `src/slice.cpp` | the parts of slices and slice bounds checks that are not templates: the bounds panics with Go's messages, `make`'s panics, and the capacity of a growing slice (Go's formula and size classes). Embedded |
 | `src/complex.cpp` | the division of complex numbers, Go's `runtime.complex128div` line by line. Embedded |
 | `src/map.cpp` | the parts of maps and key hashing that are not templates: the hash of a run of bytes (strings) and the nil map panic. Embedded |
+| `src/type.cpp` | the parts of type descriptors and interface values that are not templates (`type.hpp`, `iface.hpp`): the interning table of composite descriptors, Go's names for composite types, the itab builder and the itab cache (append-only tables, read without a lock). Standard C++ only. Embedded |
 | `src/interop.cpp` | the parts of the interop helpers that are not templates: cgo's `C.CString`, `C.GoString`, `C.GoStringN`, `C.GoBytes` and `C.free`, each a mirror of Go's code. Embedded |
 | `src/trace.cpp` | the stack trace of a panic (`trace.hpp`): the `panic_error` constructor that records the stack, Go names from mangled C++ names, the DWARF line table reader, the frames. Standard C++ only. Embedded |
 | `src/os/linux/` | the Linux OS layer: `os.cpp`, and `trace.cpp` (the stack trace's addresses, ELF file and demangling). Phase 08 adds the Linux side of the thread layer `gp::os`. Embedded |
 | `src/os/windows/` | the Windows OS layer (Phase 14): so far only `trace.cpp`, the stack trace's addresses (no file reader yet). Embedded |
 | `files.go` | package `rtfiles`: `FS()` holds `include/` and `src/`; `Sources(goos)` lists the `.cpp` files a program is compiled with (`src/*.cpp` and `src/os/<goos>/*.cpp`) |
-| `test/` | the C++ tests (not embedded): `unit.cpp`, `slice_test.cpp`, `array_test.cpp`, `map_test.cpp`, `fmt_test.cpp`, `interop_test.cpp`, `cxxvalue_test.cpp`, `diff.cpp`, `fmt_diff.cpp`, `fortify.cpp` and `layout.cpp` (generated) |
+| `test/` | the C++ tests (not embedded): `unit.cpp`, `slice_test.cpp`, `array_test.cpp`, `map_test.cpp`, `fmt_test.cpp`, `interop_test.cpp`, `cxxvalue_test.cpp`, `type_test.cpp`, `iface_test.cpp`, `diff.cpp`, `fmt_diff.cpp`, `fortify.cpp` and `layout.cpp` (generated) |
 | `testdata/diff/main.go`, `testdata/fmtdiff/main.go` | the Go sides of the differential tests |
 | `*_test.go` | the Go tests that build and run the C++ tests, and the checks below |
 | `compile_flags.txt` | the flags for clangd, so the files open without false errors in an editor (the dev shell's clangd) |
@@ -48,6 +49,8 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `panic.hpp` | `gp::panic_error` (the exception a panic throws, with the return addresses of its stack) and `gp::panic(v)` |
 | `fmtshim.hpp` | `gp::fmtshim::Print`, `Println`, `Printf`, `Sprint`, `Sprintln`, `Sprintf`, a stand-in for `fmt` until Phase 05 and 09: every Phase 03 value as Go's `fmt` prints it (slices, arrays, maps with Go's key order, structs, `&{...}`, addresses, `String()` and `Error()` methods, panics in them), the verbs `%v %+v %d %s %q %t %f` (and `%T`) with width, precision and the flags `- + space 0`, Go's error forms; the protocols that the emitter's types follow (`gp_fields` with `gp::field`, `gp_type_name`, `gp_value()`, `gp_String`/`gp_String_ptr`, `gp_Error`/`gp_Error_ptr`) and the type tags for `int64`, `uint64` and `uintptr` (`gp::fmtshim::typed<tag>(x)`); C/C++ values (step 4.12): C numbers as the Go types of their size, enums as numbers, raw pointers as addresses, C++ strings as strings, other class types through `std::formatter` or `operator<<` |
 | `fmtcxx.hpp` | not in `rt.hpp`: generated code with C/C++ includes includes it after them, and it lets `fmt` use a type's `std::formatter` when the program's headers brought in `<format>` (so other programs don't pay for `<format>`) |
+| `type.hpp` | Go's type descriptors (Phase 05 §2.2, step 5.1): `gp::type_desc` (Go name, kind, size, the `==` and hash hooks, method tables), one object per Go type chosen by the **Go** type, so `gp::td_int` and `gp::td_int64` are different objects and pointer equality is type identity; the predeclared descriptors (`gp::td_int` … `gp::td_string`, `gp::td_any`), `gp::named<T>` for the named types the emitter writes (with the `gp::shape_*` builders and the two method tables of a named type: `T`'s value methods and `*T`'s all methods), the **interned** composite descriptors (`gp::td_slice`, `td_array`, `td_map`, `td_ptr`, `td_chan` with its direction, `td_func`, `td_struct`, `td_interface`: one pointer per Go type from any thread, with Go's `%T` names), `gp::foreign_td<T>()` for C/C++ values (named after the C++ spelling, `==` and `std::hash` when the type has them), `gp::td_opaque("C.int")` for a C type in a signature, and `gp::method` / `gp::imethod` (a method's name, package path for unexported names, signature text and thunk; sorted) with `gp::method_of<Sig>`, which checks the thunk's C++ type at compile time (`gp::thunk_matches`). The emitted shapes are in the file's comment and in `docs/spec/cpp-mapping.md` ("Interfaces") |
+| `iface.hpp` | interface values (Phase 05 §2.3, steps 5.2 and 5.3): `gp::iface` (`{data, type, itab}`, 32 bytes; the base of every generated interface struct; `type` null exactly for `nil`), `gp::any` (`interface{}`), `gp::to_iface<I>(v, descriptor)` (a copy of `v` in a new box; a `gp::ptr` shares its owner, so a nil pointer in an interface is not nil), `gp::unbox<T>`, `gp::icall<Sig>(self, slot, args...)` and `icall_keep` (call the thunk in the itab; a nil interface panics with Go's nil dereference), `gp::itab` and `gp::getitab(inter, type)` (methods matched by name, package and signature text; the results, also the misses, cached in a global table that is read without a lock, and in a static of each conversion site), `gp::missing_method`, `gp::implements`. Conversions between interface types, assertions and `==` come in steps 5.4 to 5.6 |
 | `main.hpp` | `gp::run_main(argc, argv, init, main)`, `gp::args()`, `gp::envs()` |
 | `interop.hpp` | the helpers for C and C++ values (Phase 04 §2.5, §2.6): `gp::deref(x)` (`x.m` on an opaque value: one level of a raw pointer or a `gp::ptr`, with Go's nil panic; anything else passes through as a reference), `gp::range(c)` and `gp::range_keys(c)` (`for i, v := range c` and `for i := range c` over anything with `begin()`/`end()` and C arrays: a temporary is held by value, random-access containers are walked by index with the length read once, maps give keys and values, the variables are copies), `gp::values(t)` (a pair or tuple with reference members as values, for `std::minmax`), `gp::cstr(s)` (a holder that converts to `const char*`: a NUL-terminated copy, or no copy for a literal), cgo's helpers in `gp::cgo` (`CString`, `GoString`, `GoStringN`, `GoBytes`, `free`, with Go's behavior and panics), `gp::cgo::as<T>(x)`, Go's conversions of C/C++ values (`string(x)` of a `std::string` or `std::string_view` copies its bytes; of a C string it is an error that says `C.GoString(p)`), and `gp::cgo::fmt_arg` / `print_arg`, which check at the `.gp` line that `fmt` and `print` can print a C/C++ value. The file starts with the shapes that the emitter writes |
 | `os.hpp` | the OS layer's interface (declarations only) |
@@ -183,7 +186,7 @@ this.
 ## Tests
 
 `go test ./runtime` (also part of `make test` and `make ci`) runs:
-- `TestCXX`: compiles `test/unit.cpp`, `test/slice_test.cpp`, `test/array_test.cpp`, `test/map_test.cpp`, `test/fmt_test.cpp`, `test/trace_test.cpp`, `test/interop_test.cpp`, `test/cxxvalue_test.cpp`, `test/nochecks_test.cpp`, `test/diff.cpp` and `test/fmt_diff.cpp` with the embedded runtime, with g++
+- `TestCXX`: compiles `test/unit.cpp`, `test/slice_test.cpp`, `test/array_test.cpp`, `test/map_test.cpp`, `test/fmt_test.cpp`, `test/trace_test.cpp`, `test/interop_test.cpp`, `test/cxxvalue_test.cpp`, `test/type_test.cpp`, `test/iface_test.cpp`, `test/nochecks_test.cpp`, `test/diff.cpp` and `test/fmt_diff.cpp` with the embedded runtime, with g++
   and clang++, each at `-O0`, at `-O2` and with `-fsanitize=address,undefined` (a sanitizer
   report fails the test; this mode also writes DWARF 4, the others the compilers' DWARF 5).
   The flags are the driver's: `-std=c++20 -fwrapv -fno-strict-aliasing
@@ -272,6 +275,36 @@ this.
     the trace), `throw 7`, a C++ exception from a deferred call while a Go panic runs (Go's
     chain), a Go panic through a `noexcept` function, and `printf`, `fmt` and `println` mixed
     in one pipe, in the program's order.
+  - `type_test.cpp` checks `type.hpp` (step 5.1): every predeclared descriptor (name, kind, size,
+    hooks; `int` and `int64`, and `uint`, `uint64` and `uintptr`, are different objects), Go's
+    names for composite types (the texts are what real Go 1.25 prints for `%T`: the three channel
+    directions and `chan (<-chan int)`, variadic funcs, structs with tags and embedded fields,
+    interfaces with unexported methods), interning (the same Go type is the same pointer,
+    `[]int` and `[]int64` are two, every part of a struct field and of a func type counts, a lookup
+    adds nothing to the table), named types with their method tables (`*T` gets `T`'s second
+    table), the hooks of each kind (pointers by address, arrays elementwise, named types over
+    slices, maps and funcs not comparable, a struct without `==`), foreign descriptors (`int`,
+    `double`, raw pointers by address, classes with `==` and `std::hash`, with `==` only, with
+    neither; a C `int` is not a Go `int32`), opaque descriptors, the order of method tables, every
+    kind of descriptor, and 8 threads that intern the same 300 spellings in different orders
+    (the table grows while others read it).
+  - `iface_test.cpp` checks `iface.hpp` (steps 5.2 and 5.3) with types written as the emitter
+    will write them: the nil interface, small and large values (a 64 KiB struct), a box that is
+    a copy, pointers that share their owner (an interior pointer, a static one, the owner
+    living as long as the interface), **a nil pointer in an interface is not nil**, copies,
+    moves and destruction exactly once, chains of 200,000 interfaces that hold interfaces
+    freed without deep recursion, itabs (the method sets of `T` and `*T`, slots in the
+    interface's order, cache hits build nothing, a miss is cached too, `missing_method`),
+    signature texts (`C.int` against `C.double`, one parameter more, the walk over method
+    tables), unexported names of two packages, `to_iface` with its per-site cache (two Go types
+    over one C++ type), `icall` with every kind of argument and result, a nil interface's
+    method, `icall_keep` (a method that drops the interface that is being called, which ASan
+    would catch), C/C++ values in an interface, the == and hash hooks on the data of interfaces
+    (pointers by target address, boxes, nil pointers, arrays and structs with pointers, no hook for
+    slices, maps and funcs), the cases that end the program (run with one argument: an unsorted method
+    table, a static conversion that lacks a method, an unbox of nil, two names for one interface
+    type, getitab of an interface type: exit code 2 and the message), and `getitab` and `to_iface` from 8 threads at
+    once (each of 992 pairs built exactly once). Also run once with ThreadSanitizer by hand.
   - `nochecks_test.cpp` is compiled with `-DGOCPP_NOCHECKS`, as `gocpp build -nochecks` does,
     runtime included: the index, slice, conversion, nil and owner checks are gone (an index
     past `len` inside `cap` reads the element, without undefined behavior), and the division
@@ -312,7 +345,9 @@ this.
   for generated code (`build.GeneratedFlags`), each checked at its line with g++ and clang++:
   `delete p` and `p[i]` on a `gp::ptr`, `if (p)`, a `gp::ptr` or a `gp::cstr` holder through a
   C function's `...` (g++ needs `-Werror=conditionally-supported` for these two), and
-  `gp::range` over a C array of C arrays (its message); the same code written the emitter's
+  `gp::range` over a C array of C arrays (its message), a method table entry or a static conversion
+  whose thunk has another C++ type than the interface's slot, an interface struct copied into
+  another one, `gp::to_iface` of an interface value, and nil as `nullptr` or `0` (the constructor is explicit); the same code written the emitter's
   way must compile.
 - `TestNoFortify`: the `nofortify.h` check above, with `-Werror`.
 - `TestLayout`: compiles `test/layout.cpp` (syntax only) with g++ and clang++. Its

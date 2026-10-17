@@ -1464,6 +1464,171 @@ Where the trace differs from Go's (accepted divergences):
 
 Source: [Phase 03 §2.9](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#29-runtime-checks-and-panics-gos-exact-messages).
 
+## Interfaces
+
+Go's interfaces are satisfied by having the methods; gocpp copies Go's runtime for them: a **type
+descriptor** for every type that goes into an interface, and an **itab** (a table of function
+pointers) for every (interface, type) pair, found by the methods' names and signatures
+([Phase 05 §2](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md), ADR-016). This
+section is the runtime's side, steps 5.1 to 5.3 (`gocpp/type.hpp`, `gocpp/iface.hpp`,
+`runtime/src/type.cpp`); the shapes below are what the emitter will write. Conversions between
+interface types (5.4), type assertions and switches (5.5), `==` and hashing of interfaces (5.6),
+`fmt` (5.11) and embedding (5.8) come in later steps.
+
+```go
+type Shape interface{ Area() float64; Scale(k float64) }
+type Rect struct{ W, H float64 }
+func (r Rect) Area() float64      { return r.W * r.H }
+func (r *Rect) Scale(k float64)   { r.W *= k; r.H *= k }
+
+var s Shape = &Rect{2, 3}
+fmt.Println(s.Area())
+```
+
+```cpp
+// the interface: one struct, no data members (32 bytes), the wrappers defined after all types
+struct Shape : gp::iface {
+    using gp::iface::iface;
+    static const gp::type_desc* gp_desc();   // its descriptor, defined after the descriptors
+    double Area() const;
+    void Scale(double k) const;
+};
+inline double Shape::Area() const { return gp::icall<double()>(*this, 0); }          // slot 0
+inline void Shape::Scale(double k) const { gp::icall<void(double)>(*this, 1, k); }   // slot 1
+inline const gp::type_desc* Shape::gp_desc() { return &gp_td_Shape; }
+
+// one thunk per method of each named type: R(const gp::iface& self, Args...)
+inline double gp_thunk_Rect_Area(const gp::iface& self) { return gp::unbox<Rect>(self).Area(); }
+inline double gp_thunk_pRect_Area(const gp::iface& self) {   // the same method through a *Rect
+    gp::ptr<Rect> p = gp::unbox<gp::ptr<Rect>>(self);
+    gp::check_wrap(p, "value method main.Rect.Area called using nil *Rect pointer");
+    return p->Area();
+}
+inline void gp_thunk_pRect_Scale(const gp::iface& self, double k) {
+    Rect::Scale(gp::unbox<gp::ptr<Rect>>(self), k);
+}
+
+// the method tables, sorted (exported names by name, then unexported ones by name and package)
+inline const gp::method gp_vm_Rect[] = {   // the method set of Rect: the value methods
+    gp::method_of<double()>("Area", nullptr, "func() float64", &gp_thunk_Rect_Area)};
+inline const gp::method gp_pm_Rect[] = {   // the method set of *Rect: all of them
+    gp::method_of<double()>("Area", nullptr, "func() float64", &gp_thunk_pRect_Area),
+    gp::method_of<void(double)>("Scale", nullptr, "func(float64)", &gp_thunk_pRect_Scale)};
+inline const gp::imethod gp_im_Shape[] = {
+    gp::imethod("Area", nullptr, "func() float64"), gp::imethod("Scale", nullptr, "func(float64)")};
+
+// the descriptors (header section 8)
+inline const gp::type_desc gp_td_Rect = gp::named<Rect>(
+    "main.Rect", "main", gp::shape_struct(gp_fields_Rect),
+    gp::methods_of(gp_vm_Rect), gp::methods_of(gp_pm_Rect));
+inline const gp::type_desc gp_td_Shape = gp::named<Shape>(
+    "main.Shape", "main", gp::shape_interface(gp_im_Shape));
+
+// var s Shape = &Rect{2, 3}   (the descriptor of *Rect is interned: keep it in a static)
+static const gp::type_desc* const gp_td_pRect = gp::td_ptr<Rect>(&gp_td_Rect);
+Shape s = gp::to_iface<Shape>(gp::new_<Rect>(Rect{2, 3}), gp_td_pRect);
+static_assert(gp::thunk_matches<double(), decltype(&gp_thunk_pRect_Area)>, "...");   // per method
+```
+
+**Descriptors are chosen by the Go type.** One `gp::type_desc` object per Go type, so a pointer
+comparison is a type comparison: `gp::td_int` and `gp::td_int64` are different objects although both
+types are `int64_t` in C++ (also `uint`, `uint64` and `uintptr`, and the three directions of
+a channel), so `any(1).(int64)` fails and `%T` prints the right name.
+
+| Go type | Descriptor |
+|---|---|
+| predeclared (`int`, `int8` … `uintptr`, `float32`, `complex128`, `string`, `bool`, `unsafe.Pointer`) | `gp::td_int` … `gp::td_uintptr`, `gp::td_string`, …: one `constexpr` object each in the runtime. `byte` is `td_uint8`, `rune` is `td_int32`; `interface{}` is `gp::td_any` |
+| a named type (`type Rect struct{…}`, `type Celsius float64`, `type Shape interface{…}`) | an object in the package header: `gp::named<T>(name, package path, shape, value methods, pointer methods)`, where `shape` is `gp::shape_struct(fields)`, `shape_basic(kind)`, `shape_slice(elem)`, `shape_array(n, elem)`, `shape_map(k, v)`, `shape_chan(dir, elem)`, `shape_func(...)`, `shape_pointer(elem)` or `shape_interface(methods)` |
+| `[]T`, `[N]T`, `map[K]V`, `*T`, `chan T` (and `<-chan T`, `chan<- T`), `func(...)`, `struct{...}`, `interface{...}` | built from the descriptors of the parts and **interned** (one per Go type, from any thread, no lock to read): `gp::td_slice<E>(elem)`, `td_array<E, N>(elem)`, `td_map<K, V>(key, elem)`, `td_ptr<T>(elem)`, `td_chan<C>(dir, elem)`, `td_func<F>({params}, {results}, variadic)`, `td_struct<S>({fields})`, `td_interface({methods})`. The template argument is the C++ type (its size and `==` come from it); the arguments are Go descriptors. The name is Go's: `[]int`, `<-chan int`, `chan (<-chan int)`, `func(int, ...string) (bool, error)`, `struct { X int "json:\"x\""; y string }`, `interface { N(); pkn.m() }` |
+| a C or C++ value in an interface (`std::string`, a C `int`, a raw pointer) | `gp::foreign_td<T>()`: made from a template, named after the C++ spelling, `==` and the hash from `operator==` and `std::hash` when `T` has them; a raw pointer compares and hashes by address |
+| a C type in a method signature, which `go/types` sees as `invalid` | its spelling in the signature text, or `gp::td_opaque("C.int")` in a `td_func` |
+
+A named type has two method tables: the **value methods** (the method set of `T`) and **all
+methods** (the method set of `*T`, which `td_ptr` puts on the interned `*T`). A method has its Go
+name, the **import path of its package when the name is not exported** (an unexported `m` of
+package `a` is another method than the `m` of package `b`, so another package's unexported method
+never satisfies an interface), its signature as text and its thunk. The signature text is the
+identity of the method's type, so it must be **canonical**: the same text for every spelling of an
+identical signature (`types.Identical`), in the interface and in the type that has the method.
+The emitter's **contract**: aliases unaliased, recursively; parameter and result names dropped;
+`byte` as `uint8` and `rune` as `int32`; `any` as `interface {}`; every package as its full import
+path (`func(net/url.Values, ...string) (int, error)`, a single space after each comma);
+function-local types made unique (two types named `L` in two functions are two types); the type
+arguments of an instantiated generic type spelled canonically too; a C type as it is spelled in the
+source (`func() C.int`). `types.TypeString` does **not** do this (it keeps parameter names, `byte`,
+`any` and alias names, and prints two local types alike), so a signature that differs only in such
+a spelling would be a *missing method* at run time, or a false match. A Go-side canonicaliser with
+a test for each rule is part of step 5.4; the runtime only compares the texts. With the text,
+`Get() C.double` can't satisfy `Get() C.int`, which `go/types` alone would allow.
+
+**Interface values.** `gp::iface` is `{ std::shared_ptr<void> data; const gp::type_desc* type;
+const gp::itab* tab; }`, 32 bytes. `type` is the dynamic type's descriptor and is null exactly for
+`nil`; `x == nil` is `x == nullptr`. `tab` is the itab (null for an empty interface). `gp::any` is
+`interface{}`.
+
+| Go | Interface value |
+|---|---|
+| `var x Shape` (nil) | `Shape()` or `Shape(nullptr)`: `data`, `type` and `tab` null |
+| `*T` (also `&x.f`, `&a[i]`, `&global`) | `data` shares the pointer's owner and address: no copy of the object, and the object lives as long as the interface |
+| a nil `*T` | `data` null, `type` the descriptor of `*T`: **not** nil (Go's famous gotcha) |
+| any other value (numbers, strings, structs, arrays, slices, maps, funcs, C/C++ values) | `data` owns a new box with a copy of the value, as in Go |
+
+Copies of an interface share the box (boxes are never written); a move leaves `nil`; the owner is
+released through `gp::detail::release`, so a long list that goes through `any` fields is freed
+without deep recursion. `gp::to_iface<I>(value, descriptor)` boxes a value; `gp::unbox<T>(x)` reads
+it back (a `const T&` into the box, a copy for a temporary, a `gp::ptr` that shares the owner): the
+type check comes first (step 5.5). A call of a method of a nil interface panics with `invalid memory
+address or nil pointer dereference`. `gp::icall<R(A...)>(self, slot, args...)` calls the thunk in
+`slot` of the itab, whose C++ type is `R(const gp::iface&, A...)`; `gp::icall_keep` holds a copy of
+the interface for the call, for an interface that the method itself could change (a field, a global),
+as `gp_call` does for func values.
+
+**Itabs.** `gp::getitab(inter, type)` is the itab of the pair: for each method of the interface, in
+order, the thunk of the type's method with the same name, package and signature text; null when the
+type lacks one (`gp::missing_method` says which: Go's `missing method M`, step 5.5). Results, also
+the misses, are cached in a global table that is read without a lock (an append-only open-addressed
+table written under a mutex, like Go's `itabTable`); a static conversion (`to_iface`) also keeps its
+itab in a function-local static, checked against the descriptor, so two Go types over one C++ type
+(`type A int64`, `type B int64`) never share one. An itab is built once however many threads ask. The
+method tables must be sorted (exported names by name, then unexported ones by name and package):
+`getitab` ends the program with a fatal error otherwise (`gp::methods_sorted` checks one).
+
+**Contracts of the runtime API.**
+- Nil of an interface type is `Shape()`. The `std::nullptr_t` constructor is explicit, so
+  `Shape s = nullptr;`, `return nullptr;`, `x = nullptr;` (`err = nil`), an argument `f(nullptr)`,
+  a braced element `{nullptr, x}`, `result.set(nullptr)` and `gp::any z = 0;` don't compile. The
+  emitter must write `T()` for every nil of an interface type (`Shape()`, `Shape(nullptr)`,
+  `Shape{nullptr}` and `return {};` compile too); `x == nullptr`, `nullptr == x`, `x != nullptr` and
+  `nullptr != x` compile.
+- `td_interface(methods, name)`: the emitter must always pass the name, at every site, and it is
+  the text Go's `%T` prints, not go/types': the same canonical form as the signature texts (method
+  set flattened and sorted, aliases unaliased, `[]uint8`, `interface {}`, no parameter names,
+  package *names* in qualified types, Go's spacing): `interface { Close() error; Read([]uint8)
+  (int, error) }` for both `interface{ io.Reader; Close() error }` and `interface{ Close() error;
+  Read(p []byte) (int, error) }`. The first call creates the descriptor, and a later call with
+  another name is a fatal error (also a first call without a name followed by one with a name,
+  whenever the name composed from the signature texts differs from the real one), so `%T` never
+  depends on which site runs first. The Go-side canonicaliser of step 5.4 produces both this name
+  and the signature texts, and is tested against `%T` of a real Go program.
+- The `gp_equal` and `gp_hash` hooks of a descriptor take what `x.gp_data().get()` is for an interface
+  `x` that holds the value: the box, an object of the C++ type; but for a `gp::ptr` (`*T`,
+  `unsafe.Pointer`) the **target address**, because the interface shares the pointer's owner and
+  has no `gp::ptr` object. Slices, maps and funcs have no hook (Go: `comparing uncomparable
+  type`, step 5.6); interface-kind descriptors have none yet either (5.6).
+- One runtime per process: interfaces and descriptors never cross a shared-library boundary. A
+  library built with `-fvisibility=hidden` has its own copy of the runtime, so its descriptors and
+  itabs are other objects than the program's (probed: the descriptor of the same named type, of
+  `[]int`, of `int` and the itab are all different pointers, so `x.(T)` would fail across the
+  boundary). Phase 06's `c-shared` mode keeps Go values out of its C interface.
+
+**What the compilers check.** `gp::method_of<Sig>(...)` has a `static_assert` that the thunk's type is
+`R(const gp::iface&, A...)` for the method's C++ signature, and the emitter writes
+`static_assert(gp::thunk_matches<Sig, decltype(&thunk)>, ...)` for every method of a type at a static
+conversion, so a C type that `go/types` can't tell from another is a compile error at the `.gp` line
+instead of a call with the wrong signature (`runtime/reject_test.go`). An interface struct doesn't
+convert to another one by copying (`B b = a;` doesn't compile), and `gp::to_iface` doesn't box an
+interface value.
+
 ## `#line` and debugging
 
 - Before every generated line whose `.gp` line is not "the previous line + 1", gocpp writes a
@@ -1489,7 +1654,7 @@ The plan already describes these shapes; each phase adds them here when it build
 |---|---|
 | [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md) | the runtime calls for strings, slices and maps (`gp::append`, `gp::get`, `gp::set`, …), `range` loops, `defer` (one exit point per function), runtime checks |
 | [04](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md) | C/C++ values (see [interop.md](interop.md)) |
-| [05](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md) | interface structs, type descriptors, method tables, embedding, `panic`/`recover` |
+| [05](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md) | interface structs, type descriptors, method tables (steps 5.1 to 5.3: [Interfaces](#interfaces)), conversions, assertions, embedding, `panic`/`recover` |
 | [06](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md) | the rest of the package headers and the build modes (`c-archive`, `c-shared`, `cpp-lib`) |
 | [07](../../plans/2026-10-13-gocpp/phase-07-generics/README.md) | generics as C++ templates (always with explicit type arguments), range-over-func |
 | [08](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md) | `go` (`gp::go`), channels, `select` |

@@ -21,6 +21,8 @@
 #include <gocpp/func.hpp>
 #include <gocpp/arith.hpp>
 #include <gocpp/newtype.hpp>
+#include <gocpp/type.hpp>
+#include <gocpp/iface.hpp>
 #include <gocpp/minmax.hpp>
 #include <gocpp/print.hpp>
 #include <gocpp/panic.hpp>
