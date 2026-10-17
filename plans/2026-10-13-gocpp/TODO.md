@@ -60,6 +60,9 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] **Q15 Toolchain like Go's (2026-10-15):** gocpp downloads its pinned llvm-mingw (UCRT, SHA-256 in the binary) when no Windows toolchain is installed, the way `GOTOOLCHAIN` fetches Go; `GOCPP_TOOLCHAIN=auto|local|pinned`. Windows needs only `gocpp.exe`. (Phase 06 §2.10, Phase 14 §2.2, Phase 15 §2.4)
 - [x] **Q13 Macros on top of a func:** both styles. Start style (runs at the start; a returned `func()` runs at the end) and wrap style (`#body()`: the macro decides how the function's code runs, e.g. `#VM()`, `#Recover()`, `#InThread()`, `#Once()`). (Phase 10 §2.2)
 
+- [x] **Q16 C/C++ libraries from the internet are built NOW (2026-10-17):** module downloads (tagged archive or commit, hash in `gocpp.sum`, read-only module cache, `gocpp mod vendor`), reading and building the `cxx` recipes, and module-header imports come before Phase 15 as jobs 6.1b (import rule), 6.1c (downloads) and 6.1d (recipes). Phase 06 §2.11 "download comes later" is superseded.
+- [x] **Q17 Local headers import like Go packages (2026-10-17):** a quoted import whose first path element has a dot is a module header, and the module can be the project's OWN module: with `module github.com/huuhait/project`, `import "github.com/huuhait/project/native/x.h"` is `native/x.h` in the module root; required modules use the same rule (longest module path prefix wins); `"./x.h"` and `"native/x.h"` stay relative to the package folder. (This also settles the shape of the `.h` + same-stem `.cpp` question: the automatic-C++ guess is still not made; it stays a directive.)
+
 ## Open questions (no decision needed yet)
 
 - [ ] testify (Phase 09 §2.7): a gocpp drop-in with testify's API first, or wait until the real module compiles? Fuzzing (`testing.F`) and `-cover` into the plan proper?

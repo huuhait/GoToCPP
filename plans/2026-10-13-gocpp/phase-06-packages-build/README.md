@@ -331,8 +331,9 @@ func main() { imgui.Begin("hello") }
   global cache and reused by every project. The flag allow-list (Phase 04) applies.
 - **To decide later:** a shared recipe index so common libraries need no `cxx` block, and an
   opt-in fallback that runs a project's own CMake for big libraries (OpenCV, Assimp).
-- The import rule and local recipes come with this phase; downloading comes with module
-  downloads (Phase 15, or earlier if you want it sooner).
+- **Decided 2026-10-17 (TODO Q16, Q17):** the import rule, downloads and local recipes are built now (jobs 6.1b, 6.1c,
+  6.1d), not in Phase 15; the project's own module path counts as a module, so `"<own module>/native/x.h"` names a header
+  inside the project, exactly like Go imports of the own module's packages.
 
 ## 3. Steps
 
