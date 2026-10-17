@@ -42,10 +42,20 @@ and the Phase 04 interop tests on g++ and clang++, normally and with ASan/UBSan)
   earlier on CPATH or the compiler's own folders, a system header shadowed by a file in an -I folder, more
   than 10000 include candidates are never stored).
 - `71cc4fd` the same header in the `cppgen` tests (that package 161 s to 131 s).
+- `4940a6e` **`runtime` tests compile in parallel** (`runtime/parallel_test.go`, a priority gate `GOCPP_TEST_JOBS`):
+  that package 570 s to about 85 s on a quiet machine; `make ci` about 11 min to about 2m40s quiet. Coverage compared
+  subtest by subtest: 736 passed before, 744 after, none skipped.
+- `c16cdb2` cmd/gocpp tests no longer depend on the object cache (`TestMain` turns it off; `TestObjCacheOffByDefault`
+  guards it): a `-x` test failed or passed depending on machine speed.
+- 4.16 (helper headers as packages) merged as `b72404c`; see phase-04 STATE.
 
-Verified on `dev` at `71cc4fd`: `make ci` 645 s, staticcheck, and the Phase 04 interop tests on g++ and
-clang++ normally and with ASan/UBSan, all exit 0. Sibling worktrees `GoToCPP-47`, `-probe`, `-objcache`,
-`-par`, `-perf`, `-quick` hold merged branches and can be removed (`git worktree remove`).
+**Machine load warning (2026-10-17):** with a dozen coder, reviewer and verification jobs at once the load average
+reached 400-550 on 128 cores. At that load timing-based tests fail at random (probe timeouts, `TestLSPProcess`,
+`TestProbeCancelStopsTheCompiler`, deliberate-crash tests stalling in systemd-coredump, the `WaitDelay` bug): rerun
+a failing test alone before believing it, and keep the number of simultaneous heavy jobs near the core count.
+Known fixes in flight: `fix/waitdelay` (a compiler that exited 0 but kept its output open was reported as a
+failure; crash tests no longer dump core), `fix/pch-ice` (g++ crashed with the precompiled header in
+`TestProgramParallel`).
 
 Measured and rejected: scratch files in `/dev/shm` (no change); `mold` saves only 40-90 ms per build
 (`GOCPP_LDFLAGS=-fuse-ld=mold` with `mold` in the dev shell if wanted). The object cache only helps an
