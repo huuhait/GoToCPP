@@ -80,8 +80,8 @@ var cplusplusRx = regexp.MustCompile(`(?:^|[^A-Za-z0-9_])__cplusplus(?:[^A-Za-z0
 // header that doesn't parse as C is no error: CHeader.C is false.
 //
 // The results are cached in memory, per compiler, folder, flags and
-// include, and checked against the headers outside the system folders
-// that the compiler read, and the headers that it didn't find (as
+// include (and on disk, see diskcache.go), and checked against the headers
+// that the compiler read, the system headers too, and the headers that it didn't find (as
 // ProbeKinds' results are; see runCHeaderCheck): a result holds until one
 // of them changes or appears. Only without such a list (a compiler that
 // writes none) is a result used for 5 seconds at most. CheckCHeader is
@@ -124,6 +124,13 @@ func (c *cache) checkCHeader(ctx context.Context, cc build.CXX, dir string, flag
 		return set.res, nil
 	}
 	*set = cHeaderSet{}
+	key, onDisk := c.disk.keyFor("c", cc, dir, flags, []string{include})
+	if onDisk {
+		if loaded, ok := c.loadCHeader(key); ok {
+			*set = *loaded
+			return set.res, nil
+		}
+	}
 	c.cRuns.Add(1)
 
 	// The header's text, for the guard. It is read before the compiler
@@ -140,7 +147,7 @@ func (c *cache) checkCHeader(ctx context.Context, cc build.CXX, dir string, flag
 	exists := err == nil
 	res.Guard = cplusplusRx.Match(text)
 
-	ok, deps, depsOK, start, err := runCHeaderCheck(ctx, cc, dir, flags, include)
+	ok, deps, depsOK, missing, start, err := runCHeaderCheck(ctx, cc, dir, flags, include)
 	if err != nil {
 		return CHeader{}, err
 	}
@@ -156,6 +163,13 @@ func (c *cache) checkCHeader(ctx context.Context, cc build.CXX, dir string, flag
 		if !depsOK {
 			set.expires = time.Now().Add(c.errorTTL)
 		}
+		// Not on disk when a header wasn't found: the places that are
+		// watched are only some of the places where it can appear (not
+		// the compiler's own folders, CPATH, ...), and the result would
+		// stay wrong for good. In memory it stays until a place changes.
+		if onDisk && !missing {
+			c.storeCHeader(key, set)
+		}
 	}
 	return res, nil
 }
@@ -164,26 +178,28 @@ func (c *cache) checkCHeader(ctx context.Context, cc build.CXX, dir string, flag
 // header include, and reports whether it had no error, the files that the
 // answer depends on (and whether it has that list), and when it started.
 //
-// The files are the headers outside the system folders that the compiler
-// read, and, when a header wasn't found, the places where it would be
+// The files are the headers that the compiler read (the system headers
+// too, -MD), and, when a header wasn't found, the places where it would be
 // found if it appeared (missingPlaces). The compilers write no dependency
-// file (-MMD) when they stop at an error (-Wfatal-errors), and gcc none at
+// file (-MD) when they stop at an error (-Wfatal-errors), and gcc none at
 // all after an error: so after a failure, a second run only preprocesses
-// (-E -MM -MG: the headers that aren't found count as generated files, and
+// (-E -M -MG: the headers that aren't found count as generated files, and
 // the preprocessor goes on after them and after an #error), and its list
 // is the one of the answer. That run is cheap, and only a header that
 // isn't C pays it. The first error stops the parse, so only the first
 // header that isn't found matters: one that is included after the first
 // error can't change the answer when it appears.
-func runCHeaderCheck(ctx context.Context, cc build.CXX, dir string, flags []string, include string) (ok bool, deps []string, depsOK bool, start time.Time, err error) {
+//
+// missing is true when a header wasn't found.
+func runCHeaderCheck(ctx context.Context, cc build.CXX, dir string, flags []string, include string) (ok bool, deps []string, depsOK, missing bool, start time.Time, err error) {
 	tmp, err := probeTemp()
 	if err != nil {
-		return false, nil, false, start, fmt.Errorf("parse-as-C check: %w", err)
+		return false, nil, false, false, start, fmt.Errorf("parse-as-C check: %w", err)
 	}
 	defer os.RemoveAll(tmp)
 	src := filepath.Join(tmp, "gp_cheader.c")
 	if err := os.WriteFile(src, []byte("#include "+include+"\n"), 0o644); err != nil {
-		return false, nil, false, start, fmt.Errorf("parse-as-C check: %w", err)
+		return false, nil, false, false, start, fmt.Errorf("parse-as-C check: %w", err)
 	}
 	args := []string{"-std=gnu17"}
 	if dir != "" {
@@ -209,13 +225,13 @@ func runCHeaderCheck(ctx context.Context, cc build.CXX, dir string, flags []stri
 		return cmd.ProcessState.Success(), parseDeps(data, src, dir), true, out.buf.Bytes(), nil
 	}
 	start = time.Now()
-	ok, deps, depsOK, out, err := run([]string{"-fsyntax-only", "-Wfatal-errors", "-MMD"}, filepath.Join(tmp, "gp_cheader.d"))
+	ok, deps, depsOK, out, err := run([]string{"-fsyntax-only", "-Wfatal-errors", "-MD"}, filepath.Join(tmp, "gp_cheader.d"))
 	if err != nil || ok && depsOK {
-		return ok, deps, depsOK, start, err
+		return ok, deps, depsOK, false, start, err
 	}
 	places, known := missingPlaces(out, src, dir, flags)
-	_, deps, depsOK, _, err = run([]string{"-E", "-MM", "-MG"}, filepath.Join(tmp, "gp_cheader.mm.d"))
-	return ok, append(deps, places...), depsOK && known, start, err
+	_, deps, depsOK, _, err = run([]string{"-E", "-M", "-MG"}, filepath.Join(tmp, "gp_cheader.mm.d"))
+	return ok, append(deps, places...), depsOK && known, reportsMissing(out), start, err
 }
 
 // missingRx matches the compilers' message for an #include whose header
@@ -265,6 +281,13 @@ func missingPlaces(out []byte, src, dir string, flags []string) (places []string
 		places = append(places, filepath.Join(f, filepath.FromSlash(name)))
 	}
 	return places, true
+}
+
+// reportsMissing reports whether the compiler output out has a message for
+// an #include whose header isn't found.
+func reportsMissing(out []byte) bool {
+	lower := strings.ToLower(string(out))
+	return strings.Contains(lower, "no such file") || strings.Contains(lower, "file not found")
 }
 
 // includeFolders returns the folders of the -iquote, -I, -isystem and

@@ -315,6 +315,48 @@ questions:
    `namespace gp_k2 = ::std::chrono;`, `auto gp_k3 = &::std::cout;`). The lines that compile say
    whether a prefix is a **namespace, a type, a template or a value**.
 
+**Probe results on disk.** The compiler takes about a second for the standard headers, so the
+answers of both probes (and of the `extern "C"` header check, further down) are kept on
+disk, `gocpp/probe/` in the user cache folder (`$XDG_CACHE_HOME`, or `~/.cache` on Linux), and
+every later `gocpp emit`, `check` or `build`, and the editor after a restart, reads them in a few
+milliseconds instead of running the compiler. An entry is used only when nothing it depends on
+changed:
+- **Key:** the compiler (path, arguments, family, version line, and its program file: real path,
+  size and modification time), the flags, the includes, the package folder (for `"quoted"`
+  includes), the environment that changes include paths and flags (`CPATH`, `CPLUS_INCLUDE_PATH`,
+  `C_INCLUDE_PATH`, `NIX_CFLAGS_COMPILE*`, `NIX_HARDENING_ENABLE*`, `NIX_ENFORCE_*`, `SDKROOT`,
+  the `*_DEPLOYMENT_TARGET` variables, ...; `PATH` too for a compiler with arguments such as
+  `ccache g++`, which is then keyed by the launcher, not by the compiler that it starts), and
+  gocpp itself (its version, the executable's path, size and time, and the build's version
+  control stamp).
+- **Files:** every header that the compiler read, system headers included, with its content hash
+  and stat. A header that changed (or a `"quoted"` include that now exists next to the `.gp`
+  file) is a miss; one that was only touched is not. A result that depends on a file that changed
+  in the two seconds before the probe started is not written (the file may have changed while the
+  compiler ran).
+- **Not written:** results with include errors (they are kept in memory for 5 seconds, since a
+  library that gets installed fixes them), C header checks that stopped at a header that isn't
+  found or that have no dependency list, and results that depend on the host's CPU
+  (`-march=native`, `-mtune=native` or `-mcpu=native` in the flags, the compiler's arguments or
+  `NIX_CFLAGS_COMPILE`: the cache folder can be shared between machines, for example a home
+  folder over NFS). Those stay in memory.
+- **A limit, and its backstop:** the file list can't see a header that appears *earlier* on the
+  search path than the one that was found (a new `x.h` in the first `-I` folder when `<x.h>` was
+  found in the second), or one that `__has_include` asks for. In memory that holds for a
+  process; on disk it would hold for good, so an entry is used for one hour at most (an entry
+  that adds new paths keeps the age of its oldest result). With the disk cache on, a process
+  that runs for days, such as the language server, also probes a set again once it is an hour
+  old (one background run an hour), so its memory doesn't keep the limit for the whole session
+  and it never writes an expired entry over a fresh one. `GOCPP_NOPROBECACHE=1` for a run, or
+  deleting the folder, forgets everything at once.
+- **Safety:** entries are written to a temporary file and renamed, so any number of gocpp
+  processes can share the folder; an entry that is damaged, from another format, or for another
+  key is ignored; a folder that can't be written is not an error. The folder holds at most 512
+  entries and 128 MiB; the entries used least recently go first.
+- **Switches:** `GOCPP_NOPROBECACHE=1` turns the disk cache off (the memory cache stays);
+  `GOCPP_PROBE_CACHE=<absolute folder>` moves it. Test binaries use the disk cache only with
+  `GOCPP_PROBE_CACHE`, so a test never writes your cache.
+
 Without the kind probe, gocpp couldn't tell `std.chrono.steady_clock.now()` (a static member,
 which needs `::`) from `std.cout.flush()` (an object, which needs `.`). The same probe decides
 whether `x[...]` after a C/C++ name is a template (`std.vector[int]`) or an index (`lib.arr[3]`).
@@ -1278,7 +1320,7 @@ Which headers get the block:
   its own text has no `__cplusplus`. A header that doesn't parse as C (a class, a namespace, a
   template, `#include <vector>`) is a C++ header. The C compiler is the one of the package's
   `.c` files; without one (and without `GOCPP_CC`), the C++ compiler in C mode (`-x c`). The
-  check runs once per header and is cached (in memory, per compiler, folder, flags and header):
+  check runs once per header and is cached (in memory and on disk, per compiler, folder, flags and header):
   it runs again when the header changes, or a local header that it includes, or when the first
   header that it didn't find appears in a folder where the compiler would find it: next to the
   header that includes it, in the package folder, or in an `-I`, `-iquote`, `-isystem` or

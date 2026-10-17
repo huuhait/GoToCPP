@@ -832,7 +832,7 @@ exit 0`
 				t.Fatal(err)
 			}
 			args := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
-			for _, w := range append([]string{"-fsyntax-only", "-std=c++20", "-iquote", "-MMD"}, c.want...) {
+			for _, w := range append([]string{"-fsyntax-only", "-std=c++20", "-iquote", "-MD"}, c.want...) {
 				if !slices.Contains(args, w) {
 					t.Errorf("args %q: no %s", args, w)
 				}

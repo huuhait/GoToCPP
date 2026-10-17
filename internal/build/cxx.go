@@ -94,6 +94,19 @@ func (c CXX) Command(ctx context.Context, args ...string) *exec.Cmd {
 	return cmd
 }
 
+// Identity returns a string that tells the compiler's program file: its
+// real path (symbolic links resolved), size and modification time, as they
+// are now. A compiler that was replaced by another with the same path and
+// version line has another identity. ok is false when the file can't be
+// looked at. A cache key uses it with Path, Args, Family and Version.
+func (c CXX) Identity() (id string, ok bool) {
+	st, err := stampOf(c.Path)
+	if err != nil {
+		return "", false
+	}
+	return fmt.Sprintf("%s\x00%d\x00%d", st.real, st.size, st.modTime), true
+}
+
 // kind returns "C compiler" or "C++ compiler", for messages.
 func (c CXX) kind() string {
 	if c.C {

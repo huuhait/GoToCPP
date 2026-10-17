@@ -19,3 +19,9 @@ func sysStatOf(fi fs.FileInfo) sysStat {
 	}
 	return sysStat{}
 }
+
+// words and sysStatFrom write a sysStat as two numbers (the cache on disk)
+// and read it back.
+func (s sysStat) words() [2]int64 { return [2]int64{int64(s.ino), s.ctime} }
+
+func sysStatFrom(w [2]int64) sysStat { return sysStat{ino: uint64(w[0]), ctime: w[1]} }

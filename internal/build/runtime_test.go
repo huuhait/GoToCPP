@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -277,4 +278,36 @@ func TestBrokenObjects(t *testing.T) {
 		t.Fatalf("runtime after a missing object file = %q, %v", again, err)
 	}
 	assertNoTemp(t, filepath.Join(dir, "obj"))
+}
+
+// TestKeyEnv: the variables that the keys of the compiler's results hold.
+func TestKeyEnv(t *testing.T) {
+	for _, name := range []string{
+		"CPATH", "CPLUS_INCLUDE_PATH", "C_INCLUDE_PATH", "GCC_EXEC_PREFIX", "COMPILER_PATH",
+		"SDKROOT", "DEVELOPER_DIR", "CCC_ADD_ARGS", "CCC_OVERRIDE_OPTIONS",
+		"MACOSX_DEPLOYMENT_TARGET", "IPHONEOS_DEPLOYMENT_TARGET", "TVOS_DEPLOYMENT_TARGET", "WATCHOS_DEPLOYMENT_TARGET",
+		"NIX_CFLAGS_COMPILE", "NIX_CFLAGS_COMPILE_FOR_TARGET", "NIX_HARDENING_ENABLE", "NIX_HARDENING_ENABLE_x86_64_unknown_linux_gnu",
+		"NIX_CXXSTDLIB_COMPILE", "NIX_ENFORCE_NO_NATIVE", "NIX_ENFORCE_PURITY", "NIX_CC_WRAPPER_FLAGS_SET_x", "NIX_BINTOOLS_WRAPPER_FLAGS_SET_x",
+	} {
+		if !keyEnv(name) {
+			t.Errorf("keyEnv(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{"PATH", "HOME", "TMPDIR", "LC_ALL", "NIX_PATH", "NIX_PROFILES", "NIX_LD", "GOCPP_CXX", "PWD"} {
+		if keyEnv(name) {
+			t.Errorf("keyEnv(%q) = true, want false", name)
+		}
+	}
+	t.Setenv("NIX_ENFORCE_NO_NATIVE", "1")
+	t.Setenv("GOCPP_UNRELATED_VARIABLE", "1")
+	env := KeyEnv()
+	var got []string
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "NIX_ENFORCE_NO_NATIVE=") || strings.HasPrefix(kv, "GOCPP_UNRELATED") {
+			got = append(got, kv)
+		}
+	}
+	if len(got) != 1 || got[0] != "NIX_ENFORCE_NO_NATIVE=1" || !sort.StringsAreSorted(env) {
+		t.Errorf("KeyEnv() = %v (sorted: %v), want NIX_ENFORCE_NO_NATIVE=1 and not the unrelated variable", env, sort.StringsAreSorted(env))
+	}
 }

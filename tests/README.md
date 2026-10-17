@@ -144,8 +144,11 @@ flag outside go test's short list, `-update` turns the cache off by itself.)
 
 gocpp's own cache is another matter: the gocpp commands of the tests run with `XDG_CACHE_HOME`
 in the harness's temporary folder, so they compile the runtime once per compiler and flags
-(about a second each) and never write your `~/.cache/gocpp`. The Go of the diff tests keeps
-its usual build cache (`GOCACHE`).
+(about a second each) and never write your `~/.cache/gocpp`. The same folder holds the probe
+results on disk (`gocpp/probe/`, [interop.md](../docs/spec/interop.md#the-two-compiler-probes)),
+which the gocpp commands of a run share; `GOCPP_NOPROBECACHE=1` turns them off. Go's own test
+binaries (`go test ./internal/...`) don't use the probe cache on disk unless `GOCPP_PROBE_CACHE`
+names a folder. The Go of the diff tests keeps its usual build cache (`GOCACHE`).
 
 ## testdata/
 

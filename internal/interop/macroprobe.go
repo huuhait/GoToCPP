@@ -91,9 +91,9 @@ func (ms Macros) Names() []string {
 // found, an #error in a header) and for a probe that fails; the kind probe
 // says more about include errors, so callers run it first.
 //
-// The results are cached in memory, per compiler, folder, flags and
-// includes, and checked against the headers as ProbeKinds' are; a failure
-// is not cached. ProbeMacros is safe for concurrent use.
+// The results are cached in memory and on disk, per compiler, folder,
+// flags and includes, and checked against the headers as ProbeKinds' are;
+// a failure is not cached. ProbeMacros is safe for concurrent use.
 func ProbeMacros(ctx context.Context, cxx build.CXX, dir string, flags, includes []string) (Macros, error) {
 	return defaultCache.probeMacros(ctx, cxx, dir, flags, includes)
 }
@@ -132,6 +132,13 @@ func (c *cache) probeMacros(ctx context.Context, cxx build.CXX, dir string, flag
 		return set.macros, nil
 	}
 	*set = macroSet{}
+	key, onDisk := c.disk.keyFor("m", cxx, dir, flags, includes)
+	if onDisk {
+		if loaded, ok := c.loadMacros(key); ok {
+			*set = *loaded
+			return set.macros, nil
+		}
+	}
 	c.macroRuns.Add(1)
 	ms, deps, start, err := runMacroProbe(ctx, cxx, dir, flags, includes)
 	if err != nil {
@@ -139,12 +146,15 @@ func (c *cache) probeMacros(ctx context.Context, cxx build.CXX, dir string, flag
 	}
 	if files, ok := dependsOn(deps, true, false, start, dir, includes); ok {
 		*set = macroSet{filled: true, files: files, macros: ms}
+		if onDisk {
+			c.storeMacros(key, set)
+		}
 	}
 	return ms, nil
 }
 
 // runMacroProbe runs the macro probe, and returns the macros, the headers
-// outside the system folders that the compiler read, and when it started.
+// that the compiler read (the system headers too), and when it started.
 func runMacroProbe(ctx context.Context, cxx build.CXX, dir string, flags, includes []string) (Macros, []string, time.Time, error) {
 	var start time.Time
 	tmp, err := probeTemp()

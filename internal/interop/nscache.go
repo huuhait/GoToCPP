@@ -23,8 +23,13 @@ import (
 // check (externc.go). It checks the files that the results depend on
 // before it uses them.
 
-// defaultCache is the cache of ProbeKinds, ProbeMacros and CheckCHeader.
-var defaultCache = newCache()
+// defaultCache is the cache of ProbeKinds, ProbeMacros and CheckCHeader,
+// with the cache on disk (diskcache.go) as its second level.
+var defaultCache = func() *cache {
+	c := newCache()
+	c.disk = &diskStore{}
+	return c
+}()
 
 const (
 	// maxSets is the number of include sets that the cache keeps, for
@@ -59,6 +64,14 @@ type cache struct {
 	cheaders setMap[cHeaderSet]
 
 	errorTTL time.Duration // errorTTL, or less in tests
+
+	// disk is the second level, the cache on disk (diskcache.go); nil for
+	// none, as in the tests that count compiler runs.
+	disk *diskStore
+
+	// diskHits and diskStores count the answers read from the disk and
+	// the entries written to it, for the tests.
+	diskHits, diskStores atomic.Int64
 
 	// runs, macroRuns and cRuns count the runs of the kind probe (one run
 	// can run the compiler again without a path that stopped it, see
@@ -136,6 +149,7 @@ type kindSet struct {
 	kinds   map[string]Kind // per path, without a leading ::
 	incErrs []IncludeError  // the include errors; then kinds is nil
 	expires time.Time       // when incErrs is set: when to probe again
+	born    time.Time       // when the oldest answer was probed (the disk entry's age)
 }
 
 // reset forgets the set's result.
@@ -301,6 +315,31 @@ func (c *cache) probeMode(ctx context.Context, cxx build.CXX, dir string, flags,
 	if set.filled && !c.valid(set.files, set.incErrs != nil, set.expires) {
 		set.reset()
 	}
+	// With the cache on disk, a set that is older than maxDiskAge is
+	// probed again (once an hour in an editor that runs for days): the file
+	// list can't see a header that appears earlier on the search path, and
+	// a long-lived set would also write its old age to the disk, over the
+	// fresh entries of other processes. (Sets with include errors have no
+	// age; they expire by errorTTL.)
+	if set.filled && !set.born.IsZero() && time.Since(set.born) > maxDiskAge && c.disk.folder() != "" {
+		set.reset()
+	}
+	// The disk entry's key is made when it is needed: a memory hit costs
+	// no stat of the compiler.
+	var key diskKey
+	var onDisk, keyMade bool
+	diskKeyOf := func() (diskKey, bool) {
+		if !keyMade {
+			key, onDisk = c.disk.keyFor("k", cxx, dir, flags, includes)
+			keyMade = true
+		}
+		return key, onDisk
+	}
+	if !set.filled {
+		if key, ok := diskKeyOf(); ok {
+			c.loadKinds(key, set)
+		}
+	}
 	if set.filled && set.incErrs != nil {
 		return result(paths, nil, set.incErrs, kinds), nil
 	}
@@ -330,13 +369,16 @@ func (c *cache) probeMode(ctx context.Context, cxx build.CXX, dir string, flags,
 	}
 	if !set.filled || !sameFiles(set.files, files) || len(set.kinds)+len(names) > maxKinds {
 		set.reset()
-		set.filled, set.files, set.kinds = true, files, make(map[string]Kind)
+		set.filled, set.files, set.kinds, set.born = true, files, make(map[string]Kind), run.start
 	}
 	for i, name := range names {
 		// A NotNamespace doesn't replace a kind that says more.
 		if _, ok := set.kinds[name]; !ok || run.kinds[i] != NotNamespace {
 			set.kinds[name] = run.kinds[i]
 		}
+	}
+	if key, ok := diskKeyOf(); ok {
+		c.storeKinds(key, set)
 	}
 	return result(paths, set.kinds, nil, kinds), nil
 }
@@ -370,7 +412,7 @@ func setKey(cxx build.CXX, dir string, flags, includes []string) string {
 }
 
 // dependsOn returns the files that the result of a run depends on: the
-// headers outside the system folders that the compiler read (deps, from
+// headers that the compiler read, the system headers too (deps, from
 // its dependency file; depsOK says whether there was one), and for each
 // quoted include, the file it names in dir, also when that isn't there
 // (when it appears, it hides the header that was found elsewhere). ok is

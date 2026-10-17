@@ -288,14 +288,37 @@ func (b *Builder) compileRuntime(ctx context.Context, dir, objDir string, srcs, 
 // keyEnv are the environment variables, besides the compiler and the
 // flags, that change the runtime's object files: the include paths, and
 // the extra flags and hardening of a Nix compiler wrapper (whose
-// variables have a suffix for the target: NIX_CFLAGS_COMPILE_FOR_TARGET).
+// variables have a suffix for the target: NIX_CFLAGS_COMPILE_FOR_TARGET),
+// and the deployment targets of Apple's compilers.
 func keyEnv(name string) bool {
 	switch name {
-	case "CPATH", "CPLUS_INCLUDE_PATH", "C_INCLUDE_PATH", "GCC_EXEC_PREFIX", "COMPILER_PATH":
+	case "CPATH", "CPLUS_INCLUDE_PATH", "C_INCLUDE_PATH", "GCC_EXEC_PREFIX", "COMPILER_PATH",
+		"SDKROOT", "DEVELOPER_DIR", "CCC_ADD_ARGS", "CCC_OVERRIDE_OPTIONS",
+		"MACOSX_DEPLOYMENT_TARGET", "IPHONEOS_DEPLOYMENT_TARGET", "TVOS_DEPLOYMENT_TARGET", "WATCHOS_DEPLOYMENT_TARGET":
 		return true
 	}
+	// The Nix wrapper script also reads NIX_ENFORCE_NO_NATIVE (it drops
+	// -march=native) and NIX_ENFORCE_PURITY, and its NIX_CC_WRAPPER_* and
+	// NIX_BINTOOLS_* variables say which wrappers already added their flags.
 	return strings.HasPrefix(name, "NIX_CFLAGS_COMPILE") || strings.HasPrefix(name, "NIX_HARDENING_ENABLE") ||
-		strings.HasPrefix(name, "NIX_CXXSTDLIB_COMPILE")
+		strings.HasPrefix(name, "NIX_CXXSTDLIB_COMPILE") || strings.HasPrefix(name, "NIX_ENFORCE_") ||
+		strings.HasPrefix(name, "NIX_CC_WRAPPER_") || strings.HasPrefix(name, "NIX_BINTOOLS_")
+}
+
+// KeyEnv returns the environment variables that change what the compiler
+// does with include paths and extra flags (CPATH, CPLUS_INCLUDE_PATH,
+// NIX_CFLAGS_COMPILE*, ...) as sorted KEY=value entries, for the keys of
+// caches of the compiler's results (the runtime's object files, the probe
+// results of internal/interop).
+func KeyEnv() []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if name, _, _ := strings.Cut(kv, "="); keyEnv(name) {
+			env = append(env, kv)
+		}
+	}
+	slices.Sort(env)
+	return env
 }
 
 // runtimeKey returns the name of the folder of the runtime's object files
@@ -317,14 +340,7 @@ func (b *Builder) runtimeKey(srcs, flags []string) string {
 	write(st.real, fmt.Sprint(st.size), fmt.Sprint(st.modTime))
 	write(flags...)
 	write(srcs...)
-	var env []string
-	for _, kv := range os.Environ() {
-		if name, _, _ := strings.Cut(kv, "="); keyEnv(name) {
-			env = append(env, kv)
-		}
-	}
-	slices.Sort(env)
-	write(env...)
+	write(KeyEnv()...)
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 

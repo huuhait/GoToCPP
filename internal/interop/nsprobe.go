@@ -357,14 +357,15 @@ func (e IncludeError) Error() string {
 // are Unknown, and the caller can go on without the probe.
 //
 // The results are cached in memory, per compiler, folder, flags and
-// includes. The cache notices changes to the headers outside the system
-// folders (the compiler's dependency list, -MMD) and to the quoted
-// includes' files in dir. It doesn't notice changes to system headers or
-// to the environment; a result with include errors is used for 5 seconds
-// at most, so that installing a missing library is noticed. (A disk cache
-// comes with the build cache of Phase 06; its key must also hold the
-// environment that changes the include paths, such as CPATH and
-// NIX_CFLAGS_COMPILE.) ProbeKinds is safe for concurrent use; calls for
+// includes, and on disk (diskcache.go; GOCPP_NOPROBECACHE=1 turns that
+// off), where a later process finds them. The cache notices changes to
+// every header that the compiler read, the system headers too (its
+// dependency list, -MD), and to the quoted includes' files in dir. A
+// result with include errors is used for 5 seconds at most, so that
+// installing a missing library is noticed, and is not written to the disk.
+// The key of the disk entry also holds the environment that changes the
+// include paths (CPATH, NIX_CFLAGS_COMPILE, ...) and the compiler's
+// program file. ProbeKinds is safe for concurrent use; calls for
 // the same include set wait for each other, so that they run the compiler
 // once. A call with paths that the cache doesn't have probes all the paths
 // of the call again in one run: the headers take the time, not the paths.
@@ -712,8 +713,8 @@ type probeRun struct {
 	kinds   []Kind // per path of the run; nil if incErrs isn't empty
 	incErrs []IncludeError
 
-	// deps are the headers outside the system folders that the compiler
-	// read, from its dependency file (-MMD), and depsOK says whether there
+	// deps are the headers that the compiler read (the system headers
+	// too), from its dependency file (-MD), and depsOK says whether there
 	// was one: after a header that isn't found, there is none.
 	deps   []string
 	depsOK bool
@@ -789,7 +790,7 @@ func compilerArgs(cxx build.CXX, mode []string, dir string, flags []string, depF
 	args = append(args, quietFlags(cxx)...)
 	args = append(args, "-Wno-fatal-errors", "-fdiagnostics-color=never")
 	args = append(args, fam...)
-	args = append(args, "-MMD", "-MF", depFile, "-MT", "gp_probe", "-x", "c++", src)
+	args = append(args, "-MD", "-MF", depFile, "-MT", "gp_probe", "-x", "c++", src)
 	return args, nil
 }
 
@@ -1288,7 +1289,7 @@ func outputExcerpt(out []byte) string {
 }
 
 // parseDeps returns the files of the dependency file data (make syntax,
-// from -MMD -MT gp_probe), without the probe file src itself. A relative
+// from -MD -MT gp_probe), without the probe file src itself. A relative
 // path is relative to dir, where the compiler ran.
 func parseDeps(data []byte, src, dir string) []string {
 	s := strings.ReplaceAll(string(data), "\r\n", "\n")

@@ -54,7 +54,10 @@ runtime. The compiler is the one in GOCPP_CXX, else in CXX, else
 clang++, else g++ (clang 17 or gcc 13, or newer); GOCPP_CXX and CXX can
 hold arguments after the program (CXX="ccache g++"). The runtime is
 extracted once into the user cache folder (gocpp/rt in $XDG_CACHE_HOME,
-or in ~/.cache on Linux), and its object files are kept there.
+or in ~/.cache on Linux), and its object files are kept there. So are the
+C++ compiler's answers about C/C++ headers (gocpp/probe), as long as the
+headers, flags and compiler are the same; GOCPP_NOPROBECACHE=1 turns that
+off.
 
 The C and C++ flags of a package come from its //gocpp:cflags, ldflags,
 link and pkg-config lines, which an allow-list like go build's checks
