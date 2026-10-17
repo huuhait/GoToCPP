@@ -87,6 +87,12 @@ for (/* range */) {
 }
 ```
 
+> **Built in 5.1-5.3 (2026-10-17), where it differs from the text below:** `gp_td_ptr_Circle` is
+> `gp::td_ptr<Circle>(&gp_td_Circle)` (interned at runtime from `Circle`'s second method table); method signatures are compared as
+> canonical text, not as descriptors; wrapper slots follow the interface's sorted methods; nil of an interface type is
+> `Shape()`. The exact emitted shapes and the contracts for the emitter are in
+> [docs/spec/cpp-mapping.md](../../../docs/spec/cpp-mapping.md) "Interfaces".
+
 ### 2.2 Type descriptors (chosen by the Go type)
 
 `gp::type_desc` holds the Go-style name (`main.Rect`, `[]int`, `*main.Circle`), kind, size,
