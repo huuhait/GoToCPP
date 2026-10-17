@@ -36,7 +36,18 @@ type cxx struct {
 	cc      build.CXX // as build.LookCXX found it
 	missing string    // why it can't be used, or ""
 
-	rt [2]rtObjects // the runtime's object files: [0] as gocpp build compiles it, [1] with -nochecks
+	rt  [2]rtObjects // the runtime's object files: [0] as gocpp build compiles it, [1] with -nochecks
+	pch [2]pchFile   // the precompiled rt.hpp, for the same two modes
+}
+
+// pchFile is the precompiled gocpp/rt.hpp for one compiler and mode, built once by pchArgs.
+// Parsing rt.hpp and the standard headers it includes is nearly all of the time to compile a
+// small generated program (about 1 s of 1.05 s), and the tests compile thousands of them.
+type pchFile struct {
+	once   sync.Once
+	header string // the file that includes gocpp/rt.hpp
+	pch    string // header + ".pch" (clang++) or ".gch" (g++)
+	err    error
 }
 
 // rtObjects are the runtime's object files for one compiler and one mode, compiled once by
@@ -230,6 +241,48 @@ func (c *cxx) build(t *testing.T, src string) string {
 	return c.buildMode(t, src, false)
 }
 
+// pchArgs builds the precompiled rt.hpp for this compiler and mode once, with flags (what a
+// compile of generated code gets before its source, as buildMode writes them: the compile
+// must have the same flags as the header or the compiler can't use it), and returns the
+// flags that make a compile use it. Without GOCPP_NOPCH.
+func (c *cxx) pchArgs(t *testing.T, nochecks bool, flags []string) []string {
+	t.Helper()
+	if os.Getenv("GOCPP_NOPCH") != "" || (c.cc.Family != build.Clang && c.cc.Family != build.GCC) {
+		return nil
+	}
+	mode, ext := 0, ".gch"
+	if nochecks {
+		mode = 1
+	}
+	if c.cc.Family == build.Clang {
+		ext = ".pch"
+	}
+	p := &c.pch[mode]
+	p.once.Do(func() {
+		dir := filepath.Join(runtimeDir(t), fmt.Sprintf("pch-%s-%d", c.name, mode))
+		if p.err = os.MkdirAll(dir, 0o755); p.err != nil {
+			return
+		}
+		p.header = filepath.Join(dir, "rt.hpp")
+		p.pch = p.header + ext
+		if p.err = os.WriteFile(p.header, []byte("#include <gocpp/rt.hpp>\n"), 0o644); p.err != nil {
+			return
+		}
+		args := append(slices.Clone(flags), "-x", "c++-header", p.header, "-o", p.pch)
+		out, _, code, err := command(dir, true, c.cc.Path, args...)
+		if err != nil || code != 0 || len(out) != 0 {
+			p.err = fmt.Errorf("%s %s: exit code %d %v\n%s", c.cc.Path, strings.Join(args, " "), code, err, out)
+		}
+	})
+	if p.err != nil {
+		t.Fatal(p.err)
+	}
+	if c.cc.Family == build.Clang {
+		return []string{"-include-pch", p.pch}
+	}
+	return []string{"-include", p.header}
+}
+
 // buildMode is build, with nochecks for a -nochecks build: the program and the runtime are
 // compiled with noChecksFlags, and the program's name ends with "-nochecks".
 func (c *cxx) buildMode(t *testing.T, src string, nochecks bool) string {
@@ -241,7 +294,9 @@ func (c *cxx) buildMode(t *testing.T, src string, nochecks bool) string {
 		bin += "-nochecks"
 		more = append(more, c.noChecksFlags()...)
 	}
-	args := append(c.flags(more...), src)
+	args := c.flags(more...)
+	args = append(args, c.pchArgs(t, nochecks, args)...)
+	args = append(args, src)
 	args = append(args, objs...)
 	args = append(args, "-o", bin)
 	out, _, code, err := command(filepath.Dir(src), true, c.cc.Path, args...)
