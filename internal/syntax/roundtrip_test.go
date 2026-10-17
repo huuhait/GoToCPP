@@ -45,6 +45,9 @@ import (
 //     f(xs...), TypeSpec.Assign the "=" of an alias. The object resolution
 //     is not compared here; check 1 does that.
 //
+// Check 1 also runs with the syntax of Phase 10 on (parser.Phase10Syntax,
+// the mode of gocpp fmt): Go code parses in the same way.
+//
 // In both checks a nil slice and an empty one differ: a CaseClause with a
 // nil List is "default". Both parsers keep the comments (ParseComments),
 // and the comments must have the same text. A file that the stock go/parser
@@ -222,6 +225,21 @@ func checkFile(t *testing.T, src, name string, sum *summary) {
 	if d := same.files(file, stock); d != nil {
 		sum.fail(t, name, "%s: the fork and go/parser give different ASTs\n%s",
 			same.where(name, d), same.explain(d, [2]string{"fork", "go/parser"}, [2][]byte{data, data}))
+	}
+
+	// 1b. The same with the syntax of Phase 10 on (fork.Phase10Syntax, which
+	// gocpp fmt uses): no Go file changes. The standard library has no name
+	// directly before !( or ![, and no #.
+	p10Fset := token.NewFileSet()
+	p10, err := fork.ParseFile(p10Fset, name, data, fork.ParseComments|fork.Phase10Syntax)
+	if err != nil {
+		sum.fail(t, name, "%s: go/parser accepts this file, but the fork with Phase10Syntax does not:\n%v%s", name, err, errorLine(err, data))
+		return
+	}
+	same10 := comparer{exact: true, fsets: [2]*token.FileSet{p10Fset, stockFset}}
+	if d := same10.files(p10, stock); d != nil {
+		sum.fail(t, name, "%s: the fork with Phase10Syntax and go/parser give different ASTs\n%s",
+			same10.where(name, d), same10.explain(d, [2]string{"fork (Phase10Syntax)", "go/parser"}, [2][]byte{data, data}))
 	}
 
 	// 2. The round trip: format the file as gocpp fmt does, and parse the

@@ -1,0 +1,761 @@
+diff --git a/internal/syntax/parser/gocpp_must_test.go b/internal/syntax/parser/gocpp_must_test.go
+new file mode 100644
+index 0000000..7701ad8
+--- /dev/null
++++ b/internal/syntax/parser/gocpp_must_test.go
+@@ -0,0 +1,358 @@
++// The tests of gocpp's patch 4 (../FORK.md §4): a name directly followed by
++// !( or ![ is one name, F!, in Phase10Syntax mode: a must call (F!(x),
++// os.ReadFile!(p), parse![int](s)) or the name of a must function (func f!(),
++// func (s *S) Start!()). This file is gocpp's own, not upstream's:
++// ../patches/0004-must-names.patch adds it. It imports the stock go/parser,
++// to compare the fork with it.
++
++package parser
++
++import (
++	"fmt"
++	"go/ast"
++	goparser "go/parser"
++	"go/printer"
++	"go/token"
++	"slices"
++	"strings"
++	"testing"
++)
++
++// muParse parses src in Phase10Syntax mode, with the comments.
++func muParse(src string) (*ast.File, error) {
++	return ParseFile(token.NewFileSet(), "test.gp", src, Phase10Syntax|ParseComments)
++}
++
++// muDump returns the dump (dtDump) of the node of src that the context
++// ctx names, see dtTest: "expr", "stmt" or "decl".
++func muDump(t *testing.T, ctx, src string, mode Mode) string {
++	t.Helper()
++	test := dtTest{ctx: ctx, src: src}
++	f, err := ParseFile(token.NewFileSet(), "test.gp", dtSource(t, test), mode)
++	if err != nil {
++		t.Errorf("parsing %q: %v", src, err)
++		return ""
++	}
++	n := dtNode(test, f)
++	if n == nil {
++		t.Fatalf("parsing %q: no node", src)
++	}
++	return dtDump(n)
++}
++
++// muErrors returns the errors of parsing src in the mode, as "line:col: message".
++func muErrors(src string, mode Mode) []string {
++	_, err := ParseFile(token.NewFileSet(), "test.gp", src, mode)
++	var list []string
++	for _, e := range dtErrors(err) {
++		list = append(list, strings.TrimPrefix(e, "test.gp:"))
++	}
++	return list
++}
++
++// muTests are inputs of Phase 10 and the dump of their node. Without
++// Phase10Syntax, each one is a syntax error that the stock go/parser
++// reports too (TestMustNamesAreOptIn).
++var muTests = []dtTest{
++	// Must calls, in the forms of the plan.
++	{"expr", `F!(x)`, `CallExpr{Fun: F!, Args: [x]}`, ""},
++	{"expr", `F!()`, `CallExpr{Fun: F!}`, ""},
++	{"expr", `os.ReadFile!(p)`, `CallExpr{Fun: os.ReadFile!, Args: [p]}`, ""},
++	{"expr", `a.b.c.F!(x, y)`, `CallExpr{Fun: a.b.c.F!, Args: [x, y]}`, ""},
++	{"expr", `x.Close!()`, `CallExpr{Fun: x.Close!}`, ""},
++	{"expr", `parse![int](s)`, `CallExpr{Fun: IndexExpr{X: parse!, Index: int}, Args: [s]}`, ""},
++	{"expr", `parse![int, string](s)`, `CallExpr{Fun: IndexListExpr{X: parse!, Indices: [int, string]}, Args: [s]}`, ""},
++	{"expr", `pkg.parse![[]int](s)`, `CallExpr{Fun: IndexExpr{X: pkg.parse!, Index: ArrayType{Elt: int}}, Args: [s]}`, ""},
++	{"expr", `pkg.parse![std.vector[int]](s)`, `CallExpr{Fun: IndexExpr{X: pkg.parse!, Index: IndexExpr{X: std.vector, Index: int}}, Args: [s]}`, ""},
++	{"expr", `g(F!(x), H!(y))`, `CallExpr{Fun: g, Args: [CallExpr{Fun: F!, Args: [x]}, CallExpr{Fun: H!, Args: [y]}]}`, ""},
++	{"expr", `F!(G!(x))`, `CallExpr{Fun: F!, Args: [CallExpr{Fun: G!, Args: [x]}]}`, ""},
++	{"expr", `F!(x).y`, `CallExpr{Fun: F!, Args: [x]}.y`, ""},
++	{"expr", `F!(x)[0]`, `IndexExpr{X: CallExpr{Fun: F!, Args: [x]}, Index: 0}`, ""},
++	{"expr", `F!(x)(y)`, `CallExpr{Fun: CallExpr{Fun: F!, Args: [x]}, Args: [y]}`, ""},
++	{"expr", `F!(x...)`, `CallExpr{Fun: F!, Args: [x]}`, ""},
++	{"expr", `F!(x) + G!(y)`, `BinaryExpr{X: CallExpr{Fun: F!, Args: [x]}, Op: +, Y: CallExpr{Fun: G!, Args: [y]}}`, ""},
++	{"expr", `-F!(x)`, `UnaryExpr{Op: -, X: CallExpr{Fun: F!, Args: [x]}}`, ""},
++	{"expr", `!F!(x)`, `UnaryExpr{Op: !, X: CallExpr{Fun: F!, Args: [x]}}`, ""},
++	{"expr", `a != F!(x)`, `BinaryExpr{X: a, Op: !=, Y: CallExpr{Fun: F!, Args: [x]}}`, ""},
++	{"expr", `a && F!(x)`, `BinaryExpr{X: a, Op: &&, Y: CallExpr{Fun: F!, Args: [x]}}`, ""},
++	{"expr", `[]int{F!(x), 2}`, `CompositeLit{Type: ArrayType{Elt: int}, Elts: [CallExpr{Fun: F!, Args: [x]}, 2]}`, ""},
++	{"expr", `func() int { return F!(x) }`, `FuncLit{Type: FuncType{Params: FieldList{}, Results: FieldList{List: [Field{Type: int}]}}, Body: BlockStmt{List: [ReturnStmt{Results: [CallExpr{Fun: F!, Args: [x]}]}]}}`, ""},
++	{"expr", "F!(\n\tx,\n)", `CallExpr{Fun: F!, Args: [x]}`, ""},
++	{"expr", "x.\n\tF!(y)", `CallExpr{Fun: x.F!, Args: [y]}`, ""},
++	{"expr", "x . /* c */ F!(y)", `CallExpr{Fun: x.F!, Args: [y]}`, ""},
++	{"expr", `é!(x)`, `CallExpr{Fun: é!, Args: [x]}`, ""},
++	{"expr", `x.F!(y).G!(z)`, `CallExpr{Fun: CallExpr{Fun: x.F!, Args: [y]}.G!, Args: [z]}`, ""},
++
++	// Statements.
++	{"stmt", `F!(x)`, `ExprStmt{X: CallExpr{Fun: F!, Args: [x]}}`, ""},
++	{"stmt", `x := F!(a)`, `AssignStmt{Lhs: [x], Tok: :=, Rhs: [CallExpr{Fun: F!, Args: [a]}]}`, ""},
++	{"stmt", `a, b := F!(a)`, `AssignStmt{Lhs: [a, b], Tok: :=, Rhs: [CallExpr{Fun: F!, Args: [a]}]}`, ""},
++	{"stmt", `x = F![int](a)`, `AssignStmt{Lhs: [x], Tok: =, Rhs: [CallExpr{Fun: IndexExpr{X: F!, Index: int}, Args: [a]}]}`, ""},
++	{"stmt", `defer f.Close!()`, `DeferStmt{Call: CallExpr{Fun: f.Close!}}`, ""},
++	{"stmt", `go F!()`, `GoStmt{Call: CallExpr{Fun: F!}}`, ""},
++	{"stmt", `return F!(x)`, `ReturnStmt{Results: [CallExpr{Fun: F!, Args: [x]}]}`, ""},
++	{"stmt", `if F!(x) {}`, `IfStmt{Cond: CallExpr{Fun: F!, Args: [x]}, Body: BlockStmt{}}`, ""},
++	{"stmt", `if x := F!(a); x != nil {}`, `IfStmt{Init: AssignStmt{Lhs: [x], Tok: :=, Rhs: [CallExpr{Fun: F!, Args: [a]}]}, Cond: BinaryExpr{X: x, Op: !=, Y: nil}, Body: BlockStmt{}}`, ""},
++	{"stmt", `for i := 0; i < F!(n); i++ {}`, `ForStmt{Init: AssignStmt{Lhs: [i], Tok: :=, Rhs: [0]}, Cond: BinaryExpr{X: i, Op: <, Y: CallExpr{Fun: F!, Args: [n]}}, Post: IncDecStmt{X: i, Tok: ++}, Body: BlockStmt{}}`, ""},
++	{"stmt", `switch F!(x) { case G!(y): }`, `SwitchStmt{Tag: CallExpr{Fun: F!, Args: [x]}, Body: BlockStmt{List: [CaseClause{List: [CallExpr{Fun: G!, Args: [y]}]}]}}`, ""},
++	{"stmt", `x := <-F!(c)`, `AssignStmt{Lhs: [x], Tok: :=, Rhs: [UnaryExpr{Op: <-, X: CallExpr{Fun: F!, Args: [c]}}]}`, ""},
++	{"stmt", "F!(x) // c\n", `ExprStmt{X: CallExpr{Fun: F!, Args: [x]}}`, ""},
++
++	// Must functions and methods.
++	{"decl", `func f!() {}`, `FuncDecl{Name: f!, Type: FuncType{Params: FieldList{}}, Body: BlockStmt{}}`, ""},
++	{"decl", `func f!() T {}`, `FuncDecl{Name: f!, Type: FuncType{Params: FieldList{}, Results: FieldList{List: [Field{Type: T}]}}, Body: BlockStmt{}}`, ""},
++	{"decl", `func loadConfig!(path string) Config { return cfg }`, `FuncDecl{Name: loadConfig!, Type: FuncType{Params: FieldList{List: [Field{Names: [path], Type: string}]}, Results: FieldList{List: [Field{Type: Config}]}}, Body: BlockStmt{List: [ReturnStmt{Results: [cfg]}]}}`, ""},
++	{"decl", `func (s *Server) Start!() {}`, `FuncDecl{Recv: FieldList{List: [Field{Names: [s], Type: StarExpr{X: Server}}]}, Name: Start!, Type: FuncType{Params: FieldList{}}, Body: BlockStmt{}}`, ""},
++	{"decl", `func (Server) Start!()`, `FuncDecl{Recv: FieldList{List: [Field{Type: Server}]}, Name: Start!, Type: FuncType{Params: FieldList{}}}`, ""},
++	{"decl", `func parse![T any](s string) T`, `FuncDecl{Name: parse!, Type: FuncType{TypeParams: FieldList{List: [Field{Names: [T], Type: any}]}, Params: FieldList{List: [Field{Names: [s], Type: string}]}, Results: FieldList{List: [Field{Type: T}]}}}`, ""},
++	{"decl", `func f!() (cfg Config, err error)`, `FuncDecl{Name: f!, Type: FuncType{Params: FieldList{}, Results: FieldList{List: [Field{Names: [cfg], Type: Config}, Field{Names: [err], Type: error}]}}}`, ""},
++	{"decl", `func main!() {}`, `FuncDecl{Name: main!, Type: FuncType{Params: FieldList{}}, Body: BlockStmt{}}`, ""},
++	{"decl", `func init!() {}`, `FuncDecl{Name: init!, Type: FuncType{Params: FieldList{}}, Body: BlockStmt{}}`, ""},
++	{"decl", `func f!() { g!() }`, `FuncDecl{Name: f!, Type: FuncType{Params: FieldList{}}, Body: BlockStmt{List: [ExprStmt{X: CallExpr{Fun: g!}}]}}`, ""},
++}
++
++// TestMustNames checks the AST of each Phase 10 input.
++func TestMustNames(t *testing.T) {
++	for _, test := range muTests {
++		if got := muDump(t, test.ctx, test.src, Phase10Syntax|ParseComments); got != test.want {
++			t.Errorf("%q:\ngot  %s\nwant %s", test.src, got, test.want)
++		}
++	}
++}
++
++// TestMustNamesAreOptIn checks that without Phase10Syntax each of muTests
++// is a syntax error, and the same as the stock go/parser reports.
++func TestMustNamesAreOptIn(t *testing.T) {
++	for _, test := range muTests {
++		src := dtSource(t, test)
++		for _, mode := range dtModes {
++			f, err := ParseFile(token.NewFileSet(), "test.gp", src, mode)
++			g, gerr := goparser.ParseFile(token.NewFileSet(), "test.gp", src, goparser.Mode(mode))
++			if err == nil {
++				t.Errorf("%q, mode %v: no error without Phase10Syntax", test.src, mode)
++			} else if got, want := dtErrors(err), dtErrors(gerr); !slices.Equal(got, want) {
++				t.Errorf("%q, mode %v: the fork reports\n\t%q\nand go/parser\n\t%q", test.src, mode, got, want)
++			}
++			if f != nil && g != nil && dtDump(f) != dtDump(g) {
++				t.Errorf("%q, mode %v: the ASTs differ:\n%s\n%s", test.src, mode, dtDump(f), dtDump(g))
++			}
++		}
++	}
++}
++
++// muGoTests are Go inputs with a ! near a name: every one parses in both
++// modes, to the AST of the stock go/parser.
++var muGoTests = []dtTest{
++	{"expr", `a != b`, `BinaryExpr{X: a, Op: !=, Y: b}`, ""},
++	{"expr", `a!=b`, `BinaryExpr{X: a, Op: !=, Y: b}`, ""},
++	{"expr", `a != (b)`, `BinaryExpr{X: a, Op: !=, Y: ParenExpr{X: b}}`, ""},
++	{"expr", `a!=(b)`, `BinaryExpr{X: a, Op: !=, Y: ParenExpr{X: b}}`, ""},
++	{"expr", `a !=[]int{}`, `BinaryExpr{X: a, Op: !=, Y: CompositeLit{Type: ArrayType{Elt: int}}}`, ""},
++	{"expr", `!a`, `UnaryExpr{Op: !, X: a}`, ""},
++	{"expr", `!(a)`, `UnaryExpr{Op: !, X: ParenExpr{X: a}}`, ""},
++	{"expr", `!!a`, `UnaryExpr{Op: !, X: UnaryExpr{Op: !, X: a}}`, ""},
++	{"expr", `f(!a)`, `CallExpr{Fun: f, Args: [UnaryExpr{Op: !, X: a}]}`, ""},
++	{"expr", `f(a, !b)`, `CallExpr{Fun: f, Args: [a, UnaryExpr{Op: !, X: b}]}`, ""},
++	{"expr", `a && !(b)`, `BinaryExpr{X: a, Op: &&, Y: UnaryExpr{Op: !, X: ParenExpr{X: b}}}`, ""},
++	{"expr", `a[!b]`, `IndexExpr{X: a, Index: UnaryExpr{Op: !, X: b}}`, ""},
++	{"expr", `[]bool{!a, !(b)}`, `CompositeLit{Type: ArrayType{Elt: bool}, Elts: [UnaryExpr{Op: !, X: a}, UnaryExpr{Op: !, X: ParenExpr{X: b}}]}`, ""},
++	{"stmt", `if !ok {}`, `IfStmt{Cond: UnaryExpr{Op: !, X: ok}, Body: BlockStmt{}}`, ""},
++	{"stmt", `if !(a && b) {}`, `IfStmt{Cond: UnaryExpr{Op: !, X: ParenExpr{X: BinaryExpr{X: a, Op: &&, Y: b}}}, Body: BlockStmt{}}`, ""},
++	// A keyword is not a name: if!(a) is if !(a).
++	{"stmt", `if!(a) {}`, `IfStmt{Cond: UnaryExpr{Op: !, X: ParenExpr{X: a}}, Body: BlockStmt{}}`, ""},
++	{"stmt", `if!a {}`, `IfStmt{Cond: UnaryExpr{Op: !, X: a}, Body: BlockStmt{}}`, ""},
++	{"stmt", `if x { return!(y) }`, `IfStmt{Cond: x, Body: BlockStmt{List: [ReturnStmt{Results: [UnaryExpr{Op: !, X: ParenExpr{X: y}}]}]}}`, ""},
++	{"stmt", `for!(a) {}`, `ForStmt{Cond: UnaryExpr{Op: !, X: ParenExpr{X: a}}, Body: BlockStmt{}}`, ""},
++	{"stmt", `switch!(a) {}`, `SwitchStmt{Tag: UnaryExpr{Op: !, X: ParenExpr{X: a}}, Body: BlockStmt{}}`, ""},
++	{"stmt", `switch { case!(b): }`, `SwitchStmt{Body: BlockStmt{List: [CaseClause{List: [UnaryExpr{Op: !, X: ParenExpr{X: b}}]}]}}`, ""},
++	{"stmt", `switch x { case!(b): }`, `SwitchStmt{Tag: x, Body: BlockStmt{List: [CaseClause{List: [UnaryExpr{Op: !, X: ParenExpr{X: b}}]}]}}`, ""},
++	{"stmt", `x := y; if x!=y {}`, `AssignStmt{Lhs: [x], Tok: :=, Rhs: [y]}`, ""},
++	{"stmt", `return !x`, `ReturnStmt{Results: [UnaryExpr{Op: !, X: x}]}`, ""},
++	{"stmt", `if x {} else if!(y) {}`, `IfStmt{Cond: x, Body: BlockStmt{}, Else: IfStmt{Cond: UnaryExpr{Op: !, X: ParenExpr{X: y}}, Body: BlockStmt{}}}`, ""},
++	// A space, a new line or a comment between the name and the !.
++	{"expr", `a !(b)`, ``, "error"},
++	{"stmt", "a := b\n!c", `AssignStmt{Lhs: [a], Tok: :=, Rhs: [b]}`, ""},
++}
++
++// TestMustGoUnchanged checks that the inputs that are Go parse to the same
++// AST with and without Phase10Syntax and with the stock go/parser, and
++// that the others are errors in the same way.
++func TestMustGoUnchanged(t *testing.T) {
++	for _, test := range muGoTests {
++		src := dtSource(t, test)
++		var want string
++		var wantErr []string
++		if g, err := goparser.ParseFile(token.NewFileSet(), "test.gp", src, goparser.ParseComments); err == nil {
++			want = dtDump(g)
++		} else {
++			wantErr = dtErrors(err)
++		}
++		for _, mode := range []Mode{ParseComments, ParseComments | Phase10Syntax} {
++			f, err := ParseFile(token.NewFileSet(), "test.gp", src, mode)
++			if got := dtErrors(err); !slices.Equal(got, wantErr) {
++				t.Errorf("%q, mode %v: errors\n\t%q\nwant (go/parser)\n\t%q", test.src, mode, got, wantErr)
++			} else if err == nil && dtDump(f) != want {
++				t.Errorf("%q, mode %v: the AST differs from go/parser's:\n%s\n%s", test.src, mode, dtDump(f), want)
++			}
++			if err == nil {
++				if got := dtDump(dtNode(test, f)); got != test.want {
++					t.Errorf("%q, mode %v:\ngot  %s\nwant %s", test.src, mode, got, test.want)
++				}
++			}
++		}
++	}
++}
++
++// TestMustNamePositions checks that a must name has the position of its
++// text and ends where the text ends, and that the call and the declaration
++// around it do too.
++func TestMustNamePositions(t *testing.T) {
++	const src = "package p\n\nfunc (s *S) Start!() {\n\tx := os.ReadFile!(p)\n}\n"
++	fset := token.NewFileSet()
++	f, err := ParseFile(fset, "test.gp", src, Phase10Syntax)
++	if err != nil {
++		t.Fatal(err)
++	}
++	var got []string
++	ast.Inspect(f, func(n ast.Node) bool {
++		if id, ok := n.(*ast.Ident); ok && strings.HasSuffix(id.Name, "!") {
++			start, end := fset.Position(id.Pos()), fset.Position(id.End())
++			got = append(got, fmt.Sprintf("%s %d:%d-%d:%d %q", id.Name, start.Line, start.Column, end.Line, end.Column, src[start.Offset:end.Offset]))
++		}
++		return true
++	})
++	want := []string{`Start! 3:13-3:19 "Start!"`, `ReadFile! 4:10-4:19 "ReadFile!"`}
++	if !slices.Equal(got, want) {
++		t.Errorf("got\n\t%s\nwant\n\t%s", strings.Join(got, "\n\t"), strings.Join(want, "\n\t"))
++	}
++}
++
++// TestMustErrors checks the errors of a name with a ! where the grammar
++// doesn't allow one. A line is a source, and the errors "line:col: message".
++func TestMustErrors(t *testing.T) {
++	const (
++		notCalled = " must be called: write "
++		here      = "cannot use "
++		tail      = " here: a name with ! can only be a called function or method, or a func declaration"
++	)
++	for _, tc := range []struct {
++		src  string
++		want []string
++	}{
++		// Type arguments without a call.
++		{"package p\nvar _ = F![int]\n", []string{"2:9: F!" + notCalled + "F!(...)"}},
++		{"package p\nvar _ = os.F![int, string]\n", []string{"2:12: F!" + notCalled + "F!(...)"}},
++		{"package p\nvar _ = (F!)(x)\n", []string{"2:11: expected ')', found '!'"}},
++		{"package p\nvar _ = F![int].x\n", []string{"2:9: F!" + notCalled + "F!(...)"}},
++		{"package p\nvar _ = F![int][0]\n", []string{"2:9: F!" + notCalled + "F!(...)"}},
++		// A name with a ! as a variable, field, parameter or type name.
++		{"package p\nvar f!(int)\n", []string{"2:5: " + here + "f!" + tail}},
++		{"package p\nvar a, f!(int)\n", []string{"2:8: " + here + "f!" + tail}},
++		{"package p\ntype T struct{ a!(int) }\n", []string{"2:16: " + here + "a!" + tail}},
++		{"package p\nfunc g(a!(b)) {}\n", []string{"2:8: " + here + "a!" + tail}},
++		{"package p\nvar _ pkg.T!(int)\n", []string{"2:11: " + here + "T!" + tail}},
++		{"package p\ntype I interface{ m!() }\n", []string{"2:19: " + here + "m!" + tail}},
++		{"package p\nfunc g() { L!(x): }\n", []string{"2:17: illegal label declaration"}},
++		{"package p\nfunc g[T!(any)]() {}\n", []string{"2:8: " + here + "T!" + tail}},
++		{"package p\ntype F!(int) int\n", []string{"2:6: " + here + "F!" + tail}},
++		// A ! that is not directly after a name stays an error of Go.
++		{"package p\nvar _ = f !(x)\n", []string{"2:11: expected ';', found '!'"}},
++		{"package p\nfunc g() { fns[i]!() }\n", []string{"2:18: expected ';', found '!'"}},
++		{"package p\nfunc g() { f()!() }\n", []string{"2:15: expected ';', found '!'"}},
++		{"package p\nfunc g() { F! () }\n", []string{"2:13: expected ';', found '!'"}},
++		{"package p\nfunc g() { F!\n(x) }\n", []string{"2:13: expected ';', found '!'", "3:7: expected '}', found 'EOF'"}},
++		{"package p\nfunc g() { F!{x} }\n", []string{"2:13: expected ';', found '!'"}},
++		{"package p\nfunc F! () {}\n", []string{"2:7: expected '(', found '!'"}},
++		{"package p\nfunc F!\n() {}\n", []string{"2:7: expected '(', found '!'", "3:2: expected type, found ')'"}},
++		{"package p\nfunc (s S) F!{}\n", []string{"2:13: expected '(', found '!'"}},
++	} {
++		got := muErrors(tc.src, Phase10Syntax)
++		if !slices.Equal(got, tc.want) {
++			t.Errorf("%q:\ngot\n\t%s\nwant\n\t%s", tc.src, strings.Join(got, "\n\t"), strings.Join(tc.want, "\n\t"))
++		}
++	}
++}
++
++// TestMustExpr checks that ParseExprFrom understands a must call, and
++// checks the names in an expression too.
++func TestMustExpr(t *testing.T) {
++	e, err := ParseExprFrom(token.NewFileSet(), "", "os.ReadFile!(p)", Phase10Syntax)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if got, want := dtDump(e), "CallExpr{Fun: os.ReadFile!, Args: [p]}"; got != want {
++		t.Errorf("got %s, want %s", got, want)
++	}
++	if _, err := ParseExprFrom(token.NewFileSet(), "", "F![int]", Phase10Syntax); err == nil || !strings.Contains(err.Error(), "F! must be called") {
++		t.Errorf("F![int]: got error %v", err)
++	}
++	if _, err := ParseExprFrom(token.NewFileSet(), "", "F!(x)", 0); err == nil {
++		t.Errorf("F!(x) without Phase10Syntax: no error")
++	}
++}
++
++// TestMustPrintsLikeGo checks that go/printer prints each Phase 10 call and
++// must function as it was written, with the fork's tree: the printer has no
++// need to know the names. (Spike of 2026-10-13; the printer fork is only
++// for macro, lazy and on-top macros.)
++func TestMustPrintsLikeGo(t *testing.T) {
++	const src = `package p
++
++func loadConfig!(path string) Config {
++	data := os.ReadFile!(path)
++	cfg := parse![Config](data)
++	defer f.Close!()
++	return cfg
++}
++
++func (s *Server) Start!() {
++	s.ln.Close!()
++}
++`
++	f, err := muParse(src)
++	if err != nil {
++		t.Fatal(err)
++	}
++	var b strings.Builder
++	if err := printer.Fprint(&b, token.NewFileSet(), f); err != nil {
++		t.Fatal(err)
++	}
++	// The positions are of another file set, so the layout may differ in
++	// blank lines only; compare the lines without the empty ones.
++	norm := func(s string) string {
++		return strings.Join(strings.FieldsFunc(s, func(r rune) bool { return r == '\n' }), "\n")
++	}
++	if got, want := norm(b.String()), norm(src); got != want {
++		t.Errorf("got\n%s\nwant\n%s", got, want)
++	}
++}
++
++// FuzzMustNames checks, for any input, that the parser doesn't panic in
++// Phase10Syntax mode, and that a file without errors has every name with a !
++// as the function of a call or as the name of a func declaration.
++func FuzzMustNames(f *testing.F) {
++	for _, test := range append(slices.Clone(muTests), muGoTests...) {
++		f.Add("package p\n" + dtSource(&testing.T{}, test)[len("package p; "):])
++	}
++	for _, s := range []string{"package p\nvar _ = F![int]\n", "package p\nfunc f!() {}\n", "package p\nvar x = a!=b", "package p\nvar x = a!"} {
++		f.Add(s)
++	}
++	f.Fuzz(func(t *testing.T, src string) {
++		file, err := ParseFile(token.NewFileSet(), "test.gp", src, Phase10Syntax|ParseComments|SkipObjectResolution)
++		if err != nil || file == nil {
++			return
++		}
++		var stack []ast.Node
++		ast.Inspect(file, func(n ast.Node) bool {
++			if n == nil {
++				stack = stack[:len(stack)-1]
++				return true
++			}
++			stack = append(stack, n)
++			if id, ok := n.(*ast.Ident); ok && strings.HasSuffix(id.Name, "!") && len(id.Name) > 1 && !calledName(stack) {
++				t.Errorf("%q: the name %s is not called, and there was no error", src, id.Name)
++			}
++			return true
++		})
++	})
++}
+diff --git a/internal/syntax/parser/gocpp_phase10.go b/internal/syntax/parser/gocpp_phase10.go
+new file mode 100644
+index 0000000..3f81037
+--- /dev/null
++++ b/internal/syntax/parser/gocpp_phase10.go
+@@ -0,0 +1,76 @@
++// gocpp: the names of Phase 10 syntax (../FORK.md, patch 4): a name with a
++// ! (a must call or a must function: F!, os.ReadFile!, func f!). This file
++// is new in the patch.
++
++package parser
++
++import (
++	"fmt"
++	"go/ast"
++	"go/token"
++
++	"github.com/huuhait/gocpp/internal/syntax/gpast"
++)
++
++// checkName reports an error if name is a name with a ! that the grammar
++// doesn't allow at pos: must says that it is allowed (a called function or
++// method, a func declaration). Where it is allowed, checkMarkedNames checks
++// later that it is called.
++func (p *parser) checkName(pos token.Pos, name string, must bool) {
++	if gpast.IsMust(name) {
++		if !must {
++			p.error(pos, fmt.Sprintf("cannot use %s here: a name with ! can only be a called function or method, or a func declaration", name))
++		}
++		p.sawMarked = true
++	}
++}
++
++// checkMarkedNames reports an error for each name with a ! in the tree
++// root that is not called. A name with a ! is a call: its name (or a
++// selector or an index expression that ends with it, as in os.ReadFile!,
++// parse![int]) must be the function of a call. A func declaration with a
++// name with a ! is fine too.
++func (p *parser) checkMarkedNames(root ast.Node) {
++	var stack []ast.Node
++	ast.Inspect(root, func(n ast.Node) bool {
++		if n == nil {
++			stack = stack[:len(stack)-1]
++			return true
++		}
++		stack = append(stack, n)
++		if id, ok := n.(*ast.Ident); ok && gpast.IsMust(id.Name) && !calledName(stack) {
++			p.error(id.Pos(), fmt.Sprintf("%s must be called: write %s(...)", id.Name, id.Name))
++		}
++		return true
++	})
++}
++
++// calledName reports whether the identifier at the top of the stack (the
++// path from the root to the identifier) is a called name: the function of a
++// call, perhaps as the end of a selector or with type arguments, or the
++// name of a func declaration.
++func calledName(stack []ast.Node) bool {
++	child := stack[len(stack)-1]
++	for i := len(stack) - 2; i >= 0; i-- {
++		switch par := stack[i].(type) {
++		case *ast.SelectorExpr:
++			// os.ReadFile!: the name is X or Sel.
++		case *ast.IndexExpr:
++			if par.X != child {
++				return false
++			}
++		case *ast.IndexListExpr:
++			if par.X != child {
++				return false
++			}
++		case *ast.CallExpr:
++			return par.Fun == child
++		case *ast.FuncDecl:
++			return par.Name == child
++		default:
++			return false
++		}
++		child = stack[i]
++	}
++	return false
++}
+diff --git a/internal/syntax/parser/interface.go b/internal/syntax/parser/interface.go
+index a9a1cfb..aeb3d85 100644
+--- a/internal/syntax/parser/interface.go
++++ b/internal/syntax/parser/interface.go
+@@ -54,6 +54,7 @@ const (
+ 	DeclarationErrors                                 // report declaration errors
+ 	SpuriousErrors                                    // same as AllErrors, for backward-compatibility
+ 	SkipObjectResolution                              // skip deprecated identifier resolution; see ParseFile
++	Phase10Syntax                                     // gocpp: parse the syntax of Phase 10 (F!(x), func f!(), #Name(...), macro, lazy); see ../FORK.md
+ 	AllErrors            = SpuriousErrors             // report all errors (not just the first 10 on different lines)
+ )
+ 
+@@ -230,6 +231,9 @@ func ParseExprFrom(fset *token.FileSet, filename string, src any, mode Mode) (ex
+ 	file := fset.AddFile(filename, -1, len(text))
+ 	p.init(file, text, mode)
+ 	expr = p.parseRhs()
++	if p.sawMarked {
++		p.checkMarkedNames(expr) // gocpp
++	}
+ 
+ 	// If a semicolon was inserted, consume it;
+ 	// report an error if there's more tokens.
+diff --git a/internal/syntax/parser/parser.go b/internal/syntax/parser/parser.go
+index d7d872c..8899ba1 100644
+--- a/internal/syntax/parser/parser.go
++++ b/internal/syntax/parser/parser.go
+@@ -72,12 +72,19 @@ type parser struct {
+ 	// nestLev is used to track and limit the recursion depth
+ 	// during parsing.
+ 	nestLev int
++
++	// gocpp: Phase 10 syntax (patches 4 to 6, see ../FORK.md).
++	sawMarked bool // a name with ! or # was parsed: check how it is used
+ }
+ 
+ func (p *parser) init(file *token.File, src []byte, mode Mode) {
+ 	p.file = file
+ 	eh := func(pos token.Position, msg string) { p.errors.Add(pos, msg) }
+-	p.scanner.Init(p.file, src, eh, scanner.ScanComments)
++	smode := scanner.ScanComments
++	if mode&Phase10Syntax != 0 {
++		smode |= scanner.Phase10Syntax // gocpp
++	}
++	p.scanner.Init(p.file, src, eh, smode)
+ 
+ 	p.top = true
+ 	p.mode = mode
+@@ -478,10 +485,19 @@ func (p *parser) safePos(pos token.Pos) (res token.Pos) {
+ // Identifiers
+ 
+ func (p *parser) parseIdent() *ast.Ident {
++	return p.parseName(false)
++}
++
++// parseName is parseIdent for a place where the grammar of gocpp also
++// allows a name with a ! (must): F!. The scanner only makes these names in
++// Phase10Syntax mode. A place that doesn't allow them reports an error, as
++// in a declaration of a variable x!. gocpp: see ../FORK.md, patch 4.
++func (p *parser) parseName(must bool) *ast.Ident {
+ 	pos := p.pos
+ 	name := "_"
+ 	if p.tok == token.IDENT {
+ 		name = p.lit
++		p.checkName(pos, name, must)
+ 		p.next()
+ 	} else {
+ 		p.expect(token.IDENT) // use expect() error handling
+@@ -1559,7 +1575,7 @@ func (p *parser) parseOperand() ast.Expr {
+ 
+ 	switch p.tok {
+ 	case token.IDENT:
+-		x := p.parseIdent()
++		x := p.parseName(true) // gocpp: F!(...)
+ 		return x
+ 
+ 	case token.INT, token.FLOAT, token.IMAG, token.CHAR, token.STRING:
+@@ -1599,7 +1615,7 @@ func (p *parser) parseSelector(x ast.Expr) ast.Expr {
+ 		defer un(trace(p, "Selector"))
+ 	}
+ 
+-	sel := p.parseIdent()
++	sel := p.parseName(true) // gocpp: os.ReadFile!(...)
+ 
+ 	return &ast.SelectorExpr{X: x, Sel: sel}
+ }
+@@ -2871,7 +2887,7 @@ func (p *parser) parseFuncDecl() *ast.FuncDecl {
+ 		recv = p.parseParameters(false)
+ 	}
+ 
+-	ident := p.parseIdent()
++	ident := p.parseName(true) // gocpp: func f!()
+ 
+ 	var tparams *ast.FieldList
+ 	if p.tok == token.LBRACK {
+@@ -3010,6 +3026,9 @@ func (p *parser) parseFile() *ast.File {
+ 		Comments:  p.comments,
+ 		GoVersion: p.goVersion,
+ 	}
++	if p.sawMarked {
++		p.checkMarkedNames(f) // gocpp
++	}
+ 	var declErr func(token.Pos, string)
+ 	if p.mode&DeclarationErrors != 0 {
+ 		declErr = p.error
+diff --git a/internal/syntax/scanner/gocpp_must_test.go b/internal/syntax/scanner/gocpp_must_test.go
+new file mode 100644
+index 0000000..a4e7b02
+--- /dev/null
++++ b/internal/syntax/scanner/gocpp_must_test.go
+@@ -0,0 +1,155 @@
++// gocpp: the tests of patch 4 (../FORK.md §4): a name directly followed by
++// !( or ![ is one name, F!, in Phase10Syntax mode, for must calls and must
++// functions. This file is new in the patch.
++
++package scanner_test
++
++import (
++	"go/token"
++	"strconv"
++	"strings"
++	"testing"
++
++	"github.com/huuhait/gocpp/internal/syntax/scanner"
++)
++
++// muScan scans src in the mode and returns the tokens as "IDENT(x) ! (":
++// a name or a literal with its text, a keyword or an operator as itself,
++// and the offset of each IDENT with a !. A scan error fails the test.
++func muScan(t *testing.T, src string, mode scanner.Mode) string {
++	t.Helper()
++	fset := token.NewFileSet()
++	file := fset.AddFile("test.gp", fset.Base(), len(src))
++	var s scanner.Scanner
++	s.Init(file, []byte(src), func(pos token.Position, msg string) {
++		t.Errorf("scanning %q: %s: %s", src, pos, msg)
++	}, mode)
++	var out []string
++	for {
++		pos, tok, lit := s.Scan()
++		if tok == token.EOF {
++			return strings.Join(out, " ")
++		}
++		d := tok.String()
++		if tok.IsLiteral() || tok == token.COMMENT {
++			d += "(" + lit + ")"
++		}
++		if tok == token.IDENT && strings.HasSuffix(lit, "!") {
++			// The name and its position: the ! is part of the token.
++			off := fset.Position(pos).Offset
++			if src[off:off+len(lit)] != lit {
++				t.Errorf("scanning %q: IDENT(%s) at offset %d, but the source there is %q", src, lit, off, src[off:off+len(lit)])
++			}
++		}
++		out = append(out, d)
++	}
++}
++
++// TestMustNames checks the tokens of must names in both modes. Without
++// Phase10Syntax, the scanner scans Go: a name, !, and the rest.
++func TestMustNames(t *testing.T) {
++	for _, tc := range []struct {
++		src       string
++		goTokens  string // Phase10Syntax off
++		gocppToks string // Phase10Syntax on
++	}{
++		// The forms of the plan.
++		{"F!(x)", "IDENT(F) ! ( IDENT(x) ) ;", "IDENT(F!) ( IDENT(x) ) ;"},
++		{"os.ReadFile!(p)", "IDENT(os) . IDENT(ReadFile) ! ( IDENT(p) ) ;", "IDENT(os) . IDENT(ReadFile!) ( IDENT(p) ) ;"},
++		{"parse![int](s)", "IDENT(parse) ! [ IDENT(int) ] ( IDENT(s) ) ;", "IDENT(parse!) [ IDENT(int) ] ( IDENT(s) ) ;"},
++		{"f!()", "IDENT(f) ! ( ) ;", "IDENT(f!) ( ) ;"},
++		{"x := f!()", "IDENT(x) := IDENT(f) ! ( ) ;", "IDENT(x) := IDENT(f!) ( ) ;"},
++		{"func f!() T {", "func IDENT(f) ! ( ) IDENT(T) {", "func IDENT(f!) ( ) IDENT(T) {"},
++		{"func (s *S) Start!() {", "func ( IDENT(s) * IDENT(S) ) IDENT(Start) ! ( ) {", "func ( IDENT(s) * IDENT(S) ) IDENT(Start!) ( ) {"},
++		{"func parse![T any](s string) T {", "func IDENT(parse) ! [ IDENT(T) IDENT(any) ] ( IDENT(s) IDENT(string) ) IDENT(T) {", "func IDENT(parse!) [ IDENT(T) IDENT(any) ] ( IDENT(s) IDENT(string) ) IDENT(T) {"},
++		{"defer f.Close!()", "defer IDENT(f) . IDENT(Close) ! ( ) ;", "defer IDENT(f) . IDENT(Close!) ( ) ;"},
++		{"é!(x)", "IDENT(é) ! ( IDENT(x) ) ;", "IDENT(é!) ( IDENT(x) ) ;"},
++		{"_!(x)", "IDENT(_) ! ( IDENT(x) ) ;", "IDENT(_!) ( IDENT(x) ) ;"},
++		{"a!(b)\nc", "IDENT(a) ! ( IDENT(b) ) ; IDENT(c) ;", "IDENT(a!) ( IDENT(b) ) ; IDENT(c) ;"},
++
++		// Not a must name: another token after the !, or a space.
++		{"a!=b", "IDENT(a) != IDENT(b) ;", "IDENT(a) != IDENT(b) ;"},
++		{"a != (b)", "IDENT(a) != ( IDENT(b) ) ;", "IDENT(a) != ( IDENT(b) ) ;"},
++		{"a !(b)", "IDENT(a) ! ( IDENT(b) ) ;", "IDENT(a) ! ( IDENT(b) ) ;"},
++		{"a! (b)", "IDENT(a) ! ( IDENT(b) ) ;", "IDENT(a) ! ( IDENT(b) ) ;"},
++		{"a!\n(b)", "IDENT(a) ! ( IDENT(b) ) ;", "IDENT(a) ! ( IDENT(b) ) ;"},
++		{"a!/* c */(b)", "IDENT(a) ! COMMENT(/* c */) ( IDENT(b) ) ;", "IDENT(a) ! COMMENT(/* c */) ( IDENT(b) ) ;"},
++		{"a!b", "IDENT(a) ! IDENT(b) ;", "IDENT(a) ! IDENT(b) ;"},
++		{"a!", "IDENT(a) ! ", "IDENT(a) ! "},
++		{"a!{", "IDENT(a) ! {", "IDENT(a) ! {"},
++		{"a!!(b)", "IDENT(a) ! ! ( IDENT(b) ) ;", "IDENT(a) ! ! ( IDENT(b) ) ;"},
++		{"a[i]!(b)", "IDENT(a) [ IDENT(i) ] ! ( IDENT(b) ) ;", "IDENT(a) [ IDENT(i) ] ! ( IDENT(b) ) ;"},
++		{"f(x)!(b)", "IDENT(f) ( IDENT(x) ) ! ( IDENT(b) ) ;", "IDENT(f) ( IDENT(x) ) ! ( IDENT(b) ) ;"},
++		{"1!(b)", "INT(1) ! ( IDENT(b) ) ;", "INT(1) ! ( IDENT(b) ) ;"},
++		{"f(!b)", "IDENT(f) ( ! IDENT(b) ) ;", "IDENT(f) ( ! IDENT(b) ) ;"},
++		{"x = !(a)", "IDENT(x) = ! ( IDENT(a) ) ;", "IDENT(x) = ! ( IDENT(a) ) ;"},
++
++		// A keyword is not a name: these are valid Go.
++		{"if!(a) {", "if ! ( IDENT(a) ) {", "if ! ( IDENT(a) ) {"},
++		{"return!(x)", "return ! ( IDENT(x) ) ;", "return ! ( IDENT(x) ) ;"},
++		{"case!(b):", "case ! ( IDENT(b) ) :", "case ! ( IDENT(b) ) :"},
++		{"for!(a) {", "for ! ( IDENT(a) ) {", "for ! ( IDENT(a) ) {"},
++		{"switch!(a) {", "switch ! ( IDENT(a) ) {", "switch ! ( IDENT(a) ) {"},
++		{"go!(a)", "go ! ( IDENT(a) ) ;", "go ! ( IDENT(a) ) ;"},
++		{"defer!(a)", "defer ! ( IDENT(a) ) ;", "defer ! ( IDENT(a) ) ;"},
++		{"range!(a)", "range ! ( IDENT(a) ) ;", "range ! ( IDENT(a) ) ;"},
++		{"else!(a)", "else ! ( IDENT(a) ) ;", "else ! ( IDENT(a) ) ;"},
++		{"select!(a)", "select ! ( IDENT(a) ) ;", "select ! ( IDENT(a) ) ;"},
++		{"if!x {", "if ! IDENT(x) {", "if ! IDENT(x) {"},
++		{"if !x!=y {", "if ! IDENT(x) != IDENT(y) {", "if ! IDENT(x) != IDENT(y) {"},
++
++		// A keyword after a dot is a name (patch 1), but not a must name:
++		// the C++ names of patch 1 are never Go functions with errors.
++		{"x.type!(a)", "IDENT(x) . IDENT(type) ! ( IDENT(a) ) ;", "IDENT(x) . IDENT(type) ! ( IDENT(a) ) ;"},
++		{"x.select![a]", "IDENT(x) . IDENT(select) ! [ IDENT(a) ] ;", "IDENT(x) . IDENT(select) ! [ IDENT(a) ] ;"},
++
++		// Comments, strings and numbers.
++		{"// a!(b)\nc", "COMMENT(// a!(b)) IDENT(c) ;", "COMMENT(// a!(b)) IDENT(c) ;"},
++		{"/* a!(b) */ c", "COMMENT(/* a!(b) */) IDENT(c) ;", "COMMENT(/* a!(b) */) IDENT(c) ;"},
++		{`"a!(b)"`, `STRING("a!(b)") ;`, `STRING("a!(b)") ;`},
++		{"a!(b) // c!(d)", "IDENT(a) ! ( IDENT(b) ) COMMENT(// c!(d)) ;", "IDENT(a!) ( IDENT(b) ) COMMENT(// c!(d)) ;"},
++	} {
++		// Without comments in the token list, the tests above would need two
++		// versions: the scanner here always returns them.
++		if got := muScan(t, tc.src, scanner.ScanComments); got != strings.TrimSpace(tc.goTokens) {
++			t.Errorf("Go mode: scanning %q:\ngot  %s\nwant %s", tc.src, got, tc.goTokens)
++		}
++		if got := muScan(t, tc.src, scanner.ScanComments|scanner.Phase10Syntax); got != strings.TrimSpace(tc.gocppToks) {
++			t.Errorf("Phase10Syntax: scanning %q:\ngot  %s\nwant %s", tc.src, got, tc.gocppToks)
++		}
++	}
++}
++
++// TestMustNamePositions checks the position and the end of a must name:
++// the ! is part of the token, so a name that starts at offset n with k
++// bytes in its literal ends at n+k.
++func TestMustNamePositions(t *testing.T) {
++	src := "x := os.ReadFile!(p)\nfunc f!() {}"
++	fset := token.NewFileSet()
++	file := fset.AddFile("test.gp", fset.Base(), len(src))
++	var s scanner.Scanner
++	s.Init(file, []byte(src), func(pos token.Position, msg string) { t.Errorf("%s: %s", pos, msg) }, scanner.Phase10Syntax)
++	var got []string
++	for {
++		pos, tok, lit := s.Scan()
++		if tok == token.EOF {
++			break
++		}
++		if strings.HasSuffix(lit, "!") {
++			p := fset.Position(pos)
++			got = append(got, lit+"@"+strconv.Itoa(p.Line)+":"+strconv.Itoa(p.Column))
++		}
++	}
++	if want := "ReadFile!@1:9 f!@2:6"; strings.Join(got, " ") != want {
++		t.Errorf("got %v, want %s", got, want)
++	}
++}
++
++// TestMustNamesAreOptIn checks that without Phase10Syntax, nothing of
++// patch 4 shows: the tokens of a Go file are the same.
++func TestMustNamesAreOptIn(t *testing.T) {
++	src := "package p\nfunc f() { if!(a) {}; x := a!=b; y := !c }\n"
++	if a, b := muScan(t, src, scanner.ScanComments), muScan(t, src, scanner.ScanComments|scanner.Phase10Syntax); a != b {
++		t.Errorf("the tokens of Go code change with Phase10Syntax:\n%s\n%s", a, b)
++	}
++}
+diff --git a/internal/syntax/scanner/scanner.go b/internal/syntax/scanner/scanner.go
+index 69df8ea..5923fde 100644
+--- a/internal/syntax/scanner/scanner.go
++++ b/internal/syntax/scanner/scanner.go
+@@ -115,6 +115,13 @@ type Mode uint
+ const (
+ 	ScanComments    Mode = 1 << iota // return comments as COMMENT tokens
+ 	dontInsertSemis                  // do not automatically insert semicolons - for testing only
++
++	// Phase10Syntax makes the scanner return the names of gocpp's Phase 10
++	// syntax (FORK.md, patches 4 and 5): F! for a name that is directly
++	// followed by !( or ![ (a must call or a must function), and #Name for
++	// a # directly followed by a letter (a macro). Without it, the scanner
++	// scans Go: F!( is F, ! and (, and # is an illegal character.
++	Phase10Syntax // gocpp
+ )
+ 
+ // Init prepares the scanner s to tokenize the text src by setting the
+@@ -822,6 +829,7 @@ scanAgain:
+ 	switch ch := s.ch; {
+ 	case isLetter(ch):
+ 		lit = s.scanIdentifier()
++		keywordName := false // gocpp: a keyword that patch 1 made a name
+ 		if len(lit) > 1 {
+ 			// keywords are longer than one letter - avoid lookup otherwise
+ 			tok = token.Lookup(lit)
+@@ -830,6 +838,7 @@ scanAgain:
+ 				// name, for C++ names: std.map, node.type() (see
+ 				// ../FORK.md, patch 1)
+ 				tok = token.IDENT
++				keywordName = true
+ 			}
+ 			switch tok {
+ 			case token.IDENT, token.BREAK, token.CONTINUE, token.FALLTHROUGH, token.RETURN:
+@@ -839,6 +848,15 @@ scanAgain:
+ 			insertSemi = true
+ 			tok = token.IDENT
+ 		}
++		if tok == token.IDENT && !keywordName && s.mode&Phase10Syntax != 0 && s.ch == '!' && (s.peek() == '(' || s.peek() == '[') {
++			// gocpp: a name directly followed by !( or ![ is one name,
++			// F!, for must calls and must functions (see ../FORK.md,
++			// patch 4). In Go, a name is never followed by a !, so no Go
++			// code changes. A keyword is not a name: if!(a) stays if, !
++			// and (a), and a!=b has the token !=.
++			s.next() // the !
++			lit += "!"
++		}
+ 	case isDecimal(ch) || ch == '.' && isDecimal(rune(s.peek())):
+ 		insertSemi = true
+ 		tok, lit = s.scanNumber()

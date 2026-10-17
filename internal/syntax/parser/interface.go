@@ -54,6 +54,7 @@ const (
 	DeclarationErrors                                 // report declaration errors
 	SpuriousErrors                                    // same as AllErrors, for backward-compatibility
 	SkipObjectResolution                              // skip deprecated identifier resolution; see ParseFile
+	Phase10Syntax                                     // gocpp: parse the syntax of Phase 10 (F!(x), func f!(), #Name(...), macro, lazy); see ../FORK.md
 	AllErrors            = SpuriousErrors             // report all errors (not just the first 10 on different lines)
 )
 
@@ -230,6 +231,9 @@ func ParseExprFrom(fset *token.FileSet, filename string, src any, mode Mode) (ex
 	file := fset.AddFile(filename, -1, len(text))
 	p.init(file, text, mode)
 	expr = p.parseRhs()
+	if p.sawMarked {
+		p.checkMarkedNames(expr) // gocpp
+	}
 
 	// If a semicolon was inserted, consume it;
 	// report an error if there's more tokens.

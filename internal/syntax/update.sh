@@ -4,11 +4,11 @@
 #
 #	nix develop -c internal/syntax/update.sh [-f]
 #
-# It copies go/scanner, go/parser and go/printer/nodes.go from
+# It copies go/scanner, go/parser and go/printer from
 # $(go env GOROOT)/src, rewrites the import paths, applies local.patch and
 # then patches/*.patch with git apply, and runs the checks and the tests.
 #
-# It changes only scanner/, parser/, testdata/printer/ and LICENSE in this
+# It changes only scanner/, parser/, printer/ and LICENSE in this
 # folder: it deletes the three folders and makes them again. So it stops when
 # they have changes that are not committed. With -f it goes on, but first it
 # saves a copy of them in a new temporary folder. With the same Go, a second
@@ -55,7 +55,7 @@ cd "$root"
 # The folders and files that update.sh deletes and writes must be real ones.
 # Through a symbolic link, it would change things outside the fork.
 no_links() {
-	for p in scanner parser testdata testdata/printer LICENSE; do
+	for p in scanner parser printer LICENSE; do
 		if [ -L "$syn/$p" ]; then
 			die "$syn/$p is a symbolic link; update.sh only changes real files and folders"
 		fi
@@ -77,13 +77,13 @@ version=$("$GO" env GOVERSION) || die "\"$GO env GOVERSION\" failed"
 GOFMT=${GOFMT:-$goroot/bin/gofmt}
 src=$goroot/src
 echo "update.sh: upstream is $version, in $src"
-for f in go/scanner go/parser go/printer/nodes.go; do
+for f in go/scanner go/parser go/printer; do
 	[ -e "$src/$f" ] || die "$src/$f does not exist"
 done
 
 # Changes that are not committed in what update.sh replaces would be lost, so
 # stop, unless -f is given. With -f, save a copy first.
-set -- "$syn/scanner" "$syn/parser" "$syn/testdata/printer" "$syn/LICENSE"
+set -- "$syn/scanner" "$syn/parser" "$syn/printer" "$syn/LICENSE"
 if [ "$top" != "$root" ]; then
 	$force || die "$root is not the top folder of a git repository (a clone or a worktree),
 so update.sh can't see if $syn has changes that are not committed.
@@ -94,7 +94,7 @@ else
 	if [ -n "$changes" ]; then
 		$force || die "these files have changes that are not committed:
 $changes
-update.sh deletes scanner/, parser/ and testdata/printer/ in $syn and makes
+update.sh deletes scanner/, parser/ and printer/ in $syn and makes
 them again, and it can replace $syn/LICENSE, so these changes would be lost.
 Commit them, or put them in a patch file (FORK.md §7).
 Or run update.sh -f: it saves a copy of the old files first."
@@ -116,7 +116,7 @@ fi
 
 # 1. Copy. The files in the Nix store are read-only, so the copies get the
 # normal modes: then the next run can delete them, and git sees no change.
-for d in scanner parser testdata/printer; do
+for d in scanner parser printer; do
 	if [ -e "$syn/$d" ]; then
 		chmod -R u+w "$syn/$d"
 		rm -rf "${syn:?}/$d"
@@ -124,11 +124,10 @@ for d in scanner parser testdata/printer; do
 done
 cp -R "$src/go/scanner" "$syn/scanner"
 cp -R "$src/go/parser" "$syn/parser"
-mkdir -p "$syn/testdata/printer"
-cp "$src/go/printer/nodes.go" "$syn/testdata/printer/nodes.go"
+cp -R "$src/go/printer" "$syn/printer"
 no_links # cp -R copies a linked folder of GOROOT as a link
-find "$syn/scanner" "$syn/parser" "$syn/testdata/printer" -type d -exec chmod 755 {} +
-find "$syn/scanner" "$syn/parser" "$syn/testdata/printer" -type f -exec chmod 644 {} +
+find "$syn/scanner" "$syn/parser" "$syn/printer" -type d -exec chmod 755 {} +
+find "$syn/scanner" "$syn/parser" "$syn/printer" -type f -exec chmod 644 {} +
 
 # Go's LICENSE is in GOROOT, not in GOROOT/src. Nix's Go has none; then the
 # LICENSE file here stays as it is.
@@ -141,7 +140,7 @@ else
 	die "there is no LICENSE file in $goroot or in $syn"
 fi
 
-# 2. Rewrite the import paths of the two packages, only in the import
+# 2. Rewrite the import paths of the three packages, only in the import
 # declarations (an "import (" block or an "import" line) of their own Go
 # files. Go allows imports only before all other declarations, so the
 # rewrite stops at the first func, var, const or type line: a Go file that a
@@ -152,10 +151,11 @@ blk='/^import (/,/^)/'
 one='/^import [^(]/'
 sc="s|\"go/scanner\"|\"$mod/$syn/scanner\"|"
 pa="s|\"go/parser\"|\"$mod/$syn/parser\"|"
+pr="s|\"go/printer\"|\"$mod/$syn/printer\"|"
 n=0
-for f in "$syn"/scanner/*.go "$syn"/parser/*.go; do
+for f in "$syn"/scanner/*.go "$syn"/parser/*.go "$syn"/printer/*.go; do
 	sed -e "/^func /,\$b" -e "/^var /,\$b" -e "/^const /,\$b" -e "/^type /,\$b" \
-		-e "$blk$sc" -e "$blk$pa" -e "$one$sc" -e "$one$pa" "$f" >"$f.tmp"
+		-e "$blk$sc" -e "$blk$pa" -e "$blk$pr" -e "$one$sc" -e "$one$pa" -e "$one$pr" "$f" >"$f.tmp"
 	if cmp -s "$f" "$f.tmp"; then
 		rm -f "$f.tmp"
 		continue
@@ -167,14 +167,14 @@ for f in "$syn"/scanner/*.go "$syn"/parser/*.go; do
 done
 echo "update.sh: rewrote the import paths in $n files"
 imports=$("$GO" list -f '{{join .Imports "\n"}}{{"\n"}}{{join .TestImports "\n"}}{{"\n"}}{{join .XTestImports "\n"}}' \
-	"./$syn/scanner" "./$syn/parser") || die "go list failed"
-if printf '%s\n' "$imports" | grep -qx -e go/scanner -e go/parser; then
-	die "the fork still imports the stock go/scanner or go/parser"
+	"./$syn/scanner" "./$syn/parser" "./$syn/printer") || die "go list failed"
+if printf '%s\n' "$imports" | grep -qx -e go/scanner -e go/parser -e go/printer; then
+	die "the fork still imports the stock go/scanner, go/parser or go/printer"
 fi
 
 # 3. Apply local.patch (the local test changes), then the patches in name
-# order. A patch may only change, add or delete files in scanner/ and
-# parser/. No renames or copies (git apply --numstat names only their new
+# order. A patch may only change, add or delete files in scanner/,
+# parser/ and printer/. No renames or copies (git apply --numstat names only their new
 # file), and no symbolic links.
 apply() {
 	summary=$(git apply --summary "$1") || die "$1 is not a valid patch"
@@ -189,8 +189,8 @@ the patch with: git diff --no-renames"
 		case $f in
 		'') ;;
 		*..*) die "$1 changes \"$f\": a path with \"..\" is not allowed" ;;
-		"$syn"/scanner/?* | "$syn"/parser/?*) ;;
-		*) die "$1 changes \"$f\", but a patch may only change $syn/scanner/ and $syn/parser/" ;;
+		"$syn"/scanner/?* | "$syn"/parser/?* | "$syn"/printer/?*) ;;
+		*) die "$1 changes \"$f\", but a patch may only change $syn/scanner/, $syn/parser/ and $syn/printer/" ;;
 		esac
 	done <<EOF
 $files
@@ -204,10 +204,10 @@ for p in "$syn"/patches/*.patch; do
 	apply "$p"
 done
 
-# 4. Check and test. gofmt checks the Go files of the two packages (not
+# 4. Check and test. gofmt checks the Go files of the three packages (not
 # testdata/). The benchmarks run once each, because local.patch changes
 # BenchmarkScanFiles.
-bad=$(find "$syn/scanner" "$syn/parser" -name testdata -prune -o -type f -name '*.go' -exec "$GOFMT" -l {} +) ||
+bad=$(find "$syn/scanner" "$syn/parser" "$syn/printer" -name testdata -prune -o -type f -name '*.go' -exec "$GOFMT" -l {} +) ||
 	die "gofmt failed"
 [ -z "$bad" ] || die "gofmt: these files need formatting (gofmt -w):
 $bad"

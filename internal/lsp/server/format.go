@@ -110,7 +110,7 @@ func formatEdits(ctx context.Context, doc *document) ([]protocol.TextEdit, error
 	// A safety net: the result must parse. go/printer has a known bug
 	// that drops needed parentheses (range (std.vector[int]{7, 8}), see
 	// the plan's TODO); then the file is left alone.
-	if _, err := parser.ParseFile(token.NewFileSet(), doc.path, res, parser.SkipObjectResolution); err != nil {
+	if _, err := parser.ParseFile(token.NewFileSet(), doc.path, res, gpformat.ParserMode); err != nil {
 		return nil, protocol.Errorf(protocol.RequestFailed, "gocpp fmt would break the file, so it is not formatted: %v", firstError(err))
 	}
 	if err := ctx.Err(); err != nil {
@@ -236,7 +236,7 @@ func organizeEdits(ctx context.Context, snap *cache.Snapshot, uri protocol.Docum
 		return nil, err
 	}
 	// A safety net, as for formatting: the result must parse.
-	if _, err := parser.ParseFile(token.NewFileSet(), pf.Path, res, parser.SkipObjectResolution); err != nil {
+	if _, err := parser.ParseFile(token.NewFileSet(), pf.Path, res, gpformat.ParserMode); err != nil {
 		return nil, fmt.Errorf("the organized file would not parse: %v", firstError(err))
 	}
 	return computeEdits(ctx, doc.mapper, string(res)), nil

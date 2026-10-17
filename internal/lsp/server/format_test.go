@@ -91,7 +91,7 @@ func TestFormattingRepoFiles(t *testing.T) {
 			}
 			doc := &document{path: name, src: []byte(text), mapper: protocol.NewMapper(text)}
 			edits, err := formatEdits(context.Background(), doc)
-			if _, perr := parser.ParseFile(token.NewFileSet(), name, want, 0); perr != nil {
+			if _, perr := parser.ParseFile(token.NewFileSet(), name, want, gpformat.ParserMode); perr != nil {
 				// The go/printer bug with range (std.vector[int]{7, 8})
 				// (the plan's TODO): the safety net leaves the file alone.
 				if err == nil || !strings.Contains(err.Error(), "gocpp fmt would break the file") {
@@ -275,6 +275,25 @@ func TestFormatting(t *testing.T) {
 	c.notify("textDocument/didClose", docParams(c.uri("main.gp")))
 	if got := applyEdits(t, disk, editsOf(t, c.formatRequest("main.gp"))); got != "package main\n\nfunc main() {\n}\n" {
 		t.Errorf("on disk: got %q", got)
+	}
+}
+
+// TestFormattingPhase10Syntax formats a document with the syntax of Phase
+// 10 (a must call, a must function, a macro, a lazy parameter, a line of
+// macros on top): gocpp fmt accepts it, and so does the safety net that
+// parses the result (it must use the mode of gocpp fmt).
+func TestFormattingPhase10Syntax(t *testing.T) {
+	checkGoroutines(t)
+	c := startFormat(t, map[string]string{"gocpp.mod": "module example.com/m\n", "main.gp": "package main\n"})
+	text := "package main\n\nmacro Assert(c bool, msg   lazy string) {\nif !c { panic(msg()) }\n}\n\n#Trace()\nfunc f!() int {\nx :=   F!(1)\n#Assert(x>0, \"x\")\nreturn x\n}\n"
+	want := "package main\n\nmacro Assert(c bool, msg lazy string) {\n\tif !c {\n\t\tpanic(msg())\n\t}\n}\n\n#Trace()\nfunc f!() int {\n\tx := F!(1)\n\t#Assert(x > 0, \"x\")\n\treturn x\n}\n"
+	c.open("main.gp", text)
+	if got := applyEdits(t, text, editsOf(t, c.formatRequest("main.gp"))); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+	c.change("main.gp", 2, want)
+	if edits := editsOf(t, c.formatRequest("main.gp")); len(edits) != 0 {
+		t.Errorf("a formatted file got edits %+v", edits)
 	}
 }
 

@@ -26,6 +26,7 @@ package parser
 
 import (
 	"fmt"
+	"github.com/huuhait/gocpp/internal/syntax/gpast"
 	"github.com/huuhait/gocpp/internal/syntax/scanner"
 	"go/ast"
 	"go/build/constraint"
@@ -72,12 +73,21 @@ type parser struct {
 	// nestLev is used to track and limit the recursion depth
 	// during parsing.
 	nestLev int
+
+	// gocpp: Phase 10 syntax (patches 4 to 6, see ../FORK.md).
+	sawMarked bool // a name with ! or # was parsed: check how it is used
+	lazyNext  bool // the next parameter list is the one of a macro: lazy T is allowed
+	lazyHere  bool // the parameter being parsed is in the parameter list of a macro
 }
 
 func (p *parser) init(file *token.File, src []byte, mode Mode) {
 	p.file = file
 	eh := func(pos token.Position, msg string) { p.errors.Add(pos, msg) }
-	p.scanner.Init(p.file, src, eh, scanner.ScanComments)
+	smode := scanner.ScanComments
+	if mode&Phase10Syntax != 0 {
+		smode |= scanner.Phase10Syntax // gocpp
+	}
+	p.scanner.Init(p.file, src, eh, smode)
 
 	p.top = true
 	p.mode = mode
@@ -478,10 +488,20 @@ func (p *parser) safePos(pos token.Pos) (res token.Pos) {
 // Identifiers
 
 func (p *parser) parseIdent() *ast.Ident {
+	return p.parseName(false, false)
+}
+
+// parseName is parseIdent for a place where the grammar of gocpp also
+// allows a name with a ! (must) or a # (macro): F!, #Name. The scanner only
+// makes these names in Phase10Syntax mode. A place that doesn't allow them
+// reports an error, as in a declaration of a variable x! or a macro use as
+// a type. gocpp: see ../FORK.md, patches 4 and 5.
+func (p *parser) parseName(must, macro bool) *ast.Ident {
 	pos := p.pos
 	name := "_"
 	if p.tok == token.IDENT {
 		name = p.lit
+		p.checkName(pos, name, must, macro)
 		p.next()
 	} else {
 		p.expect(token.IDENT) // use expect() error handling
@@ -859,6 +879,9 @@ func (p *parser) parseParamDecl(name *ast.Ident, typeSetsOK bool) (f field) {
 		defer un(trace(p, "ParamDecl"))
 	}
 
+	lazyOK := p.lazyHere // gocpp: a parameter of a macro: name lazy T
+	p.lazyHere = false
+
 	ptok := p.tok
 	if name != nil {
 		p.tok = token.IDENT // force token.IDENT case in switch below
@@ -875,6 +898,18 @@ func (p *parser) parseParamDecl(name *ast.Ident, typeSetsOK bool) (f field) {
 			p.tok = ptok
 		} else {
 			f.name = p.parseIdent()
+		}
+		if lazyOK {
+			// gocpp: in the parameters of a macro, name lazy T is a
+			// parameter whose argument is evaluated only when the macro
+			// calls it (see ../FORK.md, patch 6). lazy is not a name there.
+			if f.name.Name == "lazy" {
+				p.error(f.name.Pos(), `cannot use lazy as a parameter name: lazy is a modifier, write "name lazy T"`)
+			}
+			if p.tok == token.IDENT && p.lit == "lazy" {
+				f.typ = p.parseLazyType()
+				return
+			}
 		}
 		switch p.tok {
 		case token.IDENT, token.MUL, token.ARROW, token.FUNC, token.CHAN, token.MAP, token.STRUCT, token.INTERFACE, token.LPAREN:
@@ -960,6 +995,9 @@ func (p *parser) parseParameterList(name0 *ast.Ident, typ0 ast.Expr, closing tok
 	var named int // number of parameters that have an explicit name and type
 	var typed int // number of parameters that have an explicit type
 
+	lazyOK := p.lazyNext // gocpp: the parameters of a macro
+	p.lazyNext = false
+
 	for name0 != nil || p.tok != closing && p.tok != token.EOF {
 		var par field
 		if typ0 != nil {
@@ -968,6 +1006,7 @@ func (p *parser) parseParameterList(name0 *ast.Ident, typ0 ast.Expr, closing tok
 			}
 			par = field{name0, typ0}
 		} else {
+			p.lazyHere = lazyOK // gocpp
 			par = p.parseParamDecl(name0, tparams)
 		}
 		name0 = nil // 1st name was consumed if present
@@ -1559,7 +1598,7 @@ func (p *parser) parseOperand() ast.Expr {
 
 	switch p.tok {
 	case token.IDENT:
-		x := p.parseIdent()
+		x := p.parseName(true, true) // gocpp: F!(...) and #Name(...)
 		return x
 
 	case token.INT, token.FLOAT, token.IMAG, token.CHAR, token.STRING:
@@ -1599,7 +1638,7 @@ func (p *parser) parseSelector(x ast.Expr) ast.Expr {
 		defer un(trace(p, "Selector"))
 	}
 
-	sel := p.parseIdent()
+	sel := p.parseName(true, false) // gocpp: os.ReadFile!(...)
 
 	return &ast.SelectorExpr{X: x, Sel: sel}
 }
@@ -2865,13 +2904,28 @@ func (p *parser) parseFuncDecl() *ast.FuncDecl {
 
 	doc := p.leadComment
 	pos := p.expect(token.FUNC)
+	return p.parseFuncDeclRest(doc, pos, false)
+}
 
+// parseFuncDeclRest parses a func declaration after the word func, and
+// a macro declaration, with macro set, after the word macro (gocpp: patch 6,
+// see ../FORK.md). A macro declaration is a func declaration whose name
+// starts with a # (see ../gpast). The word is at pos, and doc is the doc
+// comment above it.
+func (p *parser) parseFuncDeclRest(doc *ast.CommentGroup, pos token.Pos, macro bool) *ast.FuncDecl {
+	nerrs := p.errors.Len()
 	var recv *ast.FieldList
 	if p.tok == token.LPAREN {
 		recv = p.parseParameters(false)
 	}
 
-	ident := p.parseIdent()
+	var ident *ast.Ident
+	if macro {
+		ident = p.parseIdent()
+		ident.Name = "#" + ident.Name
+	} else {
+		ident = p.parseName(true, false) // gocpp: func f!()
+	}
 
 	var tparams *ast.FieldList
 	if p.tok == token.LBRACK {
@@ -2883,7 +2937,9 @@ func (p *parser) parseFuncDecl() *ast.FuncDecl {
 			tparams = nil
 		}
 	}
+	p.lazyNext = macro // gocpp: lazy T in the parameters of a macro
 	params := p.parseParameters(false)
+	p.lazyNext = false
 	results := p.parseParameters(true)
 
 	var body *ast.BlockStmt
@@ -2903,6 +2959,9 @@ func (p *parser) parseFuncDecl() *ast.FuncDecl {
 		p.expectSemi()
 	}
 
+	if macro && body == nil && p.errors.Len() == nerrs {
+		p.error(ident.Pos(), "missing macro body")
+	}
 	decl := &ast.FuncDecl{
 		Doc:  doc,
 		Recv: recv,
@@ -2938,6 +2997,11 @@ func (p *parser) parseDecl(sync map[token.Token]bool) ast.Decl {
 		return p.parseFuncDecl()
 
 	default:
+		if p.tok == token.IDENT && p.lit == "macro" && p.mode&Phase10Syntax != 0 {
+			// gocpp: a macro declaration, only at package level, where a
+			// name can't start a declaration (see ../FORK.md, patch 6)
+			return p.parseMacroDecl()
+		}
 		pos := p.pos
 		p.errorExpected(pos, "declaration")
 		p.advance(sync)
@@ -2988,6 +3052,9 @@ func (p *parser) parseFile() *ast.File {
 		if p.mode&ImportsOnly == 0 {
 			// rest of package body
 			prev := token.IMPORT
+			var onTop []ast.Decl // gocpp: the lines of macros right before the next declaration
+			var onTopDoc *ast.CommentGroup
+			var onTopErrs int // the number of errors before the lines of macros
 			for p.tok != token.EOF {
 				// Continue to accept import declarations for error tolerance, but complain.
 				if p.tok == token.IMPORT && prev != token.IMPORT {
@@ -2995,7 +3062,26 @@ func (p *parser) parseFile() *ast.File {
 				}
 				prev = p.tok
 
-				decls = append(decls, p.parseDecl(declStart))
+				if p.mode&Phase10Syntax != 0 && p.tok == token.IDENT && gpast.IsMacroUse(p.lit) {
+					// gocpp: a line of macros on top of a func or a type (see
+					// ../FORK.md, patch 6)
+					if len(onTop) == 0 {
+						onTopDoc, onTopErrs = p.leadComment, p.errors.Len()
+					}
+					d := p.parseOnTopMacro()
+					onTop = append(onTop, d)
+					decls = append(decls, d)
+					continue
+				}
+				d := p.parseDecl(declStart)
+				if len(onTop) > 0 {
+					p.attachOnTop(onTop, onTopDoc, d, p.errors.Len() == onTopErrs)
+					onTop, onTopDoc = nil, nil
+				}
+				decls = append(decls, d)
+			}
+			if len(onTop) > 0 {
+				p.attachOnTop(onTop, onTopDoc, nil, p.errors.Len() == onTopErrs) // gocpp: nothing follows them
 			}
 		}
 	}
@@ -3009,6 +3095,9 @@ func (p *parser) parseFile() *ast.File {
 		Imports:   p.imports,
 		Comments:  p.comments,
 		GoVersion: p.goVersion,
+	}
+	if p.sawMarked {
+		p.checkMarkedNames(f) // gocpp
 	}
 	var declErr func(token.Pos, string)
 	if p.mode&DeclarationErrors != 0 {

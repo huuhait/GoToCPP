@@ -9,6 +9,7 @@
 package printer
 
 import (
+	"github.com/huuhait/gocpp/internal/syntax/gpast"
 	"go/ast"
 	"go/token"
 	"math"
@@ -848,6 +849,13 @@ func (p *printer) expr1(expr ast.Expr, prec1, depth int) {
 		}
 
 	case *ast.UnaryExpr:
+		if typ, ok := gpast.Lazy(x); ok {
+			// gocpp: the type of a lazy parameter of a macro (see ../gpast
+			// and ../FORK.md, patch 7)
+			p.print(&ast.Ident{Name: "lazy"}, blank)
+			p.expr(typ)
+			break
+		}
 		const prec = token.UnaryPrec
 		if prec < prec1 {
 			// parenthesis needed
@@ -1920,16 +1928,29 @@ func (p *printer) distanceFrom(startPos token.Pos, startOutCol int) int {
 func (p *printer) funcDecl(d *ast.FuncDecl) {
 	p.setComment(d.Doc)
 	p.setPos(d.Pos())
-	p.print(token.FUNC, blank)
+	// gocpp: a macro declaration starts with the word macro, and its name
+	// has no # (see ../gpast and ../FORK.md, patch 7).
+	macro := gpast.IsMacroDecl(d)
+	word := "func"
+	if macro {
+		word = "macro"
+		p.print(&ast.Ident{Name: word}, blank)
+	} else {
+		p.print(token.FUNC, blank)
+	}
 	// We have to save startCol only after emitting FUNC; otherwise it can be on a
 	// different line (all whitespace preceding the FUNC is emitted only when the
 	// FUNC is emitted).
-	startCol := p.out.Column - len("func ")
+	startCol := p.out.Column - len(word) - 1
 	if d.Recv != nil {
 		p.parameters(d.Recv, funcParam) // method: print receiver
 		p.print(blank)
 	}
-	p.expr(d.Name)
+	if macro {
+		p.expr(&ast.Ident{NamePos: d.Name.NamePos, Name: gpast.MacroBase(d.Name.Name)})
+	} else {
+		p.expr(d.Name)
+	}
 	p.signature(d.Type)
 	p.funcBody(p.distanceFrom(d.Pos(), startCol), vtab, d.Body)
 }
@@ -1940,6 +1961,13 @@ func (p *printer) decl(decl ast.Decl) {
 		p.setPos(d.Pos())
 		p.print("BadDecl")
 	case *ast.GenDecl:
+		if call, ok := gpast.OnTop(d); ok {
+			// gocpp: a line of macros on top of a func or type declaration
+			// (see ../gpast and ../FORK.md, patch 7)
+			p.setPos(d.Pos())
+			p.expr(call)
+			break
+		}
 		p.genDecl(d)
 	case *ast.FuncDecl:
 		p.funcDecl(d)
@@ -1964,9 +1992,12 @@ func declToken(decl ast.Decl) (tok token.Token) {
 
 func (p *printer) declList(list []ast.Decl) {
 	tok := token.ILLEGAL
+	prevOnTop := false // gocpp: the last declaration was a line of macros
+	seenDecl := false  // gocpp: there was a declaration before
 	for _, d := range list {
 		prev := tok
 		tok = declToken(d)
+		_, isOnTop := gpast.OnTop(d) // gocpp
 		// If the declaration token changed (e.g., from CONST to TYPE)
 		// or the next declaration has documentation associated with it,
 		// print an empty line between top-level declarations.
@@ -1978,14 +2009,20 @@ func (p *printer) declList(list []ast.Decl) {
 			// only print line break if we are not at the beginning of the output
 			// (i.e., we are not printing only a partial program)
 			min := 1
-			if prev != tok || getDoc(d) != nil {
+			// gocpp: the first declaration of the file is not after another
+			// one, also when it is a line of macros (Tok ILLEGAL, like the
+			// start).
+			if (prev != tok || getDoc(d) != nil || isOnTop && !seenDecl) && !prevOnTop {
 				min = 2
 			}
 			// start a new section if the next declaration is a function
 			// that spans multiple lines (see also issue #19544)
-			p.linebreak(p.lineFor(d.Pos()), min, ignore, tok == token.FUNC && p.numLines(d) > 1)
+			// gocpp: a new section after the last line of macros, so that its
+			// trailing comment doesn't share a column with the next one-line func.
+			p.linebreak(p.lineFor(d.Pos()), min, ignore, tok == token.FUNC && p.numLines(d) > 1 || prevOnTop && !isOnTop)
 		}
 		p.decl(d)
+		prevOnTop, seenDecl = isOnTop, true // gocpp: the lines of macros stay with their declaration
 	}
 }
 

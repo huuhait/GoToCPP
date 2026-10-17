@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-var src = readFile("../testdata/printer/nodes.go") // gocpp: upstream reads ../printer/nodes.go; see ../FORK.md
+var src = readFile("../printer/nodes.go")
 
 func readFile(filename string) []byte {
 	data, err := os.ReadFile(filename)

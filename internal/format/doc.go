@@ -4,11 +4,14 @@
 // It works in three steps, like gofmt:
 //
 //  1. Parse the file with gocpp's parser (internal/syntax), with its
-//     comments. A file with syntax errors is not formatted.
+//     comments, and with the syntax of Phase 10 (F!(x), func f!(),
+//     #Name(...), macro, lazy). A file with syntax errors is not formatted.
 //  2. Sort the imports. Like gofmt, it sorts each import group by path
 //     and removes duplicate imports. A group is a run of import lines with
 //     no empty line and no comment line between them.
-//  3. Print the file with go/printer and the settings of gofmt.
+//  3. Print the file with gocpp's fork of go/printer (internal/syntax/printer)
+//     and the settings of gofmt. The fork prints Go as go/printer does, and
+//     the syntax of Phase 10 too.
 //
 // Three rules are gocpp's own:
 //   - An import group that contains a header or a namespace import

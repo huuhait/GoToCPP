@@ -2,11 +2,11 @@ package format
 
 import (
 	"go/ast"
-	"go/printer"
 	"go/token"
 
 	"github.com/huuhait/gocpp/internal/diag"
 	"github.com/huuhait/gocpp/internal/load"
+	"github.com/huuhait/gocpp/internal/syntax/printer"
 	"github.com/huuhait/gocpp/internal/syntax/scanner"
 )
 

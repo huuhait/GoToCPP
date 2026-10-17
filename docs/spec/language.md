@@ -1250,6 +1250,69 @@ Also good to know:
 - `gocpp expand file.gp` shows the code after expansion.
 - **Phase:** [10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md#22-part-b-macros).
 
+### Syntax: the exact rules
+
+This is what the parser accepts (parser patches 4 to 6, Phase 10 step 10.1), and how `gocpp fmt`
+prints it. The rest of this document says what the forms mean.
+
+**Names with `!` and `#`.** The scanner makes two kinds of names that Go doesn't have:
+
+| Written | Is one name | When |
+|---|---|---|
+| `F!(`, `os.ReadFile!(`, `parse![` | `F!`, `ReadFile!`, `parse!` | a name that is not a Go keyword, with the `!` **directly** after it (no space, no comment), and `(` or `[` **directly** after the `!` |
+| `#Name`, `#util.Dbg(`, `#func(` | `#Name`, `#util`, `#func` | a `#` directly followed by a letter or `_`. Keywords too: `#func`, `#type` |
+
+Nothing else changes: `a != b`, `a!=b`, `!ok`, `a !(b)`, `a! (b)` and `if!(a)` are scanned as in Go, a `#`
+that is not followed by a letter is an illegal character as in Go, and a `#` or a `!(` in a string, a rune or
+a comment is text. These names exist only in gocpp's syntax mode; the parser, `gocpp fmt` and the
+language server get it from the same switch, and gocpp's compiler gates it until Phase 10 is built, with a
+message that names the phase ("must calls are not supported yet (Phase 10)").
+
+A keyword after a dot is a name (D3), but never a must call: `x.type!(1)` is `x.type`, `!` and
+`(1)`. In the parameter list of a macro, `lazy` right after a parameter name is always the
+modifier, so a type named `lazy` can't be used there (`macro M(a lazy.T)` is an error if a package is
+named `lazy`; everywhere else `lazy` is an ordinary name).
+
+**Where each form may stand.** A name with a `!` is the function or method that is called (`F![int].x(1)` calls `x`, so it is an
+error), or the name of a `func` declaration; a name with a `#` starts a macro call (`#a.b.c(x)` and
+`#a[int](x)` are calls, `#a[int].b(x)` is an error). The parser rejects them anywhere else, with a
+message that names the place:
+
+```text
+x.gp:2:9: F! must be called: write F!(...)            // x := F![int]
+x.gp:2:5: cannot use f! here: a name with ! can only be a called function or method, or a func declaration
+                                                       // var f!(int)
+x.gp:2:11: cannot use #T here: a name with # can only be the start of a macro call
+                                                       // var _ #T, x.#y(z), func g(#a int)
+```
+
+`F!` may have type arguments: `parse![int](s)`, `pkg.parse![int, string](s)`. A `!` after anything but a
+name (`fns[i]!()`, `f()!()`, `(F)!(x)`) stays a Go syntax error: "expected ';', found '!'".
+
+**Macro declarations.** `macro Name[TypeParams](params) results { body }` at package level, where the word
+`macro` followed by a name starts a declaration. It has no receiver, and it needs a body. Inside a
+function, a type or a parameter list `macro` is an ordinary name. A `lazy` parameter is `name lazy T`
+(names may be grouped: `a, b lazy int`), only in the parameter list of a macro: not in its results, its
+type parameters or a func type inside it, where `lazy` is an ordinary name.
+
+**Macros on top of a declaration.** One or more lines `#Name(...)`, `#pkg.Name(...)` or `#Name[T](...)` at
+package level, directly above a `func`, a method or a `type`. Each line is one call. They must be followed by
+one of those: not by `var`, `const`, `import`, another `macro` or the end of the file ("macro calls must be on
+top of a func or type declaration"). A doc comment goes above the lines and belongs to the declaration.
+
+**`gocpp fmt`.** It formats this syntax with its own fork of `go/printer` (`internal/syntax/printer`),
+and prints Go exactly as `gofmt` does (the tests compare it with `gofmt` on the whole Go standard
+library). The lines of macros stay directly above their declaration (no empty line after them), with one
+empty line before them as before a `func`; an empty line you write after them stays. A comment between the
+lines of macros and the declaration gets an empty line before it, as gofmt does for a comment between two
+declarations. `gocpp fmt` formats a file with this syntax before the compiler accepts it, as it formats a file
+with interfaces before Phase 05.
+
+**Trees.** The parser makes stock `go/ast` nodes: the name of a must call or function ends with `!`, a
+macro use starts with `#`, a macro declaration is a `*ast.FuncDecl` whose name starts with `#`, a lazy type is
+a `*ast.UnaryExpr` with the operator `token.ILLEGAL`, and a line of macros on top is a `*ast.GenDecl` with the
+token `token.ILLEGAL` before the declaration. `internal/syntax/gpast` documents and checks these conventions.
+
 ---
 
 ## Open points

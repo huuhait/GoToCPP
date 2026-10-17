@@ -237,7 +237,7 @@ func outside(decls []*ast.GenDecl, tok *token.File, toks []scanned, skip [2]int)
 // import twice may become one).
 func sameCode(filename string, src []byte, decls []*ast.GenDecl, tok *token.File, toks []scanned, unused map[int]bool, res []byte, left [2]int) error {
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, filename, res, parser.ImportsOnly|parser.ParseComments)
+	f, err := parser.ParseFile(fset, filename, res, parser.ImportsOnly|gpformat.ParserMode)
 	if err != nil {
 		return fmt.Errorf("organize imports: the result doesn't parse: %v", err)
 	}

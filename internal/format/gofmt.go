@@ -5,9 +5,13 @@
 // gocpp: this file is cmd/gofmt/internal.go of Go 1.25.14: how gofmt
 // parses a file or a fragment, and prints it. The changes:
 //   - it is in package format, not package main;
-//   - it parses with gocpp's parser (internal/syntax/parser), not go/parser;
-//   - parserMode is the constant below: the parser mode of gofmt without
-//     its flags -e and -r;
+//   - it parses with gocpp's parser (internal/syntax/parser), not go/parser,
+//     and prints with gocpp's printer (internal/syntax/printer), not
+//     go/printer;
+//   - ParserMode is the constant below: the parser mode of gofmt without
+//     its flags -e and -r, and with the syntax of Phase 10;
+//   - a fragment that is a statement list starting with a macro use, or
+//     with the name macro, is accepted (see errMacroOnTop and errMacroName);
 //   - this comment replaces the upstream TODO, which says that the file is
 //     the same as go/format/internal.go (it is, but for the package name).
 
@@ -16,16 +20,33 @@ package format
 import (
 	"bytes"
 	"go/ast"
-	"go/printer"
 	"go/token"
 	"strings"
 
 	"github.com/huuhait/gocpp/internal/syntax/parser"
+	"github.com/huuhait/gocpp/internal/syntax/printer"
 )
 
-// parserMode is the mode in which gofmt parses: with the comments, and
-// without the deprecated object resolution, which only gofmt -r uses.
-const parserMode = parser.ParseComments | parser.SkipObjectResolution
+// ParserMode is the mode in which gofmt parses: with the comments, and
+// without the deprecated object resolution, which only gofmt -r uses. gocpp
+// adds the syntax of Phase 10 (F!(x), func f!(), #Name(...), macro, lazy):
+// formatting doesn't need the phase gate that gocpp check has, and a file
+// with that syntax is formatted before the compiler accepts it, as a file
+// with interfaces is formatted before Phase 05 builds them.
+//
+// ParserMode is exported because everything that checks a formatted result
+// must parse it in the same mode (the language server's safety nets do);
+// it is the one place that says whether the syntax of Phase 10 is on for
+// tools that only format.
+const ParserMode = parser.ParseComments | parser.SkipObjectResolution | parser.Phase10Syntax
+
+// errMacroOnTop is the error of the parser for lines of macros that are not
+// on top of a func or a type declaration.
+const errMacroOnTop = "macro calls must be on top of a func or type declaration"
+
+// errMacroName is the start of the error of the parser for the word macro
+// at package level that no name follows.
+const errMacroName = "expected macro name"
 
 // parse parses src, which was read from the named file,
 // as a Go source file, declaration, or statement list.
@@ -36,7 +57,7 @@ func parse(fset *token.FileSet, filename string, src []byte, fragmentOk bool) (
 	err error,
 ) {
 	// Try as whole source file.
-	file, err = parser.ParseFile(fset, filename, src, parserMode)
+	file, err = parser.ParseFile(fset, filename, src, ParserMode)
 	// If there's no error, return. If the error is that the source file didn't begin with a
 	// package line and source fragments are ok, fall through to
 	// try as a source fragment. Stop and return on any other error.
@@ -49,7 +70,7 @@ func parse(fset *token.FileSet, filename string, src []byte, fragmentOk bool) (
 	// Insert using a ';', not a newline, so that the line numbers
 	// in psrc match the ones in src.
 	psrc := append([]byte("package p;"), src...)
-	file, err = parser.ParseFile(fset, filename, psrc, parserMode)
+	file, err = parser.ParseFile(fset, filename, psrc, ParserMode)
 	if err == nil {
 		sourceAdj = func(src []byte, indent int) []byte {
 			// Remove the package clause.
@@ -62,7 +83,11 @@ func parse(fset *token.FileSet, filename string, src []byte, fragmentOk bool) (
 	// If the error is that the source file didn't begin with a
 	// declaration, fall through to try as a statement list.
 	// Stop and return on any other error.
-	if !strings.Contains(err.Error(), "expected declaration") {
+	// gocpp: a statement list can start with a macro use (#Name(...)), which
+	// is a line of macros on top of nothing as a declaration list (its own
+	// error), or with the name macro (macro := 1, macro++), which is the
+	// start of a macro declaration without its name.
+	if msg := err.Error(); !strings.Contains(msg, "expected declaration") && !strings.Contains(msg, errMacroOnTop) && !strings.Contains(msg, errMacroName) {
 		return
 	}
 
@@ -73,7 +98,7 @@ func parse(fset *token.FileSet, filename string, src []byte, fragmentOk bool) (
 	// in fsrc match the ones in src. Add an extra '\n' before the '}'
 	// to make sure comments are flushed before the '}'.
 	fsrc := append(append([]byte("package p; func _() {"), src...), '\n', '\n', '}')
-	file, err = parser.ParseFile(fset, filename, fsrc, parserMode)
+	file, err = parser.ParseFile(fset, filename, fsrc, ParserMode)
 	if err == nil {
 		sourceAdj = func(src []byte, indent int) []byte {
 			// Cap adjusted indent to zero.

@@ -115,6 +115,13 @@ type Mode uint
 const (
 	ScanComments    Mode = 1 << iota // return comments as COMMENT tokens
 	dontInsertSemis                  // do not automatically insert semicolons - for testing only
+
+	// Phase10Syntax makes the scanner return the names of gocpp's Phase 10
+	// syntax (FORK.md, patches 4 and 5): F! for a name that is directly
+	// followed by !( or ![ (a must call or a must function), and #Name for
+	// a # directly followed by a letter (a macro). Without it, the scanner
+	// scans Go: F!( is F, ! and (, and # is an illegal character.
+	Phase10Syntax // gocpp
 )
 
 // Init prepares the scanner s to tokenize the text src by setting the
@@ -822,6 +829,7 @@ scanAgain:
 	switch ch := s.ch; {
 	case isLetter(ch):
 		lit = s.scanIdentifier()
+		keywordName := false // gocpp: a keyword that patch 1 made a name
 		if len(lit) > 1 {
 			// keywords are longer than one letter - avoid lookup otherwise
 			tok = token.Lookup(lit)
@@ -830,6 +838,7 @@ scanAgain:
 				// name, for C++ names: std.map, node.type() (see
 				// ../FORK.md, patch 1)
 				tok = token.IDENT
+				keywordName = true
 			}
 			switch tok {
 			case token.IDENT, token.BREAK, token.CONTINUE, token.FALLTHROUGH, token.RETURN:
@@ -838,6 +847,15 @@ scanAgain:
 		} else {
 			insertSemi = true
 			tok = token.IDENT
+		}
+		if tok == token.IDENT && !keywordName && s.mode&Phase10Syntax != 0 && s.ch == '!' && (s.peek() == '(' || s.peek() == '[') {
+			// gocpp: a name directly followed by !( or ![ is one name,
+			// F!, for must calls and must functions (see ../FORK.md,
+			// patch 4). In Go, a name is never followed by a !, so no Go
+			// code changes. A keyword is not a name: if!(a) stays if, !
+			// and (a), and a!=b has the token !=.
+			s.next() // the !
+			lit += "!"
 		}
 	case isDecimal(ch) || ch == '.' && isDecimal(rune(s.peek())):
 		insertSemi = true
@@ -961,6 +979,18 @@ scanAgain:
 			tok = s.switch3(token.OR, token.OR_ASSIGN, '|', token.LOR)
 		case '~':
 			tok = token.TILDE
+		case '#':
+			if s.mode&Phase10Syntax != 0 && isLetter(s.ch) {
+				// gocpp: a # directly followed by a letter is one name,
+				// #Name, for macros (see ../FORK.md, patch 5). It is a
+				// name for a keyword too: #func, #type. In Go, a # is
+				// always an error, so no Go code changes.
+				insertSemi = true
+				tok = token.IDENT
+				lit = "#" + s.scanIdentifier()
+				break
+			}
+			fallthrough
 		default:
 			// next reports unexpected BOMs - don't repeat
 			if ch != bom {

@@ -3,12 +3,12 @@ package format
 import (
 	"bytes"
 	goformat "go/format"
-	"go/printer"
 	"go/token"
 	"strings"
 	"testing"
 
 	"github.com/huuhait/gocpp/internal/syntax/parser"
+	"github.com/huuhait/gocpp/internal/syntax/printer"
 	"github.com/huuhait/gocpp/internal/syntax/scanner"
 )
 
@@ -545,7 +545,7 @@ func TestNormalizeNumbers(t *testing.T) {
 
 		// Without the mode, the printer keeps the literal.
 		fset := token.NewFileSet()
-		f, err := parser.ParseFile(fset, "x.gp", src, parserMode)
+		f, err := parser.ParseFile(fset, "x.gp", src, ParserMode)
 		if err != nil {
 			t.Fatal(err)
 		}
