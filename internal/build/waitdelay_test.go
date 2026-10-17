@@ -246,8 +246,10 @@ func TestWaitDelayPCHRefusedOutputOpen(t *testing.T) {
 			dir := t.TempDir()
 			header := filepath.Join(dir, "rt.hpp")
 			pc := &pch{b: b, rtDir: dir, header: header, file: header + ".pch"}
-			if err := os.WriteFile(pc.file, []byte("pch"), 0o644); err != nil {
-				t.Fatal(err)
+			for _, f := range []string{pc.file, pc.depfile()} { // a header is ready with its list
+				if err := os.WriteFile(f, []byte("pch"), 0o644); err != nil {
+					t.Fatal(err)
+				}
 			}
 			var out []byte
 			var used bool

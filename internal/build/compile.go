@@ -213,11 +213,16 @@ func (b *Builder) runGenerated(ctx context.Context, pc *pch, args []string) (out
 	withPCH := slices.Insert(slices.Clone(args), slices.Index(args, "-c"), pc.args()...)
 	out, err = b.runOutput(ctx, b.CXX, "the generated C++", false, withPCH)
 	var ce *CompileError
-	if errors.As(err, &ce) && pchRefused(ce.Output, pc.file) {
-		// The compiler may have refused the header (it is out of date): compile again
-		// without it, and remove it if that works (also when its output was cut short).
+	if errors.As(err, &ce) && (pchRefused(ce.Output, pc.file) || compilerDied(ce)) {
+		// The compiler may have refused the header (it is out of date) or died on it (a
+		// header that is damaged): compile again without it, and remove it if that works
+		// (also when its output was cut short).
+		died := compilerDied(ce)
 		out, err := b.runOutput(ctx, b.CXX, "the generated C++", false, args)
 		if err == nil || errors.Is(err, errOutputOpen) {
+			if died {
+				b.trace("# the compiler died with the precompiled header: removed, compiled without it")
+			}
 			pc.remove()
 		}
 		return out, false, err

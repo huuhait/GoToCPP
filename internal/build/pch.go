@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -28,12 +30,27 @@ import (
 //
 // A header that the compiler refuses (the runtime's files changed under it) is removed and the
 // program compiles again without it; g++ ignores an unusable .gch by itself.
+//
+// g++ writes a header in place and does not check it beyond a few bytes: a .gch that is
+// being written, or was written by two compilers at once, makes cc1plus crash (SIGSEGV in
+// c_common_read_pch, "internal compiler error: Segmentation fault"). That happened when
+// several Builders of one process (TestProgramParallel) built the same header at the same
+// time: the temporary name had only the pid, so they wrote one file, and the first to finish
+// renamed it into place while the others still wrote into it. (A cc1plus that has such a file
+// mapped crashes at once: reproduced by hand with four g++ -c -x c++-header -o same.gch started
+// together and compiles that start when the first has finished.) Each build now has a file of
+// its own, and one build of a header at a time runs in a process. If a compiler still dies
+// with a header (a disk that lost a write, a g++ bug), the compile runs again without it, the
+// header is removed (compilerDied).
 
 // pchFlags are the flags of the precompiled header: those of a plain compile of the generated
 // C++ (Program), without the package's -iquote, which the compilers don't check.
 func (b *Builder) pchFlags() []string {
 	return slices.Concat(CompileFlags(b.CXX, b.ASan, b.NoChecks), GeneratedFlags(b.CXX))
 }
+
+// pchBuilds are the headers that this process is building (by file name).
+var pchBuilds sync.Map
 
 // A pch is the precompiled header for one set of flags.
 type pch struct {
@@ -74,16 +91,34 @@ func (p *pch) args() []string {
 	return []string{"-include", p.header} // g++ finds rt.hpp.gch next to it, else reads the text
 }
 
-// ready reports whether the precompiled header exists.
+// ready reports whether the precompiled header exists with its list of files (saveDeps): a
+// header without the list (a process that removed or replaced them between its two steps) is
+// rebuilt, not used, because a compile with it could never be cached.
 func (p *pch) ready() bool {
-	fi, err := os.Stat(p.file)
-	return err == nil && fi.Mode().IsRegular()
+	for _, f := range []string{p.file, p.depfile()} {
+		if fi, err := os.Stat(f); err != nil || !fi.Mode().IsRegular() {
+			return false
+		}
+	}
+	return true
 }
 
 // build compiles the header, atomically: the compiler writes a temporary file, which is
 // renamed into place, so that gocpp commands at the same time never see half a header. The
 // header is a failure of the cache only: it returns no error, and the next build tries again.
 func (p *pch) build(ctx context.Context) {
+	// One build of a header at a time in this process: the others would only repeat the work.
+	// (The temporary file's own name is what keeps builds of other processes apart.)
+	if _, busy := pchBuilds.LoadOrStore(p.file, struct{}{}); busy {
+		return
+	}
+	defer pchBuilds.Delete(p.file)
+	p.buildOnce(ctx)
+}
+
+// buildOnce is build without the guard of this process: it must be safe to run at the same
+// time as itself, in this or in another process (every run has files of its own).
+func (p *pch) buildOnce(ctx context.Context) {
 	dir := filepath.Dir(p.header)
 	if os.MkdirAll(dir, 0o755) != nil {
 		return
@@ -103,7 +138,14 @@ func (p *pch) build(ctx context.Context) {
 			return
 		}
 	}
-	out := filepath.Join(dir, ".tmp-pch-"+filepath.Base(p.file)+fmt.Sprintf("-%d", os.Getpid()))
+	// A name of its own for each build: builds in one process (several Builders) or in
+	// containers that share the cache (equal pids) must never write the same file. See above.
+	tf, err := os.CreateTemp(dir, ".tmp-pch-"+filepath.Base(p.file)+"-")
+	if err != nil {
+		return
+	}
+	tf.Close()
+	out := tf.Name()
 	depfile := out + ".d"
 	list := out + ".deps"
 	defer os.Remove(out)
@@ -157,10 +199,12 @@ func (p *pch) saveDeps(depfile, list string, start time.Time) bool {
 // depfile is the file that lists what the header was made from (saveDeps).
 func (p *pch) depfile() string { return p.file + ".deps" }
 
-// remove deletes a header that the compiler refused.
+// remove deletes a header that the compiler refused. The list goes first, the reverse of the
+// order that build creates them in, so that a header that exists without its list is never
+// seen as ready (ready).
 func (p *pch) remove() {
-	os.Remove(p.file)
 	os.Remove(p.depfile())
+	os.Remove(p.file)
 }
 
 // pchRefused reports whether the output of a failed compile that used the precompiled header
@@ -177,6 +221,30 @@ func pchRefused(out []byte, file string) bool {
 		}
 	}
 	return file != "" && bytes.Contains(out, []byte(file))
+}
+
+// compilerDied reports whether a failed compile was the compiler itself dying, not a message
+// about the program: a signal (an ICE of g++ prints "internal compiler error" and exits with
+// status 4 while cc1plus died of a signal, a killed compiler prints "signal terminated
+// program"; clang prints "PLEASE submit a bug report"), or the driver killed by a signal.
+//
+// It is a heuristic. A compiler that the OOM killer ended counts as dead: the compile runs
+// again without the header, which works, and the good header is removed and rebuilt once. A
+// program's own error that contains the text "internal compiler error" costs one more compile
+// and keeps the header (it is removed only when the compile without it works).
+func compilerDied(ce *CompileError) bool {
+	var exit *exec.ExitError
+	if errors.As(ce.Err, &exit) {
+		if ws, ok := exit.Sys().(interface{ Signaled() bool }); ok && ws.Signaled() {
+			return true
+		}
+	}
+	for _, s := range []string{"internal compiler error", "signal terminated program", "PLEASE submit a bug report", "clang frontend command failed"} {
+		if bytes.Contains(ce.Output, []byte(s)) {
+			return true
+		}
+	}
+	return false
 }
 
 // startPCH starts building the precompiled header for the runtime in rtDir, unless it exists
