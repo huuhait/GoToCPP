@@ -172,24 +172,9 @@ func (b *Builder) Program(ctx context.Context, src, out string) error {
 	// compile that a miss runs faster.
 	usedPCH := false
 	runGen := func(args []string) ([]byte, error) {
-		usedPCH = false
-		if pc == nil || !pc.ready() {
-			return b.runOutput(ctx, b.CXX, "the generated C++", false, args)
-		}
-		usedPCH = true
-		withPCH := slices.Insert(slices.Clone(args), slices.Index(args, "-c"), pc.args()...)
-		out, err := b.runOutput(ctx, b.CXX, "the generated C++", false, withPCH)
-		var ce *CompileError
-		if errors.As(err, &ce) && pchRefused(ce.Output, pc.file) {
-			// The compiler may have refused the header (it is out of date): compile again
-			// without it, and remove it if that works.
-			usedPCH = false
-			out, err := b.runOutput(ctx, b.CXX, "the generated C++", false, args)
-			if err == nil {
-				pc.remove()
-			}
-			return out, err
-		}
+		var out []byte
+		var err error
+		out, usedPCH, err = b.runGenerated(ctx, pc, args)
 		return out, err
 	}
 	pchDeps := func() string { // g++ doesn't list the headers that its precompiled header replaced
@@ -214,6 +199,30 @@ func (b *Builder) Program(ctx context.Context, src, out string) error {
 	// that reads its inputs once (GNU ld with static libraries) needs.
 	link := slices.Concat(Flags(b.CXX, b.ASan), []string{obj}, srcObjs, rtObjs, b.Package.Link, b.Env.LDFlags, []string{"-o", out})
 	return b.run(ctx, b.CXX, "the generated C++", true, link)
+}
+
+// runGenerated compiles the generated C++ with args, with the precompiled header pc when there
+// is a ready one (it may be nil), and reports whether it did. When the compiler refuses the
+// header, it compiles again without it and removes the header if that works. The error can be
+// errOutputOpen (see runOutput).
+func (b *Builder) runGenerated(ctx context.Context, pc *pch, args []string) (out []byte, usedPCH bool, err error) {
+	if pc == nil || !pc.ready() {
+		out, err = b.runOutput(ctx, b.CXX, "the generated C++", false, args)
+		return out, false, err
+	}
+	withPCH := slices.Insert(slices.Clone(args), slices.Index(args, "-c"), pc.args()...)
+	out, err = b.runOutput(ctx, b.CXX, "the generated C++", false, withPCH)
+	var ce *CompileError
+	if errors.As(err, &ce) && pchRefused(ce.Output, pc.file) {
+		// The compiler may have refused the header (it is out of date): compile again
+		// without it, and remove it if that works (also when its output was cut short).
+		out, err := b.runOutput(ctx, b.CXX, "the generated C++", false, args)
+		if err == nil || errors.Is(err, errOutputOpen) {
+			pc.remove()
+		}
+		return out, false, err
+	}
+	return out, true, err
 }
 
 // runtime returns the folder of the runtime and its object files for the
@@ -405,6 +414,9 @@ func environ(keep func(name string) bool) []string {
 func (b *Builder) run(ctx context.Context, c CXX, what string, link bool, args []string) error {
 	out, err := b.runOutput(ctx, c, what, link, args)
 	b.warn(out)
+	if errors.Is(err, errOutputOpen) {
+		return nil
+	}
 	return err
 }
 
@@ -417,8 +429,33 @@ func (b *Builder) warn(out []byte) {
 	}
 }
 
+// waitDelay is how long a run of the compiler waits for its output after it exited: a process
+// that the compiler started and that keeps the output open must not make gocpp wait. On a
+// machine under load the goroutines that copy the output can need seconds, so it is not short.
+var waitDelay = 5 * time.Second
+
+// retryWaitDelay is waitDelay for the second run of a command whose output is data (the version
+// of the compiler, the flags of pkg-config), after the first run exited but its output was not
+// complete in time: that output can't be used, so the run is repeated and waited for longer.
+var retryWaitDelay = 30 * time.Second
+
+// errOutputOpen is runOutput's error for a compiler that exited with a success status, but
+// whose output was still open (a process that it started, or a slow machine) when waitDelay
+// ran out: the compile succeeded, and the output that comes with the error may be incomplete.
+// It is not a failure: callers that don't care about the difference use b.run or compileCached,
+// which don't return it.
+var errOutputOpen = errors.New("the compiler exited, but its output was not complete in time")
+
+// outputCut reports whether err, the result of cmd.Wait, says that the command exited with a
+// success status but its output was not complete when WaitDelay ran out (os/exec returns
+// ErrWaitDelay only for a command that otherwise succeeded).
+func outputCut(cmd *exec.Cmd, err error) bool {
+	return errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil && cmd.ProcessState.Success()
+}
+
 // runOutput is run, but it returns what the compiler printed when it
-// succeeds instead of writing it to Stderr.
+// succeeds instead of writing it to Stderr. When the compiler succeeded but
+// its output was cut short (see errOutputOpen), it returns what it got and errOutputOpen.
 func (b *Builder) runOutput(ctx context.Context, c CXX, what string, link bool, args []string) ([]byte, error) {
 	show := b.show(c, args)
 	b.trace(show)
@@ -429,7 +466,7 @@ func (b *Builder) runOutput(ctx context.Context, c CXX, what string, link bool, 
 		cmd.Stdout, cmd.Stderr = out, out
 		// A process that the compiler started and that keeps the output
 		// open must not make gocpp wait.
-		cmd.WaitDelay = time.Second
+		cmd.WaitDelay = waitDelay
 		InGroup(cmd)
 		return cmd
 	})
@@ -439,6 +476,9 @@ func (b *Builder) runOutput(ctx context.Context, c CXX, what string, link bool, 
 	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
+	}
+	if outputCut(cmd, err) {
+		return out.buf.Bytes(), errOutputOpen
 	}
 	if err != nil {
 		var exit *exec.ExitError

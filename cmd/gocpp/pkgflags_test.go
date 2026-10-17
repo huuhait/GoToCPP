@@ -69,7 +69,8 @@ func TestBuildPkgConfig(t *testing.T) {
 			t.Fatalf("gocpp run . = %+v, want exit 0 and the library's answer", r)
 		}
 		// -x shows the flags: the compile gets those of --cflags, and the
-		// link those of --libs, after the object files.
+		// link those of --libs, after the object files (the object cache is off in
+		// cmd/gocpp's tests: TestMain).
 		r := gocppRun("", false, "build", "-x", "-o", filepath.Join(dir, "prog"), ".")
 		if r.code != 0 {
 			t.Fatalf("gocpp build -x = %+v", r)
@@ -79,7 +80,7 @@ func TestBuildPkgConfig(t *testing.T) {
 		}
 		compile := regexp.MustCompile(`(?m)^.* -c -x c\+\+ \$WORK/[^ ]*\.cpp -o .*$`).FindString(r.stderr)
 		if !strings.Contains(compile, " "+inc+" ") || !strings.Contains(compile, " -DGPTESTLIB_ON ") {
-			t.Errorf("the compile of the generated C++ lacks the flags of pkg-config --cflags:\n%s", compile)
+			t.Errorf("the compile of the generated C++ lacks the flags of pkg-config --cflags:\n%s\nstderr:\n%s", compile, r.stderr)
 		}
 		link := regexp.MustCompile(`(?m)^.* \$WORK/[^ ]*\.o .* -o \$WORK/[^ ]*$`).FindString(r.stderr)
 		if !regexp.MustCompile(`\.o ` + regexp.QuoteMeta(lib) + ` -lgptestlib -o `).MatchString(link) {

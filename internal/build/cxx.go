@@ -222,7 +222,8 @@ func lookCommand(ctx context.Context, prog string, args []string, c bool) (CXX, 
 	return lookPath(ctx, path, slices.Clone(args), c)
 }
 
-// detectTimeout limits each run of the compiler in LookCXX, also when ctx
+// detectTimeout limits each run of the compiler in LookCXX (plus the wait for its output: a run
+// that is repeated, see runDetect, has its own), also when ctx
 // has no deadline: a compiler that hangs must not hang gocpp.
 const detectTimeout = 30 * time.Second
 
@@ -342,25 +343,39 @@ func detect(ctx context.Context, c CXX) (CXX, error) {
 // in every locale and nothing writes files. show is the compiler for
 // messages.
 func runDetect(ctx context.Context, c CXX, show string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, detectTimeout)
-	defer cancel()
-	stdout := &limitBuffer{max: maxDetectOutput}
-	stderr := &limitBuffer{max: maxDetectOutput}
-	cmd, err := Start(ctx, func() *exec.Cmd {
-		cmd := c.Command(ctx, args...)
-		cmd.Stdout, cmd.Stderr = stdout, stderr
-		// If a process that the compiler started keeps stdout open, stop
-		// waiting for it soon after the compiler exits.
-		cmd.WaitDelay = time.Second
-		return cmd
-	})
-	if err == nil {
-		err = cmd.Wait()
+	var stdout, stderr *limitBuffer
+	var cmd *exec.Cmd
+	var err error
+	var actx context.Context // the context of the last run: its timeout is per run
+	// The output is data. When the compiler exited with a success status, but its output was
+	// not complete in time (a loaded machine), it can't be used: run it again, and wait longer.
+	for _, delay := range []time.Duration{waitDelay, retryWaitDelay} {
+		stdout = &limitBuffer{max: maxDetectOutput}
+		stderr = &limitBuffer{max: maxDetectOutput}
+		var cancel context.CancelFunc
+		actx, cancel = context.WithTimeout(ctx, detectTimeout+delay)
+		defer cancel()
+		cmd, err = Start(actx, func() *exec.Cmd {
+			cmd := c.Command(actx, args...)
+			cmd.Stdout, cmd.Stderr = stdout, stderr
+			// If a process that the compiler started keeps stdout open, stop
+			// waiting for it soon after the compiler exits.
+			cmd.WaitDelay = delay
+			InGroup(cmd) // a process that it left running is killed below, and with the time limit
+			return cmd
+		})
+		if err == nil {
+			err = cmd.Wait()
+			KillGroup(cmd) // whatever it left running (a process that held the output)
+		}
+		if !outputCut(cmd, err) {
+			break
+		}
 	}
 	what := strings.Join(args, " ")
 	switch {
-	case ctx.Err() != nil:
-		return nil, fmt.Errorf("the %s %s: %s: %w", c.kind(), show, what, ctx.Err())
+	case actx.Err() != nil:
+		return nil, fmt.Errorf("the %s %s: %s: %w", c.kind(), show, what, actx.Err())
 	case err != nil:
 		if msg := firstLine(stderr.buf.Bytes()); msg != "" {
 			return nil, fmt.Errorf("the %s %s: %s failed: %v: %s", c.kind(), show, what, err, msg)

@@ -115,7 +115,7 @@ func (p *pch) build(ctx context.Context) {
 	// header is changed in place later.
 	args := slices.Concat(p.b.pchFlags(), []string{"-I", filepath.Join(p.rtDir, "include"), "-c", "-x", "c++-header", p.header, "-o", out, "-MD", "-MF", depfile})
 	start := time.Now()
-	if _, err := p.b.runOutput(ctx, p.b.CXX, "the precompiled header", false, args); err != nil {
+	if _, err := p.b.runOutput(ctx, p.b.CXX, "the precompiled header", false, args); err != nil && !errors.Is(err, errOutputOpen) {
 		return
 	}
 	if !p.saveDeps(depfile, list, start) {

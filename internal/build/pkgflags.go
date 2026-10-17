@@ -156,7 +156,7 @@ type PkgConfigFunc func(ctx context.Context, dir string, pkgs []string) (cflags,
 // ReadPackageFlags reports that the flags are pending, not an error.
 var ErrPending = errors.New("not known yet")
 
-// pkgConfigTimeout limits one run of pkg-config.
+// pkgConfigTimeout limits one run of pkg-config (plus the wait for its output, see waitDelay).
 const pkgConfigTimeout = time.Minute
 
 // maxPkgConfigOutput limits what is read of pkg-config's output.
@@ -208,8 +208,6 @@ func pkgConfig(ctx context.Context, dir string, pkgs []string, trace func(string
 // --libs) for pkgs in dir, and returns the flags of its output. The
 // messages show the command as it runs, with prog as PKG_CONFIG gives it.
 func runPkgConfig(ctx context.Context, dir, prog, mode string, pkgs []string, trace func(string)) ([]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, pkgConfigTimeout)
-	defer cancel()
 	args := append([]string{mode, "--"}, pkgs...)
 	words := make([]string, 0, 1+len(args))
 	for _, w := range append([]string{prog}, args...) {
@@ -220,21 +218,38 @@ func runPkgConfig(ctx context.Context, dir, prog, mode string, pkgs []string, tr
 		trace("cd " + quoteWord(dir))
 		trace(desc)
 	}
-	stdout := &limitBuffer{max: maxPkgConfigOutput}
-	stderr := &limitBuffer{max: maxPkgConfigOutput}
-	cmd, err := Start(ctx, func() *exec.Cmd {
-		cmd := exec.CommandContext(ctx, prog, args...)
-		cmd.Dir = dir
-		cmd.Stdout, cmd.Stderr = stdout, stderr
-		cmd.WaitDelay = time.Second
-		return cmd
-	})
-	if err == nil {
-		err = cmd.Wait()
+	var stdout, stderr *limitBuffer
+	var cmd *exec.Cmd
+	var err error
+	var rctx context.Context // the context of the last run: its timeout is per run
+	// The output is data: the flags. When pkg-config exited with a success status, but its
+	// output was not complete in time (a loaded machine), it can't be used: run it again, and
+	// wait longer.
+	for _, delay := range []time.Duration{waitDelay, retryWaitDelay} {
+		stdout = &limitBuffer{max: maxPkgConfigOutput}
+		stderr = &limitBuffer{max: maxPkgConfigOutput}
+		var cancel context.CancelFunc
+		rctx, cancel = context.WithTimeout(ctx, pkgConfigTimeout+delay)
+		defer cancel()
+		cmd, err = Start(rctx, func() *exec.Cmd {
+			cmd := exec.CommandContext(rctx, prog, args...)
+			cmd.Dir = dir
+			cmd.Stdout, cmd.Stderr = stdout, stderr
+			cmd.WaitDelay = delay
+			InGroup(cmd) // a process that it left running is killed below, and with the time limit
+			return cmd
+		})
+		if err == nil {
+			err = cmd.Wait()
+			KillGroup(cmd) // whatever it left running (a process that held the output)
+		}
+		if !outputCut(cmd, err) {
+			break
+		}
 	}
 	switch {
-	case ctx.Err() != nil:
-		return nil, fmt.Errorf("%s: %w", desc, context.Cause(ctx))
+	case rctx.Err() != nil:
+		return nil, fmt.Errorf("%s: %w", desc, context.Cause(rctx))
 	case err != nil && cmd.ProcessState == nil:
 		return nil, fmt.Errorf("cannot run %s: %v", prog, err)
 	case err != nil:

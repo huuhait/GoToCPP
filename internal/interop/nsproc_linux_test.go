@@ -112,11 +112,30 @@ func TestProbeKillsTheProcessGroup(t *testing.T) {
 	}
 }
 
+// slowFlags returns the flags that make the compiler (of the family of cxx) spend a long time,
+// whatever the load is, on the probe file: they include a header with a constant evaluation of
+// a billion steps (the limits are raised so that the compiler doesn't give up early). The test
+// that uses them cancels the probe; nothing waits for the evaluation to end.
+func slowFlags(t *testing.T, cxx build.CXX, dir string) []string {
+	t.Helper()
+	slow := filepath.Join(dir, "slow.h")
+	src := "constexpr long gp_slow(long n) { long s = 0; for (long i = 0; i < n; i++) s += i % 7; return s; }\n" +
+		"static_assert(gp_slow(1000000000L) > 0);\n"
+	if err := os.WriteFile(slow, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	limits := []string{"-fconstexpr-steps=2000000000"}
+	if cxx.Family == build.GCC {
+		limits = []string{"-fconstexpr-ops-limit=2000000000", "-fconstexpr-loop-limit=2000000000"}
+	}
+	return append([]string{"-include", slow}, limits...)
+}
+
 func TestProbeCancelStopsTheCompiler(t *testing.T) {
 	// A canceled probe returns at once, and no process of the compiler
-	// (g++ runs cc1plus as a child) goes on with the probe file.
-	heavy := []string{"<vector>", "<filesystem>", "<regex>", "<ranges>", "<format>", "<chrono>", "<iostream>",
-		"<map>", "<unordered_map>", "<algorithm>", "<future>", "<random>", "<variant>", "<complex>", "<valarray>"}
+	// (g++ runs cc1plus as a child) goes on with the probe file. The compiler is busy
+	// with a slow constant evaluation (slowFlags), so that it can't finish before the
+	// cancel however slowly the test polls /proc.
 	forEachCompiler(t, func(t *testing.T, cxx build.CXX) {
 		dir := t.TempDir()
 		tmp := t.TempDir()
@@ -124,8 +143,9 @@ func TestProbeCancelStopsTheCompiler(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		done := make(chan error, 1)
+		flags := slowFlags(t, cxx, dir)
 		go func() {
-			_, err := newCache().probe(ctx, cxx, dir, nil, heavy, []string{"std"})
+			_, err := newCache().probe(ctx, cxx, dir, flags, []string{"<vector>"}, []string{"std"})
 			done <- err
 		}()
 		// Wait until the compiler works on the probe file (for g++, until
@@ -135,10 +155,24 @@ func TestProbeCancelStopsTheCompiler(t *testing.T) {
 		if cxx.Family == build.GCC {
 			want = 2
 		}
-		if !waitFor(5*time.Second, func() bool { return len(processesWith(probeFile)) >= want }) {
+		var scan time.Duration // how long one look at /proc takes: the load
+		running := waitFor(60*time.Second, func() bool {
+			select {
+			case err := <-done:
+				t.Fatalf("the probe ended before it was canceled: %v", err)
+			default:
+			}
+			start := time.Now()
+			n := len(processesWith(probeFile))
+			scan = time.Since(start)
+			return n >= want
+		})
+		if !running {
 			t.Fatalf("the compiler didn't start on the probe file: processes %v", processesWith(probeFile))
 		}
-		time.Sleep(50 * time.Millisecond)
+		// The budget is the time that the kill needs when the machine is idle, 200 ms, or
+		// many times what a look at /proc takes now.
+		budget := max(200*time.Millisecond, 20*scan)
 		start := time.Now()
 		cancel()
 		select {
@@ -146,10 +180,10 @@ func TestProbeCancelStopsTheCompiler(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "context canceled") {
 				t.Errorf("canceled probe: %v, want a context error", err)
 			}
-			if d := time.Since(start); d > 200*time.Millisecond {
-				t.Errorf("the canceled probe returned after %v, want at most 200ms", d)
+			if d := time.Since(start); d > budget {
+				t.Errorf("the canceled probe returned after %v, want at most %v (a look at /proc takes %v)", d, budget, scan)
 			}
-		case <-time.After(10 * time.Second):
+		case <-time.After(30 * time.Second):
 			t.Fatal("the canceled probe didn't return")
 		}
 		if pids := processesWith(probeFile); len(pids) > 0 {

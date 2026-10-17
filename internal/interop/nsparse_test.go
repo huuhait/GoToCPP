@@ -734,7 +734,7 @@ func TestProbeFakeCompilers(t *testing.T) {
 		{"driver error", `echo "fake++: error: unrecognized command-line option '-Qunused-arguments'" >&2; exit 1`,
 			"kind probe: fake++: unexpected error: fake++: error: unrecognized command-line option '-Qunused-arguments'"},
 		{"too much output", `printf '%9000000s\n' x`, "kind probe: fake++ printed more than 8 MiB"},
-		{"crash", `kill -SEGV $$`, "kind probe: fake++: signal: segmentation fault"},
+		{"crash", crashBody(), "kind probe: fake++: signal: segmentation fault"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			cxx := fakeCompiler(t, build.GCC, c.body)
@@ -751,16 +751,19 @@ func TestProbeFakeCompilers(t *testing.T) {
 
 func TestProbeOutputLimitStops(t *testing.T) {
 	// A compiler that prints forever is stopped when its output passes the
-	// limit, not at the time limit.
-	cxx := fakeCompiler(t, build.GCC, `while :; do printf '%1000s\n' x; done`)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// limit, not at the time limit. A shell loop is slow under load (and with -race):
+	// yes(1) prints as fast as the pipe takes it, and the time limit is long, so
+	// that "stopped by the limit" is told by the error, not by the clock.
+	const long = `exec yes "$(printf '%1000s' x)"`
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
+	cxx := fakeCompiler(t, build.GCC, long)
 	start := time.Now()
 	_, err := newCache().probe(ctx, cxx, t.TempDir(), nil, []string{"<vector>"}, []string{"std"})
 	if err == nil || !strings.Contains(err.Error(), "printed more than 8 MiB") {
 		t.Errorf("probe = %v, want an output limit error", err)
 	}
-	if d := time.Since(start); d > 25*time.Second { // well before the 30 s of ctx, also with -race
+	if d := time.Since(start); d > time.Minute { // well before the 2 minutes of ctx
 		t.Errorf("the probe took %v", d)
 	}
 
@@ -768,7 +771,7 @@ func TestProbeOutputLimitStops(t *testing.T) {
 	// result (the candidates are Unknown then anyway).
 	cxx = fakeCompiler(t, build.GCC, `for a in "$@"; do f=$a; done
 echo "$f:1:10: fatal error: x.h: No such file or directory"
-while :; do printf '%1000s\n' x; done`)
+`+long)
 	res, err := newCache().probe(ctx, cxx, t.TempDir(), nil, []string{"<x.h>"}, []string{"std"})
 	want := []IncludeError{{Index: 0, Include: "<x.h>", Kind: HeaderNotFound, Msg: "x.h: No such file or directory"}}
 	if err != nil || !reflect.DeepEqual(res.IncludeErrors, want) || res.Kinds["std"] != Unknown {
@@ -940,7 +943,7 @@ func TestMacroProbeFakeCompilers(t *testing.T) {
 		{"not a macro list", "echo 'int x;'", `macro probe: fake++: unexpected line in the macro list: "int x;"`},
 		{"failed", `echo "gp_macros.cpp:1:10: fatal error: x.h: No such file or directory" >&2; exit 1`,
 			"macro probe: fake++ failed (exit status 1); its output: gp_macros.cpp:1:10: fatal error: x.h: No such file or directory"},
-		{"crash", `kill -SEGV $$`, "macro probe: fake++: signal: segmentation fault"},
+		{"crash", crashBody(), "macro probe: fake++: signal: segmentation fault"},
 		{"too many macros", `head -c 70000000 /dev/zero`, "macro probe: fake++ printed more than 64 MiB of macros"},
 		{"too many messages", `printf '%9000000s\n' x >&2`, "macro probe: fake++ printed more than 8 MiB of messages"},
 		{"no dependency file", "echo '#define A 1'", "macro probe: fake++ wrote no dependency file"},

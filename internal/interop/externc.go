@@ -191,6 +191,9 @@ func (c *cache) checkCHeader(ctx context.Context, cc build.CXX, dir string, flag
 // error can't change the answer when it appears.
 //
 // missing is true when a header wasn't found.
+//
+// Known limit: the first run fails by design, and a compiler that exits with an error status
+// hides a cut output (see runCompiler), so a cut output could misclassify the failure.
 func runCHeaderCheck(ctx context.Context, cc build.CXX, dir string, flags []string, include string) (ok bool, deps []string, depsOK, missing bool, start time.Time, err error) {
 	tmp, err := probeTemp()
 	if err != nil {

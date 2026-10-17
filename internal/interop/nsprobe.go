@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -407,8 +406,15 @@ const probeTimeout = time.Minute
 const maxProbeOutput = 8 << 20
 
 // waitDelay is how long a probe waits for the compiler's output after the
-// compiler exited or was stopped.
-const waitDelay = 2 * time.Second
+// compiler exited or was stopped. A loaded machine can need seconds to copy
+// the output of a compiler that has exited.
+var waitDelay = 5 * time.Second
+
+// retryWaitDelay is waitDelay for the second run of a probe whose compiler
+// exited with a success status, but whose output was not complete in time:
+// the output is data (macros, kinds, dependencies), so an incomplete read is
+// not used, and the probe runs again, waiting longer.
+var retryWaitDelay = 30 * time.Second
 
 // checkInclude reports what is wrong with the include text inc, if
 // anything. The text goes into the probe file as is, so it must be one
@@ -865,7 +871,8 @@ func runProbe(ctx context.Context, cxx build.CXX, dir string, flags, includes []
 	}
 }
 
-// runProbeOnce runs the probe once (see runProbe).
+// runProbeOnce runs the probe once (see runProbe). A probe with include errors is a compiler
+// that fails by design; if its output was cut it is not noticed (see runCompiler's known limit).
 func runProbeOnce(ctx context.Context, cxx build.CXX, dir string, flags, includes []string, paths [][]string, kinds bool) (*probeRun, error) {
 	tmp, err := probeTemp()
 	if err != nil {
@@ -946,22 +953,43 @@ func probeTemp() (string, error) {
 // runCompiler runs the compiler cxx with args in the folder dir, with the
 // temporary folder tmp, and waits for it and for its output. It runs in a
 // process group of its own, and whatever the compiler left running is
-// killed. The error is cmd.Wait's.
-func runCompiler(ctx context.Context, cxx build.CXX, dir, tmp string, args []string, stdout, stderr io.Writer) (*exec.Cmd, error) {
-	// build.Start starts it again after ETXTBSY (a compiler wrapper that
-	// was just written).
-	cmd, err := build.Start(ctx, func() *exec.Cmd {
-		cmd := cxx.Command(ctx, args...) // with the compiler's own Args (CXX="ccache g++")
-		cmd.Dir = dir
-		cmd.Env = probeEnv(tmp, dir)
-		cmd.Stdout, cmd.Stderr = stdout, stderr
-		cmd.WaitDelay = waitDelay
-		build.InGroup(cmd)
-		return cmd
-	})
-	if err == nil {
-		err = cmd.Wait()
-		build.KillGroup(cmd) // whatever the compiler left running
+// killed. The error is cmd.Wait's. When the compiler exited with a success
+// status, but its output was not complete in time (os/exec: ErrWaitDelay, a
+// loaded machine, or a process that kept the output open), the output is not
+// used: stdout and stderr are emptied and the compiler runs once more, with
+// a longer delay.
+//
+// Known limit: os/exec returns ErrWaitDelay only for a command that otherwise
+// succeeded. A compiler that exits with an error status (the kind probe's
+// intended failing run, the parse-as-C check) gives the ExitError even when its
+// output was cut, so that case is not detected and not retried (the TODO has
+// the fix: own the pipe). The retry shares the caller's time limit
+// (probeTimeout): a first run that took most of it leaves the second the rest,
+// and a probe that runs out of time is "was stopped" like any other.
+func runCompiler(ctx context.Context, cxx build.CXX, dir, tmp string, args []string, stdout, stderr *capBuffer) (*exec.Cmd, error) {
+	var cmd *exec.Cmd
+	var err error
+	for _, delay := range []time.Duration{waitDelay, retryWaitDelay} {
+		stdout.reset()
+		stderr.reset()
+		// build.Start starts it again after ETXTBSY (a compiler wrapper that
+		// was just written).
+		cmd, err = build.Start(ctx, func() *exec.Cmd {
+			cmd := cxx.Command(ctx, args...) // with the compiler's own Args (CXX="ccache g++")
+			cmd.Dir = dir
+			cmd.Env = probeEnv(tmp, dir)
+			cmd.Stdout, cmd.Stderr = stdout, stderr
+			cmd.WaitDelay = delay
+			build.InGroup(cmd)
+			return cmd
+		})
+		if err == nil {
+			err = cmd.Wait()
+			build.KillGroup(cmd) // whatever the compiler left running
+		}
+		if !errors.Is(err, exec.ErrWaitDelay) || cmd.ProcessState == nil || !cmd.ProcessState.Success() {
+			break
+		}
 	}
 	return cmd, err
 }
@@ -976,6 +1004,7 @@ func runFailure(ctx context.Context, name string, cmd *exec.Cmd, err error, out 
 	case cmd.ProcessState == nil:
 		return fmt.Errorf("%s didn't start: %w", name, err)
 	case errors.Is(err, exec.ErrWaitDelay):
+		// Also after the second run (runCompiler), with the longer delay.
 		return fmt.Errorf("%s exited, but a process that it started kept its output open", name)
 	case !cmd.ProcessState.Exited():
 		return fmt.Errorf("%s: %v%s", name, cmd.ProcessState, outputExcerpt(out))
@@ -1009,6 +1038,12 @@ type capBuffer struct {
 	max  int
 	full bool
 	stop func()
+}
+
+// reset empties the buffer for a new run.
+func (b *capBuffer) reset() {
+	b.buf.Reset()
+	b.full = false
 }
 
 func (b *capBuffer) Write(p []byte) (int, error) {

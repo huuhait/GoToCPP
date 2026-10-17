@@ -195,6 +195,18 @@ func objCacheMax() int64 {
 // adds the precompiled header); extraDeps, if not nil, returns the file that lists what the
 // precompiled header it used was made from (pch.go), or "".
 func (b *Builder) compileCached(ctx context.Context, c CXX, src, obj string, args []string, run func(args []string) ([]byte, error), extraDeps func() string) ([]byte, error) {
+	// A compile that succeeded but whose output may be incomplete (errOutputOpen) is a success
+	// for the caller, but it is not stored: the silence that makes it cacheable is not certain.
+	outputOpen := false
+	run0 := run
+	run = func(args []string) ([]byte, error) {
+		out, err := run0(args)
+		if errors.Is(err, errOutputOpen) {
+			outputOpen = true
+			err = nil
+		}
+		return out, err
+	}
 	oc := b.objects()
 	if oc == nil {
 		if b.KeepWork && b.Cache != "" && !objCacheOff() {
@@ -240,9 +252,13 @@ func (b *Builder) compileCached(ctx context.Context, c CXX, src, obj string, arg
 	}
 	start := time.Now()
 	out, err := run(slices.Concat(args, flags))
-	if err != nil || len(out) > 0 || ctx.Err() != nil {
-		if err == nil && len(out) > 0 {
+	if err != nil || len(out) > 0 || outputOpen || ctx.Err() != nil {
+		switch {
+		case err != nil:
+		case len(out) > 0:
 			b.notCached("the compiler printed something (a warning must not vanish)")
+		case outputOpen:
+			b.notCached("the compiler's output may be incomplete (it was still open after the compiler exited)")
 		}
 		return out, err
 	}

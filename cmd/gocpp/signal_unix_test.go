@@ -33,6 +33,28 @@ int main() {
 }
 `
 
+// crashMain is a C++ main function that says it runs and then raises the signal @SIG@. It must
+// not leave a core dump: with a core_pattern that pipes to systemd-coredump, RLIMIT_CORE 0 does
+// not stop the dump (the kernel starts the handler anyway), and under load a handler that has
+// many crashes to log holds the dying process for minutes. PR_SET_DUMPABLE 0 does stop it.
+const crashMain = `#include <csignal>
+#include <cstdio>
+#include <sys/resource.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
+int main() {
+    rlimit no{0, 0};
+    setrlimit(RLIMIT_CORE, &no);
+#ifdef __linux__
+    prctl(PR_SET_DUMPABLE, 0);
+#endif
+    std::puts("ready");
+    std::fflush(stdout);
+    std::raise(@SIG@);
+}
+`
+
 // startGocpp starts the test binary as gocpp with args in the folder dir,
 // with the extra environment env and a new TMPDIR, which it returns. The
 // process is killed at the end of the test.
@@ -61,7 +83,20 @@ func startArgv(t *testing.T, dir string, env []string, argv []string) (cmd *exec
 	}
 	t.Cleanup(func() {
 		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		cmd.Wait()
+		cmd.Process.Kill()
+		// A child that can't die (it is held by the kernel while a core dump handler
+		// works on it) must not block the test binary for good: the test's timeout would
+		// then be the only end of it.
+		done := make(chan struct{})
+		go func() {
+			cmd.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(time.Minute):
+			t.Logf("gocpp (pid %d) did not die within a minute of SIGKILL", cmd.Process.Pid)
+		}
 	})
 	return cmd, bufio.NewReader(pipe), stderr, tmp
 }
@@ -114,7 +149,7 @@ func TestDiesLikeTheProgram(t *testing.T) {
 	for _, sig := range []syscall.Signal{syscall.SIGPIPE, syscall.SIGSEGV, syscall.SIGABRT, syscall.SIGINT, syscall.SIGKILL} {
 		t.Run(sig.String(), func(t *testing.T) {
 			main := filepath.Join(dir, "main.cpp")
-			src := "#include <csignal>\n#include <cstdio>\n#include <sys/resource.h>\nint main() { rlimit no{0, 0}; setrlimit(RLIMIT_CORE, &no); std::puts(\"ready\"); std::fflush(stdout); std::raise(" + strconv.Itoa(int(sig)) + "); }\n"
+			src := strings.Replace(crashMain, "@SIG@", strconv.Itoa(int(sig)), 1)
 			if err := os.WriteFile(main, []byte(src), 0o644); err != nil {
 				t.Fatal(err)
 			}
