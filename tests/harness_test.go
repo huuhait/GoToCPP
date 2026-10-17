@@ -430,6 +430,15 @@ func TestExamples(t *testing.T) {
 	c.runPrograms(t, "examples", progs, c.exampleTest)
 }
 
+// file returns the name of the program's .gp file as the compiler prints it:
+// main.gp for a folder run as ".".
+func (p *program) file() string {
+	if p.arg == "." {
+		return "main.gp"
+	}
+	return p.arg
+}
+
 // A program is one test that the harness found.
 type program struct {
 	name string // the subtest name: the file name without .gp, or the example's folder
@@ -446,7 +455,8 @@ type program struct {
 }
 
 // loadTests reads the tests in tests/<kind>: each .gp file directly in the
-// folder is one test.
+// folder is one test. An interop test can also be a folder with a main.gp
+// file (a package with its own .h, .c and .cpp files, run as gocpp run .).
 func loadTests(t *testing.T, f format) []*program {
 	t.Helper()
 	dir := filepath.Join(repoRoot, "tests", f.kind)
@@ -455,9 +465,25 @@ func loadTests(t *testing.T, f format) []*program {
 		t.Fatal(err)
 	}
 	progs := make([]*program, 0, len(names))
+	type candidate struct{ name, path, dir, arg, file string }
+	var cands []candidate
 	for _, name := range names {
-		p := &program{name: strings.TrimSuffix(name, ".gp"), path: "tests/" + f.kind + "/" + name, dir: dir, arg: name}
-		src, err := os.ReadFile(filepath.Join(dir, name))
+		cands = append(cands, candidate{strings.TrimSuffix(name, ".gp"), "tests/" + f.kind + "/" + name, dir, name, name})
+	}
+	if f.kind == "interop" {
+		folders, err := listExamples(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, d := range folders {
+			trackFiles(filepath.Join(dir, d))
+			cands = append(cands, candidate{d, "tests/interop/" + d + "/main.gp", filepath.Join(dir, d), ".", "main.gp"})
+		}
+	}
+	for _, c := range cands {
+		name := c.file
+		p := &program{name: c.name, path: c.path, dir: c.dir, arg: c.arg}
+		src, err := os.ReadFile(filepath.Join(c.dir, name))
 		pf := f
 		if err == nil && f.kind == "interop" {
 			// An interop test with // ERROR comments is an error test of
@@ -476,7 +502,7 @@ func loadTests(t *testing.T, f format) []*program {
 			p.wants, err = parseErrors(p.path, src)
 		}
 		if err == nil && f.kind == "debug" {
-			p.debug, err = parseDebug(p.path, filepath.Join(dir, name), src)
+			p.debug, err = parseDebug(p.path, filepath.Join(c.dir, name), src)
 		}
 		p.err = err
 		progs = append(progs, p)
@@ -713,7 +739,7 @@ func (c *config) interopErrorsTest(t *testing.T, p *program) {
 		// gocpp's count of the errors it leaves out ("(and 2 more errors
 		// in gocpp's code: ...)") is no error.
 		other = slices.DeleteFunc(other, othersLineRx.MatchString)
-		problems := matchErrors(p.arg, p.wants, diags, other)
+		problems := matchErrors(p.file(), p.wants, diags, other)
 		if r.exit != 1 {
 			problems = append([]string{fmt.Sprintf("%s, want exit code 1", r.status)}, problems...)
 		}

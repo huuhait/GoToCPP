@@ -37,6 +37,17 @@ func main() {
 The `// pkg-config:` line is only for the harness. To build with the library, the program
 needs its own `//gocpp:pkg-config` directive.
 
+A test can also be a **folder** with a `main.gp` file: a package with its own `.h`, `.c` and
+`.cpp` files, which the harness runs (or, for an error test, builds) as `gocpp run .` in that
+folder, so the folder's C and C++ files are compiled and linked. [helper_pair/](helper_pair) is a
+`.hpp` + `.cpp` helper, [helper_c_pair/](helper_c_pair) a `.h` + `.c` helper, and
+[helper_pair_error/](helper_pair_error) an error test. [helper_h_cpp_pair/](helper_h_cpp_pair),
+[helper_h_cpp_guards/](helper_h_cpp_guards) and [helper_h_cpp_error/](helper_h_cpp_error) are the
+`.h` + `.cpp` pair with its two fixes and the hint for the trap, and
+[helper_sources/](helper_sources) covers the header extensions, names and which source files are
+built. The `// phase:`, `// Output:` and `// ERROR`
+lines are those of `main.gp`; the other files of the folder are not tests.
+
 A header that a test includes from this folder (`"./helper.h"`) lives next to it; files that
 are not `.gp` files are not tests. Libraries such as SDL can write to stderr; say so with a
 `// Stderr:` line, because without one stderr must be empty.

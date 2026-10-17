@@ -1011,3 +1011,12 @@ func TestCheckJob(t *testing.T) {
 		t.Errorf("checkJob shows %q, want %q", j.show, want)
 	}
 }
+
+func TestProgramFile(t *testing.T) {
+	// A folder test is run as ".", and the compiler prints its file as main.gp.
+	for arg, want := range map[string]string{"x.gp": "x.gp", ".": "main.gp"} {
+		if got := (&program{arg: arg}).file(); got != want {
+			t.Errorf("arg %q: file() = %q, want %q", arg, got, want)
+		}
+	}
+}

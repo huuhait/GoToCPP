@@ -412,6 +412,61 @@ func TestCppLinkErrors(t *testing.T) {
 	})
 }
 
+// TestExternCClashHints checks the hint for a .h header that gocpp wraps in
+// extern "C" while a C++ file of the package may include it as C++ (step
+// 4.16): it is printed only when an undefined symbol appears in that file.
+func TestExternCClashHints(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"helpers.cpp":   "#include \"helpers.h\"\nint add(int a, int b) { return a + b; }\n",
+		"impl.cpp":      "  # include \"sub/other.h\"\nint other_f() { return 1; }\n",
+		"unrelated.cpp": "#include <vector>\n// #include \"helpers.h\" is only a comment\n",
+		"deep.cpp":      "#include \"lib.h\"\nint add() { return 0; }\n", // sub/lib.h is not lib.h
+		"lib.cpp":       "extern \"C\" {\n#include \"lib.h\"\n}\nint have(int x) { return x; }\n",
+		"lib2.cpp":      "#include \"lib2.h\"\nint have2(int x) { return x; }\n",
+		"ns.cpp":        "#include \"ns.h\"\nnamespace n { int f(int x) { return x; } }\n",
+	})
+	hint := func(h, f string) string {
+		return `(` + h + ` parses as C, so gocpp includes it in extern "C" for the generated code; if ` + f +
+			` includes it outside extern "C", what ` + f + ` defines has C++ linkage and the calls don't find it: add //gocpp:no-extern-c ` + h +
+			`, or #ifdef __cplusplus extern "C" guards to the header)`
+	}
+	all := []string{"helpers.cpp", "impl.cpp", "unrelated.cpp", "deep.cpp", "lib.cpp", "lib2.cpp", "ns.cpp"}
+	for _, tt := range []struct {
+		name      string
+		externC   map[string]bool
+		files     []string
+		undefined []string
+		want      []string
+	}{
+		{"the pair: add is defined in helpers.cpp", map[string]bool{`"./helpers.h"`: true}, all, []string{"add"}, []string{hint("./helpers.h", "helpers.cpp")}},
+		{"a mangled symbol", map[string]bool{`"./helpers.h"`: true}, all, []string{"add(int, int)"}, []string{hint("./helpers.h", "helpers.cpp")}},
+		{"a qualified symbol", map[string]bool{`"./ns.h"`: true}, all, []string{"n::f(int)"}, []string{hint("./ns.h", "ns.cpp")}},
+		{"a quoted include in a sub-folder", map[string]bool{`"./sub/other.h"`: true}, all, []string{"other_f"}, []string{hint("./sub/other.h", "impl.cpp")}},
+		// The reviewer's repro: lib.cpp wraps its include and defines only
+		// have; the forgotten function is missing, which lib.cpp doesn't
+		// mention.
+		{"include inside extern C, other function missing", map[string]bool{`"./lib.h"`: true}, all, []string{"missing"}, nil},
+		{"include inside extern C, own function undefined", map[string]bool{`"./lib.h"`: true}, all, []string{"have"}, nil},
+		{"the undefined symbol is not in the file", map[string]bool{`"./lib2.h"`: true}, all, []string{"missing"}, nil},
+		{"a header of another folder is not the include", map[string]bool{`"./sub/lib.h"`: true}, []string{"deep.cpp"}, []string{"add"}, nil},
+		{"a comment is no include", map[string]bool{`"./helpers.h"`: true}, []string{"unrelated.cpp"}, []string{"add"}, nil},
+		{"not wrapped", map[string]bool{`"./helpers.h"`: false, "<lua.h>": true}, all, []string{"add"}, nil},
+		{"no C++ file", map[string]bool{`"./helpers.h"`: true}, nil, []string{"add"}, nil},
+		{"no undefined symbol", map[string]bool{`"./helpers.h"`: true}, all, nil, nil},
+	} {
+		if got := externCClashHints(dir, tt.externC, tt.files, tt.undefined); !slices.Equal(got, tt.want) {
+			t.Errorf("%s:\n got %q\nwant %q", tt.name, got, tt.want)
+		}
+	}
+	// A file with the stem of the header counts without an #include (it may
+	// reach the header through another one).
+	writeFiles(t, dir, map[string]string{"stem.cpp": "int stem_f() { return 1; }\n"})
+	if got := externCClashHints(dir, map[string]bool{`"./stem.h"`: true}, []string{"stem.cpp"}, []string{"stem_f"}); len(got) != 1 {
+		t.Errorf("same stem: got %q, want one hint", got)
+	}
+}
+
 // TestEmitFailedPrefix checks that an internal error of the lowering whose
 // message starts with "internal error: " gets the prefix once.
 func TestEmitFailedPrefix(t *testing.T) {

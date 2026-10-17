@@ -1384,13 +1384,125 @@ import "./mathx.h" // package mathx
 func main() { println(mathx.hypot3(1, 2, 2)) }
 ```
 
-- gocpp has **no inline C/C++ preamble** in v1. A helper goes into a header (and, if needed, a
-  `.cpp` file) in the package directory. That header is a package like any other, and the
-  `.cpp` file is compiled with the package.
+- gocpp has **no inline C/C++ preamble** in v1 (cgo's comment above `import "C"`). A helper goes
+  into a header (and, if needed, a `.c` or `.cpp` file) in the package directory. That header is
+  a package like any other, and the `.c`/`.cpp` file is compiled with the package.
 - This keeps one way of doing things, and the helper gets real editor support as a C++ file.
+- **Moving from a cgo preamble:** put the preamble's declarations in `helpers.h` and its
+  definitions in `helpers.c` (or `.cpp`), import `"./helpers.h"`, and call `helpers.f(...)`
+  instead of `C.f(...)`. `import "C"` and its preamble comment are an error that says so.
 - C macros that are statements (`do { ... } while (0)`) work as calls in statement position;
   other strange macros can be wrapped in such a helper header.
 - An inline preamble is on the backlog ([TODO](../../plans/2026-10-13-gocpp/TODO.md#ideas--backlog-not-scheduled)).
+
+**A header alone, or with a source file.** A header-only helper (`static inline` functions,
+templates, classes, constants, macros) needs nothing else. A helper whose functions are defined in
+a `.c` or `.cpp` file needs the folder to be built as a package: `gocpp run .` and `gocpp build .`
+compile the folder's C and C++ files, while `gocpp run main.gp` builds only that file, like `go
+run main.go`. So a declaration without a definition fails to link, and the error is at the `.gp`
+line that calls the function, with a hint
+([Errors in interop code](#errors-in-interop-code)).
+
+```cpp
+// ledger.hpp                       // ledger.cpp
+#pragma once                        #include "ledger.hpp"
+#include <string>                   std::string ledger::dollars(int cents) { /* ... */ }
+namespace ledger {
+std::string dollars(int cents);
+}
+```
+
+```go
+import "./ledger.hpp" // package ledger, and the C++ namespace ledger
+
+func main() { println(string(ledger.dollars(1050))) }
+```
+
+**Only the package folder's own files are built.** The `.c` and `.cpp` files directly in the
+package folder are compiled, and nothing in a sub-folder: `import "./sub/s.hpp"` finds the
+header, but `sub/s.cpp` is not built, so `undefined reference to 's_f()'`. Put the `.cpp` file
+next to the `.gp` files (it can `#include "sub/s.hpp"`), or keep everything in the header
+(`inline`). A header may have no `.cpp` of its own name (`api.hpp` defined by `impl.cpp`), and the
+file-name suffixes and `//go:build` lines of [C and C++ sources](#c-and-c-sources-in-a-package)
+decide which files are built (`plat_linux.cpp` yes, `plat_windows.cpp`, `_skip.cpp` and a
+`//go:build ignore` file no).
+
+**A `.h` header with a `.cpp` file: the `extern "C"` trap.** `.hpp`, `.hh`, `.hxx`, `.h++` and
+`.inl` headers are C++, and a `.hpp` + `.cpp` pair needs nothing more. But a `.h` header that
+parses as C is included in `extern "C"` for the generated code ([the rule](#flags-and-the-allow-list)),
+and your `.cpp` includes the same header as C++. So the `.cpp` defines `add` with C++ linkage,
+the calls from the generated code ask for C linkage, and the link fails:
+
+```text
+./main.gp:11: C++: undefined reference to 'add'
+	println(mathlib.add(1, 2))
+	(./mathlib.h parses as C, so gocpp includes it in extern "C" for the generated code; if mathlib.cpp includes it outside extern "C", ...: add //gocpp:no-extern-c ./mathlib.h, or #ifdef __cplusplus extern "C" guards to the header)
+```
+
+The hint is a possibility, and gocpp prints it only when an undefined function is named in a `.cpp`
+file that includes the header (or has its stem) and has no `extern "C"` of its own. A third fix
+is to include the header in the `.cpp` file inside `extern "C" { #include "mathlib.h" }`.
+
+There are two fixes in the header or the directive (`tests/interop/helper_h_cpp_pair` and `helper_h_cpp_guards` run both):
+
+```go
+//gocpp:no-extern-c ./mathlib.h // this .h file is C++: gocpp doesn't wrap it
+package main
+
+import "./mathlib.h"
+```
+
+```cpp
+// mathlib.h, the other way: the usual guards, which gocpp respects (a header with its own
+// __cplusplus is not wrapped) and which also let a C file include it
+#pragma once
+#ifdef __cplusplus
+extern "C" {
+#endif
+int add(int a, int b);
+#ifdef __cplusplus
+}
+#endif
+```
+
+Or name the header `.hpp` when only C++ uses it. A `.h` header with a `.c` file needs nothing.
+
+**What is found, and how.**
+- The package folder is on the quote include path (`-iquote`) for the generated code and for the
+  package's own `.c` and `.cpp` files alike, so the header can include other local headers
+  (`#include "units.h"`, `#include "inc/limits.h"`), and a file next to it can't hide a system
+  header such as `<vector>`. The same header text is seen by the generated code and by your
+  `.cpp`.
+- The header is a package named after the file (`mathx`, `ledger`), with the usual
+  [naming rules](#header-packages-and-their-names). **Name a helper header yourself** when its
+  default name is not usable: `main.h` next to `main.gp` has the name `main`, which the package
+  already declares (`main.mn` is then Go's `func main` and its error is a bare `undefined`:
+  write `import mh "./main.h"`), and `./3d.h` has no name at all (a Go name can't start with a
+  digit: `import d3 "./3d.h"`). A file name with `-` is fine (`my-lib.h` is `my_lib`). When it also declares a namespace of that
+  name, `ledger.book` is `::ledger::book` (the namespace first) and `ledger.ledger_total` is the
+  C-level `::ledger_total`.
+- A `.h` file that parses as C is wrapped in `extern "C"`, so a `.c` file defines what it
+  declares; a `.hpp` file is C++ ([the rule](#flags-and-the-allow-list)). Names and flags follow the
+  rest of this document.
+- Changing a helper header, or a header it includes, rebuilds the generated code that includes
+  it (the build cache keys on the headers' text).
+
+**An `inline` function is compiled twice.** gocpp compiles the generated code with `-fwrapv`
+(Go's wrapping integers), and your `.c` and `.cpp` files without it
+([Which flags](#c-and-c-sources-in-a-package)). A function that the header defines `inline` or
+`static inline` is compiled in each file that includes it. For `static inline` the copies are
+separate, so each file behaves as it was compiled. For an `inline` function with external linkage
+(a C++ `inline` function, a template) the linker keeps one copy of it for the whole program, and
+which one is not defined: the same function can wrap or not wrap on signed overflow depending on
+the link. Keep such code free of signed overflow (use `unsigned`), or define the function in the
+`.cpp` file.
+
+**`C.free` and `C.CString`.** A helper that keeps a string, or one that returns `malloc`ed
+memory, goes through these two: `p := C.CString(s)` copies a gocpp string into C's heap, and
+`C.free(p)` frees it, as it frees what a C helper returns (`C.GoString(q)` copies it into a
+`string` first). `C.free(nil)` does nothing, and `C.free` takes what C's `free` takes: the
+`char*` of `C.CString`, or the `void*` that `malloc` returns. A call that only reads the string
+needs no free: use `C.cstr(s)`. More in [Strings at the boundary](#strings-at-the-boundary).
 
 Source: [Phase 04 §2.10](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#210-small-cc-helpers-a-header-next-to-the-gp-file).
 

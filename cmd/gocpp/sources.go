@@ -3,7 +3,11 @@ package main
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/huuhait/gocpp/internal/build"
@@ -82,4 +86,80 @@ func (d *driver) shortenDir(pkg *check.Package, out string) string {
 		return out
 	}
 	return strings.ReplaceAll(out, dir, short)
+}
+
+// quotedIncludeRx matches a quoted #include line of a C or C++ file.
+var quotedIncludeRx = regexp.MustCompile(`(?m)^[ \t]*#[ \t]*include[ \t]*"([^"\n]+)"`)
+
+// externCClashHints returns the hints for a link error that may come from a
+// mismatch of linkage (step 4.16): gocpp wraps a local header in extern "C"
+// for the generated code (externC, check's Package.ExternC: the include texts
+// such as "./helpers.h"), and a C++ file of the package in dir includes the
+// same header as C++, so what that file defines has C++ linkage and the calls
+// from the generated code ask for C linkage. The hint, one per header, is
+// worded as a possibility and printed only when it can be the cause, and
+// conservatively (when unsure, no hint): an undefined symbol (undefined holds
+// the names of the link error, mangled or not) appears as a whole word in a
+// C++ file that has the stem of the header (helpers.cpp for helpers.h) or
+// #includes it, and the file has no extern "C" at all (a file that wraps the
+// include, or declares what it defines, is not the trap).
+func externCClashHints(dir string, externC map[string]bool, cxxFiles, undefined []string) []string {
+	var hdrs []string
+	for t, wrapped := range externC {
+		if h, err := strconv.Unquote(t); wrapped && err == nil && strings.HasPrefix(t, `"`) {
+			hdrs = append(hdrs, h)
+		}
+	}
+	slices.Sort(hdrs)
+	var syms []*regexp.Regexp
+	for _, u := range undefined {
+		if name := symbolIdent(u); name != "" {
+			syms = append(syms, regexp.MustCompile(`\b`+regexp.QuoteMeta(name)+`\b`))
+		}
+	}
+	var hints []string
+	for _, h := range hdrs {
+		stem := strings.TrimSuffix(path.Base(h), path.Ext(h))
+		for _, f := range cxxFiles {
+			text, err := os.ReadFile(filepath.Join(dir, f))
+			if err != nil || strings.Contains(string(text), `extern "C"`) {
+				continue
+			}
+			if !includesHeader(string(text), h) && strings.TrimSuffix(f, path.Ext(f)) != stem {
+				continue
+			}
+			if !slices.ContainsFunc(syms, func(rx *regexp.Regexp) bool { return rx.Match(text) }) {
+				continue
+			}
+			hints = append(hints, fmt.Sprintf("(%s parses as C, so gocpp includes it in extern \"C\" for the generated code; if %s includes it outside extern \"C\", what %[2]s defines has C++ linkage and the calls don't find it: add //gocpp:no-extern-c %[1]s, or #ifdef __cplusplus extern \"C\" guards to the header)", h, f))
+			break
+		}
+	}
+	return hints
+}
+
+// symbolIdent returns the name of the function in a linker symbol as the
+// source writes it: "ns::f(int, int)" gives f, and a C name is itself.
+func symbolIdent(sym string) string {
+	if i := strings.IndexByte(sym, '('); i >= 0 {
+		sym = sym[:i]
+	}
+	if i := strings.LastIndex(sym, "::"); i >= 0 {
+		sym = sym[i+2:]
+	}
+	return strings.TrimSpace(sym)
+}
+
+// includesHeader reports whether the C++ text has a quoted #include of the
+// header h (a path as the .gp file imports it, relative to the package
+// folder, which is also where the file is): the same cleaned path, or the
+// bare file name for a header in the package folder itself.
+func includesHeader(text, h string) bool {
+	for _, m := range quotedIncludeRx.FindAllStringSubmatch(text, -1) {
+		inc := path.Clean(m[1])
+		if inc == path.Clean(h) || (!strings.Contains(inc, "/") && path.Dir(path.Clean(h)) == "." && inc == path.Base(h)) {
+			return true
+		}
+	}
+	return false
 }

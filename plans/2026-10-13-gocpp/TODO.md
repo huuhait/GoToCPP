@@ -31,6 +31,9 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [ ] internal/cppgen (from the 2.10b review; give to the next emitter job): `chain` in control.go closes the shadow blocks of an if/else-if init as separate `}` lines (join them like `closeShadows`); in `x, y := x+1, 5`, `y` enters the outer funcNames scope but is written inside the new C++ block (enter all of a declaration's new variables into the inner scope once a block is opened)
 - [ ] `docs/adr/README.md`: describe dated amendments (like ADR-002's printer line), not only superseding (from job 1.5)
 
+- [ ] Step 4.16 review: should a `.h` with a same-stem `.cpp` in the package be treated as C++ (not wrapped in `extern "C"`) automatically? Today the pair fails to link until the user writes `//gocpp:no-extern-c ./x.h` or guards in the header; the link-error hint says so (cmd/gocpp `externCClashHints`). A user-facing design decision.
+- [ ] Step 4.16 review: a helper header whose default name is unusable gets no hint when used by that name: `main.h` next to `main.gp` (the name is Go's `func main`: bare "main.mn undefined (type func() has no field or method mn)") and `./3d.h` (not a Go name: "undefined: d3"). The docs tell the user to name the header (`import mh "./main.h"`). A hint needs check to relate a type error on `main.x` to an unnamed header with `UsedByPackage` (internal/load/imports.go `defaultNames`).
+
 ## Any time (parallel, low risk)
 
 - [x] VS Code TextMate grammar for `.gp`, including `name!(`, `func name!(`, `#Name`, `#body()` and `macro` (Phase 11 step 11.10, job 11.10a, done 2026-10-13)

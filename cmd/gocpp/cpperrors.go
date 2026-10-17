@@ -610,6 +610,11 @@ func (d *driver) cppLinkFailed(pkg *check.Package, e *build.CompileError, env bu
 	} else {
 		hints = append(hints, fmt.Sprintf("(the headers declare %s, but the program links no definition: add the library with //gocpp:link or //gocpp:pkg-config, or the C or C++ file that defines %s to the package)", it, it))
 	}
+	var undefined []string
+	for _, r := range refs {
+		undefined = append(undefined, r.sym)
+	}
+	hints = append(hints, externCClashHints(pkg.Load.Dir, pkg.ExternC, pkg.Load.CXXFiles, undefined)...)
 	if len(pkg.Flags.Link) > 0 {
 		hints = append(hints, fmt.Sprintf("(the link flags of the package's //gocpp: directives: %s)", strings.Join(pkg.Flags.Link, " ")))
 	}
