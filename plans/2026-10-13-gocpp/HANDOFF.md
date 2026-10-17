@@ -14,23 +14,37 @@ headers (4.16) and the closeout (4.18/4.19) remain. Full Phase 04 examples still
   review and manager re-verification; see the dated note in
   [phase-04-cpp-interop/STATE.md](phase-04-cpp-interop/STATE.md).
 
-## Local branches that are NOT merged (performance work, 2026-10-16)
+## Performance work (2026-10-16): not plan steps
 
-These live in sibling worktrees and are not pushed. They are not plan steps.
+Merged into `dev` (each after independent review and manager re-verification: `make ci`, staticcheck
+and the Phase 04 interop tests on g++ and clang++, normally and with ASan/UBSan):
+
+- `10208fb` **`make quick`** (`tools/quick`): the edit-test loop. Only what differs from the merge base
+  with `dev`: gofmt, vet and the tests of the changed Go packages, the changed test fixtures with one
+  compiler, a small smoke set, and for `runtime/` changes its fast tests and the debug-mode C++ unit
+  tests. About 10 s for a small change. **Not a gate**: `make ci` (about 11 minutes), `make staticcheck`
+  and, for runtime or emitter changes, `make ci-sanitize` are still required before a merge.
+- `0b73545` **Probe results on disk** (`internal/interop/diskcache.go`; Phase 06 §2.10, early): a second
+  gocpp process, or the editor after a restart, answers the kind, namespace and macro probes and the C
+  header check from `$XDG_CACHE_HOME/gocpp/probe` (about 1-1.5 s to about 45 ms for the cpp-std include
+  set). Entries older than one hour are a miss (a header that appears earlier on the search path is
+  otherwise not noticed); results with include errors, with `-march=native`, or from a missing header are
+  not stored. `GOCPP_NOPROBECACHE=1` turns it off.
+
+Local branches NOT merged (sibling worktrees, not pushed):
 
 | Branch | What | State |
 |---|---|---|
-| `perf/build-speed` (`2a935ab`) | Precompiled header of `gocpp/rt.hpp` for the generated C++ (`internal/build/pch.go`); warm `hello` build about 1.3 s to 0.5 s | clean `make ci` passed; not reviewed by a second agent; not merged |
-| `perf/test-parallel` | the same header in the `cppgen` tests (`internal/cppgen/cxx_test.go`); that package 161 s to 131 s | passes normally; uncommitted; not checked with the sanitizer flags of `make ci-sanitize` |
-| `perf/probe-disk-cache` | probe results on disk (Phase 06 §2.10, early) | coder job in progress |
-| `perf/object-cache` | content-addressed object cache for the generated C++ (Phase 06 §2.5, early) | coder job in progress |
+| `perf/object-cache` | the precompiled header of `gocpp/rt.hpp` (`internal/build/pch.go`; warm `hello` build about 1.3 s to 0.5 s) plus a content-addressed object cache for the generated C++ (Phase 06 §2.5, early; an unchanged program skips the C++ compile: 0.88 s to 0.23 s median over 40 programs) | rebased on dev; first review found a Windows/macOS build break and several stale-hit cases, fixed; second review and verification in progress |
+| `perf/test-parallel` | the same header in the `cppgen` tests; that package 161 s to 131 s; passes with the `make ci-sanitize` flags | committed on top of the precompiled header; waits for it to merge |
 
-Measured and rejected: scratch files in `/dev/shm` (no change); `mold` as the linker saves only
-40–90 ms per build (use `GOCPP_LDFLAGS=-fuse-ld=mold` with `mold` in the dev shell if wanted).
-`make ci` takes about 10–13 minutes; the slowest packages are `internal/cppgen`,
-`cmd/gocpp` (serial: its tests use `t.Chdir`, so it can't use `t.Parallel`) and
-`internal/check`. Work on the performance branches goes through the same
-manager → coder → reviewer loop (WORKFLOW.md) before it merges.
+Measured and rejected: scratch files in `/dev/shm` (no change); `mold` saves only 40-90 ms per build
+(`GOCPP_LDFLAGS=-fuse-ld=mold` with `mold` in the dev shell if wanted). The object cache only helps an
+unchanged program: any edit changes the single translation unit, so it misses (Phase 06's one unit per
+package or function is what fixes that). Why `make ci` is slow: the `runtime` package takes about 650 s,
+the critical path, because `TestCXX` compiles about 12 programs one after another in each of 6
+(compiler, mode) chains, leaving most of the 128 cores idle; compiling them in parallel is the next
+candidate. `cmd/gocpp` (about 130-250 s) is serial because its tests use `t.Chdir`.
 
 ## Rules that still hold
 
