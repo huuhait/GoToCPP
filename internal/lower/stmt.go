@@ -387,6 +387,8 @@ func oneExpr(s ast.Stmt) bool {
 // returnStmt lowers return. Several results are a std::tuple, which `return {a, b};` makes
 // from its values left to right; a bare return in a function with named results returns them.
 func (fg *funcGen) returnStmt(s *ast.ReturnStmt) {
+	fg.retStmt = s // returnMove
+	defer func() { fg.retStmt = nil }()
 	if fg.fn.defers != nil {
 		fg.deferReturn(s) // defer.go: the results, then the exit
 		return
@@ -399,10 +401,7 @@ func (fg *funcGen) returnStmt(s *ast.ReturnStmt) {
 		res := fg.fn.sig.Results()
 		names := make([]cppir.Expr, len(fg.fn.results))
 		for i, n := range fg.fn.results {
-			names[i] = cxxName(n)
-			if fg.isBoxed(res.At(i)) {
-				names[i] = &cppir.Paren{X: deref(names[i])}
-			}
+			names[i] = fg.resultValue(res.At(i), n)
 		}
 		fg.add(&cppir.Return{Pos: p, X: braceList(names)})
 	case len(s.Results) == 1:
@@ -412,11 +411,15 @@ func (fg *funcGen) returnStmt(s *ast.ReturnStmt) {
 			fg.add(withPre(p, append(pre, r[:len(r)-1]...), r[len(r)-1]))
 			break
 		}
-		fg.add(withPre(p, pre, &cppir.Return{Pos: p, X: fg.expr(s.Results[0])}))
+		fg.add(withPre(p, pre, &cppir.Return{Pos: p, X: fg.returnMove(s.Results[0], fg.expr(s.Results[0]), false)}))
 	default:
 		// C++ evaluates the values of a braced list in order.
 		pre := fg.order(true, s.Results...)
-		fg.add(withPre(p, pre, &cppir.Return{Pos: p, X: &cppir.InitList{Elems: fg.exprs(s.Results, false)}}))
+		values := fg.exprs(s.Results, false)
+		for i, e := range s.Results {
+			values[i] = fg.returnMove(e, values[i], true)
+		}
+		fg.add(withPre(p, pre, &cppir.Return{Pos: p, X: &cppir.InitList{Elems: values}}))
 	}
 }
 
@@ -475,7 +478,10 @@ type target struct {
 	shadow bool       // a new variable that shadows a variable or function of an outer scope
 	class  bool       // a new variable of a C++ class type (gp::string), which a temporary is moved into
 	box    bool       // a new variable that is boxed (box.go): gp::ptr<T> x = gp::new_<T>(value);
+	ret    bool       // a result of a function with defers, stored by a return statement (deferReturn)
 	large  bool       // a boxed new variable larger than 128 KiB, built in its box (largeBox, arrays.go)
+	cbox   bool       // a boxed new variable that holds a C/C++ object, built in its box (cbox.go)
+	hold   cppir.Stmt // after its declaration: the frame holds its box (cbox.go: holdBox), or nil
 
 	// ptr is the pointer operand p of a target *p, index a target s[i] and field a target x.f
 	// (step 3.8), whose operands (p; s and i; those of x.f: selectorOperands) bind evaluates into
@@ -688,6 +694,9 @@ func (t target) blank() bool { return t.x == nil }
 // assign returns the C++ statement at pos that gives t the value: T x = value; for a new
 // variable, x = value; for an existing one, and for _ a statement that only evaluates it.
 func (t target) assign(pos cppir.Pos, value cppir.Expr) cppir.Stmt {
+	if t.typ != nil && t.cbox {
+		return withHold(pos, cBoxDecl(pos, t.typ, t.name, value), t.hold)
+	}
 	if t.typ != nil && t.box && t.large {
 		return varDecl(pos, ptrType(t.typ), t.name, largeBox(t.typ, value))
 	}
@@ -732,7 +741,9 @@ func (fg *funcGen) declare(pos token.Pos, lhs, values []ast.Expr) {
 				if t.shadow && open < 0 {
 					open = len(lines)
 				}
-				if t.box {
+				if t.cbox {
+					lines = append(lines, withHold(p, cBoxDecl(p, t.typ, t.name, nil), t.hold))
+				} else if t.box {
 					lines = append(lines, varDecl(p, ptrType(t.typ), t.name, newBox(t.typ, nil)))
 				} else {
 					lines = append(lines, varDecl(p, t.typ, t.name, &cppir.InitList{}))
@@ -819,7 +830,8 @@ func (fg *funcGen) newTargets(lhs []ast.Expr) []target {
 		}
 		if obj, ok := fg.g.info.Defs[id].(*types.Var); ok {
 			t := target{typ: fg.g.varType(obj, id.Pos()), shadow: fg.shadowing(obj), box: fg.isBoxed(obj), gtype: obj.Type()}
-			t.large = t.box && largeVar(obj.Type())
+			t.cbox = t.box && cObject(obj.Type())
+			t.large = t.box && !t.cbox && largeVar(obj.Type())
 			t.class = isClass(obj.Type()) && complete(obj.Type()) // (a C/C++ value may be auto)
 			if fg.loopInit {
 				// A variable of a 3-clause for that is boxed (its address is taken in the
@@ -834,6 +846,7 @@ func (fg *funcGen) newTargets(lhs []ast.Expr) []target {
 				t.name = fg.names.declare(obj)
 			}
 			t.x = cxxName(t.name)
+			t.hold = fg.holdBox(obj, t.name)
 			targets[i] = t
 		} else {
 			targets[i] = fg.lhs(id) // redeclared by :=
@@ -976,7 +989,13 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 		for i, t := range targets {
 			if !t.blank() {
 				get := &cppir.Name{Name: "std::get", Args: []cppir.Node{lit(strconv.Itoa(i))}}
-				var x cppir.Expr = &cppir.Call{Fun: get, Args: []cppir.Expr{cxxName(tmp)}}
+				var tup cppir.Expr = cxxName(tmp)
+				if tuple != nil && i < tuple.Len() && cObject(tuple.At(i).Type()) || tuple == nil && fg.g.pkg.Opaque.IsOpaque(values[0]) {
+					// The tuple is a temporary of this statement: each C/C++ member moves out of
+					// it, once (one that C++ can't copy, a std::unique_ptr, works).
+					tup = movedName(tmp)
+				}
+				var x cppir.Expr = &cppir.Call{Fun: get, Args: []cppir.Expr{tup}}
 				if tuple != nil && i < tuple.Len() {
 					// Go converts the result implicitly to the target's type (step 3.9).
 					x = fg.g.convertTo(tuple.At(i).Type(), t.gtype, x, values[0].Pos())
@@ -1031,6 +1050,9 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 				lines = append(lines, varDecl(p, typ, tmps[i], fg.ownedValue(v, fg.expr(v))))
 			} else if typ != nil {
 				lines = append(lines, varDecl(p, typ, tmps[i], fg.expr(v)))
+			} else if targets[i].ret {
+				// A result of a function with defers: a local that is returned is moved (returnMove).
+				lines = append(lines, varDecl(p, typeName("auto"), tmps[i], fg.returnMove(v, fg.exactExpr(v), true)))
 			} else {
 				lines = append(lines, varDecl(p, typeName("auto"), tmps[i], fg.exactExpr(v)))
 			}
@@ -1145,6 +1167,9 @@ func (fg *funcGen) panicky(e ast.Expr) bool {
 // first if the store could free it (sharedCopy, structs.go).
 func (fg *funcGen) storedValue(t target, v ast.Expr) cppir.Expr {
 	x := fg.expr(v)
+	if t.ret {
+		x = fg.returnMove(v, x, true)
+	}
 	if t.typ == nil && !t.blank() {
 		return fg.sharedCopy(v, x)
 	}

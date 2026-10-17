@@ -27,6 +27,7 @@
 #include <gocpp/print.hpp>
 #include <gocpp/panic.hpp>
 #include <gocpp/defer.hpp>
+#include <gocpp/result.hpp>
 #include <gocpp/fmtshim.hpp>
 #include <gocpp/main.hpp>
 #include <gocpp/interop.hpp>

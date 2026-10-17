@@ -31,10 +31,11 @@ import (
 //     element of a composite literal, the range expression and the variables of a range
 //     (crange.go; a range that assigns needs C/C++ targets: rangeTargetOK).
 //
-// A func literal that uses an opaque local of the function around it is not supported either
-// until step 4.8: it captures it by copy, and a change through a C++ reference (std.swap) would
-// be lost. So is a deferred call of a member of a C/C++ value (defer v.clear()): the C++ object
-// is gone when the defers run, until step 4.8 boxes it.
+// A func literal that uses an opaque local of the function around it, and a deferred call of a
+// member of one (defer v.clear()), work through a box (cbox.go): the closure shares the object, and
+// it outlives the C++ block of the function that declared it. What stays unsupported there is
+// listed in deferRecvOK (a receiver that is an element, a pointer's target or another place that
+// a deferred call can't keep) and in addrOK (& of a loop variable).
 //
 // The rules of cgo where gocpp values meet C/C++ values (the mismatched types of cOperandsOK,
 // the targets of targetOK and gocppTargetOK, also the elements and fields of gocpp literals) are
@@ -55,7 +56,6 @@ func (g *gen) checkCUses() {
 type cWalk struct {
 	g     *gen
 	stack []ast.Node         // the nodes above the current one
-	lits  []*ast.FuncLit     // the func literals above it, innermost last
 	sigs  []*types.Signature // the signatures of the functions above it, innermost last
 	funcs []ast.Node         // their *ast.FuncDecl or *ast.FuncLit
 }
@@ -65,9 +65,6 @@ func (w *cWalk) visit(n ast.Node) bool {
 	if n == nil {
 		top := w.stack[len(w.stack)-1]
 		w.stack = w.stack[:len(w.stack)-1]
-		if lit, ok := top.(*ast.FuncLit); ok && len(w.lits) > 0 && w.lits[len(w.lits)-1] == lit {
-			w.lits = w.lits[:len(w.lits)-1]
-		}
 		if len(w.funcs) > 0 && w.funcs[len(w.funcs)-1] == top {
 			w.funcs, w.sigs = w.funcs[:len(w.funcs)-1], w.sigs[:len(w.sigs)-1]
 		}
@@ -126,7 +123,6 @@ func (w *cWalk) visit(n ast.Node) bool {
 			w.g.unsupported(x.Pos(), "func literals with C/C++ parameters or results (step 4.11)")
 			return false
 		}
-		w.lits = append(w.lits, x)
 		if sig, ok := w.g.info.TypeOf(x).(*types.Signature); ok {
 			w.funcs, w.sigs = append(w.funcs, x), append(w.sigs, sig)
 		}
@@ -152,9 +148,6 @@ func (w *cWalk) check(e ast.Expr) bool {
 			break
 		}
 	}
-	if id, ok := e.(*ast.Ident); ok && !w.capturedStructOK(id, parent) {
-		return false
-	}
 	if !g.pkg.Opaque.IsOpaque(e) {
 		if _, ok := e.(*ast.ParenExpr); !ok && (!w.gocppTargetOK(e, parent) || !g.rangeTargetOK(e, parent)) {
 			return false
@@ -164,7 +157,7 @@ func (w *cWalk) check(e ast.Expr) bool {
 	if _, ok := e.(*ast.ParenExpr); ok {
 		return true // its parent decides: the parentheses are transparent
 	}
-	if !g.cExprOK(e, w.lits) || !g.cPlaceOK(e, parent) || !w.targetOK(e, parent) || !w.addrOK(e, parent) {
+	if !g.cExprOK(e) || !g.cPlaceOK(e, parent) || !w.targetOK(e, parent) || !w.addrOK(e, parent) {
 		return false
 	}
 	// A C/C++ name's parts and template arguments are the name's (cnames.go, ctypes.go).
@@ -213,9 +206,11 @@ func (w *cWalk) constsOK(d *ast.GenDecl) bool {
 
 // addrOK reports whether e, if it is &x of a C/C++ variable (a raw C++ address, Phase 04
 // README §2.7), is where the variable outlives the pointer as far as gocpp can tell, and reports
-// it if it isn't: in a defer or go statement, which runs after the C++ block of a local has
-// ended (step 4.8 boxes such a local), and as a result of the function, of a local (C++'s
-// lifetime: it would dangle at once; Phase 13's vet looks further).
+// it if it isn't: as a result of the function, of a local (C++'s lifetime: it would dangle at once;
+// Phase 13's vet looks further), of the variable of a 3-clause for loop (Go gives each iteration
+// its own variable, which a pointer can keep; a C++ address can't, and the pointers of all the
+// iterations would be one), and in a go statement. In a defer statement it is fine: the
+// frame holds the box of the variable, which the deferred call's arguments use (cbox.go).
 func (w *cWalk) addrOK(e ast.Expr, parent ast.Node) bool {
 	g := w.g
 	u, ok := e.(*ast.UnaryExpr)
@@ -231,22 +226,12 @@ func (w *cWalk) addrOK(e ast.Expr, parent ast.Node) bool {
 		return true
 	}
 	for _, n := range w.stack {
-		loopVar := false
-		switch s := n.(type) {
-		case *ast.ForStmt:
-			loopVar = s.Init != nil && s.Init.Pos() <= v.Pos() && v.Pos() < s.Init.End()
-		case *ast.RangeStmt:
-			loopVar = s.Tok == token.DEFINE && s.Pos() <= v.Pos() && v.Pos() < s.X.Pos()
-		}
-		if loopVar {
-			// Go 1.22 gives each iteration its own variable, which a pointer can keep;
-			// gocpp's C/C++ loop variable is one, so the pointers would share it and dangle.
-			g.unsupported(u.OpPos, "& of a C/C++ loop variable ("+id.Name+": each iteration has its own in Go; step 4.8)")
+		if s, ok := n.(*ast.ForStmt); ok && s.Init != nil && s.Init.Pos() <= v.Pos() && v.Pos() < s.Init.End() {
+			g.userError(u.OpPos, "& of the variable of a 3-clause for loop (%s): Go gives each iteration its own variable, and a C/C++ address can't keep it alive: copy it into a variable of the body, j := %s, and take &j", id.Name, id.Name)
 			return false
 		}
-		switch n.(type) {
-		case *ast.DeferStmt, *ast.GoStmt:
-			g.unsupported(u.OpPos, "& of a C/C++ local in a defer or go statement (the local must outlive the function: step 4.8)")
+		if _, ok := n.(*ast.GoStmt); ok {
+			g.unsupported(u.OpPos, "& of a C/C++ local in a go statement (Phase 08)")
 			return false
 		}
 	}
@@ -258,30 +243,13 @@ func (w *cWalk) addrOK(e ast.Expr, parent ast.Node) bool {
 }
 
 // cExprOK reports whether lowering translates the opaque expression e, and reports why not if
-// it doesn't. lits are the func literals that e is in, innermost last.
-func (g *gen) cExprOK(e ast.Expr, lits []*ast.FuncLit) bool {
+// it doesn't.
+func (g *gen) cExprOK(e ast.Expr) bool {
 	switch x := e.(type) {
 	case *ast.Ident:
-		if v, ok := g.info.Uses[x].(*types.Var); ok {
-			return g.capturedOK(x, v, lits)
-		}
-		return true
+		return true // (a local that a func literal uses is boxed: cbox.go)
 	case *ast.SelectorExpr:
-		if _, ok := g.cRefOf(x); ok {
-			return true
-		}
-		if sel := g.info.Selections[x]; sel != nil && sel.Kind() != types.FieldVal {
-			return true // a method value or expression of a gocpp type (closures.go, methods.go)
-		}
-		if sel := g.info.Selections[x]; sel != nil && sel.Kind() == types.FieldVal {
-			if root := rootIdent(x); root != nil {
-				if v, ok := g.info.Uses[root].(*types.Var); ok {
-					return g.capturedOK(root, v, lits)
-				}
-			}
-			return true
-		}
-		return true // a member of a C/C++ value: gp::deref(x).m
+		return true // a C/C++ name, a method or a field of a gocpp type, or a member of a C/C++ value: gp::deref(x).m
 	case *ast.CallExpr:
 		if _, ok := g.cRefOf(x.Fun); ok {
 			return true
@@ -452,36 +420,6 @@ func (g *gen) typedBasic(e ast.Expr) types.Type {
 	return nil
 }
 
-// capturedOK reports whether the use id of the variable v is not inside a func literal that
-// captures it (the innermost of lits declares it, or it is a package variable), and reports the
-// use if it is.
-func (g *gen) capturedOK(id *ast.Ident, v *types.Var, lits []*ast.FuncLit) bool {
-	if len(lits) == 0 || v.Parent() == g.pkg.Types.Scope() || v.Parent() == nil {
-		return true
-	}
-	lit := lits[len(lits)-1]
-	if lit.Pos() <= v.Pos() && v.Pos() < lit.End() {
-		return true
-	}
-	g.unsupported(id.Pos(), "C/C++ values in closures (a func literal that uses "+id.Name+": step 4.8)")
-	return false
-}
-
-// rootIdent returns the variable that the field chain x is in: v in v.a.b, or nil.
-func rootIdent(x *ast.SelectorExpr) *ast.Ident {
-	var e ast.Expr = x
-	for {
-		switch y := ast.Unparen(e).(type) {
-		case *ast.SelectorExpr:
-			e = y.X
-		case *ast.Ident:
-			return y
-		default:
-			return nil
-		}
-	}
-}
-
 // calledSig returns the signature of the function or the method of the package that c calls
 // (also a method of a gocpp type with C/C++ parameters: q.Put(n)), or of the func value in a
 // variable that it calls (size := q.Size; size()), or nil.
@@ -525,10 +463,15 @@ func (g *gen) cPlaceOK(e ast.Expr, parent ast.Node) bool {
 		return g.oneValueOK(e, len(p.Names), p.Values, p.Names[0].Pos())
 	case *ast.ReturnStmt, *ast.SwitchStmt, *ast.CaseClause, *ast.IfStmt, *ast.ForStmt:
 		return true // (an if's or a for's condition: gp::cgo::cond checks that it is a bool)
-	case *ast.DeferStmt, *ast.GoStmt:
+	case *ast.GoStmt:
 		if c, ok := ast.Unparen(e).(*ast.CallExpr); ok && g.opaqueCallee(c) {
-			g.unsupported(c.Pos(), "deferred calls of members of C/C++ values (the C++ object must outlive the function: step 4.8)")
+			g.unsupported(c.Pos(), "go statements on members of C/C++ values (Phase 08)")
 			return false
+		}
+		return true
+	case *ast.DeferStmt:
+		if c, ok := ast.Unparen(e).(*ast.CallExpr); ok {
+			return g.deferRecvOK(c) // defer v.clear(): cbox.go
 		}
 		return true
 	case *ast.AssignStmt:
@@ -719,25 +662,6 @@ func (g *gen) assignableOK(e ast.Expr) bool {
 // containsExpr reports whether the expression x is e or holds it.
 func containsExpr(x, e ast.Expr) bool {
 	return x.Pos() <= e.Pos() && e.End() <= x.End()
-}
-
-// capturedStructOK reports whether the use id of a variable is not a func literal's use of an
-// outer local whose type holds a C/C++ part by value (a struct with a C++ field): the literal
-// captures a copy, so a change made through a C++ reference later (std.swap(q.v, w)) would be
-// lost (step 4.8 boxes such locals). A method value or call on it (q.Get) copies the receiver
-// in Go too, so it is fine. It reports the use if it isn't.
-func (w *cWalk) capturedStructOK(id *ast.Ident, parent ast.Node) bool {
-	g := w.g
-	v, ok := g.info.Uses[id].(*types.Var)
-	if !ok || len(w.lits) == 0 || g.pkg.Opaque.IsOpaque(id) || !complete(v.Type()) || !cmpHasC(v.Type()) {
-		return true // (an opaque variable: capturedOK)
-	}
-	if sel, ok := parent.(*ast.SelectorExpr); ok && sel.X == id {
-		if s := g.info.Selections[sel]; s != nil && s.Kind() == types.MethodVal {
-			return true
-		}
-	}
-	return g.capturedOK(id, v, w.lits)
 }
 
 // A valueTarget is where a value goes: the type of the variable, parameter or result that it gives

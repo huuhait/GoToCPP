@@ -61,6 +61,8 @@ const (
 	boxCaptured                      // a closure captures it, and it is changed somewhere
 	boxLarge                         // it is too large for the C++ stack
 	boxShared                        // a closure captures it, and it is larger than 128 bytes
+	boxCObject                       // a closure captures a C/C++ object (cbox.go)
+	boxDefer                         // a deferred call uses a C/C++ object, or its address is taken in a function with defers (cbox.go)
 )
 
 // maxStackVarSize is the size in bytes above which a local variable is boxed (boxLarge): Go
@@ -88,6 +90,10 @@ func (r boxReason) String() string {
 		return "large"
 	case boxShared:
 		return "captured and large"
+	case boxCObject:
+		return "captured C/C++ object"
+	case boxDefer:
+		return "deferred call on a C/C++ object"
 	}
 	return "not boxed"
 }
@@ -142,6 +148,8 @@ func boxedVars(info *types.Info, fn ast.Node) map[*types.Var]boxReason {
 					}
 				}
 			}
+		case *ast.DeferStmt:
+			b.boxDeferred(n.Call) // cbox.go
 		case *ast.UnaryExpr:
 			if n.Op == token.AND && !cAddr(info, n) {
 				b.mark(b.root(n.X), boxAddr)
@@ -197,10 +205,15 @@ func boxedVars(info *types.Info, fn ast.Node) map[*types.Var]boxReason {
 		}
 		return true
 	})
+	for v := range addrHeld(info, fn) {
+		b.mark(v, boxDefer) // its frame holds the box (cbox.go)
+	}
 	for v := range b.captured {
 		switch {
 		case b.changed[v]:
 			b.mark(v, boxCaptured)
+		case cObject(v.Type()):
+			b.mark(v, boxCObject) // whatever the closure does with it (cbox.go)
 		case check.Sizes().Sizeof(v.Type()) > maxCaptureCopy:
 			b.mark(v, boxShared)
 		}

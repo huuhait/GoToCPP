@@ -687,7 +687,7 @@ for _, s := range f().items {    // f() stays alive for the whole loop
   still be discarded: use the key/index form and `c[i]`, or no
   bindings. A noncopyable map key can likewise be discarded when requesting only its value.
 - The variables follow Go's rule: `for i, x := range v {}` is an error ("declared and not used") for each variable the body doesn't use; write `_` or leave the variables out. One difference: any use that the checker records counts, also a write (`for i := range v { i++ }` and `k = 1` are accepted, where Go reports the variable), and a variable named as a bare key of a literal in the body (`std.map[int, int]{i: 3}`, where the key may be a C struct field) counts as used.
-- A closure can't use the loop variables yet (step 4.8), nor can `&v`.
+- A closure can use the loop variables (each iteration has its own, [boxed](#cc-objects-in-closures-and-defer)); `&x` of a range variable is the address of the iteration's copy.
 
 ### Untyped constants in C/C++ calls
 
@@ -726,22 +726,156 @@ check: gocpp doesn't know those types in opaque mode.
 
 ```go
 v := std.vector[int]{}
-defer v.clear() // fine: v is boxed, so it is still alive when the defer runs
+add := func(x int) { v.push_back(C.int(x)) }
+add(1)
+fmt.Println(int(v.size())) // 1: the closure and the function share the one vector
+defer v.clear()            // fine: v is boxed, so it is still alive when the defer runs
 ```
 
-- A C/C++ object (a local with a C/C++ type) that a closure or a deferred call uses is **boxed**
-  (`std::make_shared<T>`), and any member call or operator on it counts as a change. Without
-  this, `defer v.clear()` would call `clear()` on a vector that was already destroyed.
-- C++ destructors of locals run when their block ends, which is before the function's defers
-  run. That only matters for C/C++ objects, and boxing handles the `defer` case.
+- **What is boxed.** A local (also a parameter, a named result, or a loop variable) whose type holds a
+  C/C++ object by value is **boxed** when a func literal uses it, or when a deferred call is made on
+  it. Those types are: a C/C++ type (`std.vector[int]`, `C.int`, a header's struct), a raw C/C++
+  pointer (`*lib.FILE`), a gocpp struct with such a field, and an array of them. A slice, a map or a
+  gocpp pointer follows [Phase 03's rule](cpp-mapping.md#closures) (they share what
+  they point to anyway). The box is a `gp::ptr<T>`; the closure copies the box, so the closure and the
+  function share the one object, as Go's closure shares a variable, and the object lives as long as
+  the last box. An object that nothing captures is a plain C++ local (no allocation).
+- **Never captured by copy.** Phase 03 captures a variable that is never assigned by copy, and that is
+  wrong for a C++ object: a member call (`v.push_back`), an operator, or a function that takes a
+  reference (`std.swap(a, b)`, `bump(c)`) changes the object without an assignment, and gocpp can't see
+  what a C++ call does. And whether C++ can copy the type at all (`std::unique_ptr`, `std::mutex`) is
+  the C++ compiler's to say, not gocpp's. So the rule is not "box what is changed" but "box what a
+  closure or a defer uses", for every C/C++ type, and the closure never copies the object.
+- **The object is built in its box**, from the value of its initializer (guaranteed copy elision), not
+  moved into it: `v := std.vector[int]{}` is `auto v = gp::cgo::box([&] { return
+  ::std::vector<int64_t>{}; });`, `var m std.mutex` is `gp::cgo::new_box<::std::mutex>()`. So a type that
+  can be neither copied nor moved (`std::mutex`, `std::atomic`) can be boxed.
+- **`defer` on an object.** `defer v.clear()` or `defer h.items.clear()` keeps the box of the root
+  variable in the defer frame (a copy of the box), and reads the path when the call runs; without
+  that, C++ would have destroyed `v` at the end of its block, before the function's deferred calls
+  run (`defer v.clear()` was an AddressSanitizer error in the audit). The arguments are evaluated
+  when the `defer` statement runs, as Go does: `defer fmt.Println(int(v.size()))` prints the size of
+  that moment. A temporary (`defer f().close()`) is evaluated then, before the arguments, and moved
+  into the frame (or kept as a pointer, if C++ gave a reference). A C++ callable (`defer cb()`) is
+  copied into the frame when the statement runs, as Go stores the func value.
+  - **Locals die before the deferred calls run.** So the frame keeps alive the C++ locals that the
+    call can reach, with two rules. (1) A local that the call's object or arguments mention through a
+    path is kept: `defer v.front().inc()` and `defer v.at(0).inc()` keep `v` (the reference is into
+    it), `defer lib.f(v.data())` keeps `v` (the pointer is into it), `defer lib.f(&v)` keeps `v`. A
+    plain use of a variable in an argument copies its value and keeps nothing (`defer lib.f(h)`,
+    `defer fmt.Println(int(v.size()))`, `defer show(Vec{x: n})`). (2) In a function that has a
+    `defer` statement, a C++ local whose **address is taken** (`&a`) is boxed, and the function's
+    frame holds its box until every deferred call has run (also one that was deferred before the
+    local was declared, and when a panic runs them), where the pointer can **outlive the local's
+    block**: the local is in the function's own block (not in an inner block or a loop), or the
+    address is stored in a variable that is declared outside the local's block: `ps =
+    append(ps, &a)`, `ps[0] = &a`, `m["a"] = &a`, `n.c = &a`, `saved = &a` (a package variable),
+    `p := &a` with `p` declared before the loop, or a variable that holds such a pointer (`q := p`,
+    `n := &Node{c: &a}`). Then `defer p.inc()`, `defer lib.f(ps[0])` and `defer n.c.inc()` are safe.
+    The cost is a heap entry in the frame for each such local, and **the object is destroyed when the
+    function returns, after the deferred calls, not at the end of its block**: an RAII object
+    whose address escapes its iteration lives until the function ends, and memory grows with the
+    iterations that escape (as Go's heap does). In an inner block or a loop the hold is **not** made for a pointer that is only
+    passed to a call (`use(&g)`), used as the receiver of a call, or kept in a variable of the same
+    block (`p := &a` inside the loop): that pointer dies with the block, as in C++, and a lock guard
+    whose address goes to a function is still destroyed at the end of its iteration. What is **not tracked** follows C++ lifetime rules for opaque objects, and an inner-block local
+    can dangle there: (1) a pointer that a **Go function** stores, where the address was only passed
+    to it (`register(&a)` with `func register(p *T) { global = p }`, or `add(&r, &a)` that appends to
+    `r.ps`), with `a` declared in an inner block or a loop: gocpp does not follow the address into the
+    function (interprocedural escape analysis is a TODO: a local of the function's own block is
+    held anyway, and so is one whose address is stored in the same function); (2) a pointer that a
+    **C++ function** keeps or gives back (`p := lib.find(a)`, `v.data()` of a vector that nothing
+    deferred mentions, a reference returned into an argument); (3) a pointer that a **closure**
+    captures when the closure is not stored in a variable outside the block (a closure that is
+    passed on to a call, or returned, takes the box of what it captures, which is the pointer's
+    variable, not the object the pointer points to). A closure stored outside the block, with the
+    pointer it captures (`fs = append(fs, func() { p.inc() })`), is followed.
+  - A pointer or a reference into a C++ local that a **closure** keeps is the closure's to keep
+    alive: the closure captures the box of every local it uses.
+  - A path that starts at a **gocpp pointer** (`defer s.mu.unlock()`, `defer s.c.inc()` for an
+    `s *S` with C++ fields) works as in Go: the frame keeps a copy of the pointer `s` as of the
+    `defer` statement (which keeps the struct alive too), and the call goes through it.
+  - With a **nil** gocpp pointer, `defer s.c.inc()` panics at the `defer` statement, as in Go (the
+    pointer is checked when the frame takes its copy).
+  - A difference from Go: the path of a member call that starts at a **C++ local** is read **when the
+    call runs**, not at the `defer` statement. `defer p.close()` with a raw pointer `p` that is
+    assigned before the function returns calls `close` on the new `p`. Write `defer lib.close(p)` (a C
+    function with an argument evaluates `p` now).
+  - What can't be kept is an error at the `defer` line: `defer v[0].clear()` and `defer (*p).m()` (Go evaluates the element or the target now, a
+    deferred C++ call would read it later). Use a func literal: `defer func() { v[0].clear() }()`.
+- **C++ destructors still run when the block of the local ends**, unless a closure or a deferred call
+  holds the box: then the object is destroyed when the last holder is (a deferred call holds it until
+  it has run, a closure until the closure itself is destroyed). So the output of a destructor shows
+  C++'s order, not Go's. Without boxing, a local is destroyed at the end of its block, before the
+  function's deferred calls run.
+- **Loops.** The variable of a 3-clause `for` that a closure uses gets a new box (with a copy of the
+  object) for each iteration, as Go 1.22 does; a type that C++ can't copy is an error ("a closure that
+  uses the variable of a 3-clause for loop needs a copy of it for each iteration": declare the object before
+  the loop). The variable of a `range` over a C++ container is the loop's own copy, boxed per
+  iteration. `&i` of the variable of a 3-clause `for` is an error (each iteration has its own `i` in
+  Go, which a pointer can keep; a C++ address can't): copy it into a variable of the body.
+- **Still not supported:** a func literal with C/C++ parameters or results (callbacks, step 4.11),
+  and `go` statements (Phase 08).
 
 ### Types that can't be copied
 
-C++ types that can't be copied or default-constructed (`std::unique_ptr`, `std::lock_guard`,
-types without a default constructor) follow a policy table that says which gocpp constructs copy,
-move, default-construct or assign them. Results go through `gp::result_slot<R>`, which picks the
-right storage when the C++ is compiled. Locals that are not boxed are moved where Go semantics
-allow.
+C++ types differ in what they allow, and Go's constructs copy, zero and assign without asking. Where
+C++ can't do what Go does, the program doesn't compile, with an error at the `.gp` line; gocpp never
+changes the meaning silently. Four kinds of type cover the cases:
+
+| Kind | Examples | Can be |
+|---|---|---|
+| copyable | `std::vector`, `std::string`, `C.int`, a pointer | copied, moved, default-constructed |
+| move-only | `std::unique_ptr`, a file handle class | moved; default-constructed if the class has a default constructor |
+| no default constructor | a class whose constructors all take arguments | copied or moved; not zero-valued |
+| pinned | `std::mutex`, `std::lock_guard`, `std::atomic`, a class with deleted copy and move | built in place only |
+
+| gocpp construct | C++ | copyable | move-only | no default ctor | pinned |
+|---|---|---|---|---|---|
+| `x := f()`, `var x T = f()` | `auto x = f();` | in place | in place | in place | in place |
+| `x := T(args)`, `x := T{...}` | `auto x = T(args);` | in place | in place | in place | in place |
+| `x := y` | `auto x = y;` (copy) | copy | error: C++ "use of deleted function" (write `x := std.move(y)`) | copy | error |
+| `x := std.move(y)` | `auto x = std::move(y);` | move | move | move | error |
+| `var x T` | `T x{};` | zero value | default-constructed | error: C++ "no matching constructor" | error if no default constructor |
+| `x = f()` | `x = f();` | assign | move-assign | assign | error (no assignment) |
+| `x = y` | `x = y;` | copy-assign | error | copy-assign | error |
+| `a, b := f()` (a pair or tuple) | `auto gp_t = gp::values(f()); auto a = std::get<0>(move(gp_t)); ...` | moved out of the tuple | moved out | moved out | error (a tuple can't hold it) |
+| a closure uses `x` | `x` is boxed (`gp::ptr<T>`); the closure copies the box | no copy of the object | no copy | no copy | no copy |
+| `defer x.m()` | the frame keeps `x`'s box | no copy | no copy | no copy | no copy |
+| `defer f(x)` | the frame stores a copy of `x` (evaluated now) | copy | error: "defer copies the arguments of the deferred call" (`defer f(std.move(x))` moves) | copy | error |
+| `defer f(g())`, `defer f(std.move(x))` | the frame stores the temporary | move | move | move | error: "defer stores the arguments of the deferred call in a frame, and this C++ type can be neither moved nor copied" |
+| `return x` (a local, no defer) | `return x;` (C++ moves a local, or elides the copy) | move or elided | move | move | error |
+| `return x, y` (several results) | `return {move(x), move(y)};` (a local that is returned once) | move | move | move | error |
+| `return x` with defers, an unnamed result | `gp_r0 = move(x); goto exit;`, the exit returns `gp_r0.gp_take()` | move (`gp::result_slot`) | move | move (built in the slot) | error: "can't be moved or copied" |
+| a named result `(v T)` | a variable (zero value), boxed if a closure or defer uses it | zero value | default-constructed | error (no zero value) | error if no default constructor |
+| the loop variable of a 3-clause `for`, in a closure | a new box with a copy for each iteration | copy | error: "needs a copy of it for each iteration" | copy | error |
+| `for i, x := range c` | `for (auto&& [i, x] : gp::range(c))`: `x` is a copy | copy | error (use the index: `for i := range c`, then `c[i]`) | copy | error |
+| a parameter | by value: a copy made by the caller | copy | the caller moves (`f(std.move(x))`) | copy | error |
+| a gocpp struct with such a field (`type S struct{ mu objects.Lock }`) | built like the field: `var s S`, `S{...}`, `&S{...}`, `new(S)` and a boxed `s` build it in place | in place | in place | error at the field: "this C++ type has no default constructor, so a struct field of it has no zero value" (Go's `var s S` and `new(S)` need one; use `*T` or a smart pointer as the field) | in place; copying it (`t := s`) is an error |
+| `&x` | the raw address `&x` | | | | |
+
+Notes on the table:
+- *In place* means C++'s guaranteed copy elision: the result of `f()` is built in the new variable (or in
+  its box), so even a pinned type, which has no copy or move, works. `x := f()` where `f` returns a
+  reference (`T&`) is `auto x = f();`: a copy, as `auto` makes it.
+- A copy of a move-only or pinned type, by assignment or by passing it as a C++ argument, is C++'s own
+  error, at the `.gp` line: gcc says "use of deleted function", clang "call to deleted constructor" and
+  "overload resolution selected deleted operator '='". The runtime's own helpers, which copy where Go
+  would (a deferred call's arguments, a loop variable that a closure keeps, a result variable), say what to
+  do instead with a message of their own.
+- A local that is returned, or whose value goes into a result, is **moved** when nothing else sees it:
+  it is not boxed (no closure or deferred call uses it), it is used once among the results, and it
+  is not a result variable itself. A boxed local is **copied** if C++ can copy it (the closure that
+  shares the box keeps its object), else moved (the closure then sees a moved-from object).
+- **`gp::result_slot<R>`** (`gocpp/result.hpp`) is the result variable of a function with defers, for a result of a
+  C/C++ type that has no name in the program (a named result is a variable of its own). It picks its
+  storage where the C++ is compiled: a reference result is kept as a pointer; a type that is
+  default-constructible and move-assignable is kept as it is, zero-valued from the start (the same as the
+  `T gp_r0{};` that gocpp types get); any other type (no default constructor, or not assignable) is
+  built in a buffer by the return statement. A type with no move and no copy can't be a result
+  of a function with defers, because C++ returns such a type only from the expression that makes
+  it (without defers, `return lib.make()` works). The slot's members are `gp_set` (also `operator=`),
+  and `gp_take`; Phase 05 uses it for every result.
 
 Source: [Phase 01 §2.8](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#28-the-opaque-pass),
 [Phase 04 §2.5](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#25-values-and-operations-opaque).
@@ -852,8 +986,8 @@ lib.print_all(nums) // a C++ function that takes std::span<int>
   rules.** gocpp's safety covers gocpp types, not C/C++ types. A local ends with its block (not
   when nothing points to it any more, as in Go), so:
   - `return &x` of a local is an error;
-  - `&x` of a local in a `defer` or `go` statement, and of a loop variable (Go gives each
-    iteration its own), are not supported yet (step 4.8 keeps such a local alive);
+  - `&x` of the variable of a 3-clause `for` loop (Go gives each iteration its own) is an error;
+    `&x` of a local in a `defer` statement works (the frame keeps the local's box alive);
   - every other pointer to a local is the program's to keep valid: `g = &x`, `h.p = &x` and
     `p := &x; return p` compile, and dangle after `x`'s block ends (ASan finds it). A C function
     must not keep `&x` after that either (a callback's user data, `sqlite3_bind_text` with
@@ -1535,7 +1669,7 @@ with status 1:
   "in expansion of macro"); or in a header whose template the line instantiated: the template
   backtrace (gcc's "required from here", clang's "in instantiation of ... requested here") leads
   to the line, and the error is reported there with the first message. That includes gocpp's
-  interop helpers (`gocpp/interop.hpp`: `C.int(x)`, a `switch` on a C value, `gp::range`, ...);
+  interop helpers (`gocpp/interop.hpp` and `gocpp/result.hpp`: `C.int(x)`, a `switch` on a C value, `gp::range`, `gp::result_slot`, ...);
   for a `static_assert` there, the message is the `static_assert`'s own text, which is written
   for you:
 
@@ -1548,7 +1682,7 @@ with status 1:
   template: a header that doesn't compile as C++, reported at the import line.
 - **Which errors are gocpp's.** When the first error is at a `.gp` line without C or C++ code
   (also through a template or a macro), in the generated lines that have no `.gp` line, or in
-  gocpp's runtime outside `gocpp/interop.hpp` (also a header template that the runtime
+  gocpp's runtime outside `gocpp/interop.hpp` and `gocpp/result.hpp` (also a header template that the runtime
   instantiated), the build stops with "internal error: generated C++ did not compile", the
   compiler's first errors, and the work folder (exit status 2), as in a package without C or C++.
   With compile flags of the package or of the environment, it says "did not compile with the

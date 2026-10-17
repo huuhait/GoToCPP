@@ -44,6 +44,7 @@
 #include <cstdint>
 #include <iterator>
 #include <limits>
+#include <memory>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -649,6 +650,19 @@ struct field_check {
 template <typename F>
 inline constexpr bool field_ok = field_check<F>::gp_ok;
 
+// field_zero<T> checks the type T of a field of a gocpp struct that is a C/C++ type: Go's zero
+// value of the struct (var s S, new(S), a literal without the field) needs one of the field, which
+// is T() here, so a type with no default constructor is a clear error at the field's line.
+template <typename T>
+struct field_zero_check {
+    static_assert(std::is_default_constructible_v<T>,
+                  "gocpp: this C++ type has no default constructor, so a struct field of it has no "
+                  "zero value (Go needs one): use a pointer to it, *T, or a std.unique_ptr[T]");
+    static constexpr bool gp_ok = true;
+};
+template <typename T>
+inline constexpr bool field_zero = field_zero_check<T>::gp_ok;
+
 // map_t<T> is the C++ map type T of a keyed literal whose keys are not field names,
 // std.map[std.string, int]{"a": 1}, written gp::cgo::map_t<T>{{"a", 1}} (Phase 04 §2.5). A type
 // without a mapped_type is an error: Go's keys of a sequence (std.vector[int]{2: 7}) are indexes,
@@ -698,6 +712,139 @@ auto print_arg(T x) {
                   "gocpp: print and println can't print a C++ object: use fmt.Println, or "
                   "print its parts");
     return gp::detail::cxx_print<T>{std::move(x)};
+}
+
+// --- boxes of C/C++ objects (Phase 04 step 4.8) ---
+//
+// A C/C++ local that a closure or a deferred call uses lives in a box, a gp::ptr<T> (README
+// §2.5, docs/spec/interop.md "C/C++ objects in closures and defer"): the closure copies the box
+// and shares the object, as it shares a Go variable, and the object lives as long as the last
+// box. The box of a C++ type is made where the variable is declared:
+//
+//     v := std.vector[int]{}      auto v = gp::cgo::box([&] { return ::std::vector<int64_t>{}; });
+//     var m std.mutex             gp::ptr<::std::mutex> m = gp::cgo::new_box<::std::mutex>();
+//     var n C.int = f()           gp::ptr<int> n = gp::cgo::box_as<int>([&]() -> int { return
+//     ::f(); });
+//
+// The object is built in the box from the factory's prvalue (guaranteed copy elision), so
+// a type that can be neither copied nor moved (std::mutex, std::atomic, std::lock_guard) can be
+// boxed, and a movable one is not moved needlessly. (gp::new_<T>(f()) would move.)
+
+namespace detail {
+
+// lazy_alloc is an allocator whose construct() builds the object from the prvalue that a
+// factory returns, which std::allocate_shared hands to it: `U(make())` is initialized in place.
+template <typename T>
+struct lazy_alloc {
+    using value_type = T;
+    lazy_alloc() noexcept = default;
+    template <typename U>
+    lazy_alloc(const lazy_alloc<U>&) noexcept {}
+    T* allocate(std::size_t n) { return std::allocator<T>().allocate(n); }
+    void deallocate(T* p, std::size_t n) noexcept { std::allocator<T>().deallocate(p, n); }
+    template <typename U, typename F>
+    void construct(U* p, F&& make) {
+        ::new (static_cast<void*>(p)) U(std::forward<F>(make)());
+    }
+    template <typename U>
+    bool operator==(const lazy_alloc<U>&) const noexcept {
+        return true;
+    }
+};
+
+} // namespace detail
+
+// box_as<T>(make) is a new box that holds the T that make() returns, built in place.
+template <typename T, typename F>
+ptr<T> box_as(F&& make) {
+    return ptr<T>(std::allocate_shared<T>(detail::lazy_alloc<T>{}, std::forward<F>(make)));
+}
+
+// box(make) is box_as for the type that make() returns (a variable declared with :=).
+template <typename F>
+auto box(F&& make) {
+    return box_as<std::remove_cvref_t<std::invoke_result_t<F&>>>(std::forward<F>(make));
+}
+
+// new_box<T>() is a new box that holds the zero value of T (var x T): T().
+template <typename T>
+ptr<T> new_box() {
+    static_assert(std::is_default_constructible_v<T>,
+                  "gocpp: var x T needs a C++ type with a default constructor, because Go's "
+                  "zero value must exist: declare it with a value (x := T(...))");
+    return gp::new_<T>();
+}
+
+// renew(p) gives p's variable a new box with a copy of its value, as each iteration of a 3-clause
+// for loop has its own variable in Go (a closure that captures the loop variable keeps the
+// iteration's own). The C++ type must be copyable.
+template <typename T>
+void renew(ptr<T>& p) {
+    static_assert(std::is_copy_constructible_v<T>,
+                  "gocpp: a closure that uses the variable of a 3-clause for loop needs a copy of "
+                  "it for each iteration, and this C++ type can't be copied: declare the object "
+                  "before the loop");
+    p = box_as<T>([&]() -> T { return *p; });
+}
+
+// result_of(x) is the value that a return statement gives back from the boxed variable x: a copy
+// (the closures that share the box keep their own object), or, for a type that can't be copied
+// (std::unique_ptr), a move, which leaves the moved-from object in the box.
+template <typename T>
+T result_of(T& x) {
+    if constexpr (std::is_copy_constructible_v<T>) {
+        return x;
+    } else {
+        return static_cast<T&&>(x);
+    }
+}
+
+// defer_arg(x) is an argument of a deferred call that is a C/C++ value: Go evaluates it when the
+// defer statement runs and stores it in the defer frame. A variable is copied, which a type that
+// can't be copied makes a clear error (std.move(x) moves it instead); a temporary (f(),
+// std.move(x)) is moved into the frame, which a type with no move at all (a pinned object) makes a
+// clear error too.
+template <typename T>
+std::decay_t<T> defer_arg(T& x) {
+    static_assert(std::is_copy_constructible_v<T>,
+                  "gocpp: defer copies the arguments of the deferred call when the defer "
+                  "statement runs, and this C++ type can't be copied: pass std.move(x) if it can "
+                  "be moved, or a pointer, or write defer func() { ... }()");
+    return x;
+}
+template <typename T>
+T&& defer_arg(T&& x) {
+    static_assert(std::is_move_constructible_v<std::remove_cvref_t<T>> ||
+                      std::is_copy_constructible_v<std::remove_cvref_t<T>>,
+                  "gocpp: defer stores the arguments of the deferred call in a frame, and this "
+                  "C++ type can be neither moved nor copied: pass a pointer to it, or write defer "
+                  "func() { ... }()");
+    return static_cast<T&&>(x);
+}
+
+// nonnil(p) is the gocpp pointer p of a deferred call's path (defer s.c.inc()), which Go evaluates
+// when the defer statement runs: a nil one panics there, not when the deferred call runs.
+template <typename P>
+P nonnil(P p) {
+#ifndef GOCPP_NOCHECKS
+    if (p == nullptr) [[unlikely]] {
+        panic_nil();
+    }
+#endif
+    return p;
+}
+
+// keep(x) is the object of a deferred member call (defer f().close()) as the defer frame stores
+// it: a temporary is moved into the frame, and what C++ gave by reference (a function that returns
+// T&) is a pointer to it, so the call is made on the object itself, not on a copy. The thunk
+// reads it through gp::deref, which takes both.
+template <typename X>
+auto keep(X&& x) {
+    if constexpr (std::is_lvalue_reference_v<X>) {
+        return std::addressof(x);
+    } else {
+        return std::remove_cvref_t<X>(std::forward<X>(x));
+    }
 }
 
 } // namespace cgo

@@ -457,6 +457,13 @@ func (g *gen) structDef(si *structInfo) []cppir.Decl {
 			init = &cppir.InitList{} // a C/C++ type (ctypes.go): value-initialized, T f{};
 		}
 		d := varDecl(cppir.Pos{}, g.varType(f, f.Pos()), si.fields[i], init)
+		if !complete(f.Type()) && cObject(f.Type()) && g.maybeNoDefault(f) {
+			// Go's zero value of the struct needs one of the field: a C++ type with no default
+			// constructor is a clear error here (the default member initializer, T f{}, would be
+			// an error deep in the struct's own code).
+			s.Members = append(s.Members, &cppir.StaticAssert{Pos: g.pos(f.Pos()),
+				Cond: &cppir.Name{Name: "gp::cgo::field_zero", Args: []cppir.Node{g.varType(f, f.Pos())}}})
+		}
 		s.Members = append(s.Members, d)
 		if f.Name() != "_" {
 			compared = append(compared, si.fields[i])

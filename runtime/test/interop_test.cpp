@@ -1084,7 +1084,212 @@ void test_cgo() {
     CHECK_EQ(gp::len(gp::cgo::GoBytes(vp, int32_t(2))), int64_t(2));
 }
 
+// --- boxes and result slots (step 4.8) ---
+
+// Counts what happens to it, and can't be default-constructed or assigned.
+struct Tracked {
+    static inline int made = 0, copies = 0, moves = 0, dtors = 0;
+    int id;
+    explicit Tracked(int i) : id(i) { made++; }
+    Tracked(const Tracked& o) : id(o.id) { copies++; }
+    Tracked(Tracked&& o) noexcept : id(o.id) {
+        moves++;
+        o.id = -1;
+    }
+    ~Tracked() { dtors++; }
+    static void reset() { made = copies = moves = dtors = 0; }
+};
+
+// Can't be copied or moved at all (a std::mutex, an atomic): only built in place.
+struct Pinned {
+    static inline int dtors = 0;
+    int v;
+    explicit Pinned(int x) : v(x) {}
+    Pinned(const Pinned&) = delete;
+    Pinned& operator=(const Pinned&) = delete;
+    ~Pinned() { dtors++; }
+};
+
+// Move-only, default-constructible and move-assignable (std::unique_ptr).
+using UP = std::unique_ptr<int>;
+
+Pinned make_pinned(int x) {
+    return Pinned(x);
+}
+
+struct NoAssign { // default-constructible, but not assignable
+    const int c = 7;
+    int d = 0;
+};
+
+void test_box() {
+    // box(make): a movable object is built in the box, not moved into it.
+    Tracked::reset();
+    {
+        auto b = gp::cgo::box([&] { return Tracked(5); });
+        static_assert(std::is_same_v<decltype(b), gp::ptr<Tracked>>);
+        CHECK_EQ((*b).id, 5);
+        CHECK_EQ(Tracked::made, 1);
+        CHECK_EQ(Tracked::copies + Tracked::moves, 0);
+        auto b2 = b; // the closure's copy of the box shares the object
+        CHECK((*b2).id == 5 && &*b2 == &*b);
+        (*b2).id = 6;
+        CHECK_EQ((*b).id, 6);
+    }
+    CHECK_EQ(Tracked::dtors, 1);
+
+    // A type that can be neither copied nor moved is boxed too, from the prvalue that makes it.
+    Pinned::dtors = 0;
+    {
+        auto p = gp::cgo::box([&] { return make_pinned(9); });
+        CHECK_EQ((*p).v, 9);
+        auto q = gp::cgo::box_as<Pinned>([&]() -> Pinned { return Pinned(10); });
+        CHECK_EQ((*q).v, 10);
+    }
+    CHECK_EQ(Pinned::dtors, 2);
+
+    // A move-only object is boxed and the box shared; the object lives until the last box goes.
+    gp::ptr<UP> keep;
+    {
+        auto u = gp::cgo::box([&] { return std::make_unique<int>(41); });
+        keep = u;
+    }
+    CHECK_EQ(**keep, 41);
+    keep = nullptr;
+
+    // box_as<T>: the declared type is the box's, the value converts.
+    gp::ptr<int> n = gp::cgo::box_as<int>([&]() -> int { return int64_t(5); });
+    CHECK_EQ(*n, 5);
+    gp::ptr<std::vector<int64_t>> v = gp::cgo::box_as<std::vector<int64_t>>(
+        [&]() -> std::vector<int64_t> { return std::vector<int64_t>{1, 2, 3}; });
+    CHECK_EQ(int64_t((*v).size()), int64_t(3));
+
+    // The copy of an lvalue is a copy (x := y).
+    Tracked src(3);
+    Tracked::reset();
+    auto cp = gp::cgo::box([&] { return src; });
+    CHECK_EQ(Tracked::copies, 1);
+    CHECK_EQ((*cp).id, 3);
+
+    // new_box<T>(): the zero value.
+    gp::ptr<std::vector<int64_t>> z = gp::cgo::new_box<std::vector<int64_t>>();
+    CHECK((*z).empty());
+    gp::ptr<int> zi = gp::cgo::new_box<int>();
+    CHECK_EQ(*zi, 0);
+
+    // renew: a new box with a copy of the value, the old box stays with its sharers.
+    auto it = gp::cgo::box([&] { return std::vector<int64_t>{7}; });
+    auto old = it;
+    gp::cgo::renew(it);
+    (*it).push_back(8);
+    CHECK_EQ(int64_t((*old).size()), int64_t(1));
+    CHECK_EQ(int64_t((*it).size()), int64_t(2));
+    CHECK(&*old != &*it);
+
+    // result_of: a copy where there is one, a move for a move-only type.
+    auto vv = gp::cgo::box([&] { return std::vector<int64_t>{1, 2}; });
+    std::vector<int64_t> r1 = gp::cgo::result_of(*vv);
+    CHECK_EQ(int64_t((*vv).size()), int64_t(2));
+    CHECK_EQ(int64_t(r1.size()), int64_t(2));
+    auto uu = gp::cgo::box([&] { return std::make_unique<int>(4); });
+    UP r2 = gp::cgo::result_of(*uu);
+    CHECK_EQ(*r2, 4);
+    CHECK((*uu) == nullptr);
+
+    // defer_arg: a copy of a variable, a moved temporary passes through.
+    std::string s = "abc";
+    std::string d1 = gp::cgo::defer_arg(s);
+    CHECK_EQ(d1, std::string("abc"));
+    CHECK_EQ(s, std::string("abc"));
+    UP up = std::make_unique<int>(2);
+    UP d2 = gp::cgo::defer_arg(std::move(up));
+    CHECK_EQ(*d2, 2);
+}
+
+// --- result_slot ---
+
+struct Wide { // not default-constructible: the buffer storage
+    int a, b;
+    Wide(int x, int y) : a(x), b(y) {}
+};
+
+Wide& global_wide() {
+    static Wide w(1, 2);
+    return w;
+}
+
+void test_result_slot() {
+    // Default-constructible and assignable: the value itself, zero from the start.
+    static_assert(sizeof(gp::result_slot<int64_t>) == sizeof(int64_t));
+    static_assert(sizeof(gp::result_slot<std::string>) == sizeof(std::string));
+    static_assert(sizeof(gp::result_slot<UP>) == sizeof(UP));
+    gp::result_slot<int64_t> a;
+    CHECK_EQ(a.gp_take(), int64_t(0)); // the zero value of an unset result
+    a = 5;
+    CHECK_EQ(a.gp_take(), int64_t(5));
+    a.gp_set(int32_t(6)); // converts, as an assignment does
+    CHECK_EQ(a.gp_take(), int64_t(6));
+    gp::result_slot<std::string> s;
+    s = std::string(40, 'x');
+    s = std::string(41, 'y'); // set again: the last return wins
+    CHECK_EQ(int64_t(s.gp_take().size()), int64_t(41));
+    gp::result_slot<UP> u;
+    CHECK(u.gp_take() == nullptr);
+    u = std::make_unique<int>(3); // move-only
+    UP out = u.gp_take();
+    CHECK_EQ(*out, 3);
+
+    // Not default-constructible: a buffer and a flag, the object made on set.
+    static_assert(sizeof(gp::result_slot<Wide>) > sizeof(Wide));
+    {
+        gp::result_slot<Wide> w;
+        w = Wide(3, 4);
+        w = Wide(5, 6); // the first one is destroyed, then the second made
+        Wide got = w.gp_take();
+        CHECK(got.a == 5 && got.b == 6);
+    }
+    Tracked::reset();
+    {
+        gp::result_slot<Tracked> t; // no default constructor
+        t = Tracked(8);
+        CHECK_EQ(Tracked::copies, 0);
+        Tracked got = t.gp_take();
+        CHECK_EQ(got.id, 8);
+        CHECK_EQ(Tracked::copies, 0);
+    }
+    CHECK_EQ(Tracked::dtors,
+             Tracked::made + Tracked::copies + Tracked::moves); // every object ended once
+    // A slot that is dropped holding a value ends it (a function that panics after a return
+    // value was set).
+    Tracked::reset();
+    {
+        gp::result_slot<Tracked> t;
+        t = Tracked(9);
+    }
+    CHECK_EQ(Tracked::dtors, Tracked::made + Tracked::copies + Tracked::moves);
+    // Not assignable (const member): the buffer too.
+    static_assert(sizeof(gp::result_slot<NoAssign>) > sizeof(NoAssign));
+    {
+        gp::result_slot<NoAssign> n;
+        NoAssign x;
+        x.d = 3;
+        n = x;
+        CHECK_EQ(n.gp_take().d, 3);
+    }
+
+    // A reference: the object, not a copy.
+    gp::result_slot<Wide&> r;
+    r = global_wide();
+    CHECK(&r.gp_take() == &global_wide());
+    gp::result_slot<const std::string&> cr;
+    std::string base = "q";
+    cr = base;
+    CHECK(&cr.gp_take() == &base);
+}
+
 void run_tests() {
+    test_box();
+    test_result_slot();
     test_as();
     test_deref();
     test_star_cond();
@@ -1128,6 +1333,10 @@ void run_case() {
     } else if (c == "deref-nil") {
         S* p = nullptr;
         gp::println(gp::deref(p).a);
+    } else if (c == "slot-unset") {
+        // A result of a type without a default constructor that was never set.
+        gp::result_slot<Tracked> t;
+        gp::println(t.gp_take().id);
     } else if (c == "dangle") {
         // Without gp::values: the references dangle, which ASan must report (only run with
         // ASan; without it this reads freed memory).

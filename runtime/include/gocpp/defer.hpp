@@ -42,6 +42,7 @@
 
 #include <cstddef>
 #include <exception>
+#include <memory>
 #include <new>
 #include <tuple>
 #include <type_traits>
@@ -73,6 +74,26 @@ public:
         gp_emplace<gp_node_of<F, std::decay_t<A>...>>(std::move(c), std::forward<A>(a)...);
     }
 
+    // gp_hold(owner) makes the frame keep owner (the box of a C/C++ local whose address the
+    // function takes, Phase 04 step 4.8) until every deferred call has run, whenever they were
+    // registered. A hold is a node on top of the stack, like a call (so it costs O(1)), which
+    // gp_run doesn't call: it sets it aside and releases it after the last call ran, also when
+    // a panic is running. It is on the heap. A pointer (gp::ptr) or a std::shared_ptr works.
+    template <typename T>
+    void gp_hold(T owner) {
+        std::shared_ptr<const void> sp;
+        if constexpr (requires { owner.gp_shared(); }) {
+            sp = std::shared_ptr<const void>(owner.gp_shared());
+        } else {
+            sp = std::shared_ptr<const void>(std::move(owner));
+        }
+        auto* n = new gp_hold_node;
+        n->gp_op = &gp_hold_op;
+        n->gp_owner = std::move(sp);
+        n->gp_next = gp_top;
+        gp_top = n;
+    }
+
     // gp_on_panic keeps the Go panic e that left the function's body, for gp_run. Called in
     // the function's catch (gp::panic_error&), where e is the exception being handled.
     void gp_on_panic(panic_error& e) noexcept;
@@ -90,6 +111,16 @@ private:
         gp_node* gp_next = nullptr; // the call deferred before this one
         void (*gp_op)(gp_node*, gp_what) = nullptr;
     };
+
+    // A hold (gp_hold): the owner it keeps. Its gp_op is gp_hold_op, by which gp_run knows it.
+    struct gp_hold_node : gp_node {
+        std::shared_ptr<const void> gp_owner;
+    };
+    static void gp_hold_op(gp_node* n, gp_what what) {
+        if (what != gp_call) {
+            delete static_cast<gp_hold_node*>(n);
+        }
+    }
 
     template <typename F, typename... A>
     struct gp_node_of : gp_node {

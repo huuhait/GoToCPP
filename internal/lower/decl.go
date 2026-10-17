@@ -149,9 +149,15 @@ func (fg *funcGen) funcBody() {
 		for i := range res.Len() {
 			r := res.At(i)
 			typ := g.varType(r, r.Pos())
-			if f.boxed[r] != 0 {
+			switch {
+			case f.defers != nil && fg.isSlot(r):
+				// A result of a C/C++ type that no name can set: gp::result_slot<T> (result.hpp).
+				fg.add(varDecl(g.pos(r.Pos()), &cppir.TypeName{Name: "gp::result_slot", Args: []cppir.Node{typ}}, f.results[i], nil))
+			case f.boxed[r] != 0 && cObject(r.Type()):
+				fg.add(cBoxDecl(g.pos(r.Pos()), typ, f.results[i], nil)) // cbox.go
+			case f.boxed[r] != 0:
 				fg.add(varDecl(g.pos(r.Pos()), ptrType(typ), f.results[i], newBox(typ, nil)))
-			} else {
+			default:
 				fg.add(varDecl(g.pos(r.Pos()), typ, f.results[i], &cppir.InitList{}))
 			}
 		}
@@ -199,8 +205,17 @@ func (fg *funcGen) paramBoxes() bool {
 		}
 		tmp := fg.names.temp("t")
 		box := ptrType(typ)
-		line.Stmts = append(line.Stmts, varDecl(cppir.Pos{}, box, tmp, newBox(typ, arg)))
+		if cObject(v.Type()) {
+			// A C/C++ object: the parameter is a copy already, which moves into the box (cbox.go).
+			line.Stmts = append(line.Stmts, cBoxDecl(cppir.Pos{}, typ, tmp, movedName(name)))
+			box = boxType(typ)
+		} else {
+			line.Stmts = append(line.Stmts, varDecl(cppir.Pos{}, box, tmp, newBox(typ, arg)))
+		}
 		sc.Head = append(sc.Head, varDecl(cppir.Pos{}, box, name, moved(box, cxxName(tmp))))
+		if h := fg.holdBox(v, name); h != nil {
+			sc.Head = append(sc.Head, h) // the frame holds the box of a parameter whose address is taken
+		}
 	}
 	line.Stmts = append(line.Stmts, sc)
 	fg.add(line)

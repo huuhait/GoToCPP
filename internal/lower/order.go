@@ -806,6 +806,13 @@ func (fg *funcGen) collectOpaque(sc *orderScope, e ast.Expr, root int, up *order
 		// with the member (gp::deref's nil check too) before the arguments, so the member's
 		// own read doesn't wait for the arguments' calls.
 		args := &orderScope{objFirst: true}
+		if sel := fg.g.opaqueMember(x.Fun); sel != nil && x == fg.deferCall {
+			if k, _ := fg.g.deferObjectOf(sel.X); k == objValue {
+				// A deferred call stores a temporary object as one more argument of gp_push_call,
+				// which C++ doesn't order before the others (deferThunk).
+				args.objFirst = false
+			}
+		}
 		if sel := fg.g.opaqueMember(x.Fun); sel != nil {
 			fg.collect(args, sel.X, 0, &orderStep{node: sel})
 		} else {

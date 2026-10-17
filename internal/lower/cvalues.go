@@ -123,12 +123,7 @@ func (fg *funcGen) opaqueExpr(e ast.Expr) cppir.Expr {
 	case *ast.ParenExpr:
 		return fg.expr(x.X)
 	case *ast.Ident:
-		if v, ok := fg.g.info.Uses[x].(*types.Var); ok && fg.isBoxed(v) && !gocppContainer(v.Type()) {
-			// (A gocpp array of C/C++ values in a box, arr[:], is a gocpp value: ident.)
-			fg.g.unsupported(x.Pos(), "C/C++ values in closures and defers (step 4.8)")
-			return placeholder
-		}
-		return fg.ident(x)
+		return fg.ident(x) // (a boxed local is (*x): cbox.go)
 	case *ast.CallExpr:
 		return fg.call(x)
 	case *ast.SelectorExpr, *ast.IndexExpr, *ast.IndexListExpr:

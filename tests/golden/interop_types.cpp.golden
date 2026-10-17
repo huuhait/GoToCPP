@@ -39,6 +39,8 @@ static_assert(sizeof(Node) == 16 && alignof(Node) == 8);
 struct File {
     ::FILE* f{};
     char** name{};
+#line 21 "$ROOT/tests/golden/interop_types.gp"
+    static_assert(gp::cgo::field_zero<::std::vector<unsigned char>>);
     ::std::vector<unsigned char> buf{};
     static constexpr const char* gp_type_name = "main.File";
     static constexpr auto gp_fields = gp::fields(gp::field(&File::f, "f", false, false), gp::field(&File::name, "name", false, false), gp::field(&File::buf, "buf", false, false));

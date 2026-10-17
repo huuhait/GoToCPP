@@ -55,6 +55,9 @@ func (fg *funcGen) compLit(e *ast.CompositeLit) cppir.Expr {
 		if largeVar(p.Elem()) {
 			return largeBox(typ, fg.litValue(e, p.Elem()))
 		}
+		if _, isStruct := under(p.Elem()).(*types.Struct); isStruct && cObject(p.Elem()) {
+			return cBox(typ, fg.litValue(e, p.Elem())) // built in place (cbox.go)
+		}
 		return newBox(typ, fg.litValue(e, p.Elem()))
 	}
 	return fg.litValue(e, t)

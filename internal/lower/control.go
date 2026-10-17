@@ -298,6 +298,11 @@ func (fg *funcGen) forStmt(s *ast.ForStmt) {
 		}
 		for _, v := range renew {
 			name := fg.cname(v, s.For)
+			if cObject(v.Type()) {
+				// A copy of the C/C++ object, which C++ may not be able to make (cbox.go).
+				line.Stmts = append(line.Stmts, &cppir.ExprStmt{X: call("gp::cgo::renew", cxxName(name))})
+				continue
+			}
 			typ := fg.g.cxxType(v.Type(), v.Pos())
 			line.Stmts = append(line.Stmts, &cppir.ExprStmt{X: &cppir.Assign{Op: "=", X: cxxName(name), Y: newBox(typ, deref(cxxName(name)))}})
 		}
@@ -376,7 +381,9 @@ func (fg *funcGen) forInit(s ast.Stmt) (cppir.Stmt, bool) {
 			return nil, false // _ or a variable that exists
 		}
 		t := fg.g.varType(obj, e.Pos()) // auto for a C/C++ value (cvalues.go)
-		if fg.isBoxed(obj) {
+		if fg.isCBox(obj) {
+			t = boxType(t) // auto stays auto: the box is built from the value (cbox.go)
+		} else if fg.isBoxed(obj) {
 			t = ptrType(t)
 		}
 		if typ != nil && (cppir.TypeString(t) != cppir.TypeString(typ) || cppir.TypeString(t) == "auto") {
@@ -406,7 +413,9 @@ func (fg *funcGen) forInit(s ast.Stmt) (cppir.Stmt, bool) {
 	d := &cppir.VarDecl{Type: typ}
 	for i, t := range targets {
 		init := fg.expr(a.Rhs[i])
-		if t.box {
+		if t.cbox {
+			init = cBox(t.typ, init)
+		} else if t.box {
 			init = newBox(t.typ, init)
 		}
 		d.Vars = append(d.Vars, cppir.Declarator{Name: t.name, Init: init})
@@ -626,7 +635,10 @@ func (fg *funcGen) rangeIter(s *ast.RangeStmt, start string, value func(it cppir
 				return
 			}
 			for _, v := range vars {
-				if fg.isBoxed(v.obj) {
+				if fg.isCBox(v.obj) {
+					name := fg.names.declare(v.obj)
+					line.Stmts = append(line.Stmts, withHold(cppir.Pos{}, cBoxDecl(cppir.Pos{}, v.typ, name, v.value), fg.holdBox(v.obj, name))) // cbox.go
+				} else if fg.isBoxed(v.obj) {
 					line.Stmts = append(line.Stmts, varDecl(cppir.Pos{}, ptrType(v.typ), fg.names.declare(v.obj), newBox(v.typ, v.value)))
 				} else {
 					line.Stmts = append(line.Stmts, varDecl(cppir.Pos{}, v.typ, fg.names.declare(v.obj), v.value))

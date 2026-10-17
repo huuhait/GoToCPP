@@ -59,6 +59,7 @@ func (fg *funcGen) rangeC(s *ast.RangeStmt) {
 	case key == nil:
 		fn = "gp::range_values"
 	}
+	var boxes []rangeBox // the variables that live in boxes
 	// The C++ names of the loop's variables: the Go names for :=, hidden ones for =, which the
 	// body's first line assigns to the targets.
 	name := func(e ast.Expr, hidden string) string {
@@ -73,9 +74,16 @@ func (fg *funcGen) rangeC(s *ast.RangeStmt) {
 			fg.g.errorf(e.Pos(), "internal error: a range variable without an object")
 			return "gp_unsupported"
 		}
+		if fg.isCBox(obj) {
+			// A variable that a closure uses lives in a box of its own for each iteration (cbox.go): the
+			// loop's binding keeps a hidden name, and the first line of the body makes the box
+			// from it.
+			n := fg.names.temp(hidden)
+			boxes = append(boxes, rangeBox{obj, n})
+			return n
+		}
 		if fg.isBoxed(obj) {
-			// The guard reports what would box it (a closure, &v) until step 4.8.
-			fg.g.errorf(e.Pos(), "internal error: a boxed C/C++ range variable")
+			fg.g.errorf(e.Pos(), "internal error: a boxed C/C++ range variable that is not an object")
 		}
 		return fg.names.declare(obj)
 	}
@@ -122,12 +130,30 @@ func (fg *funcGen) rangeC(s *ast.RangeStmt) {
 			fg.add(line)
 		}
 	}
+	if len(boxes) > 0 {
+		l.vars = func() {
+			line := &cppir.Line{Pos: fg.g.pos(boxes[0].obj.Pos())}
+			for _, b := range boxes {
+				// The loop's own copy moves into the box: the binding is not used again.
+				name := fg.names.declare(b.obj)
+				line.Stmts = append(line.Stmts, withHold(cppir.Pos{}, cBoxDecl(cppir.Pos{}, fg.g.varType(b.obj, b.obj.Pos()), name, movedName(b.from)), fg.holdBox(b.obj, name)))
+			}
+			fg.add(line)
+		}
+	}
 	fg.loopBody(l)
 	fg.names.closeScope()
 	if len(pre) > 0 {
 		fg.close(s.Body.Rbrace)
 	}
 	fg.breakLabel(s, s.Body.Rbrace)
+}
+
+// A rangeBox is a variable of a range over a C/C++ value that lives in a box, and the name of the
+// loop's binding that its box is made from.
+type rangeBox struct {
+	obj  *types.Var
+	from string
 }
 
 // rangeOperand names the temporaries of the range expression x of a range over a C/C++ value

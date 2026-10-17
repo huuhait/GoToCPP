@@ -172,10 +172,7 @@ func (fg *funcGen) exitStmts(pos cppir.Pos, ret bool) []cppir.Stmt {
 		res := fg.fn.sig.Results()
 		values := make([]cppir.Expr, len(fg.fn.results))
 		for i, n := range fg.fn.results {
-			values[i] = cxxName(n)
-			if fg.isBoxed(res.At(i)) {
-				values[i] = &cppir.Paren{X: deref(values[i])}
-			}
+			values[i] = fg.resultValue(res.At(i), n)
 		}
 		r.X = braceList(values)
 	}
@@ -200,6 +197,7 @@ func (fg *funcGen) deferReturn(s *ast.ReturnStmt) {
 		targets[i] = varTarget(n)
 		targets[i].gtype = res.At(i).Type() // which return f() converts to (step 3.9)
 		targets[i].gcDefer = true           // gc's ascompatee: a result, with defers
+		targets[i].ret = true               // a C/C++ local that is returned moves (returnMove)
 		if fg.isBoxed(res.At(i)) {
 			targets[i].x = &cppir.Paren{X: deref(cxxName(n))}
 		}
@@ -231,8 +229,17 @@ func (fg *funcGen) deferStmt(s *ast.DeferStmt) {
 	var push cppir.Expr
 	switch fn := fg.deferredFunc(c); {
 	case fn != nil:
-		args := append([]cppir.Expr{cxxName(fg.cname(fn, c.Fun.Pos()))}, fg.exprs(c.Args, false)...)
+		args := []cppir.Expr{cxxName(fg.cname(fn, c.Fun.Pos()))}
+		for _, a := range c.Args {
+			if fg.g.pkg.Opaque.IsOpaque(a) && fg.constValue(a) == nil {
+				args = append(args, fg.deferArg(a)) // a C/C++ value: copied or moved into the frame (cbox.go)
+			} else {
+				args = append(args, fg.expr(a))
+			}
+		}
 		push = frameCall("gp_push", args...)
+	case fg.g.opaqueCallee(c):
+		push = fg.deferThunk(c) // a member of a C/C++ object, or a C++ callable (cbox.go)
 	case fg.funcValueCall(c):
 		push = fg.deferValue(c) // closures.go
 	default:
@@ -270,17 +277,28 @@ func (fg *funcGen) deferThunk(c *ast.CallExpr) cppir.Expr {
 	panics := fg.isBuiltin(c, "panic")
 	// A method's receiver is stored too, as the lambda's first parameter (methods.go).
 	defer fg.storeRecv(c, &params, &values)()
+	// The object of a member of a C/C++ value, or the C++ callable (cbox.go).
+	defer fg.storeObject(c, &params, &values)()
 	for _, a := range c.Args {
 		if fg.constValue(a) != nil || panics && fg.staticConst(a) != nil {
 			continue // the same value in the call (a constant for panic: panicid.go)
 		}
-		values = append(values, fg.exactExpr(a))
+		held, ptrs := fg.heldBoxes, fg.heldPtrs // the argument is evaluated here, not in the thunk: the variable itself
+		fg.heldBoxes, fg.heldPtrs = nil, nil
+		values = append(values, fg.deferArg(a))
+		fg.heldBoxes, fg.heldPtrs = held, ptrs
 		name := "gp_a" + strconv.Itoa(len(params))
 		params = append(params, cppir.Param{Type: &cppir.Ref{Elem: typeName("auto"), RValue: true}, Name: name})
 		if t, ok := fg.temps[a]; ok {
 			saved[a] = t
 		}
 		fg.temps[a] = name
+		if _, ok := ast.Unparen(a).(*ast.CallExpr); ok && fg.g.pkg.Opaque.IsOpaque(a) {
+			// A temporary or std.move(x): the frame's copy is used once, and the call takes it by
+			// move (cMoved), as it would take the temporary; a variable's copy is an lvalue, as
+			// Go's deferred call gets its own variable.
+			fg.markAuto(name)
+		}
 	}
 	body := fg.expr(c)
 	for _, a := range c.Args {
@@ -289,6 +307,12 @@ func (fg *funcGen) deferThunk(c *ast.CallExpr) cppir.Expr {
 		} else {
 			delete(fg.temps, a)
 		}
+	}
+	// A C/C++ variable whose address an argument takes (defer lib.close(&v)) is kept alive by the
+	// frame: it holds the box too, as a parameter that the call doesn't use.
+	for _, b := range fg.keptBoxes(c) {
+		values = append(values, cxxName(fg.cname(b, c.Pos())))
+		params = append(params, cppir.Param{Type: &cppir.Ref{Elem: typeName("auto"), RValue: true}})
 	}
 	if len(params) == 0 {
 		// Still a generic lambda, which the trace leaves out: [](auto&&...) { ... }.

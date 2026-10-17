@@ -120,6 +120,15 @@ type funcGen struct {
 	// y being ordered (emitPanic binds it once).
 	deferCall *ast.CallExpr
 	opTarget  ast.Expr
+	// heldBoxes: while a deferred call's thunk is lowered, the C/C++ locals whose box the
+	// deferred frame holds, by the name of the thunk's parameter that is the box (deferThunk).
+	heldBoxes map[*types.Var]string
+	// heldPtrs: the same for a local gocpp pointer whose copy the frame holds (objPtr).
+	heldPtrs map[*types.Var]string
+	// addrHeld: the C/C++ locals whose box the frame holds (cbox.go: addrHeld, holdBox).
+	addrHeld map[*types.Var]bool
+	// retStmt is the return statement being lowered (returnMove).
+	retStmt *ast.ReturnStmt
 	// cTag: the switch being lowered has a C/C++ value as its tag (control.go: caseCond).
 	cTag bool
 }
@@ -267,6 +276,13 @@ func (fg *funcGen) exprs(list []ast.Expr, exact bool) []cppir.Expr {
 func (fg *funcGen) ident(id *ast.Ident) cppir.Expr {
 	switch obj := fg.g.info.Uses[id].(type) {
 	case *types.Var:
+		if name, ok := fg.heldBoxes[obj]; ok {
+			// A deferred call's own copy of the box of a C/C++ object (deferThunk).
+			return &cppir.Paren{X: deref(cxxName(name))}
+		}
+		if name, ok := fg.heldPtrs[obj]; ok {
+			return cxxName(name) // a deferred call's own copy of the pointer
+		}
 		if fg.isBoxed(obj) {
 			// The variable is in its box: (*x).
 			return &cppir.Paren{X: deref(cxxName(fg.cname(obj, id.Pos())))}

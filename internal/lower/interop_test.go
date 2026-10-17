@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"go/constant"
+	"go/parser"
 	"go/token"
 	"go/types"
 	"os"
@@ -310,27 +311,20 @@ func TestCGuard(t *testing.T) {
 		"std::string::npos": interop.Value, "std::vector": interop.Template, "std::swap": interop.ValueTemplate,
 	}
 	tests := []struct{ src, want string }{
-		{"var v std.vector[int]; f := func() { _ = v }; f()", "C/C++ values in closures (a func literal that uses v: step 4.8)"},
-		{"var v, w std.vector[int]; defer func() { std.swap(v, w) }()", "C/C++ values in closures (a func literal that uses v: step 4.8)"},
-		{"var h H; f := func() { _ = h.p }; f()", "C/C++ values in closures (a func literal that uses h: step 4.8)"},
 		{"_ = func(x C.int) {}", "func literals with C/C++ parameters or results (step 4.11)"},
 		{"var x std.vector[func(int) int]; _ = x", "func types as C++ template arguments (step 4.11)"},
 		{"var h H; switch h { case h: }", "switch on values with C/C++ parts (Phase 12)"},
 		{"var h, k H; _ = h == k", "== on values with C/C++ parts (Phase 12)"},
 		{"var m map[H]int; _ = m", "this use of a C/C++ type (a later step of Phase 04)"},
 		{"var a A; _ = a", "aliases of C/C++ types (A): write the C/C++ type (a later step of Phase 04)"},
-		{"var v std.vector[int]; defer v.clear()", "deferred calls of members of C/C++ values (the C++ object must outlive the function: step 4.8)"},
 		{"_ = &lib.FILE{}", "&T{...} of C/C++ types (lib.FILE, step 4.10): declare a variable, v := lib.FILE{...}, and use &v"},
 		{"_ = []*lib.FILE{{}}", "&T{...} of C/C++ types (lib.FILE, step 4.10): declare a variable, v := lib.FILE{...}, and use &v"},
 		{"m := map[lib.FILE]int{{}: 1}; _ = m", "this type with C/C++ parts: map[C.FILE]int"},
 		{"m := []map[lib.FILE]int{{}}; _ = m", "this type with C/C++ parts: map[C.FILE]int"},
 		{"p := &struct{ n C.int }{1}; _ = p", "this type with C/C++ parts: struct{n C.int}"},
 		{"var v std.vector[int]; _ = &v[0]", "& of C/C++ values other than variables (step 4.10)"},
-		{"for i := C.int(0); i < 3; i++ { lib.f(&i) }", "& of a C/C++ loop variable (i: each iteration has its own in Go; step 4.8)"},
-		{"var p *lib.FILE; defer lib.f(&p)", "& of a C/C++ local in a defer or go statement (the local must outlive the function: step 4.8)"},
 		{"var h H; _ = &h.q", "& of C/C++ values other than variables (step 4.10)"},
 		{"var p *C.char; _ = p[1:]", "slicing C/C++ values (step 4.10)"},
-		{"var h H; w := func() int { return len(h.s) }; _ = w", "C/C++ values in closures (a func literal that uses h: step 4.8)"},
 		{"_ = (*C.char)(nil)", "conversions to this C/C++ type (step 4.10)"},
 		{"lib.f(1, lib.g()...)", "... in a call of a C/C++ function"},
 		{"var v std.vector[int]; v.push_back(lib.g()...)", "... in a call of a C/C++ function"},
@@ -694,9 +688,9 @@ func main() {
 		"x &= ~1;",
 		"--x;",
 		"::out(&x);",
-		"auto gp_t0 = gp::values(::std::minmax(1, 2));", // the references of the pair are copied
-		"auto lo = std::get<0>(gp_t0);",
-		"auto hi = std::get<1>(gp_t0);",
+		"auto gp_t0 = gp::values(::std::minmax(1, 2));",                 // the references of the pair are copied
+		"auto lo = std::get<0>(static_cast<decltype(gp_t0)&&>(gp_t0));", // each member moves out of the tuple
+		"auto hi = std::get<1>(static_cast<decltype(gp_t0)&&>(gp_t0));",
 		"auto mm = [&]<typename gp_R1>(std::type_identity<gp_R1>)",
 		"return gp::values<gp_R1>(::std::minmax(1, 2)); } else { return (::std::minmax(1, 2)); }", // one variable too
 		"for (auto&& [i, e] : gp::range(v)) {",
@@ -714,6 +708,98 @@ func main() {
 	}
 	if strings.Contains(cpp, "gp::ptr<unsigned int>") || strings.Contains(cpp, "gp::new_<unsigned int>") {
 		t.Errorf("&x of a C variable boxed it:\n%s", cpp)
+	}
+}
+
+// TestCClosures checks the C++ of the C/C++ objects that closures and deferred calls use (cbox.go,
+// step 4.8): the box of each such local, built in place; the copies of the box that the closure
+// and the defer frame keep; the moves of a returned local; and what stays unsupported.
+func TestCClosures(t *testing.T) {
+	kinds := map[string]interop.Kind{
+		"f": interop.Value, "g": interop.Value, "FILE": interop.Type, "std::swap": interop.ValueTemplate,
+		"std::vector": interop.Template, "std::unique_ptr": interop.Template, "std::make_unique": interop.ValueTemplate,
+		"Widget": interop.Type, "make": interop.Value,
+	}
+	prefix := "package main\n\nimport (\n\t\"<lib.h>\"\n\t\"<vector>\"\n\t\"<memory>\"\n)\n\n" +
+		"type H struct {\n\tp *lib.FILE\n\tq C.int\n}\n\n"
+	lower := func(body string) (string, error) {
+		fset, pkg, _ := checkInterop(t, prefix+body)
+		f, err := Package(fset, pkg, fakeInterop(pkg, kinds))
+		if err != nil {
+			return "", err
+		}
+		return string(cppir.Print(f, "")), nil
+	}
+	works := []struct {
+		src  string
+		want []string
+	}{
+		{"func main() {\n\tv := std.vector[int]{}\n\tadd := func(x int) { v.push_back(C.int(x)) }\n\tadd(1)\n}\n",
+			[]string{"auto v = gp::cgo::box([&]() { return ::std::vector<int64_t>{}; });", "[v]<int = 1>(int64_t x) mutable -> void { gp::deref((*v)).push_back("}},
+		{"func main() {\n\tvar v std.vector[int]\n\tdefer v.clear()\n}\n",
+			[]string{"gp::ptr<::std::vector<int64_t>> v = gp::cgo::new_box<::std::vector<int64_t>>();", "gp_df.gp_push_call([](auto&& gp_a0) { gp::deref((*gp_a0)).clear(); }, v);"}},
+		{"func main() {\n\tvar n C.int = lib.f()\n\tfn := func() { _ = n }\n\tfn()\n\tdefer lib.f(&n)\n}\n",
+			[]string{"gp::ptr<int> n = gp::cgo::box_as<int>([&]() -> int { return ::f(); });", "[](auto&& gp_a0, auto&&) { ::f(gp_a0); }, gp::cgo::defer_arg(&(*n)), n);"}},
+		// every local that a deferred call mentions is boxed and kept by the frame: a reference into it,
+		// and the local whose address a pointer holds
+		{"func main() {\n\tvar v std.vector[int]\n\tdefer v.back().clear()\n}\n",
+			[]string{"gp::ptr<::std::vector<int64_t>> v = gp::cgo::new_box<::std::vector<int64_t>>();", "gp::cgo::keep(", ", v);"}},
+		{"func main() {\n\tvar a std.vector[int]\n\tp := &a\n\tdefer lib.f(p)\n}\n",
+			[]string{"gp::ptr<::std::vector<int64_t>> a = gp::cgo::new_box<::std::vector<int64_t>>(); gp_df.gp_hold(a);", "{ ::f(gp_a0); }, gp::cgo::defer_arg(p));"}},
+		// the address of a local of an inner block that only goes to a call, or into a variable of the
+		// same block, holds nothing; one stored in a variable of an outer block is held
+		{"func main() {\n\tdefer lib.g()\n\tfor i := 0; i < 2; i++ {\n\t\tvar a std.vector[int]\n\t\tlib.f(&a)\n\t\tp := &a\n\t\t_ = p\n\t}\n}\n",
+			[]string{"::std::vector<int64_t> a{};", "::f(&a);"}},
+		{"func main() {\n\tdefer lib.g()\n\tvar ps []*std.vector[int]\n\tfor i := 0; i < 2; i++ {\n\t\tvar a std.vector[int]\n\t\tps = append(ps, &a)\n\t}\n}\n",
+			[]string{"gp::ptr<::std::vector<int64_t>> a = gp::cgo::new_box<::std::vector<int64_t>>(); gp_df.gp_hold(a);"}},
+		// a closure that captures a pointer which holds the address of a loop local, stored outside
+		{"func main() {\n\tdefer lib.g()\n\tvar fs []func()\n\tfor i := 0; i < 2; i++ {\n\t\tvar a std.vector[int]\n\t\tp := &a\n\t\tfs = append(fs, func() { _ = p })\n\t}\n}\n",
+			[]string{"gp::ptr<::std::vector<int64_t>> a = gp::cgo::new_box<::std::vector<int64_t>>(); gp_df.gp_hold(a);"}},
+		// a path from a gocpp pointer: the frame holds a copy of the pointer
+		{"type S struct{ v std.vector[int] }\n\nfunc main() {\n\ts := &S{}\n\tdefer s.v.clear()\n}\n",
+			[]string{"gp::deref(gp_a0->v).clear();", "}, gp::cgo::nonnil(s));"}},
+		// a struct with a C++ field, an array of C++ objects, and a raw pointer are boxed too
+		{"func main() {\n\tvar h H\n\tp := lib.f()\n\tf := func() { _ = h.p; _ = p }\n\tf()\n}\n",
+			[]string{"gp::ptr<H> h = gp::cgo::new_box<H>();", "auto p = gp::cgo::box("}},
+		// the loop variable of a 3-clause for gets a copy of its object for each iteration
+		{"func main() {\n\tfor i := lib.f(); i != nil; i = lib.g() {\n\t\tfn := func() { _ = i }\n\t\tfn()\n\t}\n}\n",
+			[]string{"gp::cgo::renew(i);"}},
+		// a func value result that the closure doesn't touch stays as it was
+		{"func main() {\n\tv := std.vector[int]{}\n\tw := std.vector[int]{}\n\tfn := func() { _ = v }\n\tfn()\n\t_ = w\n}\n",
+			[]string{"auto v = gp::cgo::box(", "auto w = ::std::vector<int64_t>{};"}},
+		// results: a slot for a C++ result that has no name in a function with defers; a moved local
+		{"func mk() (lib.Widget, int) {\n\tdefer func() {}()\n\tw := lib.make()\n\treturn w, 1\n}\n\nfunc main() { mk() }\n",
+			[]string{"gp::result_slot<::Widget> gp_r0;", "gp_r0 = static_cast<decltype(w)&&>(w);", "return {gp_r0.gp_take(), gp_r1};"}},
+		{"func two() (std.unique_ptr[C.int], std.unique_ptr[C.int]) {\n\ta, b := std.make_unique[C.int](1), std.make_unique[C.int](2)\n\treturn a, b\n}\n\nfunc main() { two() }\n",
+			[]string{"return {static_cast<decltype(a)&&>(a), static_cast<decltype(b)&&>(b)};"}},
+		{"func two() (std.unique_ptr[C.int], std.unique_ptr[C.int]) {\n\ta := std.make_unique[C.int](1)\n\tfn := func() { _ = a }\n\tfn()\n\treturn a, nil\n}\n\nfunc main() { two() }\n",
+			[]string{"gp::cgo::result_of(*a)"}},
+	}
+	for _, tt := range works {
+		cpp, err := lower(tt.src)
+		if err != nil {
+			t.Errorf("%s:\n%v", tt.src, err)
+			continue
+		}
+		for _, want := range tt.want {
+			if !strings.Contains(cpp, want) {
+				t.Errorf("%s: no %q in the C++:\n%s", tt.src, want, cpp)
+			}
+		}
+	}
+	fails := []struct{ src, want string }{
+		{"func main() {\n\tv := std.vector[int]{}\n\tdefer v[0].clear()\n}\n",
+			"cannot defer a call whose object is v[0]: Go evaluates it when the defer statement runs, and a deferred C++ call can only keep a variable's object or a temporary: use a func literal, defer func() { ... }()"},
+		{"func main() {\n\tfor i := C.int(0); i < 3; i++ {\n\t\tlib.f(&i)\n\t}\n}\n",
+			"& of the variable of a 3-clause for loop (i): Go gives each iteration its own variable, and a C/C++ address can't keep it alive: copy it into a variable of the body, j := i, and take &j"},
+		{"func main() {\n\tfn := func(x C.int) {}\n\t_ = fn\n}\n", "not supported yet: func literals with C/C++ parameters or results (step 4.11)"},
+	}
+	for _, tt := range fails {
+		_, err := lower(tt.src)
+		var e *Error
+		if !errors.As(err, &e) || !strings.HasSuffix(e.Msg, tt.want) {
+			t.Errorf("%s:\n got %v\nwant %s", tt.src, err, tt.want)
+		}
 	}
 }
 
@@ -854,6 +940,28 @@ func main() {
 	} {
 		if !strings.Contains(cpp, want) {
 			t.Errorf("no %q in the C++:\n%s", want, cpp)
+		}
+	}
+}
+
+// TestRootIdentOf checks the helper that addrHeld reads the operand of & with (cbox.go): the
+// variable that &a[1], &h.c, &x[i].f and &(*p).f start at, which step 4.10's wider cAddr gives it.
+func TestRootIdentOf(t *testing.T) {
+	tests := []struct{ src, want string }{
+		{"a", "a"}, {"(a)", "a"}, {"a[1]", "a"}, {"h.c", "h"}, {"x[i].f", "x"}, {"(*p).f", "p"},
+		{"a.b.c[2].d", "a"}, {"*p", "p"}, {"f().x", ""}, {"f()[0]", ""}, {"T{}.x", ""},
+	}
+	for _, tt := range tests {
+		e, err := parser.ParseExpr(tt.src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := ""
+		if id := rootIdentOf(e); id != nil {
+			got = id.Name
+		}
+		if got != tt.want {
+			t.Errorf("rootIdentOf(%s) = %q, want %q", tt.src, got, tt.want)
 		}
 	}
 }

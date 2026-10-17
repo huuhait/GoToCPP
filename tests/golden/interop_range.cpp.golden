@@ -39,9 +39,9 @@ void main() {
     }
     auto gp_t2 = gp::values(::std::minmax(3, 1));
 #line 30 "$ROOT/tests/golden/interop_range.gp"
-    auto lo = std::get<0>(gp_t2);
+    auto lo = std::get<0>(static_cast<decltype(gp_t2)&&>(gp_t2));
 #line 30 "$ROOT/tests/golden/interop_range.gp"
-    auto hi = std::get<1>(gp_t2);
+    auto hi = std::get<1>(static_cast<decltype(gp_t2)&&>(gp_t2));
     sum = sum + (gp::cgo::as<int64_t>(lo) + gp::cgo::as<int64_t>(hi));
     gp::println(sum);
 }

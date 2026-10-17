@@ -78,6 +78,9 @@ func (fg *funcGen) addr(e *ast.UnaryExpr) cppir.Expr {
 		if largeVar(t) {
 			return largeBox(fg.g.litPartType(x, t, nil), fg.expr(x))
 		}
+		if _, isStruct := under(t).(*types.Struct); isStruct && cObject(t) {
+			return cBox(fg.g.litPartType(x, t, nil), fg.expr(x)) // built in place (cbox.go)
+		}
 		return newBox(fg.g.litPartType(x, t, nil), fg.expr(x))
 	case *ast.SelectorExpr:
 		return fg.addrOf(x) // a field: arrays.go and structs.go

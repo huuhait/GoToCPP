@@ -92,9 +92,24 @@ void defer_frame::gp_run() {
         marks};
     marks = &mark;
     finally unmark{[&mark] { marks = mark.gp_next; }};
+    // The holds (gp_hold) are set aside as they come off the stack and released after the last
+    // call, however early or late they were registered.
+    gp_node* held = nullptr;
+    finally unhold{[this, &held] {
+        while (held != nullptr) {
+            gp_node* h = held;
+            held = h->gp_next;
+            gp_release(h);
+        }
+    }};
     while (gp_top != nullptr) {
         gp_node* n = gp_top;
         gp_top = n->gp_next;
+        if (n->gp_op == &gp_hold_op) {
+            n->gp_next = held;
+            held = n;
+            continue;
+        }
         mark.gp_panic = gp_pending_panic;
         // The node goes when its call ends, also when an exception that is not a Go panic
         // leaves gp_run.

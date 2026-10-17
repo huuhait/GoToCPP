@@ -53,6 +53,19 @@ var rejectCases = []struct {
 	{"string-from-pointer", "void g(const gp::string&);\nvoid f(const char* p) {\n\tg(p); // bad\n}\n", ""},
 	// A gocpp string still converts only to std::string_view: f(std::string) + f(const char*)
 	// doesn't take it.
+	// Boxes of C++ objects and result slots (Phase 04 step 4.8): a zero value needs a default
+	// constructor, a loop variable that a closure keeps is copied for each iteration, a defer copies
+	// its arguments, and a result variable needs a type that can be moved.
+	{"box-default", "struct W { explicit W(int); };\nvoid f() {\n\tauto b = gp::cgo::new_box<W>(); // bad\n\t(void)b;\n}\n",
+		"needs a C++ type with a default constructor"},
+	{"renew-move-only", "#include <memory>\nvoid f(gp::ptr<std::unique_ptr<int>> p) {\n\tgp::cgo::renew(p); // bad\n}\n",
+		"needs a copy of it for each iteration"},
+	{"defer-arg-move-only", "#include <memory>\nvoid f(std::unique_ptr<int>& u) {\n\tauto x = gp::cgo::defer_arg(u); // bad\n\t(void)x;\n}\n",
+		"defer copies the arguments of the deferred call"},
+	{"defer-arg-pinned", "struct P { explicit P(int); P(const P&) = delete; };\nvoid f() {\n\tauto&& x = gp::cgo::defer_arg(P(1)); // bad\n\t(void)x;\n}\n",
+		"can be neither moved nor copied"},
+	{"result-pinned", "struct P { explicit P(int); P(const P&) = delete; };\nvoid f() {\n\tgp::result_slot<P> s;\n\ts = P(1); // bad\n}\n",
+		"can't be moved or copied"},
 	{"string-to-overloads", "#include <string>\nvoid h(std::string);\nvoid h(const char*);\nvoid f(const gp::string& s) {\n\th(s); // bad\n}\n", ""},
 	// Interfaces (Phase 05, steps 5.2 and 5.3). A method table entry whose thunk has another C++
 	// type than the method's signature: C types are all invalid for go/types, so `Get() C.int`
@@ -123,6 +136,38 @@ void g(const CA& a, const gp::type_desc* td) {
 	(void)gp::unbox<gp::ptr<int64_t>>(b);
 	(void)gp::unbox<int64_t>(b);
 	(void)gp::icall<double()>(b, 0);
+}
+
+// The forms of step 4.8 that work: a box of a movable object, of one that can only be built in
+// place, a renewed box, the value of a defer argument, and slots of each storage.
+struct Pinned {
+	explicit Pinned(int) {}
+	Pinned(const Pinned&) = delete;
+};
+Pinned make_pinned() { return Pinned(1); }
+struct NoDefault {
+	explicit NoDefault(int) {}
+};
+void boxes(std::string& s, std::vector<int>& vs) {
+	auto a = gp::cgo::box([&] { return Pinned(2); });
+	auto b = gp::cgo::box([&] { return make_pinned(); });
+	auto c = gp::cgo::box_as<std::vector<int>>([&]() -> std::vector<int> { return vs; });
+	gp::ptr<int64_t> n = gp::cgo::new_box<int64_t>();
+	gp::cgo::renew(c);
+	(void)gp::cgo::defer_arg(s);
+	(void)gp::cgo::defer_arg(std::string("x"));
+	gp::result_slot<int64_t> r1;
+	gp::result_slot<NoDefault> r2;
+	gp::result_slot<std::string&> r3;
+	r1 = 1;
+	r2 = NoDefault(1);
+	r3 = s;
+	(void)r1.gp_take();
+	(void)r2.gp_take();
+	(void)r3.gp_take();
+	(void)a;
+	(void)b;
+	(void)n;
 }
 `
 

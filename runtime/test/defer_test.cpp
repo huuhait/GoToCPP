@@ -8,9 +8,12 @@
 #include <gocpp/rt.hpp>
 #include <gocpp/os.hpp>
 
+#include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -444,7 +447,96 @@ void test_repanicked() {
     CHECK_EQ(three(pa, pa, pa), once("A"));
 }
 
+// gp_hold keeps an owner until every deferred call ran, also those registered before the hold, and
+// also when a panic runs them.
+struct Tracer {
+    std::vector<std::string>* log;
+    std::string name;
+    Tracer(std::vector<std::string>* l, std::string n) : log(l), name(std::move(n)) {}
+    Tracer(const Tracer& o) : log(o.log), name(o.name) {}
+    ~Tracer() {
+        if (log != nullptr && !name.empty()) {
+            log->push_back("end " + name);
+        }
+    }
+};
+
+void test_hold() {
+    std::vector<std::string> log;
+    {
+        gp::defer_frame df;
+        df.gp_push_call([&log] { log.push_back("first defer"); });
+        auto box = std::make_shared<Tracer>(&log, "box");
+        df.gp_hold(box);
+        box.reset(); // the frame is the only holder now
+        df.gp_push_call([&log] { log.push_back("second defer"); });
+        CHECK(log.empty());
+        df.gp_run();
+        CHECK(log.size() == 3);
+    }
+    CHECK(log.size() == 3);
+    CHECK_EQ(log[0], "second defer");
+    CHECK_EQ(log[1], "first defer");
+    CHECK_EQ(log[2], "end box"); // after the defer that was registered before the hold
+
+    // A panic: the deferred calls run, then the hold goes, then the panic goes on.
+    log.clear();
+    bool caught = false;
+    try {
+        gp::defer_frame df;
+        try {
+            df.gp_push_call([&log] { log.push_back("defer"); });
+            df.gp_hold(std::make_shared<Tracer>(&log, "held"));
+            gp::panic_constant("boom"_gs);
+        } catch (gp::panic_error& e) {
+            df.gp_on_panic(e);
+        }
+        df.gp_run();
+    } catch (gp::panic_error&) {
+        caught = true;
+    }
+    CHECK(caught);
+    CHECK(log.size() == 2);
+    CHECK_EQ(log[0], "defer");
+    CHECK_EQ(log[1], "end held");
+
+    // Not run at all (an exception that is not a Go panic): the frame frees the hold.
+    log.clear();
+    try {
+        gp::defer_frame df;
+        df.gp_hold(std::make_shared<Tracer>(&log, "dropped"));
+        throw std::runtime_error("x");
+    } catch (const std::runtime_error&) {
+    }
+    CHECK(log.size() == 1);
+}
+
+// Holds cost O(1) each: n of them take about n times as long as one, not n squared (a loop in a
+// function with a defer that stores the address of a local in each iteration makes n holds).
+double hold_seconds(int n) {
+    auto t0 = std::chrono::steady_clock::now();
+    {
+        gp::defer_frame df;
+        for (int i = 0; i < n; i++) {
+            df.gp_hold(std::make_shared<int>(i));
+        }
+        df.gp_run();
+    }
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+}
+
+void test_hold_scales() {
+    double best = 1e9;
+    for (int attempt = 0; attempt < 5 && best >= 8; attempt++) {
+        double small = hold_seconds(20000), large = hold_seconds(80000);
+        best = std::min(best, large / std::max(small, 1e-6));
+    }
+    CHECK(best < 8); // 4 times the holds: about 4 times as long (quadratic would be 16)
+}
+
 void run_tests() {
+    test_hold_scales();
+    test_hold();
     test_order();
     test_arguments();
     test_panics();

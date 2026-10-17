@@ -527,6 +527,7 @@ func runInterop(t *testing.T, bin string, asan bool) {
 		{"bytes-neg", "panic: runtime error: gobytes: length out of range\n\ngoroutine 1 [running]:\n"},
 		{"bytes-nil", nilPanic + nilSignal + "\n\ngoroutine 1 [running]:\n"},
 		{"deref-nil", nilPanic + nilSignal + "\n\ngoroutine 1 [running]:\n"},
+		{"slot-unset", "fatal error: a result of a type without a default constructor was never set\n\ngoroutine 1 [running]:\n"},
 	} {
 		out, _, code, err := command(filepath.Dir(bin), nil, true, bin, tc.name)
 		if err != nil {

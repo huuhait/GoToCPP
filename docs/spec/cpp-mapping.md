@@ -1078,6 +1078,10 @@ gp::func<int64_t()> counter(int64_t step) {
   does gocpp make a new box per iteration, with the post statement applied to the new one.
 - A closure in a package variable's initializer is lowered in `gp_var_init`, with the same
   boxing analysis.
+- A local that holds a C/C++ object (Phase 04) and that a closure uses is always boxed, whether
+  or not the closure assigns it, because a member call or a C++ function can change the object
+  without an assignment: `auto v = gp::cgo::box([&] { return ::std::vector<int64_t>{}; });`, and the
+  closure copies the box ([interop.md](interop.md#cc-objects-in-closures-and-defer)).
 - A named func type (`type Handler func(int)`) is a `gp::newtype` over its `gp::func`, so it is
   called, compared with nil and passed like one; a func literal passed as a `Handler` is converted
   explicitly (`Handler(gp::func<void(int64_t)>(...))`), as Go converts it implicitly.
@@ -1169,7 +1173,13 @@ int64_t load(int64_t n) {
   on (the C++ stack doesn't grow, as for large values:
   [D24](language.md#d24-large-values-on-the-c-stack)).
 - **C++ destructors** of the body's locals run when their block ends, so before the deferred
-  calls. That only matters for C/C++ objects (Phase 04).
+  calls. That only matters for C/C++ objects (Phase 04): a C/C++ local that a deferred call is made
+  on (`defer v.clear()`) is boxed, and the frame keeps the box
+  ([interop.md](interop.md#cc-objects-in-closures-and-defer)).
+- **Results of C/C++ types** (Phase 04): an unnamed result of a C/C++ type is a
+  `gp::result_slot<R>` instead of `R gp_r0{};` (a class with no default constructor, a move-only
+  class and a reference work there), a local that is returned is moved into it, and the exit returns
+  `gp_r0.gp_take()` ([interop.md](interop.md#types-that-cant-be-copied)).
 - `-nochecks` doesn't change any of this. `recover()` is Phase 05 work, and `os.Exit` (Phase 09)
   ends the program without running the deferred calls, as in Go.
 
