@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/constant"
@@ -111,6 +112,9 @@ type query struct {
 	// positions have exact offsets (the others are from export data:
 	// file and line only).
 	exact map[string]bool
+	// tests is the check with the test files that the query is in, for the
+	// document of a _test.gp file (newRefQuery); pkg is nil then.
+	tests *cache.TestCheck
 }
 
 // newQuery returns the query of the place at in the document uri, or nil
@@ -125,6 +129,9 @@ func newQuery(ctx context.Context, snap *cache.Snapshot, uri protocol.DocumentUR
 		return nil, nil
 	}
 	pkg, err := snap.PackageOf(ctx, uri)
+	if errors.Is(err, cache.ErrNoPackage) {
+		return nil, nil // a folder that has no package: nothing to answer from
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -217,6 +224,16 @@ func identAt(f *ast.File, pos token.Pos) (*ast.Ident, []ast.Node) {
 				id, path = x, slices.Clone(stack)
 			}
 			return false
+		}
+		if x, ok := n.(*ast.Ident); ok && hidden != "" && len(stack) > 0 {
+			// The Cmp and As of check's rewrites of C/C++ comparisons and
+			// conversions (gp_cgoh.Cmp(x == y)) take the place of the
+			// operand: the name there is the operand's.
+			if sel, ok := stack[len(stack)-1].(*ast.SelectorExpr); ok && sel.Sel == x && !check.IsHelperSelector(sel) {
+				if root, ok := sel.X.(*ast.Ident); ok && root.Name == hidden {
+					return false
+				}
+			}
 		}
 		if x, ok := n.(*ast.Ident); ok {
 			if pos < x.End() {

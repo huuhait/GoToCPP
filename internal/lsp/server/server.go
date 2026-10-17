@@ -16,7 +16,12 @@
 // workspace/didChangeWatchedFiles for the files that change on disk),
 // hover, go to definition and signature help (step 11.5, navigation.go),
 // completion (step 11.6, completion.go), and formatting and organize
-// imports (step 11.7, format.go). The others come with the next steps.
+// imports (step 11.7, format.go), and references, document highlights and
+// rename (step 11.8, refs.go and rename.go), and document and workspace
+// symbols (step 11.8, symbols.go), and semantic tokens (semantic.go), inlay
+// hints (hints.go), document links (links.go) and the quick fix "Add import"
+// (actions.go) (step 11.9). The features for ! and macros come with step
+// 11.13.
 package server
 
 import (
@@ -126,8 +131,17 @@ type Server struct {
 	// (see method); tests add their own before Serve.
 	requests     map[string]method
 	shutdownWait time.Duration
-	nav          navigation // hover, definition, signature help (navigation.go)
-	comp         completion // completion (completion.go)
+	nav          navigation    // hover, definition, signature help (navigation.go)
+	comp         completion    // completion (completion.go)
+	refactor     refactor      // references and rename (refs.go, rename.go)
+	symbols      symbolFeature // document and workspace symbols (symbols.go)
+	modsMu       sync.Mutex
+	mods         struct {
+		gen  uint64
+		key  string
+		dirs []string
+	} // the modules under the workspace folders (family.go)
+	modsTold map[string]bool
 
 	mu        sync.Mutex
 	lifecycle lifecycle
@@ -194,6 +208,12 @@ func newServer(logger *log.Logger, cfg cache.Config, clock debounce.Clock) *Serv
 		stale:        make(map[protocol.DocumentURI]map[protocol.ID]*staleToken),
 	}
 	s.addNavigation()
+	s.addRefactor()
+	s.addSymbols()
+	s.addSemantic()
+	s.addHints()
+	s.addLinks()
+	s.requests["textDocument/codeAction"] = method{run: s.codeActions, contentModified: true}
 	for name, m := range formatMethods {
 		s.requests[name] = m
 	}
@@ -418,6 +438,11 @@ func (s *Server) initialize(params json.RawMessage) (any, error) {
 		ServerInfo: &protocol.ServerInfo{Name: "gocpp", Version: version.Version},
 	}
 	s.nav.initialize(p.Capabilities, &res.Capabilities)
+	s.refactor.initialize(p.Capabilities, &res.Capabilities)
+	s.symbols.initialize(&p, &res.Capabilities)
+	semanticCapabilities(&res.Capabilities)
+	hintCapabilities(&res.Capabilities)
+	linkCapabilities(&res.Capabilities)
 	formatCapabilities(&res.Capabilities, &p.Capabilities)
 	s.comp.initialize(p.Capabilities, &res.Capabilities, s.nav.hoverMarkdown.Load())
 	return res, nil
@@ -432,6 +457,7 @@ var watchedFiles = []string{"**/*.gp", "**/gocpp.mod", "**/*.{h,hh,hpp,hxx,inc}"
 // initialized registers workspace/didChangeWatchedFiles when the client can
 // (like gopls; a client without dynamic registration may send it anyway).
 func (s *Server) initialized(context.Context, json.RawMessage) error {
+	s.warmSymbols() // the index of the workspace, in the background
 	s.mu.Lock()
 	watch := s.watchFiles
 	s.mu.Unlock()
@@ -514,6 +540,7 @@ func (s *Server) didOpen(_ context.Context, params json.RawMessage) error {
 	if path := uri.Path(); path != "" {
 		s.comp.index.warm(filepath.Dir(path)) // the packages to import (autoimport.go)
 	}
+	s.warmSymbols()
 	return nil
 }
 
@@ -612,6 +639,7 @@ func (s *Server) didChangeWatchedFiles(_ context.Context, params json.RawMessage
 		return err
 	}
 	s.comp.index.changed(p.Changes) // a package may be new, or gone
+	s.symbols.forget(p.Changes)
 	var uris []protocol.DocumentURI
 	dirs := make(map[string]bool)
 	headers, all := false, false

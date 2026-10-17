@@ -36,6 +36,11 @@ type client struct {
 
 	pubMu     sync.Mutex
 	publishes []*publish
+
+	// skipShown: call skips the window/showMessage notifications that come
+	// before an answer and keeps them in shown (the features that warn).
+	skipShown bool
+	shown     []protocol.ShowMessageParams
 }
 
 // A publish is one textDocument/publishDiagnostics.
@@ -156,11 +161,30 @@ func (c *client) call(method, params string) *protocol.Response {
 		c.send(fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":%q,"params":%s}`, c.id, method, params))
 	}
 	m := c.read()
+	for c.skipShown {
+		req, ok := m.(*protocol.Request)
+		if !ok || !req.IsNotification() || req.Method != "window/showMessage" {
+			break
+		}
+		var p protocol.ShowMessageParams
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			c.t.Fatal(err)
+		}
+		c.shown = append(c.shown, p)
+		m = c.read()
+	}
 	resp, ok := m.(*protocol.Response)
 	if !ok || resp.ID == nil || *resp.ID != protocol.IntID(int64(c.id)) {
 		c.t.Fatalf("%s: got %+v, want the response to request %d", method, m, c.id)
 	}
 	return resp
+}
+
+// takeShown returns the messages that call skipped, and forgets them.
+func (c *client) takeShown() []protocol.ShowMessageParams {
+	s := c.shown
+	c.shown = nil
+	return s
 }
 
 // readNotification reads the next message, which must be a notification
@@ -284,7 +308,7 @@ const initParams = `{"processId":123,"clientInfo":{"name":"test","version":"1.0"
 // The whole answer to initialize: the server offers the text sync and the
 // features so far (a client without code action literals gets no list of
 // code action kinds).
-var initResult = `{"capabilities":{"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":2,"save":{}},"completionProvider":{"triggerCharacters":["."],"resolveProvider":true},"hoverProvider":true,"signatureHelpProvider":{"triggerCharacters":["(",","]},"definitionProvider":true,"typeDefinitionProvider":true,"codeActionProvider":true,"documentFormattingProvider":true},"serverInfo":{"name":"gocpp","version":` + strconv.Quote(version.Version) + `}}`
+var initResult = `{"capabilities":{"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":2,"save":{}},"completionProvider":{"triggerCharacters":["."],"resolveProvider":true},"hoverProvider":true,"signatureHelpProvider":{"triggerCharacters":["(",","]},"definitionProvider":true,"typeDefinitionProvider":true,"referencesProvider":true,"documentHighlightProvider":true,"documentSymbolProvider":true,"codeActionProvider":true,"documentLinkProvider":{},"workspaceSymbolProvider":true,"documentFormattingProvider":true,"renameProvider":true,"semanticTokensProvider":{"legend":{"tokenTypes":["namespace","type","struct","interface","typeParameter","parameter","variable","property","function","method","cppHeader","cppNamespace","cppName"],"tokenModifiers":["declaration","readonly","defaultLibrary","modification"]},"range":true,"full":true},"inlayHintProvider":{}},"serverInfo":{"name":"gocpp","version":` + strconv.Quote(version.Version) + `}}`
 
 func TestLifecycle(t *testing.T) {
 	c := start(t)

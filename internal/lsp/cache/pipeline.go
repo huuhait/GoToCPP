@@ -151,6 +151,7 @@ type Pipeline struct {
 
 	stats struct {
 		parses, metadata, checks         atomic.Int64
+		testChecks                       atomic.Int64
 		diskHits, diskMisses, diskWrites atomic.Int64
 	}
 }
@@ -304,6 +305,9 @@ type state struct {
 	dirs     map[string]*dirHandle
 	mods     map[string]*fileHandle // the gocpp.mod file of each folder, or nil
 	handles  map[pkgID]*handle
+	// tests holds the checks with test files by folder (CheckTests), made
+	// when asked for.
+	tests map[string]*memoize.Promise[*TestCheck]
 }
 
 // Clone implements State: the files, folders and packages that the changed

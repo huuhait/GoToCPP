@@ -102,3 +102,24 @@ test('format on save and organize imports on save, like the Go extension', () =>
 test('breakpoints can be set in gocpp files', () => {
 	assert.deepStrictEqual(pkg.contributes.breakpoints, [{ language: 'gocpp' }]);
 });
+
+test('the semantic token types of the server have colors: the C/C++ types are declared and mapped', () => {
+	// The server's legend (internal/lsp/server/semantic.go) has the C/C++
+	// types cppHeader, cppNamespace and cppName; a client that does not know
+	// a type ignores it, so the extension declares them and maps them to
+	// scopes, which the color theme colors.
+	const legend = fs.readFileSync(path.join(dir, '..', '..', 'internal', 'lsp', 'server', 'semantic.go'), 'utf8');
+	const declared = pkg.contributes.semanticTokenTypes.map((t) => t.id).sort();
+	assert.deepStrictEqual(declared, ['cppHeader', 'cppName', 'cppNamespace']);
+	for (const t of pkg.contributes.semanticTokenTypes) {
+		assert.ok(legend.includes(`"${t.id}"`), `${t.id} is not in the legend of the server`);
+		assert.ok(t.superType && t.description, `${t.id} has no superType or description`);
+	}
+	const scopes = pkg.contributes.semanticTokenScopes;
+	assert.strictEqual(scopes.length, 1);
+	assert.strictEqual(scopes[0].language, 'gocpp');
+	assert.deepStrictEqual(Object.keys(scopes[0].scopes).sort(), declared);
+	for (const [type, list] of Object.entries(scopes[0].scopes)) {
+		assert.ok(list.length > 0 && list.every((s) => s.endsWith('.gocpp')), `${type}: the scopes ${list}`);
+	}
+});

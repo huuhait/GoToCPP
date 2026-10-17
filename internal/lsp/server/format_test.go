@@ -422,7 +422,7 @@ func TestFormatCapabilities(t *testing.T) {
 	if resp.Error != nil || json.Unmarshal(resp.Result, &res) != nil {
 		t.Fatalf("got %s (%+v)", resp.Result, resp.Error)
 	}
-	if !res.Capabilities.DocumentFormattingProvider || string(res.Capabilities.CodeActionProvider) != `{"codeActionKinds":["source.organizeImports"]}` {
+	if !res.Capabilities.DocumentFormattingProvider || string(res.Capabilities.CodeActionProvider) != `{"codeActionKinds":["quickfix","source.organizeImports"]}` {
 		t.Errorf("got %s", resp.Result)
 	}
 }

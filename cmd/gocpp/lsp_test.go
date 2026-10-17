@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -128,7 +129,7 @@ func (p *lspProcess) wait() int {
 
 var (
 	lspInitialize = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":null,"clientInfo":{"name":"lsp_test"},"rootUri":null,"capabilities":{}}}`
-	lspInitResult = `{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":2,"save":{}},"completionProvider":{"triggerCharacters":["."],"resolveProvider":true},"hoverProvider":true,"signatureHelpProvider":{"triggerCharacters":["(",","]},"definitionProvider":true,"typeDefinitionProvider":true,"codeActionProvider":true,"documentFormattingProvider":true},"serverInfo":{"name":"gocpp","version":` + strconv.Quote(version.Version) + `}}}`
+	lspInitResult = `{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":2,"save":{}},"completionProvider":{"triggerCharacters":["."],"resolveProvider":true},"hoverProvider":true,"signatureHelpProvider":{"triggerCharacters":["(",","]},"definitionProvider":true,"typeDefinitionProvider":true,"referencesProvider":true,"documentHighlightProvider":true,"documentSymbolProvider":true,"codeActionProvider":true,"documentLinkProvider":{},"workspaceSymbolProvider":true,"documentFormattingProvider":true,"renameProvider":true,"semanticTokensProvider":{"legend":{"tokenTypes":["namespace","type","struct","interface","typeParameter","parameter","variable","property","function","method","cppHeader","cppNamespace","cppName"],"tokenModifiers":["declaration","readonly","defaultLibrary","modification"]},"range":true,"full":true},"inlayHintProvider":{}},"serverInfo":{"name":"gocpp","version":` + strconv.Quote(version.Version) + `}}}`
 	lspShutdown   = `{"jsonrpc":"2.0","id":2,"method":"shutdown"}`
 	lspExit       = `{"jsonrpc":"2.0","method":"exit"}`
 )
@@ -296,4 +297,169 @@ func TestLSPInProcess(t *testing.T) {
 	if !slices.Equal(bodies, want) {
 		t.Errorf("stdout has\n%s\nwant\n%s", strings.Join(bodies, "\n"), strings.Join(want, "\n"))
 	}
+}
+
+// lspTree writes a module for TestLSPFeatures and returns its folder.
+func lspTree(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	files := map[string]string{
+		"gocpp.mod":    "module example.com/e2e\n",
+		"lib/lib.gp":   "package lib\n\n// Add adds.\nfunc Add(a, b int) int { return a + b }\n\ntype Shape interface{ Area() int }\n\ntype Sq struct{ S int }\n\nfunc (s Sq) Area() int { return s.S * s.S }\n",
+		"main/main.gp": "package main\n\nimport (\n\t\"fmt\"\n\n\t\"example.com/e2e/lib\"\n\t_ \"./local.h\"\n)\n\nfunc main() {\n\ttotal := lib.Add(1, 2)\n\tvar sh lib.Shape = lib.Sq{S: total}\n\tfmt.Println(total, sh.Area(), strings.ToUpper(\"x\"))\n}\n",
+		"main/local.h": "int f(void);\n",
+	}
+	for name, text := range files {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+// lspCall sends a request and returns the result of its answer (the next
+// message that is not a diagnostic), failing on an error answer.
+func (p *lspProcess) call(id int, method, params string) json.RawMessage {
+	p.t.Helper()
+	p.send(fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":%q,"params":%s}`, id, method, params))
+	var resp struct {
+		ID     int             `json:"id"`
+		Result json.RawMessage `json:"result"`
+		Error  *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	body := p.read()
+	for strings.Contains(body, `"method":"window/showMessage"`) {
+		body = p.read() // a message to the user (the rename says what else it changed)
+	}
+	if err := json.Unmarshal([]byte(body), &resp); err != nil || resp.ID != id {
+		p.t.Fatalf("%s: got %s, want the answer to request %d", method, body, id)
+	}
+	if resp.Error != nil {
+		p.t.Fatalf("%s: error %s", method, resp.Error.Message)
+	}
+	return resp.Result
+}
+
+// TestLSPFeatures runs the features of steps 11.8 and 11.9 through the real
+// process, on files on disk: references and rename across two packages,
+// symbols, semantic tokens, inlay hints, document links and the quick fix for a
+// missing import.
+func TestLSPFeatures(t *testing.T) {
+	t.Setenv("GOCPP_LSP_CACHE", "off")
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	// No C++ compiler: the header import of the fixture starts no probe. (A
+	// probe that the server's exit kills leaves the compiler wrapper's
+	// temporary files in TMPDIR, which TestMain checks for.) The link to the
+	// header file does not need the compiler: it is a local header.
+	t.Setenv("GOCPP_CXX", filepath.Join(t.TempDir(), "no-such-c++"))
+	root := lspTree(t)
+	uri := func(name string) string {
+		return string(protocol.URIFromPath(filepath.Join(root, filepath.FromSlash(name))))
+	}
+	p := startLSP(t)
+	p.send(fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":null,"rootUri":%q,"workspaceFolders":[{"uri":%q,"name":"e2e"}],"capabilities":{"workspace":{"workspaceEdit":{"documentChanges":true}},"textDocument":{"rename":{"prepareSupport":true},"documentSymbol":{"hierarchicalDocumentSymbolSupport":true}}}}}`, uri(""), uri("")))
+	if got := p.read(); !strings.Contains(got, `"renameProvider":{"prepareProvider":true}`) || !strings.Contains(got, `"semanticTokensProvider"`) {
+		t.Fatalf("initialize: %s", got)
+	}
+	p.send(`{"jsonrpc":"2.0","method":"initialized","params":{}}`)
+	mainSrc, _ := os.ReadFile(filepath.Join(root, "main", "main.gp"))
+	text, _ := json.Marshal(string(mainSrc))
+	p.send(fmt.Sprintf(`{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":%q,"languageId":"gocpp","version":3,"text":%s}}}`, uri("main/main.gp"), text))
+	pos := func(src, mark string) string {
+		i := strings.Index(src, mark)
+		if i < 0 {
+			t.Fatalf("%q is not in the file", mark)
+		}
+		line := strings.Count(src[:i], "\n")
+		col := len(src[strings.LastIndex(src[:i], "\n")+1 : i])
+		return fmt.Sprintf(`{"line":%d,"character":%d}`, line, col)
+	}
+	main := string(mainSrc)
+
+	// References of lib.Add, from the use in main, with the declaration.
+	var locs []protocol.Location
+	res := p.call(2, "textDocument/references", fmt.Sprintf(`{"textDocument":{"uri":%q},"position":%s,"context":{"includeDeclaration":true}}`, uri("main/main.gp"), shift(pos(main, "Add(1, 2)"), 1)))
+	if err := json.Unmarshal(res, &locs); err != nil || len(locs) != 2 {
+		t.Fatalf("references of Add: %s (%v)", res, err)
+	}
+	if locs[0].URI != protocol.DocumentURI(uri("lib/lib.gp")) || locs[1].URI != protocol.DocumentURI(uri("main/main.gp")) {
+		t.Errorf("references of Add: %+v", locs)
+	}
+
+	// Rename of the method Area: its interface's method and the call change
+	// with it, in versioned edits (the open file has its version 3).
+	res = p.call(3, "textDocument/rename", fmt.Sprintf(`{"textDocument":{"uri":%q},"position":%s,"newName":"Size"}`, uri("main/main.gp"), shift(pos(main, "Area(),"), 1)))
+	var we protocol.WorkspaceEdit
+	if err := json.Unmarshal(res, &we); err != nil || len(we.DocumentChanges) != 2 {
+		t.Fatalf("rename of Area: %s (%v)", res, err)
+	}
+	versions := map[string]int32{}
+	n := 0
+	for _, dc := range we.DocumentChanges {
+		versions[filepath.Base(dc.TextDocumentEdit.TextDocument.URI.Path())] = dc.TextDocumentEdit.TextDocument.Version
+		n += len(dc.TextDocumentEdit.Edits)
+	}
+	if versions["main.gp"] != 3 || versions["lib.gp"] != 0 || n != 3 {
+		t.Errorf("rename of Area: versions %v, %d edits, want main.gp at 3, lib.gp at 0 and 3 edits", versions, n)
+	}
+	// A refused rename is an error with a message.
+	p.send(fmt.Sprintf(`{"jsonrpc":"2.0","id":4,"method":"textDocument/rename","params":{"textDocument":{"uri":%q},"position":%s,"newName":"x"}}`, uri("main/main.gp"), shift(pos(main, "Println"), 1)))
+	if got := p.read(); !strings.Contains(got, `"error"`) || !strings.Contains(got, "standard library") {
+		t.Errorf("rename of Println: %s", got)
+	}
+
+	// Symbols of a file and of the workspace.
+	var syms []protocol.DocumentSymbol
+	if err := json.Unmarshal(p.call(5, "textDocument/documentSymbol", fmt.Sprintf(`{"textDocument":{"uri":%q}}`, uri("lib/lib.gp"))), &syms); err != nil || len(syms) != 4 || syms[0].Name != "Add" || syms[2].Name != "Sq" || len(syms[2].Children) != 1 {
+		t.Errorf("document symbols: %+v (%v)", syms, err)
+	}
+	var wsyms []protocol.SymbolInformation
+	if err := json.Unmarshal(p.call(6, "workspace/symbol", `{"query":"area"}`), &wsyms); err != nil || len(wsyms) != 2 {
+		t.Errorf("workspace symbols for area: %+v (%v)", wsyms, err)
+	}
+
+	// Semantic tokens, inlay hints, links.
+	var toks protocol.SemanticTokens
+	if err := json.Unmarshal(p.call(7, "textDocument/semanticTokens/full", fmt.Sprintf(`{"textDocument":{"uri":%q}}`, uri("main/main.gp"))), &toks); err != nil || len(toks.Data) == 0 || len(toks.Data)%5 != 0 {
+		t.Errorf("semantic tokens: %+v (%v)", toks, err)
+	}
+	var hints []protocol.InlayHint
+	if err := json.Unmarshal(p.call(8, "textDocument/inlayHint", fmt.Sprintf(`{"textDocument":{"uri":%q},"range":{"start":{"line":0,"character":0},"end":{"line":100,"character":0}}}`, uri("main/main.gp"))), &hints); err != nil || len(hints) < 3 {
+		t.Errorf("inlay hints: %+v (%v)", hints, err)
+	}
+	var links []protocol.DocumentLink
+	if err := json.Unmarshal(p.call(9, "textDocument/documentLink", fmt.Sprintf(`{"textDocument":{"uri":%q}}`, uri("main/main.gp"))), &links); err != nil || len(links) != 1 || links[0].Target == nil || *links[0].Target != protocol.URI(uri("main/local.h")) {
+		t.Errorf("document links: %+v (%v)", links, err)
+	}
+
+	// The quick fix for the missing import of strings.
+	start := pos(main, "strings.ToUpper")
+	var actions []protocol.CodeAction
+	res = p.call(10, "textDocument/codeAction", fmt.Sprintf(`{"textDocument":{"uri":%q},"range":{"start":%s,"end":%s},"context":{"diagnostics":[{"range":{"start":%s,"end":%s},"message":"undefined: strings"}],"only":["quickfix"]}}`,
+		uri("main/main.gp"), start, start, start, shift(start, len("strings"))))
+	if err := json.Unmarshal(res, &actions); err != nil || len(actions) != 1 || actions[0].Title != `Add import "strings"` {
+		t.Errorf("code actions: %s (%v)", res, err)
+	}
+
+	p.send(lspShutdown)
+	p.read()
+	p.send(lspExit)
+	if code := p.wait(); code != 0 {
+		t.Errorf("exit status %d; stderr:\n%s", code, p.stderr.String())
+	}
+}
+
+// shift returns the position (JSON) moved by n characters on its line.
+func shift(pos string, n int) string {
+	var p protocol.Position
+	if err := json.Unmarshal([]byte(pos), &p); err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf(`{"line":%d,"character":%d}`, p.Line, int(p.Character)+n)
 }

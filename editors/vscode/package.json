@@ -48,6 +48,39 @@
 				"path": "./syntaxes/gocpp.tmLanguage.json"
 			}
 		],
+		"semanticTokenTypes": [
+			{
+				"id": "cppHeader",
+				"superType": "namespace",
+				"description": "The name of a C/C++ header package, such as raylib in raylib.InitWindow"
+			},
+			{
+				"id": "cppNamespace",
+				"superType": "namespace",
+				"description": "A C++ namespace, such as std or fs"
+			},
+			{
+				"id": "cppName",
+				"superType": "variable",
+				"description": "A name from C/C++: after a header package or a namespace, or a member of a C/C++ value"
+			}
+		],
+		"semanticTokenScopes": [
+			{
+				"language": "gocpp",
+				"scopes": {
+					"cppHeader": [
+						"entity.name.type.module.header.gocpp"
+					],
+					"cppNamespace": [
+						"entity.name.namespace.cpp.gocpp"
+					],
+					"cppName": [
+						"support.function.cpp.gocpp"
+					]
+				}
+			}
+		],
 		"breakpoints": [
 			{
 				"language": "gocpp"

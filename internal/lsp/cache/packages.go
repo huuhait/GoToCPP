@@ -368,6 +368,10 @@ func (s *state) fileOrStd(path string) (*fileHandle, error) {
 
 var errNoPipeline = errors.New("cache: the session has no pipeline")
 
+// ErrNoPackage is the error of a folder that has no package to check
+// (Snapshot.Package): no .gp files that the build keeps, or nothing loaded.
+var ErrNoPackage = errors.New("no package")
+
 // handle returns the handle of the package id (stage 1). importPath is the
 // import path of a standard package. stack holds the packages whose handles
 // are being made, which import this one: an import of one of them is a
@@ -807,7 +811,7 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 	}
 	prog := load.Load(cfg, pattern)
 	if len(prog.Roots) == 0 {
-		return nil, fmt.Errorf("cache: no package in %s", dir)
+		return nil, fmt.Errorf("cache: %w in %s", ErrNoPackage, dir)
 	}
 	root := prog.Roots[0]
 	reportImportErrors(prog, root)

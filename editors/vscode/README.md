@@ -8,8 +8,10 @@ The VS Code extension for gocpp. It adds the `gocpp` language for `.gp` files:
 - the gocpp language server: it starts `gocpp lsp` when you open a `.gp` file (with
   [vscode-languageclient](https://github.com/microsoft/vscode-languageserver-node)). Today the
   server shows the errors of `gocpp check` as you type, and has hover, go to definition,
-  signature help, completion, formatting and organize imports; the features of later versions
-  of the server need no change in the extension;
+  signature help, completion, formatting and organize imports, references, rename, symbols,
+  semantic highlighting, inlay hints, links to header files and a quick fix for a missing
+  import (the list is in [docs/guides/editors.md](../../docs/guides/editors.md)); the features
+  of later versions of the server need no change in the extension;
 - format on save and organize imports on save, and tabs for indentation, in `.gp` files (the
   same defaults as the Go extension);
 - breakpoints in `.gp` files, for debugging (Phase 13).
@@ -156,6 +158,23 @@ of must:
 	]
 }
 ```
+
+**Semantic highlighting.** On top of the grammar, the server colors names by what they are
+(packages, types, parameters, fields, functions, ...). For C/C++ names it has three token
+types, which the extension declares (`semanticTokenTypes`) and maps to scopes
+(`semanticTokenScopes`) so that the theme colors them: `cppHeader` (the name of a header
+package, `raylib`) is `entity.name.type.module.header.gocpp`, `cppNamespace` (`std`, `fs`) is
+`entity.name.namespace.cpp.gocpp`, and `cppName` (`InitWindow`, `vector`) is
+`support.function.cpp.gocpp`. Give them your own colors like any scope:
+
+```json
+"editor.semanticTokenColorCustomizations": {
+	"[*]": { "rules": { "cppHeader": "#4EC9B0", "cppName": { "foreground": "#DCDCAA", "italic": true } } }
+}
+```
+
+Inlay hints (the names of parameters, the types that `:=` infers) show when
+`editor.inlayHints.enabled` is `on` (or `onUnlessPressed`).
 
 The grammar is derived from an MIT-licensed Go grammar.
 [syntaxes/README.md](syntaxes/README.md) says where it comes from and what gocpp changed.

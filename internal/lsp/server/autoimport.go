@@ -37,6 +37,7 @@ type importable struct {
 	path string // its import path
 	dir  string // its folder (in Config.StdlibDir for a standard package)
 	std  bool
+	main bool // a main package: nothing can import it (the workspace features want it, the imports don't)
 }
 
 // An importIndex is the index of the importable packages.
@@ -96,6 +97,15 @@ func (ix *importIndex) changed(events []protocol.FileEvent) {
 	}
 }
 
+// generation returns the number of the changes of files on disk that made the
+// module indexes old (changed): it is the same while nothing was created,
+// deleted or is a gocpp.mod.
+func (ix *importIndex) generation() uint64 {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	return ix.gen
+}
+
 // warm starts the index of the module of the folder dir, if it has one.
 func (ix *importIndex) warm(dir string) {
 	go func() {
@@ -144,10 +154,42 @@ func packageName(name string, src []byte) string {
 	return f.Name.Name
 }
 
-// module returns the packages of the module mod: its index, or, while it is
-// being made, the one before. With wait, it waits for the new one for up to
-// ix.wait, if there is no index before.
+// module returns the packages of the module mod that can be imported: its
+// index, or, while it is being made, the one before. With wait, it waits for
+// the new one for up to ix.wait, if there is no index before.
 func (ix *importIndex) module(mod *load.Module, wait bool) []importable {
+	all := ix.moduleAll(mod, wait)
+	pkgs := make([]importable, 0, len(all))
+	for _, p := range all {
+		if !p.main {
+			pkgs = append(pkgs, p)
+		}
+	}
+	return pkgs
+}
+
+// moduleWait returns the packages of the module mod, main packages too, after
+// its index is made (it waits for as long as ctx lives): for the requests
+// that must see the whole workspace (workspace symbols).
+func (ix *importIndex) moduleWait(ctx context.Context, mod *load.Module) ([]importable, error) {
+	ix.moduleAll(mod, false) // starts the walk, if the index is old
+	ix.mu.Lock()
+	m := ix.mods[mod.Dir]
+	ix.mu.Unlock()
+	if m == nil {
+		return nil, nil
+	}
+	select {
+	case <-m.done:
+		return m.pkgs, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// moduleAll is module with the main packages too (rename and references
+// look in them, since they import packages).
+func (ix *importIndex) moduleAll(mod *load.Module, wait bool) []importable {
 	ix.mu.Lock()
 	m := ix.mods[mod.Dir]
 	if m == nil || m.gen != ix.gen {
@@ -197,8 +239,8 @@ func (ix *importIndex) module(mod *load.Module, wait bool) []importable {
 // walk returns the packages of the module mod, from the files on disk:
 // each folder with a .gp file that is not a test, but those that the go
 // command leaves out too (testdata, and the folders whose names start with
-// . or _), those of nested modules (with a gocpp.mod of their own) and
-// main packages.
+// . or _) and those of nested modules (with a gocpp.mod of their own). The
+// main packages are in the list, marked (importable.main).
 func (ix *importIndex) walk(ctx context.Context, mod *load.Module) []importable {
 	var pkgs []importable
 	dirs := 0
@@ -231,8 +273,8 @@ func (ix *importIndex) walk(ctx context.Context, mod *load.Module) []importable 
 				}
 			}
 		}
-		if name != "" && name != "main" {
-			pkgs = append(pkgs, importable{name: name, path: joinPath(mod.Path, rel), dir: dir})
+		if name != "" {
+			pkgs = append(pkgs, importable{name: name, path: joinPath(mod.Path, rel), dir: dir, main: name == "main"})
 		}
 		for _, n := range sub {
 			visit(filepath.Join(dir, n), path.Join(rel, n))

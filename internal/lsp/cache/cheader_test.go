@@ -63,6 +63,25 @@ func (p *includeProbe) asked(includes ...string) bool {
 	return slices.ContainsFunc(p.sets, func(s []string) bool { return slices.Equal(s, includes) })
 }
 
+// chAnswersChanged reports whether what the prober knows of the local headers
+// that the check of pkg asked about is not what the check was given.
+func chAnswersChanged(pkg *Package) bool {
+	for _, r := range pkg.summary.records {
+		r.mu.Lock()
+		uses := slices.Clone(r.chUses)
+		r.mu.Unlock()
+		r.pr.mu.Lock()
+		for _, u := range uses {
+			if r.pr.chAnswerLocked(u.entry) != u.digest {
+				r.pr.mu.Unlock()
+				return true
+			}
+		}
+		r.pr.mu.Unlock()
+	}
+	return false
+}
+
 // TestCHeaderOffHotPath: the check of a package with a local .h header
 // doesn't wait for the C header check: it gets "not wrapped" at once and
 // is provisional; when the check answers in the background, it is stale,
@@ -99,8 +118,11 @@ func TestCHeaderOffHotPath(t *testing.T) {
 		t.Fatalf("first check: provisional %v, ExternC %v, errors:\n%s", pkg.Provisional(), pkg.Check.ExternC, w.errs(pkg))
 	}
 	<-ch.started // the check runs, held
-	if pkg.Stale() {
-		t.Error("stale before the C header check answered")
+	// (The check as a whole may be stale already: the probe of its include
+	// set answers in the background, at any time. What must not have changed is
+	// the answer of the C header check, which is held.)
+	if chAnswersChanged(pkg) {
+		t.Error("the answer of the C header check changed before it answered")
 	}
 	ch.release <- struct{}{}
 	<-changes

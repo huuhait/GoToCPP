@@ -26,7 +26,6 @@ import (
 // makes their edits stale, so it cancels them (ContentModified).
 var formatMethods = map[string]method{
 	"textDocument/formatting": {run: formatting, contentModified: true},
-	"textDocument/codeAction": {run: codeAction, contentModified: true},
 }
 
 // formatCapabilities adds the capabilities of step 11.7 to caps, for a
@@ -39,7 +38,7 @@ func formatCapabilities(caps *protocol.ServerCapabilities, client *protocol.Clie
 	caps.CodeActionProvider = true
 	if len(client.TextDocument.CodeAction.CodeActionLiteralSupport.CodeActionKind.ValueSet) > 0 {
 		caps.CodeActionProvider = &protocol.CodeActionOptions{
-			CodeActionKinds: []protocol.CodeActionKind{protocol.SourceOrganizeImports},
+			CodeActionKinds: []protocol.CodeActionKind{protocol.QuickFix, protocol.SourceOrganizeImports},
 		}
 	}
 }

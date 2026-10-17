@@ -6,9 +6,101 @@ over standard input and output, so any editor with an LSP client can use it. The
 
 What the server does now: it shows the errors of `gocpp check` as you type, and it has hover,
 go to definition and type definition, signature help, completion (with snippets for calls and
-the imports it adds for you), formatting and organize imports. The other features (rename,
-references, symbols, ...) come in later versions of the server, and they need no change in the
-editor setup below: the editor asks the server what it can do.
+the imports it adds for you), formatting and organize imports, find references, rename,
+document highlights, document and workspace symbols, semantic tokens, inlay hints, document
+links and a quick fix for a missing import. Some features come in later versions of the server
+(the ones for `!` and macros, and for C/C++ names), and they need no change in the editor setup
+below: the editor asks the server what it can do.
+
+**References and rename.** They work on the names that gocpp code declares, in all the packages
+of the module that the file is in (one `gocpp.mod`; the other modules of the workspace are not
+searched, and you get a warning when there are any), in the unsaved text of the open files, and
+in `_test.gp` files (internal and external tests, also of packages that import the package only
+in their tests).
+
+*What a method stands for (the family).* The methods of a rename or a references request are
+one family: the method you ask about, the methods of the interfaces of the module (and of its
+test files) that it could satisfy, and the methods of all the types of the module (and of the
+test files) that have the name and the shape of a method of such an interface, so that the
+interface is still satisfied afterwards. This is **wider than gopls's**: gopls ties methods
+only through a use that needs the interface (a value of one type passed where the interface is
+wanted), gocpp ties every method that could satisfy it, needed or not. Renaming `Lener.Len`
+therefore also renames `Counterer.Len` of a type that nothing converts to `Lener`. A rename of a
+method always tells you, with a message, how many other declarations it changed (and the first
+few), and which of them no use that gocpp found needs to be part of the family, so that you can
+undo it. Anonymous interface literals (`interface{ Len() int }` written in an expression or a
+parameter) and dynamic assertions (`v.(interface{ Len() int })`) are not part of the family
+(gopls neither). A method that implements a method of an interface that is not in the module
+(`String` and `fmt.Stringer`) keeps its references, and a rename of it is refused.
+
+*What a rename checks.* It is refused, with a message, when the new name would clash with another
+name, hide a use, or be captured (also in the test files), when the name is used in other
+packages and the new name is not exported, when the name belongs to the standard library or to a
+package outside the module, when it is `func main`, when a method is related to a method of an
+interface outside the module, when an importer of the package cannot see the package's names
+because the package has an error (a syntax error, an import that fails: fix it first), and when
+the edit would make a compile-time error that the code did not have (the edited packages and test
+files are type-checked in a scratch copy). That is all that it guards: a rename that makes a
+*new* implements relation (a method renamed to `String` or `Error`, so that `fmt` now calls it, or
+a method that stops shadowing a promoted one) changes the behavior without a compile-time error,
+as in gopls; gocpp warns about the common case, a method renamed to `String`, `Error`, `Read`,
+`Write`, `Close` or `Len`/`Less`/`Swap` with the signature that makes its type satisfy the
+standard interface. A file that the build leaves out (`x_windows.gp` on Linux) is not checked, so a
+rename does not change it: if it mentions the name, you get a warning. The doc comments and
+other text that mention the name are not changed. Renaming a package (its clause, or an import
+path) is not supported yet; the references of a package clause are empty. When the declaring
+package has an error that makes it unavailable to its importers, references and highlights
+return what they know and say so in a warning.
+
+*Speed.* On a warm server a request takes a few milliseconds (a 10,000-line package: references
+p50 4 ms, rename p50 9 ms, measured at machine load 400 and more, so only an upper bound; see
+`go test -bench 'References|Rename' ./internal/lsp/server`). Packages that were never opened cost
+a check each the first time: a module of 40 packages, asked for a method (which looks in all of
+them) on a busy machine, took about 0.6 s for references and 1.1 s for a rename, then 0.25-0.45 s
+once they were checked (budget row: 300 ms for the warm case). The test files of a package are
+loaded again from source when they mention the name (once for each package and change).
+
+**C/C++ names** (`raylib.InitWindow`, `std.vector`, the members of C++ values, header imports)
+are declared in headers, not in gocpp code: references and highlights show nothing for them,
+and rename says that it does not rename them. The Go names around them (a variable that holds a
+C value, a Go function that returns one) are ordinary names.
+
+**Symbols.** The outline of a file (functions, methods, types with their fields, constants,
+variables) comes from its syntax tree alone, so it works while the file has errors. Workspace
+symbols search every `.gp` file of the modules of the workspace folders and of the open files
+(for a folder without `gocpp.mod`, all the `.gp` files under it); the query matches the
+characters of the name in order, ignoring case, and the best 100 come first.
+
+**Semantic tokens.** The server colors the names by what they are: packages, types (structs and
+interfaces too), type parameters, parameters, variables, constants (`readonly`), fields,
+functions and methods, with the modifiers `declaration`, `defaultLibrary` (predeclared names and
+the standard library) and `modification` (a variable that is assigned to). C/C++ names have
+types of their own: `cppHeader` (the name of a header package, `raylib` in `raylib.InitWindow`),
+`cppNamespace` (`std`, `fs`) and `cppName` (`InitWindow`, `vector`, `push_back`: a name after
+one of those, or a member of a C/C++ value). The VS Code extension gives them colors; in other
+editors, the highlight groups are named after the types (Neovim: `@lsp.type.cppHeader`,
+`@lsp.type.cppNamespace`, `@lsp.type.cppName`), and a type without a group is left alone. Only
+names are marked: keywords, strings and comments come from the editor's own highlighting. A
+file that is not in its package (a `_test.gp` file, a file that the build leaves out) has no
+semantic tokens.
+
+**Inlay hints.** The name of the parameter before each argument of a call (`name:`, left out when
+the argument says it already: `f(name)`, `f(x.name)`), and the type that `:=` and `var x = ...`
+infer, after the name of the variable (also for the variables of `for i, v := range`). They are
+of two kinds (parameter, type), so an editor can show one and not the other; a call of a C/C++
+function and a variable that holds a C/C++ value get none, since their types are opaque to
+gocpp. VS Code shows them with `editor.inlayHints.enabled`; Neovim 0.10 and later with
+`vim.lsp.inlay_hint.enable()`.
+
+**Document links.** A header import (`"<raylib.h>"`, `"./physics.h"`) is a link to the header
+file, found the way the build finds it (the folder of the file for `"./x.h"`, the compiler's
+include path for a system header; there is no link for a header that is not found, for example
+when no C++ compiler is installed), and the addresses (`http://`, `https://`) in comments are
+links too.
+
+**Code actions.** *Organize Imports* (`source.organizeImports`), and the quick fix *Add import*
+for `undefined: strings`, which offers each package of the standard library and of the module
+with that name. The actions for `!` and macros come with those features.
 
 All the setups need the `gocpp` binary in `PATH` (or its full path in the config). Build it in
 the gocpp repository with `make build`; that writes `bin/gocpp`.

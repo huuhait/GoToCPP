@@ -190,9 +190,6 @@ func TestProbeHeadersChanged(t *testing.T) {
 // then the compiler is looked for again (in the background); when it is
 // found, the checks with the error are stale.
 func TestProbeCXXRetry(t *testing.T) {
-	old := cxxRetry
-	cxxRetry = 50 * time.Millisecond
-	t.Cleanup(func() { cxxRetry = old })
 	var mu sync.Mutex
 	lookups := 0
 	found := false
@@ -224,7 +221,11 @@ func TestProbeCXXRetry(t *testing.T) {
 	mu.Lock()
 	found = true
 	mu.Unlock()
-	time.Sleep(cxxRetry)
+	// cxxRetry passes: the lookup error is made old, not waited for (a short
+	// cxxRetry and a sleep make a second lookup too early on a busy machine).
+	w.p.prober.mu.Lock()
+	w.p.prober.cxx.at = time.Now().Add(-2 * cxxRetry)
+	w.p.prober.mu.Unlock()
 	w.open("main.gp", src+"\n") // a check after cxxRetry asks again
 	w.pkg(".")
 	f.release <- struct{}{} // for the probe with the compiler
