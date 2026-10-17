@@ -11,7 +11,7 @@
 - [x] 4.3 Name translation (header packages → `::name` / unqualified macros, namespaces + renames, header-and-namespace names, `::` vs `.`, macro protection with gocpp headers first)
 - [x] 4.4 Opaque value codegen (`auto`, `gp::deref`, calls, operators, constructors, `nil` → `nullptr`, untyped constants as C literals)
 - [x] 4.5 Template-vs-index rule (kind probe) + parenthesis escape
-- [~] 4.6 Composite literals of C/C++ types (positional, keyed via assignments, init lists)
+- [x] 4.6 Composite literals of C/C++ types (positional, keyed via assignments, init lists)
 - [~] 4.7 `gp::range` (by-value temporaries, index walk with size read once) + `gp::values`
 - [ ] 4.8 Opaque objects in closures/defers (boxed) + copy/move/default-construct policy + `gp::result_slot`
 - [~] 4.9 String boundary (`string_view` implicit, `std.string(s)` explicit, `gp::cstr` holder, `C.CString`, `C.GoString*`, `C.GoBytes`)
@@ -265,3 +265,8 @@
   moved to worktrees under `/home/huuhait/GoToCPP-worktrees/`; no incomplete step was marked done.
   Pending: 4.6 round-2 review, 4.7 round-1 review, and 4.9 round-2 fixes followed by independent review.
   Re-run the manager's checks before merging; the interrupted runs are not evidence of a clean review.
+- 2026-10-16: Job 4.6 merged as 99e75ad after clean round-3 review. Positional/keyed C/C++ literals,
+  map-only key:value forms, bit-field initialization, Go containers holding C values, and inferred package
+  ellipsis arrays are covered. Manager reran the package-array regressions on GCC/Clang normally and with
+  ASan/UBSan, then `make ci` and staticcheck on dev: all exit 0. Full Phase 04 examples still depend on
+  unfinished 4.7, 4.9 and 4.10; this is not completion of Phase 04.
