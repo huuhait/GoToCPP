@@ -32,9 +32,10 @@ is still being repaired; it does not mean the whole batch is finished.
   coverage. The reviewer independently reran the original probes on GCC and
   Clang with sanitizers: they now pass or give the expected user errors.
 - Final-source focused units, full Phase 04 interop tests normally and under
-  sanitizers, retention tests and staticcheck passed. Full final-source CI was
-  still running when the reviewer handed back the work. An earlier CI pass
-  predates the final lifetime repairs and is not a substitute.
+  sanitizers, retention tests and staticcheck passed. Full final-source CI also
+  finished with exit 0 after the reviewer handed back the work (the manager
+  read `ci-final.status` and the successful end of `ci-final.log`). An earlier
+  CI pass predates the final lifetime repairs and was not used as a substitute.
 - The coder and reviewer were interrupted by repeated HTTP 502 policy-service
   errors. Retries were stopped; no approval was fabricated.
 - One additional **unconfirmed** edge remains: `nameOperands` can hoist the
@@ -43,8 +44,8 @@ is still being repaired; it does not mean the whole batch is finished.
   with `for range lib.f(0)`. Inspect `internal/lower/order.go` around
   `nameOperands` (the saved review cited lines 1274–1295). Distinguish this
   from passing `nil`, which is emitted as `nullptr`.
-- Finish that check and the final CI result, then obtain an independent clean
-  verdict and manager verification before merging this branch.
+- Finish that edge check, then obtain an independent clean verdict and manager
+  verification before merging this branch. Green CI alone is not approval.
 
 ### 4.9: round-3 repair in progress
 
