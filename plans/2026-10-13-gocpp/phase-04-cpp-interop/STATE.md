@@ -1,6 +1,6 @@
 # Phase 04: C/C++ Interop (opaque) · STATE
 
-**Status:** `[~]` in progress
+**Status:** `[~]` paused for server migration (4.7 remains unapproved WIP)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-16
 
@@ -14,8 +14,8 @@
 - [x] 4.6 Composite literals of C/C++ types (positional, keyed via assignments, init lists)
 - [~] 4.7 `gp::range` (by-value temporaries, index walk with size read once) + `gp::values`
 - [ ] 4.8 Opaque objects in closures/defers (boxed) + copy/move/default-construct policy + `gp::result_slot`
-- [~] 4.9 String boundary (`string_view` implicit, `std.string(s)` explicit, `gp::cstr` holder, `C.CString`, `C.GoString*`, `C.GoBytes`)
-  - [ ] typed helpers: front-end rewrites `C.GoString` & co. into the hidden `gocpp/cgoh` package
+- [x] 4.9 String boundary (`string_view` implicit, `std.string(s)` explicit, `gp::cstr` holder, `C.CString`, `C.GoString*`, `C.GoBytes`)
+  - [x] typed helpers: front-end rewrites `C.GoString` & co. into the hidden `gocpp/cgoh` package
 - [ ] 4.10 `unsafe` + pointers (owning `unsafe.Pointer`, `SliceData`/`String`/`Slice` keep owners, `std::span`, `gp::ptr` → `T*`) + ASan test
 - [ ] 4.11 Callbacks (function pointers, `std::function`, `cgo.Handle`) + panic trampolines
 - [x] 4.12 C++ exception → fatal Go-style panic; fmt shim prints C++ values (raw pointers as addresses)
@@ -270,3 +270,14 @@
   ellipsis arrays are covered. Manager reran the package-array regressions on GCC/Clang normally and with
   ASan/UBSan, then `make ci` and staticcheck on dev: all exit 0. Full Phase 04 examples still depend on
   unfinished 4.7, 4.9 and 4.10; this is not completion of Phase 04.
+- 2026-10-16: Job 4.9 merged as 9695323 after clean round-4 review. Typed cgo helpers, owning C.cstr
+  holders through ordered/variadic calls, C++ string conversions, public editor helper names, exact C numeric
+  constants and representability checks are covered. Direct and copied holders in keyed or positional
+  C/C++ literals are rejected with a lifetime diagnostic; retained CString fields have positive tests.
+  Manager reran make ci, staticcheck and all 71 Phase 04 interop fixtures on GCC/Clang normally and with
+  ASan/UBSan: all exit 0 (284 compiler/mode subcases). Opaque arithmetic result types remain unknown rather
+  than being guessed from one operand.
+- 2026-10-16: Paused as requested for migration. 4.6 and 4.9 are done; 4.7 is preserved in branch
+  job/04-4.7 at b3300cf, not merged or marked done. Its eight original findings passed independent probes
+  and final-source CI passed, but service errors interrupted the additional literal-zero edge check and
+  final approval. See ../HANDOFF.md. No later jobs, push or transfer were started.
