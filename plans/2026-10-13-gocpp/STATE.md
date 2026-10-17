@@ -3,6 +3,7 @@
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Current focus:** Phase 04, C/C++ interop (Phases 00–03 done; M1 reached 2026-10-14, M2 2026-10-15), and the language server v0 track (Phase 11: the language server v0 track is done: diagnostics, hover, definition, signature help, completion, formatting, organize imports, disk cache, VS Code client); see [TODO.md](TODO.md)
 **Last updated:** 2026-10-16
+**Pause boundary (user request, 2026-10-16):** finish the current batch (4.6, 4.7 and 4.9) through clean reviews, manager verification and commits, then stop before starting another job. Leave a handoff checkpoint for migration to the user's higher-core/RAM server. Do not push or transfer without their request.
 
 ---
 
