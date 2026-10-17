@@ -6,7 +6,7 @@
 
 ## Steps
 
-- [ ] 8.1 `gp::waiter` (park/unpark) + goroutine runtime (8 MiB default stacks, ids, counts, panic → exit 2, stack-overflow handler)
+- [x] 8.1 `gp::waiter` (park/unpark) + goroutine runtime (8 MiB default stacks, ids, counts, panic → exit 2, stack-overflow handler)
 - [ ] 8.2 `go` statement codegen (eager evaluation of function + args)
 - [ ] 8.3 Channels
   - [ ] unbuffered (direct hand-off)
@@ -31,7 +31,7 @@
   - [ ] stress: 10k goroutines, 1M channel ops; deep recursion
   - [ ] timer `cap`/`len`/`Stop`/`Reset` differential tests
 - [ ] 8.14 (optional) `iter.Pull` on a helper thread
-- [ ] 8.15 Thread layer for portability (`gp::os` in `runtime/src/os/`: start with stack size, TLS, stack-overflow hook; Linux now, Windows in Phase 14)
+- [x] 8.15 Thread layer for portability (`gp::os` in `runtime/src/os/`: start with stack size, TLS, stack-overflow hook; Linux now, Windows in Phase 14)
 
 ## Exit criteria
 
@@ -51,3 +51,12 @@
   stack-overflow handler; flush + `_exit` (with `_Exit`, TSan races exited 0); Go 1.23+ timer and
   deadlock rules; `gp::atomic_ptr` (libc++ lacks `atomic<shared_ptr>`); one select entry per case;
   only self-contained `test/chan` programs here. Now depends on Phase 07 (generic sync/atomic APIs).
+- 2026-10-17: Jobs 8.15 and 8.1 merged (three review rounds).
+  Decisions: (1) a goroutine is a detached OS thread with an 8 MiB stack; `gp::waiter` has permits (unpark before park is not lost);
+  (2) generated programs get `-fstack-clash-protection` (debug flags; runtime cache key changes once): without it a frame bigger than
+  the 256 KiB guard jumps it and dies with a bare SIGSEGV instead of 'stack overflow'; (3) the death of a goroutine is claimed by ONE
+  thread; the others wait at most 30 s, then exit 2 silently; (4) `current_goroutine_id` reads a thread_local slot (async-signal-safe
+  only while the runtime is linked into the executable, not a shared library); (5) the overflow report prints `goroutine N [running]:`
+  but not Go's `runtime stack:` section or a trace; stdio is not flushed in the handler (documented); (6) thread tests end with
+  `threads_ended()` (runtime/test/threads_ended.hpp): every new test that starts threads must too (LeakSanitizer vs /proc/self/task);
+  (7) gaps for later steps are in TODO.md: 8.11 needs a live-goroutine registry and blocked count, 8.10, 8.2.
