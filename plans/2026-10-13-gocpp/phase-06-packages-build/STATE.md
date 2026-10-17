@@ -85,3 +85,15 @@
   each package separately: a package of a replaced module does not see the main module's replaces (TODO.md Phase 11:
   the LSP must pass the main module folder to the loader); (7) hardening nit: the 16 MiB cap still allows large memory
   use for a hostile file of one-letter lines (about 190x the file size): a smaller cap or a line limit is cheap.
+- 2026-10-17: Job 6.1b (module header imports, user decisions Q16/Q17) merged after two review rounds. Not a numbered step: it
+  belongs to §2.11. Jobs 6.1c (downloads: `gocpp get`, `gocpp mod download|verify|vendor`, gocpp.sum, module cache) and 6.1d (read
+  and build the `cxx` recipes) follow.
+  Decisions: (1) own module AND required modules are candidates; longest module path at element boundaries wins; a first element
+  with a dot is the marker (a top-level folder `v1.2/x.h` must be written `"./v1.2/x.h"`); (2) the generated `#include` is the
+  ABSOLUTE file name (the emitted C++ differs between machines there, like `#line`); (3) the module root is an `-iquote` folder, NOT
+  `-I`: `<x.h>` lookups of a library's own headers belong to the `include` folders of the 6.1d recipes (`-I`/`-isystem`); the package
+  folder is searched before the module folder for a quoted include (documented); (4) a `replace` folder without gocpp.mod is accepted
+  as module `req.Path` (a present gocpp.mod must declare the same path); a typo'd replace path to an existing folder is no longer
+  caught; (5) hook for 6.1c: `Config.ModuleDir`/`moduleDir` (any returned dir is accepted, no gocpp.mod needed, `Module.cached`);
+  hook for 6.1d: `moduleIncludeDirs(mod)`; (6) symlinks inside modules are followed by the loader (TODO.md: contain them for
+  downloaded modules); (7) the gate for module headers moved to Phase 04 (matrix regenerated).
