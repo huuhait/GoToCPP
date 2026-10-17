@@ -84,6 +84,7 @@ void f(gp::ptr<int64_t> p, gp::ptr<void> u, const gp::string& s) {
 // TestRejected compiles each of rejectCases with each compiler and checks that it fails at
 // the marked line, and that rejectControl compiles.
 func TestRejected(t *testing.T) {
+	t.Parallel()
 	ccs := compilers(t)
 	rt := extractRuntime(t)
 	for _, c := range ccs {
@@ -93,25 +94,38 @@ func TestRejected(t *testing.T) {
 			}
 			t.Parallel()
 			dir := t.TempDir()
-			compile := func(name, body string) (string, int) {
-				t.Helper()
+			type outcome struct {
+				out  string
+				code int
+			}
+			// compile may run in any goroutine.
+			compile := func(name, body string) (outcome, error) {
 				src := filepath.Join(dir, name+".cpp")
 				if err := os.WriteFile(src, []byte("#include <gocpp/rt.hpp>\n"+body), 0o644); err != nil {
-					t.Fatal(err)
+					return outcome{}, err
 				}
 				args := slices.Concat(build.Flags(c.cc, false), build.GeneratedFlags(c.cc),
 					[]string{"-I", filepath.Join(rt, "include"), "-fsyntax-only", src})
 				out, _, code, err := command(dir, build.CompilerEnv(), true, c.cc.Path, args...)
-				if err != nil {
-					t.Fatal(err)
+				return outcome{string(out), code}, err
+			}
+			// The control and the cases are independent: compile them all at the same time.
+			results := make([]outcome, len(rejectCases)+1)
+			if err := parallel(len(results), func(i int) (err error) {
+				if i == 0 {
+					results[0], err = compile("control", rejectControl)
+				} else {
+					results[i], err = compile(rejectCases[i-1].name, rejectCases[i-1].src)
 				}
-				return string(out), code
+				return err
+			}); err != nil {
+				t.Fatal(err)
 			}
-			if out, code := compile("control", rejectControl); code != 0 || out != "" {
-				t.Fatalf("the control doesn't compile cleanly: exit code %d\n%s", code, out)
+			if r := results[0]; r.code != 0 || r.out != "" {
+				t.Fatalf("the control doesn't compile cleanly: exit code %d\n%s", r.code, r.out)
 			}
-			for _, tc := range rejectCases {
-				out, code := compile(tc.name, tc.src)
+			for i, tc := range rejectCases {
+				out, code := results[i+1].out, results[i+1].code
 				// The marked line, counted with the #include line before the case.
 				line := 2 + strings.Count(tc.src[:strings.Index(tc.src, "// bad")], "\n")
 				at := fmt.Sprintf("%s.cpp:%d:", tc.name, line)

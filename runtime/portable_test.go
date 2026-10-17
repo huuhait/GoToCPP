@@ -1,6 +1,7 @@
 package rtfiles_test
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -23,6 +24,7 @@ const mingwCXX = "x86_64-w64-mingw32-g++"
 // _GNU_SOURCE, so <cstdio> declares fileno) or a hand-written OS declaration doesn't compile
 // for Windows. It is skipped when the cross compiler isn't installed.
 func TestWindowsSyntax(t *testing.T) {
+	t.Parallel()
 	cc, err := build.LookCXX(t.Context(), mingwCXX)
 	if err != nil {
 		t.Skipf("no MinGW-w64 cross compiler: %v", err)
@@ -47,12 +49,16 @@ func TestWindowsSyntax(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range files {
-		args := append(slices.Clone(baseFlags), "-O0", "-fsyntax-only", "-I", "include", f)
+	// One command for each file, all at the same time.
+	if err := parallel(len(files), func(i int) error {
+		args := append(slices.Clone(baseFlags), "-O0", "-fsyntax-only", "-I", "include", files[i])
 		out, _, code, err := command(".", build.CompilerEnv(), true, cc.Path, args...)
 		if err != nil || code != 0 || len(out) != 0 {
-			t.Errorf("%s %s: exit %d %v\n%s", cc.Path, strings.Join(args, " "), code, err, out)
+			return fmt.Errorf("%s %s: exit %d %v\n%s", cc.Path, strings.Join(args, " "), code, err, out)
 		}
+		return nil
+	}); err != nil {
+		t.Error(err)
 	}
 	if !slices.ContainsFunc(files, func(f string) bool { return strings.Contains(f, "/src/os/windows/") }) ||
 		!slices.ContainsFunc(files, func(f string) bool { return !strings.Contains(f, "/src/os/") }) {
@@ -64,6 +70,7 @@ func TestWindowsSyntax(t *testing.T) {
 // dev shell's clang-format (version 21; other versions can format some lines differently, so
 // they skip, as does a missing clang-format).
 func TestClangFormat(t *testing.T) {
+	t.Parallel()
 	cf, err := exec.LookPath("clang-format")
 	if err != nil {
 		t.Skipf("no clang-format: %v", err)

@@ -343,3 +343,12 @@ that point nowhere.
 Like the test harness, `GOCPP_CXX=clang++` tests with one compiler only, and a compiler that
 isn't installed (or that `build.LookCXX` can't use) is a skip, unless `GOCPP_REQUIRE_CXX`
 names it (`make ci` sets `GOCPP_REQUIRE_CXX=g++,clang++`).
+
+The tests compile in parallel: the programs of one compiler and mode are built at the same
+time, each against the runtime's object files, which are built once for the mode, and a check
+runs as soon as its program is built. A program that doesn't build fails its mode even when no
+check runs it. The compiles and runs that go through the test helpers are bounded: at most
+`GOCPP_TEST_JOBS` of them run at the same time in the test binary (default: the number of CPUs,
+but at most 48). The few processes that the pipes tests start themselves are outside that bound.
+The bound is also the memory bound: 48 commands at once peak at about 15 GB, and the largest
+compiler process takes about 0.8 GB.

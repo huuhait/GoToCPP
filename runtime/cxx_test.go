@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -114,33 +113,17 @@ func findCompilers(env, required string) ([]cxx, error) {
 	return list, nil
 }
 
-// extractRuntime writes the embedded runtime into a temporary folder and returns the folder.
-func extractRuntime(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	err := fs.WalkDir(rtfiles.FS(), ".", func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		dst := filepath.Join(dir, filepath.FromSlash(p))
-		if d.IsDir() {
-			return os.MkdirAll(dst, 0o755)
-		}
-		b, err := fs.ReadFile(rtfiles.FS(), p)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(dst, b, 0o644)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return dir
-}
-
 // command runs a command with a timeout, in the environment env (nil: the test's own). combined merges stdout and stderr into one stream
 // (one pipe, so the order of the writes is kept); otherwise stdout and stderr are separate.
 func command(dir string, env []string, combined bool, name string, args ...string) (stdout, stderr []byte, code int, err error) {
+	return commandPrio(prioRun, dir, env, combined, name, args...)
+}
+
+// commandPrio is command with a priority for the gate: at most jobs() commands run at the same
+// time (parallel_test.go), and the highest priority goes first.
+func commandPrio(prio int, dir string, env []string, combined bool, name string, args ...string) (stdout, stderr []byte, code int, err error) {
+	gate.acquire(prio)
+	defer gate.release()
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
@@ -162,28 +145,6 @@ func command(dir string, env []string, combined bool, name string, args ...strin
 		return out.Bytes(), errb.Bytes(), -1, fmt.Errorf("%s: %v\n%s%s", name, err, out.Bytes(), errb.Bytes())
 	}
 	return out.Bytes(), errb.Bytes(), 0, nil
-}
-
-// compile builds the test program src (a file of runtime/test/) with the runtime in rt and
-// returns the binary.
-func (c cxx) compile(t *testing.T, rt, src, outDir string, flags []string, env []string) string {
-	t.Helper()
-	abs := sourcePath(t, src)
-	bin := filepath.Join(outDir, strings.TrimSuffix(filepath.Base(src), ".cpp"))
-	args := c.flags(flags)
-	args = append(args, "-I", filepath.Join(rt, "include"), abs)
-	for _, s := range rtfiles.Sources(runtime.GOOS) {
-		args = append(args, filepath.Join(rt, filepath.FromSlash(s)))
-	}
-	args = append(args, "-o", bin)
-	out, _, code, err := command(outDir, append(build.CompilerEnv(), env...), true, c.cc.Path, args...)
-	if err != nil || code != 0 {
-		t.Fatalf("%s %s: exit %d %v\n%s", c.cc.Path, strings.Join(args, " "), code, err, out)
-	}
-	if len(out) != 0 {
-		t.Fatalf("%s %s printed warnings:\n%s", c.cc.Path, strings.Join(args, " "), out)
-	}
-	return bin
 }
 
 func (c cxx) flags(more []string) []string {
@@ -317,6 +278,7 @@ func goProgramResults(t *testing.T, src string, cases []string) (map[string]resu
 // TestCXX compiles and runs the C++ unit tests and the differential test with each compiler
 // in each mode.
 func TestCXX(t *testing.T) {
+	t.Parallel()
 	ccs := compilers(t)
 	rt := extractRuntime(t)
 	want, goBin := goResults(t)
@@ -330,54 +292,107 @@ func TestCXX(t *testing.T) {
 			for _, m := range modes {
 				t.Run(m.name, func(t *testing.T) {
 					t.Parallel()
-					dir := t.TempDir()
-					unit := c.compile(t, rt, "test/unit.cpp", dir, m.flags, nil)
-					diff := c.compile(t, rt, "test/diff.cpp", dir, m.flags, nil)
-					slice := c.compile(t, rt, "test/slice_test.cpp", dir, m.flags, nil)
-					array := c.compile(t, rt, "test/array_test.cpp", dir, m.flags, nil)
-					maps := c.compile(t, rt, "test/map_test.cpp", dir, m.flags, nil)
-					trace := c.compile(t, rt, "test/trace_test.cpp", dir, m.flags, nil)
-					defers := c.compile(t, rt, "test/defer_test.cpp", dir, m.flags, nil)
-					funcs := c.compile(t, rt, "test/func_test.cpp", dir, m.flags, nil)
-					interop := c.compile(t, rt, "test/interop_test.cpp", dir, m.flags, nil)
-					cxxValue := c.compile(t, rt, "test/cxxvalue_test.cpp", dir, m.flags, nil)
-					nochecks := c.compile(t, rt, "test/nochecks_test.cpp", dir, append(slices.Clone(m.flags), "-DGOCPP_NOCHECKS"), nil)
-					fmtUnit := c.compile(t, rt, "test/fmt_test.cpp", dir, m.flags, nil)
-					fmtDiff := c.compile(t, rt, "test/fmt_diff.cpp", dir, m.flags, nil)
-					t.Run("unit", func(t *testing.T) { runUnit(t, unit) })
-					t.Run("slice", func(t *testing.T) { runUnit(t, slice) })
-					t.Run("array", func(t *testing.T) { runUnit(t, array) })
-					t.Run("map", func(t *testing.T) { runUnit(t, maps) })
-					t.Run("trace", func(t *testing.T) { runUnit(t, trace) })
-					t.Run("defer", func(t *testing.T) { runUnit(t, defers) })
-					t.Run("func", func(t *testing.T) { runUnit(t, funcs) })
+					// All the programs are built at the same time, from the runtime's objects, which
+					// are built once for the mode (parallel_test.go). The checks run at the same time
+					// too, each one as soon as its program is built; each runs its own processes.
+					bins := c.startBuilds(t, rt, t.TempDir(), m.flags, []prog{
+						{src: "test/fmt_diff.cpp", weight: 70},
+						{src: "test/map_test.cpp", weight: 24},
+						{src: "test/diff.cpp", weight: 15},
+						{src: "test/unit.cpp", weight: 50},
+						{src: "test/fmt_test.cpp", weight: 14},
+						{src: "test/interop_test.cpp", weight: 15},
+						{src: "test/array_test.cpp", weight: 7},
+						{src: "test/slice_test.cpp", weight: 7},
+						{src: "test/cxxvalue_test.cpp", weight: 7},
+						{src: "test/trace_test.cpp", weight: 3},
+						{src: "test/defer_test.cpp", weight: 3},
+						{src: "test/func_test.cpp", weight: 3},
+						{src: "test/nochecks_test.cpp", flags: []string{"-DGOCPP_NOCHECKS"}, weight: 3},
+					})
+
+					t.Run("unit", func(t *testing.T) {
+						t.Parallel()
+						runUnit(t, bins.bin(t, "test/unit.cpp"))
+					})
+					t.Run("slice", func(t *testing.T) {
+						t.Parallel()
+						runUnit(t, bins.bin(t, "test/slice_test.cpp"))
+					})
+					t.Run("array", func(t *testing.T) {
+						t.Parallel()
+						runUnit(t, bins.bin(t, "test/array_test.cpp"))
+					})
+					t.Run("map", func(t *testing.T) {
+						t.Parallel()
+						runUnit(t, bins.bin(t, "test/map_test.cpp"))
+					})
+					t.Run("trace", func(t *testing.T) {
+						t.Parallel()
+						runUnit(t, bins.bin(t, "test/trace_test.cpp"))
+					})
+					t.Run("defer", func(t *testing.T) {
+						t.Parallel()
+						runUnit(t, bins.bin(t, "test/defer_test.cpp"))
+					})
+					t.Run("func", func(t *testing.T) {
+						t.Parallel()
+						runUnit(t, bins.bin(t, "test/func_test.cpp"))
+					})
 					t.Run("interop", func(t *testing.T) {
-						runUnit(t, interop)
-						runInterop(t, interop, m.name == "asan")
+						t.Parallel()
+						bin := bins.bin(t, "test/interop_test.cpp")
+						runUnit(t, bin)
+						runInterop(t, bin, m.name == "asan")
 					})
 					t.Run("cxxvalue", func(t *testing.T) {
-						runUnit(t, cxxValue)
-						runCxxValue(t, cxxValue, m.name != "O2", m.name == "asan")
+						t.Parallel()
+						bin := bins.bin(t, "test/cxxvalue_test.cpp")
+						runUnit(t, bin)
+						runCxxValue(t, bin, m.name != "O2", m.name == "asan")
 					})
-					t.Run("nochecks", func(t *testing.T) { runUnit(t, nochecks) })
-					t.Run("fmt", func(t *testing.T) { runUnit(t, fmtUnit) })
+					t.Run("nochecks", func(t *testing.T) {
+						t.Parallel()
+						runUnit(t, bins.bin(t, "test/nochecks_test.cpp"))
+					})
+					t.Run("fmt", func(t *testing.T) {
+						t.Parallel()
+						runUnit(t, bins.bin(t, "test/fmt_test.cpp"))
+					})
 					t.Run("fmtdiff", func(t *testing.T) {
 						if fmtWant == nil {
 							t.Skip("no go command")
 						}
+						t.Parallel()
+						fmtDiff := bins.bin(t, "test/fmt_diff.cpp")
 						for _, name := range fmtDiffCases {
-							t.Run(name, func(t *testing.T) { runDiff(t, fmtDiff, name, fmtWant[name]) })
+							t.Run(name, func(t *testing.T) {
+								t.Parallel()
+								runDiff(t, fmtDiff, name, fmtWant[name])
+							})
 						}
 					})
-					t.Run("panic", func(t *testing.T) { runPanic(t, diff, m.name != "O2") })
-					t.Run("leak", func(t *testing.T) { runLeak(t, diff, m.name == "asan") })
-					t.Run("pipes", func(t *testing.T) { runPipes(t, diff, goBin) })
+					t.Run("panic", func(t *testing.T) {
+						t.Parallel()
+						runPanic(t, bins.bin(t, "test/diff.cpp"), m.name != "O2")
+					})
+					t.Run("leak", func(t *testing.T) {
+						t.Parallel()
+						runLeak(t, bins.bin(t, "test/diff.cpp"), m.name == "asan")
+					})
+					t.Run("pipes", func(t *testing.T) {
+						t.Parallel()
+						runPipes(t, bins.bin(t, "test/diff.cpp"), goBin)
+					})
 					t.Run("diff", func(t *testing.T) {
 						if want == nil {
 							t.Skip("no go command")
 						}
+						t.Parallel()
+						diff := bins.bin(t, "test/diff.cpp")
 						for _, name := range diffCases {
 							t.Run(name, func(t *testing.T) {
+								t.Parallel()
 								if name == "f2i" && runtime.GOARCH != "amd64" {
 									t.Skipf("gocpp copies Go's float → int conversions on amd64; this Go is %s", runtime.GOARCH)
 								}
@@ -644,6 +659,7 @@ const fortifyWarning = "_FORTIFY_SOURCE requires compiling with optimization"
 // Nix compiler wrapper with hardening on, which adds -D_FORTIFY_SOURCE after the user's
 // flags. At -O2, _FORTIFY_SOURCE stays.
 func TestNoFortify(t *testing.T) {
+	t.Parallel()
 	ccs := compilers(t)
 	rt := extractRuntime(t)
 	files := []string{sourcePath(t, "test/fortify.cpp")}
@@ -656,20 +672,36 @@ func TestNoFortify(t *testing.T) {
 				t.Skip(c.missing)
 			}
 			t.Parallel()
+			// compile builds each file in a command of its own, all at the same time.
 			compile := func(t *testing.T, env []string, flags ...string) {
 				t.Helper()
-				args := append(c.flags(flags), "-I", filepath.Join(rt, "include"), "-c")
-				args = append(args, files...)
-				out, _, code, err := command(t.TempDir(), append(build.CompilerEnv(), env...), true, c.cc.Path, args...)
-				if err != nil || code != 0 || len(out) != 0 {
-					t.Errorf("%s %s: exit %d %v\n%s", c.cc.Path, strings.Join(args, " "), code, err, out)
+				dir := t.TempDir()
+				err := parallel(len(files), func(i int) error {
+					args := append(c.flags(flags), "-I", filepath.Join(rt, "include"), "-c", files[i],
+						"-o", filepath.Join(dir, fmt.Sprintf("%d.o", i)))
+					out, _, code, err := command(dir, append(build.CompilerEnv(), env...), true, c.cc.Path, args...)
+					if err != nil || code != 0 || len(out) != 0 {
+						return fmt.Errorf("%s %s: exit %d %v\n%s", c.cc.Path, strings.Join(args, " "), code, err, out)
+					}
+					return nil
+				})
+				if err != nil {
+					t.Error(err)
 				}
 			}
 			t.Run("flag", func(t *testing.T) {
-				compile(t, nil, "-O0", "-D_FORTIFY_SOURCE=3")
-				compile(t, nil, "-O2", "-D_FORTIFY_SOURCE=2", "-DGOCPP_EXPECT_FORTIFY")
+				t.Parallel()
+				t.Run("O0", func(t *testing.T) {
+					t.Parallel()
+					compile(t, nil, "-O0", "-D_FORTIFY_SOURCE=3")
+				})
+				t.Run("O2", func(t *testing.T) {
+					t.Parallel()
+					compile(t, nil, "-O2", "-D_FORTIFY_SOURCE=2", "-DGOCPP_EXPECT_FORTIFY")
+				})
 			})
 			t.Run("nix-hardening", func(t *testing.T) {
+				t.Parallel()
 				env := []string{"NIX_HARDENING_ENABLE=" + nixHardening}
 				// First without nofortify.h: if the compiler doesn't warn, it isn't a Nix
 				// wrapper (or it ignores NIX_HARDENING_ENABLE), and there is nothing to check.
@@ -698,6 +730,7 @@ func TestNoFortify(t *testing.T) {
 // inline functions and template instances of the standard library, typeinfo) are left out:
 // the linker merges them, so they can't clash. Skipped without nm.
 func TestSymbols(t *testing.T) {
+	t.Parallel()
 	ccs := compilers(t)
 	nm, err := exec.LookPath("nm")
 	if err != nil {
@@ -711,15 +744,15 @@ func TestSymbols(t *testing.T) {
 			}
 			t.Parallel()
 			dir := t.TempDir()
-			for _, s := range rtfiles.Sources(runtime.GOOS) {
-				obj := filepath.Join(dir, strings.ReplaceAll(s, "/", "_")+".o")
-				args := append(c.flags([]string{"-O0"}), "-I", filepath.Join(rt, "include"), "-c",
-					filepath.Join(rt, filepath.FromSlash(s)), "-o", obj)
-				out, _, code, err := command(dir, build.CompilerEnv(), true, c.cc.Path, args...)
-				if err != nil || code != 0 || len(out) != 0 {
-					t.Fatalf("%s %s: exit %d %v\n%s", c.cc.Path, strings.Join(args, " "), code, err, out)
-				}
-				out, _, code, err = command(dir, nil, true, nm, "-g", "--defined-only", "-C", obj)
+			// The runtime's objects at -O0 are those TestCXX links (parallel_test.go): the
+			// flags are the same, and a compile that printed anything failed.
+			objs, err := c.runtimeObjects(rt, []string{"-O0"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i, s := range rtfiles.Sources(runtime.GOOS) {
+				obj := objs[i]
+				out, _, code, err := command(dir, nil, true, nm, "-g", "--defined-only", "-C", obj)
 				if err != nil || code != 0 {
 					t.Fatalf("nm %s: exit %d %v\n%s", obj, code, err, out)
 				}

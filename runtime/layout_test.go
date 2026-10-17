@@ -14,6 +14,7 @@ import (
 // Every file that includes gocpp/rt.hpp also checks gocpp/sizes.hpp, the layouts of the
 // runtime's types. TestWindowsSyntax compiles layout.cpp with MinGW-w64 too.
 func TestLayout(t *testing.T) {
+	t.Parallel()
 	ccs := compilers(t)
 	rt := extractRuntime(t)
 	src := sourcePath(t, "test/layout.cpp")

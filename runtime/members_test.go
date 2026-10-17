@@ -28,6 +28,7 @@ import (
 // clang++ lists the declarations (-ast-dump=json, only those whose qualified names contain
 // "gp::"). Skipped without clang++, unless GOCPP_REQUIRE_CXX names it.
 func TestNoPlainMembers(t *testing.T) {
+	t.Parallel()
 	clang := clangCompiler(t)
 	rt := extractRuntime(t)
 	bad, classes, err := plainMembers(t, clang, filepath.Join(rt, "include"), "#include <gocpp/rt.hpp>\n#include <gocpp/os.hpp>\n")
@@ -49,6 +50,7 @@ func TestNoPlainMembers(t *testing.T) {
 
 // TestNoPlainMembersFinds checks the check itself, on a header with every kind of member.
 func TestNoPlainMembersFinds(t *testing.T) {
+	t.Parallel()
 	clang := clangCompiler(t)
 	src := `#include <memory>
 namespace gp {
