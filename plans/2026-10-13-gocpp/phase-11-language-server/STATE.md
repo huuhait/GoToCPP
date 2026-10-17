@@ -19,8 +19,8 @@
 - [x] 11.5 Hover, go-to-definition, signature help · *v0*
 - [x] 11.6 Completion (scopes, members, keywords, snippets, auto-import) · *v0*
 - [x] 11.7 Formatting + organize imports (`gocpp fmt`) · *v0*
-- [ ] 11.8 References, rename, document/workspace symbols
-- [ ] 11.9 Semantic tokens, inlay hints, document links, code actions
+- [x] 11.8 References, rename, document/workspace symbols
+- [x] 11.9 Semantic tokens, inlay hints, document links, code actions
 - [~] 11.10 VS Code extension (+ optional tree-sitter, editor docs) · *v0*
   - [x] 11.10a the `.gp` language + TextMate grammar (`editors/vscode`, `make vscode-test`)
   - [x] the LSP client, format on save, `contributes.breakpoints` (job 11.10b)
@@ -152,3 +152,11 @@
   round. Such a C-heavy 3000-line package was already above the 100 ms keystroke budget before; 11.11's
   benchmarks should include a C-heavy file, and incremental re-checking (Phase 11) is where this cost goes away.
 
+- 2026-10-17: Jobs 11.8 and 11.9 merged after three review rounds (clean confirmation).
+  Decisions: (1) rename follows a method through every interface of the module it satisfies (the family; narrowing to gopls's
+  use-tied unification is a TODO.md line); (2) rename is refused when the declaring package or an importer is broken, when the
+  result would not compile (the tests of unedited packages are re-checked too), or when a name clashes; (3) a renamed method that
+  now implements fmt.Stringer, error, io.Reader/Writer/Closer or sort.Interface gets a warning (silent behaviour change); (4) the
+  fixtures of the LSP tests are header-less and run with a missing GOCPP_CXX (a clang probe killed at server exit leaves the nix
+  wrapper's cc-params file in TMPDIR; waiting for probes at shutdown is an optional TODO); (5) go-to-definition into module headers
+  (job 6.1b) needs one early return in Pipeline.HeaderFile; limits for vendor/replace are in TODO.md.
