@@ -6,7 +6,7 @@
 
 ## Steps
 
-- [ ] 6.1 `gocpp.mod` (modfile lax + `replace`/gocpp lines read from the syntax tree), module root, `replace`, `vendor/`
+- [x] 6.1 `gocpp.mod` (modfile lax + `replace`/gocpp lines read from the syntax tree), module root, `replace`, `vendor/`
 - [ ] 6.2 Per-package codegen (`pkg.hpp`, one TU per `.gp`, `pkg_init.cpp`, flat escaped namespaces, stable folders)
 - [ ] 6.3 Header layout (gocpp headers first, public flags, fully qualified struct field types, exported constants, shared anon-type header)
 - [ ] 6.4 Cross-package init: Go 1.21+ global order, `gp_init_all()`, `constinit` variables, `gp::lazy<T>`
@@ -68,3 +68,20 @@
   them. Fine for the plan's targets (linux/amd64, windows/amd64, linux/arm64); a riscv64 or loong64 target
   would allow `-mabi=` values that equal the target's default.
 
+- 2026-10-17: Job 6.1 merged after a clean round-2 review. Decisions and open points: (1) a parser of our own instead of
+  `x/mod/modfile` (README §2.1 says modfile lax): `golang.org/x/mod` is not in go.mod and x/tools v0.44 needs x/mod v0.35.0,
+  which is not in the offline module cache; if the user wants the real x/mod the module graph needs a network bump
+  (x/tools, x/sync); the parser agrees with Go's modfile on the shared syntax (differential on ~60k inputs) and is
+  stricter in documented ways (`require x v1.2` is an error, a malformed known keyword such as `require(` is an
+  error, unknown lower-case verbs and their blocks are preserved); (2) `cflags`, `ldflags` and `pkg-config` lines of
+  gocpp.mod are only PARSED: README §2.1 says they go through the allow-list, which lives in internal/build (it imports
+  load), so the build step that uses them (6.5 or 6.9) must apply the checks to `Module.File()`; (3) module headers
+  (README §2.11, `"github.com/ocornut/imgui/imgui.h"`) are not resolved: such an import is still a local header, a
+  dotted first path element being ambiguous with local headers: needs the user's decision with the downloads
+  question; `cxx path { }` recipes are only preserved (Block.Raw: the delimiting rule is a body line ending in `{` or
+  `(` opens a nested block and a sole `}` or `)` closes it; the future recipe job owns the rule); (4) `gocpp mod vendor`
+  is not implemented (6.12 or Phase 15 with downloads); (5) no version selection: only the main module's require and
+  replace lines count, so a program must list every module it imports, directly or not; (6) the language server loads
+  each package separately: a package of a replaced module does not see the main module's replaces (TODO.md Phase 11:
+  the LSP must pass the main module folder to the loader); (7) hardening nit: the 16 MiB cap still allows large memory
+  use for a hostile file of one-letter lines (about 190x the file size): a smaller cap or a line limit is cheap.
