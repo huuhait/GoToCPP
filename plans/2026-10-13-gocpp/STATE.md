@@ -2,7 +2,7 @@
 
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Current focus:** Phase 04, C/C++ interop (Phases 00–03 done; M1 reached 2026-10-14, M2 2026-10-15), and the language server v0 track (Phase 11: the language server v0 track is done: diagnostics, hover, definition, signature help, completion, formatting, organize imports, disk cache, VS Code client); see [TODO.md](TODO.md)
-**Last updated:** 2026-10-15
+**Last updated:** 2026-10-16
 
 ---
 

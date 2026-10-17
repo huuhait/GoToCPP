@@ -2,7 +2,7 @@
 
 **Status:** `[~]` in progress
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-15
+**Last updated:** 2026-10-16
 
 ## Steps
 
@@ -261,4 +261,7 @@
 - 2026-10-15 (4.6 round 2): the probes now give g++ the build's error flags (`-Wno-error` + GeneratedFlags instead
   of `-w`, because g++'s -w also turns off -Werror=narrowing), so check and build agree on narrowing in headers;
   clang keeps -w (narrowing is an error by default).
-
+- 2026-10-16: Resumed the interrupted work. The uncommitted 4.6, 4.7 and 4.9 changes survived and were
+  moved to worktrees under `/home/huuhait/GoToCPP-worktrees/`; no incomplete step was marked done.
+  Pending: 4.6 round-2 review, 4.7 round-1 review, and 4.9 round-2 fixes followed by independent review.
+  Re-run the manager's checks before merging; the interrupted runs are not evidence of a clean review.
