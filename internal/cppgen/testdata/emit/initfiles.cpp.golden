@@ -22,26 +22,26 @@ constinit int64_t c{};
 
 #line 11 "$DIR/initfiles/a.gp"
 void gp_init_1() {
-    gp::fmtshim::Println("a.gp init 1:"_gs, a, b, c);
+    gp::fmt::Println("a.gp init 1:"_gs, a, b, c);
 }
 
 void main() {
-    gp::fmtshim::Println("main:"_gs, a, b, c, steps);
+    gp::fmt::Println("main:"_gs, a, b, c, steps);
 }
 
 void gp_init_2() {
-    gp::fmtshim::Println("a.gp init 2"_gs);
+    gp::fmt::Println("a.gp init 2"_gs);
 }
 
 #line 9 "$DIR/initfiles/b.gp"
 int64_t note(gp::string name, int64_t v) {
     steps++;
-    gp::fmtshim::Println("var"_gs, name, "="_gs, v, "step"_gs, steps);
+    gp::fmt::Println("var"_gs, name, "="_gs, v, "step"_gs, steps);
     return v;
 }
 
 void gp_init_3() {
-    gp::fmtshim::Println("b.gp init"_gs);
+    gp::fmt::Println("b.gp init"_gs);
 }
 
 #line 9 "$DIR/initfiles/c.gp"
@@ -52,7 +52,7 @@ int64_t twice() {
 }
 
 void gp_init_4() {
-    gp::fmtshim::Println("c.gp init"_gs, steps);
+    gp::fmt::Println("c.gp init"_gs, steps);
 }
 
 void gp_var_init() {

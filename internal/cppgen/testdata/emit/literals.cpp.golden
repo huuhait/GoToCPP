@@ -20,10 +20,10 @@ void main() {
     double f64 = 0.1;
     double e6 = 1e+06;
     double whole = 3.0;
-    gp::fmtshim::Println(i8, u8, i32, u32, gp::fmtshim::typed<gp::fmtshim::tag::int64>(i64), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(u64), big, neg, r);
-    gp::fmtshim::Println(f32, f64, e6, whole, f32 * 3.0f, -f64);
-    gp::fmtshim::Println("\303\251\t\"q\" \\ ABC \000 ok"_gs, ""_gs);
-    gp::fmtshim::Println("trigraphs?\?= ?\?/ ?\?' ?\?( ?\?) ?\?! ?\?< ?\?> ?\?- ?\?\?"_gs);
+    gp::fmt::Println(i8, u8, i32, u32, gp::fmt::as(&gp::td_int64, i64), gp::fmt::as(&gp::td_uint64, u64), big, neg, r);
+    gp::fmt::Println(f32, f64, e6, whole, f32 * 3.0f, -f64);
+    gp::fmt::Println("\303\251\t\"q\" \\ ABC \000 ok"_gs, ""_gs);
+    gp::fmt::Println("trigraphs?\?= ?\?/ ?\?' ?\?( ?\?) ?\?! ?\?< ?\?> ?\?- ?\?\?"_gs);
     gp::println(u32 + 1, i32 - 1, -neg, u64 * 2, big + big);
 }
 

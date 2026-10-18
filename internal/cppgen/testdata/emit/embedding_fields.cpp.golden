@@ -14,7 +14,6 @@ struct Item {
     std::size_t gp_hash() const {
         return gp::hash_fields(id);
     }
-    static constexpr const char* gp_type_name = "main.Item";
     static constexpr auto gp_fields = gp::fields(gp::field(&Item::id, "id", false, false));
 };
 static_assert(sizeof(Item) == 8 && alignof(Item) == 8);
@@ -25,7 +24,6 @@ struct Base {
     std::size_t gp_hash() const {
         return gp::hash_fields(n);
     }
-    static constexpr const char* gp_type_name = "main.Base";
     static constexpr auto gp_fields = gp::fields(gp::field(&Base::n, "n", false, false));
     Item Make() const;
     static int64_t Eat(gp::ptr<Base> b, Item i, gp::slice<Item> is);
@@ -41,7 +39,6 @@ struct Outer {
     std::size_t gp_hash() const {
         return gp::hash_fields(Base, Item, gp, std);
     }
-    static constexpr const char* gp_type_name = "main.Outer";
     static constexpr auto gp_fields = gp::fields(gp::field(&Outer::Base, "Base", true, true), gp::field(&Outer::Item, "Item", true, false), gp::field(&Outer::gp, "gp", false, false), gp::field(&Outer::std, "std", false, false));
     static int64_t Eat(gp::ptr<Outer> gp_p, gpkg_main::Item gp_a0, gp::slice<gpkg_main::Item> gp_a1);
     gpkg_main::Item Make() const;
@@ -52,7 +49,6 @@ struct Outer2 {
     gpkg_main::Base Base;
     gp::func<Item(Item)> Make2;
     gp::slice<Item> Items;
-    static constexpr const char* gp_type_name = "main.Outer2";
     static constexpr auto gp_fields = gp::fields(gp::field(&Outer2::Base, "Base", true, true), gp::field(&Outer2::Make2, "Make2", true, false), gp::field(&Outer2::Items, "Items", true, false));
     static int64_t Eat(gp::ptr<Outer2> gp_p, Item gp_a0, gp::slice<Item> gp_a1);
     Item Make() const;
@@ -73,6 +69,17 @@ int64_t Outer2::Eat(gp::ptr<Outer2> gp_p, Item gp_a0, gp::slice<Item> gp_a1) {
 
 Item Outer2::Make() const {
     return (*this).Base.Make();
+}
+
+extern const gp::type_desc gp_td_Item;
+
+inline const gp::type_desc* gp_full_Item();
+inline const gp::type_desc gp_td_Item = gp::named<Item>("main.Item", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Item));
+
+inline const gp::type_desc* gp_full_Item() {
+    static const gp::field_desc gp_f[]{gp::field_desc("id", "main", &gp::td_int, nullptr, false, gp::offset_of(&Item::id))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Item, gp::shape_struct(gp_f, 1));
+    return &gp_d;
 }
 
 void main();
@@ -96,9 +103,9 @@ int64_t Base::Eat(gp::ptr<Base> b, Item i, gp::slice<Item> is) {
 #line 27 "$DIR/embedding_fields.gp"
 void main() {
     gp::ptr<Outer> o = gp::new_<Outer>(Outer{Base{3}, 4, 5, "s"_gs});
-    { auto gp_t0 = (*o).Base.Make(); auto gp_t1 = Base::Eat(gp::field_ptr(o, &Outer::Base), Item{1}, nullptr); gp::fmtshim::Println(gp_t0, (*o).Item, gp_t1, (*o).gp, (*o).std); }
+    { auto gp_t0 = (*o).Base.Make(); auto gp_t1 = Base::Eat(gp::field_ptr(o, &Outer::Base), Item{1}, nullptr); gp::fmt::Println(gp::fmt::as(&gp_td_Item, gp_t0), (*o).Item, gp_t1, (*o).gp, (*o).std); }
     gp::ptr<Outer2> o2 = gp::new_<Outer2>(Outer2{.Base = Base{2}});
-    { auto gp_t2 = (*o2).Base.Make(); gp::fmtshim::Println(gp_t2, Base::Eat(gp::field_ptr(o2, &Outer2::Base), Item{5}, (*o2).Items)); }
+    { auto gp_t2 = (*o2).Base.Make(); gp::fmt::Println(gp::fmt::as(&gp_td_Item, gp_t2), Base::Eat(gp::field_ptr(o2, &Outer2::Base), Item{5}, (*o2).Items)); }
 }
 
 } // namespace gpkg_main

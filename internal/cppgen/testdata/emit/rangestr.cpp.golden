@@ -19,7 +19,7 @@ void main() {
     for (auto gp_it0 = gp::range_string(s); gp::range_next(gp_it0);) {
 #line 18 "$DIR/rangestr.gp"
         int64_t i = gp_it0.gp_i; int32_t r = gp_it0.gp_r;
-        gp::fmtshim::Println(i, r, gp::rune_to_string(r));
+        gp::fmt::Println(i, r, gp::rune_to_string(r));
     }
     for (auto gp_it1 = gp::range_string(s); gp::range_next(gp_it1);) {
 #line 21 "$DIR/rangestr.gp"
@@ -44,9 +44,9 @@ void main() {
         i = i + 10;
         r = 122;
         s = "changed"_gs;
-        gp::fmtshim::Println(i, r);
+        gp::fmt::Println(i, r);
     }
-    gp::fmtshim::Println(s);
+    gp::fmt::Println(s);
 #line 44 "$DIR/rangestr.gp"
     int64_t at{};
     int32_t last{};
@@ -56,13 +56,13 @@ void main() {
         if (last == 65533) {
             continue;
         }
-        gp::fmtshim::Println("at"_gs, at, last);
+        gp::fmt::Println("at"_gs, at, last);
     }
-    gp::fmtshim::Println(at, last, evals);
+    gp::fmt::Println(at, last, evals);
     for (auto gp_it6 = gp::range_string(s); gp::range_next(gp_it6);) {
 #line 53 "$DIR/rangestr.gp"
         int64_t i = gp_it6.gp_i; int32_t s = gp_it6.gp_r;
-        gp::fmtshim::Println(i, s);
+        gp::fmt::Println(i, s);
     }
 #line 58 "$DIR/rangestr.gp"
     int32_t neg = -1;
@@ -77,8 +77,8 @@ void main() {
     uint64_t u = UINT64_C(18446744073709551615);
     int64_t wide = INT64_C(4294967361);
     uint16_t u16 = 55295;
-    gp::fmtshim::Println(gp::rune_to_string(neg), gp::rune_to_string(sur), gp::rune_to_string(big), gp::len(gp::rune_to_string(max)), gp::rune_to_string(low) == "\357\277\275"_gs);
-    gp::fmtshim::Println(gp::rune_to_string(b), gp::rune_to_string(u), gp::rune_to_string(wide), gp::len(gp::rune_to_string(u16)), gp::rune_to_string(b) + gp::rune_to_string(int32_t(uint8_t(b + 1))));
+    gp::fmt::Println(gp::rune_to_string(neg), gp::rune_to_string(sur), gp::rune_to_string(big), gp::len(gp::rune_to_string(max)), gp::rune_to_string(low) == "\357\277\275"_gs);
+    gp::fmt::Println(gp::rune_to_string(b), gp::rune_to_string(u), gp::rune_to_string(wide), gp::len(gp::rune_to_string(u16)), gp::rune_to_string(b) + gp::rune_to_string(int32_t(uint8_t(b + 1))));
     for (auto gp_it7 = gp::range_string(gp::rune_to_string(max) + gp::rune_to_string(big)); gp::range_next(gp_it7);) {
 #line 66 "$DIR/rangestr.gp"
         int32_t r = gp_it7.gp_r;

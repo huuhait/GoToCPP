@@ -39,7 +39,7 @@
 
 #include <gocpp/arith.hpp>
 #include <gocpp/checks.hpp>
-#include <gocpp/fmtshim.hpp>
+#include <gocpp/fmt.hpp>
 #include <gocpp/print.hpp>
 #include <gocpp/ptr.hpp>
 #include <gocpp/slice.hpp>
@@ -1203,16 +1203,38 @@ X load(const X& x) {
 }
 
 // fmt_arg(x) is an argument of fmt.Print, Println, Printf and the Sprint functions that has a
-// C/C++ part (a C/C++ value, or a gocpp value with one inside, Phase 04 §2.12): the value, for
-// gp::fmtshim, after a check that fmt can print every part of it (gocpp/fmtshim.hpp, "C/C++
-// values"). It is here so that the error is the user's, at the call's .gp line.
+// C/C++ part (a C/C++ value, or a gocpp value with one inside, Phase 04 §2.12), x being
+// gp::fmt::as(descriptor, value) or the value itself: the operand, after a check that fmt can print
+// every part of it (gocpp/fmt.hpp, "C/C++ values"), and the registration of the text of its C++
+// classes (their std::formatter or operator<<), which the descriptors of the classes print by. It
+// is here so that the error is the user's, at the call's .gp line.
 template <typename T>
-auto fmt_arg(T x) {
-    static_assert(fmtshim::detail::printable_arg<T>,
+auto fmt_arg(fmt::described<T> x) {
+    static_assert(fmt::detail::printable<T>(),
                   "gocpp: fmt can't print a C++ type in this value: it has no std::formatter "
                   "and no operator<< (print its parts, or declare an operator<< for it; an "
                   "operator<< must be declared in the type's namespace)");
-    return fmtshim::detail::cxx_arg<T>{std::move(x)};
+    static const bool registered = (fmt::detail::register_texts<T>(), true);
+    (void)registered;
+    return x;
+}
+
+template <typename T>
+auto fmt_arg(fmt::described<fmt::heap_value<T>> x) {
+    static_assert(fmt::detail::printable<T>(),
+                  "gocpp: fmt can't print a C++ type in this value: it has no std::formatter "
+                  "and no operator<< (print its parts, or declare an operator<< for it; an "
+                  "operator<< must be declared in the type's namespace)");
+    static const bool registered = (fmt::detail::register_texts<T>(), true);
+    (void)registered;
+    return x;
+}
+
+// fmt_arg(x) of a value with no descriptor (a C/C++ value, or a gocpp composite with C/C++ parts
+// that go/types has no type for) deduces it from the C++ type (gp::cxx_desc).
+template <typename T>
+auto fmt_arg(T x) {
+    return fmt_arg(fmt::described<T>{gp::cxx_desc<T>(), std::move(x)});
 }
 
 // print_arg(x) is the same for an argument of the builtin print and println, which print a

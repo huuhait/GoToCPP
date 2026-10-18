@@ -23,11 +23,11 @@ constinit gp::slice<int64_t> gsl{};
 constinit gp::ptr<gp::array<int64_t, 3>> gp3{};
 
 void show(gp::array<int64_t, 3> a) {
-    gp::fmtshim::Println(a[0], a[1], a[2]);
+    gp::fmt::Println(a[0], a[1], a[2]);
 }
 
 void showStrs(gp::array<gp::string, 2> a) {
-    gp::fmtshim::Println(int64_t(2), a[0], a[1]);
+    gp::fmt::Println(int64_t(2), a[0], a[1]);
 }
 
 #line 34 "$DIR/arrays.gp"
@@ -45,7 +45,7 @@ std::tuple<gp::array<int64_t, 2>, bool> pair(int64_t x, int64_t y) {
 }
 
 gp::ptr<gp::array<int64_t, 3>> mk() {
-    gp::fmtshim::Print("mk "_gs);
+    gp::fmt::Print("mk "_gs);
     return gp::new_<gp::array<int64_t, 3>>(gp::array<int64_t, 3>{7, 8, 9});
 }
 
@@ -72,7 +72,7 @@ gp::slice<gp::array<int64_t, 3>> rows() {
 void main() {
     gpkg_main::show(gzero);
     gpkg_main::show(glit);
-    gp::fmtshim::Println(gkeyed[0], gkeyed[1], gkeyed[4], int64_t(5), gnested[1][0], gfloats[2], int64_t(3));
+    gp::fmt::Println(gkeyed[0], gkeyed[1], gkeyed[4], int64_t(5), gnested[1][0], gfloats[2], int64_t(3));
     gpkg_main::showStrs(gstrs);
 #line 71 "$DIR/arrays.gp"
     gp::array<int64_t, 3> z{};
@@ -85,17 +85,17 @@ void main() {
     gpkg_main::show(gpkg_main::double_((*a)));
     gpkg_main::show((*a));
     gp::array<gp::string, 4> k = gp::array_keyed<gp::string, 4>({{2, "c"_gs}, {3, "d"_gs}});
-    gp::fmtshim::Println(int64_t(4), k[0] == ""_gs, k[3]);
+    gp::fmt::Println(int64_t(4), k[0] == ""_gs, k[3]);
     gp::array<int64_t, 4> part{1, 2};
-    gp::fmtshim::Println(part[1], part[3]);
+    gp::fmt::Println(part[1], part[3]);
     auto gp_t0 = pair(3, 3);
 #line 84 "$DIR/arrays.gp"
     gp::array<int64_t, 2> two = std::get<0>(gp_t0);
 #line 84 "$DIR/arrays.gp"
     bool same = std::get<1>(gp_t0);
-    gp::fmtshim::Println(two[1], same);
+    gp::fmt::Println(two[1], same);
     gp::array<int64_t, 0> empty{};
-    gp::fmtshim::Println(int64_t(0), empty == gp::array<int64_t, 0>{});
+    gp::fmt::Println(int64_t(0), empty == gp::array<int64_t, 0>{});
 #line 90 "$DIR/arrays.gp"
     int64_t i = 2;
     (*a)[i] = (*a)[i] + 5;
@@ -105,40 +105,40 @@ void main() {
     gp::array<double, 2> fl{1.5, 2.0};
     fl[1] = fl[1] / 4.0;
     fl[0]--;
-    gp::fmtshim::Println(fl[0], fl[1]);
+    gp::fmt::Println(fl[0], fl[1]);
     gp::array<int8_t, 2> small{127, -128};
     small[0]++;
     small[1]--;
-    gp::fmtshim::Println(small[0], small[1]);
+    gp::fmt::Println(small[0], small[1]);
     gp::array<gp::string, 2> strs{"x"_gs, "y"_gs};
     strs[0] = gp::concat(strs[0], strs[1], "!"_gs);
     gpkg_main::showStrs(strs);
-    gp::fmtshim::Println((*a) == b, (*a) != b, (*a) == gp::array<int64_t, 3>{16, 8, 15}, strs == gp::array<gp::string, 2>{"xy!"_gs, "y"_gs});
+    gp::fmt::Println((*a) == b, (*a) != b, (*a) == gp::array<int64_t, 3>{16, 8, 15}, strs == gp::array<gp::string, 2>{"xy!"_gs, "y"_gs});
     gp::ptr<int64_t> x = gp::new_<int64_t>(1);
 #line 107 "$DIR/arrays.gp"
     gp::ptr<int64_t> y = gp::new_<int64_t>(2);
     gp::array<gp::ptr<int64_t>, 3> ptrs{x, y};
     *ptrs[0] = *ptrs[0] + 10;
     ptrs[2] = ptrs[1];
-    gp::fmtshim::Println((*x), ptrs[2] == y, ptrs[0] != nullptr, ptrs == gp::array<gp::ptr<int64_t>, 3>{x, y, y});
+    gp::fmt::Println((*x), ptrs[2] == y, ptrs[0] != nullptr, ptrs == gp::array<gp::ptr<int64_t>, 3>{x, y, y});
     gp::array<gp::slice<int64_t>, 2> sls{gp::slice_of<int64_t>({1}), nullptr};
     sls[1] = gp::append_slice(sls[1], sls[0]);
-    gp::fmtshim::Println(gp::len(sls[0]), sls[1][0], sls[0] == nullptr);
+    gp::fmt::Println(gp::len(sls[0]), sls[1][0], sls[0] == nullptr);
 #line 117 "$DIR/arrays.gp"
     gp::ptr<gp::array<gp::array<int64_t, 3>, 2>> grid = gp::new_<gp::array<gp::array<int64_t, 3>, 2>>(gp::array<gp::array<int64_t, 3>, 2>{gp::array<int64_t, 3>{1, 2, 3}, gp::array<int64_t, 3>{4, 5, 6}});
     gp::array<int64_t, 3> row = (*grid)[1];
     row[0] = 40;
     (*grid)[0][2] = (*grid)[0][2] * 10;
-    gp::fmtshim::Println((*grid)[1][0], row[0], (*grid)[0][2]);
+    gp::fmt::Println((*grid)[1][0], row[0], (*grid)[0][2]);
     gp::slice<gp::array<int64_t, 3>> rs = rows();
     rs[1][2] = 60;
-    { auto gp_t1 = rs[0] == gp::array<int64_t, 3>{1, 2, 3}; gp::fmtshim::Println(rs[1][2], gp::len(rs), gp_t1); }
+    { auto gp_t1 = rs[0] == gp::array<int64_t, 3>{1, 2, 3}; gp::fmt::Println(rs[1][2], gp::len(rs), gp_t1); }
 #line 127 "$DIR/arrays.gp"
     gp::ptr<gp::array<int64_t, 3>> p = a;
     (*p)[1] = 200;
     gpkg_main::show((*a));
     gp::ptr<gp::array<int64_t, 3>> np{};
-    gp::fmtshim::Println(int64_t(3), int64_t(3), int64_t(3), gp::cap(mk()));
+    gp::fmt::Println(int64_t(3), int64_t(3), int64_t(3), gp::cap(mk()));
     gp::ptr<gp::array<gp::string, 2>> lp = gp::new_<gp::array<gp::string, 2>>(gp::array<gp::string, 2>{"p"_gs, "q"_gs});
     (*lp)[0] = "r"_gs;
     gpkg_main::showStrs(*lp);
@@ -152,7 +152,7 @@ void main() {
     u = gp::append(static_cast<gp::slice<int64_t>&&>(u), 40);
     u[0] = 50;
     gpkg_main::show((*a));
-    gp::fmtshim::Println(gp::len(t), gp::cap(t), gp::cap(u), gp::len(s));
+    gp::fmt::Println(gp::len(t), gp::cap(t), gp::cap(u), gp::len(s));
     gsl[0] = 20;
     gp::slice<int64_t> g2 = gp::sub(gp::static_ptr(glit), 0, 2);
     g2 = gp::append(static_cast<gp::slice<int64_t>&&>(g2), 300);
@@ -161,7 +161,7 @@ void main() {
     ps[0] = -1;
     gp::slice<int64_t> r2 = gp::sub(gp::ptr<gp::array<int64_t, 3>>(grid, &(*grid)[1]), 0);
     r2[1] = 50;
-    { auto gp_t2 = gp::len(gp::sub(mk(), 1)); gp::fmtshim::Println((*a)[1], (*grid)[1][1], gp_t2); }
+    { auto gp_t2 = gp::len(gp::sub(mk(), 1)); gp::fmt::Println((*a)[1], (*grid)[1][1], gp_t2); }
 #line 158 "$DIR/arrays.gp"
     gp::ptr<int64_t> q = gp::ptr<int64_t>(a, &(*a)[2]);
     *q = 3;
@@ -178,7 +178,7 @@ void main() {
     (*qm)++;
     gpkg_main::show((*a));
     gpkg_main::show(glit);
-    { static_cast<void>(rs[0]); auto gp_t3 = *qm; gp::fmtshim::Println((*grid)[1][2], rs[0][1], gp_t3, *qn); }
+    { static_cast<void>(rs[0]); auto gp_t3 = *qm; gp::fmt::Println((*grid)[1][2], rs[0][1], gp_t3, *qn); }
 #line 176 "$DIR/arrays.gp"
     gp::slice<int64_t> sl = gp::slice_of<int64_t>({1, 2, 3, 4});
     gp::array<int64_t, 3> arr = gp::to_array<3>(sl);
@@ -186,7 +186,7 @@ void main() {
     gp::ptr<gp::array<int64_t, 2>> ap = gp::to_array_ptr<2>(sl);
     (*ap)[1] = 22;
     gp::slice<int64_t> nilsl{};
-    { auto gp_t4 = gp::to_array<0>(nilsl) == empty; auto gp_t5 = sl[0]; gp::fmtshim::Println(arr[0], gp_t5, sl[1], int64_t(2), gp::to_array_ptr<0>(nilsl) == nullptr, gp_t4); }
+    { auto gp_t4 = gp::to_array<0>(nilsl) == empty; auto gp_t5 = sl[0]; gp::fmt::Println(arr[0], gp_t5, sl[1], int64_t(2), gp::to_array_ptr<0>(nilsl) == nullptr, gp_t4); }
 #line 185 "$DIR/arrays.gp"
     for (auto gp_it0 = gp::range_array_copy((*a)); gp::range_next(gp_it0);) {
 #line 185 "$DIR/arrays.gp"
@@ -194,28 +194,28 @@ void main() {
         if (i == 0) {
             (*a)[2] = -1;
         }
-        gp::fmtshim::Print(v, " "_gs);
+        gp::fmt::Print(v, " "_gs);
     }
-    gp::fmtshim::Println((*a)[2]);
+    gp::fmt::Println((*a)[2]);
     for (auto gp_it1 = gp::range_array(p); gp::range_next(gp_it1);) {
 #line 192 "$DIR/arrays.gp"
         int64_t i = gp_it1.gp_i; int64_t v = gp_it1.gp_v();
         if (i == 0) {
             (*a)[2] = -2;
         }
-        gp::fmtshim::Print(v, " "_gs);
+        gp::fmt::Print(v, " "_gs);
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
     for (auto gp_it2 = gp::range_array(b); gp::range_next(gp_it2);) {
 #line 199 "$DIR/arrays.gp"
         int64_t v = gp_it2.gp_v();
-        gp::fmtshim::Print(v, " "_gs);
+        gp::fmt::Print(v, " "_gs);
     }
     for (auto gp_it3 = gp::range_array_copy(gp::array<gp::string, 2>{"m"_gs, "n"_gs}); gp::range_next(gp_it3);) {
 #line 202 "$DIR/arrays.gp"
         int64_t i = gp_it3.gp_i; gp::string v = gp_it3.gp_v();
         i = 10;
-        gp::fmtshim::Print(i, v, " "_gs);
+        gp::fmt::Print(i, v, " "_gs);
     }
     for (auto gp_it4 = gp::range_array_copy((*grid)); gp::range_next(gp_it4);) {
 #line 206 "$DIR/arrays.gp"
@@ -223,29 +223,29 @@ void main() {
         for (auto gp_it5 = gp::range_array(r); gp::range_next(gp_it5);) {
 #line 207 "$DIR/arrays.gp"
             int64_t v = gp_it5.gp_v();
-            gp::fmtshim::Print(v, ","_gs);
+            gp::fmt::Print(v, ","_gs);
         }
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
     for (int64_t gp_i0 = 0; gp_i0 < 3; gp_i0++) {
 #line 212 "$DIR/arrays.gp"
         int64_t i = gp_i0;
-        gp::fmtshim::Print(i);
+        gp::fmt::Print(i);
     }
     for (int64_t gp_i1 = 0; gp_i1 < 3; gp_i1++) {
-        gp::fmtshim::Print("."_gs);
+        gp::fmt::Print("."_gs);
     }
     for (int64_t gp_i2 = 0, gp_n0 = gp::len(np); gp_i2 < gp_n0; gp_i2++) {
 #line 218 "$DIR/arrays.gp"
         int64_t i = gp_i2;
-        gp::fmtshim::Print(i);
+        gp::fmt::Print(i);
     }
     for (int64_t gp_i3 = 0, gp_n1 = gp::len(mk()); gp_i3 < gp_n1; gp_i3++) {
 #line 221 "$DIR/arrays.gp"
         int64_t i = gp_i3;
-        gp::fmtshim::Print(i);
+        gp::fmt::Print(i);
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
     int64_t j{};
 #line 225 "$DIR/arrays.gp"
     int64_t w{};
@@ -253,7 +253,7 @@ void main() {
 #line 226 "$DIR/arrays.gp"
         j = gp_it6.gp_i; w = gp_it6.gp_v();
     }
-    gp::fmtshim::Println(j, w);
+    gp::fmt::Println(j, w);
     gp::slice<gp::ptr<int64_t>> vp = gp::slice_of<gp::ptr<int64_t>>({});
     for (auto gp_it7 = gp::range_array(b); gp::range_next(gp_it7);) {
 #line 230 "$DIR/arrays.gp"
@@ -261,17 +261,17 @@ void main() {
         vp = gp::append(static_cast<gp::slice<gp::ptr<int64_t>>&&>(vp), v);
     }
     *vp[0] = 9;
-    { auto gp_t6 = *vp[0]; gp::fmtshim::Println(gp_t6, *vp[1], b[0]); }
+    { auto gp_t6 = *vp[0]; gp::fmt::Println(gp_t6, *vp[1], b[0]); }
 #line 237 "$DIR/arrays.gp"
     gp::ptr<gp::array<int64_t, 32768>> big = gp::new_array_keyed<int64_t, 32768>({{2, 5}});
     gp::ptr<gp::array<int64_t, 32768>> big2 = gp::new_to_array<32768>(gp::make_slice<int64_t>(32768));
-    { auto gp_t7 = gpkg_main::sumBig((*big), 1); auto gp_t8 = gpkg_main::sumBig((*big2), 0); gp::fmtshim::Println(gp_t7, (*big)[0], gp_t8); }
+    { auto gp_t7 = gpkg_main::sumBig((*big), 1); auto gp_t8 = gpkg_main::sumBig((*big2), 0); gp::fmt::Println(gp_t7, (*big)[0], gp_t8); }
 #line 242 "$DIR/arrays.gp"
     gp::array<int64_t, 2> c{1, 2};
     c = gp::array<int64_t, 2>{9, 9}; c[0] = 5;
     int64_t n = 0;
     { auto gp_t9 = n; n = 1; c[gp_t9] = 7; }
-    gp::fmtshim::Println(c[0], c[1], n);
+    gp::fmt::Println(c[0], c[1], n);
 }
 
 void gp_var_init() {

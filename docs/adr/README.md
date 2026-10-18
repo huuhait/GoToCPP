@@ -39,6 +39,7 @@ and from the user's answers to Q1–Q13
 | [025](025-split-layout.md) | The split layout: all packages are lowered together; descriptors are extern, unnamed types are global | accepted | `pkg_desc.cpp` defines the descriptors, guarded definitions of `gp_anon_*` in every header that uses them, stable `gen/<hash>` folder, public flags. Refines 019. |
 | [026](026-channels-and-thread-reuse.md) | Channels are Go's `hchan` on a mutex, and goroutine threads are reused | accepted | `go` is lowered like `defer`; `gp::chan<T>` is a shared pointer; a finished goroutine's thread waits for the next `go`; the headers stay light. |
 | [027](027-native-std-functions.md) | Standard packages call native functions through `//gocpp:native` | accepted | A bodyless function with the directive is the runtime's C++ function; a bodyless function without it is still a stub. (026 is job 8.2's.) |
+| [028](028-fmt-on-descriptors.md) | `fmt` is one engine that walks values by their type descriptors | accepted | A port of Go's fmt/print.go and format.go driven by descriptors (complete lazily: `gp_full`, field offsets, `gp_ops`), plain operands for the common types, the shim's templates and protocols removed. (026 is 8.2's, 027 is 5.7's.) |
 
 ## Changing a decision
 

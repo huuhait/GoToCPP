@@ -114,7 +114,7 @@ const name_case name_cases[] = {
     {"_ZNK9gpkg_main7Celsius6StringEv", "main.Celsius.String", true, false},
     {"_ZZNK9gpkg_main1T1MEvENKUlvE_clEv", "main.T.M.func1", false, false},
     {"_ZZN9gpkg_main1T2PMEN2gp3ptrIS0_EEENKUlvE_clEv", "main.(*T).PM.func1", false, false},
-    {"_ZNK9gpkg_main1T9gp_StringEv", nullptr, false, false}, // the fmt shim's hook
+    {"_ZNK9gpkg_main1T9gp_StringEv", nullptr, false, false}, // (a name that fmt's hooks had)
     {"_ZN9gpkg_main1T13gp_String_ptrERKN2gp3ptrIS0_EE", nullptr, false, false},
     {"_ZN9gpkg_main3MapIlEEvT_", "main.Map[...]", true, false},
     {"_ZN9gpkg_main5gp_x_Ev", "main.gp_x", false, false}, // a user's gp_x
@@ -371,7 +371,7 @@ void run_tests() {
         gp::os::write(gp::os::stderr_fd, msg.data(), msg.size());
         gp::os::exit(1);
     }
-    gp::fmtshim::Printf("ok: %d checks\n"_gs, int64_t(checks));
+    gp::fmt::Printf("ok: %d checks\n"_gs, int64_t(checks));
 }
 
 } // namespace

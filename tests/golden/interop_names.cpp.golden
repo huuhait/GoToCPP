@@ -8,7 +8,6 @@ struct Bool_;
 
 struct Bool_ : gp::newtype<Bool_, bool> {
     using gp::newtype<Bool_, bool>::newtype;
-    static constexpr const char* gp_type_name = "main.Bool";
 };
 static_assert(sizeof(Bool_) == 1 && alignof(Bool_) == 1);
 

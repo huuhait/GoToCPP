@@ -34,7 +34,7 @@ std::tuple<gp::string, gp::string> swap(gp::string a, gp::string b) {
 }
 
 int64_t trace(gp::string name, int64_t v) {
-    gp::fmtshim::Println("eval"_gs, name);
+    gp::fmt::Println("eval"_gs, name);
     return v;
 }
 
@@ -53,18 +53,18 @@ void main() {
     gp::string x = std::get<0>(gp_t1);
 #line 33 "$ROOT/tests/golden/funcs.gp"
     gp::string y = std::get<1>(gp_t1);
-    gp::fmtshim::Println(q, r, x + y, gp::len(x + y));
+    gp::fmt::Println(q, r, x + y, gp::len(x + y));
     {
         int64_t gp_t2 = q * 10; { int64_t q = gp_t2;
-            gp::fmtshim::Println(q);
+            gp::fmt::Println(q);
         }
 #line 38 "$ROOT/tests/golden/funcs.gp"
     }
 #line 40 "$ROOT/tests/golden/funcs.gp"
-    { auto gp_t3 = gpkg_main::trace("a"_gs, 1); auto gp_t4 = gpkg_main::trace("b"_gs, 2); gp::fmtshim::Println(sum(gp_t3, gp_t4, gpkg_main::trace("c"_gs, 3))); }
+    { auto gp_t3 = gpkg_main::trace("a"_gs, 1); auto gp_t4 = gpkg_main::trace("b"_gs, 2); gp::fmt::Println(sum(gp_t3, gp_t4, gpkg_main::trace("c"_gs, 3))); }
     auto gp_t5 = gpkg_main::trace("d"_gs, 4); int64_t total = gp_t5 * gpkg_main::trace("e"_gs, 5);
     { auto gp_t6 = x; x = y; y = gp_t6; }
-    gp::fmtshim::Println(total, x, y);
+    gp::fmt::Println(total, x, y);
 #line 45 "$ROOT/tests/golden/funcs.gp"
     int64_t a = -7;
 #line 45 "$ROOT/tests/golden/funcs.gp"
@@ -74,8 +74,8 @@ void main() {
     uint8_t u = 200;
     u = uint8_t(u + 100);
     double f = 2.75;
-    { auto gp_t7 = gp::div(a, b); auto gp_t8 = gp::rem(a, b); gp::fmtshim::Println(gp_t7, gp_t8, gp::shl(int64_t(1), b), small, u, gp::f2i<int64_t>(f * 2.0)); }
-    gp::fmtshim::Printf("%d %s %t %v\n"_gs, q, x, q > r, f);
+    { auto gp_t7 = gp::div(a, b); auto gp_t8 = gp::rem(a, b); gp::fmt::Println(gp_t7, gp_t8, gp::shl(int64_t(1), b), small, u, gp::f2i<int64_t>(f * 2.0)); }
+    gp::fmt::Printf("%d %s %t %v\n"_gs, q, x, q > r, f);
 }
 
 } // namespace gpkg_main

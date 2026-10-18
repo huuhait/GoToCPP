@@ -1049,9 +1049,9 @@ func TestCPrint(t *testing.T) {
 	cpp := string(cppir.Print(f, ""))
 	for _, want := range []string{
 		"#include <lib.h>\n#include <gocpp/fmtcxx.hpp>\n",
-		"gp::fmtshim::Println(gp::cgo::fmt_arg(EOF), int64_t(1), gp::cgo::fmt_arg(h), gp::cgo::fmt_arg(p));",
-		`gp::fmtshim::Printf("%d\n"_gs, gp::cgo::fmt_arg(::f()));`,
-		"gp::fmtshim::Sprint(gp::cgo::fmt_arg(gp_a)...)",
+		"gp::fmt::Println(gp::cgo::fmt_arg(EOF), int64_t(1), gp::cgo::fmt_arg(gp::fmt::as(&gp_td_H, h)), gp::cgo::fmt_arg(p));",
+		`gp::fmt::Printf("%d\n"_gs, gp::cgo::fmt_arg(::f()));`,
+		"gp::fmt::Sprint(gp::cgo::fmt_arg(gp_r0), gp_r1)",
 		"gp::println(gp::cgo::print_arg(::f()), int64_t(2));",
 		"gp::println(gp::cgo::print_arg(gp_a)...)",
 	} {

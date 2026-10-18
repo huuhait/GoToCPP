@@ -23,7 +23,6 @@ import (
 //	                                        std::size_t gp_hash() const {
 //	                                            return gp::hash_fields(X, Y);
 //	                                        }
-//	                                        static constexpr const char* gp_type_name = "main.Point";
 //	                                        static constexpr auto gp_fields = gp::fields(
 //	                                            gp::field(&Point::X, "X", true, false), ...);
 //	                                    };
@@ -38,10 +37,10 @@ import (
 //   - operator== only for a comparable struct: defaulted, or, with blank fields (which Go's ==
 //     skips), the non-blank fields compared in order with &&. gp_hash() goes with it, for map
 //     keys (gocpp/hash.hpp's protocol), over the same fields.
-//   - gp_type_name and gp_fields are the fmt shim's protocol (gocpp/fmtshim.hpp): the Go name
-//     of the type as %T prints it, and every field, also blank and embedded ones, with its Go
-//     name, whether it is exported and whether it is embedded, and the type tag of a field whose
-//     type has int64, uint64 or uintptr in it (C++ can't tell them from int and uint).
+//   - gp_fields lists every field, also blank and embedded ones, with its Go name, whether it
+//     is exported and whether it is embedded: gp::convert copies a struct field by field with
+//     it, and gp::cgo::fmt_arg walks it to register the text of C++ classes. (fmt reads values
+//     through the type descriptors, typedesc.go and typefull.go.)
 //   - A field's C++ name is its Go name, escaped like a method's (MethodName: a field named like
 //     its struct gets a _). A type that a field's name hides inside the struct (Point Point, Go's
 //     embedded Point) is written qualified, gpkg_main::Point, as anywhere a variable of the same
@@ -52,7 +51,7 @@ import (
 //   - the named struct types of the package, in source order. A type declared in a function is
 //     moved to the namespace (C++'s local classes can't have static data members): it keeps its
 //     Go name if no package-level name has it, or gets the first free name of T_1, T_2, ...;
-//     gp_type_name still says main.T, as Go's %T does;
+//     its descriptor still says main.T, as Go's %T does;
 //   - the anonymous struct types: Go's type identity is structural, so identical struct types
 //     (the same fields, types, tags and embedding) are one C++ type, named gp_anon_ and 16 hex
 //     digits of the SHA-256 of the type's Go spelling (with package paths). Phase 06 moves them
@@ -390,7 +389,7 @@ type typeParts struct {
 	structs []*structInfo // the structs that have a forward declaration, in order
 	ifaces  []cppir.Decl  // the interface structs: forward declarations, then definitions
 	defs    []structDefn  // the structs' definitions in dependency order
-	post    []postDefn    // the definitions of the forwarders and the fmt hooks of each struct
+	post    []postDefn    // the definitions of the forwarders of each struct
 	// globalFwd are the forwarders of the shared structs of the package (shared.go), which are in
 	// the global namespace: they are defined there, in pkg_desc.cpp.
 	globalFwd []cppir.Decl
@@ -398,9 +397,9 @@ type typeParts struct {
 }
 
 // A postDefn is the out-of-line definitions of one struct's members: the forwarders of the
-// promoted methods (promote.go) and the fmt shim's hooks (methods.go).
+// promoted methods (promote.go).
 type postDefn struct {
-	fwd, hooks []cppir.Decl
+	fwd []cppir.Decl
 }
 
 // A structDefn is the definition of one struct, with its static_assert.
@@ -410,7 +409,7 @@ type structDefn struct {
 }
 
 // all returns the declarations of the unit layout: the structs' forward declarations, the
-// interface structs, the definitions, the forwarders and hooks, then the descriptors.
+// interface structs, the definitions, the forwarders, then the descriptors.
 func (p *typeParts) all() []cppir.Decl {
 	if p == nil {
 		return nil
@@ -426,7 +425,6 @@ func (p *typeParts) all() []cppir.Decl {
 	}
 	for _, d := range p.post {
 		decls = append(decls, d.fwd...)
-		decls = append(decls, d.hooks...)
 	}
 	return append(decls, p.impl.all...)
 }
@@ -483,12 +481,10 @@ func (g *gen) structDecls() *typeParts {
 	for i := 0; i < len(td.list); i++ { // (structDef may add none: anonStructsIn found them all)
 		define(td.list[i])
 	}
-	// The forwarders of the promoted methods (promote.go) and the fmt shim's hooks of the method
-	// sets (methods.go), after all the structs.
+	// The forwarders of the promoted methods (promote.go), after all the structs.
 	for _, si := range td.list {
 		if si.shared != nil && g.split {
-			// A shared struct is defined once for the program: its hooks are in its guarded
-			// definition (makeShared), its forwarders in the pkg_desc.cpp of its owner.
+			// A shared struct is defined once for the program: its forwarders in the pkg_desc.cpp of its owner.
 			if si.owner == g {
 				// (Outside the package's namespace, where the struct is: its names are qualified.)
 				g.global++
@@ -497,7 +493,7 @@ func (g *gen) structDecls() *typeParts {
 			}
 			continue
 		}
-		parts.post = append(parts.post, postDefn{g.forwardDefs(si), g.hookDefs(si)})
+		parts.post = append(parts.post, postDefn{g.forwardDefs(si)})
 	}
 	return parts
 }
@@ -629,27 +625,20 @@ func (g *gen) structDef(si *structInfo) []cppir.Decl {
 				Vars: []cppir.Declarator{{Name: "gp_hash_panics", Init: lit("true")}}})
 		}
 	}
-	cstr := &cppir.Ptr{Elem: &cppir.Const{Elem: typeName("char")}}
-	name := &cppir.VarDecl{Specs: []string{"static", "constexpr"}, Type: cstr,
-		Vars: []cppir.Declarator{{Name: "gp_type_name", Init: lit(cppir.CString(si.goName))}}}
+	// gp_fields lists every field, in order: gp::convert copies a struct field by field, and
+	// gp::cgo::fmt_arg walks the C++ types of a struct with a C/C++ field to register the text of
+	// its C++ classes.
 	fields := make([]cppir.Expr, si.st.NumFields())
 	for i := range si.st.NumFields() {
 		f := si.st.Field(i)
-		args := []cppir.Expr{
+		fields[i] = call("gp::field",
 			&cppir.Unary{Op: "&", X: cxxName(si.name + "::" + si.fields[i])},
 			lit(cppir.CString(f.Name())),
 			lit(strconv.FormatBool(f.Exported())),
-			lit(strconv.FormatBool(f.Embedded())),
-		}
-		if tag := fmtTag(f.Type()); tag != "" {
-			fields[i] = templateCall("gp::field", []cppir.Node{typeName(tag)}, args...)
-		} else {
-			fields[i] = call("gp::field", args...)
-		}
+			lit(strconv.FormatBool(f.Embedded())))
 	}
-	info := &cppir.VarDecl{Specs: []string{"static", "constexpr"}, Type: typeName("auto"),
-		Vars: []cppir.Declarator{{Name: "gp_fields", Init: call("gp::fields", fields...)}}}
-	s.Members = append(s.Members, name, info)
+	s.Members = append(s.Members, &cppir.VarDecl{Specs: []string{"static", "constexpr"}, Type: typeName("auto"),
+		Vars: []cppir.Declarator{{Name: "gp_fields", Init: call("gp::fields", fields...)}}})
 	s.Members = append(s.Members, g.methodDecls(si)...) // methods.go
 	if cpart {
 		// gocpp doesn't know the size of a C/C++ type (check.Sizes guesses a word), and Go's ==
@@ -694,51 +683,6 @@ func zeroInit(t types.Type) cppir.Expr {
 		return lit("false")
 	}
 	return lit("0")
-}
-
-// fmtTag returns the fmt shim's type tag of a field of type t (gocpp/fmtshim.hpp), or "" if it
-// needs none: t has no int64, uint64 or uintptr in a part that is not a struct of its own (a
-// struct's own fields have their tags).
-func fmtTag(t types.Type) string {
-	const tag = "gp::fmtshim::tag::"
-	elem := func(e types.Type) string {
-		if s := fmtTag(e); s != "" {
-			return s
-		}
-		return tag + "none"
-	}
-	switch t := types.Unalias(t).(type) {
-	case *types.Named:
-		if isWeakPointer(t) && fmtTag(weakElem(t)) != "" {
-			return tag + "weak<" + elem(weakElem(t)) + ">" // weak.Pointer[int64] (weak.go)
-		}
-	case *types.Basic:
-		switch t.Kind() {
-		case types.Int64:
-			return tag + "int64"
-		case types.Uint64:
-			return tag + "uint64"
-		case types.Uintptr:
-			return tag + "uintptr"
-		}
-	case *types.Pointer:
-		if fmtTag(t.Elem()) != "" {
-			return tag + "ptr<" + elem(t.Elem()) + ">"
-		}
-	case *types.Slice:
-		if fmtTag(t.Elem()) != "" {
-			return tag + "slice<" + elem(t.Elem()) + ">"
-		}
-	case *types.Array:
-		if fmtTag(t.Elem()) != "" {
-			return tag + "array<" + elem(t.Elem()) + ">"
-		}
-	case *types.Map:
-		if fmtTag(t.Key()) != "" || fmtTag(t.Elem()) != "" {
-			return tag + "map<" + elem(t.Key()) + ", " + elem(t.Elem()) + ">"
-		}
-	}
-	return ""
 }
 
 // goTypeName returns Go's name of the type t as reflect's String gives it, which %T prints:

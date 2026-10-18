@@ -14,28 +14,66 @@ struct pt {
     std::size_t gp_hash() const {
         return gp::hash_fields(x, y);
     }
-    static constexpr const char* gp_type_name = "main.pt";
     static constexpr auto gp_fields = gp::fields(gp::field(&pt::x, "x", false, false), gp::field(&pt::y, "y", false, false));
 };
 static_assert(sizeof(pt) == 16 && alignof(pt) == 8);
 
 struct Celsius : gp::newtype<Celsius, double> {
     using gp::newtype<Celsius, double>::newtype;
-    static constexpr const char* gp_type_name = "main.Celsius";
     gp::string String() const;
-    gp::string gp_String() const;
 };
 static_assert(sizeof(Celsius) == 8 && alignof(Celsius) == 8);
 
 struct ids : gp::newtype<ids, gp::slice<int64_t>> {
     using gp::newtype<ids, gp::slice<int64_t>>::newtype;
-    using gp_value_tag = gp::fmtshim::tag::slice<gp::fmtshim::tag::int64>;
-    static constexpr const char* gp_type_name = "main.ids";
 };
 static_assert(sizeof(ids) == 40 && alignof(ids) == 8);
 
-gp::string Celsius::gp_String() const {
-    return String();
+extern const gp::type_desc gp_td_pt;
+extern const gp::type_desc gp_td_Celsius;
+extern const gp::type_desc gp_td_ids;
+
+inline const gp::type_desc* gp_full_pt();
+inline const gp::type_desc gp_td_pt = gp::named<pt>("main.pt", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_pt));
+
+inline gp::string gp_thunk_Celsius_String(const gp::iface& gp_self) {
+    return gp::unbox<Celsius>(gp_self).String();
+}
+inline const gp::method gp_vm_Celsius[]{gp::method_of<gp::string()>("String", nullptr, "func() string", &gp_thunk_Celsius_String)};
+inline gp::string gp_thunk_pCelsius_String(const gp::iface& gp_self) {
+    gp::ptr<Celsius> gp_p = gp::unbox<gp::ptr<Celsius>>(gp_self);
+    gp::check_wrap(gp_p, "value method main.Celsius.String called using nil *Celsius pointer");
+    return gp_p->String();
+}
+inline const gp::method gp_pm_Celsius[]{gp::method_of<gp::string()>("String", nullptr, "func() string", &gp_thunk_pCelsius_String)};
+inline const gp::type_desc gp_td_Celsius = gp::named<Celsius>("main.Celsius", "main", gp::shape_basic(gp::kind::Float64), gp::methods_of(gp_vm_Celsius), gp::methods_of(gp_pm_Celsius));
+
+inline const gp::type_desc* gp_full_ids();
+inline const gp::type_desc gp_td_ids = gp::named<ids>("main.ids", "main", gp::shape_lazy(gp::shape_slice(&gp::td_int64), &gp_full_ids));
+
+static const gp::type_desc* const gp_tdc_0 = gp::td_slice<int64_t>(&gp::td_int);
+static const gp::type_desc* const gp_tdc_1 = gp::td_array<gp::string, 2>(&gp::td_string);
+static const gp::type_desc* const gp_tdc_2 = gp::td_map<gp::string, int64_t>(&gp::td_string, &gp::td_int);
+static const gp::type_desc* const gp_tdp_pt = gp::td_ptr<pt>(&gp_td_pt);
+static const gp::type_desc* const gp_tdc_4 = gp::td_ptr<int64_t>(&gp::td_int);
+static const gp::type_desc* const gp_tdc_5 = gp::td_slice<Celsius>(&gp_td_Celsius);
+static const gp::type_desc* const gp_tdc_6 = gp::td_slice<uint64_t>(&gp::td_uint64);
+static const gp::type_desc* const gp_tdc_7 = gp::td_map<gp::string, uintptr_t>(&gp::td_string, &gp::td_uintptr);
+static const gp::type_desc* const gp_tdc_8 = gp::td_array<int64_t, 1>(&gp::td_int64);
+static const gp::type_desc* const gp_tdc_9 = gp::td_ptr<gp::array<int64_t, 1>>(gp_tdc_8);
+static const gp::type_desc* const gp_tdc_10 = gp::td_slice<gp::string>(&gp::td_string);
+static const gp::type_desc* const gp_tdc_11 = gp::td_array<int64_t, 2>(&gp::td_int);
+static const gp::type_desc* const gp_tdc_12 = gp::td_slice<int64_t>(&gp::td_int64);
+
+inline const gp::type_desc* gp_full_pt() {
+    static const gp::field_desc gp_f[]{gp::field_desc("x", "main", &gp::td_int, nullptr, false, gp::offset_of(&pt::x)), gp::field_desc("y", "main", &gp::td_int, nullptr, false, gp::offset_of(&pt::y))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_pt, gp::shape_struct(gp_f, 2));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_ids() {
+    static const gp::type_desc gp_d = gp::completed(gp_td_ids, gp::shape_slice(&gp::td_int64));
+    return &gp_d;
 }
 
 int64_t change();
@@ -52,7 +90,7 @@ gp::string Celsius::String() const {
 #line 16 "$DIR/fmt.gp"
     Celsius c = *this;
 #line 16 "$DIR/fmt.gp"
-    return gp::fmtshim::Sprintf("%.1f\302\260C"_gs, c.gp_value());
+    return gp::fmt::Sprintf("%.1f\302\260C"_gs, c.gp_value());
 #line 16 "$DIR/fmt.gp"
 }
 
@@ -78,26 +116,26 @@ void main() {
         gp::map<gp::string, int64_t> m = gp::map_of<gp::string, int64_t>({{"b"_gs, 2}, {"a"_gs, 1}});
         gp::ptr<pt> p = gp::new_<pt>(pt{1, 2});
         gp::ptr<pt> np{};
-        gp::fmtshim::Println(s, a, m, p, *p, np, gp::ptr<int64_t>(nullptr), gp::slice<int64_t>());
-        gp::fmtshim::Println(Celsius(21.5), ids(gp::slice_of<int64_t>({1})), gp::slice_of<Celsius>({Celsius(1.0)}));
+        gp::fmt::Println(gp::fmt::as(gp_tdc_0, s), gp::fmt::as(gp_tdc_1, a), gp::fmt::as(gp_tdc_2, m), gp::fmt::as(gp_tdp_pt, p), gp::fmt::as(&gp_td_pt, *p), gp::fmt::as(gp_tdp_pt, np), gp::fmt::as(gp_tdc_4, gp::ptr<int64_t>(nullptr)), gp::fmt::as(gp_tdc_0, gp::slice<int64_t>()));
+        gp::fmt::Println(gp::fmt::as(&gp_td_Celsius, Celsius(21.5)), gp::fmt::as(&gp_td_ids, ids(gp::slice_of<int64_t>({1}))), gp::fmt::as(gp_tdc_5, gp::slice_of<Celsius>({Celsius(1.0)})));
         int64_t i64 = 5;
         uint64_t u64 = 6;
         uintptr_t up = 7;
-        gp::fmtshim::Printf("%s %d %v %s\n"_gs, gp::fmtshim::typed<gp::fmtshim::tag::int64>(i64), gp::fmtshim::typed<gp::fmtshim::tag::slice<gp::fmtshim::tag::uint64>>(gp::slice_of<uint64_t>({u64})), gp::fmtshim::typed<gp::fmtshim::tag::map<gp::fmtshim::tag::none, gp::fmtshim::tag::uintptr>>(gp::map_of<gp::string, uintptr_t>({{"k"_gs, up}})), gp::fmtshim::typed<gp::fmtshim::tag::ptr<gp::fmtshim::tag::array<gp::fmtshim::tag::int64>>>(gp::new_<gp::array<int64_t, 1>>(gp::array<int64_t, 1>{8})));
-        gp::fmtshim::Printf("[%5d][%-6.2f][%+v][%08.3f][%q][% d]\n"_gs, int64_t(42), 3.14159, *p, -1.5, "q"_gs, int64_t(7));
-        auto gp_t0 = gp::fmtshim::Sprint("x"_gs, int64_t(1), int64_t(2), s); auto gp_t1 = gp::fmtshim::Sprintln(a); gp::string str = gp::concat(gp_t0, gp_t1, gp::fmtshim::Sprintf("%v|%d"_gs, m, gp::fmtshim::typed<gp::fmtshim::tag::int64>(i64)));
-        gp::fmtshim::Print(str, "\n"_gs);
-        std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, two());
-        gp::string t = std::apply([](const auto&... gp_a) { return gp::fmtshim::Sprint(gp_a...); }, two());
-        gp::fmtshim::Println(t, gp::len(std::apply([](const auto&... gp_a) { return gp::fmtshim::Sprintln(gp_a...); }, two())));
-        { auto gp_t2 = gp::get(ma, "k"_gs); auto gp_t3 = gp::get(mp, "k"_gs); auto gp_t4 = pt{n, 0}; auto gp_t5 = change(); gp::fmtshim::Println(gp_t2, gp_t3, gp_t4, n, gp_t5); }
-        gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp::fmtshim::Printf("deferred %s %v\n"_gs, gp::fmtshim::typed<gp::fmtshim::tag::int64>(gp_a0), gp::fmtshim::typed<gp::fmtshim::tag::slice<gp::fmtshim::tag::int64>>(gp_a1)); }, i64, gp::slice_of<int64_t>({i64}));
+        gp::fmt::Printf("%s %d %v %s\n"_gs, gp::fmt::as(&gp::td_int64, i64), gp::fmt::as(gp_tdc_6, gp::slice_of<uint64_t>({u64})), gp::fmt::as(gp_tdc_7, gp::map_of<gp::string, uintptr_t>({{"k"_gs, up}})), gp::fmt::as(gp_tdc_9, gp::new_<gp::array<int64_t, 1>>(gp::array<int64_t, 1>{8})));
+        gp::fmt::Printf("[%5d][%-6.2f][%+v][%08.3f][%q][% d]\n"_gs, int64_t(42), 3.14159, gp::fmt::as(&gp_td_pt, *p), -1.5, "q"_gs, int64_t(7));
+        auto gp_t0 = gp::fmt::Sprint("x"_gs, int64_t(1), int64_t(2), gp::fmt::as(gp_tdc_0, s)); auto gp_t1 = gp::fmt::Sprintln(gp::fmt::as(gp_tdc_1, a)); gp::string str = gp::concat(gp_t0, gp_t1, gp::fmt::Sprintf("%v|%d"_gs, gp::fmt::as(gp_tdc_2, m), gp::fmt::as(&gp::td_int64, i64)));
+        gp::fmt::Print(str, "\n"_gs);
+        std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp::fmt::as(&gp::td_int64, gp_r0), gp::fmt::as(gp_tdc_10, gp_r1)); }, two());
+        gp::string t = std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Sprint(gp::fmt::as(&gp::td_int64, gp_r0), gp::fmt::as(gp_tdc_10, gp_r1)); }, two());
+        gp::fmt::Println(t, gp::len(std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Sprintln(gp::fmt::as(&gp::td_int64, gp_r0), gp::fmt::as(gp_tdc_10, gp_r1)); }, two())));
+        { auto gp_t2 = gp::get(ma, "k"_gs); auto gp_t3 = gp::get(mp, "k"_gs); auto gp_t4 = pt{n, 0}; auto gp_t5 = change(); gp::fmt::Println(gp::fmt::as(gp_tdc_11, gp_t2), gp::fmt::as(gp_tdp_pt, gp_t3), gp::fmt::as(&gp_td_pt, gp_t4), n, gp_t5); }
+        gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp::fmt::Printf("deferred %s %v\n"_gs, gp::fmt::as(&gp::td_int64, gp_a0), gp::fmt::as(gp_tdc_12, gp_a1)); }, i64, gp::slice_of<int64_t>({i64}));
         i64 = 50;
         int64_t x = 3;
 #line 54 "$DIR/fmt.gp"
         int64_t y = -4;
         double f = 2.5;
-        gp::fmtshim::Println(gp::min<int64_t>(x, y), gp::max<int64_t>(x, y, 10), gp::min<double>(f, 1.0), gp::max<gp::string>("a"_gs, a[1]), gp::min<Celsius>(Celsius(f), Celsius(3.0)));
+        gp::fmt::Println(gp::min<int64_t>(x, y), gp::max<int64_t>(x, y, 10), gp::min<double>(f, 1.0), gp::max<gp::string>("a"_gs, a[1]), gp::fmt::as(&gp_td_Celsius, gp::min<Celsius>(Celsius(f), Celsius(3.0))));
         gp::println(np, p != nullptr);
     } catch (...) {
 #line 58 "$DIR/fmt.gp"

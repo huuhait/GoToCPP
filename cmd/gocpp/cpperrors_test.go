@@ -341,7 +341,7 @@ func TestCppErrors(t *testing.T) {
 		// call of fmt.Println on line 10 names a function that doesn't exist.
 		writeFiles(t, ".", map[string]string{"main.gp": "package main\n\nimport (\n\t\"fmt\"\n\n\t\"<cstdio>\"\n)\n\nfunc main() {\n\tfmt.Println(\"pure go\")\n\tcstdio.puts(\"ok\")\n}\n"})
 		testHookCPP = inAllFiles(func(cpp []byte) []byte {
-			return bytes.Replace(cpp, []byte("gp::fmtshim::Println(\"pure go"), []byte("gp::fmtshim::Printlnx(\"pure go"), 1)
+			return bytes.Replace(cpp, []byte("gp::fmt::Println(\"pure go"), []byte("gp::fmt::Printlnx(\"pure go"), 1)
 		})
 		t.Cleanup(func() { testHookCPP = nil })
 		r = gocppRun("", false, "build", ".")

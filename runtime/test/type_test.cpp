@@ -781,7 +781,7 @@ void run_tests() {
         gp::os::write(gp::os::stderr_fd, msg.data(), msg.size());
         gp::os::exit(1);
     }
-    gp::fmtshim::Printf("ok: %d checks\n"_gs, int64_t(checks));
+    gp::fmt::Printf("ok: %d checks\n"_gs, int64_t(checks));
 }
 
 void no_init() {}

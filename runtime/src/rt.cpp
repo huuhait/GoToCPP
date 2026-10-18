@@ -561,7 +561,7 @@ void cxx_exception_parts(const std::exception_ptr& e, std::string& type, std::st
         std::rethrow_exception(e);
     } catch (...) {
         if (const std::type_info* t = os::current_exception_type(); t != nullptr) {
-            fmtshim::detail::cxx_type_name(type, *t);
+            fmt::detail::cxx_type_name(type, *t);
         }
     }
     if (type.empty()) {

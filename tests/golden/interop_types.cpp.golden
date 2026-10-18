@@ -20,7 +20,6 @@ struct Point {
     std::size_t gp_hash() const {
         return gp::hash_fields(X, Y);
     }
-    static constexpr const char* gp_type_name = "main.Point";
     static constexpr auto gp_fields = gp::fields(gp::field(&Point::X, "X", true, false), gp::field(&Point::Y, "Y", true, false));
 };
 static_assert(sizeof(Point) == 16 && alignof(Point) == 8);
@@ -31,7 +30,6 @@ struct Node {
     std::size_t gp_hash() const {
         return gp::hash_fields(next);
     }
-    static constexpr const char* gp_type_name = "main.Node";
     static constexpr auto gp_fields = gp::fields(gp::field(&Node::next, "next", false, false));
 };
 static_assert(sizeof(Node) == 16 && alignof(Node) == 8);
@@ -42,7 +40,6 @@ struct File {
 #line 21 "$ROOT/tests/golden/interop_types.gp"
     static_assert(gp::cgo::field_zero<::std::vector<unsigned char>>);
     ::std::vector<unsigned char> buf{};
-    static constexpr const char* gp_type_name = "main.File";
     static constexpr auto gp_fields = gp::fields(gp::field(&File::f, "f", false, false), gp::field(&File::name, "name", false, false), gp::field(&File::buf, "buf", false, false));
 };
 

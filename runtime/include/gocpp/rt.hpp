@@ -31,7 +31,7 @@
 #include <gocpp/panic.hpp>
 #include <gocpp/defer.hpp>
 #include <gocpp/result.hpp>
-#include <gocpp/fmtshim.hpp>
+#include <gocpp/fmt.hpp>
 #include <gocpp/main.hpp>
 #include <gocpp/unsafe.hpp>
 #include <gocpp/interop.hpp>

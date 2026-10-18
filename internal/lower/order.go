@@ -18,7 +18,7 @@ import (
 // orders: fmt.Println(next(), next()) prints "2 1" with g++. So the calls that need it are
 // moved into gp_ temporaries, in Go's order, before the C++ expression:
 //
-//	fmt.Println(next(), next())   { auto gp_t0 = next(); gp::fmtshim::Println(gp_t0, next()); }
+//	fmt.Println(next(), next())   { auto gp_t0 = next(); gp::fmt::Println(gp_t0, next()); }
 //
 // What the C++ must do is what Go's compiler (gc) does, because that is what the tests
 // compare with, also where the spec leaves the order open (g(x, f()) with an f that changes
@@ -106,7 +106,7 @@ import (
 // Where C++ could evaluate two of them in another order (the arguments of a call, the operands of
 // an operator), the first goes before the expression (planPanics), after all the units:
 //
-//	fmt.Println(s[i], a[j])   { auto gp_t0 = s[i]; gp::fmtshim::Println(gp_t0, a[j]); }
+//	fmt.Println(s[i], a[j])   { auto gp_t0 = s[i]; gp::fmt::Println(gp_t0, a[j]); }
 //	s[i] += a[j]              { auto& gp_r0 = s[i]; gp_r0 = gp_r0 + a[j]; }
 //
 // The target of op= is bound once by reference (emitPanic). Another place that the expression

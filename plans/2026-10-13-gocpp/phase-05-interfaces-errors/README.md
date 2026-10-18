@@ -120,11 +120,21 @@ for (/* range */) {
 > a method of a Go type with a C/C++ type in its signature is not in its method table; (5) a map key
 > that is a C++ value with `==` and no `std::hash` has one hash for all its values.
 >
-> For 5.11: add a `%T` run test of a recovered assertion panic (`fmt.Printf("%T\n", recover())` after a failed `x.(int)` prints `*runtime.TypeAssertionError`; `runtime/test/ifaceconv_test.cpp` checks the descriptor name until then).
->
-> For 5.11 and Phase 09: the descriptor of a NAMED slice, array, map, func, pointer or struct type has null
-> elem/key/in/out/fields (the element only where it is a constant descriptor), while the unnamed
-> `gp_tdc_N` are complete; `%v` and reflect must not read the named ones, or the emitter must complete them.
+> **Built in 5.11 (2026-10-18), where it differs from the text above and below:** `fmt` is a port of
+> Go's `fmt/print.go` and `format.go` (`runtime/src/fmt.cpp`) driven by the descriptors, and the `fmtshim` is
+> gone ([ADR-028](../../../docs/adr/028-fmt-on-descriptors.md)). The descriptor of a named slice, array, map, func,
+> pointer or struct type stays partial and constant-initialized, with `gp_full`, a function the emitter writes
+> (`gp_full_Rect`, internal/lower/typefull.go) that makes the complete copy once, with the field list (names,
+> tags, **offsets**), element, key, parameters and results; `gp::full(d)` reads it, and `type_desc::gp_ops`
+> (gocpp/typeops.hpp) has the operations that read a slice, map, pointer or foreign value. Operands are
+> plain values (the C++ type says the Go type) or `gp::fmt::as(descriptor, value)`; the types of package fmt
+> (`Stringer`, `GoStringer`, `Formatter`, `State`) are runtime interface structs like `error`; `Errorf`
+> builds the runtime's `*errors.errorString`, `*fmt.wrapError`, `*fmt.wrapErrors`; `Fprint*` take `os.Stdout`,
+> `os.Stderr` and a `fmt.State`; the gates for every verb, `#`, `*`, `[n]` and non-constant formats are lifted
+> to Phase 05. The `gp_String`/`gp_Error` hooks, the type tags and `gp_type_name` of the structs are gone
+> (`gp_fields` stays for `gp::convert`). `tests/run/fmt_*.gp` (about 190 programs generated from real Go's
+> output) compare byte for byte with Go; `%T` of a recovered assertion panic is `*runtime.TypeAssertionError`
+> (`fmt_methods_recovered_values.gp`).
 
 ### 2.2 Type descriptors (chosen by the Go type)
 

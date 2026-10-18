@@ -52,9 +52,9 @@ void main() {
     int64_t _Complex_ = 2;
 #line 31 "$DIR/keywords.gp"
     int64_t char8_t_ = 3;
-    gp::fmtshim::Println(int_, bool_, char_, auto_, typename_, new__, new___);
-    { auto gp_t1 = gpkg_main::delete_("a"_gs, "b"_gs); gp::fmtshim::Println(gp_t1, xor_, not_, namespace_, _Pragma_, __int128_, __FILE___); }
-    gp::fmtshim::Println(__is_same_, _Complex_, char8_t_);
+    gp::fmt::Println(int_, bool_, char_, auto_, typename_, new__, new___);
+    { auto gp_t1 = gpkg_main::delete_("a"_gs, "b"_gs); gp::fmt::Println(gp_t1, xor_, not_, namespace_, _Pragma_, __int128_, __FILE___); }
+    gp::fmt::Println(__is_same_, _Complex_, char8_t_);
 }
 
 } // namespace gpkg_main

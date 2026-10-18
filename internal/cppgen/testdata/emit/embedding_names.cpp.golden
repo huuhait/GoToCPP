@@ -14,7 +14,6 @@ struct Item {
     std::size_t gp_hash() const {
         return gp::hash_fields(id);
     }
-    static constexpr const char* gp_type_name = "main.Item";
     static constexpr auto gp_fields = gp::fields(gp::field(&Item::id, "id", false, false));
 };
 static_assert(sizeof(Item) == 8 && alignof(Item) == 8);
@@ -26,7 +25,6 @@ struct Pair {
     std::size_t gp_hash() const {
         return gp::hash_fields(a, b);
     }
-    static constexpr const char* gp_type_name = "main.Pair";
     static constexpr auto gp_fields = gp::fields(gp::field(&Pair::a, "a", false, false), gp::field(&Pair::b, "b", false, false));
 };
 static_assert(sizeof(Pair) == 16 && alignof(Pair) == 8);
@@ -37,7 +35,6 @@ struct Base {
     std::size_t gp_hash() const {
         return gp::hash_fields(n);
     }
-    static constexpr const char* gp_type_name = "main.Base";
     static constexpr auto gp_fields = gp::fields(gp::field(&Base::n, "n", false, false));
     gpkg_main::Item Item() const;
     gp::slice<gpkg_main::Pair> Pair() const;
@@ -52,7 +49,6 @@ struct Outer {
     gp::array<gpkg_main::Item, 2> Arr;
     gp::map<gpkg_main::Item, gpkg_main::Pair> M;
     gp::func<gpkg_main::Pair(gpkg_main::Item)> F;
-    static constexpr const char* gp_type_name = "main.Outer";
     static constexpr auto gp_fields = gp::fields(gp::field(&Outer::Base, "Base", true, true), gp::field(&Outer::Mine, "Mine", true, false), gp::field(&Outer::Mine2, "Mine2", true, false), gp::field(&Outer::Arr, "Arr", true, false), gp::field(&Outer::M, "M", true, false), gp::field(&Outer::F, "F", true, false));
     gpkg_main::Item Total() const;
     gpkg_main::Item Item() const;
@@ -71,6 +67,30 @@ gp::slice<gpkg_main::Pair> Outer::Pair() const {
 
 int64_t Outer::Take(gp::ptr<Outer> gp_p, gpkg_main::Item gp_a0, gp::ptr<gpkg_main::Pair> gp_a1) {
     return gpkg_main::Base::Take(gp::field_ptr(gp_p, &Outer::Base), static_cast<decltype(gp_a0)&&>(gp_a0), static_cast<decltype(gp_a1)&&>(gp_a1));
+}
+
+extern const gp::type_desc gp_td_Item;
+extern const gp::type_desc gp_td_Pair;
+
+inline const gp::type_desc* gp_full_Item();
+inline const gp::type_desc gp_td_Item = gp::named<Item>("main.Item", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Item));
+
+inline const gp::type_desc* gp_full_Pair();
+inline const gp::type_desc gp_td_Pair = gp::named<Pair>("main.Pair", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Pair));
+
+static const gp::type_desc* const gp_tdc_0 = gp::td_slice<gpkg_main::Pair>(&gp_td_Pair);
+static const gp::type_desc* const gp_tdc_1 = gp::td_array<gpkg_main::Item, 2>(&gp_td_Item);
+
+inline const gp::type_desc* gp_full_Item() {
+    static const gp::field_desc gp_f[]{gp::field_desc("id", "main", &gp::td_int, nullptr, false, gp::offset_of(&Item::id))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Item, gp::shape_struct(gp_f, 1));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_Pair() {
+    static const gp::field_desc gp_f[]{gp::field_desc("a", "main", &gp::td_int, nullptr, false, gp::offset_of(&Pair::a)), gp::field_desc("b", "main", &gp::td_int, nullptr, false, gp::offset_of(&Pair::b))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Pair, gp::shape_struct(gp_f, 2));
+    return &gp_d;
 }
 
 void main();
@@ -111,7 +131,7 @@ gpkg_main::Item Outer::Total() const {
 
 void main() {
     gp::ptr<Outer> o = gp::new_<Outer>(Outer{.Base = Base{3}, .Mine = gpkg_main::Item{4}, .Mine2 = gp::new_<gpkg_main::Pair>(gpkg_main::Pair{1, 2})});
-    { auto gp_t0 = (*o).Base.Item(); auto gp_t1 = (*o).Base.Pair(); auto gp_t2 = Base::Take(gp::field_ptr(o, &Outer::Base), gpkg_main::Item{1}, (*o).Mine2); auto gp_t3 = (*o).Total(); gp::fmtshim::Println(gp_t0, gp_t1, gp_t2, gp_t3, (*o).Arr, (*o).M == nullptr, (*o).F == nullptr); }
+    { auto gp_t0 = (*o).Base.Item(); auto gp_t1 = (*o).Base.Pair(); auto gp_t2 = Base::Take(gp::field_ptr(o, &Outer::Base), gpkg_main::Item{1}, (*o).Mine2); auto gp_t3 = (*o).Total(); gp::fmt::Println(gp::fmt::as(&gp_td_Item, gp_t0), gp::fmt::as(gp_tdc_0, gp_t1), gp_t2, gp::fmt::as(&gp_td_Item, gp_t3), gp::fmt::as(gp_tdc_1, (*o).Arr), (*o).M == nullptr, (*o).F == nullptr); }
 }
 
 } // namespace gpkg_main

@@ -164,7 +164,13 @@ func (b *Builder) Link(ctx context.Context, pkgs []PackageBuild, out string) err
 	for i := len(pkgs) - 1; i >= 0; i-- {
 		link = appendLinkFlags(link, pkgs[i].Flags.Link)
 	}
-	args := slices.Concat(Flags(b.CXX, b.ASan), objs, libObjs, rtObjs, link, b.Env.LDFlags, []string{"-o", out})
+	// --gc-sections drops the functions and data that nothing reaches (the compiles put each in
+	// a section of its own); macOS's linker does that by itself.
+	var gc []string
+	if b.GOOS != "darwin" {
+		gc = []string{"-Wl,--gc-sections"}
+	}
+	args := slices.Concat(Flags(b.CXX, b.ASan), gc, objs, libObjs, rtObjs, link, b.Env.LDFlags, []string{"-o", out})
 	return b.run(ctx, b.CXX, "the generated C++", true, args)
 }
 

@@ -56,7 +56,7 @@ func main() {
 // (1, 2) $1.25 <nil>
 // (1, 2)|(1, 2)|"(1, 2)"|  (1, 2)|(1, 2)  |%!d(Point=(1, 2))
 // 5 5 %!s(Color=5)|"bob"  view|%!d(std::string=bob)
-// <nil> 0 %!s(char const*=<nil>)
+// <nil> 0 %!s(char*=<nil>)
 // bobview7 7
 // true true
 // {sq (1, 2) 4}

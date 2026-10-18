@@ -140,9 +140,9 @@ int64_t ladder(int64_t n) {
 }
 
 void main() {
-    { auto gp_t0 = gpkg_main::kind("a"_gs); auto gp_t1 = gpkg_main::kind("b"_gs); gp::fmtshim::Println(gp_t0, gp_t1, gpkg_main::kind("c"_gs)); }
-    { auto gp_t2 = firstAbove(3, 100); gp::fmtshim::Println(gp_t2, must(true)); }
-    { auto gp_t3 = ladder(-4); auto gp_t4 = ladder(0); auto gp_t5 = ladder(5); gp::fmtshim::Println(gp_t3, gp_t4, gp_t5, ladder(50)); }
+    { auto gp_t0 = gpkg_main::kind("a"_gs); auto gp_t1 = gpkg_main::kind("b"_gs); gp::fmt::Println(gp_t0, gp_t1, gpkg_main::kind("c"_gs)); }
+    { auto gp_t2 = firstAbove(3, 100); gp::fmt::Println(gp_t2, must(true)); }
+    { auto gp_t3 = ladder(-4); auto gp_t4 = ladder(0); auto gp_t5 = ladder(5); gp::fmt::Println(gp_t3, gp_t4, gp_t5, ladder(50)); }
     {
 #line 101 "$DIR/returns.gp"
         int64_t i = 0;
@@ -152,7 +152,7 @@ void main() {
         while (i < 2) {
 #line 101 "$DIR/returns.gp"
             {
-                gp::fmtshim::Println(i, b);
+                gp::fmt::Println(i, b);
             }
 #line 101 "$DIR/returns.gp"
             i = i + 1; b = !b;
@@ -160,14 +160,14 @@ void main() {
         }
 #line 103 "$DIR/returns.gp"
     }
-    std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, divmod(17, 5));
-    std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, divmod(-17, 5));
-    std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, count(7));
-    std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, gpkg_main::swap("a"_gs, "b"_gs));
-    std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, early(20));
-    std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, early(-3));
-    std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, early(4));
-    { auto gp_t6 = sign(-5); auto gp_t7 = sign(0); gp::fmtshim::Println(gp_t6, gp_t7, sign(9)); }
+    std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, divmod(17, 5));
+    std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, divmod(-17, 5));
+    std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, count(7));
+    std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, gpkg_main::swap("a"_gs, "b"_gs));
+    std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, early(20));
+    std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, early(-3));
+    std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, early(4));
+    { auto gp_t6 = sign(-5); auto gp_t7 = sign(0); gp::fmt::Println(gp_t6, gp_t7, sign(9)); }
 }
 
 } // namespace gpkg_main

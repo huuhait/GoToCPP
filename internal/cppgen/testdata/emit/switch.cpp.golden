@@ -18,7 +18,7 @@ gp::string tag(gp::string s) {
 }
 
 int64_t val(gp::string name, int64_t v) {
-    gp::fmtshim::Print(name, " "_gs);
+    gp::fmt::Print(name, " "_gs);
     return v;
 }
 
@@ -71,7 +71,7 @@ int64_t last(int64_t n) {
 }
 
 void main() {
-    { auto gp_t0 = last(0); auto gp_t1 = last(1); gp::fmtshim::Println(gp_t0, gp_t1, last(5)); }
+    { auto gp_t0 = last(0); auto gp_t1 = last(1); gp::fmt::Println(gp_t0, gp_t1, last(5)); }
 #line 58 "$DIR/switch.gp"
     for (int64_t gp_i0 = 0; gp_i0 < 3; gp_i0++) {
 #line 58 "$DIR/switch.gp"
@@ -81,18 +81,18 @@ void main() {
             if (i < 5) {
                 goto zero;
             }
-            gp::fmtshim::Println("never"_gs);
+            gp::fmt::Println("never"_gs);
             zero:;
             [[fallthrough]];
 #line 66 "$DIR/switch.gp"
         }
         case 1: {
-            gp::fmtshim::Println("one or after zero"_gs, i);
+            gp::fmt::Println("one or after zero"_gs, i);
             [[fallthrough]];
 #line 69 "$DIR/switch.gp"
         }
         case 2: {
-            gp::fmtshim::Println("two or after one"_gs, i);
+            gp::fmt::Println("two or after one"_gs, i);
 #line 71 "$DIR/switch.gp"
         } break;
         }
@@ -114,18 +114,18 @@ void main() {
                 if (i < 5) {
                     goto z;
                 }
-                gp::fmtshim::Println("never"_gs);
+                gp::fmt::Println("never"_gs);
                 z:;
                 [[fallthrough]];
 #line 80 "$DIR/switch.gp"
             }
             case 1: {
-                gp::fmtshim::Println("tagless one or after zero"_gs, i);
+                gp::fmt::Println("tagless one or after zero"_gs, i);
                 [[fallthrough]];
 #line 83 "$DIR/switch.gp"
             }
             default: {
-                gp::fmtshim::Println("tagless default"_gs, i);
+                gp::fmt::Println("tagless default"_gs, i);
 #line 85 "$DIR/switch.gp"
             } break;
             }
@@ -139,91 +139,91 @@ void main() {
         if (gp::len(s) == 2) {
             for (int64_t j = 0;; j++) {
                 if (j == 1) {
-                    gp::fmtshim::Println("break sw"_gs, j);
+                    gp::fmt::Println("break sw"_gs, j);
                     goto gp_sw_break;
                 }
             }
         } else {
-            gp::fmtshim::Println("never"_gs);
+            gp::fmt::Println("never"_gs);
         }
 #line 100 "$DIR/switch.gp"
     }
 #line 100 "$DIR/switch.gp"
     gp_sw_break:;
     for (int64_t n = -1; n <= 4; n++) {
-        gp::fmtshim::Println(n, describe(n));
+        gp::fmt::Println(n, describe(n));
     }
-    { auto gp_t2 = describe(100); gp::fmtshim::Println(gp_t2, describe(50)); }
+    { auto gp_t2 = describe(100); gp::fmt::Println(gp_t2, describe(50)); }
 #line 107 "$DIR/switch.gp"
     for (int64_t gp_i1 = 0; gp_i1 < 4; gp_i1++) {
 #line 107 "$DIR/switch.gp"
         int64_t i = gp_i1;
         switch (i) {
         case 0: {
-            gp::fmtshim::Print("zero "_gs);
+            gp::fmt::Print("zero "_gs);
             [[fallthrough]];
 #line 111 "$DIR/switch.gp"
         }
         case 1: {
-            gp::fmtshim::Print("one-or-after-zero "_gs);
+            gp::fmt::Print("one-or-after-zero "_gs);
 #line 113 "$DIR/switch.gp"
         } break;
         default: {
-            gp::fmtshim::Print("default "_gs);
+            gp::fmt::Print("default "_gs);
             [[fallthrough]];
 #line 116 "$DIR/switch.gp"
         }
         case 2: {
-            gp::fmtshim::Print("two-or-after-default "_gs);
+            gp::fmt::Print("two-or-after-default "_gs);
 #line 118 "$DIR/switch.gp"
         } break;
         }
-        gp::fmtshim::Println();
+        gp::fmt::Println();
     }
 #line 124 "$DIR/switch.gp"
     {
 #line 124 "$DIR/switch.gp"
         auto gp_tag0 = gpkg_main::tag("b"_gs);
         if (gp_tag0 == "a"_gs) {
-            gp::fmtshim::Println("a"_gs);
+            gp::fmt::Println("a"_gs);
         } else if (gp_tag0 == "b"_gs || gp_tag0 == "c"_gs) {
-            gp::fmtshim::Println("b or c"_gs);
+            gp::fmt::Println("b or c"_gs);
         }
 #line 129 "$DIR/switch.gp"
     }
-    gp::fmtshim::Println("tag evals"_gs, tagEvals);
+    gp::fmt::Println("tag evals"_gs, tagEvals);
     {
 #line 131 "$DIR/switch.gp"
         int64_t x = 2;
         if (x == gpkg_main::val("one"_gs, 1) || x == gpkg_main::val("two"_gs, 2) || x == gpkg_main::val("three"_gs, 3)) {
-            gp::fmtshim::Println("matched"_gs, x);
+            gp::fmt::Println("matched"_gs, x);
         } else if (x == gpkg_main::val("four"_gs, 4)) {
-            gp::fmtshim::Println("four"_gs);
+            gp::fmt::Println("four"_gs);
         }
 #line 136 "$DIR/switch.gp"
     }
 #line 138 "$DIR/switch.gp"
     if (5 == gpkg_main::val("a"_gs, 1)) {
-        gp::fmtshim::Println("a"_gs);
+        gp::fmt::Println("a"_gs);
 #line 142 "$DIR/switch.gp"
     } else if (5 == gpkg_main::val("b"_gs, 2)) {
-        gp::fmtshim::Println("b"_gs);
+        gp::fmt::Println("b"_gs);
 #line 140 "$DIR/switch.gp"
     } else {
-        gp::fmtshim::Println("default after all cases"_gs);
+        gp::fmt::Println("default after all cases"_gs);
 #line 144 "$DIR/switch.gp"
     }
 #line 147 "$DIR/switch.gp"
     for (int64_t n = 0; n < 16; n = n + 5) {
 #line 149 "$DIR/switch.gp"
         if (n % 15 == 0) {
-            gp::fmtshim::Println(n, "FizzBuzz"_gs);
+            gp::fmt::Println(n, "FizzBuzz"_gs);
         } else if (n % 3 == 0) {
-            gp::fmtshim::Println(n, "Fizz"_gs);
+            gp::fmt::Println(n, "Fizz"_gs);
         } else if (n % 5 == 0) {
-            gp::fmtshim::Println(n, "Buzz"_gs);
+            gp::fmt::Println(n, "Buzz"_gs);
         } else {
-            gp::fmtshim::Println(n);
+            gp::fmt::Println(n);
         }
     }
     {
@@ -247,16 +247,16 @@ void main() {
 #line 159 "$DIR/switch.gp"
         switch (gp_case1) {
         case 0: {
-            gp::fmtshim::Println("y in range"_gs);
+            gp::fmt::Println("y in range"_gs);
             [[fallthrough]];
 #line 162 "$DIR/switch.gp"
         }
         case 1: {
-            gp::fmtshim::Println("y after fallthrough"_gs);
+            gp::fmt::Println("y after fallthrough"_gs);
 #line 164 "$DIR/switch.gp"
         } break;
         case 2: {
-            gp::fmtshim::Println("never"_gs);
+            gp::fmt::Println("never"_gs);
 #line 166 "$DIR/switch.gp"
         } break;
         }
@@ -281,7 +281,7 @@ void main() {
 #line 171 "$DIR/switch.gp"
             switch (gp_case2) {
             case 0: {
-                gp::fmtshim::Println("one, break"_gs);
+                gp::fmt::Println("one, break"_gs);
                 break;
 #line 174 "$DIR/switch.gp"
             }
@@ -289,11 +289,11 @@ void main() {
                 if (i > 2) {
                     break;
                 }
-                gp::fmtshim::Println("never"_gs);
+                gp::fmt::Println("never"_gs);
 #line 179 "$DIR/switch.gp"
             } break;
             default: {
-                gp::fmtshim::Println("i"_gs, i);
+                gp::fmt::Println("i"_gs, i);
 #line 181 "$DIR/switch.gp"
             } break;
             }
@@ -313,10 +313,10 @@ void main() {
         switch (gp_case3) {
         case 0: {
             if (gp::len(s) == 1) {
-                gp::fmtshim::Println("break in string switch"_gs);
+                gp::fmt::Println("break in string switch"_gs);
                 break;
             }
-            gp::fmtshim::Println("never"_gs);
+            gp::fmt::Println("never"_gs);
 #line 191 "$DIR/switch.gp"
         } break;
         }
@@ -325,20 +325,20 @@ void main() {
 #line 195 "$DIR/switch.gp"
     static_cast<void>(gpkg_main::tag("only default"_gs));
     {
-        gp::fmtshim::Println("only default"_gs);
+        gp::fmt::Println("only default"_gs);
     }
 #line 201 "$DIR/switch.gp"
     static_cast<void>(gpkg_main::tag("empty"_gs));
 #line 203 "$DIR/switch.gp"
-    gp::fmtshim::Println("tag evals"_gs, tagEvals);
+    gp::fmt::Println("tag evals"_gs, tagEvals);
     uint8_t u8 = 200;
     switch (uint8_t(u8 + 100)) {
     case 44: {
-        gp::fmtshim::Println("uint8 wraps"_gs);
+        gp::fmt::Println("uint8 wraps"_gs);
 #line 207 "$DIR/switch.gp"
     } break;
     case 255: {
-        gp::fmtshim::Println("no"_gs);
+        gp::fmt::Println("no"_gs);
 #line 209 "$DIR/switch.gp"
     } break;
     }
@@ -347,16 +347,16 @@ void main() {
 #line 212 "$DIR/switch.gp"
         auto gp_tag1 = f * 2.0;
         if (gp_tag1 == 5.0) {
-            gp::fmtshim::Println("float 5"_gs);
+            gp::fmt::Println("float 5"_gs);
         }
 #line 215 "$DIR/switch.gp"
     }
     bool b = true;
 #line 218 "$DIR/switch.gp"
     if (!b) {
-        gp::fmtshim::Println("false"_gs);
+        gp::fmt::Println("false"_gs);
     } else if (b) {
-        gp::fmtshim::Println("true"_gs);
+        gp::fmt::Println("true"_gs);
     }
 }
 

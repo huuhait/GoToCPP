@@ -16,7 +16,6 @@ import (
 //	Go                          C++
 //	type Celsius float64        struct Celsius : gp::newtype<Celsius, double> {
 //	                                using gp::newtype<Celsius, double>::newtype;
-//	                                static constexpr const char* gp_type_name = "main.Celsius";
 //	                            };
 //	                            static_assert(sizeof(Celsius) == 8 && alignof(Celsius) == 8);
 //	type IDs []int              struct IDs : gp::newtype<IDs, gp::slice<int64_t>> {...}: an IDs
@@ -126,8 +125,7 @@ func (g *gen) addNewtype(t *types.Named, name, goName string) *structInfo {
 }
 
 // newtypeDef returns the definition of the named type si (see the top) and its static_assert:
-// the base gp::newtype<T, U>, its constructors, the fmt shim's gp_type_name and, for an
-// underlying type with int64, uint64 or uintptr in it, gp_value_tag (gocpp/fmtshim.hpp).
+// the base gp::newtype<T, U> and its constructors.
 func (g *gen) newtypeDef(si *structInfo) []cppir.Decl {
 	// In the struct's body, the names of its base classes (their injected class names) hide
 	// the package's types of those names: a type named array is gpkg_main::array there; so do
@@ -145,12 +143,6 @@ func (g *gen) newtypeDef(si *structInfo) []cppir.Decl {
 	// The base's constructors, by its full name: a plain newtype::newtype would name the type
 	// itself if it is called newtype (or, from step 3.10, a method named newtype).
 	s.Members = append(s.Members, &cppir.Using{Name: cppir.TypeString(base) + "::newtype"})
-	if tag := fmtTag(si.under); tag != "" {
-		s.Members = append(s.Members, &cppir.Using{Name: "gp_value_tag", Type: typeName(tag)})
-	}
-	cstr := &cppir.Ptr{Elem: &cppir.Const{Elem: typeName("char")}}
-	s.Members = append(s.Members, &cppir.VarDecl{Specs: []string{"static", "constexpr"}, Type: cstr,
-		Vars: []cppir.Declarator{{Name: "gp_type_name", Init: lit(cppir.CString(si.goName))}}})
 	s.Members = append(s.Members, g.methodDecls(si)...) // methods.go
 	return []cppir.Decl{s, g.layoutAssert(si)}
 }

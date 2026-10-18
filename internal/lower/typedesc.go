@@ -59,6 +59,10 @@ type descTable struct {
 	comps   []*compDesc
 	byKey   map[string]*compDesc
 
+	// fulls are the functions that make the complete descriptors of the named types (typefull.go),
+	// defined after the pointers to the composite descriptors.
+	fulls []cppir.Decl
+
 	// The anonymous structs with promoted methods (embed.go).
 	anon  map[*structInfo]*namedDesc
 	anons []*namedDesc
@@ -132,16 +136,17 @@ func (g *gen) desc(t types.Type, pos token.Pos) cppir.Expr {
 		}
 	case *types.Named:
 		switch {
-		case isErrorType(u):
-			return addrOf("gp::td_error")
+		case runtimeIfaceKnown(u):
+			r, _ := runtimeIfaceOf(u)
+			return addrOf(r.desc)
 		case isInterface(u):
 			if info := g.ifaceOf(u, pos); info != nil {
 				return addrOf(g.descName(info.owner, "gp_td_"+info.name))
 			}
 			return placeholder
 		case isWeakPointer(u):
-			g.unsupported(pos, "weak.Pointer in an interface")
-			return placeholder
+			elem := weakElem(u)
+			return g.comp(t, "", templateCall("gp::td_weak", []cppir.Node{g.cxxType(elem, pos)}, g.desc(elem, pos)))
 		}
 		if o := g.foreign(u.Obj().Pkg()); o != nil {
 			// The descriptor of a type of another package is that package's object, so that
@@ -208,7 +213,12 @@ func (g *gen) desc(t types.Type, pos token.Pos) cppir.Expr {
 			if u.Tag(i) != "" {
 				tag = lit(cppir.CString(u.Tag(i)))
 			}
-			fields = append(fields, call("gp::field_desc", lit(cppir.CString(f.Name())), pkg, g.desc(f.Type(), pos), tag, lit(strconv.FormatBool(f.Embedded()))))
+			args := []cppir.Expr{lit(cppir.CString(f.Name())), pkg, g.desc(f.Type(), pos), tag, lit(strconv.FormatBool(f.Embedded()))}
+			if si := g.structOf(u, pos); si != nil {
+				member := cppir.TypeString(g.cxxType(u, pos)) + "::" + si.fields[i]
+				args = append(args, call("gp::offset_of", &cppir.Unary{Op: "&", X: cxxName(member)}))
+			}
+			fields = append(fields, call("gp::field_desc", args...))
 		}
 		args := []cppir.Expr{&cppir.InitList{Elems: fields}}
 		if hasPromoted(u) {
@@ -229,6 +239,12 @@ func (g *gen) desc(t types.Type, pos token.Pos) cppir.Expr {
 	}
 	g.unsupported(pos, "the type descriptor of "+types.TypeString(t, nil))
 	return placeholder
+}
+
+// runtimeIfaceKnown reports whether t is an interface type that the runtime defines.
+func runtimeIfaceKnown(t types.Type) bool {
+	_, ok := runtimeIfaceOf(t)
+	return ok
 }
 
 // hasPromoted reports whether the struct type st has an embedded field.
@@ -407,6 +423,7 @@ func (g *gen) descSpecs() []string {
 // composite descriptors. It runs after the functions are lowered.
 func (g *gen) descDecls(p *implParts) {
 	dt := g.dtable()
+	dt.fulls = nil // (descDecls runs again until nothing new is found: structDecls)
 	start := len(p.all)
 	for i := 0; i < len(dt.named); i++ { // (the shapes may add more)
 		g.namedDecls(dt.named[i], p)
@@ -441,6 +458,9 @@ func (g *gen) descDecls(p *implParts) {
 	if len(dt.comps) > 0 {
 		p.addDef(&cppir.Blank{})
 	}
+	for _, f := range dt.fulls {
+		p.addDef(f, &cppir.Blank{})
+	}
 }
 
 // namedDecls adds the thunks, the method tables and the descriptor object of a named type.
@@ -449,10 +469,19 @@ func (g *gen) namedDecls(nd *namedDesc, p *implParts) {
 	pos := nd.t.Obj().Pos()
 	typ := g.cxxType(nd.t, pos)
 	vmt, pmt := g.tables(nd, pos, &decls)
+	shape := g.shapeOf(nd.t, pos)
+	if fn := g.fullFunc(nd, pos); fn != nil {
+		// The complete descriptor comes from a function (typefull.go).
+		shape = call("gp::shape_lazy", shape, addrOf(fn.Name))
+		proto := *fn
+		proto.Body = nil
+		decls = append(decls, &proto)
+		g.dtable().fulls = append(g.dtable().fulls, fn)
+	}
 	args := []cppir.Expr{
 		lit(cppir.CString(g.canonName(nd.t))),
 		lit(cppir.CString(importPath(nd.t.Obj().Pkg()))),
-		g.shapeOf(nd.t, pos),
+		shape,
 	}
 	switch {
 	case pmt != nil && vmt != nil:

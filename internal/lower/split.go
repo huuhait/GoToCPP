@@ -206,11 +206,6 @@ func (g *gen) headerFile(parts *typeParts, pf *PackageFiles) *cppir.File {
 			sec.add(true, guarded(it, "", it.def().decls)...)
 		}
 	}
-	if parts != nil {
-		for _, d := range parts.post {
-			sec.add(false, d.hooks...)
-		}
-	}
 	for _, it := range closure {
 		sec.add(true, guarded(it, "_IMPL", it.def().impl)...)
 	}

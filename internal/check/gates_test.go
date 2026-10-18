@@ -164,15 +164,15 @@ func main() {
 		want: []string{"6:13: the format verb %q is not supported yet (Phase 03)"}},
 	{name: "format/%T", phase: 5, src: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Printf(\"%T\\n\", 1)\n}\n",
 		want: []string{"6:13: the format verb %T is not supported yet (Phase 05)"}},
-	{name: "format/%x", phase: 9, src: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Printf(\"%x\\n\", 255)\n}\n",
-		want: []string{"6:13: the format verb %x is not supported yet (Phase 09)"}},
-	{name: "format/%#v", phase: 9, src: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Printf(\"%#v\\n\", 1)\n}\n",
+	{name: "format/%x", phase: 5, src: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Printf(\"%x\\n\", 255)\n}\n",
+		want: []string{"6:13: the format verb %x is not supported yet (Phase 05)"}},
+	{name: "format/%#v", phase: 5, src: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Printf(\"%#v\\n\", 1)\n}\n",
 		before: 3,
-		want:   []string{"6:13: the # flag, * and argument indexes in format strings are not supported yet (Phase 09)"}},
-	{name: "format/index", phase: 9, src: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Printf(\"%[1]d\\n\", 1)\n}\n",
-		want: []string{"6:13: the # flag, * and argument indexes in format strings are not supported yet (Phase 09)"}},
-	{name: "format/not a constant", phase: 9, src: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tf := \"%d\\n\"\n\tfmt.Printf(f, 1)\n}\n",
-		want: []string{"7:13: format strings that are not constants are not supported yet (Phase 09)"}},
+		want:   []string{"6:13: the # flag, * and argument indexes in format strings are not supported yet (Phase 05)"}},
+	{name: "format/index", phase: 5, src: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Printf(\"%[1]d\\n\", 1)\n}\n",
+		want: []string{"6:13: the # flag, * and argument indexes in format strings are not supported yet (Phase 05)"}},
+	{name: "format/not a constant", phase: 5, src: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tf := \"%d\\n\"\n\tfmt.Printf(f, 1)\n}\n",
+		want: []string{"7:13: format strings that are not constants are not supported yet (Phase 05)"}},
 
 	// Phase 03.
 	{name: "composite/array", phase: 3, src: main_("\tvar a [3]int\n\t_ = a\n"),
@@ -365,8 +365,8 @@ func main() {
 	// Phase 09.
 	{name: "strings", phase: 9, src: "package main\n\nimport \"strings\"\n\nfunc main() {\n\tprintln(strings.ToUpper(\"x\"))\n}\n",
 		want: []string{"3:8: package strings is not available yet (Phase 09)"}},
-	{name: "fmt.Append", phase: 9, src: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tprintln(len(fmt.Append(nil, 1)))\n}\n",
-		want: []string{"6:18: fmt.Append is not available yet (Phase 09)"}},
+	{name: "fmt.Sscan", phase: 9, src: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tvar n int\n\tfmt.Sscan(\"1\", &n)\n}\n",
+		want: []string{"7:6: fmt.Sscan is not available yet (Phase 09)"}},
 	{name: "test files", phase: 9, tests: true, files: map[string]string{
 		"main.gp":      "package main\n\nfunc main() {}\n",
 		"main_test.gp": "package main\n\nfunc helper() {}\n",
@@ -506,6 +506,11 @@ func TestStdPackagesMatchStubs(t *testing.T) {
 			// of the runtime); the stub's phase is the basic fmt's.
 			if m := lookupMember("fmt", "Errorf"); m.Phase != stub {
 				t.Errorf("fmt.Errorf has Phase %02d, the stub says %02d", m.Phase, stub)
+			}
+		case pkg == "os":
+			// os.Stdout and os.Stderr, the writers of fmt.Fprint, come in Phase 05.
+			if m := lookupMember("os", "Stdout"); m.Phase != 5 {
+				t.Errorf("os.Stdout has Phase %02d, want 05", m.Phase)
 			}
 		case row.Phase != stub:
 			t.Errorf("%s has Phase %02d in stdPackages, the stub says %02d", pkg, row.Phase, stub)

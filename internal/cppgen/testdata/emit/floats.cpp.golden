@@ -17,8 +17,8 @@ void main() {
     double d = 0.0001 + vals;
 #line 12 "$DIR/floats.gp"
     double e = 1e-05 + vals;
-    gp::fmtshim::Println(a, b, c, d, e);
-    gp::fmtshim::Println(100000.0 + vals, 999999.0 + vals, 1e+20 + vals, 1e+21 + vals, 1.23456789e+08 + vals, 0.000123 + vals);
+    gp::fmt::Println(a, b, c, d, e);
+    gp::fmt::Println(100000.0 + vals, 999999.0 + vals, 1e+20 + vals, 1e+21 + vals, 1.23456789e+08 + vals, 0.000123 + vals);
     double zero = 0.0;
     double inf = 1.0 / zero;
 #line 16 "$DIR/floats.gp"
@@ -27,21 +27,21 @@ void main() {
     double nan = zero / zero;
 #line 16 "$DIR/floats.gp"
     double negz = -zero;
-    gp::fmtshim::Println(inf, ninf, nan, negz, zero, 0.0, 1.0 / negz);
+    gp::fmt::Println(inf, ninf, nan, negz, zero, 0.0, 1.0 / negz);
     gp::println(inf, ninf, nan, negz, zero, 1.5, 3.0, -0.25);
-    gp::fmtshim::Printf("%v %f %v %f %v\n"_gs, inf, ninf, nan, negz, 2.5);
+    gp::fmt::Printf("%v %f %v %f %v\n"_gs, inf, ninf, nan, negz, 2.5);
     double x = 0.1;
 #line 20 "$DIR/floats.gp"
     double y = 0.2;
-    gp::fmtshim::Println(x + y, x * y, x - y, y / x, 0.3, x + y == 0.3, true);
+    gp::fmt::Println(x + y, x * y, x - y, y / x, 0.3, x + y == 0.3, true);
     float f32 = 0.1f;
     float g32 = 1.6777216e+07f;
-    gp::fmtshim::Println(f32, f32 + f32 + f32, f32 * f32, g32 + 1.0f, g32 + 2.0f, 0.33333334f, f32 / 3.0f);
+    gp::fmt::Println(f32, f32 + f32 + f32, f32 * f32, g32 + 1.0f, g32 + 2.0f, 0.33333334f, f32 / 3.0f);
     gp::println(f32, g32 + 1.0f);
     float big = 3.4028235e+38f;
-    gp::fmtshim::Println(big, big * 2.0f, -big * 2.0f, big * 2.0f - big * 2.0f, 1e-45f, 0.0f);
-    gp::fmtshim::Println(5e-324 + zero, (5e-324 + zero) / 2.0, 1.7976931348623157e+308 + zero, (1.7976931348623157e+308 + zero) * 2.0);
-    gp::fmtshim::Println(double(f32), float(x), 0.10000000149011612, float(1e+40 * (x + 1.0)));
+    gp::fmt::Println(big, big * 2.0f, -big * 2.0f, big * 2.0f - big * 2.0f, 1e-45f, 0.0f);
+    gp::fmt::Println(5e-324 + zero, (5e-324 + zero) / 2.0, 1.7976931348623157e+308 + zero, (1.7976931348623157e+308 + zero) * 2.0);
+    gp::fmt::Println(double(f32), float(x), 0.10000000149011612, float(1e+40 * (x + 1.0)));
 }
 
 } // namespace gpkg_main

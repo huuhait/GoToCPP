@@ -24,7 +24,6 @@ struct List {
     std::size_t gp_hash() const {
         return gp::hash_fields(head);
     }
-    static constexpr const char* gp_type_name = "main.List";
     static constexpr auto gp_fields = gp::fields(gp::field(&List::head, "head", false, false));
     int64_t Len() const;
     static void Push(gp::ptr<List> l, int64_t v);
@@ -38,7 +37,6 @@ struct Elem {
     std::size_t gp_hash() const {
         return gp::hash_fields(v, next);
     }
-    static constexpr const char* gp_type_name = "main.Elem";
     static constexpr auto gp_fields = gp::fields(gp::field(&Elem::v, "v", false, false), gp::field(&Elem::next, "next", false, false));
     static int64_t Sum(gp::ptr<Elem> e);
 };
@@ -51,7 +49,6 @@ struct Point {
     std::size_t gp_hash() const {
         return gp::hash_fields(X, Y);
     }
-    static constexpr const char* gp_type_name = "main.Point";
     static constexpr auto gp_fields = gp::fields(gp::field(&Point::X, "X", true, false), gp::field(&Point::Y, "Y", true, false));
     Point Add(Point q) const;
     static void Move(gp::ptr<Point> p, int64_t dx, int64_t dy);
@@ -62,7 +59,6 @@ static_assert(sizeof(Point) == 16 && alignof(Point) == 8);
 
 struct IDs : gp::newtype<IDs, gp::slice<int64_t>> {
     using gp::newtype<IDs, gp::slice<int64_t>>::newtype;
-    static constexpr const char* gp_type_name = "main.IDs";
     int64_t Sum() const;
     static void Add(gp::ptr<IDs> ids, int64_t v);
     int64_t slice() const;
@@ -71,10 +67,8 @@ static_assert(sizeof(IDs) == 40 && alignof(IDs) == 8);
 
 struct Celsius : gp::newtype<Celsius, double> {
     using gp::newtype<Celsius, double>::newtype;
-    static constexpr const char* gp_type_name = "main.Celsius";
     gp::string String() const;
     Celsius Fahrenheit() const;
-    gp::string gp_String() const;
 };
 static_assert(sizeof(Celsius) == 8 && alignof(Celsius) == 8);
 
@@ -86,7 +80,6 @@ struct Words {
     std::size_t gp_hash() const {
         return gp::hash_fields(X, class_, Point);
     }
-    static constexpr const char* gp_type_name = "main.Words";
     static constexpr auto gp_fields = gp::fields(gp::field(&Words::X, "X", true, false), gp::field(&Words::class_, "class", false, false), gp::field(&Words::Point, "Point", true, false));
     int64_t new_() const;
     static int64_t delete_(gp::ptr<Words> w);
@@ -95,7 +88,6 @@ struct Words {
     gp::string String() const;
     gp::string Error(int64_t code) const;
     static gpkg_main::Point Reset(gp::ptr<Words> w, gpkg_main::Point p);
-    gp::string gp_String() const;
 };
 static_assert(sizeof(Words) == 56 && alignof(Words) == 8);
 
@@ -105,10 +97,8 @@ struct Err {
     std::size_t gp_hash() const {
         return gp::hash_fields(code);
     }
-    static constexpr const char* gp_type_name = "main.Err";
     static constexpr auto gp_fields = gp::fields(gp::field(&Err::code, "code", false, false));
     static gp::string Error(gp::ptr<Err> e);
-    static gp::string gp_Error_ptr(const gp::ptr<Err>& gp_p);
 };
 static_assert(sizeof(Err) == 8 && alignof(Err) == 8);
 
@@ -121,7 +111,6 @@ struct Box {
     std::size_t gp_hash() const {
         return gp::hash_fields(E, W, PW, C);
     }
-    static constexpr const char* gp_type_name = "main.Box";
     static constexpr auto gp_fields = gp::fields(gp::field(&Box::E, "E", true, false), gp::field(&Box::W, "W", true, false), gp::field(&Box::PW, "PW", true, false), gp::field(&Box::C, "C", true, false));
 };
 static_assert(sizeof(Box) == 96 && alignof(Box) == 8);
@@ -133,7 +122,6 @@ struct Big {
     std::size_t gp_hash() const {
         return gp::hash_fields(a, n);
     }
-    static constexpr const char* gp_type_name = "main.Big";
     static constexpr auto gp_fields = gp::fields(gp::field(&Big::a, "a", false, false), gp::field(&Big::n, "n", false, false));
     int64_t N() const;
     static void Inc(gp::ptr<Big> b);
@@ -147,7 +135,6 @@ struct T {
     std::size_t gp_hash() const {
         return gp::hash_fields(v);
     }
-    static constexpr const char* gp_type_name = "main.T";
     static constexpr auto gp_fields = gp::fields(gp::field(&T::v, "v", false, false));
     int64_t M(int64_t a) const;
     static int64_t PM(gp::ptr<T> t, int64_t a);
@@ -160,12 +147,10 @@ struct Inner {
     std::size_t gp_hash() const {
         return gp::hash_fields(v);
     }
-    static constexpr const char* gp_type_name = "main.Inner";
     static constexpr auto gp_fields = gp::fields(gp::field(&Inner::v, "v", false, false));
     int64_t Get() const;
     static void Set(gp::ptr<Inner> i, int64_t v);
     gp::string String() const;
-    gp::string gp_String() const;
 };
 static_assert(sizeof(Inner) == 8 && alignof(Inner) == 8);
 
@@ -175,12 +160,10 @@ struct Deep {
     std::size_t gp_hash() const {
         return gp::hash_fields(d);
     }
-    static constexpr const char* gp_type_name = "main.Deep";
     static constexpr auto gp_fields = gp::fields(gp::field(&Deep::d, "d", false, false));
     static int64_t Bump(gp::ptr<Deep> d);
     int64_t Val() const;
     static gp::string Error(gp::ptr<Deep> d);
-    static gp::string gp_Error_ptr(const gp::ptr<Deep>& gp_p);
 };
 static_assert(sizeof(Deep) == 8 && alignof(Deep) == 8);
 
@@ -191,9 +174,10 @@ struct Mid {
     std::size_t gp_hash() const {
         return gp::hash_fields(Deep, m);
     }
-    static constexpr const char* gp_type_name = "main.Mid";
     static constexpr auto gp_fields = gp::fields(gp::field(&Mid::Deep, "Deep", true, true), gp::field(&Mid::m, "m", false, false));
-    gp::string gp_Error() const;
+    int64_t Bump() const;
+    gp::string Error() const;
+    int64_t Val() const;
 };
 static_assert(sizeof(Mid) == 24 && alignof(Mid) == 8);
 
@@ -205,43 +189,330 @@ struct Outer {
     std::size_t gp_hash() const {
         return gp::hash_fields(Inner, Mid, x);
     }
-    static constexpr const char* gp_type_name = "main.Outer";
     static constexpr auto gp_fields = gp::fields(gp::field(&Outer::Inner, "Inner", true, true), gp::field(&Outer::Mid, "Mid", true, true), gp::field(&Outer::x, "x", false, false));
-    gp::string gp_Error() const;
-    gp::string gp_String() const;
+    int64_t Bump() const;
+    gp::string Error() const;
+    int64_t Get() const;
+    static void Set(gp::ptr<Outer> gp_p, int64_t gp_a0);
+    gp::string String() const;
+    int64_t Val() const;
 };
 static_assert(sizeof(Outer) == 32 && alignof(Outer) == 8);
 
-gp::string Celsius::gp_String() const {
-    return String();
+int64_t Mid::Bump() const {
+    return gpkg_main::Deep::Bump((*this).Deep);
 }
 
-gp::string Words::gp_String() const {
-    return String();
-}
-
-gp::string Err::gp_Error_ptr(const gp::ptr<Err>& gp_p) {
-    return Err::Error(gp_p);
-}
-
-gp::string Inner::gp_String() const {
-    return String();
-}
-
-gp::string Deep::gp_Error_ptr(const gp::ptr<Deep>& gp_p) {
-    return Deep::Error(gp_p);
-}
-
-gp::string Mid::gp_Error() const {
+gp::string Mid::Error() const {
     return gpkg_main::Deep::Error((*this).Deep);
 }
 
-gp::string Outer::gp_Error() const {
+int64_t Mid::Val() const {
+    return (*this).Deep->Val();
+}
+
+int64_t Outer::Bump() const {
+    return Deep::Bump((*this).Mid->Deep);
+}
+
+gp::string Outer::Error() const {
     return Deep::Error((*this).Mid->Deep);
 }
 
-gp::string Outer::gp_String() const {
+int64_t Outer::Get() const {
+    return (*this).Inner.Get();
+}
+
+void Outer::Set(gp::ptr<Outer> gp_p, int64_t gp_a0) {
+    gpkg_main::Inner::Set(gp::field_ptr(gp_p, &Outer::Inner), gp_a0);
+}
+
+gp::string Outer::String() const {
     return (*this).Inner.String();
+}
+
+int64_t Outer::Val() const {
+    return (*this).Mid->Deep->Val();
+}
+
+extern const gp::type_desc gp_td_Point;
+extern const gp::type_desc gp_td_Celsius;
+extern const gp::type_desc gp_td_Words;
+extern const gp::type_desc gp_td_Box;
+extern const gp::type_desc gp_td_Inner;
+extern const gp::type_desc gp_td_Outer;
+extern const gp::type_desc gp_td_Err;
+extern const gp::type_desc gp_td_Mid;
+extern const gp::type_desc gp_td_Deep;
+
+inline Point gp_thunk_Point_Add(const gp::iface& gp_self, Point gp_a0) {
+    return gp::unbox<Point>(gp_self).Add(static_cast<Point&&>(gp_a0));
+}
+inline Point gp_thunk_Point_Moved(const gp::iface& gp_self) {
+    return gp::unbox<Point>(gp_self).Moved();
+}
+inline std::tuple<int64_t, int64_t> gp_thunk_Point_Swap(const gp::iface& gp_self) {
+    return gp::unbox<Point>(gp_self).Swap();
+}
+inline const gp::method gp_vm_Point[]{gp::method_of<Point(Point)>("Add", nullptr, "func(main.Point) main.Point", &gp_thunk_Point_Add), gp::method_of<Point()>("Moved", nullptr, "func() main.Point", &gp_thunk_Point_Moved), gp::method_of<std::tuple<int64_t, int64_t>()>("Swap", nullptr, "func() (int, int)", &gp_thunk_Point_Swap)};
+inline Point gp_thunk_pPoint_Add(const gp::iface& gp_self, Point gp_a0) {
+    gp::ptr<Point> gp_p = gp::unbox<gp::ptr<Point>>(gp_self);
+    gp::check_wrap(gp_p, "value method main.Point.Add called using nil *Point pointer");
+    return gp_p->Add(static_cast<Point&&>(gp_a0));
+}
+inline void gp_thunk_pPoint_Move(const gp::iface& gp_self, int64_t gp_a0, int64_t gp_a1) {
+    Point::Move(gp::unbox<gp::ptr<Point>>(gp_self), static_cast<int64_t&&>(gp_a0), static_cast<int64_t&&>(gp_a1));
+}
+inline Point gp_thunk_pPoint_Moved(const gp::iface& gp_self) {
+    gp::ptr<Point> gp_p = gp::unbox<gp::ptr<Point>>(gp_self);
+    gp::check_wrap(gp_p, "value method main.Point.Moved called using nil *Point pointer");
+    return gp_p->Moved();
+}
+inline std::tuple<int64_t, int64_t> gp_thunk_pPoint_Swap(const gp::iface& gp_self) {
+    gp::ptr<Point> gp_p = gp::unbox<gp::ptr<Point>>(gp_self);
+    gp::check_wrap(gp_p, "value method main.Point.Swap called using nil *Point pointer");
+    return gp_p->Swap();
+}
+inline const gp::method gp_pm_Point[]{gp::method_of<Point(Point)>("Add", nullptr, "func(main.Point) main.Point", &gp_thunk_pPoint_Add), gp::method_of<void(int64_t, int64_t)>("Move", nullptr, "func(int, int)", &gp_thunk_pPoint_Move), gp::method_of<Point()>("Moved", nullptr, "func() main.Point", &gp_thunk_pPoint_Moved), gp::method_of<std::tuple<int64_t, int64_t>()>("Swap", nullptr, "func() (int, int)", &gp_thunk_pPoint_Swap)};
+inline const gp::type_desc* gp_full_Point();
+inline const gp::type_desc gp_td_Point = gp::named<Point>("main.Point", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Point), gp::methods_of(gp_vm_Point), gp::methods_of(gp_pm_Point));
+
+inline Celsius gp_thunk_Celsius_Fahrenheit(const gp::iface& gp_self) {
+    return gp::unbox<Celsius>(gp_self).Fahrenheit();
+}
+inline gp::string gp_thunk_Celsius_String(const gp::iface& gp_self) {
+    return gp::unbox<Celsius>(gp_self).String();
+}
+inline const gp::method gp_vm_Celsius[]{gp::method_of<Celsius()>("Fahrenheit", nullptr, "func() main.Celsius", &gp_thunk_Celsius_Fahrenheit), gp::method_of<gp::string()>("String", nullptr, "func() string", &gp_thunk_Celsius_String)};
+inline Celsius gp_thunk_pCelsius_Fahrenheit(const gp::iface& gp_self) {
+    gp::ptr<Celsius> gp_p = gp::unbox<gp::ptr<Celsius>>(gp_self);
+    gp::check_wrap(gp_p, "value method main.Celsius.Fahrenheit called using nil *Celsius pointer");
+    return gp_p->Fahrenheit();
+}
+inline gp::string gp_thunk_pCelsius_String(const gp::iface& gp_self) {
+    gp::ptr<Celsius> gp_p = gp::unbox<gp::ptr<Celsius>>(gp_self);
+    gp::check_wrap(gp_p, "value method main.Celsius.String called using nil *Celsius pointer");
+    return gp_p->String();
+}
+inline const gp::method gp_pm_Celsius[]{gp::method_of<Celsius()>("Fahrenheit", nullptr, "func() main.Celsius", &gp_thunk_pCelsius_Fahrenheit), gp::method_of<gp::string()>("String", nullptr, "func() string", &gp_thunk_pCelsius_String)};
+inline const gp::type_desc gp_td_Celsius = gp::named<Celsius>("main.Celsius", "main", gp::shape_basic(gp::kind::Float64), gp::methods_of(gp_vm_Celsius), gp::methods_of(gp_pm_Celsius));
+
+inline gp::string gp_thunk_Words_Error(const gp::iface& gp_self, int64_t gp_a0) {
+    return gp::unbox<Words>(gp_self).Error(static_cast<int64_t&&>(gp_a0));
+}
+inline Point gp_thunk_Words_Shift(const gp::iface& gp_self, Point gp_a0) {
+    return gp::unbox<Words>(gp_self).Shift(static_cast<Point&&>(gp_a0));
+}
+inline gp::string gp_thunk_Words_String(const gp::iface& gp_self) {
+    return gp::unbox<Words>(gp_self).String();
+}
+inline int64_t gp_thunk_Words_Words_(const gp::iface& gp_self) {
+    return gp::unbox<Words>(gp_self).Words_();
+}
+inline int64_t gp_thunk_Words_new_(const gp::iface& gp_self) {
+    return gp::unbox<Words>(gp_self).new_();
+}
+inline const gp::method gp_vm_Words[]{gp::method_of<gp::string(int64_t)>("Error", nullptr, "func(int) string", &gp_thunk_Words_Error), gp::method_of<Point(Point)>("Shift", nullptr, "func(main.Point) main.Point", &gp_thunk_Words_Shift), gp::method_of<gp::string()>("String", nullptr, "func() string", &gp_thunk_Words_String), gp::method_of<int64_t()>("Words", nullptr, "func() int", &gp_thunk_Words_Words_), gp::method_of<int64_t()>("new", "main", "func() int", &gp_thunk_Words_new_)};
+inline gp::string gp_thunk_pWords_Error(const gp::iface& gp_self, int64_t gp_a0) {
+    gp::ptr<Words> gp_p = gp::unbox<gp::ptr<Words>>(gp_self);
+    gp::check_wrap(gp_p, "value method main.Words.Error called using nil *Words pointer");
+    return gp_p->Error(static_cast<int64_t&&>(gp_a0));
+}
+inline Point gp_thunk_pWords_Reset(const gp::iface& gp_self, Point gp_a0) {
+    return Words::Reset(gp::unbox<gp::ptr<Words>>(gp_self), static_cast<Point&&>(gp_a0));
+}
+inline Point gp_thunk_pWords_Shift(const gp::iface& gp_self, Point gp_a0) {
+    gp::ptr<Words> gp_p = gp::unbox<gp::ptr<Words>>(gp_self);
+    gp::check_wrap(gp_p, "value method main.Words.Shift called using nil *Words pointer");
+    return gp_p->Shift(static_cast<Point&&>(gp_a0));
+}
+inline gp::string gp_thunk_pWords_String(const gp::iface& gp_self) {
+    gp::ptr<Words> gp_p = gp::unbox<gp::ptr<Words>>(gp_self);
+    gp::check_wrap(gp_p, "value method main.Words.String called using nil *Words pointer");
+    return gp_p->String();
+}
+inline int64_t gp_thunk_pWords_Words_(const gp::iface& gp_self) {
+    gp::ptr<Words> gp_p = gp::unbox<gp::ptr<Words>>(gp_self);
+    gp::check_wrap(gp_p, "value method main.Words.Words called using nil *Words pointer");
+    return gp_p->Words_();
+}
+inline int64_t gp_thunk_pWords_delete_(const gp::iface& gp_self) {
+    return Words::delete_(gp::unbox<gp::ptr<Words>>(gp_self));
+}
+inline int64_t gp_thunk_pWords_new_(const gp::iface& gp_self) {
+    gp::ptr<Words> gp_p = gp::unbox<gp::ptr<Words>>(gp_self);
+    gp::check_wrap(gp_p, "value method main.Words.new called using nil *Words pointer");
+    return gp_p->new_();
+}
+inline const gp::method gp_pm_Words[]{gp::method_of<gp::string(int64_t)>("Error", nullptr, "func(int) string", &gp_thunk_pWords_Error), gp::method_of<Point(Point)>("Reset", nullptr, "func(main.Point) main.Point", &gp_thunk_pWords_Reset), gp::method_of<Point(Point)>("Shift", nullptr, "func(main.Point) main.Point", &gp_thunk_pWords_Shift), gp::method_of<gp::string()>("String", nullptr, "func() string", &gp_thunk_pWords_String), gp::method_of<int64_t()>("Words", nullptr, "func() int", &gp_thunk_pWords_Words_), gp::method_of<int64_t()>("delete", "main", "func() int", &gp_thunk_pWords_delete_), gp::method_of<int64_t()>("new", "main", "func() int", &gp_thunk_pWords_new_)};
+inline const gp::type_desc* gp_full_Words();
+inline const gp::type_desc gp_td_Words = gp::named<Words>("main.Words", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Words), gp::methods_of(gp_vm_Words), gp::methods_of(gp_pm_Words));
+
+inline const gp::type_desc* gp_full_Box();
+inline const gp::type_desc gp_td_Box = gp::named<Box>("main.Box", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Box));
+
+inline int64_t gp_thunk_Inner_Get(const gp::iface& gp_self) {
+    return gp::unbox<Inner>(gp_self).Get();
+}
+inline gp::string gp_thunk_Inner_String(const gp::iface& gp_self) {
+    return gp::unbox<Inner>(gp_self).String();
+}
+inline const gp::method gp_vm_Inner[]{gp::method_of<int64_t()>("Get", nullptr, "func() int", &gp_thunk_Inner_Get), gp::method_of<gp::string()>("String", nullptr, "func() string", &gp_thunk_Inner_String)};
+inline int64_t gp_thunk_pInner_Get(const gp::iface& gp_self) {
+    gp::ptr<Inner> gp_p = gp::unbox<gp::ptr<Inner>>(gp_self);
+    gp::check_wrap(gp_p, "value method main.Inner.Get called using nil *Inner pointer");
+    return gp_p->Get();
+}
+inline void gp_thunk_pInner_Set(const gp::iface& gp_self, int64_t gp_a0) {
+    Inner::Set(gp::unbox<gp::ptr<Inner>>(gp_self), static_cast<int64_t&&>(gp_a0));
+}
+inline gp::string gp_thunk_pInner_String(const gp::iface& gp_self) {
+    gp::ptr<Inner> gp_p = gp::unbox<gp::ptr<Inner>>(gp_self);
+    gp::check_wrap(gp_p, "value method main.Inner.String called using nil *Inner pointer");
+    return gp_p->String();
+}
+inline const gp::method gp_pm_Inner[]{gp::method_of<int64_t()>("Get", nullptr, "func() int", &gp_thunk_pInner_Get), gp::method_of<void(int64_t)>("Set", nullptr, "func(int)", &gp_thunk_pInner_Set), gp::method_of<gp::string()>("String", nullptr, "func() string", &gp_thunk_pInner_String)};
+inline const gp::type_desc* gp_full_Inner();
+inline const gp::type_desc gp_td_Inner = gp::named<Inner>("main.Inner", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Inner), gp::methods_of(gp_vm_Inner), gp::methods_of(gp_pm_Inner));
+
+inline int64_t gp_thunk_Outer_Bump(const gp::iface& gp_self) {
+    return gp::unbox<Outer>(gp_self).Bump();
+}
+inline gp::string gp_thunk_Outer_Error(const gp::iface& gp_self) {
+    return gp::unbox<Outer>(gp_self).Error();
+}
+inline int64_t gp_thunk_Outer_Get(const gp::iface& gp_self) {
+    return gp::unbox<Outer>(gp_self).Get();
+}
+inline gp::string gp_thunk_Outer_String(const gp::iface& gp_self) {
+    return gp::unbox<Outer>(gp_self).String();
+}
+inline int64_t gp_thunk_Outer_Val(const gp::iface& gp_self) {
+    return gp::unbox<Outer>(gp_self).Val();
+}
+inline const gp::method gp_vm_Outer[]{gp::method_of<int64_t()>("Bump", nullptr, "func() int", &gp_thunk_Outer_Bump), gp::method_of<gp::string()>("Error", nullptr, "func() string", &gp_thunk_Outer_Error), gp::method_of<int64_t()>("Get", nullptr, "func() int", &gp_thunk_Outer_Get), gp::method_of<gp::string()>("String", nullptr, "func() string", &gp_thunk_Outer_String), gp::method_of<int64_t()>("Val", nullptr, "func() int", &gp_thunk_Outer_Val)};
+inline int64_t gp_thunk_pOuter_Bump(const gp::iface& gp_self) {
+    return gp::unbox<gp::ptr<Outer>>(gp_self)->Bump();
+}
+inline gp::string gp_thunk_pOuter_Error(const gp::iface& gp_self) {
+    return gp::unbox<gp::ptr<Outer>>(gp_self)->Error();
+}
+inline int64_t gp_thunk_pOuter_Get(const gp::iface& gp_self) {
+    return gp::unbox<gp::ptr<Outer>>(gp_self)->Get();
+}
+inline void gp_thunk_pOuter_Set(const gp::iface& gp_self, int64_t gp_a0) {
+    Outer::Set(gp::unbox<gp::ptr<Outer>>(gp_self), static_cast<int64_t&&>(gp_a0));
+}
+inline gp::string gp_thunk_pOuter_String(const gp::iface& gp_self) {
+    return gp::unbox<gp::ptr<Outer>>(gp_self)->String();
+}
+inline int64_t gp_thunk_pOuter_Val(const gp::iface& gp_self) {
+    return gp::unbox<gp::ptr<Outer>>(gp_self)->Val();
+}
+inline const gp::method gp_pm_Outer[]{gp::method_of<int64_t()>("Bump", nullptr, "func() int", &gp_thunk_pOuter_Bump), gp::method_of<gp::string()>("Error", nullptr, "func() string", &gp_thunk_pOuter_Error), gp::method_of<int64_t()>("Get", nullptr, "func() int", &gp_thunk_pOuter_Get), gp::method_of<void(int64_t)>("Set", nullptr, "func(int)", &gp_thunk_pOuter_Set), gp::method_of<gp::string()>("String", nullptr, "func() string", &gp_thunk_pOuter_String), gp::method_of<int64_t()>("Val", nullptr, "func() int", &gp_thunk_pOuter_Val)};
+inline const gp::type_desc* gp_full_Outer();
+inline const gp::type_desc gp_td_Outer = gp::named<Outer>("main.Outer", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Outer), gp::methods_of(gp_vm_Outer), gp::methods_of(gp_pm_Outer));
+
+inline gp::string gp_thunk_pErr_Error(const gp::iface& gp_self) {
+    return Err::Error(gp::unbox<gp::ptr<Err>>(gp_self));
+}
+inline const gp::method gp_pm_Err[]{gp::method_of<gp::string()>("Error", nullptr, "func() string", &gp_thunk_pErr_Error)};
+inline const gp::type_desc* gp_full_Err();
+inline const gp::type_desc gp_td_Err = gp::named<Err>("main.Err", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Err), {}, gp::methods_of(gp_pm_Err));
+
+inline int64_t gp_thunk_Mid_Bump(const gp::iface& gp_self) {
+    return gp::unbox<Mid>(gp_self).Bump();
+}
+inline gp::string gp_thunk_Mid_Error(const gp::iface& gp_self) {
+    return gp::unbox<Mid>(gp_self).Error();
+}
+inline int64_t gp_thunk_Mid_Val(const gp::iface& gp_self) {
+    return gp::unbox<Mid>(gp_self).Val();
+}
+inline const gp::method gp_vm_Mid[]{gp::method_of<int64_t()>("Bump", nullptr, "func() int", &gp_thunk_Mid_Bump), gp::method_of<gp::string()>("Error", nullptr, "func() string", &gp_thunk_Mid_Error), gp::method_of<int64_t()>("Val", nullptr, "func() int", &gp_thunk_Mid_Val)};
+inline int64_t gp_thunk_pMid_Bump(const gp::iface& gp_self) {
+    return gp::unbox<gp::ptr<Mid>>(gp_self)->Bump();
+}
+inline gp::string gp_thunk_pMid_Error(const gp::iface& gp_self) {
+    return gp::unbox<gp::ptr<Mid>>(gp_self)->Error();
+}
+inline int64_t gp_thunk_pMid_Val(const gp::iface& gp_self) {
+    return gp::unbox<gp::ptr<Mid>>(gp_self)->Val();
+}
+inline const gp::method gp_pm_Mid[]{gp::method_of<int64_t()>("Bump", nullptr, "func() int", &gp_thunk_pMid_Bump), gp::method_of<gp::string()>("Error", nullptr, "func() string", &gp_thunk_pMid_Error), gp::method_of<int64_t()>("Val", nullptr, "func() int", &gp_thunk_pMid_Val)};
+inline const gp::type_desc* gp_full_Mid();
+inline const gp::type_desc gp_td_Mid = gp::named<Mid>("main.Mid", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Mid), gp::methods_of(gp_vm_Mid), gp::methods_of(gp_pm_Mid));
+
+inline int64_t gp_thunk_Deep_Val(const gp::iface& gp_self) {
+    return gp::unbox<Deep>(gp_self).Val();
+}
+inline const gp::method gp_vm_Deep[]{gp::method_of<int64_t()>("Val", nullptr, "func() int", &gp_thunk_Deep_Val)};
+inline int64_t gp_thunk_pDeep_Bump(const gp::iface& gp_self) {
+    return Deep::Bump(gp::unbox<gp::ptr<Deep>>(gp_self));
+}
+inline gp::string gp_thunk_pDeep_Error(const gp::iface& gp_self) {
+    return Deep::Error(gp::unbox<gp::ptr<Deep>>(gp_self));
+}
+inline int64_t gp_thunk_pDeep_Val(const gp::iface& gp_self) {
+    gp::ptr<Deep> gp_p = gp::unbox<gp::ptr<Deep>>(gp_self);
+    gp::check_wrap(gp_p, "value method main.Deep.Val called using nil *Deep pointer");
+    return gp_p->Val();
+}
+inline const gp::method gp_pm_Deep[]{gp::method_of<int64_t()>("Bump", nullptr, "func() int", &gp_thunk_pDeep_Bump), gp::method_of<gp::string()>("Error", nullptr, "func() string", &gp_thunk_pDeep_Error), gp::method_of<int64_t()>("Val", nullptr, "func() int", &gp_thunk_pDeep_Val)};
+inline const gp::type_desc* gp_full_Deep();
+inline const gp::type_desc gp_td_Deep = gp::named<Deep>("main.Deep", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Deep), gp::methods_of(gp_vm_Deep), gp::methods_of(gp_pm_Deep));
+
+static const gp::type_desc* const gp_tdp_Err = gp::td_ptr<Err>(&gp_td_Err);
+static const gp::type_desc* const gp_tdp_Words = gp::td_ptr<Words>(&gp_td_Words);
+static const gp::type_desc* const gp_tdp_Mid = gp::td_ptr<Mid>(&gp_td_Mid);
+static const gp::type_desc* const gp_tdp_Deep = gp::td_ptr<Deep>(&gp_td_Deep);
+
+inline const gp::type_desc* gp_full_Point() {
+    static const gp::field_desc gp_f[]{gp::field_desc("X", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&Point::X)), gp::field_desc("Y", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&Point::Y))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Point, gp::shape_struct(gp_f, 2));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_Words() {
+    static const gp::field_desc gp_f[]{gp::field_desc("X", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&Words::X)), gp::field_desc("class", "main", &gp::td_string, nullptr, false, gp::offset_of(&Words::class_)), gp::field_desc("Point", nullptr, &gp_td_Point, nullptr, false, gp::offset_of(&Words::Point))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Words, gp::shape_struct(gp_f, 3));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_Box() {
+    static const gp::field_desc gp_f[]{gp::field_desc("E", nullptr, gp_tdp_Err, nullptr, false, gp::offset_of(&Box::E)), gp::field_desc("W", nullptr, &gp_td_Words, nullptr, false, gp::offset_of(&Box::W)), gp::field_desc("PW", nullptr, gp_tdp_Words, nullptr, false, gp::offset_of(&Box::PW)), gp::field_desc("C", nullptr, &gp_td_Celsius, nullptr, false, gp::offset_of(&Box::C))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Box, gp::shape_struct(gp_f, 4));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_Inner() {
+    static const gp::field_desc gp_f[]{gp::field_desc("v", "main", &gp::td_int, nullptr, false, gp::offset_of(&Inner::v))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Inner, gp::shape_struct(gp_f, 1));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_Outer() {
+    static const gp::field_desc gp_f[]{gp::field_desc("Inner", nullptr, &gp_td_Inner, nullptr, true, gp::offset_of(&Outer::Inner)), gp::field_desc("Mid", nullptr, gp_tdp_Mid, nullptr, true, gp::offset_of(&Outer::Mid)), gp::field_desc("x", "main", &gp::td_int, nullptr, false, gp::offset_of(&Outer::x))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Outer, gp::shape_struct(gp_f, 3));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_Err() {
+    static const gp::field_desc gp_f[]{gp::field_desc("code", "main", &gp::td_int, nullptr, false, gp::offset_of(&Err::code))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Err, gp::shape_struct(gp_f, 1));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_Mid() {
+    static const gp::field_desc gp_f[]{gp::field_desc("Deep", nullptr, gp_tdp_Deep, nullptr, true, gp::offset_of(&Mid::Deep)), gp::field_desc("m", "main", &gp::td_int, nullptr, false, gp::offset_of(&Mid::m))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Mid, gp::shape_struct(gp_f, 2));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_Deep() {
+    static const gp::field_desc gp_f[]{gp::field_desc("d", "main", &gp::td_int, nullptr, false, gp::offset_of(&Deep::d))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Deep, gp::shape_struct(gp_f, 1));
+    return &gp_d;
 }
 
 void show(gp::string s, Point p);
@@ -334,7 +605,7 @@ std::tuple<int64_t, int64_t> Point::Swap() const {
 
 void show(gp::string s, Point p) {
 #line 72 "$DIR/methods.gp"
-    gp::fmtshim::Println(s, p);
+    gp::fmt::Println(s, gp::fmt::as(&gp_td_Point, p));
 #line 72 "$DIR/methods.gp"
 }
 
@@ -507,7 +778,7 @@ int64_t T::M(int64_t a) const {
 #line 154 "$DIR/methods.gp"
     T t = *this;
 #line 154 "$DIR/methods.gp"
-    gp::fmtshim::Println("M"_gs, t.v, a);
+    gp::fmt::Println("M"_gs, t.v, a);
 #line 154 "$DIR/methods.gp"
     return t.v;
 #line 154 "$DIR/methods.gp"
@@ -516,7 +787,7 @@ int64_t T::M(int64_t a) const {
 #line 155 "$DIR/methods.gp"
 int64_t T::PM(gp::ptr<T> t, int64_t a) {
 #line 155 "$DIR/methods.gp"
-    gp::fmtshim::Println("PM"_gs, t->v, a);
+    gp::fmt::Println("PM"_gs, t->v, a);
 #line 155 "$DIR/methods.gp"
     return t->v;
 #line 155 "$DIR/methods.gp"
@@ -525,7 +796,7 @@ int64_t T::PM(gp::ptr<T> t, int64_t a) {
 #line 161 "$DIR/methods.gp"
 int64_t f() {
 #line 161 "$DIR/methods.gp"
-    gp::fmtshim::Println("f"_gs);
+    gp::fmt::Println("f"_gs);
 #line 161 "$DIR/methods.gp"
     g = gp::new_<T>(T{2});
 #line 161 "$DIR/methods.gp"
@@ -540,7 +811,7 @@ int64_t f() {
 #line 162 "$DIR/methods.gp"
 gp::ptr<T> h() {
 #line 162 "$DIR/methods.gp"
-    gp::fmtshim::Println("h"_gs);
+    gp::fmt::Println("h"_gs);
 #line 162 "$DIR/methods.gp"
     return gp::new_<T>(T{3});
 #line 162 "$DIR/methods.gp"
@@ -604,48 +875,48 @@ void main() {
         List::Push(l, 1);
         List::Push(l, 2);
         List::Push(l, 3);
-        { auto gp_t0 = (*l).Len(); gp::fmtshim::Println(gp_t0, Elem::Sum((*l).head)); }
+        { auto gp_t0 = (*l).Len(); gp::fmt::Println(gp_t0, Elem::Sum((*l).head)); }
 #line 194 "$DIR/methods.gp"
         gp::ptr<Point> p = gp::new_<Point>(Point{1, 2});
         Point q = (*p).Add(Point{10, 20});
-        gp::fmtshim::Println((*p), q);
+        gp::fmt::Println(gp::fmt::as(&gp_td_Point, (*p)), gp::fmt::as(&gp_td_Point, q));
         Point::Move(p, 5, 5);
         gp::ptr<Point> pp = p;
         Point::Move(pp, 1, 1);
-        { auto gp_t1 = pp->Add(Point{}); auto gp_t2 = (*p).Moved(); gp::fmtshim::Println(*pp, gp_t1, gp_t2, (*p)); }
-        gp::fmtshim::Println((*p).Add(Point{1, 1}).Add(Point{2, 2}));
-        std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, (*p).Swap());
-        gp::fmtshim::Println((*p));
+        { auto gp_t1 = pp->Add(Point{}); auto gp_t2 = (*p).Moved(); gp::fmt::Println(gp::fmt::as(&gp_td_Point, *pp), gp::fmt::as(&gp_td_Point, gp_t1), gp::fmt::as(&gp_td_Point, gp_t2), gp::fmt::as(&gp_td_Point, (*p))); }
+        gp::fmt::Println(gp::fmt::as(&gp_td_Point, (*p).Add(Point{1, 1}).Add(Point{2, 2})));
+        std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, (*p).Swap());
+        gp::fmt::Println(gp::fmt::as(&gp_td_Point, (*p)));
         std::apply([&](auto&& gp_e0, auto&& gp_e1) { return Point::Move(p, gp_e0, gp_e1); }, two());
-        gp::fmtshim::Println((*p));
+        gp::fmt::Println(gp::fmt::as(&gp_td_Point, (*p)));
         gp::slice<Point> pts = gp::slice_of<Point>({Point{1, 1}, Point{2, 2}});
         Point::Move(gp::ptr<Point>(pts.gp_owner(), &pts[0]), 7, 7);
-        { auto gp_t3 = pts[1].Add(pts[0]); gp::fmtshim::Println(pts[0], gp_t3); }
+        { auto gp_t3 = pts[1].Add(pts[0]); gp::fmt::Println(gp::fmt::as(&gp_td_Point, pts[0]), gp::fmt::as(&gp_td_Point, gp_t3)); }
         gp::map<gp::string, Point> m = gp::map_of<gp::string, Point>({{"a"_gs, Point{5, 6}}});
-        gp::fmtshim::Println(gp::get(m, "a"_gs).Add(Point{1, 1}));
+        gp::fmt::Println(gp::fmt::as(&gp_td_Point, gp::get(m, "a"_gs).Add(Point{1, 1})));
 #line 212 "$DIR/methods.gp"
         gp::ptr<IDs> ids = gp::new_<IDs>(IDs(gp::slice_of<int64_t>({1, 2})));
         IDs::Add(ids, 3);
-        { auto gp_t4 = (*ids).Sum(); auto gp_t5 = (*ids).slice(); gp::fmtshim::Println(gp_t4, gp_t5, gp::len((*ids))); }
+        { auto gp_t4 = (*ids).Sum(); auto gp_t5 = (*ids).slice(); gp::fmt::Println(gp_t4, gp_t5, gp::len((*ids))); }
 #line 216 "$DIR/methods.gp"
         Celsius c = Celsius(21.5);
-        { auto gp_t6 = c.Fahrenheit(); gp::fmtshim::Println(c, gp_t6, c.String()); }
+        { auto gp_t6 = c.Fahrenheit(); gp::fmt::Println(gp::fmt::as(&gp_td_Celsius, c), gp::fmt::as(&gp_td_Celsius, gp_t6), c.String()); }
         for (auto gp_it0 = gp::range_slice(gp::slice_of<Celsius>({Celsius(-40.0), Celsius(0.0), Celsius(37.0)})); gp::range_next(gp_it0);) {
 #line 218 "$DIR/methods.gp"
             Celsius t = gp_it0.gp_v();
-            gp::fmtshim::Println(t, t.Fahrenheit());
+            gp::fmt::Println(gp::fmt::as(&gp_td_Celsius, t), gp::fmt::as(&gp_td_Celsius, t.Fahrenheit()));
         }
 #line 222 "$DIR/methods.gp"
         gp::ptr<gpkg_main::Words> w = gp::new_<gpkg_main::Words>(gpkg_main::Words{1, "c"_gs, Point{1, 1}});
-        { auto gp_t7 = (*w).new_(); auto gp_t8 = gpkg_main::Words::delete_(w); auto gp_t9 = (*w).Words_(); auto gp_t10 = (*w).Shift(Point{2, 2}); auto gp_t11 = (*w).Error(1); gp::fmtshim::Println(gp_t7, gp_t8, gp_t9, gp_t10, gp_t11, (*w)); }
-        { auto gp_t12 = gpkg_main::Words::Reset(w, Point{9, 9}); gp::fmtshim::Println(gp_t12, (*w).Point); }
+        { auto gp_t7 = (*w).new_(); auto gp_t8 = gpkg_main::Words::delete_(w); auto gp_t9 = (*w).Words_(); auto gp_t10 = (*w).Shift(Point{2, 2}); auto gp_t11 = (*w).Error(1); gp::fmt::Println(gp_t7, gp_t8, gp_t9, gp::fmt::as(&gp_td_Point, gp_t10), gp_t11, gp::fmt::as(&gp_td_Words, (*w))); }
+        { auto gp_t12 = gpkg_main::Words::Reset(w, Point{9, 9}); gp::fmt::Println(gp::fmt::as(&gp_td_Point, gp_t12), gp::fmt::as(&gp_td_Point, (*w).Point)); }
         Box b{.E = gp::new_<Err>(Err{3}), .W = (*w), .PW = w, .C = Celsius(1.5)};
-        gp::fmtshim::Println(b);
-        gp::fmtshim::Printf("%v %s\n"_gs, b, (*w));
+        gp::fmt::Println(gp::fmt::as(&gp_td_Box, b));
+        gp::fmt::Printf("%v %s\n"_gs, gp::fmt::as(&gp_td_Box, b), gp::fmt::as(&gp_td_Words, (*w)));
 #line 229 "$DIR/methods.gp"
         gp::ptr<Big> big = gp::new_<Big>();
         Big::Inc(big);
-        { auto gp_t13 = (*big).N(); auto gp_t14 = (*big).Bumped(); gp::fmtshim::Println(gp_t13, gp_t14, (*big).n); }
+        { auto gp_t13 = (*big).N(); auto gp_t14 = (*big).Bumped(); gp::fmt::Println(gp_t13, gp_t14, (*big).n); }
 #line 233 "$DIR/methods.gp"
         { auto gp_t15 = f(); gp::ptr<T>(g)->M(gp_t15); }
         { auto gp_t16 = f(); gv.M(gp_t16); }
@@ -661,12 +932,12 @@ void main() {
         { auto gp_t24 = T::PM(px, 2); auto gp_t25 = T::PM(x, 3); px->M(gp_t24 + gp_t25); }
 #line 246 "$DIR/methods.gp"
         gp::ptr<Outer> o = gp::new_<Outer>(Outer{Inner{1}, gp::new_<Mid>(Mid{gp::new_<Deep>(Deep{2}), 3}), 4});
-        { auto gp_t26 = (*o).Inner.Get(); auto gp_t27 = gp::ptr<Deep>((*o).Mid->Deep)->Val(); auto gp_t28 = Deep::Bump((*o).Mid->Deep); gp::fmtshim::Println(gp_t26, gp_t27, gp_t28, Deep::Bump((*o).Mid->Deep)); }
+        { auto gp_t26 = (*o).Inner.Get(); auto gp_t27 = gp::ptr<Deep>((*o).Mid->Deep)->Val(); auto gp_t28 = Deep::Bump((*o).Mid->Deep); gp::fmt::Println(gp_t26, gp_t27, gp_t28, Deep::Bump((*o).Mid->Deep)); }
         Inner::Set(gp::field_ptr(o, &Outer::Inner), 5);
         gp::ptr<Outer> op = o;
         Inner::Set(gp::field_ptr(op, &Outer::Inner), 6);
-        { auto gp_t29 = op->Inner.Get(); auto gp_t30 = gp::ptr<Deep>(op->Mid->Deep)->Val(); auto gp_t31 = Deep::Bump(op->Mid->Deep); gp::fmtshim::Println(gp_t29, gp_t30, gp_t31, (*o).Inner, (*o)); }
-        gp_df.gp_push_call([](auto&& gp_a0) { gp::fmtshim::Println("last"_gs, gp_a0); }, (*o).Inner.Get());
+        { auto gp_t29 = op->Inner.Get(); auto gp_t30 = gp::ptr<Deep>(op->Mid->Deep)->Val(); auto gp_t31 = Deep::Bump(op->Mid->Deep); gp::fmt::Println(gp_t29, gp_t30, gp_t31, gp::fmt::as(&gp_td_Inner, (*o).Inner), gp::to_iface<gp::any>((*o), &gp_td_Outer)); }
+        gp_df.gp_push_call([](auto&& gp_a0) { gp::fmt::Println("last"_gs, gp_a0); }, (*o).Inner.Get());
         gp_df.gp_push_call([](auto&& gp_a0) { Inner::Set(gp_a0, 8); }, gp::field_ptr(o, &Outer::Inner));
         gp_df.gp_push_call([](auto&& gp_a0) { Deep::Bump(gp_a0); }, (*o).Mid->Deep);
     } catch (...) {

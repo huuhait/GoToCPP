@@ -23,67 +23,56 @@ struct gp_anon_b659807402d3b6d8;
 
 struct Celsius : gp::newtype<Celsius, double> {
     using gp::newtype<Celsius, double>::newtype;
-    static constexpr const char* gp_type_name = "main.Celsius";
 };
 static_assert(sizeof(Celsius) == 8 && alignof(Celsius) == 8);
 
 struct Fahrenheit : gp::newtype<Fahrenheit, double> {
     using gp::newtype<Fahrenheit, double>::newtype;
-    static constexpr const char* gp_type_name = "main.Fahrenheit";
 };
 static_assert(sizeof(Fahrenheit) == 8 && alignof(Fahrenheit) == 8);
 
 struct Small : gp::newtype<Small, uint8_t> {
     using gp::newtype<Small, uint8_t>::newtype;
-    static constexpr const char* gp_type_name = "main.Small";
 };
 static_assert(sizeof(Small) == 1 && alignof(Small) == 1);
 
 struct Color : gp::newtype<Color, int64_t> {
     using gp::newtype<Color, int64_t>::newtype;
-    static constexpr const char* gp_type_name = "main.Color";
 };
 static_assert(sizeof(Color) == 8 && alignof(Color) == 8);
 
 struct Name : gp::newtype<Name, gp::string> {
     using gp::newtype<Name, gp::string>::newtype;
-    static constexpr const char* gp_type_name = "main.Name";
 };
 static_assert(sizeof(Name) == 32 && alignof(Name) == 8);
 
 struct IDs : gp::newtype<IDs, gp::slice<int64_t>> {
     using gp::newtype<IDs, gp::slice<int64_t>>::newtype;
-    static constexpr const char* gp_type_name = "main.IDs";
 };
 static_assert(sizeof(IDs) == 40 && alignof(IDs) == 8);
 
 struct Grid : gp::newtype<Grid, gp::array<int64_t, 3>> {
     using gp::newtype<Grid, gp::array<int64_t, 3>>::newtype;
-    static constexpr const char* gp_type_name = "main.Grid";
 };
 static_assert(sizeof(Grid) == 24 && alignof(Grid) == 8);
 
 struct Ages : gp::newtype<Ages, gp::map<Name, int64_t>> {
     using gp::newtype<Ages, gp::map<Name, int64_t>>::newtype;
-    static constexpr const char* gp_type_name = "main.Ages";
 };
 static_assert(sizeof(Ages) == 16 && alignof(Ages) == 8);
 
 struct Ok : gp::newtype<Ok, bool> {
     using gp::newtype<Ok, bool>::newtype;
-    static constexpr const char* gp_type_name = "main.Ok";
 };
 static_assert(sizeof(Ok) == 1 && alignof(Ok) == 1);
 
 struct Temp : gp::newtype<Temp, double> {
     using gp::newtype<Temp, double>::newtype;
-    static constexpr const char* gp_type_name = "main.Temp";
 };
 static_assert(sizeof(Temp) == 8 && alignof(Temp) == 8);
 
 struct Link : gp::newtype<Link, gp::ptr<Node>> {
     using gp::newtype<Link, gp::ptr<Node>>::newtype;
-    static constexpr const char* gp_type_name = "main.Link";
 };
 static_assert(sizeof(Link) == 16 && alignof(Link) == 8);
 
@@ -94,7 +83,6 @@ struct Node {
     std::size_t gp_hash() const {
         return gp::hash_fields(val, next);
     }
-    static constexpr const char* gp_type_name = "main.Node";
     static constexpr auto gp_fields = gp::fields(gp::field(&Node::val, "val", false, false), gp::field(&Node::next, "next", false, false));
 };
 static_assert(sizeof(Node) == 24 && alignof(Node) == 8);
@@ -106,7 +94,6 @@ struct Point {
     std::size_t gp_hash() const {
         return gp::hash_fields(X, Y);
     }
-    static constexpr const char* gp_type_name = "main.Point";
     static constexpr auto gp_fields = gp::fields(gp::field(&Point::X, "X", true, false), gp::field(&Point::Y, "Y", true, false));
 };
 static_assert(sizeof(Point) == 16 && alignof(Point) == 8);
@@ -118,14 +105,12 @@ struct Moved {
     std::size_t gp_hash() const {
         return gp::hash_fields(X, Y);
     }
-    static constexpr const char* gp_type_name = "main.Moved";
     static constexpr auto gp_fields = gp::fields(gp::field(&Moved::X, "X", true, false), gp::field(&Moved::Y, "Y", true, false));
 };
 static_assert(sizeof(Moved) == 16 && alignof(Moved) == 8);
 
 struct Local : gp::newtype<Local, int64_t> {
     using gp::newtype<Local, int64_t>::newtype;
-    static constexpr const char* gp_type_name = "main.Local";
 };
 static_assert(sizeof(Local) == 8 && alignof(Local) == 8);
 
@@ -136,7 +121,6 @@ struct Pair {
     std::size_t gp_hash() const {
         return gp::hash_fields(a, b);
     }
-    static constexpr const char* gp_type_name = "main.Pair";
     static constexpr auto gp_fields = gp::fields(gp::field(&Pair::a, "a", false, false), gp::field(&Pair::b, "b", false, false));
 };
 static_assert(sizeof(Pair) == 16 && alignof(Pair) == 8);
@@ -148,10 +132,66 @@ struct gp_anon_b659807402d3b6d8 {
     std::size_t gp_hash() const {
         return gp::hash_fields(X, Y);
     }
-    static constexpr const char* gp_type_name = "struct { X int; Y int }";
     static constexpr auto gp_fields = gp::fields(gp::field(&gp_anon_b659807402d3b6d8::X, "X", true, false), gp::field(&gp_anon_b659807402d3b6d8::Y, "Y", true, false));
 };
 static_assert(sizeof(gp_anon_b659807402d3b6d8) == 16 && alignof(gp_anon_b659807402d3b6d8) == 8);
+
+extern const gp::type_desc gp_td_Celsius;
+extern const gp::type_desc gp_td_Fahrenheit;
+extern const gp::type_desc gp_td_Temp;
+extern const gp::type_desc gp_td_Small;
+extern const gp::type_desc gp_td_Ok;
+extern const gp::type_desc gp_td_Color;
+extern const gp::type_desc gp_td_Name;
+extern const gp::type_desc gp_td_Pair;
+extern const gp::type_desc gp_td_Local;
+extern const gp::type_desc gp_td_Point;
+extern const gp::type_desc gp_td_Moved;
+
+inline const gp::type_desc gp_td_Celsius = gp::named<Celsius>("main.Celsius", "main", gp::shape_basic(gp::kind::Float64));
+
+inline const gp::type_desc gp_td_Fahrenheit = gp::named<Fahrenheit>("main.Fahrenheit", "main", gp::shape_basic(gp::kind::Float64));
+
+inline const gp::type_desc gp_td_Temp = gp::named<Temp>("main.Temp", "main", gp::shape_basic(gp::kind::Float64));
+
+inline const gp::type_desc gp_td_Small = gp::named<Small>("main.Small", "main", gp::shape_basic(gp::kind::Uint8));
+
+inline const gp::type_desc gp_td_Ok = gp::named<Ok>("main.Ok", "main", gp::shape_basic(gp::kind::Bool));
+
+inline const gp::type_desc gp_td_Color = gp::named<Color>("main.Color", "main", gp::shape_basic(gp::kind::Int));
+
+inline const gp::type_desc gp_td_Name = gp::named<Name>("main.Name", "main", gp::shape_basic(gp::kind::String));
+
+inline const gp::type_desc* gp_full_Pair();
+inline const gp::type_desc gp_td_Pair = gp::named<Pair>("main.Pair", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Pair));
+
+inline const gp::type_desc gp_td_Local = gp::named<Local>("main.Local", "main", gp::shape_basic(gp::kind::Int));
+
+inline const gp::type_desc* gp_full_Point();
+inline const gp::type_desc gp_td_Point = gp::named<Point>("main.Point", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Point));
+
+inline const gp::type_desc* gp_full_Moved();
+inline const gp::type_desc gp_td_Moved = gp::named<Moved>("main.Moved", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Moved));
+
+static const gp::type_desc* const gp_tdc_0 = gp::td_struct<gp_anon_b659807402d3b6d8>({gp::field_desc("X", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&gp_anon_b659807402d3b6d8::X)), gp::field_desc("Y", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&gp_anon_b659807402d3b6d8::Y))});
+
+inline const gp::type_desc* gp_full_Pair() {
+    static const gp::field_desc gp_f[]{gp::field_desc("a", "main", &gp_td_Local, nullptr, false, gp::offset_of(&Pair::a)), gp::field_desc("b", "main", &gp_td_Local, nullptr, false, gp::offset_of(&Pair::b))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Pair, gp::shape_struct(gp_f, 2));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_Point() {
+    static const gp::field_desc gp_f[]{gp::field_desc("X", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&Point::X)), gp::field_desc("Y", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&Point::Y))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Point, gp::shape_struct(gp_f, 2));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_Moved() {
+    static const gp::field_desc gp_f[]{gp::field_desc("X", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&Moved::X)), gp::field_desc("Y", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&Moved::Y))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Moved, gp::shape_struct(gp_f, 2));
+    return &gp_d;
+}
 
 Fahrenheit toF(Celsius c);
 gp::string colorName(Color c);
@@ -227,21 +267,21 @@ std::tuple<IDs, gp_anon_b659807402d3b6d8> two() {
 void numbers() {
     Celsius c = Celsius(36.6);
     Celsius zero{};
-    gp::fmtshim::Println(c, gpkg_main::toF(c), -c, c > Celsius(30.0), zero == Celsius(0.0), Temp(c.gp_value()) + Temp(0.5), c.gp_value(), gp::f2i<int64_t>(c.gp_value()));
+    gp::fmt::Println(gp::fmt::as(&gp_td_Celsius, c), gp::fmt::as(&gp_td_Fahrenheit, gpkg_main::toF(c)), gp::fmt::as(&gp_td_Celsius, -c), c > Celsius(30.0), zero == Celsius(0.0), gp::fmt::as(&gp_td_Temp, Temp(c.gp_value()) + Temp(0.5)), c.gp_value(), gp::f2i<int64_t>(c.gp_value()));
     Small s = Small(200);
     s = s + Small(100);
     s++;
     int64_t k = 3;
-    gp::fmtshim::Println(s, s << 2, s >> 1, gp::shl(s, k), ~s, s & ~Small(3), s / Small(7), s % Small(7), s * s, Small(uint8_t(k)) - s);
+    gp::fmt::Println(gp::fmt::as(&gp_td_Small, s), gp::fmt::as(&gp_td_Small, s << 2), gp::fmt::as(&gp_td_Small, s >> 1), gp::fmt::as(&gp_td_Small, gp::shl(s, k)), gp::fmt::as(&gp_td_Small, ~s), gp::fmt::as(&gp_td_Small, s & ~Small(3)), gp::fmt::as(&gp_td_Small, s / Small(7)), gp::fmt::as(&gp_td_Small, s % Small(7)), gp::fmt::as(&gp_td_Small, s * s), gp::fmt::as(&gp_td_Small, Small(uint8_t(k)) - s));
     Ok ok = Ok(c > Celsius(30.0));
-    gp::fmtshim::Println(ok, !ok, Ok(ok && Ok(c < Celsius(40.0))), Ok(ok || Ok(false)));
+    gp::fmt::Println(gp::fmt::as(&gp_td_Ok, ok), gp::fmt::as(&gp_td_Ok, !ok), gp::fmt::as(&gp_td_Ok, Ok(ok && Ok(c < Celsius(40.0)))), gp::fmt::as(&gp_td_Ok, Ok(ok || Ok(false))));
     if (ok) {
-        gp::fmtshim::Println("ok"_gs);
+        gp::fmt::Println("ok"_gs);
     }
     for (Color gp_i0 = Color(0); gp_i0 < Color(3); gp_i0++) {
 #line 118 "$DIR/namedtypes.gp"
         Color i = gp_i0;
-        gp::fmtshim::Println(i, gpkg_main::colorName(i));
+        gp::fmt::Println(gp::fmt::as(&gp_td_Color, i), gpkg_main::colorName(i));
     }
     {
 #line 121 "$DIR/namedtypes.gp"
@@ -249,16 +289,16 @@ void numbers() {
 #line 121 "$DIR/namedtypes.gp"
         switch (b.gp_value()) {
         case 0: {
-            gp::fmtshim::Println("r"_gs);
+            gp::fmt::Println("r"_gs);
 #line 123 "$DIR/namedtypes.gp"
         } break;
         case 2: {
-            gp::fmtshim::Println("b"_gs);
+            gp::fmt::Println("b"_gs);
             [[fallthrough]];
 #line 126 "$DIR/namedtypes.gp"
         }
         case 1: {
-            gp::fmtshim::Println("g"_gs);
+            gp::fmt::Println("g"_gs);
 #line 128 "$DIR/namedtypes.gp"
         } break;
         }
@@ -266,47 +306,47 @@ void numbers() {
     }
 #line 131 "$DIR/namedtypes.gp"
     if (!ok.gp_value()) {
-        gp::fmtshim::Println("not ok"_gs);
+        gp::fmt::Println("not ok"_gs);
     } else if (ok.gp_value()) {
-        gp::fmtshim::Println("ok again"_gs);
+        gp::fmt::Println("ok again"_gs);
     }
-    gp::fmtshim::Printf("%v %d %t %f\n"_gs, c, s, ok, gpkg_main::toF(zero));
+    gp::fmt::Printf("%v %d %t %f\n"_gs, gp::fmt::as(&gp_td_Celsius, c), gp::fmt::as(&gp_td_Small, s), gp::fmt::as(&gp_td_Ok, ok), gp::fmt::as(&gp_td_Fahrenheit, gpkg_main::toF(zero)));
     gp::println(c, s, ok);
 }
 
 void composites() {
     Name n = Name("gopher"_gs);
     Name n2 = Name(Name(gp::sub(n, 1, 4)) + Name("!"_gs));
-    { auto gp_t0 = n[0]; auto gp_t1 = Name(gp::sub(n, 0, 2)); gp::fmtshim::Println(n2, gp::len(n2), n2 < n, gp_t0, gp_t1.gp_value(), gp::to_bytes(n.gp_value())[1], Name(gp::to_string(gp::slice_of<uint8_t>({104, 105})))); }
+    { auto gp_t0 = n[0]; auto gp_t1 = Name(gp::sub(n, 0, 2)); gp::fmt::Println(gp::fmt::as(&gp_td_Name, n2), gp::len(n2), n2 < n, gp_t0, gp_t1.gp_value(), gp::to_bytes(n.gp_value())[1], gp::fmt::as(&gp_td_Name, Name(gp::to_string(gp::slice_of<uint8_t>({104, 105}))))); }
     for (auto gp_it0 = gp::range_string(Name(gp::sub(n, 0, 2))); gp::range_next(gp_it0);) {
 #line 144 "$DIR/namedtypes.gp"
         int64_t i = gp_it0.gp_i; int32_t r = gp_it0.gp_r;
-        gp::fmtshim::Println(i, r);
+        gp::fmt::Println(i, r);
     }
 #line 148 "$DIR/namedtypes.gp"
     if (n2 == Name("x"_gs)) {
-        gp::fmtshim::Println("x"_gs);
+        gp::fmt::Println("x"_gs);
     } else if (n2 == Name("oph!"_gs)) {
-        gp::fmtshim::Println("oph!"_gs);
+        gp::fmt::Println("oph!"_gs);
     }
     IDs ids{};
-    { auto gp_t2 = gpkg_main::count(ids); gp::fmtshim::Println(ids == nullptr, gp_t2, gpkg_main::count(nullptr)); }
+    { auto gp_t2 = gpkg_main::count(ids); gp::fmt::Println(ids == nullptr, gp_t2, gpkg_main::count(nullptr)); }
     ids = IDs(gp::append(static_cast<IDs&&>(ids), 1, 2, 3));
     ids = IDs(gp::sub(static_cast<IDs&&>(ids), 1));
     IDs ids2 = IDs(gp::make_slice<int64_t>(2));
     ids2[1] = 7;
-    { auto gp_t3 = gpkg_main::sum(ids); auto gp_t4 = gpkg_main::sum(ids2); auto gp_t5 = gpkg_main::count(IDs(gp::slice_of<int64_t>({5}))); gp::fmtshim::Println(gp::len(ids), ids[0], gp_t3, gp_t4, gp_t5); }
+    { auto gp_t3 = gpkg_main::sum(ids); auto gp_t4 = gpkg_main::sum(ids2); auto gp_t5 = gpkg_main::count(IDs(gp::slice_of<int64_t>({5}))); gp::fmt::Println(gp::len(ids), ids[0], gp_t3, gp_t4, gp_t5); }
     ids = IDs(ints());
     gp::slice<int64_t> plain = ids;
-    { auto gp_t6 = gpkg_main::count(IDs(ints())); gp::fmtshim::Println(gp_t6, gpkg_main::sum(plain), gp::len(ids.gp_value()), gp::len(IDs(plain))); }
+    { auto gp_t6 = gpkg_main::count(IDs(ints())); gp::fmt::Println(gp_t6, gpkg_main::sum(plain), gp::len(ids.gp_value()), gp::len(IDs(plain))); }
     gp::ptr<Grid> g = gp::new_<Grid>(Grid(gp::array<int64_t, 3>{1, 2, 3}));
     (*g)[1] = 20;
     gp::slice<int64_t> part = gp::sub(gp::base_ptr(g), 0, 2);
-    gp::fmtshim::Println((*g)[1], (*g) == Grid(gp::array<int64_t, 3>{1, 20, 3}), (*g) == Grid(gp::array<int64_t, 3>{1, 20, 3}), gp::len(part), gg[2]);
+    gp::fmt::Println((*g)[1], (*g) == Grid(gp::array<int64_t, 3>{1, 20, 3}), (*g) == Grid(gp::array<int64_t, 3>{1, 20, 3}), gp::len(part), gg[2]);
     for (auto gp_it1 = gp::range_array_copy((*g)); gp::range_next(gp_it1);) {
 #line 167 "$DIR/namedtypes.gp"
         int64_t i = gp_it1.gp_i; int64_t v = gp_it1.gp_v();
-        gp::fmtshim::Println(i, v);
+        gp::fmt::Println(i, v);
     }
     Ages ages = Ages(gp::map_of<Name, int64_t>({{Name("ann"_gs), 30}}));
     gp::set(ages, Name("bob"_gs), 25);
@@ -316,39 +356,39 @@ void composites() {
     int64_t age = std::get<0>(gp_t7);
 #line 173 "$DIR/namedtypes.gp"
     bool found = std::get<1>(gp_t7);
-    gp::fmtshim::Println(gp::len(ages), gp::get(ages, Name("ann"_gs)), age, found, gp::get(ages, n));
+    gp::fmt::Println(gp::len(ages), gp::get(ages, Name("ann"_gs)), age, found, gp::get(ages, n));
     gp::map<Color, Celsius> byColor = gp::map_of<Color, Celsius>({{Color(0), Celsius(1.5)}});
     gp::ref(byColor, Color(2)) += Celsius(2.0);
-    gp::fmtshim::Println(gp::get(byColor, Color(2)), gp::get(byColor, Color(0)), gp::len(byColor));
+    gp::fmt::Println(gp::fmt::as(&gp_td_Celsius, gp::get(byColor, Color(2))), gp::fmt::as(&gp_td_Celsius, gp::get(byColor, Color(0))), gp::len(byColor));
     Link l = Link(gp::new_<Node>(Node{.val = 1}));
     l->next = Link(gp::new_<Node>(Node{.val = 2}));
     gp::ptr<Node> p = l;
-    { auto gp_t8 = l->val; auto gp_t9 = l->next->val; gp::fmtshim::Println(gp_t8, gp_t9, p->val, l != nullptr, l.gp_value() == p); }
+    { auto gp_t8 = l->val; auto gp_t9 = l->next->val; gp::fmt::Println(gp_t8, gp_t9, p->val, l != nullptr, l.gp_value() == p); }
 #line 184 "$DIR/namedtypes.gp"
     Pair pr{Local(1), Local(2)};
     pr.a = pr.a + pr.b * Local(10);
-    gp::fmtshim::Println(pr, Local(3));
+    gp::fmt::Println(gp::fmt::as(&gp_td_Pair, pr), gp::fmt::as(&gp_td_Local, Local(3)));
 }
 
 void conversions() {
     gp::ptr<Point> p = gp::new_<Point>(gp::convert<Point>(anon()));
-    { auto gp_t0 = point(); gp::fmtshim::Println((*p), gp_t0, gp::convert<Moved>((*p)), gp::convert<Point>(gp::convert<Moved>((*p)))); }
+    { auto gp_t0 = point(); gp::fmt::Println(gp::fmt::as(&gp_td_Point, (*p)), gp::fmt::as(&gp_td_Point, gp_t0), gp::fmt::as(&gp_td_Moved, gp::convert<Moved>((*p))), gp::fmt::as(&gp_td_Point, gp::convert<Point>(gp::convert<Moved>((*p))))); }
     gp::ptr<Moved> pm = gp::ptr_cast<Moved>(p);
     pm->Y = 42;
-    gp::fmtshim::Println((*p).Y, (*p) == gp::convert<Point>(gp_anon_b659807402d3b6d8{3, 42}));
+    gp::fmt::Println((*p).Y, (*p) == gp::convert<Point>(gp_anon_b659807402d3b6d8{3, 42}));
     IDs ids{};
     { auto gp_t1 = two(); ids = std::get<0>(gp_t1); (*p) = gp::convert<Point>(std::get<1>(gp_t1)); }
-    gp::fmtshim::Println(gp::len(ids), (*p));
+    gp::fmt::Println(gp::len(ids), gp::fmt::as(&gp_td_Point, (*p)));
     gp::slice<Point> ps = gp::slice_of<Point>({gp::convert<Point>(gp_anon_b659807402d3b6d8{1, 2})});
     gp::map<Point, int64_t> m = gp::map_of<Point, int64_t>({{gp::convert<Point>(gp_anon_b659807402d3b6d8{1, 2}), 3}});
-    gp::fmtshim::Println(ps[0], gp::get(m, gp::convert<Point>(gp_anon_b659807402d3b6d8{1, 2})));
+    gp::fmt::Println(gp::fmt::as(&gp_td_Point, ps[0]), gp::get(m, gp::convert<Point>(gp_anon_b659807402d3b6d8{1, 2})));
     {
 #line 201 "$DIR/namedtypes.gp"
         auto gp_tag0 = (*p);
         if (gp_tag0 == gp::convert<Point>(anon())) {
-            gp::fmtshim::Println("anon"_gs);
+            gp::fmt::Println("anon"_gs);
         } else if (gp_tag0 == gp::convert<Point>(gp_anon_b659807402d3b6d8{1, 1})) {
-            gp::fmtshim::Println("one one"_gs);
+            gp::fmt::Println("one one"_gs);
         }
 #line 206 "$DIR/namedtypes.gp"
     }
@@ -357,14 +397,14 @@ void conversions() {
 #line 208 "$DIR/namedtypes.gp"
         a = gp::convert<gp_anon_b659807402d3b6d8>(gp_it0.gp_v());
     }
-    gp::fmtshim::Println(a);
+    gp::fmt::Println(gp::fmt::as(gp_tdc_0, a));
 }
 
 void main() {
     numbers();
     composites();
     conversions();
-    gp::fmtshim::Println(gc, gn, gg[0], gids[1]);
+    gp::fmt::Println(gp::fmt::as(&gp_td_Celsius, gc), gp::fmt::as(&gp_td_Name, gn), gg[0], gids[1]);
 }
 
 void gp_var_init() {

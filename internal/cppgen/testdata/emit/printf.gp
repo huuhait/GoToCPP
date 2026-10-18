@@ -1,5 +1,5 @@
 // fmt.Printf with characters that are no verb of Go's fmt: the phase gate allows
-// them in Phase 02, and gp::fmtshim prints Go's error form for them, %!z(int=5),
+// them in Phase 02, and gp::fmt prints Go's error form for them, %!z(int=5),
 // with every argument type except int64, uint64 and uintptr (fmt.gp has them, with their
 // type tags), missing and extra arguments, a verb of several bytes, and a . or a % at the end.
 package main

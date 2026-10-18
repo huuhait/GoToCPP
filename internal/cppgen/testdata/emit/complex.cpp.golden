@@ -8,7 +8,6 @@ struct Pair;
 
 struct Phasor : gp::newtype<Phasor, gp::complex128> {
     using gp::newtype<Phasor, gp::complex128>::newtype;
-    static constexpr const char* gp_type_name = "main.Phasor";
 };
 static_assert(sizeof(Phasor) == 16 && alignof(Phasor) == 8);
 
@@ -19,10 +18,23 @@ struct Pair {
     std::size_t gp_hash() const {
         return gp::hash_fields(a, b);
     }
-    static constexpr const char* gp_type_name = "main.Pair";
     static constexpr auto gp_fields = gp::fields(gp::field(&Pair::a, "a", false, false), gp::field(&Pair::b, "b", false, false));
 };
 static_assert(sizeof(Pair) == 24 && alignof(Pair) == 8);
+
+extern const gp::type_desc gp_td_Phasor;
+extern const gp::type_desc gp_td_Pair;
+
+inline const gp::type_desc gp_td_Phasor = gp::named<Phasor>("main.Phasor", "main", gp::shape_basic(gp::kind::Complex128));
+
+inline const gp::type_desc* gp_full_Pair();
+inline const gp::type_desc gp_td_Pair = gp::named<Pair>("main.Pair", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Pair));
+
+inline const gp::type_desc* gp_full_Pair() {
+    static const gp::field_desc gp_f[]{gp::field_desc("a", "main", &gp::td_complex64, nullptr, false, gp::offset_of(&Pair::a)), gp::field_desc("b", "main", &gp::td_complex128, nullptr, false, gp::offset_of(&Pair::b))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Pair, gp::shape_struct(gp_f, 2));
+    return &gp_d;
+}
 
 gp::complex128 scale(gp::complex128 c, double f);
 void main();
@@ -74,8 +86,8 @@ void main() {
     gp::println(s[2], pair.a, pair.b, pair == Pair{gp::complex64(1.0f, 0.0f), gp::complex128(0.0, 1.0)});
     gp::array<gp::complex128, 3> arr{gp::complex128(1.0, 0.0), unit, a};
     gp::println(arr[1], arr == gp::array<gp::complex128, 3>{gp::complex128(1.0, 0.0), gp::complex128(0.0, 1.0), a});
-    gp::fmtshim::Println(a, c64, p, pair, gp::get(m, gp::complex128(0.0, 0.0)));
-    gp::fmtshim::Printf("%v %.2f %d\n"_gs, a, c64, b);
+    gp::fmt::Println(a, c64, gp::fmt::as(&gp_td_Phasor, p), gp::fmt::as(&gp_td_Pair, pair), gp::get(m, gp::complex128(0.0, 0.0)));
+    gp::fmt::Printf("%v %.2f %d\n"_gs, a, c64, b);
 }
 
 } // namespace gpkg_main

@@ -1008,10 +1008,6 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 	}
 	switch {
 	case len(values) == 1 && len(targets) > 1:
-		if c, ok := ast.Unparen(values[0]).(*ast.CallExpr); ok && fg.fmtFunc(c) != nil {
-			fg.g.unsupported(c.Pos(), "using the results of fmt."+fg.fmtFunc(c).Name()+" (step 5.11)")
-			return
-		}
 		if ta, ok := ast.Unparen(values[0]).(*ast.TypeAssertExpr); ok && ta.Type != nil {
 			if fg.commaAsserts == nil {
 				fg.commaAsserts = make(map[*ast.TypeAssertExpr]bool)

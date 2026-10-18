@@ -464,9 +464,13 @@ func TestTraceCommands(t *testing.T) {
 		lines := strings.Split(strings.TrimSuffix(r.stderr, "\n"), "\n")
 		// The runtime may have been compiled before; the program's commands
 		// are the last ones.
-		flags := "-std=c++20 -fwrapv -fno-strict-aliasing -ffp-contract=off -fstack-clash-protection -g -gno-column-info -O0"
+		flags := "-std=c++20 -fwrapv -fno-strict-aliasing -ffp-contract=off -fstack-clash-protection -g -gno-column-info -O0 -ffunction-sections -fdata-sections"
 		if c.cxx.Family == build.Clang {
 			flags += " -Qunused-arguments"
+		}
+		gc := " -Wl,--gc-sections" // the link drops what nothing reaches
+		if runtime.GOOS == "darwin" {
+			gc = ""
 		}
 		unit := regexp.MustCompile(`^` + regexp.QuoteMeta(c.cxx.Path+" "+flags+" "+strings.Join(build.GeneratedFlags(c.cxx), " ")+" -iquote ") + `\S+ -I \S+/include (-include(-pch)? \S+ )?-c \S+/gpkg/command-line-arguments/(hello\.gp|pkg_init)\.cpp -o \$WORK/00-(hello\.gp|pkg_init)\.o$`)
 		want := []*regexp.Regexp{
@@ -476,7 +480,7 @@ func TestTraceCommands(t *testing.T) {
 			// (internal/build/pch.go). The units of the package compile at the same time: in
 			// any order.
 			unit, unit,
-			regexp.MustCompile(`^` + regexp.QuoteMeta(c.cxx.Path+" "+flags+" $WORK/00-hello.gp.o $WORK/00-pkg_init.o ") + `(\S+\.o ?)+ -o \$WORK/hello$`),
+			regexp.MustCompile(`^` + regexp.QuoteMeta(c.cxx.Path+" "+flags+gc+" $WORK/00-hello.gp.o $WORK/00-pkg_init.o ") + `(\S+\.o ?)+ -o \$WORK/hello$`),
 			regexp.MustCompile(`^\$WORK/hello 'arg 1'$`),
 		}
 		if lines[0] != "WORK="+work {
@@ -577,7 +581,7 @@ func TestASan(t *testing.T) {
 		}
 		r := gocppRun("", false, "run", "-asan", "-x", "hello.gp")
 		workDir(t, r.stderr)
-		if !strings.Contains(r.stderr, "-O0 -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all") {
+		if !strings.Contains(r.stderr, "-O0 -ffunction-sections -fdata-sections -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all") {
 			t.Errorf("gocpp run -asan -x doesn't show the sanitizer flags:\n%s", r.stderr)
 		}
 		// A heap overflow and a signed overflow of int (not wrapped: the
@@ -768,7 +772,7 @@ func TestInternalError(t *testing.T) {
 	forEachCXX(t, func(t *testing.T, c testCXX) {
 		inDir(t, map[string]string{"hello.gp": helloSrc})
 		testHookCPP = inAllFiles(func(cpp []byte) []byte {
-			return bytes.Replace(cpp, []byte("gp::fmtshim::Println(\"hello"), []byte("gp::fmtshim::Printlnx(\"hello"), 1)
+			return bytes.Replace(cpp, []byte("gp::fmt::Println(\"hello"), []byte("gp::fmt::Printlnx(\"hello"), 1)
 		})
 		t.Cleanup(func() { testHookCPP = nil })
 		r := gocppRun("", false, "run", "hello.gp")

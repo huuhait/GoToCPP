@@ -16,7 +16,7 @@
 
 namespace gpkg_main {
 
-namespace fmt = gp::fmtshim;
+namespace fmt = gp::fmt;
 
 const double inf = std::numeric_limits<double>::infinity();
 const double nan = std::numeric_limits<double>::quiet_NaN();

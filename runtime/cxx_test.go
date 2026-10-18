@@ -25,8 +25,8 @@ import (
 // test/thread_test.cpp, test/goroutine_test.cpp, test/chan_test.cpp and test/interop_test.cpp, test/cxxvalue_test.cpp, test/unsafe_test.cpp,
 // test/type_test.cpp and test/iface_test.cpp (unit tests), test/nochecks_test.cpp
 // (the unit tests of a -nochecks build, compiled with the runtime with -DGOCPP_NOCHECKS),
-// test/diff.cpp (the C++ side of a differential test against testdata/diff/main.go, run with
-// real Go) and test/fmt_diff.cpp (the same for the fmt shim, against testdata/fmtdiff/main.go).
+// and test/diff.cpp (the C++ side of a differential test against testdata/diff/main.go, run with
+// real Go). (fmt is compared with real Go by the test programs tests/run/fmt_*.gp.)
 // Each is compiled with the embedded runtime (rtfiles.FS, extracted to a temporary folder, as
 // the driver will do it), with g++ and with clang++, in each mode below.
 //
@@ -194,12 +194,6 @@ var arrayDiffCases = []string{"arrays", "array-index", "array-index-neg", "array
 // The map cases (Phase 03 step 3.7a): the mapCase function of testdata/diff/main.go.
 var mapDiffCases = []string{"maps", "map-floats", "map-nil", "map-nil-ref", "map-nil-inner"}
 
-// The cases of the fmt shim's differential test (Phase 03 step 3.15a): test/fmt_diff.cpp
-// against testdata/fmtdiff/main.go.
-var fmtDiffCases = []string{"fmt-slices", "fmt-maps", "fmt-structs", "fmt-pointers", "fmt-methods",
-	"fmt-panics", "fmt-verbs", "fmt-quote", "fmt-floats", "fmt-typed", "fmt-sprint", "fmt-errors",
-	"fmt-big", "fmt-runes", "fmt-mutate", "fmt-embedded", "fmt-complex"}
-
 func init() {
 	diffCases = append(diffCases, sliceDiffCases...)
 	diffCases = append(diffCases, arrayDiffCases...)
@@ -283,7 +277,6 @@ func TestCXX(t *testing.T) {
 	ccs := compilers(t)
 	rt := extractRuntime(t)
 	want, goBin := goResults(t)
-	fmtWant, _ := goProgramResults(t, "testdata/fmtdiff/main.go", fmtDiffCases)
 	for _, c := range ccs {
 		t.Run(c.name, func(t *testing.T) {
 			if c.missing != "" {
@@ -297,7 +290,6 @@ func TestCXX(t *testing.T) {
 					// are built once for the mode (parallel_test.go). The checks run at the same time
 					// too, each one as soon as its program is built; each runs its own processes.
 					bins := c.startBuilds(t, rt, t.TempDir(), m.flags, []prog{
-						{src: "test/fmt_diff.cpp", weight: 70},
 						{src: "test/map_test.cpp", weight: 24},
 						{src: "test/diff.cpp", weight: 15},
 						{src: "test/unit.cpp", weight: 50},
@@ -408,19 +400,6 @@ func TestCXX(t *testing.T) {
 						bin := bins.bin(t, "test/unsafe_test.cpp")
 						runUnit(t, bin)
 						runUnsafe(t, bin)
-					})
-					t.Run("fmtdiff", func(t *testing.T) {
-						if fmtWant == nil {
-							t.Skip("no go command")
-						}
-						t.Parallel()
-						fmtDiff := bins.bin(t, "test/fmt_diff.cpp")
-						for _, name := range fmtDiffCases {
-							t.Run(name, func(t *testing.T) {
-								t.Parallel()
-								runDiff(t, fmtDiff, name, fmtWant[name])
-							})
-						}
 					})
 					t.Run("panic", func(t *testing.T) {
 						t.Parallel()

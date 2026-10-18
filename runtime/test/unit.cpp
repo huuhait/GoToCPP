@@ -618,13 +618,13 @@ void test_print() {
 
 std::string fv(double v, int bits = 64) {
     std::string out;
-    gp::fmtshim::detail::float_v(out, v, bits);
+    gp::fmt::detail::float_v(out, v, bits);
     return out;
 }
 
 std::string ff(double v) {
     std::string out;
-    gp::fmtshim::detail::float_f(out, v);
+    gp::fmt::detail::float_f(out, v);
     return out;
 }
 
@@ -632,10 +632,10 @@ template <typename... Ts>
 std::string fmt_sprintf(std::string_view format, const Ts&... v) {
     std::string out;
     if constexpr (sizeof...(Ts) > 0) {
-        const gp::fmtshim::detail::arg a[] = {gp::fmtshim::detail::make_arg(v)...};
-        gp::fmtshim::detail::sprintf(out, format, a, sizeof...(Ts));
+        const gp::fmt::detail::arg a[] = {gp::fmt::make_arg(v)...};
+        gp::fmt::detail::sprintf(out, format, a, sizeof...(Ts));
     } else {
-        gp::fmtshim::detail::sprintf(out, format, nullptr, 0);
+        gp::fmt::detail::sprintf(out, format, nullptr, 0);
     }
     return out;
 }
@@ -643,16 +643,16 @@ std::string fmt_sprintf(std::string_view format, const Ts&... v) {
 template <typename... Ts>
 std::string fmt_sprint(const Ts&... v) {
     std::string out;
-    const gp::fmtshim::detail::arg a[] = {gp::fmtshim::detail::make_arg(v)...};
-    gp::fmtshim::detail::sprint(out, a, sizeof...(Ts));
+    const gp::fmt::detail::arg a[] = {gp::fmt::make_arg(v)...};
+    gp::fmt::detail::sprint(out, a, sizeof...(Ts));
     return out;
 }
 
 template <typename... Ts>
 std::string fmt_sprintln(const Ts&... v) {
     std::string out;
-    const gp::fmtshim::detail::arg a[] = {gp::fmtshim::detail::make_arg(v)...};
-    gp::fmtshim::detail::sprintln(out, a, sizeof...(Ts));
+    const gp::fmt::detail::arg a[] = {gp::fmt::make_arg(v)...};
+    gp::fmt::detail::sprintln(out, a, sizeof...(Ts));
     return out;
 }
 
@@ -1515,7 +1515,7 @@ void run_tests() {
         gp::os::write(gp::os::stderr_fd, msg.data(), msg.size());
         gp::os::exit(1);
     }
-    gp::fmtshim::Printf("ok: %d checks\n"_gs, int64_t(checks));
+    gp::fmt::Printf("ok: %d checks\n"_gs, int64_t(checks));
 }
 
 } // namespace

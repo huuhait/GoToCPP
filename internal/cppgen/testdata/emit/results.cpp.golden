@@ -37,7 +37,7 @@ void main() {
     int64_t a = std::get<0>(gp_t0);
 #line 28 "$DIR/results.gp"
     int64_t b = std::get<1>(gp_t0);
-    gp::fmtshim::Println(a, b);
+    gp::fmt::Println(a, b);
     auto gp_t1 = three();
 #line 30 "$DIR/results.gp"
     gp::string s = std::get<0>(gp_t1);
@@ -45,33 +45,33 @@ void main() {
     double f = std::get<1>(gp_t1);
 #line 30 "$DIR/results.gp"
     bool ok = std::get<2>(gp_t1);
-    gp::fmtshim::Println(s, f, ok);
-    gp::fmtshim::Println(std::apply(gpkg_main::sum, pair(3, 4)));
-    std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, forward());
+    gp::fmt::Println(s, f, ok);
+    gp::fmt::Println(std::apply(gpkg_main::sum, pair(3, 4)));
+    std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, forward());
     std::apply([](const auto&... gp_a) { gp::println(gp_a...); }, pair(5, 6));
     auto gp_t2 = pair(b, a);
 #line 35 "$DIR/results.gp"
     int64_t c = std::get<0>(gp_t2);
 #line 35 "$DIR/results.gp"
     b = std::get<1>(gp_t2);
-    gp::fmtshim::Println(a, b, c);
+    gp::fmt::Println(a, b, c);
     auto gp_t3 = pair(7, 8);
 #line 37 "$DIR/results.gp"
     int64_t d = std::get<1>(gp_t3);
     auto gp_t4 = pair(9, 10);
 #line 38 "$DIR/results.gp"
     int64_t e = std::get<0>(gp_t4);
-    gp::fmtshim::Println(d, e);
+    gp::fmt::Println(d, e);
     int64_t x = b;
 #line 40 "$DIR/results.gp"
     int64_t y = a;
-    gp::fmtshim::Println(x, y);
+    gp::fmt::Println(x, y);
     int64_t gp_t5 = b; b = a; int64_t z = gp_t5;
-    gp::fmtshim::Println(b, z);
+    gp::fmt::Println(b, z);
     gpkg_main::noResults("done"_gs);
-    gp::fmtshim::Printf("%v and %d and %s and %t and %f %%\n"_gs, a, b, s, ok, f);
+    gp::fmt::Printf("%v and %d and %s and %t and %f %%\n"_gs, a, b, s, ok, f);
 #line 47 "$DIR/results.gp"
-    gp::fmtshim::Printf("%f %f %f %s %d %t %d\n"_gs, int64_t(5), int8_t(5), uint64_t(7), int64_t(5), "x"_gs, int32_t(97), 2.5);
+    gp::fmt::Printf("%f %f %f %s %d %t %d\n"_gs, int64_t(5), int8_t(5), uint64_t(7), int64_t(5), "x"_gs, int32_t(97), 2.5);
     gp::println(int64_t(5), uint8_t(200), int32_t(97), 1.5);
 }
 

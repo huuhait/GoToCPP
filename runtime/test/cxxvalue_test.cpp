@@ -1,4 +1,4 @@
-// The unit tests of step 4.12 (Phase 04 §2.8 and §2.12): how fmt (gocpp/fmtshim.hpp) and the
+// The unit tests of step 4.12 (Phase 04 §2.8 and §2.12): how fmt (gocpp/fmt.hpp) and the
 // builtin print (gocpp/print.hpp) print C/C++ values (numbers, enums, raw pointers, nullptr,
 // C++ strings, and class types through std::formatter or operator<<, gocpp/fmtcxx.hpp), the
 // printable checks behind gp::cgo::fmt_arg and print_arg, and the text of an unrecovered C++
@@ -49,6 +49,14 @@ struct Neither {
     int v;
 };
 
+// An operator<< that throws.
+struct Throws {
+    int v;
+};
+inline std::ostream& operator<<(std::ostream&, const Throws&) {
+    throw std::runtime_error("no text");
+}
+
 union Mixed {
     int i;
     float f;
@@ -88,15 +96,14 @@ struct std::formatter<cxxp::Both> : std::formatter<int> {
 
 namespace {
 
-namespace fmt = gp::fmtshim;
-namespace detail = gp::fmtshim::detail;
+namespace fmt = gp::fmt;
+namespace detail = gp::fmt::detail;
 
-// gocpp structs with C/C++ fields (the emitter's struct protocol, fmtshim.hpp).
+// gocpp structs with C/C++ fields (the emitter's struct protocol, fmt.hpp).
 struct Holder {
     int n = 3;              // C.int
     cxxp::Streamed s{1, 2}; // a C++ type with an operator<<
     gp::string name = gp::string::gp_copy("h");
-    static constexpr const char* gp_type_name = "main.Holder";
     static constexpr auto gp_fields = gp::fields(gp::field(&Holder::n, "n", false, false),
                                                  gp::field(&Holder::s, "s", false, false),
                                                  gp::field(&Holder::name, "name", false, false));
@@ -104,7 +111,6 @@ struct Holder {
 
 struct Bad {
     cxxp::Neither x{};
-    [[maybe_unused]] static constexpr const char* gp_type_name = "main.Bad";
     static constexpr auto gp_fields = gp::fields(gp::field(&Bad::x, "x", false, false));
 };
 
@@ -113,11 +119,42 @@ struct Node {
     int v = 0;
     gp::slice<Node> kids;
     gp::ptr<Node> next;
-    static constexpr const char* gp_type_name = "main.Node";
     static constexpr auto gp_fields = gp::fields(gp::field(&Node::v, "v", false, false),
                                                  gp::field(&Node::kids, "kids", false, false),
                                                  gp::field(&Node::next, "next", false, false));
 };
+
+// The descriptors that the emitter writes for them (gp_full: the fields with their offsets).
+extern const gp::type_desc td_holder;
+extern const gp::type_desc td_node;
+const gp::type_desc* td_holder_full() {
+    static const gp::field_desc f[] = {
+        gp::field_desc("n", "main", gp::cxx_desc<decltype(Holder::n)>(), nullptr, false,
+                       gp::offset_of(&Holder::n)),
+        gp::field_desc("s", "main", gp::cxx_desc<decltype(Holder::s)>(), nullptr, false,
+                       gp::offset_of(&Holder::s)),
+        gp::field_desc("name", "main", &gp::td_string, nullptr, false,
+                       gp::offset_of(&Holder::name)),
+    };
+    static const gp::type_desc d = gp::completed(td_holder, gp::shape_struct(f, 3));
+    return &d;
+}
+const gp::type_desc td_holder = gp::named<Holder>(
+    "main.Holder", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &td_holder_full));
+const gp::type_desc* td_node_full() {
+    static const gp::field_desc f[] = {
+        gp::field_desc("v", "main", gp::cxx_desc<decltype(Node::v)>(), nullptr, false,
+                       gp::offset_of(&Node::v)),
+        gp::field_desc("kids", "main", gp::td_slice<Node>(&td_node), nullptr, false,
+                       gp::offset_of(&Node::kids)),
+        gp::field_desc("next", "main", gp::td_ptr<Node>(&td_node), nullptr, false,
+                       gp::offset_of(&Node::next)),
+    };
+    static const gp::type_desc d = gp::completed(td_node, gp::shape_struct(f, 3));
+    return &d;
+}
+const gp::type_desc td_node = gp::named<Node>(
+    "main.Node", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &td_node_full));
 
 int checks = 0;
 int failures = 0;
@@ -207,7 +244,7 @@ void test_pointers() {
     CHECK_EQ(sprintf("%d %d", px, null), dec(px) + " 0");
     CHECK_EQ(sprintf("%s", px), "%!s(int*=" + hex(px) + ")");
     CHECK_EQ(sprintf("%q", cnull), "%!q(char*=<nil>)");
-    CHECK_EQ(sprintf("%T|%T|%T|%T", px, hello, vp, fp), "int*|char const*|void*|void (*)()");
+    CHECK_EQ(sprintf("%T|%T|%T|%T", px, hello, vp, fp), "int*|char*|void*|void (*)()");
     // nullptr_t: like Go's nil interface.
     CHECK_EQ(sprint(nullptr), "<nil>");
     CHECK_EQ(sprintf("%v|%d|%T", nullptr, nullptr, nullptr), "<nil>|%!d(<nil>)|<nil>");
@@ -234,6 +271,12 @@ void test_classes() {
     CHECK_EQ(sprintf("%v|%s|%q|%8v|%-8s|%d", s, s, s, s, s, s),
              "S(1,2)|S(1,2)|\"S(1,2)\"|  S(1,2)|S(1,2)  |%!d(cxxp::Streamed=S(1,2))");
     CHECK_EQ(sprintf("%T", s), "cxxp::Streamed");
+    // An exception from the text is a Go panic in a String method: fmt prints it as such.
+    CHECK_EQ(sprint(cxxp::Throws{1}),
+             "%!v(PANIC=String method: C++ exception std::runtime_error: no text)");
+    CHECK_EQ(sprint(cxxp::Throws{1}, cxxp::Throws{2}),
+             "%!v(PANIC=String method: C++ exception std::runtime_error: no text) "
+             "%!v(PANIC=String method: C++ exception std::runtime_error: no text)");
     // A class of the C++ library with an operator<< (std::error_code prints "generic:22").
     CHECK_EQ(sprint(std::make_error_code(std::errc::invalid_argument)).substr(0, 8), "generic:");
 }
@@ -246,11 +289,14 @@ void test_containers() {
     CHECK_EQ(sprint(ints), "[1 2]");
     CHECK_EQ(sprintf("%s", ints), "[%!s(int32=1) %!s(int32=2)]");
     Holder h;
-    CHECK_EQ(sprint(h), "{3 S(1,2) h}");
-    CHECK_EQ(sprintf("%+v", h), "{n:3 s:S(1,2) name:h}");
-    CHECK_EQ(sprint(gp::new_<Holder>()), "&{3 S(1,2) h}");
+    auto dh = [&](const Holder& v) { return gp::cgo::fmt_arg(fmt::as(&td_holder, v)); };
+    CHECK_EQ(str(fmt::Sprint(dh(h))), "{3 S(1,2) h}");
+    CHECK_EQ(str(fmt::Sprintf("%+v"_gs, dh(h))), "{n:3 s:S(1,2) name:h}");
+    CHECK_EQ(str(fmt::Sprint(
+                 gp::cgo::fmt_arg(fmt::as(gp::td_ptr<Holder>(&td_holder), gp::new_<Holder>())))),
+             "&{3 S(1,2) h}");
     Node n;
-    CHECK_EQ(sprint(n), "{0 [] <nil>}");
+    CHECK_EQ(str(fmt::Sprint(gp::cgo::fmt_arg(fmt::as(&td_node, n)))), "{0 [] <nil>}");
 }
 
 void test_printable() {
@@ -259,7 +305,7 @@ void test_printable() {
     static_assert(printable_arg<int> && printable_arg<cxxp::Color> && printable_arg<char*>);
     static_assert(printable_arg<std::nullptr_t> && printable_arg<std::string_view>);
     static_assert(printable_arg<Holder> && printable_arg<gp::ptr<Holder>> && printable_arg<Node>);
-    static_assert(printable_arg<fmt::typed_value<fmt::tag::int64, int64_t>>);
+    static_assert(printable_arg<fmt::described<int64_t>>);
     static_assert(!printable_arg<cxxp::Neither> && !printable_arg<cxxp::Mixed>);
     static_assert(!printable_arg<Bad> && !printable_arg<gp::ptr<Bad>>);
     static_assert(!printable_arg<gp::slice<cxxp::Neither>>);

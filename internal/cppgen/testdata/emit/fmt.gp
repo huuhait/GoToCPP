@@ -1,7 +1,7 @@
 // fmt calls with the values of Phase 03 (step 3.15): slices, arrays, maps, structs, pointers
 // and named types as arguments of Print, Println and Printf; Sprint, Sprintln and Sprintf,
 // which return a gp::string (also from a call with several results, through std::apply);
-// widths, precisions and flags; the type tags for int64, uint64 and uintptr (gp::fmtshim::typed,
+// widths, precisions and flags; the descriptors for int64, uint64 and uintptr (gp::fmt::as,
 // also in a deferred call); a nil pointer; gc's copies of fmt's arguments that are not
 // addressable (a map read of an array or a pointer, a struct literal) before a later call; the
 // builtins min and max; println of a pointer.

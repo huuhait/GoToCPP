@@ -1,0 +1,821 @@
+// gocpp/fmt.hpp: Go's package fmt (Phase 05 step 5.11, ADR 028): Print, Println, Printf, Sprint,
+// Sprintln, Sprintf, Fprint, Fprintln, Fprintf, Append, Appendln, Appendf and Errorf, with the
+// interfaces fmt.Stringer, fmt.GoStringer, fmt.Formatter and fmt.State.
+//
+// The formatting is a port of Go 1.25's fmt/print.go and fmt/format.go (and of strconv's float and
+// quote formatting) in runtime/src/fmt.cpp, driven by TYPE DESCRIPTORS (gocpp/type.hpp), the way
+// Go's is driven by reflect: an operand is a pair {descriptor, address of the value}, and the
+// printer walks the value by the descriptor's kind, fields, elements and operations
+// (gocpp/typeops.hpp). So one engine prints every value: statically typed ones and the ones in an
+// `any`, error or Stringer. The emitter passes each operand with its descriptor; the cheap ones
+// need none (below), so printing a number or a string costs no allocation.
+//
+// What generated code writes (internal/lower/fmtcall.go):
+//
+//     fmt.Println(n, s, ok)       gp::fmt::Println(n, s, ok);     // int, string, bool: plain
+//     fmt.Println(p)              gp::fmt::Println(gp::fmt::as(&gp_td_Point, p));
+//     fmt.Printf("%v", xs)        gp::fmt::Printf("%v"_gs, gp::fmt::as(gp_tdc_0, xs));
+//     fmt.Println(err, x)         gp::fmt::Println(err, x);       // error, any: the dynamic type
+//     fmt.Println(n64)            gp::fmt::Println(gp::fmt::as(&gp::td_int64, n64));
+//     fmt.Fprintf(os.Stderr, ...) gp::fmt::Fprintf(gp::fmt::stderr_, ...);
+//     fmt.Errorf("%w", err)       gp::fmt::Errorf("%w"_gs, err);
+//
+// A plain operand is a value whose C++ type says its Go type: bool, int8..int32, uint8..uint32,
+// float32, float64, complex64, complex128, gp::string, an interface value (gp::any, gp::error,
+// any interface struct: its dynamic type is used, nil prints <nil>), and nullptr (an untyped nil).
+// C++ cannot tell Go's int from int64, nor uint from uint64 and uintptr (int64_t and uint64_t), so
+// those are int and uint when plain, and gp::fmt::as(&gp::td_int64, n) says otherwise. Every other
+// operand is gp::fmt::as(descriptor, value). The operands are taken by value, so they are the
+// values at the call, as Go copies them into interfaces; an array or struct larger than 128 KiB is
+// copied to the heap by the emitter (gp::fmt::heap, D24) and prints as the value.
+//
+// What prints (the rules are Go's; docs/spec/cpp-mapping.md "fmt" lists the few differences):
+//   - the Go types and their pieces: numbers, strings, structs (%v {1 2}, %+v {A:1 B:2}, %#v
+//     main.T{A:1, B:2}), slices, arrays, maps (sorted by key, internal/fmtsort), pointers (&{...}
+//     at the top level, an address inside), interfaces, funcs (the address), unsafe.Pointer;
+//   - methods: Format (fmt.Formatter, with a fmt.State), GoString for %#v, Error and String for
+//     %v %s %x %X %q, not for a value reached through an unexported field; a panic in a method
+//     prints %!v(PANIC=String method: ...), <nil> for a nil receiver;
+//   - Errorf with %w: *fmt.wrapError, *fmt.wrapErrors, and errors.New's *errors.errorString;
+//   - C/C++ values (docs/spec/interop.md "Printing C/C++ values"): numbers and bools as the Go
+//     type of the same kind, enums as numbers, pointers as addresses, std::string as a string,
+//     a class through its std::formatter or operator<< (registered by gp::cgo::fmt_arg at the
+//     call, for the types in its operand); a class held in an any, whose text nobody registered,
+//     prints as the address of its box.
+//
+// Each Print, Println and Printf call formats everything first and writes it with one write,
+// after flushing C's stdio (gp::detail::flush_c_stdio), so the output order is Go's.
+#pragma once
+
+#include <gocpp/array.hpp>
+#include <gocpp/checks.hpp>
+#include <gocpp/complex.hpp>
+#include <gocpp/error.hpp>
+#include <gocpp/iface.hpp>
+#include <gocpp/map.hpp>
+#include <gocpp/panic.hpp>
+#include <gocpp/ptr.hpp>
+#include <gocpp/slice.hpp>
+#include <gocpp/string.hpp>
+#include <gocpp/type.hpp>
+
+#include <concepts>
+#include <cstddef>
+#include <cstdint>
+#include <iosfwd>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <type_traits>
+#include <typeinfo>
+#include <utility>
+#include <vector>
+
+namespace gp::fmt {
+
+// --- the interfaces of package fmt ---
+//
+// Interface structs like the emitter writes (gocpp/error.hpp is the model); the lowering maps the
+// Go types fmt.Stringer, fmt.GoStringer, fmt.Formatter and fmt.State to them.
+
+struct Stringer : iface {
+    using iface::iface;
+    constexpr Stringer() noexcept = default;
+    static const type_desc* gp_desc() noexcept;
+    gp::string String() const;
+};
+
+struct GoStringer : iface {
+    using iface::iface;
+    constexpr GoStringer() noexcept = default;
+    static const type_desc* gp_desc() noexcept;
+    gp::string GoString() const;
+};
+
+// State is fmt.State: what a Format method gets. Its methods, sorted: Flag, Precision, Width,
+// Write.
+struct State : iface {
+    using iface::iface;
+    constexpr State() noexcept = default;
+    static const type_desc* gp_desc() noexcept;
+    bool Flag(int64_t c) const;
+    std::tuple<int64_t, bool> Precision() const;
+    std::tuple<int64_t, bool> Width() const;
+    std::tuple<int64_t, gp::error> Write(gp::slice<uint8_t> b) const;
+};
+
+struct Formatter : iface {
+    using iface::iface;
+    constexpr Formatter() noexcept = default;
+    static const type_desc* gp_desc() noexcept;
+    void Format(State f, int32_t verb) const;
+};
+
+static_assert(sizeof(Stringer) == sizeof(iface) && sizeof(State) == sizeof(iface),
+              "the fmt interfaces have no members of their own");
+
+namespace detail {
+inline constexpr imethod stringer_methods[] = {imethod("String", nullptr, "func() string")};
+inline constexpr imethod gostringer_methods[] = {imethod("GoString", nullptr, "func() string")};
+inline constexpr imethod state_methods[] = {
+    imethod("Flag", nullptr, "func(int) bool"),
+    imethod("Precision", nullptr, "func() (int, bool)"),
+    imethod("Width", nullptr, "func() (int, bool)"),
+    imethod("Write", nullptr, "func([]uint8) (int, error)"),
+};
+inline constexpr imethod formatter_methods[] = {
+    imethod("Format", nullptr, "func(fmt.State, int32)")};
+} // namespace detail
+
+inline constexpr type_desc td_stringer =
+    named<Stringer>("fmt.Stringer", "fmt", shape_interface(detail::stringer_methods));
+inline constexpr type_desc td_gostringer =
+    named<GoStringer>("fmt.GoStringer", "fmt", shape_interface(detail::gostringer_methods));
+inline constexpr type_desc td_state =
+    named<State>("fmt.State", "fmt", shape_interface(detail::state_methods));
+inline constexpr type_desc td_formatter =
+    named<Formatter>("fmt.Formatter", "fmt", shape_interface(detail::formatter_methods));
+
+inline const type_desc* Stringer::gp_desc() noexcept {
+    return &td_stringer;
+}
+inline const type_desc* GoStringer::gp_desc() noexcept {
+    return &td_gostringer;
+}
+inline const type_desc* State::gp_desc() noexcept {
+    return &td_state;
+}
+inline const type_desc* Formatter::gp_desc() noexcept {
+    return &td_formatter;
+}
+
+inline gp::string Stringer::String() const {
+    return icall<gp::string()>(*this, 0);
+}
+inline gp::string GoStringer::GoString() const {
+    return icall<gp::string()>(*this, 0);
+}
+inline bool State::Flag(int64_t c) const {
+    return icall<bool(int64_t)>(*this, 0, c);
+}
+inline std::tuple<int64_t, bool> State::Precision() const {
+    return icall<std::tuple<int64_t, bool>()>(*this, 1);
+}
+inline std::tuple<int64_t, bool> State::Width() const {
+    return icall<std::tuple<int64_t, bool>()>(*this, 2);
+}
+inline std::tuple<int64_t, gp::error> State::Write(gp::slice<uint8_t> b) const {
+    return icall<std::tuple<int64_t, gp::error>(gp::slice<uint8_t>)>(*this, 3, std::move(b));
+}
+inline void Formatter::Format(State f, int32_t verb) const {
+    icall<void(State, int32_t)>(*this, 0, std::move(f), verb);
+}
+
+// --- operands ---
+
+// described<T> is a value with the descriptor of its Go type: gp::fmt::as(d, v).
+template <typename T>
+struct described {
+    const type_desc* gp_d;
+    T gp_v;
+};
+
+template <typename T>
+described<std::remove_cvref_t<T>> as(const type_desc* d, T&& v) {
+    return {d, std::forward<T>(v)};
+}
+
+// heap_value is an array or struct larger than 128 KiB that the emitter copied to the heap at the
+// call, heap(gp::new_<A>(a)), because a copy by value would be on the C++ stack, which doesn't
+// grow (D24). It prints as the value, not as a pointer.
+template <typename T>
+struct heap_value {
+    gp::ptr<T> gp_p;
+};
+
+template <typename T>
+heap_value<T> heap(gp::ptr<T> p) {
+    return heap_value<T>{std::move(p)};
+}
+
+namespace detail {
+
+// access is how a value was reached, Go's read-only flags of reflect: a value reached through an
+// unexported field can't call its methods (CanInterface is false). The flag of an embedded
+// unexported field (flagEmbedRO) holds for that field only: the exported fields inside it are
+// open again. Any other read-only flag (flagStickyRO) holds for everything below: the fields,
+// elements, keys and values. A pointer's target keeps the flag of the pointer.
+enum class access : uint8_t { open, embed_ro, sticky_ro };
+
+// value is one operand or part of one: the descriptor of its Go type and the address of the C++
+// object, except that for a pointer (kind Pointer or UnsafePointer) p is the address it points to,
+// own its owner. own is also set for a value inside an interface, so the box stays alive while
+// the value prints. A nil interface has no descriptor.
+struct value {
+    const type_desc* t = nullptr;
+    const void* p = nullptr;
+    std::shared_ptr<void> own;
+};
+using arg = value;
+
+// ptr_like<T>: T is a gp::ptr (a Go pointer or unsafe.Pointer).
+template <typename T>
+concept ptr_like = requires(const T& v) {
+    v.gp_shared();
+    v.gp_get();
+};
+
+// plain_known<T>: a plain operand of C++ type T has a descriptor (plain_desc).
+template <typename T>
+inline constexpr bool plain_known =
+    std::is_same_v<T, bool> || std::is_same_v<T, int8_t> || std::is_same_v<T, int16_t> ||
+    std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> || std::is_same_v<T, uint8_t> ||
+    std::is_same_v<T, uint16_t> || std::is_same_v<T, uint32_t> || std::is_same_v<T, uint64_t> ||
+    std::is_same_v<T, float> || std::is_same_v<T, double> || std::is_same_v<T, gp::complex64> ||
+    std::is_same_v<T, gp::complex128> || std::is_same_v<T, gp::string>;
+
+// plain_desc<T>() is the descriptor of a plain operand of C++ type T.
+template <typename T>
+constexpr const type_desc* plain_desc() noexcept {
+    if constexpr (std::is_same_v<T, bool>) {
+        return &td_bool;
+    } else if constexpr (std::is_same_v<T, int8_t>) {
+        return &td_int8;
+    } else if constexpr (std::is_same_v<T, int16_t>) {
+        return &td_int16;
+    } else if constexpr (std::is_same_v<T, int32_t>) {
+        return &td_int32;
+    } else if constexpr (std::is_same_v<T, int64_t>) {
+        return &td_int;
+    } else if constexpr (std::is_same_v<T, uint8_t>) {
+        return &td_uint8;
+    } else if constexpr (std::is_same_v<T, uint16_t>) {
+        return &td_uint16;
+    } else if constexpr (std::is_same_v<T, uint32_t>) {
+        return &td_uint32;
+    } else if constexpr (std::is_same_v<T, uint64_t>) {
+        return &td_uint;
+    } else if constexpr (std::is_same_v<T, float>) {
+        return &td_float32;
+    } else if constexpr (std::is_same_v<T, double>) {
+        return &td_float64;
+    } else if constexpr (std::is_same_v<T, gp::complex64>) {
+        return &td_complex64;
+    } else if constexpr (std::is_same_v<T, gp::complex128>) {
+        return &td_complex128;
+    } else if constexpr (std::is_same_v<T, gp::string>) {
+        return &td_string;
+    } else {
+        return nullptr;
+    }
+}
+
+// from_iface is the operand of the interface value x: its dynamic value.
+inline value from_iface(const iface& x) {
+    value v;
+    if (x.gp_type() == nullptr) {
+        return v;
+    }
+    v.t = x.gp_type();
+    v.p = x.gp_data().get();
+    v.own = x.gp_data();
+    return v;
+}
+
+// of_object is the operand for the C++ object *p of the Go type t, with the pointer rule above.
+inline value of_object(const type_desc* t, const void* p) {
+    value v;
+    v.t = t;
+    if ((t->gp_kind == kind::Pointer || t->gp_kind == kind::UnsafePointer) &&
+        t->gp_ops != nullptr && t->gp_ops->gp_target != nullptr) {
+        v.p = t->gp_ops->gp_target(p);
+        v.own = t->gp_ops->gp_owner(p);
+    } else {
+        v.p = p;
+    }
+    return v;
+}
+
+template <typename T>
+value make_value(const type_desc* d, const T& v) {
+    if constexpr (std::is_base_of_v<iface, T>) {
+        return detail::from_iface(v);
+    } else if constexpr (ptr_like<T>) {
+        value r;
+        r.t = d;
+        if (d->gp_kind == kind::Pointer || d->gp_kind == kind::UnsafePointer) {
+            r.p = v.gp_get();
+            r.own = std::shared_ptr<void>(v.gp_shared());
+        } else {
+            r.p = &v; // a C++ pointer type (cptr) held as a foreign value
+        }
+        return r;
+    } else {
+        return value{d, &v, {}};
+    }
+}
+
+} // namespace detail
+
+// make_arg is the operand for an argument of a Print function.
+template <typename T>
+detail::arg make_arg(const T& v) {
+    if constexpr (std::is_base_of_v<iface, T>) {
+        return detail::from_iface(v);
+    } else if constexpr (std::is_null_pointer_v<T>) {
+        return detail::arg{};
+    } else {
+        static_assert(detail::plain_known<T>,
+                      "gp::fmt: a value of this C++ type needs its descriptor: gp::fmt::as(d, v)");
+        return detail::arg{detail::plain_desc<T>(), &v, {}};
+    }
+}
+
+template <typename T>
+detail::arg make_arg(const described<T>& v) {
+    return detail::make_value(v.gp_d, v.gp_v);
+}
+
+template <typename T>
+detail::arg make_arg(const described<heap_value<T>>& v) {
+    return detail::make_value(v.gp_d, *v.gp_v.gp_p);
+}
+
+// spread(a) is the final argument `a...` of a call, a []any: one operand for each element.
+struct spread_args {
+    gp::slice<gp::any> gp_s;
+};
+
+inline spread_args spread(gp::slice<gp::any> s) {
+    return {std::move(s)};
+}
+
+namespace detail {
+
+template <typename T>
+inline constexpr bool is_spread = std::is_same_v<T, spread_args>;
+
+// add_operands appends the operand(s) of the argument x to v.
+template <typename T>
+void add_operands(std::vector<arg>& v, const T& x) {
+    if constexpr (is_spread<T>) {
+        int64_t n = x.gp_s.gp_len();
+        v.reserve(v.size() + static_cast<std::size_t>(n));
+        for (int64_t i = 0; i < n; i++) {
+            v.push_back(from_iface(x.gp_s.gp_data()[i]));
+        }
+    } else {
+        v.push_back(make_arg(x));
+    }
+}
+
+// The formatting (runtime/src/fmt.cpp). They append to out.
+void sprint(std::string& out, const arg* args, std::size_t n);
+void sprintln(std::string& out, const arg* args, std::size_t n);
+void sprintf(std::string& out, std::string_view format, const arg* args, std::size_t n);
+// errorf formats like sprintf (with %w allowed) and returns the error of fmt.Errorf.
+gp::error errorf(std::string_view format, const arg* args, std::size_t n);
+
+// write_stdout and write_stderr write the bytes with one write, after gp::detail::flush_c_stdio.
+// A broken pipe ends the program with SIGPIPE, as Go's os.Stdout does.
+void write_stdout(std::string_view s);
+void write_stderr(std::string_view s);
+// write_state calls the Write method of f.
+std::tuple<int64_t, gp::error> write_state(const State& f, std::string_view s);
+
+// quoted appends the Go quoting of s (strconv.Quote).
+void append_quote(std::string& out, std::string_view s);
+
+// is_print is strconv.IsPrint.
+bool is_print(char32_t r) noexcept;
+
+// float_v and float_f append a float as %v and as %f do; bits is 32 for a float32 (whose shortest
+// digits differ: float32(0.1) is 0.1).
+void float_v(std::string& out, double v, int bits);
+void float_f(std::string& out, double v);
+
+// append_float is strconv.AppendFloat(out, v, fmt, prec, bits).
+void append_float(std::string& out, double v, char fmt, int prec, int bits);
+
+// cxx_type_name appends the C++ name of the type t, demangled ("std::vector<long,
+// std::allocator<long> >", "char*").
+void cxx_type_name(std::string& out, const std::type_info& t);
+
+// stream_text appends what put writes to a std::ostream: put(os, v) is os << *v for v's type.
+void stream_text(std::string& out, void (*put)(std::ostream&, const void*), const void* v);
+
+// with_operands calls f(operands, count) with the operands of args: one for each argument, and for
+// a final spread (`a...`) one for each element of the slice.
+template <typename F, typename... Ts>
+auto with_operands(F&& f, const Ts&... args) {
+    if constexpr ((is_spread<Ts> || ...)) {
+        std::vector<arg> v;
+        (add_operands(v, args), ...);
+        return f(v.data(), v.size());
+    } else if constexpr (sizeof...(Ts) > 0) {
+        const arg a[] = {make_arg(args)...};
+        return f(a, sizeof...(Ts));
+    } else {
+        return f(static_cast<const arg*>(nullptr), std::size_t(0));
+    }
+}
+
+template <typename... Ts>
+std::string run(void (*f)(std::string&, const arg*, std::size_t), const Ts&... args) {
+    std::string out;
+    detail::with_operands(
+        [&](const arg* a, std::size_t n) {
+            f(out, a, n);
+            return 0;
+        },
+        args...);
+    return out;
+}
+
+template <typename... Ts>
+std::string run_f(std::string_view format, const Ts&... args) {
+    std::string out;
+    detail::with_operands(
+        [&](const arg* a, std::size_t n) {
+            detail::sprintf(out, format, a, n);
+            return 0;
+        },
+        args...);
+    return out;
+}
+
+inline std::tuple<int64_t, gp::error> written(const std::string& s) {
+    return {static_cast<int64_t>(s.size()), gp::error()};
+}
+
+} // namespace detail
+
+// --- the functions ---
+
+// Sprint is fmt.Sprint: it adds a space between two arguments when neither is a string.
+template <typename... Ts>
+gp::string Sprint(Ts... args) {
+    return gp::string::gp_copy(detail::run(&detail::sprint, args...));
+}
+
+// Sprintln is fmt.Sprintln: a space between all arguments, and a newline at the end.
+template <typename... Ts>
+gp::string Sprintln(Ts... args) {
+    return gp::string::gp_copy(detail::run(&detail::sprintln, args...));
+}
+
+// Sprintf is fmt.Sprintf.
+template <typename... Ts>
+gp::string Sprintf(gp::string format, Ts... args) {
+    return gp::string::gp_copy(detail::run_f(format.gp_view(), args...));
+}
+
+// Print is fmt.Print.
+template <typename... Ts>
+std::tuple<int64_t, gp::error> Print(Ts... args) {
+    std::string s = detail::run(&detail::sprint, args...);
+    detail::write_stdout(s);
+    return detail::written(s);
+}
+
+// Println is fmt.Println.
+template <typename... Ts>
+std::tuple<int64_t, gp::error> Println(Ts... args) {
+    std::string s = detail::run(&detail::sprintln, args...);
+    detail::write_stdout(s);
+    return detail::written(s);
+}
+
+// Printf is fmt.Printf.
+template <typename... Ts>
+std::tuple<int64_t, gp::error> Printf(gp::string format, Ts... args) {
+    std::string s = detail::run_f(format.gp_view(), args...);
+    detail::write_stdout(s);
+    return detail::written(s);
+}
+
+// The writers that Fprint, Fprintln and Fprintf take: os.Stdout and os.Stderr (the emitter writes
+// gp::fmt::stdout_ and stderr_ for them), and a fmt.State, the argument of a Format method.
+// (The other io.Writers come with package io, Phase 09.)
+struct fd_writer {
+    int gp_fd;
+};
+inline constexpr fd_writer stdout_{1};
+inline constexpr fd_writer stderr_{2};
+
+namespace detail {
+inline std::tuple<int64_t, gp::error> write_to(const fd_writer& w, const std::string& s) {
+    if (w.gp_fd == 2) {
+        write_stderr(s);
+    } else {
+        write_stdout(s);
+    }
+    return written(s);
+}
+inline std::tuple<int64_t, gp::error> write_to(const State& w, const std::string& s) {
+    return write_state(w, s);
+}
+} // namespace detail
+
+template <typename W, typename... Ts>
+std::tuple<int64_t, gp::error> Fprint(const W& w, Ts... args) {
+    return detail::write_to(w, detail::run(&detail::sprint, args...));
+}
+
+template <typename W, typename... Ts>
+std::tuple<int64_t, gp::error> Fprintln(const W& w, Ts... args) {
+    return detail::write_to(w, detail::run(&detail::sprintln, args...));
+}
+
+template <typename W, typename... Ts>
+std::tuple<int64_t, gp::error> Fprintf(const W& w, gp::string format, Ts... args) {
+    return detail::write_to(w, detail::run_f(format.gp_view(), args...));
+}
+
+// Append, Appendln and Appendf: the text appended to b.
+template <typename... Ts>
+gp::slice<uint8_t> Append(gp::slice<uint8_t> b, Ts... args) {
+    return gp::append_slice(std::move(b),
+                            gp::string::gp_copy(detail::run(&detail::sprint, args...)));
+}
+
+template <typename... Ts>
+gp::slice<uint8_t> Appendln(gp::slice<uint8_t> b, Ts... args) {
+    return gp::append_slice(std::move(b),
+                            gp::string::gp_copy(detail::run(&detail::sprintln, args...)));
+}
+
+template <typename... Ts>
+gp::slice<uint8_t> Appendf(gp::slice<uint8_t> b, gp::string format, Ts... args) {
+    return gp::append_slice(std::move(b),
+                            gp::string::gp_copy(detail::run_f(format.gp_view(), args...)));
+}
+
+// Errorf is fmt.Errorf.
+template <typename... Ts>
+gp::error Errorf(gp::string format, Ts... args) {
+    return detail::with_operands(
+        [&](const detail::arg* a, std::size_t n) { return detail::errorf(format.gp_view(), a, n); },
+        args...);
+}
+
+// FormatString is fmt.FormatString: the directive that a Format method was called for.
+gp::string FormatString(State state, int32_t verb);
+
+// --- C/C++ values (Phase 04 README §2.12, step 4.12; docs/spec/interop.md) ---
+
+namespace detail {
+
+template <typename>
+inline constexpr bool always_false = false;
+
+// A struct of the emitter that has a C/C++ part has gp_fields: gp::fields(gp::field(&S::m, ...)),
+// which the check below walks.
+template <typename T>
+concept struct_type = requires { T::gp_fields; };
+
+// A named type over another type (gp::newtype): it has gp_value().
+template <typename T>
+concept named_type = !struct_type<T> && requires(const T& v) { v.gp_value(); };
+
+template <named_type T>
+using underlying_t = std::remove_cvref_t<decltype(std::declval<const T&>().gp_value())>;
+
+template <typename T>
+struct slice_of : std::false_type {};
+template <typename E>
+struct slice_of<gp::slice<E>> : std::true_type {
+    using elem = E;
+};
+template <typename T>
+struct array_of : std::false_type {};
+template <typename E, int64_t N>
+struct array_of<gp::array<E, N>> : std::true_type {
+    using elem = E;
+    static constexpr int64_t len = N;
+};
+template <typename T>
+struct map_of : std::false_type {};
+template <typename K, typename V>
+struct map_of<gp::map<K, V>> : std::true_type {
+    using key = K;
+    using mapped = V;
+};
+template <typename T>
+struct ptr_of : std::false_type {};
+template <typename E>
+struct ptr_of<gp::ptr<E>> : std::true_type {
+    using elem = E;
+};
+template <typename T>
+struct cptr_of : std::false_type {};
+template <typename E>
+struct cptr_of<gp::cptr<E>> : std::true_type {
+    using elem = E;
+};
+template <typename T>
+struct weak_of : std::false_type {};
+template <typename E>
+struct weak_of<gp::weak_ptr<E>> : std::true_type {
+    using elem = E;
+};
+
+template <typename T>
+inline constexpr bool cxx_string =
+    std::is_same_v<T, std::string> || std::is_same_v<T, std::string_view>;
+
+// cxx_formatter<T>: whether T has a std::formatter<T, char> (gp_ok), and gp_append(out, v), which
+// appends std::format("{}", v). gocpp/fmtcxx.hpp, which generated code includes after the
+// program's C/C++ headers, specializes it when they brought in <format>: a type can have a
+// std::formatter only then, and a program without it doesn't pay for <format>.
+template <typename T>
+struct cxx_formatter {
+    static constexpr bool gp_ok = false;
+};
+
+// cxx_streamable: os << v works for a T v, through the operator<< that C++ finds for it: one of
+// the C++ library, or one in T's namespace (the global one for a type there), which the program's
+// headers may declare after this header (argument-dependent lookup at the point of
+// instantiation).
+template <typename T>
+concept cxx_streamable = requires(std::ostream& os, const T& v) { os << v; };
+
+// cxx_text_type: a C/C++ class (or union) type that prints as text: through its std::formatter
+// when it has one, else through its operator<<.
+template <typename T>
+concept cxx_text_type =
+    (std::is_class_v<T> || std::is_union_v<T>) && (cxx_formatter<T>::gp_ok || cxx_streamable<T>);
+
+// cxx_text appends the text of the C/C++ value v (cxx_text_type).
+template <typename T>
+void cxx_text(std::string& out, const T& v) {
+    if constexpr (cxx_formatter<T>::gp_ok) {
+        cxx_formatter<T>::gp_append(out, v);
+    } else {
+        detail::stream_text(
+            out, [](std::ostream& os, const void* x) { os << *static_cast<const T*>(x); }, &v);
+    }
+}
+
+template <typename T>
+void text_thunk(std::string& out, const void* v) {
+    detail::cxx_text(out, *static_cast<const T*>(v));
+}
+
+// register_text<T>() gives the descriptor of the C++ class T its text (type_ops::gp_text).
+template <typename T>
+void register_text() {
+    auto* ops = const_cast<type_ops*>(foreign_td<T>()->gp_ops);
+    __atomic_store_n(&ops->gp_text, &detail::text_thunk<T>, __ATOMIC_RELEASE);
+}
+
+template <typename F, typename... Seen>
+struct fields_visit;
+
+template <typename T, typename... Seen>
+constexpr bool printable();
+template <typename T, typename... Seen>
+void register_texts();
+
+// field_info is one field of a struct's gp_fields (gp::field).
+template <typename C, typename M>
+struct field_info {
+    using gp_type = M;
+    M C::* gp_member;
+    const char* gp_name;
+    bool gp_exported;
+    bool gp_embedded;
+};
+
+template <typename... F, typename... Seen>
+struct fields_visit<std::tuple<F...>, Seen...> {
+    static constexpr bool printable = (detail::printable<typename F::gp_type, Seen...>() && ...);
+    static void register_all() { (detail::register_texts<typename F::gp_type, Seen...>(), ...); }
+};
+
+// printable<T>(): whether fmt can print a T, all the way down: every C/C++ type in it is a
+// number, a bool, an enum, a raw pointer, nullptr_t, a C++ string or a cxx_text_type (a C/C++
+// type in a gocpp struct, slice, array, map or behind a gocpp pointer counts too). Seen are the
+// gocpp structs and named types that are being checked further out, so a recursive type (type
+// Node struct { kids []Node }) ends.
+template <typename T, typename... Seen>
+constexpr bool printable() {
+    if constexpr ((std::is_same_v<T, Seen> || ...)) {
+        return true;
+    } else if constexpr (std::is_same_v<T, bool> || go_int<T> || go_float<T> || go_complex<T> ||
+                         std::is_same_v<T, gp::string>) {
+        return true;
+    } else if constexpr (slice_of<T>::value) {
+        return printable<typename slice_of<T>::elem, Seen...>();
+    } else if constexpr (array_of<T>::value) {
+        return printable<typename array_of<T>::elem, Seen...>();
+    } else if constexpr (map_of<T>::value) {
+        using K = typename map_of<T>::key;
+        return printable<K, Seen...>() && printable<typename map_of<T>::mapped, Seen...>() &&
+               !cxx_string<K> && !cxx_text_type<K>;
+    } else if constexpr (std::is_same_v<T, gp::ptr<void>>) {
+        return true; // unsafe.Pointer: an address
+    } else if constexpr (ptr_of<T>::value) {
+        return printable<typename ptr_of<T>::elem, Seen...>(); // &{...} prints the target
+    } else if constexpr (weak_of<T>::value) {
+        return true; // an address
+    } else if constexpr (struct_type<T>) {
+        return fields_visit<std::remove_cvref_t<decltype(T::gp_fields)>, T, Seen...>::printable;
+    } else if constexpr (named_type<T>) {
+        return printable<underlying_t<T>, T, Seen...>();
+    } else if constexpr (std::is_base_of_v<gp::iface, T>) {
+        return true;
+    } else {
+        return std::is_enum_v<T> || std::is_pointer_v<T> || cptr_of<T>::value ||
+               std::is_null_pointer_v<T> || cxx_string<T> || cxx_text_type<T>;
+    }
+}
+
+// printable_arg<T>: fmt can print an operand of the C++ type T (an operand with a descriptor,
+// described<T>, counts as T).
+template <typename T>
+inline constexpr bool printable_arg = printable<T>();
+template <typename T>
+inline constexpr bool printable_arg<described<T>> = printable<T>();
+template <typename T>
+inline constexpr bool printable_arg<described<heap_value<T>>> = printable<T>();
+
+// register_texts<T>() registers the text of every C++ class inside a T (the walk of printable).
+template <typename T, typename... Seen>
+void register_texts() {
+    if constexpr ((std::is_same_v<T, Seen> || ...)) {
+        return;
+    } else if constexpr (slice_of<T>::value) {
+        register_texts<typename slice_of<T>::elem, Seen...>();
+    } else if constexpr (array_of<T>::value) {
+        register_texts<typename array_of<T>::elem, Seen...>();
+    } else if constexpr (map_of<T>::value) {
+        register_texts<typename map_of<T>::key, Seen...>();
+        register_texts<typename map_of<T>::mapped, Seen...>();
+    } else if constexpr (ptr_of<T>::value) {
+        register_texts<typename ptr_of<T>::elem, Seen...>();
+    } else if constexpr (struct_type<T>) {
+        fields_visit<std::remove_cvref_t<decltype(T::gp_fields)>, T, Seen...>::register_all();
+    } else if constexpr (named_type<T>) {
+        register_texts<underlying_t<T>, T, Seen...>();
+    } else if constexpr (cxx_text_type<T>) {
+        detail::register_text<T>();
+    }
+}
+
+} // namespace detail
+
+} // namespace gp::fmt
+
+namespace gp {
+
+// cxx_desc<T>() is the descriptor of a Go value that has the C++ type T, deduced from T, for the
+// parts of a type that go/types has no type for (a C/C++ type in a slice, a map, a struct):
+// a Go type that C++ identifies (a number, a string, gp::slice, gp::array, gp::map and gp::ptr of
+// those, an interface struct) is described as Go does (an int64_t is int, an int32_t int32); any
+// other type is a foreign C/C++ type (foreign_td<T>: a C int is int32, a class prints through
+// its registered text). A named gocpp type inside is described as the foreign C++ type: its
+// methods and its Go name are lost (the descriptor of a named type is the emitter's, not
+// deducible from T).
+template <typename T>
+const type_desc* cxx_desc() {
+    using U = std::remove_cv_t<std::remove_reference_t<T>>;
+    if constexpr (std::is_base_of_v<iface, U>) {
+        return U::gp_desc();
+    } else if constexpr (fmt::detail::plain_known<U>) {
+        return fmt::detail::plain_desc<U>();
+    } else if constexpr (fmt::detail::slice_of<U>::value) {
+        return td_slice<typename fmt::detail::slice_of<U>::elem>(
+            cxx_desc<typename fmt::detail::slice_of<U>::elem>());
+    } else if constexpr (fmt::detail::array_of<U>::value) {
+        return td_array<typename fmt::detail::array_of<U>::elem, fmt::detail::array_of<U>::len>(
+            cxx_desc<typename fmt::detail::array_of<U>::elem>());
+    } else if constexpr (fmt::detail::map_of<U>::value) {
+        return td_map<typename fmt::detail::map_of<U>::key,
+                      typename fmt::detail::map_of<U>::mapped>(
+            cxx_desc<typename fmt::detail::map_of<U>::key>(),
+            cxx_desc<typename fmt::detail::map_of<U>::mapped>());
+    } else if constexpr (std::is_same_v<U, gp::ptr<void>>) {
+        return &td_unsafe_pointer;
+    } else if constexpr (fmt::detail::ptr_of<U>::value) {
+        return td_ptr<typename fmt::detail::ptr_of<U>::elem>(
+            cxx_desc<typename fmt::detail::ptr_of<U>::elem>());
+    } else {
+        return foreign_td<U>();
+    }
+}
+
+// field and fields build the gp_fields of a struct with a C/C++ part: each field with its member,
+// its Go name, whether it is exported and whether it is embedded.
+template <typename C, typename M>
+constexpr fmt::detail::field_info<C, M> field(M C::* member, const char* name, bool exported,
+                                              bool embedded) noexcept {
+    return {member, name, exported, embedded};
+}
+
+template <typename... F>
+constexpr std::tuple<F...> fields(F... f) noexcept {
+    return std::tuple<F...>(f...);
+}
+
+} // namespace gp

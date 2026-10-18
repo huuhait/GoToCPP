@@ -28,19 +28,19 @@ void main() {
 #line 23 "$DIR/loops.gp"
         int64_t i = gp_i1;
         n = 10;
-        gp::fmtshim::Print(i, " "_gs);
+        gp::fmt::Print(i, " "_gs);
     }
-    gp::fmtshim::Println(n);
+    gp::fmt::Println(n);
     for (int64_t gp_i2 = 0, gp_n1 = limit(4); gp_i2 < gp_n1; gp_i2++) {
 #line 28 "$DIR/loops.gp"
         int64_t i = gp_i2;
-        gp::fmtshim::Print(i, " "_gs);
+        gp::fmt::Print(i, " "_gs);
     }
-    gp::fmtshim::Println("evals"_gs, evals);
+    gp::fmt::Println("evals"_gs, evals);
     for (int64_t gp_i3 = 0; gp_i3 < 3; gp_i3++) {
-        gp::fmtshim::Print("x"_gs);
+        gp::fmt::Print("x"_gs);
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
     uint8_t u = 255;
     for (uint8_t gp_i4 = 0, gp_n2 = u; gp_i4 < gp_n2; gp_i4++) {
 #line 37 "$DIR/loops.gp"
@@ -48,47 +48,47 @@ void main() {
         if (i < 253) {
             continue;
         }
-        gp::fmtshim::Print(i, " "_gs);
+        gp::fmt::Print(i, " "_gs);
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
     int8_t k = 100;
     for (int8_t gp_i5 = 0; gp_i5 < 3; gp_i5++) {
 #line 45 "$DIR/loops.gp"
         k = gp_i5;
         k = int8_t(k * 10);
     }
-    gp::fmtshim::Println(k);
+    gp::fmt::Println(k);
     for (int8_t gp_i6 = 0; gp_i6 < 0; gp_i6++) {
 #line 49 "$DIR/loops.gp"
         k = gp_i6;
     }
-    gp::fmtshim::Println(k);
+    gp::fmt::Println(k);
     for (int64_t gp_i7 = 0; gp_i7 < -5; gp_i7++) {
 #line 52 "$DIR/loops.gp"
         int64_t i = gp_i7;
-        gp::fmtshim::Println("never"_gs, i);
+        gp::fmt::Println("never"_gs, i);
     }
     for (int64_t gp_i8 = 0; gp_i8 < 3; gp_i8++) {
 #line 55 "$DIR/loops.gp"
         int64_t i = gp_i8;
         int64_t gp_t0 = i * 100; { int64_t i = gp_t0;
-            gp::fmtshim::Print(i, " "_gs);
+            gp::fmt::Print(i, " "_gs);
         }
 #line 58 "$DIR/loops.gp"
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
 #line 62 "$DIR/loops.gp"
     for (int64_t i = 0; i < 3; i++) {
-        gp::fmtshim::Print(i, " "_gs);
+        gp::fmt::Print(i, " "_gs);
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
     for (int64_t i = 0, j = 10; i < j;) {
 #line 66 "$DIR/loops.gp"
         {
             if (i == 1) {
                 goto gp_cont_0;
             }
-            gp::fmtshim::Print(i, ":"_gs, j, " "_gs);
+            gp::fmt::Print(i, ":"_gs, j, " "_gs);
         }
 #line 71 "$DIR/loops.gp"
         gp_cont_0:;
@@ -96,7 +96,7 @@ void main() {
         i = i + 1; j = j - 2;
 #line 71 "$DIR/loops.gp"
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
     {
 #line 73 "$DIR/loops.gp"
         int64_t i = 0;
@@ -105,38 +105,38 @@ void main() {
 #line 73 "$DIR/loops.gp"
         for (; i < 3; i++) {
             s = s + "b"_gs;
-            gp::fmtshim::Print(s, " "_gs);
+            gp::fmt::Print(s, " "_gs);
         }
 #line 76 "$DIR/loops.gp"
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
     int64_t sum = 0;
     for (int64_t i = 10; i > 0; i = i - 3) {
         sum = sum + i;
     }
-    gp::fmtshim::Println(sum);
+    gp::fmt::Println(sum);
     int64_t i = 0;
     for (i = 5; i < 8; i++) {
     }
-    gp::fmtshim::Println(i);
+    gp::fmt::Println(i);
     for (int64_t i = 0; i < 3;) {
         i++;
-        gp::fmtshim::Print(i, " "_gs);
+        gp::fmt::Print(i, " "_gs);
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
     for (int64_t j = 0;; j++) {
         if (j == 3) {
-            gp::fmtshim::Println("j"_gs, j);
+            gp::fmt::Println("j"_gs, j);
             break;
         }
     }
     for (int64_t i = 0; i < 4; i++) {
         int64_t gp_t1 = i + 10; { int64_t i = gp_t1;
-            gp::fmtshim::Print(i, " "_gs);
+            gp::fmt::Print(i, " "_gs);
         }
 #line 101 "$DIR/loops.gp"
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
     int64_t a = 0;
 #line 103 "$DIR/loops.gp"
     int64_t b = 0;
@@ -147,7 +147,7 @@ void main() {
                 goto gp_cont_1;
             }
             int64_t x = a * 2;
-            gp::fmtshim::Print(x, " "_gs);
+            gp::fmt::Print(x, " "_gs);
         }
 #line 110 "$DIR/loops.gp"
         gp_cont_1:;
@@ -155,13 +155,13 @@ void main() {
         { auto gp_t2 = b + a; a = a + 1; b = gp_t2; }
 #line 110 "$DIR/loops.gp"
     }
-    gp::fmtshim::Println(a, b);
+    gp::fmt::Println(a, b);
 #line 114 "$DIR/loops.gp"
     int64_t m = 1;
     while (m < 100) {
         m = m * 3;
     }
-    gp::fmtshim::Println(m);
+    gp::fmt::Println(m);
     int64_t c = 0;
     for (;;) {
         c++;
@@ -171,11 +171,11 @@ void main() {
         if (c > 6) {
             break;
         }
-        gp::fmtshim::Print(c, " "_gs);
+        gp::fmt::Print(c, " "_gs);
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
     while (false) {
-        gp::fmtshim::Println("never"_gs);
+        gp::fmt::Println("never"_gs);
     }
 }
 

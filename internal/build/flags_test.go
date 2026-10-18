@@ -6,7 +6,7 @@ import (
 )
 
 func TestFlags(t *testing.T) {
-	debug := []string{"-std=c++20", "-fwrapv", "-fno-strict-aliasing", "-ffp-contract=off", "-fstack-clash-protection", "-g", "-gno-column-info", "-O0"}
+	debug := []string{"-std=c++20", "-fwrapv", "-fno-strict-aliasing", "-ffp-contract=off", "-fstack-clash-protection", "-g", "-gno-column-info", "-O0", "-ffunction-sections", "-fdata-sections"}
 	asan := []string{"-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-fno-sanitize-recover=all"}
 	for _, c := range []struct {
 		family    Family

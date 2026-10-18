@@ -1,0 +1,124 @@
+// phase: 05
+
+// Go's %e of float32 values: the shortest digits are those of a float32 (0.1, not
+// 0.10000000149011612).
+package main
+
+import "fmt"
+
+func main() {
+	fmt.Printf("[%e]\n", float32(0.1))
+	fmt.Printf("[%+e]\n", float32(0.1))
+	fmt.Printf("[%10e]\n", float32(0.1))
+	fmt.Printf("[%-10e]\n", float32(0.1))
+	fmt.Printf("[%.3e]\n", float32(0.1))
+	fmt.Printf("[%#e]\n", float32(0.1))
+	fmt.Printf("[%010.2e]\n", float32(0.1))
+	fmt.Printf("[%e]\n", float32(3.14159274))
+	fmt.Printf("[%+e]\n", float32(3.14159274))
+	fmt.Printf("[%10e]\n", float32(3.14159274))
+	fmt.Printf("[%-10e]\n", float32(3.14159274))
+	fmt.Printf("[%.3e]\n", float32(3.14159274))
+	fmt.Printf("[%#e]\n", float32(3.14159274))
+	fmt.Printf("[%010.2e]\n", float32(3.14159274))
+	fmt.Printf("[%e]\n", float32(16777216.0))
+	fmt.Printf("[%+e]\n", float32(16777216.0))
+	fmt.Printf("[%10e]\n", float32(16777216.0))
+	fmt.Printf("[%-10e]\n", float32(16777216.0))
+	fmt.Printf("[%.3e]\n", float32(16777216.0))
+	fmt.Printf("[%#e]\n", float32(16777216.0))
+	fmt.Printf("[%010.2e]\n", float32(16777216.0))
+	fmt.Printf("[%e]\n", float32(1e-7))
+	fmt.Printf("[%+e]\n", float32(1e-7))
+	fmt.Printf("[%10e]\n", float32(1e-7))
+	fmt.Printf("[%-10e]\n", float32(1e-7))
+	fmt.Printf("[%.3e]\n", float32(1e-7))
+	fmt.Printf("[%#e]\n", float32(1e-7))
+	fmt.Printf("[%010.2e]\n", float32(1e-7))
+	fmt.Printf("[%e]\n", float32(1e20))
+	fmt.Printf("[%+e]\n", float32(1e20))
+	fmt.Printf("[%10e]\n", float32(1e20))
+	fmt.Printf("[%-10e]\n", float32(1e20))
+	fmt.Printf("[%.3e]\n", float32(1e20))
+	fmt.Printf("[%#e]\n", float32(1e20))
+	fmt.Printf("[%010.2e]\n", float32(1e20))
+	fmt.Printf("[%e]\n", float32(2.5))
+	fmt.Printf("[%+e]\n", float32(2.5))
+	fmt.Printf("[%10e]\n", float32(2.5))
+	fmt.Printf("[%-10e]\n", float32(2.5))
+	fmt.Printf("[%.3e]\n", float32(2.5))
+	fmt.Printf("[%#e]\n", float32(2.5))
+	fmt.Printf("[%010.2e]\n", float32(2.5))
+	fmt.Printf("[%e]\n", float32(-0.0))
+	fmt.Printf("[%+e]\n", float32(-0.0))
+	fmt.Printf("[%10e]\n", float32(-0.0))
+	fmt.Printf("[%-10e]\n", float32(-0.0))
+	fmt.Printf("[%.3e]\n", float32(-0.0))
+	fmt.Printf("[%#e]\n", float32(-0.0))
+	fmt.Printf("[%010.2e]\n", float32(-0.0))
+	fmt.Printf("[%e]\n", float32(1)/3)
+	fmt.Printf("[%+e]\n", float32(1)/3)
+	fmt.Printf("[%10e]\n", float32(1)/3)
+	fmt.Printf("[%-10e]\n", float32(1)/3)
+	fmt.Printf("[%.3e]\n", float32(1)/3)
+	fmt.Printf("[%#e]\n", float32(1)/3)
+	fmt.Printf("[%010.2e]\n", float32(1)/3)
+}
+
+// Output:
+// [1.000000e-01]
+// [+1.000000e-01]
+// [1.000000e-01]
+// [1.000000e-01]
+// [1.000e-01]
+// [1.000000e-01]
+// [001.00e-01]
+// [3.141593e+00]
+// [+3.141593e+00]
+// [3.141593e+00]
+// [3.141593e+00]
+// [3.142e+00]
+// [3.141593e+00]
+// [003.14e+00]
+// [1.677722e+07]
+// [+1.677722e+07]
+// [1.677722e+07]
+// [1.677722e+07]
+// [1.678e+07]
+// [1.677722e+07]
+// [001.68e+07]
+// [1.000000e-07]
+// [+1.000000e-07]
+// [1.000000e-07]
+// [1.000000e-07]
+// [1.000e-07]
+// [1.000000e-07]
+// [001.00e-07]
+// [1.000000e+20]
+// [+1.000000e+20]
+// [1.000000e+20]
+// [1.000000e+20]
+// [1.000e+20]
+// [1.000000e+20]
+// [001.00e+20]
+// [2.500000e+00]
+// [+2.500000e+00]
+// [2.500000e+00]
+// [2.500000e+00]
+// [2.500e+00]
+// [2.500000e+00]
+// [002.50e+00]
+// [0.000000e+00]
+// [+0.000000e+00]
+// [0.000000e+00]
+// [0.000000e+00]
+// [0.000e+00]
+// [0.000000e+00]
+// [000.00e+00]
+// [3.333333e-01]
+// [+3.333333e-01]
+// [3.333333e-01]
+// [3.333333e-01]
+// [3.333e-01]
+// [3.333333e-01]
+// [003.33e-01]

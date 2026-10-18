@@ -25,11 +25,11 @@ void main() {
     int64_t a = std::get<0>(gp_t1);
 #line 16 "$DIR/gpnames.gp"
     int64_t b = std::get<1>(gp_t1);
-    gp::fmtshim::Println(gp_count_, gp_t0__, gp_x_, gp_y_, a, b);
+    gp::fmt::Println(gp_count_, gp_t0__, gp_x_, gp_y_, a, b);
     {
         int64_t gp_t2 = gp_count_ + 1; { int64_t gp_count_ = gp_t2;
             int64_t gp_t3 = gp_x_; { int64_t gp_x_ = gp_t3;
-                gp::fmtshim::Println(gp_count_, gp_x_);
+                gp::fmt::Println(gp_count_, gp_x_);
         } }
 #line 22 "$DIR/gpnames.gp"
     }

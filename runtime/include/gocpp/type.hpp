@@ -117,6 +117,7 @@
 #include <gocpp/ptr.hpp>
 #include <gocpp/slice.hpp>
 #include <gocpp/string.hpp>
+#include <gocpp/typeops.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -185,18 +186,41 @@ using hash_fn = std::size_t (*)(const void*);
 using store_fn = void (*)(void*, const std::shared_ptr<void>&);
 
 // field_desc is a field of a struct type. gp_pkg is the import path for an unexported name
-// (null for an exported one); gp_tag is the struct tag (null for none).
+// (null for an exported one); gp_tag is the struct tag (null for none); gp_offset is the offset
+// of the field in the C++ struct (offset_of), which fmt and reflect read the field at. (The
+// offset is not part of a struct type's identity: the same Go type is one C++ type.)
 struct field_desc {
     const char* gp_name;
     const char* gp_pkg;
     const type_desc* gp_type;
     const char* gp_tag;
     bool gp_embedded;
+    std::size_t gp_offset;
 
     constexpr field_desc(const char* name, const char* pkg, const type_desc* type,
-                         const char* tag = nullptr, bool embedded = false) noexcept
-        : gp_name(name), gp_pkg(pkg), gp_type(type), gp_tag(tag), gp_embedded(embedded) {}
+                         const char* tag = nullptr, bool embedded = false,
+                         std::size_t offset = 0) noexcept
+        : gp_name(name), gp_pkg(pkg), gp_type(type), gp_tag(tag), gp_embedded(embedded),
+          gp_offset(offset) {}
 };
+
+// offset_of(&S::f) is the offset of the member f in the struct S, read from a zero S that is
+// made once (never freed). (offsetof needs a standard-layout S and its member's name; a pointer
+// to member works for any struct the emitter writes.)
+namespace detail {
+template <typename C>
+const C& offset_probe() {
+    static const C* const probe = new C{};
+    return *probe;
+}
+} // namespace detail
+
+template <typename C, typename M>
+std::size_t offset_of(M C::* member) {
+    const C& probe = detail::offset_probe<C>();
+    return static_cast<std::size_t>(reinterpret_cast<const char*>(&(probe.*member)) -
+                                    reinterpret_cast<const char*>(&probe));
+}
 
 // imethod is a method of an interface type: gp_pkgname is the package's NAME (not its path)
 // for an unexported name, which an unnamed interface type's text shows ("interface { N();
@@ -280,8 +304,22 @@ struct type_desc {
     equal_fn gp_equal = nullptr;  // null: not comparable
     hash_fn gp_hash = nullptr;    // null: not hashable
     store_fn gp_store = nullptr;  // null: an interface type, or a C++ type without copy assignment
-    const void* gp_ext = nullptr; // steps 5.11 (format) and Phase 09 (reflect)
+    const void* gp_ext = nullptr; // Phase 09 (reflect)
+    // The operations that read a value of the C++ type (typeops.hpp): fmt's.
+    const type_ops* gp_ops = nullptr;
+    // For a named type whose descriptor is constant-initialized with a partial shape (no
+    // elem/key/in/out/fields where those are not constants): the function that returns the
+    // COMPLETE descriptor (a copy that has them, made once). The descriptor's own address stays
+    // the identity of the type. Null when the descriptor is complete. Read it with full().
+    const type_desc* (*gp_full)() = nullptr;
 };
+
+// full(d) is the complete structure of d: d itself, or what d.gp_full makes. Everything that
+// reads the parts of a type (elem, key, in, out, fields) asks for it; a named type's identity
+// (the pointer, gp_name, gp_methods, the hooks) is read from d as it is.
+inline const type_desc* full(const type_desc* d) {
+    return d->gp_full == nullptr ? d : d->gp_full();
+}
 
 namespace detail {
 
@@ -424,6 +462,7 @@ constexpr type_desc with_cxx(type_desc d) noexcept {
     d.gp_equal = equal_hook<T>(d.gp_kind);
     d.gp_hash = hash_hook<T>(d.gp_kind);
     d.gp_store = store_hook<T>(d.gp_kind);
+    d.gp_ops = &ops_object<T>;
     return d;
 }
 
@@ -510,6 +549,33 @@ constexpr type_desc shape_struct(const field_desc* fields, std::size_t n) noexce
 template <std::size_t N>
 constexpr type_desc shape_struct(const field_desc (&fields)[N]) noexcept {
     return shape_struct(fields, N);
+}
+
+// shape_lazy(shape, full) is shape with the function that makes the complete descriptor of a
+// named type (type_desc::gp_full): the emitter gives a named type with a composite underlying type
+// the partial shape above, and this function, which has the rest (the field list with offsets,
+// the element, key and parameter descriptors, some of which are only known at run time).
+// completed(base, shape) is what that function returns.
+constexpr type_desc shape_lazy(type_desc shape, const type_desc* (*full)()) noexcept {
+    shape.gp_full = full;
+    return shape;
+}
+
+inline type_desc completed(const type_desc& base, const type_desc& shape) {
+    type_desc d = base;
+    d.gp_elem = shape.gp_elem;
+    d.gp_key = shape.gp_key;
+    d.gp_len = shape.gp_len;
+    d.gp_dir = shape.gp_dir;
+    d.gp_in = shape.gp_in;
+    d.gp_nin = shape.gp_nin;
+    d.gp_out = shape.gp_out;
+    d.gp_nout = shape.gp_nout;
+    d.gp_variadic = shape.gp_variadic;
+    d.gp_fields = shape.gp_fields;
+    d.gp_nfields = shape.gp_nfields;
+    d.gp_full = nullptr;
+    return d;
 }
 
 // named<T>(name, pkg, shape, vm, pm) is the descriptor of the named type T (also a
@@ -683,6 +749,17 @@ const type_desc* td_struct(std::initializer_list<field_desc> fields, method_tabl
 // name followed by a call with one, whenever the composed name differs from the real one.
 const type_desc* td_interface(std::initializer_list<imethod> methods, const char* name = nullptr);
 
+// td_weak<E>(elem) is the descriptor of weak.Pointer[E] (gp::weak_ptr<E>), elem that of E: a
+// struct as far as Go is concerned (struct { _ [0]*E; u unsafe.Pointer }), named
+// "weak.Pointer[<E's name>]". One descriptor for each E, kept for the life of the program.
+namespace detail {
+const type_desc* weak_intern(const type_desc& proto, const type_desc* elem);
+}
+template <typename E>
+const type_desc* td_weak(const type_desc* elem) {
+    return detail::weak_intern(detail::with_cxx<gp::weak_ptr<E>>(shape_struct(nullptr, 0)), elem);
+}
+
 // td_opaque(spelling) is the descriptor of a C type that Go can't see into, by its spelling
 // in the source, "C.int": one descriptor per spelling. It stands for the type in a signature
 // (td_func), and is never the type of a value.
@@ -694,8 +771,11 @@ template <typename U>
 struct foreign_holder {
     std::string gp_name;
     type_desc gp_desc;
+    type_ops gp_ops; // not constant: gp::cgo::fmt_arg registers the text of a class (fmt.hpp)
     foreign_holder() : gp_name(cxx_name_of<U>()), gp_desc(with_cxx<U>(shape_basic(kind::Foreign))) {
         gp_desc.gp_name = gp_name.c_str();
+        gp_ops = foreign_ops_of<U>();
+        gp_desc.gp_ops = &gp_ops;
         if (gp_desc.gp_equal != nullptr && gp_desc.gp_hash == nullptr) {
             // A C++ type with == and no std::hash: one hash for all its values, so that it is
             // still a map key (any) of Go's rules: equal values are one key. The map is then a

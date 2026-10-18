@@ -74,7 +74,7 @@
 //   - maps.go: maps (step 3.7): literals in gc's order, m[k] reads and stores, op= and ++ on an
 //     entry, v, ok := m[k], make, delete, clear, range, and their order of evaluation;
 //   - typedecl.go: the type declarations (step 3.8): the C++ structs of the named and the
-//     anonymous struct types, with their ==, gp_hash, the fmt shim's gp_type_name and gp_fields,
+//     anonymous struct types, with their ==, gp_hash, and gp_fields,
 //     the names of local types moved to the namespace, and the order of the definitions;
 //   - structs.go: struct expressions (step 3.8): literals (keyed ones in the fields' order),
 //     fields (also promoted ones, through pointers), the owners of &x.f, the operands of a target
@@ -90,13 +90,14 @@
 //     T v = *this;, or a const reference when the body can't change it; a pointer receiver as
 //     the first parameter of a static member), the calls (the address of an addressable
 //     receiver, -> through a pointer, promoted methods, the receiver in Go's order, a deferred
-//     call's stored receiver), method values and method expressions (step 3.10b, gp::func), and
-//     the fmt shim's String()/Error() hooks;
+//     call's stored receiver), method values and method expressions (step 3.10b, gp::func);
 //   - named.go: the named types that aren't structs (step 3.9): their C++ structs over
 //     gp::newtype, the conversions to and from them, and Go's implicit conversions between types
 //     that are not identical (also between struct types), found before a function is lowered;
-//   - fmtcall.go: the calls of package fmt (step 3.15): gp::fmtshim's Print, Println, Printf,
-//     Sprint, Sprintln and Sprintf, the arguments with their type tags, and the format check;
+//   - fmtcall.go: the calls of package fmt (steps 3.15, 5.11): gp::fmt's Print, Println, Printf,
+//     Sprint, Sprintln, Sprintf, Fprint, Append and Errorf families, the operands with their
+//     descriptors;
+//   - typefull.go: the complete descriptors of the named types (field lists with offsets);
 //   - inplace.go: the boxed locals that an argument of fmt copies in place, as gc does when no
 //     escaping closure captures them (step 3.15, order.go: copied);
 //   - builtins.go: the builtins min and max (step 3.15);

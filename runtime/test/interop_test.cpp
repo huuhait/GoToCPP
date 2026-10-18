@@ -732,8 +732,8 @@ void test_string_view() {
     gp::map<gp::string, int64_t> m = gp::make_map<gp::string, int64_t>();
     gp::set(m, "k"_gs, 1);
     CHECK_EQ(gp::get(m, gp::concat("k"_gs, ""_gs)), int64_t(1));
-    CHECK_EQ(str(gp::fmtshim::Sprint(s, "x"_gs)), std::string("abc\0dx", 6));
-    CHECK_EQ(str(gp::fmtshim::Sprintf("%q"_gs, "a"_gs)), std::string("\"a\""));
+    CHECK_EQ(str(gp::fmt::Sprint(s, "x"_gs)), std::string("abc\0dx", 6));
+    CHECK_EQ(str(gp::fmt::Sprintf("%q"_gs, "a"_gs)), std::string("\"a\""));
 
     // A gocpp string that comes through C++ compares with the C literal of a string constant
     // (nodes[0].Name == "a", Phase 04 step 4.9): the literal's bytes before its NUL, also a NUL
@@ -947,13 +947,19 @@ void test_ptr() {
     CHECK_EQ(um.size(), std::size_t(1));
 
     // fmt prints a gocpp pointer as before: &{...} at the top level, an address inside.
-    CHECK_EQ(str(gp::fmtshim::Sprint(gp::new_<int64_t>(1))).substr(0, 2), std::string("0x"));
+    CHECK_EQ(
+        str(gp::fmt::Sprint(gp::fmt::as(gp::td_ptr<int64_t>(&gp::td_int), gp::new_<int64_t>(1))))
+            .substr(0, 2),
+        std::string("0x"));
     gp::ptr<int64_t> ip = gp::new_<int64_t>(5);
     char buf[32];
     std::snprintf(buf, sizeof buf, "0x%llx",
                   static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(ip.gp_get())));
-    CHECK_EQ(str(gp::fmtshim::Sprint(ip)), std::string(buf));
-    CHECK_EQ(str(gp::fmtshim::Sprint(gp::ptr<int64_t>())), std::string("<nil>"));
+    CHECK_EQ(str(gp::fmt::Sprint(gp::fmt::as(gp::td_ptr<int64_t>(&gp::td_int), ip))),
+             std::string(buf));
+    CHECK_EQ(
+        str(gp::fmt::Sprint(gp::fmt::as(gp::td_ptr<int64_t>(&gp::td_int), gp::ptr<int64_t>()))),
+        std::string("<nil>"));
 }
 
 // --- gp::cstr ---
@@ -1435,7 +1441,7 @@ void run_tests() {
         gp::os::write(gp::os::stderr_fd, msg.data(), msg.size());
         gp::os::exit(1);
     }
-    gp::fmtshim::Printf("ok: %d checks\n"_gs, int64_t(checks));
+    gp::fmt::Printf("ok: %d checks\n"_gs, int64_t(checks));
 }
 
 // The cases that end the program (cxx_test.go's runInterop checks their output and exit

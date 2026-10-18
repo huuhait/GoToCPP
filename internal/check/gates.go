@@ -296,12 +296,12 @@ var features = [numFeatures]feature{
 	{id: featTestFiles, Name: "test files", Plural: true, Phase: 9,
 		Detect: "a _test.gp file (load.File.Test)",
 		Notes:  "`_test.gp` files and `gocpp test`."},
-	{id: featFormatMore, Name: "the # flag, * and argument indexes in format strings", Plural: true, Phase: 9,
+	{id: featFormatMore, Name: "the # flag, * and argument indexes in format strings", Plural: true, Phase: 5,
 		Detect: "a constant format string of fmt.Printf, Sprintf or Errorf",
-		Notes:  "`%#v`, `%*d`, `%[1]d`: Go's whole `fmt`."},
-	{id: featFormatDynamic, Name: "format strings that are not constants", Plural: true, Phase: 9,
+		Notes:  "`%#v`, `%*d`, `%[1]d`."},
+	{id: featFormatDynamic, Name: "format strings that are not constants", Plural: true, Phase: 5,
 		Detect: "a format argument of fmt.Printf, Sprintf or Errorf without a constant value",
-		Notes:  "Before Phase 09 the compiler must check every verb of a format, and it can only check a constant one."},
+		Notes:  "From Phase 05 `fmt` checks nothing at compile time: a bad verb prints Go's error form at run time."},
 
 	{id: featMustCalls, Name: "must calls", Plural: true, Phase: 10,
 		Detect: "a syntax error in a file with name!( or name![ (a name right before !)",
@@ -389,7 +389,7 @@ const otherStdPhase = 9
 // (Phase 09)"; for the packages here, Check gives their own phase instead
 // (weak: Phase 03, plugin: never).
 var stdPackages = []stdPackage{
-	{Path: "fmt", Phase: 2, Rest: 9, Notes: "`Print`, `Println` and `Printf` with basic values from Phase 02; see the table of members below. The rest comes with Go's `fmt` in Phase 09."},
+	{Path: "fmt", Phase: 2, Rest: 9, Notes: "`Print`, `Println` and `Printf` with basic values from Phase 02; from Phase 05 every value and verb, the `Fprint` functions for `os.Stdout`, `os.Stderr` and a `fmt.State`, `Append`, `Errorf`, `Stringer`, `Formatter` and the other interfaces; see the table of members below. The rest (`Sscan` and friends) comes with Go's `fmt` in Phase 09."},
 	{Path: "unsafe", Phase: 3, Rest: 4, Notes: "`Sizeof`, `Alignof` and `Offsetof` from Phase 03, the rest (`unsafe.Pointer`, `Slice`, `String`, …) from Phase 04. `unsafe.Pointer` keeps gocpp memory alive (divergence D16)."},
 	{Path: "weak", Phase: 3, Notes: "`weak.Pointer[T]` is a compiler intrinsic, exempt from the generics gate."},
 	{Path: "errors", Phase: 5},
@@ -410,7 +410,7 @@ var stdPackages = []stdPackage{
 	{Path: "flag", Phase: 9},
 	{Path: "io", Phase: 9},
 	{Path: "io/fs", Phase: 9},
-	{Path: "os", Phase: 9},
+	{Path: "os", Phase: 5, Rest: 9, Notes: "`os.Stdout` and `os.Stderr` as the writers of `fmt.Fprint` and friends from Phase 05; the rest of the package in Phase 09."},
 	{Path: "reflect", Phase: 9, Notes: "A subset, without `MakeFunc`, calling methods by name, `StructOf` and `FuncOf` (divergence D6)."},
 	{Path: "regexp", Phase: 9},
 	{Path: "strconv", Phase: 9},
@@ -455,6 +455,18 @@ var stdMembers = []stdMember{
 	{Pkg: "fmt", Name: "Sprintln", Phase: 3},
 	{Pkg: "fmt", Name: "Errorf", Phase: 5},
 	{Pkg: "fmt", Name: "Stringer", Phase: 5},
+	{Pkg: "fmt", Name: "GoStringer", Phase: 5},
+	{Pkg: "fmt", Name: "Formatter", Phase: 5},
+	{Pkg: "fmt", Name: "State", Phase: 5},
+	{Pkg: "fmt", Name: "FormatString", Phase: 5},
+	{Pkg: "fmt", Name: "Fprint", Phase: 5},
+	{Pkg: "fmt", Name: "Fprintf", Phase: 5},
+	{Pkg: "fmt", Name: "Fprintln", Phase: 5},
+	{Pkg: "fmt", Name: "Append", Phase: 5},
+	{Pkg: "fmt", Name: "Appendf", Phase: 5},
+	{Pkg: "fmt", Name: "Appendln", Phase: 5},
+	{Pkg: "os", Name: "Stdout", Phase: 5},
+	{Pkg: "os", Name: "Stderr", Phase: 5},
 	{Pkg: "unsafe", Name: "Alignof", Phase: 3},
 	{Pkg: "unsafe", Name: "Offsetof", Phase: 3},
 	{Pkg: "unsafe", Name: "Sizeof", Phase: 3},
@@ -500,17 +512,18 @@ var builtins = []stdMember{
 
 // formatVerbs are the verbs of the format strings of fmt.Printf, Sprintf
 // and Errorf with the phase that prints them (Phase 02 README §2.6, Phase
-// 03 README §2.10, Phase 05 README §2.8). A verb of Go's fmt that is not
-// here comes with Go's whole fmt in Phase 09. A character that is no verb
-// of Go's fmt (%!, %z) is fine from Phase 02: Go and the stand-in fmt of
-// Phase 02 both print the error form %!z(int=1) for it.
+// 03 README §2.10, Phase 05 README §2.8 and step 5.11: Go's whole fmt for
+// the values of the language). A character that is no verb of Go's fmt
+// (%!, %z) is fine from Phase 02: Go and gocpp both print the error form
+// %!z(int=1) for it.
 var formatVerbs = []struct {
 	Verb  rune
 	Phase int
 }{
 	{'%', 2}, {'d', 2}, {'f', 2}, {'s', 2}, {'t', 2}, {'v', 2},
 	{'q', 3},
-	{'T', 5}, {'w', 5},
+	{'T', 5}, {'w', 5}, {'b', 5}, {'c', 5}, {'o', 5}, {'O', 5}, {'x', 5}, {'X', 5}, {'U', 5},
+	{'e', 5}, {'E', 5}, {'F', 5}, {'g', 5}, {'G', 5}, {'p', 5},
 }
 
 // goVerbs are the verbs of Go's fmt (and %w of fmt.Errorf).

@@ -63,6 +63,8 @@ string, conversions between number types, the built-in functions
 | type switches | 05 |  |
 | struct embedding | 05 | With promoted fields and methods. |
 | panic with a value of a non-basic type | 05 | `panic(err)`, `panic(myStruct)`. |
+| the # flag, * and argument indexes in format strings | 05 | `%#v`, `%*d`, `%[1]d`. |
+| format strings that are not constants | 05 | From Phase 05 `fmt` checks nothing at compile time: a bad verb prints Go's error form at run time. |
 | programs of more than one package | 06 | Importing packages of your module (`gocpp.mod`). The standard packages are fine. |
 | `//export` functions | 06 | Functions that C code can call (`-buildmode=c-archive`, `c-shared`). |
 | generics | 07 | Generic functions and types, generic aliases, constraints with type sets, instantiating generic standard functions. Exemption: `weak.Pointer[T]` from Phase 03. |
@@ -71,8 +73,6 @@ string, conversions between number types, the built-in functions
 | channels | 08 | Also `close`, and `range` over a channel. |
 | select statements | 08 |  |
 | test files | 09 | `_test.gp` files and `gocpp test`. |
-| the # flag, * and argument indexes in format strings | 09 | `%#v`, `%*d`, `%[1]d`: Go's whole `fmt`. |
-| format strings that are not constants | 09 | Before Phase 09 the compiler must check every verb of a format, and it can only check a constant one. |
 | must calls | 10 | `F!(...)` (divergence D12). |
 | must functions | 10 | `func f!()` (divergence D12). |
 | macros | 10 | `macro` declarations with `lazy` parameters, and `#Name(...)` uses, `#body()` and the other built-in macros (divergence D13). |
@@ -91,12 +91,13 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 
 | Package | Phase | Notes |
 |---|---|---|
-| `fmt` | 02 | `Print`, `Println` and `Printf` with basic values from Phase 02; see the table of members below. The rest comes with Go's `fmt` in Phase 09. |
+| `fmt` | 02 | `Print`, `Println` and `Printf` with basic values from Phase 02; from Phase 05 every value and verb, the `Fprint` functions for `os.Stdout`, `os.Stderr` and a `fmt.State`, `Append`, `Errorf`, `Stringer`, `Formatter` and the other interfaces; see the table of members below. The rest (`Sscan` and friends) comes with Go's `fmt` in Phase 09. |
 | `unsafe` | 03 | `Sizeof`, `Alignof` and `Offsetof` from Phase 03, the rest (`unsafe.Pointer`, `Slice`, `String`, …) from Phase 04. `unsafe.Pointer` keeps gocpp memory alive (divergence D16). |
 | `weak` | 03 | `weak.Pointer[T]` is a compiler intrinsic, exempt from the generics gate. |
 | `errors` | 05 |  |
 | `runtime` | 05 | `runtime.Error` and `runtime.PanicNilError` from Phase 05; `Gosched`, `NumGoroutine`, `GOMAXPROCS`, `Goexit` and `LockOSThread` (which does nothing: each goroutine has its own thread) from Phase 08. |
 | `runtime/cgo` | 05 | `cgo.Handle`, because its API uses `any`. |
+| `os` | 05 | `os.Stdout` and `os.Stderr` as the writers of `fmt.Fprint` and friends from Phase 05; the rest of the package in Phase 09. |
 | `cmp` | 07 |  |
 | `iter` | 07 | `iter.Pull` and `iter.Pull2` from Phase 08 (they run on a helper thread). |
 | `maps` | 07 |  |
@@ -112,7 +113,6 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 | `flag` | 09 |  |
 | `io` | 09 |  |
 | `io/fs` | 09 |  |
-| `os` | 09 |  |
 | `reflect` | 09 | A subset, without `MakeFunc`, calling methods by name, `StructOf` and `FuncOf` (divergence D6). |
 | `regexp` | 09 |  |
 | `strconv` | 09 |  |
@@ -142,6 +142,18 @@ These come in another phase than their package. A method comes with its type, un
 | `unsafe.Sizeof` | 03 |
 | `fmt.Errorf` | 05 |
 | `fmt.Stringer` | 05 |
+| `fmt.GoStringer` | 05 |
+| `fmt.Formatter` | 05 |
+| `fmt.State` | 05 |
+| `fmt.FormatString` | 05 |
+| `fmt.Fprint` | 05 |
+| `fmt.Fprintf` | 05 |
+| `fmt.Fprintln` | 05 |
+| `fmt.Append` | 05 |
+| `fmt.Appendf` | 05 |
+| `fmt.Appendln` | 05 |
+| `os.Stdout` | 05 |
+| `os.Stderr` | 05 |
 | `runtime.Error` | 05 |
 | `runtime.PanicNilError` | 05 |
 | `iter.Pull` | 08 |
@@ -164,6 +176,7 @@ These come in another phase than their package. A method comes with its type, un
 | the rest of `fmt` | 09 |
 | the rest of `unsafe` | 04 |
 | the rest of `runtime` | 08 |
+| the rest of `os` | 09 |
 
 ## Format strings
 
@@ -173,8 +186,8 @@ The compiler checks the verbs of the format strings of `fmt.Printf`, `fmt.Sprint
 |---|---|
 | `%%` `%d` `%f` `%s` `%t` `%v` | 02 |
 | `%q` | 03 |
-| `%T` `%w` | 05 |
-| the other verbs of Go's `fmt` | 09 |
+| `%T` `%w` `%b` `%c` `%o` `%O` `%x` `%X` `%U` `%e` `%E` `%F` `%g` `%G` `%p` | 05 |
+| the other verbs of Go's `fmt` | 05 |
 
 ## Built-in functions
 

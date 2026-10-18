@@ -333,7 +333,7 @@ void run_unit_tests() {
             " checks\n");
         gp::os::exit(1);
     }
-    gp::fmtshim::Printf("ok: %d checks\n"_gs, int64_t(checks.load()));
+    gp::fmt::Printf("ok: %d checks\n"_gs, int64_t(checks.load()));
 }
 
 // --- the cases that end the process (thread_test.go checks what they print) ---

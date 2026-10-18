@@ -22,65 +22,65 @@ void main();
 
 #line 10 "$DIR/convert.gp"
 void fromInt(int64_t x) {
-    gp::fmtshim::Println(x, int8_t(x), int16_t(x), int32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::int64>(x), uint64_t(x), uint8_t(x), uint16_t(x), uint32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(uint64_t(x)), gp::fmtshim::typed<gp::fmtshim::tag::uintptr>(uintptr_t(x)), float(x), double(x));
+    gp::fmt::Println(x, int8_t(x), int16_t(x), int32_t(x), gp::fmt::as(&gp::td_int64, x), uint64_t(x), uint8_t(x), uint16_t(x), uint32_t(x), gp::fmt::as(&gp::td_uint64, uint64_t(x)), gp::fmt::as(&gp::td_uintptr, uintptr_t(x)), float(x), double(x));
 }
 
 void fromInt8(int8_t x) {
-    gp::fmtshim::Println(int64_t(x), x, int16_t(x), int32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::int64>(int64_t(x)), uint64_t(x), uint8_t(x), uint16_t(x), uint32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(uint64_t(x)), gp::fmtshim::typed<gp::fmtshim::tag::uintptr>(uintptr_t(x)), float(x), double(x));
+    gp::fmt::Println(int64_t(x), x, int16_t(x), int32_t(x), gp::fmt::as(&gp::td_int64, int64_t(x)), uint64_t(x), uint8_t(x), uint16_t(x), uint32_t(x), gp::fmt::as(&gp::td_uint64, uint64_t(x)), gp::fmt::as(&gp::td_uintptr, uintptr_t(x)), float(x), double(x));
 }
 
 void fromInt16(int16_t x) {
-    gp::fmtshim::Println(int64_t(x), int8_t(x), x, int32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::int64>(int64_t(x)), uint64_t(x), uint8_t(x), uint16_t(x), uint32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(uint64_t(x)), gp::fmtshim::typed<gp::fmtshim::tag::uintptr>(uintptr_t(x)), float(x), double(x));
+    gp::fmt::Println(int64_t(x), int8_t(x), x, int32_t(x), gp::fmt::as(&gp::td_int64, int64_t(x)), uint64_t(x), uint8_t(x), uint16_t(x), uint32_t(x), gp::fmt::as(&gp::td_uint64, uint64_t(x)), gp::fmt::as(&gp::td_uintptr, uintptr_t(x)), float(x), double(x));
 }
 
 void fromInt32(int32_t x) {
-    gp::fmtshim::Println(int64_t(x), int8_t(x), int16_t(x), x, gp::fmtshim::typed<gp::fmtshim::tag::int64>(int64_t(x)), uint64_t(x), uint8_t(x), uint16_t(x), uint32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(uint64_t(x)), gp::fmtshim::typed<gp::fmtshim::tag::uintptr>(uintptr_t(x)), float(x), double(x));
+    gp::fmt::Println(int64_t(x), int8_t(x), int16_t(x), x, gp::fmt::as(&gp::td_int64, int64_t(x)), uint64_t(x), uint8_t(x), uint16_t(x), uint32_t(x), gp::fmt::as(&gp::td_uint64, uint64_t(x)), gp::fmt::as(&gp::td_uintptr, uintptr_t(x)), float(x), double(x));
 }
 
 void fromInt64(int64_t x) {
-    gp::fmtshim::Println(x, int8_t(x), int16_t(x), int32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::int64>(x), uint64_t(x), uint8_t(x), uint16_t(x), uint32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(uint64_t(x)), gp::fmtshim::typed<gp::fmtshim::tag::uintptr>(uintptr_t(x)), float(x), double(x));
+    gp::fmt::Println(x, int8_t(x), int16_t(x), int32_t(x), gp::fmt::as(&gp::td_int64, x), uint64_t(x), uint8_t(x), uint16_t(x), uint32_t(x), gp::fmt::as(&gp::td_uint64, uint64_t(x)), gp::fmt::as(&gp::td_uintptr, uintptr_t(x)), float(x), double(x));
 }
 
 void fromUint(uint64_t x) {
-    gp::fmtshim::Println(int64_t(x), int8_t(x), int16_t(x), int32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::int64>(int64_t(x)), x, uint8_t(x), uint16_t(x), uint32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(x), gp::fmtshim::typed<gp::fmtshim::tag::uintptr>(uintptr_t(x)), float(x), double(x));
+    gp::fmt::Println(int64_t(x), int8_t(x), int16_t(x), int32_t(x), gp::fmt::as(&gp::td_int64, int64_t(x)), x, uint8_t(x), uint16_t(x), uint32_t(x), gp::fmt::as(&gp::td_uint64, x), gp::fmt::as(&gp::td_uintptr, uintptr_t(x)), float(x), double(x));
 }
 
 void fromUint8(uint8_t x) {
-    gp::fmtshim::Println(int64_t(x), int8_t(x), int16_t(x), int32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::int64>(int64_t(x)), uint64_t(x), x, uint16_t(x), uint32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(uint64_t(x)), gp::fmtshim::typed<gp::fmtshim::tag::uintptr>(uintptr_t(x)), float(x), double(x));
+    gp::fmt::Println(int64_t(x), int8_t(x), int16_t(x), int32_t(x), gp::fmt::as(&gp::td_int64, int64_t(x)), uint64_t(x), x, uint16_t(x), uint32_t(x), gp::fmt::as(&gp::td_uint64, uint64_t(x)), gp::fmt::as(&gp::td_uintptr, uintptr_t(x)), float(x), double(x));
 }
 
 void fromUint16(uint16_t x) {
-    gp::fmtshim::Println(int64_t(x), int8_t(x), int16_t(x), int32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::int64>(int64_t(x)), uint64_t(x), uint8_t(x), x, uint32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(uint64_t(x)), gp::fmtshim::typed<gp::fmtshim::tag::uintptr>(uintptr_t(x)), float(x), double(x));
+    gp::fmt::Println(int64_t(x), int8_t(x), int16_t(x), int32_t(x), gp::fmt::as(&gp::td_int64, int64_t(x)), uint64_t(x), uint8_t(x), x, uint32_t(x), gp::fmt::as(&gp::td_uint64, uint64_t(x)), gp::fmt::as(&gp::td_uintptr, uintptr_t(x)), float(x), double(x));
 }
 
 void fromUint32(uint32_t x) {
-    gp::fmtshim::Println(int64_t(x), int8_t(x), int16_t(x), int32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::int64>(int64_t(x)), uint64_t(x), uint8_t(x), uint16_t(x), x, gp::fmtshim::typed<gp::fmtshim::tag::uint64>(uint64_t(x)), gp::fmtshim::typed<gp::fmtshim::tag::uintptr>(uintptr_t(x)), float(x), double(x));
+    gp::fmt::Println(int64_t(x), int8_t(x), int16_t(x), int32_t(x), gp::fmt::as(&gp::td_int64, int64_t(x)), uint64_t(x), uint8_t(x), uint16_t(x), x, gp::fmt::as(&gp::td_uint64, uint64_t(x)), gp::fmt::as(&gp::td_uintptr, uintptr_t(x)), float(x), double(x));
 }
 
 void fromUint64(uint64_t x) {
-    gp::fmtshim::Println(int64_t(x), int8_t(x), int16_t(x), int32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::int64>(int64_t(x)), x, uint8_t(x), uint16_t(x), uint32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(x), gp::fmtshim::typed<gp::fmtshim::tag::uintptr>(uintptr_t(x)), float(x), double(x));
+    gp::fmt::Println(int64_t(x), int8_t(x), int16_t(x), int32_t(x), gp::fmt::as(&gp::td_int64, int64_t(x)), x, uint8_t(x), uint16_t(x), uint32_t(x), gp::fmt::as(&gp::td_uint64, x), gp::fmt::as(&gp::td_uintptr, uintptr_t(x)), float(x), double(x));
 }
 
 void fromUintptr(uintptr_t x) {
-    gp::fmtshim::Println(int64_t(x), int8_t(x), int16_t(x), int32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::int64>(int64_t(x)), uint64_t(x), uint8_t(x), uint16_t(x), uint32_t(x), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(uint64_t(x)), gp::fmtshim::typed<gp::fmtshim::tag::uintptr>(x), float(x), double(x));
+    gp::fmt::Println(int64_t(x), int8_t(x), int16_t(x), int32_t(x), gp::fmt::as(&gp::td_int64, int64_t(x)), uint64_t(x), uint8_t(x), uint16_t(x), uint32_t(x), gp::fmt::as(&gp::td_uint64, uint64_t(x)), gp::fmt::as(&gp::td_uintptr, x), float(x), double(x));
 }
 
 void fromFloat32(float x) {
-    gp::fmtshim::Println(x, double(x));
+    gp::fmt::Println(x, double(x));
 }
 
 #line 59 "$DIR/convert.gp"
 void intsFloat32(float x) {
-    gp::fmtshim::Println(gp::f2i<int64_t>(x), gp::f2i<int8_t>(x), gp::f2i<int16_t>(x), gp::f2i<int32_t>(x), gp::fmtshim::typed<gp::fmtshim::tag::int64>(gp::f2i<int64_t>(x)), gp::f2i<uint64_t>(x), gp::f2i<uint8_t>(x), gp::f2i<uint16_t>(x), gp::f2i<uint32_t>(x), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(gp::f2i<uint64_t>(x)), gp::fmtshim::typed<gp::fmtshim::tag::uintptr>(gp::f2i<uintptr_t>(x)));
+    gp::fmt::Println(gp::f2i<int64_t>(x), gp::f2i<int8_t>(x), gp::f2i<int16_t>(x), gp::f2i<int32_t>(x), gp::fmt::as(&gp::td_int64, gp::f2i<int64_t>(x)), gp::f2i<uint64_t>(x), gp::f2i<uint8_t>(x), gp::f2i<uint16_t>(x), gp::f2i<uint32_t>(x), gp::fmt::as(&gp::td_uint64, gp::f2i<uint64_t>(x)), gp::fmt::as(&gp::td_uintptr, gp::f2i<uintptr_t>(x)));
 }
 
 void fromFloat64(double x) {
-    gp::fmtshim::Println(float(x), x);
+    gp::fmt::Println(float(x), x);
 }
 
 #line 68 "$DIR/convert.gp"
 void intsFloat64(double x) {
-    gp::fmtshim::Println(gp::f2i<int64_t>(x), gp::f2i<int8_t>(x), gp::f2i<int16_t>(x), gp::f2i<int32_t>(x), gp::fmtshim::typed<gp::fmtshim::tag::int64>(gp::f2i<int64_t>(x)), gp::f2i<uint64_t>(x), gp::f2i<uint8_t>(x), gp::f2i<uint16_t>(x), gp::f2i<uint32_t>(x), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(gp::f2i<uint64_t>(x)), gp::fmtshim::typed<gp::fmtshim::tag::uintptr>(gp::f2i<uintptr_t>(x)));
+    gp::fmt::Println(gp::f2i<int64_t>(x), gp::f2i<int8_t>(x), gp::f2i<int16_t>(x), gp::f2i<int32_t>(x), gp::fmt::as(&gp::td_int64, gp::f2i<int64_t>(x)), gp::f2i<uint64_t>(x), gp::f2i<uint8_t>(x), gp::f2i<uint16_t>(x), gp::f2i<uint32_t>(x), gp::fmt::as(&gp::td_uint64, gp::f2i<uint64_t>(x)), gp::fmt::as(&gp::td_uintptr, gp::f2i<uintptr_t>(x)));
 }
 
 void main() {
@@ -174,7 +174,7 @@ void main() {
 #line 161 "$DIR/convert.gp"
     int32_t r = -1;
     uint8_t b = 200;
-    gp::fmtshim::Println(uint8_t(r), int32_t(uint8_t(r)), int8_t(r), uint16_t(r), int32_t(b), uint8_t(b + 100), int64_t(b) + 100);
+    gp::fmt::Println(uint8_t(r), int32_t(uint8_t(r)), int8_t(r), uint16_t(r), int32_t(b), uint8_t(b + 100), int64_t(b) + 100);
 }
 
 } // namespace gpkg_main

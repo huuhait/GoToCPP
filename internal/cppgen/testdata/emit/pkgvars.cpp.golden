@@ -16,7 +16,6 @@ struct point {
     std::size_t gp_hash() const {
         return gp::hash_fields(x, y, ok);
     }
-    static constexpr const char* gp_type_name = "main.point";
     static constexpr auto gp_fields = gp::fields(gp::field(&point::x, "x", false, false), gp::field(&point::y, "y", false, false), gp::field(&point::ok, "ok", false, false));
 };
 static_assert(sizeof(point) == 24 && alignof(point) == 8);
@@ -28,14 +27,12 @@ struct named {
     std::size_t gp_hash() const {
         return gp::hash_fields(name, n);
     }
-    static constexpr const char* gp_type_name = "main.named";
     static constexpr auto gp_fields = gp::fields(gp::field(&named::name, "name", false, false), gp::field(&named::n, "n", false, false));
 };
 static_assert(sizeof(named) == 40 && alignof(named) == 8);
 
 struct grid : gp::newtype<grid, gp::array<gp::array<int8_t, 2>, 2>> {
     using gp::newtype<grid, gp::array<gp::array<int8_t, 2>, 2>>::newtype;
-    static constexpr const char* gp_type_name = "main.grid";
 };
 static_assert(sizeof(grid) == 4 && alignof(grid) == 1);
 
@@ -46,7 +43,6 @@ struct bigBlock {
     std::size_t gp_hash() const {
         return gp::hash_fields(cells, tag);
     }
-    static constexpr const char* gp_type_name = "main.bigBlock";
     static constexpr auto gp_fields = gp::fields(gp::field(&bigBlock::cells, "cells", false, false), gp::field(&bigBlock::tag, "tag", false, false));
 };
 static_assert(sizeof(bigBlock) == 262176 && alignof(bigBlock) == 8);
@@ -117,12 +113,12 @@ void gp_init_2() {
 }
 
 void main() {
-    gp::fmtshim::Println(a, b, c, d, n, big, s, empty, f, t, zero, zeroS, int64_t(7), initCount);
+    gp::fmt::Println(a, b, c, d, n, big, s, empty, f, t, zero, zeroS, int64_t(7), initCount);
     n = n + 7;
-    gp::fmtshim::Println(n);
-    gp::fmtshim::Println(origin.ok, unit.x, onlyY.y, pts[1].x, cells[1][0], nm.name, nm.n, gp::len(list), gp::get(table, "a"_gs));
+    gp::fmt::Println(n);
+    gp::fmt::Println(origin.ok, unit.x, onlyY.y, pts[1].x, cells[1][0], nm.name, nm.n, gp::len(list), gp::get(table, "a"_gs));
     pp->x = 10;
-    { auto gp_t0 = ref.gp_call(); gp::fmtshim::Println(unit.x, scaled.y, gp_t0, huge.tag, huge.cells[1], hugeA[0], hugeA[2]); }
+    { auto gp_t0 = ref.gp_call(); gp::fmt::Println(unit.x, scaled.y, gp_t0, huge.tag, huge.cells[1], hugeA[0], hugeA[2]); }
 }
 
 void gp_var_init() {

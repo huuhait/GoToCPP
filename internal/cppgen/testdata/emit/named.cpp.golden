@@ -61,11 +61,11 @@ std::tuple<int64_t, double, gp::string, bool> zero() {
 }
 
 void main() {
-    std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, divmod(10, 3));
-    std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, early(1));
-    std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, blank());
-    { auto gp_t0 = gpkg_main::unnamed(1, "x"_gs); gp::fmtshim::Println(gp_t0, blankParam(1, false)); }
-    std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, zero());
+    std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, divmod(10, 3));
+    std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, early(1));
+    std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, blank());
+    { auto gp_t0 = gpkg_main::unnamed(1, "x"_gs); gp::fmt::Println(gp_t0, blankParam(1, false)); }
+    std::apply([](auto&& gp_r0, auto&& gp_r1, auto&& gp_r2, auto&& gp_r3) { return gp::fmt::Println(gp_r0, gp_r1, gp_r2, gp_r3); }, zero());
 }
 
 } // namespace gpkg_main

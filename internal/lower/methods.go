@@ -55,10 +55,7 @@ import (
 // gp::ptr<T>(g)->M(...), so the object stays alive until the method has made its copy, even if
 // the arguments' evaluation dropped the last other pointer to it.
 //
-// The fmt shim (gocpp/fmtshim.hpp) calls String() and Error() through hooks that the method
-// sets give each struct (hookDefs): gp::string gp_String() const for a value method set,
-// static gp::string gp_String_ptr(const gp::ptr<T>&) for a pointer-only one, promoted methods
-// included; the same for Error().
+// (fmt calls String() and Error() through the method tables of the descriptors, typedesc.go.)
 //
 // Method values (f := x.M) and method expressions (T.M, (*T).PM) are func values (step 3.10b,
 // on step 3.11's gp::func): methodValue.
@@ -222,8 +219,7 @@ func (g *gen) methodsOf(si *structInfo) []*funcInfo {
 	return ms
 }
 
-// methodDecls returns the declarations of the members that si's methods and the fmt shim's
-// hooks (hookDefs) add to its struct.
+// methodDecls returns the declarations of the members that si's methods add to its struct.
 func (g *gen) methodDecls(si *structInfo) []cppir.Decl {
 	var decls []cppir.Decl
 	for _, f := range g.methodsOf(si) {
@@ -236,16 +232,6 @@ func (g *gen) methodDecls(si *structInfo) []cppir.Decl {
 		decls = append(decls, d)
 	}
 	decls = append(decls, g.fwdDecls(si)...) // promote.go
-	for _, h := range g.hooks(si) {
-		d := &cppir.Func{Result: typeName("gp::string"), Name: h.name}
-		if h.ptr {
-			d.Specs = []string{"static"}
-			d.Params = []cppir.Param{h.param(si)}
-		} else {
-			d.Quals = []string{"const"}
-		}
-		decls = append(decls, d)
-	}
 	return decls
 }
 
@@ -722,92 +708,4 @@ func (fg *funcGen) recvFrom(base cppir.Expr, r recvPath) (cppir.Expr, bool, bool
 	}
 	recv, _ := fg.fieldSteps(base, r.t, r.path, token.NoPos)
 	return recv, r.endPtr(), true
-}
-
-// A hook is one of the fmt shim's members for a method of the method set of a struct
-// (gocpp/fmtshim.hpp): gp_String or gp_Error, or for a method that only the pointer's method
-// set has, the static gp_String_ptr or gp_Error_ptr.
-type hook struct {
-	name string // gp_String, gp_String_ptr, ...
-	ptr  bool   // static, with the pointer
-	sel  *types.Selection
-}
-
-// param returns the parameter of a pointer hook of si: const gp::ptr<T>& gp_p.
-func (h hook) param(si *structInfo) cppir.Param {
-	return cppir.Param{Type: &cppir.Ref{Elem: &cppir.Const{Elem: ptrType(typeName(si.name))}}, Name: "gp_p"}
-}
-
-// hooks returns the hooks of the struct si: for Error() string, then String() string, the one of
-// T's method set, else the one of *T's (promoted methods too). A method of another signature,
-// or a field of that name, is none (fmt doesn't call it either).
-func (g *gen) hooks(si *structInfo) []hook {
-	var hs []hook
-	vset := types.NewMethodSet(si.t)
-	pset := types.NewMethodSet(types.NewPointer(si.t))
-	for _, name := range []string{"Error", "String"} {
-		if s := vset.Lookup(g.pkg.Types, name); s != nil && stringer(s) {
-			hs = append(hs, hook{name: "gp_" + name, sel: s})
-		} else if s := pset.Lookup(g.pkg.Types, name); s != nil && stringer(s) {
-			hs = append(hs, hook{name: "gp_" + name + "_ptr", ptr: true, sel: s})
-		}
-	}
-	return hs
-}
-
-// stringer reports whether the method of the selection s is func() string, as fmt's Stringer
-// and error interfaces have it.
-func stringer(s *types.Selection) bool {
-	sig, ok := s.Obj().Type().(*types.Signature)
-	if !ok || sig.Params().Len() != 0 || sig.Results().Len() != 1 {
-		return false
-	}
-	return types.Identical(sig.Results().At(0).Type(), types.Typ[types.String])
-}
-
-// hookDefs returns the definitions of the hooks of si (see the top), out of line after all the
-// structs: a promoted method may be reached through an embedded pointer to a struct that is
-// defined after si. Each calls the method as Go's fmt would through the interface:
-//
-//	gp::string Celsius::gp_String() const { return String(); }
-//	gp::string T::gp_Error_ptr(const gp::ptr<T>& gp_p) { return T::Error(gp_p); }
-func (g *gen) hookDefs(si *structInfo) []cppir.Decl {
-	var decls []cppir.Decl
-	defer g.hideMembers(g.memberNames(si))() // they are member functions
-	for _, h := range g.hooks(si) {
-		fn := h.sel.Obj().(*types.Func)
-		r := pathOf(h.sel)
-		var recv cppir.Expr
-		ptr := false
-		d := &cppir.Func{Specs: g.inlineIfSplit(), Result: typeName("gp::string"), Name: si.name + "::" + h.name}
-		fg := newFuncGen(g, g.newFuncNames(), nil)
-		var base cppir.Expr // where the path starts: the pointer gp_p (to *T), or *this (a T)
-		if h.ptr {
-			d.Params = []cppir.Param{h.param(si)}
-			base = cxxName("gp_p")
-		} else {
-			d.Quals = []string{"const"}
-			if len(r.path) == 0 && !r.ptrRecv {
-				// The struct's own value method: String().
-				member := g.methodName(si.name, fn.Name())
-				d.Body = &cppir.Block{Stmts: []cppir.Stmt{&cppir.Return{X: call(member)}}}
-				decls = append(decls, d, &cppir.Blank{})
-				continue
-			}
-			base = deref(lit("this")) // promoted through the embedded fields of *this
-		}
-		// A pointer method of a value at the end of the path takes its address from the last
-		// pointer on the path: gp_p itself, or an embedded pointer, which T's value method set
-		// needs for a pointer method (Out{*Mid} with Mid{In} and (*In).String).
-		var ok bool
-		recv, ptr, ok = fg.recvFrom(base, r)
-		if !ok {
-			g.errorf(token.NoPos, "internal error: the hook %s of %s has no pointer for its receiver", h.name, si.name)
-			return nil
-		}
-		x := g.callMethod(recv, ptr, fn, r, nil, token.NoPos)
-		d.Body = &cppir.Block{Stmts: []cppir.Stmt{&cppir.Return{X: x}}}
-		decls = append(decls, d, &cppir.Blank{})
-	}
-	return decls
 }

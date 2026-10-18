@@ -22,7 +22,6 @@ struct Base {
     std::size_t gp_hash() const {
         return gp::hash_fields(ID);
     }
-    static constexpr const char* gp_type_name = "main.Base";
     static constexpr auto gp_fields = gp::fields(gp::field(&Base::ID, "ID", true, false));
     int64_t Get() const;
     static void Touch(gp::ptr<Base> b);
@@ -38,7 +37,6 @@ struct Base2 {
     std::size_t gp_hash() const {
         return gp::hash_fields(Base);
     }
-    static constexpr const char* gp_type_name = "main.Base2";
     static constexpr auto gp_fields = gp::fields(gp::field(&Base2::Base, "Base", true, false));
 };
 static_assert(sizeof(Base2) == 8 && alignof(Base2) == 8);
@@ -50,7 +48,6 @@ struct Mid {
     std::size_t gp_hash() const {
         return gp::hash_fields(Base, M);
     }
-    static constexpr const char* gp_type_name = "main.Mid";
     static constexpr auto gp_fields = gp::fields(gp::field(&Mid::Base, "Base", true, true), gp::field(&Mid::M, "M", true, false));
     int64_t Get() const;
     std::tuple<int64_t, gp::string> Pair(int64_t gp_a0) const;
@@ -67,7 +64,6 @@ struct Top {
     std::size_t gp_hash() const {
         return gp::hash_fields(Mid, z);
     }
-    static constexpr const char* gp_type_name = "main.Top";
     static constexpr auto gp_fields = gp::fields(gp::field(&Top::Mid, "Mid", true, true), gp::field(&Top::z, "z", false, false));
     int64_t Get() const;
     std::tuple<int64_t, gp::string> Pair(int64_t gp_a0) const;
@@ -83,7 +79,6 @@ struct Holder {
     std::size_t gp_hash() const {
         return gp::hash_fields(Base);
     }
-    static constexpr const char* gp_type_name = "main.Holder";
     static constexpr auto gp_fields = gp::fields(gp::field(&Holder::Base, "Base", true, true));
     int64_t Get() const;
     std::tuple<int64_t, gp::string> Pair(int64_t gp_a0) const;
@@ -99,7 +94,6 @@ struct Mid2 {
     std::size_t gp_hash() const {
         return gp::hash_fields(Holder);
     }
-    static constexpr const char* gp_type_name = "main.Mid2";
     static constexpr auto gp_fields = gp::fields(gp::field(&Mid2::Holder, "Holder", true, true));
     int64_t Get() const;
     std::tuple<int64_t, gp::string> Pair(int64_t gp_a0) const;
@@ -115,7 +109,6 @@ struct Deep {
     std::size_t gp_hash() const {
         return gp::hash_fields(Mid2);
     }
-    static constexpr const char* gp_type_name = "main.Deep";
     static constexpr auto gp_fields = gp::fields(gp::field(&Deep::Mid2, "Mid2", true, true));
     int64_t Get() const;
     std::tuple<int64_t, gp::string> Pair(int64_t gp_a0) const;
@@ -132,7 +125,6 @@ struct User {
     std::size_t gp_hash() const {
         return gp::hash_fields(Base, Name);
     }
-    static constexpr const char* gp_type_name = "main.User";
     static constexpr auto gp_fields = gp::fields(gp::field(&User::Base, "Base", true, true), gp::field(&User::Name, "Name", true, false));
     int64_t Get() const;
     std::tuple<int64_t, gp::string> Pair(int64_t gp_a0) const;
@@ -150,7 +142,6 @@ struct Both {
     std::size_t gp_hash() const {
         return gp::hash_fields(Mid, User, Own);
     }
-    static constexpr const char* gp_type_name = "main.Both";
     static constexpr auto gp_fields = gp::fields(gp::field(&Both::Mid, "Mid", true, true), gp::field(&Both::User, "User", true, true), gp::field(&Both::Own, "Own", true, false));
     int64_t Get() const;
 };
@@ -158,7 +149,6 @@ static_assert(sizeof(Both) == 72 && alignof(Both) == 8);
 
 struct Celsius : gp::newtype<Celsius, double> {
     using gp::newtype<Celsius, double>::newtype;
-    static constexpr const char* gp_type_name = "main.Celsius";
     double F() const;
 };
 static_assert(sizeof(Celsius) == 8 && alignof(Celsius) == 8);
@@ -170,7 +160,6 @@ struct Temp {
     std::size_t gp_hash() const {
         return gp::hash_fields(Celsius, unit);
     }
-    static constexpr const char* gp_type_name = "main.Temp";
     static constexpr auto gp_fields = gp::fields(gp::field(&Temp::Celsius, "Celsius", true, true), gp::field(&Temp::unit, "unit", false, false));
     double F() const;
 };
@@ -183,7 +172,6 @@ struct Node {
     std::size_t gp_hash() const {
         return gp::hash_fields(Node_, v);
     }
-    static constexpr const char* gp_type_name = "main.Node";
     static constexpr auto gp_fields = gp::fields(gp::field(&Node::Node_, "Node", true, true), gp::field(&Node::v, "v", false, false));
     static int64_t Val(gp::ptr<Node> n);
 };
@@ -400,31 +388,31 @@ void main() {
     Base::Touch(gp::field_ptr(u, &User::Base));
     Mid m{gp::new_<Base>(Base{5}), 1};
     Base::Touch(m.Base);
-    { auto gp_t0 = u->Base.Get(); auto gp_t1 = gp::ptr<Base>(m.Base)->Get(); auto gp_t2 = Base::Sum(m.Base, gp::slice_of<int64_t>({1, 2})); auto gp_t3 = u->Base.Get(); auto gp_t4 = u->Base.ID; gp::fmtshim::Println(gp_t4, gp_t0, m.Base->ID, gp_t1, gp_t2, gp_t3); }
+    { auto gp_t0 = u->Base.Get(); auto gp_t1 = gp::ptr<Base>(m.Base)->Get(); auto gp_t2 = Base::Sum(m.Base, gp::slice_of<int64_t>({1, 2})); auto gp_t3 = u->Base.Get(); auto gp_t4 = u->Base.ID; gp::fmt::Println(gp_t4, gp_t0, m.Base->ID, gp_t1, gp_t2, gp_t3); }
     gp::ptr<Both> b = gp::new_<Both>();
     Base::Touch(gp::field_ptr(gp::ptr<User>(b, &(*b).User), &User::Base));
     (*b).Mid.Base = gp::new_<Base>(Base{});
     Base::Touch((*b).Mid.Base);
-    { auto gp_t5 = (*b).Get(); auto gp_t6 = (*b).User.Base.Get(); auto gp_t7 = gp::ptr<Base>((*b).Mid.Base)->Get(); gp::fmtshim::Println(gp_t5, gp_t6, gp_t7, (*b).Own); }
+    { auto gp_t5 = (*b).Get(); auto gp_t6 = (*b).User.Base.Get(); auto gp_t7 = gp::ptr<Base>((*b).Mid.Base)->Get(); gp::fmt::Println(gp_t5, gp_t6, gp_t7, (*b).Own); }
     Temp t{Celsius(100.0), "C"_gs};
-    { auto gp_t8 = t.Celsius.F(); gp::fmtshim::Println(gp_t8, Base2{Base{3}}.Base.Get()); }
+    { auto gp_t8 = t.Celsius.F(); gp::fmt::Println(gp_t8, Base2{Base{3}}.Base.Get()); }
     gp::ptr<Node> n = gp::new_<Node>(Node{gp::new_<Node>(Node{nullptr, 2}), 1});
-    { auto gp_t9 = Node::Val(n); gp::fmtshim::Println(gp_t9, Node::Val(n->Node_)); }
+    { auto gp_t9 = Node::Val(n); gp::fmt::Println(gp_t9, Node::Val(n->Node_)); }
     gp::ptr<gp::array<int64_t, 20000>> wide = gp::new_<gp::array<int64_t, 20000>>();
     (*wide)[0] = 4;
-    { auto gp_t10 = u->Base.Wide((*wide)); gp::fmtshim::Println(gp_t10, gp::ptr<Base>(m.Base)->Wide((*wide))); }
+    { auto gp_t10 = u->Base.Wide((*wide)); gp::fmt::Println(gp_t10, gp::ptr<Base>(m.Base)->Wide((*wide))); }
     auto gp_t11 = u->Base.Pair(2);
 #line 82 "$DIR/embedding.gp"
     int64_t k = std::get<0>(gp_t11);
 #line 82 "$DIR/embedding.gp"
     gp::string s = std::get<1>(gp_t11);
-    gp::fmtshim::Println(k, s);
+    gp::fmt::Println(k, s);
     Top top{Mid{gp::new_<Base>(Base{9}), 1}, 2};
     Base::Touch(top.Mid.Base);
-    { auto gp_t12 = gp::ptr<Base>(top.Mid.Base)->Get(); auto gp_t13 = Base::Sum(top.Mid.Base, gp::slice_of<int64_t>({1})); gp::fmtshim::Println(top.Mid.Base->ID, gp_t12, gp_t13); }
+    { auto gp_t12 = gp::ptr<Base>(top.Mid.Base)->Get(); auto gp_t13 = Base::Sum(top.Mid.Base, gp::slice_of<int64_t>({1})); gp::fmt::Println(top.Mid.Base->ID, gp_t12, gp_t13); }
     Deep deep{Mid2{gp::new_<Holder>(Holder{Base{20}})}};
     Base::Touch(gp::field_ptr(deep.Mid2.Holder, &Holder::Base));
-    { auto gp_t14 = deep.Mid2.Holder->Base.Get(); gp::fmtshim::Println(deep.Mid2.Holder->Base.ID, gp_t14); }
+    { auto gp_t14 = deep.Mid2.Holder->Base.Get(); gp::fmt::Println(deep.Mid2.Holder->Base.ID, gp_t14); }
 }
 
 } // namespace gpkg_main

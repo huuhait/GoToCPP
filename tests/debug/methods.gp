@@ -24,7 +24,7 @@ func (p *Point) Move(dx int) {
 }
 
 func (p Point) Len() int {
-	return p.X + p.Y // gdb: print p ~ ^\(const gpkg_main::Point &\) @0x[0-9a-f]+: \{X = 6, Y = 2,; print p.Y = 2
+	return p.X + p.Y // gdb: print p ~ ^\(const gpkg_main::Point &\) @0x[0-9a-f]+: \{X = 6, Y = 2(, static gp_fields = <optimized out>)?\}; print p.Y = 2
 }
 
 func main() {

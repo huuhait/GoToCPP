@@ -28,8 +28,8 @@ std::tuple<int64_t, int64_t> find(int64_t target) {
 }
 
 void main() {
-    std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, find(6));
-    std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, find(7));
+    std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, find(6));
+    std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, find(7));
 #line 27 "$DIR/labels.gp"
     for (int64_t i = 0; i < 4; i++) {
 #line 27 "$DIR/labels.gp"
@@ -39,12 +39,12 @@ void main() {
 #line 29 "$DIR/labels.gp"
                 int64_t j = gp_i0;
                 if (j > i) {
-                    gp::fmtshim::Println();
+                    gp::fmt::Println();
                     goto gp_rows_continue;
                 }
-                gp::fmtshim::Print(x + j, " "_gs);
+                gp::fmt::Print(x + j, " "_gs);
             }
-            gp::fmtshim::Println("end"_gs, i);
+            gp::fmt::Println("end"_gs, i);
         }
 #line 37 "$DIR/labels.gp"
         gp_rows_continue:;
@@ -61,17 +61,17 @@ void main() {
         } else if (n > 7) {
             goto gp_loop_break;
         }
-        gp::fmtshim::Print(n, " "_gs);
+        gp::fmt::Print(n, " "_gs);
     }
 #line 51 "$DIR/labels.gp"
     gp_loop_break:;
-    gp::fmtshim::Println("n"_gs, n);
+    gp::fmt::Println("n"_gs, n);
 #line 56 "$DIR/labels.gp"
     switch (n) {
     case 9: {
         for (int64_t i = 0;; i++) {
             if (i == 2) {
-                gp::fmtshim::Println("break sw at"_gs, i);
+                gp::fmt::Println("break sw at"_gs, i);
                 goto gp_sw_break;
             }
         }
@@ -92,13 +92,13 @@ void main() {
                     goto gp_count_continue;
                 }
             }
-            gp::fmtshim::Print(v, " "_gs);
+            gp::fmt::Print(v, " "_gs);
         }
 #line 77 "$DIR/labels.gp"
         gp_count_continue:;
 #line 77 "$DIR/labels.gp"
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
 #line 80 "$DIR/labels.gp"
     for (int64_t a = 0, b = 9; a < b;) {
 #line 80 "$DIR/labels.gp"
@@ -110,7 +110,7 @@ void main() {
                     goto gp_pairs_continue;
                 }
             }
-            gp::fmtshim::Print(a, "-"_gs, b, " "_gs);
+            gp::fmt::Print(a, "-"_gs, b, " "_gs);
         }
 #line 87 "$DIR/labels.gp"
         gp_pairs_continue:;
@@ -118,16 +118,16 @@ void main() {
         a = a + 1; b = b - 1;
 #line 87 "$DIR/labels.gp"
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
 #line 91 "$DIR/labels.gp"
     int64_t i = 0;
     again:;
-    gp::fmtshim::Print(i, " "_gs);
+    gp::fmt::Print(i, " "_gs);
     i++;
     if (i < 3) {
         goto again;
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
 #line 101 "$DIR/labels.gp"
     int64_t a = 1;
 #line 101 "$DIR/labels.gp"
@@ -136,14 +136,14 @@ void main() {
         goto skip;
     }
     { auto gp_t0 = a; a = b; b = gp_t0; }
-    gp::fmtshim::Println("not printed"_gs);
+    gp::fmt::Println("not printed"_gs);
     skip:;
-    gp::fmtshim::Println("a b"_gs, a, b);
+    gp::fmt::Println("a b"_gs, a, b);
 #line 111 "$DIR/labels.gp"
     for (int64_t x = 0; x < 3; x++) {
         for (int64_t y = 0; y < 3; y++) {
             if (x + y == 3) {
-                gp::fmtshim::Println("goto done at"_gs, x, y);
+                gp::fmt::Println("goto done at"_gs, x, y);
                 goto done;
             }
         }
@@ -152,15 +152,15 @@ void main() {
     goto end;
     switch (a) {
     case 1: {
-        gp::fmtshim::Println("never"_gs);
+        gp::fmt::Println("never"_gs);
 #line 123 "$DIR/labels.gp"
     } break;
     }
     for (int64_t gp_i3 = 0; gp_i3 < 3; gp_i3++) {
-        gp::fmtshim::Println("never"_gs);
+        gp::fmt::Println("never"_gs);
     }
     end:;
-    gp::fmtshim::Println("end"_gs);
+    gp::fmt::Println("end"_gs);
 }
 
 } // namespace gpkg_main

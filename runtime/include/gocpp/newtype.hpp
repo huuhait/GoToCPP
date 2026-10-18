@@ -2,13 +2,12 @@
 // README §2.4, step 3.9), and gp::convert, the conversions between struct types that Go makes
 // without a new value (named and anonymous, type B A).
 //
-// A named type is a class of its own, so it can have its own methods (step 3.10), its own Go
-// name for fmt (gp_type_name) and its own C++ overloads, and C++ doesn't mix it up with its
+// A named type is a class of its own, so it can have its own methods (step 3.10), its own
+// C++ overloads, and C++ doesn't mix it up with its
 // underlying type or with another named type over the same type. The emitter writes
 //
 //     type Celsius float64       struct Celsius : gp::newtype<Celsius, double> {
 //                                    using gp::newtype<Celsius, double>::newtype;
-//                                    static constexpr const char* gp_type_name = "main.Celsius";
 //                                };
 //     type IDs []int             struct IDs : gp::newtype<IDs, gp::slice<int64_t>> { ...same... };
 //
@@ -283,5 +282,12 @@ void convert_fields(To& to, const From& from, std::index_sequence<I...>) {
 }
 
 } // namespace detail
+
+// zero_of(x) evaluates x and gives the zero value of its type: the value that a positional struct
+// literal stores in a blank field (Go evaluates it and drops it; a blank field is always zero).
+template <typename T>
+std::remove_cvref_t<T> zero_of(T&&) {
+    return std::remove_cvref_t<T>{};
+}
 
 } // namespace gp

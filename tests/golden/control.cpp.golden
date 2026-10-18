@@ -38,11 +38,11 @@ void main() {
 #line 28 "$ROOT/tests/golden/control.gp"
         int64_t i = gp_i0;
         int64_t gp_t0 = i * 10; { int64_t i = gp_t0;
-            gp::fmtshim::Print(i, " "_gs);
+            gp::fmt::Print(i, " "_gs);
         }
 #line 31 "$ROOT/tests/golden/control.gp"
     }
-    gp::fmtshim::Println(odd, steps);
+    gp::fmt::Println(odd, steps);
 #line 34 "$ROOT/tests/golden/control.gp"
     {
 #line 34 "$ROOT/tests/golden/control.gp"
@@ -50,16 +50,16 @@ void main() {
 #line 34 "$ROOT/tests/golden/control.gp"
         switch (day) {
         case 0: case 6: {
-            gp::fmtshim::Println("weekend"_gs);
+            gp::fmt::Println("weekend"_gs);
 #line 36 "$ROOT/tests/golden/control.gp"
         } break;
         case 1: {
-            gp::fmtshim::Println("monday"_gs);
+            gp::fmt::Println("monday"_gs);
             [[fallthrough]];
 #line 39 "$ROOT/tests/golden/control.gp"
         }
         default: {
-            gp::fmtshim::Println("weekday"_gs);
+            gp::fmt::Println("weekday"_gs);
 #line 41 "$ROOT/tests/golden/control.gp"
         } break;
         }
@@ -69,9 +69,9 @@ void main() {
 #line 43 "$ROOT/tests/golden/control.gp"
         gp::string lang = "go"_gs;
         if (lang == "c"_gs || lang == "c++"_gs) {
-            gp::fmtshim::Println("old"_gs);
+            gp::fmt::Println("old"_gs);
         } else if (lang == "go"_gs) {
-            gp::fmtshim::Println("new"_gs);
+            gp::fmt::Println("new"_gs);
         }
 #line 48 "$ROOT/tests/golden/control.gp"
     }
@@ -90,16 +90,16 @@ void main() {
 #line 49 "$ROOT/tests/golden/control.gp"
         switch (gp_case0) {
         case 0: {
-            gp::fmtshim::Println("big"_gs);
+            gp::fmt::Println("big"_gs);
             [[fallthrough]];
 #line 52 "$ROOT/tests/golden/control.gp"
         }
         case 1: {
-            gp::fmtshim::Println("medium"_gs);
+            gp::fmt::Println("medium"_gs);
 #line 54 "$ROOT/tests/golden/control.gp"
         } break;
         default: {
-            gp::fmtshim::Println("small"_gs);
+            gp::fmt::Println("small"_gs);
 #line 56 "$ROOT/tests/golden/control.gp"
         } break;
         }
@@ -116,7 +116,7 @@ void main() {
                 if (i == 2) {
                     goto gp_outer_break;
                 }
-                gp::fmtshim::Println(i, j);
+                gp::fmt::Println(i, j);
             }
         }
 #line 70 "$ROOT/tests/golden/control.gp"
@@ -131,7 +131,7 @@ void main() {
         k++;
         goto again;
     }
-    gp::fmtshim::Println("k"_gs, k);
+    gp::fmt::Println("k"_gs, k);
 }
 
 } // namespace gpkg_main

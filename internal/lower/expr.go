@@ -15,7 +15,7 @@ import (
 
 // Expressions (Phase 02 README §2.3): constants (folded by go/types), variables, calls of
 // user functions, of the builtins len, print, println, panic, min and max (builtins.go) and of
-// package fmt (gp::fmtshim, fmtcall.go), the byte s[i] of a string, the substring s[a:b],
+// package fmt (gp::fmt, fmtcall.go), the byte s[i] of a string, the substring s[a:b],
 // conversions between basic types (also string(r)), every operator of the Phase 02 subset
 // with string concatenation (ops.go), pointers (step 3.3): *p, &x (addr.go), new(T), nil,
 // p == q, and a boxed variable x (box.go), which is (*x), slices (step 3.5, slices.go), arrays
@@ -259,7 +259,7 @@ func (fg *funcGen) value(e ast.Expr) cppir.Expr {
 }
 
 // exactExpr returns the C++ of the expression e for a place where C++ deduces its type from
-// the expression: an argument of a runtime template (gp::println, gp::fmtshim::Printf), or
+// the expression: an argument of a runtime template (gp::println, gp::fmt::Printf), or
 // the initializer of an auto temporary. There a constant must have its Go type: a plain 5 is
 // a C++ int, so Printf("%s", 5) would say int32 instead of Go's int. Every such place calls
 // exactExpr; the other expressions already have their Go type in C++ (ops.go casts the
@@ -454,7 +454,7 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 		return placeholder
 	}
 
-	if template {
+	if template && fg.fmtFunc(c) == nil {
 		for _, a := range c.Args {
 			if t := fg.g.info.TypeOf(a); t != nil && hasFunc(t) {
 				// Go prints a func's code address (closures.go).

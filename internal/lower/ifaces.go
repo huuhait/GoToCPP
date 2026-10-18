@@ -93,6 +93,32 @@ func isErrorType(t types.Type) bool {
 	return ok && n.Obj().Pkg() == nil && n.Obj().Name() == "error"
 }
 
+// A runtimeIface is an interface type whose struct and descriptor the runtime defines: error
+// (gocpp/error.hpp) and the interfaces of package fmt (gocpp/fmt.hpp), which no package of the
+// program declares.
+type runtimeIface struct {
+	cxx, desc string
+}
+
+// runtimeIfaceOf returns the runtime's struct and descriptor of the interface type t, or false.
+func runtimeIfaceOf(t types.Type) (runtimeIface, bool) {
+	n, ok := types.Unalias(t).(*types.Named)
+	if !ok {
+		return runtimeIface{}, false
+	}
+	if isErrorType(n) {
+		return runtimeIface{"gp::error", "gp::td_error"}, true
+	}
+	if n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "fmt" {
+		switch n.Obj().Name() {
+		case "Stringer", "GoStringer", "State", "Formatter":
+			lower := map[string]string{"Stringer": "td_stringer", "GoStringer": "td_gostringer", "State": "td_state", "Formatter": "td_formatter"}
+			return runtimeIface{"gp::fmt::" + n.Obj().Name(), "gp::fmt::" + lower[n.Obj().Name()]}, true
+		}
+	}
+	return runtimeIface{}, false
+}
+
 // isAnyType reports whether t is the unnamed empty interface (any, interface{}).
 func isAnyType(t types.Type) bool {
 	it, ok := types.Unalias(t).(*types.Interface)
@@ -184,10 +210,10 @@ func (g *gen) ifaceOf(t types.Type, pos token.Pos) *ifaceInfo {
 
 // ifaceType returns the C++ type of the interface type t: gp::any, gp::error or its struct.
 func (g *gen) ifaceType(t types.Type, pos token.Pos) cppir.Type {
-	switch {
-	case isErrorType(t):
-		return typeName("gp::error")
-	case isAnyType(t):
+	if r, ok := runtimeIfaceOf(t); ok {
+		return typeName(r.cxx)
+	}
+	if isAnyType(t) {
 		return typeName("gp::any")
 	}
 	info := g.ifaceOf(t, pos)
@@ -219,8 +245,8 @@ func (g *gen) ifaceMethods(t types.Type) int {
 
 // ifaceMethodName returns the C++ name of the method fn of the interface type t.
 func (g *gen) ifaceMethodName(t types.Type, fn *types.Func, pos token.Pos) string {
-	if isErrorType(t) {
-		return "Error"
+	if _, ok := runtimeIfaceOf(t); ok {
+		return fn.Name()
 	}
 	info := g.ifaceOf(t, pos)
 	if info == nil {
@@ -368,40 +394,6 @@ func (g *gen) ifaceImpl(info *ifaceInfo, p *implParts) {
 // interface type.
 func templateInterface(ims []cppir.Expr, name string) cppir.Expr {
 	return call("gp::td_interface", &cppir.InitList{Elems: ims}, lit(cppir.CString(name)))
-}
-
-// holdsIface reports whether a value of type t is, or holds in a field, an element or behind a
-// pointer, an interface value (which the fmt shim can't print: step 5.11).
-func holdsIface(t types.Type) bool {
-	seen := make(map[types.Type]bool)
-	var walk func(t types.Type) bool
-	walk = func(t types.Type) bool {
-		if seen[t] {
-			return false
-		}
-		seen[t] = true
-		if isInterface(t) {
-			return true
-		}
-		switch u := types.Unalias(t).Underlying().(type) {
-		case *types.Pointer:
-			return walk(u.Elem())
-		case *types.Slice:
-			return walk(u.Elem())
-		case *types.Array:
-			return walk(u.Elem())
-		case *types.Map:
-			return walk(u.Key()) || walk(u.Elem())
-		case *types.Struct:
-			for i := range u.NumFields() {
-				if walk(u.Field(i).Type()) {
-					return true
-				}
-			}
-		}
-		return false
-	}
-	return walk(t)
 }
 
 // hashMayPanic reports whether hashing a value of the comparable type t can panic, because the

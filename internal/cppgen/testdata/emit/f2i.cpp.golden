@@ -9,13 +9,13 @@ void main();
 
 #line 11 "$DIR/f2i.gp"
 void conv(double f) {
-    gp::fmtshim::Println(f, gp::f2i<int64_t>(f), gp::f2i<int8_t>(f), gp::f2i<int16_t>(f), gp::f2i<int32_t>(f), gp::fmtshim::typed<gp::fmtshim::tag::int64>(gp::f2i<int64_t>(f)));
-    gp::fmtshim::Println(" "_gs, gp::f2i<uint64_t>(f), gp::f2i<uint8_t>(f), gp::f2i<uint16_t>(f), gp::f2i<uint32_t>(f), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(gp::f2i<uint64_t>(f)), gp::fmtshim::typed<gp::fmtshim::tag::uintptr>(gp::f2i<uintptr_t>(f)));
+    gp::fmt::Println(f, gp::f2i<int64_t>(f), gp::f2i<int8_t>(f), gp::f2i<int16_t>(f), gp::f2i<int32_t>(f), gp::fmt::as(&gp::td_int64, gp::f2i<int64_t>(f)));
+    gp::fmt::Println(" "_gs, gp::f2i<uint64_t>(f), gp::f2i<uint8_t>(f), gp::f2i<uint16_t>(f), gp::f2i<uint32_t>(f), gp::fmt::as(&gp::td_uint64, gp::f2i<uint64_t>(f)), gp::fmt::as(&gp::td_uintptr, gp::f2i<uintptr_t>(f)));
 }
 
 void conv32(float f) {
-    gp::fmtshim::Println(f, gp::f2i<int64_t>(f), gp::f2i<int8_t>(f), gp::f2i<int16_t>(f), gp::f2i<int32_t>(f), gp::fmtshim::typed<gp::fmtshim::tag::int64>(gp::f2i<int64_t>(f)));
-    gp::fmtshim::Println(" "_gs, gp::f2i<uint64_t>(f), gp::f2i<uint8_t>(f), gp::f2i<uint16_t>(f), gp::f2i<uint32_t>(f), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(gp::f2i<uint64_t>(f)), gp::fmtshim::typed<gp::fmtshim::tag::uintptr>(gp::f2i<uintptr_t>(f)));
+    gp::fmt::Println(f, gp::f2i<int64_t>(f), gp::f2i<int8_t>(f), gp::f2i<int16_t>(f), gp::f2i<int32_t>(f), gp::fmt::as(&gp::td_int64, gp::f2i<int64_t>(f)));
+    gp::fmt::Println(" "_gs, gp::f2i<uint64_t>(f), gp::f2i<uint8_t>(f), gp::f2i<uint16_t>(f), gp::f2i<uint32_t>(f), gp::fmt::as(&gp::td_uint64, gp::f2i<uint64_t>(f)), gp::fmt::as(&gp::td_uintptr, gp::f2i<uintptr_t>(f)));
 }
 
 void main() {

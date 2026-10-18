@@ -19,10 +19,10 @@ void main() {
     int64_t v_1 = 100;
     {
         int64_t gp_t0 = v + 1; { int64_t v = gp_t0;
-            gp::fmtshim::Println(v, v_1);
+            gp::fmt::Println(v, v_1);
             {
                 int64_t gp_t1 = v * 2; { int64_t v = gp_t1;
-                    gp::fmtshim::Println(v);
+                    gp::fmt::Println(v);
                 }
 #line 25 "$DIR/shadow.gp"
             }
@@ -34,19 +34,19 @@ void main() {
         int64_t gp_t2 = x; { int64_t x = gp_t2;
             int64_t gp_t3 = w + x; { int64_t w = gp_t3;
                 int64_t gp_t4 = f(); { int64_t f = gp_t4;
-                    gp::fmtshim::Println(x, w, f);
+                    gp::fmt::Println(x, w, f);
         } } }
 #line 33 "$DIR/shadow.gp"
     }
     {
         int64_t gp_t5 = x; { int64_t x = 2; int64_t y = gp_t5;
-            gp::fmtshim::Println(x, y);
+            gp::fmt::Println(x, y);
         }
 #line 37 "$DIR/shadow.gp"
     }
     {
         int64_t y = x; { int64_t x = 2;
-            gp::fmtshim::Println(x, y);
+            gp::fmt::Println(x, y);
         }
 #line 41 "$DIR/shadow.gp"
     }
@@ -56,9 +56,9 @@ void main() {
     {
         int64_t a = 10;
         int64_t gp_t6 = a; a = b; { int64_t b = gp_t6;
-            gp::fmtshim::Println(a, b);
+            gp::fmt::Println(a, b);
             int64_t c = d(b); { int64_t d = b;
-                gp::fmtshim::Println(c, d);
+                gp::fmt::Println(c, d);
         } }
 #line 49 "$DIR/shadow.gp"
     }
@@ -70,7 +70,7 @@ void main() {
                 int64_t q = 2;
                 {
                     int64_t gp_t10 = p; { int64_t p = q; int64_t q = gp_t10;
-                        gp::fmtshim::Println(v, x, y, p, q);
+                        gp::fmt::Println(v, x, y, p, q);
                     }
 #line 57 "$DIR/shadow.gp"
                 }
@@ -82,20 +82,20 @@ void main() {
         int64_t gp_t11 = x; { int64_t x = gp_t11;
 #line 59 "$DIR/shadow.gp"
             for (; x < 8; x++) {
-                gp::fmtshim::Print(x, " "_gs);
+                gp::fmt::Print(x, " "_gs);
             }
 #line 61 "$DIR/shadow.gp"
         }
 #line 61 "$DIR/shadow.gp"
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
     for (int64_t i = 0; i < 3; i++) {
         int64_t gp_t12 = i * 10; { int64_t i = gp_t12;
-            gp::fmtshim::Print(i, " "_gs);
+            gp::fmt::Print(i, " "_gs);
         }
 #line 66 "$DIR/shadow.gp"
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
     for (int64_t gp_i0 = 0; gp_i0 < 3; gp_i0++) {
 #line 68 "$DIR/shadow.gp"
         int64_t i = gp_i0;
@@ -103,11 +103,11 @@ void main() {
             if (i == 2) {
                 continue;
             }
-            gp::fmtshim::Print(i, " "_gs);
+            gp::fmt::Print(i, " "_gs);
         }
 #line 74 "$DIR/shadow.gp"
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
     int64_t k = 0;
     {
         int64_t gp_t14 = k + 1; { int64_t k = gp_t14;
@@ -116,7 +116,7 @@ void main() {
                 k++;
                 goto retry;
             }
-            gp::fmtshim::Println("k"_gs, k);
+            gp::fmt::Println("k"_gs, k);
         }
 #line 85 "$DIR/shadow.gp"
     }
@@ -128,7 +128,7 @@ void main() {
             if (t < 30) {
                 goto top;
             }
-            gp::fmtshim::Println("t"_gs, t);
+            gp::fmt::Println("t"_gs, t);
         }
 #line 95 "$DIR/shadow.gp"
     }
@@ -145,7 +145,7 @@ void main() {
                     if (m == 1) {
                         goto gp_outer_continue;
                     }
-                    gp::fmtshim::Println("j"_gs, j, m);
+                    gp::fmt::Println("j"_gs, j, m);
                 }
             }
 #line 105 "$DIR/shadow.gp"
@@ -161,7 +161,7 @@ void main() {
         switch (s) {
         case 1: {
             int64_t gp_t17 = s + 1; { int64_t s = gp_t17;
-                gp::fmtshim::Println("s"_gs, s);
+                gp::fmt::Println("s"_gs, s);
                 [[fallthrough]];
 #line 110 "$DIR/shadow.gp"
             }
@@ -169,7 +169,7 @@ void main() {
         }
         case 2: {
             int8_t s{};
-            gp::fmtshim::Println("two"_gs, s);
+            gp::fmt::Println("two"_gs, s);
 #line 113 "$DIR/shadow.gp"
         } break;
         }
@@ -178,11 +178,11 @@ void main() {
     gp::string str = "go"_gs;
     {
         gp::string gp_t18 = str + "!"_gs; { gp::string str = static_cast<gp::string&&>(gp_t18);
-            gp::fmtshim::Println(str);
+            gp::fmt::Println(str);
         }
 #line 119 "$DIR/shadow.gp"
     }
-    { auto gp_t19 = f(); gp::fmtshim::Println(v, x, w, gp_t19, a, b, k, t, str); }
+    { auto gp_t19 = f(); gp::fmt::Println(v, x, w, gp_t19, a, b, k, t, str); }
 }
 
 int64_t d(int64_t n) {

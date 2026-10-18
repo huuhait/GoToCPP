@@ -9,7 +9,7 @@
 // program's headers can't break them.
 #pragma once
 
-#include <gocpp/fmtshim.hpp>
+#include <gocpp/fmt.hpp>
 
 #if defined(__cpp_lib_format)
 #include <format>
@@ -17,7 +17,7 @@
 #include <string>
 #include <type_traits>
 
-namespace gp::fmtshim::detail {
+namespace gp::fmt::detail {
 
 // A disabled std::formatter (the C++ library's own for a type without one) can't be
 // constructed ([format.formatter.spec]).
@@ -30,5 +30,5 @@ struct cxx_formatter<gp_T> {
     }
 };
 
-} // namespace gp::fmtshim::detail
+} // namespace gp::fmt::detail
 #endif

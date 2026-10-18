@@ -57,7 +57,7 @@ void main() {
 #line 11 "/home/me/hello/hello.gp"
     bool big = std::get<1>(gp_t0);
 #line 12 "/home/me/hello/hello.gp"
-    gp::fmtshim::Println("hello, gocpp"_gs, s, big);
+    gp::fmt::Println("hello, gocpp"_gs, s, big);
 }
 
 } // namespace gpkg_main
@@ -68,7 +68,7 @@ int main(int argc, char** argv) {
 ```
 
 This is the Phase 02 output of one file (the unit layout, which the emitter tests still use), when `fmt`
-is still a small stand-in (`gp::fmtshim`) and there is no package init yet, so `run_main` gets
+was still a small stand-in and there is no package init yet, so `run_main` gets
 `nullptr` as its init function. `gocpp build` writes the [files of the split layout](#files)
 instead: the same code, split into a header, a unit for each file and `pkg_init.cpp`, where main's
 `run_main` gets `&gp_init_all` when a package has variables to set or init functions
@@ -223,7 +223,7 @@ $XDG_CACHE_HOME/gocpp/gen/<hash>/gpkg/<import path>/      (a stable folder; with
   object cache (a unit that did not change, and whose headers did not, is not compiled again), and
   link the objects with the package's C and C++ files, the libraries of the cxx recipes (once for
   the program), and the runtime. The compile uses
-  `-std=c++20 -fwrapv -fno-strict-aliasing -ffp-contract=off -fstack-clash-protection -g -gno-column-info -O0`, plus
+  `-std=c++20 -fwrapv -fno-strict-aliasing -ffp-contract=off -fstack-clash-protection -g -gno-column-info -O0 -ffunction-sections -fdata-sections`, plus
   `-Qunused-arguments` for clang, and `-iquote <the folder of the generated files>`. The debug info has no columns (`-gno-column-info`): they would
   be the columns of the C++ code, and debuggers would show them on `.gp` lines. Valid Go can
   make the compilers warn about generated code that is right, so that code also gets
@@ -334,8 +334,8 @@ s[i] += a[j]
 ```
 
 ```cpp
-{ auto gp_t0 = next(); gp::fmtshim::Println(gp_t0, next()); }
-{ auto gp_t1 = s[i]; gp::fmtshim::Println(gp_t1, a[j]); }
+{ auto gp_t0 = next(); gp::fmt::Println(gp_t0, next()); }
+{ auto gp_t1 = s[i]; gp::fmt::Println(gp_t1, a[j]); }
 { auto& gp_r0 = s[i]; gp_r0 = gp_r0 + a[j]; }
 ```
 
@@ -506,10 +506,8 @@ What the C++ looks like (step 3.10, internal/lower/methods.go):
   reads after all of them (`g.M(f())`, where `f` changes `g`, calls `M` on the new `g`, and for a
   nil `g` panics after `f` ran). A value method called through a pointer that is not a local of
   the caller copies it first, `gp::ptr<T>(g)->M(...)`, so the object stays alive for the call.
-- fmt's `String()` and `Error()` (gocpp/fmtshim.hpp): each struct gets `gp::string gp_String()
-  const` when its method set has `String() string`, or the static `gp_String_ptr(const
-  gp::ptr<T>&)` when only `*T`'s has it (a pointer method), promoted methods included; the same
-  for `Error() string`. A method of another signature is not fmt's (Go's doesn't call it either).
+- fmt calls `String()`, `Error()`, `GoString()` and `Format(f fmt.State, verb rune)` through the
+  method tables of the descriptors (gocpp/fmt.hpp, [fmt](#fmt)): a method needs no member for it.
 - Go has no methods on local types (a method is declared at package level on a package-level
   type), so a local type moved to the namespace has none of its own.
 - Method values and method expressions (step 3.10b) are generic lambdas in a `gp::func`, so a
@@ -540,39 +538,23 @@ struct Point {
     int64_t X = 0;
     int64_t Y = 0;
     bool operator==(const Point&) const = default;   // only when comparable
-    static constexpr const char* gp_type_name = "main.Point";  // for fmt's error forms and %T
-    static constexpr auto gp_fields = gp::fields(    // for fmt's %v and %+v
+    static constexpr auto gp_fields = gp::fields(    // for gp::convert and for fmt's C++ values
         gp::field(&Point::X, "X", true, false),      // member, Go name, exported, embedded
         gp::field(&Point::Y, "Y", true, false));
 };
 struct Celsius : gp::newtype<Celsius, double> {      // a distinct type with double's operators
     using gp::newtype<Celsius, double>::newtype;
-    static constexpr const char* gp_type_name = "main.Celsius";
     gp::string String() const;
-    gp::string gp_String() const { return String(); } // fmt: the method set has String() string
 };
 ```
 
-- **For `fmt`** (the protocol of `runtime/include/gocpp/fmtshim.hpp`; all names start with `gp_`,
-  so they never clash with a Go name):
-  - a struct has `gp_type_name` (its Go name, as `%T` prints it) and `gp_fields`: every field in
-    declaration order, also blank `_` fields, as `gp::field(&T::f, "name", exported, embedded)`.
-    An embedded field has its type's name. As in Go, `fmt` doesn't call the `String()` method of
-    a value reached through an unexported field, except in the exported fields of an embedded
-    unexported one;
-  - a named non-struct type has `gp_type_name` and `const U& gp_value() const` (its underlying
-    value), and `using gp_value_tag = …` when `U` needs a type tag (below);
-  - a type whose method set has `String() string` has `gp::string gp_String() const`; one whose
-    pointer type has it only through a pointer receiver has
-    `static gp::string gp_String_ptr(const gp::ptr<T>&)`. The same for `Error() string`
-    (`gp_Error`, `gp_Error_ptr`), which `fmt` prefers. The emitter writes them from Go's method
-    sets, promoted methods included;
-  - Go's `int` and `int64` are both `int64_t`, and `uint`, `uint64` and `uintptr` all `uint64_t`.
-    Where the Go type is `int64`, `uint64` or `uintptr`, a type tag says so, for the type names in
-    `fmt`'s error forms (`%!s(int64=5)`): `gp::fmtshim::typed<tag::int64>(x)` for an argument
-    (`tag::slice<tag::uintptr>`, `tag::map<tag::none, tag::uint64>`, `tag::ptr<…>`,
-    `tag::array<…>` for the parts of a composite type), and `gp::field<tag::int64>(…)` for a
-    field.
+- **For `fmt`** nothing is written into the struct: `fmt` reads values through the type descriptors
+  ([fmt](#fmt)), whose field lists have the Go names, the exported and embedded flags, the tags and
+  the offsets of the members (`gp::offset_of(&Point::X)`). `gp_fields` (`gp::field(&T::f, "name",
+  exported, embedded)`, every field in declaration order, also blank `_` fields) is for
+  `gp::convert` between struct types, and for `gp::cgo::fmt_arg`, which walks the C++ types of a
+  value with a C/C++ part to register the text of its classes. A named non-struct type has
+  `const U& gp_value() const` (its underlying value).
 
 - **Zero values** come from default member initializers and `T{}`.
 - **Keyed literals:** `Point{Y: 2, X: 1}` becomes `Point{.X = 1, .Y = 2}`. C++ needs declaration
@@ -760,12 +742,11 @@ of a NaN aside, which Go doesn't promise either).
 | `println(c)`, `panic(c)` | `gp::println(c)`, `gp::panic(c)` | Go's runtime format, each part like a float: `(+1.000000e+000-2.000000e+000i)` |
 | `m[c]` (a complex key) | `gp::get(m, c)` | hashes both parts with the float rules: `+0` and `-0` are one key, a key with a NaN part is never found again |
 
-`fmt` (the shim, `gp::fmtshim`) prints them as Go's `fmtComplex` does: `(1.5-2i)`, each part as
+`fmt` prints them as Go's `fmtComplex` does: `(1.5-2i)`, each part as
 a float of half the size (a `complex64` has `float32` parts) with the verb, the imaginary part
 always with a sign, a width and a precision for each part (`%8.2f` is `(    1.50   -2.00i)`); a
 verb that doesn't fit gives the error form with the whole number, `%!d(complex128=(1.5-2i))` (the
-C++ type names `complex64` and `complex128`, so no type tag is needed). Phase 03 has `%v` and
-`%f`; `%e`, `%g`, `%x` and the rest come with Go's `fmt` (Phase 09). Complex map keys print
+C++ type names `complex64` and `complex128`). `%e`, `%g`, `%x` and the other float verbs work as for floats. Complex map keys print
 sorted by the real part, then the imaginary part, each with `cmp.Compare`'s rules (NaN first,
 `-0 == +0`); a named complex type sorts by its value, never by the `<` that `gp::newtype`
 declares. As for any value, gc copies a complex argument that is not a variable into an
@@ -802,7 +783,6 @@ struct Point {
     std::size_t gp_hash() const {
         return gp::hash_fields(X, Y);
     }
-    static constexpr const char* gp_type_name = "main.Point";
     static constexpr auto gp_fields = gp::fields(gp::field(&Point::X, "X", true, false), gp::field(&Point::Y, "Y", true, false));
 };
 static_assert(sizeof(Point) == 16 && alignof(Point) == 8);
@@ -832,8 +812,8 @@ struct Line {
 | `a == b`, `a != b` | `a == b`, `a != b` | when comparable: field by field in order, floats as numbers (NaN != NaN, -0 == +0); blank fields are skipped |
 | `n = n.kids[0]`, `*p = *p.next` | `n = Node(n.kids[0]);` | a struct (or an array) that holds owners, reached through a pointer or a slice that the target may own, is copied before the store, which could free it while the generated `operator=` reads it |
 | `p, p.X = q, 1` | `{ auto gp_t0 = p; p = q; gp_t0->X = 1; }` | the pointer of a target `p.f` (and the slice and index of `s[i].f`) is evaluated before the values, as in Go |
-| `type T struct{...}` in a function | `struct T` (or `T_1`, ...) at namespace scope | C++'s local classes can't have the static members; `gp_type_name` is still `main.T` |
-| `struct{ X int }` (anonymous) | `struct gp_anon_7132535b4707e21c` | one C++ type for identical struct types (same fields, types, tags), named by a hash of the type; `gp_type_name` is Go's `struct { X int }` |
+| `type T struct{...}` in a function | `struct T` (or `T_1`, ...) at namespace scope | C++'s local classes can't have the static members; its descriptor still says `main.T` |
+| `struct{ X int }` (anonymous) | `struct gp_anon_7132535b4707e21c` | one C++ type for identical struct types (same fields, types, tags), named by a hash of the type; its descriptor says Go's `struct { X int }` |
 
 - **Names.** A field keeps its Go name, with the escapes of [names](#names-inside-a-package),
   and a field named like its own struct gets a `_` (`Words_`), because C++ would read it as a
@@ -841,10 +821,9 @@ struct Line {
   variable of the same name hides is written qualified, `gpkg_main::Point`: GCC rejects a member
   that changes the meaning of a type name used before it in the class. A type named `gp` or
   `std` becomes `gp_` or `std_`, since it would hide the namespaces `gp::` and `std::`.
-- **For `fmt`**: `gp_type_name` and `gp_fields` list every field (also blank and embedded ones)
-  with its Go name and whether it is exported or embedded; a field of type `int64`, `uint64` or
-  `uintptr` (or a slice, array, pointer or map of one) gets its type tag, `gp::field<gp::fmtshim::tag::int64>(…)`.
-  `fmt.Println(p)` prints `{1 2}`.
+- **For `fmt`**: the descriptor of the type has the fields with their offsets ([fmt](#fmt-and-the-builtins));
+  `gp_fields` lists every field (also blank and embedded ones) for `gp::convert` and for the
+  fmt check of C/C++ values. `fmt.Println(p)` prints `{1 2}`.
 - **Map keys**: a comparable struct has `gp_hash()` over its non-blank fields (gocpp/hash.hpp),
   so it can be a key. A struct literal of constants is a static entry of a map literal, stored
   before the others as gc does, and in `m[k] = append(m[k], x)` a struct key `k` is read before
@@ -955,13 +934,11 @@ type IDs []int
 ```cpp
 struct Celsius : gp::newtype<Celsius, double> {
     using gp::newtype<Celsius, double>::newtype;
-    static constexpr const char* gp_type_name = "main.Celsius";
 };
 static_assert(sizeof(Celsius) == 8 && alignof(Celsius) == 8);
 
 struct IDs : gp::newtype<IDs, gp::slice<int64_t>> {
     using gp::newtype<IDs, gp::slice<int64_t>>::newtype;
-    static constexpr const char* gp_type_name = "main.IDs";
 };
 static_assert(sizeof(IDs) == 40 && alignof(IDs) == 8);
 ```
@@ -974,7 +951,7 @@ static_assert(sizeof(IDs) == 40 && alignof(IDs) == 8);
   it works unchanged (`ids[i]`, `gp::len(ids)`, range, `gp::get(m, k)`, `p->f`).
 - **Sizes**: the size of the underlying type (no members of its own), checked by a
   `static_assert` after each type; `unsafe.Sizeof` agrees.
-- **Members**: only `gp_` names (`gp_value()`, `gp_hash()`, `gp_type_name`) and operators, so a
+- **Members**: only `gp_` names (`gp_value()`, `gp_hash()`) and operators, so a
   Go method of any name can't clash with them. The constructors are inherited by the base's full
   name, so a type (or, from step 3.10, a method) named `newtype` works too.
 - **Names of the bases.** A base class brings its name into the struct's body: there,
@@ -1016,9 +993,9 @@ are converted one by one: `a, b = f()` where each is stored, `return f()` as
 a lambda that `std::apply` calls, `[](auto&& gp_e0, auto&& gp_e1) { return g(IDs(gp_e0), gp_e1); }`.
 
 **`fmt` and `println`** print a named type as its underlying value (`%v` of a `Celsius` prints
-`36.6`), with its Go name in the error forms (`%!s(main.Count=5)`; `%T` comes with Phase 05).
-A `String()` method (step 3.10) changes that. A named type over `int64`, `uint64` or `uintptr`
-has `using gp_value_tag = gp::fmtshim::tag::int64;` (and so on), the type tag of its value.
+`36.6`), with its Go name in the error forms (`%!s(main.Count=5)`) and for `%T`.
+A `String()` method (step 3.10) changes that. (`fmt` reads the Go type from the descriptor of the
+value, [fmt](#fmt-and-the-builtins), so a named type over `int64` needs no tag.)
 
 **Map keys** of a named type hash their value (`gp_hash()`); in `m[k] = append(m[k], x)` a key
 of a named type over `uint32`, `uint64` or `string` is read before `x`, like an `int` key,
@@ -1214,7 +1191,7 @@ int64_t load(int64_t n) {
     gp::ptr<int64_t> count = gp::new_<int64_t>();     // boxed: &count is taken
     gp::defer_frame gp_df; try {
         gp_df.gp_push(add, count, 1);
-        gp_df.gp_push_call([](auto&& gp_a0) { gp::fmtshim::Println("done"_gs, gp_a0); }, n);
+        gp_df.gp_push_call([](auto&& gp_a0) { gp::fmt::Println("done"_gs, gp_a0); }, n);
         if (n < 0) {
             (*count) = 0; goto gp_ret0;
         }
@@ -1329,48 +1306,77 @@ Source: [Phase 03 §2.8](../../plans/2026-10-13-gocpp/phase-03-core-language/REA
 
 ## fmt and the builtins
 
-Until Go's own `fmt` comes (interfaces in Phase 05, the whole package in Phase 09), `fmt.Print`,
-`Println`, `Printf`, `Sprint`, `Sprintln` and `Sprintf` are the runtime's stand-in, `gp::fmtshim`
-(`runtime/include/gocpp/fmtshim.hpp`, which mirrors Go 1.25's `fmt`). The `Sprint` functions
-return a `gp::string`.
+`fmt.Print`, `Println`, `Printf`, `Sprint`, `Sprintln`, `Sprintf`, `Fprint`, `Fprintln`, `Fprintf`,
+`Append`, `Appendln`, `Appendf`, `Errorf` and `FormatString` are the runtime's
+(`runtime/include/gocpp/fmt.hpp`, `runtime/src/fmt.cpp`): a port of Go 1.25's `fmt/print.go` and
+`fmt/format.go` that walks values by their type descriptors, as Go's walks them by reflection
+([ADR-028](../adr/028-fmt-on-descriptors.md)). The `Sprint` functions return a `gp::string`,
+`Errorf` a `gp::error`, the others Go's `(n int, err error)` as a `std::tuple<int64_t, gp::error>`.
 
 ```go
 var big int64 = 5
-fmt.Println(s, m, &p, Celsius(1.5))
-fmt.Printf("%5d|%-6.2f|%s\n", n, f, big)
-msg := fmt.Sprint(two())       // two() (int, string)
+fmt.Println(n, s, ok)
+fmt.Println(p, xs, big, err)
+fmt.Printf("%5d|%-6.2f|%v\n", n, f, m)
+fmt.Fprintln(os.Stderr, "failed:", err)
+return fmt.Errorf("read %s: %w", name, err)
 ```
 ```cpp
-int64_t big = 5;
-gp::fmtshim::Println(s, m, p, Celsius(1.5));
-gp::fmtshim::Printf("%5d|%-6.2f|%s\n"_gs, n, f, gp::fmtshim::typed<gp::fmtshim::tag::int64>(big));
-gp::string msg = std::apply([](const auto&... gp_a) { return gp::fmtshim::Sprint(gp_a...); }, two());
+gp::fmt::Println(n, s, ok);                                   // C++ says the Go type: no descriptor
+gp::fmt::Println(gp::fmt::as(&gp_td_Point, p), gp::fmt::as(gp_tdc_0, xs), gp::fmt::as(&gp::td_int64, big), err);
+gp::fmt::Printf("%5d|%-6.2f|%v\n"_gs, n, f, gp::fmt::as(gp_tdc_1, m));
+gp::fmt::Fprintln(gp::fmt::stderr_, "failed:"_gs, err);
+return gp::fmt::Errorf("read %s: %w"_gs, name, err);
 ```
 
-- **Every value of Phase 03 prints as in Go**: slices and arrays `[1 2 3]`, maps `map[a:1 b:2]`
-  with the keys sorted (Go's `internal/fmtsort`: numbers by value with NaN first, strings by
-  bytes, `false` before `true`, arrays and structs part by part), structs `{1 2}` (`%+v`
-  `{X:1 Y:2}`), a pointer to a struct, array, slice or map `&{1 2}` at the top level (any other
-  pointer, and one inside a composite value, prints its address; nil is `<nil>`), named types as
-  their values, and a `String()` (or `Error()`) method of the value's method set where Go's `fmt`
-  calls it (for `%v %s %q`, not `%d`; a method on the pointer only for the pointer).
-- **Printf**: the verbs `%v %+v %d %s %q %t %f` and `%%`, the flags `-`, `+`, space and `0`, a
-  width and a precision (`%5d`, `%-8s`, `%.2f`, `%08.3f`); each element of a composite value is
-  formatted by the verb, as in Go (`[    1     2]` for `%5d`). Go's error forms are kept:
-  `%!d(string=hi)`, `%!s(main.Celsius=1.5)`, `%!d(MISSING)`, `%!(EXTRA int=2)`, and a character
-  that is no verb of Go's `fmt` (`%z`) prints `%!z(int=5)`. The phase gate stops the rest: `%T`
-  and `%w` (Phase 05), the `#` flag, `*`, `[n]` and the other verbs (`%x %c %e %g %p`, Phase 09),
-  and a format that is not a constant.
-- **Type tags**: Go's `int` and `int64` are both `int64_t`, and `uint`, `uint64` and `uintptr`
-  all `uint64_t`, but the error forms name the Go type. An argument whose type has `int64`,
-  `uint64` or `uintptr` in an unnamed part gets its tag: `gp::fmtshim::typed<tag::int64>(x)`,
-  `typed<tag::slice<tag::uint64>>(s)`, `typed<tag::map<tag::none, tag::uintptr>>(m)`,
-  `typed<tag::ptr<tag::array<tag::int64>>>(p)`; structs and named types carry their own tags
-  ([structs](#structs), [named types](#named-types)). `fmt.Println(f())` of a call with several
-  results passes them through `std::apply` without tags: Print, Println, Sprint and Sprintln
-  never print a type's name, and `fmt.Printf(g())` (the format is `g`'s first result) needs a
-  format that is not a constant, which comes in Phase 09, together with the tags on that path.
-- **Arguments are values at the call**: the shim takes each argument by value, as Go copies it
+- **Operands.** An operand is a value of its exact C++ type, taken by value. A value whose C++
+  type says its Go type (`bool`, `int` as `int64_t`, `uint` as `uint64_t`, `int8` to `int32`, `uint8`
+  to `uint32`, `float32`, `float64`, `complex64`, `complex128`, `string`) is passed as it is. An
+  interface value (`any`, `error`, `fmt.Stringer`, any interface) is passed as it is too: `fmt`
+  uses its dynamic type, and the nil interface prints `<nil>`. Every other operand is
+  `gp::fmt::as(descriptor, value)`: the descriptor of its Go type ([interfaces](#interfaces)),
+  which is how `int64`, `uint64` and `uintptr` (the same C++ types as `int` and `uint`), named
+  types, structs, slices, maps and pointers are told apart. An untyped `nil` is `gp::any()`. An
+  operand of a type that has an `Error` method and is no pointer is converted to an `any` first,
+  so `Errorf` can wrap it. An array or struct larger than 128 KiB is copied to the heap,
+  `gp::fmt::heap(gp::new_<A>(a))`, not onto the C++ stack.
+- **Everything prints as in Go**: the engine is Go's, so every verb (`%v %+v %#v %T %d %s %q %x %X %o
+  %O %b %c %U %e %E %f %F %g %G %t %p %w`), flag (`+ - # 0` and space), width and precision
+  (also `*`), argument index (`%[2]d`) and error form (`%!d(string=hi)`, `%!d(MISSING)`,
+  `%!(EXTRA int=2)`, `%!(NOVERB)`, `%!(BADWIDTH)`, `%!(BADINDEX)`, `%!z(int=5)`) is. Maps print
+  sorted by key (`internal/fmtsort`), a pointer to a struct, array, slice or map prints `&{...}`
+  at the top level and its address below, a nil is `<nil>`, a struct `{1 2}`, `{X:1 Y:2}` with
+  `%+v` and `main.T{X:1, Y:2}` with `%#v`. Width, precision and flags apply to each element of a
+  composite value.
+- **Methods**: `Format(f fmt.State, verb rune)` takes over every verb; `GoString() string` does
+  for `%#v`; `Error() string` (first) and `String() string` for `%v %s %q %x %X` and by `Print` and
+  `Println`, not for `%d`. They are looked up in the method table of the value's descriptor, so
+  they work for a value in an `any`, in a slice, in a map, in a struct field (not in an
+  unexported field, where Go's reflection can't call them either, except the exported fields of
+  an embedded unexported struct), and for a pointer. A panic in a method prints
+  `%!v(PANIC=String method: boom)`, or `<nil>` for a nil receiver, as Go's. `fmt.State` is a
+  runtime interface (`gp::fmt::State`); `fmt.Stringer`, `fmt.GoStringer`, `fmt.Formatter` and
+  `fmt.State` are runtime interface structs like `error`.
+- **Writers**: `Fprint`, `Fprintln` and `Fprintf` take `os.Stdout` (`gp::fmt::stdout_`), `os.Stderr`
+  (`gp::fmt::stderr_`) and a `fmt.State` (the `f` of a `Format` method); the other `io.Writer`s
+  come with package `io` (Phase 09). `Print`, `Println` and `Printf` flush C's stdio first and
+  write once ([interop](interop.md#printing-cc-values)).
+- **Errorf**: without `%w` the result is a `*errors.errorString`, with one `%w` a `*fmt.wrapError`
+  (`Unwrap() error`), with several a `*fmt.wrapErrors` (`Unwrap() []error`): the runtime's own types
+  (`runtime/src/fmt.cpp`), whose names `%T` prints as Go does.
+- **C/C++ values** print by their C++ type ([interop](interop.md#printing-cc-values)).
+- **Limits.** The printer recurses once per level of nesting, on the C++ stack: `fmt.Sprint` of a
+  slice of slices of `any` about 10,000 levels deep (a recursive data structure built by a
+  program) overflows the 8 MiB stack at `-O0`, where Go goes on past 100,000 levels. A `map[any]V` whose
+  keys have different types prints those groups in an order of its own (Go orders them by the
+  addresses of the types, which is unspecified). A C++ class held in an `any` prints through its
+  `std::formatter` or `operator<<` only if a `fmt` call in the program names its type
+  (`gp::cgo::fmt_arg`); an exception from that text, or from a method, prints as
+  `%!v(PANIC=String method: C++ exception ...)`.
+- **A final `a...`** (a `[]any`, as in `logf(f string, a ...any) { fmt.Printf(f, a...) }`) is `gp::fmt::spread(a)`: its elements are the operands, not one operand; the slice is held for the call.
+- **A call with several results**, `fmt.Println(f())`, goes through `std::apply` and a lambda that
+  describes each result.
+- **Arguments are values at the call**: `fmt` takes each argument by value, as Go copies it
   into an interface. The order of evaluation is gc's: a variable (also a slice, an array, a map
   or a pointer) is read after the calls of its statement, so `fmt.Println(s, grow())` prints the
   `s` that `grow` made; a value that is not addressable is copied in its place among the calls,

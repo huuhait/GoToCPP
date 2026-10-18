@@ -34,8 +34,8 @@ int64_t shl(int64_t x, bool b) {
 
 void main() {
     gp::string s = "abc"_gs;
-    { auto gp_t0 = gpkg_main::len(s); auto gp_t1 = gpkg_main::panic(s); auto gp_t2 = gpkg_main::print(s, "!"_gs); auto gp_t3 = gpkg_main::div(1, s); gp::fmtshim::Println(gp_t0, gp_t1, gp_t2, gp_t3, shl(2, true)); }
-    { auto gp_t4 = gpkg_main::len("literal"_gs); gp::fmtshim::Println(gp_t4, gpkg_main::panic("x"_gs)); }
+    { auto gp_t0 = gpkg_main::len(s); auto gp_t1 = gpkg_main::panic(s); auto gp_t2 = gpkg_main::print(s, "!"_gs); auto gp_t3 = gpkg_main::div(1, s); gp::fmt::Println(gp_t0, gp_t1, gp_t2, gp_t3, shl(2, true)); }
+    { auto gp_t4 = gpkg_main::len("literal"_gs); gp::fmt::Println(gp_t4, gpkg_main::panic("x"_gs)); }
 }
 
 } // namespace gpkg_main

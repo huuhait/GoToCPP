@@ -22,7 +22,7 @@ import (
 // no fields that a program can name (they are unexported), and the runtime type is a class of
 // its own. Method values (f := w.Value) and method expressions (weak.Pointer[T].Value) go
 // through methods.go, whose callMethod calls gp::weak_value too. fmt prints it as Go prints the
-// struct that Go declares, {[] 0xc000012345} or {[] <nil>} (gocpp/fmtshim.hpp).
+// struct that Go declares, {[] 0xc000012345} or {[] <nil>} (gocpp/fmt.hpp).
 
 // isWeakPointer reports whether t is weak.Pointer[T] of the standard package weak (through
 // aliases), an instance (not the generic type itself).

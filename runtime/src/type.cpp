@@ -504,6 +504,24 @@ const type_desc* make_desc(const type_desc& proto) {
 
 } // namespace
 
+const type_desc* weak_intern(const type_desc& proto, const type_desc* elem) {
+    static std::mutex mu;
+    static std::vector<std::pair<const type_desc*, const type_desc*>> table;
+    std::lock_guard<std::mutex> lock(mu);
+    for (const auto& e : table) {
+        if (e.first == elem) {
+            return e.second;
+        }
+    }
+    auto* d = new type_desc(proto);
+    d->gp_name = copy_str(std::string("weak.Pointer[") + elem->gp_name + "]");
+    d->gp_pkg = "weak";
+    d->gp_named = true;
+    d->gp_elem = elem; // (the T of weak.Pointer[T]; fmt's %#v names it)
+    table.emplace_back(elem, d);
+    return d;
+}
+
 const type_desc* intern(const type_desc& proto) {
     switch (proto.gp_kind) {
     case kind::Array:

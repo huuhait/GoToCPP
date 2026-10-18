@@ -51,12 +51,12 @@ int64_t grow() {
 }
 
 int64_t g(int64_t a, int64_t b) {
-    gp::fmtshim::Println("g"_gs, a, b);
+    gp::fmt::Println("g"_gs, a, b);
     return a * 10 + b;
 }
 
 bool t(gp::string name, bool v) {
-    gp::fmtshim::Print(name, " "_gs);
+    gp::fmt::Print(name, " "_gs);
     return v;
 }
 
@@ -82,37 +82,37 @@ int64_t ret3() {
 
 void main() {
 #line 72 "$DIR/order.gp"
-    { auto gp_t0 = next(); gp::fmtshim::Println(gp_t0, next()); }
+    { auto gp_t0 = next(); gp::fmt::Println(gp_t0, next()); }
     { auto gp_t1 = inc(); g(x, gp_t1); }
 #line 76 "$DIR/order.gp"
     int64_t local = 5;
-    { auto gp_t2 = inc(); gp::fmtshim::Println(local, gp_t2, x, local + x); }
-    { auto gp_t3 = inc(); auto gp_t4 = inc(); gp::fmtshim::Println(x + gp_t3, gp_t4 + x); }
+    { auto gp_t2 = inc(); gp::fmt::Println(local, gp_t2, x, local + x); }
+    { auto gp_t3 = inc(); auto gp_t4 = inc(); gp::fmt::Println(x + gp_t3, gp_t4 + x); }
     auto gp_t5 = inc(); int64_t y = x * gp_t5;
-    gp::fmtshim::Println(y);
+    gp::fmt::Println(y);
     { auto gp_t6 = inc(); auto gp_t7 = next(); gp::println(x, gp_t6, n, gp_t7); }
-    { auto gp_t8 = gp::len(s); auto gp_t9 = grow(); gp::fmtshim::Println(gp_t8, gp_t9, s); }
+    { auto gp_t8 = gp::len(s); auto gp_t9 = grow(); gp::fmt::Println(gp_t8, gp_t9, s); }
     int64_t z = 1;
-    { auto gp_t10 = count(); auto gp_t11 = next(); gp::fmtshim::Println(gp::shr(int64_t(1000), gp::shl(uint64_t(1), gp_t10) - 2) + gp::div(int64_t(7), z), gp_t11); }
+    { auto gp_t10 = count(); auto gp_t11 = next(); gp::fmt::Println(gp::shr(int64_t(1000), gp::shl(uint64_t(1), gp_t10) - 2) + gp::div(int64_t(7), z), gp_t11); }
 #line 86 "$DIR/order.gp"
-    { auto gp_t12 = x == 2; auto gp_t13 = inc(); auto gp_t14 = x == 2; auto gp_t15 = s[3]; auto gp_t16 = grow(); gp::fmtshim::Println(gp_t12, gp_t13, gp_t14, gp_t15, gp_t16, uint8_t(x)); }
-    { auto gp_t17 = x == 3; auto gp_t18 = inc(); gp::fmtshim::Printf("%v %v %v\n"_gs, gp_t17, gp_t18, first + p1 + p2); }
+    { auto gp_t12 = x == 2; auto gp_t13 = inc(); auto gp_t14 = x == 2; auto gp_t15 = s[3]; auto gp_t16 = grow(); gp::fmt::Println(gp_t12, gp_t13, gp_t14, gp_t15, gp_t16, uint8_t(x)); }
+    { auto gp_t17 = x == 3; auto gp_t18 = inc(); gp::fmt::Printf("%v %v %v\n"_gs, gp_t17, gp_t18, first + p1 + p2); }
 #line 90 "$DIR/order.gp"
-    { auto gp_t19 = next(); auto gp_t20 = next(); gp::fmtshim::Println(g(gp_t19, g(gp_t20, next()))); }
-    gp::fmtshim::Println(std::apply(gpkg_main::both, pair()));
-    std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, pair());
-    std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, ret());
-    std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, ret2());
-    gp::fmtshim::Println(ret3());
+    { auto gp_t19 = next(); auto gp_t20 = next(); gp::fmt::Println(g(gp_t19, g(gp_t20, next()))); }
+    gp::fmt::Println(std::apply(gpkg_main::both, pair()));
+    std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, pair());
+    std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, ret());
+    std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, ret2());
+    gp::fmt::Println(ret3());
 #line 98 "$DIR/order.gp"
-    { bool gp_t21 = gpkg_main::t("a"_gs, true) && gpkg_main::t("b"_gs, false); gp::fmtshim::Println(gp_t21, gpkg_main::t("c"_gs, false) || gpkg_main::t("d"_gs, true)); }
-    { bool gp_t22 = x > 0 && x < 6; gp::fmtshim::Println(gp_t22, inc()); }
+    { bool gp_t21 = gpkg_main::t("a"_gs, true) && gpkg_main::t("b"_gs, false); gp::fmt::Println(gp_t21, gpkg_main::t("c"_gs, false) || gpkg_main::t("d"_gs, true)); }
+    { bool gp_t22 = x > 0 && x < 6; gp::fmt::Println(gp_t22, inc()); }
     {
 #line 100 "$DIR/order.gp"
         bool gp_t23 = gpkg_main::t("e"_gs, false); if (gp_t23) { auto gp_t24 = inc(); gp_t23 = g(x, gp_t24) > 0; }
 #line 100 "$DIR/order.gp"
         if (gp_t23) {
-            gp::fmtshim::Println("never"_gs);
+            gp::fmt::Println("never"_gs);
         }
 #line 102 "$DIR/order.gp"
     }
@@ -121,27 +121,27 @@ void main() {
         bool gp_t25 = gpkg_main::t("f"_gs, true); if (gp_t25) { auto gp_t26 = inc(); gp_t25 = g(x, gp_t26) > 0; }
 #line 103 "$DIR/order.gp"
         if (gp_t25) {
-            gp::fmtshim::Println("then"_gs);
+            gp::fmt::Println("then"_gs);
         }
 #line 105 "$DIR/order.gp"
     }
     bool gp_t27 = gpkg_main::t("g"_gs, false); if (!gp_t27) { auto gp_t28 = inc(); gp_t27 = g(x, gp_t28) > 0; } bool ok = gp_t27 || gpkg_main::t("h"_gs, true);
-    gp::fmtshim::Println(ok);
+    gp::fmt::Println(ok);
 #line 110 "$DIR/order.gp"
     auto gp_t29 = inc(); int64_t a = x; int64_t b = gp_t29;
-    gp::fmtshim::Println(a, b);
+    gp::fmt::Println(a, b);
     { auto gp_t30 = inc(); a = x; b = gp_t30; }
-    gp::fmtshim::Println(a, b);
+    gp::fmt::Println(a, b);
     { auto gp_t31 = inc() + a; a = b; b = gp_t31; }
-    gp::fmtshim::Println(a, b);
+    gp::fmt::Println(a, b);
     int64_t p = next();
 #line 116 "$DIR/order.gp"
     int64_t q = n;
-    gp::fmtshim::Println(p, q);
+    gp::fmt::Println(p, q);
     { auto gp_t32 = inc(); x = x + gp_t32; }
-    gp::fmtshim::Println(x);
+    gp::fmt::Println(x);
     { auto gp_t33 = inc(); a = x - gp_t33; }
-    gp::fmtshim::Println(a);
+    gp::fmt::Println(a);
     { auto gp_t34 = inc(); static_cast<void>(g(x, gp_t34)); }
 #line 125 "$DIR/order.gp"
     {
@@ -149,15 +149,15 @@ void main() {
         auto gp_t35 = inc();
 #line 125 "$DIR/order.gp"
         if (x == gp_t35) {
-            gp::fmtshim::Println("never"_gs);
+            gp::fmt::Println("never"_gs);
         } else if (next() > 100) {
-            gp::fmtshim::Println("never"_gs);
+            gp::fmt::Println("never"_gs);
         } else {
 #line 129 "$DIR/order.gp"
             auto gp_t36 = inc();
 #line 129 "$DIR/order.gp"
             if (g(x, gp_t36) > 0) {
-                gp::fmtshim::Println("else if"_gs, x);
+                gp::fmt::Println("else if"_gs, x);
             }
 #line 131 "$DIR/order.gp"
         }
@@ -168,15 +168,15 @@ void main() {
         int64_t v = next();
 #line 132 "$DIR/order.gp"
         if (v > 100) {
-            gp::fmtshim::Println("never"_gs);
+            gp::fmt::Println("never"_gs);
         } else {
 #line 134 "$DIR/order.gp"
             auto gp_t37 = inc(); int64_t w = g(x, gp_t37);
 #line 134 "$DIR/order.gp"
             if (w < 0) {
-                gp::fmtshim::Println("never"_gs);
+                gp::fmt::Println("never"_gs);
             } else if (g(w, next()) > 0) {
-                gp::fmtshim::Println("else if with init"_gs, v, w);
+                gp::fmt::Println("else if with init"_gs, v, w);
             }
 #line 138 "$DIR/order.gp"
         }
@@ -190,13 +190,13 @@ void main() {
         if (x == 2) {
             continue;
         }
-        gp::fmtshim::Println("for cond"_gs, x);
+        gp::fmt::Println("for cond"_gs, x);
     }
     x = 0;
     for (int64_t i = 0;; i++) {
 #line 149 "$DIR/order.gp"
         auto gp_t40 = inc(); if (!(i < x + gp_t40 && i < 3)) break;
-        gp::fmtshim::Println("3-clause"_gs, i, x);
+        gp::fmt::Println("3-clause"_gs, i, x);
     }
     x = 0;
     for (int64_t i = 0; i < 3;) {
@@ -205,7 +205,7 @@ void main() {
             if (i == 1) {
                 goto gp_cont_0;
             }
-            gp::fmtshim::Println("post"_gs, i, x);
+            gp::fmt::Println("post"_gs, i, x);
         }
 #line 158 "$DIR/order.gp"
         gp_cont_0:;
@@ -228,7 +228,7 @@ void main() {
                     if (k == 1) {
                         goto gp_outer_continue;
                     }
-                    gp::fmtshim::Println("init"_gs, i, j, k);
+                    gp::fmt::Println("init"_gs, i, j, k);
                 }
             }
 #line 168 "$DIR/order.gp"
@@ -245,7 +245,7 @@ void main() {
         for (int64_t gp_i0 = 0, gp_n0 = g(x, gp_t44) / 10; gp_i0 < gp_n0; gp_i0++) {
 #line 170 "$DIR/order.gp"
             int64_t i = gp_i0;
-            gp::fmtshim::Println("range"_gs, i);
+            gp::fmt::Println("range"_gs, i);
         }
 #line 172 "$DIR/order.gp"
     }
@@ -255,19 +255,19 @@ void main() {
 #line 176 "$DIR/order.gp"
         auto gp_t45 = inc(); auto gp_tag0 = g(x, gp_t45);
         if (gp_tag0 == next()) {
-            gp::fmtshim::Println("never"_gs);
+            gp::fmt::Println("never"_gs);
         } else {
 #line 179 "$DIR/order.gp"
             auto gp_t46 = inc();
 #line 179 "$DIR/order.gp"
             if (gp_tag0 == g(x, gp_t46) || gp_tag0 == next()) {
-                gp::fmtshim::Println("case"_gs, x, n);
+                gp::fmt::Println("case"_gs, x, n);
             } else {
 #line 181 "$DIR/order.gp"
                 auto gp_t47 = inc();
 #line 181 "$DIR/order.gp"
                 if (gp_tag0 == g(x, gp_t47)) {
-                    gp::fmtshim::Println("never"_gs);
+                    gp::fmt::Println("never"_gs);
                 }
 #line 183 "$DIR/order.gp"
             }
@@ -287,9 +287,9 @@ void main() {
             if (!gp_t48) { gp_t48 = gp_tag1 == inc(); }
 #line 185 "$DIR/order.gp"
             if (gp_t48) {
-                gp::fmtshim::Println("case list"_gs, x);
+                gp::fmt::Println("case list"_gs, x);
             } else {
-                gp::fmtshim::Println("default"_gs, x);
+                gp::fmt::Println("default"_gs, x);
             }
 #line 189 "$DIR/order.gp"
         }
@@ -304,11 +304,11 @@ void main() {
         if (!gp_t50) { auto gp_t51 = inc(); gp_t50 = g(x, gp_t51) > 0; }
 #line 192 "$DIR/order.gp"
         if (gp_t50) {
-            gp::fmtshim::Println("tagless"_gs, x);
+            gp::fmt::Println("tagless"_gs, x);
         }
 #line 194 "$DIR/order.gp"
     }
-    gp::fmtshim::Println(x, n, s);
+    gp::fmt::Println(x, n, s);
 }
 
 void gp_var_init() {

@@ -123,7 +123,6 @@ func (g *gen) makeShared(it sharedItem) {
 	defer func() { g.rec = nil; g.global-- }()
 	if it.st != nil {
 		d.decls = append(g.structDef(it.st), &cppir.Blank{})
-		d.impl = g.hookDefs(it.st) // (inline, after all the structs)
 	} else {
 		d.decls = g.ifaceDef(it.iface)
 		p := implParts{split: true}

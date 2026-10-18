@@ -1,58 +1,81 @@
 package lower
 
 import (
-	"fmt"
 	"go/ast"
-	"go/constant"
+	"go/token"
 	"go/types"
-	"strings"
-	"unicode/utf8"
+	"strconv"
 
 	"github.com/huuhait/gocpp/internal/cppir"
 )
 
-// Calls of package fmt (Phase 03 README §2.10, step 3.15): fmt.Print, Println, Printf, Sprint,
-// Sprintln and Sprintf are the runtime's stand-in, gp::fmtshim (gocpp/fmtshim.hpp), until
-// Phase 05 and 09 bring the real fmt. The Sprint functions give a gp::string.
+// Calls of package fmt (Phase 05 step 5.11, ADR 028): Print, Println, Printf, Sprint, Sprintln,
+// Sprintf, Fprint, Fprintln, Fprintf, Append, Appendln, Appendf, Errorf and FormatString are the
+// runtime's (gocpp/fmt.hpp, runtime/src/fmt.cpp: a port of Go's fmt that walks values by their type
+// descriptors). The Sprint functions give a gp::string, Errorf a gp::error, the Print and Fprint
+// functions Go's (n int, err error), a std::tuple.
 //
-// Every value of Phase 03 is an argument: basic values, strings, slices, arrays, maps, structs,
-// pointers and named types of them, also nil ones. The shim takes each argument by value, so it
-// prints the value at the call, as Go does (Go copies it into an interface there); which values
-// gc copies earlier, in their places among the calls, is order.go's rule (copied).
+// Every operand is a value of its exact C++ type (exactExpr), taken by value, so it prints the
+// value at the call, as Go does (Go copies it into an interface there); which values gc copies
+// earlier, in their places among the calls, is order.go's rule. An operand that is an interface
+// value (any, error, fmt.Stringer, a Go interface) is passed as it is: fmt uses its dynamic
+// type. The others pass the descriptor of their Go type, gp::fmt::as(d, x), unless the C++ type
+// says the Go type, which saves the descriptor (and its code) in the usual calls:
 //
-// C++ can't tell Go's int from int64, nor uint from uint64 and uintptr (all are int64_t or
-// uint64_t), and the error forms (%!s(int64=5)) and %T name the Go type. So an argument whose
-// type has one of them in a part that is not named (a named type and a struct carry their own
-// tags: gp_value_tag, gp_fields) is passed with its type tag:
+//	fmt.Println(n, s, ok, f)          gp::fmt::Println(n, s, ok, f);            // int, string, bool, float64
+//	fmt.Println(p, xs)                gp::fmt::Println(gp::fmt::as(&gp_td_Point, p), gp::fmt::as(gp_tdc_0, xs));
+//	fmt.Println(n64)                  gp::fmt::Println(gp::fmt::as(&gp::td_int64, n64));   // C++ can't tell int64 from int
+//	fmt.Println(err, nil)             gp::fmt::Println(err, gp::any());
+//	fmt.Fprintln(os.Stderr, x)        gp::fmt::Fprintln(gp::fmt::stderr_, x);
+//	fmt.Errorf("read %s: %w", n, err) gp::fmt::Errorf("read %s: %w"_gs, n, err);
+//	fmt.Printf(f, args...)            gp::fmt::Printf(f, gp::fmt::spread(args));   // the elements of []any
 //
-//	fmt.Printf("%s", x)   // x is an int64
-//	gp::fmtshim::Printf("%s"_gs, gp::fmtshim::typed<gp::fmtshim::tag::int64>(x));
-//	fmt.Println(m)        // m is a map[string]uint64
-//	gp::fmtshim::Println(gp::fmtshim::typed<gp::fmtshim::tag::map<gp::fmtshim::tag::none, gp::fmtshim::tag::uint64>>(m));
-//
-// A nil value has its type: []int(nil) is gp::slice<int64_t>(), (*T)(nil) gp::ptr<T>(nullptr)
-// (an untyped nil, fmt.Println(nil), is a nil interface: Phase 05).
+// A value of a type that has an Error method and is no pointer goes into an interface first
+// (gp::to_iface<gp::any>), so that %w can wrap it: Errorf needs the value itself, not a view.
 //
 // An argument with a C/C++ part (a C/C++ value, or a gocpp value with one inside: hasC) goes
-// through gp::cgo::fmt_arg (gocpp/interop.hpp), and one of the builtin print and println
-// through gp::cgo::print_arg (Phase 04 README §2.12, step 4.12). Lowering doesn't know the C++
-// type of a C/C++ value; the runtime prints it by that type, and the helper's static_assert
-// reports a type that can't be printed at the call's .gp line, as the user's error:
+// through gp::cgo::fmt_arg (gocpp/interop.hpp), which checks that fmt can print every part of it
+// at the .gp line, as the user's error, and registers the text of its C++ classes; a value whose
+// Go type is invalid (a C/C++ value) has its descriptor deduced from its C++ type there:
 //
 //	fmt.Println(v, n)     // v is a std.vector[int], n a C.int
-//	gp::fmtshim::Println(gp::cgo::fmt_arg(v), gp::cgo::fmt_arg(n));
+//	gp::fmt::Println(gp::cgo::fmt_arg(v), gp::cgo::fmt_arg(n));
 //	println(cstdio.EOF)
 //	gp::println(gp::cgo::print_arg(EOF));
+//
+// Fprint, Fprintln and Fprintf take os.Stdout and os.Stderr and a fmt.State (the argument of a
+// Format method); the other io.Writers come with package io (Phase 09).
 
-// fmtFuncs are the functions of package fmt that the runtime's stand-in has.
+// fmtFuncs are the functions of package fmt that the runtime has.
 var fmtFuncs = map[string]bool{
 	"Print": true, "Println": true, "Printf": true,
 	"Sprint": true, "Sprintln": true, "Sprintf": true,
+	"Fprint": true, "Fprintln": true, "Fprintf": true,
+	"Append": true, "Appendln": true, "Appendf": true,
+	"Errorf": true, "FormatString": true,
 }
 
-// fmtFormatted reports whether the function of fmt named name takes a format first.
+// fmtFirst returns the index of the first operand of the fmt function name: after the writer or
+// the slice, and the format.
+func fmtFirst(name string) int {
+	switch name {
+	case "Print", "Println", "Sprint", "Sprintln":
+		return 0
+	case "Printf", "Sprintf", "Errorf", "Fprint", "Fprintln", "Append", "Appendln":
+		return 1
+	case "Fprintf", "Appendf":
+		return 2
+	}
+	return 0
+}
+
+// fmtFormatted reports whether the function takes a format before its operands.
 func fmtFormatted(name string) bool {
-	return name == "Printf" || name == "Sprintf"
+	switch name {
+	case "Printf", "Sprintf", "Errorf", "Fprintf", "Appendf":
+		return true
+	}
+	return false
 }
 
 // fmtFunc returns the fmt function that c calls, or nil if c calls no function of package fmt.
@@ -78,51 +101,129 @@ func (fg *funcGen) pkgFunc(c *ast.CallExpr, sel *ast.SelectorExpr) string {
 		return ""
 	}
 	if fn.Pkg().Path() != "fmt" || !fmtFuncs[fn.Name()] {
-		fg.g.unsupported(c.Pos(), "the call of "+fn.Pkg().Name()+"."+fn.Name()+" (gocpp lowers only fmt.Print, Println, Printf, Sprint, Sprintln and Sprintf)")
+		fg.g.unsupported(c.Pos(), "the call of "+fn.Pkg().Name()+"."+fn.Name()+" (gocpp lowers only the Print, Sprint, Fprint, Append and Errorf functions of fmt)")
 		return ""
 	}
-	if fmtFormatted(fn.Name()) && len(c.Args) > 0 {
-		if tv := fg.g.info.Types[c.Args[0]]; tv.Value != nil && tv.Value.Kind() == constant.String {
-			if verb, phase := printfVerbs(constant.StringVal(tv.Value)); verb != "" {
-				fg.g.unsupported(c.Args[0].Pos(), fmt.Sprintf("the fmt.%s directive %s (Phase %02d)", fn.Name(), verb, phase))
-				return ""
-			}
-		}
-	}
-	return "gp::fmtshim::" + fn.Name()
+	return "gp::fmt::" + fn.Name()
 }
 
 // fmtCall returns the C++ of the call c of the fmt function fn, whose C++ name is callee.
 func (fg *funcGen) fmtCall(c *ast.CallExpr, fn *types.Func, callee string) cppir.Expr {
-	if len(c.Args) == 1 && isTuple(fg.g.info.TypeOf(c.Args[0])) {
+	name := fn.Name()
+	if name == "FormatString" {
+		args := fg.exprs(c.Args, false)
+		if len(c.Args) > 0 && isNilType(fg.g.info.TypeOf(c.Args[0])) {
+			args[0] = construct(typeName("gp::fmt::State")) // a nil interface
+		}
+		return &cppir.Call{Fun: cxxName(callee), Args: args}
+	}
+	if len(c.Args) == 1 && isTuple(fg.g.info.TypeOf(c.Args[0])) && fmtFirst(name) == 0 {
 		return fg.fmtTupleCall(c, callee)
 	}
+	first := fmtFirst(name)
 	args := make([]cppir.Expr, len(c.Args))
 	for i, a := range c.Args {
-		if i == 0 && fmtFormatted(fn.Name()) {
+		switch {
+		case i == 0 && (name == "Fprint" || name == "Fprintln" || name == "Fprintf"):
+			args[i] = fg.fmtWriter(a)
+		case i == 0 && (name == "Append" || name == "Appendln" || name == "Appendf"):
+			args[i] = fg.exactExpr(a) // the []byte
+		case i == first-1 && fmtFormatted(name):
 			args[i] = fg.exactExpr(a) // the format, a string
-			continue
+		case i == len(c.Args)-1 && c.Ellipsis.IsValid():
+			// fmt.Println(a...): the elements of the []any are the operands.
+			args[i] = call("gp::fmt::spread", fg.exactExpr(a))
+		default:
+			args[i] = fg.fmtArg(a)
 		}
-		args[i] = fg.fmtArg(a)
 	}
 	return &cppir.Call{Fun: cxxName(callee), Args: args}
 }
 
-// fmtArg returns the C++ of e as an argument of fmt's ...any: its value with its exact type
-// (exactExpr), and its type tag where it needs one. An array or a struct larger than 128 KiB is
-// copied to the heap, gp::fmtshim::heap(gp::new_<A>(a)), not by value on the C++ stack (D24).
+// fmtWriter returns the C++ of the writer of Fprint, Fprintln or Fprintf: os.Stdout, os.Stderr or
+// a fmt.State.
+func (fg *funcGen) fmtWriter(e ast.Expr) cppir.Expr {
+	if sel, ok := ast.Unparen(e).(*ast.SelectorExpr); ok && fg.g.info.Selections[sel] == nil {
+		if v, ok := fg.g.info.Uses[sel.Sel].(*types.Var); ok && v.Pkg() != nil && v.Pkg().Path() == "os" {
+			switch v.Name() {
+			case "Stdout":
+				return cxxName("gp::fmt::stdout_")
+			case "Stderr":
+				return cxxName("gp::fmt::stderr_")
+			}
+		}
+	}
+	if t := fg.g.info.TypeOf(e); t != nil && isFmtIface(t, "State") {
+		return fg.exactExpr(e)
+	} else if t != nil && isNilType(t) {
+		return construct(typeName("gp::fmt::State")) // a nil writer: the call panics
+	}
+	fg.g.notYet(e.Pos(), "fmt.Fprint to a writer other than os.Stdout, os.Stderr or a fmt.State is not available yet (package io: Phase 09)")
+	return placeholder
+}
+
+// plainFmtType reports whether the C++ type of a value of the Go type t says the Go type, so that
+// the value is a plain operand of fmt (gocpp/fmt.hpp plain_desc): the unnamed bool, int8, int16,
+// int32, uint8, uint16, uint32, int, uint, float32, float64, complex64, complex128 and string.
+func plainFmtType(t types.Type) bool {
+	b, ok := types.Unalias(t).(*types.Basic)
+	if !ok {
+		return false
+	}
+	switch b.Kind() {
+	case types.Bool, types.Int8, types.Int16, types.Int32, types.Uint8, types.Uint16, types.Uint32,
+		types.Int, types.Uint, types.Float32, types.Float64, types.Complex64, types.Complex128, types.String:
+		return true
+	}
+	return false
+}
+
+// hasErrorMethod reports whether the method set of t has Error() string.
+func hasErrorMethod(t types.Type) bool {
+	s := types.NewMethodSet(t).Lookup(nil, "Error")
+	return s != nil && stringerSig(s)
+}
+
+// stringerSig reports whether the method of the selection s is func() string.
+func stringerSig(s *types.Selection) bool {
+	sig, ok := s.Obj().Type().(*types.Signature)
+	if !ok || sig.Params().Len() != 0 || sig.Results().Len() != 1 {
+		return false
+	}
+	return types.Identical(sig.Results().At(0).Type(), types.Typ[types.String])
+}
+
+// fmtArg returns the C++ of e as an operand of fmt's ...any (see the top).
 func (fg *funcGen) fmtArg(e ast.Expr) cppir.Expr {
-	t := fg.g.info.TypeOf(e)
-	if t != nil && holdsIface(t) && !isInterface(t) {
-		fg.g.unsupported(e.Pos(), "printing a value that holds an interface with fmt (step 5.11)")
-		return placeholder
+	return fg.fmtArgOf(fg.g.info.TypeOf(e), fg.exactExpr(e), e.Pos())
+}
+
+// fmtArgOf is fmtArg for the value x of the Go type t.
+func (fg *funcGen) fmtArgOf(t types.Type, x cppir.Expr, pos token.Pos) cppir.Expr {
+	switch {
+	case t != nil && isNilType(t):
+		return construct(typeName("gp::any")) // an untyped nil is a nil interface
+	case t == nil || !complete(t):
+		return call("gp::cgo::fmt_arg", x) // a C/C++ value: its descriptor comes from its C++ type
+	case isInterface(t):
+		return x // its dynamic type
 	}
-	x := fg.exactExpr(e)
+	if b, ok := types.Unalias(t).(*types.Basic); ok && b.Info()&types.IsUntyped != 0 {
+		t = types.Default(t)
+	}
+	if plainFmtType(t) && !hasC(t) {
+		return x
+	}
+	if hasErrorMethod(t) && !isPointer(t) {
+		// Errorf wraps the value: it must be in an interface (a box it owns).
+		any := types.Universe.Lookup("any").Type()
+		return fg.g.toInterface(t, any, x, pos)
+	}
 	if (isArray(t) || isStruct(t)) && largeVar(t) {
-		x = call("gp::fmtshim::heap", largeBox(fg.g.cxxType(t, e.Pos()), x)) // arrays.go
+		x = call("gp::fmt::heap", largeBox(fg.g.cxxType(t, pos), x)) // arrays.go
 	}
-	x = fmtTyped(t, x)
-	if t == nil || hasC(t) {
+	x = call("gp::fmt::as", fg.g.desc(t, pos), x)
+	if hasC(t) {
 		x = call("gp::cgo::fmt_arg", x)
 	}
 	return x
@@ -146,109 +247,27 @@ func (fg *funcGen) printArgs(args []ast.Expr) []cppir.Expr {
 	return xs
 }
 
-// fmtTyped returns x, a value of the Go type t, with its type tag, if t needs one:
-// gp::fmtshim::typed<tag>(x).
-func fmtTyped(t types.Type, x cppir.Expr) cppir.Expr {
-	if tag := fmtTag(t); tag != "" {
-		return templateCall("gp::fmtshim::typed", []cppir.Node{typeName(tag)}, x)
-	}
-	return x
-}
-
-// fmtTupleCall returns the C++ of fmt.F(g()), where g has several results: the call goes
-// through std::apply with a generic lambda (std::apply needs a function object), which returns
-// the string of the Sprint functions:
+// fmtTupleCall returns the C++ of fmt.Print(g()), Println, Sprint or Sprintln, where g has several
+// results: the call goes through std::apply with a lambda that takes the results, each with its
+// descriptor:
 //
-//	std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, g())
-//
-// The results get no type tags. Print, Println, Sprint and Sprintln never print a type's name,
-// and Printf(g()) and Sprintf(g()), whose format is g's first result, are valid Go but need a
-// format that is not a constant (gated to Phase 09): there, %!s(int64=5) needs the tags, so
-// Phase 09's tuple path must give each result its tag.
+//	std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp::fmt::as(&gp::td_int64, gp_r1)); }, g())
 func (fg *funcGen) fmtTupleCall(c *ast.CallExpr, callee string) cppir.Expr {
-	params := []cppir.Param{{Type: &cppir.Ref{Elem: &cppir.Const{Elem: typeName("auto")}}, Pack: true, Name: "gp_a"}}
-	var arg cppir.Expr = cxxName("gp_a")
-	if hasC(fg.g.info.TypeOf(c.Args[0])) {
-		arg = call("gp::cgo::fmt_arg", arg) // results with C/C++ parts
+	tuple := fg.g.info.TypeOf(c.Args[0]).(*types.Tuple)
+	var params []cppir.Param
+	var args []cppir.Expr
+	for i := range tuple.Len() {
+		name := "gp_r" + strconv.Itoa(i)
+		params = append(params, cppir.Param{Type: &cppir.Ref{Elem: typeName("auto"), RValue: true}, Name: name})
+		args = append(args, fg.fmtArgOf(tuple.At(i).Type(), cxxName(name), c.Pos()))
 	}
-	x := call(callee, &cppir.Expand{X: arg})
-	var body cppir.Stmt = &cppir.ExprStmt{X: x}
-	if strings.HasPrefix(callee, "gp::fmtshim::S") {
-		body = &cppir.Return{X: x}
-	}
+	body := &cppir.Return{X: &cppir.Call{Fun: cxxName(callee), Args: args}}
 	fn := &cppir.Lambda{Params: params, Body: &cppir.Block{Stmts: []cppir.Stmt{body}, Inline: true}}
 	return &cppir.Call{Fun: cxxName("std::apply"), Args: []cppir.Expr{fn, fg.expr(c.Args[0])}}
 }
 
-// printfVerbs returns the first directive of a format of Printf or Sprintf that gp::fmtshim
-// doesn't know in Phase 03, with the phase that brings it (the # flag, *, an argument index [n]:
-// Phase 09; %T and %w: Phase 05, though the shim prints %T; the other verbs of Go's fmt: Phase
-// 09), or "" and 0 if there is none. The shim knows the verbs %v %d %s %q %t %f and %%, the flags
-// - + space and 0, a width and a precision, and any character that is no verb of Go's fmt (%z,
-// %!, %é), for which it writes Go's error form %!z(int=5), as Go does. The format is parsed like
-// Go's fmt.(*pp).doPrintf and the phase gate (internal/check, checkFormat and verbPhase), so the
-// emitter accepts exactly what the gate lets through in Phase 03. (A % at the end is Go's
-// %!(NOVERB), which the shim prints too.)
-func printfVerbs(format string) (string, int) {
-	for i := 0; i < len(format); {
-		if format[i] != '%' {
-			i++
-			continue
-		}
-		start := i
-		i++
-		for i < len(format) && strings.IndexByte("#0+- ", format[i]) >= 0 {
-			if format[i] == '#' {
-				return directive(format, start), 9
-			}
-			i++
-		}
-		// The width and the precision, digits each (a . at the end is the verb, as in Go's
-		// doPrintf); * and [n] are Phase 09.
-		for part := 0; part < 2 && i < len(format); part++ {
-			switch {
-			case format[i] == '*' || format[i] == '[':
-				return directive(format, start), 9
-			case format[i] == '.' && i+1 < len(format) || '0' <= format[i] && format[i] <= '9':
-				if format[i] == '.' {
-					i++
-				}
-				for i < len(format) && '0' <= format[i] && format[i] <= '9' {
-					i++
-				}
-			}
-		}
-		if i < len(format) && (format[i] == '*' || format[i] == '[') {
-			return directive(format, start), 9
-		}
-		if i == len(format) {
-			break
-		}
-		verb, size := utf8.DecodeRuneInString(format[i:])
-		i += size
-		if strings.ContainsRune(goVerbs, verb) && !strings.ContainsRune("vdsqtf%", verb) {
-			if verb == 'T' || verb == 'w' {
-				return format[start:i], 5
-			}
-			return format[start:i], 9
-		}
-	}
-	return "", 0
-}
-
-// directive returns the directive of the format that starts at start, up to its verb (a
-// letter), for an error message.
-func directive(format string, start int) string {
-	end := start + 1
-	for end < len(format) && !isLetter(format[end-1]) {
-		end++
-	}
-	return format[start:end]
-}
-
-// goVerbs are the verbs of Go's fmt (and %w of fmt.Errorf), as internal/check has them.
-const goVerbs = "vTtbcdoOqxXUeEfFgGspw%"
-
-func isLetter(c byte) bool {
-	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'
+// isFmtIface reports whether t is the interface type fmt.name.
+func isFmtIface(t types.Type, name string) bool {
+	n, ok := types.Unalias(t).(*types.Named)
+	return ok && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "fmt" && n.Obj().Name() == name
 }

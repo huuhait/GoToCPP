@@ -1,6 +1,6 @@
 // phase: 03
 
-// fmt calls String() and Error() like Go (step 3.10, through the hooks of gocpp/fmtshim.hpp):
+// fmt calls String() and Error() like Go (step 3.10, through the descriptors of gocpp/fmt.hpp):
 // of a value's method set (a value method), of a pointer's (a pointer method: only for a
 // pointer, here in a field, also a nil one, which the method gets), Error before String, a value
 // method through a nil pointer prints <nil>, a panic in the method prints fmt's PANIC= form, an

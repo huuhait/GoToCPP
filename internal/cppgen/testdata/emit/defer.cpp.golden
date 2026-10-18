@@ -44,7 +44,7 @@ int64_t inc(gp::ptr<int64_t> p) {
 
 void show(gp::string tag, int64_t a, int64_t b) {
 #line 22 "$DIR/defer.gp"
-    gp::fmtshim::Println(tag, a, b);
+    gp::fmt::Println(tag, a, b);
 #line 22 "$DIR/defer.gp"
 }
 
@@ -246,9 +246,9 @@ void loop() {
         for (int64_t gp_i0 = 0; gp_i0 < 3; gp_i0++) {
 #line 87 "$DIR/defer.gp"
             int64_t i = gp_i0;
-            gp_df.gp_push_call([](auto&& gp_a0) { gp::fmtshim::Println("loop"_gs, gp_a0); }, i);
+            gp_df.gp_push_call([](auto&& gp_a0) { gp::fmt::Println("loop"_gs, gp_a0); }, i);
         }
-        gp::fmtshim::Println("loop body"_gs);
+        gp::fmt::Println("loop body"_gs);
     } catch (...) {
 #line 91 "$DIR/defer.gp"
         gp_df.gp_on_exception();
@@ -267,7 +267,7 @@ void order() {
         gp::slice<int64_t> g = gp::slice_of<int64_t>({10, 20, 30});
         gp::ptr<int64_t> i = gp::new_<int64_t>(0);
         { auto gp_t1 = gpkg_main::inc(i); gp_df.gp_push(show, "g"_gs, g[(*i)], gp_t1); }
-        gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp::fmtshim::Println("printed"_gs, gp_a0, gp_a1); }, (*z), (*i));
+        gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp::fmt::Println("printed"_gs, gp_a0, gp_a1); }, (*z), (*i));
         (*z) = 100; (*i) = 2;
     } catch (...) {
 #line 101 "$DIR/defer.gp"
@@ -283,13 +283,13 @@ void builtins() {
 #line 103 "$DIR/defer.gp"
     gp::defer_frame gp_df; try {
         gp::map<gp::string, int64_t> m = gp::map_of<gp::string, int64_t>({{"a"_gs, 1}, {"b"_gs, 2}});
-        gp_df.gp_push_call([](auto&& gp_a0) { gp::fmtshim::Println("after delete"_gs, gp_a0); }, gp::len(m));
+        gp_df.gp_push_call([](auto&& gp_a0) { gp::fmt::Println("after delete"_gs, gp_a0); }, gp::len(m));
         gp_df.gp_push_call([](auto&& gp_a0) { gp::erase(gp_a0, "a"_gs); }, m);
         gp::slice<int64_t> s = gp::slice_of<int64_t>({1, 2, 3});
-        { auto gp_t0 = s[0]; auto gp_t1 = s[1]; gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1, auto&& gp_a2) { gp::fmtshim::Println("after copy"_gs, gp_a0, gp_a1, gp_a2); }, gp_t0, gp_t1, s[2]); }
+        { auto gp_t0 = s[0]; auto gp_t1 = s[1]; gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1, auto&& gp_a2) { gp::fmt::Println("after copy"_gs, gp_a0, gp_a1, gp_a2); }, gp_t0, gp_t1, s[2]); }
         gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp::copy(gp_a0, gp_a1); }, s, gp::slice_of<int64_t>({7, 8}));
         gp::slice<int64_t> c = gp::slice_of<int64_t>({4, 5});
-        { auto gp_t2 = c[0]; gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp::fmtshim::Println("after clear"_gs, gp_a0, gp_a1); }, gp_t2, c[1]); }
+        { auto gp_t2 = c[0]; gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp::fmt::Println("after clear"_gs, gp_a0, gp_a1); }, gp_t2, c[1]); }
         gp_df.gp_push_call([](auto&& gp_a0) { gp::clear(gp_a0); }, c);
         gp_df.gp_push_call([](auto&&...) { gp::print("print "_gs, int64_t(1), "\n"_gs); });
         gp_df.gp_push_call([](auto&&...) { gp::println(); });
@@ -311,7 +311,7 @@ int64_t boxed(int64_t n) {
 #line 117 "$DIR/defer.gp"
         gp::ptr<int64_t> gp_t0 = gp::new_<int64_t>(n); { gp::ptr<int64_t> n = static_cast<gp::ptr<int64_t>&&>(gp_t0);
             gp_df.gp_push(add, n, 1);
-            gp_df.gp_push_call([](auto&& gp_a0) { gp::fmtshim::Println("boxed"_gs, gp_a0); }, (*n));
+            gp_df.gp_push_call([](auto&& gp_a0) { gp::fmt::Println("boxed"_gs, gp_a0); }, (*n));
             (*n) = (*n) * 2;
             gp_r0 = (*n); goto gp_ret0;
         }
@@ -330,15 +330,15 @@ int64_t boxed(int64_t n) {
 void shadow(int64_t v) {
 #line 124 "$DIR/defer.gp"
     gp::defer_frame gp_df; try {
-        gp_df.gp_push_call([](auto&& gp_a0) { gp::fmtshim::Println("shadow outer"_gs, gp_a0); }, v);
+        gp_df.gp_push_call([](auto&& gp_a0) { gp::fmt::Println("shadow outer"_gs, gp_a0); }, v);
         if (v > 0) {
             int64_t gp_t0 = v * 10; { int64_t v = gp_t0;
-                gp_df.gp_push_call([](auto&& gp_a0) { gp::fmtshim::Println("shadow inner"_gs, gp_a0); }, v);
+                gp_df.gp_push_call([](auto&& gp_a0) { gp::fmt::Println("shadow inner"_gs, gp_a0); }, v);
             }
 #line 129 "$DIR/defer.gp"
         }
         int64_t w = v + 1;
-        gp_df.gp_push_call([](auto&& gp_a0) { gp::fmtshim::Println("shadow w"_gs, gp_a0); }, w);
+        gp_df.gp_push_call([](auto&& gp_a0) { gp::fmt::Println("shadow w"_gs, gp_a0); }, w);
     } catch (...) {
 #line 132 "$DIR/defer.gp"
         gp_df.gp_on_exception();
@@ -407,8 +407,8 @@ int64_t noDefer(int64_t x) {
 void gp_init_1() {
 #line 161 "$DIR/defer.gp"
     gp::defer_frame gp_df; try {
-        gp_df.gp_push_call([](auto&&...) { gp::fmtshim::Println("init deferred"_gs); });
-        gp::fmtshim::Println("init"_gs);
+        gp_df.gp_push_call([](auto&&...) { gp::fmt::Println("init deferred"_gs); });
+        gp::fmt::Println("init"_gs);
     } catch (...) {
 #line 164 "$DIR/defer.gp"
         gp_df.gp_on_exception();
@@ -422,25 +422,25 @@ void gp_init_1() {
 void main() {
 #line 166 "$DIR/defer.gp"
     gp::defer_frame gp_df; try {
-        gp_df.gp_push_call([](auto&& gp_a0) { gp::fmtshim::Println("main deferred"_gs, gp_a0); }, gp::len(trail));
+        gp_df.gp_push_call([](auto&& gp_a0) { gp::fmt::Println("main deferred"_gs, gp_a0); }, gp::len(trail));
         gp_df.gp_push(note, "main"_gs);
-        { auto gp_t0 = named(); gp::fmtshim::Println(gp_t0, twice()); }
-        std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, bare());
-        std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, pair(3));
-        std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, pair(-2));
-        std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, swap());
-        std::apply([](const auto&... gp_a) { gp::fmtshim::Println(gp_a...); }, forward());
-        { auto gp_t1 = gpkg_main::early(gp::slice_of<int64_t>({1, -1})); gp::fmtshim::Println(gp_t1, gpkg_main::early(nullptr)); }
-        { auto gp_t2 = kind(-1); auto gp_t3 = kind(0); gp::fmtshim::Println(gp_t2, gp_t3, kind(1)); }
+        { auto gp_t0 = named(); gp::fmt::Println(gp_t0, twice()); }
+        std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, bare());
+        std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, pair(3));
+        std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, pair(-2));
+        std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, swap());
+        std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp_r1); }, forward());
+        { auto gp_t1 = gpkg_main::early(gp::slice_of<int64_t>({1, -1})); gp::fmt::Println(gp_t1, gpkg_main::early(nullptr)); }
+        { auto gp_t2 = kind(-1); auto gp_t3 = kind(0); gp::fmt::Println(gp_t2, gp_t3, kind(1)); }
         loop();
         order();
         builtins();
-        gp::fmtshim::Println(boxed(4));
+        gp::fmt::Println(boxed(4));
         shadow(3);
-        gp::fmtshim::Println(jumps(4));
-        gp::fmtshim::Println(fact(5));
-        gp::fmtshim::Println(noDefer(-3));
-        gp::fmtshim::Println(joined());
+        gp::fmt::Println(jumps(4));
+        gp::fmt::Println(fact(5));
+        gp::fmt::Println(noDefer(-3));
+        gp::fmt::Println(joined());
     } catch (...) {
 #line 186 "$DIR/defer.gp"
         gp_df.gp_on_exception();

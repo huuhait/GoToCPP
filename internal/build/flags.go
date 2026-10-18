@@ -9,6 +9,9 @@ import "slices"
 // hardening on makes a missing -O into -O2. (The same wrapper adds
 // -D_FORTIFY_SOURCE after these flags, which warns at -O0; the runtime's
 // gocpp/nofortify.h, included first by gocpp/rt.hpp, undefines it.)
+// -ffunction-sections -fdata-sections: with the link's --gc-sections (link.go), a program links
+// only the runtime functions that it reaches, not all of fmt.o and the other big objects
+// whole (a hello world with println is 170 KB smaller).
 // -gno-column-info: the debug info gets no columns, because the columns
 // would be those of the C++ code, not of the .gp code that #line maps the
 // lines to; lldb and editors would point at the wrong place in a .gp line.
@@ -19,7 +22,7 @@ import "slices"
 // guard below it (runtime/include/gocpp/os.hpp), not in the stack of another thread. Without
 // it, a frame bigger than the guard (256 KiB) can skip over the guard. (Windows targets
 // ignore it: their frames are probed anyway.)
-var debugFlags = []string{"-std=c++20", "-fwrapv", "-fno-strict-aliasing", "-ffp-contract=off", "-fstack-clash-protection", "-g", "-gno-column-info", "-O0"}
+var debugFlags = []string{"-std=c++20", "-fwrapv", "-fno-strict-aliasing", "-ffp-contract=off", "-fstack-clash-protection", "-g", "-gno-column-info", "-O0", "-ffunction-sections", "-fdata-sections"}
 
 // asanFlags are the flags that -asan adds, to the compiles and to the
 // link: AddressSanitizer and UndefinedBehaviorSanitizer, like the

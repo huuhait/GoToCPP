@@ -23,7 +23,6 @@ struct Sq {
     std::size_t gp_hash() const {
         return gp::hash_fields(s);
     }
-    static constexpr const char* gp_type_name = "main.Sq";
     static constexpr auto gp_fields = gp::fields(gp::field(&Sq::s, "s", false, false));
     int64_t Area() const;
 };
@@ -37,7 +36,6 @@ struct Key {
         return gp::hash_fields(id, val);
     }
     static constexpr bool gp_hash_panics = true;
-    static constexpr const char* gp_type_name = "main.Key";
     static constexpr auto gp_fields = gp::fields(gp::field(&Key::id, "id", false, false), gp::field(&Key::val, "val", false, false));
 };
 static_assert(sizeof(Key) == 40 && alignof(Key) == 8);
@@ -49,7 +47,6 @@ struct Plain {
     std::size_t gp_hash() const {
         return gp::hash_fields(a, b);
     }
-    static constexpr const char* gp_type_name = "main.Plain";
     static constexpr auto gp_fields = gp::fields(gp::field(&Plain::a, "a", false, false), gp::field(&Plain::b, "b", false, false));
 };
 static_assert(sizeof(Plain) == 16 && alignof(Plain) == 8);
@@ -61,7 +58,6 @@ struct Holder {
         return gp::hash_fields(Shape);
     }
     static constexpr bool gp_hash_panics = true;
-    static constexpr const char* gp_type_name = "main.Holder";
     static constexpr auto gp_fields = gp::fields(gp::field(&Holder::Shape, "Shape", true, true));
 };
 static_assert(sizeof(Holder) == 32 && alignof(Holder) == 8);
@@ -103,7 +99,7 @@ void main() {
     gp::func<int64_t()> g = gp::func<int64_t()>(gp::aware([gp_r = gp::method_recv(h.Shape)](auto&&... gp_a) { return gp_r.Area(gp_a...); }));
     gp::map<Key, int64_t> m = gp::map_of<Key, int64_t>({{Key{1, gp::to_iface<gp::any>("a"_gs, &gp::td_string)}, 1}});
     gp::map<Plain, int64_t> p = gp::map_of<Plain, int64_t>({{Plain{1, 2}, 1}});
-    { auto gp_t0 = f(); auto gp_t1 = e(s); auto gp_t2 = g(); gp::fmtshim::Println(gp_t0, gp_t1, gp_t2, gp::get(m, Key{1, gp::to_iface<gp::any>("a"_gs, &gp::td_string)}), gp::get(p, Plain{1, 2})); }
+    { auto gp_t0 = f(); auto gp_t1 = e(s); auto gp_t2 = g(); gp::fmt::Println(gp_t0, gp_t1, gp_t2, gp::get(m, Key{1, gp::to_iface<gp::any>("a"_gs, &gp::td_string)}), gp::get(p, Plain{1, 2})); }
 }
 
 } // namespace gpkg_main
@@ -126,7 +122,14 @@ inline int64_t gp_thunk_pSq_Area(const gp::iface& gp_self) {
     return gp_p->Area();
 }
 inline const gp::method gp_pm_Sq[]{gp::method_of<int64_t()>("Area", nullptr, "func() int", &gp_thunk_pSq_Area)};
-const gp::type_desc gp_td_Sq = gp::named<Sq>("main.Sq", "main", gp::shape_struct(nullptr, 0), gp::methods_of(gp_vm_Sq), gp::methods_of(gp_pm_Sq));
+static const gp::type_desc* gp_full_Sq();
+const gp::type_desc gp_td_Sq = gp::named<Sq>("main.Sq", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Sq), gp::methods_of(gp_vm_Sq), gp::methods_of(gp_pm_Sq));
+
+static const gp::type_desc* gp_full_Sq() {
+    static const gp::field_desc gp_f[]{gp::field_desc("s", "main", &gp::td_int, nullptr, false, gp::offset_of(&Sq::s))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Sq, gp::shape_struct(gp_f, 1));
+    return &gp_d;
+}
 
 } // namespace gpkg_main
 

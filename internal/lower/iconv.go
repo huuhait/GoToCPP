@@ -77,7 +77,7 @@ func (g *gen) toInterface(from, to types.Type, x cppir.Expr, pos token.Pos) cppi
 }
 
 // noConvArgs reports whether the call c takes its arguments as they are, without Go's
-// conversion to the parameters' types: the calls of package fmt (the runtime's fmt shim takes
+// conversion to the parameters' types: the calls of package fmt (the runtime's fmt takes
 // every value, step 5.11 brings the real fmt) and the builtins print, println and panic.
 func (g *gen) noConvArgs(c *ast.CallExpr) bool {
 	fun := ast.Unparen(c.Fun)

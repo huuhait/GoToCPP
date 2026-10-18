@@ -94,7 +94,9 @@ func (g *gen) litType(e *ast.CompositeLit) types.Type {
 func (fg *funcGen) structLit(e *ast.CompositeLit, t types.Type) cppir.Expr {
 	typ := fg.g.cxxType(t, e.Lbrace)
 	if !hasKeys(e) && !largeVar(t) {
-		return &cppir.InitList{Type: typ, Elems: fg.exprs(e.Elts, false)}
+		elems := fg.exprs(e.Elts, false)
+		fg.zeroBlanks(t, e.Elts, elems)
+		return &cppir.InitList{Type: typ, Elems: elems}
 	}
 	// Keyed, or larger than 128 KiB: designated initializers (also for a positional literal, in
 	// the same order), which largeBox turns into stores into a new block (newStruct).
@@ -110,10 +112,34 @@ func (fg *funcGen) structLit(e *ast.CompositeLit, t types.Type) cppir.Expr {
 	var elems []cppir.Expr
 	for i, v := range values {
 		if v != nil {
-			elems = append(elems, &cppir.Designated{Name: fg.g.fieldName(t, i, e.Lbrace), X: fg.expr(v)})
+			x := fg.expr(v)
+			if st.Field(i).Name() == "_" {
+				x = blankValue(v, x, fg)
+			}
+			elems = append(elems, &cppir.Designated{Name: fg.g.fieldName(t, i, e.Lbrace), X: x})
 		}
 	}
 	return &cppir.InitList{Type: typ, Elems: elems}
+}
+
+// zeroBlanks replaces the values of the blank fields of a positional struct literal in elems:
+// Go evaluates them and drops them (a blank field is always zero).
+func (fg *funcGen) zeroBlanks(t types.Type, elts []ast.Expr, elems []cppir.Expr) {
+	st := under(t).(*types.Struct)
+	for i := range elems {
+		if i < st.NumFields() && st.Field(i).Name() == "_" {
+			elems[i] = blankValue(elts[i], elems[i], fg)
+		}
+	}
+}
+
+// blankValue returns the C++ of the value v (x) of a blank field: {} (the zero value) for a constant
+// or a value without effects, else gp::zero_of(x), which evaluates x and gives the zero value.
+func blankValue(v ast.Expr, x cppir.Expr, fg *funcGen) cppir.Expr {
+	if tv, ok := fg.g.info.Types[v]; ok && tv.Value != nil || fg.inert(v) {
+		return &cppir.InitList{}
+	}
+	return call("gp::zero_of", x)
 }
 
 // newStruct returns the C++ that makes a new block for a struct of the C++ type typ that is larger

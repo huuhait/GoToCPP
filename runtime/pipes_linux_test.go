@@ -16,7 +16,7 @@ import (
 )
 
 // bigSize is how many bytes the "big" case of test/diff.cpp writes to stdout with one
-// fmtshim::Print, before "done" on stderr. "bigerr" writes them and a newline to stderr with
+// fmt::Print, before "done" on stderr. "bigerr" writes them and a newline to stderr with
 // one println, then "still alive\n" to stderr, and exits with code 3.
 const bigSize = 1 << 20
 

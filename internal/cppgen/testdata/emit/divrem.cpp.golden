@@ -10,28 +10,28 @@ void main() {
     int64_t a = 7;
 #line 9 "$DIR/divrem.gp"
     int64_t b = -2;
-    { auto gp_t0 = gp::div(a, b); auto gp_t1 = gp::rem(a, b); auto gp_t2 = gp::div(-a, b); auto gp_t3 = gp::rem(-a, b); auto gp_t4 = gp::div(a, -b); auto gp_t5 = gp::rem(a, -b); auto gp_t6 = gp::div(-a, -b); gp::fmtshim::Println(gp_t0, gp_t1, gp_t2, gp_t3, gp_t4, gp_t5, gp_t6, gp::rem(-a, -b)); }
-    gp::fmtshim::Println(a / 2, a % 2, -a / 2, -a % 2, a / -3, a % -3, b / 2, b % 2);
+    { auto gp_t0 = gp::div(a, b); auto gp_t1 = gp::rem(a, b); auto gp_t2 = gp::div(-a, b); auto gp_t3 = gp::rem(-a, b); auto gp_t4 = gp::div(a, -b); auto gp_t5 = gp::rem(a, -b); auto gp_t6 = gp::div(-a, -b); gp::fmt::Println(gp_t0, gp_t1, gp_t2, gp_t3, gp_t4, gp_t5, gp_t6, gp::rem(-a, -b)); }
+    gp::fmt::Println(a / 2, a % 2, -a / 2, -a % 2, a / -3, a % -3, b / 2, b % 2);
     int64_t m1 = -1;
     int64_t i64 = INT64_MIN;
-    { auto gp_t7 = gp::div(i64, m1); gp::fmtshim::Println(gp::fmtshim::typed<gp::fmtshim::tag::int64>(gp_t7), gp::fmtshim::typed<gp::fmtshim::tag::int64>(gp::rem(i64, m1)), gp::fmtshim::typed<gp::fmtshim::tag::int64>(gp::div(i64, -1)), gp::fmtshim::typed<gp::fmtshim::tag::int64>(gp::rem(i64, -1)), gp::fmtshim::typed<gp::fmtshim::tag::int64>(i64 / 2), gp::fmtshim::typed<gp::fmtshim::tag::int64>(i64 % 2), gp::fmtshim::typed<gp::fmtshim::tag::int64>(i64 / -2)); }
+    { auto gp_t7 = gp::div(i64, m1); gp::fmt::Println(gp::fmt::as(&gp::td_int64, gp_t7), gp::fmt::as(&gp::td_int64, gp::rem(i64, m1)), gp::fmt::as(&gp::td_int64, gp::div(i64, -1)), gp::fmt::as(&gp::td_int64, gp::rem(i64, -1)), gp::fmt::as(&gp::td_int64, i64 / 2), gp::fmt::as(&gp::td_int64, i64 % 2), gp::fmt::as(&gp::td_int64, i64 / -2)); }
     int32_t i32 = INT32_MIN;
-    { auto gp_t8 = gp::div(i32, int32_t(m1)); gp::fmtshim::Println(gp_t8, gp::rem(i32, int32_t(m1)), gp::div(i32, -1), gp::rem(i32, -1), i32 / 7, i32 % 7); }
+    { auto gp_t8 = gp::div(i32, int32_t(m1)); gp::fmt::Println(gp_t8, gp::rem(i32, int32_t(m1)), gp::div(i32, -1), gp::rem(i32, -1), i32 / 7, i32 % 7); }
     int16_t i16 = -32768;
     int8_t i8 = -128;
-    { auto gp_t9 = gp::div(i8, int8_t(m1)); auto gp_t10 = gp::rem(i8, int8_t(m1)); auto gp_t11 = gp::div(i16, int16_t(m1)); gp::fmtshim::Println(gp_t11, gp::rem(i16, int16_t(m1)), gp::div(i16, -1), gp::div(i8, -1), gp::rem(i8, -1), gp_t9, gp_t10); }
+    { auto gp_t9 = gp::div(i8, int8_t(m1)); auto gp_t10 = gp::rem(i8, int8_t(m1)); auto gp_t11 = gp::div(i16, int16_t(m1)); gp::fmt::Println(gp_t11, gp::rem(i16, int16_t(m1)), gp::div(i16, -1), gp::div(i8, -1), gp::rem(i8, -1), gp_t9, gp_t10); }
     uint64_t u = UINT64_C(18446744073709551615);
     uint32_t u32 = UINT32_C(4294967295);
     uint8_t u8 = 250;
-    { auto gp_t12 = gp::div(u8, u8); gp::fmtshim::Println(u / 3, u % 10, gp::div(u, u), u32 / 7, u32 % 7, uint8_t(u8 / 3), uint8_t(u8 % 7), gp_t12); }
+    { auto gp_t12 = gp::div(u8, u8); gp::fmt::Println(u / 3, u % 10, gp::div(u, u), u32 / 7, u32 % 7, uint8_t(u8 / 3), uint8_t(u8 % 7), gp_t12); }
     uint64_t two = 2;
-    { auto gp_t13 = gp::div(u, two); auto gp_t14 = gp::rem(u, two); auto gp_t15 = gp::div(int64_t(100), a); auto gp_t16 = gp::rem(int64_t(100), a); gp::fmtshim::Println(gp::fmtshim::typed<gp::fmtshim::tag::uint64>(gp_t13), gp::fmtshim::typed<gp::fmtshim::tag::uint64>(gp_t14), gp_t15, gp_t16, gp::div(int64_t(-100), a)); }
+    { auto gp_t13 = gp::div(u, two); auto gp_t14 = gp::rem(u, two); auto gp_t15 = gp::div(int64_t(100), a); auto gp_t16 = gp::rem(int64_t(100), a); gp::fmt::Println(gp::fmt::as(&gp::td_uint64, gp_t13), gp::fmt::as(&gp::td_uint64, gp_t14), gp_t15, gp_t16, gp::div(int64_t(-100), a)); }
     double f = 7.0;
 #line 26 "$DIR/divrem.gp"
     double g = -2.0;
-    gp::fmtshim::Println(f / g, f / 2.0, -f / 4.0, g / f);
+    gp::fmt::Println(f / g, f / 2.0, -f / 4.0, g / f);
     float f32 = 1.0f;
-    gp::fmtshim::Println(f32 / 3.0f, f32 / 3.0f * 3.0f);
+    gp::fmt::Println(f32 / 3.0f, f32 / 3.0f * 3.0f);
 }
 
 } // namespace gpkg_main

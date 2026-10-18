@@ -26,7 +26,7 @@ void main() {
     int64_t s = std::get<0>(gp_t0);
 #line 12 "$ROOT/tests/golden/hello.gp"
     bool big = std::get<1>(gp_t0);
-    gp::fmtshim::Println("hello, gocpp"_gs, s, big);
+    gp::fmt::Println("hello, gocpp"_gs, s, big);
 }
 
 } // namespace gpkg_main

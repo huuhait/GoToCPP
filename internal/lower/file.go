@@ -213,6 +213,16 @@ func (g *gen) unsupported(pos token.Pos, what string) {
 	g.errorf(pos, "not supported yet: %s", what)
 }
 
+// notYet records an error that is the user's, not gocpp's: the program uses what a later phase
+// builds (what is the whole message, "... is not available yet (Phase NN)"), like the checker's
+// gates; gocpp build reports it as an error, not as a bug.
+func (g *gen) notYet(pos token.Pos, what string) {
+	g.errorf(pos, "%s", what)
+	if g.err != nil && g.err.Pos == g.fset.Position(pos) && g.err.Msg == what {
+		g.err.User = true
+	}
+}
+
 // pos returns the place of p in the .gp source, for a C++ line: the zero Pos if p is not
 // valid.
 func (g *gen) pos(p token.Pos) cppir.Pos {
@@ -427,7 +437,7 @@ func (g *gen) collectNative(d *ast.FuncDecl) {
 func (g *gen) collectGen(d *ast.GenDecl) {
 	switch d.Tok {
 	case token.IMPORT:
-		// Phase 02 imports only fmt, whose functions the runtime has (gp::fmtshim).
+		// (fmt's functions are the runtime's: gp::fmt.)
 	case token.CONST:
 		// Every use of a constant is folded (expr.go), so the code needs no C++ for it. The
 		// split layout's header has the exported ones for C++ users (constDecls).
@@ -514,13 +524,4 @@ func construct(typ cppir.Type, args ...cppir.Expr) cppir.Expr {
 		return placeholder
 	}
 	return templateCall(tn.Name, tn.Args, args...)
-}
-
-// inlineIfSplit returns the specifiers of a function that the header defines: inline in the
-// split layout, none in the unit layout (a unit is one translation unit).
-func (g *gen) inlineIfSplit() []string {
-	if g.split {
-		return []string{"inline"}
-	}
-	return nil
 }

@@ -411,7 +411,7 @@ makes all of these exact.
   `#define Bool int` is the C++ struct `Bool_` (`%T` still says `main.Bool`). So the header's other
   macros that expand to `Bool` keep working.
 - Every other name that the generated code uses and that is a macro of the headers (a name of the
-  runtime or of another gocpp package, such as `Println` in `gp::fmtshim::Println`) is `#undef`ed
+  runtime or of another gocpp package, such as `Println` in `gp::fmt::Println`) is `#undef`ed
   after the C/C++ includes. The macro list from probe 1 makes this exact. `#undef` is enough (no
   `push_macro`/`pop_macro`): every C/C++ include comes before the generated code, so nothing
   after it needs the macro again.
@@ -1543,8 +1543,10 @@ fmt.Println(&s) // a raw pointer prints as an address
   pointers. (Printing a `char*` as a C string would crash, or silence stdout, when it is null.)
   The details are in [Printing C/C++ values](#printing-cc-values) below.
 - **In an `any`.** A C/C++ value stored in an interface gets a *foreign* type descriptor, named
-  after its C++ spelling. Equality, hashing and printing use whatever the C++ type supports
-  (`operator==`, `std::hash`, `std::formatter` or `operator<<`) ([Phase 05 §2.2](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md#22-type-descriptors-chosen-by-the-go-type)).
+  after its C++ spelling. Equality and hashing use whatever the C++ type supports (`operator==`,
+  `std::hash`); `fmt` prints numbers, bools, enums, pointers and C++ strings by their C++ type, and a
+  class through its `std::formatter` or `operator<<` when a `fmt` call in the program names a value
+  with that class inside (otherwise it prints as the address of the box) ([Phase 05 §2.2](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md#22-type-descriptors-chosen-by-the-go-type)).
 - **Pointers in an `any` ignore `const` and nesting.** Go has no `const`, so a `const char*` that a C
   function returns is the dynamic type `*C.char` (`x.(*C.char)` is true), a `const T*` is `*T`, and
   `T**`, `const T**` and `const T* const*` are one dynamic type, `**T` (held as the raw pointer). The
@@ -1582,7 +1584,7 @@ also inside a gocpp value (a struct field, a slice element):
 
 - **`%T` and the error forms** name a C number by the Go type above (`int32`; `int` for a `long`,
   which C++ can't tell from gocpp's `int`, and `int64` for a `long long`), and any other C/C++
-  type by its C++ name (`Point`, `char const*`, `std::string`, `std::vector<long,
+  type by its C++ name (`Point`, `char*`, `std::string`, `std::vector<long,
   std::allocator<long> >`); Phase 13 translates C++ names back to gocpp names. cgo's `%T` prints
   `main._Ctype_int`.
 - **`std::formatter` costs nothing when unused.** gocpp looks for one only when the program's

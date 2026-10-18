@@ -37,7 +37,7 @@ func TestNoPlainMembers(t *testing.T) {
 	}
 	// The check must see the runtime's types, or it checks nothing.
 	for _, c := range []string{"gp::string", "gp::ptr", "gp::weak_ptr", "gp::panic_error", "gp::slice", "gp::array",
-		"gp::map", "gp::map_range", "gp::hash", "gp::fmtshim::typed_value", "gp::defer_frame",
+		"gp::map", "gp::map_range", "gp::hash", "gp::fmt::described", "gp::defer_frame",
 		"gp::newtype", "gp::func", "gp::type_desc", "gp::field_desc", "gp::method", "gp::imethod",
 		"gp::method_table", "gp::itab", "gp::iface", "gp::any", "gp::waiter", "gp::chan"} {
 		if !slices.Contains(classes, c) {
@@ -47,6 +47,16 @@ func TestNoPlainMembers(t *testing.T) {
 	for _, m := range bad {
 		t.Errorf("%s: a member of a runtime type must be an operator or have a gp_ name", m)
 	}
+}
+
+// runtimeInterfaces are the interface structs of the runtime and the plain members (the Go methods)
+// that they may have.
+var runtimeInterfaces = map[string][]string{
+	"gp::error":           {"gp::error::Error"},
+	"gp::fmt::Stringer":   {"gp::fmt::Stringer::String"},
+	"gp::fmt::GoStringer": {"gp::fmt::GoStringer::GoString"},
+	"gp::fmt::Formatter":  {"gp::fmt::Formatter::Format"},
+	"gp::fmt::State":      {"gp::fmt::State::Flag", "gp::fmt::State::Precision", "gp::fmt::State::Width", "gp::fmt::State::Write"},
 }
 
 // TestNoPlainMembersFinds checks the check itself, on a header with every kind of member.
@@ -260,15 +270,17 @@ func (k *checker) walkScope(d astNode, scope string) {
 			k.walkScope(c, scope+"::"+d.Name)
 		}
 	case "CXXRecordDecl", "ClassTemplateSpecializationDecl", "ClassTemplatePartialSpecializationDecl":
-		if scope+"::"+d.Name == "gp::error" {
-			// The predeclared error type is an interface struct like the ones the emitter writes
-			// for Go's interface types (gocpp/error.hpp): its member Error is the Go method, as a
-			// generated struct's is. No Go type is built on it (an embedded error is a field, a named
-			// interface type is a struct of its own over gp::iface), so nothing can clash. It may
-			// have that one plain member and no other.
+		if methods, ok := runtimeInterfaces[scope+"::"+d.Name]; ok {
+			// The predeclared error type and the interfaces of package fmt are interface structs like
+			// the ones the emitter writes for Go's interface types (gocpp/error.hpp, gocpp/fmt.hpp):
+			// their members are the Go methods, as a generated struct's are. No Go type is built on
+			// them (an embedded error is a field, a named interface type is a struct of its own
+			// over gp::iface), so nothing can clash. They may have those plain members and no other.
 			before := len(k.bad)
 			k.checkRecord(d, scope+"::"+d.Name)
-			rest := slices.DeleteFunc(slices.Clone(k.bad[before:]), func(m string) bool { return m == "gp::error::Error" })
+			rest := slices.DeleteFunc(slices.Clone(k.bad[before:]), func(m string) bool {
+				return slices.Contains(methods, m)
+			})
 			k.bad = append(k.bad[:before], rest...)
 			return
 		}

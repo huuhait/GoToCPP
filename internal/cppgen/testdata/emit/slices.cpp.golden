@@ -16,26 +16,26 @@ constinit gp::slice<int64_t> glit{};
 constinit gp::slice<uint8_t> gbytes{};
 
 void show(gp::slice<int64_t> s) {
-    gp::fmtshim::Print("["_gs);
+    gp::fmt::Print("["_gs);
     for (auto gp_it0 = gp::range_slice(s); gp::range_next(gp_it0);) {
 #line 21 "$DIR/slices.gp"
         int64_t i = gp_it0.gp_i; int64_t v = gp_it0.gp_v();
         if (i > 0) {
-            gp::fmtshim::Print(" "_gs);
+            gp::fmt::Print(" "_gs);
         }
-        gp::fmtshim::Print(v);
+        gp::fmt::Print(v);
     }
-    gp::fmtshim::Println("]"_gs, gp::len(s), gp::cap(s) >= gp::len(s), s == nullptr);
+    gp::fmt::Println("]"_gs, gp::len(s), gp::cap(s) >= gp::len(s), s == nullptr);
 }
 
 void showStrs(gp::slice<gp::string> s) {
-    gp::fmtshim::Print(gp::len(s), ":"_gs);
+    gp::fmt::Print(gp::len(s), ":"_gs);
     for (auto gp_it0 = gp::range_slice(s); gp::range_next(gp_it0);) {
 #line 32 "$DIR/slices.gp"
         gp::string v = gp_it0.gp_v();
-        gp::fmtshim::Print(" "_gs, v);
+        gp::fmt::Print(" "_gs, v);
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
 }
 
 #line 39 "$DIR/slices.gp"
@@ -64,7 +64,7 @@ void main() {
     gpkg_main::show(gnil);
     gpkg_main::showStrs(gzero);
     gpkg_main::show(glit);
-    gp::fmtshim::Println(gp::to_string(gbytes), gp::len(gbytes));
+    gp::fmt::Println(gp::to_string(gbytes), gp::len(gbytes));
 #line 63 "$DIR/slices.gp"
     gp::slice<int64_t> n{};
     gp::slice<int64_t> e = gp::slice_of<int64_t>({});
@@ -75,24 +75,24 @@ void main() {
     gpkg_main::show(m);
     gpkg_main::show(mc);
     gpkg_main::show(gp::slice_keyed<int64_t>(7, {{5, 1}, {6, 2}, {1, 7}}));
-    gp::fmtshim::Println(n == nullptr, e == nullptr, nullptr != m, gp::len(mc), gp::cap(mc));
+    gp::fmt::Println(n == nullptr, e == nullptr, nullptr != m, gp::len(mc), gp::cap(mc));
 #line 75 "$DIR/slices.gp"
     gp::slice<uint8_t> b = gp::to_bytes("abc"_gs);
     b[0]++;
     b[1] = uint8_t(b[1] + 10);
     b[2] = uint8_t(b[2] << 1);
-    { auto gp_t0 = b[0]; auto gp_t1 = b[1]; gp::fmtshim::Println(gp_t0, gp_t1, b[2], gp::to_string(b)); }
+    { auto gp_t0 = b[0]; auto gp_t1 = b[1]; gp::fmt::Println(gp_t0, gp_t1, b[2], gp::to_string(b)); }
     gp::slice<double> f = gp::slice_of<double>({1.5, 2.0});
     f[1] = f[1] / 4.0;
     f[0]--;
-    { auto gp_t2 = f[0]; gp::fmtshim::Println(gp_t2, f[1]); }
+    { auto gp_t2 = f[0]; gp::fmt::Println(gp_t2, f[1]); }
     gp::slice<bool> flags = gp::slice_of<bool>({true, false});
     flags[1] = !flags[0];
-    { auto gp_t3 = flags[0]; gp::fmtshim::Println(gp_t3, flags[1]); }
+    { auto gp_t3 = flags[0]; gp::fmt::Println(gp_t3, flags[1]); }
     gp::slice<int8_t> small = gp::slice_of<int8_t>({127, -128});
     small[0]++;
     small[1]--;
-    { auto gp_t4 = small[0]; gp::fmtshim::Println(gp_t4, small[1]); }
+    { auto gp_t4 = small[0]; gp::fmt::Println(gp_t4, small[1]); }
     gp::slice<gp::string> strs = gp::slice_of<gp::string>({"a"_gs, "b"_gs});
     { auto& gp_r0 = strs[0]; gp_r0 = gp::concat(gp_r0, strs[1], "!"_gs); }
     gpkg_main::showStrs(strs);
@@ -125,7 +125,7 @@ void main() {
     a = gp::append_slice(a, a);
     gpkg_main::show(a);
     gp::slice<uint8_t> bs = gp::append_slice(gp::to_bytes("go"_gs), "pher"_gs);
-    gp::fmtshim::Println(gp::to_string(bs));
+    gp::fmt::Println(gp::to_string(bs));
     gp::slice<gp::string> ss = gp::append(gp::slice<gp::string>(), "x"_gs, "y"_gs);
     ss = gp::append_slice(ss, ss);
     gpkg_main::showStrs(ss);
@@ -133,8 +133,8 @@ void main() {
     gp::slice<int64_t> c = gp::slice_of<int64_t>({1, 2, 3, 4, 5});
     int64_t k = gp::copy(gp::sub(c, 1), c);
     gpkg_main::show(c);
-    { auto gp_t6 = gp::copy(c, gp::slice_of<int64_t>({9})); gp::fmtshim::Println(k, gp_t6, gp::copy(b, "xy"_gs)); }
-    gp::fmtshim::Println(gp::to_string(b));
+    { auto gp_t6 = gp::copy(c, gp::slice_of<int64_t>({9})); gp::fmt::Println(k, gp_t6, gp::copy(b, "xy"_gs)); }
+    gp::fmt::Println(gp::to_string(b));
     gp::clear(gp::sub(c, 3));
     gpkg_main::show(c);
 #line 140 "$DIR/slices.gp"
@@ -171,14 +171,14 @@ void main() {
     *ptrs[0] = *ptrs[0] + 10;
     ptrs[2] = ptrs[1];
     *ptrs[2] = 7;
-    { auto gp_t8 = ptrs[2] == y; gp::fmtshim::Println((*x), (*y), gp_t8, ptrs[0] != nullptr); }
+    { auto gp_t8 = ptrs[2] == y; gp::fmt::Println((*x), (*y), gp_t8, ptrs[0] != nullptr); }
 #line 166 "$DIR/slices.gp"
     gp::ptr<int64_t> p = gp::ptr<int64_t>(s.gp_owner(), &s[5]);
     *p = 50;
     gp::ptr<int64_t> q = gp::elem_ptr(build(4), 3);
     s = nullptr;
     (*p)++;
-    { auto gp_t9 = *p; gp::fmtshim::Println(gp_t9, *q); }
+    { auto gp_t9 = *p; gp::fmt::Println(gp_t9, *q); }
     gp::ptr<int64_t> pg = gp::ptr<int64_t>(glit.gp_owner(), &glit[0]);
     *pg = 100;
     gpkg_main::show(glit);
@@ -192,16 +192,16 @@ void main() {
             r[1] = 20;
         }
         i = 10;
-        gp::fmtshim::Print(i, v, " "_gs);
+        gp::fmt::Print(i, v, " "_gs);
     }
-    gp::fmtshim::Println(gp::len(r));
+    gp::fmt::Println(gp::len(r));
     for (auto gp_it5 = gp::range_slice(build(3)); gp::range_next(gp_it5);) {
 #line 187 "$DIR/slices.gp"
         int64_t i = gp_it5.gp_i;
-        gp::fmtshim::Print(i);
+        gp::fmt::Print(i);
     }
     for (auto gp_it6 = gp::range_slice(r); gp::range_next(gp_it6);) {
-        gp::fmtshim::Print("."_gs);
+        gp::fmt::Print("."_gs);
     }
     int64_t i{};
 #line 193 "$DIR/slices.gp"
@@ -210,7 +210,7 @@ void main() {
 #line 194 "$DIR/slices.gp"
         i = gp_it7.gp_i; v = gp_it7.gp_v();
     }
-    gp::fmtshim::Println(i, v);
+    gp::fmt::Println(i, v);
     gp::slice<gp::ptr<int64_t>> vp = gp::slice_of<gp::ptr<int64_t>>({});
     for (auto gp_it8 = gp::range_slice(gp::sub(r, 0, 2)); gp::range_next(gp_it8);) {
 #line 198 "$DIR/slices.gp"
@@ -218,25 +218,25 @@ void main() {
         vp = gp::append(static_cast<gp::slice<gp::ptr<int64_t>>&&>(vp), v);
     }
     *vp[0] = 9;
-    { auto gp_t10 = *vp[0]; gp::fmtshim::Println(gp_t10, *vp[1]); }
+    { auto gp_t10 = *vp[0]; gp::fmt::Println(gp_t10, *vp[1]); }
 #line 205 "$DIR/slices.gp"
     gp::string str = "h\303\251llo, \344\270\226\347\225\214\377"_gs;
     gp::slice<int32_t> runes = gp::to_runes(str);
     runes[1] = 101;
-    gp::fmtshim::Println(gp::len(runes), gp::to_string(runes), gp::to_string(gp::sub(runes, 7, 9)), str);
+    gp::fmt::Println(gp::len(runes), gp::to_string(runes), gp::to_string(gp::sub(runes, 7, 9)), str);
     gp::slice<uint8_t> raw = gp::to_bytes(str);
     raw[0] = 72;
-    gp::fmtshim::Println(gp::len(raw), gp::to_string(gp::sub(raw, 0, 6)), gp::to_string(raw) == str, gp::to_string(gp::slice<uint8_t>()) == ""_gs);
+    gp::fmt::Println(gp::len(raw), gp::to_string(gp::sub(raw, 0, 6)), gp::to_string(raw) == str, gp::to_string(gp::slice<uint8_t>()) == ""_gs);
 #line 214 "$DIR/slices.gp"
     auto gp_t11 = gpkg_main::sum(gp::slice_of<int64_t>({4, 5}));
 #line 214 "$DIR/slices.gp"
     int64_t total = std::get<0>(gp_t11);
 #line 214 "$DIR/slices.gp"
     gp::slice<int64_t> rest = std::get<1>(gp_t11);
-    gp::fmtshim::Println(total, gp::len(rest));
+    gp::fmt::Println(total, gp::len(rest));
     gp::slice<int64_t> sh = gp::slice_of<int64_t>({1, 2, 3});
     { auto gp_t12 = gpkg_main::sum(sh); total = std::get<0>(gp_t12); rest = std::get<1>(gp_t12); }
-    gp::fmtshim::Println(total);
+    gp::fmt::Println(total);
     gpkg_main::show(sh);
     gpkg_main::show(rest);
     gp::ptr<gp::slice<int64_t>> bx = gp::new_<gp::slice<int64_t>>(gp::slice_of<int64_t>({1}));

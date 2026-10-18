@@ -33,7 +33,6 @@ struct Point {
     std::size_t gp_hash() const {
         return gp::hash_fields(X, Y);
     }
-    static constexpr const char* gp_type_name = "main.Point";
     static constexpr auto gp_fields = gp::fields(gp::field(&Point::X, "X", true, false), gp::field(&Point::Y, "Y", true, false));
 };
 static_assert(sizeof(Point) == 16 && alignof(Point) == 8);
@@ -45,7 +44,6 @@ struct Rect {
     std::size_t gp_hash() const {
         return gp::hash_fields(Min, Max);
     }
-    static constexpr const char* gp_type_name = "main.Rect";
     static constexpr auto gp_fields = gp::fields(gp::field(&Rect::Min, "Min", true, false), gp::field(&Rect::Max, "Max", true, false));
 };
 static_assert(sizeof(Rect) == 32 && alignof(Rect) == 8);
@@ -61,8 +59,7 @@ struct Line {
     std::size_t gp_hash() const {
         return gp::hash_fields(R, Name, n);
     }
-    static constexpr const char* gp_type_name = "main.Line";
-    static constexpr auto gp_fields = gp::fields(gp::field(&Line::R, "R", true, false), gp::field(&Line::Name, "Name", true, false), gp::field(&Line::gp_blank0, "_", false, false), gp::field<gp::fmtshim::tag::int64>(&Line::n, "n", false, false));
+    static constexpr auto gp_fields = gp::fields(gp::field(&Line::R, "R", true, false), gp::field(&Line::Name, "Name", true, false), gp::field(&Line::gp_blank0, "_", false, false), gp::field(&Line::n, "n", false, false));
 };
 static_assert(sizeof(Line) == 80 && alignof(Line) == 8);
 
@@ -70,7 +67,6 @@ struct Node {
     gp::ptr<Node> next;
     gp::slice<Node> kids;
     int64_t val = 0;
-    static constexpr const char* gp_type_name = "main.Node";
     static constexpr auto gp_fields = gp::fields(gp::field(&Node::next, "next", false, false), gp::field(&Node::kids, "kids", false, false), gp::field(&Node::val, "val", false, false));
 };
 static_assert(sizeof(Node) == 64 && alignof(Node) == 8);
@@ -82,7 +78,6 @@ struct Inner {
     std::size_t gp_hash() const {
         return gp::hash_fields(A, b);
     }
-    static constexpr const char* gp_type_name = "main.Inner";
     static constexpr auto gp_fields = gp::fields(gp::field(&Inner::A, "A", true, false), gp::field(&Inner::b, "b", false, false));
 };
 static_assert(sizeof(Inner) == 40 && alignof(Inner) == 8);
@@ -93,7 +88,6 @@ struct Deep {
     std::size_t gp_hash() const {
         return gp::hash_fields(D);
     }
-    static constexpr const char* gp_type_name = "main.Deep";
     static constexpr auto gp_fields = gp::fields(gp::field(&Deep::D, "D", true, false));
 };
 static_assert(sizeof(Deep) == 8 && alignof(Deep) == 8);
@@ -105,7 +99,6 @@ struct Mid {
     std::size_t gp_hash() const {
         return gp::hash_fields(Deep, M);
     }
-    static constexpr const char* gp_type_name = "main.Mid";
     static constexpr auto gp_fields = gp::fields(gp::field(&Mid::Deep, "Deep", true, true), gp::field(&Mid::M, "M", true, false));
 };
 static_assert(sizeof(Mid) == 24 && alignof(Mid) == 8);
@@ -118,7 +111,6 @@ struct Outer {
     std::size_t gp_hash() const {
         return gp::hash_fields(Inner, Mid, X);
     }
-    static constexpr const char* gp_type_name = "main.Outer";
     static constexpr auto gp_fields = gp::fields(gp::field(&Outer::Inner, "Inner", true, true), gp::field(&Outer::Mid, "Mid", true, true), gp::field(&Outer::X, "X", true, false));
 };
 static_assert(sizeof(Outer) == 64 && alignof(Outer) == 8);
@@ -130,7 +122,6 @@ struct Words {
     gpkg_main::Point Point;
     gp::array<int64_t, 3> arr;
     gp::slice<int64_t> nums;
-    static constexpr const char* gp_type_name = "main.Words";
     static constexpr auto gp_fields = gp::fields(gp::field(&Words::Words_, "Words", true, false), gp::field(&Words::class_, "class", false, false), gp::field(&Words::new_, "new", false, false), gp::field(&Words::Point, "Point", true, false), gp::field(&Words::arr, "arr", false, false), gp::field(&Words::nums, "nums", false, false));
 };
 static_assert(sizeof(Words) == 128 && alignof(Words) == 8);
@@ -141,7 +132,6 @@ struct gp_ {
     std::size_t gp_hash() const {
         return gp::hash_fields(v);
     }
-    static constexpr const char* gp_type_name = "main.gp";
     static constexpr auto gp_fields = gp::fields(gp::field(&gp_::v, "v", false, false));
 };
 static_assert(sizeof(gp_) == 8 && alignof(gp_) == 8);
@@ -152,7 +142,6 @@ struct std_ {
     std::size_t gp_hash() const {
         return gp::hash_fields(w);
     }
-    static constexpr const char* gp_type_name = "main.std";
     static constexpr auto gp_fields = gp::fields(gp::field(&std_::w, "w", false, false));
 };
 static_assert(sizeof(std_) == 1 && alignof(std_) == 1);
@@ -164,7 +153,6 @@ struct Big {
     std::size_t gp_hash() const {
         return gp::hash_fields(data, n);
     }
-    static constexpr const char* gp_type_name = "main.Big";
     static constexpr auto gp_fields = gp::fields(gp::field(&Big::data, "data", false, false), gp::field(&Big::n, "n", false, false));
 };
 static_assert(sizeof(Big) == 262152 && alignof(Big) == 8);
@@ -179,7 +167,6 @@ struct Blank {
     std::size_t gp_hash() const {
         return gp::hash_fields(a, b);
     }
-    static constexpr const char* gp_type_name = "main.Blank";
     static constexpr auto gp_fields = gp::fields(gp::field(&Blank::a, "a", false, false), gp::field(&Blank::gp_blank0, "_", false, false), gp::field(&Blank::b, "b", false, false));
 };
 static_assert(sizeof(Blank) == 48 && alignof(Blank) == 8);
@@ -190,7 +177,6 @@ struct L {
     std::size_t gp_hash() const {
         return gp::hash_fields(a);
     }
-    static constexpr const char* gp_type_name = "main.L";
     static constexpr auto gp_fields = gp::fields(gp::field(&L::a, "a", false, false));
 };
 static_assert(sizeof(L) == 8 && alignof(L) == 8);
@@ -201,7 +187,6 @@ struct Point_1 {
     std::size_t gp_hash() const {
         return gp::hash_fields(c);
     }
-    static constexpr const char* gp_type_name = "main.Point";
     static constexpr auto gp_fields = gp::fields(gp::field(&Point_1::c, "c", false, false));
 };
 static_assert(sizeof(Point_1) == 1 && alignof(Point_1) == 1);
@@ -212,7 +197,6 @@ struct L_1 {
     std::size_t gp_hash() const {
         return gp::hash_fields(b);
     }
-    static constexpr const char* gp_type_name = "main.L";
     static constexpr auto gp_fields = gp::fields(gp::field(&L_1::b, "b", false, false));
 };
 static_assert(sizeof(L_1) == 32 && alignof(L_1) == 8);
@@ -223,7 +207,6 @@ struct gp_anon_ea09bf59bebc5021 {
     std::size_t gp_hash() const {
         return gp::hash_fields(l);
     }
-    static constexpr const char* gp_type_name = "struct { l main.L }";
     static constexpr auto gp_fields = gp::fields(gp::field(&gp_anon_ea09bf59bebc5021::l, "l", false, false));
 };
 static_assert(sizeof(gp_anon_ea09bf59bebc5021) == 8 && alignof(gp_anon_ea09bf59bebc5021) == 8);
@@ -234,7 +217,6 @@ struct gp_anon_0c156597b9c01e50 {
     std::size_t gp_hash() const {
         return gp::hash_fields(l);
     }
-    static constexpr const char* gp_type_name = "struct { l main.L }";
     static constexpr auto gp_fields = gp::fields(gp::field(&gp_anon_0c156597b9c01e50::l, "l", false, false));
 };
 static_assert(sizeof(gp_anon_0c156597b9c01e50) == 32 && alignof(gp_anon_0c156597b9c01e50) == 8);
@@ -245,7 +227,6 @@ struct gp_anon_b79b937cf52eaff0 {
     std::size_t gp_hash() const {
         return gp::hash_fields(f);
     }
-    static constexpr const char* gp_type_name = "struct { f float64 }";
     static constexpr auto gp_fields = gp::fields(gp::field(&gp_anon_b79b937cf52eaff0::f, "f", false, false));
 };
 static_assert(sizeof(gp_anon_b79b937cf52eaff0) == 8 && alignof(gp_anon_b79b937cf52eaff0) == 8);
@@ -256,7 +237,6 @@ struct gp_anon_69f7bc70c6068911 {
     std::size_t gp_hash() const {
         return gp::hash_fields(z);
     }
-    static constexpr const char* gp_type_name = "struct { z float64 }";
     static constexpr auto gp_fields = gp::fields(gp::field(&gp_anon_69f7bc70c6068911::z, "z", false, false));
 };
 static_assert(sizeof(gp_anon_69f7bc70c6068911) == 8 && alignof(gp_anon_69f7bc70c6068911) == 8);
@@ -267,7 +247,6 @@ struct gp_anon_e67ed654f997cbc4 {
     std::size_t gp_hash() const {
         return gp::hash_fields(X);
     }
-    static constexpr const char* gp_type_name = "struct { X int \"json:\\\"x\\\"\" }";
     static constexpr auto gp_fields = gp::fields(gp::field(&gp_anon_e67ed654f997cbc4::X, "X", true, false));
 };
 static_assert(sizeof(gp_anon_e67ed654f997cbc4) == 8 && alignof(gp_anon_e67ed654f997cbc4) == 8);
@@ -277,10 +256,116 @@ struct gp_anon_a9e1fb1acaf8c517 {
     std::size_t gp_hash() const {
         return gp::hash_fields();
     }
-    static constexpr const char* gp_type_name = "struct {}";
     static constexpr auto gp_fields = gp::fields();
 };
 static_assert(sizeof(gp_anon_a9e1fb1acaf8c517) == 1 && alignof(gp_anon_a9e1fb1acaf8c517) == 1);
+
+extern const gp::type_desc gp_td_L;
+extern const gp::type_desc gp_td_Point_1;
+extern const gp::type_desc gp_td_L_1;
+extern const gp::type_desc gp_td_Point;
+extern const gp::type_desc gp_td_Rect;
+extern const gp::type_desc gp_td_Line;
+extern const gp::type_desc gp_td_Inner;
+extern const gp::type_desc gp_td_Words;
+extern const gp::type_desc gp_td_gp_;
+extern const gp::type_desc gp_td_std_;
+
+inline const gp::type_desc* gp_full_L();
+inline const gp::type_desc gp_td_L = gp::named<L>("main.L", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_L));
+
+inline const gp::type_desc* gp_full_Point_1();
+inline const gp::type_desc gp_td_Point_1 = gp::named<Point_1>("main.Point", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Point_1));
+
+inline const gp::type_desc* gp_full_L_1();
+inline const gp::type_desc gp_td_L_1 = gp::named<L_1>("main.L", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_L_1));
+
+inline const gp::type_desc* gp_full_Point();
+inline const gp::type_desc gp_td_Point = gp::named<Point>("main.Point", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Point));
+
+inline const gp::type_desc* gp_full_Rect();
+inline const gp::type_desc gp_td_Rect = gp::named<Rect>("main.Rect", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Rect));
+
+inline const gp::type_desc* gp_full_Line();
+inline const gp::type_desc gp_td_Line = gp::named<Line>("main.Line", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Line));
+
+inline const gp::type_desc* gp_full_Inner();
+inline const gp::type_desc gp_td_Inner = gp::named<Inner>("main.Inner", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Inner));
+
+inline const gp::type_desc* gp_full_Words();
+inline const gp::type_desc gp_td_Words = gp::named<Words>("main.Words", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Words));
+
+inline const gp::type_desc* gp_full_gp_();
+inline const gp::type_desc gp_td_gp_ = gp::named<gp_>("main.gp", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_gp_));
+
+inline const gp::type_desc* gp_full_std_();
+inline const gp::type_desc gp_td_std_ = gp::named<std_>("main.std", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_std_));
+
+static const gp::type_desc* const gp_tdc_0 = gp::td_struct<gp_anon_ea09bf59bebc5021>({gp::field_desc("l", "main", &gp_td_L, nullptr, false, gp::offset_of(&gp_anon_ea09bf59bebc5021::l))});
+static const gp::type_desc* const gp_tdc_1 = gp::td_struct<gp_anon_0c156597b9c01e50>({gp::field_desc("l", "main", &gp_td_L_1, nullptr, false, gp::offset_of(&gp_anon_0c156597b9c01e50::l))});
+static const gp::type_desc* const gp_tdc_2 = gp::td_struct<gp_anon_e67ed654f997cbc4>({gp::field_desc("X", nullptr, &gp::td_int, "json:\"x\"", false, gp::offset_of(&gp_anon_e67ed654f997cbc4::X))});
+static const gp::type_desc* const gp_tdc_3 = gp::td_array<int64_t, 3>(&gp::td_int);
+static const gp::type_desc* const gp_tdc_4 = gp::td_slice<int64_t>(&gp::td_int);
+
+inline const gp::type_desc* gp_full_L() {
+    static const gp::field_desc gp_f[]{gp::field_desc("a", "main", &gp::td_int, nullptr, false, gp::offset_of(&L::a))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_L, gp::shape_struct(gp_f, 1));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_Point_1() {
+    static const gp::field_desc gp_f[]{gp::field_desc("c", "main", &gp::td_bool, nullptr, false, gp::offset_of(&Point_1::c))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Point_1, gp::shape_struct(gp_f, 1));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_L_1() {
+    static const gp::field_desc gp_f[]{gp::field_desc("b", "main", &gp::td_string, nullptr, false, gp::offset_of(&L_1::b))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_L_1, gp::shape_struct(gp_f, 1));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_Point() {
+    static const gp::field_desc gp_f[]{gp::field_desc("X", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&Point::X)), gp::field_desc("Y", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&Point::Y))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Point, gp::shape_struct(gp_f, 2));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_Rect() {
+    static const gp::field_desc gp_f[]{gp::field_desc("Min", nullptr, &gp_td_Point, nullptr, false, gp::offset_of(&Rect::Min)), gp::field_desc("Max", nullptr, &gp_td_Point, nullptr, false, gp::offset_of(&Rect::Max))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Rect, gp::shape_struct(gp_f, 2));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_Line() {
+    static const gp::field_desc gp_f[]{gp::field_desc("R", nullptr, &gp_td_Rect, nullptr, false, gp::offset_of(&Line::R)), gp::field_desc("Name", nullptr, &gp::td_string, nullptr, false, gp::offset_of(&Line::Name)), gp::field_desc("_", "main", &gp::td_int, nullptr, false, gp::offset_of(&Line::gp_blank0)), gp::field_desc("n", "main", &gp::td_int64, nullptr, false, gp::offset_of(&Line::n))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Line, gp::shape_struct(gp_f, 4));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_Inner() {
+    static const gp::field_desc gp_f[]{gp::field_desc("A", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&Inner::A)), gp::field_desc("b", "main", &gp::td_string, nullptr, false, gp::offset_of(&Inner::b))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Inner, gp::shape_struct(gp_f, 2));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_Words() {
+    static const gp::field_desc gp_f[]{gp::field_desc("Words", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&Words::Words_)), gp::field_desc("class", "main", &gp::td_string, nullptr, false, gp::offset_of(&Words::class_)), gp::field_desc("new", "main", &gp::td_float64, nullptr, false, gp::offset_of(&Words::new_)), gp::field_desc("Point", nullptr, &gp_td_Point, nullptr, false, gp::offset_of(&Words::Point)), gp::field_desc("arr", "main", gp_tdc_3, nullptr, false, gp::offset_of(&Words::arr)), gp::field_desc("nums", "main", gp_tdc_4, nullptr, false, gp::offset_of(&Words::nums))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_Words, gp::shape_struct(gp_f, 6));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_gp_() {
+    static const gp::field_desc gp_f[]{gp::field_desc("v", "main", &gp::td_int, nullptr, false, gp::offset_of(&gp_::v))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_gp_, gp::shape_struct(gp_f, 1));
+    return &gp_d;
+}
+
+inline const gp::type_desc* gp_full_std_() {
+    static const gp::field_desc gp_f[]{gp::field_desc("w", "main", &gp::td_uint8, nullptr, false, gp::offset_of(&std_::w))};
+    static const gp::type_desc gp_d = gp::completed(gp_td_std_, gp::shape_struct(gp_f, 1));
+    return &gp_d;
+}
 
 int64_t f(int64_t tag);
 gp::ptr<Outer> mk();
@@ -300,7 +385,7 @@ constinit gp::ptr<Point> gptr{};
 constinit int64_t x = 1;
 
 int64_t f(int64_t tag) {
-    gp::fmtshim::Print("f"_gs, tag, " "_gs);
+    gp::fmt::Print("f"_gs, tag, " "_gs);
     x++;
     gpt.X++;
     return x;
@@ -311,7 +396,7 @@ gp::ptr<Outer> mk() {
 }
 
 gp::ptr<Point> pick(gp::ptr<Point> p) {
-    gp::fmtshim::Print("pick "_gs);
+    gp::fmt::Print("pick "_gs);
     return p;
 }
 
@@ -341,12 +426,12 @@ gp::ptr<Node> push(gp::ptr<Node> n, int64_t v) {
 #line 125 "$DIR/structs.gp"
 void local() {
 #line 128 "$DIR/structs.gp"
-    gp::fmtshim::Println(L{1}, Point_1{true}, gp_anon_ea09bf59bebc5021{L{2}});
+    gp::fmt::Println(gp::fmt::as(&gp_td_L, L{1}), gp::fmt::as(&gp_td_Point_1, Point_1{true}), gp::fmt::as(gp_tdc_0, gp_anon_ea09bf59bebc5021{L{2}}));
 }
 
 void local2() {
 #line 133 "$DIR/structs.gp"
-    gp::fmtshim::Println(L_1{"z"_gs}, gp_anon_0c156597b9c01e50{L_1{"y"_gs}});
+    gp::fmt::Println(gp::fmt::as(&gp_td_L_1, L_1{"z"_gs}), gp::fmt::as(gp_tdc_1, gp_anon_0c156597b9c01e50{L_1{"y"_gs}}));
 }
 
 void main() {
@@ -354,11 +439,11 @@ void main() {
     Point p{};
     gp::ptr<Point> q = gp::new_<Point>(Point{1, 2});
     Point r{.Y = 5};
-    gp::fmtshim::Println(p, (*q), r, gpt, grect, *gptr);
-    { auto gp_t0 = f(1); auto gp_t1 = Point{.X = f(2), .Y = gp_t0}; auto gp_t2 = Point{f(3), f(4)}; auto gp_t3 = Point{.X = f(5), .Y = x}; gp::fmtshim::Println(gp_t1, gp_t2, gp_t3, gpt); }
+    gp::fmt::Println(gp::fmt::as(&gp_td_Point, p), gp::fmt::as(&gp_td_Point, (*q)), gp::fmt::as(&gp_td_Point, r), gp::fmt::as(&gp_td_Point, gpt), gp::fmt::as(&gp_td_Rect, grect), gp::fmt::as(&gp_td_Point, *gptr));
+    { auto gp_t0 = f(1); auto gp_t1 = Point{.X = f(2), .Y = gp_t0}; auto gp_t2 = Point{f(3), f(4)}; auto gp_t3 = Point{.X = f(5), .Y = x}; gp::fmt::Println(gp::fmt::as(&gp_td_Point, gp_t1), gp::fmt::as(&gp_td_Point, gp_t2), gp::fmt::as(&gp_td_Point, gp_t3), gp::fmt::as(&gp_td_Point, gpt)); }
     gp::slice<Rect> rects = gp::slice_of<Rect>({Rect{.Min = Point{1, 1}}, Rect{.Max = Point{.X = 2}}});
     gp::slice<gp::ptr<Point>> ptrs = gp::slice_of<gp::ptr<Point>>({gp::new_<Point>(Point{1, 2}), gp::new_<Point>(Point{3, 4})});
-    { static_cast<void>(rects[0]); static_cast<void>(rects[1]); gp::fmtshim::Println(rects[0], rects[1], *ptrs[1], gp::len(ptrs)); }
+    { static_cast<void>(rects[0]); static_cast<void>(rects[1]); gp::fmt::Println(gp::fmt::as(&gp_td_Rect, rects[0]), gp::fmt::as(&gp_td_Rect, rects[1]), gp::fmt::as(&gp_td_Point, *ptrs[1]), gp::len(ptrs)); }
 #line 148 "$DIR/structs.gp"
     (*q).X = 10;
     (*q).Y = (*q).Y + 3;
@@ -366,11 +451,11 @@ void main() {
     gp::ptr<Point> pp = q;
     pp->Y = pp->Y * 2;
     pp->X--;
-    { auto gp_t4 = pp->X; gp::fmtshim::Println((*q), gp_t4, *pp); }
+    { auto gp_t4 = pp->X; gp::fmt::Println(gp::fmt::as(&gp_td_Point, (*q)), gp_t4, gp::fmt::as(&gp_td_Point, *pp)); }
     grect.Min.Y = 2;
     gptr->X = gptr->X + 10;
     gpkg_main::pick(q)->Y++;
-    gp::fmtshim::Println(grect, *gptr, (*q));
+    gp::fmt::Println(gp::fmt::as(&gp_td_Rect, grect), gp::fmt::as(&gp_td_Point, *gptr), gp::fmt::as(&gp_td_Point, (*q)));
 #line 161 "$DIR/structs.gp"
     gp::ptr<Point> b = gp::new_<Point>(Point{1, 2});
     gp::ptr<int64_t> py = gp::ptr<int64_t>(b, &(*b).Y);
@@ -384,24 +469,24 @@ void main() {
     *pe = 50;
     gp::ptr<int64_t> pm = gp::field_ptr(mk(), &Outer::X);
     gp::ptr<int64_t> pd = gp::field_ptr(mk()->Mid, &Mid::M);
-    { static_cast<void>(ps[0]); auto gp_t5 = *pm; gp::fmtshim::Println((*b), grect, (*q), ps[0], gp_t5, *pd); }
+    { static_cast<void>(ps[0]); auto gp_t5 = *pm; gp::fmt::Println(gp::fmt::as(&gp_td_Point, (*b)), gp::fmt::as(&gp_td_Rect, grect), gp::fmt::as(&gp_td_Point, (*q)), gp::fmt::as(&gp_td_Point, ps[0]), gp_t5, *pd); }
 #line 176 "$DIR/structs.gp"
     double zero = 0.0;
     gp_anon_b79b937cf52eaff0 nan{zero / zero};
-    gp::fmtshim::Println((*q) == *pp, (*q) != (*b), Rect{} == Rect{}, nan == nan, nan != nan);
-    gp::fmtshim::Println(gp_anon_69f7bc70c6068911{0.0} == gp_anon_69f7bc70c6068911{-zero}, Blank{.a = 1, .b = 2.0} == Blank{.a = 1, .b = 2.0});
+    gp::fmt::Println((*q) == *pp, (*q) != (*b), Rect{} == Rect{}, nan == nan, nan != nan);
+    gp::fmt::Println(gp_anon_69f7bc70c6068911{0.0} == gp_anon_69f7bc70c6068911{-zero}, Blank{.a = 1, .b = 2.0} == Blank{.a = 1, .b = 2.0});
 #line 182 "$DIR/structs.gp"
     Rect r1{Point{0, 0}, Point{4, 3}};
     Rect r2 = r1;
     r2.Max.X = 100;
-    { auto gp_t6 = gpkg_main::area(r1); gp::fmtshim::Println(gp_t6, r1, r2, gpkg_main::grow(r1, 1), r1 == r2); }
+    { auto gp_t6 = gpkg_main::area(r1); gp::fmt::Println(gp_t6, gp::fmt::as(&gp_td_Rect, r1), gp::fmt::as(&gp_td_Rect, r2), gp::fmt::as(&gp_td_Rect, gpkg_main::grow(r1, 1)), r1 == r2); }
     Line l{};
     l.R = r1;
     l.Name = "l"_gs;
     l.n = INT64_C(1099511627776);
     Line l2 = l;
     l2.R.Min.X = 9;
-    gp::fmtshim::Println(l, l2 == l, l2.R.Min);
+    gp::fmt::Println(gp::fmt::as(&gp_td_Line, l), l2 == l, gp::fmt::as(&gp_td_Point, l2.R.Min));
 #line 195 "$DIR/structs.gp"
     gp::ptr<Outer> o = gp::new_<Outer>();
     (*o).Inner.A = 1;
@@ -412,12 +497,12 @@ void main() {
     po->Inner.A = po->Inner.A + 5;
     po->Inner.A = po->Inner.A * 2;
     (*o).Mid->Deep = gp::new_<Deep>(Deep{.D = 7});
-    { auto gp_t7 = mk(); auto gp_t8 = mk(); auto gp_t9 = (*o).Mid->M; auto gp_t10 = po->Mid->Deep->D; auto gp_t11 = gp_t7->Mid->Deep->D; gp::fmtshim::Println((*o).Inner.A, (*o).Inner.b, gp_t9, (*o).Inner, (*o).X, gp_t10, gp_t11, gp_t8->X); }
+    { auto gp_t7 = mk(); auto gp_t8 = mk(); auto gp_t9 = (*o).Mid->M; auto gp_t10 = po->Mid->Deep->D; auto gp_t11 = gp_t7->Mid->Deep->D; gp::fmt::Println((*o).Inner.A, (*o).Inner.b, gp_t9, gp::fmt::as(&gp_td_Inner, (*o).Inner), (*o).X, gp_t10, gp_t11, gp_t8->X); }
     gp::ptr<int64_t> pa = gp::ptr<int64_t>(o, &(*o).Inner.A);
     *pa = 100;
     gp::ptr<int64_t> pdd = gp::field_ptr((*o).Mid->Deep, &Deep::D);
     *pdd = 70;
-    { auto gp_t12 = (*o).Mid->Deep->D; gp::fmtshim::Println((*o).Inner.A, gp_t12, *pdd); }
+    { auto gp_t12 = (*o).Mid->Deep->D; gp::fmt::Println((*o).Inner.A, gp_t12, *pdd); }
 #line 212 "$DIR/structs.gp"
     gp::ptr<Node> list{};
     for (int64_t gp_i0 = 0; gp_i0 < 4; gp_i0++) {
@@ -426,22 +511,22 @@ void main() {
         list = gpkg_main::push(list, i);
     }
     for (gp::ptr<Node> n = list; n != nullptr; n = n->next) {
-        gp::fmtshim::Print(n->val, " "_gs);
+        gp::fmt::Print(n->val, " "_gs);
     }
-    gp::fmtshim::Println();
+    gp::fmt::Println();
     Node tree{.val = 1};
     tree.kids = gp::append(static_cast<gp::slice<Node>&&>(tree.kids), Node{.kids = gp::slice_of<Node>({Node{.val = 3}, Node{.val = 4}}), .val = 2});
     tree = Node(tree.kids[0]);
-    gp::fmtshim::Println(tree.val, gp::len(tree.kids), tree.kids[1].val);
+    gp::fmt::Println(tree.val, gp::len(tree.kids), tree.kids[1].val);
     tree.kids[0] = Node(tree.kids[0]);
     tree = Node(*gpkg_main::push(nullptr, 5));
-    gp::fmtshim::Println(tree.val, tree.next == nullptr);
+    gp::fmt::Println(tree.val, tree.next == nullptr);
 #line 229 "$DIR/structs.gp"
     gp::ptr<Point> p1 = gp::new_<Point>(Point{1, 2});
 #line 229 "$DIR/structs.gp"
     gp::ptr<Point> p2 = gp::new_<Point>(Point{3, 4});
     { auto gp_t13 = p1; p1 = p2; gp_t13->X = 100; }
-    { static_cast<void>(*p1); gp::fmtshim::Println(*p1, *p2); }
+    { static_cast<void>(*p1); gp::fmt::Println(gp::fmt::as(&gp_td_Point, *p1), gp::fmt::as(&gp_td_Point, *p2)); }
     int64_t i = 0;
     { auto gp_t14 = i; i = 1; ps[gp_t14].Y = 60; }
     ps = gp::append(static_cast<gp::slice<Point>&&>(ps), Point{});
@@ -449,32 +534,32 @@ void main() {
 #line 235 "$DIR/structs.gp"
         ps[1].X = gp_it0.gp_v();
     }
-    { static_cast<void>(ps[0]); gp::fmtshim::Println(ps[0], ps[1], i); }
+    { static_cast<void>(ps[0]); gp::fmt::Println(gp::fmt::as(&gp_td_Point, ps[0]), gp::fmt::as(&gp_td_Point, ps[1]), i); }
     { auto gp_t15 = (*q).X; (*q).X = (*q).Y; (*q).Y = gp_t15; }
-    gp::fmtshim::Println((*q));
+    gp::fmt::Println(gp::fmt::as(&gp_td_Point, (*q)));
 #line 242 "$DIR/structs.gp"
     Words wl{};
     { auto gp_t16 = wl.Words_; wl.Words_ = 1; ps[gp_t16].X = 70; }
     gp::array<int64_t, 2> la{};
     { auto gp_t17 = la[0]; la[0] = 1; ps[gp_t17].Y = 80; }
-    { static_cast<void>(ps[0]); gp::fmtshim::Println(ps[0], ps[1], wl.Words_, la[0]); }
+    { static_cast<void>(ps[0]); gp::fmt::Println(gp::fmt::as(&gp_td_Point, ps[0]), gp::fmt::as(&gp_td_Point, ps[1]), wl.Words_, la[0]); }
     gp::ptr<Deep> e0 = gp::new_<Deep>(Deep{});
     Mid m{.Deep = e0};
     { auto gp_t18 = m.Deep; m.Deep = gp::new_<Deep>(Deep{.D = 9}); gp_t18->D = 5; }
-    { auto gp_t19 = e0->D; gp::fmtshim::Println(gp_t19, m.Deep->D); }
+    { auto gp_t19 = e0->D; gp::fmt::Println(gp_t19, m.Deep->D); }
 #line 253 "$DIR/structs.gp"
     Words w{.Words_ = 1, .class_ = "c"_gs, .new_ = 2.5, .arr = gp::array<int64_t, 3>{1, 2, 3}};
     w.arr[1] = 20;
     w.nums = gp::append(static_cast<gp::slice<int64_t>&&>(w.nums), 5);
     w.Point.X = 3;
-    gp::fmtshim::Println(w, w.Words_, w.class_, w.new_, gp_{1}, std_{2});
+    gp::fmt::Println(gp::fmt::as(&gp_td_Words, w), w.Words_, w.class_, w.new_, gp::fmt::as(&gp_td_gp_, gp_{1}), gp::fmt::as(&gp_td_std_, std_{2}));
 #line 260 "$DIR/structs.gp"
     gp_anon_e67ed654f997cbc4 a1{1};
 #line 263 "$DIR/structs.gp"
     gp_anon_e67ed654f997cbc4 a2{2};
 #line 266 "$DIR/structs.gp"
     a1 = a2;
-    gp::fmtshim::Println(a1, a1 == a2, gp_anon_a9e1fb1acaf8c517{} == gp_anon_a9e1fb1acaf8c517{});
+    gp::fmt::Println(gp::fmt::as(gp_tdc_2, a1), a1 == a2, gp_anon_a9e1fb1acaf8c517{} == gp_anon_a9e1fb1acaf8c517{});
     local();
     local2();
 #line 272 "$DIR/structs.gp"
@@ -485,13 +570,13 @@ void main() {
     bp->n = 8;
     gp::ptr<Big> big2 = gp::new_init<Big>([&](Big& gp_b) { gp_b.n = f(6); });
     gp::ptr<Big> bp2 = gp::new_init<Big>([&](Big& gp_b) { gp_b.data[5] = 1; gp_b.n = x; });
-    { auto gp_t20 = gpkg_main::sum((*big)); auto gp_t21 = gpkg_main::sum(*bp); auto gp_t22 = gpkg_main::sum((*big2)); gp::fmtshim::Println(gp_t20, gp_t21, gp_t22, gpkg_main::sum(*bp2)); }
+    { auto gp_t20 = gpkg_main::sum((*big)); auto gp_t21 = gpkg_main::sum(*bp); auto gp_t22 = gpkg_main::sum((*big2)); gp::fmt::Println(gp_t20, gp_t21, gp_t22, gpkg_main::sum(*bp2)); }
 #line 282 "$DIR/structs.gp"
     gp::ptr<gp::array<Point, 2>> arr = gp::new_<gp::array<Point, 2>>(gp::array<Point, 2>{Point{1, 2}, Point{3, 4}});
     (*arr)[1].Y++;
     gp::ptr<int64_t> pa0 = gp::ptr<int64_t>(arr, &(*arr)[0].X);
     *pa0 = 9;
-    gp::fmtshim::Println((*arr)[0], (*arr)[1]);
+    gp::fmt::Println(gp::fmt::as(&gp_td_Point, (*arr)[0]), gp::fmt::as(&gp_td_Point, (*arr)[1]));
 }
 
 void gp_var_init() {
