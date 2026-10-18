@@ -82,7 +82,7 @@ var (
 	// gp::map<K, V> (step 3.7): a std::shared_ptr to the table.
 	layoutMap = layout{16, 8}
 	// gp::chan<T> (Phase 08 §2.2): a shared reference to the channel, a
-	// std::shared_ptr. A placeholder until Phase 08 builds it.
+	// std::shared_ptr to the channel object.
 	layoutChan = layout{16, 8}
 	// gp::func<Sig> (step 3.11): the owner of the closure (a
 	// std::shared_ptr<void>) and the function that calls it.
@@ -189,7 +189,7 @@ var runtimeTypes = []runtimeType{
 	{goType: "any", cpp: "gp::any", layout: layoutInterface,
 		defined: `(?:class|struct) any\b`, pending: ""},
 	{goType: "chan int", cpp: "gp::chan<int64_t>", layout: layoutChan,
-		defined: `(?:class|struct) chan\b`, pending: "Phase 08"},
+		defined: `(?:class|struct) chan\b`, pending: ""},
 }
 
 // Sizes returns gocpp's sizes (gocppSizes): the sizes and alignments of the C++ types, which

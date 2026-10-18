@@ -196,7 +196,8 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.
 			isUnsafePointer(fg.typeOf(x)) || isUnsafePointer(fg.typeOf(y)) ||
 			isSlice(fg.typeOf(x)) || isSlice(fg.typeOf(y)) || isArray(fg.typeOf(x)) ||
 			isMap(fg.typeOf(x)) || isMap(fg.typeOf(y)) || isStruct(fg.typeOf(x)) ||
-			isFunc(fg.typeOf(x)) || isFunc(fg.typeOf(y)) || isWeakPointer(fg.typeOf(x))) {
+			isFunc(fg.typeOf(x)) || isFunc(fg.typeOf(y)) || isWeakPointer(fg.typeOf(x)) ||
+			isChan(fg.typeOf(x)) || isChan(fg.typeOf(y))) {
 			// p == q compares the addresses, p == nil is p == nullptr (gp::ptr's ==; C++20
 			// writes != and nil == p from it). A slice or a map compares only with nil:
 			// s == nullptr, and so does a func (step 3.11). Arrays compare their elements (gp::array's ==), structs their
@@ -396,6 +397,8 @@ func (fg *funcGen) unary(e *ast.UnaryExpr) cppir.Expr {
 		}
 		// The printer writes - -x as -(-x), not as the decrement --x.
 		return narrow(t, &cppir.Unary{Op: "-", X: x})
+	case token.ARROW:
+		return fg.chanRecv(e) // chans.go
 	}
 	fg.g.unsupported(e.OpPos, "the operator "+e.Op.String())
 	return placeholder
@@ -476,15 +479,17 @@ func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 	case "len", "cap":
 		// len and cap of an array, or of a pointer to one, are N: a constant unless the
 		// argument has calls (gp::len(f()) evaluates f, and doesn't dereference a pointer).
-		if s := underBasic(t); !isSlice(t) && arrayOf(t) == nil && !(name == "len" && isMap(t)) && (name == "cap" || s == nil || s.Info()&types.IsString == 0) {
+		if s := underBasic(t); !isSlice(t) && !isChan(t) && arrayOf(t) == nil && !(name == "len" && isMap(t)) && (name == "cap" || s == nil || s.Info()&types.IsString == 0) {
 			fg.g.notLowered(c.Pos(), name+" of", t)
 			return placeholder
 		}
 		return call("gp::"+name, arrayPtrValue(t, fg.expr(arg)))
-	case "make", "append", "copy", "clear", "delete":
+	case "make", "append", "copy", "clear", "delete", "close":
 		var x cppir.Expr
 		if isMap(t) {
 			x = fg.mapBuiltin(c, name) // step 3.7, maps.go
+		} else if isChan(t) {
+			x = fg.chanBuiltin(c, name) // steps 8.3: make(chan T, n), close(ch), chans.go
 		} else {
 			x = fg.sliceBuiltin(c, name)
 		}
@@ -598,6 +603,9 @@ func (fg *funcGen) convertValue(c *ast.CallExpr, to, from types.Type, x cppir.Ex
 	}
 	if isMap(to) {
 		return fg.mapConversion(c, to, from, x) // maps.go
+	}
+	if isChan(to) {
+		return fg.chanConversion(c, to, from, x) // chans.go
 	}
 	if isWeakPointer(to) {
 		// weak.Pointer[T](w), A(w) for an alias A: only identity conversions reach here, since a

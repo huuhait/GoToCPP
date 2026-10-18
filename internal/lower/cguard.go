@@ -229,10 +229,6 @@ func (w *cWalk) addrOK(e ast.Expr, parent ast.Node) bool {
 			g.userError(u.OpPos, "& of the variable of a 3-clause for loop (%s): Go gives each iteration its own variable, and a C/C++ address can't keep it alive: copy it into a variable of the body, j := %s, and take &j", id.Name, id.Name)
 			return false
 		}
-		if _, ok := n.(*ast.GoStmt); ok {
-			g.unsupported(u.OpPos, "& of a C/C++ local in a go statement (Phase 08)")
-			return false
-		}
 	}
 	if _, ok := parent.(*ast.ReturnStmt); ok {
 		g.userError(u.OpPos, "&%s of a C/C++ local can't be a result: C/C++ values follow C++'s lifetime rules, and %s ends with the function", g.srcText(u.X), id.Name)
@@ -320,8 +316,7 @@ func (g *gen) cExprOK(e ast.Expr) bool {
 			g.userError(x.OpPos, "invalid operation: cannot take address of %s (C/C++ value): it must be a variable, a field, an element or *p", g.srcText(x.X))
 			return false
 		case token.ARROW:
-			g.unsupported(x.OpPos, "the operator <- on C/C++ values (Phase 08)")
-			return false
+			return true // <-ch of a channel of C/C++ values: gp::recv (chans.go)
 		}
 		return true
 	case *ast.StarExpr:
@@ -472,6 +467,9 @@ func (g *gen) cPlaceOK(e ast.Expr, parent ast.Node) bool {
 		if _, ok := ast.Unparen(e).(*ast.CallExpr); ok {
 			return true
 		}
+		if isRecv(e) != nil {
+			return true // <-ch as a statement
+		}
 		g.userError(e.Pos(), "%s (C/C++ value) is not used", g.srcText(e))
 		return false
 	case *ast.ValueSpec:
@@ -479,16 +477,17 @@ func (g *gen) cPlaceOK(e ast.Expr, parent ast.Node) bool {
 	case *ast.ReturnStmt, *ast.SwitchStmt, *ast.CaseClause, *ast.IfStmt, *ast.ForStmt:
 		return true // (an if's or a for's condition: gp::cgo::cond checks that it is a bool)
 	case *ast.GoStmt:
-		if c, ok := ast.Unparen(e).(*ast.CallExpr); ok && g.opaqueCallee(c) {
-			g.unsupported(c.Pos(), "go statements on members of C/C++ values (Phase 08)")
-			return false
+		if c, ok := ast.Unparen(e).(*ast.CallExpr); ok {
+			return g.deferRecvOK(c, "go") // go v.clear(): the goroutine keeps the object like a deferred call (cbox.go)
 		}
 		return true
 	case *ast.DeferStmt:
 		if c, ok := ast.Unparen(e).(*ast.CallExpr); ok {
-			return g.deferRecvOK(c) // defer v.clear(): cbox.go
+			return g.deferRecvOK(c, "defer") // defer v.clear(): cbox.go
 		}
 		return true
+	case *ast.SendStmt:
+		return true // ch <- v: a C/C++ value is copied or moved into the channel (chans.go)
 	case *ast.AssignStmt:
 		if inList(p.Lhs, e) && !g.assignableOK(e) {
 			return false
@@ -554,8 +553,8 @@ func (g *gen) cPlaceOK(e ast.Expr, parent ast.Node) bool {
 					b.Name() == "append" && !p.Ellipsis.IsValid() || b.Name() == "delete")
 				if arg && gocppContainer(g.info.TypeOf(p.Args[0])) {
 					switch b.Name() {
-					case "len", "cap", "append", "copy", "clear", "delete":
-						// A gocpp slice, array or map of C/C++ values (var xs []C.int):
+					case "len", "cap", "append", "copy", "clear", "delete", "close":
+						// A gocpp slice, array, map or channel of C/C++ values (var xs []C.int):
 						// lowered as for any other one.
 						return true
 					}
@@ -612,6 +611,9 @@ func (g *gen) oneValueOK(e ast.Expr, n int, values []ast.Expr, pos token.Pos) bo
 	if _, ok := ast.Unparen(e).(*ast.CallExpr); ok {
 		return true
 	}
+	if isRecv(e) != nil {
+		return true // v, ok := <-ch of a channel of C/C++ values (chans.go)
+	}
 	if g.mapCommaOK(e) {
 		return true // v, ok := m[k] of a gocpp map of C/C++ values (maps.go)
 	}
@@ -634,7 +636,7 @@ func gocppContainer(t types.Type) bool {
 		return false
 	}
 	switch u := t.Underlying().(type) {
-	case *types.Slice, *types.Array, *types.Map:
+	case *types.Slice, *types.Array, *types.Map, *types.Chan:
 		return true
 	case *types.Pointer:
 		_, ok := u.Elem().Underlying().(*types.Array)
@@ -823,6 +825,10 @@ func (w *cWalk) targetOK(e ast.Expr, parent ast.Node) bool {
 	g := w.g
 	if g.isCommaOKFlag(e) {
 		return true // the ok of v, ok := x.(std.string) is a Go bool (iconv.go)
+	}
+	if p, ok := parent.(*ast.AssignStmt); ok && len(p.Lhs) == 2 && len(p.Rhs) == 1 && isRecv(p.Rhs[0]) != nil &&
+		(ast.Unparen(p.Lhs[1]) == ast.Unparen(e) || ast.Unparen(p.Rhs[0]) == ast.Unparen(e)) {
+		return true // v, ok = <-ch of C/C++ values: the receive gives the value and a Go bool (chans.go)
 	}
 	t := w.targetOf(e, parent)
 	if t.to == nil || !complete(t.to) {

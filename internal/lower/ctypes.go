@@ -79,6 +79,8 @@ func (g *gen) typeExpr(e ast.Expr) cppir.Type {
 		}
 	case *ast.FuncType:
 		return g.funcTypeExpr(x)
+	case *ast.ChanType:
+		return chanType(g.typeExpr(x.Value)) // chan C.int, <-chan *C.FILE: gp::chan<T> (chans.go)
 	case *ast.Ident:
 		if tn, ok := g.info.Uses[x].(*types.TypeName); ok {
 			if tn.IsAlias() {

@@ -150,6 +150,8 @@ func boxedVars(info *types.Info, fn ast.Node) map[*types.Var]boxReason {
 			}
 		case *ast.DeferStmt:
 			b.boxDeferred(n.Call) // cbox.go
+		case *ast.GoStmt:
+			b.boxDeferred(n.Call) // a goroutine's call keeps its C/C++ objects like a deferred one
 		case *ast.UnaryExpr:
 			if n.Op == token.AND && !cAddr(info, n) {
 				b.mark(b.root(n.X), boxAddr)

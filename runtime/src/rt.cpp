@@ -795,6 +795,8 @@ int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
     // Any other exception (a C++ exception, also a std::bad_alloc that C++ code throws) finds
     // no catch, so the C++ library calls detail::on_terminate on the stack of the throw, before
     // anything unwinds.
+    detail::settle_panics(); // a goroutine that runs a panic's deferred calls ends the program
+                             // first
     os::exit(0);
 }
 

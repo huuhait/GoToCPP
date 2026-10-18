@@ -32,6 +32,8 @@ import (
 //	func(A, B) R             gp::func<R(A, B)> (Phase 03 step 3.11, closures.go)
 //	complex64, complex128    gp::complex64, gp::complex128 (Phase 03 step 3.15c, complex.go)
 //	weak.Pointer[T]          gp::weak_ptr<T> (Phase 03 step 3.18, weak.go)
+//	chan T, <-chan T, chan<- T   gp::chan<T> (Phase 08 steps 8.3 and 8.4, chans.go): one C++ type for
+//	                         the three directions, and three Go types (typedesc.go)
 //
 // An untyped constant has the C++ type of its default type (untyped int → int64_t, untyped
 // rune → int32_t, untyped float → double, untyped complex → gp::complex128), but go/types
@@ -41,7 +43,6 @@ import (
 //	error                    gp::error
 //	interface{ M() }         a struct over gp::iface: Shape, or gp_anon_i... for an unnamed type
 //
-// Not yet: channels (Phase 08), also named ones. For these, cxxType reports "not supported yet".
 
 // basicTypes are the C++ spellings of the basic types, by kind.
 var basicTypes = map[types.BasicKind]string{
@@ -104,6 +105,8 @@ func (g *gen) cxxType(t types.Type, pos token.Pos) cppir.Type {
 			break // its gp_hash and == are the C++ compiler's (typedecl.go)
 		}
 		return mapType(g.cxxType(t.Key(), pos), g.cxxType(t.Elem(), pos))
+	case *types.Chan:
+		return chanType(g.cxxType(t.Elem(), pos)) // chan T, <-chan T, chan<- T: one C++ type (chans.go)
 	case *types.Struct:
 		return g.structType(t, pos) // typedecl.go
 	case *types.Named:

@@ -23,8 +23,8 @@
 //     gp::shl and gp::shr (gocpp/arith.hpp) have overloads for these types below, with Go's
 //     panics. A shift count is any integer type (the emitter writes a named count as its
 //     value). explicit operator U() makes a named bool a condition (if (ok)).
-//   - Over a class U (gp::string, gp::slice, gp::array, gp::map, gp::ptr, gp::func), it IS a
-//     U: a public base class, whose constructors it inherits (nullptr for a nil slice, map,
+//   - Over a class U (gp::string, gp::slice, gp::array, gp::map, gp::ptr, gp::func, gp::chan), it
+//     IS a U: a public base class, whose constructors it inherits (nullptr for a nil slice, map,
 //     pointer or func). So every runtime function of U takes a D too (template argument
 //     deduction sees the base), and everything that reads a U works on a D: s[i], gp::len,
 //     range, gp::get(m, k), *p, p->f, h(x) and h == nullptr (type Handler func(int), step
@@ -44,6 +44,7 @@
 
 #include <gocpp/arith.hpp>
 #include <gocpp/array.hpp>
+#include <gocpp/chan.hpp>
 #include <gocpp/checks.hpp>
 #include <gocpp/complex.hpp>
 #include <gocpp/func.hpp>
@@ -82,6 +83,8 @@ template <typename T>
 inline constexpr bool runtime_class<ptr<T>> = true;
 template <typename Sig>
 inline constexpr bool runtime_class<func<Sig>> = true;
+template <typename T>
+inline constexpr bool runtime_class<chan<T>> = true;
 
 } // namespace detail
 

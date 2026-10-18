@@ -164,6 +164,11 @@ struct stack_fault {
 using stack_overflow_hook = void (*)(const stack_fault&) noexcept;
 stack_overflow_hook set_stack_overflow_hook(stack_overflow_hook hook) noexcept;
 
+// cpu_count returns the number of CPUs the process may run on (Linux: sched_getaffinity, so it
+// respects taskset and cpusets, which std::thread::hardware_concurrency does not), at least 1. A
+// goroutine that waits spins only when this is more than 1.
+int cpu_count() noexcept;
+
 // exit_now ends the process at once with the exit code, and does nothing else: no flush of C
 // stdio, no leak check, no atexit functions. It is async-signal-safe: for the stack overflow
 // hook. Everywhere else use exit.

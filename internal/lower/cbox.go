@@ -454,7 +454,7 @@ func (g *gen) deferObjectOf(x ast.Expr) (deferObject, *types.Var) {
 // reports it if it can't: a receiver that is an element or a pointer's target of a local
 // (defer v[i].m(), defer (*p).m()) is a place that Go evaluates at the defer statement and C++ would
 // read when the call runs.
-func (g *gen) deferRecvOK(c *ast.CallExpr) bool {
+func (g *gen) deferRecvOK(c *ast.CallExpr, stmt string) bool {
 	if !g.opaqueCallee(c) {
 		return true
 	}
@@ -464,7 +464,11 @@ func (g *gen) deferRecvOK(c *ast.CallExpr) bool {
 		obj, what = sel.X, "object"
 	}
 	if k, _ := g.deferObjectOf(obj); k == objBad {
-		g.userError(obj.Pos(), "cannot defer a call whose %s is %s: Go evaluates it when the defer statement runs, and a deferred C++ call can only keep a variable's object or a temporary: use a func literal, defer func() { ... }()", what, g.srcText(obj))
+		if stmt == "go" {
+			g.userError(obj.Pos(), "cannot start a goroutine with a call whose %s is %s: Go evaluates it when the go statement runs, and a C++ call in a new goroutine can only keep a variable's object or a temporary: use a func literal, go func() { ... }()", what, g.srcText(obj))
+		} else {
+			g.userError(obj.Pos(), "cannot defer a call whose %s is %s: Go evaluates it when the defer statement runs, and a deferred C++ call can only keep a variable's object or a temporary: use a func literal, defer func() { ... }()", what, g.srcText(obj))
+		}
 		return false
 	}
 	return true

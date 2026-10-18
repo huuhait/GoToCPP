@@ -642,8 +642,9 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		}
 		if fg.isBuiltin(x, "len") || fg.isBuiltin(x, "cap") {
 			// len and cap have no effect of their own, but gc evaluates them in their places
-			// among the calls. len(m) reads the map's table, which a call can change.
-			fg.collectInPlace(sc, x, x.Args, effect{read: isMap(fg.g.info.TypeOf(x.Args[0]))}, root, up)
+			// among the calls. len(m) reads the map's table, and len(ch) the channel's count, which a call
+			// (a receive or a send) can change.
+			fg.collectInPlace(sc, x, x.Args, effect{read: isMap(fg.g.info.TypeOf(x.Args[0])) || isChan(fg.g.info.TypeOf(x.Args[0]))}, root, up)
 			return
 		}
 		// A call; also append, copy and clear, which write the elements of an array that
@@ -686,6 +687,12 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 	case *ast.UnaryExpr:
 		if x.Op == token.AND {
 			fg.collectAddr(sc, x.X, root, up)
+			return
+		}
+		if x.Op == token.ARROW {
+			// A receive is evaluated in its place among the calls (gc's ORECV is copied into a
+			// temporary like a call), after its channel operand.
+			add(&orderItem{unit: true, inner: []*orderScope{fg.analyze(false, []ast.Expr{x.X})}, eff: effect{call: true}})
 			return
 		}
 		fg.collect(sc, x.X, root, up)

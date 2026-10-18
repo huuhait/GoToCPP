@@ -37,6 +37,7 @@ and from the user's answers to Q1–Q13
 | [023](023-module-downloads.md) | Modules are downloaded from git hosts, with hashes in `gocpp.sum` and trust on first use | accepted | Tag or commit archives from GitHub, GitLab and Codeberg (or `GOCPP_MODURL`), Go's `h1:` tree hash, no checksum database yet. |
 | [024](024-cxx-recipes.md) | C and C++ libraries are built from a `cxx` recipe in `gocpp.mod` | accepted | Sources, include folders, defines and pkg-config, through the flag allow-list; objects in the shared object cache. (023 is job 6.1c's.) |
 | [025](025-split-layout.md) | The split layout: all packages are lowered together; descriptors are extern, unnamed types are global | accepted | `pkg_desc.cpp` defines the descriptors, guarded definitions of `gp_anon_*` in every header that uses them, stable `gen/<hash>` folder, public flags. Refines 019. |
+| [026](026-channels-and-thread-reuse.md) | Channels are Go's `hchan` on a mutex, and goroutine threads are reused | accepted | `go` is lowered like `defer`; `gp::chan<T>` is a shared pointer; a finished goroutine's thread waits for the next `go`; the headers stay light. |
 
 ## Changing a decision
 

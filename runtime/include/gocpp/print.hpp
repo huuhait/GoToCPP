@@ -39,7 +39,7 @@ inline constexpr bool print_ok =
     std::is_same_v<T, bool> || go_int<T> || go_float<T> || go_complex<T> ||
     std::is_same_v<T, gp::string> || std::is_pointer_v<T> || std::is_null_pointer_v<T> ||
     std::is_enum_v<T> || std::is_same_v<T, std::string> || std::is_same_v<T, std::string_view> ||
-    requires(const T& v) { v.gp_shared(); };
+    requires(const T& v) { v.gp_shared(); } || requires(const T& v) { v.gp_address(); };
 
 // cxx_print is a value with a C/C++ part, from gp::cgo::print_arg, which reports one that
 // print can't print; that one then prints nothing, so that the error isn't reported twice.
@@ -85,6 +85,9 @@ void append_print(std::string& out, const T& v) {
     } else if constexpr (requires { v.gp_shared(); }) {
         // A Go pointer (gp::ptr): its address, 0x0 for nil.
         print_hex(out, static_cast<uint64_t>(reinterpret_cast<uintptr_t>(v.gp_get())));
+    } else if constexpr (requires { v.gp_address(); }) {
+        // A channel (gp::chan): its address, 0x0 for nil.
+        print_hex(out, static_cast<uint64_t>(v.gp_address()));
     } else if constexpr (requires { v.gp_value(); }) {
         append_print(out, v.gp_value()); // a named type (gp::newtype): as its underlying value
     } else if constexpr (requires { typename T::gp_cxx_print; }) {

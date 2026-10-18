@@ -264,6 +264,8 @@ func (fg *funcGen) cUnary(e *ast.UnaryExpr) cppir.Expr {
 		return &cppir.Unary{Op: e.Op.String(), X: fg.expr(e.X)}
 	case token.XOR:
 		return &cppir.Unary{Op: "~", X: fg.expr(e.X)}
+	case token.ARROW:
+		return fg.chanRecv(e) // <-ch of a channel of C/C++ values (chans.go)
 	case token.AND:
 		if lit, ok := ast.Unparen(e.X).(*ast.CompositeLit); ok {
 			if fg.g.cxxLit(lit) {

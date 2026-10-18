@@ -119,7 +119,13 @@ type funcGen struct {
 	// func value and receiver first, from left to right), and opTarget the target of the x op=
 	// y being ordered (emitPanic binds it once).
 	deferCall *ast.CallExpr
-	opTarget  ast.Expr
+	// spawn is set while a go statement's call is lowered (deferredCall): the same lowering as
+	// defer's, with pushCall starting a goroutine instead of storing a call in the frame.
+	spawn bool
+	// commaRecvs are the receives v, ok := <-ch of channels of C/C++ values, where go/types has
+	// no tuple type (chans.go: chanRecv).
+	commaRecvs map[*ast.UnaryExpr]bool
+	opTarget   ast.Expr
 	// heldBoxes: while a deferred call's thunk is lowered, the C/C++ locals whose box the
 	// deferred frame holds, by the name of the thunk's parameter that is the box (deferThunk).
 	heldBoxes map[*types.Var]string
@@ -260,7 +266,7 @@ func (fg *funcGen) exactExpr(e ast.Expr) cppir.Expr {
 	switch {
 	case ok && tv.Value != nil:
 		return fg.g.constant(tv.Value, fg.g.untypedCount(e, tv.Type), e.Pos(), true)
-	case ok && tv.IsNil() && (isSlice(tv.Type) || isMap(tv.Type) || isFunc(tv.Type)):
+	case ok && tv.IsNil() && (isSlice(tv.Type) || isMap(tv.Type) || isFunc(tv.Type) || isChan(tv.Type)):
 		// nullptr would be a std::nullptr_t: gp::slice<T>(), a nil slice (gp::map<K, V>(), a
 		// nil map; gp::func<Sig>(), a nil func).
 		return construct(fg.g.cxxType(tv.Type, e.Pos()))
@@ -314,7 +320,7 @@ func (fg *funcGen) ident(id *ast.Ident) cppir.Expr {
 		// A nil pointer, slice, map or func: C++ converts nullptr to gp::ptr<T>, gp::slice<T>,
 		// gp::map<K, V> and gp::func<Sig> (where C++ deduces the type, exactExpr writes
 		// gp::slice<T>()). The other nil values (interfaces) come with their types.
-		if t := fg.g.info.TypeOf(id); t != nil && (isPointer(t) || isUnsafePointer(t) || isSlice(t) || isMap(t) || isFunc(t) || t == types.Typ[types.UntypedNil]) {
+		if t := fg.g.info.TypeOf(id); t != nil && (isPointer(t) || isUnsafePointer(t) || isSlice(t) || isMap(t) || isFunc(t) || isChan(t) || t == types.Typ[types.UntypedNil]) {
 			return lit("nullptr")
 		} else if isInterface(t) {
 			return construct(fg.g.cxxType(t, id.Pos())) // the nil interface: Shape()
@@ -401,7 +407,7 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 						return placeholder
 					}
 				}
-			case "len", "cap", "panic", "new", "make", "append", "copy", "clear", "delete":
+			case "len", "cap", "panic", "new", "make", "append", "copy", "clear", "delete", "close":
 				return fg.builtin(c, obj.Name())
 			case "recover":
 				return fg.recoverCall() // recover.go
@@ -658,8 +664,6 @@ var nodeKinds = map[string]string{
 	"KeyValueExpr":   "key: value",
 	"TypeSwitchStmt": "type switches (Phase 05)",
 	"SelectStmt":     "select statements (Phase 08)",
-	"GoStmt":         "go statements (Phase 08)",
-	"SendStmt":       "send statements (Phase 08)",
 }
 
 // nodeKind names the kind of the AST node n for an error message.

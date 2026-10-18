@@ -11,11 +11,13 @@
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <new>
 
 #include <pthread.h>
+#include <sched.h>
 #include <sys/auxv.h>
 #include <sys/prctl.h>
 #include <sys/resource.h>
@@ -197,10 +199,14 @@ void* thread_main(void* p) {
     void* arg = si->arg;
     delete si;
 #if defined(GOCPP_OWN_SEGV)
-    // The alternate stack is part of this frame, at the top of the thread's stack, where the
-    // recursion never gets to. It is given back before the thread returns.
-    alignas(64) char alt[alt_size];
-    bool has_alt = use_alt_stack(alt);
+    // The alternate stack comes from malloc and is given back before the thread returns. (It
+    // used to be a local array of this frame, but a frame of 64 KiB is probed page by page
+    // (-fstack-clash-protection, which every compile of gocpp has), so the thread touched all
+    // of it: 64 KiB of resident memory per goroutine, ten times what the rest of a blocked
+    // goroutine costs. malloc's chunk stays untouched until a signal uses it.) Without
+    // memory, the thread runs without one, and its overflow is a plain crash.
+    char* alt = static_cast<char*>(std::malloc(alt_size));
+    bool has_alt = alt != nullptr && use_alt_stack(alt);
 #endif
     pthread_attr_t attr;
     if (pthread_getattr_np(pthread_self(), &attr) == 0) {
@@ -218,6 +224,7 @@ void* thread_main(void* p) {
     if (has_alt) {
         drop_alt_stack();
     }
+    std::free(alt);
 #endif
     return nullptr;
 }
@@ -246,15 +253,11 @@ int thread_start(void (*fn)(void*), void* arg, std::size_t stack_size) noexcept 
     if (page == 0 || (page & (page - 1)) != 0) {
         page = 4096;
     }
-    std::size_t extra = 0;
-#if defined(GOCPP_OWN_SEGV)
-    extra = alt_size;
-#endif
-    if (stack_size > std::numeric_limits<std::size_t>::max() - extra - page) {
+    if (stack_size > std::numeric_limits<std::size_t>::max() - page) {
         return EINVAL;
     }
-    std::size_t size = (stack_size + extra + page - 1) / page * page;
-    if (auto min = static_cast<std::size_t>(PTHREAD_STACK_MIN) + extra; size < min) {
+    std::size_t size = (stack_size + page - 1) / page * page;
+    if (auto min = static_cast<std::size_t>(PTHREAD_STACK_MIN); size < min) {
         size = (min + page - 1) / page * page;
     }
     auto* si = new (std::nothrow) start_info{fn, arg};
@@ -308,6 +311,17 @@ bool stack_bounds(uintptr_t& lo, uintptr_t& hi) noexcept {
 
 stack_overflow_hook set_stack_overflow_hook(stack_overflow_hook hook) noexcept {
     return overflow_hook.exchange(hook, std::memory_order_acq_rel);
+}
+
+int cpu_count() noexcept {
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    if (sched_getaffinity(0, sizeof set, &set) == 0) {
+        int n = CPU_COUNT(&set);
+        return n > 0 ? n : 1;
+    }
+    long n = sysconf(_SC_NPROCESSORS_ONLN);
+    return n > 0 ? static_cast<int>(n) : 1;
 }
 
 void exit_now(int code) noexcept {

@@ -384,9 +384,9 @@ func (fg *funcGen) deferValue(c *ast.CallExpr) cppir.Expr {
 			Params: []cppir.Param{{Type: auto, Name: "gp_f"}, {Type: auto, Name: "gp_a"}},
 			Body:   &cppir.Block{Inline: true, Stmts: []cppir.Stmt{&cppir.ExprStmt{X: call("std::apply", spread, cxxName("gp_a"))}}},
 		}
-		return frameCall("gp_push_call", apply, f, fg.exactExpr(c.Args[0]))
+		return fg.pushCall("gp_push_call", apply, f, fg.exactExpr(c.Args[0]))
 	}
-	return frameCall(push, append([]cppir.Expr{f}, fg.callArgs(c, sig)...)...)
+	return fg.pushCall(push, append([]cppir.Expr{f}, fg.callArgs(c, sig)...)...)
 }
 
 // funcName returns the C++ name of the function fn qualified with its package's namespace: the name

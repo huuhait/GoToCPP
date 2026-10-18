@@ -99,6 +99,19 @@ gp::close(jobs);
 - Practical limit: **tens of thousands** of goroutines (the audit ran 50k threads at about
   410 MiB RSS; the kernel limits on this machine allow far more). Programs that need millions
   of goroutines are not a target.
+- **Threads are reused (step 8.2, a deviation from "each `go` statement starts a thread").** When a
+  goroutine ends, its thread waits for the next `go` statement (up to 256 idle threads, 5 seconds
+  each, default stack size only) instead of exiting. Starting a thread costs 15 to 60 µs; handing a
+  goroutine to an idle one costs about 4 µs, and a loop of a million short goroutines runs on a few
+  hundred threads. Ids are not reused. Measured on this machine (Linux 6.19, `max_map_count` 1M,
+  a shared machine under load): 1,000 / 10,000 / 100,000 goroutines blocked on a channel start in
+  0.1 s / 0.8 s / 13 s and take 7 MB / 65 MB / 1.3 GB (about 14 KB each: the thread's alternate
+  signal stack is `malloc`ed, because a 64 KiB local array in the thread's start function was
+  probed page by page by `-fstack-clash-protection` and cost 64 KiB each). Systems with the
+  default `vm.max_map_count` of 65,530 and no `MADV_GUARD_INSTALL` (before Linux 6.13) stop at 20,000
+  to 30,000 threads. What would help beyond that is not done: smaller stacks do not save memory
+  (untouched pages are free) and overflow early, and a thread pool that runs goroutines to
+  completion deadlocks when more goroutines block than there are workers.
 - `runtime.LockOSThread` is a no-op that always holds: every goroutine already has its own
   thread, which is exactly what C libraries such as OpenGL or GUI toolkits need.
 
@@ -113,6 +126,28 @@ gp::close(jobs);
 | close | nil → panic `close of nil channel`; already closed → panic `close of closed channel`; else wake all receivers (zero, false) and all senders (they panic) |
 | nil channel | send/receive block forever; in `select` a nil case is never ready |
 | `len`, `cap`, `for v := range ch` | as in Go |
+
+Implementation notes (steps 8.3 and 8.4): the channel object is not a template (it works on
+element pointers with a table of the element type's size, move and zero functions) and lives in
+`runtime/src/chan.cpp` and the internal `src/chan_core.hpp`; `sudog` is a record on the waiting
+goroutine's stack with the waiter, a pointer to the value and a pointer to a "done" cell, plus the
+claim flag and case index that `select` will use (one entry per case, all sharing one cell and one
+claim flag; `waitq::dequeue` already skips an entry whose claim is taken). A waker finishes the
+operation under the channel's lock, unlocks, and tells the sleeper with `waiter::gp_unpark_with`; a
+sleeper that wakes late cannot free its record while the waker is still in it. A waiting goroutine
+spins for about 4 µs first (a ping-pong between two running goroutines then needs no system call).
+Blocked goroutines are counted (`gp::num_blocked()`, `block_scope`, the reason in the goroutine's
+record) for the deadlock detector: a goroutine that a waker has handed a value is not counted any
+more from the moment the waker wakes it (`unblock`), so `num_blocked() == num_goroutine()` is not true
+while a wake-up is on its way; timers, `sync` and a goroutine that is starting are still 8.11's to
+account for. **Steps 8.5 (`select`) and 8.8 (`time`, `sync`) must park through `block_scope` entered
+under the lock before the entry is queued, and wake through `wake()`/`unblock`**, so that the
+exactly-once decrement of the blocked count still holds (the mutant "block_exit never decrements"
+is equivalent only while every wake goes through `wake()`). A panic in a goroutine is waited for
+when main returns (`settle_panics`; the count follows the `panic_error` object, tests can cut the
+wait with `set_settle_timeout`). Because `rt.hpp` includes these headers, `<mutex>`,
+`<condition_variable>`, `<chrono>` and `<atomic>` are not in them: the waiter is a pointer to its
+state, defined in `src/waiter.cpp` (ADR-026).
 
 Directional types (`<-chan T`, `chan<- T`) are the same `gp::chan<T>` in C++. They are different
 Go types, so they get different type descriptors (Phase 05): `%T` prints `<-chan int`, and a

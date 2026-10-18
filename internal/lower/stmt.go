@@ -144,6 +144,10 @@ func (fg *funcGen) stmt(s ast.Stmt) {
 		fg.typeSwitchStmt(s) // iconv.go
 	case *ast.DeferStmt:
 		fg.deferStmt(s) // defer.go
+	case *ast.GoStmt:
+		fg.goStmt(s) // defer.go
+	case *ast.SendStmt:
+		fg.sendStmt(s) // chans.go
 	default:
 		fg.g.unsupported(s.Pos(), nodeKind(s))
 	}
@@ -333,6 +337,9 @@ func (fg *funcGen) simpleExpr(s ast.Stmt) cppir.Expr {
 	}
 	switch s := s.(type) {
 	case *ast.ExprStmt:
+		if u := isRecv(s.X); u != nil && fg.constValue(u) == nil {
+			return call("gp::recv_drop", fg.expr(u.X)) // <-ch as a statement: the value is dropped
+		}
 		return fg.expr(s.X)
 	case *ast.IncDecStmt:
 		if fg.g.pkg.Opaque.IsOpaque(s.X) {
@@ -1013,6 +1020,12 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 		}
 		if ix := fg.mapIndex(values[0]); ix != nil && fg.g.pkg.Opaque.IsOpaque(ix) {
 			fg.commaOK(ix) // v, ok := m[k] of a map of C/C++ values: go/types has no tuple for it
+		}
+		if u := isRecv(values[0]); u != nil && fg.g.pkg.Opaque.IsOpaque(u) {
+			if fg.commaRecvs == nil {
+				fg.commaRecvs = make(map[*ast.UnaryExpr]bool)
+			}
+			fg.commaRecvs[u] = true // v, ok := <-ch of C/C++ values: go/types has no tuple for it
 		}
 		value := fg.exactExpr(values[0])
 		if _, isCall := ast.Unparen(values[0]).(*ast.CallExpr); isCall && fg.g.pkg.Opaque.IsOpaque(values[0]) {

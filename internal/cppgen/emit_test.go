@@ -397,7 +397,6 @@ func TestUnsupported(t *testing.T) {
 	tests := []struct {
 		name, src, want string
 	}{
-		{"makechan", "func main() {\n\t_ = make(chan int)\n}", "main.gp:4:6: cppgen: not supported yet: make of chan int (Phase 08)"},
 		{"bytes-named-elem", "type MyByte byte\nfunc main() {\n\t_ = []MyByte(\"ab\")\n}", "main.gp:5:6: cppgen: not supported yet: the conversion from string to []MyByte"},
 		{"runes-named-elem", "type R rune\nfunc main() {\n\t_ = string([]R{'a'})\n}", "main.gp:5:6: cppgen: not supported yet: the conversion from []R to string"},
 		{"slice-tags", "func main() {\n\t_ = []struct{ Q int }([]struct {\n\t\tQ int `t:\"q\"`\n\t}{})\n}", `main.gp:4:6: cppgen: not supported yet: the conversion from []struct{Q int "t:\"q\""} to []struct{Q int}`},
@@ -417,8 +416,8 @@ func TestUnsupported(t *testing.T) {
 		{"iface-cvalue-error", "func main() {\n\tvar c C.int\n\tvar e error = c\n\t_ = e\n}", "main.gp:5:16: cppgen: not supported yet: a C/C++ value in an interface with methods (error): only interfaces without methods hold C/C++ values until Phase 12 (typed interop)"},
 		{"iface-method-ctype", "type I interface{ M(C.int) C.int }\nfunc main() {\n\tvar i I\n\t_ = i\n}", "main.gp:3:19: cppgen: not supported yet: the interface method M has a C/C++ type in its signature (typed interop: Phase 12)"},
 		{"rangechan", "func main() {\n\tfor range make(chan int) {\n\t}\n}", "main.gp:4:12: cppgen: not supported yet: range over channels (Phase 08)"},
-		{"go", "func main() {\n\tgo println()\n}", "main.gp:4:2: cppgen: not supported yet: go statements (Phase 08)"},
-		{"insideif", "func main() {\n\tif x := 1; x > 0 {\n\t\tgo println()\n\t}\n}", "main.gp:5:3: cppgen: not supported yet: go statements (Phase 08)"},
+		{"select", "func main() {\n\tselect {}\n}", "main.gp:4:2: cppgen: not supported yet: select statements (Phase 08)"},
+		{"insideif", "func main() {\n\tif x := 1; x > 0 {\n\t\tselect {}\n\t}\n}", "main.gp:5:3: cppgen: not supported yet: select statements (Phase 08)"},
 		{"nomain", "func f() {}", "main.gp:2:9: cppgen: function main is undeclared in the main package"},
 		{"addrderefcall", "func f() *int { return nil }\nfunc main() {\n\t_ = &*f()\n}", "main.gp:5:6: cppgen: not supported yet: &*p where p is not a variable"},
 	}

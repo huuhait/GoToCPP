@@ -31,7 +31,7 @@ func TestNoPlainMembers(t *testing.T) {
 	t.Parallel()
 	clang := clangCompiler(t)
 	rt := extractRuntime(t)
-	bad, classes, err := plainMembers(t, clang, filepath.Join(rt, "include"), "#include <gocpp/rt.hpp>\n#include <gocpp/os.hpp>\n#include <gocpp/goroutine.hpp>\n")
+	bad, classes, err := plainMembers(t, clang, filepath.Join(rt, "include"), "#include <gocpp/rt.hpp>\n#include <gocpp/os.hpp>\n#include <gocpp/goroutine.hpp>\n#include <gocpp/chan.hpp>\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestNoPlainMembers(t *testing.T) {
 	for _, c := range []string{"gp::string", "gp::ptr", "gp::weak_ptr", "gp::panic_error", "gp::slice", "gp::array",
 		"gp::map", "gp::map_range", "gp::hash", "gp::fmtshim::typed_value", "gp::defer_frame",
 		"gp::newtype", "gp::func", "gp::type_desc", "gp::field_desc", "gp::method", "gp::imethod",
-		"gp::method_table", "gp::itab", "gp::iface", "gp::any", "gp::waiter"} {
+		"gp::method_table", "gp::itab", "gp::iface", "gp::any", "gp::waiter", "gp::chan"} {
 		if !slices.Contains(classes, c) {
 			t.Errorf("the check didn't see the class %s; it saw %q", c, classes)
 		}

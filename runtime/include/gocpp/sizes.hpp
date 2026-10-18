@@ -16,6 +16,7 @@
 #include <gocpp/map.hpp>
 #include <gocpp/func.hpp>
 #include <gocpp/iface.hpp>
+#include <gocpp/chan.hpp>
 
 #include <cstdint>
 
@@ -67,7 +68,5 @@ static_assert(sizeof(gp::func<void()>) == 24, "func(): 24 bytes");
 static_assert(alignof(gp::func<void()>) == 8, "func(): alignment 8");
 static_assert(sizeof(gp::any) == 32, "any: 32 bytes");
 static_assert(alignof(gp::any) == 8, "any: alignment 8");
-
-// Not in the runtime yet. When a step adds one of these types, TestSizesTable fails until
-// its row in the table is no longer pending; then this file asserts it.
-//   chan int, gp::chan<int64_t>: 16 bytes, alignment 8 (Phase 08)
+static_assert(sizeof(gp::chan<int64_t>) == 16, "chan int: 16 bytes");
+static_assert(alignof(gp::chan<int64_t>) == 8, "chan int: alignment 8");

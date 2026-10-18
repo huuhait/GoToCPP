@@ -222,12 +222,28 @@ wg.Wait()
 ```
 
 - **Go:** goroutines are cheap. A program can run millions of them.
-- **gocpp:** every `go` statement starts a real OS thread. There is no goroutine scheduler, now or
-  later. Tens of thousands of goroutines are fine; millions are not.
+- **gocpp:** every goroutine is a real OS thread. There is no goroutine scheduler, now or later.
+  Tens of thousands of goroutines that exist *at the same time* are fine, and a hundred thousand
+  work on a machine whose limits allow it (below); millions are not. Goroutines that come and go
+  cost much less: the thread of a finished goroutine waits for the next `go` statement, so a loop
+  that starts a million short goroutines uses a few hundred threads and about 6 µs for each.
 - Each thread gets an 8 MiB stack by default (memory is only used when a page is touched). A
   stack overflow, on a goroutine's stack or the main one, prints `fatal error: stack overflow`
   and exits with code 2. An unrecovered panic in any goroutine prints `goroutine N [running]:`
   and exits with code 2, as in Go.
+- What a blocked goroutine costs, measured on Linux 6.19 (`vm.max_map_count` 1M, `kernel.threads-max`
+  2M, the machine shared and loaded): about 14 KB of resident memory and 8 MiB of address space, and
+  10 to 130 µs to start. 1,000 goroutines blocked on a channel start in 0.1 s, 10,000 in 0.8 s (65
+  MB), 100,000 in 13 s (1.3 GB). The limits of the system apply: `ulimit -u`, `kernel.threads-max`,
+  a cgroup's `pids.max`, `ulimit -v` (8 MiB of address space each) and, on a kernel without
+  guard-page support in `madvise` (before Linux 6.13) or with the default `vm.max_map_count` of
+  65,530, about 20,000 to 30,000 threads. When the system refuses a thread, the program ends with
+  Go's `fatal error: newosproc`.
+- Handing a value between two goroutines is slower than in Go: a ping-pong on unbuffered channels
+  takes about 1 µs for each operation when both threads are running on idle cores (the waiting
+  goroutine spins for about 4 µs first) and 7 to 15 µs when the machine is loaded and the receiver
+  must be woken by the kernel, against 0.2 µs in Go. A buffered channel between a producer and a
+  consumer costs 0.1 to 0.25 µs for a value (a buffer of 128 or more), 0.9 µs with a buffer of 1.
 - The Go names stay: `go`, "goroutine", `runtime.NumGoroutine`. `runtime.LockOSThread` always
   holds, because every goroutine already has its own thread. `runtime.GOMAXPROCS` remembers the
   value you set, but gocpp doesn't use it for scheduling.
@@ -425,8 +441,9 @@ fmt.Println(unsafe.Sizeof(struct{}{}), unsafe.Sizeof(struct {
   A slice of empty structs therefore uses memory: `make([]struct{}, n)` allocates `n` bytes, and a
   huge `n` (Go allows `math.MaxInt`, because its zero-size elements take no memory) fails with an
   out-of-memory error in gocpp.
-- The sizes of `chan T`, func values and interface values are placeholders until their
-  phases build them (08, 03 step 3.11, 05); they can still change there.
+- The size of `chan T` is that of `gp::chan<T>` (a `std::shared_ptr`: 16 bytes), asserted in
+  `sizes.hpp` since Phase 08; func values and interface values are what Phase 03 step 3.11 and
+  Phase 05 built.
 - Only the C++ compiler knows the size of a C/C++ type (`C.int`, `*stdio.FILE`,
   `std.vector[int]`), so `unsafe.Sizeof`, `Alignof` and `Offsetof` of a value or a type that holds
   one directly or in a field or an array element (also nested) are not Go constants: they are the

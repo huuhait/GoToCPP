@@ -98,6 +98,37 @@ struct CppException {
     }
 };
 
+namespace detail {
+
+// panic_count_add changes the number of panics that goroutines are handling (src/goroutine.cpp:
+// panicking, settle_panics).
+void panic_count_add(int delta) noexcept;
+
+// panic_token is a panic_error's place in that count: defer_frame::gp_take turns it on when a
+// deferred-call frame takes the panic, and it turns itself off when the panic object dies, however
+// that happens: recovered, swallowed by a catch of C++ code (fmt prints %!v(PANIC=...)), or the end
+// of the goroutine. A copy is not counted (the chain keeps copies of older panics).
+struct panic_token {
+    panic_token() noexcept = default;
+    panic_token(const panic_token&) noexcept {}
+    panic_token& operator=(const panic_token&) noexcept { return *this; }
+    ~panic_token() {
+        if (gp_on) {
+            panic_count_add(-1);
+        }
+    }
+    // panic_mark is what a frame calls when it takes the panic (once).
+    void gp_mark() noexcept {
+        if (!gp_on) {
+            gp_on = true;
+            panic_count_add(1);
+        }
+    }
+    bool gp_on = false;
+};
+
+} // namespace detail
+
 // panic_error is the exception that a Go panic throws. It doesn't derive from std::exception,
 // so C++ code that catches std::exception can't stop a Go panic by accident.
 struct panic_error {
@@ -155,6 +186,9 @@ struct panic_error {
     // panic's own stack.
     std::shared_ptr<panic_error> gp_prev;
     int64_t gp_inner = -1;
+
+    // Is this panic being handled by a goroutine's deferred calls (detail::panic_token)?
+    detail::panic_token gp_token;
 };
 
 namespace detail {

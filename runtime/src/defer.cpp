@@ -196,6 +196,7 @@ void defer_frame::gp_take(panic_error& p) {
     }
     gp_pending = std::current_exception(); // p, which is being handled
     gp_pending_panic = &p;
+    p.gp_token.gp_mark(); // main waits for a goroutine that runs a panic's deferred calls
 }
 
 void defer_frame::gp_adopt() {

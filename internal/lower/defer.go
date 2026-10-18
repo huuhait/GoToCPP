@@ -5,6 +5,7 @@ import (
 	"go/token"
 	"go/types"
 	"strconv"
+	"strings"
 
 	"github.com/huuhait/gocpp/internal/cppir"
 )
@@ -115,6 +116,20 @@ func (f *funcInfo) prepareDefers() {
 	}
 }
 
+// pushCall returns the call that stores a deferred call: gp_df.name(args...) for a defer statement,
+// and for a go statement the call that starts the goroutine: gp::go_fn for gp_push, gp::go_call
+// for gp_push_call (the aware and interface variants of the frame's functions make no
+// difference in a new goroutine: nothing is panicking there, so recover finds no ticket).
+func (fg *funcGen) pushCall(name string, args ...cppir.Expr) cppir.Expr {
+	if !fg.spawn {
+		return frameCall(name, args...)
+	}
+	if strings.HasPrefix(name, "gp_push_call") {
+		return call("gp::go_call", args...)
+	}
+	return call("gp::go_fn", args...)
+}
+
 // frameCall returns gp_df.name(args...).
 func frameCall(name string, args ...cppir.Expr) cppir.Expr {
 	return &cppir.Call{Fun: &cppir.Member{X: cxxName(deferFrame), Name: name}, Args: args}
@@ -217,8 +232,24 @@ func (fg *funcGen) deferReturn(s *ast.ReturnStmt) {
 // deferStmt lowers defer f(args): the deferred call goes into the frame, with f and the
 // arguments evaluated now (see the top of the file).
 func (fg *funcGen) deferStmt(s *ast.DeferStmt) {
-	p := fg.g.pos(s.Pos())
-	c := s.Call
+	fg.deferredCall(s.Pos(), s.Call, false)
+}
+
+// goStmt lowers go f(args): the same evaluation as defer, f and the arguments now, in the
+// calling goroutine, and the call on a new one (go.go): gp::go_fn(f, args...) for a function of
+// the package and gp::go_call(callable, args...) for the rest, the counterparts of the frame's
+// gp_push and gp_push_call.
+func (fg *funcGen) goStmt(s *ast.GoStmt) {
+	fg.deferredCall(s.Pos(), s.Call, true)
+}
+
+// deferredCall lowers the call c of a defer statement (spawn false) or of a go statement (spawn
+// true) at pos: its function and arguments are evaluated here, and stored for the call that
+// comes later (the end of the function) or elsewhere (a new goroutine).
+func (fg *funcGen) deferredCall(pos token.Pos, c *ast.CallExpr, spawn bool) {
+	p := fg.g.pos(pos)
+	defer func(old bool) { fg.spawn = old }(fg.spawn)
+	fg.spawn = spawn
 	// The arguments' order, as for the call as a statement, except that gc evaluates the func
 	// value and the receiver first (its normalizeGoDeferCall copies them, then the arguments,
 	// into new variables, in order), so a func value isn't late and a receiver is an argument
@@ -237,12 +268,12 @@ func (fg *funcGen) deferStmt(s *ast.DeferStmt) {
 				args = append(args, fg.expr(a))
 			}
 		}
-		push = frameCall(pushName("gp_push", fg.deferKind(c)), args...) // gp_push_aware: recover.go
+		push = fg.pushCall(pushName("gp_push", fg.deferKind(c)), args...) // gp_push_aware: recover.go
 	case fg.isBuiltin(c, "recover"):
 		// defer recover() does nothing: recover is the deferred call itself, not called by one
 		// (recover.go), and it has no arguments.
 		auto := &cppir.Ref{Elem: typeName("auto"), RValue: true}
-		push = frameCall("gp_push_call", &cppir.Lambda{
+		push = fg.pushCall("gp_push_call", &cppir.Lambda{
 			Params: []cppir.Param{{Type: auto, Pack: true}},
 			Body:   &cppir.Block{Inline: true},
 		})
@@ -334,5 +365,5 @@ func (fg *funcGen) deferThunk(c *ast.CallExpr) cppir.Expr {
 	}
 	lambda := &cppir.Lambda{Params: params, Body: &cppir.Block{Stmts: []cppir.Stmt{&cppir.ExprStmt{X: body}}, Inline: true}}
 	// A method that is aware, or called through an interface, needs the ticket (recover.go).
-	return frameCall(pushName("gp_push_call", fg.deferKind(c)), append([]cppir.Expr{lambda}, values...)...)
+	return fg.pushCall(pushName("gp_push_call", fg.deferKind(c)), append([]cppir.Expr{lambda}, values...)...)
 }

@@ -96,7 +96,7 @@ Source: [Phase 02 §2.1](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/
 | `struct{...}` | `struct` + generated `==`, hash, field info | `operator==` and `gp_hash()` only when the struct is comparable; the field info (`gp_fields`) is for `fmt`'s `%v`; an anonymous struct type is `gp_anon_` and a hash of the type ([structs](#structs)) |
 | `type Celsius float64` (named non-struct type) | `struct Celsius : gp::newtype<Celsius, double>` (a distinct type that can have methods) | gocpp inserts a conversion wherever Go converts implicitly ([named types](#named-types)) |
 | `interface{...}`, `any`, `error` | generated interface class, `gp::any`, `gp::error` | an interface value holds data, a type descriptor and a method table (32 bytes); no C++ virtual functions (Phase 05) |
-| `chan T` | `gp::chan<T>` | a shared reference to the channel; `<-chan T` and `chan<- T` are the same C++ type, but different Go types (Phase 08) |
+| `chan T` | `gp::chan<T>` | a shared reference to the channel; `<-chan T` and `chan<- T` are the same C++ type, but different Go types with their own type descriptors ([goroutines and channels](#goroutines-and-channels)) |
 | results `(A, B)` | `std::tuple<A, B>` | `return a, b` becomes `return {a, b};` ([multiple results](#multiple-results)) |
 | `C.int`, `C.char`, `C.size_t`, … (C's built-in types) | `int`, `char`, `size_t`, … (same names as cgo) | the full list is in [interop.md](interop.md#what-c-holds) |
 | `std.vector[int]` | `std::vector<int64_t>` | a C++ template; gocpp's `int` is `int64_t` there too ([interop.md](interop.md#cc-types-in-gocpp-code)) |
@@ -1024,8 +1024,7 @@ has `using gp_value_tag = gp::fmtshim::tag::int64;` (and so on), the type tag of
 of a named type over `uint32`, `uint64` or `string` is read before `x`, like an `int` key,
 because gc converts it to its fast map call's key type.
 
-**Not yet**: named func types (step 3.11), named interface types (Phase 05), named channel types
-(Phase 08), and methods (step 3.10); the conversions between strings and
+**Not yet**: named func types (step 3.11), named interface types (Phase 05), and methods (step 3.10); the conversions between strings and
 slices of named byte or rune types (`[]MyByte(s)`, `string([]R{...})` for `type R rune`), and
 between slice types (or structs with slice or map fields) whose element structs differ only in
 their tags (`[]struct{ Q int }(s)` of a `[]struct{ Q int "t" }`): Go shares the elements there,
@@ -1996,42 +1995,124 @@ value, so a pointer method of an embedded value changes the object that the inte
   asserts to the interfaces that its promoted methods satisfy.
 - A struct that embeds a C/C++ type has none of the C/C++ type's methods in its method set (`go/types` doesn't know them).
 
-## Goroutines
+## Goroutines and channels
 
-Goroutine support is built in Phase 08; step 8.1 has its runtime, which the `go` statement
-(step 8.2) will use. The shapes (`runtime/include/gocpp/goroutine.hpp`, `waiter.hpp`):
+Phase 08 builds this; steps 8.1 to 8.4 are in (the `go` statement, channels and their directions;
+`select`, `range` over a channel, `sync` and `time` come next). The runtime is
+`runtime/include/gocpp/{goroutine,waiter,chan}.hpp` and `runtime/src/{goroutine,waiter,chan}.cpp`.
 
-- `gp::go(f)` starts `f` as a goroutine: one detached OS thread with its own stack, 8 MiB by
-  default (a program may set it down to 1 MiB). There is no scheduler. Go evaluates the function
-  and the arguments of a `go` statement first, in the calling goroutine; the emitter will pass a
-  closure that holds the values.
-- Every goroutine has an id, for the panic message: the main goroutine is 1, the others count up
-  from 2. `gp::num_goroutine()` is `runtime.NumGoroutine`: the main goroutine, plus each
-  goroutine from the moment `go` returns until its function has returned and its closure is
-  destroyed. A thread that no `go` statement started (a C library's thread, a `std::thread`)
-  gets a goroutine id of its own the first time it enters gocpp code, and does not count.
-- An unrecovered panic in a goroutine ends the whole program, as in Go: after the goroutine's
-  stack has unwound (destructors ran), it prints `panic: <value>`, a blank line,
-  `goroutine N [running]:` and the goroutine's stack trace, and exits with code 2. A C++
-  exception that nothing catches and a fatal error do the same, with the goroutine's number.
-  When several goroutines die at once, one prints and the others wait for the process to end (at
-  most 30 seconds, then they end it with code 2: a reporter that is stuck can't hang the program).
-  Go's trace ends with a line `created by main.main in goroutine 1` and a place; gocpp's has no
-  such line (the trace stops at the goroutine's first frame).
-- `gp::waiter` is how a goroutine blocks (channels, `select`, `sync` and timers, steps 8.3
-  to 8.8 use it): `gp_park()` waits for the waiter's one permit and takes it, `gp_unpark()`
-  makes it available. An unpark before the park is not lost; unparks don't add up; the caller
-  loops on its own condition, as with a condition variable. `gp_park_for` and `gp_park_until`
-  give up at a time.
+```go
+go worker(jobs, results, 7)                 gp::go_fn(worker, jobs, results, 7);
+go func() { ... }()                         gp::go_call([jobs]<int = 1>() mutable -> void { ... });
+go obj.Method(a)                            gp::go_call([](auto&& gp_a0, auto&& gp_a1) { gp_a0.Method(gp_a1); }, obj, a);
+go close(c)                                 gp::go_call([](auto&& gp_a0) { gp::close(gp_a0); }, c);
+```
+
+- **`go f(x, y)`** is lowered like `defer f(x, y)`: Go evaluates the function value and the
+  arguments *now*, in the calling goroutine, in the order of a call (the receiver of a method call
+  too, a value receiver as a copy), and the call runs in the new goroutine. The emitter writes the
+  same shapes as for defer (a function of the package, a func value, a func literal as its lambda, a
+  method with its receiver as the first argument, a builtin or a library function in a generic
+  lambda, a C/C++ call with its object kept alive; [Defer](#defer)), with `gp::go_fn` instead of
+  `gp_df.gp_push` and `gp::go_call` instead of `gp_df.gp_push_call`. `gp::go_fn(f, a...)` converts
+  the arguments to `f`'s parameter types in the caller; `gp::go_call(c, a...)` stores `c` and copies
+  of the arguments, which it gets as rvalues. A variable that a goroutine's closure shares with
+  the function is boxed like any captured variable that changes, and a Go 1.22 loop variable is a
+  new variable in each iteration, so `for i := range 3 { go func() { use(i) }() }` is right. A
+  func literal that calls `recover()` is a plain call in a new goroutine (nothing is panicking
+  there), and `go f()` with a nil func value is the fatal error `go of nil func value` at the go
+  statement.
+- **A goroutine is a detached OS thread** with an 8 MiB stack (ADR-007), started by
+  `gp::detail::go_start`; there is no scheduler. The thread of a goroutine that ended is *reused*:
+  it waits up to 5 seconds (at most 256 threads wait) for the next `go` statement before it exits,
+  so a loop that starts a million short goroutines uses a few hundred threads, not a million.
+  Goroutine ids are not reused (`goroutine 12 [running]:` is the twelfth started). The goroutine
+  ends when its function returns; an unrecovered panic ends the whole program, `runtime.Goexit` ends
+  only the goroutine (`gp::goexit()`), after its deferred calls.
+- **Every goroutine has a record** with its id, its `gp::waiter` and why it is blocked
+  (`"chan receive"`). `gp::waiter` is how a goroutine blocks: `gp_park()` waits for the waiter's
+  one permit and takes it, `gp_unpark()` makes it available; `gp_unpark_with(f)` and
+  `gp_wait(pred)` are the pair a waker uses to tell the goroutine that its operation is done (the
+  channel code does that: `f` runs under the waiter's lock, `pred` is read under it, so the parked
+  goroutine can destroy the cell the waker wrote to as soon as `gp_wait` returns).
+  `gp::num_goroutine()` is `runtime.NumGoroutine`; `gp::num_blocked()` is how many goroutines wait
+  inside a `gp::detail::block_scope` (the hook of the deadlock detector, step 8.11).
+- **`gp::chan<T>`** is a `std::shared_ptr` to the channel object (16 bytes): a copy shares the
+  channel, an empty handle is the nil channel, `==` compares the channels, and the hash is the
+  address. `chan T`, `<-chan T` and `chan<- T` are the same C++ type with three different Go
+  types: each has its own type descriptor (`gp::td_chan<gp::chan<T>>(dir, elem)`, interned with
+  Go's name: `chan int`, `<-chan int`, `chan<- int`, `chan (<-chan int)`, `<-chan <-chan int`), so a
+  type switch, `==` of interface values and (with step 5.11) `%T` tell them apart; the name that fmt's error forms print for a channel inside a struct is `chan T` whatever the direction, because the C++ type does not have it; a bidirectional channel
+  converts to a directional one without any C++ code. A named channel type is a
+  `gp::newtype` over it and can have methods (`type Queue chan int`).
+- **The channel object** is Go's `hchan`: a mutex, a ring buffer, and two first-in-first-out queues
+  of `sudog`s, the entries of goroutines that wait (on their own stacks: the waiter, a pointer to
+  the value, a "done" cell that the waker sets). A send hands the value straight to a waiting
+  receiver, else puts it in the buffer, else queues the sender; a receive takes a waiting
+  sender's value (from the sender for an unbuffered channel, from the head of the buffer for a
+  buffered one, whose slot the sender's value then takes), else a buffered value, else a zero
+  value and `false` if the channel is closed, else it queues; `close` wakes all receivers (zero
+  value, `false`) and all senders (they panic). A waiting goroutine spins for about 4 µs before it
+  sleeps, so a hand-off to a goroutine that is running costs no system call. The mutex is a
+  `std::mutex`, so ThreadSanitizer sees the happens-before edges Go promises.
+- **The operations**:
+
+  ```go
+  c := make(chan T, n)     auto c = gp::make_chan<T>(n);   // makechan: size out of range
+  c <- v                   gp::send(c, v);                  // the channel owns a copy
+  v := <-c                 T v = gp::recv(c);
+  v, ok := <-c             auto gp_t0 = gp::recv2(c); T v = std::get<0>(gp_t0); bool ok = std::get<1>(gp_t0);
+  <-c                      gp::recv_drop(c);
+  close(c); len(c); cap(c) gp::close(c); gp::len(c); gp::cap(c)
+  ```
+
+  `close(nil)`, a second `close` and a send on a closed channel (also one that was waiting when
+  the channel was closed) panic with Go's texts (`close of nil channel`, `close of closed channel`,
+  `send on closed channel`: `runtime.plainError` values, which `recover()` returns as errors);
+  sending to or receiving from a nil channel blocks the goroutine for ever. A receive is a call for
+  the [order of evaluation](#order-of-evaluation): `fmt.Println(<-c, len(c))` receives first;
+  `len(c)` reads a count that a send or a receive changes. The element type needs no default
+  constructor unless the program receives from a closed channel (a C++ type without one is a fatal
+  error then). A C/C++ value that goes into a channel is copied if it is a variable and moved if it
+  is a temporary or `std.move(x)` (`gp::cgo::defer_arg`, as for the arguments of a deferred call);
+  `chan std.unique_ptr[C.int]` and `chan *lib.Type` work.
+- **A panic in a goroutine ends the program**, even when main returns first. A goroutine counts as
+  handling a panic from the moment a deferred-call frame takes it until the panic object is gone
+  (a `detail::panic_token` in `gp::panic_error`: recovered, or swallowed by a C++ `catch`, as fmt
+  does for a `String` method that panics; no call is needed where a panic is caught), and when `main` returns, `run_main` waits for such
+  goroutines (`detail::settle_panics`, at most 200 ms, as Go's `runtime.main` yields 1000 times),
+  and if one has claimed the death of the program, it waits for the program to end. So
+  `go func() { defer close(done); panic("x") }(); <-done` ends with `panic: x` and exit code 2, as in Go
+  (the `defer wg.Done()` pattern); a deferred call that takes longer than the wait lets main win,
+  as in Go. The goroutine trace is the goroutine's frames only: no `created by main.main in goroutine
+  1` line, and the lambdas that `go` writes for a builtin (`go panic(..)`) may show as `?()` frames.
+- **Blocked goroutines** (`gp::num_blocked()`): a goroutine enters its `block_scope` under the
+  channel's lock, before its entry can be seen by a waker, and the waker calls `unblock` before it
+  wakes it, so a goroutine that has been handed its value is not counted as blocked, though its thread
+  has not run yet. The deadlock detector (8.11) compares `num_blocked()` with `num_goroutine()`.
+- **Zero-size elements** (`chan struct{}`) take no buffer memory (`make(chan struct{}, 1<<40)` works,
+  as in Go); the slots of a ring of them are one byte that nothing writes.
+- **Idle threads** keep the stack pages they touched for up to 5 seconds (256 threads, worst case
+  256 times the deepest recursion a goroutine reached); they are not returned with `madvise`.
+- **Printing** a channel (`fmt.Println(c)`, `println(c)`) prints its address, `<nil>` (`0x0` for the
+  builtin `println`) for the nil channel.
 - If the OS can't start a thread, the program ends with Go's fatal error: `runtime: failed to
   create new OS thread (have N already; errno=E)`, then `fatal error: newosproc`, exit code 2.
+- **Limits.** A goroutine blocked on a channel costs about 14 KB of resident memory and 8 MiB of address
+  space (the stack is only committed when touched); measured on a 6.19 kernel with
+  `vm.max_map_count` 1M and `threads-max` 2M: 1,000 blocked goroutines start in 0.1 s, 10,000 in
+  0.8 s (65 MB), 100,000 in 13 s (1.3 GB; the machine was shared and loaded). A kernel with the
+  default `vm.max_map_count` of 65,530 and no `MADV_GUARD_INSTALL` (before Linux 6.13) allows about
+  20,000 to 30,000 threads (two mappings each); `ulimit -u`, `kernel.threads-max`, cgroup `pids.max` and
+  `ulimit -v` limit it too, and when thread creation fails the program ends with the fatal error
+  above. See [D7](language.md#d7-goroutines-are-os-threads).
 
 Everything the OS does for this is behind `gp::os` (`runtime/include/gocpp/os.hpp`, the Linux
 version in `runtime/src/os/linux/thread.cpp`): starting a detached thread with a stack size,
 a thread slot, the stack bounds, and the stack-overflow hook. The Windows version is Phase 14.
 
-Source: [Phase 08 §2.2](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md#22-goroutines--os-threads),
-[ADR-007](../adr/007-goroutines-os-threads.md).
+Source: [Phase 08 §2.2 and §2.3](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md#22-goroutines--os-threads),
+[ADR-007](../adr/007-goroutines-os-threads.md), [ADR-026](../adr/026-channels-and-thread-reuse.md).
 
 ## `#line` and debugging
 

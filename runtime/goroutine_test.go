@@ -59,7 +59,7 @@ func runGoroutine(t *testing.T, bin, mode string) {
 	want("goexit-main", `^(?:main's deferred call\nother goroutine runs\n|other goroutine runs\nmain's deferred call\n)`+
 		`fatal error: no goroutines \(main called runtime.Goexit\) - deadlock!\n$`)
 	want("thread-fail-3", `^runtime: failed to create new OS thread \(have 4 already; errno=\d+\)\n`+
-		`fatal error: newosproc\n\ngoroutine 1 \[running\]:\n`)
+		`(?:runtime: may need to increase max user processes \(ulimit -u\)\n)?fatal error: newosproc\n\ngoroutine 1 \[running\]:\n`)
 	want("bad-error-method", `^deferred call runs first\nfatal error: panic while printing panic value: inside Error\n\ngoroutine 1 \[running\]:\n`)
 	t.Run("exit-in-defer", func(t *testing.T) {
 		// os.Exit in a deferred call skips every deferred call that hasn't run, and keeps its code.
@@ -75,7 +75,7 @@ func runGoroutine(t *testing.T, bin, mode string) {
 		}
 	})
 	want("thread-fail", `^before\nruntime: failed to create new OS thread \(have 1 already; errno=\d+\)\n`+
-		`fatal error: newosproc\n\ngoroutine 1 \[running\]:\n`)
+		`(?:runtime: may need to increase max user processes \(ulimit -u\)\n)?fatal error: newosproc\n\ngoroutine 1 \[running\]:\n`)
 
 	t.Run("panic-many", func(t *testing.T) {
 		// Eight goroutines panic together: one report, one exit.

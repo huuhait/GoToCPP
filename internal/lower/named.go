@@ -107,10 +107,8 @@ func (g *gen) newtypeOK(spec *ast.TypeSpec, named *types.Named) bool {
 			return true // type Handle unsafe.Pointer: over gp::ptr<void> (unsafe.go)
 		}
 		g.unsupported(spec.Pos(), "type "+u.Name())
-	case *types.Slice, *types.Array, *types.Map, *types.Pointer, *types.Signature:
-		return true // a func type: over gp::func (step 3.11)
-	case *types.Chan:
-		g.unsupported(spec.Pos(), "channel types (Phase 08)")
+	case *types.Slice, *types.Array, *types.Map, *types.Pointer, *types.Signature, *types.Chan:
+		return true // a func type: over gp::func (step 3.11); a channel type: over gp::chan (step 8.3)
 	default:
 		g.unsupported(spec.Pos(), "the named type "+named.Obj().Name())
 	}
@@ -223,8 +221,13 @@ func needsConversion(from, to types.Type) bool {
 		// the nil interface (iconv.go).
 		return from != nil && !types.Identical(from, to)
 	}
-	if from == nil || to == nil || types.Identical(from, to) || !types.Identical(under(from), under(to)) {
+	if from == nil || to == nil || types.Identical(from, to) {
 		return false
+	}
+	if !types.Identical(under(from), under(to)) {
+		// A bidirectional channel is assignable to a named directional channel type: the C++
+		// type is a gp::newtype over gp::chan, which needs the explicit construction.
+		return isNewtype(to) && !isNewtype(from) && sameChanUnder(from, to)
 	}
 	return isNewtype(to) && !isNewtype(from) || isStruct(from) && isStruct(to)
 }
@@ -550,6 +553,10 @@ func (g *gen) noteConversions(n ast.Node, sig *types.Signature) {
 		case *ast.IndexExpr:
 			if m, ok := under(g.info.TypeOf(x.X)).(*types.Map); ok {
 				note(x.Index, m.Key())
+			}
+		case *ast.SendStmt:
+			if c, ok := under(g.info.TypeOf(x.Chan)).(*types.Chan); ok {
+				note(x.Value, c.Elem()) // ch <- v converts v to the element type, as an argument
 			}
 		case *ast.BinaryExpr:
 			if x.Op == token.EQL || x.Op == token.NEQ {

@@ -370,6 +370,14 @@ struct weak_of<gp::weak_ptr<E>> : std::true_type {
     using elem = E;
 };
 
+// chan_of<T>: T is a gp::chan<E> (a channel prints as its address, like a pointer).
+template <typename T>
+struct chan_of : std::false_type {};
+template <typename E>
+struct chan_of<gp::chan<E>> : std::true_type {
+    using elem = E;
+};
+
 // A struct of the emitter: it has gp_fields.
 template <typename T>
 concept struct_type = requires { T::gp_fields; };
@@ -578,6 +586,9 @@ void type_name(std::string& out) {
         out += "weak.Pointer[";
         detail::type_name<typename parts::elem, typename weak_of<T>::elem>(out);
         out += ']';
+    } else if constexpr (chan_of<T>::value) {
+        out += "chan "; // (the direction is not in the C++ type)
+        detail::type_name<tag::none, typename chan_of<T>::elem>(out);
     } else if constexpr (struct_type<T> || named_type<T>) {
         out += T::gp_type_name;
     } else if constexpr (std::is_same_v<T, std::string>) {
@@ -850,6 +861,9 @@ int compare(const T& a, const T& b) {
         // Go's weak.Pointer is a struct whose only field that compares is an unsafe.Pointer.
         auto x = a.gp_addr(), y = b.gp_addr();
         return x < y ? -1 : x > y ? 1 : 0;
+    } else if constexpr (chan_of<T>::value) {
+        auto x = a.gp_address(), y = b.gp_address();
+        return x < y ? -1 : x > y ? 1 : 0;
     } else if constexpr (array_of<T>::value) {
         if constexpr (array_of<T>::len > 0) {
             for (std::size_t i = 0; i < static_cast<std::size_t>(array_of<T>::len); i++) {
@@ -1017,6 +1031,20 @@ void print_raw_pointer(printer& p, T v, char32_t verb, type_fn type) {
     detail::bad_verb_end(p);
 }
 
+// print_chan prints a channel: its address with %v and %d, <nil> for the nil channel, as Go
+// prints a pointer that is no &{...}.
+template <typename T>
+void print_chan(printer& p, const T& v, char32_t verb, type_fn type) {
+    auto u = static_cast<uint64_t>(v.gp_address());
+    if (verb == 'v' || verb == 'd') {
+        detail::print_address(p, u, verb, type);
+        return;
+    }
+    detail::bad_verb_begin(p, verb, type);
+    detail::print_address(p, u, 'v', type);
+    detail::bad_verb_end(p);
+}
+
 // unsafe_pointer_name is the Go type name of the unsafe.Pointer inside a weak.Pointer.
 inline void unsafe_pointer_name(std::string& out) {
     out += "unsafe.Pointer";
@@ -1089,6 +1117,8 @@ void print_kind(printer& p, const T& v, char32_t verb, int depth, access ro, typ
         detail::print_pointer<Tag>(p, v, verb, depth, ro, type);
     } else if constexpr (weak_of<T>::value) {
         detail::print_weak(p, v, verb);
+    } else if constexpr (chan_of<T>::value) {
+        detail::print_chan(p, v, verb, type);
     } else if constexpr (struct_type<T>) {
         detail::print_struct(p, v, verb, depth, ro);
     } else if constexpr (named_type<T>) {
@@ -1332,7 +1362,7 @@ constexpr bool printable() {
         return true; // unsafe.Pointer: an address
     } else if constexpr (ptr_of<T>::value) {
         return printable<typename ptr_of<T>::elem, Seen...>(); // &{...} prints the target
-    } else if constexpr (weak_of<T>::value) {
+    } else if constexpr (weak_of<T>::value || chan_of<T>::value) {
         return true; // an address
     } else if constexpr (struct_type<T>) {
         return fields_printable<std::remove_cvref_t<decltype(T::gp_fields)>, T, Seen...>::value;

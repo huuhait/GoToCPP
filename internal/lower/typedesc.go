@@ -222,8 +222,10 @@ func (g *gen) desc(t types.Type, pos token.Pos) cppir.Expr {
 		}
 		return g.comp(t, "", templateCall("gp::td_struct", []cppir.Node{g.cxxType(u, pos)}, args...))
 	case *types.Chan:
-		g.unsupported(pos, "channel types (Phase 08)")
-		return placeholder
+		// chan T, <-chan T and chan<- T are three Go types with one C++ type: the direction is
+		// part of the descriptor (and of its canonical text, which interns it).
+		return g.comp(t, "", templateCall("gp::td_chan", []cppir.Node{g.cxxType(u, pos)},
+			chanDir(u), g.desc(u.Elem(), pos)))
 	}
 	g.unsupported(pos, "the type descriptor of "+types.TypeString(t, nil))
 	return placeholder
@@ -294,6 +296,8 @@ func (g *gen) shapeOf(n *types.Named, pos token.Pos) cppir.Expr {
 		return call("gp::shape_map", orNull(u.Key()), orNull(u.Elem()))
 	case *types.Pointer:
 		return call("gp::shape_pointer", orNull(u.Elem()))
+	case *types.Chan:
+		return call("gp::shape_chan", chanDir(u), orNull(u.Elem()))
 	case *types.Signature:
 		return call("gp::shape_func", lit("nullptr"), lit("0"), lit("nullptr"), lit("0"), lit(strconv.FormatBool(u.Variadic())))
 	case *types.Struct:

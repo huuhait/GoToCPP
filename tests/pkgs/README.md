@@ -32,7 +32,7 @@ slices, maps, funcs; embedding of types and interfaces of another package), `emb
 unexported names in several packages), `odd_names` (import paths, folder names and C++ keywords as
 names), `public_flags` (flags and a local header of a package whose header another includes),
 `package_sources` (`.c` and `.cpp` files of non-main packages), `shared_lib` (a cxx recipe library
-used by two packages), `callbacks_cross` (a function of another package as a C callback), `constants_cross` (constants of another package and the constants in `pkg.hpp`), `more_uses` (defined array, slice and struct types, variadic functions, closures and errors of another package), `module_replace` and `module_vendor` (packages of a `replace`d and of a vendored module).
+used by two packages), `callbacks_cross` (a function of another package as a C callback), `constants_cross` (constants of another package and the constants in `pkg.hpp`), `more_uses` (defined array, slice and struct types, variadic functions, closures and errors of another package), `chan_cross` (Phase 08: a named channel type exported by a package, channels of another package's struct, `go` calls of another package's functions and methods, type switches on channel types; run with `GOCPP_TEST_PHASE=08`), `module_replace` and `module_vendor` (packages of a `replace`d and of a vendored module).
 
 ## errors
 
