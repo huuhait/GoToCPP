@@ -14,8 +14,8 @@
   - [x] method tables with package-qualified unexported names
 - [x] 5.2 Interface values (`gp::iface`, boxing rules, interface structs, `gp::icall`, wrappers defined after all types)
 - [x] 5.3 itab building + caches + signature checks (`static_assert`, spelling check for opaque parts)
-- [ ] 5.4 Conversions: concrete → interface, interface → interface
-- [ ] 5.5 Assertions + type switches (Go's exact panic messages, incl. nil cases)
+- [x] 5.4 Conversions: concrete → interface, interface → interface
+- [x] 5.5 Assertions + type switches (Go's exact panic messages, incl. nil cases)
 - [ ] 5.6 Interface `==`, nil rules, hashing (`map[any]V`)
 - [ ] 5.7 `any`, `error`, `stdlib/errors` (`New`, `Is`, `As`, `Unwrap`, `Join`)
 - [~] 5.8 Embedding
@@ -98,3 +98,16 @@
   members are gated; (4) a store into a promoted pointer member through a gocpp pointer uses store_keep; through a value or an
   embedded pointer the error names the explicit path; (5) structs with an interface field need hashing (5.4/5.5 wrote a minimal 5.6);
   (6) the aware obligation of 5.10 applies to promoted thunks too.
+- 2026-10-18: Jobs 5.4 + 5.5 (conversions, assertions, type switches AND the interface emitter that 5.1-5.3 did not include) merged
+  after two review rounds. Decisions: (1) named-type descriptors are PARTIAL (kind and constant elements; slice/array/func/struct
+  descriptors have null elem/key/in/fields) while unnamed composite descriptors (gp_tdc_N) are complete: 5.11/Phase 09 reflect and %v
+  must not read the named ones or must complete them; (2) a minimal 5.6 exists (interface ==, hash, map[any]V, both unhashable-key
+  texts): 5.6 extends it, does not duplicate it; the map-key check does not recurse into struct/array keys (TODO); (3) a C++ value
+  WITH methods in an interface with methods is a compile error until Phase 12; C/C++ values go into method-less interfaces with
+  foreign descriptors; Go structs with C fields can implement interfaces (a struct VALUE with C fields is not comparable through an
+  interface); (4) wrapper frames are hidden from traces by `abi_tag(gp_wrap)`; (5) known differences from gc: order of conversions
+  inside nested expressions (`any(g).(P).a + mod()`), devirtualized nil calls, `f := ni.M` on a nil interface (5.9); (6) promoted
+  methods in a method table are a clean 'not supported yet (step 5.8)' until job/05-5.8-iface lands (cherry-pick its 3 commits next);
+  its test recover_iface_embedded is parked in scratchpad/job54/pending-5.8/; (7) gaps: fmt of interface values/errors (5.7/5.11), other
+  packages' interfaces (Phase 06), channels (Phase 08), interface methods with C/C++ types in the signature; thunk and wrapper
+  parameters are named gp_self/gp_p/gp_a0 (user types may be named self, p, a0).
