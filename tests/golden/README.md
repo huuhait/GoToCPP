@@ -19,6 +19,7 @@ readable"):
 | [interop_range.gp](interop_range.gp) | Phase 04: `range` over C/C++ values (step 4.7): `gp::range` for the index and the element, `gp::range_keys` for the index, `gp::range_skip` over a temporary container (its constructor arguments in named temporaries), and the copies of a pair result (`gp::values`) |
 | [interop_unsafe.gp](interop_unsafe.gp) | Phase 04: `unsafe` and pointers (step 4.10): `unsafe.Pointer` as `gp::ptr<void>` and its conversions, `unsafe.Add`, `Slice`, `SliceData`, `String` and `StringData` over gocpp memory and over C pointers (raw pointers: views that own nothing), a C pointer or function converted with `gp::cgo::as`, `&T{...}` of a C type (`gp::new_`), and a gocpp pointer through a C function's `...` (`p.gp_get()`) |
 | [interfaces.gp](interfaces.gp) | Phase 05: interfaces (steps 5.4 and 5.5): the interface structs and their wrappers, the thunks, method tables and descriptor object of a named type (`gp_td_Rect`, `gp_vm_Rect`, `gp_pm_Rect`), the interned pointer descriptor (`gp_tdp_Rect`), the conversions (`gp::to_iface`, `gp::iface_cast`), a call through an interface, the assertions (`gp::assert_type`, `gp::assert_type2`) and a type switch |
+| [iface_methodvalues.gp](iface_methodvalues.gp) | Phase 05: method values and expressions of interface methods (step 5.9: the receiver bound by `gp::method_recv`, `Shape.Area` as a lambda) and the hash of keys that hold interfaces (step 5.6: `gp_hash_panics` on a struct with an interface field, none on a plain struct) |
 
 [hello.gp](hello.gp):
 

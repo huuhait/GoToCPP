@@ -125,6 +125,17 @@ concept has_gp_hash = requires(const T& v) {
     { v.gp_hash() } -> std::convertible_to<std::size_t>;
 };
 
+// hash_may_panic<T>: hashing a T can panic, because it is an interface or holds one by value
+// (a struct or array key): T::gp_hash_panics is true (gp::iface, gp::array<U, N> for such a U,
+// and the structs that the emitter writes with such a field; a gp::newtype inherits it).
+template <typename T>
+concept hash_may_panic = requires { requires T::gp_hash_panics; };
+
+// key_checking: true while check_key hashes a key (thread_local). The panic of an unhashable
+// dynamic type (gp::iface's gp_hash) has Go's text for a read or delete in a nil or empty map
+// then ("hash of unhashable type: []int", not a runtime error), the text of mapKeyError.
+inline thread_local bool key_checking = false;
+
 // complex_like: std::complex<float> and std::complex<double> (C++ types; Go's complex64 and
 // complex128 are gp::complex, which has a gp_hash), without including <complex> here.
 template <typename T>
@@ -197,6 +208,24 @@ struct hash<weak_ptr<T>> {
 template <typename T>
 std::size_t hash_of(const T& v) {
     return gp::hash<T>{}(v);
+}
+
+// check_key(k): Go's check of the key of a read or a delete in a nil or empty map, which does
+// not hash the key but still panics for one that holds an unhashable dynamic type
+// (runtime.mapKeyError: "hash of unhashable type: []int", with no "runtime error: " in front,
+// and the innermost type named, also inside a struct, an array or a boxed value). Here the
+// key is hashed in a mode where the unhashable-type panic has that text. A key type that can't
+// panic (no interface in it) is never checked.
+template <typename K>
+void check_key([[maybe_unused]] const K& k) {
+    if constexpr (detail::hash_may_panic<K>) {
+        struct mode {
+            bool old = detail::key_checking;
+            mode() { detail::key_checking = true; }
+            ~mode() { detail::key_checking = old; }
+        } guard;
+        (void)gp::hash_of(k);
+    }
 }
 
 // hash_fields(a, b, ...): the hash of a struct with these fields, in this order (the gp_hash

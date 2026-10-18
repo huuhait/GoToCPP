@@ -58,6 +58,8 @@ inline const gp::type_desc* Namer::gp_desc() {
     return gp::icall<gp::string()>(*this, 1);
 }
 
+extern const gp::type_desc gp_td_Rect;
+
 inline double gp_thunk_Rect_Area(const gp::iface& gp_self) {
     return gp::unbox<Rect>(gp_self).Area();
 }

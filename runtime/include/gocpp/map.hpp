@@ -184,13 +184,13 @@ bool self_equal(const K& a, const K& b) {
 
 // check_empty_key: Go checks the key of a read or a delete in a nil or empty map without hashing
 // it, and panics with its own text ("hash of unhashable type: []int", not a runtime error) when
-// the key is an interface value whose dynamic type has no hash. A key type that has gp_key_check
-// (gp::iface) is checked.
+// the key is, or holds (in a struct field, an array element or a boxed interface value), an
+// interface value whose dynamic type has no hash (gp::check_key, gocpp/hash.hpp).
 template <typename K, typename V>
 void check_empty_key([[maybe_unused]] const map_impl<K, V>* impl, [[maybe_unused]] const K& k) {
-    if constexpr (requires { k.gp_key_check(); }) {
+    if constexpr (hash_may_panic<K>) {
         if (impl == nullptr || impl->gp_t.empty()) {
-            k.gp_key_check();
+            gp::check_key(k);
         }
     }
 }

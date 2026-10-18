@@ -187,6 +187,9 @@ struct array {
         return true;
     }
 
+    // gp_hash_panics: the elements are, or hold, interfaces (gocpp/hash.hpp: hash_may_panic).
+    static constexpr bool gp_hash_panics = detail::hash_may_panic<T>;
+
     // gp_hash: the hash of the elements in index order, for map keys (gocpp/hash.hpp). Only
     // when T is comparable, like ==.
     std::size_t gp_hash() const

@@ -1627,9 +1627,9 @@ section has the runtime's side, steps 5.1 to 5.3 (`gocpp/type.hpp`, `gocpp/iface
 `runtime/src/type.cpp`), the emitter's shapes for interface types, descriptors, method tables and
 thunks, and the conversions (step 5.4: `internal/lower/ifaces.go`, `typedesc.go`, `canon.go`,
 `iconv.go`; the runtime's `gocpp/ifaceconv.hpp` and `gocpp/error.hpp`), the type assertions and
-the type switches (step 5.5). `==` and hashing of interface values come from step 5.6 (the
-runtime's minimal version is below), `fmt` on interfaces from 5.11, method values from 5.9, and
-[embedding](#promoted-methods-in-the-method-tables) (5.8: promoted methods in the tables) below.
+the type switches (step 5.5). `==` and hashing of interface values (step 5.6) and method values
+(step 5.9) are below, `fmt` on interfaces comes from 5.11, and
+[embedding](#promoted-methods-in-the-method-tables) (5.8: promoted methods in the tables) is below.
 
 ```go
 type Shape interface{ Area() float64; Scale(k float64) }
@@ -1771,8 +1771,26 @@ if (gp::type_is(gp_x0, &gp_td_Rect)) { Rect v = gp::unbox<Rect>(gp_x0); ... } el
   uncomparable type panic with `runtime error: comparing uncomparable type []int`; a map key or a
   struct field that holds an interface hashes by its dynamic value (`gp_hash`, panic `runtime error:
   hash of unhashable type []int`). A struct with an interface field has the generated `==` and
-  `gp_hash` as any comparable struct. (This is the minimal version that steps 5.4 and 5.5 need; step 5.6
-  has the rest of the nil and hashing rules.)
+  `gp_hash` as any comparable struct.
+- **Unhashable keys (step 5.6).** Go checks the key of a read or a delete in a nil or empty map without
+  hashing it (`runtime.mapKeyError`) and panics `hash of unhashable type: []int` (no `runtime error: `), also
+  when the key is a struct or an array that holds the interface and when the interface holds a struct, an
+  array or a boxed value that holds one; every other use panics `runtime error: hash of unhashable type
+  []int`. A key type that can panic has `static constexpr bool gp_hash_panics = true` (`gp::iface`, the structs
+  the emitter writes with an interface in a non-blank field or an array of such, `gp::array<T, N>` for such a
+  `T`; a `gp::newtype` inherits it; `internal/lower/ifaces.go: hashMayPanic`), and the map's read and delete of
+  a nil or empty map call `gp::check_key(k)` (gocpp/hash.hpp): the key is hashed with the thread-local
+  `detail::key_checking` set, which gives `iface::gp_hash` the first text. A key type that can't panic is never
+  checked. NaN keys are never found (each insertion adds an entry; `clear` and range reach them) and +0/-0 are
+  one key whose stored key is the latest inserted. Keys of different dynamic types are different keys whatever
+  their values (`1`, `int64(1)`, `float64(1)`: one hash, told apart by `==`).
+- **Method values and expressions of interface methods (step 5.9).** `f := i.M` is the lambda of a method
+  value with the receiver captured as `gp::method_recv(i)`: a copy of the interface value (a later `i = ...`
+  does not change `f`; a pointer in it shares its object) and a nil interface panics where the value is made,
+  with Go's nil dereference. The same for a method promoted through an embedded interface field
+  (`gp::method_recv(h.Shape)`) and as a deferred call's callee. The func value is `gp::aware`, so a deferred
+  call of it gives the dynamic method its recover ticket (5.10). A method expression `I.M` is the lambda
+  `[](auto&& gp_r, auto&&... gp_a) { return gp_r.M(gp_a...); }`: a nil interface panics when it is called.
 - **C and C++ values.** A C/C++ value goes into an interface that has no methods (`any`) with
   `gp::to_iface_foreign<gp::any>(v)`: its descriptor is `gp::foreign_td<T>()` of its C++ type, so
   `std.string` and `C.int` are different dynamic types of their own, and `x.(std.string)`, `x.(C.int)`
@@ -1781,7 +1799,14 @@ if (gp::type_is(gp_x0, &gp_td_Rect)) { Rect v = gp::unbox<Rect>(gp_x0); ... } el
   that exist: declare new ones, as for any C/C++ value with two results).
 - **C and C++ values, more.** A raw pointer (`&cvar`, a C function's result) is held as the `gp::cptr<T>`
   that a Go variable of type `*C.T` is, so `x.(*C.T)` finds it however it was made (a pointer to a local C
-  variable owns nothing and is valid while the variable is). Only an interface without methods holds a
+  variable owns nothing and is valid while the variable is). Const and nesting are normalised on both sides
+  (`detail::foreign_norm_t`): a `const char*` is the dynamic type `*C.char`, a `const T* const*` and a `T**` are
+  `**T` (held as the raw pointer, as the Go type `**T` is in C++), and `x.(*C.char)`, `x.(**T)` and the type
+  switch cases ask for those. This holds for pointers that C made (a result, an out-parameter, `&cvar`
+  of a C variable); `&p` of a gocpp variable `p` of type `*C.T` is a gocpp pointer to a `gp::cptr` and does
+  not match `x.(**T)` (known limit). The normalisation covers `T*` and `gp::cptr<T>` at any depth, not the
+  const of a container's element (`gp::array<const char*, N>` keeps its spelling in the descriptor name).
+  Only an interface without methods holds a
   C/C++ value (a compile error otherwise); an interface method with a C/C++ type in its signature is a compile
   error; a Go type's method with one is left out of its tables. A Go struct with a C/C++ field is an
   ordinary named type for interfaces (its descriptor is partial), so a Go wrapper of a C handle implements

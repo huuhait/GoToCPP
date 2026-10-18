@@ -350,3 +350,34 @@ func holdsIface(t types.Type) bool {
 	}
 	return walk(t)
 }
+
+// hashMayPanic reports whether hashing a value of the comparable type t can panic, because the
+// value is, or holds BY VALUE (in a field that is not blank, or an array element), an interface
+// whose dynamic type may be unhashable. Such a key type gets gp_hash_panics (gocpp/hash.hpp):
+// Go checks the key of a read or delete in a nil or empty map for it without hashing
+// (mapKeyError), and gp::check_empty_key does the same.
+func hashMayPanic(t types.Type) bool {
+	seen := make(map[types.Type]bool)
+	var walk func(t types.Type) bool
+	walk = func(t types.Type) bool {
+		if seen[t] {
+			return false
+		}
+		seen[t] = true
+		if isInterface(t) {
+			return true
+		}
+		switch u := types.Unalias(t).Underlying().(type) {
+		case *types.Array:
+			return walk(u.Elem())
+		case *types.Struct:
+			for i := range u.NumFields() {
+				if f := u.Field(i); f.Name() != "_" && walk(f.Type()) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return walk(t)
+}

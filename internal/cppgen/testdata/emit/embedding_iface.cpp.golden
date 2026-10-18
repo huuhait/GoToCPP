@@ -163,6 +163,12 @@ inline const gp::type_desc* Speaker::gp_desc() {
     return gp::icall<gp::string()>(*this, 0);
 }
 
+extern const gp::type_desc gp_td_User;
+extern const gp::type_desc gp_td_PUser;
+extern const gp::type_desc gp_td_Dog;
+extern const gp::type_desc gp_td_Loud;
+extern const gp::type_desc gp_td_Base;
+
 inline int64_t gp_thunk_User_Get(const gp::iface& gp_self) {
     return gp::unbox<User>(gp_self).Get();
 }

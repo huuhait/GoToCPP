@@ -51,7 +51,8 @@
 //     takes the method table of *Rect from gp_td_Rect.gp_pmethods (the second table above).
 //   - C and C++ types (a std::string, a C int, a raw pointer, a class from a C++ header) that
 //     are stored in an interface: gp::foreign_td<T>(), made from a template and named after
-//     the C++ spelling ("std::string", "int", "char const*"). == and the hash use what T
+//     the C++ spelling ("std::string", "int", "char*": the const of a pointee is dropped, as Go
+//     has none). == and the hash use what T
 //     supports. A C++ type that appears in a method signature that Go can't check
 //     (go/types sees every C type as invalid) is written into the signature TEXT
 //     instead (below), or as an opaque descriptor, gp::td_opaque("C.int").
@@ -673,6 +674,35 @@ struct foreign_holder {
     static std::size_t constant_hash(const void*) { return 0; }
 };
 
+// foreign_norm_t<T>: the C++ type T of a C/C++ value in an interface with the const and volatile
+// of its pointees removed at every level: Go has no const, so `const char*` (what a C function
+// returns) must be the dynamic type *C.char that `x.(*C.char)` asks for, and `Pt* const*` the
+// **Pt. A gp::cptr<const E> is a gp::cptr<E> the same way.
+template <typename T>
+struct foreign_norm {
+    using type = T;
+};
+template <typename E>
+struct foreign_norm_pointee {
+    using type = std::remove_cv_t<E>;
+};
+template <typename E>
+    requires std::is_pointer_v<std::remove_cv_t<E>>
+struct foreign_norm_pointee<E> {
+    using type = typename foreign_norm<std::remove_cv_t<E>>::type;
+};
+template <typename E>
+    requires(!std::is_function_v<E>)
+struct foreign_norm<E*> {
+    using type = typename foreign_norm_pointee<E>::type*;
+};
+template <typename E>
+struct foreign_norm<cptr<E>> {
+    using type = cptr<typename foreign_norm_pointee<E>::type>;
+};
+template <typename T>
+using foreign_norm_t = typename foreign_norm<std::remove_cv_t<T>>::type;
+
 template <typename U>
 const type_desc* foreign_td_of() {
     // On the heap and never deleted: no static destructor can drop it at exit, and
@@ -684,12 +714,13 @@ const type_desc* foreign_td_of() {
 } // namespace detail
 
 // foreign_td<T>() is the descriptor of the C/C++ type T stored in an interface, made once
-// from the template: kind Foreign, named after the C++ spelling, the size of T, == and the
+// from the template: kind Foreign, named after the C++ spelling (const and volatile of a
+// pointer's pointees dropped at every level: foreign_norm_t), the size of T, == and the
 // hash when T has them (operator== and std::hash, a raw pointer by its address).
 // A different C++ type is a different descriptor, whatever the Go type of the value is.
 template <typename T>
 const type_desc* foreign_td() {
-    return detail::foreign_td_of<std::remove_cv_t<std::remove_reference_t<T>>>();
+    return detail::foreign_td_of<detail::foreign_norm_t<std::remove_reference_t<T>>>();
 }
 
 // methods_sorted(table) and imethods_sorted(methods, n): the table is in the order above

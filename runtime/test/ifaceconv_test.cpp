@@ -583,9 +583,9 @@ void test_equal_hash() {
     any nz = to_iface<any>(-0.0, &td_float64);
     CHECK(pz == nz && pz.gp_hash() == nz.gp_hash());
     // A key check of a read in an empty map: Go's own text, without "runtime error: ".
-    CHECK(panic_text([&] { sl1.gp_key_check(); }) == "hash of unhashable type: []int");
-    CHECK(panic_text([&] { a.gp_key_check(); }) == "<no panic>");
-    CHECK(panic_text([&] { any().gp_key_check(); }) == "<no panic>");
+    CHECK(panic_text([&] { gp::check_key(sl1); }) == "hash of unhashable type: []int");
+    CHECK(panic_text([&] { gp::check_key(a); }) == "<no panic>");
+    CHECK(panic_text([&] { gp::check_key(any()); }) == "<no panic>");
     auto empty = gp::make_map<any, int64_t>();
     CHECK(panic_text([&] { (void)gp::get(empty, sl1); }) == "hash of unhashable type: []int");
     CHECK(panic_text([&] { (void)gp::lookup(empty, sl1); }) == "hash of unhashable type: []int");
@@ -627,6 +627,170 @@ void test_equal_hash() {
           "runtime error: hash of unhashable type []int");
 }
 
+// A struct key with an interface field, as the emitter writes it (typedecl.go: gp_hash and
+// gp_hash_panics next to ==), and the same inside an array and a named array type.
+struct IKey {
+    int64_t id = 0;
+    gp::any val;
+    bool operator==(const IKey&) const = default;
+    std::size_t gp_hash() const { return gp::hash_fields(id, val); }
+    static constexpr bool gp_hash_panics = true;
+};
+struct PlainKey {
+    int64_t id = 0;
+    bool operator==(const PlainKey&) const = default;
+    std::size_t gp_hash() const { return gp::hash_fields(id); }
+};
+struct NamedIA : gp::newtype<NamedIA, gp::array<gp::any, 2>> {
+    using gp::newtype<NamedIA, gp::array<gp::any, 2>>::newtype;
+};
+
+// gp::check_key (Go's mapKeyError) reaches into structs, arrays and named arrays.
+void test_key_check() {
+    using namespace gp;
+    static_assert(detail::hash_may_panic<any> && detail::hash_may_panic<IKey>);
+    static_assert(detail::hash_may_panic<array<any, 2>> && detail::hash_may_panic<array<IKey, 1>>);
+    static_assert(detail::hash_may_panic<NamedIA>);
+    static_assert(!detail::hash_may_panic<PlainKey> && !detail::hash_may_panic<int64_t> &&
+                  !detail::hash_may_panic<array<int64_t, 3>> &&
+                  !detail::hash_may_panic<array<any, 0>>);
+    any sl = to_iface<any>(gp::slice_of<int64_t>({1}), td_slice<int64_t>(&td_int));
+    any ok = to_iface<any>(int64_t(1), &td_int);
+    const char* want = "hash of unhashable type: []int";
+    CHECK(panic_text([&] { gp::check_key(IKey{1, sl}); }) == want);
+    CHECK(panic_text([&] { gp::check_key(IKey{1, ok}); }) == "<no panic>");
+    CHECK(panic_text([&] { gp::check_key(IKey{1, any()}); }) == "<no panic>");
+    array<any, 2> arr;
+    arr[1] = sl;
+    CHECK(panic_text([&] { gp::check_key(arr); }) == want);
+    arr[1] = ok;
+    CHECK(panic_text([&] { gp::check_key(arr); }) == "<no panic>");
+    array<IKey, 1> ak{IKey{2, sl}};
+    CHECK(panic_text([&] { gp::check_key(ak); }) == want);
+    NamedIA na{array<any, 2>{ok, sl}};
+    CHECK(panic_text([&] { gp::check_key(na); }) == want);
+    // An interface that holds a struct with an interface field that holds the slice.
+    static const type_desc td_ikey = named<IKey>("main.IKey", "main", shape_struct(nullptr, 0));
+    any boxed = to_iface<any>(IKey{1, sl}, &td_ikey);
+    CHECK(panic_text([&] { gp::check_key(boxed); }) == want);
+    CHECK(panic_text([&] { gp::check_key(to_iface<any>(IKey{1, ok}, &td_ikey)); }) == "<no panic>");
+    // The mode is left again after a panic: the plain hash has the other text.
+    CHECK(panic_text([&] { (void)IKey{1, sl}.gp_hash(); }) ==
+          "runtime error: hash of unhashable type []int");
+    CHECK(!detail::key_checking);
+    // In maps: read and delete of a nil and an empty map check, a filled map hashes.
+    auto empty = gp::make_map<IKey, int64_t>();
+    CHECK(panic_text([&] { (void)gp::get(empty, IKey{1, sl}); }) == want);
+    CHECK(panic_text([&] { gp::erase(empty, IKey{1, sl}); }) == want);
+    CHECK(panic_text([&] { (void)gp::lookup(gp::map<IKey, int64_t>(), IKey{1, sl}); }) == want);
+    CHECK(panic_text([&] { (void)gp::get(empty, IKey{1, ok}); }) == "<no panic>");
+    CHECK(panic_text([&] { gp::set(empty, IKey{1, sl}, int64_t(1)); }) ==
+          "runtime error: hash of unhashable type []int");
+    gp::set(empty, IKey{1, ok}, int64_t(7));
+    CHECK(gp::get(empty, IKey{1, ok}) == 7);
+    CHECK(panic_text([&] { (void)gp::get(empty, IKey{1, sl}); }) ==
+          "runtime error: hash of unhashable type []int");
+    auto arrmap = gp::make_map<array<any, 2>, int64_t>();
+    CHECK(panic_text([&] { (void)gp::get(arrmap, arr = array<any, 2>{sl, ok}); }) == want);
+}
+
+// C/C++ pointers in interfaces: const and nesting are normalised on both sides.
+void test_foreign_norm() {
+    using namespace gp;
+    struct Pt {
+        int x, y;
+    };
+    static_assert(std::is_same_v<detail::foreign_norm_t<const char*>, char*>);
+    static_assert(std::is_same_v<detail::foreign_norm_t<const Pt* const*>, Pt**>);
+    static_assert(std::is_same_v<detail::foreign_norm_t<Pt* const* const>, Pt**>);
+    static_assert(std::is_same_v<detail::foreign_norm_t<cptr<const Pt>>, cptr<Pt>>);
+    static_assert(std::is_same_v<detail::foreign_norm_t<const volatile int>, int>);
+    static_assert(std::is_same_v<detail::foreign_norm_t<int (*)(int)>, int (*)(int)>);
+    static_assert(std::is_same_v<detail::foreign_norm_t<const void*>, void*>);
+    CHECK(foreign_td<const char*>() == foreign_td<char*>());
+    CHECK(foreign_td<cptr<const Pt>>() == foreign_td<cptr<Pt>>());
+    CHECK(foreign_td<Pt**>() == foreign_td<const Pt* const*>());
+    CHECK(foreign_td<Pt*>() != foreign_td<Pt**>());
+
+    Pt pt{3, 4};
+    const Pt* cp = &pt;
+    Pt* mp = &pt;
+    any a = to_iface_foreign<any>(cp);
+    any b = to_iface_foreign<any>(mp);
+    CHECK(a.gp_type() == b.gp_type() && a.gp_type() == foreign_td<cptr<Pt>>() && a == b &&
+          a.gp_hash() == b.gp_hash());
+    CHECK(std::get<1>(assert_type2<cptr<Pt>>(a, foreign_td<cptr<Pt>>())));
+    Pt* pp = &pt;
+    Pt** ppp = &pp;
+    const Pt* const* cppp = ppp;
+    any c = to_iface_foreign<any>(ppp);
+    any d = to_iface_foreign<any>(cppp);
+    CHECK(c.gp_type() == foreign_td<Pt**>() && c.gp_type() == d.gp_type() && c == d);
+    CHECK(c.gp_type() != a.gp_type());
+    CHECK(assert_type<Pt**>(c, foreign_td<Pt**>()) == ppp);
+    const char* name = "hello";
+    any e = to_iface_foreign<any>(name);
+    CHECK(e.gp_type() == foreign_td<cptr<char>>());
+    CHECK(std::get<1>(assert_type2<cptr<char>>(e, foreign_td<cptr<char>>())));
+    auto m = gp::make_map<any, int64_t>();
+    gp::set(m, a, int64_t(1));
+    CHECK(gp::get(m, b) == 1 && gp::len(m) == 1);
+}
+
+// The spread of the hash of interface values: the low bits (the bucket of a table) are used
+// evenly for sequential integers, aligned pointers, strings and struct keys, so the fullest
+// bucket of 1024 holds a small multiple of the mean (8) for 8192 keys.
+template <typename F>
+std::size_t fullest_bucket(F make, int n) {
+    std::size_t counts[1024] = {};
+    for (int i = 0; i < n; i++) {
+        counts[make(i).gp_hash() & 1023]++;
+    }
+    std::size_t most = 0;
+    for (std::size_t c : counts) {
+        most = c > most ? c : most;
+    }
+    return most;
+}
+
+void test_hash_spread() {
+    using namespace gp;
+    const int n = 8192;
+    CHECK(fullest_bucket([](int i) { return to_iface<any>(int64_t(i), &td_int); }, n) <= 28);
+    CHECK(fullest_bucket([](int i) { return to_iface<any>(int64_t(i) * 1024, &td_int); }, n) <= 28);
+    CHECK(fullest_bucket([](int i) { return to_iface<any>(double(i) / 4, &td_float64); }, n) <= 28);
+    CHECK(fullest_bucket(
+              [](int i) {
+                  return to_iface<any>(gp::string::gp_copy("key-" + std::to_string(i)), &td_string);
+              },
+              n) <= 28);
+    CHECK(fullest_bucket(
+              [](int i) { return to_iface<any>(Rect{double(i), double(-i)}, &gp_td_Rect); }, n) <=
+          28);
+    CHECK(
+        fullest_bucket(
+            [](int i) { return to_iface<any>(Rect{double(i % 64), double(i / 64)}, &gp_td_Rect); },
+            n) <= 28);
+    // Pointers 16 bytes apart (the descriptor hashes the target address).
+    static char block[8192 * 16];
+    std::size_t counts[1024] = {};
+    for (int i = 0; i < n; i++) {
+        counts[detail::ptr_target_hash(block + i * 16) & 1023]++;
+    }
+    std::size_t most = 0;
+    for (std::size_t c : counts) {
+        most = c > most ? c : most;
+    }
+    CHECK(most <= 28);
+    // Equal numbers of different types do collide on purpose (the == tells them apart): a map
+    // of the same number as int and int64 and uint8 has three entries and finds each.
+    auto m = gp::make_map<any, int64_t>();
+    gp::set(m, to_iface<any>(int64_t(1), &td_int), int64_t(1));
+    gp::set(m, to_iface<any>(int64_t(1), &td_int64), int64_t(2));
+    gp::set(m, to_iface<any>(uint8_t(1), &td_uint8), int64_t(3));
+    CHECK(gp::len(m) == 3 && gp::get(m, to_iface<any>(int64_t(1), &td_int64)) == 2);
+}
+
 } // namespace
 
 // Counting operator new: an assertion or a conversion allocates nothing.
@@ -659,6 +823,9 @@ int main() {
     test_method_recv();
     test_assert_panic_value();
     test_equal_hash();
+    test_key_check();
+    test_foreign_norm();
+    test_hash_spread();
     if (failures != 0) {
         return 1;
     }

@@ -340,6 +340,16 @@ func (g *gen) descDecls() []cppir.Decl {
 	for i := 0; i < len(dt.named); i++ { // (the shapes may add more)
 		decls = append(decls, g.namedDecls(dt.named[i])...)
 	}
+	// A shape points at the descriptor of its element (type Items []Item; type A []B; type B []A),
+	// which may be defined after it: every object is declared first.
+	var fwd []cppir.Decl
+	for _, nd := range dt.named {
+		fwd = append(fwd, &cppir.VarDecl{Specs: []string{"extern", "const"}, Type: typeName("gp::type_desc"),
+			Vars: []cppir.Declarator{{Name: nd.name}}})
+	}
+	if len(fwd) > 0 {
+		decls = append(append(fwd, &cppir.Blank{}), decls...)
+	}
 	for _, a := range dt.anons {
 		decls = append(decls, a.decls...)
 	}

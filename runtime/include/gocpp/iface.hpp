@@ -218,9 +218,8 @@ public:
     // hash (a slice, a map, a func) panics: "runtime error: hash of unhashable type []int".
     std::size_t gp_hash() const;
 
-    // gp_key_check: panics as Go's read or delete in an empty map does for a key that can't be
-    // hashed ("hash of unhashable type: []int": no "runtime error: "); does nothing otherwise.
-    void gp_key_check() const;
+    // gp_hash_panics: hashing an interface value can panic (gocpp/hash.hpp: hash_may_panic).
+    static constexpr bool gp_hash_panics = true;
 
     // gp_type: the descriptor of the dynamic type (null for nil). gp_tab: the itab (null for
     // nil and for an empty interface). gp_data: the box, or the shared pointer.
@@ -333,8 +332,16 @@ I to_iface_foreign(T&& v) {
     using D = std::remove_cv_t<std::remove_reference_t<T>>;
     if constexpr (std::is_pointer_v<D> && !std::is_void_v<std::remove_pointer_t<D>> &&
                   !std::is_function_v<std::remove_pointer_t<D>>) {
-        using E = std::remove_pointer_t<D>;
-        return to_iface<I>(cptr<E>(v), foreign_td<cptr<E>>());
+        // (Go has no const: the pointees are normalised, as foreign_td does for the assertion.)
+        using N = detail::foreign_norm_t<D>;
+        using E = std::remove_pointer_t<N>;
+        if constexpr (std::is_pointer_v<E>) {
+            // A T** (an out-parameter, an array of strings): the raw pointer, which is what the
+            // Go type **T is in C++ (x.(**T) asks for it).
+            return to_iface<I>(const_cast<N>(v), foreign_td<N>());
+        } else {
+            return to_iface<I>(cptr<E>(const_cast<E*>(v)), foreign_td<cptr<E>>());
+        }
     } else {
         return to_iface<I>(std::forward<T>(v), foreign_td<T>());
     }

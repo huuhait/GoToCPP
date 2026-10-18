@@ -603,7 +603,9 @@ void test_foreign() {
     CHECK_NAME(foreign_td<long>(), "long");
     CHECK_NAME(foreign_td<unsigned char>(), "unsigned char");
     CHECK_NAME(foreign_td<double>(), "double");
-    CHECK_NAME(foreign_td<const char*>(), "char const*");
+    // (const and volatile of the pointees are dropped: Go has no const, step 5.6.)
+    CHECK_NAME(foreign_td<const char*>(), "char*");
+    CHECK_NAME(foreign_td<const char* const*>(), "char**");
     CHECK_NAME(foreign_td<void*>(), "void*");
     CHECK_NAME(foreign_td<std::nullptr_t>(), "decltype(nullptr)");
     CHECK(std::string(foreign_td<Point>()->gp_name).find("Point") != std::string::npos);

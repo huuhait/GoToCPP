@@ -101,8 +101,8 @@ for (/* range */) {
 > (`gp_tdc_N`, `gp_tdp_T`) interned at program start, the descriptor objects of named types are
 > constant-initialized with partial shapes (the element only where it is a constant descriptor, no field
 > list: the C++ types give the rest); `error` is `gp::error` (a runtime struct like the generated ones);
-> interface `==` and hashing have a minimal version (a struct with an interface field needs them: step 5.6
-> has the rest); a conversion of a value to an interface is ordered like gc's (a copy in its place among the
+> interface `==` and hashing (step 5.6, completed with 5.9: the unhashable-key check reaches into struct and
+> array keys, `gp_hash_panics`, `gp::check_key`); a conversion of a value to an interface is ordered like gc's (a copy in its place among the
 > calls, as an argument of fmt's `...any` is); a C/C++ value goes into an interface that has no methods
 > with its foreign descriptor, and `x.(CType)`, its comma-ok forms with `:=` and `var`, and type switch cases of C/C++
 > types work. A type with a promoted method has the promoted methods in its tables (5.8).
@@ -339,7 +339,10 @@ flags.
    where possible).
 8. **5.8 Embedding**: selection paths, aliasing pointers into embedded fields, fully qualified field
    types, forwarding members, forwarding thunks, embedded pointers and interfaces.
-9. **5.9 Method values and expressions on interfaces.**
+9. **5.9 Method values and expressions on interfaces.** `f := i.M` binds a copy of the interface value
+   where it is evaluated (`gp::method_recv`: a nil interface panics there, also through an embedded
+   interface field); `I.M` is a lambda over the interface's wrapper; both are `gp::aware` func values for
+   `recover` (docs/spec/cpp-mapping.md "Interfaces").
 10. **5.10 panic/recover**: aware functions (a ticket instead of two entry points, §2.7),
     `gp::result_slot`, `goexit_signal` and `__forced_unwind` re-thrown, nested panics,
     `runtime.Error` values, C++ exception conversion, exact output.

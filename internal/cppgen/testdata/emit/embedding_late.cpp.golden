@@ -90,6 +90,8 @@ inline const gp::type_desc* Taker::gp_desc() {
     return gp::icall<int64_t(Item, gp::ptr<Pair>)>(*this, 0, static_cast<Item&&>(gp_a0), static_cast<gp::ptr<Pair>&&>(gp_a1));
 }
 
+extern const gp::type_desc gp_td_Outer;
+
 inline Item gp_thunk_Outer_Item(const gp::iface& gp_self) {
     return gp::unbox<Outer>(gp_self).Item();
 }

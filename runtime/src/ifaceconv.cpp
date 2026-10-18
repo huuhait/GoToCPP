@@ -72,21 +72,17 @@ bool operator==(const iface& x, const iface& y) {
     return t->gp_equal(x.gp_data().get(), y.gp_data().get());
 }
 
-void iface::gp_key_check() const {
-    if (gp_type_ != nullptr && gp_type_->gp_hash == nullptr) {
-        throw panic_error{
-            gp::string::gp_copy(std::string("hash of unhashable type: ") + gp_type_->gp_name)};
-    }
-}
-
 std::size_t iface::gp_hash() const {
     const type_desc* t = gp_type_;
     if (t == nullptr) {
         return 0;
     }
     if (t->gp_hash == nullptr) [[unlikely]] {
+        // A read or delete in a nil or empty map (gp::check_key) has Go's own text.
         throw panic_error{gp::string::gp_copy(
-            std::string("runtime error: hash of unhashable type ") + t->gp_name)};
+            std::string(detail::key_checking ? "hash of unhashable type: "
+                                             : "runtime error: hash of unhashable type ") +
+            t->gp_name)};
     }
     // (1 as an int and as an int64 have one hash and are different keys: the == tells them apart.)
     return t->gp_hash(gp_data_.get());

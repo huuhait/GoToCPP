@@ -35,8 +35,11 @@ func (g *gen) anonTables(st *types.Struct, pos token.Pos) (vmt, pmt cppir.Expr) 
 // needForwarders says that the struct of t (a struct type or a pointer to one, named or not) needs
 // its forwarding members (promote.go): its method tables call them.
 func (g *gen) needForwarders(t types.Type) {
-	if p, ok := under(t).(*types.Pointer); ok {
+	if p, ok := types.Unalias(t).(*types.Pointer); ok {
 		t = p.Elem()
+	}
+	if n, ok := types.Unalias(t).(*types.Named); ok && g.tdecls().named[n.Obj()] == nil {
+		return // a named type without a C++ struct (type P *[]int, type F func()): no methods to forward
 	}
 	if si := g.structOf(t, token.NoPos); si != nil {
 		if g.fwdNeed == nil {

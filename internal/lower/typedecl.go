@@ -527,6 +527,12 @@ func (g *gen) structDef(si *structInfo) []cppir.Decl {
 		hash := &cppir.Func{Result: typeName("std::size_t"), Name: "gp_hash", Quals: []string{"const"},
 			Body: &cppir.Block{Stmts: []cppir.Stmt{&cppir.Return{X: call("gp::hash_fields", args...)}}}}
 		s.Members = append(s.Members, eq, hash)
+		if hashMayPanic(si.t) {
+			// A field is, or holds, an interface: the hash can panic (unhashable dynamic type), and
+			// a read or delete in an empty map must check the key without hashing (map.hpp).
+			s.Members = append(s.Members, &cppir.VarDecl{Specs: []string{"static", "constexpr"}, Type: typeName("bool"),
+				Vars: []cppir.Declarator{{Name: "gp_hash_panics", Init: lit("true")}}})
+		}
 	}
 	cstr := &cppir.Ptr{Elem: &cppir.Const{Elem: typeName("char")}}
 	name := &cppir.VarDecl{Specs: []string{"static", "constexpr"}, Type: cstr,

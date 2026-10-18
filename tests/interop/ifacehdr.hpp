@@ -24,4 +24,20 @@ inline NoEq make_noeq(int z) {
     e.z = z;
     return e;
 }
+
+// Pointers whose pointees are const, and pointers to pointers (iface_cptr_const.gp).
+inline Pt g_pt{3, 4};
+inline char g_buf[8] = "abc";
+inline int g_int = 5;
+inline const char* cname() { return "hello"; }
+inline char* mname() { return g_buf; }
+inline const Pt* cpt() { return &g_pt; }
+inline Pt* mpt() { return &g_pt; }
+inline const int* cint() { return &g_int; }
+inline int* mint() { return &g_int; }
+inline Pt** ppt() {
+    static Pt* p = &g_pt;
+    return &p;
+}
+inline const Pt* const* cppt() { return ppt(); }
 } // namespace ifh

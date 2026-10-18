@@ -1545,6 +1545,12 @@ fmt.Println(&s) // a raw pointer prints as an address
 - **In an `any`.** A C/C++ value stored in an interface gets a *foreign* type descriptor, named
   after its C++ spelling. Equality, hashing and printing use whatever the C++ type supports
   (`operator==`, `std::hash`, `std::formatter` or `operator<<`) ([Phase 05 §2.2](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md#22-type-descriptors-chosen-by-the-go-type)).
+- **Pointers in an `any` ignore `const` and nesting.** Go has no `const`, so a `const char*` that a C
+  function returns is the dynamic type `*C.char` (`x.(*C.char)` is true), a `const T*` is `*T`, and
+  `T**`, `const T**` and `const T* const*` are one dynamic type, `**T` (held as the raw pointer). The
+  conversion casts the `const` away: writing through a `x.(**T)` or `x.(*T)` assertion to an object that
+  is really `const` is undefined behavior, as in C. A pointer to a gocpp variable of type `*C.T` (`&p`)
+  is a gocpp pointer, not a `T**`, and does not match `x.(**T)`.
 - **Interface methods with C/C++ types.** `go/types` treats every C type as invalid, and two
   invalid types compare equal. So gocpp checks method signatures with C/C++ types itself: a
   `static_assert` at each static conversion, and a comparison by source spelling at run time

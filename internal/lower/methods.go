@@ -649,6 +649,11 @@ func (fg *funcGen) methodLambda(x *ast.SelectorExpr, s *types.Selection) *cppir.
 		if isPtr && !r.ptrRecv {
 			value = deref(value)
 		}
+		if isInterface(r.end) {
+			// f := i.M binds the interface value now: Go's method value of a nil interface
+			// panics here, not where f is called (step 5.9).
+			value = call("gp::method_recv", value)
+		}
 		if !r.ptrRecv {
 			if base := recvBase(r); largeVar(base) {
 				typ := fg.g.cxxType(base, x.Pos())
