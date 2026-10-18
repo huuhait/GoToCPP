@@ -693,7 +693,6 @@ var nodeKinds = map[string]string{
 	"StarExpr":       "pointer types",
 	"KeyValueExpr":   "key: value",
 	"TypeSwitchStmt": "type switches",
-	"SelectStmt":     "select statements (Phase 08)",
 }
 
 // nodeKind names the kind of the AST node n for an error message.

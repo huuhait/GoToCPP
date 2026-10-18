@@ -867,8 +867,11 @@ func (fg *funcGen) rangeMapVar(ops []ast.Expr, key bool, it cppir.Expr, value *c
 // rangeKey returns the key of a range loop whose iterator it was made by start (control.go:
 // rangeIter): gp_it0.gp_key() for a map (gp::range_map), the index gp_it0.gp_i for the others.
 func rangeKey(start string, it cppir.Expr) cppir.Expr {
-	if start == "gp::range_map" {
+	switch start {
+	case "gp::range_map":
 		return &cppir.Call{Fun: &cppir.Member{X: it, Name: "gp_key"}}
+	case "gp::range_chan", "gp::range_chan_drop":
+		return &cppir.Call{Fun: &cppir.Member{X: it, Name: "gp_v"}} // the element: taken out of the iterator
 	}
 	return &cppir.Member{X: it, Name: "gp_i"}
 }

@@ -2061,9 +2061,10 @@ path), so two `*a.Err` of `x/a` and `y/a` say "different packages", not "differe
 
 ## Goroutines and channels
 
-Phase 08 builds this; steps 8.1 to 8.4 are in (the `go` statement, channels and their directions;
-`select`, `range` over a channel, `sync` and `time` come next). The runtime is
-`runtime/include/gocpp/{goroutine,waiter,chan}.hpp` and `runtime/src/{goroutine,waiter,chan}.cpp`.
+Phase 08 builds this; steps 8.1 to 8.6 are in (the `go` statement, channels and their directions,
+`select`, `range` over a channel; `sync` and `time` come next). The runtime is
+`runtime/include/gocpp/{goroutine,waiter,chan,select}.hpp` and
+`runtime/src/{goroutine,waiter,chan,select}.cpp`.
 
 ```go
 go worker(jobs, results, 7)                 gp::go_fn(worker, jobs, results, 7);
@@ -2140,6 +2141,84 @@ go close(c)                                 gp::go_call([](auto&& gp_a0) { gp::c
   error then). A C/C++ value that goes into a channel is copied if it is a variable and moved if it
   is a temporary or `std.move(x)` (`gp::cgo::defer_arg`, as for the arguments of a deferred call);
   `chan std.unique_ptr[C.int]` and `chan *lib.Type` work.
+- **`select`** (step 8.5, [ADR-029](../adr/029-select-and-range-over-channels.md)) is a block with one
+  object for each case, one call, and a `switch` on the number of the case that the call returns:
+
+  ```go
+  select {
+  case v := <-a:
+      use(v)
+  case v, ok = <-x.c:
+  case b <- f():
+  case <-c:
+  default:
+  }
+  select {}
+  ```
+
+  ```cpp
+  {
+      gp::sel_recv gp_s0{a};
+      gp::sel_recv gp_s1{gp::chan<int64_t>(x.c)};   // a field: a copy of the handle
+      gp::sel_send gp_s2{b, f()};
+      gp::sel_recv gp_s3{c, gp::sel_drop};          // the value is not used
+      switch (gp::select(gp_s0, gp_s1, gp_s2, gp_s3, gp::sel_default)) {
+      case 0: { int64_t v = gp_s0.gp_take(); use(v); } break;
+      case 1: { v = gp_s1.gp_take(); ok = gp_s1.gp_ok(); } break;
+      case 2: {} break;
+      case 3: {} break;
+      default: {} break;
+      }
+  }
+  gp::select();
+  ```
+
+  Go evaluates the channel expressions and the values to send once, in source order, when the
+  statement starts, also for the cases that are not chosen (`case ch <- f():` calls `f` even when
+  another case wins): the objects are declared in that order, each after the temporaries of
+  its own calls and before the calls of the next case (as gc copies each channel and value into a
+  temporary in source order: a later call that changes a variable does not change an earlier case). The left-hand sides of a receive case (`a[i], ok = <-c`) are evaluated only when the case
+  is chosen, as the first statement of its body (the same code as the variables of a `range` loop). The
+  number of a case is its position in the Go source, and the default is the `default:` label.
+  A receive case holds the value in its own slot (no default constructor needed; a move-only C++
+  element works, and nothing is constructed for a case that is not chosen); `gp::sel_drop` (a case
+  whose value is not used) constructs nothing at all. A channel that is a local variable is held by
+  reference, any other channel expression (a field, an element, a conversion) by a copy of the handle
+  (`gp::chan<T>(x.c)`), and the result of a call as it is. `break` leaves the C++ `switch`, as it leaves
+  the Go select; `continue` and labelled jumps go through it to the loop; a select without default that is a
+  terminating statement in Go (every case body ends in one: return, goto, panic, a block, an if with
+  else, `for {}` without break, a switch with default, a nested select, a labeled statement; no break
+  to the select) is followed by `gp::select_unreachable();` so that a function may end with it
+  without a `-Wreturn-type` warning.
+  The algorithm is Go's `selectgo`: the cases are polled in a **random order** (uniform: several ready
+  cases are chosen with equal probability), all the channels are locked in the **order of their
+  addresses** (a channel in two cases once; no two selects can deadlock each other), the first ready
+  case in poll order is done, else the default; else the goroutine leaves one entry for each case on its
+  channel's queue, all sharing one **claim flag** and one wake-up cell, and parks as "select" (counted by
+  `num_blocked()`). Whoever completes a case takes the flag first (a select that is taken is skipped
+  and its entry dropped by `waitq::dequeue`), so one case happens; the goroutine then locks the channels
+  again and removes its other entries. A send case on a closed channel panics when the poll reaches it
+  (`send on closed channel`: a ready receive that comes first in the poll order wins, as in Go), a
+  receive case on a closed channel is ready (zero value, `ok` false), a nil channel is never ready,
+  and `select {}` and a select of only nil channels block for ever (counted as blocked). A select with
+  up to 16 cases allocates nothing; 1,000 cases work (the generated `select_1000_cases` test).
+  ThreadSanitizer's deadlock detector aborts above 64 locks held by a thread, so under TSan a
+  select over more than about 60 channels needs `TSAN_OPTIONS=detect_deadlocks=0`.
+- **`range` over a channel** (step 8.6) receives until the channel is closed and drained:
+
+  ```go
+  for v := range ch {...}      for (auto gp_it0 = gp::range_chan(ch); gp::range_next(gp_it0);) { T v = gp_it0.gp_v(); ...
+  for range ch {...}           for (auto gp_it0 = gp::range_chan_drop(ch); gp::range_next(gp_it0);) {...
+  for x = range ch {...}       for (auto gp_it0 = gp::range_chan(ch); ...) { x = gp_it0.gp_v(); ...
+  ```
+
+  `ch` is evaluated once (the iterator holds it; reassigning the variable in the body changes
+  nothing), the variable of each iteration is a new variable (Go 1.22: closures and `&v` see their own,
+  and the body may assign to it), the value is moved out of the iterator (a move-only or C++ element
+  works, and a closed channel does not need a zero value: `gp::chan_range` receives with
+  `chan_recv_range`), a nil channel blocks for ever, and a closed buffered channel gives its buffer
+  first. `break`, `continue`, labels, `goto` and `return` are the loop's. go/types rejects a range over a
+  send-only channel and a second iteration variable.
 - **A panic in a goroutine ends the program**, even when main returns first. A goroutine counts as
   handling a panic from the moment a deferred-call frame takes it until the panic object is gone
   (a `detail::panic_token` in `gp::panic_error`: recovered, or swallowed by a C++ `catch`, as fmt
@@ -2175,8 +2254,9 @@ Everything the OS does for this is behind `gp::os` (`runtime/include/gocpp/os.hp
 version in `runtime/src/os/linux/thread.cpp`): starting a detached thread with a stack size,
 a thread slot, the stack bounds, and the stack-overflow hook. The Windows version is Phase 14.
 
-Source: [Phase 08 §2.2 and §2.3](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md#22-goroutines--os-threads),
-[ADR-007](../adr/007-goroutines-os-threads.md), [ADR-026](../adr/026-channels-and-thread-reuse.md).
+Source: [Phase 08 §2.2 to §2.4](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md#22-goroutines--os-threads),
+[ADR-007](../adr/007-goroutines-os-threads.md), [ADR-026](../adr/026-channels-and-thread-reuse.md),
+[ADR-029](../adr/029-select-and-range-over-channels.md).
 
 ## Generics (steps 7.1 and 7.2)
 

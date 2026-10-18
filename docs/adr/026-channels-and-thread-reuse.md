@@ -22,7 +22,8 @@ emitter (`cxx_macros.txt`).
   channel's lock, and wakes the goroutine with `waiter::gp_unpark_with` (which sets the cell under
   the waiter's lock); the sleeper waits with `gp_wait`, which reads the cell under the same lock,
   so the sleeper cannot go on, end, and free its record before the waker is out of it. The entry
-  of a `select` case (step 8.5) is the same record, with a claim flag that the cases share.
+  of a `select` case (step 8.5, [ADR-029](029-select-and-range-over-channels.md)) is the same record,
+  with a claim flag that the cases share.
   A waiting goroutine spins for about 4 µs before it sleeps.
 - **`gp::chan<T>` is a `std::shared_ptr` to the channel object** (16 bytes). `chan T`, `<-chan T`
   and `chan<- T` are one C++ type; the direction is in the type descriptor only. The channel object

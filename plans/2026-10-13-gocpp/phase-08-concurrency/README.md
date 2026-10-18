@@ -70,13 +70,11 @@ gp::go([jobs, results, wg] { worker(jobs, results, wg); });   // wg is boxed: &w
 gp::send(jobs, i);                    // blocks while the buffer is full
 gp::close(jobs);
 
-{   // select
-    gp::select_ sel;
-    int64_t r{};
-    sel.recv(results, &r);            // case 0
-    sel.recv(::gpkg_time::After(::gpkg_time::Second));   // case 1
-    switch (sel.wait()) {             // random choice among ready cases, like Go
-    case 0: ::gpkg_fmt::Println({"first:"_gs, r}); break;
+{   // select (step 8.5: one object for each case, one call, a switch on the number of the case)
+    gp::sel_recv gp_s0{results};                          // case 0: r := <-results
+    gp::sel_recv gp_s1{::gpkg_time::After(::gpkg_time::Second), gp::sel_drop};   // case 1 (the case holds the timer channel)
+    switch (gp::select(gp_s0, gp_s1)) {                   // random choice among ready cases, like Go
+    case 0: { int64_t r = gp_s0.gp_take(); ::gpkg_fmt::Println({"first:"_gs, r}); } break;
     case 1: ::gpkg_fmt::Println({"timeout"_gs}); break;
     }
 }
@@ -165,6 +163,25 @@ type switch can tell them apart.
    compare-and-swap on that flag (Go's `selectDone`), so two channels can never both complete the
    same select. After waking up, lock all channels again, remove the other entries, and run the
    winning case. This also works when the same channel appears in two cases.
+
+Implementation notes (step 8.5, [ADR-029](../../../docs/adr/029-select-and-range-over-channels.md)):
+`runtime/src/select.cpp` is this algorithm on the channel objects of 8.3; the poll of one channel under
+its lock (`send_locked`, `recv_locked`) is the code of the plain operations too. A case is an object
+(`gp::sel_recv`, `gp::sel_send`, `gp::sel_default`, [select.hpp](../../../runtime/include/gocpp/select.hpp)) and a
+select is `switch (gp::select(cases...))`, so `break`, `continue`, `return` and `goto` in a case are plain
+C++ (a lambda for each case would break them). Evaluation order is the order of the declarations; the left-hand
+sides of `case a[i], ok = <-c:` are evaluated only if the case is chosen. A send on a closed channel panics when the poll
+reaches it (a ready receive earlier in the poll order wins, as in Go). Up to 16 cases allocate nothing.
+`select {}` and a select of nil channels only block for ever and count as blocked (`select (no
+cases)`, `select`). Differences from the plan text: the poll order comes from a thread-local xorshift64*, not
+Go's `cheaprand`; the type checker's messages are go/types'
+(`select case must be send or receive (possibly with assignment)`, `multiple defaults (first at ...)`).
+`for v := range ch` (step 8.6) is `gp::range_chan` / `gp::range_chan_drop` with `gp::range_next`. For step 8.8:
+`case <-time.After(d)` needs nothing new (the case holds the timer's channel, a channel like any other, and the
+timer thread wakes the select through the channel's `try_send` and `wake()`); for step 8.11: a goroutine in a
+select is in `block_scope("select")` from before its entries are visible until a waker has unblocked it, so
+`num_blocked()` is exact for it. ThreadSanitizer's deadlock detector aborts above 64 locks held by a thread, so
+step 8.12's job must set `TSAN_OPTIONS=detect_deadlocks=0` for the `select_1000_cases` test.
 
 ### 2.5 `sync`, `sync/atomic`, `time`, `runtime`
 

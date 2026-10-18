@@ -447,6 +447,15 @@ func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 	case isMap(xt):
 		fg.rangeIter(s, "gp::range_map", func(it cppir.Expr) cppir.Expr { return &cppir.Call{Fun: &cppir.Member{X: it, Name: "gp_value"}} })
 		return
+	case isChan(xt):
+		// for v := range ch: receive until the channel is closed (chans.go). A loop without a
+		// variable receives without a place for the value.
+		start := "gp::range_chan"
+		if s.Key == nil || isBlank(s.Key) {
+			start = "gp::range_chan_drop"
+		}
+		fg.rangeIter(s, start, func(it cppir.Expr) cppir.Expr { return nil })
+		return
 	case arrayOf(xt) != nil:
 		if fg.rangeArray(s) { // arrays.go: with a value variable
 			return
@@ -576,15 +585,9 @@ func (fg *funcGen) rangeIter(s *ast.RangeStmt, start string, value func(it cppir
 	keyType, valueType := rangeTypes(xt)
 	// The line at the start of each iteration: a declaration or an assignment of each range
 	// variable, made from its counter (as in Go, the key first), on one C++ line.
-	type rangeVar struct {
-		e     ast.Expr
-		obj   *types.Var // a new variable
-		typ   cppir.Type // its C++ type
-		value cppir.Expr
-	}
 	var vars []rangeVar
-	key := rangeKey(start, cxxName(it)) // gp_i, or a map's gp_key() (maps.go)
-	for _, v := range []rangeVar{{e: s.Key, value: key}, {e: s.Value, value: value(cxxName(it))}} {
+	key := rangeKey(start, cxxName(it)) // gp_i, a map's gp_key() (maps.go), or a channel's gp_v()
+	for _, v := range []rangeVar{{e: s.Key, value: key, from: keyType, isKey: true}, {e: s.Value, value: value(cxxName(it)), from: valueType}} {
 		if v.e == nil || isBlank(v.e) {
 			continue
 		}
@@ -600,52 +603,7 @@ func (fg *funcGen) rangeIter(s *ast.RangeStmt, start string, value func(it cppir
 	}
 	l := loop{stmt: s, head: head, body: s.Body}
 	if len(vars) > 0 {
-		l.vars = func() {
-			line := &cppir.Line{Pos: fg.g.pos(vars[0].e.Pos())}
-			if s.Tok != token.DEFINE {
-				// An assignment of the counters to the targets: their operands first.
-				lhs := make([]ast.Expr, len(vars))
-				for i, v := range vars {
-					lhs[i] = v.e
-				}
-				if start == "gp::range_map" {
-					// The key and the value are references into the map's entry, which a call
-					// in the targets' operands can delete (maps.go).
-					for i, v := range vars {
-						line.Stmts = append(line.Stmts, fg.rangeMapVar(fg.targetOperands(lhs), v.e == s.Key, cxxName(it), &vars[i].value)...)
-					}
-				}
-				line.Stmts = append(line.Stmts, fg.order(false, fg.targetOperands(lhs)...)...)
-				targets := make([]target, len(vars))
-				for i, v := range vars {
-					targets[i] = fg.lhs(v.e)
-				}
-				for i := range targets {
-					line.Stmts = append(line.Stmts, fg.saveOperands(cppir.Pos{}, targets, i)...)
-				}
-				for i, t := range targets {
-					from := valueType
-					if vars[i].e == s.Key {
-						from = keyType
-					}
-					value := fg.g.convertTo(from, fg.g.info.TypeOf(vars[i].e), vars[i].value, vars[i].e.Pos())
-					line.Stmts = append(line.Stmts, &cppir.ExprStmt{X: t.assignExpr(value)})
-				}
-				fg.add(line)
-				return
-			}
-			for _, v := range vars {
-				if fg.isCBox(v.obj) {
-					name := fg.names.declare(v.obj)
-					line.Stmts = append(line.Stmts, withHold(cppir.Pos{}, cBoxDecl(cppir.Pos{}, v.typ, name, v.value), fg.holdBox(v.obj, name))) // cbox.go
-				} else if fg.isBoxed(v.obj) {
-					line.Stmts = append(line.Stmts, varDecl(cppir.Pos{}, ptrType(v.typ), fg.names.declare(v.obj), newBox(v.typ, v.value)))
-				} else {
-					line.Stmts = append(line.Stmts, varDecl(cppir.Pos{}, v.typ, fg.names.declare(v.obj), v.value))
-				}
-			}
-			fg.add(line)
-		}
+		l.vars = func() { fg.bindVars(s.Tok, vars, start == "gp::range_map", cxxName(it)) }
 	}
 	fg.loopBody(l)
 	fg.names.closeScope()
@@ -655,13 +613,70 @@ func (fg *funcGen) rangeIter(s *ast.RangeStmt, start string, value func(it cppir
 	fg.breakLabel(s, s.Body.Rbrace)
 }
 
+// A rangeVar is a variable of a range loop or of a receive case of a select: the Go expression
+// (a new variable's identifier, or the target of an assignment), the C++ expression of its value
+// at the start of the iteration, and the Go type of that value (what the assignment converts from).
+type rangeVar struct {
+	e     ast.Expr
+	obj   *types.Var // a new variable
+	typ   cppir.Type // its C++ type
+	value cppir.Expr
+	from  types.Type
+	isKey bool // the first variable of a range, whose value for a map is a reference into the entry
+}
+
+// bindVars adds the line that declares (tok is :=) or assigns (tok is =) the variables vars from
+// their values, as the first statement of an iteration or of a select's case. The operands of the
+// targets of an assignment are evaluated before the stores (saveOperands), each time. isMap says
+// that the values are references into a map's entry (gp::range_map: it is the iterator).
+func (fg *funcGen) bindVars(tok token.Token, vars []rangeVar, isMap bool, it cppir.Expr) {
+	line := &cppir.Line{Pos: fg.g.pos(vars[0].e.Pos())}
+	if tok != token.DEFINE {
+		// An assignment of the counters to the targets: their operands first.
+		lhs := make([]ast.Expr, len(vars))
+		for i, v := range vars {
+			lhs[i] = v.e
+		}
+		if isMap {
+			// The key and the value are references into the map's entry, which a call
+			// in the targets' operands can delete (maps.go).
+			for i, v := range vars {
+				line.Stmts = append(line.Stmts, fg.rangeMapVar(fg.targetOperands(lhs), v.isKey, it, &vars[i].value)...)
+			}
+		}
+		line.Stmts = append(line.Stmts, fg.order(false, fg.targetOperands(lhs)...)...)
+		targets := make([]target, len(vars))
+		for i, v := range vars {
+			targets[i] = fg.lhs(v.e)
+		}
+		for i := range targets {
+			line.Stmts = append(line.Stmts, fg.saveOperands(cppir.Pos{}, targets, i)...)
+		}
+		for i, t := range targets {
+			value := fg.g.convertTo(vars[i].from, fg.g.info.TypeOf(vars[i].e), vars[i].value, vars[i].e.Pos())
+			line.Stmts = append(line.Stmts, &cppir.ExprStmt{X: t.assignExpr(value)})
+		}
+		fg.add(line)
+		return
+	}
+	for _, v := range vars {
+		if fg.isCBox(v.obj) {
+			name := fg.names.declare(v.obj)
+			line.Stmts = append(line.Stmts, withHold(cppir.Pos{}, cBoxDecl(cppir.Pos{}, v.typ, name, v.value), fg.holdBox(v.obj, name))) // cbox.go
+		} else if fg.isBoxed(v.obj) {
+			line.Stmts = append(line.Stmts, varDecl(cppir.Pos{}, ptrType(v.typ), fg.names.declare(v.obj), newBox(v.typ, v.value)))
+		} else {
+			line.Stmts = append(line.Stmts, varDecl(cppir.Pos{}, v.typ, fg.names.declare(v.obj), v.value))
+		}
+	}
+	fg.add(line)
+}
+
 // rangeKind names what a range over a value of type t is, for "not supported yet".
 func rangeKind(t types.Type) string {
 	switch types.Unalias(t).Underlying().(type) {
 	case *types.Signature:
 		return "range over functions (Phase 07)"
-	case *types.Chan:
-		return "range over channels (Phase 08)"
 	}
 	if hasC(t) {
 		return "range over C/C++ values of this kind"

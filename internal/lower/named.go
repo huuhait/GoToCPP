@@ -342,6 +342,8 @@ func rangeTypes(t types.Type) (key, value types.Type) {
 		}
 	case *types.Map:
 		return u.Key(), u.Elem()
+	case *types.Chan:
+		return u.Elem(), nil
 	case *types.Basic:
 		if u.Info()&types.IsString != 0 {
 			return types.Typ[types.Int], types.Typ[types.Rune]

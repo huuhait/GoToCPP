@@ -1,4 +1,4 @@
-// gocpp/chan.hpp: Go's channels, gp::chan<T> (Phase 08, steps 8.3 and 8.4).
+// gocpp/chan.hpp: Go's channels, gp::chan<T> (Phase 08, steps 8.3, 8.4 and 8.6).
 //
 // A channel is a reference to a shared channel object, as a pointer is: copying the handle shares
 // the channel, a default handle is the nil channel, and the object lives as long as one handle
@@ -46,10 +46,10 @@
 // the waiter, a pointer to where the value is, and a cell where whoever wakes it says "done". The
 // entry of a goroutine that waits in a `select` (step 8.5) is the same record, one per case,
 // that share one cell and one claim flag: dequeue skips an entry whose select was already won.
-// So `select` adds the statement, not another kind of waiter. The channel object and its
-// operations are in src/chan.cpp and src/chan_core.hpp, not in this header: gocpp/rt.hpp includes
-// it, and <mutex> and <condition_variable> would add half a second to the compile of every
-// generated file.
+// So `select` (gocpp/select.hpp, src/select.cpp) adds the statement, not another kind of waiter.
+// The channel object and its operations are in src/chan.cpp and src/chan_core.hpp, not in this
+// header: gocpp/rt.hpp includes it, and <mutex> and <condition_variable> would add half a second to
+// the compile of every generated file.
 //
 // Elements are moved and copied as C++ moves and copies them: the value that send takes is a
 // copy that the call owns (a Go value is copied; a C++ opaque value is moved by the code that
@@ -123,6 +123,10 @@ void chan_send(chan_core* c, void* src);
 // the channel is closed. It returns false for a closed channel, true for a value.
 bool chan_recv(chan_core* c, void* dst);
 
+// chan_recv_range is chan_recv for a range loop: a closed channel constructs nothing in dst (the
+// loop ends, it has no use for a zero value, and the element type may have none).
+bool chan_recv_range(chan_core* c, void* dst);
+
 // chan_close closes the channel (panics for a closed one), chan_len and chan_cap are its length
 // and capacity.
 void chan_close(chan_core* c);
@@ -146,6 +150,8 @@ struct elem_slot {
         p->~T();
         return v;
     }
+    // drop destroys the element: the slot is empty again.
+    void drop() noexcept { std::launder(reinterpret_cast<T*>(gp_buf))->~T(); }
     alignas(T) unsigned char gp_buf[sizeof(T)];
 };
 
@@ -228,6 +234,76 @@ bool recv_drop(const chan<T>& c) {
         detail::block_forever("chan receive (nil chan)");
     }
     return detail::chan_recv(core, nullptr);
+}
+
+// range_chan is the loop `for v := range ch`: it receives until the channel is closed and drained,
+// and blocks for ever on a nil channel.
+//
+// clang-format off
+//     for v := range ch {...}     for (auto gp_it0 = gp::range_chan(ch); gp::range_next(gp_it0);) {
+//                                     T v = gp_it0.gp_v(); ...
+//     for range ch {...}          for (auto gp_it0 = gp::range_chan_drop(ch); gp::range_next(gp_it0);) {
+// clang-format on
+//
+// The iterator holds the channel, which Go evaluates once. After a successful range_next, gp_v()
+// takes the element out (once: it is moved; the loop declares the variable of each iteration from
+// it, so a closure that captures that variable has its own copy). An element that the body did not
+// take is destroyed by the next range_next, or by the iterator. range_chan_drop receives without
+// a place for the value (the loop has no variable: no copy, no construction).
+template <typename T>
+class chan_range {
+public:
+    explicit chan_range(chan<T> c, bool drop) noexcept : gp_c(std::move(c)), gp_drop(drop) {}
+    chan_range(const chan_range&) = delete;
+    chan_range& operator=(const chan_range&) = delete;
+    ~chan_range() { gp_release(); }
+
+    // The element that range_next received.
+    T gp_v() noexcept(std::is_nothrow_move_constructible_v<T>) {
+        gp_full = false;
+        return gp_slot.take();
+    }
+
+    bool gp_next() {
+        gp_release();
+        detail::chan_core* core = gp_c.gp_core();
+        if (core == nullptr) {
+            detail::block_forever("chan receive (nil chan)");
+        }
+        if (gp_drop) {
+            return detail::chan_recv(core, nullptr);
+        }
+        gp_full = detail::chan_recv_range(core, gp_slot.addr());
+        return gp_full;
+    }
+
+private:
+    void gp_release() noexcept {
+        if (gp_full) {
+            gp_full = false;
+            gp_slot.drop();
+        }
+    }
+
+    chan<T> gp_c;
+    detail::elem_slot<T> gp_slot;
+    bool gp_drop;
+    bool gp_full = false;
+};
+
+template <typename T>
+chan_range<T> range_chan(chan<T> c) noexcept {
+    return chan_range<T>(std::move(c), false);
+}
+
+template <typename T>
+chan_range<T> range_chan_drop(chan<T> c) noexcept {
+    return chan_range<T>(std::move(c), true);
+}
+
+template <typename T>
+bool range_next(chan_range<T>& it) {
+    return it.gp_next();
 }
 
 // close is close(ch).

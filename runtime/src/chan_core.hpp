@@ -42,6 +42,9 @@ struct sudog {
     // off a queue to complete), and the case it is.
     std::atomic<uint32_t>* claim = nullptr;
     int case_index = 0;
+    // A receiver: construct the zero value in elem when the channel is closed (false for the
+    // receive of a range loop, which ends there and has no use for it).
+    bool zero = true;
     // Set under the channel's lock before the wake-up: a receiver got a value (false: the channel
     // was closed), a sender's value was taken (false: the channel was closed, the sender panics).
     bool success = false;
@@ -77,6 +80,10 @@ struct waitq {
         }
         sg->next = sg->prev = nullptr;
     }
+
+    // contains reports whether sg is in this queue (not taken off by a dequeue, which also unlinks
+    // the entries it skips).
+    bool contains(const sudog* sg) const noexcept { return sg->prev != nullptr || first == sg; }
 
     // dequeue takes the first entry that can complete off the queue and returns it, or null. An
     // entry of a select that another channel completed already (its claim flag is taken) is
@@ -130,6 +137,11 @@ inline void park_cell(wake_cell& cell) {
 // The result of a receive that doesn't block.
 enum class recv_status { not_ready, value, closed };
 
+// The result of the poll of one channel under its lock (chan_core::send_locked, recv_locked):
+// the operation could not complete, completed, or the channel is closed (a send must panic; a
+// receive got the zero value).
+enum class poll_status { not_ready, done, closed };
+
 // chan_core is the channel object. It is created by chan_make and shared by the handles.
 struct chan_core {
     chan_core(const elem_ops* ops, std::size_t cap);
@@ -141,12 +153,22 @@ struct chan_core {
     // when it would. try_recv does not block: not_ready when it would. (For select, step 8.5.)
     void send(void* src);
     bool try_send(void* src);
-    bool recv(void* dst);
+    bool recv(void* dst, bool zero = true);
     recv_status try_recv(void* dst);
     void close();
 
     std::size_t len() const noexcept { return count.load(std::memory_order_relaxed); }
     std::size_t cap() const noexcept { return capacity; }
+
+    // The operations of one channel for a caller that holds mu already (the blocking and the
+    // non-blocking forms above, and select, step 8.5, which holds the locks of all its channels):
+    // each completes the operation if it can, without waiting. send_locked moves from src;
+    // recv_locked constructs the value, or the zero value for a closed channel
+    // (poll_status::closed), in dst (null: dropped). When the operation completed with a goroutine
+    // that waits in a queue, that entry is stored in *w (success already set): the caller wakes it
+    // with wake() after it has unlocked, never before.
+    poll_status send_locked(void* src, sudog** w);
+    poll_status recv_locked(void* dst, sudog** w, bool zero = true);
 
     // The state, for select (step 8.5), which locks several channels: everything below is
     // guarded by mu, except count, which len reads without it.
@@ -164,7 +186,7 @@ struct chan_core {
 
 private:
     bool send_impl(void* src, bool block);
-    recv_status recv_impl(void* dst, bool block);
+    recv_status recv_impl(void* dst, bool block, bool zero);
     // (An empty type has no buffer: every slot is the one byte below, where nothing is stored.)
     void* slot(std::size_t i) const noexcept {
         return ops->empty ? const_cast<unsigned char*>(&empty_slot) : buf + i * ops->size;

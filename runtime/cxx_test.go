@@ -22,7 +22,7 @@ import (
 
 // The C++ tests of the runtime: test/unit.cpp, test/slice_test.cpp, test/array_test.cpp,
 // test/map_test.cpp, test/fmt_test.cpp, test/trace_test.cpp, test/defer_test.cpp, test/func_test.cpp,
-// test/thread_test.cpp, test/goroutine_test.cpp, test/chan_test.cpp and test/interop_test.cpp, test/cxxvalue_test.cpp, test/unsafe_test.cpp,
+// test/thread_test.cpp, test/goroutine_test.cpp, test/chan_test.cpp, test/select_test.cpp and test/interop_test.cpp, test/cxxvalue_test.cpp, test/unsafe_test.cpp,
 // test/type_test.cpp and test/iface_test.cpp (unit tests), test/nochecks_test.cpp
 // (the unit tests of a -nochecks build, compiled with the runtime with -DGOCPP_NOCHECKS),
 // and test/diff.cpp (the C++ side of a differential test against testdata/diff/main.go, run with
@@ -309,6 +309,7 @@ func TestCXX(t *testing.T) {
 						{src: "test/thread_test.cpp", weight: 3},
 						{src: "test/goroutine_test.cpp", weight: 3},
 						{src: "test/chan_test.cpp", weight: 4},
+						{src: "test/select_test.cpp", weight: 4},
 						{src: "test/nochecks_test.cpp", flags: []string{"-DGOCPP_NOCHECKS"}, weight: 3},
 					})
 
@@ -374,6 +375,12 @@ func TestCXX(t *testing.T) {
 						bin := bins.bin(t, "test/chan_test.cpp")
 						runUnit(t, bin)
 						runChan(t, bin)
+					})
+					t.Run("select", func(t *testing.T) {
+						t.Parallel()
+						bin := bins.bin(t, "test/select_test.cpp")
+						runUnit(t, bin)
+						runSelect(t, bin)
 					})
 					t.Run("interop", func(t *testing.T) {
 						t.Parallel()

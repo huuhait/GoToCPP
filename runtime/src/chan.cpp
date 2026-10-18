@@ -110,7 +110,11 @@ void chan_send(chan_core* c, void* src) {
 }
 
 bool chan_recv(chan_core* c, void* dst) {
-    return c->recv(dst);
+    return c->recv(dst, true);
+}
+
+bool chan_recv_range(chan_core* c, void* dst) {
+    return c->recv(dst, false);
 }
 
 void chan_close(chan_core* c) {
@@ -129,11 +133,9 @@ void chan_panic_close_nil() {
     throw_runtime(rt_error::plain, gp::string::gp_copy("close of nil channel"));
 }
 
-bool chan_core::send_impl(void* src, bool block) {
-    std::unique_lock<std::mutex> lk(mu);
+poll_status chan_core::send_locked(void* src, sudog** w) {
     if (closed) {
-        lk.unlock();
-        panic_closed_send();
+        return poll_status::closed;
     }
     if (sudog* sg = recvq.dequeue()) {
         // A receiver waits: the value goes straight into its variable, and it wakes up.
@@ -141,15 +143,33 @@ bool chan_core::send_impl(void* src, bool block) {
             ops->move_into(sg->elem, src);
         }
         sg->success = true;
-        lk.unlock();
-        wake(sg);
-        return true;
+        *w = sg;
+        return poll_status::done;
     }
     if (std::size_t n = count.load(std::memory_order_relaxed); n < capacity) {
         ops->move_into(slot(sendx), src);
         sendx = sendx + 1 == capacity ? 0 : sendx + 1;
         count.store(n + 1, std::memory_order_relaxed);
+        return poll_status::done;
+    }
+    return poll_status::not_ready;
+}
+
+bool chan_core::send_impl(void* src, bool block) {
+    std::unique_lock<std::mutex> lk(mu);
+    sudog* w = nullptr;
+    switch (send_locked(src, &w)) {
+    case poll_status::closed:
+        lk.unlock();
+        panic_closed_send();
+    case poll_status::done:
+        lk.unlock();
+        if (w != nullptr) {
+            wake(w);
+        }
         return true;
+    case poll_status::not_ready:
+        break;
     }
     if (!block) {
         return false;
@@ -181,14 +201,12 @@ bool chan_core::try_send(void* src) {
     return send_impl(src, false);
 }
 
-recv_status chan_core::recv_impl(void* dst, bool block) {
-    std::unique_lock<std::mutex> lk(mu);
+poll_status chan_core::recv_locked(void* dst, sudog** w, bool zero) {
     if (closed && count.load(std::memory_order_relaxed) == 0) {
-        lk.unlock();
-        if (dst != nullptr && !ops->zero_into(dst)) {
+        if (dst != nullptr && zero && !ops->zero_into(dst)) {
             fatal("receive from a closed channel whose element type has no zero value");
         }
-        return recv_status::closed;
+        return poll_status::closed;
     }
     if (sudog* sg = sendq.dequeue()) {
         if (capacity == 0) {
@@ -209,9 +227,8 @@ recv_status chan_core::recv_impl(void* dst, bool block) {
             sendx = recvx;
         }
         sg->success = true;
-        lk.unlock();
-        wake(sg);
-        return recv_status::value;
+        *w = sg;
+        return poll_status::done;
     }
     if (std::size_t n = count.load(std::memory_order_relaxed); n > 0) {
         void* head = slot(recvx);
@@ -221,7 +238,25 @@ recv_status chan_core::recv_impl(void* dst, bool block) {
         ops->destroy(head);
         recvx = recvx + 1 == capacity ? 0 : recvx + 1;
         count.store(n - 1, std::memory_order_relaxed);
+        return poll_status::done;
+    }
+    return poll_status::not_ready;
+}
+
+recv_status chan_core::recv_impl(void* dst, bool block, bool zero) {
+    std::unique_lock<std::mutex> lk(mu);
+    sudog* w = nullptr;
+    switch (recv_locked(dst, &w, zero)) {
+    case poll_status::closed:
+        return recv_status::closed;
+    case poll_status::done:
+        lk.unlock();
+        if (w != nullptr) {
+            wake(w);
+        }
         return recv_status::value;
+    case poll_status::not_ready:
+        break;
     }
     if (!block) {
         return recv_status::not_ready;
@@ -234,6 +269,7 @@ recv_status chan_core::recv_impl(void* dst, bool block) {
     sg.cell = &cell;
     sg.elem = dst;
     sg.c = this;
+    sg.zero = zero;
     recvq.enqueue(&sg);
     lk.unlock();
     park_cell(cell);
@@ -241,12 +277,12 @@ recv_status chan_core::recv_impl(void* dst, bool block) {
     return sg.success ? recv_status::value : recv_status::closed;
 }
 
-bool chan_core::recv(void* dst) {
-    return recv_impl(dst, true) == recv_status::value;
+bool chan_core::recv(void* dst, bool zero) {
+    return recv_impl(dst, true, zero) == recv_status::value;
 }
 
 recv_status chan_core::try_recv(void* dst) {
-    return recv_impl(dst, false);
+    return recv_impl(dst, false, true);
 }
 
 void chan_core::close() {
@@ -261,7 +297,7 @@ void chan_core::close() {
         // All receivers get the zero value and false, then all senders panic. (The select entries
         // of a goroutine that something else woke already are skipped by dequeue.)
         while (sudog* sg = recvq.dequeue()) {
-            if (sg->elem != nullptr && !ops->zero_into(sg->elem)) {
+            if (sg->elem != nullptr && sg->zero && !ops->zero_into(sg->elem)) {
                 lk.unlock();
                 fatal("receive from a closed channel whose element type has no zero value");
             }

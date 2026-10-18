@@ -148,6 +148,8 @@ func (fg *funcGen) stmt(s ast.Stmt) {
 		fg.goStmt(s) // defer.go
 	case *ast.SendStmt:
 		fg.sendStmt(s) // chans.go
+	case *ast.SelectStmt:
+		fg.selectStmt(s) // chans.go
 	default:
 		fg.g.unsupported(s.Pos(), nodeKind(s))
 	}
