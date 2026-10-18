@@ -66,6 +66,21 @@ var rejectCases = []struct {
 	{"store-keep-through-raw", "struct KN { KN* next; };\nvoid f(gp::cptr<KN> n, gp::cptr<KN> t) {\n\tgp::cgo::store_keep(n, n->next->next, t, gp::cgo::keep_path<decltype(n->next)>()); // bad\n}\n", "the struct is reached through a raw C pointer"},
 	{"store-keep-raw-owner", "struct KN { KN* next; };\nvoid f(KN* n, gp::cptr<KN> t) {\n\tgp::cgo::store_keep(n, n->next, t); // bad\n}\n", "the struct is not owned by a *T variable"},
 	{"cptr-gocpp-pointer-to-cptr-of-other", "void f(gp::ptr<char> c) {\n\tgp::cptr<int64_t> p = c; // bad\n\t(void)p;\n}\n", ""},
+	// Callbacks (step 4.11): a func with state, or only known at run time, is no function pointer;
+	// the number of parameters and the result must match the C type; no variadic callbacks.
+	{"callback-closure", "void f(gp::func<int(int)> g) {\n\tint (*p)(int) = gp::cgo::fn_val(g); // bad\n\t(void)p;\n}\n",
+		"can't be a C function pointer"},
+	{"callback-captures", "void f(int n) {\n\tint (*p)(int) = gp::cgo::fn_lit<gp::func<int(int)>>([n](int x) mutable -> int { return x + n; }); // bad\n\t(void)p;\n}\n",
+		"can't be a C function pointer"},
+	{"callback-arity", "int one(int x) { return x; }\nvoid f() {\n\tint (*p)(int, int) = gp::cgo::fn<&one>(); // bad\n\t(void)p;\n}\n",
+		"different number of parameters"},
+	{"callback-result", "void one(int) {}\nvoid f() {\n\tint (*p)(int) = gp::cgo::fn<&one>(); // bad\n\t(void)p;\n}\n",
+		"disagree about a result"},
+	{"callback-variadic", "int one(int x) { return x; }\nvoid f() {\n\tint (*p)(int, ...) = gp::cgo::fn<&one>(); // bad\n\t(void)p;\n}\n",
+		"variadic C function pointer"},
+	{"callback-varargs", "extern \"C\" void var(int, ...);\nint one(int x) { return x; }\nvoid f() {\n\tvar(1, gp::cgo::fn<&one>()); // bad\n}\n", ""},
+	{"callback-void-param", "void one(gp::cptr<int> p) {}\nvoid f() {\n\tvoid (*q)(const void*) = gp::cgo::fn<&one>(); // bad\n\t(void)q;\n}\n",
+		"declare this parameter as unsafe.Pointer"},
 	{"unsafe-string-of-ints", "void f(int* p) {\n\t(void)gp::unsafe_string(p, 2); // bad\n}\n", ""},
 	// A gocpp string still converts only to std::string_view: f(std::string) + f(const char*)
 	// doesn't take it.
@@ -184,6 +199,25 @@ void g(const CA& a, const gp::type_desc* td) {
 	(void)gp::unbox<gp::ptr<int64_t>>(b);
 	(void)gp::unbox<int64_t>(b);
 	(void)gp::icall<double()>(b, 0);
+}
+
+// Callbacks, as the emitter writes them (step 4.11): a function of the program and a func literal
+// without captures are C function pointers; any func is a callable and a gp::func.
+int cb_one(gp::ptr<void>, int x) { return x; }
+void callbacks() {
+	int (*p)(void*, int) = gp::cgo::fn<&cb_one>();
+	int (*q)(int) = gp::cgo::fn_lit<gp::func<int(int)>>([]<int = 1>(int x) mutable -> int { return x; });
+	gp::func<int(int)> g = [](int x) { return x; };
+	gp::func<int(int)> h = gp::cgo::fn_val(g);
+	(void)p;
+	(void)q;
+	(void)h;
+}
+using cb_fp = int (*)(int);
+cb_fp cb_get_fp() { return nullptr; }
+void callbacks_fp() {
+	cb_fp (*r)() = gp::cgo::fn<&cb_get_fp>();
+	(void)r;
 }
 
 // The forms of step 4.8 that work: a box of a movable object, of one that can only be built in

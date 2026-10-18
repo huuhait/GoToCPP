@@ -241,15 +241,23 @@ the helpers as the user wrote them (`C.GoString`).
 
 | C/C++ expects | Pass |
 |---|---|
-| a C function pointer `void (*)(int)` | a top-level gocpp `func cb(x C.int)` |
-| `std::function<…>` or a template callable | any gocpp func value or closure (`gp::func` converts) |
-| `void* userdata` + callback | in this phase, a gocpp pointer passed as `unsafe.Pointer` (it converts to `void*`; the callback gets it back as `unsafe.Pointer`); from Phase 05 on, `cgo.NewHandle(v)` → pass the handle, and in the callback `cgo.Handle(p).Value()` (Go's `runtime/cgo.Handle` API, which needs `any`) |
+| a C function pointer `void (*)(int)` (a parameter, a variable, a field of a C struct) | a function of the package by its name (`cb`), or a func literal that captures nothing: each gets a static trampoline (`gp::cgo::fn<&cb>()`). A closure with captures and a func variable are an error at the `.gp` line |
+| `std::function<…>` or a template callable | any gocpp func value or closure (a `gp::cgo::callback`, which `std::function` and templates take; `std.function[func(C.int) C.int]` names the type) |
+| `void* userdata` + callback | in this phase, a gocpp pointer passed as `unsafe.Pointer` (it converts to `void*`; the callback gets it back as `unsafe.Pointer`; a closure goes as `unsafe.Pointer(&f)` and a named callback calls it); from Phase 05 on, `cgo.NewHandle(v)` → pass the handle, and in the callback `cgo.Handle(p).Value()` (Go's `runtime/cgo.Handle` API, which needs `any`) |
 
 **Panics must not unwind through C code.** On x86-64 Linux, GCC and Clang emit unwind tables for
 C by default, so a panic inside a C callback *would* unwind through the C frames and silently skip
 the C library's own cleanup (locks, memory, sqlite state). So every gocpp function that C can call
-(callbacks, and Phase 06's `//export` functions) is called through a `noexcept` **trampoline**
-that catches any panic, prints it Go-style and exits with code 2.
+(callbacks, and Phase 06's `//export` functions) is called through a `noexcept` **trampoline**.
+A panic or C++ exception that leaves it ends the program: the C++ runtime finds the `noexcept`
+frame while it searches for a handler and calls `std::terminate` before it unwinds a frame, and
+the terminate handler (step 4.12) prints the Go-style report and exits with code 2. The callback's
+own deferred calls run first; the deferred calls outside the C call do not (divergence D27).
+Carrying the panic across the C frames (record it, return a default value, re-raise after the C
+function returns) and `longjmp` were rejected: C would go on with an invented result, or the
+C++ destructors in between would be skipped. Through C++ frames (`std::function`, templates) a
+panic unwinds normally. A callback may run on a thread that C created (it gets a goroutine record
+on first use).
 
 **C++ exceptions (first version).** If a C++ exception that no C++ code catches reaches gocpp code,
 the program stops like an unrecovered Go panic: `panic: C++ exception std::out_of_range: <what()>`

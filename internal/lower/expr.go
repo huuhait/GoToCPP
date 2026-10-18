@@ -204,6 +204,9 @@ func (fg *funcGen) value(e ast.Expr) cppir.Expr {
 		}
 		return fg.g.constant(tv.Value, fg.g.untypedCount(e, tv.Type), e.Pos(), false)
 	}
+	if fg.g.cFuncs[ast.Unparen(e)] {
+		return fg.callbackValue(e) // a func that goes to C/C++ (ccallback.go)
+	}
 	if fg.g.pkg.Opaque.IsOpaque(e) {
 		return fg.opaqueExpr(e) // a C/C++ value (cvalues.go)
 	}

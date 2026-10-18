@@ -119,10 +119,6 @@ func (w *cWalk) visit(n ast.Node) bool {
 			return false
 		}
 	case *ast.FuncLit:
-		if w.g.pkg.Opaque.IsOpaque(x) {
-			w.g.unsupported(x.Pos(), "func literals with C/C++ parameters or results (step 4.11)")
-			return false
-		}
 		if sig, ok := w.g.info.TypeOf(x).(*types.Signature); ok {
 			w.funcs, w.sigs = append(w.funcs, x), append(w.sigs, sig)
 		}

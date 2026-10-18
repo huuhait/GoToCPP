@@ -852,8 +852,7 @@ defer v.clear()            // fine: v is boxed, so it is still alive when the de
   the loop). The variable of a `range` over a C++ container is the loop's own copy, boxed per
   iteration. `&i` of the variable of a 3-clause `for` is an error (each iteration has its own `i` in
   Go, which a pointer can keep; a C++ address can't): copy it into a variable of the body.
-- **Still not supported:** a func literal with C/C++ parameters or results (callbacks, step 4.11),
-  and `go` statements (Phase 08).
+- **Still not supported:** `go` statements (Phase 08).
 
 ### Types that can't be copied
 
@@ -1209,22 +1208,193 @@ func main() {
 
 | C/C++ expects | Pass |
 |---|---|
-| a C function pointer `void (*)(int)` | a top-level gocpp func: `func cb(x C.int)` |
-| `std::function<…>` or a template callable | any gocpp func value or closure (`gp::func` converts) |
-| `void* userdata` plus a callback | `cgo.NewHandle(v)`, and pass the handle; in the callback, `cgo.Handle(p).Value()` (Go's `runtime/cgo.Handle` API) |
+| a C function pointer `void (*)(int)` (a parameter, a variable, or a field of a C struct) | a function of the package, by its name: `onEvent`; or a func literal that captures nothing |
+| `std::function<…>`, a template callable (the comparator of `std.sort`) | any gocpp func: a function, a func literal, a closure that captures variables, a func variable |
+| `void* userdata` plus a callback | a gocpp pointer as `unsafe.Pointer` (a closure too: `unsafe.Pointer(&f)`); the callback gets it back as an `unsafe.Pointer`. Phase 05's `cgo.NewHandle(v)` is the version for data that C keeps |
 
-- **Panics never unwind through C code.** GCC and Clang emit unwind tables for C on x86-64 Linux,
-  so a panic inside a C callback would unwind through the C frames and silently skip the C
-  library's own cleanup (locks, memory, sqlite state). So every gocpp function that C can call
-  is called through a `noexcept` **trampoline**. It catches any panic, prints it Go-style and
-  exits with code 2.
-- **C++ exceptions.** In Phase 04, a C++ exception that nothing catches ends the program like an
-  unrecovered Go panic, with exit code 2 (see [C++ exceptions](#c-exceptions) below). From
-  Phase 05 on, it becomes a normal panic that `recover()` can catch; its value has the type
-  `gp::CppException`, and `Error()` returns `what()`.
+`examples/sqlite` passes callbacks to `sqlite3_exec`; `tests/interop/callbacks*.gp` has every form
+below.
+
+### C function pointers
+
+```go
+// A comparator for qsort: its parameters are the void* pointers of C's type.
+func byValue(a, b unsafe.Pointer) C.int {
+	x, y := *(*C.int)(a), *(*C.int)(b)
+	if x < y {
+		return -1
+	}
+	if x > y {
+		return 1
+	}
+	return 0
+}
+
+stdlib.qsort(unsafe.Pointer(&nums[0]), C.size_t(len(nums)), 4, byValue)
+
+// A callback table: function pointers in the fields of a C struct, called by C later.
+ops := lib.ops{apply: addUser, done: finish, user: unsafe.Pointer(&state)}
+
+// A variable of a C function pointer type holds a callback; gocpp calls it like any C function.
+var apply lib.apply_t = addUser
+apply(unsafe.Pointer(&n), 3)
+```
+
+- **What converts.** A function of the package (`onEvent`) and a func literal that captures no
+  variable become C function pointers wherever a C/C++ value takes them: an argument of a call,
+  an assignment to a C variable or field (`ops.apply = f`), a declaration with a value, an
+  element of a literal of a C type. Each function gets one static **trampoline**
+  (`gp::cgo::fn<&f>()` in `runtime/include/gocpp/callback.hpp`), so the pointer is valid for the whole run: C may keep
+  it, call it later, or call it from another thread.
+- **The trampoline** converts the arguments from C to the types of the gocpp function, calls it, and
+  converts the result back. A `void*` is an `unsafe.Pointer` that owns nothing (the address is the
+  one C passed), a `T*` is a `*C.T` (a `gp::cptr<T>`, owning nothing), a `T**` stays a raw
+  `**C.T`; C numbers, enums and structs are themselves. The number of parameters and the result
+  must match the C function pointer type (a C `void` is a gocpp func without a result): a
+  mismatch is an error at the line.
+- **What does not convert.** A closure that captures variables, and a func value that is only known
+  when the program runs (`cb := onEvent; lib.set_callback(cb)`): a function pointer is the address of
+  code, and neither has code of its own. Both are an error at the `.gp` line, "a func with captured
+  variables, or a func value that is only known at run time, can't be a C function pointer": pass the
+  function by its name, and give the state to it through the user-data argument (below). **Variadic
+  callbacks** (`int (*)(const char*, ...)`) are an error too: C's `...` has no types for the
+  arguments.
+- **A result that is a pointer** must point to memory that outlives the callback: C memory
+  (`C.CString`, `malloc`) or a package variable's. A pointer into gocpp memory that only the callback
+  holds (`&buf[0]` of a local slice, `&T{}`) would dangle in C when the callback returns, so it is
+  a fatal error that says so (cgo's rules forbid it too).
+- **A callback may hand back a pointer that C passed** (`func same(u unsafe.Pointer) unsafe.Pointer {
+  return u }`), also one into the struct it points to: that object is alive in the caller for the whole
+  call, also when gocpp made it (`&T{}`). A pointer to an object that only the callback holds is the
+  fatal error above.
+- **Types of the parameters.** A `void*` parameter of the C type must be an `unsafe.Pointer` in the
+  gocpp function; `*C.int` for a `const void*` is an error at the line that says so (the same for a
+  `*C.T` of another pointee type). A callback that returns a C function pointer type
+  (`func get() lib.unary_t { return neg }`) and a gocpp function or slice with a C function pointer
+  type (`func run(f lib.apply_t)`, `append(fs, f)`) take a function of the package too.
+- **Not through `...`.** A func passed to a variadic C function in its `...` part (`vcall(3, f)`)
+  is an error at the line: the C++ message says an object of a non-trivially-copyable type can't go
+  through `...` (a callback is deliberately one). A `...` has no type to convert the func to.
+- **Limits.** The checks of the signature (the number of parameters, `void` or not, variadic) are the
+  C++ compiler's, so they come as `C++:` errors with a gocpp message at the line; Phase 12's typed
+  interop can report them from the C types before the compiler runs. A method value (`obj.method`),
+  a function of another gocpp package and an instance of a generic function (Phase 06 and 07) are
+  C++ callables but not function pointers yet. An API without a user-data parameter (`qsort`,
+  `signal`, `atexit`) can only call a function of the package: it finds its state in package
+  variables, as a C callback would. A **nil func variable** passed for a `std::function` parameter
+  gives a non-empty `std::function` (`if (sf)` is true) whose call panics with Go's nil
+  dereference; pass `nil` itself for an empty one.
+- **Cost.** Every `void*` or `T*` argument of a callback becomes a gocpp pointer that shares
+  `gp::foreign_owner()` (step 4.10): an atomic count up and down on one shared cache line. A
+  comparator for `qsort` of a million `int`s at `-O2` took 140 ms in C, 760 ms in gocpp with
+  `unsafe.Pointer` parameters that it only reads through `.gp_get()`'s equivalent, and 1.2 s with
+  `(*C.int)(p)` conversions on top (each conversion copies the owner again). Callbacks that C calls
+  millions of times are several times slower than C's own, and from many threads they contend on that
+  count. Phase 15 can give callbacks a borrowed pointer type.
+- **Threads of C's own.** A callback on a thread that C created runs on that thread's stack, with
+  no stack-overflow report (a small stack overflows as a plain SIGSEGV; the report's alternate stack
+  exists only for gocpp's threads), and the thread's goroutine record is never freed (step 8.1:
+  "never freed"), so a library that creates a thread per request leaks one small record for each.
+
+### User data
+
+C libraries pass a `void*` to their callbacks so that a callback can find its state. It works as
+in cgo (`examples/sqlite`'s `countRow`):
+
+```go
+func countRow(arg unsafe.Pointer, _ C.int, _ **C.char, _ **C.char) C.int {
+	*(*int)(arg)++
+	return 0
+}
+
+count := 0
+sqlite3.sqlite3_exec(db, "SELECT * FROM fruit", countRow, unsafe.Pointer(&count), nil)
+```
+
+- The pointer is **borrowed**, like every gocpp pointer that goes to C: the gocpp object must stay
+  alive while C may call back. For a call that returns after the last callback (`sqlite3_exec`,
+  `qsort_r`) the variable is enough. When C **keeps** the user data after the call returns (a
+  handler registered for later), gocpp code must keep the owner in a package variable or a table
+  until C has dropped it. Phase 05's `cgo.Handle` is that table: a handle is an integer that fits the
+  `void*` (`unsafe.Pointer(uintptr(h))`), with an explicit `Delete`; nothing in the callback path
+  has to change for it, because the trampoline passes the `void*` through unchanged.
+- **A closure through the user pointer.** A closure can't be a function pointer, but it can be the
+  user data: keep it in a variable, pass its address, and let one named callback call it. This is
+  how a closure that captures variables reaches a C API with a `void*` argument:
+
+```go
+base := 10
+f := func(x C.int) C.int { return x*2 + C.int(base) }
+lib.each(4, callFunc, unsafe.Pointer(&f))
+
+func callFunc(user unsafe.Pointer, x C.int) C.int {
+	f := *(*func(C.int) C.int)(user)
+	return f(x)
+}
+```
+
+  The variable `f` must live as long as C may call (the rule above).
+
+### C++ callables
+
+Where a C++ API takes a `std::function` or a template parameter, no trampoline is involved: the gocpp
+func is passed as a callable that C++ calls, copies and stores. A closure is shared by its copies, so
+a `std::function` keeps it alive for as long as it lives itself:
+
+```go
+var total int
+var b cbx.Button                              // keeps a std::function<void(int)>
+b.on_click(func(x C.int) { total += int(x) }) // the closure lives in the button
+b.click(5)
+
+std.sort(v.begin(), v.end(), func(a, b int) bool { return a > b })
+n := std.count_if(v.begin(), v.end(), func(x int) bool { return x > limit })
+
+h := std.function[func(C.int) C.int](triple) // std::function<int(int)>
+```
+
+- `std.function[func(C.int) C.int]` is `std::function<int(int)>`: C++'s function type. For any other
+  template a func type is a gocpp func (`std.vector[func(int) int]` is a vector of
+  `gp::func<int64_t(int64_t)>`).
+- A C++ function that takes a plain function pointer needs a function of the package or a func literal
+  without captures, as C does. An overload set with both a `std::function` and a function pointer
+  overload can be ambiguous for a gocpp func.
+
+### Panics
+
+- **Panics never unwind through C code.** GCC and Clang emit unwind tables for C on x86-64 Linux, so
+  a panic inside a C callback would unwind through the C frames and silently skip the C library's
+  own cleanup (locks, memory, sqlite state). So every trampoline is `noexcept`: **a panic, or any
+  C++ exception, that leaves a callback ends the program** like an unrecovered Go panic: `panic:
+  <value>`, the goroutine's trace (with the C frames in it), exit code 2. The C++ runtime looks for
+  a handler first, finds the `noexcept` trampoline, and calls `std::terminate` before it unwinds a
+  frame, so no C frame is touched and no C++ destructor in them runs. It is the mechanism of
+  [C++ exceptions](#c-exceptions) below, with the same report.
+- **Inside the callback everything works as usual.** The callback's own deferred calls run when it
+  panics, before the program ends. When Phase 05 brings `recover()`, a recover in the callback stops
+  its panic and C sees the callback's normal return value.
+- **What Go does differently** ([D27](language.md#d27-a-panic-that-leaves-a-callback)): Go unwinds the
+  panic through the C frames to the Go code that called C, runs the deferred calls on the way, and a
+  `recover` there can stop it. Here the deferred calls of the functions outside the C call do not run
+  and cannot recover it; a callback that must not end the program recovers inside itself. Carrying
+  the panic across (store it, return a default value to C, make later callbacks return at once,
+  re-raise after the C function returns) was rejected: C keeps running with an invented result
+  (`qsort` with a comparator that returns 0, `sqlite3_exec` that goes on to the next row). `longjmp`
+  over the frames was rejected too: it skips C++ destructors, which is undefined behavior.
+- **Through C++ the rules are C++'s.** A panic inside a func that C++ code calls (a `std::function`,
+  the comparator of `std::sort`) unwinds through the C++ frames like an exception: destructors run,
+  and so do the deferred calls of the gocpp functions on the way. Only a C **function pointer** (a
+  trampoline) is the barrier. A C++ file compiled with `-fno-exceptions` that calls a gocpp function
+  pointer meets the barrier too, and ends the program the same way.
+- **Threads.** A callback may run on any thread, also one that C created (a pthread of the library):
+  the thread gets a goroutine record the first time it needs one, so panics, defers and the goroutine
+  number in the trace work there, and a panic on it ends the program like any goroutine's. The
+  trampolines keep no shared state; the user data must outlive the calls from other threads.
 - **Calling gocpp from C.** Functions marked `//export Name` become `extern "C"` functions in the
-  `c-archive` and `c-shared` build modes, with cgo's rules for the allowed types. Every export
-  goes through a trampoline too ([Phase 06 §2.7](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#27-build-modes--buildmode-like-go)).
+  `c-archive` and `c-shared` build modes, with cgo's rules for the allowed types. Every export goes
+  through a trampoline too ([Phase 06 §2.7](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#27-build-modes--buildmode-like-go)).
+- **Linkage.** A trampoline has C++ linkage, not `extern "C"`: the compilers gocpp supports use one
+  calling convention for both, so a C caller works.
 
 ### C++ exceptions
 

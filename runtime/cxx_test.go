@@ -549,6 +549,12 @@ func runInterop(t *testing.T, bin string, asan bool) {
 		{"bytes-nil", nilPanic + nilSignal + "\n\ngoroutine 1 [running]:\n"},
 		{"deref-nil", nilPanic + nilSignal + "\n\ngoroutine 1 [running]:\n"},
 		{"slot-unset", "fatal error: a result of a type without a default constructor was never set\n\ngoroutine 1 [running]:\n"},
+		// A callback that C calls (step 4.11): the panic, the C++ exception and the pointer to
+		// gocpp memory end the program at the callback; the "C" frame is not unwound ("UNWOUND"
+		// is what its destructor would print).
+		{"callback-panic", "panic: stop\n\ngoroutine 1 [running]:\n"},
+		{"callback-exception", "panic: C++ exception std::runtime_error: stop\n\ngoroutine 1 [running]:\n"},
+		{"callback-owned", "fatal error: gocpp: a callback returned a pointer to gocpp memory to C: return a pointer from C (malloc), a package variable's, or the pointer that C passed\n\ngoroutine 1 [running]:\n"},
 	} {
 		out, _, code, err := command(filepath.Dir(bin), nil, true, bin, tc.name)
 		if err != nil {

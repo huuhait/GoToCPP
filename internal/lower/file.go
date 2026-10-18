@@ -150,6 +150,7 @@ type gen struct {
 	cNodes   []cppir.Node
 	sigExprs map[*types.Var]ast.Expr
 	cConsts  map[ast.Expr]bool
+	cFuncs   map[ast.Expr]bool // func values that go to C/C++ places: callbacks (ccallback.go)
 	elided   map[*ast.CompositeLit]ast.Expr
 	holders  map[*types.Var]bool // the variables that hold a C.cstr holder (cstrings.go)
 

@@ -1070,6 +1070,11 @@ gp::func<int64_t()> counter(int64_t step) {
   evaluates first. A literal called at once is called in place: `[...]() { ... }()`, over
   several lines `[...]() { ... }.operator()()`, so that clang++ gives the call the line Go gives
   it.
+- A func that goes to C/C++ code (an argument of a C/C++ call, a C variable, member or literal element) is
+  wrapped in `gp::cgo::callback`: `gp::cgo::fn<&gpkg_main::f>()` for a function of the package,
+  `gp::cgo::fn_lit<gp::func<R(A...)>>(lambda)` for a literal without captures,
+  `gp::cgo::fn_val(f)` for any other func. The first two convert to a C function pointer (a static
+  `noexcept` trampoline), all three are callables for C++ ([interop.md](interop.md#callbacks-and-panics)).
 - `defer f(x)` stores a copy of `f` with the arguments (`gp_df.gp_push_call(f, x)`; a nil `f`
   panics when the deferred call runs, as in Go), and `defer func() { ... }()` stores the lambda
   itself. A deferred closure that changes a named result changes what the function returns:

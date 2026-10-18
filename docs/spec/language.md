@@ -9,7 +9,7 @@ Everything this document doesn't mention works as the Go spec says.
 | | |
 |---|---|
 | Status | v0, written in Phase 00 from the plan. Each phase updates it when it builds a feature |
-| Source | [Phase 00 §2.2](../../plans/2026-10-13-gocpp/phase-00-foundations/README.md#22-the-language-as-a-diff-against-go) (the divergence list D1–D21; D22 from the Phase 02 evaluation-order work, D23 from Phase 03 steps 3.5 and 3.7, D24 from step 3.6, D25 from step 3.15, D26 from Phase 04 step 4.12) and the phase READMEs linked in each section |
+| Source | [Phase 00 §2.2](../../plans/2026-10-13-gocpp/phase-00-foundations/README.md#22-the-language-as-a-diff-against-go) (the divergence list D1–D21; D22 from the Phase 02 evaluation-order work, D23 from Phase 03 steps 3.5 and 3.7, D24 from step 3.6, D25 from step 3.15, D26 from Phase 04 step 4.12, D27 from step 4.11) and the phase READMEs linked in each section |
 | See also | [cpp-mapping.md](cpp-mapping.md) (what the C++ output looks like), [interop.md](interop.md) (using C and C++), [feature-matrix.md](feature-matrix.md) (the phase of each feature) |
 
 **How to read it.** Each section starts with an example. Then it says what Go does, what gocpp
@@ -48,6 +48,7 @@ The [feature matrix](feature-matrix.md) lists every feature with the phase that 
 | [D24](#d24-large-values-on-the-c-stack) | the stack grows for any value | a result or a temporary array or struct over 128 KiB can overflow the C++ stack | 03 |
 | [D25](#d25-fmt-arguments-that-a-closure-changes) | whether `fmt.Println(ok, set())` prints the old `ok` depends on gc's inliner | a rule on the code approximates it; a closure gc doesn't inline can print differently | 03 |
 | [D26](#d26-c-exceptions) | a C++ exception that leaves C++ code under cgo aborts the program | a Go-style panic report; recoverable from Phase 05 on | 04, 05 |
+| [D27](#d27-a-panic-that-leaves-a-callback) | a panic in a callback unwinds through the C frames to the Go code above, and `recover` there can stop it | the program ends at the callback, like an unrecovered panic: the deferred calls outside the C call don't run | 04 |
 
 The three things gocpp adds have their own sections:
 [header imports](#header-imports), [must functions and must calls](#must-functions-and-must-calls)
@@ -479,8 +480,8 @@ func sum(data []byte) C.uint {
     ([interop.md](interop.md#pointers-unsafe-and-slices-at-the-boundary));
   - C code never keeps gocpp memory alive. A gocpp pointer passed to C is only **borrowed**, as
     in cgo's pointer-passing rules. C must not use it after the gocpp object is gone. For a
-    `void*` that C keeps (user data for callbacks), pass a `cgo.Handle` instead
-    ([interop.md](interop.md#callbacks-and-panics)).
+    `void*` that C keeps (user data for callbacks), keep the owner yourself (Phase 05: a `cgo.Handle`)
+    ([interop.md](interop.md#user-data)).
 - **Phase:** [04](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#27-pointers-unsafe-and-slices-at-the-boundary).
 
 ## D17. A few additions to the standard packages
@@ -779,6 +780,47 @@ func main() {
   ([interop.md](interop.md#c-exceptions)).
 - **Phase:** [04](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#28-callbacks-and-panics-crossing-c-code),
   [05](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md#27-panic--recover--defer-full-version).
+
+## D27. A panic that leaves a callback
+
+```go
+func visit(user unsafe.Pointer, i C.int) C.int {
+	defer fmt.Println("callback defer")
+	panic("stop")
+}
+
+func main() {
+	defer fmt.Println("main defer") // Go: runs; gocpp: not run
+	lib.walk(5, visit, nil)         // a C function that calls visit
+}
+// callback defer
+// panic: stop
+//
+// goroutine 1 [running]:
+// main.visit(...)
+// 	/home/me/prog/main.gp:3 +0x8c
+// walk(...)
+// 	/home/me/prog/walk.c:12 +0x35
+// main.main()
+// 	/home/me/prog/main.gp:9 +0x26
+// exit status 2
+```
+
+- **Go:** under cgo, a panic in a callback unwinds through the C frames (they are skipped: their
+  cleanup does not run) to the Go function that called C. The deferred calls on the way run, and a
+  `recover` in one of them stops the panic; unrecovered, it ends the program with the usual report.
+- **gocpp:** a panic or C++ exception that leaves a callback (a gocpp function that C holds as a
+  function pointer) ends the program at once, with the same report as an unrecovered panic and exit
+  code 2. The callback's own deferred calls run first; the deferred calls of the functions outside the
+  C call do not run, and nothing outside the callback can recover it. The reason is C: a C library compiled
+  without exception tables would be unwound unsoundly (a lock stays held, memory leaks), and the
+  alternatives (carry the panic across, `longjmp`) leave C running with invented results or skip C++
+  destructors. A callback that must survive recovers inside itself (Phase 05). A later phase can carry
+  the panic out of the trampoline and re-raise it at the Go call site of the C function, so that a
+  `recover` outside the C call works as under cgo. Through C++ code
+  (`std::function`, a template) the panic unwinds normally.
+- **Phase:** [04](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#28-callbacks-and-panics-crossing-c-code)
+  ([interop.md](interop.md#panics)).
 
 ---
 

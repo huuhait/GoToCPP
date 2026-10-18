@@ -160,7 +160,7 @@ func (g *gen) cRefOf(e ast.Expr) (cRef, bool) {
 		}
 		args := make([]cppir.Node, len(ix.indices))
 		for i, a := range ix.indices {
-			args[i] = g.templateArg(a)
+			args[i] = g.templateArg(a, name.Name)
 		}
 		out := cRef{x: g.cNode(&cppir.Name{Name: name.Name, Args: args}).(*cppir.Name), kind: interop.Type, kinds: r.kinds, src: g.srcText(x)}
 		if r.kind == interop.ValueTemplate {

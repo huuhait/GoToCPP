@@ -285,7 +285,11 @@ func (fg *funcGen) deferThunk(c *ast.CallExpr) cppir.Expr {
 		}
 		held, ptrs := fg.heldBoxes, fg.heldPtrs // the argument is evaluated here, not in the thunk: the variable itself
 		fg.heldBoxes, fg.heldPtrs = nil, nil
-		values = append(values, fg.deferArg(a))
+		if fg.isCallback(a) && fg.cTarget(c) {
+			values = append(values, fg.callbackValue(a)) // a func for a deferred C/C++ call (ccallback.go)
+		} else {
+			values = append(values, fg.deferArg(a))
+		}
 		fg.heldBoxes, fg.heldPtrs = held, ptrs
 		name := "gp_a" + strconv.Itoa(len(params))
 		params = append(params, cppir.Param{Type: &cppir.Ref{Elem: typeName("auto"), RValue: true}, Name: name})

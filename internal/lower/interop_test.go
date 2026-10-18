@@ -311,8 +311,6 @@ func TestCGuard(t *testing.T) {
 		"std::string::npos": interop.Value, "std::vector": interop.Template, "std::swap": interop.ValueTemplate,
 	}
 	tests := []struct{ src, want string }{
-		{"_ = func(x C.int) {}", "func literals with C/C++ parameters or results (step 4.11)"},
-		{"var x std.vector[func(int) int]; _ = x", "func types as C++ template arguments (step 4.11)"},
 		{"var h H; switch h { case h: }", "switch on values with C/C++ parts (Phase 12)"},
 		{"var h, k H; _ = h == k", "== on values with C/C++ parts (Phase 12)"},
 		{"var m map[H]int; _ = m", "this use of a C/C++ type (a later step of Phase 04)"},
@@ -743,10 +741,10 @@ func main() {
 func TestCClosures(t *testing.T) {
 	kinds := map[string]interop.Kind{
 		"f": interop.Value, "g": interop.Value, "FILE": interop.Type, "std::swap": interop.ValueTemplate,
-		"std::vector": interop.Template, "std::unique_ptr": interop.Template, "std::make_unique": interop.ValueTemplate,
+		"std::vector": interop.Template, "std::unique_ptr": interop.Template, "std::make_unique": interop.ValueTemplate, "std::function": interop.Template,
 		"Widget": interop.Type, "make": interop.Value,
 	}
-	prefix := "package main\n\nimport (\n\t\"<lib.h>\"\n\t\"<vector>\"\n\t\"<memory>\"\n)\n\n" +
+	prefix := "package main\n\nimport (\n\t\"<lib.h>\"\n\t\"<vector>\"\n\t\"<memory>\"\n\t\"<functional>\"\n)\n\n" +
 		"type H struct {\n\tp *lib.FILE\n\tq C.int\n}\n\n"
 	lower := func(body string) (string, error) {
 		fset, pkg, _ := checkInterop(t, prefix+body)
@@ -806,6 +804,21 @@ func TestCClosures(t *testing.T) {
 			[]string{"return {static_cast<decltype(a)&&>(a), static_cast<decltype(b)&&>(b)};"}},
 		{"func two() (std.unique_ptr[C.int], std.unique_ptr[C.int]) {\n\ta := std.make_unique[C.int](1)\n\tfn := func() { _ = a }\n\tfn()\n\treturn a, nil\n}\n\nfunc main() { two() }\n",
 			[]string{"gp::cgo::result_of(*a)"}},
+		// callbacks (step 4.11, ccallback.go): a function of the package, a func literal without
+		// captures, a closure, a func value; stored into a C/C++ member; a func with C parts as a
+		// std::function's argument
+		{"func cb(x C.int) C.int { return x }\n\nfunc main() {\n\tlib.f(cb)\n}\n",
+			[]string{"::f(gp::cgo::fn<&gpkg_main::cb>());"}},
+		{"func main() {\n\tlib.f(func(x C.int) C.int { return x })\n}\n",
+			[]string{"::f(gp::cgo::fn_lit<gp::func<int(int)>>([]<int = 1>(int x) mutable -> int { return x; }));"}},
+		{"func main() {\n\tn := 1\n\tlib.f(func(x C.int) C.int { return x + C.int(n) })\n}\n",
+			[]string{"::f(gp::cgo::fn_val(gp::func<int(int)>([n]<int = 1>(int x) mutable -> int {"}},
+		{"func main() {\n\tg := func(x C.int) {}\n\tvar h H\n\th.p = g\n\tlib.f(g)\n}\n",
+			[]string{"h.p = gp::cgo::fn_val(g);", "::f(gp::cgo::fn_val(g));"}},
+		{"func main() {\n\tvar f std.function[func(C.int) C.int]\n\t_ = f\n}\n",
+			[]string{"::std::function<int(int)> f"}},
+		{"func main() {\n\tvar f std.vector[func(C.int) C.int]\n\t_ = f\n}\n",
+			[]string{"::std::vector<gp::func<int(int)>> f"}},
 	}
 	for _, tt := range works {
 		cpp, err := lower(tt.src)
@@ -824,7 +837,6 @@ func TestCClosures(t *testing.T) {
 			"cannot defer a call whose object is v[0]: Go evaluates it when the defer statement runs, and a deferred C++ call can only keep a variable's object or a temporary: use a func literal, defer func() { ... }()"},
 		{"func main() {\n\tfor i := C.int(0); i < 3; i++ {\n\t\tlib.f(&i)\n\t}\n}\n",
 			"& of the variable of a 3-clause for loop (i): Go gives each iteration its own variable, and a C/C++ address can't keep it alive: copy it into a variable of the body, j := i, and take &j"},
-		{"func main() {\n\tfn := func(x C.int) {}\n\t_ = fn\n}\n", "not supported yet: func literals with C/C++ parameters or results (step 4.11)"},
 	}
 	for _, tt := range fails {
 		_, err := lower(tt.src)

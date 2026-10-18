@@ -77,6 +77,8 @@ func (g *gen) typeExpr(e ast.Expr) cppir.Type {
 		if r, ok := g.cRefOf(x); ok {
 			return g.cType(r, e)
 		}
+	case *ast.FuncType:
+		return g.funcTypeExpr(x)
 	case *ast.Ident:
 		if tn, ok := g.info.Uses[x].(*types.TypeName); ok {
 			if tn.IsAlias() {
@@ -89,6 +91,45 @@ func (g *gen) typeExpr(e ast.Expr) cppir.Type {
 	}
 	g.unsupported(e.Pos(), "this type with C/C++ parts: "+types.ExprString(e))
 	return typeName("gp_unsupported")
+}
+
+// funcTypeExpr returns gp::func<R(P...)> for the func type expression e with C/C++ parts, from
+// its syntax (funcType does it from the go/types signature, which has no types for those parts):
+// func(x C.int) C.int is gp::func<int(int)>, and several results are a std::tuple. A callback
+// type (ccallback.go).
+func (g *gen) funcTypeExpr(e *ast.FuncType) cppir.Type {
+	var params []cppir.Type
+	if e.Params != nil {
+		for _, f := range e.Params.List {
+			if _, ok := f.Type.(*ast.Ellipsis); ok {
+				g.unsupported(f.Pos(), "variadic func types with C/C++ parts")
+				return typeName("gp_unsupported")
+			}
+			t := g.typeExpr(f.Type)
+			for range max(len(f.Names), 1) {
+				params = append(params, t)
+			}
+		}
+	}
+	var results []cppir.Node
+	if e.Results != nil {
+		for _, f := range e.Results.List {
+			t := g.typeExpr(f.Type)
+			for range max(len(f.Names), 1) {
+				results = append(results, t)
+			}
+		}
+	}
+	var result cppir.Type
+	switch len(results) {
+	case 0:
+		result = typeName("void")
+	case 1:
+		result = results[0].(cppir.Type)
+	default:
+		result = &cppir.TypeName{Name: "std::tuple", Args: results}
+	}
+	return &cppir.TypeName{Name: "gp::func", Args: []cppir.Node{&cppir.FuncType{Result: result, Params: params}}}
 }
 
 // isCPtrType reports whether the type expression e is *T for a C/C++ type T that is no pointer: a
@@ -145,13 +186,18 @@ func (g *gen) isCType(e ast.Expr) bool {
 // templateArg returns the C++ of a template argument of a C++ template: a type (gocpp or C/C++),
 // or a constant, as a C literal (cConstant), so that std.array[C.int, 4] is
 // ::std::array<int, 4>.
-func (g *gen) templateArg(e ast.Expr) cppir.Node {
+func (g *gen) templateArg(e ast.Expr, template string) cppir.Node {
 	tv, ok := g.info.Types[e]
 	if ok && tv.IsType() {
 		switch types.Unalias(tv.Type).Underlying().(type) {
 		case *types.Signature:
-			g.unsupported(e.Pos(), "func types as C++ template arguments (step 4.11)")
-			return placeholder
+			if ft, isFunc := ast.Unparen(e).(*ast.FuncType); isFunc && template == "::std::function" {
+				// std.function[func(C.int) C.int] is std::function<int(int)>: C++'s function type.
+				g.inTemplate++
+				defer func() { g.inTemplate-- }()
+				return g.funcTypeExpr(ft).(*cppir.TypeName).Args[0]
+			}
+			// Anything else holds gocpp func values: gp::func<R(A...)> (std.vector[func(int) int]).
 		case *types.Interface:
 			g.unsupported(e.Pos(), "interface types as C++ template arguments (Phase 05)")
 			return placeholder

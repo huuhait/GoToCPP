@@ -157,6 +157,8 @@ func (fg *funcGen) opaqueExpr(e ast.Expr) cppir.Expr {
 		return fg.cSlice(x) // of a C array (cunsafe.go)
 	case *ast.CompositeLit:
 		return fg.compLit(x) // of a C/C++ type, or a gocpp one with C/C++ parts (clits.go)
+	case *ast.FuncLit:
+		return fg.funcValue(x) // with C/C++ parameters or results: a callback (closures.go)
 	case *ast.StarExpr:
 		// C++'s *x, but with Go's nil check for a raw pointer (and a gocpp pointer that comes
 		// back from C++), gocpp/interop.hpp.
@@ -418,6 +420,8 @@ func (fg *funcGen) cValueOf(e ast.Expr) cppir.Expr {
 		return fg.g.cConstantOf(e)
 	case tv.IsNil():
 		return lit("nullptr")
+	case tv.Type != nil && isFunc(tv.Type):
+		return fg.callbackValue(e) // a gocpp func for C/C++ code (ccallback.go)
 	}
 	return fg.exactExpr(e)
 }
@@ -465,18 +469,66 @@ func (g *gen) markAllCValues() {
 	}
 }
 
+// markCallArgs marks the func arguments of the call c that go to C/C++ types: the fixed
+// parameters of a gocpp function that have such a type, and the elements that append adds to a
+// slice of such a type (ccallback.go). mark is markCValues's.
+func (g *gen) markCallArgs(c *ast.CallExpr, mark func(ast.Expr, bool, types.Type)) {
+	if id, ok := ast.Unparen(c.Fun).(*ast.Ident); ok {
+		if b, ok := g.info.Uses[id].(*types.Builtin); ok {
+			if b.Name() == "append" && len(c.Args) > 1 && !c.Ellipsis.IsValid() {
+				if sl, ok := under(g.info.TypeOf(c.Args[0])).(*types.Slice); ok {
+					for _, a := range c.Args[1:] {
+						if t := g.info.TypeOf(a); t != nil && isFunc(t) { // (only funcs: constants stay as they were)
+							mark(a, !complete(sl.Elem()), sl.Elem())
+						}
+					}
+				}
+			}
+			return
+		}
+	}
+	if tv, ok := g.info.Types[c.Fun]; !ok || tv.IsType() {
+		return
+	}
+	sig, _ := under(g.info.TypeOf(c.Fun)).(*types.Signature)
+	if sig == nil {
+		return
+	}
+	n := sig.Params().Len()
+	for i, a := range c.Args {
+		if i >= n || sig.Variadic() && i >= n-1 {
+			break
+		}
+		pt := sig.Params().At(i).Type()
+		if t := g.info.TypeOf(a); t != nil && isFunc(t) {
+			mark(a, !complete(pt), pt)
+		}
+	}
+}
+
 // markCValues finds the untyped constants in n that are the values of C/C++ variables, results
 // and elements (var n C.int = 5, n = 5, return 5 from a func with a C/C++ result, []C.int{5}),
 // which are C literals there (cConstant): go/types doesn't convert them, as it has no type for
 // the target. (nil is nullptr there anyway.) sig is the signature of the function that n is the
 // body of (nil for a package variable's value).
 func (g *gen) markCValues(n ast.Node, sig *types.Signature) {
-	mark := func(e ast.Expr, cTarget bool) {
-		if tv, ok := g.info.Types[e]; ok && cTarget && tv.Value != nil {
+	// mark marks e, the value for a target of type to (nil when go/types has none): a func goes
+	// to a C/C++ place only if the place is not a gocpp func variable (to is no signature).
+	mark := func(e ast.Expr, cTarget bool, to types.Type) {
+		tv, ok := g.info.Types[e]
+		switch {
+		case !ok || !cTarget:
+		case tv.Value != nil:
 			if g.cConsts == nil {
 				g.cConsts = make(map[ast.Expr]bool)
 			}
 			g.cConsts[ast.Unparen(e)] = true
+		case tv.Type != nil && !tv.IsNil() && isFunc(tv.Type) && (to == nil || !isFunc(to)):
+			// A gocpp func in a C/C++ variable, member or element: a callback (ccallback.go).
+			if g.cFuncs == nil {
+				g.cFuncs = make(map[ast.Expr]bool)
+			}
+			g.cFuncs[ast.Unparen(e)] = true
 		}
 	}
 	isC := func(e ast.Expr) bool {
@@ -495,21 +547,25 @@ func (g *gen) markCValues(n ast.Node, sig *types.Signature) {
 		case *ast.AssignStmt:
 			if len(s.Lhs) == len(s.Rhs) {
 				for i, v := range s.Rhs {
-					mark(v, isC(s.Lhs[i]))
+					mark(v, isC(s.Lhs[i]), g.info.TypeOf(s.Lhs[i]))
 				}
 			}
 		case *ast.ValueSpec:
 			for i, v := range s.Values {
 				if i < len(s.Names) && len(s.Names) == len(s.Values) {
-					mark(v, isC(s.Names[i]))
+					mark(v, isC(s.Names[i]), g.info.TypeOf(s.Names[i]))
 				}
 			}
 		case *ast.ReturnStmt:
 			if sig != nil && sig.Results().Len() == len(s.Results) {
 				for i, v := range s.Results {
-					mark(v, !complete(sig.Results().At(i).Type()))
+					mark(v, !complete(sig.Results().At(i).Type()), sig.Results().At(i).Type())
 				}
 			}
+		case *ast.CallExpr:
+			// A func passed to a gocpp function whose parameter has a C/C++ type (a C function
+			// pointer type: func run(f lib.cb_t)), or appended to a slice of such elements.
+			g.markCallArgs(s, mark)
 		case *ast.CompositeLit:
 			// The elements of a gocpp literal that go to C/C++ types ([]C.int{1}, P{n: 1} with a
 			// field n C.int; clits.go). A literal of a C/C++ type writes its own (cValueOf).
@@ -520,7 +576,7 @@ func (g *gen) markCValues(n ast.Node, sig *types.Signature) {
 				}
 				for _, x := range parts {
 					if t, ok := g.litTarget(s, x); ok {
-						mark(x, !complete(t.to))
+						mark(x, !complete(t.to), t.to)
 					}
 				}
 			}

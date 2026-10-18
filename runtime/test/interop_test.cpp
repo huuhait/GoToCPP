@@ -18,22 +18,29 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <functional>
 #include <limits>
 #include <list>
 #include <map>
 #include <memory>
 #include <ranges>
 #include <set>
+#include <stdexcept>
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include "threads_ended.hpp"
+
 namespace {
+
+int cb_sink = 0;
 
 int checks = 0;
 int failures = 0;
@@ -1287,6 +1294,123 @@ void test_result_slot() {
     CHECK(&cr.gp_take() == &base);
 }
 
+// --- callbacks (gocpp/callback.hpp, step 4.11) ---
+
+// The gocpp side of a C callback: unsafe.Pointer parameters, *C.char parameters, C numbers.
+int cb_compare(gp::ptr<void> a, gp::ptr<void> b) {
+    return *gp::unsafe_cast<int>(a) - *gp::unsafe_cast<int>(b);
+}
+int cb_add(gp::ptr<void> user, int x) {
+    *gp::unsafe_cast<int64_t>(user) += x;
+    return static_cast<int>(*gp::unsafe_cast<int64_t>(user));
+}
+int64_t cb_len(gp::cptr<char> s) {
+    return static_cast<int64_t>(std::strlen(s.gp_get()));
+}
+gp::cptr<char> cb_label() {
+    static char label[] = "label";
+    return gp::cptr<char>(label);
+}
+void cb_note(int x) {
+    cb_sink = x;
+}
+// A C function: a callback and user data (the shapes of sqlite3_exec and qsort_r).
+int c_sum(int n, int (*f)(void*, int), void* user) {
+    int s = 0;
+    for (int i = 0; i < n; i++) {
+        s += f(user, i);
+    }
+    return s;
+}
+size_t c_len(size_t (*f)(const char*), const char* s) {
+    return f(s);
+}
+const char* c_label(const char* (*f)()) {
+    return f();
+}
+struct cb_node {
+    int v;
+};
+gp::ptr<void> cb_same(gp::ptr<void> u) {
+    return u;
+}
+void* c_ud(void* (*f)(void*), void* u) {
+    return f(u);
+}
+// A callback stored in a struct and called later, from another thread.
+struct c_table {
+    int (*add)(void*, int);
+    void* user;
+};
+
+void test_callback() {
+    // A function of the program is a C function pointer: qsort calls it.
+    int a[] = {5, 2, 9, 1};
+    std::qsort(a, 4, sizeof(int), gp::cgo::fn<&cb_compare>());
+    CHECK_EQ(a[0] * 1000 + a[1] * 100 + a[2] * 10 + a[3], 1259);
+    // The pointer is the same for the same function, and valid for ever (a static trampoline).
+    int (*p1)(const void*, const void*) = gp::cgo::fn<&cb_compare>();
+    int (*p2)(const void*, const void*) = gp::cgo::fn<&cb_compare>();
+    CHECK(p1 == p2 && p1 != nullptr);
+
+    // User data: a void* from C is an unsafe.Pointer that owns nothing, the same address.
+    int64_t total = 100;
+    CHECK_EQ(c_sum(4, gp::cgo::fn<&cb_add>(), &total), 100 + 101 + 103 + 106);
+    CHECK_EQ(total, 106);
+
+    // A *C.char parameter, and a *C.char result handed back as a raw char*.
+    CHECK_EQ(static_cast<int64_t>(c_len(gp::cgo::fn<&cb_len>(), "four")), 4);
+    CHECK(std::strcmp(c_label(gp::cgo::fn<&cb_label>()), "label") == 0);
+
+    // A func literal without captures: its own trampoline, stateless.
+    int64_t count = 0;
+    auto twice = gp::cgo::fn_lit<gp::func<int(gp::ptr<void>, int)>>(
+        []<int = 1>(gp::ptr<void> u, int x) mutable -> int {
+            *gp::unsafe_cast<int64_t>(u) += 1;
+            return 2 * x;
+        });
+    CHECK_EQ(c_sum(3, twice, &count), 0 + 2 + 4);
+    CHECK_EQ(count, 3);
+
+    // A callback table in a struct: kept by C and called later, also from a thread of C's own.
+    c_table t{gp::cgo::fn<&cb_add>(), &total};
+    int r = 0;
+    std::thread th([&] { r = t.add(t.user, 4); });
+    th.join();
+    CHECK_EQ(r, 110);
+
+    // A callback may hand back the pointer it got, also one into a struct that gocpp made.
+    gp::cptr<cb_node> node = gp::cgo::box_keep<cb_node>([]() -> cb_node { return cb_node{4}; });
+    CHECK(c_ud(gp::cgo::fn<&cb_same>(), node.gp_get()) == node.gp_get());
+
+    // A void result, and a callback as a C++ callable and std::function: no trampoline.
+    void (*note)(int) = gp::cgo::fn<&cb_note>();
+    note(7);
+    CHECK_EQ(cb_sink, 7);
+    int base = 10;
+    gp::func<int(int)> closure = [base](int x) { return x + base; };
+    auto cb = gp::cgo::fn_val(closure);
+    CHECK_EQ(cb(5), 15);
+    std::function<int(int)> sf = cb;
+    CHECK_EQ(sf(6), 16);
+    gp::func<int(int)> back = cb;
+    CHECK_EQ(back(7), 17);
+    std::vector<int> v{3, 1, 2};
+    std::sort(v.begin(), v.end(),
+              gp::cgo::fn_lit<gp::func<bool(int, int)>>(
+                  [](int x, int y) mutable -> bool { return x > y; }));
+    CHECK_EQ(v[0] * 100 + v[1] * 10 + v[2], 321);
+
+    // A panic in a callback that C++ code (not a function pointer) calls unwinds normally.
+    CHECK_EQ(panic_text([&] {
+                 auto boom = gp::cgo::fn_lit<gp::func<void()>>(
+                     []<int = 1>() mutable -> void { gp::panic("boom"_gs); });
+                 std::function<void()> f = boom;
+                 f();
+             }),
+             std::string("boom"));
+}
+
 void run_tests() {
     test_box();
     test_result_slot();
@@ -1303,6 +1427,8 @@ void run_tests() {
     test_ptr();
     test_cstr();
     test_cgo();
+    test_callback();
+    rt_test::threads_ended(); // see threads_ended.hpp
     if (failures > 0) {
         std::string msg =
             "FAIL: " + std::to_string(failures) + " of " + std::to_string(checks) + " checks\n";
@@ -1337,6 +1463,33 @@ void run_case() {
         // A result of a type without a default constructor that was never set.
         gp::result_slot<Tracked> t;
         gp::println(t.gp_take().id);
+    } else if (c == "callback-panic" || c == "callback-exception" || c == "callback-owned") {
+        // A panic, a C++ exception or a gocpp-owned pointer result leaves a callback that a C
+        // function (here: a function pointer call with a guard object whose destructor would
+        // print) called: it must end the program at the callback, without unwinding the "C" frame.
+        struct frame_guard {
+            ~frame_guard() {
+                const char m[] = "UNWOUND\n";
+                gp::os::write(gp::os::stderr_fd, m, sizeof(m) - 1);
+            }
+        };
+        auto call_c = [](int (*f)(void*, int)) {
+            frame_guard g;
+            return f(nullptr, 1);
+        };
+        if (c == "callback-panic") {
+            call_c(gp::cgo::fn_lit<gp::func<int(gp::ptr<void>, int)>>(
+                []<int = 1>(gp::ptr<void>, int) mutable -> int { gp::panic("stop"_gs); }));
+        } else if (c == "callback-exception") {
+            call_c(gp::cgo::fn_lit<gp::func<int(gp::ptr<void>, int)>>(
+                []<int = 1>(gp::ptr<void>, int) mutable -> int {
+                    throw std::runtime_error("stop");
+                }));
+        } else {
+            int* (*f)() = gp::cgo::fn_lit<gp::func<gp::ptr<int>()>>(
+                []<int = 1>() mutable -> gp::ptr<int> { return gp::new_<int>(7); });
+            gp::println(f() == nullptr);
+        }
     } else if (c == "dangle") {
         // Without gp::values: the references dangle, which ASan must report (only run with
         // ASan; without it this reads freed memory).
