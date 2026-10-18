@@ -893,8 +893,7 @@ void User::Touch(gp::ptr<User> gp_p) { gpkg_main::Base::Touch(gp::field_ptr(gp_p
   (moved, except numbers); the definitions come after all the structs (the embedded type may be defined
   later, through a pointer), with the fmt hooks. Members that an outer field or method hides, and
   names that are ambiguous at one depth, are not in the method set, so there is no forwarder. The
-  forwarders are what C++ code and the method tables call: once the emitter of steps 5.4/5.5 has the
-  tables (the second half of 5.8), the thunk of a promoted method is the thunk of a declared one
+  forwarders are what C++ code and the method tables call: the thunk of a promoted method in a method table is the thunk of a declared one
   (`unbox<T>(self).M(args)`, `p->M(args)`, `T::PM(p, args)`, [Interfaces](#interfaces)), and generic code
   (Phase 07) calls `u.Touch()` without knowing the path. Calls that the program makes keep the full path.
   Because only those consumers call them, the forwarders are written only for the structs that need
@@ -1629,8 +1628,8 @@ section has the runtime's side, steps 5.1 to 5.3 (`gocpp/type.hpp`, `gocpp/iface
 thunks, and the conversions (step 5.4: `internal/lower/ifaces.go`, `typedesc.go`, `canon.go`,
 `iconv.go`; the runtime's `gocpp/ifaceconv.hpp` and `gocpp/error.hpp`), the type assertions and
 the type switches (step 5.5). `==` and hashing of interface values come from step 5.6 (the
-runtime's minimal version is below), `fmt` on interfaces from 5.11, embedding from 5.8, and
-method values from 5.9.
+runtime's minimal version is below), `fmt` on interfaces from 5.11, method values from 5.9, and
+[embedding](#promoted-methods-in-the-method-tables) (5.8: promoted methods in the tables) below.
 
 ```go
 type Shape interface{ Area() float64; Scale(k float64) }
@@ -1797,8 +1796,7 @@ if (gp::type_is(gp_x0, &gp_td_Rect)) { Rect v = gp::unbox<Rect>(gp_x0); ... } el
   hash of unhashable type []int", as Go. The trace of a panic leaves out the wrapper methods of interface
   structs (they carry `[[gnu::abi_tag("gp_wrap")]]`, which the trace recognizes in the mangled name), as Go has no
   frame for them.
-- **Not yet.** A type with a promoted method (an embedded field) can't be converted until step 5.8 gives it
-  forwarding thunks; a channel type comes with Phase 08; a type in a method signature with a C/C++
+- **Not yet.** A channel type comes with Phase 08; a type in a method signature with a C/C++
   part ("interface methods with C/C++ types") is reported as not supported.
 
 **Descriptors are chosen by the Go type.** One `gp::type_desc` object per Go type, so a pointer
@@ -1899,6 +1897,41 @@ conversion, so a C type that `go/types` can't tell from another is a compile err
 instead of a call with the wrong signature (`runtime/reject_test.go`). An interface struct doesn't
 convert to another one by copying (`B b = a;` doesn't compile), and `gp::to_iface` doesn't box an
 interface value.
+
+### Promoted methods in the method tables
+
+The method sets that the tables hold are Go's, promoted methods included (`go/types`
+`NewMethodSet`): a struct that embeds `Base` has `Base`'s value methods in the table of `T`, and all
+of them in the table of `*T`; an embedded `*Base` or an embedded interface brings all of its methods
+to `T` too. The thunk of a promoted method is the thunk of a declared one, because the struct has a
+[forwarding member](#embedding) of the same form for it: `unbox<T>(self).M(args)` for the table of `T`,
+`p->M(args)` for a method that `T` has (a const forwarder), `T::PM(p, args)` for one that only `*T` has (a static
+forwarder with the owning pointer). The receiver is adjusted inside the forwarder, by the path of embedded
+fields: the fields, `->` through an embedded pointer, and `gp::field_ptr` for the address of an embedded
+value, so a pointer method of an embedded value changes the object that the interface holds.
+
+- A promoted value method called through a nil `*T` in an interface is an ordinary nil dereference
+  ("invalid memory address or nil pointer dereference"): Go's wrapper reaches the embedded field through the
+  pointer. Only a **declared** value method of `*T` has `check_wrap`'s "value method main.T.M called using nil
+  *T pointer". A pointer method promoted through a nil `*T` dereferences it too, to find the address of the
+  embedded field; a pointer method promoted through a nil embedded pointer is called with that nil receiver.
+- A method promoted from an embedded interface calls through its wrapper (`s.Speaker.Speak()`): a nil embedded
+  interface panics with the nil dereference message, as in Go. A method that the outer type declares hides the
+  promoted one, and a field of the outer type hides a method of the same name from deeper down (the type then
+  lacks the method): the method set decides, so the itab never has a method that Go's selector rules
+  don't pick, and an ambiguous name (the same name at one depth) is in no method set.
+- **recover (5.10).** A promoted method whose declared body calls `recover()` is written with `gp::method_of_aware`
+  in every table that has it (the table of `T`, of `*T`, and of each type that embeds it), so `defer i.M()` gives it the
+  ticket; a method promoted from an embedded interface is written aware too (the dynamic method is not
+  known), and the inner `icall` takes the ticket away unless the method that runs is aware
+  (`tests/run/recover_iface_embedded.gp`).
+- Forwarding members are marked by the table (`tables()`): the structs with tables get them, the others none.
+  The interface struct of an interface with a method named like a type it uses (`Item() Item`) does not
+  compile yet (step 5.4's ifaces.go writes the type unqualified).
+- An anonymous struct type with embedded fields has its tables in `gp::td_struct<S>(fields, vm, pm)`
+  (`gp_vm_gp_anon_...`, `gp_pm_gp_anon_...`), made with the descriptors, so `any(struct{ Base; n int }{...})`
+  asserts to the interfaces that its promoted methods satisfy.
+- A struct that embeds a C/C++ type has none of the C/C++ type's methods in its method set (`go/types` doesn't know them).
 
 ## Goroutines
 

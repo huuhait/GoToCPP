@@ -57,13 +57,22 @@ type descTable struct {
 	byNamed map[*types.TypeName]*namedDesc
 	comps   []*compDesc
 	byKey   map[string]*compDesc
+
+	// The anonymous structs with promoted methods (embed.go).
+	anon  map[*structInfo]*namedDesc
+	anons []*namedDesc
 }
 
 // A namedDesc is the descriptor object of a named type that isn't an interface.
 type namedDesc struct {
-	t    *types.Named
+	t    *types.Named // nil for an anonymous struct (its tables only: anonTables)
+	ty   types.Type   // t, or the anonymous struct type
 	si   *structInfo
 	name string // gp_td_Rect
+
+	// For an anonymous struct: its thunks and tables, and the expressions of the tables.
+	decls    []cppir.Decl
+	vmt, pmt cppir.Expr
 }
 
 // A compDesc is a namespace-level pointer to the interned descriptor of a composite type.
@@ -139,7 +148,7 @@ func (g *gen) desc(t types.Type, pos token.Pos) cppir.Expr {
 			if si == nil {
 				return placeholder
 			}
-			nd = &namedDesc{t: u, si: si, name: "gp_td_" + si.name}
+			nd = &namedDesc{t: u, ty: u, si: si, name: "gp_td_" + si.name}
 			dt.byNamed[u.Obj()] = nd
 			dt.named = append(dt.named, nd)
 		}
@@ -190,10 +199,17 @@ func (g *gen) desc(t types.Type, pos token.Pos) cppir.Expr {
 			}
 			fields = append(fields, call("gp::field_desc", lit(cppir.CString(f.Name())), pkg, g.desc(f.Type(), pos), tag, lit(strconv.FormatBool(f.Embedded()))))
 		}
+		args := []cppir.Expr{&cppir.InitList{Elems: fields}}
 		if hasPromoted(u) {
-			g.unsupported(pos, "an anonymous struct with embedded fields in an interface (step 5.8)")
+			// The promoted methods of the anonymous struct: its method tables (embed.go).
+			if vmt, pmt := g.anonTables(u, pos); pmt != nil {
+				if vmt == nil {
+					vmt = &cppir.InitList{}
+				}
+				args = append(args, vmt, pmt)
+			}
 		}
-		return g.comp(t, "", templateCall("gp::td_struct", []cppir.Node{g.cxxType(u, pos)}, &cppir.InitList{Elems: fields}))
+		return g.comp(t, "", templateCall("gp::td_struct", []cppir.Node{g.cxxType(u, pos)}, args...))
 	case *types.Chan:
 		g.unsupported(pos, "channel types (Phase 08)")
 		return placeholder
@@ -278,18 +294,22 @@ func (g *gen) shapeOf(n *types.Named, pos token.Pos) cppir.Expr {
 
 // A methodEntry is a method in the method set of a named type or of a pointer to it.
 type methodEntry struct {
-	fn      *types.Func
-	ptrRecv bool // declared with a pointer receiver
+	fn *types.Func
+	// ptrRecv: the method is a static member that takes the pointer, T::M(p, args): a pointer
+	// method, or one promoted into *T only (not in the method set of T, embed.go).
+	ptrRecv  bool
+	promoted bool // a method of an embedded field: a forwarding member of the struct (promote.go)
 }
 
 // methodSet returns the methods of the method set of n (ptr: of *n), sorted as the runtime's
 // tables are.
-func (g *gen) methodSet(n *types.Named, ptr bool, pos token.Pos) []methodEntry {
-	var t types.Type = n
+func (g *gen) methodSet(n types.Type, ptr bool, pos token.Pos) []methodEntry {
+	t := n
 	if ptr {
 		t = types.NewPointer(n)
 	}
 	ms := types.NewMethodSet(t)
+	vset := types.NewMethodSet(n)
 	var list []methodEntry
 	for i := range ms.Len() {
 		sel := ms.At(i)
@@ -302,12 +322,10 @@ func (g *gen) methodSet(n *types.Named, ptr bool, pos token.Pos) []methodEntry {
 			// method has one: ifaces.go), so the table leaves it out.
 			continue
 		}
-		if len(sel.Index()) > 1 {
-			g.unsupported(pos, "the promoted method "+fn.Name()+" of "+g.canonName(n)+" in an interface (struct embedding: step 5.8)")
-			continue
-		}
-		_, p := types.Unalias(fn.Signature().Recv().Type()).(*types.Pointer)
-		list = append(list, methodEntry{fn: fn, ptrRecv: p})
+		// A declared method is a static member when it has a pointer receiver. A promoted one is a
+		// forwarder of the struct (promote.go), which is a const member when the method is in the
+		// method set of T, else a static one: so for both, static means "not in the method set of T".
+		list = append(list, methodEntry{fn: fn, ptrRecv: vset.Lookup(fn.Pkg(), fn.Name()) == nil, promoted: len(sel.Index()) > 1})
 	}
 	sort.SliceStable(list, func(i, j int) bool { return methodLess(list[i].fn, list[j].fn) })
 	return list
@@ -321,6 +339,9 @@ func (g *gen) descDecls() []cppir.Decl {
 	var decls []cppir.Decl
 	for i := 0; i < len(dt.named); i++ { // (the shapes may add more)
 		decls = append(decls, g.namedDecls(dt.named[i])...)
+	}
+	for _, a := range dt.anons {
+		decls = append(decls, a.decls...)
 	}
 	for _, c := range dt.comps {
 		decls = append(decls, &cppir.VarDecl{
@@ -340,42 +361,12 @@ func (g *gen) namedDecls(nd *namedDesc) []cppir.Decl {
 	var decls []cppir.Decl
 	pos := nd.t.Obj().Pos()
 	typ := g.cxxType(nd.t, pos)
-	vm := g.methodSet(nd.t, false, pos)
-	pm := g.methodSet(nd.t, true, pos)
-	table := func(prefix string, list []methodEntry, ptr bool) cppir.Expr {
-		if len(list) == 0 {
-			return nil
-		}
-		var elems []cppir.Expr
-		for _, m := range list {
-			thunk := g.thunk(nd, m, ptr, &decls)
-			sig := m.fn.Signature()
-			params, result := g.sigCxx(sig, pos)
-			args := []cppir.Expr{lit(cppir.CString(m.fn.Name())), lit("nullptr"), lit(cppir.CString(g.canonText(sig))), addrOf(thunk)}
-			if !exportedName(m.fn.Name()) {
-				args[1] = lit(cppir.CString(pkgPath(m.fn)))
-			}
-			maker := "gp::method_of"
-			if g.awareFunc(m.fn) {
-				maker = "gp::method_of_aware" // the method calls recover: `defer i.M()` gives it the ticket (recover.go)
-			}
-			elems = append(elems, &cppir.Call{
-				Fun:  &cppir.Name{Name: maker, Args: []cppir.Node{&cppir.FuncType{Result: result, Params: params}}},
-				Args: args,
-			})
-		}
-		name := prefix + nd.si.name
-		decls = append(decls, &cppir.VarDecl{Specs: []string{"inline", "const"}, Type: typeName("gp::method"),
-			Vars: []cppir.Declarator{{Name: name + "[]", Init: &cppir.InitList{Elems: elems}}}})
-		return call("gp::methods_of", cxxName(name))
-	}
+	vmt, pmt := g.tables(nd, pos, &decls)
 	args := []cppir.Expr{
 		lit(cppir.CString(g.canonName(nd.t))),
 		lit(cppir.CString(importPath(nd.t.Obj().Pkg()))),
 		g.shapeOf(nd.t, pos),
 	}
-	vmt := table("gp_vm_", vm, false)
-	pmt := table("gp_pm_", pm, true)
 	switch {
 	case pmt != nil && vmt != nil:
 		args = append(args, vmt, pmt)
@@ -388,6 +379,47 @@ func (g *gen) namedDecls(nd *namedDesc) []cppir.Decl {
 	return decls
 }
 
+// tables adds the thunks and the two method tables of nd (the method sets of T and *T, promoted
+// methods included) to decls, and returns the expressions of the tables (nil for an empty one).
+func (g *gen) tables(nd *namedDesc, pos token.Pos, decls *[]cppir.Decl) (vmt, pmt cppir.Expr) {
+	table := func(prefix string, list []methodEntry, ptr bool) cppir.Expr {
+		if len(list) == 0 {
+			return nil
+		}
+		var elems []cppir.Expr
+		for _, m := range list {
+			thunk := g.thunk(nd, m, ptr, decls)
+			sig := m.fn.Signature()
+			params, result := g.sigCxx(sig, pos)
+			args := []cppir.Expr{lit(cppir.CString(m.fn.Name())), lit("nullptr"), lit(cppir.CString(g.canonText(sig))), addrOf(thunk)}
+			if !exportedName(m.fn.Name()) {
+				args[1] = lit(cppir.CString(pkgPath(m.fn)))
+			}
+			maker := "gp::method_of"
+			if g.awareFunc(m.fn) || m.promoted && isIfaceMethod(m.fn) {
+				// The method calls recover: `defer i.M()` gives it the ticket (recover.go). A method
+				// promoted from an embedded interface is aware too: the ticket goes on to the inner
+				// icall, which takes it away unless the method that runs is aware. The table of
+				// every type that promotes the method says so (a promoted method of an embedded
+				// type is the same function, so awareFunc is true in all of them).
+				maker = "gp::method_of_aware"
+			}
+			elems = append(elems, &cppir.Call{
+				Fun:  &cppir.Name{Name: maker, Args: []cppir.Node{&cppir.FuncType{Result: result, Params: params}}},
+				Args: args,
+			})
+		}
+		name := prefix + nd.si.name
+		*decls = append(*decls, &cppir.VarDecl{Specs: []string{"inline", "const"}, Type: typeName("gp::method"),
+			Vars: []cppir.Declarator{{Name: name + "[]", Init: &cppir.InitList{Elems: elems}}}})
+		return call("gp::methods_of", cxxName(name))
+	}
+	g.needForwarders(nd.ty) // the thunks call the forwarding members of the promoted methods
+	vmt = table("gp_vm_", g.methodSet(nd.ty, false, pos), false)
+	pmt = table("gp_pm_", g.methodSet(nd.ty, true, pos), true)
+	return vmt, pmt
+}
+
 // thunk adds the thunk of the method m of the named type nd for the table of T (ptr false) or of
 // *T (ptr true) to decls, and returns its name (see the top).
 func (g *gen) thunk(nd *namedDesc, m methodEntry, ptr bool, decls *[]cppir.Decl) string {
@@ -397,7 +429,7 @@ func (g *gen) thunk(nd *namedDesc, m methodEntry, ptr bool, decls *[]cppir.Decl)
 		name = "gp_thunk_p" + nd.si.name + "_" + m.fn.Name()
 	}
 	member := g.methodName(nd.si.name, m.fn.Name())
-	typ := g.cxxType(nd.t, pos)
+	typ := g.cxxType(nd.ty, pos)
 	params, result := g.sigCxx(m.fn.Signature(), pos)
 	fn := &cppir.Func{Specs: []string{"inline"}, Result: result, Name: name, Body: &cppir.Block{},
 		Params: []cppir.Param{{Type: &cppir.Ref{Elem: &cppir.Const{Elem: typeName("gp::iface")}}, Name: "gp_self"}}}
@@ -421,6 +453,10 @@ func (g *gen) thunk(nd *namedDesc, m methodEntry, ptr bool, decls *[]cppir.Decl)
 	case !ptr:
 		val := templateCall("gp::unbox", []cppir.Node{typ}, cxxName("gp_self"))
 		invoke = &cppir.Call{Fun: &cppir.Member{X: val, Name: member}, Args: args}
+	case m.promoted:
+		// A promoted value method through a *T: Go's wrapper reaches the embedded field through the
+		// pointer, so a nil *T is an ordinary nil dereference (->), not panicwrap's message.
+		invoke = &cppir.Call{Fun: &cppir.Member{X: unboxPtr, Arrow: true, Name: member}, Args: args}
 	default:
 		// A value method through a *T: Go's wrapper checks for nil.
 		fn.Body.Stmts = append(fn.Body.Stmts,

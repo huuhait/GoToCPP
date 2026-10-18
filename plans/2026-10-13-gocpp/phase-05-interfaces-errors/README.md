@@ -105,7 +105,7 @@ for (/* range */) {
 > has the rest); a conversion of a value to an interface is ordered like gc's (a copy in its place among the
 > calls, as an argument of fmt's `...any` is); a C/C++ value goes into an interface that has no methods
 > with its foreign descriptor, and `x.(CType)`, its comma-ok forms with `:=` and `var`, and type switch cases of C/C++
-> types work. A type with a promoted method waits for 5.8's forwarding thunks.
+> types work. A type with a promoted method has the promoted methods in its tables (5.8).
 >
 > Known differences from gc (5.4/5.5; also in docs/spec/cpp-mapping.md "Interfaces"):
 > (1) the ORDER of a conversion to an interface inside a nested expression: gocpp copies the value in
@@ -240,11 +240,12 @@ func main() {
   (branch `job/05-5.8`) the forwarding members, written like declared methods (a `const` member when the
   method is in the method set of `T`, else a `static` one with the owning pointer, so that one thunk
   shape serves declared and promoted methods); they are written only for the structs whose method
-  tables need them, which the emitter of 5.4/5.5 asks for (code size: `lower.Options.AllForwarders` writes
-  all of them, for the tests that call them from C++). The promoted methods in the method tables and
-  itabs, the thunks for them and the embedded interfaces are the second half of 5.8 (branch
-  `job/05-5.8-iface`, on top of the 5.4/5.5 emitter): a promoted value method through a nil `*T` in an
-  interface is an ordinary nil dereference there (Go's wrapper reaches the embedded field through the
+  tables need them (`tables()` marks them; code size: `lower.Options.AllForwarders` writes all of them, for the
+  tests that call them from C++). The promoted methods are in the method tables and itabs of the outer
+  type (`gp::method_of_aware` for a method that calls `recover`, and for one promoted from an embedded
+  interface, whose dynamic method is not known; the ticket goes on to the inner `icall`), and an anonymous
+  struct with embedded fields has its tables in `td_struct`. A promoted value method through a nil `*T`
+  in an interface is an ordinary nil dereference (Go's wrapper reaches the embedded field through the
   pointer: only a declared value method of `*T` has panicwrap's "value method ... called using nil"
   message). A struct that embeds exactly one C/C++ type gets its members promoted (`mv.push_back(1)`),
   earlier than Phase 12; several embedded C/C++ types, and a Go member that an embedded C/C++ type
