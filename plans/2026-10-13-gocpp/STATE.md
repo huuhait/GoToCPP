@@ -1,7 +1,7 @@
 # gocpp plan · STATE
 
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Current focus:** Phase 04: 4.6, 4.7 and 4.9 merged and verified; next 4.8, 4.10, 4.11 and 4.16, then the closeout (4.18/4.19). Phases 00–03 and the Phase 11 editor v0 track are done. See [HANDOFF.md](HANDOFF.md).
+**Current focus:** Phases 00-05 done; in flight 6.5-6.7 (build graph/cache), 7.1/7.2 (generic functions), 8.5/8.6 (select), 11.11/11.12 (LSP benchmarks, tracing); next 7.3, 8.7+, 9, LSP performance. See [HANDOFF.md](HANDOFF.md).
 **Last updated:** 2026-10-16
 **Migration:** done; the project runs on the larger server (128 cores, about 200 GB RAM). [HANDOFF.md](HANDOFF.md) says what is where.
 
@@ -34,7 +34,7 @@
 - [x] **Phase 01:** Front-end (parse, load, type-check, `gocpp fmt`) → [STATE](phase-01-frontend/STATE.md)
 - [x] **Phase 02:** Walking skeleton → [STATE](phase-02-walking-skeleton/STATE.md) · ends with **M1**
 - [x] **Phase 03:** Core language → [STATE](phase-03-core-language/STATE.md) · ends with **M2**
-- [~] **Phase 04:** C/C++ interop (opaque) → [STATE](phase-04-cpp-interop/STATE.md) · ends with **M3**
+- [x] **Phase 04:** C/C++ interop (opaque) → [STATE](phase-04-cpp-interop/STATE.md) · ends with **M3**
 - [x] **Phase 05:** Interfaces, embedding, errors, panic/recover → [STATE](phase-05-interfaces-errors/STATE.md)
 - [ ] **Phase 06:** Packages, modules & build system → [STATE](phase-06-packages-build/STATE.md) · ends with **M4**
 - [ ] **Phase 07:** Generics → [STATE](phase-07-generics/STATE.md)

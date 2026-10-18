@@ -1,8 +1,8 @@
 # Phase 04: C/C++ Interop (opaque) · STATE
 
-**Status:** `[~]` in progress (4.6, 4.7 and 4.9 merged; 4.8, 4.10, 4.11, 4.16 and the closeout remain)
+**Status:** `[x]` done (2026-10-18)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-16
+**Last updated:** 2026-10-18
 
 ## Steps
 
@@ -24,20 +24,20 @@
 - [x] 4.15 Directives → flags (`pkg-config`, `link`, `cflags`, `ldflags`) + the flag allow-list (port Go's security.go tables, `GOCPP_*_ALLOW`); tests use a test-only library with its own `.pc` (the dev shell hides missing flags)
 - [x] 4.16 Local helper headers used as packages (replaces the preamble) + `C` helpers (`C.free`)
 - [x] 4.17 Interop error reporting (`.gp` line mapping, trimming, `-cpperrors=full`)
-- [ ] 4.18 Tests
-  - [ ] ≥ 40 interop run tests
-  - [ ] header zoo (std + SDL2 + raylib + sqlite3 + zlib) on GCC and Clang
-  - [ ] audit cases: `::` vs `.`, macro collisions, C++ object in `defer`, move-only types, `gp::range` temporary
-  - [ ] import model: renamed / unnamed headers, `glm`-style names, namespace renames
-  - [ ] interop error tests (right `.gp` line)
-- [ ] 4.19 Docs: `docs/spec/interop.md` complete + cookbook
+- [x] 4.18 Tests
+  - [x] ≥ 40 interop run tests
+  - [x] header zoo (std + SDL2 + raylib + sqlite3 + zlib) on GCC and Clang
+  - [x] audit cases: `::` vs `.`, macro collisions, C++ object in `defer`, move-only types, `gp::range` temporary
+  - [x] import model: renamed / unnamed headers, `glm`-style names, namespace renames
+  - [x] interop error tests (right `.gp` line)
+- [x] 4.19 Docs: `docs/spec/interop.md` complete + cookbook
 
 ## Exit criteria
 
-- [ ] `cpp-std`, `sqlite`, `raylib`/`sdl`, `mixed-sources` examples pass on both compilers
-- [ ] Header zoo compiles on both compilers
-- [ ] ≥ 40 interop run tests green (incl. audit cases)
-- [ ] Seeded C++-side errors reported at the correct `.gp` line
+- [x] `cpp-std`, `sqlite`, `raylib`/`sdl`, `mixed-sources` examples pass on both compilers
+- [x] Header zoo compiles on both compilers
+- [x] ≥ 40 interop run tests green (incl. audit cases)
+- [x] Seeded C++-side errors reported at the correct `.gp` line
 
 ## Decisions / notes
 
@@ -346,3 +346,10 @@
   freed (TODO for 8.x: free them at thread exit), recover inside a callback needs 5.10 (tests then), Windows untested, method values
   are callables, not pointers. Conflict note: 5.10 (panic/recover, in review) merges with 4.11 only in docs/spec/interop.md and
   language.md; the code composes (verified in a scratch merge).
+- 2026-10-18: Jobs 4.18 + 4.19 merged after one review round (fixes verified: ci, interop, asan, phase 08 with/without asan). Decisions: (1) comparing
+  a C char array/pointer with a string constant is a user ERROR in every condition form (if/for/switch/&&/||/!), not a silent false; the cppLines
+  classifier treats `case` lines of a switch on a C value as C code; (2) bit-fields: `gp::cgo::load`/`as` take numbers and enums by value; (3) a
+  `// others-ok: N reason` header requires exactly N follow-on errors; (4) TestDocSnippets: every ```go block in interop.md/cookbook is a tested
+  program or `<!-- illustration: reason -->`; `doc_*` tests must be shown in the docs; (5) TestZoo runs the header zoo (std + SDL2 + raylib +
+  sqlite3 + zlib) on both compilers; (6) tests/README.md lists the host assumptions (little-endian, libstdc++ exception text); (7) `make` with a C
+  enum/bool/number size goes through `as<int64_t>`; in real Go `make(map, -1)` does not panic and gocpp matches.
