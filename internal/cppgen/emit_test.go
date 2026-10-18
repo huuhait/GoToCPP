@@ -1141,7 +1141,9 @@ func normFatal(stderr string) string {
 	for i < len(lines) && !strings.HasPrefix(lines[i], "goroutine 1 ") {
 		i++
 	}
-	if i == len(lines) {
+	if i == len(lines) || i+1 == len(lines) || lines[i+1] == "" {
+		// No frames: gocpp prints Go's "goroutine N [running]:" line of a fatal error, without a
+		// trace (runtime/thread_test.go); Go's own output has the frames.
 		return b.String()
 	}
 	trace := "\n" + goStackMark

@@ -391,9 +391,15 @@ double sprint_ms(int64_t n) {
 }
 
 std::string test_speed() {
+    // The best of three of each, and a ratio, not a wall-clock bound: on a loaded machine one run
+    // can stall for seconds (ten times the elements should take about ten times as long).
     double small = sprint_ms(100000);
     double big = sprint_ms(1000000);
-    CHECK(big < 10000); // even with ASan, 1e6 elements take well under a second
+    for (int i = 0; i < 2; i++) {
+        small = std::min(small, sprint_ms(100000));
+        big = std::min(big, sprint_ms(1000000));
+    }
+    CHECK(big < small * 100 + 100);
     char buf[128];
     std::snprintf(buf, sizeof buf, "Sprintln of 1e5 ints: %.1f ms, 1e6: %.1f ms", small, big);
     return buf;
