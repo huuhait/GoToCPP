@@ -17,7 +17,7 @@
 - [x] 5.4 Conversions: concrete → interface, interface → interface
 - [x] 5.5 Assertions + type switches (Go's exact panic messages, incl. nil cases)
 - [x] 5.6 Interface `==`, nil rules, hashing (`map[any]V`)
-- [ ] 5.7 `any`, `error`, `stdlib/errors` (`New`, `Is`, `As`, `Unwrap`, `Join`)
+- [x] 5.7 `any`, `error`, `stdlib/errors` (`New`, `Is`, `As`, `Unwrap`, `Join`)
 - [x] 5.8 Embedding
   - [x] promoted fields via selection paths
   - [x] promoted methods (aliasing pointers into embedded fields)
@@ -126,3 +126,14 @@
   (3) FIXED a dev miscompile: named containers over named structs in an interface (descriptor objects are now forward-declared in
   `descDecls`; 6.2 restructured descDecls: re-apply the forward-declaration block); (4) iteration order of map[any] is not Go's (tests
   must not depend on it); (5) gaps: channels in interfaces done by 8.3; `%T`/`%v` of method values and func values are 5.11.
+- 2026-10-18: Job 5.7 (`errors` package + native-function marker) merged after two review rounds (ADR-027). Decisions: (1) the marker
+  `//gocpp:native gp::ns::name` on a bodyless std function; validated as one C++ qualified name; rejected outside the std library
+  (including replaced/vendored/downloaded modules); the argument-less form is RESERVED for Phase 09 (body in a .cpp next to the .gp) and
+  is a usage error now; bodyless without marker = Phase 01 stub (`Package.IsStub`); (2) `errors.As` uses natives over descriptors
+  (`comparable`, `check_target`, `assign`); a concrete target is written through `type_desc::gp_store` (null for interfaces and
+  non-copy-assignable C++ types: As into those panics with a gocpp message; Go has no such type); (3) std units are program-independent:
+  stable `$GOCPP/gen/...` #line paths and a `$GEN` mapping in object-cache keys: every future ported std package (Phase 09) gets cross-
+  program object sharing for free; traces show std frames as `$GOCPP/stdlib/errors/wrap.gp:51` (placeholder path, like Go's GOROOT but
+  not a real file) and a debugger has no source for generated std lines; (4) `type_desc` is 192 bytes (was 184); hello+interface+fmt
+  binary +45 KB; (5) go-to-definition into std packages returns nothing in the LSP (hover works); (6) test files must not have trailing-
+  space output lines; (7) 5.11 (fmt) reconciles: Errorf currently builds runtime-defined `*errors.errorString`, `*fmt.wrapError(s)`.
