@@ -29,5 +29,8 @@ node_modules/
 # Editor swap and backup files (Vim .swp/.swo, Emacs)
 *.sw[a-p]
 *~
+# a fixture directory named like a backup file (tests/pkgs/ns_escape/tilde~) is deliberate
+!tests/pkgs/**/*~
+!tests/pkgs/**/*~/**
 \#*\#
 .#*
