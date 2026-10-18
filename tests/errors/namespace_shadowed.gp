@@ -4,12 +4,12 @@
 // std.vector is then a field or method of the int std.
 package main
 
-import "<vector>" // ERROR "header imports are not supported yet \(Phase 04\)"
+import "<vector>"
 
 func main() {
 	{
 		std := 3
 		_ = std.vector // ERROR "std.vector undefined \(type int has no field or method vector\)"
 	}
-	_ = std.vector[int]{} // ERROR "C\+\+ namespaces are not supported yet \(Phase 04\)"
+	_ = std.vector[int]{}
 }

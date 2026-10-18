@@ -152,6 +152,7 @@ type config struct {
 	phaseFrom  string        // where phase comes from, for skip messages: "now: Phase 00"
 	requireGDB bool          // GOCPP_REQUIRE_GDB=1: the debug tests fail instead of skipping gdb
 	runVsGo    bool          // GOCPP_RUN_VS_GO=1: TestRunVsGo checks the run tests' expectations with real Go
+	pending    bool          // GOCPP_TEST_PENDING=1: also run the tests with a // pending: line
 }
 
 var (
@@ -206,6 +207,13 @@ func loadConfig() (config, error) {
 		c.runVsGo = true
 	default:
 		return c, fmt.Errorf("GOCPP_RUN_VS_GO=%s: want 1 (check the run tests with real Go) or 0", s)
+	}
+	switch s := os.Getenv("GOCPP_TEST_PENDING"); s {
+	case "", "0":
+	case "1":
+		c.pending = true
+	default:
+		return c, fmt.Errorf("GOCPP_TEST_PENDING=%s: want 1 (run the pending tests too) or 0", s)
 	}
 	roots := []string{repoRoot}
 	if real, err := filepath.EvalSymlinks(repoRoot); err == nil && real != repoRoot {
@@ -512,6 +520,16 @@ func loadTests(t *testing.T, f format) []*program {
 	return progs
 }
 
+// checkPending rejects a // pending: line in a test of a finished phase (its phase is at most
+// version.Phase): the line only hides a test whose phase is not finished, so on a finished phase
+// it would hide a real failure.
+func checkPending(path string, h *header) error {
+	if h.pending != "" && h.phase <= version.Phase {
+		return fmt.Errorf("%s: pending: test of a finished phase (Phase %02d is built, so the test must pass; a \"// pending:\" line is only for a test of a later phase)", path, h.phase)
+	}
+	return nil
+}
+
 // runPrograms runs fn for each program, as a parallel subtest, after the
 // checks that every test gets: a malformed test fails, and a test that
 // can't run here (skipReason) is skipped. It logs how many tests it found
@@ -520,6 +538,9 @@ func (c *config) runPrograms(t *testing.T, where string, progs []*program, fn fu
 	skipped := make(map[string]int)
 	var nskipped, bad int
 	for _, p := range progs {
+		if p.err == nil && p.header != nil {
+			p.err = checkPending(p.path, p.header)
+		}
 		if p.err != nil {
 			bad++
 			continue
@@ -557,7 +578,7 @@ func (c *config) runPrograms(t *testing.T, where string, progs []*program, fn fu
 
 // skipKinds are the kinds of reasons to skip a test, in the order that
 // skipReason checks them.
-var skipKinds = []string{"needs a later phase", "builds for another target", "needs a display", "needs a missing library"}
+var skipKinds = []string{"needs a later phase", "builds for another target", "needs a display", "needs a missing library", "pending"}
 
 // skipReason returns why the test with header h can't run here, with the
 // kind of the reason (one of skipKinds), or "" and "".
@@ -573,6 +594,9 @@ func (c *config) skipReason(h *header) (why, kind string) {
 	}
 	if why = missingLibraries(h.pkgConfig); why != "" {
 		return why, skipKinds[3]
+	}
+	if h.pending != "" && !c.pending {
+		return "pending: " + h.pending + " (GOCPP_TEST_PENDING=1 runs it)", skipKinds[4]
 	}
 	return "", ""
 }

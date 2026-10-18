@@ -200,7 +200,11 @@ files pass".
    write `PORT.md`.
 2. **9.2 Internal shims**: `internal/bytealg` (native), `internal/stringslite`,
    `internal/byteorder`, `internal/abi`/`internal/godebug`/`internal/cpu` (stubs), minimal
-   `runtime` and `syscall` surfaces.
+   `runtime` and `syscall` surfaces. This step also owns the public `runtime/cgo` package (`Handle`,
+   `NewHandle`, `Value`, `Delete`: a native handle table behind the `//gocpp:native` marker; the docs
+   say "Phase 09" for it, since step 5.12 found that no step had built it) and, unless step 8.10 builds
+   it first, `runtime.Error` and `runtime.PanicNilError` as named types that the runtime's panic values
+   already implement (`r.(runtime.Error)`).
 3. **9.3 Reflect subset** (descriptor extensions incl. zero value and element assign/swap; the
    per-package API list in §2.2; `internal/reflectlite` alias; `DeepEqual`).
 4. **9.4 Port tier-1 pure packages**: `unicode/utf8`, `unicode`, `strings`, `bytes`, `strconv`,

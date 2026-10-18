@@ -245,6 +245,9 @@ func (fg *funcGen) selector(x *ast.SelectorExpr) cppir.Expr {
 		if obj := fg.g.qualifiedObj(x); obj != nil {
 			return fg.qualified(obj, x.Pos()) // pkg.Name (xpkg.go)
 		}
+		if fn := fg.stdPkgMember(x); fn != nil {
+			return fg.stdMemberValue(x, fn) // fmt.Println as a value, os.Stdout: fmtcall.go
+		}
 		fg.g.unsupported(x.Pos(), "this qualified name")
 	case sel.Kind() == types.FieldVal:
 		return fg.fieldChain(fg.expr(x.X), sel, x.Pos())

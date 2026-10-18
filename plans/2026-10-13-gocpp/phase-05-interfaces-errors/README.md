@@ -369,7 +369,10 @@ flags.
     gets wrong for a panicking `String`/`Error` method: Go prints the panic value with `%v`
     (`%!v(PANIC=String method: 1.5)`), the shim prints the `print` format (`+1.500000e+000`).
 12. **5.12 Lift the Phase 01 gates** for interfaces, embedding and `recover`; update the feature
-    matrix.
+    matrix. (As built: `version.Phase = 5` opens every row up to Phase 05, Phase 04's interop rows
+    included; the row of programs of more than one package opens early (`feature.Since`);
+    goroutines, channels and `select` stay gated until Phase 08 is finished; `make ci` runs the
+    tests up to Phase 08 (`CI_TEST_PHASE`), skipping the tests marked `// pending:`. The rows for the `runtime` and `runtime/cgo` packages moved to Phase 09: no package exists, so `runtime.Error`, `runtime.PanicNilError` and `cgo.Handle` (which the interop docs recommended for `void*` user data) are Phase 09 step 9.2, or 8.10 for `runtime`.)
 13. **5.13 Tests**: ≥ 80 run tests + differential tests vs Go (this whole phase is pure Go
     semantics, so differential testing is very effective): the nil-interface gotcha; `int` vs
     `int64` and channel directions in type switches and `%T`; `recover` through a func value, an
@@ -392,6 +395,19 @@ flags.
 - Type switches and `%T` tell `int`/`int64` and the channel directions apart.
 - A C++ exception thrown from interop code is caught by `recover()` in a test.
 - Sanitizers clean.
+
+As tested (step 5.13): `examples/shapes` is `TestExamples/shapes` (g++ and clang++). The run, diff and
+interop tests of this phase are 464 + 79 + 19 (`// phase: 05`; the differential ones compare with
+real Go on every run, the run tests with `GOCPP_RUN_VS_GO=1 go test ./tests -run RunVsGo`). Panic
+first lines and exit codes: `tests/run/panic_kind_*` (every kind of uncaught panic, with
+`// Stderr:` regexps made from real Go's output), `assert_panic_*`, `recover_*`, `iface_cmp_*`,
+`map_unhashable_*`. `int`/`int64`, named types, aliases and channel directions in type switches and
+`%T`: `tswitch_*`, `fmt_type_names`, `diff/tswitch_all_types` and `diff/chan_dirs_worker_recover` (these two are
+Phase 08 tests, since channels are: they run at `GOCPP_TEST_PHASE=08`, which `make ci` sets), `chan_directional` and `chan_dir_fields`. The
+nil gotcha: `iface_nil_gotcha`, `errors_nil_gotcha`, `diff/iface_nil_forms`. Every route to
+`recover`: `diff/recover_*` (incl. `recover_all_routes`). C++ exceptions: `interop/cxx_recover*.gp`.
+Sanitizers: `make ci-sanitize` (ASan, LSan and UBSan on both compilers); TSan for the thread code is
+in `go test ./runtime` (`TestChanTSan`, `TestGoroutineTSan`, `TestThreadTSan`).
 
 ## 6. Risks
 

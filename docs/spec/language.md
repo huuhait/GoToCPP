@@ -8,7 +8,7 @@ Everything this document doesn't mention works as the Go spec says.
 
 | | |
 |---|---|
-| Status | v0, written in Phase 00 from the plan. Each phase updates it when it builds a feature |
+| Status | Written in Phase 00 from the plan; each phase updates it when it builds a feature. The features of Phases 00 to 05 are built and their gates are lifted (`gocpp version` prints `phase 05`): the core language, C/C++ interop, interfaces, embedding, `error`, `panic` and `recover`, `fmt` on any value, and programs of several packages. Goroutines and channels exist but stay gated until Phase 08 is finished (`select`, `sync` and `time` are missing); generics are Phase 07 |
 | Source | [Phase 00 §2.2](../../plans/2026-10-13-gocpp/phase-00-foundations/README.md#22-the-language-as-a-diff-against-go) (the divergence list D1–D21; D22 from the Phase 02 evaluation-order work, D23 from Phase 03 steps 3.5 and 3.7, D24 from step 3.6, D25 from step 3.15, D26 from Phase 04 step 4.12, D27 from step 4.11, D28 from Phase 05 step 5.10) and the phase READMEs linked in each section |
 | See also | [cpp-mapping.md](cpp-mapping.md) (what the C++ output looks like), [interop.md](interop.md) (using C and C++), [feature-matrix.md](feature-matrix.md) (the phase of each feature) |
 
@@ -498,7 +498,7 @@ func sum(data []byte) C.uint {
     ([interop.md](interop.md#pointers-unsafe-and-slices-at-the-boundary));
   - C code never keeps gocpp memory alive. A gocpp pointer passed to C is only **borrowed**, as
     in cgo's pointer-passing rules. C must not use it after the gocpp object is gone. For a
-    `void*` that C keeps (user data for callbacks), keep the owner yourself (Phase 05: a `cgo.Handle`)
+    `void*` that C keeps (user data for callbacks), keep the owner yourself (Phase 09: a `cgo.Handle` from `runtime/cgo`, not built yet)
     ([interop.md](interop.md#user-data)).
 - **Phase:** [04](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#27-pointers-unsafe-and-slices-at-the-boundary).
 

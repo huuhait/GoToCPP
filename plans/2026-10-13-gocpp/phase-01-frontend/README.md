@@ -434,6 +434,15 @@ a table of `Printf` verbs (Phase 02: `%v %d %s %t %f %%`; 03: width, precision, 
   replaces the syntax errors from the first such token on.
 - A gate opens by itself when `version.Phase` reaches its phase, so the later "lift the gates"
   steps only bump `version.Phase` and update the notes in `gates.go`.
+- As lifted (Phase 05 step 5.12): `version.Phase` is 5, so every row up to Phase 05 is open (also
+  Phase 04's interop). A feature of a later phase that is built and tested early can have `Since`
+  in its row (`feature.Since`, `featMultiPackage`: Phase 06 row, open from 05); its message still
+  names its phase for a program checked before. A feature that is only half built stays gated
+  until its phase is finished: goroutines and channels wait for `select`, `sync` and `time`
+  (Phase 08), and `runtime` and `runtime/cgo` are listed under Phase 09 because they have no
+  package yet. The tests of a phase after `version.Phase` run with `GOCPP_TEST_PHASE` (and the
+  harness opens the gates to the test's own phase with `GOCPP_GATE_PHASE`): `make ci` runs up to
+  Phase 08.
 
 ### 2.10 Diagnostics
 

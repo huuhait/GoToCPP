@@ -59,8 +59,8 @@ type Builder struct {
 	// Package are the flags of the program's package, after the allow-list
 	// (check.Package.Flags): Compile goes to the compile of the generated
 	// C++ and of the package's C and C++ files, after the environment's
-	// flags, and Link to the link, after the object files. Until Phase 06,
-	// a program is one package.
+	// flags, and Link to the link, after the object files. A program may have several packages
+	// (Phase 06 step 6.2); the flags are those of one package.
 	Package PackageFlags
 
 	// Dir is the folder of the program's package, and CFiles and CXXFiles

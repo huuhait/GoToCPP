@@ -8,11 +8,11 @@ package main
 import (
 	"fmt"
 
-	"<vector>" // ERROR "header imports are not supported yet \(Phase 04\)"
+	"<vector>"
 )
 
 func main() {
-	v := std.vector[int]{1}  // ERROR "C\+\+ namespaces are not supported yet \(Phase 04\)"
+	v := std.vector[int]{1}
 	w := stdd.vector[int]{2} // ERROR "undefined: stdd"
 	var x stdd.size_t        // ERROR "undefined: stdd"
 	fmt.Println(v, w, x)

@@ -662,10 +662,10 @@ var nodeKinds = map[string]string{
 	"IndexExpr":      "index expressions",
 	"IndexListExpr":  "instantiations (Phase 07)",
 	"SliceExpr":      "slice expressions",
-	"TypeAssertExpr": "type assertions (Phase 05)",
+	"TypeAssertExpr": "type assertions",
 	"StarExpr":       "pointer types",
 	"KeyValueExpr":   "key: value",
-	"TypeSwitchStmt": "type switches (Phase 05)",
+	"TypeSwitchStmt": "type switches",
 	"SelectStmt":     "select statements (Phase 08)",
 }
 

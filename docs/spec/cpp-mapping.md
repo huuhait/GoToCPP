@@ -1001,7 +1001,7 @@ value, [fmt](#fmt-and-the-builtins), so a named type over `int64` needs no tag.)
 of a named type over `uint32`, `uint64` or `string` is read before `x`, like an `int` key,
 because gc converts it to its fast map call's key type.
 
-**Not yet**: named func types (step 3.11), named interface types (Phase 05), and methods (step 3.10); the conversions between strings and
+**Not yet**: the conversions between strings and
 slices of named byte or rune types (`[]MyByte(s)`, `string([]R{...})` for `type R rune`), and
 between slice types (or structs with slice or map fields) whose element structs differ only in
 their tags (`[]struct{ Q int }(s)` of a `[]struct{ Q int "t" }`): Go shares the elements there,
@@ -1404,7 +1404,7 @@ return gp::fmt::Errorf("read %s: %w"_gs, name, err);
   prints its address (`0x0` for nil). A slice or a map is a compile error
   ([D23](language.md#d23-print-and-println-of-a-slice-or-a-map)), and so are arrays and structs, as
   in Go.
-- Complex numbers (`complex`, `real`, `imag`, and printing them) are not built yet.
+- Complex numbers (`complex`, `real`, `imag`, and printing them) work (Phase 03 and step 5.11's fmt).
 
 Source: [Phase 03 §2.10](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#210-builtins-printing-and-package-initialization).
 
@@ -1588,12 +1588,12 @@ Sources: [Phase 03 §2.10](../../plans/2026-10-13-gocpp/phase-03-core-language/R
   names: `gpkg_main::f` is `main.f`, a lambda is `main.f.func1`, `gp_init_1` is `main.init.0`.
 - `gocpp build -nochecks` (and `gocpp run -nochecks`) turns off the bounds and nil checks: an
   index, a slice expression or a conversion out of range, a nil dereference, a call of a nil
-  func value and `(*T).M` with a nil pointer (the check of Go's wrapper, `runtime.panicwrap`,
+  func value, a method call (or a method value) of a nil interface value and `(*T).M` with a nil pointer (the check of Go's wrapper, `runtime.panicwrap`,
   is a nil check too) are then undefined behavior, as in C++. It defines
   `GOCPP_NOCHECKS` for every compile, the runtime's too (whose object files are cached apart).
   The emitter writes no check of its own: every check is in a runtime function that
   `GOCPP_NOCHECKS` empties (`gp::check_wrap` for `(*T).M`), so the generated C++ is the same
-  with and without the flag (TestNoChecksCalls checks that a `-nochecks` build of the run tests,
+  with and without the flag (TestNoChecksCalls checks that a `-nochecks` build of a third of the run tests (`GOCPP_TEST_ALL_NOCHECKS=1`: all of them),
   of a program that prints composite values with fmt, and of the runtime's own files calls none
   of these panics). Code that relies on catching such a panic is undefined behavior too, even
   when the program would end normally with the checks: `fmt` prints `<nil>` for a nil pointer
@@ -1951,7 +1951,7 @@ method tables must be sorted (exported names by name, then unexported ones by na
   `x` that holds the value: the box, an object of the C++ type; but for a `gp::ptr` (`*T`,
   `unsafe.Pointer`) the **target address**, because the interface shares the pointer's owner and
   has no `gp::ptr` object. Slices, maps and funcs have no hook (Go: `comparing uncomparable
-  type`, step 5.6); interface-kind descriptors have none yet either (5.6).
+  type`, step 5.6); interface-kind descriptors have a hook too (`gp_hash_panics`, `gp::check_key`).
 - One runtime per process: interfaces and descriptors never cross a shared-library boundary. A
   library built with `-fvisibility=hidden` has its own copy of the runtime, so its descriptors and
   itabs are other objects than the program's (probed: the descriptor of the same named type, of

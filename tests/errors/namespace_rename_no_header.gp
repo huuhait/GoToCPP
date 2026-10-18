@@ -4,7 +4,7 @@
 // namespace.
 package main
 
-import fs "::std::filesystem" // ERROR "cannot rename ::std::filesystem: the file imports no header that could declare it" "C\+\+ namespaces are not supported yet \(Phase 04\)"
+import fs "::std::filesystem" // ERROR "cannot rename ::std::filesystem: the file imports no header that could declare it"
 
 func main() {
 	_ = fs.path("/")

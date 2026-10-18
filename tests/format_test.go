@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -32,12 +33,13 @@ type headerView struct {
 	diff      string
 	cycle     bool
 	diverges  string
+	pending   string
 	build     string
 }
 
 func view(h *header) headerView {
 	v := headerView{phase: h.phase, output: h.output, exitCode: h.exitCode, pkgConfig: h.pkgConfig,
-		display: h.display, diff: h.diff, cycle: h.cycle, diverges: h.diverges, build: h.buildLine}
+		display: h.display, diff: h.diff, cycle: h.cycle, diverges: h.diverges, pending: h.pending, build: h.buildLine}
 	for _, rx := range h.stderr {
 		v.stderr = append(v.stderr, rx.String())
 	}
@@ -82,6 +84,7 @@ func TestParseHeader(t *testing.T) {
 		{"diff_combined.gp", diffFormat, headerView{phase: 2, diff: "combined"}},
 		{"run_lsan_divergence.gp", runFormat, headerView{phase: 3, cycle: true, diverges: "D1"}},
 		{"diff_lsan.gp", diffFormat, headerView{phase: 3, cycle: true}},
+		{"run_pending.gp", runFormat, headerView{phase: 7, output: "ok\n", pending: "step 7.1 (generic functions)"}},
 		// Every format honors a //go:build line in the header.
 		{"gobuild_ok.gp", runFormat, headerView{phase: 14, build: "//go:build linux || windows"}},
 		{"gobuild_ok.gp", interopFormat, headerView{phase: 14, build: "//go:build linux || windows"}},
@@ -153,6 +156,8 @@ func TestParseHeaderMalformed(t *testing.T) {
 		{"diff_lsan.gp", goldenFormat, `2: tests in tests/golden have no "// lsan:" line`},
 		{"diff_lsan.gp", errorsFormat, `2: tests in tests/errors have no "// lsan:" line`},
 		{"divergence_bad.gp", runFormat, `2: bad "// divergence:" line: want a divergence of docs/spec/language.md, such as D1, not "1"`},
+		{"pending_bad.gp", runFormat, `2: bad "// pending:" line: want the reason, such as "// pending: step 7.1 (generic functions)"`},
+		{"run_pending.gp", errorsFormat, `2: tests in tests/errors have no "// pending:" line`},
 		{"divergence_in_diff.gp", diffFormat, `2: tests in tests/diff have no "// divergence:" line`},
 	}
 	for _, tt := range tests {
@@ -911,6 +916,7 @@ func TestSkipReason(t *testing.T) {
 		{header{phase: 0, build: excluded, buildLine: "//go:build !" + runtime.GOOS, display: true, pkgConfig: libs}, "builds for another target"},
 		{header{phase: 0, display: true, pkgConfig: libs}, "needs a display"},
 		{header{phase: 0, pkgConfig: libs}, "needs a missing library"},
+		{header{phase: 2, pending: "step 7.1"}, "pending"},
 	} {
 		why, kind := c.skipReason(&tt.h)
 		if kind != tt.kind || (why == "") != (kind == "") {
@@ -919,6 +925,14 @@ func TestSkipReason(t *testing.T) {
 	}
 	if why, _ := c.skipReason(&header{phase: 3}); why != "needs Phase 03 (GOCPP_TEST_PHASE=02)" {
 		t.Errorf("the phase reason is %q", why)
+	}
+	// GOCPP_TEST_PENDING=1 runs the pending tests.
+	p := &config{phase: 2, phaseFrom: "GOCPP_TEST_PHASE=02", pending: true}
+	if why, _ := p.skipReason(&header{phase: 2, pending: "step 7.1"}); why != "" {
+		t.Errorf("a pending test skipped with GOCPP_TEST_PENDING=1: %q", why)
+	}
+	if why, _ := c.skipReason(&header{phase: 2, pending: "step 7.1"}); why != "pending: step 7.1 (GOCPP_TEST_PENDING=1 runs it)" {
+		t.Errorf("the pending reason is %q", why)
 	}
 }
 
@@ -1018,5 +1032,74 @@ func TestProgramFile(t *testing.T) {
 		if got := (&program{arg: arg}).file(); got != want {
 			t.Errorf("arg %q: file() = %q, want %q", arg, got, want)
 		}
+	}
+}
+
+// TestMakefileTestPhase checks CI_TEST_PHASE of the Makefile, the phase that make ci, make quick
+// and make ci-sanitize run the tests up to: a number from 00 to 15, never below version.Phase
+// (the tests of the finished phases must run in make ci).
+func TestMakefileTestPhase(t *testing.T) {
+	src := readFile(t, "../Makefile")
+	m := regexp.MustCompile(`(?m)^CI_TEST_PHASE\s*=\s*(\d\d)\s*$`).FindSubmatch(src)
+	if m == nil {
+		t.Fatal("the Makefile has no line CI_TEST_PHASE = NN (two digits)")
+	}
+	n, _ := strconv.Atoi(string(m[1]))
+	if n < version.Phase || n > lastPhase {
+		t.Errorf("CI_TEST_PHASE = %02d, want %02d (version.Phase) to %02d", n, version.Phase, lastPhase)
+	}
+	if !regexp.MustCompile(`(?m)^test .*ci-sanitize.*: export GOCPP_TEST_PHASE \?= \$\(CI_TEST_PHASE\)$`).Match(src) {
+		t.Error("the Makefile does not set GOCPP_TEST_PHASE to $(CI_TEST_PHASE) for test, quick and ci-sanitize")
+	}
+}
+
+// TestPendingFiles lists the tests with a // pending: line: exactly the known ones, so that hiding
+// another test needs a deliberate edit here. A pending test of a finished phase is an error
+// (checkPending).
+func TestPendingFiles(t *testing.T) {
+	want := []string{"../examples/generics/main.gp", "../examples/workers/main.gp"}
+	var got []string
+	for _, root := range []string{"../tests", "../examples"} {
+		err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() && d.Name() == "testdata" {
+				return filepath.SkipDir
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".gp") {
+				return nil
+			}
+			for line := range strings.Lines(string(readFile(t, path))) {
+				if strings.HasPrefix(line, "package ") {
+					break // the header ends at the package clause
+				}
+				if strings.HasPrefix(line, pendingPrefix) {
+					got = append(got, filepath.ToSlash(path))
+					break
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("tests with a // pending: line:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestCheckPending(t *testing.T) {
+	if err := checkPending("x.gp", &header{phase: version.Phase + 1, pending: "step"}); err != nil {
+		t.Errorf("a pending test of a later phase: %v", err)
+	}
+	if err := checkPending("x.gp", &header{phase: version.Phase}); err != nil {
+		t.Errorf("a test without a pending line: %v", err)
+	}
+	err := checkPending("x.gp", &header{phase: version.Phase, pending: "step"})
+	if err == nil || !strings.Contains(err.Error(), "pending: test of a finished phase") {
+		t.Errorf("a pending test of a finished phase: %v", err)
 	}
 }

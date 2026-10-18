@@ -7,7 +7,7 @@ package main
 import (
 	"strings" // ERROR "package strings is not available yet \(Phase 09\)"
 
-	"<map>" // ERROR "header imports are not supported yet \(Phase 04\)"
+	"<map>"
 	"<string>"
 	"<vector>"
 )
@@ -15,7 +15,7 @@ import (
 type Point struct{ X int }
 
 func main() {
-	_ = std.vector[Pointt]{}                  // ERROR "undefined: Pointt" "C\+\+ namespaces are not supported yet \(Phase 04\)"
+	_ = std.vector[Pointt]{}                  // ERROR "undefined: Pointt"
 	_ = std.map[std.string, strings.Buildr]{} // ERROR "undefined: strings.Buildr"
 	_ = std.vector[Point]{}
 	_ = std.vector[std.vector[Undef]]{} // ERROR "undefined: Undef"

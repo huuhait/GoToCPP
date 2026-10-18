@@ -50,8 +50,7 @@ import (
 //
 // The descriptors are made on demand (desc): the registry grows while the functions are
 // lowered, and descDecls writes everything last, in dependency order. A promoted method (a
-// method of an embedded field, step 5.8) is a forwarding thunk of the embedding step; until then
-// a type with one can't be converted to an interface.
+// method of an embedded field, step 5.8) is a forwarding thunk of the method table (promote.go).
 
 type descTable struct {
 	named   []*namedDesc

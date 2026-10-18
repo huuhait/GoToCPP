@@ -170,6 +170,9 @@ func (g *gen) ifaceOf(t types.Type, pos token.Pos) *ifaceInfo {
 				return info // an interface of another package
 			}
 		}
+		if g.stdTypeNotYet(u, pos) {
+			return nil
+		}
 		g.unsupported(pos, "the interface type "+g.canonName(u))
 		return nil
 	case *types.Interface:

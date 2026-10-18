@@ -43,6 +43,7 @@ const (
 	diffPrefix       = "// diff:"
 	lsanPrefix       = "// lsan:"
 	divergencePrefix = "// divergence:"
+	pendingPrefix    = "// pending:"
 	goBuildPrefix    = "//go:build"
 )
 
@@ -58,6 +59,7 @@ const (
 	diffLine                           // // diff: stderr, // diff: combined
 	lsanLine                           // // lsan: cycle
 	divergenceLine                     // // divergence: D1
+	pendingLine                        // // pending: step 7.1 (generics)
 	goBuildLine                        // //go:build expr
 )
 
@@ -74,6 +76,7 @@ var optionalLines = []struct {
 	{diffLine, diffPrefix},
 	{lsanLine, lsanPrefix},
 	{divergenceLine, divergencePrefix},
+	{pendingLine, pendingPrefix},
 	{goBuildLine, goBuildPrefix},
 }
 
@@ -91,15 +94,16 @@ type format struct {
 	strict  bool    // an optional line that is not allowed, or not in the header, is an error; otherwise it is ignored
 }
 
-// Every format honors //go:build lines. The tests that run a program take // lsan: cycle.
+// Every format honors //go:build lines. The tests that run a program take // lsan: cycle and
+// // pending:.
 var (
-	runFormat     = format{"run", outputLine | exitCodeLine | stderrLine | lsanLine | divergenceLine | goBuildLine, true}
+	runFormat     = format{"run", outputLine | exitCodeLine | stderrLine | lsanLine | divergenceLine | pendingLine | goBuildLine, true}
 	errorsFormat  = format{"errors", goBuildLine, true}
 	goldenFormat  = format{"golden", goBuildLine, true}
-	diffFormat    = format{"diff", diffLine | lsanLine | goBuildLine, true}
-	interopFormat = format{"interop", outputLine | exitCodeLine | stderrLine | pkgConfigLine | lsanLine | goBuildLine, true}
+	diffFormat    = format{"diff", diffLine | lsanLine | pendingLine | goBuildLine, true}
+	interopFormat = format{"interop", outputLine | exitCodeLine | stderrLine | pkgConfigLine | lsanLine | pendingLine | goBuildLine, true}
 	// A multi-package test is a folder: a module with a main.gp (tests/pkgs).
-	pkgsFormat  = format{"pkgs", outputLine | exitCodeLine | stderrLine | lsanLine | divergenceLine | goBuildLine, true}
+	pkgsFormat  = format{"pkgs", outputLine | exitCodeLine | stderrLine | lsanLine | divergenceLine | pendingLine | goBuildLine, true}
 	debugFormat = format{"debug", goBuildLine, true} // and the // gdb: comments (debug.go)
 
 	// An interop error test (a test in tests/interop with // ERROR
@@ -111,7 +115,7 @@ var (
 	// start like a comment line of another format ("// Output: a table"),
 	// so there the lines that examples don't use, and the optional lines
 	// below the header, are ignored.
-	examplesFormat = format{"examples", exitCodeLine | pkgConfigLine | displayLine | goBuildLine, false}
+	examplesFormat = format{"examples", exitCodeLine | pkgConfigLine | displayLine | pendingLine | goBuildLine, false}
 )
 
 // A header is what a test file says about itself in its comment lines.
@@ -125,6 +129,7 @@ type header struct {
 	diff      string           // a diff test's mode (// diff: ...): diffStdout, diffStderr or diffCombined
 	cycle     bool             // the program leaks a reference cycle on purpose (// lsan: cycle)
 	diverges  string           // the divergence of docs/spec/language.md that the test shows (// divergence: D1), or ""
+	pending   string           // why the test fails until a step of its phase lands (// pending: ...), or ""
 	build     constraint.Expr  // the //go:build constraint, or nil
 	buildLine string           // the //go:build line, for messages
 }
@@ -275,6 +280,12 @@ func (h *header) set(l lineSet, line, rest string, seen lineSet) error {
 			return fmt.Errorf("bad %q line: want a divergence of docs/spec/language.md, such as D1, not %q", divergencePrefix, s)
 		}
 		h.diverges = s
+	case pendingLine:
+		s := strings.TrimSpace(rest)
+		if s == "" {
+			return fmt.Errorf("bad %q line: want the reason, such as \"// pending: step 7.1 (generic functions)\"", pendingPrefix)
+		}
+		h.pending = s
 	case goBuildLine:
 		expr, err := constraint.Parse(line)
 		if err != nil {

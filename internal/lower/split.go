@@ -179,6 +179,15 @@ func (g *gen) headerFile(parts *typeParts, pf *PackageFiles) *cppir.File {
 			}
 		}
 	}
+	// The interface structs of the package too: a shared (unnamed) interface struct below may
+	// return one (interface{ Self() Mapper } with a named interface Mapper).
+	if slices.ContainsFunc(closure, func(it sharedItem) bool { return it.iface != nil }) {
+		for _, info := range g.itable().list {
+			if info.shared == nil {
+				sec.add(false, &cppir.Struct{Name: info.name, Forward: true})
+			}
+		}
+	}
 	sec.add(true, &cppir.Blank{})
 	// 5. the interface structs and the structs
 	for _, it := range closure {

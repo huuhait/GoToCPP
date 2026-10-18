@@ -403,9 +403,12 @@ func TestUnsupported(t *testing.T) {
 		{"struct-slice-tags", "type W struct{ S []struct{ Q int `t:\"q\"` } }\ntype V struct{ S []struct{ Q int } }\nfunc main() {\n\t_ = V(W{})\n}", "main.gp:6:6: cppgen: not supported yet: the conversion from W to V, whose fields differ in struct tags inside a slice or a map"},
 		{"struct-map-tags", "type W struct{ M map[int]struct{ Q int `t:\"q\"` } }\ntype V struct{ M map[int]struct{ Q int } }\nfunc main() {\n\t_ = V(W{})\n}", "main.gp:6:6: cppgen: not supported yet: the conversion from W to V, whose fields differ in struct tags inside a slice or a map"},
 		{"fprint-writer", "import (\n\t\"fmt\"\n\t\"os\"\n)\nfunc main() {\n\tfmt.Fprintln(os.Stdin, 1)\n}", "main.gp:8:15: cppgen: fmt.Fprint to a writer other than os.Stdout, os.Stderr or a fmt.State is not available yet (package io: Phase 09)"},
+		{"fprint-value", "import (\n\t\"fmt\"\n\t\"os\"\n)\nfunc main() {\n\tf := fmt.Fprintln\n\tfmt.Fprint(os.Stdout)\n\t_ = f\n}", "main.gp:8:2: cppgen: the type io.Writer is not available yet (package io: Phase 09)"},
+		{"os-stdout-value", "import (\n\t\"fmt\"\n\t\"os\"\n)\nfunc main() {\n\tw := os.Stdout\n\tfmt.Fprint(w)\n}", "main.gp:8:2: cppgen: the type os.File is not available yet (package os: Phase 09)"},
+		{"os-stdout-arg", "import (\n\t\"fmt\"\n\t\"os\"\n)\nfunc main() {\n\tfmt.Fprint(os.Stdout, os.Stderr)\n}", "main.gp:8:24: cppgen: os.Stderr used as a value, outside the writer argument of fmt.Fprint, is not available yet (it needs the type os.File: Phase 09)"},
 		{"printlnfunc", "func g() {}\nfunc main() {\n\tprintln(g)\n}", "main.gp:5:10: cppgen: not supported yet: printing a func value with println"},
-		{"iface-cvalue-methods", "type Incer interface{ inc() int }\nfunc main() {\n\tvar c C.int\n\tvar i Incer = c\n\t_ = i\n}", "main.gp:6:16: cppgen: not supported yet: a C/C++ value in an interface with methods (main.Incer): only interfaces without methods hold C/C++ values until Phase 12 (typed interop)"},
-		{"iface-cvalue-error", "func main() {\n\tvar c C.int\n\tvar e error = c\n\t_ = e\n}", "main.gp:5:16: cppgen: not supported yet: a C/C++ value in an interface with methods (error): only interfaces without methods hold C/C++ values until Phase 12 (typed interop)"},
+		{"iface-cvalue-methods", "type Incer interface{ inc() int }\nfunc main() {\n\tvar c C.int\n\tvar i Incer = c\n\t_ = i\n}", "main.gp:6:16: cppgen: a C/C++ value in an interface with methods (main.Incer) is not available yet: only interfaces without methods hold C/C++ values until Phase 12 (typed interop)"},
+		{"iface-cvalue-error", "func main() {\n\tvar c C.int\n\tvar e error = c\n\t_ = e\n}", "main.gp:5:16: cppgen: a C/C++ value in an interface with methods (error) is not available yet: only interfaces without methods hold C/C++ values until Phase 12 (typed interop)"},
 		{"iface-method-ctype", "type I interface{ M(C.int) C.int }\nfunc main() {\n\tvar i I\n\t_ = i\n}", "main.gp:3:19: cppgen: not supported yet: the interface method M has a C/C++ type in its signature (typed interop: Phase 12)"},
 		{"rangechan", "func main() {\n\tfor range make(chan int) {\n\t}\n}", "main.gp:4:12: cppgen: not supported yet: range over channels (Phase 08)"},
 		{"select", "func main() {\n\tselect {}\n}", "main.gp:4:2: cppgen: not supported yet: select statements (Phase 08)"},
@@ -937,7 +940,8 @@ var removedRx = regexp.MustCompile(`panic: (runtime error: (index out of range|s
 // step 3.14b): the emitter emits no check of its own, it calls the runtime, whose checks
 // GOCPP_NOCHECKS removes. So the C++ of each run test (tests/run) that exits normally, of the
 // phases up to the one being built, compiled with -nochecks into assembly, calls none of the
-// panics of those checks (panicCallRx), and so does noChecksFmtProg, which prints every kind of
+// panics of those checks (panicCallRx) (a third of the programs, chosen by a hash of the file name, so
+// that the test takes under a minute; GOCPP_TEST_ALL_NOCHECKS=1 checks all of them), and so does noChecksFmtProg, which prints every kind of
 // composite value with fmt. A run test that the emitter doesn't take yet is skipped. One
 // compiler is enough: both see the same preprocessed C++. The runtime's own object files,
 // compiled for -nochecks, use none of them either (nm -u).
@@ -964,6 +968,7 @@ func TestNoChecksCalls(t *testing.T) {
 		t.Skip("no C++ compiler")
 	}
 	phaseRx := regexp.MustCompile(`^// phase: (\d\d)\n`)
+	allNoChecks := os.Getenv("GOCPP_TEST_ALL_NOCHECKS") == "1"
 	checked := 0
 	for _, prog := range progs {
 		src, err := os.ReadFile(prog)
@@ -976,6 +981,9 @@ func TestNoChecksCalls(t *testing.T) {
 		}
 		if phase, _ := strconv.Atoi(string(m[1])); phase > version.Phase+1 || bytes.Contains(src, []byte("\n// ExitCode:")) {
 			continue
+		}
+		if !allNoChecks && fnv32(filepath.Base(prog))%3 != 0 {
+			continue // a deterministic third of the programs; GOCPP_TEST_ALL_NOCHECKS=1 takes all of them
 		}
 		checked++
 		t.Run(strings.TrimSuffix(filepath.Base(prog), ".gp"), func(t *testing.T) {
@@ -1031,6 +1039,15 @@ func TestNoChecksCalls(t *testing.T) {
 			}
 		}
 	})
+}
+
+// fnv32 is the FNV-1a hash of s (the sample of TestNoChecksCalls).
+func fnv32(s string) uint32 {
+	h := uint32(2166136261)
+	for i := 0; i < len(s); i++ {
+		h = (h ^ uint32(s[i])) * 16777619
+	}
+	return h
 }
 
 // noChecksFmtProg prints composite values with fmt (TestNoChecksCalls).

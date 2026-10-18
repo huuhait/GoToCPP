@@ -7,11 +7,11 @@ package main
 import (
 	"fmt"
 
-	cstring "<string.h>" // ERROR "header imports are not supported yet \(Phase 04\)"
+	cstring "<string.h>"
 )
 
 func main() {
-	n := int(cstring.strlen(C.cstr("abc"))) // ERROR "C types and helpers are not supported yet \(Phase 04\)"
+	n := int(cstring.strlen(C.cstr("abc")))
 	_ = n + "x"                             // ERROR "invalid operation: n \+ \x22x\x22 \(mismatched types int and untyped string\)"
 	var s string = n                        // ERROR "cannot use n \(variable of type int\) as string value in variable declaration"
 	m := float64(cstring.strlen(C.cstr("ab")))

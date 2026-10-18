@@ -118,8 +118,13 @@ test's C++ with its snapshot. The full formats are in [tests/README.md](../tests
 
 The run, interop, diff, golden, debug and example tests run once with `g++` and once with
 `clang++` (`GOCPP_CXX=clang++` tests with clang++ only). Outside CI, a missing compiler is a skip.
-`make ci` sets `GOCPP_REQUIRE_CXX=g++,clang++`, so there it is a failure. While you build phase
-NN, `GOCPP_TEST_PHASE=NN` runs the tests up to that phase. `GOCPP_FLAGS` passes more flags to
+`make ci` sets `GOCPP_REQUIRE_CXX=g++,clang++`, so there it is a failure. Tests of phases
+after the last built one (`Phase` in `internal/version`) are skipped unless `GOCPP_TEST_PHASE=NN`
+runs the tests up to phase NN: `make test`, `make ci`, `make quick` and `make ci-sanitize` set it
+to `CI_TEST_PHASE` of the Makefile (08: the features of Phases 06 and 08 that are built have tests),
+and a test that still waits for a step of its phase has a `// pending:` line and is skipped
+(`GOCPP_TEST_PENDING=1` runs it). While you build phase NN, `GOCPP_TEST_PHASE=NN` runs the tests up to
+that phase. `GOCPP_FLAGS` passes more flags to
 `gocpp run`, for example `GOCPP_FLAGS=-asan` (ASan and UBSan), which the sanitizer job
 `make ci-sanitize` uses ([tests/README.md](../tests/README.md#sanitizers): a test that leaks a
 reference cycle on purpose has a `// lsan: cycle` line). `make test-programs` runs only the
@@ -211,9 +216,9 @@ The make targets for these checks:
 |---|---|
 | `make lint` | the gofmt check, which skips `spikes/` and every `testdata/` folder, then `go vet ./...` |
 | `make staticcheck` | `go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...`, so there is nothing to install |
-| `make quick` | the edit-test loop, in a minute or two: only what differs from the merge base with `dev` (gofmt, vet and the tests of the changed Go packages; the changed test fixtures with one compiler, `GOCPP_CXX` or g++; a small smoke set of fixtures; and for `runtime/` changes its fast tests and the C++ unit tests in the debug mode). It is **not a gate**: run `make ci`, `make staticcheck` and, for runtime or emitter changes, `make ci-sanitize` before a change is handed over or merged. `GOCPP_TEST_PHASE=NN make quick` includes the fixtures of the phase being built; `QUICKFLAGS=-n` prints the commands only |
+| `make quick` | the edit-test loop, in a minute or two: only what differs from the merge base with `dev` (gofmt, vet and the tests of the changed Go packages; the changed test fixtures with one compiler, `GOCPP_CXX` or g++; a small smoke set of fixtures; and for `runtime/` changes its fast tests and the C++ unit tests in the debug mode). It is **not a gate**: run `make ci`, `make staticcheck` and, for runtime or emitter changes, `make ci-sanitize` before a change is handed over or merged. `GOCPP_TEST_PHASE=NN make quick` includes the fixtures of the phase being built (it runs the phases up to `CI_TEST_PHASE` by default); `QUICKFLAGS=-n` prints the commands only |
 | `make ci` | `lint`, `test` and `build`: every required check, the one that the loop uses. The test programs run with both g++ and clang++, and here a missing compiler fails (§3). It does not run staticcheck, because `go run` downloads staticcheck the first time |
-| `make ci-sanitize` | the sanitizer job: the test programs that run code (`tests/run`, `tests/diff`, `tests/interop`, `examples/`) built with `-asan` (ASan, LSan and UBSan), and the emitter's tests (`internal/cppgen`) with the same sanitizers, on g++ and clang++. The repo has no CI service yet, so this target is the CI job: run it next to `make ci` when a change touches the runtime, the emitter or the tests. `GOCPP_TEST_PHASE=NN make ci-sanitize` runs the tests of the phase being built |
+| `make ci-sanitize` | the sanitizer job: the test programs that run code (`tests/run`, `tests/diff`, `tests/interop`, `examples/`) built with `-asan` (ASan, LSan and UBSan), and the emitter's tests (`internal/cppgen`) with the same sanitizers, on g++ and clang++. The repo has no CI service yet, so this target is the CI job: run it next to `make ci` when a change touches the runtime, the emitter or the tests. It runs the tests up to `CI_TEST_PHASE`; `GOCPP_TEST_PHASE=NN make ci-sanitize` runs the tests of the phase being built |
 | `make vscode-test` | the tests of the VS Code extension in `editors/vscode`: its grammar and its code, including a run of `gocpp lsp` (`npm test`, with `npm ci` first when needed). Not part of `make ci`, because npm downloads the packages the first time. Run it when you change `editors/vscode` or the start of `gocpp lsp` |
 
 `v0.7.0` is staticcheck 2026.1, the newest release that works with Go 1.25. The newer

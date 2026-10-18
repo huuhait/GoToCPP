@@ -43,7 +43,7 @@ func gateUnchecked(fset *token.FileSet, p *Package, phase int) {
 	}
 	files := make(map[string]*fileGate)
 	var order []*fileGate
-	if phase < features[featMacros].Phase {
+	if !features[featMacros].allowed(phase) {
 		for _, f := range p.Load.Files {
 			tf := fset.File(f.AST.FileStart)
 			if tf == nil {

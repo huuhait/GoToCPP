@@ -1255,7 +1255,7 @@ func main() {
 |---|---|
 | a C function pointer `void (*)(int)` (a parameter, a variable, or a field of a C struct) | a function of the package, by its name: `onEvent`; or a func literal that captures nothing |
 | `std::function<…>`, a template callable (the comparator of `std.sort`) | any gocpp func: a function, a func literal, a closure that captures variables, a func variable |
-| `void* userdata` plus a callback | a gocpp pointer as `unsafe.Pointer` (a closure too: `unsafe.Pointer(&f)`); the callback gets it back as an `unsafe.Pointer`. Phase 05's `cgo.NewHandle(v)` is the version for data that C keeps |
+| `void* userdata` plus a callback | a gocpp pointer as `unsafe.Pointer` (a closure too: `unsafe.Pointer(&f)`); the callback gets it back as an `unsafe.Pointer`. `cgo.NewHandle(v)` (package `runtime/cgo`, Phase 09: not built yet) is the version for data that C keeps |
 
 `examples/sqlite` passes callbacks to `sqlite3_exec`; `tests/interop/callbacks*.gp` has every form
 below.
@@ -1360,7 +1360,7 @@ sqlite3.sqlite3_exec(db, "SELECT * FROM fruit", countRow, unsafe.Pointer(&count)
   alive while C may call back. For a call that returns after the last callback (`sqlite3_exec`,
   `qsort_r`) the variable is enough. When C **keeps** the user data after the call returns (a
   handler registered for later), gocpp code must keep the owner in a package variable or a table
-  until C has dropped it. Phase 05's `cgo.Handle` is that table: a handle is an integer that fits the
+  until C has dropped it. `cgo.Handle` (package `runtime/cgo`, Phase 09: not built yet; until then keep your own table) is that table: a handle is an integer that fits the
   `void*` (`unsafe.Pointer(uintptr(h))`), with an explicit `Delete`; nothing in the callback path
   has to change for it, because the trampoline passes the `void*` through unchanged.
 - **A closure through the user pointer.** A closure can't be a function pointer, but it can be the
@@ -1416,7 +1416,7 @@ h := std.function[func(C.int) C.int](triple) // std::function<int(int)>
   frame, so no C frame is touched and no C++ destructor in them runs. It is the mechanism of
   [C++ exceptions](#c-exceptions) below, with the same report.
 - **Inside the callback everything works as usual.** The callback's own deferred calls run when it
-  panics, before the program ends. When Phase 05 brings `recover()`, a recover in the callback stops
+  panics, before the program ends. A `recover()` in the callback stops
   its panic and C sees the callback's normal return value.
 - **What Go does differently** ([D27](language.md#d27-a-panic-that-leaves-a-callback)): Go unwinds the
   panic through the C frames to the Go code that called C, runs the deferred calls on the way, and a
@@ -1698,7 +1698,7 @@ header next to them ([Small helpers](#small-helpers-a-header-next-to-the-gp-file
   ```
 - Only a package folder has them: `gocpp run main.gp` builds only `main.gp`, like
   `go run main.go`. Use `gocpp run .` for a package with C or C++ files.
-- Until Phase 06 a program is one package, so these are the files of the main package.
+- A package of a multi-package program has its own C and C++ files: these are the files of each package that has them.
 - Assembly (`.s`, `.S`, `.sx`), Objective-C (`.m`), Fortran (`.f`, `.F`, `.for`, `.f90`), SWIG
   (`.swig`, `.swigcxx`) and `.syso` files, which cgo also builds or links, are an error: gocpp
   doesn't build them, and the program would miss their code.

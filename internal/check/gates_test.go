@@ -302,12 +302,12 @@ func main() {
 			"6:10: error values are not supported yet (Phase 05)",
 			"6:14: fmt.Errorf is not available yet (Phase 05)",
 		}},
-	{name: "runtime/cgo", phase: 5, src: "package main\n\nimport \"runtime/cgo\"\n\nfunc main() {}\n",
-		want:   []string{"3:8: package runtime/cgo is not available yet (Phase 05)"},
+	{name: "runtime/cgo", phase: 9, src: "package main\n\nimport \"runtime/cgo\"\n\nfunc main() {}\n",
+		want:   []string{"3:8: package runtime/cgo is not available yet (Phase 09)"},
 		wantAt: []string{"3:8: package runtime/cgo is not available yet (Phase 09)"}},
 
-	{name: "runtime", phase: 5, src: "package main\n\nimport \"runtime\"\n\nfunc main() {\n\truntime.Gosched()\n}\n",
-		want:   []string{"3:8: package runtime is not available yet (Phase 05)"},
+	{name: "runtime", phase: 9, src: "package main\n\nimport \"runtime\"\n\nfunc main() {\n\truntime.Gosched()\n}\n",
+		want:   []string{"3:8: package runtime is not available yet (Phase 09)"},
 		wantAt: []string{"3:8: package runtime is not available yet (Phase 09)"}},
 	{name: "embedded C++ type/typo", phase: 5, src: "package main\n\ntype V struct {\n\tFooo\n\tn int\n}\n\nfunc main() {\n\tvar v V\n\tv.x()\n\tv.y = 1\n}\n",
 		want: []string{
@@ -323,7 +323,7 @@ func main() {
 		}},
 
 	// Phase 06.
-	{name: "more than one package", phase: 6, files: map[string]string{
+	{name: "more than one package", phase: 6, before: 4, files: map[string]string{
 		"gocpp.mod":  "module example.com/m\n",
 		"main.gp":    "package main\n\nimport \"example.com/m/lib\"\n\nfunc main() {\n\tprintln(lib.N)\n}\n",
 		"lib/lib.gp": "package lib\n\nconst N = 1\n",
@@ -682,6 +682,50 @@ func gatePhase(line string) int {
 	return n
 }
 
+// TestGateSince checks the Since field: programs of more than one package are
+// rejected before Phase 05 with a message that names Phase 06, and pass from
+// Phase 05 on, the phase of the project that has them (version.Phase).
+func TestGateSince(t *testing.T) {
+	f := features[featMultiPackage]
+	if f.Since != 5 || f.Phase != 6 {
+		t.Fatalf("the multi-package row has Phase %d and Since %d, want 6 and 5", f.Phase, f.Since)
+	}
+	dir := writeTree(t, map[string]string{
+		"gocpp.mod":  "module example.com/m\n",
+		"main.gp":    "package main\n\nimport \"example.com/m/lib\"\n\nfunc main() {\n\tprintln(lib.N)\n}\n",
+		"lib/lib.gp": "package lib\n\nconst N = 1\n",
+	})
+	cfg := load.Config{}
+	for phase := floorPhase; phase <= LastPhase; phase++ {
+		got := checkAt(t, cfg, dir, phase, ".")
+		want := errorLines(nil)
+		if phase < 5 {
+			want = errorLines([]string{"# example.com/m", "3:8: programs of more than one package are not supported yet (Phase 06)"})
+		}
+		if got != want {
+			t.Errorf("at Phase %02d:\n got:\n%s\nwant:\n%s", phase, got, want)
+		}
+	}
+	if !f.allowed(5) || f.allowed(4) {
+		t.Errorf("allowed(5) = %v, allowed(4) = %v, want true and false", f.allowed(5), f.allowed(4))
+	}
+	if g := features[featGenerics]; g.allowed(6) || !g.allowed(7) {
+		t.Errorf("the generics row: allowed(6) = %v, allowed(7) = %v, want false and true", g.allowed(6), g.allowed(7))
+	}
+}
+
+// gateLifted returns the phase from which the gates stop reporting the gate
+// error line: the phase in it, or Since of its feature when that is earlier.
+func gateLifted(line string) int {
+	p := gatePhase(line)
+	for _, f := range features {
+		if f.Since != 0 && strings.HasSuffix(line, f.Message()) {
+			return min(p, f.Since)
+		}
+	}
+	return p
+}
+
 // exampleErrors returns the error lines of the example at the phase
 // (without the "# package" lines).
 func exampleErrors(t *testing.T, dir string, phase int, tests bool) []string {
@@ -774,7 +818,7 @@ func TestGateExamples(t *testing.T) {
 			for phase := floorPhase; phase <= LastPhase; phase++ {
 				var wantGates []string
 				for _, l := range all {
-					if gatePhase(l) > phase {
+					if gateLifted(l) > phase {
 						wantGates = append(wantGates, l)
 					}
 				}

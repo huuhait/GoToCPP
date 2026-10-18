@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/huuhait/gocpp/internal/version"
 )
 
 // featureMatrix returns docs/spec/feature-matrix.md: the gate tables of
 // gates.go as a page for users. TestFeatureMatrix checks that the file is
 // up to date (and writes it with -update).
 func featureMatrix() string {
+	status := fmt.Sprintf("The features of Phases 00 to %02d work (`gocpp version` prints `phase %02d`); the rows with a later phase are rejected.",
+		version.Phase, version.Phase)
 	var b strings.Builder
 	b.WriteString(`# Feature matrix
 
@@ -18,8 +22,10 @@ func featureMatrix() string {
 tables there and run go test ./internal/check -run TestFeatureMatrix -update-gates -->
 
 This page says which phase of the [plan](../../plans/2026-10-13-gocpp/README.md) brings each
-feature of gocpp. Until a phase is finished, the compiler rejects its features with an error that
-names the phase, so you never get broken C++:
+feature of gocpp. ` + status + `
+Until a phase is finished, the compiler rejects its features with an error that names the phase,
+so you never get broken C++ (a few features of a later phase work earlier, and say so in their row,
+for example "06 (works from 05)"):
 
 ` + "```" + `
 ./main.gp:5:12: interfaces are not supported yet (Phase 05)
@@ -49,7 +55,7 @@ string, conversions between number types, the built-in functions
 	rows := slices.Clone(features[:])
 	slices.SortStableFunc(rows, func(a, b feature) int { return cmp.Compare(a.Phase, b.Phase) })
 	for _, f := range rows {
-		fmt.Fprintf(&b, "| %s | %s | %s |\n", mdName(f.Name), phaseText(f.Phase), f.Notes)
+		fmt.Fprintf(&b, "| %s | %s | %s |\n", mdName(f.Name), featurePhaseText(f), f.Notes)
 	}
 
 	b.WriteString("\n## Standard packages\n\n" +
@@ -78,9 +84,11 @@ string, conversions between number types, the built-in functions
 	}
 
 	b.WriteString("\n## Format strings\n\n" +
-		"The compiler checks the verbs of the format strings of `fmt.Printf`, `fmt.Sprintf` and " +
-		"`fmt.Errorf`, so until Phase 09 a format string must be a constant. Width, precision and flags " +
-		"are in the table of language features.\n\n" +
+		"Before Phase 05 the compiler checks the verbs of the format strings of `fmt.Printf`, " +
+		"`fmt.Sprintf` and `fmt.Errorf`, and a format string must be a constant. From Phase 05 " +
+		"`fmt` checks nothing at compile time: every verb of Go's `fmt` works, and a bad one prints " +
+		"Go's error form at run time (`%!z(int=1)`). Width, precision and flags are in the table of " +
+		"language features.\n\n" +
 		"| Verbs | Phase |\n|---|---|\n")
 	byPhase := make(map[int][]string)
 	var phases []int
@@ -104,6 +112,15 @@ string, conversions between number types, the built-in functions
 		fmt.Fprintf(&b, "| `%s` | %s |\n", f.Name, phaseText(f.Phase))
 	}
 	return b.String()
+}
+
+// featurePhaseText returns the phase of a feature for the matrix: "03", or
+// "06 (works from 05)" when the gate lets it through earlier (Since).
+func featurePhaseText(f feature) string {
+	if f.Since != 0 && f.Since < f.Phase {
+		return fmt.Sprintf("%s (works from %s)", phaseText(f.Phase), phaseText(f.Since))
+	}
+	return phaseText(f.Phase)
 }
 
 // phaseText returns the phase for the matrix: "03", or "never".

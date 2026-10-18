@@ -201,10 +201,10 @@ func (g *gen) templateArg(e ast.Expr, template string) cppir.Node {
 			}
 			// Anything else holds gocpp func values: gp::func<R(A...)> (std.vector[func(int) int]).
 		case *types.Interface:
-			g.unsupported(e.Pos(), "interface types as C++ template arguments (Phase 05)")
+			g.notYet(e.Pos(), "interface types as C++ template arguments are not available yet (typed interop: Phase 12)")
 			return placeholder
 		case *types.Chan:
-			g.unsupported(e.Pos(), "channel types as C++ template arguments (Phase 08)")
+			g.notYet(e.Pos(), "channel types as C++ template arguments are not available yet (Phase 12)")
 			return placeholder
 		}
 	}

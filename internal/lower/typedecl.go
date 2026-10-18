@@ -339,6 +339,9 @@ func (g *gen) structOf(t types.Type, pos token.Pos) *structInfo {
 	case *types.Struct:
 		return g.anonStruct(t)
 	}
+	if g.stdTypeNotYet(t, pos) {
+		return nil
+	}
 	g.unsupported(pos, "type "+types.TypeString(t, types.RelativeTo(g.pkg.Types)))
 	return nil
 }

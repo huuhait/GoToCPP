@@ -45,6 +45,13 @@ test's own phase in it (`GOCPP_GATE_PHASE`, below). A missing or malformed phase
 line fails the test, and so does any other malformed line, even in a test that is skipped.
 
 A test is also skipped, with a message, when:
+- it has a `// pending: reason` line (below the phase line; allowed in run, diff, interop and pkgs tests and in
+  examples) and `GOCPP_TEST_PENDING` is not `1`. It says that the test's phase is only partly built and
+  the test fails until a named step lands: `make ci` runs the tests up to Phase 08 (`GOCPP_TEST_PHASE=08`,
+  below), and the examples `generics` and `workers` are pending. The step that makes the test pass removes
+  the line; `GOCPP_TEST_PENDING=1` runs the pending tests meanwhile. A `// pending:` line in a test of a finished phase
+  (`// phase:` up to `Phase` of internal/version) fails the test, because it would hide a real failure, and
+  `TestPendingFiles` lists the pending tests (exactly two today), so hiding another one needs an edit there;
 - its `//go:build` line (at the top of the file, in every kind of test) excludes the target.
   The target is the machine that runs the tests: its `GOOS` and `GOARCH` hold, `unix` on a
   Unix system, and the release tags `go1.1` to `go1.25`; any other tag doesn't;
@@ -120,6 +127,7 @@ missing compiler).
 | `GOCPP_TEST_PHASE` | `Phase` of internal/version | run the tests up to this phase (00 to 15), for example `GOCPP_TEST_PHASE=01` while you build Phase 01 |
 | `GOCPP_GATE_PHASE` | set per test | not set by you: for gocpp's own development and tests, gocpp's phase gates accept the features up to this phase (`cmd/gocpp/gatephase.go`). For a test whose `// phase:` comes after `Phase` of internal/version (one that runs only with `GOCPP_TEST_PHASE`), the harness passes that test's phase to its gocpp commands, so the test can use the features of its phase before the phase is finished. A test of a finished phase gets none, so an error test still sees the gates of later phases. It never turns the gates of finished phases back on |
 | `GOCPP_RUN_VS_GO` | none | `1`: `TestRunVsGo` builds each test in `tests/run` with real Go (`go build`, like a diff test) and checks the test's `// Output:` block (compared like `TestRun` compares), `// ExitCode:` and `// Stderr:` regexps against what the Go binary does, so that an expected output pasted from Go can't drift. It checks the tests of every phase, runs no C++ compiler, and skips a test whose code `go build` rejects (an error at a line of the program: gocpp-only code) and a test with a `// divergence: Dn` line (it shows a divergence of [docs/spec/language.md](../docs/spec/language.md), so Go does something else on purpose). Any other `go build` failure fails the test, and a run that compares no test fails too. Off, `TestRunVsGo` is a skip: `GOCPP_RUN_VS_GO=1 go test ./tests/... -run RunVsGo` |
+| `GOCPP_TEST_PENDING` | none | `1`: also run the tests with a `// pending:` line (they fail until their step lands) |
 | `GOCPP_TEST_TIMEOUT` | `2m` | the time limit of one command (one `gocpp run`, one `go build`), as a Go duration |
 
 `make` passes them on: `GOCPP_CXX=g++ make test`. `GOCPP_REQUIRE_CXX= make ci` turns the

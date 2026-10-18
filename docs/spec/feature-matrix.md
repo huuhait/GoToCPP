@@ -4,8 +4,10 @@
 tables there and run go test ./internal/check -run TestFeatureMatrix -update-gates -->
 
 This page says which phase of the [plan](../../plans/2026-10-13-gocpp/README.md) brings each
-feature of gocpp. Until a phase is finished, the compiler rejects its features with an error that
-names the phase, so you never get broken C++:
+feature of gocpp. The features of Phases 00 to 05 work (`gocpp version` prints `phase 05`); the rows with a later phase are rejected.
+Until a phase is finished, the compiler rejects its features with an error that names the phase,
+so you never get broken C++ (a few features of a later phase work earlier, and say so in their row,
+for example "06 (works from 05)"):
 
 ```
 ./main.gp:5:12: interfaces are not supported yet (Phase 05)
@@ -65,7 +67,7 @@ string, conversions between number types, the built-in functions
 | panic with a value of a non-basic type | 05 | `panic(err)`, `panic(myStruct)`. |
 | the # flag, * and argument indexes in format strings | 05 | `%#v`, `%*d`, `%[1]d`. |
 | format strings that are not constants | 05 | From Phase 05 `fmt` checks nothing at compile time: a bad verb prints Go's error form at run time. |
-| programs of more than one package | 06 | Importing packages of your module (`gocpp.mod`). The standard packages are fine. |
+| programs of more than one package | 06 (works from 05) | Importing packages of your module (`gocpp.mod`), of `replace`d, vendored and downloaded modules. The standard packages are fine. Works from Phase 05 (step 6.2: one translation unit per file, Go's initialization order across packages); Phase 06 finishes the build system (cache, build modes). |
 | `//export` functions | 06 | Functions that C code can call (`-buildmode=c-archive`, `c-shared`). |
 | generics | 07 | Generic functions and types, generic aliases, constraints with type sets, instantiating generic standard functions. Exemption: `weak.Pointer[T]` from Phase 03. |
 | range over functions | 07 | Iterators: `iter.Seq`, `iter.Seq2`. |
@@ -95,8 +97,6 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 | `unsafe` | 03 | `Sizeof`, `Alignof` and `Offsetof` from Phase 03, the rest (`unsafe.Pointer`, `Slice`, `String`, …) from Phase 04. `unsafe.Pointer` keeps gocpp memory alive (divergence D16). |
 | `weak` | 03 | `weak.Pointer[T]` is a compiler intrinsic, exempt from the generics gate. |
 | `errors` | 05 |  |
-| `runtime` | 05 | `runtime.Error` and `runtime.PanicNilError` from Phase 05; `Gosched`, `NumGoroutine`, `GOMAXPROCS`, `Goexit` and `LockOSThread` (which does nothing: each goroutine has its own thread) from Phase 08. |
-| `runtime/cgo` | 05 | `cgo.Handle`, because its API uses `any`. |
 | `os` | 05 | `os.Stdout` and `os.Stderr` as the writers of `fmt.Fprint` and friends from Phase 05; the rest of the package in Phase 09. |
 | `cmp` | 07 |  |
 | `iter` | 07 | `iter.Pull` and `iter.Pull2` from Phase 08 (they run on a helper thread). |
@@ -105,6 +105,8 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 | `sync` | 08 |  |
 | `sync/atomic` | 08 |  |
 | `time` | 08 | Timers and `Sleep` in Phase 08; formatting, parsing and time zones in Phase 09. |
+| `runtime` | 09 | `runtime.Error`, `runtime.PanicNilError`, `Gosched`, `NumGoroutine`, `GOMAXPROCS`, `Goexit` and `LockOSThread` (which does nothing: each goroutine has its own thread). There is no `runtime` package yet: the panics of Phase 05 already carry Go's `runtime.Error` types and methods (`r.(error)` works), but a program can't name them until the package exists (Phase 08 step 8.10 plans its goroutine functions). |
+| `runtime/cgo` | 09 | `cgo.Handle`: not built yet. |
 | `bufio` | 09 |  |
 | `bytes` | 09 |  |
 | `context` | 09 |  |
@@ -154,8 +156,6 @@ These come in another phase than their package. A method comes with its type, un
 | `fmt.Appendln` | 05 |
 | `os.Stdout` | 05 |
 | `os.Stderr` | 05 |
-| `runtime.Error` | 05 |
-| `runtime.PanicNilError` | 05 |
 | `iter.Pull` | 08 |
 | `iter.Pull2` | 08 |
 | `time.FixedZone` | 09 |
@@ -175,12 +175,11 @@ These come in another phase than their package. A method comes with its type, un
 | `errors.Wrapf` | 10 |
 | the rest of `fmt` | 09 |
 | the rest of `unsafe` | 04 |
-| the rest of `runtime` | 08 |
 | the rest of `os` | 09 |
 
 ## Format strings
 
-The compiler checks the verbs of the format strings of `fmt.Printf`, `fmt.Sprintf` and `fmt.Errorf`, so until Phase 09 a format string must be a constant. Width, precision and flags are in the table of language features.
+Before Phase 05 the compiler checks the verbs of the format strings of `fmt.Printf`, `fmt.Sprintf` and `fmt.Errorf`, and a format string must be a constant. From Phase 05 `fmt` checks nothing at compile time: every verb of Go's `fmt` works, and a bad one prints Go's error form at run time (`%!z(int=1)`). Width, precision and flags are in the table of language features.
 
 | Verbs | Phase |
 |---|---|

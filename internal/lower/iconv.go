@@ -68,7 +68,7 @@ func (g *gen) toInterface(from, to types.Type, x cppir.Expr, pos token.Pos) cppi
 		// method table (the checker doesn't know its methods), so only an interface without
 		// methods can hold it.
 		if isErrorType(to) || !isAnyType(to) && g.ifaceMethods(to) > 0 {
-			g.unsupported(pos, "a C/C++ value in an interface with methods ("+g.canonName(to)+"): only interfaces without methods hold C/C++ values until Phase 12 (typed interop)")
+			g.notYet(pos, "a C/C++ value in an interface with methods ("+g.canonName(to)+") is not available yet: only interfaces without methods hold C/C++ values until Phase 12 (typed interop)")
 			return placeholder
 		}
 		return templateCall("gp::to_iface_foreign", []cppir.Node{typ}, x)

@@ -148,6 +148,15 @@ type feature struct {
 	// when Phase <= Config.Phase. Never: gocpp code never gets it.
 	Phase int
 
+	// Since, if it is not zero, is the phase from which the gate allows
+	// the feature although Phase is later: the part of it that programs
+	// need is built and tested, and Phase finishes the rest (programs of
+	// more than one package: Phase 05 has them, Phase 06 adds the build
+	// modes and the cache). The message still names Phase, for a program
+	// that is checked before Since. A feature whose built part would
+	// break programs (half a feature) gets no Since.
+	Since int
+
 	// Detect says how the checker finds a use, for the people who work
 	// on it (gatewalk.go and gateparse.go do it).
 	Detect string
@@ -155,6 +164,24 @@ type feature struct {
 	// Notes are the details for the feature matrix: what the feature
 	// covers, exemptions, links. Plain English, short.
 	Notes string
+}
+
+// allowed reports whether the gates of the phase let the feature through.
+func (f *feature) allowed(phase int) bool {
+	return f.Phase <= phase || (f.Since != 0 && f.Since <= phase)
+}
+
+// SinceOf returns the Since of the feature whose gate error is msg (the text after "file:line:col: "),
+// and whether there is one: the phase from which the gates stop reporting that error although the
+// message names a later phase. cmd/gocpp's tests use it to know which lines of examples.txt `gocpp
+// check` still reports.
+func SinceOf(msg string) (since int, ok bool) {
+	for i := range features {
+		if f := &features[i]; f.Since != 0 && strings.HasSuffix(msg, f.Message()) {
+			return f.Since, true
+		}
+	}
+	return 0, false
 }
 
 // Message returns the error message for a use of the feature.
@@ -270,9 +297,9 @@ var features = [numFeatures]feature{
 		Detect: "a call of panic whose argument is not of a basic type",
 		Notes:  "`panic(err)`, `panic(myStruct)`."},
 
-	{id: featMultiPackage, Name: "programs of more than one package", Plural: true, Phase: 6,
+	{id: featMultiPackage, Name: "programs of more than one package", Plural: true, Phase: 6, Since: 5,
 		Detect: "an import of a package that is not a standard package",
-		Notes:  "Importing packages of your module (`gocpp.mod`). The standard packages are fine."},
+		Notes:  "Importing packages of your module (`gocpp.mod`), of `replace`d, vendored and downloaded modules. The standard packages are fine. Works from Phase 05 (step 6.2: one translation unit per file, Go's initialization order across packages); Phase 06 finishes the build system (cache, build modes)."},
 	{id: featExport, Name: "//export functions", Plural: true, Phase: 6,
 		Detect: "an //export line in the doc comment of a func",
 		Notes:  "Functions that C code can call (`-buildmode=c-archive`, `c-shared`)."},
@@ -393,8 +420,8 @@ var stdPackages = []stdPackage{
 	{Path: "unsafe", Phase: 3, Rest: 4, Notes: "`Sizeof`, `Alignof` and `Offsetof` from Phase 03, the rest (`unsafe.Pointer`, `Slice`, `String`, …) from Phase 04. `unsafe.Pointer` keeps gocpp memory alive (divergence D16)."},
 	{Path: "weak", Phase: 3, Notes: "`weak.Pointer[T]` is a compiler intrinsic, exempt from the generics gate."},
 	{Path: "errors", Phase: 5},
-	{Path: "runtime", Phase: 5, Rest: 8, Notes: "`runtime.Error` and `runtime.PanicNilError` from Phase 05; `Gosched`, `NumGoroutine`, `GOMAXPROCS`, `Goexit` and `LockOSThread` (which does nothing: each goroutine has its own thread) from Phase 08."},
-	{Path: "runtime/cgo", Phase: 5, Notes: "`cgo.Handle`, because its API uses `any`."},
+	{Path: "runtime", Phase: 9, Notes: "`runtime.Error`, `runtime.PanicNilError`, `Gosched`, `NumGoroutine`, `GOMAXPROCS`, `Goexit` and `LockOSThread` (which does nothing: each goroutine has its own thread). There is no `runtime` package yet: the panics of Phase 05 already carry Go's `runtime.Error` types and methods (`r.(error)` works), but a program can't name them until the package exists (Phase 08 step 8.10 plans its goroutine functions)."},
+	{Path: "runtime/cgo", Phase: 9, Notes: "`cgo.Handle`: not built yet."},
 	{Path: "cmp", Phase: 7},
 	{Path: "iter", Phase: 7, Notes: "`iter.Pull` and `iter.Pull2` from Phase 08 (they run on a helper thread)."},
 	{Path: "maps", Phase: 7},
@@ -470,8 +497,6 @@ var stdMembers = []stdMember{
 	{Pkg: "unsafe", Name: "Alignof", Phase: 3},
 	{Pkg: "unsafe", Name: "Offsetof", Phase: 3},
 	{Pkg: "unsafe", Name: "Sizeof", Phase: 3},
-	{Pkg: "runtime", Name: "Error", Phase: 5},
-	{Pkg: "runtime", Name: "PanicNilError", Phase: 5},
 	{Pkg: "iter", Name: "Pull", Phase: 8},
 	{Pkg: "iter", Name: "Pull2", Phase: 8},
 	{Pkg: "time", Name: "FixedZone", Phase: 9},

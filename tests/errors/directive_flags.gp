@@ -1,5 +1,5 @@
 // phase: 01
-//gocpp:cflags -DOK -fplugin=./evil.so // ERROR "invalid flag in //gocpp:cflags: -fplugin=\./evil\.so" "directives are not supported yet \(Phase 04\)"
+//gocpp:cflags -DOK -fplugin=./evil.so // ERROR "invalid flag in //gocpp:cflags: -fplugin=\./evil\.so"
 //gocpp:cflags -I // ERROR "invalid flag in //gocpp:cflags: -I without argument"
 //gocpp:ldflags -Wl,-plugin,./evil.so // ERROR "invalid flag in //gocpp:ldflags: -Wl,-plugin,\./evil\.so"
 //gocpp:link to_library // ERROR "invalid flag in //gocpp:link: -lto_library"

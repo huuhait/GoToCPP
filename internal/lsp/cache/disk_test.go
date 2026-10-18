@@ -155,7 +155,8 @@ func TestDiskKeys(t *testing.T) {
 		{name: "GOOS", cfg: func(cfg *Config) { cfg.GOOS = "windows" }},
 		{name: "GOARCH", cfg: func(cfg *Config) { cfg.GOARCH = "arm64" }},
 		// The gate phase: a program of more than one package is gated
-		// before Phase 06, so the diagnostics differ too.
+		// before Phase 05 (featMultiPackage.Since) and much else before
+		// Phase 03, so the diagnostics differ too.
 		{name: "phase", cfg: func(cfg *Config) { cfg.Phase = 3 }},
 	}
 	for _, tt := range tests {

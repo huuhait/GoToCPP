@@ -20,8 +20,11 @@
 //   - when runtime/ changed: the runtime's fast tests, and its C++ unit tests with one
 //     compiler in the debug mode only (not -O2 and not the sanitizers).
 //
-// Phase 04 and later fixtures are skipped unless GOCPP_TEST_PHASE says so, as for go test:
-// GOCPP_TEST_PHASE=04 make quick.
+// Fixtures of a phase after the last built one (internal/version) are skipped unless
+// GOCPP_TEST_PHASE says so, as for go test. "make quick" runs the phases up to CI_TEST_PHASE of
+// the Makefile (08) like "make ci" (it sets GOCPP_TEST_PHASE unless you did); a fixture with a
+// "// pending:" line is skipped (GOCPP_TEST_PENDING=1 runs it). GOCPP_TEST_PHASE=09 make quick
+// includes the fixtures of a phase that is being built.
 package main
 
 import (

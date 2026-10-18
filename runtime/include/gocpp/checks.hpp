@@ -4,7 +4,8 @@
 // GOCPP_NOCHECKS, which `gocpp build -nochecks` defines for every file of the program (the
 // runtime's too), turns off the bounds and nil checks: gp::check_index and check_wrap here,
 // check_slice, check_slice3 and check_convert (bounds.hpp), the nil check of *p and p->f and
-// the owner check (ptr.hpp), the nil check of a call of a func value (func.hpp), the
+// the owner check (ptr.hpp), the nil check of a call of a func value (func.hpp), the nil check of a
+// method call of an interface value and of a method value of one (iface.hpp, ifaceconv.hpp), the
 // checks of the generated code's literal keys (array.hpp, slice.hpp), and in interop.hpp the
 // nil check of gp::deref, the index check of gp::range and the nil checks of C.GoStringN and
 // C.GoBytes. An index out of range

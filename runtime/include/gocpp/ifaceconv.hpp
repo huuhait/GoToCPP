@@ -96,9 +96,11 @@ bool has_methods(const type_desc* t) noexcept {
 template <typename I>
     requires std::is_base_of_v<iface, std::remove_cvref_t<I>>
 std::remove_cvref_t<I> method_recv(I&& x) {
+#ifndef GOCPP_NOCHECKS
     if (x.gp_type() == nullptr) [[unlikely]] {
-        panic_nil();
+        panic_nil(); // a nil check: checks.hpp
     }
+#endif
     return std::forward<I>(x);
 }
 

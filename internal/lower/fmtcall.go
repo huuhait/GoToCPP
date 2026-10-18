@@ -271,3 +271,73 @@ func isFmtIface(t types.Type, name string) bool {
 	n, ok := types.Unalias(t).(*types.Named)
 	return ok && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "fmt" && n.Obj().Name() == name
 }
+
+// stdPkgMember returns the object of the qualified name x, pkg.Name, if pkg is a standard package
+// that the program imports and gocpp has no code for beyond fmt's calls (fmt, os, ...), or nil.
+func (fg *funcGen) stdPkgMember(x *ast.SelectorExpr) types.Object {
+	id, ok := x.X.(*ast.Ident)
+	if !ok {
+		return nil
+	}
+	pn, ok := fg.g.info.Uses[id].(*types.PkgName)
+	if !ok || fg.g.foreign(pn.Imported()) != nil {
+		return nil
+	}
+	return fg.g.info.Uses[x.Sel]
+}
+
+// stdMemberValue returns the C++ of the use of obj, pkg.Name, as a value (not called): a function
+// of fmt becomes a func value that spreads its final ...any into the runtime function,
+//
+//	h := fmt.Println     gp::func<std::tuple<int64_t, gp::error>(gp::slice<gp::any>)>(
+//	                         [](gp::slice<gp::any> gp_a0) { return gp::fmt::Println(gp::fmt::spread(gp_a0)); })
+//
+// Fprint, Fprintln, Fprintf (they need an io.Writer) and FormatString, os.Stdout and os.Stderr
+// outside the writer argument of a Fprint call (they need the type os.File) and the other
+// members of the standard packages are not available yet (Phase 09).
+func (fg *funcGen) stdMemberValue(x *ast.SelectorExpr, obj types.Object) cppir.Expr {
+	name := types.ExprString(x)
+	fn, ok := obj.(*types.Func)
+	pkg := obj.Pkg().Path()
+	if !ok || pkg != "fmt" || !fmtFuncs[fn.Name()] || fn.Name() == "FormatString" ||
+		(fmtWriterFunc(fn.Name())) {
+		switch {
+		case ok && pkg == "fmt":
+			fg.g.notYet(x.Pos(), name+" as a value is not available yet (it needs package io: Phase 09)")
+		case !ok && pkg == "os":
+			fg.g.notYet(x.Pos(), name+" used as a value, outside the writer argument of fmt.Fprint, is not available yet (it needs the type os.File: Phase 09)")
+		default:
+			fg.g.notYet(x.Pos(), name+" is not available yet (Phase 09)")
+		}
+		return placeholder
+	}
+	sig := fn.Type().(*types.Signature)
+	ft := fg.g.funcType(sig, x.Pos())
+	ftype, _ := ft.(*cppir.TypeName)
+	if ftype == nil || len(ftype.Args) != 1 {
+		return placeholder
+	}
+	sigT, _ := ftype.Args[0].(*cppir.FuncType)
+	if sigT == nil {
+		return placeholder
+	}
+	var params []cppir.Param
+	var args []cppir.Expr
+	for i, p := range sigT.Params {
+		pn := "gp_a" + strconv.Itoa(i)
+		params = append(params, cppir.Param{Type: p, Name: pn})
+		if i == len(sigT.Params)-1 && sig.Variadic() {
+			args = append(args, call("gp::fmt::spread", cxxName(pn)))
+		} else {
+			args = append(args, cxxName(pn))
+		}
+	}
+	body := &cppir.Return{X: &cppir.Call{Fun: cxxName("gp::fmt::" + fn.Name()), Args: args}}
+	lambda := &cppir.Lambda{Params: params, Body: &cppir.Block{Stmts: []cppir.Stmt{body}, Inline: true}}
+	return construct(ft, lambda)
+}
+
+// fmtWriterFunc reports whether the fmt function name takes an io.Writer.
+func fmtWriterFunc(name string) bool {
+	return name == "Fprint" || name == "Fprintln" || name == "Fprintf"
+}

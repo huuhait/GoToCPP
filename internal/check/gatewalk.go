@@ -164,7 +164,7 @@ type gateChecker struct {
 // rejects it, and returns whether it does.
 func (g *gateChecker) feature(id featureID, pos, end token.Pos) bool {
 	f := &features[id]
-	if f.Phase <= g.phase {
+	if f.allowed(g.phase) {
 		return false
 	}
 	g.report(pos, end, f.Message(), f.Phase)
@@ -652,7 +652,7 @@ func (g *gateChecker) visitSelector(sel *ast.SelectorExpr) {
 // one of them, but check can't tell which one (Phase 12, typed interop), not
 // an error. With one embedded C/C++ type the selector is fine (promoted.go).
 func (g *gateChecker) checkPromoted(sel *ast.SelectorExpr) {
-	if features[featPromotedCpp].Phase <= g.phase {
+	if features[featPromotedCpp].allowed(g.phase) {
 		return
 	}
 	t := g.typeOf(sel.X)
@@ -805,7 +805,7 @@ func (g *gateChecker) checkTypes() {
 		case *types.TypeName:
 			// type WP weak.Pointer[T]: the intrinsic (weak.Pointer[T] itself and its aliases)
 			// is a runtime class; a type defined over it waits for the generics.
-			if f := &features[featGenerics]; !obj.IsAlias() && weakDefined(obj.Type()) && f.Phase > g.phase {
+			if f := &features[featGenerics]; !obj.IsAlias() && weakDefined(obj.Type()) && !f.allowed(g.phase) {
 				g.report(id.Pos(), id.End(), gateMessage("a type defined as weak.Pointer[T]", false, f.Phase), f.Phase)
 			}
 		}

@@ -134,6 +134,9 @@ func (g *gen) cxxType(t types.Type, pos token.Pos) cppir.Type {
 		g.unsupported(pos, "this use of a C/C++ type (a later step of Phase 04)")
 		return typeName("gp_unsupported")
 	}
+	if g.stdTypeNotYet(t, pos) {
+		return typeName("gp_unsupported")
+	}
 	g.unsupported(pos, "type "+types.TypeString(t, types.RelativeTo(g.pkg.Types)))
 	return typeName("gp_unsupported")
 }
@@ -185,4 +188,16 @@ func isSlice(t types.Type) bool {
 func isString(t types.Type) bool {
 	b, ok := under(t).(*types.Basic)
 	return ok && b.Info()&types.IsString != 0
+}
+
+// stdTypeNotYet reports a named type of a standard package that has no code yet (os.File,
+// io.Writer) as the user's error, not gocpp's, and returns true; it returns false for any other
+// type.
+func (g *gen) stdTypeNotYet(t types.Type, pos token.Pos) bool {
+	n, ok := types.Unalias(t).(*types.Named)
+	if !ok || n.Obj().Pkg() == nil || n.Obj().Pkg() == g.pkg.Types || g.foreign(n.Obj().Pkg()) != nil {
+		return false
+	}
+	g.notYet(pos, "the type "+types.TypeString(t, types.RelativeTo(g.pkg.Types))+" is not available yet (package "+n.Obj().Pkg().Name()+": Phase 09)")
+	return true
 }

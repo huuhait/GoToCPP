@@ -19,6 +19,17 @@ ci: export GOCPP_REQUIRE_CXX ?= g++,clang++
 # GOCPP_REQUIRE_GDB= make ci turns this off.
 ci: export GOCPP_REQUIRE_GDB ?= 1
 
+# make ci, make test, make quick and make ci-sanitize run the test programs up to
+# this phase (GOCPP_TEST_PHASE, tests/README.md), not only up to the last finished
+# phase (internal/version): the features of the later phases that are already
+# built (goroutines, channels, multi-package programs) have tests, and they must
+# stay green. A test or example that still waits for a step of its phase says so
+# with a "// pending:" line and is skipped (GOCPP_TEST_PENDING=1 runs it). Raise
+# this when a later phase gets its first test. GOCPP_TEST_PHASE= make ci (empty)
+# runs only the finished phases.
+CI_TEST_PHASE = 08
+test test-programs quick ci-sanitize: export GOCPP_TEST_PHASE ?= $(CI_TEST_PHASE)
+
 # The paths "make lint" does not gofmt-check, as find(1) tests joined with -o:
 # spikes/ (throwaway code in its own Go module) and every testdata folder
 # (test inputs need not be gofmt-clean, for example Go's own parser testdata
@@ -57,16 +68,19 @@ test-programs:
 # both g++ and clang++. internal/cppgen's TestFatal skips itself here (a
 # sanitizer reports running out of memory and stack overflows on its own, and
 # the runtime's stack-overflow handler is off under ASan). The runtime's own
-# C++ tests have a sanitizer mode in make test already. -parallel 2, because
+# C++ tests have a sanitizer mode in make test already. -parallel 4 and 2, because
 # sanitized builds and programs are big. The repo has no CI service yet
 # (TODO.md, Q9), so this target is the CI job: run it next to make ci when a
-# change touches the runtime, the emitter or the tests. GOCPP_TEST_PHASE=03
-# make ci-sanitize runs the tests of a phase that is being built.
+# change touches the runtime, the emitter or the tests. It runs the tests up to
+# CI_TEST_PHASE, like make ci; GOCPP_TEST_PHASE=09 make ci-sanitize runs the tests
+# of a phase that is being built. Time (2026-10-18, shared 128-core machine at load 30-60): the
+# test programs, all phases up to 08 (about 1250 programs on two compilers), took about 20 minutes
+# at -parallel 4 and the cppgen tests about 28 minutes at -parallel 2 with the sanitizers.
 SANITIZE_FLAGS = -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all
 .PHONY: ci-sanitize
 ci-sanitize: export GOCPP_REQUIRE_CXX ?= g++,clang++
 ci-sanitize:
-	GOCPP_FLAGS="$(GOCPP_FLAGS) -asan" $(GO) test -count=1 -timeout 60m -parallel 2 \
+	GOCPP_FLAGS="$(GOCPP_FLAGS) -asan" $(GO) test -count=1 -timeout 120m -parallel 4 \
 		-run '^(TestRun|TestDiff|TestInterop|TestExamples)$$' ./tests/...
 	GOCPP_TEST_CXXFLAGS="$(GOCPP_TEST_CXXFLAGS) $(SANITIZE_FLAGS)" \
 		$(GO) test -count=1 -timeout 60m -parallel 2 ./internal/cppgen/...

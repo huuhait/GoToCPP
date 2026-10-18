@@ -229,7 +229,7 @@ type switch can tell them apart.
 8. **8.8 `time`** with Go 1.23+ timer rules (unbuffered timer channels, no stale values,
    weak references in the timer heap).
 9. **8.9 Exit semantics** (flush + `_exit`, no static destructors, TSan-aware harness).
-10. **8.10 `runtime`** (Gosched, NumGoroutine, GOMAXPROCS that remembers its value, Goexit).
+10. **8.10 `runtime`** (Gosched, NumGoroutine, GOMAXPROCS that remembers its value, Goexit). The first of these makes the `runtime` package exist: the gate rows for `runtime` and `runtime/cgo` are at Phase 09 since step 5.12 (`internal/check/gates.go`), so 8.10 must move the `runtime` row to Phase 08 (and add `runtime.Error`/`PanicNilError`, which it owns unless 9.2 does).
 11. **8.11 Deadlock detection** (Go 1.23+ timer rule, foreign threads, the `Goexit` message).
 12. **8.12 `-race` CI job** (ThreadSanitizer over the concurrency suite).
 13. **8.13 Lift the gates; tests**: ≥ 50 concurrency run tests (deterministic output only); the

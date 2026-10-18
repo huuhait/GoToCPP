@@ -13,8 +13,10 @@ Linux and Windows.
 
 ## Status
 
-Phases 00 (foundations), 01 (the front-end), 02 (the walking skeleton) and 03 (the core language)
-are done; Phase 04 (C/C++ interop) is under way, and the language server's first version is done. What works today:
+Phases 00 to 05 are built: the front-end, the walking skeleton, the core language, C/C++ interop
+and interfaces, embedding, errors and `panic`/`recover` (`gocpp version` prints `phase 05`). The
+language server's first version is done too, and programs of several packages work (Phase 06 is
+under way: the build cache and the build modes are next). What works today:
 
 - `gocpp fmt` formats `.gp` files like gofmt (`gocpp fmt -h`).
 - `gocpp check` parses and type-checks packages, C/C++ header imports included, and prints their
@@ -22,13 +24,21 @@ are done; Phase 04 (C/C++ interop) is under way, and the language server's first
   "not supported yet (Phase NN)" error; [docs/spec/feature-matrix.md](docs/spec/feature-matrix.md)
   lists them.
 - `gocpp build`, `gocpp run` and `gocpp emit` compile programs to C++20 and build them with g++ or
-  clang++: Go's core language without interfaces, generics and goroutines (basic and complex
-  types, functions, loops, `switch`, labels, pointers, slices, arrays, maps, structs, named types,
-  methods, closures, `defer`, `weak.Pointer` and a stand-in for `fmt`'s printing functions), with
-  Go's evaluation order and Go's panic messages and stack traces (`-nochecks` turns off the bounds
-  and nil checks). [examples/hello](examples/hello/main.gp), [structs](examples/structs/main.gp),
-  [closures](examples/closures/main.gp) and [wordfreq-core](examples/wordfreq-core/main.gp) run,
-  and gdb can debug them at the `.gp` level. C/C++ headers and libraries come next (Phase 04).
+  clang++: Go's language without generics, `select` and the `sync`/`time` packages, so basic and
+  complex types, functions, loops, `switch`, labels, pointers, slices, arrays, maps, structs, named
+  types, methods, closures, `defer`, interfaces (`any`, `error`, type assertions and type switches,
+  embedding, method values and expressions), `panic` and `recover` (also for C++ exceptions),
+  `weak.Pointer`, the `errors` package, `fmt` for every value and verb, and programs of several
+  packages (a module with `gocpp.mod`). Panics print Go's messages and stack traces, and a program
+  exits with Go's exit codes (`-nochecks` turns off the bounds and nil checks).
+  [examples/hello](examples/hello/main.gp), [structs](examples/structs/main.gp),
+  [closures](examples/closures/main.gp), [wordfreq-core](examples/wordfreq-core/main.gp),
+  [shapes](examples/shapes/main.gp) (interfaces and embedding) and [multi-pkg](examples/multi-pkg/main.gp) run,
+  and gdb can debug them at the `.gp` level. C/C++ headers and libraries work (`"<vector>"`,
+  `"<sqlite3.h>"`, `std.vector[int]`; see [docs/spec/interop.md](docs/spec/interop.md)):
+  [cpp-std](examples/cpp-std/main.gp), [mixed-sources](examples/mixed-sources/main.gp) and
+  [sqlite](examples/sqlite/main.gp) run. Goroutines and channels are built but gated until the rest of
+  Phase 08 (`select`, `sync`, `time`) lands.
 - `gocpp lsp` is the language server (`gocpp lsp -h`): errors as you type, hover, go to
   definition, signature help, completion (with auto-import), formatting and organize imports. The
   VS Code extension in [editors/vscode](editors/vscode/README.md) starts it;
@@ -62,7 +72,10 @@ bin/gocpp version
 ```
 
 For the test programs (`make test-programs`) and their variables `GOCPP_CXX`,
-`GOCPP_REQUIRE_CXX`, `GOCPP_FLAGS` and `GOCPP_TEST_PHASE`, see [tests/README.md](tests/README.md).
+`GOCPP_REQUIRE_CXX`, `GOCPP_FLAGS`, `GOCPP_TEST_PHASE` and `GOCPP_TEST_PENDING`, see
+[tests/README.md](tests/README.md). `make ci` runs the test programs up to Phase 08, not only up to
+the last built phase (`CI_TEST_PHASE` in the Makefile), so that the goroutines, channels and
+multi-package tests stay green; a test that still waits for a step says `// pending:` and is skipped.
 
 `spikes/` holds the throwaway experiments behind the plan. It is a separate Go module, so
 `./...` in the root doesn't include it; see [spikes/2026-10-13/README.md](spikes/2026-10-13/README.md)

@@ -50,6 +50,7 @@ An example is a folder with these files:
 | `// pkg-config: raylib` | the program needs these libraries: skipped with a message when `pkg-config --exists` fails |
 | `// display: required` | the program opens a real window even in smoke mode: skipped without a display (neither `DISPLAY` nor `WAYLAND_DISPLAY` set); `xvfb-run -a` gives it one (with `XDG_SESSION_TYPE=x11`, see below) |
 | `// ExitCode: N` | the expected exit status (0 when the line is missing) |
+| `// pending: reason` | the program still fails because a step of its phase has not landed (`// pending: steps 8.5 (select) and 8.7 (sync)`): skipped with that reason unless `GOCPP_TEST_PENDING=1`; remove the line when the step is done |
 | `//go:build windows` | a normal Go build constraint, honored: [win32](win32/main.gp) runs only for Windows targets (`gocpp build -os windows`, under Wine from Phase 14) |
 
 Directives for the compiler (`//gocpp:pkg-config raylib`) are separate: they stay at the end of

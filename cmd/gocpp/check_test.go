@@ -750,11 +750,11 @@ func TestCheckWarning(t *testing.T) {
 
 // examplesGates reads internal/check/testdata/gates/examples.txt: the
 // phase gate errors of each example at Phase 02. gocpp check reports the
-// ones of the phases after version.Phase, so it keeps those
-// (internal/check's TestGateExamples checks that this is what each phase
-// reports). It maps each example to its error lines, as check prints them
+// ones of the phases after version.Phase (and not lifted earlier, see
+// examplePhase), so it keeps those (internal/check's TestGateExamples checks
+// that this is what each phase reports); all keeps every line. It maps each example to its error lines, as check prints them
 // for the example's folder (win32 for windows/amd64).
-func examplesGates(t *testing.T) map[string][]string {
+func examplesGates(t *testing.T, all ...bool) map[string][]string {
 	t.Helper()
 	data, err := os.ReadFile("../../internal/check/testdata/gates/examples.txt")
 	if err != nil {
@@ -767,7 +767,7 @@ func examplesGates(t *testing.T) map[string][]string {
 		if n, ok := strings.CutPrefix(line, "== "); ok {
 			name = n
 			gates[name] = []string{}
-		} else if line != "" && name != "" && examplePhase(t, line) > version.Phase {
+		} else if line != "" && name != "" && (len(all) > 0 || examplePhase(t, line) > version.Phase) {
 			gates[name] = append(gates[name], line)
 		}
 	}
@@ -791,6 +791,9 @@ func examplePhase(t *testing.T, line string) int {
 		return check.Never
 	}
 	n, _ := strconv.Atoi(m[1])
+	if since, ok := check.SinceOf(line); ok {
+		return min(n, since)
+	}
 	return n
 }
 
@@ -1101,23 +1104,12 @@ func TestCheckTypes(t *testing.T) {
 	t.Chdir(dir)
 	for _, args := range [][]string{{"-types", "."}, {"-types", "main.gp", "sdl.gp"}, {"-types", "-e", "./..."}} {
 		code, out, errOut := gocpp(append([]string{"check"}, args...)...)
-		// The types are there also with the phase gates' errors.
-		pkg := "example.com/types"
-		if args[1] == "main.gp" {
-			pkg = "command-line-arguments"
-		}
-		want := result{1, typesWant, "# " + pkg + "\n" + typesGates}
+		want := result{0, typesWant, ""}
 		if r := (result{code, portable(out), portable(errOut)}); r != want {
 			t.Errorf("gocpp check %s:\n%s\nwant:\n%s", strings.Join(args, " "), show(r), show(want))
 		}
 	}
 }
-
-// typesGates are the phase gates' errors for the package of TestCheckTypes.
-const typesGates = `./main.gp:6:9: header imports are not supported yet (Phase 04)
-./main.gp:15:7: C++ namespaces are not supported yet (Phase 04)
-./sdl.gp:3:8: header imports are not supported yet (Phase 04)
-`
 
 // TestCheckTypesConversions checks -types on conversions of opaque values,
 // which Check rewrote (check.Conversion): they print as written, T(x), as
@@ -1409,12 +1401,15 @@ func TestCheckTarget(t *testing.T) {
 				errOut = portable(errOut)
 			case "no compiler":
 				var lines []string
-				for _, l := range examplesGates(t)["win32"] {
+				for _, l := range examplesGates(t, true)["win32"] {
 					if strings.HasSuffix(l, "header imports are not supported yet (Phase 04)") {
 						pos, _, _ := strings.Cut(l, " ")
 						lines = append(lines, pos+" cannot check the header imports: no C++ compiler for windows/arm64 (set GOCPP_CXX)")
+						continue
 					}
-					lines = append(lines, l)
+					if examplePhase(t, l) > version.Phase {
+						lines = append(lines, l)
+					}
 				}
 				c.stderr = "# command-line-arguments\n" + strings.Join(lines, "\n") + "\n"
 				errOut = portable(errOut)

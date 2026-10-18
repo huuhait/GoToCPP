@@ -1,0 +1,19 @@
+// phase: 05
+// ExitCode: 2
+// Stderr: ^panic: interface conversion: main\.PT is not main\.I: missing method M\n\ngoroutine 
+
+// Uncaught panic: var a any = PT{}; _ = a.(I). The first lines of the report and the exit code are Go's.
+package main
+
+type I interface{ M() }
+
+type PT struct{}
+
+func (*PT) M() {}
+
+func main() {
+	var a any = PT{}
+	_ = a.(I)
+}
+
+// Output:

@@ -389,9 +389,11 @@ struct icall_fn<R(A...)> {
     template <typename... B>
     static R call(const iface& self, std::size_t slot, B&&... b) {
         const itab* t = self.gp_tab();
+#ifndef GOCPP_NOCHECKS
         if (t == nullptr) [[unlikely]] {
-            panic_nil(); // a method of a nil interface
+            panic_nil(); // a method of a nil interface (a nil check: checks.hpp)
         }
+#endif
         auto f = reinterpret_cast<thunk_t<R(A...)>*>(t->gp_fun[slot]);
         // The ticket of a deferred call (gocpp/aware.hpp): one thread-local load, null unless
         // the call is the one a panic's deferred-call machinery makes.
