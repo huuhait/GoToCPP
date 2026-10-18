@@ -1,21 +1,21 @@
 # Phase 08: Concurrency · STATE
 
-**Status:** `[ ]` not started
+**Status:** `[~]` in progress (8.1-8.6, 8.15 merged)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-13
+**Last updated:** 2026-10-18
 
 ## Steps
 
 - [x] 8.1 `gp::waiter` (park/unpark) + goroutine runtime (8 MiB default stacks, ids, counts, panic → exit 2, stack-overflow handler)
 - [x] 8.2 `go` statement codegen (eager evaluation of function + args)
 - [x] 8.3 Channels
-  - [ ] unbuffered (direct hand-off)
-  - [ ] buffered (ring buffer)
-  - [ ] close semantics + panics
-  - [ ] nil channels, `len`, `cap`, recv with `ok`
+  - [x] unbuffered (direct hand-off)
+  - [x] buffered (ring buffer)
+  - [x] close semantics + panics
+  - [x] nil channels, `len`, `cap`, recv with `ok`
 - [x] 8.4 Directional channel types (same C++ type, distinct descriptors)
-- [ ] 8.5 `select` (random poll order, lock order, default, nil cases, one entry per case + shared claim flag)
-- [ ] 8.6 `for range ch`
+- [x] 8.5 `select` (random poll order, lock order, default, nil cases, one entry per case + shared claim flag)
+- [x] 8.6 `for range ch`
 - [ ] 8.7 `sync` + `sync/atomic`
   - [ ] Mutex / RWMutex (atomic state word, waiters outside the object, copyable)
   - [ ] WaitGroup (+ `Go`), Once, OnceFunc/OnceValue/OnceValues, Cond, Map, Pool
@@ -77,3 +77,17 @@
   nothing now (zero-size); `%T` of a channel in the fmt shim prints `chan T` for all directions until 5.11 (descriptors know);
   idle threads keep their touched stack pages up to 5 s (documented); a goroutine panic racing main's return follows Go (main wins
   only if the deferred call is slower than the bound).
+- 2026-10-18: Jobs 8.5 + 8.6 (`select`, `for range ch`) merged after one review round (ADR-029). Decisions: (1) API is case objects + `switch (gp::select(...))`
+  (not the README's `select_ sel; sel.wait()`: a lambda per case would break break/continue/return/goto); poll order from a thread-local xorshift64*
+  (not Go's cheaprand); up to 16 cases without heap allocation; (2) channel locks in address order, duplicates collapsed, nil excluded; one claim flag per
+  select; losers are dequeued before return; a select on N channels counts as ONE blocked goroutine (`block_scope` under the locks, `unblock` by the waker);
+  (3) evaluation order follows gc (each case's channel/value evaluated and copied in source order before blocking; assignment-form LHS evaluated only for
+  the chosen case); (4) a non-boxed local channel variable is held by reference, any other channel expression by a copy of the handle; a select keeps its
+  non-local channel handles and unchosen send values alive until the end of the C++ block (ADR notes it); (5) a send on a closed channel panics only when
+  the poll reaches it; a closed channel's receive case is always ready; (6) spec terminating-statement analysis decides `gp::select_unreachable()`;
+  (7) ThreadSanitizer's deadlock detector aborts when one thread holds >64 locks and a select holds the lock of every channel in it: step 8.12's TSan job MUST
+  set `TSAN_OPTIONS=detect_deadlocks=0` or skip `select_1000_cases` (select_test uses 40 channels under TSan); (8) perf (g++ -O2, shared machine): ready 2-case select
+  ~70-85 ns, non-blocking select on empty channel 23 ns, 2-case select ping-pong ~1.8 us per hand-off (Go 0.2-0.4 us; ~12 us pinned to one CPU: a context
+  switch per hand-off: part of the Phase 15 goroutine-cost work); (9) gaps: `select {}` and all-nil selects block forever until 8.11 (they count as blocked:
+  `select (no cases)`/`select`); no `-race` for Go programs until 8.12; `time.After` in select untested until 8.8; a recv case whose element type has no zero
+  value fatals on a closed channel unless the value is dropped; gates featGo/featChannels/featSelect are Phase 8 and lift with version.Phase = 8.
