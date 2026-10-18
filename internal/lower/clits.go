@@ -44,8 +44,11 @@ import (
 // d lib.Point, []C.int{n}) follows cgo's rules (the guard, cguard.go: a typed gocpp number into
 // a C.int is an error).
 //
-// &T{...} of a C/C++ type is not supported yet (step 4.10, which decides who owns the object): a
-// gocpp *T of a C/C++ type T is a raw pointer, which can't own it.
+// &T{...} of a C/C++ type is gp::cgo::box_keep<T>([&]() -> T { return T{...}; }): a gp::cptr, a
+// gocpp pointer that owns the new object, built in place in a box (step 4.10, cunsafe.go: cNew;
+// the box of step 4.8) that also holds what the pointers in its members point to, and converts to
+// the raw T* for C and C++ (borrowed). A *T of a C/C++ type that gocpp code declares is a gp::cptr
+// too, so &T{...} flows into variables, fields, results and appends.
 
 // A litForm is the form of a composite literal of a C/C++ type: positional, keyed by fields, or
 // keyed by the keys of a C++ map.
@@ -343,7 +346,8 @@ func (g *gen) cLitOK(e *ast.CompositeLit) bool {
 	te, known := g.litTypeExpr(e)
 	if s, ok := ast.Unparen(te).(*ast.StarExpr); ok && known && g.isCType(s.X) {
 		// []*lib.Point{{1, 2}}: &lib.Point{1, 2}.
-		g.unsupported(e.Lbrace, "&T{...} of C/C++ types ("+g.srcText(s.X)+", step 4.10): declare a variable, v := "+g.srcText(s.X)+"{...}, and use &v")
+		t := g.srcText(s.X)
+		g.userError(e.Lbrace, "an element {...} of a literal of *%s is &%s{...} in Go, which gocpp doesn't write for a C/C++ type: write each element as &%s{...}", t, t, t)
 		return false
 	}
 	if !g.cxxLit(e) {

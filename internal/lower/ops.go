@@ -182,6 +182,7 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.
 	case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ:
 		a, b := fg.expr(x), fg.expr(y) // first, so that an operand's own error comes first
 		if (op == token.EQL || op == token.NEQ) && (isPointer(fg.typeOf(x)) || isPointer(fg.typeOf(y)) ||
+			isUnsafePointer(fg.typeOf(x)) || isUnsafePointer(fg.typeOf(y)) ||
 			isSlice(fg.typeOf(x)) || isSlice(fg.typeOf(y)) || isArray(fg.typeOf(x)) ||
 			isMap(fg.typeOf(x)) || isMap(fg.typeOf(y)) || isStruct(fg.typeOf(x)) ||
 			isFunc(fg.typeOf(x)) || isFunc(fg.typeOf(y)) || isWeakPointer(fg.typeOf(x))) {
@@ -535,6 +536,9 @@ func (fg *funcGen) conversion(c *ast.CallExpr, to types.Type) cppir.Expr {
 // named types that aren't structs: namedConversion), whose C++ is x.
 func (fg *funcGen) convertValue(c *ast.CallExpr, to, from types.Type, x cppir.Expr) cppir.Expr {
 	arg := c.Args[0]
+	if y, ok := fg.unsafeConversion(c, to, from, x); ok {
+		return y // unsafe.Pointer(p), (*T)(p), uintptr(p) (unsafe.go)
+	}
 	if y := fg.arrayConversion(c, to, from, x); y != nil {
 		return y // arrays.go
 	}

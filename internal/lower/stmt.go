@@ -339,6 +339,7 @@ func (fg *funcGen) simpleExpr(s ast.Stmt) cppir.Expr {
 		}
 		return &cppir.Postfix{X: fg.expr(s.X), Op: s.Tok.String()}
 	case *ast.AssignStmt:
+		fg.noteStores(s)
 		if oneExpr(s) {
 			lhs, rhs := s.Lhs[0], s.Rhs[0]
 			if s.Tok != token.ASSIGN && (fg.g.pkg.Opaque.IsOpaque(lhs) || fg.g.pkg.Opaque.IsOpaque(rhs)) {
@@ -432,6 +433,7 @@ func braceList(values []cppir.Expr) cppir.Expr {
 }
 
 func (fg *funcGen) assignStmt(s *ast.AssignStmt) {
+	fg.noteStores(s)
 	switch {
 	case s.Tok == token.DEFINE:
 		fg.declare(s.Pos(), s.Lhs, s.Rhs)
@@ -493,6 +495,9 @@ type target struct {
 	// stores with gp::set(m, k, value) (maps.go).
 	mapX, mapK cppir.Expr
 	field      *ast.SelectorExpr
+	// keep is set for a store of a gocpp pointer into a member of a struct that a gocpp pointer
+	// owns (n.next = head): gp::cgo::store_keep keeps the object alive (cunsafe.go: keepOf).
+	keep *keepInfo
 
 	// gtype is the Go type of the target (nil for _), which a value of another type converts to
 	// (bind: one value with several results, step 3.9).
@@ -538,6 +543,9 @@ func (fg *funcGen) lhs(e ast.Expr) target {
 		t.field = x
 	}
 	fg.gcTarget(&t, e)
+	if rhs, ok := fg.memberStores[ast.Unparen(e)]; ok {
+		t.keep = fg.keepOf(e, rhs)
+	}
 	return t
 }
 
@@ -717,6 +725,13 @@ func (t target) assignExpr(value cppir.Expr) cppir.Expr {
 	if t.mapX != nil {
 		return call("gp::set", t.mapX, t.mapK, value)
 	}
+	if t.keep != nil {
+		args := []cppir.Expr{t.keep.owner, t.x, value}
+		if len(t.keep.path) > 0 {
+			args = append(args, templateCall("gp::cgo::keep_path", t.keep.path))
+		}
+		return call("gp::cgo::store_keep", args...)
+	}
 	return &cppir.Assign{Op: "=", X: t.x, Y: value}
 }
 
@@ -754,6 +769,22 @@ func (fg *funcGen) declare(pos token.Pos, lhs, values []ast.Expr) {
 		return
 	}
 	fg.bind(pos, targets, nil, values, false)
+	fg.holdCopies(pos, values)
+}
+
+// holdCopies makes the frame hold the pointer n for the rest of its block when a variable is declared
+// as a copy of the C struct that n owns (m := *n): the copy's pointer members are raw, and what they
+// point to is kept alive only by n's struct. (A copy that lives longer than the block, in a field or
+// a slice, is the program's to keep valid: Limits in docs/spec/interop.md.)
+func (fg *funcGen) holdCopies(pos token.Pos, values []ast.Expr) {
+	for _, v := range values {
+		star, ok := ast.Unparen(v).(*ast.StarExpr)
+		if !ok || !fg.g.pkg.Opaque.IsOpaque(star.X) || !fg.g.mayOwn(star.X) || hasCall(fg.g.info, star.X) {
+			continue
+		}
+		p := fg.g.pos(pos)
+		fg.add(varDecl(p, typeName("[[maybe_unused]] const auto"), fg.names.temp("hold"), fg.expr(star.X)))
+	}
 }
 
 // declLines adds the statements of a declaration (joined: as one line), and puts its new
@@ -831,6 +862,9 @@ func (fg *funcGen) newTargets(lhs []ast.Expr) []target {
 		if obj, ok := fg.g.info.Defs[id].(*types.Var); ok {
 			t := target{typ: fg.g.varType(obj, id.Pos()), shadow: fg.shadowing(obj), box: fg.isBoxed(obj), gtype: obj.Type()}
 			t.cbox = t.box && cObject(obj.Type())
+			if t.box && !t.cbox && cppir.TypeString(t.typ) == "auto" {
+				t.typ = fg.boxedAutoType(obj, id)
+			}
 			t.large = t.box && !t.cbox && largeVar(obj.Type())
 			t.class = isClass(obj.Type()) && complete(obj.Type()) // (a C/C++ value may be auto)
 			if fg.loopInit {
@@ -1054,7 +1088,11 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 				// A result of a function with defers: a local that is returned is moved (returnMove).
 				lines = append(lines, varDecl(p, typeName("auto"), tmps[i], fg.returnMove(v, fg.exactExpr(v), true)))
 			} else {
-				lines = append(lines, varDecl(p, typeName("auto"), tmps[i], fg.exactExpr(v)))
+				x := fg.exactExpr(v)
+				if _, ok := fg.temps[ast.Unparen(v)]; !ok && fg.g.isMemberRead(v) {
+					x = call("gp::cgo::load", x) // a, b = b.next, a.next: the temporaries own the structs
+				}
+				lines = append(lines, varDecl(p, typeName("auto"), tmps[i], x))
 			}
 		}
 		for i, v := range values {

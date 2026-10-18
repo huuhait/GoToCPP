@@ -313,7 +313,7 @@ for i, x := range v {
 	checkLabels(t, prog, p, src, []labelCase{
 		{"// plus", "h", "h + 1", "opaque"},
 		{"// plus", "h", "h", "typed"},
-		{"// slice", "lib", "lib.CB[1:n]", "opaque"},
+		{"// slice", "lib", "gp_cgoh.SliceCLoHi(lib.CB, 1, n)", "opaque"}, // (a call now: slicecalls.go)
 		{"// slice", "n", "n", "typed"},
 		{"// call", "lib", "lib.CB(n)", "opaque"},
 		{"// call", "n", "n", "typed"},

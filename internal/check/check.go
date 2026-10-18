@@ -7,6 +7,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"maps"
 	"slices"
 	"strings"
 
@@ -201,6 +202,14 @@ type Package struct {
 
 	// conversions maps the Call of each conversion to it.
 	conversions map[*ast.CallExpr]*Conversion
+
+	// hidden holds the names of the imports of gocpp/cgoh that Check added
+	// to the files (gp_cgoh), for UserText.
+	hidden map[string]bool
+
+	// slices maps the call gp_cgoh.SliceC(a, ...) that Check made of a slice
+	// expression of an opaque value (slicecalls.go) to that expression.
+	slices map[*ast.CallExpr]*ast.SliceExpr
 
 	// checks is how many times go/types checked the package: 1, or more
 	// after rewrites of conversions.
@@ -418,6 +427,8 @@ func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Packa
 	}
 	if len(cv.names) > 0 {
 		p.setConversions(findConversions(lp, p.Info))
+		p.slices = findSlices(lp, p.Info)
+		p.hidden = maps.Clone(cv.names)
 	}
 	return p
 }
@@ -493,7 +504,11 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 			}
 		}
 	}
-	checkSizeCParts(fset, files, info, cppNames, c.checkExprError)
+	if !dropFalse {
+		// (With dropFalse, which is convert, the rewrite wraps such a call in gp_cgoh.UnsafeSize, which is no
+		// constant: unsafecalls.go.)
+		checkSizeCParts(fset, files, info, cppNames, c.checkExprError)
+	}
 	checkPrintSlices(fset, pkg, files, info, c.checkExprError)
 	falseErrs := newFalseErrors(pkg, info, files)
 	c.flush(func(err types.Error) bool {

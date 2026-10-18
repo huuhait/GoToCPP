@@ -347,7 +347,7 @@ func main() {
 		{"// binary", "v", "v.at(0) + 1", "opaque"},
 		{"// binary", "1", "1", "typed"},
 		{"// binary-go", "total", "total + 1", "typed"},
-		{"// slice", "v", "v[1:2]", "opaque"},
+		{"// slice", "v", "gp_cgoh.SliceCLoHi(v, 1, 2)", "opaque"}, // (check rewrote the slice expression of an opaque value to a call: slicecalls.go)
 		{"// slice", "1", "1", "typed"},
 		{"// star", "*", "*g", "opaque"},
 		{"// unary", "&", "&v", "opaque"},

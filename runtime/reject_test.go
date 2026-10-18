@@ -51,6 +51,22 @@ var rejectCases = []struct {
 	{"string-of-class", "struct V {};\ngp::string f() {\n\treturn gp::cgo::as<gp::string>(V{}); // bad\n}\n", "string(x) needs a std::string"},
 	// No implicit conversion makes a gp::string from a C string: a C char* has no owner.
 	{"string-from-pointer", "void g(const gp::string&);\nvoid f(const char* p) {\n\tg(p); // bad\n}\n", ""},
+	// unsafe.Slice of a void* has no element type; a C char* converts to a gocpp pointer only
+	// through unsafe.Pointer; only a C array has a slice expression (Phase 04 step 4.10).
+	{"unsafe-slice-void", "void f(void* p) {\n\t(void)gp::unsafe_slice(p, 2); // bad\n}\n", "needs a pointer to an element type"},
+	{"unsafe-pointer-conv", "void f(const char* p) {\n\t(void)gp::cgo::as<gp::ptr<uint8_t>>(p); // bad\n}\n", "only through unsafe.Pointer"},
+	{"slice-of-vector", "#include <vector>\nvoid f(std::vector<int>& v) {\n\t(void)gp::cgo::slice_of(v); // bad\n}\n", "only a C array or a std::array has a slice expression"},
+	{"slice-of-temporary", "#include <array>\nvoid f() {\n\t(void)gp::cgo::slice_of(std::array<int, 2>{}); // bad\n}\n", "slicing a temporary"},
+	// A cptr converts to the raw pointer but, like a gp::ptr, not to bool or back to delete it; a
+	// raw pointer of another type, or a number, is no cptr.
+	{"cptr-delete", "void f(gp::cptr<int64_t> p) {\n\tdelete p; // bad\n}\n", ""},
+	{"cptr-condition", "bool f(gp::cptr<int64_t> p) {\n\tif (p) { // bad\n\t\treturn true;\n\t}\n\treturn false;\n}\n", ""},
+	{"cptr-other-pointer", "void f(char* c) {\n\tgp::cptr<int64_t> p = c; // bad\n\t(void)p;\n}\n", ""},
+	// A store through a raw pointer member can't keep the object alive (store_keep's keep_path).
+	{"store-keep-through-raw", "struct KN { KN* next; };\nvoid f(gp::cptr<KN> n, gp::cptr<KN> t) {\n\tgp::cgo::store_keep(n, n->next->next, t, gp::cgo::keep_path<decltype(n->next)>()); // bad\n}\n", "the struct is reached through a raw C pointer"},
+	{"store-keep-raw-owner", "struct KN { KN* next; };\nvoid f(KN* n, gp::cptr<KN> t) {\n\tgp::cgo::store_keep(n, n->next, t); // bad\n}\n", "the struct is not owned by a *T variable"},
+	{"cptr-gocpp-pointer-to-cptr-of-other", "void f(gp::ptr<char> c) {\n\tgp::cptr<int64_t> p = c; // bad\n\t(void)p;\n}\n", ""},
+	{"unsafe-string-of-ints", "void f(int* p) {\n\t(void)gp::unsafe_string(p, 2); // bad\n}\n", ""},
 	// A gocpp string still converts only to std::string_view: f(std::string) + f(const char*)
 	// doesn't take it.
 	// Boxes of C++ objects and result slots (Phase 04 step 4.8): a zero value needs a default
@@ -114,6 +130,38 @@ void f(gp::ptr<int64_t> p, gp::ptr<void> u, const gp::string& s) {
 	}
 	(void)gp::cgo::as<gp::string>(std::string("x"));
 	(void)(s == "x");
+	int arr[3] = {1, 2, 3}; // unsafe and pointers (step 4.10)
+	(void)gp::unsafe_slice(arr, 3);
+	(void)gp::unsafe_string(c, 1);
+	(void)gp::cgo::as<gp::ptr<void>>(arr);
+	(void)gp::cgo::as<int*>(u);
+	(void)gp::cgo::slice_of(arr);
+	gp::cptr<int64_t> cp = gp::new_<int64_t>(1);
+	int64_t* raw = nullptr;
+	cp = raw; // a raw pointer from C is assigned to it
+	cp = cp.gp_get();
+	int64_t* back = cp;
+	(void)back;
+	(void)(cp == raw);
+	var(1, cp.gp_get());
+	struct KIn {
+		int64_t* p;
+	};
+	struct KN {
+		KN* next;
+		KIn in;
+		int64_t v;
+	};
+	gp::cptr<KN> kn = gp::cgo::box_keep<KN>([]() -> KN { return KN{}; });
+	gp::cgo::store_keep(kn, kn->next, kn);
+	gp::cgo::store_keep(kn, kn->next, nullptr);
+	gp::cgo::store_keep(kn, kn->in.p, cp, gp::cgo::keep_path<decltype(kn->in)>());
+	gp::cgo::store_keep(kn, kn->v, 5);
+	gp::cptr<KN> nxt;
+	nxt = gp::cgo::load(kn->next); // a raw read of a member owns the struct again
+	(void)gp::cgo::load(kn->v);
+	gp::slice<KN> ks = gp::make_slice<KN>(int64_t(2));
+	gp::cgo::store_keep(ks, ks[0].next, kn); // a slice element: the slice's block keeps
 }
 
 // Interfaces, written as the emitter writes them: a thunk whose C++ type is the slot's, a

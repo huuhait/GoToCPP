@@ -184,6 +184,15 @@ type analysis struct {
 	cands map[*ast.CallExpr]bool
 	cmps  map[*ast.BinaryExpr]bool
 
+	// uns holds the calls of unsafe.Slice and unsafe.String found in this
+	// round (unsafecalls.go): like a conversion, one gets its type from the
+	// rewrite, so what depends on it waits for the next round.
+	uns map[*ast.CallExpr]bool
+
+	// sls holds the slice expressions of opaque values found in this round
+	// (slicecalls.go), which the rewrite types too.
+	sls map[*ast.SliceExpr]bool
+
 	// memo holds the state of each object looked at (unknown while it is
 	// being looked at: a cycle of values is an initialization cycle), and
 	// types the state of each type name (typed while it is being looked
@@ -237,8 +246,11 @@ func (a *analysis) state(e ast.Expr) state {
 	if b, ok := e.(*ast.BinaryExpr); ok && a.cmps[b] {
 		return waiting // a comparison that this round rewrites to a bool
 	}
+	if s, ok := e.(*ast.SliceExpr); ok && a.sls[s] {
+		return waiting // a slice of a C array that this round rewrites
+	}
 	if call, ok := e.(*ast.CallExpr); ok {
-		if a.cands[call] {
+		if a.cands[call] || a.uns[call] {
 			return waiting
 		}
 		if _, typ := cgohCall(call, a.info); typ != nil {
@@ -281,8 +293,10 @@ func (a *analysis) source(e ast.Expr) state {
 		case fun.IsType():
 			// A conversion that is not rewritten (where Go needs a
 			// constant): it is invalid if its argument is.
+			// A type with a C/C++ part is a source too: (*[16]C.char)(p) is a pointer to
+			// an array of C elements, which go/types gives that type without a rewrite.
 			if len(e.Args) == 1 {
-				return a.state(e.Args[0])
+				return max(a.typeState(e.Fun), a.state(e.Args[0]))
 			}
 			return typed
 		case fun.IsBuiltin():

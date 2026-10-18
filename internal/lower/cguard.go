@@ -217,8 +217,11 @@ func (w *cWalk) addrOK(e ast.Expr, parent ast.Node) bool {
 	if !ok || u.Op != token.AND {
 		return true
 	}
-	id, ok := ast.Unparen(u.X).(*ast.Ident)
-	if !ok {
+	if _, bare := ast.Unparen(u.X).(*ast.Ident); !bare && !cAddr(g.info, u) {
+		return true // the address of a part of a gocpp value: an owning pointer (cunsafe.go: cOwnedAddr)
+	}
+	id := rootIdentOf(u.X) // x in &x, &x[i], &x.f: a raw address into the C/C++ local
+	if id == nil {
 		return true
 	}
 	v, ok := g.info.Uses[id].(*types.Var)
@@ -236,7 +239,7 @@ func (w *cWalk) addrOK(e ast.Expr, parent ast.Node) bool {
 		}
 	}
 	if _, ok := parent.(*ast.ReturnStmt); ok {
-		g.userError(u.OpPos, "&%s of a C/C++ local can't be a result: C/C++ values follow C++'s lifetime rules, and %s ends with the function", id.Name, id.Name)
+		g.userError(u.OpPos, "&%s of a C/C++ local can't be a result: C/C++ values follow C++'s lifetime rules, and %s ends with the function", g.srcText(u.X), id.Name)
 		return false
 	}
 	return true
@@ -257,6 +260,18 @@ func (g *gen) cExprOK(e ast.Expr) bool {
 		if g.cgoHelper(x) != "" {
 			return true // C.CString(s), C.cstr(s): a C pointer, a holder (cstrings.go)
 		}
+		if name := g.unsafeFunc(x); name != "" {
+			return g.unsafeCallOK(x, name) // unsafe.Slice(p, n) and the others (cunsafe.go)
+		}
+		if g.pkg.UnsafeWrapper(x) != nil {
+			return true // gp_cgoh.UnsafeSlice(unsafe.Slice(p, n)): the call inside is checked in its place
+		}
+		if s := g.pkg.OpaqueSlice(x); s != nil {
+			return g.cSliceOK(s) // a[lo:hi] of a C array (cunsafe.go)
+		}
+		if g.cPointerType(x) != nil {
+			return true // (*C.char)(p): the operand is checked in its place (cPlaceOK)
+		}
 		if g.calledSig(x) != nil {
 			return true // a function or a method of the package
 		}
@@ -267,7 +282,7 @@ func (g *gen) cExprOK(e ast.Expr) bool {
 		}
 		switch ast.Unparen(x.Fun).(type) {
 		case *ast.StarExpr, *ast.ArrayType, *ast.MapType, *ast.FuncType, *ast.InterfaceType, *ast.ChanType:
-			g.unsupported(x.Pos(), "conversions to this C/C++ type (step 4.10)")
+			g.unsupported(x.Pos(), "conversions to this C/C++ type (a later step of Phase 04)")
 			return false
 		}
 		return true // a member of a C/C++ value, or a C++ callable (opaqueCallee)
@@ -297,15 +312,16 @@ func (g *gen) cExprOK(e ast.Expr) bool {
 					return true // &lib.global: a C/C++ global, which lives as long as the program
 				}
 			}
-			if lit, ok := ast.Unparen(x.X).(*ast.CompositeLit); ok {
-				if !g.cxxLit(lit) {
-					return true // &[]C.int{1}: a gocpp literal, in a new block (gp::ptr), as in Go
-				}
-				t := g.srcText(lit.Type)
-				g.unsupported(x.OpPos, "&T{...} of C/C++ types ("+t+", step 4.10): declare a variable, v := "+t+"{...}, and use &v")
-				return false
+			if _, ok := ast.Unparen(x.X).(*ast.CompositeLit); ok {
+				// &[]C.int{1}: a gocpp literal, in a new block (gp::ptr), as in Go; &T{...} of a
+				// C/C++ type: a gocpp pointer that owns the new object (cunsafe.go: cNew).
+				return true
 			}
-			g.unsupported(x.OpPos, "& of C/C++ values other than variables (step 4.10)")
+			switch ast.Unparen(x.X).(type) {
+			case *ast.SelectorExpr, *ast.IndexExpr, *ast.StarExpr:
+				return true // &v[i], &s.f, &*p: a raw C++ address, as &x (cunsafe.go)
+			}
+			g.userError(x.OpPos, "invalid operation: cannot take address of %s (C/C++ value): it must be a variable, a field, an element or *p", g.srcText(x.X))
 			return false
 		case token.ARROW:
 			g.unsupported(x.OpPos, "the operator <- on C/C++ values (Phase 08)")
@@ -320,7 +336,7 @@ func (g *gen) cExprOK(e ast.Expr) bool {
 		if gocppContainer(g.info.TypeOf(x.X)) {
 			return true // ss[1:] of a gocpp slice or array of C/C++ values: Go's slicing
 		}
-		g.unsupported(x.Lbrack, "slicing C/C++ values (step 4.10)")
+		return g.cSliceOK(x) // a C array: gp::cgo::slice_of (cunsafe.go)
 	case *ast.TypeAssertExpr:
 		g.unsupported(x.Pos(), "type assertions on C/C++ values (Phase 05)")
 	default:
@@ -500,6 +516,15 @@ func (g *gen) cPlaceOK(e ast.Expr, parent ast.Node) bool {
 		if g.cgoHelper(p) != "" {
 			return true // an argument of a cgo helper, C.GoString(p) (cstrings.go)
 		}
+		if g.unsafeFunc(p) != "" || g.pkg.OpaqueSlice(p) != nil || g.pkg.UnsafeWrapper(p) != nil {
+			return true // unsafe.Slice(p, n) and the others, a[lo:hi]: cunsafe.go checks the call
+		}
+		if g.cPointerType(p) != nil {
+			return g.cPtrConvOK(e, p) // (*C.char)(p) (cunsafe.go)
+		}
+		if tv := g.info.Types[p.Fun]; tv.IsType() && isUnsafePointer(tv.Type) {
+			return true // unsafe.Pointer(&cvar): a conversion of a C pointer (cunsafe.go)
+		}
 		if r, ok := g.cRefOf(p.Fun); ok {
 			if n, ok := r.x.(*cppir.Name); ok && r.kind == interop.Type && isBuiltinC(n.Name) {
 				return g.cConvOK(e, nil, g.srcText(p.Fun)) // C.int(x)
@@ -552,18 +577,12 @@ func (g *gen) cPlaceOK(e ast.Expr, parent ast.Node) bool {
 				return true // gp::cgo::fmt_arg (fmtcall.go)
 			}
 		}
-		if sel, ok := ast.Unparen(p.Fun).(*ast.SelectorExpr); ok {
-			if isUnsafe(g, sel) {
-				g.unsupported(e.Pos(), "unsafe."+sel.Sel.Name+" of C/C++ values (step 4.10)")
-				return false
-			}
-		}
 		g.unsupported(e.Pos(), "passing C/C++ values to this function")
 		return false
 	case *ast.SliceExpr:
-		if gocppContainer(g.info.TypeOf(p.X)) {
-			return true // ss[1:] of a gocpp slice or array of C/C++ values (or a C/C++ bound)
-		}
+		// ss[1:] of a gocpp slice or array of C/C++ values (or a C/C++ bound), or a[lo:hi] of
+		// a C array (gp::cgo::slice_of; cSliceOK checks the slice expression itself).
+		return true
 	case *ast.KeyValueExpr, *ast.CompositeLit:
 		return true // an element of a literal: targetOK checks where it goes (clits.go: litTarget)
 	case *ast.RangeStmt:
@@ -578,16 +597,6 @@ func (g *gen) cPlaceOK(e ast.Expr, parent ast.Node) bool {
 	}
 	g.unsupported(e.Pos(), "this use of C/C++ values")
 	return false
-}
-
-// isUnsafe reports whether sel is a name of package unsafe (unsafe.Slice).
-func isUnsafe(g *gen, sel *ast.SelectorExpr) bool {
-	id, ok := sel.X.(*ast.Ident)
-	if !ok {
-		return false
-	}
-	pn, ok := g.info.Uses[id].(*types.PkgName)
-	return ok && pn.Imported() == types.Unsafe
 }
 
 // oneValueOK reports whether the C/C++ value e, one of values that go to n targets, is not the
@@ -928,7 +937,10 @@ func (g *gen) cConvOK(e ast.Expr, to types.Type, toName string) bool {
 		g.userError(e.Pos(), "cannot convert %s (C pointer) to type bool: compare it: %s != nil", g.srcText(e), g.srcText(e))
 		return false
 	case kind == "pointer" && (b != nil || to == nil):
-		g.userError(e.Pos(), "cannot convert %s (C pointer) to type %s: use unsafe.Pointer (step 4.10)", g.srcText(e), toName)
+		g.userError(e.Pos(), "cannot convert %s (C pointer) to type %s: convert it through unsafe.Pointer, as in uintptr(unsafe.Pointer(%s))", g.srcText(e), toName, g.srcText(e))
+		return false
+	case kind == "pointer" && to != nil && isPointer(to):
+		g.userError(e.Pos(), "cannot convert %s (C pointer) to type %s: convert it through unsafe.Pointer, (%s)(unsafe.Pointer(%s))", g.srcText(e), toName, toName, g.srcText(e))
 		return false
 	case kind != "pointer" && b != nil && b.Info()&types.IsBoolean != 0:
 		g.userError(e.Pos(), "cannot convert %s (C/C++ value of type %s) to type bool", g.srcText(e), typ)
@@ -981,5 +993,5 @@ func (g *gen) srcText(e ast.Expr) string {
 	for _, r := range restore {
 		r()
 	}
-	return s
+	return g.pkg.UserText(s) // (the names of gocpp/cgoh that check added: unsafe.Slice, a[1:2])
 }

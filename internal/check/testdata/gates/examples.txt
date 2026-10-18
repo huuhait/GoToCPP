@@ -146,9 +146,9 @@ catalog/catalog.gp:55:18: fmt.Errorf is not available yet (Phase 05)
 ./main.gp:21:24: unsafe.Pointer is not available yet (Phase 04)
 ./main.gp:21:35: C types and helpers are not supported yet (Phase 04)
 ./main.gp:21:49: pointers are not supported yet (Phase 03)
+./main.gp:23:2: composite types are not supported yet (Phase 03)
 ./main.gp:23:17: unsafe.Slice is not available yet (Phase 04)
 ./main.gp:47:2: defer is not supported yet (Phase 03)
-./main.gp:70:23: composite types are not supported yet (Phase 03)
 ./main.gp:84:76: function values are not supported yet (Phase 03)
 
 == structs

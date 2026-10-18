@@ -103,8 +103,8 @@ func (g *gen) wrapNamed(t types.Type, x cppir.Expr, pos token.Pos) cppir.Expr {
 func (g *gen) newtypeOK(spec *ast.TypeSpec, named *types.Named) bool {
 	switch u := named.Underlying().(type) {
 	case *types.Basic:
-		if basicTypes[u.Kind()] != "" {
-			return true
+		if basicTypes[u.Kind()] != "" || u.Kind() == types.UnsafePointer {
+			return true // type Handle unsafe.Pointer: over gp::ptr<void> (unsafe.go)
 		}
 		g.unsupported(spec.Pos(), "type "+u.Name())
 	case *types.Slice, *types.Array, *types.Map, *types.Pointer, *types.Signature:

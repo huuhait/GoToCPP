@@ -87,6 +87,17 @@ func cBox(typ cppir.Type, value cppir.Expr) cppir.Expr {
 		return templateCall("gp::cgo::new_box", []cppir.Node{typ})
 	}
 	auto := isAutoType(typ)
+	lam := cBoxLambda(typ, value)
+	if auto {
+		return call("gp::cgo::box", lam)
+	}
+	return templateCall("gp::cgo::box_as", []cppir.Node{typ}, lam)
+}
+
+// cBoxLambda returns the lambda [&]() -> T { return value; } that builds the object of cBox in place
+// (no result type for auto).
+func cBoxLambda(typ cppir.Type, value cppir.Expr) *cppir.Lambda {
+	auto := isAutoType(typ)
 	if l, ok := value.(*cppir.InitList); ok && l.Type == nil && !auto {
 		value = &cppir.InitList{Type: typ, Elems: l.Elems} // T{a, b}: explicit constructors too
 	}
@@ -94,11 +105,10 @@ func cBox(typ cppir.Type, value cppir.Expr) cppir.Expr {
 		Default: "&",
 		Body:    &cppir.Block{Inline: true, Stmts: []cppir.Stmt{&cppir.Return{X: value}}},
 	}
-	if auto {
-		return call("gp::cgo::box", lam)
+	if !auto {
+		lam.Result = typ
 	}
-	lam.Result = typ
-	return templateCall("gp::cgo::box_as", []cppir.Node{typ}, lam)
+	return lam
 }
 
 // cBoxDecl returns the declaration of the variable name that is the box of a C/C++ object of the
@@ -693,7 +703,7 @@ func (g *gen) maybeNoDefault(f *types.Var) bool {
 
 // rootIdentOf returns the variable that the operand e of & starts at: x in &x, &x[i], &x.f,
 // &x[i].f and &(*x).f (a conservative reading: the address of a part of x counts as the address of
-// x for the hold and escape rules), or nil. Step 4.10 widens cAddr to those forms.
+// x for the hold and escape rules), or nil. (cAddr, box.go, takes the same forms for a C/C++ root.)
 func rootIdentOf(e ast.Expr) *ast.Ident {
 	for {
 		switch y := ast.Unparen(e).(type) {

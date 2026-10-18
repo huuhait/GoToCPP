@@ -394,14 +394,14 @@ func (g *gateChecker) visit(n ast.Node) bool {
 			}
 		}
 	case *ast.ArrayType:
-		if n.Len != nil && g.hasC(n.Len) {
+		if n.Len != nil && g.hasC(n.Len) && !g.hasUnsafeSize(n.Len) {
 			g.node(featCConstants, n.Len)
 		}
 	case *ast.GenDecl:
 		if n.Tok == token.CONST {
 			for _, spec := range n.Specs {
 				for _, v := range spec.(*ast.ValueSpec).Values {
-					if g.hasC(v) {
+					if g.hasC(v) && !g.hasUnsafeSize(v) {
 						g.node(featCConstants, v)
 					}
 				}
@@ -1053,4 +1053,20 @@ func (g *gateChecker) apply() {
 	for _, f := range rest {
 		g.pkg.Errors.Add(toDiag(f))
 	}
+}
+
+// hasUnsafeSize reports whether e has a call of unsafe.Sizeof, Alignof or Offsetof that check
+// wrapped in gp_cgoh.UnsafeSize (unsafecalls.go): in a constant context it is Go's error "is not
+// constant" (with the reason), not the gate of C macros.
+func (g *gateChecker) hasUnsafeSize(e ast.Expr) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok && len(call.Args) == 1 {
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && unsafeHelperOf(sel, g.info) == "Size" {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
 }

@@ -770,11 +770,22 @@ func main() { _, _, _, _ = e8, e9, e10, ok4 }
 		{"var e10", "unsafe.Offsetof(mc.n)", "field n C.int"}, // n's alignment
 	}
 	want := "# example.com/m\n"
+	const note = ": the size of a C/C++ type is known only to the C++ compiler, so it is a value, not a Go constant"
 	for _, e := range wantErrs {
 		line := lineOf(t, src, e.marker)
 		col := strings.Index(strings.Split(src, "\n")[line-1], e.call) + 1
-		want += fmt.Sprintf("./main.gp:%d:%d: cannot use %s: its type has a C/C++ part (%s), whose size gocpp only knows from Phase 04\n",
-			line, col, e.call, e.part)
+		what := "is not constant"
+		switch {
+		case strings.HasPrefix(e.marker, "var e8"):
+			what = "array length " + e.call + " (value of type uintptr) must be constant"
+			want += fmt.Sprintf("./main.gp:%d:%d: %s%s\n", line, col, what, note)
+			continue
+		case strings.HasPrefix(e.marker, "var e9"), strings.HasPrefix(e.marker, "var e10"):
+			what = "template argument " + e.call + " (value of type uintptr) must be constant"
+			want += fmt.Sprintf("./main.gp:%d:%d: %s%s\n", line, col, what, note)
+			continue
+		}
+		want += fmt.Sprintf("./main.gp:%d:%d: %s (value of type uintptr) is not constant%s\n", line, col, e.call, note)
 	}
 	if errs := errorText(t, prog, r, root, true); errs != want {
 		t.Fatalf("errors:\n%s\nwant:\n%s", errs, want)

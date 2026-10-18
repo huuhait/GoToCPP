@@ -533,10 +533,27 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		fg.collect(sc, x.X, root, below)
 		add(&orderItem{eff: effect{read: true, panics: true}})
 	case *ast.CallExpr:
+		if inner := fg.g.pkg.UnsafeWrapper(x); inner != nil {
+			if name := fg.g.unsafeFunc(inner); name == "Sizeof" || name == "Alignof" || name == "Offsetof" {
+				return // gp_cgoh.UnsafeSize(unsafe.Sizeof(x)): x is not evaluated, no effect
+			}
+			fg.collect(sc, inner, root, up) // gp_cgoh.UnsafeSlice(unsafe.Slice(p, n)): the call inside
+			return
+		}
+		if s := fg.g.pkg.OpaqueSlice(x); s != nil {
+			fg.collectSlice(sc, s, add) // a[lo:hi] of a C array, which check made a call of
+			return
+		}
 		if fg.g.pkg.Conversion(x) != nil {
 			// A conversion of a C/C++ value, gp_cgoh.As[T](x) (cvalues.go): its operand.
 			for _, a := range x.Args {
 				fg.collect(sc, a, root, up)
+			}
+			return
+		}
+		if fg.g.cPointerType(x) != nil {
+			for _, a := range x.Args {
+				fg.collect(sc, a, root, up) // (*C.char)(p): a conversion: its operand (cunsafe.go)
 			}
 			return
 		}
@@ -576,6 +593,13 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 			// their places among the calls, like len (walk/order.go: OCOMPLEX, OREAL, OIMAG):
 			// real(g) + f() reads the package variable g before f runs (complex.go).
 			fg.collectInPlace(sc, x, x.Args, effect{}, root, up)
+			return
+		}
+		if name := fg.g.unsafeBuiltin(x); name != "" {
+			// unsafe.Add, Slice, SliceData, String and StringData are expressions in gc, not
+			// calls: in their places among the calls, like len (unsafe.go). Slice and String
+			// panic for a nil pointer or a bad length.
+			fg.collectInPlace(sc, x, x.Args, effect{panics: name == "Slice" || name == "String"}, root, up)
 			return
 		}
 		if fg.isBuiltin(x, "make") {
@@ -702,30 +726,36 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 			fg.collectRecv(sc, x, s, root, up) // a method value's receiver (methods.go)
 		}
 	case *ast.SliceExpr:
-		// gc evaluates a slice expression as a whole in its place among the calls (walk/
-		// order.go copies it into a temporary), after its bounds, which it copies into
-		// temporaries in their own places too unless they are a name, a constant or len or
-		// cap of a name (cheapExpr): so fmt.Println(s[i:], f()) slices s before f runs (and panics
-		// before it), and in s[n+0 : f()] n is read before f runs.
-		list := []ast.Expr{x.X}
-		for _, b := range []ast.Expr{x.Low, x.High, x.Max} {
-			if b != nil {
-				list = append(list, b)
-			}
-		}
-		in := fg.analyzeCopied(false, list, func(i int, e ast.Expr) bool { return i > 0 && !fg.cheap(e) })
-		eff := in.effect()
-		// s[:] and s[0:] can't fail; the other forms check their bounds. p[:] of a pointer to
-		// an array panics for a nil p.
-		if x.High != nil || x.Low != nil && !isZero(fg.constValue(x.Low)) || arrayPtr(fg.g.info.TypeOf(x.X)) != nil {
-			eff.panics = true
-		}
-		if !eff.any() {
-			sc.calls = append(sc.calls, in.calls...)
-			return
-		}
-		add(&orderItem{unit: true, eff: eff, inner: []*orderScope{in}})
+		fg.collectSlice(sc, x, add)
 	}
+}
+
+// collectSlice adds the items of the slice expression x (or of the call that check made of one
+// of a C array, check.Package.OpaqueSlice), which add adds to the scope.
+func (fg *funcGen) collectSlice(sc *orderScope, x *ast.SliceExpr, add func(*orderItem)) {
+	// gc evaluates a slice expression as a whole in its place among the calls (walk/
+	// order.go copies it into a temporary), after its bounds, which it copies into
+	// temporaries in their own places too unless they are a name, a constant or len or
+	// cap of a name (cheapExpr): so fmt.Println(s[i:], f()) slices s before f runs (and panics
+	// before it), and in s[n+0 : f()] n is read before f runs.
+	list := []ast.Expr{x.X}
+	for _, b := range []ast.Expr{x.Low, x.High, x.Max} {
+		if b != nil {
+			list = append(list, b)
+		}
+	}
+	in := fg.analyzeCopied(false, list, func(i int, e ast.Expr) bool { return i > 0 && !fg.cheap(e) })
+	eff := in.effect()
+	// s[:] and s[0:] can't fail; the other forms check their bounds. p[:] of a pointer to
+	// an array panics for a nil p.
+	if x.High != nil || x.Low != nil && !isZero(fg.constValue(x.Low)) || arrayPtr(fg.g.info.TypeOf(x.X)) != nil {
+		eff.panics = true
+	}
+	if !eff.any() {
+		sc.calls = append(sc.calls, in.calls...)
+		return
+	}
+	add(&orderItem{unit: true, eff: eff, inner: []*orderScope{in}})
 }
 
 // memoryVar reports whether a call can change v. C/C++ addresses do not box a local, and an

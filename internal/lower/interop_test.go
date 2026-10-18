@@ -159,7 +159,7 @@ func TestCNames(t *testing.T) {
 		"Bool_ b{};",       // a macro of the headers: renamed
 		"int64_t X_ = 0;",  // a field too
 		"unsigned long long n = 5;",
-		"int f(int n, ::FILE* p) {",
+		"int f(int n, gp::cptr<::FILE> p) {", // a gocpp pointer to a C type
 	} {
 		if !strings.Contains(cpp, want) {
 			t.Errorf("no %q in the C++:\n%s", want, cpp)
@@ -317,19 +317,12 @@ func TestCGuard(t *testing.T) {
 		{"var h, k H; _ = h == k", "== on values with C/C++ parts (Phase 12)"},
 		{"var m map[H]int; _ = m", "this use of a C/C++ type (a later step of Phase 04)"},
 		{"var a A; _ = a", "aliases of C/C++ types (A): write the C/C++ type (a later step of Phase 04)"},
-		{"_ = &lib.FILE{}", "&T{...} of C/C++ types (lib.FILE, step 4.10): declare a variable, v := lib.FILE{...}, and use &v"},
-		{"_ = []*lib.FILE{{}}", "&T{...} of C/C++ types (lib.FILE, step 4.10): declare a variable, v := lib.FILE{...}, and use &v"},
 		{"m := map[lib.FILE]int{{}: 1}; _ = m", "this type with C/C++ parts: map[C.FILE]int"},
 		{"m := []map[lib.FILE]int{{}}; _ = m", "this type with C/C++ parts: map[C.FILE]int"},
 		{"p := &struct{ n C.int }{1}; _ = p", "this type with C/C++ parts: struct{n C.int}"},
-		{"var v std.vector[int]; _ = &v[0]", "& of C/C++ values other than variables (step 4.10)"},
-		{"var h H; _ = &h.q", "& of C/C++ values other than variables (step 4.10)"},
-		{"var p *C.char; _ = p[1:]", "slicing C/C++ values (step 4.10)"},
-		{"_ = (*C.char)(nil)", "conversions to this C/C++ type (step 4.10)"},
 		{"lib.f(1, lib.g()...)", "... in a call of a C/C++ function"},
 		{"var v std.vector[int]; v.push_back(lib.g()...)", "... in a call of a C/C++ function"},
 		{"var v std.vector[int]; _ = append([]int{}, v...)", "append of C/C++ values"},
-		{"var p *C.int; _ = unsafe.Slice(p, 2)", "unsafe.Slice of C/C++ values (step 4.10)"},
 		{"p := lib.f(); p, p.next = lib.f(), nil", "an assignment that changes p and stores into a member or an element of p: write two assignments"},
 		{"v := lib.f(); v, v[0] = lib.f(), 1", "an assignment that changes v and stores into a member or an element of v: write two assignments"},
 		{"p := lib.f(); p.a, p.a.b = 1, 2", "an assignment that changes p.a and stores into a member or an element of p.a: write two assignments"},
@@ -350,7 +343,7 @@ func TestCGuard(t *testing.T) {
 // TestCUserErrors checks the user errors of C/C++ values at gocpp targets and conversions that Go
 // doesn't allow (cguard.go: targetOK, cConvOK), and that the forms next to them lower.
 func TestCUserErrors(t *testing.T) {
-	kinds := map[string]interop.Kind{"f": interop.Value, "g": interop.Value, "pow": interop.Value, "FILE": interop.Type,
+	kinds := map[string]interop.Kind{"f": interop.Value, "g": interop.Value, "pow": interop.Value, "FILE": interop.Type, "table": interop.Value,
 		"EOF": interop.Macro, "MODE_B": interop.Value, "std::string": interop.Type, "std::vector": interop.Template,
 		"std::minmax": interop.ValueTemplate, "std::map": interop.Template,
 		"std::unordered_map": interop.Template, "std::multimap": interop.Template}
@@ -363,10 +356,39 @@ func TestCUserErrors(t *testing.T) {
 		{"gs(std.string(\"x\"))",
 			`cannot use std.string("x") (C/C++ value) as string value in argument to gs: convert it, string(std.string("x"))`},
 		{"_ = ri", ""},
-		{"var p *lib.FILE; _ = uintptr(p)", "cannot convert p (C pointer) to type uintptr: use unsafe.Pointer (step 4.10)"},
-		{"var p *lib.FILE; _ = int(p)", "cannot convert p (C pointer) to type int: use unsafe.Pointer (step 4.10)"},
-		{"var p *lib.FILE; _ = C.int(p)", "cannot convert p (C pointer) to type C.int: use unsafe.Pointer (step 4.10)"},
+		{"var p *lib.FILE; _ = uintptr(p)", "cannot convert p (C pointer) to type uintptr: convert it through unsafe.Pointer, as in uintptr(unsafe.Pointer(p))"},
+		{"var p *lib.FILE; _ = int(p)", "cannot convert p (C pointer) to type int: convert it through unsafe.Pointer, as in uintptr(unsafe.Pointer(p))"},
+		{"var p *lib.FILE; _ = C.int(p)", "cannot convert p (C pointer) to type C.int: convert it through unsafe.Pointer, as in uintptr(unsafe.Pointer(p))"},
 		{"var p *lib.FILE; _ = bool(p)", "cannot convert p (C pointer) to type bool: compare it: p != nil"},
+		// unsafe and pointers (step 4.10, cunsafe.go).
+		{"var p *lib.FILE; _ = (*byte)(p)", "cannot convert p (C pointer) to type *byte: convert it through unsafe.Pointer, (*byte)(unsafe.Pointer(p))"},
+		{"var p *lib.FILE; _ = (*C.char)(p)", "cannot convert p (C pointer) to type *C.char: convert it through unsafe.Pointer, (*C.char)(unsafe.Pointer(p))"},
+		{"var p *C.char; _ = p[1:]", "cannot slice p (variable of type *C.char): a C pointer has no length; use unsafe.Slice(p, n)"},
+		{"_ = []*lib.FILE{{}}", "an element {...} of a literal of *lib.FILE is &lib.FILE{...} in Go, which gocpp doesn't write for a C/C++ type: write each element as &lib.FILE{...}"},
+		// A gocpp pointer stored into a member that no *T variable owns (cunsafe.go: noteStores).
+		{"var n lib.FILE; h := &lib.FILE{}; n.next = h; _ = n", "cannot keep the object alive: h is stored into n.next, which no *T variable of the program owns (a C/C++ local value, a pointer from C, or a pointer inside a C struct): declare the struct n := &T{...} and store through n, or write the literal &T{member: ...}"},
+		{"n := lib.f(); h := &lib.FILE{}; n.next = h", "cannot keep the object alive: h is stored into n.next, which no *T variable of the program owns (a C/C++ local value, a pointer from C, or a pointer inside a C struct): declare the struct n := &T{...} and store through n, or write the literal &T{member: ...}"},
+		{"var pp **lib.FILE; h := &lib.FILE{}; *pp = h", "cannot keep the object alive: h is stored into *pp, which no *T variable of the program owns (a C/C++ local value, a pointer from C, or a pointer inside a C struct): declare the struct n := &T{...} and store through n, or write the literal &T{member: ...}"},
+		{"_ = &lib.f()", "invalid operation: cannot take address of lib.f() (C/C++ value): it must be a variable, a field, an element or *p"},
+		{"var x int; _ = unsafe.SliceData(lib.f()); _ = x", "invalid argument: lib.f() (C/C++ value) for unsafe.SliceData: it takes a slice, such as a []C.int"},
+		{"_ = unsafe.StringData(lib.f())", "invalid argument: lib.f() (C/C++ value) for unsafe.StringData: it takes a string; for a C string use C.GoString(p)"},
+		// Messages show what the user wrote, not the helpers of gocpp/cgoh that check added.
+		{"var ip *C.int; var s []int = unsafe.Slice(ip, 2); _ = s", "cannot use unsafe.Slice(ip, 2) (C/C++ value) as []int value in variable declaration"},
+		{"var y int = lib.table[:]; _ = y", "cannot use lib.table[:] (C/C++ value) as int value in variable declaration: convert it, int(lib.table[:])"},
+		{"var y int = lib.table[1:2]; _ = y", "cannot use lib.table[1:2] (C/C++ value) as int value in variable declaration: convert it, int(lib.table[1:2])"},
+		{"var y int = lib.table[:2:3]; _ = y", "cannot use lib.table[:2:3] (C/C++ value) as int value in variable declaration: convert it, int(lib.table[:2:3])"},
+		// The flows of gocpp pointers to C types lower: a gp::cptr owns or aliases what it points to.
+		{"var q *lib.FILE; q = &lib.FILE{}; var p *lib.FILE = &lib.FILE{}; _, _ = p, q", ""},
+		{"_ = rn", ""},
+		{"var q Q; ps := []*C.int{&q.n}; ps = append(ps, &q.n); _ = ps", ""},
+		{"var ps []*lib.FILE; ps = append(ps, &lib.FILE{}); h := hold(&lib.FILE{}); _, _ = ps, h", ""},
+		// These lower: the forms next to them.
+		{"var v std.vector[int]; p := &v[0]; var q Q; pq := &q.n; _, _ = p, pq", ""},
+		{"var p *C.int; xs := unsafe.Slice(p, 2); var cp *C.char; s := unsafe.String((*byte)(unsafe.Pointer(cp)), 3); b := unsafe.Slice((*byte)(unsafe.Pointer(cp)), C.int(2)); _, _, _ = xs, s, b", ""},
+		{"var cp *C.char; _ = (*C.char)(nil); u := unsafe.Pointer(cp); _ = (*C.char)(u); _ = uintptr(u); p := lib.f(); n := (*int)(p); _ = n", ""},
+		{"xs := []C.int{1, 2}; _ = unsafe.SliceData(xs); lib.f(unsafe.SliceData(xs), 2); lib.f(&xs[0])", ""},
+		{"p := &lib.FILE{}; lib.f(p, &lib.FILE{}); u := unsafe.Pointer(&lib.FILE{}); _, _ = p, u", ""},
+		{"var a [4]C.int; s := a[1:3]; t := a[:]; _, _ = s, t", ""},
 		{"var p *C.char; _ = string(p)", "cannot convert p (C pointer) to type string: use C.GoString(p)"},
 		// The cgo helpers and C.cstr (step 4.9, cstrings.go).
 		{"f := C.GoString; _ = f", "must call C.GoString"},
@@ -538,13 +560,17 @@ func TestCUserErrors(t *testing.T) {
 		{"fv := 1e30; var a C.int = 5; var b C.double = 2.5; var c C.int = C.int(fv); var q Q; q.Put(7); lib.f(fv, 'x'); _, _, _ = a, b, c", ""},
 	}
 	for _, tt := range tests {
-		src := "package main\n\nimport (\n\t\"<lib.h>\"\n\t\"<map>\"\n\t\"<string>\"\n\t\"<vector>\"\n)\n\n" +
-			"type Q struct{ n C.int }\n\ntype B bool\n\nfunc (q *Q) Put(n C.int) { q.n = n }\n\nfunc (q Q) Size() C.int { return q.n }\n\n" +
+		src := "package main\n\nimport (\n\t\"unsafe\"\n\n\t\"<lib.h>\"\n\t\"<map>\"\n\t\"<string>\"\n\t\"<vector>\"\n)\n\n" +
+			"var _ unsafe.Pointer\n\ntype Q struct{ n C.int }\n\ntype B bool\n\nfunc (q *Q) Put(n C.int) { q.n = n }\n\nfunc (q Q) Size() C.int { return q.n }\n\n" +
+			"func hold(p *lib.FILE) *lib.FILE { return p }\n\n" +
 			"func gi(n int) {}\n\nfunc gs(s string) {}\n\nfunc getchar() C.char { return 1 }\n\n" +
 			"func main() {\n\t" + tt.src + "\n}\n"
 		if tt.src == "_ = rc" {
 			src += "\nfunc rc() C.int { n := 5; return n }\n"
 			tt.want = "cannot use n (variable of type int) as C.int value in return statement: convert it, C.int(n)"
+		}
+		if tt.src == "_ = rn" {
+			src += "\nfunc rn() *lib.FILE { n := &lib.FILE{}; return n }\n"
 		}
 		if tt.src == "_ = rp" {
 			src += "\nfunc rp() **lib.FILE { var p *lib.FILE; return &p }\n"
@@ -746,6 +772,12 @@ func TestCClosures(t *testing.T) {
 			[]string{"gp::ptr<::std::vector<int64_t>> v = gp::cgo::new_box<::std::vector<int64_t>>();", "gp::cgo::keep(", ", v);"}},
 		{"func main() {\n\tvar a std.vector[int]\n\tp := &a\n\tdefer lib.f(p)\n}\n",
 			[]string{"gp::ptr<::std::vector<int64_t>> a = gp::cgo::new_box<::std::vector<int64_t>>(); gp_df.gp_hold(a);", "{ ::f(gp_a0); }, gp::cgo::defer_arg(p));"}},
+		// the address of a part of a local (&a[0], &r.q) holds the local like &a does
+		{"func main() {\n\tvar a std.vector[int]\n\tdefer lib.g()\n\tp := &a[0]\n\t_ = p\n}\n",
+			[]string{"gp::ptr<::std::vector<int64_t>> a = gp::cgo::new_box<::std::vector<int64_t>>(); gp_df.gp_hold(a);"}},
+		// &T{...} of a C type: an owning pointer built in place; a deferred call on it keeps it
+		{"func main() {\n\tp := &lib.Widget{}\n\tdefer p.close()\n}\n",
+			[]string{"gp::cgo::box_keep<::Widget>([&]() -> ::Widget { return ::Widget{}; })"}},
 		// the address of a local of an inner block that only goes to a call, or into a variable of the
 		// same block, holds nothing; one stored in a variable of an outer block is held
 		{"func main() {\n\tdefer lib.g()\n\tfor i := 0; i < 2; i++ {\n\t\tvar a std.vector[int]\n\t\tlib.f(&a)\n\t\tp := &a\n\t\t_ = p\n\t}\n}\n",
@@ -799,6 +831,143 @@ func TestCClosures(t *testing.T) {
 		var e *Error
 		if !errors.As(err, &e) || !strings.HasSuffix(e.Msg, tt.want) {
 			t.Errorf("%s:\n got %v\nwant %s", tt.src, err, tt.want)
+		}
+	}
+}
+
+// TestCUnsafe checks the C++ of unsafe and pointers at the C/C++ boundary (step 4.10, unsafe.go,
+// cunsafe.go): the conversions with unsafe.Pointer, unsafe.Slice and String of C pointers (check
+// wraps the calls that have an opaque pointer), &T{...} of a C type, &s.f and &v[i], a slice of a
+// C array, and a gocpp pointer through a C function's `...`.
+func TestCUnsafe(t *testing.T) {
+	src := `package main
+
+import (
+	"unsafe"
+
+	"<lib.h>"
+	"<vector>"
+)
+
+type Rec struct {
+	n    C.int
+	vals [4]C.int
+}
+
+type Wrap struct{ c lib.FILE }
+
+func main() {
+	var cp *C.char
+	var ip *C.int
+	var n C.int = 3
+	var v std.vector[int]
+	var r Rec
+	var a [4]C.int
+	x := 7
+	px := &x
+	up := unsafe.Pointer(cp)
+	_ = (*C.char)(up)
+	_ = (*byte)(up)
+	_ = (*[8]C.int)(up)
+	_ = uintptr(up)
+	_ = unsafe.Pointer(&n)
+	_ = unsafe.Pointer(lib.fn)
+	xs := unsafe.Slice(ip, 4)
+	_ = len(xs)
+	s := unsafe.String((*byte)(up), n)
+	_ = s + "!"
+	bs := unsafe.Slice((*byte)(up), n)
+	_ = len(bs)
+	_ = unsafe.Add(up, n)
+	q := &lib.FILE{}
+	lib.f(q, &lib.FILE{})
+	_ = &v[1]
+	_ = &r.n
+	_ = &r.vals[2]
+	_ = &a[1]
+	var lr lib.rec
+	sl := lr.vals[1:3]
+	_ = len(sl)
+	_ = lr.vals[:]
+	lib.f(px, up, unsafe.Pointer(px), unsafe.SliceData(xs))
+	_ = unsafe.Sizeof(n)
+	_ = unsafe.Alignof(lr)
+	_ = unsafe.Offsetof(lr.q)
+	var out unsafe.Pointer
+	lib.f(&out)
+	oq := &lib.FILE{}
+	for ; oq != nil; oq = oq.next {
+	}
+	var raw *lib.FILE = nil
+	raw = oq
+	_ = raw
+	var db *lib.FILE
+	lib.f(&db)
+	var head *lib.FILE
+	for i := 0; i < 2; i++ {
+		head = &lib.FILE{next: head}
+	}
+	var table []*lib.FILE
+	table = append(table, head)
+	head.next = table[0]
+	head.a.b = nil
+	nodes := make([]lib.FILE, 2)
+	nodes[0].next = head
+	wr := &Wrap{}
+	wr.c.next = head
+	nxt := head.next
+	head.next = nxt.next
+	oth := nxt
+	head.next, oth.next = oth.next, head.next
+	cpy := *head
+	_ = cpy
+	switch head {
+	case nil:
+	}
+}
+`
+	fset, pkg, _ := checkInterop(t, src)
+	kinds := map[string]interop.Kind{"fn": interop.Value, "f": interop.Value, "FILE": interop.Type, "rec": interop.Type, "std::vector": interop.Template}
+	f, err := Package(fset, pkg, fakeInterop(pkg, kinds))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cpp := string(cppir.Print(f, ""))
+	for _, want := range []string{
+		"gp::ptr<void> up = gp::cgo::as<gp::ptr<void>>(cp);",
+		"gp::cgo::as<gp::cptr<char>>(up)", // (*C.char)(p): a gocpp pointer sharing the owner of p
+		"gp::unsafe_cast<uint8_t>(up)",
+		"gp::cgo::as<gp::ptr<gp::array<int, 8>>>(up)",
+		"gp::unsafe_addr(up)",
+		"gp::cgo::as<gp::ptr<void>>(&n)",
+		"gp::cgo::as<gp::ptr<void>>(::fn)",
+		"auto xs = gp::unsafe_slice(ip, 4);", // not wrapped in gp::values: it is no call of C++
+		"gp::string s = gp::unsafe_string(gp::unsafe_cast<uint8_t>(up), gp::cgo::as<int64_t>(n));",
+		"auto q = gp::cgo::box_keep<::FILE>([&]() -> ::FILE { return ::FILE{}; });",
+		"::f(gp::cgo::raw(q), gp::cgo::raw(gp::cgo::box_keep<::FILE>([&]() -> ::FILE { return ::FILE{}; })));",
+		"static_cast<void>(&v[1]);",
+		"static_cast<void>(gp::cptr<int>(gp::ptr<int>(r, &(*r).n)));", // r is a gocpp struct, in its box: the pointer shares its owner
+		"static_cast<void>(gp::cptr<int>(gp::ptr<int>(r, &(*r).vals[2])));",
+		"static_cast<void>(gp::cptr<int>(gp::ptr<int>(a, &(*a)[1])));",
+		"auto sl = gp::sub(gp::cgo::slice_of(gp::deref(lr).vals), 1, 3);",
+		"gp::cgo::slice_of(gp::deref(lr).vals)",
+		"::f(px.gp_get(), up.gp_get(), gp::unsafe_pointer(px).gp_get(), gp::unsafe_slice_data(xs).gp_get());", // through ...: raw addresses
+		"static_cast<void>(gp::unsafe_sizeof<decltype(n)>());",
+		"static_cast<void>(gp::unsafe_alignof<decltype(lr)>());",
+		"static_cast<void>(offsetof(std::remove_cvref_t<decltype(gp::deref(lr))>, q));",
+		"::f(gp::cgo::out_ptr(out));",
+		"for (; oq != nullptr; oq = gp::deref(oq).next) {", // the walk over raw pointers from C
+		"raw = oq;",
+		"gp::cptr<::FILE> db{};",     // a gocpp pointer to a C type
+		"::f(gp::cgo::out_ptr(db));", // &db for a T** parameter
+		"head = gp::cgo::box_keep<::FILE>([&](const auto& gp_k0) -> ::FILE { return [&]() { ::FILE gp_t0{}; static_assert(gp::cgo::field_ok<decltype(gp_t0.next)>); gp_t0.next = {gp_k0}; return gp_t0; }(); }, head);", // the node keeps head's object
+		"auto gp_t1 = table[0]; gp::cgo::store_keep(head, gp::deref(head).next, gp_t1);",                                         // a store into a member of what head owns
+		"gp::cgo::store_keep(head, gp::deref(gp::deref(head).a).b, nullptr, gp::cgo::keep_path<decltype(gp::deref(head).a)>());", // through a member struct // the node keeps head's object
+		"gp::slice<gp::cptr<::FILE>> table{};",
+		"gp::cgo::case_eq(head, nullptr)",
+	} {
+		if !strings.Contains(cpp, want) {
+			t.Errorf("no %q in the C++:\n%s", want, cpp)
 		}
 	}
 }

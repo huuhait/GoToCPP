@@ -129,6 +129,10 @@ type funcGen struct {
 	addrHeld map[*types.Var]bool
 	// retStmt is the return statement being lowered (returnMove).
 	retStmt *ast.ReturnStmt
+	// memberStores: the value of each assignment x.m = v into a member or element of a C/C++ object
+	// (cunsafe.go: noteStores), for the target of x.m; storesNoted: the assignments seen.
+	memberStores map[ast.Expr]ast.Expr
+	storesNoted  map[*ast.AssignStmt]bool
 	// cTag: the switch being lowered has a C/C++ value as its tag (control.go: caseCond).
 	cTag bool
 }
@@ -143,6 +147,9 @@ func newFuncGen(g *gen, names *funcNames, fn *funcInfo) *funcGen {
 		force:      make(map[ast.Expr]bool),
 		moves:      make(map[ast.Expr]bool),
 		stores:     make(map[ast.Expr]bool),
+
+		memberStores: make(map[ast.Expr]ast.Expr),
+		storesNoted:  make(map[*ast.AssignStmt]bool),
 	}
 	if fn != nil {
 		fg.boxed, fg.top = fn.boxed, fn.top
@@ -294,7 +301,7 @@ func (fg *funcGen) ident(id *ast.Ident) cppir.Expr {
 		// A nil pointer, slice, map or func: C++ converts nullptr to gp::ptr<T>, gp::slice<T>,
 		// gp::map<K, V> and gp::func<Sig> (where C++ deduces the type, exactExpr writes
 		// gp::slice<T>()). The other nil values (interfaces) come with their types.
-		if t := fg.g.info.TypeOf(id); t != nil && (isPointer(t) || isSlice(t) || isMap(t) || isFunc(t) || t == types.Typ[types.UntypedNil]) {
+		if t := fg.g.info.TypeOf(id); t != nil && (isPointer(t) || isUnsafePointer(t) || isSlice(t) || isMap(t) || isFunc(t) || t == types.Typ[types.UntypedNil]) {
 			return lit("nullptr")
 		}
 		fg.g.unsupported(id.Pos(), "nil of type "+types.TypeString(fg.g.info.TypeOf(id), types.RelativeTo(fg.g.pkg.Types)))
@@ -306,6 +313,9 @@ func (fg *funcGen) ident(id *ast.Ident) cppir.Expr {
 
 // call returns the C++ of a function call.
 func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
+	if x, ok := fg.cPointerConversion(c); ok {
+		return x // (*C.char)(p): a conversion to a pointer to a C/C++ type (cunsafe.go)
+	}
 	if tv := fg.g.info.Types[c.Fun]; tv.IsType() {
 		return fg.conversion(c, tv.Type)
 	}
@@ -316,6 +326,18 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 	}
 	if conv := fg.g.pkg.Conversion(c); conv != nil {
 		return fg.asConversion(c, conv) // of a C/C++ value (cvalues.go), not a call
+	}
+	if inner := fg.g.pkg.UnsafeWrapper(c); inner != nil {
+		if name := fg.g.unsafeFunc(inner); name == "Sizeof" || name == "Alignof" || name == "Offsetof" {
+			return fg.unsafeSize(inner, name) // gp_cgoh.UnsafeSize(unsafe.Sizeof(x)) (unsafe.go)
+		}
+		return fg.expr(inner) // gp_cgoh.UnsafeSlice(unsafe.Slice(p, n)): the call inside (unsafe.go)
+	}
+	if name := fg.g.unsafeBuiltin(c); name != "" {
+		return fg.unsafeCall(c, name) // unsafe.Slice and the others (unsafe.go)
+	}
+	if s := fg.g.pkg.OpaqueSlice(c); s != nil {
+		return fg.cSlice(s) // a[lo:hi] of a C array, which check made a call of (cunsafe.go)
 	}
 	if !fg.ordered[c] {
 		fg.g.errorf(c.Pos(), "internal error: a call whose evaluation order was not decided")

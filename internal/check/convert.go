@@ -425,11 +425,15 @@ func (cv *converter) rewrite(p *Package, errs []token.Pos) bool {
 	// older //go:build version (go1.17) as go1.21, which has generics.
 	var cands []candidate
 	var cmps []cmpCandidate
+	var uns []unsafeCandidate
+	var sls []sliceCandidate
 	for _, f := range cv.lp.Files {
 		cands = append(cands, opaqueConversions(f.AST, p.Info)...)
 		cmps = append(cmps, opaqueComparisons(f.AST, p.Info)...)
+		uns = append(uns, opaqueUnsafeCalls(f.AST, p.Info)...)
+		sls = append(sls, opaqueSlices(f.AST, p.Info)...)
 	}
-	if len(cands) == 0 && len(cmps) == 0 {
+	if len(cands) == 0 && len(cmps) == 0 && len(uns) == 0 && len(sls) == 0 {
 		return false
 	}
 	if cv.decls == nil {
@@ -452,6 +456,14 @@ func (cv *converter) rewrite(p *Package, errs []token.Pos) bool {
 	for _, c := range cands {
 		a.cands[c.call] = true
 	}
+	a.sls = make(map[*ast.SliceExpr]bool, len(sls))
+	for _, c := range sls {
+		a.sls[c.slice] = true
+	}
+	a.uns = make(map[*ast.CallExpr]bool, len(uns))
+	for _, u := range uns {
+		a.uns[u.call] = true
+	}
 	for _, c := range cmps {
 		a.cmps[c.cmp] = true
 	}
@@ -473,6 +485,16 @@ func (cv *converter) rewrite(p *Package, errs []token.Pos) bool {
 		}
 		cv.rewriteCmp(c)
 		n++
+	}
+	for _, u := range uns {
+		if cv.rewriteUnsafe(a, u) {
+			n++
+		}
+	}
+	for _, c := range sls {
+		if cv.rewriteSlice(a, c) {
+			n++
+		}
 	}
 	return n > 0
 }
@@ -819,11 +841,15 @@ func (cv *converter) packageName() string {
 // value") into T.
 func (cv *converter) fixMessage(msg string) string {
 	for name := range cv.names {
-		msg = fixHelpers(msg, name)
+		msg = unwrapHelpers(fixHelpers(msg, name), name)
 		msg = unwrapCmp(msg, name+"."+cmpName+"(")
 		msg = unwrap(msg, name+"."+valueName+"[", valueName)
 		msg = unwrap(msg, name+"."+unusedName+"[", unusedName)
 		msg = unwrap(msg, name+"."+asName+"[", asName)
+	}
+	if strings.Contains(msg, "cannot take address of ") {
+		// The slice of a C array (&c.vals[0:1]) has go/types' invalid element type.
+		msg = strings.Replace(msg, " (value of type []invalid type)", " (slice of C/C++ values)", 1)
 	}
 	return msg
 }

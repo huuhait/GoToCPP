@@ -23,6 +23,11 @@
 //     int(x), C.int(d) (x, d C/C++ gp::cgo::as<int64_t>(x), gp::cgo::as<int>(d)
 //       values or gocpp numbers)
 //     string(x) (x a std::string) gp::cgo::as<gp::string>(x)
+//     unsafe.Pointer(cp)          gp::cgo::as<gp::ptr<void>>(cp)  (unsafe.hpp)
+//     (*C.T)(p) (p an             gp::cgo::as<T*>(p)
+//       unsafe.Pointer)
+//     (*byte)(cvoid)              gp::cgo::as<gp::ptr<uint8_t>>(cvoid)
+//     a[lo:hi] (a a C array)      gp::sub(gp::cgo::slice_of(a), lo, hi)
 //     *x (x opaque)               gp::cgo::star(x)
 //     if x (x an opaque bool)     if (gp::cgo::cond(x))
 //     b := x == y (x, y opaque)   bool b = gp::cgo::to_bool(x == y);
@@ -39,16 +44,23 @@
 #include <gocpp/ptr.hpp>
 #include <gocpp/slice.hpp>
 #include <gocpp/string.hpp>
+#include <gocpp/unsafe.hpp>
 
+#include <array>
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <unordered_map>
+#include <map>
+#include <mutex>
 #include <string>
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace gp {
 
@@ -60,6 +72,16 @@ template <typename T>
 void accept_gp_ptr(const ptr<T>&);
 template <typename X>
 concept gp_pointer = requires(const X& x) { detail::accept_gp_ptr(x); };
+
+// cptr_elem<T>::type is E when T is exactly gp::cptr<E> (a gocpp pointer to a C/C++ type).
+template <typename T>
+struct cptr_elem {};
+template <typename E>
+struct cptr_elem<cptr<E>> {
+    using type = E;
+};
+template <typename T>
+concept cptr_like = requires { typename cptr_elem<T>::type; };
 
 // raw_object_pointer<X>: X is a raw pointer to an object (not void, not a function).
 template <typename X>
@@ -519,7 +541,41 @@ constexpr T as(X&& x) {
     static_assert(
         !std::is_same_v<T, bool> || std::is_same_v<F, bool>,
         "gocpp: only a bool converts to bool, as in Go: compare the value instead (x != 0)");
-    if constexpr (std::is_same_v<T, string>) {
+    if constexpr (std::is_same_v<T, ptr<void>>) {
+        // unsafe.Pointer(p) of a C pointer, a C function or an address (gocpp/unsafe.hpp).
+        return detail::to_unsafe_pointer(std::forward<X>(x));
+    } else if constexpr (std::is_pointer_v<T> && std::is_same_v<F, ptr<void>>) {
+        // (*C.T)(p) of an unsafe.Pointer p.
+        return detail::from_unsafe_pointer<T>(x);
+    } else if constexpr (gp::detail::cptr_like<T>) {
+        // (*C.T)(p) of an unsafe.Pointer or of a C void*: a gocpp pointer to a C type that shares
+        // the owner of p (pointers from C own nothing).
+        using E = typename gp::detail::cptr_elem<T>::type;
+        if constexpr (std::is_same_v<F, ptr<void>>) {
+            return T(unsafe_cast<E>(x));
+        } else if constexpr (std::is_same_v<F, T>) {
+            return x;
+        } else {
+            static_assert(std::is_pointer_v<F> &&
+                              std::is_void_v<std::remove_cv_t<std::remove_pointer_t<F>>>,
+                          "gocpp: a C pointer converts to another pointer type only through "
+                          "unsafe.Pointer: (*T)(unsafe.Pointer(p))");
+            return T(unsafe_cast<E>(detail::to_unsafe_pointer(x)));
+        }
+    } else if constexpr (detail::gocpp_object_pointer<T>) {
+        // (*byte)(p), (*[16]C.char)(p): a gocpp pointer to a gocpp type, of an unsafe.Pointer or
+        // of a C void* (which is an unsafe.Pointer for cgo): sharing the owner of p.
+        using E = typename detail::object_ptr_elem<T>::type;
+        if constexpr (std::is_same_v<F, ptr<void>>) {
+            return unsafe_cast<E>(x);
+        } else {
+            static_assert(std::is_pointer_v<F> &&
+                              std::is_void_v<std::remove_cv_t<std::remove_pointer_t<F>>>,
+                          "gocpp: a C pointer converts to a gocpp pointer only through "
+                          "unsafe.Pointer: (*T)(unsafe.Pointer(p))");
+            return unsafe_cast<E>(detail::to_unsafe_pointer(x));
+        }
+    } else if constexpr (std::is_same_v<T, string>) {
         // Here, not in to_go_string, so that the error names the place of the conversion. A C
         // string (a char pointer or array) has no length to convert: cgo's form is
         // C.GoString(p).
@@ -569,6 +625,11 @@ string GoString(P p) {
 inline string GoString(std::nullptr_t) noexcept {
     return string();
 }
+template <typename E>
+    requires detail::c_char_pointer<E*>
+string GoString(const cptr<E>& p) { // &name[0] of a slice over C chars (Phase 04 step 4.10)
+    return GoString(p.gp_get());
+}
 
 // GoStringN(p, n) is C.GoStringN: the n bytes at p, copied (NUL bytes too). n == 0 gives ""
 // (p isn't read, so it may be null). A null p with n > 0 panics like Go's nil dereference
@@ -583,6 +644,11 @@ string GoStringN(P p, N n) {
 template <go_int N>
 string GoStringN(std::nullptr_t, N n) {
     return detail::go_string_n(nullptr, detail::c_length(n));
+}
+template <typename E, go_int N>
+    requires detail::c_char_pointer<E*>
+string GoStringN(const cptr<E>& p, N n) {
+    return GoStringN(p.gp_get(), n);
 }
 
 // GoBytes(p, n) is C.GoBytes: a new []byte with a copy of the n bytes at p. n == 0 gives an
@@ -604,7 +670,7 @@ void free(void* p) noexcept;
 // not Go's ==, and a C struct has none.
 template <typename A, typename B>
 constexpr bool case_eq(const A& tag, const B& v) {
-    static_assert(std::is_scalar_v<A>,
+    static_assert(std::is_scalar_v<A> || gp::detail::cptr_like<A>,
                   "gocpp: a switch on a C/C++ value needs a number, an enum or a pointer");
     return tag == v;
 }
@@ -691,6 +757,451 @@ constexpr decltype(auto) star(X&& x) {
     }
 }
 
+namespace detail {
+
+template <typename T>
+inline constexpr bool is_std_array = false;
+template <typename E, std::size_t N>
+inline constexpr bool is_std_array<std::array<E, N>> = true;
+
+} // namespace detail
+
+// slice_of(a) is the slice of all the elements of a, for a slice expression a[lo:hi] of a C/C++
+// value (a[lo:hi] is gp::sub(gp::cgo::slice_of(a), lo, hi), with gp::sub's Go checks and panics;
+// Phase 04 step 4.10): a C array (a field char name[16], a global int table[8]) or a
+// std::array, as cgo slices a C array. The slice is a view of the C++ memory, which it owns
+// nothing of (gp::foreign_owner), so C++'s lifetime rules apply: the array must outlive the
+// slice. A const element loses its const, as in cgo. Anything else has no slice expression in
+// Go (a C pointer has no length: unsafe.Slice(p, n); a C++ container is not an array).
+template <typename A>
+auto slice_of(A&& a) {
+    using V = std::remove_cvref_t<A>;
+    static_assert(std::is_lvalue_reference_v<A>,
+                  "gocpp: slicing a temporary C/C++ array: the slice would dangle at once");
+    if constexpr (std::is_array_v<V>) {
+        using E = std::remove_cv_t<std::remove_extent_t<V>>;
+        static_assert(!std::is_array_v<E>,
+                      "gocpp: slicing a C array of arrays: slice a row, a[i][:]");
+        auto n = static_cast<int64_t>(std::extent_v<V>);
+        return slice<E>(foreign_owner(), const_cast<E*>(&a[0]), n, n);
+    } else if constexpr (detail::is_std_array<V>) {
+        using E = std::remove_cv_t<typename V::value_type>;
+        auto n = static_cast<int64_t>(a.size());
+        return slice<E>(foreign_owner(), const_cast<E*>(a.data()), n, n);
+    } else {
+        static_assert(detail::is_std_array<V>,
+                      "gocpp: only a C array or a std::array has a slice expression: for a C "
+                      "pointer use unsafe.Slice(p, n), and C++ containers have no slices");
+        return slice<int>();
+    }
+}
+
+namespace detail {
+
+// out_pointer is the argument &p of a C function whose parameter is a void**, for an
+// unsafe.Pointer variable p (a gp::ptr<void>, 16 bytes: no cast makes it a void*): a void* that
+// the function can write to, started with p's address, and written back into p when the
+// statement ends (the temporary's destructor), so a function that allocates (void** out) gives
+// p the new address. A new address is C memory (foreign_owner); if the function left it alone, p
+// keeps its owner.
+class out_pointer {
+public:
+    explicit out_pointer(ptr<ptr<void>> target) noexcept
+        : gp_target_(std::move(target)),
+          gp_raw_(gp_target_ == nullptr ? nullptr : (*gp_target_).gp_get()) {}
+    out_pointer(const out_pointer&) = delete;
+    out_pointer& operator=(const out_pointer&) = delete;
+    ~out_pointer() {
+        if (gp_target_ != nullptr && gp_raw_ != (*gp_target_).gp_get()) {
+            *gp_target_ = unsafe_from_addr(reinterpret_cast<std::uintptr_t>(gp_raw_));
+        }
+    }
+    operator void**() noexcept { return &gp_raw_; }
+
+private:
+    ptr<ptr<void>> gp_target_;
+    void* gp_raw_;
+};
+
+} // namespace detail
+
+// out_ptr(&p) is that argument (detail::out_pointer).
+inline detail::out_pointer out_ptr(ptr<ptr<void>> target) {
+    return detail::out_pointer(std::move(target));
+}
+
+// out_cptr is the same for the argument &p of a C function whose parameter is a T** (sqlite3_open's
+// sqlite3**), with p a gocpp pointer to a C type (a gp::cptr<T>: 16 bytes, so &p is no T**): a T*
+// that the function writes, started with p's address, and written back into p when the statement
+// ends. A new address is C memory (foreign_owner); if the function left it alone, p keeps its
+// owner.
+template <typename T>
+class out_cptr {
+public:
+    explicit out_cptr(cptr<T>& target) noexcept : gp_target_(target), gp_raw_(target.gp_get()) {}
+    out_cptr(const out_cptr&) = delete;
+    out_cptr& operator=(const out_cptr&) = delete;
+    ~out_cptr() {
+        if (gp_raw_ != gp_target_.gp_get()) {
+            gp_target_ = cptr<T>(gp_raw_);
+        }
+    }
+    operator T**() noexcept { return &gp_raw_; }
+
+private:
+    cptr<T>& gp_target_;
+    T* gp_raw_;
+};
+
+template <typename T>
+out_cptr<T> out_ptr(cptr<T>& target) {
+    return out_cptr<T>(target);
+}
+
+// out_ptr(p) of a raw pointer variable p (a T* of a **C.T chain, or a pointer from C): &p itself.
+template <typename T>
+T** out_ptr(T*& target) noexcept {
+    return &target;
+}
+
+// raw(x) is x for a C/C++ function's argument, with a gocpp pointer (a gp::ptr, a gp::cptr) as its
+// raw address: through a C function's `...` a class object is an error, and f(bool) + f(void*) is
+// ambiguous for it.
+template <typename X>
+decltype(auto) raw(X&& x) {
+    if constexpr (gp::detail::gp_pointer<std::remove_cvref_t<X>>) {
+        return x.gp_get();
+    } else {
+        return std::forward<X>(x);
+    }
+}
+
+namespace detail {
+
+// same_block reports whether two owners are one block.
+inline bool same_block(const std::shared_ptr<const void>& a,
+                       const std::shared_ptr<const void>& b) noexcept {
+    return !a.owner_before(b) && !b.owner_before(a);
+}
+
+// needs_keep reports whether the owner o is one that keeps something alive: not a nil pointer's,
+// not that of C memory (foreign_owner) or of a package variable (static_owner), which are never
+// freed.
+inline bool needs_keep(const std::shared_ptr<const void>& o) noexcept {
+    return o.use_count() != 0 && !same_block(o, foreign_owner()) && !same_block(o, static_owner());
+}
+
+// owner_of(p) is the owner of the object that the pointer p points to, if it needs one kept: a
+// gocpp pointer's; for a raw pointer, the block of the C struct that gocpp owns at that address
+// (gp::detail::box_owner: the object that n.next = head stored in a member, read back as a raw
+// pointer), else nothing: C memory is not ours to keep.
+template <typename P>
+std::shared_ptr<const void> owner_of(const P& p) {
+    if constexpr (gp::detail::gp_pointer<P>) {
+        std::shared_ptr<const void> o(p.gp_shared());
+        return needs_keep(o) ? o : nullptr;
+    } else if constexpr (std::is_pointer_v<P> && (std::is_object_v<std::remove_pointer_t<P>> ||
+                                                  std::is_void_v<std::remove_pointer_t<P>>)) {
+        return gp::detail::box_owner(static_cast<const void*>(p));
+    } else {
+        return nullptr;
+    }
+}
+
+// keep_mutex(k) guards the keeper k (stores into members are rare, and a keeper is small: the locks
+// are shared by address). They are never destroyed, so a store during static destruction is safe.
+inline std::mutex& keep_mutex(const void* k) noexcept {
+    static std::mutex* const shards = new std::mutex[64];
+    const auto u = reinterpret_cast<std::uintptr_t>(k);
+    return shards[((u >> 4) ^ (u >> 10)) % 64];
+}
+
+// keeper holds the owners of the objects that the raw pointer members of a struct point to, by the
+// address of the member: a store replaces the entry of its member (or drops it for a nil or a raw
+// pointer), so a loop that stores into one member holds one object, not a growing list. A literal's
+// pointers have no member (the key is null): they are held until the struct dies. The entries are
+// a vector, searched in place while there are few (a node has one) and through a hash index when
+// there are many (an array member of 1000 pointers). The owners are dropped through
+// gp::detail::release, so freeing a list of a million nodes doesn't recurse a million deep.
+struct keeper {
+    using entry = std::pair<const void*, std::shared_ptr<const void>>;
+    static constexpr std::size_t gp_scan = 16;
+    std::vector<entry> gp_held;
+    std::unique_ptr<std::unordered_map<const void*, std::size_t>> gp_index;
+
+    keeper() = default;
+    keeper(keeper&&) noexcept = default;
+    keeper(const keeper&) = delete;
+    keeper& operator=(const keeper&) = delete;
+    keeper& operator=(keeper&&) = delete;
+    ~keeper() { clear(); }
+
+    // clear drops every owner held, through gp::detail::release.
+    void clear() noexcept {
+        std::vector<entry> held;
+        held.swap(gp_held);
+        gp_index.reset();
+        for (entry& e : held) {
+            gp::detail::release(e.second);
+        }
+    }
+
+    // set makes owner the one held for the member at key (nothing for a nil owner), and returns
+    // the owner that it replaced, for the caller to drop outside the lock (release).
+    std::shared_ptr<const void> set(const void* key, std::shared_ptr<const void> owner) {
+        std::lock_guard<std::mutex> lock(keep_mutex(this));
+        if (key == nullptr) {
+            if (owner) {
+                gp_held.emplace_back(nullptr, std::move(owner));
+            }
+            return nullptr;
+        }
+        const std::size_t i = find(key);
+        if (i == npos) {
+            if (owner) {
+                add(key, std::move(owner));
+            }
+            return nullptr;
+        }
+        std::shared_ptr<const void> old = std::move(gp_held[i].second);
+        if (owner) {
+            gp_held[i].second = std::move(owner);
+        } else {
+            erase_at(i);
+        }
+        return old;
+    }
+
+private:
+    static constexpr std::size_t npos = static_cast<std::size_t>(-1);
+
+    std::size_t find(const void* key) const {
+        if (gp_index) {
+            auto it = gp_index->find(key);
+            return it == gp_index->end() ? npos : it->second;
+        }
+        for (std::size_t i = 0; i < gp_held.size(); i++) {
+            if (gp_held[i].first == key) {
+                return i;
+            }
+        }
+        return npos;
+    }
+    void add(const void* key, std::shared_ptr<const void> owner) {
+        gp_held.emplace_back(key, std::move(owner));
+        if (gp_index) {
+            (*gp_index)[key] = gp_held.size() - 1;
+        } else if (gp_held.size() > gp_scan) {
+            gp_index = std::make_unique<std::unordered_map<const void*, std::size_t>>();
+            for (std::size_t i = 0; i < gp_held.size(); i++) {
+                if (gp_held[i].first != nullptr) {
+                    (*gp_index)[gp_held[i].first] = i;
+                }
+            }
+        }
+    }
+    void erase_at(std::size_t i) {
+        if (gp_index) {
+            gp_index->erase(gp_held[i].first);
+        }
+        const std::size_t last = gp_held.size() - 1;
+        if (i != last) {
+            gp_held[i] = std::move(gp_held[last]);
+            if (gp_index && gp_held[i].first != nullptr) {
+                (*gp_index)[gp_held[i].first] = i;
+            }
+        }
+        gp_held.pop_back();
+    }
+};
+
+// keep_deleter is the deleter of the box of a struct made by box_keep: it destroys the object and
+// then drops the owners the keeper holds (the control block, and the keeper in it, may outlive the
+// object: the registry holds a weak pointer to it until it is rehashed). get_deleter finds it from
+// any pointer that shares the box (an alias too), so store_keep needs no type.
+struct keep_deleter {
+    mutable keeper gp_keeper;
+    void (*gp_destroy)(void*);
+    void operator()(void* p) const {
+        gp::detail::box_died(p);
+        gp_destroy(p);
+        gp_keeper.clear();
+    }
+};
+
+// The owners that structs without a keeper hold for their raw pointer members: a C struct in a
+// gocpp struct, in a slice, or one that a pointer aliases (&s.f, &xs[i]); package variables. They
+// are kept by the owner's block, in a table that is purged when it doubles (the owners of dead
+// blocks are dropped then, not at the moment the block dies: later than a keeper's).
+struct side_table {
+    std::mutex gp_mu;
+    std::map<std::weak_ptr<const void>, keeper, std::owner_less<>> gp_map;
+    std::size_t gp_limit = 64;
+};
+inline side_table& side() {
+    static side_table* const t = new side_table;
+    return *t;
+}
+
+inline void side_store(const std::shared_ptr<const void>& block, const void* key,
+                       std::shared_ptr<const void> held) {
+    std::vector<keeper> dead; // the keepers of dead blocks, dropped after the lock
+    std::shared_ptr<const void> old;
+    {
+        side_table& t = side();
+        std::lock_guard<std::mutex> lock(t.gp_mu);
+        if (t.gp_map.size() >= t.gp_limit) {
+            for (auto it = t.gp_map.begin(); it != t.gp_map.end();) {
+                if (it->first.expired()) {
+                    dead.push_back(std::move(it->second));
+                    it = t.gp_map.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            t.gp_limit = std::max<std::size_t>(64, 2 * t.gp_map.size());
+        }
+        auto it = t.gp_map.find(block);
+        if (it == t.gp_map.end()) {
+            if (!held) {
+                return;
+            }
+            it = t.gp_map.try_emplace(std::weak_ptr<const void>(block)).first;
+        }
+        old = it->second.set(key, std::move(held));
+    }
+    if (old) {
+        gp::detail::release(old);
+    }
+}
+
+[[noreturn]] inline void keep_fatal() {
+    gp::detail::fatal(
+        "cannot keep the object alive: the pointer is stored into C memory (a struct that came "
+        "from C), which can't hold a gocpp pointer: allocate the struct with &T{...}, or keep the "
+        "object in a variable for as long as C uses it");
+}
+
+template <typename O>
+concept slice_owner = requires(const O& o) { o.gp_owner(); };
+
+template <typename O>
+inline constexpr bool owner_kind = gp::detail::gp_pointer<O> || slice_owner<O>;
+
+// keep_store records held as the owner kept for the member at key of the struct in the block that
+// owner owns: owner is the gocpp pointer to the struct, or the slice that has it as an element.
+template <typename O>
+void keep_store(const O& owner, const void* key, std::shared_ptr<const void> held) {
+    std::shared_ptr<const void> block;
+    if constexpr (gp::detail::gp_pointer<O>) {
+        if (auto* d = std::get_deleter<keep_deleter>(owner.gp_shared())) {
+            if (held && same_block(held, owner.gp_shared())) {
+                held = nullptr; // a pointer to the struct itself: the block owns both
+            }
+            if (auto old = d->gp_keeper.set(key, std::move(held))) {
+                gp::detail::release(old);
+            }
+            return;
+        }
+        block = owner.gp_shared();
+    } else {
+        block = owner.gp_owner();
+    }
+    if (held && block && same_block(held, block)) {
+        held = nullptr; // &nodes[i+1] stored in nodes[i]: one allocation owns both
+    }
+    if (!block) {
+        if (held) {
+            keep_fatal(); // a nil owner (the member access panics first), or a stack value
+        }
+        return;
+    }
+    if (same_block(block, foreign_owner())) {
+        if (held) {
+            keep_fatal();
+        }
+        return;
+    }
+    side_store(block, key, std::move(held));
+}
+
+} // namespace detail
+
+// box_keep<T>(make, kept...) is a gp::cptr<T> to a new T built in place by make(kept...) (no copy
+// or move: a std.mutex works), the box of &lib.Node{...}. The members of a C struct are raw
+// pointers, so the box holds the owners of the objects that the pointers in the literal point to
+// (the kept pointers: &lib.Node{next: head}), and of those stored into its members later
+// (store_keep), until it dies, as Go's pointer keeps its object. The object is registered under
+// its address while it lives (gp::detail::box_owner), so the raw pointers to it that C structs
+// hold convert back into pointers that own it (a read of n.next).
+template <typename T, typename F, typename... P>
+cptr<T> box_keep(F&& make, const P&... kept) {
+    detail::keeper k;
+    (k.set(nullptr, detail::owner_of(kept)), ...);
+    T* obj = new T(make(kept...));
+    std::shared_ptr<void> sp(
+        static_cast<void*>(obj),
+        detail::keep_deleter{std::move(k), [](void* p) { delete static_cast<T*>(p); }});
+    gp::detail::box_register(static_cast<const void*>(obj), sp);
+    return cptr<T>(ptr<T>(std::shared_ptr<T>(sp, obj)));
+}
+
+// keep_path<L...> is the types of the members that a store goes through between the pointer that
+// owns a struct and the member (n.a.b.next: the types of n.a and n.a.b). A raw pointer among them
+// is a struct that is not n's: the pointer stored would be kept by nothing.
+template <typename... L>
+struct keep_path {
+    static_assert((!std::is_pointer_v<std::remove_cvref_t<L>> && ...),
+                  "gocpp: cannot keep the object alive: the struct is reached through a raw C "
+                  "pointer: assign it through a *T variable you own, or write the literal "
+                  "&T{...}");
+};
+
+// store_keep(owner, member, value) is member = value for a member of the struct that the gocpp
+// pointer owner owns (n.next = head, n.slots[i] = p; also the slice that has the struct as an
+// element, nodes[i].next = p): a raw pointer member gets the raw address of value and the owner of
+// the struct keeps value's object alive, replacing what the member kept before (nothing for nil or
+// a pointer that is C's), as Go's pointer would. A value that is a raw pointer to a C struct that
+// gocpp owns (n.next = other.next) keeps that struct. Any other member just gets the value. A
+// gocpp pointer stored into C memory is a fatal error: nothing could keep it alive.
+template <typename O, typename M, typename V, typename... L>
+void store_keep(const O& owner, M& member, V&& value, keep_path<L...> = {}) {
+    static_assert(detail::owner_kind<O>,
+                  "gocpp: cannot keep the object alive: the struct is not owned by a *T variable "
+                  "(it is a C/C++ local value, or a raw pointer from C): declare it n := &T{...} "
+                  "and store through n");
+    if constexpr (std::is_pointer_v<M>) {
+        std::shared_ptr<const void> held = detail::owner_of(value);
+        if constexpr (gp::detail::gp_pointer<std::remove_cvref_t<V>>) {
+            member = value.gp_get();
+        } else {
+            member = value;
+        }
+        detail::keep_store(owner, static_cast<const void*>(&member), std::move(held));
+    } else {
+        member = std::forward<V>(value);
+    }
+}
+
+// load(x) is the value of the member read x (auto next = cur.next): a raw pointer to a C struct
+// becomes a gp::cptr, which owns the struct if gocpp does (gp::detail::box_owner), so that the
+// variable keeps it alive when cur's member is stored again; any other value is x itself (a copy
+// when it initializes an auto variable). A bit-field is read as a copy.
+template <typename X>
+decltype(auto) load(X&& x) {
+    using P = std::remove_cvref_t<X>;
+    if constexpr (std::is_pointer_v<P> && std::is_class_v<std::remove_pointer_t<P>>) {
+        return cptr<std::remove_pointer_t<P>>(x);
+    } else {
+        return std::forward<X>(x);
+    }
+}
+template <typename X>
+    requires(!std::is_array_v<X> && std::is_copy_constructible_v<X>)
+X load(const X& x) {
+    return x;
+}
+
 // fmt_arg(x) is an argument of fmt.Print, Println, Printf and the Sprint functions that has a
 // C/C++ part (a C/C++ value, or a gocpp value with one inside, Phase 04 §2.12): the value, for
 // gp::fmtshim, after a check that fmt can print every part of it (gocpp/fmtshim.hpp, "C/C++
@@ -698,9 +1209,9 @@ constexpr decltype(auto) star(X&& x) {
 template <typename T>
 auto fmt_arg(T x) {
     static_assert(fmtshim::detail::printable_arg<T>,
-                  "gocpp: fmt can't print a C++ type in this value: it has no std::formatter and "
-                  "no operator<< (print its parts, or declare an operator<< for it; an operator<< "
-                  "must be declared in the type's namespace)");
+                  "gocpp: fmt can't print a C++ type in this value: it has no std::formatter "
+                  "and no operator<< (print its parts, or declare an operator<< for it; an "
+                  "operator<< must be declared in the type's namespace)");
     return fmtshim::detail::cxx_arg<T>{std::move(x)};
 }
 
@@ -708,10 +1219,14 @@ auto fmt_arg(T x) {
 // C/C++ number, bool, enum, raw pointer, nullptr or C++ string (gocpp/print.hpp).
 template <typename T>
 auto print_arg(T x) {
-    static_assert(gp::detail::print_ok<T>,
-                  "gocpp: print and println can't print a C++ object: use fmt.Println, or "
-                  "print its parts");
-    return gp::detail::cxx_print<T>{std::move(x)};
+    if constexpr (gp::detail::cptr_like<T>) {
+        return print_arg(x.gp_get());
+    } else {
+        static_assert(gp::detail::print_ok<T>,
+                      "gocpp: print and println can't print a C++ object: use fmt.Println, or "
+                      "print its parts");
+        return gp::detail::cxx_print<T>{std::move(x)};
+    }
 }
 
 // --- boxes of C/C++ objects (Phase 04 step 4.8) ---

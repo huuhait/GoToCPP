@@ -730,5 +730,15 @@ func (fg *funcGen) typeOfExpr(e ast.Expr) cppir.Type {
 			return fg.g.varType(v, id.Pos())
 		}
 	}
+	if !complete(t) {
+		// An element or a field of a C/C++ type (xs[i] of a []C.int, s.n): from the declaration.
+		if te := fg.g.valueTypeExpr(e); te != nil {
+			return fg.g.typeExpr(te)
+		}
+		if fg.g.pkg.Opaque.IsOpaque(e) {
+			// Unknown to gocpp (an element of a slice over C memory): the C++ compiler knows.
+			return typeName("std::remove_cvref_t<decltype(" + cppir.ExprString(fg.expr(e)) + ")>")
+		}
+	}
 	return fg.g.cxxType(t, e.Pos())
 }

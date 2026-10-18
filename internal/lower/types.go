@@ -20,6 +20,7 @@ import (
 //	string                   gp::string
 //	(A, B) (results)         std::tuple<A, B>
 //	*T                       gp::ptr<T> (Phase 03 step 3.3; T of any type that cxxType has)
+//	unsafe.Pointer           gp::ptr<void> (Phase 04 step 4.10, unsafe.go)
 //	[]T                      gp::slice<T> (Phase 03 step 3.5; T of any type that cxxType has)
 //	[N]T                     gp::array<T, N> (Phase 03 step 3.6, arrays.go)
 //	map[K]V                  gp::map<K, V> (Phase 03 step 3.7, maps.go)
@@ -85,6 +86,9 @@ func (g *gen) cxxType(t types.Type, pos token.Pos) cppir.Type {
 	case *types.Basic:
 		if s := basicTypes[t.Kind()]; s != "" {
 			return typeName(s)
+		}
+		if t.Kind() == types.UnsafePointer {
+			return typeName("gp::ptr<void>") // an owning pointer (unsafe.go)
 		}
 	case *types.Pointer:
 		return ptrType(g.cxxType(t.Elem(), pos))

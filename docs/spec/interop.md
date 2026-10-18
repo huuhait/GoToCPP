@@ -581,7 +581,8 @@ A C/C++ value doesn't convert implicitly to a gocpp type, as in cgo: `var n int 
 is an error ("cannot use cmath.pow(10, 30) (C/C++ value) as int value in variable declaration:
 convert it, int(cmath.pow(10, 30))"), also in an assignment, an argument and a return. `int(x)` converts with Go's
 rules (`gp::cgo::as`: a float out of range gives Go's result, not C++'s undefined behavior). A C
-pointer converts to a number only through `unsafe.Pointer`, and only a bool converts to bool.
+pointer converts to a number or to another pointer type only through `unsafe.Pointer`
+([pointers](#pointers-unsafe-and-slices-at-the-boundary)), and only a bool converts to bool.
 The other way round too: a typed gocpp value doesn't go implicitly into a C/C++ variable, field,
 parameter of a gocpp function or result (`fv := 1e30; var i C.int = fv` is "cannot use fv
 (variable of type float64) as C.int value in variable declaration: convert it, C.int(fv)"); an
@@ -635,9 +636,10 @@ line := lib.Line{a: {1, 2}, b: lib.Vec{y: 3}}       // also in a keyed literal
   global-buffer-overflow). Write `std.vector[std.string]{"a", "b"}`.
 - The elements are evaluated in Go's order, from left to right (keys before their values); untyped
   constants are C literals, `nil` is `nullptr`.
-- `&T{...}` of a C/C++ type is not supported yet (step 4.10): a gocpp `*T` of a C/C++ type is a raw
-  pointer, which can't own the new object. Declare a variable and take its address:
-  `v := lib.Vec{1, 2}; p := &v` (C++'s lifetime rules).
+- `&T{...}` of a C/C++ type is `gp::cptr<T>(gp::cgo::box_as<T>(...))`, a gocpp pointer that owns the new object
+  ([pointers](#pointers-unsafe-and-slices-at-the-boundary)): in a new variable (`p := &lib.Vec{1, 2}`),
+  an argument or an `unsafe.Pointer` conversion. Not where a raw C pointer is declared (a variable,
+  field or result of type `*lib.Vec`): there it would dangle at once, which is an error.
 - A package variable can take its type from the literal: `var origin = lib.Vec{y: 1}`.
 
 **gocpp literals with C/C++ parts** are gocpp values with Go's rules: `[]C.int{1, 2}`,
@@ -794,7 +796,9 @@ defer v.clear()            // fine: v is boxed, so it is still alive when the de
     it), `defer lib.f(v.data())` keeps `v` (the pointer is into it), `defer lib.f(&v)` keeps `v`. A
     plain use of a variable in an argument copies its value and keeps nothing (`defer lib.f(h)`,
     `defer fmt.Println(int(v.size()))`, `defer show(Vec{x: n})`). (2) In a function that has a
-    `defer` statement, a C++ local whose **address is taken** (`&a`) is boxed, and the function's
+    `defer` statement, a C++ local whose **address is taken** (`&a`, and the address of a part of it:
+    `&a[i]`, `&a.f`; for the address of a part of a gocpp value, `&s.f` or `&xs[i]`, the pointer
+    shares the object's owner and nothing needs holding) is boxed, and the function's
     frame holds its box until every deferred call has run (also one that was deferred before the
     local was declared, and when a panic runs them), where the pointer can **outlive the local's
     block**: the local is in the function's own block (not in an inner block or a loop), or the
@@ -882,7 +886,9 @@ changes the meaning silently. Four kinds of type cover the cases:
 | `for i, x := range c` | `for (auto&& [i, x] : gp::range(c))`: `x` is a copy | copy | error (use the index: `for i := range c`, then `c[i]`) | copy | error |
 | a parameter | by value: a copy made by the caller | copy | the caller moves (`f(std.move(x))`) | copy | error |
 | a gocpp struct with such a field (`type S struct{ mu objects.Lock }`) | built like the field: `var s S`, `S{...}`, `&S{...}`, `new(S)` and a boxed `s` build it in place | in place | in place | error at the field: "this C++ type has no default constructor, so a struct field of it has no zero value" (Go's `var s S` and `new(S)` need one; use `*T` or a smart pointer as the field) | in place; copying it (`t := s`) is an error |
-| `&x` | the raw address `&x` | | | | |
+| `&T{...}` of a C/C++ type | `gp::cptr<T>(gp::cgo::box_as<T>(...))`: built in place in a box that the pointer owns (it converts to the raw `T*`) | in place | in place | in place | in place |
+| `&s.f`, `&xs[i]` of a gocpp struct, slice or array with C/C++ parts | `gp::cptr<F>(gp::ptr<F>(owner, &...))`: shares the owner of the object | | | | |
+| `&x`, `&x[i]`, `&x.f` of a C/C++ local | the raw address (the local is held, as above, when a defer is there) | | | | |
 
 Notes on the table:
 - *In place* means C++'s guaranteed copy elision: the result of `f()` is built in the new variable (or in
@@ -953,7 +959,7 @@ fmt.Println(strings.ToUpper(s + "!"))
   `C.GoStringN(p, n)` with `n int` is "cannot use n (variable of type int) as C.int value in
   argument to C.GoStringN". A C/C++ value passes as it is: any char pointer goes to `C.GoString`,
   and `C.free(p)` takes a C pointer without the `unsafe.Pointer(p)` that cgo needs (that form
-  comes with step 4.10). The results of `C.CString` and `C.cstr` are C/C++ values. A helper must
+  works too). The results of `C.CString` and `C.cstr` are C/C++ values. A helper must
   be called (`f := C.GoString` is "must call C.GoString").
 - **Where `C.cstr` can go.** Its C string lives only as long as its holder, so `C.cstr(s)` can be
   only an argument of a C/C++ function (also of a constructor, a member function or a C++
@@ -1000,31 +1006,187 @@ n := unistd.read(fd, unsafe.Pointer(&buf[0]), 4096) // C only borrows the pointe
 
 nums := []C.int{3, 1, 2}
 lib.print_all(nums) // a C++ function that takes std::span<int>
+
+argv := unsafe.Slice(lib.get_argv(), 3) // a []*C.char over C's array: a view, C owns it
+name := rec.name[:]                     // a C array member, sliced: a []C.char over C's memory
 ```
 
 - **`unsafe` keeps gocpp memory alive, like Go.** `unsafe.Pointer` is a `gp::ptr<void>`. Made
   from a gocpp pointer, it shares that object's owner, and it converts to `void*` for C.
-  `unsafe.SliceData(s)` returns a pointer that shares the slice's array, and
-  `unsafe.String(p, n)` and `unsafe.Slice(p, n)` keep `p`'s owner. `unsafe.Add` works on both
-  kinds of pointers.
-- Only pointers that come **from C** are views that own nothing.
-- `[]T` converts implicitly to `std::span<T>`.
+  `unsafe.SliceData(s)` returns a pointer that shares the slice's array, `unsafe.StringData(s)`
+  one that shares the string's bytes, and `unsafe.String(p, n)` and `unsafe.Slice(p, n)` keep
+  `p`'s owner. `unsafe.Add` works on both kinds of pointers. This is what ported Go code needs:
+  `strings.Builder.String` is `unsafe.String(unsafe.SliceData(b.buf), len(b.buf))`, and a
+  string that is a view of the buffer must keep the buffer alive after the Builder is gone
+  (an ASan test, [tests/interop/unsafe_builder.gp](../../tests/interop/unsafe_builder.gp), keeps
+  it fixed).
+- Only pointers that come **from C** are views that own nothing: a C pointer converted to
+  `unsafe.Pointer`, and what `unsafe.Slice` and `unsafe.String` make of a C pointer. A string over
+  C memory is never taken for a C string either (`C.cstr` copies it, as no NUL is promised after
+  its bytes). `unsafe.Pointer(uintptr)` owns nothing too: go vet's valid pattern
+  `unsafe.Pointer(uintptr(p) + off)` points into the object that `p` keeps alive.
+- **Conversions follow cgo's rules.** A C pointer converts to another pointer type or to a
+  number only through `unsafe.Pointer`: `(*C.char)(unsafe.Pointer(p))`,
+  `uintptr(unsafe.Pointer(p))`; `(*byte)(p)` of a C pointer is an error that says so. A C `void*`
+  is an `unsafe.Pointer` for this (`(*byte)(stdlib.malloc(8))` works). A C function's address
+  goes through `unsafe.Pointer(lib.fn)` and back as `lib.callback_t(p)` (`std::bit_cast`: a cast
+  between function and object pointers is only conditionally supported, and g++ with
+  `-Werror=conditionally-supported` rejects it). `(*[1 << 20]C.int)(p)[:n:n]` makes a slice over
+  C memory, as it did before `unsafe.Slice`.
+- **Checks.** `unsafe.Slice` and `unsafe.String` panic as Go's do ("runtime error:
+  unsafe.Slice: len out of range", "... ptr is nil and len is not zero"). `(*T)(p)` to a type
+  with an alignment above 1 checks the address, and a misaligned one ends the program with Go's
+  checkptr message, "fatal error: checkptr: misaligned pointer conversion": Go reads such a
+  pointer without a word on amd64 (its checkptr mode reports it), but here the read would be
+  undefined behavior. `-nochecks` turns the check off.
+- `[]T` converts implicitly to `std::span<T>` and `std::span<const T>` (the `len` elements, not the
+  capacity; a sub-slice and the result of `unsafe.Slice` too).
 - A gocpp `*T` passed where C/C++ expects `T*` converts implicitly, and is only **borrowed**. C
   must not keep it after the gocpp object dies. This is the same rule as cgo's pointer-passing
-  rules.
-- `&x`, where `x` has a C/C++ type, is a raw C++ address. **C/C++ values follow C++ lifetime
-  rules.** gocpp's safety covers gocpp types, not C/C++ types. A local ends with its block (not
-  when nothing points to it any more, as in Go), so:
+  rules. A gocpp pointer cannot go through a C function's `...` as it is (`printf`, `sscanf`,
+  `ioctl`: a class object there is an error), so the call of a C/C++ function that is not a
+  template writes `p.gp_get()`, the raw address, for each argument that is a gocpp pointer or an
+  `unsafe.Pointer` or owning pointer (below): `stdio.sscanf(s, f, &a, &b)` stores into the gocpp
+  variables `a` and `b`.
+- **`&x` of a C/C++ value.** `&x` of a variable, `&s.f` of a field, `&v[i]` of an element and
+  `&*p` are raw C++ addresses. **C/C++ values follow C++ lifetime rules.** gocpp's safety covers
+  gocpp types, not C/C++ types. A local ends with its block (not when nothing points to it any
+  more, as in Go), so:
   - `return &x` of a local is an error;
   - `&x` of the variable of a 3-clause `for` loop (Go gives each iteration its own) is an error;
-    `&x` of a local in a `defer` statement works (the frame keeps the local's box alive);
+    `&x`, `&x[i]` and `&x.f` of a local in a function with `defer` statements follow the rules of
+    [closures and defers](#cc-objects-in-closures-and-defer) (a local of the function's own block
+    is held until after the last deferred call; an inner-block or loop local only when its address
+    is stored outside the block);
   - every other pointer to a local is the program's to keep valid: `g = &x`, `h.p = &x` and
     `p := &x; return p` compile, and dangle after `x`'s block ends (ASan finds it). A C function
     must not keep `&x` after that either (a callback's user data, `sqlite3_bind_text` with
     `SQLITE_STATIC`).
 
-  `&lib.global` is the address of a C/C++ global, which lives as long as the program. Today `&x`
-  takes only a variable or a global; `&v[i]` and `&s.f` come with step 4.10.
+  `&lib.global` is the address of a C/C++ global, which lives as long as the program.
+- **Pointers that own what they point to.** A `*T` of a C/C++ type that gocpp code declares (a
+  variable, a parameter, a result, a field of a gocpp struct, an element of a slice, array or map)
+  is a `gp::cptr<T>`: a gocpp pointer that owns or aliases what it points to, as Go's pointer
+  does, converts to the raw `T*` that C and C++ take (borrowed, as above), and is assigned a raw
+  pointer that comes from C (which owns nothing). `&T{...}` of a C/C++ type (built in place in a
+  box, so a type that can't be moved works: `m := &std.mutex{}`), `&s.f` of a field of a gocpp
+  struct and `&xs[i]` of an element of a gocpp slice or array are `gp::cptr<T>` too, and share the
+  owner of the object they point into. So Go's flows work:
+
+  ```go
+  var head *lib.Node
+  for i := 0; i < 3; i++ { // each node lives on as the next node's next
+  	n := &lib.Node{v: C.int(i), next: head}
+  	head = n
+  }
+  p := &xs[1]
+  xs = append(xs, 4, 5, 6, 7) // the old array lives on: *p is still valid
+  w := Wrapper{h: &lib.T{}}   // a pointer in a struct, a slice, a map, a result
+  b := &lib.Node{v: 2, next: lib.make_list(3)} // a node over C's list: a raw pointer assigned
+  for p := b; p != nil; p = p.next { ... }     // p.next is a raw lib.Node* from C
+  ```
+
+  `unsafe.Pointer(p)` of such a pointer, `unsafe.Slice(p, n)` of it, a closure that captures it and
+  a `defer` of a C function with it share its owner. A `cptr` costs 16 bytes, prints as an address,
+  is a map key (`map[*lib.T]int`, `map[*lib.T]bool`: it compares and hashes by address), and
+  compares with `nil` and with other pointers. A struct with a `*lib.T` field cannot be a map key
+  (Phase 12: `==` on values with C parts).
+
+  **Stores into the members of a C struct, and reads back.** The members of a C struct
+  (`lib.Node.next`, `lib.Holder.data`) are raw pointers, but a store into one keeps the object alive
+  for as long as the struct lives, when a gocpp pointer owns the struct (`n := &lib.Node{}`, a
+  parameter, a field, an element, a result: anything a `gp::cptr`), and a read of it gives a
+  pointer that owns the object again:
+
+  ```go
+  n := &lib.Node{v: 1}
+  n.next = head              // head's object lives as long as n does
+  n.next = &lib.Node{v: 2}   // a temporary: kept by n
+  s.node.next = p            // through a field, an element (ps[i].next), a nested struct (n.a.b.next)
+  h.slots[i] = p             // an element of an array member
+  h.data = unsafe.Pointer(p) // a void* member
+  n.next = nil               // drops what the member kept; so does a pointer from C
+  head = head.next           // pop: the second node is head's now; the first one goes
+  next := cur.next           // next owns the node: cur.next = prev doesn't free it
+  prev.next = cur.next       // unlink; a.next, b.next = b.next, a.next swaps
+  ```
+
+  A store replaces what the same member kept before, so a loop that stores into one member holds
+  one object (`gp::cgo::store_keep`, which records the owner in the box of the struct, by the
+  member's address). The literal `&lib.Node{next: head}` keeps `head`'s object too. A raw `T*` of
+  a struct that gocpp made with `&T{...}` converts to a pointer that owns it (the runtime knows
+  those structs by address), so the pointers that come out of members, `p = p.next`, `return
+  cur.next`, `x := cur.next`, are as good as Go's; the cost is a hash lookup per conversion. A
+  struct that is a C value in a gocpp struct (`s.c.next = p` with `c lib.Node` a field of `*S`) or an
+  element of a gocpp slice (`nodes[i].next = &nodes[j]`) is owned by the block of the struct or the
+  slice: what it keeps is dropped when the block is found dead, a little after (not at once), and a
+  pointer into the same slice needs no keeping. A copy of a C struct that is a variable of the
+  block (`m := *n`) holds `n` for the block.
+
+  Where no gocpp pointer owns the struct, nothing could keep the object alive, and the store is an
+  error: `var n lib.Node; n.next = head` (declare `n := &lib.Node{}`), `p := lib.alloc(); p.next =
+  head` (a struct from C), `*pp = head` (a `**T`), `lib.global = head` (a C global). A store through
+  a raw pointer member (`head.next.next = tail`, where `head.next` is a raw `Node*`) is a C++ error
+  that says so. A gocpp pointer stored into a struct that C allocated and gave to a `*T` variable
+  (`func attach(p, h *lib.Node) { p.next = h }` with `p` from C) can't be kept either, and it is a
+  fatal error at run time, as cgo's pointer checks are: allocate the struct with `&T{...}`. A
+  pointer from C, `nil` and `&x` of a C local own nothing and can be stored anywhere. What stays
+  unchecked, with **C++ lifetime rules**: what a C function returns (`x := lib.f()` is a `T*`), the
+  pointer to a pointer of C memory (`**C.char`), the arguments of C++ templates (`std.vector[*lib.T]`
+  holds raw `lib::T*`, and `push_back(p)` keeps nothing), a struct value built from a literal
+  (`n := lib.Node{next: head}`) or copied into a field, a slice or a longer-lived variable
+  (`g.saved = *n`), a copy `m := *n` that a closure captures and that outlives its block (the hold
+  lives only for the block), a slice of C structs that GROWS (`append` copies its elements into a
+  new array, and what `nodes[0].next = &lib.Node{...}` kept is tied to the old block: it is dropped
+  at a later purge, so the failure comes late and not every time), and `&x`, `&v[i]` and `&c.f` of C/C++
+  values, which are raw addresses.
+  Pointer arithmetic (`p - q`) exists only on raw pointers from C (`p := C.CString(s)`), not on a
+  declared `*C.T`, as Go has none.
+  A `*C.T` variable's address, `&db` as the argument of a `T**` parameter (`sqlite3_open(name, &db)`),
+  is a `T*` that the function writes and `db` gets when the statement ends (`gp::cgo::out_ptr`).
+- **Slice expressions of C values.** A C array member or global, or a `std::array`, is sliced
+  as in cgo: `a[lo:hi]` and `a[lo:hi:max]` make a gocpp slice over the C++ memory (it owns
+  nothing: the array must outlive the slice), with Go's bounds checks. A C pointer has no length
+  (`p[1:]` is an error: use `unsafe.Slice(p, n)`), and a C++ container has no slice expression.
+
+- **Sizes.** `unsafe.Sizeof`, `Alignof` and `Offsetof` of a C/C++ value or of a type with a C/C++
+  part (`unsafe.Sizeof(C.int(0))`, `unsafe.Sizeof(rec)`, `unsafe.Offsetof(rec.vals)`, a gocpp
+  struct with a C field) are the C++ compiler's numbers, `sizeof`, `alignof` and `offsetof`, as
+  values of type `uintptr`: `C.malloc(C.size_t(unsafe.Sizeof(C.struct_x{})))` works. They are not
+  Go constants (a constant context says "is not constant" and why), and the operand is not
+  evaluated, as in Go. The sizes of types without a C part stay Go constants (and differ from
+  Go's: [D15](language.md#d15-different-sizes)).
+- **Out-parameters.** `lib.alloc(&p)` with a variable `p` of type `unsafe.Pointer` (or `&ps[i]` of an
+  element) and a parameter `void**` (cgo's `C.f(&p)`), and `sqlite3_open(name, &db)` with `db`
+  declared `*sqlite3.sqlite3`, pass a pointer that the function writes, and the variable gets it when
+  the statement ends; a function that writes nothing leaves the variable as it was.
+- **Limits.**
+  - A pointer that is stored as a number or from C memory owns nothing:
+    `unsafe.Pointer(uintptr(unsafe.Pointer(&x)) + off)` in one expression is Go's valid pattern
+    (the object is alive while `x` is), but a stored result (`q := unsafe.Pointer(uintptr(p) + 8)`)
+    keeps nothing alive after `p` and `x` are gone, where Go's garbage collector would.
+  - `(*T)(p)` of an `unsafe.Pointer` to a `T` of alignment above 1 aborts when the address is not
+    aligned, also for layouts that C allows: a `#pragma pack(1)` struct's field
+    (`(*C.int)(unsafe.Pointer(&r.x))`) or `(*uint32)(unsafe.Pointer(uintptr(buf) + 1))`.
+    Go reads these silently on amd64; the same read here would be undefined behavior. Copy the
+    bytes (`copy`, `C.memcpy`) or read through the packed struct's own fields instead.
+  - What is raw follows C++ lifetime rules, as `&x` of a C/C++ local does: what a C function
+    returns, `**C.T`, the pointers inside C++ containers and templates, a struct value built from a
+    literal, and the raw addresses `&x`, `&c.f` and `&v[i]` of C/C++ values (a C local, a field of
+    a C struct, an element of a C++ container or a C array): the program keeps them valid.
+    `return &x` of a C/C++ local is an error. A gocpp pointer to a C type (`*lib.T`, a
+    `gp::cptr`) is not raw: it can be returned, stored and appended, and stored into a member of a
+    struct that a `*T` variable owns (above).
+  - A pointer stored into a member keeps its object alive until the struct dies or the member is
+    stored again. Two structs that point at each other (a doubly linked list, a cycle) never die:
+    the owners form a cycle, and gocpp has no garbage collector (break it with `n.prev = nil`).
+    Storing a gocpp pointer into C memory (a struct that C allocated, reached through a `*T` that
+    C returned) is a fatal error ("cannot keep the object alive"), as cgo's pointer checks are.
+  - A list of C structs costs more than a list of gocpp structs: each `&T{...}` is registered by
+    address, and each stored pointer is recorded (about 0.7 s of CPU per million nodes built and
+    freed, against 0.1 s; the table is small and sharded, with locks that threads share only when
+    they use the same shard).
+  - In generic code (Phase 07), a type parameter that is a pointer to a C type will be a `cptr` too.
 
 Source: [Phase 04 §2.7](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#27-pointers-unsafe-and-slices-at-the-boundary).
 

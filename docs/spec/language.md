@@ -426,14 +426,14 @@ fmt.Println(unsafe.Sizeof(struct{}{}), unsafe.Sizeof(struct {
 - The sizes of `chan T`, func values and interface values are placeholders until their
   phases build them (08, 03 step 3.11, 05); they can still change there.
 - Only the C++ compiler knows the size of a C/C++ type (`C.int`, `*stdio.FILE`,
-  `std.vector[int]`), so until
-  [Phase 04](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md) `unsafe.Sizeof`,
-  `Alignof` and `Offsetof` are an error when their value depends on one: a type that holds a
-  C/C++ value directly or in a field or an array element, also nested
-  (`cannot use unsafe.Sizeof(x): its type has a C/C++ part (field n C.int), whose size gocpp
-  only knows from Phase 04`). A Go pointer, slice or map of such a type is fine: its size
-  doesn't depend on what it points to. `Offsetof(x.f)` is fine when the C/C++ fields come
-  after `f`.
+  `std.vector[int]`), so `unsafe.Sizeof`, `Alignof` and `Offsetof` of a value or a type that holds
+  one directly or in a field or an array element (also nested) are not Go constants: they are the
+  C++ compiler's `sizeof`, `alignof` and `offsetof`, as values of type `uintptr`
+  ([Phase 04](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#27-pointers-unsafe-and-slices-at-the-boundary)
+  step 4.10). In a constant context (`const n = unsafe.Sizeof(x)`, an array length) the error is
+  Go's "is not constant", with that reason. A Go pointer, slice or map of such a type is fine: its
+  size doesn't depend on what it points to, and stays a constant. `Offsetof(x.f)` is a constant
+  when the C/C++ fields come after `f`.
 - Inside a C++ template argument (`std.array[byte, unsafe.Sizeof(s)]`) and next to other
   C/C++ expressions, `unsafe.Sizeof`, `Alignof` and `Offsetof` are an error when Go's size
   differs from gocpp's: the type checker can only use Go's sizes there. Declare a constant
@@ -461,7 +461,22 @@ func sum(data []byte) C.uint {
 - **Go:** an `unsafe.Pointer` keeps its target alive, because the garbage collector sees it.
 - **gocpp:** the same for gocpp objects. `unsafe.Pointer` is an owning pointer, and
   `unsafe.String`, `unsafe.Slice` and `unsafe.SliceData` keep the owner too. But:
-  - a pointer that comes **from C** owns nothing;
+  - a pointer that comes **from C** owns nothing (and so does `unsafe.Pointer(uintptr)`, which
+    has no object to share: the pattern `unsafe.Pointer(uintptr(p) + off)` still works, since `p`
+    keeps the object alive);
+  - `(*T)(p)` of a misaligned `unsafe.Pointer` ends the program ("fatal error: checkptr:
+    misaligned pointer conversion", as Go's `-race` or `-d=checkptr` modes report it), where Go
+    reads it without a word on amd64: in C++ the read would be undefined behavior. The natural
+    false failure is a packed C struct (`#pragma pack(1)`): `(*C.int)(unsafe.Pointer(&r.x))` of
+    its unaligned field, and `unsafe.Pointer(uintptr(buf) + 1)` read as a `uint32`;
+  - `unsafe.Pointer(uintptr(unsafe.Pointer(&x)) + off)` in one expression is Go's valid pattern and
+    points into the object that `x` keeps alive; a stored result owns nothing, so it doesn't keep
+    `x` alive after `x` and `p` are gone, where Go's garbage collector would;
+  - a `*T` of a C/C++ type that gocpp code declares (a variable, parameter, result, field or
+    element) is a `gp::cptr<T>`: it owns or aliases what it points to, as Go's pointer does, and
+    converts to the raw `T*` that C takes (so `&T{...}`, `&s.f` and `&xs[i]` can be returned, stored
+    and appended, and stored into a member of a C struct that a `*T` variable owns: the struct keeps the object alive); the members of C structs and what C functions return stay raw
+    ([interop.md](interop.md#pointers-unsafe-and-slices-at-the-boundary));
   - C code never keeps gocpp memory alive. A gocpp pointer passed to C is only **borrowed**, as
     in cgo's pointer-passing rules. C must not use it after the gocpp object is gone. For a
     `void*` that C keeps (user data for callbacks), pass a `cgo.Handle` instead

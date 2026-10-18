@@ -112,6 +112,6 @@ func (fg *funcGen) elemAddr(e *ast.UnaryExpr, x *ast.IndexExpr) cppir.Expr {
 	}
 	sx := fg.expr(s)
 	owner := &cppir.Call{Fun: &cppir.Member{X: sx, Name: "gp_owner"}}
-	typ := fg.g.cxxType(fg.g.info.TypeOf(e), e.Pos())
+	typ := ptrType(fg.typeOfExpr(x)) // (the element's type: of its declaration for a C/C++ element)
 	return construct(typ, owner, &cppir.Unary{Op: "&", X: &cppir.Index{X: sx, Index: fg.intExpr(x.Index)}})
 }

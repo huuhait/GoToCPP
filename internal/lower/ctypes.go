@@ -42,7 +42,16 @@ func (g *gen) typeExpr(e ast.Expr) cppir.Type {
 		return g.typeExpr(x.X)
 	case *ast.StarExpr:
 		if g.isCType(x.X) {
-			return &cppir.Ptr{Elem: g.typeExpr(x.X)} // a raw pointer: C++ rules
+			if _, nested := ast.Unparen(x.X).(*ast.StarExpr); nested || g.inTemplate > 0 {
+				// A pointer to a pointer of C's memory (char**: what C hands out and takes), or a
+				// pointer in a C++ template's arguments: raw, C++ rules.
+				g.inTemplate++
+				defer func() { g.inTemplate-- }()
+				return &cppir.Ptr{Elem: g.typeExpr(x.X)}
+			}
+			// A gocpp pointer to a C/C++ type: gp::cptr<T> (cunsafe.go), which owns or aliases what
+			// it points to, as Go's pointer does, and converts to the raw T* of C.
+			return cptrType(g.typeExpr(x.X))
 		}
 		return ptrType(g.typeExpr(x.X))
 	case *ast.ArrayType:
@@ -56,6 +65,10 @@ func (g *gen) typeExpr(e ast.Expr) cppir.Type {
 			}
 		}
 	case *ast.MapType:
+		if g.isCPtrType(x.Key) {
+			// A pointer to a C/C++ type is a key: gp::cptr compares and hashes by address.
+			return mapType(g.typeExpr(x.Key), g.typeExpr(x.Value))
+		}
 		if tv, ok := g.info.Types[x.Key]; !ok || !tv.IsType() || cmpHasC(tv.Type) {
 			break // a key with a C/C++ part: its hash and == are the C++ compiler's
 		}
@@ -76,6 +89,17 @@ func (g *gen) typeExpr(e ast.Expr) cppir.Type {
 	}
 	g.unsupported(e.Pos(), "this type with C/C++ parts: "+types.ExprString(e))
 	return typeName("gp_unsupported")
+}
+
+// isCPtrType reports whether the type expression e is *T for a C/C++ type T that is no pointer: a
+// gocpp pointer to a C/C++ type (gp::cptr), the type of a variable, a map key or an element.
+func (g *gen) isCPtrType(e ast.Expr) bool {
+	star, ok := ast.Unparen(e).(*ast.StarExpr)
+	if !ok || !g.isCType(star.X) {
+		return false
+	}
+	_, nested := ast.Unparen(star.X).(*ast.StarExpr)
+	return !nested
 }
 
 // cType returns the C++ type of the C/C++ name r (written as e), which must name a type.
@@ -198,6 +222,8 @@ func cmpHasC(t types.Type) bool {
 		return hasCFields(u)
 	case *types.Array:
 		return cmpHasC(u.Elem())
+	case *types.Slice, *types.Map, *types.Signature, *types.Pointer:
+		return false // compared with nil (or as an address), whatever the elements are (xs == nil of a []C.int)
 	}
 	return !complete(t)
 }

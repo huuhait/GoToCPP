@@ -226,11 +226,20 @@ func boxedVars(info *types.Info, fn ast.Node) map[*types.Var]boxReason {
 	return b.boxed
 }
 
-// cAddr reports whether e is &x of a variable x of a C/C++ type: a raw C++ address (Phase 04
-// README §2.7, cvalues.go), which follows C++'s lifetime rules, so x is not boxed for it.
+// cAddr reports whether e is &x of a variable x of a C/C++ type, or of an element or a field of
+// one (&x[i], &x.f, &x[i].f, step 4.10): a raw C++ address (Phase 04 README §2.7, cvalues.go),
+// which follows C++'s lifetime rules, so x is not boxed for it. (The address of a part of a
+// gocpp value, &s.f or &xs[i], is a pointer that shares the owner of the value: the value is
+// boxed, cunsafe.go.)
 func cAddr(info *types.Info, e *ast.UnaryExpr) bool {
-	id, ok := ast.Unparen(e.X).(*ast.Ident)
-	if !ok {
+	x := ast.Unparen(e.X)
+	if _, bare := x.(*ast.Ident); !bare {
+		if owned, _ := ownedPath(info, x); owned {
+			return false // a part of a gocpp value: its address shares the owner (cunsafe.go)
+		}
+	}
+	id := rootIdentOf(e.X)
+	if id == nil {
 		return false
 	}
 	v, ok := info.Uses[id].(*types.Var)

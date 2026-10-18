@@ -21,7 +21,7 @@ func main() {
 	s := cgostr.sv_shout("word") + C.char('!')
 	fmt.Println(bool(s == "word!!"))
 
-	var p *C.char = C.CString("abcd")
+	p := C.CString("abcd") // a raw pointer from C: C++ operators work on it (a declared *C.char is a gocpp pointer)
 	defer C.free(p)
 	diff := p - p
 	fmt.Println(bool(diff == 0), bool((p-p) == 0))

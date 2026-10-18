@@ -84,10 +84,15 @@
 //
 // A new standard header adds its macros to every generated file, and the emitter must keep
 // Go names off them (internal/cppgen/cxx_macros.txt, checked by TestMacroList).
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
+#include <shared_mutex>
 #include <type_traits>
+#include <vector>
+#include <algorithm>
 
 namespace gp {
 
@@ -319,12 +324,196 @@ inline const std::shared_ptr<void>& static_owner() noexcept {
     return *owner;
 }
 
+// foreign_owner() is the owner of memory that gocpp doesn't own (pointers from C, an address
+// made from a number): a count that is never freed and frees nothing. It is a separate one from
+// static_owner() (package-level variables), so that C memory doesn't change that count. The
+// pointer to it is made once and never deleted, as static_owner's.
+//
+// Unlike static_owner(), it stores a non-null pointer (the address of a static byte): a
+// std::shared_ptr compares equal to nullptr when its stored pointer is null, however many
+// owners it has, and gp::string tests its owner that way (gp_c_terminated: "no owner, so a NUL
+// follows"). A string over C memory must not look like one that has no owner.
+inline char foreign_anchor = 0;
+inline const std::shared_ptr<void>& foreign_owner() noexcept {
+    static const std::shared_ptr<void>* const owner =
+        new std::shared_ptr<void>(static_cast<void*>(&foreign_anchor), [](void*) {});
+    return *owner;
+}
+
+namespace detail {
+
+// The registry of the C structs that gocpp owns (Phase 04 step 4.10): an object made by &T{...} of
+// a C type (gp::cgo::box_keep) is registered under its address while it lives. A raw T* that C code
+// or a member of a C struct holds is the address of such an object when the program stored a
+// gocpp pointer in that member; reading the member back gives the raw address, and converting it
+// to a gocpp pointer (a cptr) finds the owner here, so the pointer keeps the object alive again:
+// head = head.next, return cur.next, next := cur.next. Memory the registry doesn't know is C's
+// (foreign_owner). The table is split in shards by address, each with its own lock, and costs
+// one atomic load while nothing is registered.
+inline constexpr std::size_t box_shard_count = 128;
+// A shard is an open-addressing hash table (linear probing) from the address of an object to its
+// block: no allocation per object, and a probe or two per lookup. An object is never taken out
+// when it dies: its entry expires (the weak pointer), a lookup of it finds nothing, the next object
+// at the same address replaces it, and a rehash drops what has expired.
+struct box_slot {
+    const void* gp_key = nullptr; // nullptr: empty
+    std::weak_ptr<void> gp_block;
+};
+struct box_shard {
+    std::shared_mutex gp_mu;
+    std::vector<box_slot> gp_slots;      // a power of two long, or empty
+    std::size_t gp_used = 0;             // slots with a key (live or expired)
+    std::atomic<std::size_t> gp_live{0}; // registered objects that have not died
+
+    static std::size_t hash(const void* k) noexcept {
+        return static_cast<std::size_t>(
+            (reinterpret_cast<std::uintptr_t>(k) >> 4) * 0x9E3779B97F4A7C15ull >> 20);
+    }
+    static constexpr std::size_t npos = static_cast<std::size_t>(-1);
+
+    // find returns the index of the slot with the key, or npos.
+    std::size_t find(const void* k) const noexcept {
+        if (gp_slots.empty()) {
+            return npos;
+        }
+        const std::size_t mask = gp_slots.size() - 1;
+        for (std::size_t i = hash(k) & mask;; i = (i + 1) & mask) {
+            const void* sk = gp_slots[i].gp_key;
+            if (sk == k) {
+                return i;
+            }
+            if (sk == nullptr) {
+                return npos;
+            }
+        }
+    }
+    void insert(const void* k, const std::shared_ptr<void>& sp) {
+        std::size_t i = find(k);
+        if (i != npos) {
+            gp_slots[i].gp_block = sp; // the address is a new object's
+            return;
+        }
+        if ((gp_used + 1) * 4 > gp_slots.size() * 3) {
+            rehash();
+        }
+        const std::size_t mask = gp_slots.size() - 1;
+        for (i = hash(k) & mask; gp_slots[i].gp_key != nullptr; i = (i + 1) & mask) {
+        }
+        gp_slots[i].gp_key = k;
+        gp_slots[i].gp_block = sp;
+        gp_used++;
+    }
+
+private:
+    // rehash makes room: it drops the entries of dead objects when many of the slots are theirs
+    // (gp_live counts the objects that haven't died, so no entry is touched to tell), and doubles
+    // the table if what is left is more than a third of it.
+    void rehash() {
+        const bool purge = gp_used > 2 * gp_live.load(std::memory_order_relaxed) + 32;
+        const std::size_t live = purge ? gp_live.load(std::memory_order_relaxed) : gp_used;
+        std::size_t cap = std::max<std::size_t>(64, gp_slots.size());
+        if (live * 3 + 3 > cap) {
+            cap *= 2;
+        }
+        std::vector<box_slot> old(cap);
+        old.swap(gp_slots);
+        gp_used = 0;
+        const std::size_t mask = cap - 1;
+        for (box_slot& e : old) {
+            if (e.gp_key != nullptr && !(purge && e.gp_block.expired())) {
+                std::size_t i = hash(e.gp_key) & mask;
+                while (gp_slots[i].gp_key != nullptr) {
+                    i = (i + 1) & mask;
+                }
+                gp_slots[i].gp_key = e.gp_key;
+                gp_slots[i].gp_block = std::move(e.gp_block);
+                gp_used++;
+            }
+        }
+    }
+};
+inline std::atomic<std::size_t> box_count{0};
+inline box_shard& box_shard_of(const void* a) noexcept {
+    static box_shard* const shards = new box_shard[box_shard_count];
+    const auto u = reinterpret_cast<std::uintptr_t>(a);
+    return shards[((u >> 4) ^ (u >> 11)) % box_shard_count];
+}
+// box_register records obj as the object of the block sp.
+inline void box_register(const void* obj, const std::shared_ptr<void>& sp) {
+    box_shard& s = box_shard_of(obj);
+    {
+        std::unique_lock<std::shared_mutex> lock(s.gp_mu);
+        s.insert(obj, sp);
+        s.gp_live.fetch_add(1, std::memory_order_relaxed);
+    }
+    box_count.store(1, std::memory_order_relaxed); // (not empty any more)
+}
+// box_died is the deleter's note that the registered object at obj is destroyed.
+inline void box_died(const void* obj) noexcept {
+    box_shard_of(obj).gp_live.fetch_sub(1, std::memory_order_relaxed);
+}
+// box_owner returns the block of the registered object at a, or an empty pointer (also when the
+// object is dead).
+inline std::shared_ptr<void> box_owner(const void* a) noexcept {
+    if (a == nullptr || box_count.load(std::memory_order_relaxed) == 0) {
+        return nullptr;
+    }
+    box_shard& s = box_shard_of(a);
+    std::shared_lock<std::shared_mutex> lock(s.gp_mu);
+    const std::size_t i = s.find(a);
+    if (i == box_shard::npos) {
+        return nullptr;
+    }
+    std::shared_ptr<void> sp = s.gp_slots[i].gp_block.lock();
+    return sp.get() == a ? sp : nullptr;
+}
+
+} // namespace detail
+
+// raw_owned(raw) is a gocpp pointer to the object at the raw address: it shares the block of a
+// registered C struct that gocpp owns, else it owns nothing (foreign_owner), as every pointer that
+// comes from C. Nil for null.
+template <typename T>
+ptr<T> raw_owned(T* raw) noexcept {
+    if (raw == nullptr) {
+        return ptr<T>();
+    }
+    if constexpr (std::is_object_v<T> || std::is_void_v<T>) {
+        if (std::shared_ptr<void> o = detail::box_owner(static_cast<const void*>(raw))) {
+            return ptr<T>(std::move(o), raw);
+        }
+    }
+    return ptr<T>(foreign_owner(), raw);
+}
+
 // static_ptr(x): &x for an object that is never freed: a package-level variable, or a part of
 // one (&global.f, &globalArr[i] after the index check). The pointer shares the static owner.
 template <typename T>
 ptr<T> static_ptr(T& x) noexcept {
     return ptr<T>(static_owner(), std::addressof(x));
 }
+
+// cptr<T> is a gocpp pointer to a C/C++ type T (Phase 04 step 4.10): what &T{...} of a C type,
+// and &s.f and &s[i] of a gocpp struct or slice with C/C++ elements, give. It owns what it
+// points into, like any gp::ptr<T>, and converts to the raw T* that C takes (borrowed). Unlike
+// gp::ptr<T>, a raw T* converts to it too, and is assigned to it: a variable that starts as
+// &T{...} then walks a list that C built, p = p.next, as Go's *T does. Such a pointer from C
+// owns nothing (foreign_owner), as every pointer that comes from C.
+//
+// A gocpp variable, parameter, field, element or result declared with a C pointer type (*lib.T)
+// is a cptr too, so a pointer that is returned, stored or appended keeps its object alive. The
+// raw T* is what the members of C structs and C functions' results hold: a cptr converts to it
+// (borrowed) and a raw T* converts to a cptr (owning nothing); gp::cgo::store_keep keeps the
+// object of a cptr that is stored into a member (interop.hpp).
+template <typename T>
+class cptr : public ptr<T> {
+public:
+    constexpr cptr() noexcept = default;
+    constexpr cptr(std::nullptr_t) noexcept {}
+    cptr(const ptr<T>& p) noexcept : ptr<T>(p) {}
+    cptr(ptr<T>&& p) noexcept : ptr<T>(std::move(p)) {}
+    cptr(T* raw) noexcept : ptr<T>(raw_owned(raw)) {}
+};
 
 // new_init<T>(init): &T{...} for a struct larger than 128 KiB (step 3.8): a pointer to a new zero
 // T, made in its block, which init(T&) then fills with the literal's fields, so the literal is
@@ -417,6 +606,13 @@ ptr<T> weak_value(const weak_ptr<T>& w) noexcept {
 template <typename T>
 struct std::hash<gp::ptr<T>> {
     std::size_t operator()(const gp::ptr<T>& p) const noexcept {
+        return static_cast<std::size_t>(reinterpret_cast<std::uintptr_t>(p.gp_get()));
+    }
+};
+
+template <typename T>
+struct std::hash<gp::cptr<T>> {
+    std::size_t operator()(const gp::cptr<T>& p) const noexcept {
         return static_cast<std::size_t>(reinterpret_cast<std::uintptr_t>(p.gp_get()));
     }
 };

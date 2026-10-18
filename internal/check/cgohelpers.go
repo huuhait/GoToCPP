@@ -106,7 +106,15 @@ func HiddenImport(f *ast.File) string {
 // IsHelperSelector reports whether sel, whose X is the hidden import of its file (HiddenImport),
 // is a rewritten cgo helper, gp_cgoh.GoString, whose X stands for the user's C.
 func IsHelperSelector(sel *ast.SelectorExpr) bool {
-	return helperOf[sel.Sel.Name] != ""
+	if helperOf[sel.Sel.Name] != "" || sel.Sel.Name == unsafeSliceName || sel.Sel.Name == unsafeStringName || sel.Sel.Name == unsafeSizeName {
+		return true
+	}
+	for _, form := range sliceForms {
+		if sel.Sel.Name == form {
+			return true
+		}
+	}
+	return false
 }
 
 // CgoHelperDocs are the declarations of the cgo helpers as the user writes them, and what they
@@ -161,6 +169,8 @@ func addHelpers(pkg *types.Package) {
 	fn("GoBytes", []*types.Var{param("p", ptr), param("n", cint)}, types.NewSlice(types.Universe.Lookup("byte").Type()))
 	fn("Free", []*types.Var{param("p", ptr)})
 	fn("Cstr", []*types.Var{param("s", str)}, invalid)
+	addUnsafeHelpers(pkg) // unsafe.Slice and unsafe.String of C values (unsafecalls.go)
+	addSliceHelper(pkg)   // a[lo:hi] of a C array (slicecalls.go)
 }
 
 // rewriteHelpers rewrites the calls of the cgo helpers that the user wrote, C.GoString(p), into

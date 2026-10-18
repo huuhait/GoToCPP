@@ -154,6 +154,7 @@ func (fg *funcGen) opaqueExpr(e ast.Expr) cppir.Expr {
 		if gocppContainer(fg.g.info.TypeOf(x.X)) {
 			return fg.slice(x) // of a gocpp slice or array of C/C++ values: Go's (ops.go)
 		}
+		return fg.cSlice(x) // of a C array (cunsafe.go)
 	case *ast.CompositeLit:
 		return fg.compLit(x) // of a C/C++ type, or a gocpp one with C/C++ parts (clits.go)
 	case *ast.StarExpr:
@@ -179,7 +180,7 @@ func (g *gen) cMemberOf(x cppir.Expr, name *ast.Ident) cppir.Expr {
 // variable). Its arguments are C/C++ arguments (cArgs), and C++ evaluates the callee first.
 func (g *gen) opaqueCallee(c *ast.CallExpr) bool {
 	if !g.pkg.Opaque.IsOpaque(c.Fun) || g.info.Types[c.Fun].IsType() || g.pkg.Conversion(c) != nil || g.calledSig(c) != nil ||
-		g.cgoHelper(c) != "" {
+		g.cgoHelper(c) != "" || g.cPointerType(c) != nil || g.unsafeFunc(c) != "" || g.pkg.OpaqueSlice(c) != nil || g.pkg.UnsafeWrapper(c) != nil {
 		return false
 	}
 	if sel, ok := ast.Unparen(c.Fun).(*ast.SelectorExpr); ok && g.info.Selections[sel] != nil {
@@ -254,8 +255,17 @@ func (fg *funcGen) cUnary(e *ast.UnaryExpr) cppir.Expr {
 	case token.XOR:
 		return &cppir.Unary{Op: "~", X: fg.expr(e.X)}
 	case token.AND:
-		if _, ok := ast.Unparen(e.X).(*ast.CompositeLit); ok {
+		if lit, ok := ast.Unparen(e.X).(*ast.CompositeLit); ok {
+			if fg.g.cxxLit(lit) {
+				return fg.cNew(lit) // &T{...} of a C/C++ type (cunsafe.go)
+			}
 			return fg.addr(e) // &[]C.int{1}: a gocpp literal in a new block (addr.go)
+		}
+		switch ast.Unparen(e.X).(type) {
+		case *ast.SelectorExpr, *ast.IndexExpr:
+			if owned, _ := ownedPath(fg.g.info, e.X); owned {
+				return fg.cOwnedAddr(e) // &s.f, &xs[i] of a gocpp value: a gp::cptr (cunsafe.go)
+			}
 		}
 		return &cppir.Unary{Op: "&", X: fg.expr(e.X)}
 	}
@@ -317,11 +327,19 @@ func (fg *funcGen) cCall(c *ast.CallExpr) (cppir.Expr, bool) {
 		return placeholder, true // reported
 	}
 	args := fg.cArgs(c.Args)
+	if r.kind == interop.Value {
+		fg.rawPointerArgs(c.Args, args) // a gocpp pointer through a C function's ... (cunsafe.go)
+	}
 	switch r.kind {
 	case interop.Namespace:
 		fg.g.userError(c.Fun.Pos(), "%s is a C++ namespace, not a function", r.src)
 		return placeholder, true
 	case interop.Type:
+		if len(args) == 1 && isUnsafePointer(fg.g.info.TypeOf(c.Args[0])) {
+			// C.callback_t(p) of an unsafe.Pointer: a conversion to a C type, in the runtime
+			// (a function pointer needs std::bit_cast, not a cast: cunsafe.go).
+			return templateCall("gp::cgo::as", []cppir.Node{fg.g.cType(r, c.Fun)}, args[0]), true
+		}
 		if n, ok := r.x.(*cppir.Name); ok && n.Args == nil && isBuiltinC(n.Name) && len(args) == 1 {
 			// C.int(n): a conversion, with Go's results where a C++ cast is undefined
 			// behavior (a float out of range: gp::cgo::as, gocpp/interop.hpp).
@@ -359,6 +377,16 @@ func (fg *funcGen) cArgs(list []ast.Expr) []cppir.Expr {
 		}
 		if fg.g.isHolder(a) {
 			xs[i] = &cppir.Call{Fun: &cppir.Member{X: fg.cValueOf(a), Name: "gp_ptr"}}
+			continue
+		}
+		if t := fg.outPtrTarget(a); t != nil {
+			xs[i] = call("gp::cgo::out_ptr", fg.expr(t)) // &db of a *C.T variable, for a T** parameter
+			continue
+		}
+		if fg.g.isPtrToUnsafePointer(a) {
+			// &p of an unsafe.Pointer variable p, for a void** parameter: the argument is a
+			// void* that the function writes, and that p gets when the statement ends.
+			xs[i] = call("gp::cgo::out_ptr", fg.expr(a))
 			continue
 		}
 		xs[i] = fg.cMoved(a, fg.cValueOf(a))
@@ -409,6 +437,9 @@ func (fg *funcGen) asConversion(c *ast.CallExpr, conv *check.Conversion) cppir.E
 		return placeholder
 	}
 	to := fg.g.info.TypeOf(c)
+	if x, ok := fg.cUnsafeConversion(c, to); ok {
+		return x // unsafe.Pointer(p), (*byte)(p) of a C void* (cunsafe.go)
+	}
 	b := basicOf(to)
 	if b == nil || b.Info()&(types.IsNumeric|types.IsBoolean|types.IsString) == 0 || b.Info()&types.IsComplex != 0 || isNewtype(to) {
 		// A named type, a complex number, a pointer, a slice, ...

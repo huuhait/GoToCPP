@@ -30,6 +30,7 @@
 #include <gocpp/result.hpp>
 #include <gocpp/fmtshim.hpp>
 #include <gocpp/main.hpp>
+#include <gocpp/unsafe.hpp>
 #include <gocpp/interop.hpp>
 
 // The standard headers that generated code uses directly: std::tuple for multiple results,

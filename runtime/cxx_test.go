@@ -22,7 +22,7 @@ import (
 
 // The C++ tests of the runtime: test/unit.cpp, test/slice_test.cpp, test/array_test.cpp,
 // test/map_test.cpp, test/fmt_test.cpp, test/trace_test.cpp, test/defer_test.cpp, test/func_test.cpp,
-// test/thread_test.cpp, test/goroutine_test.cpp and test/interop_test.cpp and test/cxxvalue_test.cpp,
+// test/thread_test.cpp, test/goroutine_test.cpp and test/interop_test.cpp, test/cxxvalue_test.cpp, test/unsafe_test.cpp,
 // test/type_test.cpp and test/iface_test.cpp (unit tests), test/nochecks_test.cpp
 // (the unit tests of a -nochecks build, compiled with the runtime with -DGOCPP_NOCHECKS),
 // test/diff.cpp (the C++ side of a differential test against testdata/diff/main.go, run with
@@ -306,6 +306,7 @@ func TestCXX(t *testing.T) {
 						{src: "test/array_test.cpp", weight: 7},
 						{src: "test/slice_test.cpp", weight: 7},
 						{src: "test/cxxvalue_test.cpp", weight: 7},
+						{src: "test/unsafe_test.cpp", weight: 7},
 						{src: "test/trace_test.cpp", weight: 3},
 						{src: "test/defer_test.cpp", weight: 3},
 						{src: "test/func_test.cpp", weight: 3},
@@ -384,6 +385,12 @@ func TestCXX(t *testing.T) {
 					t.Run("fmt", func(t *testing.T) {
 						t.Parallel()
 						runUnit(t, bins.bin(t, "test/fmt_test.cpp"))
+					})
+					t.Run("unsafe", func(t *testing.T) {
+						t.Parallel()
+						bin := bins.bin(t, "test/unsafe_test.cpp")
+						runUnit(t, bin)
+						runUnsafe(t, bin)
 					})
 					t.Run("fmtdiff", func(t *testing.T) {
 						if fmtWant == nil {
@@ -585,6 +592,29 @@ func runIface(t *testing.T, bin string) {
 		want := "fatal error: gocpp: internal error: " + tc.msg + "\n\n" + goStackMark
 		if got := cutTrace(out); code != 2 || string(got) != want {
 			t.Errorf("%s: exit code %d, output:\n%s\nwant exit code 2, output:\n%s", tc.name, code, got, want)
+		}
+	}
+}
+
+// runUnsafe runs the cases of test/unsafe_test.cpp that end the program (step 4.10): Go's panics
+// of unsafe.Slice and unsafe.String, and the checkptr fatal error of a misaligned (*T)(p).
+func runUnsafe(t *testing.T, bin string) {
+	const trace = "\n\ngoroutine 1 [running]:\n"
+	for _, tc := range []struct {
+		name, out string
+	}{
+		{"misaligned", "fatal error: checkptr: misaligned pointer conversion" + trace},
+		{"misaligned-c", "fatal error: checkptr: misaligned pointer conversion" + trace},
+		{"slice-len", "panic: runtime error: unsafe.Slice: len out of range" + trace},
+		{"string-nil", "panic: runtime error: unsafe.String: ptr is nil and len is not zero" + trace},
+		{"store-keep-unowned", "fatal error: cannot keep the object alive: the pointer is stored into C memory (a struct that came from C), which can't hold a gocpp pointer: allocate the struct with &T{...}, or keep the object in a variable for as long as C uses it" + trace},
+	} {
+		out, _, code, err := command(filepath.Dir(bin), nil, true, bin, tc.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if head := cutTrace(out); code != 2 || string(head) != tc.out {
+			t.Errorf("%s: exit code %d, output:\n%s\nwant exit code 2, output:\n%s", tc.name, code, head, tc.out)
 		}
 	}
 }

@@ -289,9 +289,10 @@ func (c *cxxClassifier) isGenerated(file string) bool {
 }
 
 // isRuntime reports whether file is a header of gocpp's runtime, and, if
-// so, whether it is gocpp/interop.hpp or gocpp/result.hpp: the helpers at
+// so, whether it is a header of userFacingHeaders (gocpp/interop.hpp, gocpp/result.hpp,
+// gocpp/unsafe.hpp): the helpers at
 // the boundary between gocpp and C/C++ (gp::cgo::as, case_eq, gp::deref,
-// gp::range, gp::result_slot, ...), which get the user's C/C++ values and
+// gp::range, gp::result_slot, gp::unsafe_slice, ...), which get the user's C/C++ values and
 // whose static_asserts are written for users.
 func (c *cxxClassifier) isRuntime(file string) (runtime, interop bool) {
 	if c.include == "" || file == "" {
@@ -305,11 +306,11 @@ func (c *cxxClassifier) isRuntime(file string) (runtime, interop bool) {
 }
 
 // userFacingHeaders are the runtime headers whose static_asserts are written for users and whose
-// errors count as the .gp line's own (isRuntime). Step 4.10 adds gocpp/unsafe.hpp here.
+// errors count as the .gp line's own (isRuntime).
 var userFacingHeaders = []string{
 	"gocpp/interop.hpp",
 	"gocpp/result.hpp",
-	// "gocpp/unsafe.hpp", // step 4.10
+	"gocpp/unsafe.hpp",
 }
 
 // mapError returns the .gp line that the error d comes from, if it is an

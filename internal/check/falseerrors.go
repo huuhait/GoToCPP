@@ -79,6 +79,9 @@ const (
 	invalidTypeSwitch    = 116 // h (variable of invalid type type H) is not an interface
 	invalidCall          = 127 // cannot call lib.CB (variable with invalid type)
 	invalidMinMaxOperand = 150 // h (variable of invalid type type Handle) cannot be ordered
+
+	invalidUnsafeSlice  = 134 // unsafe.Slice(argv[0], 1): argv[0] (variable with invalid type) is not a pointer
+	invalidUnsafeString = 145 // unsafe.String(argv[0], 1): argv[0] (variable with invalid type) is not a pointer
 )
 
 // falseCodes holds the codes above.
@@ -89,6 +92,7 @@ var falseCodes = map[int]bool{
 	invalidShiftOperand: true, untypedLit: true, missingFieldOrMethod: true, invalidCopy: true,
 	invalidMake: true, invalidAssert: true, invalidConversion: true, invalidRangeExpr: true,
 	invalidTypeSwitch: true, invalidCall: true, invalidMinMaxOperand: true,
+	invalidUnsafeSlice: true, invalidUnsafeString: true,
 }
 
 // A falseSlot is a place where go/types can report a false error: an error
@@ -399,6 +403,15 @@ func (f *falseErrors) collectCall(call *ast.CallExpr) {
 			f.collectBuiltin(call, b.Name())
 			return
 		}
+	}
+	if name := unsafeCall(call, f.info); name != "" && len(call.Args) > 0 {
+		// unsafe.Slice(argv[0], n) with argv[0] of an invalid type (a C pointer of a slice
+		// that unsafe.Slice made): the first argument is the C value.
+		code := map[string]int{"Slice": invalidUnsafeSlice, "String": invalidUnsafeString}[name]
+		if code != 0 {
+			f.addAt(call.Args[0], code, nil, call.Args[0])
+		}
+		return
 	}
 	tv := f.info.Types[call.Fun]
 	if tv.IsType() {

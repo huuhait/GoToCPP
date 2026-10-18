@@ -185,6 +185,9 @@ func (g *gen) cRange(s *ast.RangeStmt) bool {
 // the lambda, because a func literal that captures a local, in a lambda's default template
 // argument, is not capturable for clang. Exactly one branch evaluates the call, once.
 func (fg *funcGen) ownedValue(e ast.Expr, x cppir.Expr) cppir.Expr {
+	if _, ok := fg.temps[ast.Unparen(e)]; !ok && fg.g.isMemberRead(e) {
+		return call("gp::cgo::load", x) // next := cur.next: a gp::cptr that owns the struct (cunsafe.go)
+	}
 	if _, ok := fg.temps[ast.Unparen(e)]; ok || !fg.g.ownedCall(e) {
 		return x // a temporary of the order is owned already (emitItem)
 	}
@@ -215,7 +218,7 @@ func (fg *funcGen) ownedValue(e ast.Expr, x cppir.Expr) cppir.Expr {
 func (g *gen) ownedCall(e ast.Expr) bool {
 	c, ok := ast.Unparen(e).(*ast.CallExpr)
 	if !ok || g.pkg.Opaque == nil || !g.pkg.Opaque.IsOpaque(c) || g.info.Types[c.Fun].IsType() ||
-		g.pkg.Conversion(c) != nil || g.calledSig(c) != nil {
+		g.pkg.Conversion(c) != nil || g.calledSig(c) != nil || g.unsafeFunc(c) != "" || g.cPointerType(c) != nil || g.pkg.OpaqueSlice(c) != nil || g.pkg.UnsafeWrapper(c) != nil {
 		return false
 	}
 	if r, ok := g.cRefOf(c.Fun); ok {

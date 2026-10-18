@@ -349,6 +349,15 @@ struct ptr_of<gp::ptr<E>> : std::true_type {
     using elem = E;
 };
 
+// cptr_of<T>: T is a gp::cptr<E>, a gocpp pointer to a C/C++ type (Phase 04 step 4.10): it prints
+// as the raw pointer it converts to, an address.
+template <typename T>
+struct cptr_of : std::false_type {};
+template <typename E>
+struct cptr_of<gp::cptr<E>> : std::true_type {
+    using elem = E;
+};
+
 template <typename T>
 struct weak_of : std::false_type {};
 template <typename E>
@@ -555,6 +564,8 @@ void type_name(std::string& out) {
         detail::type_name<typename parts::key, typename map_of<T>::key>(out);
         out += ']';
         detail::type_name<typename parts::value, typename map_of<T>::mapped>(out);
+    } else if constexpr (std::is_same_v<T, gp::ptr<void>>) {
+        out += "unsafe.Pointer"; // (Phase 04 step 4.10)
     } else if constexpr (ptr_of<T>::value) {
         out += '*';
         detail::type_name<typename parts::elem, typename ptr_of<T>::elem>(out);
@@ -570,6 +581,12 @@ void type_name(std::string& out) {
         out += "std::string_view";
     } else if constexpr (std::is_null_pointer_v<T>) {
         out += "<nil>"; // as Go's %T of a nil interface
+    } else if constexpr (cptr_of<T>::value) {
+#if defined(__cpp_rtti) || defined(__GXX_RTTI)
+        detail::cxx_type_name(out, typeid(typename cptr_of<T>::elem*));
+#else
+        out += "?";
+#endif
     } else if constexpr (std::is_enum_v<T> || std::is_pointer_v<T> || std::is_class_v<T> ||
                          std::is_union_v<T>) {
 #if defined(__cpp_rtti) || defined(__GXX_RTTI)
@@ -844,6 +861,9 @@ int compare(const T& a, const T& b) {
     } else if constexpr (std::is_pointer_v<T>) {
         uint64_t x = detail::raw_address(a), y = detail::raw_address(b);
         return x < y ? -1 : x > y ? 1 : 0;
+    } else if constexpr (cptr_of<T>::value) {
+        uint64_t x = detail::raw_address(a.gp_get()), y = detail::raw_address(b.gp_get());
+        return x < y ? -1 : x > y ? 1 : 0;
     } else {
         static_assert(always_false<T>, "fmtshim: a map key of this type can't be printed yet");
     }
@@ -951,7 +971,7 @@ inline void print_address(printer& p, uint64_t u, char32_t verb, type_fn type) {
 template <typename Tag, typename E>
 void print_pointer(printer& p, const gp::ptr<E>& v, char32_t verb, int depth, access ro,
                    type_fn type) {
-    if constexpr (composite<base_t<E>>) {
+    if constexpr (!std::is_void_v<E> && composite<base_t<E>>) {
         if (depth == 0 && v != nullptr) {
             gp::ptr<E> keep = v; // the pointee stays alive while it prints
             p.buf += '&';
@@ -1065,6 +1085,8 @@ void print_kind(printer& p, const T& v, char32_t verb, int depth, access ro, typ
                                       type);
     } else if constexpr (std::is_pointer_v<T>) {
         detail::print_raw_pointer(p, v, verb, type);
+    } else if constexpr (cptr_of<T>::value) {
+        detail::print_raw_pointer(p, v.gp_get(), verb, type);
     } else if constexpr (std::is_null_pointer_v<T>) {
         if (verb == 'v') {
             detail::pad(p, "<nil>");
@@ -1199,6 +1221,8 @@ constexpr bool printable() {
         using K = typename map_of<T>::key;
         return printable<K, Seen...>() && printable<typename map_of<T>::mapped, Seen...>() &&
                !cxx_string<K> && !cxx_text_type<K>;
+    } else if constexpr (std::is_same_v<T, gp::ptr<void>>) {
+        return true; // unsafe.Pointer: an address
     } else if constexpr (ptr_of<T>::value) {
         return printable<typename ptr_of<T>::elem, Seen...>(); // &{...} prints the target
     } else if constexpr (weak_of<T>::value) {
@@ -1208,8 +1232,8 @@ constexpr bool printable() {
     } else if constexpr (named_type<T>) {
         return printable<underlying_t<T>, T, Seen...>();
     } else {
-        return std::is_enum_v<T> || std::is_pointer_v<T> || std::is_null_pointer_v<T> ||
-               cxx_string<T> || cxx_text_type<T>;
+        return std::is_enum_v<T> || std::is_pointer_v<T> || cptr_of<T>::value ||
+               std::is_null_pointer_v<T> || cxx_string<T> || cxx_text_type<T>;
     }
 }
 
