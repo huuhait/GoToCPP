@@ -223,6 +223,8 @@ func TestErrors(t *testing.T) {
 		{"cxx std", "cxx c++2\n", `gocpp.mod:1: invalid C++ standard "c++2": want c++17, c++20, gnu++20, ...`},
 		{"cxx usage", "cxx\n", "gocpp.mod:1: usage: cxx c++20"},
 		{"cxx two", "cxx c++20 c++17\n", "gocpp.mod:1: usage: cxx c++20"},
+		{"cxx one-line recipe", "cxx example.com/ev {src a.c}\n", "gocpp.mod:1: usage: cxx c++20" + recipeHint},
+		{"cxx brace glued", "cxx example.com/ev{\n", `gocpp.mod:1: invalid C++ standard "example.com/ev{": want c++17, c++20, gnu++20, ...` + recipeHint},
 		{"cxx repeated", "cxx c++20\ncxx gnu++17\n", "gocpp.mod:2: repeated cxx statement"},
 		{"require usage", "require a\n", "gocpp.mod:1: usage: require module/path v1.2.3"},
 		{"require version", "require a v1\n", `gocpp.mod:1: require a: invalid module version "v1": must be of the form v1.2.3`},

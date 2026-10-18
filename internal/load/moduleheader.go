@@ -39,15 +39,15 @@ import (
 // probes, because the headers of a library include each other by names
 // relative to the library ("imconfig.h", "backends/x.h").
 //
-// Hooks for the jobs that follow:
-//   - 6.1d (the cxx recipes): moduleIncludeDirs returns the folders that
-//     the compiler gets for a module. The `include` folders of the recipe
-//     of the module in gocpp.mod go there.
-//   - The flags of the module's own gocpp.mod (pkg-config, defines, link
-//     libraries) do NOT reach the compiler yet: the flag allow-list question
-//     (STATE.md of Phase 06, 6.1 notes) decides how a dependency's flags are
-//     checked, and until then only the project's own //gocpp: directives
-//     give flags.
+// The cxx recipe of the module (Phase 06 step 6.1d, cxxrecipe.go): the loader
+// finds the recipe block of each module that a header comes from and puts it
+// in Package.CxxModules (noteCxxModule). Its include folders and defines
+// reach the compiler through build.ReadPackageFlags, which checks them with the
+// flag allow-list (the loader does not know the allow-list). The module-wide
+// flags of a dependency's own gocpp.mod (cflags, pkg-config, ldflags) do NOT
+// reach the compiler: that is the open question of how a dependency's flags are
+// checked; only the project's //gocpp: directives and the explicit cxx recipes
+// give flags.
 
 // moduleHeaders resolves the module headers of the files of p, which
 // ClassifyImports has classified. A header that can't be resolved gets an
@@ -77,6 +77,7 @@ func (l *loader) moduleHeaders(p *Package) {
 				continue
 			}
 			inc.Module, inc.File = mod, file
+			l.noteCxxModule(p, mod)
 			for _, dir := range l.moduleIncludeDirs(mod) {
 				if !slices.Contains(p.IncludeDirs, dir) {
 					p.IncludeDirs = append(p.IncludeDirs, dir)
@@ -94,10 +95,8 @@ func (l *loader) moduleHeaders(p *Package) {
 // purpose: a file of the module named like a system header (string.h, time.h)
 // must not hide the system's for <cstring>. Quoted includes of the library
 // ("imconfig.h", "backends/x.h") find the module's files; a library that wants
-// its headers found as <x.h> needs the include folders of its cxx recipe. It
-// is the hook of job 6.1d, which adds those folders (it can pass them as -I or
-// -isystem: a different kind of flag for them needs Package.IncludeDirs to
-// carry the kind).
+// its headers found as <x.h> needs the include folders of its cxx recipe,
+// which build.ReadPackageFlags adds as -I or -isystem (Package.CxxModules).
 func (l *loader) moduleIncludeDirs(mod *Module) []string {
 	return []string{mod.Dir}
 }

@@ -93,10 +93,13 @@ type Builder struct {
 // C++ and the runtime, without flags of the user, it is a gocpp bug; for a
 // C or C++ file of the package (Source), an error of the user.
 type CompileError struct {
-	What    string // what was compiled: "the generated C++", "the runtime", "the C file a.c"
-	Source  string // the package's C or C++ file that didn't compile (absolute), or ""
-	Include string // for the generated C++: the runtime's include folder (its headers are gocpp's), or ""
-	Link    bool   // the link failed, not a compile
+	What    string  // what was compiled: "the generated C++", "the runtime", "the C file a.c"
+	Source  string  // the package's C or C++ file that didn't compile (absolute), or ""
+	Include string  // for the generated C++: the runtime's include folder (its headers are gocpp's), or ""
+	Link    bool    // the link failed, not a compile
+	Lib     *CxxLib // for a source of a library of a module: the library (Phase 06 step 6.1d); Source is the file
+	LibLine int     // and LibText the line of the recipe that listed it (LibLine is its line in gocpp.mod)
+	LibText string
 	Command string // the command, as Trace shows it
 	Output  []byte // what the compiler printed (stdout and stderr in one stream)
 	Err     error  // how it failed: an *exec.ExitError, a signal, ...
@@ -165,6 +168,14 @@ func (b *Builder) Program(ctx context.Context, src, out string) error {
 		srcObjs, err = b.compileSources(ctx, rtDir)
 		srcErr <- err
 	}()
+	// The libraries of the modules compile at the same time too (cxxlib_build.go).
+	var libObjs []string
+	libErr := make(chan error, 1)
+	go func() {
+		var err error
+		libObjs, err = b.compileLibs(ctx, rtDir)
+		libErr <- err
+	}()
 	// A plain compile uses the precompiled header of the runtime when there is one (pch.go; the
 	// first build with new flags has none yet: startPCH builds it while the runtime compiles).
 	pc := b.precompiled(rtDir)
@@ -185,8 +196,12 @@ func (b *Builder) Program(ctx context.Context, src, out string) error {
 	}
 	genOut, genErr := b.compileCached(ctx, b.CXX, src, obj, compile, runGen, pchDeps)
 	b.warn(genOut)
-	if err := <-srcErr; err != nil {
-		return err
+	srcFailed, libFailed := <-srcErr, <-libErr // both finish before Program returns
+	if srcFailed != nil {
+		return srcFailed
+	}
+	if libFailed != nil {
+		return libFailed
 	}
 	if genErr != nil {
 		var ce *CompileError
@@ -197,7 +212,7 @@ func (b *Builder) Program(ctx context.Context, src, out string) error {
 	}
 	// The libraries after the object files that use them, as a linker
 	// that reads its inputs once (GNU ld with static libraries) needs.
-	link := slices.Concat(Flags(b.CXX, b.ASan), []string{obj}, srcObjs, rtObjs, b.Package.Link, b.Env.LDFlags, []string{"-o", out})
+	link := slices.Concat(Flags(b.CXX, b.ASan), []string{obj}, srcObjs, libObjs, rtObjs, b.Package.Link, b.Env.LDFlags, []string{"-o", out})
 	return b.run(ctx, b.CXX, "the generated C++", true, link)
 }
 

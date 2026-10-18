@@ -283,6 +283,13 @@ type Package struct {
 	// names in the module ("imconfig.h", "backends/x.h").
 	IncludeDirs []string
 
+	// CxxModules are the modules whose headers the package imports, with the
+	// cxx recipe that says how to build the library, in the order of the
+	// imports, each once (Phase 06 step 6.1d). build.ReadPackageFlags reads the
+	// recipes: their include folders and defines are flags of the package's
+	// compiles and probes, and the build compiles their sources.
+	CxxModules []*CxxModule
+
 	// main is the main module of the program, for a package that is not
 	// in it (a package of a required module): its require and replace
 	// lines say where every import goes. It is nil for a root, whose
@@ -490,6 +497,7 @@ func Load(cfg Config, patterns ...string) *Program {
 	}
 	l.prog.Packages = initOrder(l.all)
 	setIncomplete(l.all)
+	l.warnStrayRecipes()
 	return l.prog
 }
 
@@ -503,6 +511,7 @@ type loader struct {
 	modules  map[string]*Module        // the module of each folder looked at (nil: none)
 	vendors  map[string]*vendorState   // the vendor folder of each main module looked at (nil: none)
 	required map[string]resolvedModule // where each required module is (modules.go)
+	cxxMods  map[string]*CxxModule     // the C and C++ build recipe of each module looked at (cxxrecipe.go)
 
 	// patternMain is the main module while a root package that an import
 	// path names is made (loadImportPattern), else nil.
@@ -566,6 +575,7 @@ func newLoader(cfg Config) *loader {
 		modules:  make(map[string]*Module),
 		vendors:  make(map[string]*vendorState),
 		required: make(map[string]resolvedModule),
+		cxxMods:  make(map[string]*CxxModule),
 		stdDirs:  make(map[string]bool),
 		rootDirs: make(map[string]bool),
 		state:    make(map[*Package]loadState),

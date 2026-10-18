@@ -63,6 +63,10 @@ import (
 //   - the build keeps its work folder (-work, Builder.KeepWork): then the cache is not used at
 //     all, so the files of the work folder have real paths in their debug info.
 //
+// The sources of the C and C++ libraries of the modules (cxxlib_build.go, Phase 06 step 6.1d) go through
+// the cache too, with the module's path and version as more text of the key: an object is kept for
+// (module, version, recipe, compiler, flags) and every project with the same reuses it.
+//
 // The user's flags (GOCPP_CFLAGS, GOCPP_CXXFLAGS, the package's //gocpp: flags) are part of the key like
 // the others: a compile with them is cached too. The flags of the precompiled header
 // (-include-pch, -include) are not part of the key: the object is the same with and without
@@ -195,6 +199,14 @@ func objCacheMax() int64 {
 // adds the precompiled header); extraDeps, if not nil, returns the file that lists what the
 // precompiled header it used was made from (pch.go), or "".
 func (b *Builder) compileCached(ctx context.Context, c CXX, src, obj string, args []string, run func(args []string) ([]byte, error), extraDeps func() string) ([]byte, error) {
+	return b.compileCachedSalt(ctx, c, src, obj, args, run, extraDeps, nil)
+}
+
+// compileCachedSalt is compileCached with salt, more text for the key: the
+// module path and version of a library's source (Phase 06 step 6.1d), so that
+// the objects of a library are kept for (module, version, recipe, compiler,
+// flags): the recipe is in the flags and the sources in the text.
+func (b *Builder) compileCachedSalt(ctx context.Context, c CXX, src, obj string, args []string, run func(args []string) ([]byte, error), extraDeps func() string, salt []string) ([]byte, error) {
 	// A compile that succeeded but whose output may be incomplete (errOutputOpen) is a success
 	// for the caller, but it is not stored: the silence that makes it cacheable is not certain.
 	outputOpen := false
@@ -235,11 +247,11 @@ func (b *Builder) compileCached(ctx context.Context, c CXX, src, obj string, arg
 		return run(args)
 	}
 	tu := text
-	if b.Work != "" {
+	if b.Work != "" && bytes.Contains(text, []byte(b.Work)) { // no copy of a source that doesn't name it
 		tu = bytes.ReplaceAll(text, []byte(b.Work), []byte("$WORK"))
 	}
 	keyArgs := b.keyArgs(args)
-	key := b.objKey(c, keyArgs, tu)
+	key := b.objKey(c, keyArgs, tu, salt)
 	if hash, ok := oc.lookup(key, obj); ok {
 		b.trace("# cache hit " + filepath.Base(src) + " " + hash[:16])
 		return nil, nil
@@ -407,7 +419,7 @@ func objKeyEnv(name string) bool {
 
 // objKey returns the key of the manifest for a compile of the translation unit text tu (with
 // the work folder written as $WORK) with the key flags keyArgs.
-func (b *Builder) objKey(c CXX, keyArgs []string, tu []byte) string {
+func (b *Builder) objKey(c CXX, keyArgs []string, tu []byte, salt []string) string {
 	h := sha256.New()
 	write := func(parts ...string) {
 		for _, p := range parts {
@@ -422,6 +434,9 @@ func (b *Builder) objKey(c CXX, keyArgs []string, tu []byte) string {
 	sum := sha256.Sum256(tu)
 	write(hex.EncodeToString(sum[:]))
 	write(environ(objKeyEnv)...)
+	if len(salt) > 0 {
+		write(append([]string{"salt"}, salt...)...)
+	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 

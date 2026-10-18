@@ -1,0 +1,1 @@
+#error "only for Windows"

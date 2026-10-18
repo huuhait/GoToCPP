@@ -313,11 +313,25 @@ func directiveOrder(lp *load.Package, flags, externC []diag.Diagnostic) []diag.D
 	for i, f := range lp.Files {
 		fileIndex[f.Path] = i
 	}
+	// A diagnostic in another file (a line of a cxx recipe in gocpp.mod)
+	// comes after those of the package's files, by file name and line.
+	index := func(name string) int {
+		if i, ok := fileIndex[name]; ok {
+			return i
+		}
+		return len(lp.Files)
+	}
 	slices.SortStableFunc(all, func(a, b diag.Diagnostic) int {
 		if a.Pos.Filename != b.Pos.Filename {
-			return fileIndex[a.Pos.Filename] - fileIndex[b.Pos.Filename]
+			if ia, ib := index(a.Pos.Filename), index(b.Pos.Filename); ia != ib {
+				return ia - ib
+			}
+			return strings.Compare(a.Pos.Filename, b.Pos.Filename)
 		}
-		return a.Pos.Offset - b.Pos.Offset
+		if a.Pos.Offset != b.Pos.Offset {
+			return a.Pos.Offset - b.Pos.Offset
+		}
+		return a.Pos.Line - b.Pos.Line
 	})
 	return all
 }

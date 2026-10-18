@@ -577,7 +577,7 @@ func main() { fmt.Println(x.A, y.B, stdio.puts, std.vector[int]{}, sub.S, mathx.
 		"replace of the dotted header's module": "module example.com/app\nrequire github.com/huuhait/mathx v0.3.0\nrequire example.com/other v1.0.0\n" +
 			"replace github.com/huuhait/mathx => ./mathx\nreplace example.com/other => ./nowhere\n",
 		"settings": "module example.com/app\ngocpp 0.1\ncxx c++20\ncflags -Inative\npkg-config sdl2\nrequire github.com/huuhait/mathx v0.3.0\nreplace github.com/huuhait/mathx => ./mathx\n",
-		"recipe":   "module example.com/app\nrequire github.com/huuhait/mathx v0.3.0\nreplace github.com/huuhait/mathx => ./mathx\ncxx example.com/other {\n\tsources *.cpp\n\tinclude .\n}\n",
+		"recipe":   "module example.com/app\nrequire github.com/huuhait/mathx v0.3.0\nreplace github.com/huuhait/mathx => ./mathx\ncxx github.com/huuhait/mathx {\n\tsources *.cpp\n\tinclude .\n}\n",
 	} {
 		errs, inc := run(mod)
 		if name == "no lines" {
@@ -591,6 +591,13 @@ func main() { fmt.Println(x.A, y.B, stdio.puts, std.vector[int]{}, sub.S, mathx.
 		if strings.Join(inc, "\n") != strings.Join(plainInc, "\n") && name != "no lines" {
 			t.Errorf("%s: includes:\n%s\nwant\n%s", name, strings.Join(inc, "\n"), strings.Join(plainInc, "\n"))
 		}
+	}
+	// A recipe for a module that is neither the project's, required nor replaced is
+	// a warning (a typo in its path), and changes nothing else.
+	errs, inc := run("module example.com/app\nrequire github.com/huuhait/mathx v0.3.0\nreplace github.com/huuhait/mathx => ./mathx\ncxx example.com/other {\n}\n")
+	if !strings.HasPrefix(errs, "./gocpp.mod:4: warning: cxx example.com/other: this module is not the main module and is neither required nor replaced here") ||
+		!strings.HasSuffix(errs, plainErrs) || strings.Join(inc, "\n") != strings.Join(plainInc, "\n") {
+		t.Errorf("stray recipe: errors:\n%s", errs)
 	}
 }
 

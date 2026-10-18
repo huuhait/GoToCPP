@@ -161,10 +161,14 @@ probes and the namespaces work as for a local header), with these differences
   each other by their own names in quotes (`#include "imconfig.h"` in `imgui.h`, `#include "imgui.h"` in
   `backends/imgui_impl_glfw.h`). It is `-iquote` and not `-I`, so a `string.h` or `time.h` at the module root
   never hides the system header for `<cstring>`; a library that wants `<imgui.h>` to work needs the `include`
-  folders of its recipe (step 6.1d).
-- The `include` folders, defines and `pkg-config` packages of a library's recipe, and the flags in the
-  `gocpp.mod` of a dependency, are **not** applied yet. Use `//gocpp:cflags` and `//gocpp:pkg-config` in the
-  package for now.
+  folders of its `cxx` recipe.
+- A library whose C and C++ files must be compiled has a **`cxx` recipe** in `gocpp.mod` (its sources, `include`
+  folders, `define`s, `pkg-config` packages and link libraries; [the language](modules.md#c-and-c-libraries-cxx-recipes),
+  [ADR-024](../adr/024-cxx-recipes.md)). Its `include` and `define` statements are flags of the package's compiles and
+  of all the probes, like the flags of `//gocpp:cflags`; the library is compiled once into the object cache and
+  linked. The module-wide `cflags`, `ldflags` and `pkg-config` lines in the `gocpp.mod` of a dependency are **not**
+  applied (the flag allow-list question for dependencies is open); the recipe is the explicit way. Use
+  `//gocpp:cflags` and `//gocpp:pkg-config` in the package for flags of your own.
 - `"./x.h"` and `"native/x.h"` are unchanged: next to the `.gp` file.
 
 ### Namespaces are packages

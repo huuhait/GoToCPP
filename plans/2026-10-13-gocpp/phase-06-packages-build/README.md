@@ -334,14 +334,21 @@ func main() { imgui.Begin("hello") }
   (`load.Package.IncludeDirs`, added by `build.ReadPackageFlags`), so library headers that include
   each other by relative or module-relative names (`imgui.h` includes `"imconfig.h"`; a backend
   includes `"imgui.h"`) compile and probe the same way. The probe cache keys have the flags, so they
-  change with the include folders. Headers that a library wants found as `<x.h>` belong to the recipe's `include` folders. Hooks for 6.1d:
-  `loader.moduleIncludeDirs` (those folders, which can use `-I` or `-isystem`); the flags of a dependency's own `gocpp.mod` (pkg-config, defines) are **not** applied until
-  the allow-list question for dependency flags is answered.
+  change with the include folders. Headers that a library wants found as `<x.h>` belong to the recipe's `include` folders (6.1d). The module-wide
+  `cflags`, `ldflags` and `pkg-config` lines of a dependency's `gocpp.mod` are **not** applied until
+  the allow-list question for dependency flags is answered; the recipe is the explicit way.
 - **Download** like Go modules: a tagged archive (or a commit), its hash in `gocpp.sum`, a
   read-only module cache, `gocpp mod vendor` for offline builds.
-- **Build** with gocpp's own driver from the `cxx` recipe: the listed sources, include folders,
-  defines and pkg-config packages, compiled once per (version, recipe, compiler, flags) into the
-  global cache and reused by every project. The flag allow-list (Phase 04) applies.
+- **Build (built in 6.1d, [ADR-024](../../../docs/adr/024-cxx-recipes.md)):** gocpp's own driver compiles the sources
+  that the `cxx` recipe lists, once per (module, version, recipe, compiler, flags), through the object cache,
+  and links the objects statically. The recipe is the block `cxx <module path> { ... }` of the project's `gocpp.mod`, or
+  the one the library ships in its own `gocpp.mod` (the project's replaces it, no merging); it is read only for a module the
+  program imports a header from. The statements (one a line, an optional `linux:` / `!windows:` condition): `src` (globs
+  inside one folder), `exclude`, `include` (`-I`) and `system-include` (`-isystem`), `define` (library and users),
+  `private-define` (library only), `cflags`, `cxxflags`, `ldflags`, `link`, `pkg-config`, `std`, `cstd`. A line gocpp
+  does not understand is an error at its line. The flag allow-list (Phase 04) applies to every flag and to the output of
+  `pkg-config`; paths are relative with no `..`, and symbolic links that leave the module are errors; nothing of a
+  module is executed. See [docs/spec/modules.md](../../../docs/spec/modules.md#c-and-c-libraries-cxx-recipes).
 - **To decide later:** a shared recipe index so common libraries need no `cxx` block, and an
   opt-in fallback that runs a project's own CMake for big libraries (OpenCV, Assimp).
 - **Decided 2026-10-17 (TODO Q16, Q17):** the import rule, downloads and local recipes are built now (jobs 6.1b, 6.1c,

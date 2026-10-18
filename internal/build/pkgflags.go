@@ -81,6 +81,18 @@ type PackageFlags struct {
 	// //gocpp:cflags and pkg-config --cflags, in source order.
 	Compile []string
 
+	// Directive is the number of flags at the start of Compile that come from
+	// the package's directives and pkg-config; after them come the public flags
+	// of the cxx recipes of its modules (Libs), then the -iquote folders of the
+	// modules whose headers the package imports.
+	Directive int
+
+	// Libs are the C and C++ libraries of the modules whose headers the
+	// package imports and that have a cxx recipe (Phase 06 step 6.1d,
+	// cxxlib.go): their public flags are in Compile, their link flags in Link,
+	// and the Builder compiles their sources.
+	Libs []*CxxLib
+
 	// Link are the flags of the link of a program with the package: those
 	// of //gocpp:link, //gocpp:ldflags and pkg-config --libs, in source
 	// order. They come after the object files.
@@ -338,6 +350,10 @@ func ReadPackageFlags(ctx context.Context, fset *token.FileSet, lp *load.Package
 			}
 		}
 	}
+	flags.Directive = len(flags.Compile)
+	rerrs, rpending := readRecipes(ctx, lp, pkgConfig, &flags)
+	errs = append(errs, rerrs...)
+	pending = pending || rpending
 	// The folders of the modules whose headers the package imports
 	// (load.Package.IncludeDirs): a module header is included by its
 	// absolute name, and the headers of its library include each other by

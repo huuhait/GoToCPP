@@ -233,6 +233,11 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 	if len(m.errors) > 0 || c.loadFailed(prog) {
 		return prog, nil, c.printLoadErrors(prog, m)
 	}
+	// The warnings of the load (a cxx recipe in gocpp.mod for a module that
+	// is not used there): the errors are printed above.
+	if len(prog.Errors.Diagnostics()) > 0 {
+		c.print(c.stderr, prog.Errors, true)
+	}
 
 	// The namespace probe runs the C++ compiler of the target (GOOS,
 	// GOARCH) for the files with header imports. ^C (or SIGTERM, SIGHUP)

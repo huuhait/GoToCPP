@@ -8,15 +8,15 @@ path becomes a folder.
 
 | | |
 |---|---|
-| Status | v0, written with [Phase 06 step 6.1](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#3-steps): the file, the module root, `require`, `replace` and `vendor/`; and with job 6.1c: **module downloads** (`gocpp get`, the module cache, `gocpp.sum`, `gocpp mod vendor`, see [Downloads](#downloads)). Building more than one package is steps 6.2 to 6.7; reading the `cxx` recipe of a C/C++ library and importing its headers by module path are jobs 6.1d and 6.1b |
+| Status | v0, written with [Phase 06 step 6.1](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#3-steps): the file, the module root, `require`, `replace` and `vendor/`; and with job 6.1c: **module downloads** (`gocpp get`, the module cache, `gocpp.sum`, `gocpp mod vendor`, see [Downloads](#downloads)). Building more than one package is steps 6.2 to 6.7; importing C/C++ headers by module path (6.1b) and building a library from its `cxx` recipe (6.1d, [C and C++ libraries](#c-and-c-libraries-cxx-recipes)) are in |
 | Source | [ADR-020](../adr/020-modules-gocpp-mod.md), [ADR-023](../adr/023-module-downloads.md), [Phase 06 §2.1](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#21-the-module-file-gocppmod), [Phase 01 §2.6](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#26-package-loading-and-the-importer) |
 | Code | `internal/load` (`modules.go`, `resolve.go`), `internal/load/gocppmod` (the file format) and `internal/modfetch` (downloads) |
 | See also | [language.md](language.md) ([D11](language.md#d11-gocpp-directives-instead-of-cgo-lines)), [interop.md](interop.md) |
 
 **Not here yet:** version selection (only the main module's `require` lines count, so every module a
-program imports must be listed), the checksum database, and C and C++ libraries as modules with a build
-recipe ([Phase 06 §2.11](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#211-c-and-c-libraries-from-the-internet-your-decision-2026-10-13);
-jobs 6.1b and 6.1d). A module that is required and neither replaced by a local folder nor vendored is
+program imports must be listed), the checksum database, and the shared recipe index and CMake fallback for
+big C and C++ libraries (open, TODO Q14). C and C++ libraries with a build recipe are in
+[C and C++ libraries](#c-and-c-libraries-cxx-recipes). A module that is required and neither replaced by a local folder nor vendored is
 downloaded, as [Downloads](#downloads) says.
 
 ## The file
@@ -85,7 +85,9 @@ cxx example.com/x {
 ```
 is one block; nothing in it is a module-wide setting, and it may hold anything (also `/* */` or
 characters that are not allowed elsewhere). `gocpp.mod` is therefore safe to share with tools and
-newer gocpp versions. A block that is not closed before the end of the file is an error at the last line,
+newer gocpp versions. The lines of a block are read, with their own rules, only for a module whose
+header the program imports ([C and C++ libraries](#c-and-c-libraries-cxx-recipes)); gocpp.mod itself, and
+`Format`, never look inside. A block that is not closed before the end of the file is an error at the last line,
 as in Go, and its lines are not read as statements.
 
 **Errors** read like the go command's: `gocpp.mod:3: usage: require module/path v1.2.3`, with the
@@ -434,9 +436,9 @@ import (
   library with quotes (`"imconfig.h"` next to it, `"backends/x.h"` or `"imgui.h"` from a sub-folder; the package folder is searched before the module's folder, so a file of the package with the same name as a root-relative include of the library is found first). It
   is `-iquote`, not `-I`, on purpose: a file of the module named like a system header (`string.h`,
   `time.h`, `assert.h`) must not hide `<cstring>` or `<string.h>`. The headers that a library wants found
-  as `<x.h>` need the `include` folders of its recipe (step 6.1d, which can use `-I` or `-isystem`). The flags of the module's own
-  `gocpp.mod` (`cflags`, `pkg-config`, the `include` folders of a `cxx` recipe) are not applied yet:
-  recipes come with step 6.1d, and the allow-list rule for the flags of a dependency is an open point.
+  as `<x.h>` need the `include` folders of its recipe ([C and C++ libraries](#c-and-c-libraries-cxx-recipes), `-I` or `-isystem`). The module-wide
+  `cflags`, `ldflags` and `pkg-config` lines of a dependency's `gocpp.mod` are not applied (the allow-list rule for the
+  flags of a dependency is an open point); the flags of a library come from its `cxx` recipe, which is explicit.
   `//gocpp:cflags` of the package still works.
 - **`extern "C"`.** A module header is decided like a local one: a `.h` header that has no
   `__cplusplus` guard and compiles as C is included inside `extern "C" { }`; `//gocpp:extern-c
@@ -457,13 +459,168 @@ import (
   absolute path after the module path) is rejected. gocpp follows symbolic links, and a link in the module can lead out of it
   (`native/leak.h -> /outside/file.h` is accepted and read by the compiler): that is the user's own choice for
   the own, replaced and vendored modules. Links inside downloaded modules are rejected when the archive is
-  extracted (step 6.1c).
+  extracted (step 6.1c). The paths of a `cxx` recipe are stricter: a link that leaves the module is an error
+  for every kind of module.
 - **Limits.** A folder with its own `gocpp.mod` inside the own or a required module is accepted for
   headers (the module is chosen by the path prefix only; packages reject such a folder). The same file
   named by two spellings (two import paths, or a symbolic link) is included twice (include guards or
   `#pragma once` decide). Windows reserved device names (`con.h`, `aux.h`) are not rejected.
 - **Single package for now.** A program is still one package until step 6.2: the headers work from the
   main package, and the loader resolves them from every package.
+
+## C and C++ libraries (`cxx` recipes)
+
+A C or C++ library is a module like any other (a git clone behind a `replace` line, a vendored folder, a
+downloaded archive), and its headers are imported by their full path ([Module headers](#module-headers)).
+A header declares; something has to **define**. For a library that is more than headers, `gocpp.mod`
+holds a small **recipe**: which C and C++ files to compile, where the headers are, which macros to
+define, which system libraries to link. No CMake, no shell, no script: a recipe is a list of facts.
+([ADR-024](../adr/024-cxx-recipes.md); Phase 06 [§2.11](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#211-c-and-c-libraries-from-the-internet-your-decision-2026-10-13).)
+
+```text
+// gocpp.mod of a project that uses Dear ImGui with GLFW and OpenGL
+module github.com/huuhait/mygame
+
+require github.com/ocornut/imgui v1.91.5
+
+cxx github.com/ocornut/imgui {
+	src      imgui.cpp imgui_draw.cpp imgui_tables.cpp imgui_widgets.cpp
+	src      backends/imgui_impl_glfw.cpp backends/imgui_impl_opengl3.cpp
+	include  . backends                       // <imgui.h>, "imgui_impl_glfw.h"
+	define   IMGUI_DISABLE_OBSOLETE_FUNCTIONS // in the library and in the user's code
+	pkg-config glfw3
+	linux:   link GL
+	windows: link opengl32
+}
+```
+
+```go
+import (
+	"github.com/ocornut/imgui/imgui.h"
+	"github.com/ocornut/imgui/backends/imgui_impl_glfw.h"
+)
+```
+
+### Where the recipe comes from
+
+1. **The project's own `gocpp.mod`**, a block `cxx <module path> { ... }` named by the module path. It works for
+   any module the project requires, replaced, vendored or downloaded, and for the project's own module
+   (`cxx github.com/huuhait/mygame { src native/*.c }` builds the C files of a `native/` folder that `.gp`
+   code imports as `"github.com/huuhait/mygame/native/x.h"`).
+2. **The library's own `gocpp.mod`**, in the module's folder, a block named by **its own** module path. A library author
+   can ship the recipe, and then a project needs nothing but `require`.
+3. **None**: the headers are found and used as before (`-iquote` the module's folder), and nothing is
+   built. A header import of a module with no recipe whose symbols are not defined fails to link; the message
+   then says `module X has no cxx recipe, so its C and C++ files are not built`.
+
+The project's block **replaces** the library's one entirely. They are never merged: a project that
+wants one more define copies the library's block and adds it. Two blocks for the same module in one file
+are an error.
+
+A recipe is read only for a module that a package of the program imports a header (or a package) from.
+A broken recipe of a module the program does not use is not looked at. A `cxx` block in the project's
+`gocpp.mod` that names a module which is not the project's own, required or replaced there gets a **warning** (not an error:
+the file may be shared), since a typo in the module path would otherwise show only as a link error.
+
+### The statements
+
+Each line of the block is one statement: a verb and its arguments, split like the arguments of a `//gocpp:`
+directive (white space separates; single, double and back quotes keep white space; a backslash
+makes the next character ordinary; `//` starts a comment). A statement can be preceded by an operating
+system condition as a word of its own: `linux:`, `linux,darwin:` (any of them) or `!windows:` (any
+other system). The system is the target (`GOOS`).
+
+| Statement | Meaning |
+|---|---|
+| `src pattern...` | C and C++ files to compile: `.c`, `.cc`, `.cpp`, `.cxx`. A pattern (`*`, `?`, `[a-z]`) matches inside one folder (`backends/*.cpp`; `**` is not supported); it must match at least one source file, and a file named without a pattern must exist. A name that starts with a dot is matched only by a pattern that starts with a dot. |
+| `exclude pattern...` | Leave out of the sources the files that match, whatever line listed them. |
+| `include folder...` | `-I folder`, for the compiles of the library **and** of every package that uses it (and its probes): `<x.h>`-style includes work. The module's own folder is always an `-iquote` folder (`.` in `include` makes it `-I`). **Hazard:** `-I` puts the folder before the system's, so a file in it named like a standard header (`stdint.h`, `string.h`, `vector`) hides the system's in every compile with the flag; use a more specific folder (`include include`) when the library root has such a file. gocpp adds a hint when a compile with a recipe folder fails and the folder has such a name. |
+| `system-include folder...` | The same with `-isystem`: the compiler's warnings in those headers are not shown. |
+| `define NAME[=value]...` | `-D`, for the library **and** its users. Use it for a macro that changes a header: a layout, a feature switch. |
+| `private-define NAME[=value]...` | `-D` for the compiles of the library only (`BUILDING_THE_LIB`). |
+| `cflags flag...` | Flags of every compile of the library (C and C++); not given to its users. |
+| `cxxflags flag...` | Flags of the C++ compiles of the library only. |
+| `std c++17` | The C++ standard of the library's C++ files: `c++NN`, `gnu++NN`. The default is the `cxx` line of the library's own `gocpp.mod`, else `c++20`. |
+| `cstd gnu11` | The C standard of its C files: `c89`, `c99`, `c11`, `c17`, `c18`, `c23` or `gnu` + the same. The default is `gnu17`. |
+| `link name...` | `-lname` at the link (`link m`, `link -lpthread`). |
+| `ldflags flag...` | Link flags. |
+| `pkg-config package...` | The `--cflags` of the packages go to the library **and** its users, the `--libs` to the link. |
+
+A line that gocpp does not understand is an **error at its line**: `gocpp.mod:12: cxx
+github.com/x/y: unknown statement "frobnicate": gocpp does not know it, and ignoring it could build
+the wrong library`. So are a wrong number of arguments, a bad macro name, a path that is not allowed, an
+unknown system in a condition, a nested block, a line longer than 16 KiB, a NUL or another control
+character, and more than 4096 statements in a recipe. The other lines are still checked, and all the errors come at once, at their lines of
+the file that has the recipe.
+
+`define` and `private-define` become `-DNAME=value`, and every flag of `cflags`, `cxxflags`, `ldflags`,
+`define`, `private-define` and `pkg-config` goes through the flag allow-list of `//gocpp:cflags`
+([Phase 04 §2.9](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md)): `-fplugin=`, `-Xclang`, `-wrapper`,
+`-B`, `-specs=`, `--sysroot=`, `@file`, `-fuse-ld=`, `-m32`, `-D_GLIBCXX_DEBUG` and the rest are refused with the
+same messages (`GOCPP_CFLAGS_ALLOW` and `GOCPP_LDFLAGS_ALLOW` of the **user's** environment can allow
+more). As in a directive, a macro value cannot contain `-` or `@`. In a recipe's link flags `-Wl,-rpath`,
+`-Wl,-R`, `-Wl,--just-symbols`, `-Wl,-sectcreate`, `-Wl,-syslibroot`, `-Wl,-framework`, `-Wl,--push-state`, `-Wl,-l`,
+`-Wl,--library`, `-Wl,-L` and `-lto_library` are refused too, and so is a library named by a path: `-l:libfoo.a`
+is fine, `-l:../../x` and `-l../x` (any `/` or `..` in the name) are not, because the linker looks the name up in
+the library folders and the system's.
+
+### Paths stay in the module
+
+Every path of a recipe is relative to the module's folder, written with `/`: no absolute path, no `..`, no
+`~` or `$`, no drive letter or `:`, no `\`, no element that ends in a dot or a space. A path in a flag of
+`cflags`, `cxxflags` or `ldflags` (`-I`, `-isystem`, `-include`, `-L`, a file for the linker) follows the same
+rule and is made absolute from the module's folder. The files and folders that a recipe names are looked up with their symbolic
+links resolved, **for every kind of module** (replaced, vendored, downloaded), and a link that leads out of
+the module is an error: `a symbolic link leaves the module`. Patterns are bounded: 10000 source files
+for a library, 100000 entries in one folder, 200000 folder entries read for the patterns of a library. A source is a
+regular file of at most 32 MiB (a named pipe, a device or a huge file is an error at its line, not a hang).
+
+Nothing from a module is executed: no script, no `pkg-config` file from the module's folder (`pkg-config`
+runs with package names that cannot name a file: no `/`, not ending in `.pc`, and `PKG_CONFIG_PATH` is the
+user's). The library is data that the compiler reads; the compiler and the linker are the only programs
+that run, and the allow-list is what keeps their flags from running code.
+
+### What the build does
+
+- The **public** flags (`include`, `system-include`, `define`, the cflags of `pkg-config`) go to the library's compiles and to the compiles and probes of every package that
+  imports a header of the module, after the package's own `//gocpp:cflags` and before the `-iquote`
+  folders. `gocpp check`, `gocpp emit` and the language server see the same flags (they are in
+  `ReadPackageFlags`' result, the one source of flags), so `<x.h>` and the macros work in the editor; they build no library.
+- Each source is compiled with `gocpp`'s own driver: `-g -O0` (and the sanitizers with `-asan`), `-std=`, `-w`
+  (the warnings of a library are not the user's, and a compile that prints something is never kept in the cache),
+  `-iquote <module folder>`, the user's trusted `GOCPP_CFLAGS` (and `GOCPP_CXXFLAGS` for C++), the public flags, the
+  library's private flags, `-c -x c` or `-x c++`. C files use the C compiler that goes with the C++ compiler (`GOCPP_CC`). The
+  flags of the package that uses the library are **not** part of it.
+- The objects are kept in the object cache (`<cache>/gocpp/obj`), a content-addressed cache. The key is the text
+  of the source, all the flags (the recipe's, the environment's, `-asan`, the folders), the compiler (path, version, file), the
+  module path and version, and the headers the compiler read. So a library is compiled once for
+  each (module, version, recipe, compiler, flags) and reused by every project that has the same, and a different
+  flag, compiler or source text builds again. `gocpp build -x` shows `# cache hit lib.c <hash>` for a reused
+  object and `# not cached: <reason>` when a compile cannot be kept.
+- The sources compile at the same time, at most `min(GOMAXPROCS, 64)` of them, together with the generated C++ and the
+  runtime. The objects are linked in the order of the libraries and their files, after the program's object, and before
+  the runtime; the link flags (`link`, `ldflags`, `pkg-config --libs`) come after all the objects. The link is static.
+- A library that does not compile is an **error of the build**, exit status 1, not an internal error:
+  ```text
+  # github.com/x/lib
+  the C or C++ library of module github.com/x/lib@v1.2.0 did not build: src/bad.c did not compile (recipe ./gocpp.mod:9: src src/bad.c)
+  /home/me/.cache/gocpp/mod/.../src/bad.c:1:34: error: 'UNDEFINED_NAME' undeclared (first use in this function)
+  (gocpp build -x shows the command)
+  ```
+  It shows the first 40 lines of the compiler's output (`-cpperrors=full`: all). A `src` that does not exist or matches
+  nothing is an error at its line before anything is compiled.
+- `gocpp mod vendor` copies the whole module, so a vendored library builds the same way (with the recipe of the
+  project, or the library's own `gocpp.mod` inside the vendored folder).
+
+### Limits (v0)
+
+- A recipe applies to a module whose header (or package) the program imports. A library that needs the
+  **headers of another library** has to have that library imported by the program too; there is no
+  `needs` statement yet.
+- The default build is the debug build (`-g -O0`) of the rest of the program. Optimization levels of a program come with
+  Phase 06's build modes.
+- Static link only. Shared libraries and `c-shared` builds come later.
+- No shared recipe index and no CMake fallback (TODO Q14, open): a library with no recipe of its own needs a `cxx` block in the project.
 
 ## For tools
 
@@ -480,3 +637,7 @@ import (
   `gocpp list -m` style command and never fails.
 - `gocppmod.Parse` and `gocppmod.Format` read and write the file; `Format` keeps comments, blank
   lines and every statement it does not know.
+- `gocppmod.File.Recipes` finds the `cxx path { }` blocks, and `gocppmod.ParseRecipe` reads the lines of one (the
+  statements, their lines and OS conditions, and the errors). `load.Package.CxxModules` lists the modules whose
+  headers a package imports, each with its recipe block (`load.CxxModule`); `build.ReadPackageFlags` turns them into
+  `PackageFlags.Libs` (`build.CxxLib`, with `Sources()`), the public compile flags and the link flags.

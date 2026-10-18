@@ -624,6 +624,7 @@ func (d *driver) cppLinkFailed(pkg *check.Package, e *build.CompileError, env bu
 		undefined = append(undefined, r.sym)
 	}
 	hints = append(hints, externCClashHints(pkg.Load.Dir, pkg.ExternC, pkg.Load.CXXFiles, undefined)...)
+	hints = append(hints, noRecipeHints(pkg, e.Output)...)
 	if len(pkg.Flags.Link) > 0 {
 		hints = append(hints, fmt.Sprintf("(the link flags of the package's //gocpp: directives: %s)", strings.Join(pkg.Flags.Link, " ")))
 	}

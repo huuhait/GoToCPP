@@ -35,6 +35,7 @@ and from the user's answers to Q1–Q13
 | [021](021-platforms-linux-windows.md) | The platforms are Linux and Windows (MinGW-w64 first) | accepted | Linux first, Windows before v1.0; MSVC ABI later; no macOS. |
 | [022](022-shadowed-names.md) | Shadowed variables keep their Go names in C++ | accepted | A shadowing declaration opens a C++ block; supersedes ADR-010's `v := v` row. |
 | [023](023-module-downloads.md) | Modules are downloaded from git hosts, with hashes in `gocpp.sum` and trust on first use | accepted | Tag or commit archives from GitHub, GitLab and Codeberg (or `GOCPP_MODURL`), Go's `h1:` tree hash, no checksum database yet. |
+| [024](024-cxx-recipes.md) | C and C++ libraries are built from a `cxx` recipe in `gocpp.mod` | accepted | Sources, include folders, defines and pkg-config, through the flag allow-list; objects in the shared object cache. (023 is job 6.1c's.) |
 
 ## Changing a decision
 

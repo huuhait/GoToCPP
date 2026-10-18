@@ -50,6 +50,11 @@ func (l *loader) resolve(from *Package, path string, at token.Position) (*Packag
 	if msg != "" {
 		return nil, msg
 	}
+	if loc.mod != nil && !loc.std && !from.Std && loc.mod != from.Module {
+		// A package of another module: its cxx recipe (if any) builds the
+		// C and C++ files the package needs (cxxrecipe.go).
+		l.noteCxxModule(from, loc.mod)
+	}
 	if g := l.graph; g != nil {
 		// In the graph of a test, the test variant has the path of the
 		// package under test (so the external test package gets it too),

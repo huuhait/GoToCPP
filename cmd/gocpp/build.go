@@ -85,6 +85,15 @@ GOCPP_CC, else the one that goes with the C++ compiler (gcc for g++,
 clang for clang++), the others with -std=c++20 and the C++ compiler. An
 error in them is an error of the program: exit status 1.
 
+The C and C++ files of a library module (a header import such as
+"github.com/ocornut/imgui/imgui.h") are built from the "cxx" recipe in
+gocpp.mod (cxx <module path> { src ... include ... define ... }), or the one
+the library ships in its own gocpp.mod: each file is compiled once into the
+object cache, for every project that has the same recipe, compiler and
+flags, and linked in. The recipe's flags go through the same allow-list as
+the package's. A library that does not compile is an error of the build:
+the message names the module and the recipe line, and -x shows the command.
+
 In a package that uses C or C++ (a header import, or C), an error of
 the C++ compiler that comes from a .gp line with C or C++ code (a use of
 C, of a header package or a namespace, or of a C/C++ value; a header
@@ -579,15 +588,22 @@ func (d *driver) probe(pkg *check.Package, cxx *build.CXX) (*lower.Interop, int)
 }
 
 // directiveCompileFlags returns the compile flags of pkg that come from its
-// //gocpp: directives and pkg-config: Flags.Compile without the include folders
-// of the modules whose headers it imports (build.ReadPackageFlags puts those
-// last, as -iquote folder), which are the loader's, not the user's flags.
+// //gocpp: directives and pkg-config: the first Flags.Directive of Flags.Compile.
+// After them come the public flags of the cxx recipes of its modules
+// (recipeCompileFlags) and the include folders of the modules whose headers it
+// imports (build.ReadPackageFlags puts those last, as -iquote folder), which
+// are the loader's, not the user's flags.
 func directiveCompileFlags(pkg *check.Package) []string {
-	flags := pkg.Flags.Compile
-	if n := 2 * len(pkg.Load.IncludeDirs); n <= len(flags) {
-		flags = flags[:len(flags)-n]
-	}
-	return flags
+	return pkg.Flags.Compile[:min(pkg.Flags.Directive, len(pkg.Flags.Compile))]
+}
+
+// recipeCompileFlags returns the compile flags of pkg that come from the cxx
+// recipes of the modules whose headers it imports (-I, -D, ...).
+func recipeCompileFlags(pkg *check.Package) []string {
+	c := pkg.Flags.Compile
+	start := min(pkg.Flags.Directive, len(c))
+	end := max(start, len(c)-2*len(pkg.Load.IncludeDirs))
+	return c[start:end]
 }
 
 // importsLocalHeader reports whether a file of pkg imports a local header
@@ -655,9 +671,13 @@ func (d *driver) compile(patterns []string) (*program, int) {
 		fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
 		return nil, exitErrors
 	}
+	needC, code := d.resolveLibs(pkg) // the sources of the modules' libraries (recipes)
+	if code != 0 {
+		return nil, code
+	}
 	cxx, err := build.FindCXXFor(d.ctx, d.check.goos, d.check.goarch) // the probe's compiler too
 	var cc build.CXX
-	if err == nil && len(pkg.Load.CFiles) > 0 {
+	if err == nil && (len(pkg.Load.CFiles) > 0 || needC) {
 		cc, err = d.findCC(cxx)
 	}
 	if err != nil {
@@ -728,6 +748,10 @@ func (d *driver) compile(patterns []string) (*program, int) {
 			return nil, stopStatus(sig)
 		}
 		var ce *build.CompileError
+		if errors.As(err, &ce) && ce.Lib != nil {
+			d.libFailed(pkg, ce)
+			return nil, exitErrors
+		}
 		if errors.As(err, &ce) && ce.Source != "" {
 			d.sourceFailed(pkg, ce)
 			return nil, exitErrors
@@ -749,6 +773,10 @@ func (d *driver) compile(patterns []string) (*program, int) {
 			var flags []string
 			if directive := directiveCompileFlags(pkg); ce.What != "the runtime" && len(directive) > 0 {
 				flags = append(flags, "the compile flags of the package's //gocpp: directives: "+strings.Join(directive, " "))
+			}
+			if recipe := recipeCompileFlags(pkg); ce.What != "the runtime" && len(recipe) > 0 {
+				flags = append(flags, "the compile flags of the cxx recipes of the package's modules: "+strings.Join(recipe, " "))
+				flags = append(flags, shadowHints(recipe)...)
 			}
 			for _, v := range []struct {
 				name  string
@@ -884,6 +912,9 @@ func (d *driver) linkFailed(pkg *check.Package, e *build.CompileError, env build
 	}
 	if hasSources(pkg.Load) {
 		fmt.Fprintf(d.stderr, "(the package's C and C++ files: %s)\n", strings.Join(slices.Concat(pkg.Load.CFiles, pkg.Load.CXXFiles), " "))
+	}
+	for _, h := range noRecipeHints(pkg, e.Output) {
+		fmt.Fprintln(d.stderr, h)
 	}
 }
 

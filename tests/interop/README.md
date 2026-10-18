@@ -59,6 +59,13 @@ replaced by `third_party/mathlib`; a required module in `vendor/`; a replace to 
 system's. The headers include each other by
 names inside their module, which works because the module's folder is on the include path.
 
+[module_recipe_c/](module_recipe_c) and [module_recipe_cpp/](module_recipe_cpp) are the **library build** tests (Phase 06 step
+6.1d): a module whose C or C++ files are built from a `cxx` recipe. In the first, the project's `gocpp.mod`
+has the recipe for a small JSON library in the layout of a real one (`src/*.c`, `include/minijson/*.h`, `exclude`,
+`define` for both sides, `private-define`, `link m`); in the second, the library ships the recipe in its own
+`gocpp.mod` (C++17, a file for the operating system, a `define` that changes the layout of a header and so must
+reach both the library and the program, an `include` folder for `<vecmath/detail.h>`).
+
 A header that a test includes from this folder (`"./helper.h"`) lives next to it; files that
 are not `.gp` files are not tests. Libraries such as SDL can write to stderr; say so with a
 `// Stderr:` line, because without one stderr must be empty.

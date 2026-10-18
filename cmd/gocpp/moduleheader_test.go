@@ -134,13 +134,20 @@ func TestModuleHeaderCheckErrors(t *testing.T) {
 // internal compile failure.
 func TestDirectiveCompileFlags(t *testing.T) {
 	pkg := &check.Package{Load: &load.Package{IncludeDirs: []string{"/m", "/n"}}}
-	pkg.Flags.Compile = []string{"-DX", "-iquote", "/m", "-iquote", "/n"}
+	pkg.Flags.Compile = []string{"-DX", "-I", "/lib", "-iquote", "/m", "-iquote", "/n"}
+	pkg.Flags.Directive = 1
 	if got := directiveCompileFlags(pkg); !slices.Equal(got, []string{"-DX"}) {
 		t.Errorf("directiveCompileFlags = %q", got)
+	}
+	if got := recipeCompileFlags(pkg); !slices.Equal(got, []string{"-I", "/lib"}) {
+		t.Errorf("recipeCompileFlags = %q", got)
 	}
 	pkg.Load.IncludeDirs = nil
 	pkg.Flags.Compile = []string{"-DX"}
 	if got := directiveCompileFlags(pkg); !slices.Equal(got, []string{"-DX"}) {
 		t.Errorf("without modules: %q", got)
+	}
+	if got := recipeCompileFlags(pkg); len(got) != 0 {
+		t.Errorf("recipeCompileFlags without recipes = %q", got)
 	}
 }

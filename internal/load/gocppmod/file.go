@@ -224,6 +224,10 @@ func (r *reader) block(b *Block) {
 	}
 }
 
+// recipeHint is added to the errors of a cxx line that looks like a recipe
+// block that does not open as one.
+const recipeHint = " (a C or C++ library recipe is a block that opens with { at the end of its own line, and has its statements on the lines below: cxx module/path {)"
+
 // knownVerbs are the verbs that gocpp reads.
 var knownVerbs = map[string]bool{
 	"module": true, "gocpp": true, "cxx": true, "require": true, "replace": true,
@@ -286,7 +290,11 @@ func (r *reader) stmt(verb string, args []string, line *Line, whole Stmt) {
 	case "cxx":
 		if len(args) != 1 {
 			if !line.InBlock {
-				r.errorf(at, "usage: cxx c++20")
+				hint := ""
+				if strings.ContainsAny(strings.Join(args, " "), "/{}") {
+					hint = recipeHint // a module path or a brace: the user meant a recipe
+				}
+				r.errorf(at, "usage: cxx c++20%s", hint)
 			}
 			return
 		}
@@ -300,7 +308,11 @@ func (r *reader) stmt(verb string, args []string, line *Line, whole Stmt) {
 			return
 		}
 		if !stdRE.MatchString(std) {
-			r.errorf(at, "invalid C++ standard %q: want c++17, c++20, gnu++20, ...", std)
+			hint := ""
+			if strings.ContainsAny(std, "/{}") {
+				hint = recipeHint
+			}
+			r.errorf(at, "invalid C++ standard %q: want c++17, c++20, gnu++20, ...%s", std, hint)
 			return
 		}
 		r.f.Cxx = &Cxx{Std: std, Syntax: line}
