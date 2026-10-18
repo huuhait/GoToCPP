@@ -25,7 +25,7 @@
   - [ ] forwarding member functions + forwarding thunks
   - [ ] embedded pointers (nil checks) and embedded interfaces
 - [ ] 5.9 Method values / expressions on interfaces
-- [ ] 5.10 panic/recover
+- [x] 5.10 panic/recover
   - [ ] two entry points for functions containing `recover()` (carried by `gp::func` and thunks)
   - [ ] `gp::result_slot<R>` in the single-exit shape
   - [ ] `goexit_signal` and `abi::__forced_unwind` always re-thrown
@@ -72,3 +72,17 @@
   type); interface hooks for ==/hash (5.6) take the stored BOX (pointer descriptors take target addresses); interfaces
   never cross a shared-library boundary (one runtime per process). Not covered by the suite: icall_keep dropping the box is
   caught only under ASan, itab-cache memory orders only under TSan (8.1 adds TSan runners).
+- 2026-10-18: Job 5.10 (panic/recover) merged after two review rounds. Decisions: (1) recover uses a thread-local TICKET (not two
+  entry points: `gp::func` stays 24 bytes), set only while the defer machinery runs the calls of an unrecovered panic and only for
+  calls known to be aware; named func types are aware; (2) interface methods: the `aware` flag lives in the `gp::method` descriptor
+  and the itab (`method_of_aware`); OBLIGATION for 5.4/5.8/5.9: the emitter must write `gp::method_of_aware` in EVERY method table
+  entry (T, *T, promoted-method forwarding thunks) whose method contains recover, else `defer i.M()` makes recover return nil; staged
+  tests recover_iface_method and recover_iface_embedded with real-Go expected output are in
+  /tmp/claude-1000/-home-huuhait-GoToCPP/fa18916c-20de-43da-b276-dbf712f662ca/scratchpad/job510/handoff/pending-tests/ (add them
+  when 5.4 merges); (3) panics carry a gp::any; runtime errors are Go's runtime.* types; a C++ exception becomes a
+  gp::CppException panic ONLY when a defer is on the stack (else Phase 04's terminate path); (4) D28: gocpp = `-gcflags=-l`
+  semantics for recover through inlined callees; (5) `result_slot` members are gp_set/gp_take (ADR-011 and the README fixed);
+  (6) gaps: Go-level runtime.Goexit / r.(runtime.Error) / os.Exit tests need the `runtime` and `os` packages; panics in goroutines
+  are tested at C++ level only (`go` not lowered); a function with `recover()` AND `defer recover()` that is itself a deferred
+  call of a panic recovers in Go but not here (TODO); fmt of a panicking String() method prints print-format floats (5.11);
+  `defer f(g())` with g returning several values and f an aware func value: recover returns nil; cross-package aware funcs (Phase 06).
