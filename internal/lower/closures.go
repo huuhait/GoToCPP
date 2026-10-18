@@ -238,6 +238,9 @@ func (fg *funcGen) funcRef(fn *types.Func, pos token.Pos) cppir.Expr {
 // type, a func literal, the result of a call, an element; not a function of the package, a
 // builtin, a conversion or a function of another package.
 func (fg *funcGen) funcValueCall(c *ast.CallExpr) bool {
+	if fg.instRef(c.Fun) != nil {
+		return false // an instance of a generic function (generics.go)
+	}
 	if fg.g.info.Types[c.Fun].IsType() || fg.isWeakMake(c) {
 		return false
 	}
@@ -349,7 +352,13 @@ func (fg *funcGen) callArgs(c *ast.CallExpr, sig *types.Signature) []cppir.Expr 
 		return append(args, construct(fg.g.cxxType(last, c.Pos()))) // no arguments: nil
 	}
 	elem := fg.g.cxxType(st.Elem(), c.Pos())
-	return append(args, templateCall("gp::slice_of", []cppir.Node{elem}, &cppir.InitList{Elems: fg.exprs(c.Args[n-1:], false)}))
+	vals := fg.exprs(c.Args[n-1:], false)
+	if nm, ok := types.Unalias(st.Elem()).(*types.Named); ok && fg.g.cxxNamed[nm].open && !fg.g.curOpen[nm] {
+		// The element type is a template parameter that C++ deduces from the arguments of the call
+		// (generics.go): it is not in scope here, so the first argument says what it is.
+		elem = typeName("std::decay_t<decltype(" + cppir.ExprString(vals[0]) + ")>")
+	}
+	return append(args, templateCall("gp::slice_of", []cppir.Node{elem}, &cppir.InitList{Elems: vals}))
 }
 
 // deferValue returns gp_df.gp_push_call(f, args...) for defer f(args) of a func value f

@@ -63,7 +63,7 @@ func (g *gen) toInterface(from, to types.Type, x cppir.Expr, pos token.Pos) cppi
 		}
 		return templateCall("gp::iface_cast", []cppir.Node{typ}, x)
 	}
-	if !complete(from) {
+	if g.foreignVal(from) {
 		// A C/C++ value: its descriptor is made from its C++ type (gp::foreign_td). It has no
 		// method table (the checker doesn't know its methods), so only an interface without
 		// methods can hold it.
@@ -137,7 +137,7 @@ func (fg *funcGen) typeAssert(e *ast.TypeAssertExpr) cppir.Expr {
 	t := g.info.TypeOf(e.Type)
 	x := fg.expr(e.X)
 	commaOK := isTuple(g.info.TypeOf(e)) || fg.commaAsserts[e]
-	if !complete(t) {
+	if g.foreignVal(t) {
 		// A C/C++ type: the value's descriptor is the foreign one of its C++ type.
 		ct := g.typeExpr(e.Type)
 		name := "gp::assert_type"
@@ -231,7 +231,7 @@ func (fg *funcGen) typeSwitchStmt(s *ast.TypeSwitchStmt) {
 			switch {
 			case g.info.Types[te].IsNil():
 				parts = append(parts, &cppir.Binary{Op: "==", X: operand, Y: lit("nullptr")})
-			case !complete(t):
+			case g.foreignVal(t):
 				ct := g.typeExpr(te) // a C/C++ type: the foreign descriptor of its C++ type
 				parts = append(parts, call("gp::type_is", operand, templateCall("gp::foreign_td", []cppir.Node{ct})))
 			case isInterface(t):

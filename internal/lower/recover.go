@@ -120,6 +120,14 @@ func (fg *funcGen) recoverCall() cppir.Expr {
 // "aware" (the callee is an aware function of the package: it takes the ticket) or "icall" (the
 // callee is a method called through an interface: the runtime decides from its thunk).
 func (fg *funcGen) deferKind(c *ast.CallExpr) string {
+	if r := fg.instRef(c.Fun); r != nil {
+		// An instance of a generic function, F[int](x) or inferred: it is aware if the generic
+		// function calls recover (generics.go).
+		if r.fn != nil && fg.g.awareFunc(r.fn) {
+			return "aware"
+		}
+		return ""
+	}
 	switch fun := ast.Unparen(c.Fun).(type) {
 	case *ast.Ident:
 		if fn, ok := fg.g.info.Uses[fun].(*types.Func); ok && fg.g.awareFunc(fn) {

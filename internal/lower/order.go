@@ -1535,7 +1535,7 @@ func (fg *funcGen) place(e ast.Expr) bool {
 }
 
 // findPlaces returns the expressions of the code top that are used as places (place).
-func findPlaces(info *types.Info, top ast.Node) map[ast.Expr]bool {
+func findPlaces(info *tinfo, top ast.Node) map[ast.Expr]bool {
 	places := make(map[ast.Expr]bool)
 	mark := func(e ast.Expr) {
 		for {

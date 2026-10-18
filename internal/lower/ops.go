@@ -172,6 +172,9 @@ func (fg *funcGen) binary(e *ast.BinaryExpr) cppir.Expr {
 // binaryOp returns the C++ of x op y, a Go binary expression whose operator is at pos. (Step
 // 2.4's x op= y uses it too.) Both operands are translated from left to right.
 func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.Expr {
+	if fg.g.isCxxNamed(fg.typeOf(x)) || fg.g.isCxxNamed(fg.typeOf(y)) {
+		return fg.cBinary(op, x, y) // a C/C++ type argument: C++'s operators (generics.go)
+	}
 	switch op {
 	case token.LOR:
 		// a || (b && c): C++ doesn't need the parentheses, but they are clearer, and g++
@@ -379,6 +382,9 @@ func (fg *funcGen) unary(e *ast.UnaryExpr) cppir.Expr {
 	case token.NOT:
 		return &cppir.Unary{Op: "!", X: fg.expr(e.X)}
 	case token.ADD, token.SUB, token.XOR:
+		if fg.g.isCxxNamed(fg.typeOf(e.X)) {
+			return fg.cUnary(e) // a C/C++ type argument: C++'s operator (generics.go)
+		}
 		t := fg.operandType(e.OpPos, e.Op, e.X)
 		if t == nil {
 			return placeholder

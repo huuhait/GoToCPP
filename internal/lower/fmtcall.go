@@ -181,11 +181,11 @@ func plainFmtType(t types.Type) bool {
 // hasErrorMethod reports whether the method set of t has Error() string.
 func hasErrorMethod(t types.Type) bool {
 	s := types.NewMethodSet(t).Lookup(nil, "Error")
-	return s != nil && stringerSig(s)
+	return s != nil && stringerSig(wrapSelection(s))
 }
 
 // stringerSig reports whether the method of the selection s is func() string.
-func stringerSig(s *types.Selection) bool {
+func stringerSig(s *selection) bool {
 	sig, ok := s.Obj().Type().(*types.Signature)
 	if !ok || sig.Params().Len() != 0 || sig.Results().Len() != 1 {
 		return false
@@ -203,7 +203,7 @@ func (fg *funcGen) fmtArgOf(t types.Type, x cppir.Expr, pos token.Pos) cppir.Exp
 	switch {
 	case t != nil && isNilType(t):
 		return construct(typeName("gp::any")) // an untyped nil is a nil interface
-	case t == nil || !complete(t):
+	case t == nil || fg.g.foreignVal(t):
 		return call("gp::cgo::fmt_arg", x) // a C/C++ value: its descriptor comes from its C++ type
 	case isInterface(t):
 		return x // its dynamic type

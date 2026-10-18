@@ -1,6 +1,6 @@
 # ADR-017: Generics are C++ templates with explicit type arguments
 
-Status: accepted (2026-10-13)
+Status: accepted (2026-10-13). Partly superseded by [ADR-030](030-generic-instances.md) (2026-10-18): a generic function is lowered once for each instance, not written as a C++ template; the rest stands.
 
 ## Context
 

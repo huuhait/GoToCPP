@@ -11,7 +11,7 @@ package main
 
 import "fmt"
 
-func Map[T any](x T) T { return x } // ERROR "generics are not supported yet \(Phase 07\)"
+func Map[T any](x T) T { return x } // ERROR "generic functions are not supported yet \(Phase 07\)"
 
 func main() {
 	ch := make(chan int)   // ERROR "channels are not supported yet \(Phase 08\)"

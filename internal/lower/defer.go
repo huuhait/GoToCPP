@@ -292,6 +292,9 @@ func (fg *funcGen) deferredCall(pos token.Pos, c *ast.CallExpr, spawn bool) {
 // through std::apply, nor a variadic function), or nil.
 func (fg *funcGen) deferredFunc(c *ast.CallExpr) *types.Func {
 	var fn *types.Func
+	if fg.instRef(c.Fun) != nil {
+		return nil // an instance of a generic function (generics.go)
+	}
 	switch fun := ast.Unparen(c.Fun).(type) {
 	case *ast.Ident:
 		fn, _ = fg.g.info.Uses[fun].(*types.Func)

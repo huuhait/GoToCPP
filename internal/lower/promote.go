@@ -51,9 +51,9 @@ import (
 
 // A forwarder is the member of a struct for a method promoted into it.
 type forwarder struct {
-	sel    *types.Selection // the selection in T's method set, or in *T's when static
-	name   string           // the member's C++ name
-	static bool             // a static member with a pointer: the method is only in *T's method set
+	sel    *selection // the selection in T's method set, or in *T's when static
+	name   string     // the member's C++ name
+	static bool       // a static member with a pointer: the method is only in *T's method set
 }
 
 // Options are the choices of Package that the driver does not make.
@@ -96,9 +96,9 @@ func (g *gen) allForwarders(si *structInfo) []forwarder {
 		if fn == nil || len(s.Index()) < 2 || fn.Name() == "_" || s.Kind() != types.MethodVal {
 			continue
 		}
-		f := forwarder{sel: s, name: g.memberFor(si, fn), static: true}
+		f := forwarder{sel: wrapSelection(s), name: g.memberFor(si, fn), static: true}
 		if v := vset.Lookup(fn.Pkg(), fn.Name()); v != nil {
-			f.sel, f.static = v, false
+			f.sel, f.static = wrapSelection(v), false
 		}
 		fs = append(fs, f)
 	}

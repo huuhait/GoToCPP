@@ -1,0 +1,817 @@
+package lower
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"go/ast"
+	"go/constant"
+	"go/token"
+	"go/types"
+	"maps"
+	"path/filepath"
+	"strings"
+
+	"github.com/huuhait/gocpp/internal/check"
+	"github.com/huuhait/gocpp/internal/cppir"
+)
+
+// Generic functions (Phase 07 steps 7.1 and 7.2, docs/adr/030-generic-instances.md).
+//
+// A generic function is lowered once for each list of type arguments that a call or a func value
+// names: an instance, a C++ function of its own that the code of the instantiating package
+// calls by a name. The body is lowered exactly as the body of a function written with the type
+// arguments would be: every expression has the type that go/types recorded for it, with the type
+// parameters replaced by the type arguments (subst.go), so each operation (a + b on strings and
+// on small integers, T(x), len of a slice or a string, any(x) of an int and of an int64, the
+// method call x.String() for a value or a pointer receiver) is the one that the lowering already
+// knows for that type. A C++ template cannot be this precise: int and int64 are the same C++
+// type, an operator has to be chosen by the type, and a method call has several forms.
+//
+// An instance is written where it is used: as an ordinary function (not static; its name has a
+// hash of the translation unit) of the namespace of the package that asked for it, in the
+// translation unit (the .gp file) of the function that asked, before the functions of the unit.
+// Two units that need the same instance have one copy each. The instances of one unit are found
+// while its functions are lowered, and lowered one after the other (drainInstances), as the
+// instances of the instances are found.
+//
+// The instance of a function of another package is lowered by the asking package, from the
+// other package's syntax tree and type information (genericFunc.owner): the names in it are
+// the other package's and are written fully qualified, as for any use of that package.
+
+// A genericFunc is a generic function of a package that is lowered, with what its instances need.
+type genericFunc struct {
+	fn    *types.Func
+	decl  *ast.FuncDecl
+	owner *gen // the package that declares it
+
+	snap *genSnap // the type information of the declaration, as go/types recorded it
+
+	// stub says that the function is a declaration stub of the standard library, whose body is
+	// panic("stub") until step 7.10 ports the package: it cannot be instantiated.
+	stub bool
+
+	// cxx is 0 before usesCxx looked at the body, 1 if the body uses C/C++ names or values, else 2.
+	cxx int
+}
+
+// usesCxx reports whether the body of the generic function uses C/C++ names or values: a name of
+// C (C.int, or the header and namespace uses that the loader rewrote to C), or an opaque expression.
+func (gf *genericFunc) usesCxx() bool {
+	if gf.cxx == 0 {
+		gf.cxx = 2
+		info := gf.owner.info
+		ast.Inspect(gf.decl, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.Ident:
+				if pn, ok := info.Uses[n].(*types.PkgName); ok && pn.Imported().Path() == "C" {
+					gf.cxx = 1
+				}
+			case ast.Expr:
+				if gf.owner.pkg.Opaque.IsOpaque(n) {
+					gf.cxx = 1
+				}
+			}
+			return gf.cxx != 1
+		})
+	}
+	return gf.cxx == 1
+}
+
+// A genSnap is the type information go/types recorded for the nodes of a generic function. The
+// information is replaced, in the maps of the package, by the information of the instance being
+// lowered (apply), so the original is kept.
+type genSnap struct {
+	types     map[ast.Expr]types.TypeAndValue
+	defs      map[*ast.Ident]types.Object
+	uses      map[*ast.Ident]types.Object
+	implicits map[ast.Node]types.Object
+	instances map[*ast.Ident]typeInst
+	sels      map[*ast.SelectorExpr]*selection
+}
+
+// A typeInst is an entry of Info.Instances with its own representation: go/types' has a list of
+// type arguments that only the checker can make.
+type typeInst struct {
+	targs []types.Type
+	typ   types.Type
+}
+
+// An instance is a generic function with type arguments, lowered for one translation unit.
+type instance struct {
+	gf    *genericFunc
+	targs []types.Type
+	name  string // the C++ name, in the namespace of the package that asked
+	unit  string // the unit that asked
+
+	// open are the type arguments that are C++ template parameters of the instance (opaque
+	// instances): it is a function template over them.
+	open []*types.Named
+}
+
+// An instKey identifies an instance in a unit.
+type instKey struct{ unit, key string }
+
+// collectGeneric records the generic function d: it has no C++ of its own until it is
+// instantiated.
+func (g *gen) collectGeneric(d *ast.FuncDecl) {
+	fn, _ := g.info.Defs[d.Name].(*types.Func)
+	if fn == nil {
+		g.errorf(d.Pos(), "internal error: no object for func %s", d.Name.Name)
+		return
+	}
+	if d.Body == nil {
+		g.unsupported(d.Pos(), "a generic function without a body")
+		return
+	}
+	if d.Name.Name == "_" || d.Name.Name == "init" || d.Name.Name == "main" {
+		return // go/types rejects them
+	}
+	// A type declared in a generic function is a type of each instance (Go's %T shows it as
+	// main.box[string]): not built yet.
+	ast.Inspect(d.Body, func(n ast.Node) bool {
+		if gd, ok := n.(*ast.GenDecl); ok && gd.Tok == token.TYPE {
+			g.notYet(gd.Pos(), "type declarations inside generic functions are not supported yet (Phase 07)")
+		}
+		return true
+	})
+	if g.generics == nil {
+		g.generics = make(map[*types.Func]*genericFunc)
+		g.privateInfo()
+	}
+	g.generics[fn] = &genericFunc{fn: fn, decl: d, owner: g, stub: g.pkg.Load.Std && isStubBody(d.Body)}
+}
+
+// isStubBody reports whether body is { panic("stub") }, the body of the standard library's
+// declaration stubs (tools/stubgen).
+func isStubBody(body *ast.BlockStmt) bool {
+	if len(body.List) != 1 {
+		return false
+	}
+	es, ok := body.List[0].(*ast.ExprStmt)
+	if !ok {
+		return false
+	}
+	c, ok := es.X.(*ast.CallExpr)
+	if !ok || len(c.Args) != 1 {
+		return false
+	}
+	f, ok := c.Fun.(*ast.Ident)
+	lit, ok2 := c.Args[0].(*ast.BasicLit)
+	return ok && ok2 && f.Name == "panic" && lit.Value == `"stub"`
+}
+
+// privateInfo gives the package maps of its own: an instance replaces the entries of the nodes of
+// its generic function (apply), and the maps belong to the checker's result otherwise.
+func (g *gen) privateInfo() {
+	old := g.info
+	cp := *old.Info
+	cp.Types = maps.Clone(old.Types)
+	cp.Defs = maps.Clone(old.Defs)
+	cp.Uses = maps.Clone(old.Uses)
+	cp.Implicits = maps.Clone(old.Implicits)
+	g.info = &tinfo{
+		Info:       &cp,
+		Selections: maps.Clone(old.Selections),
+		Instances:  maps.Clone(old.Instances),
+	}
+}
+
+// snapshot returns the type information of the generic function, as go/types recorded it.
+func (gf *genericFunc) snapshot() *genSnap {
+	if gf.snap != nil {
+		return gf.snap
+	}
+	info := gf.owner.info
+	s := &genSnap{
+		types:     make(map[ast.Expr]types.TypeAndValue),
+		defs:      make(map[*ast.Ident]types.Object),
+		uses:      make(map[*ast.Ident]types.Object),
+		implicits: make(map[ast.Node]types.Object),
+		instances: make(map[*ast.Ident]typeInst),
+		sels:      make(map[*ast.SelectorExpr]*selection),
+	}
+	ast.Inspect(gf.decl, func(n ast.Node) bool {
+		if n == nil {
+			return false
+		}
+		if e, ok := n.(ast.Expr); ok {
+			if tv, ok := info.Types[e]; ok {
+				s.types[e] = tv
+			}
+		}
+		if obj, ok := info.Implicits[n]; ok {
+			s.implicits[n] = obj
+		}
+		switch n := n.(type) {
+		case *ast.Ident:
+			if obj, ok := info.Defs[n]; ok {
+				s.defs[n] = obj
+			}
+			if obj, ok := info.Uses[n]; ok {
+				s.uses[n] = obj
+			}
+			if in, ok := info.Instances[n]; ok {
+				s.instances[n] = in
+			}
+		case *ast.SelectorExpr:
+			if sel, ok := info.Selections[n]; ok {
+				s.sels[n] = sel
+			}
+		}
+		return true
+	})
+	gf.snap = s
+	return s
+}
+
+// apply puts the type information of the instance with the type arguments targs into the
+// package's maps, for the nodes of the generic function, and returns the function that
+// stands for the instance, with its signature. The variables of the instance are new
+// objects, so that the tables of the lowering, which are keyed by variable, cannot mix two
+// instances up.
+func (gf *genericFunc) apply(targs []types.Type, ctxt *types.Context, cxxNamed map[*types.Named]bool) (*types.Func, error) {
+	info := gf.owner.info
+	snap := gf.snapshot()
+	osig := gf.fn.Signature()
+	s := newSubster(osig.TypeParams(), targs, ctxt)
+	params, results := s.tuple(osig.Params()), s.tuple(osig.Results())
+	sig := types.NewSignatureType(nil, nil, nil, params, results, osig.Variadic())
+	obj := types.NewFunc(gf.fn.Pos(), gf.fn.Pkg(), gf.fn.Name(), sig)
+
+	for e, tv := range snap.types {
+		tv.Type = s.typ(tv.Type)
+		info.Types[e] = tv
+	}
+	// unsafe.Sizeof(x) and Alignof(x) are constants in the instance, though they were not for
+	// the type parameter.
+	for e, tv := range snap.types {
+		call, ok := e.(*ast.CallExpr)
+		if !ok || tv.Value != nil || len(call.Args) != 1 {
+			continue
+		}
+		sel, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr)
+		if !ok {
+			continue
+		}
+		b, ok := snap.uses[sel.Sel].(*types.Builtin)
+		if !ok || b.Name() != "Sizeof" && b.Name() != "Alignof" {
+			continue
+		}
+		t := info.Types[call.Args[0]].Type
+		if t == nil {
+			continue
+		}
+		n := check.Sizes().Sizeof(t)
+		if b.Name() == "Alignof" {
+			n = check.Sizes().Alignof(t)
+		}
+		tv = info.Types[e]
+		tv.Value = constant.MakeInt64(n)
+		info.Types[e] = tv
+	}
+	for id, o := range snap.defs {
+		info.Defs[id] = s.object(o)
+	}
+	for id, o := range snap.uses {
+		info.Uses[id] = s.object(o)
+	}
+	for n, o := range snap.implicits {
+		info.Implicits[n] = s.object(o)
+	}
+	for id, in := range snap.instances {
+		nargs := make([]types.Type, len(in.targs))
+		for i, a := range in.targs {
+			nargs[i] = s.typ(a)
+		}
+		ni := typeInst{targs: nargs, typ: in.typ}
+		if orig := snap.uses[id]; orig != nil {
+			if r, err := types.Instantiate(ctxt, orig.Type(), nargs, false); err == nil {
+				ni.typ = r
+			} else {
+				return nil, err
+			}
+		}
+		info.Instances[id] = ni
+	}
+	for x, sel := range snap.sels {
+		recv := s.typ(sel.recv)
+		if recv == sel.recv {
+			info.Selections[x] = sel
+			continue
+		}
+		o, index, indirect := types.LookupFieldOrMethod(recv, true, sel.obj.Pkg(), sel.obj.Name())
+		if o == nil {
+			if n, ok := recv.(*types.Named); ok && cxxNamed[n] {
+				// A method of a C/C++ type argument: the C++ compiler finds it (methodCall).
+				info.Selections[x] = &selection{kind: sel.kind, recv: recv, obj: sel.obj, index: []int{0}}
+				continue
+			}
+			return nil, fmt.Errorf("no %s in %s", sel.obj.Name(), recv)
+		}
+		info.Selections[x] = &selection{kind: sel.kind, recv: recv, obj: o, index: index, indirect: indirect}
+	}
+	return obj, s.err
+}
+
+// An instRef is a use of a generic function with its type arguments: a call, or a func value.
+type instRef struct {
+	gf    *genericFunc
+	fn    *types.Func
+	targs []types.Type
+	keys  []string         // the identity of each type argument, for a name
+	sig   *types.Signature // the signature of the instance
+	open  []*types.Named   // the type arguments that C++ deduces (opaque instances)
+	pos   token.Pos
+}
+
+// instRef returns the instantiated generic function that the expression e names (f, pkg.F, or
+// either with explicit type arguments, F[int]), or nil if e names something else.
+//
+// go/types records no instance when a type argument is a C/C++ type, or when an argument of the
+// call is a C/C++ value that determines one (Phase 07 README §2.4: C/C++ type arguments): the
+// instance is made from the syntax then (opaqueInstRef).
+func (fg *funcGen) instRef(e ast.Expr) *instRef {
+	g := fg.g
+	var id *ast.Ident
+	var idx []ast.Expr
+	for {
+		switch x := ast.Unparen(e).(type) {
+		case *ast.IndexExpr:
+			idx, e = []ast.Expr{x.Index}, x.X
+			continue
+		case *ast.IndexListExpr:
+			idx, e = x.Indices, x.X
+			continue
+		case *ast.Ident:
+			id = x
+		case *ast.SelectorExpr:
+			if g.info.Selections[x] != nil {
+				return nil
+			}
+			id = x.Sel
+		default:
+			return nil
+		}
+		break
+	}
+	fn, _ := g.info.Uses[id].(*types.Func)
+	if fn == nil || fn.Signature().TypeParams().Len() == 0 {
+		return nil
+	}
+	owner := g.other(fn.Pkg())
+	if owner == nil {
+		return nil // an intrinsic of a package that is not lowered (weak.Make)
+	}
+	gf := owner.generics[fn.Origin()]
+	if gf == nil {
+		g.errorf(e.Pos(), "internal error: no generic function %s", fn.Name())
+		return &instRef{fn: fn}
+	}
+	if gf.stub {
+		g.notYet(e.Pos(), fmt.Sprintf("%s.%s is not available yet (Phase 07)", fn.Pkg().Name(), fn.Name()))
+		return &instRef{fn: fn}
+	}
+	if gf.owner != g && gf.usesCxx() {
+		// The body is lowered with the asking package's C/C++ state (its headers, names and
+		// probes), not the owner's: not built yet.
+		g.notYet(e.Pos(), fmt.Sprintf("%s.%s uses C/C++ names, so it can only be instantiated in its own package (Phase 12)", fn.Pkg().Name(), fn.Name()))
+		return &instRef{fn: fn}
+	}
+	in, ok := g.info.Instances[id]
+	if !ok {
+		return fg.opaqueInstRef(gf, idx, nil, e.Pos())
+	}
+	for _, a := range in.targs {
+		if !complete(a) || hasC(a) {
+			return fg.opaqueInstRef(gf, idx, in.targs, e.Pos()) // go/types inferred an invalid type argument
+		}
+	}
+	sig, _ := in.typ.(*types.Signature)
+	if sig == nil {
+		return nil
+	}
+	return &instRef{gf: gf, fn: fn, targs: in.targs, sig: sig, pos: e.Pos()}
+}
+
+// opaqueInstRef returns the instance of the generic function gf whose type arguments are the explicit
+// ones in idx (the syntax of F[A, B]) and, for the rest, whatever C++ deduces from the arguments of
+// the call: the instance is a C++ function template over those. An explicit type argument that is
+// a C/C++ type (std.vector[int]) is written into the instance, as it is spelled at the call
+// (typeExpr).
+func (fg *funcGen) opaqueInstRef(gf *genericFunc, idx []ast.Expr, inferred []types.Type, pos token.Pos) *instRef {
+	g := fg.g
+	tparams := gf.fn.Signature().TypeParams()
+	r := &instRef{gf: gf, fn: gf.fn, targs: make([]types.Type, tparams.Len()), keys: make([]string, tparams.Len()), pos: pos}
+	for i := range r.targs {
+		name := tparams.At(i).Obj().Name()
+		if i < len(inferred) && complete(inferred[i]) && !hasC(inferred[i]) && !(i < len(idx) && !g.info.Types[idx[i]].IsType()) {
+			r.targs[i], r.keys[i] = inferred[i], g.canonText(inferred[i])
+			continue
+		}
+		if i < len(idx) {
+			if tv := g.info.Types[idx[i]]; tv.IsType() && tv.Type != nil && complete(tv.Type) {
+				r.targs[i], r.keys[i] = tv.Type, g.canonText(tv.Type)
+				continue
+			}
+			named := g.newCxxNamed(gf, name, g.typeExpr(idx[i]), false)
+			r.targs[i], r.keys[i] = named, "cxx:"+g.srcText(idx[i])
+			continue
+		}
+		named := g.newCxxNamed(gf, name, typeName(name), true)
+		r.targs[i], r.keys[i] = named, "open"
+		r.open = append(r.open, named)
+	}
+	s := newSubster(tparams, r.targs, g.context())
+	r.sig, _ = s.typ(gf.fn.Signature()).(*types.Signature)
+	return r
+}
+
+// A cxxInfo is the C++ type that stands for a type argument that is a C/C++ type: written out, or a
+// template parameter of the instance that C++ deduces (open).
+type cxxInfo struct {
+	typ  cppir.Type
+	open bool
+}
+
+// newCxxNamed returns a type that stands for a C/C++ type argument in the instance of gf: a named
+// type with an empty struct as its underlying type, which cxxType writes as typ. Values of it can
+// be copied, passed, compared and returned, which is what a constraint of any or comparable allows.
+func (g *gen) newCxxNamed(gf *genericFunc, name string, typ cppir.Type, open bool) *types.Named {
+	g.cxxCount++
+	tn := types.NewTypeName(token.NoPos, gf.fn.Pkg(), fmt.Sprintf("gp_cxx_%d_%s", g.cxxCount, name), nil)
+	named := types.NewNamed(tn, types.NewStruct(nil, nil), nil)
+	if g.cxxNamed == nil {
+		g.cxxNamed = make(map[*types.Named]cxxInfo)
+	}
+	g.cxxNamed[named] = cxxInfo{typ, open}
+	return named
+}
+
+// context returns the context that go/types instantiates types with.
+func (g *gen) context() *types.Context {
+	if g.ctxt == nil {
+		g.ctxt = types.NewContext()
+	}
+	return g.ctxt
+}
+
+// instanceName returns the C++ name of the instance, qualified with the namespace of the asking package,
+// and asks for the instance to be written. A function template (an instance with open type
+// arguments) is also given the type arguments that are in scope here, the template parameters of the
+// instance being lowered: Inner<T>(x).
+func (g *gen) instanceName(r *instRef) cppir.Expr {
+	if r.gf == nil {
+		return placeholder // (reported)
+	}
+	var key strings.Builder
+	key.WriteString(importPath(r.gf.fn.Pkg()) + "." + r.gf.fn.Name())
+	for i, a := range r.targs {
+		if r.keys != nil {
+			key.WriteString("\x00" + r.keys[i])
+		} else {
+			key.WriteString("\x00" + g.canonText(a))
+		}
+	}
+	// The template parameters: the open type arguments, also those inside the type arguments
+	// (a []T of an instance that is a template over T).
+	var open []*types.Named
+	seen := map[*types.Named]bool{}
+	var walk func(t types.Type)
+	walk = func(t types.Type) {
+		if n, ok := types.Unalias(t).(*types.Named); ok {
+			if c, ok := g.cxxNamed[n]; ok && c.open && !seen[n] {
+				seen[n] = true
+				open = append(open, n)
+			}
+		}
+		g.eachPart(t, walk)
+	}
+	for _, a := range r.targs {
+		walk(a)
+	}
+	k := instKey{g.unit, key.String()}
+	in, ok := g.insts[k]
+	if !ok {
+		text := g.pkg.Load.ImportPath + "\x00" + filepath.Base(k.unit) + "\x00" + k.key
+		sum := sha256.Sum256([]byte(text))
+		// Eight hex digits of the hash; a clash with another instance of the package (another text
+		// with the same name) takes more of it.
+		n := 4
+		name := "gp_inst_" + hex.EncodeToString(sum[:n]) + "_" + g.escape(r.gf.fn.Name())
+		for g.instNames[name] != "" && g.instNames[name] != text && n < len(sum) {
+			n++
+			name = "gp_inst_" + hex.EncodeToString(sum[:n]) + "_" + g.escape(r.gf.fn.Name())
+		}
+		if g.instNames == nil {
+			g.instNames = make(map[string]string)
+		}
+		g.instNames[name] = text
+		in = &instance{gf: r.gf, targs: r.targs, unit: g.unit, open: open, name: name}
+		if g.insts == nil {
+			g.insts = make(map[instKey]*instance)
+		}
+		g.insts[k] = in
+		g.instQueue = append(g.instQueue, in)
+	}
+	fun := cxxName(g.ns + "::" + in.name)
+	if len(open) > 0 {
+		// Explicit template arguments where they are in scope: the open placeholders of the
+		// instance being lowered.
+		var targs []cppir.Node
+		inScope := true
+		for _, n := range open {
+			if !g.curOpen[n] {
+				inScope = false
+				break
+			}
+			targs = append(targs, g.cxxNamed[n].typ)
+		}
+		if inScope {
+			fun.Args = targs
+		}
+	}
+	return fun
+}
+
+// eachPart calls f for the types that t is made of, one level down.
+func (g *gen) eachPart(t types.Type, f func(types.Type)) {
+	switch t := types.Unalias(t).(type) {
+	case *types.Pointer:
+		f(t.Elem())
+	case *types.Slice:
+		f(t.Elem())
+	case *types.Array:
+		f(t.Elem())
+	case *types.Map:
+		f(t.Key())
+		f(t.Elem())
+	case *types.Chan:
+		f(t.Elem())
+	case *types.Signature:
+		for v := range t.Params().Variables() {
+			f(v.Type())
+		}
+		for v := range t.Results().Variables() {
+			f(v.Type())
+		}
+	case *types.Struct:
+		for i := range t.NumFields() {
+			f(t.Field(i).Type())
+		}
+	case *types.Named:
+		for a := range t.TypeArgs().Types() {
+			f(a)
+		}
+	}
+}
+
+// drainInstances lowers the instances that the code lowered so far asked for, and the instances
+// that those ask for.
+func (g *gen) drainInstances() {
+	for len(g.instQueue) > 0 && g.err == nil {
+		in := g.instQueue[0]
+		g.instQueue = g.instQueue[1:]
+		g.lowerInstance(in)
+	}
+}
+
+// lowerInstance lowers the instance in into the output of its unit.
+func (g *gen) lowerInstance(in *instance) {
+	gf := in.gf
+	owner := gf.owner
+	cxx := make(map[*types.Named]bool, len(g.cxxNamed))
+	for n := range g.cxxNamed {
+		cxx[n] = true
+	}
+	obj, err := gf.apply(in.targs, g.context(), cxx)
+	if err != nil {
+		g.errorf(gf.decl.Pos(), "internal error: instantiating %s: %v", gf.fn.Name(), err)
+		return
+	}
+	// The instance is lowered with the package's tables (the conversions Go makes implicitly,
+	// the numbers of the func literals) made for it alone.
+	saved := struct {
+		info       *tinfo
+		implicit   map[ast.Expr]types.Type
+		uintCounts map[ast.Expr]bool
+		unit       string
+		open       map[*types.Named]bool
+	}{g.info, g.implicit, g.uintCounts, g.unit, g.curOpen}
+	g.info, g.implicit, g.uintCounts, g.unit = owner.info, nil, make(map[ast.Expr]bool), in.unit
+	g.curOpen = make(map[*types.Named]bool)
+	for _, n := range in.open {
+		g.curOpen[n] = true
+	}
+	defer func() {
+		g.info, g.implicit, g.uintCounts, g.unit, g.curOpen = saved.info, saved.implicit, saved.uintCounts, saved.unit, saved.open
+	}()
+
+	f := &funcInfo{decl: gf.decl, obj: obj, name: in.name}
+	f.prepare(g)
+	proto := &cppir.Func{Result: f.result, Name: f.name, Params: f.params}
+	fn := g.funcBuild(f)
+	if g.err != nil {
+		return
+	}
+	if len(in.open) > 0 {
+		// A function template over the type arguments that C++ deduces (opaque instances).
+		t := &cppir.Template{}
+		for _, n := range in.open {
+			t.Params = append(t.Params, cppir.Param{Type: typeName("typename"), Name: cppir.TypeString(g.cxxNamed[n].typ)})
+		}
+		proto.Template, fn.Template = t, t
+	}
+	u := g.out.instUnit(in.unit)
+	u.protos = append(u.protos, proto)
+	u.defs = append(u.defs, &cppir.Comment{Text: g.instanceText(in)}, fn, &cppir.Blank{})
+}
+
+// instanceText returns Map[int,string], the instance in the Go notation, for the comment above
+// its C++.
+func (g *gen) instanceText(in *instance) string {
+	args := make([]string, len(in.targs))
+	for i, a := range in.targs {
+		if n, ok := a.(*types.Named); ok && g.cxxNamed[n].typ != nil {
+			args[i] = cppir.TypeString(g.cxxNamed[n].typ)
+			if g.cxxNamed[n].open {
+				args[i] = "deduced " + args[i]
+			}
+			continue
+		}
+		args[i] = types.TypeString(a, types.RelativeTo(g.pkg.Types))
+	}
+	return in.gf.fn.Name() + "[" + strings.Join(args, ",") + "]"
+}
+
+// An instUnit is the instances of one translation unit.
+type instUnit struct {
+	protos []cppir.Decl
+	defs   []cppir.Decl
+}
+
+// instUnit returns the instances of the unit (the .gp file, or initUnit for the package's
+// initialization).
+func (o *outputs) instUnit(unit string) *instUnit {
+	if o.insts == nil {
+		o.insts = make(map[string]*instUnit)
+	}
+	u := o.insts[unit]
+	if u == nil {
+		u = &instUnit{}
+		o.insts[unit] = u
+	}
+	return u
+}
+
+// initUnit is the unit of the package's initialization (pkg_init.cpp).
+const initUnit = "\x00init"
+
+// decls returns the declarations of the instances of the unit, to put before the functions: the
+// prototypes, then the definitions.
+func (o *outputs) instDecls(unit string) []cppir.Decl {
+	u := o.insts[unit]
+	if u == nil {
+		return nil
+	}
+	return append(append([]cppir.Decl{}, u.protos...), append([]cppir.Decl{&cppir.Blank{}}, u.defs...)...)
+}
+
+// allInstDecls returns the instances of every unit, for the single translation unit.
+func (o *outputs) allInstDecls(order []string) []cppir.Decl {
+	var out []cppir.Decl
+	for _, u := range order {
+		out = append(out, o.instDecls(u)...)
+	}
+	return out
+}
+
+// fileOf returns the name of the .gp file that declares the node at pos, as the units are named.
+func (g *gen) fileOf(pos token.Pos) string {
+	file := g.fset.Position(pos).Filename
+	if tf := g.fset.File(pos); tf != nil {
+		file = tf.Name()
+	}
+	return file
+}
+
+// instUnitOrder returns the units that have instances, the files in the order of their first
+// function and the initialization last.
+func (g *gen) instUnitOrder() []string {
+	var order []string
+	for _, f := range g.out.files {
+		if g.out.insts[f] != nil {
+			order = append(order, f)
+		}
+	}
+	if g.out.insts[initUnit] != nil {
+		order = append(order, initUnit)
+	}
+	return order
+}
+
+// instFuncValue returns the instance r as a func value, as funcRef does for a function of the
+// package.
+func (fg *funcGen) instFuncValue(r *instRef) cppir.Expr {
+	if r.gf == nil {
+		return placeholder
+	}
+	name := fg.g.instanceName(r)
+	if n, ok := name.(*cppir.Name); ok && len(r.open) > 0 && len(n.Args) == 0 {
+		fg.g.userError(r.pos, "a generic function with a type argument that C++ deduces cannot be a func value: write the type arguments, F[std.string]")
+		return placeholder
+	}
+	addr := &cppir.Unary{Op: "&", X: name}
+	if fg.g.awareFunc(r.fn) {
+		return templateCall("gp::func_of_aware", []cppir.Node{addr}) // recover.go
+	}
+	return templateCall("gp::func_of", []cppir.Node{addr})
+}
+
+// hasTypeParam reports whether the type t mentions a type parameter: the parameter of a generic
+// function that is called with a C/C++ value, whose type argument the C++ compiler deduces.
+func hasTypeParam(t types.Type) bool {
+	found := false
+	var walk func(t types.Type)
+	seen := map[types.Type]bool{}
+	walk = func(t types.Type) {
+		if found || seen[t] {
+			return
+		}
+		seen[t] = true
+		if _, ok := types.Unalias(t).(*types.TypeParam); ok {
+			found = true
+			return
+		}
+		(*gen)(nil).eachPart(t, walk)
+	}
+	walk(t)
+	return found
+}
+
+// foreignVal reports whether a value of type t is a C/C++ value as far as descriptors go: its type
+// is not complete, or it is made of a C/C++ type argument of a generic function (cxxNamed).
+func (g *gen) foreignVal(t types.Type) bool {
+	if !complete(t) {
+		return true
+	}
+	if len(g.cxxNamed) == 0 {
+		return false
+	}
+	found := false
+	seen := map[types.Type]bool{}
+	var walk func(t types.Type)
+	walk = func(t types.Type) {
+		if found || seen[t] {
+			return
+		}
+		seen[t] = true
+		if n, ok := types.Unalias(t).(*types.Named); ok {
+			if _, ok := g.cxxNamed[n]; ok {
+				found = true
+				return
+			}
+		}
+		g.eachPart(t, walk)
+	}
+	walk(t)
+	return found
+}
+
+// isCxxNamed reports whether t is a C/C++ type argument of a generic function.
+func (g *gen) isCxxNamed(t types.Type) bool {
+	n, ok := types.Unalias(t).(*types.Named)
+	if !ok {
+		return false
+	}
+	_, ok = g.cxxNamed[n]
+	return ok
+}
+
+// genericRef reports whether e names a generic function of a package of the program: F or pkg.F,
+// the part of F[int] before the type arguments.
+func (g *gen) genericRef(e ast.Expr) bool {
+	switch x := ast.Unparen(e).(type) {
+	case *ast.Ident:
+		fn, _ := g.info.Uses[x].(*types.Func)
+		return fn != nil && g.isGeneric(fn)
+	case *ast.SelectorExpr:
+		fn := g.qualifiedFunc(x)
+		return fn != nil && g.isGeneric(fn)
+	}
+	return false
+}
+
+// cxxConst returns the C++ literal of the constant v of a C/C++ type argument (x + 1 with x of the
+// type parameter T that is C.double): a literal of the kind of v, which C++ converts as it does for C.
+func (g *gen) cxxConst(v constant.Value, pos token.Pos) cppir.Expr {
+	switch v.Kind() {
+	case constant.Bool:
+		return g.constant(v, types.Typ[types.Bool], pos, false)
+	case constant.String:
+		return g.constant(v, types.Typ[types.String], pos, false)
+	case constant.Float:
+		return g.constant(v, types.Typ[types.Float64], pos, false)
+	}
+	return g.constant(v, types.Typ[types.UntypedInt], pos, false)
+}

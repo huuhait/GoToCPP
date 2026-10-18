@@ -223,7 +223,7 @@ func TestBoxedVars(t *testing.T) {
 		if !ok {
 			continue
 		}
-		for v, r := range boxedVars(pkg.Info, fn) {
+		for v, r := range boxedVars(newTinfo(pkg.Info), fn) {
 			line := fset.Position(v.Pos()).Line
 			key := fmt.Sprintf("%d:%s", line, v.Name())
 			// A declaration line with one variable names none in the comment.

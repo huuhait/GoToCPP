@@ -162,8 +162,10 @@ func (g *gen) typeSpec(spec *ast.TypeSpec, local bool) {
 	case spec.Name.Name == "_":
 		return // nothing can use it
 	case spec.TypeParams != nil:
-		g.unsupported(spec.Pos(), "generic types (Phase 07)")
-		return
+		if !g.pkg.Load.Std {
+			g.notYet(spec.Pos(), "generic types are not supported yet (Phase 07)")
+		}
+		return // (a standard package's generic type is a stub until step 7.10: the user's use is the error)
 	case spec.Assign.IsValid():
 		return // an alias: its uses are the type it names (cxxType unaliases them)
 	}
@@ -182,6 +184,9 @@ func (g *gen) typeSpec(spec *ast.TypeSpec, local bool) {
 	}
 	if !isInterface(named) && !isStruct(named) && !g.newtypeOK(spec, named) { // named.go
 		return
+	}
+	if it, ok := named.Underlying().(*types.Interface); ok && !it.IsMethodSet() {
+		return // a constraint (a type set, comparable): no value has its type, so it has no struct
 	}
 	if weakStruct(named) {
 		// type WP weak.Pointer[T]: a struct for Go, but gp::weak_ptr is a runtime class (weak.go).

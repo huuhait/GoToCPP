@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"slices"
 )
 
 // A skipped is an expression that go/types doesn't check (or doesn't
@@ -99,7 +100,7 @@ func (op *opaquePass) collectCall(call *ast.CallExpr) {
 		}
 	}
 	for e := call.Fun; e != nil; {
-		if op.uninstantiated(e) {
+		if op.uninstantiated(e) || op.opaqueInstance(e) {
 			op.addSkipped(call.Fun, call, skipGeneric)
 			return
 		}
@@ -155,6 +156,33 @@ func (op *opaquePass) uninstantiated(e ast.Expr) bool {
 	return !ok
 }
 
+// opaqueInstance reports whether e is F[T] or F[T, U] with a generic function F and a type
+// argument that comes from C/C++ (Mk[std.vector[int]]): go/types stops at the argument and records
+// nothing for e or F, not even F's generic signature.
+func (op *opaquePass) opaqueInstance(e ast.Expr) bool {
+	var base ast.Expr
+	var args []ast.Expr
+	switch x := e.(type) {
+	case *ast.IndexExpr:
+		base, args = x.X, []ast.Expr{x.Index}
+	case *ast.IndexListExpr:
+		base, args = x.X, x.Indices
+	default:
+		return false
+	}
+	id := instanceIdent(base)
+	if id == nil {
+		return false
+	}
+	if fn, ok := op.info.Uses[id].(*types.Func); !ok || fn.Signature().TypeParams().Len() == 0 {
+		return false
+	}
+	if _, ok := op.info.Instances[id]; ok {
+		return false
+	}
+	return slices.ContainsFunc(args, op.comesFromC)
+}
+
 // skippedFromC reports whether the expressions of the skipped root sk come
 // from C/C++:
 //   - x of x.(T) or T of make(T, n) is opaque, or has a named type over a
@@ -184,9 +212,25 @@ func (op *opaquePass) skippedFromC(sk *skipped) bool {
 		}
 		return false
 	case skipGeneric:
-		for _, arg := range sk.near.(*ast.CallExpr).Args {
+		call := sk.near.(*ast.CallExpr)
+		for _, arg := range call.Args {
 			if op.opaqueExpr(arg) {
 				return true
+			}
+		}
+		for e := call.Fun; e != nil; {
+			if op.opaqueInstance(e) {
+				return true
+			}
+			switch x := e.(type) {
+			case *ast.ParenExpr:
+				e = x.X
+			case *ast.IndexExpr:
+				e = x.X
+			case *ast.IndexListExpr:
+				e = x.X
+			default:
+				e = nil
 			}
 		}
 		return false

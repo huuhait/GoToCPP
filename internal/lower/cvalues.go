@@ -428,6 +428,8 @@ func (fg *funcGen) cValueOf(e ast.Expr) cppir.Expr {
 	}
 	tv := fg.g.info.Types[e]
 	switch {
+	case tv.Value != nil && fg.g.isCxxNamed(tv.Type):
+		return fg.g.cxxConst(tv.Value, e.Pos()) // a constant of a C/C++ type argument (generics.go)
 	case tv.Value != nil:
 		return fg.g.cConstantOf(e)
 	case tv.IsNil():

@@ -12,6 +12,20 @@
 | Size | medium (about 3–4 weeks) |
 | Progress | [STATE.md](STATE.md) |
 
+> **Update 2026-10-18 (steps 7.1 and 7.2, [ADR-030](../../../docs/adr/030-generic-instances.md)):** a generic
+> **function** is not a C++ template. It is lowered once for each instance (list of type arguments)
+> that the program names, by the package that names it, as a function written with those types, in
+> that package's unit (`internal/lower/generics.go`, `subst.go`). Reasons: `int` and `int64` are one C++
+> type (so templates need the hidden descriptor arguments of §2.4), and every operation of the lowering
+> depends on the Go type, so each of §2.2's helpers would be a second place where generic code can differ
+> from the same code written out. What §2.2, §2.3 (`gp_call_<Method>`) and the hidden descriptor
+> arguments of §2.4 describe is therefore **not built for functions**: steps 7.4 and 7.5 are covered by
+> the substitution (their tests are in `tests/run/generics_*`). C/C++ type arguments (§2.4) are
+> function templates over the C++ types, deduced by the C++ compiler (ADR-030, point 3). For step 7.3
+> (generic types) the same design means one struct (and method set, and descriptor with Go's exact name
+> `main.Pair[string,[]int]`) for each instance, from the instance's substituted types; the manager
+> decides before 7.3 starts. Everything else in this README stands.
+
 ---
 
 ## 1. Idea

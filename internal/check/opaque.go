@@ -280,6 +280,11 @@ type opaquePass struct {
 	// literal it is an element (or a key) of.
 	litParent map[*ast.CompositeLit]*ast.CompositeLit
 
+	// instIdents maps the name of a generic function in F[T] with a type argument from C/C++ to
+	// that instantiation: go/types records nothing for the name then (a call has the same in
+	// skipGeneric).
+	instIdents map[*ast.Ident]ast.Expr
+
 	// keyOf maps the key of a keyed element to its composite literal.
 	keyOf map[ast.Expr]*ast.CompositeLit
 
@@ -328,18 +333,19 @@ type decl struct {
 
 func newOpaquePass(pkg *types.Package, info *types.Info, files []*ast.File) *opaquePass {
 	op := &opaquePass{
-		pkg:       pkg,
-		info:      info,
-		decls:     make(map[types.Object]decl),
-		skip:      make(map[ast.Expr]bool),
-		litParent: make(map[*ast.CompositeLit]*ast.CompositeLit),
-		keyOf:     make(map[ast.Expr]*ast.CompositeLit),
-		blankFrom: make(map[*ast.Ident][]ast.Expr),
-		skipped:   make(map[ast.Expr]*skipped),
-		opq:       make(map[ast.Expr]bool),
-		fromC:     make(map[ast.Expr]bool),
-		objC:      make(map[types.Object]bool),
-		result:    &Opaque{exprs: make(map[ast.Expr]bool), typeExprs: make(map[types.Object]ast.Expr)},
+		pkg:        pkg,
+		info:       info,
+		decls:      make(map[types.Object]decl),
+		skip:       make(map[ast.Expr]bool),
+		litParent:  make(map[*ast.CompositeLit]*ast.CompositeLit),
+		instIdents: make(map[*ast.Ident]ast.Expr),
+		keyOf:      make(map[ast.Expr]*ast.CompositeLit),
+		blankFrom:  make(map[*ast.Ident][]ast.Expr),
+		skipped:    make(map[ast.Expr]*skipped),
+		opq:        make(map[ast.Expr]bool),
+		fromC:      make(map[ast.Expr]bool),
+		objC:       make(map[types.Object]bool),
+		result:     &Opaque{exprs: make(map[ast.Expr]bool), typeExprs: make(map[types.Object]ast.Expr)},
 	}
 	for _, f := range files {
 		ast.Inspect(f, op.collect)
@@ -373,6 +379,18 @@ func (op *opaquePass) collect(n ast.Node) bool {
 			op.skip[n] = true // x.(type)
 		} else {
 			op.addSkipped(n.Type, n.X, skipAssert)
+		}
+	case *ast.IndexExpr, *ast.IndexListExpr:
+		if op.opaqueInstance(n.(ast.Expr)) {
+			var base ast.Expr
+			if x, ok := n.(*ast.IndexExpr); ok {
+				base = x.X
+			} else {
+				base = n.(*ast.IndexListExpr).X
+			}
+			if id := instanceIdent(base); id != nil {
+				op.instIdents[id] = n.(ast.Expr)
+			}
 		}
 	case *ast.CallExpr:
 		op.collectCall(n)
@@ -738,6 +756,9 @@ func (op *opaquePass) computeOpaque(e ast.Expr) bool {
 	}
 	switch e := e.(type) {
 	case *ast.Ident:
+		if _, ok := op.instIdents[e]; ok {
+			return true // F in F[std.vector[int]]
+		}
 		for _, v := range op.blankFrom[e] {
 			if op.cValue(v) {
 				return true

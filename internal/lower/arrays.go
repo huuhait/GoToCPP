@@ -554,7 +554,7 @@ func (fg *funcGen) rangeLimit(x ast.Expr) cppir.Expr {
 // hasCall reports whether e has a function call (also of a builtin) whose value is not a
 // constant, or a receive: then len(e) of an array is not a constant, and e is evaluated (the
 // spec, "Length and capacity"; go/types' hasCallOrRecv). A conversion is no call.
-func hasCall(info *types.Info, e ast.Expr) bool {
+func hasCall(info *tinfo, e ast.Expr) bool {
 	found := false
 	ast.Inspect(e, func(n ast.Node) bool {
 		switch x := n.(type) {

@@ -78,7 +78,7 @@ func (fg *funcGen) singleDef(v *types.Var) ast.Expr {
 // initializer, with the func literals in it) that have one definition, with a value, and no
 // other assignment, and whose address is never taken (boxed: box.go's reasons),
 // with their initializers.
-func singleDefs(info *types.Info, top ast.Node, boxed map[*types.Var]boxReason) map[*types.Var]ast.Expr {
+func singleDefs(info *tinfo, top ast.Node, boxed map[*types.Var]boxReason) map[*types.Var]ast.Expr {
 	defs := make(map[*types.Var]ast.Expr)
 	changed := make(map[*types.Var]bool)
 	assigned := func(e ast.Expr) {

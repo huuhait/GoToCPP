@@ -31,6 +31,19 @@ import (
 // function pointer.
 func (fg *funcGen) callbackValue(e ast.Expr) cppir.Expr {
 	e = ast.Unparen(e)
+	if r := fg.instRef(e); r != nil {
+		// An instance of a generic function is a plain function, which C accepts as a pointer,
+		// unless C++ deduces its type arguments (generics.go).
+		if r.gf == nil {
+			return placeholder
+		}
+		name := fg.g.instanceName(r)
+		if len(r.open) > 0 {
+			fg.g.userError(e.Pos(), "a generic function with a type argument that C++ deduces cannot go to C/C++ code: write the type arguments, F[std.string]")
+			return placeholder
+		}
+		return templateCall("gp::cgo::fn", []cppir.Node{&cppir.Unary{Op: "&", X: name}})
+	}
 	switch x := e.(type) {
 	case *ast.Ident:
 		if fn, ok := fg.g.info.Uses[x].(*types.Func); ok && fn.Signature().Recv() == nil {

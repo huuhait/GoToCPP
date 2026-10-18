@@ -122,6 +122,12 @@ func (f *funcInfo) signature(g *gen) {
 
 // funcDecl adds the definition of a function.
 func (g *gen) funcDecl(f *funcInfo) {
+	fn := g.funcBuild(f)
+	g.addFunc(f, fn)
+}
+
+// funcBuild returns the definition of a function.
+func (g *gen) funcBuild(f *funcInfo) *cppir.Func {
 	defer g.hide(f.names.taken)() // a variable named like a type hides it (typedecl.go)
 	defer g.hideMembers(f.members())()
 	body := f.body
@@ -133,8 +139,8 @@ func (g *gen) funcDecl(f *funcInfo) {
 	fg.push(&fn.Body.Stmts, &fn.Body.End)
 	fg.funcBody()
 	fg.pop(body.Rbrace)
-	g.addFunc(f, fn)
 	f.names.closeScope()
+	return fn
 }
 
 // funcBody lowers the body of the function (or func literal) fg.fn into the open statement
@@ -301,10 +307,7 @@ func (g *gen) addVar(d *cppir.VarDecl) {
 // addFunc adds the definition fn of the function (or method) f to the file of its declaration.
 func (g *gen) addFunc(f *funcInfo, fn *cppir.Func) {
 	// (The name the file was added with, not Position's: a //line directive changes that.)
-	file := g.fset.Position(f.decl.Pos()).Filename
-	if tf := g.fset.File(f.decl.Pos()); tf != nil {
-		file = tf.Name()
-	}
+	file := g.fileOf(f.decl.Pos())
 	if g.out.byFile == nil {
 		g.out.byFile = make(map[string][]cppir.Decl)
 	}
@@ -317,7 +320,7 @@ func (g *gen) addFunc(f *funcInfo, fn *cppir.Func) {
 
 // constInit returns the constant value of the initializer init if it gives one variable a
 // constant, or nil.
-func constInit(info *types.Info, init *types.Initializer) constant.Value {
+func constInit(info *tinfo, init *types.Initializer) constant.Value {
 	if init == nil || len(init.Lhs) != 1 || init.Lhs[0].Name() == "_" {
 		return nil
 	}
@@ -328,7 +331,7 @@ func constInit(info *types.Info, init *types.Initializer) constant.Value {
 }
 
 // nilInit reports whether the initializer init gives one variable nil, its zero value.
-func nilInit(info *types.Info, init *types.Initializer) bool {
+func nilInit(info *tinfo, init *types.Initializer) bool {
 	return init != nil && len(init.Lhs) == 1 && info.Types[init.Rhs].IsNil()
 }
 

@@ -334,15 +334,17 @@ func main() {
 
 	// Phase 07.
 	{name: "generics", phase: 7, src: "package main\n\nfunc F[T any](x T) T { return x }\n\nfunc main() {\n\tprintln(F(1))\n}\n",
-		want: []string{"3:7: generics are not supported yet (Phase 07)"}},
+		want: []string{"3:7: generic functions are not supported yet (Phase 07)"}},
 	{name: "generics/type sets", phase: 7, src: "package main\n\ntype N interface{ ~int | ~int64 }\n\nfunc main() {}\n",
-		want: []string{"3:8: generics are not supported yet (Phase 07)"}},
+		want: []string{"3:8: generic functions are not supported yet (Phase 07)"}},
+	{name: "generics/types", phase: 7, src: "package main\n\ntype S[T any] struct{ v T }\n\nfunc main() {\n\tvar s S[int]\n\t_ = s\n}\n",
+		want: []string{"3:7: generic types are not supported yet (Phase 07)"}},
 	{name: "range over functions", phase: 7, src: "package main\n\nfunc seq(yield func(int) bool) {}\n\nfunc main() {\n\tfor x := range seq {\n\t\tprintln(x)\n\t}\n}\n",
 		want: []string{"6:2: range over functions is not supported yet (Phase 07)"}},
 	{name: "slices", phase: 7, src: "package main\n\nimport \"slices\"\n\nfunc main() {\n\tprintln(slices.Contains([]int{1}, 1))\n}\n",
 		want: []string{
 			"3:8: package slices is not available yet (Phase 07)",
-			"6:17: generics are not supported yet (Phase 07)",
+			"6:17: generic functions are not supported yet (Phase 07)",
 		}},
 
 	// Phase 08.

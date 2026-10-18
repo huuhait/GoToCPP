@@ -102,7 +102,7 @@ func (r boxReason) String() string {
 // be boxed, each with the first reason found. Lowering runs it over each function declaration,
 // and over the initializer of each package variable, where only a function literal can declare
 // variables (decl.go: prepareVarInits).
-func boxedVars(info *types.Info, fn ast.Node) map[*types.Var]boxReason {
+func boxedVars(info *tinfo, fn ast.Node) map[*types.Var]boxReason {
 	b := &boxer{
 		info:     info,
 		boxed:    make(map[*types.Var]boxReason),
@@ -233,7 +233,7 @@ func boxedVars(info *types.Info, fn ast.Node) map[*types.Var]boxReason {
 // which follows C++'s lifetime rules, so x is not boxed for it. (The address of a part of a
 // gocpp value, &s.f or &xs[i], is a pointer that shares the owner of the value: the value is
 // boxed, cunsafe.go.)
-func cAddr(info *types.Info, e *ast.UnaryExpr) bool {
+func cAddr(info *tinfo, e *ast.UnaryExpr) bool {
 	x := ast.Unparen(e.X)
 	if _, bare := x.(*ast.Ident); !bare {
 		if owned, _ := ownedPath(info, x); owned {
@@ -278,7 +278,7 @@ func (b *boxer) fields(l *ast.FieldList) {
 
 // A boxer holds the state of one boxedVars call.
 type boxer struct {
-	info     *types.Info
+	info     *tinfo
 	boxed    map[*types.Var]boxReason
 	captured map[*types.Var]bool // used inside a function literal that it is declared outside of
 	changed  map[*types.Var]bool // assigned, or a part of it is written, after its declaration

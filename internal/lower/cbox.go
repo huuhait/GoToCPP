@@ -148,7 +148,7 @@ func (b *boxer) boxDeferred(c *ast.CallExpr) {
 // order of their first mention. In the object (the function of the call) every mention counts. In
 // an argument only a path counts, whose pointer or reference stays reachable: &v, v.f, v.data(),
 // v[i], *v. A plain use of a variable (n in Vec{x: n}, f(n), n + 1) copies its value.
-func deferLocals(info *types.Info, c *ast.CallExpr) []*types.Var {
+func deferLocals(info *tinfo, c *ast.CallExpr) []*types.Var {
 	b := &boxer{info: info}
 	var out []*types.Var
 	add := func(id *ast.Ident) {
@@ -209,7 +209,7 @@ func deferLocals(info *types.Info, c *ast.CallExpr) []*types.Var {
 // copiedArg reports whether the argument a of a deferred call is evaluated and copied into the
 // frame without anything of a C/C++ local staying reachable: a bare variable, a value whose Go type
 // has no C/C++ part (int(v.size()), a string), and a conversion to a C number (C.int(n)).
-func copiedArg(info *types.Info, a ast.Expr) bool {
+func copiedArg(info *tinfo, a ast.Expr) bool {
 	a = ast.Unparen(a)
 	if _, ok := a.(*ast.Ident); ok {
 		return true
@@ -242,7 +242,7 @@ func copiedArg(info *types.Info, a ast.Expr) bool {
 // dies with the block, as in C++ (so a lock guard whose address is passed to a function is
 // destroyed at the end of its iteration or block, as without defers), and one that a C++ call
 // keeps or gives back (lib.find(x)) follows C++'s lifetime rules.
-func addrHeld(info *types.Info, top ast.Node) map[*types.Var]bool {
+func addrHeld(info *tinfo, top ast.Node) map[*types.Var]bool {
 	type fn struct {
 		pos, end token.Pos
 		defers   bool

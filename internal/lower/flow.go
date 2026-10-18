@@ -42,7 +42,7 @@ type flow struct {
 // each has a statement to go to, and a label names an enclosing one. atEnd reports whether a
 // 3-clause for puts its post statement (or what runs before it) at the end of its body, not
 // in the C++ for's head.
-func newFlow(info *types.Info, body *ast.BlockStmt, atEnd func(loop *ast.ForStmt) bool) *flow {
+func newFlow(info *tinfo, body *ast.BlockStmt, atEnd func(loop *ast.ForStmt) bool) *flow {
 	f := &flow{
 		target:     make(map[*ast.BranchStmt]ast.Stmt),
 		plain:      make(map[*ast.BranchStmt]bool),
@@ -100,7 +100,7 @@ func newFlow(info *types.Info, body *ast.BlockStmt, atEnd func(loop *ast.ForStmt
 }
 
 // branch finds where the break, continue or goto b goes; stack holds the nodes around it.
-func (f *flow) branch(info *types.Info, b *ast.BranchStmt, stack []ast.Node, labeled map[*types.Label]ast.Stmt) {
+func (f *flow) branch(info *tinfo, b *ast.BranchStmt, stack []ast.Node, labeled map[*types.Label]ast.Stmt) {
 	var l *types.Label
 	if b.Label != nil {
 		l, _ = info.Uses[b.Label].(*types.Label)

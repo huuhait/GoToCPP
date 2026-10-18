@@ -219,10 +219,16 @@ func (fg *funcGen) value(e ast.Expr) cppir.Expr {
 		if fg.g.cConsts[ast.Unparen(e)] {
 			return fg.g.cConstantOf(e) // a C/C++ value (cvalues.go)
 		}
+		if fg.g.isCxxNamed(tv.Type) {
+			return fg.g.cxxConst(tv.Value, e.Pos()) // a constant of a C/C++ type argument (generics.go)
+		}
 		return fg.g.constant(tv.Value, fg.g.untypedCount(e, tv.Type), e.Pos(), false)
 	}
 	if fg.g.cFuncs[ast.Unparen(e)] {
 		return fg.callbackValue(e) // a func that goes to C/C++ (ccallback.go)
+	}
+	if r := fg.instRef(e); r != nil {
+		return fg.instFuncValue(r) // F[int] or an inferred F as a value (generics.go)
 	}
 	if fg.g.pkg.Opaque.IsOpaque(e) {
 		return fg.opaqueExpr(e) // a C/C++ value (cvalues.go)
@@ -385,8 +391,21 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 	var callee string
 	var sig *types.Signature // of a function of the package
 	template := false        // the callee is a runtime template, which deduces its argument types
+	inst := fg.instRef(c.Fun)
+	var calleeArgs []cppir.Node // template arguments of an instance that is a function template
+	if inst != nil {
+		sig = inst.sig // an instance of a generic function (generics.go)
+		if name, ok := fg.g.instanceName(inst).(*cppir.Name); ok {
+			callee, calleeArgs = name.Name, name.Args
+		} else {
+			return placeholder
+		}
+	}
 	switch fun := ast.Unparen(c.Fun).(type) {
 	case *ast.Ident:
+		if inst != nil {
+			break
+		}
 		switch obj := fg.g.info.Uses[fun].(type) {
 		case *types.Builtin:
 			switch obj.Name() {
@@ -435,7 +454,15 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 			fg.g.errorf(c.Pos(), "internal error: the call of %s, which is no function", fun.Name)
 			return placeholder
 		}
+	case *ast.IndexExpr, *ast.IndexListExpr:
+		if inst == nil {
+			fg.g.unsupported(c.Pos(), "calls of "+nodeKind(fun))
+			return placeholder
+		}
 	case *ast.SelectorExpr:
+		if inst != nil {
+			break
+		}
 		if sel := fg.g.info.Selections[fun]; sel != nil && sel.Kind() == types.MethodVal {
 			return fg.methodCall(c, fun, sel) // methods.go
 		}
@@ -495,7 +522,7 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 		return &cppir.Call{Fun: cxxName("std::apply"), Args: []cppir.Expr{fn, arg}}
 	}
 	if sig != nil {
-		return &cppir.Call{Fun: cxxName(callee), Args: fg.callArgs(c, sig)} // closures.go: variadics
+		return &cppir.Call{Fun: &cppir.Name{Name: callee, Args: calleeArgs}, Args: fg.callArgs(c, sig)} // closures.go: variadics
 	}
 	if template {
 		return &cppir.Call{Fun: cxxName(callee), Args: fg.printArgs(c.Args)} // print, println: fmtcall.go

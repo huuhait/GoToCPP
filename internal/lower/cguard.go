@@ -279,13 +279,13 @@ func (g *gen) cExprOK(e ast.Expr) bool {
 		}
 		return true // a member of a C/C++ value, or a C++ callable (opaqueCallee)
 	case *ast.IndexExpr:
-		if _, ok := g.cRefOf(x); ok {
+		if _, ok := g.cRefOf(x); ok || g.genericRef(x.X) {
 			return true
 		}
 		return g.unknownKindOK(x.X, x.Lbrack) // an index of a C/C++ value: C++'s operator[]
 	case *ast.IndexListExpr:
-		if _, ok := g.cRefOf(x); ok {
-			return true
+		if _, ok := g.cRefOf(x); ok || g.genericRef(x.X) {
+			return true // (F[A, B] of a generic function: generics.go)
 		}
 		g.userError(x.Lbrack, "invalid operation: %s (a C/C++ value takes one index)", g.srcText(x))
 		return false
@@ -434,18 +434,40 @@ func (g *gen) typedBasic(e ast.Expr) types.Type {
 // (also a method of a gocpp type with C/C++ parameters: q.Put(n)), or of the func value in a
 // variable that it calls (size := q.Size; size()), or nil.
 func (g *gen) calledSig(c *ast.CallExpr) *types.Signature {
-	switch f := ast.Unparen(c.Fun).(type) {
+	fun := ast.Unparen(c.Fun)
+	explicit := false // F[int](...): the function is generic (generics.go)
+	for {
+		switch x := fun.(type) {
+		case *ast.IndexExpr:
+			fun, explicit = ast.Unparen(x.X), true
+			continue
+		case *ast.IndexListExpr:
+			fun, explicit = ast.Unparen(x.X), true
+			continue
+		}
+		break
+	}
+	switch f := fun.(type) {
 	case *ast.Ident:
 		switch obj := g.info.Uses[f].(type) {
 		case *types.Func:
-			if obj.Pkg() == g.pkg.Types {
+			if obj.Pkg() == g.pkg.Types || g.isGeneric(obj) {
 				return obj.Signature()
 			}
 		case *types.Var:
+			if explicit {
+				return nil
+			}
 			sig, _ := obj.Type().Underlying().(*types.Signature) // a func value (closures.go)
 			return sig
 		}
 	case *ast.SelectorExpr:
+		if fn := g.qualifiedFunc(f); fn != nil && g.isGeneric(fn) {
+			return fn.Signature() // pkg.F(...), F a generic function of another package of the program
+		}
+		if explicit {
+			return nil
+		}
 		if sel := g.info.Selections[f]; sel != nil && (sel.Kind() == types.MethodVal || sel.Kind() == types.MethodExpr) {
 			if fn, ok := sel.Obj().(*types.Func); ok && fn.Pkg() == g.pkg.Types {
 				sig, _ := g.info.TypeOf(f).(*types.Signature)
@@ -454,6 +476,15 @@ func (g *gen) calledSig(c *ast.CallExpr) *types.Signature {
 		}
 	}
 	return nil
+}
+
+// isGeneric reports whether fn is a generic function of a package of the program (generics.go).
+func (g *gen) isGeneric(fn *types.Func) bool {
+	if fn.Signature().TypeParams().Len() == 0 {
+		return false
+	}
+	o := g.other(fn.Pkg())
+	return o != nil && o.generics[fn.Origin()] != nil
 }
 
 // cPlaceOK reports whether lowering translates the opaque expression e in its place, the node
@@ -847,6 +878,9 @@ func (w *cWalk) targetOK(e ast.Expr, parent ast.Node) bool {
 	}
 	if isInterface(t.to) {
 		return true // an interface holds the C/C++ value as it is (iconv.go: foreign values)
+	}
+	if hasTypeParam(t.to) {
+		return true // a type parameter: the C++ compiler deduces the type argument (generics.go)
 	}
 	ts := types.TypeString(t.to, types.RelativeTo(g.pkg.Types))
 	hint := ""

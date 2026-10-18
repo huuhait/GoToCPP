@@ -99,7 +99,9 @@ func (g *gen) collectMethod(d *ast.FuncDecl) {
 		return
 	}
 	if named.TypeParams() != nil {
-		g.unsupported(d.Pos(), "methods of generic types (Phase 07)")
+		if !g.pkg.Load.Std {
+			g.notYet(d.Pos(), "generic types are not supported yet (Phase 07)")
+		}
 		return
 	}
 	m := &methodInfo{recv: recv, ptr: ptr, named: named}
@@ -273,7 +275,7 @@ func (fg *funcGen) recvCopy() {
 // copy of a pointer that is not a local of the caller: methodCall). With goroutines (Phase 08),
 // a const T& receiver can see the writes of another goroutine while the method runs, but only
 // in a program that has a data race in Go too.
-func readOnly(info *types.Info, body *ast.BlockStmt, v *types.Var) bool {
+func readOnly(info *tinfo, body *ast.BlockStmt, v *types.Var) bool {
 	b := &boxer{info: info}
 	own := func(e ast.Expr) bool {
 		if id, ok := ast.Unparen(e).(*ast.Ident); ok && id.Name == "_" {
@@ -332,7 +334,7 @@ func readOnly(info *types.Info, body *ast.BlockStmt, v *types.Var) bool {
 
 // methodSel returns the selector of the call c if c calls a method (x.M(...)), and its
 // selection, or nil.
-func (fg *funcGen) methodSel(c *ast.CallExpr) (*ast.SelectorExpr, *types.Selection) {
+func (fg *funcGen) methodSel(c *ast.CallExpr) (*ast.SelectorExpr, *selection) {
 	x, ok := ast.Unparen(c.Fun).(*ast.SelectorExpr)
 	if !ok {
 		return nil, nil
@@ -355,7 +357,7 @@ type recvPath struct {
 }
 
 // pathOf returns the way to the receiver of the method selection s.
-func pathOf(s *types.Selection) recvPath {
+func pathOf(s *selection) recvPath {
 	idx := s.Index()
 	r := recvPath{t: s.Recv(), path: idx[:len(idx)-1], last: -1}
 	sig := s.Obj().Type().(*types.Signature)
@@ -381,7 +383,7 @@ func (r recvPath) endPtr() bool { return isPointer(r.end) }
 // address has the items of its address (collectAddr); a value method through a pointer, and a
 // promotion through an embedded pointer, read memory through the pointer, which a call can
 // change, and panic for nil: after the calls of the scope, as gc does.
-func (fg *funcGen) analyzeMethod(c *ast.CallExpr, x *ast.SelectorExpr, s *types.Selection) *orderScope {
+func (fg *funcGen) analyzeMethod(c *ast.CallExpr, x *ast.SelectorExpr, s *selection) *orderScope {
 	// A value method is a member call, recv.M(args) or recv->M(args), whose object C++
 	// evaluates first; a pointer method is a static call, T::PM(recv, args).
 	// A deferred call's receiver is an argument of gp_push_call (deferThunk).
@@ -403,7 +405,7 @@ func (fg *funcGen) analyzeMethod(c *ast.CallExpr, x *ast.SelectorExpr, s *types.
 // scope (order.go), below the operators up: taking the receiver's address has the items of its
 // address (collectAddr); a value method through a pointer, and a promotion through an embedded
 // pointer, read memory through the pointer, which a call can change, and panic for nil.
-func (fg *funcGen) collectRecv(sc *orderScope, x *ast.SelectorExpr, s *types.Selection, root int, up *orderStep) {
+func (fg *funcGen) collectRecv(sc *orderScope, x *ast.SelectorExpr, s *selection, root int, up *orderStep) {
 	r := pathOf(s)
 	below := &orderStep{node: x, up: up}
 	if r.ptrRecv && !r.endPtr() && !r.deref {
@@ -417,7 +419,12 @@ func (fg *funcGen) collectRecv(sc *orderScope, x *ast.SelectorExpr, s *types.Sel
 }
 
 // methodCall returns the C++ of the call c of a method, x.M(args) (see the top).
-func (fg *funcGen) methodCall(c *ast.CallExpr, x *ast.SelectorExpr, s *types.Selection) cppir.Expr {
+func (fg *funcGen) methodCall(c *ast.CallExpr, x *ast.SelectorExpr, s *selection) cppir.Expr {
+	if fg.g.isCxxNamed(s.Recv()) {
+		// A method of a constraint, called on a C/C++ type argument: the C++ compiler checks that
+		// the type has the member, x.name(args) (generics.go).
+		return &cppir.Call{Fun: fg.g.cMemberOf(fg.expr(x.X), x.Sel), Args: fg.cArgs(c.Args)}
+	}
 	fn := s.Obj().(*types.Func)
 	r := pathOf(s)
 	recv, ptr := fg.recvs[x], false // a deferred call's stored receiver (storeRecv)
@@ -586,7 +593,7 @@ func (fg *funcGen) storeRecv(c *ast.CallExpr, params *[]cppir.Param, values *[]c
 // larger than 128 KiB is captured in a box (D24). A call of a method expression, T.M(x, a), is a
 // call of its lambda, without a gp::func (closures.go: callValue). Promoted methods work the same
 // way, through the embedded fields (recvFrom).
-func (fg *funcGen) methodValue(x *ast.SelectorExpr, s *types.Selection) cppir.Expr {
+func (fg *funcGen) methodValue(x *ast.SelectorExpr, s *selection) cppir.Expr {
 	sig, _ := fg.g.info.TypeOf(x).(*types.Signature)
 	if sig == nil {
 		fg.g.errorf(x.Pos(), "internal error: a method value without a signature")
@@ -604,7 +611,7 @@ func (fg *funcGen) methodValue(x *ast.SelectorExpr, s *types.Selection) cppir.Ex
 
 // methodLambda returns the generic lambda of the method value or method expression x
 // (methodValue).
-func (fg *funcGen) methodLambda(x *ast.SelectorExpr, s *types.Selection) *cppir.Lambda {
+func (fg *funcGen) methodLambda(x *ast.SelectorExpr, s *selection) *cppir.Lambda {
 	fn := s.Obj().(*types.Func)
 	r := pathOf(s)
 	auto := &cppir.Ref{Elem: typeName("auto"), RValue: true}
@@ -669,7 +676,7 @@ func wrapperName(n *types.Named, pkg bool) string {
 }
 
 // methodExpr returns e as a method expression (T.M, (*T).PM) and its selection, or nil.
-func (fg *funcGen) methodExpr(e ast.Expr) (*ast.SelectorExpr, *types.Selection) {
+func (fg *funcGen) methodExpr(e ast.Expr) (*ast.SelectorExpr, *selection) {
 	x, ok := ast.Unparen(e).(*ast.SelectorExpr)
 	if !ok {
 		return nil, nil

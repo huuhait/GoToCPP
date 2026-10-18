@@ -110,6 +110,9 @@ func (g *gen) cxxType(t types.Type, pos token.Pos) cppir.Type {
 	case *types.Struct:
 		return g.structType(t, pos) // typedecl.go
 	case *types.Named:
+		if c, ok := g.cxxNamed[t]; ok {
+			return c.typ // a C/C++ type argument of a generic function (generics.go)
+		}
 		if isWeakPointer(t) {
 			return weakType(g.cxxType(weakElem(t), pos)) // weak.go
 		}

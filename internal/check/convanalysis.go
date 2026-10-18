@@ -236,6 +236,9 @@ func (a *analysis) state(e ast.Expr) state {
 	if e == nil {
 		return typed
 	}
+	if id, ok := e.(*ast.Ident); ok && a.genericFunc(id) {
+		return typed // the name of a generic function is no source of invalid: its arguments are
+	}
 	tv, ok := a.info.Types[e]
 	if ok && isValidType(tv.Type) && !hasInvalid(tv.Type) {
 		return typed
@@ -311,7 +314,31 @@ func (a *analysis) source(e ast.Expr) state {
 		// A call of an invalid function is invalid whatever its
 		// arguments are, and a call of a function with an invalid result
 		// type is invalid because of that type.
-		return a.state(e.Fun)
+		s := a.state(e.Fun)
+		if a.uninstantiated(e.Fun) {
+			// A generic function that go/types couldn't instantiate, id(cv): its result
+			// has the type of an opaque argument.
+			for _, arg := range e.Args {
+				s = max(s, a.state(arg))
+			}
+			// And the type arguments written out, Mk[std.vector[int]]().
+			for f := ast.Unparen(e.Fun); ; {
+				switch x := f.(type) {
+				case *ast.IndexExpr:
+					s = max(s, a.state(x.Index))
+					f = ast.Unparen(x.X)
+					continue
+				case *ast.IndexListExpr:
+					for _, idx := range x.Indices {
+						s = max(s, a.state(idx))
+					}
+					f = ast.Unparen(x.X)
+					continue
+				}
+				break
+			}
+		}
+		return s
 	case *ast.IndexExpr:
 		if rootedInC(e, a.info) {
 			return opaque
@@ -514,4 +541,34 @@ func invalidIn(t types.Type, seen map[*types.Named]bool) bool {
 		return invalidIn(t.Underlying(), seen)
 	}
 	return false
+}
+
+// uninstantiated reports whether fun, the function of a call, is a generic function without an
+// instance in Info.Instances: go/types couldn't infer or accept its type arguments, because an
+// argument or a type argument comes from C/C++.
+func (a *analysis) uninstantiated(fun ast.Expr) bool {
+	id := instanceIdent(fun)
+	if id == nil {
+		return false
+	}
+	fn, ok := a.info.Uses[id].(*types.Func)
+	if !ok || fn.Signature().TypeParams().Len() == 0 {
+		return false
+	}
+	inst, ok := a.info.Instances[id]
+	if !ok {
+		return true
+	}
+	for i := range inst.TypeArgs.Len() {
+		if hasInvalid(inst.TypeArgs.At(i)) {
+			return true // go/types inferred an invalid type argument from an opaque argument
+		}
+	}
+	return false
+}
+
+// genericFunc reports whether id names a generic function.
+func (a *analysis) genericFunc(id *ast.Ident) bool {
+	fn, ok := a.info.Uses[id].(*types.Func)
+	return ok && fn.Signature().TypeParams().Len() > 0
 }

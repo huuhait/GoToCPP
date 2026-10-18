@@ -104,6 +104,11 @@
 //   - ops.go: the operators (with the small-integer rule and the runtime's gp::div, gp::rem,
 //     gp::shl and gp::shr), conversions (gp::f2i), s[i] and the builtins len and panic;
 //   - types.go: the C++ spelling of the types;
+//   - generics.go, subst.go and tinfo.go: generic functions (Phase 07 steps 7.1 and 7.2, ADR-030): each
+//     list of type arguments that the program names is an instance, a C++ function that the asking
+//     package writes in its unit, lowered with the body's types replaced by the type arguments
+//     (subst.go); tinfo.go has the lowering's selections, which go/types cannot make; a C/C++ type
+//     argument makes a function template deduced by C++ (opaqueInstRef);
 //   - weak.go: weak pointers (step 3.18): weak.Pointer[T] as the runtime's gp::weak_ptr<T>,
 //     weak.Make and Value, a compiler intrinsic until generics (Phase 07);
 //   - complex.go: complex numbers (step 3.15c): their constants and the builtins complex, real

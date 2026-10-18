@@ -41,7 +41,7 @@ import (
 // inPlaceLocals returns the local variables of the code top (a function declaration, or a
 // package variable's initializer) that an argument of fmt copies in place (above). boxed is
 // box.go's analysis of top. It also returns the parameters, receivers and results in top.
-func inPlaceLocals(info *types.Info, top ast.Node, boxed map[*types.Var]boxReason) (in, params map[*types.Var]bool) {
+func inPlaceLocals(info *tinfo, top ast.Node, boxed map[*types.Var]boxReason) (in, params map[*types.Var]bool) {
 	params = make(map[*types.Var]bool) // the parameters, receivers and results in top
 	addParams := func(l *ast.FieldList) {
 		if l == nil {
@@ -178,7 +178,7 @@ func inPlaceLocals(info *types.Info, top ast.Node, boxed map[*types.Var]boxReaso
 // notInlined reports whether gc never inlines the func literal l: its own body (not that of a
 // func literal inside it) has a defer or go statement, or calls recover (inl.go: hairyVisitor,
 // "unhandled op DEFER", "call to recover").
-func notInlined(info *types.Info, l *ast.FuncLit) bool {
+func notInlined(info *tinfo, l *ast.FuncLit) bool {
 	found := false
 	ast.Inspect(l.Body, func(n ast.Node) bool {
 		switch n := n.(type) {
@@ -200,7 +200,7 @@ func notInlined(info *types.Info, l *ast.FuncLit) bool {
 
 // litHolder returns the local variable that the func literal at the top of the stack is
 // declared with, x := func() {...} or var x = func() {...}, or nil.
-func litHolder(info *types.Info, stack []ast.Node) *types.Var {
+func litHolder(info *tinfo, stack []ast.Node) *types.Var {
 	lit := stack[len(stack)-1]
 	if len(stack) < 2 {
 		return nil

@@ -168,7 +168,7 @@ const (
 // a gocpp pointer), and the variable it is in, or nil when it is in a temporary (a call). A part of
 // a C/C++ value (a member, an element of a C++ container or a C array) is not: its address is a raw
 // C++ address, as &x of a C/C++ variable is.
-func ownedPath(info *types.Info, x ast.Expr) (owned bool, root *types.Var) {
+func ownedPath(info *tinfo, x ast.Expr) (owned bool, root *types.Var) {
 	for {
 		switch y := ast.Unparen(x).(type) {
 		case *ast.IndexExpr:

@@ -99,7 +99,8 @@ const (
 	featExport
 
 	// Phase 07.
-	featGenerics
+	featGenerics // generic functions (step 7.1, 7.2)
+	featGenericTypes
 	featRangeFunc
 
 	// Phase 08.
@@ -304,9 +305,12 @@ var features = [numFeatures]feature{
 		Detect: "an //export line in the doc comment of a func",
 		Notes:  "Functions that C code can call (`-buildmode=c-archive`, `c-shared`)."},
 
-	{id: featGenerics, Name: "generics", Plural: true, Phase: 7,
-		Detect: "type parameters (FuncType, TypeSpec), info.Instances, type sets and comparable",
-		Notes:  "Generic functions and types, generic aliases, constraints with type sets, instantiating generic standard functions. Exemption: `weak.Pointer[T]` from Phase 03."},
+	{id: featGenerics, Name: "generic functions", Plural: true, Phase: 7,
+		Detect: "type parameters on a func (FuncType), info.Instances of functions, type sets and comparable",
+		Notes:  "Generic functions, constraints with type sets, instantiating them with explicit or inferred type arguments. Exemption: `weak.Make` from Phase 03. The standard packages `cmp`, `slices`, `maps` and `iter` are ported in step 7.10: until then their functions cannot be instantiated."},
+	{id: featGenericTypes, Name: "generic types", Plural: true, Phase: 7,
+		Detect: "type parameters on a type declaration (TypeSpec), info.Instances of types, a Named type with type arguments",
+		Notes:  "Generic types and their methods, generic aliases (step 7.3 and 7.7). Exemption: `weak.Pointer[T]` from Phase 03."},
 	{id: featRangeFunc, Name: "range over functions", Phase: 7,
 		Detect: "a range statement over a value of func type",
 		Notes:  "Iterators: `iter.Seq`, `iter.Seq2`."},

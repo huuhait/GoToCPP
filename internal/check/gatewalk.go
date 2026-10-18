@@ -145,6 +145,10 @@ type gateChecker struct {
 	declTypes  map[ast.Expr]bool
 	typeParams []*ast.FieldList
 
+	// funcParams are the type parameter lists of funcs: a type parameter declared elsewhere (in
+	// a type declaration, or a method's receiver) belongs to a generic type.
+	funcParams []*ast.FieldList
+
 	// cppIdents holds the positions of the names that the header and
 	// namespace rewrite replaced by C (load.CppUse.Ident): a C at one of
 	// them is not a C that the user wrote.
@@ -339,13 +343,14 @@ func (g *gateChecker) visit(n ast.Node) bool {
 			g.node(featTypeDecls, n)
 		}
 		if n.TypeParams != nil {
-			g.node(featGenerics, n.TypeParams)
+			g.node(featGenericTypes, n.TypeParams)
 			g.typeParams = append(g.typeParams, n.TypeParams)
 		}
 	case *ast.FuncType:
 		if n.TypeParams != nil {
 			g.node(featGenerics, n.TypeParams)
 			g.typeParams = append(g.typeParams, n.TypeParams)
+			g.funcParams = append(g.funcParams, n.TypeParams)
 		}
 		if l := n.Params.List; len(l) > 0 {
 			if e, ok := l[len(l)-1].Type.(*ast.Ellipsis); ok {
@@ -805,7 +810,7 @@ func (g *gateChecker) checkTypes() {
 		case *types.TypeName:
 			// type WP weak.Pointer[T]: the intrinsic (weak.Pointer[T] itself and its aliases)
 			// is a runtime class; a type defined over it waits for the generics.
-			if f := &features[featGenerics]; !obj.IsAlias() && weakDefined(obj.Type()) && !f.allowed(g.phase) {
+			if f := &features[featGenericTypes]; !obj.IsAlias() && weakDefined(obj.Type()) && !f.allowed(g.phase) {
 				g.report(id.Pos(), id.End(), gateMessage("a type defined as weak.Pointer[T]", false, f.Phase), f.Phase)
 			}
 		}
@@ -817,7 +822,11 @@ func (g *gateChecker) checkTypes() {
 		if obj := g.info.Uses[id]; obj != nil && obj.Pkg() != nil && obj.Pkg().Path() == "weak" {
 			continue // a compiler intrinsic (Phase 03 README §2.2)
 		}
-		g.node(featGenerics, id)
+		if _, ok := g.info.Uses[id].(*types.TypeName); ok {
+			g.node(featGenericTypes, id)
+		} else {
+			g.node(featGenerics, id)
+		}
 	}
 	for id, obj := range g.info.Uses {
 		if g.skipTypes[id] {
@@ -827,6 +836,16 @@ func (g *gateChecker) checkTypes() {
 			g.report(id.Pos(), id.End(), m.message(), m.Phase)
 		}
 	}
+}
+
+// inFuncParams reports whether pos is in the type parameter list of a func.
+func (g *gateChecker) inFuncParams(pos token.Pos) bool {
+	for _, l := range g.funcParams {
+		if l.Pos() <= pos && pos < l.End() {
+			return true
+		}
+	}
+	return false
 }
 
 // inTypeParams reports whether e is in a type parameter list.
@@ -968,7 +987,11 @@ func (g *gateChecker) typeUses(t types.Type, pos, end token.Pos, w *typeWalk) {
 			w.feature(g, featInterfaces, pos, end)
 		}
 	case *types.TypeParam:
-		w.feature(g, featGenerics, pos, end)
+		if g.inFuncParams(t.Obj().Pos()) {
+			w.feature(g, featGenerics, pos, end)
+		} else {
+			w.feature(g, featGenericTypes, pos, end)
+		}
 	case *types.Named:
 		obj := t.Obj()
 		if obj.Pkg() == nil { // a predeclared type
@@ -980,7 +1003,7 @@ func (g *gateChecker) typeUses(t types.Type, pos, end token.Pos, w *typeWalk) {
 			}
 		}
 		if args := t.TypeArgs(); args.Len() > 0 {
-			if (obj.Pkg() == nil || obj.Pkg().Path() != "weak") && w.feature(g, featGenerics, pos, end) {
+			if (obj.Pkg() == nil || obj.Pkg().Path() != "weak") && w.feature(g, featGenericTypes, pos, end) {
 				return
 			}
 			for a := range args.Types() {

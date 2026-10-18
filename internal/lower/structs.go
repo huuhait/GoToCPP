@@ -230,7 +230,7 @@ func (fg *funcGen) litElem(e *ast.CompositeLit, i int) int {
 }
 
 // fieldSel returns the selection of x if it selects a field (x.f, also promoted), or nil.
-func (fg *funcGen) fieldSel(x *ast.SelectorExpr) *types.Selection {
+func (fg *funcGen) fieldSel(x *ast.SelectorExpr) *selection {
 	if sel := fg.g.info.Selections[x]; sel != nil && sel.Kind() == types.FieldVal {
 		return sel
 	}
@@ -260,7 +260,7 @@ func (fg *funcGen) selector(x *ast.SelectorExpr) cppir.Expr {
 // fieldChain returns the C++ of the field that sel selects in base (the C++ of the operand):
 // each step of the path (more than one for a promoted field, through its embedded fields) is
 // .f, or ->f after a pointer (gp::ptr's ->, which panics like Go for nil).
-func (fg *funcGen) fieldChain(base cppir.Expr, sel *types.Selection, pos token.Pos) cppir.Expr {
+func (fg *funcGen) fieldChain(base cppir.Expr, sel *selection, pos token.Pos) cppir.Expr {
 	x, _ := fg.fieldSteps(base, sel.Recv(), sel.Index(), pos)
 	return x
 }
@@ -282,7 +282,7 @@ func (fg *funcGen) fieldSteps(base cppir.Expr, t types.Type, index []int, pos to
 
 // laterPointer reports whether the path of sel goes through a pointer after its first step: an
 // embedded pointer field on the way to a promoted field (o.X for an embedded *Inner).
-func laterPointer(sel *types.Selection) bool {
+func laterPointer(sel *selection) bool {
 	t := sel.Recv()
 	for k, i := range sel.Index() {
 		if p, ok := under(t).(*types.Pointer); ok {
@@ -297,7 +297,7 @@ func laterPointer(sel *types.Selection) bool {
 }
 
 // firstPointer reports whether the operand of sel is a pointer: p.f.
-func firstPointer(sel *types.Selection) bool {
+func firstPointer(sel *selection) bool {
 	return isPointer(sel.Recv())
 }
 

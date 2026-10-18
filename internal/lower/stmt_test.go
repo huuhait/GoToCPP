@@ -16,7 +16,7 @@ func TestReads(t *testing.T) {
 	v := types.NewVar(token.NoPos, nil, "v", types.Typ[types.Int])
 	id := ast.NewIdent("v")
 	fg := &funcGen{
-		g:     &gen{info: &types.Info{Uses: map[*ast.Ident]types.Object{id: v}}, names: map[types.Object]string{}},
+		g:     &gen{info: &tinfo{Info: &types.Info{Uses: map[*ast.Ident]types.Object{id: v}}}, names: map[types.Object]string{}},
 		names: (&gen{}).newFuncNames(),
 		temps: map[ast.Expr]string{},
 	}

@@ -68,6 +68,7 @@ func (g *gen) files() *PackageFiles {
 		if len(decls) == 0 {
 			continue
 		}
+		decls = slices.Concat(g.out.instDecls(f.Path), decls) // generics.go
 		used++
 		u := &Unit{Name: unitName(f.Path), Src: f.Path}
 		u.File = g.unitFile(pf, u.Name, decls)
@@ -308,7 +309,7 @@ func (g *gen) addCIncludes(f *cppir.File) {
 // main package the program's entry: gp_init_all, which initializes the packages in the order
 // that Go does (the packages of the Program are in it), and main.
 func (g *gen) initFile(pf *PackageFiles) *cppir.File {
-	decls := slices.Concat(g.out.vars, g.out.inits)
+	decls := slices.Concat(g.out.instDecls(initUnit), g.out.vars, g.out.inits)
 	main := g.pkg.Types.Name() == "main"
 	if len(decls) == 0 && !main {
 		return nil

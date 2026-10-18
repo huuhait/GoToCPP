@@ -28,7 +28,7 @@ and from the user's answers to Q1–Q13
 | [014](014-macros.md) | Macros are `macro` declarations used as `#Name(...)` | accepted | Typed macros inside code or on top of a func (start or wrap style), and `#Derive` on types. |
 | [015](015-language-server.md) | The language server copies gopls and has speed budgets in CI | accepted | Snapshots, content-hash caches, export-data summaries; p95 budgets checked in CI. |
 | [016](016-interfaces-itabs.md) | Interfaces use Go-style type descriptors and itabs | accepted | Descriptors follow the Go type, so `int` and `int64` stay different; no C++ inheritance. |
-| [017](017-generics-templates.md) | Generics are C++ templates with explicit type arguments | accepted | Type arguments always come from `go/types`, never from C++ deduction. |
+| [017](017-generics-templates.md) | Generics are C++ templates with explicit type arguments | accepted (templates superseded by 030) | Type arguments always come from `go/types`, never from C++ deduction. |
 | [018](018-stdlib-ported-from-go.md) | The standard library is ported from Go's own source | accepted | Copied by a tool with small patches, plus a `reflect` subset on the type descriptors. |
 | [019](019-output-layout.md) | Output layout: one header per package, one `.cpp` per `.gp` file | accepted | `pkg.hpp`, `<file>.gp.cpp`, `pkg_init.cpp`, and Go 1.21's init order in `gp_init_all()`. |
 | [020](020-modules-gocpp-mod.md) | Modules use a `gocpp.mod` file in `go.mod` syntax | accepted | `replace` and `vendor/` first; downloads with minimal version selection in Phase 15. |
@@ -40,6 +40,7 @@ and from the user's answers to Q1–Q13
 | [026](026-channels-and-thread-reuse.md) | Channels are Go's `hchan` on a mutex, and goroutine threads are reused | accepted | `go` is lowered like `defer`; `gp::chan<T>` is a shared pointer; a finished goroutine's thread waits for the next `go`; the headers stay light. |
 | [027](027-native-std-functions.md) | Standard packages call native functions through `//gocpp:native` | accepted | A bodyless function with the directive is the runtime's C++ function; a bodyless function without it is still a stub. (026 is job 8.2's.) |
 | [028](028-fmt-on-descriptors.md) | `fmt` is one engine that walks values by their type descriptors | accepted | A port of Go's fmt/print.go and format.go driven by descriptors (complete lazily: `gp_full`, field offsets, `gp_ops`), plain operands for the common types, the shim's templates and protocols removed. (026 is 8.2's, 027 is 5.7's.) |
+| [030](030-generic-instances.md) | A generic function is lowered once for each instance, by the package that uses it | accepted | The body is lowered as if written with the type arguments (`subst.go`), in the asking package's unit, named `gp_inst_<hash>_F`; C/C++ type arguments make function templates. Supersedes 017's templates. (029 is 8.5's.) |
 
 ## Changing a decision
 

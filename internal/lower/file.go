@@ -88,7 +88,7 @@ func newGen(fset *token.FileSet, pkg *check.Package) *gen {
 	return &gen{
 		fset:  fset,
 		pkg:   pkg,
-		info:  pkg.Info,
+		info:  newTinfo(pkg.Info),
 		ns:    NamespaceName(importPath(pkg.Types)),
 		names: make(map[types.Object]string),
 
@@ -104,7 +104,7 @@ var errNoMain = errors.New("function main is undeclared in the main package")
 type gen struct {
 	fset *token.FileSet
 	pkg  *check.Package
-	info *types.Info
+	info *tinfo
 
 	// out are the declarations that lowering made (outputs).
 	out outputs
@@ -188,6 +188,22 @@ type gen struct {
 	// in which the package's types are fully qualified.
 	inTemplate int
 
+	// generics are the generic functions of the package (generics.go), insts the instances that
+	// units asked for and instQueue those not lowered yet, ctxt the context that go/types
+	// instantiates types with, and unit the translation unit being lowered.
+	generics  map[*types.Func]*genericFunc
+	insts     map[instKey]*instance
+	instQueue []*instance
+	instNames map[string]string // the C++ name of each instance and the text it was made from (clashes of the hash)
+	ctxt      *types.Context
+	unit      string
+
+	// cxxNamed are the types that stand for C/C++ type arguments (opaqueInstRef), cxxCount
+	// numbers them, and curOpen are the template parameters of the instance being lowered.
+	cxxNamed map[*types.Named]cxxInfo
+	cxxCount int
+	curOpen  map[*types.Named]bool
+
 	// prog is the program of the packages lowered together (program.go); it is never nil.
 	// global counts the definitions of shared types being written (shared.go): the package's
 	// types are fully qualified there too, as they are written outside its namespace.
@@ -246,6 +262,8 @@ type outputs struct {
 
 	byFile map[string][]cppir.Decl // the definitions of the functions by the .gp file
 	files  []string                // the files of byFile, in the order of the first definition
+
+	insts map[string]*instUnit // the instances of generic functions by unit (generics.go)
 }
 
 // lower lowers the package: the functions, the variables and the initialization go to g.out,
@@ -261,11 +279,17 @@ func (g *gen) lower() bool {
 	}
 	g.markAllCValues() // cvalues.go
 	g.prototypes()
+	g.unit = initUnit
 	g.packageVars()
+	g.drainInstances() // generics.go
 	for _, fn := range g.funcs {
+		g.unit = g.fileOf(fn.decl.Pos())
 		g.funcDecl(fn)
+		g.drainInstances()
 	}
+	g.unit = initUnit
 	g.initFuncs()
+	g.drainInstances()
 	return g.err == nil
 }
 
@@ -302,6 +326,7 @@ func (g *gen) file() *cppir.File {
 	ns.Decls = append(ns.Decls, &cppir.Blank{})
 	ns.Decls = append(ns.Decls, g.structDecls().all()...)
 	ns.Decls = append(ns.Decls, g.out.protos...)
+	ns.Decls = append(ns.Decls, g.out.allInstDecls(g.instUnitOrder())...)
 	ns.Decls = append(ns.Decls, g.out.vars...)
 	ns.Decls = append(ns.Decls, g.out.funcs...)
 	ns.Decls = append(ns.Decls, g.out.inits...)
@@ -390,7 +415,7 @@ func (g *gen) collectFunc(d *ast.FuncDecl) {
 		g.collectMethod(d) // methods.go
 		return
 	case d.Type.TypeParams != nil:
-		g.unsupported(d.Pos(), "generic functions (Phase 07)")
+		g.collectGeneric(d) // generics.go
 		return
 	case d.Body == nil:
 		g.collectNative(d)

@@ -16,6 +16,7 @@ import (
 	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/diag"
+	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/lower"
 )
 
@@ -91,6 +92,11 @@ func (s cppLineSet) has(l cxxLoc) bool { return s[filepath.Clean(l.file)][l.line
 // error on a line without C or C++ code is gocpp's.
 func cppLines(fset *token.FileSet, pkg *check.Package) cppLineSet {
 	set := make(cppLineSet)
+	// The lines of generic functions of the package and of what it imports: an instance with a C/C++
+	// type argument is written in the unit of the package that asks for it, with the lines of the
+	// generic function, and what the C++ compiler says about its body is about the type argument
+	// (step 7.2).
+	genericBodies(set, fset, pkg.Load, make(map[*load.Package]bool))
 	for _, f := range pkg.Load.Files {
 		if f.Info != nil {
 			for _, inc := range f.Info.Includes {
@@ -685,4 +691,31 @@ func folderHasSources(dir string) bool {
 		}
 	}
 	return false
+}
+
+// genericBodies adds the lines of the generic functions of p and of the packages it imports.
+func genericBodies(set cppLineSet, fset *token.FileSet, p *load.Package, seen map[*load.Package]bool) {
+	if p == nil || seen[p] {
+		return
+	}
+	seen[p] = true
+	for _, f := range p.Files {
+		if f.AST == nil {
+			continue
+		}
+		for _, d := range f.AST.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok || fd.Type.TypeParams == nil || fd.Body == nil {
+				continue
+			}
+			from, to := fset.Position(fd.Pos()), fset.Position(fd.End())
+			file := filepath.Clean(from.Filename)
+			for l := from.Line; l <= to.Line; l++ {
+				set.add(file, l)
+			}
+		}
+	}
+	for _, imp := range p.Imports {
+		genericBodies(set, fset, imp, seen)
+	}
 }

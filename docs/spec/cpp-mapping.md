@@ -2178,6 +2178,113 @@ a thread slot, the stack bounds, and the stack-overflow hook. The Windows versio
 Source: [Phase 08 §2.2 and §2.3](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md#22-goroutines--os-threads),
 [ADR-007](../adr/007-goroutines-os-threads.md), [ADR-026](../adr/026-channels-and-thread-reuse.md).
 
+## Generics (steps 7.1 and 7.2)
+
+A generic function becomes a C++ function **for each list of type arguments that the program names**
+(an *instance*), lowered as if the function were written with those types
+([ADR-030](../adr/030-generic-instances.md)). Types are never C++ template parameters, because `int` and
+`int64` are one C++ type and the semantics of `a + b`, `T(x)`, `len(s)`, `x.M()` or `any(x)` depend on
+the Go type.
+
+```go
+func Map[T, U any](xs []T, f func(T) U) []U {
+	out := make([]U, 0, len(xs))
+	for _, x := range xs {
+		out = append(out, f(x))
+	}
+	return out
+}
+
+func main() {
+	fmt.Println(Map([]int{1, 2, 3}, func(i int) string { return fmt.Sprint(i * 2) }))
+}
+```
+
+```cpp
+namespace gpkg_main {
+
+gp::slice<gp::string> gp_inst_33fba50d_Map(gp::slice<int64_t> xs, gp::func<gp::string(int64_t)> f);
+
+// Map[int,string]
+gp::slice<gp::string> gp_inst_33fba50d_Map(gp::slice<int64_t> xs, gp::func<gp::string(int64_t)> f) {
+    gp::slice<gp::string> out = gp::make_slice<gp::string>(0, gp::len(xs));
+    for (auto gp_it0 = gp::range_slice(xs); gp::range_next(gp_it0);) {
+        int64_t x = gp_it0.gp_v();
+        out = gp::append(static_cast<gp::slice<gp::string>&&>(out), f(x));
+    }
+    return out;
+}
+
+void main() {
+    gp::fmt::Println(gp::fmt::as(gp_tdc_0, gpkg_main::gp_inst_33fba50d_Map(gp::slice_of<int64_t>({1, 2, 3}), ...)));
+}
+```
+
+- **Types of the body.** `go/types` recorded every expression of the generic function in terms of the
+  type parameters. `internal/lower` replaces them by the type arguments (`subst.go`: `Types`, the
+  variables, `Implicits`, `Instances`, and a selection `x.String()` with `x` of type `T` is looked up
+  again on the type argument; `generics.go: apply`). The lowering then runs unchanged, so an `int8`
+  sum wraps, `T(x)` truncates as Go does, `a / b` panics for integers, and `any(x)`, `%T`, `case T:`
+  and `x.(T)` see the type argument. A constant converted to `T` has the type argument's type;
+  `unsafe.Sizeof(x)` is a constant in the instance. The methods of a constraint are called as the type
+  argument has them: a value method, a pointer method (`*T`), a promoted one, a method of an
+  interface type argument (dynamic dispatch).
+- **Where and what.** An instance is written in the translation unit of the function that asks for
+  it, before that unit's functions (a prototype first), in the namespace of the asking package:
+  `gp_inst_<hash>_<name>`, the hash of the unit and the type arguments (two units that need one
+  instance have one copy each). A generic function of another package is instantiated by the asking
+  package from the other package's syntax and types: the names in the body (functions, variables,
+  types, unexported ones too) are the other package's, fully qualified, and `pkg.hpp` of the other
+  package is not changed. Instances of instances (a generic function that calls one) and recursion are
+  found while the unit is lowered; one instance per unit and type arguments.
+- **As values.** `f := Map[int, string]` and `var g func(int) int = Id` are `gp::func_of<&instance>`;
+  `defer`, `go` and method values of instances go through the call forms of ordinary functions.
+- **Traces.** The frame of an instance is `main.Map[...]`, a closure in it `main.Map[...].func1`
+  (Go's names; `runtime/src/trace.cpp` reads `gp_inst_<hash>_Map`).
+- **C and C++ type arguments.** `go/types` records no instance when a type argument (or an argument
+  of the call that fixes one) is a C/C++ type. The instance is then made from the syntax: a written
+  type argument (`Zero[std.vector[int]]()`) is spelled and baked into the instance; the others are
+  **C++ template parameters of the instance**, deduced by the C++ compiler from the call
+  (`template <typename T> T gp_inst_..._Id(T x)`; `Id(v)` with `v` a `std::vector`). Values of such a
+  type can be copied, passed, compared (`comparable`: C++'s `==`), stored in slices and maps, boxed in
+  an interface (only `any`, as for any C/C++ value) and printed by `fmt` (when the C++ type has a
+  formatter or `operator<<`); a method of the constraint, `T interface{ size() C.size_t }`,
+  called on it is the C++ member call `x.size()`. `go/types` cannot check these constraints and the
+  C++ compiler does: its errors are the user's, at the `.gp` line. A type argument that C++ cannot
+  deduce (`T` only in `[]T` of a C++ vector, or the pointee of `&x` of a C++ variable) is a C++ error
+  asking for the type.
+- **Operators and callbacks with C types.** `Add[C.double](1.5, 2.5)` with `a + b` in the body is
+  C++'s `+` (the constants in it are C++ literals), as for C values; an instance with written
+  type arguments goes to C as a callback (`stdlib.qsort(..., Cmp[int32])`: a plain function
+  pointer) and is a func value (`h := Id[std.string]`). A generic function whose type argument C++
+  deduces (`var h func(std.string) std.string = Id`) can be neither: a user error that asks for the
+  type arguments. What the C++ compiler says about the body of an instance (`fmt` cannot print a
+  `std::vector`) is the user's error at the line of the body, with the call as "from here".
+- **A generic function of another package that uses C/C++ names** (a header import, `C.int`, a
+  C++ value) can only be instantiated in its own package: its body is lowered with the asking
+  package's C/C++ state, not the owner's (a user error at the call, "Phase 12").
+- **Known differences from gc.** A type parameter (or anything else) named `C` is rejected
+  (`cannot declare C - C is reserved for C's built-in types`, the loader's rule for every
+  declaration of that name): write `Compose[A, B, R any]`, not `Compose[A, B, C any]`. For `T = *Base`
+  and a value method `String`, calling `x.String()` on a nil `x` in generic code panics with the nil
+  dereference text, where gc says `value method main.Base.String called using nil *Base pointer`
+  (the exit code is the same). A method value `x.Value` with `T = *Counter` copies `*x` when it is
+  evaluated, as the spec says; gc's generic code binds the pointer, so later changes show through.
+  A generic function named like a C++ keyword (`class`) shows in a trace as `main.class_[...]` (the
+  `_` of the escape).
+- **Not built.** Type declarations inside generic functions (Go makes each a type of the instance:
+  `main.box[string]`), generic types and their methods (step 7.3), the generic functions of
+  `cmp`, `slices`, `maps` and `iter` (step 7.10: their stubs are rejected with
+  `cmp.Compare is not available yet (Phase 07)`), a generic function as a func value when one of its
+  type arguments is a C++ type that C++ deduces.
+- **Cost.** Each instance is lowered and compiled like a function written by hand. A program with 20
+  generic functions (a loop, a closure, a map, a slice) each instantiated with 10 types (200 instances
+  in one unit) compiled in 15.2 s of CPU with g++ and 12.3 s with clang++; the same program with the 200
+  functions written out by hand (4200 lines instead of 600): 15.7 s and 12.4 s. A change to a generic
+  function body recompiles the units that instantiate it, and no header.
+
+Source: [Phase 07 §2](../../plans/2026-10-13-gocpp/phase-07-generics/README.md), [ADR-030](../adr/030-generic-instances.md).
+
 ## `#line` and debugging
 
 - Before every generated line whose `.gp` line is not "the previous line + 1", gocpp writes a
@@ -2205,7 +2312,7 @@ The plan already describes these shapes; each phase adds them here when it build
 | [04](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md) | C/C++ values (see [interop.md](interop.md)) |
 | [05](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md) | interface structs, type descriptors, method tables (steps 5.1 to 5.3: [Interfaces](#interfaces)), conversions, assertions, embedding, `panic`/`recover` |
 | [06](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md) | the rest of the package headers and the build modes (`c-archive`, `c-shared`, `cpp-lib`) |
-| [07](../../plans/2026-10-13-gocpp/phase-07-generics/README.md) | generics as C++ templates (always with explicit type arguments), range-over-func |
+| [07](../../plans/2026-10-13-gocpp/phase-07-generics/README.md) | generic types and their methods, range-over-func (generic functions: [Generics](#generics-steps-71-and-72)) |
 | [08](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md) | `go` (`gp::go`), channels, `select` |
 | [10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md) | `!` as early returns, macros as inline templates |
 | [15](../../plans/2026-10-13-gocpp/phase-15-hardening-release/README.md) | escape analysis (locals that don't escape stay on the stack), Swiss-table maps, and maybe smaller strings and slices (only if the benchmarks say so) |
