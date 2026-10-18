@@ -97,3 +97,13 @@
   caught; (5) hook for 6.1c: `Config.ModuleDir`/`moduleDir` (any returned dir is accepted, no gocpp.mod needed, `Module.cached`);
   hook for 6.1d: `moduleIncludeDirs(mod)`; (6) symlinks inside modules are followed by the loader (TODO.md: contain them for
   downloaded modules); (7) the gate for module headers moved to Phase 04 (matrix regenerated).
+- 2026-10-17: Job 6.1c (module downloads) merged after two review rounds (a security-focused review; ADR-023). Decisions:
+  (1) trust on first use: a build records a missing gocpp.sum line (printed once); no checksum database (a GOCPP_SUMDB is possible
+  later); `-mod=readonly` (Go's meaning) never writes and refuses a missing line before any request; recommend it for CI;
+  (2) sources are GitHub/GitLab/Codeberg archives, versions via git smart-HTTP info/refs, mirrors via GOCPP_MODURL/GOCPP_MODPROXY;
+  (3) every symlink/hard link in an archive is rejected, so a library with links must be vendored in a fixed copy; unsafe Windows/
+  macOS names are rejected on ALL platforms (same hash everywhere); (4) the language server never downloads or writes gocpp.sum;
+  `gocpp check` and `build` may download; `ListModules` only looks in the cache; (5) a cache hit compares the ~h1 file with
+  gocpp.sum and does not re-hash (`gocpp mod verify` does); (6) every test main sets GOCPP_MODCACHE=off and GOCPP_OFFLINE=1: keep it so
+  for new test packages; (7) not done: file:// in GOCPP_MODPROXY, `mod tidy`, `gocpp clean -modcache` (6.12), a total cache size cap,
+  `mod vendor` of two modules where one is a folder of the other. 6.1d (cxx recipes) is next: running.
