@@ -11,6 +11,40 @@ garbage collector: memory is reference counted. It adds a few things in Go style
 which returns errors for you, typed macros, and a language server as fast as gopls. It targets
 Linux and Windows.
 
+## How Go++ compares
+
+Go++ is not a replacement for Go, C++ or Rust. It sits between them: Go's syntax and tooling feel
+with C++ as the target, so you can call C and C++ libraries without glue code. The table is a
+rough guide, not a benchmark. Entries marked *planned* are not built yet, and the Status section
+below says what works today.
+
+| | **Go++** | **Go** | **C++** | **Rust** |
+|---|---|---|---|---|
+| Syntax | Go's (`.gp` files, gofmt style) | Go's | C-style, many features | Own syntax, expression-oriented |
+| Learning curve | Low if you know Go | Low | High | High (ownership and lifetimes) |
+| Compiles to | Readable C++20, then native code via g++ or clang++ | Native code (own compiler) | Native code | Native code (LLVM) |
+| Memory management | Reference counting; cycles leak (`weak.Pointer` breaks them) | Garbage collector | Manual or RAII (`unique_ptr`, `shared_ptr`) | Ownership and borrow checker, no GC |
+| Memory safety | Bounds and nil checks, Go-style panics; raw C/C++ pointers are unsafe | Safe (except `unsafe` and cgo) | Not safe by default (undefined behavior) | Safe by default (except `unsafe`) |
+| Concurrency | Goroutines and channels, one OS thread each (about 20,000 to 30,000 at most); `select` built, `sync`/`time` in progress | Goroutines on a scheduler, millions; the most mature model | Threads, async libraries, coroutines | Threads, async/await, channels; data races caught at compile time |
+| Generics | Go-style type parameters; generic functions built, generic types in progress | Yes | Templates (very powerful, slow to compile) | Traits and generics |
+| Error handling | `error` values, `panic`/`recover`, `!` (must) *planned* | `error` values, `panic`/`recover` | Exceptions or error codes | `Result` and `?` |
+| Calling C | Import a header and call it | cgo (call overhead, extra build step) | Native | `bindgen` or hand-written FFI |
+| Calling C++ | Import a header and call it (`std.vector[int]`); typed checking *planned* | Not directly (cgo only reaches C) | Native | `cxx` crate or C wrappers |
+| Build speed | Slower than Go (a C++ compile); caching and incremental builds in progress | Very fast | Slow | Slow to medium |
+| Runtime speed | Goal: within 2x of Go in the worst case; not measured yet | Fast | Fastest | As fast as C++ |
+| Standard library | Small today (`fmt`, `errors`); porting Go's library is the largest remaining phase | Large and mature | Large, but no networking or JSON built in | Medium, plus a very large crate ecosystem |
+| Tooling | `gocpp fmt`, `check`, `build`, `run`; language server (`gocpp lsp`) | Excellent (`go` command, gopls) | Fragmented (CMake, clangd) | Excellent (`cargo`, rust-analyzer) |
+| Cross-compiling | Linux now; Windows build from Linux in progress | Very easy | Hard | Easy to medium |
+| Maturity | Young: phases 00 to 05 built, many packages missing | Mature | Mature | Mature |
+
+**When Go++ makes sense:** you like Go's syntax and workflow, but the code must call C or C++
+libraries (a game engine, SQLite, a vendor SDK) or live inside a C++ code base, and you accept
+reference counting instead of a garbage collector.
+
+**When something else does:** use Go for network services and tools that need a mature standard
+library and fast builds. Use C++ when you need full control and the largest ecosystem. Use Rust
+when compile-time memory safety matters most. Go++ is not production-ready yet.
+
 ## Status
 
 Phases 00 to 05 are built: the front-end, the walking skeleton, the core language, C/C++ interop
