@@ -16,7 +16,7 @@
 - [x] 5.3 itab building + caches + signature checks (`static_assert`, spelling check for opaque parts)
 - [x] 5.4 Conversions: concrete → interface, interface → interface
 - [x] 5.5 Assertions + type switches (Go's exact panic messages, incl. nil cases)
-- [ ] 5.6 Interface `==`, nil rules, hashing (`map[any]V`)
+- [x] 5.6 Interface `==`, nil rules, hashing (`map[any]V`)
 - [ ] 5.7 `any`, `error`, `stdlib/errors` (`New`, `Is`, `As`, `Unwrap`, `Join`)
 - [x] 5.8 Embedding
   - [x] promoted fields via selection paths
@@ -24,7 +24,7 @@
   - [x] fully qualified field types (`::gpkg_main::Base Base;`)
   - [x] forwarding member functions (the thunks come with job/05-5.8-iface)
   - [x] embedded pointers (nil checks); [x] embedded interfaces
-- [ ] 5.9 Method values / expressions on interfaces
+- [x] 5.9 Method values / expressions on interfaces
 - [x] 5.10 panic/recover
   - [ ] two entry points for functions containing `recover()` (carried by `gp::func` and thunks)
   - [ ] `gp::result_slot<R>` in the single-exit shape
@@ -118,3 +118,11 @@
   a pointer-method-only type has no methods by value); (4) KNOWN 5.4 BUG (own ticket): an interface method named like a type it uses
   (`Item() Item`) -> g++ 'changes meaning': qualify the type in the interface struct as Fields/Params do (TODO); (5) examples/shapes
   needs 5.11 (%T).
+- 2026-10-18: Jobs 5.9 and 5.6 (completion) merged after one review round. Decisions: (1) the nil/empty-map unhashable-key text is made by
+  hashing the key once in a thread-local 'check' mode (`gp::check_key`, `detail::key_checking`); types that can panic carry
+  `gp_hash_panics` (gp::iface, arrays of such, emitted structs with an interface in a non-blank field); (2) foreign descriptor names drop
+  the pointee const (`char*`, not `char const*`) and nested pointers normalise; `&p` of a gocpp `*C.T` variable does not match
+  `x.(**T)` (documented), `gp::array<const char*,N>` keeps its const, writing through `.(**Pt)` into a const object is UB (documented);
+  (3) FIXED a dev miscompile: named containers over named structs in an interface (descriptor objects are now forward-declared in
+  `descDecls`; 6.2 restructured descDecls: re-apply the forward-declaration block); (4) iteration order of map[any] is not Go's (tests
+  must not depend on it); (5) gaps: channels in interfaces done by 8.3; `%T`/`%v` of method values and func values are 5.11.
