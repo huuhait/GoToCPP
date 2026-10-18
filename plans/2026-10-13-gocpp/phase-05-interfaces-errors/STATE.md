@@ -1,8 +1,8 @@
 # Phase 05: Interfaces, Embedding, Errors, Panic/Recover · STATE
 
-**Status:** `[ ]` not started
+**Status:** `[x]` done (2026-10-18)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-13
+**Last updated:** 2026-10-18
 
 ## Steps
 
@@ -26,24 +26,24 @@
   - [x] embedded pointers (nil checks); [x] embedded interfaces
 - [x] 5.9 Method values / expressions on interfaces
 - [x] 5.10 panic/recover
-  - [ ] two entry points for functions containing `recover()` (carried by `gp::func` and thunks)
-  - [ ] `gp::result_slot<R>` in the single-exit shape
-  - [ ] `goexit_signal` and `abi::__forced_unwind` always re-thrown
-  - [ ] nested panic chain + exact output (re-panic, `panic(nil)`, addresses masked in tests)
-  - [ ] `runtime.Error` values for runtime panics
-  - [ ] C++ exceptions → `gp::CppException` panics
+  - [x] two entry points for functions containing `recover()` (carried by `gp::func` and thunks)
+  - [x] `gp::result_slot<R>` in the single-exit shape
+  - [x] `goexit_signal` and `abi::__forced_unwind` always re-thrown
+  - [x] nested panic chain + exact output (re-panic, `panic(nil)`, addresses masked in tests)
+  - [x] `runtime.Error` values for runtime panics
+  - [x] C++ exceptions → `gp::CppException` panics
 - [x] 5.11 `fmt` on `any` (basic verbs, `Stringer`, `error`, `%T`, `%+v`, foreign values); remove `fmtshim`
-- [ ] 5.12 Lift the Phase 01 gates; update the feature matrix
-- [ ] 5.13 Tests: ≥ 80 run + differential vs Go (nil gotcha, `int`/`int64`/channel directions, every `recover` route, re-panic, defer order, C++ exception recovery)
+- [x] 5.12 Lift the Phase 01 gates; update the feature matrix
+- [x] 5.13 Tests: ≥ 80 run + differential vs Go (nil gotcha, `int`/`int64`/channel directions, every `recover` route, re-panic, defer order, C++ exception recovery)
 
 ## Exit criteria
 
-- [ ] `shapes` example passes on GCC and Clang
-- [ ] ≥ 80 run tests + differential tests green
-- [ ] Panic first lines (addresses masked) and exit codes match Go
-- [ ] Type switches and `%T` tell `int`/`int64` and channel directions apart
-- [ ] C++ exception caught by `recover()` in a test
-- [ ] Sanitizers clean
+- [x] `shapes` example passes on GCC and Clang
+- [x] ≥ 80 run tests + differential tests green
+- [x] Panic first lines (addresses masked) and exit codes match Go
+- [x] Type switches and `%T` tell `int`/`int64` and channel directions apart
+- [x] C++ exception caught by `recover()` in a test
+- [x] Sanitizers clean
 
 ## Decisions / notes
 
@@ -151,3 +151,12 @@
   caller's spread slice mid-call is not seen; map[any] mixed-type group order differs (unspecified in Go); hello text with fmt +~100 KB,
   println-only hello is now BELOW dev; (8) tests: tools/fmtcorpus/ generates Go outputs (README inside); fmt_quote_whole_range takes ~6 s
   per compiler; (9) removed the shim's C++ differential test (fmt_diff.cpp + fmtdiff testdata): its behaviour is covered by tests/run/fmt_*.
+- 2026-10-18: Jobs 5.12 + 5.13 merged after one review round (round 1 rechecked clean). `version.Phase = 5`; gate rows carry `Since`; `// pending:`
+  header lines mark a test of a later phase that cannot pass yet (REJECTED when the test's phase <= version.Phase: TestPendingFiles lists
+  exactly examples/generics and examples/workers); `make ci` runs tests up to Phase 08 (`CI_TEST_PHASE=08`); `ci-sanitize` takes ~20 min
+  (tests) + ~28 min (cppgen) with `-timeout 120m`; TestNoChecksCalls samples 1/3 by file-name hash (`GOCPP_TEST_ALL_NOCHECKS=1` = all). Decisions:
+  (1) fmt functions work as values (`h := fmt.Println`: a func value spreading the final `...any`); `fmt.Fprint*`/`FormatString` as values and
+  `os.Stdout`/`os.File` values stay user errors naming Phase 09 (package os/io); (2) `cgo.Handle` is owned by Phase 09 step 9.2; (3) C++
+  template arguments of interface type, and a C++ value in an interface with methods, say 'typed interop: Phase 12' (the channel one says
+  Phase 12 too: nit, no plan text; fix when 12 is planned); (4) 86 new tests (28 diff programs, 58 panic_kind uncaught-panic run tests);
+  (5) NIT left: iconv.go:81 comment 'step 5.11 brings the real fmt'. The Phase 04/05 gaps list is in TODO.md.
