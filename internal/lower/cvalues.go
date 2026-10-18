@@ -293,7 +293,7 @@ func (fg *funcGen) cBool(e ast.Expr) cppir.Expr {
 	if c, ok := ast.Unparen(e).(*ast.CallExpr); ok && fg.temps[ast.Unparen(e)] == "" {
 		if conv := fg.g.pkg.Conversion(c); conv != nil && conv.Kind == check.Compare {
 			// A comparison of C/C++ values as a condition: C++ makes it a bool there.
-			return fg.expr(c.Args[0])
+			return fg.cCompare(c.Args[0], false)
 		}
 	}
 	x := fg.expr(e)
@@ -303,7 +303,9 @@ func (fg *funcGen) cBool(e ast.Expr) cppir.Expr {
 	switch u := ast.Unparen(e).(type) {
 	case *ast.BinaryExpr:
 		switch u.Op {
-		case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ, token.LAND, token.LOR:
+		case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ:
+			return fg.cCompareText(u, x, false)
+		case token.LAND, token.LOR:
 			return x
 		}
 	case *ast.UnaryExpr:
@@ -444,7 +446,7 @@ func (fg *funcGen) cValueOf(e ast.Expr) cppir.Expr {
 func (fg *funcGen) asConversion(c *ast.CallExpr, conv *check.Conversion) cppir.Expr {
 	if conv.Kind == check.Compare {
 		// x == y of C/C++ values, gp_cgoh.Cmp(x == y): a Go bool, as in cgo.
-		return call("gp::cgo::to_bool", fg.expr(c.Args[0]))
+		return fg.cCompare(c.Args[0], true)
 	}
 	if conv.Kind != check.AsCall || len(c.Args) != 1 {
 		fg.g.unsupported(c.Pos(), "this conversion of a C/C++ value")
@@ -603,4 +605,53 @@ func (g *gen) markCValues(n ast.Node, sig *types.Signature) {
 		}
 		return true
 	})
+}
+
+// stringConstantCompare returns the opaque operand of a comparison cmp (x == "text", "text" != x, <,
+// ...) whose other operand is a string constant, or nil.
+func (fg *funcGen) stringConstantCompare(cmp ast.Expr) ast.Expr {
+	bin, ok := ast.Unparen(cmp).(*ast.BinaryExpr)
+	if !ok {
+		return nil
+	}
+	switch bin.Op {
+	case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ:
+	default:
+		return nil
+	}
+	isString := func(e ast.Expr) bool {
+		tv := fg.g.info.Types[e]
+		return tv.Value != nil && tv.Value.Kind() == constant.String
+	}
+	opaque := func(e ast.Expr) bool {
+		t := fg.g.info.TypeOf(e)
+		return t == nil || !complete(t)
+	}
+	switch {
+	case isString(bin.Y) && opaque(bin.X):
+		return bin.X
+	case isString(bin.X) && opaque(bin.Y):
+		return bin.Y
+	}
+	return nil
+}
+
+// cCompare returns the C++ of the comparison cmp of C/C++ values (the argument of gp_cgoh.Cmp):
+// to_bool(x) as a value (toBool), the bare x as a condition. When one operand is a string constant
+// (x == "text"), gp::cgo::to_bool_vs_string rejects a C char pointer or array for the other (C++
+// compares addresses, silently false for an array), where it knows the type of x.
+func (fg *funcGen) cCompare(cmp ast.Expr, toBool bool) cppir.Expr {
+	return fg.cCompareText(cmp, fg.expr(cmp), toBool)
+}
+
+// cCompareText is cCompare for the C++ x of cmp that the caller has made already.
+func (fg *funcGen) cCompareText(cmp ast.Expr, x cppir.Expr, toBool bool) cppir.Expr {
+	if other := fg.stringConstantCompare(cmp); other != nil {
+		decl := typeName("decltype(" + cppir.ExprString(fg.expr(other)) + ")")
+		return templateCall("gp::cgo::to_bool_vs_string", []cppir.Node{decl}, x)
+	}
+	if toBool {
+		return call("gp::cgo::to_bool", x)
+	}
+	return x
 }

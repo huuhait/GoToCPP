@@ -60,7 +60,7 @@ test-programs:
 	$(GO) test -count=1 -v ./tests/...
 
 # The sanitizer job (Phase 03 exit criteria): the test programs that run code
-# (tests/run, tests/diff, tests/interop and examples/) with gocpp run -asan
+# (tests/run, tests/diff, tests/interop, tests/zoo and examples/) with gocpp run -asan
 # (AddressSanitizer, LeakSanitizer and UndefinedBehaviorSanitizer; a test
 # marked "// lsan: cycle" leaks a reference cycle on purpose and runs without
 # LeakSanitizer), then the emitter's tests, which build and run programs
@@ -81,7 +81,7 @@ SANITIZE_FLAGS = -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanit
 ci-sanitize: export GOCPP_REQUIRE_CXX ?= g++,clang++
 ci-sanitize:
 	GOCPP_FLAGS="$(GOCPP_FLAGS) -asan" $(GO) test -count=1 -timeout 120m -parallel 4 \
-		-run '^(TestRun|TestDiff|TestInterop|TestExamples)$$' ./tests/...
+		-run '^(TestRun|TestDiff|TestInterop|TestZoo|TestExamples)$$' ./tests/...
 	GOCPP_TEST_CXXFLAGS="$(GOCPP_TEST_CXXFLAGS) $(SANITIZE_FLAGS)" \
 		$(GO) test -count=1 -timeout 60m -parallel 2 ./internal/cppgen/...
 	@echo "make ci-sanitize: all checks passed"

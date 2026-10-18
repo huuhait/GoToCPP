@@ -18,7 +18,9 @@ func TestFixtureOf(t *testing.T) {
 		{"tests/interop/vector_values.gp", "TestInterop", "vector_values", true},
 		{"examples/hello/main.gp", "TestExamples", "hello", true},
 		{"examples/hello/output.txt", "TestExamples", "hello", true},
-		{"tests/interop/crange.h", "", "", false}, // a helper header: not one fixture
+		{"tests/interop/crange.h", "", "", false},                                 // a helper header: not one fixture
+		{"tests/interop/helper_pair/main.gp", "TestInterop", "helper_pair", true}, // a folder test
+		{"tests/zoo/vector.gp", "TestZoo", "vector", true},
 		{"tests/harness_test.go", "", "", false},
 		{"tests/pkgs/basic_cross/geom/geom.gp", "TestPkgs", "basic_cross", true},
 		{"tests/pkgs/errors/internal_rule/main.gp", "TestPkgErrors", "internal_rule", true},
@@ -74,6 +76,17 @@ func TestMakePlan(t *testing.T) {
 	}
 	if !strings.Contains(joined, `./runtime -run ^TestCXX$/^g\+\+$/^O0$`) || !strings.Contains(joined, "TestLayout") {
 		t.Errorf("runtime steps missing:\n%s", joined)
+	}
+	// The interop docs and the files they copy get their snippet test.
+	for _, f := range []string{"docs/spec/interop-cookbook.md", "tests/interop/cookbook_zlib.gp", "tests/zoo/sdl2.gp"} {
+		p = makePlan([]string{f}, "g++")
+		joined = ""
+		for _, s := range p.steps {
+			joined += s.String() + "\n"
+		}
+		if !strings.Contains(joined, "./tests -run ^TestDocSnippets$") {
+			t.Errorf("%s: no doc snippet step in\n%s", f, joined)
+		}
 	}
 	// Testdata and spikes are ignored; a helper header gets a note.
 	p = makePlan([]string{"internal/syntax/testdata/x.go", "spikes/a/b.go", "tests/interop/crange.h"}, "g++")

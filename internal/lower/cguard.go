@@ -332,7 +332,7 @@ func (g *gen) cExprOK(e ast.Expr) bool {
 		if x.Type != nil && isInterface(g.info.TypeOf(x.X)) {
 			return true // x.(std.string): the interface's value is a C/C++ one (iconv.go)
 		}
-		g.unsupported(x.Pos(), "type assertions on C/C++ values (a C++ value is not an interface)")
+		g.userError(x.Pos(), "invalid operation: %s (C/C++ value) is not an interface: a type assertion or type switch needs a Go interface value", g.srcText(x.X))
 	default:
 		g.unsupported(e.Pos(), "this use of C/C++ values")
 	}
@@ -463,6 +463,12 @@ func (g *gen) cPlaceOK(e ast.Expr, parent ast.Node) bool {
 		return false
 	}
 	switch p := parent.(type) {
+	case *ast.TypeAssertExpr:
+		if e == ast.Unparen(p.X) && p.Type == nil {
+			// switch v.(type): the same user error as for x.(T) (the C/C++ value is no interface).
+			g.userError(e.Pos(), "invalid operation: %s (C/C++ value) is not an interface: a type assertion or type switch needs a Go interface value", g.srcText(e))
+			return false
+		}
 	case *ast.ExprStmt:
 		if _, ok := ast.Unparen(e).(*ast.CallExpr); ok {
 			return true
@@ -562,6 +568,11 @@ func (g *gen) cPlaceOK(e ast.Expr, parent ast.Node) bool {
 				switch b.Name() {
 				case "print", "println":
 					return true // gp::cgo::print_arg (fmtcall.go)
+				case "make":
+					if len(p.Args) > 1 && !containsExpr(p.Args[0], e) {
+						return true // make([]byte, n) with n a C number (C.ulong), as in cgo: intExpr converts it
+					}
+					g.unsupported(e.Pos(), "make of C/C++ values")
 				case "len", "cap":
 					g.userError(e.Pos(), "invalid argument: %s (C/C++ value) for built-in %s: call its C++ function, %s.size() or std.size(%s)",
 						g.srcText(e), b.Name(), g.srcText(e), g.srcText(e))

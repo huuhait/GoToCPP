@@ -434,6 +434,12 @@ func TestExamples(t *testing.T) {
 		if p.ex, p.err = loadExample(exDir, rel); p.err == nil {
 			p.header = p.ex.header
 		}
+		if p.err == nil && p.header.display && displayGate(true, os.Getenv) != "" {
+			// No display: the example is built with each compiler but not run, so that a GUI
+			// example (raylib, SDL) can't rot unseen. (With a display it runs.)
+			p.buildOnly = true
+			p.header.display = false
+		}
 		trackFiles(exDir) // an example can have more files than the harness reads
 		progs = append(progs, p)
 	}
@@ -458,10 +464,11 @@ type program struct {
 	err  error  // why the test is malformed, or nil
 	skip string // why the test can't run here, or ""
 
-	header *header
-	wants  []wantError   // an error test's // ERROR comments
-	ex     *example      // an example's output.txt, args.txt and stdin.txt
-	debug  *debugProgram // a debug test's funcs and // gdb: comments
+	header    *header
+	buildOnly bool          // an example that needs a display, and there is none: built but not run
+	wants     []wantError   // an error test's // ERROR comments
+	ex        *example      // an example's output.txt, args.txt and stdin.txt
+	debug     *debugProgram // a debug test's funcs and // gdb: comments
 }
 
 // loadTests reads the tests in tests/<kind>: each .gp file directly in the
@@ -719,6 +726,19 @@ func (c *config) exampleTest(t *testing.T, p *program) {
 		exitCode:  p.header.exitCode,
 		anyStderr: true,
 	}
+	if p.buildOnly {
+		c.forEachCompiler(t, func(t *testing.T, cc compiler) {
+			args := append(append([]string{"build"}, c.flags...), "-o", filepath.Join(t.TempDir(), "prog"), p.arg)
+			j := gocppJob(p.dir, nil, cc.cxx, p.header.phase, args...)
+			j.combined = true
+			r := c.run(t, j)
+			if r.problem != "" || r.exit != 0 {
+				t.Fatalf("%s: %s\noutput:\n%s", r.cmd, r.why(), indent(string(r.stdout)))
+			}
+			t.Logf("built, not run: %s needs a display (neither DISPLAY nor WAYLAND_DISPLAY is set)", p.path)
+		})
+		return
+	}
 	c.forEachCompiler(t, func(t *testing.T, cc compiler) {
 		j := gocppJob(p.dir, p.ex.env, cc.cxx, p.header.phase, c.runArgs(p.arg, p.ex.args...)...)
 		if p.ex.stdin != nil {
@@ -766,10 +786,30 @@ func (c *config) interopErrorsTest(t *testing.T, p *program) {
 			t.Fatalf("%s: %s\noutput:\n%s", r.cmd, r.problem, indent(string(r.stdout)))
 		}
 		diags, other := parseDiagnostics(string(r.stdout))
-		// gocpp's count of the errors it leaves out ("(and 2 more errors
-		// in gocpp's code: ...)") is no error.
-		other = slices.DeleteFunc(other, othersLineRx.MatchString)
-		problems := matchErrors(p.file(), p.wants, diags, other)
+		// The count of the errors that gocpp leaves out as its own
+		// ("(and 2 more errors in gocpp's code: ...)") is not accepted: a
+		// seed that also triggers a gocpp bug must fail. A seed whose
+		// follow-on errors in generated code are expected says so with a
+		// "// others-ok: N reason" comment: exactly N of them.
+		var problems []string
+		if src, err := os.ReadFile(filepath.Join(p.dir, p.file())); err == nil {
+			if m := othersOKRx.FindSubmatch(src); m != nil {
+				want := string(m[1])
+				found := false
+				other = slices.DeleteFunc(other, func(line string) bool {
+					lm := othersLineRx.FindStringSubmatch(line)
+					if lm != nil && lm[1] == want {
+						found = true
+						return true
+					}
+					return false
+				})
+				if !found {
+					problems = append(problems, "the test expects the line \"(and "+want+" more errors in gocpp's code ...)\" (// others-ok: "+want+")")
+				}
+			}
+		}
+		problems = append(problems, matchErrors(p.file(), p.wants, diags, other)...)
 		if r.exit != 1 {
 			problems = append([]string{fmt.Sprintf("%s, want exit code 1", r.status)}, problems...)
 		}
@@ -781,7 +821,10 @@ func (c *config) interopErrorsTest(t *testing.T, p *program) {
 
 // othersLineRx matches the line after the errors of an interop error test
 // that counts the compiler's errors that gocpp left out.
-var othersLineRx = regexp.MustCompile(`^\(and \d+ more errors? in gocpp's code: -cpperrors=full shows (it|them)\)$`)
+var othersLineRx = regexp.MustCompile(`^\(and (\d+) more errors? in gocpp's code: -cpperrors=full shows (it|them)\)$`)
+
+// othersOKRx matches the comment with which an interop error test accepts that line.
+var othersOKRx = regexp.MustCompile(`(?m)^\s*// others-ok: (\d+) \S`)
 
 // checkJob returns the job that checks the error test file in dir:
 // gocpp check -e file. -e reports every error, not only the first 10 (Go's

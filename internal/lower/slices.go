@@ -115,6 +115,11 @@ func (fg *funcGen) sliceBuiltin(c *ast.CallExpr, name string) cppir.Expr {
 		}
 		args := make([]cppir.Expr, len(c.Args)-1)
 		for i, a := range c.Args[1:] {
+			if t := fg.g.info.TypeOf(a); fg.g.info.Types[a].Value == nil && (t == nil || !complete(t)) {
+				// A size that is a C number, enum or bool (C.size_t, an enum): as cgo, any integer.
+				args[i] = templateCall("gp::cgo::as", []cppir.Node{typeName("int64_t")}, fg.expr(a))
+				continue
+			}
 			args[i] = fg.intExpr(a)
 		}
 		return templateCall("gp::make_slice", []cppir.Node{elem}, args...)

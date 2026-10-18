@@ -4,6 +4,7 @@
 // type with no default constructor: Go's zero value of the struct (var s S, new(S)) needs one of
 // the field, so the struct can't be defined: a clear error at the field's line, also if the program
 // only builds the struct from a literal.
+// others-ok: 2 each field also fails to convert its default member initializer in the generated struct (gocpp's own follow-on errors, counted in the last output line)
 package main
 
 import (

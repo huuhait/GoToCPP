@@ -533,8 +533,9 @@ namespace cgo {
 // static_cast is undefined behavior; a floating x to a floating T with less precision gives ±Inf
 // out of range (narrow_float); string(x) copies the bytes of a C++ string (to_go_string);
 // everything else is static_cast<T>(x), also for C++ class types (static_cast<bool>(std::cout)).
+// as_value is the body; as (below) takes numbers by value, so that a bit-field can be converted.
 template <typename T, typename X>
-constexpr T as(X&& x) {
+constexpr T as_value(X&& x) {
     using F = std::remove_cvref_t<std::decay_t<X>>;
     static_assert(!(std::is_pointer_v<F> && std::is_arithmetic_v<T>),
                   "gocpp: a C pointer can't be converted to a number: use unsafe.Pointer");
@@ -608,6 +609,25 @@ constexpr T as(X&& x) {
     }
 }
 
+// A number or an enum is taken by value, because a bit-field (int(f.mode)) can't bind to a
+// forwarding reference (a compile error that no overload can avoid); everything else is
+// forwarded.
+template <typename X>
+inline constexpr bool by_value_scalar =
+    std::is_arithmetic_v<std::remove_cvref_t<X>> || std::is_enum_v<std::remove_cvref_t<X>>;
+
+template <typename T, typename X>
+    requires(!by_value_scalar<X>)
+constexpr T as(X&& x) {
+    return as_value<T>(std::forward<X>(x));
+}
+
+template <typename T, typename X>
+    requires by_value_scalar<X>
+constexpr T as(X x) {
+    return as_value<T>(x);
+}
+
 // CString(s) is C.CString: a copy of every byte of s and a NUL, in C's heap (malloc); free it
 // with C.free. A NUL inside s ends the C string early, as in Go. CString("") is a new "" (not
 // null). If malloc fails, it is Go's fatal error "runtime: C malloc failed".
@@ -665,6 +685,26 @@ slice<uint8_t> GoBytes(const void* p, N n) {
 // free(p) is C.free: C's free. A null p does nothing.
 void free(void* p) noexcept;
 
+// to_bool_vs_string<X>(x) is to_bool(x) for a comparison of a C/C++ value of type X with a string
+// constant (p == "text"). If X is a C char pointer or char array, C++ compares addresses, which is
+// silently false for an array and unspecified for a pointer: an error here. A std::string, a
+// gocpp string that came through C++, and other classes compare as their operator== says.
+template <typename X>
+inline constexpr bool is_c_text = [] {
+    using T = std::remove_cv_t<std::remove_reference_t<X>>;
+    if constexpr (std::is_array_v<T>) {
+        using E = std::remove_cv_t<std::remove_extent_t<T>>;
+        return std::is_same_v<E, char> || std::is_same_v<E, signed char> ||
+               std::is_same_v<E, unsigned char>;
+    } else if constexpr (std::is_pointer_v<T>) {
+        using E = std::remove_cv_t<std::remove_pointer_t<T>>;
+        return std::is_same_v<E, char> || std::is_same_v<E, signed char> ||
+               std::is_same_v<E, unsigned char>;
+    } else {
+        return false;
+    }
+}();
+
 // case_eq(tag, v) is a case v of a switch on the C/C++ value tag: tag == v, in an if/else chain
 // (Phase 04 §2.5). The tag must be a number, an enum or a pointer: C++'s == of a class type is
 // not Go's ==, and a C struct has none.
@@ -672,6 +712,9 @@ template <typename A, typename B>
 constexpr bool case_eq(const A& tag, const B& v) {
     static_assert(std::is_scalar_v<A> || gp::detail::cptr_like<A>,
                   "gocpp: a switch on a C/C++ value needs a number, an enum or a pointer");
+    static_assert(!(is_c_text<A> && std::is_array_v<B>),
+                  "invalid operation: comparing a C string (char*) with a Go string compares "
+                  "addresses: use C.GoString(x) == \"...\" (or strcmp)");
     return tag == v;
 }
 
@@ -698,6 +741,14 @@ constexpr bool to_bool(const X& x) {
     static_assert(std::is_convertible_v<const X&, bool>,
                   "gocpp: the result of this C++ comparison doesn't convert to bool");
     return x;
+}
+
+template <typename X, typename B>
+constexpr bool to_bool_vs_string(const B& x) {
+    static_assert(!is_c_text<X>,
+                  "invalid operation: comparing a C string (char*) with a Go string compares "
+                  "addresses: use C.GoString(x) == \"...\" (or strcmp)");
+    return to_bool(x);
 }
 
 // field_ok<F> checks the type F of a field that a keyed literal of a C/C++ type sets by an
@@ -1186,8 +1237,10 @@ void store_keep(const O& owner, M& member, V&& value, keep_path<L...> = {}) {
 // load(x) is the value of the member read x (auto next = cur.next): a raw pointer to a C struct
 // becomes a gp::cptr, which owns the struct if gocpp does (gp::detail::box_owner), so that the
 // variable keeps it alive when cur's member is stored again; any other value is x itself (a copy
-// when it initializes an auto variable). A bit-field is read as a copy.
+// when it initializes an auto variable). A number or an enum is taken by value, so that a bit-field
+// (x := b.mode) can be read: it can't bind to a forwarding reference.
 template <typename X>
+    requires(!by_value_scalar<X>)
 decltype(auto) load(X&& x) {
     using P = std::remove_cvref_t<X>;
     if constexpr (std::is_pointer_v<P> && std::is_class_v<std::remove_pointer_t<P>>) {
@@ -1197,7 +1250,12 @@ decltype(auto) load(X&& x) {
     }
 }
 template <typename X>
-    requires(!std::is_array_v<X> && std::is_copy_constructible_v<X>)
+    requires by_value_scalar<X>
+X load(X x) {
+    return x;
+}
+template <typename X>
+    requires(!std::is_array_v<X> && std::is_copy_constructible_v<X> && !by_value_scalar<X>)
 X load(const X& x) {
     return x;
 }

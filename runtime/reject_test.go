@@ -45,6 +45,11 @@ var rejectCases = []struct {
 	{"cond-pointer", "bool f(const char* p) {\n\treturn gp::cgo::cond(p); // bad\n}\n", "non-boolean condition"},
 	// std::optional converts to bool only explicitly: not a Go condition either.
 	{"cond-optional", "#include <optional>\nbool f(std::optional<int> o) {\n\treturn gp::cgo::cond(o); // bad\n}\n", "non-boolean condition"},
+	// p == "text" with a C char pointer or array compares addresses: rejected (to_bool_vs_string).
+	{"cmp-array-string", "bool f() {\n\tchar a[4] = \"abc\";\n\treturn gp::cgo::to_bool_vs_string<decltype(a)>(a == \"abc\"); // bad\n}\n",
+		"comparing a C string (char*) with a Go string compares addresses"},
+	{"cmp-pointer-string", "bool f(const char* p) {\n\treturn gp::cgo::to_bool_vs_string<decltype(p)>(p == \"abc\"); // bad\n}\n",
+		"comparing a C string (char*) with a Go string compares addresses"},
 	// string(p) of a C string: cgo's form is C.GoString(p) (Phase 04 step 4.9).
 	{"string-of-pointer", "gp::string f(const char* p) {\n\treturn gp::cgo::as<gp::string>(p); // bad\n}\n", "use C.GoString(p)"},
 	{"string-of-array", "gp::string f() {\n\tchar a[4] = \"abc\";\n\treturn gp::cgo::as<gp::string>(a); // bad\n}\n", "use C.GoString(p)"},
@@ -250,6 +255,11 @@ void boxes(std::string& s, std::vector<int>& vs) {
 	(void)a;
 	(void)b;
 	(void)n;
+}
+
+// p == "text" is fine for a std::string, a gocpp string and other classes.
+bool string_compares(const std::string& s, const gp::string& g) {
+	return gp::cgo::to_bool_vs_string<std::string>(s == "x") && gp::cgo::to_bool_vs_string<gp::string>(g == "x");
 }
 `
 

@@ -46,7 +46,7 @@ import (
 // kinds maps a folder of tests/ to the test function that runs its fixtures.
 var kinds = map[string]string{
 	"run": "TestRun", "errors": "TestErrors", "golden": "TestGolden",
-	"diff": "TestDiff", "interop": "TestInterop", "debug": "TestDebug",
+	"diff": "TestDiff", "interop": "TestInterop", "debug": "TestDebug", "zoo": "TestZoo",
 }
 
 // smoke are fixtures that always run: one of each common kind, small and fast.
@@ -113,6 +113,7 @@ func makePlan(files []string, cxx string) plan {
 	var goFiles []string
 	pkgs := map[string]bool{}
 	runtimeChanged := false
+	docsChanged := false
 	fixtures := map[string]map[string]bool{} // test function -> fixture names
 	for _, f := range files {
 		switch {
@@ -120,6 +121,10 @@ func makePlan(files []string, cxx string) plan {
 			continue
 		case strings.HasPrefix(f, "runtime/"):
 			runtimeChanged = true
+		}
+		if strings.HasPrefix(f, "docs/spec/interop") || strings.HasPrefix(f, "tests/interop/cookbook_") ||
+			strings.HasPrefix(f, "tests/interop/module_recipe_cpp/") || strings.HasPrefix(f, "tests/zoo/") {
+			docsChanged = true // the interop docs show copies of these files (tests/docs_test.go)
 		}
 		if strings.HasSuffix(f, ".go") && exists(f) {
 			goFiles = append(goFiles, f)
@@ -150,6 +155,9 @@ func makePlan(files []string, cxx string) plan {
 		p.steps = append(p.steps,
 			step{name: "runtime fast tests", args: []string{"go", "test", "-count=1", "-timeout", "30m", "./runtime", "-run", "^(TestFSHasEveryFile|TestSources|TestLayout|TestIsPrintTable|TestNoPlainMembers|TestNoPlainMembersFinds|TestRejected|TestNoOSHeadersOutsideOS|TestCheckIncludes)$"}},
 			step{name: "runtime C++ unit tests (O0)", env: env, args: []string{"go", "test", "-count=1", "-timeout", "30m", "./runtime", "-run", "^TestCXX$/^" + regexp.QuoteMeta(cxx) + "$/^O0$"}})
+	}
+	if docsChanged {
+		p.steps = append(p.steps, step{name: "interop doc snippets", args: []string{"go", "test", "-count=1", "-timeout", "30m", "./tests", "-run", "^TestDocSnippets$"}})
 	}
 	// Fixtures: the changed ones, then the smoke set. One go test per test function, since
 	// -run matches the subtests of one top-level test.
@@ -195,6 +203,8 @@ func fixtureOf(f string) (fn, name string, ok bool) {
 			return "", "", false
 		}
 		return fn, name, true
+	case len(parts) >= 4 && parts[0] == "tests" && parts[1] == "interop":
+		return "TestInterop", parts[2], true // tests/interop/<name>/...: a folder test
 	case len(parts) >= 4 && parts[0] == "tests" && parts[1] == "pkgs" && parts[2] == "errors":
 		return "TestPkgErrors", parts[3], true // tests/pkgs/errors/<name>/...: a module folder
 	case len(parts) >= 4 && parts[0] == "tests" && parts[1] == "pkgs":

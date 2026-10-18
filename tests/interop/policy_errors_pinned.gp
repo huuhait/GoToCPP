@@ -3,6 +3,7 @@
 // The policy table of docs/spec/interop.md ("Types that can't be copied"), the column of a type
 // that C++ can neither copy nor move (a std::mutex, a lock): where a construct needs a copy or a
 // move, the program doesn't compile, with an error at the .gp line.
+// others-ok: 3 the pinned types also fail in the generated defaults and copies that follow the seeded errors (gocpp's own follow-on errors, counted in the last output line)
 package main
 
 import (

@@ -110,6 +110,14 @@ func cppLines(fset *token.FileSet, pkg *check.Package) cppLineSet {
 				return true
 			}
 			stack = append(stack, n)
+			if sw, ok := n.(*ast.SwitchStmt); ok && sw.Tag != nil && isCppExpr(pkg, sw.Tag) {
+				// switch p { case "x": }: each case is compared with the C/C++ tag (gp::cgo::case_eq), so an
+				// error at a case line is about C/C++ code too, though the line itself has none.
+				for _, c := range sw.Body.List {
+					p := fset.Position(c.Pos())
+					set.add(filepath.Clean(p.Filename), p.Line)
+				}
+			}
 			e, ok := n.(ast.Expr)
 			if !ok || !isCppExpr(pkg, e) {
 				return true

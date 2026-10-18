@@ -353,6 +353,11 @@ func unwrapHelpers(msg, name string) string {
 func (p *Package) UserText(text string) string {
 	for name := range p.hidden {
 		text = unwrapHelpers(text, name)
+		// A conversion of a C/C++ value, int(x), is gp_cgoh.As[int](x) in the AST (convert.go).
+		text = unwrapCmp(text, name+"."+cmpName+"(")
+		text = unwrap(text, name+"."+valueName+"[", valueName)
+		text = unwrap(text, name+"."+unusedName+"[", unusedName)
+		text = unwrap(text, name+"."+asName+"[", asName)
 	}
 	return text
 }

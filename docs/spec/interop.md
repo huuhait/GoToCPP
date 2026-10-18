@@ -7,9 +7,9 @@ C/C++ side is built.
 
 | | |
 |---|---|
-| Status | v0, written in Phase 00 from the plan. [Phase 04 step 4.19](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#3-steps) finishes it and adds a cookbook |
+| Status | complete for Phase 04 (opaque interop, step 4.19): every feature of steps 4.1 to 4.17 is described here, with its limits. Typed interop (Phase 12) will change the "known gaps" only. The [cookbook](interop-cookbook.md) has task-oriented recipes whose programs are tests |
 | Source | [Phase 01 §2.3–2.5](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#23-import-classification) and [§2.8](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#28-the-opaque-pass), [Phase 04](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md), and the other READMEs linked below |
-| See also | [language.md](language.md) ([D2](language.md#d2-header-imports-instead-of-cgo), [D14](language.md#d14-cc-values-follow-c-rules), [D16](language.md#d16-unsafepointer-and-pointers-from-c)), [cpp-mapping.md](cpp-mapping.md) |
+| See also | [interop-cookbook.md](interop-cookbook.md) (recipes), [modules.md](modules.md), [language.md](language.md) ([D2](language.md#d2-header-imports-instead-of-cgo), [D14](language.md#d14-cc-values-follow-c-rules), [D16](language.md#d16-unsafepointer-and-pointers-from-c)), [cpp-mapping.md](cpp-mapping.md) |
 
 **Opaque mode.** gocpp does not try to understand C++ (templates, overloads, macros). Every
 C/C++ name is **opaque**: gocpp writes it into the C++ output almost unchanged, and the C++
@@ -18,8 +18,30 @@ and template works from the start. gocpp only needs two small facts from the com
 a macro, and is it a namespace, a type, a template or a value ([the probes](#the-two-compiler-probes)).
 Later, [typed interop](#what-typed-interop-will-add) (Phase 12) asks clang for real types.
 
+**Contents.**
+[A first example](#a-first-example) ·
+[Import forms](#import-forms) (header packages, module headers, namespaces, order) ·
+[What `C` holds](#what-c-holds) ·
+[How names are translated](#how-names-are-translated) (the two probes, macros) ·
+[C/C++ types in gocpp code](#cc-types-in-gocpp-code) (embedded C types) ·
+[Values and operations](#values-and-operations) (literals, `range`, constants, closures and `defer`, types that can't be copied) ·
+[Strings](#strings-at-the-boundary) ·
+[Pointers, `unsafe` and slices](#pointers-unsafe-and-slices-at-the-boundary) ·
+[Callbacks and panics](#callbacks-and-panics) (C function pointers, user data, C++ exceptions) ·
+[Interfaces and `fmt`](#cc-values-in-interfaces-and-fmt) ·
+[Building C and C++ sources](#building-c-and-c-sources) (directives, flags, `extern "C"`) ·
+[Small helpers](#small-helpers-a-header-next-to-the-gp-file) ·
+[Errors in interop code](#errors-in-interop-code) ·
+[Windows](#windows-headers) ·
+[Limits and known gaps](#limits-and-known-gaps) ·
+[Troubleshooting](#troubleshooting) ·
+[How interop is tested](#how-interop-is-tested) ·
+[What typed interop will add](#what-typed-interop-will-add).
+Recipes: [cookbook](interop-cookbook.md).
+
 ## A first example
 
+<!-- test: tests/interop/doc_first_sqlite.gp -->
 ```go
 //gocpp:pkg-config sqlite3
 package main
@@ -36,10 +58,18 @@ func main() {
 		panic("open failed")
 	}
 	defer sqlite3.sqlite3_close(db)
-	fmt.Println("sqlite", C.GoString(sqlite3.sqlite3_libversion()))
+	fmt.Println("sqlite", C.GoString(sqlite3.sqlite3_libversion()) != "")
 }
 ```
 
+Output:
+
+<!-- output: tests/interop/doc_first_sqlite.gp -->
+```text
+sqlite true
+```
+
+<!-- test: tests/interop/doc_first_std.gp -->
 ```go
 package main
 
@@ -60,6 +90,14 @@ func main() {
 	lo, hi := std.minmax(3, 1)
 	fmt.Println(lo, hi)
 }
+```
+
+Output:
+
+<!-- output: tests/interop/doc_first_std.gp -->
+```text
+bob 31
+1 3
 ```
 
 - `<sqlite3.h>` is a package named `sqlite3`. Its functions, types and macros are
@@ -91,6 +129,7 @@ path that starts with `./` or `../` must be a header.
 
 ### Header packages and their names
 
+<!-- illustration: a fragment, not a program -->
 ```go
 import (
 	"./my-lib.h"         // package my_lib: "-" is not allowed in Go names
@@ -142,6 +181,7 @@ import (
 
 ### Module headers
 
+<!-- illustration: a fragment, not a program -->
 ```go
 import (
 	"github.com/huuhait/game/native/physics.h"  // physics.h in this project (module github.com/huuhait/game)
@@ -173,6 +213,7 @@ probes and the namespaces work as for a local header), with these differences
 
 ### Namespaces are packages
 
+<!-- test: tests/interop/doc_namespaces.gp -->
 ```go
 package main
 
@@ -191,6 +232,13 @@ func main() {
 	p := fs.path("/tmp/x.txt")
 	fmt.Println(v.size(), d.count(), p.filename())
 }
+```
+
+Output:
+
+<!-- output: tests/interop/doc_namespaces.gp -->
+```text
+3 0 "x.txt"
 ```
 
 - **Every namespace that the imported headers declare can be used directly**, with no import:
@@ -258,6 +306,7 @@ func main() {
   lines with no empty line and no comment line between them. Two `import` declarations are never
   sorted together.
 
+<!-- illustration: a fragment, not a program -->
 ```go
 import (
 	"fmt" // gocpp fmt sorts this group, like gofmt
@@ -274,6 +323,7 @@ Sources: [Phase 01 §2.3](../../plans/2026-10-13-gocpp/phase-01-frontend/README.
 
 ## What C holds
 
+<!-- test: tests/interop/doc_c_holds.gp -->
 ```go
 package main
 
@@ -289,6 +339,14 @@ func main() {
 	n := cstring.strlen("string literals go straight to C")
 	cstdio.printf("strlen = %zu\n", n)
 }
+```
+
+Output:
+
+<!-- output: tests/interop/doc_c_holds.gp -->
+```text
+hello gocpp (5 letters)
+strlen = 32
 ```
 
 `C` holds only **C's built-in types** and the **boundary helpers**, as in cgo. Everything a header
@@ -425,6 +483,7 @@ Sources: [Phase 04 §2.2](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/READ
 
 ## C/C++ types in gocpp code
 
+<!-- illustration: a fragment, not a program -->
 ```go
 func open(path string) *cstdio.FILE { // a raw C pointer
 	return cstdio.fopen(C.cstr(path), "r")
@@ -460,6 +519,7 @@ type Scene struct {
 
 ### Embedded C types
 
+<!-- illustration: a fragment, not a program -->
 ```go
 type MV struct {
 	std.vector[int] // the field is called vector
@@ -509,6 +569,7 @@ Source: [Phase 04 §2.4](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/READM
 
 ### Typed and opaque expressions
 
+<!-- illustration: a fragment, not a program -->
 ```go
 x := lib.f()                // opaque: auto x = ...; owns pair/tuple reference members
 var total int = arr.size()  // typed: total is a gocpp int (int64_t total = ...)
@@ -556,6 +617,7 @@ fmt.Println(n + 1)          // fully type-checked by gocpp
 C/C++ value in an operator is an error, because C++ would convert one of them without a word
 (`n + v.size()` would turn a negative `n` into a huge unsigned number):
 
+<!-- illustration: a fragment, not a program -->
 ```go
 var x C.int = 2
 n := 3
@@ -646,6 +708,7 @@ A literal of a C/C++ type is C++'s braced initialization (step 4.6). C++ decides
 do: aggregate initialization for a C struct, a constructor, or a `std::initializer_list`
 (`std::vector`, `std::map`):
 
+<!-- illustration: a fragment, not a program -->
 ```go
 r := SDL.SDL_Rect{0, 0, 640, 480}            // SDL_Rect{0, 0, 640, 480}
 v := std.vector[int]{5, 3, 8}                // std::vector<int64_t>{5, 3, 8}
@@ -701,6 +764,7 @@ C.int(n)", and a C/C++ value into a gocpp element too ("convert it, int(x)").
 
 ### range over C++ containers and C arrays
 
+<!-- illustration: a fragment, not a program -->
 ```go
 v := lib.scores()                // a std::vector<int>
 for i, x := range v {            // for (auto&& [i, x] : gp::range(v)) {
@@ -772,6 +836,7 @@ for _, s := range f().items {    // f() stays alive for the whole loop
 
 ### Untyped constants in C/C++ calls
 
+<!-- illustration: a fragment, not a program -->
 ```go
 cstdio.printf("%d\n", 5) // 5 is a C int, as printf expects
 m := std.max(n, int(0))  // std.max(n, 0) would not compile: int64_t vs int
@@ -781,7 +846,9 @@ An untyped constant passed to C/C++, or used next to a C/C++ value (an operand, 
 value of `m["k"] = 1` or `s += "!"`), is written as a plain C literal with C's default type (`5`
 is an `int`, `2.0` is a `double`, `"x.txt"` is a string literal). That is what C APIs expect. A
 C++ template that deduces one type from two arguments then needs a typed constant: write
-`std.max(n, int(0))`, not `std.max(n, 0)`.
+`std.max(n, int(0))`, not `std.max(n, 0)` ([tests/interop/cpp_error_max.gp](../../tests/interop/cpp_error_max.gp)
+shows the error). A constant that does not fit an `int` is a `long` (`1<<40`), as in C; `long` has 64 bits on
+Linux and 32 on Windows, so write `%lld` with `C.longlong(x)` where the width matters.
 
 A constant for a variable, field, result or parameter of a gocpp function declared with one of
 C's built-in types, and a constant converted to one, follow Go's rules, as in cgo: the value must
@@ -790,6 +857,7 @@ pointed-to values in assignment, and to constants next to known C operands in ar
 comparison and `op=`. An explicit C conversion checks typed constants too; conversions of
 variables still use runtime Go conversion rules.
 
+<!-- illustration: a fragment, not a program -->
 ```go
 var c C.char = 200   // cannot use 200 (untyped int constant) as C.char value in variable declaration (overflows)
 var n C.int = 2.5    // ... as C.int value in variable declaration (truncated)
@@ -805,6 +873,7 @@ check: gocpp doesn't know those types in opaque mode.
 
 ### C/C++ objects in closures and `defer`
 
+<!-- illustration: a fragment, not a program -->
 ```go
 v := std.vector[int]{}
 add := func(x int) { v.push_back(C.int(x)) }
@@ -897,7 +966,11 @@ defer v.clear()            // fine: v is boxed, so it is still alive when the de
   the loop). The variable of a `range` over a C++ container is the loop's own copy, boxed per
   iteration. `&i` of the variable of a 3-clause `for` is an error (each iteration has its own `i` in
   Go, which a pointer can keep; a C++ address can't): copy it into a variable of the body.
-- **Still not supported:** `go` statements (Phase 08).
+- **`go` statements** (Phase 08) use the same boxes: the goroutine's func literal copies the box of
+  every C/C++ local it uses, so the goroutine, the function and any closure share the one object, and it lives
+  until the last of them is done (`tests/interop/go_cxx_objects.gp`). Before Phase 08 a `go` statement is
+  the phase's "not supported yet" error. Sharing an object between threads is C++'s business: a
+  `std::mutex` (also in a box) protects it as in C++.
 
 ### Types that can't be copied
 
@@ -966,6 +1039,7 @@ Source: [Phase 01 §2.8](../../plans/2026-10-13-gocpp/phase-01-frontend/README.m
 
 ## Strings at the boundary
 
+<!-- illustration: a fragment, not a program -->
 ```go
 name := "world"
 cstdio.printf("hello %s\n", C.cstr(name)) // const char*, valid for this statement
@@ -1045,6 +1119,7 @@ Source: [Phase 04 §2.6](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/READM
 
 ## Pointers, unsafe and slices at the boundary
 
+<!-- illustration: a fragment, not a program -->
 ```go
 var st stat.struct_stat
 stat.stat(C.cstr(path), &st) // &st: a raw C++ address of a C++ value
@@ -1240,6 +1315,7 @@ Source: [Phase 04 §2.7](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/READM
 
 ## Callbacks and panics
 
+<!-- illustration: a fragment, not a program -->
 ```go
 func onEvent(code C.int) { // a top-level func: C can call it through a function pointer
 	fmt.Println("event", code)
@@ -1262,6 +1338,7 @@ below.
 
 ### C function pointers
 
+<!-- illustration: a fragment, not a program -->
 ```go
 // A comparator for qsort: its parameters are the void* pointers of C's type.
 func byValue(a, b unsafe.Pointer) C.int {
@@ -1346,6 +1423,7 @@ apply(unsafe.Pointer(&n), 3)
 C libraries pass a `void*` to their callbacks so that a callback can find its state. It works as
 in cgo (`examples/sqlite`'s `countRow`):
 
+<!-- illustration: a fragment, not a program -->
 ```go
 func countRow(arg unsafe.Pointer, _ C.int, _ **C.char, _ **C.char) C.int {
 	*(*int)(arg)++
@@ -1360,13 +1438,16 @@ sqlite3.sqlite3_exec(db, "SELECT * FROM fruit", countRow, unsafe.Pointer(&count)
   alive while C may call back. For a call that returns after the last callback (`sqlite3_exec`,
   `qsort_r`) the variable is enough. When C **keeps** the user data after the call returns (a
   handler registered for later), gocpp code must keep the owner in a package variable or a table
-  until C has dropped it. `cgo.Handle` (package `runtime/cgo`, Phase 09: not built yet; until then keep your own table) is that table: a handle is an integer that fits the
-  `void*` (`unsafe.Pointer(uintptr(h))`), with an explicit `Delete`; nothing in the callback path
-  has to change for it, because the trampoline passes the `void*` through unchanged.
+  until C has dropped it. Go's `cgo.Handle` (the package `runtime/cgo` comes with Phase 09, so it
+  is not available yet) is that table: a handle is an integer that fits the `void*`
+  (`unsafe.Pointer(uintptr(h))`), with an explicit `Delete`; nothing in the callback path has to change
+  for it, because the trampoline passes the `void*` through unchanged. Until then a package-level
+  `map[int]*State` and an integer key in the `void*` do the same.
 - **A closure through the user pointer.** A closure can't be a function pointer, but it can be the
   user data: keep it in a variable, pass its address, and let one named callback call it. This is
   how a closure that captures variables reaches a C API with a `void*` argument:
 
+<!-- illustration: a fragment, not a program -->
 ```go
 base := 10
 f := func(x C.int) C.int { return x*2 + C.int(base) }
@@ -1386,6 +1467,7 @@ Where a C++ API takes a `std::function` or a template parameter, no trampoline i
 func is passed as a callable that C++ calls, copies and stores. A closure is shared by its copies, so
 a `std::function` keeps it alive for as long as it lives itself:
 
+<!-- illustration: a fragment, not a program -->
 ```go
 var total int
 var b cbx.Button                              // keeps a std::function<void(int)>
@@ -1416,8 +1498,9 @@ h := std.function[func(C.int) C.int](triple) // std::function<int(int)>
   frame, so no C frame is touched and no C++ destructor in them runs. It is the mechanism of
   [C++ exceptions](#c-exceptions) below, with the same report.
 - **Inside the callback everything works as usual.** The callback's own deferred calls run when it
-  panics, before the program ends. A `recover()` in the callback stops
-  its panic and C sees the callback's normal return value.
+  panics, before the program ends, and a `recover()` in the callback (called by a deferred function of
+  the callback itself) stops the panic: C sees the callback's normal return value
+  (`tests/interop/callback_recover.gp`).
 - **What Go does differently** ([D27](language.md#d27-a-panic-that-leaves-a-callback)): Go unwinds the
   panic through the C frames to the Go code that called C, runs the deferred calls on the way, and a
   `recover` there can stop it. Here the deferred calls of the functions outside the C call do not run
@@ -1436,7 +1519,7 @@ h := std.function[func(C.int) C.int](triple) // std::function<int(int)>
   number in the trace work there, and a panic on it ends the program like any goroutine's. The
   trampolines keep no shared state; the user data must outlive the calls from other threads.
 - **C++ exceptions.** A C++ exception that reaches a function with defers is a normal panic that
-  `recover()` can catch (Phase 05, step 5.10): its value is a `gp::CppException` (Go type
+  `recover()` can catch (since Phase 05): its value is a `gp::CppException` (Go type
   `runtime.CppException`, an `error`) whose `Error()` is `C++ exception <type>: <what()>`. One that
   no function with defers is on the stack for ends the program like an unrecovered Go panic, with
   exit code 2 (see [C++ exceptions](#c-exceptions) below).
@@ -1448,13 +1531,14 @@ h := std.function[func(C.int) C.int](triple) // std::function<int(int)>
 
 ### C++ exceptions
 
+<!-- illustration: a fragment, not a program -->
 ```go
 func parse(s string) int {
 	return int(std.stoi(std.string(s))) // throws std::invalid_argument for "x"
 }
 
 func main() {
-	defer fmt.Println("deferred") // runs: the exception is a panic in main (Phase 05)
+	defer fmt.Println("deferred") // runs: the exception is a panic in main
 	fmt.Println(parse("x"))
 }
 ```
@@ -1484,11 +1568,6 @@ exit status 2
   deferred it returns normally with the named results its deferred calls set. `recover()`
   returns the value as an `any`: `fmt.Println(r)` prints `C++ exception std::runtime_error: bad
   thing 3`, `r.(error)` holds, and `%T` is `runtime.CppException`.
-- **The message.** A `std::exception` prints `panic: C++ exception <type>: <what()>` (only
-  `<type>` when `what()` is empty); anything else prints its type: `throw 42` gives
-  `panic: C++ exception of type int`. The type is the one the exception was thrown with, its C++
-  name (`std::out_of_range`, not the `std::exception` it may be caught as), also in a program
-  built with `-fno-rtti`. A newline in `what()` is followed by a tab, as in Go's panic messages.
   Panicking again with the recovered value (`panic(r)`) is the same panic, printed once with
   `[recovered, repanicked]`.
 - **The trace** of a panic that a function with defers made from an exception starts in that
@@ -1531,6 +1610,7 @@ Source: [Phase 04 §2.8](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/READM
 
 ## C/C++ values in interfaces and fmt
 
+<!-- illustration: a fragment, not a program -->
 ```go
 s := std.string("hi")
 var x any = s   // a C++ value in an interface
@@ -1560,6 +1640,7 @@ fmt.Println(&s) // a raw pointer prints as an address
 
 ### Printing C/C++ values
 
+<!-- illustration: a fragment, not a program -->
 ```go
 var n C.int = 7
 p := geo.make_point(1, 2)          // a C++ struct with an operator<<
@@ -1606,6 +1687,7 @@ Source: [Phase 04 §2.12](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/READ
 
 ## Building C and C++ sources
 
+<!-- illustration: a fragment, not a program -->
 ```go
 //gocpp:pkg-config sdl2
 //gocpp:link m pthread
@@ -1952,6 +2034,7 @@ Sources: [Phase 01 §2.4](../../plans/2026-10-13-gocpp/phase-01-frontend/README.
 
 ## Small helpers: a header next to the .gp file
 
+<!-- test: tests/interop/doc_small_helper/mathx.h -->
 ```cpp
 // mathx.h
 #pragma once
@@ -1959,6 +2042,7 @@ Sources: [Phase 01 §2.4](../../plans/2026-10-13-gocpp/phase-01-frontend/README.
 static inline double hypot3(double a, double b, double c) { return std::sqrt(a*a + b*b + c*c); }
 ```
 
+<!-- test: tests/interop/doc_small_helper/main.gp -->
 ```go
 package main
 
@@ -1995,6 +2079,7 @@ std::string dollars(int cents);
 }
 ```
 
+<!-- illustration: a fragment, not a program -->
 ```go
 import "./ledger.hpp" // package ledger, and the C++ namespace ledger
 
@@ -2028,6 +2113,7 @@ is to include the header in the `.cpp` file inside `extern "C" { #include "mathl
 
 There are two fixes in the header or the directive (`tests/interop/helper_h_cpp_pair` and `helper_h_cpp_guards` run both):
 
+<!-- illustration: the variant of tests/interop/helper_h_cpp_pair -->
 ```go
 //gocpp:no-extern-c ./mathlib.h // this .h file is C++: gocpp doesn't wrap it
 package main
@@ -2181,6 +2267,7 @@ Source: [Phase 04 §2.11](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/READ
 
 ## Windows headers
 
+<!-- illustration: Windows only: not built here -->
 ```go
 package main
 
@@ -2204,21 +2291,128 @@ func main() {
 
 Source: [Phase 14 §2.4](../../plans/2026-10-13-gocpp/phase-14-windows/README.md#24-interop-with-windows-headers).
 
-## Known gaps until Phase 12
+## Limits and known gaps
+
+Opaque mode has limits because gocpp does not know C/C++ types: it writes what you wrote, and the C++
+compiler decides. They fall in three groups.
+
+### Gaps that typed interop (Phase 12) will close
 
 | Gap | Until Phase 12 | What you can do |
 |---|---|---|
-| a struct that embeds **several** C/C++ types, with promoted access (`struct{ std.vector[int]; std.string }`, then `mv.push_back(1)`) | the error "not supported yet (Phase 12)": gocpp doesn't know which type has the member. (With one embedded C/C++ type the members are promoted since Phase 05, [below](#embedded-c-types).) | name the field: `mv.vector.push_back(1)` |
-| a C macro as a compile-time constant (`var buf [cstdio.BUFSIZ]byte`) | the error "not supported yet (Phase 12)" | |
+| a struct that embeds **several** C/C++ types, with promoted access (`struct{ std.vector[int]; std.string }`, then `mv.push_back(1)`) | the error "not supported yet (Phase 12)": gocpp doesn't know which type has the member. (With one embedded C/C++ type the members are promoted since Phase 05, [above](#embedded-c-types).) | name the field: `mv.vector.push_back(1)` |
+| a C macro as a compile-time constant (`var buf [cstdio.BUFSIZ]byte`, `const d = lib.MAX + 1`) | the error "not supported yet (Phase 12)" | |
 | a keyed literal of a C struct with array fields | an error | a positional literal (aggregate initialization) |
 | the types of a C struct's fields in a literal | unknown: a gocpp value goes in by C++'s rules (narrowing is an error) | convert it to the C type, `C.int(n)` |
 | too few values in a positional literal of a C/C++ type (`lib.Vec{1}`) | the fields left are zero (C++'s aggregate initialization); Go and cgo say "too few values in struct literal", but gocpp can't count the fields of a C struct | write every value, or use a keyed literal |
 | `.` vs `::`, template vs index | decided by the kind probe; when it can't tell, gocpp falls back to `.` | write `(x).m` or `(v)[i]`: a parenthesized C++ value is always a value ([the probes](#the-two-compiler-probes)) |
 | a smart pointer before `.` | not dereferenced for you | write `(*sp).m` |
-| mistakes in C/C++ code | reported by the C++ compiler, at the `.gp` line | |
+| the element and index of a `range` over a C++ container, the results of C++ calls | C/C++ values, not Go ints and strings: gocpp can't type them | convert them: `int(i)`, `string(s)` |
+| `==` on gocpp structs with C/C++ fields, a struct with a `*lib.T` field as a map key | not supported (Go compares field by field) | compare the fields |
+| mistakes in C/C++ code | reported by the C++ compiler, at the `.gp` line (the line, not the column) | |
 
-Source: [Phase 01 §2.9](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#29-unsupported-feature-checker-phase-gates),
-[Phase 04 §2.5](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#25-values-and-operations-opaque).
+### Limits that stay: C and C++ lifetime rules
+
+- **C/C++ values follow C++ lifetime rules.** gocpp's safety covers gocpp types. What a C function
+  returns, `&x` of a C/C++ local, pointers inside C++ containers and templates, and a pointer that a C or
+  C++ function keeps are the program's to keep valid. The cases that gocpp does track (and the ones it does
+  not) are listed where they belong: [pointers](#pointers-unsafe-and-slices-at-the-boundary),
+  [objects in closures and `defer`](#cc-objects-in-closures-and-defer). The sanitizers (`gocpp run -asan`)
+  find the rest.
+- **A callback is a function pointer only when it has code of its own**: a function of the package or a
+  func literal without captures. A method value, a function of another gocpp package and a generic
+  instance are C++ callables, not function pointers; a variadic C function pointer can't be a callback
+  ([callbacks](#c-function-pointers)).
+- **A panic that leaves a callback ends the program** (divergence D27), and so does a C++ exception that
+  nothing catches in a function without defers.
+- **Callbacks that C calls millions of times cost several times what a C callback costs**, because a
+  pointer argument is a counted gocpp pointer; a C list of structs built with `&T{...}` costs several
+  times a Go list; a read of a C++ element into a new variable is slower than C++'s. The numbers are in
+  the sections above.
+- **Compile time grows with the nesting of closures in one opaque statement.** `x := lib.f(...)` writes
+  the call three times in the C++ (once to take its type outside the lambda), so a call whose arguments
+  hold func literals that again hold such calls grows by about 3^depth. It matters only for code
+  generated by machine.
+- **`C.long` and the other C numbers have the sizes of the target** (a 64-bit `long` on x86-64 Linux, 32 bits on
+  Windows): C's literals follow C's types (`1<<40` is a `long`), and gocpp does not check the Windows
+  difference yet (Phase 14).
+- **Threads of C's own** get a goroutine record on first use that is never freed, and no stack-overflow
+  report.
+- **Windows** is untested for interop until Phase 14.
+
+### Bugs and gaps that are tracked
+
+These are known, small, and listed in the plan's TODO; each has a workaround.
+
+- **Constants from C values are rejected late.** `const d = x + 1` with `var x C.int` is an error ("is not
+  constant", as in Go), but `gocpp check` and the editor accept it: only the build reports it.
+- **A header whose default name is a keyword**, used by that name, is a parse error before gocpp can ask for
+  a name: `import "<sys/select.h>"` and then `select.FD_SETSIZE` is "expected operand, found 'select'".
+  Import it with a name, `import sel "<sys/select.h>"`.
+- **A named gocpp array or slice of C elements**: `type Chars [1]C.char; var a Chars; a[0] = 1` is
+  "internal error: expression has no type: a[0]". Use the unnamed type (`var a [1]C.char`) or a struct.
+- **A C char array or a `char*` compared with a string constant** is an error at the line (C++ would compare
+  addresses, silently false for an array): `rec.name == "bob"` is "invalid operation: comparing a C string
+  (char*) with a Go string compares addresses: use C.GoString(x) == "..." (or strcmp)". Compare text:
+  `C.GoString(&rec.name[0]) == "bob"`. Two C pointers compare as addresses, `p == nil` works, and a
+  `std::string` compares by content. The check sees the C++ type, so it is a `C++:` error from the
+  compiler, and only for a string constant: a char pointer next to a Go string variable is the mismatched-types
+  error above.
+- **A header problem that no probe sees**: a header that ends in the middle of a declaration passes
+  `gocpp check` and then fails the build as an "internal error", and two headers imported by different files of
+  one package that conflict with each other (the same function with C and with C++ linkage) are reported as
+  gocpp's bug too. `-cpperrors=full` shows the compiler's real message.
+- **Helper header names**: a header whose default name is unusable and which is used by that name
+  (`main.h` next to `main.gp`, `./3d.h`) gets a bare "undefined" error, without the hint for the other
+  names. Name it in the import ([small helpers](#small-helpers-a-header-next-to-the-gp-file)).
+- **A `.h` next to a `.cpp` of the same name** needs `//gocpp:no-extern-c` or guards (the trap above).
+- **No C-only flag**: `//gocpp:cflags` and `GOCPP_CFLAGS` reach C and C++; there is no `-std=gnu11` for C only.
+- **The language server** does not show the errors of `.c` and `.cpp` files (it lists `.gp` files only).
+- **The first C++ error of a statement hides the others on it** (one error per `.gp` line is shown, up to ten);
+  `-cpperrors=full` shows everything.
+
+## Troubleshooting
+
+Start from the message: the table in the cookbook ([common errors and what they
+mean](interop-cookbook.md#14-common-errors-and-what-they-mean)) has the usual ones, each with the test that
+produces it. Beyond it:
+
+1. **Read the `.gp` line the error names.** The message is the C++ compiler's, but the line is yours. A
+   message full of `gp::` and `gpkg_` names is still about that line.
+2. **`-cpperrors=full`** (on `gocpp build` and `gocpp run`) prints the compiler's whole output, with the
+   template backtrace. `gocpp build -x` shows every compile, the pkg-config runs and the link.
+   `gocpp emit file.gp` prints the C++ that gocpp wrote, with `#line` directives.
+3. **"internal error" is gocpp's, not yours** (exit status 2 when the generated C++ did not compile; 1 for an internal error of the checker, such as "expression has no type"): the generated C++ did not compile on a line with
+   no C/C++ code, or gocpp does not write that construct yet ("not supported yet"). The message names the
+   construct; check the [limits](#limits-and-known-gaps) and report it with the smallest program that shows it.
+4. **A crash or a wrong value in C/C++ code** is almost always a lifetime bug: run it with `gocpp run -asan`
+   (AddressSanitizer, LeakSanitizer, UndefinedBehaviorSanitizer). The report names the C++ and `.gp` lines.
+5. **Undefined reference** at a `.gp` line: the library is not linked (`//gocpp:link`,
+   `//gocpp:pkg-config`), or the function is defined in a `.c`/`.cpp` file that `gocpp run main.gp` leaves out
+   (`gocpp run .`), or a `.h` + `.cpp` pair has the `extern "C"` trap.
+6. **Output out of order** with C's `printf`: it should not be, since `fmt` flushes C's `stdout` first; a
+   program that writes with `write(2)` or through another buffer needs its own flush.
+7. **A header is not found** (`cannot find header <x.h>`): the compiler's include path lacks it: add
+   `//gocpp:pkg-config x`, or `//gocpp:cflags -I/path`.
+8. **Names that clash with macros**: gocpp renames its own names that collide with a header's macros
+   (`Bool` becomes `Bool_`), but a macro that you use through a header package and that clashes with a generated
+   name is an error at the use: wrap the macro in a small helper header.
+
+## How interop is tested
+
+- `tests/interop/` (over 190 programs and folders, each run with `g++` and `clang++`, and again with
+  `make ci-sanitize`): every section of this document has tests, named in the text; error tests
+  (`// ERROR` comments or an expected `// Stderr:`) pin the messages and the `.gp` lines they point at.
+- `tests/zoo/` ([the header zoo](../../tests/zoo/README.md)): one program per header and library
+  (`stdio.h stdlib.h string.h math.h time.h errno.h vector string map unordered_map memory algorithm
+  filesystem chrono thread optional variant span regex`, sqlite3, zlib, SDL2, raylib), checked with
+  `gocpp check`, built with both compilers and run; SDL2 and raylib are only built, never run.
+- `examples/` (`cpp-std`, `mixed-sources`, `sqlite`, `raylib`): run and compared with their `output.txt`;
+  raylib is only built when there is no display.
+- [The cookbook](interop-cookbook.md): its programs are the tests `tests/interop/cookbook_*`, and
+  `TestDocSnippets` fails when a program in the docs differs from its test.
+- Sanitizers: the whole set runs under AddressSanitizer, LeakSanitizer and UndefinedBehaviorSanitizer with both
+  compilers (`GOCPP_FLAGS=-asan`, `make ci-sanitize`).
 
 ## What typed interop will add
 

@@ -83,7 +83,10 @@ the flags of `GOCPP_FLAGS`), and it passes when the build exits with 1 and repor
 errors of the `// ERROR` comments, on their lines, and nothing else. The comments work as in
 [tests/errors](../errors/README.md); a regexp must match the message of both compilers, after
 `C++: `. The line after the errors that counts the errors left out ("(and 1 more error in gocpp's
-code: -cpperrors=full shows it)") is allowed. Such a test has no `// Output:` block and no
+code: -cpperrors=full shows it)") is **not** allowed, because a seed that also triggers a gocpp bug
+must fail; a seed whose generated code fails on purpose after the seeded error (a struct field
+that has no zero value also fails its default initializer) says so with a comment line
+`// others-ok: N reason` in its body (exactly N follow-on errors: the count is pinned) ([policy_errors_field.gp](policy_errors_field.gp)). Such a test has no `// Output:` block and no
 `// ExitCode:` or `// Stderr:` line; it may have `// pkg-config:` and `//go:build`.
 [cpp_error_arguments.gp](cpp_error_arguments.gp):
 
@@ -94,3 +97,12 @@ func main() {
 	cstdio.puts("ok")
 }
 ```
+
+## The cookbook and the zoo
+
+The tests `cookbook_*.gp`, the folders `cookbook_helper` and `cookbook_flags`, and the headers
+`cookbook_*.h` are the programs of [docs/spec/interop-cookbook.md](../../docs/spec/interop-cookbook.md):
+the doc shows each file without its `// phase:` header lines and its `// Output:` block, and
+`TestDocSnippets` fails when the doc and the file differ, so change both together (the doc's
+`<!-- test: PATH -->` marker names the file). A new `cookbook_*` file that the cookbook does not show
+fails that test too. [../zoo](../zoo/README.md) has the programs of the header zoo.

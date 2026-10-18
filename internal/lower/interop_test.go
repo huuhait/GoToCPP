@@ -477,6 +477,7 @@ func TestCUserErrors(t *testing.T) {
 		{"var ci C.int; _ = bool(ci)", "cannot convert ci (C/C++ value of type C.int) to type bool"},
 		// Operators where gocpp values meet C/C++ values: as cgo, mismatched types.
 		{"var x C.int; n := 2; _ = x + n", "invalid operation: x + n (mismatched types C.int and int): convert one of them: int(x) or C.int(n)"},
+		{"var x C.int; _ = lib.f() + int(x)", "invalid operation: lib.f() + int(x) (mismatched types C/C++ value and int): convert int(x) to a C type, C.long(int(x)) or C.size_t(int(x)), or a C/C++ number to int, int(lib.f())"},
 		{"n := 2; _ = n < lib.f()", "invalid operation: n < lib.f() (mismatched types int and C/C++ value): convert n to a C type, C.long(n) or C.size_t(n), or a C/C++ number to int, int(lib.f())"},
 		{"var b B; _ = lib.f() == b", "invalid operation: lib.f() == b (mismatched types C/C++ value and B): convert b to a C type, C.long(b) or C.size_t(b), or a C/C++ number to B, B(lib.f())"},
 		{"var v std.vector[int]; n := 2; _ = v.begin() + n", "invalid operation: v.begin() + n (mismatched types C/C++ value and int): convert n to a C type, C.long(n) or C.size_t(n), or a C/C++ number to int, int(v.begin())"},

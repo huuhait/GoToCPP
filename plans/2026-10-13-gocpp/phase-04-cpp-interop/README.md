@@ -12,6 +12,7 @@
 | Milestone | **M3: sqlite, raylib/SDL and std-library demos run** |
 | Size | large (about 5 weeks) |
 | Progress | [STATE.md](STATE.md) |
+| Status | built: steps 4.1 to 4.19. The closeout (4.18 tests, 4.19 docs) is described under "As built" in §3 and §5 below |
 
 ---
 
@@ -406,6 +407,25 @@ prints pointers. Printing a `char*` as a C string would crash or silence stdout 
     namespaces, sqlite, raylib, std containers, calling C from a package, writing a wrapper
     package, the untyped-constant rule).
 
+**As built (4.18, 4.19).**
+- The **header zoo** is `tests/zoo/` (23 programs, one per header or library of the list, each with typed uses)
+  and `TestZoo`: every file is checked with `gocpp check`, built with both compilers and run against its
+  `// Output:`; SDL2 and raylib (`// display: required`) are only built, never run (the tests do not open
+  windows or start Xvfb). The zoo needed two fixes: `make([]byte, n)` accepts a C number as its size (zlib's
+  `compressBound`), and a C bit-field converts (`int(f.mode)`).
+- **Run tests:** about 190 tests in `tests/interop` (the plan wanted 40): about 120 run tests with output, 45
+  that expect a compile error or a fatal exit (`// ExitCode:` and `// Stderr:`) and 30 error tests with
+  `// ERROR` comments. They cover calls,
+  pointers, structs, enums, unions, bit-fields, macros, templates, operators, iterators, exceptions, callbacks,
+  namespaces, overloads, default arguments, references, static members, inheritance and virtual calls,
+  smart pointers, the std containers, threads with goroutines, mixed `.c`/`.cpp` sources and helper headers;
+  all of them are clean under AddressSanitizer and UBSan with both compilers.
+- **Examples:** `cpp-std`, `mixed-sources` and `sqlite` run on both compilers; `raylib` is built (not run) when
+  the machine has no display (`TestExamples`).
+- **Docs:** `docs/spec/interop.md` is complete (contents, limits and known gaps, troubleshooting), and
+  `docs/spec/interop-cookbook.md` has 14 recipes whose programs are tests (`tests/interop/cookbook_*`), kept
+  equal to the doc by `TestDocSnippets`.
+
 ## 4. Deliverables
 
 - Interop codegen + runtime helpers, compiler probes, C/C++ source compilation, flags and libraries
@@ -422,6 +442,12 @@ prints pointers. Printing a `char*` as a C string would crash or silence stdout 
 - The header zoo compiles on both compilers.
 - ≥ 40 interop run tests are green, including the audit cases above.
 - Every seeded C++-side error in the error tests is reported at the correct `.gp` line.
+
+**As built:** the four examples build on both compilers; raylib is built but not run without a display, and
+the smoke run under `xvfb-run` of the criterion is left to a machine that has a display or may start Xvfb.
+The header zoo (including SDL2 and raylib, build only) compiles on both compilers, and more than 40 interop
+run tests are green. Seeded C++-side errors are reported at the correct `.gp` line (the seeds of
+`tests/interop/cpp_error_*` and the error tests next to them).
 
 ## 6. Risks
 

@@ -149,11 +149,21 @@ void test_as() {
     CHECK(gp::cgo::as<double>(3) == 3.0);
     CHECK(gp::cgo::as<int>(int64_t(1) << 40) == 0); // integers: C++20 wraps, like Go
     CHECK(gp::cgo::as<bool>(true) == true); // only a bool converts to bool (a static_assert)
+    struct Bits {
+        unsigned ready : 1;
+        unsigned mode : 3;
+        int sign : 5;
+    };
+    Bits bits{1, 5, -3};
+    CHECK(gp::cgo::as<uint64_t>(bits.mode) == 5); // a bit-field can't bind to a reference
+    CHECK(gp::cgo::as<int64_t>(bits.sign) == -3 && gp::cgo::as<bool>(bool(bits.ready)));
     // case_eq: a case of a switch on a C/C++ value, C++'s == for numbers, enums and pointers.
     enum mode { mode_a, mode_b };
     CHECK(gp::cgo::case_eq(-1, EOF));
     CHECK(gp::cgo::case_eq(mode_b, 1));
-    CHECK(!gp::cgo::case_eq(static_cast<const char*>(nullptr), "x"));
+    const char* text = "x";
+    // (a string literal as the case would compare addresses: rejected)
+    CHECK(!gp::cgo::case_eq(static_cast<const char*>(nullptr), text));
 }
 
 void test_deref() {

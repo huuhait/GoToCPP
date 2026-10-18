@@ -22,7 +22,9 @@ make test-programs                         # go test -count=1 -v ./tests/...
 | `TestErrors` | [errors/](errors/README.md) | a `.gp` file with `// ERROR "regexp"` (and `// WARNING "regexp"`) comments | `gocpp check` reports exactly those errors (and warnings), on those lines |
 | `TestGolden` | [golden/](golden/README.md) | a `.gp` file and its `.cpp.golden` snapshot | `gocpp emit` prints the snapshot (all the files of the program, each after a line `//// <path>`) |
 | `TestDiff` | [diff/](diff/README.md) | a `.gp` program that is valid Go | `gocpp run` and real Go print the same stdout (with a `// diff:` line, also stderr) and exit with the same code |
-| `TestInterop` | [interop/](interop/README.md) | a run test that uses C/C++ libraries, or an interop error test (`// ERROR` comments) | like `TestRun`; a folder with a `main.gp` is a test too (a package with its own C/C++ files, run as `gocpp run .`); skipped when `pkg-config` can't find a library. An error test passes when `gocpp build` fails with exit code 1 and reports exactly those errors (the C++ compiler's and the linker's, at the `.gp` lines) |
+| `TestInterop` | [interop/](interop/README.md) | a run test that uses C/C++ libraries, or an interop error test (`// ERROR` comments) | like `TestRun`; a folder with a `main.gp` is a test too (a package with its own C/C++ files, run as `gocpp run .`); skipped when `pkg-config` can't find a library. An error test passes when `gocpp build` fails with exit code 1 and reports exactly those errors (the C++ compiler's and the linker's, at the `.gp` lines), and no other output: the line "(and N more errors in gocpp's code ...)" is an error too, unless the file says `// others-ok: N reason` (exactly N of them) |
+| `TestDocSnippets` | [docs/spec/interop.md](../docs/spec/interop.md), [interop-cookbook.md](../docs/spec/interop-cookbook.md) | every `<!-- test: PATH -->` block of the two docs | the fenced block after the marker equals the file (without its `// phase:` header lines and `// Output:` block; `<!-- output: PATH -->` shows the output), every `cookbook_*` and `doc_*` interop test is shown in the docs, an output marker has its test marker before it, a shown program that prints has its output shown, every ```go block carries a test marker or `<!-- illustration: reason -->`, and every relative link of the two docs leads to a file and a heading that exist |
+| `TestZoo` | [zoo/](zoo/README.md) | the header zoo: one `.gp` program per header or library (the C and C++ standard headers, sqlite3, zlib, SDL2, raylib), with an `// Output:` block | `gocpp check` is clean, and `gocpp run` prints that output with each compiler. A file with `// display: required` (SDL2, raylib) is only built, never run |
 | `TestPkgs` | [pkgs/](pkgs/README.md) | a folder `pkgs/<name>/` with a `gocpp.mod`, a `main.gp` (with `// Output:`) and the packages it imports | `gocpp run .` prints that output, like `TestRun`; a program of several packages (Phase 06) |
 | `TestPkgsVsGo` | [pkgs/](pkgs/README.md) | the same folders, with `GOCPP_RUN_VS_GO=1` | real Go prints that output (the module is copied with `.gp` renamed to `.go`) |
 | `TestPkgErrors` | [pkgs/errors/](pkgs/README.md#errors) | a module folder with `// ERROR` comments in any of its `.gp` files | `gocpp check -e ./...` reports exactly those errors, on those lines |
@@ -55,7 +57,8 @@ A test is also skipped, with a message, when:
 - its `//go:build` line (at the top of the file, in every kind of test) excludes the target.
   The target is the machine that runs the tests: its `GOOS` and `GOARCH` hold, `unix` on a
   Unix system, and the release tags `go1.1` to `go1.25`; any other tag doesn't;
-- it has `// display: required` (examples) and neither `DISPLAY` nor `WAYLAND_DISPLAY` is set;
+- it has `// display: required` (examples) and neither `DISPLAY` nor `WAYLAND_DISPLAY` is set: an example is then
+  still **built** with each compiler (its binary is not run), so a GUI example (raylib) cannot rot unseen;
 - `pkg-config --exists` doesn't find a package of its `// pkg-config:` line (interop tests and
   examples).
 
@@ -65,7 +68,7 @@ the log).
 ## Sanitizers
 
 `make ci-sanitize` is the sanitizer job: it runs the tests that run programs (`TestRun`,
-`TestDiff`, `TestInterop`, `TestExamples`) with `GOCPP_FLAGS=-asan`, so every program is built
+`TestDiff`, `TestInterop`, `TestZoo`, `TestExamples`) with `GOCPP_FLAGS=-asan`, so every program is built
 with AddressSanitizer, LeakSanitizer and UndefinedBehaviorSanitizer and fails on the first
 report, and then the emitter's tests in `internal/cppgen` with the same sanitizers in
 `GOCPP_TEST_CXXFLAGS`; with g++ and clang++, and `-parallel 2`. Every test must be clean, with one
@@ -85,6 +88,14 @@ without `-asan` (without, it changes nothing), so the command that a failing tes
 Today three tests have it: `tests/run/closures_recursive.gp` and
 `internal/cppgen/testdata/emit/closures.gp`, both a closure that calls itself through a variable, and
 `tests/run/embed_later_types.gp`, two structs that embed pointers to each other.
+
+## What the tests assume of the host
+
+gocpp's targets are little-endian (x86-64, arm64), and the interop tests rely on it: `c_unions.gp`
+reads the bytes of a union. The tests that print the `what()` of a standard exception
+(`cxx_exception_stoi`, `callback_recover`, `cookbook_exceptions`) expect libstdc++'s text
+(`stoi`; libc++ says `stoi: no conversion`), which both compilers of the Nix shell use. A host
+whose clang++ uses libc++ would see those lines differ.
 
 ## Compilers
 
