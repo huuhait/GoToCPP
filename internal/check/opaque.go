@@ -774,7 +774,7 @@ func (op *opaquePass) cOperand(e, c ast.Expr) bool {
 	switch e := e.(type) {
 	case *ast.SelectorExpr:
 		if c == e.X {
-			return op.cPointer(c)
+			return op.cPointer(c) || promotedPath(op.pkg, op.info.Types[c].Type, e.Sel.Name) != nil
 		}
 	case *ast.CallExpr:
 		if id, ok := ast.Unparen(e.Fun).(*ast.Ident); ok && c != e.Fun {

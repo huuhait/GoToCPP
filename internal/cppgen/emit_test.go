@@ -123,6 +123,13 @@ func TestEmit(t *testing.T) {
 		t.Run(strings.TrimSuffix(filepath.Base(prog), ".gp"), func(t *testing.T) {
 			t.Parallel()
 			emit := emitter(prog)
+			if headerLine(t, prog, "// forwarders: all") {
+				base := emit
+				emit = func(t *testing.T, cfg Config) string {
+					cfg.AllForwarders = true
+					return base(t, cfg)
+				}
+			}
 			golden := strings.TrimSuffix(prog, ".gp") + ".cpp.golden"
 			got := withDir(emit(t, Config{}), dir)
 			if *update {
@@ -166,6 +173,34 @@ func goarchOnly(t *testing.T, gp string) string {
 		}
 	}
 	return ""
+}
+
+// headerLine reports whether the header of the program (the comment lines before the package clause
+// of the .gp file, or of the first file of a folder) has the line.
+func headerLine(t *testing.T, prog, line string) bool {
+	t.Helper()
+	gp := prog
+	if !strings.HasSuffix(prog, ".gp") {
+		gps, _ := filepath.Glob(filepath.Join(prog, "*.gp"))
+		if len(gps) == 0 {
+			return false
+		}
+		gp = gps[0]
+	}
+	src, err := os.ReadFile(gp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range strings.Split(string(src), "\n") {
+		l = strings.TrimSpace(l)
+		if l != "" && !strings.HasPrefix(l, "//") {
+			break
+		}
+		if l == line {
+			return true
+		}
+	}
+	return false
 }
 
 // cycleEnv returns the environment change for the program in the .gp file gp if it has a

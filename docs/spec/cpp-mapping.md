@@ -453,7 +453,7 @@ void Vec2::Scale(gp::ptr<Vec2> v, double k) {
 | `x.PM()`, pointer method, `x` addressable | `T::PM(<address of x>)` (see [pointers](#pointers-and-boxing)) |
 | `f := x.M` (method value) | `gp::func<Sig>([gp_r = x](auto&&... gp_a) { return gp_r.M(gp_a...); })`: the receiver is copied **now** (Go evaluates it when the method value is made); `p.M` copies `*p` now, and panics now for a nil `p`; `x.PM` captures the pointer (`&x`, x boxed) |
 | `T.M`, `(*T).PM`, `(*T).M` (method expressions) | `gp::func<Sig>([](auto&& gp_r, auto&&... gp_a) { return gp_r.M(gp_a...); })`, the receiver the first parameter; `(*T).M` of a value method first panics for a nil pointer with Go's `value method main.T.M called using nil *T pointer`; a call `T.M(x, a)` calls the lambda at once, without a `gp::func` |
-| `o.M()`, `M` promoted from an embedded `Inner` / `*Inner` | `o.Inner.M()`, `o.Inner->M()`, `Inner::PM(gp::field_ptr(<&o>, &Outer::Inner))` (embedding is allowed from Phase 05) |
+| `o.M()`, `M` promoted from an embedded `Inner` / `*Inner` | `o.Inner.M()`, `o.Inner->M()`, `Inner::PM(gp::field_ptr(<&o>, &Outer::Inner))`: the path that `go/types` gives, written out (embedding is allowed from Phase 05; the [forwarding members](#embedding) below are for C++ callers and the method tables, not for these calls) |
 | `defer x.M(a)` | `gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp_a0.M(gp_a1); }, x, a);`: the receiver is stored at the defer statement, a copy of the value for a value method (`defer p.M()` copies `*p` there, and panics there for a nil `p`) |
 
 What the C++ looks like (step 3.10, internal/lower/methods.go):
@@ -841,10 +841,76 @@ struct Line {
   differ only in tags is converted too (a struct field by field, an array element by element, a
   pointer with `gp::ptr_cast`, so it still points to the same struct), but not yet a slice or a
   map of such structs. `(*B)(pa)` is `gp::ptr_cast<B>(pa)`, which points at the same struct.
-- **Not yet**: methods (step 3.10), embedding is open from Phase 05 (the gate), and Phase 06
-  moves the anonymous structs into a header that all packages share.
+- **Not yet**: Phase 06 moves the anonymous structs into a header that all packages share. (Methods
+  are step 3.10, embedding [below](#embedding).)
 
 Source: [Phase 03 §2.4](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#24-structs-and-named-types).
+
+### Embedding
+
+```go
+type Base struct{ ID int }
+func (b Base) Get() int  { return b.ID }
+func (b *Base) Touch()   { b.ID++ }
+
+type User struct {
+	Base // embedded
+	Name string
+}
+```
+
+```cpp
+struct User {
+    gpkg_main::Base Base;          // a data member named like its type, never a base class
+    gp::string Name;
+    ...
+    int64_t Get() const;                    // forwarders of the promoted methods (below)
+    static void Touch(gp::ptr<User> gp_p);
+};
+int64_t User::Get() const { return (*this).Base.Get(); }
+void User::Touch(gp::ptr<User> gp_p) { gpkg_main::Base::Touch(gp::field_ptr(gp_p, &User::Base)); }
+```
+
+- An embedded field is a data member named after its type (`Base`; for a pointer or an alias the name of
+  the type or alias, `*pkg.T` is `T`), in declaration order, so layout, copies, `==` and `gp_hash()` are
+  the struct's own. There is no C++ inheritance: Go embedding is not subtyping.
+- The type of a field is written qualified when the name of a member would change its meaning
+  (`gpkg_main::Base Base;`, also `gp::ptr<gpkg_main::Base> Base;`): GCC rejects `Base Base;`, and both
+  compilers reject a later use of the type name in the class. A field named like its own struct gets a
+  `_` (`Node_` for `type Node struct{ *Node }`), a C++ word one too (`class_`).
+- **Promoted fields and methods in the program** are written as the path that `go/types` records in
+  `Selection.Index` (`o.A` is `o.Inner.A`, through an embedded `*Mid` `o.Mid->A`, which panics for
+  nil with Go's message): methods.go, structs.go. `&o.Inner` and `&o.A` are pointers that share the
+  owner of `o` (`gp::ptr<Inner>(o, &o->Inner)`, [pointers](#pointers-and-boxing)); through an embedded
+  pointer they share the owner of what that pointer points to (`gp::field_ptr(o.Mid, &Mid::A)`).
+- **Forwarding members.** Every method in the method set of `*T` that `T` gets from an embedded field
+  (a selection with a path longer than one) is a member of `T`'s struct, written like a method
+  that `T` declares: a `const` member function when the method is in the method set of `T` (a value
+  method of an embedded value, or any method of an embedded pointer's type), else a `static` one
+  whose first parameter is the owning pointer. Its body is the call through the path, with the
+  receiver adjusted as for a call in the program: the fields, an embedded pointer's `->`, and
+  `gp::field_ptr` for the address of an embedded value. The parameters are `gp_a0`, `gp_a1`, ... passed on
+  (moved, except numbers); the definitions come after all the structs (the embedded type may be defined
+  later, through a pointer), with the fmt hooks. Members that an outer field or method hides, and
+  names that are ambiguous at one depth, are not in the method set, so there is no forwarder. The
+  forwarders are what C++ code and the method tables call: once the emitter of steps 5.4/5.5 has the
+  tables (the second half of 5.8), the thunk of a promoted method is the thunk of a declared one
+  (`unbox<T>(self).M(args)`, `p->M(args)`, `T::PM(p, args)`, [Interfaces](#interfaces)), and generic code
+  (Phase 07) calls `u.Touch()` without knowing the path. Calls that the program makes keep the full path.
+  Because only those consumers call them, the forwarders are written only for the structs that need
+  them (a type that promotes 100 methods into 20 structs would be 11000 lines and 3 times the compile
+  time otherwise): the structs whose descriptors have method tables, and all of them with
+  `lower.Options.AllForwarders` (the tests). The names of all the forwarders hide the package's names in the
+  struct whether they are written or not.
+- **Method sets** follow Go (`go/types`): `T` has the value methods of an embedded `E` and all the
+  methods of an embedded `*E`; `*T` has all of them; the forwarders and (with 5.4/5.5) the method tables
+  have exactly those. An embedded interface brings its methods as value methods: a call through a nil
+  embedded interface panics like any call of a nil interface.
+- **Embedded C/C++ types** are data members like the others; their members are promoted when a struct
+  has exactly one of them ([interop.md](interop.md#embedded-c-types)).
+
+Source: [Phase 05 §2.6](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md#26-struct-embedding),
+`internal/lower/promote.go`.
 
 ## Named types
 

@@ -67,8 +67,11 @@ func (e *Error) Error() string {
 // nil for a package without header imports.
 //
 // For a construct that it can't translate, Package returns an *Error.
-func Package(fset *token.FileSet, pkg *check.Package, in *Interop) (*cppir.File, error) {
+func Package(fset *token.FileSet, pkg *check.Package, in *Interop, opts ...Options) (*cppir.File, error) {
 	g := newGen(fset, pkg)
+	if len(opts) > 0 {
+		g.opts = opts[0]
+	}
 	g.interop = in
 	if in != nil {
 		g.macros = in.macros
@@ -149,6 +152,9 @@ type gen struct {
 	cNames   map[string]token.Pos
 	cNodes   []cppir.Node
 	sigExprs map[*types.Var]ast.Expr
+	fwds     map[*structInfo][]forwarder // the forwarders of the structs (promote.go)
+	fwdNeed  map[*structInfo]bool        // the structs that write them
+	opts     Options
 	cConsts  map[ast.Expr]bool
 	cFuncs   map[ast.Expr]bool // func values that go to C/C++ places: callbacks (ccallback.go)
 	elided   map[*ast.CompositeLit]ast.Expr

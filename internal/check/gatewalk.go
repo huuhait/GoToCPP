@@ -642,12 +642,15 @@ func (g *gateChecker) visitSelector(sel *ast.SelectorExpr) {
 	}
 	if g.info.Selections[sel] == nil {
 		g.unresolved = append(g.unresolved, sel)
+	} else if cMayShadow(g.pkg.Types, g.typeOf(sel.X), sel.Sel.Name) {
+		g.node(featPromotedCppShadow, sel.Sel)
 	}
 }
 
 // checkPromoted reports a selector that go/types found nothing for, on a
-// struct that embeds a C/C++ type: it is a promoted member of that type
-// (Phase 12), not an error.
+// struct that embeds more than one C/C++ type: it is a promoted member of
+// one of them, but check can't tell which one (Phase 12, typed interop), not
+// an error. With one embedded C/C++ type the selector is fine (promoted.go).
 func (g *gateChecker) checkPromoted(sel *ast.SelectorExpr) {
 	if features[featPromotedCpp].Phase <= g.phase {
 		return
@@ -660,6 +663,19 @@ func (g *gateChecker) checkPromoted(sel *ast.SelectorExpr) {
 		t = p.Elem()
 	}
 	if !g.embedsOpaque(t, make(map[types.Type]bool)) {
+		return
+	}
+	var found [][]int
+	opaqueEmbedded(t, nil, make(map[*types.Struct]bool), &found)
+	if len(found) == 1 {
+		// One C/C++ type: its member (promoted.go) when sel.X is a value. A method expression
+		// (MV.size, (*MV).push_back) has no C++ form yet: its own gate. Any other error stays.
+		if tv := g.info.Types[sel.X]; tv.IsType() {
+			prefix := g.pkg.exprString(sel) + " undefined ("
+			g.replace(sel.Sel.Pos(), sel.Sel.End(), features[featPromotedCppExpr].Message(), func(msg string) bool {
+				return strings.HasPrefix(msg, prefix) && strings.Contains(msg, " has no ")
+			})
+		}
 		return
 	}
 	// The messages show rewritten conversions as the user wrote them.

@@ -412,9 +412,9 @@ func main() {
 	// Phase 12.
 	{name: "C macros as constants", phase: 12, src: "package main\n\nimport \"<stdio.h>\"\n\nconst n = stdio.BUFSIZ\n\nfunc main() {\n\tvar buf [stdio.BUFSIZ]byte\n\t_ = buf\n}\n",
 		want: []string{"5:11: C macros in constant expressions are not supported yet (Phase 12)"}},
-	{name: "promoted C++ members", phase: 12, src: "package main\n\nimport \"<vector>\"\n\ntype V struct {\n\tstd.vector[int]\n}\n\nfunc main() {\n\tvar v V\n\tv.push_back(1)\n\tv.vector.push_back(2)\n}\n",
-		want:   []string{"11:4: promoted fields and methods of embedded C/C++ types are not supported yet (Phase 12)"},
-		wantAt: []string{"11:4: v.push_back undefined (type V has no field or method push_back)"}},
+	{name: "promoted C++ members", phase: 12, src: "package main\n\nimport \"<string>\"\nimport \"<vector>\"\n\ntype V struct {\n\tstd.vector[int]\n\tstd.string\n}\n\nfunc main() {\n\tvar v V\n\tv.push_back(1)\n\tv.vector.push_back(2)\n}\n",
+		want:   []string{"13:4: promoted fields and methods of several embedded C/C++ types are not supported yet (Phase 12)"},
+		wantAt: []string{"13:4: v.push_back undefined (type V has no field or method push_back)"}},
 
 	// Phase 14.
 	{name: "C.wstr", phase: 14, src: main_("\tp := C.wstr(\"x\")\n\t_ = p\n"),
@@ -908,21 +908,22 @@ func TestGatesKeepFoundOrder(t *testing.T) {
 	}
 }
 
-// TestGatesPromotedEveryUse checks that every promoted member of an
-// embedded C++ type gets the gate error in the place of go/types' error,
+// TestGatesPromotedEveryUse checks that every promoted member of several
+// embedded C++ types gets the gate error in the place of go/types' error,
 // not only the first one, also through a pointer and in another package,
-// and leaves other errors of such a selector alone.
+// and leaves other errors of such a selector alone. (With one embedded
+// C++ type the members are promoted: promoted.go.)
 func TestGatesPromotedEveryUse(t *testing.T) {
 	dir := writeTree(t, map[string]string{
 		"gocpp.mod":  "module example.com/m\n",
-		"vec/vec.gp": "package vec\n\nimport \"<vector>\"\n\ntype V struct {\n\tstd.vector[int]\n}\n",
+		"vec/vec.gp": "package vec\n\nimport \"<string>\"\nimport \"<vector>\"\n\ntype V struct {\n\tstd.vector[int]\n\tstd.string\n}\n",
 		"main.gp":    "package main\n\nimport \"example.com/m/vec\"\n\nfunc main() {\n\tvar v vec.V\n\tv.push_back(1)\n\tp := &v\n\tp.push_back(2)\n\tv.vector.size()\n}\n",
 	})
 	got := checkAt(t, load.Config{}, dir, 11, ".")
 	want := errorLines([]string{
 		"# example.com/m",
-		"./main.gp:7:4: promoted fields and methods of embedded C/C++ types are not supported yet (Phase 12)",
-		"./main.gp:9:4: promoted fields and methods of embedded C/C++ types are not supported yet (Phase 12)",
+		"./main.gp:7:4: promoted fields and methods of several embedded C/C++ types are not supported yet (Phase 12)",
+		"./main.gp:9:4: promoted fields and methods of several embedded C/C++ types are not supported yet (Phase 12)",
 		// A real error: the gate leaves it.
 		"./main.gp:10:4: v.vector undefined (cannot refer to unexported field vector)",
 	})
@@ -948,15 +949,24 @@ func TestGatesSyntaxErrorBeforeMacro(t *testing.T) {
 
 // TestGatesPromotedTypeNames checks promoted members of a type name
 // declared with a C++ type, embedded directly, through a pointer and
-// through another alias.
+// through another alias: with one embedded C++ type they are promoted (no
+// error), with a second one the gate says so.
 func TestGatesPromotedTypeNames(t *testing.T) {
-	dir := writeTree(t, map[string]string{"main.gp": "package main\n\nimport \"<vector>\"\n\ntype Vec = std.vector[int]\n\ntype Vec2 std.vector[int]\n\ntype Vec3 = Vec\n\ntype V struct{ Vec }\n\ntype W struct{ *Vec2 }\n\ntype X struct{ Vec3 }\n\nfunc main() {\n\tvar v V\n\tv.push_back(1)\n\tvar w W\n\tw.push_back(2)\n\tvar x X\n\tx.push_back(3)\n}\n"})
+	const head = "package main\n\nimport \"<string>\"\nimport \"<vector>\"\n\ntype Vec = std.vector[int]\n\ntype Vec2 std.vector[int]\n\ntype Vec3 = Vec\n\n"
+	const body = "\nfunc main() {\n\tvar v V\n\tv.push_back(1)\n\tvar w W\n\tw.push_back(2)\n\tvar x X\n\tx.push_back(3)\n}\n"
+	one := head + "type V struct{ Vec }\n\ntype W struct{ *Vec2 }\n\ntype X struct{ Vec3 }\n" + body
+	dir := writeTree(t, map[string]string{"main.gp": one})
+	if got, w := checkAt(t, load.Config{}, dir, 11, "."), ""; got != w {
+		t.Errorf("one embedded C++ type:\ngot:\n%s\nwant:\n%s", got, w)
+	}
+	two := head + "type V struct {\n\tVec\n\tstd.string\n}\n\ntype W struct {\n\t*Vec2\n\tstd.string\n}\n\ntype X struct {\n\tVec3\n\tstd.string\n}\n" + body
+	dir = writeTree(t, map[string]string{"main.gp": two})
 	got := checkAt(t, load.Config{}, dir, 11, ".")
 	var want []string
-	for _, line := range []int{19, 21, 23} {
-		want = append(want, fmt.Sprintf("%d:4: promoted fields and methods of embedded C/C++ types are not supported yet (Phase 12)", line))
+	for _, line := range []int{29, 31, 33} {
+		want = append(want, fmt.Sprintf("%d:4: promoted fields and methods of several embedded C/C++ types are not supported yet (Phase 12)", line))
 	}
 	if w := errorLines(want); got != w {
-		t.Errorf("got:\n%s\nwant:\n%s", got, w)
+		t.Errorf("two embedded C++ types:\ngot:\n%s\nwant:\n%s", got, w)
 	}
 }

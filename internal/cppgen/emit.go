@@ -24,6 +24,10 @@ type Config struct {
 	// (lower.ProbeInterop, Phase 04): a package with header imports needs it. nil for a
 	// package without.
 	Interop *lower.Interop
+
+	// AllForwarders writes the forwarding members of promoted methods for every struct (lower.Options),
+	// not only for those whose method tables need them. The tests that call them from C++ set it.
+	AllForwarders bool
 }
 
 // An Error is a problem that stops EmitPackage: mostly a construct that the emitter can't
@@ -65,7 +69,7 @@ func EmitPackage(w io.Writer, fset *token.FileSet, pkg *check.Package, cfg Confi
 	case pkg.Errors.HasErrors():
 		return fmt.Errorf("cppgen: package %s has errors", pkg.Load.ImportPath)
 	}
-	f, err := lower.Package(fset, pkg, cfg.Interop)
+	f, err := lower.Package(fset, pkg, cfg.Interop, lower.Options{AllForwarders: cfg.AllForwarders})
 	if err != nil {
 		var le *lower.Error
 		if errors.As(err, &le) {

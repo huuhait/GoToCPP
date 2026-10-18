@@ -379,8 +379,10 @@ func (g *gen) structDecls() []cppir.Decl {
 	for i := 0; i < len(td.list); i++ { // (structDef may add none: anonStructsIn found them all)
 		define(td.list[i])
 	}
-	// The fmt shim's hooks of the method sets, after all the structs (methods.go).
+	// The forwarders of the promoted methods (promote.go) and the fmt shim's hooks of the method
+	// sets (methods.go), after all the structs.
 	for _, si := range td.list {
+		decls = append(decls, g.forwardDefs(si)...)
 		decls = append(decls, g.hookDefs(si)...)
 	}
 	return decls
@@ -445,6 +447,9 @@ func (g *gen) structDef(si *structInfo) []cppir.Decl {
 		hidden[f] = true
 	}
 	for _, m := range g.methodNames(si) { // methods.go
+		hidden[m] = true
+	}
+	for _, m := range g.forwarderNames(si) { // promote.go
 		hidden[m] = true
 	}
 	defer g.hide(hidden)()

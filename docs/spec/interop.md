@@ -458,6 +458,51 @@ type Scene struct {
   The C++ compiler checks the constraints, and its errors are your errors
   ([Phase 07 §2.4](../../plans/2026-10-13-gocpp/phase-07-generics/README.md#24-generic-types-descriptors-aliases-interop)).
 
+### Embedded C types
+
+```go
+type MV struct {
+	std.vector[int] // the field is called vector
+	n int
+}
+
+var mv MV
+mv.push_back(1) // the same as mv.vector.push_back(1)
+mv.size()
+```
+
+A struct (or a pointer to one) that embeds **one** C/C++ type, directly or through embedded Go
+structs and embedded pointers, gets the members of that type promoted: `mv.push_back(1)` is written
+`gp::deref(mv.vector).push_back(1)`, and `o.x` is `o.Mid->epoint.x` through an embedded
+`*Mid` (Go's nil check on the way). Reads, writes, `++`, `&o.x`, calls, closures and conditions work as
+with the explicit field. Step 5.8, `internal/check/promoted.go`.
+
+- go/types knows no member of a C/C++ type, so it reports `x.name undefined` for a member of
+  `std.vector[int]`. Check drops that false error when `x` is a value whose type has exactly one embedded
+  C/C++ type and no Go field or method of that name at any depth (go/types' own error stays for an
+  unexported name of another package and for an ambiguous Go name). The C++ compiler checks that the
+  member exists, as for every member of a C/C++ value: a typo is a C++ error at the `.gp` line.
+- **Depth.** Go picks the shallowest member, and the same depth is ambiguous. A member of an embedded C/C++
+  type is one level deeper than its field. When go/types resolves `x.name` to a Go field or method and the
+  struct also embeds a C/C++ type at a depth where its members would be at the same or a shallower depth than
+  the Go member, check can't know whether that type has the name (Go would pick the C++ member, or say
+  "ambiguous selector"): the error is "selectors that a Go member and a member of an embedded C/C++ type could
+  both match (name the field) are not supported yet (Phase 12)", for the selector `s.x`; write `s.epoint.x` or
+  the Go path. A C/C++ type that is deeper than the Go member never matters (`tests/interop/embed_cxx_depth.gp`).
+- A method expression of a promoted member (`MV.size`, `(*MV).push_back`) has no C++ form yet: "method
+  expressions of promoted members of an embedded C/C++ type are not supported yet (Phase 12)"; use a func
+  literal. (A call or a `defer` of the member is fine: `defer mv.push_back(1)` works.)
+- **Stores.** `n.next = p` into a promoted pointer member keeps `p`'s object alive like the store into
+  the explicit path (`n.unode.next = p`, step 4.10) when `n` is a gocpp pointer to the outer struct (also for
+  `hh.in.p` and `hh.slots[1]` of a promoted struct). Through a value or an embedded pointer (`m.N`), no
+  expression names the owner, and the error says to write the path of the embedded fields, `m.N.unode.next`.
+- With **several** embedded C/C++ types (also in different depths), gocpp can't tell which one has the
+  member until typed interop (Phase 12): the error is "promoted fields and methods of several
+  embedded C/C++ types are not supported yet (Phase 12)"; name the field.
+- A C/C++ method is not part of the Go method set of the struct: the struct does not implement an
+  interface that needs it (go/types reports the missing method), and `x.name` is not a method
+  value of the struct.
+
 Source: [Phase 04 §2.4](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#24-cc-types-in-gocpp-code).
 
 ## Values and operations
@@ -2153,7 +2198,7 @@ Source: [Phase 14 §2.4](../../plans/2026-10-13-gocpp/phase-14-windows/README.md
 
 | Gap | Until Phase 12 | What you can do |
 |---|---|---|
-| a struct that embeds a C/C++ type, with promoted access (`struct{ std.vector[int] }`, then `mv.push_back(1)`) | the error "not supported yet (Phase 12)" | name the field: `mv.vector.push_back(1)` |
+| a struct that embeds **several** C/C++ types, with promoted access (`struct{ std.vector[int]; std.string }`, then `mv.push_back(1)`) | the error "not supported yet (Phase 12)": gocpp doesn't know which type has the member. (With one embedded C/C++ type the members are promoted since Phase 05, [below](#embedded-c-types).) | name the field: `mv.vector.push_back(1)` |
 | a C macro as a compile-time constant (`var buf [cstdio.BUFSIZ]byte`) | the error "not supported yet (Phase 12)" | |
 | a keyed literal of a C struct with array fields | an error | a positional literal (aggregate initialization) |
 | the types of a C struct's fields in a literal | unknown: a gocpp value goes in by C++'s rules (narrowing is an error) | convert it to the C type, `C.int(n)` |
@@ -2176,7 +2221,7 @@ generated "probe" files, the way cgo asks gcc about C names.
   (`std.`), member completion on C++ values, hover and go to definition into headers. This runs
   only in the background, so it never slows down the other editor features.
 - **The two gaps closed:** C macros as compile-time constants (`[cstdio.BUFSIZ]byte`), and
-  promoted members of embedded C++ types.
+  promoted members of several embedded C++ types.
 - **Exact C++:** `x->m` or `x.m` instead of `gp::deref(x).m`, keyed C struct literals as
   designated initializers in the right order, exact template-vs-index decisions, and reference
   results copied only when they would dangle.

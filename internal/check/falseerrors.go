@@ -115,6 +115,10 @@ type falseSlot struct {
 	// ptr says that a pointer to a named type over a C/C++ type counts as
 	// a C/C++ value too (only for p.x: see cPointer).
 	ptr bool
+
+	// promoted says that the error is about a selector x.name of a member
+	// that a struct gets from its one embedded C/C++ type (promoted.go).
+	promoted bool
 }
 
 // A falseErrors finds the false errors of one check of a package.
@@ -195,6 +199,9 @@ func (f *falseErrors) typed(e ast.Expr) bool {
 
 // isFalse reports whether an error of the slot s is false.
 func (f *falseErrors) isFalse(s falseSlot) bool {
+	if s.promoted {
+		return true
+	}
 	for _, t := range s.targets {
 		if t != nil && f.op.namedOverC(t) {
 			return true
@@ -323,7 +330,9 @@ func (f *falseErrors) collectNode(n ast.Node) {
 	case *ast.SelectorExpr:
 		// p.x with p := &C.Point{} (a pointer to an invalid type), or
 		// pp.x with pp *P and type P C.Point.
-		s := falseSlot{code: missingFieldOrMethod, node: n, values: []ast.Expr{n.X}, ptr: true}
+		// Or x.push_back with a struct x that embeds a C/C++ type (promoted.go).
+		s := falseSlot{code: missingFieldOrMethod, node: n, values: []ast.Expr{n.X}, ptr: true,
+			promoted: f.info.Types[n.X].IsValue() && promotedPath(f.pkg, f.typeOf(n.X), n.Sel.Name) != nil}
 		f.slots[n.Sel.Pos()] = append(f.slots[n.Sel.Pos()], s)
 	case *ast.IndexExpr:
 		f.add(n.X, nonIndexableOperand, n, n.X)

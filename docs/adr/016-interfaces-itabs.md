@@ -52,6 +52,16 @@ Bad:
   type and a check of the source spelling catch this until typed interop (Phase 12).
 - An embedded field needs a fully qualified type in C++ (`::gpkg_main::Base Base;`).
 
+Update (step 5.8, 2026-10-17): the forwarding members are written like methods that the struct
+declares: a `const` member when the method is in the method set of `T`, else a `static` one that takes the
+owning pointer, so that one thunk shape serves declared and promoted methods
+([cpp-mapping.md](../spec/cpp-mapping.md#embedding)); they are written only for the structs whose method
+tables need them (the emitter of steps 5.4/5.5; branch `job/05-5.8-iface` of 5.8). With them, a promoted value
+method through a nil `*T` in an interface is an ordinary nil dereference, as in Go (only a declared
+value method of `*T` has panicwrap's message). A struct that embeds exactly one C/C++ type gets its
+members promoted at check time (no probe: [interop.md](../spec/interop.md#embedded-c-types)); several stay a
+Phase 12 gate.
+
 ## Evidence
 
 - Audit: in Go, `any(1).(int64)` fails. With descriptors per C++ type it would succeed, and

@@ -191,7 +191,7 @@ func main() {
 
 - **Promoted fields/methods**: `go/types` records the full path in `types.Info.Selections`
   (`u.ID` really is `u.Base.ID`). Codegen writes the full path: `u->Base.ID`, and
-  `Base::Touch(gp::ptr<Base>(u, &u->Base))` with an aliasing pointer that shares ownership with
+  `Base::Touch(gp::field_ptr(u, &User::Base))` with an aliasing pointer that shares ownership with
   `u`. Embedded pointers (`*Base`) get a nil check on the path.
 - **The field is declared with a fully qualified type**: `::gpkg_main::Base Base;`. GCC rejects
   `Base Base;` (the field name changes the meaning of the type name), and both compilers reject a
@@ -202,6 +202,20 @@ func main() {
   `Base`'s methods.
 - **No C++ inheritance** is used for embedding. Go embedding is not subtyping, and we keep it
   that way.
+- **Built in 5.8 (2026-10-17), where it differs from the text above:** the fields, the promoted
+  fields and methods and the aliasing pointers existed since Phase 03 (steps 3.8, 3.10). 5.8 added
+  (branch `job/05-5.8`) the forwarding members, written like declared methods (a `const` member when the
+  method is in the method set of `T`, else a `static` one with the owning pointer, so that one thunk
+  shape serves declared and promoted methods); they are written only for the structs whose method
+  tables need them, which the emitter of 5.4/5.5 asks for (code size: `lower.Options.AllForwarders` writes
+  all of them, for the tests that call them from C++). The promoted methods in the method tables and
+  itabs, the thunks for them and the embedded interfaces are the second half of 5.8 (branch
+  `job/05-5.8-iface`, on top of the 5.4/5.5 emitter): a promoted value method through a nil `*T` in an
+  interface is an ordinary nil dereference there (Go's wrapper reaches the embedded field through the
+  pointer: only a declared value method of `*T` has panicwrap's "value method ... called using nil"
+  message). A struct that embeds exactly one C/C++ type gets its members promoted (`mv.push_back(1)`),
+  earlier than Phase 12; several embedded C/C++ types, and a Go member that an embedded C/C++ type
+  could hide, stay a Phase 12 gate. Details: [docs/spec/cpp-mapping.md](../../../docs/spec/cpp-mapping.md#embedding).
 - Interfaces embedding interfaces (`ReadWriter`) are just method-set unions computed by
   `go/types`.
 

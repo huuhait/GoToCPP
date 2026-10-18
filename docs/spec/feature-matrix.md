@@ -77,7 +77,9 @@ string, conversions between number types, the built-in functions
 | must functions | 10 | `func f!()` (divergence D12). |
 | macros | 10 | `macro` declarations with `lazy` parameters, and `#Name(...)` uses, `#body()` and the other built-in macros (divergence D13). |
 | `//go:embed` | 10 | Comes with `#embed(...)`. |
-| promoted fields and methods of embedded C/C++ types | 12 | `mv.push_back(1)` for a struct that embeds `std.vector[int]`. Until then, name the field: `mv.vector.push_back(1)`. |
+| promoted fields and methods of several embedded C/C++ types | 12 | A struct that embeds one C/C++ type has its members promoted from Phase 05 (`mv.push_back(1)` for `std.vector[int]`). With several, check can't tell which one has the member: name the field, `mv.vector.push_back(1)`. |
+| selectors that a Go member and a member of an embedded C/C++ type could both match (name the field) | 12 | In Go the shallowest member wins and the same depth is ambiguous, but check can't know the members of a C/C++ type, so it can't tell whether `s.x` is the Go field or the C++ member. Name the field: `s.epoint.x` or `s.Deep.Inner.x`. |
+| method expressions of promoted members of an embedded C/C++ type | 12 | `MV.size`, `(*MV).push_back` for a struct that embeds `std.vector[int]`. Use a func literal instead: `func(m MV) { m.size() }`. |
 | C macros in constant expressions | 12 | `[cstdio.BUFSIZ]byte`, `const n = cstdio.BUFSIZ`. |
 | `C.wstr` and `C.GoStringW` | 14 | UTF-16 strings for Windows APIs. |
 | `//gocpp:no-win32-defaults` | 14 |  |

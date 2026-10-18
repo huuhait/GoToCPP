@@ -120,6 +120,8 @@ const (
 
 	// Phase 12.
 	featPromotedCpp
+	featPromotedCppShadow
+	featPromotedCppExpr
 	featCConstants
 
 	// Phase 14.
@@ -314,9 +316,15 @@ var features = [numFeatures]feature{
 		Detect: "a //go:embed line",
 		Notes:  "Comes with `#embed(...)`."},
 
-	{id: featPromotedCpp, Name: "promoted fields and methods of embedded C/C++ types", Plural: true, Phase: 12,
-		Detect: "a selector that go/types can't find, on a struct that embeds an opaque type",
-		Notes:  "`mv.push_back(1)` for a struct that embeds `std.vector[int]`. Until then, name the field: `mv.vector.push_back(1)`."},
+	{id: featPromotedCpp, Name: "promoted fields and methods of several embedded C/C++ types", Plural: true, Phase: 12,
+		Detect: "a selector that go/types can't find, on a struct that embeds more than one C/C++ type (one is fine: check/promoted.go)",
+		Notes:  "A struct that embeds one C/C++ type has its members promoted from Phase 05 (`mv.push_back(1)` for `std.vector[int]`). With several, check can't tell which one has the member: name the field, `mv.vector.push_back(1)`."},
+	{id: featPromotedCppShadow, Name: "selectors that a Go member and a member of an embedded C/C++ type could both match (name the field)", Plural: true, Phase: 12,
+		Detect: "a selector that go/types resolved to a Go member of a struct that also embeds a C/C++ type at the same or a shallower depth (check/promoted.go: cMayShadow)",
+		Notes:  "In Go the shallowest member wins and the same depth is ambiguous, but check can't know the members of a C/C++ type, so it can't tell whether `s.x` is the Go field or the C++ member. Name the field: `s.epoint.x` or `s.Deep.Inner.x`."},
+	{id: featPromotedCppExpr, Name: "method expressions of promoted members of an embedded C/C++ type", Plural: true, Phase: 12,
+		Detect: "T.name where name can only be a member of the one C/C++ type that T embeds",
+		Notes:  "`MV.size`, `(*MV).push_back` for a struct that embeds `std.vector[int]`. Use a func literal instead: `func(m MV) { m.size() }`."},
 	{id: featCConstants, Name: "C macros in constant expressions", Plural: true, Phase: 12,
 		Detect: "a C/C++ name in an array length or a const declaration",
 		Notes:  "`[cstdio.BUFSIZ]byte`, `const n = cstdio.BUFSIZ`."},

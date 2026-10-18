@@ -200,6 +200,9 @@ func (g *gen) memberNames(si *structInfo) map[string]bool {
 	for _, m := range g.methodNames(si) {
 		names[m] = true
 	}
+	for _, m := range g.forwarderNames(si) { // promote.go
+		names[m] = true
+	}
 	if si.under != nil {
 		for n := range baseNames {
 			names[n] = true
@@ -232,6 +235,7 @@ func (g *gen) methodDecls(si *structInfo) []cppir.Decl {
 		}
 		decls = append(decls, d)
 	}
+	decls = append(decls, g.fwdDecls(si)...) // promote.go
 	for _, h := range g.hooks(si) {
 		d := &cppir.Func{Result: typeName("gp::string"), Name: h.name}
 		if h.ptr {

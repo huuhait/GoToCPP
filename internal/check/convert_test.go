@@ -955,13 +955,9 @@ func main() {
 	root = writeTree(t, map[string]string{"gocpp.mod": "module example.com/m\n", "main.gp": src})
 	prog = load.Load(load.Config{Dir: root, Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: "linux", GOARCH: "amd64"}, ".")
 	r = Check(prog, fakeProbeConfig(11))
-	msg := features[featPromotedCpp].Message()
-	want = "# example.com/m\n" +
-		"./main.gp:7:8: " + msg + "\n" +
-		"./main.gp:8:15: " + msg + "\n" +
-		"./main.gp:9:18: " + msg + "\n"
-	if errs := errorText(t, prog, r, root, true); errs != want {
-		t.Errorf("errors:\n%s\nwant:\n%s", errs, want)
+	// The members of the one embedded C type are promoted (promoted.go), also of a converted value.
+	if errs := errorText(t, prog, r, root, true); errs != "" {
+		t.Errorf("errors:\n%s\nwant none", errs)
 	}
 	if n := len(mainPkg(t, prog, r).Conversions); n != 2 {
 		t.Errorf("%d conversions, want 2", n)

@@ -137,7 +137,13 @@ func (fg *funcGen) opaqueExpr(e ast.Expr) cppir.Expr {
 				// gocpp type with C/C++ parameters or results (structs.go, methods.go).
 				return fg.selector(y)
 			}
-			return fg.g.cMemberOf(fg.expr(y.X), y.Sel)
+			x := fg.expr(y.X)
+			if path := fg.g.pkg.PromotedPath(y); path != nil {
+				// A member of the one C/C++ type that a struct embeds (check/promoted.go):
+				// through the embedded fields, o.vector.push_back for o.push_back.
+				x, _ = fg.fieldSteps(x, fg.g.info.TypeOf(y.X), path, y.Pos())
+			}
+			return fg.g.cMemberOf(x, y.Sel)
 		case *ast.IndexExpr:
 			if gocppContainer(fg.g.info.TypeOf(y.X)) {
 				return fg.index(y) // of a gocpp slice, array or map of C/C++ values: Go's index

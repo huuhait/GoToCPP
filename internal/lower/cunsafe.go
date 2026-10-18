@@ -350,6 +350,17 @@ func (fg *funcGen) cStoreBase(lhs ast.Expr) (member bool, base ast.Expr, links [
 			return false, nil, nil
 		}
 		x = ast.Unparen(y.X)
+		if fg.g.pkg.PromotedPath(y) != nil {
+			// n.next of a member promoted from an embedded C struct (check/promoted.go): the same as
+			// n.unode.next. Through a gocpp pointer n, the struct's block owns the field; in a value,
+			// look further, as for the explicit path below. (A pointer inside the path, an embedded
+			// *N, has no expression to own: promotedHint.)
+			if t := info.TypeOf(y.X); t != nil {
+				if _, ok := t.Underlying().(*types.Pointer); ok {
+					return true, x, nil
+				}
+			}
+		}
 	case *ast.IndexExpr:
 		if gocppContainer(info.TypeOf(y.X)) || !fg.g.pkg.Opaque.IsOpaque(y.X) {
 			return false, nil, nil
@@ -382,6 +393,15 @@ func (fg *funcGen) cStoreBase(lhs ast.Expr) (member bool, base ast.Expr, links [
 				}
 				x = ast.Unparen(y.X)
 				continue
+			}
+			if fg.g.pkg.PromotedPath(y) != nil {
+				// hh.in of hh.in.p, a member promoted from an embedded C struct: through a gocpp
+				// pointer hh the struct's block owns it.
+				if t := info.TypeOf(y.X); t != nil {
+					if _, ok := t.Underlying().(*types.Pointer); ok {
+						return true, ast.Unparen(y.X), links
+					}
+				}
 			}
 			links = append(links, x)
 			x = ast.Unparen(y.X)
@@ -464,6 +484,31 @@ func (g *gen) isOwnerPtr(e ast.Expr) bool {
 // whose value is a gocpp pointer. When a pointer owns the object, lhs() makes the store a store_keep
 // (keepOf). When none does, nothing could keep the pointer's object alive after the store: it is an
 // error, as Go's pointer would have kept it.
+// promotedHint returns the hint for an error about a store into m.next, a member promoted from an
+// embedded C/C++ type: "; or write the path of the embedded fields, m.N.unode.next, which names the
+// pointer that owns the struct", or "" for any other target.
+func (g *gen) promotedHint(lhs ast.Expr) string {
+	sel, ok := ast.Unparen(lhs).(*ast.SelectorExpr)
+	if !ok {
+		return ""
+	}
+	path := g.pkg.PromotedPath(sel)
+	if path == nil {
+		return ""
+	}
+	t := g.info.TypeOf(sel.X)
+	text := g.srcText(sel.X)
+	for _, i := range path {
+		if p, ok := under(t).(*types.Pointer); ok {
+			t = p.Elem()
+		}
+		f := under(t).(*types.Struct).Field(i)
+		text += "." + f.Name()
+		t = f.Type()
+	}
+	return "; or write the path of the embedded fields, " + text + "." + sel.Sel.Name + ", which names the pointer that owns the struct"
+}
+
 func (fg *funcGen) noteStores(s *ast.AssignStmt) {
 	if s.Tok != token.ASSIGN || len(s.Lhs) != len(s.Rhs) || fg.storesNoted[s] {
 		return
@@ -479,8 +524,8 @@ func (fg *funcGen) noteStores(s *ast.AssignStmt) {
 		case base != nil:
 			fg.memberStores[ast.Unparen(lhs)] = s.Rhs[i]
 		case fg.g.isCPtrValue(s.Rhs[i]):
-			fg.g.userError(s.Rhs[i].Pos(), "cannot keep the object alive: %s is stored into %s, which no *T variable of the program owns (a C/C++ local value, a pointer from C, or a pointer inside a C struct): declare the struct n := &T{...} and store through n, or write the literal &T{member: ...}",
-				fg.g.srcText(s.Rhs[i]), fg.g.srcText(lhs))
+			fg.g.userError(s.Rhs[i].Pos(), "cannot keep the object alive: %s is stored into %s, which no *T variable of the program owns (a C/C++ local value, a pointer from C, or a pointer inside a C struct): declare the struct n := &T{...} and store through n, or write the literal &T{member: ...}%s",
+				fg.g.srcText(s.Rhs[i]), fg.g.srcText(lhs), fg.g.promotedHint(lhs))
 		}
 	}
 }
