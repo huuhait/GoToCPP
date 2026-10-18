@@ -18,12 +18,12 @@
 - [x] 5.5 Assertions + type switches (Go's exact panic messages, incl. nil cases)
 - [ ] 5.6 Interface `==`, nil rules, hashing (`map[any]V`)
 - [ ] 5.7 `any`, `error`, `stdlib/errors` (`New`, `Is`, `As`, `Unwrap`, `Join`)
-- [~] 5.8 Embedding
+- [x] 5.8 Embedding
   - [x] promoted fields via selection paths
   - [x] promoted methods (aliasing pointers into embedded fields)
   - [x] fully qualified field types (`::gpkg_main::Base Base;`)
   - [x] forwarding member functions (the thunks come with job/05-5.8-iface)
-  - [x] embedded pointers (nil checks); [ ] embedded interfaces (job/05-5.8-iface)
+  - [x] embedded pointers (nil checks); [x] embedded interfaces
 - [ ] 5.9 Method values / expressions on interfaces
 - [x] 5.10 panic/recover
   - [ ] two entry points for functions containing `recover()` (carried by `gp::func` and thunks)
@@ -111,3 +111,10 @@
   its test recover_iface_embedded is parked in scratchpad/job54/pending-5.8/; (7) gaps: fmt of interface values/errors (5.7/5.11), other
   packages' interfaces (Phase 06), channels (Phase 08), interface methods with C/C++ types in the signature; thunk and wrapper
   parameters are named gp_self/gp_p/gp_a0 (user types may be named self, p, a0).
+- 2026-10-18: Job 5.8 interface half merged (promoted methods in tables/itabs, embedded interfaces, anonymous structs): 5.8 is DONE.
+  Decisions: (1) `tables()` calls `needForwarders`: only structs that go into a method table get forwarders (~1000 lines per struct for a
+  100-method embedded type); (2) a method promoted from an embedded INTERFACE is `method_of_aware` (the dynamic method is unknown;
+  the ticket flows to the inner icall which clears it unless that method is aware); (3) method-set membership decides (a type embedding
+  a pointer-method-only type has no methods by value); (4) KNOWN 5.4 BUG (own ticket): an interface method named like a type it uses
+  (`Item() Item`) -> g++ 'changes meaning': qualify the type in the interface struct as Fields/Params do (TODO); (5) examples/shapes
+  needs 5.11 (%T).
