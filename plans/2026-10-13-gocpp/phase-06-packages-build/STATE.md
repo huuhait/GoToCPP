@@ -7,9 +7,9 @@
 ## Steps
 
 - [x] 6.1 `gocpp.mod` (modfile lax + `replace`/gocpp lines read from the syntax tree), module root, `replace`, `vendor/`
-- [ ] 6.2 Per-package codegen (`pkg.hpp`, one TU per `.gp`, `pkg_init.cpp`, flat escaped namespaces, stable folders)
-- [ ] 6.3 Header layout (gocpp headers first, public flags, fully qualified struct field types, exported constants, shared anon-type header)
-- [ ] 6.4 Cross-package init: Go 1.21+ global order, `gp_init_all()`, `constinit` variables, `gp::lazy<T>`
+- [x] 6.2 Per-package codegen (`pkg.hpp`, one TU per `.gp`, `pkg_init.cpp`, flat escaped namespaces, stable folders)
+- [x] 6.3 Header layout (gocpp headers first, public flags, fully qualified struct field types, exported constants, shared anon-type header)
+- [~] 6.4 Cross-package init: Go 1.21+ global order, `gp_init_all()`, `constinit` variables, `gp::lazy<T>`
 - [ ] 6.5 Action graph with content hashing + `-MD` header deps + macro lists + public flags + wrapper environment
 - [ ] 6.6 Cache (objects, generated files, write-if-changed, API hash = export data + `pkg.hpp`, package summaries, `clean -cache`)
 - [ ] 6.7 Parallel executor (`-p`), `-x`, `-work`, error aggregation
@@ -117,3 +117,20 @@
   CxxModules (6.2 must take the union over packages); no `needs` statement; the module-wide cflags/pkg-config/ldflags of a
   dependency's gocpp.mod are still not applied (allow-list question); go-to-definition for `<x.h>` through a recipe include is not
   resolved; a symlink inside an `-L` folder that leaves the module is not checked (downloads have no symlinks).
+- 2026-10-18: Jobs 6.2 and 6.3 (per-package codegen, header layout) merged after two review rounds (ADR-025). Decisions: (1) a package
+  = `gpkg/<import path>/pkg.hpp` + one `<file>.gp.cpp` per file with functions + `pkg_desc.cpp` + `pkg_init.cpp`; main's pkg_init.cpp has
+  `gp_init_all` and `main` (namespace gpkg_main whatever the import path); (2) descriptors are `extern` in pkg.hpp and defined in
+  pkg_desc.cpp (not inline in the header); forwarders are decided on the struct's OWNER, declared in the struct, defined in the owner's
+  pkg_desc.cpp; (3) unnamed struct/interface types: guarded per-header definitions in the global namespace (not gpkg_anon.hpp); the hash
+  is 64 bits (collision handling not done); (4) generated files live in `gen/<hash of main folder, path, file names, target>` of the
+  user cache under an advisory flock (`gen/<hash>.lock`) held from the write step to the end of compile; fallback: a private folder
+  `gen/<hash>-<pid>-<n>` (removed on success; Windows uses it until LockFileEx is done); `trimGen`: >100 folders and untouched for a
+  week; (5) generated files are exempt from the object cache's 2 s racy window; (6) the cxx libraries are the UNION over packages
+  (closes the 6.1d gap); (7) `lower.Package`/`cppgen.EmitPackage` are TEST-ONLY (~100 goldens exercise a layout nobody ships); TODO:
+  route the goldens through the program path; (8) 6.4 partial: `gp_init_all` order done; NOT `gp::lazy<T>` and lazy c-archive/c-shared
+  init; (9) single-file programs compile 2 units (+0.3 s clean); `gocpp emit` prints all files after `//// path` lines; (10) the
+  'more than one package' gate stays until version.Phase reaches 6 (5.12 lifts gates; tests use `// phase: 06` and GOCPP_TEST_PHASE=06);
+  (11) macros of a package's C headers leak into dependents' files through pkg.hpp (documented); import paths differing only by case
+  collide on case-insensitive file systems; (12) stub std packages = any function without a body: Phase 09 needs a real marker;
+  (13) mutant gap: dropping the hash from `unitName` survives (two file names differing only in unsafe characters would collide):
+  add a fixture. NEXT: 5.7 (`errors`) and 5.11 (`fmt` on any) can start now (multi-package exists); examples/multi-pkg needs them.
