@@ -188,8 +188,8 @@ func bestOf(f func()) time.Duration {
 }
 
 // TestScales checks that nothing is quadratic in the size of the file, which
-// may be the file of a dependency: six times the lines must not take 14
-// times as long (it takes about six; a quadratic one takes 36).
+// may be the file of a dependency: ten times the lines must not take 40
+// times as long (it takes about ten; a quadratic one takes 100).
 func TestScales(t *testing.T) {
 	if testing.Short() {
 		t.Skip("timing test")
@@ -226,7 +226,7 @@ func TestScales(t *testing.T) {
 			},
 		}
 	}
-	small, large := mk(3000), mk(18000)
+	small, large := mk(3000), mk(30000)
 	for name, pair := range map[string][2]func(){
 		"Parse":       {small.parse, large.parse},
 		"CheckVendor": {small.vendor, large.vendor},
@@ -238,12 +238,12 @@ func TestScales(t *testing.T) {
 		var a, b time.Duration
 		for attempt := 0; attempt < 5; attempt++ {
 			a, b = bestOf(pair[0]), bestOf(pair[1])
-			t.Logf("%s: %v for 3000, %v for 18000", name, a, b)
-			if a <= time.Millisecond || b <= 14*a {
+			t.Logf("%s: %v for 3000, %v for 30000", name, a, b)
+			if a <= time.Millisecond || b <= 40*a {
 				break
 			}
 			if attempt == 4 {
-				t.Errorf("%s is not linear: %v for 3000 lines, %v for 18000", name, a, b)
+				t.Errorf("%s is not linear: %v for 3000 lines, %v for 30000", name, a, b)
 			}
 		}
 	}
