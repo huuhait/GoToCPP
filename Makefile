@@ -34,11 +34,12 @@ STATICCHECK ?= $(GO) run honnef.co/go/tools/cmd/staticcheck@v0.7.0
 build:
 	$(GO) build -o bin/gocpp ./cmd/gocpp
 
-# -timeout 30m: the runtime package builds every C++ test with g++ and clang++
-# in three modes, which can pass go test's 10 minute default when all packages
-# run at once on a loaded machine.
+# -timeout 45m: the runtime package builds every C++ test with g++ and clang++
+# in three modes, and cmd/gocpp and internal/build compile whole programs; on a
+# loaded machine they pass go test's 10 minute default (and, for cmd/gocpp, 30
+# minutes) when all packages run at once.
 test:
-	$(GO) test -timeout 30m ./...
+	$(GO) test -timeout 45m ./...
 
 # The test programs alone (tests/ and examples/, see tests/README.md),
 # verbose so that every skip says why, and never from go test's cache.
