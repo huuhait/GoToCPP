@@ -107,3 +107,13 @@
   gocpp.sum and does not re-hash (`gocpp mod verify` does); (6) every test main sets GOCPP_MODCACHE=off and GOCPP_OFFLINE=1: keep it so
   for new test packages; (7) not done: file:// in GOCPP_MODPROXY, `mod tidy`, `gocpp clean -modcache` (6.12), a total cache size cap,
   `mod vendor` of two modules where one is a folder of the other. 6.1d (cxx recipes) is next: running.
+- 2026-10-17: Job 6.1d (cxx recipes) merged after two review rounds (a security-focused review; ADR-024). Decisions:
+  (1) the recipe language is the 13 statements in docs/spec/modules.md; the project's block overrides the library's own, no merging;
+  (2) a recipe's `include`/`system-include`/`define`/pkg-config cflags apply to the DEPENDENT's compiles and probes, `cflags`/
+  `cxxflags` are library-only; `include` is `-I` (the module root of 6.1b stays `-iquote`); (3) library compiles use `-w` and
+  `-g -O0` until the Phase 06 build modes; (4) objects are shared only for modules in the module cache (the absolute source path is in
+  the key); (5) OS conditions compare the exact GOOS string (`linux:` does not match android); (6) NOT built: shared recipe index,
+  CMake fallback (open Q14 sub-questions); (7) gaps: check and the LSP do not look at library sources; only DIRECT importers carry
+  CxxModules (6.2 must take the union over packages); no `needs` statement; the module-wide cflags/pkg-config/ldflags of a
+  dependency's gocpp.mod are still not applied (allow-list question); go-to-definition for `<x.h>` through a recipe include is not
+  resolved; a symlink inside an `-L` folder that leaves the module is not checked (downloads have no symlinks).
