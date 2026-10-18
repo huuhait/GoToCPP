@@ -55,7 +55,7 @@ The plan files (root [README](../plans/2026-10-13-gocpp/README.md) §9):
 | Path | What is there |
 |---|---|
 | `cmd/gocpp/` | the `gocpp` command: `build`, `run`, `test`, `check`, `emit`, `fmt`, `lsp`, … |
-| `internal/` | the compiler and the language server: `syntax` (the parser fork), `load`, `expand`, `check`, `lower` (Go → a C++ syntax tree), `cppir` (that tree and its printer), `cppgen` (runs them: `EmitPackage`), `interop`, `build`, `lsp`, `diag`, and `version` (the version string and the last finished phase, for test gating) |
+| `internal/` | the compiler and the language server: `syntax` (the parser fork), `load`, `expand`, `check`, `lower` (Go → a C++ syntax tree), `cppir` (that tree and its printer), `cppgen` (runs them: `EmitProgram`; `EmitPackage`, one unit per package, is for the golden tests), `interop`, `build`, `lsp`, `diag`, and `version` (the version string and the last finished phase, for test gating) |
 | `runtime/` | the C++20 runtime: `include/gocpp/*.hpp`, `src/*.cpp`, `src/os/{linux,windows}/` |
 | `stdlib/` | the standard packages: `.gp` files and native `.cpp` files |
 | `tools/` | helper programs: `portstd` (copies Go's standard library, Phase 09) and the generator for the example outputs |

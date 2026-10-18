@@ -5,6 +5,7 @@ import (
 	"go/token"
 	"go/types"
 	"strconv"
+	"strings"
 
 	"github.com/huuhait/gocpp/internal/cppir"
 )
@@ -226,7 +227,7 @@ func (fg *funcGen) captures(fl *ast.FuncLit) []cppir.Capture {
 // funcRef returns the C++ of the function fn of the package as a func value:
 // gp::func_of<&gpkg_main::f>(), which needs no allocation.
 func (fg *funcGen) funcRef(fn *types.Func, pos token.Pos) cppir.Expr {
-	addr := &cppir.Unary{Op: "&", X: cxxName(fg.g.ns + "::" + fg.cname(fn, pos))}
+	addr := &cppir.Unary{Op: "&", X: cxxName(fg.funcName(fn, pos))}
 	if fg.g.awareFunc(fn) {
 		return templateCall("gp::func_of_aware", []cppir.Node{addr}) // recover.go
 	}
@@ -246,7 +247,11 @@ func (fg *funcGen) funcValueCall(c *ast.CallExpr) bool {
 		return ok
 	case *ast.SelectorExpr:
 		sel := fg.g.info.Selections[fun]
-		return sel != nil && (sel.Kind() == types.FieldVal || sel.Kind() == types.MethodExpr) // T.M(x): methods.go
+		if sel == nil {
+			_, ok := fg.g.qualifiedObj(fun).(*types.Var) // pkg.F, F a variable of func type of another package
+			return ok
+		}
+		return sel.Kind() == types.FieldVal || sel.Kind() == types.MethodExpr // T.M(x): methods.go
 	}
 	return isFunc(fg.g.info.TypeOf(c.Fun))
 }
@@ -382,4 +387,14 @@ func (fg *funcGen) deferValue(c *ast.CallExpr) cppir.Expr {
 		return frameCall("gp_push_call", apply, f, fg.exactExpr(c.Args[0]))
 	}
 	return frameCall(push, append([]cppir.Expr{f}, fg.callArgs(c, sig)...)...)
+}
+
+// funcName returns the C++ name of the function fn qualified with its package's namespace: the name
+// of an address &gpkg_main::f, or of a function of another package, ::gpkg_geom::F.
+func (fg *funcGen) funcName(fn *types.Func, pos token.Pos) string {
+	name := fg.cname(fn, pos)
+	if !strings.HasPrefix(name, "::") && !strings.HasPrefix(name, fg.g.ns+"::") {
+		name = fg.g.ns + "::" + name
+	}
+	return name
 }

@@ -396,10 +396,18 @@ func (p *debugProgram) source(n int) string {
 // base returns the file name of the program, as "break hello.gp:12" names it.
 func (p *debugProgram) base() string { return filepath.Base(p.rel) }
 
-// isCPP reports whether path is the C++ file that gocpp generated for the
-// program: hello.gp.cpp in the work folder (cppgen's Config.OutputPath).
+// isCPP reports whether path is a C++ file that gocpp generated for the program, in the folder of
+// the generated files (cppgen's root): the unit hello.gp.cpp, pkg_init.cpp, which has the C++ main
+// function, or pkg_desc.cpp.
 func (p *debugProgram) isCPP(path string) bool {
-	return filepath.IsAbs(path) && filepath.Base(path) == p.base()+".cpp"
+	if !filepath.IsAbs(path) || !strings.Contains(filepath.ToSlash(path), "/gpkg/") {
+		return false
+	}
+	switch filepath.Base(path) {
+	case p.base() + ".cpp", "pkg_init.cpp", "pkg_desc.cpp":
+		return true
+	}
+	return false
 }
 
 // A gdbStep is one gdb command of the session, with the check of what gdb

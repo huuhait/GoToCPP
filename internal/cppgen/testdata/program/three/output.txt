@@ -1,0 +1,3 @@
+init base base
+box:base 12 25 1 2
+3 rect shape

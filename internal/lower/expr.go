@@ -182,6 +182,11 @@ func (fg *funcGen) cname(obj types.Object, pos token.Pos) string {
 		}
 		return n
 	}
+	if o := fg.g.foreign(obj.Pkg()); o != nil && isPkgLevel(obj) {
+		if n, ok := o.names[obj]; ok {
+			return o.qual(n) // a function or variable of another package: ::gpkg_geom::New
+		}
+	}
 	fg.g.errorf(pos, "internal error: no C++ name for %s", obj.Name())
 	return placeholder.Name
 }
@@ -410,6 +415,8 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 			sig = obj.Signature()
 			callee = fg.cname(obj, fun.Pos())
 			switch {
+			case strings.HasPrefix(callee, "::"):
+				// qualified already: a function of another package (a dot import)
 			case sig.Variadic():
 				callee = fg.g.ns + "::" + callee // the last argument is a gp::slice (ADL)
 			case len(c.Args) != 1 || !isTuple(fg.g.info.TypeOf(c.Args[0])):
@@ -422,6 +429,11 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 	case *ast.SelectorExpr:
 		if sel := fg.g.info.Selections[fun]; sel != nil && sel.Kind() == types.MethodVal {
 			return fg.methodCall(c, fun, sel) // methods.go
+		}
+		if fn := fg.g.qualifiedFunc(fun); fn != nil {
+			sig = fn.Signature() // pkg.F(...), F a function of another package of the program
+			callee = fg.cname(fn, fun.Pos())
+			break
 		}
 		callee = fg.pkgFunc(c, fun)
 		if callee == "" {
@@ -511,8 +523,8 @@ func (fg *funcGen) argTypes(args []ast.Expr) []types.Type {
 // function must go through here: of the package's functions now, and from Phase 03 on of
 // methods, other packages' functions and func values.
 func (g *gen) funcCallName(name string, args []types.Type) string {
-	if strings.HasPrefix(name, g.ns+"::") {
-		return name // qualified already (cname, in a method)
+	if strings.HasPrefix(name, g.ns+"::") || strings.HasPrefix(name, "::") {
+		return name // qualified already (cname, in a method, or a function of another package)
 	}
 	for _, t := range args {
 		if b := basicOf(t); b == nil || b.Info()&(types.IsString|types.IsComplex) != 0 {

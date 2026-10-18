@@ -65,8 +65,14 @@ type pch struct {
 // user or the environment, or a response file or config file in the compiler's arguments (its
 // content changes what the header means, and the key has only its name).
 func (b *Builder) precompiled(rtDir string) *pch {
+	return b.precompiledFor(rtDir, b.Package.Compile)
+}
+
+// precompiledFor is precompiled for a compile that gets the package flags pkgFlags: with any,
+// there is no header to use.
+func (b *Builder) precompiledFor(rtDir string, pkgFlags []string) *pch {
 	if b.Cache == "" || !strings.HasPrefix(rtDir, b.Cache) || os.Getenv("GOCPP_NOPCH") != "" ||
-		len(b.Env.CXXCompile()) > 0 || len(b.Package.Compile) > 0 || slices.ContainsFunc(b.CXX.Args, readsDriverFile) {
+		len(b.Env.CXXCompile()) > 0 || len(pkgFlags) > 0 || slices.ContainsFunc(b.CXX.Args, readsDriverFile) {
 		return nil
 	}
 	var ext string

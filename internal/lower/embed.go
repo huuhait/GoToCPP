@@ -42,9 +42,12 @@ func (g *gen) needForwarders(t types.Type) {
 		return // a named type without a C++ struct (type P *[]int, type F func()): no methods to forward
 	}
 	if si := g.structOf(t, token.NoPos); si != nil {
-		if g.fwdNeed == nil {
-			g.fwdNeed = make(map[*structInfo]bool)
+		// (The owner of the struct writes its forwarders: a struct shared by several packages
+		// is defined once, from its owner's table, whoever asks for its descriptor.)
+		o := si.owner
+		if o.fwdNeed == nil {
+			o.fwdNeed = make(map[*structInfo]bool)
 		}
-		g.fwdNeed[si] = true
+		o.fwdNeed[si] = true
 	}
 }

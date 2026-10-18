@@ -8,7 +8,7 @@ path becomes a folder.
 
 | | |
 |---|---|
-| Status | v0, written with [Phase 06 step 6.1](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#3-steps): the file, the module root, `require`, `replace` and `vendor/`; and with job 6.1c: **module downloads** (`gocpp get`, the module cache, `gocpp.sum`, `gocpp mod vendor`, see [Downloads](#downloads)). Building more than one package is steps 6.2 to 6.7; importing C/C++ headers by module path (6.1b) and building a library from its `cxx` recipe (6.1d, [C and C++ libraries](#c-and-c-libraries-cxx-recipes)) are in |
+| Status | v0, written with [Phase 06 step 6.1](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#3-steps): the file, the module root, `require`, `replace` and `vendor/`; and with job 6.1c: **module downloads** (`gocpp get`, the module cache, `gocpp.sum`, `gocpp mod vendor`, see [Downloads](#downloads)). Building a program of several packages is job 6.2/6.3 (the packages of the module, of required, replaced and downloaded modules; [cpp-mapping.md](cpp-mapping.md#files), [ADR-025](../adr/025-split-layout.md)); the cached, parallel build graph is steps 6.5 to 6.7; importing C/C++ headers by module path (6.1b) and building a library from its `cxx` recipe (6.1d, [C and C++ libraries](#c-and-c-libraries-cxx-recipes)) are in |
 | Source | [ADR-020](../adr/020-modules-gocpp-mod.md), [ADR-023](../adr/023-module-downloads.md), [Phase 06 §2.1](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#21-the-module-file-gocppmod), [Phase 01 §2.6](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#26-package-loading-and-the-importer) |
 | Code | `internal/load` (`modules.go`, `resolve.go`), `internal/load/gocppmod` (the file format) and `internal/modfetch` (downloads) |
 | See also | [language.md](language.md) ([D11](language.md#d11-gocpp-directives-instead-of-cgo-lines)), [interop.md](interop.md) |
@@ -476,6 +476,12 @@ A header declares; something has to **define**. For a library that is more than 
 holds a small **recipe**: which C and C++ files to compile, where the headers are, which macros to
 define, which system libraries to link. No CMake, no shell, no script: a recipe is a list of facts.
 ([ADR-024](../adr/024-cxx-recipes.md); Phase 06 [§2.11](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#211-c-and-c-libraries-from-the-internet-your-decision-2026-10-13).)
+
+In a program of several packages, any package may import the headers of a library: the program
+builds each library **once** (the union over all its packages, also those the main package does not
+import), the library's public flags go to the compiles of every package that imports its headers, and
+the link flags of all packages are added in the order of the packages, those that import the others
+first ([cpp-mapping.md](cpp-mapping.md#files)).
 
 ```text
 // gocpp.mod of a project that uses Dear ImGui with GLFW and OpenGL

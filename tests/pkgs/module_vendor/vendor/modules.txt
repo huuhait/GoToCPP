@@ -1,0 +1,4 @@
+# example.org/ext v1.0.0
+## explicit
+example.org/ext
+example.org/ext/text

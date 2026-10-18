@@ -120,7 +120,7 @@ func (g *gen) newtypeOK(spec *ast.TypeSpec, named *types.Named) bool {
 // addNewtype adds the C++ struct of the named type t (not a struct), which the C++ calls name,
 // and the anonymous structs that its underlying type uses.
 func (g *gen) addNewtype(t *types.Named, name, goName string) *structInfo {
-	si := &structInfo{t: t, under: t.Underlying(), name: name, goName: goName}
+	si := &structInfo{t: t, under: t.Underlying(), name: name, goName: goName, owner: g}
 	td := g.tdecls()
 	td.list = append(td.list, si)
 	g.anonStructsIn(si.under)

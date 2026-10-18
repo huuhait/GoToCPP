@@ -21,10 +21,10 @@ import (
 // after the generated C++, which includes gocpp/nofortify.h first.
 func callSources(t *testing.T, decls, call string) {
 	t.Helper()
-	testHookCPP = func(cpp []byte) []byte {
+	testHookCPP = inMainUnit(func(cpp []byte) []byte {
 		return []byte(string(cpp) + "\n#include <cstdio>\n" + decls +
 			"\nstatic int gp_test_sources = (std::printf(\"sources %d\\n\", " + call + "), std::fflush(stdout), 0);\n")
-	}
+	})
 	t.Cleanup(func() { testHookCPP = nil })
 }
 

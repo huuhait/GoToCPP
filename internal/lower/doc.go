@@ -3,7 +3,9 @@
 //
 //	typed AST ──► lower (analysis + rewrites) ──► cppir (C++ syntax tree) ──► cppir.Print
 //
-// internal/cppgen runs the stages: cppgen.EmitPackage calls Package, then cppir.Print.
+// internal/cppgen runs the stages: cppgen.EmitProgram calls Program.Lower (the split
+// layout), then cppir.Print; cppgen.EmitPackage calls Package (the unit layout, used by the golden
+// tests only), then cppir.Print.
 //
 // # What lowering decides, and what the printer decides
 //
@@ -37,9 +39,16 @@
 //
 // # Files
 //
-//   - file.go: Package, the translation unit (#include <gocpp/rt.hpp>, then the C/C++ includes,
-//     the flat package namespace gpkg_main, the prototypes, the C++ main wrapper, which calls
-//     gp::run_main), and small constructors of cppir nodes;
+//   - file.go: Package, the unit layout (one translation unit for a main package: #include
+//     <gocpp/rt.hpp>, then the C/C++ includes, the flat package namespace gpkg_main, the prototypes,
+//     the C++ main wrapper, which calls gp::run_main), the outputs that lowering collects, and small
+//     constructors of cppir nodes;
+//   - program.go, split.go, shared.go and xpkg.go: the split layout of Phase 06 steps 6.2 and 6.3
+//     (docs/adr/025-split-layout.md): NewProgram lowers all the packages of a program together, in
+//     the order of their imports, and writes for each a header, a translation unit for each .gp
+//     file, pkg_desc.cpp and pkg_init.cpp (split.go); the unnamed struct and interface types are
+//     one C++ type for the whole program (shared.go); a reference to a function, variable or type
+//     of another package is its fully qualified C++ name (xpkg.go);
 //   - decl.go: functions (parameters, results as a std::tuple, named results), package
 //     variables (constinit) and the package's initialization (gp_var_init, the init
 //     functions);

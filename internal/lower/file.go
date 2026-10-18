@@ -7,7 +7,6 @@ import (
 	"go/token"
 	"go/types"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/huuhait/gocpp/internal/check"
@@ -38,8 +37,8 @@ func (e *Error) Error() string {
 }
 
 // Package returns the C++ translation unit of the type-checked main package pkg, which has
-// no errors: one unit for the whole program (Phases 02 to 05 build a program from one
-// package, main; Phase 06 writes one file per .gp file and a pkg.hpp). fset holds the
+// no errors: one unit for the whole program (the unit layout, which the emitter's own tests use;
+// gocpp build writes the split layout of a Program: one file per .gp file and a pkg.hpp). fset holds the
 // positions of pkg's files (check.Result.Fset); their names must be absolute, as the loader
 // makes them, because they go into the #line directives.
 //
@@ -72,6 +71,7 @@ func Package(fset *token.FileSet, pkg *check.Package, in *Interop, opts ...Optio
 	if len(opts) > 0 {
 		g.opts = opts[0]
 	}
+	g.prog = &Program{fset: fset, opts: g.opts, byPkg: map[*types.Package]*gen{pkg.Types: g}, main: g}
 	g.interop = in
 	if in != nil {
 		g.macros = in.macros
@@ -89,7 +89,7 @@ func newGen(fset *token.FileSet, pkg *check.Package) *gen {
 		fset:  fset,
 		pkg:   pkg,
 		info:  pkg.Info,
-		ns:    NamespaceName("main"),
+		ns:    NamespaceName(importPath(pkg.Types)),
 		names: make(map[types.Object]string),
 
 		uintCounts: make(map[ast.Expr]bool),
@@ -106,9 +106,12 @@ type gen struct {
 	pkg  *check.Package
 	info *types.Info
 
-	// decls is the list of declarations that the declarations go into: the package's
-	// namespace.
-	decls *[]cppir.Decl
+	// out are the declarations that lowering made (outputs).
+	out outputs
+
+	// split says that the package is written as a header and several translation units
+	// (split.go), not as one unit (file).
+	split bool
 
 	// err is the first error, or nil. After an error, lowering goes on (so its code needs no
 	// error checks at every step), but its tree is thrown away.
@@ -120,10 +123,11 @@ type gen struct {
 	// names are the C++ names of the package-level objects: functions and variables.
 	names map[types.Object]string
 
-	funcs    []*funcInfo  // the functions with bodies, in source order
-	vars     []*types.Var // the package variables, in source order (without _)
-	initFns  []string     // the C++ names of the init functions, in source order
-	varInits bool         // gp_var_init is needed
+	consts   []*types.Const // the exported constants, in source order
+	funcs    []*funcInfo    // the functions with bodies, in source order
+	vars     []*types.Var   // the package variables, in source order (without _)
+	initFns  []string       // the C++ names of the init functions, in source order
+	varInits bool           // gp_var_init is needed
 
 	// uintCounts are the expressions inside a shift count that is untyped but not a
 	// constant (markCounts).
@@ -183,6 +187,18 @@ type gen struct {
 	// inTemplate counts the C++ template arguments being lowered (ctypes.go: templateArg),
 	// in which the package's types are fully qualified.
 	inTemplate int
+
+	// prog is the program of the packages lowered together (program.go); it is never nil.
+	// global counts the definitions of shared types being written (shared.go): the package's
+	// types are fully qualified there too, as they are written outside its namespace.
+	prog   *Program
+	global int
+
+	// usedShared and sharedList are the shared types (shared.go) that the package uses, rec the
+	// list that the shared types being made note the ones they mention in.
+	usedShared map[sharedItem]bool
+	sharedList []sharedItem
+	rec        *[]sharedItem
 }
 
 // errorf records an error at pos, if it is the first.
@@ -207,9 +223,40 @@ func (g *gen) pos(p token.Pos) cppir.Pos {
 	return cppir.Pos{File: pp.Filename, Line: pp.Line}
 }
 
-// decl adds the declarations to the package's namespace.
-func (g *gen) decl(ds ...cppir.Decl) {
-	*g.decls = append(*g.decls, ds...)
+// outputs are the declarations that lowering made, by what they are: prototypes, package
+// variables, the definitions of the functions (also by the file that declares them) and the
+// package's initialization. unitFile puts them in one translation unit; the split layout
+// (split.go) puts them in different files.
+type outputs struct {
+	protos []cppir.Decl // the prototypes of the functions
+	vars   []cppir.Decl // the definitions of the package variables
+	varExt []cppir.Decl // their extern declarations (the split layout's header)
+	funcs  []cppir.Decl // the definitions of the functions, in source order
+	inits  []cppir.Decl // gp_var_init and gp_init_funcs
+
+	byFile map[string][]cppir.Decl // the definitions of the functions by the .gp file
+	files  []string                // the files of byFile, in the order of the first definition
+}
+
+// lower lowers the package: the functions, the variables and the initialization go to g.out,
+// the types it needs are found on the way. It reports false after an error.
+func (g *gen) lower() bool {
+	g.collect()
+	if g.err != nil {
+		return false
+	}
+	g.checkCUses() // cguard.go
+	if g.err != nil {
+		return false
+	}
+	g.markAllCValues() // cvalues.go
+	g.prototypes()
+	g.packageVars()
+	for _, fn := range g.funcs {
+		g.funcDecl(fn)
+	}
+	g.initFuncs()
+	return g.err == nil
 }
 
 // file returns the whole translation unit.
@@ -223,15 +270,9 @@ func (g *gen) file() *cppir.File {
 		g.errorf(g.pkg.Load.Files[0].AST.Name.Pos(), "%v", errNoMain)
 		return nil
 	}
-	g.collect()
-	if g.err != nil {
+	if !g.lower() {
 		return nil
 	}
-	g.checkCUses() // cguard.go
-	if g.err != nil {
-		return nil
-	}
-	g.markAllCValues() // cvalues.go
 
 	f := &cppir.File{}
 	f.Decls = append(f.Decls,
@@ -248,16 +289,12 @@ func (g *gen) file() *cppir.File {
 	}
 	f.Decls = append(f.Decls, &cppir.Blank{})
 	ns := &cppir.Namespace{Name: g.ns}
-	g.decls = &ns.Decls
-	g.decl(&cppir.Blank{})
-	g.prototypes()
-	g.packageVars()
-	for _, fn := range g.funcs {
-		g.funcDecl(fn)
-	}
-	g.initFuncs()
-	// The structs go first (typedecl.go): everything above has added the ones it uses.
-	ns.Decls = slices.Insert(ns.Decls, 1, g.structDecls()...)
+	ns.Decls = append(ns.Decls, &cppir.Blank{})
+	ns.Decls = append(ns.Decls, g.structDecls().all()...)
+	ns.Decls = append(ns.Decls, g.out.protos...)
+	ns.Decls = append(ns.Decls, g.out.vars...)
+	ns.Decls = append(ns.Decls, g.out.funcs...)
+	ns.Decls = append(ns.Decls, g.out.inits...)
 	f.Decls = append(f.Decls, ns, &cppir.Blank{})
 
 	init := cppir.Expr(&cppir.Lit{Text: "nullptr"})
@@ -371,7 +408,15 @@ func (g *gen) collectGen(d *ast.GenDecl) {
 	case token.IMPORT:
 		// Phase 02 imports only fmt, whose functions the runtime has (gp::fmtshim).
 	case token.CONST:
-		// Every use of a constant is folded (expr.go), so constants need no C++.
+		// Every use of a constant is folded (expr.go), so the code needs no C++ for it. The
+		// split layout's header has the exported ones for C++ users (constDecls).
+		for _, spec := range d.Specs {
+			for _, id := range spec.(*ast.ValueSpec).Names {
+				if c, ok := g.info.Defs[id].(*types.Const); ok && c.Exported() {
+					g.consts = append(g.consts, c)
+				}
+			}
+		}
 	case token.TYPE:
 		g.collectTypes(d) // typedecl.go
 	case token.VAR:
@@ -401,11 +446,11 @@ func (g *gen) prototypes() {
 		if f.method != nil {
 			continue // declared in its struct (methods.go)
 		}
-		g.decl(&cppir.Func{Result: f.result, Name: f.name, Params: f.params})
+		g.out.protos = append(g.out.protos, &cppir.Func{Result: f.result, Name: f.name, Params: f.params})
 		n++
 	}
 	if n > 0 {
-		g.decl(&cppir.Blank{})
+		g.out.protos = append(g.out.protos, &cppir.Blank{})
 	}
 }
 
@@ -448,4 +493,13 @@ func construct(typ cppir.Type, args ...cppir.Expr) cppir.Expr {
 		return placeholder
 	}
 	return templateCall(tn.Name, tn.Args, args...)
+}
+
+// inlineIfSplit returns the specifiers of a function that the header defines: inline in the
+// split layout, none in the unit layout (a unit is one translation unit).
+func (g *gen) inlineIfSplit() []string {
+	if g.split {
+		return []string{"inline"}
+	}
+	return nil
 }

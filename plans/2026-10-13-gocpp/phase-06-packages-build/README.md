@@ -53,17 +53,26 @@ dependency, go through the same flag allow-list as the main package's directives
 ### 2.2 One package → its own C++ files
 
 ```
-$XDG_CACHE_HOME/gocpp/gen/<main module>/gpkg/<import path>/     (a stable folder per package)
-├── pkg.hpp            everything other packages need: types, prototypes, extern vars, templates
+$XDG_CACHE_HOME/gocpp/gen/<hash>/gpkg/<import path>/     (a stable folder per package; built in 6.2)
+├── pkg.hpp            everything other packages need: types, prototypes, extern vars, constants
 ├── render.gp.cpp      one translation unit per .gp file (parallel + incremental)
 ├── physics.gp.cpp
+├── pkg_desc.cpp       the type descriptors of the package's types (extern in pkg.hpp)
 └── pkg_init.cpp       package variables, init() functions, gp_var_init()/gp_init_funcs()
 ```
 
+*Built (6.2, [ADR-025](../../../docs/adr/025-split-layout.md)): the folder is `gen/<hash>` where the hash is of
+the main package's folder, import path, files and the target (two programs of one module name must not
+share a folder), and `-work` puts it in the work folder. `pkg_desc.cpp` is new: a descriptor is one object
+per type in the program, so it is `extern` in `pkg.hpp` and defined in the owner's `pkg_desc.cpp` (where
+the packages that convert its types to interfaces ask for it), not an `inline` variable of the header.
+`fmt` (the shims) and the stubs of the standard library have no header; a standard package written in
+`.gp` with bodies is built like any other.*
+
 The folder is keyed by the import path, not by a content hash, so `-I` paths never change
-between builds. Content hashes are only used inside the cache (2.5). One `-I` points at
-`gen/<main module>`, so every package header is included as `#include "gpkg/<import path>/pkg.hpp"`
-(for example `"gpkg/fmt/pkg.hpp"`). The `gpkg/` prefix keeps these names apart from real C++
+between builds. Content hashes are only used inside the cache (2.5). One `-iquote` points at
+`gen/<hash>`, so every package header is included as `#include "gpkg/<import path>/pkg.hpp"`
+(for example `"gpkg/example.com/app/geom/pkg.hpp"`). The `gpkg/` prefix keeps these names apart from real C++
 headers such as `<fmt/format.h>`.
 
 - **Namespaces are flat**: `gpkg_` + an injective escape of the import path, for example
@@ -96,7 +105,8 @@ pkg.hpp
     (methods are declared inside their structs)
  7. inline / template definitions: interface wrapper methods, forwarding members,
     generic bodies (Phase 07)
- 8. type descriptors (inline variables, Phase 05)
+ 8. type descriptors (inline variables, Phase 05; *built as extern declarations here and
+    definitions in `pkg_desc.cpp`*)
 ```
 
 - gocpp headers are included **before** C/C++ headers, so C macros can't break gocpp
@@ -104,8 +114,11 @@ pkg.hpp
   use C types; otherwise they stay in the `.cpp` files. Flags that change how those headers parse
   (`-I`, `-D`) become **public flags** of the package: they are passed to every dependent and
   are part of its cache key, so no two translation units see a C struct with different layouts.
-- Anonymous struct types used in several packages share one canonical definition in a generated
-  `gpkg_anon.hpp` with one include guard per type (Phase 03).
+- Anonymous struct types used in several packages share one canonical definition (Phase 03). *Built
+  (6.3): not one `gpkg_anon.hpp` (it would need the headers of the packages whose types it mentions, and
+  they it), but the same definition under its own include guard in the global namespace in the
+  header of every package that uses the type or mentions it in another one; unnamed interface types
+  work the same way (ADR-025).*
 - Cycles between types are fine inside one header. Go forbids import cycles, so headers never
   include each other circularly.
 
@@ -360,15 +373,25 @@ func main() { imgui.Begin("hello") }
 0. (Obligation from 5.10: `recover` awareness, `awareFunc` in internal/lower/recover.go, looks at
    the package being lowered only; a cross-package `defer pkg.F()` where `F` contains `recover()`
    needs the fact from `pkg`'s lowering (a flag in its header or a declaration), else it is
-   pushed as a plain call and `F`'s `recover()` returns nil.)
+   pushed as a plain call and `F`'s `recover()` returns nil.) *Done in 6.2: all packages are lowered in one process, and `awareFunc`
+   asks the lowering of the package that declares the function (ADR-025); `defer pkg.F()`,
+   `defer pkg.T.M()` and `f := pkg.F; defer f()` are tests/pkgs/embed_init_recover.* 
 1. **6.1 `gocpp.mod`** parsing (`x/mod/modfile` lax mode + reading `replace` and the gocpp lines
    from the syntax tree), module root discovery, `replace` and `vendor/` resolution.
 2. **6.2 Per-package codegen**: `pkg.hpp` + one `.gp.cpp` per file + `pkg_init.cpp`; flat,
-   injectively escaped namespaces; stable per-package folders.
+   injectively escaped namespaces; stable per-package folders. *Built in job 6.2/6.3, with the simple
+   build driver (every unit through the object cache, parallel, one link) and a minimal `gp_init_all`
+   in the main package's `pkg_init.cpp`.*
 3. **6.3 Header layout** (§2.3): include order, public flags, fully qualified types in struct
-   bodies, exported constants, shared anonymous-type header.
+   bodies, exported constants, shared anonymous-type header. *Built with 6.2; see ADR-025.*
 4. **6.4 Cross-package init**: global Go 1.21+ order computed by the driver, `gp_init_all()`,
-   `constinit` variables, `gp::lazy<T>`.
+   `constinit` variables, `gp::lazy<T>`. *Partly built in 6.2: the
+   packages are in the loader's order (`load.Program.Packages`: Go 1.21's, a differential test with
+   prints in init functions of independent packages is tests/pkgs/embed_init_recover), and
+   `gp_init_all()` is written into the main package's `pkg_init.cpp` (it calls `gp_var_init()` and
+   `gp_init_funcs()` of each package that has any); inside a package the order is the one of Phase 03
+   (`types.Info.InitOrder`, init functions by file name). Left for 6.4: `gp::lazy<T>` for C++ types
+   that can't be constant-initialized, and the lazy initialization of `c-archive`/`c-shared`.*
 5. **6.5 Action graph** (transpile → compile → link) with content hashing, `-MD` header deps,
    macro lists, public flags and wrapper environment in the keys.
 6. **6.6 Cache** (objects, generated files, write-if-changed, API hash = export data + `pkg.hpp`,

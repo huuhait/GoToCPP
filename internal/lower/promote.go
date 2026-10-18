@@ -64,9 +64,12 @@ type Options struct {
 }
 
 // forwarders returns the forwarders of the struct si that are written: all of them for a struct
-// that needs them (Options.AllForwarders, or g.fwdNeed: the method tables of step 5.4/5.5 set it), else none.
+// that needs them (Options.AllForwarders, or fwdNeed: the method tables of step 5.4/5.5 set it), else none.
+// The request is on the owner of the struct (needForwarders), also when g is another package: the
+// declarations that such a g makes for a shared struct are not used (makeShared runs in the owner),
+// so no program tells g from the owner here; the owner is what is right.
 func (g *gen) forwarders(si *structInfo) []forwarder {
-	if g.opts.AllForwarders || g.fwdNeed[si] {
+	if o := si.owner; o.opts.AllForwarders || o.fwdNeed[si] {
 		return g.allForwarders(si)
 	}
 	return nil
@@ -77,6 +80,9 @@ func (g *gen) forwarders(si *structInfo) []forwarder {
 func (g *gen) allForwarders(si *structInfo) []forwarder {
 	if si.st == nil || !hasEmbedded(si.st) {
 		return nil
+	}
+	if si.owner != g {
+		return si.owner.allForwarders(si) // (the names are the owner's: macros of its headers)
 	}
 	if fs, ok := g.fwds[si]; ok {
 		return fs
@@ -90,7 +96,7 @@ func (g *gen) allForwarders(si *structInfo) []forwarder {
 		if fn == nil || len(s.Index()) < 2 || fn.Name() == "_" || s.Kind() != types.MethodVal {
 			continue
 		}
-		f := forwarder{sel: s, name: g.methodName(si.name, fn.Name()), static: true}
+		f := forwarder{sel: s, name: g.memberFor(si, fn), static: true}
 		if v := vset.Lookup(fn.Pkg(), fn.Name()); v != nil {
 			f.sel, f.static = v, false
 		}
@@ -216,4 +222,17 @@ func (g *gen) forwardDefs(si *structInfo) []cppir.Decl {
 func plainValue(t types.Type) bool {
 	b := basicOf(t)
 	return b != nil && b.Info()&(types.IsString|types.IsComplex) == 0
+}
+
+// memberFor returns the C++ name of the member of the struct si that stands for the method fn of
+// its method set: the method's name (escaped), or for an unexported method of another package
+// that si promotes, the name with the package: `name__gpkg_base`'s tail. Two packages' unexported
+// methods are different methods in Go (a.m and b.m), so a struct that declares its own m and
+// promotes another package's m has two members, and the C++ names must differ.
+func (g *gen) memberFor(si *structInfo, fn *types.Func) string {
+	name := fn.Name()
+	if !fn.Exported() && fn.Pkg() != nil && fn.Pkg() != si.owner.pkg.Types {
+		name += "__" + NamespaceName(importPath(fn.Pkg()))[len("gpkg_"):]
+	}
+	return g.methodName(si.name, name)
 }

@@ -50,3 +50,9 @@ func main() {
   depend on where the repository is.
 - A missing snapshot fails the test and says how to write it. A `.cpp.golden` file without its
   `.gp` file is an error.
+
+Since Phase 06 step 6.2, `gocpp emit` prints the files of the program one after the other, each after
+a line `//// gpkg/<import path>/<file>` (the header `pkg.hpp`, one unit for each `.gp` file,
+`pkg_desc.cpp` and `pkg_init.cpp`; see [cpp-mapping.md](../../docs/spec/cpp-mapping.md#files)), so a
+snapshot has all of them. The 3-package layout is in
+`internal/cppgen/testdata/program/three.golden`.

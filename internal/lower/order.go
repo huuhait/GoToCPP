@@ -740,6 +740,8 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 			}
 		} else if s := fg.g.info.Selections[x]; s != nil && s.Kind() == types.MethodVal {
 			fg.collectRecv(sc, x, s, root, up) // a method value's receiver (methods.go)
+		} else if v, ok := fg.g.qualifiedObj(x).(*types.Var); ok && fg.memoryVar(v) {
+			add(&orderItem{eff: effect{read: true}}) // pkg.Var: a variable of another package, like a name (xpkg.go)
 		}
 	case *ast.SliceExpr:
 		fg.collectSlice(sc, x, add)

@@ -51,10 +51,10 @@ import (
 // time.
 var maxLibJobs = max(1, min(runtime.GOMAXPROCS(0), 64))
 
-// compileLibs compiles the sources of the libraries in Package.Libs into
+// compileLibsOf compiles the sources of the libraries libs into
 // Work/libobj and returns the object files in the order of the libraries and
 // of their files (sorted by name).
-func (b *Builder) compileLibs(ctx context.Context, rtDir string) ([]string, error) {
+func (b *Builder) compileLibsOf(ctx context.Context, rtDir string, libs []*CxxLib) ([]string, error) {
 	type job struct {
 		lib *CxxLib
 		src LibSource
@@ -62,7 +62,7 @@ func (b *Builder) compileLibs(ctx context.Context, rtDir string) ([]string, erro
 		obj string
 	}
 	var jobs []job
-	for li, lib := range b.Package.Libs {
+	for li, lib := range libs {
 		srcs, errs := lib.Sources()
 		if len(errs) > 0 {
 			return nil, errors.New(errs[0].Pos.Filename + ":" + fmt.Sprint(errs[0].Pos.Line) + ": " + errs[0].Msg)

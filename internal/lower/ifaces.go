@@ -52,6 +52,12 @@ type ifaceInfo struct {
 	methods []*types.Func // in the order of the slots
 	named   *types.Named  // nil for an unnamed interface
 	mnames  []string      // the C++ names of the methods
+
+	// owner is the lowering of the package that declares the interface. shared says that the
+	// split layout writes it in the global namespace, in the header of every package that
+	// uses it (an unnamed interface type: shared.go).
+	owner  *gen
+	shared *sharedDef
 }
 
 // ifaceTable holds the interface structs of the package.
@@ -111,7 +117,7 @@ func (g *gen) addIface(t *types.Named, name string) *ifaceInfo {
 
 // newIface returns the struct of the interface type it (t is it, or the named type over it).
 func (g *gen) newIface(t types.Type, it *types.Interface, name string) *ifaceInfo {
-	info := &ifaceInfo{t: t, it: it, name: name, methods: sortedMethods(it)}
+	info := &ifaceInfo{t: t, it: it, name: name, methods: sortedMethods(it), owner: g}
 	for _, m := range info.methods {
 		if !complete(m.Signature()) {
 			g.unsupported(m.Pos(), "the interface method "+m.Name()+" has a C/C++ type in its signature (typed interop: Phase 12)")
@@ -133,7 +139,12 @@ func (g *gen) ifaceOf(t types.Type, pos token.Pos) *ifaceInfo {
 		if info := g.itable().named[u.Obj()]; info != nil {
 			return info
 		}
-		g.unsupported(pos, "the interface type "+g.canonName(u)+" (interface types of other packages come with Phase 06)")
+		if o := g.foreign(u.Obj().Pkg()); o != nil {
+			if info := o.itable().named[u.Obj()]; info != nil {
+				return info // an interface of another package
+			}
+		}
+		g.unsupported(pos, "the interface type "+g.canonName(u))
 		return nil
 	case *types.Interface:
 		if !u.IsMethodSet() {
@@ -146,9 +157,25 @@ func (g *gen) ifaceOf(t types.Type, pos token.Pos) *ifaceInfo {
 			return info
 		}
 		sum := sha256.Sum256([]byte(key))
-		info := g.newIface(u, u, "gp_anon_i"+hex.EncodeToString(sum[:8]))
+		name := "gp_anon_i" + hex.EncodeToString(sum[:8])
+		if g.split {
+			if info := g.prog.anonIfaces[key]; info != nil {
+				// Another package made it: this one writes it too.
+				tab.anon[key] = info
+				tab.list = append(tab.list, info)
+				g.noteShared(info)
+				return info
+			}
+		}
+		info := g.newIface(u, u, name)
 		info.goName = g.canonName(u)
 		tab.anon[key] = info
+		if g.split {
+			g.prog.anonIfaces[key] = info
+			info.shared = &sharedDef{}
+			g.prog.sharedOrder = append(g.prog.sharedOrder, sharedItem{iface: info})
+			g.noteShared(info)
+		}
 		return info
 	}
 	g.unsupported(pos, "the interface type "+types.TypeString(t, nil))
@@ -167,7 +194,13 @@ func (g *gen) ifaceType(t types.Type, pos token.Pos) cppir.Type {
 	if info == nil {
 		return typeName("gp_unsupported")
 	}
-	if g.inTemplate > 0 {
+	if info.shared != nil && g.split {
+		return typeName(info.name) // in the global namespace (shared.go)
+	}
+	if info.owner != g {
+		return typeName(info.owner.qual(info.name)) // an interface of another package
+	}
+	if g.inTemplate > 0 || g.global > 0 {
 		return typeName("::" + g.ns + "::" + info.name)
 	}
 	if td := g.tdecls(); td.hidden[info.name] || td.members[info.name] {
@@ -211,43 +244,63 @@ func (g *gen) sigCxx(sig *types.Signature, pos token.Pos) ([]cppir.Type, cppir.T
 
 // ifaceDefs returns the definitions of the interface structs (after the forward declarations of
 // the structs, before their definitions). The empty and the unnamed ones are made while the
-// functions are lowered, so this runs last.
+// functions are lowered, so this runs last. The split layout writes the shared ones (the
+// unnamed types, shared.go) in every header that uses them, not here.
 func (g *gen) ifaceDefs() []cppir.Decl {
 	tab := g.itable()
 	var decls []cppir.Decl
 	// Every interface struct is declared first: the methods of one may mention another (a
 	// visitor and its nodes).
 	for _, info := range tab.list {
-		decls = append(decls, &cppir.Struct{Name: info.name, Forward: true})
+		if info.shared == nil {
+			decls = append(decls, &cppir.Struct{Name: info.name, Forward: true})
+		}
 	}
 	for _, info := range tab.list {
-		s := &cppir.Struct{Name: info.name, Bases: []cppir.Type{typeName("gp::iface")}}
-		s.Members = append(s.Members, &cppir.Using{Name: "gp::iface::iface"})
-		s.Members = append(s.Members, &cppir.Func{
-			Specs:  []string{"static"},
-			Result: &cppir.Ptr{Elem: &cppir.Const{Elem: typeName("gp::type_desc")}},
-			Name:   "gp_desc",
-		})
-		for i, m := range info.methods {
-			params, result := g.sigCxx(m.Signature(), m.Pos())
-			d := &cppir.Func{Specs: []string{wrapTag}, Result: result, Name: info.mnames[i], Quals: []string{"const"}}
-			for k, p := range params {
-				d.Params = append(d.Params, cppir.Param{Type: p, Name: "gp_a" + strconv.Itoa(k)})
-			}
-			s.Members = append(s.Members, d)
+		if info.shared == nil {
+			decls = append(decls, g.ifaceDef(info)...)
 		}
-		decls = append(decls, s, &cppir.StaticAssert{Cond: &cppir.Binary{Op: "==", X: call("sizeof", cxxName(info.name)), Y: lit("32")}}, &cppir.Blank{})
 	}
 	return decls
 }
 
-// ifaceImpls returns the definitions that follow the descriptors of the types: the method
-// arrays and descriptors of the interfaces, gp_desc and the wrappers.
-func (g *gen) ifaceImpls() []cppir.Decl {
-	var decls []cppir.Decl
+// ifaceDef returns the definition of the struct of the interface info and its static_assert.
+func (g *gen) ifaceDef(info *ifaceInfo) []cppir.Decl {
+	s := &cppir.Struct{Name: info.name, Bases: []cppir.Type{typeName("gp::iface")}}
+	s.Members = append(s.Members, &cppir.Using{Name: "gp::iface::iface"})
+	s.Members = append(s.Members, &cppir.Func{
+		Specs:  []string{"static"},
+		Result: &cppir.Ptr{Elem: &cppir.Const{Elem: typeName("gp::type_desc")}},
+		Name:   "gp_desc",
+	})
+	for i, m := range info.methods {
+		params, result := g.sigCxx(m.Signature(), m.Pos())
+		d := &cppir.Func{Specs: []string{wrapTag}, Result: result, Name: info.mnames[i], Quals: []string{"const"}}
+		for k, p := range params {
+			d.Params = append(d.Params, cppir.Param{Type: p, Name: "gp_a" + strconv.Itoa(k)})
+		}
+		s.Members = append(s.Members, d)
+	}
+	return []cppir.Decl{s, &cppir.StaticAssert{Cond: &cppir.Binary{Op: "==", X: call("sizeof", cxxName(info.name)), Y: lit("32")}}, &cppir.Blank{}}
+}
+
+// ifaceImpls adds to p the definitions that follow the descriptors of the types: the method
+// arrays and descriptors of the interfaces, gp_desc and the wrappers. The split layout declares
+// the descriptor of a named interface extern in the header and defines it in pkg_desc.cpp;
+// gp_desc and the wrappers are inline in the header.
+func (g *gen) ifaceImpls(p *implParts) {
+	for _, info := range g.itable().list {
+		if info.shared == nil {
+			g.ifaceImpl(info, p)
+		}
+	}
+}
+
+// ifaceImpl is ifaceImpls for one interface.
+func (g *gen) ifaceImpl(info *ifaceInfo, p *implParts) {
 	inline := []string{"inline"}
 	descPtr := &cppir.Ptr{Elem: &cppir.Const{Elem: typeName("gp::type_desc")}}
-	for _, info := range g.itable().list {
+	{
 		// The methods of the descriptor (and the name of an unnamed interface type).
 		var ims []cppir.Expr
 		for _, m := range info.methods {
@@ -262,7 +315,7 @@ func (g *gen) ifaceImpls() []cppir.Decl {
 		if info.named != nil {
 			var shape cppir.Expr = call("gp::shape_interface", lit("nullptr"), lit("0"))
 			if len(ims) > 0 {
-				decls = append(decls, &cppir.VarDecl{Specs: []string{"inline", "const"}, Type: typeName("gp::imethod"),
+				p.addDef(&cppir.VarDecl{Specs: []string{"inline", "const"}, Type: typeName("gp::imethod"),
 					Vars: []cppir.Declarator{{Name: "gp_im_" + info.name + "[]", Init: &cppir.InitList{Elems: ims}}}})
 				shape = call("gp::shape_interface", cxxName("gp_im_"+info.name))
 			}
@@ -271,16 +324,17 @@ func (g *gen) ifaceImpls() []cppir.Decl {
 			if obj.Pkg() != nil {
 				pkg = importPath(obj.Pkg())
 			}
-			decls = append(decls, &cppir.VarDecl{Specs: []string{"inline", "const"}, Type: typeName("gp::type_desc"),
+			p.addExt(&cppir.VarDecl{Specs: []string{"extern", "const"}, Type: typeName("gp::type_desc"), Vars: []cppir.Declarator{{Name: "gp_td_" + info.name}}})
+			p.addDef(&cppir.VarDecl{Specs: g.descSpecs(), Type: typeName("gp::type_desc"),
 				Vars: []cppir.Declarator{{Name: "gp_td_" + info.name, Init: templateCall("gp::named", []cppir.Node{typeName(info.name)},
 					lit(cppir.CString(info.goName)), lit(cppir.CString(pkg)), shape)}}})
-			decls = append(decls, &cppir.Func{Specs: inline, Result: descPtr, Name: info.name + "::gp_desc",
+			p.addInl(&cppir.Func{Specs: inline, Result: descPtr, Name: info.name + "::gp_desc",
 				Body: &cppir.Block{Stmts: []cppir.Stmt{&cppir.Return{X: &cppir.Unary{Op: "&", X: cxxName("gp_td_" + info.name)}}}}})
 		} else {
 			// An unnamed type: interned from its methods, once.
 			td := varDecl(cppir.Pos{}, &cppir.Const{Elem: descPtr}, "gp_td", templateInterface(ims, info.goName))
 			td.Specs = []string{"static"}
-			decls = append(decls, &cppir.Func{Specs: inline, Result: descPtr, Name: info.name + "::gp_desc",
+			p.addInl(&cppir.Func{Specs: inline, Result: descPtr, Name: info.name + "::gp_desc",
 				Body: &cppir.Block{Stmts: []cppir.Stmt{td, &cppir.Return{X: cxxName("gp_td")}}}})
 		}
 		// The wrappers.
@@ -289,13 +343,13 @@ func (g *gen) ifaceImpls() []cppir.Decl {
 			sig := &cppir.FuncType{Result: result, Params: params}
 			args := []cppir.Expr{deref(lit("this")), lit(strconv.Itoa(i))}
 			fn := &cppir.Func{Specs: []string{wrapTag, "inline"}, Result: result, Name: info.name + "::" + info.mnames[i], Quals: []string{"const"}, Body: &cppir.Block{}}
-			for k, p := range params {
+			for k, pt := range params {
 				name := "gp_a" + strconv.Itoa(k)
-				fn.Params = append(fn.Params, cppir.Param{Type: p, Name: name})
-				if _, isRef := p.(*cppir.Ref); isRef {
+				fn.Params = append(fn.Params, cppir.Param{Type: pt, Name: name})
+				if _, isRef := pt.(*cppir.Ref); isRef {
 					args = append(args, cxxName(name))
 				} else {
-					args = append(args, moved(p, cxxName(name)))
+					args = append(args, moved(pt, cxxName(name)))
 				}
 			}
 			icall := &cppir.Call{Fun: &cppir.Name{Name: "gp::icall", Args: []cppir.Node{sig}}, Args: args}
@@ -304,11 +358,10 @@ func (g *gen) ifaceImpls() []cppir.Decl {
 			} else {
 				fn.Body.Stmts = []cppir.Stmt{&cppir.Return{X: icall}}
 			}
-			decls = append(decls, fn)
+			p.addInl(fn)
 		}
-		decls = append(decls, &cppir.Blank{})
+		p.addInl(&cppir.Blank{})
 	}
-	return decls
 }
 
 // templateInterface returns gp::td_interface({methods}, "name"), the descriptor of an unnamed

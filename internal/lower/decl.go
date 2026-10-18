@@ -133,7 +133,7 @@ func (g *gen) funcDecl(f *funcInfo) {
 	fg.push(&fn.Body.Stmts, &fn.Body.End)
 	fg.funcBody()
 	fg.pop(body.Rbrace)
-	g.decl(fn, &cppir.Blank{})
+	g.addFunc(f, fn)
 	f.names.closeScope()
 }
 
@@ -259,7 +259,7 @@ func (g *gen) packageVars() {
 		if !complete(v.Type()) {
 			// A C/C++ type (ctypes.go): its zero value, and the value in gp_var_init. Not
 			// constinit: a C++ class may have a constructor that isn't constexpr.
-			g.decl(varDecl(g.pos(v.Pos()), g.varType(v, v.Pos()), g.names[v], &cppir.InitList{}))
+			g.addVar(varDecl(g.pos(v.Pos()), g.varType(v, v.Pos()), g.names[v], &cppir.InitList{}))
 			continue
 		}
 		typ := g.cxxType(v.Type(), v.Pos())
@@ -278,7 +278,7 @@ func (g *gen) packageVars() {
 		}
 		d := varDecl(g.pos(v.Pos()), typ, g.names[v], value)
 		d.Specs = []string{"constinit"}
-		g.decl(d)
+		g.addVar(d)
 	}
 	for _, init := range g.info.InitOrder {
 		if constInit(g.info, init) == nil && !nilInit(g.info, init) && g.constLit(init) == nil {
@@ -286,8 +286,33 @@ func (g *gen) packageVars() {
 		}
 	}
 	if len(g.vars) > 0 {
-		g.decl(&cppir.Blank{})
+		g.out.vars = append(g.out.vars, &cppir.Blank{})
+		g.out.varExt = append(g.out.varExt, &cppir.Blank{})
 	}
+}
+
+// addVar adds the definition d of a package variable. A package of several translation units
+// declares it extern in its header (split layout); the definition is in pkg_init.cpp.
+func (g *gen) addVar(d *cppir.VarDecl) {
+	g.out.vars = append(g.out.vars, d)
+	g.out.varExt = append(g.out.varExt, &cppir.VarDecl{Specs: []string{"extern"}, Type: d.Type, Vars: []cppir.Declarator{{Name: d.Vars[0].Name}}})
+}
+
+// addFunc adds the definition fn of the function (or method) f to the file of its declaration.
+func (g *gen) addFunc(f *funcInfo, fn *cppir.Func) {
+	// (The name the file was added with, not Position's: a //line directive changes that.)
+	file := g.fset.Position(f.decl.Pos()).Filename
+	if tf := g.fset.File(f.decl.Pos()); tf != nil {
+		file = tf.Name()
+	}
+	if g.out.byFile == nil {
+		g.out.byFile = make(map[string][]cppir.Decl)
+	}
+	if _, ok := g.out.byFile[file]; !ok {
+		g.out.files = append(g.out.files, file)
+	}
+	g.out.byFile[file] = append(g.out.byFile[file], fn, &cppir.Blank{})
+	g.out.funcs = append(g.out.funcs, fn, &cppir.Blank{})
 }
 
 // constInit returns the constant value of the initializer init if it gives one variable a
@@ -342,14 +367,14 @@ func (g *gen) initFuncs() {
 			}
 			fg.bind(init.Rhs.Pos(), targets, nil, []ast.Expr{init.Rhs}, false)
 		}
-		g.decl(fn, &cppir.Blank{})
+		g.out.inits = append(g.out.inits, fn, &cppir.Blank{})
 	}
 	if len(g.initFns) > 0 {
 		body := &cppir.Block{}
 		for _, n := range g.initFns {
 			body.Stmts = append(body.Stmts, &cppir.ExprStmt{X: call(n)})
 		}
-		g.decl(&cppir.Func{Result: typeName("void"), Name: "gp_init_funcs", Body: body}, &cppir.Blank{})
+		g.out.inits = append(g.out.inits, &cppir.Func{Result: typeName("void"), Name: "gp_init_funcs", Body: body}, &cppir.Blank{})
 	}
 }
 

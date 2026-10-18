@@ -277,7 +277,7 @@ func parseCXXErrors(out []byte) []cxxDiag {
 // A cxxClassifier decides which errors of the generated C++ are the
 // user's (see mapError).
 type cxxClassifier struct {
-	generated string     // the generated C++ file
+	generated string     // the folder of the generated C++ (the files of all the packages), or one generated file
 	include   string     // the runtime's include folder (build.CompileError.Include), or ""
 	user      cppLineSet // the .gp lines with C or C++ code (cppLines)
 }
@@ -285,7 +285,11 @@ type cxxClassifier struct {
 func (c *cxxClassifier) isGP(file string) bool { return strings.HasSuffix(file, ".gp") }
 
 func (c *cxxClassifier) isGenerated(file string) bool {
-	return file != "" && filepath.Clean(file) == filepath.Clean(c.generated)
+	if file == "" || c.generated == "" {
+		return false
+	}
+	file, gen := filepath.Clean(file), filepath.Clean(c.generated)
+	return file == gen || strings.HasPrefix(file, gen+string(filepath.Separator))
 }
 
 // isRuntime reports whether file is a header of gocpp's runtime, and, if
@@ -494,6 +498,9 @@ func (d *driver) printCppErrors(pkg *check.Package, errs []cppError) {
 func (d *driver) cppCompileFailed(pkg *check.Package, e *build.CompileError, src string) bool {
 	if !pkgUsesCpp(pkg) {
 		return false
+	}
+	if d.gen != "" {
+		src = d.gen // the headers and the other units of the program are generated too
 	}
 	c := &cxxClassifier{generated: src, include: e.Include, user: cppLines(d.check.fset, pkg)}
 	errs, others, ok := c.userCXXErrors(e.Output)

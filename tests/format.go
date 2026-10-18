@@ -98,7 +98,9 @@ var (
 	goldenFormat  = format{"golden", goBuildLine, true}
 	diffFormat    = format{"diff", diffLine | lsanLine | goBuildLine, true}
 	interopFormat = format{"interop", outputLine | exitCodeLine | stderrLine | pkgConfigLine | lsanLine | goBuildLine, true}
-	debugFormat   = format{"debug", goBuildLine, true} // and the // gdb: comments (debug.go)
+	// A multi-package test is a folder: a module with a main.gp (tests/pkgs).
+	pkgsFormat  = format{"pkgs", outputLine | exitCodeLine | stderrLine | lsanLine | divergenceLine | goBuildLine, true}
+	debugFormat = format{"debug", goBuildLine, true} // and the // gdb: comments (debug.go)
 
 	// An interop error test (a test in tests/interop with // ERROR
 	// comments) is built, not run: it has no // Output: block and no
@@ -430,6 +432,7 @@ func sameOutput(got, want string) bool {
 // A wantError is an error or a warning that "gocpp check" must report: the
 // regexp of a // ERROR or // WARNING comment and its line.
 type wantError struct {
+	file    string // the file of a folder test, relative to the folder (geom/geom.gp); "" for the one file of the test
 	line    int
 	expr    string // the regexp as written, after LINE is expanded
 	rx      *regexp.Regexp
@@ -602,6 +605,16 @@ func parseDiagnostics(out string) (diags []diagnostic, other []string) {
 	return diags, other
 }
 
+// sameDiagFile reports whether the file of a diagnostic, as gocpp prints it ("./main.gp",
+// "geom/geom.gp"), is the file name: its base name for the file of a single-file test, or its
+// path relative to the folder of a folder test (rel).
+func sameDiagFile(diagFile, name string, rel bool) bool {
+	if !rel {
+		return filepath.Base(diagFile) == name
+	}
+	return strings.TrimPrefix(filepath.ToSlash(diagFile), "./") == name
+}
+
 // matchErrors compares the diagnostics of the test file base with the
 // errors and warnings the test wants, like Go's test/ runner: each regexp
 // must match a diagnostic of its kind (an ERROR regexp an error, a WARNING
@@ -615,8 +628,12 @@ func matchErrors(base string, wants []wantError, diags []diagnostic, other []str
 	for _, w := range wants {
 		var onLine []string
 		matched := false
+		name := base
+		if w.file != "" {
+			name = w.file
+		}
 		for i, d := range diags {
-			if used[i] || d.line != w.line || filepath.Base(d.file) != base || d.warning != w.warning {
+			if used[i] || d.line != w.line || !sameDiagFile(d.file, name, w.file != "") || d.warning != w.warning {
 				continue
 			}
 			if w.rx.MatchString(d.text) {
@@ -632,10 +649,10 @@ func matchErrors(base string, wants []wantError, diags []diagnostic, other []str
 		switch {
 		case matched:
 		case len(onLine) == 0:
-			problems = append(problems, fmt.Sprintf("%s:%d: missing %s %q", base, w.line, kind, w.expr))
+			problems = append(problems, fmt.Sprintf("%s:%d: missing %s %q", name, w.line, kind, w.expr))
 		default:
 			problems = append(problems, fmt.Sprintf("%s:%d: no %s matches %q; the line has:\n\t\t%s",
-				base, w.line, kind, w.expr, strings.Join(onLine, "\n\t\t")))
+				name, w.line, kind, w.expr, strings.Join(onLine, "\n\t\t")))
 		}
 	}
 	for i, d := range diags {

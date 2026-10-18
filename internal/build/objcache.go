@@ -253,7 +253,7 @@ func (b *Builder) compileCachedSalt(ctx context.Context, c CXX, src, obj string,
 	keyArgs := b.keyArgs(args)
 	key := b.objKey(c, keyArgs, tu, salt)
 	if hash, ok := oc.lookup(key, obj); ok {
-		b.trace("# cache hit " + filepath.Base(src) + " " + hash[:16])
+		b.trace("# cache hit " + b.shortUnit(src) + " " + hash[:16])
 		return nil, nil
 	}
 	// A miss: compile, and store the object when the compile was silent.
@@ -297,6 +297,18 @@ func (b *Builder) compileCachedSalt(ctx context.Context, c CXX, src, obj string,
 		oc.store(key, entry, obj)
 	})
 	return out, nil
+}
+
+// shortUnit returns the name of the source src for the lines of -x: its base name, or for a
+// generated file its path in the folder of the generated files (gpkg/<import path>/a.gp.cpp),
+// where the base names of the packages' files (pkg_init.cpp) are not alone.
+func (b *Builder) shortUnit(src string) string {
+	if b.GenRoot != "" {
+		if rel, err := filepath.Rel(b.GenRoot, src); err == nil && !strings.HasPrefix(rel, "..") {
+			return filepath.ToSlash(rel)
+		}
+	}
+	return filepath.Base(src)
 }
 
 // notCached writes a line to Trace that says why a compile is not kept in the cache, so that
@@ -615,9 +627,16 @@ func (b *Builder) recordDeps(depfiles []string, pchFile, src string, start time.
 		return entry, errors.New("a dependency file cannot be read, or a file of the work folder is read")
 	}
 	runtimes := filepath.Join(b.Cache, "rt") + string(filepath.Separator)
+	gen := ""
+	if b.GenRoot != "" {
+		gen = filepath.Clean(b.GenRoot) + string(filepath.Separator)
+	}
 	var user []depRec
 	for _, p := range paths {
-		rec, content, err := recordFile(p, start, strings.HasPrefix(p, runtimes))
+		// The files that gocpp generated are written just before the compile, by gocpp, which
+		// replaces them by a rename (a new inode, which the entry records): a change within
+		// the racy window is no news.
+		rec, content, err := recordFile(p, start, strings.HasPrefix(p, runtimes) || gen != "" && strings.HasPrefix(p, gen))
 		if err != nil {
 			return entry, fmt.Errorf("%s: %w", p, err)
 		}

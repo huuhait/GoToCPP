@@ -63,7 +63,7 @@ func (g *gen) varType(v *types.Var, pos token.Pos) cppir.Type {
 	if lit := g.pkgVarLit(v); lit != nil {
 		return g.typeWith(v.Type(), lit.Type, pos) // the literal's type, with an inferred array's length (clits.go)
 	}
-	if v.IsField() || v.Parent() == nil || v.Parent() == g.pkg.Types.Scope() {
+	if v.IsField() || v.Parent() == nil || isPkgLevel(v) {
 		g.unsupported(pos, "package variables of C/C++ values without a type ("+v.Name()+"): write its type, var "+v.Name()+" T = ...")
 		return typeName("gp_unsupported")
 	}

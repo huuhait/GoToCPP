@@ -25,15 +25,21 @@ import (
 
 // callbackValue returns the C++ of the func value e where C/C++ code takes it (cValueOf).
 //
-// Only a function of this package is named directly (an *ast.Ident). A function of another gocpp
-// package (pkg.F, Phase 06) and an instance of a generic function (Phase 07) go through fn_val
-// today: they are C++ callables, and an error as function pointers.
+// A function of this package (an *ast.Ident) and a function of another gocpp package of the program
+// (pkg.F) are named directly: a plain function pointer, which C accepts too. An instance of a
+// generic function (Phase 07) goes through fn_val: it is a C++ callable, and an error as a
+// function pointer.
 func (fg *funcGen) callbackValue(e ast.Expr) cppir.Expr {
 	e = ast.Unparen(e)
 	switch x := e.(type) {
 	case *ast.Ident:
 		if fn, ok := fg.g.info.Uses[x].(*types.Func); ok && fn.Signature().Recv() == nil {
-			addr := &cppir.Unary{Op: "&", X: cxxName(fg.g.ns + "::" + fg.cname(fn, x.Pos()))}
+			addr := &cppir.Unary{Op: "&", X: cxxName(fg.funcName(fn, x.Pos()))}
+			return templateCall("gp::cgo::fn", []cppir.Node{addr})
+		}
+	case *ast.SelectorExpr:
+		if fn := fg.g.qualifiedFunc(x); fn != nil && fn.Signature().Recv() == nil {
+			addr := &cppir.Unary{Op: "&", X: cxxName(fg.funcName(fn, x.Pos()))}
 			return templateCall("gp::cgo::fn", []cppir.Node{addr})
 		}
 	case *ast.FuncLit:

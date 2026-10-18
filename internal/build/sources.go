@@ -126,30 +126,33 @@ func FindCC(ctx context.Context, cxx CXX) (CXX, error) {
 // real build graph and -p.
 var maxSourceJobs = max(1, min(runtime.NumCPU(), 8))
 
-// compileSources compiles the package's C and C++ files (Dir, CFiles and
-// CXXFiles) into Work/cobj, at most maxSourceJobs at the same time, and
-// returns their object files, in the order of the files (the C files
-// first). rtDir is the runtime's folder, for gocpp/nofortify.h. A compile
-// that fails is a *CompileError with Source set: the first one, in the
-// order of the files.
-func (b *Builder) compileSources(ctx context.Context, rtDir string) ([]string, error) {
+// compilePackageSources compiles the C and C++ files of the package pb (Dir, CFiles and
+// CXXFiles) into Work/cobj, at most maxSourceJobs at the same time, and returns their object
+// files, in the order of the files (the C files first). rtDir is the runtime's folder, for
+// gocpp/nofortify.h. idx is the number of the package and multi says that the program has more
+// than one: then the objects are in a folder of the package, cobj/<idx>. A compile that fails is
+// a *CompileError with Source set: the first one, in the order of the files.
+func (b *Builder) compilePackageSources(ctx context.Context, rtDir string, pb *PackageBuild, idx int, multi bool) ([]string, error) {
 	type source struct {
 		c    CXX
 		file string
 	}
 	var srcs []source
-	for _, f := range b.CFiles {
+	for _, f := range pb.CFiles {
 		srcs = append(srcs, source{b.CC, f})
 	}
-	for _, f := range b.CXXFiles {
+	for _, f := range pb.CXXFiles {
 		srcs = append(srcs, source{b.CXX, f})
 	}
 	if len(srcs) == 0 {
 		return nil, nil
 	}
 	objDir := filepath.Join(b.Work, "cobj")
+	if multi {
+		objDir = filepath.Join(objDir, fmt.Sprint(idx))
+	}
 	b.trace("mkdir -p " + ShellQuoteWork(objDir, b.Work))
-	if err := os.Mkdir(objDir, 0o755); err != nil {
+	if err := os.MkdirAll(objDir, 0o755); err != nil {
 		return nil, err
 	}
 	nofortify := filepath.Join(rtDir, "include", "gocpp", "nofortify.h")
@@ -158,15 +161,15 @@ func (b *Builder) compileSources(ctx context.Context, rtDir string) ([]string, e
 	sem := make(chan struct{}, maxSourceJobs)
 	var wg sync.WaitGroup
 	for i, s := range srcs {
-		file := filepath.Join(b.Dir, s.file)
+		file := filepath.Join(pb.Dir, s.file)
 		// a.c and a.cpp get a.c.o and a.cpp.o.
 		objs[i] = filepath.Join(objDir, s.file+".o")
 		what, std, lang, env := "the C++ file ", "-std=c++20", "c++", b.Env.CXXCompile()
 		if s.c.C {
 			what, std, lang, env = "the C file ", "-std=gnu17", "c", b.Env.CFlags
 		}
-		args := slices.Concat(SourceFlags(s.c, b.ASan), []string{std, "-iquote", b.Dir, "-include", nofortify},
-			env, b.Package.Compile, []string{"-c", "-x", lang, file, "-o", objs[i]})
+		args := slices.Concat(SourceFlags(s.c, b.ASan), []string{std, "-iquote", pb.Dir, "-include", nofortify},
+			env, pb.Flags.Compile, pb.Public, []string{"-c", "-x", lang, file, "-o", objs[i]})
 		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
@@ -182,8 +185,8 @@ func (b *Builder) compileSources(ctx context.Context, rtDir string) ([]string, e
 				b.traceMu.Lock()
 				defer b.traceMu.Unlock()
 				switch {
-				case b.SourceWarnings != nil:
-					b.SourceWarnings(out)
+				case pb.SourceWarnings != nil:
+					pb.SourceWarnings(out)
 				case b.Stderr != nil:
 					b.Stderr.Write(out)
 				}

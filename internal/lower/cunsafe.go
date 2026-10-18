@@ -219,7 +219,7 @@ func (g *gen) ownedKindDepth(e ast.Expr, depth int) int {
 				if root == nil {
 					return ownedTemp
 				}
-				if root.Parent() == g.pkg.Types.Scope() {
+				if isPkgLevel(root) {
 					return notOwned // a package variable lives as long as the program
 				}
 				return ownedLoc
@@ -227,7 +227,7 @@ func (g *gen) ownedKindDepth(e ast.Expr, depth int) int {
 		}
 	case *ast.Ident:
 		v, ok := g.info.Uses[x].(*types.Var)
-		if !ok || v.IsField() || v.Parent() == g.pkg.Types.Scope() || g.typeExprOf(v) != nil {
+		if !ok || v.IsField() || isPkgLevel(v) || g.typeExprOf(v) != nil {
 			return notOwned // declared with a type: a raw pointer
 		}
 		if g.ownedKindDepth(g.initialValue(v), depth+1) != notOwned {
@@ -454,7 +454,7 @@ func (g *gen) loadedVar(e ast.Expr) bool {
 		return false
 	}
 	v, ok := g.info.Uses[id].(*types.Var)
-	if !ok || v.IsField() || v.Parent() == g.pkg.Types.Scope() || g.typeExprOf(v) != nil {
+	if !ok || v.IsField() || isPkgLevel(v) || g.typeExprOf(v) != nil {
 		return false
 	}
 	return g.isMemberRead(g.initialValue(v))

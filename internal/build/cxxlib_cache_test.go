@@ -109,7 +109,7 @@ func TestCompileLibsArgs(t *testing.T) {
 			var tr strings.Builder
 			b := &Builder{CXX: cxx, ASan: asan, Work: t.TempDir(), Trace: &tr, Package: PackageFlags{Libs: []*CxxLib{lib}},
 				Env: EnvFlags{CFlags: []string{"-DENVC"}, CXXFlags: []string{"-DENVCXX"}}}
-			objs, err := b.compileLibs(context.Background(), rt)
+			objs, err := b.compileLibsOf(context.Background(), rt, b.Package.Libs)
 			if err != nil || len(objs) != 2 {
 				t.Fatalf("compileLibs: %v %v", objs, err)
 			}

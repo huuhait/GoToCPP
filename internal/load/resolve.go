@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/huuhait/gocpp/internal/diag"
 	"github.com/huuhait/gocpp/internal/load/gocppmod"
@@ -236,6 +237,14 @@ func checkImportPath(path string) string {
 	for elem := range strings.SplitSeq(path, "/") {
 		if elem == "." || elem == ".." {
 			return fmt.Sprintf("malformed import path %q: invalid path element %q", path, elem)
+		}
+	}
+	// The characters of module.CheckImportPath: ASCII letters and digits and -._~+ (the generated
+	// files are in a folder of this name, and the namespace is made of it).
+	for _, r := range path {
+		if r >= utf8.RuneSelf || !(r == '-' || r == '.' || r == '_' || r == '~' || r == '+' || r == '/' ||
+			'0' <= r && r <= '9' || 'A' <= r && r <= 'Z' || 'a' <= r && r <= 'z') {
+			return fmt.Sprintf("malformed import path %q: invalid char %q", path, r)
 		}
 	}
 	return ""

@@ -15,7 +15,8 @@ C++ compiler, and checks the binary twice:
   - no other address maps to the `.gp` file, so generated-only code (the `main` wrapper, the
     runtime) never lands on an unrelated `.gp` line;
   - the functions that only gocpp generates (`main`, later the init helpers) map to the
-    generated `x.gp.cpp` (the driver sets cppgen's `Config.OutputPath`);
+    generated C++ files of the program: `main` is in `pkg_init.cpp` (the driver sets the folder of the
+    generated files, `gen/<hash>/gpkg/<import path>/`, as cppgen's root);
   - every line that must have code has an `is_stmt` row, so `break x.gp:N` stops at line N:
     the `func` line, the first line of every statement that does something, and the closing
     brace of a func that can run off its end. Blocks, labels, `const` and `type` declarations,
@@ -56,7 +57,7 @@ first time the line runs, then runs the commands of the comment, separated by `;
 |---|---|---|
 | `print EXPR = VALUE` | `print EXPR` | gdb prints `$N = VALUE`, exactly |
 | `print EXPR ~ REGEXP` | `print EXPR` | the value matches the regexp (for values with addresses). The first ` = ` or ` ~ ` ends `EXPR` |
-| `bt F1 F2 ...` | `bt` | the program's frames (the ones in `gpkg_main::`, and the lambdas of its func literals) are `F1 F2 ...`, from frame #0 on, each at a `.gp` line of its func or func literal (frame #0 at the stop), and the outermost frame is the generated `main`, at a line of `x.gp.cpp`. Between two of the program's frames only a deferred call's frames or a func value's may come: a run of the runtime's and the C++ library's (`gp::`, `std::`, `__`) that ends with `gp::defer_frame::gp_run` or a frame of `gp::func`, just inside the next program frame. Write the names as gdb shows them, `gpkg_main::add`, a method as a member of its type's struct: `gpkg_main::Point::Move`, and a func literal by its Go name: `gpkg_main::main.func1` (the first literal of `main`), `gpkg_main::main.func1.1` (the first one in it) |
+| `bt F1 F2 ...` | `bt` | the program's frames (the ones in `gpkg_main::`, and the lambdas of its func literals) are `F1 F2 ...`, from frame #0 on, each at a `.gp` line of its func or func literal (frame #0 at the stop), and the outermost frame is the generated `main`, at a line of `pkg_init.cpp`. Between two of the program's frames only a deferred call's frames or a func value's may come: a run of the runtime's and the C++ library's (`gp::`, `std::`, `__`) that ends with `gp::defer_frame::gp_run` or a frame of `gp::func`, just inside the next program frame. Write the names as gdb shows them, `gpkg_main::add`, a method as a member of its type's struct: `gpkg_main::Point::Move`, and a func literal by its Go name: `gpkg_main::main.func1` (the first literal of `main`), `gpkg_main::main.func1.1` (the first one in it) |
 | `next L1 L2 ...` | `next`, once per line | each `next` stops at the next line of the list, in the `.gp` file, in the func of that line: so `next` never goes into the `.cpp` file or a runtime header for a user statement |
 
 The session is: for each stop, in the order of the lines, `tbreak x.gp:N` (gdb must put it at
@@ -154,5 +155,5 @@ What the debugger shows in this phase (the gdb and lldb pretty printers come wit
     `gp_call_obj` (`func.hpp`) too; clang++ goes back to the caller.
 
   Phase 13's `gocpp debug` adds skip rules for the runtime's frames.
-- **Generated code.** The `main` wrapper maps to the generated `.cpp` file, which is gone after
-  the build (`gocpp build -work` keeps it), and the runtime to its files in the gocpp cache.
+- **Generated code.** The `main` wrapper maps to the generated `pkg_init.cpp`, which stays in the cache
+  folder (`gen/<hash>`; `gocpp build -work` puts it in the work folder), and the runtime to its files in the gocpp cache.

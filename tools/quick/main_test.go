@@ -20,6 +20,9 @@ func TestFixtureOf(t *testing.T) {
 		{"examples/hello/output.txt", "TestExamples", "hello", true},
 		{"tests/interop/crange.h", "", "", false}, // a helper header: not one fixture
 		{"tests/harness_test.go", "", "", false},
+		{"tests/pkgs/basic_cross/geom/geom.gp", "TestPkgs", "basic_cross", true},
+		{"tests/pkgs/errors/internal_rule/main.gp", "TestPkgErrors", "internal_rule", true},
+		{"tests/pkgs/README.md", "", "", false},
 		{"tests/run/README.md", "", "", false},
 		{"internal/lower/order.go", "", "", false},
 	} {

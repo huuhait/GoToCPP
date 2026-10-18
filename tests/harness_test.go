@@ -472,14 +472,14 @@ func loadTests(t *testing.T, f format) []*program {
 	for _, name := range names {
 		cands = append(cands, candidate{strings.TrimSuffix(name, ".gp"), "tests/" + f.kind + "/" + name, dir, name, name})
 	}
-	if f.kind == "interop" {
+	if f.kind == "interop" || f.kind == "pkgs" {
 		folders, err := listExamples(dir)
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, d := range folders {
 			trackFiles(filepath.Join(dir, d))
-			cands = append(cands, candidate{d, "tests/interop/" + d + "/main.gp", filepath.Join(dir, d), ".", "main.gp"})
+			cands = append(cands, candidate{d, "tests/" + f.kind + "/" + d + "/main.gp", filepath.Join(dir, d), ".", "main.gp"})
 		}
 	}
 	for _, c := range cands {
@@ -664,7 +664,11 @@ func (c *config) runVsGoTest(t *testing.T, p *program, n *vsGoCount) {
 		t.Fatalf("%s: %s\n%s", build.cmd, build.problem, indent(string(build.stdout)))
 	}
 	if build.exit != 0 {
-		if goRejects(string(build.stdout), goFileName(p.arg)) {
+		goFile := goFileName(p.arg)
+		if p.arg == "." {
+			goFile = "(the module)"
+		}
+		if goRejects(string(build.stdout), goFile) {
 			n.rejected.Add(1)
 			t.Skipf("go build rejects the code of %s, so it is not a Go program:\n%s", p.path, indent(string(build.stdout)))
 		}
@@ -881,17 +885,25 @@ func (c *config) goReference(t *testing.T, p *program, combined bool) result {
 // result of go build, whose stdout holds go build's stdout and stderr.
 func (c *config) goBuild(t *testing.T, p *program) (prog string, build result) {
 	t.Helper()
-	src, err := os.ReadFile(filepath.Join(p.dir, p.arg))
-	if err != nil {
-		t.Fatal(err)
-	}
 	dir := t.TempDir()
 	goFile := goFileName(p.arg)
-	if err := os.WriteFile(filepath.Join(dir, goFile), src, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module difftest\n\ngo 1.25\n"), 0o644); err != nil {
-		t.Fatal(err)
+	if p.arg == "." {
+		// A module folder (tests/pkgs): all of it, with .go names.
+		goFile = "(the module)"
+		if err := copyAsGoModule(p.dir, dir); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		src, err := os.ReadFile(filepath.Join(p.dir, p.arg))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, goFile), src, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module difftest\n\ngo 1.25\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	prog = filepath.Join(dir, "prog"+exe)
 	// Only the Go that runs the tests, no workspace; GOAMD64=v1, because gc fuses a*b + c from
@@ -918,6 +930,9 @@ func goFileName(name string) string {
 // toolchain refuses, a missing toolchain) is a problem of the setup, not of
 // the program.
 func goRejects(out, goFile string) bool {
+	if goFile == "(the module)" {
+		return anyGoError.MatchString(out)
+	}
 	rx := regexp.MustCompile(`(?m)^(\./)?` + regexp.QuoteMeta(goFile) + `:\d+(:\d+)?: `)
 	return rx.MatchString(out)
 }

@@ -256,16 +256,18 @@ func (fg *funcGen) deferStmt(s *ast.DeferStmt) {
 	fg.add(withPre(p, pre, &cppir.ExprStmt{Pos: p, X: push}))
 }
 
-// deferredFunc returns the function of the package that the deferred call c calls with a
+// deferredFunc returns the function of the program that the deferred call c calls with a
 // value for each of its parameters (so not f(g()) with several results of g, which goes
 // through std::apply, nor a variadic function), or nil.
 func (fg *funcGen) deferredFunc(c *ast.CallExpr) *types.Func {
-	id, ok := ast.Unparen(c.Fun).(*ast.Ident)
-	if !ok {
-		return nil
+	var fn *types.Func
+	switch fun := ast.Unparen(c.Fun).(type) {
+	case *ast.Ident:
+		fn, _ = fg.g.info.Uses[fun].(*types.Func)
+	case *ast.SelectorExpr:
+		fn = fg.g.qualifiedFunc(fun) // pkg.F, F a function of another package of the program
 	}
-	fn, ok := fg.g.info.Uses[id].(*types.Func)
-	if !ok || fn.Signature().Variadic() || fn.Pkg() != fg.g.pkg.Types {
+	if fn == nil || fn.Signature().Variadic() || fg.g.other(fn.Pkg()) == nil {
 		return nil
 	}
 	if len(c.Args) == 1 && isTuple(fg.g.info.TypeOf(c.Args[0])) {

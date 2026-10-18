@@ -340,9 +340,9 @@ func TestCppErrors(t *testing.T) {
 		// every generated line has the #line of its .gp line. The fault: the
 		// call of fmt.Println on line 10 names a function that doesn't exist.
 		writeFiles(t, ".", map[string]string{"main.gp": "package main\n\nimport (\n\t\"fmt\"\n\n\t\"<cstdio>\"\n)\n\nfunc main() {\n\tfmt.Println(\"pure go\")\n\tcstdio.puts(\"ok\")\n}\n"})
-		testHookCPP = func(cpp []byte) []byte {
+		testHookCPP = inAllFiles(func(cpp []byte) []byte {
 			return bytes.Replace(cpp, []byte("gp::fmtshim::Println(\"pure go"), []byte("gp::fmtshim::Printlnx(\"pure go"), 1)
-		}
+		})
 		t.Cleanup(func() { testHookCPP = nil })
 		r = gocppRun("", false, "build", ".")
 		m := regexp.MustCompile(`The work folder is kept: (\S+)\n`).FindStringSubmatch(r.stderr)
@@ -356,9 +356,9 @@ func TestCppErrors(t *testing.T) {
 
 		// An error in the generated lines without a .gp line stays an
 		// internal error, also in a package that uses C++.
-		testHookCPP = func(cpp []byte) []byte {
+		testHookCPP = inMainUnit(func(cpp []byte) []byte {
 			return append([]byte("static int gp_test_broken = gp_test_no_such_name;\n"), cpp...)
-		}
+		})
 		t.Cleanup(func() { testHookCPP = nil })
 		writeFiles(t, ".", map[string]string{"main.gp": strings.Replace(cppErrSrc, "cstdio.printf(format(), 1)", "cstdio.puts(\"x\")", 1)})
 		r = gocppRun("", false, "build", ".")
@@ -485,7 +485,7 @@ func TestEmitFailedPrefix(t *testing.T) {
 	} {
 		var stderr bytes.Buffer
 		d := &driver{stderr: &stderr, check: &checkCommand{dir: dir}}
-		if code := d.emitFailed(pkg, tt.err); code != exitInternal || !strings.Contains(stderr.String(), tt.want) ||
+		if code := d.emitFailed(&buildSet{main: pkg, pkgs: []*check.Package{pkg}}, tt.err); code != exitInternal || !strings.Contains(stderr.String(), tt.want) ||
 			strings.Count(stderr.String(), "internal error") != 1 {
 			t.Errorf("emitFailed(%v) = %d, %q; want %d and %q", tt.err, code, stderr.String(), exitInternal, tt.want)
 		}

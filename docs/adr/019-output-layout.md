@@ -1,6 +1,6 @@
 # ADR-019: Output layout: one header per package, one `.cpp` per `.gp` file
 
-Status: accepted (2026-10-13)
+Status: accepted (2026-10-13); refined by [ADR-025](025-split-layout.md) (descriptors are extern and defined in `pkg_desc.cpp`; the unnamed types are guarded definitions in every header)
 
 ## Context
 

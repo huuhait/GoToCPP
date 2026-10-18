@@ -319,7 +319,7 @@ func (fg *funcGen) ssaKey(k ast.Expr) bool {
 	if fg.isBoxed(v) {
 		return fg.ssaLocal(v)
 	}
-	if v.Parent() == nil || v.Parent() == fg.g.pkg.Types.Scope() || !canSSA(v.Type()) || !fg.varIndex(k) {
+	if v.Parent() == nil || isPkgLevel(v) || !canSSA(v.Type()) || !fg.varIndex(k) {
 		return false
 	}
 	fg.findInPlace()
@@ -350,7 +350,7 @@ func (fg *funcGen) inPlacePart(x ast.Expr) bool {
 	if fg.isBoxed(v) {
 		return fg.inPlaceLocal(v)
 	}
-	if v.Parent() == nil || v.Parent() == fg.g.pkg.Types.Scope() || !canSSA(v.Type()) || !fg.varIndex(x) {
+	if v.Parent() == nil || isPkgLevel(v) || !canSSA(v.Type()) || !fg.varIndex(x) {
 		return false
 	}
 	fg.findInPlace()

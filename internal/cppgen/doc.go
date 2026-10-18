@@ -1,6 +1,13 @@
-// Package cppgen writes the C++ of a type-checked gocpp package: one readable C++20
-// translation unit, which compiles with the runtime (runtime/, gocpp/rt.hpp) and the driver's
-// flags. The driver calls EmitPackage with a package that check.Check checked.
+// Package cppgen writes the C++ of type-checked gocpp packages. The driver calls EmitProgram with
+// the packages of a program that check.Check checked: it writes the split layout (ADR-025: pkg.hpp,
+// one unit per .gp file, pkg_desc.cpp, pkg_init.cpp for each package), which compiles with the
+// runtime (runtime/, gocpp/rt.hpp) and the driver's flags. EmitPackage writes one package as one
+// readable C++20 translation unit (the unit layout); only the tests use it (the golden files and
+// the emitter's end-to-end tests, about a hundred of them).
+//
+// TODO(phase 06): move the golden tests to EmitProgram (their files would become the pkg.hpp and
+// the units of the split layout: a churn of every golden) and drop the unit layout with
+// lower.Package, which the product no longer uses.
 //
 // It runs the backend's stages (Phase 03 README §1):
 //

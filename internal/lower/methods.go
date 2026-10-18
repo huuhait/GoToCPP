@@ -477,7 +477,7 @@ func (g *gen) callMethod(recv cppir.Expr, ptr bool, fn *types.Func, r recvPath, 
 	if si == nil {
 		return placeholder
 	}
-	member := g.methodName(si.name, fn.Name())
+	member := si.owner.methodName(si.name, fn.Name()) // (the names of a type of another package are its package's)
 	if r.ptrRecv {
 		owner := cppir.TypeString(g.structType(base, pos))
 		return &cppir.Call{Fun: cxxName(owner + "::" + member), Args: append([]cppir.Expr{recv}, args...)}
@@ -779,7 +779,7 @@ func (g *gen) hookDefs(si *structInfo) []cppir.Decl {
 		r := pathOf(h.sel)
 		var recv cppir.Expr
 		ptr := false
-		d := &cppir.Func{Result: typeName("gp::string"), Name: si.name + "::" + h.name}
+		d := &cppir.Func{Specs: g.inlineIfSplit(), Result: typeName("gp::string"), Name: si.name + "::" + h.name}
 		fg := newFuncGen(g, g.newFuncNames(), nil)
 		var base cppir.Expr // where the path starts: the pointer gp_p (to *T), or *this (a T)
 		if h.ptr {

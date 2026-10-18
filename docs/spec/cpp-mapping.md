@@ -67,9 +67,12 @@ int main(int argc, char** argv) {
 }
 ```
 
-This is the Phase 02 output, when `fmt` is still a small stand-in (`gp::fmtshim`) and there is no
-package init yet, so `run_main` gets `nullptr` as its init function. From Phase 06 on, it gets
-`&gp_init_all` ([package initialization](#package-initialization)).
+This is the Phase 02 output of one file (the unit layout, which the emitter tests still use), when `fmt`
+is still a small stand-in (`gp::fmtshim`) and there is no package init yet, so `run_main` gets
+`nullptr` as its init function. `gocpp build` writes the [files of the split layout](#files)
+instead: the same code, split into a header, a unit for each file and `pkg_init.cpp`, where main's
+`run_main` gets `&gp_init_all` when a package has variables to set or init functions
+([package initialization](#package-initialization)).
 Source: [Phase 02 §2.1](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/README.md#21-example).
 
 ## Types
@@ -147,10 +150,14 @@ namespace gpkg_github_dcom__mattn__go_hsqlite3 { /* ... */ }     // import "gith
 - Namespaces are never nested (`gpkg::main`). Inside a nested `gpkg::main`, the C function
   `time()` would be hidden by the package namespace `gpkg::time`, and a package `game` that
   declares `engine` would clash with the sub-package `game::engine`.
-- Generated code refers to other packages by full name: `::gpkg_fmt::Println`.
+- Generated code refers to other packages by full name: `::gpkg_geom::New`, `::gpkg_geom::Point`,
+  `::gpkg_geom::Counter` (a variable). The name is the one the package chose for its own
+  declaration (its C/C++ headers' macros can rename it, `Bool_`), and a package never recomputes it.
 - A package header is included as `#include "gpkg/<import path>/pkg.hpp"`, for example
-  `"gpkg/fmt/pkg.hpp"`. The `gpkg/` prefix keeps these apart from real C++ headers such as
-  `<fmt/format.h>`.
+  `"gpkg/example.com/app/geom/pkg.hpp"`. The `gpkg/` prefix keeps these apart from real C++ headers
+  such as `<fmt/format.h>`. (`fmt` has no header: the runtime has its functions.)
+- The package main is `gpkg_main` whatever its import path is; its files are in the folder of its
+  import path (`gpkg/command-line-arguments/` for `.gp` files named on the command line).
 
 ### Names inside a package
 
@@ -193,20 +200,31 @@ Sources: [Phase 02 §2.2](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton
 ## Files
 
 ```
-$XDG_CACHE_HOME/gocpp/gen/<main module>/gpkg/<import path>/
-├── pkg.hpp            everything other packages need: types, prototypes, extern vars, templates
-├── render.gp.cpp      one translation unit per .gp file
+$XDG_CACHE_HOME/gocpp/gen/<hash>/gpkg/<import path>/      (a stable folder; with -work: <work>/gen)
+├── pkg.hpp            everything other packages and the package's own units need
+├── render.gp.cpp      one translation unit per .gp file that has functions
 ├── physics.gp.cpp
-└── pkg_init.cpp       package variables, init() functions, gp_var_init()/gp_init_funcs()
+├── pkg_desc.cpp       the descriptors of the package's types (and the forwarders of promoted methods)
+└── pkg_init.cpp       package variables, gp_var_init(), gp_init_funcs(); main's also gp_init_all and main
 ```
 
-- From Phase 06 on, each package gets one header (`pkg.hpp`), one `.cpp` per `.gp` file and one
-  `pkg_init.cpp`. Before that (Phases 02–05), a program is one generated file, as in the
-  [first example](#a-first-example).
-- Until then, `gocpp build` and `gocpp run` write that file into a temporary work folder
-  (`-work` keeps it, `-x` shows the commands) and compile it with
+- Each package gets one header (`pkg.hpp`) and its translation units, in a folder of its own named
+  by its import path. `<hash>` is of the main package (its folder, import path, files and the
+  target), so the folder, and with it the `-iquote` and the `#line` paths, are the same in every
+  build of the program. `gocpp emit` prints all the files one after the other, each after a line
+  `//// gpkg/<import path>/<file>`; the output is the same for the same program (the files are in
+  the order of the packages: imports first). Files are written only when their bytes change, and a build
+  removes the folders of programs that were not built for a week, when there are more than 100.
+- [ADR-025](../adr/025-split-layout.md) has the reasons. In short: a package's descriptors are
+  declared `extern` in `pkg.hpp` and defined in its `pkg_desc.cpp` (one object per type in the
+  program, compared by address), and the unnamed struct and interface types are in the global
+  namespace with a guarded definition in each header that uses them.
+- `gocpp build` and `gocpp run` compile every unit of every package, at the same time, through the
+  object cache (a unit that did not change, and whose headers did not, is not compiled again), and
+  link the objects with the package's C and C++ files, the libraries of the cxx recipes (once for
+  the program), and the runtime. The compile uses
   `-std=c++20 -fwrapv -fno-strict-aliasing -ffp-contract=off -fstack-clash-protection -g -gno-column-info -O0`, plus
-  `-Qunused-arguments` for clang. The debug info has no columns (`-gno-column-info`): they would
+  `-Qunused-arguments` for clang, and `-iquote <the folder of the generated files>`. The debug info has no columns (`-gno-column-info`): they would
   be the columns of the C++ code, and debuggers would show them on `.gp` lines. Valid Go can
   make the compilers warn about generated code that is right, so that code also gets
   `-Wno-tautological-compare` (clang) or `-Wno-overflow` (g++); every other warning stays
@@ -214,17 +232,28 @@ $XDG_CACHE_HOME/gocpp/gen/<main module>/gpkg/<import path>/
   pointer passed through a C function's `...` is then an error, as it is with clang (the callee
   would read a copy of the object as its pointer). The runtime comes from the gocpp binary: it is extracted once into the user
   cache folder (`$XDG_CACHE_HOME` or `~/.cache` on Linux), to `gocpp/rt/<version>-<hash>/`, and
-  its object files are kept there, per compiler and flags.
+  its object files are kept there, per compiler and flags. `-work` keeps the work folder (the objects)
+  and the generated files in it; `-x` shows the commands, one compile for each unit.
 - `gocpp run` exits like the program: with its exit status, or, when a signal kills the
   program, by dying of the same signal (on Linux; elsewhere with status 128 plus its number),
   after it removed the work folder. Unlike `go run`, it prints no `exit status N` line.
-- `pkg.hpp` has a fixed order: `#pragma once` and `<gocpp/rt.hpp>`; the headers of imported gocpp
-  packages; the package's C/C++ headers that its declarations need; forward declarations of all
-  named types; type definitions in by-value dependency order; function prototypes, `extern`
-  package variables and exported constants (`inline constexpr`); inline and template
-  definitions; type descriptors.
+- `pkg.hpp` has a fixed order: `#pragma once` and `<gocpp/rt.hpp>`; the headers of the imported gocpp
+  packages; the package's C/C++ headers, but only when a declaration of the header needs a C/C++
+  type (a field, a signature or a variable; the units include them again for their bodies); forward
+  declarations of all named types and of the unnamed ones the package uses; the interface structs,
+  then the type definitions in by-value dependency order (the types of other packages are fully
+  qualified: `::gpkg_geom::Point Origin;`), the fmt hooks and the interface wrappers (inline); the
+  extern declarations of the descriptors; the exported constants (`inline constexpr int64_t Max =
+  10;`, a string as `constexpr std::string_view`, a constant of a named type as `inline const`); the
+  prototypes; the `extern` package variables; `gp_var_init` and `gp_init_funcs`. A declaration has no
+  `#line`, so a change in a function body does not change the header.
 - gocpp headers are always included **before** C/C++ headers, so C macros can't break gocpp
-  declarations.
+  declarations. A package whose header includes C/C++ headers makes its compile flags (and its
+  folder, for `"./x.h"`) **public**: the packages that include its `pkg.hpp` compile with them too,
+  so no two units see a C struct with two layouts.
+- A unit holds the functions and methods declared in its `.gp` file (the methods are members declared
+  in their struct and defined out of line). `pkg_init.cpp` holds the package variables (`constinit`,
+  defined here, `extern` in the header) and the initialization.
 
 Source: [Phase 06 §2.2–2.3](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#23-header-layout-c-needs-declarations-before-use-go-doesnt).
 
@@ -550,8 +579,10 @@ struct Celsius : gp::newtype<Celsius, double> {      // a distinct type with dou
   order, so if the values have side effects, they are first stored in temporaries in source
   order.
 - **Anonymous struct types** get one generated name per distinct type (`gp_anon_3f2a…`), because
-  Go type identity for them is structural. Their definitions live in a shared generated header
-  (Phase 06).
+  Go type identity for them is structural. In the split layout they are in the global namespace
+  (one type for the whole program) and every header that uses one writes the same guarded definition
+  ([ADR-025](../adr/025-split-layout.md)); the name hashes the identity text, with the import path of
+  the package of an unexported field name (`struct{ x int }` of two packages are two types).
 - **Named non-struct types** (`Celsius`, `type IDs []int`) are distinct C++ types through
   `gp::newtype`, so they can have methods. Go also converts implicitly in some places (a `[]int`
   assigned to an `IDs` variable, a func literal passed as a `Handler`), so gocpp inserts a
@@ -841,8 +872,7 @@ struct Line {
   differ only in tags is converted too (a struct field by field, an array element by element, a
   pointer with `gp::ptr_cast`, so it still points to the same struct), but not yet a slice or a
   map of such structs. `(*B)(pa)` is `gp::ptr_cast<B>(pa)`, which points at the same struct.
-- **Not yet**: Phase 06 moves the anonymous structs into a header that all packages share. (Methods
-  are step 3.10, embedding [below](#embedding).)
+- (Methods are step 3.10, embedding [below](#embedding).)
 
 Source: [Phase 03 §2.4](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#24-structs-and-named-types).
 
@@ -1433,7 +1463,10 @@ Here package `main` imports `b` and `c`, and `b` imports `z`. Go 1.25 runs the i
   a variable's initializer and `main.init.0.func1` in an init function.
 - **Across packages**, gocpp uses Go's rule since Go 1.21: sort all packages by import path, then
   again and again initialize the **first** package in that list whose imports are all
-  initialized. The driver computes this order at link time and generates `gp_init_all()`.
+  initialized. This is the order of `load.Program.Packages`; the emitter writes `gp_init_all()` in
+  `pkg_init.cpp` of the main package, with a call of `gp_var_init()` and `gp_init_funcs()` of each
+  package that has any (each declared in its `pkg.hpp`). (Step 6.4 refines the rest: the
+  `constinit` variables of C++ types and `gp::lazy<T>`.)
 - Package variables are declared `constinit`, so C++ runs no dynamic initializers of its own,
   and no static initializer can read a variable of another C++ file before `gp_var_init()` has
   run (C++'s "static initialization order fiasco" can't happen). A variable with a constant
@@ -1720,7 +1753,12 @@ if (gp::type_is(gp_x0, &gp_td_Rect)) { Rect v = gp::unbox<Rect>(gp_x0); ... } el
 - **Descriptors.** A named type that is not an interface has `gp_td_T` (`gp::named<T>(...)`) with its
   two method tables and the thunks (above); a named interface has `gp_td_I` and `gp_im_I`; every
   other type is a namespace-level `static const gp::type_desc* const gp_tdc_N` (`gp_tdp_T` for `*T`),
-  made at program start from the descriptors of its parts and interned by the runtime. The
+  made at program start from the descriptors of its parts and interned by the runtime. (In the split
+  layout the descriptors are `extern` in `pkg.hpp` and defined in `pkg_desc.cpp`, and the
+  composite ones are plain `const` pointers there; a package that converts a type of another package
+  to an interface asks that package to define the descriptor and writes `&::gpkg_geom::gp_td_Point`,
+  so the type has one descriptor in the program. The unit layout shows the `inline` and `static`
+  forms of this section.) The
   registry grows while the functions are lowered and the section is written last, in dependency
   order, so only the types that flow into an interface have descriptors. **Shapes.** A named type's
   descriptor object is constant-initialized (usable before any dynamic initialization, and

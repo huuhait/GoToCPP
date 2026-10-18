@@ -3,6 +3,7 @@ package lower
 import (
 	"go/token"
 	"go/types"
+	"slices"
 	"sort"
 	"strconv"
 
@@ -135,11 +136,21 @@ func (g *gen) desc(t types.Type, pos token.Pos) cppir.Expr {
 			return addrOf("gp::td_error")
 		case isInterface(u):
 			if info := g.ifaceOf(u, pos); info != nil {
-				return addrOf("gp_td_" + info.name)
+				return addrOf(g.descName(info.owner, "gp_td_"+info.name))
 			}
 			return placeholder
 		case isWeakPointer(u):
 			g.unsupported(pos, "weak.Pointer in an interface")
+			return placeholder
+		}
+		if o := g.foreign(u.Obj().Pkg()); o != nil {
+			// The descriptor of a type of another package is that package's object, so that
+			// the type has one descriptor in the program (it is declared extern in its header
+			// and defined in its pkg_desc.cpp): ask it to write the descriptor.
+			o.desc(u, pos)
+			if nd := o.dtable().byNamed[u.Obj()]; nd != nil {
+				return addrOf(o.qual(nd.name))
+			}
 			return placeholder
 		}
 		nd := dt.byNamed[u.Obj()]
@@ -331,43 +342,105 @@ func (g *gen) methodSet(n types.Type, ptr bool, pos token.Pos) []methodEntry {
 	return list
 }
 
-// descDecls returns the declarations of all the descriptors (see the top): the descriptor
+// An implParts is the definitions that follow the structs: the interfaces' (ifaces.go) and
+// the descriptors' (typedesc.go). The unit layout has them in one list, in order (all); the
+// split layout declares the descriptors extern in the header (ext), defines them in
+// pkg_desc.cpp (def) and keeps the inline functions in the header (inl).
+type implParts struct {
+	split         bool
+	all           []cppir.Decl
+	ext, inl, def []cppir.Decl
+}
+
+func (p *implParts) empty() bool {
+	return len(p.all) == 0 && len(p.ext) == 0 && len(p.inl) == 0 && len(p.def) == 0
+}
+
+// addExt adds the extern declaration of a descriptor: only the split layout has them.
+func (p *implParts) addExt(ds ...cppir.Decl) {
+	if p.split {
+		p.ext = append(p.ext, ds...)
+	}
+}
+
+// addInl adds inline functions.
+func (p *implParts) addInl(ds ...cppir.Decl) {
+	if p.split {
+		p.inl = append(p.inl, ds...)
+	} else {
+		p.all = append(p.all, ds...)
+	}
+}
+
+// addDef adds the definitions of the descriptors.
+func (p *implParts) addDef(ds ...cppir.Decl) {
+	if p.split {
+		p.def = append(p.def, ds...)
+	} else {
+		p.all = append(p.all, ds...)
+	}
+}
+
+// implDecls returns the definitions of the interfaces and the descriptors.
+func (g *gen) implDecls() implParts {
+	p := implParts{split: g.split}
+	g.ifaceImpls(&p)
+	g.descDecls(&p)
+	return p
+}
+
+// descSpecs are the specifiers of the definition of a descriptor object: inline in the unit
+// layout, a plain const in the split layout (the header declares it extern).
+func (g *gen) descSpecs() []string {
+	if g.split {
+		return []string{"const"}
+	}
+	return []string{"inline", "const"}
+}
+
+// descDecls adds the declarations of all the descriptors (see the top): the descriptor
 // objects of the named types with their thunks and method tables, then the pointers to the
 // composite descriptors. It runs after the functions are lowered.
-func (g *gen) descDecls() []cppir.Decl {
+func (g *gen) descDecls(p *implParts) {
 	dt := g.dtable()
-	var decls []cppir.Decl
+	start := len(p.all)
 	for i := 0; i < len(dt.named); i++ { // (the shapes may add more)
-		decls = append(decls, g.namedDecls(dt.named[i])...)
+		g.namedDecls(dt.named[i], p)
 	}
 	// A shape points at the descriptor of its element (type Items []Item; type A []B; type B []A),
-	// which may be defined after it: every object is declared first.
-	var fwd []cppir.Decl
-	for _, nd := range dt.named {
-		fwd = append(fwd, &cppir.VarDecl{Specs: []string{"extern", "const"}, Type: typeName("gp::type_desc"),
-			Vars: []cppir.Declarator{{Name: nd.name}}})
-	}
-	if len(fwd) > 0 {
-		decls = append(append(fwd, &cppir.Blank{}), decls...)
+	// which may be defined after it: every object is declared first. (The split layout has the
+	// extern declarations in pkg.hpp already.)
+	if !g.split && len(dt.named) > 0 {
+		var fwd []cppir.Decl
+		for _, nd := range dt.named {
+			fwd = append(fwd, &cppir.VarDecl{Specs: []string{"extern", "const"}, Type: typeName("gp::type_desc"),
+				Vars: []cppir.Declarator{{Name: nd.name}}})
+		}
+		fwd = append(fwd, &cppir.Blank{})
+		p.all = slices.Insert(p.all, start, fwd...)
 	}
 	for _, a := range dt.anons {
-		decls = append(decls, a.decls...)
+		p.addDef(a.decls...)
 	}
 	for _, c := range dt.comps {
-		decls = append(decls, &cppir.VarDecl{
+		d := &cppir.VarDecl{
 			Specs: []string{"static"},
 			Type:  &cppir.Const{Elem: &cppir.Ptr{Elem: &cppir.Const{Elem: typeName("gp::type_desc")}}},
 			Vars:  []cppir.Declarator{{Name: c.name, Init: c.init}},
-		})
+		}
+		if g.split {
+			d.Specs = nil
+			p.addExt(&cppir.VarDecl{Specs: []string{"extern"}, Type: d.Type, Vars: []cppir.Declarator{{Name: c.name}}})
+		}
+		p.addDef(d)
 	}
 	if len(dt.comps) > 0 {
-		decls = append(decls, &cppir.Blank{})
+		p.addDef(&cppir.Blank{})
 	}
-	return decls
 }
 
-// namedDecls returns the thunks, the method tables and the descriptor object of a named type.
-func (g *gen) namedDecls(nd *namedDesc) []cppir.Decl {
+// namedDecls adds the thunks, the method tables and the descriptor object of a named type.
+func (g *gen) namedDecls(nd *namedDesc, p *implParts) {
 	var decls []cppir.Decl
 	pos := nd.t.Obj().Pos()
 	typ := g.cxxType(nd.t, pos)
@@ -383,10 +456,11 @@ func (g *gen) namedDecls(nd *namedDesc) []cppir.Decl {
 	case pmt != nil:
 		args = append(args, &cppir.InitList{}, pmt)
 	}
-	decls = append(decls, &cppir.VarDecl{Specs: []string{"inline", "const"}, Type: typeName("gp::type_desc"),
+	decls = append(decls, &cppir.VarDecl{Specs: g.descSpecs(), Type: typeName("gp::type_desc"),
 		Vars: []cppir.Declarator{{Name: nd.name, Init: templateCall("gp::named", []cppir.Node{typ}, args...)}}})
 	decls = append(decls, &cppir.Blank{})
-	return decls
+	p.addExt(&cppir.VarDecl{Specs: []string{"extern", "const"}, Type: typeName("gp::type_desc"), Vars: []cppir.Declarator{{Name: nd.name}}})
+	p.addDef(decls...)
 }
 
 // tables adds the thunks and the two method tables of nd (the method sets of T and *T, promoted
@@ -434,11 +508,13 @@ func (g *gen) tables(nd *namedDesc, pos token.Pos, decls *[]cppir.Decl) (vmt, pm
 // *T (ptr true) to decls, and returns its name (see the top).
 func (g *gen) thunk(nd *namedDesc, m methodEntry, ptr bool, decls *[]cppir.Decl) string {
 	pos := m.fn.Pos()
-	name := "gp_thunk_" + nd.si.name + "_" + m.fn.Name()
+	// (The member's name, not the method's: a type that declares its own m and promotes the m of
+	// another package has two thunks for two methods.)
+	member := g.memberFor(nd.si, m.fn)
+	name := "gp_thunk_" + nd.si.name + "_" + member
 	if ptr {
-		name = "gp_thunk_p" + nd.si.name + "_" + m.fn.Name()
+		name = "gp_thunk_p" + nd.si.name + "_" + member
 	}
-	member := g.methodName(nd.si.name, m.fn.Name())
 	typ := g.cxxType(nd.ty, pos)
 	params, result := g.sigCxx(m.fn.Signature(), pos)
 	fn := &cppir.Func{Specs: []string{"inline"}, Result: result, Name: name, Body: &cppir.Block{},
@@ -482,4 +558,13 @@ func (g *gen) thunk(nd *namedDesc, m methodEntry, ptr bool, decls *[]cppir.Decl)
 	}
 	*decls = append(*decls, fn)
 	return name
+}
+
+// descName returns the C++ name of the descriptor object name that the lowering o made, as the
+// package of g writes it: qualified for another package's.
+func (g *gen) descName(o *gen, name string) string {
+	if o == g || o == nil {
+		return name
+	}
+	return o.qual(name)
 }

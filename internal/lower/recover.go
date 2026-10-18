@@ -68,7 +68,14 @@ func (g *gen) awareBody(body *ast.BlockStmt) bool {
 
 // awareFunc reports whether the function or method fn of the package is aware.
 func (g *gen) awareFunc(fn *types.Func) bool {
-	if fn == nil || fn.Pkg() != g.pkg.Types {
+	if fn == nil {
+		return false
+	}
+	if fn.Pkg() != g.pkg.Types {
+		// A function of another package: that package's lowering knows its bodies.
+		if o := g.foreign(fn.Pkg()); o != nil {
+			return o.awareFunc(fn)
+		}
 		return false
 	}
 	if g.funcDecls == nil {
@@ -120,7 +127,13 @@ func (fg *funcGen) deferKind(c *ast.CallExpr) string {
 		}
 	case *ast.SelectorExpr:
 		sel := fg.g.info.Selections[fun]
-		if sel == nil || sel.Kind() != types.MethodVal {
+		if sel == nil {
+			if fn := fg.g.qualifiedFunc(fun); fn != nil && fg.g.awareFunc(fn) {
+				return "aware" // pkg.F: F is a function of another package that calls recover
+			}
+			return ""
+		}
+		if sel.Kind() != types.MethodVal {
 			return ""
 		}
 		fn, _ := sel.Obj().(*types.Func)

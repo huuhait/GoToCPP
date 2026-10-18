@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -81,6 +82,12 @@ type structInfo struct {
 	name   string        // the C++ name
 	goName string        // Go's name of the type, as %T prints it: main.Point, struct { X int }
 	fields []string      // the C++ names of the fields
+
+	// owner is the lowering of the package that declares the struct. shared says that the
+	// split layout writes it in the global namespace, in the header of every package that
+	// uses it (an anonymous struct type: shared.go).
+	owner  *gen
+	shared *sharedDef
 }
 
 // typeDecls holds the structs of the package.
@@ -214,7 +221,7 @@ func (g *gen) typeSpec(spec *ast.TypeSpec, local bool) {
 // that its fields use.
 func (g *gen) addStruct(t types.Type, name, goName string) *structInfo {
 	st := t.Underlying().(*types.Struct)
-	si := &structInfo{t: t, st: st, name: name, goName: goName, fields: make([]string, st.NumFields())}
+	si := &structInfo{t: t, st: st, name: name, goName: goName, fields: make([]string, st.NumFields()), owner: g}
 	blanks := 0
 	for i := range st.NumFields() {
 		f := st.Field(i)
@@ -261,6 +268,8 @@ func (g *gen) anonStructsIn(t types.Type) {
 }
 
 // anonStruct returns the struct of the anonymous struct type st, which it adds the first time.
+// In the split layout the struct is one for the whole program: the first package that uses
+// it makes it, the others use the same structInfo (shared.go).
 func (g *gen) anonStruct(st *types.Struct) *structInfo {
 	td := g.tdecls()
 	key := g.anonKey(st)
@@ -268,8 +277,27 @@ func (g *gen) anonStruct(st *types.Struct) *structInfo {
 		return si
 	}
 	sum := sha256.Sum256([]byte(key))
-	si := g.addStruct(st, "gp_anon_"+hex.EncodeToString(sum[:8]), goTypeName(st))
+	name := "gp_anon_" + hex.EncodeToString(sum[:8])
+	if g.split {
+		if si := g.prog.anonStructs[key]; si != nil {
+			// Another package made it: this one writes it too, with the structs it holds.
+			td.anon[key] = si
+			td.list = append(td.list, si)
+			g.noteShared(si)
+			for i := range st.NumFields() {
+				g.anonStructsIn(st.Field(i).Type())
+			}
+			return si
+		}
+	}
+	si := g.addStruct(st, name, goTypeName(st))
 	td.anon[key] = si
+	if g.split {
+		g.prog.anonStructs[key] = si
+		si.shared = &sharedDef{}
+		g.prog.sharedOrder = append(g.prog.sharedOrder, sharedItem{st: si})
+		g.noteShared(si)
+	}
 	return si
 }
 
@@ -277,10 +305,10 @@ func (g *gen) anonStruct(st *types.Struct) *structInfo {
 // Go's spelling with package paths and tags, where a type declared in a function is its name, its
 // package and its C++ name (T@T_1), since two functions may declare different types of the same
 // name. The key has no positions, so a line added above a type doesn't rename the struct.
-// Phase 06 (the shared header of the anonymous structs) must also put the package of an
-// unexported field name into the key: struct{ x int } of two packages are two Go types.
+// The package of an unexported field name is in the key too: struct{ x int } of two packages are
+// two Go types (canon.go does the same for the identity text).
 func (g *gen) anonKey(st *types.Struct) string {
-	return typeString(st, func(n *types.Named) string {
+	return typeStringPkg(st, func(n *types.Named) string {
 		obj := n.Obj()
 		if obj.Pkg() == nil {
 			return obj.Name()
@@ -304,6 +332,11 @@ func (g *gen) structOf(t types.Type, pos token.Pos) *structInfo {
 		if si := g.tdecls().named[t.Obj()]; si != nil {
 			return si
 		}
+		if o := g.foreign(t.Obj().Pkg()); o != nil {
+			if si := o.tdecls().named[t.Obj()]; si != nil {
+				return si // the struct of a type of another package: it is written qualified (structType)
+			}
+		}
 	case *types.Struct:
 		return g.anonStruct(t)
 	}
@@ -319,8 +352,14 @@ func (g *gen) structType(t types.Type, pos token.Pos) cppir.Type {
 	if si == nil {
 		return typeName("gp_unsupported")
 	}
-	if g.inTemplate > 0 {
-		return typeName("::" + g.ns + "::" + si.name) // a C++ template's argument (ctypes.go)
+	if si.shared != nil && g.split {
+		return typeName(si.name) // in the global namespace (shared.go)
+	}
+	if si.owner != g {
+		return typeName(si.owner.qual(si.name)) // a type of another package
+	}
+	if g.inTemplate > 0 || g.global > 0 {
+		return typeName("::" + g.ns + "::" + si.name) // a C++ template's argument (ctypes.go), or a type in the global namespace
 	}
 	if td := g.tdecls(); td.hidden[si.name] || td.members[si.name] {
 		return typeName(g.ns + "::" + si.name)
@@ -344,34 +383,79 @@ func isStruct(t types.Type) bool {
 	return ok && !isWeakPointer(t) // weak.go: a runtime type of its own
 }
 
+// A typeParts is what structDecls made, by what it is. The unit layout puts it in one
+// translation unit in this order (all); the split layout puts the parts in different files
+// (split.go).
+type typeParts struct {
+	structs []*structInfo // the structs that have a forward declaration, in order
+	ifaces  []cppir.Decl  // the interface structs: forward declarations, then definitions
+	defs    []structDefn  // the structs' definitions in dependency order
+	post    []postDefn    // the definitions of the forwarders and the fmt hooks of each struct
+	// globalFwd are the forwarders of the shared structs of the package (shared.go), which are in
+	// the global namespace: they are defined there, in pkg_desc.cpp.
+	globalFwd []cppir.Decl
+	impl      implParts // the interfaces' and the descriptors' definitions
+}
+
+// A postDefn is the out-of-line definitions of one struct's members: the forwarders of the
+// promoted methods (promote.go) and the fmt shim's hooks (methods.go).
+type postDefn struct {
+	fwd, hooks []cppir.Decl
+}
+
+// A structDefn is the definition of one struct, with its static_assert.
+type structDefn struct {
+	si    *structInfo
+	decls []cppir.Decl
+}
+
+// all returns the declarations of the unit layout: the structs' forward declarations, the
+// interface structs, the definitions, the forwarders and hooks, then the descriptors.
+func (p *typeParts) all() []cppir.Decl {
+	if p == nil {
+		return nil
+	}
+	var decls []cppir.Decl
+	for _, si := range p.structs {
+		decls = append(decls, &cppir.Struct{Name: si.name, Forward: true})
+	}
+	decls = append(decls, &cppir.Blank{})
+	decls = append(decls, p.ifaces...) // no data members: before the structs that hold them
+	for _, d := range p.defs {
+		decls = append(decls, d.decls...)
+	}
+	for _, d := range p.post {
+		decls = append(decls, d.fwd...)
+		decls = append(decls, d.hooks...)
+	}
+	return append(decls, p.impl.all...)
+}
+
 // structDecls returns the declarations of all the structs (see the top): the forward
-// declarations, then the definitions in dependency order, each with its static_assert.
-func (g *gen) structDecls() []cppir.Decl {
+// declarations, then the definitions in dependency order, each with its static_assert. It is
+// nil if the package has no struct, interface or descriptor.
+func (g *gen) structDecls() *typeParts {
 	td := g.tdecls()
 	// The interface structs, the descriptors, the thunks and the wrappers (ifaces.go,
 	// typedesc.go) are made until nothing new is found: they find more types (an unnamed
 	// interface in a method's signature, a descriptor of a part).
-	var ifaceDefs, impls []cppir.Decl
+	var ifaceDefs []cppir.Decl
+	var impls implParts
 	for {
 		n := g.typeCount()
 		for i := 0; i < len(td.list); i++ {
 			g.structDef(td.list[i]) // (its field types may be unnamed interfaces)
 		}
 		ifaceDefs = g.ifaceDefs()
-		impls = append(g.ifaceImpls(), g.descDecls()...)
+		impls = g.implDecls()
 		if g.typeCount() == n {
 			break
 		}
 	}
-	if len(td.list) == 0 && len(ifaceDefs) == 0 && len(impls) == 0 {
+	if len(td.list) == 0 && len(ifaceDefs) == 0 && impls.empty() {
 		return nil
 	}
-	var decls []cppir.Decl
-	for _, si := range td.list {
-		decls = append(decls, &cppir.Struct{Name: si.name, Forward: true})
-	}
-	decls = append(decls, &cppir.Blank{})
-	decls = append(decls, ifaceDefs...) // no data members: before the structs that hold them
+	parts := &typeParts{structs: slices.Clone(td.list), ifaces: ifaceDefs, impl: impls}
 	done := make(map[*structInfo]bool)
 	var define func(si *structInfo)
 	define = func(si *structInfo) {
@@ -393,8 +477,8 @@ func (g *gen) structDecls() []cppir.Decl {
 				define(dep)
 			}
 		}
-		decls = append(decls, g.structDef(si)...)
-		decls = append(decls, &cppir.Blank{})
+		decls := append(g.structDef(si), &cppir.Blank{})
+		parts.defs = append(parts.defs, structDefn{si, decls})
 	}
 	for i := 0; i < len(td.list); i++ { // (structDef may add none: anonStructsIn found them all)
 		define(td.list[i])
@@ -402,10 +486,20 @@ func (g *gen) structDecls() []cppir.Decl {
 	// The forwarders of the promoted methods (promote.go) and the fmt shim's hooks of the method
 	// sets (methods.go), after all the structs.
 	for _, si := range td.list {
-		decls = append(decls, g.forwardDefs(si)...)
-		decls = append(decls, g.hookDefs(si)...)
+		if si.shared != nil && g.split {
+			// A shared struct is defined once for the program: its hooks are in its guarded
+			// definition (makeShared), its forwarders in the pkg_desc.cpp of its owner.
+			if si.owner == g {
+				// (Outside the package's namespace, where the struct is: its names are qualified.)
+				g.global++
+				parts.globalFwd = append(parts.globalFwd, g.forwardDefs(si)...)
+				g.global--
+			}
+			continue
+		}
+		parts.post = append(parts.post, postDefn{g.forwardDefs(si), g.hookDefs(si)})
 	}
-	return append(decls, impls...)
+	return parts
 }
 
 // typeCount returns how many structs, interfaces and descriptors there are, to see whether
@@ -456,6 +550,7 @@ func (g *gen) byValue(t types.Type) []*structInfo {
 		if si := g.tdecls().named[u.Obj()]; si != nil {
 			return []*structInfo{si}
 		}
+		// (A type of another package is defined in its header, included before this one.)
 	case *types.Struct:
 		return []*structInfo{g.anonStruct(u)}
 	case *types.Array:
@@ -659,7 +754,17 @@ func goTypeName(t types.Type) string {
 
 // typeString writes t as reflect does (goTypeName), with named for the named types.
 func typeString(t types.Type, named func(*types.Named) string) string {
-	str := func(t types.Type) string { return typeString(t, named) }
+	return typeStringOpt(t, named, false)
+}
+
+// typeStringPkg is typeString with the import path in front of the name of an unexported field,
+// which tells the types of two packages apart: struct { a/b.x int }.
+func typeStringPkg(t types.Type, named func(*types.Named) string) string {
+	return typeStringOpt(t, named, true)
+}
+
+func typeStringOpt(t types.Type, named func(*types.Named) string, fieldPkg bool) string {
+	str := func(t types.Type) string { return typeStringOpt(t, named, fieldPkg) }
 	switch t := types.Unalias(t).(type) {
 	case *types.Basic:
 		return types.Typ[t.Kind()].Name() // byte is uint8, rune int32
@@ -693,7 +798,11 @@ func typeString(t types.Type, named func(*types.Named) string) string {
 			f := t.Field(i)
 			s := str(f.Type())
 			if !f.Embedded() {
-				s = f.Name() + " " + s
+				name := f.Name()
+				if fieldPkg && !exportedName(name) && f.Pkg() != nil && f.Pkg().Name() != "main" {
+					name = pkgPath(f) + "." + name // (main's names stay as they were: they keep their hashes)
+				}
+				s = name + " " + s
 			}
 			if tag := t.Tag(i); tag != "" {
 				s += " " + strconv.Quote(tag)

@@ -22,10 +22,10 @@ import (
 // gptestlib.pc, and links only with its -L and -l.
 func useTestlib(t *testing.T) {
 	t.Helper()
-	testHookCPP = func(cpp []byte) []byte {
+	testHookCPP = inMainUnit(func(cpp []byte) []byte {
 		return []byte("#include <gptestlib.h>\n#include <cstdio>\n" + string(cpp) +
 			"\nstatic int gp_test_answer = (std::printf(\"answer %d\\n\", gptestlib_answer()), std::fflush(stdout), 0);\n")
-	}
+	})
 	t.Cleanup(func() { testHookCPP = nil })
 }
 
@@ -78,7 +78,7 @@ func TestBuildPkgConfig(t *testing.T) {
 		if !strings.Contains(r.stderr, "cd "+dir+"\npkg-config --cflags -- gptestlib\ncd "+dir+"\npkg-config --libs -- gptestlib\n") {
 			t.Errorf("-x doesn't show the pkg-config runs:\n%s", r.stderr)
 		}
-		compile := regexp.MustCompile(`(?m)^.* -c -x c\+\+ \$WORK/[^ ]*\.cpp -o .*$`).FindString(r.stderr)
+		compile := regexp.MustCompile(`(?m)^.* -c -x c\+\+ \S*/gpkg/\S*\.cpp -o .*$`).FindString(r.stderr)
 		if !strings.Contains(compile, " "+inc+" ") || !strings.Contains(compile, " -DGPTESTLIB_ON ") {
 			t.Errorf("the compile of the generated C++ lacks the flags of pkg-config --cflags:\n%s\nstderr:\n%s", compile, r.stderr)
 		}
@@ -155,10 +155,10 @@ func TestBuildRelativeFlags(t *testing.T) {
 		"inc/gp_rel.h": "#define GP_REL_ANSWER 7\n",
 		"inc/pre.h":    "#define GP_PRE 1\n",
 	})
-	testHookCPP = func(cpp []byte) []byte {
+	testHookCPP = inMainUnit(func(cpp []byte) []byte {
 		return []byte("#include <gp_rel.h>\n#include <cstdio>\n" + string(cpp) +
 			"\nstatic int gp_test_answer = (std::printf(\"%d %d\\n\", GP_REL_ANSWER, GP_PRE), std::fflush(stdout), 0);\n")
-	}
+	})
 	t.Cleanup(func() { testHookCPP = nil })
 	if r := gocppRun("", true, "run", "."); r != (result{0, "7 1\nmain\n", ""}) {
 		t.Errorf("gocpp run . = %+v, want exit 0 and \"7 1\\nmain\\n\"", r)
@@ -174,9 +174,9 @@ func TestBuildCompileFlagsError(t *testing.T) {
 	t.Setenv("CXX", "")
 	t.Setenv("GOCPP_GATE_PHASE", "04")
 	inDir(t, map[string]string{"main.gp": "//gocpp:cflags -DGP_BREAK\npackage main\n\nfunc main() {}\n"})
-	testHookCPP = func(cpp []byte) []byte {
+	testHookCPP = inMainUnit(func(cpp []byte) []byte {
 		return append([]byte("#ifdef GP_BREAK\n#error broken by the flag\n#endif\n"), cpp...)
-	}
+	})
 	t.Cleanup(func() { testHookCPP = nil })
 	r := gocppRun("", false, "build", ".")
 	if m := regexp.MustCompile(`The work folder is kept: (\S+)\n`).FindStringSubmatch(r.stderr); m != nil {

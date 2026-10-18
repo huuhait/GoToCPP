@@ -261,6 +261,9 @@ func (fg *funcGen) ownerOf(e ast.Expr) (ast.Expr, int) {
 				return x.X, ownerSlice
 			}
 		case *ast.SelectorExpr:
+			if v, ok := fg.g.qualifiedObj(x).(*types.Var); ok && isPkgVar(v) {
+				return x, ownerPkg // pkg.Var: a variable of another package (xpkg.go)
+			}
 			// A field (structs.go): of the struct x, which has the owner, or through the
 			// pointer p of p.f, or through an embedded pointer.
 			inner, p, embedded := fg.fieldOwner(x)

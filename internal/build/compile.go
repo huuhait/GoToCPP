@@ -84,6 +84,11 @@ type Builder struct {
 	// -iquote, unlike -I, doesn't apply to #include <vector>.
 	PackageDir string
 
+	// GenRoot is the folder that holds the generated files of a program of several packages
+	// (Link): the units include each other's headers by their path in it (gpkg/<import path>/pkg.hpp),
+	// so it is an -iquote folder of their compiles.
+	GenRoot string
+
 	pchDone chan struct{}  // closed when the precompiled header that startPCH started is built
 	stores  sync.WaitGroup // the stores of the object cache that are running (objcache.go)
 	traceMu sync.Mutex
@@ -98,6 +103,8 @@ type CompileError struct {
 	Include string  // for the generated C++: the runtime's include folder (its headers are gocpp's), or ""
 	Link    bool    // the link failed, not a compile
 	Lib     *CxxLib // for a source of a library of a module: the library (Phase 06 step 6.1d); Source is the file
+	PkgPath string  // the import path of the package whose unit or source failed (Link), or ""
+	Unit    string  // the generated translation unit that did not compile (Link), or ""
 	LibLine int     // and LibText the line of the recipe that listed it (LibLine is its line in gocpp.mod)
 	LibText string
 	Command string // the command, as Trace shows it
@@ -121,99 +128,12 @@ const maxCompileOutput = 4 << 20
 // Program compiles the C++ file src (the output of gocpp's emitter) and
 // the package's C and C++ files (CFiles, CXXFiles), and links them with
 // the runtime into the program out. Both paths are absolute. A compile or
-// link that fails is a *CompileError.
+// link that fails is a *CompileError. It is Link for a program of one
+// package with one translation unit.
 func (b *Builder) Program(ctx context.Context, src, out string) error {
-	// With flags of the environment, the runtime's compiles get gocpp's
-	// language flags after them too (as the generated C++ does), then
-	// -Wno-error (valid code must not fail for a warning that a user's
-	// -Werror -Wshadow turns into an error) and -x c++, which comes right
-	// before each runtime source. All of them are part of the key of the
-	// runtime's object files.
-	flags := CompileFlags(b.CXX, b.ASan, b.NoChecks)
-	if env := b.Env.CXXCompile(); len(env) > 0 {
-		flags = slices.Concat(flags, env, LanguageFlags(), []string{"-Wno-error", "-x", "c++"})
-	}
-	defer b.waitPCH() // a header that is still being built is finished, not left half done
-	defer b.stores.Wait()
-	rtDir, rtObjs, rtErr := b.runtime(ctx, flags)
-	if rtErr != nil {
-		return rtErr
-	}
-	obj := filepath.Join(b.Work, strings.TrimSuffix(filepath.Base(src), ".cpp")+".o")
-	// The runtime's include folder comes before the package's -I folders,
-	// so that no package folder can hide a gocpp/ header. After the flags
-	// of the environment and of the package come gocpp's language flags
-	// and those of generated C++ again, and -x c++ right before the source,
-	// so that no flag of a package (-std=c++17, -ffast-math, -x c) turns
-	// them off: for each of them the last one wins. -Wno-error comes before
-	// the flags of generated C++: a package's -Werror -Wshadow must not make
-	// valid Go fail (for i := ...; { i := i }), and the -Werror= of
-	// GeneratedFlags (g++'s conditionally-supported and narrowing) stays an error.
-	// Without such flags the command stays short (-x shows it).
-	var quote []string // -iquote: PackageDir
-	if b.PackageDir != "" {
-		quote = []string{"-iquote", b.PackageDir}
-	}
-	compile := slices.Concat(CompileFlags(b.CXX, b.ASan, b.NoChecks), GeneratedFlags(b.CXX), quote, []string{"-I", filepath.Join(rtDir, "include"), "-c", src, "-o", obj})
-	if user := slices.Concat(b.Env.CXXCompile(), b.Package.Compile); len(user) > 0 {
-		compile = slices.Concat(CompileFlags(b.CXX, b.ASan, b.NoChecks), quote, []string{"-I", filepath.Join(rtDir, "include")},
-			user, LanguageFlags(), []string{"-Wno-error"}, GeneratedFlags(b.CXX), []string{"-c", "-x", "c++", src, "-o", obj})
-	}
-	// The package's C and C++ files compile at the same time. An error in
-	// them is reported first: it is the user's.
-	var srcObjs []string
-	srcErr := make(chan error, 1)
-	go func() {
-		var err error
-		srcObjs, err = b.compileSources(ctx, rtDir)
-		srcErr <- err
-	}()
-	// The libraries of the modules compile at the same time too (cxxlib_build.go).
-	var libObjs []string
-	libErr := make(chan error, 1)
-	go func() {
-		var err error
-		libObjs, err = b.compileLibs(ctx, rtDir)
-		libErr <- err
-	}()
-	// A plain compile uses the precompiled header of the runtime when there is one (pch.go; the
-	// first build with new flags has none yet: startPCH builds it while the runtime compiles).
-	pc := b.precompiled(rtDir)
-	// The cache (objcache.go) keys the plain compile; the precompiled header only makes the
-	// compile that a miss runs faster.
-	usedPCH := false
-	runGen := func(args []string) ([]byte, error) {
-		var out []byte
-		var err error
-		out, usedPCH, err = b.runGenerated(ctx, pc, args)
-		return out, err
-	}
-	pchDeps := func() string { // g++ doesn't list the headers that its precompiled header replaced
-		if usedPCH {
-			return pc.depfile()
-		}
-		return ""
-	}
-	genOut, genErr := b.compileCached(ctx, b.CXX, src, obj, compile, runGen, pchDeps)
-	b.warn(genOut)
-	srcFailed, libFailed := <-srcErr, <-libErr // both finish before Program returns
-	if srcFailed != nil {
-		return srcFailed
-	}
-	if libFailed != nil {
-		return libFailed
-	}
-	if genErr != nil {
-		var ce *CompileError
-		if errors.As(genErr, &ce) {
-			ce.Include = filepath.Join(rtDir, "include")
-		}
-		return genErr
-	}
-	// The libraries after the object files that use them, as a linker
-	// that reads its inputs once (GNU ld with static libraries) needs.
-	link := slices.Concat(Flags(b.CXX, b.ASan), []string{obj}, srcObjs, libObjs, rtObjs, b.Package.Link, b.Env.LDFlags, []string{"-o", out})
-	return b.run(ctx, b.CXX, "the generated C++", true, link)
+	pb := PackageBuild{Dir: b.Dir, Flags: b.Package, CFiles: b.CFiles, CXXFiles: b.CXXFiles, QuoteDir: b.PackageDir,
+		Units: []string{src}, SourceWarnings: b.SourceWarnings}
+	return b.Link(ctx, []PackageBuild{pb}, out)
 }
 
 // runGenerated compiles the generated C++ with args, with the precompiled header pc when there

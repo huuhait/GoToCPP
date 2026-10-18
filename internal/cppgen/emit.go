@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"go/token"
 	"io"
+	"path"
+	"path/filepath"
 
 	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/cppir"
@@ -52,9 +54,9 @@ func (e *Error) Error() string {
 	return "cppgen: " + e.Msg
 }
 
-// EmitPackage writes the C++ of the type-checked package pkg to w: one C++20 translation unit
-// for the whole program (Phases 02 to 05 build a program from one package, main; Phase 06
-// writes one file per .gp file and a pkg.hpp). fset holds the positions of pkg's files
+// EmitPackage writes the C++ of the type-checked main package pkg to w: one C++20 translation unit
+// for the whole program (the unit layout; EmitProgram writes the split layout that gocpp build
+// compiles: one file per .gp file, a pkg.hpp for each package, and several packages). fset holds the positions of pkg's files
 // (check.Result.Fset); their names must be absolute, as the loader makes them, because they
 // go into the #line directives. lower.Package says what the translation unit holds.
 //
@@ -79,4 +81,91 @@ func EmitPackage(w io.Writer, fset *token.FileSet, pkg *check.Package, cfg Confi
 	}
 	_, err = w.Write(cppir.Print(f, cfg.OutputPath))
 	return err
+}
+
+// A ProgramPackage is a type-checked package of a program for EmitProgram, with what the
+// C++ compiler's probes found out about its C/C++ names (lower.ProbeInterop; nil for a package
+// without header imports).
+type ProgramPackage struct {
+	Pkg     *check.Package
+	Interop *lower.Interop
+}
+
+// A File is one generated file.
+type File struct {
+	Path string // relative to the root of the generated files, with slashes: gpkg/<import path>/pkg.hpp
+	Data []byte
+}
+
+// A ProgramFiles are the generated files of a program.
+type ProgramFiles struct {
+	// Files are all the files, in the order of the packages (each one after the packages it
+	// imports): for each package its header, its units, pkg_desc.cpp and pkg_init.cpp.
+	Files []File
+
+	// Packages say what the build needs to know of each package, in the same order.
+	Packages []PackageFiles
+}
+
+// PackageFiles describes the files of one package of a program.
+type PackageFiles struct {
+	ImportPath string
+	Compile    []string // the translation units of the package (paths of Files)
+	HeaderC    bool     // pkg.hpp includes the package's C/C++ headers: its flags are public
+}
+
+// EmitProgram writes the C++ of the packages of a program in the split layout (Phase 06 README
+// §2.2): for each package a header, pkg.hpp, a translation unit for each .gp file that has
+// functions, pkg_desc.cpp and pkg_init.cpp, in the folder gpkg/<import path>. The packages
+// must be in the order of their imports (each one after the packages it imports), the last one
+// is the main package, and all of them are checked and without errors. root is the absolute
+// folder that the files will be written in, for the #line directives of their generated lines
+// ("" for gocpp emit). The files are in the order of the packages, in the order header, units,
+// pkg_desc.cpp, pkg_init.cpp, so that equal programs give equal bytes.
+func EmitProgram(fset *token.FileSet, pkgs []ProgramPackage, root string, cfg Config) (*ProgramFiles, error) {
+	in := make([]lower.PackageInput, len(pkgs))
+	for i, p := range pkgs {
+		switch {
+		case !p.Pkg.Checked():
+			return nil, fmt.Errorf("cppgen: package %s was not type-checked", p.Pkg.Load.ImportPath)
+		case p.Pkg.Errors.HasErrors():
+			return nil, fmt.Errorf("cppgen: package %s has errors", p.Pkg.Load.ImportPath)
+		}
+		in[i] = lower.PackageInput{Pkg: p.Pkg, Interop: p.Interop}
+	}
+	prog := lower.NewProgram(fset, in, lower.Options{AllForwarders: cfg.AllForwarders})
+	pfs, err := prog.Lower()
+	if err != nil {
+		var le *lower.Error
+		if errors.As(err, &le) {
+			return nil, &Error{Pos: le.Pos, Msg: le.Msg, User: le.User}
+		}
+		return nil, err
+	}
+	out := &ProgramFiles{}
+	for _, pf := range pfs {
+		info := PackageFiles{ImportPath: pf.ImportPath, HeaderC: pf.HeaderC}
+		add := func(rel string, f *cppir.File, compile bool) {
+			outPath := ""
+			if root != "" {
+				outPath = filepath.Join(root, filepath.FromSlash(rel))
+			}
+			out.Files = append(out.Files, File{Path: rel, Data: cppir.Print(f, outPath)})
+			if compile {
+				info.Compile = append(info.Compile, rel)
+			}
+		}
+		add(lower.HeaderPath(pf.ImportPath), pf.Header, false)
+		for _, u := range pf.Units {
+			add(path.Join(pf.Dir, u.Name), u.File, true)
+		}
+		if pf.Desc != nil {
+			add(path.Join(pf.Dir, "pkg_desc.cpp"), pf.Desc, true)
+		}
+		if pf.Init != nil {
+			add(path.Join(pf.Dir, "pkg_init.cpp"), pf.Init, true)
+		}
+		out.Packages = append(out.Packages, info)
+	}
+	return out, nil
 }

@@ -173,7 +173,7 @@ func makePlan(files []string, cxx string) plan {
 }
 
 // fixtureOf maps a changed file to the test function and the fixture name it belongs to:
-// tests/<kind>/<name>.gp (also <name>.cpp.golden in golden) and examples/<name>/...
+// tests/<kind>/<name>.gp (also <name>.cpp.golden in golden), tests/pkgs/<name>/... and examples/<name>/...
 func fixtureOf(f string) (fn, name string, ok bool) {
 	parts := strings.Split(f, "/")
 	switch {
@@ -192,6 +192,10 @@ func fixtureOf(f string) (fn, name string, ok bool) {
 			return "", "", false
 		}
 		return fn, name, true
+	case len(parts) >= 4 && parts[0] == "tests" && parts[1] == "pkgs" && parts[2] == "errors":
+		return "TestPkgErrors", parts[3], true // tests/pkgs/errors/<name>/...: a module folder
+	case len(parts) >= 4 && parts[0] == "tests" && parts[1] == "pkgs":
+		return "TestPkgs", parts[2], true // tests/pkgs/<name>/...: a module folder
 	case len(parts) >= 3 && parts[0] == "examples":
 		return "TestExamples", parts[1], true
 	}

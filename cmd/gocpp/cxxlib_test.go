@@ -105,7 +105,7 @@ func TestRecipeBuildC(t *testing.T) {
 			switch {
 			case strings.Contains(l, " -c -x c "+filepath.Join(clib, "src", "clib.c")):
 				libCompile = l
-			case strings.Contains(l, " -x c++ $WORK/") && strings.Contains(l, " -c "):
+			case strings.Contains(l, " -x c++ ") && strings.Contains(l, "/gpkg/") && strings.Contains(l, " -c "):
 				appCompile = l
 			case strings.Contains(l, "$WORK/libobj/0-0-clib.c.o") && strings.Contains(l, " -o $WORK/app"):
 				link = l

@@ -1,0 +1,16 @@
+// What a C++ user of package k sees: its exported constants, constants of C++.
+#include "gpkg/example.com/consts/k/pkg.hpp"
+
+namespace k = gpkg_example_dcom__consts__k;
+
+static_assert(k::Small == 1e-300);
+static_assert(k::Pi2 > 6.28 && k::Pi2 < 6.29);
+static_assert(k::F32 == 0.1f);
+static_assert(k::U8 == 200 && k::Neg == -128);
+static_assert(k::Ch == 'x');
+static_assert(k::Flag);
+static_assert(k::Sh == 4);
+static_assert(k::Str.size() == 25 && k::Str[20] == '\0');
+static_assert(k::Unicode.size() == 14);
+static_assert(std::is_same_v<decltype(k::U8), const uint8_t>);
+static_assert(std::is_same_v<decltype(k::Str), const std::string_view>);

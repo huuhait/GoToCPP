@@ -4,11 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
+	"go/ast"
 	"go/types"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -21,6 +25,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/check"
@@ -35,11 +40,12 @@ import (
 const (
 	buildUsage = `usage: gocpp build [-o output] [build flags] [packages]
 
-gocpp build compiles the package named by the arguments and its C++,
-and writes the program. A package is a folder ("."), a list of .gp files
-of one folder, an import path, or a pattern with "..." that matches one
-package (until Phase 06, a program is one package: main). Without
-arguments, it builds the package in the current folder.
+gocpp build compiles the main package named by the arguments, the packages
+it imports and their C++, and writes the program. A package is a folder
+("."), a list of .gp files of one folder, an import path, or a pattern with
+"..." (of the matched packages, one must be a main package: it is the
+program, and the others are checked, and built when it imports them).
+Without arguments, it builds the package in the current folder.
 
 The program is named after the package: after the first .gp file
 (hello.gp gives hello), the folder of a package outside a module, or the
@@ -48,9 +54,12 @@ name that ends in a slash) puts it there.
 
 gocpp build first checks the packages like gocpp check: when there are
 errors, it prints them the same way and exits with status 1, and nothing
-is compiled. Then it writes the C++ (gocpp emit shows it) into a work
-folder, compiles it with the C++ compiler and links it with gocpp's
-runtime. The compiler is the one in GOCPP_CXX, else in CXX, else
+is compiled. Then it writes the C++ (gocpp emit shows it: for each package
+a header, a file for each .gp file, pkg_desc.cpp and pkg_init.cpp) into a
+folder of the cache (gen/<hash> in the cache folder of gocpp, the same for
+every build of the program; -work puts it in the work folder), compiles
+every file with the C++ compiler, at the same time, and links the objects
+with gocpp's runtime. The compiler is the one in GOCPP_CXX, else in CXX, else
 clang++, else g++ (clang 17 or gcc 13, or newer); GOCPP_CXX and CXX can
 hold arguments after the program (CXX="ccache g++"). The runtime is
 extracted once into the user cache folder (gocpp/rt in $XDG_CACHE_HOME,
@@ -181,9 +190,11 @@ const (
 )
 
 // testHookCPP, when it isn't nil, changes the C++ that the emitter wrote
-// before it is compiled. Only the tests set it, to inject a fault (C++
-// that doesn't compile) or a program that the emitter can't write yet.
-var testHookCPP func(cpp []byte) []byte
+// before it is compiled: it is called for each generated file (a header too)
+// with its path relative to the folder of the generated files, and returns the
+// bytes to write. Only the tests set it, to inject a fault (C++ that doesn't
+// compile) or a program that the emitter can't write yet.
+var testHookCPP func(path string, cpp []byte) []byte
 
 // buildFlags are the flags of gocpp build and gocpp run.
 type buildFlags struct {
@@ -283,13 +294,18 @@ func runEmit(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		return code
 	}
 	defer d.stopSignals()
-	pkg, code := d.load(flags.Args())
-	if pkg == nil {
+	set, code := d.load(flags.Args())
+	if set == nil {
+		return code
+	}
+	files, code := d.emit(set, "", nil)
+	if files == nil {
 		return code
 	}
 	var b bytes.Buffer
-	if code := d.emit(&b, pkg, "", nil); code != 0 {
-		return code
+	for _, f := range files.Files {
+		fmt.Fprintf(&b, "//// %s\n", f.Path)
+		b.Write(f.Data)
 	}
 	if _, err := stdout.Write(b.Bytes()); err != nil {
 		fmt.Fprintf(stderr, "gocpp emit: %v\n", err)
@@ -323,6 +339,7 @@ type driver struct {
 	stopped os.Signal
 	running *exec.Cmd // the program, while gocpp run runs it
 	work    string    // the work folder, while there is one
+	gen     string    // the folder of the generated C++ of the program that is built
 	removed bool      // the work folder was removed early (SIGTERM)
 	done    chan struct{}
 }
@@ -444,10 +461,59 @@ func (d *driver) interrupted() os.Signal {
 	return d.stopped
 }
 
-// load checks the package of the patterns like gocpp check and returns it
-// when it can be built: one main package, for the system that runs gocpp.
-// Else it prints why and returns nil and the exit status.
-func (d *driver) load(patterns []string) (*check.Package, int) {
+// A buildSet is the program that gocpp build, run or emit makes: the main package and the
+// packages it imports, directly or not, that gocpp writes C++ for.
+type buildSet struct {
+	main *check.Package
+
+	// pkgs are the packages with C++ of their own, in the order in which Go initializes them:
+	// each one after the packages it imports, the main package last (load.Program.Packages).
+	// The packages whose functions the runtime has (fmt, weak) are not in it.
+	pkgs []*check.Package
+}
+
+// byPath returns the package with the import path path, or the main package.
+func (s *buildSet) byPath(path string) *check.Package {
+	for _, p := range s.pkgs {
+		if p.Load.ImportPath == path {
+			return p
+		}
+	}
+	return s.main
+}
+
+// shimPackages are the standard packages that gocpp lowers to the runtime's own functions, not to
+// C++ of their own: their uses are written by the lowering of the package that imports them.
+var shimPackages = map[string]bool{"fmt": true, "weak": true}
+
+// notLowered reports whether the package lp gets no C++ of its own: a shim (shimPackages), or a
+// standard package that is still a declaration stub (Phase 01: functions without a body; the real
+// packages come with Phase 09). A standard package with bodies is built like any other package,
+// so a package of stdlib/ written in .gp can be imported like one of the project's.
+func notLowered(lp *load.Package) bool {
+	if !lp.Std {
+		return false
+	}
+	if shimPackages[lp.ImportPath] {
+		return true
+	}
+	for _, f := range lp.Files {
+		if f.AST == nil {
+			continue
+		}
+		for _, d := range f.AST.Decls {
+			if fd, ok := d.(*ast.FuncDecl); ok && fd.Body == nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// load checks the packages of the patterns like gocpp check and returns the program when it can
+// be built: one main package and its imports, for the system that runs gocpp. Else it prints
+// why and returns nil and the exit status.
+func (d *driver) load(patterns []string) (*buildSet, int) {
 	c := d.check
 	// gocpp emit compiles nothing, so it writes the C++ for any target,
 	// like gocpp check checks for any.
@@ -467,61 +533,112 @@ func (d *driver) load(patterns []string) (*check.Package, int) {
 			roots = append(roots, p)
 		}
 	}
+	// The program is the one main package among the roots; the other roots are packages of the
+	// same program (gocpp build ./... checks all of them), built only when the main package
+	// imports them.
+	var mains []*load.Package
+	for _, p := range roots {
+		if p.Name == "main" {
+			mains = append(mains, p)
+		}
+	}
 	switch {
 	case len(roots) == 0 && d.name == "build":
 		return nil, 0 // like go build: check warned that a pattern matched nothing
 	case len(roots) == 0:
 		fmt.Fprintf(d.stderr, "gocpp %s: no packages loaded from %s\n", d.name, strings.Join(patterns, " "))
 		return nil, exitErrors
-	case len(roots) > 1:
+	case len(mains) == 0 && len(roots) == 1:
+		fmt.Fprintf(d.stderr, "package %s is not a main package (gocpp %s builds programs)\n", roots[0].ImportPath, d.name)
+		return nil, exitErrors
+	case len(mains) == 0:
+		fmt.Fprintf(d.stderr, "gocpp %s: the patterns match %d packages and none of them is a main package\n", d.name, len(roots))
+		return nil, exitErrors
+	case len(mains) > 1:
 		var paths []string
-		for _, p := range roots {
+		for _, p := range mains {
 			paths = append(paths, p.ImportPath)
 		}
-		fmt.Fprintf(d.stderr, "gocpp %s: the patterns match %d packages, and a program is one package until Phase 06:\n\t%s\n",
-			d.name, len(roots), strings.Join(paths, "\n\t"))
+		fmt.Fprintf(d.stderr, "gocpp %s: the patterns match %d main packages, and a program is one:\n\t%s\n",
+			d.name, len(mains), strings.Join(paths, "\n\t"))
 		return nil, exitErrors
 	}
-	pkg := r.Package(roots[0])
-	if pkg == nil || !pkg.Checked() {
-		fmt.Fprintf(d.stderr, "gocpp %s: internal error: package %s was not checked\n", d.name, roots[0].ImportPath)
+	mainPkg := r.Package(mains[0])
+	if mainPkg == nil || !mainPkg.Checked() {
+		fmt.Fprintf(d.stderr, "gocpp %s: internal error: package %s was not checked\n", d.name, mains[0].ImportPath)
 		return nil, exitInternal
 	}
-	if pkg.Types.Name() != "main" {
-		fmt.Fprintf(d.stderr, "package %s is not a main package (until Phase 06, gocpp %s builds only programs)\n", pkg.Load.ImportPath, d.name)
-		return nil, exitErrors
-	}
-	if _, ok := pkg.Types.Scope().Lookup("main").(*types.Func); !ok {
+	if _, ok := mainPkg.Types.Scope().Lookup("main").(*types.Func); !ok {
 		// go build's message (from its linker).
-		fmt.Fprintf(d.stderr, "# %s\nfunction main is undeclared in the main package\n", pkg.Load.ImportPath)
+		fmt.Fprintf(d.stderr, "# %s\nfunction main is undeclared in the main package\n", mainPkg.Load.ImportPath)
 		return nil, exitErrors
 	}
-	return pkg, 0
+	// The packages of the program: what the main package imports, in the order of Packages.
+	reach := make(map[*load.Package]bool)
+	var visit func(p *load.Package)
+	visit = func(p *load.Package) {
+		if reach[p] {
+			return
+		}
+		reach[p] = true
+		if notLowered(p) {
+			return // the runtime has its functions, or the package is a stub: what it imports is not needed
+		}
+		for _, dep := range p.Imports {
+			visit(dep)
+		}
+	}
+	visit(mains[0])
+	set := &buildSet{main: mainPkg}
+	for _, lp := range prog.Packages {
+		if !reach[lp] || notLowered(lp) {
+			continue
+		}
+		cp := r.Package(lp)
+		if cp == nil || !cp.Checked() {
+			fmt.Fprintf(d.stderr, "gocpp %s: internal error: package %s was not checked\n", d.name, lp.ImportPath)
+			return nil, exitInternal
+		}
+		set.pkgs = append(set.pkgs, cp)
+	}
+	return set, 0
 }
 
-// emit writes the C++ of pkg to w, with the output path out for the
-// #line directives of the generated lines (cppgen.Config.OutputPath; ""
-// for gocpp emit). cxx is the C++ compiler of the build, for the probes of
-// a package with header imports, or nil (gocpp emit finds it then). It
-// returns the exit status: an emitter error is an internal error, as the
-// checker accepted the package, except for the errors of C/C++ names that
-// only the compiler's probes find (cppgen.Error.User).
-func (d *driver) emit(w io.Writer, pkg *check.Package, out string, cxx *build.CXX) int {
-	in, code := d.probe(pkg, cxx)
-	if code != 0 {
-		return code
+// emit writes the C++ of the program: the files of its packages, with root, the folder that
+// they will be written in, for the #line directives of the generated lines (cppgen's EmitProgram;
+// "" for gocpp emit). cxx is the C++ compiler of the build, for the probes of the packages
+// with header imports, or nil (gocpp emit finds it then). It returns the files, or nil and the
+// exit status: an emitter error is an internal error, as the checker accepted the packages,
+// except for the errors of C/C++ names that only the compiler's probes find
+// (cppgen.Error.User).
+func (d *driver) emit(set *buildSet, root string, cxx *build.CXX) (*cppgen.ProgramFiles, int) {
+	in := make([]cppgen.ProgramPackage, len(set.pkgs))
+	for i, pkg := range set.pkgs {
+		interop, code := d.probe(pkg, cxx)
+		if code != 0 {
+			return nil, code
+		}
+		in[i] = cppgen.ProgramPackage{Pkg: pkg, Interop: interop}
 	}
-	err := cppgen.EmitPackage(w, d.check.fset, pkg, cppgen.Config{OutputPath: out, Interop: in})
+	files, err := cppgen.EmitProgram(d.check.fset, in, root, cppgen.Config{})
 	if err == nil {
-		return 0
+		return files, 0
 	}
-	return d.emitFailed(pkg, err)
+	return nil, d.emitFailed(set, err)
 }
 
-// emitFailed prints the error err of the emitter for pkg and returns the
-// exit status (see emit).
-func (d *driver) emitFailed(pkg *check.Package, err error) int {
+// emitFailed prints the error err of the emitter and returns the exit status (see emit).
+func (d *driver) emitFailed(set *buildSet, err error) int {
 	var e *cppgen.Error
+	pkg := set.main
+	if errors.As(err, &e) && e.Pos.IsValid() {
+		// The package of the place of the error.
+		for _, p := range set.pkgs {
+			if slices.ContainsFunc(p.Load.Files, func(f *load.File) bool { return f.Path == e.Pos.Filename }) {
+				pkg = p
+			}
+		}
+	}
 	if errors.As(err, &e) && e.User && e.Pos.IsValid() {
 		fmt.Fprintf(d.stderr, "# %s\n%s:%d:%d: %s\n", pkg.Load.ImportPath,
 			diag.ShortFileName(d.check.dir, e.Pos.Filename), e.Pos.Line, e.Pos.Column, e.Msg)
@@ -657,27 +774,32 @@ type program struct {
 	exe  string // the program file
 }
 
-// compile checks and builds the package of the patterns into a program
-// in a new work folder. On failure it returns nil and the exit status, and
-// it has removed the work folder (unless it keeps it: -work, or an
-// internal error).
+// compile checks and builds the program of the patterns in a new work folder. On failure it
+// returns nil and the exit status, and it has removed the work folder (unless it keeps it:
+// -work, or an internal error).
 func (d *driver) compile(patterns []string) (*program, int) {
-	pkg, code := d.load(patterns)
-	if pkg == nil {
+	set, code := d.load(patterns)
+	if set == nil {
 		return nil, code
 	}
+	pkg := set.main
 	env, err := build.ReadEnvFlags()
 	if err != nil {
 		fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
 		return nil, exitErrors
 	}
-	needC, code := d.resolveLibs(pkg) // the sources of the modules' libraries (recipes)
-	if code != 0 {
-		return nil, code
+	needC, hasCFiles := false, false
+	for _, p := range set.pkgs {
+		nc, code := d.resolveLibs(p) // the sources of the modules' libraries (recipes)
+		if code != 0 {
+			return nil, code
+		}
+		needC = needC || nc
+		hasCFiles = hasCFiles || len(p.Load.CFiles) > 0
 	}
 	cxx, err := build.FindCXXFor(d.ctx, d.check.goos, d.check.goarch) // the probe's compiler too
 	var cc build.CXX
-	if err == nil && (len(pkg.Load.CFiles) > 0 || needC) {
+	if err == nil && (hasCFiles || needC) {
 		cc, err = d.findCC(cxx)
 	}
 	if err != nil {
@@ -708,46 +830,69 @@ func (d *driver) compile(patterns []string) (*program, int) {
 		}
 	}()
 
-	name := d.programName(pkg)
-	cppName := name + ".cpp"
-	if d.files && len(pkg.Load.Files) == 1 {
-		cppName = filepath.Base(pkg.Load.Files[0].Path) + ".cpp" // hello.gp.cpp, as its first line says
+	cache := ""
+	if dir, err := os.UserCacheDir(); err == nil {
+		cache = filepath.Join(dir, "gocpp")
 	}
-	src := filepath.Join(work, cppName)
-	var cpp bytes.Buffer
-	if code := d.emit(&cpp, pkg, src, &cxx); code != 0 {
+	name := d.programName(pkg)
+	genRoot, releaseGen := d.lockGen(d.genRoot(set, work, cache), work)
+	built := false
+	defer func() { releaseGen(built) }() // after the compiles: another build of the program may write then
+	d.gen = genRoot
+	files, code := d.emit(set, genRoot, &cxx)
+	if files == nil {
 		return nil, code
 	}
-	data := cpp.Bytes()
-	if testHookCPP != nil {
-		data = testHookCPP(data)
-	}
 	if d.flags.x {
-		fmt.Fprintf(d.stderr, "# gocpp emit > %s\n", build.ShellQuoteWork(src, work))
+		fmt.Fprintf(d.stderr, "# gocpp emit > %s\n", build.ShellQuoteWork(genRoot, work))
 	}
-	if err := os.WriteFile(src, data, 0o644); err != nil {
-		fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
-		return nil, exitErrors
+	units := make(map[string][]string) // the translation units by import path (absolute names)
+	for i, pf := range files.Packages {
+		for _, rel := range pf.Compile {
+			units[set.pkgs[i].Load.ImportPath] = append(units[set.pkgs[i].Load.ImportPath], filepath.Join(genRoot, filepath.FromSlash(rel)))
+		}
+	}
+	if err := os.MkdirAll(genRoot, 0o755); err == nil && !d.flags.work && cache != "" {
+		useGen(genRoot)
+	}
+	for _, f := range files.Files {
+		data := f.Data
+		if testHookCPP != nil {
+			data = testHookCPP(f.Path, data)
+		}
+		if err := writeIfChanged(filepath.Join(genRoot, filepath.FromSlash(f.Path)), data); err != nil {
+			fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
+			return nil, exitErrors
+		}
 	}
 
 	b := &build.Builder{CXX: cxx, ASan: d.flags.asan, NoChecks: d.flags.nochecks, GOOS: d.check.goos, Work: work, Stderr: d.stderr, KeepWork: d.flags.work,
-		Env: env, Package: pkg.Flags, Dir: pkg.Load.Dir, CFiles: pkg.Load.CFiles, CXXFiles: pkg.Load.CXXFiles, CC: cc,
-		SourceWarnings: d.sourceWarnings(pkg)}
-	if importsLocalHeader(pkg) {
-		b.PackageDir = pkg.Load.Dir // -iquote for "./physics.h"
-	}
-	if cache, err := os.UserCacheDir(); err == nil {
-		b.Cache = filepath.Join(cache, "gocpp")
-	}
+		Env: env, CC: cc, GenRoot: genRoot, Cache: cache}
 	if d.flags.x {
 		b.Trace = d.stderr
 	}
+	if testHookGenWritten != nil {
+		testHookGenWritten()
+	}
+	pbs := d.packageBuilds(set, files, units)
 	exe := filepath.Join(work, name+exeSuffix)
-	if err := b.Program(d.ctx, src, exe); err != nil {
+	if err := b.Link(d.ctx, pbs, exe); err != nil {
 		if sig := d.interrupted(); sig != nil {
 			return nil, stopStatus(sig)
 		}
+		// The package of the unit or the source that failed (the link: the first package that
+		// has C/C++ files, link flags or C/C++ imports).
 		var ce *build.CompileError
+		src := ""
+		if errors.As(err, &ce) {
+			src = ce.Unit
+			switch {
+			case ce.PkgPath != "":
+				pkg = set.byPath(ce.PkgPath)
+			case ce.Link:
+				pkg = set.linkPackage()
+			}
+		}
 		if errors.As(err, &ce) && ce.Lib != nil {
 			d.libFailed(pkg, ce)
 			return nil, exitErrors
@@ -795,6 +940,7 @@ func (d *driver) compile(patterns []string) (*program, int) {
 		fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
 		return nil, exitErrors
 	}
+	built = true
 	keep = true // the caller removes it
 	return &program{work: work, exe: exe}, 0
 }
@@ -881,10 +1027,10 @@ func (d *driver) compileFailed(pkg *check.Package, e *build.CompileError, work s
 		for _, f := range flags {
 			fmt.Fprintf(d.stderr, "(%s)\n", f)
 		}
-		fmt.Fprintf(d.stderr, "The work folder is kept: %s\n(the C++ is there, and the compiler's whole output is in %s)\n", work, log)
+		fmt.Fprintf(d.stderr, "The work folder is kept: %s\n(the generated C++ is in %s, and the compiler's whole output is in %s)\n", work, d.gen, log)
 		return
 	}
-	fmt.Fprintf(d.stderr, "This is a bug in gocpp. The work folder is kept: %s\n(the C++ is there, and the compiler's whole output is in %s)\n", work, log)
+	fmt.Fprintf(d.stderr, "This is a bug in gocpp. The work folder is kept: %s\n(the generated C++ is in %s, and the compiler's whole output is in %s)\n", work, d.gen, log)
 }
 
 // linkFailed prints the error of a link that failed with link flags of the
@@ -1018,4 +1164,176 @@ func (d *driver) run(patterns, args []string) int {
 		}
 	}
 	return state.ExitCode()
+}
+
+// linkPackage returns the package that reports a failed link: the first one that has C or C++
+// files, link flags or C/C++ imports (the conditions of cppLinkFailed and linkFailed), else the
+// main package.
+func (s *buildSet) linkPackage() *check.Package {
+	for _, p := range s.pkgs {
+		if hasSources(p.Load) || len(p.Flags.Link) > 0 || pkgUsesCpp(p) {
+			return p
+		}
+	}
+	return s.main
+}
+
+// genRoot returns the folder that the generated files of the program are written to. It is
+// stable, so that the -iquote folder and the paths of the files in the debug information and in the
+// object cache's keys are the same in every build: gen/<hash> in the cache folder, where the hash
+// is of the main package (its folder, import path and files) and the target. With -work, without a
+// cache folder or with one that can't be written, it is gen in the work folder.
+func (d *driver) genRoot(set *buildSet, work, cache string) string {
+	if d.flags.work || cache == "" {
+		return filepath.Join(work, "gen")
+	}
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\x00%s\x00%s/%s\x00", set.main.Load.Dir, set.main.Load.ImportPath, d.check.goos, d.check.goarch)
+	for _, f := range set.main.Load.Files {
+		fmt.Fprintf(h, "%s\x00", f.Path)
+	}
+	dir := filepath.Join(cache, "gen", hex.EncodeToString(h.Sum(nil))[:16])
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return filepath.Join(work, "gen") // the cache folder can't be written (a read-only home): no cache
+	}
+	return dir
+}
+
+// Limits of the folder of the generated files of the programs (cache/gen): trimGen removes the
+// folders of programs that were not built for maxGenAge, when there are more than maxGenFolders.
+const (
+	maxGenFolders = 100
+	maxGenAge     = 7 * 24 * time.Hour
+)
+
+// useGen marks the folder gen of a program as used now, and removes the old folders of other
+// programs next to it (trimGen). A failure is no failure of the build.
+func useGen(gen string) {
+	now := time.Now()
+	os.Chtimes(gen, now, now)
+	trimGen(filepath.Dir(gen), gen, now)
+}
+
+// trimGen removes the folders in dir, other than keep, that are older than maxGenAge, beginning with
+// the oldest, while there are more than maxGenFolders of them. A folder of a program that was built
+// within the age is never removed, so a gocpp that builds at the same time never loses its files.
+func trimGen(dir, keep string, now time.Time) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	type old struct {
+		path string
+		mod  time.Time
+	}
+	var olds []old
+	folders := 0
+	for _, e := range entries {
+		p := filepath.Join(dir, e.Name())
+		fi, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if !e.IsDir() {
+			// The lock file of a folder that is gone (lockGen).
+			if strings.HasSuffix(e.Name(), ".lock") && now.Sub(fi.ModTime()) > maxGenAge {
+				if _, err := os.Stat(strings.TrimSuffix(p, ".lock")); err != nil {
+					os.Remove(p)
+				}
+			}
+			continue
+		}
+		folders++
+		if p != keep && now.Sub(fi.ModTime()) > maxGenAge {
+			olds = append(olds, old{p, fi.ModTime()})
+		}
+	}
+	slices.SortFunc(olds, func(a, b old) int { return a.mod.Compare(b.mod) })
+	for _, o := range olds {
+		if folders <= maxGenFolders {
+			break
+		}
+		if os.RemoveAll(o.path) == nil {
+			folders--
+		}
+	}
+}
+
+// writeIfChanged writes data to the file name, unless it has these bytes already: editors and
+// the object cache see no change then. The file is replaced by a rename, so that a gocpp that
+// builds the same program at the same time never reads half a file.
+func writeIfChanged(name string, data []byte) error {
+	if old, err := os.ReadFile(name); err == nil && bytes.Equal(old, data) {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(name), ".tmp-"+filepath.Base(name)+"-")
+	if err != nil {
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Rename(tmp.Name(), name); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	return nil
+}
+
+// packageBuilds returns the packages of the program for build.Builder.Link, in the order of
+// the program, with their units, flags and the public flags of the packages whose headers they
+// include.
+func (d *driver) packageBuilds(set *buildSet, files *cppgen.ProgramFiles, units map[string][]string) []build.PackageBuild {
+	byLoad := make(map[*load.Package]*check.Package)
+	headerC := make(map[*load.Package]bool)
+	for i, p := range set.pkgs {
+		byLoad[p.Load] = p
+		headerC[p.Load] = files.Packages[i].HeaderC
+	}
+	pbs := make([]build.PackageBuild, len(set.pkgs))
+	for i, p := range set.pkgs {
+		pb := build.PackageBuild{Path: p.Load.ImportPath, Dir: p.Load.Dir, Flags: p.Flags, CFiles: p.Load.CFiles, CXXFiles: p.Load.CXXFiles,
+			Units: units[p.Load.ImportPath], SourceWarnings: d.sourceWarnings(p)}
+		if importsLocalHeader(p) {
+			pb.QuoteDir = p.Load.Dir // -iquote for "./physics.h"
+		}
+		// The public flags: those of the packages whose pkg.hpp includes C/C++ headers.
+		seen := map[*load.Package]bool{p.Load: true}
+		var visit func(lp *load.Package)
+		visit = func(lp *load.Package) {
+			for _, path := range slices.Sorted(maps.Keys(lp.Imports)) {
+				dep := lp.Imports[path]
+				if seen[dep] {
+					continue
+				}
+				seen[dep] = true
+				if cp := byLoad[dep]; cp != nil && headerC[dep] {
+					if !slices.Equal(cp.Flags.Compile, p.Flags.Compile) {
+						pb.Public = append(pb.Public, cp.Flags.Compile...)
+					}
+					if importsLocalHeader(cp) {
+						// pkg.hpp includes "./geo.h": found in the folder of its package.
+						pb.Public = append(pb.Public, "-iquote", cp.Load.Dir)
+					}
+				}
+				visit(dep)
+			}
+		}
+		visit(p.Load)
+		pbs[i] = pb
+	}
+	return pbs
 }

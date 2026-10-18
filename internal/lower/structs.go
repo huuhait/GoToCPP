@@ -216,7 +216,10 @@ func (fg *funcGen) selector(x *ast.SelectorExpr) cppir.Expr {
 	sel := fg.g.info.Selections[x]
 	switch {
 	case sel == nil:
-		fg.g.unsupported(x.Pos(), "qualified names (Phase 06)")
+		if obj := fg.g.qualifiedObj(x); obj != nil {
+			return fg.qualified(obj, x.Pos()) // pkg.Name (xpkg.go)
+		}
+		fg.g.unsupported(x.Pos(), "this qualified name")
 	case sel.Kind() == types.FieldVal:
 		return fg.fieldChain(fg.expr(x.X), sel, x.Pos())
 	default:

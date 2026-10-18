@@ -176,7 +176,7 @@ func TestParseDebug(t *testing.T) {
 			t.Errorf("%q: expr %q, value %q, regexp %v; want %q, %q, %q", tt.cmd, c.expr, c.want, c.rx, tt.expr, tt.want, tt.rx)
 		}
 	}
-	if !p.paths["/work/x.gp"] || !p.isCPP("/tmp/w/x.gp.cpp") || p.isCPP("/work/x.gp") || p.isCPP("x.gp.cpp") {
+	if !p.paths["/work/x.gp"] || !p.isCPP("/tmp/w/gpkg/command-line-arguments/x.gp.cpp") || p.isCPP("/work/x.gp") || p.isCPP("x.gp.cpp") {
 		t.Errorf("paths = %v; isCPP is wrong", p.paths)
 	}
 }
@@ -322,39 +322,39 @@ func TestGDBChecks(t *testing.T) {
 		{5, "#0  gpkg_main::add (a=7, b=5) at /work/x.gp:8\n" +
 			"#1  0x00005555555573ed in gpkg_main::main () at /work/x.gp:12\n" +
 			"#2  0x000055555555b8d0 in gp::run_main (argc=1, argv=0x7ff, init=0x0, main=0x5555555573ce <gpkg_main::main()>) at /rt/src/rt.cpp:519\n" +
-			"#3  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/gocpp-build1/x.gp.cpp:27\n", ""},
+			"#3  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/gocpp-build1/gpkg/command-line-arguments/pkg_init.cpp:27\n", ""},
 		{5, "#0  gpkg_main::add (a=7, b=5) at /work/x.gp:8\n" +
 			"#1  0x00005555555573ed in gpkg_main::main () at /work/x.gp:12\n" +
 			"#2  0x000055555555749e in main (argc=1, argv=0x7ff) at /work/x.gp:16\n", "the outermost frame is main at /work/x.gp:16, want main at a line of the generated x.gp.cpp"},
 		{5, "#0  gpkg_main::add (a=7, b=5) at /work/x.gp:8\n" +
-			"#1  0x00005555555573ed in gpkg_main::main () at /tmp/w/x.gp.cpp:30\n" +
-			"#2  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/w/x.gp.cpp:27\n", "frame #1 is gpkg_main::main at /tmp/w/x.gp.cpp:30, not at a line of main in tests/debug/x.gp (lines 11 to 14)"},
+			"#1  0x00005555555573ed in gpkg_main::main () at /tmp/w/gpkg/command-line-arguments/x.gp.cpp:30\n" +
+			"#2  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/w/gpkg/command-line-arguments/x.gp.cpp:27\n", "frame #1 is gpkg_main::main at /tmp/w/gpkg/command-line-arguments/x.gp.cpp:30, not at a line of main in tests/debug/x.gp (lines 11 to 14)"},
 		{5, "#0  gpkg_main::main () at /work/x.gp:12\n" +
-			"#1  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/w/x.gp.cpp:27\n", "the program's frames are [gpkg_main::main], want [gpkg_main::add gpkg_main::main]"},
+			"#1  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/w/gpkg/command-line-arguments/x.gp.cpp:27\n", "the program's frames are [gpkg_main::main], want [gpkg_main::add gpkg_main::main]"},
 		{5, "#0  0x00007ffff7a3b2c4 in write () from /lib/libc.so.6\n" +
 			"#1  gpkg_main::add (a=7, b=5) at /work/x.gp:8\n" +
 			"#2  0x00005555555573ed in gpkg_main::main () at /work/x.gp:12\n" +
-			"#3  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/w/x.gp.cpp:27\n", "frame #0 is write (no line information); the program's frames must come first"},
+			"#3  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/w/gpkg/command-line-arguments/x.gp.cpp:27\n", "frame #0 is write (no line information); the program's frames must come first"},
 		// A deferred call: a run of the runtime's frames (gp::, std::) ending with
 		// gp::defer_frame::gp_run may come between the program's frames, nothing else.
 		{5, "#0  gpkg_main::add (a=7, b=5) at /work/x.gp:8\n" +
 			"#1  0x000055555555b2f1 in std::__invoke_impl<void, void (*&)(long, long), long, long> (__f=...) at /usr/include/c++/15/bits/invoke.h:63\n" +
 			"#2  0x000055555555c8e9 in gp::defer_frame::gp_run (this=0x7fffffff9300) at /rt/src/defer.cpp:69\n" +
 			"#3  0x00005555555573ed in gpkg_main::main () at /work/x.gp:12\n" +
-			"#4  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/w/x.gp.cpp:27\n", ""},
+			"#4  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/w/gpkg/command-line-arguments/x.gp.cpp:27\n", ""},
 		{5, "#0  gpkg_main::add (a=7, b=5) at /work/x.gp:8\n" +
 			"#1  0x00007ffff7a3b2c4 in qsort () from /lib/libc.so.6\n" +
 			"#2  0x00005555555573ed in gpkg_main::main () at /work/x.gp:12\n" +
-			"#3  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/w/x.gp.cpp:27\n", "frame #1 is qsort (no line information); the program's frames must come first"},
+			"#3  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/w/gpkg/command-line-arguments/x.gp.cpp:27\n", "frame #1 is qsort (no line information); the program's frames must come first"},
 		{5, "#0  gpkg_main::add (a=7, b=5) at /work/x.gp:8\n" +
 			"#1  0x000055555555c8e9 in gp::detail::release (p=0x7fffffff9300) at /rt/include/gocpp/ptr.hpp:69\n" +
 			"#2  0x00005555555573ed in gpkg_main::main () at /work/x.gp:12\n" +
-			"#3  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/w/x.gp.cpp:27\n", "frame #1 is gp::detail::release at /rt/include/gocpp/ptr.hpp:69; the program's frames must come first"},
+			"#3  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/w/gpkg/command-line-arguments/x.gp.cpp:27\n", "frame #1 is gp::detail::release at /rt/include/gocpp/ptr.hpp:69; the program's frames must come first"},
 		{5, "#0  gpkg_main::add (a=7, b=5) at /work/x.gp:8\n" +
 			"#1  0x000055555555c8e9 in gp::defer_frame::gp_run (this=0x7fffffff9300) at /rt/src/defer.cpp:69\n" +
 			"#2  0x000055555555b2f1 in std::function<void ()>::operator() (this=0x7ff) at /usr/include/c++/15/bits/std_function.h:591\n" +
 			"#3  0x00005555555573ed in gpkg_main::main () at /work/x.gp:12\n" +
-			"#4  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/w/x.gp.cpp:27\n", "frame #1 is gp::defer_frame::gp_run at /rt/src/defer.cpp:69; the program's frames must come first"},
+			"#4  0x000055555555749e in main (argc=1, argv=0x7ff) at /tmp/w/gpkg/command-line-arguments/x.gp.cpp:27\n", "frame #1 is gp::defer_frame::gp_run at /rt/src/defer.cpp:69; the program's frames must come first"},
 		{7, "#0  gpkg_main::add (a=7, b=5) at /work/x.gp:9\n9\t}\n", ""},
 		{len(steps) - 1, "k = 7\n[Inferior 1 (process 1034679) exited normally]\n", ""},
 		{len(steps) - 1, "[Inferior 1 (process 1034679) exited with code 02]\n", "the program didn't exit normally"},
