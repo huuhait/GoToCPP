@@ -1,0 +1,3 @@
+# math/bits is taken with the tag compiler_bootstrap (ports.txt): Go's bootstrap variant of bits_errors.go
+# defines overflowError and divideError in the package instead of linking to variables of the runtime.
+@note The panics of Div, Div32, Div64, Rem... (integer overflow, integer divide by zero) carry a `bits.errorString` (it has Go's `RuntimeError` method and the same text, `runtime error: integer overflow`), not `runtime.errorString`: `%T` of the recovered value differs, and `errors.As` to a `runtime.Error` still works once that interface exists.

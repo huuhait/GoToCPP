@@ -1,0 +1,6 @@
+# Named package lists for -tier NAME (the closure of their imports is listed too).
+#
+#	<name>: <import path>...
+
+# Step 9.4's packages (phase-09-stdlib-testing/README.md, section 3).
+tier1: unicode/utf8 unicode strings bytes strconv errors sort math/bits io bufio context regexp

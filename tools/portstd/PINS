@@ -1,0 +1,16 @@
+# The Go source that tools/portstd ports from: the official source tarball of
+# the Go version of the dev shell (flake.nix), checked by SHA-256. The tool
+# never reads the local GOROOT: on NixOS it is patched and has no test/ folder
+# (Phase 09 README, section 2.1).
+#
+# To move to a new Go version, run in the dev shell of the new version:
+#
+#	go run ./tools/portstd -pin go1.25.15
+#
+# which reads the SHA-256 from the official listing (https://go.dev/dl/?mode=json&include=all),
+# downloads the tarball, checks that it has that hash, and rewrites this file. Then run
+# go run ./tools/portstd to port again, and review the diff of stdlib/.
+
+version go1.25.14
+url     https://dl.google.com/go/go1.25.14.src.tar.gz
+sha256  9e83f44f5fc297378861b4e16cc6aa114be8add7993fb3ceb2c512380aa4d582

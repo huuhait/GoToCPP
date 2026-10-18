@@ -1,0 +1,13 @@
+# The SHA-256 of every file that tools/portstd writes into stdlib/ (the .gp files and PORT.md),
+# in the format of sha256sum. "go run ./tools/portstd -check" compares the files with it, also
+# without Go's source in the cache; with the source it compares the bytes with what the tool writes.
+# Written by go run ./tools/portstd; do not edit by hand (make portstd-check).
+
+8b14daa0d367e2acb003367dc465bd9e76b7f4e522c3c3720ae98c756b16177d  math/bits/PORT.md
+e3e954b90d3488405385fc51c6a69e712a5bd674b08cb0ebdaf62515606f95a4  math/bits/bits.gp
+89cb2ff439143edabd5e49c6c3810969241a962a680229e73d87690b27ea542d  math/bits/bits_errors_bootstrap.gp
+f3f47d6a0ee8cccac1ca958b245054c2b10d01fce80eb8866283a17073951c3a  math/bits/bits_tables.gp
+ef6f284b88e75b19da9bd85de2edde3556aa172f11caf8b64f40066e929f6204  unicode/utf16/PORT.md
+10a997d525a5d471a036a862723c33a88291b38129d58dfa991ff3730f0e4e88  unicode/utf16/utf16.gp
+1554648982e249c269d23c59bba762ee82c53fb7eca0dd437fae5e600a83b432  unicode/utf8/PORT.md
+19220b0f864082173ed4465ca9946ae34547e15982496769d27d4e94f165a6a5  unicode/utf8/utf8.gp

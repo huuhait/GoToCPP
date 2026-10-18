@@ -1,0 +1,47 @@
+# The packages that tools/portstd does not port: the standard library gets them in another way
+# (a hand-written native or shim package, a package of its own step, or the compiler). -list stops at
+# them: they are leaves of the dependency closure, with the step that provides them.
+#
+#	<import path>  <owner>  <what>
+#
+# The owner is a step of the plan (phase-09-stdlib-testing/README.md, section 3), or "builtin".
+
+unsafe                  builtin  the compiler (go/types has it built in)
+runtime                 9.2      minimal surface: Error, PanicNilError, Gosched, GOMAXPROCS, ... (8.10)
+runtime/cgo             9.2      Handle table, native
+syscall                 9.2      minimal surface; os and time use it
+internal/abi            9.2      stub: NoEscape, FuncPCABI0, type layout is not used
+internal/cpu            9.2      stub: no CPU feature is ever present
+internal/godebug        9.2      stub: Setting.Value is always empty
+internal/goarch         9.2      stub: constants for the one target
+internal/goos           9.2      stub
+internal/race           9.2      stub: Enabled is false
+internal/bytealg        9.2      native (memchr, memcmp)
+internal/runtime/atomic 9.2      runtime internals: sync/atomic is native
+internal/runtime/math   9.2      runtime internals
+internal/runtime/sys    9.2      runtime internals
+internal/runtime/maps   9.2      runtime internals (maps are the language's map)
+internal/runtime/syscall 9.2     runtime internals
+internal/asan           9.2      stub
+internal/msan           9.2      stub
+internal/oserror        9.6      with os
+internal/reflectlite    9.3      alias of the reflect subset
+reflect                 9.3      the reflect subset on type descriptors
+sync                    8.7      native (Phase 08)
+sync/atomic             8.7      native (Phase 08)
+internal/sync           8.7      native (Phase 08)
+time                    8.8      Phase 08 timers and clocks, Phase 09 formatting (9.8)
+iter                    7.8      Phase 07 (range over func)
+maps                    7.1      Phase 07
+slices                  7.1      Phase 07
+cmp                     7.1      Phase 07
+os                      9.6      interop + native
+internal/poll           9.6      with os
+internal/syscall/unix   9.6      with os
+internal/syscall/execenv 9.6     with os
+internal/testlog        9.6      with os
+internal/filepathlite   9.6      with os
+io/fs                   9.6      with os
+path                    9.6      with os
+path/filepath           9.6      with os
+math                    9.5      native <cmath> plus Go code where bit-exactness matters

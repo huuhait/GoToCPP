@@ -7,7 +7,7 @@ GOFMT ?= gofmt
 
 # The checks "make ci" runs. A later check is added here. The GCC + Clang
 # matrix is part of test: the test programs run with both compilers.
-CI_CHECKS = lint test build
+CI_CHECKS = lint test build portstd-check
 
 # In "make ci", a C++ compiler that isn't installed fails the test programs
 # (outside it, they skip that compiler). GOCPP_REQUIRE_CXX= make ci turns
@@ -40,7 +40,7 @@ LINT_SKIP = -path ./spikes -o -path ./.git -o -name testdata
 # first time. v0.7.0 is the newest release that works with Go 1.25.
 STATICCHECK ?= $(GO) run honnef.co/go/tools/cmd/staticcheck@v0.7.0
 
-.PHONY: build test lint staticcheck ci clean quick
+.PHONY: build test lint staticcheck ci clean quick portstd-check
 
 build:
 	$(GO) build -o bin/gocpp ./cmd/gocpp
@@ -99,6 +99,15 @@ lint:
 
 staticcheck:
 	$(STATICCHECK) ./...
+
+# The ported packages of stdlib/ are what tools/portstd writes (Phase 09 step 9.1): a hand edit of a
+# ported file fails it. The tool reads the pinned Go source from its cache ($XDG_CACHE_HOME/gocpp/portstd)
+# and never downloads here. Without the tarball it still compares the files with the SHA-256 of
+# stdlib/PORTED.sha256 (a hand edit is found by hash) and says that the byte comparison was skipped.
+# GOCPP_REQUIRE_PORTSTD=1 make ci (or make portstd-check) turns the missing tarball into an error:
+# set it where the cache is filled ("go run ./tools/portstd -check -fetch" downloads it once).
+portstd-check:
+	$(GO) run ./tools/portstd -check
 
 # The tests of the VS Code extension: its grammar and its code
 # (editors/vscode/README.md). Not part of ci, because npm downloads the

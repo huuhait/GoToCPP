@@ -123,6 +123,8 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 | `testing` | 09 |  |
 | `unicode` | 09 |  |
 | `unicode/utf8` | 09 |  |
+| `unicode/utf16` | 09 |  |
+| `math/bits` | 09 |  |
 | `embed` | 10 | With `//go:embed` and `#embed(...)`. |
 | `go/...` | never | `go/ast`, `go/types` and the other packages about Go source are not planned. |
 | `net/http` | never | Not planned: use a C or C++ HTTP library through a header import. |

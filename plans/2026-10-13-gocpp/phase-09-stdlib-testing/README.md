@@ -197,7 +197,14 @@ files pass".
 
 1. **9.1 `tools/portstd`**: download and verify the pinned Go source, select files with `go/build`
    per target OS (`purego`, no assembly), rename, turn linkname into native declarations, patch,
-   write `PORT.md`.
+   write `PORT.md`. **Built:** [docs/guides/porting.md](../../../docs/guides/porting.md) is the guide, ADR-034 the two
+   decisions it added (the `generic` architecture for the pure-Go variants; the kept `//go:build` lines are rewritten to
+   their OS part), [porting-blockers.md](../../../docs/guides/porting-blockers.md) the generated dependency and blocker table of
+   the tier-1 list (`-list`, checked by `make portstd-check`). `unicode/utf8`, `unicode/utf16` and `math/bits` are ported
+   (`stdlib/PORTED.txt`); the argument-less `//gocpp:native` stays with step 9.2, its first user. Speed: gocpp builds
+   at `-O0 -g` for now, and the ported `unicode/utf8` and `math/bits` run 8 to 12 times slower than Go's, which the
+   compiler turns into intrinsics (`bits.LeadingZeros`, `bits.Mul64`...). A later step can give the hot functions of
+   `math/bits` a native each (`natives.txt` + a patch rule) if a benchmark needs it; correctness does not depend on it.
 2. **9.2 Internal shims**: `internal/bytealg` (native), `internal/stringslite`,
    `internal/byteorder`, `internal/abi`/`internal/godebug`/`internal/cpu` (stubs), minimal
    `runtime` and `syscall` surfaces. This step also owns the public `runtime/cgo` package (`Handle`,

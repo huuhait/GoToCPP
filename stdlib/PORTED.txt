@@ -1,0 +1,9 @@
+# The packages of stdlib/ that tools/portstd ports from Go's source, one line each:
+#
+#	<import path> <Go version> os=<GOOS list> arch=<GOARCH> tags=<build tags> files=<n> natives=<n> patches=<n>
+#
+# Written by go run ./tools/portstd; do not edit by hand (make portstd-check).
+
+math/bits go1.25.14 os=linux arch=generic tags=compiler_bootstrap,purego files=3 natives=0 patches=0
+unicode/utf16 go1.25.14 os=linux arch=generic tags=purego files=1 natives=0 patches=0
+unicode/utf8 go1.25.14 os=linux arch=generic tags=purego files=1 natives=0 patches=0

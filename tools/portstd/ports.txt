@@ -1,0 +1,17 @@
+# The packages of stdlib/ that the tool ports (go run ./tools/portstd writes them all, make portstd-check
+# checks them). The default line comes first: the systems the files are taken for, the architecture name for
+# the file selection ("generic" is none of Go's: no architecture-specific file, so no assembly variant), and the
+# build tags that are true. Each package line can replace os=, arch= and tags= (lists with commas, "-" for none).
+#
+#	<import path> [os=linux,windows] [arch=generic] [tags=purego]
+
+default os=linux arch=generic tags=purego
+
+unicode/utf16
+unicode/utf8
+math/bits tags=purego,compiler_bootstrap
+
+# Options of packages that are not ported yet, for -list (the closure of the tier-1 packages). The tag
+# compiler_bootstrap selects Go's variants without //go:linkname and without internal/bytealg (math/bits'
+# errors, strconv's index): the two files that the Go compiler's own build uses.
+options strconv tags=purego,compiler_bootstrap

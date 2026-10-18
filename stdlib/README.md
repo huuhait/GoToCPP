@@ -11,6 +11,15 @@ embedded in the `gocpp` binary, and the loader finds the standard packages here.
   source). A package is real when none of its functions is a declaration stub (below): it is built from its `.gp`
   files, and `tools/stubgen` writes no stub for it (`stubPackage.Real`; the tool still makes the stub in memory,
   because the tests compare the real package's exported declarations with it and with Go's).
+- **Ported packages** (Phase 09 step 9.1). `unicode/utf8`, `unicode/utf16` and `math/bits` are Go's source, copied by
+  `tools/portstd` from the pinned Go tarball: the `.gp` files start with `// Code ported from Go ...; DO NOT EDIT by
+  hand`, `stdlib/<pkg>/PORT.md` says what was taken, left out and changed, and `stdlib/PORTED.txt` lists them for
+  tools. A change goes into a patch rule of the tool, not into the file (`make portstd-check` fails otherwise); how
+  to port a package is in [docs/guides/porting.md](../docs/guides/porting.md), and what blocks the tier-1 packages in
+  [porting-blockers.md](../docs/guides/porting-blockers.md). `unicode/utf8` is a real package: `tools/stubgen` lists it as
+  `Real` and writes no stub for it. `LICENSE` here is Go's BSD-3-Clause license, which the ported files carry; Go's
+  `PATENTS` file (the additional patent grant) is not copied: it grants rights to users of Go itself, and the ported
+  text is the same, so keep a copy of `PATENTS` from the pinned tarball with any redistribution of `stdlib/`.
 - **Native functions.** A function without a body that has a `//gocpp:native` line in its doc comment is written in
   C++: the line names the runtime function that its calls become (ADR-027).
 
@@ -33,7 +42,7 @@ embedded in the `gocpp` binary, and the loader finds the standard packages here.
   stubs need (`io/fs` and `time` for `os`, `unicode` for `strings`, `context` for `testing`,
   `encoding` for `flag`), and `weak`, whose `Pointer`, `Make` and `Value` the compiler turns
   into the runtime's `gp::weak_ptr` (an intrinsic from Phase 03, Phase 03 README §2.2). (`errors` was the 25th
-  stub; it is real since step 5.7.)
+  stub; it is real since step 5.7, and `unicode/utf8` since step 9.1.)
 
   A stub holds Go's exported declarations with their doc comments, but no code: functions have
   no body, and variables have no value. So programs that import these packages type-check, and
@@ -66,7 +75,7 @@ embedded in the `gocpp` binary, and the loader finds the standard packages here.
 - **`files.go`**, the small Go package `stdlib` (`github.com/huuhait/gocpp/stdlib`). It is
   here because a `//go:embed` pattern can't reach a parent folder.
   - `stdlib.FS()` is the embedded folder: the `.gp` files of each package, in the folder of
-    its import path, and `LICENSE`. This README, `std.txt` and the Go files are not in it.
+    its import path, and `LICENSE`. This README, `std.txt`, `PORTED.txt`, `PORT.md` and the Go files are not in it.
     The `//go:embed` patterns take `.gp` files up to two folders deep (`encoding/json`).
     Phase 09 adds a pattern for deeper packages (`math/rand/v2`) and for native `.cpp` files;
     until then a test fails for any file here that the patterns don't take.
@@ -128,4 +137,6 @@ Don't edit a stub by hand: the tests fail when a stub is not what the tool write
   running the tool again. The system parts are **native**: function declarations without a body
   in a `.gp` file with `//gocpp:native` (above), and their bodies in a `.cpp` file next to it. A package deeper than two
   folders (`math/rand/v2`) needs one more pattern in `files.go`; a test finds it.
+  Step 9.1 built the tool (the paragraph above is what it does); the argument-less `//gocpp:native` (a body in a `.cpp`
+  file) is built by step 9.2, its first user.
 - **Phase 14** runs `tools/portstd` again for Windows.

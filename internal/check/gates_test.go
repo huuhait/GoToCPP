@@ -522,8 +522,8 @@ func TestStdPackagesMatchStubs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n < 24 {
-		t.Errorf("found %d stubs, want at least 24", n)
+	if n < 23 { // 24 until unicode/utf8 became a real package (step 9.1)
+		t.Errorf("found %d stubs, want at least 23", n)
 	}
 }
 

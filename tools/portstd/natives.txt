@@ -1,0 +1,14 @@
+# What a bodyless function of a ported package becomes: a native function (ADR-027).
+#
+#	<key> <C++ function | local | TODO: reason>
+#
+# The key is the target of the function's //go:linkname ("runtime.nanotime"), or the package-qualified name
+# of the function ("sync.runtime_Semacquire") for one that has no linkname (Go's runtime or its assembly provides
+# it). When a function has a linkname with a target, the target is looked up first, then the package-qualified name.
+#
+#	gp::errors::assign   the line becomes //gocpp:native gp::errors::assign in the function's doc comment
+#	local                //gocpp:native without a name: the body is in a .cpp file next to the .gp file (Phase 09:
+#	                     the form that internal/load/native.go still rejects; step 9.2 builds it)
+#	TODO: reason         no native yet: the port is refused (a blocker) until someone writes one
+#
+# A function that has no entry here is a blocker too ("asm" or "linkname-pull").
