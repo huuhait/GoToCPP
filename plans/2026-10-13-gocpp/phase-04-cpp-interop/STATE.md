@@ -16,7 +16,7 @@
 - [x] 4.8 Opaque objects in closures/defers (boxed) + copy/move/default-construct policy + `gp::result_slot`
 - [x] 4.9 String boundary (`string_view` implicit, `std.string(s)` explicit, `gp::cstr` holder, `C.CString`, `C.GoString*`, `C.GoBytes`)
   - [x] typed helpers: front-end rewrites `C.GoString` & co. into the hidden `gocpp/cgoh` package
-- [ ] 4.10 `unsafe` + pointers (owning `unsafe.Pointer`, `SliceData`/`String`/`Slice` keep owners, `std::span`, `gp::ptr` → `T*`) + ASan test
+- [x] 4.10 `unsafe` + pointers (owning `unsafe.Pointer`, `SliceData`/`String`/`Slice` keep owners, `std::span`, `gp::ptr` → `T*`) + ASan test
 - [ ] 4.11 Callbacks (function pointers, `std::function`, `cgo.Handle`) + panic trampolines
 - [x] 4.12 C++ exception → fatal Go-style panic; fmt shim prints C++ values (raw pointers as addresses)
 - [x] 4.13 Compile + link package `.c/.cc/.cpp/.cxx` sources
@@ -321,3 +321,15 @@
   static_assert(gp::cgo::field_zero<T>) at its .gp line (cost: one assert per field in generated structs); (8) job 4.10
   (unsafe/pointers) reconciles with this: addrHeld takes the ROOT identifier of an address operand (rootIdentOf), 4.10 widens
   cAddr, `&T{}` of a C type must be built in place (not gp::new_), `cpperrors.go` userFacingHeaders gets unsafe.hpp.
+- 2026-10-17: Job 4.10 (unsafe and pointers) merged after five review rounds. Decisions: (1) every gocpp-side `*C/C++ T` is
+  `gp::cptr<T>` (16 bytes; unsafe.Sizeof of such a variable is 16, as for every gocpp pointer, D15); members of C structs, `**C.T`
+  and C++ template arguments stay raw; (2) `&T{}` of a C type is registered by address (a sharded table, `gp::detail::box_owner`) so
+  a raw pointer converts back into an owner; cost: building a 1M-node list is about 6-9x a plain gocpp list; the registry never
+  shrinks (retained peak memory); (3) stores into raw members record owners (keeper / `side_store` purged when it doubles); reads
+  that bind a variable use `gp::cgo::load` (about 30% slower on a hot `x := v[i]` loop over a std::vector<int> at -O0, not measured
+  at -O2: TODO for Phase 15); (4) compile errors where the owner is unknown, a run-time fatal when a gocpp pointer is stored into C
+  memory; (5) documented limits in interop.md (C++ containers of raw pointers, struct copies into long-lived places, closures that
+  outlive a copy, growing slices of C structs, cycles, a C function that retains a pointer); (6) examples/sqlite stops at the
+  callback ABI: that is 4.11; (7) Phase 07: a type parameter that is a pointer to a C type will be a cptr; Phase 06 splits units:
+  the registry (inline function-local statics) must stay one instance, check shared libraries with hidden visibility; nits left:
+  `box_register` OOM skews a counter; no fork() in the repo today (inherited shard locks).
