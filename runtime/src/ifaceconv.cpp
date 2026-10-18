@@ -8,8 +8,15 @@
 namespace gp {
 namespace {
 
-// The package path of a type's descriptor, "" for a type without one.
+// The package path of a type's descriptor, "" for a type without one. A pointer to a named type
+// has the package of the named type, as Go's runtime finds it (the pointer type's uncommon type
+// has the methods of *T and T's package path): the message of two *a.Err of two packages named
+// "a" says "types from different packages".
 const char* pkg_of(const type_desc* t) {
+    if (t->gp_pkg == nullptr && t->gp_kind == kind::Pointer && t->gp_elem != nullptr &&
+        t->gp_elem->gp_named) {
+        t = t->gp_elem;
+    }
     return t->gp_pkg != nullptr ? t->gp_pkg : "";
 }
 

@@ -132,7 +132,8 @@ func TestIsStd(t *testing.T) {
 
 // TestFSHasEveryFile checks that the embedded FS holds every file of this
 // folder except the Go package's own (files.go, its tests, README.md and
-// std.txt). So a new kind of file (a native .cpp file, a PORT.md) fails
+// std.txt) and the PORT.md notes of the ported packages (they stay out of
+// the binary, like README.md). So a new kind of file (a native .cpp file) fails
 // here until someone decides whether it ships, and so does a .gp file
 // that no //go:embed pattern reaches.
 func TestFSHasEveryFile(t *testing.T) {
@@ -143,6 +144,8 @@ func TestFSHasEveryFile(t *testing.T) {
 		}
 		switch {
 		case p == "files.go", p == "README.md", p == "std.txt":
+		case path.Base(p) == "PORT.md":
+			// a package's notes for people who work on gocpp (what differs from Go's source)
 		case path.Dir(p) == "." && strings.HasSuffix(p, "_test.go"):
 		default:
 			want = append(want, p)

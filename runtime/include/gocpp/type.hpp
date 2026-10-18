@@ -121,6 +121,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
+#include <memory>
 #include <string>
 #include <type_traits>
 #include <typeinfo>
@@ -176,6 +177,12 @@ using fn_ptr = void (*)();
 // values, which are objects of the C++ type of the descriptor.
 using equal_fn = bool (*)(const void*, const void*);
 using hash_fn = std::size_t (*)(const void*);
+
+// store_fn is the store hook (type_desc::gp_store): store(dst, data) assigns the value that an
+// interface holds (data is its gp_data(); the dynamic type is this descriptor's) to the object at
+// dst, an object of the C++ type of the descriptor (the target of a pointer in an interface:
+// errors.As).
+using store_fn = void (*)(void*, const std::shared_ptr<void>&);
 
 // field_desc is a field of a struct type. gp_pkg is the import path for an unexported name
 // (null for an exported one); gp_tag is the struct tag (null for none).
@@ -272,6 +279,7 @@ struct type_desc {
     std::size_t gp_nimethods = 0;
     equal_fn gp_equal = nullptr;  // null: not comparable
     hash_fn gp_hash = nullptr;    // null: not hashable
+    store_fn gp_store = nullptr;  // null: an interface type, or a C++ type without copy assignment
     const void* gp_ext = nullptr; // steps 5.11 (format) and Phase 09 (reflect)
 };
 
@@ -384,6 +392,29 @@ constexpr hash_fn hash_hook(kind k) noexcept {
     }
 }
 
+// The store hook: the value of a pointer (a gp::ptr<U>: the interface shares its owner, as
+// unbox does) or a boxed value.
+template <typename T>
+void store_value(void* dst, const std::shared_ptr<void>& data) {
+    if constexpr (is_gp_ptr<T>) {
+        using U = typename ptr_elem<T>::type;
+        *static_cast<T*>(dst) = data == nullptr ? T() : T(data, static_cast<U*>(data.get()));
+    } else {
+        *static_cast<T*>(dst) = *static_cast<const T*>(data.get());
+    }
+}
+
+// store_hook<T>(k) is the store hook: null for an interface type (the one who stores into an
+// interface builds the itab, gp::errors::assign) and for a C++ type that can't be assigned.
+template <typename T>
+constexpr store_fn store_hook(kind k) noexcept {
+    if constexpr (std::is_copy_assignable_v<T> && !std::is_const_v<T>) {
+        return k == kind::Interface ? nullptr : &store_value<T>;
+    } else {
+        return nullptr;
+    }
+}
+
 // with_cxx<T>(d) completes the shape d with what the C++ type T says: its size and alignment
 // and its hooks.
 template <typename T>
@@ -392,6 +423,7 @@ constexpr type_desc with_cxx(type_desc d) noexcept {
     d.gp_align = alignof(T);
     d.gp_equal = equal_hook<T>(d.gp_kind);
     d.gp_hash = hash_hook<T>(d.gp_kind);
+    d.gp_store = store_hook<T>(d.gp_kind);
     return d;
 }
 

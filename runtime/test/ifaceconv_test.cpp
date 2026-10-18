@@ -334,6 +334,20 @@ void test_assert_type() {
     CHECK(panic_text([&] { (void)assert_type<Rect>(r3, &gp_td_Rect); }) ==
           "interface conversion: interface {} is main.Rect, not main.Rect (types from different "
           "scopes)");
+    // pointers to those types: the package is the named type's (Go's *T has T's package path)
+    const type_desc* tp_pkg = td_ptr<Rect2>(&gp_td_Rect2_pkg);
+    const type_desc* tp_scope = td_ptr<Rect2>(&gp_td_Rect2_scope);
+    any pr = to_iface<any>(gp::new_<Rect2>(Rect2{1}), tp_pkg);
+    CHECK(panic_text([&] { (void)assert_type<ptr<Rect2>>(pr, tp_scope); }) ==
+          "interface conversion: interface {} is *main.Rect, not *main.Rect (types from different "
+          "packages)");
+    CHECK(panic_text([&] { (void)assert_type<ptr<Rect>>(pr, td_pRect()); }) ==
+          "interface conversion: interface {} is *main.Rect, not *main.Rect (types from different "
+          "packages)");
+    any ps = to_iface<any>(gp::new_<Rect2>(Rect2{1}), tp_scope);
+    CHECK(panic_text([&] { (void)assert_type<ptr<Rect>>(ps, td_pRect()); }) ==
+          "interface conversion: interface {} is *main.Rect, not *main.Rect (types from different "
+          "scopes)");
     // no allocation, no itab
     const std::size_t before = allocations;
     const std::size_t cached = detail::itab_cached();

@@ -1251,6 +1251,9 @@ func (l *loader) process(p *Package) {
 			CheckReservedC(l.fset, f.AST, p.Errors)
 		}
 		f.Directives = ParseDirectives(l.fset, f.AST, p.Errors)
+		if !p.Std {
+			checkNativeStd(l.fset, f.AST, p.Errors)
+		}
 		for _, path := range PackagePaths(f.AST) {
 			if first[path] == nil {
 				first[path] = f

@@ -2,7 +2,6 @@ package cppgen
 
 import (
 	"bytes"
-	"go/ast"
 	"go/token"
 	"io/fs"
 	"os"
@@ -54,16 +53,10 @@ func loadProgram(t *testing.T, dir string, std fs.FS, goStd func(string) bool) (
 	return prog.Fset, pkgs
 }
 
-// stub reports whether the standard package p has functions without a body.
+// stub reports whether the standard package p is a declaration stub (a function without a body
+// that is not native).
 func stub(p *load.Package) bool {
-	for _, f := range p.Files {
-		for _, d := range f.AST.Decls {
-			if fd, ok := d.(*ast.FuncDecl); ok && fd.Body == nil {
-				return true
-			}
-		}
-	}
-	return false
+	return p.IsStub()
 }
 
 // emitProgram returns the files of the module in dir written for the root folder root.
@@ -360,6 +353,90 @@ func main() {
 	}
 	if !strings.Contains(strings.Join(got, "\n"), "gpkg/mathx/pkg.hpp") || !bytes.Contains(files.Files[0].Data, []byte("namespace gpkg_mathx")) {
 		t.Errorf("the files %v don't have the package mathx in its folder and its namespace", got)
+	}
+}
+
+// TestProgramNativeFunction: a function of a standard package without a body and with
+// //gocpp:native is the runtime's C++ function (ADR-027): the package is built, the calls (from the
+// package itself and from main) name the C++ function, and nothing declares or defines the Go
+// function. A bodyless function without the directive is a stub: the package is skipped, and a
+// call of it is "not supported yet".
+func TestProgramNativeFunction(t *testing.T) {
+	std := fstest.MapFS{
+		"natx/natx.gp": &fstest.MapFile{Data: []byte(`package natx
+
+import "errors"
+
+// Comparable is the runtime's gp::errors::comparable.
+//
+//gocpp:native gp::errors::comparable
+func Comparable(err error) bool
+
+func Twice(err error) int {
+	n := 0
+	if Comparable(err) {
+		n += 2
+	}
+	return n
+}
+
+var Known = errors.New("known")
+`)},
+		"stubx/stubx.gp": &fstest.MapFile{Data: []byte("package stubx\n\nfunc F() int\n")},
+	}
+	goStd := func(path string) bool { return path == "natx" || path == "stubx" || stdlib.IsStd(path) }
+	write := func(dir, src string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, "gocpp.mod"), []byte("module example.com/usesnat\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "main.gp"), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir := t.TempDir()
+	write(dir, `package main
+
+import (
+	"errors"
+	"fmt"
+
+	"natx"
+)
+
+type listErr struct{ parts []string }
+
+func (listErr) Error() string { return "list" }
+
+func main() {
+	fmt.Println(natx.Comparable(natx.Known), natx.Comparable(listErr{}), natx.Twice(errors.New("x")), natx.Twice(listErr{}))
+}
+`)
+	checkProgramRuns(t, dir, unionFS{std, stdlib.FS()}, goStd, "true false 2 0\n", Config{})
+	fset, pkgs := loadProgram(t, dir, unionFS{std, stdlib.FS()}, goStd)
+	files, err := EmitProgram(fset, pkgs, "", Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var all strings.Builder
+	for _, f := range files.Files {
+		all.Write(f.Data)
+	}
+	text := all.String()
+	if n := strings.Count(text, "::gp::errors::comparable("); n != 4 {
+		t.Errorf("%d calls of ::gp::errors::comparable, want 4 (two in main, one in natx, one in errors)", n)
+	}
+	if strings.Contains(text, "Comparable(") {
+		t.Errorf("the generated code names the native function (it has the runtime's C++ name only)")
+	}
+
+	// A stub is not built, and calling it is not supported.
+	dir2 := t.TempDir()
+	write(dir2, "package main\n\nimport \"stubx\"\n\nfunc main() { _ = stubx.F() }\n")
+	fset, pkgs = loadProgram(t, dir2, unionFS{std, stdlib.FS()}, goStd)
+	_, err = EmitProgram(fset, pkgs, "", Config{})
+	if err == nil || !strings.Contains(err.Error(), "the call of stubx.F") {
+		t.Errorf("calling a stub: error %v, want 'not supported yet: the call of stubx.F'", err)
 	}
 }
 

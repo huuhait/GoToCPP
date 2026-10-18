@@ -74,6 +74,12 @@ type stubPackage struct {
 	// Intrinsic: the compiler maps the package to the runtime type Intrinsic (weak:
 	// gp::weak_ptr) from Phase, and the stub stays, for go/types only.
 	Intrinsic string
+
+	// Real: the package is real now (errors, since Phase 05 step 5.7): stdlib/<path> holds its
+	// .gp files, written by hand (ported from Go's), and the tool writes no stub there. The
+	// tool still makes the stub in memory, because the tests compare the real package's exported
+	// declarations with it (TestRealPackagesMatchStub).
+	Real bool
 }
 
 // packages are the packages that get a stub: every standard package that a
@@ -88,7 +94,7 @@ type stubPackage struct {
 // order: a package comes after the packages that its declarations use.
 var packages = []stubPackage{
 	{Path: "weak", Phase: 3, Intrinsic: "gp::weak_ptr"},
-	{Path: "errors", Phase: 5},
+	{Path: "errors", Phase: 5, Real: true},
 	{Path: "cmp", Phase: 7},
 	{Path: "iter", Phase: 7},
 	{Path: "unicode", Phase: 9},
@@ -136,6 +142,11 @@ func main() {
 		os.Exit(1)
 	}
 	files := stubs.files
+	for _, p := range packages {
+		if p.Real {
+			delete(files, stubFile(p.Path)) // the real package has its own files
+		}
+	}
 	for _, name := range sortedKeys(files) {
 		p := filepath.Join(*out, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {

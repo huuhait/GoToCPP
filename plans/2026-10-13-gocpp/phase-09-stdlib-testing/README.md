@@ -76,6 +76,16 @@ against Go 1.25.7, and the audit refined it:
    }
    ```
 
+   > **Marker (built in Phase 05 step 5.7, ADR-027):** a bodyless function in a standard package is a native
+   > function only with a `//gocpp:native <C++ name>` line in its doc comment; without it, it is a Phase 01
+   > declaration stub, and a package with one is not built. Today the line names a function of the runtime
+   > (`gp::errors::assign`, declared in a header that `gocpp/rt.hpp` includes) and the calls become calls of it;
+   > nothing is written into `pkg.hpp` for it. Phase 09 extends the directive to the form this section describes:
+   > no argument means the body is in a `.cpp` file next to the `.gp` file, and the package header declares the
+   > function (`internal/load/native.go` rejects the empty form with a usage error today; `load.Package.IsStub`
+   > is the one test of "stub or real"). `tools/portstd` writes `//gocpp:native` for a `//go:linkname`
+   > declaration, and a `PORT.md` per package (`stdlib/errors/PORT.md` is the model; it stays out of the embedded FS).
+
    `go/types` rejects bodyless **generic functions** ("missing function body"); bodyless methods
    of generic types are accepted. So a native generic API is a small generic gocpp function that
    calls a non-generic native one.

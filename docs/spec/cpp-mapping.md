@@ -1995,6 +1995,64 @@ value, so a pointer method of an embedded value changes the object that the inte
   asserts to the interfaces that its promoted methods satisfy.
 - A struct that embeds a C/C++ type has none of the C/C++ type's methods in its method set (`go/types` doesn't know them).
 
+### The errors package and native functions (step 5.7)
+
+`stdlib/errors` is a real package, ported from Go's `src/errors` (BSD-3-Clause) in `errors.gp`, `wrap.gp` and
+`join.gp`, and lowered like any package of the program: `gpkg/errors/pkg.hpp`, one unit per file, descriptors in
+`pkg_desc.cpp`, the namespace `gpkg_errors`. It differs from Go's source in two places, both listed in
+`stdlib/errors/PORT.md`: `Join` ends with `string(b)` instead of `unsafe.String` (one more copy), and what Go does
+with `internal/reflectlite` is three **native functions** (`comparableType`, `checkTarget`, `assign`).
+
+A native function is a function of a standard package without a body and with a `//gocpp:native` line in its doc
+comment ([ADR-027](../adr/027-native-std-functions.md)). Its calls become calls of the named C++ function with
+the usual argument conversions; the generated code declares nothing:
+
+```go
+//gocpp:native gp::errors::assign
+func assign(err error, target any) bool
+```
+```cpp
+if (::gp::errors::assign(err, target)) { ... }     // in gpkg_errors, and from any package that calls it
+```
+
+`gocpp/errors.hpp` (included by `gocpp/rt.hpp`, defined in `runtime/src/errors.cpp`) has them, over the descriptors:
+
+- `gp::errors::comparable(err)`: the dynamic type has an `==` hook (`gp_equal`), which is
+  `reflectlite.TypeOf(err).Comparable()`. A struct with an interface field is comparable, and its `==` panics when the
+  dynamic values can't be compared, as in Go (`errors.Is` does not guard against it either).
+- `gp::errors::check_target(target)`: Go's three panics, as strings: `errors: target cannot be nil`, `errors: target
+  must be a non-nil pointer`, `errors: *target must be interface or implement error` (the element type is not an
+  interface and its method set lacks `Error`: a `*T` target where only `*T` has `Error` panics).
+- `gp::errors::assign(err, target)`: `AssignableTo` and `Set`. When the target points to an interface variable, the
+  value goes in with the itab of that interface (`getitab`, the variable is an `iface` at its address, interface
+  structs have no members of their own); otherwise the dynamic type must be the element's descriptor, and the value is
+  stored by the descriptor's **store hook**.
+
+`type_desc::gp_store` (`void(void* dst, const std::shared_ptr<void>& data)`, set by `detail::with_cxx<T>` for every
+descriptor of a C++ type that is copy-assignable and not an interface) assigns the value that an interface's `data`
+holds to the object at `dst`: `*static_cast<T*>(dst) = ...` for a boxed value, and for a `gp::ptr<U>` a pointer that
+shares the owner (as `unbox` makes it). It is null for an interface type and for a C++ type without copy assignment
+(`errors.As` into such a target panics with a message of its own; Go has no such type).
+
+Two differences from Go: `errors.As` into a Go struct value that holds a move-only C++ field (no copy assignment, so no
+store hook) panics where Go would copy the value; and `sizeof(type_desc)` is 192 bytes (the store hook is one more
+pointer).
+
+**Objects of standard packages are shared.** The files of a standard package are the same text in every program, so the
+object cache can give a program the objects another program made: their `#line` directives back to the generated file
+name `$GOCPP/gen/gpkg/<path>/<file>` (like the `$GOCPP/stdlib/...` of the lines that map to `.gp` files), not the folder
+of the program, and the object cache writes the folder of the generated files as `$GEN` in the arguments of its key and in
+the paths of an entry (the files that the compile read, and the files that must be absent), and reads them in the
+folder of the build that looks (`internal/build/objcache.go`, `TestLinkSharedAcrossGenRoots`,
+`TestStdPackageObjectsAreShared`). A program that imports `errors` compiles its own units only. The lines of generated
+code in a standard package's units name no file that exists, so a debugger shows no source for them (the lines that
+map to `.gp` files are unchanged).
+
+The names of the types of a standard package are Go's: `*errors.errorString`, `*errors.joinError`
+(`interface conversion: error is *errors.errorString, not *main.MyErr`). A pointer to a named type has the package of
+the named type for the "types from different packages" suffix of an assertion panic (Go's `*T` type has `T`'s package
+path), so two `*a.Err` of `x/a` and `y/a` say "different packages", not "different scopes".
+
 ## Goroutines and channels
 
 Phase 08 builds this; steps 8.1 to 8.4 are in (the `go` statement, channels and their directions;

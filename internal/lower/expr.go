@@ -190,6 +190,9 @@ func (fg *funcGen) cname(obj types.Object, pos token.Pos) string {
 	}
 	if o := fg.g.foreign(obj.Pkg()); o != nil && isPkgLevel(obj) {
 		if n, ok := o.names[obj]; ok {
+			if strings.HasPrefix(n, "::") {
+				return n // a native function of the runtime (collectNative)
+			}
 			return o.qual(n) // a function or variable of another package: ::gpkg_geom::New
 		}
 	}

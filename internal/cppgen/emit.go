@@ -120,7 +120,8 @@ type PackageFiles struct {
 // must be in the order of their imports (each one after the packages it imports), the last one
 // is the main package, and all of them are checked and without errors. root is the absolute
 // folder that the files will be written in, for the #line directives of their generated lines
-// ("" for gocpp emit). The files are in the order of the packages, in the order header, units,
+// ("" for gocpp emit; the files of a standard package name $GOCPP/gen/<path> instead, so that their
+// text does not depend on the program: the object cache reuses their objects across programs). The files are in the order of the packages, in the order header, units,
 // pkg_desc.cpp, pkg_init.cpp, so that equal programs give equal bytes.
 func EmitProgram(fset *token.FileSet, pkgs []ProgramPackage, root string, cfg Config) (*ProgramFiles, error) {
 	in := make([]lower.PackageInput, len(pkgs))
@@ -143,11 +144,18 @@ func EmitProgram(fset *token.FileSet, pkgs []ProgramPackage, root string, cfg Co
 		return nil, err
 	}
 	out := &ProgramFiles{}
-	for _, pf := range pfs {
+	for i, pf := range pfs {
 		info := PackageFiles{ImportPath: pf.ImportPath, HeaderC: pf.HeaderC}
+		std := pkgs[i].Pkg.Load.Std
 		add := func(rel string, f *cppir.File, compile bool) {
 			outPath := ""
-			if root != "" {
+			switch {
+			case root != "" && std:
+				// The files of a standard package are the same in every program, and the object
+				// cache keys a compile by the text of the unit: the folder of this program must
+				// not be in it. The placeholder is the one of the .gp paths ($GOCPP/stdlib).
+				outPath = "$GOCPP/gen/" + rel
+			case root != "":
 				outPath = filepath.Join(root, filepath.FromSlash(rel))
 			}
 			out.Files = append(out.Files, File{Path: rel, Data: cppir.Print(f, outPath)})

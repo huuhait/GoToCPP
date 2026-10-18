@@ -110,6 +110,9 @@ func ParseDirectives(fset *token.FileSet, f *ast.File, errs *diag.List) []Direct
 				continue
 			}
 			if c.Slash > f.Package {
+				if isNativeComment(c) {
+					continue // a function directive, checked below
+				}
 				errs.Errorf(fset.Position(c.Slash), "//gocpp: directives must come before the package clause")
 				continue
 			}
@@ -118,6 +121,7 @@ func ParseDirectives(fset *token.FileSet, f *ast.File, errs *diag.List) []Direct
 			}
 		}
 	}
+	checkNative(fset, f, errs)
 	return dirs
 }
 

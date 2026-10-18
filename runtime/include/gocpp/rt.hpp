@@ -25,6 +25,7 @@
 #include <gocpp/iface.hpp>
 #include <gocpp/ifaceconv.hpp>
 #include <gocpp/error.hpp>
+#include <gocpp/errors.hpp>
 #include <gocpp/minmax.hpp>
 #include <gocpp/print.hpp>
 #include <gocpp/panic.hpp>

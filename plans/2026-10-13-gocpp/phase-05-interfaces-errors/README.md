@@ -198,7 +198,16 @@ a descriptor.
 - `errors.Is`, `errors.Unwrap`, `errors.Join` are **written in gocpp** (`stdlib/errors/*.gp`).
   `errors.As` needs "is this dynamic type assignable to that target type", which the type
   descriptors answer natively.
-- `fmt.Errorf` with `%w` (basic version here, complete in Phase 09).
+- **Built in 5.7 (2026-10-18), where it differs from the text above:** `stdlib/errors` is Go's `src/errors` ported
+  almost verbatim (`New`, `Is`, `As`, `Unwrap`, `Join`, `ErrUnsupported`; the interface-based algorithm is Go's own),
+  and `Is`, `Unwrap` and `Join` need no native code. What Go does with `internal/reflectlite` is three **native
+  functions** in the runtime over the type descriptors (`gp::errors::comparable`, `check_target`, `assign`), which
+  the `.gp` source reaches through the new `//gocpp:native <C++ name>` marker on a bodyless function (ADR-027;
+  a bodyless function without it is still a Phase 01 stub). `assign` stores into `*target` with a new descriptor
+  hook, `type_desc::gp_store`. `Join` copies the text once more (`string(b)` instead of `unsafe.String`). The
+  panics of `As` are Go's three texts. Details: [docs/spec/cpp-mapping.md](../../../docs/spec/cpp-mapping.md#the-errors-package-and-native-functions-step-57).
+- `fmt.Errorf` with `%w` (basic version here, complete in Phase 09). It is step 5.11's: it needs only the exported
+  `errors` API and its own unexported wrapper types, as in Go's source.
 - Less boilerplate comes later: Phase 10 adds `!` (must) on functions and calls, which returns
   the error for you. It uses the single-exit function shape, so defers still run on the error
   path.

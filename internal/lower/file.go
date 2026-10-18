@@ -383,7 +383,7 @@ func (g *gen) collectFunc(d *ast.FuncDecl) {
 		g.unsupported(d.Pos(), "generic functions (Phase 07)")
 		return
 	case d.Body == nil:
-		g.unsupported(d.Pos(), "a function without a body")
+		g.collectNative(d)
 		return
 	case d.Name.Name == "_":
 		return // can't be called: nothing to write
@@ -401,6 +401,27 @@ func (g *gen) collectFunc(d *ast.FuncDecl) {
 	}
 	g.names[fn] = name
 	g.funcs = append(g.funcs, &funcInfo{decl: d, obj: fn, name: name})
+}
+
+// collectNative handles a function without a body: a native function of the standard library
+// (//gocpp:native, internal/load/native.go) is the runtime's C++ function, called by its
+// qualified name from every package; nothing is written for it. Any other function without a
+// body is a declaration stub, which no program that gets here has (cmd/gocpp: notLowered).
+func (g *gen) collectNative(d *ast.FuncDecl) {
+	cxx, ok := load.NativeFunc(d)
+	if !ok {
+		g.unsupported(d.Pos(), "a function without a body")
+		return
+	}
+	fn, _ := g.info.Defs[d.Name].(*types.Func)
+	if fn == nil {
+		g.errorf(d.Pos(), "internal error: no object for func %s", d.Name.Name)
+		return
+	}
+	if !strings.HasPrefix(cxx, "::") {
+		cxx = "::" + cxx
+	}
+	g.names[fn] = cxx
 }
 
 func (g *gen) collectGen(d *ast.GenDecl) {

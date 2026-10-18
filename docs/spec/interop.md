@@ -1646,7 +1646,9 @@ The rules for directives:
   like `// gocpp:link m` gets a warning, because it looks like a broken directive. To turn a
   directive off, comment it out: `// //gocpp:link m`.
 - Directives go before the `package` clause: in the package doc comment or in a comment of their
-  own. A `//gocpp:` line after the `package` clause is an error. In a doc comment, `gocpp fmt`
+  own. A `//gocpp:` line after the `package` clause is an error, except `//gocpp:native` in the doc
+  comment of a function of the standard library ([ADR-027](../adr/027-native-std-functions.md)).
+  In a doc comment, `gocpp fmt`
   (like gofmt) moves the directives to its end. It keeps only well-formed directives as they
   are: `//gocpp:Link m` would become the ordinary comment `// gocpp:Link m`. So `gocpp fmt`
   leaves a file with directive errors unchanged, prints the errors and exits with status 2, as

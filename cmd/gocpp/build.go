@@ -9,7 +9,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"go/ast"
 	"go/types"
 	"io"
 	"maps"
@@ -489,25 +488,11 @@ var shimPackages = map[string]bool{"fmt": true, "weak": true}
 // notLowered reports whether the package lp gets no C++ of its own: a shim (shimPackages), or a
 // standard package that is still a declaration stub (Phase 01: functions without a body; the real
 // packages come with Phase 09). A standard package with bodies is built like any other package,
-// so a package of stdlib/ written in .gp can be imported like one of the project's.
+// so a package of stdlib/ written in .gp can be imported like one of the project's. A function
+// without a body that has a //gocpp:native directive is a native function (internal/load/native.go):
+// the C++ function of the runtime that it names; it does not make the package a stub.
 func notLowered(lp *load.Package) bool {
-	if !lp.Std {
-		return false
-	}
-	if shimPackages[lp.ImportPath] {
-		return true
-	}
-	for _, f := range lp.Files {
-		if f.AST == nil {
-			continue
-		}
-		for _, d := range f.AST.Decls {
-			if fd, ok := d.(*ast.FuncDecl); ok && fd.Body == nil {
-				return true
-			}
-		}
-	}
-	return false
+	return lp.Std && (shimPackages[lp.ImportPath] || lp.IsStub())
 }
 
 // load checks the packages of the patterns like gocpp check and returns the program when it can

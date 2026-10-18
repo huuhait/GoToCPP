@@ -4,14 +4,36 @@ The gocpp standard library: `fmt`, `strings`, `strconv`, `os`, `errors`, `sort` 
 `.gp` files, plus native `.cpp` files where a package needs the system. Like the runtime, it is
 embedded in the `gocpp` binary, and the loader finds the standard packages here.
 
-## What is here now (Phase 01)
+## What is here now
 
-- **Declaration stubs** for 25 packages, one file each (`fmt/fmt.gp`, `encoding/json/json.gp`):
+- **Real packages** (Phase 05 and later steps). `errors` since step 5.7: `errors.gp`, `wrap.gp` and `join.gp` are
+  Go's `src/errors`, lowered with the program's packages like any package (`PORT.md` lists what differs from Go's
+  source). A package is real when none of its functions is a declaration stub (below): it is built from its `.gp`
+  files, and `tools/stubgen` writes no stub for it (`stubPackage.Real`; the tool still makes the stub in memory,
+  because the tests compare the real package's exported declarations with it and with Go's).
+- **Native functions.** A function without a body that has a `//gocpp:native` line in its doc comment is written in
+  C++: the line names the runtime function that its calls become (ADR-027).
+
+  ```go
+  // comparableType reports whether the dynamic type of err can be compared with ==.
+  //
+  //gocpp:native gp::errors::comparable
+  func comparableType(err error) bool
+  ```
+
+  The C++ function is declared in a runtime header that `gocpp/rt.hpp` includes (`gocpp/errors.hpp`) and defined in
+  `runtime/src/`, takes the C++ types of the Go parameters, and is called as `::gp::errors::comparable(err)` from
+  every package that calls the Go function. Only the standard library may use the directive, only on plain functions
+  (no methods, no generics), and the loader checks the name. A bodyless function **without** the directive is a
+  stub: its package is not lowered, and a program that calls it gets "not supported yet". Phase 09 will add the
+  form without an argument, for a body in a `.cpp` file next to the `.gp` file.
+- **Declaration stubs** (Phase 01) for 24 packages, one file each (`fmt/fmt.gp`, `encoding/json/json.gp`):
   every standard package that the target programs in `examples/` import (also in their
   `_test.gp` files and in the multi-pkg example's own packages), plus the packages that those
   stubs need (`io/fs` and `time` for `os`, `unicode` for `strings`, `context` for `testing`,
   `encoding` for `flag`), and `weak`, whose `Pointer`, `Make` and `Value` the compiler turns
-  into the runtime's `gp::weak_ptr` (an intrinsic from Phase 03, Phase 03 README §2.2).
+  into the runtime's `gp::weak_ptr` (an intrinsic from Phase 03, Phase 03 README §2.2). (`errors` was the 25th
+  stub; it is real since step 5.7.)
 
   A stub holds Go's exported declarations with their doc comments, but no code: functions have
   no body, and variables have no value. So programs that import these packages type-check, and
@@ -94,7 +116,7 @@ Don't edit a stub by hand: the tests fail when a stub is not what the tool write
 
 ## Later phases
 
-- **Phases 05 to 08** replace the first stubs with real code: `errors` and a basic `fmt` in
+- **Phases 05 to 08** replace the first stubs with real code: `errors` (done, step 5.7) and a basic `fmt` in
   Phase 05, `cmp`, `slices`, `maps` and `iter` in Phase 07, and `sync`, `sync/atomic` and `time`
   in Phase 08.
 - **Phase 09** fills it. Most packages are **ported from Go's own source** (BSD-3-Clause) with
@@ -104,6 +126,6 @@ Don't edit a stub by hand: the tests fail when a stub is not what the tool write
   `//go:linkname` declarations into native functions, applies a small patch set, and writes
   `stdlib/<pkg>/PORT.md` (upstream version, files, patches). Moving to a new Go version means
   running the tool again. The system parts are **native**: function declarations without a body
-  in a `.gp` file, and their bodies in a `.cpp` file next to it. A package deeper than two
+  in a `.gp` file with `//gocpp:native` (above), and their bodies in a `.cpp` file next to it. A package deeper than two
   folders (`math/rand/v2`) needs one more pattern in `files.go`; a test finds it.
 - **Phase 14** runs `tools/portstd` again for Windows.

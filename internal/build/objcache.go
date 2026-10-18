@@ -150,7 +150,17 @@ const (
 type objCache struct {
 	dir string
 	max int64 // the size limit in bytes
+
+	// gen is the folder of the generated files of the build (Builder.GenRoot, cleaned), or "". The
+	// paths under it are kept in the cache as $GEN/..., and given the folder of the build that
+	// reads them: the generated files of a standard package are the same in every program, and
+	// so are their objects (genPlaceholder).
+	gen string
 }
+
+// genPlaceholder stands for the folder of the generated files in the paths of an entry and in
+// the arguments of the key, like $WORK for the work folder.
+const genPlaceholder = "$GEN"
 
 // objects returns the object cache of the builder, or nil when there is none: no cache
 // folder, GOCPP_NOOBJCACHE set, a build that keeps its work folder (-work), or a folder that
@@ -163,7 +173,72 @@ func (b *Builder) objects() *objCache {
 	if os.MkdirAll(dir, 0o700) != nil {
 		return nil
 	}
-	return &objCache{dir: dir, max: objCacheMax()}
+	oc := &objCache{dir: dir, max: objCacheMax()}
+	if b.GenRoot != "" {
+		oc.gen = filepath.Clean(b.GenRoot)
+	}
+	return oc
+}
+
+// mapGen returns the path p with the folder of the generated files written as $GEN, or p.
+func (oc *objCache) mapGen(p string) string {
+	if oc.gen == "" {
+		return p
+	}
+	if p == oc.gen {
+		return genPlaceholder
+	}
+	if rest, ok := strings.CutPrefix(p, oc.gen+string(filepath.Separator)); ok {
+		return genPlaceholder + string(filepath.Separator) + rest
+	}
+	return p
+}
+
+// unmapGen is the inverse of mapGen for the folder of this build.
+func (oc *objCache) unmapGen(p string) string {
+	if oc.gen == "" {
+		return p
+	}
+	if p == genPlaceholder {
+		return oc.gen
+	}
+	if rest, ok := strings.CutPrefix(p, genPlaceholder+string(filepath.Separator)); ok {
+		return oc.gen + string(filepath.Separator) + rest
+	}
+	return p
+}
+
+// mapDeps returns the records deps with f applied to their paths.
+func mapDeps(deps []depRec, f func(string) string) []depRec {
+	out := slices.Clone(deps)
+	for i := range out {
+		out[i].Path = f(out[i].Path)
+	}
+	return out
+}
+
+// mapEntry returns the entry e with f applied to the paths in its list of absent files and in
+// its Except (the set is mapped by the caller).
+func mapEntry(e objEntry, f func(string) string) objEntry {
+	if len(e.Absent) > 0 {
+		groups := make([]absentGroup, len(e.Absent))
+		for i, g := range e.Absent {
+			dirs := make([]string, len(g.Dirs))
+			for j, d := range g.Dirs {
+				dirs[j] = f(d)
+			}
+			groups[i] = absentGroup{Dirs: dirs, Rels: g.Rels}
+		}
+		e.Absent = groups
+	}
+	if len(e.Except) > 0 {
+		except := make([]string, len(e.Except))
+		for i, p := range e.Except {
+			except[i] = f(p)
+		}
+		e.Except = except
+	}
+	return e
 }
 
 // objCacheOff reports whether GOCPP_NOOBJCACHE turns the cache off (EnvOff).
@@ -396,8 +471,14 @@ func hasInclusionProbe(text []byte) bool {
 }
 
 // keyArgs returns args as the key sees them: without -o and its value, and with the work
-// folder written as $WORK.
+// folder written as $WORK and the folder of the generated files as $GEN (the units of a
+// standard package are the same text in every program: their -iquote and their path are the
+// only thing of the program in the arguments).
 func (b *Builder) keyArgs(args []string) []string {
+	gen := ""
+	if b.GenRoot != "" {
+		gen = filepath.Clean(b.GenRoot)
+	}
 	out := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		if args[i] == "-o" && i+1 < len(args) {
@@ -407,6 +488,9 @@ func (b *Builder) keyArgs(args []string) []string {
 		a := args[i]
 		if b.Work != "" {
 			a = strings.ReplaceAll(a, b.Work, "$WORK")
+		}
+		if gen != "" && strings.Contains(a, gen) {
+			a = strings.ReplaceAll(a, gen, genPlaceholder)
 		}
 		out = append(out, a)
 	}
@@ -920,12 +1004,14 @@ func (oc *objCache) lookup(key, obj string) (hash string, ok bool) {
 		if deps == nil {
 			continue
 		}
-		valid, fresh := e.valid(deps, hashes)
+		// The paths of the entry are the build's own for the check.
+		here := mapEntry(e, oc.unmapGen)
+		valid, fresh := here.valid(mapDeps(deps, oc.unmapGen), hashes)
 		if !valid || !oc.copyOut(e, obj) {
 			continue
 		}
 		if fresh != nil {
-			oc.refresh(key, e, fresh)
+			oc.refresh(key, e, mapDeps(fresh, oc.mapGen))
 		}
 		oc.touch(oc.objectPath(e.Obj))
 		oc.touch(oc.setPath(e.Set))
@@ -1078,6 +1164,8 @@ func (oc *objCache) touch(path string) {
 // a truncated file), never trusted.
 func (oc *objCache) store(key string, e objEntry, obj string) {
 	e.Version = objCacheVersion
+	e.deps = mapDeps(e.deps, oc.mapGen)
+	e = mapEntry(e, oc.mapGen)
 	data, err := os.ReadFile(obj)
 	if err != nil {
 		return

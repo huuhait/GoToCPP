@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -499,4 +500,42 @@ func TestLockGenPrivateFolder(t *testing.T) {
 	if _, err := os.Stat(d2); err != nil {
 		t.Errorf("%s is removed after a failed build", d2)
 	}
+}
+
+// TestStdPackageObjectsAreShared: the units of a standard package are the same text in every
+// program (their #line directives name $GOCPP/gen/..., not the folder of the program), so the
+// object cache gives the second program that imports errors the objects of the first.
+func TestStdPackageObjectsAreShared(t *testing.T) {
+	t.Setenv("GOCPP_GATE_PHASE", "06")
+	forEachCXX(t, func(t *testing.T, c testCXX) {
+		cacheOn(t)
+		stamp := fmt.Sprintf("%s %d", c.name, time.Now().UnixNano())
+		program := func(body string) string {
+			return "package main\n\nimport \"errors\"\n\nfunc main() {\n" + body + "}\n"
+		}
+		errorsUnits := []string{"gpkg/errors/errors.gp.cpp", "gpkg/errors/join.gp.cpp", "gpkg/errors/wrap.gp.cpp"}
+		build := func(body string) result {
+			dir := inDir(t, map[string]string{"main.gp": program(body)})
+			ageTree(t, dir)
+			r := gocppRun("", false, "build", "-x", "-o", "prog", "main.gp")
+			workDir(t, r.stderr)
+			if r.code != 0 {
+				t.Fatalf("gocpp build = %+v", r)
+			}
+			return r
+		}
+		build("\tprintln(errors.New(" + fmt.Sprintf("%q", stamp+" one") + ").Error())\n")
+		second := build("\tprintln(errors.Is(errors.New(" + fmt.Sprintf("%q", stamp+" two") + "), errors.ErrUnsupported))\n")
+		hits, compiles := unitHits(second.stderr), unitCompiles(second.stderr)
+		for _, u := range append(errorsUnits, "gpkg/errors/pkg_desc.cpp", "gpkg/errors/pkg_init.cpp") {
+			if !slices.Contains(hits, u) || slices.Contains(compiles, u) {
+				t.Errorf("the second program does not take %s from the cache: hits %v, compiles %v", u, hits, compiles)
+			}
+		}
+		for _, u := range compiles {
+			if strings.HasPrefix(u, "gpkg/errors/") {
+				t.Errorf("the second program compiles %s", u)
+			}
+		}
+	})
 }
