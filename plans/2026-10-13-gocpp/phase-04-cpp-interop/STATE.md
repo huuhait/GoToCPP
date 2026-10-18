@@ -17,7 +17,7 @@
 - [x] 4.9 String boundary (`string_view` implicit, `std.string(s)` explicit, `gp::cstr` holder, `C.CString`, `C.GoString*`, `C.GoBytes`)
   - [x] typed helpers: front-end rewrites `C.GoString` & co. into the hidden `gocpp/cgoh` package
 - [x] 4.10 `unsafe` + pointers (owning `unsafe.Pointer`, `SliceData`/`String`/`Slice` keep owners, `std::span`, `gp::ptr` → `T*`) + ASan test
-- [ ] 4.11 Callbacks (function pointers, `std::function`, `cgo.Handle`) + panic trampolines
+- [x] 4.11 Callbacks (function pointers, `std::function`, `cgo.Handle`) + panic trampolines
 - [x] 4.12 C++ exception → fatal Go-style panic; fmt shim prints C++ values (raw pointers as addresses)
 - [x] 4.13 Compile + link package `.c/.cc/.cpp/.cxx` sources
 - [x] 4.14 `extern "C"` rule (parse-as-C, `.hpp` not wrapped by default, `//gocpp:extern-c <hdr>`, `no-extern-c`, the §2.9 error cases)
@@ -333,3 +333,16 @@
   callback ABI: that is 4.11; (7) Phase 07: a type parameter that is a pointer to a C type will be a cptr; Phase 06 splits units:
   the registry (inline function-local statics) must stay one instance, check shared libraries with hidden visibility; nits left:
   `box_register` OOM skews a counter; no fork() in the repo today (inherited shard locks).
+- 2026-10-17: Job 4.11 (callbacks) merged after two review rounds. Decisions: (1) a func is a C function pointer only when it is a named
+  function or a capture-less literal (one static trampoline each, identity-stable); everything else is a C++ callable (`fn_val`);
+  (2) the trampoline is `noexcept`: a panic or C++ exception leaving a callback is FATAL (exit 2, Go-style report with the C frames,
+  the callback's own defers first, the outer ones never): divergence D27 from cgo (an outer `recover` can't catch it); a later phase
+  can carry the panic out and re-raise at the Go call site (only the trampoline body changes); (3) user data is plain
+  `unsafe.Pointer` pass-through (borrowed; cgo.Handle of Phase 05 fits as an integer in the void*; no handle table in the runtime yet);
+  (4) callback pointer params are `gp::cptr<T>` from the registry/foreign owner: ~5-8x a C comparator in a 1M qsort (atomic count per
+  pointer argument): a borrowed-pointer fast path is Phase 15; (5) gaps: `pkg.F` and generic instances go through `fn_val` (callable,
+  not a pointer; Phase 06/07 must extend `callbackValue` to SelectorExpr), a nil func passed for a `std::function` parameter gives a
+  non-empty std::function, C-created threads have no alternate stack (bare SIGSEGV on overflow) and adopted goroutine records are never
+  freed (TODO for 8.x: free them at thread exit), recover inside a callback needs 5.10 (tests then), Windows untested, method values
+  are callables, not pointers. Conflict note: 5.10 (panic/recover, in review) merges with 4.11 only in docs/spec/interop.md and
+  language.md; the code composes (verified in a scratch merge).
