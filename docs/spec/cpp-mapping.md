@@ -1624,10 +1624,13 @@ Go's interfaces are satisfied by having the methods; gocpp copies Go's runtime f
 descriptor** for every type that goes into an interface, and an **itab** (a table of function
 pointers) for every (interface, type) pair, found by the methods' names and signatures
 ([Phase 05 §2](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md), ADR-016). This
-section is the runtime's side, steps 5.1 to 5.3 (`gocpp/type.hpp`, `gocpp/iface.hpp`,
-`runtime/src/type.cpp`); the shapes below are what the emitter will write. Conversions between
-interface types (5.4), type assertions and switches (5.5), `==` and hashing of interfaces (5.6),
-`fmt` (5.11) and embedding (5.8) come in later steps.
+section has the runtime's side, steps 5.1 to 5.3 (`gocpp/type.hpp`, `gocpp/iface.hpp`,
+`runtime/src/type.cpp`), the emitter's shapes for interface types, descriptors, method tables and
+thunks, and the conversions (step 5.4: `internal/lower/ifaces.go`, `typedesc.go`, `canon.go`,
+`iconv.go`; the runtime's `gocpp/ifaceconv.hpp` and `gocpp/error.hpp`), the type assertions and
+the type switches (step 5.5). `==` and hashing of interface values come from step 5.6 (the
+runtime's minimal version is below), `fmt` on interfaces from 5.11, embedding from 5.8, and
+method values from 5.9.
 
 ```go
 type Shape interface{ Area() float64; Scale(k float64) }
@@ -1683,6 +1686,120 @@ static const gp::type_desc* const gp_td_pRect = gp::td_ptr<Rect>(&gp_td_Rect);
 Shape s = gp::to_iface<Shape>(gp::new_<Rect>(Rect{2, 3}), gp_td_pRect);
 static_assert(gp::thunk_matches<double(), decltype(&gp_thunk_pRect_Area)>, "...");   // per method
 ```
+
+### What the emitter writes (steps 5.4 and 5.5)
+
+```go
+type Shape interface{ Area() float64 }
+type Rect struct{ W, H float64 }
+func (r Rect) Area() float64 { return r.W * r.H }
+
+var s Shape = Rect{2, 3}             // a conversion: where Go assigns, passes or stores the value
+a := any(1)                          // an int: the constant has the exact type of its default
+n, ok := a.(int)                     // an assertion; v := a.(int) panics with Go's message
+switch v := s.(type) { case Rect: _ = v.W; case nil: }
+```
+
+```cpp
+struct Shape : gp::iface { using gp::iface::iface; static const gp::type_desc* gp_desc(); double Area() const; };
+Shape s = gp::to_iface<Shape>(Rect{2, 3}, &gp_td_Rect);
+gp::any a = gp::to_iface<gp::any>(int64_t(1), &gp::td_int);
+auto gp_t0 = gp::assert_type2<int64_t>(a, &gp::td_int); int64_t n = std::get<0>(std::move(gp_t0)); ...
+const Shape& gp_x0 = s;                                     // a switch: the tests in order
+if (gp::type_is(gp_x0, &gp_td_Rect)) { Rect v = gp::unbox<Rect>(gp_x0); ... } else if (gp_x0 == nullptr) { ... }
+```
+
+- **Interface types.** Each interface type is a struct over `gp::iface` with no data members of
+  its own (32 bytes, a `static_assert`): `Shape` for a named one, `gp_anon_i` and 16 hex digits of
+  the SHA-256 of its identity text for an unnamed one with methods (identical types are one struct),
+  `gp::any` for `any` and `interface{}`, `gp::error` (the runtime's, `gocpp/error.hpp`) for `error`.
+  The structs are defined before the structs of the package (they hold no data, so a struct may
+  hold one by value); the wrappers (`double Shape::Area() const { return gp::icall<...>(*this, 0); }`)
+  after all the types, so that `Shape` may return a struct that holds a `Shape`. The slot of a method
+  is its position in the interface's methods sorted as the runtime's tables are (exported names by name,
+  then unexported ones by name and package). An interface that embeds others has all their methods.
+- **Descriptors.** A named type that is not an interface has `gp_td_T` (`gp::named<T>(...)`) with its
+  two method tables and the thunks (above); a named interface has `gp_td_I` and `gp_im_I`; every
+  other type is a namespace-level `static const gp::type_desc* const gp_tdc_N` (`gp_tdp_T` for `*T`),
+  made at program start from the descriptors of its parts and interned by the runtime. The
+  registry grows while the functions are lowered and the section is written last, in dependency
+  order, so only the types that flow into an interface have descriptors. **Shapes.** A named type's
+  descriptor object is constant-initialized (usable before any dynamic initialization, and
+  `td_ptr<T>(&gp_td_T)` may be written anywhere): its shape has the kind of the underlying type and,
+  where the element's descriptor is a constant (a predeclared or a named type), the element; any other
+  part, and the field list of a struct, is null. `%T`, `==`, assertions and itabs need nothing more;
+  step 5.11's `fmt` and Phase 09's `reflect` take the rest from the C++ types.
+- **Names and signature texts.** `internal/lower/canon.go` writes both: the name of a type as `%T`
+  prints it (package names: `main.Rect`, `url.Values`) and the identity text of a method's signature
+  (full import paths, `byte` as `uint8`, `any` as `interface {}`, no parameter names, aliases
+  unaliased, a function-local type made unique, an interface type's methods flattened and sorted,
+  `chan (<-chan int)`). The main package's path is `main` (what `reflect` says, whatever `go run`
+  calls the package). `canon_test.go` compares the names of about 100 types with `%T` of a real Go
+  program and the texts with `types.Identical` (`go/types`).
+- **Conversions.** Go converts a value to an interface where it assigns it (an assignment, a
+  declaration, a return, an argument, an element of a composite literal, a map key or value, an
+  appended value, a case value, a comparison with an interface, a range variable): `noteConversions`
+  finds those places and the value is converted where it is written. A concrete value is
+  `gp::to_iface<I>(value, descriptor)` (a constant has the exact C++ type of its Go type, so
+  `any(1)` holds an `int64_t` with `&gp::td_int`); an interface value of another type is
+  `gp::iface_cast<I>(x)` (the itab is found in a cache of the template instance, then in the global
+  cache; nil stays nil; a target without methods needs none); the nil of an interface type is `I()`;
+  `x == nil` is `x == nullptr`. A struct, an array, a slice, a map or a func is copied into the box,
+  a pointer shares its owner (a nil pointer is a typed nil: not a nil interface).
+  The arguments of fmt's functions and of `print`, `println` and `panic` are not converted (their
+  own paths: `noConvArgs`); printing an interface value with fmt is step 5.11's.
+- **Calls.** `s.Area()` is the wrapper `s.Area()`. The call holds no copy of the interface (`gp::icall_keep`
+  is for C++ code that needs one): the thunk reads the box once, at its entry (a value method copies its
+  receiver as its first statement, or is read-only; a pointer method gets an owning `gp::ptr`), and Go's order
+  of evaluation (a receiver is read after the calls of its call) is `order.go`'s, as for any other receiver.
+- **Assertions.** `x.(T)` of a concrete `T` is `gp::assert_type<T>(x, descriptor)` (a `const T&` into
+  the box; a pointer type gives the `gp::ptr`); `v, ok := x.(T)` is `gp::assert_type2<T>`, a
+  `std::tuple<T, bool>` that the declaration moves out of (the zero value when it fails); an interface
+  type `T` is `gp::assert_iface<I>(x)` and `gp::assert_iface2<I>(x)`. A failed one panics with the text
+  of Go's `*runtime.TypeAssertionError`, exactly:
+  `interface conversion: interface {} is string, not int`, `... main.J is nil, not main.T` (the static
+  type of the operand), `... main.T is not main.I: missing method M`, `... interface is nil, not main.I`,
+  and `(types from different packages)` or `(types from different scopes)` for two types that print
+  alike. The panic value is a `*runtime.TypeAssertionError` (`detail::throw_type_assertion`), so `recover()` gives it and `r.(error).Error()` is that text.
+- **Type switches.** The operand is read once (a const reference to an unboxed local, else a copy);
+  the cases are tested in source order, `default` last wherever it is, each case's types in order:
+  `gp::type_is(x, desc)` for a concrete type, `gp::type_has<I>(x)` for an interface type, `x == nullptr`
+  for `nil`. `v` has the type of the case when it lists one type and the operand's interface type
+  otherwise, is declared only in the clauses that use it, and may be boxed. A `break` in a clause turns
+  the chain into a C++ `switch` on the number of the matching clause, as for the other switches.
+- **Interface values in `==` and in maps.** `x == y` of two interface values (`iface`'s `operator==`):
+  equal when both are nil, or the dynamic types are the same and the values equal; two values of an
+  uncomparable type panic with `runtime error: comparing uncomparable type []int`; a map key or a
+  struct field that holds an interface hashes by its dynamic value (`gp_hash`, panic `runtime error:
+  hash of unhashable type []int`). A struct with an interface field has the generated `==` and
+  `gp_hash` as any comparable struct. (This is the minimal version that steps 5.4 and 5.5 need; step 5.6
+  has the rest of the nil and hashing rules.)
+- **C and C++ values.** A C/C++ value goes into an interface that has no methods (`any`) with
+  `gp::to_iface_foreign<gp::any>(v)`: its descriptor is `gp::foreign_td<T>()` of its C++ type, so
+  `std.string` and `C.int` are different dynamic types of their own, and `x.(std.string)`, `x.(C.int)`
+  and the type switch cases of C/C++ types compare with the foreign descriptor of the C++ type. The
+  comma-ok forms `v, ok := x.(C.int)` and `var v, ok = x.(C.int)` work too (not an assignment to variables
+  that exist: declare new ones, as for any C/C++ value with two results).
+- **C and C++ values, more.** A raw pointer (`&cvar`, a C function's result) is held as the `gp::cptr<T>`
+  that a Go variable of type `*C.T` is, so `x.(*C.T)` finds it however it was made (a pointer to a local C
+  variable owns nothing and is valid while the variable is). Only an interface without methods holds a
+  C/C++ value (a compile error otherwise); an interface method with a C/C++ type in its signature is a compile
+  error; a Go type's method with one is left out of its tables. A Go struct with a C/C++ field is an
+  ordinary named type for interfaces (its descriptor is partial), so a Go wrapper of a C handle implements
+  interfaces; a value of it is not comparable through an interface (its `==` panics), a pointer to it is. A
+  C++ type with `==` and no `std::hash` has one hash for all values.
+- **Known differences from gc.** The order of a conversion inside a nested expression (`any(g).(P).a + mod()`
+  is 107 here and 8 in gc; `[]int{any(g).(P).a, mod()}` is `[100 7]` here and `[1 7]` in gc: only an
+  argument or an operand of a statement's list is copied in its place); a value method called through a nil
+  `*T` in an interface always panics with Go's wrapper message, where gc devirtualizes a call it can see
+  through and prints a plain nil dereference. A read or delete in a nil or empty map with an unhashable
+  interface key panics "hash of unhashable type: []int", the text of Go's, and any other use "runtime error:
+  hash of unhashable type []int", as Go. The trace of a panic leaves out the wrapper methods of interface
+  structs (they carry `[[gnu::abi_tag("gp_wrap")]]`, which the trace recognizes in the mangled name), as Go has no
+  frame for them.
+- **Not yet.** A type with a promoted method (an embedded field) can't be converted until step 5.8 gives it
+  forwarding thunks; a channel type comes with Phase 08; a type in a method signature with a C/C++
+  part ("interface methods with C/C++ types") is reported as not supported.
 
 **Descriptors are chosen by the Go type.** One `gp::type_desc` object per Go type, so a pointer
 comparison is a type comparison: `gp::td_int` and `gp::td_int64` are different objects although both

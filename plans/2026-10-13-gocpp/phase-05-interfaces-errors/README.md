@@ -92,6 +92,39 @@ for (/* range */) {
 > canonical text, not as descriptors; wrapper slots follow the interface's sorted methods; nil of an interface type is
 > `Shape()`. The exact emitted shapes and the contracts for the emitter are in
 > [docs/spec/cpp-mapping.md](../../../docs/spec/cpp-mapping.md) "Interfaces".
+>
+> **Built in 5.4-5.5 (2026-10-17), where it differs from the text below:** the conversions are
+> `gp::to_iface<I>(v, desc)` and `gp::iface_cast<I>(x)`, the assertions `gp::assert_type<T>(x, desc)`,
+> `gp::assert_type2`, `gp::assert_iface<I>(x)` and `gp::assert_iface2`, the switch tests `gp::type_is(x, desc)`
+> and `gp::type_has<I>(x)` (not `s.gp_type() == &gp_td_Rect` and `gp::unbox` alone: the helpers carry Go's
+> panic messages and the itab caches); the descriptors of composite types are namespace-level pointers
+> (`gp_tdc_N`, `gp_tdp_T`) interned at program start, the descriptor objects of named types are
+> constant-initialized with partial shapes (the element only where it is a constant descriptor, no field
+> list: the C++ types give the rest); `error` is `gp::error` (a runtime struct like the generated ones);
+> interface `==` and hashing have a minimal version (a struct with an interface field needs them: step 5.6
+> has the rest); a conversion of a value to an interface is ordered like gc's (a copy in its place among the
+> calls, as an argument of fmt's `...any` is); a C/C++ value goes into an interface that has no methods
+> with its foreign descriptor, and `x.(CType)`, its comma-ok forms with `:=` and `var`, and type switch cases of C/C++
+> types work. A type with a promoted method waits for 5.8's forwarding thunks.
+>
+> Known differences from gc (5.4/5.5; also in docs/spec/cpp-mapping.md "Interfaces"):
+> (1) the ORDER of a conversion to an interface inside a nested expression: gocpp copies the value in
+> its place only for an argument or an operand of a statement's list (like fmt's `...any`), so with `g` a
+> package struct and `mod()` a call that changes it, `any(g).(P).a + mod()` gives 107 in gocpp and 8 in gc,
+> and `[]int{any(g).(P).a, mod()}` gives `[100 7]` in gocpp and `[1 7]` in gc; (2) a call of a value method
+> through a nil `*T` in an interface gives Go's wrapper message ("value method main.T.M called using nil
+> *T pointer") always, where gc devirtualizes a call whose interface type it can see and then prints the plain
+> nil dereference; (3) a value of a Go struct type that has a C/C++ field is not comparable through an
+> interface (== of two such interface values panics "comparing uncomparable type", Go compares the fields);
+> pointers to it compare fine; (4) a C/C++ value goes only into an interface without methods (Phase 12);
+> a method of a Go type with a C/C++ type in its signature is not in its method table; (5) a map key
+> that is a C++ value with `==` and no `std::hash` has one hash for all its values.
+>
+> For 5.11: add a `%T` run test of a recovered assertion panic (`fmt.Printf("%T\n", recover())` after a failed `x.(int)` prints `*runtime.TypeAssertionError`; `runtime/test/ifaceconv_test.cpp` checks the descriptor name until then).
+>
+> For 5.11 and Phase 09: the descriptor of a NAMED slice, array, map, func, pointer or struct type has null
+> elem/key/in/out/fields (the element only where it is a constant descriptor), while the unnamed
+> `gp_tdc_N` are complete; `%v` and reflect must not read the named ones, or the emitter must complete them.
 
 ### 2.2 Type descriptors (chosen by the Go type)
 

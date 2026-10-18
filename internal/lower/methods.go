@@ -469,6 +469,10 @@ func (g *gen) callMethod(recv cppir.Expr, ptr bool, fn *types.Func, r recvPath, 
 	if p, ok := under(base).(*types.Pointer); ok {
 		base = p.Elem()
 	}
+	if isInterface(base) {
+		// A method of an interface value: the wrapper of its interface struct (ifaces.go).
+		return &cppir.Call{Fun: &cppir.Member{X: recv, Name: g.ifaceMethodName(base, fn, pos)}, Args: args}
+	}
 	si := g.structOf(base, pos)
 	if si == nil {
 		return placeholder
@@ -564,6 +568,11 @@ func (fg *funcGen) storeRecv(c *ast.CallExpr, params *[]cppir.Param, values *[]c
 	recv, ptr := fg.recvExpr(x, pathOf(s), false)
 	if ptr && !pathOf(s).ptrRecv {
 		recv = deref(recv) // the value, copied when the frame stores it
+	}
+	if isInterface(pathOf(s).end) {
+		// defer i.M(): Go evaluates the method value there, which panics for a nil interface (not
+		// when the deferred call runs).
+		recv = call("gp::method_recv", recv)
 	}
 	*values = append(*values, recv)
 	name := "gp_a" + strconv.Itoa(len(*params))

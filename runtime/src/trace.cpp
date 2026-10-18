@@ -691,9 +691,71 @@ go_name gocpp_name(const encoding& e) {
 
 } // namespace
 
+namespace {
+
+// has_wrap_tag reports whether the mangled name carries the abi tag gp_wrap, B7gp_wrap, which the
+// wrapper methods of the interface structs have. The name is walked as the Itanium ABI writes it,
+// each <length><name> skipped whole, so a user name that contains the text (a method called
+// B7gp_wrap, mangled 9B7gp_wrap) is no tag.
+bool has_wrap_tag(std::string_view sym) {
+    if (!sym.starts_with("_Z")) {
+        return false;
+    }
+    auto number = [&](std::size_t& i) {
+        std::size_t n = 0;
+        while (i < sym.size() && sym[i] >= '0' && sym[i] <= '9') {
+            n = n * 10 + static_cast<std::size_t>(sym[i] - '0');
+            if (n > sym.size()) {
+                return sym.size() + 1;
+            }
+            i++;
+        }
+        return n;
+    };
+    for (std::size_t i = 2; i < sym.size();) {
+        char c = sym[i];
+        if (c >= '0' && c <= '9') {
+            std::size_t n = number(i);
+            if (i + n > sym.size()) {
+                return false;
+            }
+            i += n; // a source name
+        } else if (c == 'B') {
+            i++;
+            std::size_t n = number(i);
+            if (i + n > sym.size()) {
+                return false;
+            }
+            if (sym.substr(i, n) == "gp_wrap") {
+                return true;
+            }
+            i += n;
+        } else if ((c == 'S' || c == 'T') && i + 1 < sym.size() &&
+                   (sym[i + 1] == '_' || (sym[i + 1] >= '0' && sym[i + 1] <= '9') ||
+                    (sym[i + 1] >= 'A' && sym[i + 1] <= 'Z'))) {
+            // A substitution or a template parameter, S3_ or T_: its digits are no length (St,
+            // Sa, Ss... are letters in lower case and fall through).
+            while (i < sym.size() && sym[i] != '_') {
+                i++;
+            }
+            i++;
+        } else {
+            i++;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
 go_func func_name(std::string_view symbol) {
     go_func f;
     std::string_view base = symbol.substr(0, symbol.find('.')); // without .cold, .constprop.0
+    if (has_wrap_tag(base)) {
+        // An interface's wrapper method, tagged [[gnu::abi_tag("gp_wrap")]] (internal/lower/
+        // ifaces.go): Go has no frame for it, as for a thunk.
+        return f;
+    }
     if (!symbol.starts_with("_Z")) {
         // A C name. Names that start with _ are the implementation's (_start, __libc_start_main,
         // __cxa_throw, _Unwind_RaiseException).

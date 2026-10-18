@@ -37,8 +37,11 @@ import (
 // rune → int32_t, untyped float → double, untyped complex → gp::complex128), but go/types
 // records the type that a constant converts to, so the emitter seldom needs it.
 //
-// Not yet: the other composite types (interfaces and error: Phase 05; channels: Phase 08), also
-// named ones. For these, cxxType reports "not supported yet".
+//	any, interface{}         gp::any (Phase 05 step 5.4, ifaces.go)
+//	error                    gp::error
+//	interface{ M() }         a struct over gp::iface: Shape, or gp_anon_i... for an unnamed type
+//
+// Not yet: channels (Phase 08), also named ones. For these, cxxType reports "not supported yet".
 
 // basicTypes are the C++ spellings of the basic types, by kind.
 var basicTypes = map[types.BasicKind]string{
@@ -107,15 +110,16 @@ func (g *gen) cxxType(t types.Type, pos token.Pos) cppir.Type {
 		if isWeakPointer(t) {
 			return weakType(g.cxxType(weakElem(t), pos)) // weak.go
 		}
+		if isInterface(t) {
+			return g.ifaceType(t, pos) // ifaces.go
+		}
 		if isStruct(t) || isNewtype(t) {
 			return g.structType(t, pos) // typedecl.go; a gp::newtype: named.go
 		}
+	case *types.Interface:
+		return g.ifaceType(t, pos) // ifaces.go
 	case *types.Signature:
 		return g.funcType(t, pos) // gp::func<R(P...)> (closures.go)
-	case *types.Interface:
-		if t.Empty() {
-			return typeName("gp::any") // any, interface{} (Phase 05 step 5.2; the rest comes with 5.4)
-		}
 	case *types.Tuple:
 		args := make([]cppir.Node, t.Len())
 		for i := range t.Len() {

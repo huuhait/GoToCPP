@@ -174,7 +174,7 @@ func (g *gen) typeSpec(spec *ast.TypeSpec, local bool) {
 		g.unsupported(spec.Pos(), "named types declared over C/C++ types ("+tn.Name()+", a later step of Phase 04)")
 		return
 	}
-	if !isStruct(named) && !g.newtypeOK(spec, named) { // named.go
+	if !isInterface(named) && !isStruct(named) && !g.newtypeOK(spec, named) { // named.go
 		return
 	}
 	if weakStruct(named) {
@@ -196,6 +196,10 @@ func (g *gen) typeSpec(spec *ast.TypeSpec, local bool) {
 	td.used[name] = true
 	if local {
 		td.local[tn] = name // before addStruct: a field may refer to the type itself
+	}
+	if isInterface(named) {
+		g.addIface(named, name) // ifaces.go
+		return
 	}
 	var si *structInfo
 	if isStruct(named) {
@@ -344,7 +348,22 @@ func isStruct(t types.Type) bool {
 // declarations, then the definitions in dependency order, each with its static_assert.
 func (g *gen) structDecls() []cppir.Decl {
 	td := g.tdecls()
-	if len(td.list) == 0 {
+	// The interface structs, the descriptors, the thunks and the wrappers (ifaces.go,
+	// typedesc.go) are made until nothing new is found: they find more types (an unnamed
+	// interface in a method's signature, a descriptor of a part).
+	var ifaceDefs, impls []cppir.Decl
+	for {
+		n := g.typeCount()
+		for i := 0; i < len(td.list); i++ {
+			g.structDef(td.list[i]) // (its field types may be unnamed interfaces)
+		}
+		ifaceDefs = g.ifaceDefs()
+		impls = append(g.ifaceImpls(), g.descDecls()...)
+		if g.typeCount() == n {
+			break
+		}
+	}
+	if len(td.list) == 0 && len(ifaceDefs) == 0 && len(impls) == 0 {
 		return nil
 	}
 	var decls []cppir.Decl
@@ -352,6 +371,7 @@ func (g *gen) structDecls() []cppir.Decl {
 		decls = append(decls, &cppir.Struct{Name: si.name, Forward: true})
 	}
 	decls = append(decls, &cppir.Blank{})
+	decls = append(decls, ifaceDefs...) // no data members: before the structs that hold them
 	done := make(map[*structInfo]bool)
 	var define func(si *structInfo)
 	define = func(si *structInfo) {
@@ -385,7 +405,14 @@ func (g *gen) structDecls() []cppir.Decl {
 		decls = append(decls, g.forwardDefs(si)...)
 		decls = append(decls, g.hookDefs(si)...)
 	}
-	return decls
+	return append(decls, impls...)
+}
+
+// typeCount returns how many structs, interfaces and descriptors there are, to see whether
+// writing them found more (structDecls).
+func (g *gen) typeCount() int {
+	n := len(g.tdecls().list) + len(g.dtable().named) + len(g.dtable().comps)
+	return n + len(g.itable().list)
 }
 
 // cTypeDeps returns the structs of the package in the C/C++ type of the field f

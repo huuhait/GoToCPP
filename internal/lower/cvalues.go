@@ -169,6 +169,8 @@ func (fg *funcGen) opaqueExpr(e ast.Expr) cppir.Expr {
 		// C++'s *x, but with Go's nil check for a raw pointer (and a gocpp pointer that comes
 		// back from C++), gocpp/interop.hpp.
 		return call("gp::cgo::star", fg.expr(x.X))
+	case *ast.TypeAssertExpr:
+		return fg.typeAssert(x) // x.(std.string) of an interface value (iconv.go)
 	}
 	fg.g.errorf(e.Pos(), "internal error: an opaque %s that the guard let through (cguard.go)", nodeKind(e))
 	return placeholder
@@ -449,6 +451,10 @@ func (fg *funcGen) asConversion(c *ast.CallExpr, conv *check.Conversion) cppir.E
 	to := fg.g.info.TypeOf(c)
 	if x, ok := fg.cUnsafeConversion(c, to); ok {
 		return x // unsafe.Pointer(p), (*byte)(p) of a C void* (cunsafe.go)
+	}
+	if isInterface(to) {
+		// any(x) of a C/C++ value: the interface holds it as it is (iconv.go).
+		return fg.g.toInterface(types.Typ[types.Invalid], to, fg.expr(c.Args[0]), c.Pos())
 	}
 	b := basicOf(to)
 	if b == nil || b.Info()&(types.IsNumeric|types.IsBoolean|types.IsString) == 0 || b.Info()&types.IsComplex != 0 || isNewtype(to) {

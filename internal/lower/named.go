@@ -68,7 +68,7 @@ import (
 // underlying type is not a struct (through aliases), other than weak.Pointer[T] (weak.go).
 func isNewtype(t types.Type) bool {
 	n, ok := types.Unalias(t).(*types.Named)
-	return ok && n.Obj().Pkg() != nil && !isStruct(n) && !isWeakPointer(n)
+	return ok && n.Obj().Pkg() != nil && !isStruct(n) && !isWeakPointer(n) && !isInterface(n)
 }
 
 // underBasic returns the basic type under t (through names and aliases: Celsius gives float64),
@@ -109,8 +109,6 @@ func (g *gen) newtypeOK(spec *ast.TypeSpec, named *types.Named) bool {
 		g.unsupported(spec.Pos(), "type "+u.Name())
 	case *types.Slice, *types.Array, *types.Map, *types.Pointer, *types.Signature:
 		return true // a func type: over gp::func (step 3.11)
-	case *types.Interface:
-		g.unsupported(spec.Pos(), "interface types (Phase 05)")
 	case *types.Chan:
 		g.unsupported(spec.Pos(), "channel types (Phase 08)")
 	default:
@@ -220,6 +218,11 @@ func largeNamedBox(typ cppir.Type, value cppir.Expr) cppir.Expr {
 // types (named and anonymous). A named type to its unnamed underlying type needs none: C++
 // copies the base class.
 func needsConversion(from, to types.Type) bool {
+	if isInterface(to) {
+		// To an interface: a concrete value is boxed, another interface type converted, nil is
+		// the nil interface (iconv.go).
+		return from != nil && !types.Identical(from, to)
+	}
 	if from == nil || to == nil || types.Identical(from, to) || !types.Identical(under(from), under(to)) {
 		return false
 	}
@@ -232,6 +235,9 @@ func needsConversion(from, to types.Type) bool {
 func (g *gen) convertTo(from, to types.Type, x cppir.Expr, pos token.Pos) cppir.Expr {
 	if !needsConversion(from, to) {
 		return x
+	}
+	if isInterface(to) {
+		return g.toInterface(from, to, x, pos) // iconv.go
 	}
 	if isStruct(to) {
 		return g.convertStruct(from, to, x, pos)
@@ -291,7 +297,16 @@ func convertible(from, to types.Type) bool {
 // it to implicitly there (noteConversions), if it needs a conversion.
 func (fg *funcGen) implicitConv(e ast.Expr, x cppir.Expr) cppir.Expr {
 	if to, ok := fg.g.implicit[e]; ok {
-		return fg.g.convertTo(fg.g.info.TypeOf(e), to, x, e.Pos())
+		from := fg.g.typeOfValue(e)
+		if tv := fg.g.info.Types[e]; tv.Value != nil && isInterface(to) && !isInterface(from) {
+			// A constant in an interface has the exact C++ type of its Go type: any(1) holds an
+			// int64_t, not the C++ int that the plain literal is.
+			if b, ok := from.(*types.Basic); ok && b.Info()&types.IsUntyped != 0 {
+				from = types.Default(from)
+			}
+			x = fg.g.constant(tv.Value, from, e.Pos(), true)
+		}
+		return fg.g.convertTo(from, to, x, e.Pos())
 	}
 	return x
 }
@@ -299,13 +314,23 @@ func (fg *funcGen) implicitConv(e ast.Expr, x cppir.Expr) cppir.Expr {
 // noteConversion records that Go converts the value e implicitly to the type to, if that needs a
 // C++ conversion (fg.expr makes it: implicitConv).
 func (g *gen) noteConversion(e ast.Expr, to types.Type) {
-	if !needsConversion(g.info.TypeOf(e), to) {
+	if !needsConversion(g.typeOfValue(e), to) {
 		return
 	}
 	if g.implicit == nil {
 		g.implicit = make(map[ast.Expr]types.Type)
 	}
 	g.implicit[e] = to
+}
+
+// typeOfValue returns the Go type of the value e, the invalid type for a C/C++ value that
+// go/types left without one.
+func (g *gen) typeOfValue(e ast.Expr) types.Type {
+	t := g.info.TypeOf(e)
+	if t == nil && g.pkg.Opaque.IsOpaque(e) {
+		return types.Typ[types.Invalid]
+	}
+	return t
 }
 
 // rangeTypes returns the types of the key and the value of a range over a value of type t: a
@@ -475,6 +500,9 @@ func (g *gen) noteConversions(n ast.Node, sig *types.Signature) {
 			if g.info.Types[x.Fun].IsType() {
 				return true // a conversion
 			}
+			if g.noConvArgs(x) {
+				return true // fmt's and the builtins' own arguments
+			}
 			s, ok := under(g.info.TypeOf(x.Fun)).(*types.Signature)
 			if !ok {
 				return true
@@ -525,14 +553,23 @@ func (g *gen) noteConversions(n ast.Node, sig *types.Signature) {
 			}
 		case *ast.BinaryExpr:
 			if x.Op == token.EQL || x.Op == token.NEQ {
-				note(x.Y, g.info.TypeOf(x.X))
+				tx, ty := g.info.TypeOf(x.X), g.info.TypeOf(x.Y)
+				switch {
+				case g.info.Types[x.X].IsNil() || g.info.Types[x.Y].IsNil():
+				case isInterface(ty) && !isInterface(tx):
+					note(x.X, ty) // a value compared with an interface is converted to its type
+				default:
+					note(x.Y, tx)
+				}
 			}
 		case *ast.SwitchStmt:
 			// The tag is compared with each case value, as by ==.
 			if x.Tag != nil {
 				for _, c := range x.Body.List {
 					for _, e := range c.(*ast.CaseClause).List {
-						note(e, g.info.TypeOf(x.Tag))
+						if !g.info.Types[e].IsNil() {
+							note(e, g.info.TypeOf(x.Tag))
+						}
 					}
 				}
 			}

@@ -182,6 +182,19 @@ bool self_equal(const K& a, const K& b) {
 // panic_nil_map: Go's "assignment to entry in nil map". In runtime/src/map.cpp.
 [[noreturn]] void panic_nil_map();
 
+// check_empty_key: Go checks the key of a read or a delete in a nil or empty map without hashing
+// it, and panics with its own text ("hash of unhashable type: []int", not a runtime error) when
+// the key is an interface value whose dynamic type has no hash. A key type that has gp_key_check
+// (gp::iface) is checked.
+template <typename K, typename V>
+void check_empty_key([[maybe_unused]] const map_impl<K, V>* impl, [[maybe_unused]] const K& k) {
+    if constexpr (requires { k.gp_key_check(); }) {
+        if (impl == nullptr || impl->gp_t.empty()) {
+            k.gp_key_check();
+        }
+    }
+}
+
 // map_find: the entry of key k (with hash h), or end().
 template <typename K, typename V>
 typename map_table<K, V>::iterator map_find(map_impl<K, V>& m, const K& k, std::size_t h) {
@@ -346,6 +359,7 @@ int64_t len(const map<K, V>& m) noexcept {
 template <typename K, typename V>
 V get(const map<K, V>& m, const std::type_identity_t<K>& k) {
     detail::map_impl<K, V>* impl = m.gp_get();
+    detail::check_empty_key(impl, k);
     if (impl != nullptr) {
         auto it = detail::map_find(*impl, k, gp::hash_of(k));
         if (it != impl->gp_t.end()) {
@@ -360,6 +374,7 @@ V get(const map<K, V>& m, const std::type_identity_t<K>& k) {
 template <typename K, typename V>
 std::tuple<V, bool> lookup(const map<K, V>& m, const std::type_identity_t<K>& k) {
     detail::map_impl<K, V>* impl = m.gp_get();
+    detail::check_empty_key(impl, k);
     if (impl != nullptr) {
         auto it = detail::map_find(*impl, k, gp::hash_of(k));
         if (it != impl->gp_t.end()) {
@@ -410,6 +425,7 @@ V& ref(const map<K, V>& m, const std::type_identity_t<K>& k) {
 template <typename K, typename V>
 void erase(const map<K, V>& m, const std::type_identity_t<K>& k) {
     detail::map_impl<K, V>* impl = m.gp_get();
+    detail::check_empty_key(impl, k);
     if (impl == nullptr) {
         return;
     }

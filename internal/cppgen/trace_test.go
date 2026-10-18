@@ -107,6 +107,51 @@ func TestTraceClosuresVsGo(t *testing.T) {
 	}
 }
 
+// TestTraceInterfaceVsGo compares the trace of a panic through a call of an interface method with
+// Go's (step 5.4): the wrapper method of the interface struct is no frame in Go, so the trace
+// leaves it out (as the thunk's), and a call of a nil interface shows the caller only. Go's
+// program is built without inlining (-gcflags=-l), which would devirtualize the calls.
+func TestTraceInterfaceVsGo(t *testing.T) {
+	goOnce.Do(func() { goCmd, _ = exec.LookPath("go") })
+	if goCmd == "" {
+		t.Skip("no go command")
+	}
+	progs := map[string]string{
+		"value":   "package main\n\ntype I interface{ M(i int) int }\ntype T struct{ a []int }\n\nfunc (t T) M(i int) int {\n\treturn t.a[i]\n}\n\nfunc call(x I) int {\n\treturn x.M(5)\n}\n\nfunc main() {\n\tvar x any = T{[]int{1}}\n\tprintln(call(x.(I)))\n}\n",
+		"pointer": "package main\n\ntype I interface{ M() }\ntype T struct{ n *int }\n\nfunc (t *T) M() {\n\tprintln(*t.n)\n}\n\nfunc main() {\n\tvar x I = &T{}\n\tx.M()\n}\n",
+		"nil":     "package main\n\ntype I interface{ M() }\n\nfunc main() {\n\tvar x I\n\tx.M()\n}\n",
+	}
+	for name, src := range progs {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			gp := filepath.Join(dir, "main.gp")
+			if err := os.WriteFile(gp, []byte(src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			want := goTraceFlags(t, gp, "-gcflags=-l")
+			work := t.TempDir()
+			cpp := filepath.Join(work, "main.gp.cpp")
+			if err := os.WriteFile(cpp, []byte(emitter(gp)(t, Config{OutputPath: cpp})), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			for _, c := range compilers(t) {
+				t.Run(c.name, func(t *testing.T) {
+					if c.missing != "" {
+						t.Skip(c.missing)
+					}
+					_, stderr, code, err := command(work, false, c.build(t, cpp))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if got := normTrace(maskPC(result{stderr: string(stderr)}).stderr); code != 2 || got != want {
+						t.Errorf("exit code %d, the trace (normalized):\n%s\nwant Go's:\n%s", code, got, want)
+					}
+				})
+			}
+		})
+	}
+}
+
 // panicFrame matches the runtime's panic frame of a normalized trace (a deferred call that
 // panicked while a panic ran) and its place, which is in Go's runtime (panic:783) and gocpp's
 // (?:0).

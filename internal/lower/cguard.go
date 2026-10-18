@@ -334,7 +334,10 @@ func (g *gen) cExprOK(e ast.Expr) bool {
 		}
 		return g.cSliceOK(x) // a C array: gp::cgo::slice_of (cunsafe.go)
 	case *ast.TypeAssertExpr:
-		g.unsupported(x.Pos(), "type assertions on C/C++ values (Phase 05)")
+		if x.Type != nil && isInterface(g.info.TypeOf(x.X)) {
+			return true // x.(std.string): the interface's value is a C/C++ one (iconv.go)
+		}
+		g.unsupported(x.Pos(), "type assertions on C/C++ values (a C++ value is not an interface)")
 	default:
 		g.unsupported(e.Pos(), "this use of C/C++ values")
 	}
@@ -534,6 +537,9 @@ func (g *gen) cPlaceOK(e ast.Expr, parent ast.Node) bool {
 			to := g.info.TypeOf(p)
 			return g.cConvOK(e, to, types.TypeString(to, types.RelativeTo(g.pkg.Types))) // int(x): cvalues.go
 		}
+		if tv := g.info.Types[p.Fun]; tv.IsType() && isInterface(tv.Type) {
+			return true // any(&cvar): the interface holds the C/C++ value (iconv.go)
+		}
 		if g.calledSig(p) != nil {
 			return true // targetOK checks the parameter's type
 		}
@@ -608,6 +614,9 @@ func (g *gen) oneValueOK(e ast.Expr, n int, values []ast.Expr, pos token.Pos) bo
 	}
 	if g.mapCommaOK(e) {
 		return true // v, ok := m[k] of a gocpp map of C/C++ values (maps.go)
+	}
+	if ta, ok := ast.Unparen(e).(*ast.TypeAssertExpr); ok && ta.Type != nil && isInterface(g.info.TypeOf(ta.X)) {
+		return true // v, ok := x.(std.string): the comma-ok form (iconv.go)
 	}
 	hint := ""
 	if ix, ok := ast.Unparen(e).(*ast.IndexExpr); ok {
@@ -812,9 +821,15 @@ func (g *gen) varOf(x ast.Expr) *types.Var {
 // float out of an int's range), as cgo doesn't allow either.
 func (w *cWalk) targetOK(e ast.Expr, parent ast.Node) bool {
 	g := w.g
+	if g.isCommaOKFlag(e) {
+		return true // the ok of v, ok := x.(std.string) is a Go bool (iconv.go)
+	}
 	t := w.targetOf(e, parent)
 	if t.to == nil || !complete(t.to) {
 		return true // a C/C++ target, or none
+	}
+	if isInterface(t.to) {
+		return true // an interface holds the C/C++ value as it is (iconv.go: foreign values)
 	}
 	ts := types.TypeString(t.to, types.RelativeTo(g.pkg.Types))
 	hint := ""
@@ -990,4 +1005,44 @@ func (g *gen) srcText(e ast.Expr) string {
 		r()
 	}
 	return g.pkg.UserText(s) // (the names of gocpp/cgoh that check added: unsafe.Slice, a[1:2])
+}
+
+// isCommaOKFlag reports whether e is the variable ok of v, ok := x.(T) (or var v, ok = x.(T)) with a
+// C/C++ type T: go/types has no tuple for such an assertion, so the check calls the variable a
+// C/C++ value, but it is a bool.
+func (g *gen) isCommaOKFlag(e ast.Expr) bool {
+	id, ok := ast.Unparen(e).(*ast.Ident)
+	if !ok {
+		return false
+	}
+	if g.commaOKFlags == nil {
+		g.commaOKFlags = make(map[types.Object]bool)
+		for _, f := range g.pkg.Load.Files {
+			ast.Inspect(f.AST, func(n ast.Node) bool {
+				var names, values []ast.Expr
+				switch x := n.(type) {
+				case *ast.AssignStmt:
+					if x.Tok == token.DEFINE {
+						names, values = x.Lhs, x.Rhs
+					}
+				case *ast.ValueSpec:
+					for _, id := range x.Names {
+						names = append(names, id)
+					}
+					values = x.Values
+				}
+				if len(names) == 2 && len(values) == 1 {
+					if ta, ok := ast.Unparen(values[0]).(*ast.TypeAssertExpr); ok && ta.Type != nil {
+						if second, ok := names[1].(*ast.Ident); ok {
+							if obj := g.info.Defs[second]; obj != nil {
+								g.commaOKFlags[obj] = true
+							}
+						}
+					}
+				}
+				return true
+			})
+		}
+	}
+	return g.commaOKFlags[g.info.Uses[id]]
 }

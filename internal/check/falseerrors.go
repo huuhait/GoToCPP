@@ -58,6 +58,7 @@ import (
 // The go/types error codes of the false errors (Go's internal/types/errors;
 // Go doesn't change the values).
 const (
+	wrongAssignCount     = 17  // assignment mismatch: 2 variables but a.(std.string) is 1 value
 	invalidConstVal      = 14  // cannot convert 1 (untyped int constant) to type invalid type
 	incompatibleAssign   = 23  // cannot use 3 (untyped int constant) as Handle value in ...
 	undefinedOp          = 45  // operator - not defined on h
@@ -86,7 +87,7 @@ const (
 
 // falseCodes holds the codes above.
 var falseCodes = map[int]bool{
-	invalidConstVal: true, incompatibleAssign: true, undefinedOp: true, mismatchedTypes: true,
+	wrongAssignCount: true, invalidConstVal: true, incompatibleAssign: true, undefinedOp: true, mismatchedTypes: true,
 	nonNumericIncDec: true, invalidIndirection: true, nonIndexableOperand: true,
 	invalidIndex: true, nonSliceableOperand: true, invalidShiftCount: true,
 	invalidShiftOperand: true, untypedLit: true, missingFieldOrMethod: true, invalidCopy: true,
@@ -371,6 +372,11 @@ func (f *falseErrors) collectNode(n ast.Node) {
 			f.assign(n.Value, ch.Elem())
 		}
 	case *ast.ValueSpec:
+		if len(n.Names) == 2 && len(n.Values) == 1 {
+			if ta, ok := ast.Unparen(n.Values[0]).(*ast.TypeAssertExpr); ok && ta.Type != nil {
+				f.addAt(n.Names[0], wrongAssignCount, nil, ta.Type)
+			}
+		}
 		if typ := f.typeOf(n.Type); typ != nil {
 			for _, v := range n.Values {
 				f.assign(v, typ)
@@ -379,10 +385,21 @@ func (f *falseErrors) collectNode(n ast.Node) {
 	}
 }
 
+// commaOKAssert records the slot of v, ok := x.(T) with a C/C++ type T, for which go/types sees
+// one value, not two (wrongAssignCount): the error is at the first variable.
+func (f *falseErrors) commaOKAssert(lhs, rhs []ast.Expr) {
+	if len(lhs) == 2 && len(rhs) == 1 {
+		if ta, ok := ast.Unparen(rhs[0]).(*ast.TypeAssertExpr); ok && ta.Type != nil {
+			f.addAt(lhs[0], wrongAssignCount, nil, ta.Type)
+		}
+	}
+}
+
 // collectAssign records the slots of an assignment: the values assigned
 // to typed places (x = 3), and an assignment operation (h += 2) like the
 // binary expression it stands for.
 func (f *falseErrors) collectAssign(s *ast.AssignStmt) {
+	f.commaOKAssert(s.Lhs, s.Rhs)
 	switch s.Tok {
 	case token.DEFINE:
 	case token.ASSIGN:

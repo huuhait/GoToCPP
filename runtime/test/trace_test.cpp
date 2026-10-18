@@ -158,6 +158,14 @@ const name_case name_cases[] = {
     {"_Unwind_RaiseException", nullptr, false, false},
     {"__libc_start_main", nullptr, false, false},
     {"_start", nullptr, false, false},
+    // The wrapper method of an interface struct (internal/lower/ifaces.go) is tagged gp_wrap: Go
+    // has no frame for it.
+    {"_ZNK9gpkg_main5Shape4AreaB7gp_wrapEv", nullptr, false, false},
+    {"_ZNK9gpkg_main5Shape4AreaB7gp_wrapEv.cold", nullptr, false, false},
+    {"_ZNK9gpkg_main5ShapeB7gp_wrap4AreaEv", nullptr, false, false}, // the tag after the type
+    // A user method that is called B7gp_wrap is a method (the text is inside a name, not a tag).
+    {"_ZNK9gpkg_main5Shape9B7gp_wrapEv", "main.Shape.B7gp_wrap", true, false},
+    {"_ZN9gpkg_main9B7gp_wrapEv", "main.B7gp_wrap", false, false},
     // Other C++ (the user's own, Phase 04) and C: the C++ name, or the C name.
     {"_ZN4user3cxxEi", "user::cxx(int)", true, true},
     {"_ZN7gpkg_a_1fEv", "gpkg_a_::f()", false, true}, // not an escaped import path

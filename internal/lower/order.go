@@ -437,7 +437,16 @@ func (fg *funcGen) analyze(seq bool, list []ast.Expr) *orderScope {
 // analyzeArgs is analyze, where the expressions from the index iface on are arguments of
 // fmt's ...any (see the top of the file).
 func (fg *funcGen) analyzeArgs(seq bool, list []ast.Expr, iface int) *orderScope {
-	return fg.analyzeCopied(seq, list, func(i int, e ast.Expr) bool { return i >= iface && fg.copied(e) })
+	return fg.analyzeCopied(seq, list, func(i int, e ast.Expr) bool {
+		return (i >= iface || fg.toIface(e)) && fg.copied(e)
+	})
+}
+
+// toIface reports whether Go converts the value e implicitly to an interface type there
+// (iconv.go): gc copies it like an argument of fmt's ...any.
+func (fg *funcGen) toIface(e ast.Expr) bool {
+	to, ok := fg.g.implicit[ast.Unparen(e)]
+	return ok && isInterface(to) && !isInterface(fg.g.info.TypeOf(e))
 }
 
 // analyzeCopied is analyze, where an expression of the list for which copy says so is a unit
@@ -454,7 +463,8 @@ func (fg *funcGen) analyzeCopied(seq bool, list []ast.Expr, copy func(i int, e a
 func (fg *funcGen) collectScope(sc *orderScope, list []ast.Expr, copy func(i int, e ast.Expr) bool) *orderScope {
 	for i, e := range list {
 		if copy(i, e) {
-			in := fg.analyze(false, []ast.Expr{e})
+			// (e itself is copied once: its own scope doesn't copy it again.)
+			in := fg.analyzeCopied(false, []ast.Expr{e}, func(int, ast.Expr) bool { return false })
 			if eff := in.effect(); eff.any() {
 				sc.items = append(sc.items, &orderItem{e: ast.Unparen(e), unit: true, eff: eff, root: i, inner: []*orderScope{in}})
 			} else {
@@ -532,6 +542,12 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 		// *p reads what p points to, which a call can change, and panics for a nil p.
 		fg.collect(sc, x.X, root, below)
 		add(&orderItem{eff: effect{read: true, panics: true}})
+	case *ast.TypeAssertExpr:
+		// x.(T) panics when the dynamic type is not T (iconv.go).
+		fg.collect(sc, x.X, root, below)
+		if x.Type != nil && !isTuple(fg.g.info.TypeOf(x)) {
+			add(&orderItem{eff: effect{panics: true}})
+		}
 	case *ast.CallExpr:
 		if inner := fg.g.pkg.UnsafeWrapper(x); inner != nil {
 			if name := fg.g.unsafeFunc(inner); name == "Sizeof" || name == "Alignof" || name == "Offsetof" {

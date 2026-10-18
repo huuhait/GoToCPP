@@ -312,6 +312,7 @@ func TestCXX(t *testing.T) {
 						{src: "test/func_test.cpp", weight: 3},
 						{src: "test/type_test.cpp", weight: 4},
 						{src: "test/iface_test.cpp", weight: 7},
+						{src: "test/ifaceconv_test.cpp", weight: 4},
 						{src: "test/thread_test.cpp", weight: 3},
 						{src: "test/goroutine_test.cpp", weight: 3},
 						{src: "test/nochecks_test.cpp", flags: []string{"-DGOCPP_NOCHECKS"}, weight: 3},
@@ -353,6 +354,10 @@ func TestCXX(t *testing.T) {
 						t.Parallel()
 						runUnit(t, bins.bin(t, "test/iface_test.cpp"))
 						runIface(t, bins.bin(t, "test/iface_test.cpp"))
+					})
+					t.Run("ifaceconv", func(t *testing.T) {
+						t.Parallel()
+						runUnit(t, bins.bin(t, "test/ifaceconv_test.cpp"))
 					})
 					t.Run("thread", func(t *testing.T) {
 						t.Parallel()

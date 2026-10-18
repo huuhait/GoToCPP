@@ -140,6 +140,8 @@ func (fg *funcGen) stmt(s ast.Stmt) {
 		fg.rangeStmt(s)
 	case *ast.SwitchStmt:
 		fg.switchStmt(s)
+	case *ast.TypeSwitchStmt:
+		fg.typeSwitchStmt(s) // iconv.go
 	case *ast.DeferStmt:
 		fg.deferStmt(s) // defer.go
 	default:
@@ -999,6 +1001,16 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 	}
 	switch {
 	case len(values) == 1 && len(targets) > 1:
+		if c, ok := ast.Unparen(values[0]).(*ast.CallExpr); ok && fg.fmtFunc(c) != nil {
+			fg.g.unsupported(c.Pos(), "using the results of fmt."+fg.fmtFunc(c).Name()+" (step 5.11)")
+			return
+		}
+		if ta, ok := ast.Unparen(values[0]).(*ast.TypeAssertExpr); ok && ta.Type != nil {
+			if fg.commaAsserts == nil {
+				fg.commaAsserts = make(map[*ast.TypeAssertExpr]bool)
+			}
+			fg.commaAsserts[ta] = true // go/types has no tuple for an assertion to a C/C++ type (iconv.go)
+		}
 		if ix := fg.mapIndex(values[0]); ix != nil && fg.g.pkg.Opaque.IsOpaque(ix) {
 			fg.commaOK(ix) // v, ok := m[k] of a map of C/C++ values: go/types has no tuple for it
 		}
@@ -1024,7 +1036,11 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 			if !t.blank() {
 				get := &cppir.Name{Name: "std::get", Args: []cppir.Node{lit(strconv.Itoa(i))}}
 				var tup cppir.Expr = cxxName(tmp)
-				if tuple != nil && i < tuple.Len() && cObject(tuple.At(i).Type()) || tuple == nil && fg.g.pkg.Opaque.IsOpaque(values[0]) {
+				if _, assert := ast.Unparen(values[0]).(*ast.TypeAssertExpr); assert && tuple != nil {
+					// v, ok := x.(T): the temporary is not used again, so v takes the value out of it
+					// (no copy of the box's owner: iconv.go).
+					tup = movedName(tmp)
+				} else if tuple != nil && i < tuple.Len() && cObject(tuple.At(i).Type()) || tuple == nil && fg.g.pkg.Opaque.IsOpaque(values[0]) {
 					// The tuple is a temporary of this statement: each C/C++ member moves out of
 					// it, once (one that C++ can't copy, a std::unique_ptr, works).
 					tup = movedName(tmp)

@@ -146,19 +146,6 @@ func pushName(base, kind string) string {
 	return base + "_" + kind
 }
 
-// isEmptyInterface reports whether t is the empty interface (any, interface{}).
-func isEmptyInterface(t types.Type) bool {
-	i, ok := types.Unalias(t).(*types.Interface)
-	return ok && i.Empty()
-}
-
-// nilIface reports whether x == y compares an empty interface with nil (x == nil, nil == x): the
-// interface's operator==(nullptr_t) (iface.hpp). The comparison of two interface values is 5.6's.
-func (fg *funcGen) nilIface(x, y ast.Expr) bool {
-	isNil := func(e ast.Expr) bool { return fg.g.info.Types[e].IsNil() }
-	return isNil(x) && isEmptyInterface(fg.typeOf(y)) || isNil(y) && isEmptyInterface(fg.typeOf(x))
-}
-
 // isIfaceMethod reports whether fn is a method of an interface type.
 func isIfaceMethod(fn *types.Func) bool {
 	if fn == nil {

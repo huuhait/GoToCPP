@@ -639,11 +639,13 @@ void test_foreign() {
     CHECK(td_equal(foreign_td<Color>(), Green, Green) &&
           !td_equal(foreign_td<Color>(), Red, Green));
     CHECK(td_hash(foreign_td<Color>(), Green) == td_hash(foreign_td<Color>(), Green));
-    // No == (a C struct): not comparable. == without a hash: comparable, not hashable.
+    // No == (a C struct): not comparable. == without a std::hash: comparable, and hashable by one
+    // hash for all its values (a map key of Go's rules, slowly).
     CHECK(foreign_td<Plain>()->gp_equal == nullptr && foreign_td<Plain>()->gp_hash == nullptr);
-    CHECK(foreign_td<Hashed>()->gp_equal != nullptr && foreign_td<Hashed>()->gp_hash == nullptr);
+    CHECK(foreign_td<Hashed>()->gp_equal != nullptr && foreign_td<Hashed>()->gp_hash != nullptr);
+    CHECK(td_hash(foreign_td<Hashed>(), Hashed{1}) == td_hash(foreign_td<Hashed>(), Hashed{2}));
     CHECK(foreign_td<std::vector<long>>()->gp_equal != nullptr &&
-          foreign_td<std::vector<long>>()->gp_hash == nullptr);
+          foreign_td<std::vector<long>>()->gp_hash != nullptr);
 
     // Foreign descriptors are the parts of composite ones: a slice of C ints is not a slice of
     // Go int32s.

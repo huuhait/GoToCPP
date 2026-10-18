@@ -92,9 +92,10 @@
 // clang-format on
 //
 // A call of a method of a nil interface panics like Go: "invalid memory address or nil
-// pointer dereference" (gp::panic_nil). The type assertions and type switches, conversions
-// between interface types and interface == come in steps 5.4, 5.5 and 5.6; the pieces they
-// need are here: type(), tab(), getitab and missing_method.
+// pointer dereference" (gp::panic_nil). The type assertions, type switches and conversions between
+// interface types are gocpp/ifaceconv.hpp's (steps 5.4 and 5.5), built on type(), tab(), getitab
+// and missing_method; the == and the hash of interface values are here, defined in
+// runtime/src/ifaceconv.cpp.
 //
 // Like every runtime type, iface and any have only constructors, operators and gp_-prefixed
 // members, so a Go method of any name can be a member of an interface struct.
@@ -199,16 +200,41 @@ public:
         }
     }
 
-    // x == nil, x != nil. (Comparing two interfaces is step 5.6.)
+    // x == nil, x != nil.
     friend bool operator==(const iface& x, std::nullptr_t) noexcept {
         return x.gp_type_ == nullptr;
     }
+
+    // x == y: Go's comparison of two interface values (any two interface types: the operands
+    // of Go's == are converted to one of them first, which changes nothing here): equal when
+    // both are nil, or have the same dynamic type and equal values. A dynamic type that is not
+    // comparable (a slice, a map, a func, a struct that holds one) panics when both have it:
+    // "runtime error: comparing uncomparable type []int". (The nil interface and a pointer
+    // inside an interface behave as Go's: a nil *T in an interface is not nil.)
+    friend bool operator==(const iface& x, const iface& y);
+
+    // gp_hash: the hash of the dynamic value, for map keys (map[any]V) and for the structs that
+    // hold an interface; the nil interface has a hash of its own. A dynamic type that has no
+    // hash (a slice, a map, a func) panics: "runtime error: hash of unhashable type []int".
+    std::size_t gp_hash() const;
+
+    // gp_key_check: panics as Go's read or delete in an empty map does for a key that can't be
+    // hashed ("hash of unhashable type: []int": no "runtime error: "); does nothing otherwise.
+    void gp_key_check() const;
 
     // gp_type: the descriptor of the dynamic type (null for nil). gp_tab: the itab (null for
     // nil and for an empty interface). gp_data: the box, or the shared pointer.
     const type_desc* gp_type() const noexcept { return gp_type_; }
     const itab* gp_tab() const noexcept { return gp_tab_; }
     const std::shared_ptr<void>& gp_data() const noexcept { return gp_data_; }
+
+    // gp_take: the owner of the box, moved out (x is nil afterwards), for the conversion of an
+    // interface value that is not used again to another interface type (gocpp/ifaceconv.hpp).
+    std::shared_ptr<void> gp_take() noexcept {
+        gp_type_ = nullptr;
+        gp_tab_ = nullptr;
+        return std::move(gp_data_);
+    }
 
 private:
     std::shared_ptr<void> gp_data_;
@@ -292,6 +318,26 @@ I to_iface(T&& v, const type_desc* td) {
         tab = detail::site_itab<I, D>(td);
     }
     return I(std::move(data), td, tab);
+}
+
+// to_iface_foreign<I>(v) is to_iface for a C/C++ value, whose Go type the checker doesn't know: the
+// descriptor is foreign_td<T>() of its C++ type, named after the C++ spelling. (Two C++ types that
+// are one Go type, as int and int64 are one C++ type in the other direction, don't exist: the C++
+// type is the identity.) A raw pointer T* (what &cvar and the results of C functions are) is held
+// as the gp::cptr<T> that a gocpp variable of the Go type *C.T is, so x.(*C.T) finds it whichever
+// way it was made; a cptr made from a raw address owns nothing (the object lives as long as the C
+// variable or whatever else owns it: the pointer to a local C variable is valid while the variable
+// is).
+template <typename I, typename T>
+I to_iface_foreign(T&& v) {
+    using D = std::remove_cv_t<std::remove_reference_t<T>>;
+    if constexpr (std::is_pointer_v<D> && !std::is_void_v<std::remove_pointer_t<D>> &&
+                  !std::is_function_v<std::remove_pointer_t<D>>) {
+        using E = std::remove_pointer_t<D>;
+        return to_iface<I>(cptr<E>(v), foreign_td<cptr<E>>());
+    } else {
+        return to_iface<I>(std::forward<T>(v), foreign_td<T>());
+    }
 }
 
 // unbox<T>(x): the value that x holds, whose dynamic type is the Go type of T (checked by the

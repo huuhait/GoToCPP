@@ -260,6 +260,18 @@ func (k *checker) walkScope(d astNode, scope string) {
 			k.walkScope(c, scope+"::"+d.Name)
 		}
 	case "CXXRecordDecl", "ClassTemplateSpecializationDecl", "ClassTemplatePartialSpecializationDecl":
+		if scope+"::"+d.Name == "gp::error" {
+			// The predeclared error type is an interface struct like the ones the emitter writes
+			// for Go's interface types (gocpp/error.hpp): its member Error is the Go method, as a
+			// generated struct's is. No Go type is built on it (an embedded error is a field, a named
+			// interface type is a struct of its own over gp::iface), so nothing can clash. It may
+			// have that one plain member and no other.
+			before := len(k.bad)
+			k.checkRecord(d, scope+"::"+d.Name)
+			rest := slices.DeleteFunc(slices.Clone(k.bad[before:]), func(m string) bool { return m == "gp::error::Error" })
+			k.bad = append(k.bad[:before], rest...)
+			return
+		}
 		k.checkRecord(d, scope+"::"+d.Name)
 	case "ClassTemplateDecl":
 		// The template itself; its instantiations repeat its members.

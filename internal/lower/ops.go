@@ -181,12 +181,22 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.
 		return fg.infix(x, "&&", y)
 	case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ:
 		a, b := fg.expr(x), fg.expr(y) // first, so that an operand's own error comes first
+		if (op == token.EQL || op == token.NEQ) && (isInterface(fg.typeOf(x)) || isInterface(fg.typeOf(y))) {
+			// x == nil is x == nullptr; two interface values compare with the runtime's == (the operand
+			// that is not an interface was converted to one: noteConversions).
+			switch {
+			case fg.g.info.Types[y].IsNil():
+				b = lit("nullptr")
+			case fg.g.info.Types[x].IsNil():
+				a = lit("nullptr")
+			}
+			return &cppir.Binary{Op: op.String(), X: at(a, precShift), Y: at(b, precShift)}
+		}
 		if (op == token.EQL || op == token.NEQ) && (isPointer(fg.typeOf(x)) || isPointer(fg.typeOf(y)) ||
 			isUnsafePointer(fg.typeOf(x)) || isUnsafePointer(fg.typeOf(y)) ||
 			isSlice(fg.typeOf(x)) || isSlice(fg.typeOf(y)) || isArray(fg.typeOf(x)) ||
 			isMap(fg.typeOf(x)) || isMap(fg.typeOf(y)) || isStruct(fg.typeOf(x)) ||
-			isFunc(fg.typeOf(x)) || isFunc(fg.typeOf(y)) || isWeakPointer(fg.typeOf(x)) ||
-			fg.nilIface(x, y)) {
+			isFunc(fg.typeOf(x)) || isFunc(fg.typeOf(y)) || isWeakPointer(fg.typeOf(x))) {
 			// p == q compares the addresses, p == nil is p == nullptr (gp::ptr's ==; C++20
 			// writes != and nil == p from it). A slice or a map compares only with nil:
 			// s == nullptr, and so does a func (step 3.11). Arrays compare their elements (gp::array's ==), structs their
@@ -462,7 +472,6 @@ func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 	}
 	t := fg.g.info.TypeOf(arg)
 	b := basicOf(t)
-	tname := types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))
 	switch name {
 	case "len", "cap":
 		// len and cap of an array, or of a pointer to one, are N: a constant unless the
@@ -486,12 +495,13 @@ func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 		if fg.g.info.Types[arg].IsNil() {
 			return call("gp::panic", lit("nullptr")) // panic(nil): *runtime.PanicNilError (Go 1.21)
 		}
-		if isEmptyInterface(t) {
-			return call("gp::panic", fg.expr(arg)) // an any: the panic's value is the interface itself
+		if isInterface(t) {
+			return call("gp::panic", fg.expr(arg)) // an interface value: the panic's value is it
 		}
 		if b == nil {
-			fg.g.unsupported(c.Pos(), "panic with a value of type "+tname+" (Phase 05)")
-			return placeholder
+			// Any other value is converted to an any, as Go does (iconv.go).
+			anyT := types.Universe.Lookup("any").Type()
+			return call("gp::panic", fg.g.toInterface(t, anyT, fg.exactExpr(arg), arg.Pos()))
 		}
 		// gp::panic is a template: the value needs its Go type, which decides how it prints
 		// (panic(1.5) prints +1.500000e+000). A constant is gp::panic_constant, and int64,
@@ -533,6 +543,10 @@ func (fg *funcGen) conversion(c *ast.CallExpr, to types.Type) cppir.Expr {
 	}
 	arg := c.Args[0]
 	from := fg.g.info.TypeOf(arg)
+	if isInterface(to) {
+		// T(x) to an interface type: any(1), Shape(r), error(e) (iconv.go)
+		return fg.interfaceConversion(c, to, from)
+	}
 	if isNewtype(to) || isNewtype(from) {
 		return fg.namedConversion(c, to, from) // step 3.9, named.go
 	}

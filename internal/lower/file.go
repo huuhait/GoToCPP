@@ -136,6 +136,18 @@ type gen struct {
 	// conversion for, with the type (named.go: noteConversions).
 	implicit map[ast.Expr]types.Type
 
+	// ifaces are the interface structs of the package (ifaces.go), descs the type descriptors
+	// (typedesc.go).
+	ifaces *ifaceTable
+	descs  *descTable
+
+	// commaOKFlags are the ok variables of v, ok := x.(T) with a C/C++ type T (cguard.go).
+	commaOKFlags map[types.Object]bool
+
+	// localTags are the unique tags of the types declared in functions that have no struct
+	// (canon.go: localTag).
+	localTags map[*types.TypeName]string
+
 	// lits are the numbers of the func literals in their functions (closures.go: numberLits).
 	lits map[*ast.FuncLit]int
 

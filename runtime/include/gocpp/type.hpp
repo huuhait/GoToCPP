@@ -69,9 +69,11 @@
 // function-local types made unique (two types named L in two functions are two types); the
 // type arguments of an instantiated generic type spelled canonically too; a single space after
 // each comma ("func(net/url.Values, ...string) (int, error)"); a C type as spelled in the
-// source, "C.int". types.TypeString does NOT do this (it keeps names, byte, any and aliases,
-// and prints two local types alike): a Go-side canonicaliser with a test for each rule is part
-// of step 5.4, and until then the text is only as good as the emitter's. The same text must be
+// source, "C.int" (the emitter doesn't write those yet: an interface method with a C/C++ type
+// is a compile error, and a method of a type with one is left out of its table). types.TypeString
+// does NOT do this (it keeps names, byte, any and aliases, and prints two local types alike):
+// internal/lower/canon.go does, with a test for each rule against %T of real Go and
+// types.Identical. The same text must be
 // in the interface and in the type that has the method (it is the one place where a mistake
 // shows as a missing method at run time instead of a compile error). Two methods match when the
 // name, the package and the text are equal, so `Get() C.int` never matches `Get() C.double`, which
@@ -85,8 +87,10 @@
 // struct with an embedded field.
 //
 // What the descriptors don't have yet, and where it goes:
-//   - Equality and hashing of INTERFACE values (kind Interface: gp_equal and gp_hash are
-//     null), and the panics of an uncomparable or unhashable dynamic type: step 5.6.
+//   - The hooks of the descriptor of an INTERFACE type (kind Interface: gp_equal and gp_hash are
+//     null, they are never the type of a value). The == and the hash of interface VALUES, with
+//     the panics of an uncomparable or unhashable dynamic type, are gp::iface's own
+//     (gocpp/iface.hpp, runtime/src/ifaceconv.cpp); step 5.6 completes the rules.
 //   - The format hook for fmt's %v, the foreign descriptors' printing, and Go's %T names of
 //     C numbers: step 5.11. gp_ext is the slot for it and for Phase 09's reflect extensions
 //     (the field offsets, accessors, the zero value).
@@ -634,9 +638,9 @@ const type_desc* td_struct(std::initializer_list<field_desc> fields, method_tabl
 // spacing: `interface { Close() error; Read([]uint8) (int, error) }`. Two identical types
 // (types.Identical) have one name, whatever way they were written (`interface{ io.Reader;
 // Close() error }` and `interface{ Close() error; Read(p []byte) (int, error) }`; `M(MyInt)`
-// and `M(int)` for an alias). The Go-side canonicaliser of step 5.4 must produce both this
-// name and the signature texts, and be tested against %T of a real Go program (a corpus of
-// about 30 types is in the review notes of step 5.1-5.3).
+// and `M(int)` for an alias). The Go-side canonicaliser (internal/lower/canon.go, step 5.4)
+// produces both this name and the signature texts, and canon_test.go compares them with %T of a
+// real Go program (about 100 types).
 //
 // The emitter must ALWAYS pass the name, at every site. The first call creates the descriptor
 // and its name (without a name, one is composed from the methods' signature texts, which has
@@ -659,7 +663,14 @@ struct foreign_holder {
     type_desc gp_desc;
     foreign_holder() : gp_name(cxx_name_of<U>()), gp_desc(with_cxx<U>(shape_basic(kind::Foreign))) {
         gp_desc.gp_name = gp_name.c_str();
+        if (gp_desc.gp_equal != nullptr && gp_desc.gp_hash == nullptr) {
+            // A C++ type with == and no std::hash: one hash for all its values, so that it is
+            // still a map key (any) of Go's rules: equal values are one key. The map is then a
+            // list for such keys (slow for many, correct).
+            gp_desc.gp_hash = &constant_hash;
+        }
     }
+    static std::size_t constant_hash(const void*) { return 0; }
 };
 
 template <typename U>

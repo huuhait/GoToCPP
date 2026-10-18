@@ -113,6 +113,10 @@ func (fg *funcGen) fmtCall(c *ast.CallExpr, fn *types.Func, callee string) cppir
 // copied to the heap, gp::fmtshim::heap(gp::new_<A>(a)), not by value on the C++ stack (D24).
 func (fg *funcGen) fmtArg(e ast.Expr) cppir.Expr {
 	t := fg.g.info.TypeOf(e)
+	if t != nil && holdsIface(t) && !isInterface(t) {
+		fg.g.unsupported(e.Pos(), "printing a value that holds an interface with fmt (step 5.11)")
+		return placeholder
+	}
 	x := fg.exactExpr(e)
 	if (isArray(t) || isStruct(t)) && largeVar(t) {
 		x = call("gp::fmtshim::heap", largeBox(fg.g.cxxType(t, e.Pos()), x)) // arrays.go
@@ -127,6 +131,12 @@ func (fg *funcGen) fmtArg(e ast.Expr) cppir.Expr {
 // printArgs returns the C++ of the arguments of the builtin print or println: each with its
 // exact type (exactExpr), a C/C++ value through gp::cgo::print_arg.
 func (fg *funcGen) printArgs(args []ast.Expr) []cppir.Expr {
+	for _, a := range args {
+		if t := fg.g.info.TypeOf(a); t != nil && isInterface(t) {
+			fg.g.unsupported(a.Pos(), "printing an interface value with the builtin print (Go prints its words)")
+			return nil
+		}
+	}
 	xs := fg.exprs(args, true)
 	for i, a := range args {
 		if t := fg.g.info.TypeOf(a); t == nil || hasC(t) {
