@@ -18,12 +18,12 @@
 - [ ] 5.5 Assertions + type switches (Go's exact panic messages, incl. nil cases)
 - [ ] 5.6 Interface `==`, nil rules, hashing (`map[any]V`)
 - [ ] 5.7 `any`, `error`, `stdlib/errors` (`New`, `Is`, `As`, `Unwrap`, `Join`)
-- [ ] 5.8 Embedding
-  - [ ] promoted fields via selection paths
-  - [ ] promoted methods (aliasing pointers into embedded fields)
-  - [ ] fully qualified field types (`::gpkg_main::Base Base;`)
-  - [ ] forwarding member functions + forwarding thunks
-  - [ ] embedded pointers (nil checks) and embedded interfaces
+- [~] 5.8 Embedding
+  - [x] promoted fields via selection paths
+  - [x] promoted methods (aliasing pointers into embedded fields)
+  - [x] fully qualified field types (`::gpkg_main::Base Base;`)
+  - [x] forwarding member functions (the thunks come with job/05-5.8-iface)
+  - [x] embedded pointers (nil checks); [ ] embedded interfaces (job/05-5.8-iface)
 - [ ] 5.9 Method values / expressions on interfaces
 - [x] 5.10 panic/recover
   - [ ] two entry points for functions containing `recover()` (carried by `gp::func` and thunks)
@@ -86,3 +86,15 @@
   are tested at C++ level only (`go` not lowered); a function with `recover()` AND `defer recover()` that is itself a deferred
   call of a panic recovers in Go but not here (TODO); fmt of a panicking String() method prints print-format floats (5.11);
   `defer f(g())` with g returning several values and f an aware func value: recover returns nil; cross-package aware funcs (Phase 06).
+- 2026-10-18: Job 5.8 (embedding), NON-interface half, merged after two review rounds. The interface half (promoted methods in method
+  tables/itabs, embedded interfaces; branch job/05-5.8-iface) is cherry-picked after 5.4/5.5; then 5.8 gets its [x]. Decisions:
+  (1) forwarders are emitted only for structs whose method table needs them (`fwdNeed`, set by the descriptors' tables; none on
+  the non-interface branch) or with `Config.AllForwarders` (tests): the iface branch's `tables()` calls `needForwarders`; its test
+  must mark forwarders LATE without AllForwarders to exercise the name hiding (reviewer nit A2); (2) the forwarder is a const member
+  when the method is in T's METHOD SET and a static member taking gp::ptr<T> when only *T has it (by method-set membership, not
+  receiver kind: 5.4 uses `vset.Lookup`); (3) promotion from ONE embedded C/C++ type works now (Phase 12 for several); a Go member and
+  a C/C++ member at the same or a shallower depth is a gate ('name the field'), also a conservative false gate when the C++ type has
+  no such member (`m.ID` from Meta next to an embedded std.vector must be written `m.Meta.ID`); method EXPRESSIONS on promoted C/C++
+  members are gated; (4) a store into a promoted pointer member through a gocpp pointer uses store_keep; through a value or an
+  embedded pointer the error names the explicit path; (5) structs with an interface field need hashing (5.4/5.5 wrote a minimal 5.6);
+  (6) the aware obligation of 5.10 applies to promoted thunks too.
