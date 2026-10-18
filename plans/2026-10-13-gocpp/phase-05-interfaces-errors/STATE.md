@@ -32,7 +32,7 @@
   - [ ] nested panic chain + exact output (re-panic, `panic(nil)`, addresses masked in tests)
   - [ ] `runtime.Error` values for runtime panics
   - [ ] C++ exceptions → `gp::CppException` panics
-- [ ] 5.11 `fmt` on `any` (basic verbs, `Stringer`, `error`, `%T`, `%+v`, foreign values); remove `fmtshim`
+- [x] 5.11 `fmt` on `any` (basic verbs, `Stringer`, `error`, `%T`, `%+v`, foreign values); remove `fmtshim`
 - [ ] 5.12 Lift the Phase 01 gates; update the feature matrix
 - [ ] 5.13 Tests: ≥ 80 run + differential vs Go (nil gotcha, `int`/`int64`/channel directions, every `recover` route, re-panic, defer order, C++ exception recovery)
 
@@ -137,3 +137,17 @@
   not a real file) and a debugger has no source for generated std lines; (4) `type_desc` is 192 bytes (was 184); hello+interface+fmt
   binary +45 KB; (5) go-to-definition into std packages returns nothing in the LSP (hover works); (6) test files must not have trailing-
   space output lines; (7) 5.11 (fmt) reconciles: Errorf currently builds runtime-defined `*errors.errorString`, `*fmt.wrapError(s)`.
+- 2026-10-18: Job 5.11 (fmt on any) merged after two review rounds (ADR-028). Decisions: (1) descriptors: a named composite descriptor stays PARTIAL
+  and constant-initialized and points at `gp_full` (emitted function, builds the complete copy once; static in each package's pkg_desc.cpp);
+  `type_desc::gp_ops` (typeops.hpp) reads slices/maps/pointers/funcs/chans and classifies C/C++ values; (2) fmt is still a SHIM PACKAGE with no
+  C++ of its own: Phase 09 may convert it to a real package with `//gocpp:native` (stringer/state interfaces declared in Go, Errorf calling
+  errors.New); Errorf returns runtime-defined `*errors.errorString`, `*fmt.wrapError`, `*fmt.wrapErrors` (names as Go's); (3) a final
+  `a...` is `gp::fmt::spread(a)`; (4) the runtime is built with -ffunction-sections -fdata-sections and linked with --gc-sections (not darwin):
+  a Windows/lld link has NOT been run (check in Phase 14); (5) `%T` of a const char* C value is `char*` (foreign descriptors drop the pointee
+  const); an unregistered C++ class inside an `any` prints the address of its box; an exception from operator<< prints `%!v(PANIC=String
+  method: C++ exception ...)`; (6) Fprint* accepts os.Stdout, os.Stderr, fmt.State: any other writer is 'not available yet (package io:
+  Phase 09)'; `go fmt.Fprintln(os.Stdout, ...)` as a go statement is unsupported (structs.go:248 'this qualified name': check if it predates
+  5.11); (7) known limits: deep Sprint nesting overflows between 10k and 20k levels at -O0 (Go handles 100k+); a String method editing the
+  caller's spread slice mid-call is not seen; map[any] mixed-type group order differs (unspecified in Go); hello text with fmt +~100 KB,
+  println-only hello is now BELOW dev; (8) tests: tools/fmtcorpus/ generates Go outputs (README inside); fmt_quote_whole_range takes ~6 s
+  per compiler; (9) removed the shim's C++ differential test (fmt_diff.cpp + fmtdiff testdata): its behaviour is covered by tests/run/fmt_*.
