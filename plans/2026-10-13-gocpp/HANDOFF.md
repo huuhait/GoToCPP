@@ -114,3 +114,12 @@ runtime: confirmation review), 11.8/11.9 (language server: confirmation review),
 downloads) just started. Decisions Q16/Q17 (TODO.md): libraries from the internet are built NOW; local headers import by the
 project's module path like Go packages (`import "github.com/huuhait/project/native/x.h"`). Next after 6.1b: 6.1d (read and build
 the `cxx` recipes).
+
+## Update 2026-10-17 (late)
+
+`dev` also has 11.8/11.9, 8.1/8.15, 6.1b and 6.1c (downloads, ADR-023). Full verification of dev at e098b21: staticcheck green;
+`make ci` and the Phase 04 interop tests (normal and ASan) had one REAL failure, fixed afterwards (TestFatal/stack-overflow in
+internal/cppgen: 8.1's new `goroutine 1 [running]:` line; the coder of 8.1 had not run that package: lesson: a change to the
+runtime's fatal-error output needs `go test ./internal/cppgen` too) and timing failures that pass alone (TestOrderLarge, two interop
+tests at the 2-minute limit under load 365, the fmt speed check now a ratio). In flight: 4.10 (review round 4 found a lost owner when
+a raw member is READ; coder adding `load_keep`, the free path, slice/struct owners), 6.1d (cxx recipes, coder running).
