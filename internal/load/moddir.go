@@ -3,17 +3,19 @@ package load
 import (
 	"errors"
 	"path/filepath"
+
+	"github.com/huuhait/gocpp/internal/modfetch"
 )
 
 // Where a module is when it is neither replaced by a local folder nor
-// vendored (Phase 06 step 6.1b prepares what job 6.1c fills in).
+// vendored: the module cache (Phase 06 jobs 6.1b and 6.1c).
 //
-// resolveRequire (modules.go) asks moduleDir for the folder of such a
-// module. Job 6.1c (module downloads: the tagged archive, gocpp.sum, the
-// read-only module cache) provides the real function behind this hook, by
-// replacing the body of moduleDir below or by setting Config.ModuleDir:
+// resolveRequire (modules.go) asks the module directory function for the
+// folder of such a module. By default it is modfetch.Dir (job 6.1c: the
+// tagged archive, gocpp.sum, the read-only module cache); Config.ModuleDir
+// replaces it, for the tests of the loader and of the recipes:
 //
-//	func moduleDir(path, version string) (dir string, err error)
+//	func(path, version string) (dir string, err error)
 //
 //   - path is the module path of the require line (or the new path of a
 //     replace line that is not a local folder), version its version;
@@ -23,38 +25,36 @@ import (
 //     the loader never writes to it;
 //   - err says why the module is not available: the loader reports it
 //     with the module, the version and the import that needs it. A
-//     function that can't download returns ErrNoDownload (or an error that
-//     wraps it): the loader adds the hint to replace or vendor the module.
+//     function that can't download may return ErrNoDownload (or an error
+//     that wraps it): the loader adds the hint to replace or vendor the module.
 //
 // The loader calls it once for each module (and version) per load.
 
 // ErrNoDownload is the error of a module that is not in a local folder and
-// that gocpp can't fetch (yet).
+// that a ModuleDirFunc can't fetch. (The default function, modfetch.Dir,
+// has errors of its own that say what is wrong.)
 var ErrNoDownload = errors.New("gocpp can't download modules yet")
 
 // ModuleDirFunc is the type of moduleDir and of Config.ModuleDir.
 type ModuleDirFunc func(path, version string) (dir string, err error)
 
-// moduleDir is the default of Config.ModuleDir. It is a stub until job
-// 6.1c: no module is downloaded.
-func moduleDir(path, version string) (dir string, err error) {
-	return "", ErrNoDownload
-}
-
 // moduleDirFunc returns the function that finds the folder of a module that
-// is neither replaced by a local folder nor vendored.
-func (l *loader) moduleDirFunc() ModuleDirFunc {
+// is neither replaced by a local folder nor vendored: Config.ModuleDir, or
+// by default the module cache of internal/modfetch (the download, gocpp.sum,
+// GOCPP_OFFLINE and the other environment variables of docs/spec/modules.md),
+// with the gocpp.sum file of the main module in mainDir.
+func (l *loader) moduleDirFunc(mainDir string) ModuleDirFunc {
 	if l.cfg.ModuleDir != nil {
 		return l.cfg.ModuleDir
 	}
-	return moduleDir
+	return func(path, version string) (string, error) { return modfetch.Dir(mainDir, path, version) }
 }
 
 // downloadedModule returns the module path@version from moduleDir, or the
 // reason why it is not available. hint is added to the message of
 // ErrNoDownload.
-func (l *loader) downloadedModule(path, version, hint string) (*Module, error) {
-	dir, err := l.moduleDirFunc()(path, version)
+func (l *loader) downloadedModule(mainDir, path, version, hint string) (*Module, error) {
+	dir, err := l.moduleDirFunc(mainDir)(path, version)
 	if err != nil {
 		return nil, wrapNoDownload(err, hint)
 	}

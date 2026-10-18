@@ -147,7 +147,7 @@ func (l *loader) find(from *Package, path string) (location, string) {
 		if !l.isDir(dir) {
 			return location{}, fmt.Sprintf("package %s is not in module %s (%s)", path, mod.Path, dir)
 		}
-		if m := l.module(dir); !mod.Vendored && !mod.cached && (m == nil || m.Dir != mod.Dir) {
+		if !mod.Vendored && l.inOtherModule(mod, dir) {
 			// A gocpp.mod file between dir and the module root: dir is in
 			// another module, which the main module must require. The
 			// messages are go build's: for a pattern (from is no package

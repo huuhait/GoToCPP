@@ -48,9 +48,10 @@ var commands = []command{
 	{name: "env", phase: 6, summary: "print the C++ compiler, cache dir and flags"},
 	{name: "list", phase: 6, summary: "list packages, like go list"},
 	{name: "clean", phase: 6, summary: "remove object files and cached files"},
-	{name: "get", phase: 15, summary: "add dependencies to gocpp.mod and download them"},
+	{name: "get", phase: 6, summary: "add dependencies to gocpp.mod and download them", run: runGet},
 	{name: "bindgen", phase: 12, summary: "write a readable gocpp view of a C/C++ header"},
 	{name: "export", phase: 6, summary: "write build files for other tools (cmake)"},
+	{name: "mod", phase: 6, summary: "download, verify and vendor modules", run: runMod},
 	{name: "parse", phase: 1, summary: "print the syntax tree of .gp files (for debugging)", run: runParse},
 	{name: "version", phase: 0, summary: "print the gocpp version", run: runVersion},
 }

@@ -1,0 +1,2 @@
+# example.com/hdr v1.2.0
+## explicit

@@ -46,6 +46,12 @@ instead of stopping at the first one, keeps unknown statements and brace blocks,
 back (`Format`). Switching to `x/mod/modfile` later is possible: the syntax tree is close to its shape.
 See [docs/spec/modules.md](../spec/modules.md).
 
+## Update (job 6.1c, 2026-10-17)
+
+Downloads are no longer a Phase 15 item: they are built in job 6.1c, from git-host archives and not through a
+Go proxy, with the `gocpp.sum` format and `h1:` hashes of Go and the module cache in the user's cache folder
+(`GOCPP_MODCACHE`). See [ADR-023](023-module-downloads.md). Minimal version selection is still not built.
+
 ## Alternatives
 
 - **A new module format** (rejected): one more format to learn, while `go.mod` syntax fits and

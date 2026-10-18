@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/huuhait/gocpp/internal/lsp/server"
+	"github.com/huuhait/gocpp/internal/modfetch"
 )
 
 // lspUsage is the help text of "gocpp lsp". "gocpp lsp -h" prints it,
@@ -64,6 +65,8 @@ func runLSP(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// end of its input. (SIGPIPE exists in package syscall on Windows too,
 	// where this does nothing.)
 	signal.Ignore(syscall.SIGPIPE)
+	modfetch.SetOffline(true) // an editor never starts a module download
+	defer modfetch.SetOffline(false)
 	flags := flag.NewFlagSet("gocpp lsp", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	logfile := flags.String("logfile", "", "append the log to `file`, not to standard error")

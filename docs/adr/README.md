@@ -34,6 +34,7 @@ and from the user's answers to Q1–Q13
 | [020](020-modules-gocpp-mod.md) | Modules use a `gocpp.mod` file in `go.mod` syntax | accepted | `replace` and `vendor/` first; downloads with minimal version selection in Phase 15. |
 | [021](021-platforms-linux-windows.md) | The platforms are Linux and Windows (MinGW-w64 first) | accepted | Linux first, Windows before v1.0; MSVC ABI later; no macOS. |
 | [022](022-shadowed-names.md) | Shadowed variables keep their Go names in C++ | accepted | A shadowing declaration opens a C++ block; supersedes ADR-010's `v := v` row. |
+| [023](023-module-downloads.md) | Modules are downloaded from git hosts, with hashes in `gocpp.sum` and trust on first use | accepted | Tag or commit archives from GitHub, GitLab and Codeberg (or `GOCPP_MODURL`), Go's `h1:` tree hash, no checksum database yet. |
 
 ## Changing a decision
 

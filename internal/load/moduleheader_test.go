@@ -185,10 +185,10 @@ func TestModuleHeaderRequired(t *testing.T) {
 		prog = loadIn(t, cfg, filepath.Join(root, "app"), ".")
 		wantErrors(t, prog, root, "# example.com/app\napp/main.gp:4:2: header example.org/lib/lib.h: module example.org/lib@v1.2.3 is required, "+
 			"but is not available: permission denied\n")
-		// The default hook downloads nothing yet.
+		// The default hook is modfetch.Dir: the tests have no module cache folder.
 		prog = loadIn(t, Config{}, filepath.Join(root, "app"), ".")
 		wantErrors(t, prog, root, "# example.com/app\napp/main.gp:4:2: header example.org/lib/lib.h: module example.org/lib@v1.2.3 is required, "+
-			"but is not available: gocpp can't download modules yet (replace it with a local folder: replace example.org/lib => ../dir, or vendor it)\n")
+			"but is not available: no module cache folder (set GOCPP_MODCACHE)\n")
 		// A hook that returns a folder that is not there.
 		cfg.ModuleDir = func(path, version string) (string, error) { return filepath.Join(root, "gone"), nil }
 		prog = loadIn(t, cfg, filepath.Join(root, "app"), ".")

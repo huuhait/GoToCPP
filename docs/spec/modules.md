@@ -8,16 +8,16 @@ path becomes a folder.
 
 | | |
 |---|---|
-| Status | v0, written with [Phase 06 step 6.1](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#3-steps): the file, the module root, `require`, `replace` and `vendor/` with **local folders only**. Building more than one package is steps 6.2 to 6.7 |
-| Source | [ADR-020](../adr/020-modules-gocpp-mod.md), [Phase 06 §2.1](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#21-the-module-file-gocppmod), [Phase 01 §2.6](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#26-package-loading-and-the-importer) |
-| Code | `internal/load` (`modules.go`, `resolve.go`) and `internal/load/gocppmod` (the file format) |
+| Status | v0, written with [Phase 06 step 6.1](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#3-steps): the file, the module root, `require`, `replace` and `vendor/`; and with job 6.1c: **module downloads** (`gocpp get`, the module cache, `gocpp.sum`, `gocpp mod vendor`, see [Downloads](#downloads)). Building more than one package is steps 6.2 to 6.7; reading the `cxx` recipe of a C/C++ library and importing its headers by module path are jobs 6.1d and 6.1b |
+| Source | [ADR-020](../adr/020-modules-gocpp-mod.md), [ADR-023](../adr/023-module-downloads.md), [Phase 06 §2.1](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#21-the-module-file-gocppmod), [Phase 01 §2.6](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#26-package-loading-and-the-importer) |
+| Code | `internal/load` (`modules.go`, `resolve.go`), `internal/load/gocppmod` (the file format) and `internal/modfetch` (downloads) |
 | See also | [language.md](language.md) ([D11](language.md#d11-gocpp-directives-instead-of-cgo-lines)), [interop.md](interop.md) |
 
-**Not here yet:** downloading modules (`gocpp get`, a module cache, `gocpp.sum`, version selection;
-Phase 15), and C and C++ libraries as modules with a build recipe
-([Phase 06 §2.11](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#211-c-and-c-libraries-from-the-internet-your-decision-2026-10-13)).
-A module that is required but is neither replaced by a local folder nor vendored is an error that
-says so. Nothing in this step touches the network.
+**Not here yet:** version selection (only the main module's `require` lines count, so every module a
+program imports must be listed), the checksum database, and C and C++ libraries as modules with a build
+recipe ([Phase 06 §2.11](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#211-c-and-c-libraries-from-the-internet-your-decision-2026-10-13);
+jobs 6.1b and 6.1d). A module that is required and neither replaced by a local folder nor vendored is
+downloaded, as [Downloads](#downloads) says.
 
 ## The file
 
@@ -157,8 +157,8 @@ check them all, with `load.ListModules`.
 
 A `replace` line with a version replaces only that version of the module; one without a version
 replaces every version, and the more specific line wins. A replacement that is another module with a
-version (`replace a => b v1.0.1`) is read, but cannot be used until the module downloads exist: gocpp can not
-download it yet. The error says so.
+version (`replace a => b v1.0.1`) is downloaded as `b@v1.0.1` (with its own line in `gocpp.sum`) and its files
+are the module `a`; `gocpp mod vendor` can't vendor such a replacement yet.
 
 A package of a replaced module has the replaced module as its module, with the version of the
 `require` line.
@@ -166,8 +166,8 @@ A package of a replaced module has the replaced module as its module, with the v
 ### `vendor/`
 
 If the main module has the file `vendor/modules.txt`, it is **vendored**: every required module is
-taken from `vendor/<module path>/` (its packages, without the module's `gocpp.mod`), also a replaced
-one, and nothing is read from the replacement folders, so a vendored project builds without the
+taken from `vendor/<module path>/` (its files, as `gocpp mod vendor` copied them; a `gocpp.mod` in the
+folder is not used), also a replaced one, and nothing is read from the replacement folders, so a vendored project builds without the
 other checkouts. A `vendor` folder **without** `modules.txt` is not vendoring: C and C++ projects often
 keep third-party sources in a folder of that name, and gocpp leaves it alone.
 
@@ -200,8 +200,183 @@ A folder in `vendor/` that is loaded by its path, as the language server loads e
 vendoring is on and consistent, not `example.com/app/vendor/example.com/lib/sub`.
 
 Every import of a required module then fails with a short message that points to those errors. The
-check runs when a package first imports a required module. The `gocpp mod vendor` command that writes
-the folder comes with the module downloads.
+check runs when a package first imports a required module. `gocpp mod vendor` writes the folder
+([below](#gocpp-mod-vendor)).
+
+## Downloads
+
+A required module with no `replace` line and no `vendor/modules.txt` is downloaded when a package imports
+it (job 6.1c, [ADR-023](../adr/023-module-downloads.md)). The modules are **plain repositories on a git
+host**, as C and C++ libraries are: no gocpp file is needed in them (if there is a `gocpp.mod`, its `module`
+line must name the module). What happens for `require github.com/ocornut/imgui v1.91.5`:
+
+1. **Where from.** The module path says the repository: `github.com/owner/repo`, `gitlab.com/owner/repo`
+   and `codeberg.org/owner/repo` (the first three elements), anything after them is a folder of the module in
+   the repository (its tags are `folder/vX.Y.Z`, as in Go); `host/group/sub/repo.git/folder` names a
+   repository with more path elements (GitLab subgroups). A last element `/v2` (up to any number) is a major
+   version suffix, as in Go: the version must be `v2.x.y`. A path with no `/vN` accepts any major version (C
+   libraries have `v3.4.0` and no `/v3` path). The version is the tag `vX.Y.Z` (also tried as `X.Y.Z`, many C
+   libraries tag with no `v`), or a **pseudo-version** `v0.0.0-yyyymmddhhmmss-commit12` (`vN.0.0-...` for a path that ends in `/vN`), the commit that
+   starts with those 12 hex digits (for libraries with no tags, such as `github.com/nothings/stb`). The
+   archive URLs are `https://github.com/o/r/archive/refs/tags/<tag>.tar.gz` (and `.../archive/<commit>.tar.gz`),
+   `https://gitlab.com/o/r/-/archive/<tag>/r-<tag>.tar.gz` and `https://codeberg.org/o/r/archive/<tag>.tar.gz`.
+2. **Download** over HTTPS (TLS is always verified; plain `http://` is refused, also as a redirect) of the
+   archive into a temporary file, with a User-Agent `gocpp/<version> (modfetch)`, at most 5 redirects, a
+   limit of 512 MiB for the archive and 10 minutes for the transfer, and 3 tries for the answers 429, 502,
+   503 and 504. A 404 or 410 tries the next URL or source; any other answer is an error. Credentials
+   (`GOCPP_MODAUTH`) go to their own host only, not to the host of a redirect.
+3. **Extract** the `tar.gz` or `zip` (the format is found from the first bytes, not from the URL) with the
+   [checks below](#security-model). The archive must be one folder (`<repo>-<ref>/`), which is stripped.
+4. **Hash** the files with Go's `h1:` directory hash, as `go.sum` has it: the SHA-256 of the lines
+   `<sha256 of the file>  <module>@<version>/<name>` for every file, sorted by name, in base64. File modes,
+   times and empty folders do not count. A module with a `gocpp.mod` has a second hash, of that file alone.
+5. **Check and record** the hash in `gocpp.sum` ([below](#gocppsum)).
+6. **Cache**: the files become read-only (`0444`, `0555` for an executable, folders `0555`; setuid, setgid and
+   sticky bits are never set) and the folder is moved into the module cache in one rename.
+
+The loader then uses the cache folder as the module folder. It prints `gocpp: downloading github.com/x/y
+v1.2.3` on standard error when it downloads, and nothing when the module is in the cache. The language
+server never downloads and never writes `gocpp.sum` (`modfetch.SetOffline`, which nests for several servers in one process): a module that is not in the cache is an error there, and the message says to run `gocpp mod download`. `gocpp check` and `gocpp build` may download; `load.ListModules` looks in the cache only (`modfetch.LookupDir`): it never downloads and never writes `gocpp.sum`.
+
+### Commands
+
+```text
+gocpp get [module[@version] ...]     add or upgrade require lines, download, record hashes
+gocpp mod download [module ...]      download what gocpp.mod requires
+gocpp mod verify                     hash the cache (or vendor/) again and compare with gocpp.sum
+gocpp mod vendor [-v]                write vendor/ for builds without a network
+```
+
+`gocpp get github.com/ocornut/imgui` asks the repository for its tags with git's smart HTTP
+(`<repo>.git/info/refs?service=git-upload-pack`, which every git host serves, with no token and no API) and
+picks the version from the **query** after `@`:
+
+| Query | Version |
+|---|---|
+| none, `latest` | the highest release tag; a prerelease only if there is no release; no version tags at all: the head of the default branch as a pseudo-version |
+| `v1.2.3` | that version, with no listing (also a pseudo-version) |
+| `v1`, `v1.2` | the highest tag of that line |
+| a branch or tag name, a commit (7 to 40 hex digits) | the pseudo-version of that commit; its time is the commit time that the archive's files have |
+| `none` | remove the require line |
+
+`gocpp get` changes `gocpp.mod` (a `require` line is added, or changed in place; comments, unknown
+statements and `cxx` blocks stay as they are) only when every argument worked. With no argument it is
+`gocpp mod download`. It prints `gocpp: added github.com/x/y v1.2.3` or `upgraded ... v1 => v2` on standard
+error, and does not touch `vendor/` (it says so when there is one: run `gocpp mod vendor`). A `gocpp.mod` or `gocpp.sum` that is a symbolic link is not replaced (gocpp writes by renaming a new file over the old one): edit the file it points to.
+
+#### `gocpp mod vendor`
+
+Copies every required module, replaced (the local folder, without its own `vendor/`) or downloaded (the
+files of the cache, **all** of them: a C++ library needs its headers and sources, not only `.gp`
+packages), into `vendor/<module path>/`, and writes `vendor/modules.txt` in Go's format. The list of a
+module has its `.gp` packages (a folder with a `.gp` file that is not a `_test.gp` file, outside `testdata`,
+`vendor`, `.x` and `_x` folders and outside folders that have a `gocpp.mod`); a C-only module has none.
+Afterwards the copy of each downloaded module is hashed again against the cache, and the written
+`modules.txt` is checked against `gocpp.mod` (`gocppmod.CheckVendor`). The new folder is made next to
+`vendor/` and swapped in, so a failure leaves the old one. A `vendor/` folder with no `modules.txt` (not made
+by gocpp) is never replaced unless it is empty. `-mod=vendor` is automatic when `modules.txt` exists. A local `replace` folder is copied as it is (without its `.git` and its own `vendor/`): files in it that are not meant to be shared, such as `.env`, are copied too. A `.vendor-tmp-*` folder that a killed `mod vendor` left is removed by the next run when it is a day old.
+
+### `gocpp.sum`
+
+Next to `gocpp.mod` of the main module, in Go's format and with Go's hashes: one line for each module version,
+`module version h1:<base64>`, and for a module that has a `gocpp.mod`, `module version/gocpp.mod h1:<base64>`.
+The lines are sorted. Another gocpp that adds lines at the same time loses none (a lock, and the file is read
+again before it is written). A module that gocpp.sum lists is checked on every download and on every use of the
+cache (against the hash file that the cache keeps next to the module).
+
+- **First use is trusted.** A module that `gocpp.sum` does not list is downloaded and its hash is added.
+  `gocpp.sum` belongs in version control: from then on every machine checks against it. A build that records a hash says so on standard error (`gocpp: recorded github.com/x/y@v1.2.3 in gocpp.sum`). Use `GOCPP_MODFLAGS=-mod=readonly` in CI, so that a build never trusts a module that nobody reviewed.
+- **A mismatch is a security error**, never a warning:
+
+  ```text
+  SECURITY ERROR
+  github.com/x/y v1.2.3: checksum mismatch
+  	downloaded: h1:...
+  	gocpp.sum:  h1:...
+
+  This download does not match the checksum that gocpp.sum recorded the first time. ...
+  Nothing was added to the module cache.
+  ```
+
+  The module is not put into the cache, gocpp.sum is not changed, and the build stops. A cache that does not
+  match is reported in the same way and is not used.
+- **`GOCPP_MODFLAGS=-mod=readonly`** never writes `gocpp.sum`: a module that it does not list is an error
+  (`missing entry for ... run "gocpp mod download ..."`) before anything is downloaded. The commands
+  `gocpp get`, `gocpp mod download` and `gocpp mod vendor` always record, since the user asked for it.
+- There is no checksum database (Go's `sum.golang.org`): the first download is trusted. That is a known limit
+  of the design (see the ADR); a later job can add one.
+
+### The module cache
+
+```text
+$GOCPP_MODCACHE   (default: <user cache folder>/gocpp/mod, $XDG_CACHE_HOME/gocpp/mod on Linux)
+  github.com/ocornut/imgui@v1.91.5/     the files, read-only
+  github.com/ocornut/imgui@v1.91.5~h1   their hash, and the hash of gocpp.mod
+  github.com/!acme/!tiny@v1.0.0/        upper-case letters are written !lower-case, as in Go's cache
+  lock/                                 lock files, one for each module version
+```
+
+A module folder appears all at once: it is extracted into a hidden folder next to its final place, hashed,
+made read-only and renamed, so a gocpp that sees the folder can use it without a lock. Two gocpp processes that
+download the same module wait for each other with a file lock (the second finds the cache filled and does not
+download); if the file system has no file locks (NFS without lockd, FUSE, 9p, SMB: flock fails with ENOLCK, EOPNOTSUPP or ENOSYS) gocpp goes on without it and both download, and the rename has one winner
+whose hash the other checks. A failed or stopped download leaves nothing but hidden `.tmp-*` and `.dl-*`
+files, which the next download in the same folder removes when they are a day old. A cache folder that is
+read-only (a shared cache on a read-only mount) works for modules that are in it; a download needs a writable
+one. Files are read-only on purpose; `modfetch.CleanModCache(dir)` removes a whole cache (it makes the
+folders writable first); the command `gocpp clean -modcache` (step 6.12) will call it.
+
+### Environment variables
+
+| Variable | Meaning |
+|---|---|
+| `GOCPP_MODCACHE` | The module cache folder (an absolute path), or `off` for none (then a module must be vendored or replaced). Default: `gocpp/mod` in the user cache folder; with neither `$XDG_CACHE_HOME` nor `$HOME` there is none |
+| `GOCPP_OFFLINE=1` | Never use the network: a module that is not in the cache (or vendored) is an error that says so |
+| `GOCPP_MODFLAGS` | `-mod=readonly` (or `readonly`): do not write `gocpp.sum`; `-mod=mod`: the default |
+| `GOCPP_MODPROXY` | Where to download from, in order, like `GOPROXY`: URLs of mirrors, `direct`, `off`. `,` goes on after "not found" only, `\|` after any error. A mirror serves `<url>/<module path>/@v/<version>.tar.gz` (or `.zip`) and the list of versions `<url>/<module path>/@v/list`. Default: `direct` |
+| `GOCPP_MODURL` | Rules for direct downloads, separated by spaces: `[module-prefix=]value`. A value without `{` is a base URL that replaces `https://<host>` for the built-in layouts (a GitHub Enterprise or a mirror with the same URLs); a value with `{...}` is a template for the archive URL with the fields `{path} {root} {host} {repo} {name} {subdir} {version} {ref}` (`{ref}` is the tag or the commit). The first rule whose prefix matches is used. This is also how a module on another host is downloaded |
+| `GOCPP_MODAUTH` | Credentials, separated by spaces: `host=token` (a bearer token) or `host=user:password` (basic), for the exact host (with its port if the URL has one). Never sent anywhere else, not after a redirect |
+| `GOCPP_MODCACERT` | A PEM file of extra certificate authorities (a company CA); TLS is always verified |
+| `GOCPP_MODTIMEOUT` | The longest a download may take (a Go duration; default `10m`) |
+
+`HTTPS_PROXY` and `NO_PROXY` apply, as for every Go program. A variable that is malformed is an error, not
+ignored, and an error never shows a credential or a URL query.
+
+### Security model
+
+Downloaded code is **data** until the user builds it. gocpp never runs anything from a module: no script, no
+hook, no recipe step. (The `cxx` recipe of job 6.1d only lists sources, include folders and flags, and the flags
+go through the flag allow-list of [Phase 04 §2.9](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md);
+the `gocpp.mod` of a module is untrusted input, with the 16 MiB cap.) What the download defends against:
+
+- **A hostile archive** (an `ExtractError`, nothing is kept). Rejected: an absolute name; `..` in a name; a
+  backslash, a NUL or another control character, or a name that is not UTF-8; a name or a path that is too
+  long or too deep (1024 bytes, 255 for an element, 64 elements); an element called `.git`, also in the forms that Windows and macOS treat as `.git` (`.git.`, `.git `, `GIT~1`, `.git::$INDEX_ALLOCATION`, a `.git` with zero-width characters in it); combining marks (U+0300 to U+036F: the same name in the composed and the decomposed form is one file on macOS, so such a name is refused rather than extracted differently there); names that mean something special on Windows or in NTFS (a `:` in a name, a name that ends in a dot or a space, and the device names `CON PRN AUX NUL COM1-9 LPT1-9 CONIN$ CONOUT$` with or without an extension), refused on **every** system so that a module has the same files, and the same hash, everywhere (as Go's `module.CheckFilePath` does); a library that has such a file name can't be downloaded: vendor a fixed copy of it; **every symbolic
+  link and hard link** (a link may point out of the tree, and a safe subset is not worth the risk: a
+  library that has links needs a fork or a vendor copy), devices, FIFOs and other entry types; the same path
+  twice, two paths that differ only in case or in format characters, or in the long s and the Kelvin sign (they would clash on Windows and macOS), a file where another entry needs a
+  folder; more than one top-level entry; a file at the top level. Limits: 512 MiB downloaded, 2 GiB of
+  files, 256 MiB for a file, 200 000 entries. Every tar header counts against the entry limit (a repeated folder header, a `./` entry and a pax header too), the decompressed stream is cut at the sizes of the files plus a small allowance for each header, and the data that headers carry (pax records) is bounded by that allowance, so a small download can't make gocpp work for long or fill memory; the sizes in a header are not trusted. The zip central directory is read in full before its entry count is checked, which the 512 MiB limit of the download bounds. Ctrl-C cancels an extraction and a hash (the second Ctrl-C ends the process). Files are created with `O_EXCL` in a folder that nothing else uses.
+  The archive is read to its end, so a download that was cut off fails, also when only the gzip checksum is
+  missing.
+- **A changed module** (a moved tag, a compromised host or mirror): the hash in `gocpp.sum`.
+- **A man in the middle**: TLS with the system roots (plus `GOCPP_MODCACERT`), minimum TLS 1.2, `https` only.
+- **Leaked credentials**: sent to the configured host only, never after a redirect to another host.
+- **A broken cache**: a module folder is complete or absent. A use of the cache compares the hash file that the cache keeps next to the module with `gocpp.sum` (as Go does); it does not hash the files again, so a file that someone changes in the cache is found by `gocpp mod verify`, not by a build.
+
+What it does **not** defend against: a module that is malicious from its first download (the hash was
+trusted at first use; there is no checksum database yet), and the code of a library that you then compile and
+run: building a library runs its code in your program, as in every language. Read what you add.
+
+### Not done yet
+
+The checksum database; `GOCPP_MODPROXY` entries that are `file://` folders; vendoring a `replace` that points to another
+remote module; symbolic links in modules; version
+selection (minimal version selection over the `gocpp.mod` files of the dependencies); two required
+modules where one is a folder of the other (`github.com/o/r` and `github.com/o/r/sub`: `gocpp mod vendor` fails
+on the files that both have); `gocpp mod tidy`
+(`gocpp.sum` keeps the lines of versions that are not required any more); `gocpp clean -modcache` (the function
+is `modfetch.CleanModCache`, the command is step 6.12).
 
 ## Known limits: the language server
 
@@ -295,9 +470,9 @@ import (
 - `load.Include.File` and `Include.Module` are set for a module header; `Include.IncludeText()` is the
   text after `#include`; `load.IsModuleHeaderPath` is the shape rule; `Package.IncludeDirs` are the
   folders of the modules whose headers a package imports (`build.ReadPackageFlags` makes them `-iquote`).
-- `load.Config.ModuleDir` (default: `moduleDir`, internal/load/moddir.go) is the one place that gives the
-  folder of a required module that is neither replaced by a local folder nor vendored; the module
-  downloads (step 6.1c) provide it.
+- `load.Config.ModuleDir` (default: `modfetch.Dir(mainDir, path, version)`, internal/load/moddir.go) is
+  the one place that gives the folder of a required module that is neither replaced by a local folder nor
+  vendored. The commands use `modfetch.New(cfg)` and its `Get`, `Fetch`, `DownloadAll`, `Verify` and `Vendor`.
 - `load.FindModule(dir)` is the module of a folder; `Module.File()` is its parsed `gocpp.mod`
   (`gocppmod.File`, with the syntax tree for tools that edit it).
 - `load.ListModules(cfg, dir)` lists the required modules with the folder of each, whether it is

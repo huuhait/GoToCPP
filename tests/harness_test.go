@@ -97,6 +97,8 @@ func TestMain(m *testing.M) {
 		os.Setenv("GOCACHE", string(bytes.TrimSpace(out)))
 	}
 	os.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
+	os.Setenv("GOCPP_MODCACHE", "off") // the test programs never download modules
+	os.Setenv("GOCPP_OFFLINE", "1")
 	killOnSignal(tmp)
 	// run stops each command before go test's -timeout runs out. If a test
 	// hangs somewhere else, the test binary panics at the timeout without

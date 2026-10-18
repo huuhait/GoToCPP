@@ -135,8 +135,8 @@ replace example.com/vecs v1.0.0 => ../vecs
 	root = workspace(t, "module example.com/app\nrequire github.com/huuhait/mathx v0.3.0\nreplace github.com/huuhait/mathx v0.2.0 => ../mathx\n")
 	prog = loadIn(t, Config{}, filepath.Join(root, "app"), ".")
 	wantErrors(t, prog, root, `# example.com/app
-app/main.gp:6:2: package github.com/huuhait/mathx: module github.com/huuhait/mathx@v0.3.0 is required, but is not available: gocpp can't download modules yet (replace it with a local folder: replace github.com/huuhait/mathx => ../dir, or vendor it)
-app/main.gp:7:2: package github.com/huuhait/mathx/geom: module github.com/huuhait/mathx@v0.3.0 is required, but is not available: gocpp can't download modules yet (replace it with a local folder: replace github.com/huuhait/mathx => ../dir, or vendor it)
+app/main.gp:6:2: package github.com/huuhait/mathx: module github.com/huuhait/mathx@v0.3.0 is required, but is not available: no module cache folder (set GOCPP_MODCACHE)
+app/main.gp:7:2: package github.com/huuhait/mathx/geom: module github.com/huuhait/mathx@v0.3.0 is required, but is not available: no module cache folder (set GOCPP_MODCACHE)
 `)
 }
 
@@ -148,8 +148,7 @@ func TestReplaceErrors(t *testing.T) {
 		want      string // the error of the import of mathx; geom has the same
 	}{
 		{"not replaced", "module example.com/app\nrequire github.com/huuhait/mathx v0.3.0\nrequire example.com/vecs v1.0.0\n", nil,
-			"module github.com/huuhait/mathx@v0.3.0 is required, but is not available: gocpp can't download modules yet " +
-				"(replace it with a local folder: replace github.com/huuhait/mathx => ../dir, or vendor it)"},
+			"module github.com/huuhait/mathx@v0.3.0 is required, but is not available: no module cache folder (set GOCPP_MODCACHE)"},
 		{"folder missing", head + "replace github.com/huuhait/mathx => ../missing\n", nil,
 			"module github.com/huuhait/mathx is replaced by ../missing, but the replacement folder $ROOT/missing does not exist"},
 		{"a file, not a folder", head + "replace github.com/huuhait/mathx => ../vecs/vecs.gp\n", nil,
@@ -159,7 +158,7 @@ func TestReplaceErrors(t *testing.T) {
 		{"broken module line", head + "replace github.com/huuhait/mathx => ../broken\n", map[string]string{"broken/gocpp.mod": "gocpp 0.1\n"},
 			"module github.com/huuhait/mathx is replaced by ../broken, whose gocpp.mod has no valid module line (see its errors)"},
 		{"remote replacement", head + "replace github.com/huuhait/mathx => github.com/fork/mathx v0.3.1\n", nil,
-			"module github.com/huuhait/mathx is replaced by github.com/fork/mathx@v0.3.1, which is not a local folder: gocpp can't download modules yet"},
+			"module github.com/huuhait/mathx is replaced by github.com/fork/mathx@v0.3.1, which is not a local folder: no module cache folder (set GOCPP_MODCACHE)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := workspace(t, tc.mod, tc.extra)
@@ -474,9 +473,8 @@ replace example.com/fork => example.org/fork v1.0.1
 	want := []dep{
 		{"github.com/huuhait/mathx", "v0.3.0", "../mathx", filepath.Join(root, "mathx"), "", false, false},
 		{"example.com/vecs", "v1.0.0", "../vecs", filepath.Join(root, "vecs"), "", true, false},
-		{"example.com/far", "v2.0.0", "", "", "module example.com/far@v2.0.0 is required, but is not available: gocpp can't download modules yet " +
-			"(replace it with a local folder: replace example.com/far => ../dir, or vendor it)", false, false},
-		{"example.com/fork", "v1.0.0", "example.org/fork v1.0.1", "", "module example.com/fork is replaced by example.org/fork@v1.0.1, which is not a local folder: gocpp can't download modules yet", false, false},
+		{"example.com/far", "v2.0.0", "", "", "module example.com/far@v2.0.0 is required, but is not available: no module cache folder (set GOCPP_MODCACHE)", false, false},
+		{"example.com/fork", "v1.0.0", "example.org/fork v1.0.1", "", "module example.com/fork is replaced by example.org/fork@v1.0.1, which is not a local folder: no module cache folder (set GOCPP_MODCACHE)", false, false},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("deps = %+v", got)

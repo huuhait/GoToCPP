@@ -45,7 +45,9 @@ folder, so the folder's C and C++ files are compiled and linked. [helper_pair/](
 [helper_h_cpp_guards/](helper_h_cpp_guards) and [helper_h_cpp_error/](helper_h_cpp_error) are the
 `.h` + `.cpp` pair with its two fixes and the hint for the trap, and
 [helper_sources/](helper_sources) covers the header extensions, names and which source files are
-built. The `// phase:`, `// Output:` and `// ERROR`
+built. [module_vendor_header/](module_vendor_header) is a project vendored by `gocpp mod vendor` (a `gocpp.mod`
+that requires a header-only library, and `vendor/modules.txt` and `vendor/<module path>/` as the command
+writes them), which uses the library's header by its path in `vendor/` (job 6.1c; `docs/spec/modules.md`). The `// phase:`, `// Output:` and `// ERROR`
 lines are those of `main.gp`; the other files of the folder are not tests.
 
 [module_header_own/](module_header_own), [module_header_required/](module_header_required) and

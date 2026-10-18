@@ -70,6 +70,8 @@ func TestMain(m *testing.M) {
 	// internal/build/objcache.go), so a test that reads the compile lines would pass or fail
 	// with the speed of the machine.
 	os.Setenv("GOCPP_NOOBJCACHE", "1")
+	os.Setenv("GOCPP_MODCACHE", "off") // the tests never download modules or use a real module cache (modcmd_test.go sets its own)
+	os.Setenv("GOCPP_OFFLINE", "1")
 	code := m.Run()
 	entries, _ := os.ReadDir(tmp)
 	for _, e := range entries {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/huuhait/gocpp/internal/diag"
 	"github.com/huuhait/gocpp/internal/load/gocppmod"
+	"github.com/huuhait/gocpp/internal/modfetch"
 )
 
 // Required modules (Phase 06 step 6.1, docs/spec/modules.md).
@@ -113,12 +114,25 @@ func (l *loader) inRequired(from *Package, req *gocppmod.Require, path string) (
 	if !l.isDir(dir) {
 		return location{}, fmt.Sprintf("module %s@%s found (%s), but does not contain package %s", req.Path, req.Version, mod.Dir, path)
 	}
-	if m := l.module(dir); !mod.Vendored && !mod.cached && (m == nil || m.Dir != mod.Dir) {
+	if !mod.Vendored && l.inOtherModule(mod, dir) {
 		// A gocpp.mod file inside the module: the package is in another
 		// module, which is not required.
 		return location{}, "no required module provides package " + path
 	}
 	return location{importPath: path, dir: dir, mod: mod}, ""
+}
+
+// inOtherModule reports whether the folder dir of the module mod is in a module
+// of its own: a gocpp.mod file between dir and the root of mod. A module from
+// the module cache (cached) may have no gocpp.mod at its root, so for it only a
+// gocpp.mod file below its root counts (a monorepo such as github.com/o/r with
+// a module in r/sub: its packages need their own require line).
+func (l *loader) inOtherModule(mod *Module, dir string) bool {
+	m := l.module(dir)
+	if mod.cached {
+		return m != nil && m.Dir != mod.Dir && strings.HasPrefix(m.Dir, mod.Dir+string(filepath.Separator))
+	}
+	return m == nil || m.Dir != mod.Dir
 }
 
 // requiredModule returns the module of the require line req of the main
@@ -149,7 +163,7 @@ func (l *loader) resolveRequire(main *Module, req *gocppmod.Require) (*Module, s
 	rep := replacement(main.file, req)
 	if rep == nil {
 		// Neither vendored nor replaced: the download hook (moddir.go).
-		mod, err := l.downloadedModule(req.Path, req.Version,
+		mod, err := l.downloadedModule(main.Dir, req.Path, req.Version,
 			fmt.Sprintf(" (replace it with a local folder: replace %s => ../dir, or vendor it)", req.Path))
 		if err != nil {
 			return nil, fmt.Sprintf("module %s@%s is required, but is not available: %v", req.Path, req.Version, err)
@@ -157,7 +171,7 @@ func (l *loader) resolveRequire(main *Module, req *gocppmod.Require) (*Module, s
 		return mod, ""
 	}
 	if !rep.Local() {
-		mod, err := l.downloadedModule(rep.NewPath, rep.NewVersion, "")
+		mod, err := l.downloadedModule(main.Dir, rep.NewPath, rep.NewVersion, "")
 		if err != nil {
 			return nil, fmt.Sprintf("module %s is replaced by %s@%s, which is not a local folder: %v",
 				req.Path, rep.NewPath, rep.NewVersion, err)
@@ -237,8 +251,9 @@ type Dependency struct {
 	Module *Module
 
 	// Err is why the module is not available: it is not replaced and not
-	// vendored (gocpp can't download it yet), its replacement folder is
-	// missing or is another module, or vendor/ does not match gocpp.mod.
+	// vendored and not in the module cache (ListModules does not download),
+	// its replacement folder is missing or is another module, or vendor/ does
+	// not match gocpp.mod.
 	Err string
 }
 
@@ -264,13 +279,19 @@ type ModuleList struct {
 // the same module path, and vendor/modules.txt matches gocpp.mod. Config
 // gives the folder dir is relative to (Dir), the overlay and the file
 // system; nothing else of it is used. It never fails: Errors and the Err of
-// each dependency say what is wrong.
+// each dependency say what is wrong. A module that is neither replaced nor
+// vendored is looked up in the module cache but never downloaded (and gocpp.sum
+// is not written): the Err says to run "gocpp mod download".
 func ListModules(cfg Config, dir string) *ModuleList {
 	l := newLoader(cfg)
 	ml := &ModuleList{Errors: l.prog.Errors}
 	ml.Main = l.module(l.abs(dir))
 	if ml.Main == nil || ml.Main.Path == "" || ml.Main.file == nil {
 		return ml
+	}
+	if l.cfg.ModuleDir == nil {
+		mainDir := ml.Main.Dir
+		l.cfg.ModuleDir = func(path, version string) (string, error) { return modfetch.LookupDir(mainDir, path, version) }
 	}
 	l.vendorOf(ml.Main)
 	for _, r := range ml.Main.file.Require {

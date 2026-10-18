@@ -19,7 +19,7 @@ var planned = []struct {
 	{"build", 2}, {"run", 2}, {"test", 9}, {"check", 1}, {"emit", 2},
 	{"expand", 10}, {"fmt", 1}, {"lsp", 11}, {"vet", 13}, {"doc", 13},
 	{"debug", 13}, {"explain", 13}, {"env", 6}, {"list", 6}, {"clean", 6},
-	{"get", 15}, {"bindgen", 12}, {"export", 6}, {"parse", 1}, {"version", 0},
+	{"get", 6}, {"bindgen", 12}, {"export", 6}, {"mod", 6}, {"parse", 1}, {"version", 0},
 }
 
 // gocpp runs the CLI with args and an empty standard input, and returns
