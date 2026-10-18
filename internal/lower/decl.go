@@ -144,6 +144,7 @@ func (fg *funcGen) funcBody() {
 	g, f := fg.g, fg.fn
 	body := f.body
 	fg.flow = newFlow(g.info, body, fg.postAtEnd)
+	fg.takeTicket() // recover.go: an aware function takes its ticket first
 	if f.results != nil {
 		res := f.sig.Results()
 		for i := range res.Len() {

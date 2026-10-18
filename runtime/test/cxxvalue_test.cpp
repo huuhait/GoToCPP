@@ -379,20 +379,28 @@ void throw_deferred() {
 
 void run_case() {
     std::string c = the_case;
-    if (c == "throw-std") {
-        // A std::exception: "panic: C++ exception <type>: <what()>", exit code 2. The deferred
-        // call doesn't run (first version: Phase 05 makes it a Go panic).
+    if (c == "throw-std-bare") {
+        // A std::exception that no frame with defers catches (here none is on the stack): the
+        // C++ library finds no handler and calls std::terminate where it was thrown, before
+        // anything unwinds, and the report is a Go panic's, with the trace of the throw.
+        throw_range(5);
+    } else if (c == "bad-alloc-bare") {
+        throw_bad_alloc();
+    } else if (c == "throw-std") {
+        // A std::exception that reaches a function with defers is a Go panic (step 5.10): the
+        // deferred call runs, then "panic: C++ exception <type>: <what()>", exit code 2, with the
+        // trace of the frame that caught it.
         gp::defer_frame df;
         try {
             df.gp_push_call([] { gp::println("deferred"_gs); });
             throw_range(5);
-        } catch (gp::panic_error& e) {
-            df.gp_on_panic(e);
+        } catch (...) {
+            df.gp_on_exception();
         }
         df.gp_run();
     } else if (c == "bad-array" || c == "bad-alloc") {
-        // Go's fatal error "runtime: out of memory", with the trace of the throw; nothing
-        // unwinds, so the deferred call doesn't run.
+        // Go's fatal error "runtime: out of memory", with the trace of the frame that caught it;
+        // a fatal error is not a panic, so the deferred call doesn't run.
         gp::defer_frame df;
         try {
             df.gp_push_call([] { gp::println("deferred"_gs); });
@@ -404,8 +412,8 @@ void run_case() {
             } else {
                 throw_bad_alloc();
             }
-        } catch (gp::panic_error& e) {
-            df.gp_on_panic(e);
+        } catch (...) {
+            df.gp_on_exception();
         }
         df.gp_run();
     } else if (c == "throw-int") {
@@ -416,8 +424,8 @@ void run_case() {
         try {
             df.gp_push(&throw_deferred);
             gp::panic("first"_gs);
-        } catch (gp::panic_error& e) {
-            df.gp_on_panic(e);
+        } catch (...) {
+            df.gp_on_exception();
         }
         df.gp_run();
     } else if (c == "panic-noexcept") {

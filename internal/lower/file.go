@@ -157,6 +157,11 @@ type gen struct {
 	cConstKinds   map[ast.Expr]types.BasicKind // known C numeric targets, for exact constant emission
 	initialValues map[*types.Var]ast.Expr      // initializers of inferred locals, for known C types
 
+	// awareBodies caches which function bodies call recover (recover.go); funcDecls maps the
+	// functions of the package to their declarations, for awareFunc.
+	awareBodies map[*ast.BlockStmt]bool
+	funcDecls   map[*types.Func]*ast.FuncDecl
+
 	// inTemplate counts the C++ template arguments being lowered (ctypes.go: templateArg),
 	// in which the package's types are fully qualified.
 	inTemplate int

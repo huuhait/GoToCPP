@@ -626,8 +626,10 @@ func runUnsafe(t *testing.T, bin string) {
 }
 
 // runCxxValue checks the cases of test/cxxvalue_test.cpp that end the program (step 4.12): a
-// C++ exception that nothing catches ends it like a Go panic (a std::bad_alloc like Go's fatal
-// error "out of memory"), with the trace of the throw
+// C++ exception that no function with defers catches ends it like a Go panic (a std::bad_alloc
+// like Go's fatal error "out of memory"), with the trace of the throw (the "-bare" cases), and
+// one that a function with defers catches is a panic with a CppException value (step 5.10: the
+// deferred calls run, and the trace starts in that function)
 // (exact only when frames says that the build keeps every frame, not at -O2), and C's stdio
 // comes out in the program's order next to fmt and println, through one pipe.
 //
@@ -639,12 +641,14 @@ func runCxxValue(t *testing.T, bin string, frames, asan bool) {
 		name, out string
 		frame     string // a frame that the trace must show (with frames)
 	}{
-		{"throw-std", "panic: C++ exception std::out_of_range: index 5\n\ngoroutine 1 [running]:\n", "(anonymous namespace)::throw_range(int)"},
+		{"throw-std-bare", "panic: C++ exception std::out_of_range: index 5\n\ngoroutine 1 [running]:\n", "(anonymous namespace)::throw_range(int)"},
+		{"bad-alloc-bare", "fatal error: runtime: out of memory\n\ngoroutine 1 [running]:\n", "(anonymous namespace)::throw_bad_alloc()"},
+		{"throw-std", "deferred\npanic: C++ exception std::out_of_range: index 5\n\ngoroutine 1 [running]:\n", "(anonymous namespace)::run_case()"},
 		{"throw-int", "panic: C++ exception of type int\n\ngoroutine 1 [running]:\n", ""},
-		{"throw-in-defer", "panic: first\n\tpanic: C++ exception std::logic_error: from a deferred call\n\ngoroutine 1 [running]:\n", "(anonymous namespace)::throw_deferred()"},
+		{"throw-in-defer", "panic: first\n\tpanic: C++ exception std::logic_error: from a deferred call\n\ngoroutine 1 [running]:\n", "(anonymous namespace)::run_case()"},
 		{"panic-noexcept", "panic: go panic\n\ngoroutine 1 [running]:\n", ""},
-		{"bad-array", "fatal error: runtime: out of memory\n\ngoroutine 1 [running]:\n", "(anonymous namespace)::alloc_ints(long)"},
-		{"bad-alloc", "fatal error: runtime: out of memory\n\ngoroutine 1 [running]:\n", "(anonymous namespace)::throw_bad_alloc()"},
+		{"bad-array", "fatal error: runtime: out of memory\n\ngoroutine 1 [running]:\n", "(anonymous namespace)::run_case()"},
+		{"bad-alloc", "fatal error: runtime: out of memory\n\ngoroutine 1 [running]:\n", "(anonymous namespace)::run_case()"},
 	} {
 		if asan && tc.name == "bad-array" {
 			continue

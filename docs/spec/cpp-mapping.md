@@ -1125,8 +1125,8 @@ int64_t load(int64_t n) {
             (*count) = 0; goto gp_ret0;
         }
         (*count) = n * 2; goto gp_ret1;
-    } catch (gp::panic_error& gp_e) {
-        gp_df.gp_on_panic(gp_e);
+    } catch (...) {
+        gp_df.gp_on_exception();
     }
     gp_df.gp_run(); return (*count);                  // the end of the body, or a panic
     gp_ret0:; gp_df.gp_run(); return (*count);        // at the line of the first return
@@ -1151,8 +1151,9 @@ int64_t load(int64_t n) {
   gp::println(gp_a0); }, x)`. The frame keeps a few calls in a small buffer inside it, and more
   (or bigger ones) on the heap. Defers in a loop accumulate until the function returns, and run
   last in, first out.
-- **A panic runs the deferred calls too**: the `catch` keeps it, `gp_run` runs the calls and
-  throws the same panic again, so the trace still shows where it started. A deferred call that
+- **A panic runs the deferred calls too**: the `catch (...)` keeps it (`gp_on_exception`), `gp_run`
+  runs the calls and throws the same panic again, so the trace still shows where it started,
+  unless a deferred call recovered it (below). A deferred call that
   panics doesn't stop the others: its panic replaces the running one, and the running one goes
   into its chain. An unrecovered panic prints the whole chain, the first panic first, as Go
   does (`panic: first` then `\tpanic: second`), and the signal line of a nil dereference once,
@@ -1166,11 +1167,49 @@ int64_t load(int64_t n) {
   returns a constant, `n := five()`; gocpp doesn't, and prints both panics.) The trace shows
   each deferred call on top of the panic that it ran in, with a `panic(...)` frame between
   them, as Go's does.
-- **Only a Go panic** (`gp::panic_error`) is caught. Any other C++ exception goes on at once,
-  without running the deferred calls: a forced unwind (`pthread_exit` in C code, Phase 04) must
-  pass untouched, and Phase 05 turns C++ exceptions into Go panics where they enter Go code.
-  Until then, a C++ exception that nothing catches ends the program with a Go-style report
-  before anything unwinds ([interop.md](interop.md#c-exceptions)).
+- **What the `catch (...)` keeps** (`gp_on_exception`, step 5.10): a Go panic
+  (`gp::panic_error`), as it is; `runtime.Goexit` (`gp::goexit_signal`): the deferred calls run, a
+  `recover()` in them returns nil and `gp_run` throws it again at the end (a Goexit in a deferred
+  call replaces the panic that was running, as in Go); a C++ exception that is neither, as a Go
+  panic whose value is a `gp::CppException` (an `error`: `C++ exception <type>: <what()>`), so
+  the deferred calls run for it and `recover()` can stop it ([interop.md](interop.md#c-exceptions));
+  `std::bad_alloc` is Go's fatal error `out of memory` at once. A forced unwind (`pthread_exit`
+  in C code) is thrown again at once, untouched, running no deferred call: it must pass, and
+  running Go code during it isn't safe. A deferred call that throws one of these during a panic
+  does what a deferred call that panics does (below).
+- **`recover()`** (step 5.10) follows Go's rule: it stops a panic only when the function that
+  contains the call is the function that the deferred-call machinery called, not a function
+  that one of its callees calls. The function may be reached any way (a function, a method, a
+  func value, a method value, an interface method, `defer mk()()`, a deferred func literal). A
+  function that contains `recover()` is *aware*: its first statement takes the ticket that
+  `gp_run` leaves for the call it makes, and `recover()` is `gp::recover(gp_dc)`:
+
+  ```cpp
+  void handler() {
+      gp::defer_ctx gp_dc = gp::take_defer_ctx();   // the ticket: null unless gp_run called us
+      gp::any r = gp::recover(gp_dc);               // nil, or the panic's value
+      ...
+  }
+  ```
+
+  `gp_run` gives the ticket only while it runs its calls for a panic that isn't recovered, to a
+  call it knows to be aware (and takes it back when the call ends, so nothing the call calls can
+  find it): `gp_df.gp_push_aware(f, ...)` for a function of the package that has a `recover` of
+  its own, `gp_push_call_aware(lambda, ...)` for a deferred func literal or a method that has
+  one, `gp_push_call_icall` for a call of an interface method (`gp::icall` looks at the ticket
+  and clears it unless the thunk of that method is registered as aware:
+  `gp::method_of_aware` in the method table), and a deferred func value (`gp::func`) is looked up
+  by its code: a func literal that contains `recover` is made as `gp::func<Sig>(gp::aware(lambda))`,
+  a function of the package that does as `gp::func_of_aware<&f>()`, and a method value of an aware
+  or an interface method as `gp::aware(lambda)`. A normal call of an aware function finds no
+  ticket, so its `recover()` returns nil, as in Go; `defer recover()` does nothing, as in Go. When
+  the call that recovered the panic returns, `gp_run` drops the panic, runs the other deferred
+  calls as for a normal return, and the function returns normally, with the named results as its
+  deferred calls left them (a result that was never set is its zero value). A panic that is
+  recovered but still in a chain (the deferred call that recovered it panicked again) prints
+  with `[recovered]`. The phase 05 README planned two entry points for such a function; the
+  ticket does the same without a second copy of the function and without a larger `gp::func`.
+  Functions without `recover` and without `defer` emit what they always did.
 - **Stack:** the frame is 96 bytes, with room for one call (more go to the heap). At `-O0` a
   function with one defer takes about 160 to 185 bytes of C++ stack per call (g++, clang++),
   where the same function without it takes 24 to 32: with the default 8 MiB stack, a recursion
@@ -1184,9 +1223,13 @@ int64_t load(int64_t n) {
 - **Results of C/C++ types** (Phase 04): an unnamed result of a C/C++ type is a
   `gp::result_slot<R>` instead of `R gp_r0{};` (a class with no default constructor, a move-only
   class and a reference work there), a local that is returned is moved into it, and the exit returns
-  `gp_r0.gp_take()` ([interop.md](interop.md#types-that-cant-be-copied)).
-- `-nochecks` doesn't change any of this. `recover()` is Phase 05 work, and `os.Exit` (Phase 09)
-  ends the program without running the deferred calls, as in Go.
+  `gp_r0.gp_take()` ([interop.md](interop.md#types-that-cant-be-copied)). (ADR-011 and the phase
+  README called its members `.set` and `.take`; runtime types have only `gp_`-prefixed members.)
+  A function that recovers a panic returns the zero value of an unnamed result, which a result
+  of such a type may not have: a result that was never set is then a fatal error, not an access to
+  a missing object.
+- `-nochecks` doesn't change any of this. `os.Exit` (`gp::os::exit`, Phase 09) ends the program
+  without running the deferred calls, as in Go, also from a deferred call.
 
 Source: [Phase 03 §2.8](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#28-defer-without-recover).
 
@@ -1392,6 +1435,29 @@ Sources: [Phase 03 §2.10](../../plans/2026-10-13-gocpp/phase-03-core-language/R
     didn't start (a C library's thread, a `std::thread`). Not with a sanitizer (it reports
     overflows itself: AddressSanitizer prints `stack-overflow`, exit code 1), not with `ulimit -s
     unlimited` for the main thread, and not on Windows (Phase 14) yet.
+- **Panic values** (step 5.10): a panic is a `gp::panic_error` that holds the value as a `gp::any`
+  (`recover()` returns it): `panic("boom")` an `any` of Go type `string`, `panic(1.5)` a
+  `float64`, `panic(err)` and `panic(x)` for an interface value the value itself (a value of
+  another type is converted to an `any`, step 5.4), `panic(nil)` a `*runtime.PanicNilError`
+  (Go 1.21: `panic called with nil argument`). The runtime's own panics are `runtime.Error`
+  values with Go's types and texts, so `r.(error)` and `r.(runtime.Error)` hold and `%T` prints
+  Go's name: `runtime.boundsError` (index and slice bounds, `cannot convert slice with length
+  3 to array ...`), `runtime.errorString` (division by zero, nil dereference, negative shift,
+  `makeslice: len out of range`, `unsafe.Slice: len out of range`, comparing and hashing
+  uncomparable types), `runtime.plainError` (a store into a nil map, `value method main.T.M
+  called using nil *T pointer`: no `runtime error: ` prefix) and `*runtime.TypeAssertionError`
+  (a failed type assertion). All of them have `Error() string` and `RuntimeError()` methods, in
+  descriptors made like a generated type's (runtime/src/panicval.cpp). A C++ exception that a
+  function with defers catches is a `runtime.CppException` ([interop.md](interop.md#c-exceptions)).
+  The text that an unrecovered panic prints is made as Go's `preprintpanics` and `printpanicval`
+  make it: `Error()` of an error, else `String()` of a `fmt.Stringer`, else the value as
+  `print` writes it (a named type with its name: `main.MyInt(5)`, `main.MyS("hi")`), else the
+  type and an address (`(main.T) 0xc000012120`: the harness masks it). Two panics in a chain
+  whose values are the same interface value (the same type and data) print once as
+  `[recovered, repanicked]`, and a recovered one that is still in the chain as `[recovered]`.
+  `runtime.Goexit` (`gp::goexit`) runs the deferred calls and ends the goroutine, `recover()`
+  returns nil in them; from the main goroutine the program goes on until the other goroutines are
+  gone, then `fatal error: no goroutines (main called runtime.Goexit) - deadlock!`.
 - A panic is a C++ exception, `gp::panic_error`. Unrecovered, it prints Go's lines and then a
   stack trace: each function by its Go name, `(...)` when it has parameters, then a tab, the
   `.gp` file and line of the call (from the debug info that `#line` makes) and the offset in the
@@ -1442,7 +1508,7 @@ pointer method (a static one, whose mangled name has no qualifier) as `main.(*T)
 Where the trace differs from Go's (accepted divergences):
 - `(*T).M` of a value method called with a nil pointer: Go's trace has a frame
   `main.(*T).M(...)` at `<autogenerated>:1` (its wrapper, which panics); gocpp's has none, and
-  until Phase 05 the panic's value is a string, not a `runtime.Error` (only `recover` sees that);
+  its panic value is a `runtime.Error` like Go's (`runtime.plainError`: step 5.10);
 - the parentheses always hold `(...)` (the function has parameters) or `()`, where Go prints
   the argument words (`main.f(0x0?)`), or `(...)` for an inlined frame; and every frame has
   its offset, where Go prints none for an inlined frame;

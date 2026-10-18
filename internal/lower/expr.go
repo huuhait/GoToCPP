@@ -250,6 +250,8 @@ func (fg *funcGen) exactExpr(e ast.Expr) cppir.Expr {
 	switch {
 	case ok && tv.Value != nil:
 		return fg.g.constant(tv.Value, fg.g.untypedCount(e, tv.Type), e.Pos(), true)
+	case ok && tv.IsNil() && isEmptyInterface(tv.Type):
+		return construct(typeName("gp::any")) // (the nullptr constructor is explicit)
 	case ok && tv.IsNil() && (isSlice(tv.Type) || isMap(tv.Type) || isFunc(tv.Type)):
 		// nullptr would be a std::nullptr_t: gp::slice<T>(), a nil slice (gp::map<K, V>(), a
 		// nil map; gp::func<Sig>(), a nil func).
@@ -304,7 +306,7 @@ func (fg *funcGen) ident(id *ast.Ident) cppir.Expr {
 		// A nil pointer, slice, map or func: C++ converts nullptr to gp::ptr<T>, gp::slice<T>,
 		// gp::map<K, V> and gp::func<Sig> (where C++ deduces the type, exactExpr writes
 		// gp::slice<T>()). The other nil values (interfaces) come with their types.
-		if t := fg.g.info.TypeOf(id); t != nil && (isPointer(t) || isUnsafePointer(t) || isSlice(t) || isMap(t) || isFunc(t) || t == types.Typ[types.UntypedNil]) {
+		if t := fg.g.info.TypeOf(id); t != nil && (isPointer(t) || isUnsafePointer(t) || isSlice(t) || isMap(t) || isFunc(t) || isEmptyInterface(t) || t == types.Typ[types.UntypedNil]) {
 			return lit("nullptr")
 		}
 		fg.g.unsupported(id.Pos(), "nil of type "+types.TypeString(fg.g.info.TypeOf(id), types.RelativeTo(fg.g.pkg.Types)))
@@ -391,6 +393,8 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 				}
 			case "len", "cap", "panic", "new", "make", "append", "copy", "clear", "delete":
 				return fg.builtin(c, obj.Name())
+			case "recover":
+				return fg.recoverCall() // recover.go
 			case "min", "max":
 				return fg.minMax(c, obj.Name()) // builtins.go
 			default:

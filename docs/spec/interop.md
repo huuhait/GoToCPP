@@ -1390,6 +1390,11 @@ h := std.function[func(C.int) C.int](triple) // std::function<int(int)>
   the thread gets a goroutine record the first time it needs one, so panics, defers and the goroutine
   number in the trace work there, and a panic on it ends the program like any goroutine's. The
   trampolines keep no shared state; the user data must outlive the calls from other threads.
+- **C++ exceptions.** A C++ exception that reaches a function with defers is a normal panic that
+  `recover()` can catch (Phase 05, step 5.10): its value is a `gp::CppException` (Go type
+  `runtime.CppException`, an `error`) whose `Error()` is `C++ exception <type>: <what()>`. One that
+  no function with defers is on the stack for ends the program like an unrecovered Go panic, with
+  exit code 2 (see [C++ exceptions](#c-exceptions) below).
 - **Calling gocpp from C.** Functions marked `//export Name` become `extern "C"` functions in the
   `c-archive` and `c-shared` build modes, with cgo's rules for the allowed types. Every export goes
   through a trampoline too ([Phase 06 §2.7](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#27-build-modes--buildmode-like-go)).
@@ -1404,17 +1409,16 @@ func parse(s string) int {
 }
 
 func main() {
-	defer fmt.Println("deferred") // not run in Phase 04
+	defer fmt.Println("deferred") // runs: the exception is a panic in main (Phase 05)
 	fmt.Println(parse("x"))
 }
 ```
 
 ```
+deferred
 panic: C++ exception std::invalid_argument: stoi
 
 goroutine 1 [running]:
-main.parse(...)
-	/home/me/prog/main.gp:2 +0x44
 main.main()
 	/home/me/prog/main.gp:7 +0x6b
 exit status 2
@@ -1425,29 +1429,50 @@ exit status 2
   `panic: C++ exception of type int`. The type is the one the exception was thrown with, its C++
   name (`std::out_of_range`, not the `std::exception` it may be caught as), also in a program
   built with `-fno-rtti`. A newline in `what()` is followed by a tab, as in Go's panic messages.
-- **The trace** is the stack where the exception was thrown, innermost first, with the frames of
-  C++ functions that are in the program (a helper in a header shows as `vec_at(std::vector<long,
-  std::allocator<long> > const&, unsigned long)` and its header line); the C++ library's own
-  frames are left out, as Go leaves out its runtime's. If C++ code caught the exception and threw
-  it again (`catch (...) { throw; }`), or it reached a `noexcept` function, the trace starts
-  there.
-- **Nothing runs on the way out in Phase 04:** no deferred call, no C++ destructor, and
-  `recover()` can't stop it. The C++ library looks for a `catch` before it unwinds any frame;
-  gocpp's code catches only its own panics, so the library finds none and ends the program on the
-  stack of the throw (std::terminate, where gocpp prints the report). Go would run the deferred
-  calls of a panic; Phase 05 turns the exception into a Go panic where it enters gocpp code, and
-  then they run ([D26](language.md#d26-c-exceptions)).
-- **A deferred call that throws while a Go panic runs** prints both, like a panic in a deferred
-  call: `panic: boom`, then `	panic: C++ exception std::runtime_error: ...`, and the trace shows
-  the deferred call on top of the panicking function.
+- **Where it becomes a panic.** Every gocpp function with a `defer` statement has a `catch (...)`
+  around its body. The exception that reaches it (not a Go panic, not `runtime.Goexit`, not a
+  forced unwind) becomes a Go panic with a `CppException` value, and the function runs its
+  deferred calls with it, as for any panic: the same exception is not a panic in a function
+  without defers, which it passes through (its C++ destructors run, its frame has no deferred calls).
+  So the deferred calls of every frame between the throw and the end run, `recover()` in one of
+  them (called directly by the deferred call, Go's rule) stops it, and the function that
+  deferred it returns normally with the named results its deferred calls set. `recover()`
+  returns the value as an `any`: `fmt.Println(r)` prints `C++ exception std::runtime_error: bad
+  thing 3`, `r.(error)` holds, and `%T` is `runtime.CppException`.
+- **The message.** A `std::exception` prints `panic: C++ exception <type>: <what()>` (only
+  `<type>` when `what()` is empty); anything else prints its type: `throw 42` gives
+  `panic: C++ exception of type int`. The type is the one the exception was thrown with, its C++
+  name (`std::out_of_range`, not the `std::exception` it may be caught as), also in a program
+  built with `-fno-rtti`. A newline in `what()` is followed by a tab, as in Go's panic messages.
+  Panicking again with the recovered value (`panic(r)`) is the same panic, printed once with
+  `[recovered, repanicked]`.
+- **The trace** of a panic that a function with defers made from an exception starts in that
+  function (at the closing brace of its body, where the `catch` is): the frames between the throw
+  and the catch are unwound by then, the helper's among them. With no function with defers on the
+  stack, the C++ library finds no `catch` and ends the program on the stack of the throw
+  (std::terminate, where gocpp prints the report): the trace is the throw's, innermost first, with
+  the frames of C++ functions that are in the program (a helper in a header shows as
+  `vec_at(std::vector<long, std::allocator<long> > const&, unsigned long)` and its header line);
+  the C++ library's own frames are left out, as Go leaves out its runtime's. If C++ code caught
+  the exception and threw it again (`catch (...) { throw; }`), or it reached a `noexcept`
+  function, the trace starts there.
+- **A deferred call that throws while a Go panic runs** is a panic of that deferred call: the
+  report prints both, like a panic in a deferred call: `panic: boom`, then `	panic: C++
+  exception std::runtime_error: ...`, the other deferred calls still run, and the trace shows the
+  deferred call on top of the panicking function.
 - **A `std::bad_alloc`** that C++ code throws itself (or `std::bad_array_new_length`: `new
   int[n]` with a negative `n`), which the runtime's new handler doesn't see, prints Go's `fatal
   error: runtime: out of memory`, as gocpp's own allocations do, with the trace where it was
-  thrown.
+  thrown (where a function with defers caught it, if one is on the stack). A fatal error is not a
+  panic: no deferred call runs and `recover()` can't stop it.
+- **A forced unwind** (`pthread_exit` and `pthread_cancel` in C code, which glibc does by
+  throwing an exception that no handler may swallow) is not a C++ exception for gocpp: a function
+  with defers throws it again at once and runs none of its deferred calls (running Go code
+  during it is not safe).
 - **A Go panic that reaches a `noexcept` C++ function** (C++ calls `std::terminate` there) prints
   the panic's normal report. A C++ destructor that throws (one declared `noexcept(false)`) while
   a Go panic unwinds its frame makes C++ end the program with the new exception: the report shows
-  only the C++ exception, and the Go panic is lost (Phase 05 can chain them). Without any exception, `std::terminate` (a `std::thread` destroyed
+  only the C++ exception, and the Go panic is lost. Without any exception, `std::terminate` (a `std::thread` destroyed
   while it runs) keeps the C++ library's message and aborts.
 - **C files and `-fno-exceptions`.** C sources get no `-fexceptions`, and a package's
   `-fno-exceptions` reaches its own `.cpp` files (not the generated code, which always has

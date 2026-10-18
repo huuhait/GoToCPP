@@ -455,6 +455,111 @@ void test_panic_caught_in_goroutine() {
     CHECK(wait_for([&] { return gp::num_goroutine() == 1; }));
 }
 
+// The registry of aware code (gocpp/aware.hpp) is read without a lock while other threads add to it
+// (and grow it): every address that was added is found, and one that wasn't is not.
+void test_aware_registry_threads() {
+    constexpr int threads = 4, per = 3000;
+    auto addr = [](int t, int i, int odd) {
+        return reinterpret_cast<gp::detail::code_ptr>(
+            static_cast<std::uintptr_t>(0x10000 + ((t * per + i) * 2 + odd) * 16));
+    };
+    std::atomic<int> bad{0};
+    std::vector<std::thread> ts;
+    for (int t = 0; t < threads; t++) {
+        ts.emplace_back([&, t] {
+            for (int i = 0; i < per; i++) {
+                gp::detail::mark_aware(addr(t, i, 0));
+                if (!gp::detail::aware_code(addr(t, i, 0)) ||
+                    gp::detail::aware_code(addr(t, i, 1))) {
+                    bad++;
+                }
+            }
+        });
+    }
+    for (auto& th : ts) {
+        th.join();
+    }
+    for (int t = 0; t < threads; t++) {
+        for (int i = 0; i < per; i++) {
+            if (!gp::detail::aware_code(addr(t, i, 0))) {
+                bad++;
+            }
+        }
+    }
+    CHECK_EQ(bad.load(), 0);
+}
+
+// recover in a goroutine (step 5.10): a goroutine function with defers recovers its own panic
+// (through the ticket), a C++ exception in it too, and the goroutine ends normally.
+void aware_note(std::atomic<int>* state) {
+    gp::defer_ctx dc = gp::take_defer_ctx();
+    gp::any r = gp::recover(dc);
+    state->store(r == nullptr ? -1 : 1);
+}
+
+void test_recover_in_goroutine() {
+    std::atomic<int> state{0};
+    gp::go([&] {
+        gp::defer_frame df;
+        try {
+            df.gp_push_aware(aware_note, &state);
+            gp::panic("in a goroutine"_gs);
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    CHECK(wait_for([&] { return state.load() != 0; }));
+    CHECK_EQ(state.load(), 1);
+    CHECK(wait_for([&] { return gp::num_goroutine() == 1; }));
+    state = 0;
+    gp::go([&] {
+        gp::defer_frame df;
+        try {
+            df.gp_push_aware(aware_note, &state);
+            throw std::runtime_error("a C++ exception in a goroutine");
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    CHECK(wait_for([&] { return state.load() != 0; }));
+    CHECK_EQ(state.load(), 1);
+    CHECK(wait_for([&] { return gp::num_goroutine() == 1; }));
+}
+
+// runtime.Goexit in a goroutine: its deferred calls run (recover returns nil), the goroutine ends
+// quietly, and the program goes on.
+void test_goexit_in_goroutine() {
+    std::atomic<int> state{0};
+    std::atomic<int> after{0};
+    gp::go([&] {
+        gp::defer_frame outer;
+        try {
+            outer.gp_push_aware(aware_note, &state);
+            outer.gp_push_call([&] { after = 1; });
+            {
+                gp::defer_frame inner;
+                try {
+                    inner.gp_push_call([&] { after = 2; });
+                    gp::goexit();
+                } catch (...) {
+                    inner.gp_on_exception();
+                }
+                inner.gp_run();
+            }
+            after = 99; // not reached
+        } catch (...) {
+            outer.gp_on_exception();
+        }
+        outer.gp_run();
+    });
+    CHECK(wait_for([&] { return state.load() != 0; }));
+    CHECK_EQ(state.load(), -1); // the recover in a Goexit's deferred call returns nil
+    CHECK_EQ(after.load(), 1);  // the inner defer ran first (2), then the outer one (1)
+    CHECK(wait_for([&] { return gp::num_goroutine() == 1; }));
+}
+
 // The report names the goroutine that calls it, as Go's "goroutine N [running]:".
 void test_report_goroutine_line() {
     auto report_here = [] {
@@ -538,6 +643,9 @@ void run_unit_tests() {
     test_stack_sizes();
     test_deep_recursion_fits();
     test_panic_caught_in_goroutine();
+    test_aware_registry_threads();
+    test_recover_in_goroutine();
+    test_goexit_in_goroutine();
     test_report_goroutine_line();
     test_foreign_thread();
     test_churn();
@@ -675,6 +783,19 @@ void claim_death_case() {
     gp::os::exit_now(0);
 }
 
+// A panic value whose Error() method panics (step 5.10): Go ends the program with "fatal error:
+// panic while printing panic value: <text of the new panic>".
+struct BadErr {
+    bool operator==(const BadErr&) const = default;
+};
+gp::string bad_err_error(const gp::iface&) {
+    gp::panic("inside Error"_gs);
+}
+const gp::method bad_err_methods[] = {
+    gp::method_of<gp::string()>("Error", nullptr, "func() string", &bad_err_error)};
+const gp::type_desc td_bad_err = gp::named<BadErr>(
+    "main.BadErr", "main", gp::shape_struct(nullptr, 0), gp::methods_of(bad_err_methods));
+
 void run_case(const std::string& name) {
     // Some cases die of SIGSEGV on purpose: no core file (a core_pattern that pipes to
     // systemd-coredump holds a dying process for minutes on a loaded machine).
@@ -726,6 +847,39 @@ void run_case(const std::string& name) {
         // The main goroutine panics while another goroutine is alive.
         gp::go([] { park_forever(); });
         gp::panic("main goroutine"_gs);
+    } else if (name == "goexit-main") {
+        // The main goroutine calls runtime.Goexit: its deferred calls run, the other goroutines
+        // go on, and when they are gone the program ends with Go's fatal error.
+        gp::go([] { gp::println("other goroutine runs"_gs); });
+        gp::defer_frame df;
+        try {
+            df.gp_push_call([] { gp::println("main's deferred call"_gs); });
+            gp::goexit();
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    } else if (name == "bad-error-method") {
+        gp::defer_frame df;
+        try {
+            df.gp_push_call([] { gp::println("deferred call runs first"_gs); });
+            gp::panic(gp::to_iface<gp::any>(BadErr{}, &td_bad_err));
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    } else if (name == "exit-in-defer") {
+        // os.Exit (gp::os::exit) in a deferred call ends the program at once: the deferred calls
+        // that haven't run don't, also those of the frames outside, and the exit code is its own.
+        gp::defer_frame outer;
+        gp::defer_frame df;
+        outer.gp_push_call([] { gp::println("outer deferred call: not run"_gs); });
+        df.gp_push_call([] { gp::println("not run"_gs); });
+        df.gp_push_call([] {
+            gp::println("exiting"_gs);
+            gp::os::exit(3);
+        });
+        df.gp_run();
     } else if (name == "thread-fail") {
         gp::println("before"_gs);
         gp::detail::go_start(std::make_unique<gp::detail::task_of<void (*)()>>([] {}),

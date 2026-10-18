@@ -4,14 +4,34 @@
 // "goroutine 1 [running]:" and the stack trace (gocpp/trace.hpp) to stderr and exits with
 // code 2, like Go. A function with defers catches it, runs its deferred calls and throws it
 // again (gocpp/defer.hpp); a deferred call that panics then starts a new panic, which keeps the
-// one before it in its chain (gp_prev). Phase 05 makes the value a gp::any, for recover().
+// one before it in its chain (gp_prev).
+//
+// The panic's value is a gp::any (gp_value), which recover() returns (step 5.10):
+//
+//     panic("boom")                  an any of Go type string
+//     panic(1.5)                     an any of Go type float64 (panic<K> names int64, uint64 ...)
+//     panic(err), panic(x)           the interface value itself (gp::panic(const iface&)); the
+//                                    nil interface is panic(nil): *runtime.PanicNilError
+//     index out of range, nil map,   runtime.Error values (runtime.boundsError,
+//     runtime.errorString,
+//       division by zero, ...          runtime.plainError: types with Go's Error() text and a
+//                                    RuntimeError() method, so r.(error) and r.(runtime.Error)
+//                                    work), made by detail::throw_runtime
+//     a C++ exception                a CppException (below), made where a deferred frame catches it
+//
+// The text that an unrecovered panic prints is gp_text for the values that are known when the panic
+// is thrown (a string, a number, a runtime error), and for any other value it is made when the
+// report is written, as Go's preprintpanics does: Error() of an error, else String() of a
+// fmt.Stringer, else Go's printpanicval (detail::panic_text).
 #pragma once
 
 #include <gocpp/checks.hpp>
 #include <gocpp/complex.hpp>
 #include <gocpp/hash.hpp>
+#include <gocpp/iface.hpp>
 #include <gocpp/print.hpp>
 #include <gocpp/string.hpp>
+#include <gocpp/type.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -40,14 +60,42 @@ namespace gp {
 //   - a runtime error that Go keeps in one global or a constant (runtime): the nil
 //     dereference, division by zero, a negative shift, a store into a nil map, makeslice and
 //     growslice; the same for the same message. Index and slice-bounds errors are unique.
+//   - an interface value that was converted before (panic(err), panic(x) with x an any): its
+//     words are the type and the data pointer, so the same value is the same (gp_words, compared
+//     through panic_error::gp_value), and a value that is converted at the panic keeps the rules
+//     above.
 // gp_type is the Go type: go/types' BasicKind number (2 int, 6 int64, 14 float64, 17 string).
 // Two identities are the same when neither is unique and the kind, the type, the bits and the
 // panic's text are.
 struct panic_identity {
-    enum : uint8_t { gp_unique = 0, gp_value = 1, gp_constant = 2, gp_runtime = 3 };
+    enum : uint8_t { gp_unique = 0, gp_value = 1, gp_constant = 2, gp_runtime = 3, gp_words = 4 };
     uint8_t gp_kind = gp_unique;
     uint8_t gp_type = 0;
     uint64_t gp_bits = 0;
+};
+
+// goexit_signal is the exception of runtime.Goexit (step 5.10, gp::goexit): it unwinds the
+// goroutine's stack and runs the deferred calls, like a panic, but recover() returns nil in
+// them and nothing stops it: every deferred frame throws it again, and the goroutine's thread
+// ends quietly (goroutine.cpp), or, for the main goroutine, waits for the others (run_main). Like
+// panic_error it is no std::exception.
+struct goexit_signal {};
+
+// CppException is the value of a panic that a C++ exception became (step 5.10): a function with
+// defers catches every exception that reaches it (defer_frame::gp_on_exception), and one that is
+// not a Go panic (a std::exception of a C++ library, anything thrown) starts a Go panic with
+// this value, so that the deferred calls run and recover() can stop it. recover() returns an
+// `error` whose Go type is runtime.CppException and whose Error() is the text that an unrecovered
+// C++ exception prints (cxx_exception_text): "C++ exception std::out_of_range: vector::at" for a
+// std::exception (its type and what()), "C++ exception of type int" for `throw 42`. fmt prints
+// that text (%v, %s), and gp_what and gp_type keep its parts.
+struct CppException {
+    gp::string gp_text; // what Error() returns
+    gp::string gp_type; // the C++ type, demangled ("std::out_of_range")
+    gp::string gp_what; // what() of a std::exception, else empty
+    friend bool operator==(const CppException& a, const CppException& b) {
+        return a.gp_text == b.gp_text && a.gp_type == b.gp_type && a.gp_what == b.gp_what;
+    }
 };
 
 // panic_error is the exception that a Go panic throws. It doesn't derive from std::exception,
@@ -56,16 +104,34 @@ struct panic_error {
     // gp_max_trace is how many frames a panic records (Go prints at most 100 too).
     static constexpr int gp_max_trace = 100;
 
-    // A panic with this text. It records the stack (the return addresses) where it is made,
+    // A runtime error with this text (the panics that the runtime itself starts): the value is
+    // a runtime.Error, runtime.errorString for a text that starts with "runtime error: ", else
+    // runtime.plainError (detail::runtime_error_value), and `recover()` returns it. It records
+    // the stack (the return addresses) where it is made,
     // for the trace of an unrecovered panic: the C++ unwinding removes the frames before
     // run_main sees the panic. That costs a walk of the unwind tables (1-5 microseconds),
     // and a second, whole walk only for a stack of more than gp_max_trace frames; the names
     // and lines are found only when the trace is printed (gocpp/trace.hpp).
     explicit panic_error(gp::string text, panic_identity id = {}) noexcept;
 
+    // A panic with this value and (when it is known now) this text; gp_lazy: the text is made
+    // from the value when it is printed.
+    panic_error(gp::any value, gp::string text, bool lazy, panic_identity id) noexcept;
+
     // The panic value as Go prints it after "panic: ": a string as it is, a number or a bool
-    // in the format of the builtin print, a runtime error as "runtime error: ...".
+    // in the format of the builtin print, a runtime error as "runtime error: ...". Empty when
+    // gp_lazy: detail::panic_text(e) is the text in every case.
     gp::string gp_text;
+
+    // The value recover() returns: never the nil interface.
+    gp::any gp_value;
+
+    // The text is made from gp_value when the report is written (an error, a Stringer, any
+    // value that Go prints with printpanicval).
+    bool gp_lazy = false;
+
+    // recover() stopped this panic (it may still be in a chain: Go prints it as "[recovered]").
+    bool gp_recovered = false;
 
     // The value's identity, for the printing of a panic chain (above).
     panic_identity gp_id;
@@ -156,14 +222,55 @@ uint64_t bits_of(const T& v) {
     }
 }
 
-// throw_panic throws the panic_error with this text and identity.
-[[noreturn]] void throw_panic(gp::string text, panic_identity id);
+// throw_panic throws the panic_error with this value, text and identity.
+[[noreturn]] void throw_panic(gp::any value, gp::string text, panic_identity id);
 
 template <typename T>
 gp::string print_text(const T& v) {
     std::string text;
     append_print(text, v);
     return gp::string::gp_copy(text);
+}
+
+// td_of_basic is the descriptor of the basic Go type with the go/types BasicKind k (1 bool ...
+// 17 string), for the value of a panic.
+inline const type_desc* td_of_basic(uint8_t k) noexcept {
+    switch (k) {
+    case 1:
+        return &td_bool;
+    case 2:
+        return &td_int;
+    case 3:
+        return &td_int8;
+    case 4:
+        return &td_int16;
+    case 5:
+        return &td_int32;
+    case 6:
+        return &td_int64;
+    case 7:
+        return &td_uint;
+    case 8:
+        return &td_uint8;
+    case 9:
+        return &td_uint16;
+    case 10:
+        return &td_uint32;
+    case 11:
+        return &td_uint64;
+    case 12:
+        return &td_uintptr;
+    case 13:
+        return &td_float32;
+    case 14:
+        return &td_float64;
+    case 15:
+        return &td_complex64;
+    case 16:
+        return &td_complex128;
+    default:
+        return &td_string;
+    }
 }
 
 } // namespace detail
@@ -173,7 +280,8 @@ gp::string print_text(const T& v) {
 // pointers (panic_identity). A string is the text as it is; a bool or a number (also a complex
 // one) prints like the builtin print does (panic(1.5) prints "panic: +1.500000e+000", as in
 // Go). K is the go/types BasicKind of the Go type when the C++ type doesn't say it (int64,
-// uint64, uintptr), else 0.
+// uint64, uintptr), else 0. The value of the panic (what recover() returns) is the value as
+// an `any` of that Go type.
 [[noreturn]] void panic(const gp::string& v);
 [[noreturn]] void panic_constant(const gp::string& c);
 
@@ -184,19 +292,45 @@ template <uint8_t K = 0, typename T>
     panic_identity id;
     // gc converts a complex number to an interface with a new allocation (convTnoptr: a
     // complex64 has 8 bytes but alignment 4, a complex128 16 bytes), so its identity is unique.
+    constexpr uint8_t kind = K != 0 ? K : detail::go_kind<T>();
     if (!go_complex<T> && (sizeof(T) == 1 || bits < 256)) {
-        id = {panic_identity::gp_value, K != 0 ? K : detail::go_kind<T>(), bits};
+        id = {panic_identity::gp_value, kind, bits};
     }
-    detail::throw_panic(detail::print_text(v), id);
+    detail::throw_panic(gp::to_iface<gp::any>(v, detail::td_of_basic(kind)), detail::print_text(v),
+                        id);
 }
 
 template <uint8_t K = 0, typename T>
     requires std::is_same_v<T, bool> || go_int<T> || go_float<T> || go_complex<T>
 [[noreturn]] void panic_constant(const T& c) {
-    uint8_t kind = sizeof(T) == 1 ? panic_identity::gp_value : panic_identity::gp_constant;
-    detail::throw_panic(detail::print_text(c),
-                        {kind, K != 0 ? K : detail::go_kind<T>(), detail::bits_of(c)});
+    constexpr uint8_t kind = K != 0 ? K : detail::go_kind<T>();
+    uint8_t how = sizeof(T) == 1 ? panic_identity::gp_value : panic_identity::gp_constant;
+    detail::throw_panic(gp::to_iface<gp::any>(c, detail::td_of_basic(kind)), detail::print_text(c),
+                        {how, kind, detail::bits_of(c)});
 }
+
+// panic(v) for an interface value (an any, an error, any interface type): the panic's value is
+// v itself. The nil interface is panic(nil): since Go 1.21 a *runtime.PanicNilError ("panic
+// called with nil argument"), which recover() returns. Two panics with the same interface
+// value (the same type and data) are printed once in a chain, as Go does (panic_identity).
+namespace detail {
+[[noreturn]] void panic_value(const gp::iface& v);
+} // namespace detail
+
+template <typename I>
+    requires std::is_base_of_v<gp::iface, I>
+[[noreturn]] void panic(const I& v) {
+    detail::panic_value(v);
+}
+
+// panic(nil): the argument is the untyped nil. Same as panic of a nil interface.
+[[noreturn]] void panic(std::nullptr_t);
+
+// goexit is runtime.Goexit: it runs the deferred calls of the goroutine and ends it
+// (goexit_signal). recover() returns nil during it, and nothing stops it. Called by the main
+// goroutine, the program goes on with the other goroutines, and when they are all gone it
+// ends with Go's "fatal error: no goroutines (main called runtime.Goexit) - deadlock!".
+[[noreturn]] void goexit();
 
 namespace detail {
 
@@ -227,12 +361,59 @@ void panic_report(std::string& out, const panic_error& e) noexcept;
 // older panics).
 void panic_chain(panic_error& newer, const panic_error& running) noexcept;
 
+// panic_text is the text that an unrecovered panic prints after "panic: " (not yet indented):
+// gp_text when it is known, else made from the value as Go's preprintpanics and printpanicval
+// do: Error() of an error, String() of a fmt.Stringer, a basic value in the format of the builtin
+// print (a named type with its name: main.MyInt(5), main.S("x")), any other value as
+// "(main.T) 0xc000012345". If Error() or String() panics, Go ends the program with the fatal
+// error "panic while printing panic value: type main.T": so does this.
+gp::string panic_text(const panic_error& e);
+
+// The runtime.Error values (runtime/src/panicval.cpp). All have Error() string and
+// RuntimeError() methods, so `r.(error)` and `r.(runtime.Error)` hold for a recovered runtime
+// panic; their Go types, as %T prints them, are
+//   runtime.errorString    "runtime error: integer divide by zero" (Error() is the whole text)
+//   runtime.boundsError    "runtime error: index out of range [5] with length 3", slice bounds
+//   runtime.plainError     "assignment to entry in nil map", "close of closed channel": a
+//                          runtime.Error whose text has no "runtime error: " prefix
+//   *runtime.TypeAssertionError   "interface conversion: ..." (runtime_assertion)
+//   *runtime.PanicNilError        "panic called with nil argument" (panic(nil))
+//   runtime.CppException   (CppException above; an error, not a runtime.Error)
+enum class rt_error : uint8_t { error_string, bounds, plain };
+
+// runtime_error_value(kind, text) is the value of a runtime error whose Error() is text.
+gp::any runtime_error_value(rt_error kind, gp::string text);
+
+// runtime_error_value(text) picks the kind by the text: "runtime error: ..." is an errorString,
+// else a plainError. (panic_error's constructor from a text uses it.)
+gp::any runtime_error_value(const gp::string& text);
+
+// throw_runtime throws the panic of a runtime error with this kind, full text and identity.
+[[noreturn]] void throw_runtime(rt_error kind, gp::string text, panic_identity id = {});
+
+// type_assertion_error(text) is the value of a failed type assertion: a *runtime.TypeAssertionError
+// whose Error() is text ("interface conversion: interface {} is string, not int").
+gp::any type_assertion_error(gp::string text);
+
+// throw_type_assertion(text) throws the panic of a failed type assertion: its value is
+// type_assertion_error(text), and the identity is unique (Go allocates a new one each time).
+[[noreturn]] void throw_type_assertion(gp::string text);
+
+// cxx_exception_value(e) is the CppException value for the C++ exception e (not a Go panic).
+gp::any cxx_exception_value(const std::exception_ptr& e);
+
+// string_method calls the method name() string of the value v (Error or String; one with the
+// signature "func() string" and an exported name) and reports whether the dynamic type of v has it.
+bool string_method(const gp::iface& v, const char* name, gp::string& out);
+
 // The goroutine's signal, Go's g.sig: in Go, a nil pointer dereference is a memory fault, and
 // an unrecovered panic then prints a signal line, "[signal SIGSEGV: segmentation violation
 // code=0x1 addr=0x0 pc=0x4a2b1c]". panic_nil sets it for the running thread (a goroutine is a
 // thread, ADR-007), and it stays set while the panic goes on, also through panics that
-// deferred calls add. A recover that stops the panic must call clear_signal (Phase 05), as Go
-// clears g.sig; a later, ordinary panic then prints no signal line.
+// deferred calls add. When a recover has stopped the panic, the deferred call that recovered it
+// has returned and no other panic is running, defer_frame::gp_run calls clear_signal, as Go's
+// recovery clears g.sig: a later, ordinary panic prints no signal line. (A deferred call that
+// recovers and then panics again before it returns still prints it.)
 void clear_signal() noexcept;
 
 // fatal is Go's fatal error (runtime.throw), an error that no recover stops: it prints "fatal
@@ -285,6 +466,11 @@ void out_of_memory();
 // empty), "C++ exception of type <type>" for anything else (throw 42: "C++ exception of type
 // int"). The type is the type it was thrown with, its C++ name demangled (std::out_of_range).
 std::string cxx_exception_text(const std::exception_ptr& e);
+
+// cxx_exception_parts splits the same: type is the C++ type that e was thrown with ("?" when it
+// can't be known), has_what says that it is a std::exception, and what is its what().
+void cxx_exception_parts(const std::exception_ptr& e, std::string& type, std::string& what,
+                         bool& has_what);
 
 [[noreturn]] void on_terminate() noexcept;
 

@@ -117,6 +117,13 @@ const std::type_info* current_exception_type() noexcept;
 // before it unwinds, which run_main's handler turns into Go's report).
 int thread_start(void (*fn)(void*), void* arg, std::size_t stack_size) noexcept;
 
+// exit_thread ends the calling thread the way C code can end it, with pthread_exit: glibc unwinds
+// the thread's stack with a forced unwind, a C++ exception that no handler may swallow (the
+// frames' destructors run, a catch (...) must throw it again). No Go code runs. The runtime
+// never calls it; the tests do, to check that a function with defers lets the forced unwind through
+// (step 5.10, test/defer_test.cpp). Linux only until Phase 14.
+[[noreturn]] void exit_thread(); // (not noexcept: the forced unwind passes through it)
+
 // tls_get and tls_set are the calling thread's slot: one pointer per thread, null before the
 // first tls_set, which the portable runtime uses for the thread's goroutine record. They don't
 // allocate and tls_get is async-signal-safe (the overflow hook may need it). A thread that

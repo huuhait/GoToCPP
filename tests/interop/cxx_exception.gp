@@ -1,13 +1,12 @@
-// phase: 04
+// phase: 05
 // ExitCode: 2
-// Stderr: ^panic: C\+\+ exception std::out_of_range: [^\n]*\n\ngoroutine 1 \[running\]:\nvec_at\([^\n]*\)\n\t/.+/cxxvals\.hpp:\d+ \+0x[0-9a-f]+\nmain\.at\(\.\.\.\)\n\t/.+/cxx_exception\.gp:24 \+0x[0-9a-f]+\nmain\.inner\(\.\.\.\)\n\t/.+/cxx_exception\.gp:31 \+0x[0-9a-f]+\nmain\.main\(\)\n\t/.+/cxx_exception\.gp:36 \+0x[0-9a-f]+\n$
+// Stderr: ^panic: C\+\+ exception std::out_of_range: [^\n]*\n\ngoroutine 1 \[running\]:\nmain\.at\(\.\.\.\)\n\t/.+/cxx_exception\.gp:\d+ \+0x[0-9a-f]+\nmain\.inner\(\.\.\.\)\n\t/.+/cxx_exception\.gp:\d+ \+0x[0-9a-f]+\nmain\.main\(\)\n\t/.+/cxx_exception\.gp:\d+ \+0x[0-9a-f]+\n$
 
-// A C++ exception that nothing catches ends the program like an unrecovered Go panic (Phase 04
-// README §2.8, first version): "panic: C++ exception <type>: <what()>", the stack where it was
-// thrown (the C++ helper's frame too), exit code 2. In this first version the deferred calls
-// don't run (Go would run them for a panic): the C++ library looks for a catch before it unwinds
-// anything, finds none, and ends the program there; Phase 05 makes the exception a Go panic that
-// runs them and that recover can stop.
+// A C++ exception that reaches a function with defers is a Go panic (Phase 05 step 5.10,
+// docs/spec/interop.md "C++ exceptions"): the deferred calls of every frame run, and unrecovered
+// it ends the program like any panic: "panic: C++ exception <type>: <what()>", the stack where the
+// function with the defer caught it (the C++ helper's frame is gone: the exception has unwound it),
+// exit code 2.
 package main
 
 import (
@@ -40,3 +39,6 @@ func main() {
 // Output:
 // cleanup at
 // at 1: 0
+// cleanup at
+// cleanup inner
+// cleanup main

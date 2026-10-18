@@ -37,6 +37,7 @@
 // Like every runtime type, func has only operators and gp_-prefixed members (Phase 03 §2.1).
 #pragma once
 
+#include <gocpp/aware.hpp>
 #include <gocpp/checks.hpp>
 #include <gocpp/ptr.hpp>
 
@@ -107,6 +108,12 @@ public:
             gp_env_ = std::make_shared<L>(std::forward<F>(f));
             gp_call_ = &gp_call_obj<L>;
         }
+        if constexpr (detail::is_aware_lambda<L>) {
+            // A func literal that contains recover() (gp::aware): its code is known to be aware
+            // (gocpp/aware.hpp), once for each literal.
+            static const bool gp_marked = (detail::mark_aware(gp_code()), true);
+            (void)gp_marked;
+        }
     }
 
     // Copies share the closure; a move leaves nil behind.
@@ -157,6 +164,12 @@ public:
         return c(keep.gp_env.get(), static_cast<A&&>(a)...);
     }
 
+    // The code that a call of this func runs: the key of the registry of aware funcs
+    // (gocpp/aware.hpp), the same for the funcs made from the same function or literal.
+    detail::code_ptr gp_code() const noexcept {
+        return reinterpret_cast<detail::code_ptr>(gp_call_);
+    }
+
     // f == nil. Go compares func values only with nil. (C++ gives f != nullptr and
     // nullptr == f from it.)
     friend bool operator==(const func& f, std::nullptr_t) noexcept { return f.gp_call_ == nullptr; }
@@ -185,6 +198,16 @@ static_assert(sizeof(func<void()>) == 24, "gp::func is 24 bytes: an owner and a 
 template <auto F>
 func<typename detail::fn_sig<decltype(F)>::type> func_of() noexcept {
     return func<typename detail::fn_sig<decltype(F)>::type>(detail::fn_tag<F>{});
+}
+
+// func_of_aware<&f>(): func_of for a function that contains recover() (gocpp/aware.hpp), whose
+// func value is known to be aware when a defer calls it.
+template <auto F>
+func<typename detail::fn_sig<decltype(F)>::type> func_of_aware() {
+    auto f = func_of<F>();
+    static const bool marked = (detail::mark_aware(f.gp_code()), true);
+    (void)marked;
+    return f;
 }
 
 } // namespace gp

@@ -206,9 +206,13 @@ struct method {
     const char* gp_pkg;
     const char* gp_sig;
     fn_ptr gp_fn;
+    // The method's body contains recover() (an aware function, gocpp/aware.hpp): `defer i.M()`
+    // gives it the ticket of the panic. Set by method_of_aware; gp::icall reads it from the itab.
+    bool gp_aware;
 
-    constexpr method(const char* name, const char* pkg, const char* sig, fn_ptr fn) noexcept
-        : gp_name(name), gp_pkg(pkg), gp_sig(sig), gp_fn(fn) {}
+    constexpr method(const char* name, const char* pkg, const char* sig, fn_ptr fn,
+                     bool aware = false) noexcept
+        : gp_name(name), gp_pkg(pkg), gp_sig(sig), gp_fn(fn), gp_aware(aware) {}
 };
 
 // method_table is a table of methods, for named<T>, td_struct and td_ptr.
@@ -713,6 +717,20 @@ method method_of(const char* name, const char* pkg, const char* sig, Fn* thunk) 
                   "gp::method_of: the thunk's type is not R(const gp::iface&, A...) for the "
                   "method's signature R(A...) (a C/C++ type that Go can't tell apart?)");
     return method(name, pkg, sig, reinterpret_cast<fn_ptr>(thunk));
+}
+
+// method_of_aware<Sig>(...) is method_of for a method whose body contains recover()
+// (gocpp/aware.hpp): the entry carries the aware flag, which getitab copies to the itab, so that
+// `defer i.M()` gives M the ticket of the panic that runs the deferred call (gp::icall clears the
+// ticket for a method without the flag). The emitter must use it in EVERY table in which the
+// method (or a promoted method that reaches it, through a forwarding thunk) is: the table of T,
+// the table of *T, and the tables of the types that embed T.
+template <typename Sig, typename Fn>
+method method_of_aware(const char* name, const char* pkg, const char* sig, Fn* thunk) {
+    static_assert(thunk_matches<Sig, Fn>,
+                  "gp::method_of_aware: the thunk's type is not R(const gp::iface&, A...) for the "
+                  "method's signature R(A...)");
+    return method(name, pkg, sig, reinterpret_cast<fn_ptr>(thunk), true);
 }
 
 } // namespace gp

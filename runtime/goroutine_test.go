@@ -56,8 +56,18 @@ func runGoroutine(t *testing.T, bin, mode string) {
 	want("go-nil", `^panic: runtime error: invalid memory address or nil pointer dereference\n`+
 		`\[signal SIGSEGV: segmentation violation code=0x1 addr=0x0 pc=`+hex+`\]\n\ngoroutine 2 \[running\]:\n`)
 	want("main-panic", `^panic: main goroutine\n\ngoroutine 1 \[running\]:\n`)
+	want("goexit-main", `^(?:main's deferred call\nother goroutine runs\n|other goroutine runs\nmain's deferred call\n)`+
+		`fatal error: no goroutines \(main called runtime.Goexit\) - deadlock!\n$`)
 	want("thread-fail-3", `^runtime: failed to create new OS thread \(have 4 already; errno=\d+\)\n`+
 		`fatal error: newosproc\n\ngoroutine 1 \[running\]:\n`)
+	want("bad-error-method", `^deferred call runs first\nfatal error: panic while printing panic value: inside Error\n\ngoroutine 1 \[running\]:\n`)
+	t.Run("exit-in-defer", func(t *testing.T) {
+		// os.Exit in a deferred call skips every deferred call that hasn't run, and keeps its code.
+		out, code, sig := caseRun(t, bin, "exit-in-defer")
+		if code != 3 || sig != "" || out != "exiting\n" {
+			t.Errorf("exit code %d %s, output:\n%s\nwant exit code 3 and only \"exiting\"", code, sig, out)
+		}
+	})
 	t.Run("claim-death", func(t *testing.T) {
 		out, code, sig := caseRun(t, bin, "claim-death")
 		if code != 0 || sig != "" || out != "second thread is blocked\n" {

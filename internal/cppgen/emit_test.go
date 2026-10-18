@@ -666,6 +666,32 @@ func TestPanics(t *testing.T) {
 		{"rp-int32-conv", "n := 100000\n\tdefer panic(int32(n))\n\tpanic(int32(n))"},
 		{"rp-float-conv", "f := 1.5\n\tdefer panic(float64(f))\n\tpanic(float64(f))"},
 		{"rp-var-decl", "var s = \"long string\"\n\tdefer panic(s)\n\tpanic(\"long string\")"},
+		// recover (step 5.10): a panic that a deferred call recovers stays in the chain as
+		// "[recovered]" when that call panics again, and panicking again with the recovered value is
+		// the same panic ("[recovered, repanicked]", also for values that gc doesn't keep in static
+		// data and runtime errors), panic(nil) is a *runtime.PanicNilError, and a recovered nil
+		// dereference's signal line stays until the recovering call returns.
+		{"rec-repanic", "defer func() {\n\t\tr := recover()\n\t\tpanic(r)\n\t}()\n\tpanic(\"x\")"},
+		{"rec-repanic-big", "n := 100000\n\tdefer func() { panic(recover()) }()\n\tpanic(n)"},
+		{"rec-repanic-str", "s := fmt.Sprint(\"a\", 1)\n\tdefer func() { panic(recover()) }()\n\tpanic(s)"},
+		{"rec-new-panic", "defer func() {\n\t\trecover()\n\t\tpanic(\"second\")\n\t}()\n\tpanic(\"first\")"},
+		{"rec-new-same-text", "n := 100000\n\tdefer func() {\n\t\trecover()\n\t\tpanic(n)\n\t}()\n\tpanic(n)"},
+		{"rec-chain", "defer boom(\"third\")\n\tdefer func() {\n\t\trecover()\n\t\tpanic(\"second\")\n\t}()\n\tpanic(\"first\")"},
+		{"rec-chain-recovered-late", "defer func() {\n\t\tr := recover()\n\t\tfmt.Println(\"recovered\", r)\n\t\tpanic(\"final\")\n\t}()\n\tdefer boom(\"second\")\n\tpanic(\"first\")"},
+		{"rec-nil", "fmt.Println(\"before\")\n\tpanic(nil)"},
+		{"rec-nil-repanic", "defer func() { panic(recover()) }()\n\tpanic(nil)"},
+		{"rec-nil-new", "defer func() {\n\t\tfmt.Println(recover())\n\t\tpanic(\"after\")\n\t}()\n\tpanic(nil)"},
+		{"rec-runtime-repanic", "defer func() { panic(recover()) }()\n\tvar m map[int]int\n\tm[1] = 1"},
+		{"rec-index-repanic", "defer func() { panic(recover()) }()\n\ts, i := []int{1}, 5\n\tfmt.Println(s[i])"},
+		{"rec-div-repanic", "z := 0\n\tdefer func() { panic(recover()) }()\n\tfmt.Println(1 / z)"},
+		{"rec-nil-deref-repanic", "defer func() { panic(recover()) }()\n\tvar p *int\n\tfmt.Println(*p)"},
+		{"rec-nil-deref-new", "defer func() {\n\t\trecover()\n\t\tpanic(\"new\")\n\t}()\n\tvar p *int\n\tfmt.Println(*p)"},
+		{"rec-nil-deref-later", "func() {\n\t\tdefer func() { recover() }()\n\t\tvar p *int\n\t\tfmt.Println(*p)\n\t}()\n\tpanic(\"later\")"},
+		{"rec-nil-deref-outer", "defer func() {\n\t\tfunc() {\n\t\t\tdefer func() { recover() }()\n\t\t\tvar q *int\n\t\t\tfmt.Println(*q)\n\t\t}()\n\t}()\n\tpanic(\"outer\")"},
+		{"rec-named-result-then-panic", "defer func() { panic(\"in defer\") }()\n\tfunc() (n int) {\n\t\tdefer func() { n = 2; recover() }()\n\t\tpanic(1)\n\t}()"},
+		{"rec-deferred-recover-not-direct", "defer func() {\n\t\tfunc() { recover() }()\n\t}()\n\tpanic(\"not recovered\")"},
+		{"rec-defer-recover-builtin", "defer recover()\n\tpanic(\"still panics\")"},
+		{"rec-helper-not-deferred", "defer func() { helperRecover() }()\n\tpanic(\"helper\")"},
 		// Complex numbers (step 3.15c): printed like println; gc converts a value with a new
 		// allocation (a chain prints both), a constant from read-only data (printed once).
 		{"panic-complex", "c := complex(1.5, -2)\n\tpanic(c * c)"},
@@ -801,6 +827,9 @@ func TestPanics(t *testing.T) {
 			}
 			if strings.Contains(tt.body, "boom(") {
 				src += "\nfunc boom(s string) {\n\tpanic(s)\n}\n"
+			}
+			if strings.Contains(tt.body, "helperRecover(") {
+				src += "\nfunc helperRecover() {\n\trecover()\n}\n"
 			}
 			if strings.Contains(tt.body, "two(") {
 				src += "\nfunc two() [2]int {\n\treturn [2]int{1, 2}\n}\n"
@@ -1047,6 +1076,13 @@ func TestFatal(t *testing.T) {
 			"\tvar a [1 << 45]byte\n\ta[7] = 1\n\tfmt.Println(a[7])\n}\n", true, nil},
 		{"oom-defer", prelude + "func main() {\n\tfmt.Println(\"start\")\n\tdefer fmt.Println(\"not run\")\n\tdefer func() {\n" +
 			"\t\t_ = make([]byte, 1<<45)\n\t}()\n\tn := 1\n\tpanic(fmt.Sprint(\"boom\", n))\n}\n", true, nil},
+		// Fatal errors are not panics (step 5.10): a deferred recover doesn't stop them, and the
+		// deferred calls don't run.
+		{"oom-recover", prelude + "func main() {\n\tdefer func() { fmt.Println(\"recovered\", recover()) }()\n\tfmt.Println(\"start\")\n" +
+			"\tn := 1 << 45\n\ts := make([]byte, n)\n\tfmt.Println(len(s))\n}\n", true, nil},
+		{"stack-overflow-recover", prelude + "var depth int\n\nfunc f(n int) int {\n\tvar a [100]int\n\ta[n%100] = n\n\tdepth++\n\treturn f(n+1) + a[n%7]\n}\n\n" +
+			"func main() {\n\tdefer func() { fmt.Println(\"recovered\", recover()) }()\n\tfmt.Println(\"start\")\n\tfmt.Println(f(0))\n}\n", false,
+			&result{"start\n", "runtime: goroutine stack exceeds 1000000000-byte limit\nruntime: sp=0xX stack=[0xX, 0xX]\nfatal error: stack overflow\n", 2}},
 		{"stack-overflow", prelude + "var depth int\n\nfunc f(n int) int {\n\tvar a [100]int\n\ta[n%100] = n\n\tdepth++\n\treturn f(n+1) + a[n%7]\n}\n\n" +
 			"func main() {\n\tdefer fmt.Println(\"deferred\")\n\tfmt.Println(\"start\")\n\tfmt.Println(f(0))\n}\n", false,
 			&result{"start\n", "runtime: goroutine stack exceeds 1000000000-byte limit\nruntime: sp=0xX stack=[0xX, 0xX]\nfatal error: stack overflow\n", 2}},

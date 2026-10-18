@@ -157,6 +157,10 @@ func (fg *funcGen) funcValue(fl *ast.FuncLit) cppir.Expr {
 		fg.g.errorf(fl.Pos(), "internal error: a func literal without a signature")
 		return placeholder
 	}
+	if fg.g.awareBody(fl.Body) {
+		// A func literal that calls recover: its func value is known to be aware (aware.hpp).
+		return construct(fg.g.funcType(sig, fl.Pos()), call("gp::aware", fg.lambda(fl)))
+	}
 	return construct(fg.g.funcType(sig, fl.Pos()), fg.lambda(fl))
 }
 
@@ -223,6 +227,9 @@ func (fg *funcGen) captures(fl *ast.FuncLit) []cppir.Capture {
 // gp::func_of<&gpkg_main::f>(), which needs no allocation.
 func (fg *funcGen) funcRef(fn *types.Func, pos token.Pos) cppir.Expr {
 	addr := &cppir.Unary{Op: "&", X: cxxName(fg.g.ns + "::" + fg.cname(fn, pos))}
+	if fg.g.awareFunc(fn) {
+		return templateCall("gp::func_of_aware", []cppir.Node{addr}) // recover.go
+	}
 	return templateCall("gp::func_of", []cppir.Node{addr})
 }
 
@@ -350,10 +357,14 @@ func (fg *funcGen) deferValue(c *ast.CallExpr) cppir.Expr {
 		return placeholder
 	}
 	var f cppir.Expr
+	push := "gp_push_call"
 	if fl, ok := ast.Unparen(c.Fun).(*ast.FuncLit); ok {
 		f = fg.lambda(fl)
+		if fg.g.awareBody(fl.Body) {
+			push = "gp_push_call_aware" // the literal calls recover (recover.go)
+		}
 	} else {
-		f = fg.exactExpr(c.Fun) // a copy, gp::func
+		f = fg.exactExpr(c.Fun) // a copy, gp::func (the frame looks its code up: aware.hpp)
 	}
 	if len(c.Args) == 1 && isTuple(fg.g.info.TypeOf(c.Args[0])) {
 		// defer f(g()): g's results are stored as one tuple, which a generic lambda (the trace
@@ -370,5 +381,5 @@ func (fg *funcGen) deferValue(c *ast.CallExpr) cppir.Expr {
 		}
 		return frameCall("gp_push_call", apply, f, fg.exactExpr(c.Args[0]))
 	}
-	return frameCall("gp_push_call", append([]cppir.Expr{f}, fg.callArgs(c, sig)...)...)
+	return frameCall(push, append([]cppir.Expr{f}, fg.callArgs(c, sig)...)...)
 }

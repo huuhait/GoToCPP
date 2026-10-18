@@ -100,6 +100,7 @@
 // members, so a Go method of any name can be a member of an interface struct.
 #pragma once
 
+#include <gocpp/aware.hpp>
 #include <gocpp/checks.hpp>
 #include <gocpp/ptr.hpp>
 #include <gocpp/type.hpp>
@@ -122,6 +123,7 @@ struct itab {
     const type_desc* gp_type;
     const imethod* gp_missing;
     const fn_ptr* gp_fun;
+    const bool* gp_aware; // gp_aware[i]: the method i contains recover() (method_of_aware)
 };
 
 // getitab(inter, type) is the itab of type for the interface type inter, built the first time
@@ -338,6 +340,9 @@ struct icall_fn<R(A...)> {
             panic_nil(); // a method of a nil interface
         }
         auto f = reinterpret_cast<thunk_t<R(A...)>*>(t->gp_fun[slot]);
+        // The ticket of a deferred call (gocpp/aware.hpp): one thread-local load, null unless
+        // the call is the one a panic's deferred-call machinery makes.
+        detail::icall_ticket(*t, slot);
         return f(self, static_cast<B&&>(b)...);
     }
 };

@@ -405,7 +405,55 @@ std::string test_speed() {
     return buf;
 }
 
+// An interface value (step 5.10, until Go's fmt on any, step 5.11): the value inside prints as
+// Go prints it, an Error or String method first, nil as <nil>, %T names the dynamic type, and Print
+// puts no space next to a string inside an any.
+void test_any() {
+    gp::any n;
+    CHECK_EQ(str(fmt::Sprint(n)), "<nil>");
+    CHECK_EQ(str(fmt::Sprintf("%v|%s|%T"_gs, n, n, n)), "<nil>|%!s(<nil>)|<nil>");
+    gp::any i = gp::to_iface<gp::any>(int64_t(42), &gp::td_int);
+    gp::any i64 = gp::to_iface<gp::any>(int64_t(42), &gp::td_int64);
+    gp::any s = gp::to_iface<gp::any>("text"_gs, &gp::td_string);
+    gp::any f = gp::to_iface<gp::any>(1.5, &gp::td_float64);
+    gp::any b = gp::to_iface<gp::any>(true, &gp::td_bool);
+    CHECK_EQ(str(fmt::Sprint(i, s, f, b)), "42text1.5 true"); // no space next to a string
+    CHECK_EQ(str(fmt::Sprintln(i, s, f, b)), "42 text 1.5 true\n");
+    CHECK_EQ(str(fmt::Sprintf("%v %d %s %q|%T %T %T %T"_gs, i, i, s, s, i, i64, s, f)),
+             "42 42 text \"text\"|int int64 string float64");
+    CHECK_EQ(str(fmt::Sprintf("%5d|%-6s|%.2f"_gs, i, s, f)), "   42|text  |1.50");
+    CHECK_EQ(str(fmt::Sprintf("%d"_gs, s)), "%!d(string=text)");
+    CHECK_EQ(str(fmt::Sprint(gp::to_iface<gp::any>(uint8_t(7), &gp::td_uint8))), "7");
+    // The values of a runtime panic print with their Error(), and %T gives their Go type.
+    gp::any e;
+    try {
+        gp::panic_index(5, true, 3);
+    } catch (const gp::panic_error& p) {
+        e = p.gp_value;
+    }
+    CHECK_EQ(str(fmt::Sprint(e)), "runtime error: index out of range [5] with length 3");
+    CHECK_EQ(
+        str(fmt::Sprintf("%v|%s|%T"_gs, e, e, e)),
+        "runtime error: index out of range [5] with length 3|runtime error: index out of range "
+        "[5] with length 3|runtime.boundsError");
+}
+
+// A String method that panics with an interface value (step 5.10): fmt prints the value with %v.
+struct AnyBoom {
+    int64_t unused = 0;
+    gp::string gp_String() const { gp::panic(gp::to_iface<gp::any>(int64_t(77), &gp::td_int)); }
+    static constexpr const char* gp_type_name = "main.AnyBoom";
+    static constexpr auto gp_fields =
+        gp::fields(gp::field(&AnyBoom::unused, "unused", false, false));
+};
+
+void test_panic_any_in_method() {
+    CHECK_EQ(str(fmt::Sprint(AnyBoom{})), "%!v(PANIC=String method: 77)");
+}
+
 void run_tests() {
+    test_any();
+    test_panic_any_in_method();
     test_addresses();
     test_pointer_keys();
     test_methods();

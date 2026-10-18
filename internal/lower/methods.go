@@ -593,7 +593,14 @@ func (fg *funcGen) methodValue(x *ast.SelectorExpr, s *types.Selection) cppir.Ex
 		fg.g.errorf(x.Pos(), "internal error: a method value without a signature")
 		return placeholder
 	}
-	return construct(fg.g.funcType(sig, x.Pos()), fg.methodLambda(x, s))
+	lam := fg.methodLambda(x, s)
+	if fn, _ := s.Obj().(*types.Func); fg.g.awareFunc(fn) || isIfaceMethod(fn) {
+		// The method calls recover, or it is an interface's (its code is known when it runs): a
+		// deferred call of this func value gives the ticket, which gp::icall takes away again
+		// unless the method that runs is aware (recover.go).
+		return construct(fg.g.funcType(sig, x.Pos()), call("gp::aware", lam))
+	}
+	return construct(fg.g.funcType(sig, x.Pos()), lam)
 }
 
 // methodLambda returns the generic lambda of the method value or method expression x

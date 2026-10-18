@@ -40,7 +40,7 @@ constexpr const char* bounds_neg_fmts[] = {
 };
 
 [[noreturn]] void panic_text(const std::string& text) {
-    throw panic_error{gp::string::gp_copy(text)};
+    detail::throw_runtime(detail::rt_error::bounds, gp::string::gp_copy(text));
 }
 
 // Go's malloc size classes (internal/runtime/gc/sizeclasses.go, Go 1.25), without class 0.

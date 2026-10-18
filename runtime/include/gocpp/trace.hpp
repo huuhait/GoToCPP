@@ -139,10 +139,14 @@ void fatal_trace(std::string& out) noexcept;
 // gp_panic is the panic that is running (null for a normal return), and gp_ret gp_run's
 // return address, the pc of its caller's frame in a recorded stack.
 struct run_mark {
-    const panic_error* gp_panic;
+    panic_error* gp_panic; // recover() marks it recovered (gp::recover)
     uintptr_t gp_ret;
     const run_mark* gp_next;
 };
+
+// The running thread's innermost run_mark, or null (defer_frame::gp_run sets it; inline, so that a
+// deferred call can look at it cheaply: gocpp/defer.hpp).
+inline constinit thread_local const run_mark* top_run = nullptr;
 
 // run_marks returns the running thread's innermost run_mark, or null.
 const run_mark* run_marks() noexcept;

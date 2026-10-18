@@ -9,6 +9,7 @@
 #include <gocpp/os.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -16,8 +17,11 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
+
+#include "threads_ended.hpp"
 
 namespace {
 
@@ -250,8 +254,8 @@ void test_panics() {
             df.gp_push(note, 1);
             df.gp_push(note, 2);
             gp::panic("body"_gs);
-        } catch (gp::panic_error& e) {
-            df.gp_on_panic(e);
+        } catch (...) {
+            df.gp_on_exception();
         }
         df.gp_run();
     });
@@ -279,8 +283,8 @@ void test_panics() {
             df.gp_push(boom, "third"_gs);
             df.gp_push(boom, "second"_gs);
             gp::panic("first\nline"_gs);
-        } catch (gp::panic_error& e) {
-            df.gp_on_panic(e);
+        } catch (...) {
+            df.gp_on_exception();
         }
         df.gp_run();
     };
@@ -318,14 +322,14 @@ void test_panics() {
                 try {
                     inner.gp_push(boom, "C"_gs);
                     boom("B"_gs);
-                } catch (gp::panic_error& e) {
-                    inner.gp_on_panic(e);
+                } catch (...) {
+                    inner.gp_on_exception();
                 }
                 inner.gp_run();
             });
             gp::panic("A"_gs);
-        } catch (gp::panic_error& e) {
-            df.gp_on_panic(e);
+        } catch (...) {
+            df.gp_on_exception();
         }
         df.gp_run();
     };
@@ -333,46 +337,45 @@ void test_panics() {
              std::string("panic: A\n\tpanic: B\n\tpanic: C\n\ngoroutine 1 [running]:\n"));
     CHECK_EQ(calls, std::string("boom(B) boom(C) "));
 
-    // An exception that is not a Go panic goes on at once (defer.hpp): from a deferred call,
-    // the calls before it don't run and the running Go panic is dropped; from the body, no
-    // deferred call runs. The frame frees the calls that didn't run (LeakSanitizer checks it).
+    // A C++ exception that is not a Go panic becomes one (defer.hpp, step 5.10): the deferred
+    // calls run for it, and a Go panic that was running goes into its chain. From a deferred call
+    // it replaces the running panic like a panic of that call does. LeakSanitizer checks that
+    // the frame frees what it holds.
     calls.clear();
     live = 0;
-    bool cpp = false;
-    try {
+    std::string chained = report_of([] {
         gp::defer_frame df;
         try {
             df.gp_push(note, 1);
             df.gp_push(note_counted, counted(5));
             df.gp_push(throw_cpp);
             gp::panic("go"_gs);
-        } catch (gp::panic_error& e) {
-            df.gp_on_panic(e);
+        } catch (...) {
+            df.gp_on_exception();
         }
         df.gp_run();
-    } catch (const std::runtime_error&) {
-        cpp = true;
-    }
-    CHECK(cpp);
-    CHECK_EQ(calls, std::string("throw "));
+    });
+    CHECK_EQ(chained, std::string("panic: go\n\tpanic: C++ exception std::runtime_error: c++"
+                                  "\n\ngoroutine 1 [running]:\n"));
+    CHECK_EQ(calls, std::string("throw 5 1 "));
     CHECK(live == 0);
+    // From the body: the deferred calls run, the first of them (the last registered) panics, and
+    // that panic has the exception's before it.
     calls.clear();
-    cpp = false;
-    try {
+    std::string body = report_of([] {
         gp::defer_frame df;
         try {
             df.gp_push(boom, "never"_gs);
             df.gp_push(note_counted, counted(6));
             throw std::runtime_error("c++");
-        } catch (gp::panic_error& e) {
-            df.gp_on_panic(e);
+        } catch (...) {
+            df.gp_on_exception();
         }
         df.gp_run();
-    } catch (const std::runtime_error&) {
-        cpp = true;
-    }
-    CHECK(cpp);
-    CHECK_EQ(calls, std::string(""));
+    });
+    CHECK_EQ(body, std::string("panic: C++ exception std::runtime_error: c++\n\tpanic: never"
+                               "\n\ngoroutine 1 [running]:\n"));
+    CHECK_EQ(calls, std::string("6 boom(never) "));
     CHECK(live == 0);
 }
 
@@ -386,8 +389,8 @@ void test_repanicked() {
             try {
                 df.gp_push_call([second] { second(); });
                 first();
-            } catch (gp::panic_error& e) {
-                df.gp_on_panic(e);
+            } catch (...) {
+                df.gp_on_exception();
             }
             df.gp_run();
         });
@@ -434,8 +437,8 @@ void test_repanicked() {
                 df.gp_push_call([c] { c(); });
                 df.gp_push_call([b] { b(); });
                 a();
-            } catch (gp::panic_error& e) {
-                df.gp_on_panic(e);
+            } catch (...) {
+                df.gp_on_exception();
             }
             df.gp_run();
         });
@@ -488,8 +491,8 @@ void test_hold() {
             df.gp_push_call([&log] { log.push_back("defer"); });
             df.gp_hold(std::make_shared<Tracer>(&log, "held"));
             gp::panic_constant("boom"_gs);
-        } catch (gp::panic_error& e) {
-            df.gp_on_panic(e);
+        } catch (...) {
+            df.gp_on_exception();
         }
         df.gp_run();
     } catch (gp::panic_error&) {
@@ -534,7 +537,762 @@ void test_hold_scales() {
     CHECK(best < 8); // 4 times the holds: about 4 times as long (quadratic would be 16)
 }
 
+// --- recover, Goexit, C++ exceptions (step 5.10) ---
+
+// The value that the last aware function recovered, as text ("<nil>" for the nil interface).
+std::string got;
+
+std::string show_any(const gp::any& v) {
+    if (v == nullptr) {
+        return "<nil>";
+    }
+    return gp::detail::panic_text(gp::panic_error{v, gp::string(), true, {}}).gp_view().data() ==
+                   nullptr
+               ? std::string()
+               : std::string(
+                     gp::detail::panic_text(gp::panic_error{v, gp::string(), true, {}}).gp_view());
+}
+
+// How many times an aware function found the ticket still set after it took it (it must never).
+int ticket_leaks = 0;
+
+// An aware function: it takes the ticket first, like generated code (gocpp/aware.hpp).
+void aware_recover() {
+    gp::defer_ctx dc = gp::take_defer_ctx();
+    ticket_leaks += gp::detail::ticket != nullptr ? 1 : 0;
+    got = show_any(gp::recover(dc));
+    calls += "recover ";
+}
+
+// An aware function that recovers twice: the second returns nil.
+void aware_twice() {
+    gp::defer_ctx dc = gp::take_defer_ctx();
+    ticket_leaks += gp::detail::ticket != nullptr ? 1 : 0;
+    std::string a = show_any(gp::recover(dc));
+    std::string b = show_any(gp::recover(dc));
+    got = a + "," + b;
+}
+
+// A function that is not aware (not pushed as aware) and calls an aware function: the callee
+// is not called by the defer machinery, so its recover returns nil.
+void indirect() {
+    aware_recover();
+}
+
+// Aware, but the frame doesn't know: pushed with gp_push, it takes no ticket.
+void test_recover() {
+    // The deferred call recovers the body's panic: the function returns normally.
+    calls.clear();
+    got = "-";
+    bool escaped = false;
+    try {
+        gp::defer_frame df;
+        try {
+            df.gp_push_aware(aware_recover);
+            df.gp_push(note, 1);
+            gp::panic("boom"_gs);
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    } catch (...) {
+        escaped = true;
+    }
+    CHECK(!escaped);
+    CHECK_EQ(got, std::string("boom"));
+    CHECK_EQ(calls, std::string("1 recover "));
+
+    // Not pushed as aware, or called by another function: nil, and the panic goes on.
+    for (int how = 0; how < 3; how++) {
+        calls.clear();
+        got = "-";
+        std::string t = text([how] {
+            gp::defer_frame df;
+            try {
+                if (how == 0) {
+                    df.gp_push(aware_recover); // the frame doesn't give the ticket
+                } else if (how == 1) {
+                    df.gp_push(indirect); // not aware itself, calls aware_recover
+                } else {
+                    df.gp_push_call([] { aware_recover(); });
+                }
+                gp::panic("boom"_gs);
+            } catch (...) {
+                df.gp_on_exception();
+            }
+            df.gp_run();
+        });
+        CHECK_EQ(t, std::string("boom"));
+        CHECK_EQ(got, std::string("<nil>"));
+    }
+
+    // Without a panic: nil. Called by a normal return, an aware function sees no ticket.
+    calls.clear();
+    got = "-";
+    {
+        gp::defer_frame df;
+        df.gp_push_aware(aware_recover);
+        df.gp_run();
+    }
+    CHECK_EQ(got, std::string("<nil>"));
+
+    // Twice: the second recover returns nil.
+    got = "-";
+    std::string again = text([] {
+        gp::defer_frame df;
+        try {
+            df.gp_push_aware(aware_twice);
+            gp::panic(int64_t(5));
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    CHECK_EQ(again, std::string("<no panic>"));
+    CHECK_EQ(got, std::string("5,<nil>"));
+
+    // The deferred call after the recovering one runs as for a normal return: its aware function
+    // finds no panic.
+    calls.clear();
+    got = "-";
+    std::string after = text([] {
+        gp::defer_frame df;
+        try {
+            df.gp_push_aware(aware_recover); // runs second: no panic any more
+            df.gp_push_aware(aware_twice);   // runs first: recovers
+            gp::panic("x"_gs);
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    CHECK_EQ(after, std::string("<no panic>"));
+    CHECK_EQ(got, std::string("<nil>")); // the second call's recover
+
+    // A func value: aware when it was made from an aware lambda, func_of_aware or a method
+    // table's thunk (gp::aware, gp::func_of_aware); a plain one is not.
+    got = "-";
+    gp::func<void()> plain_fv = gp::func_of<&indirect>(); // calls aware_recover, not aware itself
+    gp::func<void()> aware_fv = gp::func_of_aware<&aware_recover>();
+    std::string by_plain = text([&] {
+        gp::defer_frame df;
+        try {
+            df.gp_push_call(plain_fv);
+            gp::panic("fv"_gs);
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    CHECK_EQ(by_plain, std::string("fv"));
+    CHECK_EQ(got, std::string("<nil>"));
+    std::string by_aware = text([&] {
+        gp::defer_frame df;
+        try {
+            df.gp_push_call(aware_fv);
+            gp::panic("fv"_gs);
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    CHECK_EQ(by_aware, std::string("<no panic>"));
+    CHECK_EQ(got, std::string("fv"));
+    // An aware literal.
+    got = "-";
+    gp::func<void()> lit_fv = gp::func<void()>(gp::aware([] {
+        gp::defer_ctx dc = gp::take_defer_ctx();
+        got = show_any(gp::recover(dc));
+    }));
+    std::string by_lit = text([&] {
+        gp::defer_frame df;
+        try {
+            df.gp_push_call(lit_fv);
+            gp::panic("lit"_gs);
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    CHECK_EQ(by_lit, std::string("<no panic>"));
+    CHECK_EQ(got, std::string("lit"));
+    // A deferred call that is a plain lambda calling the func value: not called by the machinery.
+    got = "-";
+    std::string by_wrapper = text([&] {
+        gp::defer_frame df;
+        try {
+            df.gp_push_call([aware_fv] { aware_fv(); });
+            gp::panic("wrap"_gs);
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    CHECK_EQ(by_wrapper, std::string("wrap"));
+    CHECK_EQ(got, std::string("<nil>"));
+
+    // The ticket never outlives the call: after a deferred aware call, a later normal call of an
+    // aware function finds none, also when the call threw.
+    got = "-";
+    (void)text([] {
+        gp::defer_frame df;
+        try {
+            df.gp_push_aware(+[] {
+                gp::defer_ctx dc = gp::take_defer_ctx();
+                (void)dc;
+                gp::panic("again"_gs);
+            });
+            gp::panic("first"_gs);
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    aware_recover();
+    CHECK_EQ(got, std::string("<nil>"));
+    // A deferred call that doesn't take the ticket (not aware): gp_push_aware's guard still
+    // clears it, so nothing it calls can take it.
+    got = "-";
+    (void)text([] {
+        gp::defer_frame df;
+        try {
+            df.gp_push_aware(+[] { aware_recover(); }); // wrongly marked aware, takes none
+            gp::panic("z"_gs);
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    // No ticket is left after any of the above, and no aware function found one after taking it.
+    CHECK(gp::detail::ticket == nullptr);
+    CHECK(ticket_leaks == 0);
+}
+
+// `defer i.M()` for an interface i: the call goes through gp::icall, which looks at the ticket
+// and clears it unless the method's thunk is registered as aware (gp::method_of_aware).
+//
+//     type Guarder interface{ Guard() }
+//     type A struct{}; func (A) Guard() { recover() }      // aware
+//     type B struct{}; func (B) Guard() { helper() }       // not aware: helper calls recover
+
+const gp::type_desc* guarder_desc();
+
+struct Guarder : gp::iface {
+    using gp::iface::iface;
+    static const gp::type_desc* gp_desc() { return guarder_desc(); }
+    void Guard() const { gp::icall<void()>(*this, 0); }
+};
+
+struct GuardA {
+    void Guard() const {
+        gp::defer_ctx dc = gp::take_defer_ctx();
+        got = show_any(gp::recover(dc));
+    }
+    bool operator==(const GuardA&) const = default;
+};
+struct GuardB {
+    void Guard() const { aware_recover(); }
+    bool operator==(const GuardB&) const = default;
+};
+
+void thunk_GuardA(const gp::iface& self) {
+    gp::unbox<GuardA>(self).Guard();
+}
+void thunk_GuardB(const gp::iface& self) {
+    gp::unbox<GuardB>(self).Guard();
+}
+
+const gp::method gp_vm_GuardA[] = {
+    gp::method_of_aware<void()>("Guard", nullptr, "func()", &thunk_GuardA)};
+const gp::method gp_vm_GuardB[] = {
+    gp::method_of<void()>("Guard", nullptr, "func()", &thunk_GuardB)};
+const gp::imethod gp_im_Guarder[] = {gp::imethod("Guard", nullptr, "func()")};
+const gp::type_desc gp_td_GuardA = gp::named<GuardA>(
+    "main.GuardA", "main", gp::shape_struct(nullptr, 0), gp::methods_of(gp_vm_GuardA));
+const gp::type_desc gp_td_GuardB = gp::named<GuardB>(
+    "main.GuardB", "main", gp::shape_struct(nullptr, 0), gp::methods_of(gp_vm_GuardB));
+const gp::type_desc gp_td_Guarder =
+    gp::named<Guarder>("main.Guarder", "main", gp::shape_interface(gp_im_Guarder));
+const gp::type_desc* guarder_desc() {
+    return &gp_td_Guarder;
+}
+
+void test_recover_icall() {
+    Guarder a = gp::to_iface<Guarder>(GuardA{}, &gp_td_GuardA);
+    Guarder b = gp::to_iface<Guarder>(GuardB{}, &gp_td_GuardB);
+    // The aware method recovers; the other, which only calls an aware function, doesn't.
+    got = "-";
+    std::string by_a = text([&] {
+        gp::defer_frame df;
+        try {
+            df.gp_push_call_icall([](const Guarder& g) { g.Guard(); }, a);
+            gp::panic("iface"_gs);
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    CHECK_EQ(by_a, std::string("<no panic>"));
+    CHECK_EQ(got, std::string("iface"));
+    got = "-";
+    std::string by_b = text([&] {
+        gp::defer_frame df;
+        try {
+            df.gp_push_call_icall([](const Guarder& g) { g.Guard(); }, b);
+            gp::panic("iface"_gs);
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    CHECK_EQ(by_b, std::string("iface"));
+    CHECK_EQ(got, std::string("<nil>"));
+    // Called normally, or pushed without the icall mark, the aware method finds no ticket.
+    got = "-";
+    a.Guard();
+    CHECK_EQ(got, std::string("<nil>"));
+    got = "-";
+    std::string plain = text([&] {
+        gp::defer_frame df;
+        try {
+            df.gp_push_call([](const Guarder& g) { g.Guard(); }, a);
+            gp::panic("iface"_gs);
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    CHECK_EQ(plain, std::string("iface"));
+    CHECK_EQ(got, std::string("<nil>"));
+    // The nil interface: the call panics (gp::panic_nil), and the ticket does not stay.
+    Guarder nilg;
+    got = "-";
+    (void)text([&] {
+        gp::defer_frame df;
+        try {
+            df.gp_push_call_icall([](const Guarder& g) { g.Guard(); }, nilg);
+            gp::panic("first"_gs);
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    gp::detail::clear_signal();
+    CHECK(gp::detail::ticket == nullptr); // the nil call threw before it could use the ticket
+    aware_recover();
+    CHECK_EQ(got, std::string("<nil>"));
+    CHECK(ticket_leaks == 0);
+}
+
+// A named func type (`type H func()`) is a gp::newtype over gp::func: a deferred H is a func value
+// too, aware when its code is; and a deferred func value that returns normally never reads the
+// registry (a panic must be running for the ticket to matter).
+struct HandlerFn : gp::newtype<HandlerFn, gp::func<void()>> {
+    using gp::newtype<HandlerFn, gp::func<void()>>::newtype;
+};
+
+void test_named_func_and_registry() {
+    static_assert(gp::detail::is_gp_func<gp::func<void()>>);
+    static_assert(gp::detail::is_gp_func<HandlerFn>);
+    static_assert(!gp::detail::is_gp_func<int>);
+    HandlerFn aware_h(gp::func_of_aware<&aware_recover>());
+    HandlerFn plain_h(gp::func_of<&indirect>());
+    got = "-";
+    std::string by_aware = text([&] {
+        gp::defer_frame df;
+        try {
+            df.gp_push_call(aware_h);
+            gp::panic("named"_gs);
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    CHECK_EQ(by_aware, std::string("<no panic>"));
+    CHECK_EQ(got, std::string("named"));
+    got = "-";
+    std::string by_plain = text([&] {
+        gp::defer_frame df;
+        try {
+            df.gp_push_call(plain_h);
+            gp::panic("named"_gs);
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    CHECK_EQ(by_plain, std::string("named"));
+    CHECK_EQ(got, std::string("<nil>"));
+    // Normal returns, with func values of every kind: no registry read.
+    gp::func<void()> fv = gp::func_of_aware<&aware_recover>();
+    std::size_t before = gp::detail::aware_lookups();
+    for (int i = 0; i < 100; i++) {
+        gp::defer_frame df;
+        df.gp_push_call(fv);
+        df.gp_push_call(aware_h);
+        df.gp_push_call_icall([] {});
+        df.gp_push_aware(aware_recover);
+        df.gp_run();
+    }
+    CHECK(gp::detail::aware_lookups() == before);
+    // While a panic runs them, it is read (once for each func value call).
+    (void)text([&] {
+        gp::defer_frame df;
+        try {
+            df.gp_push_call(fv);
+            gp::panic("x"_gs);
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    CHECK(gp::detail::aware_lookups() == before + 1);
+}
+
+// A deferred call that recovers and then panics again: Go prints the recovered one with
+// [recovered] in the chain.
+void aware_recover_panic() {
+    gp::defer_ctx dc = gp::take_defer_ctx();
+    (void)gp::recover(dc);
+    gp::panic("second"_gs);
+}
+
+void test_recover_chain() {
+    std::string r = report_of([] {
+        gp::defer_frame df;
+        try {
+            df.gp_push_aware(aware_recover_panic);
+            gp::panic("first"_gs);
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    CHECK_EQ(r,
+             std::string("panic: first [recovered]\n\tpanic: second\n\ngoroutine 1 [running]:\n"));
+    // Re-panicking the value that was recovered: once, with repanicked (the words are the same).
+    std::string same = report_of([] {
+        gp::defer_frame df;
+        try {
+            df.gp_push_aware(+[] {
+                gp::defer_ctx dc = gp::take_defer_ctx();
+                gp::panic(gp::recover(dc));
+            });
+            gp::panic(int64_t(100000)); // a value that is not in Go's static data
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    CHECK(same.starts_with("panic: 100000"));
+}
+
+// Goexit: the deferred calls run, recover() returns nil, and goexit_signal comes out of the frame.
+void test_goexit() {
+    calls.clear();
+    got = "-";
+    bool signalled = false;
+    try {
+        gp::defer_frame df;
+        try {
+            df.gp_push_aware(aware_recover);
+            df.gp_push(note, 1);
+            gp::goexit();
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    } catch (const gp::goexit_signal&) {
+        signalled = true;
+    }
+    CHECK(signalled);
+    CHECK_EQ(calls, std::string("1 recover "));
+    CHECK_EQ(got, std::string("<nil>"));
+
+    // A panic in a deferred call during Goexit, recovered by a later call: Goexit goes on.
+    calls.clear();
+    signalled = false;
+    try {
+        gp::defer_frame df;
+        try {
+            df.gp_push(note, 2);
+            df.gp_push_aware(aware_recover);
+            df.gp_push(boom, "in goexit"_gs);
+            gp::goexit();
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    } catch (const gp::goexit_signal&) {
+        signalled = true;
+    }
+    CHECK(signalled);
+    CHECK_EQ(calls, std::string("boom(in goexit) recover 2 "));
+
+    // Goexit in a deferred call replaces the panic that was running.
+    calls.clear();
+    signalled = false;
+    bool panicked = false;
+    try {
+        gp::defer_frame df;
+        try {
+            df.gp_push(note, 3);
+            df.gp_push(+[] { gp::goexit(); });
+            gp::panic("dropped"_gs);
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    } catch (const gp::goexit_signal&) {
+        signalled = true;
+    } catch (const gp::panic_error&) {
+        panicked = true;
+    }
+    CHECK(signalled && !panicked);
+    CHECK_EQ(calls, std::string("3 "));
+}
+
+// A C++ exception is a Go panic with a CppException value, which recover returns.
+void test_cxx_exception() {
+    calls.clear();
+    got = "-";
+    bool escaped = false;
+    try {
+        gp::defer_frame df;
+        try {
+            df.gp_push_aware(aware_recover);
+            df.gp_push(note, 1);
+            throw std::out_of_range("vec");
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    } catch (...) {
+        escaped = true;
+    }
+    CHECK(!escaped);
+    CHECK_EQ(calls, std::string("1 recover "));
+    CHECK_EQ(got, std::string("C++ exception std::out_of_range: vec"));
+    // Anything can be thrown.
+    got = "-";
+    try {
+        gp::defer_frame df;
+        try {
+            df.gp_push_aware(aware_recover);
+            throw 42;
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    } catch (...) {
+        escaped = true;
+    }
+    CHECK(!escaped);
+    CHECK_EQ(got, std::string("C++ exception of type int"));
+    // The value is an error with the type's name and the what() text.
+    gp::any v;
+    {
+        gp::defer_frame df;
+        try {
+            df.gp_push_call_aware([&v] {
+                gp::defer_ctx dc = gp::take_defer_ctx();
+                v = gp::recover(dc);
+            });
+            throw std::runtime_error("cpp");
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    }
+    CHECK(v != nullptr);
+    CHECK_EQ(std::string(v.gp_type()->gp_name), std::string("runtime.CppException"));
+    gp::string msg;
+    CHECK(gp::detail::string_method(v, "Error", msg));
+    CHECK_EQ(std::string(msg.gp_view()), std::string("C++ exception std::runtime_error: cpp"));
+    // Not recovered: the next frame sees a Go panic, and the report is Go-style.
+    std::string r = report_of([] {
+        gp::defer_frame df;
+        try {
+            df.gp_push(note, 9);
+            throw std::logic_error("unrecovered");
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+    });
+    CHECK_EQ(r, std::string("panic: C++ exception std::logic_error: unrecovered\n\ngoroutine 1 "
+                            "[running]:\n"));
+}
+
+// runtime errors are runtime.Error values with Go's types and texts.
+void test_runtime_errors() {
+    auto value_of = [](auto f) {
+        gp::any v;
+        try {
+            f();
+        } catch (const gp::panic_error& e) {
+            v = e.gp_value;
+        }
+        return v;
+    };
+    auto name_of = [](const gp::any& v) {
+        return v == nullptr ? std::string("<nil>") : std::string(v.gp_type()->gp_name);
+    };
+    auto err_text = [](const gp::any& v) {
+        gp::string s;
+        return gp::detail::string_method(v, "Error", s) ? std::string(s.gp_view()) : "<no Error>";
+    };
+    gp::any d = value_of([] { gp::panic_divide(); });
+    CHECK_EQ(name_of(d), std::string("runtime.errorString"));
+    CHECK_EQ(err_text(d), std::string("runtime error: integer divide by zero"));
+    gp::any i = value_of([] { gp::panic_index(5, true, 3); });
+    CHECK_EQ(name_of(i), std::string("runtime.boundsError"));
+    CHECK_EQ(err_text(i), std::string("runtime error: index out of range [5] with length 3"));
+    gp::any n = value_of([] { gp::panic_nil(); });
+    gp::detail::clear_signal();
+    CHECK_EQ(name_of(n), std::string("runtime.errorString"));
+    gp::any m = value_of([] {
+        throw gp::panic_error{"assignment to entry in nil map"_gs,
+                              {gp::panic_identity::gp_runtime, 0, 0}};
+    });
+    CHECK_EQ(name_of(m), std::string("runtime.plainError"));
+    CHECK_EQ(err_text(m), std::string("assignment to entry in nil map"));
+    // Both have RuntimeError() (the runtime.Error interface), the string panic does not.
+    auto has_method = [](const gp::any& v, const char* name) {
+        for (std::size_t k = 0; k < v.gp_type()->gp_nmethods; k++) {
+            if (std::string(v.gp_type()->gp_methods[k].gp_name) == name) {
+                return true;
+            }
+        }
+        return false;
+    };
+    CHECK(has_method(d, "RuntimeError") && has_method(i, "RuntimeError") &&
+          has_method(m, "RuntimeError"));
+    gp::any s = value_of([] { gp::panic("plain"_gs); });
+    CHECK_EQ(name_of(s), std::string("string"));
+    CHECK(s.gp_type()->gp_nmethods == 0);
+    // The itab of an interface with Error() and RuntimeError() is built from the method table.
+    static const gp::imethod ims[] = {gp::imethod("Error", nullptr, "func() string"),
+                                      gp::imethod("RuntimeError", nullptr, "func()")};
+    const gp::type_desc* rte = gp::td_interface({ims[0], ims[1]}, "runtime.Error");
+    CHECK(gp::implements(rte, d.gp_type()));
+    CHECK(gp::implements(rte, i.gp_type()));
+    CHECK(!gp::implements(rte, s.gp_type()));
+    // panic(nil) is a *runtime.PanicNilError.
+    gp::any pn = value_of([] { gp::panic(nullptr); });
+    CHECK_EQ(name_of(pn), std::string("*runtime.PanicNilError"));
+    CHECK_EQ(err_text(pn), std::string("panic called with nil argument"));
+    CHECK(gp::implements(rte, pn.gp_type()));
+    // A panic with an interface value keeps it: the same type and data.
+    gp::any boxed = gp::to_iface<gp::any>(int64_t(7), &gp::td_int);
+    gp::any back = value_of([&] { gp::panic(boxed); });
+    CHECK(back.gp_type() == boxed.gp_type() && back.gp_data().get() == boxed.gp_data().get());
+    gp::any nilv;
+    gp::any viaNil = value_of([&] { gp::panic(nilv); });
+    CHECK_EQ(name_of(viaNil), std::string("*runtime.PanicNilError"));
+    // A failed type assertion's value.
+    gp::any ta = gp::detail::type_assertion_error(
+        "interface conversion: interface {} is string, not int"_gs);
+    CHECK_EQ(name_of(ta), std::string("*runtime.TypeAssertionError"));
+    CHECK_EQ(err_text(ta), std::string("interface conversion: interface {} is string, not int"));
+    CHECK(gp::implements(rte, ta.gp_type()));
+}
+
+// The text of a panic value as Go prints it (printpanicval and preprintpanics).
+struct MyErr {
+    gp::string gp_s;
+    friend bool operator==(const MyErr& a, const MyErr& b) { return a.gp_s == b.gp_s; }
+};
+gp::string my_err_error(const gp::iface& self) {
+    return gp::string::gp_copy("MyErr:" + std::string(gp::unbox<MyErr>(self).gp_s.gp_view()));
+}
+struct Opaque {
+    int64_t x = 0;
+    friend bool operator==(const Opaque&, const Opaque&) = default;
+};
+struct Celsius {
+    double gp_v = 0;
+    friend bool operator==(const Celsius&, const Celsius&) = default;
+};
+struct Label {
+    gp::string gp_s;
+    friend bool operator==(const Label& a, const Label& b) { return a.gp_s == b.gp_s; }
+};
+
+void test_panic_values() {
+    static const gp::method my_err_methods[] = {
+        gp::method_of<gp::string()>("Error", nullptr, "func() string", &my_err_error)};
+    static const gp::type_desc td_my_err = gp::named<MyErr>(
+        "main.MyErr", "main", gp::shape_struct(nullptr, 0), gp::methods_of(my_err_methods));
+    static const gp::type_desc td_opaque_t =
+        gp::named<Opaque>("main.T", "main", gp::shape_struct(nullptr, 0));
+    static const gp::type_desc td_celsius =
+        gp::named<Celsius>("main.Celsius", "main", gp::shape_basic(gp::kind::Float64));
+    static const gp::type_desc td_label =
+        gp::named<Label>("main.Label", "main", gp::shape_basic(gp::kind::String));
+    auto text_of = [](const gp::any& v) {
+        try {
+            gp::panic(v);
+        } catch (const gp::panic_error& e) {
+            gp::string t = gp::detail::panic_text(e);
+            return std::string(t.gp_view());
+        }
+        return std::string("<no panic>");
+    };
+    CHECK_EQ(text_of(gp::to_iface<gp::any>(MyErr{"x"_gs}, &td_my_err)), std::string("MyErr:x"));
+    CHECK_EQ(text_of(gp::to_iface<gp::any>(int64_t(5), &gp::td_int)), std::string("5"));
+    CHECK_EQ(text_of(gp::to_iface<gp::any>("hi"_gs, &gp::td_string)), std::string("hi"));
+    CHECK_EQ(text_of(gp::to_iface<gp::any>(1.5, &gp::td_float64)), std::string("+1.500000e+000"));
+    CHECK_EQ(text_of(gp::to_iface<gp::any>(Celsius{36.5}, &td_celsius)),
+             std::string("main.Celsius(+3.650000e+001)"));
+    CHECK_EQ(text_of(gp::to_iface<gp::any>(Label{"warm"_gs}, &td_label)),
+             std::string("main.Label(\"warm\")"));
+    std::string o = text_of(gp::to_iface<gp::any>(Opaque{1}, &td_opaque_t));
+    CHECK(o.starts_with("(main.T) 0x"));
+}
+
+// A forced unwind (pthread_exit, pthread_cancel) is not caught: no Go code runs during it, and the
+// thread ends (glibc aborts if a handler swallowed it).
+std::atomic<int> forced_state{0};
+
+void forced_thread(void*) {
+    {
+        gp::defer_frame df;
+        try {
+            df.gp_push(note, 77);
+            forced_state = 1;
+            gp::os::exit_thread();
+        } catch (...) {
+            df.gp_on_exception();
+        }
+        df.gp_run();
+        forced_state = 2; // not reached: neither the deferred calls nor the code after them run
+    }
+}
+
+void test_forced_unwind() {
+#if defined(__linux__)
+    calls.clear();
+    CHECK(gp::os::thread_start(forced_thread, nullptr, 1 << 20) == 0);
+    for (int i = 0; i < 20000 && forced_state.load() == 0; i++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    rt_test::threads_ended(); // the thread ended through the forced unwind: glibc didn't abort
+    CHECK(forced_state.load() == 1);
+    CHECK_EQ(calls, std::string("")); // the deferred call did not run
+#endif
+}
+
 void run_tests() {
+    test_recover();
+    test_recover_icall();
+    test_named_func_and_registry();
+    test_recover_chain();
+    test_goexit();
+    test_cxx_exception();
+    test_runtime_errors();
+    test_panic_values();
+    test_forced_unwind();
     test_hold_scales();
     test_hold();
     test_order();

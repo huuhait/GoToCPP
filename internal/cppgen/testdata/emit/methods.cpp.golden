@@ -321,9 +321,9 @@ std::tuple<int64_t, int64_t> Point::Swap() const {
         gp_df.gp_push(show, "deferred"_gs, (*p).Add(Point{}));
         { auto gp_t0 = (*p).X; (*p).X = (*p).Y; (*p).Y = gp_t0; }
         { auto gp_t1 = (*p).Y; x = (*p).X; y = gp_t1; } goto gp_ret0;
-    } catch (gp::panic_error& gp_e) {
+    } catch (...) {
 #line 70 "$DIR/methods.gp"
-        gp_df.gp_on_panic(gp_e);
+        gp_df.gp_on_exception();
 #line 70 "$DIR/methods.gp"
     }
 #line 70 "$DIR/methods.gp"
@@ -669,9 +669,9 @@ void main() {
         gp_df.gp_push_call([](auto&& gp_a0) { gp::fmtshim::Println("last"_gs, gp_a0); }, (*o).Inner.Get());
         gp_df.gp_push_call([](auto&& gp_a0) { Inner::Set(gp_a0, 8); }, gp::field_ptr(o, &Outer::Inner));
         gp_df.gp_push_call([](auto&& gp_a0) { Deep::Bump(gp_a0); }, (*o).Mid->Deep);
-    } catch (gp::panic_error& gp_e) {
+    } catch (...) {
 #line 255 "$DIR/methods.gp"
-        gp_df.gp_on_panic(gp_e);
+        gp_df.gp_on_exception();
 #line 255 "$DIR/methods.gp"
     }
 #line 255 "$DIR/methods.gp"

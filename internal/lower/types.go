@@ -112,6 +112,10 @@ func (g *gen) cxxType(t types.Type, pos token.Pos) cppir.Type {
 		}
 	case *types.Signature:
 		return g.funcType(t, pos) // gp::func<R(P...)> (closures.go)
+	case *types.Interface:
+		if t.Empty() {
+			return typeName("gp::any") // any, interface{} (Phase 05 step 5.2; the rest comes with 5.4)
+		}
 	case *types.Tuple:
 		args := make([]cppir.Node, t.Len())
 		for i := range t.Len() {

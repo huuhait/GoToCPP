@@ -621,8 +621,10 @@ const itab* build(const type_desc* inter, const type_desc* type) {
         fatal(msg);
     }
     const std::size_t n = inter->gp_nimethods;
-    auto* t = static_cast<itab*>(::operator new(sizeof(itab) + n * sizeof(fn_ptr)));
+    auto* t =
+        static_cast<itab*>(::operator new(sizeof(itab) + n * sizeof(fn_ptr) + n * sizeof(bool)));
     auto* fun = reinterpret_cast<fn_ptr*>(reinterpret_cast<char*>(t) + sizeof(itab));
+    auto* aware = reinterpret_cast<bool*>(fun + n);
     const imethod* missing = nullptr;
     std::size_t j = 0;
     for (std::size_t i = 0; i < n && missing == nullptr; i++) {
@@ -636,6 +638,7 @@ const itab* build(const type_desc* inter, const type_desc* type) {
             }
             if (c == 0 && same_str(m.gp_sig, im.gp_sig) && m.gp_fn != nullptr) {
                 fun[i] = m.gp_fn;
+                aware[i] = m.gp_aware;
                 found = true;
                 j++;
             }
@@ -645,7 +648,7 @@ const itab* build(const type_desc* inter, const type_desc* type) {
             missing = &im;
         }
     }
-    new (t) itab{inter, type, missing, missing == nullptr ? fun : nullptr};
+    new (t) itab{inter, type, missing, missing == nullptr ? fun : nullptr, aware};
     return t;
 }
 

@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -19,6 +20,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -240,8 +242,13 @@ constexpr panic_identity runtime_id{panic_identity::gp_runtime, 0, 0};
 
 namespace detail {
 
-void throw_panic(gp::string text, panic_identity id) {
-    throw panic_error{std::move(text), id};
+void throw_panic(gp::any value, gp::string text, panic_identity id) {
+    throw panic_error{std::move(value), std::move(text), false, id};
+}
+
+void throw_runtime(rt_error kind, gp::string text, panic_identity id) {
+    gp::any value = runtime_error_value(kind, text);
+    throw panic_error{std::move(value), std::move(text), false, id};
 }
 
 } // namespace detail
@@ -252,23 +259,29 @@ void panic(const gp::string& v) {
     if (v.gp_view().empty()) {
         id = {panic_identity::gp_value, 17, 0};
     }
-    throw panic_error{v, id};
+    throw panic_error{gp::to_iface<gp::any>(v, &td_string), v, false, id};
 }
 
 void panic_constant(const gp::string& c) {
-    throw panic_error{c, {panic_identity::gp_constant, 17, 0}};
+    throw panic_error{
+        gp::to_iface<gp::any>(c, &td_string), c, false, {panic_identity::gp_constant, 17, 0}};
 }
 
 void panic_wrap(const char* msg) {
-    panic_constant(gp::string::gp_copy(msg));
+    // Go's runtime.panicwrap: panic(plainError("value method ... called using nil *T pointer")).
+    // Its identity is a string constant's (checks.hpp).
+    detail::throw_runtime(detail::rt_error::plain, gp::string::gp_copy(msg),
+                          {panic_identity::gp_constant, 17, 0});
 }
 
 void panic_divide() {
-    throw panic_error{"runtime error: integer divide by zero"_gs, runtime_id};
+    detail::throw_runtime(detail::rt_error::error_string,
+                          "runtime error: integer divide by zero"_gs, runtime_id);
 }
 
 void panic_shift() {
-    throw panic_error{"runtime error: negative shift amount"_gs, runtime_id};
+    detail::throw_runtime(detail::rt_error::error_string, "runtime error: negative shift amount"_gs,
+                          runtime_id);
 }
 
 namespace {
@@ -283,8 +296,9 @@ void panic_nil() {
     signal_set = true;
     signal_pc =
         reinterpret_cast<uintptr_t>(__builtin_extract_return_addr(__builtin_return_address(0)));
-    throw panic_error{"runtime error: invalid memory address or nil pointer dereference"_gs,
-                      runtime_id};
+    detail::throw_runtime(detail::rt_error::error_string,
+                          "runtime error: invalid memory address or nil pointer dereference"_gs,
+                          runtime_id);
 }
 
 namespace detail {
@@ -310,7 +324,7 @@ void panic_index(int64_t x, bool is_signed, int64_t len) {
         text += " with length ";
         detail::print_int(text, len);
     }
-    throw panic_error{gp::string::gp_copy(text)};
+    detail::throw_runtime(detail::rt_error::bounds, gp::string::gp_copy(text));
 }
 
 namespace detail {
@@ -326,6 +340,15 @@ namespace {
 // same reports whether Go's interface words of the two panic values are the same
 // (panic_identity).
 bool same(const panic_error& a, const panic_error& b) {
+    if (a.gp_id.gp_kind == panic_identity::gp_words ||
+        b.gp_id.gp_kind == panic_identity::gp_words) {
+        // One of them is an interface value that was converted before the panic (panic(r) of a
+        // recovered value, panic(err)): the words are the type and the data, which the other panic
+        // has too (its box), whatever way gc would have made its value (a nil pointer in an
+        // interface has the type and no data).
+        return a.gp_value.gp_type() == b.gp_value.gp_type() &&
+               a.gp_value.gp_data().get() == b.gp_value.gp_data().get();
+    }
     return a.gp_id.gp_kind != panic_identity::gp_unique && a.gp_id.gp_kind == b.gp_id.gp_kind &&
            a.gp_id.gp_type == b.gp_id.gp_type && a.gp_id.gp_bits == b.gp_id.gp_bits &&
            a.gp_text.gp_view() == b.gp_text.gp_view();
@@ -336,7 +359,8 @@ bool same(const panic_error& a, const panic_error& b) {
 void panic_report(std::string& out, const panic_error* const* chain, std::size_t n) {
     // Go's preprintpanics and printpanics: the first panic first, each later one after a tab;
     // a panic with the same value as the next one is printed once, as "repanicked", and the
-    // next one is left out.
+    // next one is left out. A panic that recover() stopped and that is still in the chain (the
+    // deferred call that recovered it panicked) is printed with " [recovered]".
     for (std::size_t k = 0; k < n; k++) {
         if (k > 0 && same(*chain[k - 1], *chain[k])) {
             continue;
@@ -346,7 +370,8 @@ void panic_report(std::string& out, const panic_error* const* chain, std::size_t
         }
         out += "panic: ";
         // Go's printindented: a tab after each newline of the value.
-        for (char c : chain[k]->gp_text.gp_view()) {
+        gp::string text = panic_text(*chain[k]);
+        for (char c : text.gp_view()) {
             out += c;
             if (c == '\n') {
                 out += '\t';
@@ -354,6 +379,8 @@ void panic_report(std::string& out, const panic_error* const* chain, std::size_t
         }
         if (k + 1 < n && same(*chain[k], *chain[k + 1])) {
             out += " [recovered, repanicked]";
+        } else if (chain[k]->gp_recovered) {
+            out += " [recovered]";
         }
     }
     if (signal_set) {
@@ -518,12 +545,13 @@ std::terminate_handler cxx_terminate = nullptr;
 
 } // namespace
 
-std::string cxx_exception_text(const std::exception_ptr& e) {
-    std::string type;
-    const char* what = nullptr;
+void cxx_exception_parts(const std::exception_ptr& e, std::string& type, std::string& what,
+                         bool& has_what) {
+    has_what = false;
     try {
         std::rethrow_exception(e);
     } catch (const std::exception& x) {
+        has_what = true;
         what = x.what(); // the exception lives on in e
     } catch (...) {
     }
@@ -539,14 +567,21 @@ std::string cxx_exception_text(const std::exception_ptr& e) {
     if (type.empty()) {
         type = "?";
     }
+}
+
+std::string cxx_exception_text(const std::exception_ptr& e) {
+    std::string type;
+    std::string what;
+    bool has_what = false;
+    cxx_exception_parts(e, type, what, has_what);
     std::string text = "C++ exception ";
-    if (what == nullptr) {
+    if (!has_what) {
         text += "of type ";
         text += type;
         return text;
     }
     text += type;
-    if (*what != '\0') {
+    if (!what.empty()) {
         text += ": ";
         text += what;
     }
@@ -744,6 +779,18 @@ int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
         main();
     } catch (const panic_error& e) {
         detail::exit_with_panic(e);
+    } catch (const goexit_signal&) {
+        // The main goroutine called runtime.Goexit: its deferred calls have run, and the
+        // program goes on until the other goroutines are gone, then ends like Go (a program
+        // that has no goroutine left cannot do anything).
+        while (num_goroutine() > 1) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        // Go prints this one without a trace.
+        detail::claim_death();
+        detail::write_stderr(
+            "fatal error: no goroutines (main called runtime.Goexit) - deadlock!\n");
+        os::exit(2);
     }
     // Any other exception (a C++ exception, also a std::bad_alloc that C++ code throws) finds
     // no catch, so the C++ library calls detail::on_terminate on the stack of the throw, before

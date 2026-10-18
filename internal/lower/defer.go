@@ -24,8 +24,8 @@ import (
 //		return 0                                      gp_r0 = n; goto gp_ret0;
 //	}                                             }
 //	                                              gp_r0 = 0; goto gp_ret1;
-//	                                          } catch (gp::panic_error& gp_e) {
-//	                                              gp_df.gp_on_panic(gp_e);
+//	                                          } catch (...) {
+//	                                              gp_df.gp_on_exception();
 //	                                          }
 //	                                          gp_df.gp_run(); return gp_r0;
 //	                                      gp_ret0:; gp_df.gp_run(); return gp_r0;
@@ -147,10 +147,10 @@ func (fg *funcGen) closeDefers(rbrace token.Pos) {
 	fg.names.closeScope()
 	fg.pop(rbrace) // the try block: its } is the catch's line
 	end := fg.g.pos(rbrace)
-	// Only a Go panic: any other C++ exception (a forced unwind) goes on untouched (defer.hpp).
-	onPanic := &cppir.ExprStmt{Pos: end, X: frameCall("gp_on_panic", cxxName("gp_e"))}
-	param := &cppir.Param{Type: &cppir.Ref{Elem: typeName("gp::panic_error")}, Name: "gp_e"}
-	d.try.Catches = []*cppir.Catch{{Pos: end, Param: param, Body: &cppir.Block{Stmts: []cppir.Stmt{onPanic}, End: end}}}
+	// A panic, Goexit or a C++ exception: gp_on_exception keeps it for gp_run, and throws a forced
+	// unwind (glibc's thread cancellation) again at once (defer.hpp).
+	onPanic := &cppir.ExprStmt{Pos: end, X: frameCall("gp_on_exception")}
+	d.try.Catches = []*cppir.Catch{{Pos: end, Body: &cppir.Block{Stmts: []cppir.Stmt{onPanic}, End: end}}}
 	// The end of the body, and a panic: gp_run throws it again. A void function without
 	// returns needs no return statement there.
 	fg.add(&cppir.Line{Pos: end, Stmts: fg.exitStmts(end, len(d.exits) > 0 || len(fg.fn.results) > 0)})
@@ -237,7 +237,15 @@ func (fg *funcGen) deferStmt(s *ast.DeferStmt) {
 				args = append(args, fg.expr(a))
 			}
 		}
-		push = frameCall("gp_push", args...)
+		push = frameCall(pushName("gp_push", fg.deferKind(c)), args...) // gp_push_aware: recover.go
+	case fg.isBuiltin(c, "recover"):
+		// defer recover() does nothing: recover is the deferred call itself, not called by one
+		// (recover.go), and it has no arguments.
+		auto := &cppir.Ref{Elem: typeName("auto"), RValue: true}
+		push = frameCall("gp_push_call", &cppir.Lambda{
+			Params: []cppir.Param{{Type: auto, Pack: true}},
+			Body:   &cppir.Block{Inline: true},
+		})
 	case fg.g.opaqueCallee(c):
 		push = fg.deferThunk(c) // a member of a C/C++ object, or a C++ callable (cbox.go)
 	case fg.funcValueCall(c):
@@ -323,5 +331,6 @@ func (fg *funcGen) deferThunk(c *ast.CallExpr) cppir.Expr {
 		params = []cppir.Param{{Type: &cppir.Ref{Elem: typeName("auto"), RValue: true}, Pack: true}}
 	}
 	lambda := &cppir.Lambda{Params: params, Body: &cppir.Block{Stmts: []cppir.Stmt{&cppir.ExprStmt{X: body}}, Inline: true}}
-	return frameCall("gp_push_call", append([]cppir.Expr{lambda}, values...)...)
+	// A method that is aware, or called through an interface, needs the ticket (recover.go).
+	return frameCall(pushName("gp_push_call", fg.deferKind(c)), append([]cppir.Expr{lambda}, values...)...)
 }

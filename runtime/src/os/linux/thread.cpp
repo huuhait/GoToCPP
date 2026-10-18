@@ -285,6 +285,10 @@ int thread_start(void (*fn)(void*), void* arg, std::size_t stack_size) noexcept 
     return rc;
 }
 
+void exit_thread() {
+    pthread_exit(nullptr);
+}
+
 void* tls_get() noexcept {
     return tslot;
 }

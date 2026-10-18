@@ -50,6 +50,9 @@ void goroutine_main(void* p) {
     } catch (const panic_error& e) {
         // Go's report for the goroutine, then the end of the whole program.
         exit_with_panic(e);
+    } catch (const goexit_signal&) {
+        // runtime.Goexit: the deferred calls have run (every frame threw it again), and the
+        // goroutine ends quietly.
     }
     // Any other exception goes on: nothing catches it, so the C++ library calls std::terminate
     // on the stack of the throw (run_main's handler, panic.hpp, prints Go's report).

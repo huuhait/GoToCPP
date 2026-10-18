@@ -211,38 +211,46 @@ This phase extends the Phase 03 single-exit shape:
 
 ```cpp
 R f(Args... args) {
+    gp::defer_ctx gp_dc = gp::take_defer_ctx();   // only a function that contains recover()
     gp::result_slot<R> gp_r0;         // results; works for C++ types without copy/default ctor
     gp::defer_frame gp_df;
     try {
-        /* body */                    // `return x` → { gp_r0.set(x); goto gp_exit; }
-    } catch (const gp::goexit_signal&) {
-        throw;                        // runtime.Goexit is never recoverable
-    } catch (const abi::__forced_unwind&) {
-        throw;                        // glibc thread cancellation must keep unwinding
+        /* body */                    // `return x` → { gp_r0 = x; goto gp_ret0; } (one exit per return)
     } catch (...) {
-        gp_df.on_panic(std::current_exception());  // C++ exceptions become panics too
-    }
-gp_exit:
-    gp_df.run();                      // run defers LIFO; if one recovered, the panic is gone,
-    return gp_r0.take();              // otherwise run() re-throws after ALL defers ran
+        gp_df.gp_on_exception();      // a panic, Goexit or a C++ exception (a CppException panic);
+    }                                 // a forced unwind (glibc) is thrown again at once
+    gp_df.gp_run(); return gp_r0.gp_take();   // run defers LIFO; if one recovered, the panic is gone,
+    gp_ret0:; gp_df.gp_run(); return gp_r0.gp_take();  // otherwise gp_run throws again after ALL defers ran
 }
 ```
 
-- `panic(v)` → `throw gp::panic_error{gp::any(v)}`. Zero cost when nothing is thrown
-  (table-based unwinding). Functions without `defer` have no frame and no `try`.
+(Step 5.10 built this: the catch is `catch (...)`, the members are `gp_`-prefixed, and the
+`result_slot` and the one exit per `return` are Phase 03 and 04's.)
+
+- `panic(v)` → `throw gp::panic_error{...}` whose value is a `gp::any` (`gp::panic(v)`). Zero
+  cost when nothing is thrown (table-based unwinding). Functions without `defer` have no frame
+  and no `try`.
 - **`recover()` follows Go's rule exactly.** In Go, `recover` stops a panic only when it is
   called directly by a deferred function. The deferred function may be reached any way: a func
   value, a method value, an interface method, or a closure returned by another call
   (`defer mk()()`, which is what Phase 10's on-top macros produce). The audit checked all four in
-  Go 1.25. So every function that contains `recover()` gets **two entry points**: a normal one,
-  and a *deferred* one that takes the frame's panic context. `gp::func` values and itab thunks
-  carry both entries. The defer runner always calls the deferred entry; every normal call uses
-  the normal entry, where `recover()` returns nil. Indirect calls (`defer helper()` where
-  `helper` calls `inner()`, which calls `recover`) correctly return nil, as in Go.
+  Go 1.25. So every function that contains `recover()` is *aware* (step 5.10; built with a
+  **ticket** instead of the two entry points that this section first planned, which would have
+  made `gp::func` 32 bytes): its first statement takes the ticket that `gp_run` leaves for the
+  call it makes, only while it runs its calls for an unrecovered panic, and `recover()` is
+  `gp::recover(gp_dc)`. The emitter says at the `defer` statement when the callee is aware
+  (`gp_push_aware`, `gp_push_call_aware`, `gp_push_call_icall` for an interface method); a func
+  value is aware when its code is in the runtime's registry (`gp::aware`, `gp::func_of_aware`),
+  and an interface method when its thunk is (`gp::method_of_aware`, which `gp::icall` checks
+  before it calls). A normal call finds no ticket, where `recover()` returns nil. Indirect
+  calls (`defer helper()` where `helper` calls `inner()`, which calls `recover`) correctly
+  return nil, as in Go (docs/spec/cpp-mapping.md "Defer"; ADR-011 notes).
 - **Runtime errors** (index out of range, nil map, …) panic with values that implement
   `runtime.Error`, so `recover()` returns an `error`, as in Go.
-- **C++ exceptions** thrown by interop code become panic values of type `gp::CppException`
-  (`Error()` returns `what()`), so they are recoverable. Phase 04's fatal behavior is replaced.
+- **C++ exceptions** that reach a function with defers become panics whose value is a
+  `gp::CppException` (Go type `runtime.CppException`: an `error`; `Error()` returns `C++
+  exception <type>: <what()>`), so they are recoverable. Phase 04's fatal behavior stays for a
+  stack without a function that has a `defer` (nothing to run, nothing to recover with).
 - **`runtime.Goexit`** (Phase 08) uses its own `gp::goexit_signal`: defers run, `recover()`
   returns nil during it, and it is always re-thrown. `t.Fatal` in `gocpp test` depends on this.
 - **Exact panic output** (verified with Go 1.25): an unrecovered panic prints
@@ -271,7 +279,12 @@ flags.
    wrapper methods defined after all types).
 3. **5.3 itab building + global cache + per-site static cache + signature checks** (`static_assert`
    at static conversions, spelling check for opaque parts).
-4. **5.4 Conversions**: concrete → interface, interface → interface.
+4. **5.4 Conversions**: concrete → interface, interface → interface. (5.10 obligation, here and for
+   5.8/5.9: a method that contains `recover()` (`g.awareFunc`) must be written into EVERY method
+   table with `gp::method_of_aware`, not `gp::method_of`: T's table, *T's, and the forwarding
+   thunks of promoted methods in the tables of the types that embed it; otherwise `defer i.M()`
+   gives `M` no ticket and its `recover()` returns nil where Go recovers. `gp::icall` reads the
+   flag from the itab. Test: `recover_iface_method`, `recover_iface_embedded`.)
 5. **5.5 Assertions + type switches** with Go's exact panic messages.
 6. **5.6 Interface `==`, nil rules, hashing** (`map[any]V`, `map[error]V`).
 7. **5.7 `any`, `error`, `errors` package** (`New`, `Is`, `As`, `Unwrap`, `Join`; written in gocpp
@@ -279,10 +292,12 @@ flags.
 8. **5.8 Embedding**: selection paths, aliasing pointers into embedded fields, fully qualified field
    types, forwarding members, forwarding thunks, embedded pointers and interfaces.
 9. **5.9 Method values and expressions on interfaces.**
-10. **5.10 panic/recover**: two entry points for functions with `recover`, `gp::result_slot`,
-    `goexit_signal` and `__forced_unwind` re-thrown, nested panics, `runtime.Error` values, C++
-    exception conversion, exact output.
-11. **5.11 `fmt` on `any`** (basic verbs; remove the `fmtshim`).
+10. **5.10 panic/recover**: aware functions (a ticket instead of two entry points, §2.7),
+    `gp::result_slot`, `goexit_signal` and `__forced_unwind` re-thrown, nested panics,
+    `runtime.Error` values, C++ exception conversion, exact output.
+11. **5.11 `fmt` on `any`** (basic verbs; remove the `fmtshim`). It must also cover what the shim
+    gets wrong for a panicking `String`/`Error` method: Go prints the panic value with `%v`
+    (`%!v(PANIC=String method: 1.5)`), the shim prints the `print` format (`+1.500000e+000`).
 12. **5.12 Lift the Phase 01 gates** for interfaces, embedding and `recover`; update the feature
     matrix.
 13. **5.13 Tests**: ≥ 80 run tests + differential tests vs Go (this whole phase is pure Go

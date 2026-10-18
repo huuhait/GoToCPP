@@ -37,7 +37,11 @@ bool walk_all(std::vector<uintptr_t>& all) {
 } // namespace
 
 panic_error::panic_error(gp::string text, panic_identity id) noexcept
-    : gp_text(std::move(text)), gp_id(id) {
+    : panic_error(text.gp_view().empty() ? gp::any() : detail::runtime_error_value(text), text,
+                  false, id) {}
+
+panic_error::panic_error(gp::any value, gp::string text, bool lazy, panic_identity id) noexcept
+    : gp_text(std::move(text)), gp_value(std::move(value)), gp_lazy(lazy), gp_id(id) {
     gp_npcs = os::stack(gp_pcs, gp_max_trace);
     if (gp_npcs < gp_max_trace) {
         return;

@@ -185,7 +185,8 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.
 			isUnsafePointer(fg.typeOf(x)) || isUnsafePointer(fg.typeOf(y)) ||
 			isSlice(fg.typeOf(x)) || isSlice(fg.typeOf(y)) || isArray(fg.typeOf(x)) ||
 			isMap(fg.typeOf(x)) || isMap(fg.typeOf(y)) || isStruct(fg.typeOf(x)) ||
-			isFunc(fg.typeOf(x)) || isFunc(fg.typeOf(y)) || isWeakPointer(fg.typeOf(x))) {
+			isFunc(fg.typeOf(x)) || isFunc(fg.typeOf(y)) || isWeakPointer(fg.typeOf(x)) ||
+			fg.nilIface(x, y)) {
 			// p == q compares the addresses, p == nil is p == nullptr (gp::ptr's ==; C++20
 			// writes != and nil == p from it). A slice or a map compares only with nil:
 			// s == nullptr, and so does a func (step 3.11). Arrays compare their elements (gp::array's ==), structs their
@@ -482,6 +483,12 @@ func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 		// runtime gives the underlying one.
 		return fg.g.wrapNamed(fg.g.info.TypeOf(c), x, c.Pos())
 	default: // panic
+		if fg.g.info.Types[arg].IsNil() {
+			return call("gp::panic", lit("nullptr")) // panic(nil): *runtime.PanicNilError (Go 1.21)
+		}
+		if isEmptyInterface(t) {
+			return call("gp::panic", fg.expr(arg)) // an any: the panic's value is the interface itself
+		}
 		if b == nil {
 			fg.g.unsupported(c.Pos(), "panic with a value of type "+tname+" (Phase 05)")
 			return placeholder

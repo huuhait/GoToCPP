@@ -159,6 +159,7 @@
 #include <gocpp/array.hpp>
 #include <gocpp/checks.hpp>
 #include <gocpp/complex.hpp>
+#include <gocpp/iface.hpp>
 #include <gocpp/map.hpp>
 #include <gocpp/panic.hpp>
 #include <gocpp/ptr.hpp>
@@ -292,6 +293,10 @@ void bad_verb_end(printer& p);
 // catch_panic writes what fmt's catchPanic does for a panic in a String or Error method.
 void catch_panic(printer& p, bool nil_receiver, char32_t verb, const char* method,
                  std::string_view value);
+
+// panic_value_v is the value of a panic as fmt prints it with %v (the text of a string or a runtime
+// error, an error's Error(), a number): what catch_panic shows after "PANIC=String method: ".
+std::string panic_value_v(const gp::panic_error& e);
 
 // float_v and float_f append a float as %v and as %f do. bits is 32 for a float32, whose
 // shortest digits differ: float32(0.1) prints as 0.1.
@@ -581,6 +586,9 @@ void type_name(std::string& out) {
         out += "std::string_view";
     } else if constexpr (std::is_null_pointer_v<T>) {
         out += "<nil>"; // as Go's %T of a nil interface
+    } else if constexpr (std::is_base_of_v<gp::iface, T>) {
+        out += "interface {}"; // the static type; %T and the arguments of Print use the value's
+                               // (step 5.10)
     } else if constexpr (cptr_of<T>::value) {
 #if defined(__cpp_rtti) || defined(__GXX_RTTI)
         detail::cxx_type_name(out, typeid(typename cptr_of<T>::elem*));
@@ -667,7 +675,7 @@ void call_method(printer& p, const T& v, char32_t verb) {
             s = v.gp_String();
         }
     } catch (const gp::panic_error& e) {
-        detail::catch_panic(p, nil, verb, name, e.gp_text.gp_view());
+        detail::catch_panic(p, nil, verb, name, detail::panic_value_v(e));
         return;
     }
     detail::pp_string(p, s.gp_view(), verb, &detail::type_name<tag::none, gp::string>);
@@ -719,6 +727,12 @@ void print_value(printer& p, const T& v, char32_t verb, int depth, access ro);
 
 template <typename Tag, typename T>
 void print_kind(printer& p, const T& v, char32_t verb, int depth, access ro, type_fn type);
+
+// print_iface prints an interface value as fmt does for the value inside (defined after
+// print_kind). Until step 5.11 (Go's fmt on any), it knows the value's Error and String methods
+// and the basic kinds, the types of the runtime's own panics and the pointers; other values print
+// as a pointer to them.
+void print_iface(printer& p, const gp::iface& v, char32_t verb, int depth, access ro);
 
 // runs_no_code<T>: printing a T can't call a method (only numbers, bools and strings, also
 // named ones without methods), so nothing can change while it prints.
@@ -1093,6 +1107,8 @@ void print_kind(printer& p, const T& v, char32_t verb, int depth, access ro, typ
         } else {
             detail::bad_verb_nil(p, verb);
         }
+    } else if constexpr (std::is_base_of_v<gp::iface, T>) {
+        detail::print_iface(p, v, verb, depth, ro);
     } else if constexpr (cxx_string<T>) {
         detail::pp_string(p, std::string_view(v), verb, type);
     } else if constexpr (cxx_text_type<T>) {
@@ -1104,6 +1120,92 @@ void print_kind(printer& p, const T& v, char32_t verb, int depth, access ro, typ
     } else {
         static_assert(always_false<T>, "fmtshim: a value of this type can't be printed yet");
     }
+}
+
+inline void print_iface(printer& p, const gp::iface& v, char32_t verb, int depth, access ro) {
+    const type_desc* t = v.gp_type();
+    if (t == nullptr) {
+        if (verb == 'v') {
+            detail::pad(p, "<nil>");
+        } else {
+            detail::bad_verb_nil(p, verb);
+        }
+        return;
+    }
+    // A value with an Error or String method prints through it, as handleMethods does (for the
+    // verbs that use it, and not inside an unexported field).
+    if (!p.erroring && ro == access::open &&
+        (verb == 'v' || verb == 's' || verb == 'x' || verb == 'X' || verb == 'q')) {
+        gp::string s;
+        if (gp::detail::string_method(v, "Error", s) || gp::detail::string_method(v, "String", s)) {
+            detail::pp_string(p, s.gp_view(), verb, &detail::type_name<tag::none, gp::string>);
+            return;
+        }
+    }
+    const void* d = v.gp_data().get();
+    auto as = [&]<typename U, typename Tag = tag::none>() {
+        detail::print_kind<Tag>(p, *static_cast<const U*>(d), verb, depth, ro,
+                                &detail::type_name<Tag, U>);
+    };
+    switch (t->gp_kind) {
+    case kind::Bool:
+        as.template operator()<bool>();
+        return;
+    case kind::Int:
+        as.template operator()<int64_t>();
+        return;
+    case kind::Int8:
+        as.template operator()<int8_t>();
+        return;
+    case kind::Int16:
+        as.template operator()<int16_t>();
+        return;
+    case kind::Int32:
+        as.template operator()<int32_t>();
+        return;
+    case kind::Int64:
+        as.template operator()<int64_t, tag::int64>();
+        return;
+    case kind::Uint:
+        as.template operator()<uint64_t>();
+        return;
+    case kind::Uint8:
+        as.template operator()<uint8_t>();
+        return;
+    case kind::Uint16:
+        as.template operator()<uint16_t>();
+        return;
+    case kind::Uint32:
+        as.template operator()<uint32_t>();
+        return;
+    case kind::Uint64:
+        as.template operator()<uint64_t, tag::uint64>();
+        return;
+    case kind::Uintptr:
+        as.template operator()<uint64_t, tag::uintptr>();
+        return;
+    case kind::Float32:
+        as.template operator()<float>();
+        return;
+    case kind::Float64:
+        as.template operator()<double>();
+        return;
+    case kind::Complex64:
+        as.template operator()<gp::complex64>();
+        return;
+    case kind::Complex128:
+        as.template operator()<gp::complex128>();
+        return;
+    case kind::String:
+        as.template operator()<gp::string>();
+        return;
+    default:
+        break;
+    }
+    // Any other value: its address, which Go's fmt prints for a pointer that is no &{...}.
+    std::string text;
+    gp::detail::print_hex(text, static_cast<uint64_t>(reinterpret_cast<std::uintptr_t>(d)));
+    detail::pad(p, text);
 }
 
 // print_value is printValue: below the top level (depth > 0), a value's methods print it,
@@ -1123,7 +1225,12 @@ void print_arg(printer& p, const void* arg, char32_t verb) {
     type_fn type = &detail::type_name<Tag, T>;
     if (verb == 'T') {
         std::string name;
-        type(name);
+        if constexpr (std::is_base_of_v<gp::iface, T>) {
+            // The dynamic type, <nil> for the nil interface (Go's reflect.TypeOf(arg).String()).
+            name = v.gp_type() != nullptr ? v.gp_type()->gp_name : "<nil>";
+        } else {
+            type(name);
+        }
         detail::fmt_s(p, name);
         return;
     }
@@ -1154,12 +1261,12 @@ struct arg {
 template <typename Tag, typename T>
 arg make_tagged_arg(const T& v) {
     using B = base_t<T>;
-    arg a{&v,
-          &detail::print_arg<Tag, T>,
-          &detail::type_name<Tag, T>,
-          std::is_same_v<B, gp::string> || cxx_string<B>,
-          0,
-          0};
+    bool is_string = std::is_same_v<B, gp::string> || cxx_string<B>;
+    if constexpr (std::is_base_of_v<gp::iface, T>) {
+        is_string =
+            v.gp_type() != nullptr && v.gp_type()->gp_kind == kind::String; // the value's kind
+    }
+    arg a{&v, &detail::print_arg<Tag, T>, &detail::type_name<Tag, T>, is_string, 0, 0};
     if constexpr (go_int<B>) {
         const B& b = detail::base_value(v);
         a.int_kind = std::is_signed_v<B> ? 1 : 2;

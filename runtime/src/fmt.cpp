@@ -808,6 +808,16 @@ void pp_bytes(printer& p, std::string_view v, char32_t verb) {
     }
 }
 
+std::string panic_value_v(const gp::panic_error& e) {
+    if (!e.gp_lazy) {
+        return std::string(e.gp_text.gp_view());
+    }
+    std::string out;
+    printer p(out);
+    print_iface(p, e.gp_value, 'v', 0, access::open);
+    return out;
+}
+
 void catch_panic(printer& p, bool nil_receiver, char32_t verb, const char* method,
                  std::string_view value) {
     // fmt recovers the panic, which clears the goroutine's signal (gocpp/panic.hpp).

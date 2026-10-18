@@ -357,6 +357,10 @@ func main() { imgui.Begin("hello") }
 
 ## 3. Steps
 
+0. (Obligation from 5.10: `recover` awareness, `awareFunc` in internal/lower/recover.go, looks at
+   the package being lowered only; a cross-package `defer pkg.F()` where `F` contains `recover()`
+   needs the fact from `pkg`'s lowering (a flag in its header or a declaration), else it is
+   pushed as a plain call and `F`'s `recover()` returns nil.)
 1. **6.1 `gocpp.mod`** parsing (`x/mod/modfile` lax mode + reading `replace` and the gocpp lines
    from the syntax tree), module root discovery, `replace` and `vendor/` resolution.
 2. **6.2 Per-package codegen**: `pkg.hpp` + one `.gp.cpp` per file + `pkg_init.cpp`; flat,
