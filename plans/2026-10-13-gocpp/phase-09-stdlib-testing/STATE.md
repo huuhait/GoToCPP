@@ -1,13 +1,13 @@
 # Phase 09: Standard Library & `gocpp test` · STATE
 
-**Status:** `[ ]` not started
+**Status:** `[~]` in progress (9.1 merged 2026-10-18)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-13
+**Last updated:** 2026-10-18
 
 ## Steps
 
 - [x] Check which Go stdlib packages can be ported and what blocks them (`go list`, 2026-10-13; table in README §1)
-- [ ] 9.1 `tools/portstd` (pinned source tarball + SHA-256, `go/build` file selection per target OS with `purego`/no asm, rename, linkname → native, patch, `PORT.md`)
+- [x] 9.1 `tools/portstd` (pinned source tarball + SHA-256, `go/build` file selection per target OS with `purego`/no asm, rename, linkname → native, patch, `PORT.md`)
 - [ ] 9.2 Internal shims
   - [ ] `internal/bytealg` (native)
   - [ ] `internal/stringslite`, `internal/byteorder`
@@ -48,3 +48,19 @@
   a skip-counting rule defined; Go's suites deferred from Phases 07/08 run here.
 - 2026-10-13 (your decision, Q8): `tools/portstd` selects files per target OS, so Phase 14 can
   port Go's own `_windows.go` files.
+- 2026-10-18: Job 9.1 (`tools/portstd`) merged after two review rounds (ADR-034). Decisions: (1) pinned go1.25.14 tarball (`tools/portstd/PINS`, SHA-256) cached in
+  `$XDG_CACHE_HOME/gocpp/portstd`, never downloaded by tests or `make portstd-check`; (2) file selection uses go/build constraints with a SYNTHETIC `GOARCH=generic`
+  + tag `purego` (Go's asm packages select by architecture; `purego` alone keeps bodyless declarations), never `.s` files; kept `//go:build` lines are rewritten so they
+  never name tags the gocpp loader lacks; ALL `goexperiment.*` tags are false (pre-experiment variants: `sync` (8.7) gets the non-hashtriemap variant; documented);
+  (3) per-package patches (`patches/<pkg>.rules`, each with a reason, failing when the old text is not found as often as stated), `//go:linkname` → `//gocpp:native` via
+  `natives.txt` (the argument-less native form is listed as `local`: step 9.2 builds it), findings for asm/cgo/embed (the port is refused when unresolved: `time`, `os`,
+  `internal/bytealg` are refused); (4) outputs: `stdlib/<pkg>/PORT.md`, `stdlib/PORTED.txt`, `stdlib/PORTED.sha256` (hash of every written file: `-check` works WITHOUT the
+  cache by hash; with the cache it does the full byte compare; a hand edit that also rewrites its hash line passes the hash level only); `GOCPP_REQUIRE_PORTSTD=1`/`-require`
+  makes a missing tarball an error (opt-in, mirrors GOCPP_REQUIRE_CXX); (5) `prepareWrite`: removes stubgen stubs, refuses to overwrite/leave a hand-written .gp without
+  `-force`; porting.md has the 'Replacing a stub' checklist (stubgen `Real: true`, gates.go rows, feature-matrix.md, `TestStdPackagesMatchStubs` count); (6) ported through
+  the tool: `unicode/utf8` (Real), `unicode/utf16`, `math/bits`; tier-1 blocker table (docs/guides/porting-blockers.md, kept current by `-check`): unicode/utf8, unicode, math/bits
+  none; errors/sort/context need reflectlite (9.3); io/strings/regexp(/syntax)/context need sync (8.7), context also sync/atomic + time (8.8); stringslite/strings/bytes need
+  bytealg/abi shims (9.2), strings/bytes also iter (7.8 + 7.3); strconv needs math (9.5); sort/regexp need slices (7.10); (7) LOW items left (TODO): hash-only `-check` does not
+  cross-check against ports.txt (deleting both manifests + a package passes without the cache), `cleanStale` removes any `extract-*`/`download-*` older than 1 h from a custom
+  `-cache` (match exact temp names), redirects can downgrade to http (add CheckRedirect + client timeout), unwanted tar entries/file counts uncapped; (8) ported utf8/bits run
+  8-12x slower than Go at -O0 (gocpp builds -O0 -g only: a release mode closes it; optional math/bits natives later).
