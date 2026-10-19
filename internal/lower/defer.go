@@ -25,8 +25,10 @@ import (
 //		return 0                                      gp_r0 = n; goto gp_ret0;
 //	}                                             }
 //	                                              gp_r0 = 0; goto gp_ret1;
+//	                                          } catch (gp::panic_error& gp_p) {
+//	                                              gp_df.gp_take(gp_p);
 //	                                          } catch (...) {
-//	                                              gp_df.gp_on_exception();
+//	                                              gp_df.gp_adopt();
 //	                                          }
 //	                                          gp_df.gp_run(); return gp_r0;
 //	                                      gp_ret0:; gp_df.gp_run(); return gp_r0;
@@ -46,6 +48,9 @@ import (
 //   - Each return has its own exit, at the return's line, as Go's deferreturn is: a panic in a
 //     deferred call shows the function at that line in the trace, and gdb's next stays on it.
 //     The end of the body (and a panic, after the catch) goes to the exit at the closing brace.
+//   - A panic statement in the function itself doesn't throw: gp_df.gp_panic(gp::new_panic(v));
+//     goto gp_pan0; takes the panic to the frame and leaves the try block, to the exit at the
+//     closing brace (localPanic).
 //   - Functions without defer stay as they are.
 //
 // defer f(a, b) evaluates f and its arguments at the defer statement, in Go's order: they are
@@ -75,8 +80,9 @@ import (
 
 // A deferInfo is what the single-exit shape of a function with defers needs (funcInfo.defers).
 type deferInfo struct {
-	try   *cppir.Try
-	exits []deferExit // one per return statement, in source order
+	try      *cppir.Try
+	exits    []deferExit // one per return statement, in source order
+	panLabel string      // the label of the exit that a panic statement of the function itself jumps to ("" if none)
 }
 
 // A deferExit is the exit of a return: its label and the place of the return.
@@ -245,18 +251,68 @@ func (fg *funcGen) closeDefers(rbrace token.Pos) {
 	fg.names.closeScope()
 	fg.pop(rbrace) // the try block: its } is the catch's line
 	end := fg.g.pos(rbrace)
-	// A panic, Goexit or a C++ exception: gp_on_exception keeps it for gp_run, and throws a forced
-	// unwind (glibc's thread cancellation) again at once (defer.hpp).
-	onPanic := &cppir.ExprStmt{Pos: end, X: frameCall("gp_on_exception")}
-	d.try.Catches = []*cppir.Catch{{Pos: end, Body: &cppir.Block{Stmts: []cppir.Stmt{onPanic}, End: end}}}
+	// A Go panic is caught by its type (gp_take keeps it for gp_run: no second throw to find its
+	// type out); Goexit or a C++ exception: gp_adopt keeps it, and throws a forced unwind
+	// (glibc's thread cancellation) again at once (defer.hpp).
+	takeParam := &cppir.Param{Type: &cppir.Ref{Elem: typeName("gp::panic_error")}, Name: "gp_p"}
+	take := &cppir.ExprStmt{Pos: end, X: frameCall("gp_take", &cppir.Name{Name: "gp_p"})}
+	adopt := &cppir.ExprStmt{Pos: end, X: frameCall("gp_adopt")}
+	d.try.Catches = []*cppir.Catch{
+		{Pos: end, Param: takeParam, Body: &cppir.Block{Stmts: []cppir.Stmt{take}, End: end}},
+		{Pos: end, Body: &cppir.Block{Stmts: []cppir.Stmt{adopt}, End: end}},
+	}
 	// The end of the body, and a panic: gp_run throws it again. A void function without
 	// returns needs no return statement there.
-	fg.add(&cppir.Line{Pos: end, Stmts: fg.exitStmts(end, len(d.exits) > 0 || len(fg.fn.results) > 0)})
+	stmts := fg.exitStmts(end, len(d.exits) > 0 || len(fg.fn.results) > 0)
+	if d.panLabel != "" {
+		// A panic statement of the function itself jumps here (localPanic).
+		stmts = append([]cppir.Stmt{&cppir.Label{Pos: end, Name: d.panLabel}}, stmts...)
+	}
+	fg.add(&cppir.Line{Pos: end, Stmts: stmts})
 	for _, e := range d.exits {
 		stmts := append([]cppir.Stmt{&cppir.Label{Pos: e.pos, Name: e.label}}, fg.exitStmts(e.pos, true)...)
 		fg.add(&cppir.Line{Pos: e.pos, Stmts: stmts})
 	}
 	fg.fresh = false
+}
+
+// localPanic lowers a panic statement of a function with defers, whose C++ x is the call
+// gp::panic(v) or gp::panic_constant(v) (after the statements pre that order its operands): the
+// panic goes to the function's frame at once, without the throw that the handler of the try block
+// would catch (a throw through the function costs a walk of the stack by the C++ unwinder, about a
+// microsecond; the stack of a panic that is not recovered is the same):
+//
+//	gp_df.gp_panic(gp::new_panic(v)); goto gp_pan0;
+//
+// The goto leaves the try block and destroys the locals that the unwinding would, in the same
+// order, and gp_pan0 is the exit at the closing brace (gp_run, then the return). It reports
+// whether it lowered the statement; the body of a range over a func is a lambda that can't jump
+// there (rangefunc.go), and the statement stays a call of gp::panic.
+func (fg *funcGen) localPanic(s ast.Stmt, pre []cppir.Stmt, x cppir.Expr) bool {
+	d := fg.fn.defers
+	es, ok := s.(*ast.ExprStmt)
+	if !ok || d == nil || fg.inRFBody() {
+		return false
+	}
+	if c, ok := ast.Unparen(es.X).(*ast.CallExpr); !ok || !fg.isBuiltin(c, "panic") {
+		return false
+	}
+	c, ok := x.(*cppir.Call)
+	if !ok {
+		return false
+	}
+	name, ok := c.Fun.(*cppir.Name)
+	if !ok || (name.Name != "gp::panic" && name.Name != "gp::panic_constant") {
+		return false
+	}
+	if d.panLabel == "" {
+		d.panLabel = fg.names.temp("pan")
+	}
+	p := fg.g.pos(s.Pos())
+	made := &cppir.Call{Fun: &cppir.Name{Name: strings.Replace(name.Name, "gp::panic", "gp::new_panic", 1), Args: name.Args}, Args: c.Args}
+	fg.add(withPre(p, pre, &cppir.ExprStmt{Pos: p, X: frameCall("gp_panic", made)}))
+	fg.add(&cppir.Goto{Pos: p, Label: d.panLabel})
+	return true
 }
 
 // exitStmts returns an exit: gp_df.gp_run(); and, with ret, the return of the results.

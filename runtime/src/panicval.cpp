@@ -312,18 +312,29 @@ gp::string panic_text(const panic_error& e) {
     }
 }
 
-[[noreturn]] void panic_value(const gp::iface& v) {
+[[noreturn]] __attribute__((noinline)) void panic_value(const gp::iface& v) {
     if (v == nullptr) {
         panic(nullptr);
     }
-    gp::any value(v);
-    // The interface words: the same value panicked again is the same panic.
-    throw panic_error{std::move(value), gp::string(), true, {panic_identity::gp_words, 0, 0}};
+    // The interface words: the same value panicked again is the same panic. (No local that has a
+    // destructor is alive at the throw: it would cost the unwinder a cleanup, rt.cpp throw_basic.)
+    throw panic_error{iface_t{}, v, {panic_identity::gp_words, 0, 0}};
+}
+
+std::unique_ptr<panic_error> new_panic_value(const gp::iface& v) {
+    if (v == nullptr) {
+        return new_panic(nullptr);
+    }
+    return std::make_unique<panic_error>(
+        iface_t{}, v, panic_identity{panic_identity::gp_words, 0, 0}, stack_t::none);
 }
 
 } // namespace detail
 
-void panic(std::nullptr_t) {
+namespace {
+
+// nil_panic_value is the value of panic(nil): a *runtime.PanicNilError.
+gp::any nil_panic_value() {
     // Go 1.21: panic(nil) is a *runtime.PanicNilError.
     // (Go's new(PanicNilError) is a zero-size allocation: every one has the address
     // runtime.zerobase, so two panic(nil) are the same interface words, and a chain prints them
@@ -331,7 +342,19 @@ void panic(std::nullptr_t) {
     static const gp::any* const one =
         new gp::any(to_iface<gp::any>(gp::new_<panic_nil_error_t>(), td_panic_nil_error()));
     const gp::any* registered = registered_nil_error.load(std::memory_order_acquire);
-    gp::any value = registered != nullptr ? *registered : *one;
+    return registered != nullptr ? *registered : *one;
+}
+
+} // namespace
+
+std::unique_ptr<panic_error> new_panic(std::nullptr_t) {
+    return std::make_unique<panic_error>(detail::iface_t{}, nil_panic_value(),
+                                         panic_identity{panic_identity::gp_words, 0, 0},
+                                         detail::stack_t::none);
+}
+
+__attribute__((noinline)) void panic(std::nullptr_t) {
+    gp::any value = nil_panic_value();
     throw panic_error{std::move(value), gp::string(), true, {panic_identity::gp_words, 0, 0}};
 }
 

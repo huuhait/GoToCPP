@@ -307,7 +307,8 @@ void test_trace() {
            "the deep trace elides " + std::to_string(sh.elided) + " frames:\n" + d);
     // The outer frames end with the outermost one that the trace shows, as Go's end with
     // main.main.
-    CHECK(sh.last.find("run_tests") != std::string::npos);
+    report(sh.last.find("run_tests") != std::string::npos, __FILE__, __LINE__,
+           "the deep trace ends with " + sh.last + ":\n" + d);
     CHECK(d.find("additional frames") == std::string::npos);
     try {
         gpkg_main::deep(300);

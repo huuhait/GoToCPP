@@ -112,6 +112,8 @@ void panic_count_add(int delta) noexcept;
 struct panic_token {
     panic_token() noexcept = default;
     panic_token(const panic_token&) noexcept {}
+    // A move keeps the count: the panic is the same one (defer_frame throws its own panic).
+    panic_token(panic_token&& o) noexcept : gp_on(o.gp_on) { o.gp_on = false; }
     panic_token& operator=(const panic_token&) noexcept { return *this; }
     ~panic_token() {
         if (gp_on) {
@@ -130,6 +132,26 @@ struct panic_token {
 
 } // namespace detail
 
+namespace detail {
+
+// The tags of panic_error's constructors that build the value in the constructor, from raw
+// arguments (basic_t: a value of a basic type; iface_t: an interface value; string_t: a string;
+// runtime_t: a runtime error with a text in static storage), and rt_error (below). A throw
+// expression whose arguments are temporaries with destructors makes the unwinder run a cleanup
+// before it goes on (_Unwind_Resume: as much work as a frame), so the panics that programs make
+// all the time are thrown from these.
+struct basic_t {};
+struct iface_t {};
+struct string_t {};
+struct runtime_t {};
+enum class rt_error : uint8_t;
+
+// stack_t is the last argument of those constructors: whether the panic records its stack
+// (record), or leaves it to the caller (none: defer_frame::gp_panic, which knows the stack).
+enum class stack_t : uint8_t { record, none };
+
+} // namespace detail
+
 // panic_error is the exception that a Go panic throws. It doesn't derive from std::exception,
 // so C++ code that catches std::exception can't stop a Go panic by accident.
 struct panic_error {
@@ -139,16 +161,33 @@ struct panic_error {
     // A runtime error with this text (the panics that the runtime itself starts): the value is
     // a runtime.Error, runtime.errorString for a text that starts with "runtime error: ", else
     // runtime.plainError (detail::runtime_error_value), and `recover()` returns it. It records
-    // the stack (the return addresses) where it is made,
-    // for the trace of an unrecovered panic: the C++ unwinding removes the frames before
-    // run_main sees the panic. That costs a walk of the unwind tables (1-5 microseconds),
-    // and a second, whole walk only for a stack of more than gp_max_trace frames; the names
-    // and lines are found only when the trace is printed (gocpp/trace.hpp).
+    // the stack (the return addresses) where it is made, for the trace of an unrecovered panic:
+    // the C++ unwinding removes the frames before run_main sees the panic. A walk of the unwind
+    // tables costs about 50 ns a frame and 100 ns to start, so only the part that the unwinding
+    // is about to remove is walked: the frames up to the innermost function that has a deferred
+    // call (a defer_frame, which catches the panic: gocpp/defer.hpp). The rest of the stack is
+    // still there when that function's gp_run knows that the panic is not recovered, and is
+    // recorded then (gp_complete). With no such function the whole stack is recorded here. A
+    // stack of more than gp_max_trace frames is walked a second time, to its end. The names and
+    // lines are found only when the trace is printed (gocpp/trace.hpp).
     explicit panic_error(gp::string text, panic_identity id = {}) noexcept;
 
     // A panic with this value and (when it is known now) this text; gp_lazy: the text is made
     // from the value when it is printed.
     panic_error(gp::any value, gp::string text, bool lazy, panic_identity id) noexcept;
+
+    // The panics of panic(x): the value of a basic type (descriptor td), an interface value (the
+    // text is made when it is printed), a string; and a runtime error whose text is the static
+    // string lit of n bytes.
+    template <typename T>
+    panic_error(detail::basic_t, const type_desc* td, const T& v, panic_identity id,
+                detail::stack_t how = detail::stack_t::record) noexcept;
+    panic_error(detail::iface_t, const gp::iface& v, panic_identity id,
+                detail::stack_t how = detail::stack_t::record) noexcept;
+    panic_error(detail::string_t, const gp::string& v, panic_identity id,
+                detail::stack_t how = detail::stack_t::record) noexcept;
+    panic_error(detail::runtime_t, detail::rt_error kind, const char* lit, std::size_t n,
+                panic_identity id, detail::stack_t how = detail::stack_t::record) noexcept;
 
     // The panic value as Go prints it after "panic: ": a string as it is, a number or a bool
     // in the format of the builtin print, a runtime error as "runtime error: ...". Empty when
@@ -168,14 +207,36 @@ struct panic_error {
     // The value's identity, for the printing of a panic chain (above).
     panic_identity gp_id;
 
-    // The stack where the panic was made: gp_npcs return addresses, innermost first.
+    // The stack where the panic was made: gp_npcs return addresses, innermost first (at most
+    // gp_max_trace of them; gp_all has all of them when there are more).
     int gp_npcs = 0;
     uintptr_t gp_pcs[gp_max_trace]{};
+
+    // Not zero: gp_pcs has only the inner part of the stack, up to the frame of the function that
+    // has the deferred calls that handle the panic, and gp_bound is an address in that frame (a
+    // local variable of the function). The frames outside it are recorded by gp_complete.
+    uintptr_t gp_bound = 0;
+
+    // gp_complete records the rest of the stack of a panic that has only its inner part (above).
+    // It must be called by the function whose frame ends the inner part (defer_frame::gp_run),
+    // or by a function it called, while that frame is on the stack. A panic that is complete
+    // does nothing. If there is no memory for a stack of more than gp_max_trace frames, the panic
+    // stays as it is (the trace then ends with "...additional frames elided...").
+    void gp_complete() noexcept;
+
+    // gp_record_all records the whole stack of the calling thread (fatal_trace asks for its
+    // own).
+    void gp_record_all() noexcept;
 
     // gp_all is the whole stack when gp_pcs is full: only then a second walk records every
     // frame (up to gp_max_walk), so that the trace can show Go's outer frames too.
     static constexpr std::size_t gp_max_walk = std::size_t(1) << 22;
     std::shared_ptr<const std::vector<uintptr_t>> gp_all;
+
+    // gp_record walks the stack as the constructor says (above); gp_walk_deep is the second walk
+    // (for the constructor, gp_complete and gp_record_all).
+    void gp_record() noexcept;
+    void gp_walk_deep() noexcept;
 
     // The panic chain (step 3.13): gp_prev is the panic that was running when this one
     // started, in a deferred call (detail::panic_chain), and so on back to the first one; Go
@@ -257,8 +318,25 @@ uint64_t bits_of(const T& v) {
     }
 }
 
-// throw_panic throws the panic_error with this value, text and identity.
-[[noreturn]] void throw_panic(gp::any value, gp::string text, panic_identity id);
+// throw_basic throws the panic with the value of a basic type: cxx is the C++ type (go_kind<T>()),
+// kind the Go type (go/types' BasicKind: 6 for an int64, say), and the value is lo (a complex128:
+// lo and hi) as bits_of gives them. The value, its text and the exception are made in there: a
+// caller's temporaries would each have a cleanup that the unwinder must run on the way out, which
+// costs about as much as a frame (a second walk, _Unwind_Resume).
+[[noreturn]] void throw_basic(uint8_t cxx, uint8_t kind, uint64_t lo, uint64_t hi,
+                              panic_identity id);
+
+// raw_bits gives the bytes of v as bits_of does, and the second half of a complex128.
+template <typename T>
+void raw_bits(const T& v, uint64_t& lo, uint64_t& hi) {
+    hi = 0;
+    if constexpr (std::is_same_v<T, complex128>) {
+        std::memcpy(&lo, &v.gp_re, 8);
+        std::memcpy(&hi, &v.gp_im, 8);
+    } else {
+        lo = bits_of(v);
+    }
+}
 
 template <typename T>
 gp::string print_text(const T& v) {
@@ -266,6 +344,19 @@ gp::string print_text(const T& v) {
     append_print(text, v);
     return gp::string::gp_copy(text);
 }
+
+} // namespace detail
+
+template <typename T>
+panic_error::panic_error(detail::basic_t, const type_desc* td, const T& v, panic_identity id,
+                         detail::stack_t how) noexcept
+    : gp_text(detail::print_text(v)), gp_value(gp::to_iface<gp::any>(v, td)), gp_id(id) {
+    if (how == detail::stack_t::record) {
+        gp_record();
+    }
+}
+
+namespace detail {
 
 // td_of_basic is the descriptor of the basic Go type with the go/types BasicKind k (1 bool ...
 // 17 string), for the value of a panic.
@@ -320,28 +411,48 @@ inline const type_desc* td_of_basic(uint8_t k) noexcept {
 [[noreturn]] void panic(const gp::string& v);
 [[noreturn]] void panic_constant(const gp::string& c);
 
-template <uint8_t K = 0, typename T>
-    requires std::is_same_v<T, bool> || go_int<T> || go_float<T> || go_complex<T>
-[[noreturn]] void panic(const T& v) {
-    uint64_t bits = detail::bits_of(v);
+namespace detail {
+
+// basic_id is the identity of the panic of a value v of a basic type (Go type kind K, or T's own).
+template <uint8_t K, typename T>
+panic_identity basic_id(const T& v) {
+    uint64_t bits = bits_of(v);
     panic_identity id;
     // gc converts a complex number to an interface with a new allocation (convTnoptr: a
     // complex64 has 8 bytes but alignment 4, a complex128 16 bytes), so its identity is unique.
-    constexpr uint8_t kind = K != 0 ? K : detail::go_kind<T>();
+    constexpr uint8_t kind = K != 0 ? K : go_kind<T>();
     if (!go_complex<T> && (sizeof(T) == 1 || bits < 256)) {
         id = {panic_identity::gp_value, kind, bits};
     }
-    detail::throw_panic(gp::to_iface<gp::any>(v, detail::td_of_basic(kind)), detail::print_text(v),
-                        id);
+    return id;
+}
+
+// constant_id is the identity of the panic of a constant c.
+template <uint8_t K, typename T>
+panic_identity constant_id(const T& c) {
+    constexpr uint8_t kind = K != 0 ? K : go_kind<T>();
+    uint8_t how = sizeof(T) == 1 ? panic_identity::gp_value : panic_identity::gp_constant;
+    return {how, kind, bits_of(c)};
+}
+
+} // namespace detail
+
+template <uint8_t K = 0, typename T>
+    requires std::is_same_v<T, bool> || go_int<T> || go_float<T> || go_complex<T>
+[[noreturn]] void panic(const T& v) {
+    uint64_t lo, hi;
+    detail::raw_bits(v, lo, hi);
+    detail::throw_basic(detail::go_kind<T>(), K != 0 ? K : detail::go_kind<T>(), lo, hi,
+                        detail::basic_id<K>(v));
 }
 
 template <uint8_t K = 0, typename T>
     requires std::is_same_v<T, bool> || go_int<T> || go_float<T> || go_complex<T>
 [[noreturn]] void panic_constant(const T& c) {
-    constexpr uint8_t kind = K != 0 ? K : detail::go_kind<T>();
-    uint8_t how = sizeof(T) == 1 ? panic_identity::gp_value : panic_identity::gp_constant;
-    detail::throw_panic(gp::to_iface<gp::any>(c, detail::td_of_basic(kind)), detail::print_text(c),
-                        {how, kind, detail::bits_of(c)});
+    uint64_t lo, hi;
+    detail::raw_bits(c, lo, hi);
+    detail::throw_basic(detail::go_kind<T>(), K != 0 ? K : detail::go_kind<T>(), lo, hi,
+                        detail::constant_id<K>(c));
 }
 
 // panic(v) for an interface value (an any, an error, any interface type): the panic's value is
@@ -360,6 +471,40 @@ template <typename I>
 
 // panic(nil): the argument is the untyped nil. Same as panic of a nil interface.
 [[noreturn]] void panic(std::nullptr_t);
+
+// new_panic and new_panic_constant make the panic that panic(v) and panic_constant(c) throw,
+// without throwing it, and without recording its stack (defer_frame::gp_panic does, and takes the
+// panic): the generated code of a function with defers uses them for a panic statement in the
+// function itself, which goes to the function's gp_run at once (docs/spec/cpp-mapping.md "Defer").
+std::unique_ptr<panic_error> new_panic(const gp::string& v);
+std::unique_ptr<panic_error> new_panic_constant(const gp::string& c);
+std::unique_ptr<panic_error> new_panic(std::nullptr_t);
+
+template <uint8_t K = 0, typename T>
+    requires std::is_same_v<T, bool> || go_int<T> || go_float<T> || go_complex<T>
+std::unique_ptr<panic_error> new_panic(const T& v) {
+    return std::make_unique<panic_error>(detail::basic_t{},
+                                         detail::td_of_basic(K != 0 ? K : detail::go_kind<T>()), v,
+                                         detail::basic_id<K>(v), detail::stack_t::none);
+}
+
+template <uint8_t K = 0, typename T>
+    requires std::is_same_v<T, bool> || go_int<T> || go_float<T> || go_complex<T>
+std::unique_ptr<panic_error> new_panic_constant(const T& c) {
+    return std::make_unique<panic_error>(detail::basic_t{},
+                                         detail::td_of_basic(K != 0 ? K : detail::go_kind<T>()), c,
+                                         detail::constant_id<K>(c), detail::stack_t::none);
+}
+
+namespace detail {
+std::unique_ptr<panic_error> new_panic_value(const gp::iface& v);
+} // namespace detail
+
+template <typename I>
+    requires std::is_base_of_v<gp::iface, I>
+std::unique_ptr<panic_error> new_panic(const I& v) {
+    return detail::new_panic_value(v);
+}
 
 // goexit is runtime.Goexit: it runs the deferred calls of the goroutine and ends it
 // (goexit_signal). recover() returns nil during it, and nothing stops it. Called by the main
@@ -394,7 +539,7 @@ void panic_report(std::string& out, const panic_error& e) noexcept;
 // deferred call, and whose own chain ends there), and sets that panic's gp_inner from the stack
 // here. Without memory for the copy, the chain stays as it is (Go's output then misses the
 // older panics).
-void panic_chain(panic_error& newer, const panic_error& running) noexcept;
+void panic_chain(panic_error& newer, panic_error& running) noexcept;
 
 // panic_text is the text that an unrecovered panic prints after "panic: " (not yet indented):
 // gp_text when it is known, else made from the value as Go's preprintpanics and printpanicval

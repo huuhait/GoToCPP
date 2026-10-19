@@ -16,6 +16,7 @@
 #include <elf.h>
 #include <execinfo.h>
 #include <link.h>
+#include <unwind.h>
 
 namespace gp::os {
 
@@ -43,6 +44,81 @@ int stack(uintptr_t* pcs, int max) noexcept {
         pcs[i] = reinterpret_cast<uintptr_t>(buf[i]);
     }
     return n < 0 ? 0 : n;
+}
+
+namespace {
+
+// The state of a walk of the stack with the C++ unwinder (libgcc's _Unwind_Backtrace, which glibc's
+// backtrace uses too, without the cost of its first-call setup and with a way to stop).
+struct unwind_walk {
+    uintptr_t* pcs;
+    int max;
+    int n;
+    // bound: the address of a local variable of a function X that is running. The unwinder gives
+    // each frame as the return address in a function and the CFA of the frame it returns from
+    // (the callee's): that is the lowest address of the function's own frame. So X's pc comes with
+    // a CFA at or below bound, and the pc of X's caller with a CFA above it, as do all the frames
+    // outside X; the frames inside X (X's callees) have lower CFAs still.
+    // stop: the walk stops when it gets to a frame outside X (stack_until); else the frames inside
+    // X and X itself are not recorded (stack_above).
+    uintptr_t bound;
+    bool stop;
+    bool reached; // a frame outside X has been seen
+    uintptr_t last_pc;
+    uintptr_t last_cfa;
+};
+
+_Unwind_Reason_Code unwind_step(_Unwind_Context* ctx, void* data) {
+    auto* w = static_cast<unwind_walk*>(data);
+    auto pc = static_cast<uintptr_t>(_Unwind_GetIP(ctx));
+    auto cfa = static_cast<uintptr_t>(_Unwind_GetCFA(ctx));
+    // As glibc's backtrace: no progress is the end of the stack.
+    if (w->last_cfa != 0 && pc == w->last_pc && cfa == w->last_cfa) {
+        return _URC_END_OF_STACK;
+    }
+    w->last_pc = pc;
+    w->last_cfa = cfa;
+    bool outside = cfa > w->bound;
+    if (w->stop) {
+        if (outside) {
+            w->reached = true;
+            return _URC_END_OF_STACK; // (the frame before was X's)
+        }
+    } else if (!outside) {
+        return _URC_NO_REASON;
+    } else {
+        w->reached = true;
+    }
+    w->pcs[w->n++] = pc;
+    return w->n == w->max ? _URC_END_OF_STACK : _URC_NO_REASON;
+}
+
+// walk records frames as w says. Not inlined: the frame of this function is the first one that
+// the unwinder shows, as glibc's backtrace shows the function that called it.
+__attribute__((noinline)) void walk(unwind_walk& w) noexcept {
+    if (w.max > 0) {
+        _Unwind_Backtrace(&unwind_step, &w);
+        // The end of the stack is a frame whose address is 0: not a frame (glibc's backtrace
+        // leaves it out too).
+        if (w.n > 0 && w.pcs[w.n - 1] == 0) {
+            w.n--;
+        }
+    }
+}
+
+} // namespace
+
+int stack_until(uintptr_t* pcs, int max, const void* bound, bool* found) noexcept {
+    unwind_walk w{pcs, max, 0, reinterpret_cast<uintptr_t>(bound), true, false, 0, 0};
+    walk(w);
+    *found = w.reached;
+    return w.n;
+}
+
+int stack_above(uintptr_t* pcs, int max, const void* bound) noexcept {
+    unwind_walk w{pcs, max, 0, reinterpret_cast<uintptr_t>(bound), false, false, 0, 0};
+    walk(w);
+    return w.reached || max <= 0 ? w.n : -1;
 }
 
 namespace {

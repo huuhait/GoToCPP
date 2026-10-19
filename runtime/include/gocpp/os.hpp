@@ -89,6 +89,20 @@ std::vector<std::string> environment();
 // RtlCaptureStackBackTrace. Not async-signal-safe: a panic is a C++ exception, not a signal.
 int stack(uintptr_t* pcs, int max) noexcept;
 
+// stack_until is stack for the part of the stack that a panic needs at once (panic_error): the
+// frames from the caller up to the frame that holds the address bound (the address of a local
+// variable of a function that is still running), which is the last one recorded. It records at
+// most max frames. *found is false when the stack ended or max was reached before that frame (the
+// frames are then what stack gives). A system that can't stop early (Windows on a CPU other than
+// x86-64, today) gives the whole stack and false.
+int stack_until(uintptr_t* pcs, int max, const void* bound, bool* found) noexcept;
+
+// stack_above records the frames outside the frame that holds the address bound (the frame that
+// stack_until stopped at) from the calling thread's stack, in the way of stack: its caller's
+// return address first, at most max of them. It returns -1 when that frame is not on the calling
+// thread's stack (and on a system whose stack_until never finds it).
+int stack_above(uintptr_t* pcs, int max, const void* bound) noexcept;
+
 // read_exe reads the running program's file into img, and reports whether it could. It reads
 // the file at once (a few hundred KB for a small program), so it is for the end of a program
 // only. On Linux the file is /proc/self/exe, an ELF file; on Windows it is the module's PE

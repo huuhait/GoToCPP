@@ -144,7 +144,12 @@ gp::any recover(defer_ctx ctx) noexcept {
     return p->gp_value;
 }
 
-defer_frame::~defer_frame() {
+void defer_frame::gp_discard() noexcept {
+    if (gp_local) {
+        delete gp_pending_panic; // (a panic of gp_panic, if the function ended some other way)
+        gp_local = false;
+        gp_pending_panic = nullptr;
+    }
     // Normally gp_run has run every call. Only a frame that didn't get to it (an exception that
     // is not a Go panic) has calls left: they are freed, not run.
     while (gp_top != nullptr) {
@@ -157,7 +162,7 @@ defer_frame::~defer_frame() {
 void* defer_frame::gp_alloc(std::size_t size, std::size_t align) {
     std::size_t at = (gp_used + align - 1) / align * align;
     if (align <= alignof(std::max_align_t) && at <= gp_inline_size && size <= gp_inline_size - at) {
-        gp_used = static_cast<std::uint32_t>(at + size);
+        gp_used = static_cast<std::uint16_t>(at + size);
         return gp_buf + at;
     }
     return ::operator new(size, std::align_val_t{align});
@@ -174,7 +179,7 @@ void defer_frame::gp_free(void* p, std::size_t align) noexcept {
     if (gp_inline(p)) {
         // The calls go last in, first out: p is the last node in gp_buf (its alignment
         // padding is given back with the node before it).
-        gp_used = static_cast<std::uint32_t>(static_cast<unsigned char*>(p) - gp_buf);
+        gp_used = static_cast<std::uint16_t>(static_cast<unsigned char*>(p) - gp_buf);
     } else {
         ::operator delete(p, std::align_val_t{align});
     }
@@ -183,10 +188,38 @@ void defer_frame::gp_free(void* p, std::size_t align) noexcept {
 void defer_frame::gp_release(gp_node* n) noexcept {
     if (gp_inline(n)) {
         n->gp_op(n, gp_destroy);
-        gp_used = static_cast<std::uint32_t>(reinterpret_cast<unsigned char*>(n) - gp_buf);
+        gp_used = static_cast<std::uint16_t>(reinterpret_cast<unsigned char*>(n) - gp_buf);
     } else {
         n->gp_op(n, gp_delete);
     }
+}
+
+void defer_frame::gp_clear() noexcept {
+    if (gp_local) {
+        delete gp_pending_panic;
+        gp_local = false;
+    }
+    gp_pending = nullptr;
+    gp_pending_panic = nullptr;
+}
+
+__attribute__((noinline)) void defer_frame::gp_panic(std::unique_ptr<panic_error> p) {
+    // The panic's stack: the call of this function, in the function that has the frame, and the
+    // rest when it is needed (gp_complete), as for a panic that is thrown (panic_error::gp_record).
+    if constexpr (detail::defer_links_listed) {
+        p->gp_pcs[0] =
+            reinterpret_cast<uintptr_t>(__builtin_extract_return_addr(__builtin_return_address(0)));
+        p->gp_npcs = 1;
+        p->gp_bound = reinterpret_cast<uintptr_t>(&gp_link);
+    } else {
+        p->gp_record_all();
+    }
+    // What gp_take does for a panic that a handler got. (No panic is running here: the frame
+    // runs a panic's deferred calls in gp_run, never in the body, where a panic statement is.)
+    gp_pending_panic = p.release();
+    gp_local = true;
+    // main waits for a goroutine that runs a panic's deferred calls
+    gp_pending_panic->gp_token.gp_mark();
 }
 
 void defer_frame::gp_take(panic_error& p) {
@@ -194,6 +227,7 @@ void defer_frame::gp_take(panic_error& p) {
     if (gp_pending_panic != nullptr && gp_pending_panic != &p) {
         detail::panic_chain(p, *gp_pending_panic);
     }
+    gp_clear();
     gp_pending = std::current_exception(); // p, which is being handled
     gp_pending_panic = &p;
     p.gp_token.gp_mark(); // main waits for a goroutine that runs a panic's deferred calls
@@ -203,13 +237,13 @@ void defer_frame::gp_adopt() {
     try {
         throw;
     } catch (panic_error& p) {
+        // (Only a caller that doesn't catch panic_error first gets here with one.)
         gp_take(p);
     } catch (goexit_signal&) {
         // Goexit: the deferred calls run, and nothing stops it. One in a deferred call replaces
         // the panic that was running (Go's Goexit takes over from it).
         gp_goexit = true;
-        gp_pending = nullptr;
-        gp_pending_panic = nullptr;
+        gp_clear();
     } catch (const std::bad_alloc&) {
         // The new handler turns out-of-memory into Go's fatal error; a bad_alloc that C++ code
         // throws itself (or bad_array_new_length) is the same here, as at the top (on_terminate).
@@ -233,6 +267,8 @@ void defer_frame::gp_adopt() {
 }
 
 void defer_frame::gp_on_exception() {
+    // The slow way (a handler that doesn't know the type): the exception is thrown again to find
+    // it out. The code that gocpp generates catches gp::panic_error first instead.
     gp_adopt();
 }
 
@@ -269,6 +305,8 @@ void defer_frame::gp_run() {
         finally release{[this, n] { gp_release(n); }};
         try {
             n->gp_op(n, gp_call);
+        } catch (panic_error& p) {
+            gp_take(p);
         } catch (...) {
             // A deferred call panicked (or ended the goroutine, or threw a C++ exception): its
             // panic goes on, with the running one before it in its chain, and the other
@@ -279,8 +317,7 @@ void defer_frame::gp_run() {
             mark.gp_panic == gp_pending_panic) {
             // The call recovered the panic that it ran for: it is over. The other calls run as
             // for a normal return, and the function returns normally.
-            gp_pending = nullptr;
-            gp_pending_panic = nullptr;
+            gp_clear();
             // Go's recovery clears the goroutine's signal (g.sig) when no panic is left, also
             // none that an outer frame is running deferred calls for: a later, ordinary panic
             // prints no signal line (panic.hpp). A panic that the recovering call started again
@@ -294,7 +331,18 @@ void defer_frame::gp_run() {
             }
         }
     }
-    if (gp_pending != nullptr) {
+    if (gp_pending_panic != nullptr) {
+        // The panic goes on to the callers: this function's frame is about to go, so the rest of
+        // the panic's stack (the frames outside it) is recorded now, while it is on the stack.
+        gp_pending_panic->gp_complete();
+        if (gp_local) {
+            // Its own panic (gp_panic): thrown now. (The token moves with it: the count of panics
+            // that are being handled doesn't change.)
+            std::unique_ptr<panic_error> own(gp_pending_panic);
+            gp_local = false;
+            gp_pending_panic = nullptr;
+            throw std::move(*own);
+        }
         std::exception_ptr e = std::move(gp_pending);
         gp_pending = nullptr;
         gp_pending_panic = nullptr;

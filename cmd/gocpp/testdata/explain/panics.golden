@@ -1,7 +1,8 @@
 panics: panic
 
 panic(v) throws a C++ exception (gp::panic_error) that carries the value. Deferred calls run
-while it unwinds (gp_df.gp_on_exception keeps it for gp_run), and recover can stop it. An
+while it unwinds (gp_df.gp_take keeps it for gp_run; a panic statement in the function
+itself does not even throw: gp_df.gp_panic and a goto), and recover can stop it. An
 unrecovered panic prints Go's message ("panic: boom", or "panic: runtime error: index out of
 range [5] with length 3", with the goroutine trace) and exits with status 2. The runtime's
 own checks panic with Go's runtime.Error messages; a nil dereference also prints Go's signal
@@ -72,13 +73,16 @@ The C++ that gocpp emit -annotate writes for it:
     // gp[panics] col 2: panic: throws a C++ exception (gp::panic_error) that carries the value;
     //     deferred calls run while it unwinds, and recover can stop it; unrecovered, the runtime prints
     //     Go's message and trace and exits with status 2
-            gp::panic_constant("boom"_gs);
+            gp_df.gp_panic(gp::new_panic_constant("boom"_gs));
+            goto gp_pan0;
 
     // ---- ./panics.gp:10: }
+        } catch (gp::panic_error& gp_p) {
+            gp_df.gp_take(gp_p);
         } catch (...) {
-            gp_df.gp_on_exception();
+            gp_df.gp_adopt();
         }
-        gp_df.gp_run();
+        gp_pan0:; gp_df.gp_run();
     }
 
     } // namespace gpkg_main

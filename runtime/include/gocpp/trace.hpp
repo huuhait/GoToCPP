@@ -178,6 +178,48 @@ inline constinit thread_local const run_mark* top_run = nullptr;
 // run_marks returns the running thread's innermost run_mark, or null.
 const run_mark* run_marks() noexcept;
 
+// A defer_link is the place of a defer_frame in the list of the frames that a thread has now (the
+// innermost first). A panic_error records its stack only up to the innermost one of them
+// (panic.hpp), which is on the stack of the thread, as every local variable is. (Not with
+// AddressSanitizer: it may move the locals to a "fake stack", where their addresses say nothing
+// about the real one, so no frame is listed and a panic records its whole stack.)
+//
+// A frame keeps the distance to the next frame out (the frames are deeper in the stack the later
+// they are made) in 32 bits, which is all that fits in the frame's 96 bytes; a longer distance, or
+// an older frame that is not above it, ends the list (a panic then records more of its stack than
+// it needs, nothing else).
+struct defer_link {
+    std::uint32_t gp_up = 0; // the distance in bytes to the next one, 0 for none
+
+    // gp_set makes this link the first of the list that begins at next.
+    void gp_set(const defer_link* next) noexcept {
+        // (No next one: the difference wraps around to a huge number, and the list ends here.)
+        auto d = reinterpret_cast<std::uintptr_t>(next) - reinterpret_cast<std::uintptr_t>(this);
+        gp_up = d <= 0xffffffffu ? static_cast<std::uint32_t>(d) : 0;
+    }
+    const defer_link* gp_next() const noexcept {
+        return gp_up == 0 ? nullptr
+                          : reinterpret_cast<const defer_link*>(
+                                reinterpret_cast<std::uintptr_t>(this) + gp_up);
+    }
+};
+inline constinit thread_local const defer_link* top_defer = nullptr;
+
+#if defined(_WIN32) && !defined(__x86_64__) && !defined(_M_X64)
+// (Without an unwinder loop of our own, a panic records its whole stack: os/windows/trace.cpp.)
+inline constexpr bool defer_links_listed = false;
+#elif defined(__SANITIZE_ADDRESS__)
+inline constexpr bool defer_links_listed = false;
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+inline constexpr bool defer_links_listed = false;
+#else
+inline constexpr bool defer_links_listed = true;
+#endif
+#else
+inline constexpr bool defer_links_listed = true;
+#endif
+
 // --- the running goroutine's own stack: runtime.Caller, Callers, Stack, FuncForPC (step 8.10) ---
 
 // program_image returns the program's own file (os::read_exe), read the first time and kept for

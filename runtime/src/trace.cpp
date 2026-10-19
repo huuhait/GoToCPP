@@ -44,7 +44,80 @@ panic_error::panic_error(gp::string text, panic_identity id) noexcept
 
 panic_error::panic_error(gp::any value, gp::string text, bool lazy, panic_identity id) noexcept
     : gp_text(std::move(text)), gp_value(std::move(value)), gp_lazy(lazy), gp_id(id) {
-    gp_npcs = os::stack(gp_pcs, gp_max_trace);
+    gp_record();
+}
+
+panic_error::panic_error(detail::iface_t, const gp::iface& v, panic_identity id,
+                         detail::stack_t how) noexcept
+    : gp_value(v), gp_lazy(true), gp_id(id) {
+    if (how == detail::stack_t::record) {
+        gp_record();
+    }
+}
+
+panic_error::panic_error(detail::string_t, const gp::string& v, panic_identity id,
+                         detail::stack_t how) noexcept
+    : gp_text(v), gp_value(gp::to_iface<gp::any>(v, &td_string)), gp_id(id) {
+    if (how == detail::stack_t::record) {
+        gp_record();
+    }
+}
+
+panic_error::panic_error(detail::runtime_t, detail::rt_error kind, const char* lit, std::size_t n,
+                         panic_identity id, detail::stack_t how) noexcept
+    : gp_text(gp::static_bytes, lit, static_cast<int64_t>(n)),
+      gp_value(detail::runtime_error_value(kind, gp_text)), gp_id(id) {
+    if (how == detail::stack_t::record) {
+        gp_record();
+    }
+}
+
+namespace {
+
+// walk_above is walk_all for the frames outside the frame that holds the address bound.
+bool walk_above(std::vector<uintptr_t>& all, const void* bound) {
+    for (std::size_t size = 1024; size <= panic_error::gp_max_walk; size *= 8) {
+        all.resize(size);
+        int n = os::stack_above(all.data(), static_cast<int>(size), bound);
+        if (n >= 0 && static_cast<std::size_t>(n) < size) {
+            all.resize(static_cast<std::size_t>(n));
+            return true;
+        }
+    }
+    return false;
+}
+
+// innermost_defer returns an address in the frame of the innermost function of this thread that
+// has a defer_frame and is still running, or null.
+__attribute__((noinline)) const void* innermost_defer() noexcept {
+    const detail::defer_link* d = detail::top_defer;
+    // A listed frame below this function's frame is dead (a longjmp over it, or a stack that
+    // was not unwound): it must not end a walk.
+    auto here = reinterpret_cast<uintptr_t>(__builtin_frame_address(0));
+    while (d != nullptr && reinterpret_cast<uintptr_t>(d) <= here) {
+        d = d->gp_next();
+    }
+    return d;
+}
+
+} // namespace
+
+void panic_error::gp_record() noexcept {
+    const void* bound = detail::defer_links_listed ? innermost_defer() : nullptr;
+    if (bound != nullptr) {
+        bool found = false;
+        gp_npcs = os::stack_until(gp_pcs, gp_max_trace, bound, &found);
+        if (found) {
+            gp_bound = reinterpret_cast<uintptr_t>(bound);
+            return;
+        }
+    } else {
+        gp_npcs = os::stack(gp_pcs, gp_max_trace);
+    }
+    gp_walk_deep();
+}
+
+void panic_error::gp_walk_deep() noexcept {
     if (gp_npcs < gp_max_trace) {
         return;
     }
@@ -55,6 +128,51 @@ panic_error::panic_error(gp::any value, gp::string text, bool lazy, panic_identi
         if (walk_all(*all)) {
             all->shrink_to_fit();
             gp_all = std::move(all);
+        }
+    } catch (...) {
+        // No memory: the trace shows the inner frames only.
+    }
+}
+
+void panic_error::gp_record_all() noexcept {
+    gp_bound = 0;
+    gp_all.reset();
+    gp_npcs = os::stack(gp_pcs, gp_max_trace);
+    gp_walk_deep();
+}
+
+void panic_error::gp_complete() noexcept {
+    if (gp_bound == 0) {
+        return;
+    }
+    int room = gp_max_trace - gp_npcs;
+    uintptr_t rest[gp_max_trace];
+    int n = os::stack_above(rest, room, reinterpret_cast<const void*>(gp_bound));
+    if (n < 0) {
+        return; // the frame that ends the inner part is not on this stack: the panic stays as it is
+    }
+    if (n < room) {
+        // The stack ends within gp_pcs.
+        for (int i = 0; i < n; i++) {
+            gp_pcs[gp_npcs + i] = rest[i];
+        }
+        gp_npcs += n;
+        gp_bound = 0;
+        return;
+    }
+    // A deep stack: all of it, as gp_walk_deep records it.
+    try {
+        auto all = std::make_shared<std::vector<uintptr_t>>(gp_pcs, gp_pcs + gp_npcs);
+        std::vector<uintptr_t> outer;
+        if (walk_above(outer, reinterpret_cast<const void*>(gp_bound))) {
+            all->insert(all->end(), outer.begin(), outer.end());
+            all->shrink_to_fit();
+            for (int i = gp_npcs; i < gp_max_trace; i++) {
+                gp_pcs[i] = (*all)[static_cast<std::size_t>(i)];
+            }
+            gp_npcs = gp_max_trace;
+            gp_all = std::move(all);
+            gp_bound = 0;
         }
     } catch (...) {
         // No memory: the trace shows the inner frames only.
@@ -1499,7 +1617,9 @@ std::pair<std::pair<const uintptr_t*, std::size_t>, bool> recorded(const panic_e
     }
     // A full gp_pcs without gp_all: the second walk failed (no memory, or a stack of more than
     // panic_error::gp_max_walk frames).
-    return {{e.gp_pcs, static_cast<std::size_t>(e.gp_npcs)}, e.gp_npcs < panic_error::gp_max_trace};
+    // (A panic that was not completed, gp_bound, has only the inner part of its stack.)
+    return {{e.gp_pcs, static_cast<std::size_t>(e.gp_npcs)},
+            e.gp_bound == 0 && e.gp_npcs < panic_error::gp_max_trace};
 }
 
 } // namespace
@@ -1590,7 +1710,8 @@ void panic_report(std::string& out, const panic_error& e) noexcept {
 void fatal_trace(std::string& out) noexcept {
     std::size_t start = out.size();
     try {
-        panic_error here{gp::string()}; // records the stack, like a panic
+        panic_error here{gp::string()};
+        here.gp_record_all(); // the whole stack, not only up to the next function with defers
         auto [st, whole] = recorded(here);
         // The innermost gp_run that runs a deferred call for a panic. Its caller's frame is the
         // first one with its return address after those of the gp_runs inside it with the same
@@ -1620,6 +1741,8 @@ void fatal_trace(std::string& out) noexcept {
         // left out by append_trace), "panic", then the running panic's stack and chain.
         std::vector<uintptr_t> pcs(st.first, st.first + caller);
         pcs.push_back(0);
+        // (The frame of the function that handles the running panic is on this stack.)
+        panicking->gp_panic->gp_complete();
         bool complete = chain_pcs(*panicking->gp_panic, pcs);
         append_trace(out, pcs.data(), pcs.size(), complete);
         append_created_by(out, static_cast<const goroutine*>(os::tls_get()));
@@ -1628,7 +1751,7 @@ void fatal_trace(std::string& out) noexcept {
     }
 }
 
-void panic_chain(panic_error& newer, const panic_error& running) noexcept {
+void panic_chain(panic_error& newer, panic_error& running) noexcept {
     panic_error* oldest = &newer;
     while (oldest->gp_prev != nullptr) {
         oldest = oldest->gp_prev.get();
@@ -1636,6 +1759,11 @@ void panic_chain(panic_error& newer, const panic_error& running) noexcept {
     if (oldest == &running) {
         return;
     }
+    // The caller is the function whose gp_run handles both panics: a panic that still has only
+    // its inner stack ends in that function's frame, which is on the stack now (the stacks are
+    // compared below, and a copy of running goes into the chain).
+    running.gp_complete();
+    oldest->gp_complete();
     try {
         oldest->gp_prev = std::make_shared<panic_error>(running);
         oldest->gp_inner = -1;

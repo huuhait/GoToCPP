@@ -43,13 +43,16 @@ void main() {
 // gp[panics] col 2: panic: throws a C++ exception (gp::panic_error) that carries the value;
 //     deferred calls run while it unwinds, and recover can stop it; unrecovered, the runtime prints
 //     Go's message and trace and exits with status 2
-        gp::panic_constant("boom"_gs);
+        gp_df.gp_panic(gp::new_panic_constant("boom"_gs));
+        goto gp_pan0;
 
 // ---- ./panics.gp:10: }
+    } catch (gp::panic_error& gp_p) {
+        gp_df.gp_take(gp_p);
     } catch (...) {
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
     }
-    gp_df.gp_run();
+    gp_pan0:; gp_df.gp_run();
 }
 
 } // namespace gpkg_main

@@ -133,9 +133,13 @@ int64_t named() {
     gp::defer_frame gp_df; try {
         gp_df.gp_push_call([r]<int = 1>() mutable -> void { (*r) = (*r) * 2; });
         (*r) = 21; goto gp_ret0;
+    } catch (gp::panic_error& gp_p) {
+#line 100 "$DIR/closures.gp"
+        gp_df.gp_take(gp_p);
+#line 100 "$DIR/closures.gp"
     } catch (...) {
 #line 100 "$DIR/closures.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 100 "$DIR/closures.gp"
     }
 #line 100 "$DIR/closures.gp"
@@ -151,9 +155,13 @@ void deferred() {
         gp_df.gp_push_call(f, "first"_gs);
         f = gp::func<void(gp::string)>([]<int = 2>(gp::string s) mutable -> void { gp::fmt::Println("changed"_gs, s); });
         gp_df.gp_push_call(f, "second"_gs);
+    } catch (gp::panic_error& gp_p) {
+#line 107 "$DIR/closures.gp"
+        gp_df.gp_take(gp_p);
+#line 107 "$DIR/closures.gp"
     } catch (...) {
 #line 107 "$DIR/closures.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 107 "$DIR/closures.gp"
     }
 #line 107 "$DIR/closures.gp"

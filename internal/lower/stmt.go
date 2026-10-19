@@ -121,6 +121,9 @@ func (fg *funcGen) stmt(s ast.Stmt) {
 	case *ast.ExprStmt, *ast.IncDecStmt:
 		pre, x := fg.simple(s)
 		p := fg.g.pos(s.Pos())
+		if fg.localPanic(s, pre, x) { // defer.go: panic(v) in a function with defers
+			return
+		}
 		fg.add(withPre(p, pre, &cppir.ExprStmt{Pos: p, X: x}))
 	case *ast.ReturnStmt:
 		fg.returnStmt(s)

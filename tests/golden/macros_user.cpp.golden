@@ -86,9 +86,13 @@ std::tuple<int64_t, gp::error> work(int64_t a, int64_t b) {
 #line 34 "$ROOT/tests/golden/macros_user.gp"
         goto gp_ret0;
 #line 34 "$ROOT/tests/golden/macros_user.gp"
+    } catch (gp::panic_error& gp_p) {
+#line 34 "$ROOT/tests/golden/macros_user.gp"
+        gp_df.gp_take(gp_p);
+#line 34 "$ROOT/tests/golden/macros_user.gp"
     } catch (...) {
 #line 34 "$ROOT/tests/golden/macros_user.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 34 "$ROOT/tests/golden/macros_user.gp"
     }
 #line 34 "$ROOT/tests/golden/macros_user.gp"

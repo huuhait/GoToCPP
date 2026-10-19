@@ -243,9 +243,93 @@ constexpr panic_identity runtime_id{panic_identity::gp_runtime, 0, 0};
 
 namespace detail {
 
-void throw_panic(gp::any value, gp::string text, panic_identity id) {
-    throw panic_error{std::move(value), std::move(text), false, id};
+namespace {
+
+// value_of is bits_of the other way: the value of type T from raw_bits' lo and hi.
+template <typename T>
+T value_of(uint64_t lo, uint64_t hi) {
+    if constexpr (std::is_same_v<T, complex128>) {
+        double re, im;
+        std::memcpy(&re, &lo, 8);
+        std::memcpy(&im, &hi, 8);
+        return complex128(re, im);
+    } else if constexpr (std::is_same_v<T, complex64>) {
+        float re, im;
+        std::memcpy(&re, &lo, 4);
+        std::memcpy(&im, reinterpret_cast<const char*>(&lo) + 4, 4);
+        return complex64(re, im);
+    } else if constexpr (sizeof(T) == 8) {
+        T v;
+        std::memcpy(&v, &lo, 8);
+        return v;
+    } else if constexpr (sizeof(T) == 4) {
+        auto b = static_cast<uint32_t>(lo);
+        T v;
+        std::memcpy(&v, &b, 4);
+        return v;
+    } else if constexpr (sizeof(T) == 2) {
+        auto b = static_cast<uint16_t>(lo);
+        T v;
+        std::memcpy(&v, &b, 2);
+        return v;
+    } else {
+        auto b = static_cast<uint8_t>(lo);
+        T v;
+        std::memcpy(&v, &b, 1);
+        return v;
+    }
 }
+
+template <typename T>
+[[noreturn]] void throw_value(uint8_t kind, uint64_t lo, uint64_t hi, panic_identity id) {
+    T v = value_of<T>(lo, hi);
+    throw panic_error{basic_t{}, td_of_basic(kind), v, id};
+}
+
+} // namespace
+
+__attribute__((noinline)) void throw_basic(uint8_t cxx, uint8_t kind, uint64_t lo, uint64_t hi,
+                                           panic_identity id) {
+    switch (cxx) {
+    case 1:
+        throw_value<bool>(kind, lo, hi, id);
+    case 3:
+        throw_value<int8_t>(kind, lo, hi, id);
+    case 4:
+        throw_value<int16_t>(kind, lo, hi, id);
+    case 5:
+        throw_value<int32_t>(kind, lo, hi, id);
+    case 2:
+        throw_value<int64_t>(kind, lo, hi, id);
+    case 8:
+        throw_value<uint8_t>(kind, lo, hi, id);
+    case 9:
+        throw_value<uint16_t>(kind, lo, hi, id);
+    case 10:
+        throw_value<uint32_t>(kind, lo, hi, id);
+    case 7:
+        throw_value<uint64_t>(kind, lo, hi, id);
+    case 13:
+        throw_value<float>(kind, lo, hi, id);
+    case 15:
+        throw_value<complex64>(kind, lo, hi, id);
+    case 16:
+        throw_value<complex128>(kind, lo, hi, id);
+    default:
+        throw_value<double>(kind, lo, hi, id);
+    }
+}
+
+namespace {
+
+// throw_lit throws the runtime error with a text that is a string literal (static storage; see
+// panic_error's constructor for it).
+template <std::size_t N>
+[[noreturn]] void throw_lit(rt_error kind, const char (&lit)[N], panic_identity id) {
+    throw panic_error{runtime_t{}, kind, lit, N - 1, id};
+}
+
+} // namespace
 
 void throw_runtime(rt_error kind, gp::string text, panic_identity id) {
     gp::any value = runtime_error_value(kind, text);
@@ -254,18 +338,31 @@ void throw_runtime(rt_error kind, gp::string text, panic_identity id) {
 
 } // namespace detail
 
-void panic(const gp::string& v) {
+__attribute__((noinline)) void panic(const gp::string& v) {
     // Go's convTstring: the empty string is runtime.zeroVal, any other one a new allocation.
     panic_identity id;
     if (v.gp_view().empty()) {
         id = {panic_identity::gp_value, 17, 0};
     }
-    throw panic_error{gp::to_iface<gp::any>(v, &td_string), v, false, id};
+    throw panic_error{detail::string_t{}, v, id};
 }
 
-void panic_constant(const gp::string& c) {
-    throw panic_error{
-        gp::to_iface<gp::any>(c, &td_string), c, false, {panic_identity::gp_constant, 17, 0}};
+__attribute__((noinline)) void panic_constant(const gp::string& c) {
+    throw panic_error{detail::string_t{}, c, {panic_identity::gp_constant, 17, 0}};
+}
+
+std::unique_ptr<panic_error> new_panic(const gp::string& v) {
+    panic_identity id;
+    if (v.gp_view().empty()) {
+        id = {panic_identity::gp_value, 17, 0};
+    }
+    return std::make_unique<panic_error>(detail::string_t{}, v, id, detail::stack_t::none);
+}
+
+std::unique_ptr<panic_error> new_panic_constant(const gp::string& c) {
+    return std::make_unique<panic_error>(detail::string_t{}, c,
+                                         panic_identity{panic_identity::gp_constant, 17, 0},
+                                         detail::stack_t::none);
 }
 
 void panic_wrap(const char* msg) {
@@ -276,8 +373,8 @@ void panic_wrap(const char* msg) {
 }
 
 void panic_divide() {
-    detail::throw_runtime(detail::rt_error::error_string,
-                          "runtime error: integer divide by zero"_gs, runtime_id);
+    detail::throw_lit(detail::rt_error::error_string, "runtime error: integer divide by zero",
+                      runtime_id);
 }
 
 void panic_range_state(int state) {
@@ -302,8 +399,8 @@ void panic_range_state(int state) {
 }
 
 void panic_shift() {
-    detail::throw_runtime(detail::rt_error::error_string, "runtime error: negative shift amount"_gs,
-                          runtime_id);
+    detail::throw_lit(detail::rt_error::error_string, "runtime error: negative shift amount",
+                      runtime_id);
 }
 
 namespace {
@@ -318,9 +415,9 @@ void panic_nil() {
     signal_set = true;
     signal_pc =
         reinterpret_cast<uintptr_t>(__builtin_extract_return_addr(__builtin_return_address(0)));
-    detail::throw_runtime(detail::rt_error::error_string,
-                          "runtime error: invalid memory address or nil pointer dereference"_gs,
-                          runtime_id);
+    detail::throw_lit(detail::rt_error::error_string,
+                      "runtime error: invalid memory address or nil pointer dereference",
+                      runtime_id);
 }
 
 namespace detail {
@@ -624,7 +721,10 @@ void on_terminate() noexcept {
     std::string out;
     try {
         std::rethrow_exception(e);
-    } catch (const panic_error& p) {
+    } catch (panic_error& p) {
+        // (A panic that no handler stopped, or that crossed a noexcept function: the frame of the
+        // function that was to handle it is on the stack, for the rest of its stack.)
+        p.gp_complete();
         panic_report(out, p); // a Go panic: run_main's report (the exception lives on in e)
         write_stderr(out);
         os::exit(2);
@@ -662,6 +762,9 @@ void exit_with_panic(const panic_error& e) noexcept {
     // have printf'd: that comes first, as it happened before the panic.
     std::fflush(nullptr);
     std::string out;
+    // (A panic that C++ code caught on the way, at the border of an exported function, may have
+    // only the inner part of its stack: the function that was to handle it is still on the stack.)
+    const_cast<panic_error&>(e).gp_complete();
     panic_report(out, e); // with the stack trace
     write_stderr(out);
     os::exit(2);

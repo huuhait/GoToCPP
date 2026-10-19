@@ -325,7 +325,7 @@ A method called on an interface is different: see gocpp explain interfaces.`,
 		Aliases: []string{"panic", "errors", "exceptions"},
 		Title:   "panic",
 		Summary: "how panics unwind and what the runtime prints",
-		Text: `panic(v) throws a C++ exception (gp::panic_error) that carries the value. Deferred calls run while it unwinds (gp_df.gp_on_exception keeps it for gp_run), and recover can stop it. An unrecovered panic prints Go's message ("panic: boom", or "panic: runtime error: index out of range [5] with length 3", with the goroutine trace) and exits with status 2. The runtime's own checks panic with Go's runtime.Error messages; a nil dereference also prints Go's signal line.
+		Text: `panic(v) throws a C++ exception (gp::panic_error) that carries the value. Deferred calls run while it unwinds (gp_df.gp_take keeps it for gp_run; a panic statement in the function itself does not even throw: gp_df.gp_panic and a goto), and recover can stop it. An unrecovered panic prints Go's message ("panic: boom", or "panic: runtime error: index out of range [5] with length 3", with the goroutine trace) and exits with status 2. The runtime's own checks panic with Go's runtime.Error messages; a nil dereference also prints Go's signal line.
 
 Go's fatal errors (out of memory, stack overflow, all goroutines asleep) end the program the same way, but no recover stops them and no deferred call runs.`,
 		Spec:    "cpp-mapping.md#runtime-checks-and-panics",

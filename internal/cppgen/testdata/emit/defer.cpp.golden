@@ -68,9 +68,13 @@ int64_t named() {
         gp_df.gp_push(set, n, 42);
         (*n) = 1;
         (*n) = 7; goto gp_ret0;
+    } catch (gp::panic_error& gp_p) {
+#line 32 "$DIR/defer.gp"
+        gp_df.gp_take(gp_p);
+#line 32 "$DIR/defer.gp"
     } catch (...) {
 #line 32 "$DIR/defer.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 32 "$DIR/defer.gp"
     }
 #line 32 "$DIR/defer.gp"
@@ -87,9 +91,13 @@ int64_t twice() {
         gp_df.gp_push(add, n, 10);
         gp_df.gp_push(add, n, 100);
         (*n) = 5; goto gp_ret0;
+    } catch (gp::panic_error& gp_p) {
+#line 38 "$DIR/defer.gp"
+        gp_df.gp_take(gp_p);
+#line 38 "$DIR/defer.gp"
     } catch (...) {
 #line 38 "$DIR/defer.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 38 "$DIR/defer.gp"
     }
 #line 38 "$DIR/defer.gp"
@@ -108,9 +116,13 @@ std::tuple<gp::string, bool> bare() {
         gp_df.gp_push(note, "bare"_gs);
         s = "x"_gs; ok = true;
         goto gp_ret0;
+    } catch (gp::panic_error& gp_p) {
+#line 44 "$DIR/defer.gp"
+        gp_df.gp_take(gp_p);
+#line 44 "$DIR/defer.gp"
     } catch (...) {
 #line 44 "$DIR/defer.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 44 "$DIR/defer.gp"
     }
 #line 44 "$DIR/defer.gp"
@@ -131,9 +143,13 @@ std::tuple<int64_t, gp::string> pair(int64_t x) {
             gp_r0 = x; gp_r1 = "pos"_gs; goto gp_ret0;
         }
         gp_r0 = -x; gp_r1 = "neg"_gs; goto gp_ret1;
+    } catch (gp::panic_error& gp_p) {
+#line 52 "$DIR/defer.gp"
+        gp_df.gp_take(gp_p);
+#line 52 "$DIR/defer.gp"
     } catch (...) {
 #line 52 "$DIR/defer.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 52 "$DIR/defer.gp"
     }
 #line 52 "$DIR/defer.gp"
@@ -154,9 +170,13 @@ std::tuple<int64_t, int64_t> swap() {
         gp_df.gp_push(note, "swap"_gs);
         a = 1; b = 2;
         { auto gp_t0 = a; a = b; b = gp_t0; } goto gp_ret0;
+    } catch (gp::panic_error& gp_p) {
+#line 58 "$DIR/defer.gp"
+        gp_df.gp_take(gp_p);
+#line 58 "$DIR/defer.gp"
     } catch (...) {
 #line 58 "$DIR/defer.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 58 "$DIR/defer.gp"
     }
 #line 58 "$DIR/defer.gp"
@@ -174,9 +194,13 @@ std::tuple<int64_t, gp::string> forward() {
     gp::defer_frame gp_df; try {
         gp_df.gp_push(note, "forward"_gs);
         { auto gp_t0 = pair(-4); gp_r0 = std::get<0>(gp_t0); gp_r1 = std::get<1>(gp_t0); } goto gp_ret0;
+    } catch (gp::panic_error& gp_p) {
+#line 63 "$DIR/defer.gp"
+        gp_df.gp_take(gp_p);
+#line 63 "$DIR/defer.gp"
     } catch (...) {
 #line 63 "$DIR/defer.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 63 "$DIR/defer.gp"
     }
 #line 63 "$DIR/defer.gp"
@@ -199,9 +223,13 @@ int64_t early(gp::slice<int64_t> xs) {
             }
         }
         gp_r0 = -1; goto gp_ret1;
+    } catch (gp::panic_error& gp_p) {
+#line 73 "$DIR/defer.gp"
+        gp_df.gp_take(gp_p);
+#line 73 "$DIR/defer.gp"
     } catch (...) {
 #line 73 "$DIR/defer.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 73 "$DIR/defer.gp"
     }
 #line 73 "$DIR/defer.gp"
@@ -225,9 +253,13 @@ gp::string kind(int64_t n) {
             gp_r0 = "zero"_gs; goto gp_ret1;
         }
         gp_r0 = "pos"_gs; goto gp_ret2;
+    } catch (gp::panic_error& gp_p) {
+#line 84 "$DIR/defer.gp"
+        gp_df.gp_take(gp_p);
+#line 84 "$DIR/defer.gp"
     } catch (...) {
 #line 84 "$DIR/defer.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 84 "$DIR/defer.gp"
     }
 #line 84 "$DIR/defer.gp"
@@ -249,9 +281,13 @@ void loop() {
             gp_df.gp_push_call([](auto&& gp_a0) { gp::fmt::Println("loop"_gs, gp_a0); }, i);
         }
         gp::fmt::Println("loop body"_gs);
+    } catch (gp::panic_error& gp_p) {
+#line 91 "$DIR/defer.gp"
+        gp_df.gp_take(gp_p);
+#line 91 "$DIR/defer.gp"
     } catch (...) {
 #line 91 "$DIR/defer.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 91 "$DIR/defer.gp"
     }
 #line 91 "$DIR/defer.gp"
@@ -269,9 +305,13 @@ void order() {
         { auto gp_t1 = gpkg_main::inc(i); gp_df.gp_push(show, "g"_gs, g[(*i)], gp_t1); }
         gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp::fmt::Println("printed"_gs, gp_a0, gp_a1); }, (*z), (*i));
         (*z) = 100; (*i) = 2;
+    } catch (gp::panic_error& gp_p) {
+#line 101 "$DIR/defer.gp"
+        gp_df.gp_take(gp_p);
+#line 101 "$DIR/defer.gp"
     } catch (...) {
 #line 101 "$DIR/defer.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 101 "$DIR/defer.gp"
     }
 #line 101 "$DIR/defer.gp"
@@ -293,9 +333,13 @@ void builtins() {
         gp_df.gp_push_call([](auto&& gp_a0) { gp::clear(gp_a0); }, c);
         gp_df.gp_push_call([](auto&&...) { gp::print("print "_gs, int64_t(1), "\n"_gs); });
         gp_df.gp_push_call([](auto&&...) { gp::println(); });
+    } catch (gp::panic_error& gp_p) {
+#line 115 "$DIR/defer.gp"
+        gp_df.gp_take(gp_p);
+#line 115 "$DIR/defer.gp"
     } catch (...) {
 #line 115 "$DIR/defer.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 115 "$DIR/defer.gp"
     }
 #line 115 "$DIR/defer.gp"
@@ -316,9 +360,13 @@ int64_t boxed(int64_t n) {
             gp_r0 = (*n); goto gp_ret0;
         }
 #line 122 "$DIR/defer.gp"
+    } catch (gp::panic_error& gp_p) {
+#line 122 "$DIR/defer.gp"
+        gp_df.gp_take(gp_p);
+#line 122 "$DIR/defer.gp"
     } catch (...) {
 #line 122 "$DIR/defer.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 122 "$DIR/defer.gp"
     }
 #line 122 "$DIR/defer.gp"
@@ -339,9 +387,13 @@ void shadow(int64_t v) {
         }
         int64_t w = v + 1;
         gp_df.gp_push_call([](auto&& gp_a0) { gp::fmt::Println("shadow w"_gs, gp_a0); }, w);
+    } catch (gp::panic_error& gp_p) {
+#line 132 "$DIR/defer.gp"
+        gp_df.gp_take(gp_p);
+#line 132 "$DIR/defer.gp"
     } catch (...) {
 #line 132 "$DIR/defer.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 132 "$DIR/defer.gp"
     }
 #line 132 "$DIR/defer.gp"
@@ -363,9 +415,13 @@ int64_t jumps(int64_t n) {
             goto again;
         }
         goto gp_ret0;
+    } catch (gp::panic_error& gp_p) {
+#line 144 "$DIR/defer.gp"
+        gp_df.gp_take(gp_p);
+#line 144 "$DIR/defer.gp"
     } catch (...) {
 #line 144 "$DIR/defer.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 144 "$DIR/defer.gp"
     }
 #line 144 "$DIR/defer.gp"
@@ -384,9 +440,13 @@ int64_t fact(int64_t n) {
             (*r) = 1; goto gp_ret0;
         }
         (*r) = n * fact(n - 1); goto gp_ret1;
+    } catch (gp::panic_error& gp_p) {
+#line 152 "$DIR/defer.gp"
+        gp_df.gp_take(gp_p);
+#line 152 "$DIR/defer.gp"
     } catch (...) {
 #line 152 "$DIR/defer.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 152 "$DIR/defer.gp"
     }
 #line 152 "$DIR/defer.gp"
@@ -409,9 +469,13 @@ void gp_init_1() {
     gp::defer_frame gp_df; try {
         gp_df.gp_push_call([](auto&&...) { gp::fmt::Println("init deferred"_gs); });
         gp::fmt::Println("init"_gs);
+    } catch (gp::panic_error& gp_p) {
+#line 164 "$DIR/defer.gp"
+        gp_df.gp_take(gp_p);
+#line 164 "$DIR/defer.gp"
     } catch (...) {
 #line 164 "$DIR/defer.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 164 "$DIR/defer.gp"
     }
 #line 164 "$DIR/defer.gp"
@@ -441,9 +505,13 @@ void main() {
         gp::fmt::Println(fact(5));
         gp::fmt::Println(noDefer(-3));
         gp::fmt::Println(joined());
+    } catch (gp::panic_error& gp_p) {
+#line 186 "$DIR/defer.gp"
+        gp_df.gp_take(gp_p);
+#line 186 "$DIR/defer.gp"
     } catch (...) {
 #line 186 "$DIR/defer.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 186 "$DIR/defer.gp"
     }
 #line 186 "$DIR/defer.gp"

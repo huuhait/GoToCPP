@@ -88,8 +88,10 @@ gp::error work(bool fail) {
         (*err) = gp::error(); goto gp_ret1;
 
 // ---- ./defer.gp:18: }
+    } catch (gp::panic_error& gp_p) {
+        gp_df.gp_take(gp_p);
     } catch (...) {
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
     }
     gp_df.gp_run(); return (*err);
 

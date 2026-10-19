@@ -32,9 +32,13 @@ std::tuple<int64_t, int64_t> plain(gp::slice<int64_t> xs) {
             n = n + x;
         }
         i = n; n = 0; goto gp_ret0;
+    } catch (gp::panic_error& gp_p) {
+#line 14 "$ROOT/tests/golden/named_result_alias.gp"
+        gp_df.gp_take(gp_p);
+#line 14 "$ROOT/tests/golden/named_result_alias.gp"
     } catch (...) {
 #line 14 "$ROOT/tests/golden/named_result_alias.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 14 "$ROOT/tests/golden/named_result_alias.gp"
     }
 #line 14 "$ROOT/tests/golden/named_result_alias.gp"
@@ -61,9 +65,13 @@ std::tuple<int64_t, gp::any> hidden(gp::slice<int64_t> xs, int64_t v) {
             }
         }
         { auto gp_t1 = gp::any(); gp_res_i = -1; (*p) = gp_t1; } goto gp_ret1;
+    } catch (gp::panic_error& gp_p) {
+#line 24 "$ROOT/tests/golden/named_result_alias.gp"
+        gp_df.gp_take(gp_p);
+#line 24 "$ROOT/tests/golden/named_result_alias.gp"
     } catch (...) {
 #line 24 "$ROOT/tests/golden/named_result_alias.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 24 "$ROOT/tests/golden/named_result_alias.gp"
     }
 #line 24 "$ROOT/tests/golden/named_result_alias.gp"
@@ -86,9 +94,13 @@ int64_t boxed() {
             int64_t i = 7;
             (*gp_res_i) = i; goto gp_ret0;
         }
+    } catch (gp::panic_error& gp_p) {
+#line 32 "$ROOT/tests/golden/named_result_alias.gp"
+        gp_df.gp_take(gp_p);
+#line 32 "$ROOT/tests/golden/named_result_alias.gp"
     } catch (...) {
 #line 32 "$ROOT/tests/golden/named_result_alias.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 32 "$ROOT/tests/golden/named_result_alias.gp"
     }
 #line 32 "$ROOT/tests/golden/named_result_alias.gp"

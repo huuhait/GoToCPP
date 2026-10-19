@@ -1285,6 +1285,453 @@ void test_forced_unwind() {
 #endif
 }
 
+// --- the lazy stack of a panic (panic.hpp, trace.cpp: gp_record, gp_complete) ---
+
+// A panic made in a function with a defer frame records only the stack up to that function's
+// frame; gp_complete adds the frames outside it, and the result is what a walk of the whole stack
+// gives from that function's frame on.
+bool lazy_stacks() {
+    return gp::detail::defer_links_listed;
+}
+
+// frames_equal compares the outer parts of two stacks: the last n pcs of a and of b.
+bool outer_equal(const gp::panic_error& a, const gp::panic_error& b, std::size_t n) {
+    auto at = [](const gp::panic_error& e, std::size_t from_end) {
+        std::size_t total = e.gp_all != nullptr ? e.gp_all->size() : std::size_t(e.gp_npcs);
+        return e.gp_all != nullptr ? (*e.gp_all)[total - 1 - from_end]
+                                   : e.gp_pcs[total - 1 - from_end];
+    };
+    for (std::size_t i = 0; i < n; i++) {
+        if (at(a, i) != at(b, i)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+__attribute__((noinline)) void make_lazy_and_full(std::unique_ptr<gp::panic_error>& lazy,
+                                                  std::unique_ptr<gp::panic_error>& full,
+                                                  int& inner) {
+    gp::defer_frame df; // this function handles the panic
+    lazy = std::make_unique<gp::panic_error>(gp::string::gp_copy("lazy"));
+    inner = lazy->gp_npcs;
+    full = std::make_unique<gp::panic_error>(gp::string::gp_copy("full"));
+    full->gp_record_all();
+    if (lazy_stacks()) {
+        CHECK(lazy->gp_bound != 0);
+        CHECK(inner > 0 && inner < 16);
+        CHECK(full->gp_bound == 0);
+    }
+    lazy->gp_complete();
+}
+
+void test_lazy_stack() {
+    CHECK(gp::detail::top_defer == nullptr);
+    std::unique_ptr<gp::panic_error> lazy, full;
+    int inner = 0;
+    make_lazy_and_full(lazy, full, inner);
+    CHECK(gp::detail::top_defer == nullptr); // the frame is gone
+    CHECK(lazy->gp_bound == 0);
+    if (lazy_stacks()) {
+        // The outer part (this function's frame and its callers) is the same as a whole walk's.
+        std::size_t outer = static_cast<std::size_t>(lazy->gp_npcs - inner);
+        CHECK(outer >= 3);
+        CHECK(outer_equal(*lazy, *full, outer));
+        // The frame that ends the inner part is make_lazy_and_full's: the whole walk's frame there
+        // is a few bytes away in the same function (another call site).
+        auto a = static_cast<std::intptr_t>(lazy->gp_pcs[inner - 1]);
+        auto b =
+            static_cast<std::intptr_t>(full->gp_pcs[full->gp_npcs - static_cast<int>(outer) - 1]);
+        CHECK(a - b < 4096 && b - a < 4096);
+    } else {
+        CHECK(lazy->gp_npcs - full->gp_npcs < 4 && full->gp_npcs - lazy->gp_npcs < 4);
+    }
+}
+
+// A panic made in a function that has a frame, below a function that has one too, ends its inner
+// part at the first of them.
+__attribute__((noinline)) void inner_frame(std::unique_ptr<gp::panic_error>& e) {
+    gp::defer_frame df;
+    CHECK(gp::detail::top_defer != nullptr || !lazy_stacks());
+    e = std::make_unique<gp::panic_error>(gp::string::gp_copy("two"));
+}
+
+__attribute__((noinline)) void outer_frame(std::unique_ptr<gp::panic_error>& e,
+                                           std::unique_ptr<gp::panic_error>& again) {
+    gp::defer_frame df;
+    inner_frame(e);
+    // The inner frame is gone: the next panic ends at this function's frame.
+    again = std::make_unique<gp::panic_error>(gp::string::gp_copy("again"));
+}
+
+void test_lazy_nesting() {
+    std::unique_ptr<gp::panic_error> e, again;
+    outer_frame(e, again);
+    CHECK(gp::detail::top_defer == nullptr);
+    if (lazy_stacks()) {
+        CHECK(e->gp_bound != 0 && again->gp_bound != 0);
+        CHECK(again->gp_bound > e->gp_bound); // the outer function's frame is higher
+    }
+}
+
+// A frame that is gone but still listed (a longjmp over it) must not end a walk: a list entry below
+// the frame that makes the panic is dead. (A variable in static storage is below every frame.)
+gp::detail::defer_link fake_dead_link;
+
+void test_lazy_stale() {
+    gp::detail::top_defer = &fake_dead_link;
+    gp::panic_error e{gp::string::gp_copy("stale")};
+    gp::detail::top_defer = nullptr;
+    // The stale entry is below the current frame: ignored, the whole stack is recorded.
+    CHECK(e.gp_bound == 0);
+    CHECK(e.gp_npcs > 3);
+}
+
+// A deep stack: an inner part of more than gp_max_trace frames is walked to the end at once; an
+// outer part of more is walked by gp_complete.
+__attribute__((noinline)) void deep_inner(int n, std::unique_ptr<gp::panic_error>& e) {
+    if (n == 0) {
+        e = std::make_unique<gp::panic_error>(gp::string::gp_copy("deep inner"));
+        return;
+    }
+    deep_inner(n - 1, e);
+    asm volatile("" ::: "memory"); // (not a tail call)
+}
+
+__attribute__((noinline)) void deep_outer(int n, std::unique_ptr<gp::panic_error>& e,
+                                          std::unique_ptr<gp::panic_error>& full) {
+    if (n == 0) {
+        gp::defer_frame df;
+        e = std::make_unique<gp::panic_error>(gp::string::gp_copy("deep outer"));
+        full = std::make_unique<gp::panic_error>(gp::string::gp_copy("full"));
+        full->gp_record_all();
+        e->gp_complete();
+        return;
+    }
+    deep_outer(n - 1, e, full);
+    asm volatile("" ::: "memory");
+}
+
+void test_lazy_deep() {
+    std::unique_ptr<gp::panic_error> e;
+    {
+        gp::defer_frame df;
+        deep_inner(300, e);
+    }
+    CHECK(e->gp_bound == 0);
+    CHECK(e->gp_npcs == gp::panic_error::gp_max_trace);
+    CHECK(e->gp_all != nullptr && e->gp_all->size() > 300);
+
+    std::unique_ptr<gp::panic_error> outer, full;
+    deep_outer(300, outer, full);
+    CHECK(outer->gp_bound == 0);
+    CHECK(outer->gp_npcs == gp::panic_error::gp_max_trace);
+    CHECK(outer->gp_all != nullptr && outer->gp_all->size() > 300);
+    CHECK(full->gp_all != nullptr);
+    if (lazy_stacks()) {
+        // The same stack but for the few frames at the top, and the first 100 are the start of it.
+        CHECK(outer_equal(*outer, *full, 300));
+        for (int i = 0; i < gp::panic_error::gp_max_trace; i++) {
+            CHECK((*outer->gp_all)[static_cast<std::size_t>(i)] == outer->gp_pcs[i]);
+        }
+    }
+}
+
+// A panic that passes through the frames of several functions is completed by the first of them
+// once, and its printed trace is the one of the whole stack.
+__attribute__((noinline)) void throws_through(int n) {
+    gp::defer_frame df;
+    try {
+        if (n == 0) {
+            gp::panic("through"_gs);
+        }
+        throws_through(n - 1);
+    } catch (gp::panic_error& p) {
+        df.gp_take(p);
+    } catch (...) {
+        df.gp_adopt();
+    }
+    df.gp_run();
+}
+
+void test_lazy_through() {
+    try {
+        throws_through(4);
+        CHECK(false);
+    } catch (const gp::panic_error& e) {
+        CHECK(e.gp_bound == 0);
+        std::string out;
+        gp::detail::panic_report(out, e);
+        // 5 frames of throws_through (the lambda frames of the test's runner are not shown).
+        std::size_t n = 0;
+        for (std::size_t at = out.find("throws_through"); at != std::string::npos;
+             at = out.find("throws_through", at + 1)) {
+            n++;
+        }
+        CHECK(n == 0 || n == 5); // (a program without symbols shows addresses)
+    }
+}
+
+// --- gp_panic: a panic statement in the function that has the frame ---
+
+// A local with a destructor, to see when the goto destroys it.
+struct noisy {
+    ~noisy() { calls += "~noisy "; }
+};
+
+// local_or_thrown has the shape that gocpp generates for `defer ...; panic("x")`: with local, the
+// panic is a gp_panic and a goto; else it is thrown, and the handler gets it.
+void local_or_thrown(bool local, bool recover_it) {
+    gp::defer_frame df;
+    try {
+        if (recover_it) {
+            df.gp_push_aware(aware_recover);
+        }
+        df.gp_push(note, 7);
+        noisy n;
+        if (local) {
+            df.gp_panic(gp::new_panic("x"_gs));
+            goto gp_pan0;
+        }
+        gp::panic("x"_gs);
+    } catch (gp::panic_error& gp_p) {
+        df.gp_take(gp_p);
+    } catch (...) {
+        df.gp_adopt();
+    }
+gp_pan0:;
+    df.gp_run();
+}
+
+// shown_names lists the functions of a report's trace (the lines without a tab).
+std::vector<std::string> shown_names(const gp::panic_error& e) {
+    std::string out;
+    gp::detail::panic_report(out, e);
+    std::vector<std::string> names;
+    std::size_t at = out.find("[running]:\n");
+    at = at == std::string::npos ? out.size() : at + 11;
+    while (at < out.size()) {
+        std::size_t end = out.find('\n', at);
+        std::string line = out.substr(at, end - at);
+        if (!line.empty() && line[0] != '\t') {
+            names.push_back(line);
+        }
+        at = end == std::string::npos ? out.size() : end + 1;
+    }
+    return names;
+}
+
+void test_local_panic() {
+    // Recovered: the function returns, the locals were destroyed before the deferred calls ran,
+    // and recover() got the value.
+    for (bool local : {false, true}) {
+        calls.clear();
+        got = "-";
+        bool escaped = false;
+        try {
+            local_or_thrown(local, true);
+        } catch (...) {
+            escaped = true;
+        }
+        CHECK(!escaped);
+        CHECK_EQ(got, std::string("x"));
+        CHECK_EQ(calls, std::string("~noisy 7 recover "));
+    }
+
+    // Not recovered: the same panic leaves the function, with the same stack (the frames of the
+    // function and of its callers, the same functions as for the panic that is thrown), and the
+    // count of panics that goroutines are handling (detail::panic_count_add) goes back to what it
+    // was.
+    calls.clear();
+    std::vector<std::string> names[2];
+    for (int local = 0; local < 2; local++) {
+        calls.clear();
+        try {
+            local_or_thrown(local != 0, false);
+            CHECK(false);
+        } catch (const gp::panic_error& e) {
+            CHECK_EQ(std::string(e.gp_text.gp_view()), std::string("x"));
+            CHECK_EQ(std::string(e.gp_value.gp_type()->gp_name), std::string("string"));
+            CHECK(e.gp_bound == 0);
+            CHECK(e.gp_npcs > 3);
+            CHECK(!e.gp_recovered);
+            names[local] = shown_names(e);
+        }
+        CHECK_EQ(calls, std::string("~noisy 7 "));
+    }
+    if (names[0] != names[1]) {
+        std::string msg;
+        for (int i = 0; i < 2; i++) {
+            msg += i == 0 ? "thrown:" : "local:";
+            for (auto& n : names[i]) {
+                msg += " [" + n + "]";
+            }
+            msg += "\n";
+        }
+        report(false, __FILE__, __LINE__, "the traces differ:\n" + msg);
+    }
+
+    // The chain: a deferred call that panics replaces the running panic, which goes into its chain.
+    calls.clear();
+    auto chain = [] {
+        gp::defer_frame df;
+        try {
+            df.gp_push(note, 1);
+            df.gp_push(boom, "third"_gs);
+            df.gp_push(boom, "second"_gs);
+            df.gp_panic(gp::new_panic("first\nline"_gs));
+            goto gp_pan0;
+        } catch (gp::panic_error& gp_p) {
+            df.gp_take(gp_p);
+        } catch (...) {
+            df.gp_adopt();
+        }
+    gp_pan0:;
+        df.gp_run();
+    };
+    CHECK_EQ(
+        report_of(chain),
+        std::string(
+            "panic: first\n\tline\n\tpanic: second\n\tpanic: third\n\ngoroutine 1 [running]:\n"));
+    CHECK_EQ(calls, std::string("boom(second) boom(third) 1 "));
+    try {
+        chain();
+    } catch (const gp::panic_error& e) {
+        CHECK(e.gp_prev != nullptr && e.gp_prev->gp_prev != nullptr &&
+              e.gp_prev->gp_prev->gp_prev == nullptr);
+        CHECK(e.gp_inner > 0 && e.gp_inner < e.gp_npcs);
+        CHECK(e.gp_prev->gp_inner > 0);
+        CHECK(e.gp_bound == 0 && e.gp_prev->gp_bound == 0 && e.gp_prev->gp_prev->gp_bound == 0);
+    }
+
+    // The panic of the frame that is replaced (a deferred call that recovers and panics again),
+    // and a frame that is destroyed with its panic: nothing leaks (LeakSanitizer in the asan mode).
+    calls.clear();
+    got = "-";
+    std::string again = text([] {
+        gp::defer_frame df;
+        try {
+            df.gp_push(boom, "again"_gs);
+            df.gp_push_aware(aware_recover);
+            df.gp_panic(gp::new_panic(int64_t(3)));
+            goto gp_pan0;
+        } catch (gp::panic_error& gp_p) {
+            df.gp_take(gp_p);
+        } catch (...) {
+            df.gp_adopt();
+        }
+    gp_pan0:;
+        df.gp_run();
+    });
+    CHECK_EQ(again, std::string("again"));
+    CHECK_EQ(got, std::string("3"));
+    {
+        gp::defer_frame df;
+        df.gp_panic(gp::new_panic(true)); // (never run: the frame ends with it)
+    }
+
+    // Goexit in a deferred call replaces the panic (and frees it).
+    bool signalled = false;
+    try {
+        gp::defer_frame df;
+        try {
+            df.gp_push(+[] { gp::goexit(); });
+            df.gp_panic(gp::new_panic(int64_t(9)));
+            goto gp_pan0;
+        } catch (gp::panic_error& gp_p) {
+            df.gp_take(gp_p);
+        } catch (...) {
+            df.gp_adopt();
+        }
+    gp_pan0:;
+        df.gp_run();
+    } catch (const gp::goexit_signal&) {
+        signalled = true;
+    } catch (const gp::panic_error&) {
+    }
+    CHECK(signalled);
+
+    // The values: the same as the thrown ones'.
+    {
+        auto v = [](std::unique_ptr<gp::panic_error> p) {
+            return std::string(p->gp_text.gp_view()) + "|" +
+                   std::string(p->gp_value.gp_type()->gp_name) + "|" +
+                   std::to_string(p->gp_id.gp_kind) + "|" + std::to_string(p->gp_id.gp_type);
+        };
+        auto t = [](auto f) {
+            try {
+                f();
+            } catch (const gp::panic_error& e) {
+                return std::string(e.gp_text.gp_view()) + "|" +
+                       std::string(e.gp_value.gp_type()->gp_name) + "|" +
+                       std::to_string(e.gp_id.gp_kind) + "|" + std::to_string(e.gp_id.gp_type);
+            }
+            return std::string("<none>");
+        };
+        CHECK_EQ(v(gp::new_panic(int64_t(5))), t([] { gp::panic(int64_t(5)); }));
+        CHECK_EQ(v(gp::new_panic(int64_t(500))), t([] { gp::panic(int64_t(500)); }));
+        CHECK_EQ(v(gp::new_panic<6>(int64_t(5))), t([] { gp::panic<6>(int64_t(5)); }));
+        CHECK_EQ(v(gp::new_panic(1.5)), t([] { gp::panic(1.5); }));
+        CHECK_EQ(v(gp::new_panic(true)), t([] { gp::panic(true); }));
+        CHECK_EQ(v(gp::new_panic(uint8_t(7))), t([] { gp::panic(uint8_t(7)); }));
+        CHECK_EQ(v(gp::new_panic_constant(int64_t(5))), t([] { gp::panic_constant(int64_t(5)); }));
+        CHECK_EQ(v(gp::new_panic("s"_gs)), t([] { gp::panic("s"_gs); }));
+        CHECK_EQ(v(gp::new_panic(""_gs)), t([] { gp::panic(""_gs); }));
+        CHECK_EQ(v(gp::new_panic_constant("s"_gs)), t([] { gp::panic_constant("s"_gs); }));
+        CHECK_EQ(v(gp::new_panic(nullptr)), t([] { gp::panic(nullptr); }));
+        gp::error nil_err;
+        CHECK_EQ(v(gp::new_panic(nil_err)), t([] { gp::panic(gp::error()); }));
+        gp::complex128 c(1, 2);
+        CHECK_EQ(v(gp::new_panic(c)), t([] { gp::panic(gp::complex128(1, 2)); }));
+    }
+}
+
+// --- fatal_trace in a deferred call that a panic runs ---
+
+std::string fatal_out;
+
+void fatal_in_defer() {
+    fatal_out.clear();
+    gp::detail::fatal_trace(fatal_out);
+}
+
+// fatal_shape_ok checks the trace that a fatal error in a deferred call prints, Go's shape: the
+// deferred call's frames, a panic frame, and the whole stack of the panic that was running
+// (down to run_tests: nothing is left out for the frames that the panic had not recorded yet).
+bool fatal_shape_ok(const std::string& t) {
+    return t.find("\npanic(...)\n") != std::string::npos &&
+           t.find("run_tests") != std::string::npos && t.find("elided") == std::string::npos;
+}
+
+void test_fatal_in_defer() {
+    for (bool local : {false, true}) {
+        fatal_out.clear();
+        try {
+            gp::defer_frame df;
+            try {
+                df.gp_push(fatal_in_defer);
+                if (local) {
+                    df.gp_panic(gp::new_panic("p"_gs));
+                    goto gp_pan0;
+                }
+                gp::panic("p"_gs);
+            } catch (gp::panic_error& gp_p) {
+                df.gp_take(gp_p);
+            } catch (...) {
+                df.gp_adopt();
+            }
+        gp_pan0:;
+            df.gp_run();
+        } catch (const gp::panic_error&) {
+        }
+        bool ok = fatal_shape_ok("\n" + fatal_out);
+        if (!ok) {
+            report(false, __FILE__, __LINE__,
+                   "the trace of a fatal error in a deferred call:\n" + fatal_out);
+        }
+    }
+}
+
 void run_tests() {
     test_recover();
     test_recover_icall();
@@ -1292,6 +1739,13 @@ void run_tests() {
     test_recover_chain();
     test_goexit();
     test_cxx_exception();
+    test_lazy_stack();
+    test_lazy_nesting();
+    test_lazy_stale();
+    test_lazy_deep();
+    test_lazy_through();
+    test_local_panic();
+    test_fatal_in_defer();
     test_runtime_errors();
     test_panic_values();
     test_forced_unwind();

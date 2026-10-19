@@ -26,6 +26,84 @@
 
 namespace gp::os {
 
+#if defined(__x86_64__) || defined(_M_X64)
+
+namespace {
+
+// walk unwinds the calling thread's stack with the unwind tables of the PE file (RtlVirtualUnwind,
+// as RtlCaptureStackBackTrace does, which takes only about 300 frames in all with its chunks of
+// skip and count). mode 0 records the return addresses of the whole stack, innermost first, up to
+// max; mode 1 (stack_until) stops after the frame that holds the address bound (the frame whose
+// CFA, the stack pointer after it has returned, is above bound: the frames inside it have a CFA at
+// or below its stack pointer); mode 2 (stack_above) records only the frames outside that frame.
+// The first address is in walk itself, as the first address of the Linux walk is in the function
+// that calls the unwinder. *reached tells whether the frame of bound was seen (modes 1 and 2).
+__attribute__((noinline)) int walk(uintptr_t* pcs, int max, uintptr_t bound, int mode,
+                                   bool* reached) noexcept {
+    *reached = false;
+    if (max <= 0) {
+        return 0;
+    }
+    CONTEXT ctx;
+    RtlCaptureContext(&ctx);
+    int n = 0;
+    for (std::size_t depth = 0; depth < (std::size_t(1) << 22); depth++) {
+        auto pc = static_cast<uintptr_t>(ctx.Rip);
+        if (pc == 0) {
+            break;
+        }
+        if (mode != 2 || *reached) {
+            pcs[n++] = pc;
+        }
+        DWORD64 image = 0;
+        PRUNTIME_FUNCTION fe = RtlLookupFunctionEntry(ctx.Rip, &image, nullptr);
+        DWORD64 before = ctx.Rsp;
+        if (fe == nullptr) {
+            // A leaf function without unwind data: the return address is on top of the stack.
+            ctx.Rip = *reinterpret_cast<DWORD64*>(ctx.Rsp);
+            ctx.Rsp += 8;
+        } else {
+            PVOID handler_data = nullptr;
+            DWORD64 establisher = 0;
+            RtlVirtualUnwind(UNW_FLAG_NHANDLER, image, ctx.Rip, fe, &ctx, &handler_data,
+                             &establisher, nullptr);
+        }
+        if (ctx.Rsp <= before) {
+            break; // no progress
+        }
+        if (mode != 0 && !*reached && bound < ctx.Rsp) {
+            *reached = true;
+            if (mode == 1) {
+                break;
+            }
+        }
+        if (n == max) {
+            break;
+        }
+    }
+    return n;
+}
+
+} // namespace
+
+int stack(uintptr_t* pcs, int max) noexcept {
+    bool reached;
+    return walk(pcs, max, 0, 0, &reached);
+}
+
+int stack_until(uintptr_t* pcs, int max, const void* bound, bool* found) noexcept {
+    int n = walk(pcs, max, reinterpret_cast<uintptr_t>(bound), 1, found);
+    return n;
+}
+
+int stack_above(uintptr_t* pcs, int max, const void* bound) noexcept {
+    bool reached;
+    int n = walk(pcs, max, reinterpret_cast<uintptr_t>(bound), 2, &reached);
+    return reached || max <= 0 ? n : -1;
+}
+
+#else
+
 int stack(uintptr_t* pcs, int max) noexcept {
     if (max <= 0) {
         return 0;
@@ -49,6 +127,18 @@ int stack(uintptr_t* pcs, int max) noexcept {
     }
     return n;
 }
+
+int stack_until(uintptr_t* pcs, int max, const void*, bool* found) noexcept {
+    // (No unwinder loop for this CPU: the whole stack, at once.)
+    *found = false;
+    return stack(pcs, max);
+}
+
+int stack_above(uintptr_t*, int, const void*) noexcept {
+    return -1;
+}
+
+#endif
 
 namespace {
 

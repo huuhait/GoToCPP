@@ -252,9 +252,13 @@ void main() {
         gp_df.gp_push_call([m]<int = 2>() mutable -> void { gp::fmt::Println("in closure"_gs, m()); });
         (*x).v = 1000;
         gp_df.gp_push_call([](auto&& gp_a0) { gp::fmt::Println(gp_a0); }, (*x).M());
+    } catch (gp::panic_error& gp_p) {
+#line 113 "$DIR/methodvalues.gp"
+        gp_df.gp_take(gp_p);
+#line 113 "$DIR/methodvalues.gp"
     } catch (...) {
 #line 113 "$DIR/methodvalues.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 113 "$DIR/methodvalues.gp"
     }
 #line 113 "$DIR/methodvalues.gp"

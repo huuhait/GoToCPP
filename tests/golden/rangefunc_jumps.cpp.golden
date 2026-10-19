@@ -98,9 +98,13 @@ std::tuple<int64_t, bool> find(int64_t n) {
         }
         out:;
         (*gp_r0) = (*total); (*gp_r1) = false; goto gp_ret1;
+    } catch (gp::panic_error& gp_p) {
+#line 38 "$ROOT/tests/golden/rangefunc_jumps.gp"
+        gp_df.gp_take(gp_p);
+#line 38 "$ROOT/tests/golden/rangefunc_jumps.gp"
     } catch (...) {
 #line 38 "$ROOT/tests/golden/rangefunc_jumps.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 38 "$ROOT/tests/golden/rangefunc_jumps.gp"
     }
 #line 38 "$ROOT/tests/golden/rangefunc_jumps.gp"

@@ -137,9 +137,13 @@ void main() {
         double f = 2.5;
         gp::fmt::Println(gp::min<int64_t>(x, y), gp::max<int64_t>(x, y, 10), gp::min<double>(f, 1.0), gp::max<gp::string>("a"_gs, a[1]), gp::fmt::as(&gp_td_Celsius, gp::min<Celsius>(Celsius(f), Celsius(3.0))));
         gp::println(np, p != nullptr);
+    } catch (gp::panic_error& gp_p) {
+#line 58 "$DIR/fmt.gp"
+        gp_df.gp_take(gp_p);
+#line 58 "$DIR/fmt.gp"
     } catch (...) {
 #line 58 "$DIR/fmt.gp"
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
 #line 58 "$DIR/fmt.gp"
     }
 #line 58 "$DIR/fmt.gp"

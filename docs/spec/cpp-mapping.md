@@ -1238,8 +1238,10 @@ int64_t load(int64_t n) {
             (*count) = 0; goto gp_ret0;
         }
         (*count) = n * 2; goto gp_ret1;
+    } catch (gp::panic_error& gp_p) {
+        gp_df.gp_take(gp_p);
     } catch (...) {
-        gp_df.gp_on_exception();
+        gp_df.gp_adopt();
     }
     gp_df.gp_run(); return (*count);                  // the end of the body, or a panic
     gp_ret0:; gp_df.gp_run(); return (*count);        // at the line of the first return
@@ -1264,9 +1266,33 @@ int64_t load(int64_t n) {
   gp::println(gp_a0); }, x)`. The frame keeps a few calls in a small buffer inside it, and more
   (or bigger ones) on the heap. Defers in a loop accumulate until the function returns, and run
   last in, first out.
-- **A panic runs the deferred calls too**: the `catch (...)` keeps it (`gp_on_exception`), `gp_run`
-  runs the calls and throws the same panic again, so the trace still shows where it started,
-  unless a deferred call recovered it (below). A deferred call that
+- **A panic runs the deferred calls too**: the `catch (gp::panic_error&)` keeps it (`gp_take`),
+  `gp_run` runs the calls and throws the same panic again, so the trace still shows where it
+  started, unless a deferred call recovered it (below). The handler for the panic is typed, and
+  the one for everything else (`catch (...)`, `gp_adopt`) comes after it: a Go panic costs one
+  throw, not a second one to find out its type.
+- **A panic statement in a function with defers doesn't throw**: `panic(v)` in the function
+  itself (not in a func literal, nor in the body of a range over a func) is
+  `gp_df.gp_panic(gp::new_panic(v)); goto gp_pan0;`. The frame takes the panic as the handler
+  would, and the `goto` leaves the try block, destroying its locals in the order the unwinding
+  would, to the exit that runs the deferred calls (`gp_pan0:; gp_df.gp_run(); return ...;`, at the
+  closing brace). The result is the same, what the deferred calls and `recover()` see, the chain,
+  and the trace; what is saved is the C++ throw, a walk of the stack by the unwinder, which costs
+  about a microsecond for a panic that a function recovers itself. A panic that comes from a
+  callee (or a runtime error) is thrown.
+- **A panic records its stack at the throw, up to the function that handles it**: the C++
+  unwinding removes the frames before `run_main` sees the panic, and a walk of the stack costs
+  about 50 ns a frame and 100 ns to start. So `gp::panic_error` walks only the frames from the
+  throw up to the frame of the innermost function with a `defer_frame` (the frames are listed in a
+  thread-local list, 4 bytes in each frame: `detail::top_defer`), and the rest of the stack, the
+  callers of that function, is still on the stack when its `gp_run` knows that no deferred call
+  recovered the panic: `gp_run` records it just before it throws the panic again
+  (`panic_error::gp_complete`). A panic that is recovered never walks the callers. With no
+  function with defers on the stack, or with AddressSanitizer (which moves locals to a fake
+  stack), the whole stack is recorded at the throw, as before. (On Windows x86-64 the walk is a
+  loop of `RtlVirtualUnwind` over the unwind tables of the PE file, `src/os/windows/trace.cpp`; it
+  also reaches stacks of more than 300 frames, which `RtlCaptureStackBackTrace` in chunks did not.) The trace of an unrecovered panic is the same either way (the frames of
+  the panic point, then the callers). A deferred call that
   panics doesn't stop the others: its panic replaces the running one, and the running one goes
   into its chain. An unrecovered panic prints the whole chain, the first panic first, as Go
   does (`panic: first` then `\tpanic: second`), and the signal line of a nil dereference once,
@@ -1280,7 +1306,8 @@ int64_t load(int64_t n) {
   returns a constant, `n := five()`; gocpp doesn't, and prints both panics.) The trace shows
   each deferred call on top of the panic that it ran in, with a `panic(...)` frame between
   them, as Go's does.
-- **What the `catch (...)` keeps** (`gp_on_exception`, step 5.10): a Go panic
+- **What the handlers keep** (`gp_take` and `gp_adopt`, step 5.10; `gp_on_exception` does both
+  for code that doesn't know the type): a Go panic
   (`gp::panic_error`), as it is; `runtime.Goexit` (`gp::goexit_signal`): the deferred calls run, a
   `recover()` in them returns nil and `gp_run` throws it again at the end (a Goexit in a deferred
   call replaces the panic that was running, as in Go); a C++ exception that is neither, as a Go
@@ -1627,8 +1654,10 @@ Sources: [Phase 03 §2.10](../../plans/2026-10-13-gocpp/phase-03-core-language/R
   Like Go 1.25, a stack of more than 100 frames shows the inner 50, `...N frames elided...` and
   the outer 50, ending with `main.main()`.
 
-  The panic records the return addresses where it starts (`backtrace()` on Linux): a panic
-  costs 1–5 µs more than a plain C++ throw on a stack of up to about 25 frames, and about 5 µs
+  The panic records the return addresses where it starts, up to the function with deferred calls
+  that will catch it (the rest of the stack when that function knows that the panic is not
+  recovered; see "Defer"), or the whole stack with `backtrace()` when there is no such function: a
+  panic costs 1–5 µs more than a plain C++ throw on a stack of up to about 25 frames then, and about 5 µs
   more when the first 100 addresses fill up. Only then a second walk records the whole stack,
   for the outer frames and the count, so its cost grows with the depth, and only deep stacks
   pay for it. The names and lines are looked up only when the program ends, from the

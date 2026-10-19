@@ -98,9 +98,15 @@ What they do, in short:
   `panic: <value>`, a blank line, `goroutine 1 [running]:` and the stack trace to stderr, and
   exits with code 2. The trace (`trace.hpp`) is Go's format: each frame's Go name
   (`main.f(...)`, `main.main()`), a tab, the `.gp` file and line and the offset in the function.
-  A `panic_error` records the return addresses when it is made (`gp::os::stack`, glibc's
-  `backtrace()`: 1–5 µs on a stack of up to about 25 frames, about 5 µs at its cap of 100),
-  because the C++ unwinding then removes the frames. When the 100 fill up, a second walk
+  A `panic_error` records the return addresses when it is made, because the C++ unwinding then
+  removes the frames, but only up to the function that will catch it (the innermost function with
+  a deferred call: `gp::os::stack_until`, the C++ unwinder, about 100 ns to start and 50 ns a
+  frame); the callers of that function are recorded by its `gp_run` (`gp_complete`) when no
+  deferred call recovered the panic, so a recovered panic never walks them
+  ([ADR-085](../docs/adr/085-panic-stacks-up-to-the-handler-and-no-throw-for-a-local-panic.md)).
+  With no such function on the stack, the whole stack is recorded when the panic is made (`gp::os::stack`, glibc's
+  `backtrace()`: 1–5 µs on a stack of up to about 25 frames, about 5 µs at its cap of 100).
+  When the 100 fill up, a second walk
   records the whole stack (`gp_all`), so that the trace can show Go 1.25's inner 50, `...N
   frames elided...` and outer 50; its cost grows with the depth, and only deep stacks pay it.
   Only an unrecovered panic reads the program's file (`gp::os::read_exe`: the ELF symbol

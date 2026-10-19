@@ -8,8 +8,10 @@
 //         gp::defer_frame gp_df; try {
 //             gp_df.gp_push(g, n);                  // defer g(n): g and n evaluated now
 //             gp_r0 = n; goto gp_ret0;              // return n
+//         } catch (gp::panic_error& gp_p) {
+//             gp_df.gp_take(gp_p);                  // a Go panic
 //         } catch (...) {
-//             gp_df.gp_on_exception();              // a panic, Goexit, or a C++ exception
+//             gp_df.gp_adopt();                     // Goexit, or a C++ exception
 //         }
 //         gp_df.gp_run(); return gp_r0;             // the end of the body, or a panic
 //         gp_ret0:; gp_df.gp_run(); return gp_r0;   // one exit per return, at its line
@@ -19,8 +21,10 @@
 // statement as Go says (the arguments of a function pointer are converted to its parameter
 // types there). gp_run runs the stored calls, the last one first, when the function returns
 // (after the results are set, so a deferred call that changes a named result through a pointer
-// changes what the function returns) and when a panic leaves the body (gp_on_exception keeps it,
+// changes what the function returns) and when a panic leaves the body (gp_take keeps it,
 // and gp_run throws it again after the last deferred call, unless a deferred call recovered it).
+// A panic statement in the function itself doesn't throw: gp_panic takes it and a goto leaves the
+// try block (gp_panic, below).
 // A deferred call that panics doesn't stop the others: its panic replaces the running one,
 // which goes into the new one's chain (panic_error::gp_prev), and Go prints the whole chain
 // ("panic: A" then "\tpanic: B").
@@ -34,7 +38,8 @@
 // in a chain (the deferred call that recovered it panicked again) prints "[recovered]".
 //
 // What a frame catches (gp_on_exception, and a deferred call that throws):
-//   - a Go panic (gp::panic_error): it runs the deferred calls, and recover() can stop it;
+//   - a Go panic (gp::panic_error), caught by its type (gp_take): it runs the deferred calls, and
+//     recover() can stop it;
 //   - runtime.Goexit (gp::goexit_signal): it runs the deferred calls too, recover() returns nil,
 //     and it is thrown again at the end. A Goexit in a deferred call replaces the panic that
 //     was running (Go does that too);
@@ -82,11 +87,25 @@ inline constexpr bool is_gp_func = decltype(func_probe(static_cast<T*>(nullptr))
 
 class defer_frame {
 public:
-    defer_frame() noexcept {}
+    // The frame is listed in the thread's defer frames (detail::top_defer) while it lives, so that
+    // a panic knows how much of its stack the frame's function is going to unwind (panic.hpp).
+    defer_frame() noexcept {
+        if constexpr (detail::defer_links_listed) {
+            gp_link.gp_set(detail::top_defer);
+            detail::top_defer = &gp_link;
+        }
+    }
     defer_frame(const defer_frame&) = delete;
     defer_frame& operator=(const defer_frame&) = delete;
     // Frees the calls that never ran (only when the function didn't end through gp_run).
-    ~defer_frame();
+    ~defer_frame() {
+        if constexpr (detail::defer_links_listed) {
+            detail::top_defer = gp_link.gp_next();
+        }
+        if (gp_top != nullptr || gp_local) {
+            gp_discard();
+        }
+    }
 
     // defer f(a...) for a function f: stores f and the arguments, converted to f's parameter
     // types here, at the defer statement (a parameter that is a const reference, for a value
@@ -156,6 +175,25 @@ public:
     // as it is, a C++ exception as a panic with a gp::CppException value, Goexit as a flag. A
     // forced unwind is thrown again at once. Called in the function's catch (...).
     void gp_on_exception();
+
+    // The two halves of gp_on_exception, for the generated code (a typed handler first, so that a
+    // Go panic costs no second throw to find out its type):
+    //
+    //     } catch (gp::panic_error& gp_p) { gp_df.gp_take(gp_p); }
+    //       catch (...) { gp_df.gp_adopt(); }
+    //
+    // gp_take keeps the Go panic p, which is the exception being handled; gp_adopt keeps any other
+    // exception being handled (Goexit, a C++ exception, a forced unwind).
+    void gp_take(panic_error& p);
+    void gp_adopt();
+
+    // gp_panic is a panic statement in the function that has this frame: the generated code is
+    // `gp_df.gp_panic(gp::new_panic(v)); goto gp_pan0;`, where the label is the function's exit
+    // that runs the deferred calls (after the catch handlers). It does what the throw and the
+    // handler do (gp_take) without the throw: the panic goes to the frame at once, and the
+    // function's locals are destroyed by the goto, in the order that the unwinding would. The
+    // frame owns the panic, and throws it from gp_run if no deferred call recovers it.
+    void gp_panic(std::unique_ptr<panic_error> p);
 
     // gp_run runs the deferred calls, the last one first, then throws the panic that is still
     // running, if any: the one of the body, or the last one that a deferred call started (or
@@ -273,15 +311,18 @@ private:
     // on the C++ stack: a deep recursion pays it per level (docs/spec/cpp-mapping.md "Defer").
     static constexpr std::size_t gp_inline_size = 64;
 
-    // gp_adopt keeps the exception being handled (called in a catch (...) handler, by
-    // gp_on_exception and gp_run); gp_take keeps the Go panic p, which is that exception.
-    void gp_adopt();
-    void gp_take(panic_error& p);
+    // gp_discard is the destructor's work for a frame that has calls left or a panic of gp_panic.
+    void gp_discard() noexcept;
+
+    // gp_clear forgets the panic that is running (it was recovered, or Goexit took over).
+    void gp_clear() noexcept;
 
     gp_node* gp_top = nullptr;
-    std::uint32_t gp_used = 0;               // the bytes of gp_buf in use
+    std::uint16_t gp_used = 0;               // the bytes of gp_buf in use
     bool gp_goexit = false;                  // runtime.Goexit is running the calls
-    std::exception_ptr gp_pending;           // the panic that is running
+    bool gp_local = false;                   // gp_pending_panic was made by gp_panic: owned here
+    detail::defer_link gp_link;              // its place in detail::top_defer
+    std::exception_ptr gp_pending;           // the panic that is running (not one of gp_panic)
     panic_error* gp_pending_panic = nullptr; // it, when it is a Go panic
     alignas(std::max_align_t) unsigned char gp_buf[gp_inline_size];
 };
