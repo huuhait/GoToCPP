@@ -62,3 +62,6 @@ os_temp_createtemp: uses names, signals or file types that only Linux has: it fa
 os_temp_mkdirtemp: uses names, signals or file types that only Linux has: it fails with real Go on Windows too
 os_temp_tempdir_env: prints the user's folders or $HOME, which differ on Windows (see os_win_userdirs, os_win_env_case)
 os_temp_userdirs: prints the user's folders or $HOME, which differ on Windows (see os_win_userdirs, os_win_env_case)
+must_spike_good: reads testdata/spike/good.conf relative to the working directory, and the Windows run starts the .exe elsewhere
+must_spike_missing: reads a file relative to the working directory (testdata/spike/): the error text is Linux's, and the Windows run starts the .exe elsewhere
+must_spike_noport: reads testdata/spike/noport.conf relative to the working directory, and the Windows run starts the .exe elsewhere

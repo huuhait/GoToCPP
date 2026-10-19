@@ -14,6 +14,7 @@ import (
 
 	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/cppir"
+	"github.com/huuhait/gocpp/internal/load"
 )
 
 // Generic functions (Phase 07 steps 7.1 and 7.2, docs/adr/030-generic-instances.md).
@@ -84,6 +85,43 @@ func callableParam(t types.Type) (string, bool) {
 	name := tp.Obj().Name()
 	return name, strings.HasPrefix(name, "gp_L_") || strings.HasPrefix(name, "gp_LN_") || name == "gp_B" || name == "gp_BN"
 }
+
+// macroSig returns the signature of the macro that the function fn is, or nil if it is not a macro instance.
+// The loader's rewrite (internal/load/macros.go) turns a macro into a generic function of the same name in the
+// package that declares it, and Package.Macros lists them, so a function is a macro by the object (its package
+// and its name), never by the names of its parameters: gocpp allows gp_ names outside macros.
+func (g *gen) macroSig(fn *types.Func) *load.MacroSig {
+	if fn == nil || fn.Pkg() == nil {
+		return nil
+	}
+	if sig, _ := fn.Type().(*types.Signature); sig == nil || sig.Recv() != nil {
+		return nil
+	}
+	if o := g.other(fn.Pkg()); o != nil && o.pkg.Load != nil {
+		return o.pkg.Load.Macros[fn.Name()]
+	}
+	for _, dep := range g.pkg.Load.Imports {
+		if dep.ImportPath == fn.Pkg().Path() {
+			return dep.Macros[fn.Name()]
+		}
+	}
+	return nil
+}
+
+// viewIndex reports whether the parameter i of the macro m is one of its hidden string arguments: the file (0), the
+// function (2) and the text of the arguments that the body gives to #text (3 and on), after the line (1) (the order
+// of macroDecl in internal/load/macros.go). They are the place of the use and the text of its arguments, always
+// string constants of the use. They are not gp::string but gp::static_view in C++ (a pointer and a length: trivial to
+// copy and to destroy), and the body makes a gp::string where it reads one (ident). A gp::string argument is not
+// trivially destructible, and a call that may throw (a lazy message) has to keep four of them alive and destroy
+// them on every iteration of a hot loop (docs/benchmarks/must-macros.md).
+func viewIndex(m *load.MacroSig, i int) bool {
+	return m != nil && (i == 0 || i == 2 || i >= 3 && i < 3+len(m.Text))
+}
+
+// viewVar reports whether v is a hidden string parameter of the macro that the function being lowered is
+// (recorded by funcInfo.signature).
+func (g *gen) viewVar(v *types.Var) bool { return g.viewVars[v] }
 
 // refParam reports whether the type t of a parameter is a closure type parameter of a macro that the
 // macro only calls (gp_LN_x, gp_BN): the lambda for it can capture by reference.

@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/huuhait/gocpp/internal/cppir"
+	"github.com/huuhait/gocpp/internal/load"
 )
 
 // Declarations: functions, package variables and the package's initialization.
@@ -91,10 +92,21 @@ func (f *funcInfo) prepare(g *gen) {
 // literal) f, in the innermost scope of f.names, and its C++ parameters and result type (prepare).
 func (f *funcInfo) signature(g *gen) {
 	sig := f.sig
+	var macro *load.MacroSig
+	if f.obj != nil {
+		macro = g.macroSig(f.obj) // a function declaration only: a func literal is never a macro
+	}
 	f.params = make([]cppir.Param, sig.Params().Len())
 	for i := range sig.Params().Len() {
 		p := sig.Params().At(i)
 		f.params[i].Type = g.varType(p, f.pos)
+		if viewIndex(macro, i) {
+			f.params[i].Type = typeName("gp::static_view") // generics.go: viewIndex
+			if g.viewVars == nil {
+				g.viewVars = make(map[*types.Var]bool)
+			}
+			g.viewVars[p] = true
+		}
 		if largeVar(p.Type()) {
 			// A parameter larger than 128 KiB: a copy on the C++ stack could overflow it
 			// (D24), so the caller passes a reference, and the function copies the value

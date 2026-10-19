@@ -133,3 +133,21 @@ The loader parses with `Phase10Syntax` only when the gate phase is 10 or later, 
   The positions map to the original source and the synthetic names are skipped, which is all this step needed.
   Stepping through `for i := f!(); i < g!(); i++` in a debugger stops on the closing brace for the error checks.
 - `gocpp expand` (prints the rewritten code) and the error return traces (`errors.Trace`): not built.
+
+## Test notes (2026-10-19, step 10.13; evidence only, the decisions above are unchanged)
+
+- `tests/pkgs/must_cross`, `must_cross_initfail`, `must_cross_varfail`: must functions, methods, generic functions, `errors.Wrapf`,
+  `defer Close!`, `init!` and package-level must calls across packages. Each has a Go twin module in `twin/` that
+  `TestPkgsVsGo` builds in place of the module (`tests/pkgs/README.md`).
+- The `t.Fatal` / `b.Fatal` form is tested now (the `Not built` note above is out of date): the `gocpp test` fixtures
+  `tests/gotest/testdata/must_testing` (tests, a helper with `t.Helper()`, a subtest, a closure inside a test, a helper with `testing.TB`) and
+  `must_bench` (benchmarks, `-run=^$ -bench=.`) compare the output with `go test` on a Go twin. `testing.TB` is a target of Fatal like `*testing.T`,
+  `*testing.B` and `*testing.F`.
+- `!` in the channel operation of a `select` case: `tests/errors/must_select_case.gp`; in a constant, an array length or a type:
+  `must_places.gp` (the message says so since 10.13). `func TestX!(t *testing.T)` is an error of `gocpp test`.
+- New run tests: `must_call_forms`, `must_ctx_select_body`, `must_ctx_order_recv` (a receive before a must call keeps its place),
+  `must_keyword_not`, `must_spike_good`, `must_spike_noport`, `must_spike_missing` (the spike's three runs).
+- `tests/golden/must.gp`, and `TestPhase10NoHelpers` (no `gocpp/must` or `gocpp/macro` helper in the C++ of every Phase 10 test program, the
+  benchmark programs and the example).
+- Overhead: `bench/phase10` and `docs/benchmarks/must-macros.md`: `!` is at the hand-written speed (1.00 with both compilers; a must function is
+  faster with g++ because every call gets a fresh error variable).

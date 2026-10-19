@@ -779,6 +779,15 @@ func (c *config) runVsGoTest(t *testing.T, p *program, n *vsGoCount) {
 			goFile = "(the module)"
 		}
 		if goRejects(string(build.stdout), goFile) {
+			if mustTwin(p) != "" || pkgsTwin(p) != "" {
+				// The twin of a Phase 10 test is plain Go: if Go rejects it, the test would compare nothing.
+				t.Fatalf("the Go twin of %s does not compile:\n%s", p.path, indent(string(build.stdout)))
+			}
+			if usesPhase10Syntax(p) {
+				// A program with `!`, macros or #Derive that Go rejects needs a twin: without one nothing is compared.
+				t.Fatalf("%s uses the syntax of Phase 10, Go rejects it, and it has no Go twin (tests/run/README.md, tests/pkgs/README.md):\n%s",
+					p.path, indent(string(build.stdout)))
+			}
 			n.rejected.Add(1)
 			t.Skipf("go build rejects the code of %s, so it is not a Go program:\n%s", p.path, indent(string(build.stdout)))
 		}
@@ -1036,7 +1045,13 @@ func (c *config) goBuild(t *testing.T, p *program) (prog string, build result) {
 	if p.arg == "." {
 		// A module folder (tests/pkgs): all of it, with .go names.
 		goFile = "(the module)"
-		if err := copyAsGoModule(p.dir, dir); err != nil {
+		if twin := pkgsTwin(p); twin != "" {
+			// A module that uses Phase 10 syntax (!, macros, #Derive) has a twin: the same module written
+			// as plain Go (tests/pkgs/README.md). It is the module real Go builds.
+			if err := copyTree(twin, dir); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := copyAsGoModule(p.dir, dir); err != nil {
 			t.Fatal(err)
 		}
 	} else {

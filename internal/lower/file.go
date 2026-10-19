@@ -117,6 +117,9 @@ type gen struct {
 	// error checks at every step), but its tree is thrown away.
 	err *Error
 
+	// viewVars are the hidden string parameters of the macros being lowered (generics.go: viewIndex).
+	viewVars map[*types.Var]bool
+
 	// ns is the C++ namespace of the package (gpkg_main).
 	ns string
 

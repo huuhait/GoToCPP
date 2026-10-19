@@ -188,3 +188,18 @@ parameters, the check for a plain use of a macro and for a macro hidden by a var
 qualifier of a lazy type of another package, the macros of a summary, the position of the wrapped code's func
 literal and the span of its call, the hover of a macro, `!` in a lazy argument, a `func()` macro as a
 statement. Review fixes: the new results of a wrapped function, the inner literal's old results, stacked wrap macros (3, 8 and 20), `recover()` in a wrapped function, the on-top names for header packages, the signature of an opaque instance, the escape analysis (both ways), the boxer and the capture by reference, C types in a lazy parameter, a predeclared macro name.
+
+## Test notes and a correction (2026-10-19, step 10.13; the decisions above are unchanged)
+
+- The twin of `tests/pkgs/macro_user_cross` is `twin/` (the hand-expanded Go module) and `TestPkgsVsGo` builds it; `macro_sites`, `derive_cross`
+  and `derive_alias` have twins too, `macro_*.gp` (the built-ins) have twins whose `#func()` is a runtime call, the race tests
+  `ok_macro_locked`, `ok_macro_wrap_threads` and `race_macro_unlocked` have twins that `go build -race` judges, and `umacro_escape` keeps a lazy argument
+  after the variable's function has returned.
+- **The cost of the hidden arguments (correction of "Consequences").** The slowdown of a passing `#Assert` with a lazy message under g++ (2.9 to 3.1
+  times the hand-written loop) was not the lambda's reference to `sum`: `sum` and `i` stay in registers (a capture by value or `always_inline` changed
+  nothing). The call built four `gp::string` hidden arguments (file, function, text of the condition) in every iteration: a `gp::string` has an owner
+  (a `std::shared_ptr`), so it is not trivially destructible, and the lazy message may throw, so the compiler had to keep the strings alive and
+  destroy them each time. The lowering now passes `gp_file`, `gp_func` and every `gp_text_x` as a `gp::static_view` (a pointer and a length,
+  `runtime/include/gocpp/string.hpp`), writes the argument as `"..."_gv`, and makes a `gp::string` (`gp::string(gp_file_)`, no allocation: the bytes are
+  static) only where the macro's code reads the parameter (`viewParam` in `internal/lower/generics.go`). The loop is the hand-written loop: g++ 1.01,
+  clang++ 1.00 to 1.07 (`docs/benchmarks/must-macros.md`). Only the types of the hidden parameters and arguments changed in the goldens.

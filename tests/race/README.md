@@ -23,6 +23,11 @@ has the lines of a [run test](../run/README.md) (`// phase:`, `// ExitCode:`, `/
   "Limits"): the test says what gocpp does today (runs silent), so that a change that fixes it
   shows, and `TestRaceVsGo` skips it.
 
+**Twins (Phase 10).** A race test that uses macros (`ok_macro_locked`, `ok_macro_wrap_threads`, `race_macro_unlocked`) cannot be built by Go. Its twin is
+the same program with the macros written out as functions (`testdata/twin/NAME.go`), and `TestRaceVsGo` builds the twin with
+`-race`, so real Go's detector gives the verdict: silent for the `ok_` ones, and a report at the same line for `race_macro_unlocked`
+(the twin keeps the racy statement on a line the `// Stderr:` regexp accepts).
+
 Every racy access is repeated in a loop (100 times; `counter` and a few others already loop): TSan
 can miss a race whose two accesses are one single access each, made in the same instant (both threads
 read the shadow memory before either writes it), which a flake audit of 10 runs showed in about one

@@ -160,7 +160,7 @@ function, whose error result always exists):
 |---|---|
 | a function whose last result is `error` (including every must function) | other results become zero values, the error result becomes `F`'s error, and the function returns. Defers still run, so they can wrap the error |
 | `main.main` (`func main()` with `F!`, or `func main!()`) | defers in `main` run, then `<program>: <error>` is printed to stderr and the program exits with code 1 |
-| a function with a `*testing.T`, `*testing.B` or `*testing.F` parameter and no error result | `t.Fatal(err)` (the test fails and stops, as a Go developer expects) |
+| a function with a `*testing.T`, `*testing.B`, `*testing.F` or `testing.TB` parameter and no error result | `t.Fatal(err)` (the test fails and stops, as a Go developer expects) |
 | any other function with no error result (including `init` and package-level `var` initializers) | panic with the error. This is Go's `Must` convention (`regexp.MustCompile`, `template.Must`) |
 | `defer f.Close!()` | if `Close` fails and the function was about to return a nil error, it returns `Close`'s error instead (the classic Go pattern, automated). In a function without an error result the failure panics; in `main` it is printed and exits 1; if a panic is already running, the `Close` error is dropped and the panic continues |
 | inside a closure | propagates out of the closure (its own results), not the outer function |
@@ -685,6 +685,17 @@ at the call site **and** at the macro or derive that produced it.
     twin. Plus golden tests showing no helper calls remain in the C++, and benchmarks proving
     `!`, a passing `#Assert` and a wrap macro cost the same as hand-written code, also across
     packages.
+    *Built (step 10.13):* most of the tests came with the steps that built the features (10.3 to 10.10: 130 run tests of `!` with
+    twins, `mustgen`, 11 macro programs, 6 `#Derive` programs, error tests); this step filled the gaps against the text above.
+    **Twins everywhere:** the module tests of `tests/pkgs` that use Phase 10 syntax have a `twin/` Go module
+    (`must_cross`, `must_cross_initfail`, `must_cross_varfail`, `macro_user_cross`, `macro_sites`, `derive_cross`,
+    `derive_alias`), the built-in macro programs `macro_*.gp` have twins whose `#func()` is a runtime call (so the names are real Go's),
+    the race tests of macros have twins that `go build -race` judges, and a `gocpp test` fixture (`tests/gotest/testdata/must_testing`) compares the
+    `t.Fatal` / `b.Fatal` of `!` in tests, helpers and subtests with `go test`. **New rule tests:** `!` in select bodies, the callee forms of `F!`
+    (generic type's method, interface, func field, method expression, variadic, `...`), keyword-not forms (`if!(a)`), `!`/macros in constants and
+    array lengths, `!` in a select case. **Golden and structure:** `tests/golden/must.gp` and `TestPhase10NoHelpers` (187 programs, with the benchmarks and the example: no helper
+    of `gocpp/must` or `gocpp/macro` in the C++). **Overhead:** `bench/phase10` and `go run ./tools/phase10bench`, with the numbers in
+    [docs/benchmarks/must-macros.md](../../../docs/benchmarks/must-macros.md).
 
 ## 4. Deliverables
 

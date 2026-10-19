@@ -1177,7 +1177,7 @@ This holds for `F!` and for the calls a must function handles.
 |---|---|
 | a function whose last result is `error` (every must function too) | the other results become zero values, the error result becomes `F`'s error, and the function returns. Defers still run, so they can wrap the error |
 | `main.main` (`F!` in `func main()`, or `func main!()`) | `main`'s defers run, then `<program>: <error>` is printed to stderr and the program exits with code 1 |
-| a function with a `*testing.T`, `*testing.B` or `*testing.F` parameter and no error result | `t.Fatal(err)`: the test fails and stops |
+| a function with a `*testing.T`, `*testing.B`, `*testing.F` or `testing.TB` parameter and no error result | `t.Fatal(err)`: the test fails and stops |
 | any other function with no error result (also `init` and package-level `var` initializers) | panic with the error, like Go's `Must` helpers (`regexp.MustCompile`) |
 | `defer f.Close!()` | if `Close` fails and the function was about to return a nil error, it returns `Close`'s error instead. In a function without an error result the failure panics; in `main` it is printed and the program exits 1. If a panic is already running, the `Close` error is dropped and the panic goes on |
 | inside a closure | the error leaves the closure (through the closure's own results), not the outer function |

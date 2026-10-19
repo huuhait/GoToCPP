@@ -336,6 +336,10 @@ func (fg *funcGen) ident(id *ast.Ident) cppir.Expr {
 			// The variable is in its box: (*x).
 			return &cppir.Paren{X: deref(cxxName(fg.cname(obj, id.Pos())))}
 		}
+		if fg.g.viewVar(obj) {
+			// A hidden argument of a macro is a gp::static_view: a gp::string where it is read.
+			return call("gp::string", cxxName(fg.cname(obj, id.Pos())))
+		}
 		return cxxName(fg.cname(obj, id.Pos()))
 	case *types.Func:
 		return fg.funcRef(obj, id.Pos()) // a function of the package as a value (closures.go)

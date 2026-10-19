@@ -91,7 +91,12 @@ type fixture struct {
 //	multi         several packages: the order of their lines is the order of the packages
 //	diverge: why  the output differs from go test's for a reason: it is not compared
 //	want: text    a line that gocpp test must print (for fixtures that diverge)
+//	phase: NN     the gate phase of gocpp test (default 09), for a fixture that uses Phase 10 syntax
+//
+// A fixture that uses Phase 10 syntax (!, macros) has a folder twin/: a Go module (go.mod and .go files) with the same
+// package written as plain Go. go test builds the twin in place of the renamed .gp files.
 type meta struct {
+	phase                       string
 	cutPanic, bench, stdoutOnly bool
 	diverge                     string
 	wants                       []string
@@ -129,6 +134,8 @@ func loadFixtures(t *testing.T) []fixture {
 				case line == "timeout", line == "multi":
 				case strings.HasPrefix(line, "diverge:"):
 					f.meta.diverge = strings.TrimSpace(strings.TrimPrefix(line, "diverge:"))
+				case strings.HasPrefix(line, "phase:"):
+					f.meta.phase = strings.TrimSpace(strings.TrimPrefix(line, "phase:"))
 				case strings.HasPrefix(line, "want:"):
 					f.meta.wants = append(f.meta.wants, strings.TrimSpace(strings.TrimPrefix(line, "want:")))
 				default:
@@ -149,6 +156,9 @@ func copyFixture(f fixture, dst string, asGo bool) error {
 			return err
 		}
 		rel, _ := filepath.Rel(f.dir, p)
+		if rel == "twin" && e.IsDir() {
+			return fs.SkipDir // the twin is a module of its own, for go test only
+		}
 		if e.IsDir() {
 			return os.MkdirAll(filepath.Join(dst, rel), 0o755)
 		}
@@ -301,14 +311,23 @@ func runGocpp(t *testing.T, f fixture) result {
 	}
 	defer acquire()()
 	args := append([]string{"test"}, f.args...)
-	env := []string{"XDG_CACHE_HOME=" + cacheDir, "GOCPP_GATE_PHASE=09", "GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1", "GOCPP_WORKLOST=fail"}
+	phase := "09"
+	if f.meta.phase != "" {
+		phase = f.meta.phase
+	}
+	env := []string{"XDG_CACHE_HOME=" + cacheDir, "GOCPP_GATE_PHASE=" + phase, "GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1", "GOCPP_WORKLOST=fail"}
 	return runCmd(t, dir, env, gocppBin, args...)
 }
 
 func runGo(t *testing.T, f fixture) result {
 	t.Helper()
 	dir := t.TempDir()
-	if err := copyFixture(f, dir, true); err != nil {
+	if twin := filepath.Join(f.dir, "twin"); isDir(twin) {
+		// Phase 10 syntax: the same package written as plain Go.
+		if err := copyFixture(fixture{dir: twin}, dir, false); err != nil {
+			t.Fatal(err)
+		}
+	} else if err := copyFixture(f, dir, true); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/m\n\ngo 1.25\n"), 0o644); err != nil {
@@ -618,4 +637,9 @@ func FuzzF(f *testing.F) {
 	if r.exit != 0 || strings.Contains(r.stdout+r.stderr, "Sanitizer") {
 		t.Fatalf("exit %d\n%s%s", r.exit, r.stdout, r.stderr)
 	}
+}
+
+func isDir(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
 }

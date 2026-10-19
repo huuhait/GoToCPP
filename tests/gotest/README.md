@@ -12,7 +12,13 @@ Tests of `gocpp test` against real `go test` (step 9.9, ADR-056, docs/guides/tes
   - `stdout-only`: standard error is not compared (the compilers' words differ);
   - `timeout`, `multi`: the run times out, or has several packages (no effect on the comparison);
   - `diverge: why`: the output differs from `go test`'s for a reason; it is not compared, only the `want:` lines;
-  - `want: text`: a line that the output of `gocpp test` must contain.
+  - `want: text`: a line that the output of `gocpp test` must contain;
+  - `phase: NN`: the gate phase of `gocpp test` (default 09), for a fixture with Phase 10 syntax.
+
+A fixture with Phase 10 syntax (`!`, macros) has a folder `twin/`: a Go module (its own `go.mod` and `.go` files) with the same
+package written as plain Go, with the `t.Fatal` of every `!` on the line of the `!` (go test prints that line). `go test` builds the
+twin in place of the renamed `.gp` files and the outputs must be equal (`must_testing`: `!` in a test, a helper with `t.Helper()`, a
+subtest, a benchmark).
 
 The standard output (after the normalization of times, paths, the extension of the file names and the numbers of
 benchmarks) and the exit status of the two commands must be equal. Everything runs through the object cache of

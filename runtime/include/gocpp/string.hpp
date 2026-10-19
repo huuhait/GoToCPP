@@ -185,12 +185,28 @@ inline int64_t len(const string& s) noexcept {
 
 static_assert(sizeof(string) == 32, "gp::string is 32 bytes: owner (16), data pointer, length");
 
+// A view of bytes in static storage (a string literal): a pointer and a length, trivial to copy and
+// to destroy, unlike gp::string, whose owner (a std::shared_ptr) is not. The file, the function and
+// the text of the arguments that a macro gets from the place of its use are static_views
+// (internal/lower/generics.go: viewParam), so a use of a macro in a hot loop builds no string
+// unless the macro's code reads one; gp::string(v) makes the string.
+struct static_view {
+    const char* gp_data;
+    int64_t gp_len;
+    explicit operator string() const noexcept { return string(static_bytes, gp_data, gp_len); }
+};
+
 inline namespace literals {
 
 // "..."_gs: a string literal. It points at the literal's static storage, so it doesn't
 // allocate. The length counts every byte, also a \000 inside the literal.
 inline string operator""_gs(const char* data, std::size_t len) noexcept {
     return string(static_bytes, data, static_cast<int64_t>(len));
+}
+
+// "..."_gv: a static_view of a string literal (the hidden arguments of a macro).
+constexpr static_view operator""_gv(const char* data, std::size_t len) noexcept {
+    return static_view{data, static_cast<int64_t>(len)};
 }
 
 } // namespace literals
@@ -299,3 +315,4 @@ inline bool range_next(string_range& it) noexcept {
 // Generated code uses "..."_gs inside its package namespaces (gpkg_main), so the literal
 // operator must be visible everywhere. Only this one name is brought in.
 using gp::literals::operator""_gs;
+using gp::literals::operator""_gv;

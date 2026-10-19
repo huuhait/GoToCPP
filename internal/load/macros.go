@@ -481,6 +481,9 @@ func (b *builtinPass) spellType(t ast.Expr, tparams map[string]bool) (string, st
 			}
 			path, _ := importPath(spec)
 			sb.WriteString("\x02" + path + "\x03" + e.Sel.Name)
+		case *ast.BadExpr:
+			// A syntax error (a lazy parameter with no type): the parser said so, and the file does not go on.
+			sb.WriteString("\x00bad")
 		default:
 			fail = "the type " + types.ExprString(e) + " can't be written at every use"
 		}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/huuhait/gocpp/internal/diag"
 	"github.com/huuhait/gocpp/internal/load"
+	"github.com/huuhait/gocpp/internal/syntax/gpast"
 )
 
 // A Func is a test, benchmark, fuzz target or example of a test binary.
@@ -107,6 +108,19 @@ func (f *Found) scanFile(fset *token.FileSet, alias string, file *ast.File, decl
 			continue
 		}
 		name := fn.Name.Name
+		if gpast.IsMust(name) {
+			// func TestX!(t *testing.T) gets an error result: it is not a test function (go test would say "wrong
+			// signature"). Any other must function is an ordinary helper of the test file.
+			base := gpast.MustBase(name)
+			for _, kind := range []struct{ prefix, what string }{{"Test", "a test"}, {"Benchmark", "a benchmark"}, {"Fuzz", "a fuzz target"}, {"Example", "an example"}} {
+				if IsTest(base, kind.prefix) {
+					fail(fn.Pos(), "%s is a must function: it gets an error result, so it is not %s function; write func %s without the !, and use ! on the calls inside it (a failing call calls t.Fatal)",
+						name, kind.what, base)
+					break
+				}
+			}
+			continue
+		}
 		switch {
 		case name == "TestMain":
 			if isTestFunc(fn, "T") {

@@ -4,7 +4,7 @@
 #include <gocpp/rt.hpp>
 
 namespace gpkg_main {
-gp::func<void()> Trace(gp::string gp_file_, int64_t gp_line_, gp::string gp_func_);
+gp::func<void()> Trace(gp::static_view gp_file_, int64_t gp_line_, gp::static_view gp_func_);
 std::tuple<int64_t, gp::error> work(int64_t a, int64_t b);
 void main();
 
@@ -17,16 +17,16 @@ void main();
 namespace gpkg_main {
 
 template <typename gp_BN>
-void gp_inst_d027af83_Retry(gp::string gp_file_, int64_t gp_line_, gp::string gp_func_, gp_BN gp_body_, int64_t n);
+void gp_inst_d027af83_Retry(gp::static_view gp_file_, int64_t gp_line_, gp::static_view gp_func_, gp_BN gp_body_, int64_t n);
 template <typename gp_LN_msg>
-void gp_inst_89bda361_Assert(gp::string gp_file_, int64_t gp_line_, gp::string gp_func_, gp::string gp_text_cond_, bool cond, gp_LN_msg msg);
-int64_t gp_inst_1df888f0_Dbg(gp::string gp_file_, int64_t gp_line_, gp::string gp_func_, gp::string gp_text_v_, int64_t v);
+void gp_inst_89bda361_Assert(gp::static_view gp_file_, int64_t gp_line_, gp::static_view gp_func_, gp::static_view gp_text_cond_, bool cond, gp_LN_msg msg);
+int64_t gp_inst_1df888f0_Dbg(gp::static_view gp_file_, int64_t gp_line_, gp::static_view gp_func_, gp::static_view gp_text_v_, int64_t v);
 
 // Retry[func()]
 #line 23 "$ROOT/tests/golden/macros_user.gp"
 template <typename gp_BN>
 #line 23 "$ROOT/tests/golden/macros_user.gp"
-void gp_inst_d027af83_Retry(gp::string gp_file_, int64_t gp_line_, gp::string gp_func_, gp_BN gp_body_, int64_t n) {
+void gp_inst_d027af83_Retry(gp::static_view gp_file_, int64_t gp_line_, gp::static_view gp_func_, gp_BN gp_body_, int64_t n) {
     for (int64_t i = 0; i < n; i++) {
         gp_body_();
     }
@@ -36,22 +36,22 @@ void gp_inst_d027af83_Retry(gp::string gp_file_, int64_t gp_line_, gp::string gp
 #line 7 "$ROOT/tests/golden/macros_user.gp"
 template <typename gp_LN_msg>
 #line 7 "$ROOT/tests/golden/macros_user.gp"
-void gp_inst_89bda361_Assert(gp::string gp_file_, int64_t gp_line_, gp::string gp_func_, gp::string gp_text_cond_, bool cond, gp_LN_msg msg) {
+void gp_inst_89bda361_Assert(gp::static_view gp_file_, int64_t gp_line_, gp::static_view gp_func_, gp::static_view gp_text_cond_, bool cond, gp_LN_msg msg) {
     if (!cond) {
-        gp::panic(gp::fmt::Sprintf("%s:%d: %s: %s"_gs, gp_file_, gp_line_, gp_text_cond_, msg()));
+        gp::panic(gp::fmt::Sprintf("%s:%d: %s: %s"_gs, gp::string(gp_file_), gp_line_, gp::string(gp_text_cond_), msg()));
     }
 }
 
 // Dbg[int]
 #line 13 "$ROOT/tests/golden/macros_user.gp"
-int64_t gp_inst_1df888f0_Dbg(gp::string gp_file_, int64_t gp_line_, gp::string gp_func_, gp::string gp_text_v_, int64_t v) {
-    gp::fmt::Println(gp_text_v_, v);
+int64_t gp_inst_1df888f0_Dbg(gp::static_view gp_file_, int64_t gp_line_, gp::static_view gp_func_, gp::static_view gp_text_v_, int64_t v) {
+    gp::fmt::Println(gp::string(gp_text_v_), v);
     return v;
 }
 
-gp::func<void()> Trace(gp::string gp_file_, int64_t gp_line_, gp::string gp_func_) {
-    gp::fmt::Println("enter"_gs, gp_func_);
-    return gp::func<void()>([gp_func_]<int = 1>() mutable -> void { gp::fmt::Println("exit"_gs, gp_func_); });
+gp::func<void()> Trace(gp::static_view gp_file_, int64_t gp_line_, gp::static_view gp_func_) {
+    gp::fmt::Println("enter"_gs, gp::string(gp_func_));
+    return gp::func<void()>([gp_func_]<int = 1>() mutable -> void { gp::fmt::Println("exit"_gs, gp::string(gp_func_)); });
 }
 
 #line 29 "$ROOT/tests/golden/macros_user.gp"
@@ -65,7 +65,7 @@ std::tuple<int64_t, gp::error> work(int64_t a, int64_t b) {
 #line 29 "$ROOT/tests/golden/macros_user.gp"
         {
 #line 29 "$ROOT/tests/golden/macros_user.gp"
-            gp::func<void()> gp_defer1_ = gpkg_main::Trace("macros_user.gp"_gs, 29, "main.work"_gs);
+            gp::func<void()> gp_defer1_ = gpkg_main::Trace("macros_user.gp"_gv, 29, "main.work"_gv);
 #line 29 "$ROOT/tests/golden/macros_user.gp"
             if (gp_defer1_ != nullptr) {
 #line 29 "$ROOT/tests/golden/macros_user.gp"
@@ -74,9 +74,9 @@ std::tuple<int64_t, gp::error> work(int64_t a, int64_t b) {
             }
 #line 29 "$ROOT/tests/golden/macros_user.gp"
         }
-        gpkg_main::gp_inst_d027af83_Retry("macros_user.gp"_gs, 30, "main.work"_gs, [&gp_r0_, &gp_r1_, &b, &a]<int = 1>() mutable -> void {
+        gpkg_main::gp_inst_d027af83_Retry("macros_user.gp"_gv, 30, "main.work"_gv, [&gp_r0_, &gp_r1_, &b, &a]<int = 1>() mutable -> void {
             { auto gp_t0 = [b, a]<int = 1>() mutable -> std::tuple<int64_t, gp::error> {
-                gpkg_main::gp_inst_89bda361_Assert("macros_user.gp"_gs, 32, "main.work"_gs, "b != 0"_gs, b != 0, [&a]<int = 1>() mutable -> gp::string { return gp::fmt::Sprint("b of "_gs, a); });
+                gpkg_main::gp_inst_89bda361_Assert("macros_user.gp"_gv, 32, "main.work"_gv, "b != 0"_gv, b != 0, [&a]<int = 1>() mutable -> gp::string { return gp::fmt::Sprint("b of "_gs, a); });
                 return {gp::div(a, b), gp::error()};
             }.operator()(); gp_r0_ = std::get<0>(gp_t0); gp_r1_ = std::get<1>(gp_t0); }
 #line 34 "$ROOT/tests/golden/macros_user.gp"
@@ -103,7 +103,7 @@ std::tuple<int64_t, gp::error> work(int64_t a, int64_t b) {
 }
 
 void main() {
-    auto gp_t0 = work(6, gpkg_main::gp_inst_1df888f0_Dbg("macros_user.gp"_gs, 37, "main.main"_gs, "3"_gs, 3));
+    auto gp_t0 = work(6, gpkg_main::gp_inst_1df888f0_Dbg("macros_user.gp"_gv, 37, "main.main"_gv, "3"_gv, 3));
 #line 37 "$ROOT/tests/golden/macros_user.gp"
     int64_t x = std::get<0>(gp_t0);
 #line 37 "$ROOT/tests/golden/macros_user.gp"

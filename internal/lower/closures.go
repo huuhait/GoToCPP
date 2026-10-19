@@ -2,6 +2,7 @@ package lower
 
 import (
 	"go/ast"
+	"go/constant"
 	"go/token"
 	"go/types"
 	"strconv"
@@ -422,10 +423,13 @@ func (fg *funcGen) callValue(c *ast.CallExpr) cppir.Expr {
 // last parameter are a slice (see the top of the file).
 func (fg *funcGen) callArgs(c *ast.CallExpr, sig *types.Signature) []cppir.Expr {
 	if !sig.Variadic() {
-		return fg.exprs(c.Args, false)
+		args := fg.exprs(c.Args, false)
+		fg.viewArgs(c, args)
+		return args
 	}
 	n := sig.Params().Len()
 	args := fg.exprs(c.Args[:n-1], false)
+	fg.viewArgs(c, args)
 	last := sig.Params().At(n - 1).Type()
 	st, _ := under(last).(*types.Slice)
 	switch {
@@ -449,6 +453,49 @@ func (fg *funcGen) callArgs(c *ast.CallExpr, sig *types.Signature) []cppir.Expr 
 		elem = typeName("std::decay_t<decltype(" + cppir.ExprString(vals[0]) + ")>")
 	}
 	return append(args, templateCall("gp::slice_of", []cppir.Node{elem}, &cppir.InitList{Elems: vals}))
+}
+
+// viewArgs changes the arguments of the call c that go to the hidden string parameters of a macro (viewIndex) to
+// gp::static_view values: the literal "..."_gv for a string constant, and the parameter itself (not the gp::string
+// that reading it gives) for a macro that passes its own place on. The callee is a macro by its object
+// (gen.macroSig), not by the names of its parameters.
+func (fg *funcGen) viewArgs(c *ast.CallExpr, args []cppir.Expr) {
+	fun := ast.Unparen(c.Fun)
+	switch x := fun.(type) {
+	case *ast.IndexExpr:
+		fun = ast.Unparen(x.X)
+	case *ast.IndexListExpr:
+		fun = ast.Unparen(x.X)
+	}
+	var id *ast.Ident
+	switch x := fun.(type) {
+	case *ast.Ident:
+		id = x
+	case *ast.SelectorExpr:
+		id = x.Sel
+	default:
+		return
+	}
+	fn, _ := fg.g.info.Uses[id].(*types.Func)
+	m := fg.g.macroSig(fn)
+	if m == nil {
+		return
+	}
+	for i := 0; i < len(args) && i < len(c.Args); i++ {
+		if !viewIndex(m, i) {
+			continue
+		}
+		a := ast.Unparen(c.Args[i])
+		if id, ok := a.(*ast.Ident); ok {
+			if v, ok := fg.g.info.Uses[id].(*types.Var); ok && fg.g.viewVar(v) {
+				args[i] = cxxName(fg.cname(v, id.Pos()))
+				continue
+			}
+		}
+		if tv := fg.g.info.Types[a]; tv.Value != nil && tv.Value.Kind() == constant.String {
+			args[i] = lit(cppir.CString(constant.StringVal(tv.Value)) + "_gv")
+		}
+	}
 }
 
 // deferValue returns gp_df.gp_push_call(f, args...) for defer f(args) of a func value f

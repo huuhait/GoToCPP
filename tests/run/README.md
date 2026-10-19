@@ -82,6 +82,8 @@ with real Go in place of the `.gp` file, so the `// Output:` block, the exit cod
 in the file, and one that needs the end of `func main!()` prints `<program>: <error>` and calls
 `os.Exit(1)` itself.
 
+A program with the syntax of Phase 10 that Go rejects and that has no twin fails `TestRunVsGo` (and `TestPkgsVsGo`, `TestRaceVsGo`): the harness parses the file with the Phase 10 syntax (`usesPhase10Syntax`), so nothing is compared with real Go by accident.
+
 ## Programs with `#Derive`
 
 The `derive_*.gp` tests (Phase 10, step 10.10) use `#Derive(String, Equal, Clone)`, which Go cannot build. Each has a
@@ -104,5 +106,10 @@ is a func literal with named results), as plain Go. `TestRunVsGo` runs the twin 
 `// Output:` block of a macro program is what real Go prints for the hand-expanded code, as for `!`
 ([musttwin_test.go](../musttwin_test.go)). The twin writes the places that the compiler would pass
 (`"umacro_wrap.gp"`, line 66, `"main.secret"`) as literals, so a change to the lines of the `.gp` file needs the same
-change in the twin. A multi-package macro test is a folder of [tests/pkgs](../pkgs/README.md) (Go can't build
-it, so it has no twin: its output was checked with a hand-expanded Go module).
+change in the twin. A multi-package macro test is a folder of [tests/pkgs](../pkgs/README.md); its twin is a Go module in its `twin/` folder.
+
+The `macro_*.gp` tests (step 10.8, the built-in macros) have twins in the same folder, `testdata/macro_twin/`: the built-ins are written
+as the constants the compiler puts in their place (`#text(x)` as a string literal, `#line()` as a number) and `#func()` as a
+call that asks the Go runtime for the name of its caller (`runtime.CallersFrames`), so the names `main.init.0` and
+`main.(*T).Ptr` are those of real Go (the one exception: a literal in a literal, which gc names differently when it inlines it, is a
+literal in the twin).

@@ -240,3 +240,9 @@ square roots; print a result that depends on all the work (a checksum), identica
 `bench/cpp/<name>.cpp` (`BENCH_N`, same output byte for byte), and set `twin: yes`. `go run ./tools/gobench validate`
 checks the headers; `go run ./tools/gobench run -smoke -match '^name$'` builds and runs it everywhere. Choose
 `size` so that Go takes about 0.3 to 2 seconds.
+
+## Phase 10 features
+
+The cost of `!`, macros and `#Derive` against code written by hand is measured by `go run ./tools/phase10bench` on the programs of
+`bench/phase10` (they use syntax that Go cannot build, so they are not part of the suite above): [must-macros.md](must-macros.md) and
+[derive.md](derive.md).

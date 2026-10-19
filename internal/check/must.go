@@ -337,6 +337,22 @@ func calleeIdent(fun ast.Expr) *ast.Ident {
 	}
 }
 
+// mustLabel writes the callee fun of a must call the way it was written, with the ! after the name and before the
+// type arguments: store.Run!, gen![int] (fun has lost its ! by now).
+func mustLabel(fun ast.Expr) string {
+	switch x := fun.(type) {
+	case *ast.IndexExpr:
+		return mustLabel(x.X) + "[" + types.ExprString(x.Index) + "]"
+	case *ast.IndexListExpr:
+		parts := make([]string, len(x.Indices))
+		for i, ix := range x.Indices {
+			parts[i] = types.ExprString(ix)
+		}
+		return mustLabel(x.X) + "[" + strings.Join(parts, ", ") + "]"
+	}
+	return types.ExprString(fun) + "!"
+}
+
 // visitExplicit is the visitor of prepare: it rewrites each call F!(...).
 func (mp *mustPass) visitExplicit(st *site) {
 	if st.helper != nil {
@@ -350,8 +366,8 @@ func (mp *mustPass) visitExplicit(st *site) {
 	arity := 1
 	switch st.ctx {
 	case ctxGo:
-		mp.errorf(st.call, "go %s!(...): the error of %s can't be returned to anyone from another goroutine; "+
-			"call it in a func literal that handles the error", id.Name, id.Name)
+		mp.errorf(st.call, "go %s(...): the error of %s can't be returned to anyone from another goroutine; "+
+			"call it in a func literal that handles the error", mustLabel(st.call.Fun), id.Name)
 		return
 	case ctxStmt, ctxDefer:
 		arity = 0
@@ -495,10 +511,19 @@ func (mp *mustPass) dropImports() {
 // not right before the arguments of a call, and the macros.
 func (mp *mustPass) reportLeftovers() {
 	for _, f := range mp.files {
+		var callees map[*ast.Ident]bool
 		for _, n := range gpast.Leftovers(f) {
 			switch n := n.(type) {
 			case *ast.Ident:
 				if gpast.IsMust(n.Name) {
+					if callees == nil {
+						callees = calleeNames(f)
+					}
+					if callees[n] {
+						// A call, but in a place no rewrite looks at: a constant, an array length, a type.
+						mp.errorf(n, "%s(...): a must call can't be used in a constant, a type or an array length (the compiler computes them); use it in a statement or in the initializer of a variable", n.Name)
+						continue
+					}
 					mp.errorf(n, "%s: a ! must come right before the arguments of a call, as in %s(...)", n.Name, n.Name)
 					continue
 				}
@@ -506,6 +531,38 @@ func (mp *mustPass) reportLeftovers() {
 			mp.errorf(n, "internal error: a macro form that the loader did not rewrite (internal/load/macros.go)")
 		}
 	}
+}
+
+// calleeNames returns the names that are called in f: f in f(x), the selector in p.f(x), and either with
+// type arguments (f[int](x)).
+func calleeNames(f *ast.File) map[*ast.Ident]bool {
+	out := make(map[*ast.Ident]bool)
+	ast.Inspect(f, func(n ast.Node) bool {
+		c, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		fn := c.Fun
+		for {
+			switch x := fn.(type) {
+			case *ast.IndexExpr:
+				fn = x.X
+				continue
+			case *ast.IndexListExpr:
+				fn = x.X
+				continue
+			}
+			break
+		}
+		switch x := fn.(type) {
+		case *ast.Ident:
+			out[x] = true
+		case *ast.SelectorExpr:
+			out[x.Sel] = true
+		}
+		return true
+	})
+	return out
 }
 
 // A siteCtx says what a call is part of: it decides which values the call
@@ -767,21 +824,22 @@ func (mp *mustPass) scanExpr(f *ast.File, slot *ast.Expr, ctx siteCtx, n int, pa
 	}
 }
 
-// isTesting reports whether t is *testing.T, *testing.B or *testing.F.
+// isTesting reports whether t is *testing.T, *testing.B, *testing.F or the interface testing.TB: the types
+// whose Fatal a must call in a function that has no error result calls.
 func isTesting(t types.Type) bool {
-	p, ok := t.(*types.Pointer)
-	if !ok {
+	if p, ok := t.(*types.Pointer); ok {
+		n, ok := p.Elem().(*types.Named)
+		if !ok || n.Obj().Pkg() == nil || n.Obj().Pkg().Path() != "testing" {
+			return false
+		}
+		switch n.Obj().Name() {
+		case "T", "B", "F":
+			return true
+		}
 		return false
 	}
-	n, ok := p.Elem().(*types.Named)
-	if !ok || n.Obj().Pkg() == nil || n.Obj().Pkg().Path() != "testing" {
-		return false
-	}
-	switch n.Obj().Name() {
-	case "T", "B", "F":
-		return true
-	}
-	return false
+	n, ok := t.(*types.Named)
+	return ok && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "testing" && n.Obj().Name() == "TB"
 }
 
 // identsOf returns the names of the syntax trees of lp.

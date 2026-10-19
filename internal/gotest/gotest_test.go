@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/huuhait/gocpp/internal/load"
+	gpparser "github.com/huuhait/gocpp/internal/syntax/parser"
 )
 
 // scan parses the sources (name -> text; names ending in _test.gp are test files) and scans them
@@ -19,7 +20,7 @@ func scan(t *testing.T, srcs map[string]string, xsrcs map[string]string) (*Found
 	mk := func(srcs map[string]string) *load.Package {
 		p := &load.Package{ImportPath: "example.com/m/geom"}
 		for _, name := range sortedKeys(srcs) {
-			f, err := parser.ParseFile(fset, name, srcs[name], parser.ParseComments)
+			f, err := gpparser.ParseFile(fset, name, srcs[name], gpparser.ParseComments|gpparser.Phase10Syntax)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -174,6 +175,9 @@ func TestScanErrors(t *testing.T) {
 		{"testmain", "func TestMain() {}", "wrong signature for TestMain, must be: func TestMain(m *testing.M)"},
 		{"type params", "func TestX[T any](t *testing.T) {}", "wrong signature for TestX, test functions cannot have type parameters"},
 		{"two testmains", "func TestMain(m *testing.M) {}\nfunc TestMain(m *testing.M) {}", "multiple definitions of TestMain"},
+		{"must test", "func TestX!(t *testing.T) {}", "a_test.gp:3:1: TestX! is a must function: it gets an error result, so it is not a test function; write func TestX without the !"},
+		{"must benchmark", "func BenchmarkX!(b *testing.B) {}", "BenchmarkX! is a must function: it gets an error result, so it is not a benchmark function"},
+		{"must example", "func ExampleX!() {}", "ExampleX! is a must function: it gets an error result, so it is not an example function"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, errs := scan(t, map[string]string{"a_test.gp": "package p\nimport \"testing\"\n" + tt.src + "\n"}, nil)
