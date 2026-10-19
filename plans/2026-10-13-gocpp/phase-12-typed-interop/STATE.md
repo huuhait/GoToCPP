@@ -19,7 +19,7 @@
 - [x] 12.5 Interop checker (exact-mirror errors only, operator typing with C++ conversions, g++ builds → warnings, compatibility rule)
 - [x] 12.6 Codegen upgrades (`.`/`->`, designated init order, template/index, auto `const char*` except "keeps the pointer" list, references)
 - [x] 12.7 Cache + incremental probing + parallel probing (header contents in the key)
-- [ ] 12.8 Gap E1: constant macros probed first, substituted before go/types
+- [x] 12.8 Gap E1: constant macros probed first, substituted before go/types
 - [ ] 12.9 Gap E2: second type-check pass for promoted C++ members
 - [ ] 12.10 `gocpp bindgen` (struct-valued macros as `var`)
 - [ ] 12.11 `-interop=typed|opaque` + clang-missing fallback + default switch
