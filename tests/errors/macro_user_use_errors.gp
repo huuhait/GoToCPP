@@ -24,7 +24,7 @@ type T struct{}
 #Plain(1, "x") // ERROR "only #Derive can be used there"
 type Typed struct{}
 
-#Derive(String) // ERROR "macros on top of a declaration are not supported yet \(Phase 10, step 10.10\): #Derive"
+#Derive(Missing) // ERROR "#Derive: Missing is not the name of a generator"
 type Level int
 
 #Wrapper() // ERROR "#Wrapper: the func noBody has no body"

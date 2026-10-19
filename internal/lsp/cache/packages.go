@@ -963,6 +963,8 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 		// type-checked too, for hover and go to definition there
 		// (check.Package.Partial); its diagnostics stay the same.
 		Partial: true,
+		// Nothing here lowers the program: the methods of #Derive stay stubs (no second check).
+		NoDerivedBodies: true,
 	})
 	checkSpan.End()
 	if err := ctx.Err(); err != nil {

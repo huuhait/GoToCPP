@@ -153,6 +153,8 @@ func (st *state) checkTests(ctx context.Context, dir string) (*TestCheck, error)
 		PkgConfig: p.prober.pkgConfigFor(rec),
 		CHeader:   p.prober.cheaderFor(rec),
 		Partial:   true,
+
+		NoDerivedBodies: true, // nothing here lowers the program
 	})
 	if err := ctx.Err(); err != nil {
 		return nil, err

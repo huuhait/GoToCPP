@@ -9,6 +9,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 
 	"golang.org/x/tools/go/analysis"
 
@@ -173,6 +174,11 @@ func Run(prog *load.Program, res *check.Result, cfg Config) (*Report, error) {
 	}
 	for u, fs := range found {
 		for _, f := range fs {
+			// The code that #Derive wrote is not the user's: the signature of the method (at the
+			// #Derive line) says what is wrong with the type.
+			if strings.HasPrefix(prog.Fset.PositionFor(f.diag.Pos, false).Filename, check.DerivedFilePrefix) {
+				continue
+			}
 			fd := Finding{
 				Package:  u.path,
 				Analyzer: f.analyzer,

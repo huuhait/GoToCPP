@@ -1051,7 +1051,7 @@ func (b *builtinPass) onTop(d *ast.FuncDecl, calls []*ast.CallExpr, ctx *funcNam
 		}
 		if id, ok := call.Fun.(*ast.Ident); ok && builtinNames[gpast.MacroBase(id.Name)] {
 			if gpast.MacroBase(id.Name) == "Derive" {
-				b.errorf(call.Pos(), "#Derive is for types: put it on top of a type declaration (macros on top of a declaration: step 10.10)")
+				b.errorf(call.Pos(), "#Derive is for types: put it on top of a type declaration")
 			} else {
 				b.errorf(call.Pos(), "%s is a built-in macro for use inside code, not on top of a func", id.Name)
 			}
@@ -1211,15 +1211,6 @@ func directRecover(body *ast.BlockStmt) *ast.CallExpr {
 		return found == nil
 	})
 	return found
-}
-
-// topType reports a line of macros on top of a type declaration.
-func (b *builtinPass) topType(call *ast.CallExpr) {
-	if id, ok := call.Fun.(*ast.Ident); ok && gpast.MacroBase(id.Name) == "Derive" {
-		b.errorf(call.Pos(), "macros on top of a declaration are not supported yet (Phase 10, step 10.10): %s", exprName(call.Fun))
-		return
-	}
-	b.errorf(call.Pos(), "a macro on top of a type: only #Derive can be used there (user macros on types are not supported): %s", exprName(call.Fun))
 }
 
 // leftovers reports a macro name that no rewrite handled.

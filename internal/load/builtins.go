@@ -110,6 +110,12 @@ type builtinPass struct {
 	// embedName is the local name of the import of "embed" in the file ("" if
 	// there is none).
 	embedName string
+
+	// methods holds the methods of the package by "Type.Method" (where they are declared), and
+	// pkgNames its package-level names: for #Derive (derive.go).
+	methods    map[string]string
+	pkgNames   map[string]token.Pos
+	deriveSeen map[*ast.TypeSpec]map[string]bool
 }
 
 // A funcName is the name that the runtime gives a function, with the counter
@@ -230,12 +236,16 @@ func (b *builtinPass) file(f *File) {
 			if _, ok := gpast.OnTop(d); ok {
 				continue // a line of macros: handled with the declaration below it (and dropped)
 			}
+			var stubs []ast.Decl
 			if d.Tok == token.TYPE { // (on top of a var, const or import: a syntax error, reported once)
-				for _, call := range gpast.OnTopOf(f.AST.Decls, i) {
-					b.topType(call)
+				if calls := gpast.OnTopOf(f.AST.Decls, i); calls != nil {
+					stubs = b.deriveType(d, calls) // derive.go
 				}
 			}
 			b.apply(d, b.initCtx)
+			decls = append(decls, d)
+			decls = append(decls, stubs...)
+			continue
 		}
 		decls = append(decls, f.AST.Decls[i])
 	}

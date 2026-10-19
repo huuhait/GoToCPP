@@ -77,7 +77,7 @@ The flags are:
 // packages (load.Load), type-checks them (check.Check) and prints the
 // errors like go build.
 func runCheck(args []string, _ io.Reader, stdout, stderr io.Writer) int {
-	c := &checkCommand{stdout: stdout, stderr: stderr}
+	c := &checkCommand{stdout: stdout, stderr: stderr, noDerived: true}
 	flags := flag.NewFlagSet("gocpp check", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.BoolVar(&c.all, "e", false, "report all errors, not only the first 10 of each package")
@@ -152,6 +152,7 @@ type checkCommand struct {
 	diagOpts      diagOptions     // -color, -excerpt
 	types         bool            // -types
 	tests         bool            // load the _test.gp files too (gocpp vet)
+	noDerived     bool            // gocpp check and vet do not lower: #Derive stays stubs (check.Config.NoDerivedBodies)
 	dir           string          // the current folder
 	goos, goarch  string          // the target of the build constraints
 	tags          []string        // more build tags that are satisfied (-tags)
@@ -292,7 +293,7 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 	// terminal's signal doesn't reach, so the canceled context is what
 	// kills it. Then gocpp prints nothing more and dies of the signal
 	// (stopStatus), like build and run.
-	cfg := check.Config{Phase: phase, GOOS: c.goos, GOARCH: c.goarch, Context: c.ctx, PkgConfig: c.pkgConfig, Env: c.env}
+	cfg := check.Config{Phase: phase, GOOS: c.goos, GOARCH: c.goarch, Context: c.ctx, PkgConfig: c.pkgConfig, Env: c.env, NoDerivedBodies: c.noDerived}
 	if c.kinds {
 		paths := lower.ProbePaths(prog)
 		cfg.Probe = func(ctx context.Context, cxx build.CXX, dir string, flags, includes, cands []string) (interop.Result, error) {

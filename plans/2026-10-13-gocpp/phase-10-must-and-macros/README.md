@@ -660,6 +660,13 @@ at the call site **and** at the macro or derive that produced it.
    macro's own name is not hygienic (a local variable of that name at a use is an error).
 10. **10.10 `#Derive(...)`** in two steps (stubs before `go/types`, bodies after): `String`,
     `Equal`, then `Clone` and struct-only `JSON` (both may move after v1).
+    *Built (step 10.10, [ADR-080](../../../docs/adr/080-derive-writes-methods-from-the-types.md)):* `String` (integer
+    enums only: a struct is an error, `fmt` prints structs), `Equal` and `Clone`. The loader (`internal/load/derive.go`) adds the
+    method stubs (final signatures, at the name in the `#Derive` line); `internal/check/derive.go` writes the bodies as
+    `//line`-mapped source text when `go/types` is done and checks the package again. The generated code imports
+    nothing (the language server knows the imports from the header of a file alone). `JSON` is **not built**:
+    `encoding/json` is a stub until step 9.11; `#Derive(JSON)` is an error that says so. Cycles are not supported (the
+    plan said so for `Clone`).
 11. **10.11 `gocpp expand`.**
 12. **10.12 Lift the gates; update the spec** (`docs/spec/language.md`, divergences D12, D13,
     D17, D18; feature matrix).

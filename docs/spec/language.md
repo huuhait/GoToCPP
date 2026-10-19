@@ -1303,7 +1303,7 @@ func secret(key string) (int, error) {
 | `#text(x)` | the source text of `x`; for a macro parameter, the text the caller wrote (`"path != \"\""`) |
 | `#body()` | inside a macro used on top of a function: runs that function's code (wrap style) |
 | `#embed("logo.png")` | a string constant with the file's bytes (Go's `//go:embed` works too) |
-| `#Derive(...)` with `String`, `Equal`, `Clone`, `JSON` | on top of a type: generated methods (below) |
+| `#Derive(...)` with `String`, `Equal`, `Clone` (`JSON` is planned) | on top of a type: generated methods (below) |
 
 **How the built-ins work (step 10.8, [ADR-058](../adr/058-builtin-macros-and-embed-in-the-loader.md)).** Each
 use is replaced by a Go constant in parentheses, before type checking, and keeps the position of the
@@ -1360,25 +1360,37 @@ func (c Color) String() string {
 }
 ```
 
-`JSON` is for structs:
+`Equal` and `Clone` are for structs and for named array, slice and map types:
 
 ```go
-#Derive(JSON)
-type Config struct {
-	Port int    `json:"port"`
-	Name string `json:"name,omitempty"`
+#Derive(Equal, Clone)
+type Order struct {
+	ID    int
+	Items []Item
+	Owner *Person
+	Attrs map[string][]string
 }
+
+a := order.Clone()    // a deep copy: changing a.Items[0] leaves order alone
+order.Equal(a)        // true: slices, maps and pointers are compared by what they hold
 ```
+
+The methods are written when the package has been type-checked and they are ordinary methods: they are
+visible to every caller (also in other packages), `gocpp expand` prints them, and hover and go to
+definition on `order.Equal` land on the name in the `#Derive` line. The generated code imports
+nothing, so `#Derive` works in a file that imports nothing.
 
 | Derive | Generates |
 |---|---|
-| `String` | `String()` for constant enums, in the same style as Go's `stringer` tool. Constants that share a value use the first name in declaration order, as `stringer` does |
-| `Equal` | `Equal(other T) bool`, deep equality (slices and maps are compared too) |
-| `Clone` | `Clone() T`, a deep copy (reference cycles are not supported) |
-| `JSON` | for **structs** only: `MarshalJSON` and `UnmarshalJSON` from the struct tags (`json:"name,omitempty"`), without reflection. `encoding/json` picks them up. On a non-struct type it is an error |
+| `String` | `String() string` for **integer types with constants**, in the same style as Go's `stringer` tool: the name of the constant, or `Type(n)` for another value. Constants that share a value use the first name in declaration order. A struct is an error (`fmt` prints structs by itself: `%+v` shows the field names) |
+| `Equal` | `Equal(other T) bool`, deep equality: a field whose type has an `Equal(T) bool` method uses it (`time.Time`, other derived types, your own); arrays, slices and maps are compared element by element (a nil slice or map equals an empty one); a pointer is equal to the same pointer, or to a pointer whose pointee is equal; a pointer to a type of another package without `Equal` is compared by identity; an interface field is compared with `==` (or with its `Equal` method); a field of a type parameter with `==` (`comparable`), its `Equal` method, or `any(a) == any(b)` (**panics at run time when the type argument is a slice or a map**). A func field, a C or C++ type, a type of another package that cannot be compared, and a type that holds pointers, slices or maps and has no `Equal` method are errors that say which field |
+| `Clone` | `Clone() T`, a deep copy: slices, maps, arrays, pointers and structs are copied all the way down (nil stays nil, an empty slice stays empty); a type with a `Clone() T` method of its own gets it called (for a field, an element or a pointee); a pointer to a type of another package without `Clone` is shared (so a copy `Equal`s its original: `*time.Location`, `*sync.Mutex`); channels, funcs, interface values and values of type parameters are shared (a `V` that is a slice is shared; an interface with `Clone() I` is cloned through it); a value of another package is a value (`time.Time`) unless it shows a slice, map or pointer in an exported field and has no `Clone` (an error that asks for one); a struct of this package that refers to memory and has no `Clone` is an error that says to add `#Derive(Clone)` to it. Sharing is not kept: a node reached twice becomes two. A struct with a `sync.Mutex` copies the lock state (`gocpp vet` reports it at the `#Derive` line) |
+| `JSON` | not built yet: it needs `encoding/json` (Phase 09, step 9.11). `#Derive(JSON)` is an error that says so; on a type that is not a struct it is an error anyway |
 
-`Clone` and `JSON` are the first derives to move after v1 if time is short
-([Phase 10 §2.2](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md#22-part-b-macros)).
+A type that has the method already (declared by you) is an error: remove one of them. `#Derive` works
+on generic types (`#Derive(Equal, Clone) type Pair[K comparable, V any] struct { ... }`). **A value that
+refers to itself (a cycle) is not supported**: `Clone`, and `Equal` of two different cyclic values, overflow
+the stack like the hand-written code would ([ADR-080](../adr/080-derive-writes-methods-from-the-types.md)).
 
 ### Rules (v1)
 
@@ -1405,7 +1417,9 @@ The compiler checks each of these rules and gives a clear error (`gocpp explain`
 - An unexported macro (`macro helper()`) can only be used in its package.
 - A variable (or parameter) with the name of a macro, in a function that uses the macro, hides it:
   `show := 5` next to `#show(1)` is an error at the use. A macro and a func of a package can't share a name.
-- On types, only the built-in `#Derive` exists in v1.
+- On types, only the built-in `#Derive` exists in v1: `#Derive(String, Equal, Clone)`, written on one type
+  declaration (not on a group `type ( ... )`, an alias, or an interface, func, channel or pointer type);
+  each generator is written once, and the type has no method of that name.
 
 Also good to know:
 - A `defer` inside a macro body runs when the **macro** returns, not when the caller returns (the

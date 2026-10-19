@@ -1,5 +1,5 @@
 // phase: 10
-// pending: step 10.10 (#Derive) and the rest of Phase 10
+// pending: step 9.11 (encoding/json) and #Derive(JSON): the rest of the program runs (#Derive(String) is built, step 10.10)
 
 // Macros shows gocpp macros: macro declarations; #Assert and #Dbg used inside
 // code; #Trace and #Locked on top of funcs (start style: the macro runs at

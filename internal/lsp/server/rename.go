@@ -188,11 +188,21 @@ func (sym *symbol) renameable() error {
 // would no longer run) and the methods that the errors package calls by name.
 // The legacy wide family leaves them as it always did.
 func (s *Server) refusedBySemantics(sym *symbol) error {
-	if s.wideFamily || len(sym.objs) != 1 {
+	if len(sym.objs) != 1 {
 		return nil
 	}
 	fn, ok := sym.objs[0].(*types.Func)
 	if !ok {
+		return nil
+	}
+	if sig, _ := fn.Type().(*types.Signature); sig != nil && sig.Recv() != nil && sym.q != nil {
+		// A method that #Derive writes has the name of the generator in the #Derive line.
+		if d, _ := sym.q.declOf(context.Background(), fn); d != nil && d.ident != nil &&
+			derivedMethodName(d.pf.File, fn, typeName(sig.Recv().Type())) == d.ident {
+			return refuse("cannot rename %s: #Derive writes it; the name is the generator's", sym.name)
+		}
+	}
+	if s.wideFamily {
 		return nil
 	}
 	if sym.name == "init" && sym.packageLevel() {

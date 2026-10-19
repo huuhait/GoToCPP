@@ -109,6 +109,13 @@ type Config struct {
 	// still has only its load errors, is not Checked, and its importers
 	// get no types from it (Result.Dep).
 	Partial bool
+
+	// NoDerivedBodies says that the caller does not lower the program (the language server,
+	// gocpp check, gocpp vet): the generators of #Derive (derive.go) run for their errors, but the
+	// methods are not formatted, not put in the files and not kept (Package.Derived is empty), and the
+	// package is not checked a second time (which costs as much as the first check). The stubs stay,
+	// with the signatures that every caller needs.
+	NoDerivedBodies bool
 }
 
 // A Dep is what Check needs of a package that it imports but does not
@@ -219,6 +226,10 @@ type Package struct {
 	// checks is how many times go/types checked the package: 1, or more
 	// after rewrites of conversions.
 	checks int
+
+	// Derived are the methods that #Derive generated (derive.go), with their source text, in
+	// the order of the #Derive lines: gocpp expand prints them.
+	Derived []DerivedMethod
 
 	// Opaque says which expressions are opaque (they come from C/C++ and
 	// have no complete type) and keeps the type expressions of the objects
@@ -372,7 +383,7 @@ func Check(prog *load.Program, cfg Config) *Result {
 				c = c || hasC[dep]
 			}
 			hasC[lp] = c
-			p = checkPackage(prog.Fset, lp, checked, cgoh, c && !depsFailed, probeErrs[lp])
+			p = checkPackage(prog.Fset, lp, checked, cgoh, c && !depsFailed, probeErrs[lp], cfg.NoDerivedBodies)
 			p.Flags, p.ProbeFlags, p.ExternC = flagsOf[lp].flags, flagsOf[lp].probe, flagsOf[lp].externC
 			p.Opaque = findOpaque(prog.Fset, p)
 			checked[lp] = p.Types
@@ -428,12 +439,14 @@ func hasHardErrors(l *diag.List) bool {
 // probeErrs are the errors of the namespace probe, which each check puts
 // first (after the load warnings).
 func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package,
-	cgoh *types.Package, convert bool, probeErrs []diag.Diagnostic) *Package {
+	cgoh *types.Package, convert bool, probeErrs []diag.Diagnostic, noDerived bool) *Package {
 	cv := newConverter(fset, lp, cgoh)
 	mp := newMustPass(fset, lp) // the ! forms of Phase 10 (must.go), or nil
 	var userIdents map[*ast.Ident]bool
-	if mp != nil {
+	if mp != nil || len(lp.Derives) > 0 {
 		userIdents = identsOf(lp)
+	}
+	if mp != nil {
 		mp.prepare()
 	}
 	if convert {
@@ -479,7 +492,16 @@ func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Packa
 	if convert {
 		cv.checkWideArgs(p, fset) // C.GoStringW(badType): a message of ours, not the C++ compiler's
 	}
-	if mp != nil {
+	if len(lp.Derives) > 0 && !hasErrors(p.Errors) {
+		// #Derive, second step: the bodies of the methods that the loader stubbed (derive.go).
+		if deriveBodies(fset, lp, p, noDerived) {
+			checks := p.checks + 1
+			derived := p.Derived
+			p, _ = checkFiles(fset, lp, checked, cv, probeErrs, convert)
+			p.checks, p.Derived = checks, derived
+		}
+	}
+	if userIdents != nil {
 		markSynthetic(lp, userIdents)
 	}
 	if len(cv.names) > 0 {
@@ -519,7 +541,7 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 		fix = func(msg string) string { return mf(cv.fixMessage(msg)) }
 	}
 	c := &collector{fset: fset, list: errs, seen: make(map[errorKey]bool), fix: fix,
-		buffer: true}
+		buffer: true, fixAt: deriveFixer(lp)}
 	imp := &importer{from: lp, checked: checked, refused: make(map[string]bool), cgoh: cv.cgoh}
 	if lp.Incomplete {
 		// Check doesn't check such a package, but a caller that wants
@@ -740,6 +762,9 @@ type collector struct {
 	// fix, if not nil, changes the message of each error before the list
 	// gets it: it maps gp_cgoh.As[T](x) back to T(x).
 	fix func(msg string) string
+
+	// fixAt is fix for a message that depends on the place (the stubs of #Derive, derive.go), or nil.
+	fixAt func(pos token.Pos, msg string) string
 }
 
 // A foundError is an error of go/types that the collector keeps.
@@ -780,6 +805,9 @@ func (c *collector) collect(err error) {
 	}
 	if c.fix != nil {
 		terr.Msg = c.fix(terr.Msg)
+	}
+	if c.fixAt != nil {
+		terr.Msg = c.fixAt(terr.Pos, terr.Msg)
 	}
 	if c.last == dropped {
 		return

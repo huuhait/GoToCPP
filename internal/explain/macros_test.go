@@ -18,7 +18,7 @@ func TestMacroMessagesCovered(t *testing.T) {
 	root := repoRoot(t)
 	verbs := regexp.MustCompile(`%[-+# 0-9.]*[sdqv]`)
 	n := 0
-	for _, file := range []string{"internal/load/macros.go", "internal/check/macromsg.go"} {
+	for _, file := range []string{"internal/load/macros.go", "internal/check/macromsg.go", "internal/load/derive.go", "internal/check/derive.go"} {
 		path := filepath.Join(root, filepath.FromSlash(file))
 		fset := token.NewFileSet()
 		f, err := parser.ParseFile(fset, path, nil, 0)

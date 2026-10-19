@@ -324,6 +324,11 @@ type Package struct {
 	// package that uses one needs to rewrite the use. A summary keeps them.
 	Macros map[string]*MacroSig
 
+	// Derives are the lines #Derive(...) on top of the types of the package (Phase 10, step 10.10):
+	// the loader added the stubs of the methods, and internal/check writes their bodies once the
+	// types are known.
+	Derives []*Derive
+
 	// MacroUses holds the names of the functions that the rewrite of the macro uses
 	// call (the callee of each #Name(...), also on top of a func), with what each use calls:
 	// internal/check tells a use of a macro's function that is not one of them (a plain call, a

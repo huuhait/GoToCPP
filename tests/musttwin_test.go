@@ -19,6 +19,9 @@ import (
 // tests/run/testdata/macro_twin: a macro is sugar for a function and its call, so the twin writes
 // them by hand (the hidden arguments as constants, a lazy argument as a func literal, a wrap
 // macro's code as a func literal) and real Go runs it.
+//
+// And for the tests of #Derive (step 10.10), derive_*.gp, whose twins are in
+// tests/run/testdata/derive_twin: the twin writes the generated methods by hand.
 func mustTwin(p *program) string {
 	dir := ""
 	switch {
@@ -26,6 +29,8 @@ func mustTwin(p *program) string {
 		dir = "must_twin"
 	case strings.HasPrefix(p.name, "umacro_"):
 		dir = "macro_twin"
+	case strings.HasPrefix(p.name, "derive_"):
+		dir = "derive_twin"
 	default:
 		return ""
 	}

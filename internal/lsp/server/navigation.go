@@ -408,12 +408,42 @@ func (q *query) declIn(ctx context.Context, obj types.Object, fset *token.FileSe
 		return true
 	})
 	if d.ident == nil {
+		if id := derivedMethodName(pf.File, obj, recv); id != nil {
+			// A method that #Derive writes: the document of its package has the line, not the method.
+			d.ident, d.off = id, pf.Tok.Offset(id.Pos())
+			return d, nil
+		}
 		if !exact || posn.Offset > len(pf.Src) {
 			return nil, nil
 		}
 		d.off = posn.Offset // a local variable, a label, ...
 	}
 	return d, nil
+}
+
+// derivedMethodName returns the name of the generator in the #Derive line of f that writes the
+// method obj of the type recv, or nil (step 10.10: the parsed file has the line and no method).
+func derivedMethodName(f *ast.File, obj types.Object, recv string) *ast.Ident {
+	if _, ok := obj.(*types.Func); !ok || recv == "" {
+		return nil
+	}
+	for i, d := range f.Decls {
+		gd, ok := d.(*ast.GenDecl)
+		if !ok || gd.Tok != token.TYPE || len(gd.Specs) != 1 || gd.Specs[0].(*ast.TypeSpec).Name.Name != recv {
+			continue
+		}
+		for _, call := range gpast.OnTopOf(f.Decls, i) {
+			if id, ok := call.Fun.(*ast.Ident); !ok || gpast.MacroBase(id.Name) != "Derive" {
+				continue
+			}
+			for _, a := range call.Args {
+				if id, ok := a.(*ast.Ident); ok && id.Name == obj.Name() {
+					return id
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // sameKind reports whether the node n, under the nodes stack (from the

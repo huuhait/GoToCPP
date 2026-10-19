@@ -125,7 +125,7 @@ func runVet(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	analyzers := vet.Select(on, off)
 
 	var errBuf bytes.Buffer
-	c := &checkCommand{stdout: stdout, stderr: &errBuf, tests: true}
+	c := &checkCommand{stdout: stdout, stderr: &errBuf, tests: true, noDerived: true}
 	var err error
 	if c.goos, c.goarch, err = target(); err != nil {
 		fmt.Fprintf(stderr, "gocpp: %v\n", err)
