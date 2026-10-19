@@ -103,6 +103,17 @@ public:
             true, gp_ns(t - TimePoint::clock::now()));
     }
 
+    // gp_post(f, ctx) asks the thread that waits on this waiter (in gp_park, gp_wait and the timed
+    // forms) to call f(ctx) on its own thread, from inside its wait, and goes on to wait for what
+    // it was waiting for. The deadlock report uses it to have every parked goroutine capture its
+    // own stack (a thread cannot walk another's portably). It returns false when a request is
+    // pending already. The thread that is not in a wait yet serves it when it gets there.
+    // gp_post_wait(ns) waits until f has returned (true), or ns nanoseconds went by without the
+    // thread taking the request (false: the request is cancelled and ctx is not used any more). One
+    // asker at a time.
+    bool gp_post(void (*f)(void*), void* ctx);
+    bool gp_post_wait(int64_t ns);
+
 private:
     // The nanoseconds of a duration of the C++ library, rounded up, at most about 100 years (a
     // very long wait is the same as for ever, and the arithmetic stays in range).

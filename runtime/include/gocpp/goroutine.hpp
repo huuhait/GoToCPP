@@ -74,6 +74,19 @@ struct goroutine {
     // count, by whoever comes first: the goroutine that was woken (block_exit) or the goroutine
     // that wakes it (unblock), so a goroutine that is being woken is not blocked any more.
     bool is_blocked = false;
+    // Set by block_enter: this goroutine's block made every live goroutine blocked (read only by
+    // the goroutine itself, in park_cell, to decide whether the deadlock detector must look).
+    bool last_asleep = false;
+    // How many runtime.LockOSThread calls are active (the goroutine always has a thread of its own,
+    // so this only shows in Go's reports: "goroutine 1 [chan receive, locked to thread]:"). The
+    // main goroutine is locked while the package initializers run (run_main). Written by the
+    // goroutine itself.
+    int32_t locked = 0;
+    // Where it came from, for Go's "created by main.main in goroutine 1": the creator's id (0 for
+    // the main goroutine and for a thread that no go statement started) and the address after
+    // the call of the go statement, in the creator's code.
+    uint64_t parent_id = 0;
+    const void* create_pc = nullptr;
     std::unique_ptr<task> body;
     // end_hook(end_arg), when set (by the goroutine itself, before it ends), runs on the
     // goroutine's thread after the goroutine has stopped counting (num_goroutine,
@@ -141,7 +154,16 @@ uint64_t goroutine_id() noexcept;
 // runs: gp::num_goroutine() already includes it when go_start returns. When the OS can't start
 // a thread, it is Go's fatal error: "runtime: failed to create new OS thread (have N already;
 // errno=E)", "fatal error: newosproc", exit code 2.
-void go_start(std::unique_ptr<task> body, std::size_t stack);
+// creator is the address in the code of the go statement (the return address of gp::go), for the
+// "created by" line of the deadlock report; null: unknown.
+void go_start(std::unique_ptr<task> body, std::size_t stack, const void* creator = nullptr);
+
+// The creator that go_start gets for a goroutine that the runtime starts itself, as Go names it in
+// "created by time.goFunc" (the function of an AfterFunc timer): the address of this variable
+// instead of an address in code.
+extern const char creator_gofunc;
+// ... and for the coroutine of iter.Pull: "created by iter.Pull[...] in goroutine N".
+extern const char creator_pull;
 
 // idle_limit is how many idle threads the runtime keeps for the next `go` statement (0: none,
 // every goroutine gets a thread of its own and the thread ends with it). The default is 256.
@@ -174,6 +196,68 @@ struct block_scope {
     block_scope& operator=(const block_scope&) = delete;
     ~block_scope() { block_exit(); }
 };
+
+// --- Deadlock detection (step 8.11, ADR-077) ---
+//
+// Go's checkdead: when every goroutine is asleep and nothing can wake one, the program ends with
+//
+//     fatal error: all goroutines are asleep - deadlock!
+//
+//     goroutine 1 [chan receive]:
+//     main.main()
+//             /path/main.go:9 +0x71
+//
+//     goroutine 7 [select (no cases)]:
+//     ...
+//     created by main.main in goroutine 1
+//             /path/main.go:8 +0x65
+//
+// and exit code 2. Every goroutine is listed, in the order of its id, with its wait reason and its
+// stack. "Asleep" is a goroutine inside a block_scope (a channel, select, sync wait); a goroutine
+// in time.Sleep, in a system call (file or network IO, a wait for a child) or running is not, so
+// the program does not end while any of those can still wake another. Go 1.23's timer rule: an
+// armed AfterFunc timer, or a channel timer that a goroutine is blocked on, may still wake one, and
+// a Timer or Ticker nobody waits on does not count (gp::detail::timers_can_wake). A thread that no
+// go statement started and that entered gocpp (a callback from a C library's thread; the thread of
+// a std::thread that used a channel), or a callback that was handed to C as a function pointer,
+// turns the detector off for good, as Go's cgo does: such a thread can wake anything, at any time.
+// A shared library (gp::lib) never reports a deadlock: the host program runs.
+//
+// The cost is two atomic loads where a goroutine is about to sleep or has ended (the counts
+// existed already), and a store where a worker thread starts and ends a goroutine (the registry:
+// src/sched.hpp). run_main turns the detector on; a unit test turns it on and sets a hook to see
+// the report instead of the end of the process.
+void enable_deadlock_detector(bool on) noexcept;
+bool deadlock_detector_enabled() noexcept;
+
+// deadlock_check is called by a goroutine that is about to sleep and by one that has ended:
+// when the number of blocked goroutines is the number of live ones, it calls deadlock_look
+// (src/deadlock.cpp), which decides and reports.
+void deadlock_check() noexcept;
+void deadlock_look() noexcept;
+
+// The report goes to this hook instead of ending the process (null: the real thing, to stderr and
+// _exit(2)); the detector is idle again when the hook returns. The text is the whole report. For
+// tests. set_deadlock_hook returns the old hook.
+using deadlock_hook = void (*)(const char* text, std::size_t n) noexcept;
+deadlock_hook set_deadlock_hook(deadlock_hook h) noexcept;
+
+// note_foreign_entry says that a thread of C or C++ code may call into gocpp from now on (a
+// callback became a C function pointer): the detector is off for good. foreign_entered says whether
+// it is (also after a thread that no go statement started asked for its goroutine).
+void note_foreign_entry() noexcept;
+bool foreign_entered() noexcept;
+
+// adopt_internal says that the calling thread is the runtime's own (the timer thread, which starts
+// the goroutines of AfterFunc): the record that it gets when it first asks for one does not make it
+// a foreign thread.
+void adopt_internal() noexcept;
+
+// main_goexit is the end of the main goroutine's runtime.Goexit (run_main calls it after the
+// deferred calls ran): the main goroutine is not counted any more, the program goes on while other
+// goroutines run, and ends with Go's fatal error when none is left ("no goroutines (main called
+// runtime.Goexit) - deadlock!") or all of them are asleep. The thread waits for ever.
+[[noreturn]] void main_goexit() noexcept;
 
 // go_of_nil is the fatal error of `go f()` with a nil func value ("go of nil func value"): it is
 // a fatal error at the go statement, in the calling goroutine, not a panic in the new one.
@@ -252,28 +336,31 @@ int64_t num_goroutine() noexcept;
 // num_blocked is the number of goroutines that wait inside a block_scope (see above).
 int64_t num_blocked() noexcept;
 
-// go starts f as a new goroutine, on a thread of its own with the default stack.
+// go starts f as a new goroutine, on a thread of its own with the default stack. (go, go_fn and
+// go_call are not inlined: each passes its own return address to go_start, which is in the function
+// with the go statement, for the "created by" line of a trace.)
 template <typename F>
     requires std::is_invocable_v<std::decay_t<F>&>
-void go(F&& f) {
-    detail::go_start(std::make_unique<detail::task_of<std::decay_t<F>>>(std::forward<F>(f)), 0);
+[[gnu::noinline]] void go(F&& f) {
+    detail::go_start(std::make_unique<detail::task_of<std::decay_t<F>>>(std::forward<F>(f)), 0,
+                     __builtin_return_address(0));
 }
 
 // go_fn(f, a...) is `go f(a...)` for a function f of the program: the arguments are converted to
 // f's parameter types here, in the calling goroutine (gp::defer_frame::gp_push is the same for
 // defer), and the new goroutine calls f with them.
 template <typename R, typename... P>
-void go_fn(R (*f)(P...), std::type_identity_t<P>... a) {
+[[gnu::noinline]] void go_fn(R (*f)(P...), std::type_identity_t<P>... a) {
     detail::go_start(std::make_unique<detail::call_task<R (*)(P...), std::decay_t<P>...>>(
                          f, static_cast<P&&>(a)...),
-                     0);
+                     0, __builtin_return_address(0));
 }
 
 // go_call(c, a...) is `go c(a...)` for any other callable: a func literal, a func value, a
 // method (the receiver is the first argument of a lambda), a builtin or a library function in a
 // generic lambda. c and copies of the arguments belong to the goroutine; c gets them as rvalues.
 template <typename F, typename... A>
-void go_call(F c, A&&... a) {
+[[gnu::noinline]] void go_call(F c, A&&... a) {
     if constexpr (requires { static_cast<bool>(c == nullptr); }) {
         if (c == nullptr) {
             detail::go_of_nil();
@@ -281,7 +368,7 @@ void go_call(F c, A&&... a) {
     }
     detail::go_start(std::make_unique<detail::call_task<F, std::decay_t<A>...>>(
                          std::move(c), std::forward<A>(a)...),
-                     0);
+                     0, __builtin_return_address(0));
 }
 
 } // namespace gp

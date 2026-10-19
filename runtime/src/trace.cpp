@@ -1341,6 +1341,28 @@ const exe_symbol* find_symbol(const exe_image& img, uint64_t addr) noexcept {
     return &sym;
 }
 
+namespace {
+
+// shared_func_name is func_name of a symbol of the kept image (program_image), remembered for the
+// life of the process: a report of many goroutines (the deadlock detector's) shows the same few
+// functions over and over, and demangling them is most of the cost of a trace.
+go_func shared_func_name(const exe_symbol& sym) {
+    static std::mutex mu;
+    static std::unordered_map<const exe_symbol*, go_func> memo;
+    {
+        std::lock_guard<std::mutex> lk(mu);
+        if (auto it = memo.find(&sym); it != memo.end()) {
+            return it->second;
+        }
+    }
+    go_func f = func_name(sym.name);
+    std::lock_guard<std::mutex> lk(mu);
+    memo.emplace(&sym, f);
+    return f;
+}
+
+} // namespace
+
 void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool complete,
                   const exe_image* cached) {
     exe_image own;
@@ -1378,7 +1400,8 @@ void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool co
             auto named = std::find_if(names.begin(), names.end(),
                                       [&](const auto& e) { return e.first == &sym; });
             if (named == names.end()) {
-                names.emplace_back(&sym, func_name(sym.name));
+                names.emplace_back(&sym,
+                                   cached != nullptr ? shared_func_name(sym) : func_name(sym.name));
                 named = names.end() - 1;
             }
             if (named->second.shown) {
@@ -1504,6 +1527,43 @@ bool chain_pcs(const panic_error& e, std::vector<uintptr_t>& pcs) {
 
 } // namespace
 
+void append_created_by(std::string& out, const goroutine* g) {
+    if (g == nullptr || g->create_pc == nullptr) {
+        return;
+    }
+    if (g->create_pc == &creator_gofunc) {
+        // Go's own goroutine of an AfterFunc: the go statement of time.goFunc, in a system
+        // goroutine (no "in goroutine N"), at the line of Go 1.25's time/sleep.go.
+        out += "created by time.goFunc\n\ttime/sleep.go:215 +0x2d\n";
+        return;
+    }
+    if (g->create_pc == &creator_pull) {
+        // The coroutine of iter.Pull (Go 1.25's iter/iter.go:269, in the goroutine that called
+        // Pull).
+        out += "created by iter.Pull[...] in goroutine ";
+        print_uint(out, g->parent_id);
+        out += "\n\titer/iter.go:269 +0x90\n";
+        return;
+    }
+    auto pc = reinterpret_cast<uintptr_t>(g->create_pc);
+    frame_info fi;
+    resolve_pcs(&pc, 1, true, &fi);
+    if (!fi.ok || !fi.fn.shown) {
+        return;
+    }
+    out += "created by ";
+    out += fi.fn.name;
+    out += " in goroutine ";
+    print_uint(out, g->parent_id);
+    out += "\n\t";
+    out += fi.file.empty() ? std::string("?") : fi.file;
+    out += ':';
+    print_int(out, fi.line);
+    out += " +";
+    print_hex(out, pc - fi.entry);
+    out += '\n';
+}
+
 void panic_report(std::string& out, const panic_error& e) noexcept {
     std::size_t header = 0;
     try {
@@ -1518,6 +1578,7 @@ void panic_report(std::string& out, const panic_error& e) noexcept {
         std::vector<uintptr_t> pcs;
         bool complete = chain_pcs(e, pcs);
         append_trace(out, pcs.data(), pcs.size(), complete);
+        append_created_by(out, static_cast<const goroutine*>(os::tls_get()));
     } catch (...) {
         // No memory for the trace (or for the header): keep what is there.
         if (header != 0) {
@@ -1552,6 +1613,7 @@ void fatal_trace(std::string& out) noexcept {
         }
         if (caller == st.second) {
             append_trace(out, st.first, st.second, whole);
+            append_created_by(out, static_cast<const goroutine*>(os::tls_get()));
             return;
         }
         // Like a panic's chain (chain_pcs): the deferred call's frames (gp_run's own frame is
@@ -1560,6 +1622,7 @@ void fatal_trace(std::string& out) noexcept {
         pcs.push_back(0);
         bool complete = chain_pcs(*panicking->gp_panic, pcs);
         append_trace(out, pcs.data(), pcs.size(), complete);
+        append_created_by(out, static_cast<const goroutine*>(os::tls_get()));
     } catch (...) {
         out.resize(start);
     }

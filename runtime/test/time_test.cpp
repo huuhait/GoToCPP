@@ -604,12 +604,18 @@ void test_func_timers() {
     gp::send(gate, int64_t(1));
 }
 
+// cannot_wake waits until no timer can wake a goroutine: the timer thread of an earlier test may
+// still be inside a firing (timers_can_wake counts that), which it leaves in a moment.
+bool cannot_wake() {
+    return wait_for([] { return !gp::detail::timers_can_wake(); });
+}
+
 void test_can_wake() {
-    CHECK(!gp::detail::timers_can_wake());
+    CHECK(cannot_wake());
     {
         ticking t; // armed, nobody waits: Go 1.23's deadlock rule: does not count
         t.start(now_ns() + 3'600'000'000'000LL);
-        CHECK(!gp::detail::timers_can_wake());
+        CHECK(cannot_wake());
         // a goroutine blocked on the channel: counts
         auto got = gp::make_chan<int64_t>();
         auto c = t.c;
@@ -627,7 +633,7 @@ void test_can_wake() {
         CHECK(gp::detail::timers_can_wake());
         gp::time::stop(carrier);
     }
-    CHECK(!gp::detail::timers_can_wake());
+    CHECK(cannot_wake());
 }
 
 void test_concurrent() {

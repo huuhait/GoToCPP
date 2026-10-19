@@ -406,6 +406,7 @@ var winUnitPrograms = []prog{
 	{src: "test/goroutine_test.cpp", weight: 3},
 	{src: "test/chan_test.cpp", weight: 4},
 	{src: "test/select_test.cpp", weight: 4},
+	{src: "test/deadlock_test.cpp", weight: 4},
 	{src: "test/nochecks_test.cpp", flags: []string{"-DGOCPP_NOCHECKS"}, weight: 3},
 }
 
@@ -452,7 +453,13 @@ func TestWindowsRuntime(t *testing.T) {
 			if !want(p.src) {
 				continue
 			}
-			t.Run(name, func(t *testing.T) { winRunUnit(t, e, bins.bin(t, p.src)) })
+			t.Run(name, func(t *testing.T) {
+				bin := bins.bin(t, p.src)
+				winRunUnit(t, e, bin)
+				if name == "deadlock_test" {
+					runWinDeadlock(t, e, bin)
+				}
+			})
 		}
 	})
 	if want("test/winos_test.cpp") {
@@ -460,6 +467,21 @@ func TestWindowsRuntime(t *testing.T) {
 	}
 	if want("test/thread_test.cpp") {
 		t.Run("thread", func(t *testing.T) { runWinThread(t, e, bins.bin(t, "test/thread_test.cpp")) })
+	}
+}
+
+// runWinDeadlock runs the cases of test/deadlock_test.cpp (deadlock_test.go): the report of the
+// deadlock detector, the Goexit message, and the programs in which nothing is a deadlock. The goroutines'
+// stacks are captured on their own threads, so the Windows OS layer's stack walk is what is tested.
+func runWinDeadlock(t *testing.T, e *wineEnv, bin string) {
+	for _, c := range deadlockCases {
+		t.Run(c.name, func(t *testing.T) {
+			r := e.run(t, bin, nil, c.name)
+			out := strings.ReplaceAll(string(r.stdout)+string(r.stderr), "\r\n", "\n")
+			if r.code != c.exit || !regexp.MustCompile(c.rx).MatchString(out) {
+				t.Errorf("%s: exit code %d, output:\n%s\nwant exit code %d and %s", c.name, r.code, out, c.exit, c.rx)
+			}
+		})
 	}
 }
 

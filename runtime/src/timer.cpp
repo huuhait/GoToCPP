@@ -84,6 +84,10 @@ struct heap {
     uint64_t next_id = 1;
     bool running = false; // the thread exists
     bool stopping = false;
+    // The timers that the thread has taken out of the map and has not finished firing (the send, or
+    // the start of the goroutine of an AfterFunc): such a timer is in neither the map nor a
+    // channel, but may wake a goroutine in a moment (timers_can_wake).
+    int busy = 0;
 };
 
 heap& h = *new heap;
@@ -170,7 +174,9 @@ void fire(timer_rec* rec, const std::shared_ptr<chan_core>& c, uint64_t seq) {
     if (rec->is_func) {
         // The goroutine gets its own copy of the function.
         gp::func<void()> f = rec->fn;
-        gp::go([f = std::move(f)] { f(); });
+        auto run = [f = std::move(f)]() mutable { f(); };
+        detail::go_start(std::make_unique<detail::task_of<decltype(run)>>(std::move(run)), 0,
+                         &detail::creator_gofunc);
         return;
     }
     std::lock_guard<std::mutex> guard(rec->fire_mu);
@@ -218,6 +224,8 @@ void begin_fire(entry& e, int64_t due, int64_t now) {
 }
 
 void thread_main() {
+    // This thread starts the goroutines of AfterFunc: it is the runtime's own, not a foreign one.
+    adopt_internal();
     std::unique_lock<std::mutex> lk(h.mu);
     while (!h.stopping) {
         if (h.timers.empty()) {
@@ -243,9 +251,16 @@ void thread_main() {
         }
         uint64_t seq = rec->seq;
         begin_fire(e, due, now);
+        h.busy++;
         lk.unlock();
         fire(rec, c, seq);
         c.reset(); // the last reference of a timer that nobody holds goes here, with the lock free
+        lk.lock();
+        h.busy--;
+        // The timer may have been the last thing that could wake anyone (a send that nobody
+        // waited for): the goroutines may all be asleep now.
+        lk.unlock();
+        deadlock_check();
         lk.lock();
     }
     h.running = false;
@@ -405,6 +420,9 @@ bool timers_can_wake() {
     std::vector<std::shared_ptr<chan_core>> keep;
     {
         std::lock_guard<std::mutex> lk(h.mu);
+        if (h.busy > 0) {
+            return true; // a timer is being fired: its send or its goroutine is on the way
+        }
         for (auto& [k, e] : h.timers) {
             if (e.rec->is_func) {
                 return true; // AfterFunc: starts a goroutine that may wake others

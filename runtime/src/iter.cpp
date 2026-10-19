@@ -149,7 +149,7 @@ std::uint64_t newcoro(const gp::func<void(std::uint64_t)>& f) {
     c->fn = f;
     party creator;
     creator.g = &me;
-    detail::go_start(std::make_unique<start_task>(c, &creator), 0);
+    detail::go_start(std::make_unique<start_task>(c, &creator), 0, &detail::creator_pull);
     // The coroutine's goroutine counts from go_start; wait until it has registered itself and
     // parked (a thread that is idle in the pool, or a new one).
     wait(me, creator);

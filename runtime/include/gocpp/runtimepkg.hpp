@@ -72,7 +72,8 @@ int64_t num_cpu() noexcept;
 // num_cgo_call is runtime.NumCgoCall: 0, calls of C and C++ are not counted.
 int64_t num_cgo_call() noexcept;
 
-// lock_os_thread and unlock_os_thread are runtime.LockOSThread and UnlockOSThread: nothing.
+// lock_os_thread and unlock_os_thread are runtime.LockOSThread and UnlockOSThread: nothing, except
+// that the goroutine remembers the count, which Go's deadlock report shows ("locked to thread").
 void lock_os_thread() noexcept;
 void unlock_os_thread() noexcept;
 

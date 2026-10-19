@@ -202,8 +202,15 @@ int64_t num_cgo_call() noexcept {
     return 0;
 }
 
-void lock_os_thread() noexcept {}
-void unlock_os_thread() noexcept {}
+void lock_os_thread() noexcept {
+    detail::this_goroutine().locked++; // only for the deadlock report: "locked to thread"
+}
+void unlock_os_thread() noexcept {
+    detail::goroutine& g = detail::this_goroutine();
+    if (g.locked > 0) {
+        g.locked--;
+    }
+}
 
 void gc() noexcept {}
 void set_finalizer(const gp::any&, const gp::any&) noexcept {}

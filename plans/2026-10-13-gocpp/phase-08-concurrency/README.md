@@ -236,6 +236,23 @@ step 8.12's job must set `TSAN_OPTIONS=detect_deadlocks=0` for the `select_1000_
     running, because it may wake `main` (Go handles this case correctly too);
   - if `main` calls `runtime.Goexit` and no goroutines are left, the message is Go's:
     `fatal error: no goroutines (main called runtime.Goexit) - deadlock!`.
+  - **As built (step 8.11, [ADR-077](../../../docs/adr/077-deadlock-detection.md)):** the report is Go's, with
+    every goroutine in the order of its id (`goroutine N [reason]:`, the stack, `created by F in goroutine P`),
+    and exit code 2. The live and the blocked goroutines are the two halves of one atomic word, which a goroutine
+    reads where it is about to sleep, if its own block made every live goroutine blocked (`park_cell`,
+    `block_forever`), and where a goroutine ends and the timer thread after a firing; only when the halves are
+    equal does the detector look. It then asks whether anything can still wake a goroutine
+    (`timers_can_wake`, which now counts a timer that is being fired; a panic is no reason to wait, as in Go; a foreign thread: a thread that no `go` statement started and that asked for its goroutine, or a
+    callback converted to a C function pointer, turns the detector off for good, as cgo does in Go), collects the
+    records of the goroutine threads (each publishes the record it runs: a store per goroutine start and end),
+    and has each parked goroutine capture its own stack through its waiter (`gp_post`), so the same code
+    serves Linux and Windows. `main_goexit` ends the main goroutine's Goexit: the other goroutines go on, and
+    the last one to end prints the "no goroutines" message, or the ordinary report if the rest are all asleep.
+    A goroutine in `Sleep`, a system call or a C call is not asleep. `run_main` turns the detector on; a shared
+    library never does. Differences from Go: no `, N minutes` after a long wait, gocpp's frames for `sync`
+    (`sync.(*Mutex).Lock`, not `internal/sync.runtime_SemacquireMutex`), no `runtime stack:`; `, locked to
+    thread` follows `runtime.LockOSThread` and the package initializers of the main goroutine; the goroutine of an
+    AfterFunc is `created by time.goFunc`; `runtime.Stack(buf, true)` still shows only the calling goroutine.
 
 ## 3. Steps
 

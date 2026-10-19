@@ -868,13 +868,20 @@ int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
         // go statement of that goroutine and not of the first one that used the thread.
         detail::set_idle_limit(0);
     }
+    detail::enable_deadlock_detector(true);
     std::set_new_handler(detail::out_of_memory);
     detail::cxx_terminate = std::set_terminate(detail::on_terminate);
     args_storage() = to_strings(os::arguments(argc, argv));
     envs_storage() = to_strings(os::environment());
     try {
+        // Go runs the package initializers with the main goroutine locked to its thread; a
+        // LockOSThread in an init function keeps it locked for main (the count).
+        detail::this_goroutine().locked++;
         if (init != nullptr) {
             init();
+        }
+        if (detail::goroutine& g0 = detail::this_goroutine(); g0.locked > 0) {
+            g0.locked--;
         }
         main();
     } catch (const panic_error& e) {
@@ -882,15 +889,10 @@ int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
     } catch (const goexit_signal&) {
         // The main goroutine called runtime.Goexit: its deferred calls have run, and the
         // program goes on until the other goroutines are gone, then ends like Go (a program
-        // that has no goroutine left cannot do anything).
-        while (num_goroutine() > 1) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-        // Go prints this one without a trace.
-        detail::claim_death();
-        detail::write_stderr(
-            "fatal error: no goroutines (main called runtime.Goexit) - deadlock!\n");
-        os::exit(2);
+        // that has no goroutine left cannot do anything): "fatal error: no goroutines (main
+        // called runtime.Goexit) - deadlock!" without a trace, or the report of the deadlock when
+        // the goroutines that are left are all asleep (detail::main_goexit).
+        detail::main_goexit();
     }
     // Any other exception (a C++ exception, also a std::bad_alloc that C++ code throws) finds
     // no catch, so the C++ library calls detail::on_terminate on the stack of the throw, before

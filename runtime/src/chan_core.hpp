@@ -139,7 +139,13 @@ inline void park_cell(wake_cell& cell) {
     // (The wait below takes the waiter's lock even when the spin saw done: the waker sets done
     // under that lock and may still be inside it, and the goroutine must not go on, and end, before
     // it is out.)
-    spin_wait(cell);
+    if (!spin_wait(cell) && g.last_asleep) {
+        // About to sleep, and this goroutine's block made every live goroutine blocked (block_enter
+        // says so): the entry is queued and visible to wakers and the locks are released, so
+        // nothing may be left that can wake this one: the detector looks (src/deadlock.cpp). A
+        // goroutine that falls asleep while others run does not read the shared counts here.
+        deadlock_check();
+    }
     g.park.gp_wait([&cell] { return cell.done.load(std::memory_order_relaxed); });
 }
 

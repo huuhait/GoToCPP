@@ -5,6 +5,7 @@
 #include <gocpp/os.hpp>
 #include <gocpp/race.hpp>
 #include <gocpp/rt.hpp>
+#include "sched.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -23,13 +24,36 @@ namespace gp {
 
 namespace detail {
 
+namespace sched {
+
+constinit std::atomic<uint64_t> counts{0};
+constinit std::atomic<bool> detector_on{false};
+constinit std::atomic<bool> foreign_seen{false};
+constinit std::atomic<bool> main_gone{false};
+
+} // namespace sched
+
 namespace {
+
+// The main goroutine's record (null before it exists and after it called runtime.Goexit), for the
+// registry.
+constinit std::atomic<goroutine*> main_rec{nullptr};
+
+// The counts: the goroutines that are alive (num_goroutine) and that are blocked in a gocpp
+// operation (block_scope), in one word (sched::counts), so that the deadlock detector reads both at
+// one instant.
+void live_add() noexcept {
+    race::no_sync ns; // the counts order nothing in Go (gocpp/race.hpp)
+    sched::counts.fetch_add(sched::live_one, std::memory_order_acq_rel);
+}
+// live_sub returns the number of goroutines that are alive after.
+int64_t live_sub() noexcept {
+    race::no_sync ns;
+    return sched::live_of(sched::counts.fetch_sub(sched::live_one, std::memory_order_acq_rel)) - 1;
+}
 
 // The next id. Id 1 is the first thread that asks (this_goroutine): the main goroutine.
 constinit std::atomic<uint64_t> next_id{1};
-
-// The goroutines that are alive (num_goroutine).
-constinit std::atomic<int64_t> live{0};
 
 // The goroutines that go statements started and that have not ended (running_goroutines), and the
 // function that a go statement calls before it starts one (set_go_hook).
@@ -59,9 +83,6 @@ constexpr std::chrono::seconds claim_wait{30};
 // The thread that is ending the program (claim_death).
 constinit std::atomic<const void*> dying{nullptr};
 
-// The goroutines that are blocked in a gocpp operation (block_scope).
-constinit std::atomic<int64_t> blocked{0};
-
 // The panics that are being handled (panic_token), how long main waits for them, and how often it
 // had to.
 constinit std::atomic<int64_t> panicking_count{0};
@@ -88,6 +109,13 @@ struct worker {
     worker* prev_idle = nullptr; // the list of idle workers (pool_mu)
     worker* next_idle = nullptr;
     bool listed = false;
+    // The registry of workers (reg_mu): what the deadlock detector walks. cur is the record of the
+    // goroutine that the thread runs now, null between goroutines. It is on a cache line of its
+    // own: the thread writes it at the start and the end of every goroutine, and the fields above
+    // are written by other threads (a `go` statement, the neighbours in the idle list).
+    alignas(64) std::atomic<goroutine*> cur{nullptr};
+    std::atomic<worker*> reg_prev{nullptr};
+    std::atomic<worker*> reg_next{nullptr};
 };
 
 // Under AddressSanitizer a thread that ends near the end of the program can't be stopped by
@@ -112,6 +140,42 @@ constexpr std::size_t initial_idle_max = default_idle_limit;
 #endif
 
 constinit std::atomic<int64_t> idle_timeout_ns{initial_idle_timeout_ns};
+
+// The registry of the workers: the threads that run goroutines. Taken when a thread starts or ends
+// and by the detector, never by a goroutine.
+std::mutex reg_mu; // (not constinit: see pool_mu)
+constinit std::atomic<worker*> reg_head{nullptr};
+
+// (The lock orders the changes of the list; under -race it is ignored (no_sync: it must not order
+// one goroutine's accesses before another's), so the links are atomics, not plain fields.)
+void reg_add(worker* w) {
+    race::no_sync ns;
+    std::lock_guard<std::mutex> lk(reg_mu);
+    constexpr auto rlx = std::memory_order_relaxed;
+    worker* head = reg_head.load(rlx);
+    w->reg_prev.store(nullptr, rlx);
+    w->reg_next.store(head, rlx);
+    if (head != nullptr) {
+        head->reg_prev.store(w, rlx);
+    }
+    reg_head.store(w, rlx);
+}
+
+void reg_remove(worker* w) {
+    race::no_sync ns;
+    std::lock_guard<std::mutex> lk(reg_mu);
+    constexpr auto rlx = std::memory_order_relaxed;
+    worker* prev = w->reg_prev.load(rlx);
+    worker* next = w->reg_next.load(rlx);
+    if (prev != nullptr) {
+        prev->reg_next.store(next, rlx);
+    } else {
+        reg_head.store(next, rlx);
+    }
+    if (next != nullptr) {
+        next->reg_prev.store(prev, rlx);
+    }
+}
 
 // (No constinit: with the posix thread model of MinGW-w64 (WinLibs, MSYS2) std::mutex has no
 // constexpr constructor; with libstdc++ on Linux and the mcf model it is constant-initialized
@@ -147,10 +211,11 @@ void pool_remove(worker* w) {
     idle_count--;
 }
 
-// run_goroutine runs the goroutine g on the calling thread, to its end.
-void run_goroutine(goroutine* g) {
+// run_goroutine runs the goroutine g on the calling thread (the worker w), to its end.
+void run_goroutine(worker* w, goroutine* g) {
     os::tls_set(g);
     race::goroutine_started(g->id);
+    w->cur.store(g, std::memory_order_release);
     try {
         g->body->run();
     } catch (const panic_error& e) {
@@ -164,6 +229,10 @@ void run_goroutine(goroutine* g) {
     // on the stack of the throw (run_main's handler, panic.hpp, prints Go's report).
     g->body.reset(); // the closure's values go before the goroutine stops counting
     os::tls_set(nullptr);
+    // Out of the registry before the record goes. (The detector reads a record only when every live
+    // goroutine is blocked, at one instant; this goroutine is running and counted, so it never
+    // reads this one: no hand-shake, no fence here.)
+    w->cur.store(nullptr, std::memory_order_release);
     bool counted = g->counted;
     auto end_hook = g->end_hook;
     void* end_arg = g->end_arg;
@@ -171,9 +240,14 @@ void run_goroutine(goroutine* g) {
     {
         race::no_sync ns; // the counts order nothing in Go (gocpp/race.hpp)
         if (counted) {
-            live.fetch_sub(1, std::memory_order_acq_rel);
+            live_sub();
         }
         bodies.fetch_sub(1, std::memory_order_acq_rel);
+    }
+    if (counted) {
+        // The goroutines that are left may all be asleep now (or none is left, after Goexit of
+        // main).
+        deadlock_check();
     }
     // Outside the scope above: the hook hands control to another goroutine (iter.Pull's coroutine
     // ends), and that is an edge of the memory model that the race detector must see.
@@ -225,12 +299,13 @@ void worker_main(void* p) {
     goroutine* g = w->next;
     w->next = nullptr;
     while (g != nullptr) {
-        run_goroutine(g);
+        run_goroutine(w, g);
         if constexpr (race::mode) {
             race::finished_goroutine(); // -race: the thread keeps its place for a while
         }
         g = idle_wait(w);
     }
+    reg_remove(w);
     delete w;
     race::no_sync ns;
     threads_alive.fetch_sub(1, std::memory_order_acq_rel);
@@ -261,6 +336,16 @@ void set_stack_size(std::size_t n) noexcept {
     stack_setting.store(n, std::memory_order_relaxed);
 }
 
+namespace {
+// The runtime's own threads (the timer thread) are not "foreign": they wake goroutines only
+// through timers, which the detector knows (adopt_internal).
+constinit thread_local bool internal_thread = false;
+} // namespace
+
+void adopt_internal() noexcept {
+    internal_thread = true; // the record comes when the thread first asks for one
+}
+
 goroutine& this_goroutine() noexcept {
     if (void* p = os::tls_get(); p != nullptr) {
         return *static_cast<goroutine*>(p);
@@ -278,8 +363,13 @@ goroutine& this_goroutine() noexcept {
     g->id = next_id.fetch_add(1, std::memory_order_relaxed);
     g->counted = g->id == 1;
     if (g->counted) {
+        main_rec.store(g, std::memory_order_release);
         race::no_sync ns;
-        live.fetch_add(1, std::memory_order_acq_rel);
+        live_add();
+    } else if (!internal_thread) {
+        // A thread that no go statement started, and that is not the runtime's own: it may wake
+        // anyone, from now on (sched::foreign_seen).
+        sched::foreign_seen.store(true, std::memory_order_release);
     }
     {
         std::lock_guard<std::mutex> lk(adopted_mu);
@@ -314,7 +404,9 @@ void release_adopted(void* p) noexcept {
         }
     }
     if (g->counted) {
-        live.fetch_sub(1, std::memory_order_acq_rel);
+        goroutine* me = g;
+        main_rec.compare_exchange_strong(me, nullptr, std::memory_order_acq_rel);
+        live_sub();
     }
     delete g;
 }
@@ -355,7 +447,9 @@ void forget_adopted() noexcept {
         goroutine* g = adopted;
         adopted = g->next_adopted;
         if (g->counted) {
-            live.fetch_sub(1, std::memory_order_acq_rel);
+            goroutine* me = g;
+            main_rec.compare_exchange_strong(me, nullptr, std::memory_order_acq_rel);
+            live_sub();
         }
         delete g;
     }
@@ -365,11 +459,19 @@ uint64_t goroutine_id() noexcept {
     return this_goroutine().id;
 }
 
-void go_start(std::unique_ptr<task> body, std::size_t stack) {
-    this_goroutine(); // the main goroutine is registered before the first one it starts
+const char creator_gofunc = 0;
+const char creator_pull = 0;
+
+void go_start(std::unique_ptr<task> body, std::size_t stack, const void* creator) {
+    // The main goroutine is registered before the first one it starts. The creator is what Go's
+    // trace says ("created by main.main in goroutine 1"): its id and the address that gp::go,
+    // go_fn and go_call pass (their return address: in the function with the go statement).
+    uint64_t parent = this_goroutine().id;
     auto g = std::make_unique<goroutine>();
     g->id = next_id.fetch_add(1, std::memory_order_relaxed);
     g->counted = true;
+    g->parent_id = parent;
+    g->create_pc = creator;
     g->body = std::move(body);
     // The count first, then the hook: a library that gives its reference back (lib::detail::leave)
     // does so only when it sees no goroutine, under the lock that the hook takes, so either it
@@ -380,7 +482,7 @@ void go_start(std::unique_ptr<task> body, std::size_t stack) {
         if (auto hook = go_hook.load(std::memory_order_acquire)) {
             hook();
         }
-        live.fetch_add(1, std::memory_order_acq_rel);
+        live_add();
     }
     std::size_t size = stack != 0 ? stack : stack_size();
     if (stack == 0 && !race::mode) {
@@ -399,8 +501,10 @@ void go_start(std::unique_ptr<task> body, std::size_t stack) {
             race::no_sync ns;
             threads_alive.fetch_add(1, std::memory_order_acq_rel);
         }
+        reg_add(w);
         err = os::thread_start(worker_main, w, size);
         if (err != 0) {
+            reg_remove(w);
             threads_alive.fetch_sub(1, std::memory_order_acq_rel);
             delete w;
         }
@@ -409,7 +513,7 @@ void go_start(std::unique_ptr<task> body, std::size_t stack) {
         g.release(); // the goroutine owns it now
         return;
     }
-    int64_t have = live.fetch_sub(1, std::memory_order_acq_rel) - 1;
+    int64_t have = live_sub();
     bodies.fetch_sub(1, std::memory_order_acq_rel);
     claim_death();
     std::string msg = "runtime: failed to create new OS thread (have ";
@@ -482,13 +586,19 @@ void block_enter(const char* reason) noexcept {
     race::no_sync ns; // the counts of blocked goroutines order nothing in Go (gocpp/race.hpp)
     g.set_reason(reason);
     __atomic_store_n(&g.is_blocked, true, __ATOMIC_SEQ_CST);
-    blocked.fetch_add(1, std::memory_order_acq_rel);
+    uint64_t old = sched::counts.fetch_add(1, std::memory_order_acq_rel);
+    // Is this goroutine the last one to fall asleep? "Every live goroutine is blocked" can newly
+    // become true only here, where a goroutine ends (live_sub), in main_goexit and where the timer
+    // thread has fired: each of them checks. So park_cell checks only when this flag is set, and a
+    // goroutine that falls asleep while others run does not read the shared counts again (the cache
+    // line is the cost of the check when many goroutines wake each other).
+    g.last_asleep = sched::blocked_of(old) + 1 == sched::live_of(old);
 }
 
 void unblock(goroutine& g) noexcept {
     race::no_sync ns;
     if (__atomic_exchange_n(&g.is_blocked, false, __ATOMIC_SEQ_CST)) {
-        blocked.fetch_sub(1, std::memory_order_acq_rel);
+        sched::counts.fetch_sub(1, std::memory_order_acq_rel);
     }
 }
 
@@ -536,10 +646,65 @@ void go_of_nil() noexcept {
 
 void block_forever(const char* reason) noexcept {
     block_scope b(reason);
-    waiter w;
-    w.gp_wait([] { return false; });
+    // The goroutine is parked for ever: the others may be too.
+    deadlock_check();
+    this_goroutine().park.gp_wait([] { return false; });
     __builtin_unreachable();
 }
+
+void main_goexit() noexcept {
+    goroutine& g = this_goroutine();
+    if (g.counted) {
+        // Not counted from here on, and out of the registry. The flag first: the goroutine that
+        // ends last sees it when the count reaches 0 (live's decrement is the later of the two).
+        sched::main_gone.store(true, std::memory_order_seq_cst);
+        goroutine* me = &g;
+        main_rec.compare_exchange_strong(me, nullptr, std::memory_order_acq_rel);
+        g.counted = false;
+        live_sub();
+    }
+    // The other goroutines may be asleep already, or none may be left.
+    deadlock_check();
+    // The thread has nothing to do but wait for the program to end (a goroutine that calls os.Exit,
+    // or a deadlock report).
+    g.park.gp_wait([] { return false; });
+    __builtin_unreachable();
+}
+
+void deadlock_check() noexcept {
+    // Every goroutine that is alive is blocked: the cheap test (one load) that decides whether the
+    // detector must look closer. A goroutine that is being woken is not counted as blocked
+    // (unblock), so this is never true while a wake-up is on its way.
+    uint64_t v;
+    {
+        race::no_sync ns; // (a load that orders nothing for the race detector)
+        v = sched::counts.load(std::memory_order_acquire);
+    }
+    if (sched::live_of(v) != sched::blocked_of(v)) [[likely]] {
+        return;
+    }
+    if (sched::detector_on.load(std::memory_order_relaxed)) {
+        deadlock_look();
+    }
+}
+
+namespace sched {
+
+void collect(std::vector<goroutine*>& out) {
+    if (goroutine* m = main_rec.load(std::memory_order_seq_cst); m != nullptr) {
+        out.push_back(m);
+    }
+    std::lock_guard<std::mutex> lk(reg_mu);
+    race::no_sync ns;
+    for (worker* w = reg_head.load(std::memory_order_relaxed); w != nullptr;
+         w = w->reg_next.load(std::memory_order_relaxed)) {
+        if (goroutine* g = w->cur.load(std::memory_order_seq_cst); g != nullptr) {
+            out.push_back(g);
+        }
+    }
+}
+
+} // namespace sched
 
 void claim_death() noexcept {
     // The address of a thread-local is this thread's token.
@@ -580,11 +745,11 @@ void exit(int code) noexcept {
 }
 
 int64_t num_goroutine() noexcept {
-    return detail::live.load(std::memory_order_acquire);
+    return detail::sched::live_of(detail::sched::counts.load(std::memory_order_acquire));
 }
 
 int64_t num_blocked() noexcept {
-    return detail::blocked.load(std::memory_order_acquire);
+    return detail::sched::blocked_of(detail::sched::counts.load(std::memory_order_acquire));
 }
 
 } // namespace gp

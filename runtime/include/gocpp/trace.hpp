@@ -138,6 +138,18 @@ void indexed_lines_of(std::string_view debug_line, std::string_view line_str, st
 void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool complete,
                   const exe_image* cached = nullptr);
 
+struct goroutine; // gocpp/goroutine.hpp
+
+// append_created_by appends Go's line for the goroutine that started g, after its trace:
+//
+//     created by main.main in goroutine 1
+//             /path/main.go:8 +0x65
+//
+// from the address that the go statement left in g (gp::go, go_fn and go_call pass their return
+// address to go_start). Nothing is appended for the main goroutine, a thread that no go statement
+// started, or a go statement in the runtime's own code (the function of an AfterFunc).
+void append_created_by(std::string& out, const goroutine* g);
+
 // find_symbol returns the function of img that contains addr (an address in the file, before
 // relocation), or null when addr is before the first function or between two of them.
 const exe_symbol* find_symbol(const exe_image& img, uint64_t addr) noexcept;

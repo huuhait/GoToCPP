@@ -80,7 +80,7 @@ func runGoroutine(t *testing.T, bin, mode string) {
 	t.Run("panic-many", func(t *testing.T) {
 		// Eight goroutines panic together: one report, one exit.
 		out, code, sig := caseRun(t, bin, "go-panic-many")
-		if code != 2 || sig != "" || strings.Count(out, "panic: ") != 1 || strings.Count(out, "goroutine ") != 1 ||
+		if code != 2 || sig != "" || strings.Count(out, "panic: ") != 1 || strings.Count(out, "\ngoroutine ") != 1 ||
 			!regexp.MustCompile(`^panic: [0-7]\n\ngoroutine [2-9] \[running\]:\n`).MatchString(out) {
 			t.Errorf("exit code %d %s, output:\n%s\nwant one report of one goroutine's panic and exit code 2", code, sig, out)
 		}

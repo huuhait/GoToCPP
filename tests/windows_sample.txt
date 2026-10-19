@@ -46,6 +46,13 @@ fmt_int_unicode_values
 fmt_string_q_unicode
 assert_panic_error
 errors_as_chain
+deadlock_chan_recv
+deadlock_goroutines
+deadlock_goexit_main_late
+deadlock_goexit_main_asleep
+nodeadlock_timer_wait
+nodeadlock_mutex_handoff
+goroutine_panic_created_by
 
 # Package os (Phase 14 step 14.3): the os tests whose Linux expectation holds on Windows too (found by running
 # each test on a real PC and with Go 1.25.14 built for Windows; tests/run/os_win_*.gp are the ones whose Windows output differs).

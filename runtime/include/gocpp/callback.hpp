@@ -70,6 +70,7 @@
 #pragma once
 
 #include <gocpp/func.hpp>
+#include <gocpp/goroutine.hpp>
 #include <gocpp/interop.hpp>
 #include <gocpp/panic.hpp>
 #include <gocpp/ptr.hpp>
@@ -280,6 +281,7 @@ struct func_sig<gp::func<Sig>> {
 // fn<&f>(): the callback of the function f of the program.
 template <auto Fn>
 auto fn() noexcept {
+    gp::detail::note_foreign_entry(); // (see fn_val)
     using Sig = typename gp::detail::fn_sig<decltype(Fn)>::type;
     return callback<Sig, detail::static_fn<Fn>>();
 }
@@ -287,6 +289,7 @@ auto fn() noexcept {
 // fn_lit<gp::func<Sig>>(lambda): the callback of a func literal that captures nothing.
 template <typename FuncType, typename L>
 auto fn_lit(L lambda) {
+    gp::detail::note_foreign_entry(); // (see fn_val)
     return callback<typename detail::func_sig<FuncType>::type, L>(std::move(lambda));
 }
 
@@ -294,6 +297,11 @@ auto fn_lit(L lambda) {
 // a closure): usable as a C++ callable, std::function and gp::func, not as a function pointer.
 template <typename Sig>
 auto fn_val(const func<Sig>& f) {
+    // The program gives a function of its own to C or C++ code, which may call it from a thread of
+    // its own, at any time from now on: the deadlock detector can no longer know that nothing will
+    // wake a goroutine, and stays quiet for good (gocpp/goroutine.hpp), as Go does in a cgo
+    // program.
+    gp::detail::note_foreign_entry();
     return callback<Sig, func<Sig>>(f);
 }
 
