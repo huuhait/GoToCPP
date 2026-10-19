@@ -20,7 +20,7 @@
 - [x] 12.6 Codegen upgrades (`.`/`->`, designated init order, template/index, auto `const char*` except "keeps the pointer" list, references)
 - [x] 12.7 Cache + incremental probing + parallel probing (header contents in the key)
 - [x] 12.8 Gap E1: constant macros probed first, substituted before go/types
-- [ ] 12.9 Gap E2: second type-check pass for promoted C++ members
+- [x] 12.9 Gap E2: second type-check pass for promoted C++ members
 - [ ] 12.10 `gocpp bindgen` (struct-valued macros as `var`)
 - [ ] 12.11 `-interop=typed|opaque` + clang-missing fallback + default switch
 - [ ] 12.12 Tests
