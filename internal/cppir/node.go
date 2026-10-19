@@ -176,10 +176,12 @@ type Declarator struct {
 	Init Expr
 }
 
-// A StaticAssert is `static_assert(Cond);`, a declaration at namespace or class scope.
+// A StaticAssert is `static_assert(Cond);`, or `static_assert(Cond, "Msg");` when Msg is not
+// empty (Msg is written as a C++ string literal), a declaration at namespace or class scope.
 type StaticAssert struct {
 	Pos  Pos
 	Cond Expr
+	Msg  string
 }
 
 // A Concept is a C++20 concept definition at namespace scope:

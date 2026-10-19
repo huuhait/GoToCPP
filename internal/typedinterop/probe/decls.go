@@ -75,10 +75,10 @@ var (
 	idRx        = regexp.MustCompile(`"id": "(0x[0-9a-f]+)"`)
 )
 
-const declHelpers = `template <class T> constexpr long gocpp_decl_internal_size = [] { if constexpr (requires { sizeof(T); }) return (long)sizeof(T); else return -1L; }();
-template <class T> constexpr long gocpp_decl_internal_align = [] { if constexpr (requires { sizeof(T); }) return (long)alignof(T); else return -1L; }();
-template <class T> struct gocpp_decl_internal_ut { using type = void; };
-template <class T> requires std::is_enum_v<T> struct gocpp_decl_internal_ut<T> { using type = std::underlying_type_t<T>; };
+const declHelpers = `template <class gocpp_probe_internal_T> constexpr long gocpp_decl_internal_size = [] { if constexpr (requires { sizeof(gocpp_probe_internal_T); }) return (long)sizeof(gocpp_probe_internal_T); else return -1L; }();
+template <class gocpp_probe_internal_T> constexpr long gocpp_decl_internal_align = [] { if constexpr (requires { sizeof(gocpp_probe_internal_T); }) return (long)alignof(gocpp_probe_internal_T); else return -1L; }();
+template <class gocpp_probe_internal_T> struct gocpp_decl_internal_ut { using type = void; };
+template <class gocpp_probe_internal_T> requires std::is_enum_v<gocpp_probe_internal_T> struct gocpp_decl_internal_ut<gocpp_probe_internal_T> { using type = std::underlying_type_t<gocpp_probe_internal_T>; };
 `
 
 // unsafeName says why a name cannot be written into a probe file, or "": the text of a

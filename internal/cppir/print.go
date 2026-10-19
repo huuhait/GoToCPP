@@ -142,7 +142,11 @@ func (p *printer) decl(d Decl) {
 	case *VarDecl:
 		p.line(d.Pos, p.inline(d))
 	case *StaticAssert:
-		p.line(d.Pos, "static_assert("+p.expr(d.Cond)+");")
+		if d.Msg != "" {
+			p.line(d.Pos, "static_assert("+p.expr(d.Cond)+", "+strconv.Quote(d.Msg)+");")
+		} else {
+			p.line(d.Pos, "static_assert("+p.expr(d.Cond)+");")
+		}
 	case *Concept:
 		p.concept(d)
 	case *Comment:

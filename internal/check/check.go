@@ -116,6 +116,13 @@ type Config struct {
 	// package is not checked a second time (which costs as much as the first check). The stubs stay,
 	// with the signatures that every caller needs.
 	NoDerivedBodies bool
+
+	// Constants, if not nil, gives the compile-time values of the C/C++ names that a package uses where
+	// Go needs a constant (an array length, a const declaration, a case, a shift count), so that
+	// [cstdio.BUFSIZ]byte and case cstdio.EOF: type-check with the stock go/types: Check puts the
+	// values into the syntax tree before it checks the package (constsubst.go; Phase 12, step 12.8,
+	// ADR-097). nil leaves such names opaque, as before. Only typed mode sets it.
+	Constants ConstFunc
 }
 
 // A Dep is what Check needs of a package that it imports but does not
@@ -240,6 +247,10 @@ type Package struct {
 	// declared with C/C++ types (see Opaque). It is nil if the package
 	// was not type-checked.
 	Opaque *Opaque
+
+	// Consts are the C/C++ names that Check replaced with their values before go/types ran (Config.Constants):
+	// what the user wrote, where, and the constant. Empty without Config.Constants.
+	Consts []ConstUse
 
 	// Flags are the C/C++ flags of the package's directives and of
 	// pkg-config, after the flag allow-list (build.ReadPackageFlags): the
@@ -387,7 +398,13 @@ func Check(prog *load.Program, cfg Config) *Result {
 				c = c || hasC[dep]
 			}
 			hasC[lp] = c
-			p = checkPackage(prog.Fset, lp, checked, cgoh, c && !depsFailed, probeErrs[lp], cfg.NoDerivedBodies)
+			perrs := probeErrs[lp]
+			cs, cerrs := substituteConstants(cfg.context(), prog.Fset, lp, flagsOf[lp], cfg)
+			if len(cerrs) > 0 {
+				perrs = append(slices.Clone(perrs), cerrs...)
+			}
+			p = checkPackageConsts(prog.Fset, lp, checked, cgoh, c && !depsFailed, perrs, cfg.NoDerivedBodies, cs)
+			p.Consts = cs.uses()
 			p.Flags, p.ProbeFlags, p.ExternC = flagsOf[lp].flags, flagsOf[lp].probe, flagsOf[lp].externC
 			p.Opaque = findOpaque(prog.Fset, p)
 			checked[lp] = p.Types
@@ -444,7 +461,16 @@ func hasHardErrors(l *diag.List) bool {
 // first (after the load warnings).
 func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package,
 	cgoh *types.Package, convert bool, probeErrs []diag.Diagnostic, noDerived bool) *Package {
+	return checkPackageConsts(fset, lp, checked, cgoh, convert, probeErrs, noDerived, nil)
+}
+
+// checkPackageConsts is checkPackage for a package whose C/C++ constants were put into the tree
+// (cs: constsubst.go): a substitution in a place that Go allows a variable in (a case, a shift
+// count) that go/types rejects is taken back, and the package is checked again.
+func checkPackageConsts(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package,
+	cgoh *types.Package, convert bool, probeErrs []diag.Diagnostic, noDerived bool, cs *constSubst) *Package {
 	cv := newConverter(fset, lp, cgoh)
+	cv.consts = cs
 	mp := newMustPass(fset, lp) // the ! forms of Phase 10 (must.go), or nil
 	var userIdents map[*ast.Ident]bool
 	if mp != nil || len(lp.Derives) > 0 {
@@ -458,6 +484,11 @@ func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Packa
 	}
 	p, errs := checkFiles(fset, lp, checked, cv, probeErrs, convert)
 	p.checks = 1
+	for cs.revert(p.Errors) {
+		checks := p.checks + 1
+		p, errs = checkFiles(fset, lp, checked, cv, probeErrs, convert)
+		p.checks = checks
+	}
 	for {
 		// Both rewrites look at the same check; the package is checked again
 		// when one of them changed it.
@@ -547,8 +578,18 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 	if mf := macroFixer(lp); mf != nil {
 		fix = func(msg string) string { return mf(cv.fixMessage(msg)) }
 	}
+	fixAt := deriveFixer(lp)
+	if cv.consts != nil {
+		derived := fixAt
+		fixAt = func(pos token.Pos, msg string) string {
+			if derived != nil {
+				msg = derived(pos, msg)
+			}
+			return cv.consts.fixAt(pos, msg)
+		}
+	}
 	c := &collector{fset: fset, list: errs, seen: make(map[errorKey]bool), fix: fix,
-		buffer: true, fixAt: deriveFixer(lp)}
+		buffer: true, fixAt: fixAt}
 	imp := &importer{from: lp, checked: checked, refused: make(map[string]bool), cgoh: cv.cgoh}
 	if lp.Incomplete {
 		// Check doesn't check such a package, but a caller that wants

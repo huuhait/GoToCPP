@@ -313,7 +313,16 @@ The contract is [docs/spec/typed-interop.md](../../../docs/spec/typed-interop.md
   Not done: a precompiled header of the preamble (an edit still costs one run of 0.3 s of CPU for the headers), dependencies
   per reference (an edit of any header of the package loses all its results), and `gocpp build` does not call the
   typed pipeline yet (12.11).
-- **12.8 (macro constants)** reads `Result.Value` (`big.Int`, exact float bits, string) of the
-  references with `Ref.WantValue`.
+- **12.8 (macro constants, gap E1)**, done: ADR-097, spec §10. `check.Config.Constants` (a `check.ConstFunc` that the driver
+  gives under `GOCPP_TYPED_INTEROP=1`; `typedinterop.Constants` is the implementation) is asked once per package, before
+  `go/types`, for the values of the C/C++ names in an array length, a const declaration, a case or a shift count
+  (`Result.Value`: `big.Int`, exact float bits, string, of the references with `Ref.WantValue`, through the 12.7
+  cache); `check/constsubst.go` replaces each name in the tree by an untyped constant at the same position, so
+  `[cstdio.BUFSIZ]byte`, `const tau = cmath.M_PI * 2` and `case cstdio.EOF:` type-check with stock `go/types`. A name
+  that is no constant is an error where Go needs one (array length, const declaration) and is left alone elsewhere;
+  a case or shift (the whole `x << N`) that Go's rules reject is taken back (opaque mode stays the arbiter); unprobed names are
+  unchanged; macros of `__LINE__`/`__FILE__`/`__COUNTER__`/`__DATE__` (also through other macros) are refused; the first
+  translation unit `static_assert`s each substituted value against the build compiler (clang probes, g++ may build). Not done: constexpr function calls, variable-template instances,
+  `constexpr const char*` variables, `C.NAME`, a cross build (the host's values).
 - Developer tool: `gocpp __typed-probe [-refs] [-decls] [patterns]` prints the references and results as
   JSON.

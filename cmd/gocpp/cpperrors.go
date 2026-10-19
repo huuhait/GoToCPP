@@ -98,6 +98,11 @@ func cppLines(fset *token.FileSet, pkg *check.Package) cppLineSet {
 	// generic function, and what the C++ compiler says about its body is about the type argument
 	// (step 7.2).
 	genericBodies(set, fset, pkg.Load, make(map[*load.Package]bool))
+	// The C/C++ names that typed mode replaced by their values (step 12.8) have the static_assert that
+	// compares them with this compiler's: it is at their line.
+	for _, u := range pkg.Consts {
+		set.add(filepath.Clean(u.Pos.Filename), u.Pos.Line)
+	}
 	for _, f := range pkg.Load.Files {
 		if f.Info != nil {
 			for _, inc := range f.Info.Includes {

@@ -1,9 +1,9 @@
-# Typed interop: the collector, the probe, the declarations, the type mapper, the checker and the code generation (steps 12.1 to 12.6)
+# Typed interop: the collector, the probe, the declarations, the type mapper, the checker, the code generation and the constants (steps 12.1 to 12.8)
 
 Typed interop (Phase 12, [README](../../plans/2026-10-13-gocpp/phase-12-typed-interop/README.md))
 asks **clang** for the real C++ types of exactly the C/C++ names that a program uses. This
-document is the contract of the first six steps, which every later step builds on (§5 and §6 are
-steps 12.3 and 12.4, §7 is step 12.5, §8 is step 12.6, §9 is step 12.7):
+document is the contract of the first eight steps, which every later step builds on (§5 and §6 are
+steps 12.3 and 12.4, §7 is step 12.5, §8 is step 12.6, §9 is step 12.7, §10 is step 12.8):
 
 | Step | Package | What it does |
 |---|---|---|
@@ -13,6 +13,7 @@ steps 12.3 and 12.4, §7 is step 12.5, §8 is step 12.6, §9 is step 12.7):
 | 12.4 type mapper | `internal/typedinterop/ftype` | maps a C++ type (and a probe result) to a `go/types` type of the foreign view, with `Opaque` as the fallback |
 | 12.5 interop checker | `internal/typedinterop/icheck` | errors for the C++ compiler's errors, at the `.gp` position, in Go's words; silent when not certain |
 | 12.6 code generation | `internal/lower` (`typed*.go`, `keeps.go`), `cmd/gocpp/typedlower.go` | writes the C++ of foreign calls, members, literals and strings from the real types; off unless `GOCPP_TYPED_INTEROP=1` |
+| 12.8 constants (gap E1) | `internal/check` (`constsubst.go`), `internal/typedinterop` (`consts.go`) | probes the C/C++ names that sit where Go needs a constant and puts their values into the program before `go/types` runs; off unless `GOCPP_TYPED_INTEROP=1` |
 | glue | `internal/typedinterop` | `Analyze(ctx, pkg, fset, opts)`: collect, kind probe, probe, and with `Options.Decls` the declarations and the mapping; `Report` (JSON for the developer tool) |
 
 Nothing in the opaque pipeline uses these packages: they are additive. The only change outside
@@ -224,7 +225,8 @@ bytes; `-stats`: one line on standard error with the units, hits, batches and co
   composite literal without a type (inside another literal), `<-ch`, a slice of a C++ value, or a
   variadic spread is `Incomplete`/skipped.
 - Array lengths of C++ constants (`[cstdio.BUFSIZ]byte`) are probed as a type
-  (`gocpp_probe_internal_pr::array<uint8_t, BUFSIZ>`) and as a constant; the substitution is step 12.8.
+  (`gocpp_probe_internal_pr::array<uint8_t, BUFSIZ>`) and as a constant; since step 12.8 the constant is put into the
+  program before `go/types` (§10), so the array type is a plain Go type.
 - A call through a local function value, a method value (`f := v.size`) and an embedded-field
   promoted member are not typed here (12.9).
 - The kind of a path is the kind probe's: a `NotFound` kind is still probed (clang's own error
@@ -584,3 +586,112 @@ probes, the declaration parts and their refusals.
 - **Parallelism.** `Jobs()` (`GOCPP_PROBE_JOBS`, default `min(8, NumCPU/2)`) compilers at the same time in the
   process, in all calls (a global semaphore taken by every run, also the auxiliary ones). Cancelling the
   context kills each compiler's process group.
+
+## 10. Constants: gap E1 (step 12.8, ADR-097)
+
+[ADR-097](../adr/097-typed-interop-puts-the-values-of-c-constants-into-the-program-before-go-types.md) has the
+reasons. Stock `go/types` cannot evaluate a C/C++ name (it is opaque), so `[cstdio.BUFSIZ]byte`, `const n =
+cmath.M_PI * 2` and `case cstdio.EOF:` fail in opaque mode (the phase gate "C macros in constant expressions
+are not supported yet (Phase 12)" and the lowering's "write the number"). In typed mode the names are probed
+**before** `go/types` and replaced in the syntax tree by constants of the same position:
+
+```
+var buf [cstdio.BUFSIZ]byte        ->  var buf [8192]byte
+const tau = cmath.M_PI * 2         ->  const tau = 0x1.921fb54442d18p+01 * 2
+case cstdio.EOF:                   ->  case -1:
+n := 1 << lib.SHIFT                ->  n := 1 << 5
+```
+
+**The hook.** `check.Config.Constants` (a `check.ConstFunc`; nil is the default and changes nothing) is called by
+`Check` once per package, before the first `go/types` run, with a `ConstQuery`: the package folder, its probe flags,
+its `#include` texts (with the extern "C" mark), the target, and the `CppPath`s (header package or namespace, and
+the names after it) of every name in a place below. `typedinterop.Constants(Options)` answers it; the driver sets it
+when `GOCPP_TYPED_INTEROP=1` (`typedConstants` in `cmd/gocpp/typedlower.go`, called in `check.go`), for every
+command that checks (`build`, `run`, `check`, `emit`, `vet`, `expand`); the language server does not set it.
+
+**The places** (`constFinder`), the only ones where a name is replaced:
+
+| Place | Name that is not a constant |
+|---|---|
+| an array length: `[N]T`, anywhere an array type is written | an error (Go needs a constant) |
+| the value of a `const` declaration | an error |
+| a `case` of an expression switch (not a type switch) | left as it was |
+| the count of a shift: `x << N`, `x >>= N` | left as it was |
+
+Inside a place the finder looks through parentheses, the unary `+ - ^ !`, binary operators, and the arguments of
+a conversion to a basic Go type (`uint8(lib.N)`) and of `len`, `cap`, `min`, `max`, `real`, `imag`, `complex`. It does
+not look into `unsafe.Sizeof` and friends, nor into the arguments of a call of a C/C++ function, of a Go function
+or of a `C.type(...)` conversion. A name is a selector chain that starts at a header package or a namespace
+(`cstdio.BUFSIZ`, `consts.geo.kSides`, `std.numbers.pi`, `macros.Dim.kWidth`, `k.kPt.x`); `C.NAME` of `import "C"` is not.
+
+**The answers** (`ConstAnswer`, from `Result.Value`/`ValueError` of the 12.2 probe with `WantValue`):
+
+| C++ | Go constant | Notes |
+|---|---|---|
+| integer, enumerator of an unscoped enum, `__int128` | untyped integer, exact | `-7` is a unary minus on `7`; `(1UL << 31)` is `2147483648` (C++ evaluated it) |
+| `char`, `wchar_t`, `char16_t`, `char32_t` | untyped rune (`'a'`) | a negative or surrogate code is an integer literal |
+| `bool` | `true`, `false` | |
+| `float`, `double`, `long double` that is exact | untyped float, **the exact double** | decimal if the exact expansion is up to 20 characters (`0.5`, `3.0`), else hexadecimal (`0x1.999999999999ap-04`) |
+| string literal macro (adjacent literals, escapes) | Go string of the exact bytes | refused when a byte is not UTF-8 (clang's dump would give U+FFFD) |
+| `constexpr`/`const` variable, static member, member of a constexpr object, namespace member | as above | `constexpr const char*` and arrays are not strings (no constant) |
+| NaN, infinity | no constant | "its value NaN is not a number that a Go constant can have" |
+| enumerator of an `enum class` | not substituted | not an integer in C++ |
+| a macro with a side effect or a call, a mutable variable, a pointer, a class object | no constant | "the C++ compiler cannot evaluate it at compile time (...)" / "its type T is not a number, a character, a boolean or a string literal, the only things that Go constants can be" |
+| a function-like macro without its arguments | no constant | "it is a macro that does not expand to an expression (it is empty, function-like or a statement): ..." |
+| a type | no constant | "it names a type, not a value" |
+| a macro whose value is the place or the time of its expansion: `__LINE__`, `__FILE__`, `__FILE_NAME__`, `__COUNTER__`, `__DATE__`, `__TIME__`, `__TIMESTAMP__`, `__BASE_FILE__`, `__INCLUDE_LEVEL__` in its body or in the body of a macro it uses | no constant | "its value depends on where or when it is used (the macro expands to __LINE__), so the probe's value would not be the program's" |
+
+A name that the compiler has no answer for (undefined, headers that do not include, no clang, another target
+than this machine's, a probe that failed) is left as it was: the checks that exist report it, and the opaque gate
+and lowering message appear if it sits in an array length or a const declaration. Not an error of its own, except a
+warning when the probe itself failed ("cannot evaluate the C/C++ constants of this package: ... (they stay opaque)").
+
+**Errors** are at the `.gp` position of the name, in Go's words, with the name the user wrote: `array length
+cstdio.NEXT must be constant: <reason>`, `lib.TWICE is not constant: <reason>`, and for a substituted value
+go/types' own messages with the literal replaced by the name (`invalid array length lib.NEG (untyped int constant
+-7)`, `cannot use lib.NEG (untyped int constant -7) as uint8 value in constant declaration (overflows)`).
+`gocpp explain` has entries (`interop/const-array-len`, `interop/const-decl`, `interop/const-warning`).
+
+**Compatibility with opaque mode.** A substitution in a case or a shift count that makes `go/types` report an error
+(except a duplicate case) is taken back and the package is checked again, so the program that opaque mode and the C++
+compiler accept is accepted (`case cstdio.EOF:` in a switch on a `byte`; `switch { case lib.ENABLED: }` with an
+integer macro; `1 << lib.NEG`; `var m int32 = 1 << lib.S31`: the place of a shift is the whole `x << N`).
+`Package.Consts` lists the substitutions that stand, with the probe's answer and spelling.
+
+**The guard** (ADR-097 §7). The first translation unit of the package asserts, after the headers, each name that
+was replaced, once however often it is used, behind a `#line` of its first use:
+
+```cpp
+static_assert(static_cast<long long>(BUFSIZ) == 8192LL, "gocpp: cstdio.BUFSIZ differs between the probe compiler (clang++) and this compiler (main.gp:10:14)");
+static_assert(static_cast<double>(M_PI) == 0x1.921fb54442d18p+01, "gocpp: cmath.M_PI differs ...");
+static_assert(std::string_view(NAME, sizeof(NAME) - 1) == std::string_view("ab", 2), "gocpp: g.NAME differs ...");
+```
+
+The name is spelled as the probe spelled it (`EOF`, `::kMax`, `::geo::deep::kN`, `(::kPt).x`). Integers, characters,
+bools and enumerators are compared as `long long` (`unsigned long long` above 2^63; a value wider than 64 bits gets a
+comment instead), floats as `double` against the exact literal, strings by length and bytes (octal escapes). A
+build with g++ of a header that branches on `__clang__` (`#ifdef __clang__ #define VV 1 #else #define VV 2`) fails
+with `./main.gp:8: C++: static assertion failed: gocpp: h.VV differs between the probe compiler (clang++) and this
+compiler (main.gp:8:11)` at the line of the use; nothing is written in opaque mode. Macros that name the
+compiler (`_PSTL_CLANG_VERSION`, `_GLIBCXX_CLANG`, `__GNUC__`: 4 under clang, 15 under g++) differ already, so a
+program that uses one as a constant does not build with the other compiler.
+
+**Semantics to know.** A substituted constant is a Go untyped constant: Go's arithmetic on it is exact and
+does not wrap (`lib.UINT_MAX + 1` is 4294967296), and `x := 1 << lib.N` is a Go `int`. The value of a macro is
+what C++ evaluated, with C++'s arithmetic inside the macro. Values are the host's (the probe compiler is clang);
+for a cross build nothing is substituted. The standard library's packages (`Package.Load.Std`) are not asked.
+`gocpp expand` prints the user's declarations byte for byte (ADR-091), so it shows the names; `gocpp emit` shows
+the numbers. The probe's helper templates and variables are named `gocpp_probe_internal_*`, so a header with a
+macro `N`, `T`, `V`, `K`, `C`, `U`, `t`, `v` or `a` does not stop the probe (the build's own protection of the
+runtime's names, macros.go, still applies to the generated code).
+
+**Cache and cost.** The query is one `probe.Runner.Probe` of bare paths with `WantValue`, so the answers are the
+12.7 unit results (`typed-v1/u`, per name, under the contents of the headers) and run in the 12.7 batches; the
+declarations of the type of an enumerator (is its enum scoped) are asked from `Runner.Decls` only when a name is of
+a class or enum type. A package with no name in a place asks nothing. Warm: no compiler run.
+
+**Tests.** `internal/check/constsubst_test.go` (fake `ConstFunc`: values, kinds, places, errors, revert, messages,
+float literals), `internal/typedinterop/consts_test.go` + `testdata/consts` (the header zoo against clang: every
+shape in the table above, redefinition and `#undef`, platform and flag macros, a header that redefines another's
+macro, the cache), `cmd/gocpp/typedconsts_test.go` (the driver: typed, opaque, no clang), and `tests/typed`
+(`macro_consts.gp` with its C++ twin, `err_const_*.gp`).

@@ -314,6 +314,7 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 			return interop.ProbeKinds(ctx, cxx, dir, flags, includes, all)
 		}
 	}
+	cfg.Constants = typedConstants() // E1 of typed interop: only with GOCPP_TYPED_INTEROP=1 (typedlower.go)
 	c.typeChecked = true
 	r := check.Check(prog, cfg)
 	if c.ctx != nil && c.ctx.Err() != nil {

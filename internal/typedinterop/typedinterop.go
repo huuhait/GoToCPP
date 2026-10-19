@@ -124,6 +124,7 @@ func Analyze(ctx context.Context, p *check.Package, fset *token.FileSet, opts Op
 	}
 	set := collect.Collect(p, fset)
 	rep := &Report{Set: set, Includes: UnitIncludes(p)}
+	var err error
 	rn := opts.Runner
 	if rn == nil {
 		rn = new(probe.Runner)
@@ -134,31 +135,8 @@ func Analyze(ctx context.Context, p *check.Package, fset *token.FileSet, opts Op
 		return rep, nil
 	}
 	t0 := time.Now()
-	paths := set.KindPaths()
-	hdrs := set.HeaderNames()
-	if len(paths) > 0 && len(rep.Includes) > 0 {
-		res, err := interop.ProbeKinds(ctx, cxx, p.Load.Dir, p.ProbeFlags, rep.Includes, append(slices.Clone(paths), hdrs...))
-		if err != nil {
-			return nil, fmt.Errorf("cannot probe the kinds of the C/C++ names: %w", err)
-		}
-		rep.Kinds, rep.IncludeErrors = res.Kinds, res.IncludeErrors
-		// A header package whose name is also a namespace (oop for a header that declares
-		// namespace oop): its names are looked up in the namespace first, as the opaque build
-		// does. Rare, so the second run is made only when it happens.
-		ns := make(map[string]bool)
-		for _, h := range hdrs {
-			if res.Kinds[h] == interop.Namespace {
-				ns[h] = true
-			}
-		}
-		if len(ns) > 0 {
-			paths = append(append(paths, hdrs...), set.NamespacePaths(ns)...)
-			res, err = interop.ProbeKinds(ctx, cxx, p.Load.Dir, p.ProbeFlags, rep.Includes, paths)
-			if err != nil {
-				return nil, fmt.Errorf("cannot probe the kinds of the C/C++ names: %w", err)
-			}
-			rep.Kinds, rep.IncludeErrors = res.Kinds, res.IncludeErrors
-		}
+	if rep.Kinds, rep.IncludeErrors, err = probeKinds(ctx, cxx, p.Load.Dir, p.ProbeFlags, rep.Includes, set); err != nil {
+		return nil, err
 	}
 	rep.KindTime = time.Since(t0)
 	// The overload sets of the functions the program calls do not depend on the probe's answers
@@ -184,6 +162,37 @@ func Analyze(ctx context.Context, p *check.Package, fset *token.FileSet, opts Op
 		}
 	}
 	return rep, nil
+}
+
+// probeKinds asks the kind probe about the paths of the references of set (and the header packages
+// they go through), with the second run for a header package that is also a namespace.
+func probeKinds(ctx context.Context, cxx build.CXX, dir string, flags, includes []string, set *collect.Set) (map[string]interop.Kind, []interop.IncludeError, error) {
+	paths := set.KindPaths()
+	hdrs := set.HeaderNames()
+	if len(paths) == 0 || len(includes) == 0 {
+		return nil, nil, nil
+	}
+	res, err := interop.ProbeKinds(ctx, cxx, dir, flags, includes, append(slices.Clone(paths), hdrs...))
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot probe the kinds of the C/C++ names: %w", err)
+	}
+	// A header package whose name is also a namespace (oop for a header that declares
+	// namespace oop): its names are looked up in the namespace first, as the opaque build
+	// does. Rare, so the second run is made only when it happens.
+	ns := make(map[string]bool)
+	for _, h := range hdrs {
+		if res.Kinds[h] == interop.Namespace {
+			ns[h] = true
+		}
+	}
+	if len(ns) > 0 {
+		paths = append(append(paths, hdrs...), set.NamespacePaths(ns)...)
+		res, err = interop.ProbeKinds(ctx, cxx, dir, flags, includes, paths)
+		if err != nil {
+			return nil, nil, fmt.Errorf("cannot probe the kinds of the C/C++ names: %w", err)
+		}
+	}
+	return res.Kinds, res.IncludeErrors, nil
 }
 
 // declConfig returns the configuration of the declaration runs of opts for the report.

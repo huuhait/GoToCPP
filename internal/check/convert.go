@@ -378,6 +378,9 @@ type converter struct {
 	// type (see declNodes), or is nil until the first round that has a
 	// conversion to look at.
 	decls map[token.Pos][]declNode
+
+	// consts are the C/C++ constants that were put into the tree before the check (constsubst.go), or nil.
+	consts *constSubst
 }
 
 // newConverter returns the converter of the package lp, with the hidden

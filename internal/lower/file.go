@@ -236,6 +236,10 @@ type gen struct {
 	usedShared map[sharedItem]bool
 	sharedList []sharedItem
 	rec        *[]sharedItem
+
+	// pendingAsserts are the static_asserts of the typed constants that the first translation unit of the
+	// package takes (typedconsts.go).
+	pendingAsserts []cppir.Decl
 }
 
 // errorf records an error at pos, if it is the first.
@@ -341,6 +345,7 @@ func (g *gen) file() *cppir.File {
 		f.Decls = append(f.Decls, incs...)
 		// fmt's std::formatter support, which needs to come after the headers (fmtcxx.hpp).
 		f.Decls = append(f.Decls, &cppir.Include{Path: "gocpp/fmtcxx.hpp", System: true})
+		f.Decls = append(f.Decls, g.constAsserts()...) // typedconsts.go
 	}
 	f.Decls = append(f.Decls, &cppir.Blank{})
 	ns := &cppir.Namespace{Name: g.ns}

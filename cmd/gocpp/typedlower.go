@@ -22,6 +22,16 @@ const typedLowerEnv = "GOCPP_TYPED_INTEROP"
 // typedLowering reports whether the switch is on.
 func typedLowering() bool { return os.Getenv(typedLowerEnv) == "1" }
 
+// typedConstants is check.Config.Constants of typed mode (Phase 12 step 12.8, gap E1, ADR-097): the
+// values of the C/C++ names that sit where Go needs a constant ([cstdio.BUFSIZ]byte), probed with
+// clang before go/types runs. Without the switch it is nil and a package is checked as in opaque mode.
+func typedConstants() check.ConstFunc {
+	if !typedLowering() {
+		return nil
+	}
+	return typedinterop.Constants(typedinterop.Options{})
+}
+
 // attachTyped runs the typed pipeline of pkg (collector, probes, declarations) and gives its
 // report to in. A package of the standard library, a build without clang++ and a probe that
 // fails leave in as it is: the opaque lowering then runs, which is always correct. A build for
