@@ -59,6 +59,13 @@ under ASan.
   test programs. gocpp must never crash. A C++ compile takes about a second, far too slow for
   every fuzz input, so only a **sample** is compiled (every Nth input plus every input that
   reaches new coverage), and that C++ must always compile.
+  *Built in 15.8* (`tools/fuzz`, `docs/guides/fuzzing.md`): targets for the parser, the formatter,
+  the checker, lower+emit, the emitter with the sampled compile (g++ and clang++,
+  `-fsyntax-only`, one program in N picked by a hash of its bytes: a test process cannot see the
+  engine's coverage, so "every input that reaches new coverage" is not done; the seed corpus is
+  compiled by the dedicated tests instead), a generator of valid programs (`tools/fuzz/gen`,
+  tested against `go/types`), the language server, the C++ error mapper and `gocpp.mod`;
+  `make fuzz-short` and `make fuzz-long` run campaigns that dedupe findings by stack signature.
 - **Random-program differential testing.** A generator of random *valid* programs in the
   supported subset (in the spirit of Csmith, and of gosmith, which was used to test Go
   compilers). Each program runs under `go run` and `gocpp run`, and the outputs must match. Many

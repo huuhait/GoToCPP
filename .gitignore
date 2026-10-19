@@ -42,3 +42,5 @@ docs/benchmarks/lsp.json
 # Results of make conformance (step 15.10)
 /conformance-results.json
 /tools/difftest/findings/
+/fuzz-findings/
+/fuzz-findings.md

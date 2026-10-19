@@ -439,6 +439,18 @@ func (fg *funcGen) spreadTuple(c *ast.CallExpr, sig *types.Signature) ([]cppir.P
 	return params, args
 }
 
+// argCount is the number of values that the arguments of the call x have for values: the number
+// of arguments, or (for f(g()), g with several results, converted element by element where it is
+// used) the number of parameters. A variadic call with fewer arguments than parameters (f(x) for
+// f(p any, q ...int)) has its arguments; "the parameters" there made values skip the one argument
+// as if it were a tuple, and leave x unconverted to the interface (found by the 15.8 generator).
+func argCount(g *gen, x *ast.CallExpr, params *types.Tuple) int {
+	if len(x.Args) == 1 && isTuple(g.info.TypeOf(x.Args[0])) {
+		return max(2, params.Len())
+	}
+	return len(x.Args)
+}
+
 // noteConversions finds the implicit conversions in n (see the top) and records the values that
 // need one (noteConversion): an assigned value (=, :=, var x T = v), a return value, an argument,
 // an element of a composite literal, a map key, the operand of == and != that is compared with a
@@ -513,7 +525,7 @@ func (g *gen) noteConversions(n ast.Node, sig *types.Signature) {
 					return params.At(params.Len() - 1).Type().(*types.Slice).Elem()
 				}
 				return params.At(i).Type()
-			}, max(len(x.Args), params.Len()))
+			}, argCount(g, x, params))
 		case *ast.CompositeLit:
 			t := g.litType(x)
 			for i, elt := range x.Elts {

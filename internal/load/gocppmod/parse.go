@@ -143,7 +143,14 @@ func (p *parser) lexLine(n int) lexed {
 				}
 			case r == '\\':
 				j += sz
-				if j < len(line) && line[j] != '\r' { // a CR is the end of a line, not an ordinary character
+				if j < len(line) && line[j] == '\r' {
+					// A CR in the middle of a line is white space, so the backslash would have nothing to
+					// keep, and Format, which writes the next word after one space, would give the
+					// backslash that space (found by fuzzing: Format was not idempotent).
+					p.errorf(n, j, "unexpected input character %#q", '\r')
+					return lexed{}
+				}
+				if j < len(line) {
 					_, sz = utf8.DecodeRuneInString(line[j:])
 					j += sz
 				}

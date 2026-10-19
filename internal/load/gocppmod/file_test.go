@@ -375,3 +375,19 @@ func FuzzParse(f *testing.F) {
 		}
 	})
 }
+
+// A backslash before a CR in the middle of a line is an error: it would keep nothing, and Format
+// gave it the space that follows (found by fuzzing, 15.8: Format was not idempotent for "\\\r//").
+func TestBackslashBeforeCR(t *testing.T) {
+	for _, in := range []string{"\\\r//", "cflags a\\\rb\n"} {
+		_, errs := ParseSyntax("gocpp.mod", []byte(in))
+		if len(errs) == 0 || !strings.Contains(errs[0].Err, "unexpected input character") {
+			t.Errorf("%q: errors %v", in, errs)
+		}
+	}
+	// A backslash before another character still keeps it.
+	syn, errs := ParseSyntax("gocpp.mod", []byte("cflags a\\ b\n"))
+	if len(errs) != 0 || len(syn.Stmt) != 1 {
+		t.Errorf("escaped space: %v", errs)
+	}
+}

@@ -193,7 +193,7 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.
 			case fg.g.info.Types[x].IsNil():
 				a = lit("nullptr")
 			}
-			return &cppir.Binary{Op: op.String(), X: at(a, precShift), Y: at(b, precShift)}
+			return &cppir.Binary{Op: op.String(), X: at(a, precShift+1), Y: at(b, precShift+1)}
 		}
 		if (op == token.EQL || op == token.NEQ) && (isPointer(fg.typeOf(x)) || isPointer(fg.typeOf(y)) ||
 			isUnsafePointer(fg.typeOf(x)) || isUnsafePointer(fg.typeOf(y)) ||
@@ -206,14 +206,14 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.
 			// s == nullptr, and so does a func (step 3.11). Arrays compare their elements (gp::array's ==), structs their
 			// fields (the generated operator==, typedecl.go), weak pointers the addresses
 			// they were made from (gp::weak_ptr's ==, weak.go).
-			return &cppir.Binary{Op: op.String(), X: at(a, precShift), Y: at(b, precShift)}
+			return &cppir.Binary{Op: op.String(), X: at(a, precShift+1), Y: at(b, precShift+1)}
 		}
 		if fg.operandType(pos, op, x) == nil {
 			return placeholder
 		}
 		// A comparison as an operand of a comparison gets parentheses, which C++ doesn't
 		// need: (a < b) == c, not a < b == c, which reads like a chain.
-		return &cppir.Binary{Op: op.String(), X: at(a, precShift), Y: at(b, precShift)}
+		return &cppir.Binary{Op: op.String(), X: at(a, precShift+1), Y: at(b, precShift+1)}
 	}
 
 	// The other operators: the result has the type of x (a shift too, whose count may have

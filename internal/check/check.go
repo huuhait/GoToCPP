@@ -529,16 +529,7 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 		// would say it again.
 		c.refused = imp.refused
 	}
-	info := &types.Info{
-		Types:        make(map[ast.Expr]types.TypeAndValue),
-		Instances:    make(map[*ast.Ident]types.Instance),
-		Defs:         make(map[*ast.Ident]types.Object),
-		Uses:         make(map[*ast.Ident]types.Object),
-		Implicits:    make(map[ast.Node]types.Object),
-		Selections:   make(map[*ast.SelectorExpr]*types.Selection),
-		Scopes:       make(map[ast.Node]*types.Scope),
-		FileVersions: make(map[*ast.File]string),
-	}
+	info := newInfo()
 	conf := types.Config{
 		GoVersion:   GoVersion,
 		FakeImportC: true,
@@ -551,7 +542,18 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 		files[i] = f.AST
 	}
 	// The errors go to c; the returned error is the first of them.
-	pkg, _ := conf.Check(lp.ImportPath, fset, files, info)
+	pkg, crash := safeTypesCheck(&conf, lp.ImportPath, fset, files, info)
+	if crash != "" {
+		// go/types panicked (Go 1.25: "nil underlying" for type T T.x.y): the package gets an
+		// error instead of a crash of gocpp check or of the language server, and an empty Info: the
+		// passes that follow read the result of go/types and would meet its broken types. (Found by the 15.8 fuzzer.)
+		var at token.Position
+		if len(files) > 0 && files[0] != nil {
+			at = fset.Position(files[0].Package)
+		}
+		errs.Add(diag.Diagnostic{Pos: at, Severity: diag.Error, Msg: "internal error: the type checker failed on this package: " + crash})
+		return &Package{Load: lp, Types: pkg, Info: newInfo(), Errors: errs}, []token.Pos{token.NoPos}
+	}
 	// checkOpaqueArgs and checkSkipped write into info and into the scope
 	// tree of pkg (types.CheckExpr), so they run once in each round of
 	// checks, after conf.Check, on the round's own fresh info and pkg.
@@ -586,6 +588,36 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 		return inPlainMacroUse(err.Pos) || dropFalse && falseErrs.drop(err)
 	})
 	return &Package{Load: lp, Types: pkg, Info: info, Errors: errs}, c.blocking
+}
+
+// newInfo returns an empty types.Info that records everything.
+func newInfo() *types.Info {
+	return &types.Info{
+		Types:        make(map[ast.Expr]types.TypeAndValue),
+		Instances:    make(map[*ast.Ident]types.Instance),
+		Defs:         make(map[*ast.Ident]types.Object),
+		Uses:         make(map[*ast.Ident]types.Object),
+		Implicits:    make(map[ast.Node]types.Object),
+		Selections:   make(map[*ast.SelectorExpr]*types.Selection),
+		Scopes:       make(map[ast.Node]*types.Scope),
+		FileVersions: make(map[*ast.File]string),
+	}
+}
+
+// safeTypesCheck is conf.Check with a recover: the panic of go/types is returned as text, and the
+// package is an empty one of the right path and name.
+func safeTypesCheck(conf *types.Config, path string, fset *token.FileSet, files []*ast.File, info *types.Info) (pkg *types.Package, crash string) {
+	defer func() {
+		if r := recover(); r != nil {
+			name := "main"
+			if len(files) > 0 && files[0] != nil && files[0].Name != nil {
+				name = files[0].Name.Name
+			}
+			pkg, crash = types.NewPackage(path, name), fmt.Sprint(r)
+		}
+	}()
+	pkg, _ = conf.Check(path, fset, files, info)
+	return pkg, ""
 }
 
 // An importer gives go/types the packages that one package imports. It is

@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("//0000000000000\npackage A)000000000000000000000000000000type Deep Deep.A.A0")

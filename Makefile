@@ -180,6 +180,22 @@ lsp-bench:
 lsp-budgets:
 	GOCPP_LSP_BUDGETS=on $(GO) test -count=1 -v -run TestLSPBudgets ./tools/lspbench
 
+# The fuzzing campaigns (docs/guides/fuzzing.md, tools/fuzz). Not part of ci. fuzz-short runs every
+# target for FUZZTIME (a minute); fuzz-long TARGET=Check,Emit TIME=20m runs the named targets.
+# At most 4 workers, at the lowest priority; what they find goes to fuzz-findings/ and
+# fuzz-findings.md. make fuzz-seeds runs only the seed corpora (what go test does).
+FUZZTIME ?= 60s
+TIME ?= 20m
+.PHONY: fuzz-short fuzz-long fuzz-seeds
+fuzz-short:
+	$(GO) run ./tools/fuzz/campaign -time $(FUZZTIME)
+
+fuzz-long:
+	$(GO) run ./tools/fuzz/campaign -time $(TIME) $(if $(TARGET),-targets $(TARGET))
+
+fuzz-seeds:
+	$(GO) test -count=1 -run '^(Fuzz|TestGenerated)' ./tools/fuzz ./cmd/gocpp ./internal/load/gocppmod
+
 ci: $(CI_CHECKS)
 	@echo "make ci: all checks passed"
 

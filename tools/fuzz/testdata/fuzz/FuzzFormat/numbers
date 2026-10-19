@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package A\nvar x = 0XFF + 1E5\nvar y = 0123i\nvar z = 0X1P-2\n")
