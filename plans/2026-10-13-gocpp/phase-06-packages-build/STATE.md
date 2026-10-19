@@ -15,7 +15,7 @@
 - [x] 6.7 Parallel executor (`-p`), `-x`, `-work`, error aggregation
 - [ ] 6.8 Runtime prebuild + precompiled header
 - [ ] 6.9 Link step (ordering, dedup, system libs, LTO with matching archiver)
-- [ ] 6.10 Build modes
+- [x] 6.10 Build modes
   - [ ] `c-archive` + `//export` (cgo's type rules, copies) + C header + lazy init
   - [ ] `c-shared` (hidden visibility, lazy init, trampolines)
   - [ ] `cpp-lib` (lib + headers + CMake INTERFACE flags)
