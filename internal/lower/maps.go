@@ -30,7 +30,7 @@ import (
 //	len(m), clear(m)            gp::len(m), gp::clear(m)
 //	for k, v := range m         for (auto gp_it0 = gp::range_map(m); gp::range_next(gp_it0);)
 //	                            { K k = gp_it0.gp_key(); V v = gp_it0.gp_value(); ...
-//	                            (control.go: rangeIter, over a snapshot of the entries)
+//	                            (control.go: rangeIter, over the table, from a random slot)
 //
 // A map is a class type (gp::map holds an owner), so a call of a user function with a map
 // argument is qualified (funcCallName), and a temporary is moved into its variable.

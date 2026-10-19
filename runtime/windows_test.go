@@ -388,6 +388,8 @@ func (e *wineEnv) runVia(t *testing.T, timeout time.Duration, viaFiles bool, exe
 var winUnitPrograms = []prog{
 	{src: "test/unit.cpp", weight: 50},
 	{src: "test/map_test.cpp", weight: 24},
+	{src: "test/map_swiss_test.cpp", weight: 30},
+	{src: "test/map_portable_test.cpp", weight: 30},
 	{src: "test/fmt_test.cpp", weight: 14},
 	{src: "test/interop_test.cpp", weight: 15},
 	{src: "test/array_test.cpp", weight: 7},

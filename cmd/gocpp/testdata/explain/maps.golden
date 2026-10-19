@@ -1,12 +1,12 @@
 maps: Maps
 
-A map is a gp::map<K, V>, a shared reference to the table (v1 wraps std::unordered_map).
-m[k] is gp::get, which gives the zero value for a missing key and never inserts; v, ok :=
-m[k] is gp::lookup. m[k] = v is gp::set(m, k, v), which stores the value and inserts the key
-if it is new. m[k]++ and m[k] += v change the entry in place with gp::ref, which inserts the
-zero value first when the key is missing. A write to a nil map panics, a read does not. A
-map literal is gp::map_of in gc's order (the constant keys first). delete is gp::erase.
-Iteration order is unspecified, as in Go.
+A map is a gp::map<K, V>, a shared reference to the table (a Swiss table, with a random hash
+seed per map). m[k] is gp::get, which gives the zero value for a missing key and never
+inserts; v, ok := m[k] is gp::lookup. m[k] = v is gp::set(m, k, v), which stores the value
+and inserts the key if it is new. m[k]++ and m[k] += v change the entry in place with
+gp::ref, which inserts the zero value first when the key is missing. A write to a nil map
+panics, a read does not. A map literal is gp::map_of in gc's order (the constant keys
+first). delete is gp::erase. Iteration order is random, as in Go.
 
 Specification: docs/spec/cpp-mapping.md#maps
 See also: gocpp explain range, gocpp explain allocation

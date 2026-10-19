@@ -21,7 +21,7 @@ import (
 )
 
 // The C++ tests of the runtime: test/unit.cpp, test/slice_test.cpp, test/array_test.cpp,
-// test/map_test.cpp, test/fmt_test.cpp, test/trace_test.cpp, test/defer_test.cpp, test/func_test.cpp,
+// test/map_test.cpp, test/map_swiss_test.cpp, test/map_portable_test.cpp, test/fmt_test.cpp, test/trace_test.cpp, test/defer_test.cpp, test/func_test.cpp,
 // test/thread_test.cpp, test/goroutine_test.cpp, test/chan_test.cpp, test/select_test.cpp, test/sync_test.cpp, test/time_test.cpp, test/lib_test.cpp, test/syscall_test.cpp and test/interop_test.cpp, test/cxxvalue_test.cpp, test/unsafe_test.cpp, test/concepts_test.cpp,
 // test/type_test.cpp, test/iface_test.cpp, test/bytealg_test.cpp and test/reflect_test.cpp (unit tests), test/nochecks_test.cpp
 // (the unit tests of a -nochecks build, compiled with the runtime with -DGOCPP_NOCHECKS),
@@ -308,6 +308,8 @@ func TestCXX(t *testing.T) {
 					// too, each one as soon as its program is built; each runs its own processes.
 					bins := c.startBuilds(t, rt, t.TempDir(), m.flags, []prog{
 						{src: "test/map_test.cpp", weight: 24},
+						{src: "test/map_swiss_test.cpp", weight: 30},
+						{src: "test/map_portable_test.cpp", weight: 30},
 						{src: "test/diff.cpp", weight: 15},
 						{src: "test/unit.cpp", weight: 50},
 						{src: "test/fmt_test.cpp", weight: 14},
@@ -359,6 +361,14 @@ func TestCXX(t *testing.T) {
 					t.Run("map", func(t *testing.T) {
 						t.Parallel()
 						runUnit(t, bins.bin(t, "test/map_test.cpp"))
+					})
+					t.Run("map_swiss", func(t *testing.T) {
+						t.Parallel()
+						runUnit(t, bins.bin(t, "test/map_swiss_test.cpp"))
+					})
+					t.Run("map_portable", func(t *testing.T) {
+						t.Parallel()
+						runUnit(t, bins.bin(t, "test/map_portable_test.cpp"))
 					})
 					t.Run("trace", func(t *testing.T) {
 						t.Parallel()

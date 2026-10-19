@@ -120,8 +120,8 @@ void main() {
     }
 
 // ---- ./range.gp:28: for k, v := range m {
-// gp[range] col 2: range over a map: the iterator holds a snapshot of the entries, so a deleted key
-//     is skipped; the order is unspecified, as in Go
+// gp[range] col 2: range over a map: the iterator holds the table and starts at a random slot, so a
+//     key deleted before it is reached is skipped; the order is random, as in Go
     for (auto gp_it2 = gp::range_map(m); gp::range_next(gp_it2);) {
         gp::string k = gp_it2.gp_key(); int64_t v = gp_it2.gp_value();
 

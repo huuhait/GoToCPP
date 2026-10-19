@@ -29,7 +29,7 @@ The [feature matrix](feature-matrix.md) lists every feature with the phase that 
 | [D5](#d5-constructor-calls-for-cc-types) | `T(x)` has one argument | `T(a, b)` calls a C++ constructor | 04 |
 | [D6](#d6-a-reflect-subset-and-no-plugin) | full `reflect`, `plugin` | a `reflect` subset, no `plugin` | 05, 09 |
 | [D7](#d7-goroutines-are-os-threads) | millions of cheap goroutines | one OS thread per goroutine | 08 |
-| [D8](#d8-map-order-is-not-randomized) | random map order | unspecified, not randomized | 03 |
+| [D8](#d8-map-order-is-random-as-in-go) | random map order | random, as in Go (a Swiss table with a seed for each map) | 03, 15 |
 | [D9](#d9-64-bit-targets-only) | `int` is 32 or 64 bits | 64-bit targets only | 01, 02 |
 | [D10](#d10-data-races-can-break-reference-counts) | data races are undefined | they can also corrupt reference counts | 03, 06, 08 |
 | [D11](#d11-gocpp-directives-instead-of-cgo-lines) | `#cgo` lines | `//gocpp:` directives and `gocpp.mod` | 01, 04, 06, 14 |
@@ -251,25 +251,26 @@ wg.Wait()
   value you set, but gocpp doesn't use it for scheduling.
 - **Phase:** [08](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md#22-goroutines--os-threads).
 
-## D8. Map order is not randomized
+## D8. Map order is random, as in Go
 
 ```go
 m := map[string]int{"a": 1, "b": 2, "c": 3}
 for k, v := range m {
-	fmt.Println(k, v) // some order: don't depend on it
+	fmt.Println(k, v) // some order, different in each loop: don't depend on it
 }
 fmt.Println(m) // map[a:1 b:2 c:3]: fmt sorts the keys, as in Go
 ```
 
 - **Go:** the spec leaves the iteration order unspecified, and the Go runtime randomizes it on
-  purpose.
-- **gocpp:** the order is unspecified too, but gocpp does **not** randomize it. Programs still
-  must not depend on any order. The hashes of map keys have a fixed seed, and NaN keys are
-  spread with a count kept by each map, not a random number. The order can still differ from
-  run to run: pointer keys hash by address, and addresses change between runs. Go's random seed
-  also guards against inputs chosen to collide (hash flooding); gocpp's maps don't, until Phase
-  15's Swiss table.
-- **Phase:** [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#23-strings-slices-arrays-maps).
+  purpose (a random seed for each map, and a random start for each loop).
+- **gocpp:** the same since step 15.5 ([ADR-059](../adr/059-swiss-table-maps.md)): every map has
+  its own random hash seed (so the layout of its table differs from map to map and from run to
+  run, and an input chosen to collide can't know it), and every `range` starts at a random slot
+  of the table. Programs must not depend on any order. (Before 15.5 the order was unspecified but
+  fixed by the keys' hashes; the phase 03 text of D8 said "not randomized".) NaN keys are spread
+  with a count kept by each map.
+- **Phase:** [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#23-strings-slices-arrays-maps),
+  [15](../../plans/2026-10-13-gocpp/phase-15-hardening-release/README.md).
 
 ## D9. 64-bit targets only
 

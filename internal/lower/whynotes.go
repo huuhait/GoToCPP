@@ -343,7 +343,7 @@ func (g *gen) noteRange(s *ast.RangeStmt, xt types.Type) {
 	case isSlice(xt):
 		msg = "range over a slice: the iterator holds a copy of the slice header, so the loop covers the original length even if the body appends"
 	case isMap(xt):
-		msg = "range over a map: the iterator holds a snapshot of the entries, so a deleted key is skipped; the order is unspecified, as in Go"
+		msg = "range over a map: the iterator holds the table and starts at a random slot, so a key deleted before it is reached is skipped; the order is random, as in Go"
 	case isChan(xt):
 		msg = "range over a channel: receives until the channel is closed (gp::range_chan)"
 	case arrayOf(xt) != nil:

@@ -1023,27 +1023,28 @@ def fmt_array(v, t, depth):
 
 
 def map_entries(v, t, limit):
-    """(count, [(key, value)...]) of a gp::map: up to limit entries, read from libstdc++'s hash
-    table. The entries come in the table's order."""
+    """(count, [(key, value)...]) of a gp::map: up to limit entries, read from the Swiss table
+    (runtime/include/gocpp/map.hpp): the control bytes say which slots are full (high bit clear).
+    The entries come in the table's slot order."""
     impl = v["gp_impl_"]
     addr = shared_ptr_addr(impl)
     if addr == 0:
         return None, []
-    table = impl["_M_ptr"].dereference()["gp_t"]["_M_h"]
-    count = int(table["_M_element_count"])
-    valtype = table.type.strip_typedefs().template_argument(1)
-    node = table["_M_before_begin"]["_M_nxt"]
-    try:
-        align = valtype.alignof
-    except (AttributeError, gdb.error):
-        align = 8
-    off = (8 + align - 1) // align * align
+    table = impl["_M_ptr"].dereference()
+    count = int(table["gp_size"])
+    cap = int(table["gp_cap"])
+    ctrl = table["gp_ctrl"]
+    cells = table["gp_cells"]
     out = []
-    ptype = valtype.pointer()
-    while int(node) != 0 and len(out) < limit:
-        ent = (node.cast(gdb.lookup_type("char").pointer()) + off).cast(ptype).dereference()
-        out.append((ent["first"]["gp_k"], ent["second"]))
-        node = node.dereference()["_M_nxt"]
+    i = 0
+    # A very sparse table (millions of slots, a few entries) is not scanned to its end: reading a
+    # slot costs a round trip to gdb, so at most 1<<16 slots are looked at.
+    scan = min(cap, 1 << 16)
+    while i < scan and len(out) < limit and len(out) < count:
+        if int(ctrl[i]) >= 0:
+            cell = cells[i]
+            out.append((cell["gp_k"], cell["gp_v"]))
+        i += 1
     return count, out
 
 

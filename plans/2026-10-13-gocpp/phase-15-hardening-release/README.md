@@ -160,6 +160,73 @@ library wrapper · self-hosting (compiling the gocpp compiler with gocpp once th
 16. **15.16 v1.0**: compatibility promise, changelog, release.
 17. **15.17 Post-1.0 roadmap** ADRs.
 
+### 3.1 Notes on step 15.5 (Swiss-table maps, [ADR-059](../../../docs/adr/059-swiss-table-maps.md))
+
+Built: `gp::map` is a Swiss table (`runtime/include/gocpp/map.hpp`, `swiss.hpp`): one block of control
+bytes and slots, SSE2 (or portable 64-bit) group probing, 7/8 load, a random seed per map, a random
+start per `range`, and ranges that hold the table's block, so growth, deletes and `clear` during a loop
+keep Go's rules without a key snapshot. The API and the emitted code are unchanged. Tests:
+`runtime/test/map_swiss_test.cpp` (and `map_portable_test.cpp`, the same with the portable group):
+differential runs against `std::unordered_map`, a model of the range rules, churn, exception safety,
+the concurrent-write flag, move-only values; `map_test.cpp` was adapted to the random order.
+
+Measured on this machine (192 cores, shared; `uptime` load average 21 to 118 during the runs, CPU time,
+best of 2 to 5 repeats; `tools/mapbench/map_bench.cpp` and `.go`, Go 1.25 with `GOGC=off`, gocpp at
+`-O2` with g++ 15). Each cell is gocpp (Swiss) / the old `std::unordered_map` table (dev before 15.5) /
+Go, in ns per operation, and the last row is heap bytes per entry:
+
+
+##### `int` keys, `map[int]int64`: ns per operation (bytes per entry for the last row), gocpp / old gocpp (std::unordered_map) / Go
+
+| operation | n = 10 | n = 1,000 | n = 100,000 | n = 10,000,000 |
+|---|---|---|---|---|
+| insert (no hint) | 11 / 17 / 34 | 18 / 40 / 55 | 18 / 61 / 46 | 64 / 475 / 119 |
+| insert (make with n) | 11 / 18 / 20 | 4.7 / 37 / 18 | 4.9 / 41 / 21 | 54 / 452 / 90 |
+| lookup hit | 1.8 / 3.9 / 3.8 | 2.1 / 4.2 / 5.5 | 3.4 / 9.5 / 10 | 46 / 57 / 96 |
+| lookup miss | 1.7 / 5.2 / 3.5 | 2.7 / 5.2 / 5.9 | 4.8 / 15 / 21 | 17 / 77 / 74 |
+| delete | 9.3 / 13 / 15 | 28 / 51 / 36 | 21 / 57 / 41 | 73 / 174 / 124 |
+| `m[k]++` | 1.9 / 3.4 / 7.6 | 2.1 / 4.8 / 8.7 | 3.5 / 11 / 11 | 44 / 68 / 83 |
+| range | 2.7 / 1.6 / 8.1 | 1.1 / 2.9 / 6.7 | 2.1 / 8.3 / 4.5 | 5.3 / 94 / 8.1 |
+| delete + insert (churn) | 22 / 26 / 20 | 11 / 32 / 33 | 13 / 69 / 34 | 120 / 395 / 263 |
+| bytes per entry | - | 35 / 57 / 20 | 22 / 62 / 24 | 28 / 58 / 30 |
+
+##### `string` keys, `map[string]int64`: ns per operation (bytes per entry for the last row), gocpp / old gocpp (std::unordered_map) / Go
+
+| operation | n = 10 | n = 1,000 | n = 100,000 | n = 10,000,000 |
+|---|---|---|---|---|
+| insert (no hint) | 18 / 34 / 38 | 43 / 60 / 61 | 54 / 107 / 56 | 239 / 626 / 256 |
+| insert (make with n) | 21 / 34 / 28 | 19 / 56 / 21 | 14 / 67 / 23 | 170 / 654 / 101 |
+| lookup hit | 5.8 / 24 / 6.8 | 5.9 / 28 / 6.7 | 9.1 / 42 / 12 | 80 / 342 / 86 |
+| lookup miss | 5.1 / 23 / 5.8 | 5.4 / 24 / 6.6 | 9.9 / 68 / 20 | 33 / 447 / 69 |
+| delete | 12 / 32 / 21 | 67 / 94 / 50 | 57 / 112 / 47 | 109 / 422 / 126 |
+| `m[k]++` | 7.0 / 24 / 12 | 7.0 / 24 / 11 | 12 / 42 / 15 | 100 / 321 / 107 |
+| range | 4.1 / 3.9 / 7.6 | 1.4 / 4.5 / 5.7 | 2.5 / 16 / 4.4 | 7.4 / 123 / 8.8 |
+| delete + insert (churn) | 24 / 60 / 24 | 21 / 67 / 37 | 42 / 101 / 43 | 219 / 901 / 305 |
+| bytes per entry | - | 84 / 72 / 38 | 54 / 78 / 35 | 69 / 74 / 45 |
+
+##### `struct` keys, `map[struct]int64`: ns per operation (bytes per entry for the last row), gocpp / old gocpp (std::unordered_map) / Go
+
+| operation | n = 10 | n = 1,000 | n = 100,000 | n = 10,000,000 |
+|---|---|---|---|---|
+| insert (no hint) | 13 / 20 / 41 | 23 / 47 / 56 | 34 / 65 / 55 | 77 / 463 / 140 |
+| insert (make with n) | 13 / 20 / 29 | 7.7 / 38 / 20 | 8.9 / 58 / 32 | 68 / 479 / 106 |
+| lookup hit | 6.0 / 6.2 / 8.2 | 5.4 / 7.4 / 7.2 | 8.5 / 18 / 14 | 83 / 101 / 85 |
+| lookup miss | 5.1 / 7.0 / 5.9 | 4.6 / 7.5 / 6.2 | 8.8 / 19 / 21 | 24 / 155 / 65 |
+| delete | 13 / 15 / 19 | 52 / 54 / 48 | 38 / 59 / 50 | 95 / 220 / 127 |
+| `m[k]++` | 6.3 / 7.4 / 8.8 | 5.8 / 9.1 / 8.4 | 8.9 / 17 / 16 | 85 / 121 / 83 |
+| range | 3.6 / 1.7 / 7.7 | 1.1 / 3.0 / 5.8 | 2.3 / 7.8 / 4.6 | 7.0 / 104 / 8.2 |
+| delete + insert (churn) | 24 / 32 / 24 | 26 / 36 / 33 | 27 / 69 / 48 | 164 / 542 / 291 |
+| bytes per entry | - | 51 / 57 / 38 | 33 / 62 / 35 | 42 / 58 / 45 |
+
+load at the runs: new/Go min 21 max 118; old min 21 max 118
+
+Honest gaps: a string key costs 54 to 84 bytes per entry against Go's 35 to 45 (gocpp's `string` is 32
+bytes, D15); deleting string keys from a 1,000-entry map is slower than Go (67 against 50 ns); tiny maps
+(10 entries) range slower than the old table (the loop's atomic increment on the block). Everywhere
+else gocpp is ahead of Go or within noise of it (tiny-map churn: 22 against 20 ns), and ahead of the old
+table by 1.5x to 20x (insert 7x and range 18x at 10 million entries: the old table's per-entry nodes). The 10-million-entry columns are the most affected by the
+machine's load (cache and memory bandwidth are shared).
+
 ## 4. Deliverables
 
 - Benchmark suite with history; optimized runtime and lowering

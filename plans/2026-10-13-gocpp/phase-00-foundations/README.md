@@ -82,7 +82,7 @@ Specification (go1.25) except for the points below."* The initial divergence lis
 | D5 | Conversion `T(x)` has 1 argument | For C/C++ types `T(a, b, ...)` calls the constructor |
 | D6 | Full `reflect`, `plugin`, `runtime` internals | `reflect` is a **subset** built on compiler-generated type descriptors (enough for `fmt`, `encoding/json`, `sort`, `errors`, `context`; see Phase 09). No `MakeFunc`, `StructOf` or calling methods by name. No `plugin` |
 | D7 | Goroutines are cheap (millions) | Each goroutine is an OS thread: tens of thousands are fine, millions are not (decided: no scheduler) |
-| D8 | Map iteration order randomized | Unspecified but not randomized |
+| D8 | Map iteration order randomized | Randomized, as in Go (since step 15.5, ADR-059; unspecified and not randomized before) |
 | D9 | `int` is 32 or 64 bits by platform | 64-bit targets only in v1 |
 | D10 | Data races: undefined | Same, but a race on a pointer/slice/string can corrupt refcounts; use `-race` (TSan) |
 | D11 | `#cgo CFLAGS/LDFLAGS` lines | `//gocpp:cflags`, `//gocpp:ldflags`, `//gocpp:link`, `//gocpp:pkg-config` directives + `gocpp.mod` |

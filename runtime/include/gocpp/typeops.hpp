@@ -223,8 +223,8 @@ struct map_refl_builder {
         if (impl == nullptr) {
             return nullptr;
         }
-        auto it = detail::map_find(*impl, key, gp::hash_of(key));
-        return it == impl->gp_t.end() ? nullptr : static_cast<const void*>(&it->second);
+        auto* c = detail::map_find(*impl, key);
+        return c == nullptr ? nullptr : static_cast<const void*>(&c->gp_v);
     }
     static void set(const void* m, const void* k, const void* v) {
         gp::set(as(m), *static_cast<const K*>(k), *static_cast<const V*>(v));
@@ -281,10 +281,8 @@ struct ops_builder<map<K, V>> {
     static std::shared_ptr<void> snap(const void* p) {
         auto out = std::make_shared<entries>();
         if (const auto* impl = as(p).gp_get(); impl != nullptr) {
-            out->reserve(impl->gp_t.size());
-            for (const auto& e : impl->gp_t) {
-                out->emplace_back(e.first.gp_k, e.second);
-            }
+            out->reserve(impl->gp_size);
+            impl->gp_each([&](const K& k, const V& v) { out->emplace_back(k, v); });
         }
         return out;
     }

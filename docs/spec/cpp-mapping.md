@@ -88,7 +88,7 @@ Source: [Phase 02 §2.1](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/
 | `string` | `gp::string` (immutable bytes, usually UTF-8; cheap substrings) | 32 bytes: owner, data pointer, length. A literal `"hi"` becomes `"hi"_gs` and points at static storage (no allocation); `s[a:b]` shares the bytes |
 | `[N]T` | `gp::array<T, N>` (value type, bounds checked) | wraps `std::array`; assignment copies it, as in Go; `==` exists when the elements are comparable ([arrays](#arrays)) |
 | `[]T` | `gp::slice<T>` | 40 bytes: owner, data pointer, length, capacity; `append` grows like Go, but gocpp only promises `cap >= len`, not Go's exact capacity |
-| `map[K]V` | `gp::map<K, V>` (reference type) | a shared pointer to the table (v1 wraps `std::unordered_map`); reading a missing key gives the zero value and never inserts |
+| `map[K]V` | `gp::map<K, V>` (reference type) | a shared pointer to the table (a Swiss table: [ADR-059](../adr/059-swiss-table-maps.md)); reading a missing key gives the zero value and never inserts |
 | `*T` where `T` is a gocpp type | `gp::ptr<T>` (reference counted, nil-checked) | a `std::shared_ptr<T>` with nil checks; a nil dereference panics with Go's message ([pointers](#pointers-and-boxing)) |
 | `*pkg.T` where `T` is a C/C++ type (`*SDL.SDL_Window`, `*cstdio.FILE`), declared in gocpp code | `gp::cptr<T>` (a `gp::ptr<T>` that a raw `T*` converts to, and that converts to `T*`) | owns or aliases what it points to, as Go's pointer does; `**C.T`, the members of C structs and what C functions return are raw `T*` with C++ lifetime rules ([interop.md](interop.md#pointers-unsafe-and-slices-at-the-boundary)) |
 | `unsafe.Pointer` | `gp::ptr<void>` (keeps a gocpp object alive, like Go) | shares the owner of the object it came from, and converts to `void*` for C; `unsafe.Slice`, `String`, `SliceData`, `StringData` and `Add` are `gp::unsafe_slice`, ... in `gocpp/unsafe.hpp` ([D16](language.md#d16-unsafepointer-and-pointers-from-c), [interop.md](interop.md#pointers-unsafe-and-slices-at-the-boundary)) |
@@ -679,13 +679,16 @@ Source: [Phase 03 §2.3](../../plans/2026-10-13-gocpp/phase-03-core-language/REA
 ## Maps
 
 A `gp::map<K, V>` is a reference to a hash table (one shared pointer, 16 bytes): copies, parameters
-and results share the table, as in Go. Reading a missing key gives the zero value and never
+and results share the table, as in Go. The table is a Swiss table ([ADR-059](../adr/059-swiss-table-maps.md)):
+one block of control bytes (7 bits of each key's hash, or empty or deleted) and slots that hold a key
+and a value side by side, probed a group of slots at a time (SSE2, or 64-bit arithmetic), at
+most 7/8 full, with a random hash seed for each map. Reading a missing key gives the zero value and never
 inserts it, unlike C++'s `operator[]`.
 
 | gocpp | C++ | Notes |
 |---|---|---|
 | `var m map[K]V`, `m = nil`, `m == nil` | `gp::map<K, V> m{};`, `m = nullptr`, `m == nullptr` | nil is the zero value; a nil map reads like an empty one (get, `len`, `delete`, `clear`, range) |
-| `make(map[K]V)`, `make(map[K]V, n)` | `gp::make_map<K, V>()`, `gp::make_map<K, V>(n)` | the size hint only reserves room, for at most 2^20 entries (Go allocates a huge map's table as it fills); a negative hint counts as 0, as in Go, and a hint never panics |
+| `make(map[K]V)`, `make(map[K]V, n)` | `gp::make_map<K, V>()`, `gp::make_map<K, V>(n)` | the size hint only reserves room, for at most 2^22 entries (Go allocates a huge map's table as it fills); a negative hint counts as 0, as in Go, and a hint never panics |
 | `map[K]V{k1: v1, k2: v2}` | `gp::map_of<K, V>({{k1, v1}, {k2, v2}})` | gc's order: the entries whose key and value are constants first, then the others in source order, so of two equal keys the later one that isn't constant wins |
 | `v := m[k]` | `V v = gp::get(m, k);` | the zero value if `k` is missing; never inserts |
 | `v, ok := m[k]` | `auto gp_t0 = gp::lookup(m, k); V v = std::get<0>(gp_t0); bool ok = std::get<1>(gp_t0);` | the multi-value rule of [multiple results](#multiple-results) |
@@ -695,7 +698,7 @@ inserts it, unlike C++'s `operator[]`.
 | `m[k] <<= n` | `gp::ref(m, k) = gp::shl(gp::ref(m, k), n);` | as gc: a negative `n` panics after `k` is inserted; a constant count below the width is `gp::ref(m, k) <<= 3` |
 | `m[k] = append(m[k], x)` | `gp::slice<T>& gp_r0 = gp::ref(m, k); gp_r0 = gp::append(static_cast<gp::slice<T>&&>(gp_r0), x);` | the same `m` and `k` on both sides (variables, constants, `*p`, indexes and operators of them, as gc's `SameSafeExpr`): as gc, `m` and `k` are evaluated first (into temporaries unless they are names or constants, so their panics come first; a variable key of a type that gc's fast map calls convert, such as `int` or a pointer, is copied too), then `x`, then the entry is taken once and the slice is moved |
 | `delete(m, k)`, `len(m)`, `clear(m)` | `gp::erase(m, k)`, `gp::len(m)`, `gp::clear(m)` | `clear` also removes NaN keys (Go 1.21) |
-| `for k, v := range m` | `for (auto gp_it0 = gp::range_map(m); gp::range_next(gp_it0);) { K k = gp_it0.gp_key(); V v = gp_it0.gp_value(); ...` | over a snapshot of the entries: a key deleted before it is reached is skipped, its value is read when it is reached, and a key added during the loop is not produced (Go may or may not produce it) |
+| `for k, v := range m` | `for (auto gp_it0 = gp::range_map(m); gp::range_next(gp_it0);) { K k = gp_it0.gp_key(); V v = gp_it0.gp_value(); ...` | starts at a random slot and goes round the table once: a key deleted before it is reached is skipped, its value is read when it is reached, an entry added during the loop may or may not be produced (as in Go), none is produced twice, and every entry that stays in the map is produced once, also when the table grows during the loop |
 | `for s[f()], v = range m` | `auto gp_t0 = gp_it0.gp_key(); auto gp_t1 = f(); s[gp_t1] = gp_t0; v = gp::range_value(gp_it0);` | targets whose operands call functions: the key is copied first and the value read after the calls (its current value, or zero if a call deleted the entry), as Go reads them; where a call deletes the entry, Go may also clear the key it assigns, gocpp assigns the key as it was |
 
 Keys can be bools, numbers, strings, pointers, and arrays and comparable structs of them; an
@@ -703,8 +706,9 @@ array or struct value `m[k]` is a copy, so `m[k][i]` and `m[k].f` can be read bu
 as in Go.
 Floats follow Go: `+0` and `-0` are one key (a store keeps the new key), and a NaN key is
 never found again, so each `m[NaN] = v` adds an entry. A complex key follows the same rules for
-each part ([complex numbers](#complex-numbers)). The order of a range is unspecified and
-not Go's, and not randomized ([D8](language.md#d8-map-order-is-not-randomized)). `fmt.Println(m)`
+each part ([complex numbers](#complex-numbers)). The order of a range is random, as in Go
+([D8](language.md#d8-map-order-is-random-as-in-go)): each map has its own hash seed and each loop its own
+start. `fmt.Println(m)`
 prints the keys sorted, as Go does (step 3.15); `println(m)` is an error
 ([D23](language.md#d23-print-and-println-of-a-slice-or-a-map)).
 
@@ -717,6 +721,11 @@ their places among the calls. A store `m[k] = v` evaluates the calls of `m` and 
 (with its panics), and only then takes the entry, so `m[k] = f()` stores into the map that `m`
 is after `f` ran. A map literal is evaluated in its place among the calls, entry by entry, as gc stores
 it: a panic in one entry comes before the calls of the entries after it.
+
+As in Go, a goroutine that writes a map while another reads or writes it is a data race; a write, read
+or range that finds a write in progress dies with `fatal error: concurrent map writes` (or `concurrent
+map read and map write`, `concurrent map iteration and map write`), which catches some races, not all.
+A reference taken with `gp::ref` is valid until the next store of a new key (the table can grow).
 
 ## Floating-point numbers and package math
 

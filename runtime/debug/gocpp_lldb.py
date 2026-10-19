@@ -236,7 +236,7 @@ def fmt_map(v, depth):
     impl = member(v, "gp_impl_")
     if shared_addr(impl) == 0:
         return "nil" if depth > 0 else "map[] (nil)"
-    table = member(member(member(impl.GetChildMemberWithName("_M_ptr").Dereference(), "gp_t"), "_M_h"), "_M_element_count")
+    table = member(impl.GetChildMemberWithName("_M_ptr").Dereference(), "gp_size")
     count = uint(table)
     text = "map[...]"
     if depth == 0:

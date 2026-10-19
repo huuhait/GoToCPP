@@ -3,10 +3,11 @@ range: range loops
 A range loop is a C++ for over an iterator that holds the range expression, evaluated once.
 A string is gp::range_string (decoding UTF-8; an invalid byte gives U+FFFD); a slice is
 gp::range_slice, which holds a copy of the slice header, so the loop covers the original
-length even when the body appends; a map is gp::range_map, which holds a snapshot of the
-entries, so a deleted key is skipped and a new key is not produced; a channel receives until
-it is closed; an integer is a counting loop. An array is ranged in place, with a copy only
-where the body could change it.
+length even when the body appends; a map is gp::range_map, which starts at a random slot of
+the map's table and holds the table, so a key deleted before it is reached is skipped, a new
+key may or may not be produced (as in Go), and no entry is produced twice, also when the map
+grows during the loop; a channel receives until it is closed; an integer is a counting loop.
+An array is ranged in place, with a copy only where the body could change it.
 
 A range over a function (for x := range seq) is Go's own rewrite: seq is called with the
 loop body as its yield function, a closure, and a boxed gp::rangefunc_state records break,
@@ -179,8 +180,8 @@ The C++ that gocpp emit -annotate writes for it:
         }
 
     // ---- ./range.gp:28: for k, v := range m {
-    // gp[range] col 2: range over a map: the iterator holds a snapshot of the entries, so a deleted key
-    //     is skipped; the order is unspecified, as in Go
+    // gp[range] col 2: range over a map: the iterator holds the table and starts at a random slot, so a
+    //     key deleted before it is reached is skipped; the order is random, as in Go
         for (auto gp_it2 = gp::range_map(m); gp::range_next(gp_it2);) {
             gp::string k = gp_it2.gp_key(); int64_t v = gp_it2.gp_value();
 

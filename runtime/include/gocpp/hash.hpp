@@ -1,8 +1,8 @@
 // gocpp/hash.hpp: hashing for map keys (Phase 03 §2.3, step 3.7).
 //
 // gp::hash_of(k) is the hash of a key of any comparable Go type, and gp::hash<T> is the
-// customization point behind it. The maps of gocpp/map.hpp hash each key once, when it is
-// stored, and keep the hash with the key.
+// customization point behind it. The maps of gocpp/map.hpp hash a key (mixed with the
+// map's seed) at each operation; a table keeps only 7 bits of it per slot.
 //
 // The hash agrees with ==, Go's equality: equal keys hash the same. What each type does:
 //
@@ -26,10 +26,10 @@
 // struct or array that holds one), it mixes the table's own count of such keys into the hash
 // (gocpp/map.hpp). Such a key is never looked up again, so its hash only places it.
 //
-// The seed is fixed: gocpp's maps have no per-process random seed. The order of a range is
-// not randomized on purpose (D8), but it may still differ from run to run: pointer keys hash
-// by address, and addresses change between runs. A gocpp map also gives no protection against
-// inputs chosen to collide (Go's random seed does); Phase 15's Swiss table can add a seed.
+// hash_of is a pure function with no seed: every map mixes in its own random seed (gocpp/map.hpp,
+// gocpp/swiss.hpp: integers, pointers and strings are hashed with it directly, everything else
+// from hash_of's result), so the layout of a table and the order of a range differ from map to map
+// and from run to run (as in Go), and no input can be chosen to collide in every map.
 //
 // The protocol for structs and arrays: a comparable struct that the emitter writes (step 3.8)
 // gets a member

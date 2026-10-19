@@ -287,7 +287,7 @@ A struct that embeds one C/C++ type has that type's members promoted too (mv.pus
 		Aliases: []string{"loops", "for"},
 		Title:   "range loops",
 		Summary: "how range over strings, slices, maps, channels, integers and functions is written",
-		Text: `A range loop is a C++ for over an iterator that holds the range expression, evaluated once. A string is gp::range_string (decoding UTF-8; an invalid byte gives U+FFFD); a slice is gp::range_slice, which holds a copy of the slice header, so the loop covers the original length even when the body appends; a map is gp::range_map, which holds a snapshot of the entries, so a deleted key is skipped and a new key is not produced; a channel receives until it is closed; an integer is a counting loop. An array is ranged in place, with a copy only where the body could change it.
+		Text: `A range loop is a C++ for over an iterator that holds the range expression, evaluated once. A string is gp::range_string (decoding UTF-8; an invalid byte gives U+FFFD); a slice is gp::range_slice, which holds a copy of the slice header, so the loop covers the original length even when the body appends; a map is gp::range_map, which starts at a random slot of the map's table and holds the table, so a key deleted before it is reached is skipped, a new key may or may not be produced (as in Go), and no entry is produced twice, also when the map grows during the loop; a channel receives until it is closed; an integer is a counting loop. An array is ranged in place, with a copy only where the body could change it.
 
 A range over a function (for x := range seq) is Go's own rewrite: seq is called with the loop body as its yield function, a closure, and a boxed gp::rangefunc_state records break, continue and return and checks that the iterator does not misuse yield.
 
@@ -357,7 +357,7 @@ Go's fatal errors (out of memory, stack overflow, all goroutines asleep) end the
 		Aliases: []string{"map"},
 		Title:   "Maps",
 		Summary: "gp::map reads, writes, literals and delete",
-		Text:    `A map is a gp::map<K, V>, a shared reference to the table (v1 wraps std::unordered_map). m[k] is gp::get, which gives the zero value for a missing key and never inserts; v, ok := m[k] is gp::lookup. m[k] = v is gp::set(m, k, v), which stores the value and inserts the key if it is new. m[k]++ and m[k] += v change the entry in place with gp::ref, which inserts the zero value first when the key is missing. A write to a nil map panics, a read does not. A map literal is gp::map_of in gc's order (the constant keys first). delete is gp::erase. Iteration order is unspecified, as in Go.`,
+		Text:    `A map is a gp::map<K, V>, a shared reference to the table (a Swiss table, with a random hash seed per map). m[k] is gp::get, which gives the zero value for a missing key and never inserts; v, ok := m[k] is gp::lookup. m[k] = v is gp::set(m, k, v), which stores the value and inserts the key if it is new. m[k]++ and m[k] += v change the entry in place with gp::ref, which inserts the zero value first when the key is missing. A write to a nil map panics, a read does not. A map literal is gp::map_of in gc's order (the constant keys first). delete is gp::erase. Iteration order is random, as in Go.`,
 		Spec:    "cpp-mapping.md#maps",
 		Example: "maps.gp",
 		See:     []string{"range", "allocation"},
