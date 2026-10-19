@@ -40,6 +40,7 @@ const (
 	stderrPrefix     = "// Stderr:"
 	pkgConfigPrefix  = "// pkg-config:"
 	displayPrefix    = "// display:"
+	zoneinfoPrefix   = "// zoneinfo:"
 	diffPrefix       = "// diff:"
 	lsanPrefix       = "// lsan:"
 	divergencePrefix = "// divergence:"
@@ -56,6 +57,7 @@ const (
 	stderrLine                         // // Stderr: regexp
 	pkgConfigLine                      // // pkg-config: lib...
 	displayLine                        // // display: required
+	zoneinfoLine                       // // zoneinfo: required
 	diffLine                           // // diff: stderr, // diff: combined
 	lsanLine                           // // lsan: cycle
 	divergenceLine                     // // divergence: D1
@@ -73,6 +75,7 @@ var optionalLines = []struct {
 	{stderrLine, stderrPrefix},
 	{pkgConfigLine, pkgConfigPrefix},
 	{displayLine, displayPrefix},
+	{zoneinfoLine, zoneinfoPrefix},
 	{diffLine, diffPrefix},
 	{lsanLine, lsanPrefix},
 	{divergenceLine, divergencePrefix},
@@ -97,7 +100,7 @@ type format struct {
 // Every format honors //go:build lines. The tests that run a program take // lsan: cycle and
 // // pending:.
 var (
-	runFormat     = format{"run", outputLine | exitCodeLine | stderrLine | lsanLine | divergenceLine | pendingLine | goBuildLine, true}
+	runFormat     = format{"run", outputLine | exitCodeLine | stderrLine | lsanLine | divergenceLine | pendingLine | zoneinfoLine | goBuildLine, true}
 	errorsFormat  = format{"errors", goBuildLine, true}
 	goldenFormat  = format{"golden", goBuildLine, true}
 	diffFormat    = format{"diff", diffLine | lsanLine | pendingLine | goBuildLine, true}
@@ -126,6 +129,7 @@ type header struct {
 	stderr    []*regexp.Regexp // the // Stderr: regexps; none means stderr must be empty
 	pkgConfig []string         // the pkg-config packages the test needs (// pkg-config: ...)
 	display   bool             // the program needs a display (// display: required)
+	zoneinfo  bool             // the program loads time zones by name (// zoneinfo: required)
 	diff      string           // a diff test's mode (// diff: ...): diffStdout, diffStderr or diffCombined
 	cycle     bool             // the program leaks a reference cycle on purpose (// lsan: cycle)
 	diverges  string           // the divergence of docs/spec/language.md that the test shows (// divergence: D1), or ""
@@ -262,6 +266,11 @@ func (h *header) set(l lineSet, line, rest string, seen lineSet) error {
 			return fmt.Errorf("bad %q line: want \"// display: required\", not %q", displayPrefix, line)
 		}
 		h.display = true
+	case zoneinfoLine:
+		if s := strings.TrimSpace(rest); s != "required" {
+			return fmt.Errorf("bad %q line: want \"// zoneinfo: required\", not %q", zoneinfoPrefix, line)
+		}
+		h.zoneinfo = true
 	case diffLine:
 		switch s := strings.TrimSpace(rest); s {
 		case diffStderr, diffCombined:
@@ -337,6 +346,35 @@ func displayGate(display bool, getenv func(string) string) string {
 		return ""
 	}
 	return "needs a display (// display: required), but neither DISPLAY nor WAYLAND_DISPLAY is set"
+}
+
+// zoneinfoDirs are the places where the time zone database of the system is, as package time looks
+// for it on Unix (stdlib/time/zoneinfo_unix.gp; the ZONEINFO variable first).
+var zoneinfoDirs = []string{"/usr/share/zoneinfo", "/usr/share/lib/zoneinfo", "/usr/lib/locale/TZ", "/etc/zoneinfo"}
+
+// zoneinfoGate returns why a test that loads time zones by name (zoneinfo) can't run with the
+// environment that getenv reads, or "": no time zone database is installed. exists says whether a
+// file does; the test needs America/New_York, Europe/Berlin and Asia/Kolkata.
+func zoneinfoGate(zoneinfo bool, getenv func(string) string, exists func(string) bool) string {
+	if !zoneinfo {
+		return ""
+	}
+	dirs := zoneinfoDirs
+	if z := getenv("ZONEINFO"); z != "" {
+		dirs = []string{z}
+	}
+	for _, d := range dirs {
+		if exists(d+"/America/New_York") && exists(d+"/Europe/Berlin") && exists(d+"/Asia/Kolkata") {
+			return ""
+		}
+	}
+	return "needs the system's time zone database (// zoneinfo: required), but none with America/New_York is installed (see the ZONEINFO variable)"
+}
+
+// fileExists says whether the file p exists.
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }
 
 // phaseRx matches the phase line. NN has two digits, like the phases in the

@@ -2528,6 +2528,45 @@ std::tuple<int64_t, bool> find(int64_t n) {
 Source: [Phase 07 §2.5](../../plans/2026-10-13-gocpp/phase-07-generics/README.md#25-range-over-func-iterators-go-123),
 [ADR-033](../adr/033-range-over-func.md), `internal/lower/rangefunc.go`.
 
+## Package time (step 8.8)
+
+`time` is Go's own code (`stdlib/time`, ported by hand: `PORT.md` lists the changes), lowered like any
+package, so `Duration`, `Time`, `Month`, `Location`, `Format` and `Parse` are C++ written by the emitter
+from Go's algorithms. The parts that need the runtime are `//gocpp:native` functions of `gp::time`
+(`gocpp/time.hpp`, ADR-027, ADR-041):
+
+| Go (inside package time) | C++ |
+|---|---|
+| `now() (sec int64, nsec int32, mono int64)`, `runtimeNano() int64` | `gp::time::now()` (a `std::tuple`), `gp::time::nano()`: `system_clock` and `steady_clock` (CLOCK_REALTIME and CLOCK_MONOTONIC through the vDSO) |
+| `time.Sleep(d)` | `gp::time::sleep(int64_t ns)`: the goroutine waits on its own `gp::waiter` with a deadline; it is not counted as blocked |
+| `startChan(c, when, period, f)` | `gp::time::start_chan<Time>(c, when, period, f)`: arms a timer on the channel object `c` (a template over the element type, because the runtime does not know `time.Time`) |
+| `startFunc(c, when, f)`, `stopTimer(c)`, `resetTimer(c, when, period)`, `trySend(c, v)` | `gp::time::start_func`, `stop`, `reset`, `try_send` |
+| `callOnce(id, f)`, `getenv`, the file functions of the zone loader | `std::call_once`, `std::getenv`, C stdio |
+
+A `*time.Timer` is `{C, r, initTimer}` and a `*time.Ticker` `{C, r, initTicker}`; `r` is the channel object
+that carries the timer's record (`C` itself, a `gp::chan<Time>` with a buffer of one element and
+`len == cap == 0`; for `AfterFunc` a channel that nobody uses). One thread, started with the first timer,
+keeps the armed timers ordered by deadline: when one is due, it calls the Go function `sendTime(c, due)`
+(a send that never blocks) or starts a goroutine for the `AfterFunc` function. The map holds a channel
+timer weakly, so a `Timer`, `Ticker` or `After` channel that nothing holds is freed (and leaves the map)
+although it was not stopped. A native takes only types of the runtime (`int64`, `string`, `[]byte`,
+channels and funcs of them): a `Duration` is converted by a Go wrapper (`Sleep` calls `sleep(int64(d))`).
+
+```go
+t := time.NewTimer(50 * time.Millisecond)   // c := make(chan Time, 1); startChan(c, when(d), 0, sendTime)
+fmt.Println(len(t.C), cap(t.C))              // gp::len(c), gp::cap(c): 0 0 (a timer channel)
+<-t.C                                        // gp::recv(c): an ordinary receive; select works the same
+```
+
+A timer that is due is run by the receive, the non-blocking receive or the `select` poll that looks at its
+channel (Go's `maybeRunChan`; ADR-041), so a timer whose deadline has passed is never "not yet". Divergences:
+`LoadLocation` and `Local` read the system's zoneinfo
+(`ZONEINFO`, `/usr/share/zoneinfo`, `/usr/share/lib/zoneinfo`, `/usr/lib/locale/TZ`, `/etc/zoneinfo`); there is
+no embedded database (`time/tzdata`) and no `$GOROOT` zip.
+
+Source: [Phase 08 §2.5](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md#25-sync-syncatomic-time-runtime),
+[ADR-041](../adr/041-time-package-and-timers.md).
+
 ## `#line` and debugging
 
 - Before every generated line whose `.gp` line is not "the previous line + 1", gocpp writes a

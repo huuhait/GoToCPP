@@ -47,13 +47,14 @@ test's own phase in it (`GOCPP_GATE_PHASE`, below). A missing or malformed phase
 line fails the test, and so does any other malformed line, even in a test that is skipped.
 
 A test is also skipped, with a message, when:
+- it has a `// zoneinfo: required` line (run tests: a program that loads time zones by name with `time.LoadLocation`) and the machine has no time zone database with `America/New_York`, `Europe/Berlin` and `Asia/Kolkata` (the `ZONEINFO` variable, else `/usr/share/zoneinfo`, `/usr/share/lib/zoneinfo`, `/usr/lib/locale/TZ`, `/etc/zoneinfo`);
 - it has a `// pending: reason` line (below the phase line; allowed in run, diff, interop and pkgs tests and in
   examples) and `GOCPP_TEST_PENDING` is not `1`. It says that the test's phase is only partly built and
   the test fails until a named step lands: `make ci` runs the tests up to Phase 08 (`GOCPP_TEST_PHASE=08`,
   below), and the examples `generics` and `workers` are pending. The step that makes the test pass removes
   the line; `GOCPP_TEST_PENDING=1` runs the pending tests meanwhile. A `// pending:` line in a test of a finished phase
   (`// phase:` up to `Phase` of internal/version) fails the test, because it would hide a real failure, and
-  `TestPendingFiles` lists the pending tests (exactly two today), so hiding another one needs an edit there;
+  `TestPendingFiles` lists the pending tests (a short list: it names each one), so hiding another one needs an edit there;
 - its `//go:build` line (at the top of the file, in every kind of test) excludes the target.
   The target is the machine that runs the tests: its `GOOS` and `GOARCH` hold, `unix` on a
   Unix system, and the release tags `go1.1` to `go1.25`; any other tag doesn't;

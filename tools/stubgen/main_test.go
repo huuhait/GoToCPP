@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
+	"go/build/constraint"
 	"go/constant"
 	"go/importer"
 	"go/parser"
@@ -246,6 +247,9 @@ func TestRealPackagesMatchStub(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				if !linuxFile(e.Name(), src) {
+					continue // a file of another system (time/zoneinfo_windows.gp)
+				}
 				f, err := parser.ParseFile(fset, e.Name(), src, parser.ParseComments)
 				if err != nil {
 					t.Fatal(err)
@@ -289,6 +293,34 @@ func TestRealPackagesMatchStub(t *testing.T) {
 			}
 		})
 	}
+}
+
+// linuxFile reports whether the .gp file name with the text src is built for linux/amd64: its name
+// has no other system or architecture suffix, and its //go:build line (if any) holds.
+func linuxFile(name string, src []byte) bool {
+	base := strings.TrimSuffix(name, ".gp")
+	if i := strings.LastIndex(base, "_"); i >= 0 {
+		switch base[i+1:] {
+		case "windows", "darwin", "plan9", "js", "wasip1", "freebsd", "netbsd", "openbsd", "arm64", "arm", "386":
+			return false
+		}
+	}
+	for _, line := range strings.Split(string(src), "\n") {
+		if !constraint.IsGoBuild(line) {
+			if strings.HasPrefix(line, "package ") {
+				break
+			}
+			continue
+		}
+		expr, err := constraint.Parse(line)
+		if err != nil {
+			return false
+		}
+		return expr.Eval(func(tag string) bool {
+			return tag == "linux" || tag == "unix" || tag == "amd64" || tag == "gc" || strings.HasPrefix(tag, "go1.")
+		})
+	}
+	return true
 }
 
 // qualifier writes each package by its path, so that the type strings of
@@ -450,6 +482,9 @@ func (c *comparison) compareTypes(s, r *types.TypeName) {
 			}
 		}
 		for sel := range sms.Methods() {
+			if c.realPkg && !sel.Obj().Exported() {
+				continue
+			}
 			if rms.Lookup(r.Pkg(), sel.Obj().Name()) == nil {
 				t.Errorf("method %s.%s (pointer %v) is in the stub but not in Go", name, sel.Obj().Name(), ptr)
 			}
@@ -466,7 +501,7 @@ func tparamsString(l *types.TypeParamList) string {
 }
 
 // compareStructs compares the fields of the struct type name: the stub's
-// fields, without the blank ones, are Go's exported and embedded fields, in
+// fields, without the blank ones (and, in a real package, the unexported ones), are Go's exported and embedded fields, in
 // the same order, without the left-out ones.
 func compareStructs(t *testing.T, name string, s, r *types.Struct, left map[string]bool, ignorePrivate bool) {
 	var want []string

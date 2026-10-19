@@ -158,6 +158,14 @@ int select_run(sel_entry* cs, int n) {
     if (np == 0) {
         return dflt;
     }
+    // A timer channel whose timer is due gets its value before the polls (Go's selectgo does the
+    // same with maybeRunChan).
+    for (int k = 0; k < np; k++) {
+        sel_entry& e = cs[mem.poll[k]];
+        if (e.kind == sel_kind::recv && e.c->timer != nullptr) [[unlikely]] {
+            timer_observe(e.c);
+        }
+    }
     // The lock order: by the address of the channel.
     std::copy(mem.poll, mem.poll + np, mem.lock);
     std::sort(mem.lock, mem.lock + np,

@@ -122,10 +122,16 @@ void chan_close(chan_core* c) {
 }
 
 int64_t chan_len(const chan_core* c) noexcept {
+    if (c->timer != nullptr) {
+        return 0; // a timer channel looks unbuffered (time.Timer, Go 1.23)
+    }
     return static_cast<int64_t>(c->len());
 }
 
 int64_t chan_cap(const chan_core* c) noexcept {
+    if (c->timer != nullptr) {
+        return 0;
+    }
     return static_cast<int64_t>(c->cap());
 }
 
@@ -278,10 +284,20 @@ recv_status chan_core::recv_impl(void* dst, bool block, bool zero) {
 }
 
 bool chan_core::recv(void* dst, bool zero) {
+    if (timer != nullptr) [[unlikely]] {
+        timer_observe(this);
+    }
     return recv_impl(dst, true, zero) == recv_status::value;
 }
 
 recv_status chan_core::try_recv(void* dst) {
+    if (timer != nullptr) [[unlikely]] {
+        timer_observe(this);
+    }
+    return recv_impl(dst, false, true);
+}
+
+recv_status chan_core::drain(void* dst) {
     return recv_impl(dst, false, true);
 }
 

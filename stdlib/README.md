@@ -20,6 +20,8 @@ embedded in the `gocpp` binary, and the loader finds the standard packages here.
   `Real` and writes no stub for it. `LICENSE` here is Go's BSD-3-Clause license, which the ported files carry; Go's
   `PATENTS` file (the additional patent grant) is not copied: it grants rights to users of Go itself, and the ported
   text is the same, so keep a copy of `PATENTS` from the pinned tarball with any redistribution of `stdlib/`.
+- **`time`** since step 8.8: Go's `format.go`, `time.go` and `zoneinfo.go` with natives for the clocks, `Sleep`, the timers and the zone files
+  (`stdlib/time/PORT.md`, ADR-041).
 - **Native functions.** A function without a body that has a `//gocpp:native` line in its doc comment is written in
   C++: the line names the runtime function that its calls become (ADR-027).
 
@@ -42,7 +44,7 @@ embedded in the `gocpp` binary, and the loader finds the standard packages here.
   stubs need (`io/fs` and `time` for `os`, `unicode` for `strings`, `context` for `testing`,
   `encoding` for `flag`), and `weak`, whose `Pointer`, `Make` and `Value` the compiler turns
   into the runtime's `gp::weak_ptr` (an intrinsic from Phase 03, Phase 03 README §2.2). (`errors` was the 25th
-  stub; it is real since step 5.7, and `unicode/utf8` since step 9.1.)
+  stub; it is real since step 5.7, `unicode/utf8` since step 9.1, and `time` since step 8.8.)
 
   A stub holds Go's exported declarations with their doc comments, but no code: functions have
   no body, and variables have no value. So programs that import these packages type-check, and

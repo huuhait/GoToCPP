@@ -9,11 +9,20 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 
 namespace gp::detail {
 
 struct sudog;
+struct timer_rec; // the timer of a time.Timer or time.Ticker channel (src/timer.cpp)
+struct chan_core;
+
+// timer_observe is called before a receive (or a poll of a select) on a timer channel: if the
+// timer's deadline has passed, the value is sent now, on the caller's thread, so that the receive
+// sees what Go 1.23 shows (a timer that is due has fired as far as the program can tell, whether
+// the timer thread has run yet or not). src/timer.cpp.
+void timer_observe(chan_core* c);
 
 // wake_cell is where a waker tells a parked goroutine that it is done: it sets done and fired
 // (the entry that woke the goroutine) with waiter::gp_unpark_with, and the goroutine waits with
@@ -155,6 +164,8 @@ struct chan_core {
     bool try_send(void* src);
     bool recv(void* dst, bool zero = true);
     recv_status try_recv(void* dst);
+    // try_recv without the timer's check (timer_observe): for the timer code itself.
+    recv_status drain(void* dst);
     void close();
 
     std::size_t len() const noexcept { return count.load(std::memory_order_relaxed); }
@@ -183,6 +194,13 @@ struct chan_core {
     std::size_t sendx = 0; // the slot of the next send
     std::size_t recvx = 0; // the slot of the next receive
     std::atomic<std::size_t> count{0};
+
+    // The timer record of a channel that belongs to a time.Timer, Ticker or AfterFunc (step 8.8,
+    // src/timer.cpp), null for every other channel. It is set once, before the channel is
+    // shared. Such a channel has a buffer of one element, and len and cap say 0 (Go 1.23's
+    // synchronous timer channels). The record leaves the timer thread's map when it is destroyed
+    // with the channel.
+    std::shared_ptr<timer_rec> timer;
 
 private:
     bool send_impl(void* src, bool block);

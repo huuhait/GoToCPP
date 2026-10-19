@@ -31,6 +31,7 @@ func main() {
 | `// Stderr: regexp` | the top of the file, before the package clause | stderr must match this Go regexp. It is unanchored; `(?m)` makes `^` and `$` match at every line. A test may have several, and each must match. **Without one, stderr must be empty**; `// Stderr: .*` accepts anything |
 | `//go:build expr` | the top of the file, before the package clause | a normal Go build constraint: where it excludes the target, the test is skipped ([tests/README.md](../README.md)) |
 | `// lsan: cycle` | the top of the file, before the package clause | the program leaks a reference cycle on purpose (D1), so a sanitizer run turns LeakSanitizer off for it ([tests/README.md](../README.md#sanitizers)) |
+| `// zoneinfo: required` | the top of the file, before the package clause | the program loads time zones by name (`time.LoadLocation`): the test is skipped on a machine without a time zone database ([tests/README.md](../README.md)) |
 | `// divergence: Dn` | the top of the file, before the package clause | the program shows divergence Dn of [docs/spec/language.md](../../docs/spec/language.md), so real Go prints something else: `TestRunVsGo` skips it, and its output can't come from Go (write what gocpp must print, and why, in the test's comment) |
 | `// Output:` | the end of the file | the expected stdout, as in a Go example test (below) |
 

@@ -30,6 +30,7 @@ type headerView struct {
 	stderr    []string
 	pkgConfig []string
 	display   bool
+	zoneinfo  bool
 	diff      string
 	cycle     bool
 	diverges  string
@@ -39,7 +40,7 @@ type headerView struct {
 
 func view(h *header) headerView {
 	v := headerView{phase: h.phase, output: h.output, exitCode: h.exitCode, pkgConfig: h.pkgConfig,
-		display: h.display, diff: h.diff, cycle: h.cycle, diverges: h.diverges, pending: h.pending, build: h.buildLine}
+		display: h.display, zoneinfo: h.zoneinfo, diff: h.diff, cycle: h.cycle, diverges: h.diverges, pending: h.pending, build: h.buildLine}
 	for _, rx := range h.stderr {
 		v.stderr = append(v.stderr, rx.String())
 	}
@@ -85,6 +86,7 @@ func TestParseHeader(t *testing.T) {
 		{"run_lsan_divergence.gp", runFormat, headerView{phase: 3, cycle: true, diverges: "D1"}},
 		{"diff_lsan.gp", diffFormat, headerView{phase: 3, cycle: true}},
 		{"run_pending.gp", runFormat, headerView{phase: 7, output: "ok\n", pending: "step 7.1 (generic functions)"}},
+		{"zoneinfo_ok.gp", runFormat, headerView{phase: 8, output: "ok\n", zoneinfo: true}},
 		// Every format honors a //go:build line in the header.
 		{"gobuild_ok.gp", runFormat, headerView{phase: 14, build: "//go:build linux || windows"}},
 		{"gobuild_ok.gp", interopFormat, headerView{phase: 14, build: "//go:build linux || windows"}},
@@ -146,6 +148,8 @@ func TestParseHeaderMalformed(t *testing.T) {
 		{"diff_bad_mode.gp", diffFormat, `2: bad "// diff:" line: want "stderr" or "combined", not "both"`},
 		{"diff_twice.gp", diffFormat, `3: a second "// diff:" line`},
 		{"diff_in_run.gp", runFormat, `2: tests in tests/run have no "// diff:" line (see tests/run/README.md)`},
+		{"zoneinfo_bad.gp", runFormat, `2: bad "// zoneinfo:" line: want "// zoneinfo: required", not "// zoneinfo: maybe"`},
+		{"zoneinfo_in_diff.gp", diffFormat, `2: tests in tests/diff have no "// zoneinfo:" line (see tests/diff/README.md)`},
 		{"display_in_run.gp", runFormat, `2: tests in tests/run have no "// display:" line (see tests/run/README.md)`},
 		{"gobuild_bad.gp", runFormat, `3: bad "//go:build" line: unexpected end of expression`},
 		{"gobuild_twice.gp", goldenFormat, `4: a second "//go:build" line`},
@@ -900,6 +904,42 @@ func TestDisplayGate(t *testing.T) {
 	} {
 		if got := displayGate(tt.display, tt.getenv); got != tt.want {
 			t.Errorf("displayGate(%v, ...) = %q, want %q", tt.display, got, tt.want)
+		}
+	}
+}
+
+func TestZoneinfoGate(t *testing.T) {
+	env := func(vars ...string) func(string) string {
+		return func(key string) string {
+			for i := 0; i+1 < len(vars); i += 2 {
+				if vars[i] == key {
+					return vars[i+1]
+				}
+			}
+			return ""
+		}
+	}
+	has := func(dir string) func(string) bool {
+		return func(p string) bool {
+			return strings.HasPrefix(p, dir+"/") && (strings.HasSuffix(p, "/America/New_York") || strings.HasSuffix(p, "/Europe/Berlin") || strings.HasSuffix(p, "/Asia/Kolkata"))
+		}
+	}
+	for _, tt := range []struct {
+		zoneinfo bool
+		getenv   func(string) string
+		exists   func(string) bool
+		skip     bool
+	}{
+		{false, env(), has("/nowhere"), false}, // no // zoneinfo: line: fine
+		{true, env(), has("/nowhere"), true},
+		{true, env(), has("/usr/share/zoneinfo"), false},
+		{true, env(), has("/etc/zoneinfo"), false},
+		{true, env("ZONEINFO", "/opt/tz"), has("/usr/share/zoneinfo"), true}, // ZONEINFO replaces the system's places
+		{true, env("ZONEINFO", "/opt/tz"), has("/opt/tz"), false},
+	} {
+		got := zoneinfoGate(tt.zoneinfo, tt.getenv, tt.exists)
+		if (got != "") != tt.skip {
+			t.Errorf("zoneinfoGate(%v, ...) = %q, want a skip: %v", tt.zoneinfo, got, tt.skip)
 		}
 	}
 }

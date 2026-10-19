@@ -585,7 +585,7 @@ func (c *config) runPrograms(t *testing.T, where string, progs []*program, fn fu
 
 // skipKinds are the kinds of reasons to skip a test, in the order that
 // skipReason checks them.
-var skipKinds = []string{"needs a later phase", "builds for another target", "needs a display", "needs a missing library", "pending"}
+var skipKinds = []string{"needs a later phase", "builds for another target", "needs a display", "needs a missing library", "needs a time zone database", "pending"}
 
 // skipReason returns why the test with header h can't run here, with the
 // kind of the reason (one of skipKinds), or "" and "".
@@ -602,8 +602,11 @@ func (c *config) skipReason(h *header) (why, kind string) {
 	if why = missingLibraries(h.pkgConfig); why != "" {
 		return why, skipKinds[3]
 	}
+	if why = zoneinfoGate(h.zoneinfo, os.Getenv, fileExists); why != "" {
+		return why, skipKinds[4]
+	}
 	if h.pending != "" && !c.pending {
-		return "pending: " + h.pending + " (GOCPP_TEST_PENDING=1 runs it)", skipKinds[4]
+		return "pending: " + h.pending + " (GOCPP_TEST_PENDING=1 runs it)", skipKinds[5]
 	}
 	return "", ""
 }

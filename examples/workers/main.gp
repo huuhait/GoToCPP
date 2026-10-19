@@ -1,5 +1,5 @@
 // phase: 08
-// pending: steps 8.5 (select), 8.7 (sync) and 8.8 (time)
+// pending: steps 8.5 (select) and 8.7 (sync)
 
 // Workers shows goroutines (each one is an OS thread in gocpp), buffered and
 // unbuffered channels, a pipeline, select with a timeout and with default,

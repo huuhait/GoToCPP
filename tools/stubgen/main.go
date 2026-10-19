@@ -108,7 +108,7 @@ var packages = []stubPackage{
 	{Path: "unicode/utf8", Phase: 9, Real: true},
 	{Path: "encoding", Phase: 9},
 	{Path: "io", Phase: 9},
-	{Path: "time", Phase: 8},
+	{Path: "time", Phase: 8, Real: true},
 	{Path: "io/fs", Phase: 9},
 	{Path: "context", Phase: 9},
 	{Path: "fmt", Phase: 5, Later: "Phase 05 replaces it with a basic fmt, and Phase 09 with Go's."},

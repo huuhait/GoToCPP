@@ -182,6 +182,9 @@ public:
     // The channel object, null for nil.
     detail::chan_core* gp_core() const noexcept { return gp_c.get(); }
 
+    // The owner of the channel object (for the runtime's timers, gocpp/time.hpp).
+    const std::shared_ptr<detail::chan_core>& gp_shared() const noexcept { return gp_c; }
+
 private:
     std::shared_ptr<detail::chan_core> gp_c;
 };

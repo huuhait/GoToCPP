@@ -376,12 +376,6 @@ func main() {
 	},
 		want: []string{"# command-line-arguments [command-line-arguments.test]", "./main_test.gp:1:1: test files are not supported yet (Phase 09)"}},
 
-	{name: "time.Parse", phase: 9, src: "package main\n\nimport \"time\"\n\nfunc main() {\n\tt, _ := time.Parse(time.RFC3339, \"x\")\n\t_ = t.Format(time.Kitchen)\n\t_ = t.Unix()\n}\n",
-		before: 8,
-		want: []string{
-			"6:15: time.Parse is not available yet (Phase 09)",
-			"7:8: time.Time.Format is not available yet (Phase 09)",
-		}},
 	{name: "embed", phase: 10, src: "package main\n\nimport _ \"embed\"\n\nfunc main() {}\n",
 		want:   []string{"3:8: package embed is not available yet (Phase 10)"},
 		wantAt: []string{"3:8: package embed is not available yet (Phase 09)"}},
@@ -525,8 +519,8 @@ func TestStdPackagesMatchStubs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n < 23 { // 24 until unicode/utf8 became a real package (step 9.1)
-		t.Errorf("found %d stubs, want at least 23", n)
+	if n < 22 { // 24 until unicode/utf8 (step 9.1) and time (step 8.8) became real packages
+		t.Errorf("found %d stubs, want at least 22", n)
 	}
 }
 

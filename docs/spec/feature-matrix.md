@@ -107,7 +107,7 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 | `runtime/debug` | 08 | `Stack`, `PrintStack`, `SetGCPercent`, `SetMemoryLimit`, `FreeOSMemory`, `SetMaxStack`, `SetMaxThreads`, `SetPanicOnFault` and `SetTraceback` from Phase 08 (step 8.10). `ReadBuildInfo`, `ReadGCStats` and `SetCrashOutput` come with Phase 09. |
 | `sync` | 08 |  |
 | `sync/atomic` | 08 |  |
-| `time` | 08 | Timers and `Sleep` in Phase 08; formatting, parsing and time zones in Phase 09. |
+| `time` | 08 | The whole package, since step 8.8 (Go's own `format.go`, `time.go` and `zoneinfo.go`, with natives for the clocks, `Sleep`, the timers and the time zone files). Timers follow Go 1.23: timer channels look unbuffered, `Stop` and `Reset` leave no stale value, and a `Timer` nobody holds is freed. `time.LoadLocation` reads the system's zoneinfo (the `ZONEINFO` variable, `/usr/share/zoneinfo`, `/etc/zoneinfo`); there is no embedded copy (`time/tzdata` is not available). On Windows (Phase 14) the zone data comes later. |
 | `runtime/cgo` | 09 | `cgo.Handle`: not built yet. |
 | `bufio` | 09 |  |
 | `bytes` | 09 |  |
@@ -162,19 +162,6 @@ These come in another phase than their package. A method comes with its type, un
 | `os.Stderr` | 05 |
 | `iter.Pull` | 08 |
 | `iter.Pull2` | 08 |
-| `time.FixedZone` | 09 |
-| `time.LoadLocation` | 09 |
-| `time.LoadLocationFromTZData` | 09 |
-| `time.Parse` | 09 |
-| `time.ParseDuration` | 09 |
-| `time.ParseInLocation` | 09 |
-| `time.Time.AppendFormat` | 09 |
-| `time.Time.Format` | 09 |
-| `time.Time.In` | 09 |
-| `time.Time.Local` | 09 |
-| `time.Time.Location` | 09 |
-| `time.Time.String` | 09 |
-| `time.Time.Zone` | 09 |
 | `errors.Trace` | 10 |
 | `errors.Wrapf` | 10 |
 | the rest of `fmt` | 09 |

@@ -245,6 +245,15 @@ step 8.12's job must set `TSAN_OPTIONS=detect_deadlocks=0` for the `select_1000_
    `gp::atomic_ptr<T>`, function-style API via `std::atomic_ref`).
 8. **8.8 `time`** with Go 1.23+ timer rules (unbuffered timer channels, no stale values,
    weak references in the timer heap).
+   *Built (ADR-041):* Go's own `format.go`, `time.go` and `zoneinfo.go` ported to `stdlib/time` (`PORT.md`), natives
+   in `runtime/src/time.cpp` and `runtime/src/timer.cpp` (standard C++). A timer is a record on a channel object
+   (`chan_core::timer`); one thread, started with the first timer, keeps the armed timers in an ordered map; the map holds a
+   channel timer's channel weakly, so an unreferenced `Timer`, `Ticker` or `After` channel is freed (and leaves the map)
+   although it was not stopped; `len` and `cap` of a timer channel are 0; `Stop` and `Reset` follow Go's algorithm (the
+   record's send lock and a sequence number, then drain the one-element buffer; a value that was waiting makes the result
+   `true`). `Sleep` waits on the goroutine's own waiter with a deadline and is not counted as blocked. Differences from Go:
+   a receive, a non-blocking receive and a `select` poll run a due timer themselves (`timer_observe`, ADR-041); the zone database is
+   the system's (no embedded `time/tzdata`, no `$GOROOT` zip). For 8.11: `gp::detail::timers_can_wake()`.
 9. **8.9 Exit semantics** (flush + `_exit`, no static destructors, TSan-aware harness). Done: `gp::exit`, ADR-038; the harness fails a run with a ThreadSanitizer report; the ASan leak check runs before `_exit`.
 10. **8.10 `runtime`** (Gosched, NumGoroutine, GOMAXPROCS that remembers its value, Goexit). The first of these makes the `runtime` package exist: the gate rows for `runtime` and `runtime/cgo` are at Phase 09 since step 5.12 (`internal/check/gates.go`), so 8.10 must move the `runtime` row to Phase 08 (and add `runtime.Error`/`PanicNilError`, which it owns unless 9.2 does). Done (ADR-038): the package is `stdlib/runtime` (+ `runtime/debug`), the row is at Phase 08, `runtime/cgo` stays at 09.
 11. **8.11 Deadlock detection** (Go 1.23+ timer rule, foreign threads, the `Goexit` message).
