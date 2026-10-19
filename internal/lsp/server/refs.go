@@ -678,6 +678,12 @@ type result struct {
 	// in the folder dir, directly or not; nil when the search did not read the
 	// imports of the module.
 	importersOf func(dir string) []string
+	// dynamic are the methods that the dynamic rule added to the family of a
+	// rename (dynamic.go).
+	dynamic []dynAdd
+	// moduleDirs are the folders of the packages of the module (the package of the
+	// symbol alone without a module).
+	moduleDirs []string
 }
 
 // search finds the places of the symbol in the workspace.
@@ -711,6 +717,15 @@ type searcher struct {
 	// wantAll: a dynamic target is part of the family, so the types of every
 	// package of the module matter (dynamic.go); allLoaded: they are searched.
 	wantAll, allLoaded bool
+	// dyn are the dynamic targets (assertions, type switches, errors.As) of the
+	// module on an interface with a method of the symbol's name, found by
+	// discoverDynamic in packages that the search may not look at; dynAdded the
+	// methods that the dynamic rule added (relatedByShapes).
+	dyn      []*dynTarget
+	dynAdded []dynAdd
+	// dynTest are the folders whose test files have an assertion that can reach
+	// an interface of the family: their test checks are searched.
+	dynTest map[string]bool
 }
 
 // scope is the symbol's scope for this search: the importers of an unexported
@@ -741,6 +756,9 @@ func (r *searcher) run(ctx context.Context, only []string) (*result, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := r.discoverDynamic(ctx); err != nil {
+		return nil, err
+	}
 	// The packages that can see the symbol, and the objects that stand for
 	// it: a related name in another package makes that package, and the ones
 	// that import it, part of the search (closure). The checks with the test
@@ -751,6 +769,7 @@ func (r *searcher) run(ctx context.Context, only []string) (*result, error) {
 	var views, tviews []*view
 	var missing []string
 	todo := dirs
+	again := false
 	for round := 0; round < 8; round++ {
 		for _, d := range todo {
 			searched[d] = true
@@ -777,7 +796,7 @@ func (r *searcher) run(ctx context.Context, only []string) (*result, error) {
 		if len(only) == 0 {
 			todo = r.moreDirs(keys, searched)
 			if r.wantAll && !r.allLoaded {
-				r.allLoaded = true
+				r.allLoaded, again = true, true // the closure goes on with every package
 				for _, p := range r.pkgs {
 					if !searched[p.dir] {
 						searched[p.dir] = true
@@ -787,9 +806,10 @@ func (r *searcher) run(ctx context.Context, only []string) (*result, error) {
 				sort.Strings(todo)
 			}
 		}
-		if len(todo) == 0 && len(keys.list) == before {
+		if len(todo) == 0 && len(keys.list) == before && !again {
 			break
 		}
+		again = false
 	}
 	r.checkImporters(views, missing, res)
 	if r.imports != nil {
@@ -803,6 +823,14 @@ func (r *searcher) run(ctx context.Context, only []string) (*result, error) {
 		}
 	}
 	res.views = views
+	res.dynamic = r.dynAdded
+	if r.pkgs != nil {
+		for _, p := range r.pkgs {
+			res.moduleDirs = append(res.moduleDirs, p.dir)
+		}
+	} else {
+		res.moduleDirs = []string{q.lp.Dir}
+	}
 	res.keys = keys.list
 	// What each view found, so that the lists are made once at their size.
 	found := make([][]hit, 0, len(views)+len(tviews))
@@ -1552,6 +1580,9 @@ func (r *searcher) closure(ctx context.Context, views []*view, keys *keySet, res
 		if !r.s.wideFamily && r.relatedByShapes(views, keys) {
 			added = true
 		}
+		if r.relatedAnonFields(views, keys) {
+			added = true
+		}
 		if !added {
 			return nil
 		}
@@ -1916,6 +1947,10 @@ func objectName(obj types.Object) string {
 				}
 				return n.Obj().Pkg().Name() + "." + n.Obj().Name() + "." + fn.Name()
 			}
+			// A method of an interface literal: no type name to say.
+			if _, ok := rt.Underlying().(*types.Interface); ok && fn.Pkg() != nil {
+				return fn.Pkg().Name() + ".(interface literal)." + fn.Name()
+			}
 		}
 	}
 	if obj.Pkg() != nil {
@@ -1982,8 +2017,11 @@ func (r *searcher) testViews(ctx context.Context, dirs []string, keys *keySet, d
 		if err != nil {
 			continue
 		}
-		use := false
+		use := r.dynTest[dir] // a test file with an assertion that can reach the family
 		for _, name := range files {
+			if use {
+				break
+			}
 			src, err := r.snap.ReadFile(name)
 			if err != nil || !mentions(src) {
 				continue

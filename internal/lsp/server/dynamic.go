@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/token"
 	"go/types"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -37,6 +38,8 @@ import (
 // errors.As target takes a value out as.
 type dynTarget struct {
 	methods []dynMethod
+	site    token.Position // the assertion (for messages)
+	text    string         // the interface, as text (for messages)
 }
 
 // A dynMethod is one method of a dynTarget.
@@ -91,13 +94,36 @@ func (v *view) assertions() []tie {
 
 type assertionsKey struct{}
 
-// relatedByShapes adds to keys the methods that the dynamic targets (the
-// interfaces of type assertions, type switches and errors.As) of the views
-// relate to the family, and reports whether it added one. It only does so
-// for a method symbol.
+// A dynAdd is a method that the dynamic rule added to the family of a rename: a
+// method of a type that a type assertion, a type switch or errors.As can reach.
+type dynAdd struct {
+	obj   types.Object
+	site  token.Position // the assertion that makes it part of the family
+	iface string         // the interface it takes the value out as, as text
+}
+
+// relatedByShapes adds to keys, for a rename of a method, the methods that
+// the dynamic targets (the interfaces of type assertions, type switches and
+// errors.As) of the module relate to the family, and reports whether it added
+// one.
+//
+// Only types that can reach the assertion count: a value of a type that is
+// converted to no interface anywhere in the module (not even to any) is never
+// the dynamic value of an interface, so no assertion takes it out, and
+// renaming its method with the interface's would change code that does not
+// depend on the assertion (and, for a name like Close that every type has, the
+// whole module). A converted type is a conservative stand-in for "reaches":
+// the value may flow anywhere from the conversion. References and highlights
+// do not follow them at all (they answer where the method is used).
+//
+// The packages are searched for assertions by discoverDynamic, which needs no
+// package of the family; the types that implement the interface are in every
+// package, so when the family could be involved (a type of the family
+// implements a dynamic target, or the target's method is in the family) the
+// rest of the module is searched (once, wantAll) before anything is added.
 func (r *searcher) relatedByShapes(views []*view, keys *keySet) bool {
 	sym := r.sym
-	if len(sym.objs) != 1 {
+	if !sym.rename || r.s.wideFamily || len(sym.objs) != 1 {
 		return false
 	}
 	fn, ok := sym.objs[0].(*types.Func)
@@ -106,19 +132,21 @@ func (r *searcher) relatedByShapes(views []*view, keys *keySet) bool {
 	}
 	name := sym.name
 	// The dynamic targets that have a method of the family's name.
-	var targets []*dynTarget
-	seen := make(map[string]bool)
+	targets := slices.Clone(r.dyn)
+	seen := make(map[string]bool, len(targets))
+	for _, dt := range targets {
+		seen[dt.id()] = true
+	}
 	for _, v := range views {
 		for _, t := range v.assertions() {
 			if !t.names[name] {
 				continue
 			}
-			dt := newDynTarget(t)
+			dt := newDynTarget(t, v)
 			if dt == nil {
 				continue
 			}
-			id := dt.id()
-			if !seen[id] {
+			if id := dt.id(); !seen[id] {
 				seen[id] = true
 				targets = append(targets, dt)
 			}
@@ -128,11 +156,23 @@ func (r *searcher) relatedByShapes(views []*view, keys *keySet) bool {
 		return false
 	}
 	added := false
-	add := func(obj types.Object) {
-		if r.inWorkspace(obj) && keys.add(keyOf(obj)) {
-			added = true
+	add := func(obj types.Object, dt *dynTarget, counted bool) {
+		if !r.inWorkspace(obj) || !keys.add(keyOf(obj)) {
+			return
+		}
+		added = true
+		if counted {
+			r.dynAdded = append(r.dynAdded, dynAdd{obj: obj, site: dt.site, iface: dt.text})
 		}
 	}
+	// A value of a type can be the dynamic value of an interface only if the
+	// type is converted to an interface (or flows to a place that is one:
+	// scanTies) in its own package or in a package that imports it, directly or
+	// not (a package that does not import it has no expression of its type).
+	// So the types that can reach the assertions are the converted ones, the
+	// types of the family are decided by the views of their importers, which the
+	// search has, and the converted types of the rest of the module are known
+	// when every package is searched (allLoaded).
 	for _, dt := range targets {
 		var named *dynMethod // the target's method of the family's name
 		for i := range dt.methods {
@@ -144,69 +184,59 @@ func (r *searcher) relatedByShapes(views []*view, keys *keySet) bool {
 			continue // (an interface outside the workspace is found and refused by the ties)
 		}
 		inFamily := keys.has[named.key]
-		// The workspace's types that implement the target, by the shape, with their
-		// method of the family's name.
-		var impl []types.Object
+		// The converted types that implement the target, by the shape, with
+		// their method of the family's name (a struct that embeds a type has
+		// its method).
+		var reach []types.Object
+		famReach := false
+		seenObj := make(map[types.Object]bool)
 		for _, v := range views {
-			for _, x := range r.namedTypes(v) {
-				if types.IsInterface(x) || !dt.implementedBy(x) {
+			for _, x := range v.converted() {
+				if !dt.implementedBy(x) {
 					continue
 				}
-				if m := lookupMethod(x, named.pkg, name); m != nil && r.inWorkspace(origin(m)) {
-					impl = append(impl, origin(m))
+				m := lookupMethod(x, named.pkg, name)
+				if m == nil || !r.inWorkspace(origin(m)) || seenObj[origin(m)] {
+					continue
 				}
+				seenObj[origin(m)] = true
+				reach = append(reach, origin(m))
+				famReach = famReach || keys.has[keyOf(origin(m))]
 			}
 		}
 		if !inFamily {
-			for _, m := range impl {
-				if keys.has[keyOf(m)] {
-					inFamily = true
-					break
-				}
-			}
-			if !inFamily {
+			// A type of the family that implements the interface and can reach it
+			// brings the interface's method in.
+			if !famReach {
 				continue
 			}
-			add(named.obj)
+			add(named.obj, dt, false)
+			inFamily = true
 		}
-		// A family that is a dynamic target needs every type of the module: the
-		// ones that are not searched yet are (once).
-		r.wantAll = true
-		for _, m := range impl {
-			add(m)
+		if inFamily && !r.allLoaded {
+			// The interface's method is in the family: the types of the whole
+			// module that implement it and can reach it are the family's, and
+			// they can be anywhere.
+			r.wantAll = true
+			continue
+		}
+		for _, m := range reach {
+			add(m, dt, true)
 		}
 	}
 	return added
 }
 
-// namedTypes returns the named types that the view's package declares (its
-// test files' too, in a test view), that are not generic. They are the
-// types that implement an interface where they are declared.
-func (r *searcher) namedTypes(v *view) []*types.Named {
-	if v.types == nil {
-		return nil
-	}
-	scope := v.types.Scope()
-	var out []*types.Named
-	for _, n := range scope.Names() {
-		tn, ok := scope.Lookup(n).(*types.TypeName)
-		if !ok || tn.IsAlias() {
-			continue
-		}
-		if named, ok := tn.Type().(*types.Named); ok && named.TypeParams().Len() == 0 {
-			out = append(out, named)
-		}
-	}
-	return out
-}
-
 // newDynTarget returns the shape of the interface of the tie t (asserted).
-func newDynTarget(t tie) *dynTarget {
+func newDynTarget(t tie, v *view) *dynTarget {
 	it, ok := t.dst.Underlying().(*types.Interface)
 	if !ok || it.NumMethods() == 0 {
 		return nil
 	}
-	dt := &dynTarget{}
+	dt := &dynTarget{text: types.TypeString(t.dst, func(p *types.Package) string { return p.Name() })}
+	if v != nil && v.fset != nil && t.pos.IsValid() {
+		dt.site = v.fset.Position(t.pos)
+	}
 	for m := range it.Methods() {
 		dt.methods = append(dt.methods, dynMethod{
 			name: m.Name(), pkg: m.Pkg(), sig: sigText(m), obj: origin(m), key: keyOf(m),
@@ -228,7 +258,7 @@ func (dt *dynTarget) id() string {
 
 // implementedBy reports whether the type x (or a pointer to it) has all the
 // methods of the target, by name and signature text.
-func (dt *dynTarget) implementedBy(x *types.Named) bool {
+func (dt *dynTarget) implementedBy(x types.Type) bool {
 	for _, m := range dt.methods {
 		fn := lookupMethod(x, m.pkg, m.name)
 		if fn == nil || sigText(fn) != m.sig {

@@ -51,7 +51,21 @@ type Options struct {
 	// interfaces that a use in the module needs (gopls's, the default). It
 	// is slow on a module whose types share a method name (gocpp lsp -wide-family).
 	WideFamily bool
+	// DynamicLimit is the most methods that a rename may add to the family only
+	// because a type assertion, a type switch or errors.As could reach their
+	// types (dynamic.go); a rename that would add more is refused, with the
+	// number and the assertion, so that it is not silently made across the
+	// module. 0 is DefaultDynamicLimit, negative is no limit (gocpp lsp
+	// -dynamic-limit).
+	DynamicLimit int
+	// CheckCacheMB is the cap of the cache of checked packages, in MB (gocpp lsp
+	// -check-cache); 0 is cache.DefaultMaxCheckBytes (10% of the memory of the
+	// machine, 64 to 300 MB).
+	CheckCacheMB int
 }
+
+// DefaultDynamicLimit is Options.DynamicLimit when it is 0.
+const DefaultDynamicLimit = 20
 
 // StatsCommand is the command of workspace/executeCommand that returns the
 // stats, as the request GocppStats does.

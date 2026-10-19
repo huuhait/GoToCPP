@@ -161,21 +161,48 @@ type tie struct {
 	// assertion or a type switch case (src is nil): a type that reaches it
 	// only through the assertion is not tied to it.
 	asserted bool
+	// pos is where the assertion, type switch case or errors.As call is (for
+	// asserted ties): a message that names the site says where.
+	pos token.Pos
 }
 
 // ties returns the ties of the view's files: the uses of the package that
 // need an interface of a value of another type. They are computed once per
 // checked package (cache.Package.Memo), so the references and renames of a
 // method that every type of the module shares don't read the module again.
-func (v *view) ties() []tie {
+func (v *view) ties() []tie { return v.tieInfo().ties }
+
+// A tieInfo is what scanTies found in a package: the ties, and the types of the
+// values that can be the dynamic value of an interface: those that the package
+// converts to an interface (any interface, the empty one too, which ties
+// nothing) in any form that a value flows to a place of that type: an
+// assignment, a declaration, a return, an argument, an element of a composite
+// literal, a channel send, a range variable, the key of a map index, the
+// values of a call that returns several, the forms that return a value and
+// whether it is there, and a type argument of an instantiation (the constraint
+// is an interface). A comparison with an interface does not count: it keeps
+// nothing. The types that these are made of count too (record). A value of a type that is none of these can
+// be the dynamic value of no interface, so no type assertion takes it out.
+// Struct types (named or not, local, generic, an alias) are recorded as they
+// are: the lookup of a method on them finds what they promote.
+type tieInfo struct {
+	ties      []tie
+	converted []types.Type
+}
+
+func (v *view) tieInfo() *tieInfo {
 	if v.info == nil {
-		return nil
+		return &tieInfo{}
 	}
 	if v.pkg == nil || v.test {
-		return scanTies(v.info, v.files)
+		return scanTies(v.types, v.info, v.files)
 	}
-	return v.pkg.Memo(tiesKey{}, func() any { return scanTies(v.info, v.files) }).([]tie)
+	return v.pkg.Memo(tiesKey{}, func() any { return scanTies(v.types, v.info, v.files) }).(*tieInfo)
 }
+
+// converted returns the types of the values that the view's package converts to
+// an interface, or lets flow to a place that does (see scanTies).
+func (v *view) converted() []types.Type { return v.tieInfo().converted }
 
 type tiesKey struct{}
 
@@ -183,8 +210,10 @@ type tiesKey struct{}
 // returned, sent, put in a composite literal, compared or converted where an
 // interface is wanted, and the types that a type assertion or a type switch
 // takes out of an interface.
-func scanTies(info *types.Info, files map[string]*ast.File) []tie {
+func scanTies(self *types.Package, info *types.Info, files map[string]*ast.File) *tieInfo {
 	var out []tie
+	var converted []types.Type
+	convSeen := make(map[types.Type]bool)
 	seen := make(map[[2]types.Type]bool)
 	// A tie is between a type that has methods (any type: a named one, a
 	// pointer to one, an unnamed struct that embeds one) and an interface with
@@ -199,8 +228,77 @@ func scanTies(info *types.Info, files map[string]*ast.File) []tie {
 		}
 		return true
 	}
-	add := func(src, dst types.Type) {
-		if src == nil || dst == nil || !types.IsInterface(dst) || !usable(dst) || !usable(src) {
+	// record notes that a value of the type src can be the dynamic value of an
+	// interface, and so can the values it holds: reflection reads the fields of
+	// a struct, the elements of a slice, an array, a channel or a map, the value
+	// a pointer points to and the results of a function, and takes them out as
+	// interfaces (reflect.ValueOf(s).Field(0).Interface(), fmt printing a nested
+	// struct). So the types that a type is made of are reached with it, as far
+	// as they go (a type of the standard library is not looked into: none of its
+	// types is in the module, and its graph is large). A pointer to a type counts
+	// as the type, and the type as its pointer: the lookup of a method with the
+	// type addressable finds both (the pointer is only to deduplicate). A
+	// struct that embeds a type has its methods, so it is the type that the
+	// methods promote from, too (the lookup of a method on it finds them).
+	var record func(src types.Type)
+	record = func(src types.Type) {
+		if src == nil {
+			return
+		}
+		t := types.Unalias(src)
+		if p, ok := t.(*types.Pointer); ok {
+			t = types.Unalias(p.Elem())
+		}
+		switch t.(type) {
+		case *types.Basic, *types.Tuple, *types.Interface:
+			return
+		}
+		if types.IsInterface(t) || convSeen[t] {
+			return
+		}
+		convSeen[t] = true
+		converted = append(converted, t)
+		if n, ok := t.(*types.Named); ok && n.Obj().Pkg() != nil && foreignStd(n.Obj().Pkg(), self) {
+			return
+		}
+		switch u := t.Underlying().(type) {
+		case *types.Struct:
+			for i := range u.NumFields() {
+				record(u.Field(i).Type())
+			}
+		case *types.Pointer:
+			record(u.Elem())
+		case *types.Slice:
+			record(u.Elem())
+		case *types.Array:
+			record(u.Elem())
+		case *types.Chan:
+			record(u.Elem())
+		case *types.Map:
+			record(u.Key())
+			record(u.Elem())
+		case *types.Signature:
+			for i := range u.Params().Len() {
+				record(u.Params().At(i).Type())
+			}
+			for i := range u.Results().Len() {
+				record(u.Results().At(i).Type())
+			}
+		}
+	}
+	// add records the tie of src to the interface dst; conv: a value of src is
+	// converted to dst here (not: a type assertion's target and its operand).
+	add := func(src, dst types.Type, conv bool) {
+		if src == nil || dst == nil || !types.IsInterface(dst) {
+			return
+		}
+		if _, tup := src.(*types.Tuple); tup {
+			return
+		}
+		if conv {
+			record(src)
+		}
+		if !usable(dst) || !usable(src) {
 			return
 		}
 		it, ok := dst.Underlying().(*types.Interface)
@@ -214,10 +312,10 @@ func scanTies(info *types.Info, files map[string]*ast.File) []tie {
 			for m := range it.Methods() {
 				names[m.Name()] = true
 			}
-			out = append(out, tie{src, dst, names, false})
+			out = append(out, tie{src: src, dst: dst, names: names})
 		}
 	}
-	asserted := func(t types.Type) {
+	asserted := func(t types.Type, pos token.Pos) {
 		if t == nil || !types.IsInterface(t) {
 			return
 		}
@@ -229,14 +327,26 @@ func scanTies(info *types.Info, files map[string]*ast.File) []tie {
 		for m := range it.Methods() {
 			names[m.Name()] = true
 		}
-		out = append(out, tie{dst: t, names: names, asserted: true})
+		out = append(out, tie{dst: t, names: names, asserted: true, pos: pos})
 	}
 	mark := func(e ast.Expr, target types.Type) {
 		if e == nil || target == nil {
 			return
 		}
 		if t := info.TypeOf(e); t != nil {
-			add(t, target)
+			add(t, target, true)
+		}
+	}
+	// markTuple marks the values of a call that returns several (or of a
+	// comma-ok form), which flow to dsts one by one.
+	markTuple := func(e ast.Expr, dsts []types.Type) {
+		if e == nil {
+			return
+		}
+		if tup, ok := info.TypeOf(e).(*types.Tuple); ok {
+			for i := range min(tup.Len(), len(dsts)) {
+				add(tup.At(i).Type(), dsts[i], true)
+			}
 		}
 	}
 	// Go's order, so that the list is the same for every run.
@@ -269,11 +379,25 @@ func scanTies(info *types.Info, files map[string]*ast.File) []tie {
 					for i := range n.Rhs {
 						mark(n.Rhs[i], info.TypeOf(n.Lhs[i]))
 					}
+				} else if len(n.Rhs) == 1 && n.Tok == token.ASSIGN {
+					// a, err = f(); v, ok = m[k]; v, ok = <-ch
+					dsts := make([]types.Type, len(n.Lhs))
+					for i, l := range n.Lhs {
+						dsts[i] = info.TypeOf(l)
+					}
+					markTuple(n.Rhs[0], dsts)
 				}
 			case *ast.ValueSpec:
 				if n.Type != nil && len(n.Values) > 0 {
 					for _, val := range n.Values {
 						mark(val, info.TypeOf(n.Type))
+					}
+					if len(n.Values) == 1 && len(n.Names) > 1 { // var a, err T = f()
+						dsts := make([]types.Type, len(n.Names))
+						for i := range dsts {
+							dsts[i] = info.TypeOf(n.Type)
+						}
+						markTuple(n.Values[0], dsts)
 					}
 				}
 			case *ast.ReturnStmt:
@@ -283,6 +407,12 @@ func scanTies(info *types.Info, files map[string]*ast.File) []tie {
 						for i, r := range n.Results {
 							mark(r, res.At(i).Type())
 						}
+					} else if len(n.Results) == 1 && res.Len() > 1 { // return f()
+						dsts := make([]types.Type, res.Len())
+						for i := range dsts {
+							dsts[i] = res.At(i).Type()
+						}
+						markTuple(n.Results[0], dsts)
 					}
 				}
 			case *ast.SendStmt:
@@ -294,7 +424,7 @@ func scanTies(info *types.Info, files map[string]*ast.File) []tie {
 					// errors.As(err, &target) takes a value of the interface type
 					// out of the chain of err, as a type assertion does.
 					if p, ok := underlying(info.TypeOf(n.Args[1])).(*types.Pointer); ok {
-						asserted(p.Elem())
+						asserted(p.Elem(), n.Pos())
 					}
 				}
 				if tv, ok := info.Types[n.Fun]; ok && tv.IsType() && len(n.Args) == 1 {
@@ -302,6 +432,25 @@ func scanTies(info *types.Info, files map[string]*ast.File) []tie {
 				} else if ok && n.Fun != nil {
 					if sig, ok := underlying(info.TypeOf(n.Fun)).(*types.Signature); ok {
 						params := sig.Params()
+						if len(n.Args) == 1 && params.Len() > 1 || len(n.Args) == 1 && sig.Variadic() {
+							// h(f()): the values of f go to the parameters
+							dsts := make([]types.Type, 0, params.Len())
+							for i := range params.Len() {
+								pt := params.At(i).Type()
+								if sl, ok := pt.(*types.Slice); ok && sig.Variadic() && i == params.Len()-1 {
+									pt = sl.Elem()
+								}
+								dsts = append(dsts, pt)
+							}
+							if tup, ok := info.TypeOf(n.Args[0]).(*types.Tuple); ok {
+								for i := range tup.Len() {
+									j := min(i, len(dsts)-1)
+									if j >= 0 {
+										add(tup.At(i).Type(), dsts[j], true)
+									}
+								}
+							}
+						}
 						for i, a := range n.Args {
 							switch {
 							case i < params.Len()-1 || i == params.Len()-1 && !sig.Variadic():
@@ -344,15 +493,74 @@ func scanTies(info *types.Info, files map[string]*ast.File) []tie {
 						}
 					}
 				}
+			case *ast.RangeStmt:
+				if n.Tok == token.ASSIGN {
+					var kt, vt types.Type
+					switch u := underlying(info.TypeOf(n.X)).(type) {
+					case *types.Slice:
+						vt = u.Elem()
+					case *types.Array:
+						vt = u.Elem()
+					case *types.Pointer:
+						if a, ok := underlying(u.Elem()).(*types.Array); ok {
+							vt = a.Elem()
+						}
+					case *types.Map:
+						kt, vt = u.Key(), u.Elem()
+					case *types.Chan:
+						kt = u.Elem()
+					case *types.Signature: // range over func
+						if u.Params().Len() == 1 {
+							if y, ok := underlying(u.Params().At(0).Type()).(*types.Signature); ok {
+								if y.Params().Len() > 0 {
+									kt = y.Params().At(0).Type()
+								}
+								if y.Params().Len() > 1 {
+									vt = y.Params().At(1).Type()
+								}
+							}
+						}
+					}
+					if n.Key != nil && kt != nil {
+						add(kt, info.TypeOf(n.Key), true)
+					}
+					if n.Value != nil && vt != nil {
+						add(vt, info.TypeOf(n.Value), true)
+					}
+				}
+			case *ast.IndexExpr:
+				if m, ok := underlying(info.TypeOf(n.X)).(*types.Map); ok {
+					mark(n.Index, m.Key()) // m[t]
+				}
+			case *ast.SwitchStmt:
+				// A comparison converts the operand that is not an interface for the
+				// time of the comparison only: it ties the types (as gopls does) and
+				// puts no value in an interface (the value of the operand is not
+				// kept), so nothing is recorded as converted.
+				if n.Tag != nil {
+					tt := info.TypeOf(n.Tag)
+					for _, c := range n.Body.List {
+						if cc, ok := c.(*ast.CaseClause); ok {
+							for _, e := range cc.List {
+								if et := info.TypeOf(e); et != nil && tt != nil {
+									add(et, tt, false)
+									add(tt, et, false)
+								}
+							}
+						}
+					}
+				}
 			case *ast.BinaryExpr:
 				if n.Op == token.EQL || n.Op == token.NEQ {
-					mark(n.X, info.TypeOf(n.Y))
-					mark(n.Y, info.TypeOf(n.X))
+					if tx, ty := info.TypeOf(n.X), info.TypeOf(n.Y); tx != nil && ty != nil {
+						add(tx, ty, false)
+						add(ty, tx, false)
+					}
 				}
 			case *ast.TypeAssertExpr:
 				if n.Type != nil {
-					add(info.TypeOf(n.Type), info.TypeOf(n.X))
-					asserted(info.TypeOf(n.Type))
+					add(info.TypeOf(n.Type), info.TypeOf(n.X), false)
+					asserted(info.TypeOf(n.Type), n.Pos())
 				}
 			case *ast.TypeSwitchStmt:
 				var x ast.Expr
@@ -367,8 +575,8 @@ func scanTies(info *types.Info, files map[string]*ast.File) []tie {
 				if ta, ok := x.(*ast.TypeAssertExpr); ok {
 					for _, c := range n.Body.List {
 						for _, te := range c.(*ast.CaseClause).List {
-							add(info.TypeOf(te), info.TypeOf(ta.X))
-							asserted(info.TypeOf(te))
+							add(info.TypeOf(te), info.TypeOf(ta.X), false)
+							asserted(info.TypeOf(te), te.Pos())
 						}
 					}
 				}
@@ -403,10 +611,26 @@ func scanTies(info *types.Info, files map[string]*ast.File) []tie {
 			continue
 		}
 		for i := range min(tparams.Len(), inst.TypeArgs.Len()) {
-			add(inst.TypeArgs.At(i), tparams.At(i).Constraint())
+			add(inst.TypeArgs.At(i), tparams.At(i).Constraint(), true)
 		}
 	}
-	return out
+	return &tieInfo{ties: out, converted: converted}
+}
+
+// foreignStd reports whether pkg is a package of the standard library, as seen
+// from self (a module whose path has no dot, like "example" or "m", is its
+// own: a package that shares the first element of self's path is not).
+func foreignStd(pkg, self *types.Package) bool {
+	if pkg == nil || !isStdPath(pkg.Path()) {
+		return false
+	}
+	if self != nil {
+		first := func(p string) string { f, _, _ := strings.Cut(p, "/"); return f }
+		if first(pkg.Path()) == first(self.Path()) {
+			return false
+		}
+	}
+	return true
 }
 
 // isErrorsAs reports whether the call is errors.As(err, target).

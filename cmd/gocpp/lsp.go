@@ -88,6 +88,8 @@ func runLSP(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	profile := flags.String("profile", "", "write the CPU and heap profiles to the folder `dir` when the server ends")
 	execTrace := flags.Bool("exec-trace", false, "with -profile, write the Go execution trace (exec.trace) too")
 	traceFile := flags.String("trace", "", "write the spans of the work to `file` as a Chrome trace when the server ends")
+	checkCache := flags.Int("check-cache", 0, "the cap of the cache of checked packages, in `MB` (0: 10% of the memory of the machine, 64 to 300 MB)")
+	dynLimit := flags.Int("dynamic-limit", 0, "refuse a rename that would also rename more than `n` methods only because a type assertion could reach their types (0: 20, negative: no limit)")
 	wide := flags.Bool("wide-family", false, "references and rename follow a method through every interface of the module that its type could satisfy, not only through the interfaces that a use needs (slower)")
 	flags.Usage = func() {
 		fmt.Fprint(stderr, lspUsage)
@@ -127,7 +129,7 @@ func runLSP(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "gocpp lsp: %v\n", err)
 		return 2
 	}
-	opts := server.Options{Slow: *slow, Phase: phase, WideFamily: *wide}
+	opts := server.Options{Slow: *slow, Phase: phase, WideFamily: *wide, DynamicLimit: *dynLimit, CheckCacheMB: *checkCache}
 	if prof != nil {
 		defer prof.stop()
 		opts.Trace = prof.rec

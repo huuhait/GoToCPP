@@ -372,3 +372,31 @@ func TestPromisePanic(t *testing.T) {
 		t.Errorf("%d computations, want 1", runs)
 	}
 }
+
+// TestStoreSetMaxCost: lowering the cap drops the least recently used values at
+// once (the newest stays), raising it keeps all.
+func TestStoreSetMaxCost(t *testing.T) {
+	s := NewStore[int](0, func(v int, _ error) int64 { return 10 })
+	for i := range 6 {
+		if _, err := s.Get(context.Background(), i, func(context.Context) (int, error) { return i, nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, cost := s.Stats(); n != 6 || cost != 60 {
+		t.Fatalf("%d values, cost %d", n, cost)
+	}
+	s.SetMaxCost(25)
+	if n, cost := s.Stats(); n != 2 || cost != 20 || s.MaxCost() != 25 {
+		t.Errorf("after the cap 25: %d values, cost %d", n, cost)
+	}
+	if _, _, ok := s.Peek(5); !ok {
+		t.Error("the newest value was dropped")
+	}
+	if _, _, ok := s.Peek(0); ok {
+		t.Error("the oldest value stayed")
+	}
+	s.SetMaxCost(0)
+	if s.MaxCost() != 0 {
+		t.Error("no cap")
+	}
+}

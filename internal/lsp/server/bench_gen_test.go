@@ -34,6 +34,7 @@ func BenchmarkGen(b *testing.B) {
 		b.Fatal(err)
 	}
 	c := startOnRoot(b, root)
+	c.skipShown = true // a rename that changes other declarations says so
 	read := func(rel string) string {
 		data, err := os.ReadFile(root + "/" + rel + ".gp")
 		if err != nil {
@@ -68,6 +69,7 @@ func BenchmarkGen(b *testing.B) {
 		{"references-popular", "textDocument/references", where(core, "type Base struct", 5) + incl, false},
 		{"references-local", "textDocument/references", where(hot, "\ntype ", 6) + incl, false},
 		{"references-family", "textDocument/references", where(hot, ") Add(tag string)", 2) + incl, false},
+		{"rename-method", "textDocument/rename", where(hot, ") Add(tag string)", 2) + `,"newName":"Plus"}`, false},
 		{"rename", "textDocument/rename", where(rel(p.HotPkg+"/f00.gp"), "func Label(", 5) + `,"newName":"TagOf"}`, false},
 		{"semantic-tokens", "textDocument/semanticTokens/full", fmt.Sprintf(`{"textDocument":{"uri":%q}}`, c.uri(hot+".gp")), false},
 		{"document-symbol", "textDocument/documentSymbol", fmt.Sprintf(`{"textDocument":{"uri":%q}}`, c.uri(hot+".gp")), false},

@@ -59,6 +59,10 @@ import (
 // clause) and an import path are refused: a package rename also moves its
 // folder and changes every importer, which is a different tool.
 
+// skipEmbedderCheck is set by a test to see what the check of the result alone
+// catches of what checkEmbedders refuses.
+var skipEmbedderCheck bool
+
 // skipConflictChecks is set by a test to see what the check of the result
 // alone catches.
 var skipConflictChecks bool
@@ -273,6 +277,7 @@ func (s *Server) rename(ctx context.Context, e env, params json.RawMessage) (any
 		return nil, err
 	}
 	rn.warnExcluded(ctx)
+	rn.warnNameAsString(ctx)
 	rn.otherDeclarations()
 	rn.newImplements()
 	s.warnModules(e, "rename", q, sym, true)
@@ -347,6 +352,12 @@ func (rn *renamer) edits(ctx context.Context) (map[string]*fileEdits, error) {
 		return nil, refuse("cannot rename %s: %v", sym.name, res.testErr)
 	case len(res.hits) == 0:
 		return nil, refuse("cannot rename %s: it has no declaration that gocpp can see", sym.name)
+	}
+	if err := rn.checkDynamic(); err != nil {
+		return nil, err
+	}
+	if err := rn.checkEmbedders(); err != nil {
+		return nil, err
 	}
 	if !rn.s.wideFamily {
 		for _, h := range res.hits {
@@ -510,6 +521,79 @@ func declaresInFile(f *ast.File, name, recv string) bool {
 		}
 	}
 	return false
+}
+
+// dynamicLimit returns the most methods that the dynamic rule may add to a
+// rename (a negative value: any number).
+func (s *Server) dynamicLimit() int {
+	if n := int(s.dynLimitOpt.Load()); n != 0 {
+		return n
+	}
+	return DefaultDynamicLimit
+}
+
+// The settings of the server (the initializationOptions of the client, and
+// workspace/didChangeConfiguration), as {"dynamicLimit": n} or
+// {"gocpp": {"dynamicLimit": n}}: dynamicLimit is Options.DynamicLimit.
+
+// didChangeConfiguration is the notification of new settings.
+func (s *Server) didChangeConfiguration(_ context.Context, params json.RawMessage) error {
+	var p struct {
+		Settings json.RawMessage `json:"settings"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil // not ours to refuse: a client sends what it likes
+	}
+	s.applySettings(p.Settings)
+	return nil
+}
+
+// applySettings takes the settings it knows from raw (anything else is ignored).
+func (s *Server) applySettings(raw json.RawMessage) {
+	var top map[string]json.RawMessage
+	if json.Unmarshal(raw, &top) != nil {
+		return
+	}
+	if g, ok := top["gocpp"]; ok {
+		var inner map[string]json.RawMessage
+		if json.Unmarshal(g, &inner) == nil {
+			top = inner
+		}
+	}
+	if v, ok := top["checkCacheMB"]; ok {
+		var n float64
+		if json.Unmarshal(v, &n) == nil && n >= 0 {
+			s.pipeline.SetMaxCheckBytes(int64(n) << 20)
+		}
+	}
+	if v, ok := top["dynamicLimit"]; ok {
+		var n float64
+		if json.Unmarshal(v, &n) == nil {
+			s.dynLimitOpt.Store(int64(n))
+		}
+	}
+}
+
+// checkDynamic refuses a rename whose family grew by more than the limit only
+// because a type assertion (a type switch, errors.As) could reach the types:
+// it would change that many methods across the module on the strength of a
+// guess about what flows where, and the user should say that they mean it.
+func (rn *renamer) checkDynamic() error {
+	limit := rn.s.dynamicLimit()
+	dyn := rn.res.dynamic
+	if limit < 0 || len(dyn) <= limit {
+		return nil
+	}
+	var names []string
+	for _, d := range dyn[:min(3, len(dyn))] {
+		names = append(names, objectName(d.obj))
+	}
+	site := dyn[0].site
+	where := "a type assertion"
+	if site.IsValid() {
+		where = fmt.Sprintf("%s at %s:%d", dyn[0].iface+" taken out of a value", filepath.Base(site.Filename), site.Line)
+	}
+	return refuse("cannot rename %s without asking: it would also rename %d methods of other types (%s, ...) because %s could reach them, and renaming only some would change what the program does without a compile-time error. Set gocpp.dynamicLimit to %d (or -1 for any number) in the editor's server settings (initializationOptions or workspace configuration; or start gocpp lsp with -dynamic-limit %d; in VS Code add \"-dynamic-limit\", \"%d\" to gocpp.lsp.args) to rename them all, or rename the interface's method by hand", rn.sym.name, len(dyn), strings.Join(names, ", "), where, len(dyn), len(dyn), len(dyn))
 }
 
 // checkExported refuses a rename of an exported name to an unexported one
@@ -935,19 +1019,33 @@ func (rn *renamer) checkResult(ctx context.Context, files map[string]*fileEdits)
 			dirs[filepath.Dir(path)] = true
 		}
 	}
+	edited := maps.Clone(dirs)
+	viewOf := make(map[string]*view, len(rn.res.views))
 	for _, v := range rn.res.views {
 		if !v.test && v.dir != "" {
-			dirs[v.dir] = true
+			viewOf[v.dir] = v
 		}
 	}
-	// The importers of the edited folders, whether or not the search found a use
-	// there: a method that is renamed changes the method sets of its types, and an
-	// importer that passes a value of one to an interface of the package (a tie
-	// that the search did not see) would no longer compile.
+	// The packages that the search looked at, and the importers of the edited
+	// folders, whether or not the search found a use there: a method that is
+	// renamed changes the method sets of its types, and an importer that passes a
+	// value of one to an interface of the package (a tie that the search did not
+	// see) would no longer compile. For a method the packages that cannot be
+	// affected are left out (mayBreak): checking each of 1,500 packages of a module
+	// again, when a rename changes 10 methods, was the cost of the rename.
+	narrow := rn.canNarrowCheck()
+	consider := func(dir string) {
+		if v := viewOf[dir]; v == nil || edited[dir] || !narrow || rn.mayBreak(v) {
+			dirs[dir] = true
+		}
+	}
+	for dir := range viewOf {
+		consider(dir)
+	}
 	if rn.res.importersOf != nil && (rn.sym.scope == scopeFamily || rn.sym.scope == scopeModule) {
-		for _, dir := range slices.Sorted(maps.Keys(dirs)) {
+		for _, dir := range slices.Sorted(maps.Keys(edited)) {
 			for _, imp := range rn.res.importersOf(dir) {
-				dirs[imp] = true
+				consider(imp)
 			}
 		}
 	}
@@ -1020,6 +1118,109 @@ func (rn *renamer) checkResult(ctx context.Context, files map[string]*fileEdits)
 	return nil
 }
 
+// canNarrowCheck reports whether the check of the result may leave out the
+// packages that cannot be affected: for a rename of a method (the family's
+// narrow rule), whose effect on a package is through its uses of the name and
+// its ties to the interfaces that have it.
+func (rn *renamer) canNarrowCheck() bool {
+	if rn.s.wideFamily || len(rn.sym.objs) != 1 {
+		return false
+	}
+	fn, ok := rn.sym.objs[0].(*types.Func)
+	if !ok || recvBase(fn) == nil {
+		return false
+	}
+	// The methods of an interface literal belong to every identical literal, in
+	// other packages too (b.Show(i) takes the interface{ M() int } that a.Ifc()
+	// returns): a package that never names the method can break.
+	for _, h := range rn.res.hits {
+		if f, ok := h.obj.(*types.Func); ok && h.def {
+			if rt := recvBase(f); rt != nil {
+				if _, named := rt.(*types.Named); !named {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+// mayBreak reports whether the rename of a method can make an error in the
+// package of the view v, which the search looked at and the edits do not
+// touch. The search closes the family over every tie that the packages it
+// looked at make, so such a package has no value of a type of the family
+// passed to an interface that is not renamed with it, and no use of a member
+// (it would be edited). It can still break:
+//
+//   - by using the new name, which can now be found where it was not;
+//   - by a tie to an interface that has the new name or the old one (the
+//     method set of the value's type changes by promotion: a struct that embeds
+//     the type and another type with a method of the new name has an
+//     ambiguous one, and stops implementing the interface that wants it: it
+//     may be declared in another package, which passes its value on);
+//
+// (A type that only embeds a type of the family breaks nothing by itself: its
+// promoted method set matters where a method is selected, which names the new
+// name, or where it is passed to an interface, which is a tie.)
+//
+// A package that the search did not look at is checked, as the ties it may have
+// are not known.
+func (rn *renamer) mayBreak(v *view) bool {
+	if v.info == nil {
+		return true
+	}
+	if v.identIndex().byName[rn.newName] != nil {
+		return true
+	}
+	for _, t := range v.ties() {
+		if t.names[rn.sym.name] || t.names[rn.newName] {
+			return true
+		}
+	}
+	return false
+}
+
+// checkEmbedders refuses the rename of a method to a name that a type embedding the
+// method's type already has, at any depth: the promoted method set of the
+// embedder is made by the shallowest name, so the new name would hide the
+// renamed method (a field or method of the embedder itself), make it ambiguous
+// (another one at its depth), or hide the other one (a deeper one), and the
+// embedder would lose a method or call another, with no error where the types
+// still fit: W embeds a.A, whose M becomes N, and X, which embeds b.B, whose N is
+// a level deeper; or W embeds a.A and b.B, whose N is at the same depth; or W has
+// a field N.
+func (rn *renamer) checkEmbedders() error {
+	if skipEmbedderCheck || !rn.canNarrowCheck() {
+		return nil
+	}
+	famKeys := make(map[objKey]bool, len(rn.res.keys))
+	for _, k := range rn.res.keys {
+		famKeys[k] = true
+	}
+	pkg := rn.sym.objs[0].Pkg()
+	byName := func(p *types.Package) string { return p.Name() }
+	for _, v := range rn.res.views {
+		for _, rec := range v.embeds() {
+			obj, _, _ := types.LookupFieldOrMethod(rec.outer, true, pkg, rn.sym.name)
+			fn, ok := obj.(*types.Func)
+			if !ok || !famKeys[keyOf(origin(fn))] {
+				continue
+			}
+			nobj, nidx, _ := types.LookupFieldOrMethod(rec.outer, true, pkg, rn.newName)
+			if nobj == nil && nidx == nil {
+				continue
+			}
+			what := "an ambiguity"
+			if nobj != nil {
+				what = types.ObjectString(nobj, byName)
+			}
+			return refuse("cannot rename %s to %s: %s embeds %s, whose %s would become %s, and %s is already there (hidden by it, hiding it, or ambiguous with it): the type's method set would change with no error from the build", rn.sym.name, rn.newName,
+				types.TypeString(rec.outer, byName), types.TypeString(recvBase(fn), byName), rn.sym.name, rn.newName, what)
+		}
+	}
+	return nil
+}
+
 // packageErrors returns the error diagnostics of a checked package.
 func packageErrors(pkg *cache.Package) []diag.Diagnostic {
 	var out []diag.Diagnostic
@@ -1068,6 +1269,36 @@ func newError(before, after []diag.Diagnostic) string {
 		return fmt.Sprintf("%s:%d: %s", filepath.Base(d.Pos.Filename), d.Pos.Line, d.Msg)
 	}
 	return ""
+}
+
+// warnNameAsString warns, for a method or a field, that a string literal of the
+// module is its name: reflect finds a method (MethodByName) or a field
+// (FieldByName), and the encoders a field, by a string, which a rename does not
+// change, and the program then does something else with no error.
+func (rn *renamer) warnNameAsString(ctx context.Context) {
+	if rn.e.notify == nil || len(rn.sym.objs) != 1 || rn.s.wideFamily {
+		return
+	}
+	switch o := rn.sym.objs[0].(type) {
+	case *types.Func:
+		if recvBase(o) == nil {
+			return
+		}
+	case *types.Var:
+		if !o.IsField() {
+			return
+		}
+	default:
+		return
+	}
+	where := rn.s.nameAsString(ctx, rn.e.snapshot, rn.res.moduleDirs, rn.sym.name)
+	if where == "" {
+		return
+	}
+	msg := fmt.Sprintf("gocpp rename: the string %q is at %s: reflect and the encoders find a method or a field by a name in a string, which a rename does not change. Look at it if it means %s.", rn.sym.name, where, rn.sym.name)
+	if err := rn.e.notify("window/showMessage", &protocol.ShowMessageParams{Type: protocol.Warning, Message: msg}); err != nil {
+		rn.e.log.Printf("window/showMessage: %v", err)
+	}
 }
 
 // warnExcluded tells the user about the files of the packages that were

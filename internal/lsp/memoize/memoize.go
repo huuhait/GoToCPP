@@ -243,7 +243,25 @@ func (s *Store[K, V]) Peek(key K) (v V, err error, ok bool) {
 func (s *Store[K, V]) Counters() (hits, misses int64) { return s.hits.Load(), s.misses.Load() }
 
 // MaxCost returns the cap of the store (0: none).
-func (s *Store[K, V]) MaxCost() int64 { return s.maxCost }
+func (s *Store[K, V]) MaxCost() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.maxCost
+}
+
+// SetMaxCost changes the cap (0 or less: none); the values over it go at once,
+// the least recently used first.
+func (s *Store[K, V]) SetMaxCost(maxCost int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.maxCost = maxCost
+	for s.maxCost > 0 && s.total > s.maxCost && s.lru.Len() > 1 {
+		old := s.lru.Remove(s.lru.Back()).(*entry[K, V])
+		old.elem = nil
+		s.total -= old.cost
+		delete(s.entries, old.key)
+	}
+}
 
 // Stats returns the number of kept values that are done and their cost.
 func (s *Store[K, V]) Stats() (n int, cost int64) {

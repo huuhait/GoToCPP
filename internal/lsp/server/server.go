@@ -34,6 +34,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/huuhait/gocpp/internal/lsp/cache"
@@ -61,6 +62,7 @@ func RunWith(ctx context.Context, in io.Reader, out io.Writer, logger *log.Logge
 	cfg := pipelineConfig()
 	cfg.Trace = opts.Trace
 	cfg.Phase = opts.Phase
+	cfg.MaxCheckBytes = int64(opts.CheckCacheMB) << 20
 	if disk := openDisk(logger); disk != nil {
 		defer disk.Close()
 		cfg.Disk = disk
@@ -137,7 +139,9 @@ type Server struct {
 	obs      *observer // the slow log, the spans and the stats (observe.go)
 	// wideFamily is Options.WideFamily.
 	wideFamily bool
-	conn       *protocol.Conn // set by Serve
+	// dynamicLimit is Options.DynamicLimit, 0 for the default; negative: none.
+	dynLimitOpt atomic.Int64
+	conn        *protocol.Conn // set by Serve
 	// requests are the methods of the requests that run on a snapshot
 	// (see method); tests add their own before Serve.
 	requests     map[string]method
@@ -146,6 +150,7 @@ type Server struct {
 	comp         completion    // completion (completion.go)
 	refactor     refactor      // references and rename (refs.go, rename.go)
 	symbols      symbolFeature // document and workspace symbols (symbols.go)
+	syn          synTable      // the syntax index of the dynamic family (dynindex.go)
 	modsMu       sync.Mutex
 	mods         struct {
 		gen  uint64
@@ -224,6 +229,7 @@ func newServerOpts(logger *log.Logger, cfg cache.Config, clock debounce.Clock, o
 		stale:        make(map[protocol.DocumentURI]map[protocol.ID]*staleToken),
 		wideFamily:   opts.WideFamily,
 	}
+	s.dynLimitOpt.Store(int64(opts.DynamicLimit))
 	s.obs = newObserver(s, opts)
 	s.addObservability()
 	s.addNavigation()
@@ -274,7 +280,7 @@ var notifications = map[string]func(*Server, context.Context, json.RawMessage) e
 	"textDocument/didClose":            (*Server).didClose,
 	"textDocument/didSave":             (*Server).didSave,
 	"workspace/didChangeWatchedFiles":  (*Server).didChangeWatchedFiles,
-	"workspace/didChangeConfiguration": ignore, // no settings yet
+	"workspace/didChangeConfiguration": (*Server).didChangeConfiguration,
 }
 
 func ignore(*Server, context.Context, json.RawMessage) error { return nil }
@@ -448,6 +454,9 @@ func (s *Server) initialize(params json.RawMessage) (any, error) {
 	s.watchFiles = p.Capabilities.Workspace.DidChangeWatchedFiles.DynamicRegistration
 	s.mu.Unlock()
 	s.diags.related.Store(p.Capabilities.TextDocument.PublishDiagnostics.RelatedInformation)
+	if raw, err := json.Marshal(p.InitializationOptions); err == nil {
+		s.applySettings(raw)
+	}
 	if c := p.ClientInfo; c != nil {
 		s.log.Printf("initialize: client %s %s", c.Name, c.Version)
 	}

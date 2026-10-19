@@ -117,7 +117,6 @@ type Config struct {
 // The default caps: the memory budget is 400 MB for a 50k-line project
 // (README §2.1).
 const (
-	defaultMaxCheckBytes   = 100 << 20
 	defaultMaxSummaryBytes = 64 << 20
 	defaultMaxParseBytes   = 32 << 20
 	maxMetadata            = 8192 // a metadata is a few hundred bytes
@@ -203,7 +202,7 @@ func NewPipeline(cfg Config) *Pipeline {
 			return astFactor*int64(len(pf.Src)) + 1
 		}),
 		metas: make(map[Hash]*metadata),
-		checks: memoize.NewStore[Hash](orDefault(cfg.MaxCheckBytes, defaultMaxCheckBytes), func(pkg *Package, _ error) int64 {
+		checks: memoize.NewStore[Hash](orDefault(cfg.MaxCheckBytes, DefaultMaxCheckBytes()), func(pkg *Package, _ error) int64 {
 			if pkg == nil {
 				return 1
 			}
@@ -295,6 +294,12 @@ func (m CacheMetrics) HitRate() float64 {
 		return 0
 	}
 	return float64(m.Hits) / float64(m.Hits+m.Misses)
+}
+
+// SetMaxCheckBytes changes the memory cap of the check cache (0: the default,
+// DefaultMaxCheckBytes); what is over it goes at once.
+func (p *Pipeline) SetMaxCheckBytes(n int64) {
+	p.checks.SetMaxCost(orDefault(n, DefaultMaxCheckBytes()))
 }
 
 // Metrics describes the pipeline for gocpp/stats: the work done, the disk

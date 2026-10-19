@@ -32,7 +32,6 @@ func Describe(a Animal) string { return a.name() + ":" + a.Sound() }
 
 import (
 	"fmt"
-	"fmt"
 
 	"example.com/m5/base"
 )
@@ -112,7 +111,6 @@ func (c Cat) Sound() string { return "meow" }
 	"main.gp": `package main
 
 import (
-	"fmt"
 	"fmt"
 
 	"example.com/prom/base"
@@ -206,7 +204,6 @@ func (FatalErr) Temporary() bool { return false }
 		"main.gp": `package main
 
 import (
-	"fmt"
 	"errors"
 	"fmt"
 
@@ -277,7 +274,6 @@ func (T) Name() string { return "y" }
 
 import (
 	"fmt"
-	"fmt"
 
 	"example.com/same/x"
 	"example.com/same/y"
@@ -291,20 +287,27 @@ func main() {
 `,
 	}
 	c := startRefs(t, files, plainInit)
-	for _, mark := range []string{"(T) Na|me()", "I interface{ Na|me"} {
-		got, rerr := c.rename("x/x.gp", mark, "Label")
-		if rerr != nil {
-			t.Fatalf("%s: %v", mark, rerr)
-		}
-		if got["y/y.gp"] == "" || strings.Contains(got["y/y.gp"], "Name") {
-			t.Errorf("rename from %q: y.go not renamed: %v", mark, got)
-		}
-		c.takeShown()
+	// From the interface: y.T is converted to any in main and implements it, so
+	// the assertion b.(x.I) takes it out: it is renamed with the interface.
+	// x.T is converted nowhere, no value of it reaches any assertion: it stays.
+	got, rerr := c.rename("x/x.gp", "I interface{ Na|me", "Label")
+	if rerr != nil {
+		t.Fatal(rerr)
 	}
-	// from y.T, too
-	got, rerr := c.rename("y/y.gp", "(T) Na|me()", "Label")
-	if rerr != nil || got["x/x.gp"] == "" {
+	if got["y/y.gp"] == "" || strings.Contains(got["y/y.gp"], "Name") || !strings.Contains(got["x/x.gp"], "func (T) Name()") {
+		t.Errorf("from the interface: %v", got)
+	}
+	c.takeShown()
+	// From y.T (which reaches the assertion): the interface and y.T, not x.T.
+	got, rerr = c.rename("y/y.gp", "(T) Na|me()", "Label")
+	if rerr != nil || !strings.Contains(got["x/x.gp"], "Label() string }") || !strings.Contains(got["x/x.gp"], "func (T) Name()") {
 		t.Errorf("from y.T: %v %v", got, rerr)
+	}
+	c.takeShown()
+	// From x.T: nothing reaches the assertion through it; only x.T.
+	got, rerr = c.rename("x/x.gp", "(T) Na|me()", "Label")
+	if rerr != nil || got["y/y.gp"] != "" || !strings.Contains(got["x/x.gp"], "interface{ Name()") {
+		t.Errorf("from x.T: %v %v", got, rerr)
 	}
 }
 
@@ -422,5 +425,75 @@ func TestPanicInSearchGoroutines(t *testing.T) {
 	}
 	if got := c2.workspaceSymbols("rect"); len(got) == 0 {
 		t.Errorf("workspace symbols after the panic: none")
+	}
+}
+
+// TestRenameAnonymousStructField: the fields of an anonymous struct type are those
+// of every identical struct type: renaming x in Hidden's result renames it in
+// ShowHidden's parameter too (they would stop being the same type), and a
+// field of another package's struct of the same shape (another x) stays.
+func TestRenameAnonymousStructField(t *testing.T) {
+	files := map[string]string{
+		"gocpp.mod": "module example.com/anon\n",
+		"a/a.gp": `package a
+
+func Hidden() struct{ x int } { return struct{ x int }{7} }
+
+func ShowHidden(h struct{ x int }) int { return h.x }
+
+type Named struct{ x int }
+`,
+		"b/b.gp": `package b
+
+func Hidden() struct{ x int } { return struct{ x int }{8} }
+`,
+		"main.gp": `package main
+
+import (
+	"fmt"
+
+	"example.com/anon/a"
+)
+
+func main() { fmt.Println(a.ShowHidden(a.Hidden())) }
+`,
+	}
+	c := startRefs(t, files, plainInit)
+	got, rerr := c.rename("a/a.gp", "Hidden() struct{ |x int }", "y")
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	text := got["a/a.gp"]
+	if strings.Count(text, "struct{ y int }") != 3 || !strings.Contains(text, "h.y") || !strings.Contains(text, "type Named struct{ x int }") {
+		t.Errorf("a.gp after the rename:\n%s", text)
+	}
+	if _, ok := got["b/b.gp"]; ok {
+		t.Errorf("b has another x (a different package's): %v", got["b/b.gp"])
+	}
+}
+
+// TestObjectNameInterfaceLiteral: a method of an interface literal is named
+// by its package and that it is a literal, not "a.Len".
+func TestObjectNameInterfaceLiteral(t *testing.T) {
+	files := map[string]string{
+		"gocpp.mod": "module example.com/lit\n",
+		"a/a.gp": `package a
+
+type T struct{}
+
+func (T) Len() int { return 1 }
+
+func Use(x interface{ Len() int }) int { return x.Len() }
+
+func f() int { return Use(T{}) }
+`,
+	}
+	c := startRefs(t, files, plainInit)
+	if _, msg := c.renamed(t, "a/a.gp", "(T) Le|n()", "Size"); msg != "" {
+		t.Fatal(msg)
+	}
+	shown := c.takeShown()
+	if len(shown) != 1 || !strings.Contains(shown[0].Message, "a.(interface literal).Len") || strings.Contains(shown[0].Message, " a.Len ") {
+		t.Errorf("messages: %+v", shown)
 	}
 }

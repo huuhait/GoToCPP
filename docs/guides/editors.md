@@ -30,19 +30,46 @@ about and the methods that tie to it, so that the program means what it meant be
   unexported method the importers are searched too (a `main` that passes a `base.Dog` to a
   `func(base.Animal)` ties the unexported `Dog.name` to `Animal.name`);
 - an interface that a type assertion, a type switch or `errors.As` takes a value out as is followed
-  all the way, **which gopls does not do**: the type that the assertion reaches (it may be unexported,
-  in a package that the asserting code does not import, and reached only through `error` or `any`) must
-  keep implementing the interface, so the interface's method and the method of every type of the
-  module that implements the interface change together, from either side. Without it the program
-  compiles and the assertion fails at run time. It makes a rename wider than gopls's when the
-  interface is a target of such a check (the types are compared with the interface by the names and
-  signatures of their methods, in every package of the module, so it is slow only then). Types
-  declared inside a function, generic types and the types of other modules are not looked at;
+  too, **which gopls does not do**, for a **rename** only (references and highlights say where the
+  method you asked about is used, and do not follow it): a value that is converted to an interface
+  anywhere in the module (passed, assigned, returned, sent, put in a composite literal, also to
+  `any`: `fmt.Println(v)`) can come out of an assertion as the interface, so the interface's method
+  and the methods of the types that implement it and are converted somewhere in the module change
+  together. Without it the program compiles and the assertion fails at run time. The assertion may
+  be in any package of the module, also one that does not import the type's package (`core.IsCloser(x
+  any)` asserts `x.(Closer)` on what `main` passes it). A type is *reached* when a value of it (or of a struct, named or not, local, generic or an
+  alias, that embeds it, or that holds it in a field, an element, a key, a pointee or a function
+  result: `reflect` and `fmt` take those out as interfaces) flows to an interface in any form: it is
+  converted, passed, assigned, returned, sent, put in a composite literal, ranged into a variable,
+  used as the key of a map index, returned by a call whose values are passed on, or read with `v, ok`.
+  A type that nothing reaches is left alone: no value of it can come out of
+  an assertion, so a module of 30 packages that all have a `Close() error` does not become one
+  family because `core` asserts `Closer`. The types are compared with the interface by the names and
+  signatures of their methods. When the assertion would add more than 20 methods the rename is
+  **refused**, with the count and the assertion, and you are told how to go on: it would change that
+  many methods across the module on a guess about what flows where. The limit is the setting
+  `dynamicLimit` (`gocpp.dynamicLimit` in the editor's server settings: the `initializationOptions`,
+  or `workspace/didChangeConfiguration` with `{"gocpp": {"dynamicLimit": n}}`; `-1` for any number),
+  or `gocpp lsp -dynamic-limit n` (in VS Code: `"-dynamic-limit", "n"` in `gocpp.lsp.args`). Test files are looked at
+  too (an assertion or a conversion in a `_test.gp` file counts). Not looked at: values that reach an interface through `reflect` alone, and the types of other
+  modules;
 - a type that merely *could* be used as the interface, with no use that needs it to and no
   assertion that takes it, is left alone: renaming `Lener.Len` leaves `Counterer.Len` alone when
   nothing converts a `Counterer` to a `Lener`. It stops satisfying `Lener`. Nothing in the module
   can tell (it compiles, and no check sees the difference); only reflection and code outside the
   module could.
+
+A field of an anonymous struct type (`struct{ x int }` written where a type is wanted) is renamed in
+every identical struct type of the module, as the types would stop being identical otherwise.
+
+A method that is renamed is also refused when a type that embeds its type already has the new name,
+at any depth (a field, a method, or one that the rename would make ambiguous): the method set of the
+embedder, made by promotion, would lose or change a method with no error from the build, as `W` in
+`type W struct { a.A; b.B }` where `A.M` becomes `N` and `B` has an `N`.
+
+A rename of a method or a field also warns when a string literal of the module is its name
+(`MethodByName("Close")`, `FieldByName`): reflect and the encoders find them by that string, which a
+rename does not change.
 
 A rename tells you, with a message, how many other declarations it changed (and the first few), so
 that you can undo it. These are refused instead, because the program would change without a
@@ -90,6 +117,14 @@ a check each the first time: a module of 40 packages, asked for a method (which 
 them) on a busy machine, took about 0.6 s for references and 1.1 s for a rename, then 0.25-0.45 s
 once they were checked (budget row: 300 ms for the warm case). The test files of a package are
 loaded again from source when they mention the name (once for each package and change).
+
+*Memory.* The server keeps the packages it has checked in a cache whose cap is 10% of the machine's
+memory, at least 64 MB and at most 300 MB (an upper bound: it holds only what was looked at, and
+the memory at start is the same). A request that looks at more packages than the cache holds (a
+rename of a method that a large module shares) checks them again each time, which is slower and
+allocates more, so a bigger cache can use less memory in total. Set it with `gocpp lsp
+-check-cache MB`, or the setting `checkCacheMB` (`gocpp.checkCacheMB` in the editor's server
+settings: `initializationOptions` or `workspace/didChangeConfiguration`); 0 is the default.
 
 **C/C++ names** (`raylib.InitWindow`, `std.vector`, the members of C++ values, header imports)
 are declared in headers, not in gocpp code: references and highlights show nothing for them,

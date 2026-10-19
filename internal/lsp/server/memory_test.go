@@ -51,7 +51,11 @@ func TestMemoryOutlineRequests(t *testing.T) {
 	}
 	files := oneBigFile(12) // about 2,500 lines
 	root := writeTree(t, files)
-	c := &dclient{client: startServer(t, newServer(nil, testConfig(), debounce.RealClock{}), nil), root: root}
+	// The cap of the check cache is 100 MB here: the default follows the memory of
+	// the machine (up to 300 MB), and the caches would not fill within the test.
+	cfg := testConfig()
+	cfg.MaxCheckBytes = 100 << 20
+	c := &dclient{client: startServer(t, newServer(nil, cfg, debounce.RealClock{}), nil), root: root}
 	c.skipShown = true
 	c.call("initialize", fmt.Sprintf(`{"processId":1,"rootUri":%q,"capabilities":{}}`, fileURI(root)))
 	c.notify("initialized", "{}")
