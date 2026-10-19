@@ -2365,6 +2365,104 @@ void main() {
 
 Source: [Phase 07 §2](../../plans/2026-10-13-gocpp/phase-07-generics/README.md), [ADR-030](../adr/030-generic-instances.md).
 
+## Range over functions
+
+`for x := range seq { body }` is Go's own rewrite (`cmd/compile/internal/rangefunc/rewrite.go`,
+[ADR-033](../adr/033-range-over-func.md)): `seq` is called with the body as its `yield` function.
+
+```go
+func find(n int) (int, bool) {
+	for x := range Count(10) {
+		if x == n {
+			return x * 2, true
+		}
+	}
+	return 0, false
+}
+```
+
+```cpp
+std::tuple<int64_t, bool> find(int64_t n) {
+    gp::ptr<int64_t> gp_r0 = gp::new_<int64_t>();      // the results are variables of the function,
+    gp::ptr<bool> gp_r1 = gp::new_<bool>();            // boxed: the body sets them
+    {
+        auto gp_rs0 = gp::new_<gp::rangefunc_state>(); Count(10)(gp::func<bool(int64_t)>([n, gp_rs0, gp_r0, gp_r1]<int = 0>(int64_t x) mutable -> bool {
+            gp_rs0->gp_enter();                        // READY -> PANIC, or Go's misuse panic
+            if (x == n) {
+                (*gp_r0) = x * 2; (*gp_r1) = true; gp_rs0->gp_next = -1; return gp_rs0->gp_exit();
+            }
+            return gp_rs0->gp_continue();              // the end of the body: READY, true
+        }));
+        gp_rs0->gp_finish();                           // the iterator returned: EXHAUSTED
+        if (gp_rs0->gp_next == -1) {
+            return {(*gp_r0), (*gp_r1)};               // the return, in the function itself
+        }
+    }
+    return {0, false};
+}
+```
+
+- **The body is a normal closure**: an explicit capture list, never `[&]`; the variables of the function
+  that it assigns are boxed like those of any closure. The range variables are its parameters, so each
+  iteration has its own (a variable that a closure keeps or whose address is taken is boxed in the body).
+  `for a[i], m[k] = range seq` has parameters of our own (`gp_p0`) and the assignment first in the body.
+  The range expression is evaluated once, before the loop.
+- **State.** Each loop run has a boxed `gp::rangefunc_state` (`runtime/include/gocpp/rangefunc.hpp`) with
+  Go's states: `gp_enter()` (READY to PANIC; any other state panics: DONE `range function continued
+  iteration after function for loop body returned false`, EXHAUSTED `... after whole loop exit`, PANIC
+  `... after loop body panic`), `gp_continue()` (READY, `true`), `gp_exit()` (DONE, `false`) and
+  `gp_finish()` after the iterator returned (PANIC there is `range function recovered a loop body panic
+  and did not resume panicking`; then EXHAUSTED). All are `runtime.Error`s with `runtime error: ` in
+  front. A `yield` that an iterator keeps and calls after the loop finds EXHAUSTED and panics before the
+  body touches anything (ASan-clean: the state, the captured boxes and the results are all boxed).
+  `-nochecks` leaves these checks on.
+- **Jumps.** `break` is `return gp_rs0->gp_exit();`, `continue` `return gp_rs0->gp_continue();`. A
+  `return` sets the results and `gp_next = -1`; a `goto` or a labeled `break`/`continue` to something
+  that is not a loop of the nest gets a code below -1; a labeled `break` or `continue` of an outer
+  range-over-func loop number `i` (outermost 0) gets `2(i+1)` / `2(i+1)-1`. The loop exits (`gp_exit`),
+  and the code after the call of each loop on the way tests `gp_next` and either passes it on
+  (`return gp_rsJ->gp_exit();`) or, in the function that holds the target, does the jump (`goto`,
+  `return`, or the labels of a plain `break L` and `continue L`, flow.go). `gp_next` is a member of the
+  state of the outermost loop of the nest, which the bodies inside capture when they use it. A `goto`
+  to a label in the same body is a `goto`.
+- **defer and recover.** A `defer` in the body registers on the function's own frame: the body captures
+  `gp_df` by reference (the body only runs while the loop's function is running, also when the iterator
+  calls `yield` on another goroutine; a late call panics first). `recover()` in the body is **nil**, as in
+  Go: the body is a closure that the iterator calls, not the deferred function that a panic runs, also
+  when the function with the loop is itself that deferred function (a function whose only `recover()` is
+  in a body is not "aware", recover.go, and takes no ticket). `recover()` in the range clause, in the
+  function's code after the loop, and in a func literal that the body `defer`s (the panic runs it) work
+  as usual. The function's results of a function with a `return` with values in a body
+  are boxed variables with names of our own; an unnamed result becomes one, as in Go, so a deferred
+  call that recovers a panic of the iterator after the body returned makes the function return what
+  the body set.
+- **C/C++ values.** The yield function may take C/C++ values (`func(yield func(std.string) bool)`): the
+  body's parameter has the C++ type written in the yield parameter, and the range variable is a C/C++
+  value for the checker (a conversion `int(x)` of it is a cast), also boxed when a closure keeps it.
+- **Costs** (300,000,000 iterations of `sum += x & 3` over a counting iterator, g++ 15 / clang++ 21 on
+  the shared 128-core machine, user CPU): with `-O2`, 0.58 s / 0.54 s (1.9 ns an iteration, the same as
+  the closure called directly, and 5.8x / 5.4x Go 1.25's 0.10 s, which inlines the iterator and the
+  body); with gocpp's default `-O0`, 8.6 s / 10.6 s (28 and 35 ns: the indirect call, the state
+  checks and the boxed `sum` are not inlined; a plain `for` loop is 1 ns). Each run of a loop
+  allocates the state and the body's closure. Compile time: 100 functions with two nested loops each
+  (200 loops): 13.3 s of CPU with g++ and 8.3 s with clang++ at the default flags, the same as 200
+  func literals passed to the iterator (12.1 s, 8.9 s), and 11 times 200 `range` over slices (1.2 s):
+  the cost is the closure (`gp::func` construction and call templates), not the state machine.
+- **Recursion** through a loop body costs three C++ frames a level (the function, the iterator, the
+  body lambda): about 10,000 levels pass and 20,000 end in `fatal error: stack overflow`, earlier than
+  plain recursion.
+- **Stack traces** leave the bodies out (the lambda is a generated helper: `<int = 0>`); Go shows
+  `main.f-range1`. A func literal inside a body is numbered with the function's other literals
+  (`main.f.func1`).
+- **Differences from gc.** A `defer` in a body inside a func literal that gc inlines is attached to
+  the caller in gc 1.25 (a gc bug: `go run` of such a program runs the literal's deferred calls late);
+  gocpp runs them when the literal returns, as the spec says. Range over a value whose type is a type
+  parameter with a func core type (`S ~func(yield func(int) bool)`) works: the instance has the concrete
+  type. `iter.Seq`, `iter.Seq2` and `iter.Pull` come with the port of `iter` (step 7.10).
+
+Source: [Phase 07 §2.5](../../plans/2026-10-13-gocpp/phase-07-generics/README.md#25-range-over-func-iterators-go-123),
+[ADR-033](../adr/033-range-over-func.md), `internal/lower/rangefunc.go`.
+
 ## `#line` and debugging
 
 - Before every generated line whose `.gp` line is not "the previous line + 1", gocpp writes a
@@ -2392,7 +2490,7 @@ The plan already describes these shapes; each phase adds them here when it build
 | [04](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md) | C/C++ values (see [interop.md](interop.md)) |
 | [05](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md) | interface structs, type descriptors, method tables (steps 5.1 to 5.3: [Interfaces](#interfaces)), conversions, assertions, embedding, `panic`/`recover` |
 | [06](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md) | the rest of the package headers and the build modes (`c-archive`, `c-shared`, `cpp-lib`) |
-| [07](../../plans/2026-10-13-gocpp/phase-07-generics/README.md) | generic types and their methods, range-over-func (generic functions: [Generics](#generics-steps-71-and-72)) |
+| [07](../../plans/2026-10-13-gocpp/phase-07-generics/README.md) | generic types and their methods (generic functions: [Generics](#generics-steps-71-and-72); range over functions: [Range over functions](#range-over-functions)) |
 | [08](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md) | `go` (`gp::go`), channels, `select` |
 | [10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md) | `!` as early returns, macros as inline templates |
 | [15](../../plans/2026-10-13-gocpp/phase-15-hardening-release/README.md) | escape analysis (locals that don't escape stay on the stack), Swiss-table maps, and maybe smaller strings and slices (only if the benchmarks say so) |

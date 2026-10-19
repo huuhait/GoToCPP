@@ -279,6 +279,27 @@ void panic_divide() {
                           "runtime error: integer divide by zero"_gs, runtime_id);
 }
 
+void panic_range_state(int state) {
+    // Go's runtime.panicrangestate: a runtime.Error (errorString) for each state.
+    const char* text =
+        "range function continued iteration after function for loop body returned false";
+    switch (state) {
+    case rangefunc_state::gp_panic:
+        text = "range function continued iteration after loop body panic";
+        break;
+    case rangefunc_state::gp_exhausted:
+        text = "range function continued iteration after whole loop exit";
+        break;
+    case rangefunc_state::gp_missing_panic:
+        text = "range function recovered a loop body panic and did not resume panicking";
+        break;
+    default:
+        break;
+    }
+    detail::throw_runtime(detail::rt_error::error_string,
+                          gp::string::gp_copy(std::string("runtime error: ") + text), runtime_id);
+}
+
 void panic_shift() {
     detail::throw_runtime(detail::rt_error::error_string, "runtime error: negative shift amount"_gs,
                           runtime_id);

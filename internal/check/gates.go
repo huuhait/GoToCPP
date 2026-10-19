@@ -313,7 +313,7 @@ var features = [numFeatures]feature{
 		Notes:  "Generic types and their methods, generic aliases (step 7.3 and 7.7). Exemption: `weak.Pointer[T]` from Phase 03."},
 	{id: featRangeFunc, Name: "range over functions", Phase: 7,
 		Detect: "a range statement over a value of func type",
-		Notes:  "Iterators: `iter.Seq`, `iter.Seq2`."},
+		Notes:  "`for x := range f` over any func(yield func(...) bool) (step 7.8: Go's rewrite and its misuse checks). The types `iter.Seq` and `iter.Seq2` come with the port of `iter` in step 7.10; until then declare the func types."},
 
 	{id: featGo, Name: "go statements", Plural: true, Phase: 8,
 		Detect: "a go statement",

@@ -113,11 +113,20 @@ func boxedVars(info *tinfo, fn ast.Node) map[*types.Var]boxReason {
 	}
 	var lits []*ast.FuncLit // the function literals around the current node, innermost last
 	var decl *ast.FuncDecl  // the function declaration around them, if any
+	// regions are the function literals and the range-over-func loops around the current node,
+	// innermost last: the body of a range over a func is a closure too (rangefunc.go).
+	var regions []boxRegion
 	var stack []ast.Node
 	ast.Inspect(fn, func(n ast.Node) bool {
 		if n == nil {
-			if _, ok := stack[len(stack)-1].(*ast.FuncLit); ok {
+			switch top := stack[len(stack)-1].(type) {
+			case *ast.FuncLit:
 				lits = lits[:len(lits)-1]
+				regions = regions[:len(regions)-1]
+			case *ast.RangeStmt:
+				if isRangeFunc(info, top) {
+					regions = regions[:len(regions)-1]
+				}
 			}
 			stack = stack[:len(stack)-1]
 			return true
@@ -126,6 +135,7 @@ func boxedVars(info *tinfo, fn ast.Node) map[*types.Var]boxReason {
 		switch n := n.(type) {
 		case *ast.FuncLit:
 			lits = append(lits, n)
+			regions = append(regions, boxRegion{lit: n})
 			b.params(n.Type)
 		case *ast.FuncDecl:
 			decl = n
@@ -141,8 +151,8 @@ func boxedVars(info *tinfo, fn ast.Node) map[*types.Var]boxReason {
 				b.declared[v] = true
 			}
 			if v := b.localVar(n); v != nil && b.info.Uses[n] != nil {
-				for _, l := range lits {
-					if !inside(l, v.Pos()) {
+				for _, r := range regions {
+					if r.active(n.Pos()) && !r.contains(v.Pos()) {
 						b.captured[v] = true
 						break
 					}
@@ -187,16 +197,24 @@ func boxedVars(info *tinfo, fn ast.Node) map[*types.Var]boxReason {
 					ft = decl.Type
 				}
 				if ft != nil && ft.Results != nil {
+					// In the body of a range over a func, the closure sets the results (rangefunc.go).
+					inBody := len(regions) > 0 && regions[len(regions)-1].rng != nil
 					for _, f := range ft.Results.List {
 						for _, id := range f.Names {
 							if v, ok := info.Defs[id].(*types.Var); ok {
 								b.changed[v] = true
+								if inBody {
+									b.captured[v] = true
+								}
 							}
 						}
 					}
 				}
 			}
 		case *ast.RangeStmt:
+			if isRangeFunc(info, n) {
+				regions = append(regions, boxRegion{rng: n})
+			}
 			if n.Tok == token.ASSIGN {
 				for _, e := range []ast.Expr{n.Key, n.Value} {
 					if e != nil {
@@ -364,6 +382,27 @@ func (b *boxer) pointerMethod(x *ast.SelectorExpr) bool {
 	}
 	_, ptr := under(sel.Recv()).(*types.Pointer)
 	return !ptr
+}
+
+// A boxRegion is code that runs as a closure of its own: a function literal, or the body of a
+// range over a func (rng), whose range variables and body are the closure, and whose range
+// expression is not.
+type boxRegion struct {
+	lit *ast.FuncLit
+	rng *ast.RangeStmt
+}
+
+// active reports whether the code at pos is in the closure.
+func (r boxRegion) active(pos token.Pos) bool {
+	return r.rng == nil || !(r.rng.X.Pos() <= pos && pos < r.rng.X.End())
+}
+
+// contains reports whether a variable declared at pos belongs to the closure.
+func (r boxRegion) contains(pos token.Pos) bool {
+	if r.rng != nil {
+		return r.rng.Pos() <= pos && pos < r.rng.End()
+	}
+	return inside(r.lit, pos)
 }
 
 // inside reports whether pos is in the function literal l (its parameters, results and body).

@@ -71,7 +71,7 @@ string, conversions between number types, the built-in functions
 | `//export` functions | 06 | Functions that C code can call (`-buildmode=c-archive`, `c-shared`). |
 | generic functions | 07 | Generic functions, constraints with type sets, instantiating them with explicit or inferred type arguments. Exemption: `weak.Make` from Phase 03. The standard packages `cmp`, `slices`, `maps` and `iter` are ported in step 7.10: until then their functions cannot be instantiated. |
 | generic types | 07 | Generic types and their methods, generic aliases (step 7.3 and 7.7). Exemption: `weak.Pointer[T]` from Phase 03. |
-| range over functions | 07 | Iterators: `iter.Seq`, `iter.Seq2`. |
+| range over functions | 07 | `for x := range f` over any func(yield func(...) bool) (step 7.8: Go's rewrite and its misuse checks). The types `iter.Seq` and `iter.Seq2` come with the port of `iter` in step 7.10; until then declare the func types. |
 | go statements | 08 | One OS thread per goroutine (divergence D7). |
 | channels | 08 | Also `close`, and `range` over a channel. |
 | select statements | 08 |  |

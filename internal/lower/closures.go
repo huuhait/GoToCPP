@@ -199,28 +199,38 @@ func (fg *funcGen) lambda(fl *ast.FuncLit) *cppir.Lambda {
 // the functions around fl that fl uses (a boxed one is its box), in the order of their first
 // uses.
 func (fg *funcGen) captures(fl *ast.FuncLit) []cppir.Capture {
+	return fg.captureNames([]ast.Node{fl.Body}, func(pos token.Pos) bool { return inside(fl, pos) })
+}
+
+// captureNames returns the captures of a closure whose code is the nodes: a copy of each variable
+// that they use and that is declared where in says it is not (the function around the closure),
+// in the order of their first uses. The nodes of a range over a func are its body and the targets
+// of its range variables (rangefunc.go).
+func (fg *funcGen) captureNames(nodes []ast.Node, in func(pos token.Pos) bool) []cppir.Capture {
 	var caps []cppir.Capture
 	seen := make(map[string]bool)
-	ast.Inspect(fl.Body, func(n ast.Node) bool {
-		id, ok := n.(*ast.Ident)
-		if !ok {
+	for _, node := range nodes {
+		ast.Inspect(node, func(n ast.Node) bool {
+			id, ok := n.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			v, ok := fg.g.info.Uses[id].(*types.Var)
+			if !ok || v.IsField() || isPkgVar(v) || in(v.Pos()) {
+				return true
+			}
+			name, ok := fg.names.names[v]
+			if !ok {
+				fg.g.errorf(id.Pos(), "internal error: no C++ name for the captured %s", v.Name())
+				return true
+			}
+			if !seen[name] {
+				seen[name] = true
+				caps = append(caps, cppir.Capture{Name: name})
+			}
 			return true
-		}
-		v, ok := fg.g.info.Uses[id].(*types.Var)
-		if !ok || v.IsField() || isPkgVar(v) || inside(fl, v.Pos()) {
-			return true
-		}
-		name, ok := fg.names.names[v]
-		if !ok {
-			fg.g.errorf(id.Pos(), "internal error: no C++ name for the captured %s", v.Name())
-			return true
-		}
-		if !seen[name] {
-			seen[name] = true
-			caps = append(caps, cppir.Capture{Name: name})
-		}
-		return true
-	})
+		})
+	}
 	return caps
 }
 

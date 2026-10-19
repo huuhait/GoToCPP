@@ -105,6 +105,12 @@ func (g *gen) sigTypes() map[*types.Var]ast.Expr {
 			case *ast.FuncLit:
 				sig, _ = g.info.TypeOf(x).(*types.Signature)
 				ft = x.Type
+			case *ast.FuncType:
+				// A func type of its own, as the type of the yield parameter in
+				// func(yield func(std.string) bool).
+				if t, ok := g.info.TypeOf(x).(*types.Signature); ok {
+					ft, sig = x, t
+				}
 			}
 			if sig != nil {
 				add(ft.Params, sig.Params())

@@ -69,6 +69,7 @@ type funcGen struct {
 	top ast.Node
 
 	flow       *flow               // where break and continue go (nil in gp_var_init)
+	rf         *rfNest             // the range-over-func loops of the function, or nil (rangefunc.go)
 	contLabels map[ast.Stmt]string // the label at the end of a loop's body, for continue
 
 	temps   map[ast.Expr]string // the expressions that order.go put into temporaries

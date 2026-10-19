@@ -329,6 +329,11 @@ type decl struct {
 	// value says that init is the object's own value (x := v, var x = v),
 	// not a value it comes from (a, b := f(), range v).
 	value bool
+
+	// yield, when not 0, says that the object is a range variable of a range over a func and
+	// init is that func: the object is parameter number yield (counted from 1) of the yield
+	// function, whose type go/types may have left invalid (func(yield func(std.string) bool)).
+	yield int
 }
 
 func newOpaquePass(pkg *types.Package, info *types.Info, files []*ast.File) *opaquePass {
@@ -405,13 +410,17 @@ func (op *opaquePass) collect(n ast.Node) bool {
 	case *ast.AssignStmt:
 		op.collectAssign(n)
 	case *ast.RangeStmt:
-		for _, e := range []ast.Expr{n.Key, n.Value} {
+		for i, e := range []ast.Expr{n.Key, n.Value} {
 			id, _ := e.(*ast.Ident)
 			switch {
 			case e == nil:
 			case n.Tok == token.DEFINE:
 				if obj := op.info.Defs[id]; id != nil && obj != nil {
-					op.decls[obj] = decl{init: n.X}
+					d := decl{init: n.X}
+					if _, ok := op.core(n.X).(*types.Signature); ok {
+						d.yield = i + 1 // range over a func
+					}
+					op.decls[obj] = d
 				}
 			case id != nil && id.Name == "_":
 				op.blankFrom[id] = []ast.Expr{n.X} // for _, v = range c
@@ -895,6 +904,8 @@ func (op *opaquePass) objectFromC(obj types.Object) bool {
 			v = op.comesFromC(d.typ)
 		case d.value:
 			v = op.opaqueExpr(d.init)
+		case d.yield != 0:
+			v = op.yieldOpaque(d.init, d.yield)
 		default:
 			// A range variable, or one of several values: from a value
 			// of a named type over a C/C++ type too (range v with
@@ -904,6 +915,31 @@ func (op *opaquePass) objectFromC(obj types.Object) bool {
 	}
 	op.objC[obj] = v
 	return v
+}
+
+// core returns the underlying type of the expression e, or nil.
+func (op *opaquePass) core(e ast.Expr) types.Type {
+	tv, ok := op.info.Types[e]
+	if !ok || tv.Type == nil {
+		return nil
+	}
+	return types.Unalias(tv.Type).Underlying()
+}
+
+// yieldOpaque reports whether the range variable number idx (from 1) of a range over the func
+// seq has a C/C++ type: the corresponding parameter of the yield function is a C/C++ type, or
+// has a part that is (go/types left it invalid).
+func (op *opaquePass) yieldOpaque(seq ast.Expr, idx int) bool {
+	sig, _ := op.core(seq).(*types.Signature)
+	if sig == nil || sig.Params().Len() != 1 {
+		return false
+	}
+	ysig, _ := types.Unalias(sig.Params().At(0).Type()).Underlying().(*types.Signature)
+	if ysig == nil || idx > ysig.Params().Len() {
+		return false
+	}
+	t := ysig.Params().At(idx - 1).Type()
+	return incomplete(t) || op.namedOverC(t)
 }
 
 // incompleteObject reports whether the type of obj is not complete: for a

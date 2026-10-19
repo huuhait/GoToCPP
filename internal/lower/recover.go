@@ -38,10 +38,23 @@ func (g *gen) awareBody(body *ast.BlockStmt) bool {
 		return v
 	}
 	found := false
-	ast.Inspect(body, func(n ast.Node) bool {
+	var visit func(n ast.Node) bool
+	visit = func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.FuncLit:
 			return false
+		case *ast.RangeStmt:
+			if isRangeFunc(g.info, n) {
+				// The body of a range over a func is a closure of its own (rangefunc.go), not
+				// the deferred function: its recover() gives nil, as in Go. The range clause
+				// belongs to the function.
+				for _, e := range []ast.Expr{n.X, n.Key, n.Value} {
+					if e != nil && !found {
+						ast.Inspect(e, visit)
+					}
+				}
+				return false
+			}
 		case *ast.DeferStmt:
 			// The deferred call itself is no recover of its function's; its arguments are
 			// evaluated now, so a recover() there counts.
@@ -58,7 +71,8 @@ func (g *gen) awareBody(body *ast.BlockStmt) bool {
 			}
 		}
 		return !found
-	})
+	}
+	ast.Inspect(body, visit)
 	if g.awareBodies == nil {
 		g.awareBodies = make(map[*ast.BlockStmt]bool)
 	}
@@ -106,9 +120,10 @@ func (fg *funcGen) takeTicket() {
 }
 
 // recoverCall returns the C++ of the call of the builtin recover: gp::recover(gp_dc), or nil
-// outside a function.
+// outside a function and in the body of a range over a func (that body is a closure that the
+// iterator calls, never the deferred call that a panic runs: Go gives nil there too).
 func (fg *funcGen) recoverCall() cppir.Expr {
-	if fg.fn == nil || !fg.g.awareBody(fg.fn.body) {
+	if fg.fn == nil || fg.inRFBody() || !fg.g.awareBody(fg.fn.body) {
 		// Outside a function body (a package variable's initializer): no deferred call called it,
 		// so Go gives nil.
 		return construct(typeName("gp::any"))

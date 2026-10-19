@@ -401,6 +401,10 @@ func oneExpr(s ast.Stmt) bool {
 func (fg *funcGen) returnStmt(s *ast.ReturnStmt) {
 	fg.retStmt = s // returnMove
 	defer func() { fg.retStmt = nil }()
+	if fg.inRFBody() {
+		fg.rfReturn(s) // rangefunc.go: in the body of a range over a func
+		return
+	}
 	if fg.fn.defers != nil {
 		fg.deferReturn(s) // defer.go: the results, then the exit
 		return
@@ -1392,6 +1396,9 @@ func (fg *funcGen) labeledStmt(s *ast.LabeledStmt) {
 
 // branchStmt lowers break, continue, goto and fallthrough.
 func (fg *funcGen) branchStmt(s *ast.BranchStmt) {
+	if fg.inRFBody() && fg.rfBranch(s) {
+		return // rangefunc.go: it leaves the body of a range over a func
+	}
 	p := fg.g.pos(s.Pos())
 	switch s.Tok {
 	case token.GOTO:

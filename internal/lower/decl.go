@@ -123,6 +123,7 @@ func (f *funcInfo) signature(g *gen) {
 		}
 	}
 	f.result = g.resultType(sig, f.pos)
+	f.prepareRangeFuncResults(g) // rangefunc.go
 	f.prepareDefers(g)
 }
 

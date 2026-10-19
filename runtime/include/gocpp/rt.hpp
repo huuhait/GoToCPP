@@ -30,6 +30,7 @@
 #include <gocpp/print.hpp>
 #include <gocpp/panic.hpp>
 #include <gocpp/defer.hpp>
+#include <gocpp/rangefunc.hpp>
 #include <gocpp/result.hpp>
 #include <gocpp/fmt.hpp>
 #include <gocpp/main.hpp>

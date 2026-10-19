@@ -431,6 +431,10 @@ func (fg *funcGen) forInit(s ast.Stmt) (cppir.Stmt, bool) {
 // a value variable is the same loop with n = N, where the array is not evaluated unless it has
 // calls (gp::len(f()), arrays.go: rangeCount).
 func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
+	if isRangeFunc(fg.g.info, s) {
+		fg.rangeFunc(s) // rangefunc.go
+		return
+	}
 	if fg.g.cRange(s) {
 		fg.rangeC(s) // a C++ container or a C array (crange.go)
 		return

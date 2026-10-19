@@ -384,7 +384,7 @@ func (a *analysis) objState(obj types.Object) state {
 			return typed
 		}
 	case *types.Func:
-		if sig, ok := obj.Type().(*types.Signature); !ok || !hasInvalid(sig.Results()) {
+		if sig, ok := obj.Type().(*types.Signature); !ok || !hasInvalid(sig) {
 			return typed
 		}
 	default:
@@ -532,7 +532,9 @@ func invalidIn(t types.Type, seen map[*types.Named]bool) bool {
 			}
 		}
 	case *types.Signature:
-		return invalidIn(t.Results(), seen)
+		// The parameters too: the yield function of func(yield func(std.string) bool) has an
+		// invalid parameter, and so do the range variables of a range over it.
+		return invalidIn(t.Params(), seen) || invalidIn(t.Results(), seen)
 	case *types.Named:
 		if seen[t] {
 			return false
