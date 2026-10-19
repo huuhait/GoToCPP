@@ -72,6 +72,11 @@ type CXX struct {
 	// detected with -x c, and messages call it "the C compiler".
 	C bool
 
+	// GOOS and GOARCH are the target of a compiler that FindCXXFor found for another system than
+	// the one that runs gocpp ("windows", "amd64"); they are empty for the host's compiler. They
+	// choose the target's flags (Flags, LinkFlags) and are part of every cache key.
+	GOOS, GOARCH string
+
 	// stamp is the program file as LookCXX saw it (its real path, size
 	// and modification time), for the cache keys of the runtime's object
 	// files: a compiler that was replaced by another with the same version

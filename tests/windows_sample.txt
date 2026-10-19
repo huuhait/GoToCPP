@@ -1,0 +1,46 @@
+# The sample that TestRunWindows (GOCPP_TEST_TARGET=windows) runs by default: OS-independent run
+# tests that cover the pieces of the runtime that the Windows OS layer carries (goroutines on
+# threads, channels, select, panics and their exit code and messages, defer and recover, maps,
+# strings, fmt, closures, big stacks). One test a line; every one must also pass on Linux.
+algo_bfs
+algo_lru
+algo_primes
+algo_stack_eval
+chan_buffered_fifo
+chan_fan_in_out
+chan_many_goroutines
+chan_mergesort
+chan_mutex_counter
+chan_panic_close_twice
+chan_panic_send_closed
+chan_pingpong
+chan_pipeline
+chan_producers_consumers
+chan_sieve
+chan_throughput
+chan_worker_pool
+chan_wait_group
+closures_generators
+closures_loopvars
+defer_order
+defer_panic
+defer_loop_panic
+go_args_eager
+go_many
+go_panic_exit
+go_recover
+go_stack_depth
+go_tree
+maps_basic
+maps_range
+panic_divide
+panic_index
+panic_array_index
+panic_method_nil
+panic_trace
+recover_nil_deref_then_other
+funcs_nil_call
+fmt_int_unicode_values
+fmt_string_q_unicode
+assert_panic_error
+errors_as_chain

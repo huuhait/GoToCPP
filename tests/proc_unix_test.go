@@ -78,6 +78,7 @@ func stopRunning() {
 		groups = append(groups, pgid)
 	}
 	running.Unlock()
+	windowsStop() // the Wine server of the Windows mode, if there is one (windows_test.go)
 	if len(groups) == 0 {
 		return
 	}

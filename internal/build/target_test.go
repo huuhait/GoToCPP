@@ -18,6 +18,9 @@ func TestFindCXXFor(t *testing.T) {
 	mine := fakeCXX(t, dir, "my-c++", "my c++ 1.0", gccMacros...)
 	gcc := fakeCXX(t, dir, "g++", "g++ (GCC) 99.1.0", gccMacros...)
 	noMingw := t.TempDir()
+	// Nothing is downloaded or read from the user's cache: the rule is local.
+	t.Setenv("GOCPP_TOOLCHAIN", "local")
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	fakeCXX(t, noMingw, "clang++", "clang version 99.0.0", clangMacros...)
 
 	for _, c := range []struct {
@@ -33,7 +36,7 @@ func TestFindCXXFor(t *testing.T) {
 		{"windows/amd64 with GOCPP_CXX", "windows", "amd64", dir, "my-c++", "g++", mine},
 		{"windows/arm64 with GOCPP_CXX", "windows", "arm64", dir, "my-c++", "", mine},
 		{"windows/amd64 without MinGW", "windows", "amd64", noMingw, "", "clang++",
-			"no C++ compiler for windows/amd64: x86_64-w64-mingw32-g++ is not in PATH (set GOCPP_CXX)"},
+			"no C++ compiler for windows/amd64: neither x86_64-w64-mingw32-clang++ nor x86_64-w64-mingw32-g++ is in PATH (GOCPP_TOOLCHAIN=local never downloads one; install MinGW-w64, or llvm-mingw, or set GOCPP_CXX)"},
 		{"windows/arm64", "windows", "arm64", dir, "", "g++", "no C++ compiler for windows/arm64 (set GOCPP_CXX)"},
 		{"GOCPP_CXX missing", "windows", "arm64", dir, "c++-404", "",
 			`GOCPP_CXX: the C++ compiler "c++-404" was not found: exec: "c++-404": executable file not found in $PATH`},

@@ -56,7 +56,8 @@ if there is one, else 0. A package is a folder (".", "./geom"), a list of
 ("./..." is the current folder and every package folder under it, like
 in the go command). Without packages, it checks the package in the
 current folder. The build constraints are for the system that runs
-gocpp, or for the GOOS and GOARCH environment variables.
+gocpp, or for the target of -os and -arch, GOCPP_OS and GOCPP_ARCH, or
+the GOOS and GOARCH environment variables (in this order).
 
 Features of a later phase of gocpp's plan are errors ("... not supported
 yet (Phase 03)"). For gocpp's own development and tests,
@@ -83,6 +84,8 @@ func runCheck(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	flags.BoolVar(&c.types, "types", false, "print the type of every expression to standard output")
 	c.diagOpts.register(flags)
 	flags.Var(tagsFlag{&c.tags}, "tags", "a comma-separated `list` of build tags that are satisfied, like go build -tags")
+	var cross crossFlags
+	cross.register(flags)
 	flags.Usage = func() {
 		fmt.Fprint(stderr, checkUsage)
 		flags.PrintDefaults()
@@ -94,7 +97,7 @@ func runCheck(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		return 2 // flag has printed the error and the usage
 	}
 	var err error
-	if c.goos, c.goarch, err = target(); err != nil {
+	if c.goos, c.goarch, err = cross.resolve(); err != nil {
 		fmt.Fprintf(stderr, "gocpp: %v\n", err) // go exits with 2 too
 		return 2
 	}

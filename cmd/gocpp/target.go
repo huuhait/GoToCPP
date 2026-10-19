@@ -1,12 +1,6 @@
 package main
 
-import (
-	"fmt"
-	"os"
-	"runtime"
-	"slices"
-	"strings"
-)
+import "strings"
 
 // goTargets are the GOOS/GOARCH pairs that the go command accepts: what
 // "go tool dist list" of Go 1.25.14 prints. gocpp's own targets are
@@ -21,20 +15,10 @@ linux/ppc64le linux/riscv64 linux/s390x netbsd/386 netbsd/amd64 netbsd/arm netbs
 openbsd/386 openbsd/amd64 openbsd/arm openbsd/arm64 openbsd/ppc64 openbsd/riscv64 plan9/386
 plan9/amd64 plan9/arm solaris/amd64 wasip1/wasm windows/386 windows/amd64 windows/arm64`)
 
-// target returns the GOOS and GOARCH that the build constraints use: the
-// GOOS and GOARCH environment variables, like the go command, or the
-// system that runs gocpp. A pair that the go command doesn't know is an
+// target returns the GOOS and GOARCH that the build constraints use when no flag chooses them
+// (crossFlags.resolve): GOCPP_OS and GOCPP_ARCH, the GOOS and GOARCH environment variables, like
+// the go command, or the system that runs gocpp. A pair that the go command doesn't know is an
 // error with go's message.
 func target() (goos, goarch string, err error) {
-	goos, goarch = os.Getenv("GOOS"), os.Getenv("GOARCH")
-	if goos == "" {
-		goos = runtime.GOOS
-	}
-	if goarch == "" {
-		goarch = runtime.GOARCH
-	}
-	if !slices.Contains(goTargets, goos+"/"+goarch) {
-		return "", "", fmt.Errorf("unsupported GOOS/GOARCH pair %s/%s", goos, goarch)
-	}
-	return goos, goarch, nil
+	return crossFlags{}.resolve()
 }

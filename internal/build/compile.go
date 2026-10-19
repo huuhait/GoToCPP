@@ -408,6 +408,9 @@ func writeCompiler(write func(parts ...string), c CXX) {
 	write(c.Path)
 	write(c.Args...)
 	write(c.Family.String(), c.Version)
+	if c.GOOS != "" {
+		write("target", c.GOOS, c.GOARCH) // a cross compiler; the host's keys stay as they were
+	}
 	st := c.stamp
 	write(st.real, fmt.Sprint(st.size), fmt.Sprint(st.modTime))
 	// The size and the time can be set back after the file was replaced: its content tells too

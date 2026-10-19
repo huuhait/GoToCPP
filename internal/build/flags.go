@@ -63,7 +63,7 @@ func Flags(cxx CXX, asan bool) []string {
 	if cxx.Family == Clang {
 		flags = append(flags, "-Qunused-arguments")
 	}
-	return flags
+	return append(flags, targetFlags(cxx)...)
 }
 
 // GeneratedFlags returns the flags that a compile of generated C++ (the

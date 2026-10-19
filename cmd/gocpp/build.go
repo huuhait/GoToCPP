@@ -52,6 +52,11 @@ The program is named after the package: after the first .gp file
 last element of the import path. -o names it, or with a folder (or a
 name that ends in a slash) puts it there.
 
+-os and -arch (or GOCPP_OS and GOCPP_ARCH, else GOOS and GOARCH) build for
+another system: windows/amd64 (a .exe, with MinGW-w64 or a toolchain that
+gocpp downloads: GOCPP_TOOLCHAIN) and linux/arm64. gocpp run needs
+GOCPP_EXEC (for example wine) to run such a program.
+
 gocpp build first checks the packages like gocpp check: when there are
 errors, it prints them the same way and exits with status 1, and nothing
 is compiled. Then it writes the C++ (gocpp emit shows it: for each package
@@ -134,6 +139,9 @@ The build flags (of build and run; -compdb, -emit-llvm, -n and -o are of build o
 	-a
 		compile everything again: the object cache and the up-to-date
 		check are not used (the new objects are stored)
+	-arch arch
+		the target architecture (GOARCH): amd64 or arm64; default
+		GOCPP_ARCH, GOARCH or this system's
 	-asan
 		build with AddressSanitizer and UndefinedBehaviorSanitizer:
 		the program stops at the first report, with exit status 1
@@ -203,6 +211,9 @@ The build flags (of build and run; -compdb, -emit-llvm, -n and -o are of build o
 	-o file
 		write the program to this file, or into this folder (a name that
 		ends in a slash, or a folder that exists)
+	-os os
+		the target operating system (GOOS): linux or windows; default
+		GOCPP_OS, GOOS or this system's
 	-p n
 		run at most n compiles at the same time (GOMAXPROCS by default,
 		like go build). The compiles start in the order of the packages;
@@ -309,6 +320,7 @@ type buildFlags struct {
 	diagOpts  diagOptions   // -color, -excerpt
 
 	extra extraFlags // the flags of step 6.12 (flags.go)
+	cross crossFlags // -os and -arch (cross.go)
 }
 
 func (f *buildFlags) register(flags *flag.FlagSet, withOutput bool) {
@@ -317,6 +329,7 @@ func (f *buildFlags) register(flags *flag.FlagSet, withOutput bool) {
 	}
 	f.cppErrors = "short"
 	f.diagOpts.register(flags)
+	f.cross.register(flags)
 	flags.Var(&f.cppErrors, "cpperrors", "how much of the C++ compiler's errors to show: short or full")
 	flags.BoolVar(&f.asan, "asan", false, "build with AddressSanitizer and UndefinedBehaviorSanitizer")
 	flags.BoolVar(&f.nochecks, "nochecks", false, "build without the bounds and nil checks (division and shift checks stay)")
@@ -405,6 +418,7 @@ func runRun(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 func runEmit(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("gocpp emit", flag.ContinueOnError)
 	var ef buildFlags
+	ef.cross.register(flags)
 	ef.diagOpts.register(flags)
 	flags.BoolVar(&ef.concepts, "gp:concepts", false, "also write C++20 concepts for Go's constraints into the package headers")
 	var ann annotateFlags
@@ -538,7 +552,7 @@ var stopSigs = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
 func newDriver(name string, f *buildFlags, stdout, stderr io.Writer) (*driver, int) {
 	c := &checkCommand{stdout: stdout, stderr: stderr, kinds: true, diagOpts: f.diagOpts}
 	var err error
-	if c.goos, c.goarch, err = target(); err != nil {
+	if c.goos, c.goarch, err = f.cross.resolve(); err != nil {
 		fmt.Fprintf(stderr, "gocpp: %v\n", err) // go exits with 2 too
 		return nil, 2
 	}
@@ -564,6 +578,10 @@ func newDriver(name string, f *buildFlags, stdout, stderr io.Writer) (*driver, i
 		c.pkgConfig = build.TracePkgConfig(func(line string) { fmt.Fprintln(stderr, line) })
 	}
 	d.ctx, d.cancel = context.WithCancel(context.Background())
+	if name == "build" || name == "run" {
+		// Only a build may download the Windows toolchain (not check, emit or the server).
+		d.ctx = build.WithToolchainDownload(d.ctx, stderr)
+	}
 	// The checks (the namespace probe) stop like the build.
 	c.ctx, c.stopped = d.ctx, d.interrupted
 	d.sigs = make(chan os.Signal, 4)
@@ -699,10 +717,15 @@ func (d *driver) load(patterns []string) (*buildSet, int) {
 	c := d.check
 	// gocpp emit compiles nothing, so it writes the C++ for any target,
 	// like gocpp check checks for any.
-	if d.name != "emit" && (c.goos != runtime.GOOS || c.goarch != runtime.GOARCH) {
-		fmt.Fprintf(d.stderr, "gocpp %s: building for %s/%s on %s/%s is not supported yet (Phase 06)\n",
-			d.name, c.goos, c.goarch, runtime.GOOS, runtime.GOARCH)
-		return nil, exitErrors
+	if d.name != "emit" {
+		err := buildTarget(c.goos, c.goarch)
+		if err == nil && d.flags.mode.Library() && c.goos == "windows" {
+			err = errors.New("-buildmode=" + string(d.flags.mode) + " for windows is not supported yet (Phase 14: .dll and import libraries)")
+		}
+		if err != nil {
+			fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
+			return nil, exitErrors
+		}
 	}
 	prog, r, code := c.check(patterns)
 	d.files = c.files
@@ -1110,7 +1133,7 @@ func (d *driver) compile(patterns []string) (*program, int) {
 	b := &build.Builder{CXX: cxx, ASan: d.flags.asan, NoChecks: d.flags.nochecks, GOOS: d.check.goos, Work: work, Stderr: d.stderr, KeepWork: d.flags.work,
 		Env: env, CC: cc, GenRoot: genRoot, Cache: cache, Jobs: d.flags.jobs, Stats: &d.stats, Mode: d.flags.mode,
 		DryRun: x.dryRun || d.afterPlan != nil, Rebuild: x.rebuild, EmitLLVM: x.llvm}
-	exe := filepath.Join(work, name+exeSuffix)
+	exe := filepath.Join(work, name+exeSuffixFor(d.check.goos))
 	if d.lib != nil {
 		exe = filepath.Join(work, d.lib.file)
 		b.Soname = d.lib.file
@@ -1134,7 +1157,7 @@ func (d *driver) compile(patterns []string) (*program, int) {
 		b.Plan = &build.Plan{}
 	}
 	if x.llvm != "" {
-		b.LLVMDir = d.outputPath(name+exeSuffix) + ".llvm"
+		b.LLVMDir = d.outputPath(name+exeSuffixFor(d.check.goos)) + ".llvm"
 		if !b.DryRun {
 			if err := build.PrepareIRDir(b.LLVMDir); err != nil {
 				fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
@@ -1464,20 +1487,36 @@ func isDir(name string) bool {
 // run is gocpp run: it builds the program, runs it with args and returns
 // its exit status (see runUsage).
 func (d *driver) run(patterns, args []string) int {
+	// A program for another target runs under GOCPP_EXEC (wine, qemu-aarch64), and that is
+	// known before the build.
+	err := buildTarget(d.check.goos, d.check.goarch)
+	var runner []string
+	if err == nil {
+		runner, err = crossRunner(d.check.goos, d.check.goarch)
+	}
+	if err != nil {
+		fmt.Fprintf(d.stderr, "gocpp run: %v\n", err)
+		return exitErrors
+	}
 	p, code := d.compile(patterns)
 	if p == nil {
 		return code
 	}
 	defer d.removeWork()
 	if d.flags.x {
-		words := []string{build.ShellQuoteWork(p.exe, p.work)}
+		words := []string{}
+		for _, w := range runner {
+			words = append(words, build.ShellQuoteWork(w, ""))
+		}
+		words = append(words, build.ShellQuoteWork(p.exe, p.work))
 		for _, a := range args {
 			words = append(words, build.ShellQuoteWork(a, ""))
 		}
 		fmt.Fprintln(d.stderr, strings.Join(words, " "))
 	}
 	newCmd := func() *exec.Cmd {
-		cmd := exec.Command(p.exe, args...)
+		argv := append(append(slices.Clone(runner), p.exe), args...)
+		cmd := exec.Command(argv[0], argv[1:]...)
 		cmd.Dir = d.check.dir
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = d.stdin, d.stdout, d.stderr
 		return cmd

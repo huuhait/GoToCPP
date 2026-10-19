@@ -1,0 +1,3 @@
+# Run tests that TestRunWindows leaves out even with GOCPP_TEST_WINDOWS=all, "name: reason". The
+# tests that a //go:build line leaves out for windows/amd64 skip by themselves (their line says
+# so); these are OS-independent tests that hit a known gap of the Windows runtime (none today: 14.1 reads the PE file for the frames of a trace).

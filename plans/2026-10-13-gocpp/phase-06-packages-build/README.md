@@ -433,7 +433,13 @@ func main() { imgui.Begin("hello") }
 12. **6.12 CLI**: `list`, `env`, `clean`, all build flags, build tags.
 13. **6.13 Cross-compilation**: windows/amd64 with MinGW-w64 (`.exe` linked with `-static`), the
     pinned llvm-mingw download (§2.10: `GOCPP_TOOLCHAIN`, hashes in the binary, cache, lock), and a
-    CI job that runs the OS-independent run tests under Wine; linux/arm64 best effort.
+    CI job that runs the OS-independent run tests under Wine; linux/arm64 best effort. *Built (§2.10,
+    ADR-055, docs/guides/windows-cross.md): `-os`/`-arch`, `GOCPP_OS`/`GOCPP_ARCH` and `GOCPP_EXEC`; the
+    target is in every compiler key; MinGW-w64 in PATH or the pinned llvm-mingw (`GOCPP_TOOLCHAIN`,
+    `GOCPP_TOOLCHAIN_URL`, SHA-256 and size in the binary, own xz and tar decoder, lock, read-only cache,
+    `gocpp clean -toolchain`); `GOCPP_TEST_TARGET=windows` and `make ci-windows` run a sample of the run
+    tests and `tests/testdata/windows` under an isolated Wine; linux/arm64 is the driver only, tested with
+    fake compilers. Not built: `gocpp env` showing the toolchain (6.12's `env`), the CI service.*
 14. **6.14 Tests**: multi-package fixtures (diamond imports, cross-package embedding/interfaces),
     the 3-package init-order case against Go, incremental-build assertions (what was recompiled,
     including a changed exported constant), build-mode consumers (a C program uses the c-archive;

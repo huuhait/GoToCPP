@@ -158,6 +158,12 @@ missing compiler).
 | `GOCPP_RUN_VS_GO` | none | `1`: `TestRunVsGo` builds each test in `tests/run` with real Go (`go build`, like a diff test) and checks the test's `// Output:` block (compared like `TestRun` compares), `// ExitCode:` and `// Stderr:` regexps against what the Go binary does, so that an expected output pasted from Go can't drift. It checks the tests of every phase, runs no C++ compiler, and skips a test whose code `go build` rejects (an error at a line of the program: gocpp-only code) and a test with a `// divergence: Dn` line (it shows a divergence of [docs/spec/language.md](../docs/spec/language.md), so Go does something else on purpose). Any other `go build` failure fails the test, and a run that compares no test fails too. Off, `TestRunVsGo` is a skip: `GOCPP_RUN_VS_GO=1 go test ./tests/... -run RunVsGo` |
 | `GOCPP_TEST_PENDING` | none | `1`: also run the tests with a `// pending:` line (they fail until their step lands) |
 | `GOCPP_TEST_TIMEOUT` | `2m` | the time limit of one command (one `gocpp run`, one `go build`), as a Go duration |
+| `GOCPP_TEST_TARGET` | none | `windows`: also build the run tests for windows/amd64 and run them under Wine (`TestRunWindows`, `TestWindowsPrograms`, `TestWineIsolation`; the section "Windows under Wine" below); run on a real PC with `GOCPP_WINDOWS_SSH` |
+| `GOCPP_TEST_WINDOWS` | `sample` | with `GOCPP_TEST_TARGET=windows`: `sample` runs the tests of `windows_sample.txt`, `all` every run test that `windows_skip.txt` does not name |
+| `GOCPP_WINDOWS_SSH` | none | `user@host`: the Windows tests (`GOCPP_TEST_TARGET=windows`) run their programs on that real Windows PC over ssh instead of under Wine (key authentication; `internal/winssh`; the variable is the only place that names the machine; never commit it) |
+| `GOCPP_WINE_JOBS` | `4` | the programs that run under Wine at once (Wine's server is one process) |
+| `GOCPP_REQUIRE_WINE_OVERFLOW` | none | `1`: `TestWindowsPrograms/overflow` fails instead of skipping when this machine's Wine ends a stack overflow with exit code 1 and no message |
+| `GOCPP_REQUIRE_WINE` | none | `1`: a missing `wine` or MinGW-w64 compiler fails the Windows tests instead of skipping them |
 
 `make` passes them on: `GOCPP_CXX=g++ make test`. `GOCPP_REQUIRE_CXX= make ci` turns the
 compiler requirement of `make ci` off, and `GOCPP_REQUIRE_GDB= make ci` the gdb requirement. A malformed value fails the tests with a message.
@@ -174,6 +180,30 @@ removes the temporary folder with the gocpp binary.
 When a test fails, its message shows the command, ready to paste into a shell
 (`cd examples/wc && GOCPP_CXX=g++ gocpp run . -l testdata/poem.txt`; `make build` puts gocpp
 in `bin/`).
+
+## Windows under Wine
+
+`GOCPP_TEST_TARGET=windows` turns on the tests that build for `windows/amd64`
+(`gocpp build -os windows`, MinGW-w64 from the dev shell, or the pinned llvm-mingw when none is in
+`PATH` and the machine can download it) and run the `.exe` files under Wine
+([docs/guides/windows-cross.md](../docs/guides/windows-cross.md), ADR-055):
+
+- `TestRunWindows` runs the run tests of `windows_sample.txt` (OS-independent: goroutines, channels,
+  select, panics and their exit codes, defer and recover, maps, strings, fmt) with the same `// Output:`,
+  `// ExitCode:` and `// Stderr:` expectations as `TestRun`. `GOCPP_TEST_WINDOWS=all` runs every run test
+  except those that `//go:build` leaves out for Windows and those of `windows_skip.txt` (`name: reason`),
+  and the log says how many were skipped for each reason. Windows reports a fault as
+  `[signal 0xc0000005 ...]`; the harness maps it to Go's SIGSEGV line before it compares.
+- `TestWindowsPrograms` runs the programs of `testdata/windows`: what the run tests cannot say (arguments,
+  environment, an exit code, UTF-8 output, a stack overflow, big output, a C `exit`).
+- `TestWineIsolation` is the canary: it runs `hello.exe` in a fresh Wine environment and checks that
+  `~/.wine`, `~/.local/share/applications`, `~/.config/menus` and `~/.cache/wine` are as they were, that
+  the prefix is in the test's folder, and that no process of the environment survives `Close`.
+
+Wine gets a `WINEPREFIX`, `HOME` and `XDG_*` folders of its own (package `internal/wine`), `DISPLAY` and
+`WAYLAND_DISPLAY` are removed, and its server is ended by PID when the last Windows test ends or the
+harness is stopped. `make ci-windows` runs them (they are not in `make ci`: they skip unless `GOCPP_TEST_TARGET=windows` is set); the
+dev shell has wine and MinGW-w64, and without them the tests skip with the reason.
 
 ## Caching
 

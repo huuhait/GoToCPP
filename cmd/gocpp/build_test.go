@@ -939,22 +939,19 @@ func TestNoPackages(t *testing.T) {
 }
 
 func TestEmitOtherTarget(t *testing.T) {
-	// gocpp emit compiles nothing: any GOOS works, like gocpp check; build
-	// and run refuse another target.
+	// gocpp emit compiles nothing: any GOOS works, like gocpp check; build and run refuse a target
+	// that gocpp builds no programs for (windows/amd64 and linux/arm64 are built: cross_test.go).
 	inDir(t, map[string]string{"hello.gp": helloSrc})
-	other := "windows"
-	if runtime.GOOS == "windows" {
-		other = "linux"
-	}
-	t.Setenv("GOOS", other)
-	t.Setenv("GOARCH", "amd64")
+	t.Setenv("GOOS", "darwin")
+	t.Setenv("GOARCH", "arm64")
 	if r := gocppRun("", false, "emit", "hello.gp"); r.code != 0 || !strings.HasPrefix(r.stdout, "//// gpkg/") {
-		t.Errorf("GOOS=%s gocpp emit = %+v, want the C++", other, r)
+		t.Errorf("GOOS=darwin gocpp emit = %+v, want the C++", r)
 	}
 	for _, cmd := range []string{"build", "run"} {
 		r := gocppRun("", false, cmd, "hello.gp")
-		if r.code != 1 || !strings.Contains(r.stderr, "gocpp "+cmd+": building for "+other+"/amd64 on ") || !strings.HasSuffix(r.stderr, "is not supported yet (Phase 06)\n") {
-			t.Errorf("GOOS=%s gocpp %s = %+v, want exit 1 and the Phase 06 message", other, cmd, r)
+		want := "gocpp " + cmd + ": building for darwin/arm64 is not supported (targets: linux/amd64, linux/arm64, windows/amd64)\n"
+		if r != (result{1, "", want}) {
+			t.Errorf("GOOS=darwin gocpp %s = %+v, want exit 1 and %q", cmd, r, want)
 		}
 	}
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/modfetch"
+	"github.com/huuhait/gocpp/internal/toolchain"
 )
 
 // cleanUsage is the help text of "gocpp clean". The command is minimal until step 6.12 (the CLI) gives
@@ -28,6 +29,8 @@ removes nothing (the programs are written where -o says; gocpp leaves no object 
 	           object cache) once more before gocpp build says it is up to date again
 	-modcache  remove the module cache with the downloaded modules (they are downloaded again by the
 	           next build that needs them)
+	-toolchain remove the pinned llvm-mingw that gocpp downloaded for Windows builds (the next
+	           gocpp build -os windows that needs it downloads it again)
 
 A build that runs while the cache is removed can fail with a message about a file that is gone; run it
 again. The cache is only an optimization: no build gives another result because of it.
@@ -37,12 +40,13 @@ The flags are:
 
 // runClean is "gocpp clean".
 func runClean(args []string, _ io.Reader, stdout, stderr io.Writer) int {
-	var cache, gen, stamp, mod, dry, show bool
+	var cache, gen, stamp, mod, tc, dry, show bool
 	flags := flag.NewFlagSet("gocpp clean", flag.ContinueOnError)
 	flags.BoolVar(&cache, "cache", false, "remove the build cache (all but the module cache)")
 	flags.BoolVar(&gen, "gen", false, "remove the generated C++")
 	flags.BoolVar(&stamp, "stamp", false, "remove the records of finished builds")
 	flags.BoolVar(&mod, "modcache", false, "remove the module cache")
+	flags.BoolVar(&tc, "toolchain", false, "remove the downloaded Windows toolchain")
 	flags.BoolVar(&dry, "n", false, "print what would be removed, and remove nothing")
 	flags.BoolVar(&show, "x", false, "print what is removed")
 	if code, done := parseFlags("clean", cleanUsage, flags, args, stderr); done {
@@ -63,7 +67,7 @@ func runClean(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		if stamp {
 			names = append(names, "stamp")
 		}
-	case mod:
+	case mod || tc:
 		names = []string{} // nothing of the build cache
 	default:
 		return 0
@@ -100,6 +104,25 @@ func runClean(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		if err != nil {
 			fmt.Fprintf(stderr, "gocpp clean: %v\n", err)
 			code = exitErrors
+		}
+	}
+	if tc {
+		cfg, err := toolchain.FromEnv(false)
+		if err != nil {
+			fmt.Fprintf(stderr, "gocpp clean: %v\n", err)
+			return exitErrors
+		}
+		if dir, ok := cfg.Exists(); ok {
+			files, size := build.UsageOf(dir)
+			if dry || show {
+				fmt.Fprintf(stdout, "rm -rf %s # %d files, %s\n", dir, files, byteSize(size))
+			}
+			if !dry {
+				if _, err := cfg.Remove(); err != nil {
+					fmt.Fprintf(stderr, "gocpp clean: %v\n", err)
+					code = exitErrors
+				}
+			}
 		}
 	}
 	if mod {

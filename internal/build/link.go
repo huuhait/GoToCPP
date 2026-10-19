@@ -173,8 +173,8 @@ func (b *Builder) Link(ctx context.Context, pkgs []PackageBuild, out string) err
 		gc = []string{"-Wl,--gc-sections"}
 	}
 	ldflags := b.autoLTO(b.Env.LDFlags)
-	args := slices.Concat(Flags(b.CXX, b.ASan), gc, b.Mode.LinkFlags(b.Soname, b.VersionScript), objs, libObjs, rtObjs, link, ldflags, []string{"-o", out})
-	b.recordLinkPlan(Command{Kind: KindLink, Compiler: compiler(b.CXX), Args: args, Output: out, Pre: slices.Concat(Flags(b.CXX, b.ASan), gc, b.Mode.LinkFlags(b.Soname, b.VersionScript)),
+	args := slices.Concat(Flags(b.CXX, b.ASan), LinkFlags(b.CXX), gc, b.Mode.LinkFlags(b.Soname, b.VersionScript), objs, libObjs, rtObjs, link, ldflags, []string{"-o", out})
+	b.recordLinkPlan(Command{Kind: KindLink, Compiler: compiler(b.CXX), Args: args, Output: out, Pre: slices.Concat(Flags(b.CXX, b.ASan), LinkFlags(b.CXX), gc, b.Mode.LinkFlags(b.Soname, b.VersionScript)),
 		Objs: slices.Concat(objs, libObjs, rtObjs), Post: slices.Concat(link, ldflags)})
 	b.recordLink(ctx, slices.Concat(link, ldflags))
 	b.Stats.linked()

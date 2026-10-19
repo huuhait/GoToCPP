@@ -35,7 +35,7 @@ ci: export GOCPP_REQUIRE_WINE ?= 1
 # runs only the finished phases. At 10 (steps 10.2 to 10.6, the ! operator) the tests of
 # Phase 09 and 10 that wait for unmerged steps carry the line.
 CI_TEST_PHASE = 10
-test test-programs quick ci-sanitize: export GOCPP_TEST_PHASE ?= $(CI_TEST_PHASE)
+test test-programs quick ci-sanitize ci-windows: export GOCPP_TEST_PHASE ?= $(CI_TEST_PHASE)
 
 # The paths "make lint" does not gofmt-check, as find(1) tests joined with -o:
 # spikes/ (throwaway code in its own Go module) and every testdata folder
@@ -92,6 +92,18 @@ ci-sanitize:
 	GOCPP_TEST_CXXFLAGS="$(GOCPP_TEST_CXXFLAGS) $(SANITIZE_FLAGS)" \
 		$(GO) test -count=1 -timeout 60m -parallel 2 ./internal/cppgen/...
 	@echo "make ci-sanitize: all checks passed"
+
+# The Windows job (Phase 06 step 6.13, tests/README.md "Windows under Wine"): the run tests of
+# tests/windows_sample.txt and the programs of tests/testdata/windows, built with gocpp build -os
+# windows and run under Wine in an isolated prefix, plus the canary that Wine leaves the real home
+# alone. Needs wine and a MinGW-w64 compiler (the dev shell has both; GOCPP_REQUIRE_WINE=1 makes a
+# missing one a failure). GOCPP_TEST_WINDOWS=all make ci-windows runs every OS-independent run test.
+.PHONY: ci-windows
+ci-windows: export GOCPP_REQUIRE_WINE ?= 1
+ci-windows: export GOCPP_TEST_TARGET = windows
+ci-windows:
+	$(GO) test -count=1 -timeout 60m -parallel 2 -run '^(TestRunWindows|TestWindowsPrograms|TestWineIsolation)$$' ./tests
+	@echo "make ci-windows: all checks passed"
 
 # Fails if gofmt lists a Go file outside LINT_SKIP, then runs go vet, also for
 # windows and darwin (a file with a build tag that only one system compiles).

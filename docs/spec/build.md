@@ -300,3 +300,65 @@ The target carries `-std=c++20 -fwrapv -fno-strict-aliasing -ffp-contract=off -f
 inline code), the build's `-asan`/`-nochecks` flags, the public flags of packages whose headers include C or C++ headers,
 `Threads::Threads -lm -ldl` and the packages' link flags. Use the compiler family that built the archive (CMake warns).
 The stamp also records the header and the tree files, so a build with a missing or edited output builds again.
+
+## Cross-compilation
+
+> [ADR-055](../adr/055-cross-compilation-targets-and-toolchain.md); the how-to is
+> [guides/windows-cross.md](../guides/windows-cross.md).
+
+The **target** of `check`, `build`, `run` and `emit` is a GOOS/GOARCH pair: `-os` and `-arch`, else
+`GOCPP_OS` and `GOCPP_ARCH`, else `GOOS` and `GOARCH`, else the machine. `check` and `emit` take any pair
+that `go tool dist list` knows; `build` and `run` take `linux/amd64`, `linux/arm64` and `windows/amd64`
+(`gocpp build: building for darwin/arm64 is not supported (targets: ...)` for another).
+
+What a target changes:
+
+| | host | windows/amd64 | linux/arm64 (best effort) |
+|---|---|---|---|
+| compiler | `GOCPP_CXX`, `CXX`, clang++, g++ | `GOCPP_CXX`, else by `GOCPP_TOOLCHAIN`: `x86_64-w64-mingw32-clang++` or `-g++` in PATH, else the pinned llvm-mingw | `GOCPP_CXX`, else `aarch64-linux-gnu-g++` |
+| compile flags | common | common, `-D_WIN32_WINNT=0x0A00` (Windows 10 API) | common, and `--target=aarch64-linux-gnu` for a clang that does not name its target |
+| link flags | common | `-static`, `-Wl,--stack,8388608` (the main thread has Linux's 8 MiB), `-pthread` for GCC (needed with a posix thread model, harmless with the mcf model of the dev shell's MinGW; 14.1's `.drectve` asks for the same 8 MiB stack, the two agree and survive `--gc-sections`: `TestWindowsDriverFlags`) | common |
+| program name | `name` | `name.exe` | `name` |
+| build constraints | the host's | `windows`, `amd64`, `_windows.go` | `linux`, `arm64`, `unix` |
+| keys | as before | the target is in the compiler's identity (`CompilerID`), so the stamp, the object cache and the runtime's objects of two targets never meet | same |
+
+The compiler for another target is not `CXX` (a Nix shell sets `CXX` for the host). The libraries of
+`//gocpp:pkg-config` are asked for as usual, with the target's `PKG_CONFIG_*` of the environment.
+
+**`GOCPP_TOOLCHAIN`** chooses where the Windows compiler comes from: `auto` (default: PATH, then the
+pinned toolchain), `local` (PATH only, never a download), `pinned` (the pinned toolchain, whatever is in
+PATH). The pinned toolchain is llvm-mingw 20261006 (UCRT). Each host's archive has its size and SHA-256
+in the binary; the download (`gocpp build` and `gocpp run` only, never `check` or the language server)
+checks both before it unpacks anything, and a host with no hash fails closed. It goes to
+`<cache>/toolchain/llvm-mingw-<release>-<host>/` through a temporary folder and one rename under a lock
+file, read-only. `GOCPP_TOOLCHAIN_URL` is a mirror (an https folder URL with the archives under their
+names). A redirect must stay on https (it may change host), a download that receives nothing for 60
+seconds stops, and `GOCPP_OFFLINE=1` never downloads (a cached toolchain is used). The default of
+`GOCPP_TOOLCHAIN` is the constant `toolchain.DefaultMode` (`auto` today: the download happens without
+asking; `local` would make it opt-in); `gocpp env` shows it. `gocpp clean -cache` leaves the toolchain alone; `gocpp clean -toolchain` removes it.
+
+**`GOCPP_EXEC`** (words, like `GOCPP_CXX`) is the program that `gocpp run` starts the program with, as
+`go run -exec` does: `GOCPP_EXEC=wine gocpp run -os windows .`. A program for another target without it is
+an error that says so before anything is built.
+
+### What works on Windows
+
+The Windows OS layer (`runtime/src/os/windows`) is step 14.1's ([ADR-053](../adr/053-windows-os-layer-on-createthread.md);
+`runtime/README.md` has its tests, on Wine and on a real PC over ssh). The cross-compilation tests of this step
+build programs with the driver and run them under Wine:
+
+| works (tested under Wine) | does not yet |
+|---|---|
+| `fmt.Println` and `println` to console, pipe and file; UTF-8 output | UCRT (the dev shell's MinGW-w64 is msvcrt; a real PC covers UCRT) |
+| arguments (Go's command line rules) and environment | `-buildmode=c-shared` for Windows (`.dll`), arm64 Windows |
+| `os.Exit`, `panic` (exit 2, Go's message and frames on stderr), a C `exit` | the Windows host (gocpp itself on Windows) |
+| goroutines on threads, channels, `select`, `sync` | |
+| a stack overflow (message and exit 2), the 8 MiB main stack, big programs | |
+| `defer`, `recover`, maps, strings, closures, generics | |
+
+Result of `GOCPP_TEST_WINDOWS=all` (2026-10-18, dev shell: MinGW-w64 msvcrt, Wine): 827 OS-independent run
+tests built for windows/amd64 and run, 826 passed on the first run; the one failure was Wine's own
+`wine client error: sendmsg: Socket operation on non-socket` on stderr of a program that ends with
+goroutines still blocked (the harness drops exactly that line now). Left out: 5 tests with a
+`//go:build linux` line, and 2 whose expected output has the frames of a panic's trace
+(`tests/windows_skip.txt`; 14.1 reads the frames now, see the rerun below). On a real PC (`GOCPP_WINDOWS_SSH`) the 42-test sample and `tests/testdata/windows` pass.
