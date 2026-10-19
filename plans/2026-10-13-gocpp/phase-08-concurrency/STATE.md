@@ -24,7 +24,7 @@
 - [x] 8.9 Exit semantics (flush + `_exit`, no static destructors, harness fails on TSan warnings)
 - [x] 8.10 `runtime` (Gosched, NumGoroutine, GOMAXPROCS remembers its value + cgroup-aware default, Goexit)
 - [ ] 8.11 Deadlock detection (Go 1.23+ timer rule, foreign threads, `Goexit` message)
-- [ ] 8.12 `-race` (TSan) CI job
+- [x] 8.12 `-race` (TSan) CI job
 - [ ] 8.13 Tests
   - [ ] ≥ 50 deterministic concurrency run tests
   - [ ] self-contained Go `test/chan` programs (from the pinned upstream source) as differential tests
