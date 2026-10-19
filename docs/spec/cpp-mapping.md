@@ -2059,6 +2059,42 @@ The names of the types of a standard package are Go's: `*errors.errorString`, `*
 the named type for the "types from different packages" suffix of an assertion panic (Go's `*T` type has `T`'s package
 path), so two `*a.Err` of `x/a` and `y/a` say "different packages", not "different scopes".
 
+### The reflect subset (step 9.3)
+
+`stdlib/reflect` is Go's `reflect` API, written in `.gp` over native functions ([ADR-035](../adr/035-reflect-subset-on-descriptors.md)):
+`type.gp` (`Kind`, `Type`, `rtype`, `StructField`, `StructTag`, `Method`), `value.gp` (`Value`, `MapIter`, the
+constructors), `deepequal.gp` (`DeepEqual`, Go's algorithm with its `visit` map) and `natives.gp` (the `//gocpp:native`
+declarations of `gocpp/reflect.hpp`, defined in `src/reflect.cpp`). `internal/reflectlite` aliases it.
+
+```go
+v := reflect.ValueOf(&x).Elem()   // x is a struct { N int; S []string }
+v.Field(0).SetInt(7)              // writes x.N: the field is the same storage at the field's offset
+v.Field(1).Set(reflect.Append(v.Field(1), reflect.ValueOf("a")))
+```
+
+- **A type is a descriptor's address** (`uintptr`), and the descriptor, never `gp_full`'s copy, is its identity, so `Type`
+  values (one `*rtype` for each descriptor) compare with `==`. `PointerTo(t)` and `SliceOf(t)` build and intern a
+  descriptor at run time when the program has none.
+- **A Value is `{typ, ptr, flag}`**: `ptr` is the address of the C++ object (for a pointer, the address of the
+  `gp::ptr` object), and its owner keeps the storage alive. The flags are Go's (kind, `flagAddr`, `flagStickyRO`,
+  `flagEmbedRO`); the panics and their texts are Go's (`reflect: call of reflect.Value.Int on string Value`,
+  `reflect.Value.SetInt using unaddressable value`, `reflect.Value.Set using value obtained using unexported field`).
+- **The operations are in `type_ops`** (`typeops.hpp`): `gp_trivial`, `gp_ctor`, `gp_dtor`, `gp_share` (the lifetime of
+  a C++ object of the type: `New`, `Zero`, `MakeSlice`, `Set`) and `gp_refl`, one pointer to the constant group of the
+  type's kind (`slice_refl`: make a slice over an array view, capacity; `ptr_refl`: a pointer that shares an owner;
+  `map_refl`: new, len, find, set, erase, clear; `chan_refl`: len, cap). `type_desc` did not grow (208 bytes);
+  `type_ops` went from 112 to 144 bytes (one per C++ type with a descriptor).
+- **`fmt` and `reflect` share one reader**: `fmt` prints a `reflect.Value` operand as the value it holds (the name
+  `reflect.Value` and the order of its fields are known to `pp::print_reflect_value`), honoring the read-only flags.
+- **C/C++ values** are read as the Go kind of their shape (numbers, bool, string, `unsafe.Pointer` for every C pointer,
+  a field-less `Struct` for a class); `Type.String()` is the C++ type's name; a class that can't be default constructed
+  or copy assigned panics `reflect: C++ type X is opaque (it can't be made or assigned)` where reflect would make or
+  store one. reflect does not make `gp::cptr` values.
+- **Methods:** `NumMethod`, `Method(i)` (name, `PkgPath`, `Index`) and `MethodByName` list the exported methods; the
+  `Type` of a method is nil and methods can't be called (`Value.Call`, `Value.Method` are not in the subset).
+- **Not in the subset:** `MakeFunc`, `Value.Call`, `Value.Method`, `StructOf`, `FuncOf`, `MapOf`, `ArrayOf`, `ChanOf`,
+  `Select`, channel `Send`/`Recv`/`Close`, `Value.Seq`: a call is a compile error.
+
 ## Goroutines and channels
 
 Phase 08 builds this; steps 8.1 to 8.6 are in (the `go` statement, channels and their directions,

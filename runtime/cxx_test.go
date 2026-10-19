@@ -23,7 +23,7 @@ import (
 // The C++ tests of the runtime: test/unit.cpp, test/slice_test.cpp, test/array_test.cpp,
 // test/map_test.cpp, test/fmt_test.cpp, test/trace_test.cpp, test/defer_test.cpp, test/func_test.cpp,
 // test/thread_test.cpp, test/goroutine_test.cpp, test/chan_test.cpp, test/select_test.cpp and test/interop_test.cpp, test/cxxvalue_test.cpp, test/unsafe_test.cpp,
-// test/type_test.cpp and test/iface_test.cpp (unit tests), test/nochecks_test.cpp
+// test/type_test.cpp, test/iface_test.cpp and test/reflect_test.cpp (unit tests), test/nochecks_test.cpp
 // (the unit tests of a -nochecks build, compiled with the runtime with -DGOCPP_NOCHECKS),
 // and test/diff.cpp (the C++ side of a differential test against testdata/diff/main.go, run with
 // real Go). (fmt is compared with real Go by the test programs tests/run/fmt_*.gp.)
@@ -306,6 +306,7 @@ func TestCXX(t *testing.T) {
 						{src: "test/iface_test.cpp", weight: 7},
 						{src: "test/ifaceconv_test.cpp", weight: 4},
 						{src: "test/errors_test.cpp", weight: 4},
+						{src: "test/reflect_test.cpp", weight: 5},
 						{src: "test/thread_test.cpp", weight: 3},
 						{src: "test/goroutine_test.cpp", weight: 3},
 						{src: "test/chan_test.cpp", weight: 4},
@@ -357,6 +358,10 @@ func TestCXX(t *testing.T) {
 					t.Run("errors", func(t *testing.T) {
 						t.Parallel()
 						runUnit(t, bins.bin(t, "test/errors_test.cpp"))
+					})
+					t.Run("reflect", func(t *testing.T) {
+						t.Parallel()
+						runUnit(t, bins.bin(t, "test/reflect_test.cpp"))
 					})
 					t.Run("thread", func(t *testing.T) {
 						t.Parallel()

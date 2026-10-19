@@ -20,6 +20,13 @@
 //     Func, Chan     gp_nil, gp_addr                   the address that fmt prints
 //     Weak pointer   gp_word                   the address a weak pointer was made from
 //     Foreign        gp_fclass, gp_go_name, gp_text   how a C/C++ value prints (below)
+//     every kind     gp_trivial, gp_ctor, gp_dtor, gp_share   the lifetime of a C++ object of the
+//     type
+//                                              (reflect.New, Zero, MakeSlice: Phase 09 step 9.3)
+//     Slice, Map, Pointer, Chan   gp_refl      the extra operations of reflect (slice_refl,
+//     map_refl,
+//                                              ptr_refl, chan_refl below): one pointer, so a type
+//                                              pays only for the group of its own kind
 //
 // A named type over one of them (a gp::newtype) is a class that derives from, or holds as its
 // only member, the underlying class: its operations are the underlying type's, applied to the
@@ -41,7 +48,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <concepts>
 #include <memory>
+#include <new>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -52,6 +61,12 @@ namespace gp {
 
 template <typename T>
 class chan; // gocpp/chan.hpp (included after the descriptors)
+
+namespace detail {
+struct chan_core;
+std::int64_t chan_len(const chan_core* c) noexcept; // gocpp/chan.hpp
+std::int64_t chan_cap(const chan_core* c) noexcept;
+} // namespace detail
 
 // fclass classifies a C/C++ type (kind Foreign) for fmt.
 enum class fclass : std::uint8_t {
@@ -68,6 +83,42 @@ enum class fclass : std::uint8_t {
     cxx_string, // std::string
     cxx_string_view, // std::string_view
     null_ptr,        // std::nullptr_t
+};
+
+// The reflect operations (Phase 09 step 9.3, runtime/src/reflect.cpp). They are typed (a template
+// instantiates them for the element, key and value types) and reached through type_ops::gp_refl,
+// which points at the group of the type's kind.
+//
+// slice_refl: gp_make(obj, owner, data, len, cap) assigns to the slice object `obj` the slice of
+// that array view (E is the element type of the object); gp_cap reads the capacity.
+struct slice_refl {
+    void (*gp_make)(void* obj, const std::shared_ptr<void>& owner, void* data, std::int64_t len,
+                    std::int64_t cap);
+    std::int64_t (*gp_cap)(const void*);
+};
+
+// ptr_refl: gp_make(obj, owner, target) assigns to the pointer object `obj` a pointer to target
+// that shares owner's block (the aliasing constructor).
+struct ptr_refl {
+    void (*gp_make)(void* obj, const std::shared_ptr<void>& owner, void* target);
+};
+
+// map_refl: the map as reflect needs it. gp_make assigns a new empty map to `obj`; gp_find is the
+// address of the value of the key (null when it isn't there: a NaN is never), gp_set stores a copy
+// of the value (a nil map panics as Go's store does), gp_erase and gp_clear are delete and clear.
+struct map_refl {
+    void (*gp_make)(void* obj);
+    std::int64_t (*gp_len)(const void*);
+    const void* (*gp_find)(const void*, const void* key);
+    void (*gp_set)(const void*, const void* key, const void* val);
+    void (*gp_erase)(const void*, const void* key);
+    void (*gp_clear)(const void*);
+};
+
+// chan_refl: len(ch) and cap(ch) (a nil channel has 0 of both).
+struct chan_refl {
+    std::int64_t (*gp_len)(const void*);
+    std::int64_t (*gp_cap)(const void*);
 };
 
 struct type_ops {
@@ -95,6 +146,19 @@ struct type_ops {
     fclass gp_fclass = fclass::none;
     const char* gp_go_name = nullptr;
     void (*gp_text)(std::string&, const void*) = nullptr;
+    // The lifetime of a C++ object of the type (reflect: New, Zero, MakeSlice, Set). gp_trivial:
+    // the zero value is all-zero bytes, a copy is memcpy and there is nothing to destroy (numbers,
+    // bools, plain structs of them): gp_ctor and gp_dtor are null then. Otherwise gp_ctor
+    // constructs the zero value in raw memory and gp_dtor destroys the object (null: nothing to
+    // do); a null gp_ctor means the type can't be made without its C++ constructors (reflect says
+    // so). gp_share: the type is exactly gp::ptr<U>: an interface that holds one shares the
+    // pointer's owner as its data instead of boxing a copy (gocpp/iface.hpp).
+    bool gp_trivial = false;
+    bool gp_share = false;
+    void (*gp_ctor)(void*) = nullptr;
+    void (*gp_dtor)(void*) = nullptr;
+    // Slice, Map, Pointer: the slice_refl, map_refl or ptr_refl of the type.
+    const void* gp_refl = nullptr;
 };
 
 namespace detail {
@@ -120,6 +184,60 @@ struct ops_builder {
 };
 
 template <typename E>
+struct slice_refl_builder {
+    static void make(void* obj, const std::shared_ptr<void>& owner, void* data, std::int64_t len,
+                     std::int64_t cap) {
+        *static_cast<slice<E>*>(obj) = slice<E>(owner, static_cast<E*>(data), len, cap);
+    }
+    static std::int64_t cap(const void* p) { return static_cast<const slice<E>*>(p)->gp_cap(); }
+};
+template <typename E>
+inline constexpr slice_refl slice_refl_object{&slice_refl_builder<E>::make,
+                                              &slice_refl_builder<E>::cap};
+
+template <typename E>
+struct ptr_refl_builder {
+    static void make(void* obj, const std::shared_ptr<void>& owner, void* target) {
+        *static_cast<ptr<E>*>(obj) = ptr<E>(owner, static_cast<E*>(target));
+    }
+};
+template <typename E>
+inline constexpr ptr_refl ptr_refl_object{&ptr_refl_builder<E>::make};
+
+// map_reflable: the map's key and value support what map_refl does.
+template <typename K, typename V>
+concept map_reflable = std::is_copy_constructible_v<K> && std::is_copy_constructible_v<V> &&
+                       std::is_move_assignable_v<V> && requires(const K& k) {
+                           { gp::hash_of(k) } -> std::convertible_to<std::size_t>;
+                       };
+
+template <typename K, typename V>
+struct map_refl_builder {
+    static const map<K, V>& as(const void* p) { return *static_cast<const map<K, V>*>(p); }
+    static void make(void* obj) { *static_cast<map<K, V>*>(obj) = gp::make_map<K, V>(); }
+    static std::int64_t len(const void* m) { return gp::len(as(m)); }
+    static const void* find(const void* m, const void* k) {
+        auto* impl = as(m).gp_get();
+        const K& key = *static_cast<const K*>(k);
+        detail::check_empty_key(impl, key);
+        if (impl == nullptr) {
+            return nullptr;
+        }
+        auto it = detail::map_find(*impl, key, gp::hash_of(key));
+        return it == impl->gp_t.end() ? nullptr : static_cast<const void*>(&it->second);
+    }
+    static void set(const void* m, const void* k, const void* v) {
+        gp::set(as(m), *static_cast<const K*>(k), *static_cast<const V*>(v));
+    }
+    static void erase(const void* m, const void* k) { gp::erase(as(m), *static_cast<const K*>(k)); }
+    static void clear(const void* m) { gp::clear(as(m)); }
+};
+template <typename K, typename V>
+inline constexpr map_refl map_refl_object{
+    &map_refl_builder<K, V>::make, &map_refl_builder<K, V>::len,   &map_refl_builder<K, V>::find,
+    &map_refl_builder<K, V>::set,  &map_refl_builder<K, V>::erase, &map_refl_builder<K, V>::clear};
+
+template <typename E>
 struct ops_builder<slice<E>> {
     static const slice<E>& as(const void* p) { return *static_cast<const slice<E>*>(p); }
     static const void* data(const void* p) { return as(p).gp_data(); }
@@ -132,6 +250,7 @@ struct ops_builder<slice<E>> {
         o.gp_seq_len = &len;
         o.gp_hold = &hold;
         o.gp_nil = &nil;
+        o.gp_refl = &slice_refl_object<E>;
         return o;
     }
 };
@@ -185,6 +304,9 @@ struct ops_builder<map<K, V>> {
             o.gp_snap_len = &snap_len;
             o.gp_snap_at = &snap_at;
         }
+        if constexpr (map_reflable<K, V>) {
+            o.gp_refl = &map_refl_object<K, V>;
+        }
         return o;
     }
 };
@@ -200,12 +322,20 @@ struct ops_builder<ptr<E>> {
         o.gp_target = &target;
         o.gp_owner = &owner;
         o.gp_nil = &nil;
+        o.gp_refl = &ptr_refl_object<E>;
         return o;
     }
 };
 
+// cptr<E> is read like a gp::ptr<E>, but reflect does not make one (a C++ pointer type is opaque).
 template <typename E>
-struct ops_builder<cptr<E>> : ops_builder<ptr<E>> {};
+struct ops_builder<cptr<E>> : ops_builder<ptr<E>> {
+    static constexpr type_ops build() {
+        type_ops o = ops_builder<ptr<E>>::build();
+        o.gp_refl = nullptr;
+        return o;
+    }
+};
 
 template <typename S>
 struct ops_builder<func<S>> {
@@ -229,12 +359,22 @@ struct ops_builder<chan<E>> {
     static const void* addr(const void* p) {
         return reinterpret_cast<const void*>(as(p).gp_address());
     }
+    static std::int64_t length(const void* p) {
+        const auto* c = as(p).gp_core();
+        return c == nullptr ? 0 : detail::chan_len(c);
+    }
+    static std::int64_t capacity(const void* p) {
+        const auto* c = as(p).gp_core();
+        return c == nullptr ? 0 : detail::chan_cap(c);
+    }
     static constexpr type_ops build() {
         type_ops o;
         o.gp_nil = &nil;
         o.gp_addr = &addr;
+        o.gp_refl = &refl;
         return o;
     }
+    static constexpr chan_refl refl{&length, &capacity};
 };
 
 template <typename E>
@@ -284,10 +424,45 @@ using elem_t = typename class_parts<typename underlying_class<T>::type>::elem;
 template <typename T>
 using key_t = typename class_parts<typename underlying_class<T>::type>::key;
 
+// The lifetime operations (type_ops::gp_trivial and the rest). T is the C++ type of the descriptor
+// itself (not its underlying class: a struct's own constructor and destructor run).
+template <typename T>
+void construct_zero(void* p) {
+    ::new (p) T();
+}
+template <typename T>
+void destroy_object(void* p) noexcept {
+    static_cast<T*>(p)->~T();
+}
+template <typename T>
+inline constexpr bool exact_ptr = false;
+template <typename U>
+inline constexpr bool exact_ptr<ptr<U>> = true;
+
+template <typename T>
+constexpr void set_lifetime(type_ops& o) noexcept {
+    if constexpr (std::is_object_v<T> && !std::is_const_v<T>) {
+        if constexpr (std::is_trivially_copyable_v<T> &&
+                      std::is_trivially_default_constructible_v<T>) {
+            o.gp_trivial = true;
+        } else {
+            if constexpr (std::is_default_constructible_v<T> && std::is_destructible_v<T>) {
+                o.gp_ctor = &construct_zero<T>;
+            }
+            if constexpr (std::is_destructible_v<T> && !std::is_trivially_destructible_v<T>) {
+                o.gp_dtor = &destroy_object<T>;
+            }
+        }
+        o.gp_share = exact_ptr<T>;
+    }
+}
+
 // ops_of<T>() is the operations of the type T (through its newtype layers).
 template <typename T>
 constexpr type_ops ops_of() noexcept {
-    return ops_builder<typename underlying_class<T>::type>::build();
+    type_ops o = ops_builder<typename underlying_class<T>::type>::build();
+    set_lifetime<T>(o);
+    return o;
 }
 
 // A descriptor points at a static object; one per C++ type.
@@ -360,6 +535,7 @@ type_ops foreign_ops_of() {
         o.gp_fclass = fclass::null_ptr;
     }
     o.gp_go_name = foreign_go_name<U>();
+    set_lifetime<U>(o);
     return o;
 }
 

@@ -295,6 +295,7 @@ func (g *gen) ifaceDefs() []cppir.Decl {
 
 // ifaceDef returns the definition of the struct of the interface info and its static_assert.
 func (g *gen) ifaceDef(info *ifaceInfo) []cppir.Decl {
+	defer g.hide(ifaceMemberNames(info))()
 	s := &cppir.Struct{Name: info.name, Bases: []cppir.Type{typeName("gp::iface")}}
 	s.Members = append(s.Members, &cppir.Using{Name: "gp::iface::iface"})
 	s.Members = append(s.Members, &cppir.Func{
@@ -313,6 +314,18 @@ func (g *gen) ifaceDef(info *ifaceInfo) []cppir.Decl {
 	return []cppir.Decl{s, &cppir.StaticAssert{Cond: &cppir.Binary{Op: "==", X: call("sizeof", cxxName(info.name)), Y: lit("32")}}, &cppir.Blank{}}
 }
 
+// ifaceMemberNames are the C++ names of the members of the struct of the interface info: in its body,
+// and in the parameter lists of the definitions of its wrappers, a method named like a type that
+// another method mentions (Kind() Kind, Method(int) Method) hides that type, so the types are written
+// qualified there (hidden, typedecl.go).
+func ifaceMemberNames(info *ifaceInfo) map[string]bool {
+	hidden := map[string]bool{"gp_desc": true}
+	for _, n := range info.mnames {
+		hidden[n] = true
+	}
+	return hidden
+}
+
 // ifaceImpls adds to p the definitions that follow the descriptors of the types: the method
 // arrays and descriptors of the interfaces, gp_desc and the wrappers. The split layout declares
 // the descriptor of a named interface extern in the header and defines it in pkg_desc.cpp;
@@ -327,6 +340,7 @@ func (g *gen) ifaceImpls(p *implParts) {
 
 // ifaceImpl is ifaceImpls for one interface.
 func (g *gen) ifaceImpl(info *ifaceInfo, p *implParts) {
+	defer g.hide(ifaceMemberNames(info))()
 	inline := []string{"inline"}
 	descPtr := &cppir.Ptr{Elem: &cppir.Const{Elem: typeName("gp::type_desc")}}
 	{

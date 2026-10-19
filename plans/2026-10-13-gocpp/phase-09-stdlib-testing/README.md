@@ -116,6 +116,26 @@ actually call (grep), not guessed:
 `Method` calls by name, `StructOf`/`FuncOf`, and anything that needs runtime code generation.
 Divergence D6 in Phase 00 records this.
 
+#### Built in step 9.3 ([ADR-035](../../../docs/adr/035-reflect-subset-on-descriptors.md))
+
+`stdlib/reflect` (Go's API in `.gp` over `gocpp/reflect.hpp`) and `stdlib/internal/reflectlite` (an alias package)
+are in; tests are `tests/run/reflect_*.gp` (104 programs compared with real Go, `// phase: 09`) and
+`tests/interop/reflect_cpp_values.gp`. Per consumer of the table above:
+
+| Consumer | Status |
+|---|---|
+| everyone | built: every call of the first row, plus `Bits`, `Size`, `Align`, `NumIn/In/NumOut/Out/IsVariadic`, `ChanDir`, `FieldByName/ByIndex/ByNameFunc`, `Method(i)` names, `Convert`, `Equal`, `TypeFor` |
+| `sort.Slice` | built: `Swapper` (Go's panics and the 0, 1 and 2 byte-size cases are one generic swap) |
+| `flag` | built: `New`, `Zero` (also `Indirect`, `PointerTo`) |
+| `fmt` (`Sscan`) | built: `MakeSlice`, `Append`, `AppendSlice`, `Copy`; `fmt` itself prints a `reflect.Value` operand |
+| `encoding/json` | built: `New`, `Zero`, `MakeSlice`, `MakeMap(WithSize)`, `PointerTo`, `Addr`, `Set*`, `SetMapIndex`, `SetLen`, `SetCap`, `Grow`, `Overflow*`, `MapRange`, `SetZero`, struct tags (`StructTag.Get/Lookup`). **Missing for 9.11:** `Value.Method`/`Call` (the `Marshaler` check should use the interface assertion, which needs no reflect), `MapOf`, `ArrayOf`, `Select`, channel `Send`/`Recv`, `Value.Seq` |
+| ported tests | built: `DeepEqual` (cycles, NaN, nil versus empty, funcs, Go's exact rules) |
+| `context`, `errors` | built through `internal/reflectlite` (the Phase 05 `errors` keeps its natives) |
+
+Not built, by design (D6): `MakeFunc`, `StructOf`, `FuncOf`, `Value.Call`, calling methods by name; the `Type` of a method is nil.
+`internal/fmtsort` (9.7) needs nothing more than `MapRange` and the accessors `Kind`, `Int`, `Uint`,
+`Float`, `String`, `Pointer`, `Field`, `Index`, `Elem`, `IsNil`, which are built.
+
 ### 2.3 `fmt` (ported)
 
 Copy Go's `fmt` and replace `reflect` with the subset. That gives every verb (`%v %+v %#v %T %t

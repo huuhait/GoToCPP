@@ -1518,6 +1518,7 @@ struct pp {
     void catch_panic(const value& arg, char32_t verb, const char* method);
     bool handle_methods(const value& v, char32_t verb);
     void print_arg(const value& arg, char32_t verb);
+    void print_reflect_value(const value& a, char32_t verb);
     void print_value(const value& v, char32_t verb, int depth, access ro);
     void print_foreign(const value& v, char32_t verb);
     void print_address(uint64_t u, char32_t verb);
@@ -1904,6 +1905,49 @@ bool pp::handle_methods(const value& vin, char32_t verb) {
     }
 }
 
+// is_reflect_value: the operand is a reflect.Value (stdlib/reflect/value.gp: the type of the value,
+// the storage of the object and the flags, in that order).
+bool is_reflect_value(const type_desc* t) noexcept {
+    return t->gp_kind == kind::Struct && t->gp_pkg != nullptr &&
+           std::strcmp(t->gp_pkg, "reflect") == 0 && std::strcmp(t->gp_name, "reflect.Value") == 0;
+}
+
+// print_reflect_value is printArg's `case reflect.Value`: the value that it holds prints, and its
+// methods are used when it can be taken as an interface (flagRO unset).
+void pp::print_reflect_value(const value& a, char32_t verb) {
+    const type_desc* ft = full(a.t);
+    const char* base = static_cast<const char*>(a.p);
+    const std::uint64_t typ =
+        *reinterpret_cast<const std::uint64_t*>(base + ft->gp_fields[0].gp_offset);
+    const auto& ptr = *reinterpret_cast<const gp::ptr<void>*>(base + ft->gp_fields[1].gp_offset);
+    const std::uint64_t flag =
+        *reinterpret_cast<const std::uint64_t*>(base + ft->gp_fields[2].gp_offset);
+    if (typ == 0) {
+        print_value(value{}, verb, 0, access::open);
+        return;
+    }
+    value inner = of_object(reinterpret_cast<const type_desc*>(static_cast<std::uintptr_t>(typ)),
+                            ptr.gp_get());
+    if (inner.own == nullptr) {
+        inner.own = ptr.gp_shared();
+    }
+    constexpr std::uint64_t flag_embed_ro = 1 << 6;
+    constexpr std::uint64_t flag_ro = (1 << 5) | flag_embed_ro;
+    if ((flag & flag_ro) == 0) {
+        value arg = inner;
+        if (inner.t->gp_kind == kind::Interface) {
+            arg = elem_of_iface(inner.p);
+        }
+        if (arg.t != nullptr && (arg.t->gp_nmethods != 0 || verb == 'w') &&
+            handle_methods(arg, verb)) {
+            return;
+        }
+        print_value(inner, verb, 0, access::open);
+        return;
+    }
+    print_value(inner, verb, 0, (flag & flag_embed_ro) != 0 ? access::embed_ro : access::sticky_ro);
+}
+
 // print_arg is printArg.
 void pp::print_arg(const value& a, char32_t verb) {
     cur = &a;
@@ -1931,6 +1975,10 @@ void pp::print_arg(const value& a, char32_t verb) {
         break;
     }
     const type_desc* t = a.t;
+    if (is_reflect_value(t)) {
+        print_reflect_value(a, verb);
+        return;
+    }
     // Some types can be done without reflection: the predeclared ones, which have no methods.
     // If the type is not simple, it might have methods.
     if ((verb == 'w' || t->gp_nmethods != 0) && handle_methods(a, verb)) {
