@@ -13,8 +13,8 @@
 - [x] 6.5 Action graph with content hashing + `-MD` header deps + macro lists + public flags + wrapper environment
 - [x] 6.6 Cache (objects, generated files, write-if-changed, API hash = export data + `pkg.hpp`, package summaries, `clean -cache`)
 - [x] 6.7 Parallel executor (`-p`), `-x`, `-work`, error aggregation
-- [ ] 6.8 Runtime prebuild + precompiled header
-- [ ] 6.9 Link step (ordering, dedup, system libs, LTO with matching archiver)
+- [x] 6.8 Runtime prebuild + precompiled header
+- [x] 6.9 Link step (ordering, dedup, system libs, LTO with matching archiver)
 - [x] 6.10 Build modes
   - [ ] `c-archive` + `//export` (cgo's type rules, copies) + C header + lazy init
   - [ ] `c-shared` (hidden visibility, lazy init, trampolines)
