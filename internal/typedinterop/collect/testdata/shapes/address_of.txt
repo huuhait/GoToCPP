@@ -1,0 +1,6 @@
+addr addr(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1)})))
+local decay(addr(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1)}))))
+local decay(lit{index(std::vector|go(int64_t))|lit(1)})
+index index(std::vector|go(int64_t))
+literal lit{index(std::vector|go(int64_t))|lit(1)}
+path std::vector name-only

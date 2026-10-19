@@ -1,0 +1,45 @@
+0 path ::EOF
+    stdio_calls.gp:19:31 arg  C.EOF
+1 path ::fflush name-only
+    stdio_calls.gp:22:2 callee  C.fflush
+2 path ::printf name-only
+    stdio_calls.gp:14:2 callee  C.printf
+    stdio_calls.gp:15:16 callee  C.printf
+    stdio_calls.gp:16:2 callee  C.printf
+    stdio_calls.gp:18:2 callee  C.printf
+    stdio_calls.gp:19:2 callee  C.printf
+    stdio_calls.gp:21:2 callee  C.printf
+3 path ::puts name-only
+    stdio_calls.gp:17:2 callee  C.puts
+4 path ::stdout
+    stdio_calls.gp:22:16 arg  C.stdout
+5 path C.int
+    stdio_calls.gp:15:8 type  C.int
+6 path C.longlong name-only
+    stdio_calls.gp:18:30 callee  C.longlong
+    stdio_calls.gp:20:9 callee  C.longlong
+7 path C.ulonglong name-only
+    stdio_calls.gp:18:49 callee  C.ulonglong
+8 call call(::fflush|::stdout)
+    stdio_calls.gp:22:2 stmt  C.fflush(C.stdout)
+9 call call(::printf|lit("%d %.1f %s %c\012"),lit(5),lit(2.5),lit("x"),lit('z'))
+    stdio_calls.gp:14:2 stmt  C.printf("%d %.1f %s %c\n", 5, 2.5, "x", 'z')
+10 call call(::printf|lit("%lld %llu\012"),call(C.longlong|lit(1099511627776)),call(C.ulonglong|lit(9223372036854775808ULL)))
+    stdio_calls.gp:18:2 stmt  C.printf("%lld %llu\n", C.longlong(1 << 40), C.ulonglong(1 << 63))
+11 call call(::printf|lit("%lld\012"),arg&(decay(call(C.longlong|lit(1099511627776)))))
+    stdio_calls.gp:21:2 stmt  C.printf("%lld\n", big)
+12 call call(::printf|lit("%s\012"),lit("hello"))
+    stdio_calls.gp:15:16 init  C.printf("%s\n", "hello")
+13 call call(::printf|lit("EOF is %d\012"),::EOF)
+    stdio_calls.gp:19:2 stmt  C.printf("EOF is %d\n", C.EOF)
+14 call call(::printf|lit("printf wrote %d bytes\012"),arg&(C.int))
+    stdio_calls.gp:16:2 stmt  C.printf("printf wrote %d bytes\n", n)
+15 call call(::puts|lit("puts"))
+    stdio_calls.gp:17:2 stmt  C.puts("puts")
+16 call call(C.longlong|lit(1099511627776))
+    stdio_calls.gp:18:30 arg  C.longlong(1 << 40)
+    stdio_calls.gp:20:9 init  C.longlong(1 << 40)
+17 call call(C.ulonglong|lit(9223372036854775808ULL))
+    stdio_calls.gp:18:49 arg  C.ulonglong(1 << 63)
+18 local decay(call(C.longlong|lit(1099511627776)))
+    stdio_calls.gp:20:2 init  big

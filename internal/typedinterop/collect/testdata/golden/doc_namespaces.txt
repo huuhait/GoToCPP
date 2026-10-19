@@ -1,0 +1,28 @@
+0 call call(sel(arg&(decay(call(std::filesystem::path|lit("/tmp/x.txt"))))|filename)|)
+    doc_namespaces.gp:18:35 arg -> any  p.filename()
+1 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}))|size)|)
+    doc_namespaces.gp:18:14 arg -> any  v.size()
+2 call call(sel(arg&(std::chrono::seconds)|count)|)
+    doc_namespaces.gp:18:24 arg -> any  d.count()
+3 call call(std::filesystem::path|lit("/tmp/x.txt"))
+    doc_namespaces.gp:17:7 init  C.fs.path("/tmp/x.txt")
+4 local decay(call(std::filesystem::path|lit("/tmp/x.txt")))
+    doc_namespaces.gp:17:2 init  p
+5 local decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)})
+    doc_namespaces.gp:15:2 init  v
+6 index index(std::vector|go(int64_t))
+    doc_namespaces.gp:15:7 type  C.std.vector[int]
+7 literal lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}
+    doc_namespaces.gp:15:7 init  C.std.vector[int]{…}
+8 member sel(arg&(decay(call(std::filesystem::path|lit("/tmp/x.txt"))))|filename) name-only
+    doc_namespaces.gp:18:35 callee  p.filename
+9 member sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}))|size) name-only
+    doc_namespaces.gp:18:14 callee  v.size
+10 member sel(arg&(std::chrono::seconds)|count) name-only
+    doc_namespaces.gp:18:24 callee  d.count
+11 path std::chrono::seconds
+    doc_namespaces.gp:16:8 type  C.std.chrono.seconds
+12 path std::filesystem::path name-only
+    doc_namespaces.gp:17:7 callee  C.fs.path
+13 path std::vector name-only
+    doc_namespaces.gp:15:7 template  C.std.vector

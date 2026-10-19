@@ -1,0 +1,303 @@
+0 path ::Handle
+    policy_rows.gp:22:23 type  C.Handle
+    policy_rows.gp:24:40 type  C.Handle
+    policy_rows.gp:29:20 type  C.Handle
+    policy_rows.gp:45:8 type  C.Handle
+1 path ::Pinned
+    policy_rows.gp:20:23 type  C.Pinned
+    policy_rows.gp:20:47 callee  C.Pinned
+    policy_rows.gp:38:8 type  C.Pinned
+2 path ::Widget
+    policy_rows.gp:24:24 type  C.Widget
+    policy_rows.gp:25:9 callee  C.Widget
+    policy_rows.gp:63:9 callee  C.Widget
+    policy_rows.gp:95:19 index  C.Widget
+    policy_rows.gp:96:15 callee  C.Widget
+    policy_rows.gp:97:15 callee  C.Widget
+3 path ::make_handle name-only
+    policy_rows.gp:22:47 callee  C.make_handle
+    policy_rows.gp:25:35 callee  C.make_handle
+    policy_rows.gp:30:7 callee  C.make_handle
+4 path ::take name-only
+    policy_rows.gp:84:8 callee  C.take
+    policy_rows.gp:89:2 callee  C.take
+    policy_rows.gp:91:2 callee  C.take
+    policy_rows.gp:92:8 callee  C.take
+5 path C.int
+    policy_rows.gp:20:62 callee  C.int
+    policy_rows.gp:22:67 callee  C.int
+    policy_rows.gp:25:24 callee  C.int
+    policy_rows.gp:25:55 callee  C.int
+    policy_rows.gp:29:51 index  C.int
+    policy_rows.gp:31:23 index  C.int
+    policy_rows.gp:40:23 index  C.int
+    policy_rows.gp:40:48 index  C.int
+    policy_rows.gp:47:23 index  C.int
+    policy_rows.gp:102:34 index  C.int
+    policy_rows.gp:103:31 index  C.int
+6 binary bin(!=|arg&(index(std::unique_ptr|C.int))|lit(nullptr))
+    policy_rows.gp:56:14 convert -> (ast: <nil>)  n != nil
+7 binary bin(==|arg&(index(std::unique_ptr|C.int))|lit(nullptr))
+    policy_rows.gp:48:43 convert -> (ast: <nil>)  n == nil
+    policy_rows.gp:56:24 convert -> (ast: <nil>)  u == nil
+8 call call(::Pinned|call(C.int|arg&(go(int64_t))))
+    policy_rows.gp:20:47 return  C.Pinned(C.int(n))
+9 call call(::Widget|call(C.int|arg&(go(int64_t))))
+    policy_rows.gp:25:9 return  C.Widget(C.int(n))
+10 call call(::Widget|lit(1))
+    policy_rows.gp:96:15 arg  C.Widget(1)
+11 call call(::Widget|lit(2))
+    policy_rows.gp:97:15 arg  C.Widget(2)
+12 call call(::Widget|lit(7))
+    policy_rows.gp:63:9 init  C.Widget(7)
+13 call call(::make_handle|call(C.int|arg&(go(int64_t))))
+    policy_rows.gp:22:47 return  C.make_handle(C.int(n))
+14 call call(::make_handle|call(C.int|arg(go(int64_t))))
+    policy_rows.gp:25:35 return  C.make_handle(C.int(n * 10))
+15 call call(::make_handle|lit(30))
+    policy_rows.gp:30:7 init  C.make_handle(30)
+16 call call(::take|call(std::move|arg&(decay(call(unknown(no complete type for newHandle)|arg(go(int64_t))))))) incomplete(no complete type for newHandle)
+    policy_rows.gp:84:8 stmt  C.take(C.std.move(hd))
+    policy_rows.gp:91:2 stmt  C.take(C.std.move(h3))
+17 call call(::take|call(unknown(no complete type for newHandle)|arg(go(int64_t)))) incomplete(no complete type for newHandle)
+    policy_rows.gp:89:2 stmt  C.take(newHandle(12))
+    policy_rows.gp:92:8 stmt  C.take(newHandle(14))
+18 call call(C.int|arg&(go(int64_t)))
+    policy_rows.gp:20:62 arg  C.int(n)
+    policy_rows.gp:22:67 arg  C.int(n)
+    policy_rows.gp:25:24 arg  C.int(n)
+19 call call(C.int|arg(go(int64_t)))
+    policy_rows.gp:25:55 arg  C.int(n * 10)
+20 call call(go(int64_t)|call(sel(arg&(::Handle)|get)|))
+    policy_rows.gp:48:14 arg -> any  int(h.get())
+    policy_rows.gp:54:14 arg -> any  int(h.get())
+21 call call(go(int64_t)|call(sel(arg&(::Pinned)|get)|))
+    policy_rows.gp:41:28 arg -> any  int(b.get())
+22 call call(go(int64_t)|call(sel(arg&(decay(arg&(decay(call(::Widget|lit(7))))))|get)|))
+    policy_rows.gp:66:30 arg -> any  int(wid2.get())
+23 call call(go(int64_t)|call(sel(arg&(decay(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2)}))))|size)|))
+    policy_rows.gp:62:30 arg -> any  int(v3.size())
+24 call call(go(int64_t)|call(sel(arg&(decay(call(::Widget|lit(7))))|get)|))
+    policy_rows.gp:66:14 arg -> any  int(wid.get())
+25 call call(go(int64_t)|call(sel(arg&(decay(call(unknown(no complete type for newHandle)|arg(go(int64_t)))))|get)|)) incomplete(no complete type for newHandle)
+    policy_rows.gp:41:42 arg -> any  int(w.get())
+    policy_rows.gp:54:28 arg -> any  int(w.get())
+    policy_rows.gp:85:29 arg -> any  int(hd.get())
+26 call call(go(int64_t)|call(sel(arg&(decay(call(unknown(no complete type for newPinned)|arg(go(int64_t)))))|get)|)) incomplete(no complete type for newPinned)
+    policy_rows.gp:41:14 arg -> any  int(a.get())
+    policy_rows.gp:80:39 arg -> any  int(p.get())
+27 call call(go(int64_t)|call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2)}))|size)|))
+    policy_rows.gp:62:14 arg -> any  int(v2.size())
+28 call call(go(int64_t)|call(sel(arg&(decay(rangeval(arg&(decay(lit{index(std::vector|::Widget)|})))))|get)|))
+    policy_rows.gp:100:10 assign -> int  int(e.get())
+29 call call(go(int64_t)|call(sel(arg&(decay(tuple(call(unknown(no complete type for newWidget)|arg(go(int64_t)))|0)))|get)|)) incomplete(no complete type for newWidget)
+    policy_rows.gp:70:14 arg -> any  int(x.get())
+30 call call(go(int64_t)|call(sel(arg&(decay(tuple(call(unknown(no complete type for newWidget)|arg(go(int64_t)))|1)))|get)|)) incomplete(no complete type for newWidget)
+    policy_rows.gp:70:28 arg -> any  int(hh.get())
+31 call call(go(int64_t)|call(sel(arg&(decay(tuple(call(unknown(no complete type for twoHandles)|)|0)))|get)|)) incomplete(no complete type for twoHandles)
+    policy_rows.gp:73:14 arg -> any  int(h1.get())
+32 call call(go(int64_t)|call(sel(arg&(index(std::vector|go(int64_t)))|size)|))
+    policy_rows.gp:48:28 arg -> any  int(v.size())
+33 call call(go(int64_t)|star(arg&(decay(tuple(call(unknown(no complete type for twoHandles)|)|1))))) incomplete(no complete type for twoHandles)
+    policy_rows.gp:73:29 arg -> any  int(*u1)
+34 call call(go(int64_t)|star(arg&(index(std::unique_ptr|C.int))))
+    policy_rows.gp:41:56 arg -> any  int(*u)
+35 call call(go(int64_t)|star(index(arg&(decay(lit{index(std::vector|index(std::unique_ptr|C.int))|}))|arg&(decay(rangekey(arg&(decay(lit{index(std::vector|index(std::unique_ptr|C.int))|}))))))))
+    policy_rows.gp:105:10 assign -> int  int(*hs[i])
+36 call call(index(std::make_unique|C.int)|lit(31))
+    policy_rows.gp:31:7 init  C.std.make_unique[C.int](31)
+37 call call(index(std::make_unique|C.int)|lit(4))
+    policy_rows.gp:40:32 init  C.std.make_unique[C.int](4)
+38 call call(index(std::make_unique|C.int)|lit(5))
+    policy_rows.gp:103:15 arg  C.std.make_unique[C.int](5)
+39 call call(sel(arg&(::Handle)|get)|)
+    policy_rows.gp:48:18 convert -> int  h.get()
+    policy_rows.gp:54:18 convert -> int  h.get()
+40 call call(sel(arg&(::Pinned)|get)|)
+    policy_rows.gp:41:32 convert -> int  b.get()
+41 call call(sel(arg&(decay(arg&(decay(call(::Widget|lit(7))))))|get)|)
+    policy_rows.gp:66:34 convert -> int  wid2.get()
+42 call call(sel(arg&(decay(arg&(decay(call(::Widget|lit(7))))))|set)|lit(8))
+    policy_rows.gp:65:2 stmt  wid2.set(8)
+43 call call(sel(arg&(decay(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2)}))))|push_back)|lit(3))
+    policy_rows.gp:61:2 stmt  v3.push_back(3)
+44 call call(sel(arg&(decay(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2)}))))|size)|)
+    policy_rows.gp:62:34 convert -> int  v3.size()
+45 call call(sel(arg&(decay(call(::Widget|lit(7))))|get)|)
+    policy_rows.gp:66:18 convert -> int  wid.get()
+46 call call(sel(arg&(decay(call(unknown(no complete type for newHandle)|arg(go(int64_t)))))|get)|) incomplete(no complete type for newHandle)
+    policy_rows.gp:41:46 convert -> int  w.get()
+    policy_rows.gp:54:32 convert -> int  w.get()
+    policy_rows.gp:85:33 convert -> int  hd.get()
+47 call call(sel(arg&(decay(call(unknown(no complete type for newPinned)|arg(go(int64_t)))))|bump)|) incomplete(no complete type for newPinned)
+    policy_rows.gp:77:19 stmt  p.bump()
+    policy_rows.gp:79:8 stmt  p.bump()
+48 call call(sel(arg&(decay(call(unknown(no complete type for newPinned)|arg(go(int64_t)))))|get)|) incomplete(no complete type for newPinned)
+    policy_rows.gp:41:18 convert -> int  a.get()
+    policy_rows.gp:80:43 convert -> int  p.get()
+49 call call(sel(arg&(decay(lit{index(std::vector|::Widget)|}))|push_back)|call(::Widget|lit(1)))
+    policy_rows.gp:96:2 stmt  ws.push_back(C.Widget(1))
+50 call call(sel(arg&(decay(lit{index(std::vector|::Widget)|}))|push_back)|call(::Widget|lit(2)))
+    policy_rows.gp:97:2 stmt  ws.push_back(C.Widget(2))
+51 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2)}))|size)|)
+    policy_rows.gp:62:18 convert -> int  v2.size()
+52 call call(sel(arg&(decay(lit{index(std::vector|index(std::unique_ptr|C.int))|}))|push_back)|call(index(std::make_unique|C.int)|lit(5)))
+    policy_rows.gp:103:2 stmt  hs.push_back(C.std.make_unique[C.int](5))
+53 call call(sel(arg&(decay(rangeval(arg&(decay(lit{index(std::vector|::Widget)|})))))|get)|)
+    policy_rows.gp:100:14 convert -> int  e.get()
+54 call call(sel(arg&(decay(tuple(call(unknown(no complete type for newWidget)|arg(go(int64_t)))|0)))|get)|) incomplete(no complete type for newWidget)
+    policy_rows.gp:70:18 convert -> int  x.get()
+55 call call(sel(arg&(decay(tuple(call(unknown(no complete type for newWidget)|arg(go(int64_t)))|1)))|get)|) incomplete(no complete type for newWidget)
+    policy_rows.gp:70:32 convert -> int  hh.get()
+56 call call(sel(arg&(decay(tuple(call(unknown(no complete type for twoHandles)|)|0)))|get)|) incomplete(no complete type for twoHandles)
+    policy_rows.gp:73:18 convert -> int  h1.get()
+57 call call(sel(arg&(index(std::vector|go(int64_t)))|size)|)
+    policy_rows.gp:48:32 convert -> int  v.size()
+58 call call(std::move|arg&(::Handle))
+    policy_rows.gp:53:6 assign  C.std.move(h)
+59 call call(std::move|arg&(decay(call(unknown(no complete type for newHandle)|arg(go(int64_t)))))) incomplete(no complete type for newHandle)
+    policy_rows.gp:84:21 arg  C.std.move(hd)
+    policy_rows.gp:91:15 arg  C.std.move(h3)
+60 call call(std::move|arg&(index(std::unique_ptr|C.int)))
+    policy_rows.gp:55:6 assign  C.std.move(u)
+61 call call(unknown(no complete type for newHandle)|arg(go(int64_t))) incomplete(no complete type for newHandle)
+    policy_rows.gp:39:7 init  newHandle(3)
+    policy_rows.gp:52:6 assign  newHandle(5)
+    policy_rows.gp:83:8 init  newHandle(11)
+    policy_rows.gp:89:15 arg  newHandle(12)
+    policy_rows.gp:90:8 init  newHandle(13)
+    policy_rows.gp:92:21 arg  newHandle(14)
+62 call call(unknown(no complete type for newPinned)|arg(go(int64_t))) incomplete(no complete type for newPinned)
+    policy_rows.gp:37:7 init  newPinned(1)
+    policy_rows.gp:38:25 init  newPinned(2)
+    policy_rows.gp:76:7 init  newPinned(9)
+63 call call(unknown(no complete type for newWidget)|arg(go(int64_t))) incomplete(no complete type for newWidget)
+    policy_rows.gp:69:11 init  newWidget(2)
+64 call call(unknown(no complete type for twoHandles)|) incomplete(no complete type for twoHandles)
+    policy_rows.gp:72:12 init  twoHandles()
+65 local decay(arg&(decay(call(::Widget|lit(7)))))
+    policy_rows.gp:64:2 init  wid2
+66 local decay(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2)})))
+    policy_rows.gp:60:2 init  v3
+67 local decay(call(::Widget|lit(7)))
+    policy_rows.gp:63:2 init  wid
+68 local decay(call(::make_handle|lit(30)))
+    policy_rows.gp:30:2 init  a
+69 local decay(call(index(std::make_unique|C.int)|lit(31)))
+    policy_rows.gp:31:2 init  b
+70 local decay(call(unknown(no complete type for newHandle)|arg(go(int64_t)))) incomplete(no complete type for newHandle)
+    policy_rows.gp:39:2 init  w
+    policy_rows.gp:83:2 init  hd
+    policy_rows.gp:90:2 init  h3
+71 local decay(call(unknown(no complete type for newPinned)|arg(go(int64_t)))) incomplete(no complete type for newPinned)
+    policy_rows.gp:37:2 init  a
+    policy_rows.gp:76:2 init  p
+72 local decay(lit{index(std::vector|::Widget)|})
+    policy_rows.gp:95:2 init  ws
+73 local decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2)})
+    policy_rows.gp:59:2 init  v2
+74 local decay(lit{index(std::vector|index(std::unique_ptr|C.int))|})
+    policy_rows.gp:102:2 init  hs
+75 local decay(rangekey(arg&(decay(lit{index(std::vector|index(std::unique_ptr|C.int))|}))))
+    policy_rows.gp:104:6 init  i
+76 local decay(rangeval(arg&(decay(lit{index(std::vector|::Widget)|}))))
+    policy_rows.gp:99:9 init  e
+77 local decay(tuple(call(unknown(no complete type for newWidget)|arg(go(int64_t)))|0)) incomplete(no complete type for newWidget)
+    policy_rows.gp:69:2 init  x
+78 local decay(tuple(call(unknown(no complete type for newWidget)|arg(go(int64_t)))|1)) incomplete(no complete type for newWidget)
+    policy_rows.gp:69:5 init  hh
+79 local decay(tuple(call(unknown(no complete type for twoHandles)|)|0)) incomplete(no complete type for twoHandles)
+    policy_rows.gp:72:2 init  h1
+80 local decay(tuple(call(unknown(no complete type for twoHandles)|)|1)) incomplete(no complete type for twoHandles)
+    policy_rows.gp:72:6 init  u1
+81 index index(arg&(decay(lit{index(std::vector|index(std::unique_ptr|C.int))|}))|arg&(decay(rangekey(arg&(decay(lit{index(std::vector|index(std::unique_ptr|C.int))|}))))))
+    policy_rows.gp:105:15 operand  hs[i]
+82 index index(std::make_unique|C.int) name-only
+    policy_rows.gp:31:7 callee  C.std.make_unique[C.int]
+    policy_rows.gp:40:32 callee  C.std.make_unique[C.int]
+    policy_rows.gp:103:15 callee  C.std.make_unique[C.int]
+83 index index(std::unique_ptr|C.int)
+    policy_rows.gp:29:36 type  C.std.unique_ptr[C.int]
+    policy_rows.gp:40:8 type  C.std.unique_ptr[C.int]
+    policy_rows.gp:47:8 type  C.std.unique_ptr[C.int]
+    policy_rows.gp:102:19 index  C.std.unique_ptr[C.int]
+84 index index(std::vector|::Widget)
+    policy_rows.gp:95:8 type  C.std.vector[C.Widget]
+85 index index(std::vector|go(int64_t))
+    policy_rows.gp:46:8 type  C.std.vector[int]
+    policy_rows.gp:59:8 type  C.std.vector[int]
+86 index index(std::vector|index(std::unique_ptr|C.int))
+    policy_rows.gp:102:8 type  C.std.vector[C.std.unique_ptr[C.int]]
+87 literal lit{index(std::vector|::Widget)|}
+    policy_rows.gp:95:8 init  C.std.vector[C.Widget]{}
+88 literal lit{index(std::vector|go(int64_t))|lit(1),lit(2)}
+    policy_rows.gp:59:8 init  C.std.vector[int]{…}
+89 literal lit{index(std::vector|index(std::unique_ptr|C.int))|}
+    policy_rows.gp:102:8 init  C.std.vector[C.std.unique_ptr[C.int]]{}
+90 member sel(arg&(::Handle)|get) name-only
+    policy_rows.gp:48:18 callee  h.get
+    policy_rows.gp:54:18 callee  h.get
+91 member sel(arg&(::Pinned)|get) name-only
+    policy_rows.gp:41:32 callee  b.get
+92 member sel(arg&(decay(arg&(decay(call(::Widget|lit(7))))))|get) name-only
+    policy_rows.gp:66:34 callee  wid2.get
+93 member sel(arg&(decay(arg&(decay(call(::Widget|lit(7))))))|set) name-only
+    policy_rows.gp:65:2 callee  wid2.set
+94 member sel(arg&(decay(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2)}))))|push_back) name-only
+    policy_rows.gp:61:2 callee  v3.push_back
+95 member sel(arg&(decay(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2)}))))|size) name-only
+    policy_rows.gp:62:34 callee  v3.size
+96 member sel(arg&(decay(call(::Widget|lit(7))))|get) name-only
+    policy_rows.gp:66:18 callee  wid.get
+97 member sel(arg&(decay(call(unknown(no complete type for newHandle)|arg(go(int64_t)))))|get) incomplete(no complete type for newHandle) name-only
+    policy_rows.gp:41:46 callee  w.get
+    policy_rows.gp:54:32 callee  w.get
+    policy_rows.gp:85:33 callee  hd.get
+98 member sel(arg&(decay(call(unknown(no complete type for newPinned)|arg(go(int64_t)))))|bump) incomplete(no complete type for newPinned) name-only
+    policy_rows.gp:77:19 callee  p.bump
+    policy_rows.gp:79:8 callee  p.bump
+99 member sel(arg&(decay(call(unknown(no complete type for newPinned)|arg(go(int64_t)))))|get) incomplete(no complete type for newPinned) name-only
+    policy_rows.gp:41:18 callee  a.get
+    policy_rows.gp:80:43 callee  p.get
+100 member sel(arg&(decay(lit{index(std::vector|::Widget)|}))|push_back) name-only
+    policy_rows.gp:96:2 callee  ws.push_back
+    policy_rows.gp:97:2 callee  ws.push_back
+101 member sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2)}))|size) name-only
+    policy_rows.gp:62:18 callee  v2.size
+102 member sel(arg&(decay(lit{index(std::vector|index(std::unique_ptr|C.int))|}))|push_back) name-only
+    policy_rows.gp:103:2 callee  hs.push_back
+103 member sel(arg&(decay(rangeval(arg&(decay(lit{index(std::vector|::Widget)|})))))|get) name-only
+    policy_rows.gp:100:14 callee  e.get
+104 member sel(arg&(decay(tuple(call(unknown(no complete type for newWidget)|arg(go(int64_t)))|0)))|get) incomplete(no complete type for newWidget) name-only
+    policy_rows.gp:70:18 callee  x.get
+105 member sel(arg&(decay(tuple(call(unknown(no complete type for newWidget)|arg(go(int64_t)))|1)))|get) incomplete(no complete type for newWidget) name-only
+    policy_rows.gp:70:32 callee  hh.get
+106 member sel(arg&(decay(tuple(call(unknown(no complete type for twoHandles)|)|0)))|get) incomplete(no complete type for twoHandles) name-only
+    policy_rows.gp:73:18 callee  h1.get
+107 member sel(arg&(index(std::vector|go(int64_t)))|size) name-only
+    policy_rows.gp:48:32 callee  v.size
+108 deref star(arg&(decay(tuple(call(unknown(no complete type for twoHandles)|)|1)))) incomplete(no complete type for twoHandles)
+    policy_rows.gp:73:33 convert -> int  *u1
+109 deref star(arg&(index(std::unique_ptr|C.int)))
+    policy_rows.gp:41:60 convert -> int  *u
+110 deref star(index(arg&(decay(lit{index(std::vector|index(std::unique_ptr|C.int))|}))|arg&(decay(rangekey(arg&(decay(lit{index(std::vector|index(std::unique_ptr|C.int))|})))))))
+    policy_rows.gp:105:14 convert -> int  *hs[i]
+111 path std::make_unique name-only
+    policy_rows.gp:31:7 template  C.std.make_unique
+    policy_rows.gp:40:32 template  C.std.make_unique
+    policy_rows.gp:103:15 template  C.std.make_unique
+112 path std::move name-only
+    policy_rows.gp:53:6 callee  C.std.move
+    policy_rows.gp:55:6 callee  C.std.move
+    policy_rows.gp:84:21 callee  C.std.move
+    policy_rows.gp:91:15 callee  C.std.move
+113 path std::unique_ptr name-only
+    policy_rows.gp:29:36 template  C.std.unique_ptr
+    policy_rows.gp:40:8 template  C.std.unique_ptr
+    policy_rows.gp:47:8 template  C.std.unique_ptr
+    policy_rows.gp:102:19 template  C.std.unique_ptr
+114 path std::vector name-only
+    policy_rows.gp:46:8 template  C.std.vector
+    policy_rows.gp:59:8 template  C.std.vector
+    policy_rows.gp:95:8 template  C.std.vector
+    policy_rows.gp:102:8 template  C.std.vector

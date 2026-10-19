@@ -1,0 +1,87 @@
+0 path C.double
+    map_ops.gp:28:28 type  C.double
+1 path C.int
+    map_ops.gp:28:21 type  C.int
+2 binary bin(==|call(sel(arg&(inst(std::map|std::string,go(int64_t)))|count)|lit("dave"))|lit(1))
+    map_ops.gp:24:61 convert -> (ast: <nil>)  ages.count("dave") == 1
+3 binary bin(==|call(sel(arg&(inst(std::map|std::string,go(int64_t)))|find)|lit("dave"))|call(sel(arg&(inst(std::map|std::string,go(int64_t)))|end)|))
+    map_ops.gp:26:37 convert -> (ast: <nil>)  ages.find("dave") == ages.end()
+4 call call(go(double)|index(arg&(inst(std::map|C.int,C.double))|lit(3)))
+    map_ops.gp:32:14 arg -> any  float64(counts[3])
+5 call call(go(double)|index(arg&(inst(std::map|C.int,C.double))|lit(4)))
+    map_ops.gp:32:34 arg -> any  float64(counts[4])
+6 call call(go(int64_t)|arg&(decay(index(arg&(inst(std::map|std::string,go(int64_t)))|lit("dave")))))
+    map_ops.gp:23:72 arg -> any  int(dave)
+7 call call(go(int64_t)|call(sel(arg&(inst(std::map|C.int,C.double))|size)|))
+    map_ops.gp:32:54 arg -> any  int(counts.size())
+8 call call(go(int64_t)|call(sel(arg&(inst(std::map|std::string,go(int64_t)))|count)|lit("eve")))
+    map_ops.gp:24:32 arg -> any  int(ages.count("eve"))
+9 call call(go(int64_t)|call(sel(arg&(inst(std::map|std::string,go(int64_t)))|size)|))
+    map_ops.gp:24:14 arg -> any  int(ages.size())
+    map_ops.gp:26:14 arg -> any  int(ages.size())
+10 call call(go(int64_t)|index(arg&(inst(std::map|std::string,go(int64_t)))|lit("alice")))
+    map_ops.gp:23:32 arg -> any  int(ages["alice"])
+11 call call(go(int64_t)|index(arg&(inst(std::map|std::string,go(int64_t)))|lit("bob")))
+    map_ops.gp:23:14 arg -> any  int(ages["bob"])
+12 call call(go(int64_t)|index(arg&(inst(std::map|std::string,go(int64_t)))|lit("carol")))
+    map_ops.gp:23:52 arg -> any  int(ages["carol"])
+13 call call(sel(arg&(inst(std::map|C.int,C.double))|size)|)
+    map_ops.gp:32:58 convert -> int  counts.size()
+14 call call(sel(arg&(inst(std::map|std::string,go(int64_t)))|count)|lit("dave"))
+    map_ops.gp:24:61 operand  ages.count("dave")
+15 call call(sel(arg&(inst(std::map|std::string,go(int64_t)))|count)|lit("eve"))
+    map_ops.gp:24:36 convert -> int  ages.count("eve")
+16 call call(sel(arg&(inst(std::map|std::string,go(int64_t)))|end)|)
+    map_ops.gp:26:58 operand  ages.end()
+17 call call(sel(arg&(inst(std::map|std::string,go(int64_t)))|erase)|lit("dave"))
+    map_ops.gp:25:2 stmt  ages.erase("dave")
+18 call call(sel(arg&(inst(std::map|std::string,go(int64_t)))|find)|lit("dave"))
+    map_ops.gp:26:37 operand  ages.find("dave")
+19 call call(sel(arg&(inst(std::map|std::string,go(int64_t)))|size)|)
+    map_ops.gp:24:18 convert -> int  ages.size()
+    map_ops.gp:26:18 convert -> int  ages.size()
+20 local decay(index(arg&(inst(std::map|std::string,go(int64_t)))|lit("dave")))
+    map_ops.gp:22:2 init  dave
+21 index index(arg&(inst(std::map|C.int,C.double))|lit(3))
+    map_ops.gp:29:2 assign  counts[3]
+    map_ops.gp:30:2 assign  counts[3]
+    map_ops.gp:32:22 convert -> float64  counts[3]
+22 index index(arg&(inst(std::map|C.int,C.double))|lit(4))
+    map_ops.gp:31:2 assign  counts[4]
+    map_ops.gp:32:42 convert -> float64  counts[4]
+23 index index(arg&(inst(std::map|std::string,go(int64_t)))|lit("alice"))
+    map_ops.gp:17:2 assign  ages["alice"]
+    map_ops.gp:19:2 assign  ages["alice"]
+    map_ops.gp:23:36 convert -> int  ages["alice"]
+24 index index(arg&(inst(std::map|std::string,go(int64_t)))|lit("bob"))
+    map_ops.gp:16:2 assign  ages["bob"]
+    map_ops.gp:18:2 stmt  ages["bob"]
+    map_ops.gp:23:18 convert -> int  ages["bob"]
+25 index index(arg&(inst(std::map|std::string,go(int64_t)))|lit("carol"))
+    map_ops.gp:21:2 assign  ages["carol"]
+    map_ops.gp:23:56 convert -> int  ages["carol"]
+26 index index(arg&(inst(std::map|std::string,go(int64_t)))|lit("dave"))
+    map_ops.gp:22:10 init  ages["dave"]
+27 inst inst(std::map|C.int,C.double)
+    map_ops.gp:28:13 type  C.std.map[C.int, C.double]
+28 inst inst(std::map|std::string,go(int64_t))
+    map_ops.gp:15:11 type  C.std.map[C.std.string, int]
+29 member sel(arg&(inst(std::map|C.int,C.double))|size) name-only
+    map_ops.gp:32:58 callee  counts.size
+30 member sel(arg&(inst(std::map|std::string,go(int64_t)))|count) name-only
+    map_ops.gp:24:36 callee  ages.count
+    map_ops.gp:24:61 callee  ages.count
+31 member sel(arg&(inst(std::map|std::string,go(int64_t)))|end) name-only
+    map_ops.gp:26:58 callee  ages.end
+32 member sel(arg&(inst(std::map|std::string,go(int64_t)))|erase) name-only
+    map_ops.gp:25:2 callee  ages.erase
+33 member sel(arg&(inst(std::map|std::string,go(int64_t)))|find) name-only
+    map_ops.gp:26:37 callee  ages.find
+34 member sel(arg&(inst(std::map|std::string,go(int64_t)))|size) name-only
+    map_ops.gp:24:18 callee  ages.size
+    map_ops.gp:26:18 callee  ages.size
+35 path std::map name-only
+    map_ops.gp:15:11 template  C.std.map
+    map_ops.gp:28:13 template  C.std.map
+36 path std::string
+    map_ops.gp:15:19 type  C.std.string

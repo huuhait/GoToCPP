@@ -1,0 +1,178 @@
+0 path ::Counter
+    defer_objects.gp:26:8 type  C.Counter
+    defer_objects.gp:48:8 type  C.Counter
+    defer_objects.gp:58:8 type  C.Counter
+1 path ::Guard name-only
+    defer_objects.gp:39:8 callee  C.Guard
+2 path ::Widget
+    defer_objects.gp:41:9 type  C.Widget
+    defer_objects.gp:41:26 callee  C.Widget
+3 path ::bump name-only
+    defer_objects.gp:50:8 callee  C.bump
+4 path ::bump_ptr name-only
+    defer_objects.gp:51:8 callee  C.bump_ptr
+5 path ::get_shout name-only
+    defer_objects.gp:79:7 callee  C.get_shout
+    defer_objects.gp:83:7 callee  C.get_shout
+6 path C.int name-only
+    defer_objects.gp:29:15 callee  C.int
+    defer_objects.gp:41:41 callee  C.int
+    defer_objects.gp:43:9 callee  C.int
+    defer_objects.gp:56:7 callee  C.int
+    defer_objects.gp:68:20 callee  C.int
+    defer_objects.gp:74:20 callee  C.int
+7 addr addr(arg&(::Counter))
+    defer_objects.gp:51:25 arg  &c
+8 binary bin(+|call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|size)|)|lit(5))
+    defer_objects.gp:74:26 arg  w.size() + 5
+9 binary bin(==|arg&(decay(call(::get_shout|)))|lit(nullptr))
+    defer_objects.gp:82:37 convert -> (ast: <nil>)  f == nil
+10 call call(::Guard|call(std::string|lit("g")))
+    defer_objects.gp:39:8 init  C.Guard(C.std.string("g"))
+11 call call(::Widget|call(C.int|arg&(go(int64_t))))
+    defer_objects.gp:41:26 init  C.Widget(C.int(i))
+12 call call(::bump_ptr|addr(arg&(::Counter)))
+    defer_objects.gp:51:8 stmt  C.bump_ptr(&c)
+13 call call(::bump|arg&(::Counter))
+    defer_objects.gp:50:8 stmt  C.bump(c)
+14 call call(::get_shout|)
+    defer_objects.gp:79:7 init  C.get_shout()
+    defer_objects.gp:83:7 init  C.get_shout()
+15 call call(C.int|arg&(go(int64_t)))
+    defer_objects.gp:41:41 arg  C.int(i)
+16 call call(C.int|arg(go(int64_t)))
+    defer_objects.gp:29:15 arg  C.int(i + 1)
+    defer_objects.gp:43:9 arg  C.int(i * 10)
+17 call call(C.int|bin(+|call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|size)|)|lit(5)))
+    defer_objects.gp:74:20 arg  C.int(w.size() + 5)
+18 call call(C.int|call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2)}))|size)|))
+    defer_objects.gp:68:20 arg  C.int(v.size())
+19 call call(C.int|lit(1))
+    defer_objects.gp:56:7 init  C.int(1)
+20 call call(arg&(decay(call(::get_shout|)))|lit(1))
+    defer_objects.gp:80:8 stmt  f(1)
+21 call call(arg&(decay(call(::get_shout|)))|lit(3))
+    defer_objects.gp:84:17 stmt  g(3)
+22 call call(go(int64_t)|arg&(decay(call(C.int|lit(1)))))
+    defer_objects.gp:57:35 arg -> any  int(n)
+23 call call(go(int64_t)|call(sel(arg&(::Counter)|get)|))
+    defer_objects.gp:28:36 arg -> any  int(c.get())
+    defer_objects.gp:32:27 arg -> any  int(c.get())
+    defer_objects.gp:33:38 arg -> any  int(c.get())
+    defer_objects.gp:59:35 arg -> any  int(c.get())
+24 call call(go(int64_t)|call(sel(arg&(::Widget)|get)|))
+    defer_objects.gp:42:40 arg -> any  int(w.get())
+25 call call(go(int64_t)|call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}))|size)|))
+    defer_objects.gp:20:38 arg -> any  int(v.size())
+    defer_objects.gp:22:33 arg -> any  int(v.size())
+26 call call(go(int64_t)|call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2)}))|size)|))
+    defer_objects.gp:69:33 arg -> any  int(v.size())
+    defer_objects.gp:71:26 arg -> any  int(v.size())
+27 call call(go(int64_t)|call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|size)|))
+    defer_objects.gp:73:35 arg -> any  int(w.size())
+28 call call(go(int64_t)|sel(arg&(::Counter)|n))
+    defer_objects.gp:49:38 arg -> any  int(c.n)
+29 call call(sel(arg&(::Counter)|add)|call(C.int|arg(go(int64_t))))
+    defer_objects.gp:29:9 stmt  c.add(C.int(i + 1))
+30 call call(sel(arg&(::Counter)|add)|lit(1))
+    defer_objects.gp:52:2 stmt  c.add(1)
+31 call call(sel(arg&(::Counter)|add)|lit(5))
+    defer_objects.gp:60:2 stmt  c.add(5)
+32 call call(sel(arg&(::Counter)|get)|)
+    defer_objects.gp:28:40 convert -> int  c.get()
+    defer_objects.gp:32:31 convert -> int  c.get()
+    defer_objects.gp:33:42 convert -> int  c.get()
+    defer_objects.gp:59:39 convert -> int  c.get()
+33 call call(sel(arg&(::Counter)|inc)|)
+    defer_objects.gp:30:3 stmt  c.inc()
+34 call call(sel(arg&(::Widget)|get)|)
+    defer_objects.gp:42:44 convert -> int  w.get()
+35 call call(sel(arg&(::Widget)|set)|call(C.int|arg(go(int64_t))))
+    defer_objects.gp:43:3 stmt  w.set(C.int(i * 10))
+36 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}))|clear)|)
+    defer_objects.gp:19:8 stmt  v.clear()
+37 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}))|push_back)|lit(4))
+    defer_objects.gp:21:2 stmt  v.push_back(4)
+38 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}))|size)|)
+    defer_objects.gp:20:42 convert -> int  v.size()
+    defer_objects.gp:22:37 convert -> int  v.size()
+39 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2)}))|push_back)|call(C.int|call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2)}))|size)|)))
+    defer_objects.gp:68:8 stmt  v.push_back(C.int(v.size()))
+40 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2)}))|push_back)|lit(7))
+    defer_objects.gp:70:2 stmt  v.push_back(7)
+41 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2)}))|size)|)
+    defer_objects.gp:68:26 arg  v.size()
+    defer_objects.gp:69:37 convert -> int  v.size()
+    defer_objects.gp:71:30 convert -> int  v.size()
+42 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|push_back)|call(C.int|bin(+|call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|size)|)|lit(5))))
+    defer_objects.gp:74:8 stmt  w.push_back(C.int(w.size() + 5))
+43 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|size)|)
+    defer_objects.gp:73:39 convert -> int  w.size()
+    defer_objects.gp:74:26 operand  w.size()
+44 call call(std::string|lit("g"))
+    defer_objects.gp:39:22 arg  C.std.string("g")
+45 local decay(call(::Guard|call(std::string|lit("g"))))
+    defer_objects.gp:39:3 init  g
+46 local decay(call(::get_shout|))
+    defer_objects.gp:79:2 init  f
+    defer_objects.gp:83:2 init  g
+47 local decay(call(C.int|lit(1)))
+    defer_objects.gp:56:2 init  n
+48 local decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)})
+    defer_objects.gp:18:2 init  v
+49 local decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2)})
+    defer_objects.gp:67:2 init  v
+50 local decay(lit{index(std::vector|go(int64_t))|})
+    defer_objects.gp:72:2 init  w
+51 index index(std::vector|go(int64_t))
+    defer_objects.gp:18:7 type  C.std.vector[int]
+    defer_objects.gp:67:7 type  C.std.vector[int]
+    defer_objects.gp:72:7 type  C.std.vector[int]
+52 literal lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}
+    defer_objects.gp:18:7 init  C.std.vector[int]{…}
+53 literal lit{index(std::vector|go(int64_t))|lit(1),lit(2)}
+    defer_objects.gp:67:7 init  C.std.vector[int]{…}
+54 literal lit{index(std::vector|go(int64_t))|}
+    defer_objects.gp:72:7 init  C.std.vector[int]{}
+55 member sel(arg&(::Counter)|add) name-only
+    defer_objects.gp:29:9 callee  c.add
+    defer_objects.gp:52:2 callee  c.add
+    defer_objects.gp:60:2 callee  c.add
+56 member sel(arg&(::Counter)|get) name-only
+    defer_objects.gp:28:40 callee  c.get
+    defer_objects.gp:32:31 callee  c.get
+    defer_objects.gp:33:42 callee  c.get
+    defer_objects.gp:59:39 callee  c.get
+57 member sel(arg&(::Counter)|inc) name-only
+    defer_objects.gp:30:3 callee  c.inc
+58 member sel(arg&(::Counter)|n)
+    defer_objects.gp:49:42 convert -> int  c.n
+59 member sel(arg&(::Widget)|get) name-only
+    defer_objects.gp:42:44 callee  w.get
+60 member sel(arg&(::Widget)|set) name-only
+    defer_objects.gp:43:3 callee  w.set
+61 member sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}))|clear) name-only
+    defer_objects.gp:19:8 callee  v.clear
+62 member sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}))|push_back) name-only
+    defer_objects.gp:21:2 callee  v.push_back
+63 member sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}))|size) name-only
+    defer_objects.gp:20:42 callee  v.size
+    defer_objects.gp:22:37 callee  v.size
+64 member sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2)}))|push_back) name-only
+    defer_objects.gp:68:8 callee  v.push_back
+    defer_objects.gp:70:2 callee  v.push_back
+65 member sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2)}))|size) name-only
+    defer_objects.gp:68:26 callee  v.size
+    defer_objects.gp:69:37 callee  v.size
+    defer_objects.gp:71:30 callee  v.size
+66 member sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|push_back) name-only
+    defer_objects.gp:74:8 callee  w.push_back
+67 member sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|size) name-only
+    defer_objects.gp:73:39 callee  w.size
+    defer_objects.gp:74:26 callee  w.size
+68 path std::string name-only
+    defer_objects.gp:39:22 callee  C.std.string
+69 path std::vector name-only
+    defer_objects.gp:18:7 template  C.std.vector
+    defer_objects.gp:67:7 template  C.std.vector
+    defer_objects.gp:72:7 template  C.std.vector

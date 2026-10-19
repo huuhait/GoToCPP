@@ -1,0 +1,56 @@
+0 path ::ceil name-only
+    cmath_funcs.gp:21:19 callee  C.ceil
+1 path ::fabs name-only
+    cmath_funcs.gp:19:77 callee  C.fabs
+2 path ::floor name-only
+    cmath_funcs.gp:19:49 callee  C.floor
+3 path ::lround name-only
+    cmath_funcs.gp:22:42 callee  C.lround
+4 path ::sqrt name-only
+    cmath_funcs.gp:19:22 callee  C.sqrt
+5 path ::trunc name-only
+    cmath_funcs.gp:20:7 callee  C.trunc
+6 path C.double
+    cmath_funcs.gp:14:15 type  C.double
+    cmath_funcs.gp:14:25 type  C.double
+    cmath_funcs.gp:21:8 type  C.double
+7 call call(::ceil|lit(1.2))
+    cmath_funcs.gp:21:19 init  C.ceil(1.2)
+8 call call(::fabs|lit((-3.25)))
+    cmath_funcs.gp:19:77 convert -> float64  C.fabs(-3.25)
+9 call call(::floor|lit((-2.5)))
+    cmath_funcs.gp:19:49 convert -> float64  C.floor(-2.5)
+10 call call(::lround|lit(2.5))
+    cmath_funcs.gp:22:42 convert -> int  C.lround(2.5)
+11 call call(::sqrt|lit(16.0))
+    cmath_funcs.gp:19:22 convert -> float64  C.sqrt(16.0)
+12 call call(::trunc|lit(3.7))
+    cmath_funcs.gp:20:7 init  C.trunc(3.7)
+13 call call(go(double)|arg&(C.double))
+    cmath_funcs.gp:22:26 arg -> any  float64(y)
+14 call call(go(double)|arg&(decay(call(::trunc|lit(3.7)))))
+    cmath_funcs.gp:22:14 arg -> any  float64(x)
+15 call call(go(double)|call(::fabs|lit((-3.25))))
+    cmath_funcs.gp:19:69 arg -> any  float64(C.fabs(-3.25))
+16 call call(go(double)|call(::floor|lit((-2.5))))
+    cmath_funcs.gp:19:41 arg -> any  float64(C.floor(-2.5))
+17 call call(go(double)|call(::sqrt|lit(16.0)))
+    cmath_funcs.gp:19:14 arg -> any  float64(C.sqrt(16.0))
+18 call call(go(double)|call(std::fmax|lit(1.5),arg(go(double))))
+    cmath_funcs.gp:23:34 arg -> any  float64(C.std.fmax(1.5, float64(2)))
+19 call call(go(double)|call(unknown(no complete type for hyp)|lit(3),lit(4))) incomplete(no complete type for hyp)
+    cmath_funcs.gp:23:14 arg -> any  float64(hyp(3, 4))
+20 call call(go(int64_t)|call(::lround|lit(2.5)))
+    cmath_funcs.gp:22:38 arg -> any  int(C.lround(2.5))
+21 call call(std::fmax|lit(1.5),arg(go(double)))
+    cmath_funcs.gp:23:42 convert -> float64  C.std.fmax(1.5, float64(2))
+22 call call(std::hypot|arg&(C.double),arg&(C.double))
+    cmath_funcs.gp:15:9 return  C.std.hypot(a, b)
+23 call call(unknown(no complete type for hyp)|lit(3),lit(4)) incomplete(no complete type for hyp)
+    cmath_funcs.gp:23:22 convert -> float64  hyp(3, 4)
+24 local decay(call(::trunc|lit(3.7)))
+    cmath_funcs.gp:20:2 init  x
+25 path std::fmax name-only
+    cmath_funcs.gp:23:42 callee  C.std.fmax
+26 path std::hypot name-only
+    cmath_funcs.gp:15:9 callee  C.std.hypot

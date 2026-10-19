@@ -1,0 +1,6 @@
+local decay(lit{inst(std::pair|go(int64_t),go(int64_t))|lit(1),lit(2)})
+local decay(sel(arg&(decay(lit{inst(std::pair|go(int64_t),go(int64_t))|lit(1),lit(2)}))|first))
+inst inst(std::pair|go(int64_t),go(int64_t))
+literal lit{inst(std::pair|go(int64_t),go(int64_t))|lit(1),lit(2)}
+member sel(arg&(decay(lit{inst(std::pair|go(int64_t),go(int64_t))|lit(1),lit(2)}))|first)
+path std::pair name-only

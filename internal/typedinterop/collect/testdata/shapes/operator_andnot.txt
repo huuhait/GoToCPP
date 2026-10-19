@@ -1,0 +1,3 @@
+path ::EOF
+binary bin(&^|::EOF|lit(3))
+local decay(bin(&^|::EOF|lit(3)))

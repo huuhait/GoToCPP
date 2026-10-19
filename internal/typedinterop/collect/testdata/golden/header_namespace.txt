@@ -1,0 +1,35 @@
+0 path ::geo_make_pair name-only
+    header_namespace.gp:18:30 callee  C.geo_make_pair
+1 path ::geo_sum name-only
+    header_namespace.gp:19:63 callee  C.geo_sum
+2 path ::geo_version name-only
+    header_namespace.gp:19:39 callee  C.geo_version
+3 path ::len2 name-only
+    header_namespace.gp:14:44 callee  C.len2
+4 path ::make name-only
+    header_namespace.gp:17:19 callee  C.make
+5 path ::struct_geo_pair
+    header_namespace.gp:18:8 type  C.struct_geo_pair
+6 path ::vec3
+    header_namespace.gp:14:16 type  C.vec3
+    header_namespace.gp:17:8 type  C.vec3
+7 path C.double
+    header_namespace.gp:14:26 type  C.double
+8 call call(::geo_make_pair|lit(3),lit(4))
+    header_namespace.gp:18:30 init  C.geo_make_pair(3, 4)
+9 call call(::geo_sum|arg&(::struct_geo_pair))
+    header_namespace.gp:19:63 convert -> int  C.geo_sum(p)
+10 call call(::geo_version|)
+    header_namespace.gp:19:39 convert -> int  C.geo_version()
+11 call call(::len2|arg&(::vec3))
+    header_namespace.gp:14:44 return  C.len2(v)
+12 call call(::make|lit(1),lit(2),lit(2))
+    header_namespace.gp:17:19 init  C.make(1, 2, 2)
+13 call call(go(double)|call(unknown(no complete type for length2)|arg&(::vec3))) incomplete(no complete type for length2)
+    header_namespace.gp:19:14 arg -> any  float64(length2(v))
+14 call call(go(int64_t)|call(::geo_sum|arg&(::struct_geo_pair)))
+    header_namespace.gp:19:59 arg -> any  int(C.geo_sum(p))
+15 call call(go(int64_t)|call(::geo_version|))
+    header_namespace.gp:19:35 arg -> any  int(C.geo_version())
+16 call call(unknown(no complete type for length2)|arg&(::vec3)) incomplete(no complete type for length2)
+    header_namespace.gp:19:22 convert -> float64  length2(v)

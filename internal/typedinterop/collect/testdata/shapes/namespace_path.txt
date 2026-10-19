@@ -1,0 +1,3 @@
+call call(std::chrono::steady_clock::now|)
+local decay(call(std::chrono::steady_clock::now|))
+path std::chrono::steady_clock::now name-only

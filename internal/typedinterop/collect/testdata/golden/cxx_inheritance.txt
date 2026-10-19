@@ -1,0 +1,195 @@
+0 path ::Circle name-only
+    cxx_inheritance.gp:21:7 callee  C.Circle
+1 path ::Rect
+    cxx_inheritance.gp:19:7 callee  C.Rect
+    cxx_inheritance.gp:43:35 index  C.Rect
+2 path ::Shape
+    cxx_inheritance.gp:31:12 type  C.Shape
+    cxx_inheritance.gp:42:38 index  C.Shape
+3 path ::Shape::live
+    cxx_inheritance.gp:22:18 convert -> int  C.Shape.live
+    cxx_inheritance.gp:37:42 convert -> int  C.Shape.live
+    cxx_inheritance.gp:39:18 convert -> int  C.Shape.live
+    cxx_inheritance.gp:46:75 convert -> int  C.Shape.live
+4 path ::Square
+    cxx_inheritance.gp:20:8 callee  C.Square
+    cxx_inheritance.gp:44:35 index  C.Square
+5 path ::area_of name-only
+    cxx_inheritance.gp:28:22 callee  C.area_of
+    cxx_inheritance.gp:28:47 callee  C.area_of
+6 path ::make_shape name-only
+    cxx_inheritance.gp:36:8 callee  C.make_shape
+7 path ::name_of name-only
+    cxx_inheritance.gp:28:65 callee  C.name_of
+    cxx_inheritance.gp:28:83 callee  C.name_of
+8 path ::total_area name-only
+    cxx_inheritance.gp:46:22 callee  C.total_area
+9 path C.int name-only
+    cxx_inheritance.gp:36:23 callee  C.int
+10 addr addr(arg&(decay(call(::Circle|lit(2)))))
+    cxx_inheritance.gp:28:95 arg  &c
+11 addr addr(arg&(decay(call(::Square|lit(4)))))
+    cxx_inheritance.gp:26:7 init  &sq
+    cxx_inheritance.gp:28:77 arg  &sq
+    cxx_inheritance.gp:31:24 init  &sq
+12 call call(::Circle|lit(2))
+    cxx_inheritance.gp:21:7 init  C.Circle(2)
+13 call call(::Rect|lit(2),lit(3))
+    cxx_inheritance.gp:19:7 init  C.Rect(2, 3)
+14 call call(::Square|lit(4))
+    cxx_inheritance.gp:20:8 init  C.Square(4)
+15 call call(::area_of|arg&(decay(call(::Rect|lit(2),lit(3)))))
+    cxx_inheritance.gp:28:22 convert -> float64  C.area_of(r)
+16 call call(::area_of|arg&(decay(call(::Square|lit(4)))))
+    cxx_inheritance.gp:28:47 convert -> float64  C.area_of(sq)
+17 call call(::make_shape|call(C.int|arg&(go(int64_t))))
+    cxx_inheritance.gp:36:8 init  C.make_shape(C.int(kind))
+18 call call(::name_of|addr(arg&(decay(call(::Circle|lit(2))))))
+    cxx_inheritance.gp:28:83 arg -> any  C.name_of(&c)
+19 call call(::name_of|addr(arg&(decay(call(::Square|lit(4))))))
+    cxx_inheritance.gp:28:65 arg -> any  C.name_of(&sq)
+20 call call(::total_area|arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|})))
+    cxx_inheritance.gp:46:22 convert -> float64  C.total_area(shapes)
+21 call call(C.int|arg&(go(int64_t)))
+    cxx_inheritance.gp:36:23 arg  C.int(kind)
+22 call call(go(double)|call(::area_of|arg&(decay(call(::Rect|lit(2),lit(3))))))
+    cxx_inheritance.gp:28:14 arg -> any  float64(C.area_of(r))
+23 call call(go(double)|call(::area_of|arg&(decay(call(::Square|lit(4))))))
+    cxx_inheritance.gp:28:39 arg -> any  float64(C.area_of(sq))
+24 call call(go(double)|call(::total_area|arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))))
+    cxx_inheritance.gp:46:14 arg -> any  float64(C.total_area(shapes))
+25 call call(go(double)|call(sel(arg&(decay(call(::Circle|lit(2))))|area)|))
+    cxx_inheritance.gp:25:74 arg -> any  float64(c.area())
+26 call call(go(double)|call(sel(arg&(decay(call(::Rect|lit(2),lit(3))))|area)|))
+    cxx_inheritance.gp:25:14 arg -> any  float64(r.area())
+27 call call(go(double)|call(sel(arg&(decay(call(::Square|lit(4))))|area)|))
+    cxx_inheritance.gp:25:43 arg -> any  float64(sq.area())
+28 call call(go(double)|call(sel(arg&(star(::Shape))|area)|))
+    cxx_inheritance.gp:32:27 arg -> any  float64(base.area())
+29 call call(go(double)|sel(arg&(decay(addr(arg&(decay(call(::Square|lit(4)))))))|w))
+    cxx_inheritance.gp:27:24 arg -> any  float64(p.w)
+30 call call(go(int64_t)|::Shape::live)
+    cxx_inheritance.gp:22:14 arg -> any  int(C.Shape.live)
+    cxx_inheritance.gp:37:38 arg -> any  int(C.Shape.live)
+    cxx_inheritance.gp:39:14 arg -> any  int(C.Shape.live)
+    cxx_inheritance.gp:46:71 arg -> any  int(C.Shape.live)
+31 call call(go(int64_t)|arg&(decay(rangekey(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))))))
+    cxx_inheritance.gp:48:15 arg -> any  int(i)
+32 call call(go(int64_t)|call(sel(arg&(decay(index(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))|lit(1))))|use_count)|))
+    cxx_inheritance.gp:46:47 arg -> any  int(extra.use_count())
+33 call call(index(std::make_shared|::Rect)|lit(1),lit(1))
+    cxx_inheritance.gp:43:19 arg  C.std.make_shared[C.Rect](1, 1)
+34 call call(index(std::make_shared|::Square)|lit(3))
+    cxx_inheritance.gp:44:19 arg  C.std.make_shared[C.Square](3)
+35 call call(sel(arg&(decay(addr(arg&(decay(call(::Square|lit(4)))))))|describe)|)
+    cxx_inheritance.gp:27:38 arg -> any  p.describe()
+36 call call(sel(arg&(decay(addr(arg&(decay(call(::Square|lit(4)))))))|name)|)
+    cxx_inheritance.gp:27:14 arg -> any  p.name()
+37 call call(sel(arg&(decay(call(::Circle|lit(2))))|area)|)
+    cxx_inheritance.gp:25:82 convert -> float64  c.area()
+38 call call(sel(arg&(decay(call(::Circle|lit(2))))|name)|)
+    cxx_inheritance.gp:25:93 arg -> any  c.name()
+39 call call(sel(arg&(decay(call(::Rect|lit(2),lit(3))))|area)|)
+    cxx_inheritance.gp:25:22 convert -> float64  r.area()
+40 call call(sel(arg&(decay(call(::Rect|lit(2),lit(3))))|name)|)
+    cxx_inheritance.gp:25:33 arg -> any  r.name()
+41 call call(sel(arg&(decay(call(::Square|lit(4))))|area)|)
+    cxx_inheritance.gp:25:51 convert -> float64  sq.area()
+42 call call(sel(arg&(decay(call(::Square|lit(4))))|name)|)
+    cxx_inheritance.gp:25:63 arg -> any  sq.name()
+43 call call(sel(arg&(decay(index(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))|lit(1))))|use_count)|)
+    cxx_inheritance.gp:46:51 convert -> int  extra.use_count()
+44 call call(sel(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))|push_back)|call(index(std::make_shared|::Rect)|lit(1),lit(1)))
+    cxx_inheritance.gp:43:2 stmt  shapes.push_back(C.std.make_shared[C.Rect](1, 1))
+45 call call(sel(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))|push_back)|call(index(std::make_shared|::Square)|lit(3)))
+    cxx_inheritance.gp:44:2 stmt  shapes.push_back(C.std.make_shared[C.Square](3))
+46 call call(sel(arg&(star(::Shape))|area)|)
+    cxx_inheritance.gp:32:35 convert -> float64  base.area()
+47 call call(sel(arg&(star(::Shape))|describe)|)
+    cxx_inheritance.gp:32:49 arg -> any  base.describe()
+48 call call(sel(arg&(star(::Shape))|name)|)
+    cxx_inheritance.gp:32:14 arg -> any  base.name()
+49 call call(sel(paren(star(arg&(decay(call(::make_shape|call(C.int|arg&(go(int64_t))))))))|describe)|)
+    cxx_inheritance.gp:37:21 arg -> any  (*s).describe()
+50 call call(sel(paren(star(arg&(decay(rangeval(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|})))))))|name)|)
+    cxx_inheritance.gp:48:23 arg -> any  (*s).name()
+51 local decay(addr(arg&(decay(call(::Square|lit(4))))))
+    cxx_inheritance.gp:26:2 init  p
+52 local decay(call(::Circle|lit(2)))
+    cxx_inheritance.gp:21:2 init  c
+53 local decay(call(::Rect|lit(2),lit(3)))
+    cxx_inheritance.gp:19:2 init  r
+54 local decay(call(::Square|lit(4)))
+    cxx_inheritance.gp:20:2 init  sq
+55 local decay(call(::make_shape|call(C.int|arg&(go(int64_t)))))
+    cxx_inheritance.gp:36:3 init  s
+56 local decay(index(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))|lit(1)))
+    cxx_inheritance.gp:45:2 init  extra
+57 local decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|})
+    cxx_inheritance.gp:42:2 init  shapes
+58 local decay(rangekey(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))))
+    cxx_inheritance.gp:47:6 init  i
+59 local decay(rangeval(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))))
+    cxx_inheritance.gp:47:9 init  s
+60 index index(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))|lit(1))
+    cxx_inheritance.gp:45:11 init  shapes[1]
+61 index index(std::make_shared|::Rect) name-only
+    cxx_inheritance.gp:43:19 callee  C.std.make_shared[C.Rect]
+62 index index(std::make_shared|::Square) name-only
+    cxx_inheritance.gp:44:19 callee  C.std.make_shared[C.Square]
+63 index index(std::shared_ptr|::Shape)
+    cxx_inheritance.gp:42:23 index  C.std.shared_ptr[C.Shape]
+64 index index(std::vector|index(std::shared_ptr|::Shape))
+    cxx_inheritance.gp:42:12 type  C.std.vector[C.std.shared_ptr[C.Shape]]
+65 literal lit{index(std::vector|index(std::shared_ptr|::Shape))|}
+    cxx_inheritance.gp:42:12 init  C.std.vector[C.std.shared_ptr[C.Shape]]{}
+66 paren paren(star(arg&(decay(call(::make_shape|call(C.int|arg&(go(int64_t))))))))
+    cxx_inheritance.gp:37:21 member  (*s)
+67 paren paren(star(arg&(decay(rangeval(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|})))))))
+    cxx_inheritance.gp:48:23 member  (*s)
+68 member sel(arg&(decay(addr(arg&(decay(call(::Square|lit(4)))))))|describe) name-only
+    cxx_inheritance.gp:27:38 callee  p.describe
+69 member sel(arg&(decay(addr(arg&(decay(call(::Square|lit(4)))))))|name) name-only
+    cxx_inheritance.gp:27:14 callee  p.name
+70 member sel(arg&(decay(addr(arg&(decay(call(::Square|lit(4)))))))|w)
+    cxx_inheritance.gp:27:32 convert -> float64  p.w
+71 member sel(arg&(decay(call(::Circle|lit(2))))|area) name-only
+    cxx_inheritance.gp:25:82 callee  c.area
+72 member sel(arg&(decay(call(::Circle|lit(2))))|name) name-only
+    cxx_inheritance.gp:25:93 callee  c.name
+73 member sel(arg&(decay(call(::Rect|lit(2),lit(3))))|area) name-only
+    cxx_inheritance.gp:25:22 callee  r.area
+74 member sel(arg&(decay(call(::Rect|lit(2),lit(3))))|name) name-only
+    cxx_inheritance.gp:25:33 callee  r.name
+75 member sel(arg&(decay(call(::Square|lit(4))))|area) name-only
+    cxx_inheritance.gp:25:51 callee  sq.area
+76 member sel(arg&(decay(call(::Square|lit(4))))|name) name-only
+    cxx_inheritance.gp:25:63 callee  sq.name
+77 member sel(arg&(decay(index(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))|lit(1))))|use_count) name-only
+    cxx_inheritance.gp:46:51 callee  extra.use_count
+78 member sel(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))|push_back) name-only
+    cxx_inheritance.gp:43:2 callee  shapes.push_back
+    cxx_inheritance.gp:44:2 callee  shapes.push_back
+79 member sel(arg&(star(::Shape))|area) name-only
+    cxx_inheritance.gp:32:35 callee  base.area
+80 member sel(arg&(star(::Shape))|describe) name-only
+    cxx_inheritance.gp:32:49 callee  base.describe
+81 member sel(arg&(star(::Shape))|name) name-only
+    cxx_inheritance.gp:32:14 callee  base.name
+82 member sel(paren(star(arg&(decay(call(::make_shape|call(C.int|arg&(go(int64_t))))))))|describe) name-only
+    cxx_inheritance.gp:37:21 callee  (*s).describe
+83 member sel(paren(star(arg&(decay(rangeval(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|})))))))|name) name-only
+    cxx_inheritance.gp:48:23 callee  (*s).name
+84 deref star(::Shape)
+    cxx_inheritance.gp:31:11 type  *C.Shape
+85 deref star(arg&(decay(call(::make_shape|call(C.int|arg&(go(int64_t)))))))
+    cxx_inheritance.gp:37:22 operand  *s
+86 deref star(arg&(decay(rangeval(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))))))
+    cxx_inheritance.gp:48:24 operand  *s
+87 path std::make_shared name-only
+    cxx_inheritance.gp:43:19 template  C.std.make_shared
+    cxx_inheritance.gp:44:19 template  C.std.make_shared
+88 path std::shared_ptr name-only
+    cxx_inheritance.gp:42:23 template  C.std.shared_ptr
+89 path std::vector name-only
+    cxx_inheritance.gp:42:12 template  C.std.vector

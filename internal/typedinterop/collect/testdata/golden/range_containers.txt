@@ -1,0 +1,362 @@
+0 path ::grid
+    range_containers.gp:103:17 range  C.grid
+    range_containers.gp:104:22 template  C.grid
+1 path ::table
+    range_containers.gp:98:20 range  C.table
+    range_containers.gp:106:24 arg  C.table
+    range_containers.gp:110:22 template  C.table
+    range_containers.gp:110:44 template  C.table
+2 path C.double
+    range_containers.gp:79:18 type  C.double
+3 path C.int
+    range_containers.gp:76:18 index  C.int
+    range_containers.gp:106:17 index  C.int
+    range_containers.gp:143:18 index  C.int
+    range_containers.gp:153:28 type  C.int
+    range_containers.gp:166:10 type  C.int
+    range_containers.gp:171:27 type  C.int
+    range_containers.gp:171:45 index  C.int
+4 path C.long
+    range_containers.gp:50:8 type  C.long
+    range_containers.gp:51:8 type  C.long
+    range_containers.gp:55:21 type  C.long
+    range_containers.gp:58:15 type  C.long
+    range_containers.gp:66:13 type  C.long
+5 binary bin(+|arg&(decay(rangeval(arg&(decay(call(index(std::span|C.int)|::table))))))|lit(1))
+    range_containers.gp:108:11 assign  t + 1
+6 call call(go(bool)|arg&(decay(rangeval(arg&(index(std::vector|go(bool)))))))
+    range_containers.gp:129:31 arg -> any  bool(b)
+7 call call(go(double)|arg&(decay(rangeval(arg&(inst(std::array|C.double,lit(3)))))))
+    range_containers.gp:86:31 arg -> any  float64(e)
+8 call call(go(int32_t)|arg&(decay(rangeval(arg&(decay(call(std::string|lit("hey"))))))))
+    range_containers.gp:93:33 arg  rune(c)
+9 call call(go(int32_t)|index(arg&(decay(rangekey(arg&(inst(std::map|std::string,C.int)))))|lit(0)))
+    range_containers.gp:160:40 arg  rune(k[0])
+    range_containers.gp:163:25 arg  rune(k[0])
+10 call call(go(int32_t)|index(arg&(std::string)|lit(0)))
+    range_containers.gp:169:38 arg  rune(key[0])
+11 call call(go(int64_t)|arg&(C.int))
+    range_containers.gp:169:53 arg -> any  int(val)
+12 call call(go(int64_t)|arg&(C.long))
+    range_containers.gp:54:14 arg -> any  int(i)
+    range_containers.gp:54:22 arg -> any  int(x)
+    range_containers.gp:64:14 arg -> any  int(i)
+    range_containers.gp:74:17 arg -> any  int(x)
+13 call call(go(int64_t)|arg&(decay(rangekey(::table))))
+    range_containers.gp:99:18 arg -> any  int(i)
+14 call call(go(int64_t)|arg&(decay(rangekey(arg&(decay(call(std::string|lit("hey"))))))))
+    range_containers.gp:93:18 arg -> any  int(i)
+15 call call(go(int64_t)|arg&(decay(rangekey(arg&(index(std::deque|C.int))))))
+    range_containers.gp:83:18 arg -> any  int(i)
+16 call call(go(int64_t)|arg&(decay(rangekey(arg&(index(std::list|std::string))))))
+    range_containers.gp:139:18 arg -> any  int(i)
+17 call call(go(int64_t)|arg&(decay(rangekey(arg&(index(std::set|C.int))))))
+    range_containers.gp:149:18 arg -> any  int(i)
+18 call call(go(int64_t)|arg&(decay(rangekey(arg&(index(std::vector|go(bool)))))))
+    range_containers.gp:129:18 arg -> any  int(i)
+19 call call(go(int64_t)|arg&(decay(rangekey(arg&(index(std::vector|go(int64_t)))))))
+    range_containers.gp:33:18 arg -> any  int(i)
+    range_containers.gp:38:18 arg -> any  int(i)
+20 call call(go(int64_t)|arg&(decay(rangekey(arg&(inst(std::array|C.double,lit(3)))))))
+    range_containers.gp:86:18 arg -> any  int(i)
+21 call call(go(int64_t)|arg&(decay(rangekey(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int)))))))
+    range_containers.gp:175:15 arg -> any  int(k)
+22 call call(go(int64_t)|arg&(decay(rangekey(call(std::views::reverse|arg&(index(std::vector|go(int64_t))))))))
+    range_containers.gp:117:18 arg -> any  int(i)
+23 call call(go(int64_t)|arg&(decay(rangekey(call(std::views::take|arg&(index(std::vector|go(int64_t))),lit(2))))))
+    range_containers.gp:120:18 arg -> any  int(i)
+24 call call(go(int64_t)|arg&(decay(rangeval(::table))))
+    range_containers.gp:99:31 arg -> any  int(t)
+25 call call(go(int64_t)|arg&(decay(rangeval(arg&(decay(call(std::string|lit("hey"))))))))
+    range_containers.gp:93:43 arg -> any  int(c)
+26 call call(go(int64_t)|arg&(decay(rangeval(arg&(index(std::deque|C.int))))))
+    range_containers.gp:83:31 arg -> any  int(e)
+27 call call(go(int64_t)|arg&(decay(rangeval(arg&(index(std::set|C.int))))))
+    range_containers.gp:149:31 arg -> any  int(e)
+28 call call(go(int64_t)|arg&(decay(rangeval(arg&(index(std::vector|go(int64_t)))))))
+    range_containers.gp:33:31 arg -> any  int(x)
+    range_containers.gp:45:18 arg -> any  int(x)
+29 call call(go(int64_t)|arg&(decay(rangeval(arg&(inst(std::map|std::string,C.int))))))
+    range_containers.gp:160:58 arg -> any  int(e)
+30 call call(go(int64_t)|arg&(decay(rangeval(call(std::views::iota|lit(3),lit(6))))))
+    range_containers.gp:114:18 arg -> any  int(k)
+31 call call(go(int64_t)|arg&(decay(rangeval(call(std::views::reverse|arg&(index(std::vector|go(int64_t))))))))
+    range_containers.gp:117:31 arg -> any  int(x)
+32 call call(go(int64_t)|arg&(decay(rangeval(call(std::views::take|arg&(index(std::vector|go(int64_t))),lit(2))))))
+    range_containers.gp:120:31 arg -> any  int(x)
+33 call call(go(int64_t)|call(sel(arg&(decay(rangekey(arg&(inst(std::map|std::string,C.int)))))|size)|))
+    range_containers.gp:160:18 arg -> any  int(k.size())
+34 call call(go(int64_t)|call(sel(arg&(decay(rangeval(arg&(index(std::list|std::string)))))|size)|))
+    range_containers.gp:139:31 arg -> any  int(e.size())
+35 call call(go(int64_t)|call(sel(arg&(decay(rangeval(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int))))))|size)|))
+    range_containers.gp:175:23 arg -> any  int(e.size())
+36 call call(go(int64_t)|call(sel(call(sel(arg&(index(std::list|std::string))|front)|)|size)|))
+    range_containers.gp:141:18 arg -> any  int(l.front().size())
+37 call call(go(int64_t)|index(::table|lit(0)))
+    range_containers.gp:110:18 arg -> any  int(C.table[0])
+38 call call(go(int64_t)|index(::table|lit(4)))
+    range_containers.gp:110:40 arg -> any  int(C.table[4])
+39 call call(go(int64_t)|index(arg&(decay(rangeval(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int))))))|lit(1)))
+    range_containers.gp:175:38 arg -> any  int(e[1])
+40 call call(go(int64_t)|index(arg&(decay(unknown(builtin make)))|arg(go(int64_t)))) incomplete(builtin make)
+    range_containers.gp:61:28 arg -> any  int(xs[0])
+    range_containers.gp:61:40 arg -> any  int(xs[1])
+    range_containers.gp:61:52 arg -> any  int(xs[2])
+41 call call(go(int64_t)|index(arg&(index(std::vector|go(int64_t)))|lit(0)))
+    range_containers.gp:35:18 arg -> any  int(v[0])
+42 call call(go(int64_t)|index(arg&(inst(std::array|C.long,lit(1)))|lit(0)))
+    range_containers.gp:61:14 arg -> any  int(last[0])
+43 call call(go(int64_t)|index(arg&(inst(std::map|std::string,C.int))|lit("a")))
+    range_containers.gp:169:18 arg -> any  int(m["a"])
+44 call call(go(int64_t)|index(index(::grid|arg&(decay(rangekey(::grid))))|lit(2)))
+    range_containers.gp:104:18 arg -> any  int(C.grid[i][2])
+45 call call(index(std::span|C.int)|::table)
+    range_containers.gp:106:8 init  C.std.span[C.int](C.table)
+46 call call(sel(arg&(decay(rangekey(arg&(inst(std::map|std::string,C.int)))))|size)|)
+    range_containers.gp:160:22 convert -> int  k.size()
+47 call call(sel(arg&(decay(rangeval(arg&(index(std::list|std::string)))))|size)|)
+    range_containers.gp:139:35 convert -> int  e.size()
+48 call call(sel(arg&(decay(rangeval(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int))))))|size)|)
+    range_containers.gp:175:27 convert -> int  e.size()
+49 call call(sel(arg&(index(std::deque|C.int))|push_back)|lit(1))
+    range_containers.gp:77:2 stmt  d.push_back(1)
+50 call call(sel(arg&(index(std::deque|C.int))|push_front)|lit(0))
+    range_containers.gp:78:2 stmt  d.push_front(0)
+51 call call(sel(arg&(index(std::list|std::string))|front)|)
+    range_containers.gp:141:22 member  l.front()
+52 call call(sel(arg&(index(std::list|std::string))|push_back)|call(std::string|lit("x")))
+    range_containers.gp:134:2 stmt  l.push_back(C.std.string("x"))
+53 call call(sel(arg&(index(std::list|std::string))|push_back)|call(std::string|lit("yy")))
+    range_containers.gp:135:2 stmt  l.push_back(C.std.string("yy"))
+54 call call(sel(arg&(index(std::set|C.int))|insert)|lit(10))
+    range_containers.gp:145:2 stmt  set.insert(10)
+55 call call(sel(arg&(index(std::set|C.int))|insert)|lit(20))
+    range_containers.gp:146:2 stmt  set.insert(20)
+56 call call(sel(arg&(index(std::set|C.int))|insert)|lit(30))
+    range_containers.gp:144:2 stmt  set.insert(30)
+57 call call(sel(arg&(index(std::vector|go(bool)))|push_back)|lit(false))
+    range_containers.gp:126:2 stmt  bs.push_back(false)
+58 call call(sel(arg&(index(std::vector|go(bool)))|push_back)|lit(true))
+    range_containers.gp:125:2 stmt  bs.push_back(true)
+59 call call(sel(arg&(index(std::vector|go(int64_t)))|push_back)|lit(2))
+    range_containers.gp:28:2 stmt  v.push_back(2)
+60 call call(sel(arg&(index(std::vector|go(int64_t)))|push_back)|lit(5))
+    range_containers.gp:27:2 stmt  v.push_back(5)
+61 call call(sel(arg&(index(std::vector|go(int64_t)))|push_back)|lit(9))
+    range_containers.gp:29:2 stmt  v.push_back(9)
+62 call call(sel(call(sel(arg&(index(std::list|std::string))|front)|)|size)|)
+    range_containers.gp:141:22 convert -> int  l.front().size()
+63 call call(sel(index(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int)))|lit(7))|push_back)|lit(70))
+    range_containers.gp:172:2 stmt  um[7].push_back(70)
+64 call call(sel(index(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int)))|lit(7))|push_back)|lit(71))
+    range_containers.gp:173:2 stmt  um[7].push_back(71)
+65 call call(std::string|lit("hey"))
+    range_containers.gp:90:7 init  C.std.string("hey")
+66 call call(std::string|lit("x"))
+    range_containers.gp:134:14 arg  C.std.string("x")
+67 call call(std::string|lit("yy"))
+    range_containers.gp:135:14 arg  C.std.string("yy")
+68 call call(std::views::iota|lit(3),lit(6))
+    range_containers.gp:113:20 range  C.std.views.iota(3, 6)
+69 call call(std::views::reverse|arg&(index(std::vector|go(int64_t))))
+    range_containers.gp:116:20 range  C.std.views.reverse(v)
+70 call call(std::views::take|arg&(index(std::vector|go(int64_t))),lit(2))
+    range_containers.gp:119:20 range  C.std.views.take(v, 2)
+71 local decay(call(index(std::span|C.int)|::table))
+    range_containers.gp:106:2 init  sp
+72 local decay(call(std::string|lit("hey")))
+    range_containers.gp:90:2 init  s
+73 local decay(rangekey(::grid))
+    range_containers.gp:103:6 init  i
+74 local decay(rangekey(::table))
+    range_containers.gp:98:6 init  i
+75 local decay(rangekey(arg&(decay(call(index(std::span|C.int)|::table)))))
+    range_containers.gp:107:6 init  i
+76 local decay(rangekey(arg&(decay(call(std::string|lit("hey"))))))
+    range_containers.gp:92:6 init  i
+77 local decay(rangekey(arg&(index(std::deque|C.int))))
+    range_containers.gp:82:6 init  i
+78 local decay(rangekey(arg&(index(std::list|std::string))))
+    range_containers.gp:137:6 init  i
+79 local decay(rangekey(arg&(index(std::set|C.int))))
+    range_containers.gp:148:6 init  i
+80 local decay(rangekey(arg&(index(std::vector|go(bool)))))
+    range_containers.gp:128:6 init  i
+81 local decay(rangekey(arg&(index(std::vector|go(int64_t)))))
+    range_containers.gp:31:6 init  i
+    range_containers.gp:37:6 init  i
+82 local decay(rangekey(arg&(inst(std::array|C.double,lit(3)))))
+    range_containers.gp:85:6 init  i
+83 local decay(rangekey(arg&(inst(std::map|std::string,C.int))))
+    range_containers.gp:158:6 init  k
+    range_containers.gp:162:6 init  k
+84 local decay(rangekey(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int)))))
+    range_containers.gp:174:6 init  k
+85 local decay(rangekey(call(std::views::reverse|arg&(index(std::vector|go(int64_t))))))
+    range_containers.gp:116:6 init  i
+86 local decay(rangekey(call(std::views::take|arg&(index(std::vector|go(int64_t))),lit(2))))
+    range_containers.gp:119:6 init  i
+87 local decay(rangeval(::table))
+    range_containers.gp:98:9 init  t
+88 local decay(rangeval(arg&(decay(call(index(std::span|C.int)|::table)))))
+    range_containers.gp:107:9 init  t
+89 local decay(rangeval(arg&(decay(call(std::string|lit("hey"))))))
+    range_containers.gp:92:9 init  c
+90 local decay(rangeval(arg&(index(std::deque|C.int))))
+    range_containers.gp:82:9 init  e
+91 local decay(rangeval(arg&(index(std::list|std::string))))
+    range_containers.gp:137:9 init  e
+92 local decay(rangeval(arg&(index(std::set|C.int))))
+    range_containers.gp:148:9 init  e
+93 local decay(rangeval(arg&(index(std::vector|go(bool)))))
+    range_containers.gp:128:9 init  b
+94 local decay(rangeval(arg&(index(std::vector|go(int64_t)))))
+    range_containers.gp:31:9 init  x
+    range_containers.gp:44:9 init  x
+95 local decay(rangeval(arg&(inst(std::array|C.double,lit(3)))))
+    range_containers.gp:85:9 init  e
+96 local decay(rangeval(arg&(inst(std::map|std::string,C.int))))
+    range_containers.gp:158:9 init  e
+97 local decay(rangeval(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int)))))
+    range_containers.gp:174:9 init  e
+98 local decay(rangeval(call(std::views::iota|lit(3),lit(6))))
+    range_containers.gp:113:9 init  k
+99 local decay(rangeval(call(std::views::reverse|arg&(index(std::vector|go(int64_t))))))
+    range_containers.gp:116:9 init  x
+100 local decay(rangeval(call(std::views::take|arg&(index(std::vector|go(int64_t))),lit(2))))
+    range_containers.gp:119:9 init  x
+101 local decay(unknown(builtin make)) incomplete(builtin make)
+    range_containers.gp:58:2 init  xs
+102 index index(::grid|arg&(decay(rangekey(::grid)))) name-only
+    range_containers.gp:104:22 template  C.grid[i]
+103 index index(::table|lit(0))
+    range_containers.gp:110:22 convert -> int  C.table[0]
+104 index index(::table|lit(4))
+    range_containers.gp:110:44 convert -> int  C.table[4]
+105 index index(arg&(decay(call(index(std::span|C.int)|::table)))|arg&(decay(rangekey(arg&(decay(call(index(std::span|C.int)|::table)))))))
+    range_containers.gp:108:3 assign  sp[i]
+106 index index(arg&(decay(rangekey(arg&(inst(std::map|std::string,C.int)))))|lit(0))
+    range_containers.gp:160:45 convert -> rune  k[0]
+    range_containers.gp:163:30 convert -> rune  k[0]
+107 index index(arg&(decay(rangeval(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int))))))|lit(1))
+    range_containers.gp:175:42 convert -> int  e[1]
+108 index index(arg&(decay(unknown(builtin make)))|arg&(C.long)) incomplete(builtin make)
+    range_containers.gp:59:9 range  xs[i]
+109 index index(arg&(decay(unknown(builtin make)))|arg(go(int64_t))) incomplete(builtin make)
+    range_containers.gp:61:32 convert -> int  xs[0]
+    range_containers.gp:61:44 convert -> int  xs[1]
+    range_containers.gp:61:56 convert -> int  xs[2]
+110 index index(arg&(index(std::vector|go(int64_t)))|lit(0))
+    range_containers.gp:35:22 convert -> int  v[0]
+111 index index(arg&(inst(std::array|C.double,lit(3)))|lit(1))
+    range_containers.gp:80:2 assign  a[1]
+112 index index(arg&(inst(std::array|C.long,lit(1)))|lit(0))
+    range_containers.gp:56:9 range  last[0]
+    range_containers.gp:61:18 convert -> int  last[0]
+113 index index(arg&(inst(std::map|std::string,C.int))|lit("a"))
+    range_containers.gp:155:2 assign  m["a"]
+    range_containers.gp:169:22 convert -> int  m["a"]
+114 index index(arg&(inst(std::map|std::string,C.int))|lit("b"))
+    range_containers.gp:154:2 assign  m["b"]
+115 index index(arg&(inst(std::map|std::string,C.int))|lit("c"))
+    range_containers.gp:156:2 assign  m["c"]
+116 index index(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int)))|lit(7))
+    range_containers.gp:172:2 member  um[7]
+    range_containers.gp:173:2 member  um[7]
+117 index index(arg&(stand:array(C.long,lit(3)))|arg(go(int64_t)))
+    range_containers.gp:67:2 assign  arr[1]
+118 index index(arg&(std::string)|lit(0))
+    range_containers.gp:169:43 convert -> rune  key[0]
+119 index index(index(::grid|arg&(decay(rangekey(::grid))))|lit(2))
+    range_containers.gp:104:22 convert -> int  C.grid[i][2]
+120 index index(std::deque|C.int)
+    range_containers.gp:76:8 type  C.std.deque[C.int]
+121 index index(std::list|std::string)
+    range_containers.gp:133:8 type  C.std.list[C.std.string]
+122 index index(std::set|C.int)
+    range_containers.gp:143:10 type  C.std.set[C.int]
+123 index index(std::span|C.int) name-only
+    range_containers.gp:106:8 callee  C.std.span[C.int]
+124 index index(std::vector|C.int)
+    range_containers.gp:171:34 type  C.std.vector[C.int]
+125 index index(std::vector|go(bool))
+    range_containers.gp:124:9 type  C.std.vector[bool]
+126 index index(std::vector|go(int64_t))
+    range_containers.gp:26:8 type  C.std.vector[int]
+127 inst inst(std::array|C.double,lit(3))
+    range_containers.gp:79:8 type  C.std.array[C.double, 3]
+128 inst inst(std::array|C.long,lit(1))
+    range_containers.gp:55:11 type  C.std.array[C.long, 1]
+129 inst inst(std::map|std::string,C.int)
+    range_containers.gp:153:8 type  C.std.map[C.std.string, C.int]
+130 inst inst(std::unordered_map|C.int,index(std::vector|C.int))
+    range_containers.gp:171:9 type  C.std.unordered_map[C.int, C.std.vector[C.int]]
+131 member sel(arg&(decay(rangekey(arg&(inst(std::map|std::string,C.int)))))|size) name-only
+    range_containers.gp:160:22 callee  k.size
+132 member sel(arg&(decay(rangeval(arg&(index(std::list|std::string)))))|size) name-only
+    range_containers.gp:139:35 callee  e.size
+133 member sel(arg&(decay(rangeval(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int))))))|size) name-only
+    range_containers.gp:175:27 callee  e.size
+134 member sel(arg&(index(std::deque|C.int))|push_back) name-only
+    range_containers.gp:77:2 callee  d.push_back
+135 member sel(arg&(index(std::deque|C.int))|push_front) name-only
+    range_containers.gp:78:2 callee  d.push_front
+136 member sel(arg&(index(std::list|std::string))|front) name-only
+    range_containers.gp:141:22 callee  l.front
+137 member sel(arg&(index(std::list|std::string))|push_back) name-only
+    range_containers.gp:134:2 callee  l.push_back
+    range_containers.gp:135:2 callee  l.push_back
+138 member sel(arg&(index(std::set|C.int))|insert) name-only
+    range_containers.gp:144:2 callee  set.insert
+    range_containers.gp:145:2 callee  set.insert
+    range_containers.gp:146:2 callee  set.insert
+139 member sel(arg&(index(std::vector|go(bool)))|push_back) name-only
+    range_containers.gp:125:2 callee  bs.push_back
+    range_containers.gp:126:2 callee  bs.push_back
+140 member sel(arg&(index(std::vector|go(int64_t)))|push_back) name-only
+    range_containers.gp:27:2 callee  v.push_back
+    range_containers.gp:28:2 callee  v.push_back
+    range_containers.gp:29:2 callee  v.push_back
+141 member sel(call(sel(arg&(index(std::list|std::string))|front)|)|size) name-only
+    range_containers.gp:141:22 callee  l.front().size
+142 member sel(index(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int)))|lit(7))|push_back) name-only
+    range_containers.gp:172:2 callee  um[7].push_back
+    range_containers.gp:173:2 callee  um[7].push_back
+143 type stand:array(C.long,lit(3))
+    range_containers.gp:66:10 type  [3]C.long
+144 type stand:slice(C.long)
+    range_containers.gp:58:13 arg  []C.long
+145 path std::array name-only
+    range_containers.gp:55:11 template  C.std.array
+    range_containers.gp:79:8 template  C.std.array
+146 path std::deque name-only
+    range_containers.gp:76:8 template  C.std.deque
+147 path std::list name-only
+    range_containers.gp:133:8 template  C.std.list
+148 path std::map name-only
+    range_containers.gp:153:8 template  C.std.map
+149 path std::set name-only
+    range_containers.gp:143:10 template  C.std.set
+150 path std::span name-only
+    range_containers.gp:106:8 template  C.std.span
+151 path std::string
+    range_containers.gp:90:7 callee  C.std.string
+    range_containers.gp:133:17 index  C.std.string
+    range_containers.gp:134:14 callee  C.std.string
+    range_containers.gp:135:14 callee  C.std.string
+    range_containers.gp:153:16 type  C.std.string
+    range_containers.gp:165:10 type  C.std.string
+152 path std::unordered_map name-only
+    range_containers.gp:171:9 template  C.std.unordered_map
+153 path std::vector name-only
+    range_containers.gp:26:8 template  C.std.vector
+    range_containers.gp:124:9 template  C.std.vector
+    range_containers.gp:171:34 template  C.std.vector
+154 path std::views::iota name-only
+    range_containers.gp:113:20 callee  C.std.views.iota
+155 path std::views::reverse name-only
+    range_containers.gp:116:20 callee  C.std.views.reverse
+156 path std::views::take name-only
+    range_containers.gp:119:20 callee  C.std.views.take
+157 other unknown(builtin make) incomplete(builtin make)
+    range_containers.gp:58:8 init  make([]C.long, 3)

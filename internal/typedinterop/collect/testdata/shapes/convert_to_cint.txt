@@ -1,0 +1,5 @@
+path ::abs name-only
+path C.int name-only
+call call(::abs|call(C.int|arg&(go(int64_t))))
+call call(C.int|arg&(go(int64_t)))
+local decay(call(::abs|call(C.int|arg&(go(int64_t)))))

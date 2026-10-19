@@ -1,0 +1,3 @@
+path ::sqrt name-only
+call call(::sqrt|arg&(go(double)))
+local decay(call(::sqrt|arg&(go(double))))

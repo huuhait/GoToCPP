@@ -1,0 +1,7 @@
+binary bin(+|call(sel(arg&(decay(call(std::string|lit("abc"))))|size)|)|arg(go(int64_t)))
+call call(sel(arg&(decay(call(std::string|lit("abc"))))|size)|)
+call call(std::string|lit("abc"))
+local decay(bin(+|call(sel(arg&(decay(call(std::string|lit("abc"))))|size)|)|arg(go(int64_t))))
+local decay(call(std::string|lit("abc")))
+member sel(arg&(decay(call(std::string|lit("abc"))))|size) name-only
+path std::string name-only

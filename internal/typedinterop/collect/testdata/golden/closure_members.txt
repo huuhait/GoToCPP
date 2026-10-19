@@ -1,0 +1,148 @@
+0 path ::Counter
+    closure_members.gp:32:8 type  C.Counter
+1 path ::bump name-only
+    closure_members.gp:33:22 callee  C.bump
+2 path ::bump_ptr name-only
+    closure_members.gp:75:27 callee  C.bump_ptr
+3 path C.int name-only
+    closure_members.gp:21:35 callee  C.int
+    closure_members.gp:49:16 callee  C.int
+    closure_members.gp:50:16 callee  C.int
+    closure_members.gp:73:7 callee  C.int
+4 addr addr(arg&(::Counter))
+    closure_members.gp:74:7 init  &c
+5 call call(::bump_ptr|arg&(decay(addr(arg&(::Counter)))))
+    closure_members.gp:75:27 stmt  C.bump_ptr(p)
+6 call call(::bump|arg&(::Counter))
+    closure_members.gp:33:22 stmt  C.bump(c)
+7 call call(C.int|arg&(go(int64_t)))
+    closure_members.gp:21:35 arg  C.int(x)
+    closure_members.gp:49:16 arg  C.int(i)
+8 call call(C.int|arg(go(int64_t)))
+    closure_members.gp:50:16 arg  C.int(i * i)
+9 call call(C.int|lit(5))
+    closure_members.gp:73:7 init  C.int(5)
+10 call call(go(int64_t)|arg&(decay(call(C.int|lit(5)))))
+    closure_members.gp:78:14 arg -> any  int(n)
+11 call call(go(int64_t)|arg&(decay(rangeval(arg&(decay(lit{index(std::vector|go(int64_t))|}))))))
+    closure_members.gp:54:11 assign -> int  int(e)
+12 call call(go(int64_t)|call(sel(arg&(::Counter)|get)|))
+    closure_members.gp:37:24 arg -> any  int(c.get())
+13 call call(go(int64_t)|call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}))|size)|))
+    closure_members.gp:43:14 arg -> any  int(a.size())
+14 call call(go(int64_t)|call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(4)}))|size)|))
+    closure_members.gp:43:29 arg -> any  int(b.size())
+15 call call(go(int64_t)|call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|back)|))
+    closure_members.gp:59:44 arg -> any  int(y.back())
+16 call call(go(int64_t)|call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|size)|))
+    closure_members.gp:24:14 arg -> any  int(v.size())
+    closure_members.gp:27:30 return -> int  int(v.size())
+    closure_members.gp:59:14 arg -> any  int(x.size())
+    closure_members.gp:59:29 arg -> any  int(y.size())
+    closure_members.gp:70:14 arg -> any  int(z.size())
+17 call call(go(int64_t)|index(arg&(decay(lit{index(std::vector|go(int64_t))|}))|lit(0)))
+    closure_members.gp:70:29 arg -> any  int(z[0])
+18 call call(go(int64_t)|index(arg&(decay(lit{index(std::vector|go(int64_t))|}))|lit(2)))
+    closure_members.gp:70:40 arg -> any  int(z[2])
+19 call call(go(int64_t)|sel(arg&(::Counter)|n))
+    closure_members.gp:37:14 arg -> any  int(c.n)
+    closure_members.gp:78:22 arg -> any  int(c.n)
+20 call call(sel(arg&(::Counter)|get)|)
+    closure_members.gp:37:28 convert -> int  c.get()
+21 call call(sel(arg&(::Counter)|inc)|)
+    closure_members.gp:35:2 stmt  c.inc()
+22 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}))|size)|)
+    closure_members.gp:43:18 convert -> int  a.size()
+23 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(4)}))|size)|)
+    closure_members.gp:43:33 convert -> int  b.size()
+24 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|back)|)
+    closure_members.gp:59:48 convert -> int  y.back()
+25 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|push_back)|call(C.int|arg&(go(int64_t))))
+    closure_members.gp:21:23 stmt  v.push_back(C.int(x))
+    closure_members.gp:49:4 stmt  x.push_back(C.int(i))
+26 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|push_back)|call(C.int|arg(go(int64_t))))
+    closure_members.gp:50:4 stmt  y.push_back(C.int(i * i))
+27 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|push_back)|lit(1))
+    closure_members.gp:64:3 stmt  z.push_back(1)
+28 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|push_back)|lit(2))
+    closure_members.gp:65:19 stmt  z.push_back(2)
+29 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|push_back)|lit(7))
+    closure_members.gp:28:2 stmt  v.push_back(7)
+30 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|size)|)
+    closure_members.gp:24:18 convert -> int  v.size()
+    closure_members.gp:27:34 convert -> int  v.size()
+    closure_members.gp:59:18 convert -> int  x.size()
+    closure_members.gp:59:33 convert -> int  y.size()
+    closure_members.gp:70:18 convert -> int  z.size()
+31 call call(std::swap|arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)})),arg&(decay(lit{index(std::vector|go(int64_t))|lit(4)})))
+    closure_members.gp:41:19 stmt  C.std.swap(a, b)
+32 local decay(addr(arg&(::Counter)))
+    closure_members.gp:74:2 init  p
+33 local decay(call(C.int|lit(5)))
+    closure_members.gp:73:2 init  n
+34 local decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)})
+    closure_members.gp:40:2 init  a
+35 local decay(lit{index(std::vector|go(int64_t))|lit(4)})
+    closure_members.gp:40:5 init  b
+36 local decay(lit{index(std::vector|go(int64_t))|})
+    closure_members.gp:20:2 init  v
+    closure_members.gp:46:2 init  x
+    closure_members.gp:46:5 init  y
+    closure_members.gp:62:2 init  z
+37 local decay(rangeval(arg&(decay(lit{index(std::vector|go(int64_t))|}))))
+    closure_members.gp:53:10 init  e
+38 index index(arg&(decay(lit{index(std::vector|go(int64_t))|}))|lit(0))
+    closure_members.gp:70:33 convert -> int  z[0]
+39 index index(arg&(decay(lit{index(std::vector|go(int64_t))|}))|lit(2))
+    closure_members.gp:70:44 convert -> int  z[2]
+40 index index(std::vector|go(int64_t))
+    closure_members.gp:20:7 type  C.std.vector[int]
+    closure_members.gp:40:10 type  C.std.vector[int]
+    closure_members.gp:40:36 type  C.std.vector[int]
+    closure_members.gp:46:10 type  C.std.vector[int]
+    closure_members.gp:46:29 type  C.std.vector[int]
+    closure_members.gp:62:7 type  C.std.vector[int]
+41 literal lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}
+    closure_members.gp:40:10 init  C.std.vector[int]{…}
+42 literal lit{index(std::vector|go(int64_t))|lit(4)}
+    closure_members.gp:40:36 init  C.std.vector[int]{…}
+43 literal lit{index(std::vector|go(int64_t))|}
+    closure_members.gp:20:7 init  C.std.vector[int]{}
+    closure_members.gp:46:10 init  C.std.vector[int]{}
+    closure_members.gp:46:29 init  C.std.vector[int]{}
+    closure_members.gp:62:7 init  C.std.vector[int]{}
+44 member sel(arg&(::Counter)|get) name-only
+    closure_members.gp:37:28 callee  c.get
+45 member sel(arg&(::Counter)|inc) name-only
+    closure_members.gp:35:2 callee  c.inc
+46 member sel(arg&(::Counter)|n)
+    closure_members.gp:37:18 convert -> int  c.n
+    closure_members.gp:78:26 convert -> int  c.n
+47 member sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}))|size) name-only
+    closure_members.gp:43:18 callee  a.size
+48 member sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(4)}))|size) name-only
+    closure_members.gp:43:33 callee  b.size
+49 member sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|back) name-only
+    closure_members.gp:59:48 callee  y.back
+50 member sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|push_back) name-only
+    closure_members.gp:21:23 callee  v.push_back
+    closure_members.gp:28:2 callee  v.push_back
+    closure_members.gp:49:4 callee  x.push_back
+    closure_members.gp:50:4 callee  y.push_back
+    closure_members.gp:64:3 callee  z.push_back
+    closure_members.gp:65:19 callee  z.push_back
+51 member sel(arg&(decay(lit{index(std::vector|go(int64_t))|}))|size) name-only
+    closure_members.gp:24:18 callee  v.size
+    closure_members.gp:27:34 callee  v.size
+    closure_members.gp:59:18 callee  x.size
+    closure_members.gp:59:33 callee  y.size
+    closure_members.gp:70:18 callee  z.size
+52 path std::swap name-only
+    closure_members.gp:41:19 callee  C.std.swap
+53 path std::vector name-only
+    closure_members.gp:20:7 template  C.std.vector
+    closure_members.gp:40:10 template  C.std.vector
+    closure_members.gp:40:36 template  C.std.vector
+    closure_members.gp:46:10 template  C.std.vector
+    closure_members.gp:46:29 template  C.std.vector
+    closure_members.gp:62:7 template  C.std.vector

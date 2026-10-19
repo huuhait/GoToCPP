@@ -1,0 +1,2 @@
+inst inst(std::map|stand:string(),go(int64_t))
+path std::map name-only

@@ -88,6 +88,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		usage(stdout)
 		return 0
 	}
+	if name == "__typed-probe" { // hidden developer command (typed interop, steps 12.1, 12.2)
+		return runTypedProbe(args, stdin, stdout, stderr)
+	}
 	cmd := lookup(name)
 	if cmd == nil {
 		fmt.Fprintf(stderr, "gocpp %s: unknown command\nRun 'gocpp help' for usage.\n", name)

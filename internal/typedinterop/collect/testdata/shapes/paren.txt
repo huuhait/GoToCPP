@@ -1,0 +1,3 @@
+path ::EOF
+local decay(paren(::EOF))
+paren paren(::EOF)

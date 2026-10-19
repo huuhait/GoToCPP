@@ -1,0 +1,200 @@
+0 path ::CU_FLAG name-only
+    c_unions.gp:47:19 callee  C.CU_FLAG
+1 path ::CU_MAX name-only
+    c_unions.gp:47:69 callee  C.CU_MAX
+    c_unions.gp:49:46 callee  C.CU_MAX
+2 path ::CU_NAME
+    c_unions.gp:46:44 arg -> *gocpp/cgoh.char  C.CU_NAME
+3 path ::CU_PI
+    c_unions.gp:46:61 arg -> any  C.CU_PI
+4 path ::CU_SQUARE name-only
+    c_unions.gp:47:43 callee  C.CU_SQUARE
+    c_unions.gp:49:18 callee  C.CU_SQUARE
+5 path ::CU_VERSION
+    c_unions.gp:46:14 arg -> any  C.CU_VERSION
+6 path ::MON
+    c_unions.gp:45:18 convert -> int  C.MON
+7 path ::Num
+    c_unions.gp:17:8 type  C.Num
+8 path ::ON
+    c_unions.gp:45:77 convert -> int  C.ON
+9 path ::SUN
+    c_unions.gp:45:60 convert -> int  C.SUN
+10 path ::TUE
+    c_unions.gp:45:35 convert -> int  C.TUE
+11 path ::WED
+    c_unions.gp:44:30 init  C.WED
+12 path ::cu_apply name-only
+    c_unions.gp:37:32 callee  C.cu_apply
+    c_unions.gp:39:18 callee  C.cu_apply
+    c_unions.gp:41:18 callee  C.cu_apply
+13 path ::cu_flags name-only
+    c_unions.gp:27:7 callee  C.cu_flags
+14 path ::cu_float_bits name-only
+    c_unions.gp:23:10 callee  C.cu_float_bits
+15 path ::cu_item name-only
+    c_unions.gp:34:8 callee  C.cu_item
+    c_unions.gp:38:10 callee  C.cu_item
+16 path ::cu_mul
+    c_unions.gp:40:10 assign  C.cu_mul
+17 path ::enum_Weekday
+    c_unions.gp:44:8 type  C.enum_Weekday
+18 path C.int name-only
+    c_unions.gp:49:60 callee  C.int
+19 addr addr(arg&(decay(call(::cu_item|lit(3),lit(2.5)))))
+    c_unions.gp:37:48 arg  &it
+    c_unions.gp:41:34 arg  &it
+20 addr addr(arg&(decay(call(::cu_item|lit(4),lit(0)))))
+    c_unions.gp:39:34 arg  &even
+21 addr addr(index(sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|name)|lit(0)))
+    c_unions.gp:35:87 arg -> *gocpp/cgoh.char  &it.name[0]
+22 call call(::CU_FLAG|lit(4))
+    c_unions.gp:47:19 convert -> uint  C.CU_FLAG(4)
+23 call call(::CU_MAX|call(C.int|arg&(go(int64_t))),lit(2))
+    c_unions.gp:49:46 convert -> int  C.CU_MAX(C.int(k), 2)
+24 call call(::CU_MAX|lit(3),lit(9))
+    c_unions.gp:47:69 convert -> int  C.CU_MAX(3, 9)
+25 call call(::CU_SQUARE|arg(go(int64_t)))
+    c_unions.gp:49:18 convert -> int  C.CU_SQUARE(k + 1)
+26 call call(::CU_SQUARE|lit(7))
+    c_unions.gp:47:43 convert -> int  C.CU_SQUARE(7)
+27 call call(::cu_apply|addr(arg&(decay(call(::cu_item|lit(3),lit(2.5))))),lit(6),lit(7))
+    c_unions.gp:37:32 convert -> int  C.cu_apply(&it, 6, 7)
+    c_unions.gp:41:18 convert -> int  C.cu_apply(&it, 6, 7)
+28 call call(::cu_apply|addr(arg&(decay(call(::cu_item|lit(4),lit(0))))),lit(6),lit(7))
+    c_unions.gp:39:18 convert -> int  C.cu_apply(&even, 6, 7)
+29 call call(::cu_flags|lit(5))
+    c_unions.gp:27:7 init  C.cu_flags(5)
+30 call call(::cu_float_bits|lit((-2.0)))
+    c_unions.gp:23:10 init  C.cu_float_bits(-2.0)
+31 call call(::cu_item|lit(3),lit(2.5))
+    c_unions.gp:34:8 init  C.cu_item(3, 2.5)
+32 call call(::cu_item|lit(4),lit(0))
+    c_unions.gp:38:10 init  C.cu_item(4, 0)
+33 call call(C.int|arg&(go(int64_t)))
+    c_unions.gp:49:60 arg  C.int(k)
+34 call call(go(double)|sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|dval))
+    c_unions.gp:35:28 arg -> any  float64(it.dval)
+35 call call(go(int32_t)|sel(arg&(::Num)|i))
+    c_unions.gp:22:14 arg -> any  int32(n.i)
+36 call call(go(int64_t)|::MON)
+    c_unions.gp:45:14 arg -> any  int(C.MON)
+37 call call(go(int64_t)|::ON)
+    c_unions.gp:45:73 arg -> any  int(C.ON)
+38 call call(go(int64_t)|::SUN)
+    c_unions.gp:45:56 arg -> any  int(C.SUN)
+39 call call(go(int64_t)|::TUE)
+    c_unions.gp:45:31 arg -> any  int(C.TUE)
+40 call call(go(int64_t)|arg&(::enum_Weekday))
+    c_unions.gp:45:48 arg -> any  int(d)
+41 call call(go(int64_t)|call(::CU_MAX|call(C.int|arg&(go(int64_t))),lit(2)))
+    c_unions.gp:49:42 arg -> any  int(C.CU_MAX(C.int(k), 2))
+42 call call(go(int64_t)|call(::CU_MAX|lit(3),lit(9)))
+    c_unions.gp:47:65 arg -> any  int(C.CU_MAX(3, 9))
+43 call call(go(int64_t)|call(::CU_SQUARE|arg(go(int64_t))))
+    c_unions.gp:49:14 arg -> any  int(C.CU_SQUARE(k + 1))
+44 call call(go(int64_t)|call(::CU_SQUARE|lit(7)))
+    c_unions.gp:47:39 arg -> any  int(C.CU_SQUARE(7))
+45 call call(go(int64_t)|call(::cu_apply|addr(arg&(decay(call(::cu_item|lit(3),lit(2.5))))),lit(6),lit(7)))
+    c_unions.gp:37:28 arg -> any  int(C.cu_apply(&it, 6, 7))
+    c_unions.gp:41:14 arg -> any  int(C.cu_apply(&it, 6, 7))
+46 call call(go(int64_t)|call(::cu_apply|addr(arg&(decay(call(::cu_item|lit(4),lit(0))))),lit(6),lit(7)))
+    c_unions.gp:39:14 arg -> any  int(C.cu_apply(&even, 6, 7))
+47 call call(go(int64_t)|call(std::size|sel(arg&(::Num)|bytes)))
+    c_unions.gp:22:26 arg -> any  int(C.std.size(n.bytes))
+48 call call(go(int64_t)|index(sel(arg&(::Num)|bytes)|lit(2)))
+    c_unions.gp:19:44 arg -> any  int(n.bytes[2])
+49 call call(go(int64_t)|index(sel(arg&(::Num)|bytes)|lit(3)))
+    c_unions.gp:19:27 arg -> any  int(n.bytes[3])
+50 call call(go(int64_t)|sel(arg&(decay(call(::cu_flags|lit(5))))|signed_part))
+    c_unions.gp:28:58 arg -> any  int(f.signed_part)
+    c_unions.gp:32:29 arg -> any  int(f.signed_part)
+51 call call(go(int64_t)|sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|ival))
+    c_unions.gp:37:14 arg -> any  int(it.ival)
+52 call call(go(int64_t)|sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|kind))
+    c_unions.gp:35:14 arg -> any  int(it.kind)
+53 call call(go(int64_t)|sel(sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|pos)|x))
+    c_unions.gp:35:46 arg -> any  int(it.pos.x)
+54 call call(go(int64_t)|sel(sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|pos)|y))
+    c_unions.gp:35:61 arg -> any  int(it.pos.y)
+55 call call(go(uint32_t)|sel(arg&(::Num)|i))
+    c_unions.gp:19:14 arg -> any  uint32(n.i)
+56 call call(go(uint32_t)|sel(arg&(decay(call(::cu_float_bits|lit((-2.0)))))|i))
+    c_unions.gp:24:14 operand  uint32(bits.i)
+    c_unions.gp:24:44 operand  uint32(bits.i)
+57 call call(go(uint64_t)|call(::CU_FLAG|lit(4)))
+    c_unions.gp:47:14 arg -> any  uint(C.CU_FLAG(4))
+58 call call(go(uint64_t)|sel(arg&(decay(call(::cu_flags|lit(5))))|level))
+    c_unions.gp:28:43 arg -> any  uint(f.level)
+    c_unions.gp:32:14 arg -> any  uint(f.level)
+59 call call(go(uint64_t)|sel(arg&(decay(call(::cu_flags|lit(5))))|mode))
+    c_unions.gp:28:29 arg -> any  uint(f.mode)
+    c_unions.gp:32:49 arg -> any  uint(f.mode)
+60 call call(go(uint64_t)|sel(arg&(decay(call(::cu_flags|lit(5))))|ready))
+    c_unions.gp:28:14 arg -> any  uint(f.ready)
+61 call call(std::size|sel(arg&(::Num)|bytes))
+    c_unions.gp:22:30 convert -> int  C.std.size(n.bytes)
+62 local decay(call(::cu_flags|lit(5)))
+    c_unions.gp:27:2 init  f
+63 local decay(call(::cu_float_bits|lit((-2.0))))
+    c_unions.gp:23:2 init  bits
+64 local decay(call(::cu_item|lit(3),lit(2.5)))
+    c_unions.gp:34:2 init  it
+65 local decay(call(::cu_item|lit(4),lit(0)))
+    c_unions.gp:38:2 init  even
+66 index index(sel(arg&(::Num)|bytes)|lit(0))
+    c_unions.gp:21:2 assign  n.bytes[0]
+67 index index(sel(arg&(::Num)|bytes)|lit(2))
+    c_unions.gp:19:48 convert -> int  n.bytes[2]
+68 index index(sel(arg&(::Num)|bytes)|lit(3))
+    c_unions.gp:19:31 convert -> int  n.bytes[3]
+69 index index(sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|name)|lit(0))
+    c_unions.gp:35:88 operand  it.name[0]
+70 member sel(arg&(::Num)|bytes)
+    c_unions.gp:19:31 template  n.bytes
+    c_unions.gp:19:48 template  n.bytes
+    c_unions.gp:21:2 template  n.bytes
+    c_unions.gp:22:39 arg  n.bytes
+71 member sel(arg&(::Num)|f)
+    c_unions.gp:18:2 assign  n.f
+72 member sel(arg&(::Num)|i)
+    c_unions.gp:19:21 convert -> uint32  n.i
+    c_unions.gp:20:2 assign  n.i
+    c_unions.gp:22:20 convert -> int32  n.i
+73 member sel(arg&(decay(call(::cu_flags|lit(5))))|level)
+    c_unions.gp:28:48 convert -> uint  f.level
+    c_unions.gp:29:2 assign  f.level
+    c_unions.gp:32:19 convert -> uint  f.level
+74 member sel(arg&(decay(call(::cu_flags|lit(5))))|mode)
+    c_unions.gp:28:34 convert -> uint  f.mode
+    c_unions.gp:31:2 stmt  f.mode
+    c_unions.gp:32:54 convert -> uint  f.mode
+75 member sel(arg&(decay(call(::cu_flags|lit(5))))|ready)
+    c_unions.gp:28:19 convert -> uint  f.ready
+76 member sel(arg&(decay(call(::cu_flags|lit(5))))|signed_part)
+    c_unions.gp:28:62 convert -> int  f.signed_part
+    c_unions.gp:30:2 assign  f.signed_part
+    c_unions.gp:32:33 convert -> int  f.signed_part
+77 member sel(arg&(decay(call(::cu_float_bits|lit((-2.0)))))|i)
+    c_unions.gp:24:21 convert -> uint32  bits.i
+    c_unions.gp:24:51 convert -> uint32  bits.i
+78 member sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|dval)
+    c_unions.gp:35:36 convert -> float64  it.dval
+79 member sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|ival)
+    c_unions.gp:36:2 assign  it.ival
+    c_unions.gp:37:18 convert -> int  it.ival
+80 member sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|kind)
+    c_unions.gp:35:18 convert -> int  it.kind
+81 member sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|name) name-only
+    c_unions.gp:35:88 template  it.name
+82 member sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|op)
+    c_unions.gp:40:2 assign  it.op
+83 member sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|pos)
+    c_unions.gp:35:50 member  it.pos
+    c_unions.gp:35:65 member  it.pos
+84 member sel(sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|pos)|x)
+    c_unions.gp:35:50 convert -> int  it.pos.x
+85 member sel(sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|pos)|y)
+    c_unions.gp:35:65 convert -> int  it.pos.y
+86 path std::size name-only
+    c_unions.gp:22:30 callee  C.std.size

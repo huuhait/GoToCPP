@@ -1,0 +1,6 @@
+local decay(lit{inst(std::map|stand:string(),go(int64_t))|})
+local decay(rangekey(arg&(decay(lit{inst(std::map|stand:string(),go(int64_t))|}))))
+local decay(rangeval(arg&(decay(lit{inst(std::map|stand:string(),go(int64_t))|}))))
+inst inst(std::map|stand:string(),go(int64_t))
+literal lit{inst(std::map|stand:string(),go(int64_t))|}
+path std::map name-only

@@ -1,0 +1,6 @@
+local decay(index(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}))|lit(1)))
+local decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)})
+index index(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}))|lit(1))
+index index(std::vector|go(int64_t))
+literal lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}
+path std::vector name-only

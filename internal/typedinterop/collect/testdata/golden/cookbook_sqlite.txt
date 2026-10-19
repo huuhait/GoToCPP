@@ -1,0 +1,99 @@
+0 path ::SQLITE_DONE
+    cookbook_sqlite.gp:15:66 operand  C.SQLITE_DONE
+1 path ::SQLITE_OK
+    cookbook_sqlite.gp:15:11 operand  C.SQLITE_OK
+2 path ::SQLITE_ROW
+    cookbook_sqlite.gp:15:38 operand  C.SQLITE_ROW
+    cookbook_sqlite.gp:44:33 operand  C.SQLITE_ROW
+3 path ::SQLITE_TRANSIENT
+    cookbook_sqlite.gp:33:55 arg  C.SQLITE_TRANSIENT
+4 path ::sqlite3
+    cookbook_sqlite.gp:14:16 type  C.sqlite3
+    cookbook_sqlite.gp:22:10 type  C.sqlite3
+5 path ::sqlite3_bind_int name-only
+    cookbook_sqlite.gp:34:3 callee  C.sqlite3_bind_int
+    cookbook_sqlite.gp:43:2 callee  C.sqlite3_bind_int
+6 path ::sqlite3_bind_text name-only
+    cookbook_sqlite.gp:33:3 callee  C.sqlite3_bind_text
+7 path ::sqlite3_close name-only
+    cookbook_sqlite.gp:24:8 callee  C.sqlite3_close
+8 path ::sqlite3_column_int name-only
+    cookbook_sqlite.gp:45:66 callee  C.sqlite3_column_int
+9 path ::sqlite3_column_text name-only
+    cookbook_sqlite.gp:45:26 callee  C.sqlite3_column_text
+10 path ::sqlite3_errmsg name-only
+    cookbook_sqlite.gp:16:20 callee  C.sqlite3_errmsg
+11 path ::sqlite3_exec name-only
+    cookbook_sqlite.gp:26:12 callee  C.sqlite3_exec
+12 path ::sqlite3_finalize name-only
+    cookbook_sqlite.gp:38:2 callee  C.sqlite3_finalize
+    cookbook_sqlite.gp:47:2 callee  C.sqlite3_finalize
+13 path ::sqlite3_open name-only
+    cookbook_sqlite.gp:23:12 callee  C.sqlite3_open
+14 path ::sqlite3_prepare_v2 name-only
+    cookbook_sqlite.gp:30:12 callee  C.sqlite3_prepare_v2
+    cookbook_sqlite.gp:42:12 callee  C.sqlite3_prepare_v2
+15 path ::sqlite3_reset name-only
+    cookbook_sqlite.gp:36:3 callee  C.sqlite3_reset
+16 path ::sqlite3_step name-only
+    cookbook_sqlite.gp:35:13 callee  C.sqlite3_step
+    cookbook_sqlite.gp:44:6 callee  C.sqlite3_step
+17 path ::sqlite3_stmt
+    cookbook_sqlite.gp:29:11 type  C.sqlite3_stmt
+    cookbook_sqlite.gp:41:9 type  C.sqlite3_stmt
+18 path C.int
+    cookbook_sqlite.gp:14:36 type  C.int
+    cookbook_sqlite.gp:34:36 callee  C.int
+19 addr addr(arg&(star(::sqlite3)))
+    cookbook_sqlite.gp:23:45 arg  &db
+20 addr addr(arg&(star(::sqlite3_stmt)))
+    cookbook_sqlite.gp:30:84 arg  &ins
+    cookbook_sqlite.gp:42:106 arg  &q
+21 binary bin(!=|arg&(C.int)|::SQLITE_DONE)
+    cookbook_sqlite.gp:15:60 convert -> (ast: <nil>)  rc != C.SQLITE_DONE
+22 binary bin(!=|arg&(C.int)|::SQLITE_OK)
+    cookbook_sqlite.gp:15:5 convert -> (ast: <nil>)  rc != C.SQLITE_OK
+23 binary bin(!=|arg&(C.int)|::SQLITE_ROW)
+    cookbook_sqlite.gp:15:32 convert -> (ast: <nil>)  rc != C.SQLITE_ROW
+24 binary bin(==|call(::sqlite3_step|arg&(star(::sqlite3_stmt)))|::SQLITE_ROW)
+    cookbook_sqlite.gp:44:6 convert -> (ast: <nil>)  C.sqlite3_step(q) == C.SQLITE_ROW
+25 call call(::sqlite3_bind_int|arg&(star(::sqlite3_stmt)),lit(1),lit(10))
+    cookbook_sqlite.gp:43:2 stmt  C.sqlite3_bind_int(q, 1, 10)
+26 call call(::sqlite3_bind_int|arg&(star(::sqlite3_stmt)),lit(2),call(C.int|arg(go(int64_t))))
+    cookbook_sqlite.gp:34:3 stmt  C.sqlite3_bind_int(ins, 2, C.int((i + 1) * 10))
+27 call call(::sqlite3_bind_text|arg&(star(::sqlite3_stmt)),lit(1),arg(go(const char*)),lit((-1)),::SQLITE_TRANSIENT)
+    cookbook_sqlite.gp:33:3 stmt  C.sqlite3_bind_text(ins, 1, C.cstr(name), -1, C.SQLITE_TRANSIENT)
+28 call call(::sqlite3_close|arg&(star(::sqlite3)))
+    cookbook_sqlite.gp:24:8 stmt  C.sqlite3_close(db)
+29 call call(::sqlite3_column_int|arg&(star(::sqlite3_stmt)),lit(1))
+    cookbook_sqlite.gp:45:66 convert -> int  C.sqlite3_column_int(q, 1)
+30 call call(::sqlite3_column_text|arg&(star(::sqlite3_stmt)),lit(0))
+    cookbook_sqlite.gp:45:26 arg -> *gocpp/cgoh.char  C.sqlite3_column_text(q, 0)
+31 call call(::sqlite3_errmsg|arg&(star(::sqlite3)))
+    cookbook_sqlite.gp:16:20 arg -> *gocpp/cgoh.char  C.sqlite3_errmsg(db)
+32 call call(::sqlite3_exec|arg&(star(::sqlite3)),lit("CREATE TABLE fruit (name TEXT, qty INTEGER)"),lit(nullptr),lit(nullptr),lit(nullptr))
+    cookbook_sqlite.gp:26:12 arg  C.sqlite3_exec(db, "CREATE TABLE fruit (name TEXT, qty INTEGER)", nil, nil, nil)
+33 call call(::sqlite3_finalize|arg&(star(::sqlite3_stmt)))
+    cookbook_sqlite.gp:38:2 stmt  C.sqlite3_finalize(ins)
+    cookbook_sqlite.gp:47:2 stmt  C.sqlite3_finalize(q)
+34 call call(::sqlite3_open|lit(":memory:"),addr(arg&(star(::sqlite3))))
+    cookbook_sqlite.gp:23:12 arg  C.sqlite3_open(":memory:", &db)
+35 call call(::sqlite3_prepare_v2|arg&(star(::sqlite3)),lit("INSERT INTO fruit VALUES (\0771, \0772)"),lit((-1)),addr(arg&(star(::sqlite3_stmt))),lit(nullptr))
+    cookbook_sqlite.gp:30:12 arg  C.sqlite3_prepare_v2(db, "INSERT INTO fruit VALUES (?1, ?2)", -1, &ins, nil)
+36 call call(::sqlite3_prepare_v2|arg&(star(::sqlite3)),lit("SELECT name, qty FROM fruit WHERE qty > \0771 ORDER BY qty"),lit((-1)),addr(arg&(star(::sqlite3_stmt))),lit(nullptr))
+    cookbook_sqlite.gp:42:12 arg  C.sqlite3_prepare_v2(db, "SELECT name, qty FROM fruit WHERE qty > ?1 ORDER BY qty", -1, &q, nil)
+37 call call(::sqlite3_reset|arg&(star(::sqlite3_stmt)))
+    cookbook_sqlite.gp:36:3 stmt  C.sqlite3_reset(ins)
+38 call call(::sqlite3_step|arg&(star(::sqlite3_stmt)))
+    cookbook_sqlite.gp:35:13 arg  C.sqlite3_step(ins)
+    cookbook_sqlite.gp:44:6 operand  C.sqlite3_step(q)
+39 call call(C.int|arg(go(int64_t)))
+    cookbook_sqlite.gp:34:36 arg  C.int((i + 1) * 10)
+40 call call(go(int64_t)|call(::sqlite3_column_int|arg&(star(::sqlite3_stmt)),lit(1)))
+    cookbook_sqlite.gp:45:62 arg -> any  int(C.sqlite3_column_int(q, 1))
+41 deref star(::sqlite3)
+    cookbook_sqlite.gp:14:15 type  *C.sqlite3
+    cookbook_sqlite.gp:22:9 type  *C.sqlite3
+42 deref star(::sqlite3_stmt)
+    cookbook_sqlite.gp:29:10 type  *C.sqlite3_stmt
+    cookbook_sqlite.gp:41:8 type  *C.sqlite3_stmt

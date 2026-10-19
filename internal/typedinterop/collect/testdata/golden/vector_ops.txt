@@ -1,0 +1,171 @@
+0 binary bin(!=|arg&(decay(call(sel(arg&(index(std::vector|go(int64_t)))|begin)|)))|call(sel(arg&(index(std::vector|go(int64_t)))|end)|))
+    vector_ops.gp:32:23 convert -> (ast: <nil>)  it != v.end()
+1 binary bin(!=|index(arg&(decay(call(index(std::vector|unknown(Go type *command-line-arguments.Node))|lit(2),lit(nullptr))))|lit(0))|lit(nullptr)) incomplete(Go type *command-line-arguments.Node)
+    vector_ops.gp:49:59 convert -> (ast: <nil>)  nodes[0] != nil
+2 binary bin(-|call(sel(arg&(index(std::vector|go(int64_t)))|end)|)|call(sel(arg&(index(std::vector|go(int64_t)))|begin)|))
+    vector_ops.gp:39:52 convert -> int  v.end() - v.begin()
+3 binary bin(-|call(sel(arg&(index(std::vector|go(int64_t)))|end)|)|lit(1))
+    vector_ops.gp:39:33 operand  v.end() - 1
+4 binary bin(==|arg&(decay(index(arg&(decay(call(index(std::vector|unknown(Go type *command-line-arguments.Node))|lit(2),lit(nullptr))))|lit(0))))|index(arg&(decay(call(index(std::vector|unknown(Go type *command-line-arguments.Node))|lit(2),lit(nullptr))))|lit(0))) incomplete(Go type *command-line-arguments.Node)
+    vector_ops.gp:51:40 convert -> (ast: <nil>)  n == nodes[0]
+5 binary bin(==|call(sel(arg&(index(std::vector|go(int64_t)))|empty)|)|lit(true))
+    vector_ops.gp:42:34 convert -> (ast: <nil>)  v.empty() == true
+6 binary bin(==|index(arg&(decay(call(index(std::vector|unknown(Go type *command-line-arguments.Node))|lit(2),lit(nullptr))))|lit(0))|arg&(decay(index(arg&(decay(call(index(std::vector|unknown(Go type *command-line-arguments.Node))|lit(2),lit(nullptr))))|lit(0))))) incomplete(Go type *command-line-arguments.Node)
+    vector_ops.gp:51:19 convert -> (ast: <nil>)  nodes[0] == n
+7 binary bin(==|index(arg&(decay(call(index(std::vector|unknown(Go type *command-line-arguments.Node))|lit(2),lit(nullptr))))|lit(1))|lit(nullptr)) incomplete(Go type *command-line-arguments.Node)
+    vector_ops.gp:49:36 convert -> (ast: <nil>)  nodes[1] == nil
+8 call call(go(bool)|call(sel(arg&(index(std::vector|go(int64_t)))|empty)|))
+    vector_ops.gp:25:47 arg -> any  bool(v.empty())
+9 call call(go(int64_t)|bin(-|call(sel(arg&(index(std::vector|go(int64_t)))|end)|)|call(sel(arg&(index(std::vector|go(int64_t)))|begin)|)))
+    vector_ops.gp:39:48 arg -> any  int(v.end() - v.begin())
+10 call call(go(int64_t)|call(sel(arg&(index(std::vector|go(int64_t)))|at)|lit(2)))
+    vector_ops.gp:20:51 arg -> any  int(v.at(2))
+11 call call(go(int64_t)|call(sel(arg&(index(std::vector|go(int64_t)))|back)|))
+    vector_ops.gp:20:81 arg -> any  int(v.back())
+12 call call(go(int64_t)|call(sel(arg&(index(std::vector|go(int64_t)))|front)|))
+    vector_ops.gp:20:65 arg -> any  int(v.front())
+13 call call(go(int64_t)|call(sel(arg&(index(std::vector|go(int64_t)))|size)|))
+    vector_ops.gp:20:14 arg -> any  int(v.size())
+    vector_ops.gp:42:14 arg -> any  int(v.size())
+14 call call(go(int64_t)|index(arg&(index(std::vector|go(int64_t)))|lit(0)))
+    vector_ops.gp:20:29 arg -> any  int(v[0])
+    vector_ops.gp:29:14 arg -> any  int(v[0])
+15 call call(go(int64_t)|index(arg&(index(std::vector|go(int64_t)))|lit(1)))
+    vector_ops.gp:25:14 arg -> any  int(v[1])
+    vector_ops.gp:29:25 arg -> any  int(v[1])
+16 call call(go(int64_t)|index(arg&(index(std::vector|go(int64_t)))|lit(2)))
+    vector_ops.gp:25:25 arg -> any  int(v[2])
+17 call call(go(int64_t)|index(arg&(index(std::vector|go(int64_t)))|lit(3)))
+    vector_ops.gp:25:36 arg -> any  int(v[3])
+18 call call(go(int64_t)|index(arg&(index(std::vector|go(int64_t)))|lit(5)))
+    vector_ops.gp:20:40 arg -> any  int(v[5])
+19 call call(go(int64_t)|sel(index(arg&(decay(call(index(std::vector|unknown(Go type *command-line-arguments.Node))|lit(2),lit(nullptr))))|lit(0))|N)) incomplete(Go type *command-line-arguments.Node)
+    vector_ops.gp:49:14 arg -> any  int(nodes[0].N)
+20 call call(go(int64_t)|star(arg&(decay(call(sel(arg&(index(std::vector|go(int64_t)))|begin)|)))))
+    vector_ops.gp:33:10 assign -> int  int(*it)
+    vector_ops.gp:39:14 arg -> any  int(*first)
+21 call call(go(int64_t)|star(paren(bin(-|call(sel(arg&(index(std::vector|go(int64_t)))|end)|)|lit(1)))))
+    vector_ops.gp:39:27 arg -> any  int(*(v.end() - 1))
+22 call call(index(std::vector|unknown(Go type *command-line-arguments.Node))|lit(2),lit(nullptr)) incomplete(Go type *command-line-arguments.Node)
+    vector_ops.gp:45:11 init  C.std.vector[*Node](2, nil)
+23 call call(sel(arg&(index(std::vector|go(int64_t)))|at)|lit(2))
+    vector_ops.gp:20:55 convert -> int  v.at(2)
+24 call call(sel(arg&(index(std::vector|go(int64_t)))|back)|)
+    vector_ops.gp:20:85 convert -> int  v.back()
+25 call call(sel(arg&(index(std::vector|go(int64_t)))|begin)|)
+    vector_ops.gp:32:12 init  v.begin()
+    vector_ops.gp:36:11 arg  v.begin()
+    vector_ops.gp:37:11 init  v.begin()
+    vector_ops.gp:39:60 operand  v.begin()
+26 call call(sel(arg&(index(std::vector|go(int64_t)))|clear)|)
+    vector_ops.gp:41:2 stmt  v.clear()
+27 call call(sel(arg&(index(std::vector|go(int64_t)))|empty)|)
+    vector_ops.gp:25:52 convert -> bool  v.empty()
+    vector_ops.gp:42:34 operand  v.empty()
+28 call call(sel(arg&(index(std::vector|go(int64_t)))|end)|)
+    vector_ops.gp:32:29 operand  v.end()
+    vector_ops.gp:36:22 arg  v.end()
+    vector_ops.gp:39:33 operand  v.end()
+    vector_ops.gp:39:52 operand  v.end()
+29 call call(sel(arg&(index(std::vector|go(int64_t)))|front)|)
+    vector_ops.gp:20:69 convert -> int  v.front()
+30 call call(sel(arg&(index(std::vector|go(int64_t)))|pop_back)|)
+    vector_ops.gp:40:2 stmt  v.pop_back()
+31 call call(sel(arg&(index(std::vector|go(int64_t)))|push_back)|arg(go(int64_t)))
+    vector_ops.gp:17:3 stmt  v.push_back(i * 10)
+32 call call(sel(arg&(index(std::vector|go(int64_t)))|push_back)|lit(7))
+    vector_ops.gp:19:2 stmt  v.push_back(7)
+33 call call(sel(arg&(index(std::vector|go(int64_t)))|size)|)
+    vector_ops.gp:20:18 convert -> int  v.size()
+    vector_ops.gp:42:18 convert -> int  v.size()
+34 call call(std::sort|call(sel(arg&(index(std::vector|go(int64_t)))|begin)|),call(sel(arg&(index(std::vector|go(int64_t)))|end)|))
+    vector_ops.gp:36:2 stmt  C.std.sort(v.begin(), v.end())
+35 local decay(call(index(std::vector|unknown(Go type *command-line-arguments.Node))|lit(2),lit(nullptr))) incomplete(Go type *command-line-arguments.Node)
+    vector_ops.gp:45:2 init  nodes
+36 local decay(call(sel(arg&(index(std::vector|go(int64_t)))|begin)|))
+    vector_ops.gp:32:6 init  it
+    vector_ops.gp:37:2 init  first
+37 local decay(index(arg&(decay(call(index(std::vector|unknown(Go type *command-line-arguments.Node))|lit(2),lit(nullptr))))|lit(0))) incomplete(Go type *command-line-arguments.Node)
+    vector_ops.gp:50:2 init  n
+38 index index(arg&(decay(call(index(std::vector|unknown(Go type *command-line-arguments.Node))|lit(2),lit(nullptr))))|lit(0)) incomplete(Go type *command-line-arguments.Node)
+    vector_ops.gp:46:2 assign  nodes[0]
+    vector_ops.gp:47:2 member  nodes[0]
+    vector_ops.gp:48:2 member  nodes[0]
+    vector_ops.gp:49:18 member  nodes[0]
+    vector_ops.gp:49:59 operand  nodes[0]
+    vector_ops.gp:50:7 init  nodes[0]
+    vector_ops.gp:51:19 operand  nodes[0]
+    vector_ops.gp:51:45 operand  nodes[0]
+39 index index(arg&(decay(call(index(std::vector|unknown(Go type *command-line-arguments.Node))|lit(2),lit(nullptr))))|lit(1)) incomplete(Go type *command-line-arguments.Node)
+    vector_ops.gp:49:36 operand  nodes[1]
+40 index index(arg&(index(std::vector|go(int64_t)))|arg&(go(int64_t)))
+    vector_ops.gp:23:2 assign  v[i]
+    vector_ops.gp:28:5 assign  v[j]
+41 index index(arg&(index(std::vector|go(int64_t)))|arg(go(int64_t)))
+    vector_ops.gp:24:2 stmt  v[i + 1]
+42 index index(arg&(index(std::vector|go(int64_t)))|lit(0))
+    vector_ops.gp:20:33 convert -> int  v[0]
+    vector_ops.gp:26:2 assign  v[0]
+    vector_ops.gp:26:21 assign  v[0]
+    vector_ops.gp:29:18 convert -> int  v[0]
+43 index index(arg&(index(std::vector|go(int64_t)))|lit(1))
+    vector_ops.gp:21:2 assign  v[1]
+    vector_ops.gp:25:18 convert -> int  v[1]
+    vector_ops.gp:26:8 assign  v[1]
+    vector_ops.gp:26:15 assign  v[1]
+    vector_ops.gp:29:29 convert -> int  v[1]
+44 index index(arg&(index(std::vector|go(int64_t)))|lit(2))
+    vector_ops.gp:25:29 convert -> int  v[2]
+45 index index(arg&(index(std::vector|go(int64_t)))|lit(3))
+    vector_ops.gp:25:40 convert -> int  v[3]
+46 index index(arg&(index(std::vector|go(int64_t)))|lit(5))
+    vector_ops.gp:20:44 convert -> int  v[5]
+47 index index(std::vector|go(int64_t))
+    vector_ops.gp:15:8 type  C.std.vector[int]
+48 index index(std::vector|unknown(Go type *command-line-arguments.Node)) incomplete(Go type *command-line-arguments.Node) name-only
+    vector_ops.gp:45:11 callee  C.std.vector[*Node]
+49 paren paren(bin(-|call(sel(arg&(index(std::vector|go(int64_t)))|end)|)|lit(1)))
+    vector_ops.gp:39:32 operand  (v.end() - 1)
+50 member sel(arg&(index(std::vector|go(int64_t)))|at) name-only
+    vector_ops.gp:20:55 callee  v.at
+51 member sel(arg&(index(std::vector|go(int64_t)))|back) name-only
+    vector_ops.gp:20:85 callee  v.back
+52 member sel(arg&(index(std::vector|go(int64_t)))|begin) name-only
+    vector_ops.gp:32:12 callee  v.begin
+    vector_ops.gp:36:11 callee  v.begin
+    vector_ops.gp:37:11 callee  v.begin
+    vector_ops.gp:39:60 callee  v.begin
+53 member sel(arg&(index(std::vector|go(int64_t)))|clear) name-only
+    vector_ops.gp:41:2 callee  v.clear
+54 member sel(arg&(index(std::vector|go(int64_t)))|empty) name-only
+    vector_ops.gp:25:52 callee  v.empty
+    vector_ops.gp:42:34 callee  v.empty
+55 member sel(arg&(index(std::vector|go(int64_t)))|end) name-only
+    vector_ops.gp:32:29 callee  v.end
+    vector_ops.gp:36:22 callee  v.end
+    vector_ops.gp:39:33 callee  v.end
+    vector_ops.gp:39:52 callee  v.end
+56 member sel(arg&(index(std::vector|go(int64_t)))|front) name-only
+    vector_ops.gp:20:69 callee  v.front
+57 member sel(arg&(index(std::vector|go(int64_t)))|pop_back) name-only
+    vector_ops.gp:40:2 callee  v.pop_back
+58 member sel(arg&(index(std::vector|go(int64_t)))|push_back) name-only
+    vector_ops.gp:17:3 callee  v.push_back
+    vector_ops.gp:19:2 callee  v.push_back
+59 member sel(arg&(index(std::vector|go(int64_t)))|size) name-only
+    vector_ops.gp:20:18 callee  v.size
+    vector_ops.gp:42:18 callee  v.size
+60 member sel(index(arg&(decay(call(index(std::vector|unknown(Go type *command-line-arguments.Node))|lit(2),lit(nullptr))))|lit(0))|N) incomplete(Go type *command-line-arguments.Node)
+    vector_ops.gp:47:2 stmt  nodes[0].N
+    vector_ops.gp:48:2 assign  nodes[0].N
+    vector_ops.gp:49:18 convert -> int  nodes[0].N
+61 deref star(arg&(decay(call(sel(arg&(index(std::vector|go(int64_t)))|begin)|))))
+    vector_ops.gp:33:14 convert -> int  *it
+    vector_ops.gp:39:18 convert -> int  *first
+62 deref star(paren(bin(-|call(sel(arg&(index(std::vector|go(int64_t)))|end)|)|lit(1))))
+    vector_ops.gp:39:31 convert -> int  *(v.end() - 1)
+63 path std::sort name-only
+    vector_ops.gp:36:2 callee  C.std.sort
+64 path std::vector name-only
+    vector_ops.gp:15:8 template  C.std.vector
+    vector_ops.gp:45:11 template  C.std.vector

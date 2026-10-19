@@ -1,0 +1,478 @@
+0 path C.int
+    cxx_containers.gp:50:26 index  C.int
+    cxx_containers.gp:52:17 type  C.int
+    cxx_containers.gp:105:47 type  C.int
+    cxx_containers.gp:105:54 type  C.int
+    cxx_containers.gp:105:61 type  C.int
+    cxx_containers.gp:106:25 type  C.int
+    cxx_containers.gp:106:32 type  C.int
+    cxx_containers.gp:107:25 type  C.int
+    cxx_containers.gp:107:32 type  C.int
+1 binary bin(*|arg&(C.int)|arg&(C.int))
+    cxx_containers.gp:107:47 return  a * b
+2 binary bin(+|arg&(C.int)|arg&(C.int))
+    cxx_containers.gp:106:47 return  a + b
+3 binary bin(<<|arg&(std::stringstream)|lit("n="))
+    cxx_containers.gp:102:6 operand  ss << "n="
+4 binary bin(<<|bin(<<|arg&(std::stringstream)|lit("n="))|lit(5))
+    cxx_containers.gp:102:6 operand  ss << "n=" << 5
+5 binary bin(<<|bin(<<|bin(<<|arg&(std::stringstream)|lit("n="))|lit(5))|lit(' '))
+    cxx_containers.gp:102:6 operand  ss << "n=" << 5 << ' '
+6 binary bin(<<|bin(<<|bin(<<|bin(<<|arg&(std::stringstream)|lit("n="))|lit(5))|lit(' '))|call(std::string|lit("s")))
+    cxx_containers.gp:102:6 assign  ss << "n=" << 5 << ' ' << C.std.string("s")
+7 binary bin(==|call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|find)|lit(9))|call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|end)|))
+    cxx_containers.gp:42:38 convert -> (ast: <nil>)  s.find(9) == s.end()
+8 call call(go(bool)|call(sel(arg&(index(std::queue|std::string))|empty)|))
+    cxx_containers.gp:84:34 arg -> any  bool(qu.empty())
+9 call call(go(double)|call(index(std::get|lit(2))|arg&(decay(call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5))))))
+    cxx_containers.gp:49:57 arg -> any  float64(C.std.get[2](t))
+10 call call(go(int64_t)|arg&(decay(rangeval(arg&(decay(lit{index(std::list|go(int64_t))|lit(3),lit(1),lit(2)}))))))
+    cxx_containers.gp:69:13 arg -> any  int(x)
+11 call call(go(int64_t)|arg&(decay(rangeval(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))))))
+    cxx_containers.gp:39:13 arg -> any  int(x)
+12 call call(go(int64_t)|arg&(decay(rangeval(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))))))
+    cxx_containers.gp:56:10 assign -> int  int(x)
+13 call call(go(int64_t)|arg&(decay(tuple(call(std::minmax|lit(17),lit(5))|0))))
+    cxx_containers.gp:46:14 arg -> any  int(lo)
+14 call call(go(int64_t)|arg&(decay(tuple(call(std::minmax|lit(17),lit(5))|1))))
+    cxx_containers.gp:46:23 arg -> any  int(hi)
+15 call call(go(int64_t)|call(index(arg&(decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}))|lit("add"))|lit(3),lit(4))) incomplete(type func(C.int, C.int) C.int)
+    cxx_containers.gp:108:14 arg -> any  int(ops["add"](3, 4))
+16 call call(go(int64_t)|call(index(arg&(decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}))|lit("mul"))|lit(3),lit(4))) incomplete(type func(C.int, C.int) C.int)
+    cxx_containers.gp:108:37 arg -> any  int(ops["mul"](3, 4))
+17 call call(go(int64_t)|call(index(std::get|C.int)|arg&(decay(call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5))))))
+    cxx_containers.gp:50:14 arg -> any  int(C.std.get[C.int](t))
+18 call call(go(int64_t)|call(index(std::get|lit(0))|arg&(decay(call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5))))))
+    cxx_containers.gp:49:14 arg -> any  int(C.std.get[0](t))
+19 call call(go(int64_t)|call(sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|count)|))
+    cxx_containers.gp:95:14 arg -> any  int(bs.count())
+20 call call(go(int64_t)|call(sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|find)|lit("o")))
+    cxx_containers.gp:99:52 arg -> any  int(sv.find("o"))
+21 call call(go(int64_t)|call(sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|size)|))
+    cxx_containers.gp:99:14 arg -> any  int(sv.size())
+22 call call(go(int64_t)|call(sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|back)|))
+    cxx_containers.gp:64:30 arg -> any  int(d.back())
+23 call call(go(int64_t)|call(sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|front)|))
+    cxx_containers.gp:64:14 arg -> any  int(d.front())
+24 call call(go(int64_t)|call(sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|size)|))
+    cxx_containers.gp:64:56 arg -> any  int(d.size())
+25 call call(go(int64_t)|call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|count)|lit(5)))
+    cxx_containers.gp:42:60 arg -> any  int(s.count(5))
+26 call call(go(int64_t)|call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|erase)|lit(1)))
+    cxx_containers.gp:42:77 arg -> any  int(s.erase(1))
+27 call call(go(int64_t)|call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|size)|))
+    cxx_containers.gp:37:14 arg -> any  int(s.size())
+28 call call(go(int64_t)|call(sel(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|back)|))
+    cxx_containers.gp:58:45 arg -> any  int(a.back())
+29 call call(go(int64_t)|call(sel(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|front)|))
+    cxx_containers.gp:58:29 arg -> any  int(a.front())
+30 call call(go(int64_t)|call(sel(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|size)|))
+    cxx_containers.gp:58:14 arg -> any  int(a.size())
+31 call call(go(int64_t)|call(sel(arg&(decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}))|size)|)) incomplete(type func(C.int, C.int) C.int)
+    cxx_containers.gp:108:60 arg -> any  int(ops.size())
+32 call call(go(int64_t)|call(sel(arg&(index(std::priority_queue|go(int64_t)))|size)|))
+    cxx_containers.gp:91:29 arg -> any  int(pq.size())
+33 call call(go(int64_t)|call(sel(arg&(index(std::priority_queue|go(int64_t)))|top)|))
+    cxx_containers.gp:89:14 arg -> any  int(pq.top())
+    cxx_containers.gp:91:14 arg -> any  int(pq.top())
+34 call call(go(int64_t)|call(sel(arg&(index(std::stack|go(int64_t)))|size)|))
+    cxx_containers.gp:76:29 arg -> any  int(st.size())
+35 call call(go(int64_t)|call(sel(arg&(index(std::stack|go(int64_t)))|top)|))
+    cxx_containers.gp:76:14 arg -> any  int(st.top())
+    cxx_containers.gp:78:14 arg -> any  int(st.top())
+36 call call(go(int64_t)|call(std::size|arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))))
+    cxx_containers.gp:58:65 arg -> any  int(C.std.size(a))
+37 call call(go(int64_t)|index(arg&(decay(lit{index(std::deque|go(int64_t))|}))|lit(1)))
+    cxx_containers.gp:64:45 arg -> any  int(d[1])
+38 call call(go(int64_t)|index(std::tuple_size_v|inst(std::tuple|go(int64_t),go(int64_t),go(int64_t))))
+    cxx_containers.gp:50:38 arg -> any  int(C.std.tuple_size_v[C.std.tuple[int, int, int]])
+39 call call(go(int64_t)|sel(arg&(decay(call(unknown(no complete type for divmod)|arg(go(int64_t)),arg(go(int64_t)))))|first)) incomplete(no complete type for divmod)
+    cxx_containers.gp:46:32 arg -> any  int(pr.first)
+40 call call(go(int64_t)|sel(arg&(decay(call(unknown(no complete type for divmod)|arg(go(int64_t)),arg(go(int64_t)))))|second)) incomplete(no complete type for divmod)
+    cxx_containers.gp:46:47 arg -> any  int(pr.second)
+41 call call(go(int64_t)|star(call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|lower_bound)|lit(2))))
+    cxx_containers.gp:42:14 arg -> any  int(*s.lower_bound(2))
+42 call call(go(int64_t)|star(sel(arg&(decay(call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert)|lit(4))))|first)))
+    cxx_containers.gp:37:50 arg -> any  int(*r2.first)
+43 call call(index(arg&(decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}))|lit("add"))|lit(3),lit(4)) incomplete(type func(C.int, C.int) C.int)
+    cxx_containers.gp:108:18 convert -> int  ops["add"](3, 4)
+44 call call(index(arg&(decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}))|lit("mul"))|lit(3),lit(4)) incomplete(type func(C.int, C.int) C.int)
+    cxx_containers.gp:108:41 convert -> int  ops["mul"](3, 4)
+45 call call(index(std::bitset|lit(8))|lit(11))
+    cxx_containers.gp:93:8 init  C.std.bitset[8](0b1011)
+46 call call(index(std::get|C.int)|arg&(decay(call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5)))))
+    cxx_containers.gp:50:18 convert -> int  C.std.get[C.int](t)
+47 call call(index(std::get|lit(0))|arg&(decay(call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5)))))
+    cxx_containers.gp:49:18 convert -> int  C.std.get[0](t)
+48 call call(index(std::get|lit(1))|arg&(decay(call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5)))))
+    cxx_containers.gp:49:41 convert -> string  C.std.get[1](t)
+49 call call(index(std::get|lit(2))|arg&(decay(call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5)))))
+    cxx_containers.gp:49:65 convert -> float64  C.std.get[2](t)
+50 call call(sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|count)|)
+    cxx_containers.gp:95:18 convert -> int  bs.count()
+51 call call(sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|set)|lit(7))
+    cxx_containers.gp:94:2 stmt  bs.set(7)
+52 call call(sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|test)|lit(1))
+    cxx_containers.gp:95:31 arg -> any  bs.test(1)
+53 call call(sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|test)|lit(2))
+    cxx_containers.gp:95:43 arg -> any  bs.test(2)
+54 call call(sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|to_string)|)
+    cxx_containers.gp:95:62 convert -> string  bs.to_string()
+55 call call(sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|find)|lit("o"))
+    cxx_containers.gp:99:56 convert -> int  sv.find("o")
+56 call call(sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|size)|)
+    cxx_containers.gp:99:18 convert -> int  sv.size()
+57 call call(sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|starts_with)|lit("hell"))
+    cxx_containers.gp:99:71 arg -> any  sv.starts_with("hell")
+58 call call(sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|substr)|lit(6))
+    cxx_containers.gp:99:37 convert -> string  sv.substr(6)
+59 call call(sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|back)|)
+    cxx_containers.gp:64:34 convert -> int  d.back()
+60 call call(sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|front)|)
+    cxx_containers.gp:64:18 convert -> int  d.front()
+61 call call(sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|push_back)|lit(2))
+    cxx_containers.gp:61:2 stmt  d.push_back(2)
+62 call call(sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|push_back)|lit(3))
+    cxx_containers.gp:63:2 stmt  d.push_back(3)
+63 call call(sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|push_front)|lit(1))
+    cxx_containers.gp:62:2 stmt  d.push_front(1)
+64 call call(sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|size)|)
+    cxx_containers.gp:64:60 convert -> int  d.size()
+65 call call(sel(arg&(decay(lit{index(std::list|go(int64_t))|lit(3),lit(1),lit(2)}))|push_front)|lit(0))
+    cxx_containers.gp:67:2 stmt  l.push_front(0)
+66 call call(sel(arg&(decay(lit{index(std::list|go(int64_t))|lit(3),lit(1),lit(2)}))|sort)|)
+    cxx_containers.gp:66:2 stmt  l.sort()
+67 call call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|count)|lit(5))
+    cxx_containers.gp:42:64 convert -> int  s.count(5)
+68 call call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|end)|)
+    cxx_containers.gp:42:51 operand  s.end()
+69 call call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|erase)|lit(1))
+    cxx_containers.gp:42:81 convert -> int  s.erase(1)
+70 call call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|find)|lit(9))
+    cxx_containers.gp:42:38 operand  s.find(9)
+71 call call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert)|lit(3))
+    cxx_containers.gp:35:7 init  s.insert(3)
+72 call call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert)|lit(4))
+    cxx_containers.gp:36:8 init  s.insert(4)
+73 call call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|lower_bound)|lit(2))
+    cxx_containers.gp:42:19 operand  s.lower_bound(2)
+74 call call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|size)|)
+    cxx_containers.gp:37:18 convert -> int  s.size()
+75 call call(sel(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|back)|)
+    cxx_containers.gp:58:49 convert -> int  a.back()
+76 call call(sel(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|front)|)
+    cxx_containers.gp:58:33 convert -> int  a.front()
+77 call call(sel(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|size)|)
+    cxx_containers.gp:58:18 convert -> int  a.size()
+78 call call(sel(arg&(decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}))|size)|) incomplete(type func(C.int, C.int) C.int)
+    cxx_containers.gp:108:64 convert -> int  ops.size()
+79 call call(sel(arg&(index(std::priority_queue|go(int64_t)))|pop)|)
+    cxx_containers.gp:90:2 stmt  pq.pop()
+80 call call(sel(arg&(index(std::priority_queue|go(int64_t)))|push)|arg&(go(int64_t)))
+    cxx_containers.gp:87:3 stmt  pq.push(x)
+81 call call(sel(arg&(index(std::priority_queue|go(int64_t)))|size)|)
+    cxx_containers.gp:91:33 convert -> int  pq.size()
+82 call call(sel(arg&(index(std::priority_queue|go(int64_t)))|top)|)
+    cxx_containers.gp:89:18 convert -> int  pq.top()
+    cxx_containers.gp:91:18 convert -> int  pq.top()
+83 call call(sel(arg&(index(std::queue|std::string))|back)|)
+    cxx_containers.gp:82:41 convert -> string  qu.back()
+84 call call(sel(arg&(index(std::queue|std::string))|empty)|)
+    cxx_containers.gp:84:39 convert -> bool  qu.empty()
+85 call call(sel(arg&(index(std::queue|std::string))|front)|)
+    cxx_containers.gp:82:21 convert -> string  qu.front()
+    cxx_containers.gp:84:21 convert -> string  qu.front()
+86 call call(sel(arg&(index(std::queue|std::string))|pop)|)
+    cxx_containers.gp:83:2 stmt  qu.pop()
+87 call call(sel(arg&(index(std::queue|std::string))|push)|lit("a"))
+    cxx_containers.gp:80:2 stmt  qu.push("a")
+88 call call(sel(arg&(index(std::queue|std::string))|push)|lit("b"))
+    cxx_containers.gp:81:2 stmt  qu.push("b")
+89 call call(sel(arg&(index(std::stack|go(int64_t)))|pop)|)
+    cxx_containers.gp:77:2 stmt  st.pop()
+90 call call(sel(arg&(index(std::stack|go(int64_t)))|push)|lit(1))
+    cxx_containers.gp:74:2 stmt  st.push(1)
+91 call call(sel(arg&(index(std::stack|go(int64_t)))|push)|lit(2))
+    cxx_containers.gp:75:2 stmt  st.push(2)
+92 call call(sel(arg&(index(std::stack|go(int64_t)))|size)|)
+    cxx_containers.gp:76:33 convert -> int  st.size()
+93 call call(sel(arg&(index(std::stack|go(int64_t)))|top)|)
+    cxx_containers.gp:76:18 convert -> int  st.top()
+    cxx_containers.gp:78:18 convert -> int  st.top()
+94 call call(sel(arg&(std::stringstream)|str)|)
+    cxx_containers.gp:103:21 convert -> string  ss.str()
+95 call call(stand:string()|call(index(std::get|lit(1))|arg&(decay(call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5))))))
+    cxx_containers.gp:49:34 arg -> any  string(C.std.get[1](t))
+96 call call(stand:string()|call(sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|to_string)|))
+    cxx_containers.gp:95:55 arg -> any  string(bs.to_string())
+97 call call(stand:string()|call(sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|substr)|lit(6)))
+    cxx_containers.gp:99:30 arg -> any  string(sv.substr(6))
+98 call call(stand:string()|call(sel(arg&(index(std::queue|std::string))|back)|))
+    cxx_containers.gp:82:34 arg -> any  string(qu.back())
+99 call call(stand:string()|call(sel(arg&(index(std::queue|std::string))|front)|))
+    cxx_containers.gp:82:14 arg -> any  string(qu.front())
+    cxx_containers.gp:84:14 arg -> any  string(qu.front())
+100 call call(stand:string()|call(sel(arg&(std::stringstream)|str)|))
+    cxx_containers.gp:103:14 arg -> any  string(ss.str())
+101 call call(std::make_pair|arg(go(int64_t)),arg(go(int64_t)))
+    cxx_containers.gp:30:9 return  C.std.make_pair(a / b, a % b)
+102 call call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5))
+    cxx_containers.gp:48:7 init  C.std.make_tuple(1, C.std.string("two"), 3.5)
+103 call call(std::minmax|lit(17),lit(5))
+    cxx_containers.gp:44:12 init  C.std.minmax(17, 5)
+104 call call(std::size|arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)})))
+    cxx_containers.gp:58:69 convert -> int  C.std.size(a)
+105 call call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))
+    cxx_containers.gp:98:8 init  C.std.string_view(text)
+106 call call(std::string|lit("hello world"))
+    cxx_containers.gp:97:10 init  C.std.string("hello world")
+107 call call(std::string|lit("s"))
+    cxx_containers.gp:102:32 operand  C.std.string("s")
+108 call call(std::string|lit("two"))
+    cxx_containers.gp:48:25 arg  C.std.string("two")
+109 call call(unknown(no complete type for divmod)|arg(go(int64_t)),arg(go(int64_t))) incomplete(no complete type for divmod)
+    cxx_containers.gp:45:8 init  divmod(9, 4)
+110 local decay(call(index(std::bitset|lit(8))|lit(11)))
+    cxx_containers.gp:93:2 init  bs
+111 local decay(call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert)|lit(3)))
+    cxx_containers.gp:35:2 init  r
+112 local decay(call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert)|lit(4)))
+    cxx_containers.gp:36:2 init  r2
+113 local decay(call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5)))
+    cxx_containers.gp:48:2 init  t
+114 local decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world"))))))
+    cxx_containers.gp:98:2 init  sv
+115 local decay(call(std::string|lit("hello world")))
+    cxx_containers.gp:97:2 init  text
+116 local decay(call(unknown(no complete type for divmod)|arg(go(int64_t)),arg(go(int64_t)))) incomplete(no complete type for divmod)
+    cxx_containers.gp:45:2 init  pr
+117 local decay(lit{index(std::deque|go(int64_t))|})
+    cxx_containers.gp:60:2 init  d
+118 local decay(lit{index(std::list|go(int64_t))|lit(3),lit(1),lit(2)})
+    cxx_containers.gp:65:2 init  l
+119 local decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)})
+    cxx_containers.gp:34:2 init  s
+120 local decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)})
+    cxx_containers.gp:52:2 init  a
+121 local decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}) incomplete(type func(C.int, C.int) C.int)
+    cxx_containers.gp:105:2 init  ops
+122 local decay(rangeval(arg&(decay(lit{index(std::list|go(int64_t))|lit(3),lit(1),lit(2)}))))
+    cxx_containers.gp:68:9 init  x
+123 local decay(rangeval(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))))
+    cxx_containers.gp:38:9 init  x
+124 local decay(rangeval(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))))
+    cxx_containers.gp:55:9 init  x
+125 local decay(tuple(call(std::minmax|lit(17),lit(5))|0))
+    cxx_containers.gp:44:2 init  lo
+126 local decay(tuple(call(std::minmax|lit(17),lit(5))|1))
+    cxx_containers.gp:44:6 init  hi
+127 index index(arg&(decay(lit{index(std::deque|go(int64_t))|}))|lit(1))
+    cxx_containers.gp:64:49 convert -> int  d[1]
+128 index index(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|lit(2))
+    cxx_containers.gp:53:2 assign  a[2]
+129 index index(arg&(decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}))|lit("add")) incomplete(type func(C.int, C.int) C.int)
+    cxx_containers.gp:106:2 assign  ops["add"]
+    cxx_containers.gp:108:18 callee  ops["add"]
+130 index index(arg&(decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}))|lit("mul")) incomplete(type func(C.int, C.int) C.int)
+    cxx_containers.gp:107:2 assign  ops["mul"]
+    cxx_containers.gp:108:41 callee  ops["mul"]
+131 index index(std::bitset|lit(8)) name-only
+    cxx_containers.gp:93:8 callee  C.std.bitset[8]
+132 index index(std::deque|go(int64_t))
+    cxx_containers.gp:60:7 type  C.std.deque[int]
+133 index index(std::function|unknown(type func(C.int, C.int) C.int)) incomplete(type func(C.int, C.int) C.int)
+    cxx_containers.gp:105:29 type  C.std.function[func(C.int, C.int) C.int]
+134 index index(std::get|C.int) name-only
+    cxx_containers.gp:50:18 callee  C.std.get[C.int]
+135 index index(std::get|lit(0)) name-only
+    cxx_containers.gp:49:18 callee  C.std.get[0]
+136 index index(std::get|lit(1)) name-only
+    cxx_containers.gp:49:41 callee  C.std.get[1]
+137 index index(std::get|lit(2)) name-only
+    cxx_containers.gp:49:65 callee  C.std.get[2]
+138 index index(std::list|go(int64_t))
+    cxx_containers.gp:65:7 type  C.std.list[int]
+139 index index(std::priority_queue|go(int64_t))
+    cxx_containers.gp:85:9 type  C.std.priority_queue[int]
+140 index index(std::queue|std::string)
+    cxx_containers.gp:79:9 type  C.std.queue[C.std.string]
+141 index index(std::set|go(int64_t))
+    cxx_containers.gp:34:7 type  C.std.set[int]
+142 index index(std::stack|go(int64_t))
+    cxx_containers.gp:73:9 type  C.std.stack[int]
+143 index index(std::tuple_size_v|inst(std::tuple|go(int64_t),go(int64_t),go(int64_t)))
+    cxx_containers.gp:50:42 convert -> int  C.std.tuple_size_v[C.std.tuple[int, int, int]]
+144 inst inst(std::array|C.int,lit(4))
+    cxx_containers.gp:52:7 type  C.std.array[C.int, 4]
+145 inst inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int))) incomplete(type func(C.int, C.int) C.int)
+    cxx_containers.gp:105:9 type  C.std.map[C.std.string, C.std.function[func(C.int, C.int) C.int]]
+146 inst inst(std::pair|go(int64_t),go(int64_t))
+    cxx_containers.gp:29:23 type  C.std.pair[int, int]
+147 inst inst(std::tuple|go(int64_t),go(int64_t),go(int64_t))
+    cxx_containers.gp:50:59 index  C.std.tuple[int, int, int]
+148 literal lit{index(std::deque|go(int64_t))|}
+    cxx_containers.gp:60:7 init  C.std.deque[int]{}
+149 literal lit{index(std::list|go(int64_t))|lit(3),lit(1),lit(2)}
+    cxx_containers.gp:65:7 init  C.std.list[int]{…}
+150 literal lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}
+    cxx_containers.gp:34:7 init  C.std.set[int]{…}
+151 literal lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}
+    cxx_containers.gp:52:7 init  C.std.array[C.int, 4]{…}
+152 literal lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|} incomplete(type func(C.int, C.int) C.int)
+    cxx_containers.gp:105:9 init  C.std.map[C.std.string, C.std.function[func(C.int, C.int) C.int]]{}
+153 member sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|count) name-only
+    cxx_containers.gp:95:18 callee  bs.count
+154 member sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|set) name-only
+    cxx_containers.gp:94:2 callee  bs.set
+155 member sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|test) name-only
+    cxx_containers.gp:95:31 callee  bs.test
+    cxx_containers.gp:95:43 callee  bs.test
+156 member sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|to_string) name-only
+    cxx_containers.gp:95:62 callee  bs.to_string
+157 member sel(arg&(decay(call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert)|lit(3))))|second)
+    cxx_containers.gp:37:29 arg -> any  r.second
+158 member sel(arg&(decay(call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert)|lit(4))))|first)
+    cxx_containers.gp:37:55 operand  r2.first
+159 member sel(arg&(decay(call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert)|lit(4))))|second)
+    cxx_containers.gp:37:39 arg -> any  r2.second
+160 member sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|find) name-only
+    cxx_containers.gp:99:56 callee  sv.find
+161 member sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|size) name-only
+    cxx_containers.gp:99:18 callee  sv.size
+162 member sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|starts_with) name-only
+    cxx_containers.gp:99:71 callee  sv.starts_with
+163 member sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|substr) name-only
+    cxx_containers.gp:99:37 callee  sv.substr
+164 member sel(arg&(decay(call(unknown(no complete type for divmod)|arg(go(int64_t)),arg(go(int64_t)))))|first) incomplete(no complete type for divmod)
+    cxx_containers.gp:46:36 convert -> int  pr.first
+165 member sel(arg&(decay(call(unknown(no complete type for divmod)|arg(go(int64_t)),arg(go(int64_t)))))|second) incomplete(no complete type for divmod)
+    cxx_containers.gp:46:51 convert -> int  pr.second
+166 member sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|back) name-only
+    cxx_containers.gp:64:34 callee  d.back
+167 member sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|front) name-only
+    cxx_containers.gp:64:18 callee  d.front
+168 member sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|push_back) name-only
+    cxx_containers.gp:61:2 callee  d.push_back
+    cxx_containers.gp:63:2 callee  d.push_back
+169 member sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|push_front) name-only
+    cxx_containers.gp:62:2 callee  d.push_front
+170 member sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|size) name-only
+    cxx_containers.gp:64:60 callee  d.size
+171 member sel(arg&(decay(lit{index(std::list|go(int64_t))|lit(3),lit(1),lit(2)}))|push_front) name-only
+    cxx_containers.gp:67:2 callee  l.push_front
+172 member sel(arg&(decay(lit{index(std::list|go(int64_t))|lit(3),lit(1),lit(2)}))|sort) name-only
+    cxx_containers.gp:66:2 callee  l.sort
+173 member sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|count) name-only
+    cxx_containers.gp:42:64 callee  s.count
+174 member sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|end) name-only
+    cxx_containers.gp:42:51 callee  s.end
+175 member sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|erase) name-only
+    cxx_containers.gp:42:81 callee  s.erase
+176 member sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|find) name-only
+    cxx_containers.gp:42:38 callee  s.find
+177 member sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert) name-only
+    cxx_containers.gp:35:7 callee  s.insert
+    cxx_containers.gp:36:8 callee  s.insert
+178 member sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|lower_bound) name-only
+    cxx_containers.gp:42:19 callee  s.lower_bound
+179 member sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|size) name-only
+    cxx_containers.gp:37:18 callee  s.size
+180 member sel(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|back) name-only
+    cxx_containers.gp:58:49 callee  a.back
+181 member sel(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|front) name-only
+    cxx_containers.gp:58:33 callee  a.front
+182 member sel(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|size) name-only
+    cxx_containers.gp:58:18 callee  a.size
+183 member sel(arg&(decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}))|size) incomplete(type func(C.int, C.int) C.int) name-only
+    cxx_containers.gp:108:64 callee  ops.size
+184 member sel(arg&(index(std::priority_queue|go(int64_t)))|pop) name-only
+    cxx_containers.gp:90:2 callee  pq.pop
+185 member sel(arg&(index(std::priority_queue|go(int64_t)))|push) name-only
+    cxx_containers.gp:87:3 callee  pq.push
+186 member sel(arg&(index(std::priority_queue|go(int64_t)))|size) name-only
+    cxx_containers.gp:91:33 callee  pq.size
+187 member sel(arg&(index(std::priority_queue|go(int64_t)))|top) name-only
+    cxx_containers.gp:89:18 callee  pq.top
+    cxx_containers.gp:91:18 callee  pq.top
+188 member sel(arg&(index(std::queue|std::string))|back) name-only
+    cxx_containers.gp:82:41 callee  qu.back
+189 member sel(arg&(index(std::queue|std::string))|empty) name-only
+    cxx_containers.gp:84:39 callee  qu.empty
+190 member sel(arg&(index(std::queue|std::string))|front) name-only
+    cxx_containers.gp:82:21 callee  qu.front
+    cxx_containers.gp:84:21 callee  qu.front
+191 member sel(arg&(index(std::queue|std::string))|pop) name-only
+    cxx_containers.gp:83:2 callee  qu.pop
+192 member sel(arg&(index(std::queue|std::string))|push) name-only
+    cxx_containers.gp:80:2 callee  qu.push
+    cxx_containers.gp:81:2 callee  qu.push
+193 member sel(arg&(index(std::stack|go(int64_t)))|pop) name-only
+    cxx_containers.gp:77:2 callee  st.pop
+194 member sel(arg&(index(std::stack|go(int64_t)))|push) name-only
+    cxx_containers.gp:74:2 callee  st.push
+    cxx_containers.gp:75:2 callee  st.push
+195 member sel(arg&(index(std::stack|go(int64_t)))|size) name-only
+    cxx_containers.gp:76:33 callee  st.size
+196 member sel(arg&(index(std::stack|go(int64_t)))|top) name-only
+    cxx_containers.gp:76:18 callee  st.top
+    cxx_containers.gp:78:18 callee  st.top
+197 member sel(arg&(std::stringstream)|str) name-only
+    cxx_containers.gp:103:21 callee  ss.str
+198 deref star(call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|lower_bound)|lit(2)))
+    cxx_containers.gp:42:18 convert -> int  *s.lower_bound(2)
+199 deref star(sel(arg&(decay(call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert)|lit(4))))|first))
+    cxx_containers.gp:37:54 convert -> int  *r2.first
+200 path std::array name-only
+    cxx_containers.gp:52:7 template  C.std.array
+201 path std::bitset name-only
+    cxx_containers.gp:93:8 template  C.std.bitset
+202 path std::deque name-only
+    cxx_containers.gp:60:7 template  C.std.deque
+203 path std::function name-only
+    cxx_containers.gp:105:29 template  C.std.function
+204 path std::get name-only
+    cxx_containers.gp:49:18 template  C.std.get
+    cxx_containers.gp:49:41 template  C.std.get
+    cxx_containers.gp:49:65 template  C.std.get
+    cxx_containers.gp:50:18 template  C.std.get
+205 path std::list name-only
+    cxx_containers.gp:65:7 template  C.std.list
+206 path std::make_pair name-only
+    cxx_containers.gp:30:9 callee  C.std.make_pair
+207 path std::make_tuple name-only
+    cxx_containers.gp:48:7 callee  C.std.make_tuple
+208 path std::map name-only
+    cxx_containers.gp:105:9 template  C.std.map
+209 path std::minmax name-only
+    cxx_containers.gp:44:12 callee  C.std.minmax
+210 path std::pair name-only
+    cxx_containers.gp:29:23 template  C.std.pair
+211 path std::priority_queue name-only
+    cxx_containers.gp:85:9 template  C.std.priority_queue
+212 path std::queue name-only
+    cxx_containers.gp:79:9 template  C.std.queue
+213 path std::set name-only
+    cxx_containers.gp:34:7 template  C.std.set
+214 path std::size name-only
+    cxx_containers.gp:58:69 callee  C.std.size
+215 path std::stack name-only
+    cxx_containers.gp:73:9 template  C.std.stack
+216 path std::string
+    cxx_containers.gp:48:25 callee  C.std.string
+    cxx_containers.gp:79:19 index  C.std.string
+    cxx_containers.gp:97:10 callee  C.std.string
+    cxx_containers.gp:102:32 callee  C.std.string
+    cxx_containers.gp:105:17 type  C.std.string
+217 path std::string_view name-only
+    cxx_containers.gp:98:8 callee  C.std.string_view
+218 path std::stringstream
+    cxx_containers.gp:101:9 type  C.std.stringstream
+219 path std::tuple name-only
+    cxx_containers.gp:50:59 template  C.std.tuple
+220 path std::tuple_size_v name-only
+    cxx_containers.gp:50:42 template  C.std.tuple_size_v
+221 other unknown(type func(C.int, C.int) C.int) incomplete(type func(C.int, C.int) C.int)
+    cxx_containers.gp:105:42 index  func(C.int, C.int) C.int
+222 other unknown(type func(a, b C.int) C.int) incomplete(type func(a, b C.int) C.int)
+    cxx_containers.gp:106:15 other  func(a, b C.int) C.int
+    cxx_containers.gp:107:15 other  func(a, b C.int) C.int

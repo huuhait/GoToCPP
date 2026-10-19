@@ -1,0 +1,3 @@
+path ::EOF
+local decay(un(-|::EOF))
+unary un(-|::EOF)

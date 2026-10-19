@@ -1,0 +1,85 @@
+0 call call(go(int64_t)|call(sel(arg&(decay(call(index(unknown(Go type func[T any]() T)|index(std::vector|go(int64_t)))|)))|size)|)) incomplete(Go type func[T any]() T)
+    generics_cxx_explicit.gp:32:14 arg -> any  int(z.size())
+1 call call(go(int64_t)|call(sel(arg&(decay(call(index(unknown(Go type func[T any](x T) T)|index(std::vector|go(int64_t)))|arg&(decay(lit{index(std::vector|go(int64_t))|lit(4),lit(5)})))))|size)|)) incomplete(Go type func[T any](x T) T)
+    generics_cxx_explicit.gp:35:14 arg -> any  int(b.size())
+2 call call(go(int64_t)|call(sel(arg&(decay(tuple(call(inst(unknown(Go type func[A, B any](a A, b B) (B, A))|std::string,go(int64_t))|call(std::string|lit("ab")),lit(7))|1)))|size)|)) incomplete(Go type func[A, B any](a A, b B) (B, A))
+    generics_cxx_explicit.gp:37:17 arg -> any  int(str.size())
+3 call call(go(int64_t)|call(sel(call(index(unknown(Go type func[T any]() T)|std::string)|)|size)|)) incomplete(Go type func[T any]() T)
+    generics_cxx_explicit.gp:40:14 arg -> any  int(Zero[C.std.string]().size())
+4 call call(go(int64_t)|call(sel(index(arg&(stand:slice(std::string))|arg(go(int64_t)))|size)|))
+    generics_cxx_explicit.gp:39:23 arg -> any  int(fs[2].size())
+5 call call(index(unknown(Go type func[T any]() T)|index(std::vector|go(int64_t)))|) incomplete(Go type func[T any]() T)
+    generics_cxx_explicit.gp:31:7 init  Zero[C.std.vector[int]]()
+6 call call(index(unknown(Go type func[T any]() T)|std::string)|) incomplete(Go type func[T any]() T)
+    generics_cxx_explicit.gp:40:18 member  Zero[C.std.string]()
+7 call call(index(unknown(Go type func[T any](n int, v T) []T)|std::string)|lit(3),call(std::string|lit("xy"))) incomplete(Go type func[T any](n int, v T) []T)
+    generics_cxx_explicit.gp:38:24 init  Fill[C.std.string](3, C.std.string("xy"))
+8 call call(index(unknown(Go type func[T any](x T) T)|index(std::vector|go(int64_t)))|arg&(decay(lit{index(std::vector|go(int64_t))|lit(4),lit(5)}))) incomplete(Go type func[T any](x T) T)
+    generics_cxx_explicit.gp:34:7 init  Id[C.std.vector[int]](v)
+9 call call(inst(unknown(Go type func[A, B any](a A, b B) (B, A))|std::string,go(int64_t))|call(std::string|lit("ab")),lit(7)) incomplete(Go type func[A, B any](a A, b B) (B, A))
+    generics_cxx_explicit.gp:36:12 init  Pair[C.std.string, int](C.std.string("ab"), 7)
+10 call call(sel(arg&(decay(call(index(unknown(Go type func[T any]() T)|index(std::vector|go(int64_t)))|)))|size)|) incomplete(Go type func[T any]() T)
+    generics_cxx_explicit.gp:32:18 convert -> int  z.size()
+11 call call(sel(arg&(decay(call(index(unknown(Go type func[T any](x T) T)|index(std::vector|go(int64_t)))|arg&(decay(lit{index(std::vector|go(int64_t))|lit(4),lit(5)})))))|size)|) incomplete(Go type func[T any](x T) T)
+    generics_cxx_explicit.gp:35:18 convert -> int  b.size()
+12 call call(sel(arg&(decay(tuple(call(inst(unknown(Go type func[A, B any](a A, b B) (B, A))|std::string,go(int64_t))|call(std::string|lit("ab")),lit(7))|1)))|size)|) incomplete(Go type func[A, B any](a A, b B) (B, A))
+    generics_cxx_explicit.gp:37:21 convert -> int  str.size()
+13 call call(sel(call(index(unknown(Go type func[T any]() T)|std::string)|)|size)|) incomplete(Go type func[T any]() T)
+    generics_cxx_explicit.gp:40:18 convert -> int  Zero[C.std.string]().size()
+14 call call(sel(index(arg&(stand:slice(std::string))|arg(go(int64_t)))|size)|)
+    generics_cxx_explicit.gp:39:27 convert -> int  fs[2].size()
+15 call call(std::string|lit("ab"))
+    generics_cxx_explicit.gp:36:34 arg -> A  C.std.string("ab")
+16 call call(std::string|lit("xy"))
+    generics_cxx_explicit.gp:38:44 arg -> T  C.std.string("xy")
+17 local decay(call(index(unknown(Go type func[T any]() T)|index(std::vector|go(int64_t)))|)) incomplete(Go type func[T any]() T)
+    generics_cxx_explicit.gp:31:2 init  z
+18 local decay(call(index(unknown(Go type func[T any](x T) T)|index(std::vector|go(int64_t)))|arg&(decay(lit{index(std::vector|go(int64_t))|lit(4),lit(5)})))) incomplete(Go type func[T any](x T) T)
+    generics_cxx_explicit.gp:34:2 init  b
+19 local decay(lit{index(std::vector|go(int64_t))|lit(4),lit(5)})
+    generics_cxx_explicit.gp:33:2 init  v
+20 local decay(tuple(call(inst(unknown(Go type func[A, B any](a A, b B) (B, A))|std::string,go(int64_t))|call(std::string|lit("ab")),lit(7))|0)) incomplete(Go type func[A, B any](a A, b B) (B, A))
+    generics_cxx_explicit.gp:36:2 init  n
+21 local decay(tuple(call(inst(unknown(Go type func[A, B any](a A, b B) (B, A))|std::string,go(int64_t))|call(std::string|lit("ab")),lit(7))|1)) incomplete(Go type func[A, B any](a A, b B) (B, A))
+    generics_cxx_explicit.gp:36:5 init  str
+22 index index(arg&(stand:slice(std::string))|arg(go(int64_t)))
+    generics_cxx_explicit.gp:39:27 member  fs[2]
+23 index index(std::vector|go(int64_t))
+    generics_cxx_explicit.gp:31:12 index  C.std.vector[int]
+    generics_cxx_explicit.gp:33:7 type  C.std.vector[int]
+    generics_cxx_explicit.gp:34:10 index  C.std.vector[int]
+24 index index(unknown(Go type func[T any]() T)|index(std::vector|go(int64_t))) incomplete(Go type func[T any]() T) name-only
+    generics_cxx_explicit.gp:31:7 callee  Zero[C.std.vector[int]]
+25 index index(unknown(Go type func[T any]() T)|std::string) incomplete(Go type func[T any]() T) name-only
+    generics_cxx_explicit.gp:40:18 callee  Zero[C.std.string]
+26 index index(unknown(Go type func[T any](n int, v T) []T)|std::string) incomplete(Go type func[T any](n int, v T) []T) name-only
+    generics_cxx_explicit.gp:38:24 callee  Fill[C.std.string]
+27 index index(unknown(Go type func[T any](x T) T)|index(std::vector|go(int64_t))) incomplete(Go type func[T any](x T) T) name-only
+    generics_cxx_explicit.gp:34:7 callee  Id[C.std.vector[int]]
+28 inst inst(unknown(Go type func[A, B any](a A, b B) (B, A))|std::string,go(int64_t)) incomplete(Go type func[A, B any](a A, b B) (B, A)) name-only
+    generics_cxx_explicit.gp:36:12 callee  Pair[C.std.string, int]
+29 literal lit{index(std::vector|go(int64_t))|lit(4),lit(5)}
+    generics_cxx_explicit.gp:33:7 init  C.std.vector[int]{…}
+30 member sel(arg&(decay(call(index(unknown(Go type func[T any]() T)|index(std::vector|go(int64_t)))|)))|size) incomplete(Go type func[T any]() T) name-only
+    generics_cxx_explicit.gp:32:18 callee  z.size
+31 member sel(arg&(decay(call(index(unknown(Go type func[T any](x T) T)|index(std::vector|go(int64_t)))|arg&(decay(lit{index(std::vector|go(int64_t))|lit(4),lit(5)})))))|size) incomplete(Go type func[T any](x T) T) name-only
+    generics_cxx_explicit.gp:35:18 callee  b.size
+32 member sel(arg&(decay(tuple(call(inst(unknown(Go type func[A, B any](a A, b B) (B, A))|std::string,go(int64_t))|call(std::string|lit("ab")),lit(7))|1)))|size) incomplete(Go type func[A, B any](a A, b B) (B, A)) name-only
+    generics_cxx_explicit.gp:37:21 callee  str.size
+33 member sel(call(index(unknown(Go type func[T any]() T)|std::string)|)|size) incomplete(Go type func[T any]() T) name-only
+    generics_cxx_explicit.gp:40:18 callee  Zero[C.std.string]().size
+34 member sel(index(arg&(stand:slice(std::string))|arg(go(int64_t)))|size) name-only
+    generics_cxx_explicit.gp:39:27 callee  fs[2].size
+35 type stand:slice(std::string)
+    generics_cxx_explicit.gp:38:9 type  []C.std.string
+36 path std::string
+    generics_cxx_explicit.gp:36:17 type  C.std.string
+    generics_cxx_explicit.gp:36:34 callee  C.std.string
+    generics_cxx_explicit.gp:38:11 type  C.std.string
+    generics_cxx_explicit.gp:38:29 index  C.std.string
+    generics_cxx_explicit.gp:38:44 callee  C.std.string
+    generics_cxx_explicit.gp:40:23 index  C.std.string
+37 path std::vector name-only
+    generics_cxx_explicit.gp:31:12 template  C.std.vector
+    generics_cxx_explicit.gp:33:7 template  C.std.vector
+    generics_cxx_explicit.gp:34:10 template  C.std.vector

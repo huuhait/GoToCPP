@@ -1,0 +1,2 @@
+path ::printf name-only
+call call(::printf|arg(go(const char*)),lit(1),lit(2))

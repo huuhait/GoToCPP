@@ -1,0 +1,106 @@
+0 path ::get_add name-only
+    pointer_chains.gp:33:9 callee  C.get_add
+    pointer_chains.gp:34:18 callee  C.get_add
+1 path ::list_head name-only
+    pointer_chains.gp:18:10 callee  C.list_head
+    pointer_chains.gp:21:11 callee  C.list_head
+2 path ::n2::value
+    pointer_chains.gp:27:18 convert -> int  C.n2.value
+3 path ::n3::value
+    pointer_chains.gp:27:39 convert -> int  C.n3.value
+4 path ::node
+    pointer_chains.gp:29:12 type  C.node
+5 path ::stamp
+    pointer_chains.gp:36:9 type  C.stamp
+6 binary bin(!=|arg&(decay(call(::get_add|)))|lit(nullptr))
+    pointer_chains.gp:34:64 convert -> (ast: <nil>)  add != nil
+7 binary bin(!=|arg&(decay(call(::list_head|)))|lit(nullptr))
+    pointer_chains.gp:21:30 convert -> (ast: <nil>)  p != nil
+    pointer_chains.gp:30:20 convert -> (ast: <nil>)  head != nil
+8 binary bin(==|arg&(star(::node))|lit(nullptr))
+    pointer_chains.gp:30:5 convert -> (ast: <nil>)  none == nil
+9 binary bin(==|sel(sel(sel(arg&(decay(call(::list_head|)))|next)|next)|next)|lit(nullptr))
+    pointer_chains.gp:19:85 convert -> (ast: <nil>)  head.next.next.next == nil
+10 call call(::get_add|)
+    pointer_chains.gp:33:9 init  C.get_add()
+    pointer_chains.gp:34:18 callee  C.get_add()
+11 call call(::list_head|)
+    pointer_chains.gp:18:10 init  C.list_head()
+    pointer_chains.gp:21:11 init  C.list_head()
+12 call call(arg&(decay(call(::get_add|)))|lit(40),lit(2))
+    pointer_chains.gp:34:46 convert -> int  add(40, 2)
+13 call call(call(::get_add|)|lit(2),lit(3))
+    pointer_chains.gp:34:18 convert -> int  C.get_add()(2, 3)
+14 call call(go(int64_t)|::n2::value)
+    pointer_chains.gp:27:14 arg -> any  int(C.n2.value)
+15 call call(go(int64_t)|::n3::value)
+    pointer_chains.gp:27:35 arg -> any  int(C.n3.value)
+16 call call(go(int64_t)|call(arg&(decay(call(::get_add|)))|lit(40),lit(2)))
+    pointer_chains.gp:34:42 arg -> any  int(add(40, 2))
+17 call call(go(int64_t)|call(call(::get_add|)|lit(2),lit(3)))
+    pointer_chains.gp:34:14 arg -> any  int(C.get_add()(2, 3))
+18 call call(go(int64_t)|sel(arg&(::stamp)|when_sec))
+    pointer_chains.gp:38:14 arg -> any  int(st.when_sec)
+19 call call(go(int64_t)|sel(arg&(decay(call(::list_head|)))|value))
+    pointer_chains.gp:19:14 arg -> any  int(head.value)
+    pointer_chains.gp:22:10 assign -> int  int(p.value)
+20 call call(go(int64_t)|sel(arg&(star(::node))|value))
+    pointer_chains.gp:40:14 arg -> any  int(none.value)
+21 call call(go(int64_t)|sel(paren(star(arg&(decay(call(::list_head|)))))|value))
+    pointer_chains.gp:27:56 arg -> any  int((*head).value)
+22 call call(go(int64_t)|sel(sel(arg&(decay(call(::list_head|)))|next)|value))
+    pointer_chains.gp:19:31 arg -> any  int(head.next.value)
+23 call call(go(int64_t)|sel(sel(paren(star(sel(arg&(decay(call(::list_head|)))|next)))|next)|value))
+    pointer_chains.gp:27:76 arg -> any  int((*head.next).next.value)
+24 call call(go(int64_t)|sel(sel(sel(arg&(decay(call(::list_head|)))|next)|next)|value))
+    pointer_chains.gp:19:53 arg -> any  int(head.next.next.value)
+25 local decay(call(::get_add|))
+    pointer_chains.gp:33:2 init  add
+26 local decay(call(::list_head|))
+    pointer_chains.gp:18:2 init  head
+    pointer_chains.gp:21:6 init  p
+27 paren paren(star(arg&(decay(call(::list_head|)))))
+    pointer_chains.gp:27:60 member  (*head)
+28 paren paren(star(sel(arg&(decay(call(::list_head|)))|next)))
+    pointer_chains.gp:27:80 member  (*head.next)
+29 member sel(arg&(::stamp)|when)
+    pointer_chains.gp:37:2 assign  st.when
+30 member sel(arg&(::stamp)|when_sec)
+    pointer_chains.gp:38:18 convert -> int  st.when_sec
+31 member sel(arg&(decay(call(::list_head|)))|next)
+    pointer_chains.gp:19:35 member  head.next
+    pointer_chains.gp:19:57 member  head.next
+    pointer_chains.gp:19:85 member  head.next
+    pointer_chains.gp:21:44 assign  p.next
+    pointer_chains.gp:25:2 member  head.next
+    pointer_chains.gp:26:2 member  head.next
+    pointer_chains.gp:27:82 operand  head.next
+32 member sel(arg&(decay(call(::list_head|)))|value)
+    pointer_chains.gp:19:18 convert -> int  head.value
+    pointer_chains.gp:22:14 convert -> int  p.value
+33 member sel(arg&(star(::node))|value)
+    pointer_chains.gp:40:18 convert -> int  none.value
+34 member sel(paren(star(arg&(decay(call(::list_head|)))))|value)
+    pointer_chains.gp:27:60 convert -> int  (*head).value
+35 member sel(paren(star(sel(arg&(decay(call(::list_head|)))|next)))|next)
+    pointer_chains.gp:27:80 member  (*head.next).next
+36 member sel(sel(arg&(decay(call(::list_head|)))|next)|next)
+    pointer_chains.gp:19:57 member  head.next.next
+    pointer_chains.gp:19:85 member  head.next.next
+    pointer_chains.gp:26:2 member  head.next.next
+37 member sel(sel(arg&(decay(call(::list_head|)))|next)|value)
+    pointer_chains.gp:19:35 convert -> int  head.next.value
+    pointer_chains.gp:25:2 assign  head.next.value
+38 member sel(sel(paren(star(sel(arg&(decay(call(::list_head|)))|next)))|next)|value)
+    pointer_chains.gp:27:80 convert -> int  (*head.next).next.value
+39 member sel(sel(sel(arg&(decay(call(::list_head|)))|next)|next)|next)
+    pointer_chains.gp:19:85 operand  head.next.next.next
+40 member sel(sel(sel(arg&(decay(call(::list_head|)))|next)|next)|value)
+    pointer_chains.gp:19:57 convert -> int  head.next.next.value
+    pointer_chains.gp:26:2 assign  head.next.next.value
+41 deref star(::node)
+    pointer_chains.gp:29:11 type  *C.node
+42 deref star(arg&(decay(call(::list_head|))))
+    pointer_chains.gp:27:61 operand  *head
+43 deref star(sel(arg&(decay(call(::list_head|)))|next))
+    pointer_chains.gp:27:81 operand  *head.next

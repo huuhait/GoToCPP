@@ -1,0 +1,3 @@
+path ::strchr name-only
+call call(::strchr|arg(go(const char*)),lit('b'))
+local decay(call(::strchr|arg(go(const char*)),lit('b')))

@@ -1,0 +1,157 @@
+0 path ::floor name-only
+    c_operators.gp:42:31 callee  C.floor
+1 path ::sqrt name-only
+    c_operators.gp:40:7 callee  C.sqrt
+2 path C.int
+    c_operators.gp:17:8 type  C.int
+    c_operators.gp:45:51 callee  C.int
+    c_operators.gp:47:19 index  C.int
+3 binary bin(!=|arg&(C.int)|lit(7))
+    c_operators.gp:23:33 convert -> (ast: <nil>)  a != 7
+4 binary bin(!=|arg&(decay(bin(*|arg&(C.int)|lit(3))))|lit(0))
+    c_operators.gp:46:17 convert -> (ast: <nil>)  b != 0
+5 binary bin(%|arg&(decay(bin(*|arg&(C.int)|lit(3))))|lit(4))
+    c_operators.gp:19:48 convert -> int  b % 4
+6 binary bin(&&|arg&(go(bool))|call(sel(arg&(index(std::vector|C.int))|empty)|))
+    c_operators.gp:48:5 cond  ok && v.empty()
+7 binary bin(&^|arg&(C.int)|lit(3))
+    c_operators.gp:20:70 convert -> int  a &^ 3
+8 binary bin(&|arg&(C.int)|lit(3))
+    c_operators.gp:20:40 convert -> int  a & 3
+9 binary bin(*|arg&(C.int)|lit(3))
+    c_operators.gp:18:7 init  a * 3
+10 binary bin(*|arg&(decay(bin(*|call(::sqrt|lit(2.0))|lit(2))))|lit(1000))
+    c_operators.gp:42:18 convert -> int  d * 1000
+11 binary bin(*|call(::sqrt|lit(2.0))|lit(2))
+    c_operators.gp:40:7 init  C.sqrt(2.0) * 2
+12 binary bin(+|arg&(C.int)|lit(1))
+    c_operators.gp:19:18 convert -> int  a + 1
+13 binary bin(+|call(::floor|arg&(decay(bin(*|call(::sqrt|lit(2.0))|lit(2)))))|lit(0.5))
+    c_operators.gp:42:31 convert -> int  C.floor(d) + 0.5
+14 binary bin(-|arg&(decay(bin(*|arg&(C.int)|lit(3))))|arg&(C.int))
+    c_operators.gp:19:28 convert -> int  b - a
+15 binary bin(/|arg&(decay(bin(*|arg&(C.int)|lit(3))))|lit(2))
+    c_operators.gp:19:38 convert -> int  b / 2
+16 binary bin(<<|arg&(C.int)|arg&(go(int64_t)))
+    c_operators.gp:22:18 convert -> int  a << sh
+17 binary bin(<<|arg&(C.int)|lit(2))
+    c_operators.gp:20:18 convert -> int  a << 2
+18 binary bin(<=|arg&(C.int)|lit(7))
+    c_operators.gp:23:60 convert -> (ast: <nil>)  a <= 7
+19 binary bin(<|arg&(C.int)|arg&(decay(bin(*|arg&(C.int)|lit(3)))))
+    c_operators.gp:23:47 convert -> (ast: <nil>)  a < b
+20 binary bin(==|arg&(C.int)|lit(7))
+    c_operators.gp:23:19 convert -> (ast: <nil>)  a == 7
+21 binary bin(>=|arg&(decay(bin(*|arg&(C.int)|lit(3))))|lit(22))
+    c_operators.gp:23:88 convert -> (ast: <nil>)  b >= 22
+22 binary bin(>>|arg&(C.int)|arg&(go(int64_t)))
+    c_operators.gp:22:30 convert -> int  a >> sh
+23 binary bin(>>|arg&(decay(bin(*|arg&(C.int)|lit(3))))|lit(1))
+    c_operators.gp:20:29 convert -> int  b >> 1
+24 binary bin(>|arg&(C.int)|lit(3))
+    c_operators.gp:46:8 convert -> (ast: <nil>)  a > 3
+25 binary bin(>|arg&(decay(bin(*|arg&(C.int)|lit(3))))|lit(20))
+    c_operators.gp:23:74 convert -> (ast: <nil>)  b > 20
+26 binary bin(>|call(sel(arg&(index(std::vector|C.int))|size)|)|lit(0))
+    c_operators.gp:60:7 convert -> (ast: <nil>)  v.size() > 0
+27 binary bin(^|arg&(C.int)|lit(5))
+    c_operators.gp:20:60 convert -> int  a ^ 5
+28 binary bin(||arg&(C.int)|lit(8))
+    c_operators.gp:20:50 convert -> int  a | 8
+29 binary bin(|||un(!|arg&(decay(un(!|call(sel(arg&(index(std::vector|C.int))|empty)|)))))|arg(go(bool)))
+    c_operators.gp:56:5 cond  !full || n > 100
+30 call call(::floor|arg&(decay(bin(*|call(::sqrt|lit(2.0))|lit(2)))))
+    c_operators.gp:42:31 operand  C.floor(d)
+31 call call(::sqrt|lit(2.0))
+    c_operators.gp:40:7 operand  C.sqrt(2.0)
+32 call call(C.int|arg&(go(int64_t)))
+    c_operators.gp:45:51 arg  C.int(n)
+33 call call(go(int64_t)|arg&(C.int))
+    c_operators.gp:38:14 arg -> any  int(a)
+34 call call(go(int64_t)|bin(%|arg&(decay(bin(*|arg&(C.int)|lit(3))))|lit(4)))
+    c_operators.gp:19:44 arg -> any  int(b % 4)
+35 call call(go(int64_t)|bin(&^|arg&(C.int)|lit(3)))
+    c_operators.gp:20:66 arg -> any  int(a &^ 3)
+36 call call(go(int64_t)|bin(&|arg&(C.int)|lit(3)))
+    c_operators.gp:20:36 arg -> any  int(a & 3)
+37 call call(go(int64_t)|bin(*|arg&(decay(bin(*|call(::sqrt|lit(2.0))|lit(2))))|lit(1000)))
+    c_operators.gp:42:14 arg -> any  int(d * 1000)
+38 call call(go(int64_t)|bin(+|arg&(C.int)|lit(1)))
+    c_operators.gp:19:14 arg -> any  int(a + 1)
+39 call call(go(int64_t)|bin(+|call(::floor|arg&(decay(bin(*|call(::sqrt|lit(2.0))|lit(2)))))|lit(0.5)))
+    c_operators.gp:42:27 arg -> any  int(C.floor(d) + 0.5)
+40 call call(go(int64_t)|bin(-|arg&(decay(bin(*|arg&(C.int)|lit(3))))|arg&(C.int)))
+    c_operators.gp:19:24 arg -> any  int(b - a)
+41 call call(go(int64_t)|bin(/|arg&(decay(bin(*|arg&(C.int)|lit(3))))|lit(2)))
+    c_operators.gp:19:34 arg -> any  int(b / 2)
+42 call call(go(int64_t)|bin(<<|arg&(C.int)|arg&(go(int64_t))))
+    c_operators.gp:22:14 arg -> any  int(a << sh)
+43 call call(go(int64_t)|bin(<<|arg&(C.int)|lit(2)))
+    c_operators.gp:20:14 arg -> any  int(a << 2)
+44 call call(go(int64_t)|bin(>>|arg&(C.int)|arg&(go(int64_t))))
+    c_operators.gp:22:26 arg -> any  int(a >> sh)
+45 call call(go(int64_t)|bin(>>|arg&(decay(bin(*|arg&(C.int)|lit(3))))|lit(1)))
+    c_operators.gp:20:25 arg -> any  int(b >> 1)
+46 call call(go(int64_t)|bin(^|arg&(C.int)|lit(5)))
+    c_operators.gp:20:56 arg -> any  int(a ^ 5)
+47 call call(go(int64_t)|bin(||arg&(C.int)|lit(8)))
+    c_operators.gp:20:46 arg -> any  int(a | 8)
+48 call call(go(int64_t)|call(std::max|arg&(go(int64_t)),arg(go(int64_t))))
+    c_operators.gp:45:14 arg -> any  int(C.std.max(n, int(0)))
+49 call call(go(int64_t)|call(std::min|call(C.int|arg&(go(int64_t))),arg&(C.int)))
+    c_operators.gp:45:39 arg -> any  int(C.std.min(C.int(n), a))
+50 call call(go(int64_t)|un(+|arg&(C.int)))
+    c_operators.gp:19:63 arg -> any  int(+a)
+51 call call(go(int64_t)|un(-|arg&(C.int)))
+    c_operators.gp:19:54 arg -> any  int(-a)
+52 call call(go(int64_t)|un(^|arg&(C.int)))
+    c_operators.gp:19:72 arg -> any  int(^a)
+53 call call(sel(arg&(index(std::vector|C.int))|empty)|)
+    c_operators.gp:48:11 operand  v.empty()
+    c_operators.gp:52:7 operand  v.empty()
+    c_operators.gp:55:11 operand  v.empty()
+54 call call(sel(arg&(index(std::vector|C.int))|pop_back)|)
+    c_operators.gp:53:3 stmt  v.pop_back()
+55 call call(sel(arg&(index(std::vector|C.int))|push_back)|arg&(C.int))
+    c_operators.gp:51:2 stmt  v.push_back(a)
+56 call call(sel(arg&(index(std::vector|C.int))|size)|)
+    c_operators.gp:60:7 operand  v.size()
+57 call call(std::max|arg&(go(int64_t)),arg(go(int64_t)))
+    c_operators.gp:45:18 convert -> int  C.std.max(n, int(0))
+58 call call(std::min|call(C.int|arg&(go(int64_t))),arg&(C.int))
+    c_operators.gp:45:43 convert -> int  C.std.min(C.int(n), a)
+59 local decay(bin(*|arg&(C.int)|lit(3)))
+    c_operators.gp:18:2 init  b
+60 local decay(bin(*|call(::sqrt|lit(2.0))|lit(2)))
+    c_operators.gp:40:2 init  d
+61 local decay(un(!|call(sel(arg&(index(std::vector|C.int))|empty)|)))
+    c_operators.gp:55:2 init  full
+62 index index(std::vector|C.int)
+    c_operators.gp:47:8 type  C.std.vector[C.int]
+63 member sel(arg&(index(std::vector|C.int))|empty) name-only
+    c_operators.gp:48:11 callee  v.empty
+    c_operators.gp:52:7 callee  v.empty
+    c_operators.gp:55:11 callee  v.empty
+64 member sel(arg&(index(std::vector|C.int))|pop_back) name-only
+    c_operators.gp:53:3 callee  v.pop_back
+65 member sel(arg&(index(std::vector|C.int))|push_back) name-only
+    c_operators.gp:51:2 callee  v.push_back
+66 member sel(arg&(index(std::vector|C.int))|size) name-only
+    c_operators.gp:60:7 callee  v.size
+67 path std::max name-only
+    c_operators.gp:45:18 callee  C.std.max
+68 path std::min name-only
+    c_operators.gp:45:43 callee  C.std.min
+69 path std::vector name-only
+    c_operators.gp:47:8 template  C.std.vector
+70 unary un(!|arg&(decay(un(!|call(sel(arg&(index(std::vector|C.int))|empty)|)))))
+    c_operators.gp:56:5 operand  !full
+71 unary un(!|call(sel(arg&(index(std::vector|C.int))|empty)|))
+    c_operators.gp:52:6 cond  !v.empty()
+    c_operators.gp:55:10 init  !v.empty()
+72 unary un(+|arg&(C.int))
+    c_operators.gp:19:67 convert -> int  +a
+73 unary un(-|arg&(C.int))
+    c_operators.gp:19:58 convert -> int  -a
+74 unary un(^|arg&(C.int))
+    c_operators.gp:19:76 convert -> int  ^a

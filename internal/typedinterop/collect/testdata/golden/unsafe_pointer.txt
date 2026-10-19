@@ -1,0 +1,66 @@
+0 path ::call_unary name-only
+    unsafe_pointer.gp:98:29 callee  C.call_unary
+1 path ::malloc name-only
+    unsafe_pointer.gp:84:7 callee  C.malloc
+2 path ::memcmp name-only
+    unsafe_pointer.gp:81:14 callee  C.memcmp
+    unsafe_pointer.gp:81:78 callee  C.memcmp
+3 path ::memcpy name-only
+    unsafe_pointer.gp:76:2 callee  C.memcpy
+4 path ::memset name-only
+    unsafe_pointer.gp:78:2 callee  C.memset
+5 path ::set_int name-only
+    unsafe_pointer.gp:90:2 callee  C.set_int
+6 path ::triple
+    unsafe_pointer.gp:96:23 convert -> unsafe.Pointer  C.triple
+    unsafe_pointer.gp:98:61 operand  C.triple
+7 path ::unary_fn name-only
+    unsafe_pointer.gp:97:8 callee  C.unary_fn
+8 path C.int
+    unsafe_pointer.gp:89:8 type  C.int
+    unsafe_pointer.gp:90:17 operand  C.int
+9 path C.size_t name-only
+    unsafe_pointer.gp:76:67 callee  C.size_t
+10 addr addr(arg&(C.int))
+    unsafe_pointer.gp:90:39 convert -> unsafe.Pointer  &v
+11 binary bin(!=|call(::memcmp|arg(go(void*)),arg(go(void*)),lit(4))|lit(0))
+    unsafe_pointer.gp:81:14 convert -> (ast: <nil>)  C.memcmp(unsafe.Pointer(&a), unsafe.Pointer(&b), 4) != 0
+12 binary bin(==|arg&(decay(call(::unary_fn|arg&(go(void*)))))|::triple)
+    unsafe_pointer.gp:98:55 convert -> (ast: <nil>)  fn == C.triple
+13 call call(::call_unary|arg&(decay(call(::unary_fn|arg&(go(void*))))),lit(14))
+    unsafe_pointer.gp:98:29 convert -> int  C.call_unary(fn, 14)
+14 call call(::malloc|lit(16))
+    unsafe_pointer.gp:84:7 init  C.malloc(16)
+15 call call(::memcmp|arg(go(void*)),arg(go(void*)),lit(4))
+    unsafe_pointer.gp:81:14 operand  C.memcmp(unsafe.Pointer(&a), unsafe.Pointer(&b), 4)
+    unsafe_pointer.gp:81:78 arg -> any  C.memcmp(unsafe.Pointer(&a), unsafe.Pointer(&a), 4)
+16 call call(::memcpy|arg(go(void*)),arg(go(void*)),call(C.size_t|arg(go(int64_t))))
+    unsafe_pointer.gp:76:2 stmt  C.memcpy(unsafe.Pointer(&dst[0]), unsafe.Pointer(&src[0]), C.size_t(len(src)))
+17 call call(::memset|arg(go(void*)),lit('x'),lit(5))
+    unsafe_pointer.gp:78:2 stmt  C.memset(unsafe.Pointer(&dst[0]), 'x', 5)
+18 call call(::set_int|call(paren(star(C.int))|arg(go(void*))),lit(11))
+    unsafe_pointer.gp:90:2 stmt  C.set_int((*C.int)(C.As[unsafe.Pointer](&v)), 11)
+19 call call(::unary_fn|arg&(go(void*)))
+    unsafe_pointer.gp:97:8 init  C.unary_fn(fp)
+20 call call(C.size_t|arg(go(int64_t)))
+    unsafe_pointer.gp:76:67 arg  C.size_t(len(src))
+21 call call(go(int64_t)|arg&(C.int))
+    unsafe_pointer.gp:91:14 arg -> any  int(v)
+22 call call(go(int64_t)|call(::call_unary|arg&(decay(call(::unary_fn|arg&(go(void*))))),lit(14)))
+    unsafe_pointer.gp:98:25 arg -> any  int(C.call_unary(fn, 14))
+23 call call(go(void*)|::triple)
+    unsafe_pointer.gp:96:8 init  unsafe.Pointer(C.triple)
+24 call call(go(void*)|addr(arg&(C.int)))
+    unsafe_pointer.gp:90:24 arg  unsafe.Pointer(&v)
+25 call call(go(void*)|arg&(decay(call(::malloc|lit(16)))))
+    unsafe_pointer.gp:85:8 init  unsafe.Pointer(m)
+26 call call(paren(star(C.int))|arg(go(void*)))
+    unsafe_pointer.gp:90:15 arg  (*C.int)(C.As[unsafe.Pointer](&v))
+27 local decay(call(::malloc|lit(16)))
+    unsafe_pointer.gp:84:2 init  m
+28 local decay(call(::unary_fn|arg&(go(void*))))
+    unsafe_pointer.gp:97:2 init  fn
+29 paren paren(star(C.int))
+    unsafe_pointer.gp:90:15 callee  (*C.int)
+30 deref star(C.int)
+    unsafe_pointer.gp:90:16 operand  *C.int

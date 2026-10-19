@@ -1,0 +1,44 @@
+0 path ::MX_CM_PER_M
+    helper_header.gp:20:23 arg -> any  C.MX_CM_PER_M
+1 path ::MX_FAST
+    helper_header.gp:22:24 init  C.MX_FAST
+2 path ::MX_SLOW
+    helper_header.gp:20:46 convert -> int  C.MX_SLOW
+3 path ::clamp_to name-only
+    helper_header.gp:16:14 callee  C.clamp_to
+    helper_header.gp:16:54 callee  C.clamp_to
+4 path ::hypot3 name-only
+    helper_header.gp:15:14 callee  C.hypot3
+5 path ::mx_counter
+    helper_header.gp:17:8 type  C.mx_counter
+6 path ::mx_describe name-only
+    helper_header.gp:21:21 callee  C.mx_describe
+7 path ::mx_limit
+    helper_header.gp:16:37 arg  C.mx_limit
+8 path ::mx_mode
+    helper_header.gp:22:8 type  C.mx_mode
+9 call call(::clamp_to|lit(150),lit(0),::mx_limit)
+    helper_header.gp:16:14 arg -> any  C.clamp_to(150, 0, C.mx_limit)
+10 call call(::clamp_to|lit(2.5),lit(0.0),lit(1.0))
+    helper_header.gp:16:54 arg -> any  C.clamp_to(2.5, 0.0, 1.0)
+11 call call(::hypot3|lit(1),lit(2),lit(2))
+    helper_header.gp:15:14 arg -> any  C.hypot3(1, 2, 2)
+12 call call(::mx_describe|lit(1.5))
+    helper_header.gp:21:21 convert -> string  C.mx_describe(1.5)
+13 call call(go(int64_t)|::MX_SLOW)
+    helper_header.gp:20:42 arg -> any  int(C.MX_SLOW)
+14 call call(go(int64_t)|arg&(::mx_mode))
+    helper_header.gp:23:14 arg -> any  int(m)
+15 call call(sel(arg&(::mx_counter)|add)|lit(2))
+    helper_header.gp:19:2 stmt  c.add(2)
+16 call call(sel(arg&(::mx_counter)|add)|lit(40))
+    helper_header.gp:18:2 stmt  c.add(40)
+17 call call(sel(arg&(::mx_counter)|get)|)
+    helper_header.gp:20:14 arg -> any  c.get()
+18 call call(stand:string()|call(::mx_describe|lit(1.5)))
+    helper_header.gp:21:14 arg -> any  string(C.mx_describe(1.5))
+19 member sel(arg&(::mx_counter)|add) name-only
+    helper_header.gp:18:2 callee  c.add
+    helper_header.gp:19:2 callee  c.add
+20 member sel(arg&(::mx_counter)|get) name-only
+    helper_header.gp:20:14 callee  c.get

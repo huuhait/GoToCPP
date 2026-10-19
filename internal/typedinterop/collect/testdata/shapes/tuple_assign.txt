@@ -1,0 +1,4 @@
+call call(std::minmax|lit(3),lit(4))
+local decay(tuple(call(std::minmax|lit(3),lit(4))|0))
+local decay(tuple(call(std::minmax|lit(3),lit(4))|1))
+path std::minmax name-only

@@ -1,0 +1,101 @@
+0 binary bin(!=|arg&(decay(bin(+|arg&(decay(call(std::string|lit("hello"))))|lit("\077"))))|arg&(decay(call(std::string|lit("hello")))))
+    string_ops.gp:18:77 convert -> (ast: <nil>)  t != s
+1 binary bin(!=|arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|find)|lit("world"))))|std::string::npos)
+    string_ops.gp:21:5 convert -> (ast: <nil>)  at != C.std.string.npos
+2 binary bin(&&|un(!|call(sel(arg&(decay(call(std::string|lit("hello"))))|empty)|))|arg(go(bool)))
+    string_ops.gp:27:5 cond  !s.empty() && C.Cmp(s[0] == 'h')
+3 binary bin(+|arg&(decay(call(std::string|lit("hello"))))|lit("\077"))
+    string_ops.gp:17:7 init  s + "?"
+4 binary bin(<|arg&(decay(call(std::string|lit("hello"))))|lit("help"))
+    string_ops.gp:19:19 convert -> (ast: <nil>)  s < "help"
+5 binary bin(<|lit("a")|arg&(decay(call(std::string|lit("hello")))))
+    string_ops.gp:19:37 convert -> (ast: <nil>)  "a" < s
+6 binary bin(==|arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7))))|lit("world!s!"))
+    string_ops.gp:34:36 convert -> (ast: <nil>)  u == "world!s!"
+7 binary bin(==|arg&(decay(call(std::string|lit("hello"))))|lit("hello, world!"))
+    string_ops.gp:18:49 convert -> (ast: <nil>)  s == "hello, world!"
+8 binary bin(==|call(sel(arg&(decay(call(std::string|lit("hello"))))|find)|lit("moon"))|std::string::npos)
+    string_ops.gp:24:5 convert -> (ast: <nil>)  s.find("moon") == C.std.string.npos
+9 binary bin(==|call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(0),lit(5))|lit("Hello"))
+    string_ops.gp:31:19 convert -> (ast: <nil>)  s.substr(0, 5) == "Hello"
+10 binary bin(==|call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(0),lit(5))|lit("hello"))
+    string_ops.gp:19:52 convert -> (ast: <nil>)  s.substr(0, 5) == "hello"
+11 binary bin(==|index(arg&(decay(call(std::string|lit("hello"))))|lit(0))|lit('h'))
+    string_ops.gp:27:19 convert -> (ast: <nil>)  s[0] == 'h'
+12 call call(go(bool)|call(sel(arg&(decay(call(std::string|lit("hello"))))|starts_with)|lit("Hell")))
+    string_ops.gp:31:47 arg -> any  bool(s.starts_with("Hell"))
+13 call call(go(int64_t)|arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|find)|lit("world")))))
+    string_ops.gp:22:27 arg -> any  int(at)
+14 call call(go(int64_t)|call(sel(arg&(decay(bin(+|arg&(decay(call(std::string|lit("hello"))))|lit("\077"))))|size)|))
+    string_ops.gp:18:29 arg -> any  int(t.size())
+15 call call(go(int64_t)|call(sel(arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7))))|length)|))
+    string_ops.gp:34:14 arg -> any  int(u.length())
+16 call call(go(int64_t)|call(sel(arg&(decay(call(std::string|lit("hello"))))|size)|))
+    string_ops.gp:18:14 arg -> any  int(s.size())
+17 call call(go(int64_t)|index(arg&(decay(call(std::string|lit("hello"))))|lit(0)))
+    string_ops.gp:28:29 arg -> any  int(s[0])
+18 call call(sel(arg&(decay(bin(+|arg&(decay(call(std::string|lit("hello"))))|lit("\077"))))|size)|)
+    string_ops.gp:18:33 convert -> int  t.size()
+19 call call(sel(arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7))))|append)|lit("s"))
+    string_ops.gp:33:2 member  u.append("s")
+20 call call(sel(arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7))))|length)|)
+    string_ops.gp:34:18 convert -> int  u.length()
+21 call call(sel(arg&(decay(call(std::string|lit("hello"))))|empty)|)
+    string_ops.gp:27:6 operand  s.empty()
+22 call call(sel(arg&(decay(call(std::string|lit("hello"))))|find)|lit("moon"))
+    string_ops.gp:24:5 operand  s.find("moon")
+23 call call(sel(arg&(decay(call(std::string|lit("hello"))))|find)|lit("world"))
+    string_ops.gp:20:8 init  s.find("world")
+24 call call(sel(arg&(decay(call(std::string|lit("hello"))))|size)|)
+    string_ops.gp:18:18 convert -> int  s.size()
+25 call call(sel(arg&(decay(call(std::string|lit("hello"))))|starts_with)|lit("Hell"))
+    string_ops.gp:31:52 convert -> bool  s.starts_with("Hell")
+26 call call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(0),lit(5))
+    string_ops.gp:19:52 operand  s.substr(0, 5)
+    string_ops.gp:31:19 operand  s.substr(0, 5)
+27 call call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7))
+    string_ops.gp:32:7 init  s.substr(7)
+28 call call(sel(call(sel(arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7))))|append)|lit("s"))|append)|lit("!"))
+    string_ops.gp:33:2 stmt  u.append("s").append("!")
+29 call call(std::string|lit("hello"))
+    string_ops.gp:14:7 init  C.std.string("hello")
+30 local decay(bin(+|arg&(decay(call(std::string|lit("hello"))))|lit("\077")))
+    string_ops.gp:17:2 init  t
+31 local decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|find)|lit("world")))
+    string_ops.gp:20:2 init  at
+32 local decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7)))
+    string_ops.gp:32:2 init  u
+33 local decay(call(std::string|lit("hello")))
+    string_ops.gp:14:2 init  s
+34 index index(arg&(decay(call(std::string|lit("hello"))))|lit(0))
+    string_ops.gp:27:19 operand  s[0]
+    string_ops.gp:28:33 convert -> int  s[0]
+    string_ops.gp:30:2 assign  s[0]
+35 member sel(arg&(decay(bin(+|arg&(decay(call(std::string|lit("hello"))))|lit("\077"))))|size) name-only
+    string_ops.gp:18:33 callee  t.size
+36 member sel(arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7))))|append) name-only
+    string_ops.gp:33:2 callee  u.append
+37 member sel(arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7))))|length) name-only
+    string_ops.gp:34:18 callee  u.length
+38 member sel(arg&(decay(call(std::string|lit("hello"))))|empty) name-only
+    string_ops.gp:27:6 callee  s.empty
+39 member sel(arg&(decay(call(std::string|lit("hello"))))|find) name-only
+    string_ops.gp:20:8 callee  s.find
+    string_ops.gp:24:5 callee  s.find
+40 member sel(arg&(decay(call(std::string|lit("hello"))))|size) name-only
+    string_ops.gp:18:18 callee  s.size
+41 member sel(arg&(decay(call(std::string|lit("hello"))))|starts_with) name-only
+    string_ops.gp:31:52 callee  s.starts_with
+42 member sel(arg&(decay(call(std::string|lit("hello"))))|substr) name-only
+    string_ops.gp:19:52 callee  s.substr
+    string_ops.gp:31:19 callee  s.substr
+    string_ops.gp:32:7 callee  s.substr
+43 member sel(call(sel(arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7))))|append)|lit("s"))|append) name-only
+    string_ops.gp:33:2 callee  u.append("s").append
+44 path std::string name-only
+    string_ops.gp:14:7 callee  C.std.string
+45 path std::string::npos
+    string_ops.gp:21:11 operand  C.std.string.npos
+    string_ops.gp:24:23 operand  C.std.string.npos
+46 unary un(!|call(sel(arg&(decay(call(std::string|lit("hello"))))|empty)|))
+    string_ops.gp:27:5 operand  !s.empty()

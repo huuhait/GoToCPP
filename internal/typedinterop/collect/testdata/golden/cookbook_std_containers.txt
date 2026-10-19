@@ -1,0 +1,95 @@
+0 call call(go(int64_t)|call(sel(arg&(decay(call(std::string|lit("hello"))))|find)|lit("world")))
+    cookbook_std_containers.gp:24:40 arg -> any  int(s.find("world"))
+1 call call(go(int64_t)|call(sel(arg&(decay(call(std::string|lit("hello"))))|size)|))
+    cookbook_std_containers.gp:24:25 arg -> any  int(s.size())
+2 call call(go(int64_t)|call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|back)|))
+    cookbook_std_containers.gp:19:40 arg -> any  int(v.back())
+3 call call(go(int64_t)|call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|size)|))
+    cookbook_std_containers.gp:19:14 arg -> any  int(v.size())
+4 call call(go(int64_t)|call(sel(arg&(decay(lit{inst(std::map|std::string,go(int64_t))|}))|count)|lit("carol")))
+    cookbook_std_containers.gp:31:50 arg -> any  int(ages.count("carol"))
+5 call call(go(int64_t)|call(sel(arg&(decay(lit{inst(std::map|std::string,go(int64_t))|}))|size)|))
+    cookbook_std_containers.gp:31:14 arg -> any  int(ages.size())
+6 call call(go(int64_t)|call(std::max|arg&(go(int64_t)),arg(go(int64_t))))
+    cookbook_std_containers.gp:36:14 arg -> any  int(C.std.max(n, int(10)))
+7 call call(go(int64_t)|index(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|lit(0)))
+    cookbook_std_containers.gp:19:29 arg -> any  int(v[0])
+8 call call(go(int64_t)|index(arg&(decay(lit{inst(std::map|std::string,go(int64_t))|}))|lit("bob")))
+    cookbook_std_containers.gp:31:32 arg -> any  int(ages["bob"])
+9 call call(sel(arg&(decay(call(std::string|lit("hello"))))|find)|lit("world"))
+    cookbook_std_containers.gp:24:44 convert -> int  s.find("world")
+10 call call(sel(arg&(decay(call(std::string|lit("hello"))))|size)|)
+    cookbook_std_containers.gp:24:29 convert -> int  s.size()
+11 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|back)|)
+    cookbook_std_containers.gp:19:44 convert -> int  v.back()
+12 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|begin)|)
+    cookbook_std_containers.gp:18:11 arg  v.begin()
+13 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|end)|)
+    cookbook_std_containers.gp:18:22 arg  v.end()
+14 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|push_back)|lit(1))
+    cookbook_std_containers.gp:17:2 stmt  v.push_back(1)
+15 call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|size)|)
+    cookbook_std_containers.gp:19:18 convert -> int  v.size()
+16 call call(sel(arg&(decay(lit{inst(std::map|std::string,go(int64_t))|}))|count)|lit("carol"))
+    cookbook_std_containers.gp:31:54 convert -> int  ages.count("carol")
+17 call call(sel(arg&(decay(lit{inst(std::map|std::string,go(int64_t))|}))|size)|)
+    cookbook_std_containers.gp:31:18 convert -> int  ages.size()
+18 call call(stand:string()|arg&(decay(call(std::string|lit("hello")))))
+    cookbook_std_containers.gp:24:14 arg -> any  string(s)
+19 call call(std::max|arg&(go(int64_t)),arg(go(int64_t)))
+    cookbook_std_containers.gp:36:18 convert -> int  C.std.max(n, int(10))
+20 call call(std::sort|call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|begin)|),call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|end)|))
+    cookbook_std_containers.gp:18:2 stmt  C.std.sort(v.begin(), v.end())
+21 call call(std::string|lit("hello"))
+    cookbook_std_containers.gp:22:7 init  C.std.string("hello")
+22 local decay(call(std::string|lit("hello")))
+    cookbook_std_containers.gp:22:2 init  s
+23 local decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)})
+    cookbook_std_containers.gp:16:2 init  v
+24 local decay(lit{inst(std::map|std::string,go(int64_t))|})
+    cookbook_std_containers.gp:27:2 init  ages
+25 index index(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|lit(0))
+    cookbook_std_containers.gp:19:33 convert -> int  v[0]
+26 index index(arg&(decay(lit{inst(std::map|std::string,go(int64_t))|}))|lit("alice"))
+    cookbook_std_containers.gp:29:2 assign  ages["alice"]
+27 index index(arg&(decay(lit{inst(std::map|std::string,go(int64_t))|}))|lit("bob"))
+    cookbook_std_containers.gp:28:2 assign  ages["bob"]
+    cookbook_std_containers.gp:30:2 stmt  ages["bob"]
+    cookbook_std_containers.gp:31:36 convert -> int  ages["bob"]
+28 index index(std::vector|go(int64_t))
+    cookbook_std_containers.gp:16:7 type  C.std.vector[int]
+29 inst inst(std::map|std::string,go(int64_t))
+    cookbook_std_containers.gp:27:10 type  C.std.map[C.std.string, int]
+30 literal lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}
+    cookbook_std_containers.gp:16:7 init  C.std.vector[int]{…}
+31 literal lit{inst(std::map|std::string,go(int64_t))|}
+    cookbook_std_containers.gp:27:10 init  C.std.map[C.std.string, int]{}
+32 member sel(arg&(decay(call(std::string|lit("hello"))))|find) name-only
+    cookbook_std_containers.gp:24:44 callee  s.find
+33 member sel(arg&(decay(call(std::string|lit("hello"))))|size) name-only
+    cookbook_std_containers.gp:24:29 callee  s.size
+34 member sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|back) name-only
+    cookbook_std_containers.gp:19:44 callee  v.back
+35 member sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|begin) name-only
+    cookbook_std_containers.gp:18:11 callee  v.begin
+36 member sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|end) name-only
+    cookbook_std_containers.gp:18:22 callee  v.end
+37 member sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|push_back) name-only
+    cookbook_std_containers.gp:17:2 callee  v.push_back
+38 member sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|size) name-only
+    cookbook_std_containers.gp:19:18 callee  v.size
+39 member sel(arg&(decay(lit{inst(std::map|std::string,go(int64_t))|}))|count) name-only
+    cookbook_std_containers.gp:31:54 callee  ages.count
+40 member sel(arg&(decay(lit{inst(std::map|std::string,go(int64_t))|}))|size) name-only
+    cookbook_std_containers.gp:31:18 callee  ages.size
+41 path std::map name-only
+    cookbook_std_containers.gp:27:10 template  C.std.map
+42 path std::max name-only
+    cookbook_std_containers.gp:36:18 callee  C.std.max
+43 path std::sort name-only
+    cookbook_std_containers.gp:18:2 callee  C.std.sort
+44 path std::string
+    cookbook_std_containers.gp:22:7 callee  C.std.string
+    cookbook_std_containers.gp:27:18 type  C.std.string
+45 path std::vector name-only
+    cookbook_std_containers.gp:16:7 template  C.std.vector

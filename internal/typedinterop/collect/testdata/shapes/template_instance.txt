@@ -1,0 +1,2 @@
+index index(std::vector|go(int64_t))
+path std::vector name-only

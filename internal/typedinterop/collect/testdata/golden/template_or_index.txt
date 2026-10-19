@@ -1,0 +1,234 @@
+0 path ::arr
+    template_or_index.gp:23:40 template  C.arr
+    template_or_index.gp:23:61 operand  C.arr
+    template_or_index.gp:25:41 operand  C.arr
+1 path ::size_of_v name-only
+    template_or_index.gp:26:18 template  C.size_of_v
+    template_or_index.gp:26:48 template  C.size_of_v
+2 path ::table
+    template_or_index.gp:23:18 template  C.table
+    template_or_index.gp:23:83 operand  C.table
+    template_or_index.gp:24:2 template  C.table
+    template_or_index.gp:25:18 template  C.table
+3 path ::times name-only
+    template_or_index.gp:25:66 template  C.times
+4 path C.double
+    template_or_index.gp:26:65 index  C.double
+5 path C.int
+    template_or_index.gp:26:35 index  C.int
+    template_or_index.gp:31:23 index  C.int
+    template_or_index.gp:35:22 callee  C.int
+    template_or_index.gp:38:33 type  C.int
+    template_or_index.gp:38:40 type  C.int
+    template_or_index.gp:38:68 type  C.int
+    template_or_index.gp:40:20 type  C.int
+    template_or_index.gp:40:53 type  C.int
+6 path C.long
+    template_or_index.gp:38:75 type  C.long
+7 path C.short
+    template_or_index.gp:42:37 index  C.short
+8 path C.uint
+    template_or_index.gp:42:78 index  C.uint
+9 binary bin(!=|arg&(decay(call(index(std::make_unique|std::string)|lit("hello"))))|lit(nullptr))
+    template_or_index.gp:29:37 convert -> (ast: <nil>)  p != nil
+10 binary bin(+|call(index(std::get|lit(0))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))))|lit(10))
+    template_or_index.gp:36:11 init  C.std.get[0](t) + 10
+11 binary bin(==|index(paren(star(arg&(decay(call(index(std::make_unique|std::string)|lit("hello"))))))|lit(0))|lit('h'))
+    template_or_index.gp:29:53 convert -> (ast: <nil>)  (*p)[0] == 'h'
+12 call call(C.int|lit(1))
+    template_or_index.gp:35:22 arg  C.int(1)
+13 call call(go(bool)|inst(std::is_same_v|C.int,C.int))
+    template_or_index.gp:38:14 arg -> any  bool(C.std.is_same_v[C.int, C.int])
+14 call call(go(bool)|inst(std::is_same_v|C.int,C.long))
+    template_or_index.gp:38:49 arg -> any  bool(C.std.is_same_v[C.int, C.long])
+15 call call(go(bool)|sel(index(std::numeric_limits|C.uint)|is_signed))
+    template_or_index.gp:42:54 arg -> any  bool(C.std.numeric_limits[C.uint].is_signed)
+16 call call(go(double)|call(index(std::get|lit(1))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three")))))))
+    template_or_index.gp:37:26 arg -> any  float64(C.std.get[1](t))
+17 call call(go(int64_t)|arg&(decay(bin(+|call(index(std::get|lit(0))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))))|lit(10)))))
+    template_or_index.gp:37:14 arg -> any  int(first)
+18 call call(go(int64_t)|call(index(::times|lit(3))|lit(4)))
+    template_or_index.gp:25:62 arg -> any  int(C.times[3](4))
+19 call call(go(int64_t)|call(sel(arg&(decay(call(index(std::make_shared|C.int)|lit(41))))|use_count)|))
+    template_or_index.gp:33:41 arg -> any  int(q.use_count())
+20 call call(go(int64_t)|call(sel(arg&(inst(std::variant|C.int,std::string))|index)|))
+    template_or_index.gp:41:14 arg -> any  int(w.index())
+21 call call(go(int64_t)|call(sel(call(index(std::get|lit(1))|arg&(inst(std::variant|C.int,std::string)))|size)|))
+    template_or_index.gp:41:30 arg -> any  int(C.std.get[1](w).size())
+22 call call(go(int64_t)|call(sel(call(index(std::get|lit(2))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))))|size)|))
+    template_or_index.gp:37:50 arg -> any  int(C.std.get[2](t).size())
+23 call call(go(int64_t)|call(sel(index(std::numeric_limits|C.short)|max)|))
+    template_or_index.gp:42:14 arg -> any  int(C.std.numeric_limits[C.short].max())
+24 call call(go(int64_t)|call(sel(paren(::arr)|size)|))
+    template_or_index.gp:25:36 arg -> any  int((C.arr).size())
+25 call call(go(int64_t)|call(sel(paren(star(arg&(decay(call(index(std::make_unique|std::string)|lit("hello"))))))|size)|))
+    template_or_index.gp:29:14 arg -> any  int((*p).size())
+    template_or_index.gp:33:14 arg -> any  int((*p).size())
+26 call call(go(int64_t)|index(::arr|lit(0)))
+    template_or_index.gp:23:36 arg -> any  int(C.arr[0])
+27 call call(go(int64_t)|index(::size_of_v|C.double))
+    template_or_index.gp:26:44 arg -> any  int(C.size_of_v[C.double])
+28 call call(go(int64_t)|index(::size_of_v|C.int))
+    template_or_index.gp:26:14 arg -> any  int(C.size_of_v[C.int])
+29 call call(go(int64_t)|index(::table|lit(0)))
+    template_or_index.gp:25:14 arg -> any  int(C.table[0])
+30 call call(go(int64_t)|index(::table|lit(1)))
+    template_or_index.gp:23:14 arg -> any  int(C.table[1])
+31 call call(go(int64_t)|index(paren(::arr)|lit(2)))
+    template_or_index.gp:23:56 arg -> any  int((C.arr)[2])
+32 call call(go(int64_t)|index(paren(::table)|lit(3)))
+    template_or_index.gp:23:78 arg -> any  int((C.table)[3])
+33 call call(go(int64_t)|star(arg&(decay(call(index(std::make_shared|C.int)|lit(41))))))
+    template_or_index.gp:33:32 arg -> any  int(*q)
+34 call call(index(::times|lit(3))|lit(4))
+    template_or_index.gp:25:66 convert -> int  C.times[3](4)
+35 call call(index(std::get|lit(0))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))))
+    template_or_index.gp:36:11 operand  C.std.get[0](t)
+36 call call(index(std::get|lit(1))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))))
+    template_or_index.gp:37:34 convert -> float64  C.std.get[1](t)
+37 call call(index(std::get|lit(1))|arg&(inst(std::variant|C.int,std::string)))
+    template_or_index.gp:41:34 member  C.std.get[1](w)
+38 call call(index(std::get|lit(2))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))))
+    template_or_index.gp:37:54 member  C.std.get[2](t)
+39 call call(index(std::make_shared|C.int)|lit(41))
+    template_or_index.gp:31:7 init  C.std.make_shared[C.int](41)
+40 call call(index(std::make_unique|std::string)|lit("hello"))
+    template_or_index.gp:28:7 init  C.std.make_unique[C.std.string]("hello")
+41 call call(inst(std::variant|C.int,std::string)|index(std::in_place_index|lit(1)),lit("in place"))
+    template_or_index.gp:40:41 init  C.std.variant[C.int, C.std.string](C.std.in_place_index[1], "in place")
+42 call call(sel(arg&(decay(call(index(std::make_shared|C.int)|lit(41))))|use_count)|)
+    template_or_index.gp:33:45 convert -> int  q.use_count()
+43 call call(sel(arg&(inst(std::variant|C.int,std::string))|index)|)
+    template_or_index.gp:41:18 convert -> int  w.index()
+44 call call(sel(call(index(std::get|lit(1))|arg&(inst(std::variant|C.int,std::string)))|size)|)
+    template_or_index.gp:41:34 convert -> int  C.std.get[1](w).size()
+45 call call(sel(call(index(std::get|lit(2))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))))|size)|)
+    template_or_index.gp:37:54 convert -> int  C.std.get[2](t).size()
+46 call call(sel(index(std::numeric_limits|C.short)|max)|)
+    template_or_index.gp:42:18 convert -> int  C.std.numeric_limits[C.short].max()
+47 call call(sel(paren(::arr)|size)|)
+    template_or_index.gp:25:40 convert -> int  (C.arr).size()
+48 call call(sel(paren(star(arg&(decay(call(index(std::make_unique|std::string)|lit("hello"))))))|append)|lit("!"))
+    template_or_index.gp:30:2 stmt  (*p).append("!")
+49 call call(sel(paren(star(arg&(decay(call(index(std::make_unique|std::string)|lit("hello"))))))|size)|)
+    template_or_index.gp:29:18 convert -> int  (*p).size()
+    template_or_index.gp:33:18 convert -> int  (*p).size()
+50 call call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three")))
+    template_or_index.gp:35:7 init  C.std.make_tuple(C.int(1), 2.5, C.std.string("three"))
+51 call call(std::string|lit("three"))
+    template_or_index.gp:35:37 arg  C.std.string("three")
+52 local decay(bin(+|call(index(std::get|lit(0))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))))|lit(10)))
+    template_or_index.gp:36:2 init  first
+53 local decay(call(index(std::make_shared|C.int)|lit(41)))
+    template_or_index.gp:31:2 init  q
+54 local decay(call(index(std::make_unique|std::string)|lit("hello")))
+    template_or_index.gp:28:2 init  p
+55 local decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))
+    template_or_index.gp:35:2 init  t
+56 index index(::arr|lit(0))
+    template_or_index.gp:23:40 convert -> int  C.arr[0]
+57 index index(::size_of_v|C.double)
+    template_or_index.gp:26:48 convert -> int  C.size_of_v[C.double]
+58 index index(::size_of_v|C.int)
+    template_or_index.gp:26:18 convert -> int  C.size_of_v[C.int]
+59 index index(::table|lit(0))
+    template_or_index.gp:24:2 assign  C.table[0]
+    template_or_index.gp:25:18 convert -> int  C.table[0]
+60 index index(::table|lit(1))
+    template_or_index.gp:23:18 convert -> int  C.table[1]
+61 index index(::times|lit(3)) name-only
+    template_or_index.gp:25:66 callee  C.times[3]
+62 index index(paren(::arr)|lit(2))
+    template_or_index.gp:23:60 convert -> int  (C.arr)[2]
+63 index index(paren(::table)|lit(3))
+    template_or_index.gp:23:82 convert -> int  (C.table)[3]
+64 index index(paren(star(arg&(decay(call(index(std::make_unique|std::string)|lit("hello"))))))|lit(0))
+    template_or_index.gp:29:53 operand  (*p)[0]
+65 index index(std::get|lit(0)) name-only
+    template_or_index.gp:36:11 callee  C.std.get[0]
+66 index index(std::get|lit(1)) name-only
+    template_or_index.gp:37:34 callee  C.std.get[1]
+    template_or_index.gp:41:34 callee  C.std.get[1]
+67 index index(std::get|lit(2)) name-only
+    template_or_index.gp:37:54 callee  C.std.get[2]
+68 index index(std::in_place_index|lit(1))
+    template_or_index.gp:40:72 arg  C.std.in_place_index[1]
+69 index index(std::make_shared|C.int) name-only
+    template_or_index.gp:31:7 callee  C.std.make_shared[C.int]
+70 index index(std::make_unique|std::string) name-only
+    template_or_index.gp:28:7 callee  C.std.make_unique[C.std.string]
+71 index index(std::numeric_limits|C.short)
+    template_or_index.gp:42:18 member  C.std.numeric_limits[C.short]
+72 index index(std::numeric_limits|C.uint)
+    template_or_index.gp:42:59 member  C.std.numeric_limits[C.uint]
+73 inst inst(std::is_same_v|C.int,C.int)
+    template_or_index.gp:38:19 convert -> bool  C.std.is_same_v[C.int, C.int]
+74 inst inst(std::is_same_v|C.int,C.long)
+    template_or_index.gp:38:54 convert -> bool  C.std.is_same_v[C.int, C.long]
+75 inst inst(std::variant|C.int,std::string)
+    template_or_index.gp:40:8 type  C.std.variant[C.int, C.std.string]
+    template_or_index.gp:40:41 callee  C.std.variant[C.int, C.std.string]
+76 paren paren(::arr)
+    template_or_index.gp:23:60 template  (C.arr)
+    template_or_index.gp:25:40 member  (C.arr)
+77 paren paren(::table)
+    template_or_index.gp:23:82 template  (C.table)
+78 paren paren(star(arg&(decay(call(index(std::make_unique|std::string)|lit("hello"))))))
+    template_or_index.gp:29:18 member  (*p)
+    template_or_index.gp:29:53 template  (*p)
+    template_or_index.gp:30:2 member  (*p)
+    template_or_index.gp:33:18 member  (*p)
+79 member sel(arg&(decay(call(index(std::make_shared|C.int)|lit(41))))|use_count) name-only
+    template_or_index.gp:33:45 callee  q.use_count
+80 member sel(arg&(inst(std::variant|C.int,std::string))|index) name-only
+    template_or_index.gp:41:18 callee  w.index
+81 member sel(call(index(std::get|lit(1))|arg&(inst(std::variant|C.int,std::string)))|size) name-only
+    template_or_index.gp:41:34 callee  C.std.get[1](w).size
+82 member sel(call(index(std::get|lit(2))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))))|size) name-only
+    template_or_index.gp:37:54 callee  C.std.get[2](t).size
+83 member sel(index(std::numeric_limits|C.short)|max) name-only
+    template_or_index.gp:42:18 callee  C.std.numeric_limits[C.short].max
+84 member sel(index(std::numeric_limits|C.uint)|is_signed)
+    template_or_index.gp:42:59 convert -> bool  C.std.numeric_limits[C.uint].is_signed
+85 member sel(paren(::arr)|size) name-only
+    template_or_index.gp:25:40 callee  (C.arr).size
+86 member sel(paren(star(arg&(decay(call(index(std::make_unique|std::string)|lit("hello"))))))|append) name-only
+    template_or_index.gp:30:2 callee  (*p).append
+87 member sel(paren(star(arg&(decay(call(index(std::make_unique|std::string)|lit("hello"))))))|size) name-only
+    template_or_index.gp:29:18 callee  (*p).size
+    template_or_index.gp:33:18 callee  (*p).size
+88 deref star(arg&(decay(call(index(std::make_shared|C.int)|lit(41)))))
+    template_or_index.gp:32:2 assign  *q
+    template_or_index.gp:33:36 convert -> int  *q
+89 deref star(arg&(decay(call(index(std::make_unique|std::string)|lit("hello")))))
+    template_or_index.gp:29:19 operand  *p
+    template_or_index.gp:29:54 operand  *p
+    template_or_index.gp:30:3 operand  *p
+    template_or_index.gp:33:19 operand  *p
+90 path std::get name-only
+    template_or_index.gp:36:11 template  C.std.get
+    template_or_index.gp:37:34 template  C.std.get
+    template_or_index.gp:37:54 template  C.std.get
+    template_or_index.gp:41:34 template  C.std.get
+91 path std::in_place_index name-only
+    template_or_index.gp:40:72 template  C.std.in_place_index
+92 path std::is_same_v name-only
+    template_or_index.gp:38:19 template  C.std.is_same_v
+    template_or_index.gp:38:54 template  C.std.is_same_v
+93 path std::make_shared name-only
+    template_or_index.gp:31:7 template  C.std.make_shared
+94 path std::make_tuple name-only
+    template_or_index.gp:35:7 callee  C.std.make_tuple
+95 path std::make_unique name-only
+    template_or_index.gp:28:7 template  C.std.make_unique
+96 path std::numeric_limits name-only
+    template_or_index.gp:42:18 template  C.std.numeric_limits
+    template_or_index.gp:42:59 template  C.std.numeric_limits
+97 path std::string
+    template_or_index.gp:28:23 index  C.std.string
+    template_or_index.gp:35:37 callee  C.std.string
+    template_or_index.gp:40:27 type  C.std.string
+    template_or_index.gp:40:60 type  C.std.string
+98 path std::variant name-only
+    template_or_index.gp:40:8 template  C.std.variant
+    template_or_index.gp:40:41 template  C.std.variant

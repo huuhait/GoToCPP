@@ -1,0 +1,91 @@
+0 path ::BF
+    c_bitfields.gp:16:4 type  C.BF
+    c_bitfields.gp:20:15 type  C.BF
+    c_bitfields.gp:22:13 type  C.BF
+1 path ::LIGHT
+    c_bitfields.gp:31:31 operand  C.LIGHT
+2 path ::bf_make name-only
+    c_bitfields.gp:25:7 callee  C.bf_make
+3 path C.longlong
+    c_bitfields.gp:22:28 type  C.longlong
+4 path C.uint
+    c_bitfields.gp:17:4 type  C.uint
+    c_bitfields.gp:20:30 type  C.uint
+5 addr addr(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368)))))
+    c_bitfields.gp:33:20 arg  &b
+6 binary bin(==|arg&(decay(sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|tone)))|::LIGHT)
+    c_bitfields.gp:31:26 convert -> (ast: <nil>)  e == C.LIGHT
+7 call call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))
+    c_bitfields.gp:25:7 init  C.bf_make(5, -3, 1, 1 << 35)
+8 call call(go(double)|sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|wide))
+    c_bitfields.gp:32:38 operand  float64(b.wide)
+9 call call(go(int64_t)|sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|s5))
+    c_bitfields.gp:32:27 arg -> any  int(b.s5)
+10 call call(go(int64_t)|sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|u3))
+    c_bitfields.gp:32:14 operand  int(b.u3)
+11 call call(go(uint64_t)|sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|pad))
+    c_bitfields.gp:32:57 arg -> any  uint(b.pad)
+12 call call(unknown(no complete type for third)|addr(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368)))))) incomplete(no complete type for third)
+    c_bitfields.gp:33:14 arg -> any  third(&b)
+13 call call(unknown(no complete type for wide)|arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))) incomplete(no complete type for wide)
+    c_bitfields.gp:33:25 arg -> any  wide(b)
+14 local decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368)))
+    c_bitfields.gp:25:2 init  b
+15 local decay(sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|flag))
+    c_bitfields.gp:28:2 init  z
+16 local decay(sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|s5))
+    c_bitfields.gp:27:6 init  y
+    c_bitfields.gp:45:2 init  m
+17 local decay(sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|tone))
+    c_bitfields.gp:30:2 init  e
+18 local decay(sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|u3))
+    c_bitfields.gp:26:2 init  x
+    c_bitfields.gp:44:2 init  n
+19 local decay(sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|wide))
+    c_bitfields.gp:29:2 init  w
+20 local decay(sel(sel(unknown(Go type *command-line-arguments.Holder)|b)|s5)) incomplete(Go type *command-line-arguments.Holder)
+    c_bitfields.gp:39:2 init  s
+21 local decay(sel(sel(unknown(Go type *command-line-arguments.Holder)|b)|u3)) incomplete(Go type *command-line-arguments.Holder)
+    c_bitfields.gp:38:2 init  u
+22 member sel(arg&(::BF)|wide)
+    c_bitfields.gp:22:48 return  b.wide
+23 member sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|flag)
+    c_bitfields.gp:28:7 init  b.flag
+24 member sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|pad)
+    c_bitfields.gp:32:62 convert -> uint  b.pad
+25 member sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|s5)
+    c_bitfields.gp:27:10 init  b.s5
+    c_bitfields.gp:32:31 convert -> int  b.s5
+    c_bitfields.gp:43:2 assign  b.s5
+    c_bitfields.gp:45:7 init  b.s5
+26 member sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|tone)
+    c_bitfields.gp:30:7 init  b.tone
+27 member sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|u3)
+    c_bitfields.gp:26:7 init  b.u3
+    c_bitfields.gp:32:18 convert -> int  b.u3
+    c_bitfields.gp:35:23 element  b.u3
+    c_bitfields.gp:42:2 assign  b.u3
+    c_bitfields.gp:44:7 init  b.u3
+28 member sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|wide)
+    c_bitfields.gp:29:7 init  b.wide
+    c_bitfields.gp:32:46 convert -> float64  b.wide
+29 member sel(arg&(star(::BF))|u3)
+    c_bitfields.gp:20:46 return  b.u3
+30 member sel(sel(unknown(Go type *command-line-arguments.Holder)|b)|s5) incomplete(Go type *command-line-arguments.Holder)
+    c_bitfields.gp:39:7 init  hp.b.s5
+31 member sel(sel(unknown(Go type *command-line-arguments.Holder)|b)|u3) incomplete(Go type *command-line-arguments.Holder)
+    c_bitfields.gp:38:7 init  hp.b.u3
+32 member sel(sel(unknown(Go type command-line-arguments.Holder)|b)|u3) incomplete(Go type command-line-arguments.Holder)
+    c_bitfields.gp:36:8 assign  h.b.u3
+33 member sel(unknown(Go type *command-line-arguments.Holder)|b) incomplete(Go type *command-line-arguments.Holder)
+    c_bitfields.gp:38:7 member  hp.b
+    c_bitfields.gp:39:7 member  hp.b
+34 member sel(unknown(Go type command-line-arguments.Holder)|b) incomplete(Go type command-line-arguments.Holder)
+    c_bitfields.gp:36:8 member  h.b
+35 member sel(unknown(Go type command-line-arguments.Holder)|v) incomplete(Go type command-line-arguments.Holder)
+    c_bitfields.gp:36:2 assign  h.v
+    c_bitfields.gp:40:14 arg -> any  h.v
+36 deref star(::BF)
+    c_bitfields.gp:20:14 type  *C.BF
+37 other unknown(type struct{b C.BF; v C.uint}) incomplete(type struct{b C.BF; v C.uint})
+    c_bitfields.gp:15:13 type  struct{b C.BF; v C.uint}

@@ -1,0 +1,333 @@
+0 path ::first_of name-only
+    minmax_values.gp:48:18 callee  C.first_of
+    minmax_values.gp:49:18 callee  C.first_of
+1 path ::fresh_mutex name-only
+    minmax_values.gp:55:8 callee  C.fresh_mutex
+2 path ::fresh_result name-only
+    minmax_values.gp:59:7 callee  C.fresh_result
+    minmax_values.gp:60:11 callee  C.fresh_result
+    minmax_values.gp:64:37 callee  C.fresh_result
+3 path ::increment_ref name-only
+    minmax_values.gp:69:18 callee  C.increment_ref
+4 path ::make_immovable name-only
+    minmax_values.gp:53:9 callee  C.make_immovable
+    minmax_values.gp:54:13 callee  C.make_immovable
+5 path ::read_result name-only
+    minmax_values.gp:64:18 callee  C.read_result
+6 path ::result_copies
+    minmax_values.gp:62:50 convert -> int  C.result_copies
+    minmax_values.gp:65:18 convert -> int  C.result_copies
+7 path ::result_moves
+    minmax_values.gp:62:77 convert -> int  C.result_moves
+    minmax_values.gp:65:45 convert -> int  C.result_moves
+8 path ::result_ref name-only
+    minmax_values.gp:61:8 callee  C.result_ref
+9 path C.int
+    minmax_values.gp:20:14 type  C.int
+    minmax_values.gp:20:21 type  C.int
+    minmax_values.gp:28:10 callee  C.int
+    minmax_values.gp:28:21 callee  C.int
+    minmax_values.gp:34:23 callee  C.int
+    minmax_values.gp:34:33 callee  C.int
+    minmax_values.gp:35:28 callee  C.int
+    minmax_values.gp:47:7 callee  C.int
+    minmax_values.gp:48:48 callee  C.int
+    minmax_values.gp:49:45 callee  C.int
+    minmax_values.gp:49:55 callee  C.int
+10 path C.long name-only
+    minmax_values.gp:36:22 callee  C.long
+    minmax_values.gp:36:33 callee  C.long
+11 addr addr(arg&(decay(call(C.int|lit(1)))))
+    minmax_values.gp:48:64 arg  &k
+    minmax_values.gp:49:71 arg  &k
+    minmax_values.gp:64:65 arg  &k
+    minmax_values.gp:67:23 arg  &k
+12 call call(::first_of|call(std::minmax|arg&(decay(call(C.int|lit(1)))),call(C.int|lit(4))),call(unknown(no complete type for next)|addr(arg&(decay(call(C.int|lit(1))))))) incomplete(no complete type for next)
+    minmax_values.gp:48:18 convert -> int  C.first_of(C.std.minmax(k, C.int(4)), next(&k))
+13 call call(::first_of|call(std::minmax|call(C.int|lit(6)),call(C.int|lit(7))),call(unknown(no complete type for next)|addr(arg&(decay(call(C.int|lit(1))))))) incomplete(no complete type for next)
+    minmax_values.gp:49:18 convert -> int  C.first_of(C.std.minmax(C.int(6), C.int(7)), next(&k))
+14 call call(::fresh_mutex|)
+    minmax_values.gp:55:8 init  C.fresh_mutex()
+15 call call(::fresh_result|)
+    minmax_values.gp:59:7 init  C.fresh_result()
+    minmax_values.gp:60:11 init  C.fresh_result()
+    minmax_values.gp:64:37 arg  C.fresh_result()
+16 call call(::increment_ref|arg&(decay(call(C.int|lit(1)))))
+    minmax_values.gp:69:18 convert -> int  C.increment_ref(k)
+17 call call(::make_immovable|)
+    minmax_values.gp:53:9 init  C.make_immovable()
+    minmax_values.gp:54:13 init  C.make_immovable()
+18 call call(::read_result|call(::fresh_result|),call(unknown(no complete type for next)|addr(arg&(decay(call(C.int|lit(1))))))) incomplete(no complete type for next)
+    minmax_values.gp:64:18 convert -> int  C.read_result(C.fresh_result(), next(&k))
+19 call call(::result_ref|)
+    minmax_values.gp:61:8 init  C.result_ref()
+20 call call(C.int|lit((-4)))
+    minmax_values.gp:28:21 init  C.int(-4)
+21 call call(C.int|lit(1))
+    minmax_values.gp:35:28 arg  C.int(1)
+    minmax_values.gp:47:7 init  C.int(1)
+22 call call(C.int|lit(10))
+    minmax_values.gp:28:10 init  C.int(10)
+23 call call(C.int|lit(4))
+    minmax_values.gp:48:48 arg  C.int(4)
+24 call call(C.int|lit(6))
+    minmax_values.gp:49:45 arg  C.int(6)
+25 call call(C.int|lit(7))
+    minmax_values.gp:34:23 arg  C.int(7)
+    minmax_values.gp:49:55 arg  C.int(7)
+26 call call(C.int|lit(9))
+    minmax_values.gp:34:33 arg  C.int(9)
+27 call call(C.long|lit(2))
+    minmax_values.gp:36:33 arg  C.long(2)
+28 call call(C.long|lit(5))
+    minmax_values.gp:36:22 arg  C.long(5)
+29 call call(go(double)|arg&(decay(tuple(call(std::make_tuple|call(C.int|lit(1)),call(std::string|lit("two")),lit(3.5))|2))))
+    minmax_values.gp:37:47 arg -> any  float64(d)
+30 call call(go(int64_t)|::result_copies)
+    minmax_values.gp:62:46 arg -> any  int(C.result_copies)
+    minmax_values.gp:65:14 arg -> any  int(C.result_copies)
+31 call call(go(int64_t)|::result_moves)
+    minmax_values.gp:62:73 arg -> any  int(C.result_moves)
+    minmax_values.gp:65:41 arg -> any  int(C.result_moves)
+32 call call(go(int64_t)|arg&(decay(call(C.int|lit(1)))))
+    minmax_values.gp:67:29 arg -> any  int(k)
+    minmax_values.gp:69:44 arg -> any  int(k)
+33 call call(go(int64_t)|arg&(decay(call(C.int|lit(10)))))
+    minmax_values.gp:31:30 arg -> any  int(x)
+34 call call(go(int64_t)|arg&(decay(tuple(call(std::make_tuple|call(C.int|lit(1)),call(std::string|lit("two")),lit(3.5))|0))))
+    minmax_values.gp:37:24 arg -> any  int(n)
+35 call call(go(int64_t)|arg&(decay(tuple(call(std::minmax|arg&(decay(call(C.int|lit(10)))),arg&(decay(call(C.int|lit((-4))))))|0))))
+    minmax_values.gp:31:14 arg -> any  int(a)
+36 call call(go(int64_t)|arg&(decay(tuple(call(std::minmax|arg&(decay(call(C.int|lit(10)))),arg&(decay(call(C.int|lit((-4))))))|1))))
+    minmax_values.gp:31:22 arg -> any  int(b)
+37 call call(go(int64_t)|arg&(decay(tuple(call(std::minmax|call(C.int|lit(7)),call(C.int|lit(9)))|1))))
+    minmax_values.gp:37:14 arg -> any  int(top)
+38 call call(go(int64_t)|arg&(decay(tuple(call(std::minmax|call(C.long|lit(5)),call(C.long|lit(2)))|1))))
+    minmax_values.gp:37:68 arg -> any  int(z)
+39 call call(go(int64_t)|arg&(decay(tuple(call(std::minmax|lit(3),lit(1))|0))))
+    minmax_values.gp:27:14 arg -> any  int(lo)
+    minmax_values.gp:33:14 arg -> any  int(lo)
+    minmax_values.gp:37:59 arg -> any  int(lo)
+40 call call(go(int64_t)|arg&(decay(tuple(call(std::minmax|lit(3),lit(1))|1))))
+    minmax_values.gp:27:23 arg -> any  int(hi)
+    minmax_values.gp:33:23 arg -> any  int(hi)
+41 call call(go(int64_t)|call(::first_of|call(std::minmax|arg&(decay(call(C.int|lit(1)))),call(C.int|lit(4))),call(unknown(no complete type for next)|addr(arg&(decay(call(C.int|lit(1)))))))) incomplete(no complete type for next)
+    minmax_values.gp:48:14 arg -> any  int(C.first_of(C.std.minmax(k, C.int(4)), next(&k)))
+42 call call(go(int64_t)|call(::first_of|call(std::minmax|call(C.int|lit(6)),call(C.int|lit(7))),call(unknown(no complete type for next)|addr(arg&(decay(call(C.int|lit(1)))))))) incomplete(no complete type for next)
+    minmax_values.gp:49:14 arg -> any  int(C.first_of(C.std.minmax(C.int(6), C.int(7)), next(&k)))
+43 call call(go(int64_t)|call(::increment_ref|arg&(decay(call(C.int|lit(1))))))
+    minmax_values.gp:69:14 arg -> any  int(C.increment_ref(k))
+44 call call(go(int64_t)|call(::read_result|call(::fresh_result|),call(unknown(no complete type for next)|addr(arg&(decay(call(C.int|lit(1)))))))) incomplete(no complete type for next)
+    minmax_values.gp:64:14 arg -> any  int(C.read_result(C.fresh_result(), next(&k)))
+45 call call(go(int64_t)|call(index(std::get|lit(0))|arg&(decay(call(std::tie|arg&(decay(call(C.int|lit(10)))),arg&(decay(call(C.int|lit((-4))))))))))
+    minmax_values.gp:43:86 arg -> any  int(C.std.get[0](t))
+46 call call(go(int64_t)|call(sel(arg&(decay(tuple(call(std::make_tuple|call(C.int|lit(1)),call(std::string|lit("two")),lit(3.5))|1)))|size)|))
+    minmax_values.gp:37:32 arg -> any  int(s.size())
+47 call call(go(int64_t)|call(sel(sel(arg&(decay(call(std::minmax|call(std::string|lit("a long pear, on the heap")),call(std::string|lit("a fig")))))|first)|size)|))
+    minmax_values.gp:43:43 arg -> any  int(q.first.size())
+48 call call(go(int64_t)|call(sel(sel(arg&(decay(call(std::minmax|call(std::string|lit("a long pear, on the heap")),call(std::string|lit("a fig")))))|second)|size)|))
+    minmax_values.gp:43:64 arg -> any  int(q.second.size())
+49 call call(go(int64_t)|call(sel(sel(arg&(decay(call(std::minmax|call(std::string|lit(80),lit('b')),call(std::string|lit(90),lit('a')))))|first)|size)|))
+    minmax_values.gp:51:14 arg -> any  int(heap.first.size())
+50 call call(go(int64_t)|call(sel(sel(arg&(decay(call(std::minmax|call(std::string|lit(80),lit('b')),call(std::string|lit(90),lit('a')))))|second)|size)|))
+    minmax_values.gp:51:38 arg -> any  int(heap.second.size())
+51 call call(go(int64_t)|call(unknown(no complete type for next)|addr(arg&(decay(call(C.int|lit(1))))))) incomplete(no complete type for next)
+    minmax_values.gp:67:14 arg -> any  int(next(&k))
+52 call call(go(int64_t)|index(sel(arg&(decay(call(std::minmax|call(std::string|lit(80),lit('b')),call(std::string|lit(90),lit('a')))))|first)|lit(0)))
+    minmax_values.gp:51:63 arg -> any  int(heap.first[0])
+53 call call(go(int64_t)|sel(arg&(decay(call(::fresh_result|)))|n))
+    minmax_values.gp:62:14 arg -> any  int(r.n)
+    minmax_values.gp:62:24 arg -> any  int(r2.n)
+54 call call(go(int64_t)|sel(arg&(decay(call(::make_immovable|)))|n))
+    minmax_values.gp:58:14 arg -> any  int(imm.n)
+    minmax_values.gp:58:26 arg -> any  int(imm2.n)
+55 call call(go(int64_t)|sel(arg&(decay(call(::result_ref|)))|n))
+    minmax_values.gp:62:35 arg -> any  int(r3.n)
+56 call call(go(int64_t)|sel(arg&(decay(call(std::minmax|lit(3),lit(1))))|first))
+    minmax_values.gp:43:14 arg -> any  int(p.first)
+    minmax_values.gp:45:14 arg -> any  int(p.first)
+57 call call(go(int64_t)|sel(arg&(decay(call(std::minmax|lit(3),lit(1))))|second))
+    minmax_values.gp:43:28 arg -> any  int(p.second)
+    minmax_values.gp:45:28 arg -> any  int(p.second)
+58 call call(index(std::get|lit(0))|arg&(decay(call(std::tie|arg&(decay(call(C.int|lit(10)))),arg&(decay(call(C.int|lit((-4)))))))))
+    minmax_values.gp:43:90 convert -> int  C.std.get[0](t)
+59 call call(sel(arg&(decay(call(::fresh_mutex|)))|lock)|)
+    minmax_values.gp:56:2 stmt  mu.lock()
+60 call call(sel(arg&(decay(call(::fresh_mutex|)))|unlock)|)
+    minmax_values.gp:57:2 stmt  mu.unlock()
+61 call call(sel(arg&(decay(tuple(call(std::make_tuple|call(C.int|lit(1)),call(std::string|lit("two")),lit(3.5))|1)))|size)|)
+    minmax_values.gp:37:36 convert -> int  s.size()
+62 call call(sel(call(std::string|lit("fig"))|size)|)
+    minmax_values.gp:32:49 arg  C.std.string("fig").size()
+63 call call(sel(call(std::string|lit("pear"))|size)|)
+    minmax_values.gp:32:22 arg  C.std.string("pear").size()
+64 call call(sel(sel(arg&(decay(call(std::minmax|call(std::string|lit("a long pear, on the heap")),call(std::string|lit("a fig")))))|first)|size)|)
+    minmax_values.gp:43:47 convert -> int  q.first.size()
+65 call call(sel(sel(arg&(decay(call(std::minmax|call(std::string|lit("a long pear, on the heap")),call(std::string|lit("a fig")))))|second)|size)|)
+    minmax_values.gp:43:68 convert -> int  q.second.size()
+66 call call(sel(sel(arg&(decay(call(std::minmax|call(std::string|lit(80),lit('b')),call(std::string|lit(90),lit('a')))))|first)|size)|)
+    minmax_values.gp:51:18 convert -> int  heap.first.size()
+67 call call(sel(sel(arg&(decay(call(std::minmax|call(std::string|lit(80),lit('b')),call(std::string|lit(90),lit('a')))))|second)|size)|)
+    minmax_values.gp:51:42 convert -> int  heap.second.size()
+68 call call(std::make_tuple|call(C.int|lit(1)),call(std::string|lit("two")),lit(3.5))
+    minmax_values.gp:35:13 init  C.std.make_tuple(C.int(1), C.std.string("two"), 3.5)
+69 call call(std::minmax|arg&(decay(call(C.int|lit(1)))),call(C.int|lit(4)))
+    minmax_values.gp:48:34 arg  C.std.minmax(k, C.int(4))
+70 call call(std::minmax|arg&(decay(call(C.int|lit(10)))),arg&(decay(call(C.int|lit((-4))))))
+    minmax_values.gp:29:10 init  C.std.minmax(x, y)
+71 call call(std::minmax|call(C.int|lit(6)),call(C.int|lit(7)))
+    minmax_values.gp:49:34 arg  C.std.minmax(C.int(6), C.int(7))
+72 call call(std::minmax|call(C.int|lit(7)),call(C.int|lit(9)))
+    minmax_values.gp:34:12 init  C.std.minmax(C.int(7), C.int(9))
+73 call call(std::minmax|call(C.long|lit(5)),call(C.long|lit(2)))
+    minmax_values.gp:36:11 init  C.std.minmax(C.long(5), C.long(2))
+74 call call(std::minmax|call(sel(call(std::string|lit("pear"))|size)|),call(sel(call(std::string|lit("fig"))|size)|))
+    minmax_values.gp:32:11 assign  C.std.minmax(C.std.string("pear").size(), C.std.string("fig").size())
+75 call call(std::minmax|call(std::string|lit("a long pear, on the heap")),call(std::string|lit("a fig")))
+    minmax_values.gp:40:10 init  C.std.minmax(C.std.string("a long pear, on the heap"), C.std.string("a fig"))
+76 call call(std::minmax|call(std::string|lit(80),lit('b')),call(std::string|lit(90),lit('a')))
+    minmax_values.gp:50:10 init  C.std.minmax(C.std.string(80, 'b'), C.std.string(90, 'a'))
+77 call call(std::minmax|lit(3),lit(1))
+    minmax_values.gp:26:12 init  C.std.minmax(3, 1)
+    minmax_values.gp:39:7 init  C.std.minmax(3, 1)
+78 call call(std::minmax|lit(8),lit(6))
+    minmax_values.gp:44:6 assign  C.std.minmax(8, 6)
+79 call call(std::string|lit("a fig"))
+    minmax_values.gp:40:61 arg  C.std.string("a fig")
+80 call call(std::string|lit("a long pear, on the heap"))
+    minmax_values.gp:40:21 arg  C.std.string("a long pear, on the heap")
+81 call call(std::string|lit("fig"))
+    minmax_values.gp:32:49 member  C.std.string("fig")
+82 call call(std::string|lit("pear"))
+    minmax_values.gp:32:22 member  C.std.string("pear")
+83 call call(std::string|lit("two"))
+    minmax_values.gp:35:38 arg  C.std.string("two")
+84 call call(std::string|lit(80),lit('b'))
+    minmax_values.gp:50:21 arg  C.std.string(80, 'b')
+85 call call(std::string|lit(90),lit('a'))
+    minmax_values.gp:50:42 arg  C.std.string(90, 'a')
+86 call call(std::tie|arg&(decay(call(C.int|lit(10)))),arg&(decay(call(C.int|lit((-4))))))
+    minmax_values.gp:41:7 init  C.std.tie(x, y)
+87 call call(unknown(no complete type for next)|addr(arg&(decay(call(C.int|lit(1)))))) incomplete(no complete type for next)
+    minmax_values.gp:48:59 arg  next(&k)
+    minmax_values.gp:49:66 arg  next(&k)
+    minmax_values.gp:64:60 arg  next(&k)
+    minmax_values.gp:67:18 convert -> int  next(&k)
+88 local decay(call(::fresh_mutex|))
+    minmax_values.gp:55:2 init  mu
+89 local decay(call(::fresh_result|))
+    minmax_values.gp:59:2 init  r
+    minmax_values.gp:60:6 init  r2
+90 local decay(call(::make_immovable|))
+    minmax_values.gp:53:2 init  imm
+    minmax_values.gp:54:6 init  imm2
+91 local decay(call(::result_ref|))
+    minmax_values.gp:61:2 init  r3
+92 local decay(call(C.int|lit((-4))))
+    minmax_values.gp:28:5 init  y
+93 local decay(call(C.int|lit(1)))
+    minmax_values.gp:47:2 init  k
+94 local decay(call(C.int|lit(10)))
+    minmax_values.gp:28:2 init  x
+95 local decay(call(std::minmax|call(std::string|lit("a long pear, on the heap")),call(std::string|lit("a fig"))))
+    minmax_values.gp:40:6 init  q
+96 local decay(call(std::minmax|call(std::string|lit(80),lit('b')),call(std::string|lit(90),lit('a'))))
+    minmax_values.gp:50:2 init  heap
+97 local decay(call(std::minmax|lit(3),lit(1)))
+    minmax_values.gp:39:2 init  p
+98 local decay(call(std::tie|arg&(decay(call(C.int|lit(10)))),arg&(decay(call(C.int|lit((-4)))))))
+    minmax_values.gp:41:2 init  t
+99 local decay(tuple(call(std::make_tuple|call(C.int|lit(1)),call(std::string|lit("two")),lit(3.5))|0))
+    minmax_values.gp:35:2 init  n
+100 local decay(tuple(call(std::make_tuple|call(C.int|lit(1)),call(std::string|lit("two")),lit(3.5))|1))
+    minmax_values.gp:35:5 init  s
+101 local decay(tuple(call(std::make_tuple|call(C.int|lit(1)),call(std::string|lit("two")),lit(3.5))|2))
+    minmax_values.gp:35:8 init  d
+102 local decay(tuple(call(std::minmax|arg&(decay(call(C.int|lit(10)))),arg&(decay(call(C.int|lit((-4))))))|0))
+    minmax_values.gp:29:2 init  a
+103 local decay(tuple(call(std::minmax|arg&(decay(call(C.int|lit(10)))),arg&(decay(call(C.int|lit((-4))))))|1))
+    minmax_values.gp:29:5 init  b
+104 local decay(tuple(call(std::minmax|call(C.int|lit(7)),call(C.int|lit(9)))|1))
+    minmax_values.gp:34:5 init  top
+105 local decay(tuple(call(std::minmax|call(C.long|lit(5)),call(C.long|lit(2)))|1))
+    minmax_values.gp:36:6 init  z
+106 local decay(tuple(call(std::minmax|lit(3),lit(1))|0))
+    minmax_values.gp:26:2 init  lo
+107 local decay(tuple(call(std::minmax|lit(3),lit(1))|1))
+    minmax_values.gp:26:6 init  hi
+108 index index(sel(arg&(decay(call(std::minmax|call(std::string|lit(80),lit('b')),call(std::string|lit(90),lit('a')))))|first)|lit(0))
+    minmax_values.gp:51:67 convert -> int  heap.first[0]
+109 index index(std::get|lit(0)) name-only
+    minmax_values.gp:43:90 callee  C.std.get[0]
+110 member sel(arg&(decay(call(::fresh_mutex|)))|lock) name-only
+    minmax_values.gp:56:2 callee  mu.lock
+111 member sel(arg&(decay(call(::fresh_mutex|)))|unlock) name-only
+    minmax_values.gp:57:2 callee  mu.unlock
+112 member sel(arg&(decay(call(::fresh_result|)))|n)
+    minmax_values.gp:62:18 convert -> int  r.n
+    minmax_values.gp:62:28 convert -> int  r2.n
+113 member sel(arg&(decay(call(::make_immovable|)))|n)
+    minmax_values.gp:58:18 convert -> int  imm.n
+    minmax_values.gp:58:30 convert -> int  imm2.n
+114 member sel(arg&(decay(call(::result_ref|)))|n)
+    minmax_values.gp:62:39 convert -> int  r3.n
+115 member sel(arg&(decay(call(std::minmax|call(std::string|lit("a long pear, on the heap")),call(std::string|lit("a fig")))))|first)
+    minmax_values.gp:43:47 member  q.first
+116 member sel(arg&(decay(call(std::minmax|call(std::string|lit("a long pear, on the heap")),call(std::string|lit("a fig")))))|second)
+    minmax_values.gp:43:68 member  q.second
+117 member sel(arg&(decay(call(std::minmax|call(std::string|lit(80),lit('b')),call(std::string|lit(90),lit('a')))))|first)
+    minmax_values.gp:51:18 member  heap.first
+    minmax_values.gp:51:67 template  heap.first
+118 member sel(arg&(decay(call(std::minmax|call(std::string|lit(80),lit('b')),call(std::string|lit(90),lit('a')))))|second)
+    minmax_values.gp:51:42 member  heap.second
+119 member sel(arg&(decay(call(std::minmax|lit(3),lit(1))))|first)
+    minmax_values.gp:43:18 convert -> int  p.first
+    minmax_values.gp:45:18 convert -> int  p.first
+120 member sel(arg&(decay(call(std::minmax|lit(3),lit(1))))|second)
+    minmax_values.gp:43:32 convert -> int  p.second
+    minmax_values.gp:45:32 convert -> int  p.second
+121 member sel(arg&(decay(tuple(call(std::make_tuple|call(C.int|lit(1)),call(std::string|lit("two")),lit(3.5))|1)))|size) name-only
+    minmax_values.gp:37:36 callee  s.size
+122 member sel(call(std::string|lit("fig"))|size) name-only
+    minmax_values.gp:32:49 callee  C.std.string("fig").size
+123 member sel(call(std::string|lit("pear"))|size) name-only
+    minmax_values.gp:32:22 callee  C.std.string("pear").size
+124 member sel(sel(arg&(decay(call(std::minmax|call(std::string|lit("a long pear, on the heap")),call(std::string|lit("a fig")))))|first)|size) name-only
+    minmax_values.gp:43:47 callee  q.first.size
+125 member sel(sel(arg&(decay(call(std::minmax|call(std::string|lit("a long pear, on the heap")),call(std::string|lit("a fig")))))|second)|size) name-only
+    minmax_values.gp:43:68 callee  q.second.size
+126 member sel(sel(arg&(decay(call(std::minmax|call(std::string|lit(80),lit('b')),call(std::string|lit(90),lit('a')))))|first)|size) name-only
+    minmax_values.gp:51:18 callee  heap.first.size
+127 member sel(sel(arg&(decay(call(std::minmax|call(std::string|lit(80),lit('b')),call(std::string|lit(90),lit('a')))))|second)|size) name-only
+    minmax_values.gp:51:42 callee  heap.second.size
+128 deref star(C.int)
+    minmax_values.gp:20:13 type  *C.int
+129 deref star(arg&(star(C.int)))
+    minmax_values.gp:21:2 stmt  *n
+    minmax_values.gp:22:9 return  *n
+130 path std::get name-only
+    minmax_values.gp:43:90 template  C.std.get
+131 path std::make_tuple name-only
+    minmax_values.gp:35:13 callee  C.std.make_tuple
+132 path std::minmax name-only
+    minmax_values.gp:26:12 callee  C.std.minmax
+    minmax_values.gp:29:10 callee  C.std.minmax
+    minmax_values.gp:32:11 callee  C.std.minmax
+    minmax_values.gp:34:12 callee  C.std.minmax
+    minmax_values.gp:36:11 callee  C.std.minmax
+    minmax_values.gp:39:7 callee  C.std.minmax
+    minmax_values.gp:40:10 callee  C.std.minmax
+    minmax_values.gp:44:6 callee  C.std.minmax
+    minmax_values.gp:48:34 callee  C.std.minmax
+    minmax_values.gp:49:34 callee  C.std.minmax
+    minmax_values.gp:50:10 callee  C.std.minmax
+133 path std::string name-only
+    minmax_values.gp:32:22 callee  C.std.string
+    minmax_values.gp:32:49 callee  C.std.string
+    minmax_values.gp:35:38 callee  C.std.string
+    minmax_values.gp:40:21 callee  C.std.string
+    minmax_values.gp:40:61 callee  C.std.string
+    minmax_values.gp:50:21 callee  C.std.string
+    minmax_values.gp:50:42 callee  C.std.string
+134 path std::tie name-only
+    minmax_values.gp:41:7 callee  C.std.tie

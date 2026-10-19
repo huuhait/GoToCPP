@@ -1,0 +1,7 @@
+call call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}))|size)|)
+local decay(call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}))|size)|))
+local decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)})
+index index(std::vector|go(int64_t))
+literal lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}
+member sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(1),lit(2),lit(3)}))|size) name-only
+path std::vector name-only

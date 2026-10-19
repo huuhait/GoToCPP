@@ -1,0 +1,2 @@
+path ::BUFSIZ want-value
+type stand:array(go(uint8_t),::BUFSIZ)

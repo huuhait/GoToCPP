@@ -1,0 +1,63 @@
+0 path C.long name-only
+    iterator_offsets.gp:20:32 callee  C.long
+    iterator_offsets.gp:22:50 callee  C.long
+1 binary bin(+|call(sel(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|begin)|)|call(C.long|arg&(go(int64_t))))
+    iterator_offsets.gp:20:22 arg  v.begin() + C.long(k)
+2 binary bin(-|call(sel(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|end)|)|call(C.long|lit(1)))
+    iterator_offsets.gp:22:42 arg  v.end() - C.long(1)
+3 call call(C.long|arg&(go(int64_t)))
+    iterator_offsets.gp:20:32 operand  C.long(k)
+4 call call(C.long|lit(1))
+    iterator_offsets.gp:22:50 operand  C.long(1)
+5 call call(go(int64_t)|call(std::distance|call(sel(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|begin)|),bin(-|call(sel(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|end)|)|call(C.long|lit(1)))))
+    iterator_offsets.gp:22:14 arg -> any  int(C.std.distance(v.begin(), v.end() - C.long(1)))
+6 call call(go(int64_t)|index(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|lit(0)))
+    iterator_offsets.gp:21:14 arg -> any  int(v[0])
+7 call call(go(int64_t)|index(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|lit(1)))
+    iterator_offsets.gp:21:25 arg -> any  int(v[1])
+8 call call(go(int64_t)|index(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|lit(2)))
+    iterator_offsets.gp:21:36 arg -> any  int(v[2])
+9 call call(go(int64_t)|index(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|lit(3)))
+    iterator_offsets.gp:21:47 arg -> any  int(v[3])
+10 call call(go(int64_t)|index(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|lit(4)))
+    iterator_offsets.gp:21:58 arg -> any  int(v[4])
+11 call call(index(std::vector|go(int64_t))|lit(5),lit(0))
+    iterator_offsets.gp:15:7 init  C.std.vector[int](5, 0)
+12 call call(sel(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|begin)|)
+    iterator_offsets.gp:20:11 arg  v.begin()
+    iterator_offsets.gp:20:22 operand  v.begin()
+    iterator_offsets.gp:22:31 arg  v.begin()
+13 call call(sel(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|end)|)
+    iterator_offsets.gp:22:42 operand  v.end()
+14 call call(std::distance|call(sel(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|begin)|),bin(-|call(sel(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|end)|)|call(C.long|lit(1))))
+    iterator_offsets.gp:22:18 convert -> int  C.std.distance(v.begin(), v.end() - C.long(1))
+15 call call(std::sort|call(sel(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|begin)|),bin(+|call(sel(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|begin)|)|call(C.long|arg&(go(int64_t)))))
+    iterator_offsets.gp:20:2 stmt  C.std.sort(v.begin(), v.begin() + C.long(k))
+16 local decay(call(index(std::vector|go(int64_t))|lit(5),lit(0)))
+    iterator_offsets.gp:15:2 init  v
+17 index index(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|arg&(go(int64_t)))
+    iterator_offsets.gp:17:3 assign  v[i]
+18 index index(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|lit(0))
+    iterator_offsets.gp:21:18 convert -> int  v[0]
+19 index index(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|lit(1))
+    iterator_offsets.gp:21:29 convert -> int  v[1]
+20 index index(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|lit(2))
+    iterator_offsets.gp:21:40 convert -> int  v[2]
+21 index index(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|lit(3))
+    iterator_offsets.gp:21:51 convert -> int  v[3]
+22 index index(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|lit(4))
+    iterator_offsets.gp:21:62 convert -> int  v[4]
+23 index index(std::vector|go(int64_t)) name-only
+    iterator_offsets.gp:15:7 callee  C.std.vector[int]
+24 member sel(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|begin) name-only
+    iterator_offsets.gp:20:11 callee  v.begin
+    iterator_offsets.gp:20:22 callee  v.begin
+    iterator_offsets.gp:22:31 callee  v.begin
+25 member sel(arg&(decay(call(index(std::vector|go(int64_t))|lit(5),lit(0))))|end) name-only
+    iterator_offsets.gp:22:42 callee  v.end
+26 path std::distance name-only
+    iterator_offsets.gp:22:18 callee  C.std.distance
+27 path std::sort name-only
+    iterator_offsets.gp:20:2 callee  C.std.sort
+28 path std::vector name-only
+    iterator_offsets.gp:15:7 template  C.std.vector

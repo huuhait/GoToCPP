@@ -1,0 +1,56 @@
+0 path ::fflush name-only
+    cstr_holder.gp:52:2 callee  C.fflush
+1 path ::printf name-only
+    cstr_holder.gp:34:2 callee  C.printf
+    cstr_holder.gp:35:2 callee  C.printf
+    cstr_holder.gp:37:2 callee  C.printf
+    cstr_holder.gp:42:2 callee  C.printf
+    cstr_holder.gp:45:2 callee  C.printf
+    cstr_holder.gp:47:2 callee  C.printf
+    cstr_holder.gp:50:2 callee  C.printf
+2 path ::puts name-only
+    cstr_holder.gp:33:2 callee  C.puts
+    cstr_holder.gp:38:2 callee  C.puts
+    cstr_holder.gp:43:2 callee  C.puts
+    cstr_holder.gp:46:2 callee  C.puts
+    cstr_holder.gp:51:2 callee  C.puts
+3 path ::stdout
+    cstr_holder.gp:52:16 arg  C.stdout
+4 path C.int
+    cstr_holder.gp:26:10 type  C.int
+    cstr_holder.gp:35:27 callee  C.int
+5 call call(::fflush|::stdout)
+    cstr_holder.gp:52:2 stmt  C.fflush(C.stdout)
+6 call call(::printf|lit("%d %s\012"),call(C.int|arg(go(int64_t))),arg(go(const char*)))
+    cstr_holder.gp:35:2 stmt  C.printf("%d %s\n", C.int(len(s)), C.cstr(s[1:3]))
+7 call call(::printf|lit("%s %d %s\012"),arg(go(const char*)),call(unknown(no complete type for f)|),arg(go(const char*))) incomplete(no complete type for f)
+    cstr_holder.gp:50:2 stmt  C.printf("%s %d %s\n", C.cstr(mk(s)), f(), C.cstr(mk("x") + s))
+8 call call(::printf|lit("%s and %s and %s\012"),arg(go(const char*)),arg(go(const char*)),arg(go(const char*)))
+    cstr_holder.gp:34:2 stmt  C.printf("%s and %s and %s\n", C.cstr(s), C.cstr(s + "!"), C.cstr("lit"))
+9 call call(::printf|lit("%s, %s\012"),lit("a typed constant"),lit("a named constant"))
+    cstr_holder.gp:47:2 stmt  C.printf("%s, %s\n", typed, named)
+10 call call(::printf|lit("[%s]\012"),arg&(decay(arg(go(const char*)))))
+    cstr_holder.gp:37:2 stmt  C.printf("[%s]\n", name)
+11 call call(::printf|lit("copies: [%s] [%s]\012"),arg&(decay(arg&(decay(arg(go(const char*)))))),arg&(decay(arg&(decay(arg&(decay(arg(go(const char*)))))))))
+    cstr_holder.gp:42:2 stmt  C.printf("copies: [%s] [%s]\n", copy, copy2)
+12 call call(::printf|lit("empty: [%s]\012"),arg&(decay(arg(go(const char*)))))
+    cstr_holder.gp:45:2 stmt  C.printf("empty: [%s]\n", other)
+13 call call(::puts|arg&(decay(arg(go(const char*)))))
+    cstr_holder.gp:38:2 stmt  C.puts(name)
+    cstr_holder.gp:43:2 stmt  C.puts(name)
+14 call call(::puts|arg(go(const char*)))
+    cstr_holder.gp:33:2 stmt  C.puts(C.cstr(s))
+    cstr_holder.gp:51:2 stmt  C.puts(C.cstr(order))
+15 call call(::puts|lit("a typed constant"))
+    cstr_holder.gp:46:2 stmt  C.puts(typed)
+16 call call(C.int|arg(go(int64_t)))
+    cstr_holder.gp:35:27 arg  C.int(len(s))
+17 call call(unknown(no complete type for f)|) incomplete(no complete type for f)
+    cstr_holder.gp:50:45 arg  f()
+18 local decay(arg&(decay(arg&(decay(arg(go(const char*)))))))
+    cstr_holder.gp:40:6 init  copy2
+19 local decay(arg&(decay(arg(go(const char*)))))
+    cstr_holder.gp:39:2 init  copy
+20 local decay(arg(go(const char*)))
+    cstr_holder.gp:36:2 init  name
+    cstr_holder.gp:44:6 init  other

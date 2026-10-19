@@ -1,0 +1,28 @@
+0 path ::AS_BOOL name-only
+    macro_collisions.gp:23:72 callee  C.AS_BOOL
+1 path ::ERANGE
+    macro_collisions.gp:25:39 convert -> int  C.ERANGE
+2 path ::LIMIT
+    macro_collisions.gp:23:28 convert -> int  C.LIMIT
+3 path ::TWICE name-only
+    macro_collisions.gp:23:48 callee  C.TWICE
+4 path ::errno
+    macro_collisions.gp:25:18 convert -> int  C.errno
+5 path ::strtol name-only
+    macro_collisions.gp:24:2 callee  C.strtol
+6 call call(::AS_BOOL|lit(7))
+    macro_collisions.gp:23:72 convert -> int  C.AS_BOOL(7)
+7 call call(::TWICE|lit(21))
+    macro_collisions.gp:23:48 convert -> int  C.TWICE(21)
+8 call call(::strtol|lit("99999999999999999999"),lit(nullptr),lit(10))
+    macro_collisions.gp:24:2 stmt  C.strtol("99999999999999999999", nil, 10)
+9 call call(go(int64_t)|::ERANGE)
+    macro_collisions.gp:25:35 operand  int(C.ERANGE)
+10 call call(go(int64_t)|::LIMIT)
+    macro_collisions.gp:23:24 arg -> any  int(C.LIMIT)
+11 call call(go(int64_t)|::errno)
+    macro_collisions.gp:25:14 operand  int(C.errno)
+12 call call(go(int64_t)|call(::AS_BOOL|lit(7)))
+    macro_collisions.gp:23:68 arg -> any  int(C.AS_BOOL(7))
+13 call call(go(int64_t)|call(::TWICE|lit(21)))
+    macro_collisions.gp:23:44 arg -> any  int(C.TWICE(21))

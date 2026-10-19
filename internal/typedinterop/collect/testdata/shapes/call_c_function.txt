@@ -1,0 +1,3 @@
+path ::strlen name-only
+call call(::strlen|lit("abc"))
+local decay(call(::strlen|lit("abc")))

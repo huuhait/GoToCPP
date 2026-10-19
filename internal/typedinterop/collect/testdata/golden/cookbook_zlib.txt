@@ -1,0 +1,64 @@
+0 path ::Z_OK
+    cookbook_zlib.gp:23:75 operand  C.Z_OK
+    cookbook_zlib.gp:32:77 operand  C.Z_OK
+1 path ::compress name-only
+    cookbook_zlib.gp:23:5 callee  C.compress
+2 path ::compressBound name-only
+    cookbook_zlib.gp:21:22 callee  C.compressBound
+3 path ::crc32 name-only
+    cookbook_zlib.gp:43:14 callee  C.crc32
+4 path ::uncompress name-only
+    cookbook_zlib.gp:32:5 callee  C.uncompress
+5 path C.uchar
+    cookbook_zlib.gp:15:26 type  C.uchar
+    cookbook_zlib.gp:16:11 operand  C.uchar
+6 path C.uint name-only
+    cookbook_zlib.gp:43:44 callee  C.uint
+7 path C.ulong name-only
+    cookbook_zlib.gp:21:41 callee  C.ulong
+    cookbook_zlib.gp:22:7 callee  C.ulong
+    cookbook_zlib.gp:23:53 callee  C.ulong
+    cookbook_zlib.gp:31:7 callee  C.ulong
+    cookbook_zlib.gp:32:55 callee  C.ulong
+8 addr addr(arg&(decay(call(C.ulong|arg&(go(int64_t))))))
+    cookbook_zlib.gp:32:36 arg  &n
+9 addr addr(arg&(decay(call(C.ulong|arg(go(int64_t))))))
+    cookbook_zlib.gp:23:34 arg  &n
+10 binary bin(!=|call(::compress|call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t)))),addr(arg&(decay(call(C.ulong|arg(go(int64_t)))))),call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t)))),call(C.ulong|arg(go(int64_t))))|::Z_OK) incomplete(no complete type for bytesPtr)
+    cookbook_zlib.gp:23:5 convert -> (ast: <nil>)  C.compress(bytesPtr(dst), &n, bytesPtr(src), C.ulong(len(src))) != C.Z_OK
+11 binary bin(!=|call(::uncompress|call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t)))),addr(arg&(decay(call(C.ulong|arg&(go(int64_t)))))),call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t)))),call(C.ulong|arg(go(int64_t))))|::Z_OK) incomplete(no complete type for bytesPtr)
+    cookbook_zlib.gp:32:5 convert -> (ast: <nil>)  C.uncompress(bytesPtr(dst), &n, bytesPtr(src), C.ulong(len(src))) != C.Z_OK
+12 call call(::compressBound|call(C.ulong|arg(go(int64_t))))
+    cookbook_zlib.gp:21:22 arg  C.compressBound(C.ulong(len(src)))
+13 call call(::compress|call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t)))),addr(arg&(decay(call(C.ulong|arg(go(int64_t)))))),call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t)))),call(C.ulong|arg(go(int64_t)))) incomplete(no complete type for bytesPtr)
+    cookbook_zlib.gp:23:5 operand  C.compress(bytesPtr(dst), &n, bytesPtr(src), C.ulong(len(src)))
+14 call call(::crc32|lit(0),call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t)))),call(C.uint|arg(go(int64_t)))) incomplete(no complete type for bytesPtr)
+    cookbook_zlib.gp:43:14 arg -> any  C.crc32(0, bytesPtr(text), C.uint(len(text)))
+15 call call(::uncompress|call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t)))),addr(arg&(decay(call(C.ulong|arg&(go(int64_t)))))),call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t)))),call(C.ulong|arg(go(int64_t)))) incomplete(no complete type for bytesPtr)
+    cookbook_zlib.gp:32:5 operand  C.uncompress(bytesPtr(dst), &n, bytesPtr(src), C.ulong(len(src)))
+16 call call(C.uint|arg(go(int64_t)))
+    cookbook_zlib.gp:43:44 arg  C.uint(len(text))
+17 call call(C.ulong|arg&(go(int64_t)))
+    cookbook_zlib.gp:31:7 init  C.ulong(size)
+18 call call(C.ulong|arg(go(int64_t)))
+    cookbook_zlib.gp:21:41 arg  C.ulong(len(src))
+    cookbook_zlib.gp:22:7 init  C.ulong(len(dst))
+    cookbook_zlib.gp:23:53 arg  C.ulong(len(src))
+    cookbook_zlib.gp:32:55 arg  C.ulong(len(src))
+19 call call(paren(star(C.uchar))|arg(go(void*)))
+    cookbook_zlib.gp:16:9 return  (*C.uchar)(unsafe.Pointer(&b[0]))
+20 call call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t)))) incomplete(no complete type for bytesPtr)
+    cookbook_zlib.gp:23:19 arg  bytesPtr(dst)
+    cookbook_zlib.gp:23:38 arg  bytesPtr(src)
+    cookbook_zlib.gp:32:21 arg  bytesPtr(dst)
+    cookbook_zlib.gp:32:40 arg  bytesPtr(src)
+    cookbook_zlib.gp:43:28 arg  bytesPtr(text)
+21 local decay(call(C.ulong|arg&(go(int64_t))))
+    cookbook_zlib.gp:31:2 init  n
+22 local decay(call(C.ulong|arg(go(int64_t))))
+    cookbook_zlib.gp:22:2 init  n
+23 paren paren(star(C.uchar))
+    cookbook_zlib.gp:16:9 callee  (*C.uchar)
+24 deref star(C.uchar)
+    cookbook_zlib.gp:15:25 type  *C.uchar
+    cookbook_zlib.gp:16:10 operand  *C.uchar
