@@ -439,6 +439,11 @@ uint64_t current_goroutine_id() noexcept {
 
 } // namespace detail
 
+void exit(int code) noexcept {
+    detail::claim_death();
+    os::exit(code);
+}
+
 int64_t num_goroutine() noexcept {
     return detail::live.load(std::memory_order_acquire);
 }

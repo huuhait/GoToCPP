@@ -4,17 +4,31 @@
 #include <gocpp/os.hpp>
 #include "linux.hpp"
 
+#include <atomic>
 #include <cerrno>
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 
+#include <malloc.h>
 #include <poll.h>
 #include <unistd.h>
 
 #if defined(GOCPP_LSAN)
 #include <sanitizer/lsan_interface.h>
+#endif
+
+// GOCPP_SAN_ALLOC: a sanitizer replaces malloc, and mallinfo2 knows nothing about its allocator.
+#if defined(GOCPP_LSAN) || defined(__SANITIZE_THREAD__)
+#define GOCPP_SAN_ALLOC 1
+#elif defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+#define GOCPP_SAN_ALLOC 1
+#endif
+#endif
+#if defined(GOCPP_SAN_ALLOC)
+#include <sanitizer/allocator_interface.h>
 #endif
 
 extern "C" char** environ;
@@ -88,12 +102,47 @@ write_result write(int fd, const char* data, std::size_t n) noexcept {
 }
 
 void exit(int code) noexcept {
+    // One thread ends the program. When two goroutines call exit at once (a fatal error on one
+    // while another one's os.Exit runs), the second waits here: the first one flushes, runs the
+    // leak check (which must not run twice at the same time) and ends the process, with its code.
+    static std::atomic<bool> exiting{false};
+    if (exiting.exchange(true, std::memory_order_acq_rel)) {
+        for (;;) {
+            ::pause();
+        }
+    }
     std::fflush(nullptr);
 #if defined(GOCPP_LSAN)
     // _exit skips the leak check that ASan runs at the end of the process.
     __lsan_do_leak_check();
 #endif
     ::_exit(code);
+}
+
+mem_stats mem_info() noexcept {
+    mem_stats m;
+#if defined(GOCPP_SAN_ALLOC)
+    // The sanitizer's allocator.
+    m.gp_in_use = static_cast<uint64_t>(__sanitizer_get_current_allocated_bytes());
+    m.gp_sys = static_cast<uint64_t>(__sanitizer_get_heap_size());
+    m.gp_idle = static_cast<uint64_t>(__sanitizer_get_free_bytes());
+#elif defined(__GLIBC__) && defined(__GLIBC_PREREQ)
+#if __GLIBC_PREREQ(2, 33)
+    struct mallinfo2 mi = ::mallinfo2();
+    // arena: bytes from brk/mmap'd arenas, hblkhd: bytes in separately mmap'd blocks (big
+    // allocations), uordblks: bytes in the allocations that are live, fordblks: bytes free.
+    m.gp_in_use = static_cast<uint64_t>(mi.uordblks) + static_cast<uint64_t>(mi.hblkhd);
+    m.gp_sys = static_cast<uint64_t>(mi.arena) + static_cast<uint64_t>(mi.hblkhd);
+    m.gp_idle = static_cast<uint64_t>(mi.fordblks);
+#endif
+#endif
+    return m;
+}
+
+void trim_memory() noexcept {
+#if defined(__GLIBC__)
+    ::malloc_trim(0);
+#endif
 }
 
 std::vector<std::string> arguments(int argc, char** argv) {

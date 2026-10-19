@@ -260,14 +260,24 @@ func TestRealPackagesMatchStub(t *testing.T) {
 			if realPkg == nil {
 				t.Fatal("not type-checked")
 			}
-			c := &comparison{t: t, left: map[string]bool{}, private: map[string]bool{}}
+			c := &comparison{t: t, left: map[string]bool{}, private: map[string]bool{}, realPkg: true}
+			missing := make(map[string]bool)
+			for _, name := range p.Missing {
+				missing[name] = true
+			}
 			for _, name := range stub.Scope().Names() {
 				if !token.IsExported(name) {
 					continue
 				}
 				robj := realPkg.Scope().Lookup(name)
 				if robj == nil {
-					t.Errorf("%s is in the stub but not in the real package", name)
+					if !missing[name] {
+						t.Errorf("%s is in the stub but not in the real package", name)
+					}
+					continue
+				}
+				if missing[name] {
+					t.Errorf("%s is in Missing of %s but the real package has it: remove it from the list", name, p.Path)
 					continue
 				}
 				c.compareObjects(robj, stub.Scope().Lookup(name))
@@ -295,6 +305,10 @@ type comparison struct {
 	// private holds the unexported method names of Go's exported
 	// interfaces: the stub must have these methods too.
 	private map[string]bool
+
+	// realPkg: the left side is a real package (stubPackage.Real), whose structs may have unexported
+	// fields of their own (the stub's have none): they are not compared.
+	realPkg bool
 }
 
 // comparePackages compares the stub package stub with Go's package real.
@@ -403,7 +417,7 @@ func (c *comparison) compareTypes(s, r *types.TypeName) {
 	rst, rok := rn.Underlying().(*types.Struct)
 	switch {
 	case sok && rok:
-		compareStructs(t, name, sst, rst, left)
+		compareStructs(t, name, sst, rst, left, c.realPkg)
 		if types.Comparable(sn) != types.Comparable(rn) {
 			t.Errorf("type %s: comparable %v in the stub, %v in Go", name, types.Comparable(sn), types.Comparable(rn))
 		}
@@ -454,7 +468,7 @@ func tparamsString(l *types.TypeParamList) string {
 // compareStructs compares the fields of the struct type name: the stub's
 // fields, without the blank ones, are Go's exported and embedded fields, in
 // the same order, without the left-out ones.
-func compareStructs(t *testing.T, name string, s, r *types.Struct, left map[string]bool) {
+func compareStructs(t *testing.T, name string, s, r *types.Struct, left map[string]bool, ignorePrivate bool) {
 	var want []string
 	for f := range r.Fields() {
 		if (f.Exported() || f.Embedded()) && !left[name+"."+f.Name()] {
@@ -463,7 +477,7 @@ func compareStructs(t *testing.T, name string, s, r *types.Struct, left map[stri
 	}
 	var got []string
 	for i, f := range fieldsOf(s) {
-		if f.Name() == "_" {
+		if f.Name() == "_" || (ignorePrivate && !f.Exported() && !f.Embedded()) {
 			continue
 		}
 		got = append(got, fmt.Sprintf("%s %s embedded=%v tag=%q", f.Name(), typeString(f.Type()), f.Embedded(), s.Tag(i)))

@@ -124,8 +124,15 @@ void lines_of(std::string_view debug_line, std::string_view line_str, std::strin
 // "?()" and "\t?:0 pc=0x..." (an address in the file, for addr2line). An address 0 is the
 // panic frame between a deferred call and the panic that ran it (panic_report puts it in
 // between the stacks of a panic chain): "panic(...)" and "\t?:0", where Go shows
-// runtime.gopanic as "panic({0x...?, 0x...?})" and its line in runtime/panic.go.
-void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool complete);
+// runtime.gopanic as "panic({0x...?, 0x...?})" and its line in runtime/panic.go. cached is the
+// program's file when the caller has it already (program_image, below: runtime.Stack asks often);
+// null reads it again, for the end of a program.
+void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool complete,
+                  const exe_image* cached = nullptr);
+
+// find_symbol returns the function of img that contains addr (an address in the file, before
+// relocation), or null when addr is before the first function or between two of them.
+const exe_symbol* find_symbol(const exe_image& img, uint64_t addr) noexcept;
 
 // fatal_trace appends the stack trace of the code that called it to out (for gp::detail::fatal,
 // panic.hpp), as a panic's trace shows it. In a deferred call that a panic runs, it shows Go's
@@ -150,5 +157,37 @@ inline constinit thread_local const run_mark* top_run = nullptr;
 
 // run_marks returns the running thread's innermost run_mark, or null.
 const run_mark* run_marks() noexcept;
+
+// --- the running goroutine's own stack: runtime.Caller, Callers, Stack, FuncForPC (step 8.10) ---
+
+// program_image returns the program's own file (os::read_exe), read the first time and kept for
+// the life of the process, so that a program that asks for its callers often (a logger) doesn't
+// read its file each time. It is null when the file can't be read. Thread-safe.
+const exe_image* program_image();
+
+// A frame_info is what is known about the code at one address: ok says that the address is in a
+// function of the program's symbol table; fn is how the trace names it (go_func), entry the
+// run-time address of the function's first instruction, and file and line the source position
+// (line 0: the line table has none).
+struct frame_info {
+    bool ok = false;
+    go_func fn;
+    std::string file;
+    int64_t line = 0;
+    uintptr_t entry = 0;
+};
+
+// resolve_pcs describes the n run-time addresses pcs. With call set they are return addresses
+// (the addresses that os::stack and runtime.Callers give): the call is one byte before. The answers
+// are kept by address, so asking for the same call again costs a hash lookup; the DWARF line table
+// is read once for all the addresses that were not asked before, not once for each.
+void resolve_pcs(const uintptr_t* pcs, std::size_t n, bool call, frame_info* out);
+
+// shown_frames returns the return addresses of the calling thread's stack that a Go trace shows,
+// innermost first, at most want of them (fewer when the stack ends). The runtime's own frames, the
+// C++ library's and gocpp's helpers are left out, and the walk ends at C++'s main. A native
+// function of the package runtime calls it, so the first address is in the Go function that called
+// that native function.
+std::vector<uintptr_t> shown_frames(std::size_t want);
 
 } // namespace gp::detail

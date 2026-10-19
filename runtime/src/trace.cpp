@@ -1232,9 +1232,26 @@ constexpr std::size_t outer_frames = 50;
 
 } // namespace
 
-void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool complete) {
-    exe_image img;
-    bool have = os::read_exe(img) && !img.funcs.empty();
+const exe_symbol* find_symbol(const exe_image& img, uint64_t addr) noexcept {
+    auto it = std::upper_bound(
+        img.funcs.begin(), img.funcs.end(), addr,
+        [](uint64_t a, const exe_symbol& s) { return a < static_cast<uint64_t>(s.addr); });
+    if (it == img.funcs.begin()) {
+        return nullptr;
+    }
+    const exe_symbol& sym = *--it;
+    if (sym.size != 0 && addr >= sym.addr + sym.size) {
+        return nullptr; // between functions
+    }
+    return &sym;
+}
+
+void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool complete,
+                  const exe_image* cached) {
+    exe_image own;
+    bool have =
+        cached != nullptr ? !cached->funcs.empty() : os::read_exe(own) && !own.funcs.empty();
+    const exe_image& img = cached != nullptr ? *cached : own;
     auto in_code = [&](uintptr_t pc) {
         return std::any_of(img.code.begin(), img.code.end(),
                            [pc](const auto& r) { return pc >= r.first && pc < r.second; });
@@ -1255,16 +1272,11 @@ void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool co
             // (the return address can be the start of the next line or function).
             uint64_t addr = pcs[k] - img.bias;
             uint64_t call = addr - 1;
-            auto it = std::upper_bound(
-                img.funcs.begin(), img.funcs.end(), call,
-                [](uint64_t a, const exe_symbol& s) { return a < static_cast<uint64_t>(s.addr); });
-            if (it == img.funcs.begin()) {
-                continue;
+            const exe_symbol* found = find_symbol(img, call);
+            if (found == nullptr) {
+                continue; // before the first function, or between functions
             }
-            const exe_symbol& sym = *--it;
-            if (sym.size != 0 && call >= sym.addr + sym.size) {
-                continue; // between functions
-            }
+            const exe_symbol& sym = *found;
             if (sym.name == "main") {
                 break; // C++'s main: the program's start, below it libc
             }

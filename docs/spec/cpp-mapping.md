@@ -2097,7 +2097,7 @@ v.Field(1).Set(reflect.Append(v.Field(1), reflect.ValueOf("a")))
 
 ## Goroutines and channels
 
-Phase 08 builds this; steps 8.1 to 8.6 are in (the `go` statement, channels and their directions,
+Phase 08 builds this; steps 8.1 to 8.6, 8.9 and 8.10 are in (the `go` statement, channels and their directions,
 `select`, `range` over a channel; `sync` and `time` come next). The runtime is
 `runtime/include/gocpp/{goroutine,waiter,chan,select}.hpp` and
 `runtime/src/{goroutine,waiter,chan,select}.cpp`.
@@ -2293,6 +2293,35 @@ a thread slot, the stack bounds, and the stack-overflow hook. The Windows versio
 Source: [Phase 08 §2.2 to §2.4](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md#22-goroutines--os-threads),
 [ADR-007](../adr/007-goroutines-os-threads.md), [ADR-026](../adr/026-channels-and-thread-reuse.md),
 [ADR-029](../adr/029-select-and-range-over-channels.md).
+
+### The runtime package and the end of the program (steps 8.9 and 8.10, ADR-038)
+
+- **The program ends with `gp::exit(code)`**: `run_main` after `main` returns (and after the settling of
+  a panic that a goroutine is still reporting), `os.Exit` and the fatal errors. It flushes what C and
+  C++ code printed through stdio (gocpp's own output is one `write` per call, never buffered), runs
+  the leak check when the program is built with `-asan` (so a leaking program still fails under ASan,
+  although the process ends with `_exit`), and calls `_exit`. **No C++ static destructor, `atexit`
+  function or thread-local destructor runs**, because goroutine threads may still be using what they
+  would destroy; a C++ global that must flush (a `std::ofstream`) has to be flushed by the program. A
+  goroutine that is running, blocked or in a system call does not delay the exit (1000 blocked goroutines
+  and a spinning one: about 0.11 s for the whole program). Exit codes: `main` returns 0 whatever
+  else runs, a panic in any goroutine is 2, `gp::exit(n)` is n; a broken pipe on stdout or stderr is
+  SIGPIPE.
+- **`runtime` is a package written in `.gp`** (`stdlib/runtime`, `PORT.md` there lists the differences)
+  with these natives (`gocpp/runtimepkg.hpp`, namespace `gp::runtime`):
+
+  | Go | gocpp |
+  |----|-------|
+  | `Gosched()` | `sched_yield`: a hint, not Go's "run another goroutine first" |
+  | `NumGoroutine()` | `gp::num_goroutine()`: the main goroutine and every goroutine from its `go` until its function has returned |
+  | `GOMAXPROCS(n)`, `NumCPU()` | the value is remembered and used by nothing; the default is the CPUs the process may run on (`sched_getaffinity`), lowered by the cgroup CPU limit (rounded up, at least 2), overridden by `$GOMAXPROCS` |
+  | `Goexit()` | `gp::goexit()`: deferred calls run, `recover()` returns nil, the goroutine ends; in `main` the program goes on until the other goroutines end, then `fatal error: no goroutines (main called runtime.Goexit) - deadlock!` |
+  | `LockOSThread`, `UnlockOSThread`, `KeepAlive`, `GC`, `SetFinalizer` | nothing (a thread for each goroutine, reference counting) |
+  | `Caller`, `Callers`, `CallersFrames`, `FuncForPC`, `Stack` | the program's symbol table and DWARF line table; names are Go's, files and lines those of the `.gp` source; `Stack(buf, true)` writes only the caller's stack |
+  | `ReadMemStats` | the heap numbers from the allocator; the counters stay 0 |
+  | `Error`, `PanicNilError`, `TypeAssertionError` | real Go types; the runtime's panics use the package's values once the package is loaded |
+  | `Version()`, `GOOS`, `GOARCH` | `go1.25.14`, `linux`, `amd64` |
+  | `runtime/debug` | `Stack`, `PrintStack`, `FreeOSMemory` (`malloc_trim`), and `SetGCPercent`, `SetMemoryLimit`, `SetMaxStack`, `SetMaxThreads`, `SetPanicOnFault`, `SetTraceback` that keep their values |
 
 ## Generics (steps 7.1 and 7.2)
 

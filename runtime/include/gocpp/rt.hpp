@@ -41,6 +41,7 @@
 #include <gocpp/goroutine.hpp>
 #include <gocpp/chan.hpp>
 #include <gocpp/select.hpp>
+#include <gocpp/runtimepkg.hpp>
 
 // The standard headers that generated code uses directly: std::tuple for multiple results,
 // INT64_C and the fixed-width integer types.

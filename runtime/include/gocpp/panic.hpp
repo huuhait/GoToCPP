@@ -27,6 +27,7 @@
 
 #include <gocpp/checks.hpp>
 #include <gocpp/complex.hpp>
+#include <gocpp/func.hpp>
 #include <gocpp/hash.hpp>
 #include <gocpp/iface.hpp>
 #include <gocpp/print.hpp>
@@ -428,6 +429,15 @@ gp::any runtime_error_value(const gp::string& text);
 // type_assertion_error(text) is the value of a failed type assertion: a *runtime.TypeAssertionError
 // whose Error() is text ("interface conversion: interface {} is string, not int").
 gp::any type_assertion_error(gp::string text);
+
+// set_panic_values makes the package runtime's own types the values of the panics that the runtime
+// makes (stdlib/runtime calls it from init, through gp::runtime::set_panic_values): nil_error
+// is the *runtime.PanicNilError of panic(nil), assertion makes the *runtime.TypeAssertionError
+// of a failed assertion. A program that doesn't import runtime can't name those types, so it
+// can't tell the difference; one that does gets values that its own `r.(*runtime.PanicNilError)`
+// accepts, because the descriptors are the ones that its package header defines (a descriptor is
+// a Go type's identity, gocpp/type.hpp).
+void set_panic_values(const gp::any& nil_error, gp::func<gp::any(gp::string)> assertion);
 
 // throw_type_assertion(text) throws the panic of a failed type assertion: its value is
 // type_assertion_error(text), and the identity is unique (Go allocates a new one each time).

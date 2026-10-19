@@ -818,7 +818,7 @@ int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
     // anything unwinds.
     detail::settle_panics(); // a goroutine that runs a panic's deferred calls ends the program
                              // first
-    os::exit(0);
+    gp::exit(0);
 }
 
 } // namespace gp

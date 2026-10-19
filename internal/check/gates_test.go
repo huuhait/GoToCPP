@@ -306,9 +306,10 @@ func main() {
 		want:   []string{"3:8: package runtime/cgo is not available yet (Phase 09)"},
 		wantAt: []string{"3:8: package runtime/cgo is not available yet (Phase 09)"}},
 
-	{name: "runtime", phase: 9, src: "package main\n\nimport \"runtime\"\n\nfunc main() {\n\truntime.Gosched()\n}\n",
-		want:   []string{"3:8: package runtime is not available yet (Phase 09)"},
-		wantAt: []string{"3:8: package runtime is not available yet (Phase 09)"}},
+	{name: "runtime", phase: 8, src: "package main\n\nimport \"runtime\"\n\nfunc main() {\n\truntime.Gosched()\n}\n",
+		want: []string{"3:8: package runtime is not available yet (Phase 08)"}},
+	{name: "runtime/debug", phase: 8, src: "package main\n\nimport \"runtime/debug\"\n\nfunc main() {\n\tdebug.FreeOSMemory()\n}\n",
+		want: []string{"3:8: package runtime/debug is not available yet (Phase 08)"}},
 	{name: "embedded C++ type/typo", phase: 5, src: "package main\n\ntype V struct {\n\tFooo\n\tn int\n}\n\nfunc main() {\n\tvar v V\n\tv.x()\n\tv.y = 1\n}\n",
 		want: []string{
 			"4:2: undefined: Fooo",

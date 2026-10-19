@@ -9,6 +9,7 @@
 // fmt (which will read the same tables) prints the Error() text.
 #include <gocpp/rt.hpp>
 
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <exception>
@@ -115,9 +116,22 @@ const type_desc* td_cpp_exception() {
     return &td;
 }
 
+// The values of the package runtime's own types, once a program that imports the package has
+// run its init (detail::set_panic_values): never freed, and read without a lock.
+std::atomic<const gp::any*> registered_nil_error{nullptr};
+std::atomic<const gp::func<gp::any(gp::string)>*> registered_assertion{nullptr};
+
 } // namespace
 
 namespace detail {
+
+void set_panic_values(const gp::any& nil_error, gp::func<gp::any(gp::string)> assertion) {
+    // Not freed, and the last call wins (a program has one runtime package).
+    auto* f = new gp::func<gp::any(gp::string)>(std::move(assertion));
+    auto* v = new gp::any(nil_error);
+    registered_assertion.store(f, std::memory_order_release);
+    registered_nil_error.store(v, std::memory_order_release);
+}
 
 gp::any runtime_error_value(rt_error kind, gp::string text) {
     switch (kind) {
@@ -137,6 +151,9 @@ gp::any runtime_error_value(const gp::string& text) {
 }
 
 gp::any type_assertion_error(gp::string text) {
+    if (const auto* make = registered_assertion.load(std::memory_order_acquire); make != nullptr) {
+        return (*make)(std::move(text)); // the runtime package's *TypeAssertionError
+    }
     return to_iface<gp::any>(
         gp::new_<type_assertion_error_t>(type_assertion_error_t{std::move(text)}),
         td_type_assertion_error());
@@ -313,7 +330,8 @@ void panic(std::nullptr_t) {
     // once.)
     static const gp::any* const one =
         new gp::any(to_iface<gp::any>(gp::new_<panic_nil_error_t>(), td_panic_nil_error()));
-    gp::any value = *one;
+    const gp::any* registered = registered_nil_error.load(std::memory_order_acquire);
+    gp::any value = registered != nullptr ? *registered : *one;
     throw panic_error{std::move(value), gp::string(), true, {panic_identity::gp_words, 0, 0}};
 }
 

@@ -9,7 +9,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
+#include <string_view>
 #include <typeinfo>
 #include <vector>
 
@@ -168,6 +170,36 @@ stack_overflow_hook set_stack_overflow_hook(stack_overflow_hook hook) noexcept;
 // respects taskset and cpusets, which std::thread::hardware_concurrency does not), at least 1. A
 // goroutine that waits spins only when this is more than 1.
 int cpu_count() noexcept;
+
+// cpu_limit returns the CPU limit of the control group that the process runs in, as a number of
+// CPUs (the quota divided by the period; 2.5 is two and a half CPUs), or 0 when there is none: no
+// control group, no limit ("max"), or a file that can't be read or understood. It is what Go
+// 1.25's runtime reads to lower its default GOMAXPROCS in a container (Linux: cgroup v2's
+// cpu.max, or v1's cpu.cfs_quota_us and cpu.cfs_period_us, found through /proc/self/cgroup and
+// /proc/self/mountinfo like Go does). Other systems: 0. It reads files, so it is for the start of
+// a program, not a hot path.
+double cpu_limit() noexcept;
+
+// cgroup_cpu_limit is the part of cpu_limit that doesn't touch the machine, for tests: the
+// contents of /proc/self/cgroup and /proc/self/mountinfo, and read_file, which gives the contents
+// of the control group's limit files by path (false when it can't).
+double cgroup_cpu_limit(
+    std::string_view proc_cgroup, std::string_view mountinfo,
+    const std::function<bool(const std::string& path, std::string& out)>& read_file) noexcept;
+
+// mem_stats is what the allocator says about the heap, in bytes, for runtime.ReadMemStats:
+// gp_in_use the bytes of the allocations that are live, gp_sys the bytes that the allocator got
+// from the system, gp_idle the bytes that it holds free. All zero when the system can't tell.
+struct mem_stats {
+    uint64_t gp_in_use = 0;
+    uint64_t gp_sys = 0;
+    uint64_t gp_idle = 0;
+};
+mem_stats mem_info() noexcept;
+
+// trim_memory gives the allocator's free memory back to the system when it can (Linux: glibc's
+// malloc_trim), for runtime/debug.FreeOSMemory.
+void trim_memory() noexcept;
 
 // exit_now ends the process at once with the exit code, and does nothing else: no flush of C
 // stdio, no leak check, no atexit functions. It is async-signal-safe: for the stack overflow

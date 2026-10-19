@@ -81,6 +81,11 @@ type stubPackage struct {
 	// tool still makes the stub in memory, because the tests compare the real package's exported
 	// declarations with it (TestRealPackagesMatchStub).
 	Real bool
+
+	// Missing (for a Real package): the exported names of Go's package that the real package
+	// does not have yet. TestRealPackagesMatchStub does not ask for them, and every other
+	// difference is still an error. Its doc comment in stdlib/<path>/PORT.md says why.
+	Missing []string
 }
 
 // packages are the packages that get a stub: every standard package that a
@@ -96,6 +101,7 @@ type stubPackage struct {
 var packages = []stubPackage{
 	{Path: "weak", Phase: 3, Intrinsic: "gp::weak_ptr"},
 	{Path: "errors", Phase: 5, Real: true},
+	{Path: "runtime", Phase: 8, Real: true, Missing: runtimeMissing},
 	{Path: "cmp", Phase: 7},
 	{Path: "iter", Phase: 7},
 	{Path: "unicode", Phase: 9},
@@ -115,10 +121,23 @@ var packages = []stubPackage{
 	{Path: "sync", Phase: 8},
 	{Path: "sync/atomic", Phase: 8},
 	{Path: "os", Phase: 9},
+	{Path: "runtime/debug", Phase: 8, Real: true, Missing: debugMissing},
 	{Path: "flag", Phase: 9},
 	{Path: "regexp", Phase: 9},
 	{Path: "encoding/json", Phase: 9},
 	{Path: "testing", Phase: 9},
+}
+
+// runtimeMissing and debugMissing: what the real packages runtime and runtime/debug (Phase 08
+// step 8.10) leave out; stdlib/runtime/PORT.md says why.
+var runtimeMissing = []string{
+	"AddCleanup", "BlockProfile", "BlockProfileRecord", "Breakpoint", "CPUProfile", "Cleanup",
+	"GOTOOLDIR", "GoroutineProfile", "MemProfile", "MemProfileRecord", "MutexProfile", "ReadTrace",
+	"SetCgoTraceback", "StackRecord", "StartTrace", "StopTrace", "ThreadCreateProfile",
+}
+var debugMissing = []string{
+	"BuildInfo", "BuildSetting", "CrashOptions", "GCStats", "Module", "ParseBuildInfo", "ReadBuildInfo",
+	"ReadGCStats", "SetCrashOutput", "WriteHeapDump",
 }
 
 func main() {

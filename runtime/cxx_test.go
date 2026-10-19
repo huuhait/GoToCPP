@@ -309,6 +309,7 @@ func TestCXX(t *testing.T) {
 						{src: "test/reflect_test.cpp", weight: 5},
 						{src: "test/thread_test.cpp", weight: 3},
 						{src: "test/goroutine_test.cpp", weight: 3},
+						{src: "test/runtimepkg_test.cpp", weight: 3},
 						{src: "test/chan_test.cpp", weight: 4},
 						{src: "test/select_test.cpp", weight: 4},
 						{src: "test/nochecks_test.cpp", flags: []string{"-DGOCPP_NOCHECKS"}, weight: 3},
@@ -374,6 +375,12 @@ func TestCXX(t *testing.T) {
 						bin := bins.bin(t, "test/goroutine_test.cpp")
 						runUnit(t, bin)
 						runGoroutine(t, bin, m.name)
+					})
+					t.Run("runtimepkg", func(t *testing.T) {
+						t.Parallel()
+						bin := bins.bin(t, "test/runtimepkg_test.cpp")
+						runUnit(t, bin)
+						runRuntimePkg(t, bin, m.name == "asan")
 					})
 					t.Run("chan", func(t *testing.T) {
 						t.Parallel()

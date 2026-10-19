@@ -103,10 +103,11 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 | `iter` | 07 | `iter.Pull` and `iter.Pull2` from Phase 08 (they run on a helper thread). |
 | `maps` | 07 |  |
 | `slices` | 07 |  |
+| `runtime` | 08 | `runtime.Error`, `PanicNilError`, `TypeAssertionError`, `Gosched`, `NumGoroutine`, `GOMAXPROCS`, `NumCPU`, `Goexit`, `LockOSThread`, `Caller`, `Callers`, `CallersFrames`, `FuncForPC`, `Stack`, `GC`, `ReadMemStats`, `Version`, `GOOS`, `GOARCH`, `KeepAlive` and `SetFinalizer` from Phase 08 (step 8.10). Each goroutine has a thread of its own, so `LockOSThread` does nothing and `Gosched` only yields the CPU. Memory is reference counted: `GC` does nothing and a finalizer never runs. The profiles, traces and `AddCleanup` are not built; stdlib/runtime/PORT.md lists them. |
+| `runtime/debug` | 08 | `Stack`, `PrintStack`, `SetGCPercent`, `SetMemoryLimit`, `FreeOSMemory`, `SetMaxStack`, `SetMaxThreads`, `SetPanicOnFault` and `SetTraceback` from Phase 08 (step 8.10). `ReadBuildInfo`, `ReadGCStats` and `SetCrashOutput` come with Phase 09. |
 | `sync` | 08 |  |
 | `sync/atomic` | 08 |  |
 | `time` | 08 | Timers and `Sleep` in Phase 08; formatting, parsing and time zones in Phase 09. |
-| `runtime` | 09 | `runtime.Error`, `runtime.PanicNilError`, `Gosched`, `NumGoroutine`, `GOMAXPROCS`, `Goexit` and `LockOSThread` (which does nothing: each goroutine has its own thread). There is no `runtime` package yet: the panics of Phase 05 already carry Go's `runtime.Error` types and methods (`r.(error)` works), but a program can't name them until the package exists (Phase 08 step 8.10 plans its goroutine functions). |
 | `runtime/cgo` | 09 | `cgo.Handle`: not built yet. |
 | `bufio` | 09 |  |
 | `bytes` | 09 |  |

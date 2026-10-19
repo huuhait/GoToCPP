@@ -1040,12 +1040,29 @@ func checkRun(t *testing.T, r result, want expect) {
 	}
 }
 
+// tsanWarnings are the lines of ThreadSanitizer's reports that runMismatches looks for:
+// "WARNING" is a data race, a lock-order inversion or another finding, "FATAL" a report that
+// ends the program. gocpp has no TSan mode for programs yet (step 8.12 adds it, with the
+// -race job); this check is what makes that job fail on a warning, and a program that runs
+// the sanitizer some other way (a C++ library built with it) is checked now.
+var tsanWarnings = []string{"WARNING: ThreadSanitizer", "FATAL: ThreadSanitizer"}
+
 // runMismatches compares the exit code, stdout and stderr of a finished
 // program (r) with want, and returns one message per difference. shown
 // says whether a message already holds the whole stderr.
 func runMismatches(r result, want expect) (problems []string, shown bool) {
 	if r.exit != want.exitCode {
 		problems = append(problems, fmt.Sprintf("%s, want exit code %d", r.status, want.exitCode))
+	}
+	// A ThreadSanitizer report is a data race in the program or in the runtime. It fails the test
+	// whatever the test says about stderr (// Stderr: .* too) and whatever the exit code is: TSan's
+	// exit code (66) is only a default, and a program can change it (TSAN_OPTIONS=exitcode=0).
+	for _, w := range tsanWarnings {
+		if bytes.Contains(r.stderr, []byte(w)) || bytes.Contains(r.stdout, []byte(w)) {
+			problems = append(problems, fmt.Sprintf("the output has a ThreadSanitizer report (%q): a data race "+
+				"in the program or in gocpp's runtime (stderr below)", w))
+			break
+		}
 	}
 	got := string(r.stdout)
 	switch {

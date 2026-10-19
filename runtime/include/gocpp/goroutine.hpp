@@ -162,7 +162,8 @@ struct block_scope {
 // (`defer close(done)` wakes main, and the goroutine goes on to die), Go lets the panic finish:
 // settle_panics, which run_main calls before it ends the program with code 0, waits for such
 // goroutines (at most 200 ms), and if a goroutine has claimed the death of the program, it never
-// returns. Exit paths that end the program with code 0 (os.Exit, later) call it too.
+// returns. Only the return of main waits: os.Exit (gp::exit below) ends the program at once, in Go
+// too.
 int64_t panicking() noexcept;
 void settle_panics() noexcept;
 
@@ -202,6 +203,17 @@ struct call_task final : task {
 void claim_death() noexcept;
 
 } // namespace detail
+
+// exit ends the program with the exit code, now: the one exit path of os.Exit (Phase 09), of a
+// fatal error and of the return of main (gp::run_main). It flushes what C and C++ code has
+// printf'd (gocpp's own output is never buffered), and ends the process with _exit, so no C++
+// static destructor, atexit function or thread-local destructor runs, and no other goroutine can
+// see an object that is destroyed: a goroutine that still runs, one that is blocked in a system
+// call and one in a loop that never ends all stop with the process, and nothing waits for them. In
+// a build with AddressSanitizer the leak check runs first, as it would at the end of the process.
+// When another goroutine is ending the program already (a panic's report), exit waits for it
+// (claim_death), so the report is complete and the code is the report's. Never returns.
+[[noreturn]] void exit(int code) noexcept;
 
 // num_goroutine is runtime.NumGoroutine: the number of goroutines that are alive: the main
 // goroutine, and each goroutine from the go statement until its function has returned and its

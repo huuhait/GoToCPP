@@ -245,8 +245,8 @@ step 8.12's job must set `TSAN_OPTIONS=detect_deadlocks=0` for the `select_1000_
    `gp::atomic_ptr<T>`, function-style API via `std::atomic_ref`).
 8. **8.8 `time`** with Go 1.23+ timer rules (unbuffered timer channels, no stale values,
    weak references in the timer heap).
-9. **8.9 Exit semantics** (flush + `_exit`, no static destructors, TSan-aware harness).
-10. **8.10 `runtime`** (Gosched, NumGoroutine, GOMAXPROCS that remembers its value, Goexit). The first of these makes the `runtime` package exist: the gate rows for `runtime` and `runtime/cgo` are at Phase 09 since step 5.12 (`internal/check/gates.go`), so 8.10 must move the `runtime` row to Phase 08 (and add `runtime.Error`/`PanicNilError`, which it owns unless 9.2 does).
+9. **8.9 Exit semantics** (flush + `_exit`, no static destructors, TSan-aware harness). Done: `gp::exit`, ADR-038; the harness fails a run with a ThreadSanitizer report; the ASan leak check runs before `_exit`.
+10. **8.10 `runtime`** (Gosched, NumGoroutine, GOMAXPROCS that remembers its value, Goexit). The first of these makes the `runtime` package exist: the gate rows for `runtime` and `runtime/cgo` are at Phase 09 since step 5.12 (`internal/check/gates.go`), so 8.10 must move the `runtime` row to Phase 08 (and add `runtime.Error`/`PanicNilError`, which it owns unless 9.2 does). Done (ADR-038): the package is `stdlib/runtime` (+ `runtime/debug`), the row is at Phase 08, `runtime/cgo` stays at 09.
 11. **8.11 Deadlock detection** (Go 1.23+ timer rule, foreign threads, the `Goexit` message).
 12. **8.12 `-race` CI job** (ThreadSanitizer over the concurrency suite).
 13. **8.13 Lift the gates; tests**: ≥ 50 concurrency run tests (deterministic output only); the
