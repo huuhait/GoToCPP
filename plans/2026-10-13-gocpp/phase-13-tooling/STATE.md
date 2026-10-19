@@ -15,13 +15,13 @@
   - [x] path remapping for `-trimpath` builds (`-ffile-prefix-map` + substitute-path/source-map)
   - [x] `gocpp debug`
   - [x] VS Code: `contributes.breakpoints` for gocpp + launch template
-- [~] 13.3 `gocpp vet` (only `cycle` and `reserved` exist of the gocpp analyzers, plus a `panicbang` placeholder that does nothing: the rest is 13.3b)
+- [x] 13.3 `gocpp vet` (the gocpp analyzers are 13.3b, merged 2026-10-19)
   - [x] hand-built `packages.Package` + `checker.Analyze` (facts across packages)
   - [x] `IllTyped` guard for packages with opaque expressions; `recover` per analyzer; `-v` lists skipped analyzers
   - [x] Go analyzers (printf, shadow, copylock, nilness, ...)
-  - [ ] gocpp analyzers (cycles, `&cppLocal`, `C.cstr` lifetime + "keeps the pointer" list + NUL bytes, narrowing, panicking `!` in libraries, ignored errors, `go` in `!` functions, unwaited `#body()`, unused lazy params)
+  - [x] gocpp analyzers (cycles, `&cppLocal`, `C.cstr` lifetime + "keeps the pointer" list + NUL bytes, narrowing, panicking `!` in libraries, ignored errors, `go` in `!` functions, unwaited `#body()`, unused lazy params)
   - [x] CI: every analyzer over the Phase 04 interop examples
-- [ ] 13.3b The missing gocpp vet analyzers (the un-ticked sub-box above): `panicbang` (panicking `!` in libraries, replaces the placeholder), `&cppLocal`, `C.cstr` lifetime + "keeps the pointer" list + NUL bytes, narrowing, ignored errors, `go` in `!` functions, unwaited `#body()`, unused lazy params (internal/vet, docs/guides/vet.md; job running)
+- [x] 13.3b The missing gocpp vet analyzers (the un-ticked sub-box above): `panicbang` (panicking `!` in libraries, replaces the placeholder), `&cppLocal`, `C.cstr` lifetime + "keeps the pointer" list + NUL bytes, narrowing, ignored errors, `go` in `!` functions, unwaited `#body()`, unused lazy params (internal/vet, docs/guides/vet.md; job running)
 - [x] 13.4 `gocpp doc`
 - [x] 13.5 `gocpp emit --annotate` + `gocpp explain`
 
