@@ -203,7 +203,20 @@ func checkBase(env, s string, allowQuery bool) (string, error) {
 	return strings.TrimRight(s, "/"), nil
 }
 
+// redactList hides the credentials and queries of the URLs in a list of mirrors,
+// for a message.
+func redactList(s string) string {
+	parts := strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == '|' })
+	for _, p := range parts {
+		if r := redact(p); r != p {
+			s = strings.ReplaceAll(s, p, r)
+		}
+	}
+	return s
+}
+
 func parseProxies(s string) ([]Proxy, error) {
+	orig := redactList(s)
 	var out []Proxy
 	for s != "" {
 		i := strings.IndexAny(s, ",|")
@@ -217,11 +230,19 @@ func parseProxies(s string) ([]Proxy, error) {
 		var p Proxy
 		switch elem {
 		case "":
-			continue
+			return nil, fmt.Errorf("%s: an empty element in %q: name a mirror, direct or off", EnvModProxy, orig)
 		case "direct":
 		case "off":
 			p.Off = true
 		default:
+			if strings.HasPrefix(elem, "file://") {
+				base, err := checkFileBase(elem)
+				if err != nil {
+					return nil, err
+				}
+				p.URL = base
+				break
+			}
 			base, err := checkBase(EnvModProxy, elem, false)
 			if err != nil {
 				return nil, err
@@ -230,8 +251,48 @@ func parseProxies(s string) ([]Proxy, error) {
 		}
 		p.Any = sep == '|'
 		out = append(out, p)
+		if sep != 0 && s == "" {
+			return nil, fmt.Errorf("%s: an empty element at the end of %q: name a mirror, direct or off", EnvModProxy, orig)
+		}
 	}
 	return out, nil
+}
+
+// checkFileBase checks a file:// element of GOCPP_MODPROXY: a folder on this
+// machine that has the files of a module proxy (<module>/@v/list,
+// <version>.info, .mod and .zip, as the go command's GOPROXY=file:// reads
+// them). It is the only element that is not https: nothing is sent anywhere,
+// and a folder you name yourself is as trusted as a vendor folder (the hashes
+// in gocpp.sum are checked all the same).
+func checkFileBase(s string) (string, error) {
+	u, err := url.Parse(s)
+	switch {
+	case err != nil:
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err // the *url.Error repeats the URL
+		}
+		return "", fmt.Errorf("%s: invalid URL %q: %v", EnvModProxy, redact(s), err)
+	case u.User != nil:
+		return "", fmt.Errorf("%s: %q has a user name in it: a file:// URL names a folder", EnvModProxy, redact(s))
+	case u.Host != "" && u.Host != "localhost":
+		return "", fmt.Errorf("%s: %q: a file:// URL must have no host (file:///folder)", EnvModProxy, redact(s))
+	case u.RawQuery != "" || strings.Contains(s, "?") || u.Fragment != "" || strings.Contains(s, "#"):
+		return "", fmt.Errorf("%s: %q has a query or a fragment", EnvModProxy, redact(s))
+	case !strings.HasPrefix(u.Path, "/"):
+		return "", fmt.Errorf("%s: %q: the folder must be an absolute path", EnvModProxy, redact(s))
+	}
+	return "file://" + strings.TrimRight(u.EscapedPath(), "/"), nil
+}
+
+// fileURLPath returns the file name that a file:// URL stands for.
+func fileURLPath(u *url.URL) string {
+	p := u.Path
+	// file:///C:/dir on Windows.
+	if len(p) >= 3 && p[0] == '/' && p[2] == ':' && (p[1] >= 'A' && p[1] <= 'Z' || p[1] >= 'a' && p[1] <= 'z') {
+		p = p[1:]
+	}
+	return filepath.FromSlash(p)
 }
 
 var templateFields = map[string]bool{"path": true, "root": true, "host": true, "repo": true, "name": true, "version": true, "ref": true, "subdir": true}

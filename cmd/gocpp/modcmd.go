@@ -9,36 +9,10 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 
 	"github.com/huuhait/gocpp/internal/load/gocppmod"
 	"github.com/huuhait/gocpp/internal/modfetch"
 )
-
-// getUsage is the help text of "gocpp get".
-const getUsage = `usage: gocpp get [module[@version] ...]
-
-gocpp get adds modules to the require lines of gocpp.mod, downloads them into
-the module cache and records their hashes in gocpp.sum. The module is a
-repository on github.com, gitlab.com or codeberg.org (github.com/ocornut/imgui),
-or any module that GOCPP_MODURL or GOCPP_MODPROXY says where to get. The
-version is:
-
-	latest         the newest release tag (vX.Y.Z or X.Y.Z); with no tags, the
-	               head of the default branch. The default.
-	v1.2.3         that tag (or a pseudo-version v0.0.0-yyyymmddhhmmss-commit12)
-	v1, v1.2       the newest tag of that line
-	<branch>       the head of a branch, as a pseudo-version
-	<commit>       a commit (7 to 40 hex digits), as a pseudo-version
-	none           remove the require line
-
-With no module, gocpp get downloads every module that gocpp.mod requires
-(like gocpp mod download). The first download of a module is trusted and its
-hash is recorded in gocpp.sum; a later download that differs is a security
-error. Downloaded code is never run. See docs/spec/modules.md for the
-environment variables (GOCPP_OFFLINE, GOCPP_MODCACHE, GOCPP_MODPROXY,
-GOCPP_MODURL, GOCPP_MODAUTH, ...).
-`
 
 // modUsage is the help text of "gocpp mod".
 const modUsage = `usage: gocpp mod <command> [arguments]
@@ -51,95 +25,12 @@ Module maintenance. The commands are:
 	                        again and compare them with gocpp.sum
 	vendor [-v]             copy every required module into vendor/ and write
 	                        vendor/modules.txt, for builds without a network
+	graph                   print the requirement graph (one "module requirement"
+	                        pair per line)
+	why [-m] module ...     print why modules are in the build list
 
 Run "gocpp mod <command> -h" for a command. See docs/spec/modules.md.
 `
-
-// runGet is "gocpp get" (Phase 06 job 6.1c, docs/spec/modules.md).
-func runGet(args []string, _ io.Reader, stdout, stderr io.Writer) int {
-	flags := flag.NewFlagSet("gocpp get", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	flags.Usage = func() { fmt.Fprint(stderr, getUsage) }
-	if err := flags.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
-	}
-	m, code := openMainModule("gocpp get", stderr)
-	if m == nil {
-		return code
-	}
-	if flags.NArg() == 0 {
-		return m.download("gocpp get", nil)
-	}
-	f, ok := m.fetcher("gocpp get")
-	if !ok {
-		return 1
-	}
-	ctx, stop := interruptContext()
-	defer stop()
-	changed := false
-	var failed bool
-	for _, arg := range flags.Args() {
-		path, query, _ := cutLast(arg, "@")
-		if path == "" {
-			fmt.Fprintf(stderr, "gocpp get: %q: want module[@version]\n", arg)
-			return 2
-		}
-		if query == "none" {
-			if modfetch.DropRequire(m.file, path) {
-				fmt.Fprintf(stderr, "gocpp: removed %s\n", path)
-				changed = true
-			} else {
-				fmt.Fprintf(stderr, "gocpp get: %s is not required in %s\n", path, gocppmod.FileName)
-				failed = true
-			}
-			continue
-		}
-		old := m.file.FindRequire(path)
-		if old != nil && old.Path != path {
-			old = nil
-		}
-		mod, err := f.Get(ctx, m.dir, path, query)
-		if err != nil {
-			fmt.Fprintf(stderr, "gocpp get: %v\n", err)
-			failed = true
-			continue
-		}
-		switch {
-		case old == nil:
-			fmt.Fprintf(stderr, "gocpp: added %s %s\n", mod.Path, mod.Version)
-		case old.Version != mod.Version:
-			verb := "upgraded"
-			if modfetch.CompareVersions(mod.Version, old.Version) < 0 {
-				verb = "downgraded"
-			}
-			fmt.Fprintf(stderr, "gocpp: %s %s %s => %s\n", verb, mod.Path, old.Version, mod.Version)
-		}
-		if rep := m.file.FindReplace(path, mod.Version); rep != nil {
-			fmt.Fprintf(stderr, "gocpp: note: %s is replaced by %s in %s, so the download is not used until the replace line is removed\n", path, rep.NewPath, gocppmod.FileName)
-		}
-		if old == nil || old.Version != mod.Version {
-			modfetch.SetRequire(m.file, path, mod.Version)
-			changed = true
-		}
-	}
-	if failed {
-		fmt.Fprintf(stderr, "gocpp get: %s was not changed\n", gocppmod.FileName)
-		return 1
-	}
-	if changed {
-		if err := m.write(); err != nil {
-			fmt.Fprintf(stderr, "gocpp get: %v\n", err)
-			return 1
-		}
-		if _, err := os.Stat(filepath.Join(m.dir, "vendor", gocppmod.VendorFile)); err == nil {
-			fmt.Fprintf(stderr, "gocpp: note: vendor/ is not updated; run \"gocpp mod vendor\"\n")
-		}
-	}
-	return 0
-}
 
 // runMod is "gocpp mod".
 func runMod(args []string, _ io.Reader, stdout, stderr io.Writer) int {
@@ -157,6 +48,8 @@ func runMod(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		return runModVerify(args[1:], stdout, stderr)
 	case "vendor":
 		return runModVendor(args[1:], stdout, stderr)
+	case "graph", "why":
+		return runModGraph(args[0], args[1:], stdout, stderr)
 	}
 	fmt.Fprintf(stderr, "gocpp mod %s: unknown command\nRun 'gocpp mod -h' for usage.\n", args[0])
 	return 2
@@ -361,44 +254,4 @@ func (m *mainModule) download(cmd string, only []string) int {
 		return 1
 	}
 	return 0
-}
-
-// write writes gocpp.mod back, atomically, with the mode it had.
-func (m *mainModule) write() error {
-	name := filepath.Join(m.dir, gocppmod.FileName)
-	if err := modfetch.CheckWritable(name); err != nil {
-		return err
-	}
-	data, err := modfetch.FormatFile(name, m.file)
-	if err != nil {
-		return err
-	}
-	mode := os.FileMode(0o644)
-	if st, err := os.Stat(name); err == nil {
-		mode = st.Mode().Perm()
-	}
-	tmp, err := os.CreateTemp(m.dir, ".gocpp.mod-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(mode); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), name)
-}
-
-func cutLast(s, sep string) (before, after string, found bool) {
-	if i := strings.LastIndex(s, sep); i >= 0 {
-		return s[:i], s[i+len(sep):], true
-	}
-	return s, "", false
 }

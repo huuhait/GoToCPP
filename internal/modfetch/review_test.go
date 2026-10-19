@@ -539,3 +539,39 @@ func TestVendorSweepsOldTempFolders(t *testing.T) {
 		t.Error("a recent folder (another gocpp may use it) was removed")
 	}
 }
+
+// Temporary files that a killed run left next to gocpp.mod and gocpp.sum are
+// removed by the next write once they are a day old; nothing else is touched.
+func TestStaleWriteTempsAreSwept(t *testing.T) {
+	dir := t.TempDir()
+	old := time.Now().Add(-48 * time.Hour)
+	keep := map[string]bool{".gocpp-notes": true, "gocpp.mod-123": true, ".gocpp.sum-456": true /* fresh */, ".gocpp-789": true /* fresh: below */}
+	for _, n := range []string{".gocpp.sum-111", ".gocpp.mod-222", ".gocpp-333"} {
+		mustWrite(t, filepath.Join(dir, n), "x")
+		os.Chtimes(filepath.Join(dir, n), old, old)
+	}
+	for _, n := range []string{".gocpp-notes", "gocpp.mod-123"} {
+		mustWrite(t, filepath.Join(dir, n), "x")
+		os.Chtimes(filepath.Join(dir, n), old, old)
+	}
+	mustWrite(t, filepath.Join(dir, ".gocpp.sum-456"), "x") // a run in progress
+	mustWrite(t, filepath.Join(dir, ".gocpp-789"), "x")
+	f, _ := New(&Config{CacheDir: filepath.Join(dir, "cache")})
+	line := SumLine{Path: "example.com/m", Version: "v1.0.0", Hash: "h1:" + base64.StdEncoding.EncodeToString(make([]byte, 32))}
+	if _, err := f.saveSums(filepath.Join(dir, "gocpp.sum"), []SumLine{line}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFileAtomic(filepath.Join(dir, "other"), []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{".gocpp.sum-111", ".gocpp.mod-222", ".gocpp-333"} {
+		if _, err := os.Stat(filepath.Join(dir, n)); err == nil {
+			t.Errorf("%s was not removed", n)
+		}
+	}
+	for n := range keep {
+		if _, err := os.Stat(filepath.Join(dir, n)); err != nil {
+			t.Errorf("%s was removed", n)
+		}
+	}
+}

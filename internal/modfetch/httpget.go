@@ -96,6 +96,9 @@ func (f *Fetcher) get(ctx context.Context, rawurl string, w io.Writer, limit int
 
 func (f *Fetcher) getOnce(ctx context.Context, rawurl string, w io.Writer, limit int64, extra http.Header) (int64, error) {
 	u, err := url.Parse(rawurl)
+	if err == nil && u.Scheme == "file" && f.isFileProxy(rawurl) {
+		return f.readLocal(u, w, limit)
+	}
 	if err != nil || u.Scheme != "https" {
 		return 0, fmt.Errorf("refusing to download %s: not an https URL", redact(rawurl))
 	}
@@ -179,4 +182,47 @@ func cleanURLError(err error) error {
 		return fmt.Errorf("%s %s: %v", ue.Op, redact(ue.URL), ue.Err)
 	}
 	return err
+}
+
+// isFileProxy reports whether the URL is below a file:// element of
+// GOCPP_MODPROXY: no other file URL is ever read.
+func (f *Fetcher) isFileProxy(rawurl string) bool {
+	for _, p := range f.cfg.Proxies {
+		if strings.HasPrefix(p.URL, "file://") && strings.HasPrefix(rawurl, p.URL+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// readLocal copies a file of a file:// proxy to w, at most limit bytes. A
+// missing file is "not found", as a 404 is.
+func (f *Fetcher) readLocal(u *url.URL, w io.Writer, limit int64) (int64, error) {
+	name := fileURLPath(u)
+	fh, err := os.Open(name)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, &NotFoundError{URL: u.String(), Status: 404}
+		}
+		return 0, fmt.Errorf("%s: %v", name, err)
+	}
+	defer fh.Close()
+	st, err := fh.Stat()
+	if err != nil {
+		return 0, err
+	}
+	if !st.Mode().IsRegular() {
+		return 0, &NotFoundError{URL: u.String(), Status: 404}
+	}
+	if st.Size() > limit {
+		return 0, &TooLargeError{URL: u.String(), Limit: limit, What: "the file"}
+	}
+	n, err := io.Copy(w, io.LimitReader(fh, limit+1))
+	if err != nil {
+		return n, fmt.Errorf("%s: %v", name, err)
+	}
+	if n > limit {
+		return n, &TooLargeError{URL: u.String(), Limit: limit, What: "the file"}
+	}
+	return n, nil
 }

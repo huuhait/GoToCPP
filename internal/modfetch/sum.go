@@ -8,8 +8,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/huuhait/gocpp/internal/load/gocppmod"
 )
@@ -256,6 +258,7 @@ func (f *Fetcher) saveSums(sumPath string, add []SumLine) (changed bool, err err
 	if st, err := os.Stat(sumPath); err == nil {
 		mode = st.Mode().Perm()
 	}
+	sweepStaleTemps(filepath.Dir(sumPath))
 	tmp, err := os.CreateTemp(filepath.Dir(sumPath), ".gocpp.sum-*")
 	if err != nil {
 		return false, fmt.Errorf("can't update %s: %v", SumFileName, err)
@@ -269,11 +272,38 @@ func (f *Fetcher) saveSums(sumPath string, add []SumLine) (changed bool, err err
 		tmp.Close()
 		return false, err
 	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return false, err
+	}
 	if err := tmp.Close(); err != nil {
 		return false, err
 	}
 	if err := os.Rename(tmp.Name(), sumPath); err != nil {
 		return false, fmt.Errorf("can't update %s: %v", SumFileName, err)
 	}
+	syncDir(filepath.Dir(sumPath))
 	return true, nil
+}
+
+// staleTempRE matches the names of the temporary files that an atomic write of
+// gocpp.mod, gocpp.sum or another project file makes (os.CreateTemp adds digits).
+var staleTempRE = regexp.MustCompile(`^\.gocpp(\.sum|\.mod)?-[0-9]+$`)
+
+// sweepStaleTemps removes the temporary files that a killed gocpp left in the
+// project folder: regular files with such a name that are more than a day old (a
+// running gocpp renames its file within a moment). Failures are ignored.
+func sweepStaleTemps(dir string) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range ents {
+		if !staleTempRE.MatchString(e.Name()) {
+			continue
+		}
+		if info, err := e.Info(); err == nil && info.Mode().IsRegular() && time.Since(info.ModTime()) > 24*time.Hour {
+			os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
 }

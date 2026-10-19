@@ -7,6 +7,7 @@ package modfetch
 //	license that can be found in the LICENSE file of the Go distribution.
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -93,3 +94,8 @@ func HashFile(file, name string) (string, error) {
 // ModFileName is the name of the module file in the module hash line of
 // gocpp.sum: "path version/gocpp.mod h1:...".
 const ModFileName = "gocpp.mod"
+
+// readCloser is io.ReadCloser, and newBytesReader a reader of a byte slice.
+type readCloser = io.ReadCloser
+
+func newBytesReader(b []byte) io.ReadCloser { return io.NopCloser(bytes.NewReader(b)) }

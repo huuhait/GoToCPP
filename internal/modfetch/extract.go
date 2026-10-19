@@ -31,6 +31,10 @@ type ExtractInfo struct {
 	// archive of a git host, the time of the commit.
 	Time time.Time
 
+	// Zip is true if the archive was a zip file (a module proxy's zips have their
+	// files in <module path>@<version>/).
+	Zip bool
+
 	Entries int   // files and folders
 	Bytes   int64 // the bytes of the files
 }
@@ -95,6 +99,7 @@ func Extract(ctx context.Context, archive, dst string, lim Limits) (*ExtractInfo
 		if serr != nil {
 			return nil, serr
 		}
+		x.info.Zip = true
 		err = x.zipFile(f, st.Size())
 	default:
 		err = bad("", "not a tar.gz or zip file")

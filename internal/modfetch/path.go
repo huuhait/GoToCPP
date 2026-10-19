@@ -37,6 +37,8 @@ var gitHosts = map[string]bool{
 	"codeberg.org": true,
 }
 
+var versionLike = regexp.MustCompile(`^v[0-9]+$`)
+
 var majorSuffix = regexp.MustCompile(`^v([2-9]|[1-9][0-9]+)$`)
 
 // CheckModulePath reports why a module path can't be downloaded, or nil. The
@@ -54,7 +56,19 @@ func CheckModulePath(path string) error {
 	if !strings.Contains(elems[0], ".") {
 		return fmt.Errorf("invalid module path %q: the first element must be a host name with a dot (only such modules can be downloaded)", path)
 	}
+	// Like Go's module.CheckPath: no Windows device names (the path becomes a folder name
+	// of the module cache), and a last element /v0, /v1 or /v02 is not a major version suffix (on a git host it is a folder).
+	if k := len(elems); k > 1 && !gitHosts[elems[0]] && versionLike.MatchString(elems[k-1]) && !majorSuffix.MatchString(elems[k-1]) {
+		return fmt.Errorf("invalid module path %q: %s is not a major version suffix (v1 is the default; suffixes start at /v2)", path, elems[k-1])
+	}
 	for _, e := range elems {
+		base := strings.ToLower(e)
+		if i := strings.IndexByte(base, '.'); i >= 0 {
+			base = base[:i]
+		}
+		if reserved[strings.TrimRight(base, " ")] {
+			return fmt.Errorf("invalid module path %q: element %q is a reserved device name on Windows", path, e)
+		}
 		if e == "" || e[0] == '.' || e[len(e)-1] == '.' && e != "" {
 			return fmt.Errorf("invalid module path %q: element %q must not start or end with a dot", path, e)
 		}
@@ -97,8 +111,17 @@ func ParseModulePath(path string) (*Repo, error) {
 			n = len(elems)
 		}
 	}
-	r.Root = strings.Join(elems[:n], "/")
+	rootN := n
 	rest := elems[n:]
+	// A host that is not a known git host has no fixed repository length: the
+	// whole path is the repository, and a last /vN is the major version suffix
+	// (Go's module.SplitPathVersion).
+	if n == len(elems) && n > 1 && majorSuffix.MatchString(elems[n-1]) && !(gitHosts[r.Host] && n == 3) {
+		r.Major, _ = strconv.Atoi(elems[n-1][1:])
+		rootN = n - 1
+		rest = nil
+	}
+	r.Root = strings.Join(elems[:rootN], "/")
 	if k := len(rest); k > 0 && majorSuffix.MatchString(rest[k-1]) {
 		r.Major, _ = strconv.Atoi(rest[k-1][1:])
 		rest = rest[:k-1]
@@ -132,6 +155,12 @@ func (r *Repo) CheckVersion(version string) error {
 	}
 	if r.Major != 0 && semverMajor(version) != r.Major {
 		return fmt.Errorf("version %s does not match the /v%d at the end of the module path %s", version, r.Major, r.Module)
+	}
+	// Without a /vN suffix, v2 and above are accepted with or without
+	// +incompatible (C and C++ libraries tag releases v3.1.0 and have no go.mod:
+	// Go would insist on +incompatible, and Versions and Query write it).
+	if strings.HasSuffix(version, "+incompatible") && r.Major != 0 {
+		return fmt.Errorf("invalid version %s for %s: +incompatible is for a module path with no /v%d suffix", version, r.Module, r.Major)
 	}
 	return nil
 }
@@ -195,95 +224,22 @@ func escape(s string) string {
 	return b.String()
 }
 
-// parsedVersion is a version split for comparison.
+// parsedVersion is a version split for comparison: only what the rest of the
+// package needs of it (gocppmod.CompareVersions does the comparing).
 type parsedVersion struct {
-	major, minor, patch int
-	pre                 []string // dot separated prerelease, nil for a release
+	pre []string // dot separated prerelease, nil for a release
 }
 
 func parseVersion(v string) (parsedVersion, bool) {
 	if !gocppmod.ValidVersion(v) {
 		return parsedVersion{}, false
 	}
-	v = strings.TrimPrefix(v, "v")
-	if i := strings.IndexByte(v, '+'); i >= 0 {
-		v = v[:i]
+	if gocppmod.IsPrerelease(v) {
+		return parsedVersion{pre: []string{"-"}}, true
 	}
-	var pre string
-	if i := strings.IndexByte(v, '-'); i >= 0 {
-		v, pre = v[:i], v[i+1:]
-	}
-	parts := strings.Split(v, ".")
-	if len(parts) != 3 {
-		return parsedVersion{}, false
-	}
-	var p parsedVersion
-	var err error
-	if p.major, err = strconv.Atoi(parts[0]); err != nil {
-		return p, false
-	}
-	if p.minor, err = strconv.Atoi(parts[1]); err != nil {
-		return p, false
-	}
-	if p.patch, err = strconv.Atoi(parts[2]); err != nil {
-		return p, false
-	}
-	if pre != "" {
-		p.pre = strings.Split(pre, ".")
-	}
-	return p, true
+	return parsedVersion{}, true
 }
 
 // CompareVersions compares two valid versions by semantic versioning
 // precedence: it returns -1, 0 or 1. Build metadata is ignored.
-func CompareVersions(a, b string) int {
-	pa, _ := parseVersion(a)
-	pb, _ := parseVersion(b)
-	for _, d := range [3]int{pa.major - pb.major, pa.minor - pb.minor, pa.patch - pb.patch} {
-		if d != 0 {
-			if d < 0 {
-				return -1
-			}
-			return 1
-		}
-	}
-	switch {
-	case pa.pre == nil && pb.pre == nil:
-		return 0
-	case pa.pre == nil:
-		return 1
-	case pb.pre == nil:
-		return -1
-	}
-	for i := 0; i < len(pa.pre) && i < len(pb.pre); i++ {
-		x, y := pa.pre[i], pb.pre[i]
-		xn, xerr := strconv.Atoi(x)
-		yn, yerr := strconv.Atoi(y)
-		switch {
-		case xerr == nil && yerr == nil:
-			if xn != yn {
-				return cmpInt(xn, yn)
-			}
-		case xerr == nil:
-			return -1
-		case yerr == nil:
-			return 1
-		case x != y:
-			if x < y {
-				return -1
-			}
-			return 1
-		}
-	}
-	return cmpInt(len(pa.pre), len(pb.pre))
-}
-
-func cmpInt(a, b int) int {
-	switch {
-	case a < b:
-		return -1
-	case a > b:
-		return 1
-	}
-	return 0
-}
+func CompareVersions(a, b string) int { return gocppmod.CompareVersions(a, b) }

@@ -24,6 +24,9 @@ import (
 type Fetcher struct {
 	cfg *Config
 
+	refMu    sync.Mutex
+	refCache map[string]*RefList // by module path, for Versions and Query
+
 	clientOnce sync.Once // the client is made at the first download: a module that is in the cache needs none
 	client     *http.Client
 	clientErr  error
@@ -69,6 +72,11 @@ type Module struct {
 	// Hash is the "h1:" hash of the files, ModHash that of the gocpp.mod file
 	// ("" if the module has none).
 	Hash, ModHash string
+
+	// GoModHash is the hash of the go.mod file of the module, named go.mod
+	// ("" if it has none): a module that comes from a Go module proxy has one
+	// and no gocpp.mod, and gocpp.sum lists it as Go's go.sum does.
+	GoModHash string
 
 	// Downloaded is true if this call downloaded it; false if it was in the
 	// cache already.
@@ -177,18 +185,22 @@ func (f *Fetcher) cached(ctx context.Context, path, version string, sums *Sums) 
 		m.ModHash = modFileHash(dir)
 		f.writeSidecar(path, version, m.Hash, m.ModHash)
 	}
+	m.GoModHash = namedFileHash(dir, GoModName)
 	if err := verifySums(sums, m, true); err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
-func modFileHash(dir string) string {
-	p := filepath.Join(dir, ModFileName)
+func modFileHash(dir string) string { return namedFileHash(dir, ModFileName) }
+
+// namedFileHash is the hash of the file name in dir, or "" if there is none.
+func namedFileHash(dir, name string) string {
+	p := filepath.Join(dir, name)
 	if st, err := os.Lstat(p); err != nil || !st.Mode().IsRegular() {
 		return ""
 	}
-	h, err := HashFile(p, ModFileName)
+	h, err := HashFile(p, name)
 	if err != nil {
 		return ""
 	}
@@ -230,6 +242,13 @@ func verifySums(sums *Sums, m *Module, fromCache bool) error {
 			got = "(the module has no " + ModFileName + " file)"
 		}
 		return &SecurityError{Path: m.Path, Version: m.Version, What: ModFileName, Got: got, Want: want, Cached: cached, SumFile: sums.Name}
+	}
+	// A module with no go.mod file in its archive (a C library, a Go module from
+	// before modules) has a go.mod line for the file that the module proxy made up
+	// ("module path"): it is checked when the .mod file is fetched, not here.
+	if want := sums.Lookup(m.Path, m.Version, "/"+GoModName); len(want) > 0 && m.GoModHash != "" && !slices.Contains(want, m.GoModHash) {
+		got := m.GoModHash
+		return &SecurityError{Path: m.Path, Version: m.Version, What: GoModName, Got: got, Want: want, Cached: cached, SumFile: sums.Name}
 	}
 	return nil
 }
@@ -291,13 +310,35 @@ func (f *Fetcher) stage(ctx context.Context, repo *Repo, r ref) (res *staged, er
 		return nil, f.cacheError(err)
 	}
 	st.tmps = append(st.tmps, tmp)
+	subdirDone := false
 	info, err := Extract(ctx, dl.Name(), tmp, f.cfg.Limits)
 	if err != nil {
 		return nil, fmt.Errorf("%s %s (from %s): %w", repo.Module, what, st.src, err)
 	}
 	st.info = info
 	root := info.Root
-	if repo.Subdir != "" {
+	// A module proxy's zip (Go's layout) has all its files in
+	// <module path>@<version>/. An archive of a mirror may instead have one folder
+	// like a git host's; a folder with a @ in its name that is not the right one,
+	// or a Go layout with another prefix, is refused.
+	pr := filepath.Join(tmp, filepath.FromSlash(repo.Module+"@"+r.Version))
+	fromProxyZip := r.Version != "" && info.Zip && strings.HasPrefix(st.src, "proxy ")
+	switch top := filepath.Base(root); {
+	case fromProxyZip && top == repo.Module+"@"+r.Version:
+		subdirDone = true // the files are in the top folder
+	case fromProxyZip && (strings.Contains(top, "@") || top == strings.SplitN(repo.Module, "/", 2)[0]):
+		if fi, err := os.Lstat(pr); err != nil || !fi.IsDir() {
+			return nil, fmt.Errorf("%s %s (from %s): the zip does not have its files in %s@%s/", repo.Module, what, st.src, repo.Module, r.Version)
+		}
+		root = pr
+		subdirDone = true
+	case r.Version != "" && top == strings.SplitN(repo.Module, "/", 2)[0]:
+		if fi, err := os.Lstat(pr); err == nil && fi.IsDir() {
+			root = pr
+			subdirDone = true
+		}
+	}
+	if repo.Subdir != "" && !subdirDone {
 		root = filepath.Join(root, filepath.FromSlash(repo.Subdir))
 		if fi, err := os.Lstat(root); err != nil || !fi.IsDir() {
 			return nil, fmt.Errorf("%s %s: the archive has no folder %s (the module is in a folder of the repository)", repo.Module, what, repo.Subdir)
@@ -318,19 +359,28 @@ func (f *Fetcher) stage(ctx context.Context, repo *Repo, r ref) (res *staged, er
 	st.root = mod
 	RemoveAll(tmp)
 	st.tmps = st.tmps[:len(st.tmps)-1]
-	// The module's gocpp.mod must name the module that was asked for.
-	if data, err := os.ReadFile(filepath.Join(mod, ModFileName)); err == nil {
-		file, errs := gocppmod.Parse(ModFileName, data, nil)
+	// Nested modules, version control and vendor folders are not the module's
+	// files (modzip.go): the tree, its hash and the zip of the same module agree.
+	if err := PruneModule(ctx, mod); err != nil {
+		return nil, fmt.Errorf("%s %s: %v", repo.Module, what, err)
+	}
+	// The module's gocpp.mod (else its go.mod) must name the module that was asked for.
+	modName := ModFileName
+	if _, err := os.Lstat(filepath.Join(mod, ModFileName)); err != nil {
+		modName = GoModName
+	}
+	if data, err := os.ReadFile(filepath.Join(mod, modName)); err == nil {
+		file, errs := gocppmod.Parse(modName, data, nil)
 		switch {
 		case file == nil || file.Module == nil:
 			msg := "it has no module line"
 			if len(errs) > 0 {
 				msg = errs[0].Error()
 			}
-			return nil, fmt.Errorf("%s %s: its %s has no valid module line (%s)", repo.Module, what, ModFileName, msg)
+			return nil, fmt.Errorf("%s %s: its %s has no valid module line (%s)", repo.Module, what, modName, msg)
 		case file.Module.Path != repo.Module:
 			return nil, fmt.Errorf("%s %s: its %s declares the module path %s, not %s (a fork needs a replace line)",
-				repo.Module, what, ModFileName, file.Module.Path, repo.Module)
+				repo.Module, what, modName, file.Module.Path, repo.Module)
 		}
 	}
 	return st, nil
@@ -399,6 +449,7 @@ func (f *Fetcher) publish(ctx context.Context, st *staged, repo *Repo, version s
 		return nil, fmt.Errorf("%s %s: %v", path, version, err)
 	}
 	m.ModHash = modFileHash(st.root)
+	m.GoModHash = namedFileHash(st.root, GoModName)
 	if err := verifySums(sums, m, false); err != nil {
 		return nil, err
 	}
@@ -429,6 +480,13 @@ type FetchOptions struct {
 	// gocpp.sum (the first download is trusted). Without it, such a module
 	// is an error and nothing is downloaded.
 	Record bool
+
+	// Pending, if set (with Record), collects the lines to add instead of
+	// writing gocpp.sum: the caller writes them with SavePending when
+	// everything else has worked (gocpp get changes gocpp.mod and gocpp.sum
+	// together). The lines of Pending count as listed for the next Fetch with
+	// the same Pending.
+	Pending *PendingSums
 }
 
 // A MissingSumError says that gocpp.sum has no line for a module and may
@@ -456,6 +514,7 @@ func (f *Fetcher) Fetch(ctx context.Context, mainDir, path, version string, opts
 	if err != nil {
 		return nil, err
 	}
+	opts.Pending.overlay(sums)
 	if !opts.Record && !f.cfg.Offline && len(sums.Lookup(path, version, "")) == 0 {
 		// Before anything is downloaded. (Offline, the module may be in the cache:
 		// "not in the cache" is the better message, so the check is after Download.)
@@ -474,13 +533,17 @@ func (f *Fetcher) Fetch(ctx context.Context, mainDir, path, version string, opts
 		if m.ModHash != "" && len(sums.Lookup(path, version, "/"+ModFileName)) == 0 {
 			return nil, &MissingSumError{Path: path, Version: version, Name: SumFileName, Line: ModFileName}
 		}
+		if m.GoModHash != "" && len(sums.Lookup(path, version, "/"+GoModName)) == 0 {
+			return nil, &MissingSumError{Path: path, Version: version, Name: SumFileName, Line: GoModName}
+		}
 		return m, nil
 	}
-	return m, f.record(sums, m)
+	return m, f.record(sums, m, opts.Pending)
 }
 
-// record adds the hash lines of m that gocpp.sum does not have.
-func (f *Fetcher) record(sums *Sums, m *Module) error {
+// record adds the hash lines of m that gocpp.sum does not have (to pending,
+// if it is not nil).
+func (f *Fetcher) record(sums *Sums, m *Module, pending *PendingSums) error {
 	var add []SumLine
 	if len(sums.Lookup(m.Path, m.Version, "")) == 0 {
 		add = append(add, SumLine{m.Path, m.Version, m.Hash})
@@ -488,7 +551,17 @@ func (f *Fetcher) record(sums *Sums, m *Module) error {
 	if m.ModHash != "" && len(sums.Lookup(m.Path, m.Version, "/"+ModFileName)) == 0 {
 		add = append(add, SumLine{m.Path, m.Version + "/" + ModFileName, m.ModHash})
 	}
+	if m.GoModHash != "" && len(sums.Lookup(m.Path, m.Version, "/"+GoModName)) == 0 {
+		add = append(add, SumLine{m.Path, m.Version + "/" + GoModName, m.GoModHash})
+	}
 	if len(add) == 0 {
+		return nil
+	}
+	if pending != nil {
+		for _, l := range add {
+			pending.add(l)
+			sums.add(l)
+		}
 		return nil
 	}
 	changed, err := f.saveSums(sums.Name, add)

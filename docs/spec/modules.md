@@ -9,12 +9,11 @@ path becomes a folder.
 | | |
 |---|---|
 | Status | v0, written with [Phase 06 step 6.1](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#3-steps): the file, the module root, `require`, `replace` and `vendor/`; and with job 6.1c: **module downloads** (`gocpp get`, the module cache, `gocpp.sum`, `gocpp mod vendor`, see [Downloads](#downloads)). Building a program of several packages is job 6.2/6.3 (the packages of the module, of required, replaced and downloaded modules; [cpp-mapping.md](cpp-mapping.md#files), [ADR-025](../adr/025-split-layout.md)); the cached, parallel build graph is steps 6.5 to 6.7; importing C/C++ headers by module path (6.1b) and building a library from its `cxx` recipe (6.1d, [C and C++ libraries](#c-and-c-libraries-cxx-recipes)) are in |
-| Source | [ADR-020](../adr/020-modules-gocpp-mod.md), [ADR-023](../adr/023-module-downloads.md), [Phase 06 §2.1](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#21-the-module-file-gocppmod), [Phase 01 §2.6](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#26-package-loading-and-the-importer) |
+| Source | [ADR-020](../adr/020-modules-gocpp-mod.md), [ADR-023](../adr/023-module-downloads.md), [ADR-070](../adr/070-version-selection-and-gocpp-get.md) (version selection, step 15.14), [Phase 06 §2.1](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#21-the-module-file-gocppmod), [Phase 01 §2.6](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#26-package-loading-and-the-importer) |
 | Code | `internal/load` (`modules.go`, `resolve.go`), `internal/load/gocppmod` (the file format) and `internal/modfetch` (downloads) |
 | See also | [language.md](language.md) ([D11](language.md#d11-gocpp-directives-instead-of-cgo-lines)), [interop.md](interop.md) |
 
-**Not here yet:** version selection (only the main module's `require` lines count, so every module a
-program imports must be listed), the checksum database, and the shared recipe index and CMake fallback for
+**Not here yet:** the checksum database, and the shared recipe index and CMake fallback for
 big C and C++ libraries (open, TODO Q14). C and C++ libraries with a build recipe are in
 [C and C++ libraries](#c-and-c-libraries-cxx-recipes). A module that is required and neither replaced by a local folder nor vendored is
 downloaded, as [Downloads](#downloads) says.
@@ -55,6 +54,8 @@ with `//` in it must be quoted: `cflags "-DURL=http://x"`. A file may be at most
 | `cxx c++20` | The C++ standard of the generated code and of the module's C++ files: `c++NN`, `gnu++NN` (`c++2b`, `c++2a` too) |
 | `require path version` | A module that the module needs, with a version `vX.Y.Z` (a prerelease, such as `-rc.1`, without leading zeros in its numbers, and a `+build` part are allowed; `v1` and `v1.2` are not, which is stricter than Go). `+build` parts are dropped, except `+incompatible`, as the go command writes versions. `// indirect` marks one that only another module needs |
 | `replace old [version] => dir` | Use the local folder `dir` for the module `old` (see below). With a version, only for that version |
+| `exclude path version` | Never use that version: a requirement on it (in any module file of the graph) counts as nothing, and `gocpp get` does not choose it. Only the main module's lines count |
+| `retract version` or `retract [low, high]` | In a module's own file: its author says that those versions must not be used (the comment above or after the line is the reason). Read from the highest version of the module by `gocpp get`, which skips them and warns |
 | `cflags flag...`, `ldflags flag...` | Compile and link flags for the whole module |
 | `pkg-config package...` | `pkg-config` libraries for the whole module |
 
@@ -99,8 +100,8 @@ arguments, `repeated module statement`, `invalid module path "x/../y"`, `invalid
 (rooted or starting with . or ..)`, `multiple replacements for x (the first is at line 3)`,
 `mod files must use // comments (not /* */ comments)` and `syntax error (unterminated block ...)`.
 
-`require` of one module twice is allowed with the same version, and an error with two versions:
-gocpp has no version selection yet, so keep one.
+`require` of one module twice is allowed, also with two versions (go.mod files have them): the highest
+counts, at the place of the first line. `gocpp get` writes one line for each module.
 
 ## The module root
 
@@ -132,12 +133,12 @@ For an import of `path` in a package, gocpp looks in this order:
    `require` line does, the message says so and what to add.
 
 The **main module** is the one of the root packages (the folder of `gocpp check` and `gocpp build`).
-Only its `require`, `replace` and `vendor/` count, for every package of the program, also for the
-packages of required modules: there is no version selection yet, and, as in Go, the `replace` lines
-of other modules are ignored. The `gocpp.mod` of a required module is read for its module line and
-its errors, and for the settings it will give to its own packages; its `require` lines are not
-followed. So a program must `require` every module that it imports, directly or not (mark the
-indirect ones `// indirect`).
+Only its `require`, `replace`, `exclude` and `vendor/` count, for every package of the program, also for the
+packages of required modules; as in Go, the `replace` and `exclude` lines of other modules are ignored. The
+`gocpp.mod` of a required module is read for its module line and its errors, and for the settings it will
+give to its own packages. The loader follows the main module's `require` lines only, so they must name every
+module that a program imports, directly or not (the indirect ones are marked `// indirect`): `gocpp get`
+keeps them there for you, from the requirements of the modules that it adds ([Version selection](#version-selection)).
 
 ### `replace` with a local folder
 
@@ -243,10 +244,12 @@ server never downloads and never writes `gocpp.sum` (`modfetch.SetOffline`, whic
 ### Commands
 
 ```text
-gocpp get [module[@version] ...]     add or upgrade require lines, download, record hashes
+gocpp get [-u[=patch]] [-t] [module[@query] ...]   change requirements, download, record hashes
 gocpp mod download [module ...]      download what gocpp.mod requires
 gocpp mod verify                     hash the cache (or vendor/) again and compare with gocpp.sum
 gocpp mod vendor [-v]                write vendor/ for builds without a network
+gocpp mod graph                      print the requirement graph (as go mod graph)
+gocpp mod why [-m] module ...        print the chain of requirements that needs a module
 ```
 
 `gocpp get github.com/ocornut/imgui` asks the repository for its tags with git's smart HTTP
@@ -255,16 +258,85 @@ picks the version from the **query** after `@`:
 
 | Query | Version |
 |---|---|
-| none, `latest` | the highest release tag; a prerelease only if there is no release; no version tags at all: the head of the default branch as a pseudo-version |
-| `v1.2.3` | that version, with no listing (also a pseudo-version) |
+| none, `upgrade` | `upgrade` for a module that `gocpp.mod` requires (the highest release at or above the version in use; from a pseudo-version never to a release whose commit is older), `latest` for a new one |
+| `latest` | the highest release tag; a prerelease only if there is no release; no version tags at all: the head of the default branch as a pseudo-version. A version of a major version that the module path has no `/vN` for (`v2.0.0+incompatible`) is taken only if there is no other release: name it to get it. A retracted version is never taken (the retract lines of the module's highest version decide) |
+| `patch` | the highest patch release of the version in use (error for a module that is not required yet) |
+| `v1.2.3` | that version, with no listing (also a pseudo-version); a version below the one in use is a **downgrade**. `v2.0.0` and above of a path with no `/vN` is written `v2.0.0+incompatible` |
 | `v1`, `v1.2` | the highest tag of that line |
+| `<v1.5.0`, `<=v1.5.0`, `>v1.5.0`, `>=v1.5.0` | the highest version that satisfies `<` or `<=`; the lowest that satisfies `>` or `>=` |
 | a branch or tag name, a commit (7 to 40 hex digits) | the pseudo-version of that commit; its time is the commit time that the archive's files have |
-| `none` | remove the require line |
+| `none` | remove the module, and downgrade or remove the modules that need it |
 
-`gocpp get` changes `gocpp.mod` (a `require` line is added, or changed in place; comments, unknown
-statements and `cxx` blocks stay as they are) only when every argument worked. With no argument it is
-`gocpp mod download`. It prints `gocpp: added github.com/x/y v1.2.3` or `upgraded ... v1 => v2` on standard
-error, and does not touch `vendor/` (it says so when there is one: run `gocpp mod vendor`). A `gocpp.mod` or `gocpp.sum` that is a symbolic link is not replaced (gocpp writes by renaming a new file over the old one): edit the file it points to.
+`gocpp get` works on **modules**: the argument is a module path (a package path is not resolved to its module), and a
+version excluded by an `exclude` line is never chosen. It computes the new build list by minimal version selection
+([below](#version-selection)), downloads the modules that were added or changed, and writes `gocpp.mod`
+and `gocpp.sum` **together**, only when every argument worked: `gocpp.sum` first, then `gocpp.mod`, each by one
+rename, under a lock of the module cache so that two `gocpp get` commands in one project run one after the other.
+`gocpp.mod` gets one `require` line for every module of the build list: the modules that you named carry no
+comment, the others `// indirect`; lines that exist are changed in place (comments, unknown statements and `cxx`
+blocks stay as they are), and lines of modules that left the build list are removed. With no module and no `-u` it is
+`gocpp mod download`. It prints a line for every module of the build list that changed, as `go get` does:
+`gocpp: added github.com/x/y v1.2.3`, `gocpp: upgraded github.com/x/y v1.2.0 => v1.2.3`, `gocpp: downgraded ...`,
+`gocpp: removed ...`, then `gocpp: warning:` lines (a named version that its module retracted) and `gocpp: note:`
+lines (a named module that a `replace` line replaces: the download is not used). It does not touch `vendor/` (it says so
+when there is one: run `gocpp mod vendor`). A `gocpp.mod` or `gocpp.sum` that is a symbolic link is not replaced (gocpp
+writes by renaming a new file over the old one): edit the file it points to. `gocpp get` writes `gocpp.mod` in go.mod style
+(`gocppmod.Format`): one statement per line, one space between the words of a line, a tab for the lines of a block, several blank
+lines become one; comments and statements it does not know stay, but the whitespace of a hand-written file may change. `-d` is not
+accepted. A temporary file (`.gocpp.sum-<n>`, `.gocpp.mod-<n>`, `.gocpp-<n>`) that a killed run left in the project folder is removed by
+the next write once it is a day old. With downloads off (`GOCPP_OFFLINE=1`) a
+query that needs a list of versions fails with a message that says so; naming a version that is in the cache works.
+
+The flags: `-u` also upgrades the modules that the named modules need (every module of the build list when none is
+named) to their latest versions, and what those need; `-u=patch` does the same to the latest patch releases; `-t` is
+accepted for scripts written for `go get` and changes nothing (requirements are per module, not per package). The
+flags may follow the modules.
+
+### Version selection
+
+The versions of the modules that a build uses are chosen as the go command does (minimal version selection,
+[ADR-070](../adr/070-version-selection-and-gocpp-get.md)): the requirements of the main module's `gocpp.mod` and of the
+module file of every module that they name, again and again, and for each module path the **highest** version that
+any of them requires. The module file of a dependency is its `gocpp.mod`, else its `go.mod`, else (a C library) none.
+With a module proxy the module file is the proxy's `.mod` (a `go.mod`); with a git host it is the file in the
+archive. Details that follow Go and are tested against it (`go list -m all` and `go mod graph` on random graphs):
+
+- **The main module** is selected whatever other modules require of it.
+- **`replace`** changes where a module's files and requirements come from (a local folder, or another module version), not the version in the build list; a replacement folder or
+  module must declare the replaced path (or its own).
+- **`exclude`** (main module only): a requirement on an excluded version counts as nothing, and `gocpp get` never chooses it.
+- **`retract`** (in the module file of a later version of a module) does not change the selection of the build list;
+  `gocpp get` skips retracted versions for `latest`, `upgrade` and `patch` and as the version that a downgrade falls back
+  to (Go's `CheckAllowed`), and warns when you name one.
+- **Several `require` lines** for one module in one file (go.mod files have them) count as one, at the highest version.
+- **A cycle** is fine. **A path with `/v2`** is a module of its own (`example.com/a` and `example.com/a/v2` are both
+  in the build list). **`+incompatible`** is a version of the same module: `v2.0.0+incompatible` equals `v2.0.0` for
+  comparison, and sorts after `v1.9.0`.
+- **Pseudo-versions** sort by their time inside the same base version, and below the release that follows them.
+- **A downgrade** (`get x@v1.1.0`, `get x@none`) is Go's `go get` (`mvs.Edit`): every module of the build list is kept
+  at its version unless the named versions need otherwise; a module that needs more than a named module allows is
+  replaced by its previous version, again and again, or removed when it has none, and a lower version may need a higher
+  version of another module, which then goes up.
+- **The graph is not pruned**: Go reads a pruned graph for a main module that says `go 1.17` or more, gocpp always reads
+  the full graph (as Go does for `go 1.16`).
+- **`+incompatible`**: a version `v2.0.0+incompatible` of a path with no `/v2` is a candidate of `latest`, `upgrade` and `patch` when
+  the version in use is one, or when the highest compatible release has no module file of its own (most C and C++
+  libraries); a repository whose v1 releases have a `go.mod` stays on v1: name the version to cross.
+- **A module path with no dot** in its first element can't be downloaded: it needs a `replace` with a local folder (an error
+  says so).
+- The graph is read in parallel (8 module files at a time), and each module file once.
+- **The module cache must be private to the user**: the first download of a module is trusted (no checksum database yet), and
+  the hash sidecars that every later use is compared with live in the cache, so a cache that others can write to can be changed
+  with its sidecars. The default folder (in the user's cache folder) is private; review `gocpp.sum` diffs as you review `go.sum`'s.
+
+`gocpp mod graph` prints the graph (`module requirement` pairs, the main module with no version, in the order of `go mod
+graph`); `gocpp mod why module ...` prints the shortest chain of requirements from the main module to each module. Neither
+writes `gocpp.sum` (a module file that it does not list is accepted, but not recorded).
+
+The files that belong to a **module zip** (for `CreateZip`, the hash and the cache): every regular file below the module
+root except version control folders (`.git`, `.hg`, `.svn`, `.bzr`), `vendor/` made by `gocpp mod vendor` (it has a
+`modules.txt`), and every folder that has a `gocpp.mod` or a `go.mod` (a nested module, with everything below it: the go
+command knows `go.mod` only). Symbolic links and devices are errors.
 
 #### `gocpp mod vendor`
 
@@ -280,8 +352,8 @@ by gocpp) is never replaced unless it is empty. `-mod=vendor` is automatic when 
 
 ### `gocpp.sum`
 
-Next to `gocpp.mod` of the main module, in Go's format and with Go's hashes: one line for each module version,
-`module version h1:<base64>`, and for a module that has a `gocpp.mod`, `module version/gocpp.mod h1:<base64>`.
+Next to `gocpp.mod` of the main module, in Go's format and with Go's hashes (the same as `go.sum` and `go mod download` give for the same zip): one line for each module version,
+`module version h1:<base64>`, for a module that has a `gocpp.mod`, `module version/gocpp.mod h1:<base64>`, and for a module version whose module file was read from a `go.mod` (in the archive, or from a module proxy), `module version/go.mod h1:<base64>`. `gocpp get` records the `go.mod` line of every module version of the requirement graph that it read, as `go.sum` does.
 The lines are sorted. Another gocpp that adds lines at the same time loses none (a lock, and the file is read
 again before it is written). A module that gocpp.sum lists is checked on every download and on every use of the
 cache (against the hash file that the cache keeps next to the module).
@@ -335,7 +407,7 @@ folders writable first); the command `gocpp clean -modcache` (step 6.12) will ca
 | `GOCPP_MODCACHE` | The module cache folder (an absolute path), or `off` for none (then a module must be vendored or replaced). Default: `gocpp/mod` in the user cache folder; with neither `$XDG_CACHE_HOME` nor `$HOME` there is none |
 | `GOCPP_OFFLINE=1` | Never use the network: a module that is not in the cache (or vendored) is an error that says so |
 | `GOCPP_MODFLAGS` | `-mod=readonly` (or `readonly`): do not write `gocpp.sum`; `-mod=mod`: the default |
-| `GOCPP_MODPROXY` | Where to download from, in order, like `GOPROXY`: URLs of mirrors, `direct`, `off`. `,` goes on after "not found" only, `\|` after any error. A mirror serves `<url>/<module path>/@v/<version>.tar.gz` (or `.zip`) and the list of versions `<url>/<module path>/@v/list`. Default: `direct` |
+| `GOCPP_MODPROXY` | Where to download from, in order, like `GOPROXY`: URLs of mirrors, `file:///folder` (a folder in the layout of Go's proxy: `<module>/@v/list`, `.info`, `.mod`, `.zip`), `direct`, `off`. `,` goes on after "not found" only, `\|` after any error. A mirror serves `<url>/<module path>/@v/<version>.tar.gz` (or `.zip`) and the list of versions `<url>/<module path>/@v/list`. Default: `direct` |
 | `GOCPP_MODURL` | Rules for direct downloads, separated by spaces: `[module-prefix=]value`. A value without `{` is a base URL that replaces `https://<host>` for the built-in layouts (a GitHub Enterprise or a mirror with the same URLs); a value with `{...}` is a template for the archive URL with the fields `{path} {root} {host} {repo} {name} {subdir} {version} {ref}` (`{ref}` is the tag or the commit). The first rule whose prefix matches is used. This is also how a module on another host is downloaded |
 | `GOCPP_MODAUTH` | Credentials, separated by spaces: `host=token` (a bearer token) or `host=user:password` (basic), for the exact host (with its port if the URL has one). Never sent anywhere else, not after a redirect |
 | `GOCPP_MODCACERT` | A PEM file of extra certificate authorities (a company CA); TLS is always verified |
@@ -372,9 +444,9 @@ run: building a library runs its code in your program, as in every language. Rea
 
 ### Not done yet
 
-The checksum database; `GOCPP_MODPROXY` entries that are `file://` folders; vendoring a `replace` that points to another
-remote module; symbolic links in modules; version
-selection (minimal version selection over the `gocpp.mod` files of the dependencies); two required
+The checksum database; vendoring a `replace` that points to another
+remote module; symbolic links in modules; package-level `gocpp get -u` and `-t` (everything is per module); the
+requirements of a module that a proxy serves in a `gocpp.mod` (a proxy serves its `go.mod`); `gocpp mod edit`; two required
 modules where one is a folder of the other (`github.com/o/r` and `github.com/o/r/sub`: `gocpp mod vendor` fails
 on the files that both have); `gocpp mod tidy`
 (`gocpp.sum` keeps the lines of versions that are not required any more); `gocpp clean -modcache` (the function

@@ -179,6 +179,9 @@ func parseRefs(data []byte) (*RefList, error) {
 func (rl *RefList) versions(repo *Repo) []string {
 	var out []string
 	add := func(v string) {
+		// A module proxy lists v2.0.0+incompatible: Versions writes the suffix
+		// again where it belongs.
+		v = strings.TrimSuffix(v, "+incompatible")
 		if !gocppmod.ValidVersion(v) || strings.Contains(v, "+") {
 			return
 		}

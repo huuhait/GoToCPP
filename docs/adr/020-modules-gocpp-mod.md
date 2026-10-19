@@ -1,6 +1,6 @@
 # ADR-020: Modules use a `gocpp.mod` file in `go.mod` syntax
 
-Status: accepted (2026-10-13)
+Status: accepted (2026-10-13); version selection extended by [ADR-070](070-version-selection-and-gocpp-get.md)
 
 ## Context
 
@@ -50,7 +50,7 @@ See [docs/spec/modules.md](../spec/modules.md).
 
 Downloads are no longer a Phase 15 item: they are built in job 6.1c, from git-host archives and not through a
 Go proxy, with the `gocpp.sum` format and `h1:` hashes of Go and the module cache in the user's cache folder
-(`GOCPP_MODCACHE`). See [ADR-023](023-module-downloads.md). Minimal version selection is still not built.
+(`GOCPP_MODCACHE`). See [ADR-023](023-module-downloads.md). Minimal version selection came with [ADR-070](070-version-selection-and-gocpp-get.md).
 
 ## Alternatives
 

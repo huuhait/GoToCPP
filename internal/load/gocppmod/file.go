@@ -21,6 +21,8 @@ type File struct {
 	Cxx     *Cxx       // the cxx line (a C++ standard), or nil
 	Require []*Require // the require lines, in file order
 	Replace []*Replace // the replace lines, in file order
+	Exclude []*Exclude // the exclude lines, in file order
+	Retract []*Retract // the retract lines, in file order
 
 	// Cflags, Ldflags and PkgConfig are the module-wide C and C++
 	// settings, one entry for each line (Args).
@@ -123,6 +125,28 @@ type Gocpp struct {
 type Cxx struct {
 	Std    string
 	Syntax *Line
+}
+
+// An Exclude is an exclude line: exclude example.com/lib v1.2.3. The go command
+// ignores a requirement on an excluded version, in every module of the graph.
+type Exclude struct {
+	Path, Version string
+	Syntax        *Line
+}
+
+// A Retract is a retract line: the module's author says that the versions
+// from Low to High (both included; a single version has Low == High) must not
+// be used. The line is in the gocpp.mod (or go.mod) of a LATER version of the
+// module than the retracted ones; Rationale is the comment above or after it.
+type Retract struct {
+	Low, High string
+	Rationale string
+	Syntax    *Line
+}
+
+// Contains reports whether the version is retracted by the line.
+func (r *Retract) Contains(version string) bool {
+	return CompareVersions(version, r.Low) >= 0 && CompareVersions(version, r.High) <= 0
 }
 
 // A Require is a require line: require example.com/lib v1.2.3.
@@ -231,6 +255,7 @@ const recipeHint = " (a C or C++ library recipe is a block that opens with { at 
 // knownVerbs are the verbs that gocpp reads.
 var knownVerbs = map[string]bool{
 	"module": true, "gocpp": true, "cxx": true, "require": true, "replace": true,
+	"exclude": true, "retract": true,
 	"cflags": true, "ldflags": true, "pkg-config": true,
 }
 
@@ -341,19 +366,28 @@ func (r *reader) stmt(verb string, args []string, line *Line, whole Stmt) {
 			return
 		}
 		ver = CanonicalVersion(ver)
-		if old := r.requires[path]; old != nil && old.Version != ver {
-			r.errorf(at, "require %s: version %s, but %s is required at line %d: gocpp has no version selection yet, keep one",
-				path, ver, old.Version, old.Syntax.Start.Line)
+		req := &Require{Path: path, Version: ver, Indirect: isIndirect(line), Syntax: line}
+		if old := r.requires[path]; old != nil {
+			// Several lines for one module are allowed (go.mod files have
+			// them, and the go command merges them): the highest version
+			// counts, at the place of the first line. gocpp get and gocpp
+			// mod tidy write one line.
+			if CompareVersions(ver, old.Version) > 0 {
+				old.Version, old.Syntax, old.Indirect = ver, line, req.Indirect
+			}
 			return
 		}
-		req := &Require{Path: path, Version: ver, Indirect: isIndirect(line), Syntax: line}
-		if r.requires[path] == nil {
-			r.requires[path] = req
-		}
+		r.requires[path] = req
 		r.f.Require = append(r.f.Require, req)
 
 	case "replace":
 		r.replace(args, line)
+
+	case "exclude":
+		r.exclude(args, line)
+
+	case "retract":
+		r.retract(args, line)
 
 	case "cflags", "ldflags", "pkg-config":
 		if len(args) == 0 {
@@ -667,4 +701,100 @@ func SplitWord(w string) (string, string) {
 		return "", "empty argument"
 	}
 	return string(arg), ""
+}
+
+func (r *reader) exclude(args []string, line *Line) {
+	at := line.Start
+	if len(args) != 2 {
+		r.errorf(at, "usage: exclude module/path v1.2.3")
+		return
+	}
+	path, err := unquote(args[0])
+	if err != "" {
+		r.errorf(at, "%s", err)
+		return
+	}
+	ver, err := unquote(args[1])
+	if err != "" {
+		r.errorf(at, "%s", err)
+		return
+	}
+	if ok, why := r.check(path); !ok {
+		r.errorf(at, "invalid module path %q%s", path, reason(why))
+		return
+	}
+	if !ValidVersion(ver) {
+		r.errorf(at, "exclude %s: invalid module version %q: must be of the form v1.2.3", path, ver)
+		return
+	}
+	r.f.Exclude = append(r.f.Exclude, &Exclude{Path: path, Version: CanonicalVersion(ver), Syntax: line})
+}
+
+// retractUsage is the message of a malformed retract line.
+const retractUsage = "usage: retract v1.2.3 or retract [v1.2.0, v1.2.5]"
+
+func (r *reader) retract(args []string, line *Line) {
+	at := line.Start
+	joined := strings.Join(args, "")
+	ret := &Retract{Syntax: line}
+	if strings.HasPrefix(joined, "[") || strings.HasSuffix(joined, "]") {
+		lo, hi, ok := strings.Cut(strings.TrimSuffix(strings.TrimPrefix(joined, "["), "]"), ",")
+		if !ok || !strings.HasPrefix(joined, "[") || !strings.HasSuffix(joined, "]") || strings.Contains(hi, ",") {
+			r.errorf(at, "%s", retractUsage)
+			return
+		}
+		var msg string
+		if ret.Low, msg = unquote(lo); msg != "" {
+			r.errorf(at, "%s", msg)
+			return
+		}
+		if ret.High, msg = unquote(hi); msg != "" {
+			r.errorf(at, "%s", msg)
+			return
+		}
+	} else {
+		if len(args) != 1 {
+			r.errorf(at, "%s", retractUsage)
+			return
+		}
+		v, msg := unquote(args[0])
+		if msg != "" {
+			r.errorf(at, "%s", msg)
+			return
+		}
+		ret.Low, ret.High = v, v
+	}
+	for _, v := range []string{ret.Low, ret.High} {
+		if !ValidVersion(v) {
+			r.errorf(at, "retract: invalid module version %q: must be of the form v1.2.3", v)
+			return
+		}
+	}
+	ret.Low, ret.High = CanonicalVersion(ret.Low), CanonicalVersion(ret.High)
+	if CompareVersions(ret.Low, ret.High) > 0 {
+		r.errorf(at, "retract [%s, %s]: the low version is above the high version", ret.Low, ret.High)
+		return
+	}
+	ret.Rationale = rationale(line)
+	r.f.Retract = append(r.f.Retract, ret)
+}
+
+// rationale returns the text of the comments above and at the end of a
+// retract line, as the go command shows it: "// Published accidentally."
+func rationale(l *Line) string {
+	var parts []string
+	for _, c := range l.Before {
+		t := strings.TrimSpace(strings.TrimPrefix(c.Token, "//"))
+		if t != "" {
+			parts = append(parts, t)
+		}
+	}
+	if len(parts) == 0 {
+		for _, c := range l.Suffix {
+			if t := strings.TrimSpace(strings.TrimPrefix(c.Token, "//")); t != "" {
+				parts = append(parts, t)
+			}
+		}
+	}
+	return strings.Join(parts, "\n")
 }

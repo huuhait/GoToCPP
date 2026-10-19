@@ -1,6 +1,6 @@
 # ADR-023: Modules are downloaded from git hosts, with hashes in `gocpp.sum` and trust on first use
 
-Status: accepted (2026-10-17, job 6.1c)
+Status: accepted (2026-10-17, job 6.1c); "Not Go's minimal version selection yet" is superseded by [ADR-070](070-version-selection-and-gocpp-get.md)
 
 ## Context
 

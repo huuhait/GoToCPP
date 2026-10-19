@@ -64,7 +64,7 @@ func (f *Fetcher) Get(ctx context.Context, mainDir, path, query string) (*Module
 		if rl.Head == "" {
 			return nil, fmt.Errorf("%s has no version tags and no default branch: name a commit (%s@<commit>)", path, path)
 		}
-		return f.getCommit(ctx, mainDir, repo, rl.Head)
+		return f.getCommit(ctx, mainDir, repo, rl.Head, true)
 	case prefixQuery.MatchString(query):
 		var vs []string
 		for _, v := range rl.versions(repo) {
@@ -78,21 +78,21 @@ func (f *Fetcher) Get(ctx context.Context, mainDir, path, query string) (*Module
 		return nil, fmt.Errorf("%s@%s: the source lists versions only (a proxy): name a version, such as %s@v1.2.3", path, query, path)
 	}
 	if c, ok := rl.Branches[query]; ok {
-		return f.getCommit(ctx, mainDir, repo, c)
+		return f.getCommit(ctx, mainDir, repo, c, true)
 	}
 	if c, ok := rl.Tags[query]; ok {
-		return f.getCommit(ctx, mainDir, repo, c)
+		return f.getCommit(ctx, mainDir, repo, c, true)
 	}
 	if hexQuery.MatchString(query) {
 		q := strings.ToLower(query)
 		for _, set := range []map[string]string{rl.Branches, rl.Tags} {
 			for _, c := range set {
 				if strings.HasPrefix(c, q) {
-					return f.getCommit(ctx, mainDir, repo, c)
+					return f.getCommit(ctx, mainDir, repo, c, true)
 				}
 			}
 		}
-		return f.getCommit(ctx, mainDir, repo, q)
+		return f.getCommit(ctx, mainDir, repo, q, true)
 	}
 	return nil, fmt.Errorf("%s@%s: no such version, tag, branch or commit (tags: %s)", path, query, tagList(rl, repo))
 }
@@ -138,7 +138,7 @@ func quoteAll(names []string) string {
 
 // getCommit downloads the archive of a commit and names the module by its
 // pseudo-version.
-func (f *Fetcher) getCommit(ctx context.Context, mainDir string, repo *Repo, commit string) (*Module, error) {
+func (f *Fetcher) getCommit(ctx context.Context, mainDir string, repo *Repo, commit string, record bool) (*Module, error) {
 	commit = strings.ToLower(commit)
 	if f.cfg.CacheDir == "" {
 		return nil, fmt.Errorf("no module cache folder (set %s)", EnvModCache)
@@ -180,5 +180,8 @@ func (f *Fetcher) getCommit(ctx context.Context, mainDir string, repo *Repo, com
 			return nil, err
 		}
 	}
-	return m, f.record(sums, m)
+	if !record {
+		return m, nil
+	}
+	return m, f.record(sums, m, nil)
 }

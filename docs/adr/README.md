@@ -31,7 +31,7 @@ and from the user's answers to Q1–Q13
 | [017](017-generics-templates.md) | Generics are C++ templates with explicit type arguments | accepted (templates superseded by 030) | Type arguments always come from `go/types`, never from C++ deduction. |
 | [018](018-stdlib-ported-from-go.md) | The standard library is ported from Go's own source | accepted | Copied by a tool with small patches, plus a `reflect` subset on the type descriptors. |
 | [019](019-output-layout.md) | Output layout: one header per package, one `.cpp` per `.gp` file | accepted | `pkg.hpp`, `<file>.gp.cpp`, `pkg_init.cpp`, and Go 1.21's init order in `gp_init_all()`. |
-| [020](020-modules-gocpp-mod.md) | Modules use a `gocpp.mod` file in `go.mod` syntax | accepted | `replace` and `vendor/` first; downloads with minimal version selection in Phase 15. |
+| [020](020-modules-gocpp-mod.md) | Modules use a `gocpp.mod` file in `go.mod` syntax | accepted | `replace` and `vendor/` first; downloads with minimal version selection in Phase 15 (done, ADR-070). |
 | [021](021-platforms-linux-windows.md) | The platforms are Linux and Windows (MinGW-w64 first) | accepted | Linux first, Windows before v1.0; MSVC ABI later; no macOS. |
 | [022](022-shadowed-names.md) | Shadowed variables keep their Go names in C++ | accepted | A shadowing declaration opens a C++ block; supersedes ADR-010's `v := v` row. |
 | [023](023-module-downloads.md) | Modules are downloaded from git hosts, with hashes in `gocpp.sum` and trust on first use | accepted | Tag or commit archives from GitHub, GitLab and Codeberg (or `GOCPP_MODURL`), Go's `h1:` tree hash, no checksum database yet. |
@@ -67,6 +67,7 @@ and from the user's answers to Q1–Q13
 | [055](055-cross-compilation-targets-and-toolchain.md) | A build has a target (`-os`, `-arch`); Windows programs come from MinGW-w64 or a pinned llvm-mingw that gocpp downloads | accepted | Target in every compiler key; `GOCPP_TOOLCHAIN=auto\|local\|pinned`, SHA-256 and size compiled in, fail closed, own xz/tar decoder, lock, read-only cache; `GOCPP_EXEC` runs foreign programs; `GOCPP_TEST_TARGET=windows` runs run tests under an isolated Wine. (046 to 054 are other jobs'.) |
 | [059](059-swiss-table-maps.md) | Maps are Swiss tables with a seed for each map and a counted block for ranges | accepted | One block of control bytes and slots probed a group at a time (SSE2 or portable), 7/8 load, a random seed per map and a random start per range; a loop holds the block, so growth, deletes and `clear` during a range follow Go's rules. D8 becomes "random, as Go". |
 | [057](057-runtime-library-and-link-line.md) | The runtime is one cached static library, and the link line has one order | accepted | `lib/<key>/libgocpprt.a` per compiler, flags, sanitizer and archiver, built under a lock; the compiler's own archiver for `-lto`; one function makes the deduplicated link command. |
+| [070](070-version-selection-and-gocpp-get.md) | Minimal version selection over `gocpp.mod` and `go.mod`, and `gocpp get` that writes the whole build list | accepted | `internal/mvs` + `internal/modgraph` + `internal/modget`, checked against the go command; `mvs.Edit` is `go get`'s editRequirements; `gocpp.mod` lists every module of the build list (`// indirect` for the unnamed); `gocpp.sum` and `gocpp.mod` written together. Extends 020 and 023. |
 
 ## Changing a decision
 

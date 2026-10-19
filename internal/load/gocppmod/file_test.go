@@ -132,7 +132,7 @@ func TestUnknownKept(t *testing.T) {
 
 go 1.25
 toolchain go1.25.1
-exclude example.com/x v1.0.0
+godebug default=go1.21
 future-verb (
 	a b
 	c
@@ -162,7 +162,7 @@ cxx c++17
 			verbs = append(verbs, s.Token[0]+string(s.Open))
 		}
 	}
-	if want := []string{"go", "toolchain", "exclude", "future-verb(", "cxx{"}; !reflect.DeepEqual(verbs, want) {
+	if want := []string{"go", "toolchain", "godebug", "future-verb(", "cxx{"}; !reflect.DeepEqual(verbs, want) {
 		t.Errorf("unknown = %q, want %q", verbs, want)
 	}
 	if got := string(Format(f.Syntax)); got != src {
@@ -229,8 +229,6 @@ func TestErrors(t *testing.T) {
 		{"require usage", "require a\n", "gocpp.mod:1: usage: require module/path v1.2.3"},
 		{"require version", "require a v1\n", `gocpp.mod:1: require a: invalid module version "v1": must be of the form v1.2.3`},
 		{"require path", "require a/ v1.0.0\n", `gocpp.mod:1: invalid module path "a/": trailing slash`},
-		{"require two versions", "require a v1.0.0\nrequire a v1.1.0\n",
-			"gocpp.mod:2: require a: version v1.1.0, but v1.0.0 is required at line 1: gocpp has no version selection yet, keep one"},
 		{"require in block", "require (\n\ta\n)\n", "gocpp.mod:2:2: usage: require module/path v1.2.3"},
 		{"replace usage", "replace a\n", "gocpp.mod:1: usage: replace module/path [v1.2.3] => other/module v1.4\n\t or replace module/path [v1.2.3] => ../local/directory"},
 		{"replace no target", "replace a =>\n", "gocpp.mod:1: usage: replace module/path [v1.2.3] => other/module v1.4\n\t or replace module/path [v1.2.3] => ../local/directory"},
