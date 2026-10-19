@@ -50,8 +50,8 @@ A test is also skipped, with a message, when:
 - it has a `// zoneinfo: required` line (run tests: a program that loads time zones by name with `time.LoadLocation`) and the machine has no time zone database with `America/New_York`, `Europe/Berlin` and `Asia/Kolkata` (the `ZONEINFO` variable, else `/usr/share/zoneinfo`, `/usr/share/lib/zoneinfo`, `/usr/lib/locale/TZ`, `/etc/zoneinfo`);
 - it has a `// pending: reason` line (below the phase line; allowed in run, diff, interop and pkgs tests and in
   examples) and `GOCPP_TEST_PENDING` is not `1`. It says that the test's phase is only partly built and
-  the test fails until a named step lands: `make ci` runs the tests up to Phase 08 (`GOCPP_TEST_PHASE=08`,
-  below), and the examples `generics` and `workers` are pending. The step that makes the test pass removes
+  the test fails until a named step lands: `make ci` runs the tests up to Phase 10 (`GOCPP_TEST_PHASE=10`,
+  below), and the examples `generics`, `workers`, `grep-lite`, `macros`, `must-errors` and `wc` are pending. The step that makes the test pass removes
   the line; `GOCPP_TEST_PENDING=1` runs the pending tests meanwhile. A `// pending:` line in a test of a finished phase
   (`// phase:` up to `Phase` of internal/version) fails the test, because it would hide a real failure, and
   `TestPendingFiles` lists the pending tests (a short list: it names each one), so hiding another one needs an edit there;

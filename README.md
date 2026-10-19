@@ -109,7 +109,7 @@ bin/gocpp version
 
 For the test programs (`make test-programs`) and their variables `GOCPP_CXX`,
 `GOCPP_REQUIRE_CXX`, `GOCPP_FLAGS`, `GOCPP_TEST_PHASE` and `GOCPP_TEST_PENDING`, see
-[tests/README.md](tests/README.md). `make ci` runs the test programs up to Phase 08, not only up to
+[tests/README.md](tests/README.md). `make ci` runs the test programs up to Phase 10, not only up to
 the last built phase (`CI_TEST_PHASE` in the Makefile), so that the goroutines, channels and
 multi-package tests stay green; a test that still waits for a step says `// pending:` and is skipped.
 

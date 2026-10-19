@@ -238,6 +238,10 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 			// what the go compiler shows, and the Printer stops at 10.
 			AllErrors: true,
 			Tests:     c.tests,
+			// The syntax of Phase 10 (F!(x), func f!()) parses only where
+			// the gates allow it; before, it is a syntax error that the
+			// gates explain (internal/check, gateUnchecked).
+			Phase10Syntax: phase >= 10,
 		}, m.patterns...)
 	}
 	c.fset = prog.Fset

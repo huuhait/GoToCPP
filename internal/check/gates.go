@@ -26,7 +26,7 @@ import (
 // errors under the same message, and the first use says enough to find the
 // feature. It reports each import of a package, which is one use per file.
 // A gate error that takes the place of a go/types error (a promoted member
-// of an embedded C++ type, errors.Wrapf) is reported at every use, so that
+// of an embedded C++ type, errors.Trace) is reported at every use, so that
 // each of those go/types errors gets its better message.
 
 // LastPhase is the last phase of the plan. Config{Phase: LastPhase} turns
@@ -508,7 +508,6 @@ var stdMembers = []stdMember{
 	{Pkg: "iter", Name: "Pull", Phase: 8},
 	{Pkg: "iter", Name: "Pull2", Phase: 8},
 	{Pkg: "errors", Name: "Trace", Phase: 10},
-	{Pkg: "errors", Name: "Wrapf", Phase: 10},
 }
 
 // builtins are the built-in functions that Phase 02 doesn't have (it has

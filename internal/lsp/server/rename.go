@@ -695,7 +695,7 @@ func (rn *renamer) checkCapture(h hit) error {
 	}
 	pkgLevel := v.types != nil && scope == v.types.Scope()
 	for id, other := range v.info.Uses {
-		if id.Name != rn.newName || other == nil || other == obj {
+		if id.Name != rn.newName || other == nil || other == obj || v.synthetic[id] {
 			continue
 		}
 		if !id.Pos().IsValid() || !pkgLevel && (id.Pos() < scope.Pos() || id.Pos() >= scope.End()) {

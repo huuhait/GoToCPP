@@ -76,6 +76,14 @@ type Config struct {
 	// the first 10 on different lines (gocpp check -e).
 	AllErrors bool
 
+	// Phase10Syntax parses with parser.Phase10Syntax: the `!` forms of
+	// Phase 10 (F!(x), func f!()), and the macro syntax (#Name, macro,
+	// lazy), which the parser makes stock go/ast nodes with marks (package
+	// gpast). The callers set it when the phase gates allow the features of
+	// Phase 10 (check.Config.Phase >= 10): before that, a file with such
+	// syntax is a syntax error, which the gates (internal/check) explain.
+	Phase10Syntax bool
+
 	// Fset is the file set that gets the files. If it is nil, Load makes
 	// a new one.
 	Fset *token.FileSet
@@ -409,6 +417,14 @@ type File struct {
 
 	// Test reports whether the file is a _test.gp file.
 	Test bool
+
+	// Synthetic holds the names that the rewrites of check wrote into AST (the
+	// temporaries and error variables of the `!` forms of Phase 10, the
+	// names of the code that stands for them), or nil. They have positions
+	// of the user's text (the check needs them), so tools that look up a
+	// name at a place skip them: hover, go to definition, references,
+	// rename and the hints take the user's own names only.
+	Synthetic map[*ast.Ident]bool
 }
 
 // A Module is a tree of packages with a gocpp.mod file at its top. Module.File
@@ -882,10 +898,7 @@ func (l *loader) readXTest(p *Package) (*Package, bool) {
 	if len(srcs) == 0 && len(xerrs) == 0 {
 		return nil, true
 	}
-	mode := parser.ParseComments
-	if l.cfg.AllErrors {
-		mode |= parser.AllErrors
-	}
+	mode := l.parseMode()
 	var (
 		files  []*File
 		xnames []xtestName
@@ -1073,10 +1086,7 @@ func (l *loader) read(p *Package, named []string, tests bool) (internalTests boo
 		return false
 	}
 
-	mode := parser.ParseComments
-	if l.cfg.AllErrors {
-		mode |= parser.AllErrors
-	}
+	mode := l.parseMode()
 	var (
 		reported bool // the "found packages" error of p is reported
 		xfiles   []*File
@@ -1603,4 +1613,16 @@ func joinImportPath(modPath, rel string) string {
 		return modPath
 	}
 	return modPath + "/" + rel
+}
+
+// parseMode returns the mode of the parser for the files of a package.
+func (l *loader) parseMode() parser.Mode {
+	mode := parser.ParseComments
+	if l.cfg.AllErrors {
+		mode |= parser.AllErrors
+	}
+	if l.cfg.Phase10Syntax {
+		mode |= parser.Phase10Syntax
+	}
+	return mode
 }

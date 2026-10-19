@@ -207,11 +207,14 @@ func (q *query) contains(n ast.Node) bool {
 // file down (without the name), or nil. A name that ends at pos counts too
 // (the cursor right after it) when no name starts or goes on there.
 //
+// The names that check wrote for the ! forms (File.Synthetic) are skipped.
+//
 // The names of the hidden import that check added (check.HiddenImport) are
 // longer than the text they stand for, so they count only at their first
 // character, and only as the C of a cgo helper (C.GoString): elsewhere the
 // user's own name at that place is found (T in check's gp_cgoh.As[T](x)).
-func identAt(f *ast.File, pos token.Pos) (*ast.Ident, []ast.Node) {
+func identAt(lf *load.File, pos token.Pos) (*ast.Ident, []ast.Node) {
+	f := lf.AST
 	var id, after *ast.Ident
 	var path, afterPath []ast.Node
 	hidden := check.HiddenImport(f)
@@ -234,6 +237,9 @@ func identAt(f *ast.File, pos token.Pos) (*ast.Ident, []ast.Node) {
 					return false
 				}
 			}
+		}
+		if x, ok := n.(*ast.Ident); ok && lf.Synthetic[x] {
+			return false // a name that check wrote for a ! form: the user's text at the place is another node
 		}
 		if x, ok := n.(*ast.Ident); ok {
 			if pos < x.End() {

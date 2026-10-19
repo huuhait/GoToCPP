@@ -154,7 +154,7 @@ func (s *Server) documentHighlight(ctx context.Context, e env, params json.RawMe
 	if err != nil {
 		return nil, err
 	}
-	writes := writePositions(q.file.AST, q.tok)
+	writes := writePositions(q.file, q.tok)
 	for _, h := range res.hits {
 		if h.path != q.file.Path {
 			continue
@@ -174,14 +174,19 @@ func (s *Server) documentHighlight(ctx context.Context, e env, params json.RawMe
 // writePositions returns the offsets of the names that an assignment, an
 // inc/dec statement or a range clause stores into: a name, or the selected
 // name of a selector (x.f = 1 writes f).
-func writePositions(f *ast.File, tok *token.File) map[int]bool {
+func writePositions(lf *load.File, tok *token.File) map[int]bool {
+	f := lf.AST
 	w := make(map[int]bool)
 	mark := func(e ast.Expr) {
 		switch e := ast.Unparen(e).(type) {
 		case *ast.Ident:
-			w[tok.Offset(e.Pos())] = true
+			if !lf.Synthetic[e] {
+				w[tok.Offset(e.Pos())] = true
+			}
 		case *ast.SelectorExpr:
-			w[tok.Offset(e.Sel.Pos())] = true
+			if !lf.Synthetic[e.Sel] {
+				w[tok.Offset(e.Sel.Pos())] = true
+			}
 		}
 	}
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -284,7 +289,7 @@ func (q *query) symbolAt(ctx context.Context, forRename bool) (*symbol, error) {
 			}
 		}
 	}
-	id, path := identAt(f, q.pos)
+	id, path := identAt(q.file, q.pos)
 	if id == nil {
 		return nil, nil
 	}
@@ -416,7 +421,7 @@ func (q *query) typeSwitchOf(v *types.Var) ([]types.Object, []*ast.Ident) {
 	if !v.Pos().IsValid() || q.fset.File(v.Pos()) != q.tok {
 		return nil, nil
 	}
-	id, path := identAt(q.file.AST, v.Pos())
+	id, path := identAt(q.file, v.Pos())
 	if id == nil || id.Pos() != v.Pos() || q.info.Defs[id] != nil {
 		return nil, nil
 	}
@@ -542,6 +547,19 @@ type view struct {
 	// package, the _test.gp files of a test view.
 	files map[string]*ast.File
 	test  bool
+
+	// synthetic are the names that check wrote for the ! forms (File.Synthetic) in all the files.
+	synthetic map[*ast.Ident]bool
+}
+
+// addSynthetic adds the synthetic names of f to the view.
+func (v *view) addSynthetic(f *load.File) {
+	for id := range f.Synthetic {
+		if v.synthetic == nil {
+			v.synthetic = make(map[*ast.Ident]bool)
+		}
+		v.synthetic[id] = true
+	}
 }
 
 // resolve returns the object of the key in the view's types, or nil.
@@ -854,12 +872,15 @@ func (s *keySet) add(k objKey) bool {
 // or for a _test.gp document the check with the test files.
 func (q *query) view() *view {
 	files := make(map[string]*ast.File, len(q.lp.Files))
+	v := &view{dir: q.lp.Dir, fset: q.fset, types: q.types, info: q.info, pkg: q.pkg, test: q.isTest()}
 	for _, f := range q.lp.Files {
 		if f.AST != nil && (!q.isTest() || f.Test) {
 			files[f.Path] = f.AST
+			v.addSynthetic(f)
 		}
 	}
-	return &view{dir: q.lp.Dir, fset: q.fset, types: q.types, info: q.info, pkg: q.pkg, files: files, test: q.isTest()}
+	v.files = files
+	return v
 }
 
 // isTest reports whether the query is in a _test.gp document, which is a
@@ -1119,6 +1140,7 @@ func viewOf(pkg *cache.Package) *view {
 	for _, f := range pkg.Program.Roots[0].Files {
 		if f.AST != nil {
 			v.files[f.Path] = f.AST
+			v.addSynthetic(f)
 		}
 	}
 	return v
@@ -1188,7 +1210,7 @@ func (r *searcher) scan(v *view, keys *keySet, declPos map[posKey]bool) []hit {
 // is not in a file of the view or that the user did not write (the loader's
 // rewrites make names with places but another text).
 func (r *searcher) hitOf(v *view, id *ast.Ident, obj types.Object, def bool) (hit, bool) {
-	if id == nil || !id.Pos().IsValid() {
+	if id == nil || !id.Pos().IsValid() || v.synthetic[id] {
 		return hit{}, false
 	}
 	p := v.fset.Position(id.Pos())
@@ -1695,6 +1717,7 @@ func (r *searcher) testViews(ctx context.Context, dirs []string, keys *keySet, d
 			for _, f := range root.Files {
 				if f.Test && f.AST != nil {
 					v.files[f.Path] = f.AST
+					v.addSynthetic(f)
 				}
 			}
 			if len(v.files) > 0 {

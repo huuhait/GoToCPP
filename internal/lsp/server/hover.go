@@ -110,7 +110,7 @@ func (q *query) hover(ctx context.Context) (*hoverResult, protocol.Range, error)
 	if h, n := q.cppHover(); h != nil {
 		return h, q.rangeOf(n.Pos(), n.End()), nil
 	}
-	id, path := identAt(f, q.pos)
+	id, path := identAt(q.file, q.pos)
 	if id == nil {
 		return nil, protocol.Range{}, nil
 	}
@@ -304,7 +304,7 @@ func (q *query) cppValue(v *types.Var) bool {
 		if f.Path != posn.Filename {
 			continue
 		}
-		id, path := identAt(f.AST, v.Pos())
+		id, path := identAt(f, v.Pos())
 		if id == nil {
 			return false
 		}
@@ -518,7 +518,7 @@ func (q *query) cppUseAt() (*load.CppUse, []string, *ast.Ident) {
 			bySel[u.Sel] = u
 		}
 	}
-	id, path := identAt(q.file.AST, q.pos)
+	id, path := identAt(q.file, q.pos)
 	if id == nil || len(path) == 0 {
 		return nil, nil, nil
 	}

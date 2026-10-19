@@ -980,7 +980,11 @@ func (c *config) goBuild(t *testing.T, p *program) (prog string, build result) {
 			t.Fatal(err)
 		}
 	} else {
-		src, err := os.ReadFile(filepath.Join(p.dir, p.arg))
+		srcPath := filepath.Join(p.dir, p.arg)
+		if twin := mustTwin(p); twin != "" {
+			srcPath = twin // a program with ! (Phase 10): its hand-written Go twin is the program real Go runs
+		}
+		src, err := os.ReadFile(srcPath)
 		if err != nil {
 			t.Fatal(err)
 		}

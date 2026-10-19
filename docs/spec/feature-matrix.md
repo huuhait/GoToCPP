@@ -164,7 +164,6 @@ These come in another phase than their package. A method comes with its type, un
 | `iter.Pull` | 08 |
 | `iter.Pull2` | 08 |
 | `errors.Trace` | 10 |
-| `errors.Wrapf` | 10 |
 | the rest of `fmt` | 09 |
 | the rest of `unsafe` | 04 |
 | the rest of `os` | 09 |

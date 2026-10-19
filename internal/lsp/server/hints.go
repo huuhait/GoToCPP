@@ -61,7 +61,7 @@ func (q *query) inlayHints(ctx context.Context, lo, hi int) ([]protocol.InlayHin
 	at := func(pos int) protocol.Position { return q.mapper.Position(pos) }
 	in := func(off int) bool { return off >= lo && off <= hi }
 	typeHint := func(id *ast.Ident) {
-		if id == nil || id.Name == "_" || !id.Pos().IsValid() {
+		if id == nil || id.Name == "_" || !id.Pos().IsValid() || q.file.Synthetic[id] {
 			return
 		}
 		v, ok := q.info.Defs[id].(*types.Var)
@@ -132,6 +132,9 @@ func (q *query) inlayHints(ctx context.Context, lo, hi int) ([]protocol.InlayHin
 func (q *query) parameterHints(hints []protocol.InlayHint, call *ast.CallExpr, in func(int) bool) []protocol.InlayHint {
 	if len(call.Args) == 0 {
 		return hints
+	}
+	if id, ok := call.Fun.(*ast.Ident); ok && q.file.Synthetic[id] {
+		return hints // panic(must_e1) and the like, written for a ! form
 	}
 	if tv, ok := q.info.Types[call.Fun]; !ok || tv.IsType() || tv.IsBuiltin() {
 		return hints // a conversion, a builtin, or a name the checker doesn't know

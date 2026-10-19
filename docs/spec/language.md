@@ -1107,17 +1107,35 @@ about it.
 
 ### Error messages
 
-Mistakes with `!` get messages that talk about your code, not about the rewrite. For example:
+Mistakes with `!` get messages that talk about your code, not about the rewrite (the hidden
+helper functions never show):
 
 ```text
-strconv.Itoa!(n): Itoa does not return an error, so "!" can't be used
-os.Remove!(p) returns only an error; use it as a statement
-F!: the last result of F is *MyErr, not error; convert it explicitly
+typed! requires the last result of typed to be exactly error, got *MyErr: a nil *MyErr would turn into a non-nil error; convert it explicitly
+fmt.Sprint! requires the last result of fmt.Sprint to be error, got string
+os.Remove!(...) returns only an error: use it as a statement
+two!(...) gives 1 value besides the error, but here 2 values are wanted
+three!(...) gives 4 values besides the error: assign them to 4 variables (a, b := three!(...))
+len!(...) is a call of a built-in function: ! needs a function whose last result is error
+go two!(...): the error of two can't be returned to anyone from another goroutine; call it in a func literal that handles the error
+the last result of typed is *MyErr, not error: a must function does not handle it (a nil *MyErr would be a non-nil error); take it yourself, as in err := typed(...), or write _ = ...
+func main! must have no parameters and no results (an error is printed and the program exits with 1)
 ```
+
+`func main!()` and `func init!()` take no parameters. Like every must function they get an error
+result, so `return err` works in them and a bare `return` means success; the error is printed
+and the program exits with 1.
+
+A `defer f.Close()` (or `defer f.Close!()`) that fails while a panic is already running, in a function
+without an error result, drops the `Close` error: the panic goes on. A `defer f.Close()` that
+fails in a function that returns an error leaves the other results as the function set them: only
+the error changes. A `!` on a C or C++ function is an error for now, and a `!` in the channel
+operation of a `select` case too (evaluate it before the `select`).
 
 ### Tools
 
-- `gocpp expand file.gp` prints the code after `!` and macros are rewritten.
+- `gocpp expand file.gp` prints the code after `!` and macros are rewritten (not built yet; the
+  rewritten code is plain Go that `go/types` checks, see [ADR-037](../adr/037-must-rewrite.md)).
 - In the editor, hover on a must function shows its real signature, and hover on `F!` says what
   happens on error at that spot (return, panic, exit 1 or `t.Fatal`). Phase 11.
 - `gocpp vet` warns about `!` that would panic inside a library package (libraries should return

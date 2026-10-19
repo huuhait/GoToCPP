@@ -214,11 +214,11 @@ func (q *query) semanticTokens() []semToken {
 	}
 
 	params := q.parameterPositions()
-	writes := writePositions(q.file.AST, q.tok)
+	writes := writePositions(q.file, q.tok)
 	ast.PreorderStack(q.file.AST, nil, func(n ast.Node, stack []ast.Node) bool {
 		id, ok := n.(*ast.Ident)
-		if !ok {
-			return true
+		if !ok || q.file.Synthetic[id] {
+			return true // not a name, or one that check wrote for a ! form
 		}
 		var sel *ast.SelectorExpr
 		if len(stack) > 0 {
@@ -284,7 +284,9 @@ func (q *query) parameterPositions() map[token.Pos]bool {
 		}
 		for _, f := range list.List {
 			for _, id := range f.Names {
-				params[id.Pos()] = true
+				if !q.file.Synthetic[id] {
+					params[id.Pos()] = true
+				}
 			}
 		}
 	}

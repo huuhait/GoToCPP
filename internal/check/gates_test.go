@@ -403,9 +403,9 @@ func main() {
 		wantAt: []string{"4:2: illegal character U+0023 '#'", "5:3: expected '}', found 'EOF'"}},
 	{name: "go:embed", phase: 10, src: "package main\n\n//go:embed hello.txt\nvar s string\n\nfunc main() {\n\tprintln(s)\n}\n",
 		want: []string{"3:1: //go:embed is not supported yet (Phase 10)"}},
-	{name: "errors.Wrapf", phase: 10, src: "package main\n\nimport \"errors\"\n\nfunc f() (err error) {\n\terrors.Wrapf(&err, \"f\")\n\treturn\n}\n\nfunc main() {\n\tf()\n}\n",
-		want:   []string{"6:9: errors.Wrapf is not available yet (Phase 10)"},
-		wantAt: []string{"6:9: undefined: errors.Wrapf"}},
+	{name: "errors.Trace", phase: 10, src: "package main\n\nimport \"errors\"\n\nfunc f() (err error) {\n\terrors.Trace(err)\n\treturn\n}\n\nfunc main() {\n\tf()\n}\n",
+		want:   []string{"6:9: errors.Trace is not available yet (Phase 10)"},
+		wantAt: []string{"6:9: undefined: errors.Trace"}},
 
 	// Phase 12.
 	{name: "C macros as constants", phase: 12, src: "package main\n\nimport \"<stdio.h>\"\n\nconst n = stdio.BUFSIZ\n\nfunc main() {\n\tvar buf [stdio.BUFSIZ]byte\n\t_ = buf\n}\n",
@@ -931,19 +931,19 @@ func TestGatesInterfaceMethods(t *testing.T) {
 // found, which the limit of 10 errors uses: go/types finds the errors of
 // the package-level declarations (lines 16 to 23) before those of the
 // function bodies (lines 6 to 12). With and without the gate, the same 10
-// errors are shown, only the message of errors.Wrapf differs.
+// errors are shown, only the message of errors.Trace differs.
 func TestGatesKeepFoundOrder(t *testing.T) {
-	for _, wrapfFirst := range []bool{false, true} {
+	for _, traceFirst := range []bool{false, true} {
 		var b strings.Builder
 		b.WriteString("package main\n\nimport \"errors\"\n\nfunc f() (err error) {\n")
-		if wrapfFirst {
-			b.WriteString("\terrors.Wrapf(&err, \"f\")\n")
+		if traceFirst {
+			b.WriteString("\terrors.Trace(err)\n")
 		}
 		for i := 1; i <= 6; i++ {
 			fmt.Fprintf(&b, "\tu%d()\n", i)
 		}
-		if !wrapfFirst {
-			b.WriteString("\terrors.Wrapf(&err, \"f\")\n")
+		if !traceFirst {
+			b.WriteString("\terrors.Trace(err)\n")
 		}
 		b.WriteString("\treturn\n}\n\n")
 		for i := 1; i <= 8; i++ {
@@ -957,15 +957,15 @@ func TestGatesKeepFoundOrder(t *testing.T) {
 			return errorText(t, prog, Check(prog, fakeProbeConfig(phase)), dir, false)
 		}
 		got, want := text(9), text(LastPhase)
-		want = strings.Replace(want, "undefined: errors.Wrapf", "errors.Wrapf is not available yet (Phase 10)", 1)
+		want = strings.Replace(want, "undefined: errors.Trace", "errors.Trace is not available yet (Phase 10)", 1)
 		if got != want {
-			t.Errorf("Wrapf first %v: at Phase 09:\n%s\nwant (Phase 15's):\n%s", wrapfFirst, got, want)
+			t.Errorf("Trace first %v: at Phase 09:\n%s\nwant (Phase 15's):\n%s", traceFirst, got, want)
 		}
 		if strings.Count(got, "\n") != 12 || !strings.Contains(got, "too many errors") {
-			t.Errorf("Wrapf first %v: want 10 errors and \"too many errors\":\n%s", wrapfFirst, got)
+			t.Errorf("Trace first %v: want 10 errors and \"too many errors\":\n%s", traceFirst, got)
 		}
-		if wrapfFirst != strings.Contains(got, "errors.Wrapf is not available yet (Phase 10)") {
-			t.Errorf("Wrapf first %v: the Wrapf error is shown: %v\n%s", wrapfFirst, !wrapfFirst, got)
+		if traceFirst != strings.Contains(got, "errors.Trace is not available yet (Phase 10)") {
+			t.Errorf("Trace first %v: the Trace error is shown: %v\n%s", traceFirst, !traceFirst, got)
 		}
 	}
 }

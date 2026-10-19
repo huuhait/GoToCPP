@@ -1,0 +1,237 @@
+package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+var failAt = -1
+
+type Pt struct {
+	id int
+	X  int
+}
+
+type Cell struct{ A, B int }
+
+type Num int
+
+func sum(id int, args []int) int {
+	s := id * 3
+	for _, a := range args {
+		s += a
+	}
+	return s % 1000
+}
+
+func m8(x int) int { return (x%8 + 8) % 8 }
+
+func b1(x int) int { return x & 1 }
+
+func L(id int, args ...int) int {
+	fmt.Println("L", id)
+	return sum(id, args)
+}
+
+func S(id int) []int {
+	fmt.Println("S", id)
+	return []int{10, 11, 12, 13, 14, 15, 16, 17}
+}
+
+func FN(id int) []func(int) int {
+	fmt.Println("FN", id)
+	var fs []func(int) int
+	for i := 0; i < 8; i++ {
+		fs = append(fs, func(x int) int { return x + i })
+	}
+	return fs
+}
+
+func MP(id int) map[int]int {
+	fmt.Println("MP", id)
+	m := map[int]int{}
+	for i := 0; i < 8; i++ {
+		m[i] = i * i
+	}
+	return m
+}
+
+func PT(id int) *Pt {
+	fmt.Println("PT", id)
+	return &Pt{id: id, X: id + 1}
+}
+
+func (p *Pt) M(a int) int {
+	fmt.Println("M", p.id)
+	return p.id + a
+}
+
+func PI(id int) *int {
+	fmt.Println("PI", id)
+	v := id * 2
+	return &v
+}
+
+func A(id int) any {
+	fmt.Println("A", id)
+	return id
+}
+
+func CH(id int) chan int {
+	fmt.Println("CH", id)
+	c := make(chan int, 1)
+	c <- id + 100
+	return c
+}
+
+func GEN[T int | int64](a T) T {
+	fmt.Println("GEN", a)
+	return a + 1
+}
+
+func Add2(a, b int) int { return a*10 + b }
+
+func fail(id int) error {
+	return fmt.Errorf("fail %d: %w", id, ErrBad)
+}
+
+var ErrBad = errors.New("bad")
+
+func run() (res int, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			f, ok := r.(mustFail)
+			if !ok {
+				panic(r)
+			}
+			res, err = 0, f.err
+		}
+	}()
+	v0, v1, v2, v3 := 1, 2, 3, 4
+	var arr [8]int
+	ch := make(chan int, 64)
+	_ = ch
+	for i1 := b1((A(5).(int) - (len(S(6)) + 9))); i1 < 3 && (L(2) > PT(3).M(v2)); i1 += 1 + b1(L(4, (5*3 - v0), GG[int](100, v3))) {
+		if int(Num(v3)) < (Cell{A: int(Num(v0)), B: MP(7)[m8(L(8))]}.B) {
+			ch <- (func(a, b int) int { return a*2 + b }((*PI(9) + FN(10)[m8(L(11))](6)), G(101, (*PI(12) + v2), PT(13).GM(102, 1))))
+			v1 = G(103, (v2*3 - v2), (PT(14).M)(3), L(15))
+			arr[m8(G(104, v1, v1))] += FN(16)[m8((Cell{A: GEN[int](v0), B: MP(17)[m8(L(18))]}.B))](2)
+		} else if (L(19) > G(105, v1, i1)) {
+			arr[m8(min(L(20, v3, 0, 7), 5))] += (*PI(21) + (v2 + v1))
+			L(22, (func(a, b int) int { return a*2 + b }((4 + 7), (*PI(23) + v3))), G(106, G(107, i1, v1, i1), FN(24)[m8(v2)](9)))
+			L(25, v0, (len(S(26)) + int(int64(v0))), GG[int](108, FN(27)[m8(i1)](v1), (len(S(28)) + i1)))
+		} else if (PT(29).M(v0) < G(109, 3) && (L(30) > v2)) {
+			v3 = GG[int](110, append(S(31), min(2, i1))[2])
+			v3 += 3
+		}
+		switch 5 {
+		case m8(([]int{int(Num(8)), (map[int]int{m8(7): 1, m8(8) + 8: 6}[3]), G(111, 1, v2)}[1])):
+			v3 = MP(32)[m8(L(33))]
+			arr[m8(PT(34).GM(112, G(113, (PT(35).M)(5), Add2(Two(114, v2)))))] += G(115, FN(36)[m8((map[int]int{m8(v3): v3, m8(v0) + 8: 7}[3]))]((v2 + v2)), GG[int](116, L(37, v3, v3, i1), int(Num(v1))))
+		case m8(int(int64(G(117, 2, i1)))):
+			L(38, G(118, min(v2, 2), ([]int{v3, 0, 1}[1])), ((*PI(39) + v3)*3 - (<-CH(40) + 1)))
+		default:
+			w41 := (func(a, b int) int { return a*2 + b }(([]int{1, 2, v3}[1]), (map[int]int{m8(8): 0, m8(8) + 8: 0}[3])))
+			_ = w41
+			w42 := (map[int]int{m8(PT(43).GM(119, G(120, 7, v2))): (len(S(44)) + MP(45)[m8(v3)]), m8(MP(46)[m8(L(47))]) + 8: append(S(48), G(121, v2, 4))[2]}[3])
+			_ = w42
+			v3 = Add2(Two(122, ([]int{(map[int]int{m8(8): 0, m8(v2) + 8: v2}[3]), i1, S(49)[m8(L(50))]}[1])))
+		}
+		v3, v0 = PT(51).GM(123, (*PI(52) + PT(53).M(5))), (*PI(54) + G(124, L(55, v1, 6), (PT(56).M)(v0)))
+	}
+	if GB(125, (<-CH(57) + v0)) {
+		if GB(126, (PT(58).M)(8)) {
+			return ([]int{PT(59).M(v2), (len(S(60)) + v2), min(7, v1)}[1]), nil
+		}
+		if !(GB(127, 0)) {
+			arr[m8(G(128, MP(61)[m8(L(62))], v2))] = FN(63)[m8(L(64))](v1)
+			w65 := (PT(66).M)((len(S(67)) + v0))
+			_ = w65
+			w68 := (*PI(69) + MP(70)[m8(L(71))])
+			_ = w68
+		} else if ((Cell{A: 8, B: v2}.B) < v1 || !(2 < v3)) {
+			ch <- append(S(72), MP(73)[m8(3)])[2]
+		} else if ((v1 < v1 && v1 < 5) && (L(74) > v0)) {
+			v1, v2 = append(S(75), FN(76)[m8(L(77))]((func(a, b int) int { return a*2 + b }(v1, v1))))[2], 6
+			v3, v0 = Add2(Two(129, (len(S(78)) + (map[int]int{m8(2): 1, m8(v2) + 8: v3}[3])))), PT(79).M(int(int64(v1)))
+		}
+	}
+	for i80 := b1(append(S(82), FN(83)[m8(L(84))](v2))[2]); i80 < 3; i80 += 1 + b1(MP(81)[m8(i80)]) {
+		for i85 := b1((PT(86).M)(FN(87)[m8(v2)](1))); i85 < 3; i85 += 1 + b1(int(int64(GEN[int](v0)))) {
+			arr[m8(8)] += G(130, PT(88).M((A(89).(int) - v3)), (A(90).(int) - i80))
+			v2 += v2
+			v0, v1 = L(91, append(S(92), (A(93).(int) - 8))[2], v1, PT(94).GM(131, (v3*3 - v0))), (<-CH(95) + i85)
+		}
+		v1 = G(132, int(int64(FN(96)[m8(L(97))](v1))))
+		if GEN[int](PT(98).M(v0)) < (PT(99).M)(GG[int](133, v3)) {
+			v3 += (Cell{A: FN(100)[m8(L(101))](i80), B: Add2(Two(134, i80))}.B)
+		}
+	}
+	v0 += FN(102)[m8(PT(103).GM(135, (A(104).(int) - v3)))](FN(105)[m8(L(106))](append(S(107), 1)[2]))
+	v2 = min(PT(108).GM(136, G(137, 0, 6)), (PT(109).M)(G(138, v3, v0, 2)))
+	arr[m8(GG[int](139, (map[int]int{m8(v1): 7, m8(v2) + 8: v0}[3]), G(140, v2, 4)))] += min((A(110).(int) - 2), PT(111).M(v0))
+	for i112 := b1((map[int]int{m8(v0): int(Num(v2)), m8(S(115)[m8(L(116))]) + 8: G(141, v0, v1)}[3])); i112 < 3; i112 += 1 + b1(((6*3 - 5) + FN(113)[m8(L(114))](2))) {
+		w117 := 5
+		_ = w117
+		if (PT(118).M(i112) < (A(119).(int) - v1) || (8 < v1 && 1 < i112)) {
+			continue
+		}
+		arr[m8(G(142, (len(S(120)) + 9), GG[int](143, 3, v0), L(121, v2, v3)))] = G(144, S(122)[m8(v0)], int(Num(v2)))
+	}
+	arr[m8(int(int64(6)))] = GEN[int]((map[int]int{m8(v2): 1, m8(v3) + 8: v0}[3]))
+	return (v0*7+v1*5+v2*3+v3+arr[0]+arr[3]+len(ch)) % 100003, nil
+}
+
+type mustFail struct{ err error }
+
+func G(id int, args ...int) int {
+	fmt.Println("G", id)
+	if id == failAt {
+		panic(mustFail{fail(id)})
+	}
+	return sum(id, args)
+}
+
+func GB(id int, x int) bool {
+	fmt.Println("GB", id)
+	if id == failAt {
+		panic(mustFail{fail(id)})
+	}
+	return (sum(id, nil)+x)%3 == 0
+}
+
+func (p *Pt) GM(id int, a int) int {
+	fmt.Println("GM", id, p.id)
+	if id == failAt {
+		panic(mustFail{fail(id)})
+	}
+	return p.id + a + id
+}
+
+func GG[T int | int64](id int, args ...T) T {
+	fmt.Println("GG", id)
+	if id == failAt {
+		panic(mustFail{fail(id)})
+	}
+	var s T
+	for _, a := range args {
+		s += a
+	}
+	return s + T(id)
+}
+
+func Two(id int, a int) (int, int) {
+	fmt.Println("Two", id)
+	if id == failAt {
+		panic(mustFail{fail(id)})
+	}
+	return a, id
+}
+
+func main() {
+	for _, fa := range []int{-1, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144} {
+		failAt = fa
+		res, err := run()
+		fmt.Println("run", fa, res, err, errors.Is(err, ErrBad))
+	}
+}

@@ -1,4 +1,5 @@
 // phase: 09
+// pending: the standard packages of Phase 09 (steps 9.x)
 
 // Wc counts the lines, words, characters and bytes of files, like the Unix wc.
 // With no file names, or with the name "-", it reads standard input.

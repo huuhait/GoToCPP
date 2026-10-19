@@ -830,4 +830,23 @@ int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
     gp::exit(0);
 }
 
+void must_exit(const gp::error& err) {
+    if (err.gp_type() == nullptr) {
+        return;
+    }
+    std::string prog = "gocpp";
+    if (!args_storage().empty()) {
+        prog = std::string(args_storage()[0].gp_view());
+        if (auto slash = prog.find_last_of("/\\"); slash != std::string::npos) {
+            prog.erase(0, slash + 1);
+        }
+    }
+    gp::string text = err.Error();
+    std::string out = prog + ": ";
+    out.append(text.gp_view());
+    out += '\n';
+    detail::write_stderr(out);
+    os::exit(1);
+}
+
 } // namespace gp

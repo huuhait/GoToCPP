@@ -1,4 +1,5 @@
 // phase: 09
+// pending: the standard packages of Phase 09 (steps 9.x)
 
 // Grep-lite prints the lines that match a regular expression, like a small
 // grep. With no file names, or with the name "-", it reads standard input.

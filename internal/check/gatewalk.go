@@ -614,7 +614,7 @@ func (g *gateChecker) checkConversion(call *ast.CallExpr, to types.Type, arg ast
 }
 
 // visitSelector finds the uses of C that the user wrote and the members of
-// standard packages that the stubs don't have yet (errors.Wrapf), and
+// standard packages that the stubs don't have yet (errors.Trace), and
 // keeps the selectors that go/types found nothing for (checkPromoted).
 func (g *gateChecker) visitSelector(sel *ast.SelectorExpr) {
 	if x, ok := sel.X.(*ast.Ident); ok {
@@ -635,8 +635,8 @@ func (g *gateChecker) visitSelector(sel *ast.SelectorExpr) {
 				return
 			}
 			if g.info.Uses[sel.Sel] == nil {
-				// Not in the stub, like errors.Wrapf: go/types says
-				// "undefined: errors.Wrapf", the gate says when it comes.
+				// Not in the stub, like errors.Trace: go/types says
+				// "undefined: errors.Trace", the gate says when it comes.
 				if m := lookupMember(path, sel.Sel.Name); m != nil && m.Phase > g.phase {
 					want := "undefined: " + x.Name + "." + sel.Sel.Name
 					g.replace(sel.Sel.Pos(), sel.Sel.End(), m.message(), func(msg string) bool { return msg == want })

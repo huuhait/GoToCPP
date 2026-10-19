@@ -278,6 +278,16 @@ after v1 if time is short.
    `os.Remove!(p) returns only an error; use it as a statement`, or
    `F!: the last result of F is *MyErr, not error; convert it explicitly`.
 
+**As built (steps 10.2–10.6, [ADR-037](../../../docs/adr/037-must-rewrite.md)).** Items 5 to 7 are
+done in the Go AST, not in the C++ lowerer: after the last `go/types` check, each helper call becomes
+the code a programmer writes by hand (`v, must_e := F(a); if must_e != nil { return ..., must_e }`,
+with the shapes of item 6), one more check types it, and the C++ lowerer sees plain Go. The helper
+`gp_must.Exit` is the one that stays: `func main!()` is a function that returns `error`, and the real
+`main` is `gp_must.Exit(must_main())` (the runtime's `gp::must_exit`). New names are `must_t1`, `must_e1`,
+`must_f1`, `must_err`, not `gp_...`. `defer f.Close()` keeps the other results of the function.
+Not built: `return err` in `main!`/`init!`, the `testing.T` form is written but no test runs it,
+`gocpp vet` and hover/inlay hints (Phases 11 and 13), the optional error return traces.
+
 ### 2.2 Part B: macros
 
 **Declaring a macro** looks like declaring a function, with the keyword `macro`:

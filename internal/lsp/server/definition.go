@@ -71,7 +71,7 @@ func (q *query) definition(ctx context.Context) ([]protocol.Location, error) {
 	if u, _, _ := q.cppUseAt(); u != nil {
 		return nil, nil // Phase 12
 	}
-	id, _ := identAt(q.file.AST, q.pos)
+	id, _ := identAt(q.file, q.pos)
 	if id == nil {
 		return nil, nil
 	}
@@ -86,7 +86,7 @@ func (q *query) definition(ctx context.Context) ([]protocol.Location, error) {
 // declared: the named types in it (*T, []T, map[K]V, chan T, and the
 // results of a function).
 func (q *query) typeDefinition(ctx context.Context) ([]protocol.Location, error) {
-	id, _ := identAt(q.file.AST, q.pos)
+	id, _ := identAt(q.file, q.pos)
 	if id == nil {
 		return nil, nil
 	}

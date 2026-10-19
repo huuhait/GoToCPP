@@ -26,8 +26,9 @@ ci: export GOCPP_REQUIRE_GDB ?= 1
 # stay green. A test or example that still waits for a step of its phase says so
 # with a "// pending:" line and is skipped (GOCPP_TEST_PENDING=1 runs it). Raise
 # this when a later phase gets its first test. GOCPP_TEST_PHASE= make ci (empty)
-# runs only the finished phases.
-CI_TEST_PHASE = 08
+# runs only the finished phases. At 10 (steps 10.2 to 10.6, the ! operator) the tests of
+# Phase 09 and 10 that wait for unmerged steps carry the line.
+CI_TEST_PHASE = 10
 test test-programs quick ci-sanitize: export GOCPP_TEST_PHASE ?= $(CI_TEST_PHASE)
 
 # The paths "make lint" does not gofmt-check, as find(1) tests joined with -o:

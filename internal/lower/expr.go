@@ -383,6 +383,9 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 	if fg.g.opaqueCallee(c) {
 		return fg.opaqueCall(c) // of a member of a C/C++ value, or a C++ callable (cvalues.go)
 	}
+	if x := fg.mustExit(c); x != nil {
+		return x // gp_must.Exit(gp_main()): the end of main! (must.go)
+	}
 	if x := fg.weakMake(c); x != nil {
 		return x // weak.Make(p), weak.Make[T](p) (weak.go)
 	}

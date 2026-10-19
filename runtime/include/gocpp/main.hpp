@@ -7,6 +7,7 @@
 //     }
 #pragma once
 
+#include <gocpp/error.hpp>
 #include <gocpp/string.hpp>
 
 #include <vector>
@@ -42,5 +43,13 @@ namespace detail {
 void load_process_info();
 
 } // namespace detail
+
+// must_exit(err) is the end of func main!() and func init!() (Phase 10, step 10.5; the generated
+// main calls it with the error that the must function returned). A nil error does nothing. Else
+// it writes "<program>: <error>" to stderr, <program> being the base name of the program's
+// first argument, and ends the program with the code 1 (gp::os::exit: C stdio is flushed, no
+// C++ destructor runs). main's deferred calls have run by then: they ran when the function
+// returned the error.
+void must_exit(const gp::error& err);
 
 } // namespace gp

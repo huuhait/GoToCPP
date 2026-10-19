@@ -287,7 +287,7 @@ func TestRealPackagesMatchStub(t *testing.T) {
 				c.compareObjects(robj, stub.Scope().Lookup(name))
 			}
 			for _, name := range realPkg.Scope().Names() {
-				if token.IsExported(name) && stub.Scope().Lookup(name) == nil {
+				if token.IsExported(name) && stub.Scope().Lookup(name) == nil && !gocppAdditions[p.Path+"."+name] {
 					t.Errorf("%s is in the real package but not in Go", name)
 				}
 			}
@@ -321,6 +321,12 @@ func linuxFile(name string, src []byte) bool {
 		})
 	}
 	return true
+}
+
+// gocppAdditions are the exported names that gocpp's own packages have and Go's do not
+// (docs/spec/language.md, D17).
+var gocppAdditions = map[string]bool{
+	"errors.Wrapf": true, // Phase 10: errors.Wrapf(&err, ...), the context of a ! error
 }
 
 // qualifier writes each package by its path, so that the type strings of

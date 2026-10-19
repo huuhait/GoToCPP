@@ -390,6 +390,16 @@ func checkPartial(fset *token.FileSet, lp *load.Package, checked map[*load.Packa
 	return &Partial{Types: p.Types, Info: p.Info, Opaque: findOpaque(fset, p)}
 }
 
+// hasErrors reports whether l has an error, soft or not.
+func hasErrors(l *diag.List) bool {
+	for _, d := range l.Diagnostics() {
+		if d.Severity == diag.Error {
+			return true
+		}
+	}
+	return false
+}
+
 // hasHardErrors reports whether l has an error that is not a soft error
 // of go/types.
 func hasHardErrors(l *diag.List) bool {
@@ -415,15 +425,54 @@ func hasHardErrors(l *diag.List) bool {
 func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package,
 	cgoh *types.Package, convert bool, probeErrs []diag.Diagnostic) *Package {
 	cv := newConverter(fset, lp, cgoh)
+	mp := newMustPass(fset, lp) // the ! forms of Phase 10 (must.go), or nil
+	var userIdents map[*ast.Ident]bool
+	if mp != nil {
+		userIdents = identsOf(lp)
+		mp.prepare()
+	}
 	if convert {
 		cv.rewriteHelpers() // C.GoString(p) and the other cgo helpers (cgohelpers.go)
 	}
 	p, errs := checkFiles(fset, lp, checked, cv, probeErrs, convert)
 	p.checks = 1
-	for convert && cv.rewrite(p, errs) {
+	for {
+		// Both rewrites look at the same check; the package is checked again
+		// when one of them changed it.
+		changed := convert && cv.rewrite(p, errs)
+		if mp != nil && mp.rewriteDropped(p.Info) {
+			changed = true
+		}
+		if !changed {
+			break
+		}
 		checks := p.checks + 1
 		p, errs = checkFiles(fset, lp, checked, cv, probeErrs, convert)
 		p.checks = checks
+	}
+	if mp != nil {
+		// The helpers of the ! forms go: the post-check says what is wrong with
+		// them, then the lowering writes the code they stand for and the
+		// package is checked for the last time (mustlower.go).
+		mp.postCheck(p)
+		if !hasErrors(p.Errors) {
+			// Not even a soft error (no new variables, declared and not used): the
+			// check of the lowered code would drop it, and its messages would name the
+			// code that the lowering wrote.
+			before := len(mp.errs)
+			if mp.lower(p.Info, p.Types) {
+				checks := p.checks + 1
+				p, _ = checkFiles(fset, lp, checked, cv, probeErrs, convert)
+				p.checks = checks
+			} else {
+				for _, d := range mp.errs[before:] {
+					p.Errors.Add(d)
+				}
+			}
+		}
+	}
+	if mp != nil {
+		markSynthetic(lp, userIdents)
 	}
 	if len(cv.names) > 0 {
 		p.setConversions(findConversions(lp, p.Info))
@@ -560,6 +609,12 @@ func (im *importer) ImportFrom(path, _ string, _ types.ImportMode) (*types.Packa
 	}
 	if path == load.CgohPath && im.cgoh != nil {
 		return im.cgoh, nil
+	}
+	if path == load.MustPath {
+		return hiddenMust(), nil // only the rewrite of the ! forms imports it (must.go)
+	}
+	if path == load.MacroPath {
+		return hiddenMacro(), nil
 	}
 	if dep := im.from.Imports[path]; dep != nil {
 		if pkg := im.checked[dep]; pkg != nil {

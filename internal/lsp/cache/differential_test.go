@@ -118,7 +118,7 @@ func TestSameAsCheck(t *testing.T) {
 			t.Fatal(err)
 		}
 		prog := load.Load(load.Config{Dir: dir, Stdlib: cfg.Stdlib, GoStd: cfg.GoStd, GOOS: cfg.GOOS, GOARCH: cfg.GOARCH,
-			AllErrors: true}, ".")
+			AllErrors: true, Phase10Syntax: cfg.Phase >= 10}, ".")
 		r := check.Check(prog, check.Config{Phase: cfg.Phase, GOOS: cfg.GOOS, GOARCH: cfg.GOARCH, CXX: cfg.CXX})
 		want, got := make(map[string][]string), make(map[string][]string)
 		byFile(want, prog.Errors)

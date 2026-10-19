@@ -1,4 +1,5 @@
 // phase: 10
+// pending: step 10.9 (macros) and the rest of Phase 10
 
 // Macros shows gocpp macros: macro declarations; #Assert and #Dbg used inside
 // code; #Trace and #Locked on top of funcs (start style: the macro runs at

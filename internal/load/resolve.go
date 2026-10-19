@@ -22,6 +22,24 @@ import (
 // imported either: resolve reports it like an internal package.
 const CgohPath = "gocpp/cgoh"
 
+// MustPath and MacroPath are the import paths of the hidden packages of
+// Phase 10: gocpp/must has the helpers that the type checker gives the
+// calls with ! (F!(x) becomes gp_must.M1(F(x)) while go/types checks the
+// package, and the helper is gone when the checker is done), and
+// gocpp/macro has the type of the use-site record of the macros (Site).
+// Like CgohPath, they are made in Go code by package check; no .gp file
+// can import them, and a user package with such a path can't be imported
+// either.
+const (
+	MustPath  = "gocpp/must"
+	MacroPath = "gocpp/macro"
+)
+
+// hiddenPath reports whether path is the import path of a hidden package.
+func hiddenPath(path string) bool {
+	return path == CgohPath || path == MustPath || path == MacroPath
+}
+
 // A location is where the package with an import path is.
 type location struct {
 	importPath string
@@ -38,7 +56,7 @@ func (l *loader) resolve(from *Package, path string, at token.Position) (*Packag
 	if path == "unsafe" {
 		return nil, ""
 	}
-	if path == CgohPath {
+	if hiddenPath(path) {
 		return nil, fmt.Sprintf("use of internal package %s not allowed", path)
 	}
 	loc, msg := l.find(from, path)

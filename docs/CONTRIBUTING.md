@@ -121,7 +121,7 @@ The run, interop, diff, golden, debug and example tests run once with `g++` and 
 `make ci` sets `GOCPP_REQUIRE_CXX=g++,clang++`, so there it is a failure. Tests of phases
 after the last built one (`Phase` in `internal/version`) are skipped unless `GOCPP_TEST_PHASE=NN`
 runs the tests up to phase NN: `make test`, `make ci`, `make quick` and `make ci-sanitize` set it
-to `CI_TEST_PHASE` of the Makefile (08: the features of Phases 06 and 08 that are built have tests),
+to `CI_TEST_PHASE` of the Makefile (10: the features of Phases 06, 08 and 10 that are built have tests),
 and a test that still waits for a step of its phase has a `// pending:` line and is skipped
 (`GOCPP_TEST_PENDING=1` runs it). While you build phase NN, `GOCPP_TEST_PHASE=NN` runs the tests up to
 that phase. `GOCPP_FLAGS` passes more flags to
