@@ -869,12 +869,14 @@ func TestBuildTraceGolden(t *testing.T) {
 			r, _ := s.build()
 			return traceShape(t, s.dir, r.stderr)
 		}
+		// check counts every package that the loader returns: the 3 of the project and what fmt
+		// imports (fmt, errors, io, sync: 4 packages of the standard library), so 7.
 		const header = "# not up to date: no record of an earlier build\nWORK=$WORK\n# gocpp emit > $GEN\n"
 		const apis = "# api example.com/m/a API\n# api example.com/m/b API\n# api example.com/m API\n"
 		first := shape()
 		wantFirst := header + apis +
 			"COMPILE gpkg/example.com/m/a/a.gp.cpp\nCOMPILE gpkg/example.com/m/b/b.gp.cpp\nCOMPILE gpkg/example.com/m/main.gp.cpp\nCOMPILE gpkg/example.com/m/pkg_init.cpp\nLINK\nMOVE\n" +
-			"# actions: load=1 check=5 emit=3 write=7 compile=4 hit=0 link=1 runtime=0\n"
+			"# actions: load=1 check=7 emit=3 write=7 compile=4 hit=0 link=1 runtime=0\n"
 		if first != wantFirst {
 			t.Errorf("the first build:\n%s\nwant\n%s", first, wantFirst)
 		}
@@ -887,7 +889,7 @@ func TestBuildTraceGolden(t *testing.T) {
 			"# sources changed: example.com/m/a\n" +
 			"COMPILE gpkg/example.com/m/a/a.gp.cpp\n" +
 			"# cache hit gpkg/example.com/m/b/b.gp.cpp HASH\n# cache hit gpkg/example.com/m/main.gp.cpp HASH\n# cache hit gpkg/example.com/m/pkg_init.cpp HASH\n" +
-			"LINK\nMOVE\n# actions: load=1 check=5 emit=3 write=1 compile=1 hit=3 link=1 runtime=0\n"
+			"LINK\nMOVE\n# actions: load=1 check=7 emit=3 write=1 compile=1 hit=3 link=1 runtime=0\n"
 		if got != want {
 			t.Errorf("after a change of a body:\n%s\nwant\n%s", got, want)
 		}
@@ -896,7 +898,7 @@ func TestBuildTraceGolden(t *testing.T) {
 		want = "# not up to date: $DIR/a/a.gp changed\nWORK=$WORK\n# gocpp emit > $GEN\n" + apis +
 			"# sources changed: example.com/m/a\n# api changed: example.com/m/a\n" +
 			"COMPILE gpkg/example.com/m/a/a.gp.cpp\nCOMPILE gpkg/example.com/m/b/b.gp.cpp\nCOMPILE gpkg/example.com/m/main.gp.cpp\nCOMPILE gpkg/example.com/m/pkg_init.cpp\n" +
-			"LINK\nMOVE\n# actions: load=1 check=5 emit=3 write=3 compile=4 hit=0 link=1 runtime=0\n"
+			"LINK\nMOVE\n# actions: load=1 check=7 emit=3 write=3 compile=4 hit=0 link=1 runtime=0\n"
 		if got != want {
 			t.Errorf("after a change of a constant:\n%s\nwant\n%s", got, want)
 		}
