@@ -84,8 +84,8 @@ The C++ that gocpp emit -annotate writes for it:
 
     // ---- ./named.gp:14: ids = append(ids, 3)
     // gp[allocation] col 8: append: writes in place when the capacity is enough, else allocates a
-    //     bigger array (gocpp promises cap >= len, not Go's exact growth); the result may share the
-    //     array with the argument
+    //     bigger array (the capacity is Go's: its growth formula, element sizes and malloc size
+    //     classes); the result may share the array with the argument
         ids = IDs(gp::append(static_cast<IDs&&>(ids), 3));
 
     // ---- ./named.gp:15: fmt.Println(c.F(), c*2, len(ids))

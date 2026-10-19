@@ -443,7 +443,15 @@ fmt.Println(unsafe.Sizeof(struct{}{}), unsafe.Sizeof(struct {
   generated struct has a `static_assert` that its C++ size and alignment are these.
   A slice of empty structs therefore uses memory: `make([]struct{}, n)` allocates `n` bytes, and a
   huge `n` (Go allows `math.MaxInt`, because its zero-size elements take no memory) fails with an
-  out-of-memory error in gocpp.
+  out-of-memory error in gocpp. (`append` is not affected: it gives a zero-size element no
+  memory and `cap == len`, as Go does.)
+- **The capacity after `append`** is Go's, although the sizes above are not: the runtime
+  computes Go's size and pointer-ness of the element type (`gocpp/golayout.hpp`), so a
+  `[]string` grows `1 2 4 8 16 32 71 143 ...` as in Go (`tests/run/append_cap_*.gp`).
+  `[]byte(s)` and `[]rune(s)` give what a slice that escapes gets. Where gocpp can still differ
+  from gc: a slice that does not escape in gc may start in a 32-byte stack buffer or share the
+  string's bytes (gc's escape analysis, which gocpp does not copy), and an element type from C
+  or C++ has no Go layout (its C++ size is used).
 - The size of `chan T` is that of `gp::chan<T>` (a `std::shared_ptr`: 16 bytes), asserted in
   `sizes.hpp` since Phase 08; func values and interface values are what Phase 03 step 3.11 and
   Phase 05 built.

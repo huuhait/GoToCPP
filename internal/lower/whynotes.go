@@ -480,7 +480,7 @@ func (g *gen) noteSliceBuiltin(c *ast.CallExpr, name string) {
 	case "make":
 		g.why(c.Pos(), WhyAlloc, "make([]T, n): allocates the zeroed backing array; the slice holds its owner, and a negative or too large n panics")
 	case "append":
-		g.why(c.Pos(), WhyAlloc, "append: writes in place when the capacity is enough, else allocates a bigger array (gocpp promises cap >= len, not Go's exact growth); the result may share the array with the argument")
+		g.why(c.Pos(), WhyAlloc, "append: writes in place when the capacity is enough, else allocates a bigger array (the capacity is Go's: its growth formula, element sizes and malloc size classes); the result may share the array with the argument")
 	case "copy":
 		g.why(c.Pos(), WhySlices, "copy: copies min(len(dst), len(src)) elements, handles overlap, no allocation")
 	case "clear":

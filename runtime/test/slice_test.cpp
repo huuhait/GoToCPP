@@ -403,7 +403,7 @@ void test_append() {
     nb = gp::append_slice(nb, "abc"_gs);
     CHECK(gp::len(nb) == 3 && nb[2] == 'c');
 
-    // The capacity follows Go's growth formula (only cap >= len is promised).
+    // The capacity follows Go's growth formula and size classes (test_go_caps has every kind).
     ints g;
     g = gp::append(g, 1, 2, 3);
     CHECK_EQ(gp::cap(g), INT64_C(3));
@@ -504,6 +504,194 @@ void test_growth() {
         ss = gp::append(ss, gp::string::gp_copy(std::to_string(i)));
     }
     CHECK(ss[9999] == "9999"_gs && ss[0] == "0"_gs);
+}
+
+// --- Go's capacities for every kind of element (gocpp/golayout.hpp) ---
+
+struct Empty { // struct{}, as the emitter writes it
+    bool operator==(const Empty&) const = default;
+    static constexpr auto gp_fields = gp::fields();
+};
+struct GoPair { // struct{ a int; p *int }
+    int64_t a = 0;
+    gp::ptr<int64_t> p;
+    static constexpr auto gp_fields = gp::fields(gp::field(&GoPair::a, "a", false, false),
+                                                 gp::field(&GoPair::p, "p", false, false));
+};
+struct GoTail { // struct{ a int; z struct{} }: gc pads a zero-size last field
+    int64_t a = 0;
+    Empty z;
+    static constexpr auto gp_fields = gp::fields(gp::field(&GoTail::a, "a", false, false),
+                                                 gp::field(&GoTail::z, "z", false, false));
+};
+struct GoTail4 { // struct{ y int32; z [0]*int }: z is aligned as a pointer
+    int32_t y = 0;
+    gp::array<gp::ptr<int64_t>, 0> z;
+    static constexpr auto gp_fields = gp::fields(gp::field(&GoTail4::y, "y", false, false),
+                                                 gp::field(&GoTail4::z, "z", false, false));
+};
+struct GoZero { // struct{ z [0]int }: zero size in Go, but not an empty class in C++
+    gp::array<int64_t, 0> z;
+    static constexpr auto gp_fields = gp::fields(gp::field(&GoZero::z, "z", false, false));
+};
+using GoZero3 = gp::array<GoZero, 3>;
+struct GoMarker { // struct{ _ [0]func() }
+    gp::array<gp::func<void()>, 0> gp_blank;
+    static constexpr auto gp_fields = gp::fields(gp::field(&GoMarker::gp_blank, "_", false, false));
+};
+struct GoNamed : gp::newtype<GoNamed, gp::slice<int64_t>> {
+    using gp::newtype<GoNamed, gp::slice<int64_t>>::newtype;
+};
+struct GoCelsius : gp::newtype<GoCelsius, double> {
+    using gp::newtype<GoCelsius, double>::newtype;
+};
+
+namespace lay = gp::detail;
+template <typename T>
+constexpr lay::go_layout_t L = lay::go_layout<T>();
+
+static_assert(L<int64_t>.size == 8 && !L<int64_t>.ptrs);
+static_assert(L<int8_t>.size == 1 && L<bool>.size == 1 && L<float>.size == 4);
+static_assert(L<gp::complex128>.size == 16 && !L<gp::complex128>.ptrs);
+static_assert(L<gp::string>.size == 16 && L<gp::string>.ptrs, "Go's string is 16 bytes");
+static_assert(L<gp::any>.size == 16 && L<gp::any>.ptrs && L<gp::error>.size == 16);
+static_assert(L<gp::ptr<int64_t>>.size == 8 && L<gp::ptr<int64_t>>.ptrs);
+static_assert(L<gp::ptr<void>>.size == 8 && L<gp::weak_ptr<int64_t>>.size == 8);
+static_assert(L<gp::slice<int64_t>>.size == 24 && L<gp::slice<int64_t>>.ptrs);
+static_assert(L<gp::map<int64_t, int64_t>>.size == 8 && L<gp::chan<int64_t>>.size == 8);
+static_assert(L<gp::func<void()>>.size == 8 && L<gp::func<void()>>.ptrs);
+static_assert(L<gp::array<gp::string, 4>>.size == 64 && L<gp::array<gp::string, 4>>.ptrs);
+static_assert(L<gp::array<int16_t, 3>>.size == 6 && !L<gp::array<int16_t, 3>>.ptrs);
+static_assert(L<gp::array<gp::string, 0>>.size == 0 && !L<gp::array<gp::string, 0>>.ptrs);
+static_assert(L<GoPair>.size == 16 && L<GoPair>.ptrs);
+static_assert(L<GoTail>.size == 16 && !L<GoTail>.ptrs);
+static_assert(L<GoTail4>.size == 16 && L<GoTail4>.align == 8 && !L<GoTail4>.ptrs);
+static_assert(L<GoZero>.size == 0 && L<GoZero3>.size == 0 && L<GoMarker>.size == 0);
+static_assert(!std::is_empty_v<GoZero> && !std::is_empty_v<GoZero3>);
+static_assert(L<GoNamed>.size == 24 && L<GoNamed>.ptrs);
+static_assert(L<GoCelsius>.size == 8 && !L<GoCelsius>.ptrs);
+static_assert(L<Empty>.size == 0 && !L<Empty>.ptrs);
+struct Foreign {};
+static_assert(L<Foreign>.size == 1 && !L<Foreign>.ptrs, "no gp_fields: the C++ size");
+
+const std::vector<int64_t> go_caps_string = {1,   2,   4,    8,    16,   32,   71,  143,
+                                             303, 591, 1023, 1535, 2560, 3584, 5120};
+const std::vector<int64_t> go_caps_ptr = {1,   2,   4,    8,    16,   32,   64,   143,
+                                          287, 607, 1023, 1535, 2303, 3071, 4095, 6144};
+const std::vector<int64_t> go_caps_slice = {1,   2,   4,    8,    16,   37,   74,   170,
+                                            341, 682, 1135, 1706, 2389, 3413, 4778, 6485};
+const std::vector<int64_t> go_caps_tail = {1,   2,   4,   8,    16,   32,   64,   128,
+                                           256, 512, 848, 1280, 1792, 2560, 3584, 5120};
+const std::vector<int64_t> go_caps_tail4 = {1,   2,   4,   8,    16,   32,   64,   128,
+                                            256, 512, 848, 1280, 1792, 2560, 3584, 5120};
+const std::vector<int64_t> go_caps_3byte = {2,   5,    10,   21,   42,   85,   170, 341,
+                                            682, 1066, 1621, 2261, 3157, 4522, 6144};
+const std::vector<int64_t> go_caps_any = {1,   2,   4,    8,    16,   32,   71,  143,
+                                          303, 591, 1023, 1535, 2560, 3584, 5120};
+const std::vector<int64_t> go_caps_pair = {1,   2,   4,    8,    16,   32,   71,  143,
+                                           303, 591, 1023, 1535, 2560, 3584, 5120};
+
+// grow_caps (above) lists the capacities at each reallocation of appends one at a time.
+void test_go_caps() {
+    int64_t reallocs = 0;
+    bool ok = false;
+    CHECK(grow_caps<gp::string>(5000, &reallocs, &ok) == go_caps_string);
+    CHECK(grow_caps<gp::any>(5000, &reallocs, &ok) == go_caps_any);
+    CHECK(grow_caps<gp::ptr<int64_t>>(5000, &reallocs, &ok) == go_caps_ptr);
+    CHECK(grow_caps<gp::slice<int64_t>>(5000, &reallocs, &ok) == go_caps_slice);
+    CHECK(grow_caps<GoNamed>(5000, &reallocs, &ok) == go_caps_slice);
+    CHECK(grow_caps<GoPair>(5000, &reallocs, &ok) == go_caps_pair);
+    CHECK(grow_caps<GoTail>(5000, &reallocs, &ok) == go_caps_tail);
+    CHECK(grow_caps<GoTail4>(5000, &reallocs, &ok) == go_caps_tail4);
+    CHECK(grow_caps<gp::array<int8_t, 3>>(5000, &reallocs, &ok) == go_caps_3byte);
+    CHECK(ok);
+
+    // Zero-size elements: cap == len, and (nearly) no reallocation. GoZero is a zero-size Go
+    // type that is not an empty class in C++ (it has real bytes, which a store writes), GoZero3
+    // an array of such, GoMarker the marker struct{ _ [0]func() }.
+    for (int pass = 0; pass < 2; pass++) {
+        gp::slice<Empty> e;
+        gp::slice<GoZero> z;
+        gp::slice<GoZero3> z3;
+        gp::slice<GoMarker> mk;
+        int64_t moves = 0;
+        for (int64_t i = 0; i < 300'000; i++) {
+            GoZero* before = z.gp_data();
+            e = gp::append(std::move(e), Empty{});
+            z = gp::append(std::move(z), GoZero{}, GoZero{});
+            z3 = gp::append(std::move(z3), GoZero3{});
+            mk = gp::append(std::move(mk), GoMarker{});
+            moves += z.gp_data() != before;
+            if (i < 100 || i % 9973 == 0) {
+                CHECK_EQ(gp::cap(e), i + 1);
+                CHECK_EQ(gp::cap(z), 2 * (i + 1));
+                CHECK_EQ(gp::cap(z3), i + 1);
+                CHECK_EQ(gp::cap(mk), i + 1);
+            }
+        }
+        CHECK(moves < 64); // the block is bigger than the capacity: amortized O(1)
+        CHECK_EQ(gp::len(e), INT64_C(300000));
+        CHECK(e.gp_data() == gp::detail::empty_data<Empty>());
+        gp::slice<Empty> e2 = e;
+        e = gp::append_slice(std::move(e), e2);
+        CHECK(gp::len(e) == 600'000 && gp::cap(e) == 600'000);
+        gp::clear(e);
+        CHECK_EQ(gp::copy(gp::sub(e, 1), e), INT64_C(599'999));
+        gp::ptr<Empty> p(e.gp_owner(), &e[5]); // &e[5] has an owner: not nil
+        CHECK(p != nullptr);
+        gp::clear(z);
+        CHECK_EQ(gp::copy(gp::sub(z, 1), z), gp::len(z) - 1);
+        gp::slice<GoZero> zc = gp::append_slice(gp::slice<GoZero>(), z);
+        CHECK(gp::len(zc) == gp::len(z) && gp::cap(zc) == gp::len(z));
+        ints t = gp::append(ints(), INT64_C(1));
+        CHECK_EQ(gp::cap(t), INT64_C(1));
+    }
+
+    // Many elements at once: newLen above twice the old capacity is taken, then rounded up to
+    // the size class (and, with pointers over 512 bytes, with the 8-byte header).
+    CHECK_EQ(gp::cap(gp::append_slice(ints(), gp::make_slice<int64_t>(5))), INT64_C(6));
+    CHECK_EQ(gp::cap(gp::append_slice(ints(), gp::make_slice<int64_t>(33))), INT64_C(36));
+    CHECK_EQ(gp::cap(gp::append_slice(strs(), gp::make_slice<gp::string>(33))), INT64_C(35));
+    CHECK_EQ(gp::cap(gp::append_slice(strs(), gp::make_slice<gp::string>(32))), INT64_C(32));
+    CHECK_EQ(gp::cap(gp::append_slice(bytes(), gp::make_slice<uint8_t>(513))), INT64_C(576));
+    CHECK_EQ(gp::cap(gp::append_slice(gp::slice<gp::any>(), gp::make_slice<gp::any>(513))),
+             INT64_C(591));
+
+    // roundup_size(size, noscan), Go's roundupsize.
+    CHECK_EQ(gp::detail::roundup_size(0, true), UINT64_C(0));
+    CHECK_EQ(gp::detail::roundup_size(1, true), UINT64_C(8));
+    CHECK_EQ(gp::detail::roundup_size(513, true), UINT64_C(576));
+    CHECK_EQ(gp::detail::roundup_size(32768, true), UINT64_C(32768));
+    CHECK_EQ(gp::detail::roundup_size(32769, true), UINT64_C(40960));
+    CHECK_EQ(gp::detail::roundup_size(512, false), UINT64_C(512)); // no header up to 512
+    CHECK_EQ(gp::detail::roundup_size(513, false), UINT64_C(568)); // 521 -> 576, less the header
+    CHECK_EQ(gp::detail::roundup_size(1016, false), UINT64_C(1016));
+    CHECK_EQ(gp::detail::roundup_size(1017, false), UINT64_C(1144)); // 1025 -> 1152
+    CHECK_EQ(gp::detail::roundup_size(32760, false), UINT64_C(32760));
+    CHECK_EQ(gp::detail::roundup_size(32761, false), UINT64_C(32768)); // large: pages, no header
+
+    // The conversions: the size class of the length (runes: of 4 * count, in runes); a constant
+    // string is exact.
+    auto str = [](int64_t n) {
+        return gp::string::gp_copy(std::string(static_cast<size_t>(n), 'x'));
+    };
+    const std::pair<int64_t, int64_t> byte_caps[] = {
+        {1, 8}, {8, 8}, {9, 16}, {32, 32}, {33, 48}, {100, 112}, {600, 640}, {5000, 5376}};
+    for (auto [n, c] : byte_caps) {
+        CHECK_EQ(gp::cap(gp::to_bytes(str(n))), c);
+        CHECK_EQ(gp::cap(gp::to_bytes_const(str(n))), n);
+    }
+    const std::pair<int64_t, int64_t> rune_caps[] = {{1, 2},   {5, 6},     {8, 8},    {9, 12},
+                                                     {33, 36}, {100, 104}, {600, 672}};
+    for (auto [n, c] : rune_caps) {
+        CHECK_EQ(gp::cap(gp::to_runes(str(n))), c);
+        CHECK_EQ(gp::cap(gp::to_runes_const(str(n))), n);
+        CHECK_EQ(gp::len(gp::to_runes(str(n))), n);
+    }
+    gp::slice<uint8_t> hello = gp::to_bytes("hello"_gs);
+    CHECK(hello[4] == 'o' && hello.gp_data()[5] == 0); // the spare room is zeroed
+    CHECK_EQ(gp::cap(gp::to_bytes(""_gs)), INT64_C(0));
+    CHECK_EQ(gp::cap(gp::to_runes_const(""_gs)), INT64_C(0));
 }
 
 // --- copy and clear ---
@@ -849,6 +1037,7 @@ void run_tests() {
     test_aliasing();
     test_append();
     test_growth();
+    test_go_caps();
     test_copy_clear();
     test_lifetimes();
     test_self_free();

@@ -138,8 +138,8 @@ The C++ that gocpp emit -annotate writes for it:
 
     // ---- ./closures.gp:21: fs = append(fs, func() int { return i })
     // gp[allocation] col 8: append: writes in place when the capacity is enough, else allocates a
-    //     bigger array (gocpp promises cap >= len, not Go's exact growth); the result may share the
-    //     array with the argument
+    //     bigger array (the capacity is Go's: its growth formula, element sizes and malloc size
+    //     classes); the result may share the array with the argument
     // gp[closures] col 19: func literal #2 is a C++ lambda wrapped in gp::func (the stack trace names
     //     it func2); copies of the func value share the captured state
     // gp[closures] col 39: captures i by sharing its box (it changes after capture)

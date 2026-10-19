@@ -106,8 +106,9 @@ inline int64_t index_string(const gp::string& a, const gp::string& b) noexcept {
     return detail::index_mem(a.gp_data(), gp::len(a), b.gp_data(), gp::len(b));
 }
 
-// make_no_zero(n): a slice of n bytes whose bytes are not set (not zeroed). Panics like make for a
-// negative or too big n.
+// make_no_zero(n): a slice of n bytes whose bytes are not set (not zeroed); its capacity is the
+// size class of n, as in Go (8, 16, 24, 32, 48, ... bytes). Panics like make for a negative or
+// too big n.
 gp::slice<uint8_t> make_no_zero(int64_t n);
 
 } // namespace gp::bytealg

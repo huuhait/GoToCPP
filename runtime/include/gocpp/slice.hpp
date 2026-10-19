@@ -58,19 +58,24 @@
 // a new array, copies the elements and adds the new ones; the old array is untouched. The new
 // capacity follows Go 1.25's runtime/slice.go: nextslicecap (double the capacity below 256
 // elements, then grow by about 1.25x plus 192 elements), then rounded up to Go's malloc size
-// classes (up to 32 KiB) or to 8 KiB pages, as Go does for element types without pointers.
-// So appends cost amortized O(1). gocpp promises only cap >= len after append: Go's exact
-// capacity also depends on its own element sizes (a gp::string is 32 bytes, Go's string 16)
-// and on whether elements hold pointers (D15).
+// classes (up to 32 KiB) or to 8 KiB pages. The numbers are Go's exactly, for every element
+// type: the size is Go's size of the element (a gp::string is 32 bytes here, Go's string 16:
+// gocpp/golayout.hpp computes Go's size and pointer-ness from the C++ type), and an element
+// that holds a pointer makes a block over 512 bytes carry Go's 8-byte malloc header (71 for 33
+// appends of strings, not 64: Go's roundupsize with noscan = false). A zero-size element
+// (struct{}, [0]int) takes no memory and gives cap == len. So appends cost amortized O(1).
+// What gc decides by escape analysis (a slice that doesn't escape can start in a 32-byte stack
+// buffer) is not copied: gocpp gives the numbers of a slice on the heap.
 //
 // Overlap: copy, append_slice and the arguments of append behave as if the source were read
 // before anything is written, as in Go: s = append(s[:1], s[2:]...), copy(s[1:], s) and
 // s = append(s, s...) work.
 //
 // Zero-size elements (a divergence, D15): Go's struct{} and [0]T take no memory, and Go points
-// every slice of them at zerobase. In C++ an empty struct is 1 byte, so make([]struct{}, n)
-// allocates and zeroes n bytes, and an n that Go allows (math.MaxInt) fails with "makeslice:
-// len out of range".
+// every slice of them at zerobase. append does the same (grow: the data pointer is zerobase,
+// whatever the length, and the elements are never copied: copy_elems and clear skip an empty
+// class). But in C++ an empty struct is 1 byte, so make([]struct{}, n) allocates and zeroes n
+// bytes, and an n that Go allows (math.MaxInt) fails with "makeslice: len out of range".
 //
 // Lifetimes: a slice's owner is released through gp::detail::release (ptr.hpp), so freeing a
 // long chain (a list of nodes that hold slices of pointers to the next node) never runs out
@@ -88,6 +93,7 @@
 
 #include <gocpp/bounds.hpp>
 #include <gocpp/checks.hpp>
+#include <gocpp/golayout.hpp>
 #include <gocpp/ptr.hpp>
 #include <gocpp/string.hpp>
 
@@ -130,10 +136,17 @@ inline constexpr bool zero_bits =
 // In runtime/src/slice.cpp.
 //
 // grow_cap: the capacity of the new array when a slice of capacity old_cap must hold new_len
-// elements of size bytes: Go's nextslicecap, rounded up to Go's size classes. Panics with
-// "growslice: len out of range" when new_len is negative (the length overflowed) or the array
-// would be bigger than max_alloc.
-int64_t grow_cap(int64_t new_len, int64_t old_cap, std::size_t size);
+// elements, as Go's growslice gives it: nextslicecap, rounded up to Go's size classes. size is
+// the size of an element in GO (golayout.hpp: a string is 16 bytes), noscan tells whether the
+// elements hold no pointer (a block with pointers over 512 bytes has a malloc header that takes
+// 8 bytes of the size class). A zero-size element gives new_len. Panics with "growslice: len
+// out of range" when new_len is negative (the length overflowed) or the array would be bigger
+// than max_alloc.
+int64_t grow_cap(int64_t new_len, int64_t old_cap, uint64_t size, bool noscan);
+
+// roundup_size: Go's roundupsize(size, noscan) (runtime/msize.go): the usable size of the block
+// that Go's malloc gives for a request of size bytes (see grow_cap). 0 gives 0.
+uint64_t roundup_size(uint64_t size, bool noscan);
 
 // panic_make: make's panic, "makeslice: len out of range" or "makeslice: cap out of range",
 // chosen as Go's makeslice does.
@@ -164,7 +177,9 @@ void copy_elems(T* dst, const T* src, int64_t n) {
     if (n <= 0 || dst == src) {
         return;
     }
-    if constexpr (std::is_trivially_copyable_v<T>) {
+    if constexpr (std::is_empty_v<T>) {
+        return; // nothing to copy (and a zero-size slice's data is zerobase, whatever its length)
+    } else if constexpr (std::is_trivially_copyable_v<T>) {
         std::memmove(static_cast<void*>(dst), static_cast<const void*>(src),
                      static_cast<std::size_t>(n) * sizeof(T));
     } else if (reinterpret_cast<std::uintptr_t>(dst) < reinterpret_cast<std::uintptr_t>(src)) {
@@ -185,6 +200,15 @@ void copy_elems(T* dst, const T* src, int64_t n) {
 // destructible T (numbers, plain structs) owns nothing and pays nothing.
 template <typename T>
 inline constexpr bool may_free = !std::is_trivially_destructible_v<T>;
+
+// zero_block<T>: the deleter of the array that a slice of a zero-size, non-empty-class T grows
+// into (grow): it knows where the block is and how many elements it holds.
+template <typename T>
+struct zero_block {
+    T* base;
+    int64_t n;
+    void operator()(T* p) const noexcept { delete[] p; }
+};
 
 template <typename T>
 slice<T> grow(const slice<T>& s, int64_t new_len);
@@ -477,7 +501,9 @@ void clear(const slice<T>& s) {
         return;
     }
     T* d = s.gp_data();
-    if constexpr (detail::zero_bits<T>) {
+    if constexpr (std::is_empty_v<T>) {
+        return; // no data (see copy_elems)
+    } else if constexpr (detail::zero_bits<T>) {
         std::memset(static_cast<void*>(d), 0, static_cast<std::size_t>(n) * sizeof(T));
     } else if constexpr (detail::may_free<T>) {
         slice<T> keep(s); // zeroing an element may drop every other owner of the array
@@ -558,10 +584,15 @@ bool range_next(slice_range<T>& it) noexcept {
 //                                      point (negative, a surrogate half, above U+10FFFF)
 //                                      is U+FFFD, as in string(r)
 //
-// Go's capacity of []byte(s) and []rune(s) depends on its size classes and escape analysis;
-// gocpp's is the length (only cap >= len is promised).
+// Go's capacity of []byte(s) and []rune(s) depends on escape analysis: a slice that doesn't
+// escape may share the string's bytes (cap == len) or use a 32-byte stack buffer. gocpp gives
+// what a slice that escapes gets (rawbyteslice, rawruneslice): the size that Go's malloc rounds
+// the length up to (8, 16, 24, 32, 48, ... bytes; runes: that divided by 4). A constant string
+// (to_bytes_const, to_runes_const, which the emitter writes) always gets cap == len, in gc too.
 slice<uint8_t> to_bytes(const string& s);
+slice<uint8_t> to_bytes_const(const string& s);
 slice<int32_t> to_runes(const string& s);
+slice<int32_t> to_runes_const(const string& s);
 string to_string(const slice<uint8_t>& b);
 string to_string(const slice<int32_t>& r);
 
@@ -572,8 +603,39 @@ namespace detail {
 // ones in [len(s), new_len) are for the caller to set.
 template <typename T>
 slice<T> grow(const slice<T>& s, int64_t new_len) {
-    int64_t c = detail::grow_cap(new_len, s.gp_cap(), sizeof(T));
+    constexpr detail::go_layout_t lay = detail::go_layout<T>();
+    int64_t c = detail::grow_cap(new_len, s.gp_cap(), lay.size, !lay.ptrs);
     int64_t len = s.gp_len();
+    if constexpr (lay.size == 0) {
+        // Go's growslice for a zero-size element takes no memory: cap == len, every time. The
+        // elements have no data, so nothing is copied.
+        if constexpr (std::is_empty_v<T>) {
+            // An empty class is never read or written (copy_elems and clear skip it): the new
+            // slice points at zerobase, whatever its length.
+            return slice<T>(gp::static_owner(), detail::empty_data<T>(), len, c);
+        } else {
+            // A class that is empty in Go but not in C++ (struct{ z [0]int }: 1 byte) is stored
+            // to (clang copies the byte), so its elements need real memory. The block is
+            // bigger than the capacity, and its owner remembers how big: the next append that
+            // fits reuses it, so growing by one element at a time costs O(1) each, not O(n).
+            if (auto* h = std::get_deleter<zero_block<T>>(s.gp_owner())) {
+                auto at = static_cast<uintptr_t>(reinterpret_cast<uintptr_t>(s.gp_data()) -
+                                                 reinterpret_cast<uintptr_t>(h->base));
+                if (s.gp_data() != nullptr && at % sizeof(T) == 0 &&
+                    at / sizeof(T) + static_cast<uint64_t>(new_len) <=
+                        static_cast<uint64_t>(h->n)) {
+                    return slice<T>(s.gp_owner(), s.gp_data(), len, c);
+                }
+            }
+            int64_t n = new_len;
+            if (n < (int64_t(1) << 40)) {
+                n = n < 16 ? 16 : n * 2;
+            }
+            T* base = new T[static_cast<std::size_t>(n)]();
+            std::shared_ptr<T[]> a(base, zero_block<T>{base, n});
+            return slice<T>(std::shared_ptr<void>(std::move(a), base), base, len, c);
+        }
+    }
     std::shared_ptr<T[]> a = detail::new_array<T>(c, new_len);
     T* d = a.get();
     if (len > 0) {

@@ -347,7 +347,7 @@ Go's fatal errors (out of memory, stack overflow, all goroutines asleep) end the
 		Aliases: []string{"slice", "append"},
 		Title:   "Slices",
 		Summary: "gp::slice, append, make, copy and slicing",
-		Text:    `A slice is a gp::slice<T>: an owner, a data pointer, a length and a capacity (40 bytes). Slicing shares the array and keeps it alive through the owner. make allocates a zeroed array. append writes in place when the capacity is enough and otherwise allocates a bigger array; gocpp only promises cap >= len, not Go's exact growth. In s = append(s, x) of a local s, s is moved into append (no extra count). copy handles overlap and does not allocate. An index is checked against the length, a slice expression against the capacity.`,
+		Text:    `A slice is a gp::slice<T>: an owner, a data pointer, a length and a capacity (40 bytes). Slicing shares the array and keeps it alive through the owner. make allocates a zeroed array. append writes in place when the capacity is enough and otherwise allocates a bigger array; the new capacity is Go's (its growth formula, Go's element sizes and malloc size classes), except where gc's escape analysis changes it for a slice that does not escape, and for C/C++ element types. In s = append(s, x) of a local s, s is moved into append (no extra count). copy handles overlap and does not allocate. An index is checked against the length, a slice expression against the capacity.`,
 		Spec:    "cpp-mapping.md#slices",
 		Example: "slices.gp",
 		See:     []string{"strings", "allocation", "range"},

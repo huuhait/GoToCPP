@@ -56,24 +56,40 @@ constexpr uint16_t size_classes[] = {
 constexpr uint64_t max_small_size = 32768;
 constexpr uint64_t malloc_header_size = 8;
 constexpr uint64_t page_size = 8192;
+// gc.MinSizeForMallocHeader: goarch.PtrSize * ptrBits (8 * 64): above it, an object with
+// pointers has a malloc header instead of heap bits in its span.
+constexpr uint64_t min_size_for_malloc_header = 8 * 64;
 
-// roundupsize: Go's roundupsize(size, noscan=true) (runtime/msize.go): the size of the block
-// that Go's malloc gives for size bytes. A small size goes up to its size class, a large one
-// to a multiple of the page size.
-uint64_t roundupsize(uint64_t size) {
+// roundupsize: Go's roundupsize(size, noscan) (runtime/msize.go): the usable size of the block
+// that Go's malloc gives for size bytes. A small size goes up to its size class; a block of
+// elements with pointers over 512 bytes (gc.MinSizeForMallocHeader) has an 8-byte header that
+// the size class includes and the result doesn't, so such a size is rounded up as size + 8 and
+// the 8 are taken off again. A large size goes up to a multiple of the page size.
+uint64_t roundupsize(uint64_t size, bool noscan) {
+    if (size == 0) {
+        return 0; // size class 0: Go's malloc(0) is zerobase
+    }
     if (size <= max_small_size - malloc_header_size) {
+        uint64_t req = size;
+        if (!noscan && req > min_size_for_malloc_header) {
+            req += malloc_header_size;
+        }
         std::size_t lo = 0, hi = sizeof size_classes / sizeof size_classes[0];
-        while (lo < hi) { // the first class >= size
+        while (lo < hi) { // the first class >= req
             std::size_t mid = (lo + hi) / 2;
-            if (size_classes[mid] < size) {
+            if (size_classes[mid] < req) {
                 lo = mid + 1;
             } else {
                 hi = mid;
             }
         }
-        return size_classes[lo];
+        return size_classes[lo] - (req - size);
     }
-    return (size + page_size - 1) & ~(page_size - 1);
+    uint64_t req = size + page_size - 1;
+    if (req < size) {
+        return size;
+    }
+    return req & ~(page_size - 1);
 }
 
 // nextslicecap: Go's nextslicecap (runtime/slice.go), in unsigned arithmetic. new_len > 0.
@@ -142,15 +158,23 @@ void panic_make(int64_t len, int64_t /*cap*/, std::size_t size) {
                       {panic_identity::gp_runtime, 0, 0}};
 }
 
-int64_t grow_cap(int64_t new_len, int64_t old_cap, std::size_t size) {
+uint64_t roundup_size(uint64_t size, bool noscan) {
+    return roundupsize(size, noscan);
+}
+
+int64_t grow_cap(int64_t new_len, int64_t old_cap, uint64_t size, bool noscan) {
     if (new_len < 0) {
         panic_growslice();
+    }
+    if (size == 0) {
+        // Go's growslice for a zero-size element: no memory, and cap == len.
+        return new_len;
     }
     uint64_t newcap = nextslicecap(static_cast<uint64_t>(new_len), static_cast<uint64_t>(old_cap));
     if (newcap > static_cast<uint64_t>(max_alloc) / size) {
         panic_growslice();
     }
-    uint64_t mem = roundupsize(newcap * size);
+    uint64_t mem = roundupsize(newcap * size, noscan);
     if (mem > static_cast<uint64_t>(max_alloc)) {
         panic_growslice();
     }
@@ -203,24 +227,18 @@ slice<T> empty_slice() {
 
 } // namespace
 
-slice<uint8_t> to_bytes(const string& s) {
-    int64_t n = gp::len(s);
-    if (n == 0) {
-        return empty_slice<uint8_t>();
-    }
-    std::shared_ptr<uint8_t[]> a = detail::new_array<uint8_t>(n, n);
+namespace {
+
+// make_bytes: a slice of n bytes that are the string's, with capacity cap >= n.
+slice<uint8_t> make_bytes(const string& s, int64_t n, int64_t cap) {
+    std::shared_ptr<uint8_t[]> a = detail::new_array<uint8_t>(cap, n);
     uint8_t* d = a.get();
     std::memcpy(d, s.gp_data(), static_cast<std::size_t>(n));
-    return slice<uint8_t>(std::shared_ptr<void>(std::move(a), d), d, n, n);
+    return slice<uint8_t>(std::shared_ptr<void>(std::move(a), d), d, n, cap);
 }
 
-slice<int32_t> to_runes(const string& s) {
-    const char* p = s.gp_data();
-    int64_t n = gp::len(s);
-    if (n == 0) {
-        return empty_slice<int32_t>();
-    }
-    // Count the runes first (Go's countrunes), then decode them into the new array.
+// count_runes: Go's countrunes: the number of runes that range over s gives.
+int64_t count_runes(const char* p, int64_t n) {
     int64_t count = 0;
     for (int64_t i = 0; i < n; count++) {
         if (static_cast<uint8_t>(p[i]) < 0x80) {
@@ -231,7 +249,14 @@ slice<int32_t> to_runes(const string& s) {
         detail::decode_rune(p + i, n - i, width);
         i += width;
     }
-    std::shared_ptr<int32_t[]> a = detail::new_array<int32_t>(count, count);
+    return count;
+}
+
+// make_runes: a slice of count runes, the string's, with capacity cap >= count.
+slice<int32_t> make_runes(const string& s, int64_t count, int64_t cap) {
+    const char* p = s.gp_data();
+    int64_t n = gp::len(s);
+    std::shared_ptr<int32_t[]> a = detail::new_array<int32_t>(cap, count);
     int32_t* d = a.get();
     for (int64_t i = 0, k = 0; i < n; k++) {
         auto c = static_cast<uint8_t>(p[i]);
@@ -244,7 +269,46 @@ slice<int32_t> to_runes(const string& s) {
         d[k] = detail::decode_rune(p + i, n - i, width);
         i += width;
     }
-    return slice<int32_t>(std::shared_ptr<void>(std::move(a), d), d, count, count);
+    return slice<int32_t>(std::shared_ptr<void>(std::move(a), d), d, count, cap);
+}
+
+} // namespace
+
+slice<uint8_t> to_bytes(const string& s) {
+    int64_t n = gp::len(s);
+    if (n == 0) {
+        return empty_slice<uint8_t>();
+    }
+    // Go's rawbyteslice: the capacity is the size class that its malloc gives.
+    return make_bytes(s, n, static_cast<int64_t>(roundupsize(static_cast<uint64_t>(n), true)));
+}
+
+slice<uint8_t> to_bytes_const(const string& s) {
+    int64_t n = gp::len(s);
+    if (n == 0) {
+        return empty_slice<uint8_t>();
+    }
+    return make_bytes(s, n, n);
+}
+
+slice<int32_t> to_runes(const string& s) {
+    int64_t n = gp::len(s);
+    if (n == 0) {
+        return empty_slice<int32_t>();
+    }
+    int64_t count = count_runes(s.gp_data(), n);
+    // Go's rawruneslice: the capacity is the size class of count * 4 bytes, in runes.
+    uint64_t mem = roundupsize(static_cast<uint64_t>(count) * 4, true);
+    return make_runes(s, count, static_cast<int64_t>(mem / 4));
+}
+
+slice<int32_t> to_runes_const(const string& s) {
+    int64_t n = gp::len(s);
+    if (n == 0) {
+        return empty_slice<int32_t>();
+    }
+    int64_t count = count_runes(s.gp_data(), n);
+    return make_runes(s, count, count);
 }
 
 string to_string(const slice<uint8_t>& b) {

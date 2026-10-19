@@ -3,9 +3,11 @@ slices: Slices
 A slice is a gp::slice<T>: an owner, a data pointer, a length and a capacity (40 bytes).
 Slicing shares the array and keeps it alive through the owner. make allocates a zeroed
 array. append writes in place when the capacity is enough and otherwise allocates a bigger
-array; gocpp only promises cap >= len, not Go's exact growth. In s = append(s, x) of a local
-s, s is moved into append (no extra count). copy handles overlap and does not allocate. An
-index is checked against the length, a slice expression against the capacity.
+array; the new capacity is Go's (its growth formula, Go's element sizes and malloc size
+classes), except where gc's escape analysis changes it for a slice that does not escape, and
+for C/C++ element types. In s = append(s, x) of a local s, s is moved into append (no extra
+count). copy handles overlap and does not allocate. An index is checked against the length,
+a slice expression against the capacity.
 
 Specification: docs/spec/cpp-mapping.md#slices
 See also: gocpp explain strings, gocpp explain allocation, gocpp explain range
@@ -67,8 +69,8 @@ The C++ that gocpp emit -annotate writes for it:
 
     // ---- ./slices.gp:10: ys = append(ys, 9)
     // gp[allocation] col 7: append: writes in place when the capacity is enough, else allocates a
-    //     bigger array (gocpp promises cap >= len, not Go's exact growth); the result may share the
-    //     array with the argument
+    //     bigger array (the capacity is Go's: its growth formula, element sizes and malloc size
+    //     classes); the result may share the array with the argument
         ys = gp::append(static_cast<gp::slice<int64_t>&&>(ys), 9);
 
     // ---- ./slices.gp:11: clear(zs)

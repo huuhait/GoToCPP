@@ -671,6 +671,9 @@ func (g *gen) structDef(si *structInfo) []cppir.Decl {
 	}
 	s.Members = append(s.Members, &cppir.VarDecl{Specs: []string{"static", "constexpr"}, Type: typeName("auto"),
 		Vars: []cppir.Declarator{{Name: "gp_fields", Init: call("gp::fields", fields...)}}})
+	if m := goLayoutMember(si); m != nil {
+		s.Members = append(s.Members, m) // golayouts.go
+	}
 	s.Members = append(s.Members, g.methodDecls(si)...) // methods.go
 	if cpart {
 		// gocpp doesn't know the size of a C/C++ type (check.Sizes guesses a word), and Go's ==

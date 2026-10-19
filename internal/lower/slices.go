@@ -29,7 +29,7 @@ import (
 //	&s[i]                       gp::ptr<T>(s.gp_owner(), &s[i]) (addr.go)
 //	for i, v := range s         for (auto gp_it0 = gp::range_slice(s); gp::range_next(gp_it0);)
 //	                            (control.go: rangeIter)
-//	[]byte(s), []rune(s)        gp::to_bytes(s), gp::to_runes(s)
+//	[]byte(s), []rune(s)        gp::to_bytes(s), gp::to_runes(s) (to_bytes_const, to_runes_const for a constant s)
 //	string(b), string(runes)    gp::to_string(b), gp::to_string(runes)
 //
 // A slice is a class type (gp::slice holds an owner), so a call of a user function with a slice
@@ -165,11 +165,18 @@ func (fg *funcGen) sliceConversion(c *ast.CallExpr, to, from types.Type, x cppir
 		case isSlice(from) && cppir.TypeString(typ) == cppir.TypeString(fg.g.cxxType(from, arg.Pos())):
 			return x
 		case isString(from):
+			// gc gives a constant string an exact array (cap == len); any other string goes
+			// through rawbyteslice and rawruneslice, which round the capacity up to a size
+			// class (to_bytes, to_runes).
+			suffix := ""
+			if fg.g.info.Types[arg].Value != nil {
+				suffix = "_const"
+			}
 			switch elemKind(to) {
 			case types.Uint8:
-				return call("gp::to_bytes", x)
+				return call("gp::to_bytes"+suffix, x)
 			case types.Int32:
-				return call("gp::to_runes", x)
+				return call("gp::to_runes"+suffix, x)
 			}
 		}
 	} else if isString(to) {

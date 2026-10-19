@@ -124,11 +124,13 @@ gp::slice<uint8_t> make_no_zero(int64_t n) {
     if (n == 0) {
         return gp::make_slice<uint8_t>(0);
     }
+    // Go's bytealg_MakeNoZero: the capacity is what its malloc gives, the size class of n.
+    auto cap = static_cast<int64_t>(gp::detail::roundup_size(static_cast<uint64_t>(n), true));
     // new_array(cap, zero_from): the bytes from zero_from on are zeroed, so zero_from = cap
     // leaves all of them as they are.
-    std::shared_ptr<uint8_t[]> a = gp::detail::new_array<uint8_t>(n, n);
+    std::shared_ptr<uint8_t[]> a = gp::detail::new_array<uint8_t>(cap, cap);
     uint8_t* d = a.get();
-    return gp::slice<uint8_t>(std::shared_ptr<void>(std::move(a), d), d, n, n);
+    return gp::slice<uint8_t>(std::shared_ptr<void>(std::move(a), d), d, n, cap);
 }
 
 } // namespace gp::bytealg

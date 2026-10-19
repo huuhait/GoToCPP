@@ -2,8 +2,8 @@
 
 // The forms of append: one element, several, none, a slice (s...), a string's bytes into a
 // []byte, the slice itself (s = append(s, s...)), and overlapping (removing an element with
-// append(s[:i], s[i+1:]...)). The growth is Go's formula, but only cap >= len is checked: Go's
-// exact capacity depends on its own element sizes.
+// append(s[:i], s[i+1:]...)). Only cap >= len is checked here; the exact capacities are in
+// append_cap_forms.gp.
 package main
 
 import "fmt"

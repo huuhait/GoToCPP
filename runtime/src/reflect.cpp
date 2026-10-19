@@ -1218,6 +1218,83 @@ void v_setlen(std::uint64_t t, const vptr& p, std::int64_t n) {
     slice_ops(d)->gp_make(addr(p), v.owner, v.data, n, v.cap);
 }
 
+// go_layout: Go's size, alignment and pointer-ness of the Go type d (gocpp/golayout.hpp does the
+// same from a C++ type): growslice's capacity depends on them, not on the C++ layout.
+struct go_layout_info {
+    std::uint64_t size;
+    std::uint64_t align;
+    bool ptrs;
+};
+
+static go_layout_info go_layout(const type_desc* d0) {
+    const type_desc* d = full(d0);
+    switch (d->gp_kind) {
+    case kind::Bool:
+    case kind::Int8:
+    case kind::Uint8:
+        return {1, 1, false};
+    case kind::Int16:
+    case kind::Uint16:
+        return {2, 2, false};
+    case kind::Int32:
+    case kind::Uint32:
+    case kind::Float32:
+        return {4, 4, false};
+    case kind::Int:
+    case kind::Int64:
+    case kind::Uint:
+    case kind::Uint64:
+    case kind::Uintptr:
+    case kind::Float64:
+        return {8, 8, false};
+    case kind::Complex64:
+        return {8, 4, false};
+    case kind::Complex128:
+        return {16, 8, false};
+    case kind::String:
+    case kind::Interface:
+        return {16, 8, true};
+    case kind::Slice:
+        return {24, 8, true};
+    case kind::Pointer:
+    case kind::UnsafePointer:
+    case kind::Map:
+    case kind::Chan:
+    case kind::Func:
+        return {8, 8, true};
+    case kind::Array: {
+        go_layout_info e = go_layout(d->gp_elem);
+        if (d->gp_len == 0) {
+            return {0, e.align, false};
+        }
+        return {e.size * static_cast<std::uint64_t>(d->gp_len), e.align, e.ptrs};
+    }
+    case kind::Struct: {
+        if (d->gp_nfields == 0) {
+            if (d->gp_size <= 1) {
+                return {0, 1, false}; // struct{}
+            }
+            return {d->gp_size, d->gp_align, true}; // fields unknown: the C++ layout
+        }
+        std::uint64_t off = 0, last_off = 0, last_size = 0, align = 1;
+        bool ptrs = false;
+        for (std::size_t i = 0; i < d->gp_nfields; i++) {
+            go_layout_info f = go_layout(d->gp_fields[i].gp_type);
+            off = (off + f.align - 1) / f.align * f.align;
+            last_off = off;
+            last_size = f.size;
+            off += f.size;
+            align = std::max(align, f.align);
+            ptrs = ptrs || f.ptrs;
+        }
+        std::uint64_t size = last_off + (last_off > 0 && last_size == 0 ? 1 : last_size);
+        return {(size + align - 1) / align * align, align, ptrs};
+    }
+    default:
+        return {d->gp_size, d->gp_align, true}; // a C/C++ type: its own layout
+    }
+}
+
 vptr v_extend(std::uint64_t t, const vptr& p, std::int64_t n) {
     const type_desc* d = D(t);
     const slice_refl* r = slice_ops(d);
@@ -1229,7 +1306,8 @@ vptr v_extend(std::uint64_t t, const vptr& p, std::int64_t n) {
         r->gp_make(addr(res), v.owner, v.data, newlen, v.cap);
         return res;
     }
-    const std::int64_t newcap = detail::grow_cap(newlen, v.cap, e->gp_size);
+    const std::int64_t newcap =
+        detail::grow_cap(newlen, v.cap, go_layout(e).size, !go_layout(e).ptrs);
     std::shared_ptr<void> arr = alloc_array(e, newcap);
     copy_elems(e, static_cast<char*>(arr.get()), v.data, v.len);
     r->gp_make(addr(res), arr, arr.get(), newlen, newcap);

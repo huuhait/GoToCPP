@@ -38,8 +38,8 @@ void main() {
 
 // ---- ./slices.gp:10: ys = append(ys, 9)
 // gp[allocation] col 7: append: writes in place when the capacity is enough, else allocates a
-//     bigger array (gocpp promises cap >= len, not Go's exact growth); the result may share the
-//     array with the argument
+//     bigger array (the capacity is Go's: its growth formula, element sizes and malloc size
+//     classes); the result may share the array with the argument
     ys = gp::append(static_cast<gp::slice<int64_t>&&>(ys), 9);
 
 // ---- ./slices.gp:11: clear(zs)

@@ -1,8 +1,8 @@
 // phase: 03
 
-// Audit case: gocpp promises only cap >= len after append (Phase 03 README §2.3: Go's exact
-// growth depends on Go's element sizes), so this test prints what is exact in both: len, the
-// capacity of make and of three-index slices, cap >= len, and whether appends share the array.
+// Audit case: what is exact in both Go and gocpp: len, the capacity of make and of three-index
+// slices, cap >= len, and whether appends share the array. (The exact capacity after growth is
+// checked in append_cap_growth.gp and the tests next to it.)
 package main
 
 import "fmt"

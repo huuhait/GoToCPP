@@ -87,7 +87,7 @@ Source: [Phase 02 §2.1](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/
 | `bool` | `bool` | the same type in both languages |
 | `string` | `gp::string` (immutable bytes, usually UTF-8; cheap substrings) | 32 bytes: owner, data pointer, length. A literal `"hi"` becomes `"hi"_gs` and points at static storage (no allocation); `s[a:b]` shares the bytes |
 | `[N]T` | `gp::array<T, N>` (value type, bounds checked) | wraps `std::array`; assignment copies it, as in Go; `==` exists when the elements are comparable ([arrays](#arrays)) |
-| `[]T` | `gp::slice<T>` | 40 bytes: owner, data pointer, length, capacity; `append` grows like Go, but gocpp only promises `cap >= len`, not Go's exact capacity |
+| `[]T` | `gp::slice<T>` | 40 bytes: owner, data pointer, length, capacity; `append` gives Go's exact capacities (see below: Go's element sizes, its malloc size classes and header) |
 | `map[K]V` | `gp::map<K, V>` (reference type) | a shared pointer to the table (a Swiss table: [ADR-059](../adr/059-swiss-table-maps.md)); reading a missing key gives the zero value and never inserts |
 | `*T` where `T` is a gocpp type | `gp::ptr<T>` (reference counted, nil-checked) | a `std::shared_ptr<T>` with nil checks; a nil dereference panics with Go's message ([pointers](#pointers-and-boxing)) |
 | `*pkg.T` where `T` is a C/C++ type (`*SDL.SDL_Window`, `*cstdio.FILE`), declared in gocpp code | `gp::cptr<T>` (a `gp::ptr<T>` that a raw `T*` converts to, and that converts to `T*`) | owns or aliases what it points to, as Go's pointer does; `**C.T`, the members of C structs and what C functions return are raw `T*` with C++ lifetime rules ([interop.md](interop.md#pointers-unsafe-and-slices-at-the-boundary)) |
@@ -113,6 +113,23 @@ bytes, a `string` 32, a slice 40, a map 16, a `weak.Pointer` 24, and an empty st
 is laid out like the C++ struct (fields in source order). The table that gives the type checker
 these numbers is in `internal/check/sizes.go`; `runtime/include/gocpp/sizes.hpp` is generated
 from it and checks them with `static_assert`s, and each generated struct has one of its own.
+
+**The capacity after `append`.** `cap(s)` is unspecified by the Go spec but programs print it, so
+`append` gives what gc 1.25's `growslice` gives (the same numbers as real Go, tested by
+`tests/run/append_cap_*.gp`): `nextslicecap`, then the size of the malloc block it needs, rounded
+up to Go's size classes (an array of 8 KiB pages from 32 KiB), and for elements that hold
+pointers, over 512 bytes, with the 8-byte malloc header (`71` for 33 appends of strings, not
+`64`). That depends on **Go's** element size, not the C++ one (a Go `string` is 16 bytes, an
+interface 16, a slice 24), so the runtime computes Go's size, alignment and pointer-ness of each
+element type from its C++ type at compile time (`runtime/include/gocpp/golayout.hpp`: a
+struct's `gp_fields` are laid out as gc does). A zero-size element (`struct{}`, `[0]int`) takes no
+memory and gives `cap == len`, as in Go. `[]byte(s)` and `[]rune(s)` give what a slice that
+escapes gets in Go (the size class of the length); a constant `s` gets `cap == len`. gc also
+has cases that depend on its escape analysis (a slice that does not escape may start in a
+32-byte stack buffer): gocpp always gives the heap's numbers. A standard type that gocpp declares
+with other fields than Go's (`sync.Cond`, `time.Timer`, a stub that leaves fields out) carries
+Go's layout (`gp_go_layout`, `internal/lower/golayouts.go`, checked against real Go by
+`TestStdGoLayouts`). Only a type that comes from C or C++ has no Go layout: its C++ size is used.
 
 Sources: [root README §6](../../plans/2026-10-13-gocpp/README.md#6-type-mapping-cheat-sheet),
 [Phase 02 §2.3](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/README.md#23-expressions-the-important-rules),
@@ -612,7 +629,7 @@ array, as in Go, and `append` writes into it while it has room.
 | `make([]T, n)`, `make([]T, n, c)` | `gp::make_slice<T>(n)`, `gp::make_slice<T>(n, c)` | zeroed; `makeslice: len out of range`, `makeslice: cap out of range` |
 | `s[i]`, `len(s)`, `cap(s)` | `s[i]`, `gp::len(s)`, `gp::cap(s)` | `s[i]` is a `T&` (`s[i] = v`, `s[i] += v`, `s[i]++`), bounds checked |
 | `s[a:b]`, `s[a:b:c]` | `gp::sub(s, a, b)`, `gp::sub(s, a, b, c)` | shares the array; `slice bounds out of range [:5] with capacity 3` |
-| `append(s, a, b)`, `append(s, t...)` | `gp::append(s, a, b)`, `gp::append_slice(s, t)` | also `append(b, str...)` for a `[]byte`; grows like Go, but only `cap >= len` is promised |
+| `append(s, a, b)`, `append(s, t...)` | `gp::append(s, a, b)`, `gp::append_slice(s, t)` | also `append(b, str...)` for a `[]byte`; the capacity after growth is Go 1.25's (`growslice`), for every element type |
 | `s = append(s, x)`, `s = s[1:]` | `s = gp::append(static_cast<gp::slice<T>&&>(s), x)` | `s` is moved into the call (no reference count traffic) when no other argument can read it; into `gp::sub` only for a local variable that is not boxed and not a named result, since its bounds check can panic |
 | `copy(dst, src)`, `clear(s)` | `gp::copy(dst, src)`, `gp::clear(s)` | overlap safe; also `copy(b, str)` |
 | `&s[i]` | `gp::ptr<T>(s.gp_owner(), &s[i])`, or `gp::elem_ptr(f(), i)` | the pointer keeps the array alive |

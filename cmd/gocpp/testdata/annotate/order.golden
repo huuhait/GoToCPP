@@ -25,8 +25,8 @@ int64_t f(gp::string name, int64_t v) {
 
 // ---- ./order.gp:8: trace = append(trace, name)
 // gp[allocation] col 10: append: writes in place when the capacity is enough, else allocates a
-//     bigger array (gocpp promises cap >= len, not Go's exact growth); the result may share the
-//     array with the argument
+//     bigger array (the capacity is Go's: its growth formula, element sizes and malloc size
+//     classes); the result may share the array with the argument
     trace = gp::append(static_cast<gp::slice<gp::string>&&>(trace), name);
 
 // ---- ./order.gp:9: return v

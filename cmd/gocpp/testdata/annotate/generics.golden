@@ -142,8 +142,8 @@ gp::slice<gp::string> gp_inst_a6f7f6b5_Map(gp::slice<int64_t> xs, gp::func<gp::s
 
 // ---- ./generics.gp:8: out = append(out, f(x))  [in gp_inst_a6f7f6b5_Map]
 // gp[allocation] col 9: append: writes in place when the capacity is enough, else allocates a
-//     bigger array (gocpp promises cap >= len, not Go's exact growth); the result may share the
-//     array with the argument
+//     bigger array (the capacity is Go's: its growth formula, element sizes and malloc size
+//     classes); the result may share the array with the argument
 // gp[checks] col 21: call of a func value: gp::func's call operator checks for nil and panics like
 //     Go (gocpp build -nochecks removes it)
         out = gp::append(static_cast<gp::slice<gp::string>&&>(out), f(x));
@@ -177,8 +177,8 @@ gp::slice<int64_t> gp_inst_cad6a8a6_Map(gp::slice<gp::string> xs, gp::func<int64
 
 // ---- ./generics.gp:8: out = append(out, f(x))  [in gp_inst_cad6a8a6_Map]
 // gp[allocation] col 9: append: writes in place when the capacity is enough, else allocates a
-//     bigger array (gocpp promises cap >= len, not Go's exact growth); the result may share the
-//     array with the argument
+//     bigger array (the capacity is Go's: its growth formula, element sizes and malloc size
+//     classes); the result may share the array with the argument
 // gp[checks] col 21: call of a func value: gp::func's call operator checks for nil and panics like
 //     Go (gocpp build -nochecks removes it)
         out = gp::append(static_cast<gp::slice<int64_t>&&>(out), f(x));

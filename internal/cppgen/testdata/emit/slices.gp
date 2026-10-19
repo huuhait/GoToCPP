@@ -1,6 +1,6 @@
 // Slices (Phase 03 step 3.5): gp::slice<T> for elements of every type the emitter has (numbers,
 // bools, strings, pointers, nested slices), nil, make, literals (also keyed), s[i] read and
-// written (=, op=, ++), s[a:b] and s[a:b:c], len and cap (only cap >= len is promised),
+// written (=, op=, ++), s[a:b] and s[a:b:c], len and cap (Go's capacities),
 // append (single, several, s..., []byte + string...), copy (also from a string), clear,
 // s == nil, range (the range expression evaluated once, its length too), &s[i] (the owner
 // table), the conversions []byte(s), string(b), []rune(s), string(runes), slices as

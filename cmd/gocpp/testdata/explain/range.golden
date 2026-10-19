@@ -172,8 +172,8 @@ The C++ that gocpp emit -annotate writes for it:
 
     // ---- ./range.gp:26: xs = append(xs, v)
     // gp[allocation] col 8: append: writes in place when the capacity is enough, else allocates a
-    //     bigger array (gocpp promises cap >= len, not Go's exact growth); the result may share the
-    //     array with the argument
+    //     bigger array (the capacity is Go's: its growth formula, element sizes and malloc size
+    //     classes); the result may share the array with the argument
             xs = gp::append(static_cast<gp::slice<int64_t>&&>(xs), v);
 
     // ---- ./range.gp:27: }

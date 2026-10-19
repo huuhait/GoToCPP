@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -236,10 +237,13 @@ void test_index() {
 }
 
 void test_make_no_zero() {
-    for (int64_t n : {int64_t(0), int64_t(1), int64_t(7), int64_t(4096)}) {
+    // Go's capacity: the size class of n (runtime.roundupsize).
+    const std::pair<int64_t, int64_t> sizes[] = {{0, 0},   {1, 8},       {7, 8},      {9, 16},
+                                                 {33, 48}, {4096, 4096}, {5000, 5376}};
+    for (auto [n, c] : sizes) {
         gp::slice<uint8_t> s = gp::bytealg::make_no_zero(n);
         CHECK(s.gp_len() == n);
-        CHECK(s.gp_cap() == n);
+        CHECK(s.gp_cap() == c);
         CHECK((n == 0) == (s.gp_len() == 0));
         for (int64_t i = 0; i < n; i++) { // the bytes are ours to write
             s[i] = static_cast<uint8_t>(i);
