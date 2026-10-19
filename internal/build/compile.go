@@ -111,6 +111,21 @@ type Builder struct {
 	Stats *Stats
 
 	modeApplied bool // applyMode ran
+	// Plan, if not nil, collects every compile and the link of the build (plan.go).
+	Plan *Plan
+
+	// DryRun says that the build runs no compiler and no linker: the commands are shown (Trace)
+	// and recorded (Plan), and nothing is cached (gocpp build -n, gocpp export).
+	DryRun bool
+
+	// Rebuild says that the object cache and the runtime's cached objects are not read: every
+	// compile runs again (gocpp build -a). The new objects are stored.
+	Rebuild bool
+
+	// EmitLLVM is "ll" or "bc" when the build also writes the LLVM IR of every compile of a
+	// translation unit (clang only), into LLVMDir (gocpp build -emit-llvm).
+	EmitLLVM string
+	LLVMDir  string
 
 	sc *statCache // the stats of this build's object cache lookups (Link)
 
@@ -195,7 +210,20 @@ func (b *Builder) runGenerated(ctx context.Context, pc *pch, args []string) (out
 func (b *Builder) runtime(ctx context.Context, flags []string) (dir string, objs []string, err error) {
 	srcs := rtfiles.Sources(b.GOOS)
 	if b.Cache != "" {
-		if dir, err = ExtractRuntime(b.Cache); err == nil {
+		if dir, err = ExtractRuntime(b.Cache); err == nil && (b.DryRun || b.Rebuild) {
+			// The runtime is compiled again, or only listed: into the work folder, not the cache.
+			b.Plan.setRuntime(dir)
+			b.recordRuntime(dir, srcs, flags)
+			objDir := filepath.Join(b.Work, "rtobj")
+			if err := os.Mkdir(objDir, 0o755); err != nil {
+				return "", nil, err
+			}
+			objs, err = b.compileRuntime(ctx, dir, objDir, srcs, flags)
+			return dir, objs, err
+		}
+		if err == nil {
+			b.Plan.setRuntime(dir)
+			b.recordRuntime(dir, srcs, flags)
 			b.startPCH(ctx, dir) // while the runtime's object files compile
 			if objs, err = b.cachedObjects(ctx, dir, srcs, flags); err == nil {
 				return dir, objs, nil
@@ -215,6 +243,8 @@ func (b *Builder) runtime(ctx context.Context, flags []string) (dir string, objs
 	if err := WriteRuntime(dir); err != nil {
 		return "", nil, fmt.Errorf("extracting the runtime: %w", err)
 	}
+	b.Plan.setRuntime(dir)
+	b.recordRuntime(dir, srcs, flags)
 	objDir := filepath.Join(b.Work, "rtobj")
 	if err := os.Mkdir(objDir, 0o755); err != nil {
 		return "", nil, err
@@ -290,7 +320,7 @@ func (b *Builder) compileRuntime(ctx context.Context, dir, objDir string, srcs, 
 	acts := make([]action, len(srcs))
 	for i, s := range srcs {
 		objs[i] = filepath.Join(objDir, runtimeObjectName(s))
-		args := slices.Concat(flags, []string{"-I", filepath.Join(dir, "include"), "-c", filepath.Join(dir, filepath.FromSlash(s)), "-o", objs[i]})
+		args := runtimeArgs(dir, s, flags, objs[i])
 		acts[i] = action{name: s, run: func() (func(), error) {
 			b.Stats.runtimeCompiled()
 			return nil, b.run(ctx, b.CXX, "the runtime", false, args)
@@ -353,6 +383,9 @@ func (b *Builder) runtimeKey(srcs, flags []string) string {
 	write(flags...)
 	write(srcs...)
 	write(KeyEnv()...)
+	if salt := PluginSalt(slices.Concat(b.CXX.Args, flags)); len(salt) > 0 {
+		write(salt...) // the compiler plugins that the flags load, by the hash of their files
+	}
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
@@ -440,6 +473,9 @@ func (b *Builder) runOutput(ctx context.Context, c CXX, what string, link bool, 
 func (b *Builder) runCommand(ctx context.Context, c CXX, what string, link bool, args, shown []string) ([]byte, error) {
 	show := b.show(c, shown)
 	b.trace(show)
+	if b.DryRun {
+		return nil, nil
+	}
 	out := &limitBuffer{max: maxCompileOutput}
 	cmd, err := Start(ctx, func() *exec.Cmd {
 		cmd := c.Command(ctx, args...)

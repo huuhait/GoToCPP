@@ -298,6 +298,11 @@ func (b *Builder) compileCachedSalt(ctx context.Context, c CXX, src, obj string,
 		}
 		return out, err
 	}
+	if b.DryRun {
+		return run(args) // -n: the command is shown, not run, and nothing is looked up or stored
+	}
+	// A compiler plugin that the flags load is part of the key by the hash of its file.
+	salt = append(slices.Clone(salt), PluginSalt(slices.Concat(c.Args, args))...)
 	oc := b.objects()
 	if oc == nil {
 		if b.KeepWork && b.Cache != "" && !objCacheOff() {
@@ -333,7 +338,7 @@ func (b *Builder) compileCachedSalt(ctx context.Context, c CXX, src, obj string,
 	}
 	keyArgs := b.keyArgs(args)
 	key := b.objKey(c, keyArgs, tu, salt)
-	if e, deps, ok := oc.lookupEntry(key, obj); ok {
+	if e, deps, ok := oc.lookupEntry(key, obj); ok && !b.Rebuild {
 		b.Stats.hit()
 		b.trace("# cache hit " + b.shortUnit(src) + " " + e.Obj[:16])
 		here := mapEntry(e, oc.unmapGen) // the paths of this build, as the stamp keeps them

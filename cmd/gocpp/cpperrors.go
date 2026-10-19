@@ -937,7 +937,7 @@ func (d *driver) cppLinkFailed(pkg *check.Package, e *build.CompileError, env bu
 		hints = append(hints, fmt.Sprintf("(the link flags of the package's //gocpp: directives: %s)", strings.Join(pkg.Flags.Link, " ")))
 	}
 	if len(env.LDFlags) > 0 {
-		hints = append(hints, fmt.Sprintf("(GOCPP_LDFLAGS: %s)", strings.Join(env.LDFlags, " ")))
+		hints = append(hints, fmt.Sprintf("(trusted link flags (GOCPP_LDFLAGS, -ldflags, the mode): %s)", strings.Join(env.LDFlags, " ")))
 	}
 	if hasSources(pkg.Load) {
 		hints = append(hints, fmt.Sprintf("(the package's C and C++ files: %s)", strings.Join(slices.Concat(pkg.Load.CFiles, pkg.Load.CXXFiles), " ")))

@@ -455,7 +455,11 @@ func linkTrace(out []byte, work string) (rest []byte, files []string) {
 	var keep []string
 	seen := make(map[string]bool)
 	for _, line := range strings.Split(string(out), "\n") {
-		if p := tracedFile(strings.TrimRight(line, "\r"), work); p != "" {
+		line = strings.TrimRight(line, "\r")
+		if tempObject(line) {
+			continue // a temporary object of link-time optimization, deleted before gocpp could look
+		}
+		if p := tracedFile(line, work); p != "" {
 			if p != "-" && !seen[p] {
 				seen[p] = true
 				files = append(files, p)
@@ -465,6 +469,23 @@ func linkTrace(out []byte, work string) (rest []byte, files []string) {
 		keep = append(keep, line)
 	}
 	return []byte(strings.Join(keep, "\n")), files
+}
+
+// tempObject reports whether the line of a linker's trace is the path of an object file in the
+// temporary folder that no longer exists: what a link with -flto traces (clang's lto-llvm-*.o, GCC's
+// *.ltrans0.ltrans.o and *.debug.temp.o), after the compiler deleted it. Such a name is neither a
+// file the check can follow nor a message for the user. (The test is for the shape of the line, not
+// for the compilers' names, so a new compiler's temporary object goes the same way.)
+func tempObject(line string) bool {
+	if !filepath.IsAbs(line) || !strings.HasSuffix(line, ".o") || strings.ContainsAny(line, " \t(") {
+		return false
+	}
+	tmp := os.TempDir()
+	if !strings.HasPrefix(line, filepath.Clean(tmp)+string(filepath.Separator)) {
+		return false
+	}
+	_, err := os.Lstat(line)
+	return err != nil
 }
 
 // tracedFile returns the file that the line of a linker's trace names: "-" for a file of the build's
@@ -519,6 +540,9 @@ func linkFlagProblem(flags []string) string {
 		switch {
 		case f == "-pthread", f == "-static", f == "-static-libstdc++", f == "-static-libgcc", f == "-rdynamic",
 			f == "-s", f == "-g", f == "-no-pie", f == "-pie":
+		case strings.HasPrefix(f, "-fsanitize="), f == "-flto", strings.HasPrefix(f, "-flto="), f == "-fno-omit-frame-pointer",
+			f == "-O0" || f == "-O1" || f == "-O2" || f == "-O3" || f == "-Os" || f == "-Og":
+			// the flags of -race and -release (flags.go): they read no file
 		case f == "-L" || f == "-l":
 			i++ // its value
 		case strings.HasPrefix(f, "-L") || strings.HasPrefix(f, "-l"):

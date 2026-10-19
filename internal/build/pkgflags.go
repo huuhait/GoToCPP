@@ -151,11 +151,15 @@ func LanguageFlags() []string { return slices.Clone(languageFlags) }
 // as in the compile of the generated C++. internal/check passes them to
 // the namespace probe (check.Package.ProbeFlags), and the lowerer passes
 // the same flags to interop.ProbeKinds, so that both share the probe's
-// cache. Without flags of the environment and of the package, it returns
+// cache. Compiler plugins of the environment's flags are left out (DropPluginFlags).
+// Without flags of the environment and of the package, it returns
 // nil: the probe has -std=c++20 of its own, and the other language flags
 // are the compilers' defaults.
 func ProbeFlags(env EnvFlags, pkg PackageFlags) []string {
-	user := slices.Concat(env.CXXCompile(), pkg.Compile)
+	// A plugin in the user's flags (-fpass-plugin=, -fplugin=) is for the program's compiles: it
+	// would load in every probe that the editor runs, count the probe files, and the probe cache
+	// does not know its file.
+	user := slices.Concat(DropPluginFlags(env.CXXCompile()), pkg.Compile)
 	if len(user) == 0 {
 		return nil
 	}

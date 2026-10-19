@@ -49,6 +49,11 @@ type Config struct {
 	// only part that waits.)
 	Context context.Context
 
+	// Env, if not nil, are the trusted flags that the namespace probe uses instead of the
+	// environment's alone (build.ReadEnvFlags): the environment's with the flags of the build
+	// (gocpp build -cxxflags, -race), so that the probe parses headers like the compile does.
+	Env *build.EnvFlags
+
 	// CXX returns the C++ compiler that the namespace probe runs, which
 	// must be the compiler of the load target. Check calls it at most
 	// once, and only when a file of a package that it checks imports a

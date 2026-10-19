@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -603,5 +604,37 @@ func TestTrimNotThroughLinks(t *testing.T) {
 		if name != ".trimmed" && err != nil {
 			t.Errorf("%s of the folder that a link points at was removed", name)
 		}
+	}
+}
+
+// The temporary objects of a link with -flto (deleted before the trace is read) are no message.
+func TestLinkTraceDropsTempObjects(t *testing.T) {
+	tmp := t.TempDir()
+	here := filepath.Join(tmp, "kept.o") // exists: not a temporary object that is gone, and in the work folder it is not recorded
+	writeAt(t, here, "o", time.Hour)
+	out := filepath.Join(tmp, "lto-llvm-976b28.o") + "\n" + filepath.Join(tmp, "ccAbC.ltrans0.ltrans.o") + "\n" +
+		filepath.Join(tmp, "ccAbC.debug.temp.o") + "\n/other/dir/gone.o\n" + filepath.Join(tmp, "has space.o") + "\nmessage.o\n"
+	rest, files := linkTrace([]byte(out), t.TempDir())
+	if want := "/other/dir/gone.o\n" + filepath.Join(tmp, "has space.o") + "\nmessage.o\n"; string(rest) != want || len(files) != 0 {
+		t.Errorf("rest = %q, files = %q; want only %q", rest, files, want)
+	}
+	if !tempObject(filepath.Join(tmp, "x.o")) || tempObject(here) || tempObject("rel.o") {
+		t.Errorf("tempObject: a missing .o in the temporary folder only")
+	}
+}
+
+func TestAutoLTO(t *testing.T) {
+	in := []string{"-O2", "-flto", "-lm"}
+	for _, c := range []struct {
+		fam  Family
+		want []string
+	}{{GCC, []string{"-O2", "-flto=auto", "-lm"}}, {Clang, in}} {
+		b := &Builder{CXX: CXX{Family: c.fam}}
+		if got := b.autoLTO(in); !slices.Equal(got, c.want) {
+			t.Errorf("%v: autoLTO = %q, want %q", c.fam, got, c.want)
+		}
+	}
+	if in[1] != "-flto" {
+		t.Errorf("autoLTO changed its argument: %q", in)
 	}
 }

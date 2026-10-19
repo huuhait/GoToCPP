@@ -114,8 +114,13 @@ func (b *Builder) Link(ctx context.Context, pkgs []PackageBuild, out string) err
 			}
 			unitObjs = append(unitObjs, obj)
 			pb := &pkgs[i]
+			cmd := b.unitCommand(rtDir, pb, src, obj)
+			b.record(cmd)
 			acts = append(acts, action{name: src, run: func() (func(), error) {
 				out, err := b.compileUnit(ctx, rtDir, pb, src, obj)
+				if err == nil {
+					err = b.emitIR(ctx, b.CXX, "the generated C++", cmd)
+				}
 				var ce *CompileError
 				if errors.As(err, &ce) {
 					ce.Include = filepath.Join(rtDir, "include")
@@ -165,8 +170,11 @@ func (b *Builder) Link(ctx context.Context, pkgs []PackageBuild, out string) err
 	if b.GOOS != "darwin" {
 		gc = []string{"-Wl,--gc-sections"}
 	}
-	args := slices.Concat(Flags(b.CXX, b.ASan), gc, b.Mode.LinkFlags(b.Soname, b.VersionScript), objs, libObjs, rtObjs, link, b.Env.LDFlags, []string{"-o", out})
-	b.recordLink(ctx, slices.Concat(link, b.Env.LDFlags))
+	ldflags := b.autoLTO(b.Env.LDFlags)
+	args := slices.Concat(Flags(b.CXX, b.ASan), gc, b.Mode.LinkFlags(b.Soname, b.VersionScript), objs, libObjs, rtObjs, link, ldflags, []string{"-o", out})
+	b.recordLinkPlan(Command{Kind: KindLink, Compiler: compiler(b.CXX), Args: args, Output: out, Pre: slices.Concat(Flags(b.CXX, b.ASan), gc, b.Mode.LinkFlags(b.Soname, b.VersionScript)),
+		Objs: slices.Concat(objs, libObjs, rtObjs), Post: slices.Concat(link, ldflags)})
+	b.recordLink(ctx, slices.Concat(link, ldflags))
 	b.Stats.linked()
 	if b.Rec == nil || b.Rec.Bad() != "" {
 		return b.run(ctx, b.CXX, "the generated C++", true, args)
@@ -190,9 +198,10 @@ func (b *Builder) Link(ctx context.Context, pkgs []PackageBuild, out string) err
 	return err
 }
 
-// compileUnit compiles the generated translation unit src of the package pb into obj, through the
-// object cache, and returns what the compiler printed (its warnings are written to Stderr).
-func (b *Builder) compileUnit(ctx context.Context, rtDir string, pb *PackageBuild, src, obj string) ([]byte, error) {
+// unitArgs returns the arguments of the compile of the generated translation unit src of the
+// package pb into obj (without the precompiled header and the flags of the dependency file, which
+// the object cache adds).
+func (b *Builder) unitArgs(rtDir string, pb *PackageBuild, src, obj string) []string {
 	// The runtime's include folder comes before the package's -I folders, so that no package
 	// folder can hide a gocpp/ header. After the flags of the environment and of the package
 	// come gocpp's language flags and those of generated C++ again, and -x c++ right before the
@@ -214,9 +223,47 @@ func (b *Builder) compileUnit(ctx context.Context, rtDir string, pb *PackageBuil
 		compile = slices.Concat(CompileFlags(b.CXX, b.ASan, b.NoChecks), quote, []string{"-I", filepath.Join(rtDir, "include")},
 			user, LanguageFlags(), []string{"-Wno-error"}, GeneratedFlags(b.CXX), []string{"-c", "-x", "c++", src, "-o", obj})
 	}
+	return compile
+}
+
+// unitCommand returns the Command of the compile of the generated unit src.
+func (b *Builder) unitCommand(rtDir string, pb *PackageBuild, src, obj string) Command {
+	return Command{Kind: KindUnit, Pkg: pb.Path, Lang: "c++", Compiler: compiler(b.CXX), Args: b.unitArgs(rtDir, pb, src, obj),
+		Dir: b.genDir(pb), File: src, Output: obj, IR: b.irName(src)}
+}
+
+// genDir returns the folder that the commands of the generated units name as their directory:
+// the folder of the generated files, else the folder of the package.
+func (b *Builder) genDir(pb *PackageBuild) string {
+	if b.GenRoot != "" {
+		return b.GenRoot
+	}
+	return pb.Dir
+}
+
+// recordLinkPlan records the link in the plan, with the folders of the build.
+func (b *Builder) recordLinkPlan(c Command) {
+	if b.Plan == nil {
+		return
+	}
+	b.Plan.mu.Lock()
+	b.Plan.Link = &c
+	b.Plan.GenRoot = b.GenRoot
+	b.Plan.CXX, b.Plan.CC, b.Plan.GOOS = b.CXX, b.CC, b.GOOS
+	b.Plan.mu.Unlock()
+}
+
+// compileUnit compiles the generated translation unit src of the package pb into obj, through the
+// object cache, and returns what the compiler printed (its warnings are written to Stderr).
+func (b *Builder) compileUnit(ctx context.Context, rtDir string, pb *PackageBuild, src, obj string) ([]byte, error) {
+	pkgFlags := slices.Concat(pb.Flags.Compile, pb.Public)
+	compile := b.unitArgs(rtDir, pb, src, obj)
 	// A plain compile uses the precompiled header of the runtime when there is one (pch.go; the
 	// first build with new flags has none yet: startPCH builds it while the runtime compiles).
 	pc := b.precompiledFor(rtDir, pkgFlags)
+	if b.DryRun {
+		pc = nil // the commands that -n shows are the plain ones
+	}
 	// The cache (objcache.go) keys the plain compile; the precompiled header only makes the
 	// compile that a miss runs faster.
 	usedPCH := false
@@ -255,4 +302,20 @@ func appendLinkFlags(link, more []string) []string {
 		link = append(link, f)
 	}
 	return link
+}
+
+// autoLTO returns the link flags with a bare -flto turned into -flto=auto for GCC: without a job
+// count, lto-wrapper warns "using serial compilation of N LTRANS jobs" at every link (clang's
+// -flto takes no count). The compiles keep -flto, which only writes the intermediate form.
+func (b *Builder) autoLTO(flags []string) []string {
+	if b.CXX.Family != GCC || !slices.Contains(flags, "-flto") {
+		return flags
+	}
+	out := slices.Clone(flags)
+	for i, f := range out {
+		if f == "-flto" {
+			out[i] = "-flto=auto"
+		}
+	}
+	return out
 }

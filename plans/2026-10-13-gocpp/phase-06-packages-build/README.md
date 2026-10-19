@@ -240,14 +240,19 @@ plain `ar` fails with "plugin needed to handle lto object" (seen on this machine
 ### 2.9 CLI after this phase
 
 ```
-gocpp build [-o out] [-p N] [-x] [-work] [-tags a,b] [-buildmode m]
-            [-debug | -release] [-race] [-asan] [-nochecks] [packages]
+gocpp build [-o out] [-p N] [-x] [-v] [-n] [-a] [-work] [-tags a,b] [-buildmode m]
+            [-debug | -release] [-race] [-asan] [-nochecks]
+            [-cflags f] [-cxxflags f] [-ldflags f] [-emit-llvm[=ll|bc]] [-compdb[=path]] [packages]
 gocpp run [build flags] [package | files] [args...]
-gocpp list [-deps] [packages]       # like go list
-gocpp env                           # compiler, versions, cache dir, flags
+gocpp list [-deps] [-e] [-json | -f tmpl] [-tags a,b] [packages]   # like go list
+gocpp env [-json] [name...]         # compiler, versions, cache dir, every GOCPP_ variable
 gocpp clean [-cache]
-gocpp export cmake
+gocpp export cmake|compdb [-o path] [build flags] [packages]
 ```
+
+(Built in 6.11/6.12, ADR-044: the default build is still `-O0 -g`, which `-debug` names; the plan's
+`-O2 -g` default is not built. `compile_commands.json` is written by `-compdb` or `gocpp export compdb`,
+not by every build.)
 
 `-debug` = `-O0 -g`; the default = `-O2 -g` (optimized and debuggable, like `go build`);
 `-release` = `-O2 -flto`. `-race` = ThreadSanitizer, `-asan` = AddressSanitizer + UBSan (`-asan`

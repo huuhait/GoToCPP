@@ -93,10 +93,16 @@ func (b *Builder) planLibs(ctx context.Context, rtDir string, libs []*CxxLib) (o
 		}
 		args := slices.Concat(SourceFlags(j.c, b.ASan), []string{std, "-w", "-iquote", j.lib.Dir, "-include", nofortify},
 			env, j.lib.Public, private, []string{"-c", "-x", lang, j.src.File, "-o", j.obj})
+		cmd := Command{Kind: KindLibrary, Lang: lang, Compiler: compiler(j.c), Args: args, Dir: j.lib.Dir, File: j.src.File, Output: j.obj,
+			IR: "lib/" + j.lib.Module + "/" + filepath.ToSlash(j.src.Rel)}
+		b.record(cmd)
 		acts = append(acts, action{name: j.src.File, run: func() (func(), error) {
 			out, err := b.compileCachedSalt(ctx, j.c, j.src.File, j.obj, args, func(args []string) ([]byte, error) {
 				return b.runOutput(ctx, j.c, what+j.src.Rel, false, args)
 			}, nil, []string{"cxx", j.lib.Module, j.lib.Version})
+			if err == nil {
+				err = b.emitIR(ctx, j.c, what+j.src.Rel, cmd)
+			}
 			var ce *CompileError
 			if errors.As(err, &ce) {
 				ce.Source, ce.Lib, ce.LibLine, ce.LibText = j.src.File, j.lib, j.src.Line, j.src.Text

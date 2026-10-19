@@ -132,6 +132,9 @@ func probeNamespaces(prog *load.Program, cfg Config) (map[*load.Package][]diag.D
 		ctx = context.Background()
 	}
 	env, envErr := build.ReadEnvFlags()
+	if cfg.Env != nil {
+		env, envErr = *cfg.Env, nil // the driver's: the environment's flags and the build flags (gocpp build -cxxflags)
+	}
 	errs := make(map[*load.Package][]diag.Diagnostic)
 	flagsOf := make(map[*load.Package]packageFlags)
 	var pkgs []*probedPackage

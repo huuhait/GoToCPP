@@ -286,7 +286,8 @@ func TestPkgConfigCanceled(t *testing.T) {
 }
 
 // TestReadEnvFlags checks GOCPP_CFLAGS, GOCPP_CXXFLAGS and GOCPP_LDFLAGS:
-// split like CC, quotes keep spaces, not checked by the allow-list.
+// split like CC, quotes keep spaces, not checked by the allow-list. The probes of the headers
+// get no plugin flag (TestProbeFlagsDropPlugins).
 func TestReadEnvFlags(t *testing.T) {
 	t.Setenv("GOCPP_CFLAGS", `-DA '-DB=x y' -fplugin=mine.so`)
 	t.Setenv("GOCPP_CXXFLAGS", "-stdlib=libc++")
@@ -300,7 +301,7 @@ func TestReadEnvFlags(t *testing.T) {
 		t.Errorf("ReadEnvFlags = %+v, want %+v", env, want)
 	}
 	probe := build.ProbeFlags(env, build.PackageFlags{Compile: []string{"-DPKG"}, Link: []string{"-lpkg"}})
-	if want := slices.Concat([]string{"-DA", "-DB=x y", "-fplugin=mine.so", "-stdlib=libc++", "-DPKG"}, build.LanguageFlags()); !slices.Equal(probe, want) {
+	if want := slices.Concat([]string{"-DA", "-DB=x y", "-stdlib=libc++", "-DPKG"}, build.LanguageFlags()); !slices.Equal(probe, want) {
 		t.Errorf("ProbeFlags = %q, want %q", probe, want)
 	}
 	t.Setenv("GOCPP_CXXFLAGS", `"-DA`)

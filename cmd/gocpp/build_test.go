@@ -349,9 +349,11 @@ func TestBuild(t *testing.T) {
 			{[]string{"hello.gp"}, ".", "hello"},
 			{[]string{"-o", "out/prog", "hello.gp"}, ".", "out/prog"},
 			{[]string{"-o", "out/", "hello.gp"}, ".", "out/hello"},
-			{[]string{"-o", "out", "./app"}, ".", "out/app"}, // out is a folder now
-			{nil, "app", "app/app"},                          // a folder outside a module: its name
-			{[]string{"."}, "mod", "mod/tool"},               // the import path, without /v2
+			{[]string{"-o", "fresh/dir/", "hello.gp"}, ".", "fresh/dir/hello"},  // folders that do not exist yet
+			{[]string{"-o", "fresh2/x/prog", "hello.gp"}, ".", "fresh2/x/prog"}, // (and the folder of a file)
+			{[]string{"-o", "out", "./app"}, ".", "out/app"},                    // out is a folder now
+			{nil, "app", "app/app"},                                             // a folder outside a module: its name
+			{[]string{"."}, "mod", "mod/tool"},                                  // the import path, without /v2
 		} {
 			os.Mkdir(filepath.Join(dir, "out"), 0o755)
 			t.Chdir(filepath.Join(dir, b.dir))

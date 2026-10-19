@@ -32,7 +32,7 @@ import (
 
 // checkUsage is the help text of "gocpp check". "gocpp check -h" prints
 // it, followed by the flags.
-const checkUsage = `usage: gocpp check [-e] [-types] [packages]
+const checkUsage = `usage: gocpp check [-e] [-tags list] [-types] [packages]
 
 gocpp check parses and type-checks the packages and prints their errors
 the way go build prints compile errors: a line "# <import path>" before
@@ -82,6 +82,7 @@ func runCheck(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	flags.BoolVar(&c.all, "e", false, "report all errors, not only the first 10 of each package")
 	flags.BoolVar(&c.types, "types", false, "print the type of every expression to standard output")
 	c.diagOpts.register(flags)
+	flags.Var(tagsFlag{&c.tags}, "tags", "a comma-separated `list` of build tags that are satisfied, like go build -tags")
 	flags.Usage = func() {
 		fmt.Fprint(stderr, checkUsage)
 		flags.PrintDefaults()
@@ -144,12 +145,14 @@ func signalContext() (context.Context, func() os.Signal, func()) {
 
 // A checkCommand is one run of "gocpp check".
 type checkCommand struct {
-	all           bool        // -e
-	diagOpts      diagOptions // -color, -excerpt
-	types         bool        // -types
-	tests         bool        // load the _test.gp files too (gocpp vet)
-	dir           string      // the current folder
-	goos, goarch  string      // the target of the build constraints
+	all           bool            // -e
+	diagOpts      diagOptions     // -color, -excerpt
+	types         bool            // -types
+	tests         bool            // load the _test.gp files too (gocpp vet)
+	dir           string          // the current folder
+	goos, goarch  string          // the target of the build constraints
+	tags          []string        // more build tags that are satisfied (-tags)
+	env           *build.EnvFlags // the trusted flags of the probes, when the driver made them (flags.go)
 	stdout        io.Writer
 	stderr        io.Writer
 	fset          *token.FileSet
@@ -235,6 +238,7 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 			GoStd:     stdlib.IsStd,
 			GOOS:      c.goos,
 			GOARCH:    c.goarch,
+			Tags:      c.tags,
 			FS:        c.fs,
 			// GOCPP_ALLOW_INTERNAL=1: the tests of the standard library's internal packages
 			// (tests/README.md, "// std-internal:") import them from test programs.
@@ -271,7 +275,7 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 	// terminal's signal doesn't reach, so the canceled context is what
 	// kills it. Then gocpp prints nothing more and dies of the signal
 	// (stopStatus), like build and run.
-	cfg := check.Config{Phase: phase, GOOS: c.goos, GOARCH: c.goarch, Context: c.ctx, PkgConfig: c.pkgConfig}
+	cfg := check.Config{Phase: phase, GOOS: c.goos, GOARCH: c.goarch, Context: c.ctx, PkgConfig: c.pkgConfig, Env: c.env}
 	if c.kinds {
 		paths := lower.ProbePaths(prog)
 		cfg.Probe = func(ctx context.Context, cxx build.CXX, dir string, flags, includes, cands []string) (interop.Result, error) {

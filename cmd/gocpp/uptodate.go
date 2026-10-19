@@ -140,6 +140,8 @@ func (d *driver) beginStamp(patterns []string) *stampState {
 		why = "the object cache is off"
 	case cacheDir() == "":
 		why = "there is no cache folder"
+	default:
+		why = d.flags.extra.unstamped()
 	}
 	if why != "" {
 		d.noStamp = why
@@ -161,6 +163,10 @@ func (d *driver) beginStamp(patterns []string) *stampState {
 			parts[len(parts)-1] = "tree" // -o is the folder of the tree, which exists after the first build
 		}
 		parts = append(parts, "buildmode="+string(d.flags.mode))
+	}
+	parts = append(parts, d.flags.extra.keyParts()...)
+	if d.envOK {
+		parts = append(parts, pluginKey(d.env)...) // a plugin that is built again changes the key
 	}
 	parts = append(parts, stampEnv()...)
 	st := &stampState{key: build.StampKey(parts...), cache: cacheDir(), fsrec: build.NewFSRecorder(), pkgLog: &build.PkgConfigLog{}, rec: &build.Record{}}

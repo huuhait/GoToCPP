@@ -94,6 +94,130 @@ removed at any time; a build that runs while it is removed may fail with a messa
 that is a symbolic link is removed as a link, what it points at is never touched);
 `-gen`, `-stamp` and `-modcache` remove one kind; `-n` prints what would be removed, with the sizes.
 
+## Build flags, tags and the user's own compiler flags
+
+`gocpp build` and `gocpp run` take these flags (`gocpp build -h` has the text; `-n`, `-emit-llvm`,
+`-compdb` and `-o` are for `build` only):
+
+| Flag | Meaning |
+|---|---|
+| `-o file-or-folder` | where the program goes |
+| `-p n` | at most n compiles at a time (default `GOMAXPROCS`) |
+| `-x`, `-v`, `-work` | print the commands, print the packages, keep the work folder |
+| `-n` | print the commands and run none (the generated C++ is written; no object, no program, nothing recorded) |
+| `-a` | compile everything again: no object cache, no runtime cache, no up-to-date check; the new objects are stored |
+| `-tags a,b` | more build tags (comma list; the last `-tags` is the list), for `//go:build` lines and the file names of `.gp`, `.c` and `.cc/.cpp/.cxx` files; also in `check`, `emit` and `list` |
+| `-debug` / `-release` / `-race` | `-O0 -g` (what a build is by default) / `-O2 -flto` / ThreadSanitizer. `-debug` with `-release`, `-race` with `-release` or `-asan`, and `-race` for windows are errors |
+| `-asan`, `-nochecks`, `-cpperrors` | as before |
+| `-cflags`, `-cxxflags`, `-ldflags` | the user's flags: see below |
+| `-emit-llvm[=ll\|bc]`, `-compdb[=path]` | files for other tools: see below |
+
+**The user's flags are trusted.** A package's `//gocpp:cflags` line goes through the allow-list of Phase 04; the
+flags the user gives are not checked, as `CGO_CFLAGS` are not. They are layered, a later flag winning where
+the last one wins:
+
+| | Compile (C and C++) | Compile (C++ only) | Link |
+|---|---|---|---|
+| 1. the mode | `-fsanitize=thread`, `-O2 -flto` | | `-fsanitize=thread`, `-O2 -flto` |
+| 2. the environment | `GOCPP_CFLAGS` | `GOCPP_CXXFLAGS` | `GOCPP_LDFLAGS` |
+| 3. the build flags | `-cflags` | `-cxxflags` | `-ldflags` |
+
+All of them go to every compile of the program: the generated C++, the package's C and C++ files, the
+libraries of modules and gocpp's runtime. In a compile the order is the mode, the environment, the build flags, the
+package's flags (`//gocpp:cflags`, `pkg-config`), then gocpp's language flags last (so that no flag turns off
+`-fexceptions`, `-fwrapv` and the like). At the link they come after the package's link flags. A value is split like
+`CC` is: spaces separate the words, and a quote keeps spaces only when it **starts a word** (Go's `quoted.Split`):
+`-cxxflags="-DFOO='a b'"` is the two words `-DFOO='a` and `b'`; quote the whole word, `-cxxflags="'-DFOO=a b'"`
+(the same in `GOCPP_CFLAGS`, `GOCPP_CXXFLAGS`, `GOCPP_LDFLAGS`). A flag may be given twice and adds.
+
+The files that these flags make the compiler read are in the cache keys by their **content**: the plugins
+(`-fplugin=`, `-fpass-plugin=`, `-Xclang -load -Xclang`), response files (`@file`) and the files of `-include` and
+`-imacros`. They are in the key of the runtime's objects always, and in the key of the program's objects when the
+object cache takes the compile: a compile with `@file`, `-fplugin`, `-Xclang` or the like is never kept in the object
+cache (the cache can't see what such a flag reads), so those units are compiled in every build and the build is never
+"up to date" (`-fpass-plugin=` and `-include` are cached, keyed by content). Relative names in the flags
+(`-I`, `-L`, `--sysroot=`, `-isystem`, `-iquote`, `-idirafter`, `-Wl,-Map`, plugins, `@file`, `-include`, `-imacros`,
+and a library or object file that exists under the current folder) are made absolute from the folder gocpp runs in,
+because the compiles run in a private work folder; `-Wl,-rpath` is left as written. The limits: the files that a response
+file names in turn, and the files a plugin itself reads, are not tracked (`gocpp build -a` compiles all again); the
+content hash of a file is remembered by its name, size and time for the life of the process (the language server).
+
+**All of this is in the key of the up-to-date check**, and the flags are in the key of every object in the
+object cache (they are on the compile's command line): a changed `-cxxflags`, `-tags`, mode, or `GOCPP_CXXFLAGS`
+compiles what depends on it and links again, and the build with the old flags is found again when the flags
+come back. A build with `-n`, `-a`, `-emit-llvm` or `-compdb` is not recorded (it has files that the check does
+not look at).
+
+**Compiler plugins.** The user's flags may load code into the compiler: LLVM pass plugins with clang
+(`-cxxflags=-fpass-plugin=/path/p.so`) and front-end plugins (`-fplugin=/path/p.so` with g++ or clang,
+`-fplugin-arg-p-key=value`, clang's `-Xclang -load -Xclang p.so`). A package can never load one: the
+allow-list refuses `-fplugin` in a `//gocpp:` line (`GOCPP_CFLAGS_ALLOW` stays the escape hatch). A relative
+path with a folder in it is made absolute from the current folder (the compiles run in a work folder); a bare name is
+the compiler's to look up. The plugin file is part of the object cache's key by the hash of its content (and of the
+up-to-date key by its size and time), so a plugin that is built again compiles again. The probes that read
+your C and C++ headers (the editor's and `gocpp check`'s) do not load plugins: they are meant for the program's
+compiles. See [guides/llvm-tools.md](../guides/llvm-tools.md).
+
+**`-emit-llvm`** (clang only: g++ gets an error that says so) also writes the LLVM IR of every translation unit
+of the program, the generated C++, the package's own C and C++ files and the libraries' (not the runtime's), to
+`<program>.llvm/` next to the program, in the text form (`.ll`) or with `-emit-llvm=bc` as bitcode. The files are
+`gen/gpkg/<import path>/<file>.gp.ll`, `src/<package>/<file>.ll` and `lib/<module>/<file>.ll`. The IR comes from a second
+run of the compiler with the flags of the object's compile (plugins included), `-c` turned into `-S -emit-llvm`. The folder
+is emptied at the next build with the flag, only if it has the marker file `.gocpp-llvm` that gocpp writes (or is empty):
+gocpp does not remove what it did not make.
+
+## Files for other tools
+
+**`compile_commands.json`.** `gocpp build -compdb` (with a program) or `gocpp export compdb` (nothing is built) writes
+the JSON compilation database that clangd and others read: one entry for every translation unit with the exact
+command (`arguments`), `directory` and `file`. The units are the generated C++ of every package, the package's own C and C++
+files, the sources of the libraries of modules, and the files of gocpp's runtime. The paths are stable: the generated
+files are in `gen/<hash>` of the cache folder (the same folder for every build of the program), the runtime in `rt/`,
+and the others in their own folders, so a tool can open them after the build; `-o` and the object file are left out
+(the objects are in the work folder, which is gone). The entries are sorted by file, and the file is replaced
+only when its content changes. Without a value `-compdb` writes to the generated folder and to the module's folder
+(the one with `gocpp.mod`; else the package's folder); with a value, to that file or folder. clangd with g++ or
+under Nix wants `--query-driver=<compiler>` so that it finds the compiler's own include folders.
+
+**`gocpp export cmake [-o folder] [build flags] packages`** writes a folder (default `<program>-cmake`) with a
+`CMakeLists.txt`, `gen/` (a copy of the generated files) and `runtime/` (gocpp's runtime), which builds the program
+without gocpp: `cmake -S folder -B build -DCMAKE_CXX_COMPILER=<compiler> && cmake --build build`. The flags of every
+file are exactly those of the build that the export is made from, so the file checks that the compiler is of the same
+family (clang or g++). The limits: the project's own C and C++ files, their headers, the libraries of modules and the
+link libraries are named by their absolute paths on the machine that made the export; the generated C++ names the `.gp`
+files and the headers of modules by absolute paths too (in `#line` and `#include` lines); the file is for the compiler,
+the options and the system of this build, and it has to be made again when the `.gp` files change. A folder that exists,
+is not empty and has no `CMakeLists.txt` that gocpp wrote is never touched.
+
+## `gocpp list` and `gocpp env`
+
+`gocpp list [-deps] [-e] [-json | -f template] [-tags list] [packages]` prints the packages that the arguments name, like `go list`: import
+paths, or each package as a JSON object or through a `text/template` (functions `join` and `json`). The fields are those
+of `go list` that mean something here (`Dir`, `ImportPath`, `Name`, `Standard`, `DepOnly`, `Module`, `Imports`, `Deps`,
+`Incomplete`, `Error`) with `GpFiles`, `IgnoredGpFiles` and `TestGpFiles` for the `.gp` files, `CFiles` and `CXXFiles`, and
+`CImports` (the C and C++ headers that the files import, as written), `CFlags`, `LDFlags`, `Link` and `PkgConfig` (the directives). Empty
+fields are left out of the JSON, lists are sorted, and `-deps` puts every package after the ones it imports. `-e` keeps going
+with the error in the package's `Error` field and exits with status 0, like `go list -e`. The patterns `std` and `all` are not
+supported.
+
+`gocpp env [-json] [name ...]` prints `NAME='value'` lines (sorted; `set NAME=value` on Windows) for every variable below
+with the value in use, then the values gocpp finds out: `GOCPPCACHE`, `GOCPPRUNTIME`, `GOCPPMOD`, `GOCPPCXX`, `GOCPPCXXVERSION`,
+`GOCPPCC`, `GOCPPVERSION`. With names it prints their values only. `GOCPP_MODAUTH` is shown as `(set)`. A test keeps the list
+complete: it fails when the Go code names a `GOCPP_` variable that `gocpp env` does not list.
+
+| Variable | Meaning |
+|---|---|
+| `CXX`, `GOCPP_CXX`, `GOCPP_CC` | the compilers (`GOCPP_CXX`, else `CXX`, else clang++, else g++) |
+| `GOCPP_CFLAGS`, `GOCPP_CXXFLAGS`, `GOCPP_LDFLAGS` | the user's trusted flags (above) |
+| `GOCPP_CFLAGS_ALLOW`, `GOCPP_CFLAGS_DISALLOW`, `GOCPP_LDFLAGS_ALLOW`, `GOCPP_LDFLAGS_DISALLOW` | the allow-list for the flags of `//gocpp:` lines |
+| `GOCPP_NOOBJCACHE`, `GOCPP_OBJCACHE_SIZE`, `GOCPP_NOPCH`, `GOCPP_NOUPTODATE`, `GOCPP_NOPROBECACHE`, `GOCPP_PROBE_CACHE` | the caches |
+| `GOCPP_MODCACHE`, `GOCPP_MODFLAGS`, `GOCPP_MODPROXY`, `GOCPP_MODURL`, `GOCPP_MODAUTH`, `GOCPP_MODCACERT`, `GOCPP_MODTIMEOUT`, `GOCPP_OFFLINE` | modules |
+| `GOCPP_LSP_CACHE`, `GOCPP_LSP_CACHE_AGE`, `GOCPP_LSP_CACHE_SIZE` | the language server's cache |
+| `GOCPP_GATE_PHASE`, `GOCPP_CPUPROFILE` | development |
+| `GOCPP_COLOR`, `GOCPP_EXCERPT` | `always` or `never`: the diagnostics' color and source excerpt (the `-color` and `-excerpt` flags win) |
+| `GOCPP_CLANG`, `GOCPP_PROBE_TIMEOUT` | the clang++ and the time limit of the typed interop probes |
+| `GOOS`, `GOARCH`, `PKG_CONFIG`, `XDG_CACHE_HOME` | the target, pkg-config, the cache folder |
+
 ## Package summaries and the API hash
 
 The record keeps, for each package, a hash of its sources and its **API hash**: the hash of `pkg.hpp`,

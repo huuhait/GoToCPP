@@ -206,3 +206,9 @@ func removeStale(dir string) {
 func runtimeObjectName(src string) string {
 	return strings.ReplaceAll(strings.TrimSuffix(src, path.Ext(src)), "/", "_") + ".o"
 }
+
+// RuntimeFolder returns the folder of the runtime in the cache folder cache (<cache>/rt/<name>),
+// where a build extracts it: gocpp env prints it. The folder may not exist yet.
+func RuntimeFolder(cache string) string {
+	return filepath.Join(cache, "rt", runtimeName())
+}

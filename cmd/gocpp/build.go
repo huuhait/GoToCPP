@@ -129,20 +129,70 @@ bug in gocpp: gocpp build prints "internal error: generated C++ did not
 compile", the first errors of the compiler, which point at the .gp
 lines, and the work folder, which it keeps; it exits with status 2.
 
-The build flags (of build and run) are:
+The build flags (of build and run; -compdb, -emit-llvm, -n and -o are of build only) are:
 
+	-a
+		compile everything again: the object cache and the up-to-date
+		check are not used (the new objects are stored)
 	-asan
 		build with AddressSanitizer and UndefinedBehaviorSanitizer:
 		the program stops at the first report, with exit status 1
+	-buildmode mode
+		what to build: exe (a program, the default), c-archive, c-shared
+		or cpp-lib (libraries; see docs/spec/build.md). Only gocpp build
+	-cflags flags
+		trusted flags for every C and C++ compile, like GOCPP_CFLAGS
+		(see -cxxflags)
+	-color mode
+		color the diagnostics: auto (on a terminal), always or never
+		(GOCPP_COLOR, NO_COLOR and CLICOLOR_FORCE also count)
+	-compdb[=path]
+		also write compile_commands.json, the JSON compilation database
+		of clangd and other tools, with the exact command of every
+		translation unit of the program (the generated C++, the
+		package's C and C++ files, the libraries of modules, the
+		runtime). Without a value it goes to the folder of the generated
+		C++ and to the folder of the module (gocpp.mod); with a value, to
+		that file or folder. gocpp export compdb does only this
+	-cpperrors mode
+		short (the default) or full: full shows the whole output of
+		the C++ compiler or the linker when the program's C++ doesn't
+		compile or link
+	-cxxflags flags
+		trusted flags for every C++ compile, the runtime's too, like
+		GOCPP_CXXFLAGS: not checked, and added after those of the
+		environment. A quote keeps spaces only at the start of a word
+		("'-DA=a b'"); the flag may be given again.
+		They may load compiler plugins that you chose: LLVM pass
+		plugins (-cxxflags=-fpass-plugin=/path/p.so, clang) or front-end
+		plugins (-fplugin=/path/p.so, g++ and clang); a //gocpp:cflags
+		line never may (its allow-list refuses them). The plugin file is
+		part of the object cache's key and of the up-to-date check, so a
+		new build of it compiles again; so are the files of @file,
+		-include and -imacros
+	-debug
+		build with -O0 -g, which is what a build is without a flag
+	-emit-llvm[=ll|bc]
+		also write the LLVM IR of every translation unit, text (ll, the
+		default) or bitcode (bc), into <program>.llvm next to the
+		program, for opt -load-pass-plugin=... and llvm-dis. Only with
+		clang (GOCPP_CXX=clang++): with g++ it is an error. The folder
+		is emptied by the next build (it has a .gocpp-llvm marker)
+	-excerpt mode
+		show the source line and a caret under each error: auto (on a
+		terminal), always or never (GOCPP_EXCERPT)
 	-gp:concepts
 		also write C++20 concepts for Go's constraints into the package
 		headers (gp_concept_<Name> for each named interface type,
 		gp_sat_<Func> for each generic function), for C++ code that works
 		with the package; the generated code does not use them
-	-cpperrors mode
-		short (the default) or full: full shows the whole output of
-		the C++ compiler or the linker when the program's C++ doesn't
-		compile or link
+	-ldflags flags
+		trusted flags for the link, like GOCPP_LDFLAGS: added after the
+		package's link flags, like -cxxflags otherwise
+	-n
+		print the commands that the build would run, and run none of
+		them (the generated C++ is written, nothing is compiled or
+		linked, no program is written)
 	-nochecks
 		build without the bounds and nil checks, for speed: an index
 		or slice expression out of range, a slice to array conversion
@@ -150,6 +200,9 @@ The build flags (of build and run) are:
 		undefined behavior, as in C++, instead of a panic. Division by
 		zero and a negative shift count still panic, and the results
 		that Go defines stay (MIN / -1, shifts by the width or more)
+	-o file
+		write the program to this file, or into this folder (a name that
+		ends in a slash, or a folder that exists)
 	-p n
 		run at most n compiles at the same time (GOMAXPROCS by default,
 		like go build). The compiles start in the order of the packages;
@@ -158,6 +211,18 @@ The build flags (of build and run) are:
 		starts), and nothing is linked. With -p 1 the compiles run one
 		after the other. The messages of the compiles that worked
 		(warnings) come in the same order whatever the speed.
+	-race
+		build with ThreadSanitizer (-fsanitize=thread): the program
+		reports a data race it sees. Not with -asan or -release, and not
+		for windows
+	-release
+		build with -O2 -flto
+	-tags list
+		more build tags that are satisfied, separated by commas, like
+		go build -tags: for //go:build lines and file names of .gp, C
+		and C++ files. The last -tags is the list
+	-v
+		print the import paths of the packages that are built
 	-work
 		print the name of the work folder and keep it (the object cache
 		is not used, so that its files have real paths in them)
@@ -192,7 +257,7 @@ stops the compilers, removes the work folder and dies of that signal.
 
 The flags are:
 `
-	emitUsage = `usage: gocpp emit [-gp:concepts] [-annotate [-json] [-nochecks] [-kinds k1,k2] [-std] [-o file]] [file.gp... | package]
+	emitUsage = `usage: gocpp emit [-gp:concepts] [-tags list] [-annotate [-json] [-nochecks] [-kinds k1,k2] [-std] [-o file]] [file.gp... | package]
 
 gocpp emit checks the package like gocpp check and prints the C++ that
 gocpp build compiles for it to standard output. The arguments are those
@@ -214,6 +279,7 @@ explain TOPIC says what a mechanism is). See docs/guides/explain.md.
 const (
 	exitErrors   = 1
 	exitInternal = 2
+	exitUsage    = 2 // a flag that can't be used here (-emit-llvm with g++): like a flag that does not parse
 )
 
 // testHookCPP, when it isn't nil, changes the C++ that the emitter wrote
@@ -237,6 +303,8 @@ type buildFlags struct {
 
 	cppErrors cppErrorsMode // -cpperrors: "short" or "full"
 	diagOpts  diagOptions   // -color, -excerpt
+
+	extra extraFlags // the flags of step 6.12 (flags.go)
 }
 
 func (f *buildFlags) register(flags *flag.FlagSet, withOutput bool) {
@@ -262,6 +330,7 @@ func (f *buildFlags) register(flags *flag.FlagSet, withOutput bool) {
 	}
 	flags.BoolVar(&f.work, "work", false, "print the name of the work folder and keep it (without the object cache)")
 	flags.BoolVar(&f.x, "x", false, "print the commands")
+	f.extra.register(flags, withOutput)
 }
 
 // parseFlags parses the flags of the command name. done is true when the
@@ -336,6 +405,7 @@ func runEmit(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	flags.BoolVar(&ef.concepts, "gp:concepts", false, "also write C++20 concepts for Go's constraints into the package headers")
 	var ann annotateFlags
 	ann.register(flags) // annotate.go
+	flags.Var(tagsFlag{&ef.extra.tags}, "tags", "a comma-separated `list` of build tags that are satisfied, like go build -tags")
 	if code, done := parseFlags("emit", emitUsage, flags, args, stderr); done {
 		return code
 	}
@@ -405,6 +475,13 @@ type driver struct {
 	lib      *libState // the library that a library mode builds (modes.go)
 	libRoots []string  // the import paths of the packages of a cpp-lib
 
+	env   build.EnvFlags // the trusted flags of the build (flags.go: userEnv), when envOK
+	envOK bool
+
+	// afterPlan, if not nil, is called by compile with the plan of the build when its commands are
+	// known (and run, or listed with -n): gocpp export uses it to write its files.
+	afterPlan func(set *buildSet, plan *build.Plan, name string) error
+
 	stamp         *stampState // the up-to-date check of this build, or nil (uptodate.go)
 	upToDateBuild bool        // the build found its program current
 	noStamp       string      // why there is none
@@ -459,7 +536,18 @@ func newDriver(name string, f *buildFlags, stdout, stderr io.Writer) (*driver, i
 		fmt.Fprintf(stderr, "gocpp %s: %v\n", name, err)
 		return nil, exitErrors
 	}
+	c.tags = f.extra.tags
+	if _, _, err := build.ProfileFlags(f.extra.mode, f.asan, c.goos); err != nil {
+		fmt.Fprintf(stderr, "gocpp %s: %v\n", name, err)
+		return nil, 2
+	}
 	d := &driver{name: name, flags: f, check: c, stdout: stdout, stderr: stderr, done: make(chan struct{})}
+	// The trusted flags of the build: the environment's with the mode's and the build flags'
+	// (flags.go). A value of the environment that does not parse is reported by compile, as before.
+	if env, err := f.extra.userEnv(f.asan, c.goos, c.dir); err == nil {
+		d.env, d.envOK = env, true
+		c.env = &d.env
+	}
 	build.SetDetectCache(cacheDir()) // the compilers are detected once, not in every run
 	if f.x {
 		// -x shows the runs of pkg-config too, as go build -x does.
@@ -885,6 +973,10 @@ func (d *driver) compile(patterns []string) (*program, int) {
 		fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
 		return nil, exitErrors
 	}
+	if d.envOK {
+		env = d.env // with the mode's and the build flags' (flags.go)
+	}
+	x := &d.flags.extra
 	needC, hasCFiles := false, false
 	for _, p := range set.pkgs {
 		nc, code := d.resolveLibs(p) // the sources of the modules' libraries (recipes)
@@ -905,6 +997,16 @@ func (d *driver) compile(patterns []string) (*program, int) {
 		}
 		fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
 		return nil, exitErrors
+	}
+	if x.llvm != "" {
+		err := emitLLVMError("C++", cxx)
+		if err == nil && (hasCFiles || needC) {
+			err = emitLLVMError("C", cc)
+		}
+		if err != nil {
+			fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
+			return nil, exitUsage
+		}
 	}
 	work, err := os.MkdirTemp("", "gocpp-build")
 	if err == nil {
@@ -974,7 +1076,8 @@ func (d *driver) compile(patterns []string) (*program, int) {
 	}
 
 	b := &build.Builder{CXX: cxx, ASan: d.flags.asan, NoChecks: d.flags.nochecks, GOOS: d.check.goos, Work: work, Stderr: d.stderr, KeepWork: d.flags.work,
-		Env: env, CC: cc, GenRoot: genRoot, Cache: cache, Jobs: d.flags.jobs, Stats: &d.stats, Mode: d.flags.mode}
+		Env: env, CC: cc, GenRoot: genRoot, Cache: cache, Jobs: d.flags.jobs, Stats: &d.stats, Mode: d.flags.mode,
+		DryRun: x.dryRun || d.afterPlan != nil, Rebuild: x.rebuild, EmitLLVM: x.llvm}
 	exe := filepath.Join(work, name+exeSuffix)
 	if d.lib != nil {
 		exe = filepath.Join(work, d.lib.file)
@@ -987,8 +1090,25 @@ func (d *driver) compile(patterns []string) (*program, int) {
 			}
 		}
 	}
-	if d.flags.x {
-		b.Trace = d.stderr
+	if d.flags.x || x.dryRun && d.name == "build" {
+		b.Trace = d.stderr // -n prints the commands too
+	}
+	if x.verbose {
+		for _, p := range set.pkgs {
+			fmt.Fprintln(d.stderr, p.Load.ImportPath)
+		}
+	}
+	if d.wantsPlan() {
+		b.Plan = &build.Plan{}
+	}
+	if x.llvm != "" {
+		b.LLVMDir = d.outputPath(name+exeSuffix) + ".llvm"
+		if !b.DryRun {
+			if err := build.PrepareIRDir(b.LLVMDir); err != nil {
+				fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
+				return nil, exitErrors
+			}
+		}
 	}
 	if d.stamp != nil {
 		b.Rec = d.stamp.rec
@@ -1004,6 +1124,11 @@ func (d *driver) compile(patterns []string) (*program, int) {
 		code, kept := d.buildFailed(set, err, env, work)
 		keep = keep || kept
 		return nil, code
+	}
+	if b.Plan != nil {
+		if code := d.finishPlan(set, genRoot, b.Plan, name); code != 0 {
+			return nil, code
+		}
 	}
 	built = true
 	keep = true // the caller removes it
@@ -1086,7 +1211,7 @@ func (d *driver) reportFailure(set *buildSet, err error, env build.EnvFlags, wor
 		for _, v := range []struct {
 			name  string
 			flags []string
-		}{{"GOCPP_CFLAGS", env.CFlags}, {"GOCPP_CXXFLAGS", env.CXXFlags}} {
+		}{{"trusted C and C++ flags (GOCPP_CFLAGS, -cflags, the mode)", env.CFlags}, {"trusted C++ flags (GOCPP_CXXFLAGS, -cxxflags)", env.CXXFlags}} {
 			if len(v.flags) > 0 {
 				flags = append(flags, v.name+": "+strings.Join(v.flags, " "))
 			}
@@ -1250,7 +1375,7 @@ func (d *driver) linkFailed(pkg *check.Package, e *build.CompileError, env build
 		fmt.Fprintf(d.stderr, "(the link flags of the package's //gocpp: directives: %s)\n", strings.Join(pkg.Flags.Link, " "))
 	}
 	if len(env.LDFlags) > 0 {
-		fmt.Fprintf(d.stderr, "(GOCPP_LDFLAGS: %s)\n", strings.Join(env.LDFlags, " "))
+		fmt.Fprintf(d.stderr, "(trusted link flags (GOCPP_LDFLAGS, -ldflags, the mode): %s)\n", strings.Join(env.LDFlags, " "))
 	}
 	if hasSources(pkg.Load) {
 		fmt.Fprintf(d.stderr, "(the package's C and C++ files: %s)\n", strings.Join(slices.Concat(pkg.Load.CFiles, pkg.Load.CXXFiles), " "))
@@ -1271,6 +1396,9 @@ func (d *driver) build(patterns []string) int {
 		return code
 	}
 	defer d.removeWork()
+	if d.flags.extra.dryRun {
+		return 0 // -n: nothing was run, and there is no program to move
+	}
 	if d.lib != nil {
 		built, code := d.installLibrary(p, d.flags.output)
 		if code != 0 {
@@ -1279,21 +1407,15 @@ func (d *driver) build(patterns []string) int {
 		d.saveStamp(built)
 		return 0
 	}
-	out := d.flags.output
-	name := filepath.Base(p.exe)
-	switch {
-	case out == "":
-		out = name
-	case strings.HasSuffix(out, "/") || strings.HasSuffix(out, string(filepath.Separator)) || isDir(out):
-		out = filepath.Join(out, name)
-	}
-	if !filepath.IsAbs(out) {
-		out = filepath.Join(d.check.dir, out)
-	}
+	out := d.outputPath(filepath.Base(p.exe))
 	if d.flags.x {
 		fmt.Fprintf(d.stderr, "mv %s %s\n", build.ShellQuoteWork(p.exe, p.work), build.ShellQuoteWork(out, ""))
 	}
-	if err := build.MoveFile(p.exe, out); err != nil {
+	err := os.MkdirAll(filepath.Dir(out), 0o755) // -o dir/ names a folder that may not exist yet
+	if err == nil {
+		err = build.MoveFile(p.exe, out)
+	}
+	if err != nil {
 		fmt.Fprintf(d.stderr, "gocpp build: %v\n", err)
 		return exitErrors
 	}

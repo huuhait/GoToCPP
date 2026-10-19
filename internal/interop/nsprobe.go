@@ -765,9 +765,10 @@ var messageFlags = []string{"-fdiagnostics-", "-fno-diagnostics-", "-fmessage-le
 	"-fspell-checking", "-fno-spell-checking", "-ftemplate-backtrace-limit=", "-fconstexpr-backtrace-limit=",
 	"-fmacro-backtrace-limit=", "-ftrack-macro-expansion", "-fno-track-macro-expansion"}
 
-// probeFlags returns the package's flags without the messageFlags.
+// probeFlags returns the package's flags without the messageFlags and without compiler plugins
+// (build.DropPluginFlags).
 func probeFlags(flags []string) []string {
-	return slices.DeleteFunc(slices.Clone(flags), func(f string) bool {
+	return slices.DeleteFunc(build.DropPluginFlags(slices.Clone(flags)), func(f string) bool {
 		return slices.ContainsFunc(messageFlags, func(m string) bool {
 			if strings.HasSuffix(m, "=") || strings.HasSuffix(m, "-") {
 				return strings.HasPrefix(f, m)

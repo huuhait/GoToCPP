@@ -160,10 +160,16 @@ func (b *Builder) planPackageSources(ctx context.Context, rtDir string, pb *Pack
 		}
 		args := slices.Concat(SourceFlags(s.c, b.ASan), []string{std, "-iquote", pb.Dir, "-include", nofortify},
 			env, pb.Flags.Compile, pb.Public, []string{"-c", "-x", lang, file, "-o", objs[i]})
+		cmd := Command{Kind: KindSource, Pkg: pb.Path, Lang: lang, Compiler: compiler(s.c), Args: args, Dir: pb.Dir, File: file, Output: objs[i],
+			IR: "src/" + pb.Path + "/" + s.file}
+		b.record(cmd)
 		acts = append(acts, action{name: file, run: func() (func(), error) {
 			out, err := b.compileCached(ctx, s.c, file, objs[i], args, func(args []string) ([]byte, error) {
 				return b.runOutput(ctx, s.c, what+s.file, false, args)
 			}, nil)
+			if err == nil {
+				err = b.emitIR(ctx, s.c, what+s.file, cmd)
+			}
 			var ce *CompileError
 			if errors.As(err, &ce) {
 				ce.Source, ce.PkgPath = file, pb.Path
