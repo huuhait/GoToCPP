@@ -951,7 +951,8 @@ func TestSymbols(t *testing.T) {
 						t.Errorf("%s defines the global symbol %q (nm type %s), outside namespace gp: give it internal linkage or put it in gp", s, f[2], f[1])
 					}
 				}
-				if n == 0 {
+				// race.cpp is empty unless the runtime is built for -race (GOCPP_RACE).
+				if n == 0 && !strings.HasSuffix(s, "/race.cpp") {
 					t.Errorf("nm found no global symbols in %s:\n%s", s, out)
 				}
 			}
