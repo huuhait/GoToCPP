@@ -75,9 +75,9 @@ type stubPackage struct {
 	// gp::weak_ptr) from Phase, and the stub stays, for go/types only.
 	Intrinsic string
 
-	// Real: the package is real now (errors, since Phase 05 step 5.7, by hand; unicode/utf8, since
-	// Phase 09 step 9.1, by tools/portstd): stdlib/<path> holds its .gp files, and the tool writes
-	// no stub there. The
+	// Real: the package is real now (errors, since Phase 05 step 5.7, by hand; sync and sync/atomic, since
+	// Phase 08 step 8.7, by hand; unicode/utf8, since Phase 09 step 9.1, by tools/portstd): stdlib/<path>
+	// holds its .gp files, and the tool writes no stub there. The
 	// tool still makes the stub in memory, because the tests compare the real package's exported
 	// declarations with it (TestRealPackagesMatchStub).
 	Real bool
@@ -118,8 +118,8 @@ var packages = []stubPackage{
 	{Path: "strings", Phase: 9},
 	{Path: "bytes", Phase: 9},
 	{Path: "bufio", Phase: 9},
-	{Path: "sync", Phase: 8},
-	{Path: "sync/atomic", Phase: 8},
+	{Path: "sync", Phase: 8, Real: true},
+	{Path: "sync/atomic", Phase: 8, Real: true},
 	{Path: "os", Phase: 9},
 	{Path: "runtime/debug", Phase: 8, Real: true, Missing: debugMissing},
 	{Path: "flag", Phase: 9},

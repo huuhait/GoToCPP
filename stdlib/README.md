@@ -9,7 +9,7 @@ embedded in the `gocpp` binary, and the loader finds the standard packages here.
 - **Real packages** (Phase 05 and later steps). `errors` since step 5.7: `errors.gp`, `wrap.gp` and `join.gp` are
   Go's `src/errors`, lowered with the program's packages like any package (`PORT.md` lists what differs from Go's
   source). A package is real when none of its functions is a declaration stub (below): it is built from its `.gp`
-  files, and `tools/stubgen` writes no stub for it (`stubPackage.Real`; the tool still makes the stub in memory,
+  files, and `tools/stubgen` writes no stub for it (`stubPackage.Real`; `sync` and `sync/atomic` are real since step 8.7: Mutex, WaitGroup and the others over native templates, ADR-040; the tool still makes the stub in memory,
   because the tests compare the real package's exported declarations with it and with Go's).
 - **Ported packages** (Phase 09 step 9.1). `unicode/utf8`, `unicode/utf16` and `math/bits` are Go's source, copied by
   `tools/portstd` from the pinned Go tarball: the `.gp` files start with `// Code ported from Go ...; DO NOT EDIT by

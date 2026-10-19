@@ -105,8 +105,8 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 | `slices` | 07 |  |
 | `runtime` | 08 | `runtime.Error`, `PanicNilError`, `TypeAssertionError`, `Gosched`, `NumGoroutine`, `GOMAXPROCS`, `NumCPU`, `Goexit`, `LockOSThread`, `Caller`, `Callers`, `CallersFrames`, `FuncForPC`, `Stack`, `GC`, `ReadMemStats`, `Version`, `GOOS`, `GOARCH`, `KeepAlive` and `SetFinalizer` from Phase 08 (step 8.10). Each goroutine has a thread of its own, so `LockOSThread` does nothing and `Gosched` only yields the CPU. Memory is reference counted: `GC` does nothing and a finalizer never runs. The profiles, traces and `AddCleanup` are not built; stdlib/runtime/PORT.md lists them. |
 | `runtime/debug` | 08 | `Stack`, `PrintStack`, `SetGCPercent`, `SetMemoryLimit`, `FreeOSMemory`, `SetMaxStack`, `SetMaxThreads`, `SetPanicOnFault` and `SetTraceback` from Phase 08 (step 8.10). `ReadBuildInfo`, `ReadGCStats` and `SetCrashOutput` come with Phase 09. |
-| `sync` | 08 |  |
-| `sync/atomic` | 08 |  |
+| `sync` | 08 | `Mutex`, `RWMutex`, `WaitGroup` (with `Go`), `Once`, `OnceFunc`, `Cond`, `Map`, `Pool` and `Locker` from Phase 08 (step 8.7). `OnceValue` and `OnceValues` are generic functions: they come with Phase 07. |
+| `sync/atomic` | 08 | The function-style API, `Int32`, `Int64`, `Uint32`, `Uint64`, `Uintptr`, `Bool` and `Value` from Phase 08 (step 8.7). `Pointer[T]` is a generic type: it comes with Phase 07. |
 | `time` | 08 | The whole package, since step 8.8 (Go's own `format.go`, `time.go` and `zoneinfo.go`, with natives for the clocks, `Sleep`, the timers and the time zone files). Timers follow Go 1.23: timer channels look unbuffered, `Stop` and `Reset` leave no stale value, and a `Timer` nobody holds is freed. `time.LoadLocation` reads the system's zoneinfo (the `ZONEINFO` variable, `/usr/share/zoneinfo`, `/etc/zoneinfo`); there is no embedded copy (`time/tzdata` is not available). On Windows (Phase 14) the zone data comes later. |
 | `runtime/cgo` | 09 | `cgo.Handle` with `NewHandle`, `Value` and `Delete` (step 9.2): a native table, so a handle passes through C and C++ as an integer. |
 | `bufio` | 09 |  |

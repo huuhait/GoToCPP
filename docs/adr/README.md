@@ -56,6 +56,7 @@ and from the user's answers to Q1–Q13
 | [071](071-math-bit-exact.md) | `math` gives Go's results on amd64, bit for bit | accepted | Go's own source (portstd) plus natives: `Exp` and `Log` transcribe Go's amd64 assembly (its FMA path and its `Log` of subnormals included), exact functions are inline `roundsd`/`sqrtsd`/`vfmadd231sd`; no FP contraction anywhere; `tests/run/math_*` hash 100k results each against real Go. |
 | [037](037-must-rewrite.md) | `!` is a rewrite of the Go AST around `go/types`, and the lowerer sees plain Go | accepted | Helpers of the hidden `gocpp/must` for the checker, a post-check that the last result is exactly `error`, then each helper becomes hand-written control flow in the Go AST; `main!` is a wrapper that calls `gp::must_exit`. Builds 013. (031 to 036 are other jobs'.) |
 | [063](063-doc-header-documentation.md) | `gocpp doc` documents C/C++ headers from their Doxygen comments, read as text | accepted | A line reader and regexes, not a parser; the compiler probes answer what the comments cannot; Windows-1252 per invalid byte; derived methods from fixed tables; `#Derive` on a type group shows nothing. |
+| [040](040-sync-on-a-semaphore-table.md) | `sync` is Go's algorithms on words, with the waiters in a table outside the objects | accepted | Templates over the generated structs as natives, Go's Mutex/RWMutex/WaitGroup/Cond line by line, a semaphore table keyed by address (blocked accounting as channels), starvation threshold scaled for threads, `atomic_ref` for sync/atomic. |
 
 ## Changing a decision
 

@@ -60,7 +60,7 @@ under way: the build cache and the build modes are next). What works today:
   "not supported yet (Phase NN)" error; [docs/spec/feature-matrix.md](docs/spec/feature-matrix.md)
   lists them.
 - `gocpp build`, `gocpp run` and `gocpp emit` compile programs to C++20 and build them with g++ or
-  clang++: Go's language without generics, `select` and the `sync`/`time` packages, so basic and
+  clang++: Go's language without generics (the Phase 07 work is gated), so basic and
   complex types, functions, loops, `switch`, labels, pointers, slices, arrays, maps, structs, named
   types, methods, closures, `defer`, interfaces (`any`, `error`, type assertions and type switches,
   embedding, method values and expressions), `panic` and `recover` (also for C++ exceptions),
@@ -73,8 +73,8 @@ under way: the build cache and the build modes are next). What works today:
   and gdb can debug them at the `.gp` level. C/C++ headers and libraries work (`"<vector>"`,
   `"<sqlite3.h>"`, `std.vector[int]`; see [docs/spec/interop.md](docs/spec/interop.md)):
   [cpp-std](examples/cpp-std/main.gp), [mixed-sources](examples/mixed-sources/main.gp) and
-  [sqlite](examples/sqlite/main.gp) run. Goroutines and channels are built but gated until the rest of
-  Phase 08 (`select`, `sync`, `time`) lands.
+  [sqlite](examples/sqlite/main.gp) run. Goroutines, channels, `select`, `sync`, `sync/atomic` and `time` are built but gated until
+  Phase 08 closes.
 - `gocpp lsp` is the language server (`gocpp lsp -h`): errors as you type, hover, go to
   definition, signature help, completion (with auto-import), formatting and organize imports. The
   VS Code extension in [editors/vscode](editors/vscode/README.md) starts it;

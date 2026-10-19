@@ -2701,6 +2701,48 @@ no embedded database (`time/tzdata`) and no `$GOROOT` zip.
 Source: [Phase 08 §2.5](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md#25-sync-syncatomic-time-runtime),
 [ADR-041](../adr/041-time-package-and-timers.md).
 
+## `sync` and `sync/atomic`
+
+Go's `sync` is written in `.gp` (`stdlib/sync`), over natives (`//gocpp:native`, ADR-027) that are
+templates in `gocpp/sync.hpp` and `gocpp/atomic.hpp`; the design is [ADR-040](../adr/040-sync-on-a-semaphore-table.md).
+
+```go
+type Mutex struct {
+	state int32
+	sema  uint32
+}
+
+func (m *Mutex) Lock() { mutexLock(m) }
+
+//gocpp:native gp::sync::mutex_lock
+func mutexLock(m *Mutex)
+```
+
+```cpp
+struct Mutex { int32_t state = 0; uint32_t sema = 0; /* ... */ static void Lock(gp::ptr<Mutex> m); };
+void Mutex::Lock(gp::ptr<Mutex> m) { ::gp::sync::mutex_lock(m); }   // one CAS when the mutex is free
+```
+
+| Go | C++ |
+|---|---|
+| `var mu sync.Mutex`, `mu.Lock()` | `Mutex mu;` (a boxed `gp::ptr<Mutex>` when its address is taken: a method call is one), `Mutex::Lock(mu)` |
+| `defer mu.Unlock()` | the usual `defer`; a deferred native can't be a function pointer (templates), so Go code writes `defer func() { onceSet(o) }()` |
+| `mu.Lock` as a value | `gp::func<void()>` over a lambda that holds the pointer, as for any method value |
+| `type C struct { sync.Mutex; n int }`, `c.Lock()` | the promoted method: `Mutex::Lock(gp::field_ptr(c, &C::Mutex))` |
+| `var l sync.Locker = &mu` | an interface value holding the `gp::ptr<Mutex>`; `l.Lock()` is `icall` |
+| `unlock of unlocked mutex` | `fatal error: sync: unlock of unlocked mutex`, exit code 2: `gp::detail::fatal`, not a panic |
+| `wg.Add(-1)` below zero | `panic("sync: negative WaitGroup counter")`, a Go string |
+| `atomic.AddInt64(&x, 1)` | `gp::sync_atomic::fn_add(p, int64_t(1))`: `std::atomic_ref`, sequentially consistent |
+| `var n atomic.Int64`, `n.Add(1)` | `struct Int64 { int64_t v; }`, `gp::sync_atomic::ty_add(n, delta)` (no pointer to the field) |
+| `atomic.LoadPointer(&p)` | `gp::sync_atomic::fn_load_pointer(p)`: a spin lock of a table of 64, keyed by the address |
+| `atomic.Value` | `struct Value { uint32_t lk; gp::any v; }` with a spin lock |
+| `atomic.Pointer[T]` (step 7.3) | `gp::atomic_ptr<T>` (a lock and a `gp::ptr<T>`) |
+
+A blocked `Lock`, `RLock`, `Wait` or `Wait` of a `WaitGroup` parks the goroutine's thread on its own
+`gp::waiter` through a table keyed by the address of the object's semaphore word, so the objects are plain
+words (copyable, no destructor), and the goroutine counts as blocked (`gp::num_blocked`) with Go's reason
+(`sync.Mutex.Lock`, ...) for the deadlock detector of step 8.11.
+
 ## `#line` and debugging
 
 - Before every generated line whose `.gp` line is not "the previous line + 1", gocpp writes a

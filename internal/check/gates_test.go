@@ -519,8 +519,8 @@ func TestStdPackagesMatchStubs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n < 22 { // 24 until unicode/utf8 (step 9.1) and time (step 8.8) became real packages
-		t.Errorf("found %d stubs, want at least 22", n)
+	if n < 20 { // 24 until unicode/utf8 (step 9.1), time (step 8.8), sync and sync/atomic (step 8.7) became real packages
+		t.Errorf("found %d stubs, want at least 20", n)
 	}
 }
 

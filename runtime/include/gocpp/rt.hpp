@@ -47,6 +47,9 @@
 #include <gocpp/runtimepkg.hpp>
 #include <gocpp/time.hpp>
 
+#include <gocpp/sync.hpp>
+#include <gocpp/atomic.hpp>
+
 // The standard headers that generated code uses directly: std::tuple for multiple results,
 // INT64_C and the fixed-width integer types.
 #include <cstdint>

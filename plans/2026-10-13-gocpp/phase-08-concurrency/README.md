@@ -193,6 +193,14 @@ step 8.12's job must set `TSAN_OPTIONS=detect_deadlocks=0` for the `select_1000_
   without duplicating queue pointers.
 - `WaitGroup` (including Go 1.25's `wg.Go(f)`), `Once` (counts as done even if `f` panics, as in
   Go), `OnceFunc`/`OnceValue`/`OnceValues` (generic), `Cond`, `Map`, `Pool` (simple versions).
+  **As built (step 8.7, ADR-040):** the types are Go structs in `stdlib/sync/*.gp` whose methods call
+  native templates (`gocpp/sync.hpp`) that hold Go's algorithms, line by line, over `std::atomic_ref` words;
+  the waiters are `sudog`s in a table keyed by the address of the semaphore word (as Go's `semaTable`),
+  parked through `block_scope` and woken through `wake()`, so a `sync` object is plain words (an 8-byte
+  `Mutex`). The starvation threshold of the Mutex is Go's 1 ms plus 100 us for each waiter: Go's constant
+  made 100 threads convoy (13 s against 0.3 s). `Map` is a `map[any]any` under an `RWMutex`, `Pool` a
+  free list, `atomic.Value` a spin lock; `atomic.Pointer[T]` (generic type, step 7.3) waits for its step (its test is `// pending:`);
+  `OnceFunc`/`OnceValue`/`OnceValues` (generic functions, step 7.1) work and are tested.
 - `sync/atomic`: the typed API (`atomic.Int64`, `atomic.Bool`, `atomic.Value`, and
   `atomic.Pointer[T]` on a runtime `gp::atomic_ptr<T>`, a small lock around a `gp::ptr`, because
   libc++ (used by llvm-mingw on Windows) doesn't implement `std::atomic<std::shared_ptr>` and libstdc++'s isn't lock-free

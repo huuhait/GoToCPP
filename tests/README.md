@@ -99,9 +99,11 @@ and then runs with `ASAN_OPTIONS=detect_leaks=0` (after the `ASAN_OPTIONS` of th
 so LeakSanitizer is off for that test only; AddressSanitizer and UBSan stay on. The line is
 allowed in run, diff and interop tests, and in `internal/cppgen/testdata/emit`. It is set with or
 without `-asan` (without, it changes nothing), so the command that a failing test shows has it.
-Today three tests have it: `tests/run/closures_recursive.gp` and
-`internal/cppgen/testdata/emit/closures.gp`, both a closure that calls itself through a variable, and
-`tests/run/embed_later_types.gp`, two structs that embed pointers to each other.
+Today five tests have it: `tests/run/closures_recursive.gp` and
+`internal/cppgen/testdata/emit/closures.gp`, both a closure that calls itself through a variable,
+`tests/run/embed_later_types.gp`, two structs that embed pointers to each other, and
+`tests/run/sync_cond_queue.gp` and `sync_cond_semaphore.gp`, a struct that holds a `sync.Cond` whose
+Locker is a pointer to a field of that same struct (the usual `sync.NewCond(&q.mu)`).
 
 ## What the tests assume of the host
 
