@@ -1,0 +1,9 @@
+package examples // import "example.com/gp/examples"
+
+func Add(a, b int) int
+    Add adds.
+
+
+EXAMPLES
+
+    ExampleAdd

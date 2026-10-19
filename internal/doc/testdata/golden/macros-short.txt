@@ -1,0 +1,10 @@
+var ErrSyntax = errors.New("syntax")
+macro Assert(cond bool, msg lazy string)
+macro Locked(mu *int)
+func Parse!(s string) int
+func Run()
+macro Trace() func()
+type Color int
+    const Red Color = iota ...
+type Config struct{ ... }
+type Point struct{ ... }

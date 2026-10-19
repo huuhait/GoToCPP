@@ -1,0 +1,7 @@
+package shapes // import "example.com/gp/shapes"
+
+type Number interface {
+	~int | ~int64 | ~float64
+}
+    Number is a constraint.
+

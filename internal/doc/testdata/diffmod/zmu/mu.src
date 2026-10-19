@@ -1,0 +1,5 @@
+// Package zmu is a short one.
+package zmu
+
+// F does f.
+func F() {}

@@ -1,0 +1,5 @@
+package shapes // import "example.com/gp/shapes"
+
+func Map[T, U any](xs []T, f func(T) U) []U
+    Map applies f to each element of xs.
+

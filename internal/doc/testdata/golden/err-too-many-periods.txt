@@ -1,0 +1,1 @@
+--- error (exit 2): too many periods in symbol specification

@@ -1,0 +1,20 @@
+package shapes // import "example.com/gp/shapes"
+
+Package shapes shows generic types and functions, embedded fields, and
+interfaces.
+
+var Default = Mid
+func Map[T, U any](xs []T, f func(T) U) []U
+func Old()
+func Sum[N Number](xs ...N) N
+type Base struct{ ... }
+type Circle struct{ ... }
+type Disc = Circle
+type Level uint8
+    const Low Level = iota + 1 ...
+    const MaxLevel Level = 9
+type Number interface{ ... }
+type Pair[K comparable, V any] struct{ ... }
+type Shape interface{ ... }
+type Stack[T any] struct{ ... }
+    func NewStack[T any]() *Stack[T]

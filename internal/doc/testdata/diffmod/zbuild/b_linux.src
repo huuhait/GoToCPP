@@ -1,0 +1,4 @@
+package zbuild
+
+// OnlyLinux is for linux.
+func OnlyLinux() {}

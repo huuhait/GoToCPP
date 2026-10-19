@@ -1,0 +1,5 @@
+package util // import "example.com/gp/b/util"
+
+func Second()
+    Second is only in b/util.
+

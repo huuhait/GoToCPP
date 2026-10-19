@@ -1,0 +1,71 @@
+// Package zbeta has constant groups.
+package zbeta
+
+// Weekday is a day.
+type Weekday int
+
+// The days.
+const (
+	Sunday Weekday = iota
+	Monday
+	Tuesday
+	_
+	Thursday
+	unexportedDay
+)
+
+const (
+	// A is a.
+	A = iota + 1
+	B
+	C
+)
+
+// Mode flags.
+const (
+	ModeRead  uint8 = 1 << iota // read
+	ModeWrite                   // write
+	ModeExec
+)
+
+const (
+	hiddenA = 1
+	hiddenB = 2
+)
+
+const (
+	hidden1 = iota
+	Visible
+)
+
+// Names of days.
+var DayNames = [...]string{"Sun", "Mon"}
+
+var (
+	// ErrBad is bad.
+	ErrBad = error(nil)
+	errHidden = 1
+)
+
+// Day returns the day.
+func (d Weekday) Day() string { return "" }
+
+// Next returns the next day.
+func (d Weekday) Next() Weekday { return d + 1 }
+
+func (d Weekday) prev() Weekday { return d - 1 }
+
+type Level int
+
+const (
+	Debug Level = iota - 1
+	Info
+	Warn
+	Default = Info
+)
+
+// Pi is typed.
+const Pi float64 = 3.14159
+
+const Big = 1 << 62
+const Str, Str2 = "a", "b"

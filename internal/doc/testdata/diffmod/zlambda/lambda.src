@@ -1,0 +1,29 @@
+// Package zlambda has unicode and tricky names.
+package zlambda
+
+// Π is pi.
+const Π = 3.14
+
+// Ünïcode is a type.
+type Ünïcode struct{ Ñ int }
+
+// Größe returns the size.
+func Größe() int { return 0 }
+
+// Straße is a method holder.
+type Straße int
+
+// Maß measures.
+func (Straße) Maß() {}
+
+// URL is a type.
+type URL struct{}
+
+// Url is another thing.
+func Url() {}
+
+// ID is a type; id is not.
+type ID int
+
+// Id is a func with a similar name.
+func Id() {}

@@ -1,0 +1,33 @@
+package extest // import "example.com/gp/extest"
+
+Package extest has its examples in an external test package.
+
+FUNCTIONS
+
+func Add(a, b int) int
+    Add adds two numbers.
+
+
+TYPES
+
+type T struct{}
+    T is a type.
+
+func (T) M()
+    M is a method.
+
+
+EXAMPLES
+
+    Example
+        fmt.Println("package")
+
+        // Output:
+        // package
+    ExampleAdd
+        fmt.Println(extest.Add(1, 2))
+
+        // Output:
+        // 3
+    ExampleT_M
+        extest.T{}.M()

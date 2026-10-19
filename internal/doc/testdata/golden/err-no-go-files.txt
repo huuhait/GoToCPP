@@ -1,0 +1,1 @@
+--- error (exit 1): no buildable .gp source files in $MOD

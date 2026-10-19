@@ -1,0 +1,97 @@
+package shapes // import "example.com/gp/shapes"
+
+Package shapes shows generic types and functions, embedded fields, and
+interfaces.
+
+VARIABLES
+
+var Default = Mid
+    Default is the default level.
+
+
+FUNCTIONS
+
+func Map[T, U any](xs []T, f func(T) U) []U
+    Map applies f to each element of xs.
+
+func Old()
+    Old does nothing.
+
+    Deprecated: use New.
+
+func Sum[N Number](xs ...N) N
+    Sum adds the numbers.
+
+
+TYPES
+
+type Base struct {
+	// ID identifies the shape.
+	ID int
+	// Has unexported fields.
+}
+    Base is the part that every shape has.
+
+type Circle struct {
+	Base
+	*macros.Point
+	Radius float64 // in meters
+}
+    Circle is a Shape.
+
+func (c Circle) Area() float64
+    Area implements Shape.
+
+func (c Circle) Name() string
+    Name implements Shape.
+
+type Disc = Circle
+    Deprecated: use Circle.
+
+type Level uint8
+    Level is a level.
+
+const (
+	// Low is the lowest.
+	Low Level = iota + 1
+	// Mid is in the middle.
+	Mid
+	// High is the highest.
+	High
+)
+const MaxLevel Level = 9
+    MaxLevel is the maximum.
+
+type Number interface {
+	~int | ~int64 | ~float64
+}
+    Number is a constraint.
+
+type Pair[K comparable, V any] struct {
+	Key K
+	Val V
+}
+    Pair holds two values.
+
+type Shape interface {
+	// Area is the area.
+	Area() float64
+	// Name is the name.
+	Name() string
+}
+    Shape is something with an area.
+
+type Stack[T any] struct {
+	// Has unexported fields.
+}
+    Stack is a stack of T.
+
+func NewStack[T any]() *Stack[T]
+    NewStack returns an empty stack.
+
+func (s *Stack[T]) Pop() (v T, ok bool)
+    Pop removes the top.
+
+func (s *Stack[T]) Push(v T)
+    Push adds v on top.
+

@@ -1,0 +1,8 @@
+// Package zutil in a is the first one.
+package zutil
+
+// OnlyInA is only in a.
+func OnlyInA() {}
+
+// Common is in both.
+func Common() {}

@@ -1,0 +1,5 @@
+// This comment is also a package comment, joined with a.go's.
+package zmulti
+
+// Z is in c.
+func Z() {}

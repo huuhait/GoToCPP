@@ -1,0 +1,13 @@
+// Package zupsilon documents Notes.
+package zupsilon
+
+// BUG(alice): first bug.
+// BUG(bob): second bug,
+// over two lines.
+
+// TODO(carol): not shown.
+
+// Fn is fine.
+func Fn() {}
+
+// NOTE(dave): a note.

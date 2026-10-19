@@ -1,0 +1,25 @@
+// Package zrho is for -short and one-line forms.
+package zrho
+
+// Long has many fields.
+type Long struct {
+	A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z int
+}
+
+// Func with a func literal in a var.
+var Handler = func(w, r int) {}
+
+// G is generic with many params.
+func G[A, B, C, D, E, F, G, H any](a A, b B, c C, d D, e E, f F, g G, h H) {}
+
+// Fl is a type of func literal type.
+type Fl func(Long, ...interface{ M() }) struct{ A int }
+
+// Ten returns ten.
+func Ten() (a, b, c, d, e, f, g, h, i, j int) { return }
+
+// Consts group.
+const (
+	X1, X2 = 1, 2
+	X3     = "x"
+)

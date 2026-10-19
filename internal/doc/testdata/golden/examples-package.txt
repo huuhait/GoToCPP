@@ -1,0 +1,13 @@
+package examples // import "example.com/gp/examples"
+
+Package examples has examples.
+
+func Add(a, b int) int
+type Stack struct{}
+
+EXAMPLES
+
+    Example
+    ExampleAdd
+    ExampleAdd_second
+    ExampleStack_Push

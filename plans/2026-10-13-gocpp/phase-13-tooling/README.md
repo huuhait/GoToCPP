@@ -132,7 +132,9 @@ gocpp-specific analyzers:
 3. **13.3 `gocpp vet`** (hand-built packages + `checker.Analyze`, `IllTyped` guard for opaque
    packages, `recover` per analyzer, Go analyzers + gocpp analyzers incl. `!` and macros, CI run
    over the interop examples).
-4. **13.4 `gocpp doc`.**
+4. **13.4 `gocpp doc`.** Built as `internal/doc` (a port of `cmd/doc`: same lookup rules and same
+   output as `go doc`, checked against the real `go doc`; gocpp syntax, derived methods, header
+   packages, `-examples`) with a reusable `doc.Render`; guide: `docs/guides/doc.md`.
 5. **13.5 `emit --annotate` and `explain`.**
 
 ## 4. Deliverables

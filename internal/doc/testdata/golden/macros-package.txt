@@ -1,0 +1,15 @@
+package macros // import "example.com/gp/macros"
+
+Package macros has the syntax that only gocpp has: the error shape func f!() T,
+macros, and #Derive.
+
+var ErrSyntax = errors.New("syntax")
+macro Assert(cond bool, msg lazy string)
+macro Locked(mu *int)
+func Parse!(s string) int
+func Run()
+macro Trace() func()
+type Color int
+    const Red Color = iota ...
+type Config struct{ ... }
+type Point struct{ ... }

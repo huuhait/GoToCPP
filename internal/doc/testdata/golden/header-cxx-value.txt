@@ -1,0 +1,5 @@
+header <iostream>
+
+std.cout: a value (an object, a function or an enumerator), declared after #include <iostream>
+
+The header has no documentation comment for it.

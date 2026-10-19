@@ -1,0 +1,12 @@
+header <stdio.h>
+
+Opaque package: gocpp does not read what the header declares, so it has no
+documentation for it; the C++ compiler checks the names that a file uses.
+
+Package name: stdio
+Header file: $MOD/sys/stdio.h
+
+DECLARATIONS WITH DOCUMENTATION COMMENTS
+
+int printf(const char *fmt, ...);
+#define EOF (-1)

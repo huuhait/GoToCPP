@@ -1,0 +1,18 @@
+package examples // import "example.com/gp/examples"
+
+Package examples has examples.
+
+FUNCTIONS
+
+func Add(a, b int) int
+    Add adds.
+
+
+TYPES
+
+type Stack struct{}
+    Stack is a stack.
+
+func (s *Stack) Push(v int)
+    Push pushes.
+

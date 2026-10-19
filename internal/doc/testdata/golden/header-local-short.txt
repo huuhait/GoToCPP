@@ -1,0 +1,4 @@
+#define PHYS_C 299792458
+double vec_add(double a, double b);
+struct Body
+extern const double G;

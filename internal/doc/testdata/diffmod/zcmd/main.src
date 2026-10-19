@@ -1,0 +1,11 @@
+// Command zcmd does something.
+//
+// Usage:
+//
+//	zcmd [flags]
+package main
+
+// Exported in main.
+func Exported() {}
+
+func main() {}

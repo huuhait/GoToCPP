@@ -1,0 +1,8 @@
+// Package zutil in b is the second one.
+package zutil
+
+// OnlyInB is only in b.
+func OnlyInB() {}
+
+// Common is in both.
+func Common() {}

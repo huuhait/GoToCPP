@@ -1,0 +1,40 @@
+// Package zkappa checks method sets and shadowing.
+package zkappa
+
+// T has methods.
+type T struct{}
+
+// Foo is a method.
+func (T) Foo() {}
+
+// foo is hidden.
+func (T) foo() {}
+
+// Bar is a method.
+func (*T) Bar() {}
+
+// U also has Foo.
+type U struct{}
+
+// Foo is U's.
+func (U) Foo() {}
+
+// Foo is a function too.
+func Foo() {}
+
+// Baz is a function.
+func Baz() {}
+
+// I has Foo.
+type I interface {
+	// Foo is I's.
+	Foo()
+}
+
+// Counter has fields with the same names as methods of other types.
+type Counter struct {
+	// Foo is a field.
+	Foo int
+	// Count is a field.
+	Count int
+}

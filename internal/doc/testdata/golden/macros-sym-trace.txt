@@ -1,0 +1,5 @@
+package macros // import "example.com/gp/macros"
+
+macro Trace() func()
+    Trace logs the start of a function and its end.
+

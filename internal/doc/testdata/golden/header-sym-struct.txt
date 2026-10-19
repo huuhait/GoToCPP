@@ -1,0 +1,7 @@
+header ./physics/physics.h
+
+DECLARATIONS WITH DOCUMENTATION COMMENTS
+
+struct Body
+    A body in space.
+

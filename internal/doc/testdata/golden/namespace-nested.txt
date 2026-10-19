@@ -1,0 +1,10 @@
+namespace std.chrono // C++ namespace
+
+A C++ namespace is not a package: it needs no import. Every name that the
+headers imported by a file declare in it can be used as std.chrono.Name; the C++
+compiler checks the name when the program is built. To use it under another
+name, import it with that name: import fs "::std::filesystem".
+
+Which names exist depends on the headers, so ask with one of them, for example:
+
+	gocpp doc '<vector>' std.vector

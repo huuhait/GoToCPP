@@ -1,0 +1,5 @@
+package util // import "example.com/gp/a/util"
+
+func Both() string
+    Both is in both.
+

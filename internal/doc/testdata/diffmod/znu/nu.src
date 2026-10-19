@@ -1,0 +1,15 @@
+// Package znu has no doc comment on anything.
+package znu
+
+type T struct {
+	A int
+	B string
+}
+
+func F(a int) {}
+
+func (t T) M() {}
+
+const C = 1
+
+var V = 2

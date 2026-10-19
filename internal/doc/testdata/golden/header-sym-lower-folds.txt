@@ -1,0 +1,7 @@
+header ./physics/physics.h
+
+DECLARATIONS WITH DOCUMENTATION COMMENTS
+
+#define PHYS_C 299792458
+    The speed of light in m/s.
+

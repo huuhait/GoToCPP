@@ -1,0 +1,9 @@
+package macros // import "example.com/gp/macros"
+
+const (
+	Red Color = iota
+	Green
+	Blue
+)
+    The colors.
+

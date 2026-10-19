@@ -1,0 +1,15 @@
+package lib // import "example.com/dep/lib"
+
+Package lib is a dependency of the main module.
+
+CONSTANTS
+
+const Version = "1.2.3"
+    Version is the version of the library.
+
+
+FUNCTIONS
+
+func Clamp[T int | float64](v, lo, hi T) T
+    Clamp limits v to the range lo..hi.
+

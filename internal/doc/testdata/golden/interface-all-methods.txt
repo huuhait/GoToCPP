@@ -1,0 +1,10 @@
+package shapes // import "example.com/gp/shapes"
+
+type Shape interface {
+	// Area is the area.
+	Area() float64
+	// Name is the name.
+	Name() string
+}
+    Shape is something with an area.
+

@@ -1,0 +1,42 @@
+// Package zomicron has embedded interface chains and errors.
+package zomicron
+
+import "errors"
+
+// ErrNotFound is not found.
+var ErrNotFound = errors.New("not found")
+
+// ErrAgain is again.
+var ErrAgain = errors.New("again")
+
+// Temporary reports temporary errors.
+type Temporary interface {
+	Temporary() bool
+}
+
+// Timeout reports timeouts.
+type Timeout interface {
+	Timeout() bool
+}
+
+// NetError combines.
+type NetError interface {
+	error
+	Temporary
+	Timeout
+}
+
+// OpError is an op error.
+type OpError struct {
+	Op  string
+	Err error
+}
+
+// Error implements error.
+func (e *OpError) Error() string { return e.Op + ": " + e.Err.Error() }
+
+// Unwrap returns Err.
+func (e *OpError) Unwrap() error { return e.Err }
+
+// Is reports a match.
+func (e *OpError) Is(target error) bool { return false }

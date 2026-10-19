@@ -1,0 +1,8 @@
+package fields // import "example.com/gp/fields"
+
+type Mixed struct {
+    // H is exported.
+    H int
+
+    // ... other fields elided ...
+}

@@ -1,0 +1,1 @@
+--- error (exit 1): no symbol nosuchpkg in package example.com/gp/shapes

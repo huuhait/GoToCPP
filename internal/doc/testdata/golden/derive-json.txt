@@ -1,0 +1,11 @@
+package macros // import "example.com/gp/macros"
+
+#Derive(JSON)
+type Config struct {
+	Port int
+}
+    Config is read from JSON.
+
+func (c *Config) Load!(path string)
+func (c Config) MarshalJSON() ([]byte, error)
+func (c *Config) UnmarshalJSON(data []byte) error

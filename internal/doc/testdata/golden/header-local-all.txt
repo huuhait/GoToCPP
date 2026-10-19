@@ -1,0 +1,24 @@
+header ./physics/physics.h
+
+Opaque package: gocpp does not read what the header declares, so it has no
+documentation for it; the C++ compiler checks the names that a file uses.
+
+Package name: physics
+Header file: $MOD/physics/physics.h
+
+DECLARATIONS WITH DOCUMENTATION COMMENTS
+
+#define PHYS_C 299792458
+    The speed of light in m/s.
+
+double vec_add(double a, double b);
+    Adds two vectors.
+
+    Both are in meters.
+
+struct Body
+    A body in space.
+
+extern const double G;
+    The gravitational constant.
+

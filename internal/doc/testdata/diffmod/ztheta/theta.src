@@ -1,0 +1,49 @@
+package ztheta
+
+// Hidden returns hidden stuff.
+func hidden() {}
+
+// Exported is exported.
+func Exported() {}
+
+type unexp struct {
+	A int
+	b int
+}
+
+// Public is public with unexported members.
+type Public struct {
+	a int
+	B int
+	c string
+}
+
+// Priv has only unexported fields.
+type Priv struct {
+	x, y int
+}
+
+// Iface has unexported methods only.
+type Iface interface {
+	m()
+}
+
+// Mixed has both.
+type Mixed interface {
+	M()
+	m()
+}
+
+// Empty is empty.
+type Empty struct{}
+
+var (
+	// Exp is exported.
+	Exp = 1
+	unexp2 = 2
+)
+
+const (
+	privA = iota
+	privB
+)

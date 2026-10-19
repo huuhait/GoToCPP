@@ -1,0 +1,5 @@
+package macros // import "example.com/gp/macros"
+
+type Config struct {
+    Port int
+}

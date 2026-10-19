@@ -1,0 +1,7 @@
+package longdoc // import "example.com/gp/longdoc"
+
+Package longdoc has a comment whose lines are longer than the 80 columns that
+the text output wraps at: this sentence has to be broken across several lines by
+the printer, whatever the width of the source line is.
+
+func Wide()

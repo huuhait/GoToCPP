@@ -1,0 +1,8 @@
+header ./physics/doxy.h
+
+DECLARATIONS WITH DOCUMENTATION COMMENTS
+
+int add(int a, int b);
+    Adds two numbers.
+    More text.
+

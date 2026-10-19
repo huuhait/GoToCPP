@@ -1,0 +1,52 @@
+// Package zdelta has functions of every shape.
+package zdelta
+
+import (
+	"errors"
+	"strings"
+)
+
+// Add adds.
+func Add(a, b int) int { return a + b }
+
+// Split splits and returns two things.
+func Split(s string) (head, tail string) { return }
+
+// Multi returns many.
+func Multi() (int, string, error) { return 0, "", errors.New("x") }
+
+// Fn takes a func.
+func Fn(f func(int) int, g func() (int, error), h ...func()) {}
+
+// Ptr takes pointers and slices.
+func Ptr(p *int, pp **string, s []byte, m map[string]*int, a [4]int, c <-chan int, d chan int) {}
+
+// Builder wraps strings.Builder.
+type Builder struct {
+	strings.Builder
+	n int
+}
+
+// Doc with
+//
+// multiple paragraphs
+//
+//	and a code block
+//
+// and a final line.
+func Paragraphs() {}
+
+// NoDoc has no body text.
+func unexportedFunc() {}
+
+func NoComment() {}
+
+// Deprecated: Old is old.
+func Old() {}
+
+// Doc with a [Builder] link and [strings.Split] and [*Builder] and [Builder.Reset].
+func Links() {}
+
+//go:noinline
+// Directive has a directive.
+func Directive() {}

@@ -1,0 +1,6 @@
+package lib // import "example.com/dep/lib"
+
+Package lib is a dependency of the main module.
+
+const Version = "1.2.3"
+func Clamp[T int | float64](v, lo, hi T) T

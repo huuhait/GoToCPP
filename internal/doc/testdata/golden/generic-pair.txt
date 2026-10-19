@@ -1,0 +1,8 @@
+package shapes // import "example.com/gp/shapes"
+
+type Pair[K comparable, V any] struct {
+	Key K
+	Val V
+}
+    Pair holds two values.
+

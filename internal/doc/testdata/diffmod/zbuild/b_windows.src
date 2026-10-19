@@ -1,0 +1,4 @@
+package zbuild
+
+// OnlyWindows is for windows.
+func OnlyWindows() {}

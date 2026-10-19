@@ -1,0 +1,6 @@
+//go:build !windows && (amd64 || arm64)
+
+package zbuild
+
+// NotWindows64 is for 64 bit systems that are not windows.
+func NotWindows64() {}

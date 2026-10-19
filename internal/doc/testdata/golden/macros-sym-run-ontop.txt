@@ -1,0 +1,6 @@
+package macros // import "example.com/gp/macros"
+
+#Trace()
+func Run()
+    Run does the work and traces it.
+

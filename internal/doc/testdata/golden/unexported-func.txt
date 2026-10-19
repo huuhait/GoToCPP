@@ -1,0 +1,3 @@
+package shapes // import "example.com/gp/shapes"
+
+func helper()

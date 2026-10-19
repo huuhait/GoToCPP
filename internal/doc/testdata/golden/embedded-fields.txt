@@ -1,0 +1,11 @@
+package shapes // import "example.com/gp/shapes"
+
+type Circle struct {
+	Base
+	*macros.Point
+	Radius float64 // in meters
+}
+    Circle is a Shape.
+
+func (c Circle) Area() float64
+func (c Circle) Name() string

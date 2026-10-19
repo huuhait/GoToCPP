@@ -1,0 +1,9 @@
+package main // import "example.com/gp/cmdtool"
+
+Command cmdtool does a thing.
+
+FUNCTIONS
+
+func Helper()
+    Helper is exported but in a command.
+

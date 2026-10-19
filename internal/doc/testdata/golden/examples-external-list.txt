@@ -1,0 +1,12 @@
+package extest // import "example.com/gp/extest"
+
+Package extest has its examples in an external test package.
+
+func Add(a, b int) int
+type T struct{}
+
+EXAMPLES
+
+    Example
+    ExampleAdd
+    ExampleT_M

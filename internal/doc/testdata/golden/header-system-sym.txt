@@ -1,0 +1,7 @@
+header <stdio.h>
+
+DECLARATIONS WITH DOCUMENTATION COMMENTS
+
+int printf(const char *fmt, ...);
+    Prints a formatted string.
+

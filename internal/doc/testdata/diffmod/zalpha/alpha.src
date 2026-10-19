@@ -1,0 +1,69 @@
+// Package zalpha tests package comments.
+//
+// # Overview
+//
+// It has a heading, a list, and a code block:
+//
+//   - first item
+//   - second item with a [Widget] link
+//   - third item with a [fmt.Println] link and a very long line that has to be wrapped by the printer at eighty columns or so
+//
+// A numbered list:
+//
+//  1. one
+//  2. two
+//
+// And code:
+//
+//	func main() {
+//		fmt.Println("hi")
+//	}
+//
+// See https://example.com/doc for more, and [the docs]: <https://example.com>.
+//
+// [the docs]: https://example.com/docs
+package zalpha
+
+// Widget is a thing.
+//
+// Deprecated: use Gadget.
+type Widget struct {
+	// Name is the name.
+	// It spans lines.
+	Name string // line comment
+
+	// Size is the size.
+	Size int
+
+	hidden bool
+	Tags   []string `json:"tags,omitempty"`
+}
+
+// Gadget replaces Widget.
+type Gadget struct {
+	Widget
+	*Other
+	Extra map[string][]int
+}
+
+// Other is embedded.
+type Other struct{ X, Y int }
+
+// NewWidget returns a Widget.
+func NewWidget(name string) *Widget { return &Widget{Name: name} }
+
+// Reset clears w.
+func (w *Widget) Reset() { *w = Widget{} }
+
+// String implements fmt.Stringer.
+func (w Widget) String() string { return w.Name }
+
+func (w *Widget) unexported() {}
+
+// Version is the version.
+const Version = "1.0"
+
+// Max is large.
+var Max = 1 << 20
+
+// BUG(rsc): this is a bug note.

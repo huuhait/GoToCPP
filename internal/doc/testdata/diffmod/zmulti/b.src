@@ -1,0 +1,10 @@
+package zmulti
+
+// B is in b.
+func B() {}
+
+// M is a method in b of a type in a.
+func (T) M() {}
+
+// C is a constant in b.
+const C = 1

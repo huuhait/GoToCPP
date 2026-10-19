@@ -1,0 +1,40 @@
+package examples // import "example.com/gp/examples"
+
+Package examples has examples.
+
+FUNCTIONS
+
+func Add(a, b int) int
+    Add adds.
+
+
+TYPES
+
+type Stack struct{}
+    Stack is a stack.
+
+func (s *Stack) Push(v int)
+    Push pushes.
+
+
+EXAMPLES
+
+    Example
+        fmt.Println("package")
+
+        // Output:
+        // package
+    ExampleAdd
+        ExampleAdd shows Add.
+        fmt.Println(Add(1, 2))
+
+        // Output:
+        // 3
+    ExampleAdd_second
+        fmt.Println(Add(2, 2))
+
+        // Output:
+        // 4
+    ExampleStack_Push
+        var s Stack
+        s.Push(1)

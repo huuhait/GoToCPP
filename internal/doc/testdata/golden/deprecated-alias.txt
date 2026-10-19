@@ -1,0 +1,5 @@
+package shapes // import "example.com/gp/shapes"
+
+type Disc = Circle
+    Deprecated: use Circle.
+

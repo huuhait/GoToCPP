@@ -1,0 +1,13 @@
+package extest // import "example.com/gp/extest"
+
+func Add(a, b int) int
+    Add adds two numbers.
+
+
+EXAMPLES
+
+    ExampleAdd
+        fmt.Println(extest.Add(1, 2))
+
+        // Output:
+        // 3

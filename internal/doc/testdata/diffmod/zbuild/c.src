@@ -1,0 +1,6 @@
+//go:build ignore
+
+package zbuild
+
+// Ignored is never built.
+func Ignored() {}

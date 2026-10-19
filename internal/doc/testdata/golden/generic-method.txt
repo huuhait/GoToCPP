@@ -1,0 +1,5 @@
+package shapes // import "example.com/gp/shapes"
+
+func (s *Stack[T]) Push(v T)
+    Push adds v on top.
+

@@ -1,0 +1,5 @@
+header <vector>
+
+std.vector: a class or alias template (spelled name[args] in a .gp file), declared after #include <vector>
+
+The header has no documentation comment for it.

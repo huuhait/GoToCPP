@@ -1,0 +1,48 @@
+// Package zeta has a long doc comment with many kinds of text.
+//
+// Headings
+//
+// # Heading One
+//
+// Text under heading one.
+//
+// ## not a heading
+//
+// Lists
+//
+//   - a bullet that is very long and has to be wrapped at some point because it goes beyond the eighty column limit of text
+//   - another
+//     continued
+//
+// Code
+//
+//	if x {
+//		y()
+//	}
+//
+// Tabs:	a	b
+//
+// Special: <angle> & "quotes" and 'apostrophes' -- dashes ... ellipsis
+//
+// Links: [Type], [Type.Method], [pkg.Name], [os.File], [*Type].
+package zeta
+
+// Type is a type with a long doc comment.
+//
+// It also has a list:
+//
+//   - one
+//   - two
+//
+// and a trailing paragraph.
+type Type struct{}
+
+// Method is a method.
+func (Type) Method() {}
+
+// Another is another.
+//
+// # Heading in type doc
+//
+// Under it.
+type Another int

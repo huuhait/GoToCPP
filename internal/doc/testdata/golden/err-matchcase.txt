@@ -1,0 +1,1 @@
+--- error (exit 1): no symbol circle in package example.com/gp/shapes

@@ -1,0 +1,5 @@
+// Package zbuild has files with build constraints.
+package zbuild
+
+// Always is in every build.
+func Always() {}

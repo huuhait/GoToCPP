@@ -1,0 +1,5 @@
+package macros // import "example.com/gp/macros"
+
+func Parse!(s string) int
+    Parse reads a number. It fails with ErrSyntax when s is not one.
+

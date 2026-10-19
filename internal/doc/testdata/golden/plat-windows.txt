@@ -1,0 +1,12 @@
+package plat // import "example.com/gp/plat"
+
+Package plat has files for one system.
+
+FUNCTIONS
+
+func Always()
+    Always is in every build.
+
+func OnlyWindows()
+    OnlyWindows is for windows.
+

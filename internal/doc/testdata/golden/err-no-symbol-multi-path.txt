@@ -1,0 +1,1 @@
+--- error (exit 1): no symbol Nope in packages example.com/gp/a/util, example.com/gp/b/util

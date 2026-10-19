@@ -1,0 +1,9 @@
+package extest // import "example.com/gp/extest"
+
+func (T) M()
+    M is a method.
+
+
+EXAMPLES
+
+    ExampleT_M

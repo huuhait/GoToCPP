@@ -1,0 +1,5 @@
+header <string>
+
+std.string: a type, declared after #include <string>
+
+The header has no documentation comment for it.

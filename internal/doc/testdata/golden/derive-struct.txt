@@ -1,0 +1,12 @@
+package macros // import "example.com/gp/macros"
+
+#Derive(String, Equal, Clone)
+type Point struct {
+	X, Y int
+}
+    Point is a point of the plane.
+
+func (p Point) Clone() Point
+func (p Point) Equal(other Point) bool
+func (p Point) Norm() int
+func (p Point) String() string

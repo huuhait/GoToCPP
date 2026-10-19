@@ -1,0 +1,49 @@
+// Package zphi has a long const block with values for -src.
+package zphi
+
+// Opcode is an op.
+type Opcode uint8
+
+// Opcodes.
+const (
+	// OpNop does nothing.
+	OpNop Opcode = iota
+	// OpAdd adds.
+	OpAdd
+	OpSub // subtracts
+	opHidden
+	OpMul
+)
+
+// Run runs code.
+func Run(code []Opcode) (n int) {
+	for _, c := range code {
+		// count each
+		switch c {
+		case OpAdd:
+			n++
+		default:
+			n--
+		}
+	}
+	return n
+}
+
+// Table has a body for -src.
+var Table = map[string]int{
+	"a": 1,
+	"b": 2,
+}
+
+// S has a method with a body.
+type S struct {
+	// F is a field.
+	F int
+	g int // hidden with comment
+}
+
+// M is a method.
+func (s *S) M(x int) int {
+	// inside comment
+	return s.F + x
+}

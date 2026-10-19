@@ -1,0 +1,26 @@
+/*
+Package zxi has a block comment.
+
+	indented code
+
+And a final paragraph.
+*/
+package zxi
+
+/*
+Block is documented with a block comment.
+It has two lines.
+*/
+type Block int
+
+/* Short block comment. */
+func ShortBlock() {}
+
+// Funcs with receivers named oddly.
+type R struct{}
+
+// Method has an underscore receiver.
+func (_ R) Method() {}
+
+// Other has a blank receiver.
+func (R) Other() {}

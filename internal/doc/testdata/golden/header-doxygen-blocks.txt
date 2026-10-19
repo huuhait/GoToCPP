@@ -1,0 +1,38 @@
+header ./physics/doxy.h
+
+Opaque package: gocpp does not read what the header declares, so it has no
+documentation for it; the C++ compiler checks the names that a file uses.
+
+Package name: doxy
+Header file: $MOD/physics/doxy.h
+
+DECLARATIONS WITH DOCUMENTATION COMMENTS
+
+int add(int a, int b);
+    Adds two numbers.
+    More text.
+
+int one(void);
+    One liner.
+
+int third(void);
+    Third.
+
+int qt_style(int x);
+    Qt style block.
+
+int slashes(void);
+    Triple slash,
+    two lines.
+
+int bang(void);
+    Exclamation line.
+
+int nested(void);
+    @brief Nested stars.
+    ** two stars
+    * a list item?
+
+void last(void);
+    Last, and the file ends.
+

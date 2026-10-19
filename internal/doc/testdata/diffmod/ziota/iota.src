@@ -1,0 +1,57 @@
+// Package ziota has odd declarations.
+package ziota
+
+import "time"
+
+// A Duration alias.
+type Duration = time.Duration
+
+// Generic alias to map.
+type M map[string]interface{}
+
+// F is a func var.
+var F = func(x int) int { return x }
+
+// Arr is an array type.
+type Arr [8]byte
+
+// Ptr is a pointer type.
+type Ptr *int
+
+// Slice is a slice.
+type Slice []struct{ A, B int }
+
+// Group of types.
+type (
+	// One is one.
+	One int
+	// Two is two.
+	Two string
+	three bool
+)
+
+// Complex has nested composite types.
+type Complex struct {
+	Fn    func(int, ...string) (bool, error)
+	Ch    chan<- <-chan int
+	Mp    map[[2]int]func()
+	Iface interface{ Do() }
+	Anon  struct {
+		Inner int
+	}
+}
+
+// C1 is a const with a string.
+const C1 = "a string that is quite long, with escapes \n and \t tabs and \"quotes\""
+
+// C2 is a rune.
+const C2 = 'x'
+
+// C3 is complex.
+const C3 = 1 + 2i
+
+// V1 vars.
+var V1, V2, V3 int
+
+// Times is time.
+var Times = []time.Duration{time.Second, 2 * time.Second}

@@ -1,0 +1,5 @@
+package shapes // import "example.com/gp/shapes"
+
+const MaxLevel Level = 9
+    MaxLevel is the maximum.
+

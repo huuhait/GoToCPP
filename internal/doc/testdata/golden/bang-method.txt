@@ -1,0 +1,5 @@
+package macros // import "example.com/gp/macros"
+
+func (c *Config) Load!(path string)
+    Load reads a config and fails with an error.
+

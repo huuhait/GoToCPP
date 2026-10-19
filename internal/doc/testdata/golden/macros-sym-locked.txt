@@ -1,0 +1,5 @@
+package macros // import "example.com/gp/macros"
+
+macro Locked(mu *int)
+    Locked runs the body of a function under a lock.
+

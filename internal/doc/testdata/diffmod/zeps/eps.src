@@ -1,0 +1,65 @@
+// Package zeps has a type with many methods and constructors.
+package zeps
+
+// Conn is a connection.
+type Conn struct {
+	// Addr is the address.
+	Addr string
+	// Timeout is the timeout.
+	Timeout int64
+	pending []byte
+}
+
+// Dial dials.
+func Dial(addr string) (*Conn, error) { return nil, nil }
+
+// DialTimeout dials with a timeout.
+func DialTimeout(addr string, timeout int64) (*Conn, error) { return nil, nil }
+
+// Open is a constructor too.
+func Open() Conn { return Conn{} }
+
+// Read reads.
+func (c *Conn) Read(p []byte) (int, error) { return 0, nil }
+
+// Write writes.
+func (c *Conn) Write(p []byte) (int, error) { return 0, nil }
+
+// Close closes.
+func (c *Conn) Close() error { return nil }
+
+// LocalAddr returns the address.
+func (c Conn) LocalAddr() string { return c.Addr }
+
+func (c *Conn) flush() {}
+
+// Default is a default connection.
+var Default = &Conn{}
+
+// DefaultTimeout is the default.
+const DefaultTimeout int64 = 30
+
+// ErrClosed is returned for closed connections.
+var ErrClosed Error = "closed"
+
+// Error is a string error.
+type Error string
+
+// Error implements error.
+func (e Error) Error() string { return string(e) }
+
+type hiddenType struct{ A int }
+
+// NewHidden returns an unexported type.
+func NewHidden() *hiddenType { return nil }
+
+// HiddenConst is a constant of an unexported type.
+const HiddenConst hiddenType2 = 1
+
+type hiddenType2 int
+
+// Exposed embeds an unexported type.
+type Exposed struct {
+	hiddenType
+	B int
+}

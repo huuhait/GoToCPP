@@ -1,0 +1,6 @@
+package util // import "example.com/gp/a/util"
+
+Package util is the first util.
+
+func Both() string
+func First()

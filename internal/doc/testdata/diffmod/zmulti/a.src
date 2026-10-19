@@ -1,0 +1,8 @@
+// Package zmulti is spread over files.
+package zmulti
+
+// A is in a.
+func A() {}
+
+// T is a type in a.
+type T struct{}

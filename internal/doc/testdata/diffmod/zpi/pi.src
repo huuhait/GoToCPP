@@ -1,0 +1,19 @@
+// Package zpi has many types for sorting of summary output.
+package zpi
+
+type Zebra struct{}
+type apple struct{}
+type Mango struct{}
+type Apple struct{}
+type banana int
+
+func Zeta() {}
+func alpha() {}
+func Alpha() {}
+func Beta() {}
+
+var Zv, Av int
+var Mv = 1
+
+const Zc = 1
+const Ac = 2

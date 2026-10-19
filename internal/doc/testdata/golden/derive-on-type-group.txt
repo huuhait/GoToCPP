@@ -1,0 +1,11 @@
+package derivegroup // import "example.com/gp/derivegroup"
+
+
+TYPES
+
+type A int
+    A is the first.
+
+type B int
+    B is the second.
+

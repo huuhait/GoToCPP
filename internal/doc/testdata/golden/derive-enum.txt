@@ -1,0 +1,10 @@
+package macros // import "example.com/gp/macros"
+
+#Derive(String)
+type Color int
+    Color is a color.
+
+    #Derive(String) makes the names of the values.
+
+const Red Color = iota ...
+func (c Color) String() string

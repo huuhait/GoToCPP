@@ -1,0 +1,9 @@
+package examples // import "example.com/gp/examples"
+
+func (s *Stack) Push(v int)
+    Push pushes.
+
+
+EXAMPLES
+
+    ExampleStack_Push

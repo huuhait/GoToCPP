@@ -1,0 +1,10 @@
+package shapes // import "example.com/gp/shapes"
+
+const (
+	// Low is the lowest.
+	Low Level = iota + 1
+	// Mid is in the middle.
+	Mid
+	// High is the highest.
+	High
+)

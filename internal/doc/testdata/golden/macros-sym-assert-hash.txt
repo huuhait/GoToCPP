@@ -1,0 +1,5 @@
+package macros // import "example.com/gp/macros"
+
+macro Assert(cond bool, msg lazy string)
+    Assert stops the program when cond is false.
+

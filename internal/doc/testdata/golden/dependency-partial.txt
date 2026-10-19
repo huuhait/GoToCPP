@@ -1,0 +1,5 @@
+package lib // import "example.com/dep/lib"
+
+func Clamp[T int | float64](v, lo, hi T) T
+    Clamp limits v to the range lo..hi.
+

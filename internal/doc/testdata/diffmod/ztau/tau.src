@@ -1,0 +1,31 @@
+// Package ztau has a doc with a deprecated paragraph.
+//
+// Deprecated: ztau is replaced by something.
+package ztau
+
+// Old is old.
+//
+// Deprecated: use New.
+func Old() {}
+
+// New is new.
+func New() {}
+
+// OldType is old.
+//
+// Deprecated: gone.
+type OldType struct{}
+
+// OldConst is old.
+//
+// Deprecated: gone.
+const OldConst = 1
+
+// OldVar is old.
+// Deprecated: not a deprecation marker since it is not at paragraph start.
+var OldVar = 2
+
+var (
+	// Deprecated: both gone.
+	OldA, OldB = 1, 2
+)

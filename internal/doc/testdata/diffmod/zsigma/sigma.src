@@ -1,0 +1,38 @@
+// Package zsigma has embedded fields displayed in different ways.
+package zsigma
+
+import (
+	"io"
+	"sync"
+)
+
+// Base is base.
+type Base struct{ ID int }
+
+// Hello says hello.
+func (Base) Hello() {}
+
+// Derived embeds Base by value and pointer, and a qualified type.
+type Derived struct {
+	Base
+	*sync.Mutex
+	io.Reader
+	Name string
+}
+
+// Deep embeds Derived.
+type Deep struct {
+	Derived
+	Level int
+}
+
+// Local embeds an unexported type.
+type Local struct {
+	base
+	Pub int
+}
+
+type base struct{ x int }
+
+// Hi is promoted from an unexported embedded type.
+func (base) Hi() {}
