@@ -36,15 +36,15 @@
 - [x] 10.6 `errors.Wrapf(&err, ...)`
 - [ ] 10.7 (optional) Error return traces: design note, then `errors.Trace` / `%+v`
 - [x] 10.8 Built-in macros (`#file`, `#line`, `#func`, `#text`, `#body`, `#embed`) + `//go:embed`
-- [x] 10.9 User macros
-  - [ ] `macro` decl → inline header template with hidden `gp_site` param; `#file/#line/#func/#text` → use site
-  - [ ] uses inside code → calls with one static `Site` each
-  - [ ] `lazy T` → template callable (no `gp::func` allocation); concrete, spellable types only
-  - [ ] on-top, start style → first statement, nil-safe `defer` form, top-to-bottom order
-  - [ ] on-top, wrap style → code moved into a closure (returns rewritten), `gp_body` as a template callable, `#body()` rules
-  - [ ] nested macros via `Site.Outer` (`#text` innermost, `#file/#line/#func` outermost)
-  - [ ] cross-package macros via package summaries
-  - [ ] v1 rules: no plain calls/values, no statement use of `func()`-returning macros, package-level only
+- [x] 10.9 User macros (merged 2026-10-19; design deviates from the sub-steps below: generic functions with hidden constant arguments instead of header templates and `Site`: ADR-075)
+  - [x] `macro` decl → inline header template with hidden `gp_site` param; `#file/#line/#func/#text` → use site
+  - [x] uses inside code → calls with one static `Site` each
+  - [x] `lazy T` → template callable (no `gp::func` allocation); concrete, spellable types only
+  - [x] on-top, start style → first statement, nil-safe `defer` form, top-to-bottom order
+  - [x] on-top, wrap style → code moved into a closure (returns rewritten), `gp_body` as a template callable, `#body()` rules
+  - [x] nested macros via `Site.Outer` (`#text` innermost, `#file/#line/#func` outermost)
+  - [x] cross-package macros via package summaries
+  - [x] v1 rules: no plain calls/values, no statement use of `func()`-returning macros, package-level only
 - [ ] 10.10 `#Derive(...)` in two steps (stubs before go/types, bodies after): `String`, `Equal`, then `Clone`, struct-only `JSON`
 - [ ] 10.11 `gocpp expand`
 - [ ] 10.12 Lift gates; spec D12/D13/D17/D18; feature matrix
