@@ -23,7 +23,7 @@
 - [x] 6.12 CLI: `list`, `env`, `clean`, build flags, build tags
   - [ ] trusted C++ flags from the user (not from packages): `gocpp build -cxxflags=… -ldflags=…` and `GOCPP_CXXFLAGS` / `GOCPP_LDFLAGS`, which may load LLVM plugins (`-fpass-plugin=x.so`, `-fplugin=x.so`); part of the cache key (the plugin file's hash too)
   - [ ] `gocpp build -emit-llvm` (clang only): writes each translation unit's LLVM IR (`.ll`, or `.bc` with `-emit-llvm=bc`) next to the objects, for `opt -load-pass-plugin=…` and other tools; a clear error with g++
-- [ ] 6.13 Cross-compilation: windows/amd64 via MinGW-w64 (`.exe` linked with `-static`) + Wine CI job; linux/arm64 best effort
+- [x] 6.13 Cross-compilation: windows/amd64 via MinGW-w64 (`.exe` linked with `-static`) + Wine CI job; linux/arm64 best effort
   - [ ] the Windows toolchain downloaded like Go's (§2.10): `GOCPP_TOOLCHAIN=auto|local|pinned`, pinned llvm-mingw (UCRT) with SHA-256 in the binary, `GOCPP_TOOLCHAIN_URL` mirror, cache + lock, `gocpp env`/`clean -toolchain`, never started by the LSP or `check`, NixOS handled, test server tests
 - [ ] 6.14 Tests: multi-package fixtures, init order vs Go, incremental-build assertions (incl. constants), build-mode consumers (incl. two c-shared libs in one process), a tiny LLVM pass plugin loaded through `-cxxflags` (it counts functions) and `-emit-llvm` output that `opt` accepts
 
