@@ -192,6 +192,9 @@ func TestSameAsCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range entries {
+		if slices.Contains(stdlib.WindowsOnly, path) {
+			continue // no file for the default system (Linux): "build constraints exclude all .gp files"
+		}
 		h, err := st.handle(context.Background(), pkgID{dir: filepath.Join(p.cfg.StdlibDir, path), std: true}, path, nil)
 		if err != nil {
 			t.Fatal(err)
