@@ -147,7 +147,8 @@ assigned in `gp_var_init()`, so C++ runs no dynamic initializers of its own. Tha
 runtime type to have a `constexpr` default constructor, `gp::func` included. Without it, a
 `std::function` global gets C++ dynamic initialization, which can run *after* gocpp's init in a
 shared library and wipe the value (shown in the audit). Variables of C++ types that can't be
-constant-initialized use `gp::lazy<T>` storage, constructed inside `gp_var_init()`.
+constant-initialized (a C or C++ class by value) use `gp::lazy<T>` storage, constructed first thing
+in `gp_var_init()` or by a dynamic initializer if that never ran (ADR-093).
 
 ### 2.5 Build graph and cache
 
@@ -409,8 +410,10 @@ func main() { imgui.Begin("hello") }
    prints in init functions of independent packages is tests/pkgs/embed_init_recover), and
    `gp_init_all()` is written into the main package's `pkg_init.cpp` (it calls `gp_var_init()` and
    `gp_init_funcs()` of each package that has any); inside a package the order is the one of Phase 03
-   (`types.Info.InitOrder`, init functions by file name). Left for 6.4: `gp::lazy<T>` for C++ types
-   that can't be constant-initialized, and the lazy initialization of `c-archive`/`c-shared`.*
+   (`types.Info.InitOrder`, init functions by file name). The lazy initialization of `c-archive`/`c-shared`
+   is 6.10's (ADR-043). Closed after the audit: `gp::lazy<T>` (`runtime/include/gocpp/lazy.hpp`) is the
+   storage of a package variable that holds a C or C++ class by value, whose constructor may not be
+   `constexpr`; every other package variable stays `constinit` (ADR-093).*
 5. **6.5 Action graph** (transpile → compile → link) with content hashing, `-MD` header deps,
    macro lists, public flags and wrapper environment in the keys. *Built: the compile actions through the
    object cache (6.2), the counts of `-x`, and the up-to-date check (§2.5, ADR-036). Macro lists are Phase 10's.*

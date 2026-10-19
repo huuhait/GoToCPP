@@ -19,6 +19,7 @@
 #include <gocpp/complex.hpp>
 #include <gocpp/map.hpp>
 #include <gocpp/func.hpp>
+#include <gocpp/lazy.hpp>
 #include <gocpp/arith.hpp>
 #include <gocpp/newtype.hpp>
 #include <gocpp/type.hpp>

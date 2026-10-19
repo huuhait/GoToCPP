@@ -1541,8 +1541,7 @@ Here package `main` imports `b` and `c`, and `b` imports `z`. Go 1.25 runs the i
   again and again initialize the **first** package in that list whose imports are all
   initialized. This is the order of `load.Program.Packages`; the emitter writes `gp_init_all()` in
   `pkg_init.cpp` of the main package, with a call of `gp_var_init()` and `gp_init_funcs()` of each
-  package that has any (each declared in its `pkg.hpp`). (Step 6.4 refines the rest: the
-  `constinit` variables of C++ types and `gp::lazy<T>`.)
+  package that has any (each declared in its `pkg.hpp`).
 - Package variables are declared `constinit`, so C++ runs no dynamic initializers of its own,
   and no static initializer can read a variable of another C++ file before `gp_var_init()` has
   run (C++'s "static initialization order fiasco" can't happen). A variable with a constant
@@ -1558,8 +1557,13 @@ Here package `main` imports `b` and `c`, and `b` imports `z`. Go 1.25 runs the i
   variable one by one (the variable is still zero then, and Go's initialization-cycle rule means
   nothing in the initializer can read it), so the value is never a temporary on the C++ stack. Any other
   initializer of such a variable (a call's result) is one ([D24](language.md#d24-large-values-on-the-c-stack)).
-  Variables of C++ types that can't be constant-initialized use `gp::lazy<T>` storage, which is
-  constructed in `gp_var_init()` (Phase 06).
+  A variable whose type holds a C or C++ class by value (`std.vector[int]`, `std.mutex`, a C struct, a
+  struct of ours with such a field) is `gp::lazy<T>` storage, because the class's constructor may not be
+  constexpr ([ADR-093](../adr/093-package-variables-of-c-classes-are-lazy-storage.md)):
+  `gp::lazy<T> gp_lazy_x;` (no object yet), `constinit T& x = gp_lazy_x.gp_ref();` (the variable's own
+  name, a constant reference), `static const gp::lazy_boot gp_boot_x{gp_lazy_x};` and, first in
+  `gp_var_init()`, `gp_lazy_x.gp_ensure();`. The object is built (`T{}`) by whichever comes first, so a
+  library's early `gp_var_init()` is not wiped by the dynamic initializer, and never destroyed.
 - `gp::run_main(argc, argv, init, main)` stores the arguments (for `os.Args`), runs the init
   function, runs `main`, and exits with code 0. An unrecovered panic prints `panic: <message>`,
   `goroutine 1 [running]:` and a stack trace, and exits with code 2, as in Go (see

@@ -1,5 +1,4 @@
 // phase: 10
-// pending: the standard packages of Phase 09 (bufio, os, strconv, strings: steps 9.x)
 
 // Must-errors reads small "key = value" config files and shows ! (must). A
 // must function (func loadConfig!) returns every error that its code drops; a

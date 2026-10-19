@@ -319,6 +319,7 @@ func TestCXX(t *testing.T) {
 						{src: "test/cxxvalue_test.cpp", weight: 7},
 						{src: "test/unsafe_test.cpp", weight: 7},
 						{src: "test/concepts_test.cpp", weight: 4},
+						{src: "test/lazy_test.cpp", weight: 3},
 						{src: "test/trace_test.cpp", weight: 3},
 						{src: "test/defer_test.cpp", weight: 3},
 						{src: "test/func_test.cpp", weight: 3},
@@ -351,6 +352,10 @@ func TestCXX(t *testing.T) {
 					t.Run("concepts", func(t *testing.T) {
 						t.Parallel()
 						runUnit(t, bins.bin(t, "test/concepts_test.cpp"))
+					})
+					t.Run("lazy", func(t *testing.T) {
+						t.Parallel()
+						runUnit(t, bins.bin(t, "test/lazy_test.cpp"))
 					})
 					t.Run("slice", func(t *testing.T) {
 						t.Parallel()

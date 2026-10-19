@@ -128,6 +128,7 @@ type gen struct {
 	vars     []*types.Var   // the package variables, in source order (without _)
 	initFns  []string       // the C++ names of the init functions, in source order
 	varInits bool           // gp_var_init is needed
+	lazyVars []string       // the gp::lazy storage of the package variables of C/C++ classes (lazyVar), in source order
 
 	// uintCounts are the expressions inside a shift count that is untyped but not a
 	// constant (markCounts).

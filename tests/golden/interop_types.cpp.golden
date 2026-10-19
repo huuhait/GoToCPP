@@ -47,8 +47,9 @@ gp::cptr<::FILE> open(gp::cptr<char> name, gp::cptr<char> mode);
 std::tuple<size_t, size_t> sizes(::std::array<int, 4> a, ::std::bitset<64> b);
 void main();
 
-extern ::std::vector<::gpkg_main::File> files;
+extern ::std::vector<::gpkg_main::File>& files;
 
+void gp_var_init();
 } // namespace gpkg_main
 
 //// gpkg/command-line-arguments/interop_types.gp.cpp
@@ -117,10 +118,21 @@ void main() {
 namespace gpkg_main {
 
 #line 24 "$ROOT/tests/golden/interop_types.gp"
-::std::vector<::gpkg_main::File> files{};
+gp::lazy<::std::vector<::gpkg_main::File>> gp_lazy_files;
+#line 24 "$ROOT/tests/golden/interop_types.gp"
+constinit ::std::vector<::gpkg_main::File>& files = gp_lazy_files.gp_ref();
+static const gp::lazy_boot gp_boot_files{gp_lazy_files};
+
+void gp_var_init() {
+    gp_lazy_files.gp_ensure();
+}
 
 } // namespace gpkg_main
 
+void gp_init_all() {
+    gpkg_main::gp_var_init();
+}
+
 int main(int argc, char** argv) {
-    return gp::run_main(argc, argv, nullptr, &gpkg_main::main);
+    return gp::run_main(argc, argv, &gp_init_all, &gpkg_main::main);
 }

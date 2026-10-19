@@ -244,6 +244,13 @@
             # downloading that toolchain.
             GOTOOLCHAIN = "local";
 
+            # The LLVM tools (opt, llvm-dis) and headers (llvm/Passes/PassPlugin.h) of the tests
+            # of `-cxxflags=-fpass-plugin=` and `-emit-llvm` (cmd/gocpp/llvmplugin_test.go). Only
+            # these variables name them: the tools are not on PATH, so the build driver still finds
+            # the same archiver and linker as before.
+            GOCPP_LLVM_BIN = "${llvm.llvm}/bin";
+            GOCPP_LLVM_DEV = "${llvm.llvm.dev}";
+
             # Keep Wine from adding menu entries, MIME types and icons to ~/.local/share
             # (whatever WINEPREFIX is). A script that sets WINEDLLOVERRIDES must keep it.
             WINEDLLOVERRIDES = "winemenubuilder.exe=d";

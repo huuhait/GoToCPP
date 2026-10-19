@@ -235,3 +235,35 @@ func unconvert(x cppir.Expr) cppir.Expr {
 		}
 	}
 }
+
+// lazyVar adds the package variable v whose type holds a C or C++ class by value (cmpHasC):
+// std.vector[int], std.mutex, a C struct, a struct of ours with such a field. C++ may not
+// evaluate the constructor of such a class at compile time (std::ofstream, a class that counts
+// its objects), so the variable cannot be constinit, and a variable with a dynamic initializer
+// can be wiped by it after gp_var_init has stored its value (a library whose host calls an
+// exported function from a static initializer of its own). It is gp::lazy storage (ADR-093,
+// gocpp/lazy.hpp): constant-initialized with no object, the variable's own name is a constinit
+// reference to the object, which gp_var_init builds first (T{}, the zero value) before it sets
+// any variable; a dynamic initializer builds it when gp_var_init did not (a cpp-lib consumer
+// that does not call init()). The object is never destroyed.
+//
+//	gp::lazy<std::vector<int64_t>> gp_lazy_global;
+//	constinit std::vector<int64_t>& global = gp_lazy_global.gp_ref();
+//	static const gp::lazy_boot gp_boot_global{gp_lazy_global};
+func (g *gen) lazyVar(v *types.Var) {
+	name := g.names[v]
+	store := "gp_lazy_" + name
+	typ := g.varType(v, v.Pos())
+	pos := g.pos(v.Pos())
+	g.out.vars = append(g.out.vars,
+		varDecl(pos, &cppir.TypeName{Name: "gp::lazy", Args: []cppir.Node{typ}}, store, nil),
+		&cppir.VarDecl{Pos: pos, Specs: []string{"constinit"}, Type: &cppir.Ref{Elem: typ}, Vars: []cppir.Declarator{{
+			Name: name, Init: &cppir.Call{Fun: &cppir.Member{X: cxxName(store), Name: "gp_ref"}},
+		}}},
+		&cppir.VarDecl{Specs: []string{"static", "const"}, Type: typeName("gp::lazy_boot"), Vars: []cppir.Declarator{{
+			Name: "gp_boot_" + name, Init: &cppir.InitList{Elems: []cppir.Expr{cxxName(store)}},
+		}}})
+	g.out.varExt = append(g.out.varExt, &cppir.VarDecl{Specs: []string{"extern"}, Type: &cppir.Ref{Elem: typ}, Vars: []cppir.Declarator{{Name: name}}})
+	g.lazyVars = append(g.lazyVars, store)
+	g.varInits = true
+}

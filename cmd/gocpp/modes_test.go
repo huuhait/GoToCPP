@@ -433,6 +433,58 @@ func buildLib(t *testing.T, mode, out string, flags ...string) string {
 	return out
 }
 
+// lazyLibFixture is a library whose package variable is a C++ class with a constructor that C++
+// cannot run at compile time (step 6.4, ADR-093).
+var lazyLibFixture = map[string]string{
+	"gocpp.mod": "module example.com/lazylib\n",
+	"late.hpp": `#pragma once
+inline int g_ctor_calls = 0;
+inline int next_seed() { return ++g_ctor_calls; }
+struct Late {
+	int v;
+	Late() : v(next_seed() * 100) {}
+	int get() const { return v; }
+	void set(int x) { v = x; }
+};
+`,
+	"lib.gp": `package main
+
+import "./late.hpp"
+
+var l late.Late
+
+func init() { l.set(7) }
+
+//export Peek
+func Peek() int32 { return int32(l.get()) }
+
+func main() {}
+`,
+}
+
+// A host that calls an exported function from a constructor of its own, before the dynamic
+// initializers of the archive have run, must not have the value wiped by one of them: the package
+// variable of a C++ class is gp::lazy storage whose dynamic initializer builds the object only when
+// gp_var_init has not (the archive's objects come after the host's in the link, so their initializers
+// run after the host's constructor).
+func TestModesCArchiveEarlyCall(t *testing.T) {
+	t.Setenv("GOCPP_GATE_PHASE", libGate)
+	forEachCXX(t, func(t *testing.T, c testCXX) {
+		dir := inDir(t, lazyLibFixture)
+		writeFiles(t, dir, map[string]string{"host/main.c": `#include <stdio.h>
+#include "libfx.h"
+__attribute__((constructor)) static void early(void) { printf("early %d\n", (int)Peek()); }
+int main(void) { printf("main %d\n", (int)Peek()); return 0; }
+`})
+		lib := buildLib(t, "c-archive", "libfx.a")
+		compileC(t, c, dir, "prog", "host/main.c", lib, "-lstdc++", "-pthread", "-lm", "-ldl")
+		out, errOut, code := runCmd(t, dir, nil, filepath.Join(dir, "prog"))
+		if code != 0 || out != "early 7\nmain 7\n" || errOut != "" {
+			t.Errorf("exit %d\nstdout: %q (want \"early 7\\nmain 7\\n\")\nstderr: %s", code, out, errOut)
+		}
+	})
+}
+
 func TestModesCArchive(t *testing.T) {
 	t.Setenv("GOCPP_GATE_PHASE", libGate)
 	forEachCXX(t, func(t *testing.T, c testCXX) {

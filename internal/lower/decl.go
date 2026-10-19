@@ -274,6 +274,12 @@ func (g *gen) packageVars() {
 	}
 	for _, v := range g.vars {
 		g.notePkgVar(v, byVar[v]) // why.go
+		if cmpHasC(v.Type()) {
+			// A C/C++ class by value (also inside a struct or an array of ours): its constructor
+			// may not be constexpr, so constinit is not possible: gp::lazy storage (lazyVar).
+			g.lazyVar(v)
+			continue
+		}
 		if !complete(v.Type()) {
 			// A C/C++ type (ctypes.go): its zero value, and the value in gp_var_init. Not
 			// constinit: a C++ class may have a constructor that isn't constexpr.
@@ -360,6 +366,9 @@ func (g *gen) initFuncs() {
 		fg.names.openScope()
 		fn := &cppir.Func{Result: typeName("void"), Name: "gp_var_init", Body: &cppir.Block{}}
 		fg.push(&fn.Body.Stmts, nil)
+		for _, store := range g.lazyVars { // (lazyVar, pkgvars.go) the zero values, before any initializer reads one
+			fg.add(&cppir.ExprStmt{X: &cppir.Call{Fun: &cppir.Member{X: cxxName(store), Name: "gp_ensure"}}})
+		}
 		for _, init := range g.info.InitOrder {
 			if constInit(g.info, init) != nil || nilInit(g.info, init) || g.constLit(init) != nil {
 				continue
