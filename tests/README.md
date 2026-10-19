@@ -26,6 +26,7 @@ make test-programs                         # go test -count=1 -v ./tests/...
 | `TestDiff` | [diff/](diff/README.md) | a `.gp` program that is valid Go | `gocpp run` and real Go print the same stdout (with a `// diff:` line, also stderr) and exit with the same code |
 | `TestInterop` | [interop/](interop/README.md) | a run test that uses C/C++ libraries, or an interop error test (`// ERROR` comments) | like `TestRun`; a folder with a `main.gp` is a test too (a package with its own C/C++ files, run as `gocpp run .`); skipped when `pkg-config` can't find a library. An error test passes when `gocpp build` fails with exit code 1 and reports exactly those errors (the C++ compiler's and the linker's, at the `.gp` lines), and no other output: the line "(and N more errors in gocpp's code ...)" is an error too, unless the file says `// others-ok: N reason` (exactly N of them) |
 | `TestDocSnippets` | [docs/spec/interop.md](../docs/spec/interop.md), [interop-cookbook.md](../docs/spec/interop-cookbook.md) | every `<!-- test: PATH -->` block of the two docs | the fenced block after the marker equals the file (without its `// phase:` header lines and `// Output:` block; `<!-- output: PATH -->` shows the output), every `cookbook_*` and `doc_*` interop test is shown in the docs, an output marker has its test marker before it, a shown program that prints has its output shown, every ```go block carries a test marker or `<!-- illustration: reason -->`, and every relative link of the two docs leads to a file and a heading that exist |
+| `TestStackOverflow` | [overflow/](overflow/README.md) | a run test of a program that recurses without end (main goroutine, other goroutine) | exit code 2 and `fatal error: stack overflow` with a `goroutine N [running]:` line on stderr, as in Go, never a bare SIGSEGV; skipped under `-asan` and `-race`, where the sanitizer reports the overflow |
 | `TestZoo` | [zoo/](zoo/README.md) | the header zoo: one `.gp` program per header or library (the C and C++ standard headers, sqlite3, zlib, SDL2, raylib), with an `// Output:` block | `gocpp check` is clean, and `gocpp run` prints that output with each compiler. A file with `// display: required` (SDL2, raylib) is only built, never run |
 | `TestPkgs` | [pkgs/](pkgs/README.md) | a folder `pkgs/<name>/` with a `gocpp.mod`, a `main.gp` (with `// Output:`) and the packages it imports | `gocpp run .` prints that output, like `TestRun`; a program of several packages (Phase 06) |
 | `TestPkgsVsGo` | [pkgs/](pkgs/README.md) | the same folders, with `GOCPP_RUN_VS_GO=1` | real Go prints that output (the module is copied with `.gp` renamed to `.go`) |
@@ -83,6 +84,26 @@ module next to the test (`difftest/internal/<name>`, [twin_test.go](twin_test.go
 natives of `internal/bytealg` (C++ in gocpp) are replaced in that copy by calls of `bytes` and `strings`
 (`testdata/twin/bytealg_native.go.txt`), so a test's `// Output:` block must equal what Go computes for the same inputs.
 
+## Stress tests
+
+The programs `tests/run/stress_*.gp` (step 8.13: goroutines, channel operations, recursion, timers, mutexes and
+`select` under contention) read `GOCPP_STRESS` with `os.Getenv`. Without it they run a **small** size that finishes
+in a few seconds (500 goroutines, 10 thousand channel operations), so they are ordinary members of `TestRun`, of the
+sanitizer runs and of `TestRunVsGo`. With `GOCPP_STRESS=1` they run the **big** size (10,000 goroutines alive at
+once, about 4 million channel operations, 20,000 timers, 64 goroutines x 20,000 lock rounds, recursion 50,000 frames
+deep), and each program checks its own totals and prints only `true` lines, so one `// Output:` block serves both sizes:
+
+```sh
+GOCPP_STRESS=1 GOCPP_TEST_PHASE=09 go test ./tests -run 'Run/stress_'                         # all five, big
+GOCPP_STRESS=1 GOCPP_TEST_PHASE=09 go test ./tests -run 'Run/stress_goroutines'                # one, by name
+GOCPP_STRESS=1 GOCPP_RUN_VS_GO=1 GOCPP_TEST_PHASE=09 go test ./tests -run 'RunVsGo/stress_'    # the same with real Go
+```
+
+Go's own `test/chan` programs run through the conformance tool, not here: `go run ./tools/gotest run -filter '^chan/' -v`
+(add `-cxx clang++` for the other compiler; [docs/guides/conformance.md](../docs/guides/conformance.md)). 16 of the 19 pass with both compilers (15 run programs and the errorcheck `perm.go`) and are in the
+regression gate; the other three are `doubleselect` (needs `flag`, step 9.9) and `sieve2` (needs `container/heap`, step 9.11); `select2` reads the
+runtime's memory statistics and is skipped as `runtime-internals`.
+
 ## Sanitizers
 
 `make ci-race` is the race detector job (step 8.12, [docs/guides/race.md](../docs/guides/race.md)): the
@@ -108,7 +129,7 @@ and then runs with `ASAN_OPTIONS=detect_leaks=0` (after the `ASAN_OPTIONS` of th
 so LeakSanitizer is off for that test only; AddressSanitizer and UBSan stay on. The line is
 allowed in run, diff and interop tests, and in `internal/cppgen/testdata/emit`. It is set with or
 without `-asan` (without, it changes nothing), so the command that a failing test shows has it.
-Today 17 tests have it (`rg -l "^// lsan: cycle" tests internal`); the first ones were `tests/run/closures_recursive.gp` and
+Today 21 tests have it (`rg -l "^// lsan: cycle" tests internal`); the first ones were `tests/run/closures_recursive.gp` and
 `internal/cppgen/testdata/emit/closures.gp`, both a closure that calls itself through a variable,
 `tests/run/embed_later_types.gp`, two structs that embed pointers to each other, and
 `tests/run/sync_cond_queue.gp` and `sync_cond_semaphore.gp`, a struct that holds a `sync.Cond` whose

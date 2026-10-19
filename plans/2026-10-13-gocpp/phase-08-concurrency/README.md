@@ -291,6 +291,15 @@ step 8.12's job must set `TSAN_OPTIONS=detect_deadlocks=0` for the `select_1000_
     a deep-recursion test; timer `cap`/`len`/`Stop`/`Reset` differential tests. The other
     `test/chan` programs need `flag`, `runtime.GC`, `container/*` or `text/template` and move to
     Phase 09; `perm.go` is an error test (`tests/errors`).
+    *Built (8.13):* about 270 concurrency run tests plus 5 stress tests (`chan_*`, `select_*`, `sync_*`, `atomic_*`, `context_*`, `deadlock_*`,
+    `runtime_goexit_*`, `time_*`), 27 of them added in this step (context, Go 1.23 timer `len`/`cap`/`Stop`/`Reset` tables,
+    Goexit, atomic locks, barriers, a strict `Cond.Broadcast` test), and the stress and overflow tests; the new ones were checked with real Go (`GOCPP_RUN_VS_GO=1`) and with `-asan` and `-race`.
+    The `test/chan` programs already run through `tools/gotest` (15.10): 16 of 19 pass with g++ and clang++ (15 run programs and the errorcheck `perm.go`; `doubleselect` needs
+    `flag` and `sieve2` needs `container/heap`, both listed in `tools/gotest/expect.txt`; `select2` is skipped as `runtime-internals`).
+    Stress: `tests/run/stress_*.gp` run small by default and big with `GOCPP_STRESS=1` (10,000 goroutines, about 4 million channel
+    operations, 50,000 frames of recursion); `tests/overflow` (`TestStackOverflow`) holds the endless-recursion tests (a sanitizer
+    reports an overflow itself, so they are skipped under `-asan`/`-race`). Limit found: a 8 MiB stack does not hold 100,000 frames of
+    a pointer-recursive function with clang++ (Go's 1 GB stack does): `fatal error: stack overflow`, D7/D24.
 14. **8.14 (optional) `iter.Pull` on a helper thread.** Done in step 7.10 (ADR-078).
 15. **8.15 Thread layer for portability**: thread start with a stack size, thread-local storage
     and the stack-overflow hook behind one small `gp::os` interface in `runtime/src/os/`, with the Linux version here
