@@ -36,7 +36,7 @@
 - [x] 10.6 `errors.Wrapf(&err, ...)`
 - [ ] 10.7 (optional) Error return traces: design note, then `errors.Trace` / `%+v`
 - [x] 10.8 Built-in macros (`#file`, `#line`, `#func`, `#text`, `#body`, `#embed`) + `//go:embed`
-- [ ] 10.9 User macros
+- [x] 10.9 User macros
   - [ ] `macro` decl → inline header template with hidden `gp_site` param; `#file/#line/#func/#text` → use site
   - [ ] uses inside code → calls with one static `Site` each
   - [ ] `lazy T` → template callable (no `gp::func` allocation); concrete, spellable types only
