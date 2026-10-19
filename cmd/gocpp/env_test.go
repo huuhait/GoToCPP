@@ -216,10 +216,10 @@ func TestEnvListsEveryVariable(t *testing.T) {
 	for _, v := range envVars {
 		listed[v.name] = true
 	}
-	// Variables that only tests and benchmarks of the repository read, or that gocpp env shows
+	// Variables that only tests, benchmarks and fuzz campaigns of the repository read, or that gocpp env shows
 	// under another name.
 	internal := func(n string) bool {
-		return strings.HasPrefix(n, "GOCPP_TEST_") || strings.HasPrefix(n, "GOCPP_BENCH") || n == "GOCPP_REQUIRE_CXX" || n == "GOCPP_RUN_VS_GO" ||
+		return strings.HasPrefix(n, "GOCPP_TEST_") || strings.HasPrefix(n, "GOCPP_BENCH") || strings.HasPrefix(n, "GOCPP_FUZZ_") || n == "GOCPP_REQUIRE_CXX" || n == "GOCPP_RUN_VS_GO" ||
 			n == "GOCPP_ALLOW_INTERNAL" || n == "GOCPP_REQUIRE_PORTSTD" || n == "GOCPP_LIB_" // the harness's, a tool's, and the prefix of a header guard
 	}
 	for n := range found {
