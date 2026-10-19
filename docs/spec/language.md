@@ -1296,6 +1296,28 @@ func secret(key string) (int, error) {
 | `#embed("logo.png")` | a string constant with the file's bytes (Go's `//go:embed` works too) |
 | `#Derive(...)` with `String`, `Equal`, `Clone`, `JSON` | on top of a type: generated methods (below) |
 
+**How the built-ins work (step 10.8, [ADR-058](../adr/058-builtin-macros-and-embed-in-the-loader.md)).** Each
+use is replaced by a Go constant in parentheses, before type checking, and keeps the position of the
+use, so the built-ins are untyped constants (`const here = #line()`, `[#line() % 7]int`, `case #line():`).
+
+- `#file()`: the path of the file from the root of its module with slashes (`util/util.gp`), or the
+  file name for a program without `gocpp.mod`. A `//line` comment changes it (the module-relative or base name of what it says, `??` when it has none: a relative or an absolute name can differ from Go's runtime).
+- `#line()`: the line of the use (an integer constant).
+- `#func()`: the name that the Go runtime prints for code that gc does not inline: `main.f`,
+  `main.(*T).M`, `main.T.M`, `main.f.func1`, `main.f.func2.1` (a literal in a literal),
+  `main.init.0` (the first `func init()`), `main.init.func1` (a literal in a package-level
+  initializer, counted across the files of the package), `main.F[...]`, `main.(*G[...]).M`; for a
+  package other than `main`, its import path.
+- `#text(x)`: the source text of `x` from its first token to its last, with each line break (and its
+  indentation) and each comment inside it turned into one space. `x` is not evaluated and not checked.
+- `#embed("file")`: an untyped string constant with the bytes of a file of the folder of the source
+  file or below it. One file name, not a pattern; at most 16 MiB (64 MiB for a package).
+- `//go:embed pattern...` on a package-level `string` or `[]byte` variable gives it the bytes, with
+  Go's rules and error messages ([guide](../guides/embed.md)). `embed.FS` waits for `io/fs` (Phase 09).
+- Mistakes (an argument to `#line()`, `#text()` without an argument, `#body()` outside a macro,
+  a file that does not exist) are errors at the use. Used inside a macro declaration, `#file()`,
+  `#line()`, `#func()` and `#text(param)` describe the use of the macro (step 10.9).
+
 **Nested macros keep both places.** If a macro `Check(v int)` uses `#Assert(v > 0, ...)`, then
 inside `Assert`, `#text(cond)` is `"v > 0"` (the text of the inner use), while `#file()` and
 `#line()` point at your call of `Check`.

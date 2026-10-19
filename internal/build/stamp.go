@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/huuhait/gocpp/internal/load"
 )
 
 // The up-to-date check (Phase 06 steps 6.5 and 6.6, ADR-036). A build that finds nothing to do
@@ -168,6 +170,7 @@ type fsOp struct {
 	Exists bool    `json:"e,omitempty"`
 	Dir    bool    `json:"d,omitempty"` // "s": the name is a folder
 	Hash   string  `json:"h,omitempty"` // "d": the hash of the listing (listingHash)
+	All    bool    `json:"a,omitempty"` // "d": the listing has every file, also those the loader ignores (an embed listing)
 	Stat   statRec `json:"t"`           // "f" and "d": the stat, with the hash of the file in Stat.Hash
 }
 
@@ -211,6 +214,9 @@ func (r *FSRecorder) add(op fsOp) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	key := op.Kind + "\x00" + op.Path
+	if op.All {
+		key = "D\x00" + op.Path // the unfiltered listing of an embed pattern is another look
+	}
 	if i, ok := r.seen[key]; ok {
 		old := r.ops[i]
 		if old.Exists != op.Exists || old.Dir != op.Dir || old.Hash != op.Hash || old.Stat.Hash != op.Stat.Hash {
@@ -224,8 +230,18 @@ func (r *FSRecorder) add(op fsOp) {
 
 // ReadFile reads the file name like os.ReadFile and records it.
 func (r *FSRecorder) ReadFile(name string) ([]byte, error) {
+	return r.readFile(name, os.ReadFile)
+}
+
+// ReadFileLimit reads a regular file of at most limit bytes, without following a link, and
+// records it like ReadFile (load.LimitedReader: the files that //go:embed and #embed read).
+func (r *FSRecorder) ReadFileLimit(name string, limit int64) ([]byte, error) {
+	return r.readFile(name, func(name string) ([]byte, error) { return load.ReadRegularFile(name, limit) })
+}
+
+func (r *FSRecorder) readFile(name string, read func(string) ([]byte, error)) ([]byte, error) {
 	before, serr := os.Stat(name)
-	data, err := os.ReadFile(name)
+	data, err := read(name)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			r.add(fsOp{Kind: "f", Path: name})
@@ -263,7 +279,11 @@ func (r *FSRecorder) Open(name string) (io.ReadCloser, error) {
 // that os.ReadDir gives (by name): the folders and symbolic links, and the files that the loader
 // looks at by their names (relevantFile). The program that the build writes next to the sources
 // is none of those, so it does not change the listing: a build must not make its own stamp stale.
-func listingHash(entries []fs.DirEntry) string {
+func listingHash(entries []fs.DirEntry) string { return listingHashOf(entries, false) }
+
+// listingHashOf is listingHash; with all, the files of every name count (the listing of a
+// folder that //go:embed or #embed read: a new file there changes the program).
+func listingHashOf(entries []fs.DirEntry, all bool) string {
 	h := sha256.New()
 	for _, e := range entries {
 		kind := "f"
@@ -275,7 +295,7 @@ func listingHash(entries []fs.DirEntry) string {
 		case !e.Type().IsRegular():
 			kind = "o"
 		}
-		if kind == "f" && !relevantFile(e.Name()) {
+		if kind == "f" && !all && !relevantFile(e.Name()) {
 			continue
 		}
 		fmt.Fprintf(h, "%s\x00%s\n", e.Name(), kind)
@@ -295,7 +315,14 @@ func relevantFile(name string) bool {
 }
 
 // ReadDir lists the folder name like os.ReadDir and records it.
-func (r *FSRecorder) ReadDir(name string) ([]fs.DirEntry, error) {
+func (r *FSRecorder) ReadDir(name string) ([]fs.DirEntry, error) { return r.readDir(name, false) }
+
+// ReadDirAll lists the folder name like ReadDir, but the stamp notices every file that comes or
+// goes, not only those the loader looks at by name: the embed patterns (step 10.8) read folders
+// that way (the loader asks for it through load.FullLister).
+func (r *FSRecorder) ReadDirAll(name string) ([]fs.DirEntry, error) { return r.readDir(name, true) }
+
+func (r *FSRecorder) readDir(name string, all bool) ([]fs.DirEntry, error) {
 	entries, err := os.ReadDir(name)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -314,7 +341,7 @@ func (r *FSRecorder) ReadDir(name string) ([]fs.DirEntry, error) {
 		r.mu.Unlock()
 		return entries, nil
 	}
-	r.add(fsOp{Kind: "d", Path: name, Exists: true, Hash: listingHash(entries), Stat: recOf(fi, time.Now())})
+	r.add(fsOp{Kind: "d", Path: name, Exists: true, Hash: listingHashOf(entries, all), All: all, Stat: recOf(fi, time.Now())})
 	return entries, nil
 }
 
@@ -772,6 +799,11 @@ func NewStamp(key string, trace *FSRecorder, pkgConfig *PkgConfigLog, rec *Recor
 		s.PkgConfig = pkgConfig.Recs()
 	}
 	slices.SortFunc(s.Units, func(a, b UnitRec) int { return strings.Compare(a.Src, b.Src) })
+	// The program is written next to the sources by default: the full listing of a folder
+	// that an embed pattern read (fsOp.All) must not see it as a new file.
+	if why := s.settleListings([]string{out}); why != "" {
+		return nil, why
+	}
 	// The headers of all the compiles, each once: a program's units read the same few hundred
 	// system headers, so a stamp that lists them for each unit would be 100 times as big and as
 	// slow to read.
@@ -913,7 +945,7 @@ func (s *Stamp) Check(ctx context.Context, cache string, compilers []string, pkg
 				continue
 			}
 			entries, err := os.ReadDir(op.Path)
-			if err != nil || listingHash(entries) != op.Hash {
+			if err != nil || listingHashOf(entries, op.All) != op.Hash {
 				return "the files of " + op.Path + " changed"
 			}
 			if fi, err := os.Stat(op.Path); err == nil {

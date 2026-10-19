@@ -597,7 +597,7 @@ func TestStubFile(t *testing.T) {
 	// Every package of the list is a standard package with a name that is
 	// its last element.
 	for _, p := range packages {
-		if path.Base(p.Path) == "" || p.Phase < 2 || p.Phase > 9 {
+		if path.Base(p.Path) == "" || p.Phase < 2 || p.Phase > 10 {
 			t.Errorf("%+v: bad entry", p)
 		}
 	}

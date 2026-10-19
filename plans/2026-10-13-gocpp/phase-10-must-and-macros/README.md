@@ -630,6 +630,16 @@ at the call site **and** at the macro or derive that produced it.
 6. **10.6 `errors.Wrapf(&err, ...)`** helper (a gocpp extension in the `errors` package).
 7. **10.7 (optional) Error return traces**: design note first, then `errors.Trace` / `%+v`.
 8. **10.8 Built-in macros** (`#file`, `#line`, `#func`, `#text`, `#body`, `#embed`) + `//go:embed`.
+   *Built (step 10.8, [ADR-058](../../../docs/adr/058-builtin-macros-and-embed-in-the-loader.md)):* a rewrite
+   in the loader (`internal/load/builtins.go`, `embed.go`), when `Config.Phase10Syntax` is on: each use becomes a
+   parenthesized Go constant with the span of the use, so `go/types` and the lowering need no change.
+   `#file()` is module-relative, `#func()` has the runtime's names (checked against `go run -gcflags=-l`),
+   `#text(x)` keeps the source text (breaks and comments become one space), `#embed("f")` and `//go:embed`
+   on `string`/`[]byte` follow Go's patterns and messages, with limits of 16 MiB for a file and 64 MiB for
+   a package. `embed.FS` is "not available yet (Phase 09)". `#body()` is validated here (an error outside a
+   macro declaration) and expanded by 10.9, which also expands the built-ins inside macro declarations with
+   the use site. The language server (`Config.NoEmbedFiles`) checks the directives but reads no embedded
+   file, because a check there may read only what the imports' resolution read.
 9. **10.9 User macros**: `macro` declarations → inline header templates with the hidden site
    parameter; uses inside code → calls with one static `Site` each; `lazy` → template callables;
    on-top macros: start style (first statement, nil-safe `defer` form) and wrap style (the code

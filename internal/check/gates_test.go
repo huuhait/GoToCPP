@@ -377,8 +377,8 @@ func main() {
 		want: []string{"# command-line-arguments [command-line-arguments.test]", "./main_test.gp:1:1: test files are not supported yet (Phase 09)"}},
 
 	{name: "embed", phase: 10, src: "package main\n\nimport _ \"embed\"\n\nfunc main() {}\n",
-		want:   []string{"3:8: package embed is not available yet (Phase 10)"},
-		wantAt: []string{"3:8: package embed is not available yet (Phase 09)"}},
+		// The package embed is the declaration stub since step 10.8: the gate is its phase.
+		want: []string{"3:10: package embed is not available yet (Phase 10)"}},
 
 	// Phase 10.
 	{name: "must calls", phase: 10, src: "package main\n\nfunc f() (int, error) { return 0, nil }\n\nfunc main() {\n\tx := f!()\n\tprintln(x)\n\ty := f!()\n}\n",

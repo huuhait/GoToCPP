@@ -117,6 +117,7 @@ var packages = []stubPackage{
 	{Path: "time", Phase: 8, Real: true},
 	{Path: "io/fs", Phase: 9, Real: true, Missing: []string{"Glob", "GlobFS", "Sub", "SubFS"}},
 	{Path: "context", Phase: 9},
+	{Path: "embed", Phase: 10},
 	{Path: "fmt", Phase: 5, Later: "Phase 05 replaces it with a basic fmt, and Phase 09 with Go's."},
 	{Path: "maps", Phase: 7},
 	{Path: "slices", Phase: 7},

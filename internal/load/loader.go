@@ -84,6 +84,15 @@ type Config struct {
 	// syntax is a syntax error, which the gates (internal/check) explain.
 	Phase10Syntax bool
 
+	// NoEmbedFiles makes //go:embed and #embed (step 10.8) check the
+	// directive and the pattern, but not read any file: the variable or the
+	// macro gets the empty string, and a missing file is no error. The
+	// language server sets it: a check there may read only what the
+	// resolution of the imports read (internal/lsp/cache/fs.go), and the
+	// content of an embedded file changes no type. gocpp check and build
+	// read the files.
+	NoEmbedFiles bool
+
 	// Fset is the file set that gets the files. If it is nil, Load makes
 	// a new one.
 	Fset *token.FileSet
@@ -425,6 +434,11 @@ type File struct {
 	// name at a place skip them: hover, go to definition, references,
 	// rename and the hints take the user's own names only.
 	Synthetic map[*ast.Ident]bool
+	// Src is the text of the file, for the macro #text(x) (the text of
+	// an argument, step 10.8). It is set only when the loader parses the
+	// syntax of Phase 10 (Config.Phase10Syntax) and only for a file of a
+	// user package: it is nil otherwise. The caller must not change it.
+	Src []byte
 }
 
 // A Module is a tree of packages with a gocpp.mod file at its top. Module.File
@@ -910,7 +924,7 @@ func (l *loader) readXTest(p *Package) (*Package, bool) {
 			addParseErrors(&errs, err)
 		}
 		xerrs = append(xerrs, errs.Diagnostics()...)
-		files = append(files, &File{Path: s.path, AST: f, Test: true})
+		files = append(files, &File{Path: s.path, AST: f, Test: true, Src: l.keepSrc(p, s.src)})
 		xnames = append(xnames, xtestName{s.name, strings.TrimSuffix(f.Name.Name, "_test")})
 	}
 	// The same check as in read, against the name of p from its own files.
@@ -1098,7 +1112,7 @@ func (l *loader) read(p *Package, named []string, tests bool) (internalTests boo
 		if err != nil {
 			addParseErrors(&errs, err)
 		}
-		file := &File{Path: s.path, AST: f, Test: isTestFile(s.name)}
+		file := &File{Path: s.path, AST: f, Test: isTestFile(s.name), Src: l.keepSrc(p, s.src)}
 		name := f.Name.Name
 		if file.Test && strings.HasSuffix(name, "_test") && name != p.Name {
 			// An external test package: package geom_test, next to
@@ -1336,6 +1350,9 @@ func (l *loader) process(p *Package) {
 
 	for _, f := range p.Files {
 		f.Rewrite = RewriteFile(l.fset, f.AST, f.Info, pkgLevel, l.dotNames(p, f.Info), p.Errors)
+	}
+	if l.cfg.Phase10Syntax {
+		l.builtinMacros(p) // builtins.go: #file, #line, #func, #text, #embed and //go:embed
 	}
 }
 
@@ -1625,4 +1642,13 @@ func (l *loader) parseMode() parser.Mode {
 		mode |= parser.Phase10Syntax
 	}
 	return mode
+}
+
+// keepSrc returns src for File.Src: the text of a file of a user package
+// when the loader parses the syntax of Phase 10, else nil.
+func (l *loader) keepSrc(p *Package, src []byte) []byte {
+	if l.cfg.Phase10Syntax && !p.Std {
+		return src
+	}
+	return nil
 }

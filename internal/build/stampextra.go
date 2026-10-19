@@ -63,10 +63,10 @@ func (s *Stamp) settleListings(outs []string) string {
 				rest = append(rest, e)
 			}
 		}
-		if listingHash(rest) != op.Hash && listingHash(entries) != op.Hash {
+		if listingHashOf(rest, op.All) != op.Hash && listingHashOf(entries, op.All) != op.Hash {
 			return "the files of " + op.Path + " changed during the build"
 		}
-		op.Hash = listingHash(entries)
+		op.Hash = listingHashOf(entries, op.All)
 		if fi, err := os.Stat(op.Path); err == nil {
 			op.Stat = recOf(fi, time.Now())
 		}

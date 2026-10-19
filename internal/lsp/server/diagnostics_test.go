@@ -598,7 +598,8 @@ func TestDiagnosticsSameAsCheck(t *testing.T) {
 		name := strings.TrimSuffix(filepath.Base(f), ".gp") + "/" + filepath.Base(f)
 		writeFile(t, c.root, name, string(src))
 		path := filepath.Join(c.root, filepath.FromSlash(name))
-		prog := load.Load(load.Config{Dir: filepath.Dir(path), Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: cfg.GOOS, GOARCH: cfg.GOARCH, AllErrors: true, Phase10Syntax: cfg.Phase >= 10}, ".")
+		prog := load.Load(load.Config{Dir: filepath.Dir(path), Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: cfg.GOOS, GOARCH: cfg.GOARCH, AllErrors: true,
+			Phase10Syntax: cfg.Phase >= 10, NoEmbedFiles: true}, ".")
 		r := check.Check(prog, check.Config{Phase: cfg.Phase, GOOS: cfg.GOOS, GOARCH: cfg.GOARCH, CXX: cfg.CXX})
 		lists := []*diag.List{prog.Errors}
 		if cp := r.Package(prog.Roots[0]); cp != nil {
