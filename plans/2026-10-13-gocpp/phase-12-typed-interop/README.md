@@ -266,7 +266,7 @@ so it is added **only in the background**:
 | clang JSON format changes between versions | Tolerant reader; CI against several clang versions |
 | clang work makes the editor slow | Strictly background + cached; budgets re-measured with C/C++ features on; slow-clang test |
 
-## 7. Built so far: steps 12.1 to 12.5 (API for 12.6 and later)
+## 7. Built so far: steps 12.1 to 12.6 (API for 12.7 and later)
 
 The contract is [docs/spec/typed-interop.md](../../../docs/spec/typed-interop.md). In short:
 
@@ -291,6 +291,16 @@ The contract is [docs/spec/typed-interop.md](../../../docs/spec/typed-interop.md
   the mode switch is 12.11 and the default pipeline is unchanged. Not done: narrowing warnings
   (`gocpp vet`), the wrong-header warning (needs header locations, 12.13), an incomplete type used
   as a value.
+- **12.6 (code generation)**, done: `lower.Interop.SetTyped(report, cross)` (ADR-087, spec §8; the hidden
+  switch `GOCPP_TYPED_INTEROP=1` in the driver until 12.11 gives the mode flag) makes the lowering write
+  `x.m` / `gp::nonnull(p)->m` / `gp::smartnn(sp)->m` (only where the compiler says the class lacks the member) from the C++ type, designated initializers in declaration order (Go's
+  order of evaluation kept), Go strings for `const char*` and `std::string` parameters (the keeps-the-pointer list
+  in `lower/keeps.go`), C++'s conversions between C++ and gocpp numbers (`gp::cgo::as<T>`), assignable and
+  addressable `T&` results, and a Go string as the key of a `std::map`. Every rule falls back to the opaque
+  lowering where the probe has no answer; the default output is unchanged. Not done: `T&` parameters bound to
+  Go lvalues, the members of global values (`std.cout.x`: no probe of the value alone), hoisting of C strings
+  out of loops, an exact template-vs-index decision beyond the kind probe's, the mode flag and the default
+  switch (12.11).
 - **12.7 (cache)** builds on `probe.PreKey`, `probe.Key` and `probe.DepsHash`; `probe.Runner` is
   the in-memory memo it replaces or extends.
 - **12.8 (macro constants)** reads `Result.Value` (`big.Int`, exact float bits, string) of the

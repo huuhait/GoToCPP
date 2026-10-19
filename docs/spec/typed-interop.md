@@ -1,9 +1,9 @@
-# Typed interop: the collector, the probe, the declarations, the type mapper and the checker (steps 12.1 to 12.5)
+# Typed interop: the collector, the probe, the declarations, the type mapper, the checker and the code generation (steps 12.1 to 12.6)
 
 Typed interop (Phase 12, [README](../../plans/2026-10-13-gocpp/phase-12-typed-interop/README.md))
 asks **clang** for the real C++ types of exactly the C/C++ names that a program uses. This
-document is the contract of the first five steps, which every later step builds on (§5 and §6 are
-steps 12.3 and 12.4, §7 is step 12.5):
+document is the contract of the first six steps, which every later step builds on (§5 and §6 are
+steps 12.3 and 12.4, §7 is step 12.5, §8 is step 12.6):
 
 | Step | Package | What it does |
 |---|---|---|
@@ -12,6 +12,7 @@ steps 12.3 and 12.4, §7 is step 12.5):
 | 12.3 declarations | `internal/typedinterop/ctype`, `.../probe` (`decls*.go`) | reads clang's type text into a structured type; extracts the records, enums and overload sets that the results name |
 | 12.4 type mapper | `internal/typedinterop/ftype` | maps a C++ type (and a probe result) to a `go/types` type of the foreign view, with `Opaque` as the fallback |
 | 12.5 interop checker | `internal/typedinterop/icheck` | errors for the C++ compiler's errors, at the `.gp` position, in Go's words; silent when not certain |
+| 12.6 code generation | `internal/lower` (`typed*.go`, `keeps.go`), `cmd/gocpp/typedlower.go` | writes the C++ of foreign calls, members, literals and strings from the real types; off unless `GOCPP_TYPED_INTEROP=1` |
 | glue | `internal/typedinterop` | `Analyze(ctx, pkg, fset, opts)`: collect, kind probe, probe, and with `Options.Decls` the declarations and the mapping; `Report` (JSON for the developer tool) |
 
 Nothing in the opaque pipeline uses these packages: they are additive. The only change outside
@@ -452,3 +453,60 @@ declaration, argument or result), so the checker adds to what opaque mode finds,
 narrowing warnings (README §2.3) belong to `gocpp vet`; the "name through the wrong header" warning
 needs header locations (step 12.13); an incomplete type used as a value is not checked.
 
+## 8. Code generation (step 12.6)
+
+[ADR-087](../adr/087-typed-interop-code-generation.md) has the reasons. The lowering reads the report of
+`typedinterop.Analyze` (with `Decls` and `StringToCStr`) through `lower.Interop.SetTyped`; the driver sets
+it for each package that is not the standard library's when the environment variable `GOCPP_TYPED_INTEROP`
+is `1` (a developer switch until the mode flag of step 12.11). Without it the output is byte-identical to
+the opaque mode's. Where the probe has no answer for an expression (not probed, failed, or **recovered**: clang
+printed an error and kept a type; an opaque or incomplete foreign type; a copy of the syntax tree that the
+collector did not see) the opaque lowering runs. A cross build is typed only when every header is the C++
+library's.
+
+| Source | Opaque mode | Typed mode |
+|---|---|---|
+| `p.m`, `p` a raw `T*` | `gp::deref(p).m` | `gp::nonnull(p)->m` (Go's nil check kept) |
+| `x.m`, `x` a class, a reference | `gp::deref(x).m` | `x.m` |
+| `sp.m`, `m` the pointee's of a smart pointer, optional or iterator, and the class has no `m` | a C++ error | `gp::smartnn(sp)->m` (a nil check for `unique_ptr`, `shared_ptr` and optional) |
+| `*p` | `gp::cgo::star(p)` | `*gp::nonnull(p)`, `*x` for a class |
+| `lib.Rect{h: 3, x: 1}` | a lambda of assignments in source order | `::Rect{.x = 1, .h = 3}` in declaration order (calls of the values in source order, hoisted into locals when the order changes) |
+| `lib.Rect{x: n}`, `n` a Go `int` | a narrowing error from the C++ compiler | `.x = gp::cgo::as<decltype(::Rect::x)>(n)` |
+| `lib.puts(s)`, `s` a Go string | the user writes `C.cstr(s)` | `::puts(gp::cstr(s).gp_ptr())` |
+| `lib.take(s)`, a `std::string` parameter | `std.string(s)` | `::take(::std::string(s))` |
+| `m[key]`, `key` a Go string | a C++ error | `m[::std::string(key)]` |
+| `v.at(0) = 5`, `v.back()++`, `&v.at(0)` | an error of the lowering | accepted: a `T&` result is an lvalue |
+| `var n int = cstring.strlen(s)`, `cstring.strlen(s) + len(s)`, `var c C.int = n` | "mismatched types", "cannot use ... convert it" | `gp::cgo::as<int64_t>(::strlen(...))`, C++'s arithmetic, `gp::cgo::as<int>(n)` |
+
+**Which parameter takes a string.** For a call of a named function (or a method of a class), the overload sets
+of the declarations (`Result.Decls.Funcs`, `MembersOf`) are searched for the parameter at each place that
+has a Go string: a place where every overload with a parameter there has `const char *` (or the call is variadic
+there) gets `gp::cstr(s).gp_ptr()`; where every one has `std::string` (value, `const&`, `&&`) it gets
+`::std::string(s)`; parameters that no string can reach (a number, a `char *`, a `std::wstring`, a pointer to
+anything else) are no candidates; any other parameter (a class that might have a constructor, a
+`std::string_view`) or a mixed set leaves the argument to C++. The calls that keep the pointer or give back
+one into the string (`internal/lower/keeps.go`) are a user error with the hint to use `C.CString`:
+the functions of a table (`openlog`, `getopt`, `getopt_long`, raylib `InitWindow` and `SetWindowTitle`), the
+SQLite functions that are given bytes (`sqlite3_bind_text`, `_blob`, `sqlite3_result_text`, `_blob`, ... ) unless
+the destructor argument is `SQLITE_TRANSIENT`, `curl_easy_setopt(CURLOPT_POSTFIELDS)`, any call that
+also gets the address of a char pointer (`strtol(s, &end, 10)`, `sqlite3_prepare_v2(db, sql, -1, &st, &tail)`:
+the pointer it stores can point into the string), and names with static, borrow, nocopy, noalloc or
+unowned in them. A function that returns a pointer into its argument (`strstr`, `strchr`, `basename`,
+`memmem`, `strptime`, ...) is an error when the result is stored, not when it is compared or passed on in the
+same statement. **Not covered:** a C++ method or a function of the program that stores its `const char*`
+parameter: nothing in its declaration says so, so the string is converted and the pointer dangles; use
+`C.CString` for those. Functions that take a `char*` (`putenv`, `strtok`, `setvbuf`, `setbuf`) need no
+rule: a Go string never converts to `char*`, and the call is a C++ error as in opaque mode. `gp::cstr` copies
+a string that is not NUL-terminated (run-time string; a literal and its substrings are not copied) and a NUL inside the string ends the C string.
+
+**Designated initializers.** The record must be complete, an aggregate (`Traits["aggregate"]`) and every key a
+public field of the record itself (the fields of anonymous unions and structs are the record's, in
+declaration order; the fields of a base class are not). At most one member of a union, at most one key
+that is a member of some union. A Go array literal for an array field is its elements; a nested literal
+of a C/C++ type is a designated initializer of its own.
+
+**Tests.** `tests/typed/*.gp` (run by `TestTypedRun` with both compilers; a header comment says whether opaque mode
+rejects or equals them) with a C++ twin each (`tests/typed/twin`, compiled and compared by `TestTypedTwin`);
+`TestTypedEmit` pins the text; `TestTypedWindows` runs the std-only program on the real PC
+(`GOCPP_WINDOWS_SSH`). The unit tests of the decisions are in `internal/lower/typed_test.go` and
+`internal/typedinterop/ftype/arrow_test.go`.

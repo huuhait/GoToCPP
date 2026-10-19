@@ -2514,19 +2514,23 @@ generated "probe" files, the way cgo asks gcc about C names.
   only in the background, so it never slows down the other editor features.
 - **The two gaps closed:** C macros as compile-time constants (`[cstdio.BUFSIZ]byte`), and
   promoted members of several embedded C++ types.
-- **Exact C++:** `x->m` or `x.m` instead of `gp::deref(x).m`, keyed C struct literals as
-  designated initializers in the right order, exact template-vs-index decisions, and reference
-  results copied only when they would dangle.
-- **Strings:** a `string` passed to a `const char*` parameter is converted automatically, unless
-  the function is known to keep the pointer (`putenv`, `sqlite3_bind_text` with
-  `SQLITE_STATIC`, …). Those stay explicit (`C.cstr`, `C.CString`).
+- **Exact C++** (step 12.6, behind the developer switch `GOCPP_TYPED_INTEROP=1` until the mode flag):
+  `x->m` or `x.m` instead of `gp::deref(x).m` (also `sp.m` for a member of a smart pointer's pointee),
+  keyed C struct literals as designated initializers in the right order, `v.at(0) = 5`, and
+  `&v.at(0)` for a `T&` result. Exact template-vs-index decisions and reference results copied
+  only when they would dangle are not done yet.
+- **Strings:** a `string` passed to a `const char*` or `std::string` parameter is converted automatically
+  (step 12.6), unless the call may keep the pointer or give back one into the string (`InitWindow`,
+  `sqlite3_bind_text` with `SQLITE_STATIC`, `strtol(s, &end, 10)`, …): those are an error that says to use
+  `C.CString`. A C++ function of your own that stores its `const char*` is not known: use `C.CString` for it.
 - **Wrong header package:** a C-level name used through the wrong header package
   (`raylib.printf`) gets a warning.
 - **`gocpp bindgen <header>`** writes a readable gocpp view of a C/C++ header.
 - **Compatibility rule:** typed mode never rejects a program that opaque mode and the C++
-  compiler accepted. A typed gocpp number next to a C/C++ value is an error, as in opaque mode
-  and cgo ("mismatched types"); arithmetic between C/C++ values follows C++'s conversion rules,
-  and narrowing conversions there get a `gocpp vet` warning instead of an error.
+  compiler accepted. It also accepts what C++ converts: a C/C++ number into a gocpp number
+  (`var n int = cstring.strlen(s)`), a gocpp number into a C number, a gocpp number next to a
+  C/C++ number (`cstring.strlen(s) + len(s)`) by C++'s conversion rules, with the conversion written
+  as `gp::cgo::as<T>(x)`; narrowing conversions get a `gocpp vet` warning instead of an error.
 - **Modes:** `-interop=typed|opaque`. Opaque stays the default until typed mode passes the whole
   Phase 04 suite; then the default switches to typed. Probing needs `clang++`, also when the build
   uses `g++`; without clang, gocpp warns once and uses opaque mode.

@@ -45,6 +45,9 @@ import (
 type Interop struct {
 	kinds  map[*load.File]map[string]interop.Kind
 	macros map[string]bool // the macros after all the includes (interop.ProbeMacros)
+
+	// typed is the typed information of the package (SetTyped), or nil: opaque mode.
+	typed *typedInfo
 }
 
 // An includeSet is the files of a package with the same header imports, which one ProbeKinds

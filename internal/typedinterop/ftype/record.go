@@ -364,3 +364,162 @@ func (m *Mapper) Scope(t types.Type) string {
 	}
 	return ""
 }
+
+// ArrowTarget returns the type that x-> reaches when x is of the record type t: the pointee of
+// the pointer that its public operator-> without parameters returns (a smart pointer, an iterator,
+// std::optional, or a class of the program). When operator-> returns a class instead of a
+// pointer, that class's operator-> is followed, as C++ does (a chain, at most four deep). ok is
+// false when t has no such operator or the chain does not end in a pointer to a mapped class. The
+// classes of the C++ library are read from a table (stdArrow), because their operator-> is in
+// internal base classes that the extraction does not follow (std::shared_ptr's is in
+// __shared_ptr_access). Typed code generation (Phase 12 step 12.6) writes x.m as x->m when the
+// compiler says that the class has no member m (the probe) and the pointee has it.
+func (m *Mapper) ArrowTarget(t types.Type) (Mapped, bool) {
+	for depth := 0; depth < 4; depth++ {
+		next, ptr, ok := m.arrowStep(t)
+		if !ok {
+			return Mapped{}, false
+		}
+		if ptr {
+			return next, true
+		}
+		t = next.Type
+	}
+	return Mapped{}, false
+}
+
+// arrowStep returns what one operator-> of the record type t gives: the pointee when it returns a
+// pointer (ptr), else the class it returns.
+func (m *Mapper) arrowStep(t types.Type) (next Mapped, ptr, ok bool) {
+	if c := m.stdArrow(t); c != nil {
+		mp := m.Map(c, nil)
+		return mp, true, mp.Kind == Record
+	}
+	ms := m.MembersOf(t)
+	if ms == nil {
+		return Mapped{}, false, false
+	}
+	mem := ms.Lookup("operator->")
+	if mem == nil || mem.Kind != "method" || mem.Access != probe.Public {
+		return Mapped{}, false, false
+	}
+	var res *Mapped
+	for _, mi := range mem.Methods {
+		if mi.Access != probe.Public || mi.Static || mi.Template {
+			continue
+		}
+		si := m.Sig(sigOf(mi.Sig))
+		if si == nil || len(si.Params) != 0 {
+			continue
+		}
+		r := si.Result
+		if r.Kind == Pointer && r.Elem != nil {
+			r = *r.Elem
+			if r.Kind == Record {
+				r.Ref = "*"
+			}
+		} else if r.Kind != Record {
+			continue
+		}
+		if res != nil && !types.Identical(res.Type, r.Type) {
+			return Mapped{}, false, false // two operators that reach different types
+		}
+		if res == nil {
+			res = &r
+		}
+	}
+	if res == nil || res.Kind != Record {
+		return Mapped{}, false, false
+	}
+	// Ref "*" marks a pointer result; a class result has "" or "&".
+	isPtr := res.Ref == "*"
+	if isPtr {
+		res.Ref = ""
+	}
+	return *res, isPtr, true
+}
+
+// stdArrow returns the pointee of the standard library class t that has an operator-> (std::unique_ptr,
+// std::shared_ptr, std::optional and the iterators of the containers), or nil. The members of
+// the class itself that the pointee might hide are the ones the library names (get, reset,
+// has_value, base): ArrowMember asks the pointee only for names that these classes do not have.
+func (m *Mapper) stdArrow(t types.Type) *ctype.Type {
+	n, ok := t.(*types.Named)
+	if !ok {
+		return nil
+	}
+	key, ok := m.nameOf[n]
+	if !ok {
+		return nil
+	}
+	c, err := ctype.Parse(key)
+	if err != nil {
+		return nil
+	}
+	return stdPointee(c)
+}
+
+// stdPointee returns the type that the C++ library class c reaches with ->, nil when it is no such class.
+func stdPointee(c *ctype.Type) *ctype.Type {
+	if c == nil || c.Kind != ctype.Named || len(c.Path) == 0 {
+		return nil
+	}
+	last := c.Path[len(c.Path)-1]
+	first := func() *ctype.Type {
+		if len(last.Args) > 0 && last.Args[0].Type != nil {
+			return last.Args[0].Type
+		}
+		return nil
+	}
+	switch c.QualName() {
+	case "std::unique_ptr", "std::shared_ptr", "std::optional", "std::_Rb_tree_iterator", "std::_Rb_tree_const_iterator",
+		"std::_List_iterator", "std::_List_const_iterator", "std::_Deque_iterator", "std::__detail::_Node_iterator",
+		"std::__detail::_Node_const_iterator":
+		t := first()
+		if t != nil && t.Kind == ctype.Array {
+			return nil // unique_ptr<T[]> has no ->
+		}
+		return t
+	case "__gnu_cxx::__normal_iterator":
+		if t := first(); t != nil && t.Kind == ctype.Pointer {
+			return t.Elem
+		}
+	case "std::reverse_iterator":
+		if t := first(); t != nil {
+			return stdPointee(t)
+		}
+	}
+	return nil
+}
+
+// sigOf returns the go/types signature of a mapped function type, or nil.
+func sigOf(m Mapped) *types.Signature {
+	s, _ := m.Type.(*types.Signature)
+	return s
+}
+
+// ArrowMember reports whether the member name of a value of the record type t could be reached with
+// ->: the class has an operator-> (ArrowTarget) and the class it reaches has a public member of that
+// name (or its members are not known, for a class of the C++ library that is too big to read:
+// std::string). It says nothing about whether the class itself has a member of that name: using
+// declarations and enumerators are not in the extracted members. Typed code generation writes x->name
+// only when the compiler has said that the probe of the access failed with "no member named name"
+// (lower.noMemberFailure); the interop checker takes that very error as no error.
+func (m *Mapper) ArrowMember(t types.Type, name string) bool {
+	if own := m.MembersOf(t); own != nil {
+		if own.Lookup(name) != nil {
+			return false // a field, method, static, nested type of the class or a base: it has the name
+		}
+	}
+	target, ok := m.ArrowTarget(t)
+	if !ok {
+		return false
+	}
+	pm := m.MembersOf(target.Type)
+	if pm == nil {
+		// The pointee's members are not known (std::string, whose declarations are too big to read).
+		return m.stdArrow(t) != nil && target.Incomplete
+	}
+	mem := pm.Lookup(name)
+	return mem != nil && mem.Access == probe.Public
+}

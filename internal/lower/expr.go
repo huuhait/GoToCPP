@@ -88,6 +88,11 @@ type funcGen struct {
 	// recvs are the receivers that a deferred method call stored (methods.go: storeRecv).
 	recvs map[*ast.SelectorExpr]cppir.Expr
 
+	// thunk counts the deferred or spawned calls whose body is being lowered (defer.go:
+	// deferThunk): the objects of their members are the lambda's stored parameters, which may be a
+	// pointer to what the C++ type of the expression says, so typed mode leaves them to gp::deref.
+	thunk int
+
 	// boxed are the variables of the function that live in a box (box.go): nil in
 	// gp_var_init, which has none.
 	boxed map[*types.Var]boxReason
@@ -213,10 +218,10 @@ func (fg *funcGen) cname(obj types.Object, pos token.Pos) string {
 // deduces the type from the expression.
 func (fg *funcGen) expr(e ast.Expr) cppir.Expr {
 	if t, ok := fg.temps[e]; ok {
-		return cxxName(t)
+		return fg.typedConvert(e, cxxName(t))
 	}
 	// Go may convert the value implicitly to another type there (step 3.9, named.go).
-	return fg.implicitConv(e, fg.value(e))
+	return fg.typedConvert(e, fg.implicitConv(e, fg.value(e)))
 }
 
 // value returns the C++ of the expression e, which is not in a temporary, with its own type

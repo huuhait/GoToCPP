@@ -960,6 +960,7 @@ func (d *driver) probe(pkg *check.Package, cxx *build.CXX) (*lower.Interop, int)
 	}
 	in, err := lower.ProbeInterop(d.ctx, *cxx, d.check.fset, pkg, pkg.ProbeFlags)
 	if err == nil {
+		d.attachTyped(in, pkg) // typed code generation, when GOCPP_TYPED_INTEROP=1 (typedlower.go)
 		return in, 0
 	}
 	if sig := d.interrupted(); sig != nil {

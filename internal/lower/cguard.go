@@ -313,6 +313,9 @@ func (g *gen) cExprOK(e ast.Expr) bool {
 			case *ast.SelectorExpr, *ast.IndexExpr, *ast.StarExpr:
 				return true // &v[i], &s.f, &*p: a raw C++ address, as &x (cunsafe.go)
 			}
+			if v := g.tvalOf(ast.Unparen(x.X)); v != nil && v.Lvalue {
+				return true // typed mode: &v.at(0), the address of a T& result (typed.go)
+			}
 			g.userError(x.OpPos, "invalid operation: cannot take address of %s (C/C++ value): it must be a variable, a field, an element or *p", g.srcText(x.X))
 			return false
 		case token.ARROW:
@@ -387,6 +390,9 @@ func (g *gen) cOperandsOK(op token.Token, x, y ast.Expr, expr string, pos token.
 	t := g.typedBasic(typed)
 	if t == nil {
 		return true
+	}
+	if g.typedOperandsOK(op, typed, cv) {
+		return true // typed mode: C++'s usual arithmetic conversions (typed.go)
 	}
 	ts := types.TypeString(t, types.RelativeTo(g.pkg.Types))
 	kind, cs := g.cKind(cv)
@@ -711,6 +717,9 @@ func inList(list []ast.Expr, e ast.Expr) bool {
 // one, which is checked as its own expression.
 func (g *gen) assignableOK(e ast.Expr) bool {
 	if c, ok := ast.Unparen(e).(*ast.CallExpr); ok && g.pkg.Opaque.IsOpaque(c) {
+		if v := g.tvalOf(c); v != nil && v.Assignable {
+			return true // typed mode: a T& result is an lvalue, v.at(0) = 5 (C++'s rule, typed.go)
+		}
 		g.userError(c.Pos(), "cannot assign to %s (neither addressable nor a map index expression)", g.srcText(c))
 		return false
 	}
@@ -882,6 +891,9 @@ func (w *cWalk) targetOK(e ast.Expr, parent ast.Node) bool {
 	if hasTypeParam(t.to) {
 		return true // a type parameter: the C++ compiler deduces the type argument (generics.go)
 	}
+	if !t.multi && g.typedScalarOK(e, t.to) {
+		return true // typed mode: C++'s conversion into a Go number (typed.go)
+	}
 	ts := types.TypeString(t.to, types.RelativeTo(g.pkg.Types))
 	hint := ""
 	switch b := underBasic(t.to); {
@@ -935,6 +947,9 @@ func (w *cWalk) gocppTargetOK(e ast.Expr, parent ast.Node) bool {
 	te := t.texpr
 	if t.v != nil {
 		te = g.typeExprOf(t.v)
+	}
+	if g.typedNumberToC(e, te) {
+		return true // typed mode: C++'s conversion into a C number (typed.go)
 	}
 	if te != nil {
 		ts = g.srcText(te)

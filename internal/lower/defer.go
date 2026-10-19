@@ -447,7 +447,9 @@ func (fg *funcGen) deferThunk(c *ast.CallExpr) cppir.Expr {
 			fg.markAuto(name)
 		}
 	}
+	fg.thunk++
 	body := fg.expr(c)
+	fg.thunk--
 	for _, a := range c.Args {
 		if t, ok := saved[a]; ok {
 			fg.temps[a] = t

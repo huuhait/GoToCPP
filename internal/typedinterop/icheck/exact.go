@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/huuhait/gocpp/internal/typedinterop/collect"
+	"github.com/huuhait/gocpp/internal/typedinterop/ftype"
 	"github.com/huuhait/gocpp/internal/typedinterop/probe"
 )
 
@@ -103,6 +104,8 @@ func (c *checker) failureWhy(r *collect.Ref, res *probe.Result) string {
 		return "follows from an error in the declaration of a local variable"
 	case res.AltError != "":
 		return "the name could be read two ways (the other reading failed too: " + res.AltError + ")"
+	case c.arrowMemberError(res.Error):
+		return "the member is the pointee's of an operator->: typed code generation writes x->m"
 	}
 	why, stand := inexactExpr(r.Expr, false)
 	if why != "" {
@@ -188,4 +191,19 @@ func standErrorOK(res *probe.Result) bool {
 		return true
 	}
 	return false
+}
+
+// noMemberRe matches clang's "no member named 'm' in 'T'".
+var noMemberRe = regexp.MustCompile(`^no member named '([^']+)' in '([^']+)'(?:;.*)?$`)
+
+// arrowMemberError reports whether the compiler error msg is the missing member of a class that
+// has an operator-> to a class that has the member: typed code generation writes x->m there (the
+// lowering, ftype.Mapper.ArrowMember), so it is no error of the program.
+func (c *checker) arrowMemberError(msg string) bool {
+	m := noMemberRe.FindStringSubmatch(msg)
+	if m == nil {
+		return false
+	}
+	mp, ok := c.mapType(m[2])
+	return ok && mp.Kind == ftype.Record && c.rep.Mapper.ArrowMember(mp.Type, m[1])
 }

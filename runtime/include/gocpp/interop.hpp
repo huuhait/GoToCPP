@@ -51,6 +51,7 @@
 #include <array>
 #include <algorithm>
 #include <cstddef>
+#include <concepts>
 #include <cstdint>
 #include <iterator>
 #include <limits>
@@ -120,6 +121,68 @@ constexpr decltype(auto) deref(X&& x) {
     } else {
         return std::forward<X>(x);
     }
+}
+
+// nonnull(p) is p after Go's nil check: typed interop (Phase 12, ADR-087) writes x.m for a raw
+// pointer x as gp::nonnull(x)->m, which is what gp::deref(x).m does when the type of x is known
+// to be a pointer. A null p panics as Go does ("invalid memory address or nil pointer
+// dereference"), unless GOCPP_NOCHECKS is defined (then it is p->m of C++). A gocpp pointer
+// (gp::ptr, gp::cptr: the type of a Go variable `var p *lib.T`) has its own check in -> and *, and
+// is passed through.
+template <typename T>
+constexpr T* nonnull(T* p) {
+#ifndef GOCPP_NOCHECKS
+    if (p == nullptr) [[unlikely]] {
+        gp::panic_nil();
+    }
+#endif
+    return p;
+}
+template <typename P>
+    requires detail::gp_pointer<std::remove_cvref_t<P>>
+constexpr P&& nonnull(P&& p) {
+    return std::forward<P>(p);
+}
+
+namespace detail {
+
+// nullable_smart<S>: S is a std::unique_ptr or std::shared_ptr, or a class that is like a
+// std::optional (has_value(), value() and operator->): an empty one has no object to reach.
+template <typename S>
+struct is_std_smart_ptr : std::false_type {};
+template <typename T, typename D>
+struct is_std_smart_ptr<std::unique_ptr<T, D>> : std::true_type {};
+template <typename T>
+struct is_std_smart_ptr<std::shared_ptr<T>> : std::true_type {};
+
+template <typename S>
+concept optional_like = requires(const S& s) {
+    { s.has_value() } -> std::same_as<bool>;
+    s.value();
+    s.operator->();
+};
+
+} // namespace detail
+
+// smartnn(s) is s after Go's nil check, for typed interop's s->m with s a smart pointer or an
+// optional (Phase 12, ADR-087): an empty one panics as a nil dereference does, where C++ would
+// read through a null pointer. Anything else (an iterator, a class of the program with its own
+// operator->) is passed through. GOCPP_NOCHECKS removes the check.
+template <typename S>
+constexpr S&& smartnn(S&& s) {
+#ifndef GOCPP_NOCHECKS
+    using V = std::remove_cvref_t<S>;
+    if constexpr (detail::is_std_smart_ptr<V>::value) {
+        if (s == nullptr) [[unlikely]] {
+            gp::panic_nil();
+        }
+    } else if constexpr (detail::optional_like<V>) {
+        if (!s.has_value()) [[unlikely]] {
+            gp::panic_nil();
+        }
+    }
+#endif
+    return std::forward<S>(s);
 }
 
 // --- range: for ... range over a C++ container ---

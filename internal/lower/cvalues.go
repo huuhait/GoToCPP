@@ -148,6 +148,10 @@ func (fg *funcGen) opaqueExpr(e ast.Expr) cppir.Expr {
 				// A member of the one C/C++ type that a struct embeds (check/promoted.go):
 				// through the embedded fields, o.vector.push_back for o.push_back.
 				x, _ = fg.fieldSteps(x, fg.g.info.TypeOf(y.X), path, y.Pos())
+				return fg.g.cMemberOf(x, y.Sel)
+			}
+			if m := fg.typedMemberOf(y, x); m != nil {
+				return m // typed mode: . or -> from the C++ type (typed.go)
 			}
 			return fg.g.cMemberOf(x, y.Sel)
 		case *ast.IndexExpr:
@@ -156,7 +160,7 @@ func (fg *funcGen) opaqueExpr(e ast.Expr) cppir.Expr {
 			}
 			// C++'s operator[] (Phase 04 README §2.5): no gocpp bounds check, and a std::map
 			// inserts the key.
-			return &cppir.Index{X: fg.expr(y.X), Index: fg.cValueOf(y.Index)}
+			return &cppir.Index{X: fg.expr(y.X), Index: fg.typedIndexKey(y, fg.cValueOf(y.Index))}
 		}
 	case *ast.BinaryExpr:
 		return fg.cBinary(x.Op, x.X, x.Y)
@@ -174,6 +178,9 @@ func (fg *funcGen) opaqueExpr(e ast.Expr) cppir.Expr {
 	case *ast.StarExpr:
 		// C++'s *x, but with Go's nil check for a raw pointer (and a gocpp pointer that comes
 		// back from C++), gocpp/interop.hpp.
+		if d := fg.typedStar(x); d != nil && fg.thunk == 0 {
+			return d // typed mode: *gp::nonnull(p) or *x from the C++ type (typed.go)
+		}
 		return call("gp::cgo::star", fg.expr(x.X))
 	case *ast.TypeAssertExpr:
 		return fg.typeAssert(x) // x.(std.string) of an interface value (iconv.go)
@@ -212,7 +219,7 @@ func (fg *funcGen) opaqueCall(c *ast.CallExpr) cppir.Expr {
 		fg.g.unsupported(c.Ellipsis, "... in a call of a C/C++ function")
 		return placeholder
 	}
-	return &cppir.Call{Fun: fg.expr(c.Fun), Args: fg.cArgs(c.Args)}
+	return &cppir.Call{Fun: fg.expr(c.Fun), Args: fg.typedStringArgs(c, fg.cArgs(c.Args))}
 }
 
 // cBinary returns the C++ of x op y where x or y is a C/C++ value: C++'s operator, with C++'s
@@ -347,6 +354,7 @@ func (fg *funcGen) cCall(c *ast.CallExpr) (cppir.Expr, bool) {
 		return placeholder, true // reported
 	}
 	args := fg.cArgs(c.Args)
+	args = fg.typedStringArgs(c, args) // typed mode: Go strings to const char* and std::string parameters
 	if r.kind == interop.Value {
 		fg.rawPointerArgs(c.Args, args) // a gocpp pointer through a C function's ... (cunsafe.go)
 	}

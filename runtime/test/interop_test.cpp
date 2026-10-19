@@ -23,6 +23,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <optional>
 #include <ranges>
 #include <set>
 #include <stdexcept>
@@ -164,6 +165,38 @@ void test_as() {
     const char* text = "x";
     // (a string literal as the case would compare addresses: rejected)
     CHECK(!gp::cgo::case_eq(static_cast<const char*>(nullptr), text));
+}
+
+// gp::nonnull and gp::smartnn: the nil checks of typed interop's p->m and sp->m (ADR-087). The
+// panic must come from the check itself (a C++ panic here, not a signal).
+void test_nonnull() {
+    S s{1};
+    S* p = &s;
+    S* nilp = nullptr;
+    CHECK(gp::nonnull(p) == p);
+    CHECK_EQ(gp::nonnull(p)->a, int64_t(1));
+    CHECK_EQ(panic_text([&] { (void)gp::nonnull(nilp)->a; }), nil_msg);
+    gp::ptr<S> g = gp::new_<S>(S{2});
+    CHECK_EQ(gp::nonnull(g)->a, int64_t(2));
+    gp::ptr<S> gnil;
+    CHECK_EQ(panic_text([&] { (void)gp::nonnull(gnil)->a; }), nil_msg);
+
+    std::unique_ptr<S> up;
+    CHECK_EQ(panic_text([&] { (void)gp::smartnn(up)->a; }), nil_msg);
+    up = std::make_unique<S>(S{3});
+    CHECK_EQ(gp::smartnn(up)->a, int64_t(3));
+    std::shared_ptr<S> sp;
+    CHECK_EQ(panic_text([&] { (void)gp::smartnn(sp)->a; }), nil_msg);
+    sp = std::make_shared<S>(S{4});
+    CHECK_EQ(gp::smartnn(sp)->a, int64_t(4));
+    std::optional<S> opt;
+    CHECK_EQ(panic_text([&] { (void)gp::smartnn(opt)->a; }), nil_msg);
+    opt = S{5};
+    CHECK_EQ(gp::smartnn(opt)->a, int64_t(5));
+    // An iterator is passed through: no check, and no copy.
+    std::vector<S> v{S{6}};
+    CHECK_EQ(gp::smartnn(v.begin())->a, int64_t(6));
+    static_assert(std::is_same_v<decltype(gp::smartnn(up)), std::unique_ptr<S>&>);
 }
 
 void test_deref() {
@@ -1541,6 +1574,7 @@ void run_tests() {
     test_result_slot();
     test_as();
     test_deref();
+    test_nonnull();
     test_star_cond();
     test_range_vector();
     test_range_temporary();

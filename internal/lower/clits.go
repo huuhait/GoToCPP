@@ -295,6 +295,9 @@ func (fg *funcGen) cLit(e *ast.CompositeLit) cppir.Expr {
 		// ...; return gp_t0; }(): the stores in the literal's order. field_ok stops an array field
 		// with a clear message; decltype names the field's type without a reference to it, so a
 		// bit-field works too.
+		if x := fg.typedFieldsLit(e, typ); x != nil {
+			return x // typed mode: a designated initializer in declaration order (typedlit.go)
+		}
 		t := fg.names.temp("t")
 		body := &cppir.Block{Inline: true}
 		body.Stmts = append(body.Stmts, varDecl(cppir.Pos{}, decl, t, &cppir.InitList{}))

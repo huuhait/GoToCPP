@@ -138,6 +138,9 @@ func (g *gen) printWithoutCNames(f *cppir.File) []byte {
 		case *cppir.Member:
 			old := x.Name
 			x.Name, restore = mask(old), append(restore, func() { x.Name = old })
+		case *cppir.Designated:
+			old := x.Name
+			x.Name, restore = mask(old), append(restore, func() { x.Name = old })
 		}
 	}
 	out := cppir.Print(f, "")
