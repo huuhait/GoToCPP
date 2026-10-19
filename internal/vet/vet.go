@@ -143,6 +143,7 @@ func Run(prog *load.Program, res *check.Result, cfg Config) (*Report, error) {
 		}
 		u := &unit{path: p.ImportPath, pkg: cp.Types, files: files, info: cp.Info, root: isRoot[p]}
 		u.tainted = illTyped(cp.Info, prog.Fset)
+		typeParenBlanks(cp.Info, files)
 		for _, path := range slices.Sorted(maps.Keys(p.Imports)) {
 			if dep := byLoad[p.Imports[path]]; dep != nil {
 				u.deps = append(u.deps, dep)

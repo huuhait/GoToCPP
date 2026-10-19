@@ -4,3 +4,4 @@ func Is(err, target error) bool
 func Join(errs ...error) error
 func New(text string) error
 func Unwrap(err error) error
+func Wrapf(errp *error, format string, args ...any)
