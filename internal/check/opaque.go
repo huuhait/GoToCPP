@@ -678,12 +678,21 @@ func (op *opaquePass) labeled(e ast.Expr) bool {
 	if op.skip[e] {
 		return false
 	}
+	if par, ok := e.(*ast.ParenExpr); ok {
+		// (_) = x: go/types records neither the parentheses nor the blank inside them
+		if id, ok := ast.Unparen(par).(*ast.Ident); ok && id.Name == "_" {
+			return false
+		}
+	}
 	id, ok := e.(*ast.Ident)
 	if !ok {
 		return true
 	}
 	if _, ok := op.info.Defs[id]; ok {
 		return false // a declared name, or _ on the left of =
+	}
+	if id.Name == "_" && op.info.Uses[id] == nil {
+		return false // the blank label of _: (go/types declares no label for it)
 	}
 	switch obj := op.info.Uses[id].(type) {
 	case *types.PkgName, *types.Label:

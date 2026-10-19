@@ -47,7 +47,7 @@ LINT_SKIP = -path ./spikes -o -path ./.git -o -name testdata
 # first time. v0.7.0 is the newest release that works with Go 1.25.
 STATICCHECK ?= $(GO) run honnef.co/go/tools/cmd/staticcheck@v0.7.0
 
-.PHONY: build test lint staticcheck ci clean quick portstd-check
+.PHONY: build test lint staticcheck ci clean quick portstd-check conformance conformance-check conformance-report
 
 build:
 	$(GO) build -o bin/gocpp ./cmd/gocpp
@@ -173,3 +173,23 @@ quick:
 
 clean:
 	rm -rf bin
+
+# Go's own test/ folder as a conformance suite (step 15.10, tools/gotest,
+# docs/guides/conformance.md). Opt-in and heavy: not part of ci (the tool's
+# own tests are, as part of "make test"). conformance-check runs the tests of
+# tools/gotest/passing.txt and fails when one of them no longer passes;
+# conformance runs every applicable test (GOTESTFLAGS="-shard 0/4 -j 2" splits
+# it) and writes $(CONFORMANCE_OUT); conformance-report prints the counts and the
+# failure clusters of the results files. GOCPP_OFFLINE=1 makes the tool use
+# the cached tarball only (the first run downloads it: go run ./tools/gotest fetch).
+CONFORMANCE_OUT ?= conformance-results.json
+GOTESTFLAGS ?=
+
+conformance-check:
+	$(GO) run ./tools/gotest gate $(GOTESTFLAGS)
+
+conformance:
+	$(GO) run ./tools/gotest run -out $(CONFORMANCE_OUT) $(GOTESTFLAGS)
+
+conformance-report:
+	$(GO) run ./tools/gotest report $(CONFORMANCE_OUT)

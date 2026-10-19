@@ -482,7 +482,7 @@ func (fg *funcGen) declStmt(s *ast.DeclStmt) {
 
 // isBlank reports whether e is the blank identifier _.
 func isBlank(e ast.Expr) bool {
-	id, ok := e.(*ast.Ident)
+	id, ok := ast.Unparen(e).(*ast.Ident)
 	return ok && id.Name == "_"
 }
 
@@ -1070,7 +1070,14 @@ func (fg *funcGen) bind(pos token.Pos, targets []target, lhs, values []ast.Expr,
 				var x cppir.Expr = &cppir.Call{Fun: get, Args: []cppir.Expr{tup}}
 				if tuple != nil && i < tuple.Len() {
 					// Go converts the result implicitly to the target's type (step 3.9).
-					x = fg.g.convertTo(tuple.At(i).Type(), t.gtype, x, values[0].Pos())
+					from := tuple.At(i).Type()
+					if i == 1 && len(targets) == 2 && isCommaOK(values[0]) {
+						// The ok of v, ok = m[k] is an untyped bool, which go/types records with the
+						// type of the target (a named bool): the C++ value is a plain bool (Go
+						// issue 8475).
+						from = types.Typ[types.Bool]
+					}
+					x = fg.g.convertTo(from, t.gtype, x, values[0].Pos())
 				}
 				assign(t, x)
 			}
@@ -1429,4 +1436,16 @@ func (fg *funcGen) branchStmt(s *ast.BranchStmt) {
 			fg.add(&cppir.Goto{Pos: p, Label: fg.contLabels[target]})
 		}
 	}
+}
+
+// isCommaOK reports whether e is an expression that has the comma-ok form: a map index, a type
+// assertion or a receive.
+func isCommaOK(e ast.Expr) bool {
+	switch e := ast.Unparen(e).(type) {
+	case *ast.IndexExpr, *ast.TypeAssertExpr:
+		return true
+	case *ast.UnaryExpr:
+		return e.Op == token.ARROW
+	}
+	return false
 }

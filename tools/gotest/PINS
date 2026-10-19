@@ -1,0 +1,12 @@
+# The Go source that tools/gotest reads Go's test/ folder from: the official
+# source tarball of the Go version of the dev shell (flake.nix), checked by
+# SHA-256. The local GOROOT is never used: on NixOS it has no test/ folder.
+#
+# This file has the same format as tools/portstd/PINS and must name the same
+# tarball (TestPinsAgree checks it when both exist): the two tools share the
+# tarball in $XDG_CACHE_HOME/gocpp/portstd. To move to a new Go version, run
+# `go run ./tools/portstd -pin go1.25.15` and copy the three lines here.
+
+version go1.25.14
+url     https://dl.google.com/go/go1.25.14.src.tar.gz
+sha256  9e83f44f5fc297378861b4e16cc6aa114be8add7993fb3ceb2c512380aa4d582

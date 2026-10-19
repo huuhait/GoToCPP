@@ -70,6 +70,7 @@ and from the user's answers to Q1–Q13
 | [059](059-swiss-table-maps.md) | Maps are Swiss tables with a seed for each map and a counted block for ranges | accepted | One block of control bytes and slots probed a group at a time (SSE2 or portable), 7/8 load, a random seed per map and a random start per range; a loop holds the block, so growth, deletes and `clear` during a range follow Go's rules. D8 becomes "random, as Go". |
 | [057](057-runtime-library-and-link-line.md) | The runtime is one cached static library, and the link line has one order | accepted | `lib/<key>/libgocpprt.a` per compiler, flags, sanitizer and archiver, built under a lock; the compiler's own archiver for `-lto`; one function makes the deduplicated link command. |
 | [070](070-version-selection-and-gocpp-get.md) | Minimal version selection over `gocpp.mod` and `go.mod`, and `gocpp get` that writes the whole build list | accepted | `internal/mvs` + `internal/modgraph` + `internal/modget`, checked against the go command; `mvs.Edit` is `go get`'s editRequirements; `gocpp.mod` lists every module of the build list (`// indirect` for the unnamed); `gocpp.sum` and `gocpp.mod` written together. Extends 020 and 023. |
+| [061](061-go-test-conformance-suite.md) | Go's `test/` folder is the conformance suite, read from the pinned tarball and classified by rule | accepted | `tools/gotest`: manifest with reason codes, failure clusters with owner steps (`expect.txt`), a gate on `passing.txt` that may only grow (`make conformance-check`, not in ci). |
 
 ## Changing a decision
 

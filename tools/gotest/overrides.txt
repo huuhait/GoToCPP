@@ -1,0 +1,10 @@
+winbatch.go go-tool  # tests the files of GOROOT/src
+bigalg.go spec-deviation  # D23: print or println of a slice or map
+ddd1.go spec-deviation  # D23: print or println of a slice or map
+deferprint.go spec-deviation  # D23: print or println of a slice or map
+fixedbugs/bug343.go spec-deviation  # D23: print or println of a slice or map
+fixedbugs/issue24761.go spec-deviation  # D23: print or println of a slice or map
+nilptr.go spec-deviation  # D23: print or println of a slice or map
+nilptr2.go spec-deviation  # D23: print or println of a slice or map
+print.go spec-deviation  # D23: print or println of a slice or map
+recover2.go spec-deviation  # D23: print or println of a slice or map

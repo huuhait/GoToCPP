@@ -158,6 +158,9 @@ library wrapper · self-hosting (compiling the gocpp compiler with gocpp once th
 8. **15.8 Fuzzing** of the whole pipeline (sampled C++ compiles).
 9. **15.9 Random-program differential testing** (batched programs).
 10. **15.10 Port Go's `test/` run-tests** as a conformance suite (pinned Go source download).
+    Built as `tools/gotest` (docs/guides/conformance.md): classifier + manifest, runners for the
+    run/errorcheck/compile/dir directives, failure clusters with owner steps (`expect.txt`), snapshot
+    `docs/conformance/go-test.md`, opt-in gate `make conformance-check` (`passing.txt` may not shrink).
 11. **15.11 Nightly sanitizers + leak audit.**
 12. **15.12 Platforms**: Linux arm64 in CI; Windows (from Phase 14) in the release pipeline.
 13. **15.13 Packaging**: `go install`, GoReleaser, Nix flake with wrapped compilers.

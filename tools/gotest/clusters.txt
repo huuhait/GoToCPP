@@ -1,0 +1,52 @@
+# Failure clusters and the plan step that makes them pass: "<owner> TAB <regexp>", the first rule
+# that matches a cluster key wins (go run ./tools/gotest report shows the keys). An owner is a step
+# id (7.3, 9.5, ...), or one of:
+#   bug        a gocpp bug with no plan step: to be fixed (a regression test of our own first)
+#   by-design  gocpp differs from Go on purpose (docs/spec/language.md) and the difference is not
+#              detectable before running: the manager decides whether to relax it
+#   matcher    text of a diagnostic: gocpp's message differs from gc's (a wording decision)
+# docs/guides/conformance.md describes the workflow (go run ./tools/gotest triage results.json).
+
+# Phase 07: generics
+7.3	^not supported yet \(Phase 07\): (generic types|type declarations inside generic)
+7.8	range over functions
+7.10	iter\.Seq
+
+# Phase 08: concurrency packages
+8.10	^package not available: runtime$
+8.7	^package not available: sync|the type sync(/atomic)?\.|the call of atomic\.|sync\.|atomic\.
+8.8	time\.(Sleep|Duration|Now)|^package not available: time$
+
+# Phase 09: standard library
+9.3	^package not available: reflect$
+9.5	^package not available: math$
+9.4	^package not available: (sort|math/bits|bytes|strings|strconv|io|bufio|errors|context|regexp|unicode)$|the call of (strings|bytes|strconv|utf8)\.|the type io\.|io\.EOF|bytes\.
+9.3	reflect\.|type reflect\.Value has no field or method|the type descriptor of
+9.4	strings\.(EqualFold|Reader)|the type strings\.
+9.9	flag\.Parse
+9.6	os\.(Exit|Getenv|Args|Stdout|Stderr)|the call of os\.|io/fs|^package not available: (os|path/filepath)$
+9.9	testing\.
+9.11	^package not available: (log|container/.*|encoding/.*|crypto/.*|math/rand|math/big|embed|hash/.*|text/.*|html/.*)$|maps\.Clone
+
+8.10	runtime\.Breakpoint
+9.11	the call of json\.
+# Performance: the tests that need the optimized build (gocpp builds -O0 until the Phase 15 work)
+perf	^timeout: run
+
+# gocpp bugs and gaps without a plan step of their own (fix with a regression test of our own)
+bug	^C\+\+ does not compile
+bug	^internal error: (expression has no type|no C\+\+ name|not supported yet: (append to|copy to|the conversion|this type with C/C\+\+ parts|the call of unsafe|printing an interface value|a function without a body|a method without a body))
+bug	^errorcheck: (gocpp accepts what Go rejects|error not reported)
+bug	^run: (fatal error: checkptr|panic: FAIL)|^output differs
+bug	no declaration of the generic type|printing a func value
+bug	malformed import path
+bug	^(run|build): (exit status|panic|fatal error)|^gocpp rejects: (cannot declare C|undefined: tests)
+
+# diagnostics whose wording differs from gc's (a decision of the language owner, ADR-061)
+matcher	^errorcheck: (message text differs|extra error)
+
+# the runner cannot express the test yet (tools/gotest)
+runner	^check: tmod/p_test|^build: package tmod: build constraints|is not in std \(\$GOCPPPATH\)
+
+# Documented deviations that a test can depend on (docs/spec/language.md D19, D23) are classified
+# before the run (spec-deviation: classify.go, overrides.txt), so no rule is needed here.
