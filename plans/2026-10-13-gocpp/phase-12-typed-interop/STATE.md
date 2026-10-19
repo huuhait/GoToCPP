@@ -14,8 +14,8 @@
   - [ ] expression probes with lvalue/rvalue arguments mirroring the generated code
   - [ ] constant probes: integers (`ConstantExpr` value), floats (`bit_cast` into an integer template argument), strings (`StringLiteral`)
   - [ ] type probes
-- [ ] 12.3 Record / enum / function extraction (filtered by used names)
-- [ ] 12.4 C++ → foreign type mapper (`T&` results addressable, templates, overload sets)
+- [x] 12.3 Record / enum / function extraction (filtered by used names)
+- [x] 12.4 C++ → foreign type mapper (`T&` results addressable, templates, overload sets)
 - [ ] 12.5 Interop checker (exact-mirror errors only, operator typing with C++ conversions, g++ builds → warnings, compatibility rule)
 - [ ] 12.6 Codegen upgrades (`.`/`->`, designated init order, template/index, auto `const char*` except "keeps the pointer" list, references)
 - [ ] 12.7 Cache + incremental probing + parallel probing (header contents in the key)
