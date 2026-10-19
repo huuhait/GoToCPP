@@ -9,7 +9,7 @@
 - [x] Spike (2026-10-13): `requires`-based `gp_call_String` picks the right call form for value methods, pointer methods and pointers to value-method types (GCC 15 + Clang 21)
 - [x] 7.1 Generic functions: one ordinary C++ function PER INSTANCE (ADR-030), not templates
 - [x] 7.2 Explicit type arguments: `Info.Instances` + `Info.Selections` (methods of generic types); syntax/`decltype` rule for C/C++ type arguments
-- [ ] 7.3 Generic types + methods + instance descriptors (Go's exact qualified names: `main.Pair[string,[]int]`; one hidden descriptor argument per type parameter)
+- [x] 7.3 Generic types + methods + instance descriptors (Go's exact qualified names: `main.Pair[string,[]int]`; one hidden descriptor argument per type parameter)
 - [x] 7.4 Type-parameter operations
   - [ ] arithmetic cast back to `T`; checked `/ % << >>` (ints vs floats)
   - [ ] `gp::convert`, `len`/index/range over type sets, zero values
