@@ -1,0 +1,60 @@
+C.cstr strings that do not last as long as C needs them.
+analyzers: cstr
+-- keeps/main.gp --
+package main
+
+import (
+	"<cstdio>"
+	"<raylib.h>"
+	"<sqlite3.h>"
+	"<string_view>"
+	"<syslog.h>"
+)
+
+func main() {
+	title := "game"
+	raylib.InitWindow(800, 600, C.cstr(title)) // want `C.cstr gives InitWindow a string that lives only to the end of the statement, but raylib keeps the title \(it makes the window again from it\): C reads freed memory later; use C.CString\(s\) and C.free it`
+	syslog.openlog(C.cstr("app"), 0, 0)       // want `C.cstr gives openlog a string.*the logger keeps the identifier`
+	var st *sqlite3.sqlite3_stmt
+	sqlite3.sqlite3_bind_text(st, 1, C.cstr(title), -1, sqlite3.SQLITE_STATIC) // want `C.cstr gives sqlite3_bind_text a string`
+	sqlite3.sqlite3_bind_text(st, 1, C.cstr(title), -1, sqlite3.SQLITE_TRANSIENT)
+	raylib.set_name_unowned(C.cstr(title)) // want `C.cstr gives set_name_unowned a string.*its name says that it keeps the pointer`
+	raylib.set_name(C.cstr(title))
+	cstdio.puts(C.cstr(title))
+	cstdio.printf("%s\n", C.cstr(title))
+	// a holder variable lives as long as the variable
+	name := C.cstr(title)
+	raylib.SetWindowTitle(name)
+}
+-- views/main.gp --
+package main
+
+import (
+	"<cstdio>"
+	"<string_view>"
+)
+
+func main() {
+	s := "text"
+	v := std.string_view(C.cstr(s)) // want `^std.string_view\(C.cstr\(...\)\) is a view of the C string, which ends with the statement, but the view is kept`
+	_ = v
+	cstdio.puts(C.cstr(s))
+	fp := cstdio.fopen(C.cstr(s), C.cstr("r")) // stored, but fopen is not a view
+	_ = fp
+	n := std.string_view(s).size() // a view of the Go string
+	_ = n
+	cstdio.printf("%zu\n", std.string_view(C.cstr(s)).size()) // used in the statement
+}
+-- nul/main.gp --
+package main
+
+import "<cstdio>"
+
+func main() {
+	cstdio.puts(C.cstr("a\x00b")) // want `the string given to C.cstr has a NUL byte \(at 1 of 3\): a C string ends at the first NUL, so C sees only "a"`
+	p := C.CString("x\x00y")      // want `C.CString has a NUL byte`
+	C.free(p)
+	cstdio.puts(C.cstr("fine"))
+	s := "a\x00b"
+	cstdio.puts(C.cstr(s))
+}

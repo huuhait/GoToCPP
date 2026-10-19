@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/buildssa"
+	"golang.org/x/tools/go/analysis/passes/ctrlflow"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/analysis/passes/nilness"
 	"golang.org/x/tools/go/analysis/passes/printf"
@@ -46,8 +47,9 @@ type pruned struct {
 }
 
 type prunedKey struct {
-	info  *types.Info
-	stmts bool
+	info     *types.Info
+	stmts    bool
+	generics bool // the functions with type parameters are left out too (see pruneGenerics)
 }
 
 // The pruned files of a package are made once, as every analyzer of the
@@ -65,17 +67,17 @@ var (
 func takePruned(info *types.Info, fset *token.FileSet) (notes []prunedNote) {
 	prunedMu.Lock()
 	defer prunedMu.Unlock()
-	for _, stmts := range []bool{true, false} {
-		key := prunedKey{info, stmts}
-		p, ok := prunedBy[key]
+	for _, k := range []prunedKey{{info, true, false}, {info, false, false}, {info, false, true}} {
+		stmts := k.stmts
+		p, ok := prunedBy[k]
 		if !ok {
 			continue
 		}
-		delete(prunedBy, key)
+		delete(prunedBy, k)
 		if len(p.drops) == 0 && p.rewrote == 0 {
 			continue
 		}
-		n := prunedNote{analyzer: "nilness", rewrote: p.rewrote, dropped: len(p.drops)}
+		n := prunedNote{analyzer: "nilness", rewrote: p.rewrote, dropped: len(p.drops), generics: k.generics}
 		if stmts {
 			n.analyzer = "printf"
 		}
@@ -93,6 +95,9 @@ type prunedNote struct {
 	dropped  int // statements (printf) or functions (nilness) left out
 	rewrote  int
 	where    []token.Position
+
+	// generics: go/ssa crashed on the package, and nilness ran again without its generic functions.
+	generics bool
 }
 
 func (n prunedNote) text() string {
@@ -100,6 +105,9 @@ func (n prunedNote) text() string {
 	unit := "function"
 	if n.analyzer == "printf" {
 		unit = "statement"
+	}
+	if n.generics {
+		return plural(n.dropped, "function") + " left out (every generic function, and the ones that use C/C++ values), because go/ssa crashed on one of them: a nil dereference in a generic function is not found"
 	}
 	if n.dropped > 0 {
 		parts = append(parts, plural(n.dropped, unit)+" left out, because they use C/C++ values")
@@ -128,16 +136,32 @@ func plural(n int, unit string) string {
 // built without it. A function that does is left out as a whole (-v says
 // which); a function that only calls into C/C++ with plain values is not.
 func prune(pass *analysis.Pass, stmts bool) *pruned {
-	key := prunedKey{pass.TypesInfo, stmts}
+	return pruneWith(pass, stmts, false)
+}
+
+// pruneGenerics is prune for functions that also leaves out every function with type parameters
+// and every method of a generic type. go/ssa (x/tools v0.44) crashes on some generic code that
+// go/types accepts: a conversion of a slice to an array type given by a type parameter
+// (func Arr[S ~[]E, A ~[3]E, E any](s S) A { return A(s) }). buildssaGuarded builds again with
+// this when the first build panics.
+func pruneGenerics(pass *analysis.Pass) *pruned {
+	return pruneWith(pass, false, true)
+}
+
+func pruneWith(pass *analysis.Pass, stmts, generics bool) *pruned {
+	key := prunedKey{pass.TypesInfo, stmts, generics}
 	prunedMu.Lock()
 	defer prunedMu.Unlock()
 	if p, ok := prunedBy[key]; ok {
 		return p
 	}
-	c := &pruner{info: pass.TypesInfo, memo: make(map[types.Type]bool), stmts: stmts}
+	c := &pruner{info: pass.TypesInfo, memo: make(map[types.Type]bool), stmts: stmts, generics: generics}
 	p := &pruned{same: true}
-	bad := false
+	bad := generics
 	for _, f := range pass.Files {
+		if bad {
+			break
+		}
 		if c.touches(f) {
 			bad = true
 			break
@@ -167,9 +191,10 @@ func prune(pass *analysis.Pass, stmts bool) *pruned {
 }
 
 type pruner struct {
-	info  *types.Info
-	memo  map[types.Type]bool
-	stmts bool
+	info     *types.Info
+	memo     map[types.Type]bool
+	stmts    bool
+	generics bool // functions with type parameters are left out too
 
 	cloned  bool // info is a copy that has the entries of the new nodes
 	drops   []token.Pos
@@ -215,12 +240,13 @@ func (c *pruner) file(f *ast.File) *ast.File {
 func (c *pruner) decl(d ast.Decl) ast.Decl {
 	switch d := d.(type) {
 	case *ast.FuncDecl:
-		if !c.touches(d) {
+		generic := c.generics && isGenericFunc(d)
+		if !generic && !c.touches(d) {
 			return d
 		}
 		nd := *d
 		switch {
-		case !c.stmts || c.touches(d.Recv, d.Type):
+		case generic || !c.stmts || c.touches(d.Recv, d.Type):
 			// Declared without a body, like a function of C: the functions
 			// that stay can call it.
 			nd.Body = nil
@@ -268,6 +294,24 @@ func (c *pruner) decl(d ast.Decl) ast.Decl {
 		return &nd
 	}
 	return d
+}
+
+// isGenericFunc reports whether the declaration has type parameters, or is a method of a generic type.
+func isGenericFunc(d *ast.FuncDecl) bool {
+	if d.Type.TypeParams != nil && d.Type.TypeParams.NumFields() > 0 {
+		return true
+	}
+	if d.Recv != nil && len(d.Recv.List) > 0 {
+		t := d.Recv.List[0].Type
+		if s, ok := t.(*ast.StarExpr); ok {
+			t = s.X
+		}
+		switch ast.Unparen(t).(type) {
+		case *ast.IndexExpr, *ast.IndexListExpr:
+			return true
+		}
+	}
+	return false
 }
 
 func (c *pruner) block(b *ast.BlockStmt) *ast.BlockStmt {
@@ -480,34 +524,73 @@ var printfGuarded = func() *analysis.Analyzer {
 var buildssaGuarded = func() *analysis.Analyzer {
 	g := *buildssa.Analyzer
 	g.Run = func(pass *analysis.Pass) (any, error) {
-		p := prune(pass, false)
-		if p.same {
-			return buildssa.Analyzer.Run(pass)
+		res, crashed, err := tryRun(func() (any, error) { return buildSSA(pass, prune(pass, false)) })
+		if crashed == nil {
+			return res, err
 		}
-		np := *pass
-		np.Files = p.files
-		// go/ssa builds the initialization of the package from InitOrder,
-		// the initializers that go/types found, not from the files; the
-		// variables that were stripped have none.
-		info := *pass.TypesInfo
-		if p.info != nil {
-			info = *p.info
-		}
-		info.InitOrder = nil
-		np.TypesInfo = &info
-		return buildssa.Analyzer.Run(&np)
+		// go/ssa crashes on some generic code that go/types accepts (see pruneGenerics): build again
+		// without the generic functions. A second crash is a real bug and reaches the driver.
+		return buildSSA(pass, pruneGenerics(pass))
 	}
 	return &g
 }()
 
-// nilnessGuarded is nilness over buildssaGuarded.
+// buildSSA builds the SSA form of the files of p.
+func buildSSA(pass *analysis.Pass, p *pruned) (any, error) {
+	if p.same {
+		return buildssa.Analyzer.Run(pass)
+	}
+	np := *pass
+	np.Files = p.files
+	// go/ssa builds the initialization of the package from InitOrder,
+	// the initializers that go/types found, not from the files; the
+	// variables that were stripped have none.
+	info := *pass.TypesInfo
+	if p.info != nil {
+		info = *p.info
+	}
+	info.InitOrder = nil
+	np.TypesInfo = &info
+	return buildssa.Analyzer.Run(&np)
+}
+
+// tryRun runs f and returns what it panicked with, if it did.
+func tryRun(f func() (any, error)) (res any, crashed any, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			crashed = r
+		}
+	}()
+	res, err = f()
+	return res, nil, err
+}
+
+// nilnessGuarded is nilness over buildssaGuarded. nilness itself crashes on some generic code too (a
+// slice converted to an array type of a type parameter, x/tools v0.44, nilness.go slice2ArrayPtrLen): it
+// runs again over an SSA form without the generic functions (see pruneGenerics), and -v says so.
 var nilnessGuarded = func() *analysis.Analyzer {
 	g := *nilness.Analyzer
-	g.Requires = []*analysis.Analyzer{buildssaGuarded}
+	// ctrlflow is what buildssa needs: the second build, after a crash, runs from this pass.
+	g.Requires = []*analysis.Analyzer{buildssaGuarded, ctrlflow.Analyzer}
 	g.Run = func(pass *analysis.Pass) (any, error) {
-		np := *pass
-		np.ResultOf = map[*analysis.Analyzer]any{buildssa.Analyzer: pass.ResultOf[buildssaGuarded]}
-		return nilness.Analyzer.Run(&np)
+		run := func(ssa any) (any, error) {
+			np := *pass
+			np.ResultOf = map[*analysis.Analyzer]any{buildssa.Analyzer: ssa}
+			return nilness.Analyzer.Run(&np)
+		}
+		// Findings are reported as nilness goes; those of a run that crashed are repeated by the second
+		// run, and the driver drops repeats of a finding.
+		res, crashed, err := tryRun(func() (any, error) { return run(pass.ResultOf[buildssaGuarded]) })
+		if crashed == nil {
+			return res, err
+		}
+		bp := *pass
+		bp.ResultOf = map[*analysis.Analyzer]any{ctrlflow.Analyzer: pass.ResultOf[ctrlflow.Analyzer]}
+		ssa, err := buildSSA(&bp, pruneGenerics(pass))
+		if err != nil {
+			return nil, err
+		}
+		return run(ssa)
 	}
 	return &g
 }()

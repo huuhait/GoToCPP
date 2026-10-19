@@ -1,0 +1,280 @@
+The address of a C/C++ local variable, kept where it outlives the variable.
+analyzers: cpplocal
+-- kept/main.gp --
+package main
+
+import (
+	"<sys/stat.h>"
+)
+
+type Holder struct {
+	p *stat.struct_stat
+}
+
+var g *stat.struct_stat
+
+func toGlobal() {
+	var st stat.struct_stat
+	g = &st // want `&st takes the address of the C/C\+\+ variable st and stores it in the package variable g`
+}
+
+func toParam(h *Holder) {
+	var st stat.struct_stat
+	h.p = &st // want `&st takes the address of the C/C\+\+ variable st and stores it through the parameter h \(h.p\), which the caller keeps`
+}
+
+func toSlice(out []*stat.struct_stat) {
+	var st stat.struct_stat
+	out[0] = &st // want `stores it through the parameter out \(out\[0\]\)`
+}
+
+var shared = make(chan *stat.struct_stat, 1)
+
+func toChannel(ch chan *stat.struct_stat) {
+	var st stat.struct_stat
+	shared <- &st // want `sends it on the channel shared, a package variable`
+	ch <- &st // want `sends it on the channel ch, which the caller keeps`
+}
+
+func viaVariable() *stat.struct_stat {
+	var st stat.struct_stat
+	p := &st // want `returns it through p`
+	return p
+}
+
+func inLiteral() Holder {
+	st := stat.struct_stat{}
+	return Holder{p: &st} // want `&st takes the address of the C/C\+\+ variable st and returns it`
+}
+
+func field() *Holder {
+	var st stat.struct_stat
+	return &Holder{p: &st.st_dev} // want `&st.st_dev takes the address of the C/C\+\+ variable st and returns it`
+}
+
+func appended() {
+	var list []*stat.struct_stat
+	for i := 0; i < 3; i++ {
+		var st stat.struct_stat
+		list = append(list, &st) // want `stores it in list, which is declared outside the block of st`
+	}
+	_ = list
+}
+
+func param(st stat.struct_stat) {
+	g = &st // want `stores it in the package variable g`
+}
+
+func toParamChannel(ch chan *stat.struct_stat) {
+	st := stat.struct_stat{}
+	ch <- &st // want `sends it on the channel ch, which the caller keeps`
+}
+
+func main() {
+	toGlobal()
+	toParam(nil)
+	toSlice(nil)
+	toChannel(nil)
+	viaVariable()
+	inLiteral()
+	field()
+	appended()
+	param(stat.struct_stat{})
+	toParamChannel(nil)
+}
+-- fine/main.gp --
+package main
+
+import (
+	"<cstdio>"
+	"<sys/stat.h>"
+)
+
+type Holder struct {
+	p *stat.struct_stat
+}
+
+var g *stat.struct_stat
+
+// Borrowed for the call: fine.
+func borrow(path string) {
+	var st stat.struct_stat
+	stat.stat(C.cstr(path), &st)
+}
+
+// A copy of the holder is local to the function.
+func byValue(h Holder) {
+	var st stat.struct_stat
+	h.p = &st
+}
+
+func localStruct() {
+	var st stat.struct_stat
+	var h Holder
+	h.p = &st
+	_ = h
+}
+
+func sameBlock() {
+	var st stat.struct_stat
+	var list []*stat.struct_stat
+	list = append(list, &st)
+	_ = list
+}
+
+// A gocpp variable, not a C/C++ value.
+func gocpp() {
+	var n int
+	var m map[string]*int = map[string]*int{}
+	m["a"] = &n
+	pn := &n
+	_ = pn
+}
+
+// The pointer is reassigned before the return.
+func reassigned(q *stat.struct_stat) *stat.struct_stat {
+	var st stat.struct_stat
+	p := &st
+	p = q
+	_ = p
+	return p
+}
+
+// A heap object made with &T{}: the pointer owns it.
+func heap() *stat.struct_stat {
+	p := &stat.struct_stat{}
+	g = p
+	return p
+}
+
+// A channel of the function: it does not outlive the variable.
+func localChannel() {
+	ch := make(chan *stat.struct_stat, 1)
+	var st stat.struct_stat
+	ch <- &st
+	<-ch
+}
+
+// A function with a defer holds the local until it returns, also an inner-block local whose address
+// is stored in an outer variable (docs/spec/interop.md).
+func withDefer() {
+	defer println("done")
+	var list []*stat.struct_stat
+	for i := 0; i < 3; i++ {
+		var st stat.struct_stat
+		list = append(list, &st)
+	}
+	_ = list
+}
+
+var outer = make(chan *stat.struct_stat, 1)
+
+// The channel is declared outside the block of the variable, in a function without defer.
+func toOuterChannel() {
+	ch := make(chan *stat.struct_stat, 1)
+	for i := 0; i < 2; i++ {
+		var st stat.struct_stat
+		ch <- &st // want `sends it on ch, which is declared outside the block of st`
+	}
+	<-ch
+}
+
+// With a defer, the local is held until the function ends.
+func toOuterChannelWithDefer() {
+	defer println("done")
+	ch := make(chan *stat.struct_stat, 4)
+	for i := 0; i < 2; i++ {
+		var st stat.struct_stat
+		ch <- &st
+	}
+	<-ch
+}
+
+// A C array is a value; a slice of C values is a gocpp slice, with its own memory.
+func arrays() {
+	var arr [4]C.int
+	g2 = &arr[1] // want `&arr\[1\] takes the address of the C/C\+\+ variable arr and stores it in the package variable g2`
+	sl := make([]C.int, 4)
+	g2 = &sl[1]
+	var declared []C.int
+	declared = make([]C.int, 2)
+	g2 = &declared[0]
+}
+
+var g2 *C.int
+
+// The target is a field of a variable declared outside the block of the C variable.
+func outerField() {
+	var h Holder
+	for i := 0; i < 2; i++ {
+		var st stat.struct_stat
+		h.p = &st // want `stores it in h.p, which is declared outside the block of st`
+	}
+	_ = h
+}
+
+func outerFieldWithDefer() {
+	defer println("done")
+	var h Holder
+	for i := 0; i < 2; i++ {
+		var st stat.struct_stat
+		h.p = &st
+	}
+	_ = h
+}
+
+// A name that the package gives to a C/C++ type is a C/C++ type.
+type St = stat.struct_stat
+
+type Defined stat.struct_stat
+
+func aliases() {
+	var a St
+	g = &a // want `&a takes the address of the C/C\+\+ variable a and stores it in the package variable g`
+	var d Defined
+	g3 = &d // want `stores it in the package variable g3`
+}
+
+var g3 *Defined
+
+// A named result that is assigned is returned.
+func namedResult() (p *stat.struct_stat) {
+	var st stat.struct_stat
+	p = &st // want `stores it in the result p, which the function returns`
+	return
+}
+
+func namedResultReset() (r *stat.struct_stat) {
+	var st stat.struct_stat
+	r = &st
+	r = nil
+	return
+}
+
+func namedResultField() (h Holder) {
+	var st stat.struct_stat
+	h.p = &st // want `stores it in h.p of the result h`
+	return
+}
+
+func main() {
+	outerField()
+	outerFieldWithDefer()
+	aliases()
+	namedResult()
+	namedResultField()
+	namedResultReset()
+	toOuterChannel()
+	toOuterChannelWithDefer()
+	arrays()
+	localChannel()
+	withDefer()
+	borrow("x")
+	byValue(Holder{})
+	localStruct()
+	sameBlock()
+	gocpp()
+	reassigned(nil)
+	heap()
+	cstdio.fflush(cstdio.stdout)
+}

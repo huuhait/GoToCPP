@@ -1,0 +1,148 @@
+A wrap macro that starts #body() in a goroutine must wait for it.
+analyzers: unwaitedbody
+-- waits/main.gp --
+package main
+
+import "sync"
+
+macro InThread() {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		#body()
+	}()
+	<-done
+}
+
+macro WithGroup() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		#body()
+	}()
+	wg.Wait()
+}
+
+macro WithSelect() {
+	done := make(chan bool)
+	go func() {
+		#body()
+		done <- true
+	}()
+	select {
+	case <-done:
+	}
+}
+
+macro Ranges() {
+	ch := make(chan int)
+	go func() {
+		defer close(ch)
+		#body()
+	}()
+	for range ch {
+	}
+}
+
+macro NotInGo() {
+	func() {
+		#body()
+	}()
+}
+
+macro GivenAway() {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		#body()
+	}()
+	wait(done) // the callee may receive from it
+}
+
+func wait(c chan struct{}) { <-c }
+
+#GivenAway()
+func f() {}
+
+#InThread()
+func a() {}
+
+#WithGroup()
+func b() {}
+
+#WithSelect()
+func c() {}
+
+#Ranges()
+func d() {}
+
+#NotInGo()
+func e() {}
+
+func main() { a(); b(); c(); d(); e(); f() }
+-- never_waits/main.gp --
+package main
+
+import "sync"
+
+macro Fire() {
+	go func() {
+		#body() // want `#body\(\) runs in a go statement of macro Fire, and the goroutine tells nobody when it is done`
+	}()
+}
+
+macro NoReceive() {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		#body() // want `#body\(\) runs in a go statement of macro NoReceive that nothing waits for: the goroutine signals through done`
+	}()
+}
+
+macro NoWait() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		#body() // want `macro NoWait that nothing waits for: the goroutine signals through wg`
+	}()
+}
+
+macro WrongChannel() {
+	done := make(chan struct{})
+	other := make(chan struct{})
+	go func() {
+		defer close(done)
+		#body() // want `macro WrongChannel that nothing waits for`
+	}()
+	<-other
+}
+
+macro WaitsInAnotherGoroutine() {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		#body() // want `macro WaitsInAnotherGoroutine that nothing waits for`
+	}()
+	go func() {
+		<-done
+	}()
+}
+
+#Fire()
+func a() {}
+
+#NoReceive()
+func b() {}
+
+#NoWait()
+func c() {}
+
+#WrongChannel()
+func d() {}
+
+#WaitsInAnotherGoroutine()
+func e() {}
+
+func main() { a(); b(); c(); d(); e() }

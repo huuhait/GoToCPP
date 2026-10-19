@@ -1,0 +1,58 @@
+A lazy parameter that the macro never calls: its argument is never evaluated.
+analyzers: unusedlazy
+-- used/main.gp --
+package main
+
+import "fmt"
+
+macro Assert(cond bool, msg lazy string) {
+	if !cond {
+		panic(msg())
+	}
+}
+
+macro TextOnly(v lazy int) {
+	fmt.Println(#text(v))
+}
+
+macro ByClosure(v lazy int) {
+	f := func() int { return v() }
+	fmt.Println(f())
+}
+
+macro Passed(v lazy int) {
+	#Assert(v() > 0, "positive")
+}
+
+macro Plain(a int, b int) {
+	fmt.Println(a)
+}
+
+func main() {
+	#Assert(true, "x")
+	#TextOnly(1)
+	#ByClosure(2)
+	#Passed(3)
+	#Plain(1, 2)
+}
+-- unused/main.gp --
+package main
+
+import "fmt"
+
+macro Show(x lazy int, y lazy int) { // want `the lazy parameter y of macro Show is never used`
+	fmt.Println(x())
+}
+
+macro Ignore(a lazy string) { // want `the lazy parameter a of macro Ignore is never used`
+	fmt.Println("hello")
+}
+
+macro Both(a lazy int, b lazy int) { // want `lazy parameter a of macro Both` `lazy parameter b of macro Both`
+}
+
+func main() {
+	#Show(1, 2)
+	#Ignore("x")
+	#Both(1, 2)
+}

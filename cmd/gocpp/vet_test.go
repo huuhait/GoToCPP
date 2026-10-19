@@ -112,13 +112,13 @@ func TestVetList(t *testing.T) {
 	if code != 0 || errOut != "" {
 		t.Fatalf("exit %d, stderr %q", code, errOut)
 	}
-	for _, name := range []string{"printf", "copylocks", "unusedresult", "nilness", "cycle", "reserved", "panicbang", "tests", "unsafeptr"} {
+	for _, name := range []string{"printf", "copylocks", "unusedresult", "nilness", "cycle", "reserved", "panicbang", "gobang", "unwaitedbody", "unusedlazy", "ignorederr", "cpplocal", "cstr", "narrowing", "tests", "unsafeptr"} {
 		if !regexp.MustCompile(`(?m)^` + name + ` `).MatchString(out) {
 			t.Errorf("-list has no %s:\n%s", name, out)
 		}
 	}
-	if !strings.Contains(out, "placeholder") {
-		t.Error("panicbang is not marked as a placeholder")
+	if strings.Contains(out, "placeholder") {
+		t.Errorf("an analyzer is still a placeholder:\n%s", out)
 	}
 }
 
@@ -327,5 +327,96 @@ func TestVetExamples(t *testing.T) {
 				t.Errorf("exit %d, stdout %q, stderr:\n%s", code, out, errOut)
 			}
 		})
+	}
+}
+
+const vetBang = `package lib
+
+import (
+	"os"
+	"strconv"
+)
+
+func Port(s string) int {
+	return strconv.Atoi!(s)
+}
+
+macro Skip(a lazy int, b lazy int) int {
+	return a()
+}
+
+func Clean(paths []string) error {
+	for _, p := range paths {
+		os.Remove(p)
+	}
+	return nil
+}
+
+func Spawn!(p string) {
+	go os.Remove(p)
+}
+`
+
+// The analyzers about ! and macros: a panic in a library, a lazy parameter nobody calls, a
+// dropped error, a go statement that drops the error of a must function. The packages need the
+// syntax of Phase 10, which the gate phase opens.
+func TestVetBangAndMacros(t *testing.T) {
+	t.Setenv("GOCPP_GATE_PHASE", "10")
+	code, out, errOut := vetIn(t, map[string]string{"lib/lib.gp": vetBang}, "./lib")
+	if code != 1 || out != "" {
+		t.Fatalf("exit %d, stdout %q, stderr:\n%s", code, out, errOut)
+	}
+	for _, want := range []string{
+		"# example.com/m/lib",
+		"lib/lib.gp:9:9: strconv.Atoi!(s) panics here: Port has no error result",
+		"lib/lib.gp:12:24: the lazy parameter b of macro Skip is never used",
+		"lib/lib.gp:18:3: the error result of os.Remove is dropped, in a function that returns an error: handle it, write os.Remove!(...) to return it",
+		"lib/lib.gp:24:2: go os.Remove(...) in the must function Spawn: the error that it returns is dropped",
+	} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, errOut)
+		}
+	}
+	// -<analyzer> picks, -<analyzer>=false leaves out.
+	_, _, errOut = vetIn(t, map[string]string{"lib/lib.gp": vetBang}, "-panicbang=false", "-gobang=false", "./lib")
+	if strings.Contains(errOut, "panics here") || strings.Contains(errOut, "go os.Remove") || !strings.Contains(errOut, "never used") {
+		t.Errorf("-panicbang=false -gobang=false:\n%s", errOut)
+	}
+	_, out, errOut = vetIn(t, map[string]string{"lib/lib.gp": vetBang}, "-json", "-unusedlazy", "./lib")
+	if errOut != "" || !strings.Contains(out, `"unusedlazy"`) || strings.Contains(out, "panicbang") {
+		t.Errorf("-json -unusedlazy: stdout %q, stderr %q", out, errOut)
+	}
+}
+
+// A program without the syntax of Phase 10 has nothing for these analyzers to find, and the
+// analyzers of the C/C++ boundary work in any phase.
+func TestVetBoundary(t *testing.T) {
+	const src = `package main
+
+import "<cstdio>"
+
+var saved *cstdio.FILE
+
+func f(n int64) {
+	var fp cstdio.FILE
+	saved = &fp
+	cstdio.puts(C.cstr("a\x00b"))
+	cstdio.printf("%d\n", C.int(n))
+}
+
+func main() { f(1) }
+`
+	code, _, errOut := vetIn(t, map[string]string{"main.gp": src}, ".")
+	if code != 1 {
+		t.Fatalf("exit %d, stderr:\n%s", code, errOut)
+	}
+	for _, want := range []string{
+		"./main.gp:9:10: &fp takes the address of the C/C++ variable fp and stores it in the package variable saved",
+		"./main.gp:10:14: the string given to C.cstr has a NUL byte",
+		"./main.gp:11:24: C.int(n) narrows int64 (64 bits) to C.int (32 bits)",
+	} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, errOut)
+		}
 	}
 }

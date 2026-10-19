@@ -62,6 +62,11 @@ type fnCtx struct {
 	sig  *types.Signature
 	typ  *ast.FuncType
 
+	// node is the *ast.FuncDecl or *ast.FuncLit (nil for a package variable's initializer), and
+	// exit says that the error ends the program (main!, init!, a main with F!: MustExit).
+	node ast.Node
+	exit bool
+
 	// fatal is the name of the *testing.T parameter for failFatal.
 	fatal string
 
@@ -234,10 +239,11 @@ func (l *lowerer) lowerFuncDecl(fd *ast.FuncDecl) *ast.FuncDecl {
 	defer func() { l.fn = save }()
 	if special {
 		wrapper = l.lowerMain(fd, mf)
-		l.fn = &fnCtx{kind: failReturn, typ: fd.Type}
+		l.fn = &fnCtx{kind: failReturn, typ: fd.Type, exit: true}
 	} else {
 		l.fn = l.newCtx(sig, fd.Type, "")
 	}
+	l.fn.node = fd
 	l.lowerFunc(fd.Body)
 	l.lowerLits(fd.Body)
 	end := fd.Body.Rbrace
@@ -364,6 +370,7 @@ func (l *lowerer) lowerLits(n ast.Node) {
 		}
 		save := l.fn
 		l.fn = l.newCtx(l.sigOfLit(lit), lit.Type, outer.fatal)
+		l.fn.node = lit
 		l.lowerFunc(lit.Body)
 		l.lowerLits(lit.Body)
 		l.fn = save
@@ -921,52 +928,51 @@ func (l *lowerer) declStmt(s *ast.DeclStmt) (pre []ast.Stmt, main ast.Stmt, scop
 	if !ok || gd.Tok != token.VAR {
 		return nil, s, false
 	}
-	// A declaration of several specs ((var ( ... )): a spec with a helper is
-	// split out; the others stay in order, so the code goes before the
-	// whole declaration only if one spec is.)
+	// A declaration of several specs (var ( ... )) that has a ! call is split into one declaration per
+	// spec, in order: the code of each spec goes right before it, a later spec sees the names of the
+	// earlier ones, and the specs run in their source order.
+	found := false
+	for _, sp := range gd.Specs {
+		if l.hasAny(exprNodes(sp.(*ast.ValueSpec).Values)...) {
+			found = true
+		}
+	}
+	if !found {
+		return nil, s, false
+	}
+	emit := func(vs *ast.ValueSpec) {
+		pre = append(pre, &ast.DeclStmt{Decl: &ast.GenDecl{Tok: token.VAR, Specs: []ast.Spec{vs}}})
+	}
 	for _, sp := range gd.Specs {
 		vs := sp.(*ast.ValueSpec)
 		if !l.hasAny(exprNodes(vs.Values)...) {
+			emit(vs)
 			continue
 		}
 		if len(vs.Values) == 1 && vs.Type == nil {
 			if h := l.mp.byHelper[asCall(vs.Values[0])]; h != nil && h.arity() == len(vs.Names) {
-				// var a, b = F!(x): var a, b, must_e = F(x).
+				// var a, b = F!(x): var a, b, must_e = F(x), then the error check.
+				l.mp.noteCall(h, l.fn)
 				l.callParts(h.inner, &pre)
 				e := l.freshE()
 				vs.Names = append(vs.Names, mIdent(e))
 				vs.Values = []ast.Expr{h.inner}
-				// The error check goes after the declaration.
-				pre = append(pre, &ast.DeclStmt{Decl: &ast.GenDecl{Tok: token.VAR, Specs: []ast.Spec{vs}}})
+				emit(vs)
 				pre = append(pre, l.failIf(e))
-				// the other specs of the same declaration follow
-				gd.Specs = removeSpec(gd.Specs, sp)
-				if len(gd.Specs) == 0 {
-					return pre, nil, false
-				}
-				return pre, s, false
+				continue
 			}
 		}
 		if len(vs.Values) == 1 && len(vs.Names) > 1 {
 			if h := l.mp.byHelper[asCall(vs.Values[0])]; h != nil {
-				vals := l.lowerH(h, &pre, nil, token.DEFINE)
-				vs.Values = vals
+				vs.Values = l.lowerH(h, &pre, nil, token.DEFINE)
+				emit(vs)
 				continue
 			}
 		}
 		l.seq(mSlots(vs.Values), &pre)
+		emit(vs)
 	}
-	return pre, s, false
-}
-
-func removeSpec(specs []ast.Spec, s ast.Spec) []ast.Spec {
-	var out []ast.Spec
-	for _, x := range specs {
-		if x != s {
-			out = append(out, x)
-		}
-	}
-	return out
+	return pre, nil, false
 }
 
 // ifStmt lowers an if statement.
@@ -1197,6 +1203,7 @@ func (l *lowerer) deferStmt(s *ast.DeferStmt) (pre []ast.Stmt, main ast.Stmt, sc
 		return pre, s, false
 	}
 	inner := h.inner
+	l.mp.noteCall(h, l.fn)
 	l.callParts(inner, &pre)
 	// The function value, the receiver and the arguments are evaluated now.
 	call := &ast.CallExpr{Lparen: inner.Lparen, Rparen: inner.Rparen, Ellipsis: inner.Ellipsis}
@@ -1563,6 +1570,7 @@ func (l *lowerer) lowerH(h *mustCall, pre *[]ast.Stmt, lhs []ast.Expr, tok token
 	l.later = false
 	l.callParts(h.inner, pre)
 	l.later = saved
+	l.mp.noteCall(h, l.fn)
 	res, _ := callResults(l.info, h.inner)
 	n := max(len(res)-1, 0)
 	var left, vals []ast.Expr

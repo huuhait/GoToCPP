@@ -1,0 +1,73 @@
+The error of a ! can't come back from another goroutine: go drops it.
+analyzers: gobang
+-- go_literal/main.gp --
+package main
+
+import "os"
+
+func main() {
+	go func() error { // want `go func\(\) error \{ \.\.\. ! \.\.\. \}\(\): the ! returns its error from the func literal, and go drops`
+		os.Remove!("x")
+		return nil
+	}()
+}
+-- literal_without_bang/main.gp --
+package main
+
+import "os"
+
+func work() {
+	// no !: the error is dropped by the program's own code, which other tools find
+	go func() error {
+		return os.Remove("x")
+	}()
+	// no error result: a panic if it fails, which panicbang reports for libraries
+	go func() {
+		os.Remove!("y")
+	}()
+}
+
+func main() { work() }
+-- must_function/main.gp --
+package main
+
+import (
+	"fmt"
+	"os"
+)
+
+func clean(path string) error { return os.Remove(path) }
+
+func note(s string) { fmt.Println(s) }
+
+func run!(paths []string) {
+	for _, p := range paths {
+		go clean(p) // want `go clean\(...\) in the must function run: the error that it returns is dropped, because a goroutine can't return it from run`
+		go note(p)
+		go fmt.Println(p) // a printer's error is nobody's business, as in ignorederr
+	}
+	go func() error { // want `go func\(\) error \{\.\.\.\}\(\) in the must function run`
+		return nil
+	}()
+	go func() {
+		// a closure is its own function
+		go clean("x")
+	}()
+}
+
+func main() { run!(nil) }
+-- plain_function/main.gp --
+package main
+
+import "os"
+
+func clean(path string) error { return os.Remove(path) }
+
+// Not a must function: nothing was promised about its errors.
+func run(paths []string) {
+	for _, p := range paths {
+		go clean(p)
+	}
+}
+
+func main() { run(nil) }

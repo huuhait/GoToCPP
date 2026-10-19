@@ -19,7 +19,7 @@ import (
 // the program has errors (an error test, or a feature of a later phase).
 func sweepFile(t *testing.T, file string, force bool) (*Report, bool) {
 	dir := filepath.Dir(file)
-	prog := load.Load(load.Config{Dir: dir, Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: "linux", GOARCH: "amd64", AllErrors: true}, file)
+	prog := load.Load(load.Config{Dir: dir, Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: "linux", GOARCH: "amd64", AllErrors: true, Phase10Syntax: true}, file)
 	res := check.Check(prog, fakeProbeConfig())
 	if prog.Errors.HasErrors() {
 		return nil, false
@@ -102,6 +102,13 @@ func corpusFiles(t *testing.T, patterns ...string) []string {
 // does what the analyzer says. The key is the file name and the analyzer.
 var knownFindings = map[string]bool{
 	"unsafe_builder.gp stdmethods": true, // WriteByte without the error result of io.ByteWriter
+
+	// The tests of the C conversions do what the analyzers say, on purpose.
+	"c_constant_precision.gp narrowing": true, // C.int(big) with an int64 and C.char(b) with a uint16: they show the cut
+	"float_conversions.gp narrowing":    true, // C.float(x) with a float64: it shows the rounding
+	"cgo_helpers.gp cstr":               true, // C.CString("a\x00b"): it shows that the NUL ends the C string
+	"defer_hold_order.gp cpplocal":      true, // saved = &c, a package variable that only a deferred call reads
+	"umacro_lazy.gp unusedlazy":         true, // macro Never: a lazy argument that is never evaluated, as the test shows
 }
 
 // TestOpaqueCorpus runs every analyzer over the programs that use C/C++

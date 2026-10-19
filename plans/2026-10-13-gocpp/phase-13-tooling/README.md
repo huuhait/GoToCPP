@@ -114,6 +114,15 @@ gocpp-specific analyzers:
   statement that nothing waits for;
 - lazy macro parameters that are never used.
 
+- **As built (13.3b, [guide](../../../docs/guides/vet.md), [ADR-094](../../../docs/adr/094-vet-reads-the-bang-forms-from-the-checker.md)):**
+  `panicbang` (also across packages, through facts), `gobang` (`go func() error { ... F!() ... }()`
+  and `go f()` in a must function), `unwaitedbody`, `unusedlazy`, `ignorederr` (a call statement that
+  drops an error, only in a package that uses `!`), `cpplocal`, `cstr` and `narrowing`. They read the
+  `!` forms from `check.Package.Must` and the macros from `load.Package.Macros`, because the trees are
+  plain Go. Gaps: `narrowing` reports the explicit conversions to C number types only (the implicit
+  narrowing of typed mode needs the probes' C++ types and waits for step 12.11); `cpplocal` and `cstr` read
+  the shape of the code, one function at a time; `cstr` keeps a copy of the list of `internal/lower/keeps.go`.
+
 ### 2.4 Small but useful
 
 - `gocpp doc pkg.Name`: terminal docs built with `go/doc` (macros and derived methods included).

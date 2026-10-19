@@ -1099,6 +1099,9 @@ fmt.Println(strings.ToUpper(s + "!"))
   view of it, `v := std.string_view(C.cstr(s))` (a use after scope at the next use of `v`: write
   `std.string_view(s)`, or `std.string(s)` for a copy). These follow C++'s lifetime rules, as C/C++
   values do ([pointers](#pointers-unsafe-and-slices-at-the-boundary)).
+  `gocpp vet` (analyzer `cstr`) reports the calls of the functions of the typed-interop list
+  (`openlog`, `getopt`, raylib's `InitWindow`, `sqlite3_bind_text` without `SQLITE_TRANSIENT`, ...) that get a
+  `C.cstr`, a view that is kept, and a constant string with a NUL byte given to `C.cstr` or `C.CString`.
 - **A gocpp string is no C string.** `cstdio.puts(s)` doesn't compile: in opaque mode gocpp
   doesn't know that `puts` takes a `const char*`, so the C++ compiler reports it at the `.gp` line,
   with a hint: "C++: cannot convert 'string' to 'const char*' (a gocpp string is no C string:
@@ -1186,6 +1189,10 @@ name := rec.name[:]                     // a C array member, sliced: a []C.char 
     `p := &x; return p` compile, and dangle after `x`'s block ends (ASan finds it). A C function
     must not keep `&x` after that either (a callback's user data, `sqlite3_bind_text` with
     `SQLITE_STATIC`).
+    `gocpp vet` (analyzer `cpplocal`) reports the stores of `&x` that outlive `x` which it can see in
+    one function: a package variable, a field or element reached through a pointer parameter, a variable
+    declared outside the block (in a function without `defer`), a channel the function does not own,
+    and a result.
 
   `&lib.global` is the address of a C/C++ global, which lives as long as the program.
 - **Pointers that own what they point to.** A `*T` of a C/C++ type that gocpp code declares (a

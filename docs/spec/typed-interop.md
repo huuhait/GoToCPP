@@ -451,7 +451,7 @@ xvalue or a const lvalue; a class value can be assigned: C++ calls `operator=`).
 **Known limits.** Silent where the probe is not the code (above); the opaque check and the lowering
 run first and report their own errors (an unknown name, a C value converted to a Go number in a
 declaration, argument or result), so the checker adds to what opaque mode finds, never replaces it;
-narrowing warnings (README §2.3) belong to `gocpp vet`; the "name through the wrong header" warning
+narrowing warnings (README §2.3) belong to `gocpp vet` (it reports the explicit conversions `C.int(i64)` today; the implicit ones that this mode accepts wait for the typed mode to be the default, step 12.11); the "name through the wrong header" warning
 needs header locations (step 12.13); an incomplete type used as a value is not checked.
 
 ## 8. Code generation (step 12.6)

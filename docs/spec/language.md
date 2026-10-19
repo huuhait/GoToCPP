@@ -1135,7 +1135,7 @@ costs nothing at run time.
 - **Closures** inside a must function are separate functions, so nothing is handled inside them
   automatically. Use must calls there.
 - **`go f()`:** the error can't come back from another thread, so it is not handled. `gocpp vet`
-  warns about it.
+  warns about it (analyzer `gobang`).
 - **Every dropped error means every one**, `fmt.Println(...)` included. That is harmless and keeps
   the rule simple. The editor marks every handled call with an inlay hint (Phase 11).
 - A call whose last result is a **concrete** error type (`*MyErr`, `syscall.Errno`) is not
@@ -1185,7 +1185,7 @@ This holds for `F!` and for the calls a must function handles.
 | inside a `lazy` macro argument | compile error: `!` would silently turn into a panic there |
 
 `go func() error { ... F!() ... }()` drops the error just like `go F!()` would. `gocpp vet` warns
-about it.
+about it (`gobang`).
 
 ### Reading `!`
 
@@ -1236,7 +1236,10 @@ operation of a `select` case too (evaluate it before the `select`).
 - In the editor, hover on a must function shows its real signature, and hover on `F!` says what
   happens on error at that spot (return, panic, exit 1 or `t.Fatal`). Phase 11.
 - `gocpp vet` warns about `!` that would panic inside a library package (libraries should return
-  errors) and about `go` statements that lose errors. Phase 13.
+  errors: `panicbang`, which also follows calls into other packages), about `go` statements that
+  lose errors (`gobang`), about a dropped error where the function could return it (`ignorederr`),
+  and about lazy parameters that are never used (`unusedlazy`). Phase 13, step 13.3b
+  ([guide](../guides/vet.md)).
 
 ---
 
@@ -1376,8 +1379,8 @@ func secret(key string) (int, error) {
 - The `defer`s in the function's code run when that code ends, that is when `#body()` returns,
   before the macro goes on.
 - A macro that starts `#body()` on another thread must wait for it before it returns, as
-  `InThread` does. `gocpp vet` will warn when `#body()` runs in a `go` statement that nothing waits
-  for (Phase 13; not built yet).
+  `InThread` does. `gocpp vet` (analyzer `unwaitedbody`) warns when `#body()` runs in a `go` statement
+  that nothing waits for.
 - **v1 limit:** `#body()` gives the macro no access to the function's results, so a `#Retry(3)`
   that looks at the returned error is not possible yet ([open points](#open-points)).
 

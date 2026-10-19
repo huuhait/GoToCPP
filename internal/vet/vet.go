@@ -143,6 +143,8 @@ func Run(prog *load.Program, res *check.Result, cfg Config) (*Report, error) {
 			files[i] = f.AST
 		}
 		u := &unit{path: p.ImportPath, pkg: cp.Types, files: files, info: cp.Info, root: isRoot[p]}
+		inputsOf.Store(cp.Types, &pkgInputs{path: p.ImportPath, must: cp.Must, macros: p.Macros})
+		defer inputsOf.Delete(cp.Types)
 		u.tainted = illTyped(cp.Info, prog.Fset)
 		typeParenBlanks(cp.Info, files)
 		for _, path := range slices.Sorted(maps.Keys(p.Imports)) {

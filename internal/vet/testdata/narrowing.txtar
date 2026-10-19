@@ -1,0 +1,82 @@
+A conversion to C.number type that cuts the value.
+analyzers: narrowing
+-- narrows/main.gp --
+package main
+
+import "<cstdio>"
+
+type Small = C.uchar
+
+type Flt C.float
+
+func main() {
+	n := 5
+	var i64 int64 = 6
+	var u32 uint32 = 7
+	x := 1.5
+	var u64 uint64 = 8
+	var p uintptr = 9
+	_ = C.uint(u64) // want `C.uint\(u64\) narrows uint64 \(64 bits\) to C.uint \(32 bits\)`
+	_ = C.int(p)    // want `C.int\(p\) narrows uintptr \(64 bits\) to C.int \(32 bits\)`
+	_ = C.int(i64)  // want `C.int\(i64\) narrows int64 \(64 bits\) to C.int \(32 bits\)`
+	_ = C.short(u32) // want `C.short\(u32\) narrows uint32 \(32 bits\) to C.short \(16 bits\)`
+	_ = C.uchar(n)  // want `narrows int \(64 bits\) to C.uchar \(8 bits\)`
+	_ = C.short(n)  // want `C.short\(n\) narrows int \(64 bits\) to C.short \(16 bits\)`
+	_ = C.int32_t(i64) // want `to C.int32_t \(32 bits\)`
+	_ = Small(n)    // want `Small\(n\) narrows int \(64 bits\) to Small \(8 bits\)`
+	_ = Flt(x)      // want `Flt\(x\) narrows a float64 \(64 bits\) to Flt \(32 bits\)`
+	_ = C.float(x)  // want `C.float\(x\) narrows a float64 \(64 bits\) to C.float \(32 bits\)`
+	cstdio.fflush(cstdio.stdout)
+}
+-- fits/main.gp --
+package main
+
+import "<cstdio>"
+
+func main() {
+	n := 5
+	var i32 int32 = 5
+	var u32 uint32 = 7
+	var i8 int8 = 1
+	x := 1.5
+	_ = C.longlong(n)
+	_ = C.int(n) // a plain int is how the numbers of Go go to C
+	_ = C.uint(n)
+	_ = C.int32_t(n)
+	_ = C.double(x)
+	_ = C.int(i32)
+	_ = C.int(u32) // the same width: the sign changes, nothing is cut
+	_ = C.int(i8)
+	_ = C.int(5)
+	const typed int64 = 7
+	_ = C.int(typed) // a typed constant: the compiler checks it
+	_ = C.int(len("abc"))
+	_ = C.int(cap(make([]int, 3)))
+	xs := make([]int, 3)
+	_ = C.short(len(xs))
+	_ = C.uchar(cap(xs))
+	_ = C.int(n & 0xff)
+	_ = C.int(n % 100)
+	_ = C.uchar(n & 0xff)
+	_ = C.long(n) // the width of long depends on the target
+	_ = C.int(int32(n))
+	var sh uint = 3
+	_ = C.int(1 << sh) // untyped until the conversion: it has no size
+	_ = C.double(2.5 * x)
+	cstdio.fflush(cstdio.stdout)
+}
+-- cut_by_mask/main.gp --
+package main
+
+import "<cstdio>"
+
+func main() {
+	n := 5
+	var big int64 = 1 << 40
+	_ = C.uchar(n & 0x1ff)          // want `narrows int`
+	_ = C.int(big % 5000000000)     // want `narrows int64`
+	_ = C.int(big & 0xffffffffff)   // want `narrows int64`
+	_ = C.int(big & 0x7fffffff)
+	_ = C.int(big & -1)           // want `narrows int64`
+	cstdio.fflush(cstdio.stdout)
+}

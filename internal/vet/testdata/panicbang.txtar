@@ -1,0 +1,259 @@
+A `!` that panics inside a library: the function has no error result, so the error of F becomes a
+panic. Calls into packages that do that, found through the call graph.
+analyzers: panicbang
+-- direct/lib.gp --
+package direct
+
+import (
+	"os"
+	"strconv"
+)
+
+// Load has no error result: a failure of ReadFile panics.
+func Load(path string) string {
+	b := os.ReadFile!(path) // want `os.ReadFile!\(path\) panics here: Load has no error result`
+	return string(b)
+}
+
+// A method: named as the user reads it.
+type Server struct{ port int }
+
+func (s *Server) Start() {
+	s.port = strconv.Atoi!("80") // want `Atoi!\("80"\) panics here: \(\*Server\).Start has no error result`
+}
+
+// A func literal is its own function: its result decides.
+func Parse(xs []string) []int {
+	var out []int
+	f := func(s string) int {
+		return strconv.Atoi!(s) // want `panics here: the func literal in Parse has no error result`
+	}
+	for _, x := range xs {
+		out = append(out, f(x))
+	}
+	return out
+}
+
+// A package variable's initializer panics too.
+var port = strconv.Atoi!("8080") // want `panics here: the initializer of this package variable has no error result`
+
+func init() {
+	os.Remove!("/tmp/x") // want `panics here: init has no error result`
+}
+-- fine/lib.gp --
+package fine
+
+import (
+	"os"
+	"strconv"
+	"testing"
+)
+
+// An error result: the error is returned.
+func Load(path string) (string, error) {
+	b := os.ReadFile!(path)
+	return string(b), nil
+}
+
+// A must function returns its error.
+func Count!(s string) int {
+	return strconv.Atoi!(s)
+}
+
+// The Must convention: it panics, and says so with its name.
+func MustLoad(path string) string {
+	b := os.ReadFile!(path)
+	return string(b)
+}
+
+func mustPort(s string) int {
+	return strconv.Atoi!(s)
+}
+
+// A closure of a function with an error result has its own results.
+func Each(xs []string) error {
+	for _, x := range xs {
+		n := strconv.Atoi!(x)
+		_ = n
+	}
+	return nil
+}
+
+// A test function: t.Fatal, not a panic.
+func check(t *testing.T, s string) int {
+	return strconv.Atoi!(s)
+}
+-- deferred/lib.gp --
+package deferred
+
+import "os"
+
+// defer F!(...) is a ! like another: the lowering writes a recover() into the deferred func, which
+// is the compiler's and does not stop anything.
+func Clean() {
+	defer os.Remove!("z") // want `os.Remove!\("z"\) panics here: Clean has no error result`
+}
+
+func Clean2() {
+	os.Remove!("z") // want `panics here: Clean2 has no error result`
+}
+
+// The user's own recover() does stop the panic: the function is left alone, deferred ! included.
+func Guarded() {
+	defer func() { recover() }()
+	defer os.Remove!("z")
+}
+
+func WithError() error {
+	defer os.Remove!("z")
+	return nil
+}
+-- deferred_across/dep/dep.gp --
+package dep
+
+import "os"
+
+func Clean() {
+	defer os.Remove!("z") // want `panics here: Clean has no error result`
+}
+
+func Clean2() {
+	os.Remove!("z") // want `panics here: Clean2 has no error result`
+}
+-- deferred_across/lib/lib.gp --
+package lib
+
+import "example.com/m/deferred_across/dep"
+
+func A() {
+	dep.Clean() // want `dep.Clean can panic: dep.Clean uses ! at dep.gp:6:8`
+}
+
+func B() {
+	dep.Clean2() // want `dep.Clean2 can panic`
+}
+-- recovers/lib.gp --
+package recovers
+
+import "strconv"
+
+// A function that recovers may stop the panic: not reported.
+func Safe(s string) (n int) {
+	defer func() { recover() }()
+	return strconv.Atoi!(s)
+}
+
+func Unsafe(s string) int {
+	return strconv.Atoi!(s) // want `panics here: Unsafe has no error result`
+}
+-- main_pkg/main.gp --
+package main
+
+import "os"
+
+// A program may panic: only libraries are asked to return their errors.
+func load(path string) string {
+	b := os.ReadFile!(path)
+	return string(b)
+}
+
+func main() {
+	println(load("x"))
+}
+-- testfile/lib.gp --
+package testfile
+
+func Add(a, b int) int { return a + b }
+-- testfile/lib_test.gp --
+package testfile
+
+import "strconv"
+
+func helper(s string) int {
+	return strconv.Atoi!(s)
+}
+-- across/dep/dep.gp --
+package dep
+
+import "strconv"
+
+func parse(s string) int {
+	return strconv.Atoi!(s) // want `Atoi!\(s\) panics here: parse has no error result`
+}
+
+// Twice panics through Parse, which panics through parse: the chain is followed inside a package.
+func Twice(s string) int {
+	return Parse(s)
+}
+
+// Parse panics through parse.
+func Parse(s string) int {
+	return parse(s)
+}
+
+type Box[T any] struct{ v T }
+
+// A method of a generic type: the callee of an instance is found through its origin.
+func (b *Box[T]) Parse(s string) int { return parse(s) }
+
+func Generic[T any](s string) int { return parse(s) }
+
+// Safe stops the panic.
+func Safe(s string) (n int, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = r.(error)
+		}
+	}()
+	return parse(s), nil
+}
+
+func Fine(s string) (int, error) {
+	return strconv.Atoi(s)
+}
+-- across/lib/lib.gp --
+package lib
+
+import "example.com/m/across/dep"
+
+func Port(s string) int {
+	return dep.Parse(s) // want `dep.Parse can panic: dep.parse uses ! at dep.gp:\d+:\d+ in a function with no error result`
+}
+
+func Safe(s string) (int, error) {
+	return dep.Safe(s)
+}
+
+func ViaMethod(s string) int {
+	var b dep.Box[int]
+	return b.Parse(s) // want `b.Parse can panic: dep.parse uses !`
+}
+
+func ViaGeneric(s string) int {
+	return dep.Generic[int](s) // want `dep.Generic\[int\] can panic: dep.parse uses !`
+}
+
+func Chain(s string) int {
+	return dep.Twice(s) // want `dep.Twice can panic: dep.parse uses ! at dep.gp:\d+:\d+`
+}
+
+func Fine(s string) (int, error) {
+	return dep.Fine(s)
+}
+
+func MustPort(s string) int {
+	return dep.Parse(s)
+}
+
+func Guarded(s string) (n int) {
+	defer func() { recover() }()
+	return dep.Parse(s)
+}
+-- across/app/main.gp --
+package main
+
+import "example.com/m/across/dep"
+
+func main() {
+	println(dep.Parse("1"))
+}

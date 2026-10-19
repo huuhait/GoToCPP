@@ -42,11 +42,6 @@ type Analyzer struct {
 	// a value of an invalid type (a C++ value) wherever it checks types.
 	// TestOpaqueCorpus and TestOpaqueNoFalsePositives are the evidence.
 	Opaque bool
-
-	// Placeholder reports that the analyzer is registered but does nothing
-	// yet: it waits for the phase that builds what it checks (panicbang
-	// waits for Phase 10).
-	Placeholder bool
 }
 
 // Analyzers lists every analyzer of gocpp vet, in the order that -list
@@ -78,7 +73,14 @@ var Analyzers = []*Analyzer{
 	{Analyzer: waitgroup.Analyzer, Opaque: true},
 	{Analyzer: cycleAnalyzer, Gocpp: true},
 	{Analyzer: reservedAnalyzer, Gocpp: true},
-	{Analyzer: panicbangAnalyzer, Gocpp: true, Placeholder: true},
+	{Analyzer: panicbangAnalyzer, Gocpp: true},
+	{Analyzer: gobangAnalyzer, Gocpp: true},
+	{Analyzer: unwaitedbodyAnalyzer, Gocpp: true},
+	{Analyzer: unusedlazyAnalyzer, Gocpp: true},
+	{Analyzer: ignorederrAnalyzer, Gocpp: true},
+	{Analyzer: cpplocalAnalyzer, Gocpp: true},
+	{Analyzer: cstrAnalyzer, Gocpp: true},
+	{Analyzer: narrowingAnalyzer, Gocpp: true},
 }
 
 // Lookup returns the analyzer with the name, or nil.
@@ -144,16 +146,4 @@ func reservedWhy(name string) string {
 		return "it starts with _ and a capital letter"
 	}
 	return ""
-}
-
-// panicbangAnalyzer is the place of the check for F!(...) that would panic
-// inside a library package (libraries should return their errors). The
-// check needs the must functions and must calls of Phase 10, which are not
-// built yet: today the analyzer is registered, can be switched off by name,
-// and reports nothing. The driver doesn't change when Phase 10 fills it in.
-var panicbangAnalyzer = &analysis.Analyzer{
-	Name:             "panicbang",
-	Doc:              "report F!(...) that would panic inside a library package (placeholder: waits for Phase 10)",
-	RunDespiteErrors: true,
-	Run:              func(*analysis.Pass) (any, error) { return nil, nil },
 }

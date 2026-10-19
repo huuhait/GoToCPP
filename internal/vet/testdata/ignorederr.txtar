@@ -1,0 +1,194 @@
+A call statement that drops an error in a function that returns an error.
+analyzers: ignorederr
+-- dropped/main.gp --
+package main
+
+import (
+	"fmt"
+	"io"
+	"os"
+)
+
+func clean(path string) error {
+	os.Remove(path) // want `the error result of os.Remove is dropped, in a function that returns an error: handle it, write os.Remove!\(\.\.\.\) to return it, or write _ = os.Remove\(\.\.\.\) if ignoring it is intended`
+	return nil
+}
+
+func write(w io.Writer, b []byte) (int, error) {
+	w.Write(b) // want `the error result of w.Write is dropped`
+	return len(b), nil
+}
+
+func closeIt(f *os.File) error {
+	f.Close() // want `the error result of f.Close is dropped`
+	return nil
+}
+
+// The success path: nil is returned, so the dropped error is lost.
+func removeIt(path string) error {
+	if path == "" {
+		os.Remove(path) // want `the error result of os.Remove is dropped`
+		return nil
+	}
+	return nil
+}
+
+func inLiteral() error {
+	f := func() error {
+		os.Remove("x") // want `the error result of os.Remove is dropped`
+		return nil
+	}
+	return f()
+}
+
+func litInPlain() {
+	f := func() error {
+		os.Remove("x") // want `the error result of os.Remove is dropped`
+		return nil
+	}
+	_ = f()
+}
+
+// The package uses !, so the dropped errors above stand out.
+func marker!(p string) string {
+	b := os.ReadFile!(p)
+	return string(b)
+}
+
+func main() { clean("x"); write(nil, nil); closeIt(nil); removeIt(""); inLiteral(); litInPlain(); fmt.Println() }
+-- fine/main.gp --
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"fmt"
+	"os"
+	"strings"
+)
+
+func explicit(path string) error {
+	_ = os.Remove(path) // a decision
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+	defer os.Remove(path)
+	go os.Remove(path)
+	return nil
+}
+
+func printers(w *bufio.Writer, sb *strings.Builder, buf *bytes.Buffer) error {
+	fmt.Println("x")
+	fmt.Printf("%d\n", 1)
+	fmt.Fprintln(os.Stderr, "x")
+	sb.WriteString("x")
+	buf.Write([]byte("x"))
+	w.WriteString("x")
+	w.Write([]byte("y"))
+	fmt.Println("done")
+	return w.Flush()
+}
+
+// A bare return: the results are named, and the analysis does not read them.
+func bare(f *os.File) (err error) {
+	if f == nil {
+		os.Remove("x")
+		return
+	}
+	return nil
+}
+
+// The cleanup on a failure path: the error that matters is the one that is returned.
+func cleanup(f *os.File, err error) error {
+	if err != nil {
+		f.Close()
+		return err
+	}
+	switch {
+	case f == nil:
+		os.Remove("x")
+		return os.ErrNotExist
+	}
+	return nil
+}
+
+// No error result: the author has nothing to return it with.
+func noResult(path string) {
+	os.Remove(path)
+}
+
+func noError(path string) bool {
+	os.Remove(path)
+	return true
+}
+
+func conversions(s string) error {
+	_ = []byte(s)
+	return nil
+}
+
+func marker!(p string) string {
+	b := os.ReadFile!(p)
+	return string(b)
+}
+
+func main() {
+	explicit("x")
+	printers(nil, nil, nil)
+	cleanup(nil, nil)
+	bare(nil)
+	noResult("x")
+	noError("x")
+	conversions("x")
+}
+-- plain_go/main.gp --
+package main
+
+import "os"
+
+// No ! anywhere in the package: plain Go error handling, which go vet does not check either.
+func clean(path string) error {
+	os.Remove(path)
+	return nil
+}
+
+func main() { clean("x") }
+-- uses_bang/main.gp --
+package main
+
+import (
+	"os"
+	"strconv"
+)
+
+// A function with a ! of its own: the author handles errors that way here, and the call that drops
+// its error stands out. (It panics on an error: it has no error result.)
+func load(p string) int {
+	n := strconv.Atoi!(p)
+	os.Remove(p) // want `the error result of os.Remove is dropped, in a function that uses !: handle it, write os.Remove!\(\.\.\.\) to handle it the way this function does`
+	return n
+}
+
+// No ! in this one.
+func plain(p string) int {
+	os.Remove(p)
+	return 1
+}
+
+func main() { load("1"); plain("1") }
+-- must/main.gp --
+package main
+
+import "os"
+
+// A must function handles the errors of the calls that drop them.
+func clean!(path string) {
+	os.Remove(path)
+	f := func() error {
+		os.Remove(path) // want `the error result of os.Remove is dropped, in a function that returns an error: handle it, write os.Remove!\(\.\.\.\) to return it`
+		return nil
+	}
+	f!()
+}
+
+func main() { clean!("x") }

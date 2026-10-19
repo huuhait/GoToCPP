@@ -89,6 +89,10 @@ type mustPass struct {
 	// rewrites counts the rewrites of rewriteDropped in all rounds, to stop
 	// a loop that does not end.
 	rounds int
+
+	// info is what Package.Must says; noted holds the calls that are in it (mustinfo.go).
+	info  MustInfo
+	noted map[*mustCall]bool
 }
 
 // A mustFunc is a must function: func f!(...).
@@ -103,6 +107,11 @@ type mustFunc struct {
 
 	// added says that prepare added the error result.
 	added bool
+
+	// name is the name the user wrote (main, init); exit says that the function is main! or init!,
+	// whose error the real main or init prints before the program exits (Package.Must).
+	name string
+	exit bool
 }
 
 const (
@@ -239,7 +248,7 @@ func (mp *mustPass) prepare() {
 // prepareFunc rewrites the signature and the returns of the must function fd.
 func (mp *mustPass) prepareFunc(f *ast.File, fd *ast.FuncDecl) {
 	fd.Name.Name = gpast.MustBase(fd.Name.Name)
-	mf := &mustFunc{decl: fd, file: f}
+	mf := &mustFunc{decl: fd, file: f, name: fd.Name.Name}
 	mp.funcs[fd] = mf
 	mp.order = append(mp.order, mf)
 	if fd.Recv == nil && fd.Name.Name == "init" || fd.Recv == nil && fd.Name.Name == "main" && f.Name.Name == "main" {
@@ -273,6 +282,7 @@ func (mp *mustPass) prepareFunc(f *ast.File, fd *ast.FuncDecl) {
 		}
 		fd.Name = &ast.Ident{NamePos: fd.Name.NamePos, Name: inner}
 		mp.wrappers[fd] = wrapper
+		mf.exit = true
 	}
 	if fd.Type.Results == nil {
 		fd.Type.Results = &ast.FieldList{}

@@ -1,4 +1,4 @@
-Names that C++ reserves, and the placeholder analyzer.
+Names that C++ reserves (and a program with no ! for panicbang to find).
 analyzers: reserved,panicbang
 -- reserved_names/main.gp --
 package main
@@ -28,7 +28,7 @@ type T struct {
 }
 
 func main() { _ = T{} }
--- panicbang_placeholder/main.gp --
+-- panicbang_nothing/main.gp --
 package main
 
 func main() {}

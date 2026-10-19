@@ -23,8 +23,10 @@ const vetUsage = `usage: gocpp vet [-json] [-v] [-list] [-<analyzer>[=false]] [p
 gocpp vet reports likely mistakes in the packages: the checks of go vet
 that make sense for gocpp programs (printf, copylocks, unusedresult, nilness,
 ...) and checks of gocpp's own (cycle: reference cycles that reference
-counting never frees; reserved: names that C++ reserves; panicbang: a
-placeholder for Phase 10). "gocpp vet -list" shows them all.
+counting never frees; reserved: names that C++ reserves; panicbang, gobang,
+ignorederr, unusedlazy, unwaitedbody: mistakes with ! and macros; cpplocal,
+cstr, narrowing: mistakes at the C/C++ boundary). "gocpp vet -list" shows
+them all.
 
 Each finding is one line, "file:line:col: message", at the place in the
 .gp source, under a line "# <import path>" for its package, on standard
@@ -36,9 +38,9 @@ does.
 Exit status: 0 when nothing is found, 1 when there is a finding, 2 when
 the packages can't be vetted (a load or type error: gocpp vet prints the
 errors like gocpp check), or when an analyzer crashed (a gocpp bug). A
-feature that the front-end does not have yet, like macros and must
-functions (Phase 10), stops vet like a type error; a feature that it
-can type but not build yet (a phase gate of gocpp check) does not.
+feature that the front-end does not have yet stops vet like a type error;
+a feature that it can type but not build yet (a phase gate of gocpp check)
+does not.
 
 Like go vet, -<analyzer> (or -<analyzer>=true) runs only the analyzers
 named so, and -<analyzer>=false leaves one out. -json prints the findings
@@ -102,10 +104,7 @@ func runVet(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	if list {
 		for _, a := range vet.Analyzers {
 			kind := "go vet"
-			switch {
-			case a.Placeholder:
-				kind = "gocpp, placeholder"
-			case a.Gocpp:
+			if a.Gocpp {
 				kind = "gocpp"
 			}
 			fmt.Fprintf(stdout, "%-14s %-19s %s\n", a.Name, kind, firstLine(a.Doc))

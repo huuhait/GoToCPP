@@ -231,6 +231,10 @@ type Package struct {
 	// the order of the #Derive lines: gocpp expand prints them.
 	Derived []DerivedMethod
 
+	// Must says where the `!` forms of the source were (they are plain Go in the trees of Load
+	// after the rewrite, ADR-037); nil if the package has none. gocpp vet reads it.
+	Must *MustInfo
+
 	// Opaque says which expressions are opaque (they come from C/C++ and
 	// have no complete type) and keeps the type expressions of the objects
 	// declared with C/C++ types (see Opaque). It is nil if the package
@@ -503,6 +507,9 @@ func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Packa
 	}
 	if userIdents != nil {
 		markSynthetic(lp, userIdents)
+	}
+	if mp != nil && !hasErrors(p.Errors) {
+		p.Must = mp.mustInfo()
 	}
 	if len(cv.names) > 0 {
 		p.setConversions(findConversions(lp, p.Info))
