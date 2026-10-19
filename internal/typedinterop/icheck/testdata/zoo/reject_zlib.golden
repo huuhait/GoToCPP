@@ -1,0 +1,4 @@
+reject_zlib.gp:11:25: cannot use "x" (untyped string constant) as uLong value in argument to zlib.compressBound
+reject_zlib.gp:12:6: too many arguments in call to zlib.zlibVersion (have 1, want 0)
+reject_zlib.gp:13:11: strm.nosuch undefined (type zlib.z_stream has no field or method nosuch)
+reject_zlib.gp:14:20: cannot use 1 (untyped int constant) as *Bytef value in argument to zlib.crc32

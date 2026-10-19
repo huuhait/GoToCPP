@@ -1,0 +1,6 @@
+reject_assign.gp:13:9: cannot use cstdlib.abs(1) (value of type C.int) as *int value in return statement
+reject_assign.gp:18:15: cannot use cstdlib.abs(4) (value of type C.int) as *int value in variable declaration
+reject_assign.gp:19:14: cannot use cstdio.stdout (variable of type *FILE) as int value in variable declaration
+reject_assign.gp:20:14: cannot use shapes.make_counter() (value of type Counter) as int value in variable declaration
+reject_assign.gp:21:18: cannot use shapes.make_point() (value of type Point) as float64 value in variable declaration
+reject_assign.gp:22:7: cannot use cstdlib.abs(2) (value of type C.int) as *int value in argument to take

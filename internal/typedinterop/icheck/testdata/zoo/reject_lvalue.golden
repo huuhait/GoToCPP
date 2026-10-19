@@ -1,0 +1,4 @@
+reject_lvalue.gp:10:2: cannot assign to cstdlib.abs(1) (neither addressable nor a map index expression)
+reject_lvalue.gp:11:2: cannot assign to shapes.make_counter().n (neither addressable nor a map index expression)
+reject_lvalue.gp:12:2: cannot assign to shapes.make_counter().n (neither addressable nor a map index expression)
+reject_lvalue.gp:13:2: cannot assign to shapes.cpoint().x: it is const

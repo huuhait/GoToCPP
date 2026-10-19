@@ -1,0 +1,2 @@
+reject_address.gp:10:6: invalid operation: cannot take address of shapes.make_counter() (value of type Counter)
+reject_address.gp:11:6: invalid operation: cannot take address of cstdlib.abs(1) (value of type C.int)

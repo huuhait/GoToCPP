@@ -1,0 +1,4 @@
+reject_refs.gp:7:15: cannot use shapes.make_point() (value of type Point) as Point value in argument to shapes.scale
+	the C++ parameter is a reference that needs a variable (an addressable value), not a temporary value or a const one
+reject_refs.gp:8:25: cannot use shapes.make_nocopy() (value of type NoCopy) as NoCopy value in argument to shapes.take_nocopy_ref
+	the C++ parameter is a reference that needs a variable (an addressable value), not a temporary value or a const one

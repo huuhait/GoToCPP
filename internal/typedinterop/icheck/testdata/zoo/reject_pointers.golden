@@ -1,0 +1,5 @@
+reject_pointers.gp:13:9: pp.x undefined (type **shapes.Point has no field or method x)
+reject_pointers.gp:14:23: cannot use s (variable of type string) as const std.string value in argument to shapes.takes_str
+	a Go string converts only to std::string_view in C++ (not to std::string or const char*): write std.string(s) or C.cstr(s)
+reject_pointers.gp:15:24: cannot use s (variable of type string) as *C.char value in argument to shapes.takes_cstr
+	a Go string has no conversion to a C pointer: write C.cstr(s) (or C.CString(s))

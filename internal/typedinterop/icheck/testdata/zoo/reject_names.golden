@@ -1,0 +1,3 @@
+reject_names.gp:11:9: undefined: shapes.nosuchfn (the imported headers declare no ::nosuchfn)
+reject_names.gp:12:9: undefined: cstdio.printff (the imported headers declare no ::printff)
+reject_names.gp:13:17: undefined: std.chrono.steady_clok (the imported headers declare no ::std::chrono::steady_clok)

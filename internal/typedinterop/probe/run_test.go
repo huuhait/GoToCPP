@@ -409,3 +409,53 @@ func TestRealClangInstantiationErrorBelongsToTheProbe(t *testing.T) {
 		t.Errorf("results %+v", tab.Results)
 	}
 }
+
+// clang recovers from some errors and still puts a typed alias in the dump: the
+// probe is OK, and the error is in Result.Recovered (the checker of step 12.5 treats it as a
+// failure). A probe without an error has none.
+func TestRealClangRecoveredErrors(t *testing.T) {
+	dir := t.TempDir()
+	writeHeader(t, dir, "lib.hpp", "struct P { int x; };\nclass S { int hidden = 1; public: int shown = 2; };\nint f(int);\n")
+	cfg := clangConfig(t, dir)
+	pptr := &collect.Arg{T: &collect.Star{X: &collect.Star{X: pth("P")}}, LValue: true}
+	set := collect.NewSet(
+		ref(sel(lv(pth("P")), "x")),                   // fine
+		ref(sel(lv(&collect.Star{X: pth("P")}), "x")), // a pointer: the automatic dereference gives P
+		ref(sel(pptr, "x")),                           // a pointer to a pointer: clang recovers with '->'
+		ref(sel(lv(pth("S")), "hidden")),              // private: clang reports it and keeps the type
+		ref(sel(lv(pth("S")), "shown")),
+		ref(call(pth("f"), lit("1"))),
+	)
+	kinds := map[string]interop.Kind{"f": interop.Value, "P": interop.Type, "S": interop.Type}
+	tab, err := new(Runner).Probe(context.Background(), cfg, set, GenConfig{Includes: []string{`"lib.hpp"`}, Kinds: kinds})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, r := range tab.Results {
+		switch {
+		case r.OK && r.Recovered != "":
+			got[r.Key] = "recovered: " + r.Recovered
+			if r.RecoveredAt == nil || r.RecoveredAt.Severity != "error" || r.Type == "" {
+				t.Errorf("%s: %+v", r.Key, r)
+			}
+		case r.OK:
+			got[r.Key] = "ok"
+		default:
+			got[r.Key] = "failed: " + r.Error
+		}
+	}
+	want := map[string]string{
+		"sel(arg&(::P)|x)":             "ok",
+		"sel(arg&(star(::P))|x)":       "ok",
+		"sel(arg&(star(star(::P)))|x)": "recovered: member reference type 'P *' is a pointer; did you mean to use '->'?",
+		"sel(arg&(::S)|hidden)":        "recovered: 'hidden' is a private member of 'S'",
+		"sel(arg&(::S)|shown)":         "ok",
+		"call(::f|lit(1))":             "ok",
+	}
+	for k, w := range want {
+		if got[k] != w {
+			t.Errorf("%s: %q, want %q", k, got[k], w)
+		}
+	}
+}

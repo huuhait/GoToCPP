@@ -266,7 +266,7 @@ so it is added **only in the background**:
 | clang JSON format changes between versions | Tolerant reader; CI against several clang versions |
 | clang work makes the editor slow | Strictly background + cached; budgets re-measured with C/C++ features on; slow-clang test |
 
-## 7. Built so far: steps 12.1 to 12.4 (API for 12.5 and later)
+## 7. Built so far: steps 12.1 to 12.5 (API for 12.6 and later)
 
 The contract is [docs/spec/typed-interop.md](../../../docs/spec/typed-interop.md). In short:
 
@@ -282,9 +282,15 @@ The contract is [docs/spec/typed-interop.md](../../../docs/spec/typed-interop.md
   `MembersOf`, `Enumerators`, `Sig`, `Needs`/`NeedsMore`, `Value.Compat`. Results can name the
   stand-ins `gp_pr::string`, `gp_pr::slice<T>`, `gp_pr::array<T, N>`, `gp_pr::map<K, V>`:
   they map to Go's `string`, `[]T`, `[N]T`, `map[K]V`.
-- **12.5 (interop checker)** uses `Ref.Sites[i].Ctx` and `.Target` (what the value goes to) to
-  decide when a failed probe is an error, `Result.Error`/`Notes` for the message (clang's
-  overload candidates are in `Notes`), and `Result.Alt`/`AltError` for ambiguous names.
+- **12.5 (interop checker)**, done: `internal/typedinterop/icheck` (ADR-079, spec §7).
+  `icheck.Check(ctx, pkg, fset, Options)` returns errors (warnings for a g++ build) at the `.gp`
+  position in Go's words, only for exact-mirror probes (`Result.Silent` says what was left to the
+  C++ compiler and why), plus the typed rules from the declarations (void used as a value, `Compat`
+  says No, assignment to a temporary). `probe.Result.Recovered` is the error of a probe that clang
+  recovered from. The hidden command `gocpp __typed-check [-e] [-v] [-build g++|clang++]` runs it;
+  the mode switch is 12.11 and the default pipeline is unchanged. Not done: narrowing warnings
+  (`gocpp vet`), the wrong-header warning (needs header locations, 12.13), an incomplete type used
+  as a value.
 - **12.7 (cache)** builds on `probe.PreKey`, `probe.Key` and `probe.DepsHash`; `probe.Runner` is
   the in-memory memo it replaces or extends.
 - **12.8 (macro constants)** reads `Result.Value` (`big.Int`, exact float bits, string) of the

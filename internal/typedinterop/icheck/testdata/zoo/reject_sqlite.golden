@@ -1,0 +1,5 @@
+reject_sqlite.gp:11:27: cannot use 5 (untyped int constant) as *C.char value in argument to sqlite3.sqlite3_open
+	C++ has no implicit conversion from an integer to a pointer: only the constant 0 (NULL) is a null pointer
+reject_sqlite.gp:12:6: not enough arguments in call to sqlite3.sqlite3_close (have 0, want 1)
+reject_sqlite.gp:13:14: undefined: sqlite3.sqlite3_nosuch (the imported headers declare no ::sqlite3_nosuch)
+reject_sqlite.gp:14:6: invalid use of sqlite3.sqlite3: the type is only declared in the headers, not defined

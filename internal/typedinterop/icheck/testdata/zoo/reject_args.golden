@@ -1,0 +1,9 @@
+reject_args.gp:16:21: cannot use 42 (untyped int constant) as *C.char value in argument to cstring.strlen
+	C++ has no implicit conversion from an integer to a pointer: only the constant 0 (NULL) is a null pointer
+reject_args.gp:17:14: cannot use s (variable of type string) as *C.char value in argument to cstdio.puts
+	a Go string has no conversion to a C pointer: write C.cstr(s) (or C.CString(s))
+reject_args.gp:18:19: cannot use p (variable of type shapes.Point) as *shapes.Point value in argument to shapes.count
+	the parameter is a pointer: pass the address of the value (&x)
+reject_args.gp:19:6: too many arguments in call to cstdlib.abs (have 2, want 1)
+reject_args.gp:20:6: not enough arguments in call to cstdlib.abs (have 0, want 1)
+reject_args.gp:21:6: too many arguments in call to shapes.defaults (have 3, want at most 2)

@@ -1,0 +1,1 @@
+reject_deleted.gp:9:2: shapes.take_nocopy(nc) uses a function that C++ has deleted (call to deleted constructor of 'NoCopy')

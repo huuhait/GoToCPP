@@ -1,9 +1,9 @@
-# Typed interop: the collector, the probe, the declarations and the type mapper (steps 12.1 to 12.4)
+# Typed interop: the collector, the probe, the declarations, the type mapper and the checker (steps 12.1 to 12.5)
 
 Typed interop (Phase 12, [README](../../plans/2026-10-13-gocpp/phase-12-typed-interop/README.md))
 asks **clang** for the real C++ types of exactly the C/C++ names that a program uses. This
-document is the contract of the first four steps, which every later step builds on (§5 and §6 are
-steps 12.3 and 12.4):
+document is the contract of the first five steps, which every later step builds on (§5 and §6 are
+steps 12.3 and 12.4, §7 is step 12.5):
 
 | Step | Package | What it does |
 |---|---|---|
@@ -11,6 +11,7 @@ steps 12.3 and 12.4):
 | 12.2 probe | `internal/typedinterop/probe` | writes one probe file per package, runs clang, reads the typed answer for each reference |
 | 12.3 declarations | `internal/typedinterop/ctype`, `.../probe` (`decls*.go`) | reads clang's type text into a structured type; extracts the records, enums and overload sets that the results name |
 | 12.4 type mapper | `internal/typedinterop/ftype` | maps a C++ type (and a probe result) to a `go/types` type of the foreign view, with `Opaque` as the fallback |
+| 12.5 interop checker | `internal/typedinterop/icheck` | errors for the C++ compiler's errors, at the `.gp` position, in Go's words; silent when not certain |
 | glue | `internal/typedinterop` | `Analyze(ctx, pkg, fset, opts)`: collect, kind probe, probe, and with `Options.Decls` the declarations and the mapping; `Report` (JSON for the developer tool) |
 
 Nothing in the opaque pipeline uses these packages: they are additive. The only change outside
@@ -388,3 +389,66 @@ lookups, to decide whether a member exists, is accessible, or is ambiguous.
 `typedinterop.Options.Decls` turns all of this on in `Analyze` (`Report.Decls`, `Report.Mapper`,
 `Report.Values`); it is off by default, and `Analyze` without it is unchanged (a test compares the
 probe file and the table). Nothing in the opaque pipeline uses these packages.
+
+## 7. The interop checker (step 12.5)
+
+`icheck.Check(ctx, pkg, fset, Options)` runs the pipeline of §1 to §6 on a checked package
+(`Analyze` with `Decls`) and applies the checker to the report; `icheck.CheckReport` takes a report that
+was made already. The result has `Diags` (`diag.Diagnostic`: position in the `.gp` file, message,
+related lines, severity), `Silent` (what was left to the C++ compiler, and why), `Skipped` (the whole
+package, and why) and `Stats`. It is called by the hidden command `gocpp __typed-check [-e] [-v]
+[-build g++|clang++] patterns` (exit status 1 on errors, 3 without clang++); nothing else runs it
+(the switch is step 12.11), and the default pipeline and the language server do not use it.
+[ADR-079](../adr/079-typed-interop-checker-reports-only-what-the-compiler-reports.md) has the
+reasons.
+
+**The rule: typed mode never rejects what opaque mode and the C++ compiler accept, except where Go's own typing rules reject the program (a void C++ call used as a value: assignment to blank, a switch tag, ...), these being the same errors the checker gives for every other void context** (`testdata/zoo/gorule_void.gp` pins them). An error needs
+all of these, and anything less is `Silent`:
+
+| Condition | Where | What is silent |
+|---|---|---|
+| the probe is an exact mirror of the generated code | `exact.go` | stand-ins of `[]T`, `[N]T`, `map` (the stand-in of `string` only for the plain conversion failures and the number of arguments), composite literals, `Unknown` parts, range and tuple elements, local aliases, a name read two ways |
+| the use is where the generated code is the probe's | `siteWhy` | uses inside `defer`/`go` statements, inside generic functions and methods of generic types |
+| the compiler printed a diagnostic for the expression | `failureWhy` | probes without one (limits), errors that follow from another probe (reported once, at the cause) |
+| the package's headers compile and the target is this machine | `CheckReport` | `HeaderErrors`, `IncludeErrors`, `Options.Cross` |
+| the build compiler is clang | `Options.Build` | with g++ every diagnostic is a warning |
+
+**Failed probes** (and probes that compiled with a `Recovered` error: clang recovers from a member of a
+pointer, a private member and others) are mapped to Go's words by the rules of `messages.go`; the
+templates are `icheck.Templates` and each has a `gocpp explain` entry:
+
+| Template (the message) | The C++ error it maps |
+|---|---|
+| `undefined: X (the imported headers declare no ::X)` | no member in the global namespace or a namespace, undeclared identifier, no template named (same text and place as the lowering's) |
+| `x.m undefined (type T has no field or method m)` (+ "did you mean") | no member named m in T; a member of a pointer to pointer |
+| `x.m undefined (m is a private member of type T)` | private and protected members |
+| `no overload of f matches the arguments (A, B)` (+ one related line per candidate) / `... matches the call` | no matching function, member function or constructor |
+| `call to f is ambiguous: several overloads match equally well` | ambiguous call (candidates with their header positions) |
+| `cannot use x (variable of type T) as U value in argument to f` (+ the mistake it looks like) | a parameter that cannot be initialized, no viable conversion, a reference that cannot bind (temporary, const) |
+| `too many arguments in call to f (have N, want M)` / `not enough arguments in call to f (...)` | arity |
+| `invalid operation: cannot call non-function f (type T)` | called object is not a function |
+| `invalid operation: x + y (operator + is not defined on A and B)` / `operator ! not defined on x (type T)` | invalid operands, invalid unary operand |
+| `cannot call method m on x (type const T): the method is not marked const` | const-correctness |
+| `cannot call T.m without a value: it is a method, not a static function` | non-static member without an object |
+| `invalid operation: cannot take address of x (value of type T)` | address of an rvalue or a temporary |
+| `invalid use of T: the type is only declared in the headers, not defined` | incomplete types |
+| `f(x) uses a function that C++ has deleted (...)` | deleted functions |
+| `cannot convert x (value of type A) to type B` | casts without a conversion |
+| `cannot use c.m as a value: a C++ member function must be called` | a method value |
+| `X is not valid C++: <message>` | every other error, with clang's message |
+
+**Probes that compiled** get the rules of `rules.go` from the declarations: `f() (no value) used as
+value` (a void result in a value context: not a statement, a `return` of a function without results,
+`defer` or `go`), `cannot use x (value of type T) as U value in <context>` when
+`ftype.Value.Compat` says `No` for the Go type at the site (`Site.Target`; an explicit conversion is not a
+site of this rule), refined for a class that has no conversion operator (and no operator template and no
+base that has one), and `cannot assign to x (neither addressable nor a map index expression)` /
+`... : it is const` for a scalar, pointer or enum C++ value on the left of an assignment (a prvalue, an
+xvalue or a const lvalue; a class value can be assigned: C++ calls `operator=`).
+
+**Known limits.** Silent where the probe is not the code (above); the opaque check and the lowering
+run first and report their own errors (an unknown name, a C value converted to a Go number in a
+declaration, argument or result), so the checker adds to what opaque mode finds, never replaces it;
+narrowing warnings (README §2.3) belong to `gocpp vet`; the "name through the wrong header" warning
+needs header locations (step 12.13); an incomplete type used as a value is not checked.
+

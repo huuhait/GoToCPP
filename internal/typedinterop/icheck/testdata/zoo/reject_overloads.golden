@@ -1,0 +1,12 @@
+reject_overloads.gp:9:6: no overload of shapes.area matches the arguments (untyped int)
+	shapes.hpp:16:12: candidate: argument 1: cannot use C.int as shapes.Point
+	shapes.hpp:17:12: candidate needs 2 arguments, got 1
+reject_overloads.gp:10:6: no overload of shapes.area matches the arguments (shapes.Point, untyped int, untyped int)
+	shapes.hpp:17:12: candidate needs 2 arguments, got 3
+	shapes.hpp:16:12: candidate needs 1 argument, got 3
+reject_overloads.gp:11:2: call to shapes.ovl is ambiguous: several overloads match equally well
+	shapes.hpp:22:13: candidate declared here
+	shapes.hpp:23:13: candidate declared here
+reject_overloads.gp:12:2: call to shapes.ovl2 is ambiguous: several overloads match equally well
+	shapes.hpp:24:13: candidate declared here
+	shapes.hpp:25:13: candidate declared here

@@ -1,0 +1,4 @@
+reject_raylib.gp:11:16: cannot use "x" (untyped string constant) as C.int value in argument to rl.InitWindow
+reject_raylib.gp:12:2: not enough arguments in call to rl.DrawText (have 1, want 5)
+reject_raylib.gp:13:8: c.q undefined (type rl.Color has no field or method q)
+reject_raylib.gp:14:5: undefined: rl.NoSuchFunction (the imported headers declare no ::NoSuchFunction)

@@ -139,6 +139,16 @@ type Result struct {
 	AltError string `json:"altError,omitempty"`
 	// ErrorAt is where the error is (the probe file's line, or a header's).
 	ErrorAt *Diag `json:"errorAt,omitempty"`
+
+	// Recovered is set on a probe that is OK (it has a type) although the compiler
+	// printed an error for it: clang recovers from some errors, for example a
+	// member access through a pointer ("member reference type 'Point *' is a
+	// pointer") or a call whose argument it can fix, and keeps a typed
+	// expression. The code is still ill-formed; RecoveredAt and RecoveredNotes
+	// are the error's place and notes (as ErrorAt and Notes of a failed probe).
+	Recovered      string `json:"recovered,omitempty"`
+	RecoveredAt    *Diag  `json:"recoveredAt,omitempty"`
+	RecoveredNotes []Diag `json:"recoveredNotes,omitempty"`
 }
 
 // setWritten records the written type, unless it adds nothing.

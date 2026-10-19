@@ -1,0 +1,2 @@
+reject_const.gp:7:20: cannot call method inc on shapes.gcounter() (type const Counter): the method is not marked const
+reject_const.gp:8:18: cannot call method move on shapes.cpoint() (type const Point): the method is not marked const

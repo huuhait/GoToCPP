@@ -1,0 +1,5 @@
+reject_operators.gp:13:6: invalid operation: p + 1 (operator + is not defined on shapes.Point and C.int)
+reject_operators.gp:14:6: invalid operation: operator - not defined on -p (type shapes.Point)
+reject_operators.gp:15:6: invalid operation: p == q (operator == is not defined on shapes.Point and shapes.Point)
+reject_operators.gp:16:6: invalid operation: s + 1 (operator + is not defined on std.string and C.int)
+reject_operators.gp:17:6: invalid operation: operator ! not defined on !p (type shapes.Point)

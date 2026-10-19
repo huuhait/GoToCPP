@@ -1,0 +1,6 @@
+reject_templates.gp:14:2: no overload of v.push_back matches the arguments (untyped string)
+reject_templates.gp:15:2: no overload of v.push_back matches the arguments (untyped int, untyped int)
+reject_templates.gp:16:6: no overload of std.min matches the arguments (untyped int, untyped string)
+reject_templates.gp:17:8: v.sizee undefined (type std.vector[int] has no field or method sizee)
+	did you mean size?
+reject_templates.gp:18:2: too many arguments in call to s.push_back (have 3, want 1)

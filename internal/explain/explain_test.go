@@ -16,6 +16,7 @@ import (
 
 	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/lower"
+	"github.com/huuhait/gocpp/internal/typedinterop/icheck"
 )
 
 func TestMain(m *testing.M) {
@@ -603,6 +604,25 @@ func covered(tmpl, sample string) bool {
 		}
 	}
 	return false
+}
+
+// TestInteropCheckerMessages: every message template of the typed interop checker
+// (internal/typedinterop/icheck, step 12.5) has an entry that explains it.
+func TestInteropCheckerMessages(t *testing.T) {
+	if len(icheck.Templates) < 20 {
+		t.Fatalf("only %d templates: the list is broken", len(icheck.Templates))
+	}
+	for _, tmpl := range icheck.Templates {
+		sample := strings.ReplaceAll(tmpl, "%s", "X")
+		ms := FindMessage("./main.gp:5:3: " + sample)
+		if len(ms) == 0 {
+			t.Errorf("the message %q has no entry in internal/explain/messages.go", tmpl)
+			continue
+		}
+		if !strings.HasPrefix(ms[0].ID, "interop/") {
+			t.Errorf("the message %q is explained by %s, want an interop/ entry", tmpl, ms[0].ID)
+		}
+	}
 }
 
 // TestGateTopicsExist: the topics that the gates link to exist.

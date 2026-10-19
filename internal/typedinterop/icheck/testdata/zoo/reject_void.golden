@@ -1,0 +1,4 @@
+reject_void.gp:12:7: shapes.nothing() (no value) used as value
+reject_void.gp:13:14: shapes.nothing() (no value) used as value
+reject_void.gp:14:6: shapes.nothing() (no value) used as value
+reject_void.gp:15:14: shapes.nothing() (no value) used as value

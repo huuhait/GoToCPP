@@ -1,0 +1,1 @@
+reject_methodvalue.gp:11:9: cannot use c.inc as a value: a C++ member function must be called

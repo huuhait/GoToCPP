@@ -1,0 +1,2 @@
+reject_conversions.gp:13:6: cannot convert v (variable of type std.vector[int]) to type float64
+reject_conversions.gp:14:6: cannot convert p (variable of type shapes.Point) to type int

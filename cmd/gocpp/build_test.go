@@ -60,7 +60,7 @@ func TestMain(m *testing.M) {
 		}
 		main()
 	}
-	if os.Getenv("GOCPP_CHECK_PROCESS") == "1" {
+	if os.Getenv("GOCPP_CHECK_PROCESS") == "1" || os.Getenv("GOCPP_TYPED_PROCESS") == "1" {
 		os.Exit(m.Run())
 	}
 	tmp, err := os.MkdirTemp("", "gocpp-cmd-test-")

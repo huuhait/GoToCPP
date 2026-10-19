@@ -1,0 +1,4 @@
+reject_sdl.gp:11:19: cannot use "x" (untyped string constant) as Uint32 value in argument to SDL.SDL_Init
+reject_sdl.gp:12:2: too many arguments in call to SDL.SDL_Quit (have 1, want 0)
+reject_sdl.gp:13:8: r.nosuch undefined (type SDL.SDL_Rect has no field or method nosuch)
+reject_sdl.gp:14:6: not enough arguments in call to SDL.SDL_CreateWindow (have 2, want 6)

@@ -94,3 +94,68 @@ exit 3
 		t.Errorf("the compiler process %d is still there after gocpp check exited (kill -0: %v)", pid, err)
 	}
 }
+
+// TestTypedCheckProcess is not a test: TestTypedCheckInterrupt runs the test binary
+// with GOCPP_TYPED_PROCESS=1 to get gocpp __typed-check as a process of its own.
+func TestTypedCheckProcess(t *testing.T) {
+	if os.Getenv("GOCPP_TYPED_PROCESS") != "1" {
+		t.Skip("only run by TestTypedCheckInterrupt")
+	}
+	exit(run([]string{"__typed-check", "-v", "main.gp"}, strings.NewReader(""), os.Stdout, os.Stderr)) // like main
+}
+
+// TestTypedCheckInterrupt checks ^C while the probe runs a slow clang: the checker
+// does not report a skipped package and exit 0, it says it was interrupted and dies of
+// the signal, and the compiler is gone.
+func TestTypedCheckInterrupt(t *testing.T) {
+	anyCXX(t)
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "probe.pid")
+	fake := filepath.Join(dir, "slow-clang")
+	script := `#!/bin/sh
+for a in "$@"; do
+	case "$a" in
+	--version) echo "clang version 21.1.0"; exit 0;;
+	-dM) printf '#define __clang__ 1\n#define __clang_major__ 21\n#define __GNUC__ 4\n'; exit 0;;
+	-fsyntax-only) echo $$ > '` + pidFile + `'; exec sleep 60;;
+	esac
+done
+exit 3
+`
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.gp"), []byte("package main\n\nimport \"<cstdlib>\"\n\nfunc main() { _ = cstdlib.abs(1) }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestTypedCheckProcess$")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GOCPP_TYPED_PROCESS=1", "GOCPP_CLANG="+fake, "GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1", "XDG_CACHE_HOME="+t.TempDir(), "GOOS=", "GOARCH=")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer cmd.Process.Kill()
+	var pid int
+	for deadline := time.Now().Add(60 * time.Second); pid == 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the probe didn't start; stderr:\n%s", stderr.String())
+		}
+		if data, err := os.ReadFile(pidFile); err == nil && bytes.HasSuffix(data, []byte("\n")) {
+			pid, _ = strconv.Atoi(strings.TrimSpace(string(data)))
+		}
+	}
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	cmd.Wait()
+	checkSignaled(t, cmd, syscall.SIGTERM)
+	if !strings.Contains(stderr.String(), "interrupted") || strings.Contains(stderr.String(), "skipped") {
+		t.Errorf("after SIGTERM: stderr %q, want a line that says interrupted", stderr.String())
+	}
+	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+		syscall.Kill(pid, syscall.SIGKILL)
+		t.Errorf("the compiler process %d is still there (kill -0: %v)", pid, err)
+	}
+}

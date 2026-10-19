@@ -991,6 +991,14 @@ func assemble(t *Table, src *Source, founds map[probeName]*found, groups []DiagG
 			if a := attr[id]; a != nil && a.alt != nil && !r.Alt && alt == nil {
 				r.AltError = a.alt.Err.Msg
 			}
+			// An error that the compiler printed for the probe line, though the probe is in
+			// the dump: clang recovers from some errors (a member of a pointer, a missing
+			// conversion it can guess) and keeps a typed expression. The compiler still
+			// rejects the code, so the checker treats it as a failure.
+			if a := attr[id]; a != nil && a.main != nil && !r.Alt {
+				e := a.main.Err
+				r.Recovered, r.RecoveredAt, r.RecoveredNotes = e.Msg, &e, a.main.Notes
+			}
 			setValue(r, founds[probeName{id, RoleValue}], founds[probeName{id, RoleString}], attr[id])
 		}
 	}

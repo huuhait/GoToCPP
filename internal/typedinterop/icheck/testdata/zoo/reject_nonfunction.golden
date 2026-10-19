@@ -1,0 +1,2 @@
+reject_nonfunction.gp:10:6: invalid operation: cannot call non-function shapes.global_value (type C.int)
+reject_nonfunction.gp:11:6: invalid operation: cannot call non-function cstdlib.abs(1) (type C.int)

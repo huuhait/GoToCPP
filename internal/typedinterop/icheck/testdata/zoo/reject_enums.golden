@@ -1,0 +1,8 @@
+reject_enums.gp:7:15: cannot use 2 (untyped int constant) as shapes.Color value in argument to shapes.paint
+	C++ has no implicit conversion from an integer to an enum: write the enumerator, or an explicit conversion
+reject_enums.gp:8:17: cannot use 0 (untyped int constant) as shapes.Mode value in argument to shapes.setmode
+	C++ has no implicit conversion from an integer to an enum: write the enumerator, or an explicit conversion
+reject_enums.gp:9:15: cannot use shapes.Mode.Fast (value of type shapes.Mode) as shapes.Color value in argument to shapes.paint
+	the two are different enumeration types
+reject_enums.gp:10:17: cannot use shapes.Blue (value of type shapes.Color) as shapes.Mode value in argument to shapes.setmode
+	the two are different enumeration types

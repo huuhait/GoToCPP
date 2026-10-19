@@ -1,0 +1,3 @@
+gorule_void.gp:12:6: shapes.nothing() (no value) used as value
+gorule_void.gp:13:9: shapes.nothing() (no value) used as value
+gorule_void.gp:15:6: c.inc() (no value) used as value

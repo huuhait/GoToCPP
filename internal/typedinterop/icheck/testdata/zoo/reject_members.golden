@@ -1,0 +1,6 @@
+reject_members.gp:10:8: p.nosuch undefined (type shapes.Point has no field or method nosuch)
+reject_members.gp:11:4: p.nosuch2 undefined (type shapes.Point has no field or method nosuch2)
+reject_members.gp:12:8: p.Sum undefined (type shapes.Point has no field or method Sum)
+	did you mean sum?
+reject_members.gp:13:10: sec.hidden undefined (hidden is a private member of type shapes.Secret)
+reject_members.gp:14:6: cannot call shapes.Point.sum without a value: it is a method, not a static function
