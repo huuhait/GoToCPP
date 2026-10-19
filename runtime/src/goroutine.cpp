@@ -3,6 +3,7 @@
 #include <gocpp/nofortify.h>
 #include <gocpp/goroutine.hpp>
 #include <gocpp/os.hpp>
+#include <gocpp/race.hpp>
 #include <gocpp/rt.hpp>
 
 #include <atomic>
@@ -143,6 +144,7 @@ void pool_remove(worker* w) {
 // run_goroutine runs the goroutine g on the calling thread, to its end.
 void run_goroutine(goroutine* g) {
     os::tls_set(g);
+    race::goroutine_started(g->id);
     try {
         g->body->run();
     } catch (const panic_error& e) {
@@ -158,6 +160,7 @@ void run_goroutine(goroutine* g) {
     os::tls_set(nullptr);
     bool counted = g->counted;
     delete g;
+    race::no_sync ns; // the counts order nothing in Go (gocpp/race.hpp)
     if (counted) {
         live.fetch_sub(1, std::memory_order_acq_rel);
     }
@@ -168,8 +171,10 @@ void run_goroutine(goroutine* g) {
 // that goroutine, or null when the thread should end (the list is full, the wait ran out, or
 // stop_idle_threads).
 goroutine* idle_wait(worker* w) {
-    if (w->stack == 0) {
-        return nullptr; // a thread with a stack of its own is not reused
+    if (w->stack == 0 || race::mode) {
+        // A thread with a stack of its own is not reused. With -race no thread is: the lock of the
+        // idle list would order the end of one goroutine before the start of the next one.
+        return nullptr;
     }
     {
         std::lock_guard<std::mutex> lk(pool_mu);
@@ -206,9 +211,13 @@ void worker_main(void* p) {
     w->next = nullptr;
     while (g != nullptr) {
         run_goroutine(g);
+        if constexpr (race::mode) {
+            race::finished_goroutine(); // -race: the thread keeps its place for a while
+        }
         g = idle_wait(w);
     }
     delete w;
+    race::no_sync ns;
     threads_alive.fetch_sub(1, std::memory_order_acq_rel);
 }
 
@@ -254,6 +263,7 @@ goroutine& this_goroutine() noexcept {
     g->id = next_id.fetch_add(1, std::memory_order_relaxed);
     g->counted = g->id == 1;
     if (g->counted) {
+        race::no_sync ns;
         live.fetch_add(1, std::memory_order_acq_rel);
     }
     {
@@ -349,13 +359,16 @@ void go_start(std::unique_ptr<task> body, std::size_t stack) {
     // The count first, then the hook: a library that gives its reference back (lib::detail::leave)
     // does so only when it sees no goroutine, under the lock that the hook takes, so either it
     // sees this goroutine, or the hook runs after it and takes the reference again.
-    bodies.fetch_add(1, std::memory_order_seq_cst);
-    if (auto hook = go_hook.load(std::memory_order_acquire)) {
-        hook();
+    {
+        race::no_sync ns; // the counts order nothing in Go (gocpp/race.hpp)
+        bodies.fetch_add(1, std::memory_order_seq_cst);
+        if (auto hook = go_hook.load(std::memory_order_acquire)) {
+            hook();
+        }
+        live.fetch_add(1, std::memory_order_acq_rel);
     }
-    live.fetch_add(1, std::memory_order_acq_rel);
     std::size_t size = stack != 0 ? stack : stack_size();
-    if (stack == 0) {
+    if (stack == 0 && !race::mode) {
         if (worker* w = take_idle(size); w != nullptr) {
             goroutine* gp = g.release(); // the idle thread owns it now
             w->wake.gp_unpark_with([w, gp] { w->next = gp; });
@@ -367,7 +380,10 @@ void go_start(std::unique_ptr<task> body, std::size_t stack) {
     if (w != nullptr) {
         w->stack = stack == 0 ? size : 0; // 0: not reused
         w->next = g.get();
-        threads_alive.fetch_add(1, std::memory_order_acq_rel);
+        {
+            race::no_sync ns;
+            threads_alive.fetch_add(1, std::memory_order_acq_rel);
+        }
         err = os::thread_start(worker_main, w, size);
         if (err != 0) {
             threads_alive.fetch_sub(1, std::memory_order_acq_rel);
@@ -437,6 +453,9 @@ std::size_t idle_threads() noexcept {
 }
 
 std::size_t stop_idle_threads() noexcept {
+    if constexpr (race::mode) {
+        race::release_finished(); // -race: the finished goroutines' threads end too
+    }
     std::size_t n = idle_threads();
     std::size_t old = set_idle_limit(0);
     set_idle_limit(old);
@@ -445,12 +464,14 @@ std::size_t stop_idle_threads() noexcept {
 
 void block_enter(const char* reason) noexcept {
     goroutine& g = this_goroutine();
+    race::no_sync ns; // the counts of blocked goroutines order nothing in Go (gocpp/race.hpp)
     g.set_reason(reason);
     __atomic_store_n(&g.is_blocked, true, __ATOMIC_SEQ_CST);
     blocked.fetch_add(1, std::memory_order_acq_rel);
 }
 
 void unblock(goroutine& g) noexcept {
+    race::no_sync ns;
     if (__atomic_exchange_n(&g.is_blocked, false, __ATOMIC_SEQ_CST)) {
         blocked.fetch_sub(1, std::memory_order_acq_rel);
     }
@@ -458,7 +479,10 @@ void unblock(goroutine& g) noexcept {
 
 void block_exit() noexcept {
     goroutine& g = this_goroutine();
-    g.set_reason(nullptr);
+    {
+        race::no_sync ns;
+        g.set_reason(nullptr);
+    }
     unblock(g);
 }
 

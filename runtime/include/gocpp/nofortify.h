@@ -11,3 +11,10 @@
 #if !defined(__OPTIMIZE__)
 #undef _FORTIFY_SOURCE
 #endif
+
+// gocpp build -race on linux (-DGOCPP_RACE_MODE=1, step 8.12): every compile of the program and of
+// the runtime gets ThreadSanitizer's view of the reference counts that Go's memory model has
+// (gocpp/race_atomicity.hpp). It must come before the first C++ library header, so it is here.
+#if defined(__cplusplus) && defined(GOCPP_RACE_MODE) && defined(__linux__)
+#include "race_atomicity.hpp"
+#endif

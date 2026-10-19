@@ -391,6 +391,15 @@ needs no gdb (`TestDebugScriptUnits`).
     crash with SIGSEGV and no Go message, and a frame of 4 MB on a 1 MiB stack with six threads
     next to it (the case that needs `-fstack-clash-protection`) must report the overflow. With ASan the overflows are the sanitizer's
     report instead (`stack-overflow`).
+  - `TestRaceTSan` builds `test/race_test.cpp` as `gocpp build -race` builds a program
+    (ThreadSanitizer and `gocpp/race_atomicity.hpp`), with each compiler: programs with a data race
+    (on a global, and on an object that both goroutines reach through copies of a `gp::ptr`) end with
+    exit code 66 and Go's report, programs without one (a hand-off through a channel, many goroutines
+    copying one pointer, the last drop of a pointer in another goroutine) end with 0 and print
+    nothing, and `GORACE=exitcode=9` and `GORACE=halt_on_error=1` reach TSan. The runtime side of
+    `-race` is `include/gocpp/race.hpp`, `include/gocpp/race_atomicity.hpp` and
+    `src/os/linux/race.cpp` (docs/guides/race.md, ADR-062); `tsan.supp` is TSan's suppression file for
+    the runtime (empty).
   - `TestThreadTSan` builds `thread_test.cpp` with ThreadSanitizer (a mode that only this test
     has so far; step 8.12 makes it a mode of the whole concurrency suite), with each compiler:
     no TSan warning.

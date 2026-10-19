@@ -156,6 +156,7 @@ type config struct {
 	requireGDB bool          // GOCPP_REQUIRE_GDB=1: the debug tests fail instead of skipping gdb
 	runVsGo    bool          // GOCPP_RUN_VS_GO=1: TestRunVsGo checks the run tests' expectations with real Go
 	pending    bool          // GOCPP_TEST_PENDING=1: also run the tests with a // pending: line
+	goRace     bool          // goBuild builds with go build -race (TestRaceVsGo)
 }
 
 var (
@@ -331,6 +332,62 @@ func trackFiles(dir string) {
 func TestRun(t *testing.T) {
 	c := setup(t)
 	c.runPrograms(t, "tests/run", loadTests(t, runFormat), c.runTest)
+}
+
+// TestRace runs the programs in tests/race with gocpp run -race: a program with a data race must
+// exit with 66 and print Go's report, one without must run silently (exit code 0, no stderr).
+// See tests/race/README.md. The race detector is ThreadSanitizer, so it is Linux's. It tests with
+// the first compiler, unless GOCPP_RACE_COMPILERS=all (make ci-race).
+func TestRace(t *testing.T) {
+	c := setup(t)
+	if runtime.GOOS != "linux" {
+		t.Skip("-race is for linux (ThreadSanitizer)")
+	}
+	rc := *c
+	rc.flags = append([]string{"-race"}, c.flags...)
+	// A ThreadSanitizer build is slow: make ci tests with the first compiler, make ci-race (and
+	// GOCPP_RACE_COMPILERS=all) with every one.
+	if os.Getenv("GOCPP_RACE_COMPILERS") != "all" && len(rc.compilers) > 1 {
+		rc.compilers = rc.compilers[:1]
+	}
+	rc.runPrograms(t, "tests/race", loadTests(t, raceFormat), rc.runTest)
+}
+
+// TestRaceVsGo checks the expectations of the tests in tests/race against real Go's race detector:
+// each program is built with go build -race, and its output, exit code (66 for a race) and
+// // Stderr: regexps must hold for Go's own report. GOCPP_RUN_VS_GO=1 turns it on, like
+// TestRunVsGo, and it needs a Go with the race detector for this system (linux/amd64 and arm64).
+func TestRaceVsGo(t *testing.T) {
+	c := setup(t)
+	if !c.runVsGo {
+		t.Skip("GOCPP_RUN_VS_GO=1 turns it on")
+	}
+	if runtime.GOOS != "linux" || (runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64") {
+		t.Skip("real Go's race detector is only used on linux/amd64 and linux/arm64")
+	}
+	var n vsGoCount
+	t.Cleanup(func() {
+		compared, rejected := n.compared.Load(), n.rejected.Load()
+		t.Logf("tests/race: compared %d with real Go's race detector, skipped %d (go build rejects them)", compared, rejected)
+		if compared == 0 {
+			t.Error("no test was compared with real Go")
+		}
+	})
+	all := *c
+	all.phase, all.phaseFrom = lastPhase, "every phase"
+	all.goRace = true
+	all.runPrograms(t, "tests/race", loadTests(t, raceFormat), func(t *testing.T, p *program) {
+		if p.name == "race_sixty_vars" {
+			t.Skip("real Go's detector reports only some of the sixty races of this program (a run reports a different number)")
+		}
+		if p.name == "race_finished_then_goroutines" {
+			t.Skip("real Go's detector loses this race too: it reuses the slot of a goroutine that has ended for the next one")
+		}
+		if strings.HasPrefix(p.name, "limit_") {
+			t.Skip("a known limit of gocpp's detector (docs/guides/race.md): real Go reports this race")
+		}
+		all.runVsGoTest(t, p, &n)
+	})
 }
 
 // TestRunVsGo checks the expectations of the tests in tests/run (the
@@ -1008,10 +1065,20 @@ func (c *config) goBuild(t *testing.T, p *program) (prog string, build result) {
 		dir:      dir,
 		env:      []string{"GOTOOLCHAIN=local", "GOWORK=off", "GOFLAGS=", "GOAMD64=v1"},
 		name:     "go",
-		args:     []string{"build", "-o", prog, "."},
+		args:     goBuildArgs(c.goRace, prog),
 		show:     "go build (" + p.path + " copied to " + goFile + ")",
 		combined: true,
 	})
+}
+
+// goBuildArgs returns the arguments of go build for the binary prog, with the race detector when
+// race is set.
+func goBuildArgs(race bool, prog string) []string {
+	args := []string{"build"}
+	if race {
+		args = append(args, "-race")
+	}
+	return append(args, "-o", prog, ".")
 }
 
 // goFileName returns the name of the .go file that goBuild copies the test
@@ -1073,9 +1140,11 @@ func checkRun(t *testing.T, r result, want expect) {
 
 // tsanWarnings are the lines of ThreadSanitizer's reports that runMismatches looks for:
 // "WARNING" is a data race, a lock-order inversion or another finding, "FATAL" a report that
-// ends the program. gocpp has no TSan mode for programs yet (step 8.12 adds it, with the
-// -race job); this check is what makes that job fail on a warning, and a program that runs
-// the sanitizer some other way (a C++ library built with it) is checked now.
+// ends the program. A -race build (step 8.12) prints Go's report ("WARNING: DATA RACE"), which
+// is not one of these: tests/race expects it, and make ci-race fails the concurrency tests that
+// run with GOCPP_FLAGS=-race because they expect no stderr. This check is what fails a run that
+// has TSan's own text (GORACE=halt_on_error=1, GOCPP_RACE_RAW=1, a report of a thread that is not
+// a goroutine) or that runs the sanitizer some other way (a C++ library built with it).
 var tsanWarnings = []string{"WARNING: ThreadSanitizer", "FATAL: ThreadSanitizer"}
 
 // runMismatches compares the exit code, stdout and stderr of a finished

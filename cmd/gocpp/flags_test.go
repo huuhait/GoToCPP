@@ -239,14 +239,14 @@ func TestUserEnvLayersAndPlugins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"-fsanitize=thread", "-fno-omit-frame-pointer", "-DENV_C", "-DFLAG_C"}; !slices.Equal(env.CFlags, want) {
+	if want := []string{"-fsanitize=thread", "-fno-omit-frame-pointer", "-DGOCPP_RACE_MODE=1", "-DENV_C", "-DFLAG_C"}; !slices.Equal(env.CFlags, want) {
 		t.Errorf("CFlags = %q, want %q", env.CFlags, want)
 	}
 	// A plugin with a folder is made absolute (the compiles run in the work folder); a bare name stays.
 	if want := []string{"-fpass-plugin=env.so", "-fplugin=" + filepath.Join(dir, "plugins", "p.so")}; !slices.Equal(env.CXXFlags, want) {
 		t.Errorf("CXXFlags = %q, want %q", env.CXXFlags, want)
 	}
-	if want := []string{"-fsanitize=thread", "-lenv", "-lflag"}; !slices.Equal(env.LDFlags, want) {
+	if want := []string{"-fsanitize=thread", "-Wl,--export-dynamic-symbol=__tsan_default_options", "-lenv", "-lflag"}; !slices.Equal(env.LDFlags, want) {
 		t.Errorf("LDFlags = %q, want %q", env.LDFlags, want)
 	}
 	t.Setenv("GOCPP_CXXFLAGS", "'-DX=open")

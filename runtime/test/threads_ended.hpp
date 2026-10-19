@@ -12,6 +12,7 @@
 #pragma once
 
 #include <gocpp/goroutine.hpp>
+#include <gocpp/race.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -59,7 +60,7 @@ inline void threads_ended() {
         std::this_thread::sleep_for(200ms);
         return;
     }
-    std::size_t base = baseline_threads > 1 ? baseline_threads : 1;
+    std::size_t base = (baseline_threads > 1 ? baseline_threads : 1);
     auto end = std::chrono::steady_clock::now() + 2min;
     while (std::chrono::steady_clock::now() < end) {
         std::size_t n = task_count();

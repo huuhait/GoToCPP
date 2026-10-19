@@ -33,6 +33,7 @@
 
 #include <gocpp/iface.hpp>
 #include <gocpp/ptr.hpp>
+#include <gocpp/race.hpp>
 
 #include <atomic>
 #include <cstdint>
@@ -72,9 +73,44 @@ void notify_one(uint32_t& wait, uint32_t& notify);
 inline constexpr int32_t mutex_locked = 1;
 inline constexpr int32_t rw_max_readers = int32_t(1) << 30;
 
+// ref is an atomic view of a word of a sync object. With -race (gocpp/race.hpp) its operations do
+// not synchronize for ThreadSanitizer: they are the bookkeeping of the object, not the ordering
+// that Go promises, and TSan would take each of them for a happens-before edge (a WaitGroup.Add
+// after a Done would see everything that the goroutine of the Done did, which Go's model does not
+// say). The edges of Go's model are put back by hand where they belong (race::release/acquire in
+// Mutex, RWMutex and WaitGroup, as Go's sync package does with its race annotations).
 template <typename T>
-inline std::atomic_ref<T> at(T& x) noexcept {
-    return std::atomic_ref<T>(x);
+struct ref {
+    T& x;
+    T load() const noexcept {
+        race::no_sync ns;
+        return std::atomic_ref<T>(x).load();
+    }
+    void store(T v) const noexcept {
+        race::no_sync ns;
+        std::atomic_ref<T>(x).store(v);
+    }
+    T fetch_add(T v) const noexcept {
+        race::no_sync ns;
+        return std::atomic_ref<T>(x).fetch_add(v);
+    }
+    T fetch_sub(T v) const noexcept {
+        race::no_sync ns;
+        return std::atomic_ref<T>(x).fetch_sub(v);
+    }
+    bool compare_exchange_strong(T& expected, T desired) const noexcept {
+        race::no_sync ns;
+        return std::atomic_ref<T>(x).compare_exchange_strong(expected, desired);
+    }
+    bool compare_exchange_weak(T& expected, T desired) const noexcept {
+        race::no_sync ns;
+        return std::atomic_ref<T>(x).compare_exchange_weak(expected, desired);
+    }
+};
+
+template <typename T>
+inline ref<T> at(T& x) noexcept {
+    return ref<T>{x};
 }
 
 // The Mutex on its two words, for the RWMutex that has one inside.
@@ -108,24 +144,32 @@ inline bool mutex_try_lock_words(int32_t& state) {
 
 // --- Mutex: struct { state int32; sema uint32 } ---
 
+// (With -race the edges of Go's memory model are put in by hand: an Unlock releases the mutex's
+// address, a Lock that got the mutex acquires it.)
 template <typename M>
 inline void mutex_lock(const ptr<M>& m) {
     static_assert(std::is_same_v<decltype(M::state), int32_t> &&
                   std::is_same_v<decltype(M::sema), uint32_t>);
     M& r = *m;
     detail::mutex_lock_words(r.state, r.sema);
+    race::acquire(&r.state);
 }
 
 template <typename M>
 inline void mutex_unlock(const ptr<M>& m) {
     M& r = *m;
+    race::release(&r.state);
     detail::mutex_unlock_words(r.state, r.sema);
 }
 
 template <typename M>
 inline bool mutex_try_lock(const ptr<M>& m) {
     M& r = *m;
-    return detail::mutex_try_lock_words(r.state);
+    if (!detail::mutex_try_lock_words(r.state)) {
+        return false;
+    }
+    race::acquire(&r.state);
+    return true;
 }
 
 // --- RWMutex: struct { w Mutex; writerSem, readerSem uint32; readerCount, readerWait int32 } ---
@@ -141,6 +185,7 @@ inline void rw_rlock(const ptr<R>& rw) {
         // A writer is pending: wait for it to finish.
         detail::sema_acquire(&r.readerSem, "sync.RWMutex.RLock");
     }
+    race::acquire(&r.readerSem); // an Unlock happens before the RLock that follows it
 }
 
 template <typename R>
@@ -150,6 +195,7 @@ inline bool rw_try_rlock(const ptr<R>& rw) {
     int32_t c = count.load();
     while (c >= 0) {
         if (count.compare_exchange_weak(c, c + 1)) {
+            race::acquire(&r.readerSem);
             return true;
         }
     }
@@ -159,6 +205,7 @@ inline bool rw_try_rlock(const ptr<R>& rw) {
 template <typename R>
 inline void rw_runlock(const ptr<R>& rw) {
     R& r = *rw;
+    race::release(&r.writerSem); // an RUnlock happens before the Lock that follows it
     int32_t n = detail::at(r.readerCount).fetch_sub(1) - 1;
     if (n < 0) [[unlikely]] {
         // Outlined slow path: a writer is pending.
@@ -183,6 +230,8 @@ inline void rw_lock(const ptr<R>& rw) {
     if (n != 0 && detail::at(r.readerWait).fetch_add(n) + n != 0) {
         detail::sema_acquire(&r.writerSem, "sync.RWMutex.Lock");
     }
+    race::acquire(&r.readerSem);
+    race::acquire(&r.writerSem);
 }
 
 template <typename R>
@@ -196,12 +245,16 @@ inline bool rw_try_lock(const ptr<R>& rw) {
         detail::mutex_unlock_words(r.w.state, r.w.sema);
         return false;
     }
+    race::acquire(&r.readerSem);
+    race::acquire(&r.writerSem);
     return true;
 }
 
 template <typename R>
 inline void rw_unlock(const ptr<R>& rw) {
     R& r = *rw;
+    race::release(&r.readerSem);
+    race::release(&r.writerSem);
     // Announce to readers there is no active writer.
     int32_t n =
         detail::at(r.readerCount).fetch_add(detail::rw_max_readers) + detail::rw_max_readers;
@@ -223,6 +276,9 @@ inline void wg_add(const ptr<W>& wg, int64_t delta) {
     static_assert(std::is_same_v<decltype(W::state), uint64_t> &&
                   std::is_same_v<decltype(W::sema), uint32_t>);
     W& r = *wg;
+    if (delta < 0) {
+        race::release(&r.state); // a Done happens before the Wait that it lets return
+    }
     auto st = detail::at(r.state);
     uint64_t add = static_cast<uint64_t>(delta) << 32;
     uint64_t state = st.fetch_add(add) + add;
@@ -257,6 +313,7 @@ inline void wg_wait(const ptr<W>& wg) {
         uint64_t state = st.load();
         auto v = static_cast<int32_t>(state >> 32);
         if (v == 0) {
+            race::acquire(&r.state);
             return; // the counter is 0: don't wait
         }
         // Increment waiters count.
@@ -265,6 +322,7 @@ inline void wg_wait(const ptr<W>& wg) {
             if (st.load() != 0) {
                 detail::panic_wg_reused();
             }
+            race::acquire(&r.state);
             return;
         }
     }
@@ -304,12 +362,14 @@ template <typename C>
 inline void cond_wait(const ptr<C>& c, uint32_t ticket) {
     C& r = *c;
     detail::notify_wait(r.wait, r.notify, ticket);
+    race::acquire(&r.wait); // a Signal or Broadcast happens before the Wait that it wakes
 }
 
 template <typename C>
 inline void cond_signal(const ptr<C>& c) {
     C& r = *c;
     detail::cond_check(r.checker);
+    race::release(&r.wait);
     detail::notify_one(r.wait, r.notify);
 }
 
@@ -317,6 +377,7 @@ template <typename C>
 inline void cond_broadcast(const ptr<C>& c) {
     C& r = *c;
     detail::cond_check(r.checker);
+    race::release(&r.wait);
     detail::notify_all(r.wait, r.notify);
 }
 
@@ -331,11 +392,17 @@ inline void hash_check(const gp::iface& key) {
 template <typename O>
 inline bool once_done(const ptr<O>& o) {
     static_assert(std::is_same_v<decltype(O::done), uint32_t>);
-    return detail::at((*o).done).load() != 0;
+    bool done = detail::at((*o).done).load() != 0;
+    if (done) {
+        race::acquire(
+            &(*o).done); // the function's work happens before every Do that returns after it
+    }
+    return done;
 }
 
 template <typename O>
 inline void once_set(const ptr<O>& o) {
+    race::release(&(*o).done);
     detail::at((*o).done).store(1);
 }
 

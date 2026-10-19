@@ -103,7 +103,10 @@ type format struct {
 // Every format honors //go:build lines. The tests that run a program take // lsan: cycle and
 // // pending:; run and pkgs tests also take // std-internal:.
 var (
-	runFormat     = format{"run", outputLine | exitCodeLine | stderrLine | lsanLine | divergenceLine | pendingLine | stdInternalLine | zoneinfoLine | goBuildLine, true}
+	runFormat = format{"run", outputLine | exitCodeLine | stderrLine | lsanLine | divergenceLine | pendingLine | stdInternalLine | zoneinfoLine | goBuildLine, true}
+	// A race test (tests/race) is a run test that gocpp builds with -race: a program with a data
+	// race ends with exit code 66 and Go's report on stderr, a program without one is silent.
+	raceFormat    = format{"race", outputLine | exitCodeLine | stderrLine | pendingLine | goBuildLine, true}
 	errorsFormat  = format{"errors", goBuildLine, true}
 	goldenFormat  = format{"golden", goBuildLine, true}
 	diffFormat    = format{"diff", diffLine | lsanLine | pendingLine | goBuildLine, true}

@@ -49,7 +49,8 @@ type Profile struct {
 // operating system goos, or an error for a combination that does not make sense: -debug with
 // -release, -race with -release (a race run wants the code as written, not as -O2 -flto
 // reorders it), -race with -asan (the compilers refuse both sanitizers in one program), and
-// -race on a system without ThreadSanitizer.
+// -race on a system without ThreadSanitizer. On linux the race mode adds Go's report (a reporter
+// thread in the runtime's OS layer, which only linux has); darwin gets ThreadSanitizer's own text.
 func ProfileFlags(m Profile, asan bool, goos string) (compile, link []string, err error) {
 	switch {
 	case m.Debug && m.Release:
@@ -64,6 +65,14 @@ func ProfileFlags(m Profile, asan bool, goos string) (compile, link []string, er
 	if m.Race {
 		compile = []string{"-fsanitize=thread", "-fno-omit-frame-pointer"}
 		link = []string{"-fsanitize=thread"}
+		if goos == "linux" {
+			// Go's report, exit code 66 and GORACE (Phase 08 step 8.12, docs/guides/race.md): the
+			// define switches the runtime to the race mode (gocpp/race.hpp), and gocpp/nofortify.h,
+			// which every compile of the program and of the runtime includes first, then includes
+			// gocpp/race_atomicity.hpp. The link exports the function that carries GORACE to TSan.
+			compile = append(compile, "-DGOCPP_RACE_MODE=1")
+			link = append(link, "-Wl,--export-dynamic-symbol=__tsan_default_options")
+		}
 	}
 	if m.Release {
 		compile = []string{"-O2", "-flto"}

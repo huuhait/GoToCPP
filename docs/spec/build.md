@@ -107,7 +107,7 @@ and `-o` are for `build` only; `-compdb` is also a flag of `run`, `test` and `de
 | `-n` | print the commands and run none (the generated C++ is written; no object, no program, nothing recorded) |
 | `-a` | compile everything again: no object cache, no runtime cache, no up-to-date check; the new objects are stored |
 | `-tags a,b` | more build tags (comma list; the last `-tags` is the list), for `//go:build` lines and the file names of `.gp`, `.c` and `.cc/.cpp/.cxx` files; also in `check`, `emit` and `list` |
-| `-debug` / `-release` / `-race` | `-O0 -g` (what a build is by default) / `-O2 -flto` / ThreadSanitizer. `-debug` with `-release`, `-race` with `-release` or `-asan`, and `-race` for windows are errors |
+| `-debug` / `-release` / `-race` | `-O0 -g` (what a build is by default) / `-O2 -flto` / ThreadSanitizer, on linux with Go's race report, exit code 66 and `GORACE` ([the race detector](../guides/race.md)); on darwin ThreadSanitizer's own text. `-debug` with `-release`, `-race` with `-release` or `-asan`, and `-race` for windows are errors |
 | `-asan`, `-nochecks`, `-cpperrors` | as before |
 | `-cflags`, `-cxxflags`, `-ldflags` | the user's flags: see below |
 | `-emit-llvm[=ll\|bc]`, `-compdb[=path]` | files for other tools: see below |
@@ -118,7 +118,7 @@ the last one wins:
 
 | | Compile (C and C++) | Compile (C++ only) | Link |
 |---|---|---|---|
-| 1. the mode | `-fsanitize=thread`, `-O2 -flto` | | `-fsanitize=thread`, `-O2 -flto` |
+| 1. the mode | `-fsanitize=thread` (linux: and `-DGOCPP_RACE_MODE=1`), `-O2 -flto` | | `-fsanitize=thread` (linux: and `-Wl,--export-dynamic-symbol=__tsan_default_options`), `-O2 -flto` |
 | 2. the environment | `GOCPP_CFLAGS` | `GOCPP_CXXFLAGS` | `GOCPP_LDFLAGS` |
 | 3. the build flags | `-cflags` | `-cxxflags` | `-ldflags` |
 

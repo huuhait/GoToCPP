@@ -584,7 +584,8 @@ func linkFlagProblem(flags []string) string {
 					}
 				case p == "-rpath" || p == "-rpath-link" || p == "-soname" || p == "-h":
 					j++ // the value is a path or a name that is not read
-				case strings.HasPrefix(p, "-rpath=") || strings.HasPrefix(p, "-soname=") || strings.HasPrefix(p, "--hash-style="):
+				case strings.HasPrefix(p, "-rpath=") || strings.HasPrefix(p, "-soname=") || strings.HasPrefix(p, "--hash-style=") ||
+					strings.HasPrefix(p, "--export-dynamic-symbol="): // a name of a symbol, read from no file (-race)
 				default:
 					return "the link flag " + f + " (" + p + ") may read or write a file that the check can't follow"
 				}

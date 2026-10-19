@@ -19,6 +19,8 @@ make test-programs                         # go test -count=1 -v ./tests/...
 |---|---|---|---|
 | `TestRun` | [run/](run/README.md) | a `.gp` program with an `// Output:` block at the end | `gocpp run` prints that output, with the expected exit code and stderr |
 | `TestRunVsGo` | [run/](run/README.md) | the same tests, with `GOCPP_RUN_VS_GO=1` (below) | real Go prints that output, with that exit code and stderr |
+| `TestRace` | [race/](race/README.md) | a `.gp` program that has a data race (`race_*`) or has none (`ok_*`) | `gocpp run -race` ends with exit code 66 and Go's report on stderr, or runs silent with exit code 0 (Linux only; with the first compiler only, unless `GOCPP_RACE_COMPILERS=all`, which `make ci-race` sets) |
+| `TestRaceVsGo` | [race/](race/README.md) | the same programs, with `GOCPP_RUN_VS_GO=1` | real Go's race detector (`go build -race`) gives the same output, exit code and report lines |
 | `TestErrors` | [errors/](errors/README.md) | a `.gp` file with `// ERROR "regexp"` (and `// WARNING "regexp"`) comments | `gocpp check` reports exactly those errors (and warnings), on those lines |
 | `TestGolden` | [golden/](golden/README.md) | a `.gp` file and its `.cpp.golden` snapshot | `gocpp emit` prints the snapshot (all the files of the program, each after a line `//// <path>`) |
 | `TestDiff` | [diff/](diff/README.md) | a `.gp` program that is valid Go | `gocpp run` and real Go print the same stdout (with a `// diff:` line, also stderr) and exit with the same code |
@@ -82,6 +84,11 @@ natives of `internal/bytealg` (C++ in gocpp) are replaced in that copy by calls 
 (`testdata/twin/bytealg_native.go.txt`), so a test's `// Output:` block must equal what Go computes for the same inputs.
 
 ## Sanitizers
+
+`make ci-race` is the race detector job (step 8.12, [docs/guides/race.md](../docs/guides/race.md)): the
+programs of [race/](race/README.md) with both compilers, and every test of `tests/run` that starts a
+goroutine or uses a channel or `select` with `GOCPP_FLAGS=-race`, where a report fails the test (the
+tests expect no stderr). `-race` and `-asan` can't be combined.
 
 `make ci-sanitize` is the sanitizer job: it runs the tests that run programs (`TestRun`,
 `TestDiff`, `TestInterop`, `TestZoo`, `TestExamples`) with `GOCPP_FLAGS=-asan`, so every program is built

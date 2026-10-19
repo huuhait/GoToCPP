@@ -358,3 +358,30 @@ func TestExportCMakeFolders(t *testing.T) {
 		t.Errorf("ExportCMake(again) = %v, stale file exists: %v", err, exists(stale))
 	}
 }
+
+// TestRuntimeArgsRace checks that a -race build compiles the files of the race reporter and of the
+// code that names the frames without ThreadSanitizer, and every other file with it.
+func TestRuntimeArgsRace(t *testing.T) {
+	flags := []string{"-fsanitize=thread", "-DGOCPP_RACE_MODE=1"}
+	for rel, want := range map[string]bool{
+		"src/os/linux/race.cpp":  true,
+		"src/trace.cpp":          true,
+		"src/os/linux/trace.cpp": true,
+		"src/frames.cpp":         true,
+		"src/chan.cpp":           false,
+		"src/goroutine.cpp":      false,
+		"src/sync.cpp":           false,
+	} {
+		args := runtimeArgs("/rt", rel, flags, "o.o")
+		if got := slices.Contains(args, "-fno-sanitize=thread"); got != want {
+			t.Errorf("runtimeArgs(%s) has -fno-sanitize=thread: %v, want %v: %q", rel, got, want, args)
+		}
+		if !slices.Contains(args, "-fsanitize=thread") {
+			t.Errorf("runtimeArgs(%s) lost -fsanitize=thread: %q", rel, args)
+		}
+	}
+	// Without ThreadSanitizer nothing changes.
+	if args := runtimeArgs("/rt", "src/trace.cpp", []string{"-g"}, "o.o"); slices.Contains(args, "-fno-sanitize=thread") {
+		t.Errorf("runtimeArgs without -race has -fno-sanitize=thread: %q", args)
+	}
+}

@@ -118,9 +118,26 @@ func (p *Plan) setRuntime(dir string) {
 	p.mu.Unlock()
 }
 
+// rtNoTSan are the runtime sources that a -race build (ThreadSanitizer) compiles without it
+// (Phase 08 step 8.12): the race reporter and the code that it uses to name the frames of a report
+// (the program's file, its symbols and its line table). The reporter is a process of its own (a copy
+// of the program), where ThreadSanitizer's instrumentation does not matter for what the program
+// does, but it matters for how long the program waits for the reporter at its start: reading a 7 MB
+// file is thousands of function calls and tens of megabytes of memory traffic, ten times as slow
+// under ThreadSanitizer. The same files also run in the program for the trace of a panic.
+var rtNoTSan = map[string]bool{
+	"src/trace.cpp":          true,
+	"src/frames.cpp":         true,
+	"src/os/linux/trace.cpp": true,
+	"src/os/linux/race.cpp":  true,
+}
+
 // runtimeArgs returns the arguments of the compile of the runtime source rel (a path of
 // rtfiles.Sources) in the runtime folder dir with the flags flags, and the object file obj.
 func runtimeArgs(dir, rel string, flags []string, obj string) []string {
+	if rtNoTSan[rel] && slices.Contains(flags, "-fsanitize=thread") {
+		flags = append(slices.Clone(flags), "-fno-sanitize=thread")
+	}
 	return slices.Concat(flags, []string{"-I", filepath.Join(dir, "include"), "-c", filepath.Join(dir, filepath.FromSlash(rel)), "-o", obj})
 }
 

@@ -2,6 +2,7 @@
 // include OS headers.
 #include <gocpp/nofortify.h>
 #include <gocpp/os.hpp>
+#include <gocpp/race.hpp>
 #include "linux.hpp"
 
 #include <atomic>
@@ -66,6 +67,7 @@ void start() noexcept {
     sigemptyset(&sa.sa_mask);
     sigaction(SIGPIPE, &sa, nullptr);
     start_threads();
+    race::init(); // -race: Go-shaped reports (gocpp/race.hpp)
 }
 
 void die_of_sigpipe() noexcept {
@@ -113,6 +115,7 @@ void exit(int code) noexcept {
         }
     }
     std::fflush(nullptr);
+    race::finish(code); // -race: "Found N data race(s)"
 #if defined(GOCPP_LSAN)
     // _exit skips the leak check that ASan runs at the end of the process.
     __lsan_do_leak_check();

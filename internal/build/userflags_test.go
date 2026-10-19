@@ -52,8 +52,8 @@ func TestModeFlags(t *testing.T) {
 		{name: "none"},
 		{name: "debug", mode: Profile{Debug: true}},
 		{name: "release", mode: Profile{Release: true}, compile: []string{"-O2", "-flto"}, link: []string{"-O2", "-flto"}},
-		{name: "race", mode: Profile{Race: true}, goos: "linux", compile: []string{"-fsanitize=thread", "-fno-omit-frame-pointer"}, link: []string{"-fsanitize=thread"}},
-		{name: "race on darwin", mode: Profile{Race: true}, goos: "darwin", compile: []string{"-fsanitize=thread", "-fno-omit-frame-pointer"}, link: []string{"-fsanitize=thread"}},
+		{name: "race", mode: Profile{Race: true}, goos: "linux", compile: []string{"-fsanitize=thread", "-fno-omit-frame-pointer", "-DGOCPP_RACE_MODE=1"}, link: []string{"-fsanitize=thread", "-Wl,--export-dynamic-symbol=__tsan_default_options"}},
+		{name: "race on darwin (ThreadSanitizer's own text: no Go-form reporter)", mode: Profile{Race: true}, goos: "darwin", compile: []string{"-fsanitize=thread", "-fno-omit-frame-pointer"}, link: []string{"-fsanitize=thread"}},
 		{name: "debug and release", mode: Profile{Debug: true, Release: true}, err: "-debug and -release"},
 		{name: "race and asan", mode: Profile{Race: true}, asan: true, err: "-race and -asan"},
 		{name: "race and release", mode: Profile{Race: true, Release: true}, err: "-race and -release"},
@@ -212,7 +212,8 @@ func TestProbeFlagsDropPlugins(t *testing.T) {
 
 func TestLinkFlagProblemModeFlags(t *testing.T) {
 	// The flags of -race and -release read no file that the up-to-date check should follow.
-	for _, f := range [][]string{{"-fsanitize=thread"}, {"-fsanitize=address"}, {"-O2", "-flto"}, {"-flto=thin"}} {
+	for _, f := range [][]string{{"-fsanitize=thread"}, {"-fsanitize=address"}, {"-O2", "-flto"}, {"-flto=thin"},
+		{"-fsanitize=thread", "-Wl,--export-dynamic-symbol=__tsan_default_options"}} {
 		if why := linkFlagProblem(f); why != "" {
 			t.Errorf("linkFlagProblem(%q) = %q", f, why)
 		}

@@ -14,6 +14,7 @@
 #include <gocpp/nofortify.h>
 #include "chan_core.hpp"
 #include <gocpp/rt.hpp>
+#include <gocpp/sync.hpp>
 
 #include <atomic>
 #include <chrono>
@@ -39,8 +40,8 @@ constexpr std::size_t bucket_count = 251;
 
 struct alignas(64) bucket {
     std::mutex mu;
-    waitq q; // guarded by mu
-    std::atomic<uint32_t> nwait{0};
+    waitq q;            // guarded by mu
+    uint32_t nwait = 0; // atomic: through at()
 };
 
 bucket buckets[bucket_count];
@@ -51,7 +52,7 @@ bucket& bucket_of(const void* addr) noexcept {
 
 // cansemacquire takes a unit of the semaphore if there is one.
 bool can_acquire(uint32_t* addr) noexcept {
-    std::atomic_ref<uint32_t> s(*addr);
+    auto s = at(*addr);
     uint32_t v = s.load();
     while (v != 0) {
         if (s.compare_exchange_weak(v, v - 1)) {
@@ -140,7 +141,8 @@ constexpr int mutex_waiter_shift = 3;
 constexpr int64_t starvation_base_ns = 1000000;
 constexpr int64_t starvation_per_waiter_ns = 100000;
 
-bool cas(std::atomic_ref<int32_t>& s, int32_t old, int32_t now) noexcept {
+template <typename R>
+bool cas(R& s, int32_t old, int32_t now) noexcept {
     return s.compare_exchange_strong(old, now);
 }
 
@@ -157,11 +159,11 @@ void sema_acquire(uint32_t* addr, const char* reason, bool lifo) {
     for (;;) {
         std::unique_lock<std::mutex> lk(b.mu);
         // Add ourselves to nwait to disable "easy case" in release.
-        b.nwait.fetch_add(1);
+        at(b.nwait).fetch_add(1);
         // Check the semaphore again, so that a release that came between the first check and the
         // nwait increment is not missed.
         if (can_acquire(addr)) {
-            b.nwait.fetch_sub(1);
+            at(b.nwait).fetch_sub(1);
             return;
         }
         // Any release after this point sees nwait > 0 and will wake us.
@@ -176,13 +178,13 @@ void sema_acquire(uint32_t* addr, const char* reason, bool lifo) {
 
 void sema_release(uint32_t* addr, bool handoff) {
     bucket& b = bucket_of(addr);
-    std::atomic_ref<uint32_t>(*addr).fetch_add(1);
+    at(*addr).fetch_add(1);
     // Easy case: no waiters? This check must happen after the add, to avoid a missed wake-up.
-    if (b.nwait.load() == 0) {
+    if (at(b.nwait).load() == 0) {
         return;
     }
     std::unique_lock<std::mutex> lk(b.mu);
-    if (b.nwait.load() == 0) {
+    if (at(b.nwait).load() == 0) {
         return;
     }
     entry* e = find(b, addr, false, 0);
@@ -190,7 +192,7 @@ void sema_release(uint32_t* addr, bool handoff) {
         return; // the waiters are for another word of the bucket
     }
     b.q.remove(e);
-    b.nwait.fetch_sub(1);
+    at(b.nwait).fetch_sub(1);
     lk.unlock();
     // The entry is off the queue and its goroutine is parked: nobody else will wake it, so it may
     // be written until the wake.
@@ -201,7 +203,7 @@ void sema_release(uint32_t* addr, bool handoff) {
 }
 
 void mutex_lock_slow(int32_t& st, uint32_t& sema) {
-    std::atomic_ref<int32_t> state(st);
+    auto state = at(st);
     int64_t wait_start = 0;
     bool starving = false;
     bool awoke = false;
@@ -281,7 +283,7 @@ void mutex_lock_slow(int32_t& st, uint32_t& sema) {
 }
 
 void mutex_unlock_slow(int32_t& st, uint32_t& sema, int32_t now) {
-    std::atomic_ref<int32_t> state(st);
+    auto state = at(st);
     if (((now + mutex_locked) & mutex_locked) == 0) {
         fatal_unlock_mutex();
     }
@@ -316,7 +318,7 @@ void notify_wait(uint32_t& wait, uint32_t& notify, uint32_t ticket) {
     bucket& b = bucket_of(&wait);
     std::unique_lock<std::mutex> lk(b.mu);
     // Return right away if this ticket has already been notified.
-    if (static_cast<int32_t>(ticket - std::atomic_ref<uint32_t>(notify).load()) < 0) {
+    if (static_cast<int32_t>(ticket - at(notify).load()) < 0) {
         return;
     }
     entry e;
@@ -327,7 +329,7 @@ void notify_wait(uint32_t& wait, uint32_t& notify, uint32_t ticket) {
 
 void notify_all(uint32_t& wait, uint32_t& notify) {
     // Fast-path: if there are no waiters, there is nothing to do.
-    if (std::atomic_ref<uint32_t>(wait).load() == std::atomic_ref<uint32_t>(notify).load()) {
+    if (at(wait).load() == at(notify).load()) {
         return;
     }
     bucket& b = bucket_of(&wait);
@@ -351,7 +353,7 @@ void notify_all(uint32_t& wait, uint32_t& notify) {
             }
             s = next;
         }
-        std::atomic_ref<uint32_t>(notify).store(std::atomic_ref<uint32_t>(wait).load());
+        at(notify).store(at(wait).load());
     }
     // Go through the list and ready all waiters (read the link before the wake: the entry is
     // gone after it).
@@ -363,8 +365,8 @@ void notify_all(uint32_t& wait, uint32_t& notify) {
 }
 
 void notify_one(uint32_t& wait, uint32_t& notify) {
-    std::atomic_ref<uint32_t> w(wait);
-    std::atomic_ref<uint32_t> n(notify);
+    auto w = at(wait);
+    auto n = at(notify);
     // Fast-path: if there are no waiters, there is nothing to do.
     if (w.load() == n.load()) {
         return;

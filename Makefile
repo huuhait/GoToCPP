@@ -105,6 +105,27 @@ ci-windows:
 	$(GO) test -count=1 -timeout 60m -parallel 2 -run '^(TestRunWindows|TestWindowsPrograms|TestWineIsolation)$$' ./tests
 	@echo "make ci-windows: all checks passed"
 
+# The race detector job (Phase 08 step 8.12, docs/guides/race.md): the programs of tests/race (a program with
+# a data race must be reported with Go's report and exit code 66, one without must be silent) with
+# gocpp run -race with both compilers, the concurrency tests of tests/run (every program that starts
+# a goroutine or uses a channel or select: the names are listed by tests/race/concurrency.sh) with
+# GOCPP_FLAGS=-race, which must all stay silent (a report fails the test, because the test expects no
+# stderr), the same programs checked against real Go's race detector (go build -race), and the
+# runtime's ThreadSanitizer unit tests. -parallel 2, because a ThreadSanitizer build is big.
+# It is a nightly job: make ci runs one compiler's tests/race only (TestRace is part of ./tests).
+.PHONY: ci-race
+ci-race: export GOCPP_REQUIRE_CXX ?= g++,clang++
+ci-race: export GOCPP_TEST_PHASE ?= $(CI_TEST_PHASE)
+ci-race: export GOCPP_RACE_COMPILERS = all
+ci-race:
+	$(GO) test -count=1 -timeout 60m -parallel 2 -run '^TestRace$$' ./tests/...
+	GOCPP_RUN_VS_GO=1 $(GO) test -count=1 -timeout 30m -parallel 2 -run '^TestRaceVsGo$$' ./tests/...
+	GOCPP_FLAGS="$(GOCPP_FLAGS) -race" $(GO) test -count=1 -timeout 120m -parallel 2 \
+		-run "^TestRun/($$(sh tests/race/concurrency.sh))$$" ./tests/...
+	$(GO) test -count=1 -timeout 60m -parallel 2 -run 'TSan' ./runtime/...
+	$(GO) test -count=1 -timeout 60m -run '^TestRace' ./cmd/gocpp/...
+	@echo "make ci-race: all checks passed"
+
 # Fails if gofmt lists a Go file outside LINT_SKIP, then runs go vet, also for
 # windows and darwin (a file with a build tag that only one system compiles).
 lint:

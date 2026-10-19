@@ -1420,7 +1420,11 @@ void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool co
     for (std::size_t k = 0; k < shown.size(); k++) {
         lines[k].addr = frames[shown[k]].call;
     }
-    if (have) {
+    if (have && cached != nullptr) {
+        // A caller that keeps the image asks again and again (runtime.Stack, the race reporter).
+        indexed_lines_of(img.debug_line, img.debug_line_str, img.debug_str, lines.data(),
+                         lines.size());
+    } else if (have) {
         lines_of(img.debug_line, img.debug_line_str, img.debug_str, lines.data(), lines.size());
     }
     for (std::size_t k = 0; k < shown.size(); k++) {

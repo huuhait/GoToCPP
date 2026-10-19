@@ -246,8 +246,11 @@ The build flags (of build and run; -emit-llvm, -n and -o are of build only) are:
 		(warnings) come in the same order whatever the speed.
 	-race
 		build with ThreadSanitizer (-fsanitize=thread): the program
-		reports a data race it sees. Not with -asan or -release, and not
-		for windows
+		reports a data race it sees, on linux in Go's form ("WARNING:
+		DATA RACE") with exit code 66; GORACE sets the options
+		(halt_on_error=1, exitcode=N, log_path=file, history_size=N)
+		(docs/guides/race.md). Not with -asan or -release, and not for
+		windows
 	-release
 		build with -O2 -flto
 	-tags list

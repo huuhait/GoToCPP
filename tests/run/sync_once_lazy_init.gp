@@ -14,10 +14,16 @@ type Lazy struct {
 	n    *int
 }
 
+// countMu guards the shared counter: the two copies have two Onces, which run their functions at
+// the same time (found by the race detector, step 8.12).
+var countMu sync.Mutex
+
 func (l *Lazy) Get() int {
 	l.once.Do(func() {
+		countMu.Lock()
 		*l.n++
 		l.val = 100 + *l.n
+		countMu.Unlock()
 	})
 	return l.val
 }

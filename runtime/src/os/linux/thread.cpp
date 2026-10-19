@@ -4,6 +4,7 @@
 // Go's report on top of it.
 #include <gocpp/nofortify.h>
 #include <gocpp/os.hpp>
+#include <gocpp/race.hpp>
 #include "linux.hpp"
 
 #include <atomic>
@@ -389,6 +390,8 @@ int cpu_count() noexcept {
 }
 
 void exit_now(int code) noexcept {
+    race::finish(
+        code); // -race: the reports that are still to be written, and "Found N data race(s)"
     ::_exit(code);
 }
 

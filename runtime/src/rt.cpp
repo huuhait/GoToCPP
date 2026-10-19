@@ -4,6 +4,7 @@
 #include <gocpp/rt.hpp>
 #include <gocpp/goroutine.hpp>
 #include <gocpp/os.hpp>
+#include <gocpp/race.hpp>
 #include <gocpp/trace.hpp>
 
 #include <algorithm>
@@ -862,6 +863,11 @@ int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
     os::set_fault_hook(on_fault);
 #endif
     os::start();
+    if constexpr (race::mode) {
+        // -race: every goroutine has a thread of its own, so that a report's "created at" is the
+        // go statement of that goroutine and not of the first one that used the thread.
+        detail::set_idle_limit(0);
+    }
     std::set_new_handler(detail::out_of_memory);
     detail::cxx_terminate = std::set_terminate(detail::on_terminate);
     args_storage() = to_strings(os::arguments(argc, argv));

@@ -2301,7 +2301,8 @@ go close(c)                                 gp::go_call([](auto&& gp_a0) { gp::c
   and `select {}` and a select of only nil channels block for ever (counted as blocked). A select with
   up to 16 cases allocates nothing; 1,000 cases work (the generated `select_1000_cases` test).
   ThreadSanitizer's deadlock detector aborts above 64 locks held by a thread, so under TSan a
-  select over more than about 60 channels needs `TSAN_OPTIONS=detect_deadlocks=0`.
+  select over more than about 60 channels needs `TSAN_OPTIONS=detect_deadlocks=0` (`gocpp run -race`
+  sets it: [docs/guides/race.md](../guides/race.md)).
 - **`range` over a channel** (step 8.6) receives until the channel is closed and drained:
 
   ```go

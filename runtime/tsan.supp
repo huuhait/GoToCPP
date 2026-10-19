@@ -1,0 +1,7 @@
+# ThreadSanitizer suppressions for the runtime (docs/guides/race.md, ADR-062).
+#
+# Pass it with TSAN_OPTIONS=suppressions=runtime/tsan.supp. It has no entry: every false positive
+# that the race tests and the concurrency tests under -race showed was a bug of the runtime's
+# synchronization or bookkeeping, and was fixed where it is (gocpp/race.hpp: gp::race::no_sync,
+# gocpp/race_atomicity.hpp). A suppression hides real races of the same function too, so an entry
+# needs a comment that says which report it hides and why it is not a race of the Go program.
