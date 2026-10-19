@@ -1,0 +1,113 @@
+# regexp/syntax (step 9.4c): Go's package; the short-slice storage of a Regexp (Sub0, Rune0) is no longer aliased by Sub and Rune.
+
+@note A syntax.Regexp keeps short Sub and Rune slices in its own fields Sub0 and Rune0 (`re.Sub = re.Sub0[:1]`). In gocpp a slice of an array field holds a counted reference to the block that owns the array, which is the Regexp itself, so such a Regexp owned itself and was never freed: every regexp.Compile (and every syntax.Parse) leaked its parse tree (a reference cycle, ADR-004). The fields stay (they are exported), but nothing aliases them: the slices are allocated, the results are Go's.
+
+@file parse.go
+@why `re1.Rune = re1.Rune0[:1]` makes the Regexp own itself (see the note); an allocated one-element slice does the same.
+@replace
+		re1.Rune = re1.Rune0[:1]
+		re1.Rune[0] = r
+@with
+		re1.Rune = []rune{r}
+@end
+@why Same: a literal's rune slice must not alias Rune0.
+@replace
+	re.Rune0[0] = r
+	re.Rune = re.Rune0[:1]
+@with
+	re.Rune0[0] = r
+	re.Rune = []rune{r}
+@end
+@why Same: the Sub slice of a repeat must not alias Sub0.
+@replace
+	re.Sub = re.Sub0[:1]
+	re.Sub[0] = sub
+@with
+	re.Sub = []*Regexp{sub}
+@end
+@why Same: a copy that "reclaims storage" copies into new storage, not into Rune0.
+@replace
+			re.Rune = append(re.Rune0[:0], re.Rune...)
+@with
+			re.Rune = append([]rune(nil), re.Rune...)
+@end
+@why Same: the Sub slice of a concat or alternation starts empty and grows by append.
+@replace
+	re.Sub = re.Sub0[:0]
+	for _, sub := range subs {
+@with
+	re.Sub = nil
+	for _, sub := range subs {
+@end
+@why Same: literalRegexp used Rune0 as storage for small strings; the rune slice of the string is the same value.
+@replace
+	re.Rune = re.Rune0[:0] // use local storage for small strings
+	for _, c := range s {
+		if len(re.Rune) >= cap(re.Rune) {
+			// string is too long to fit in Rune0.  let Go handle it
+			re.Rune = []rune(s)
+			break
+		}
+		re.Rune = append(re.Rune, c)
+	}
+	return re
+@with
+	re.Rune = []rune(s) // Go keeps small strings in Rune0, which would be a reference cycle here
+	return re
+@end
+@why Same: the class parsers append to the slice they are given; it must not be Rune0 (and not nil, which would mean "not a class" to the callers: an empty class is a valid result).
+@replace
+				r, rest, err := p.parseUnicodeClass(t, re.Rune0[:0])
+@with
+				r, rest, err := p.parseUnicodeClass(t, make([]rune, 0, 2))
+@end
+@replace
+			if r, rest := p.parsePerlClassEscape(t, re.Rune0[:0]); r != nil {
+@with
+			if r, rest := p.parsePerlClassEscape(t, make([]rune, 0, 2)); r != nil {
+@end
+@why Same: the Sub slice of a capture group must not alias Sub0.
+@replace
+		re2.Sub = re2.Sub0[:1]
+		re2.Sub[0] = re1
+@with
+		re2.Sub = []*Regexp{re1}
+@end
+@why Same: parseClass starts the rune slice of a class in Rune0; an empty allocated slice is the same (not nil: a class with no runes is a valid result).
+@replace
+	re.Rune = re.Rune0[:0]
+
+	sign := +1
+@with
+	re.Rune = make([]rune, 0, 2)
+
+	sign := +1
+@end
+
+@file simplify.go
+@why The simplified trees must not alias Sub0 either (see the note).
+@replace
+				nre.Sub = append(nre.Sub0[:0], re.Sub[:i]...)
+@with
+				nre.Sub = append([]*Regexp(nil), re.Sub[:i]...)
+@end
+@replace
+			nre.Sub = nre.Sub0[:0]
+@with
+			nre.Sub = nil
+@end
+@replace
+			prefix.Sub = prefix.Sub0[:0]
+@with
+			prefix.Sub = nil
+@end
+@replace
+				nre2.Sub = append(nre2.Sub0[:0], sub, suffix)
+@with
+				nre2.Sub = []*Regexp{sub, suffix}
+@end
+@replace
+	re.Sub = append(re.Sub0[:0], sub)
+@with
+	re.Sub = []*Regexp{sub}
+@end

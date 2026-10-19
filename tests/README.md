@@ -79,7 +79,7 @@ packages of the standard library that gocpp has (`load.Config.AllowStdInternal`)
 standard package that does not exist, stay closed. No other test gets the variable, so users keep seeing "use of
 internal package ... not allowed"; a test of another kind with the line is malformed. (A pkgs test may say it too, and gets the variable; `TestPkgsVsGo` has no twins.) For `TestRunVsGo` real Go cannot
 import `internal/...` either: the harness copies the `.gp` files of the packages the test imports as `.go` files into a
-module next to the test (`difftest/internal/<name>`, [twin_test.go](twin_test.go)), and builds the program there. The
+module next to the test (`difftest/internal/<name>`, [twin_test.go](twin_test.go); `testing/internal/testdeps` is `difftest/internal/testing_testdeps`), and builds the program there. The
 natives of `internal/bytealg` (C++ in gocpp) are replaced in that copy by calls of `bytes` and `strings`
 (`testdata/twin/bytealg_native.go.txt`), so a test's `// Output:` block must equal what Go computes for the same inputs.
 

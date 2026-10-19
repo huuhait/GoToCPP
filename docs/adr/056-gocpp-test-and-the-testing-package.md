@@ -48,7 +48,8 @@ the `-test.*` flags from the program's arguments itself (package `flag` is a stu
 bridge: the pattern is translated from RE2's syntax to ECMAScript's (`runtime/src/testing_regex.cpp`) with Go's
 error messages for what Go rejects (lookahead, backreferences, possessive repetition, bad escapes) and a clear
 error for what it cannot translate (`\pL`, flags inside a pattern); step 9.4 replaces it with
-`regexp.MatchString`, a change in `testing/internal/testdeps` only.
+`regexp.MatchString`, a change in `testing/internal/testdeps` only. (Done in step 9.4c, ADR-083: the bridge and
+`runtime/src/testing_regex.cpp` are gone, and `testdeps` compiles the pattern with package `regexp` as Go's does.)
 
 **Fuzz targets run their seed corpus.** Go calls the function given to `F.Fuzz` with `reflect.Value.Call`, which
 gocpp's `reflect` (ADR-035) does not have. `internal/gotest` rewrites `f.Fuzz(fn)` in the test files, when `fn` is

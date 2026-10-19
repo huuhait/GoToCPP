@@ -10,11 +10,13 @@
 // Direct dependencies of package testing are harder to write tests for.
 //
 // In gocpp it holds what package testing cannot do itself: the regular expressions of -test.run
-// and the like (a native std::regex bridge until package regexp is ported in step 9.4) and the
-// import path of the package under test.
+// and the like (package regexp, as in Go) and the import path of the package under test.
 package testdeps
 
-import "errors"
+import (
+	"regexp"
+	"sync"
+)
 
 // ImportPath is the import path of the package under test. The generated main package sets it.
 var ImportPath string
@@ -28,13 +30,40 @@ func (TestDeps) ImportPath() string {
 	return ImportPath
 }
 
+// Go keeps the last compiled pattern. gocpp compiles 3 to 16 times slower than Go, and a -run pattern with / alternates between the
+// patterns of its elements (every subtest asks for each of them), so the compiled patterns are kept in a small map (at most
+// matchCacheSize entries, emptied when it is full), and a pattern that does not compile is kept with its error. The mutex is
+// there because gocpp's -test.parallel can match from several goroutines.
+const matchCacheSize = 64
+
+type matchEntry struct {
+	re  *regexp.Regexp
+	err error
+}
+
+var matchMu sync.Mutex
+var matchCache = map[string]matchEntry{}
+
+// Compiles counts the calls of regexp.Compile that MatchString made (for the test of the cache).
+var Compiles int
+
 // MatchString reports whether the regular expression pat matches somewhere in str.
-func (TestDeps) MatchString(pat, str string) (bool, error) {
-	ok, msg := matchString(pat, str)
-	if msg != "" {
-		return false, errors.New(msg)
+func (TestDeps) MatchString(pat, str string) (result bool, err error) {
+	matchMu.Lock()
+	e, ok := matchCache[pat]
+	if !ok {
+		if len(matchCache) >= matchCacheSize {
+			clear(matchCache)
+		}
+		Compiles++
+		e.re, e.err = regexp.Compile(pat)
+		matchCache[pat] = e
 	}
-	return ok, nil
+	matchMu.Unlock()
+	if e.err != nil {
+		return false, e.err
+	}
+	return e.re.MatchString(str), nil
 }
 
 // SetExitCode records the exit code of the test run (Go's TestDeps keeps it for the coverage
@@ -45,14 +74,8 @@ func (TestDeps) SetExitCode(code int) {
 
 var exitCode int
 
-//gocpp:native gp::testing::match_string
-func matchString(pat, str string) (bool, string)
-
 // Exit ends the program with the code that the last [testing.M.Run] recorded (SetExitCode), 0 if
 // there was none: the generated main package calls it where Go's calls os.Exit.
 func Exit() {
 	exit(exitCode)
 }
-
-//gocpp:native gp::testing::exit
-func exit(code int)

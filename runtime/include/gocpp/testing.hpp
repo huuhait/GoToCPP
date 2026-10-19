@@ -115,11 +115,6 @@ std::tuple<gp::string, gp::string> read_file(gp::string path);
 // parse_float parses a whole string as a floating-point number (a literal of a corpus file).
 std::tuple<double, bool> parse_float(gp::string s);
 
-// match_string reports whether the regular expression pat matches somewhere in str (what
-// regexp.MatchString does), or the text of the error when pat is not valid. It is std::regex,
-// ECMAScript syntax, until package regexp is ported (step 9.4).
-std::tuple<bool, gp::string> match_string(gp::string pat, gp::string str);
-
 // exit flushes C's standard streams and ends the process with the code, like os.Exit.
 [[noreturn]] void exit(int64_t code) noexcept;
 
@@ -135,14 +130,5 @@ void alarm_cancel();
 void running_add(gp::string name, int64_t start);
 void running_delete(gp::string name);
 gp::string running_list();
-
-namespace detail {
-// translate_regexp turns a pattern in Go's regexp syntax (RE2) into the ECMAScript syntax of
-// std::regex, for what test names need (src/testing_regex.cpp), and reports the flags that the
-// pattern starts with. It returns false and Go's error text for a pattern that Go rejects, or one
-// that it cannot translate.
-bool translate_regexp(const std::string& pat, std::string& out, bool& icase, bool& multiline,
-                      std::string& err);
-} // namespace detail
 
 } // namespace gp::testing

@@ -121,7 +121,9 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 | `path` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b): `Clean`, `Join`, `Match`, `Split` and the rest. `path/filepath` comes with `os` in the next steps. |
 | `syscall` | 09 | A subset of Go's package for Linux (step 9.6): `Errno` and `Signal` with Go's texts, the `E...`, `SIG...` and `O_...` constants, `Stat_t` and the other types that `os` needs, the environment and the file system calls. No `Syscall`, `ForkExec` or socket functions; Windows comes with Phase 14. |
 | `reflect` | 09 | A subset, without `MakeFunc`, calling methods by name, `StructOf` and `FuncOf` (divergence D6). |
-| `regexp` | 09 |  |
+| `regexp` | 09 | Go's own package (ported by `tools/portstd`, step 9.4c), on `regexp/syntax`, `sync` (the machine pool), `slices` and `unicode`: `Compile`, `MustCompile`, the `Find`, `Replace`, `Split` and `Match` families for strings, byte slices and rune readers, `Longest`, named groups, `QuoteMeta`. Linear-time matching (the backtracker, the one-pass matcher and the NFA), with Go's error texts. |
+| `regexp/syntax` | 09 | Go's own package (ported by `tools/portstd`, step 9.4c): the parser (`Parse`, with the `Perl` and `POSIX` flag sets), `Simplify`, `Compile` to a `Prog`, and `Regexp.String`. |
+| `sort` | 09 | Go's own package (ported by `tools/portstd`, step 9.4c): `Sort`, `Stable`, `Slice`, `SliceStable`, `Ints`, `Strings`, `Float64s`, `Search`, `Find` and the rest, with Go's pattern-defeating quicksort (the order of equal elements is Go's). `Slice` swaps through the reflect subset (`internal/reflectlite.Swapper`). |
 | `strconv` | 09 | Go's own package (ported by `tools/portstd`, step 9.4a), with `internal/bytealg` for `IndexByteString`. |
 | `strings` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b), with `internal/bytealg` for the searches. `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq` and `FieldsFuncSeq` return an `iter.Seq` (step 7.10). |
 | `testing` | 09 |  |

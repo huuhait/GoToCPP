@@ -16,12 +16,19 @@ import (
 // testdata/twin/bytealg_native.go.txt, which calls bytes and strings. The output of the Go program
 // is then what Go computes, and the test's // Output: block has to equal it.
 
-var internalImport = regexp.MustCompile(`"(internal/[a-z0-9]+)"`)
+var internalImport = regexp.MustCompile(`"((?:testing/)?internal/[a-z0-9]+)"`)
+
+// twinPath is the folder of a twin in the module: the package itself, except that testing/internal/x becomes
+// internal/testing_x (Go lets only the code under the parent of an internal folder import it, and the program is the root).
+func twinPath(pkg string) string {
+	return strings.Replace(pkg, "testing/internal/", "internal/testing_", 1)
+}
 
 // twinNative lists the packages of stdlib/internal that have natives: the file of the twin that
 // replaces the one with the natives.
 var twinNative = map[string]struct{ replaced, with string }{
-	"internal/bytealg": {"native.gp", "bytealg_native.go.txt"},
+	"internal/bytealg":          {"native.gp", "bytealg_native.go.txt"},
+	"testing/internal/testdeps": {"native.gp", "testdeps_native.go.txt"},
 }
 
 // writeTwins copies the internal packages that src imports (and the ones those import) into dir,
@@ -46,7 +53,7 @@ func writeTwins(dir string, src []byte) ([]byte, error) {
 		if err != nil || len(files) == 0 {
 			return nil, fmt.Errorf("twin of %s: no .gp files in %s", pkg, from)
 		}
-		to := filepath.Join(dir, filepath.FromSlash(pkg))
+		to := filepath.Join(dir, filepath.FromSlash(twinPath(pkg)))
 		if err := os.MkdirAll(to, 0o755); err != nil {
 			return nil, err
 		}
@@ -81,5 +88,7 @@ func writeTwins(dir string, src []byte) ([]byte, error) {
 
 // renameInternal makes the imports of internal packages the imports of the twins in the module.
 func renameInternal(text []byte) []byte {
-	return internalImport.ReplaceAll(text, []byte(`"difftest/$1"`))
+	return internalImport.ReplaceAllFunc(text, func(m []byte) []byte {
+		return []byte(`"difftest/` + twinPath(string(m[1:len(m)-1])) + `"`)
+	})
 }

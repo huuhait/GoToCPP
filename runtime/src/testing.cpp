@@ -19,9 +19,7 @@
 #include <cstring>
 #include <filesystem>
 #include <map>
-#include <memory>
 #include <mutex>
-#include <regex>
 #include <string>
 #include <system_error>
 #include <thread>
@@ -268,60 +266,6 @@ gp::string running_list() {
         out += '\n';
     }
     return gp::string::gp_copy(out);
-}
-
-// The regular expressions of -test.run and the like: std::regex (ECMAScript), because package
-// regexp is a declaration stub until step 9.4 (testing/internal/testdeps will use it then). The
-// pattern is translated from Go's syntax first (testing_regex.cpp).
-namespace {
-
-std::mutex regex_mu;
-std::map<std::string, std::shared_ptr<std::regex>> regex_cache;
-std::map<std::string, std::string> regex_errors;
-
-std::shared_ptr<std::regex> compile(const std::string& pat, std::string& err) {
-    std::lock_guard<std::mutex> g(regex_mu);
-    if (auto it = regex_cache.find(pat); it != regex_cache.end()) {
-        return it->second;
-    }
-    if (auto it = regex_errors.find(pat); it != regex_errors.end()) {
-        err = it->second;
-        return nullptr;
-    }
-    std::string body;
-    bool icase = false, multiline = false;
-    if (!detail::translate_regexp(pat, body, icase, multiline, err)) {
-        regex_errors[pat] = err;
-        return nullptr;
-    }
-    auto flags = std::regex::ECMAScript | std::regex::optimize;
-    if (icase) {
-        flags |= std::regex::icase;
-    }
-    if (multiline) {
-        flags |= std::regex::multiline;
-    }
-    try {
-        auto re = std::make_shared<std::regex>(body, flags);
-        regex_cache[pat] = re;
-        return re;
-    } catch (const std::regex_error& e) {
-        err = std::string("error parsing regexp: ") + e.what() + ": `" + pat + "`";
-        regex_errors[pat] = err;
-        return nullptr;
-    }
-}
-
-} // namespace
-
-std::tuple<bool, gp::string> match_string(gp::string pat, gp::string str) {
-    std::string err;
-    auto re = compile(std::string(pat.gp_view()), err);
-    if (!re) {
-        return {false, gp::string::gp_copy(err)};
-    }
-    std::string s(str.gp_view());
-    return {std::regex_search(s, *re), gp::string()};
 }
 
 } // namespace gp::testing

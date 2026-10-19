@@ -34,6 +34,8 @@ names), `public_flags` (flags and a local header of a package whose header anoth
 `package_sources` (`.c` and `.cpp` files of non-main packages), `shared_lib` (a cxx recipe library
 used by two packages), `callbacks_cross` (a function of another package as a C callback), `constants_cross` (constants of another package and the constants in `pkg.hpp`), `more_uses` (defined array, slice and struct types, variadic functions, closures and errors of another package), `chan_cross` (Phase 08: a named channel type exported by a package, channels of another package's struct, `go` calls of another package's functions and methods, type switches on channel types; run with `GOCPP_TEST_PHASE=08`), `module_replace` and `module_vendor` (packages of a `replace`d and of a vendored module).
 
+`regexp_internal` (Phase 09, step 9.4c, ADR-083) runs Go's internal tests of package `regexp` (they name unexported functions and fields): the folder `regexp/` holds a copy of the port (`stdlib/regexp`, file for file; `TestRegexpInternalCopy` keeps it equal) beside the converted tests (`*_gotest.gp`) and the harness (`harness.gp`), and `testdata/` the data files of Go's tests.
+
 ## errors
 
 `tests/pkgs/errors/<name>/` is a module whose `.gp` files have `// ERROR "regexp"` (and

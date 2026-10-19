@@ -1,0 +1,22 @@
+# regexp (step 9.4c): Go's package; makeOnePass drops the reference its recursive closure holds to itself.
+
+@note makeOnePass declares `check` as a variable and assigns a closure that calls `check`. In gocpp a closure that refers to itself through the variable it is stored in is a reference cycle (D1, ADR-004): the closure, the queues and the rune tables it captured were never freed, about 5 KB for every one-pass regexp that was compiled. The patch sets the variable to nil when makeOnePass is done with it.
+
+@file onepass.go
+@why The closure `check` captures the variable `check` (it calls itself); setting the variable to nil before makeOnePass returns breaks the cycle, and nothing calls check afterwards.
+@replace
+	if p != nil {
+		for i := range p.Inst {
+			p.Inst[i].Rune = onePassRunes[i]
+		}
+	}
+	return p
+@with
+	if p != nil {
+		for i := range p.Inst {
+			p.Inst[i].Rune = onePassRunes[i]
+		}
+	}
+	check = nil // the closure calls itself through this variable: a reference cycle in gocpp
+	return p
+@end

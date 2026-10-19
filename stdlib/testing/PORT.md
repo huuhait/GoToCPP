@@ -21,7 +21,7 @@ new`, and a program that does not test must keep the system's (and ASan's), and 
 | `libExit`, `libArgs`, `libProgramName`, `libNCPU`, `libGOOS`, `libGOARCH`, `libCPUName` | `os.Exit`, `os.Args`, `runtime.GOMAXPROCS`, `runtime.GOOS`, `runtime.GOARCH`, `internal/sysinfo` | 9.6 |
 | `libParseFloat` | `strconv.ParseFloat` (corpus files of fuzz targets) | strconv |
 | `libAllocCounting`, `libAllocs` | `runtime.ReadMemStats` (`Mallocs`, `TotalAlloc`) | the runtime has no allocator counters; here they count the calls of C++ `operator new` (`runtime/src/testing_alloc.cpp`) |
-| `testdeps.matchString` | `regexp.MatchString` (a translation of RE2 syntax to `std::regex`, `runtime/src/testing_regex.cpp`) | 9.4 |
+| `testdeps.matchString` | `regexp.Compile` and `MatchString`, as in Go: done in step 9.4c (the `std::regex` bridge, `runtime/src/testing_regex.cpp`, is gone) | |
 
 ## Left out or changed
 

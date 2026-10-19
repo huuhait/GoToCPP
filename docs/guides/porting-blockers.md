@@ -20,10 +20,10 @@ How to read it:
   without `internal/bytealg`) are set; the architecture is `generic`, so no assembly variant is chosen
   (`tools/portstd/ports.txt`).
 
-What the table says for the next steps (state after step 9.4b):
+What the table says for the next steps (state after step 9.4c):
 
-- Ported and real: `unicode/utf8`, `unicode/utf16`, `math/bits`, `math` (9.5), `unicode`, `strconv` and `errors` (9.4a), and, since
-  9.4b, `io`, `io/fs`, `path`, `strings`, `bytes`, `bufio` and `context`. The table lists a package as "needs X" when X is not one
+- Ported and real: `unicode/utf8`, `unicode/utf16`, `math/bits`, `math` (9.5), `unicode`, `strconv` and `errors` (9.4a), `io`, `io/fs`, `path`, `strings`,
+  `bytes`, `bufio` and `context` (9.4b), and, since 9.4c, `sort`, `regexp/syntax` and `regexp`. The table lists a package as "needs X" when X is not one
   of the packages the tool ports, also when X exists as a hand-written package of an earlier step (`internal/bytealg`,
   `internal/stringslite`, `internal/reflectlite`, `sync`, `sync/atomic`, `time`, ...): those rows are blocked for the tool's purposes
   only, the ports build on them. `strings` and `bytes` have `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq` and `FieldsFuncSeq` since step 7.10 (`iter.Seq` is a
@@ -31,8 +31,9 @@ What the table says for the next steps (state after step 9.4b):
   address as a `uintptr` (a `*Builder` in the Builder itself would be a reference cycle: ADR-073).
 - `cmp`, `slices`, `maps` and `iter` are ported (step 7.10, ADR-078). `maps` takes `maps.clone` as a native (`natives.txt`, `gp::maps::clone` over `gp::map_clone`); `iter` takes the two runtime coroutine functions as natives (`runtime.newcoro` and `runtime.coroswitch` in
   `natives.txt`, `patches/iter.rules`).
-- What is left of step 9.4: `sort` (it needs `slices`, which exists now, and `internal/reflectlite`'s `Swapper`, 9.3, built), `regexp/syntax` and
-  `regexp` (need `sort`). None of them has an `asm` or `linkname` blocker: the tier-1 packages are plain Go.
+- Step 9.4 is complete: `sort` (on `slices` and `internal/reflectlite`'s `Swapper`), `regexp/syntax` and `regexp` (on `sync.Pool`) are Go's files; the last two have patch
+  rules (`regexp__syntax.rules`, `regexp.rules`) that break reference cycles under reference counting (ADR-083). None of them had an `asm` or `linkname` blocker: the
+  tier-1 packages are plain Go.
 - `strconv` takes the files of Go on amd64 (`tags=purego`): `internal/bytealg.IndexByteString` is the native one, not the
   `compiler_bootstrap` loop.
 

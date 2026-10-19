@@ -333,8 +333,7 @@ func hasCount(args []string) bool {
 
 // TestRegexpDialect checks the patterns of -test.list (the matcher of -test.run, -skip and -bench) against
 // the test binary of go test: the same names are listed, and the patterns that Go rejects are
-// rejected with Go's words, until package regexp is ported and replaces the translation of RE2
-// to the syntax of std::regex (runtime/src/testing_regex.cpp).
+// rejected with Go's words. The matcher is package regexp (testing/internal/testdeps, as in Go).
 func TestRegexpDialect(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds gocpp and the test binaries: skipped with -short")
@@ -382,6 +381,9 @@ func TestRegexpDialect(t *testing.T) {
 		`TestÜ`, `TestÜber`, `Test[Ü]ber`, `Test(Ü)ber`, `TestÜ+ber`, `^TestÀB$`, `Test\_x`, `Test\-`, `Test_x$`,
 		`Test[a-zA-Z]+$`, `Test[^_]`, `Test[\w]B`, `^(Test)(A|X)`, `a{,3}`, `^*TestA`, `$*`, `^+TestA`, `\\b*TestA`, `\\b+Test`, `\\A*Test`, `(^)*Test`, `(?)Test`, `Test[[:^digit:]]`, `Test[[:^alpha:]]`, `Test[^[:^alpha:]]`, `Test[\\D]B`, `Test[\\Wa]`, `Test\\SB`, `Test\\W`, `Test[[:^word:]]`, `Test[[:^space:]]B`, `Test{`, `Test}`, `Test]`, `[]a]`,
 		`TestA/sub`, `TestA/`, `/`,
+		// Unicode classes, flags inside a pattern and non-ASCII ranges: package regexp has them (the std::regex translation of steps 9.9 had not).
+		`Test\pL`, `Test\p{Lu}ber`, `TestA(?i)b`, `(?i:testa)`, `(?U)TestA+`, `Test[Ü-Ý]`, `(?i)über`, `(?i)É`, `Test\PL`, `Test[\p{Lu}]B`, `Test[^\pL]`, `(?i)TESTÜBER`, `(?i:TestA)B`, `(?-i)TestA`,
+		`Test\p{Greek}`, `\pN`, `Test[\pL\d]`, `Test\p{^Lu}`, `Test\P{^Lu}B`, `(?i)\x{DC}BER`, `Test[ü-ÿ]ber`,
 	}
 	for _, pat := range same {
 		a, b := list(ourBin, ours, pat), list(goBin, theirs, pat)
@@ -402,13 +404,6 @@ func TestRegexpDialect(t *testing.T) {
 		}
 		if a.stdout != b.stdout || a.stderr != b.stderr || a.exit != b.exit {
 			t.Errorf("-test.list=%q\ngocpp: exit %d\n%s%s\ngo:    exit %d\n%s%s", pat, a.exit, a.stdout, a.stderr, b.exit, b.stdout, b.stderr)
-		}
-	}
-	// What Go accepts and gocpp cannot translate: an error that says so, until package regexp is ported.
-	for _, pat := range []string{`Test\pL`, `Test\p{Lu}ber`, `TestA(?i)b`, `(?i:testa)`, `(?U)TestA+`, `Test[Ü-Ý]`, `(?i)über`, `(?i)É`} {
-		a := list(ourBin, ours, pat)
-		if a.exit == 0 || !strings.Contains(a.stderr, "not supported by gocpp test until package regexp is ported") {
-			t.Errorf("-test.list=%q: gocpp exit %d, stderr %q; want an error that says it is not supported", pat, a.exit, a.stderr)
 		}
 	}
 }

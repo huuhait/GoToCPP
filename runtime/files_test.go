@@ -115,7 +115,7 @@ func TestTestingSources(t *testing.T) {
 		}
 		testingFiles = append(testingFiles, p)
 	}
-	for _, want := range []string{"src/testing.cpp", "src/testing_alloc.cpp", "src/testing_regex.cpp", "src/os/linux/testing_os.cpp"} {
+	for _, want := range []string{"src/testing.cpp", "src/testing_alloc.cpp", "src/os/linux/testing_os.cpp"} {
 		if !slices.Contains(testingFiles, want) {
 			t.Errorf("TestingSources(linux) = %q lacks %s", testingFiles, want)
 		}

@@ -62,9 +62,8 @@ does not apply to it).
 | `func ExampleXxx()` | an example; it runs when its last comment is `// Output:` or `// Unordered output:` |
 | `func TestMain(m *testing.M)` | the entry of the test binary: call `m.Run()` (the exit status is taken from it) |
 
-A `TestMain` is written as in Go, with what the standard packages it uses have by now. Packages `flag`,
-`strings`, `strconv` and `regexp` are still declaration stubs (step 9.4 ports them), so `flag.Parse()` or `strings`
-in a test file do not build yet; `os` (step 9.6) works: `os.Exit(m.Run())` and `os.Args` build. The idiom
+A `TestMain` is written as in Go, with what the standard packages it uses have by now. Package `flag` is still a declaration
+stub, so `flag.Parse()` in a test file does not build yet; `strings`, `strconv`, `regexp`, `sort` and `os` work: `os.Exit(m.Run())` and `os.Args` build. The idiom
 `os.Exit(m.Run())` is not needed: a `TestMain` that returns exits with the status of `m.Run` (as Go does since 1.15): a `TestMain` that returns exits with the status that `m.Run`
 gave (as Go does since 1.15). `sync` (step 8.7), `time` (step 8.8), `os` and `fmt` work in tests. After the ports, nothing in `testing`
 or in your tests changes.
@@ -108,26 +107,13 @@ The signatures are checked as Go does, by their syntax: `func TestX(t *testing.B
 Another flag goes to the test binary, which reports the ones it does not know as `go test` does (`flag provided but
 not defined: -bogus`, the usage of the test flags, exit status 2).
 
-The patterns of `-run`, `-skip`, `-list` and `-bench` are Go's regular expressions (RE2). Until package `regexp` is
-ported (step 9.4), the test binary translates them to the syntax of the C++ standard library's `std::regex`
-(ECMAScript) and matches with that (`runtime/src/testing_regex.cpp`). The translation covers what test names
-need, and the tests of `tests/gotest` check it against the test binary of real `go test` (the same names listed,
-the same error text):
+The patterns of `-run`, `-skip`, `-list` and `-bench` are Go's regular expressions (RE2), matched with package `regexp`
+(`testing/internal/testdeps`, as in Go since step 9.4c): the same syntax, the same flags inside a pattern, Unicode classes, case
+folding, and the same error texts (`testing: invalid regexp for element 0 of -test.run ...: error parsing regexp: ...`). The tests of
+`tests/gotest` check many patterns against the test binary of real `go test` (the same names listed, the same error text). The
+pattern is split at `/` for subtests. Go keeps the last compiled pattern; gocpp's `regexp` compiles slower, and a pattern with `/` asks for each of its elements for every subtest, so the test binary keeps up to 64 compiled patterns (and the error of a pattern that does not compile).
 
-- accepted as in Go: groups, alternation, classes (`[A-Z]`, `[^_]`, `[[:upper:]]`, `\d \w \s`), repetition with
-  `*  +  ?  {n,m}` and the lazy forms, `^ $ \b`, `\A` and `\z`, `\Q...\E`, `\x41`, `\x{10FFFF}`, `\101`, the named
-  groups `(?P<name>...)` and `(?<name>...)`, and `(?i)`, `(?s)`, `(?m)` at the start of the pattern; the dot and
-  a negated class match a whole UTF-8 character (`Test.ber` matches `TestÜber`);
-- rejected as in Go, with Go's message (`testing: invalid regexp for element 0 of -test.run ...: error parsing
-  regexp: ...`): lookahead `(?=...)`, backreferences `\1`, possessive and nested repetition `A++`, `A**`,
-  `x{2}{3}`, missing or extra parentheses, `[a`, `*` with nothing before it, bad escapes and ranges;
-- rejected by gocpp with `not supported by gocpp test until package regexp is ported`, though Go accepts them:
-  the Unicode classes `\pL` and `\p{Greek}`, flags inside a pattern (`A(?i)b`, `(?i:a)`, `(?U)`), `(?i)` with a
-  character that is not ASCII (the case folding is ASCII only: `(?i)über` would select nothing), and a range
-  that ends in a non-ASCII character (`[Ü-Ý]`). A class with a non-ASCII character in it works (`[Üa]`), but
-  `[^é]` does not match another character that starts with the same byte.
-
-When step 9.4 lands, the test binary uses `regexp` and the translation goes away.
+A limit of the platform, not of `-run`: a pattern with a large nested repeat such as `x{1,1000}y{1,1000}` is 2000 frames deep in `regexp`'s simplifier and compiler, and with `clang++ -asan` (whose stack frames are large) it overflows the 8 MB stack of the main goroutine and of any goroutine (goroutines are threads with a fixed stack); it is fine in the other builds, with g++ also under `-asan`.
 
 ## Output
 
@@ -181,7 +167,6 @@ A benchmark line is `BenchmarkAdd-8   \t 1000000\t      1234 ns/op`; `b.Loop()` 
 | `-fuzz` (generating inputs), `F.Fuzz` with an argument that is not a function literal or a function of the package | not supported; the seed corpus runs (above) |
 | `B/op` and `allocs/op` of benchmarks, `testing.AllocsPerRun` | the calls of C++ `operator new` while measuring (`runtime/src/testing_alloc.cpp`), not Go's allocations: `make([]byte, 1024)` is 1 allocation here and in Go, but a value that Go's compiler keeps on the stack can cost one here and a closure that Go heap-allocates may not; the bytes include the runtime's own block header; `AllocsPerRun` does not set `GOMAXPROCS(1)`, so a goroutine that allocates at the same time is counted |
 | `-race`, `-cover`, `-json`, `-shuffle`, profiles, `-vet` | not supported (the flags say so; `-shuffle=off` and `-vet` are accepted) |
-| `-test.run` and the other patterns with RE2 | a translation to `std::regex` (above) until step 9.4 |
 | the order of `=== CONT` and `--- PASS/FAIL` lines of parallel tests | Go's scheduler runs the goroutines of the parallel subtests of a test in an order of its own that is the same in almost every run (and not the order of creation for many tests); gocpp's goroutines are threads, so the parent releases the parallel tests one at a time in the order they paused, waits up to 0.3 ms for each to finish, and those that have to wait for a slot (`-parallel n`) take it in that order: the same output in every run, equal to Go's in the usual small cases and different from Go's in the order of many tests |
 | the goroutine dump when a test times out (`panic: test timed out after 10m0s`, `running tests:` and then every goroutine's stack) | the first lines are Go's; the dump of all goroutines is missing (the runtime has no SIGQUIT handler), and the backup alarm of `gocpp test` (SIGQUIT after the timeout plus a minute) just ends the process |
 | a test file name in `t.Log` is the `.gp` file | it is (`geom_test.gp:12:`) |

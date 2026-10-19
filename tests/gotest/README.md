@@ -21,8 +21,8 @@ the test run (`XDG_CACHE_HOME` in a temporary folder); `GOCPP_TEST_JOBS=n` (defa
 The other tests of the package:
 
 - `TestRegexpDialect` (folder `regexp_names`): lists test names with many patterns on the test binary of
-  `gocpp test -c` and on the one of `go test -c`, and checks the names and the error texts, until package
-  `regexp` is ported (the translation from RE2 in `runtime/src/testing_regex.cpp`);
+  `gocpp test -c` and on the one of `go test -c`, and checks the names and the error texts (the matcher is package `regexp`,
+  as in Go: `testing/internal/testdeps`);
 - `TestRerunAfterEdit`: a second `gocpp test` after editing a test file, the package and the flags;
 - `TestOutputFlag`: `-c`, `-o` with and without `-c`, `-o` with a folder;
 - `TestParallelOrder`: the order in which parallel subtests are released with `-parallel 1`.
