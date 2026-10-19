@@ -284,6 +284,14 @@ var curated = []Message{
 		Topic: "interop",
 	},
 	{
+		ID: "lower/cpp-macro-array-len", Source: "lowering", Phase: 12,
+		Pattern: "a C/C++ macro in an array length (%s) is not supported yet (Phase 12, step 12.8: constant macros are probed first): write the number, such as [260]windows.WCHAR for MAX_PATH",
+		Title:   "A C/C++ macro in an array length",
+		Why:     "An array length must be a constant the Go type checker knows. A C/C++ macro such as MAX_PATH is only known to the C++ compiler; step 12.8 will probe constant macros first and substitute their values before type checking.",
+		Fix:     "Write the number: [260]windows.WCHAR instead of [windows.MAX_PATH]windows.WCHAR, or declare a Go constant with the value.",
+		Topic:   "interop",
+	},
+	{
 		ID: "lower/cpp-in-iface", Source: "lowering", Phase: 12,
 		Pattern: "a C/C++ value in an interface with methods (%s) is not available yet: only interfaces without methods hold C/C++ values until Phase 12 (typed interop)",
 		Title:   "A C/C++ value in an interface with methods",

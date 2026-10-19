@@ -1,0 +1,16 @@
+./conn.go
+./doc.go
+./form.go
+./jsonrpc.go
+./locations.go
+./position.go
+./stream.go
+./tsdocument_changes.go
+./tsinsertreplaceedit.go
+./tsjson.go
+./tsprotocol.go
+./uri.go
+./conn_test.go
+./jsonrpc_test.go
+./position_test.go
+./stream_test.go

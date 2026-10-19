@@ -45,7 +45,7 @@
   - [x] nested macros via `Site.Outer` (`#text` innermost, `#file/#line/#func` outermost)
   - [x] cross-package macros via package summaries
   - [x] v1 rules: no plain calls/values, no statement use of `func()`-returning macros, package-level only
-- [ ] 10.10 `#Derive(...)` in two steps (stubs before go/types, bodies after): `String`, `Equal`, then `Clone`, struct-only `JSON`
+- [x] 10.10 `#Derive(...)` in two steps (stubs before go/types, bodies after): `String`, `Equal`, then `Clone`, struct-only `JSON`
 - [ ] 10.11 `gocpp expand`
 - [ ] 10.12 Lift gates; spec D12/D13/D17/D18; feature matrix
 - [ ] 10.13 Tests: rules, every lowering context, differential vs hand-written Go twins (must calls, must functions, wrap macros), golden C++, overhead benchmarks (incl. cross-package)
