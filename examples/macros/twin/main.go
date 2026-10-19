@@ -22,15 +22,15 @@ import (
 
 // The uses of macros in ../main.gp, one site each.
 var (
-	gp_site_1 = gp_macro.Site{File: "main.gp", Line: 89, Func: "main.(*Counter).Add", Args: []string{"&c.mu"}}
-	gp_site_2 = gp_macro.Site{File: "main.gp", Line: 102, Func: "main.parseEvent"}
-	gp_site_3 = gp_macro.Site{File: "main.gp", Line: 106, Func: "main.parseEvent", Args: []string{"err == nil", `note("bad event %s", data)`}}
-	gp_site_4 = gp_macro.Site{File: "main.gp", Line: 110, Func: "main.ratio"}
-	gp_site_5 = gp_macro.Site{File: "main.gp", Line: 111, Func: "main.ratio"}
-	gp_site_6 = gp_macro.Site{File: "main.gp", Line: 113, Func: "main.ratio", Args: []string{"b != 0", `note("ratio(%d, %d)", a, b)`}}
-	gp_site_7 = gp_macro.Site{File: "main.gp", Line: 117, Func: "main.square"}
-	gp_site_8 = gp_macro.Site{File: "main.gp", Line: 123, Func: "main.main", Args: []string{"square(3) + square(4)"}}
-	gp_site_9 = gp_macro.Site{File: "main.gp", Line: 150, Func: "main.main", Args: []string{"ev.Level"}}
+	gp_site_1 = gp_macro.Site{File: "main.gp", Line: 90, Func: "main.(*Counter).Add", Args: []string{"&c.mu"}}
+	gp_site_2 = gp_macro.Site{File: "main.gp", Line: 103, Func: "main.parseEvent"}
+	gp_site_3 = gp_macro.Site{File: "main.gp", Line: 107, Func: "main.parseEvent", Args: []string{"err == nil", `note("bad event %s", data)`}}
+	gp_site_4 = gp_macro.Site{File: "main.gp", Line: 111, Func: "main.ratio"}
+	gp_site_5 = gp_macro.Site{File: "main.gp", Line: 112, Func: "main.ratio"}
+	gp_site_6 = gp_macro.Site{File: "main.gp", Line: 114, Func: "main.ratio", Args: []string{"b != 0", `note("ratio(%d, %d)", a, b)`}}
+	gp_site_7 = gp_macro.Site{File: "main.gp", Line: 118, Func: "main.square"}
+	gp_site_8 = gp_macro.Site{File: "main.gp", Line: 124, Func: "main.main", Args: []string{"square(3) + square(4)"}}
+	gp_site_9 = gp_macro.Site{File: "main.gp", Line: 151, Func: "main.main", Args: []string{"ev.Level"}}
 )
 
 // macro Assert(cond bool, msg lazy string)
