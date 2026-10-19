@@ -39,7 +39,7 @@ var commands = []command{
 	{name: "test", phase: 9, summary: "run the tests in _test.gp files", run: runTest},
 	{name: "check", phase: 1, summary: "parse and type-check packages, print errors", run: runCheck},
 	{name: "emit", phase: 2, summary: "print the C++ generated for a .gp file", run: runEmit},
-	{name: "expand", phase: 10, summary: "print code after macro, #Derive and ! rewriting"},
+	{name: "expand", phase: 10, summary: "print code after macro, #Derive and ! rewriting", run: runExpand},
 	{name: "fmt", phase: 1, summary: "format .gp files like gofmt", run: runFmt},
 	{name: "lsp", phase: 11, summary: "run the language server for editors", run: runLSP},
 	{name: "vet", phase: 13, summary: "report likely mistakes in packages", run: runVet},

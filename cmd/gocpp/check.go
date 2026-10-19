@@ -202,6 +202,10 @@ type checkCommand struct {
 
 	// typeChecked is set when the type checker ran (the packages were loaded without errors).
 	typeChecked bool
+
+	// afterLoad, if not nil, is called with the loaded program (the macros are expanded) just before
+	// the type check, which rewrites the syntax trees further (gocpp expand, expand.go).
+	afterLoad func(prog *load.Program)
 }
 
 // run checks the packages of the patterns and returns the exit status.
@@ -285,6 +289,10 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 	// is not used there): the errors are printed above.
 	if len(prog.Errors.Diagnostics()) > 0 {
 		c.print(c.stderr, prog.Errors, true)
+	}
+
+	if c.afterLoad != nil {
+		c.afterLoad(prog)
 	}
 
 	// The namespace probe runs the C++ compiler of the target (GOOS,

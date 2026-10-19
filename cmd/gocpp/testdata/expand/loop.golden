@@ -1,0 +1,34 @@
+package main
+
+import "strconv"
+
+func f() (int, error) {
+	n := 0
+	{
+		must_f1 := true
+		for i := 0; ; {
+			// body comment
+
+			/* tail */
+			if must_f1 {
+				must_f1 = false
+			} else {
+				must_t1, must_e1 := strconv.Atoi("1")
+				if must_e1 != nil {
+					return 0, must_e1
+				}
+				i += must_t1
+
+			}
+			if !(i < 3) {
+				break
+			}
+
+			n++
+
+		}
+	}
+	return n, nil
+}
+
+func main() {}

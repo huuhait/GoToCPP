@@ -1,0 +1,63 @@
+package main
+
+import (
+	"fmt"
+	"strconv"
+)
+
+//go:noinline
+func f(s string) (int, error) { // after brace
+	/* block */ x, must_e1 := strconv.Atoi(s)
+	if must_e1 != nil {
+		return 0, must_e1
+	} // trailing x
+	text := `multi
+  line`
+	// before the loop
+	for i := 0; ; i++ { // loop trailing
+		// inside
+		must_t1, must_e3 := strconv.Atoi("3")
+		if must_e3 != nil {
+			return 0, must_e3
+		}
+		if !(i < must_t1) {
+			break
+		}
+		{
+			_, must_e2 := fmt.Println(i, text)
+			if must_e2 != nil {
+				return 0, must_e2
+			}
+		}
+	}
+
+	// before return
+
+	return x, nil /* end */
+}
+
+type T struct{}
+
+// Method is a must method.
+func (t *T) Method(s string) (int, error) {
+	{
+		must_t2, must_e4 := strconv.Atoi(s)
+		if must_e4 != nil {
+			return 0, must_e4
+		}
+		return must_t2, nil
+	}
+}
+
+var table = func() map[string]int {
+	must_t3, must_e5 := strconv.Atoi("1")
+	if must_e5 != nil {
+		panic(must_e5)
+	}
+	return map[string]int{
+		"a": must_t3,
+		"b": 2,
+	}
+}()
+
+func main() {}

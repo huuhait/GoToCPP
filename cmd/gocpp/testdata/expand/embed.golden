@@ -1,0 +1,15 @@
+package main
+
+import (
+	_ "embed"
+	"fmt"
+)
+
+//go:embed small.txt
+var small string
+
+func main() {
+	// #embed is a constant: a long one is shortened.
+	mine := "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghij" // the user's own long literal stays
+	fmt.Println(mine, small, "hi\n", len("0123456789012345678901234567890123456789" /* 400 bytes in all */), "main.gp", 14)
+}

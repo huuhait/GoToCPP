@@ -668,6 +668,13 @@ at the call site **and** at the macro or derive that produced it.
     `encoding/json` is a stub until step 9.11; `#Derive(JSON)` is an error that says so. Cycles are not supported (the
     plan said so for `Clone`).
 11. **10.11 `gocpp expand`.**
+    *Built (step 10.11, [ADR-091](../../../docs/adr/091-expand-prints-the-go-the-compiler-works-with.md),
+    [guide](../../../docs/guides/expand.md)):* `cmd/gocpp/expand.go`. It is the check (the full one, with the derived
+    bodies) followed by a printer of the trees the passes left: a declaration with no macro, `#Derive` or `!` is copied
+    from the source byte for byte, an expanded one is printed by the `go/printer` fork with its comments; the traces of the
+    C++ interop rewrites are put back (`std.vector`, `int(x)`); embedded bytes are shortened (`-full`). The output of the
+    must, macro and derive programs of `tests/run` runs under real Go with the program's output. `check.go` got one hook
+    (`checkCommand.afterLoad`). Not built: a flag that prints only the expanded declarations.
 12. **10.12 Lift the gates; update the spec** (`docs/spec/language.md`, divergences D12, D13,
     D17, D18; feature matrix).
 13. **10.13 Tests**: run + error tests for every rule in §2.1 and §2.2, and for each lowering

@@ -1,0 +1,21 @@
+package main
+
+import (
+	"fmt"
+
+	"<vector>"
+)
+
+func Dbg[T any](gp_file string, gp_line int, gp_func string, gp_text_v string, v T) T {
+	fmt.Println(gp_text_v, v)
+	return v
+}
+
+func main() {
+	nums := std.vector[int]{5, 3, 8, 1}
+	nums.push_back(4)
+	n := Dbg("main.gp", 17, "main.main", "int(nums.size())", int(nums.size()))
+	if nums.size() == 5 {
+		fmt.Println("five", n)
+	}
+}

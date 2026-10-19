@@ -401,7 +401,8 @@ func (g *deriveGen) install(stub *ast.FuncDecl, src string) bool {
 	text := strings.TrimPrefix(string(plain), "package p\n\n")
 	// Every line has the place of the name of the generator in the #Derive line.
 	at := g.dp.fset.Position(g.gen.Pos)
-	directive := fmt.Sprintf("//line %s:%d:%d\n", at.Filename, at.Line, at.Column)
+	// (A //line directive above the #Derive line without a column gives the column 0, which is no place.)
+	directive := fmt.Sprintf("//line %s:%d:%d\n", at.Filename, max(at.Line, 1), max(at.Column, 1))
 	var b strings.Builder
 	b.WriteString("package p\n")
 	for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {

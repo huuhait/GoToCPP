@@ -1230,8 +1230,9 @@ operation of a `select` case too (evaluate it before the `select`).
 
 ### Tools
 
-- `gocpp expand file.gp` prints the code after `!` and macros are rewritten (not built yet; the
-  rewritten code is plain Go that `go/types` checks, see [ADR-037](../adr/037-must-rewrite.md)).
+- `gocpp expand file.gp` prints the code after `!` and macros are rewritten (the rewritten code is plain
+  Go that `go/types` checks, see [ADR-037](../adr/037-must-rewrite.md) and the
+  [guide](../guides/expand.md)).
 - In the editor, hover on a must function shows its real signature, and hover on `F!` says what
   happens on error at that spot (return, panic, exit 1 or `t.Fatal`). Phase 11.
 - `gocpp vet` warns about `!` that would panic inside a library package (libraries should return
@@ -1538,7 +1539,7 @@ before `go/types` runs, so a macro is type-checked once, where it is declared.
 - In C++, a generic function is lowered by the package that uses it, in the unit that uses it, so the C++
   compiler inlines a macro across packages. The parameters for a lazy argument and for `#body()` are C++
   template parameters of that instance: the argument is the lambda itself, and nothing is allocated.
-- `gocpp expand file.gp` shows the code after expansion (step 10.11).
+- `gocpp expand file.gp` shows the code after expansion ([guide](../guides/expand.md), step 10.11).
 - **Phase:** [10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md#22-part-b-macros).
 
 ### Syntax: the exact rules

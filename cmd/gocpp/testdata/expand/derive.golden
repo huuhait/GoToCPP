@@ -1,0 +1,112 @@
+// Derive shows the methods that #Derive writes.
+package main
+
+import "fmt"
+
+// Color is an enum.
+type Color int
+
+func (c Color) String() string {
+	switch c {
+	case Red:
+		return "Red"
+	case Green:
+		return "Green"
+	case Blue:
+		return "Blue"
+	}
+	n := uint64(c)
+	if c < 0 {
+		n = -n
+	}
+	s := string(rune('0' + n%10))
+	for n /= 10; n > 0; n /= 10 {
+		s = string(rune('0'+n%10)) + s
+	}
+	if c < 0 {
+		s = "-" + s
+	}
+	return "Color(" + s + ")"
+}
+
+const (
+	Red Color = iota
+	Green
+	Blue
+	Crimson = Red
+)
+
+// Order has slices, a map and a pointer.
+type Order struct {
+	ID    int
+	Items []string
+	Attrs map[string]int
+	Owner *Person
+}
+
+func (o Order) Equal(other Order) bool {
+	if o.ID != other.ID {
+		return false
+	}
+	if len(o.Items) != len(other.Items) {
+		return false
+	}
+	for i := range o.Items {
+		if o.Items[i] != other.Items[i] {
+			return false
+		}
+	}
+	if len(o.Attrs) != len(other.Attrs) {
+		return false
+	}
+	for k, v := range o.Attrs {
+		w, ok := other.Attrs[k]
+		if !ok {
+			return false
+		}
+		if v != w {
+			return false
+		}
+	}
+	if o.Owner != other.Owner {
+		if o.Owner == nil || other.Owner == nil {
+			return false
+		}
+		if (*o.Owner) != (*other.Owner) {
+			return false
+		}
+	}
+	return true
+}
+
+func (o Order) Clone() Order {
+	c := o
+	if o.Items != nil {
+		c.Items = make([]string, len(o.Items))
+		copy(c.Items, o.Items)
+	}
+	if o.Attrs != nil {
+		c.Attrs = make(map[string]int, len(o.Attrs))
+		for k, v := range o.Attrs {
+			c.Attrs[k] = v
+		}
+	}
+	if o.Owner != nil {
+		c1 := *o.Owner
+		c.Owner = &c1
+	}
+	return c
+}
+
+type Person struct{ Name string }
+
+type Person2 struct{ Name string }
+
+func (p Person2) Equal(other Person2) bool { return p == other }
+
+func (p Person2) Clone() Person2 { return p }
+
+func main() {
+	o := Order{ID: 1, Items: []string{"a"}}
+	fmt.Println(Green, o.Equal(o.Clone()))
+}

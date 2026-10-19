@@ -59,6 +59,9 @@ under way: the build cache and the build modes are next). What works today:
   errors like `go build` (`gocpp check ./...`; `gocpp check -h`). Features of later phases get a
   "not supported yet (Phase NN)" error; [docs/spec/feature-matrix.md](docs/spec/feature-matrix.md)
   lists them.
+- `gocpp expand` prints the plain Go that the macros, `#Derive` lines and `!` forms of a package
+  stand for, so you can see what the compiler does ([docs/guides/expand.md](docs/guides/expand.md);
+  `gocpp expand -h`).
 - `gocpp build`, `gocpp run` and `gocpp emit` compile programs to C++20 and build them with g++ or
   clang++: Go's language without generics (the Phase 07 work is gated), so basic and
   complex types, functions, loops, `switch`, labels, pointers, slices, arrays, maps, structs, named

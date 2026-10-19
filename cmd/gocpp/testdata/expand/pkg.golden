@@ -1,0 +1,51 @@
+//// a.gp
+package main
+
+import (
+	"fmt"
+
+	"example.com/app/util"
+)
+
+func hello(n int) {
+	util.Check("a.gp", 10, "main.hello", n > 0, func() string { return "n must be positive" })
+	fmt.Println("hello", n)
+}
+//// b.gp
+package main
+
+import (
+	"strconv"
+
+	"example.com/app/util"
+)
+
+import gp_must "gocpp/must"
+
+// parse is a must function.
+func parse(s string) (int, error) {
+	{
+		must_t1, must_e1 := strconv.Atoi(s)
+		if must_e1 != nil {
+			return 0, must_e1
+		}
+		return must_t1, nil
+	}
+}
+
+// plainB has nothing to expand.
+func plainB() util.Point { return util.Point{X: 1} }
+
+func must_main() error {
+	{
+		must_t2, must_e2 := parse("1")
+		if must_e2 != nil {
+			return must_e2
+		}
+		hello(must_t2)
+	}
+	_ = plainB().Equal(util.Point{})
+	return nil
+}
+
+func main() { gp_must.Exit(must_main()) }
