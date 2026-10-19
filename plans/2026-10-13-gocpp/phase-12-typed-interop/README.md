@@ -183,6 +183,11 @@ shown as `var`, because Go constants must be basic types:
 // var raylib.RAYWHITE = raylib.Color{245, 245, 245, 255}
 ```
 
+**As built (step 12.10, [ADR-092](../../../docs/adr/092-bindgen-writes-a-go-syntax-view-from-clang.md)):** the "stub file" form, in
+Go syntax, one package per header (`func InitWindow(width C.int, height C.int, title *C.char)`, `type Color struct { r, g, b, a C.uchar }`,
+`var RAYWHITE = Color{245, 245, 245, 255}`), checked by `gocpp check` and stable under `gocpp fmt`. See
+[typed-interop.md §12](../../../docs/spec/typed-interop.md#12-gocpp-bindgen-step-1210).
+
 ### 2.8 Requirements and modes
 
 - Probing needs `clang++` even when the real build uses `g++`. On Linux both use libstdc++,
@@ -330,5 +335,10 @@ The contract is [docs/spec/typed-interop.md](../../../docs/spec/typed-interop.md
   unchanged; macros of `__LINE__`/`__FILE__`/`__COUNTER__`/`__DATE__` (also through other macros) are refused; the first
   translation unit `static_assert`s each substituted value against the build compiler (clang probes, g++ may build). Not done: constexpr function calls, variable-template instances,
   `constexpr const char*` variables, `C.NAME`, a cross build (the host's values).
+- **12.10 (bindgen)**, done: `internal/typedinterop/bindgen` and `gocpp bindgen` ([ADR-092](../../../docs/adr/092-bindgen-writes-a-go-syntax-view-from-clang.md),
+  spec §12). It reuses the probe (`probe.Generate`/`Runner.Run`, with its disk cache) for the type and value of each macro and const
+  variable, and `ctype.Parse` for the types; everything else comes from clang's `-E -dD` and JSON AST dump (read by its own streaming
+  scanner). Struct macros are folded with C's rules and checked against the compiler by a seeded fuzz test.
+  Not done: Windows headers, the documentation comments of the header, the clang 17 to 20 comparison (12.12).
 - Developer tool: `gocpp __typed-probe [-refs] [-decls] [patterns]` prints the references and results as
   JSON.

@@ -2536,7 +2536,9 @@ generated "probe" files, the way cgo asks gcc about C names.
   `C.CString`. A C++ function of your own that stores its `const char*` is not known: use `C.CString` for it.
 - **Wrong header package:** a C-level name used through the wrong header package
   (`raylib.printf`) gets a warning.
-- **`gocpp bindgen <header>`** writes a readable gocpp view of a C/C++ header.
+- **`gocpp bindgen <header>`** (step 12.10, built: [the spec](typed-interop.md#12-gocpp-bindgen-step-1210)) writes a readable
+  Go-syntax view of a C/C++ header: its types, functions, variables, enums, typedefs and namespaces, the macros that
+  are constants, and the macros that are structs as `var`. It needs clang++ and is for reading, documentation and editors.
 - **Compatibility rule:** typed mode never rejects a program that opaque mode and the C++
   compiler accepted. It also accepts what C++ converts: a C/C++ number into a gocpp number
   (`var n int = cstring.strlen(s)`), a gocpp number into a C number, a gocpp number next to a
