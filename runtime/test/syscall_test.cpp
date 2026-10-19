@@ -414,7 +414,10 @@ void test_env() {
 
 int main() {
     // (run_main installs a harmless SIGPIPE handler; a test program has none)
+#ifdef SIGPIPE // (MinGW has no SIGPIPE; this test runs on Linux only, TestWindowsSyntax only
+               // compiles it)
     std::signal(SIGPIPE, SIG_IGN);
+#endif
     dir = "/tmp/gpsys-test-" + std::to_string(sc::sys_getpid());
     sc::sys_mkdir(gs(dir), 0700);
     test_open_errors();
