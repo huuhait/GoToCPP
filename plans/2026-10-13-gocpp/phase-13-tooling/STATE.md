@@ -8,7 +8,7 @@
 
 - [x] Test: x/tools on code that uses C/C++ names: go/types reports 0 errors, `refactor/satisfy` (printf) and `go/ssa` (nilness) panic → guard needed (`spikes/2026-10-13/audit-checks/xtools-opaque`, 2026-10-13)
 - [x] 13.1 Diagnostics polish (excerpts, color, C++ → gocpp names incl. `gpkg_…` namespaces, noise filter, "in expansion of" notes)
-- [ ] 13.2 Debugging
+- [x] 13.2 Debugging
   - [ ] GDB pretty printers
   - [ ] LLDB data formatters
   - [ ] `.debug_gdb_scripts` + safe-path handling (`-iex add-auto-load-safe-path`), LLDB `command script import`
