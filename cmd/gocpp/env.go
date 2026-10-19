@@ -112,9 +112,15 @@ func words(c *build.CXX) string {
 var envVars = []envVar{
 	{name: "CXX", doc: "the C++ compiler, when GOCPP_CXX is not set (a program, maybe with arguments: CXX=\"ccache g++\")"},
 	{name: "GOARCH", def: func(e *envState) string { return e.goarch }, doc: "the architecture to build for (build constraints and the compiler)"},
-	{name: "GOCPPCACHE", found: true, def: func(*envState) string { return cacheDir() }, doc: "the cache folder: $XDG_CACHE_HOME/gocpp (~/.cache/gocpp)"},
+	{name: "GOCPPCACHE", found: true, def: func(*envState) string { return cacheDir() }, doc: "the cache folder: $XDG_CACHE_HOME/gocpp (~/.cache/gocpp); on Windows %LocalAppData%\\gocpp"},
 	{name: "GOCPPCC", found: true, def: func(e *envState) string { return words(e.cCompiler()) }, doc: "the C compiler for .c files that a build would use"},
-	{name: "GOCPPCXX", found: true, def: func(e *envState) string { return words(e.compiler()) }, doc: "the C++ compiler that a build would use: GOCPP_CXX, else CXX, else clang++, else g++"},
+	{name: "GOCPPCXX", found: true, def: func(e *envState) string { return words(e.compiler()) }, doc: "the C++ compiler that a build would use: GOCPP_CXX, else CXX, else clang++, else g++ (for a Windows target: GOCPP_TOOLCHAIN's rule)"},
+	{name: "GOCPPCXXSOURCE", found: true, def: func(e *envState) string {
+		if c := e.compiler(); c != nil {
+			return c.Source
+		}
+		return ""
+	}, doc: "where the C++ compiler of a Windows target came from: PATH, an install gocpp knows (MSYS2 ucrt64 ...) or the pinned llvm-mingw; empty for GOCPP_CXX and for Linux targets"},
 	{name: "GOCPPCXXVERSION", found: true, def: func(e *envState) string {
 		if c := e.compiler(); c != nil {
 			return c.Version
@@ -171,12 +177,13 @@ var envVars = []envVar{
 	{name: "GOCPP_NOPROBECACHE", doc: "any value but empty, 0 and false: no cache on disk for the compiler's answers about headers"},
 	{name: "GOCPP_NORTLIB", doc: "any value but empty, 0 and false: no runtime library; the runtime's object files are linked one by one"},
 	{name: "GOCPP_NOUPTODATE", doc: "any value but empty, 0 and false: gocpp build does not check whether the program is up to date"},
+	{name: "GOCPP_NO_MANIFEST", doc: "any value but empty, 0 and false: no application manifest in a Windows program (longPathAware, UTF-8 code page, asInvoker); for a program that brings its own resource"},
 	{name: "GOCPP_OBJCACHE_SIZE", def: func(*envState) string { return "2G" }, doc: "the size limit of the object cache (a number with K, M or G); the oldest files go first"},
 	{name: "GOCPP_OFFLINE", doc: "any value but empty, 0 and false: never use the network (module downloads and the Windows toolchain)"},
 	{name: "GOCPP_OS", doc: "the operating system to build for, like -os (linux or windows); default: GOOS, else this system's"},
 	{name: "GOCPP_PROBE_CACHE", doc: "the folder of the probe cache on disk (an absolute name); default: gocpp/probe in the cache folder"},
 	{name: "GOCPP_PROBE_TIMEOUT", doc: "the longest one probe compiler run of the typed interop may take (a duration); default 5m in the tests"},
-	{name: "GOCPP_TOOLCHAIN", def: func(*envState) string { return string(toolchain.DefaultMode) }, doc: "where the Windows compiler comes from: auto (MinGW-w64 in PATH, else the pinned llvm-mingw, downloaded on first use), local (PATH only, never downloads) or pinned (always the pinned one)"},
+	{name: "GOCPP_TOOLCHAIN", def: func(*envState) string { return string(toolchain.DefaultMode) }, doc: "where the Windows compiler comes from: auto (MinGW-w64 in PATH or in the folders of MSYS2, Chocolatey, Scoop and WinGet's WinLibs, else the pinned llvm-mingw, downloaded on first use), local (PATH and, on Windows, the usual MinGW-w64 folders; never downloads) or pinned (always the pinned one)"},
 	{name: "GOCPP_TOOLCHAIN_URL", doc: "an https folder URL with the toolchain archives under their names, instead of llvm-mingw's GitHub release (a mirror)"},
 	{name: "GOCPP_WORKLOST", doc: "fail: a build whose work folder is removed by something else while it runs stops with status 4 and a message; by default it makes the folder again and builds again, up to three times (the tests and campaigns of the repository set fail, so that a real bug is not hidden)"},
 	{name: "GOOS", def: func(e *envState) string { return e.goos }, doc: "the operating system to build for (build constraints and the compiler)"},
@@ -218,7 +225,7 @@ func runEnv(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	}
 	e := &envState{ctx: context.Background(), stderr: stderr}
 	var err error
-	if e.dir, err = os.Getwd(); err != nil {
+	if e.dir, err = getwd(); err != nil {
 		fmt.Fprintf(stderr, "gocpp env: %v\n", err)
 		return exitErrors
 	}

@@ -31,6 +31,7 @@ import (
 	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/cppgen"
 	"github.com/huuhait/gocpp/internal/diag"
+	"github.com/huuhait/gocpp/internal/fsretry"
 	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/lower"
 )
@@ -591,7 +592,7 @@ func newDriver(name string, f *buildFlags, stdout, stderr io.Writer) (*driver, i
 		fmt.Fprintf(stderr, "gocpp: %v\n", err) // go exits with 2 too
 		return nil, 2
 	}
-	if c.dir, err = os.Getwd(); err != nil {
+	if c.dir, err = getwd(); err != nil {
 		fmt.Fprintf(stderr, "gocpp %s: %v\n", name, err)
 		return nil, exitErrors
 	}
@@ -754,9 +755,6 @@ func (d *driver) load(patterns []string) (*buildSet, int) {
 	// like gocpp check checks for any.
 	if d.name != "emit" {
 		err := buildTarget(c.goos, c.goarch)
-		if err == nil && d.flags.mode.Library() && c.goos == "windows" {
-			err = errors.New("-buildmode=" + string(d.flags.mode) + " for windows is not supported yet (Phase 14: .dll and import libraries)")
-		}
 		if err != nil {
 			fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
 			return nil, exitErrors
@@ -1045,7 +1043,9 @@ var exeSuffix = func() string {
 type program struct {
 	work string // the work folder
 	exe  string // the program file
-	dir  string // the folder of the main package (gocpp test runs the program there)
+	// final is the file name the program gets when it is moved out of the work folder (exe has a name the compiler can read).
+	final string
+	dir   string // the folder of the main package (gocpp test runs the program there)
 }
 
 // compile checks and builds the program of the patterns in a new work folder. On failure it
@@ -1164,18 +1164,29 @@ func (d *driver) compile(patterns []string) (*program, int) {
 		}
 	}
 
-	exe := filepath.Join(work, name+exeSuffixFor(d.check.goos))
+	// The linker writes the program under a name the compiler can read (ASCII when the program's name has a character
+	// outside the ANSI code page, as in a folder 日本): the move to the final name is gocpp's (Go's file functions
+	// have no such limit).
+	final := name + exeSuffixFor(d.check.goos)
+	exe := filepath.Join(work, workFileName(final, "prog"))
 	if d.lib != nil {
-		exe = filepath.Join(work, d.lib.file)
+		final = d.lib.file
+		exe = filepath.Join(work, d.lib.workFile)
 	}
 	// newBuilder makes the Builder of one attempt (a build that lost its work folder, workLost,
 	// makes a second one: a Builder is used once).
 	newBuilder := func() (*build.Builder, int) {
 		b := &build.Builder{CXX: cxx, ASan: d.flags.asan, NoChecks: d.flags.nochecks, LTO: d.flags.lto, GOOS: d.check.goos, Work: work, Stderr: d.stderr, KeepWork: d.flags.work,
 			Env: env, CC: cc, GenRoot: genRoot, Cache: cache, Jobs: d.flags.jobs, Stats: &d.stats, Mode: d.flags.mode,
-			DryRun: x.dryRun || d.afterPlan != nil, Rebuild: x.rebuild, EmitLLVM: x.llvm}
+			DryRun: x.dryRun || d.afterPlan != nil, Rebuild: x.rebuild, EmitLLVM: x.llvm, NoManifest: build.EnvOff("GOCPP_NO_MANIFEST")}
 		if d.lib != nil {
-			b.Soname = d.lib.file
+			if d.check.goos == "windows" {
+				if d.lib.implib != "" {
+					b.ImportLib = filepath.Join(work, d.lib.workImplib)
+				}
+			} else {
+				b.Soname = d.lib.file
+			}
 			if d.lib.script != nil {
 				b.VersionScript = filepath.Join(work, "exports.map")
 				if err := os.WriteFile(b.VersionScript, d.lib.script, 0o644); err != nil {
@@ -1291,7 +1302,7 @@ func (d *driver) compile(patterns []string) (*program, int) {
 			st.compilers = append(st.compilers, build.CompilerID(cc))
 		}
 	}
-	return &program{work: work, exe: exe, dir: set.main.Load.Dir}, 0
+	return &program{work: work, exe: exe, final: final, dir: set.main.Load.Dir}, 0
 }
 
 // buildFailed prints the error err of Build.Link and returns the exit status and whether the
@@ -1565,7 +1576,7 @@ func (d *driver) build(patterns []string) int {
 		d.saveStamp(built)
 		return 0
 	}
-	out := d.outputPath(filepath.Base(p.exe))
+	out := d.outputPath(p.final)
 	if d.flags.x {
 		fmt.Fprintf(d.stderr, "mv %s %s\n", build.ShellQuoteWork(p.exe, p.work), build.ShellQuoteWork(out, ""))
 	}
@@ -1621,6 +1632,7 @@ func (d *driver) run(patterns, args []string) int {
 		argv := append(append(slices.Clone(runner), p.exe), args...)
 		cmd := exec.Command(argv[0], argv[1:]...)
 		cmd.Dir = d.check.dir
+		cmd.Env = runProgramEnv(cmd.Dir, runtime.GOOS) // the user's TEMP and LOCALAPPDATA, not the ones gocpp made for the compilers (envpaths.go)
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = d.stdin, d.stdout, d.stderr
 		return cmd
 	}
@@ -1825,7 +1837,7 @@ func writeIfChanged(name string, data []byte) (written bool, err error) {
 		os.Remove(tmp.Name())
 		return false, err
 	}
-	if err := os.Rename(tmp.Name(), name); err != nil {
+	if err := fsretry.Rename(tmp.Name(), name); err != nil {
 		os.Remove(tmp.Name())
 		return false, err
 	}
@@ -1875,4 +1887,13 @@ func (d *driver) packageBuilds(set *buildSet, files *cppgen.ProgramFiles, units 
 		pbs[i] = pb
 	}
 	return pbs
+}
+
+// workFileName returns name, or, when the compiler cannot be handed it (a character outside the ANSI code page on a Windows
+// host), the ASCII name stem plus the extension of name: the file the linker writes in the work folder.
+func workFileName(name, stem string) string {
+	if build.CompilerSafe(name) {
+		return name
+	}
+	return stem + filepath.Ext(name)
 }

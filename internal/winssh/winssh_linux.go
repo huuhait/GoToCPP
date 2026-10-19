@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -41,6 +42,7 @@ type Remote struct {
 	mu      sync.Mutex
 	uploads map[string]string // local path + size + mtime -> remote image name
 	next    int
+	home    string
 }
 
 var hostRx = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.@:\[\]-]*$`)
@@ -345,4 +347,124 @@ func (r *Remote) RunConsole(ctx context.Context, timeout time.Duration, exe, pro
 		return text, ee.ExitCode(), nil
 	}
 	return text, 0, err
+}
+
+// RunID returns the name of this run's folder (the last element of Dir).
+func (r *Remote) RunID() string { return r.runID }
+
+// Dir returns this run's folder as a path relative to the user's home on the machine, with
+// backslashes: gocpp-wintest\<run id>. A command that Exec runs starts there.
+func (r *Remote) Dir() string { return `gocpp-wintest\` + r.runID }
+
+// Home returns the user's home folder on the machine (%USERPROFILE%), asked once.
+func (r *Remote) Home(ctx context.Context) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.home != "" {
+		return r.home, nil
+	}
+	out, errb, code, err := r.ssh(ctx, `echo %USERPROFILE%`)
+	if err != nil || code != 0 {
+		return "", fmt.Errorf("asking for the home folder: exit %d %v %s", code, err, errb)
+	}
+	r.home = strings.TrimSpace(string(out))
+	return r.home, nil
+}
+
+// Abs returns the absolute path on the machine of rel, a path below this run's folder (slashes or
+// backslashes).
+func (r *Remote) Abs(ctx context.Context, rel string) (string, error) {
+	home, err := r.Home(ctx)
+	if err != nil {
+		return "", err
+	}
+	rel = strings.ReplaceAll(rel, "/", `\`)
+	if rel == "" {
+		return home + `\` + r.Dir(), nil
+	}
+	return home + `\` + r.Dir() + `\` + rel, nil
+}
+
+// Put copies a local file or folder to rel, a path below this run's folder (with slashes). A folder
+// is copied whole as rel; its parent is made. rel must not exist yet when local is a folder.
+func (r *Remote) Put(ctx context.Context, local, rel string) error {
+	if strings.ContainsAny(rel, "\"\r\n%&|<>^") || strings.Contains(rel, "..") || strings.HasPrefix(rel, "/") {
+		return fmt.Errorf("the remote path %q is not a plain relative path", rel)
+	}
+	fi, err := os.Stat(local)
+	if err != nil {
+		return err
+	}
+	if parent := path.Dir(rel); parent != "." {
+		out, errb, code, err := r.ssh(ctx, `cd gocpp-wintest\`+r.runID+` && if not exist "`+strings.ReplaceAll(parent, "/", `\`)+`" mkdir "`+strings.ReplaceAll(parent, "/", `\`)+`"`)
+		if err != nil || code != 0 {
+			return fmt.Errorf("making %s: exit %d %v %s%s", parent, code, err, out, errb)
+		}
+	}
+	args := append(r.sshOpts(), "-q")
+	if fi.IsDir() {
+		args = append(args, "-r")
+	}
+	args = append(args, "--", local, r.host+":gocpp-wintest/"+r.runID+"/"+rel)
+	cmd := exec.CommandContext(ctx, "scp", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 5 * time.Second
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("scp %s: %v\n%s", local, err, out)
+	}
+	return nil
+}
+
+// Get copies the file rel (below this run's folder) to the local file dst.
+func (r *Remote) Get(ctx context.Context, rel, dst string) error {
+	cmd := exec.CommandContext(ctx, "scp", append(r.sshOpts(), "-q", "--", r.host+":gocpp-wintest/"+r.runID+"/"+rel, dst)...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 5 * time.Second
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("scp %s back: %v\n%s", rel, err, out)
+	}
+	return nil
+}
+
+// Exec runs a cmd.exe command line in this run's folder, with the extra environment (NAME=value, set
+// before the command) and at most timeout. The line is cmd.exe's own syntax: the caller quotes it.
+// The output of a command that writes megabytes should go to a file of the run (> out.txt) and be
+// fetched with Get. When the time is up, every process whose command line names this run's folder
+// is ended (the programs of this run only), and TimedOut is set.
+func (r *Remote) Exec(ctx context.Context, timeout time.Duration, env []string, line string) (Result, error) {
+	var b strings.Builder
+	b.WriteString(`cd /d ` + r.Dir())
+	for _, kv := range env {
+		if strings.ContainsAny(kv, "\"%\r\n") {
+			return Result{}, fmt.Errorf("the variable %q has a character that cmd.exe cannot carry", kv)
+		}
+		b.WriteString(` && set "` + kv + `"`)
+	}
+	b.WriteString(` && ` + line)
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	out, errb, code, err := r.ssh(cctx, b.String())
+	res := Result{Stdout: out, Stderr: errb, Code: code}
+	if cctx.Err() != nil {
+		res.TimedOut = true
+		r.killRun()
+		return res, nil
+	}
+	if err != nil {
+		return res, fmt.Errorf("ssh %q: %v\nstderr:\n%s", line, err, errb)
+	}
+	if code == 255 && strings.Contains(string(errb), "ssh:") {
+		return res, fmt.Errorf("ssh failed: %s", errb)
+	}
+	return res, nil
+}
+
+// killRun ends the processes of this run: those whose command line names the run's folder (the
+// PowerShell that looks is left out: its own command line names it too).
+func (r *Remote) killRun() {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	r.ssh(ctx, `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*gocpp-wintest\`+r.runID+`*' -and $_.Name -ne 'powershell.exe' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1`)
 }

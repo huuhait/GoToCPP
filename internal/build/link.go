@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -173,6 +174,22 @@ func (b *Builder) Link(ctx context.Context, pkgs []PackageBuild, out string) err
 	}
 	for i := len(pkgs) - 1; i >= 0; i-- {
 		link = append(link, pkgs[i].Flags.Link...)
+	}
+	// A Windows program carries the application manifest (manifest.go).
+	if b.GOOS == "windows" && !b.NoManifest && (b.Mode == "" || b.Mode == ModeExe) {
+		obj, flag, warning, err := manifestLink(b.CXX.Family, b.Cache, b.Work, os.Getenv("ProgramData"), !b.DryRun)
+		if err != nil {
+			return err
+		}
+		if warning != "" && b.Stderr != nil {
+			fmt.Fprintln(b.Stderr, "gocpp: warning: "+warning)
+		}
+		if obj != "" {
+			objs = append(objs, obj)
+		}
+		if flag != "" {
+			link = append([]string{flag}, link...)
+		}
 	}
 	plan, err := b.linkParts(objs, libObjs, rtObjs, link)
 	if err != nil {

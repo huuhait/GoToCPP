@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/huuhait/gocpp/internal/build"
+	"github.com/huuhait/gocpp/internal/fsretry"
 	"github.com/huuhait/gocpp/internal/version"
 )
 
@@ -408,7 +409,7 @@ func (d *diskStore) store(key diskKey, e *diskEntry) {
 		err = cerr
 	}
 	if err == nil {
-		err = os.Rename(tmp.Name(), key.path)
+		err = fsretry.Rename(tmp.Name(), key.path)
 	}
 	if err != nil {
 		os.Remove(tmp.Name())

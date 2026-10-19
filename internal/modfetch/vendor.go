@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/huuhait/gocpp/internal/fsretry"
 	"github.com/huuhait/gocpp/internal/load/gocppmod"
 )
 
@@ -140,13 +141,13 @@ func (f *Fetcher) Vendor(ctx context.Context, mainDir string, file *gocppmod.Fil
 	old := ""
 	if _, err := os.Lstat(vendor); err == nil {
 		old = tmp + ".old"
-		if err := os.Rename(vendor, old); err != nil {
+		if err := fsretry.Rename(vendor, old); err != nil {
 			return err
 		}
 	}
-	if err := os.Rename(tmp, vendor); err != nil {
+	if err := fsretry.Rename(tmp, vendor); err != nil {
 		if old != "" {
-			os.Rename(old, vendor)
+			fsretry.Rename(old, vendor)
 		}
 		return err
 	}

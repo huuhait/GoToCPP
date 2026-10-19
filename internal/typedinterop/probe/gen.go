@@ -43,6 +43,7 @@ import (
 
 	"github.com/huuhait/gocpp/internal/interop"
 	"github.com/huuhait/gocpp/internal/typedinterop/collect"
+	"github.com/huuhait/gocpp/internal/winpath"
 )
 
 // A Role says what a line of the probe file asks.
@@ -290,7 +291,7 @@ func (g *gen) preamble(title string, includes []string, stringToCStr bool) (head
 		if externC {
 			g.emit(`extern "C" {`, nil)
 		}
-		g.emit("#include "+header, nil)
+		g.emit("#include "+winpath.IncludeSpelling(header), nil)
 		if externC {
 			g.emit("}", nil)
 		}

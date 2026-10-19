@@ -107,6 +107,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "gocpp %s: not available yet (Phase %02d)\n", name, cmd.phase)
 		return 2
 	}
+	switch name {
+	case "build", "run", "test", "debug":
+		// the commands that start the C++ compiler (envpaths.go)
+		if code := checkPathProblems(name, stderr); code != 0 {
+			return code
+		}
+	}
 	return cmd.run(args, stdin, stdout, stderr)
 }
 

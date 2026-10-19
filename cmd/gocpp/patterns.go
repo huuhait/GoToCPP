@@ -286,7 +286,7 @@ func isLocal(pat string) bool {
 // relative.
 func absIn(dir, p string) string {
 	if filepath.IsAbs(p) {
-		return filepath.Clean(p)
+		return canonPath(filepath.Clean(p))
 	}
 	return filepath.Join(dir, p)
 }

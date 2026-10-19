@@ -32,7 +32,13 @@ import (
 type libState struct {
 	mode build.Mode
 	name string // the library's name: libx without .a/.so for the C modes; the program's name for a cpp-lib
-	file string // the file name of the library: libx.a, libx.so
+	file string // the file name of the library: libx.a, libx.so, x.dll
+	// implib is the file name of a Windows DLL's import library (x.dll.a), which installLibrary puts next to the DLL
+	// with a copy named x.lib for linkers of the other kind.
+	implib string
+	// workFile and workImplib are the names the linker writes them under in the work folder: those of file and implib, or ASCII ones
+	// when the compiler cannot be handed the real name (workFileName); installLibrary moves them to the real names.
+	workFile, workImplib string
 
 	header     string // c-archive, c-shared: the header's file name (libx.h)
 	headerData []byte
@@ -73,10 +79,13 @@ func (d *driver) libMains(prog *load.Program, roots []*load.Package) []*load.Pac
 // libraryNames returns the name of the library and the file name of its file. A C library is named
 // after -o when it names a file (libx.a: the header is libx.h), else lib and the program's name; a
 // cpp-lib is named after the program, and -o is its folder.
-func (d *driver) libraryNames(pkg *check.Package) (name, file string) {
+//
+// For windows a DLL is x.dll and a static library x.a, like a program is x.exe: an -o without an extension gets it, and a DLL
+// asked for as x.so (or any extension but .dll) is an error that says so.
+func (d *driver) libraryNames(pkg *check.Package) (name, file string, err error) {
 	ext := ".a"
 	if d.flags.mode == build.ModeCShared {
-		ext = ".so"
+		ext = build.SharedSuffix(d.check.goos)
 	}
 	prog := d.programName(pkg)
 	if d.flags.mode == build.ModeCPPLib {
@@ -88,15 +97,30 @@ func (d *driver) libraryNames(pkg *check.Package) (name, file string) {
 			}
 		}
 		prog = libgen.Name(prog)
-		return prog, "lib" + prog + ext
+		return prog, "lib" + prog + ext, nil
 	}
 	out := d.flags.output
 	if out != "" && !strings.HasSuffix(out, "/") && !strings.HasSuffix(out, string(filepath.Separator)) && !isDir(out) {
 		base := filepath.Base(out)
+		if d.check.goos == "windows" {
+			switch have := strings.ToLower(filepath.Ext(base)); {
+			case have == "":
+				base += ext // -o mylib names mylib.dll (mylib.a)
+			case d.flags.mode == build.ModeCShared && have != ".dll":
+				suggest := strings.TrimSuffix(base, filepath.Ext(base))
+				if !strings.HasSuffix(strings.ToLower(suggest), ext) {
+					suggest += ext // -o z.dll.a: the import library is z.dll.a, the DLL z.dll
+				}
+				return "", "", fmt.Errorf("-o %s: a shared library for windows is a .dll (name it %s, or leave the extension out)", out, suggest)
+			}
+		}
 		stem := strings.TrimSuffix(base, filepath.Ext(base))
-		return stem, base
+		return stem, base, nil
 	}
-	return "lib" + prog, "lib" + prog + ext
+	if d.flags.mode == build.ModeCShared && d.check.goos == "windows" {
+		return prog, prog + ext, nil // a DLL is named like a program: x.dll (its import library is x.dll.a)
+	}
+	return "lib" + prog, "lib" + prog + ext, nil
 }
 
 // prepareLibrary adds the glue of the library mode to the generated files of the program: for the
@@ -105,7 +129,17 @@ func (d *driver) libraryNames(pkg *check.Package) (name, file string) {
 func (d *driver) prepareLibrary(set *buildSet, files *cppgen.ProgramFiles, cxx build.CXX, env build.EnvFlags) int {
 	mode := d.flags.mode
 	st := &libState{mode: mode}
-	st.name, st.file = d.libraryNames(set.main)
+	var nameErr error
+	st.name, st.file, nameErr = d.libraryNames(set.main)
+	if nameErr != nil {
+		fmt.Fprintf(d.stderr, "gocpp build: %v\n", nameErr)
+		return exitErrors
+	}
+	st.workFile = workFileName(st.file, "gplib")
+	if mode == build.ModeCShared && d.check.goos == "windows" {
+		st.implib = st.file + ".a"
+		st.workImplib = st.workFile + ".a"
+	}
 	d.lib = st
 	last := len(set.pkgs) - 1
 	addUnit := func(rel string, data []byte) {
@@ -140,7 +174,13 @@ func (d *driver) prepareLibrary(set *buildSet, files *cppgen.ProgramFiles, cxx b
 		d.printLibErrors(errs)
 		return exitErrors
 	}
-	if errs := libgen.CheckSymbols(exports, libcSymbolSet(cxx)); len(errs) > 0 {
+	inLibc := libcSymbolSet
+	if d.check.goos == "windows" {
+		// The list is read from the Linux C library's files (libc.so.6 ...): a Windows target has none, and a (fake or cross) Windows
+		// compiler must not fill the set that the process keeps for the Linux ones.
+		inLibc = func(build.CXX) func(string) bool { return func(string) bool { return false } }
+	}
+	if errs := libgen.CheckSymbols(exports, inLibc(cxx)); len(errs) > 0 {
 		d.printLibErrors(errs)
 		return exitErrors
 	}
@@ -148,14 +188,21 @@ func (d *driver) prepareLibrary(set *buildSet, files *cppgen.ProgramFiles, cxx b
 		fmt.Fprintf(d.stderr, "gocpp build: -buildmode=%s: the program has no //export functions: mark the functions that C calls with //export Name in their doc comment\n", mode)
 		return exitErrors
 	}
-	st.header = strings.TrimSuffix(st.file, path.Ext(st.file)) + ".h"
+	stem := strings.TrimSuffix(st.file, path.Ext(st.file))
+	st.header = strings.TrimSuffix(st.workFile, path.Ext(st.workFile)) + ".h" // the compiler reads this one (gocpp_export.cpp includes it)
 	link := []string{"-lstdc++", "-pthread", "-lm", "-ldl"}
+	if d.check.goos == "windows" {
+		link = []string{"-lstdc++", "-pthread", "-lm"} // MinGW-w64 has no libdl
+	}
 	if mode == build.ModeCShared {
-		link = []string{"-l" + strings.TrimPrefix(strings.TrimSuffix(st.file, path.Ext(st.file)), "lib")}
+		link = []string{"-l" + strings.TrimPrefix(stem, "lib")}
+		if d.check.goos == "windows" {
+			link = []string{"-l" + stem} // a DLL is named like a program; x.dll.a is found by -lx, also for a name that starts with lib
+		}
 	} else {
 		link = append(link, libFlags...)
 	}
-	st.headerData = libgen.Header(libgen.HeaderInfo{Name: strings.TrimSuffix(st.file, path.Ext(st.file)), Mode: string(mode), Link: link, Exports: exports})
+	st.headerData = libgen.Header(libgen.HeaderInfo{Name: stem, Mode: string(mode), Link: link, Exports: exports})
 	files.Files = append(files.Files, cppgen.File{Path: "gpkg_export/" + st.header, Data: st.headerData})
 	glue := libgen.Glue(libgen.GlueInfo{
 		Name:    st.name,
@@ -164,8 +211,8 @@ func (d *driver) prepareLibrary(set *buildSet, files *cppgen.ProgramFiles, cxx b
 		Pkg:     func(p *check.Package) libgen.PkgInfo { return info[p.Load.ImportPath] },
 	})
 	addUnit("gpkg_export/gocpp_export.cpp", glue)
-	if mode == build.ModeCShared {
-		st.script = libgen.VersionScript(exports)
+	if mode == build.ModeCShared && d.check.goos != "windows" {
+		st.script = libgen.VersionScript(exports) // a DLL's exports are the dllexport functions
 	}
 	return 0
 }
@@ -269,6 +316,7 @@ func (d *driver) installLibrary(p *program, out string) (string, int) {
 	if !filepath.IsAbs(out) {
 		out = filepath.Join(d.check.dir, out)
 	}
+	out = filepath.Join(filepath.Dir(out), st.file) // -o mylib names mylib.dll for a Windows target (libraryNames)
 	if d.flags.x {
 		fmt.Fprintf(d.stderr, "mv %s %s\n", build.ShellQuoteWork(p.exe, p.work), build.ShellQuoteWork(out, ""))
 	}
@@ -282,6 +330,20 @@ func (d *driver) installLibrary(p *program, out string) (string, int) {
 		return "", exitErrors
 	}
 	st.extra = []string{hdr}
+	if st.implib != "" {
+		// The import library next to the DLL: x.dll.a (GNU ld finds -lx in it) and a copy x.lib (MSVC's link.exe, lld).
+		imp := out + ".a"
+		if err := build.MoveFile(filepath.Join(p.work, st.workImplib), imp); err != nil {
+			fmt.Fprintf(d.stderr, "gocpp build: %v\n", err)
+			return "", exitErrors
+		}
+		lib := strings.TrimSuffix(out, filepath.Ext(out)) + ".lib"
+		if err := copyFile(imp, lib); err != nil {
+			fmt.Fprintf(d.stderr, "gocpp build: %v\n", err)
+			return "", exitErrors
+		}
+		st.extra = append(st.extra, imp, lib)
+	}
 	return out, 0
 }
 
@@ -334,4 +396,14 @@ func libcSymbolSet(cxx build.CXX) func(string) bool {
 		}
 	})
 	return func(n string) bool { return libcSyms[n] }
+}
+
+// copyFile writes a copy of the file from to the file to (replacing it).
+func copyFile(from, to string) error {
+	data, err := os.ReadFile(from)
+	if err != nil {
+		return err
+	}
+	_, err = writeIfChanged(to, data)
+	return err
 }

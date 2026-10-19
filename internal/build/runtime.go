@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/huuhait/gocpp/internal/fsretry"
 	"github.com/huuhait/gocpp/internal/version"
 	rtfiles "github.com/huuhait/gocpp/runtime"
 )
@@ -117,7 +118,7 @@ func ExtractRuntime(cache string) (string, error) {
 	if err := writeRuntime(tmp); err != nil {
 		return "", fmt.Errorf("extracting the runtime: %w", err)
 	}
-	if err := os.Rename(tmp, dir); err == nil {
+	if err := fsretry.Rename(tmp, dir); err == nil {
 		return dir, nil
 	}
 	// Another gocpp extracted it at the same time (the rename fails when
@@ -130,10 +131,10 @@ func ExtractRuntime(cache string) (string, error) {
 		return "", fmt.Errorf("extracting the runtime: %w", err)
 	}
 	defer os.RemoveAll(old)
-	if err := os.Rename(dir, filepath.Join(old, "rt")); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := fsretry.Rename(dir, filepath.Join(old, "rt")); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", fmt.Errorf("extracting the runtime: replacing the broken %s: %w", dir, err)
 	}
-	if err := os.Rename(tmp, dir); err != nil && checkRuntime(dir) != nil {
+	if err := fsretry.Rename(tmp, dir); err != nil && checkRuntime(dir) != nil {
 		return "", fmt.Errorf("extracting the runtime: %w", err)
 	}
 	return dir, nil

@@ -28,3 +28,17 @@ func EscapeArg(s string) string { return s }
 func (r *Remote) RunConsole(context.Context, time.Duration, string, string, string) (string, int, error) {
 	return "", 0, errors.New("not available")
 }
+
+func (r *Remote) RunID() string { return "" }
+func (r *Remote) Dir() string   { return "" }
+func (r *Remote) Home(context.Context) (string, error) {
+	return "", errors.New("not available")
+}
+func (r *Remote) Abs(context.Context, string) (string, error) {
+	return "", errors.New("not available")
+}
+func (r *Remote) Put(context.Context, string, string) error { return errors.New("not available") }
+func (r *Remote) Get(context.Context, string, string) error { return errors.New("not available") }
+func (r *Remote) Exec(context.Context, time.Duration, []string, string) (Result, error) {
+	return Result{}, errors.New("not available")
+}

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+
+	"github.com/huuhait/gocpp/internal/fsretry"
 )
 
 // compile_commands.json (Phase 06 step 6.11, ADR-044): the JSON compilation database that clangd
@@ -183,7 +185,7 @@ func replaceFile(name string, data []byte) error {
 		os.Remove(tmp.Name())
 		return err
 	}
-	if err := os.Rename(tmp.Name(), name); err != nil {
+	if err := fsretry.Rename(tmp.Name(), name); err != nil {
 		os.Remove(tmp.Name())
 		return err
 	}

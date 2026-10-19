@@ -42,7 +42,7 @@ func (b *Builder) linkParts(objs, libObjs, rtObjs, link []string) (linkParts, er
 		gc = []string{"-Wl,--gc-sections"}
 	}
 	ldflags := b.autoLTO(b.Env.LDFlags) // a bare -flto becomes -flto=auto for g++ (see autoLTO)
-	pre := slices.Concat(b.linkFlags(), gc, b.Mode.LinkFlags(b.Soname, b.VersionScript))
+	pre := slices.Concat(b.linkFlags(), gc, b.Mode.LinkFlagsFor(b.GOOS, b.Soname, b.VersionScript, b.ImportLib))
 	if b.LTO { // -lto and -flto in GOCPP_LDFLAGS: the flag once
 		ldflags = slices.DeleteFunc(slices.Clone(ldflags), func(f string) bool { return slices.Contains(pre, f) && strings.HasPrefix(f, "-flto") })
 	}
@@ -257,12 +257,12 @@ func init() {
 func (b *Builder) responseArgs(args []string, nflags int) ([]string, error) {
 	n := 0
 	for _, a := range args {
-		n += len(a) + 1
+		n += escapedLen(a) + 1 // as CreateProcess gets it, quoted
 	}
 	if n <= responseThreshold || len(args) <= nflags+2 {
 		return args, nil
 	}
-	rest := args[nflags : len(args)-2]
+	rest := b.CXX.compilerArgs(args[nflags : len(args)-2]) // paths the compiler can read (safeargs.go)
 	var text strings.Builder
 	for _, a := range rest {
 		text.WriteString(rspQuote(a, b.GOOS == "windows"))

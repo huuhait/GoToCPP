@@ -77,6 +77,10 @@ type CXX struct {
 	// choose the target's flags (Flags, LinkFlags) and are part of every cache key.
 	GOOS, GOARCH string
 
+	// Source says where FindCXXFor found a Windows target's compiler: "PATH", "MSYS2 ucrt64 (C:\msys64\ucrt64\bin)",
+	// "pinned llvm-mingw 20261006 (downloaded)". It is empty for the other compilers; gocpp env shows it.
+	Source string
+
 	// stamp is the program file as LookCXX saw it (its real path, size
 	// and modification time), for the cache keys of the runtime's object
 	// files: a compiler that was replaced by another with the same version
@@ -94,7 +98,7 @@ const (
 // Command returns the command that runs the compiler with args, after
 // the compiler's own Args. It runs with CompilerEnv.
 func (c CXX) Command(ctx context.Context, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, c.Path, append(slices.Clip(c.Args), args...)...)
+	cmd := exec.CommandContext(ctx, c.Path, c.compilerArgs(append(slices.Clip(c.Args), args...))...) // paths the compiler can read (safeargs.go)
 	cmd.Env = CompilerEnv()
 	return cmd
 }

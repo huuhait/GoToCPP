@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/huuhait/gocpp/internal/fsretry"
 	"github.com/huuhait/gocpp/internal/load/gocppmod"
 )
 
@@ -843,7 +844,7 @@ func writeFileAtomic(name string, data []byte, pattern string) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp.Name(), name); err != nil {
+	if err := fsretry.Rename(tmp.Name(), name); err != nil {
 		return err
 	}
 	syncDir(filepath.Dir(name))

@@ -196,7 +196,7 @@ type mainModule struct {
 // prints the problem and returns the exit code if there is none or it has
 // errors.
 func openMainModule(cmd string, stderr io.Writer) (*mainModule, int) {
-	wd, err := os.Getwd()
+	wd, err := getwd()
 	if err != nil {
 		fmt.Fprintf(stderr, "%s: %v\n", cmd, err)
 		return nil, 1

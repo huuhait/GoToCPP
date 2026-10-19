@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/huuhait/gocpp/internal/fsretry"
 )
 
 // The precompiled header of the runtime. Parsing gocpp/rt.hpp and the standard headers it
@@ -166,7 +168,7 @@ func (p *pch) buildOnce(ctx context.Context) {
 		}
 		_, werr := fmt.Fprintln(tmp, "#include <gocpp/rt.hpp>")
 		cerr := tmp.Close()
-		if werr != nil || cerr != nil || os.Rename(tmp.Name(), p.header) != nil {
+		if werr != nil || cerr != nil || fsretry.Rename(tmp.Name(), p.header) != nil {
 			os.Remove(tmp.Name())
 			return
 		}
@@ -197,10 +199,10 @@ func (p *pch) buildOnce(ctx context.Context) {
 		return
 	}
 	// The list first, so that a header that exists has its list.
-	if os.Rename(list, p.depfile()) != nil {
+	if fsretry.Rename(list, p.depfile()) != nil {
 		return
 	}
-	os.Rename(out, p.file)
+	fsretry.Rename(out, p.file)
 }
 
 // saveDeps writes the list of files that the dependency file depfile names, with their hashes,

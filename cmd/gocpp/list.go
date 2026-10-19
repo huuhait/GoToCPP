@@ -143,7 +143,7 @@ func runList(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "gocpp: %v\n", err)
 		return 2
 	}
-	if c.dir, err = os.Getwd(); err != nil {
+	if c.dir, err = getwd(); err != nil {
 		fmt.Fprintf(stderr, "gocpp list: %v\n", err)
 		return exitErrors
 	}

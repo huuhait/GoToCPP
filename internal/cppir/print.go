@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/huuhait/gocpp/internal/winpath"
 )
 
 // Print returns the C++ of the translation unit f. out is the absolute path of the file that
@@ -75,7 +77,7 @@ func (p *printer) decl(d Decl) {
 		if d.System {
 			p.line(d.Pos, "#include <"+d.Path+">")
 		} else {
-			p.line(d.Pos, "#include "+CString(d.Path))
+			p.line(d.Pos, "#include "+CString(winpath.IncludeFile(d.Path))) // a path the compiler can read (a user folder 日本)
 		}
 		if d.ExternC {
 			// At Pos again: after the #include, the line count goes on from the next line.

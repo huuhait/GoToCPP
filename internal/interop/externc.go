@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/huuhait/gocpp/internal/build"
+	"github.com/huuhait/gocpp/internal/winpath"
 )
 
 // extern "C" for C headers (Phase 04 README §2.9, step 4.14).
@@ -201,7 +202,7 @@ func runCHeaderCheck(ctx context.Context, cc build.CXX, dir string, flags []stri
 	}
 	defer os.RemoveAll(tmp)
 	src := filepath.Join(tmp, "gp_cheader.c")
-	if err := os.WriteFile(src, []byte("#include "+include+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(src, []byte("#include "+winpath.IncludeSpelling(include)+"\n"), 0o644); err != nil {
 		return false, nil, false, false, start, fmt.Errorf("parse-as-C check: %w", err)
 	}
 	args := []string{"-std=gnu17"}

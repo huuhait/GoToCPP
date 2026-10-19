@@ -68,18 +68,31 @@ func (m Mode) Library() bool { return m == ModeCArchive || m == ModeCShared || m
 // Archive reports whether the mode makes a static library: the objects go into an archive, not a link.
 func (m Mode) Archive() bool { return m == ModeCArchive || m == ModeCPPLib }
 
-// CompileFlags returns the flags that every compile of the mode gets, for the compiler family f; c
-// says that the compiler is a C compiler (-fvisibility-inlines-hidden is for C++ only).
-func (m Mode) CompileFlags(f Family, c bool) []string {
+// CompileFlags returns the flags that every compile of the mode gets on Linux, for the compiler family f;
+// c says that the compiler is a C compiler (-fvisibility-inlines-hidden is for C++ only).
+func (m Mode) CompileFlags(f Family, c bool) []string { return m.CompileFlagsFor("linux", f, c) }
+
+// CompileFlagsFor is CompileFlags for the operating system goos. On Windows all code is position
+// independent already (GCC says "-fPIC ignored for target"), and the export table is made by
+// __declspec(dllexport), not by ELF visibility and GNU unique symbols: only the C++ visibility flags remain.
+func (m Mode) CompileFlagsFor(goos string, f Family, c bool) []string {
+	windows := goos == "windows"
 	switch m {
 	case ModeCArchive, ModeCPPLib:
+		if windows {
+			return nil
+		}
 		return []string{"-fPIC"}
 	case ModeCShared:
-		flags := []string{"-fPIC", "-fvisibility=hidden"}
+		var flags []string
+		if !windows {
+			flags = append(flags, "-fPIC")
+		}
+		flags = append(flags, "-fvisibility=hidden")
 		if !c {
 			flags = append(flags, "-fvisibility-inlines-hidden")
 		}
-		if f == GCC {
+		if f == GCC && !windows {
 			flags = append(flags, "-fno-gnu-unique")
 		}
 		return flags
@@ -87,13 +100,30 @@ func (m Mode) CompileFlags(f Family, c bool) []string {
 	return nil
 }
 
-// LinkFlags returns the flags that the link of the mode gets before the objects: a shared library
+// LinkFlags returns the flags that the link of the mode gets before the objects on Linux: a shared library
 // with its name (soname), none of the symbols of the archives it takes in exported, and, with a
 // version script (the file that names the exported functions, libgen.VersionScript), no symbol
 // of the library but those: not the weak symbols of the C++ library's templates either.
 func (m Mode) LinkFlags(soname, script string) []string {
+	return m.LinkFlagsFor("linux", soname, script, "")
+}
+
+// LinkFlagsFor is LinkFlags for the operating system goos. A DLL has no soname and no version script: its
+// exports are the functions marked __declspec(dllexport) (the glue of libgen marks the //export ones, and
+// the linker then exports nothing else), and the linker writes the import library (implib, libx.dll.a:
+// what a program links to call the DLL) next to it.
+func (m Mode) LinkFlagsFor(goos, soname, script, implib string) []string {
 	if m != ModeCShared {
 		return nil
+	}
+	if goos == "windows" {
+		// No --exclude-libs: lld (llvm-mingw, MSYS2's clang64) does not know it, and it is not needed: once a symbol
+		// carries dllexport, neither linker exports anything else.
+		flags := []string{"-shared"}
+		if implib != "" {
+			flags = append(flags, "-Wl,--out-implib,"+implib)
+		}
+		return flags
 	}
 	flags := []string{"-shared", "-Wl,--exclude-libs,ALL"}
 	if soname != "" {
@@ -113,9 +143,9 @@ func (b *Builder) applyMode() {
 		return
 	}
 	b.modeApplied = true
-	b.CXX.Args = slices.Concat(b.CXX.Args, b.Mode.CompileFlags(b.CXX.Family, false))
+	b.CXX.Args = slices.Concat(b.CXX.Args, b.Mode.CompileFlagsFor(b.GOOS, b.CXX.Family, false))
 	if b.CC.Path != "" {
-		b.CC.Args = slices.Concat(b.CC.Args, b.Mode.CompileFlags(b.CC.Family, true))
+		b.CC.Args = slices.Concat(b.CC.Args, b.Mode.CompileFlagsFor(b.GOOS, b.CC.Family, true))
 	}
 }
 

@@ -1,10 +1,10 @@
-//go:build !unix
+//go:build !unix && !windows
 
 package main
 
 import "errors"
 
-// A genLock is a lock on a file; this system has none yet (Windows: LockFileEx comes with Phase 14),
+// A genLock is a lock on a file; this system has none (Unix has flock, Windows LockFileEx),
 // so lockGen gives each build a private folder.
 type genLock struct{}
 

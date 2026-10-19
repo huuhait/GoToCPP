@@ -13,9 +13,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/huuhait/gocpp/internal/fsretry"
 	"github.com/huuhait/gocpp/internal/toolchain/xz"
 )
 
@@ -55,7 +58,7 @@ func (c *Config) fetch(ctx context.Context, a Archive, dir string) error {
 	}
 	// Everything of this download goes into one temporary folder next to the final one (the same
 	// file system, for the rename), which is removed whatever happens.
-	tmp, err := os.MkdirTemp(parent, ".download-")
+	tmp, err := os.MkdirTemp(parent, ".download-"+strconv.Itoa(os.Getpid())+"-") // the process number tells a dead download from a running one (sweepStale)
 	if err != nil {
 		return err
 	}
@@ -77,7 +80,12 @@ func (c *Config) fetch(ctx context.Context, a Archive, dir string) error {
 		return err
 	}
 	defer f.Close()
-	if err := unpack(f, root, strings.HasSuffix(a.Name, ".tar.xz")); err != nil {
+	if zipName(a.Name) {
+		err = unpackZip(f, a.Size, root)
+	} else {
+		err = unpack(f, root, strings.HasSuffix(a.Name, ".tar.xz"))
+	}
+	if err != nil {
 		return fmt.Errorf("unpacking %s: %w", a.Name, err)
 	}
 	if err := os.WriteFile(filepath.Join(root, markerName), []byte("llvm-mingw "+Release+" "+a.SHA256+"\n"), 0o444); err != nil {
@@ -85,13 +93,13 @@ func (c *Config) fetch(ctx context.Context, a Archive, dir string) error {
 	}
 	// A hash-matching archive can still lack the compiler (a mirror serving another release's
 	// archive under this name, with its hash): refuse it before it takes the place of the folder.
-	if fi, err := os.Stat(filepath.Join(root, "bin", compilerName)); err != nil || fi.IsDir() {
+	if _, ok := binFile(root, compilerName); !ok {
 		return fmt.Errorf("the archive %s has no bin/%s", a.Name, compilerName)
 	}
 	// The one rename. A folder can't be renamed once it is read-only, so the permissions come
 	// after it. A folder that is already there is a finished earlier download (the lock makes
 	// that rare, a lock that failed to exclude makes it possible): keep it.
-	if err := os.Rename(root, dir); err != nil {
+	if err := fsretry.Rename(root, dir); err != nil {
 		if _, ok := installed(dir, compilerName); ok {
 			return nil
 		}
@@ -184,26 +192,42 @@ func (r *idleReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// sweepStale removes what a gocpp that was killed in the middle of a download left in the
-// toolchain folder: .download-* folders older than a day that no process works on (the lock of the
-// final folder is held while one is in use, and a live download is never a day old).
+// sweepStale removes what a gocpp that was killed in the middle of a download left in the toolchain folder: the
+// .download-<pid>-* folders (about a gigabyte each once unpacked). A folder whose process is gone is the leavings
+// of a dead download and goes at once; one whose process lives is a running download and stays; one that
+// carries no process number (an older gocpp) goes when it is a day old.
 func sweepStale(parent string) {
 	entries, err := os.ReadDir(parent)
 	if err != nil {
 		return
 	}
 	for _, e := range entries {
-		if !strings.HasPrefix(e.Name(), ".download-") {
+		rest, ok := strings.CutPrefix(e.Name(), ".download-")
+		if !ok {
 			continue
 		}
-		fi, err := e.Info()
-		if err != nil || time.Since(fi.ModTime()) < 24*time.Hour {
+		switch pid, hasPID := downloadPID(rest); {
+		case hasPID && processAlive(pid):
 			continue
+		case !hasPID:
+			if fi, err := e.Info(); err != nil || time.Since(fi.ModTime()) < 24*time.Hour {
+				continue
+			}
 		}
 		p := filepath.Join(parent, e.Name())
 		MakeWritable(p)
 		os.RemoveAll(p)
 	}
+}
+
+// downloadPID reads the process number from the name of a download folder after ".download-": "1234-567".
+func downloadPID(rest string) (int, bool) {
+	num, _, ok := strings.Cut(rest, "-")
+	if !ok {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(num)
+	return pid, err == nil && pid > 0
 }
 
 // compilerName is the program that tells a finished toolchain.
@@ -405,6 +429,9 @@ func readOnly(root string) error {
 	})
 	if err != nil {
 		return err
+	}
+	if runtime.GOOS == "windows" {
+		return nil // the read-only attribute of a folder means nothing on Windows but trouble when it is removed
 	}
 	for i := len(dirs) - 1; i >= 0; i-- {
 		if err := os.Chmod(dirs[i], 0o555); err != nil {

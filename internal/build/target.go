@@ -55,7 +55,7 @@ func ToolchainConfig(ctx context.Context) (toolchain.Config, error) {
 // then names the compiler for that target, else the known cross compiler
 // of the target, looked up in PATH (aarch64-linux-gnu-g++ for
 // linux/arm64); for windows/amd64 it is the rule of GOCPP_TOOLCHAIN
-// (findWindowsCXX: MinGW-w64 in PATH, else the pinned llvm-mingw). CXX is not used for another target: it names the host's compiler
+// (findWindowsCXX: MinGW-w64 in PATH or in the folders of MSYS2, Chocolatey, Scoop and WinGet, else the pinned llvm-mingw). CXX is not used for another target: it names the host's compiler
 // (a Nix shell sets it to g++). A target without a known cross compiler
 // needs GOCPP_CXX; without it, FindCXXFor fails with "no C++ compiler for
 // windows/arm64 (set GOCPP_CXX)".
@@ -63,13 +63,23 @@ func ToolchainConfig(ctx context.Context) (toolchain.Config, error) {
 // Phase 02 adds the flags of a target (--target for clang++); until then
 // a compiler is right for one target only.
 func FindCXXFor(ctx context.Context, goos, goarch string) (CXX, error) {
-	if goos == runtime.GOOS && goarch == runtime.GOARCH {
+	// A Windows host is a Windows target like any other: its compiler is a MinGW-w64 one, found by
+	// the rules of findWindowsCXX, and it gets the target's flags (Phase 14 step 14.2).
+	if goos == runtime.GOOS && goarch == runtime.GOARCH && goos != "windows" {
 		return FindCXX(ctx)
 	}
 	target := goos + "/" + goarch
 	if cxx, ok, err := cxxFromEnv(ctx, "GOCPP_CXX"); ok {
 		cxx.GOOS, cxx.GOARCH = goos, goarch
 		return cxx, err
+	}
+	// On a Windows host CXX names the compiler, as on every host (Linux's CXX is the host's compiler,
+	// which is why another target ignores it).
+	if goos == runtime.GOOS {
+		if cxx, ok, err := cxxFromEnv(ctx, "CXX"); ok {
+			cxx.GOOS, cxx.GOARCH = goos, goarch
+			return cxx, err
+		}
 	}
 	if target == "windows/amd64" {
 		return findWindowsCXX(ctx, goos, goarch)
@@ -99,6 +109,7 @@ func findWindowsCXX(ctx context.Context, goos, goarch string) (CXX, error) {
 	}
 	cxx, err := LookCXX(ctx, found.Path)
 	cxx.GOOS, cxx.GOARCH = goos, goarch
+	cxx.Source = found.Source
 	return cxx, err
 }
 

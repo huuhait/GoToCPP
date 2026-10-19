@@ -193,6 +193,7 @@ missing compiler).
 | `GOCPP_WINDOWS_SSH` | none | `user@host`: the Windows tests (`GOCPP_TEST_TARGET=windows`) run their programs on that real Windows PC over ssh instead of under Wine (key authentication; `internal/winssh`; the variable is the only place that names the machine; never commit it) |
 | `GOCPP_WINE_JOBS` | `4` | the programs that run under Wine at once (Wine's server is one process) |
 | `GOCPP_REQUIRE_WINE_OVERFLOW` | none | `1`: `TestWindowsPrograms/overflow` fails instead of skipping when this machine's Wine ends a stack overflow with exit code 1 and no message |
+| `GOCPP_TEST_DOWNLOAD` | none | `1`: `TestWindowsNativeDownload` downloads the pinned llvm-mingw (190 MB) on the real PC (`GOCPP_WINDOWS_SSH`), builds with it and removes it |
 | `GOCPP_REQUIRE_WINE` | none | `1`: a missing `wine` or MinGW-w64 compiler fails the Windows tests instead of skipping them |
 
 `make` passes them on: `GOCPP_CXX=g++ make test`. `GOCPP_REQUIRE_CXX= make ci` turns the
@@ -210,6 +211,20 @@ removes the temporary folder with the gocpp binary.
 When a test fails, its message shows the command, ready to paste into a shell
 (`cd examples/wc && GOCPP_CXX=g++ gocpp run . -l testdata/poem.txt`; `make build` puts gocpp
 in `bin/`).
+
+## gocpp.exe on a real Windows PC
+
+With `GOCPP_WINDOWS_SSH=user@host` (a Windows 10/11 PC with a MinGW-w64 in PATH, key authentication; never Wine),
+`windows_native_test.go` (step 14.2, [ADR-081](../docs/adr/081-windows-host-build-driver.md)) copies a cross-built
+`gocpp.exe` into the run's folder `%USERPROFILE%\gocpp-wintest\<run id>\` and runs it there, natively:
+`TestWindowsNative` (the compiler found and the messages when there is none, `-o prog` -> `prog.exe`,
+`compile_commands.json`, `gocpp run` and its exit code, CRLF sources, folders with spaces, a module below a path of
+over 260 characters, a DLL with its import library and a C caller, a static library, twelve std-only interop programs, the
+manifest, commands longer than 32,767 characters, `GOCPP_CXX` and flags with spaces, errors with Windows paths, two builds
+at once), `TestWindowsNativeUnits` (the Windows-only tests of `internal/build` (job objects), `internal/filelock`,
+`internal/fsretry`, `internal/toolchain`, `internal/modfetch` and `cmd/gocpp`, built here with `go test -c` and run there)
+and the opt-in `TestWindowsNativeDownload`. The cache, `TEMP` and `APPDATA` of the runs are inside the run's folder, which is
+deleted at the end. Without the variable these tests skip; with it and an unreachable PC they fail.
 
 ## Windows under Wine
 

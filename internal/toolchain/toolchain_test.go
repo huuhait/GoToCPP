@@ -483,9 +483,6 @@ func TestNoCacheFolder(t *testing.T) {
 // Two gocpp processes that start at once download the toolchain once: the second waits for the
 // lock and finds the finished folder.
 func TestLockContention(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("the lock is for Unix hosts")
-	}
 	const name = "t.tar"
 	body := goodTar(t)
 	release := make(chan struct{})
@@ -530,9 +527,6 @@ func TestLockContention(t *testing.T) {
 
 // A waiter for the lock gives up when its context ends.
 func TestLockContextCancel(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("the lock is for Unix hosts")
-	}
 	name := filepath.Join(t.TempDir(), "x.lock")
 	unlock, err := lock(context.Background(), name)
 	if err != nil {

@@ -3,7 +3,8 @@
 > `gocpp build -os windows` turns a program into a `.exe` that runs on Windows 10 or later with no
 > DLLs next to it. How it works: [docs/spec/build.md](../spec/build.md#cross-compilation) and
 > [ADR-055](../adr/055-cross-compilation-targets-and-toolchain.md). This is the build side (Phase 06
-> step 6.13); the Windows runtime is partly built, see "What works" below.
+> step 6.13); the Windows runtime is partly built, see "What works" below. To run `gocpp.exe` on Windows itself,
+> see ["gocpp.exe on a Windows host"](../spec/build.md#gocppexe-on-a-windows-host).
 
 ## Build
 

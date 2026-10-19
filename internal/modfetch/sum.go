@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/huuhait/gocpp/internal/fsretry"
 	"github.com/huuhait/gocpp/internal/load/gocppmod"
 )
 
@@ -279,7 +280,7 @@ func (f *Fetcher) saveSums(sumPath string, add []SumLine) (changed bool, err err
 	if err := tmp.Close(); err != nil {
 		return false, err
 	}
-	if err := os.Rename(tmp.Name(), sumPath); err != nil {
+	if err := fsretry.Rename(tmp.Name(), sumPath); err != nil {
 		return false, fmt.Errorf("can't update %s: %v", SumFileName, err)
 	}
 	syncDir(filepath.Dir(sumPath))

@@ -330,13 +330,49 @@ func TestCheckPerTarget(t *testing.T) {
 	}
 }
 
-func TestBuildLibraryForWindowsIsRefused(t *testing.T) {
+// -buildmode=c-shared for windows (step 14.2): the planned commands are a DLL's: no -fPIC, no soname or
+// version script, the import library, and no --exclude-libs (lld does not have it).
+func TestBuildSharedForWindowsPlansADLL(t *testing.T) {
 	noTargetEnv(t)
-	inDir(t, map[string]string{"hello.gp": helloSrc})
-	r := gocppRun("", false, "build", "-os", "windows", "-buildmode=c-shared", "hello.gp")
-	want := "gocpp build: -buildmode=c-shared for windows is not supported yet (Phase 14: .dll and import libraries)\n"
-	if r != (result{1, "", want}) {
-		t.Errorf("gocpp build -os windows -buildmode=c-shared = %+v, want exit 1 and %q", r, want)
+	t.Setenv("GOCPP_GATE_PHASE", "08") // channels and go statements are in the fixtures of the library tests (modes_test.go)
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("GOCPP_TOOLCHAIN", "local")
+	inDir(t, map[string]string{"lib.gp": "package main\n\n//export Add\nfunc Add(a, b int32) int32 { return a + b }\n\nfunc main() {}\n"})
+	cxx := fakeTargetCXX(t, t.TempDir(), "x86_64-w64-mingw32-g++")
+	t.Setenv("GOCPP_CXX", cxx)
+	for _, c := range []struct {
+		args []string
+		dll  string
+	}{
+		{[]string{"-o", "mylib.dll"}, "mylib.dll"},
+		{nil, "lib.dll"},
+	} {
+		r := gocppRun("", false, append(append([]string{"build", "-n", "-os", "windows", "-buildmode=c-shared"}, c.args...), "lib.gp")...)
+		if r.code != 0 {
+			t.Fatalf("gocpp build -n -os windows -buildmode=c-shared = %+v", r)
+		}
+		out := r.stdout + r.stderr
+		var link string
+		for _, l := range strings.Split(out, "\n") {
+			if strings.Contains(l, " -shared ") {
+				link = l
+			}
+		}
+		for _, want := range []string{" -shared ", "-Wl,--out-implib," + "", c.dll + ".a", " -static "} {
+			if !strings.Contains(link, want) {
+				t.Errorf("the planned link line lacks %q:\n%s", want, link)
+			}
+		}
+		for _, bad := range []string{"-soname", "--version-script", "--exclude-libs"} {
+			if strings.Contains(link, bad) {
+				t.Errorf("the planned link line of a DLL has %s:\n%s", bad, link)
+			}
+		}
+		for _, l := range strings.Split(out, "\n") {
+			if strings.Contains(l, " -c ") && (strings.Contains(l, "-fPIC") || strings.Contains(l, "-fno-gnu-unique")) {
+				t.Errorf("a compile of a DLL has an ELF flag: %s", l)
+			}
+		}
 	}
 }
 

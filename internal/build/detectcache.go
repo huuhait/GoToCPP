@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/huuhait/gocpp/internal/fsretry"
 )
 
 // The compiler detection on disk (Phase 06 step 6.5). Detecting a compiler runs it twice (--version
@@ -116,7 +118,7 @@ func writeFileAtomic(name string, data []byte) bool {
 	if cerr := tmp.Close(); werr == nil {
 		werr = cerr
 	}
-	if werr != nil || os.Rename(tmp.Name(), name) != nil {
+	if werr != nil || fsretry.Rename(tmp.Name(), name) != nil {
 		os.Remove(tmp.Name())
 		return false
 	}

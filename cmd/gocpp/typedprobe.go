@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/huuhait/gocpp/internal/typedinterop"
 	"github.com/huuhait/gocpp/internal/typedinterop/ftype"
@@ -32,7 +31,7 @@ func runTypedProbe(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "gocpp: %v\n", err)
 		return 2
 	}
-	if c.dir, err = os.Getwd(); err != nil {
+	if c.dir, err = getwd(); err != nil {
 		fmt.Fprintf(stderr, "gocpp __typed-probe: %v\n", err)
 		return 1
 	}

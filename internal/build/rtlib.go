@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/huuhait/gocpp/internal/fsretry"
 )
 
 // The runtime library (Phase 06 step 6.8). The runtime's sources are compiled once for a
@@ -157,7 +159,7 @@ func (b *Builder) cachedLib(ctx context.Context, dir string, srcs, flags []strin
 		return "", fmt.Errorf("the archiver %s made no library", a.Path)
 	}
 	b.trace("mv " + quoteWord(lib) + " " + quoteWord(final))
-	if err := os.Rename(lib, final); err != nil && !libOK(final) {
+	if err := fsretry.Rename(lib, final); err != nil && !libOK(final) {
 		return "", err
 	}
 	return final, nil

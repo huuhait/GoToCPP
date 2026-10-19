@@ -60,6 +60,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/huuhait/gocpp/internal/fsretry"
 )
 
 // The defaults of Options.
@@ -406,7 +408,7 @@ func (c *Cache) Set(kind string, key [sha256.Size]byte, value []byte) error {
 	if err == nil {
 		// On Windows, the rename fails while another process has the
 		// entry open; then the entry stays as it was.
-		err = os.Rename(f.Name(), name)
+		err = fsretry.Rename(f.Name(), name)
 	}
 	if err != nil {
 		os.Remove(f.Name())
@@ -630,7 +632,7 @@ func writeTrimTime(name string, t time.Time) {
 		err = cerr
 	}
 	if err == nil {
-		err = os.Rename(f.Name(), name)
+		err = fsretry.Rename(f.Name(), name)
 	}
 	if err != nil {
 		os.Remove(f.Name())

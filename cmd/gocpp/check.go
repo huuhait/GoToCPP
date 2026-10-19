@@ -101,7 +101,7 @@ func runCheck(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "gocpp: %v\n", err) // go exits with 2 too
 		return 2
 	}
-	if c.dir, err = os.Getwd(); err != nil {
+	if c.dir, err = getwd(); err != nil {
 		fmt.Fprintf(stderr, "gocpp check: %v\n", err)
 		return 1
 	}

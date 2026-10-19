@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/huuhait/gocpp/internal/fsretry"
 	"github.com/huuhait/gocpp/internal/load/gocppmod"
 )
 
@@ -353,7 +354,7 @@ func (f *Fetcher) stage(ctx context.Context, repo *Repo, r ref) (res *staged, er
 	// Move the module's folder next to its final place, so that sealing
 	// it and the last rename stay in one folder.
 	mod := tmp + ".mod"
-	if err := os.Rename(root, mod); err != nil {
+	if err := fsretry.Rename(root, mod); err != nil {
 		return nil, err
 	}
 	st.root = mod
@@ -456,7 +457,7 @@ func (f *Fetcher) publish(ctx context.Context, st *staged, repo *Repo, version s
 	if err := Seal(st.root); err != nil {
 		return nil, err
 	}
-	err = os.Rename(st.root, m.Dir)
+	err = fsretry.Rename(st.root, m.Dir)
 	if err != nil {
 		// Another gocpp was faster, if the folder is there now with the same hash.
 		if other, oerr := f.cached(ctx, path, version, nil); oerr == nil && other != nil {

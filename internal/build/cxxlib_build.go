@@ -69,7 +69,11 @@ func (b *Builder) planLibs(ctx context.Context, rtDir string, libs []*CxxLib) (o
 				c = b.CC
 			}
 			// 003-b.c.o: the library, the file and its name; the folder of the file is not in it.
-			obj := filepath.Join(b.Work, "libobj", fmt.Sprintf("%d-%d-%s.o", li, si, filepath.Base(s.Rel)))
+			objName := fmt.Sprintf("%d-%d-%s.o", li, si, filepath.Base(s.Rel))
+			if !CompilerSafe(objName) {
+				objName = fmt.Sprintf("%d-%d%s.o", li, si, filepath.Ext(s.Rel)) // the compiler cannot be handed the file's name (safeargs.go)
+			}
+			obj := filepath.Join(b.Work, "libobj", objName)
 			jobs = append(jobs, job{lib, s, c, obj})
 		}
 	}

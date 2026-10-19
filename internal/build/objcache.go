@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/huuhait/gocpp/internal/fsretry"
 )
 
 // The object cache (Phase 06 README §2.5, "Build graph and cache"): a content-addressed cache
@@ -1276,7 +1278,7 @@ func (oc *objCache) writeFile(path string, data []byte) bool {
 	if cerr := tmp.Close(); werr == nil {
 		werr = cerr
 	}
-	if werr != nil || os.Rename(tmp.Name(), path) != nil {
+	if werr != nil || fsretry.Rename(tmp.Name(), path) != nil {
 		os.Remove(tmp.Name())
 		return false
 	}

@@ -1,8 +1,8 @@
-//go:build !unix
+//go:build !unix && !windows
 
 package build
 
-// A fileLock is not available on this system: builds that run at the same time may make the same
+// A fileLock is not available on this system (Unix has flock, Windows LockFileEx): builds that run at the same time may make the same
 // runtime library twice (each renames its own into place, so none is ever half written).
 type fileLock struct{}
 

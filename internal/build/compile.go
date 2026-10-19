@@ -17,6 +17,8 @@ import (
 	"time"
 
 	rtfiles "github.com/huuhait/gocpp/runtime"
+
+	"github.com/huuhait/gocpp/internal/fsretry"
 )
 
 // A Builder compiles the C++ of a program and links it with the runtime
@@ -95,8 +97,15 @@ type Builder struct {
 	Mode   Mode
 	Soname string
 
-	// VersionScript, for c-shared, is the file that names the functions the library exports.
+	// VersionScript, for c-shared, is the file that names the functions the library exports. ImportLib,
+	// for c-shared on Windows, is the import library that the link writes (libx.dll.a); neither is
+	// used on the other system.
 	VersionScript string
+	ImportLib     string
+
+	// NoManifest leaves the application manifest out of a Windows program (GOCPP_NO_MANIFEST): for a
+	// program that brings its own resource file through the link flags.
+	NoManifest bool
 
 	// Jobs is how many compiles run at the same time (gocpp build -p N): 0 means DefaultJobs
 	// (GOMAXPROCS).
@@ -328,7 +337,7 @@ func (b *Builder) cachedObjects(ctx context.Context, dir string, srcs, flags []s
 		return nil, err
 	}
 	b.trace("mv " + quoteWord(tmp) + " " + quoteWord(final))
-	if err := os.Rename(tmp, final); err != nil {
+	if err := fsretry.Rename(tmp, final); err != nil {
 		// Another gocpp compiled them at the same time and won, or final
 		// is broken (a file is missing): move it aside, as another gocpp
 		// may be doing the same, and put ours in its place.
@@ -340,8 +349,8 @@ func (b *Builder) cachedObjects(ctx context.Context, dir string, srcs, flags []s
 			return nil, err
 		}
 		defer os.RemoveAll(old)
-		os.Rename(final, filepath.Join(old, "obj"))
-		if err := os.Rename(tmp, final); err != nil && !allExist(objs) {
+		fsretry.Rename(final, filepath.Join(old, "obj"))
+		if err := fsretry.Rename(tmp, final); err != nil && !allExist(objs) {
 			return nil, err
 		}
 	}
@@ -526,6 +535,11 @@ func (b *Builder) runCommand(ctx context.Context, c CXX, what string, link bool,
 		return nil, nil
 	}
 	out := &limitBuffer{max: maxCompileOutput}
+	args, doneRsp, err := b.fitCommand(c, args) // a command too long for Windows goes into a response file
+	if err != nil {
+		return nil, err
+	}
+	defer doneRsp()
 	cmd, err := Start(ctx, func() *exec.Cmd {
 		cmd := c.Command(ctx, args...)
 		cmd.Dir = b.Work
@@ -622,7 +636,9 @@ func MoveFile(from, to string) error {
 	if fi, err := os.Stat(to); err == nil && !fi.Mode().IsRegular() && !fi.IsDir() {
 		return writeInto(from, to)
 	}
-	if err := os.Rename(from, to); err == nil {
+	// A read-only output (on Windows the attribute stops a rename onto the file; on Linux the folder decides) is replaced, as cmd/go does.
+	makeWritable(to)
+	if err := fsretry.Rename(from, to); err == nil {
 		return nil
 	}
 	fi, err := os.Stat(from)
@@ -652,7 +668,7 @@ func MoveFile(from, to string) error {
 			return err
 		}
 	}
-	return os.Rename(tmp.Name(), to)
+	return replaceError(fsretry.Rename(tmp.Name(), to), to)
 }
 
 // writeInto writes the file from into to, which exists and isn't a

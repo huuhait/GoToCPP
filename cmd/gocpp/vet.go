@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"go/token"
 	"io"
-	"os"
 	"slices"
 	"strings"
 
@@ -131,7 +130,7 @@ func runVet(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "gocpp: %v\n", err)
 		return 2
 	}
-	if c.dir, err = os.Getwd(); err != nil {
+	if c.dir, err = getwd(); err != nil {
 		fmt.Fprintf(stderr, "gocpp vet: %v\n", err)
 		return 2
 	}

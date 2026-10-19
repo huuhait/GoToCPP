@@ -51,3 +51,7 @@ docs/benchmarks/lsp.json
 
 # GoReleaser output
 /dist/
+
+# Windows programs built or copied into the root by hand (a gocpp.exe of "go build" with GOOS=windows)
+/gocpp.exe
+/*.exe

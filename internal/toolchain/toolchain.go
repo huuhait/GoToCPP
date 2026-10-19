@@ -57,13 +57,13 @@ type Archive struct {
 
 // Archives are the pinned archives of Release, from GitHub's release page (the digests shown there
 // for each asset; the amd64 one was also computed by downloading the file; the aarch64 one only
-// compared with the digest and size that the release API reports). Windows hosts come with Phase 14.
+// compared with the digest and size that the release API reports). The Windows host (Phase 14 step 14.2) is the zip.
 //
 // To check the table again (a new Release, or a doubt), compare it with what GitHub reports, then
 // with the bytes of the file:
 //
 //	curl -sL https://api.github.com/repos/mstorsjo/llvm-mingw/releases/tags/$RELEASE |
-//	    jq -r '.assets[] | select(.name|test("ucrt-ubuntu")) | "\(.name) \(.size) \(.digest)"'
+//	    jq -r '.assets[] | select(.name|test("ucrt-(ubuntu|x86_64.zip)")) | "\(.name) \(.size) \(.digest)"'
 //	curl -sLO $DefaultBaseURL/<name> && sha256sum <name> && stat -c %s <name>
 //
 // TestPinnedTable checks the shape of the entries (64 hex digits, the name's release and variant).
@@ -74,6 +74,10 @@ var Archives = []Archive{
 	{Host: "linux/arm64", Name: "llvm-mingw-" + Release + "-" + Variant + "-ubuntu-22.04-aarch64.tar.xz",
 		SHA256: "e77c4acfa44184f6b0c52b814d724ad63b2ecebb3c3f6f842c0846e717cbd23c", Size: 78002292,
 		Loader: "/lib/ld-linux-aarch64.so.1"},
+	// The Windows host (Phase 14 step 14.2): a zip with the compilers as .exe files, no symbolic
+	// links. 190,836,485 bytes; the digest is GitHub's and was also computed over the downloaded file.
+	{Host: "windows/amd64", Name: "llvm-mingw-" + Release + "-" + Variant + "-x86_64.zip",
+		SHA256: "317492c456aa27ee607a5919f1d2d38dcdc1112516a24d0bf4b00d078f52d17a", Size: 190836485},
 }
 
 // A Mode is the rule of GOCPP_TOOLCHAIN.
@@ -120,6 +124,13 @@ type Config struct {
 	Progress    io.Writer // the lines about a download; nil is os.Stderr
 	// LookPath finds a program in PATH; nil is exec.LookPath.
 	LookPath func(string) (string, error)
+	// What the search for an installed MinGW-w64 on a Windows host reads (detect.go); nil is the
+	// real thing. The tests put fake layouts here.
+	Getenv  func(string) string                   // os.Getenv
+	IsFile  func(string) bool                     // a regular file exists
+	IsDir   func(string) bool                     // a folder exists
+	Glob    func(pattern string) []string         // filepath.Glob
+	Machine func(compiler string) (string, error) // the compiler's -dumpmachine
 }
 
 // FromEnv returns the configuration of GOCPP_TOOLCHAIN, GOCPP_TOOLCHAIN_URL and the cache folder
@@ -212,25 +223,42 @@ func Resolve(ctx context.Context, cfg Config, goos, goarch string) (Found, error
 	}
 	target := goos + "/" + goarch
 	if cfg.Mode != Pinned {
-		for _, n := range names {
-			if p, err := cfg.lookPath(n); err == nil {
-				return Found{Path: p, Source: "PATH"}, nil
-			}
+		if f, ok := cfg.local(ctx, names); ok {
+			return f, nil
 		}
 		if cfg.Mode == Local {
-			return Found{}, fmt.Errorf("no C++ compiler for %s: neither %s is in PATH (GOCPP_TOOLCHAIN=local never downloads one%s; install MinGW-w64, or llvm-mingw, or set GOCPP_CXX)",
-				target, strings.Join(names, " nor "), autoHint())
+			return Found{}, fmt.Errorf("no C++ compiler for %s: %s (GOCPP_TOOLCHAIN=local never downloads one%s; %s, or set GOCPP_CXX)",
+				target, cfg.notFound(names), autoHint(), installHint(cfg.isWindowsHost()))
 		}
 	}
 	f, err := cfg.pinned(ctx, names[0])
 	if err != nil {
 		if cfg.Mode == Auto {
-			return Found{}, fmt.Errorf("no C++ compiler for %s: neither %s is in PATH, and the pinned toolchain is not usable: %w (set GOCPP_CXX)",
-				target, strings.Join(names, " nor "), err)
+			msg := fmt.Errorf("no C++ compiler for %s: %s, and the pinned toolchain is not usable: %w", target, cfg.notFound(names), err)
+			if !strings.Contains(err.Error(), "GOCPP_CXX") {
+				return Found{}, fmt.Errorf("%w (set GOCPP_CXX)", msg) // the offline message says it already
+			}
+			return Found{}, msg
 		}
 		return Found{}, fmt.Errorf("no C++ compiler for %s: the pinned toolchain is not usable: %w", target, err)
 	}
 	return f, nil
+}
+
+// notFound says where the search for a local compiler looked.
+func (c *Config) notFound(names []string) string {
+	if c.isWindowsHost() {
+		return "no MinGW-w64 g++ or clang++ is in PATH, and none is in the folders of MSYS2, Chocolatey, Scoop or WinGet's WinLibs"
+	}
+	return "neither " + strings.Join(names, " nor ") + " is in PATH"
+}
+
+// installHint says how to get a compiler by hand.
+func installHint(windows bool) string {
+	if windows {
+		return "install MinGW-w64 (WinLibs: winget install BrechtSanders.WinLibs.POSIX.UCRT; MSYS2: pacman -S mingw-w64-ucrt-x86_64-gcc) or llvm-mingw"
+	}
+	return "install MinGW-w64, or llvm-mingw"
 }
 
 // autoHint is the end of the message of mode local, when local is not the default: how to let
@@ -253,7 +281,7 @@ func (c *Config) pinned(ctx context.Context, name string) (Found, error) {
 		return Found{Path: p, Source: source}, nil
 	}
 	if c.Offline {
-		return Found{}, fmt.Errorf("it is not downloaded (%s) and GOCPP_OFFLINE is set, so gocpp does not use the network: install MinGW-w64, or llvm-mingw, or set GOCPP_CXX", dir)
+		return Found{}, fmt.Errorf("it is not downloaded (%s) and GOCPP_OFFLINE is set, so gocpp does not use the network: %s, or set GOCPP_CXX", dir, installHint(c.isWindowsHost()))
 	}
 	if !c.Download {
 		return Found{}, fmt.Errorf("it is not downloaded yet: gocpp build and gocpp run download it on first use (to %s)", dir)
@@ -288,11 +316,19 @@ func installed(dir, name string) (string, bool) {
 	if _, err := os.Stat(filepath.Join(dir, markerName)); err != nil {
 		return "", false
 	}
-	p := filepath.Join(dir, "bin", name)
-	if fi, err := os.Stat(p); err != nil || fi.IsDir() {
-		return "", false
+	return binFile(dir, name)
+}
+
+// binFile returns the program name of the folder dir/bin: on a Windows host the file has ".exe"
+// after its name (the archive of a Windows host holds x86_64-w64-mingw32-clang++.exe).
+func binFile(dir, name string) (string, bool) {
+	for _, n := range []string{name, name + ".exe"} {
+		p := filepath.Join(dir, "bin", n)
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			return p, true
+		}
 	}
-	return p, true
+	return "", false
 }
 
 // Installed reports whether the pinned toolchain of this host is unpacked, and where.
@@ -313,6 +349,12 @@ func (c *Config) Remove() (string, error) {
 	if dir == "" {
 		return "", nil
 	}
+	// The lock file and what an interrupted download left go too, and the folder of the toolchains when it is empty.
+	defer func() {
+		os.Remove(dir + ".lock")
+		sweepStale(filepath.Dir(dir))
+		os.Remove(filepath.Dir(dir))
+	}()
 	if _, err := os.Lstat(dir); err != nil {
 		return "", nil
 	}

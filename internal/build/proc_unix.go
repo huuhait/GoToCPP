@@ -30,3 +30,6 @@ func KillGroup(cmd *exec.Cmd) {
 		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 }
+
+// joinGroup does nothing on Unix: the group is made by the start itself (Setpgid).
+func joinGroup(*exec.Cmd) {}

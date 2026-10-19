@@ -87,7 +87,7 @@ func runDoc(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "gocpp: %v\n", err)
 		return 2
 	}
-	dir, err := os.Getwd()
+	dir, err := getwd()
 	if err != nil {
 		fmt.Fprintf(stderr, "gocpp doc: %v\n", err)
 		return 1
@@ -97,7 +97,7 @@ func runDoc(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "gocpp doc: %v\n", err)
 			return 1
 		}
-		if dir, err = os.Getwd(); err != nil {
+		if dir, err = getwd(); err != nil {
 			fmt.Fprintf(stderr, "gocpp doc: %v\n", err)
 			return 1
 		}

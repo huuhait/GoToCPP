@@ -358,4 +358,3 @@ func TestDefaultModeFlip(t *testing.T) {
 		t.Errorf("with the default mode %q, the pinned toolchain was tried = %v: %v", DefaultMode, got, err)
 	}
 }
-

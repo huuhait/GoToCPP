@@ -17,6 +17,7 @@ import (
 	"unicode"
 
 	"github.com/huuhait/gocpp/internal/build"
+	"github.com/huuhait/gocpp/internal/winpath"
 )
 
 // The kind probe (Phase 04 §2.2, probe 2) says what each C/C++ path that a
@@ -594,7 +595,7 @@ func writeInclude(b *bytes.Buffer, index int, inc string) (lines, at int) {
 		b.WriteString("extern \"C\" {\n")
 		lines, at = 2, 1
 	}
-	fmt.Fprintf(b, "#include %s\n", header)
+	fmt.Fprintf(b, "#include %s\n", winpath.IncludeSpelling(header))
 	if externC {
 		b.WriteString("}\n")
 	}

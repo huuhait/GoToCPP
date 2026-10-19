@@ -153,7 +153,7 @@ func (b *Builder) planPackageSources(ctx context.Context, rtDir string, pb *Pack
 	for i, s := range srcs {
 		file := filepath.Join(pb.Dir, s.file)
 		// a.c and a.cpp get a.c.o and a.cpp.o.
-		objs[i] = filepath.Join(objDir, s.file+".o")
+		objs[i] = filepath.Join(objDir, safeObjName(s.file, i))
 		what, std, lang, env := "the C++ file ", "-std=c++20", "c++", b.Env.CXXCompile()
 		if s.c.C {
 			what, std, lang, env = "the C file ", "-std=gnu17", "c", b.Env.CFlags
@@ -190,4 +190,18 @@ func (b *Builder) planPackageSources(ctx context.Context, rtDir string, pb *Pack
 		}})
 	}
 	return objs, acts, nil
+}
+
+// safeObjName returns the file name of the object of the source file name file (the i-th of its package): file with ".o",
+// or, when the compiler cannot be handed that name (a source 日本.cpp on a Windows host: the object is an argument),
+// an ASCII name with the same extension.
+func safeObjName(file string, i int) string {
+	if name := file + ".o"; CompilerSafe(name) {
+		return name
+	}
+	ext := filepath.Ext(file)
+	if !CompilerSafe(ext) {
+		ext = ""
+	}
+	return fmt.Sprintf("gpsrc%d%s.o", i, ext)
 }

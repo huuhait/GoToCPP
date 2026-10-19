@@ -105,6 +105,15 @@ table above changed:
   and run `gocpp build`, as with Go. Windows-specific parts: the cache under
   `%LocalAppData%`, long paths in the archive, and a virus scanner holding a just-unpacked file
   open (retry the rename).
+- **14.2 as built (2026-10-20, [ADR-081](../../../docs/adr/081-windows-host-build-driver.md))**: `gocpp.exe` on a Windows host builds with the
+  target's flags like a cross build (`FindCXXFor` sets the target); detection finds MinGW-w64 in PATH (a plain `g++` after `-dumpmachine`), in
+  MSYS2/Chocolatey/Scoop/WinGet folders, else the pinned llvm-mingw (a 190 MB zip, hash in the binary); `LockFileEx` locks and retried renames
+  (`internal/filelock`, `internal/fsretry`); job objects with kill-on-close for the compilers; response files over 30,000 characters; an application
+  manifest that gocpp writes as a COFF object (`longPathAware`, UTF-8 code page (Windows 10 1903+), `asInvoker`; on by default, `GOCPP_NO_MANIFEST=1` opts out; Go's linker writes none: the 14.3 note that it does was wrong; for GCC it
+  replaces MinGW's `default-manifest.o` through a `-B` folder that has no space and no non-ASCII character); `c-shared` writes `x.dll`, `x.dll.a`, `x.lib`, `x.h`; `-o prog` gives `prog.exe`; paths are
+  canonicalized (drive letter, case); paths the ANSI-code-page compilers cannot read (non-ASCII user folders) get short names or ASCII work names (ADR-081 decision 13). Tested on a real Windows 11 PC over ssh (`tests/windows_native_test.go`, including the download and the UCRT
+  toolchain). Not done: typed-interop probes and `gocpp doc` on a Windows host (they call the host `clang++`/`g++` directly: step 14.6), a console window, `\\?\` arguments, C/C++ sources of a package below a path over 260 characters in compilers that are not
+  long-path aware, MSVC ABI.
 - **Outputs**: `.exe`; `c-shared` gives a `.dll` plus an import library (`.dll.a`), and `//export`
   functions are marked `__declspec(dllexport)`; `c-archive` gives a `.a`.
 - Programs are linked with **`-static`**, so an `.exe` runs without extra DLLs. Linking only
@@ -143,8 +152,8 @@ table above changed:
   real PC** as their expectation, 43 existing `os_*` tests run on Windows unchanged (`tests/windows_sample.txt`), `runtime/test/winos_test.cpp`
   checks the natives; all of it ran on the real PC over ssh. **Left for later steps**: `os/exec` and `os.StartProcess` (the Go code is
   there to port: `syscall/exec_windows.go`'s `StartProcess`), `os/signal` (Ctrl-C), `net`, `time`'s local zone and `LoadLocation` (Go reads
-  the registry and its own `zoneinfo.zip`: `time.Local` is UTC), the long-path-aware manifest (a build-driver job: step 14.2; without it
-  `Chdir` into a path of more than 260 characters fails), a console that a user types at (`TestWindowsConsole` runs the console paths in a pseudo console over `ssh -tt`; a real terminal window is step 14.7's checklist), `NewCallback`,
+  the registry and its own `zoneinfo.zip`: `time.Local` is UTC), the long-path-aware manifest (step 14.2 wrote one; Go's own linker writes none, so Go programs
+  have no such manifest either), a console that a user types at (`TestWindowsConsole` runs the console paths in a pseudo console over `ssh -tt`; a real terminal window is step 14.7's checklist), `NewCallback`,
   the registry, UCRT (llvm-mingw's headers may define macros that the list does not know).
 - Linux-only by nature: `-race`, because ThreadSanitizer doesn't support Windows. AddressSanitizer
   and UBSan work with clang's MinGW target.

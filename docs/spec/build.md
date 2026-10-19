@@ -234,7 +234,7 @@ supported.
 
 `gocpp env [-json] [name ...]` prints `NAME='value'` lines (sorted; `set NAME=value` on Windows) for every variable below
 with the value in use, then the values gocpp finds out: `GOCPPCACHE`, `GOCPPRUNTIME`, `GOCPPMOD`, `GOCPPCXX`, `GOCPPCXXVERSION`,
-`GOCPPCC`, `GOCPPVERSION`. With names it prints their values only. `GOCPP_MODAUTH` is shown as `(set)`. A test keeps the list
+`GOCPPCC`, `GOCPPVERSION`, and for a Windows target `GOCPPCXXSOURCE` (where the compiler came from). With names it prints their values only. `GOCPP_MODAUTH` is shown as `(set)`. A test keeps the list
 complete: it fails when the Go code names a `GOCPP_` variable that `gocpp env` does not list.
 
 | Variable | Meaning |
@@ -247,6 +247,7 @@ complete: it fails when the Go code names a `GOCPP_` variable that `gocpp env` d
 | `GOCPP_LSP_CACHE`, `GOCPP_LSP_CACHE_AGE`, `GOCPP_LSP_CACHE_SIZE` | the language server's cache |
 | `GOCPP_GATE_PHASE`, `GOCPP_CPUPROFILE` | development |
 | `GOCPP_COLOR`, `GOCPP_EXCERPT` | `always` or `never`: the diagnostics' color and source excerpt (the `-color` and `-excerpt` flags win) |
+| `GOCPP_TOOLCHAIN`, `GOCPP_TOOLCHAIN_URL`, `GOCPP_NO_MANIFEST` | the Windows compiler's source (below), and the application manifest of a Windows program (below) |
 | `GOCPP_CLANG`, `GOCPP_PROBE_TIMEOUT` | the clang++ and the time limit of the typed interop probes |
 | `GOOS`, `GOARCH`, `PKG_CONFIG`, `XDG_CACHE_HOME` | the target, pkg-config, the cache folder |
 
@@ -347,10 +348,11 @@ What a target changes:
 
 | | host | windows/amd64 | linux/arm64 (best effort) |
 |---|---|---|---|
-| compiler | `GOCPP_CXX`, `CXX`, clang++, g++ | `GOCPP_CXX`, else by `GOCPP_TOOLCHAIN`: `x86_64-w64-mingw32-clang++` or `-g++` in PATH, else the pinned llvm-mingw | `GOCPP_CXX`, else `aarch64-linux-gnu-g++` |
+| compiler | `GOCPP_CXX`, `CXX`, clang++, g++ | `GOCPP_CXX` (on a Windows host also `CXX`), else by `GOCPP_TOOLCHAIN`: `x86_64-w64-mingw32-clang++` or `-g++` in PATH; on a Windows host also a plain `clang++`/`g++` that is MinGW (`-dumpmachine`) and the installs of MSYS2, Chocolatey, Scoop and WinGet's WinLibs; else the pinned llvm-mingw | `GOCPP_CXX`, else `aarch64-linux-gnu-g++` |
 | compile flags | common | common, `-D_WIN32_WINNT=0x0A00` (Windows 10 API), and `-Wa,-mbig-obj` for GCC (a COFF object holds 32767 sections, which a program with many generic instances goes over) | common, and `--target=aarch64-linux-gnu` for a clang that does not name its target |
 | link flags | common | `-static`, `-Wl,--stack,8388608` (the main thread has Linux's 8 MiB), `-pthread` for GCC (needed with a posix thread model, harmless with the mcf model of the dev shell's MinGW; 14.1's `.drectve` asks for the same 8 MiB stack, the two agree and survive `--gc-sections`: `TestWindowsDriverFlags`) | common |
-| program name | `name` | `name.exe` | `name` |
+| program name | `name` | `name.exe` (`-o prog` writes `prog.exe`; a name with an extension keeps it) | `name` |
+| libraries | `libx.a`, `libx.so` | `libx.a`; `-buildmode=c-shared` writes `x.dll`, the import library `x.dll.a` and its copy `x.lib`, and `x.h` | as host |
 | build constraints | the host's | `windows`, `amd64`, `_windows.go` | `linux`, `arm64`, `unix` |
 | keys | as before | the target is in the compiler's identity (`CompilerID`), so the stamp, the object cache and the runtime's objects of two targets never meet | same |
 
@@ -358,7 +360,7 @@ The compiler for another target is not `CXX` (a Nix shell sets `CXX` for the hos
 `//gocpp:pkg-config` are asked for as usual, with the target's `PKG_CONFIG_*` of the environment.
 
 **`GOCPP_TOOLCHAIN`** chooses where the Windows compiler comes from: `auto` (default: PATH, then the
-pinned toolchain), `local` (PATH only, never a download), `pinned` (the pinned toolchain, whatever is in
+pinned toolchain), `local` (PATH and, on Windows, the usual MinGW-w64 folders; never a download), `pinned` (the pinned toolchain, whatever is in
 PATH). The pinned toolchain is llvm-mingw 20261006 (UCRT). Each host's archive has its size and SHA-256
 in the binary; the download (`gocpp build` and `gocpp run` only, never `check` or the language server)
 checks both before it unpacks anything, and a host with no hash fails closed. It goes to
@@ -373,6 +375,36 @@ asking; `local` would make it opt-in); `gocpp env` shows it. `gocpp clean -cache
 `go run -exec` does: `GOCPP_EXEC=wine gocpp run -os windows .`. A program for another target without it is
 an error that says so before anything is built.
 
+### gocpp.exe on a Windows host
+
+> [ADR-081](../adr/081-windows-host-build-driver.md). Tested on a real Windows 11 PC over ssh (`tests/windows_native_test.go`).
+
+On Windows `gocpp build` and `gocpp run` build for `windows/amd64` with a MinGW-w64 compiler, found in this order: `GOCPP_CXX`; `CXX`;
+(`GOCPP_TOOLCHAIN` auto or local) `x86_64-w64-mingw32-clang++` and `-g++` in PATH, then `clang++` and `g++` in PATH **whose
+`-dumpmachine` is x86-64 MinGW** (Visual Studio's LLVM, MSYS2's `msys` environment and Cygwin are not), then the folders of MSYS2
+(`ucrt64`, `clang64`, `mingw64` under `MSYS2_ROOT` or `C:\msys64`), Chocolatey, Scoop, WinGet's WinLibs and `C:\mingw64`,
+`C:\w64devkit`; (auto, or pinned) the pinned llvm-mingw, a zip of 190 MB that is downloaded once into
+`%LocalAppData%\gocpp\toolchain\llvm-mingw-<release>-windows-amd64\` (SHA-256 and size in the binary; `GOCPP_OFFLINE` stops it;
+a virus scanner holding a file for a moment is waited out). A message lists what was looked at and how to install a compiler.
+`gocpp env GOCPPCXX GOCPPCXXSOURCE` says what a build would use and where it came from.
+
+| | |
+|---|---|
+| cache, temporary files | `%LocalAppData%\gocpp` (`gocpp env GOCPPCACHE`), `%TEMP%` |
+| program | `name.exe`; `-o prog` writes `prog.exe` (unlike `go build -o prog`, which writes the name as given; a name with an extension keeps it); linked `-static` (no DLLs next to it), main stack 8 MiB; replacing a read-only `.exe` works, a running one is an error that says so |
+| application manifest | linked into every program: `longPathAware` (paths over 260 characters with the plain Win32 and C calls, when the system allows), `activeCodePage` UTF-8 (the narrow functions and `fopen` read a Go string as it is), `asInvoker`, Windows 10 (the UTF-8 code page needs 1903 or later). On by default because without it `GetACP()` is 1252 and a non-ASCII argument, variable or file name is damaged on its way to C code. Go's linker writes none. `GOCPP_NO_MANIFEST=1` leaves it out. With GCC the object replaces MinGW's `default-manifest.o` (a `-B` folder that must have no space: the cache, its short name, the work folder or the private folder `%ProgramData%\gocpp-paths-<SID>`); if there is none, a warning says the program has no manifest |
+| libraries | `-buildmode=c-shared`: `x.dll` exporting the `//export` functions (`__declspec(dllexport)`) and nothing else, `x.dll.a` and `x.lib` (import libraries), `x.h`; `-o mylib` writes `mylib.dll` (`.so` is refused: a DLL is `.dll`). `c-archive`, `cpp-lib`: `.a` as on Linux |
+| long commands | a compile or link line over 30,000 characters (CreateProcess takes 32,767) is passed as a response file `@cmd-N.rsp` |
+| processes | each compiler runs in a job object (kill on close): canceling a build, or killing gocpp, ends the compiler's whole tree |
+| files | locks are `LockFileEx` (two builds at once share one download and one runtime library); renames into the cache are repeated for a few seconds on *Access is denied* / sharing violations |
+| paths the compilers read | MinGW-w64's compilers read their command line in the ANSI code page: `LOCALAPPDATA`, `TEMP`, `TMP` with a character outside it (and `TEMP`, `TMP` of more than 200 characters) are replaced at the start by the 8.3 short name or, for a name that has none (`tmp_Ł`), by a **private** folder `%ProgramData%\gocpp-paths-<SID>\...` (protected ACL: the user, SYSTEM and Administrators; an existing folder is used only if the user owns it and no one else has access to it; a folder that fails the check is refused). The program that `gocpp run` or `gocpp test` starts gets the original values back; a user's own C/C++ files, headers and `#include` paths get their short names; programs and libraries are linked under an ASCII name and renamed (ADR-081, decision 13). Spaces are fine everywhere. A user's own file below a non-ANSI folder on a volume without 8.3 names is the one case that is not solved |
+| paths | the working folder and absolute patterns are spelled as the file system stores them, drive letter in capitals; diagnostics print `.\x.gp:3:4` or the absolute path; `#line` directives escape backslashes; CRLF in `.gp` files and `gocpp.mod` is read like LF |
+| `compile_commands.json` | the `arguments` form, with Windows paths (no shell quoting needed) |
+
+Known limits: typed-interop probes and `gocpp doc` call the host's `clang++`/`g++` and not this rule yet (step 14.6); a package's own C or C++ file below a path of over 260 characters may not open in a compiler that is not long-path
+aware (the generated C++ is in the cache and is fine); an argument that starts with `\\?\` is not interpreted; the console window
+(typing at a prompt) is step 14.7's checklist; `-race` does not exist for Windows.
+
 ### What works on Windows
 
 The Windows OS layer (`runtime/src/os/windows`) is step 14.1's ([ADR-053](../adr/053-windows-os-layer-on-createthread.md);
@@ -382,12 +414,12 @@ build programs with the driver and run them under Wine:
 | works (tested under Wine) | does not yet |
 |---|---|
 | `fmt.Println` and `println` to console, pipe and file; UTF-8 output | UCRT (the dev shell's MinGW-w64 is msvcrt; a real PC covers UCRT) |
-| arguments (Go's command line rules) and environment | `-buildmode=c-shared` for Windows (`.dll`), arm64 Windows |
-| `os.Exit`, `panic` (exit 2, Go's message and frames on stderr), a C `exit` | the Windows host (gocpp itself on Windows) |
+| arguments (Go's command line rules) and environment | arm64 Windows |
+| `os.Exit`, `panic` (exit 2, Go's message and frames on stderr), a C `exit` | |
 | goroutines on threads, channels, `select`, `sync` | |
 | a stack overflow (message and exit 2), the 8 MiB main stack, big programs | |
 | `defer`, `recover`, maps, strings, closures, generics | |
-| package `os` and `syscall` (step 14.3, [ADR-076](../adr/076-os-on-windows-over-a-generic-syscall.md)): files, directories, `RemoveAll`, environment, `Stat`, hard and symbolic links, pipes, `Chmod`, long paths, `Hostname`, `Executable`, `FindProcess` | `os/exec` and `StartProcess`, `os/signal`, `net`; a long-path-aware manifest (so `Chdir` to a path of more than 260 characters fails); `time.Local` (UTC) and zone names |
+| package `os` and `syscall` (step 14.3, [ADR-076](../adr/076-os-on-windows-over-a-generic-syscall.md)): files, directories, `RemoveAll`, environment, `Stat`, hard and symbolic links, pipes, `Chmod`, long paths, `Hostname`, `Executable`, `FindProcess` | `os/exec` and `StartProcess`, `os/signal`, `net`; `time.Local` (UTC) and zone names |
 
 **Package `os` on Windows (step 14.3).** `syscall`, `internal/syscall/windows`, `internal/poll`, `internal/filepathlite` and `os` are Go's own
 Windows files, cut to what a program needs and compiled with the program; the only natives are four (a call of a function by address,

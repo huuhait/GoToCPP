@@ -342,9 +342,22 @@ func (d *driver) outputPath(name string) string {
 		out = name
 	case strings.HasSuffix(out, "/") || strings.HasSuffix(out, string(filepath.Separator)) || isDir(out):
 		out = filepath.Join(out, name)
+	default:
+		// A program for Windows is an .exe: -o prog names prog.exe (a name that has an extension keeps it).
+		out = withExeSuffix(out, d.check.goos)
 	}
 	if !filepath.IsAbs(out) {
 		out = filepath.Join(d.check.dir, out)
+	}
+	return out
+}
+
+// withExeSuffix returns the file name out of a program for the operating system goos: for Windows
+// ".exe" is added to a name without an extension, so that "-o prog" gives prog.exe, which is what
+// CreateProcess, cmd.exe and the shell's PATHEXT look for.
+func withExeSuffix(out, goos string) string {
+	if goos == "windows" && filepath.Ext(out) == "" {
+		return out + ".exe"
 	}
 	return out
 }

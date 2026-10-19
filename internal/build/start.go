@@ -20,6 +20,9 @@ func Start(ctx context.Context, newCmd func() *exec.Cmd) (*exec.Cmd, error) {
 	for try := 0; ; try++ {
 		cmd := newCmd()
 		err := cmd.Start()
+		if err == nil {
+			joinGroup(cmd) // Windows: the job object that InGroup asked for (a no-op elsewhere)
+		}
 		if err == nil || try == 3 || !errors.Is(err, syscall.ETXTBSY) {
 			return cmd, err
 		}
