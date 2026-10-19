@@ -1,10 +1,15 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/version"
@@ -125,24 +130,52 @@ func runExport(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// wantsPlan reports whether the build records its commands: for -compdb and for gocpp export.
+// wantsPlan reports whether the build records its commands: for compile_commands.json (-compdb,
+// or a debug build) and for gocpp export.
 func (d *driver) wantsPlan() bool {
-	return d.flags.extra.compdb != "" || d.afterPlan != nil
+	return d.wantsCompdb() || d.afterPlan != nil
 }
 
 // finishPlan is what compile does with the commands of the build once they are known: it writes
-// the compilation database that -compdb asked for, and runs what gocpp export wants. It returns
-// the exit status, 0 when nothing went wrong.
+// the compilation database (-compdb, or what a debug build writes), and runs what gocpp export
+// wants. It returns the exit status, 0 when nothing went wrong. A database that a debug build
+// writes by itself is only a warning when it can't be written (a read-only module folder): the
+// program is built.
 func (d *driver) finishPlan(set *buildSet, gen string, plan *build.Plan, name string) int {
 	if d.afterPlan == nil { // gocpp export writes its own files
-		for _, t := range d.compdbTargets(set, gen) {
-			path, err := build.WriteCompDB(plan, t)
-			if err != nil {
+		auto := d.compdbAuto()
+		targets := d.compdbTargets(set, gen)
+		if !auto && len(targets) > 0 && !d.genKept(gen) {
+			// The commands name the generated files and the runtime in the work folder, which is
+			// removed when the build ends: the file would point at nothing.
+			fmt.Fprintf(d.stderr, "gocpp %s: warning: compile_commands.json not written: the build is in a work folder that is removed when it ends (there is no cache folder; -work keeps it)\n", d.name)
+			targets = nil
+		}
+		cache := cacheDir()
+		genCopy := filepath.Join(gen, "compile_commands.json")
+		for _, t := range targets {
+			path, err := build.WriteCompDBOwned(plan, t, cache, auto && t != genCopy) // the folder of the generated files is gocpp's own
+			var foreign *build.ForeignCompDBError
+			switch {
+			case errors.As(err, &foreign):
+				fmt.Fprintf(d.stderr, "gocpp %s: %s exists and was not written by gocpp; not touching it (use -compdb to overwrite)\n", d.name, foreign.Path)
+				continue
+			case err != nil && auto:
+				d.warnCompdb(t, err)
+				continue
+			case err != nil:
 				fmt.Fprintf(d.stderr, "gocpp %s: compile_commands.json: %v\n", d.name, err)
 				return exitErrors
 			}
-			if d.flags.x {
-				fmt.Fprintf(d.stderr, "# compile_commands.json: %s\n", path)
+			switch {
+			case !auto:
+				if d.flags.x {
+					fmt.Fprintf(d.stderr, "# compile_commands.json: %s\n", path)
+				}
+			case path == genCopy:
+				d.compdbOwned = append(d.compdbOwned, path) // the stamp looks after it (saveStamp)
+			default:
+				d.compdbWritten = append(d.compdbWritten, path)
 			}
 		}
 	}
@@ -153,4 +186,25 @@ func (d *driver) finishPlan(set *buildSet, gen string, plan *build.Plan, name st
 		}
 	}
 	return 0
+}
+
+// warnCompdb says that the compile_commands.json that a debug build writes by itself could not be
+// written, at most once a day for a file (a read-only module folder would repeat it for every build).
+func (d *driver) warnCompdb(path string, err error) {
+	if cache := cacheDir(); cache != "" {
+		marker := compdbWarnMarker(cache, path)
+		if fi, e := os.Stat(marker); e == nil && time.Since(fi.ModTime()) < 24*time.Hour {
+			return
+		}
+		if os.MkdirAll(filepath.Dir(marker), 0o700) == nil {
+			os.WriteFile(marker, nil, 0o600)
+		}
+	}
+	fmt.Fprintf(d.stderr, "gocpp %s: warning: compile_commands.json not written: %v (-compdb=false turns this off)\n", d.name, err)
+}
+
+// compdbWarnMarker returns the file in the cache whose time says when warnCompdb last spoke of path.
+func compdbWarnMarker(cache, path string) string {
+	sum := sha256.Sum256([]byte(path))
+	return filepath.Join(cache, "compdb", "warned-"+hex.EncodeToString(sum[:8]))
 }

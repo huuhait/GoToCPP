@@ -1154,6 +1154,11 @@ func (r result) why() string {
 // to the environment; cxx, if it isn't "", goes to gocpp in GOCPP_CXX, after
 // them, and so does the GOCPP_GATE_PHASE of gateEnv(phase).
 func gocppJob(dir string, env []string, cxx string, phase int, args ...string) job {
+	// gocpp build writes compile_commands.json next to the module of a debug build (ADR-044): not
+	// into the repository's test folders.
+	if len(args) > 0 && args[0] == "build" {
+		args = append([]string{"build", "-compdb=false"}, args[1:]...)
+	}
 	if cxx != "" {
 		env = append(env[:len(env):len(env)], "GOCPP_CXX="+cxx)
 	}

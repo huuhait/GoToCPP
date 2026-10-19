@@ -16,6 +16,9 @@ coverage.html
 # clangd's index (it writes .cache/clangd/ next to compile_flags.txt, e.g. runtime/.cache/)
 .cache/
 
+# compile_commands.json: gocpp build writes it next to a module (ADR-044), clangd reads it
+compile_commands.json
+
 # Nix build results (nix build in the root)
 /result
 /result-*

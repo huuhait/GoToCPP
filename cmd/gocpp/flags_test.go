@@ -5,11 +5,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/huuhait/gocpp/internal/build"
+	"github.com/huuhait/gocpp/internal/check"
+	"github.com/huuhait/gocpp/internal/load"
 )
 
 // The tests of the build flags of step 6.12 (flags.go): their parsing, their errors, what they
@@ -104,7 +107,7 @@ func TestOptFlag(t *testing.T) {
 		var v string
 		fs := flag.NewFlagSet("x", flag.ContinueOnError)
 		fs.SetOutput(io.Discard)
-		fs.Var(optFlag{&v, check}, "e", "")
+		fs.Var(optFlag{dst: &v, valid: check}, "e", "")
 		err := fs.Parse(c.args)
 		if (err != nil) != c.fail || (!c.fail && v != c.want) {
 			t.Errorf("%q: value %q, error %v; want %q (fail: %v)", c.args, v, err, c.want, c.fail)
@@ -128,7 +131,7 @@ func TestBuildFlagUsageErrors(t *testing.T) {
 		{[]string{"build", "-nope", "hello.gp"}, 2, "flag provided but not defined: -nope"},
 		{[]string{"run", "-n", "hello.gp"}, 2, "flag provided but not defined: -n"},
 		{[]string{"run", "-emit-llvm", "hello.gp"}, 2, "flag provided but not defined: -emit-llvm"},
-		{[]string{"run", "-compdb", "hello.gp"}, 2, "flag provided but not defined: -compdb"},
+		{[]string{"export", "compdb", "-compdb", "hello.gp"}, 2, "flag provided but not defined: -compdb"},
 		{[]string{"emit", "-cxxflags=-DX", "hello.gp"}, 2, "flag provided but not defined: -cxxflags"},
 		{[]string{"check", "-ldflags=-lm", "hello.gp"}, 2, "flag provided but not defined: -ldflags"},
 	} {
@@ -254,20 +257,83 @@ func TestUserEnvLayersAndPlugins(t *testing.T) {
 
 func TestCompdbTargets(t *testing.T) {
 	dir := inDir(t, map[string]string{"gocpp.mod": "module example.com/m\n", "main.gp": mainSrc})
-	d := &driver{flags: &buildFlags{}, check: &checkCommand{dir: dir}}
-	set := &buildSet{}
-	_ = set
-	if got := d.compdbTargets(nil, "/gen"); got != nil {
-		t.Errorf("no -compdb: %q", got)
+	d := &driver{name: "build", flags: &buildFlags{}, check: &checkCommand{dir: dir, goos: runtime.GOOS, goarch: runtime.GOARCH}}
+	set := &buildSet{main: &check.Package{Load: &load.Package{Dir: dir, Module: &load.Module{Dir: dir}}}}
+	gen := filepath.Join(dir, "gen")
+	genDB := filepath.Join(gen, "compile_commands.json")
+	modDB := filepath.Join(dir, "compile_commands.json")
+	expect := func(what string, want ...string) {
+		t.Helper()
+		if got := d.compdbTargets(set, gen); !slices.Equal(got, want) {
+			t.Errorf("%s: targets %q, want %q", what, got, want)
+		}
 	}
+	// A debug build (nothing given, or -debug, or -race) writes both places by itself.
+	expect("debug build", genDB, modDB)
+	d.flags.extra.mode.Debug = true
+	expect("-debug", genDB, modDB)
+	d.flags.extra.mode = build.Profile{Race: true}
+	expect("-race", genDB, modDB)
+	// A release build and -n write nothing by themselves.
+	d.flags.extra.mode = build.Profile{Release: true}
+	expect("-release")
+	d.flags.extra.mode = build.Profile{}
+	d.flags.extra.dryRun = true
+	expect("-n")
+	d.flags.extra.dryRun = false
+	// -compdb=false turns it off in a debug build.
+	d.flags.extra.compdb = "false"
+	expect("-compdb=false")
+	if d.wantsCompdb() || d.wantsPlan() {
+		t.Errorf("-compdb=false: the build still wants the plan")
+	}
+	// -compdb and -compdb=path work in every mode.
+	d.flags.extra.compdb = "true"
+	d.flags.extra.mode = build.Profile{Release: true}
+	expect("-release -compdb", genDB, modDB)
+	d.flags.extra.dryRun = true
+	expect("-n -compdb", genDB, modDB)
+	d.flags.extra.dryRun = false
+	d.flags.extra.mode = build.Profile{}
 	d.flags.extra.compdb = "out.json"
-	if got, want := d.compdbTargets(nil, "/gen"), []string{filepath.Join(dir, "out.json")}; !slices.Equal(got, want) {
-		t.Errorf("-compdb=out.json: %q, want %q", got, want)
-	}
+	expect("-compdb=out.json", filepath.Join(dir, "out.json"))
 	abs := filepath.Join(os.TempDir(), "x.json")
 	d.flags.extra.compdb = abs
-	if got := d.compdbTargets(nil, "/gen"); !slices.Equal(got, []string{abs}) {
-		t.Errorf("-compdb=%s: %q", abs, got)
+	expect("-compdb="+abs, abs)
+	// gocpp export writes its own files.
+	d.flags.extra.compdb = ""
+	d.afterPlan = func(*buildSet, *build.Plan, string) error { return nil }
+	expect("export")
+	d.afterPlan = nil
+	// The module's copy is gocpp build's, and of a build for the host.
+	for _, name := range []string{"run", "test", "debug"} {
+		d.name = name
+		expect("gocpp "+name, genDB)
+	}
+	d.name = "build"
+	d.check.goos = "windows"
+	if runtime.GOOS == "windows" {
+		d.check.goos = "linux"
+	}
+	expect("cross build", genDB)
+	d.check.goos = runtime.GOOS
+	// A program of single .gp files has no module: no copy next to it.
+	noMod := &buildSet{main: &check.Package{Load: &load.Package{Dir: dir}}}
+	if got := d.compdbTargets(noMod, gen); !slices.Equal(got, []string{genDB}) {
+		t.Errorf("no module: %q", got)
+	}
+	// A folder of generated files that is removed with the work folder: nothing is written
+	// (the commands name files in it), whoever builds. -work keeps it.
+	d.work = filepath.Join(dir, "work")
+	for _, name := range []string{"build", "run"} {
+		d.name = name
+		if got := d.compdbTargets(set, filepath.Join(d.work, "gen")); got != nil {
+			t.Errorf("gocpp %s, gen in the work folder: %q", name, got)
+		}
+	}
+	d.flags.work = true // -work keeps it
+	if got := d.compdbTargets(set, filepath.Join(d.work, "gen")); !slices.Equal(got, []string{filepath.Join(d.work, "gen", "compile_commands.json")}) {
+		t.Errorf("run -work: %q", got)
 	}
 }
 
@@ -281,6 +347,9 @@ func TestBuildUsageDocumentsEveryFlag(t *testing.T) {
 		var f buildFlags
 		fs := flag.NewFlagSet(c.name, flag.ContinueOnError)
 		f.register(fs, c.forBuild)
+		if !c.forBuild {
+			f.extra.registerCompdb(fs) // run has it too
+		}
 		fs.VisitAll(func(fl *flag.Flag) {
 			if !strings.Contains(c.usage, "\t-"+fl.Name) {
 				t.Errorf("gocpp %s: the flag -%s is not in the help text of gocpp build (buildUsage)", c.name, fl.Name)

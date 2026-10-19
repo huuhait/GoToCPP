@@ -96,8 +96,8 @@ that is a symbolic link is removed as a link, what it points at is never touched
 
 ## Build flags, tags and the user's own compiler flags
 
-`gocpp build` and `gocpp run` take these flags (`gocpp build -h` has the text; `-n`, `-emit-llvm`,
-`-compdb` and `-o` are for `build` only):
+`gocpp build` and `gocpp run` take these flags (`gocpp build -h` has the text; `-n`, `-emit-llvm`
+and `-o` are for `build` only; `-compdb` is also a flag of `run`, `test` and `debug`):
 
 | Flag | Meaning |
 |---|---|
@@ -146,7 +146,7 @@ content hash of a file is remembered by its name, size and time for the life of 
 object cache (they are on the compile's command line): a changed `-cxxflags`, `-tags`, mode, or `GOCPP_CXXFLAGS`
 compiles what depends on it and links again, and the build with the old flags is found again when the flags
 come back. A build with `-n`, `-a`, `-emit-llvm` or `-compdb` is not recorded (it has files that the check does
-not look at).
+not look at); the `compile_commands.json` that a debug build writes by itself does not count (see below).
 
 **Compiler plugins.** The user's flags may load code into the compiler: LLVM pass plugins with clang
 (`-cxxflags=-fpass-plugin=/path/p.so`) and front-end plugins (`-fplugin=/path/p.so` with g++ or clang,
@@ -168,7 +168,10 @@ gocpp does not remove what it did not make.
 
 ## Files for other tools
 
-**`compile_commands.json`.** `gocpp build -compdb` (with a program) or `gocpp export compdb` (nothing is built) writes
+**`compile_commands.json`.** A debug build (the default, `-debug`, `-race`) of `gocpp build`, `run`, `test` or `debug`
+writes it by itself (ADR-044, amended 2026-10-19), so that clangd understands the generated C++ you step into; a
+`-release` build or `-n` writes it only with `-compdb`, and `-compdb=false` turns it off. `gocpp build -compdb` (with a
+program) or `gocpp export compdb` (nothing is built) writes
 the JSON compilation database that clangd and others read: one entry for every translation unit with the exact
 command (`arguments`), `directory` and `file`. The units are the generated C++ of every package, the package's own C and C++
 files, the sources of the libraries of modules, and the files of gocpp's runtime. The paths are stable: the generated
@@ -176,7 +179,13 @@ files are in `gen/<hash>` of the cache folder (the same folder for every build o
 and the others in their own folders, so a tool can open them after the build; `-o` and the object file are left out
 (the objects are in the work folder, which is gone). The entries are sorted by file, and the file is replaced
 only when its content changes. Without a value `-compdb` writes to the generated folder and to the module's folder
-(the one with `gocpp.mod`; else the package's folder); with a value, to that file or folder. clangd with g++ or
+(the one with `gocpp.mod`; else the package's folder); with a value, to that file or folder. What a debug build writes
+by itself is the same, except that the module's copy is only `gocpp build`'s for the host, of a program in a module
+(`run`, `test`, `debug`, a cross-compile and a loose `.gp` file write the generated folder's copy only; with several
+programs in a module it holds the last one built), that nothing is written when there is no cache folder (the build is
+in a folder that is removed), that it never replaces a symbolic link or a file that gocpp did not write (it says so;
+`-compdb` does replace a regular file, and a link by a file: it never writes through a link), and that a file that cannot be written is a warning,
+not an error. `-compdb=false` leaves an old file as it is. An up-to-date build leaves the files as they are. clangd with g++ or
 under Nix wants `--query-driver=<compiler>` so that it finds the compiler's own include folders.
 
 **`gocpp export cmake [-o folder] [build flags] packages`** writes a folder (default `<program>-cmake`) with a

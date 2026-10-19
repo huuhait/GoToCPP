@@ -95,6 +95,7 @@ func parseTestArgs(args []string, stderr io.Writer) (*testOptions, int) {
 	buildFS := flag.NewFlagSet("gocpp test", flag.ContinueOnError)
 	buildFS.SetOutput(io.Discard)
 	o.build.register(buildFS, false)
+	o.build.extra.registerCompdb(buildFS)
 	buildNames := map[string]bool{}
 	buildFS.VisitAll(func(f *flag.Flag) { buildNames[f.Name] = true })
 	for i := 0; i < len(args); i++ {

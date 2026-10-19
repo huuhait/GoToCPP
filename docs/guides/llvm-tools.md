@@ -47,6 +47,8 @@ emptied by the next build with the flag; gocpp only empties a folder that it mad
 
 ## Look at the generated C++ in an editor
 
-`gocpp build -compdb` writes `compile_commands.json` into the module folder, so clangd understands the generated C++
-and your own C++ files; `gocpp export compdb` writes it without building. `gocpp export cmake` makes a CMake project
+A debug build (the default) writes `compile_commands.json` into the module folder by itself, so clangd understands the
+generated C++ and your own C++ files (and a copy into the folder of the generated C++, which `gocpp run` and
+`gocpp test` write too). It never replaces a `compile_commands.json` that gocpp did not write (a hand-made one, CMake's or Bear's, a symbolic link): it says so, and `-compdb` overwrites (a symbolic link is replaced by a file; write the file behind it with `gocpp export compdb -o path`). `-compdb=false` turns the automatic write off and leaves an old file in place. A `-release` build writes it with `gocpp build -release -compdb`; `-compdb=false` turns the
+automatic write off; `gocpp export compdb` writes it without building. `gocpp export cmake` makes a CMake project
 of the program.

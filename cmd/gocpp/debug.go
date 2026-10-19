@@ -59,6 +59,7 @@ func runDebug(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var df debugFlags
 	flags := flag.NewFlagSet("gocpp debug", flag.ContinueOnError)
 	f.register(flags, false)
+	f.extra.registerCompdb(flags)
 	flags.StringVar(&df.debugger, "debugger", "", "the debugger: gdb or lldb (default gdb, or lldb when there is no gdb)")
 	flags.Var(&df.cmds, "ex", "run this debugger command after the program is loaded (repeatable: -ex 'break hello.gp:12' -ex run)")
 	flags.Var(&df.maps, "map", "FROM=TO: show the sources that the debug info names under FROM from TO (a program built with -trimpath, or moved)")

@@ -28,7 +28,7 @@ type extraFlags struct {
 	dryRun  bool   // -n: print the commands, run nothing
 	verbose bool   // -v: print the packages
 	llvm    string // -emit-llvm: "", "ll" or "bc"
-	compdb  string // -compdb: "", "true" (the default places) or a file or folder
+	compdb  string // -compdb: "" (not given), "true" (the default places), "false" (never) or a file or folder
 }
 
 // A listFlag is a flag whose value is a list of words, split like GOCPP_CXXFLAGS is (quotes keep
@@ -105,6 +105,9 @@ func parseTags(v string) ([]string, error) {
 type optFlag struct {
 	dst   *string
 	valid func(v string) error
+	// keepFalse says that -flag=false is a value of its own ("false" is stored) instead of the
+	// same as not giving the flag ("" is stored): -compdb=false turns off what a debug build does.
+	keepFalse bool
 }
 
 func (o optFlag) String() string {
@@ -120,6 +123,9 @@ func (o optFlag) Set(v string) error {
 	switch v {
 	case "false":
 		*o.dst = ""
+		if o.keepFalse {
+			*o.dst = "false"
+		}
 		return nil
 	case "":
 		return fmt.Errorf("the value is empty")
@@ -149,13 +155,19 @@ func (e *extraFlags) register(flags *flag.FlagSet, forBuild bool) {
 		return
 	}
 	flags.BoolVar(&e.dryRun, "n", false, "print the commands, but run no compiler and no linker, and write no program")
-	flags.Var(optFlag{&e.llvm, func(v string) error {
+	flags.Var(optFlag{dst: &e.llvm, valid: func(v string) error {
 		if v != "ll" && v != "bc" {
 			return fmt.Errorf("must be ll (text) or bc (bitcode)")
 		}
 		return nil
 	}}, "emit-llvm", "also write the LLVM IR of every translation unit (clang only) next to the program: `ll` (text, the default) or bc (bitcode)")
-	flags.Var(optFlag{&e.compdb, nil}, "compdb", "also write compile_commands.json: without a value into the folder of the generated C++ and the module's folder; -compdb=`path` to a file or folder")
+	e.registerCompdb(flags)
+}
+
+// registerCompdb adds -compdb: gocpp build, run, test and debug have it (gocpp export has its own
+// way to choose the file).
+func (e *extraFlags) registerCompdb(flags *flag.FlagSet) {
+	flags.Var(optFlag{dst: &e.compdb, keepFalse: true}, "compdb", "write compile_commands.json, the compilation database of clangd and other tools. A debug build (the default) writes it without the flag (into the folder of the generated C++, and gocpp build also into the module's folder); a -release build only with the flag. -compdb: those places; -compdb=`path`: that file or folder; -compdb=false: never")
 }
 
 // layered reports whether the build flags change the trusted flags of the build.
@@ -174,7 +186,7 @@ func (e *extraFlags) unstamped() string {
 		return "-n runs nothing"
 	case e.llvm != "":
 		return "-emit-llvm writes files that the check does not look at"
-	case e.compdb != "":
+	case e.compdbExplicit():
 		return "-compdb writes files that the check does not look at"
 	}
 	return ""
@@ -189,6 +201,7 @@ func (e *extraFlags) keyParts() []string {
 		"cxxflags=" + strings.Join(e.cxxflags, "\x00"),
 		"ldflags=" + strings.Join(e.ldflags, "\x00"),
 		fmt.Sprint("mode=", e.mode.Debug, e.mode.Release, e.mode.Race),
+		fmt.Sprint("compdb-off=", e.compdb == "false"), // a build that wrote the file is not the build that did not
 	}
 	return parts
 }
@@ -218,23 +231,73 @@ func pluginKey(env build.EnvFlags) []string {
 	return build.PluginStamp(env.CXXCompile())
 }
 
-// compdbModuleRoot returns the folder that compile_commands.json goes to by default: the folder of
-// the module of the program (the folder of gocpp.mod), or the folder of the package.
-func compdbModuleRoot(set *buildSet) string {
+// compdbModuleDir returns the folder of the module of the program (the folder of gocpp.mod), and
+// whether there is one: a program of single .gp files has no module.
+func compdbModuleDir(set *buildSet) (string, bool) {
 	if m := set.main.Load.Module; m != nil && m.Dir != "" && !set.main.Load.Std {
-		return m.Dir
+		return m.Dir, true
+	}
+	return "", false
+}
+
+// compdbModuleRoot returns the folder that the bare -compdb writes compile_commands.json to: the
+// folder of the module of the program, or the folder of the package.
+func compdbModuleRoot(set *buildSet) string {
+	if dir, ok := compdbModuleDir(set); ok {
+		return dir
 	}
 	return set.main.Load.Dir
 }
 
-// compdbTargets returns where -compdb writes compile_commands.json: for the bare flag the folder
-// of the generated files and the folder of the module; for a value that file or folder (a
-// relative one from the current folder).
+// compdbExplicit reports whether the user asked for compile_commands.json: -compdb or -compdb=path.
+func (e *extraFlags) compdbExplicit() bool {
+	return e.compdb != "" && e.compdb != "false"
+}
+
+// compdbAuto reports whether this build writes compile_commands.json although the flag was not
+// given (ADR-044, amended 2026-10-19): a debug build does, because the person who debugs the
+// program steps into the generated C++ and wants clangd to understand it. A -release build, -n
+// (nothing is written), -compdb=false and gocpp export (which writes its own files) do not.
+func (d *driver) compdbAuto() bool {
+	e := &d.flags.extra
+	return e.compdb == "" && !e.mode.Release && !e.dryRun && d.afterPlan == nil
+}
+
+// wantsCompdb reports whether the build writes compile_commands.json.
+func (d *driver) wantsCompdb() bool {
+	return d.flags.extra.compdbExplicit() || d.compdbAuto()
+}
+
+// compdbTargets returns where the build writes compile_commands.json. With the bare flag, the
+// folder of the generated files and the folder of the module; with a value, that file or folder
+// (a relative one from the current folder). Without the flag, a debug build writes the same two
+// places, except that
+//   - the module's folder gets its copy only from gocpp build for the host, of a program in a
+//     module (gocpp run and test build many things of one module, a cross-compile's commands are
+//     not those of the host: the file that clangd reads there is not replaced by them; a program
+//     of single .gp files has no module and its folder may be anywhere), and
+//   - nothing is written when the folder of the generated files is not kept (the object cache's
+//     gen folder, or -work's): without a cache folder the build is in a work folder that is
+//     removed, and the commands name files in it.
 func (d *driver) compdbTargets(set *buildSet, gen string) []string {
 	v := d.flags.extra.compdb
 	switch v {
-	case "":
+	case "false":
 		return nil
+	case "":
+		if !d.compdbAuto() {
+			return nil
+		}
+		if !d.genKept(gen) {
+			return nil
+		}
+		targets := []string{filepath.Join(gen, "compile_commands.json")}
+		if set != nil && d.name == "build" && isHostTarget(d.check.goos, d.check.goarch) {
+			if dir, ok := compdbModuleDir(set); ok {
+				targets = append(targets, filepath.Join(dir, "compile_commands.json"))
+			}
+		}
+		return targets
 	case "true":
 		return []string{filepath.Join(gen, "compile_commands.json"), filepath.Join(compdbModuleRoot(set), "compile_commands.json")}
 	}
@@ -242,6 +305,16 @@ func (d *driver) compdbTargets(set *buildSet, gen string) []string {
 		v = filepath.Join(d.check.dir, v)
 	}
 	return []string{v}
+}
+
+// genKept reports whether the folder gen of the generated files is still there after the build:
+// it is not when it is in the work folder, which is removed (without -work).
+func (d *driver) genKept(gen string) bool {
+	if d.flags.work || d.work == "" {
+		return true
+	}
+	rel, err := filepath.Rel(d.work, gen)
+	return err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // emitLLVMError returns the error for -emit-llvm with a compiler that is not clang, or nil. kind

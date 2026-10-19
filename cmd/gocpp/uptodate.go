@@ -240,13 +240,21 @@ func (d *driver) saveStamp(out string) {
 	}
 	var s *build.Stamp
 	if why == "" {
-		var extra []string
+		// The files that the build wrote besides the program. The folder of the module has a new
+		// file after the build, which is no change of the package (settled in the listings); the
+		// outputs are the library's files and the copy of the compilation database in the folder of
+		// the generated files, which is built again when it is gone.
+		var settle, outputs []string
 		if d.lib != nil {
-			extra = d.lib.extra
+			settle = append(settle, d.lib.extra...)
+			outputs = append(outputs, d.lib.extra...)
 		}
-		s, why = build.NewStamp(st.key, st.fsrec, st.pkgLog, st.rec, st.compilers, out, st.pkgs, extra...)
-		if s != nil && d.lib != nil {
-			if w := s.AddOutputs(d.lib.extra); w != "" {
+		settle = append(settle, d.compdbWritten...)
+		settle = append(settle, d.compdbOwned...)
+		outputs = append(outputs, d.compdbOwned...)
+		s, why = build.NewStamp(st.key, st.fsrec, st.pkgLog, st.rec, st.compilers, out, st.pkgs, settle...)
+		if s != nil && len(outputs) > 0 {
+			if w := s.AddOutputs(outputs); w != "" {
 				s, why = nil, w
 			}
 		}

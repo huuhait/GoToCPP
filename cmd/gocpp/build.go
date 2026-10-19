@@ -134,7 +134,7 @@ bug in gocpp: gocpp build prints "internal error: generated C++ did not
 compile", the first errors of the compiler, which point at the .gp
 lines, and the work folder, which it keeps; it exits with status 2.
 
-The build flags (of build and run; -compdb, -emit-llvm, -n and -o are of build only) are:
+The build flags (of build and run; -emit-llvm, -n and -o are of build only) are:
 
 	-a
 		compile everything again: the object cache and the up-to-date
@@ -155,13 +155,27 @@ The build flags (of build and run; -compdb, -emit-llvm, -n and -o are of build o
 		color the diagnostics: auto (on a terminal), always or never
 		(GOCPP_COLOR, NO_COLOR and CLICOLOR_FORCE also count)
 	-compdb[=path]
-		also write compile_commands.json, the JSON compilation database
-		of clangd and other tools, with the exact command of every
+		write compile_commands.json, the JSON compilation database of
+		clangd and other tools, with the exact command of every
 		translation unit of the program (the generated C++, the
 		package's C and C++ files, the libraries of modules, the
-		runtime). Without a value it goes to the folder of the generated
-		C++ and to the folder of the module (gocpp.mod); with a value, to
-		that file or folder. gocpp export compdb does only this
+		runtime). A debug build (the default, -debug, -race) writes it
+		without this flag, so that clangd and the debugger find the
+		generated C++: gocpp build to the folder of the generated C++
+		and to the folder of the module (gocpp.mod), a native build of
+		a program in a module only (with several programs it holds the
+		last one built); gocpp run, test and debug to the folder of the
+		generated C++. Nothing is written when there is no cache folder
+		(the build is in a folder that is removed). The automatic write
+		never replaces a symbolic link or a file that gocpp did not
+		write (it says so); a failure to write it is a warning. A
+		-release build and -n write it only with this flag. -compdb
+		goes to the two places even for -release and replaces a file; a
+		symbolic link is replaced by the file, never written through
+		(to fill the file behind a link: gocpp export compdb -o path).
+		-compdb=path goes to that file or folder, -compdb=false turns
+		the automatic write off (a file that is there stays). gocpp
+		export compdb does only this
 	-cpperrors mode
 		short (the default) or full: full shows the whole output of
 		the C++ compiler or the linker when the program's C++ doesn't
@@ -398,6 +412,7 @@ func runRun(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var f buildFlags
 	flags := flag.NewFlagSet("gocpp run", flag.ContinueOnError)
 	f.register(flags, false)
+	f.extra.registerCompdb(flags)
 	if code, done := parseFlags("run", runUsage, flags, args, stderr); done {
 		return code
 	}
@@ -513,6 +528,13 @@ type driver struct {
 	// afterPlan, if not nil, is called by compile with the plan of the build when its commands are
 	// known (and run, or listed with -n): gocpp export uses it to write its files.
 	afterPlan func(set *buildSet, plan *build.Plan, name string) error
+
+	// What a debug build wrote by itself (flags.go: compdbAuto): compdbWritten is the copy in the
+	// module's folder, which is no change of the package for the up-to-date check; compdbOwned is the
+	// copy in the folder of the generated files of the program, an output that the check looks after
+	// (the module's copy holds the commands of the last program built, so it can't be one).
+	compdbWritten []string
+	compdbOwned   []string
 
 	stamp         *stampState // the up-to-date check of this build, or nil (uptodate.go)
 	upToDateBuild bool        // the build found its program current
