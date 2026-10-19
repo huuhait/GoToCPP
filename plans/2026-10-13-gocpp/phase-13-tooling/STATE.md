@@ -1,13 +1,13 @@
 # Phase 13: Developer Tooling · STATE
 
-**Status:** `[~]` in progress (13.3, 13.4 merged 2026-10-19)
+**Status:** `[~]` in progress (13.1, 13.3, 13.4 merged 2026-10-19/20)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-19
 
 ## Steps
 
 - [x] Test: x/tools on code that uses C/C++ names: go/types reports 0 errors, `refactor/satisfy` (printf) and `go/ssa` (nilness) panic → guard needed (`spikes/2026-10-13/audit-checks/xtools-opaque`, 2026-10-13)
-- [ ] 13.1 Diagnostics polish (excerpts, color, C++ → gocpp names incl. `gpkg_…` namespaces, noise filter, "in expansion of" notes)
+- [x] 13.1 Diagnostics polish (excerpts, color, C++ → gocpp names incl. `gpkg_…` namespaces, noise filter, "in expansion of" notes)
 - [ ] 13.2 Debugging
   - [ ] GDB pretty printers
   - [ ] LLDB data formatters
