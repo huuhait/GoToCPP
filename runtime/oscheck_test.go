@@ -42,8 +42,16 @@ var stdHeaders = func() map[string]bool {
 // and the two text files at the root. Every other file is checked, whatever its name, because
 // C++ can #include a file of any name ("sneaky.inl", "helpers").
 func skipCheck(p string) bool {
-	return path.Ext(p) == ".go" || p == "README.md" || p == "compile_flags.txt"
+	return path.Ext(p) == ".go" || p == "README.md" || p == "compile_flags.txt" || p == raceAtomicity
 }
+
+// raceAtomicity is the one header outside src/os/ that includes libstdc++'s own internals
+// (<bits/gthr.h>, <bits/atomic_word.h>): it replaces <ext/atomicity.h> so that ThreadSanitizer sees
+// the reference-count atomics of the standard library, and is included only by gocpp/nofortify.h
+// when GOCPP_RACE_MODE is set (-race, Linux and g++/clang++ with libstdc++ only: Windows and
+// darwin refuse -race). It can't move to src/os/, because nothing outside src/os/ may include a
+// file from it.
+const raceAtomicity = "include/gocpp/race_atomicity.hpp"
 
 // includeRx matches an #include line (after joining continuation lines and removing block
 // comments), also with the digraph %: for #, and #include_next and #import.

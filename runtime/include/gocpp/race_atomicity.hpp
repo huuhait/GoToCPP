@@ -52,14 +52,20 @@ void AnnotateIgnoreSyncEnd(const char* file, int line);
 
 #include <bits/gthr.h>
 #include <bits/atomic_word.h>
-#if __has_include(<sys/single_threaded.h>)
-#include <sys/single_threaded.h>
+// glibc's <sys/single_threaded.h> declares this flag; the declaration is repeated here because OS
+// headers may only be included from runtime/src/os/. Without glibc the answer is always "no".
+#if defined(__GLIBC__)
+extern "C" char __libc_single_threaded;
 #endif
 
 namespace __gnu_cxx {
 
 __attribute__((__always_inline__)) inline bool __is_single_threaded() noexcept {
+#if defined(__GLIBC__)
     return ::__libc_single_threaded;
+#else
+    return false;
+#endif
 }
 
 __attribute__((__always_inline__)) inline _Atomic_word

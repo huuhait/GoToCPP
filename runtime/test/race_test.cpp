@@ -19,8 +19,6 @@
 #include <cstdlib>
 #include <string>
 
-#include <unistd.h>
-
 namespace {
 
 int64_t plain = 0;
@@ -109,9 +107,9 @@ void case_main(const std::string& name) {
         gp::recv(done);
     } else if (name == "race-then-exit") {
         // A race that is followed at once by the death of the process: a goroutine writes, main
-        // writes after it (nothing orders them) and ends the process with _exit. The report must be
-        // on the screen before the end (the callback waits for the reporter), as Go's is. (A
-        // relaxed flag tells main that the goroutine is done: it orders nothing for TSan.)
+        // writes after it (nothing orders them) and ends the process with std::_Exit. The report
+        // must be on the screen before the end (the callback waits for the reporter), as Go's is.
+        // (A relaxed flag tells main that the goroutine is done: it orders nothing for TSan.)
         static std::atomic<int> flag{0};
         gp::go([] {
             for (int i = 0; i < 100; i++) {
@@ -124,7 +122,7 @@ void case_main(const std::string& name) {
         for (int i = 0; i < 100; i++) {
             plain++; // races with the goroutine's writes: the detector finds it here
         }
-        ::_exit(7); // at once: no time for anything that is not done yet
+        std::_Exit(7); // at once: no time for anything that is not done yet
     } else if (name == "reporter") {
         // The reporter is a process of the detector, started with the runtime (not a thread: it
         // must not use ThreadSanitizer's budget).
