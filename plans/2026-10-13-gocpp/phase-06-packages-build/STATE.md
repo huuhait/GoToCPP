@@ -10,9 +10,9 @@
 - [x] 6.2 Per-package codegen (`pkg.hpp`, one TU per `.gp`, `pkg_init.cpp`, flat escaped namespaces, stable folders)
 - [x] 6.3 Header layout (gocpp headers first, public flags, fully qualified struct field types, exported constants, shared anon-type header)
 - [~] 6.4 Cross-package init: Go 1.21+ global order, `gp_init_all()`, `constinit` variables, `gp::lazy<T>`
-- [ ] 6.5 Action graph with content hashing + `-MD` header deps + macro lists + public flags + wrapper environment
-- [ ] 6.6 Cache (objects, generated files, write-if-changed, API hash = export data + `pkg.hpp`, package summaries, `clean -cache`)
-- [ ] 6.7 Parallel executor (`-p`), `-x`, `-work`, error aggregation
+- [x] 6.5 Action graph with content hashing + `-MD` header deps + macro lists + public flags + wrapper environment
+- [x] 6.6 Cache (objects, generated files, write-if-changed, API hash = export data + `pkg.hpp`, package summaries, `clean -cache`)
+- [x] 6.7 Parallel executor (`-p`), `-x`, `-work`, error aggregation
 - [ ] 6.8 Runtime prebuild + precompiled header
 - [ ] 6.9 Link step (ordering, dedup, system libs, LTO with matching archiver)
 - [ ] 6.10 Build modes

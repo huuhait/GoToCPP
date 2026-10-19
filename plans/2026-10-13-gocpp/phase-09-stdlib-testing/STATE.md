@@ -13,7 +13,7 @@
   - [ ] `internal/stringslite`, `internal/byteorder`
   - [ ] `internal/abi`, `internal/godebug`, `internal/cpu` stubs
   - [ ] minimal `runtime` + `syscall` surfaces
-- [ ] 9.3 Reflect subset
+- [x] 9.3 Reflect subset
   - [ ] descriptor extensions (fields + tags, elem/key, len, accessors, zero value, element assign/swap)
   - [ ] per-package API list (§2.2), incl. settable values and `Swapper`
   - [ ] `internal/reflectlite` alias + `DeepEqual`

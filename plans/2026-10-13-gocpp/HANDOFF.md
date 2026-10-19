@@ -123,3 +123,11 @@ internal/cppgen: 8.1's new `goroutine 1 [running]:` line; the coder of 8.1 had n
 runtime's fatal-error output needs `go test ./internal/cppgen` too) and timing failures that pass alone (TestOrderLarge, two interop
 tests at the 2-minute limit under load 365, the fmt speed check now a ratio). In flight: 4.10 (review round 4 found a lost owner when
 a raw member is READ; coder adding `load_keep`, the free path, slice/struct owners), 6.1d (cxx recipes, coder running).
+
+## State at 2026-10-20 (new PC "ServerLab": 192 cores, 503 GB; work capped at 150 cores / 372 GB RAM by the user-level cgroup `gocpp-work.slice`)
+
+Merged to `dev` today (squash, each after an independent review; NOT run: `make ci`, interop, ASan and phase sweeps: the user runs `make ci` by hand as the final review):
+13.3 vet, 13.4 doc, the named-result shadow fix, 7.8 range-over-func, 12.1/12.2 typed interop collector+probes, 9.3 reflect subset, 6.5-6.7 stamp/up-to-date check, 11.11/11.12 LSP benchmarks. After the merges a focused smoke on dev passed (build, vet, internal/lower, check, stdlib, stubgen, build, typedinterop/probe, TestRun reflect_/rangefunc_/named_result_).
+Rules in force (user): max 10 workers; run only needed tests; nobody runs `make ci` or full sweeps; agents commit often; ADR numbers hand-allocated (used: 035 reflect, 036 build stamp, 037 must (10.2 branch), 038 exit/runtime (8.9 branch), 040 sync (8.7 branch), 045 shims (9.2 branch), 053 Windows (14.1 branch), 060 typed interop, 062 math (9.5 branch), 063 doc, 067 os (9.6 branch)).
+In flight: 13.1 (round 2 done, awaits small re-review), 14.1 (recheck), 10.2 (review), 8.7 (review), 8.9/8.10 (review), 9.5 (review), 9.2 (coder), 8.8 (coder), 7.9 (coder). Waiting for prerequisites: 9.6 os (needs 8.7, 8.8, 8.9, 9.2), 6.10/6.11/6.13/6.8 (rebase on 6.5, now merged), lspperf (11.11 merged: rebase now), 9.9, 13.2, 13.5, 15.x.
+Scripts (scratchpad): heavy.sh (12 slots), testslot.sh (24), common-brief.txt (rules for agents), /tmp/claude-1000/mergefull.sh (rebase keep-both on list files, zero-D check, squash merge).

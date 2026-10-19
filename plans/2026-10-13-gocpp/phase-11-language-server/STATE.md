@@ -26,8 +26,8 @@
   - [x] the LSP client, format on save, `contributes.breakpoints` (job 11.10b)
   - [x] editor setup docs (docs/guides/editors.md, job 11.10b)
   - [ ] tree-sitter grammar (optional)
-- [ ] 11.11 Benchmark harness + 3 reference projects + CI gate + gopls side-by-side table
-- [ ] 11.12 Profiling/tracing/slow-request log + random-edit differential test
+- [x] 11.11 Benchmark harness + 3 reference projects + CI gate + gopls side-by-side table
+- [x] 11.12 Profiling/tracing/slow-request log + random-edit differential test
 - [ ] 11.13 `!` and macro support (after Phase 10): hovers, inlay hints for handled calls, code actions, expand macro
 
 ## Exit criteria

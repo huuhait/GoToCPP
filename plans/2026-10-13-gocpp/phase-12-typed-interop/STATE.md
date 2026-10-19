@@ -9,8 +9,8 @@
 - [x] Spike: clang `decltype` probes + filtered JSON dump (0.12 s, 28 KB vs 162 MB unfiltered) on 2026-10-13
 - [x] Spike: macro-value probe `gp_val<BUFSIZ>` → `8192`, `gp_val<EOF>` → `-1` (from the `ConstantExpr` value) (2026-10-13)
 - [x] Audit re-check (clang 21): integer values from `ConstantExpr`, exact floats via `bit_cast`, string macros from `StringLiteral`, `-ast-list` index 20,924 names in 0.13 s, `-dM` 1,639 macros in 0.02 s, `-Xclang -code-completion-at` works (`spikes/2026-10-13/audit-checks/clang-probes`)
-- [ ] 12.1 Reference collector (expression shapes, operators, expressions touching opaque values)
-- [ ] 12.2 Probe generator + runner + streaming JSON reader
+- [x] 12.1 Reference collector (expression shapes, operators, expressions touching opaque values)
+- [x] 12.2 Probe generator + runner + streaming JSON reader
   - [ ] expression probes with lvalue/rvalue arguments mirroring the generated code
   - [ ] constant probes: integers (`ConstantExpr` value), floats (`bit_cast` into an integer template argument), strings (`StringLiteral`)
   - [ ] type probes

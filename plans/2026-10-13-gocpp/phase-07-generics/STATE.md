@@ -17,7 +17,7 @@
 - [ ] 7.5 `gp_call_<Method>` helpers (pointer check first, forwarded args, promoted methods, plain names like `get`)
 - [ ] 7.6 Interfaces × generics (constraint methods, `comparable`, interface type args)
 - [ ] 7.7 Generic type aliases (Go 1.24)
-- [ ] 7.8 Range-over-func
+- [x] 7.8 Range-over-func
   - [ ] Go's state machine (READY/PANIC/DONE/EXHAUSTED/MISSING_PANIC) + 4 exact messages
   - [ ] body as a normal closure (boxed state), never `[&]`
   - [ ] `break` / `continue` / `return` / labels / `goto`
