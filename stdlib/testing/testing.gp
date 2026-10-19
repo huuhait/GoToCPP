@@ -31,6 +31,7 @@ package testing
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"time"
@@ -38,15 +39,16 @@ import (
 
 // ---------------------------------------------------------------------------------------------
 // The flags of the test binary. "gocpp test" passes them like "go test" does (-test.v, -test.run,
-// ...); package flag is a declaration stub until step 9.4, so they are read here, from the
-// program's arguments, in Init.
+// ...). As in Go, Init registers them with package flag's command line, and flag.Parse (called
+// by m.Run when the TestMain has not called it) reads them next to the flags of the test program.
 
 var (
-	flagParsed bool
+	initRan bool // Init registered the flags
+	derived bool // the values below that are computed from the flags are set (parseFlags)
 
 	short        bool   // -test.short
 	failFast     bool   // -test.failfast
-	verbose      bool   // -test.v
+	verbose      bool   // -test.v (chattyF.on, after the flags are parsed)
 	matchPattern string // -test.run
 	skipPattern  string // -test.skip
 	matchList    string // -test.list
@@ -63,273 +65,193 @@ var (
 	haveExamples bool
 
 	numFailed int // the number of tests that failed (guarded by the lock), for -failfast
+
+	// What the flags are read into.
+	chattyF    chattyFlag
+	countU     uint
+	timeoutD   time.Duration
+	cpuListStr string
+	shuffleStr string
+	benchTime  = durationOrCountFlag{d: time.Second}
+
+	// Flags that are accepted and ignored: no profiles, coverage, trace or fuzzing yet.
+	ignoredString                                   string
+	ignoredInt                                      int
+	ignoredBool                                     bool
+	fuzzDuration                                    durationOrCountFlag
+	minimizeDuration                                = durationOrCountFlag{d: 60 * time.Second, allowZero: true}
+	blockProfileRate, mutexProfileFraction, memRate int
 )
 
 // Init registers testing flags. These flags are automatically registered by
-// the "go test" command before running test functions, so Init is only needed
-// when calling functions such as Benchmark without using "go test".
+// the "gocpp test" command before running test functions, so Init is only needed
+// when calling functions such as Benchmark without using "gocpp test".
 //
 // Init has no effect if it was already called.
 func Init() {
-	if flagParsed {
+	if initRan {
 		return
 	}
-	flagParsed = true
+	initRan = true
+	flag.BoolVar(&short, "test.short", false, "run smaller test suite to save time")
+	flag.BoolVar(&failFast, "test.failfast", false, "do not start new tests after the first test failure")
+	flag.StringVar(&ignoredString, "test.outputdir", "", "write profiles to `dir`")
+	flag.Var(&chattyF, "test.v", "verbose: print additional output")
+	flag.UintVar(&countU, "test.count", 1, "run tests and benchmarks `n` times")
+	flag.StringVar(&ignoredString, "test.coverprofile", "", "write a coverage profile to `file`")
+	flag.StringVar(&ignoredString, "test.gocoverdir", "", "write coverage intermediate files to this directory")
+	flag.StringVar(&matchList, "test.list", "", "list tests, examples, and benchmarks matching `regexp` then exit")
+	flag.StringVar(&matchPattern, "test.run", "", "run only tests and examples matching `regexp`")
+	flag.StringVar(&skipPattern, "test.skip", "", "do not list or run tests matching `regexp`")
+	flag.StringVar(&ignoredString, "test.memprofile", "", "write an allocation profile to `file`")
+	flag.IntVar(&memRate, "test.memprofilerate", 0, "set memory allocation profiling `rate` (see runtime.MemProfileRate)")
+	flag.StringVar(&ignoredString, "test.cpuprofile", "", "write a cpu profile to `file`")
+	flag.StringVar(&ignoredString, "test.blockprofile", "", "write a goroutine blocking profile to `file`")
+	flag.IntVar(&blockProfileRate, "test.blockprofilerate", 1, "set blocking profile `rate` (see runtime.SetBlockProfileRate)")
+	flag.StringVar(&ignoredString, "test.mutexprofile", "", "write a mutex contention profile to the named file after execution")
+	flag.IntVar(&mutexProfileFraction, "test.mutexprofilefraction", 1, "if >= 0, calls runtime.SetMutexProfileFraction()")
+	flag.BoolVar(&ignoredBool, "test.paniconexit0", false, "panic on call to os.Exit(0)")
+	flag.StringVar(&ignoredString, "test.trace", "", "write an execution trace to `file`")
+	flag.DurationVar(&timeoutD, "test.timeout", 0, "panic test binary after duration `d` (default 0, timeout disabled)")
+	flag.StringVar(&cpuListStr, "test.cpu", "", "comma-separated `list` of cpu counts to run each test with")
+	flag.IntVar(&parallelism, "test.parallel", libNCPU(), "run at most `n` tests in parallel")
+	flag.StringVar(&ignoredString, "test.testlogfile", "", "write test action log to `file` (for use only by cmd/go)")
+	flag.StringVar(&shuffleStr, "test.shuffle", "off", "randomize the execution order of tests and benchmarks")
+	flag.BoolVar(&fullPath, "test.fullpath", false, "show full file names in error messages")
+
+	// The benchmark and fuzzing flags.
+	flag.StringVar(&matchBench, "test.bench", "", "run only benchmarks matching `regexp`")
+	flag.BoolVar(&benchMem, "test.benchmem", false, "print memory allocations for benchmarks")
+	flag.Var(&benchTime, "test.benchtime", "run each benchmark for duration `d` or N times if `d` is of the form Nx")
+	flag.StringVar(&ignoredString, "test.fuzz", "", "run the fuzz test matching `regexp`")
+	flag.Var(&fuzzDuration, "test.fuzztime", "time to spend fuzzing; default is to run indefinitely")
+	flag.Var(&minimizeDuration, "test.fuzzminimizetime", "time to spend minimizing a value after finding a failing input")
+	flag.StringVar(&ignoredString, "test.fuzzcachedir", "", "directory where interesting fuzzing inputs are stored (for use only by cmd/go)")
+	flag.BoolVar(&ignoredBool, "test.fuzzworker", false, "coordinate with the parent process to fuzz random values (for use only by cmd/go)")
+
 	parallelism = libNCPU()
-	benchTimeD = 1000000000
-	args := libArgs()
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if len(arg) < 2 || arg[0] != '-' {
-			break // the first argument that is not a flag ends them, like package flag
+	countU = 1
+	benchTimeD = int64(benchTime.d)
+}
+
+// parseFlags parses the command line (unless the program did: a TestMain that calls flag.Parse),
+// and sets the values that are computed from the flags. It is what m.Run does before it runs a test.
+func parseFlags() {
+	Init()
+	if !flag.Parsed() {
+		flag.Parse()
+	}
+	if derived {
+		return
+	}
+	derived = true
+	verbose = chattyF.on
+	testCount = int(countU)
+	timeoutNs = int64(timeoutD)
+	benchTimeN, benchTimeD = benchTime.n, int64(benchTime.d)
+	cpuList = nil
+	for _, val := range splitByte(cpuListStr, ',') {
+		val = trimSpace(val)
+		if val == "" {
+			continue
 		}
-		name := arg[1:]
-		if name[0] == '-' {
-			name = name[1:]
+		n, ok := atoi(val)
+		if !ok || n <= 0 {
+			fmt.Fprintf(os.Stderr, "testing: invalid value %q for -test.cpu\n", val)
+			libExit(1)
 		}
-		if name == "" || name[0] == '-' || name[0] == '=' {
-			flagFail(fmt.Sprintf("bad flag syntax: %s", arg))
-		}
-		value, hasValue := "", false
-		if j := indexByte(name, '='); j >= 0 {
-			value, hasValue = name[j+1:], true
-			name = name[:j]
-		}
-		// A flag that is not defined is an error whatever follows it (package flag checks the
-		// name before it looks for the value).
-		kind := flagKind(name)
-		if kind == flagUndefined {
-			flagFail(fmt.Sprintf("flag provided but not defined: -%s", name))
-		}
-		isBool := kind == flagBool
-		if !hasValue && !isBool {
-			if i+1 >= len(args) {
-				flagFail(fmt.Sprintf("flag needs an argument: -%s", name))
-			}
-			i++
-			value = args[i]
-		}
-		setFlag(name, value, hasValue || !isBool)
+		cpuList = append(cpuList, n)
 	}
 	if len(cpuList) == 0 {
 		cpuList = append(cpuList, libNCPU())
+	}
+	if shuffleStr != "off" {
+		fmt.Fprintln(os.Stderr, "testing: -test.shuffle is not supported yet")
+		libExit(2)
 	}
 	if verbose {
 		chatty = &chattyPrinter{}
 	}
 }
 
-// The kinds of the flags of a test binary (flagKind).
-const (
-	flagUndefined = iota
-	flagBool
-	flagValue
-)
-
-// flagKind says whether name is the name of a flag of the test binary, and whether it takes a value.
-func flagKind(name string) int {
-	switch name {
-	case "test.v", "test.short", "test.failfast", "test.benchmem", "test.paniconexit0",
-		"test.fullpath", "test.json", "test.fuzzworker":
-		return flagBool
-	case "test.run", "test.skip", "test.list", "test.bench", "test.count", "test.parallel",
-		"test.timeout", "test.benchtime", "test.cpu", "test.shuffle", "test.testlogfile",
-		"test.outputdir", "test.gocoverdir", "test.coverprofile", "test.cpuprofile",
-		"test.memprofile", "test.memprofilerate", "test.blockprofile", "test.blockprofilerate",
-		"test.mutexprofile", "test.mutexprofilefraction", "test.trace", "test.panicreport",
-		"test.fuzz", "test.fuzzcachedir", "test.fuzztime", "test.fuzzminimizetime":
-		return flagValue
-	}
-	return flagUndefined
+// chattyFlag is the value of -test.v: a boolean flag that also takes "test2json".
+type chattyFlag struct {
+	on   bool // -v is set in some form
+	json bool // -v=test2json is set, to make output better for test2json
 }
 
-// testUsage is the list of the flags that the usage message of a test binary shows, as Go's does
-// (the text of package flag's PrintDefaults for the flags of package testing).
-var testUsage = []string{
-	"  -test.bench regexp",
-	"    \trun only benchmarks matching regexp",
-	"  -test.benchmem",
-	"    \tprint memory allocations for benchmarks",
-	"  -test.benchtime d",
-	"    \trun each benchmark for duration d or N times if `d` is of the form Nx (default 1s)",
-	"  -test.blockprofile file",
-	"    \twrite a goroutine blocking profile to file",
-	"  -test.blockprofilerate rate",
-	"    \tset blocking profile rate (see runtime.SetBlockProfileRate) (default 1)",
-	"  -test.count n",
-	"    \trun tests and benchmarks n times (default 1)",
-	"  -test.coverprofile file",
-	"    \twrite a coverage profile to file",
-	"  -test.cpu list",
-	"    \tcomma-separated list of cpu counts to run each test with",
-	"  -test.cpuprofile file",
-	"    \twrite a cpu profile to file",
-	"  -test.failfast",
-	"    \tdo not start new tests after the first test failure",
-	"  -test.fullpath",
-	"    \tshow full file names in error messages",
-	"  -test.fuzz regexp",
-	"    \trun the fuzz test matching regexp",
-	"  -test.fuzzcachedir string",
-	"    \tdirectory where interesting fuzzing inputs are stored (for use only by cmd/go)",
-	"  -test.fuzzminimizetime value",
-	"    \ttime to spend minimizing a value after finding a failing input (default 1m0s)",
-	"  -test.fuzztime value",
-	"    \ttime to spend fuzzing; default is to run indefinitely",
-	"  -test.fuzzworker",
-	"    \tcoordinate with the parent process to fuzz random values (for use only by cmd/go)",
-	"  -test.gocoverdir string",
-	"    \twrite coverage intermediate files to this directory",
-	"  -test.list regexp",
-	"    \tlist tests, examples, and benchmarks matching regexp then exit",
-	"  -test.memprofile file",
-	"    \twrite an allocation profile to file",
-	"  -test.memprofilerate rate",
-	"    \tset memory allocation profiling rate (see runtime.MemProfileRate)",
-	"  -test.mutexprofile string",
-	"    \twrite a mutex contention profile to the named file after execution",
-	"  -test.mutexprofilefraction int",
-	"    \tif >= 0, calls runtime.SetMutexProfileFraction() (default 1)",
-	"  -test.outputdir dir",
-	"    \twrite profiles to dir",
-	"  -test.paniconexit0",
-	"    \tpanic on call to os.Exit(0)",
-	"  -test.parallel n",
-	"    \trun at most n tests in parallel (default %d)",
-	"  -test.run regexp",
-	"    \trun only tests and examples matching regexp",
-	"  -test.short",
-	"    \trun smaller test suite to save time",
-	"  -test.shuffle string",
-	"    \trandomize the execution order of tests and benchmarks (default \"off\")",
-	"  -test.skip regexp",
-	"    \tdo not list or run tests matching regexp",
-	"  -test.testlogfile file",
-	"    \twrite test action log to file (for use only by cmd/go)",
-	"  -test.timeout d",
-	"    \tpanic test binary after duration d (default 0, timeout disabled)",
-	"  -test.trace file",
-	"    \twrite an execution trace to file",
-	"  -test.v",
-	"    \tverbose: print additional output",
-}
+func (*chattyFlag) IsBoolFlag() bool { return true }
 
-// flagFail ends the program like package flag does for a bad flag: the message, the usage, status 2.
-func flagFail(msg string) {
-	fmt.Fprintln(os.Stderr, msg)
-	fmt.Fprintf(os.Stderr, "Usage of %s:\n", libProgramName())
-	for _, l := range testUsage {
-		if hasSuffix(l, "(default %d)") {
-			l = fmt.Sprintf(l, libNCPU())
-		}
-		fmt.Fprintln(os.Stderr, l)
-	}
-	libExit(2)
-}
-
-// setFlag sets the flag name to value (the text after =, or the argument after the name).
-func setFlag(name, value string, hasValue bool) {
-	boolValue := func() bool {
-		if !hasValue {
-			return true
-		}
-		b, ok := parseBool(value)
-		if !ok {
-			flagFail(fmt.Sprintf("invalid boolean value %q for -%s: parse error", value, name))
-		}
-		return b
-	}
-	switch name {
-	case "test.v":
-		if value == "test2json" {
-			verbose = true
-			return
-		}
-		verbose = boolValue()
-	case "test.short":
-		short = boolValue()
-	case "test.failfast":
-		failFast = boolValue()
-	case "test.benchmem":
-		benchMem = boolValue()
-	case "test.fullpath":
-		fullPath = boolValue()
-	case "test.paniconexit0", "test.json", "test.fuzzworker":
-		boolValue()
-	case "test.run":
-		matchPattern = value
-	case "test.skip":
-		skipPattern = value
-	case "test.list":
-		matchList = value
-	case "test.bench":
-		matchBench = value
-	case "test.count":
-		n, ok := atoi(value)
-		if !ok || n < 0 {
-			flagFail(fmt.Sprintf("invalid value %q for flag -test.count: parse error", value))
-		}
-		testCount = n
-	case "test.parallel":
-		n, ok := atoi(value)
-		if !ok {
-			flagFail(fmt.Sprintf("invalid value %q for flag -test.parallel: parse error", value))
-		}
-		parallelism = n
-	case "test.timeout":
-		d, ok := parseDuration(value)
-		if !ok {
-			flagFail(fmt.Sprintf("invalid value %q for flag -test.timeout: parse error", value))
-		}
-		timeoutNs = d
-	case "test.benchtime":
-		if hasSuffix(value, "x") {
-			n, ok := atoi(value[:len(value)-1])
-			if !ok || n <= 0 {
-				flagFail(fmt.Sprintf("invalid value %q for flag -test.benchtime: parse error", value))
-			}
-			benchTimeN, benchTimeD = n, 0
-			return
-		}
-		d, ok := parseDuration(value)
-		if !ok || d <= 0 {
-			flagFail(fmt.Sprintf("invalid value %q for flag -test.benchtime: parse error", value))
-		}
-		benchTimeN, benchTimeD = 0, d
-	case "test.cpu":
-		cpuList = nil
-		for _, f := range splitByte(value, ',') {
-			f = trimSpace(f)
-			if f == "" {
-				continue
-			}
-			n, ok := atoi(f)
-			if !ok || n <= 0 {
-				fmt.Fprintf(os.Stderr, "testing: invalid value %q for -test.cpu\n", f)
-				libExit(1)
-			}
-			cpuList = append(cpuList, n)
-		}
-	case "test.shuffle":
-		if value != "off" {
-			fmt.Fprintln(os.Stderr, "testing: -test.shuffle is not supported yet")
-			libExit(2)
-		}
-	case "test.testlogfile", "test.outputdir", "test.gocoverdir", "test.coverprofile",
-		"test.cpuprofile", "test.memprofile", "test.memprofilerate", "test.blockprofile",
-		"test.blockprofilerate", "test.mutexprofile", "test.mutexprofilefraction",
-		"test.trace", "test.panicreport", "test.fuzz", "test.fuzzcachedir", "test.fuzztime",
-		"test.fuzzminimizetime":
-		// Accepted and ignored: no profiles, coverage or fuzzing yet.
+func (f *chattyFlag) Set(arg string) error {
+	switch arg {
 	default:
-		flagFail(fmt.Sprintf("flag provided but not defined: -%s", name))
+		return fmt.Errorf("invalid flag -test.v=%s", arg)
+	case "true", "test2json":
+		f.on = true
+		f.json = arg == "test2json"
+	case "false":
+		f.on = false
+		f.json = false
 	}
+	return nil
+}
+
+func (f *chattyFlag) String() string {
+	if f.json {
+		return "test2json"
+	}
+	if f.on {
+		return "true"
+	}
+	return "false"
+}
+
+func (f *chattyFlag) Get() any {
+	if f.json {
+		return "test2json"
+	}
+	return f.on
+}
+
+// durationOrCountFlag is the value of -test.benchtime and -test.fuzztime: a duration or a count "Nx".
+type durationOrCountFlag struct {
+	d         time.Duration
+	n         int
+	allowZero bool
+}
+
+func (f *durationOrCountFlag) String() string {
+	if f.n > 0 {
+		return fmt.Sprintf("%dx", f.n)
+	}
+	return f.d.String()
+}
+
+func (f *durationOrCountFlag) Set(s string) error {
+	if hasSuffix(s, "x") {
+		n, ok := atoi(s[:len(s)-1])
+		if !ok || n < 0 || (!f.allowZero && n == 0) {
+			return fmt.Errorf("invalid count")
+		}
+		*f = durationOrCountFlag{n: n}
+		return nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil || d < 0 || (!f.allowZero && d == 0) {
+		return fmt.Errorf("invalid duration")
+	}
+	*f = durationOrCountFlag{d: d}
+	return nil
 }
 
 // Short reports whether the -test.short flag is set.
 func Short() bool {
-	if !flagParsed {
+	if !initRan {
 		panic("testing: Short called before Init")
+	}
+	// Catch code that calls this from TestMain without first calling flag.Parse.
+	if !flag.Parsed() {
+		panic("testing: Short called before Parse")
 	}
 	return short
 }
@@ -353,10 +275,13 @@ func CoverMode() string {
 
 // Verbose reports whether the -test.v flag is set.
 func Verbose() bool {
-	if !flagParsed {
+	if !initRan {
 		panic("testing: Verbose called before Init")
 	}
-	return verbose
+	if !flag.Parsed() {
+		panic("testing: Verbose called before Parse")
+	}
+	return chattyF.on
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1639,7 +1564,7 @@ func (m *M) Run() (code int) {
 	// Sigh. go.dev/issue/23129.
 	m.numRun++
 
-	Init()
+	parseFlags()
 
 	if parallelism < 1 {
 		fmt.Fprintln(os.Stderr, "testing: -parallel can only be given a positive integer")
@@ -1705,7 +1630,7 @@ func listTests(matchString func(pat, str string) (bool, error), tests []Internal
 // RunTests is an internal function but exported because it is cross-package;
 // it is part of the implementation of the "gocpp test" command.
 func RunTests(matchString func(pat, str string) (bool, error), tests []InternalTest) (ok bool) {
-	Init()
+	parseFlags()
 	var deadline int64
 	if timeoutNs > 0 {
 		deadline = libNow() + timeoutNs

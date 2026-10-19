@@ -440,7 +440,7 @@ var stdPackages = []stdPackage{
 	{Path: "context", Phase: 9, Notes: "Go's own package (ported by `tools/portstd`, step 9.4b), on `sync`, `sync/atomic`, `time` and the reflect subset."},
 	{Path: "encoding", Phase: 9},
 	{Path: "encoding/json", Phase: 9},
-	{Path: "flag", Phase: 9},
+	{Path: "flag", Phase: 9, Notes: "Go's own package (ported by `tools/portstd`): `FlagSet` with `ContinueOnError`, `ExitOnError` (`os.Exit` 2, or 0 for `-h`) and `PanicOnError`, the `Value` and `Getter` types, `Bool`, `Int`, `Int64`, `Uint`, `Uint64`, `String`, `Float64`, `Duration`, `Func`, `BoolFunc`, `TextVar` and `Var`, `PrintDefaults`, `Usage`, `ErrHelp` and Go's error and usage texts."},
 	{Path: "io", Phase: 9, Notes: "Go's own package (ported by `tools/portstd`, step 9.4b; the files were a copy in step 9.6)."},
 	{Path: "io/fs", Phase: 9, Notes: "Go's own package (ported by `tools/portstd`, step 9.4b), with `Glob`, `Sub` and the rest; `ReadDir` sorts with `slices.SortFunc`, as Go does."},
 	{Path: "path", Phase: 9, Notes: "Go's own package (ported by `tools/portstd`, step 9.4b): `Clean`, `Join`, `Match`, `Split` and the rest. `path/filepath` comes with `os` in the next steps."},

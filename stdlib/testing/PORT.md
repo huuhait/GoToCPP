@@ -25,9 +25,10 @@ new`, and a program that does not test must keep the system's (and ASan's), and 
 
 ## Left out or changed
 
-- Flags are read in `Init` from the program's arguments (package `flag` is a stub until 9.4); an undefined flag
-  gives Go's message and usage and exit status 2; the flags that need nothing from the machine are accepted and
-  ignored (profiles, coverage, fuzz).
+- The flags are Go's: `Init` registers them with package `flag`'s command line (the same names, types and usage texts; `-test.v` takes `test2json`,
+  `-test.benchtime` a duration or `Nx`) and `m.Run` calls `flag.Parse` unless the `TestMain` did, so `flag.Parse()` in a `TestMain` and
+  `gocpp test -args -n=3` work for a program's own flags, and an undefined flag gives package `flag`'s message, usage and exit status 2.
+  `Short` and `Verbose` panic before `flag.Parse`, as in Go. The flags that need nothing from the machine are accepted and ignored (profiles, coverage, fuzz, trace); `-test.shuffle` other than `off` exits with 2.
 - Strings helpers of `util.gp` replace `strings`, `strconv`, `slices` and `unicode`.
 - Not ported: `T.Context`, `B.Context`, `T.Output` (`context`, `io`), `testing.Coverage`, `testing.CoverMode` (always
   ""), `testing.Cover`, the race detector hooks, `-test.json`, `-test.shuffle`, `-test.testlogfile`, the fuzzing

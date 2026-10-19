@@ -306,7 +306,7 @@ func TestStdlibListsMatchMarkers(t *testing.T) {
 
 // TestStdlibStubs: the packages that the docs call declaration stubs (or stubs that the runtime
 // implements) are the packages that stdlib/ has as stubs. When a stub becomes a real package
-// (flag, with its port) this fails and names the list to change.
+// (flag did, with its port) this fails and names the list to change.
 func TestStdlibStubs(t *testing.T) {
 	var claimed []string
 	for _, f := range snippetDocFiles(t) {
@@ -332,17 +332,17 @@ func TestStdlibStubs(t *testing.T) {
 	}
 }
 
-// TestExamplesPending: tour lesson 8 says that wc and grep-lite are still marked pending; they
-// are (a "// pending:" line), and when they are not the sentence must go.
+// TestExamplesPending: tour lesson 8 says that wc and grep-lite run (flag is real since the 9.9 gap): the
+// examples have no "// pending:" line, and the lesson no longer calls them pending.
 func TestExamplesPending(t *testing.T) {
 	text := readFile(t, filepath.Join("..", "..", "docs", "tour", "08-stdlib.md"))
-	if !regexp.MustCompile(`are still marked\s+pending`).MatchString(text) {
-		t.Fatal("tour/08-stdlib.md no longer says that wc and grep-lite are pending: update this test")
+	if regexp.MustCompile(`still marked\s+pending`).MatchString(text) {
+		t.Fatal("tour/08-stdlib.md still says that wc and grep-lite are pending")
 	}
 	for _, ex := range []string{"wc", "grep-lite"} {
 		src := readFile(t, filepath.Join("..", "..", "examples", ex, "main.gp"))
-		if !regexp.MustCompile(`(?m)^// pending:`).MatchString(src) {
-			t.Errorf("examples/%s has no // pending: line, but tour lesson 8 says it is pending", ex)
+		if regexp.MustCompile(`(?m)^// pending:`).MatchString(src) {
+			t.Errorf("examples/%s has a // pending: line, but tour lesson 8 says it runs", ex)
 		}
 	}
 }

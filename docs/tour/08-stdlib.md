@@ -76,11 +76,10 @@ Without the switch the compiler says which package waits for its phase:
 - `os` gives files, directories, the environment and `os.Args`; `regexp`, `time`, `context`,
   `io` and `io/fs` are there too.
 - **The standard library is a subset of Go's: 37 packages today.** The
-  [reference](../stdlib/index.html) lists them. `flag` and `encoding/json` are declaration stubs for
-  now: a program that imports them type-checks, but there is no implementation yet (the port of `flag`
-  is in progress). So the programs [wc](../../examples/wc/main.gp) and
-  [grep-lite](../../examples/grep-lite/main.gp) in `examples/`, which use `flag`, are still marked
-  pending in the test suite.
+  [reference](../stdlib/index.html) lists them. `encoding/json` is a declaration stub for
+  now: a program that imports it type-checks, but there is no implementation yet. `flag` is Go's own
+  package, with `ExitOnError` exiting like Go's, so the programs [wc](../../examples/wc/main.gp) and
+  [grep-lite](../../examples/grep-lite/main.gp) in `examples/` run.
 - A package that gocpp does not have is reported by `gocpp check`: `log`, `math/rand`,
   `path/filepath`, `encoding/hex`, `text/template`, `net/http` and many others fail with
   `package ... is not available yet`. The [Go developers guide](../guides/go-developers.md#what-is-not-there)

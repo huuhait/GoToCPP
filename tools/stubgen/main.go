@@ -77,7 +77,7 @@ type stubPackage struct {
 
 	// Real: the package is real now (errors, since Phase 05 step 5.7, by hand, and by tools/portstd since 9.4a;
 	// sync and sync/atomic, since Phase 08 step 8.7, by hand; unicode/utf8, since Phase 09 step 9.1, and unicode
-	// and strconv, since 9.4a, and io, io/fs, strings, bytes, bufio and context, since 9.4b, and sort, regexp/syntax and regexp, since 9.4c, and cmp, iter, maps and slices, since 7.10, by tools/portstd): stdlib/<path>
+	// and strconv, since 9.4a, and io, io/fs, strings, bytes, bufio and context, since 9.4b, and sort, regexp/syntax and regexp, since 9.4c, and flag, since the 9.9 gap, and cmp, iter, maps and slices, since 7.10, by tools/portstd): stdlib/<path>
 	// holds its .gp files, and the tool writes no stub there. The
 	// tool still makes the stub in memory, because the tests compare the real package's exported
 	// declarations with it (TestRealPackagesMatchStub).
@@ -135,7 +135,7 @@ var packages = []stubPackage{
 	{Path: "syscall", Phase: 9, Real: true, Partial: true},
 	{Path: "os", Phase: 9, Real: true, Missing: []string{"OpenInRoot", "OpenRoot", "Root"}},
 	{Path: "runtime/debug", Phase: 8, Real: true, Missing: debugMissing},
-	{Path: "flag", Phase: 9},
+	{Path: "flag", Phase: 9, Real: true},
 	{Path: "regexp", Phase: 9, Real: true},
 	{Path: "encoding/json", Phase: 9},
 	{Path: "testing", Phase: 9, Real: true, Differs: "stdlib/testing/PORT.md lists the differences from Go's testing"},

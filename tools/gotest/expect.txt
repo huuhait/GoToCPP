@@ -7,7 +7,6 @@ abi/bad_select_crash.go needs 9.3
 abi/idata.go needs 9.11
 abi/uglyfib.go needs perf
 bombad.go needs matcher
-chan/doubleselect.go needs 9.9
 chan/sieve2.go needs 9.11
 cmplxdivide.go needs bug
 directive2.go needs bug

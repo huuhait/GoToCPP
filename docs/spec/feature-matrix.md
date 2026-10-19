@@ -121,7 +121,7 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 | `context` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b), on `sync`, `sync/atomic`, `time` and the reflect subset. |
 | `encoding` | 09 |  |
 | `encoding/json` | 09 |  |
-| `flag` | 09 |  |
+| `flag` | 09 | Go's own package (ported by `tools/portstd`): `FlagSet` with `ContinueOnError`, `ExitOnError` (`os.Exit` 2, or 0 for `-h`) and `PanicOnError`, the `Value` and `Getter` types, `Bool`, `Int`, `Int64`, `Uint`, `Uint64`, `String`, `Float64`, `Duration`, `Func`, `BoolFunc`, `TextVar` and `Var`, `PrintDefaults`, `Usage`, `ErrHelp` and Go's error and usage texts. |
 | `io` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b; the files were a copy in step 9.6). |
 | `io/fs` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b), with `Glob`, `Sub` and the rest; `ReadDir` sorts with `slices.SortFunc`, as Go does. |
 | `path` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b): `Clean`, `Join`, `Match`, `Split` and the rest. `path/filepath` comes with `os` in the next steps. |

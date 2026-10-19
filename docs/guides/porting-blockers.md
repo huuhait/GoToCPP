@@ -34,6 +34,7 @@ What the table says for the next steps (state after step 9.4c):
 - Step 9.4 is complete: `sort` (on `slices` and `internal/reflectlite`'s `Swapper`), `regexp/syntax` and `regexp` (on `sync.Pool`) are Go's files; the last two have patch
   rules (`regexp__syntax.rules`, `regexp.rules`) that break reference cycles under reference counting (ADR-083). None of them had an `asm` or `linkname` blocker: the
   tier-1 packages are plain Go.
+- `flag` (a gap of step 9.9, `ports.txt` line `flag`, no patch rules, no natives) is Go's `flag.go`: it builds on `os`, `fmt`, `time`, `strconv`, `slices`, `runtime.Caller` and the reflect subset (`TypeOf`, `New`, `Zero`) and needs nothing else.
 - `strconv` takes the files of Go on amd64 (`tags=purego`): `internal/bytealg.IndexByteString` is the native one, not the
   `compiler_bootstrap` loop.
 

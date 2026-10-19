@@ -31,6 +31,7 @@ context
 sort
 regexp/syntax
 regexp
+flag
 
 # A line "options <pkg> os=... arch=... tags=..." gives the options of a package that is not ported yet, for -list
 # (the closure of the tier-1 packages). None is needed now: every package of the closure that is ported has its line above.

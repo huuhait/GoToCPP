@@ -69,7 +69,7 @@ bom.go	runoutput	applicable	-
 bombad.go	errorcheck	applicable	needs matcher
 bounds.go	errorcheck	skip:gc-flags	-
 cannotassign.go	errorcheck	applicable	-
-chan/doubleselect.go	run	applicable	needs 9.9
+chan/doubleselect.go	run	applicable	-
 chan/fifo.go	run	applicable	-
 chan/goroutines.go	run	applicable	-
 chan/nonblock.go	run	applicable	-

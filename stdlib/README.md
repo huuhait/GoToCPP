@@ -11,9 +11,9 @@ embedded in the `gocpp` binary, and the loader finds the standard packages here.
   source). A package is real when none of its functions is a declaration stub (below): it is built from its `.gp`
   files, and `tools/stubgen` writes no stub for it (`stubPackage.Real`; `sync` and `sync/atomic` are real since step 8.7: Mutex, WaitGroup and the others over native templates, ADR-040; the tool still makes the stub in memory,
   because the tests compare the real package's exported declarations with it and with Go's).
-- **Ported packages** (Phase 09 steps 9.1, 9.4a, 9.4b, 9.4c, 9.5, and Phase 07 step 7.10). `cmp`, `slices`, `maps` and `iter` (ADR-078), `unicode/utf8`, `unicode/utf16`, `math/bits`, `math`, `unicode`,
+- **Ported packages** (Phase 09 steps 9.1, 9.4a, 9.4b, 9.4c, 9.5, `flag`, and Phase 07 step 7.10). `cmp`, `slices`, `maps` and `iter` (ADR-078), `unicode/utf8`, `unicode/utf16`, `math/bits`, `math`, `unicode`,
   `strconv`, `errors` (which replaced the Phase 05 copy; `wrapf.gp` beside it is gocpp's own), `io`, `io/fs`, `path`, `strings`,
-  `bytes`, `bufio` and `context` (ADR-073, ADR-078), and `sort`, `regexp/syntax` and `regexp` (ADR-083) are Go's source, copied by
+  `bytes`, `bufio` and `context` (ADR-073, ADR-078), `sort`, `regexp/syntax` and `regexp` (ADR-083), and `flag` (the 9.9 gap) are Go's source, copied by
   `tools/portstd` from the pinned Go tarball: the `.gp` files start with `// Code ported from Go ...; DO NOT EDIT by
   hand`, `stdlib/<pkg>/PORT.md` says what was taken, left out and changed, and `stdlib/PORTED.txt` lists them for
   tools. A change goes into a patch rule of the tool, not into the file (`make portstd-check` fails otherwise); how
@@ -55,7 +55,7 @@ embedded in the `gocpp` binary, and the loader finds the standard packages here.
   stubs need (`io/fs` and `time` for `os`, `unicode` for `strings`, `context` for `testing`,
   `encoding` for `flag`), and `weak`, whose `Pointer`, `Make` and `Value` the compiler turns
   into the runtime's `gp::weak_ptr` (an intrinsic from Phase 03, Phase 03 README §2.2). (`errors` was the 25th
-  stub; it is real since step 5.7, `unicode/utf8` since step 9.1, and `time` since step 8.8.)
+  stub; it is real since step 5.7, `unicode/utf8` since step 9.1, `time` since step 8.8, and `flag` since the 9.9 gap.)
 
   A stub holds Go's exported declarations with their doc comments, but no code: functions have
   no body, and variables have no value. So programs that import these packages type-check, and

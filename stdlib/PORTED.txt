@@ -9,6 +9,7 @@ bytes go1.25.14 os=linux arch=generic tags=purego files=4 natives=0 patches=0
 cmp go1.25.14 os=linux arch=generic tags=purego files=1 natives=0 patches=0
 context go1.25.14 os=linux arch=generic tags=purego files=1 natives=0 patches=0
 errors go1.25.14 os=linux arch=generic tags=purego files=3 natives=3 patches=5
+flag go1.25.14 os=linux arch=generic tags=purego files=1 natives=0 patches=2
 io go1.25.14 os=linux arch=generic tags=purego files=3 natives=0 patches=0
 io/fs go1.25.14 os=linux arch=generic tags=purego files=9 natives=0 patches=0
 iter go1.25.14 os=linux arch=generic tags=purego files=1 natives=2 patches=2

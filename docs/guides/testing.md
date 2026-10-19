@@ -62,8 +62,7 @@ does not apply to it).
 | `func ExampleXxx()` | an example; it runs when its last comment is `// Output:` or `// Unordered output:` |
 | `func TestMain(m *testing.M)` | the entry of the test binary: call `m.Run()` (the exit status is taken from it) |
 
-A `TestMain` is written as in Go, with what the standard packages it uses have by now. Package `flag` is still a declaration
-stub, so `flag.Parse()` in a test file does not build yet; `strings`, `strconv`, `regexp`, `sort` and `os` work: `os.Exit(m.Run())` and `os.Args` build. The idiom
+A `TestMain` is written as in Go, with what the standard packages it uses have by now. `flag` (Go's own package: `testing` registers the `-test.*` flags with `flag.CommandLine`, so `flag.Parse()` in a `TestMain` works and the program's own flags can follow `-args`: `gocpp test -args -n=3`; `testing.Short` and `testing.Verbose` panic before `flag.Parse`, as in Go), `strings`, `strconv`, `regexp`, `sort` and `os` work: `os.Exit(m.Run())` and `os.Args` build. The idiom
 `os.Exit(m.Run())` is not needed: a `TestMain` that returns exits with the status of `m.Run` (as Go does since 1.15): a `TestMain` that returns exits with the status that `m.Run`
 gave (as Go does since 1.15). `sync` (step 8.7), `time` (step 8.8), `os` and `fmt` work in tests. After the ports, nothing in `testing`
 or in your tests changes.
@@ -105,7 +104,7 @@ The signatures are checked as Go does, by their syntax: `func TestX(t *testing.B
 | `-args` | the rest of the arguments go to the test binary |
 
 Another flag goes to the test binary, which reports the ones it does not know as `go test` does (`flag provided but
-not defined: -bogus`, the usage of the test flags, exit status 2).
+not defined: -bogus`, the usage of the test flags and of the program's own flags, exit status 2). Flags after `-args` are the program's own: define them with package `flag` and call `flag.Parse()` in a `TestMain` (a test binary without a `TestMain` parses the command line in `m.Run`, so an undefined flag stops it).
 
 The patterns of `-run`, `-skip`, `-list` and `-bench` are Go's regular expressions (RE2), matched with package `regexp`
 (`testing/internal/testdeps`, as in Go since step 9.4c): the same syntax, the same flags inside a pattern, Unicode classes, case

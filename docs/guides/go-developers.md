@@ -104,9 +104,9 @@ Three additions, each of them optional and each of them off unless you write the
   `strings`, `sync`, `sync/atomic`, `syscall`, `testing`, `time`, `unicode`, `unicode/utf16`,
   `unicode/utf8` and `weak`.
 
-  <!-- stdlib: stubs flag encoding/json embed encoding -->
-  `flag`, `encoding/json`, `embed` and `encoding` are declaration stubs today: a program that imports
-  them type-checks, but they have no implementation yet (`flag` is in progress).
+  <!-- stdlib: stubs encoding/json embed encoding -->
+  `encoding/json`, `embed` and `encoding` are declaration stubs today: a program that imports
+  them type-checks, but they have no implementation yet.
 
   <!-- stdlib: native-stubs fmt weak -->
   `fmt` and `weak` are stubs too, but the runtime implements them itself.

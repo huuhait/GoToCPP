@@ -3,13 +3,15 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"testing"
 )
 
 func main() {
-	// Not in a test binary: Testing is false, and Short and Verbose need Init (go test's flags).
+	// Not in a test binary: Testing is false, and Short and Verbose need Init and flag.Parse (go test's flags).
 	testing.Init()
+	flag.Parse()
 	fmt.Println(testing.Testing(), testing.Short(), testing.Verbose())
 
 	calls := 0

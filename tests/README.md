@@ -66,7 +66,7 @@ A test is also skipped, with a message, when:
 - it has a `// pending: reason` line (below the phase line; allowed in run, diff, interop and pkgs tests and in
   examples) and `GOCPP_TEST_PENDING` is not `1`. It says that the test's phase is only partly built and
   the test fails until a named step lands: `make ci` runs the tests up to Phase 10 (`GOCPP_TEST_PHASE=10`,
-  below), and the examples `grep-lite`, `macros` and `wc` are pending. The step that makes the test pass removes
+  below), and the example `macros` is pending. The step that makes the test pass removes
   the line; `GOCPP_TEST_PENDING=1` runs the pending tests meanwhile. A `// pending:` line in a test of a finished phase
   (`// phase:` up to `Phase` of internal/version) fails the test, because it would hide a real failure, and
   `TestPendingFiles` lists the pending tests (a short list: it names each one), so hiding another one needs an edit there;
@@ -110,8 +110,8 @@ GOCPP_STRESS=1 GOCPP_RUN_VS_GO=1 GOCPP_TEST_PHASE=09 go test ./tests -run 'RunVs
 ```
 
 Go's own `test/chan` programs run through the conformance tool, not here: `go run ./tools/gotest run -filter '^chan/' -v`
-(add `-cxx clang++` for the other compiler; [docs/guides/conformance.md](../docs/guides/conformance.md)). 16 of the 19 pass with both compilers (15 run programs and the errorcheck `perm.go`) and are in the
-regression gate; the other three are `doubleselect` (needs `flag`, step 9.9) and `sieve2` (needs `container/heap`, step 9.11); `select2` reads the
+(add `-cxx clang++` for the other compiler; [docs/guides/conformance.md](../docs/guides/conformance.md)). 17 of the 19 pass with both compilers (16 run programs and the errorcheck `perm.go`) and are in the
+regression gate; the other two are `sieve2` (needs `container/heap`, step 9.11) and `select2`, which reads the
 runtime's memory statistics and is skipped as `runtime-internals`.
 
 ## Sanitizers

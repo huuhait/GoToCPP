@@ -53,6 +53,7 @@ blank.go
 blank1.go
 bom.go
 cannotassign.go
+chan/doubleselect.go
 chan/fifo.go
 chan/goroutines.go
 chan/nonblock.go

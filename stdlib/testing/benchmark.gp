@@ -594,7 +594,7 @@ type benchState struct {
 // RunBenchmarks is an internal function but exported because it is cross-package;
 // it is part of the implementation of the "gocpp test" command.
 func RunBenchmarks(matchString func(pat, str string) (bool, error), benchmarks []InternalBenchmark) {
-	Init()
+	parseFlags()
 	runBenchmarks("", matchString, benchmarks)
 }
 
@@ -926,6 +926,7 @@ func (b *B) SetParallelism(p int) {
 // subbenchmarks that don't call Run in sequence in a single benchmark.
 func Benchmark(f func(b *B)) BenchmarkResult {
 	Init()
+	benchTimeN, benchTimeD = benchTime.n, int64(benchTime.d)
 	b := &B{
 		common: common{
 			signal: make(chan bool),

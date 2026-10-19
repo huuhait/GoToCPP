@@ -1,0 +1,28 @@
+# flag (the 9.9 gap): Go's package; NewFlagSet's default Usage holds the FlagSet through a weak pointer, so that a FlagSet is not a reference cycle.
+
+@note NewFlagSet sets `f.Usage = f.defaultUsage`, a method value that holds the FlagSet, while the FlagSet holds the method value: a reference cycle (D1, ADR-004) that no FlagSet made by NewFlagSet would ever be freed from (every program with its own flag set leaked a few hundred bytes, and LeakSanitizer reported it). The patch makes the default `Usage` a function that holds a weak pointer to the FlagSet and calls `defaultUsage` while the FlagSet is alive. `FlagSet.Usage` is still a non-nil func, as in Go, so the programs that read and wrap it (`old := fs.Usage; fs.Usage = func() { ...; old() }`) work. The one difference: a copy of the default `fs.Usage` called after the last reference to `fs` is gone does nothing, where Go prints the usage of a flag set that nothing else can reach. The command line's flag set (`CommandLine`) is not affected: its Usage is the plain function `commandLineUsage`.
+
+@file flag.go
+@why The method value `f.defaultUsage` holds f strongly and f holds it through f.Usage: a cycle. A weak pointer breaks it.
+@replace
+	f.Usage = f.defaultUsage
+	return f
+@with
+	wp := weak.Make(f) // not f.defaultUsage: that method value would hold f, and f holds it: a reference cycle in gocpp
+	f.Usage = func() {
+		if p := wp.Value(); p != nil {
+			p.defaultUsage()
+		}
+	}
+	return f
+@end
+
+@why The weak pointer of NewFlagSet.
+@replace
+	"time"
+)
+@with
+	"time"
+	"weak"
+)
+@end
