@@ -124,7 +124,7 @@ func (g *gen) fullFunc(nd *namedDesc, pos token.Pos) *cppir.Func {
 // split layout (pkg_desc.cpp defines the descriptor objects and these functions; nothing else
 // names them).
 func (g *gen) fullSpecs() []string {
-	if g.split {
+	if g.split && g.inShared == 0 {
 		return []string{"static"}
 	}
 	return []string{"inline"}

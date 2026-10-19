@@ -310,7 +310,7 @@ var features = [numFeatures]feature{
 		Notes:  "Generic functions, constraints with type sets, instantiating them with explicit or inferred type arguments. Exemption: `weak.Make` from Phase 03. The standard packages `cmp`, `slices`, `maps` and `iter` are ported in step 7.10: until then their functions cannot be instantiated."},
 	{id: featGenericTypes, Name: "generic types", Plural: true, Phase: 7,
 		Detect: "type parameters on a type declaration (TypeSpec), info.Instances of types, a Named type with type arguments",
-		Notes:  "Generic types and their methods, generic aliases (step 7.3 and 7.7). Exemption: `weak.Pointer[T]` from Phase 03."},
+		Notes:  "Generic types and their methods, generic aliases (step 7.3 and 7.7): one struct, method set and descriptor for each instance, named with Go's `%T` text. A C/C++ type as a type argument of a generic type is not supported yet. Exemption: `weak.Pointer[T]` from Phase 03."},
 	{id: featRangeFunc, Name: "range over functions", Phase: 7,
 		Detect: "a range statement over a value of func type",
 		Notes:  "`for x := range f` over any func(yield func(...) bool) (step 7.8: Go's rewrite and its misuse checks). The types `iter.Seq` and `iter.Seq2` come with the port of `iter` in step 7.10; until then declare the func types."},

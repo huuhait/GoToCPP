@@ -419,6 +419,9 @@ func (fg *funcGen) unary(e *ast.UnaryExpr) cppir.Expr {
 // element itself, a T& that can be assigned, after gp::slice's bounds check.
 func (fg *funcGen) index(e *ast.IndexExpr) cppir.Expr {
 	t := fg.g.info.TypeOf(e.X)
+	if c := fg.g.cxxCore(t); c != nil {
+		t = c // S ~[]E that C++ deduces (generics.go)
+	}
 	if isMap(t) {
 		return fg.mapRead(e) // step 3.7, maps.go
 	}
@@ -443,6 +446,9 @@ func (fg *funcGen) index(e *ast.IndexExpr) cppir.Expr {
 // slices.go).
 func (fg *funcGen) slice(e *ast.SliceExpr) cppir.Expr {
 	t := fg.g.info.TypeOf(e.X)
+	if c := fg.g.cxxCore(t); c != nil {
+		t = c // S ~[]E that C++ deduces (generics.go)
+	}
 	if arrayOf(t) != nil {
 		return fg.arraySlice(e) // arrays.go
 	}
@@ -492,6 +498,11 @@ func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 	case "len", "cap":
 		// len and cap of an array, or of a pointer to one, are N: a constant unless the
 		// argument has calls (gp::len(f()) evaluates f, and doesn't dereference a pointer).
+		if fg.g.isCxxNamed(t) {
+			// A type parameter that C++ deduces (S ~[]T instantiated with a Go slice of a C++ type):
+			// the runtime's templates take any slice, string, map or channel (generics.go).
+			return call("gp::"+name, fg.expr(arg))
+		}
 		if s := underBasic(t); !isSlice(t) && !isChan(t) && arrayOf(t) == nil && !(name == "len" && isMap(t)) && (name == "cap" || s == nil || s.Info()&types.IsString == 0) {
 			fg.g.notLowered(c.Pos(), name+" of", t)
 			return placeholder

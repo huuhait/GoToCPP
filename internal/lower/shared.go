@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"go/types"
 	"strings"
 
 	"github.com/huuhait/gocpp/internal/cppir"
@@ -42,6 +43,7 @@ import (
 type sharedDef struct {
 	decls []cppir.Decl // the struct, its static_assert and a blank line
 	impl  []cppir.Decl // an interface's inline members (gp_desc, the wrappers), after the structs
+	post  []cppir.Decl // an instance of a generic type: its method definitions, after the prototypes
 	refs  []sharedItem // the shared types that decls and impl mention
 	made  bool
 }
@@ -64,6 +66,23 @@ func (it sharedItem) name() string {
 		return it.st.name
 	}
 	return it.iface.name
+}
+
+// ns returns the namespace that the item is written in: "" for the global one (an unnamed type),
+// the owner's for an instance of a generic type.
+func (it sharedItem) ns() string {
+	if it.st != nil && it.st.inst != nil || it.iface != nil && it.iface.inst != nil {
+		return it.owner().ns
+	}
+	return ""
+}
+
+// inst returns the instance of a generic type that the item is, or nil.
+func (it sharedItem) inst() *instType {
+	if it.st != nil {
+		return it.st.inst
+	}
+	return it.iface.inst
 }
 
 func (it sharedItem) owner() *gen {
@@ -109,6 +128,10 @@ func (p *Program) finishShared() {
 		it := p.sharedOrder[i]
 		if d := it.def(); !d.made {
 			d.made = true
+			if inst := it.inst(); inst != nil {
+				it.owner().makeInstance(inst)
+				continue
+			}
 			it.owner().makeShared(it)
 		}
 	}
@@ -167,4 +190,51 @@ func guarded(it sharedItem, suffix string, decls []cppir.Decl) []cppir.Decl {
 	out := []cppir.Decl{&cppir.Directive{Text: "ifndef " + it.guard() + suffix}, &cppir.Directive{Text: "define " + it.guard() + suffix}}
 	out = append(out, decls...)
 	return append(out, &cppir.Directive{Text: "endif"})
+}
+
+// put adds decls to the section of the namespace that the item is written in.
+func (it sharedItem) put(sec *sections, decls ...cppir.Decl) {
+	ns := it.ns()
+	sec.addNS(ns == "", ns, decls...)
+}
+
+// valueDepItems returns the shared structs (instances of generic types and unnamed structs) that the struct of it
+// holds by value: as a field, or as the element of an array field (an unnamed struct too).
+func (g *gen) valueDepItems(it sharedItem) []sharedItem {
+	si := it.st
+	if si == nil {
+		return nil
+	}
+	var ts []types.Type
+	if si.under != nil {
+		ts = append(ts, si.under)
+	} else if si.st != nil {
+		for i := range si.st.NumFields() {
+			ts = append(ts, si.st.Field(i).Type())
+		}
+	}
+	var out []sharedItem
+	for _, t := range ts {
+		for {
+			a, ok := types.Unalias(t).(*types.Array)
+			if !ok {
+				break
+			}
+			t = a.Elem()
+		}
+		switch t := types.Unalias(t).(type) {
+		case *types.Named:
+			if isInstance(t) {
+				if d := g.prog.instTypes[g.canonText(t)]; d != nil && d.si != nil {
+					out = append(out, sharedItem{st: d.si})
+				}
+			}
+		case *types.Struct:
+			// An unnamed struct is a shared struct of its own (and holds instances by value too).
+			if si := g.prog.anonStructs[g.anonKey(t)]; si != nil {
+				out = append(out, sharedItem{st: si})
+			}
+		}
+	}
+	return out
 }

@@ -127,18 +127,10 @@ func (g *gen) collectGeneric(d *ast.FuncDecl) {
 	if d.Name.Name == "_" || d.Name.Name == "init" || d.Name.Name == "main" {
 		return // go/types rejects them
 	}
-	// A type declared in a generic function is a type of each instance (Go's %T shows it as
-	// main.box[string]): not built yet.
-	ast.Inspect(d.Body, func(n ast.Node) bool {
-		if gd, ok := n.(*ast.GenDecl); ok && gd.Tok == token.TYPE {
-			g.notYet(gd.Pos(), "type declarations inside generic functions are not supported yet (Phase 07)")
-		}
-		return true
-	})
 	if g.generics == nil {
 		g.generics = make(map[*types.Func]*genericFunc)
-		g.privateInfo()
 	}
+	g.privateInfoOnce()
 	g.generics[fn] = &genericFunc{fn: fn, decl: d, owner: g, stub: g.pkg.Load.Std && isStubBody(d.Body)}
 }
 
@@ -163,7 +155,11 @@ func isStubBody(body *ast.BlockStmt) bool {
 
 // privateInfo gives the package maps of its own: an instance replaces the entries of the nodes of
 // its generic function (apply), and the maps belong to the checker's result otherwise.
-func (g *gen) privateInfo() {
+func (g *gen) privateInfoOnce() {
+	if g.infoPrivate {
+		return
+	}
+	g.infoPrivate = true
 	old := g.info
 	cp := *old.Info
 	cp.Types = maps.Clone(old.Types)
@@ -234,9 +230,25 @@ func (gf *genericFunc) apply(targs []types.Type, ctxt *types.Context, cxxNamed m
 	info := gf.owner.info
 	snap := gf.snapshot()
 	osig := gf.fn.Signature()
-	s := newSubster(osig.TypeParams(), targs, ctxt)
+	tparams := osig.TypeParams()
+	if tparams.Len() == 0 {
+		tparams = osig.RecvTypeParams() // a method of a generic type: the receiver's type parameters
+	}
+	s := newSubster(tparams, targs, ctxt)
+	if fnScope := gf.fn.Scope(); fnScope != nil {
+		s.local = func(l *types.Named) types.Type {
+			if !localTypeIn(l, fnScope) {
+				return nil
+			}
+			return gf.owner.localInstance(l, gf.fn, tparams, targs, ctxt)
+		}
+	}
 	params, results := s.tuple(osig.Params()), s.tuple(osig.Results())
-	sig := types.NewSignatureType(nil, nil, nil, params, results, osig.Variadic())
+	var recv *types.Var
+	if osig.Recv() != nil {
+		recv = s.varFor(osig.Recv())
+	}
+	sig := types.NewSignatureType(recv, nil, nil, params, results, osig.Variadic())
 	obj := types.NewFunc(gf.fn.Pos(), gf.fn.Pkg(), gf.fn.Name(), sig)
 
 	for e, tv := range snap.types {
@@ -422,9 +434,89 @@ func (fg *funcGen) opaqueInstRef(gf *genericFunc, idx []ast.Expr, inferred []typ
 		r.targs[i], r.keys[i] = named, "open"
 		r.open = append(r.open, named)
 	}
+	g.openCores(tparams, r)
 	s := newSubster(tparams, r.targs, g.context())
 	r.sig, _ = s.typ(gf.fn.Signature()).(*types.Signature)
 	return r
+}
+
+// openCores gives the open type parameters of an opaque instance their core slice type: S ~[]E is
+// the C++ type that C++ deduces, which Go code can index, slice, range over and take the len of, and
+// E is that slice's element type, which C++ cannot deduce from the arguments, so it gets
+// typename gp::detail::slice_elem_of<S>::type as a default.
+func (g *gen) openCores(tparams *types.TypeParamList, r *instRef) {
+	for i := range tparams.Len() {
+		named, ok := r.targs[i].(*types.Named)
+		if !ok || !g.cxxNamed[named].open {
+			continue
+		}
+		sl := sliceCore(tparams.At(i).Constraint())
+		if sl == nil {
+			continue
+		}
+		info := g.cxxNamed[named]
+		elem := sl.Elem()
+		info.elemOf = -1
+		if tp, ok := types.Unalias(elem).(*types.TypeParam); ok {
+			j := tp.Index()
+			if j < tparams.Len() && tparams.At(j) == tp {
+				elem = r.targs[j]
+				if en, ok := elem.(*types.Named); ok && g.cxxNamed[en].open && j > i {
+					ei := g.cxxNamed[en]
+					ei.from = i + 1 // 1-based: the template parameter of S
+					g.cxxNamed[en] = ei
+				}
+			}
+		}
+		info.core = types.NewSlice(elem)
+		g.cxxNamed[named] = info
+	}
+}
+
+// sliceCore returns the slice type that every type of the type set of the constraint c has as its
+// underlying type (S ~[]E: []E), or nil.
+func sliceCore(c types.Type) *types.Slice {
+	it, ok := c.Underlying().(*types.Interface)
+	if !ok {
+		return nil
+	}
+	var found *types.Slice
+	for i := range it.NumEmbeddeds() {
+		var sl *types.Slice
+		switch e := it.EmbeddedType(i).(type) {
+		case *types.Union:
+			if e.Len() != 1 {
+				return nil
+			}
+			sl, _ = e.Term(0).Type().Underlying().(*types.Slice)
+		default:
+			sl = sliceCore(e)
+			if sl == nil {
+				if _, isIface := e.Underlying().(*types.Interface); isIface {
+					continue
+				}
+				sl, _ = e.Underlying().(*types.Slice)
+			}
+		}
+		if sl == nil {
+			continue
+		}
+		if found != nil {
+			return nil
+		}
+		found = sl
+	}
+	return found
+}
+
+// cxxCore returns the slice type that the C++-deduced type parameter t stands for (S ~[]E), or nil
+// when t is not one.
+func (g *gen) cxxCore(t types.Type) *types.Slice {
+	n, ok := types.Unalias(t).(*types.Named)
+	if !ok {
+		return nil
+	}
+	return g.cxxNamed[n].core
 }
 
 // A cxxInfo is the C++ type that stands for a type argument that is a C/C++ type: written out, or a
@@ -432,6 +524,13 @@ func (fg *funcGen) opaqueInstRef(gf *genericFunc, idx []ast.Expr, inferred []typ
 type cxxInfo struct {
 	typ  cppir.Type
 	open bool
+	// core is the slice type []E of a type parameter whose constraint has that core type (S ~[]E),
+	// when it is open: index, slice expressions, range, len and cap treat the stand-in as that slice
+	// (the C++ type is whatever slice C++ deduced). elemOf is the index of E among the type
+	// parameters when E is one (E is then given S's element type as its default).
+	core   *types.Slice
+	elemOf int
+	from   int
 }
 
 // newCxxNamed returns a type that stands for a C/C++ type argument in the instance of gf: a named
@@ -444,7 +543,7 @@ func (g *gen) newCxxNamed(gf *genericFunc, name string, typ cppir.Type, open boo
 	if g.cxxNamed == nil {
 		g.cxxNamed = make(map[*types.Named]cxxInfo)
 	}
-	g.cxxNamed[named] = cxxInfo{typ, open}
+	g.cxxNamed[named] = cxxInfo{typ: typ, open: open}
 	return named
 }
 
@@ -618,13 +717,23 @@ func (g *gen) lowerInstance(in *instance) {
 	if g.err != nil {
 		return
 	}
+	if strings.HasPrefix(in.unit, "\x00inst:") {
+		// In the header of an instance of a generic type: inline.
+		proto.Specs, fn.Specs = []string{"inline"}, []string{"inline"}
+	}
 	if len(in.open) > 0 {
 		// A function template over the type arguments that C++ deduces (opaque instances).
-		t := &cppir.Template{}
+		t, pt := &cppir.Template{}, &cppir.Template{} // pt, of the prototype, has the defaults
 		for _, n := range in.open {
-			t.Params = append(t.Params, cppir.Param{Type: typeName("typename"), Name: cppir.TypeString(g.cxxNamed[n].typ)})
+			name := cppir.TypeString(g.cxxNamed[n].typ)
+			t.Params = append(t.Params, cppir.Param{Type: typeName("typename"), Name: name})
+			if f := g.cxxNamed[n].from; f > 0 && f <= len(in.open) {
+				// E of S ~[]E: C++ cannot deduce it from the arguments (a return type, a local).
+				name += " = typename gp::detail::slice_elem_of<" + cppir.TypeString(g.cxxNamed[in.open[f-1]].typ) + ">::type"
+			}
+			pt.Params = append(pt.Params, cppir.Param{Type: typeName("typename"), Name: name})
 		}
-		proto.Template, fn.Template = t, t
+		proto.Template, fn.Template = pt, t
 	}
 	u := g.out.instUnit(in.unit)
 	u.protos = append(u.protos, proto)
@@ -756,9 +865,11 @@ func hasTypeParam(t types.Type) bool {
 // foreignVal reports whether a value of type t is a C/C++ value as far as descriptors go: its type
 // is not complete, or it is made of a C/C++ type argument of a generic function (cxxNamed).
 func (g *gen) foreignVal(t types.Type) bool {
-	if !complete(t) {
-		return true
-	}
+	return !complete(t) || g.hasCxxNamed(t)
+}
+
+// hasCxxNamed reports whether t is made of a C/C++ type argument of a generic function.
+func (g *gen) hasCxxNamed(t types.Type) bool {
 	if len(g.cxxNamed) == 0 {
 		return false
 	}
@@ -813,7 +924,9 @@ func (g *gen) cxxConst(v constant.Value, pos token.Pos) cppir.Expr {
 	case constant.Bool:
 		return g.constant(v, types.Typ[types.Bool], pos, false)
 	case constant.String:
-		return g.constant(v, types.Typ[types.String], pos, false)
+		// A C string literal, which std::string and the other C++ string types take (a
+		// gp::string would not: a + "!" with a std::string a).
+		return lit(cppir.CString(constant.StringVal(v)))
 	case constant.Float:
 		return g.constant(v, types.Typ[types.Float64], pos, false)
 	}

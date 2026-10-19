@@ -31,6 +31,9 @@ type canon struct {
 	// local returns the unique tag of a type declared in a function (its C++ name), "" for
 	// a package-level type.
 	local func(*types.TypeName) string
+	// inArgs: the type is a type argument of a generic type's instance, which Go's %T writes with
+	// the import paths of the packages: main.Stack[net/url.URL].
+	inArgs bool
 }
 
 // canonName returns the name of t as Go's %T prints it.
@@ -45,6 +48,11 @@ func (g *gen) canonText(t types.Type) string {
 
 // localTag returns the unique tag of the type tn if it is declared in a function, else "".
 func (g *gen) localTag(tn *types.TypeName) string {
+	if g.prog != nil {
+		if tag, ok := g.prog.localTagOf[tn]; ok {
+			return tag // the synthetic origin of a type declared in a generic function (localtypes.go)
+		}
+	}
 	if tn.Pkg() == nil || tn.Parent() == nil || tn.Parent() == tn.Pkg().Scope() || tn.Parent() == types.Universe {
 		return ""
 	}
@@ -66,7 +74,7 @@ func (g *gen) localTag(tn *types.TypeName) string {
 
 // pkgName returns how a package is written in a qualified name.
 func (c *canon) pkgName(p *types.Package) string {
-	if c.ident {
+	if c.ident || c.inArgs {
 		return importPath(p)
 	}
 	return p.Name()
@@ -143,8 +151,10 @@ func (c *canon) str(t types.Type) string {
 		s := c.pkgName(obj.Pkg()) + "." + obj.Name()
 		if targs := t.TypeArgs(); targs != nil && targs.Len() > 0 {
 			args := make([]string, targs.Len())
+			in := *c
+			in.inArgs = true
 			for i := range args {
-				args[i] = c.str(targs.At(i))
+				args[i] = in.str(targs.At(i))
 			}
 			s += "[" + strings.Join(args, ",") + "]"
 		}
@@ -184,7 +194,7 @@ func (c *canon) str(t types.Type) string {
 			s := c.str(f.Type())
 			if !f.Embedded() {
 				name := f.Name()
-				if c.ident && !exportedName(name) {
+				if (c.ident || c.inArgs) && !exportedName(name) {
 					name = pkgPath(f) + "." + name
 				}
 				s = name + " " + s

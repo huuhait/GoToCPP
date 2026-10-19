@@ -117,6 +117,18 @@ const name_case name_cases[] = {
     {"_ZNK9gpkg_main1T9gp_StringEv", nullptr, false, false}, // (a name that fmt's hooks had)
     {"_ZN9gpkg_main1T13gp_String_ptrERKN2gp3ptrIS0_EE", nullptr, false, false},
     {"_ZN9gpkg_main3MapIlEEvT_", "main.Map[...]", true, false},
+    // Instances of generic functions (internal/lower/generics.go): the hash is 8, 10 or 12 hex
+    // digits.
+    {"_ZN9gpkg_main20gp_inst_0123abcd_MapEv", "main.Map[...]", false, false},
+    {"_ZN9gpkg_main22gp_inst_0123abcdef_MapEv", "main.Map[...]", false, false},
+    {"_ZN9gpkg_main24gp_inst_0123abcdef01_MapEv", "main.Map[...]", false, false},
+    // Methods of instances of generic types: main.(*Stack[...]).Pop, main.Stack[...].Peek.
+    {"_ZN9gpkg_main22gp_inst_0123abcd_Stack3PopEN2gp3ptrIS0_EE", "main.(*Stack[...]).Pop", true,
+     false},
+    {"_ZNK9gpkg_main22gp_inst_0123abcd_Stack4PeekEv", "main.Stack[...].Peek", true, false},
+    {"_ZN9gpkg_main21gp_inst_0123abcde_MapEv", nullptr, false, false}, // 9 digits: not an instance
+    {"_ZN9gpkg_main20gp_inst_0123abcg_MapEv", nullptr, false, false},
+    {"_ZZN9gpkg_main20gp_inst_0123abcd_MapEvENKUlvE_clEv", "main.Map[...].func1", false, false},
     {"_ZN9gpkg_main5gp_x_Ev", "main.gp_x", false, false}, // a user's gp_x
     {"_ZN9gpkg_main4new_Ev", "main.new_", false, false},  // Go's new: the _ stays
     {"_ZN9gpkg_main9gp_init_1Ev", "main.init.0", false, false},

@@ -662,16 +662,21 @@ go_name gocpp_name(const encoding& e) {
             return go_name{}; // a constructor, an operator, ...: the C++ name
         }
         std::string part = c.text;
-        bool instance = false;
         if (part.starts_with("gp_")) {
-            if (part.starts_with("gp_inst_") && part.size() > 17 && part[16] == '_' &&
-                std::all_of(part.begin() + 8, part.begin() + 16, [](char d) {
-                    return (d >= '0' && d <= '9') || (d >= 'a' && d <= 'f');
-                })) {
+            // gp_inst_<hash>_F: the hash is 8 hex digits, 10 or 12 when another instance had
+            // the same 8.
+            std::size_t hex = 0;
+            if (part.starts_with("gp_inst_")) {
+                while (8 + hex < part.size() && ((part[8 + hex] >= '0' && part[8 + hex] <= '9') ||
+                                                 (part[8 + hex] >= 'a' && part[8 + hex] <= 'f'))) {
+                    hex++;
+                }
+            }
+            if ((hex == 8 || hex == 10 || hex == 12) && part.size() > 9 + hex &&
+                part[8 + hex] == '_') {
                 // An instance of a generic function (internal/lower/generics.go), gp_inst_<hash>_F:
                 // Go's main.F[...].
-                part = part.substr(17);
-                instance = true;
+                part = part.substr(9 + hex) + "[...]"; // (before the (*...) of a pointer method)
             } else if (part.ends_with("_")) {
                 part.pop_back(); // a user name that starts with gp_ (ADR-010)
             } else if (k + 1 == cs.size() && part == "gp_var_init") {
@@ -692,7 +697,7 @@ go_name gocpp_name(const encoding& e) {
             part = "(*" + part + ")";
         }
         r.name += part;
-        if (c.targs || instance) {
+        if (c.targs) {
             r.name += "[...]";
         }
     }

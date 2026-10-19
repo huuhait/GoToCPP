@@ -219,9 +219,7 @@ func TestStubsMatchGo(t *testing.T) {
 // realNotYet are the exported declarations of the stubs that a real package doesn't have yet,
 // by "path.Name", with the step that adds them. Each is a promise: the entry goes away when the
 // step lands.
-var realNotYet = map[string]string{
-	"sync/atomic.Pointer": "atomic.Pointer[T] is a generic type (Phase 07 step 7.3): it is written as Go writes it, over LoadPointer and the others, when generic types lower; the runtime type under it is gp::atomic_ptr<T> (gocpp/atomic.hpp)",
-}
+var realNotYet = map[string]string{}
 
 // TestRealPackagesMatchStub type-checks each real package of the list (stubPackage.Real: the
 // .gp files of stdlib/<path>, ported from Go's with the parts that need reflectlite replaced by

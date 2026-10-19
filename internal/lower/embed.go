@@ -38,7 +38,7 @@ func (g *gen) needForwarders(t types.Type) {
 	if p, ok := types.Unalias(t).(*types.Pointer); ok {
 		t = p.Elem()
 	}
-	if n, ok := types.Unalias(t).(*types.Named); ok && g.tdecls().named[n.Obj()] == nil {
+	if n, ok := types.Unalias(t).(*types.Named); ok && g.tdecls().named[g.regObj(n)] == nil && !isInstance(n) {
 		return // a named type without a C++ struct (type P *[]int, type F func()): no methods to forward
 	}
 	if si := g.structOf(t, token.NoPos); si != nil {

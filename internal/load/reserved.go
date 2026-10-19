@@ -19,8 +19,10 @@ const reservedC = "cannot declare C - C is reserved for C's built-in types"
 // These declarations can't be named C: package-level funcs, vars, consts
 // and types, local vars, consts and types, the names on the left of :=
 // (also in range clauses, type switch guards and select cases), the
-// receivers, parameters and results of funcs, methods and closures, and
-// type parameters (also those of a generic receiver, func (l List[C]) m()).
+// receivers, parameters and results of funcs, methods and closures. The type parameters of funcs
+// and of generic types (also those of a generic receiver, func (l List[C]) m()) may be named C,
+// which hides C where the type parameter is in scope: C.int is then an error there, as Go's
+// scoping says (Go code often writes Compose[A, B, C any] and C ~chan E).
 // Names that are not in a scope with C are allowed: struct fields,
 // methods, interface methods, labels, and the parameter names of a func
 // type (func(C int)), which nothing can use. ClassifyImports checks the
@@ -67,20 +69,17 @@ func CheckReservedC(fset *token.FileSet, f *ast.File, errs *diag.List) {
 			}
 		case *ast.TypeSpec:
 			check(n.Name)
-			checkFields(n.TypeParams)
+			// (the type parameters of a generic type may be named C too: generics.go)
 		case *ast.FuncDecl:
 			if n.Recv == nil {
 				check(n.Name) // a method name is allowed
 			} else {
 				checkFields(n.Recv)
-				for _, field := range n.Recv.List {
-					for _, e := range receiverTypeParams(field.Type) {
-						checkExpr(e)
-					}
-				}
+				// (the type parameters of a generic receiver, func (l List[C]) m(), may be named C)
 			}
 			if n.Type != nil { // nil only in an AST that the parser didn't make
-				checkFields(n.Type.TypeParams)
+				// (the type parameters of a func are allowed to be named C: C.int is then the
+				// type parameter's C, an error, as Go's scoping says; generics.go)
 				checkFields(n.Type.Params)
 				checkFields(n.Type.Results)
 			}
@@ -103,24 +102,4 @@ func CheckReservedC(fset *token.FileSet, f *ast.File, errs *diag.List) {
 		}
 		return true
 	})
-}
-
-// receiverTypeParams returns the type parameters that the receiver type t
-// of a method declares, such as C in func (l *List[C]) m(): the indexes of
-// the generic type, which are identifiers in valid code.
-func receiverTypeParams(t ast.Expr) []ast.Expr {
-	for {
-		switch e := t.(type) {
-		case *ast.ParenExpr:
-			t = e.X
-		case *ast.StarExpr:
-			t = e.X
-		case *ast.IndexExpr:
-			return []ast.Expr{e.Index}
-		case *ast.IndexListExpr:
-			return e.Indices
-		default:
-			return nil
-		}
-	}
 }

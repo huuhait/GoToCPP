@@ -111,6 +111,7 @@ func (g *gen) files() *PackageFiles {
 // the global one.
 type section struct {
 	global bool
+	ns     string // the namespace of a section that is not global, "" for the package's own
 	decls  []cppir.Decl
 }
 
@@ -122,8 +123,17 @@ type sections struct {
 }
 
 func (s *sections) add(global bool, decls ...cppir.Decl) {
+	s.addNS(global, "", decls...)
+}
+
+// addNS is add for a section of the namespace ns (the namespace of the package that declares an
+// instance of a generic type), or the package's own for "".
+func (s *sections) addNS(global bool, ns string, decls ...cppir.Decl) {
 	if len(decls) == 0 {
 		return
+	}
+	if !global && ns == s.g.ns {
+		ns = ""
 	}
 	// A blank line belongs to the section it follows, and there is none first or twice.
 	if blank := isBlankDecl(decls[0]); blank && len(decls) == 1 {
@@ -132,11 +142,11 @@ func (s *sections) add(global bool, decls ...cppir.Decl) {
 		}
 		return
 	}
-	if n := len(s.list); n > 0 && s.list[n-1].global == global {
+	if n := len(s.list); n > 0 && s.list[n-1].global == global && s.list[n-1].ns == ns {
 		s.list[n-1].decls = append(s.list[n-1].decls, decls...)
 		return
 	}
-	s.list = append(s.list, section{global, slices.Clone(decls)})
+	s.list = append(s.list, section{global, ns, slices.Clone(decls)})
 }
 
 func isBlankDecl(d cppir.Decl) bool {
@@ -153,7 +163,11 @@ func (s *sections) decls() []cppir.Decl {
 			out = append(out, sec.decls...)
 			continue
 		}
-		out = append(out, &cppir.Namespace{Name: s.g.ns, Decls: sec.decls}, &cppir.Blank{})
+		name := sec.ns
+		if name == "" {
+			name = s.g.ns
+		}
+		out = append(out, &cppir.Namespace{Name: name, Decls: sec.decls}, &cppir.Blank{})
 	}
 	return out
 }
@@ -183,7 +197,7 @@ func (g *gen) headerFile(parts *typeParts, pf *PackageFiles) *cppir.File {
 	closure := g.sharedClosure()
 	// 4. forward declarations
 	for _, it := range closure {
-		sec.add(true, &cppir.Struct{Name: it.name(), Forward: true})
+		it.put(&sec, &cppir.Struct{Name: it.name(), Forward: true})
 	}
 	if parts != nil {
 		for _, si := range parts.structs {
@@ -205,7 +219,7 @@ func (g *gen) headerFile(parts *typeParts, pf *PackageFiles) *cppir.File {
 	// 5. the interface structs and the structs
 	for _, it := range closure {
 		if it.iface != nil {
-			sec.add(true, guarded(it, "", it.def().decls)...)
+			it.put(&sec, guarded(it, "", it.def().decls)...)
 		}
 	}
 	if parts != nil {
@@ -217,25 +231,60 @@ func (g *gen) headerFile(parts *typeParts, pf *PackageFiles) *cppir.File {
 			if d.si.shared != nil {
 				it := sharedItem{st: d.si}
 				defined[it] = true
-				sec.add(true, guarded(it, "", d.si.shared.decls)...)
+				it.put(&sec, guarded(it, "", d.si.shared.decls)...)
 				continue
 			}
 			sec.add(false, d.decls...)
 		}
 	}
+	// The structs of the closure come in pre-order (a struct before the ones its definition
+	// mentions), but a struct holding another by value needs it complete first: each is written
+	// after the closure structs it holds by value.
+	inClosure := make(map[sharedItem]bool, len(closure))
 	for _, it := range closure {
-		if it.st != nil && !defined[it] {
-			sec.add(true, guarded(it, "", it.def().decls)...)
+		inClosure[it] = true
+	}
+	emitted := make(map[sharedItem]bool)
+	var emitSt func(it sharedItem)
+	emitSt = func(it sharedItem) {
+		if emitted[it] || defined[it] {
+			return
 		}
+		emitted[it] = true
+		for _, dep := range g.valueDepItems(it) {
+			if inClosure[dep] {
+				emitSt(dep)
+			}
+		}
+		it.put(&sec, guarded(it, "", it.def().decls)...)
 	}
 	for _, it := range closure {
-		sec.add(true, guarded(it, "_IMPL", it.def().impl)...)
+		if it.st != nil {
+			emitSt(it)
+		}
+	}
+	hasInst := slices.ContainsFunc(closure, func(it sharedItem) bool { return it.inst() != nil })
+	// The descriptors of the instances of generic types are defined (inline) in their impl blocks,
+	// and a shape names the descriptor of its element, which may come later: declared first.
+	for _, it := range closure {
+		if it.inst() != nil {
+			it.put(&sec, &cppir.VarDecl{Specs: []string{"extern", "const"}, Type: typeName("gp::type_desc"),
+				Vars: []cppir.Declarator{{Name: "gp_td_" + it.name()}}})
+		}
+	}
+	if parts != nil && hasInst {
+		sec.add(false, parts.impl.ext...) // (the instances of generic types name the package's descriptors)
+	}
+	for _, it := range closure {
+		it.put(&sec, guarded(it, "_IMPL", it.def().impl)...)
 	}
 	sec.add(false, concepts...)
 	// 6. what the translation units need
 	var tail []cppir.Decl
 	if parts != nil {
-		tail = append(tail, parts.impl.ext...)
+		if !hasInst {
+			tail = append(tail, parts.impl.ext...)
+		}
 		tail = append(tail, parts.impl.inl...)
 	}
 	tail = append(tail, g.constDecls()...)
@@ -248,6 +297,12 @@ func (g *gen) headerFile(parts *typeParts, pf *PackageFiles) *cppir.File {
 		tail = append(tail, &cppir.Func{Result: typeName("void"), Name: "gp_init_funcs"})
 	}
 	sec.add(false, tail...)
+	// The methods of the instances of generic types, which use what the package's header declares.
+	for _, it := range closure {
+		if it.inst() != nil {
+			it.put(&sec, guarded(it, "_POST", it.def().post)...)
+		}
+	}
 	f.Decls = append(f.Decls, sec.decls()...)
 	if g.headerNeedsC() {
 		g.protectNames(f) // macros.go

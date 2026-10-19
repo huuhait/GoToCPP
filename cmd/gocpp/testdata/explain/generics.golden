@@ -15,7 +15,7 @@ from that body, and each call site says which instance it calls.
 A type argument that is a C/C++ type makes a C++ function template that the C++ compiler
 deduces instead (Phase 07 README, C/C++ type arguments).
 
-Specification: docs/spec/cpp-mapping.md#generics-steps-71-and-72
+Specification: docs/spec/cpp-mapping.md#generics-steps-71-to-73
 See also: gocpp explain interfaces, gocpp explain interop
 Also known as: generic, instance, instances, typeparams
 

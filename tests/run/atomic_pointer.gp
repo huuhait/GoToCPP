@@ -1,5 +1,4 @@
 // phase: 08
-// pending: generic types (step 7.3): atomic.Pointer[T] is a generic type
 
 // atomic.Pointer[T]: Load, Store, Swap and CompareAndSwap of a *T, with readers racing a writer.
 package main

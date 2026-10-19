@@ -55,8 +55,8 @@ blocking operation parks on a `gp::waiter` (ADR-026). Three constraints shaped t
   (`hash_check`) so an unhashable key panics with Go's text before any lock is taken. `Pool` is a
   mutex-protected free list (at most 65536 items: there is no collector to drop them).
 - **`OnceFunc`, `OnceValue` and `OnceValues` are Go's source**; the two generic ones are instantiated
-  per call by step 7.1 (merged) and tested. `atomic.Pointer[T]` is not declared yet: it needs generic types (step 7.3), and is
-  Go's source over `LoadPointer` and the others, or `gp::atomic_ptr<T>`.
+  per call by step 7.1 (merged) and tested. `atomic.Pointer[T]` (step 7.3) is a generic type written in Go over the same spin lock as `Value`
+  (`{_ [0]*T; lk uint32; v *T}`; a native cannot be generic); `gp::atomic_ptr<T>` is not used by it.
 
 ## Alternatives
 

@@ -180,6 +180,17 @@ inline void value_unlock(const ptr<V>& v) {
     detail::spin_unlock((*v).lk);
 }
 
+// spin_lock_word and spin_unlock_word take the lock of an atomic.Pointer[T]
+// (stdlib/sync/atomic/type.gp, a struct with the lock lk and the counted pointer v; the methods are
+// written in Go over them, so the old value is dropped after the unlock, as gp::atomic_ptr does).
+inline void spin_lock_word(const ptr<uint32_t>& w) noexcept {
+    detail::spin_lock(*w);
+}
+
+inline void spin_unlock_word(const ptr<uint32_t>& w) noexcept {
+    detail::spin_unlock(*w);
+}
+
 // value_equal(v, old): v.v == old, with v's lock held; the comparison panics for a type that
 // can't be compared, and the lock is released before the panic goes on.
 template <typename V>

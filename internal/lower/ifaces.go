@@ -58,6 +58,7 @@ type ifaceInfo struct {
 	// uses it (an unnamed interface type: shared.go).
 	owner  *gen
 	shared *sharedDef
+	inst   *instType // an instance of a generic interface type (insttypes.go)
 }
 
 // ifaceTable holds the interface structs of the package.
@@ -143,6 +144,15 @@ func (g *gen) addIface(t *types.Named, name string) *ifaceInfo {
 
 // newIface returns the struct of the interface type it (t is it, or the named type over it).
 func (g *gen) newIface(t types.Type, it *types.Interface, name string) *ifaceInfo {
+	info := g.newIfaceQuiet(t, it, name)
+	tab := g.itable()
+	tab.list = append(tab.list, info)
+	return info
+}
+
+// newIfaceQuiet is newIface without the entry in the package's list (an instance of a generic
+// interface type belongs to the programs' shared types, insttypes.go).
+func (g *gen) newIfaceQuiet(t types.Type, it *types.Interface, name string) *ifaceInfo {
 	info := &ifaceInfo{t: t, it: it, name: name, methods: sortedMethods(it), owner: g}
 	for _, m := range info.methods {
 		if !complete(m.Signature()) {
@@ -152,8 +162,6 @@ func (g *gen) newIface(t types.Type, it *types.Interface, name string) *ifaceInf
 	for _, m := range info.methods {
 		info.mnames = append(info.mnames, g.methodName(name, m.Name()))
 	}
-	tab := g.itable()
-	tab.list = append(tab.list, info)
 	return info
 }
 
@@ -162,6 +170,9 @@ func (g *gen) newIface(t types.Type, it *types.Interface, name string) *ifaceInf
 func (g *gen) ifaceOf(t types.Type, pos token.Pos) *ifaceInfo {
 	switch u := types.Unalias(t).(type) {
 	case *types.Named:
+		if isInstance(u) {
+			return g.instIface(u, pos) // insttypes.go
+		}
 		if info := g.itable().named[u.Obj()]; info != nil {
 			return info
 		}
@@ -223,7 +234,10 @@ func (g *gen) ifaceType(t types.Type, pos token.Pos) cppir.Type {
 	if info == nil {
 		return typeName("gp_unsupported")
 	}
-	if info.shared != nil && g.split {
+	if info.inst != nil && info.owner == g && g.inTemplate == 0 && g.global == 0 {
+		return typeName(info.name)
+	}
+	if info.shared != nil && g.split && info.inst == nil {
 		return typeName(info.name) // in the global namespace (shared.go)
 	}
 	if info.owner != g {

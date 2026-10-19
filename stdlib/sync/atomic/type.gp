@@ -378,3 +378,56 @@ func swapBool(x *Bool, val uint32) uint32
 
 //gocpp:native gp::sync_atomic::ty_cas
 func casBool(x *Bool, old, new uint32) bool
+
+// A Pointer is an atomic pointer of type *T. The zero value is a nil *T.
+// A Pointer must not be copied after first use.
+//
+// (gocpp: the pointer is a counted gp::ptr<T>, so the fields are a spin lock and the pointer,
+// as in Value, and the operations are the natives ptr_* of gocpp/atomic.hpp; Go has
+// `_ noCopy; v unsafe.Pointer`.)
+type Pointer[T any] struct {
+	_  [0]*T
+	lk uint32
+	v  *T
+}
+
+// Load atomically loads and returns the value stored in x.
+func (x *Pointer[T]) Load() *T {
+	spinLock(&x.lk)
+	p := x.v
+	spinUnlock(&x.lk)
+	return p
+}
+
+// Store atomically stores val into x.
+func (x *Pointer[T]) Store(val *T) {
+	x.Swap(val)
+}
+
+// Swap atomically stores new into x and returns the previous value.
+func (x *Pointer[T]) Swap(new *T) (old *T) {
+	spinLock(&x.lk)
+	old = x.v
+	x.v = new
+	spinUnlock(&x.lk)
+	return old
+}
+
+// CompareAndSwap executes the compare-and-swap operation for x.
+func (x *Pointer[T]) CompareAndSwap(old, new *T) (swapped bool) {
+	spinLock(&x.lk)
+	if x.v == old {
+		x.v = new
+		swapped = true
+	}
+	spinUnlock(&x.lk)
+	return swapped
+}
+
+// spinLock and spinUnlock are the spin lock of a Pointer (gocpp/atomic.hpp).
+
+//gocpp:native gp::sync_atomic::spin_lock_word
+func spinLock(w *uint32)
+
+//gocpp:native gp::sync_atomic::spin_unlock_word
+func spinUnlock(w *uint32)

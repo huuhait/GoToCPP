@@ -191,12 +191,17 @@ type gen struct {
 	// generics are the generic functions of the package (generics.go), insts the instances that
 	// units asked for and instQueue those not lowered yet, ctxt the context that go/types
 	// instantiates types with, and unit the translation unit being lowered.
-	generics  map[*types.Func]*genericFunc
-	insts     map[instKey]*instance
-	instQueue []*instance
-	instNames map[string]string // the C++ name of each instance and the text it was made from (clashes of the hash)
-	ctxt      *types.Context
-	unit      string
+	generics map[*types.Func]*genericFunc
+	// genericTypes are the generic types the package declares (insttypes.go), inShared counts the
+	// shared instances being made, infoPrivate says that info is the package's own copy.
+	genericTypes map[*types.TypeName]*genericType
+	inShared     int
+	infoPrivate  bool
+	insts        map[instKey]*instance
+	instQueue    []*instance
+	instNames    map[string]string // the C++ name of each instance and the text it was made from (clashes of the hash)
+	ctxt         *types.Context
+	unit         string
 
 	// cxxNamed are the types that stand for C/C++ type arguments (opaqueInstRef), cxxCount
 	// numbers them, and curOpen are the template parameters of the instance being lowered.

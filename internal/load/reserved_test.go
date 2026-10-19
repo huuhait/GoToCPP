@@ -34,10 +34,10 @@ const (
 type C/*ERR*/ int
 type C/*ERR*/ = int
 
-type L[C/*ERR*/ any] []int
-type M[K comparable, C/*ERR*/ any] map[K]C
+type L[C any] []int
+type M[K comparable, C any] map[K]C
 
-func tp[C/*ERR*/ any](
+func tp[C any](
 	C/*ERR*/ int,
 ) {
 }
@@ -58,11 +58,11 @@ func (C/*ERR*/ T) m1(
 	return 0
 }
 
-func (l L[C/*ERR*/]) m2() {}
+func (l L[C]) m2() {}
 
-func (m *M[K, C/*ERR*/]) m3() {}
+func (m *M[K, C]) m3() {}
 
-func (m *(M[K, C/*ERR*/])) m4() {}
+func (m *(M[K, C])) m4() {}
 
 func locals(xs []int, v any, ch chan int) {
 	var C/*ERR*/ int
@@ -171,7 +171,7 @@ func TestCheckReservedC(t *testing.T) {
 		}
 	}
 	want := markedPositions(reservedSrc)
-	if n := strings.Count(reservedSrc, "C/*ERR*/"); len(want) != n || n < 30 {
+	if n := strings.Count(reservedSrc, "C/*ERR*/"); len(want) != n || n < 25 {
 		t.Fatalf("markedPositions found %d markers, the source has %d", len(want), n)
 	}
 	for _, p := range want {

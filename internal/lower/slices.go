@@ -60,6 +60,10 @@ func (fg *funcGen) compositeLit(e *ast.CompositeLit) cppir.Expr {
 	}
 	_, ok := under(t).(*types.Slice) // also of a named slice type (litValue converts it)
 	if !ok {
+		if e.Type != nil && fg.g.isGenericTypeExpr(e.Type) {
+			fg.g.notYet(e.Pos(), "an instance of a generic type with a C/C++ type argument ("+types.ExprString(e.Type)+") is not supported yet: the type arguments of a generic type are Go types")
+			return placeholder
+		}
 		fg.g.unsupported(e.Lbrace, "composite literals of type "+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types)))
 		return placeholder
 	}
@@ -91,6 +95,9 @@ func (fg *funcGen) compositeLit(e *ast.CompositeLit) cppir.Expr {
 func (fg *funcGen) sliceBuiltin(c *ast.CallExpr, name string) cppir.Expr {
 	arg := c.Args[0]
 	t := fg.g.info.TypeOf(arg)
+	if core := fg.g.cxxCore(t); core != nil && name != "make" {
+		t = core // S ~[]E that C++ deduces (generics.go)
+	}
 	if !isSlice(t) {
 		what := map[string]string{"make": "make of ", "append": "append to ", "copy": "copy to ", "clear": "clear of "}[name]
 		phase := ""

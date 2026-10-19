@@ -39,6 +39,14 @@ type Program struct {
 	anonStructs map[string]*structInfo
 	anonIfaces  map[string]*ifaceInfo
 	sharedOrder []sharedItem // in the order they were found
+
+	// The instances of generic types (insttypes.go), by identity text, the objects that stand for
+	// them and the C++ names taken.
+	instTypes     map[string]*instType
+	instObjs      map[string]*types.TypeName
+	localOrigins  map[*types.Named]*localInfo // the types declared in generic functions (localtypes.go)
+	localTagOf    map[*types.TypeName]string  // their origins' tags
+	instTypeNames map[string]string
 }
 
 // A PackageInput is a type-checked package for NewProgram, with what the C++ compiler's probes

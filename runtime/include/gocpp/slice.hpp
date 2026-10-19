@@ -613,4 +613,15 @@ slice<T> append_n(slice<T> s, const T* src, int64_t n) {
 
 } // namespace detail
 
+// slice_elem_of<S>::type is E for S = slice<E>: the element type of a slice type that C++ deduced
+// (a generic function over S ~[]E whose E the compiler cannot deduce from the arguments).
+namespace detail {
+template <typename S>
+struct slice_elem_of;
+template <typename E>
+struct slice_elem_of<slice<E>> {
+    using type = E;
+};
+} // namespace detail
+
 } // namespace gp

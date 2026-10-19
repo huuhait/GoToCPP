@@ -190,7 +190,7 @@ fmt functions take their operands with a descriptor (gp::fmt::as) and do not box
 Each use of the function asks for its instance by name; the instance is written once in the unit of the file that first needed it, and a comment names it in Go's notation (// Map[int,string]). The annotation on the generic function's line lists every instance made from that body, and each call site says which instance it calls.
 
 A type argument that is a C/C++ type makes a C++ function template that the C++ compiler deduces instead (Phase 07 README, C/C++ type arguments).`,
-		Spec:    "cpp-mapping.md#generics-steps-71-and-72",
+		Spec:    "cpp-mapping.md#generics-steps-71-to-73",
 		Example: "generics.gp",
 		Phase:   7,
 		See:     []string{"interfaces", "interop"},

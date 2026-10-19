@@ -168,21 +168,12 @@ func main() {
 // TestGenericErrors checks the programs that lowering turns down for a user error, with the message.
 func TestGenericErrors(t *testing.T) {
 	tests := []struct{ name, src, want string }{
-		{"local type", `package main
-
-func F[T any](v T) any {
-	type box struct{ v T }
-	return box{v}
-}
-
-func main() { _ = F(1) }
-`, "main.gp:4:2: type declarations inside generic functions are not supported yet (Phase 07)"},
-		{"generic type", `package main
+		{"generic type in the unit layout", `package main
 
 type Box[T any] struct{ v T }
 
 func main() { _ = Box[int]{} }
-`, "main.gp:3:6: generic types are not supported yet (Phase 07)"},
+`, "main.gp:5:27: generic types need the split layout"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

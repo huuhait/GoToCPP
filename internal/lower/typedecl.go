@@ -87,6 +87,9 @@ type structInfo struct {
 	// uses it (an anonymous struct type: shared.go).
 	owner  *gen
 	shared *sharedDef
+	// inst is set for an instance of a generic type (insttypes.go): shared too, but in the
+	// namespace of its owner.
+	inst *instType
 }
 
 // typeDecls holds the structs of the package.
@@ -161,13 +164,11 @@ func (g *gen) typeSpec(spec *ast.TypeSpec, local bool) {
 	switch {
 	case spec.Name.Name == "_":
 		return // nothing can use it
-	case spec.TypeParams != nil:
-		if !g.pkg.Load.Std {
-			g.notYet(spec.Pos(), "generic types are not supported yet (Phase 07)")
-		}
-		return // (a standard package's generic type is a stub until step 7.10: the user's use is the error)
 	case spec.Assign.IsValid():
-		return // an alias: its uses are the type it names (cxxType unaliases them)
+		return // an alias: its uses are the type it names (cxxType unaliases them), also a generic one
+	case spec.TypeParams != nil:
+		g.recordGenericType(spec) // insttypes.go: written for each instance
+		return
 	}
 	tn, _ := g.info.Defs[spec.Name].(*types.TypeName)
 	if tn == nil {
@@ -333,6 +334,9 @@ func (g *gen) anonKey(st *types.Struct) string {
 func (g *gen) structOf(t types.Type, pos token.Pos) *structInfo {
 	switch t := types.Unalias(t).(type) {
 	case *types.Named:
+		if isInstance(t) && !isInterface(t) {
+			return g.instStruct(t, pos) // insttypes.go
+		}
 		if si := g.tdecls().named[t.Obj()]; si != nil {
 			return si
 		}
@@ -342,6 +346,10 @@ func (g *gen) structOf(t types.Type, pos token.Pos) *structInfo {
 			}
 		}
 	case *types.Struct:
+		if g.hasCxxNamed(t) {
+			g.notYet(pos, "an unnamed struct type with a C/C++ type argument of a generic function is not supported yet: declare a named struct type")
+			return nil
+		}
 		return g.anonStruct(t)
 	}
 	if g.stdTypeNotYet(t, pos) {
@@ -358,6 +366,15 @@ func (g *gen) structType(t types.Type, pos token.Pos) cppir.Type {
 	si := g.structOf(t, pos)
 	if si == nil {
 		return typeName("gp_unsupported")
+	}
+	if si.inst != nil {
+		if si.owner == g && g.inTemplate == 0 && g.global == 0 {
+			if td := g.tdecls(); td.hidden[si.name] || td.members[si.name] {
+				return typeName(g.ns + "::" + si.name)
+			}
+			return typeName(si.name)
+		}
+		return typeName(si.owner.qual(si.name)) // an instance of a generic type: in its owner's namespace
 	}
 	if si.shared != nil && g.split {
 		return typeName(si.name) // in the global namespace (shared.go)
@@ -492,8 +509,9 @@ func (g *gen) structDecls() *typeParts {
 	// The forwarders of the promoted methods (promote.go), after all the structs.
 	for _, si := range td.list {
 		if si.shared != nil && g.split {
-			// A shared struct is defined once for the program: its forwarders in the pkg_desc.cpp of its owner.
-			if si.owner == g {
+			// A shared struct is defined once for the program: its forwarders in the pkg_desc.cpp of its owner
+			// (those of an instance of a generic type are inline in its header text).
+			if si.owner == g && si.inst == nil {
 				// (Outside the package's namespace, where the struct is: its names are qualified.)
 				g.global++
 				parts.globalFwd = append(parts.globalFwd, g.forwardDefs(si)...)
@@ -551,6 +569,12 @@ func (si *structInfo) fieldCount() int {
 func (g *gen) byValue(t types.Type) []*structInfo {
 	switch u := types.Unalias(t).(type) {
 	case *types.Named:
+		if isInstance(u) && !isInterface(u) {
+			if si := g.instStruct(u, token.NoPos); si != nil {
+				return []*structInfo{si}
+			}
+			return nil
+		}
 		if si := g.tdecls().named[u.Obj()]; si != nil {
 			return []*structInfo{si}
 		}
@@ -723,6 +747,13 @@ func typeStringOpt(t types.Type, named func(*types.Named) string, fieldPkg bool)
 	case *types.Named:
 		if isWeakPointer(t) {
 			return named(t) + "[" + str(weakElem(t)) + "]" // weak.Pointer[main.T] (weak.go)
+		}
+		if targs := t.TypeArgs(); targs.Len() > 0 {
+			args := make([]string, targs.Len())
+			for i := range args {
+				args[i] = str(targs.At(i)) // an instance of a generic type: main.Pair[string,int]
+			}
+			return named(t) + "[" + strings.Join(args, ",") + "]"
 		}
 		return named(t)
 	case *types.Pointer:

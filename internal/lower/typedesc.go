@@ -134,6 +134,9 @@ func (g *gen) desc(t types.Type, pos token.Pos) cppir.Expr {
 			return g.desc(types.Default(u), pos)
 		}
 	case *types.Named:
+		if isInstance(u) {
+			return g.instDesc(u, pos) // insttypes.go
+		}
 		switch {
 		case runtimeIfaceKnown(u):
 			r, _ := runtimeIfaceOf(u)
@@ -259,6 +262,11 @@ func hasPromoted(st *types.Struct) bool {
 // comp registers the composite descriptor of t (once, by its identity text) and returns the
 // name of its pointer. name may be "" (gp_tdc_N).
 func (g *gen) comp(t types.Type, name string, init cppir.Expr) cppir.Expr {
+	if g.inShared > 0 {
+		// In the shared text of an instance of a generic type, which every package that uses it
+		// writes: no object of this package's, the descriptor is interned where it is used.
+		return init
+	}
 	dt := g.dtable()
 	key := g.canonText(t)
 	if c := dt.byKey[key]; c != nil {
@@ -411,7 +419,7 @@ func (g *gen) implDecls() implParts {
 // descSpecs are the specifiers of the definition of a descriptor object: inline in the unit
 // layout, a plain const in the split layout (the header declares it extern).
 func (g *gen) descSpecs() []string {
-	if g.split {
+	if g.split && g.inShared == 0 {
 		return []string{"const"}
 	}
 	return []string{"inline", "const"}
@@ -469,13 +477,18 @@ func (g *gen) namedDecls(nd *namedDesc, p *implParts) {
 	typ := g.cxxType(nd.t, pos)
 	vmt, pmt := g.tables(nd, pos, &decls)
 	shape := g.shapeOf(nd.t, pos)
+	var fullFn *cppir.Func
 	if fn := g.fullFunc(nd, pos); fn != nil {
 		// The complete descriptor comes from a function (typefull.go).
 		shape = call("gp::shape_lazy", shape, addrOf(fn.Name))
 		proto := *fn
 		proto.Body = nil
 		decls = append(decls, &proto)
-		g.dtable().fulls = append(g.dtable().fulls, fn)
+		if g.inShared > 0 {
+			fullFn = fn // inline, after the descriptor it completes
+		} else {
+			g.dtable().fulls = append(g.dtable().fulls, fn)
+		}
 	}
 	args := []cppir.Expr{
 		lit(cppir.CString(g.canonName(nd.t))),
@@ -490,6 +503,9 @@ func (g *gen) namedDecls(nd *namedDesc, p *implParts) {
 	}
 	decls = append(decls, &cppir.VarDecl{Specs: g.descSpecs(), Type: typeName("gp::type_desc"),
 		Vars: []cppir.Declarator{{Name: nd.name, Init: templateCall("gp::named", []cppir.Node{typ}, args...)}}})
+	if fullFn != nil {
+		decls = append(decls, fullFn)
+	}
 	decls = append(decls, &cppir.Blank{})
 	p.addExt(&cppir.VarDecl{Specs: []string{"extern", "const"}, Type: typeName("gp::type_desc"), Vars: []cppir.Declarator{{Name: nd.name}}})
 	p.addDef(decls...)
@@ -571,7 +587,9 @@ func (g *gen) thunk(nd *namedDesc, m methodEntry, ptr bool, decls *[]cppir.Decl)
 	case !ptr:
 		val := templateCall("gp::unbox", []cppir.Node{typ}, cxxName("gp_self"))
 		invoke = &cppir.Call{Fun: &cppir.Member{X: val, Name: member}, Args: args}
-	case m.promoted:
+	case m.promoted || nd.si.inst != nil:
+		// (For an instance of a generic type gc's wrapper does not check: a nil *T is an ordinary nil
+		// dereference there, whatever the method's receiver is.)
 		// A promoted value method through a *T: Go's wrapper reaches the embedded field through the
 		// pointer, so a nil *T is an ordinary nil dereference (->), not panicwrap's message.
 		invoke = &cppir.Call{Fun: &cppir.Member{X: unboxPtr, Arrow: true, Name: member}, Args: args}
@@ -580,7 +598,7 @@ func (g *gen) thunk(nd *namedDesc, m methodEntry, ptr bool, decls *[]cppir.Decl)
 		fn.Body.Stmts = append(fn.Body.Stmts,
 			varDecl(cppir.Pos{}, ptrType, "gp_p", unboxPtr),
 			&cppir.ExprStmt{X: call("gp::check_wrap", cxxName("gp_p"), lit(cppir.CString(
-				"value method "+g.canonName(nd.t)+"."+m.fn.Name()+" called using nil *"+nd.t.Obj().Name()+" pointer")))})
+				"value method "+g.canonName(nd.t)+"."+m.fn.Name()+" called using nil *"+g.shortName(nd.t)+" pointer")))})
 		invoke = &cppir.Call{Fun: &cppir.Member{X: cxxName("gp_p"), Arrow: true, Name: member}, Args: args}
 	}
 	if tn, ok := result.(*cppir.TypeName); ok && tn.Name == "void" && len(tn.Args) == 0 {

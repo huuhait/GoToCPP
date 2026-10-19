@@ -77,6 +77,10 @@ func (g *gen) typeExpr(e ast.Expr) cppir.Type {
 		if r, ok := g.cRefOf(x); ok {
 			return g.cType(r, e)
 		}
+		if g.isGenericTypeExpr(x) {
+			g.notYet(e.Pos(), "an instance of a generic type with a C/C++ type argument ("+types.ExprString(e)+") is not supported yet: the type arguments of a generic type are Go types")
+			return typeName("gp_unsupported")
+		}
 	case *ast.FuncType:
 		return g.funcTypeExpr(x)
 	case *ast.ChanType:

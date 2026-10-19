@@ -2394,7 +2394,7 @@ Source: [Phase 08 §2.2 to §2.4](../../plans/2026-10-13-gocpp/phase-08-concurre
   | `Version()`, `GOOS`, `GOARCH` | `go1.25.14`, `linux`, `amd64` |
   | `runtime/debug` | `Stack`, `PrintStack`, `FreeOSMemory` (`malloc_trim`), and `SetGCPercent`, `SetMemoryLimit`, `SetMaxStack`, `SetMaxThreads`, `SetPanicOnFault`, `SetTraceback` that keep their values |
 
-## Generics (steps 7.1 and 7.2)
+## Generics (steps 7.1 to 7.3)
 
 A generic function becomes a C++ function **for each list of type arguments that the program names**
 (an *instance*), lowered as if the function were written with those types
@@ -2479,17 +2479,18 @@ void main() {
 - **A generic function of another package that uses C/C++ names** (a header import, `C.int`, a
   C++ value) can only be instantiated in its own package: its body is lowered with the asking
   package's C/C++ state, not the owner's (a user error at the call, "Phase 12").
-- **Known differences from gc.** A type parameter (or anything else) named `C` is rejected
-  (`cannot declare C - C is reserved for C's built-in types`, the loader's rule for every
-  declaration of that name): write `Compose[A, B, R any]`, not `Compose[A, B, C any]`. For `T = *Base`
+- **Known differences from gc.** A variable, parameter or type named `C` is rejected
+  (`cannot declare C - C is reserved for C's built-in types`, the loader's rule), but a **type
+  parameter** may be named `C` (functions, generic types and their receivers): it shadows the
+  pseudo-package in its scope, where `C.int` is Go's "C.int is not a type". For `T = *Base`
   and a value method `String`, calling `x.String()` on a nil `x` in generic code panics with the nil
   dereference text, where gc says `value method main.Base.String called using nil *Base pointer`
   (the exit code is the same). A method value `x.Value` with `T = *Counter` copies `*x` when it is
   evaluated, as the spec says; gc's generic code binds the pointer, so later changes show through.
   A generic function named like a C++ keyword (`class`) shows in a trace as `main.class_[...]` (the
   `_` of the escape).
-- **Not built.** Type declarations inside generic functions (Go makes each a type of the instance:
-  `main.box[string]`), generic types and their methods (step 7.3), the generic functions of
+- **Not built.** A C/C++ type as a type argument of a generic *type*
+  (see below), the generic functions of
   `cmp`, `slices`, `maps` and `iter` (step 7.10: their stubs are rejected with
   `cmp.Compare is not available yet (Phase 07)`), a generic function as a func value when one of its
   type arguments is a C++ type that C++ deduces.
@@ -2616,6 +2617,110 @@ option and compiles them with both compilers; `TestConceptsFlag` in `cmd/gocpp` 
 `-gp:concepts`); `runtime/test/concepts_test.cpp` (the building blocks); snippets that
 must be rejected with an error that names the concept; the output without the flag has no concept and
 does not include the header; the program with the flag prints what real Go prints.
+
+### Generic types (step 7.3)
+
+A generic type is **one C++ struct, method set and type descriptor for each instance**
+(`Stack[int]`, `Pair[string, []int]`), not a template: the instance is a type of its own, as in
+`go/types`, and its struct, its methods and its descriptor are written the way a struct declared with
+those types would be. Go's `%T` text is the descriptor's name.
+
+```go
+type Stack[T any] struct{ items []T }
+
+func (s *Stack[T]) Push(v T) { s.items = append(s.items, v) }
+func (s Stack[T]) Len() int  { return len(s.items) }
+
+type Pair[K comparable, V any] struct {
+	Key K
+	Val V
+}
+
+var s Stack[int]
+p := Pair[string, Stack[int]]{"k", s}
+fmt.Printf("%T\n", p) // main.Pair[string,main.Stack[int]]
+```
+
+```cpp
+namespace gpkg_main {
+struct gp_inst_e0e468d0_Stack {                      // Stack[int]
+    gp::slice<int64_t> items;
+    static constexpr auto gp_fields = gp::fields(gp::field(&gp_inst_e0e468d0_Stack::items, "items", false, false));
+    static void Push(gp::ptr<gp_inst_e0e468d0_Stack> s, int64_t v);
+    int64_t Len() const;
+};
+struct gp_inst_5122dbb8_Pair {                       // Pair[string, Stack[int]]
+    gp::string Key;
+    gp_inst_e0e468d0_Stack Val;
+    ...
+};
+inline const gp::type_desc gp_td_gp_inst_5122dbb8_Pair =
+    gp::named<gp_inst_5122dbb8_Pair>("main.Pair[string,main.Stack[int]]", "main", ...);
+inline void gp_inst_e0e468d0_Stack::Push(gp::ptr<gp_inst_e0e468d0_Stack> s, int64_t v) { ... }
+}
+```
+
+(`tests/golden/generics_types.cpp.golden` is the whole file.)
+
+- **Shared items, made by the declaring package.** An instance is shared text, like an unnamed
+  struct (ADR-025): every package that mentions it writes the same struct, thunks, descriptor and
+  method bodies in its `pkg.hpp`, under macro guards (`GP_INST_<hash>` for the struct,
+  `_IMPL` for the descriptor and method tables, `_POST` for the method bodies, which go after the
+  header's tail), all `inline`. The text is made by the package that declares the generic type,
+  in that package's namespace (`gpkg_<declaring package>`), where its unexported fields, methods,
+  helper functions and variables are; every importer's `pkg.hpp` has the same text, so `Box[b.Feet]`
+  named by `a`, `b`, `c` and `main` is one type (one descriptor: assertions, type switches, `%T`, map
+  keys and `==` agree). The name is `gp_inst_<8 hex digits of a hash of the identity text>_<Name>`; a
+  hash that clashes with another instance's takes 10 or 12.
+- **Methods.** The methods of an instance are lowered with it, from the generic method's syntax and
+  the substitution of ADR-030 (so value and pointer receivers, promoted methods through an embedded
+  instance, method values and expressions, and calls through interfaces are the ones of any struct).
+  A method that returns another instance (`Swap() Pair[V, K]`) asks for that instance, to a fixed
+  point (a recursive or mutually recursive generic type is a finite set of instances).
+  Instances are written for what the program names: a type's methods are all lowered when the type
+  is, whether called or not.
+- **Descriptors.** An instance's descriptor is named with Go's `%T` text: type arguments in full (import
+  paths for packages, `main.Point`), a comma without a space, nested instances inside:
+  `main.Pair[string,[]int]`, `*main.Stack[main.Pair[int,map[string]bool]]`. `%v` and `%+v` use the
+  field names and values of the instance, a `String()` or `Error()` method is called, and an
+  interface that the instance implements has its method table (value set, pointer set) like any struct.
+- **Interfaces.** Generic interface types are instances too (`Getter[int]`: an interface struct with the
+  methods substituted, named like the struct instances); a generic type satisfies a generic interface by
+  its method tables, and `v.(Getter[int])`, `case *Stack[int]:` and `case Box[string], Box[bool]:` compare
+  descriptors.
+- **Traces.** `main.Stack[...].Peek` for a value method and `main.(*Stack[...]).Pop` for a pointer method
+  (Go's names; `runtime/src/trace.cpp`).
+- **Generic aliases** (Go 1.24, `type SP[A any] = Pair[string, A]`) and aliases of instances
+  (`type IntStack = Stack[int]`) are `go/types` aliases: the same type, no C++ of their own.
+- **Types declared in generic functions** (`func F[T any]() { type local struct{ x T } ... }`, also in a
+  method of a generic type) are types of each instance, as in Go: `%T` of `local{v}` in `F[int,string]` is
+  `main.local[int,string]` (also for a local type that does not mention `T`; the arguments are the
+  function's, or the receiver's), and the type of `F[int,string]` is another type than the one of
+  `F[bool,bool]` or of a `local` of another function. The lowering gives each one a synthetic generic
+  origin whose type parameters are copies of the function's (`internal/lower/localtypes.go`), replaces
+  every mention in an instance's body by its instance, and from there it is an instance of a generic
+  type as above (no methods, a struct or a named non-struct type).
+- **Standard generic types.** `atomic.Pointer[T]` is `{_ [0]*T; lk uint32; v *T}` with the spin lock
+  of `atomic.Value`, written in Go (`stdlib/sync/atomic/type.gp`); `iter.Seq[V]` and `iter.Seq2[K, V]` are
+  generic function types: an instance is a named type whose `%T` is `iter.Seq[int]`.
+- **Generic functions over `S ~[]E` with a C++ element type.** When C++ deduces `S` (a Go slice of a
+  C++ type, `[]std.vector[int]`), `E` is not deducible from the arguments, so the template gives it the
+  default `typename gp::detail::slice_elem_of<S>::type`; `len`, `cap`, index, slice expressions, `range` and
+  `append` on a value of `S` are the slice operations (`tests/interop/generics_cxx_slice_core.gp`).
+  `make(S, n)`, `copy` and conversions to `S` are not built for a deduced `S`.
+- **Not built.** A C/C++ type as a type argument of a generic type (`Box[std.string]`,
+  `Stack[std.vector[int]]`), also through a generic function whose type argument is a C++ type
+  (`func F[T any](v T) Box[T]`): a user error that says so at the instantiation, because the fields,
+  the descriptor and the equality of an instance are made from Go types and every package that
+  mentions it must write the same text. (The design that would build it: a placeholder for the written
+  C++ type, part of the instance's identity, allowed where the asking package is the declaring one,
+  with the header including the C/C++ headers; deduced type arguments would stay an error.) This includes
+  `iter.Seq[std.string]`. Instances need the split layout (`gocpp build`).
+- **Cost.** Each instance's text is in every translation unit that includes the header of a package that
+  mentions it, so the compile time grows with instances times units: a program with 20 generic types,
+  each with 3 methods and 10 instances (200 instances, all printed with `fmt`) is 17k lines of C++ and
+  compiled in 69 s with g++ and 56 s with clang++ (4 units, on a loaded machine), against 38 s and 35 s
+  for the same 200 types written out by hand.
 
 Source: [Phase 07 §2](../../plans/2026-10-13-gocpp/phase-07-generics/README.md), [ADR-030](../adr/030-generic-instances.md).
 
@@ -2825,7 +2930,7 @@ The plan already describes these shapes; each phase adds them here when it build
 | [04](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md) | C/C++ values (see [interop.md](interop.md)) |
 | [05](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md) | interface structs, type descriptors, method tables (steps 5.1 to 5.3: [Interfaces](#interfaces)), conversions, assertions, embedding, `panic`/`recover` |
 | [06](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md) | the rest of the package headers and the build modes (`c-archive`, `c-shared`, `cpp-lib`) |
-| [07](../../plans/2026-10-13-gocpp/phase-07-generics/README.md) | generic types and their methods (generic functions: [Generics](#generics-steps-71-and-72), their operations and constraints, and `-gp:concepts`: below it; range over functions: [Range over functions](#range-over-functions)) |
+| [07](../../plans/2026-10-13-gocpp/phase-07-generics/README.md) | generic functions and types, their methods, operations and constraints ([Generics](#generics-steps-71-to-73) and `-gp:concepts`: below it; range over functions: [Range over functions](#range-over-functions)) |
 | [08](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md) | `go` (`gp::go`), channels, `select` |
 | [10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md) | `!` as early returns, macros as inline templates |
 | [15](../../plans/2026-10-13-gocpp/phase-15-hardening-release/README.md) | escape analysis (locals that don't escape stay on the stack), Swiss-table maps, and maybe smaller strings and slices (only if the benchmarks say so) |

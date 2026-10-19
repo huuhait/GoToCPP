@@ -7,8 +7,8 @@ import (
 )
 
 // TestGenericsEmit checks gocpp emit on programs with generic functions, with the gates open to
-// Phase 07 (a generic function is built; generic types, type declarations inside generic functions
-// and the stubs of the standard packages cmp, slices, maps and iter are user errors).
+// Phase 07 (generic functions, generic types and the types declared in generic functions are built;
+// the stubs of the standard packages that are not ported are user errors).
 func TestGenericsEmit(t *testing.T) {
 	t.Setenv(gatePhaseEnv, "07")
 	tests := []struct {
@@ -22,10 +22,10 @@ func TestGenericsEmit(t *testing.T) {
 			[]string{"main.go:5:23: cmp.Compare is not available yet (Phase 07)"}},
 		{"stub slices", "package main\n\nimport \"slices\"\n\nfunc main() { println(slices.Contains([]int{1}, 1)) }\n", 1,
 			[]string{"main.go:5:23: slices.Contains is not available yet (Phase 07)"}},
-		{"type", "package main\n\ntype Box[T any] struct{ v T }\n\nfunc main() { var b Box[int]; println(b.v) }\n", 1,
-			[]string{"main.go:3:6: generic types are not supported yet (Phase 07)"}},
-		{"local type", "package main\n\nfunc F[T any](v T) any {\n\ttype box struct{ v T }\n\treturn box{v}\n}\n\nfunc main() { println(F(1) != nil) }\n", 1,
-			[]string{"main.go:4:2: type declarations inside generic functions are not supported yet (Phase 07)"}},
+		{"type", "package main\n\ntype Box[T any] struct{ v T }\n\nfunc main() { var b Box[int]; println(b.v) }\n", 0,
+			[]string{"gp_inst_", "_Box", `"main.Box[int]"`}},
+		{"local type", "package main\n\nfunc F[T any](v T) any {\n\ttype box struct{ v T }\n\treturn box{v}\n}\n\nfunc main() { println(F(1) != nil) }\n", 0,
+			[]string{"gp_inst_", "_box", `"main.box[int]"`}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -70,7 +70,8 @@ func TestConceptsFlag(t *testing.T) {
 	t.Setenv(gatePhaseEnv, "07")
 	const src = "package main\n\nimport \"fmt\"\n\ntype Num interface{ ~int | ~float64 }\n\n" +
 		"func Sum[T Num](xs ...T) (s T) {\n\tfor _, x := range xs {\n\t\ts += x\n\t}\n\treturn\n}\n\n" +
-		"func main() { fmt.Println(Sum(1, 2, 3), Sum(1.5, 2)) }\n"
+		"type Box[T Num] struct{ v T }\n\nfunc (b Box[T]) Double() T { return Sum(b.v, b.v) }\n\n" +
+		"func main() { fmt.Println(Sum(1, 2, 3), Sum(1.5, 2), Box[int]{4}.Double()) }\n"
 	tree := map[string]string{"main.go": src}
 	off := checkIn(t, tree, "emit", "main.gp")
 	on := checkIn(t, tree, "emit", "-gp:concepts", "main.gp")
@@ -99,12 +100,12 @@ func TestConceptsFlag(t *testing.T) {
 		if r.code != 0 {
 			t.Fatalf("gocpp %s -gp:concepts main.gp = %s", cmd, show(r))
 		}
-		if cmd == "run" && r.stdout != "6 3.5\n" {
-			t.Errorf("gocpp run -gp:concepts printed %q, want %q", r.stdout, "6 3.5\n")
+		if cmd == "run" && r.stdout != "6 3.5 8\n" {
+			t.Errorf("gocpp run -gp:concepts printed %q, want %q", r.stdout, "6 3.5 8\n")
 		}
 	}
 	out, err := exec.Command("./prog" + exeSuffix).CombinedOutput()
-	if err != nil || string(out) != "6 3.5\n" {
+	if err != nil || string(out) != "6 3.5 8\n" {
 		t.Errorf("the program built with -gp:concepts: %v, printed %q", err, out)
 	}
 }

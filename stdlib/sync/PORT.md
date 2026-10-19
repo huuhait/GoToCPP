@@ -22,5 +22,6 @@ The design is ADR-040; the natives are `runtime/include/gocpp/sync.hpp` and `ato
   no garbage collector to clear them.
 - `sync/atomic`: the function-style API is natives (`gp::sync_atomic::fn_*`, `std::atomic_ref`); the typed
   structs have one field `v` and call `ty_*` natives that read it; `Bool` is a `uint32`; `Value` is
-  `{lk uint32; v any}` with a spin lock instead of the two-word protocol; `atomic.Pointer[T]` is not declared
-  yet (generic type, step 7.3: `tools/stubgen`'s `realNotYet`).
+  `{lk uint32; v any}` with a spin lock instead of the two-word protocol; `atomic.Pointer[T]` is
+  `{_ [0]*T; lk uint32; v *T}` with the same spin lock (`spinLock`, `spinUnlock`), written in Go over it (a native
+  cannot be generic, step 7.3).

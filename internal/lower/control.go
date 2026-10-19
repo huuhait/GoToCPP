@@ -442,6 +442,9 @@ func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 		return
 	}
 	xt := fg.g.info.TypeOf(s.X)
+	if c := fg.g.cxxCore(xt); c != nil {
+		xt = c // S ~[]E that C++ deduces (generics.go)
+	}
 	fg.g.noteRange(s, xt) // why.go
 	b := underBasic(xt)   // also a named string or integer type (step 3.9)
 	switch {

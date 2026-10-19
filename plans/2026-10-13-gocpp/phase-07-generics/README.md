@@ -21,10 +21,18 @@
 > from the same code written out. What §2.2, §2.3 (`gp_call_<Method>`) and the hidden descriptor
 > arguments of §2.4 describe is therefore **not built for functions**: steps 7.4 and 7.5 are covered by
 > the substitution (their tests are in `tests/run/generics_*`). C/C++ type arguments (§2.4) are
-> function templates over the C++ types, deduced by the C++ compiler (ADR-030, point 3). For step 7.3
-> (generic types) the same design means one struct (and method set, and descriptor with Go's exact name
-> `main.Pair[string,[]int]`) for each instance, from the instance's substituted types; the manager
-> decides before 7.3 starts. Everything else in this README stands.
+> function templates over the C++ types, deduced by the C++ compiler (ADR-030, point 3).
+>
+> **Update 2026-10-18 (step 7.3, ADR-030 point 5):** a generic **type** is not a C++ class template
+> either: each instance is one struct, method set and descriptor with Go's exact name
+> (`main.Pair[string,[]int]`), a shared item (like ADR-025's unnamed structs) made by the package that
+> declares the type, named `gp_inst_<hash>_<Name>` and written in every header that mentions it
+> (`internal/lower/insttypes.go`). Methods, embedding, generic interfaces, recursion, aliases of
+> instances and cross-package use are covered by `tests/run/generics_types_*` and
+> `tests/pkgs/generics_types_*`; 7.6 (interfaces × generics) has no code of its own. Types declared
+> inside generic functions are types of each instance (`main.local[int,string]`, `localtypes.go`), and
+> `atomic.Pointer[T]` is written in Go. Not built: a C/C++ type as a type argument of a generic type
+> (a clear user error; `iter.Seq[std.string]` too). Everything else in this README stands.
 
 > **Update 2026-10-18 (steps 7.4, 7.5, 7.6, 7.9):** **7.4, 7.5, 7.6 are built by the same substitution** (no
 > code of their own; audited by 46 new tests: `tests/run/generics_ops_*.gp` and `generics_iface_*.gp`, compared with

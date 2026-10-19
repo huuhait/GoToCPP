@@ -224,6 +224,8 @@ func TestTopicSpecs(t *testing.T) {
 		"operations-and-constraints-in-generic-code-steps-74-75-76":               "gocpp explain generics",
 		"-gpconcepts-c20-concepts-for-gos-constraints-step-79":                    "gocpp explain generics (the flag adds concepts to the headers)",
 		"the-internal-packages-and-their-natives-step-92":                         "library packages: no lowering decision",
+		"generic-types-step-73":                                                   "gocpp explain generics",
+		"sync-and-syncatomic":                                                     "a library package: no lowering decision",
 		"range-over-functions":                                                    "gocpp explain range",
 		"floating-point-numbers-and-package-math":                                 "a library package: no lowering decision (gocpp explain types for the number types)",
 		"the-reflect-subset-step-93":                                              "a library package written in .gp: no lowering decision",

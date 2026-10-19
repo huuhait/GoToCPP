@@ -1,7 +1,7 @@
-# ADR-030: A generic function is lowered once for each instance, by the package that uses it
+# ADR-030: A generic function is lowered once for each instance, by the package that uses it; a generic type is one shared item for each instance
 
-Status: accepted (2026-10-18). Replaces the template design of [ADR-017](017-generics-templates.md) for
-generic functions (ADR-017's "our own monomorphizer (rejected)" and its C++ templates, hidden descriptor
+Status: accepted (2026-10-18; generic types added in step 7.3). Replaces the template design of [ADR-017](017-generics-templates.md) for
+generic functions and generic types (ADR-017's "our own monomorphizer (rejected)" and its C++ templates, hidden descriptor
 arguments and `gp_call_<Method>` helpers); the rest of ADR-017 (explicit type arguments from `go/types`,
 the range-over-func design, the ported packages) stands.
 
@@ -71,8 +71,54 @@ names (an *instance*), as an ordinary C++ function, by the package that names it
    that the result of such a call is a source of opaque values.
 4. **Gates.** The standard packages `cmp`, `slices`, `maps` and `iter` are still stubs (`panic("stub")`
    bodies) until step 7.10: a call of one of their generic functions is a user error, not a program
-   that panics. A type declaration inside a generic function (Go makes it a type of each instance, and
-   `%T` shows `main.box[string]`) is not supported yet. Generic types are step 7.3.
+   that panics. (A type declaration inside a generic function is a type of each instance, as Go
+   makes it: point 5.)
+5. **A generic type is one C++ struct, method set and descriptor for each instance** (step 7.3,
+   `internal/lower/insttypes.go`). `Pair[string, []int]` is a type of its own that `go/types` makes
+   (`types.Named` with type arguments), and the lowering treats it as it treats an unnamed struct
+   (ADR-025): a **shared item** that every package that mentions it writes the same text for. What is
+   different from an anonymous struct is that the text has code in it, so it is made by the **package
+   that declares the generic type** (`makeInstance`, in `finishShared`), with the substitution layer of
+   point 1: the struct (`gp_inst_<8, 10 or 12 hex digits of a hash of the identity text>_<Name>`, in the
+   namespace of the declaring package, where the type's unexported members and helpers are visible),
+   its method bodies (value and pointer receivers, as for any struct; `inline`), the forwarders of
+   promoted methods, the method tables and thunks, and the descriptor, whose name is Go's `%T` text
+   (`main.Pair[string,[]int]`: type arguments with their import paths, no space after a comma;
+   `canon.go: inArgs`). The methods of an instance are lowered with it (a method that returns another
+   instance asks for that one, and so on to a fixed point: a recursive generic type is one instance).
+   The hash is of the *identity* text, not of the asker, so two packages, and the declaring package, name
+   the same C++ type: `Box[b.Feet]` of `a` is the same type in `a`, `b`, `c` and `main` (the header of
+   each one has the text under the macro guards `GP_INST_<hash>`, `_IMPL` for the descriptors and thunks
+   and `_POST` for the bodies, which go after the header's tail where the functions they call are
+   declared). An importer does not change the declaring package's header: the owner's tables are saved
+   and restored while the instance is made. A hash that clashes with another instance takes more digits
+   (clash lengthening, tested), and `runtime/src/trace.cpp` shows `main.Stack[...].Peek` and
+   `main.(*Stack[...]).Pop` for them, as Go does. Generic aliases (Go 1.24) are `go/types` aliases of
+   instances and cost nothing.
+
+   **Limits.** Instances need the split layout (a package's `pkg.hpp`), which `gocpp build` and `emit`
+   use; the unit layout of the lowering's tests gives a `notYet` error. A **C/C++ type as a type argument
+   of a generic type** (`Box[std.string]`) is a `notYet` user error with a message that says so: the
+   field types, the equality, the descriptor and the method tables of an instance are made from Go
+   types, and a placeholder cannot be baked into a text that every package shares (the placeholder's
+   spelling would have to be part of the identity, and only the declaring package could ask for the
+   instance: designed, not built). A generic *function* with a C++ type argument that makes an instance
+   of a generic type of that argument is the same error, at the instantiation. 
+
+   **Types declared in generic functions** (`type box struct{ v T }` in `F[T any]`, also in a method of a
+   generic type) are types of each instance in Go: `%T` shows `main.box[string]`, also for a local type
+   that does not mention `T`, and the `box` of `F[int]` is not the `box` of `F[string]` nor of another
+   function. `internal/lower/localtypes.go` gives each a synthetic generic origin (type parameters: fresh
+   copies of the function's, the underlying type substituted by the same layer) and the substituter
+   replaces every mention in an instance's body by the instance of that origin with the instance's type
+   arguments; from there it is an instance of a generic type of point 5 (no methods; a struct or a
+   named non-struct type). The identity text carries a per-origin tag, so two local types of the same
+   name with the same arguments are two instances.
+
+   **The standard packages' generic types**: `atomic.Pointer[T]` is written in Go over the spin lock
+   of `atomic.Value` (a native cannot be generic); `iter.Seq` and `iter.Seq2` are the ported package's.
+   A generic *function* over `S ~[]E` whose `S` C++ deduces (a slice of a C++ type) gets `E` by default
+   from `S` (`gp::detail::slice_elem_of`) and the slice operations.
 
 ## Alternatives
 
@@ -104,16 +150,26 @@ Bad:
 - Compile time is proportional to the number of instances in a unit, not shared across units
   (`docs/spec/cpp-mapping.md`, "Generics", has the measurement).
 - The lowering of a generic function body is repeated for each instance (a few milliseconds each).
-- Local types in generic functions need per-instance type declarations: not built.
+- A type declared in a generic function is a type of each instance in Go (`main.box[string]`, also when it does not mention a type parameter): it is a generic type with the function's type parameters, made by the lowering (`internal/lower/localtypes.go`) and shared like any instance. It must be a struct or a named non-struct type that gocpp can write (a defined pointer type is not).
 - A generic function of another package that uses C/C++ names is instantiated only in its own
   package until Phase 12 (the asking package's C/C++ state would be the wrong one).
-- A type parameter named `C` is an error (the loader's rule: `C` is reserved in every file). Go
-  generic code often writes `[A, B, C any]`; kept as it is, documented in cpp-mapping.md.
+- A type parameter named `C` was an error (the loader's rule: `C` is reserved in every file); step 7.3
+  exempts the type parameters of functions, types and receivers (`[A, B, C any]`, `[C ~chan E, E any]`):
+  they shadow the pseudo-package in their scope, and `C.int` in such a body is Go's own "C.int is not a
+  type". A variable, a parameter or a type named `C` is still the error.
+- An instance's text is in every translation unit that includes the header of a package that mentions
+  it (the structs, thunks, descriptors and inline methods), which costs compile time: 20 generic types with
+  10 instances each, 3 methods each, with `fmt.Sprint` of each instance: 17k lines of C++, g++ 69 s and clang++ 56 s
+  against 38 s and 35 s for the same 200 types written out (on a machine with a load average above 300:
+  the ratio, about 1.8, is what to read).
 
 ## Evidence
 
-- `tests/run/generics_*.gp` (more than 60 programs, outputs from real Go), `tests/pkgs/generics_*`,
-  `tests/interop/generics_cxx_*`, `tests/errors/generics_*`, `internal/lower` unit tests for the
-  substitution; everything with g++, clang++, and under ASan/UBSan.
+- `tests/run/generics_*.gp` (more than 100 programs, outputs from real Go; `generics_types_*` for
+  step 7.3), `tests/pkgs/generics_types_*` (declared in one package, instantiated in another, three-package
+  chains, embedding, constraints, interfaces, init order), `tests/interop/generics_cxx_*` and
+  `generics_types_cxx_*`, `tests/errors/generics_*`, `tests/golden/generics_types`, `internal/lower` unit
+  tests for the substitution and the instance names (`insttypes_test.go`); everything with g++, clang++,
+  and under ASan/UBSan.
 - Phase 07 README §2.4: "go/types records no Instances entry when a type argument is opaque
   (verified)".

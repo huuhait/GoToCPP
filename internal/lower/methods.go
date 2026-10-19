@@ -99,9 +99,7 @@ func (g *gen) collectMethod(d *ast.FuncDecl) {
 		return
 	}
 	if named.TypeParams() != nil {
-		if !g.pkg.Load.Std {
-			g.notYet(d.Pos(), "generic types are not supported yet (Phase 07)")
-		}
+		g.recordGenericMethod(d, fn, named) // insttypes.go: written for each instance
 		return
 	}
 	m := &methodInfo{recv: recv, ptr: ptr, named: named}
@@ -212,6 +210,9 @@ func (g *gen) memberNames(si *structInfo) map[string]bool {
 
 // methodsOf returns the methods of the struct si (prepared), in source order.
 func (g *gen) methodsOf(si *structInfo) []*funcInfo {
+	if si.inst != nil {
+		return si.inst.fns
+	}
 	var ms []*funcInfo
 	for _, f := range g.funcs {
 		if f.method != nil && f.method.si == si {
