@@ -61,6 +61,7 @@ and from the user's answers to Q1–Q13
 | [054](054-reason-log-and-explain.md) | The lowering records its reasons in an optional log; `explain` is built from the compiler's own output | accepted | `lower.Why` (nil: hooks do nothing, the C++ never changes), each reason kind is an `explain` topic, topics embed live examples, messages have a table with a completeness test. |
 | [066](066-debugger-support.md) | The debugger support: gdb's script travels inside every program, and gdb is the full debugger | accepted | Printers that read memory, a frame filter for Go names, `gp goroutines`; the script is a `.debug_gdb_scripts` section of every Linux program; `gocpp debug`; lldb best effort (summaries only). |
 | [072](072-unicode-strconv-errors-ports.md) | `unicode`, `strconv` and `errors` are Go's own packages, with patches only where gocpp's costs differ | accepted | portstd output; `errors` keeps the step 5.7 natives, `unicode` reads table entries by value (about 4-6x), `strconv` uses `internal/bytealg`; `own` lines in `ports.txt`; Go's own test tables run through a harness, expected output from real Go. |
+| [067](067-os-on-posix-natives-and-go-errors.md) | Package `os` is Go's own `os` over small POSIX natives, with Go's error types | accepted | Copies of go1.25.14's `os` files for Linux; `syscall` as a subset whose natives return the errno (EINTR retried, O_CLOEXEC); `internal/poll` reduced to blocking mode; `io`, `io/fs` copied until 9.4; `fmt.Fprint(os.Stdout)` goes through the `*os.File`. (Other jobs use 031 to 066.) |
 
 ## Changing a decision
 

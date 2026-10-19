@@ -26,7 +26,7 @@ import (
 //	fmt.Println(p, xs)                gp::fmt::Println(gp::fmt::as(&gp_td_Point, p), gp::fmt::as(gp_tdc_0, xs));
 //	fmt.Println(n64)                  gp::fmt::Println(gp::fmt::as(&gp::td_int64, n64));   // C++ can't tell int64 from int
 //	fmt.Println(err, nil)             gp::fmt::Println(err, gp::any());
-//	fmt.Fprintln(os.Stderr, x)        gp::fmt::Fprintln(gp::fmt::stderr_, x);
+//	fmt.Fprintln(os.Stderr, x)        gp::fmt::Fprintln(gpkg_os::Stderr, x);   // the *os.File in the variable, as an io.Writer
 //	fmt.Errorf("read %s: %w", n, err) gp::fmt::Errorf("read %s: %w"_gs, n, err);
 //	fmt.Printf(f, args...)            gp::fmt::Printf(f, gp::fmt::spread(args));   // the elements of []any
 //
@@ -141,26 +141,82 @@ func (fg *funcGen) fmtCall(c *ast.CallExpr, fn *types.Func, callee string) cppir
 	return &cppir.Call{Fun: cxxName(callee), Args: args}
 }
 
-// fmtWriter returns the C++ of the writer of Fprint, Fprintln or Fprintf: os.Stdout, os.Stderr or
-// a fmt.State.
+// fmtWriter returns the C++ of the writer of Fprint, Fprintln or Fprintf: a fmt.State, or a value
+// with a Write method (os.Stdout is a *os.File since step 9.6: the variable can be assigned a
+// file, as in Go, so the call writes to what it holds).
 func (fg *funcGen) fmtWriter(e ast.Expr) cppir.Expr {
-	if sel, ok := ast.Unparen(e).(*ast.SelectorExpr); ok && fg.g.info.Selections[sel] == nil {
-		if v, ok := fg.g.info.Uses[sel.Sel].(*types.Var); ok && v.Pkg() != nil && v.Pkg().Path() == "os" {
-			switch v.Name() {
-			case "Stdout":
-				return cxxName("gp::fmt::stdout_")
-			case "Stderr":
-				return cxxName("gp::fmt::stderr_")
-			}
-		}
-	}
 	if t := fg.g.info.TypeOf(e); t != nil && isFmtIface(t, "State") {
 		return fg.exactExpr(e)
 	} else if t != nil && isNilType(t) {
 		return construct(typeName("gp::fmt::State")) // a nil writer: the call panics
 	}
-	fg.g.notYet(e.Pos(), "fmt.Fprint to a writer other than os.Stdout, os.Stderr or a fmt.State is not available yet (package io: Phase 09)")
+	if t := fg.g.info.TypeOf(e); t != nil {
+		if w := fg.ioWriter(t, e); w != nil {
+			return w
+		}
+	}
+	fg.g.notYet(e.Pos(), "fmt.Fprint to a value without a Write([]byte) (int, error) method")
 	return placeholder
+}
+
+// ioWriter returns the C++ of the writer e of the Go type t when t has the method Write([]byte)
+// (int, error) (an io.Writer, a *os.File, a *strings.Builder): an interface value is passed as it
+// is (its C++ type has the Write method that gocpp/fmt.hpp calls), another type is converted to
+// io.Writer first (the interface owns a reference to the value, as in Go). It is nil when t has
+// no such method or the program has no package io (a type with a Write method has imported it,
+// or imports a package that did).
+func (fg *funcGen) ioWriter(t types.Type, e ast.Expr) cppir.Expr {
+	if !hasWriteMethod(t) {
+		return nil
+	}
+	if isInterface(t) {
+		return fg.exactExpr(e)
+	}
+	w := lookupIOWriter(fg.g.pkg.Types, map[*types.Package]bool{})
+	if w == nil {
+		return nil
+	}
+	return fg.g.toInterface(t, w, fg.exactExpr(e), e.Pos())
+}
+
+// hasWriteMethod reports whether the method set of t has Write([]byte) (int, error).
+func hasWriteMethod(t types.Type) bool {
+	sel := types.NewMethodSet(t).Lookup(nil, "Write")
+	if sel == nil {
+		return false
+	}
+	sig, ok := sel.Obj().Type().(*types.Signature)
+	if !ok || sig.Params().Len() != 1 || sig.Results().Len() != 2 || sig.Variadic() {
+		return false
+	}
+	sl, ok := types.Unalias(sig.Params().At(0).Type()).(*types.Slice)
+	if !ok {
+		return false
+	}
+	if b, ok := types.Unalias(sl.Elem()).(*types.Basic); !ok || b.Kind() != types.Byte {
+		return false
+	}
+	n, ok := types.Unalias(sig.Results().At(0).Type()).(*types.Basic)
+	return ok && n.Kind() == types.Int && types.Identical(sig.Results().At(1).Type(), types.Universe.Lookup("error").Type())
+}
+
+// lookupIOWriter finds the type io.Writer in the packages that pkg imports, directly or not.
+func lookupIOWriter(pkg *types.Package, seen map[*types.Package]bool) types.Type {
+	if pkg == nil || seen[pkg] {
+		return nil
+	}
+	seen[pkg] = true
+	if pkg.Path() == "io" {
+		if tn, ok := pkg.Scope().Lookup("Writer").(*types.TypeName); ok {
+			return tn.Type()
+		}
+	}
+	for _, imp := range pkg.Imports() {
+		if t := lookupIOWriter(imp, seen); t != nil {
+			return t
+		}
+	}
+	return nil
 }
 
 // plainFmtType reports whether the C++ type of a value of the Go type t says the Go type, so that

@@ -46,6 +46,7 @@
 #include <gocpp/select.hpp>
 #include <gocpp/runtimepkg.hpp>
 #include <gocpp/time.hpp>
+#include <gocpp/syscall.hpp>
 
 #include <gocpp/sync.hpp>
 #include <gocpp/atomic.hpp>

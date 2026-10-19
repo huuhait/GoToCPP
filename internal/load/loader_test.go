@@ -1586,6 +1586,36 @@ func TestRealStdlib(t *testing.T) {
 		t.Run(sys[0], func(t *testing.T) {
 			dir := t.TempDir()
 			cfg := Config{Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: sys[0], GOARCH: sys[1]}
+			paths := paths
+			if sys[0] != "linux" {
+				// os and what it stands on have files for Linux only so far (stdlib.LinuxOnly), and
+				// so have the packages that import them.
+				probe := loadIn(t, cfg, t.TempDir(), paths...)
+				var uses func(p *Package, seen map[*Package]bool) bool
+				uses = func(p *Package, seen map[*Package]bool) bool {
+					if seen[p] {
+						return false
+					}
+					seen[p] = true
+					if slices.Contains(stdlib.LinuxOnly, p.ImportPath) {
+						return true
+					}
+					for _, q := range p.Imports {
+						if uses(q, seen) {
+							return true
+						}
+					}
+					return false
+				}
+				paths = slices.DeleteFunc(slices.Clone(paths), func(path string) bool {
+					for _, r := range probe.Roots {
+						if r.ImportPath == path {
+							return uses(r, map[*Package]bool{})
+						}
+					}
+					return false
+				})
+			}
 			prog := loadIn(t, cfg, dir, paths...)
 			wantErrors(t, prog, dir, "")
 			if len(prog.Roots) != len(paths) {

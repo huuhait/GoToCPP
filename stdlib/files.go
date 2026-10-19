@@ -79,3 +79,9 @@ func IsStd(path string) bool {
 func Std() []string {
 	return slices.Clone(std)
 }
+
+// LinuxOnly lists the standard packages that have files for Linux only so far: package os and what
+// it stands on (step 9.6). Windows brings its own files in Phase 14 (and macOS in Phase 15), so the
+// tests that check every package, or an example, for another system leave these packages out until
+// then (their errors for that system are not failures).
+var LinuxOnly = []string{"os", "syscall", "internal/poll", "internal/filepathlite"}

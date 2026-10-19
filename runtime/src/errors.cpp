@@ -67,4 +67,8 @@ bool assign(const gp::iface& err, const gp::iface& target) {
     return true;
 }
 
+gp::string sprintf(const gp::string& format, const gp::slice<gp::any>& args) {
+    return gp::fmt::Sprintf(format, gp::fmt::spread(args));
+}
+
 } // namespace gp::errors

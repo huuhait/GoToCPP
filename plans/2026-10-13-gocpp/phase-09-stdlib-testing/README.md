@@ -243,6 +243,14 @@ files pass".
    `context` (needs `sync`, `sync/atomic`, `time`).
 5. **9.5 `math`** (Go's code ported by `tools/portstd`, plus natives in `gocpp/math.hpp` and `runtime/src/math.cpp`; results bit-identical to Go on amd64, checked by 122 differential run tests `tests/run/math_*.gp` that tools/mathcorpus generates from real Go: ADR-071). Built: every exported function of `math` (`math/cmplx` and `math/rand` are not in this step); `-ffp-contract=off` was already in the language flags (ADR-006) and is now tested (`math_fma_contraction_*`, and the whole set again with `-O2 -mfma -mavx2`); the float to integer conversions of ADR-006 are tested against Go (`math_f2i_*`). Findings: Go's amd64 `Log` is wrong for subnormal numbers and gocpp copies it (one `@replace` removes it); the bits of a NaN that an operator (`+`, `min`, `max`) produces are out of the contract.
 6. **9.6 `os`** (interop + native) with Go error types. (Before `fmt`, because `fmt` imports `os`.)
+   *Built (ADR-067):* not "interop": Go's own `os` files for Linux (`stdlib/os/PORT.md`) over a `syscall` subset
+   (`stdlib/syscall/PORT.md`) whose system calls are natives that return the errno (`runtime/src/os/linux/posix_file.cpp`,
+   `gocpp/syscall.hpp`; EINTR retried, `O_CLOEXEC`), and a blocking-mode `internal/poll`. `io`, `io/fs` and
+   `internal/filepathlite` are copied from Go until 9.4 replaces `io` and `io/fs` with `portstd`'s output (declarations and
+   `io.EOF` do not change). `os.Stdout`/`Stderr` are real `*os.File` values: `fmt.Fprint*` writes through them as `io.Writer`.
+   Not built: `os.Root`, `StartProcess` (ENOSYS), `os/exec`, `os/signal`, deadlines, zero-copy `ReadFrom`/`WriteTo`, file
+   finalizers. `RemoveAll` is Go's portable (non-`openat`) version. Tests: `tests/run/os_*.gp` (compared with real Go) and
+   `runtime/test/syscall_test.cpp`.
 7. **9.7 `fmt`** port on the reflect subset (+ `internal/fmtsort`, C++ value printing).
 8. **9.8 `time`** (ported logic + native hooks + zoneinfo lookup).
 9. **9.9 `flag`, `testing` + `gocpp test`** (T incl. `Parallel`, B with `Loop`, examples, flags,

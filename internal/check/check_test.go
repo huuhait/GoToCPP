@@ -9,6 +9,7 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -148,6 +149,9 @@ func TestExamples(t *testing.T) {
 					}
 					systems++
 					if errs := errorText(t, prog, r, dir, true); errs != "" {
+						if goos == "windows" && windowsGap(errs) {
+							continue
+						}
 						t.Errorf("%s, Tests %v:\n%s", goos, tests, errs)
 					}
 					for _, p := range r.Packages {
@@ -955,4 +959,20 @@ func main() {
 	if len(info.FileVersions) != 1 {
 		t.Errorf("FileVersions: %v", info.FileVersions)
 	}
+}
+
+// windowsGap reports whether every error block of errs (the lines "# pkg" start them) belongs to a
+// package of stdlib.LinuxOnly: the standard packages that have files for Linux only so far (step
+// 9.6; Windows comes with Phase 14).
+func windowsGap(errs string) bool {
+	blocks := 0
+	for _, line := range strings.Split(errs, "\n") {
+		if pkg, ok := strings.CutPrefix(line, "# "); ok {
+			blocks++
+			if f := strings.Fields(pkg); len(f) == 0 || !slices.Contains(stdlib.LinuxOnly, f[0]) {
+				return false
+			}
+		}
+	}
+	return blocks > 0
 }

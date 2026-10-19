@@ -14,6 +14,8 @@
 
 #include <gocpp/error.hpp>
 #include <gocpp/iface.hpp>
+#include <gocpp/slice.hpp>
+#include <gocpp/string.hpp>
 
 namespace gp::errors {
 
@@ -33,5 +35,9 @@ void check_target(const gp::iface& target);
 // *target = err (as an interface value of the target's interface type, or the value itself) and
 // the result is true.
 bool assign(const gp::iface& err, const gp::iface& target);
+
+// sprintf is fmt.Sprintf(format, args...) for errors.Wrapf (stdlib/errors/wrapf.gp): the fmt
+// engine, without a Go import of package fmt (fmt imports io, io imports errors).
+gp::string sprintf(const gp::string& format, const gp::slice<gp::any>& args);
 
 } // namespace gp::errors

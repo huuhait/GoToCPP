@@ -2,8 +2,6 @@
 
 package errors
 
-import "fmt"
-
 // Wrapf puts context in front of the error that *errp holds, and does nothing
 // when *errp is nil. It is meant for defer in a function that returns an error
 // in a named result, mostly one with ! (a must function, or a function that
@@ -26,8 +24,14 @@ func Wrapf(errp *error, format string, args ...any) {
 	if *errp == nil {
 		return
 	}
-	*errp = &wrapfError{msg: fmt.Sprintf(format, args...), err: *errp}
+	*errp = &wrapfError{msg: sprintf(format, args), err: *errp}
 }
+
+// sprintf is fmt.Sprintf. It is a native function of the runtime (gp::errors::sprintf, the fmt engine), not a call
+// of package fmt: package fmt imports io, which imports errors, so errors can not import fmt (step 9.6).
+//
+//gocpp:native gp::errors::sprintf
+func sprintf(format string, args []any) string
 
 type wrapfError struct {
 	msg string

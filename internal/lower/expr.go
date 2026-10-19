@@ -507,7 +507,7 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 	if len(c.Args) == 1 && isTuple(fg.g.info.TypeOf(c.Args[0])) {
 		arg := fg.expr(c.Args[0])
 		var fn cppir.Expr = cxxName(callee)
-		if sig != nil && !strings.HasPrefix(callee, fg.g.ns+"::") {
+		if sig != nil && !strings.HasPrefix(callee, "::") && !strings.HasPrefix(callee, fg.g.ns+"::") {
 			fn = cxxName(fg.g.ns + "::" + callee)
 		}
 		if template {

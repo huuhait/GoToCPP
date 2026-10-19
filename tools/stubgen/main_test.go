@@ -269,7 +269,7 @@ func TestRealPackagesMatchStub(t *testing.T) {
 					continue // not written yet, for the reason in the map
 				}
 				if robj == nil {
-					if !missing[name] {
+					if !p.Partial && !missing[name] {
 						t.Errorf("%s is in the stub but not in the real package", name)
 					}
 					continue

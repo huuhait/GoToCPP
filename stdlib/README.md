@@ -27,6 +27,9 @@ embedded in the `gocpp` binary, and the loader finds the standard packages here.
   `race`, `testlog`, `itoa`, `oserror`, `goarch` and `goos`, and the public `runtime/cgo`. They are real packages that the
   ported packages of step 9.4 import; `internal/PORT.md` says what each one is and how it differs from Go's. A program
   cannot import them (Go's rule); their tests do, through `// std-internal:` ([tests/README.md](../tests/README.md)).
+- **Package `os` and what it stands on** (step 9.6, ADR-067): `os`, `syscall` (a Linux subset), `internal/poll` (blocking mode),
+  `internal/filepathlite`, `io` and `io/fs` are real packages made of copies of Go's files, each with a `PORT.md`. Their system
+  calls are natives in `runtime/src/os/linux/posix_file.cpp`.
 - **Native functions.** A function without a body that has a `//gocpp:native` line in its doc comment is written in
   C++: the line names the runtime function that its calls become (ADR-027).
 

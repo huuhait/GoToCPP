@@ -679,7 +679,7 @@ func TestOpaqueExamples(t *testing.T) {
 				t.Fatal(err)
 			}
 			prog, r := loadAndCheck(t, load.Config{GOOS: c.goos, GOARCH: "amd64"}, dir, ".")
-			if errs := errorText(t, prog, r, dir, true); errs != "" {
+			if errs := errorText(t, prog, r, dir, true); errs != "" && !(c.goos == "windows" && windowsGap(errs)) {
 				t.Fatalf("errors:\n%s", errs)
 			}
 			checkLabels(t, prog, mainPkg(t, prog, r), string(text), c.cases)

@@ -98,7 +98,7 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 | `unsafe` | 03 | `Sizeof`, `Alignof` and `Offsetof` from Phase 03, the rest (`unsafe.Pointer`, `Slice`, `String`, …) from Phase 04. `unsafe.Pointer` keeps gocpp memory alive (divergence D16). |
 | `weak` | 03 | `weak.Pointer[T]` is a compiler intrinsic, exempt from the generics gate. |
 | `errors` | 05 | Go's own package since step 9.4a (ported by `tools/portstd`; `As` and `Is` use three natives over the type descriptors, as in step 5.7, not the reflect subset). |
-| `os` | 05 | `os.Stdout` and `os.Stderr` as the writers of `fmt.Fprint` and friends from Phase 05; the rest of the package in Phase 09. |
+| `os` | 05 | `os.Stdout` and `os.Stderr` as the writers of `fmt.Fprint` and friends from Phase 05; the rest of the package, since step 9.6 (files, directories, errors, the environment, `Exit`, pipes), in Phase 09. `os.Root`, `StartProcess`, `os/exec` and `os/signal` are not built. |
 | `cmp` | 07 |  |
 | `iter` | 07 | `iter.Pull` and `iter.Pull2` from Phase 08 (they run on a helper thread). |
 | `maps` | 07 |  |
@@ -117,6 +117,7 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 | `flag` | 09 |  |
 | `io` | 09 |  |
 | `io/fs` | 09 |  |
+| `syscall` | 09 | A subset of Go's package for Linux (step 9.6): `Errno` and `Signal` with Go's texts, the `E...`, `SIG...` and `O_...` constants, `Stat_t` and the other types that `os` needs, the environment and the file system calls. No `Syscall`, `ForkExec` or socket functions; Windows comes with Phase 14. |
 | `reflect` | 09 | A subset, without `MakeFunc`, calling methods by name, `StructOf` and `FuncOf` (divergence D6). |
 | `regexp` | 09 |  |
 | `strconv` | 09 | Go's own package (ported by `tools/portstd`, step 9.4a), with `internal/bytealg` for `IndexByteString`. |

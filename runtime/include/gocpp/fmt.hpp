@@ -62,6 +62,7 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iosfwd>
 #include <string>
 #include <string_view>
@@ -514,6 +515,21 @@ inline std::tuple<int64_t, gp::error> write_to(const fd_writer& w, const std::st
 }
 inline std::tuple<int64_t, gp::error> write_to(const State& w, const std::string& s) {
     return write_state(w, s);
+}
+// Any other writer: a value with a Write([]byte) (int, error) method, an io.Writer or the
+// interface that the emitter made of a *os.File or another type that has one. Like Go's Fprint,
+// it makes one Write call with the whole text and returns what Write returned.
+template <typename W>
+    requires(!std::is_same_v<W, State> &&
+             requires(const W& w, gp::slice<uint8_t> b) {
+                 { w.Write(b) } -> std::same_as<std::tuple<int64_t, gp::error>>;
+             })
+std::tuple<int64_t, gp::error> write_to(const W& w, const std::string& s) {
+    auto b = gp::make_slice<uint8_t>(static_cast<int64_t>(s.size()));
+    if (!s.empty()) {
+        std::memcpy(b.gp_data(), s.data(), s.size());
+    }
+    return w.Write(std::move(b));
 }
 } // namespace detail
 

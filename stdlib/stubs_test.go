@@ -192,6 +192,9 @@ func TestExamplesTypeCheck(t *testing.T) {
 						continue
 					}
 					systems++
+					if errs != "" && goos == "windows" && windowsGap(errs) {
+						continue
+					}
 					if errs != "" {
 						t.Errorf("%s, Tests %v:\n%s", goos, tests, errs)
 					}
@@ -202,4 +205,20 @@ func TestExamplesTypeCheck(t *testing.T) {
 			}
 		})
 	}
+}
+
+// windowsGap reports whether every error block of errs (the lines "# pkg" or "# pkg (go/types)"
+// start them) belongs to a package of LinuxOnly: the standard packages that have files for Linux
+// only so far.
+func windowsGap(errs string) bool {
+	blocks := 0
+	for _, line := range strings.Split(errs, "\n") {
+		if pkg, ok := strings.CutPrefix(line, "# "); ok {
+			blocks++
+			if f := strings.Fields(pkg); len(f) == 0 || !slices.Contains(stdlib.LinuxOnly, f[0]) {
+				return false
+			}
+		}
+	}
+	return blocks > 0
 }

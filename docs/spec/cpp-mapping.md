@@ -1373,10 +1373,12 @@ return gp::fmt::Errorf("read %s: %w"_gs, name, err);
   `%!v(PANIC=String method: boom)`, or `<nil>` for a nil receiver, as Go's. `fmt.State` is a
   runtime interface (`gp::fmt::State`); `fmt.Stringer`, `fmt.GoStringer`, `fmt.Formatter` and
   `fmt.State` are runtime interface structs like `error`.
-- **Writers**: `Fprint`, `Fprintln` and `Fprintf` take `os.Stdout` (`gp::fmt::stdout_`), `os.Stderr`
-  (`gp::fmt::stderr_`) and a `fmt.State` (the `f` of a `Format` method); the other `io.Writer`s
-  come with package `io` (Phase 09). `Print`, `Println` and `Printf` flush C's stdio first and
-  write once ([interop](interop.md#printing-cc-values)).
+- **Writers**: `Fprint`, `Fprintln` and `Fprintf` take a `fmt.State` (the `f` of a `Format` method) or any
+  value with a `Write([]byte) (int, error)` method: an `io.Writer`, a `*os.File` (`os.Stdout` is the
+  variable of package `os`, since step 9.6, so assigning it redirects the call), a `*strings.Builder`. A
+  value that is no interface is converted to `io.Writer` first; the call makes one `Write` call with the
+  whole text (`gp::fmt::write_to`). `Print`, `Println` and `Printf` flush C's stdio first and
+  write once to descriptor 1 ([interop](interop.md#printing-cc-values)).
 - **Errorf**: without `%w` the result is a `*errors.errorString`, with one `%w` a `*fmt.wrapError`
   (`Unwrap() error`), with several a `*fmt.wrapErrors` (`Unwrap() []error`): the runtime's own types
   (`runtime/src/fmt.cpp`), whose names `%T` prints as Go does.
@@ -2116,6 +2118,35 @@ v.Field(1).Set(reflect.Append(v.Field(1), reflect.ValueOf("a")))
   `Type` of a method is nil and methods can't be called (`Value.Call`, `Value.Method` are not in the subset).
 - **Not in the subset:** `MakeFunc`, `Value.Call`, `Value.Method`, `StructOf`, `FuncOf`, `MapOf`, `ArrayOf`, `ChanOf`,
   `Select`, channel `Send`/`Recv`/`Close`, `Value.Seq`: a call is a compile error.
+## Package `os` and the system calls (step 9.6)
+
+Package `os` is Go's own (`stdlib/os`, copies of go1.25.14's Linux files, `PORT.md`), over package `syscall`, whose system
+calls are **native functions** named by `//gocpp:native gp::syscall::sys_*` lines (ADR-027, ADR-067). They are declared in
+`gocpp/syscall.hpp` and defined in `runtime/src/os/linux/posix_file.cpp` (the only file of the runtime that includes the OS
+headers for this; Windows gets its own file in Phase 14):
+
+```go
+//gocpp:native gp::syscall::sys_read
+func sysRead(fd int, p []byte) (n int, errno int)
+```
+```cpp
+std::tuple<int64_t, int64_t> sys_read(int64_t fd, const gp::slice<uint8_t>& p);   // (n, 0) or (0, errno)
+```
+
+- **The errno convention.** A native that can fail returns the Linux `errno` of the failure (0 for success), as an `int`
+  result (a native that also returns a value, such as `sys_open`, returns `{-1, errno}` or `{0, errno}` for it: the value is
+  meaningless when the errno is not 0), never an exception. The `.gp` wrapper makes the error: `syscall.Errno(e)` (boxed once for `EAGAIN`,
+  `EINVAL`, `ENOENT`, as in Go), and package `os` wraps it in `*PathError`, `*LinkError` or `*SyscallError`. Another system
+  maps its own codes to these numbers.
+- **EINTR.** A native that a signal interrupts repeats the call (`retry` in `posix_file.cpp`), so Go code never sees `EINTR`
+  from `open`, `read`, `write`, `stat`, ...; `close` is not repeated (the descriptor is gone whatever happens).
+- **`O_CLOEXEC`** is added to every `sys_open`; `dup` is `F_DUPFD_CLOEXEC`.
+- **Strings and slices.** A path is a `const gp::string&` (the `.gp` wrapper rejected a NUL byte with `EINVAL` first), copied to a
+  C string in the native. A byte buffer is a `const gp::slice<uint8_t>&` whose data is read or written in place (one call,
+  cut at 1 GiB). `stat` fills a `gp::slice<uint64_t>` of 16 numbers, which `fillStat` turns into a `syscall.Stat_t`.
+- **Writes to descriptors 1 and 2** flush C's stdio first, like `fmt.Print`, so C and Go output interleave in program order.
+- `os.Args` is `gp::args()`, the environment `gp::envs()` (package `syscall` keeps Go's copy under one `sync.RWMutex`, and
+  `Setenv` also calls `setenv(3)`), `os.Exit` is `gp::os::exit`.
 
 ## Goroutines and channels
 

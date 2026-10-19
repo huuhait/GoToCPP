@@ -87,6 +87,11 @@ type stubPackage struct {
 	// does not have yet. TestRealPackagesMatchStub does not ask for them, and every other
 	// difference is still an error. Its doc comment in stdlib/<path>/PORT.md says why.
 	Missing []string
+
+	// Partial (for a Real package): the real package declares only some of Go's exported names
+	// (syscall: the errors, the constants and the calls that os needs; stdlib/syscall/PORT.md).
+	// Every name it declares must still match Go's; the names it lacks are not listed.
+	Partial bool
 }
 
 // packages are the packages that get a stub: every standard package that a
@@ -108,9 +113,9 @@ var packages = []stubPackage{
 	{Path: "unicode", Phase: 9, Real: true},
 	{Path: "unicode/utf8", Phase: 9, Real: true},
 	{Path: "encoding", Phase: 9},
-	{Path: "io", Phase: 9},
+	{Path: "io", Phase: 9, Real: true},
 	{Path: "time", Phase: 8, Real: true},
-	{Path: "io/fs", Phase: 9},
+	{Path: "io/fs", Phase: 9, Real: true, Missing: []string{"Glob", "GlobFS", "Sub", "SubFS"}},
 	{Path: "context", Phase: 9},
 	{Path: "fmt", Phase: 5, Later: "Phase 05 replaces it with a basic fmt, and Phase 09 with Go's."},
 	{Path: "maps", Phase: 7},
@@ -121,7 +126,8 @@ var packages = []stubPackage{
 	{Path: "bufio", Phase: 9},
 	{Path: "sync", Phase: 8, Real: true},
 	{Path: "sync/atomic", Phase: 8, Real: true},
-	{Path: "os", Phase: 9},
+	{Path: "syscall", Phase: 9, Real: true, Partial: true},
+	{Path: "os", Phase: 9, Real: true, Missing: []string{"OpenInRoot", "OpenRoot", "Root"}},
 	{Path: "runtime/debug", Phase: 8, Real: true, Missing: debugMissing},
 	{Path: "flag", Phase: 9},
 	{Path: "regexp", Phase: 9},
