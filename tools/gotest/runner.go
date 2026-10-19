@@ -200,7 +200,7 @@ func (r *Runner) execLimit(limit int, dir string, env []string, timeout time.Dur
 // give an error naming the phase otherwise, which hides what the test is
 // about).
 func (r *Runner) gocppEnv() []string {
-	env := []string{"GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1", "GOCPP_GATE_PHASE=15", "GOFLAGS=", "GOENV=off"}
+	env := []string{"GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1", "GOCPP_WORKLOST=fail", "GOCPP_GATE_PHASE=15", "GOFLAGS=", "GOENV=off"}
 	if r.GocppCache != "" {
 		env = append(env, "XDG_CACHE_HOME="+r.GocppCache)
 	}

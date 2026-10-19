@@ -260,7 +260,7 @@ func (c *campaign) reproduces(ctx context.Context, t target, path string) (faile
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "test", "-count=1", "-timeout", "150s", "-run", "^"+t.fn+"$/^"+regexp.QuoteMeta(filepath.Base(path))+"$", t.pkg)
 	cmd.Dir = c.root
-	cmd.Env = append(os.Environ(), "GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1", "GOCPP_FUZZ_COMPILE_EVERY=1", "GOCPP_FUZZ_CACHE="+filepath.Join(c.out, "cache"))
+	cmd.Env = append(os.Environ(), "GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1", "GOCPP_WORKLOST=fail", "GOCPP_FUZZ_COMPILE_EVERY=1", "GOCPP_FUZZ_CACHE="+filepath.Join(c.out, "cache"))
 	var buf bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &buf, &buf
 	build.InGroup(cmd)
@@ -280,7 +280,7 @@ func (c *campaign) fuzz(ctx context.Context, t target, rem time.Duration, compil
 	cmd := exec.Command("nice", args...)
 	cmd.Dir = c.root
 	cmd.Env = append(os.Environ(),
-		"GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1",
+		"GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1", "GOCPP_WORKLOST=fail",
 		fmt.Sprintf("GOCPP_FUZZ_COMPILE_EVERY=%d", compileEvery),
 		"GOCPP_FUZZ_CACHE="+filepath.Join(c.out, "cache"),
 	)

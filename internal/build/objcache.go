@@ -1065,6 +1065,9 @@ func (oc *objCache) lookupEntry(key, obj string) (objEntry, []depRec, bool) {
 		// The paths of the entry are the build's own for the check.
 		here := mapEntry(e, oc.unmapGen)
 		valid, fresh := here.validWith(deps, sc)
+		if valid && testHookBeforeCopyOut != nil {
+			testHookBeforeCopyOut(oc, e)
+		}
 		if !valid || !oc.copyOut(e, obj) {
 			continue
 		}
@@ -1083,6 +1086,11 @@ func (oc *objCache) lookupEntry(key, obj string) (objEntry, []depRec, bool) {
 	}
 	return objEntry{}, nil, false
 }
+
+// testHookBeforeCopyOut, if set, is called by a lookup that found an entry valid, before it copies the
+// object: the tests remove files there, as the trimming of another build does (trim). Only the tests
+// set it.
+var testHookBeforeCopyOut func(oc *objCache, e objEntry)
 
 // A hashedFile is a file that a lookup had to read: its hash and its stat after the read.
 type hashedFile struct {

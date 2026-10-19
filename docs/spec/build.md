@@ -42,6 +42,29 @@ time in the C++ compiler) for `go tool pprof`.
 `-work` keeps the work folder and prints its name; it uses no object cache (so the files in it have real
 paths), and the build is not recorded for the up-to-date check.
 
+### A work folder that is removed
+
+The work folder is a new folder in `TMPDIR` (`gocpp-build<N>`), with two small marker files in it (`.gocpp-work`
+and `gocpp-work`: one name with a dot and one without, so that a cleaner that runs `rm -rf folder/*` is seen as well).
+Nothing in gocpp removes another build's work folder, but other things on a machine do: a cleaner of `/tmp`,
+a script that clears `TMPDIR`, a tool that shares the temporary folder of another session. A build that finds
+its folder gone (or emptied: a marker is missing, or the program it linked is not there) makes the folder
+again, with its parent if that is gone too, says so on standard error
+(`gocpp build: the work folder … was removed while the build ran (another process or a cleanup of the temporary
+folder deleted it; GOCPP_WORKLOST=fail makes this an error): building again`), starts with a clean record and clean
+counts, and builds again, three more times at most; then it stops with the message that something else keeps
+deleting it. It is never reported as an internal error of the C++ (`generated C++ did not compile`), and a work
+folder that is there is never taken for a lost one.
+
+`GOCPP_WORKLOST=fail` turns the self-healing off: the build stops at once with status 4 and the message, so that a
+real bug of gocpp (a path that deletes what it should not) is not hidden behind a second try. The tests and
+campaigns of the repository (`tests/`, `gocpp test` of the standard library's runner, `tools/gobench`,
+`tools/difftest`, the fuzz campaigns, `tools/buildstress` without its cleaner) set it; users keep the default.
+
+A removal in the milliseconds between the check of the program after the link and the start of the program
+(`gocpp run`) or its move to `-o` (`gocpp build`) is not seen and not retried. `tools/buildstress`
+([tests/README.md](../../tests/README.md#concurrent-builds)) makes all of this happen on purpose.
+
 ## The build is up to date
 
 After a successful `gocpp build`, the next one with the same arguments and environment first checks a

@@ -325,8 +325,14 @@ func TestTrimGen(t *testing.T) {
 	young := mk("young", time.Hour)
 	trimGen(dir, keep, now)
 	entries, _ := os.ReadDir(dir)
-	if len(entries) != maxGenFolders {
-		t.Errorf("%d folders left, want %d", len(entries), maxGenFolders)
+	folders := 0
+	for _, e := range entries {
+		if e.IsDir() { // (the lock files that the removals made are not folders)
+			folders++
+		}
+	}
+	if folders != maxGenFolders {
+		t.Errorf("%d folders left, want %d", folders, maxGenFolders)
 	}
 	for _, p := range []string{keep, young} {
 		if _, err := os.Stat(p); err != nil {

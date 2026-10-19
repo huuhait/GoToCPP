@@ -178,6 +178,7 @@ var envVars = []envVar{
 	{name: "GOCPP_PROBE_TIMEOUT", doc: "the longest one probe compiler run of the typed interop may take (a duration); default 5m in the tests"},
 	{name: "GOCPP_TOOLCHAIN", def: func(*envState) string { return string(toolchain.DefaultMode) }, doc: "where the Windows compiler comes from: auto (MinGW-w64 in PATH, else the pinned llvm-mingw, downloaded on first use), local (PATH only, never downloads) or pinned (always the pinned one)"},
 	{name: "GOCPP_TOOLCHAIN_URL", doc: "an https folder URL with the toolchain archives under their names, instead of llvm-mingw's GitHub release (a mirror)"},
+	{name: "GOCPP_WORKLOST", doc: "fail: a build whose work folder is removed by something else while it runs stops with status 4 and a message; by default it makes the folder again and builds again, up to three times (the tests and campaigns of the repository set fail, so that a real bug is not hidden)"},
 	{name: "GOOS", def: func(e *envState) string { return e.goos }, doc: "the operating system to build for (build constraints and the compiler)"},
 	{name: "PKG_CONFIG", def: func(*envState) string { return "pkg-config" }, doc: "the pkg-config program, for //gocpp:pkg-config lines"},
 	{name: "XDG_CACHE_HOME", def: func(*envState) string {

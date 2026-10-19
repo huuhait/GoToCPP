@@ -119,6 +119,7 @@ func (c *Config) gocppEnv(cxx string, extra ...string) []string {
 		"GOCPP_CXXFLAGS=" + c.CXXFlags,
 		"GOCPP_MODCACHE=off",
 		"GOCPP_OFFLINE=1",
+		"GOCPP_WORKLOST=fail", // a work folder that something else removes is an error, not hidden
 	}
 	if os.Getenv("GOCPP_GATE_PHASE") == "" {
 		env = append(env, "GOCPP_GATE_PHASE="+gate)

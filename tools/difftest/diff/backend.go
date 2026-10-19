@@ -241,7 +241,7 @@ func (b *GocppBackend) Run(ctx context.Context, src string) (Result, error) {
 	if objSize == "" {
 		objSize = "3G"
 	}
-	kv := []string{"XDG_CACHE_HOME", b.XDG, "GOCPP_CXX", b.Cxx, "GOCPP_MODCACHE", "off", "GOCPP_OFFLINE", "1", "GOCPP_OBJCACHE_SIZE", objSize}
+	kv := []string{"XDG_CACHE_HOME", b.XDG, "GOCPP_CXX", b.Cxx, "GOCPP_MODCACHE", "off", "GOCPP_OFFLINE", "1", "GOCPP_WORKLOST", "fail", "GOCPP_OBJCACHE_SIZE", objSize}
 	if b.Phase != "" {
 		kv = append(kv, "GOCPP_GATE_PHASE", b.Phase)
 	}

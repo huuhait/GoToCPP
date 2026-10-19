@@ -46,6 +46,7 @@ func run(m *testing.M) int {
 	// The tests never use the real caches or the network (downloads exist).
 	os.Setenv("GOCPP_MODCACHE", "off")
 	os.Setenv("GOCPP_OFFLINE", "1")
+	os.Setenv("GOCPP_WORKLOST", "fail") // (docs/spec/build.md: a lost work folder is an error here)
 	cacheDir = filepath.Join(tmp, "cache")
 	if testing.Short() {
 		return m.Run()
@@ -300,7 +301,7 @@ func runGocpp(t *testing.T, f fixture) result {
 	}
 	defer acquire()()
 	args := append([]string{"test"}, f.args...)
-	env := []string{"XDG_CACHE_HOME=" + cacheDir, "GOCPP_GATE_PHASE=09", "GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1"}
+	env := []string{"XDG_CACHE_HOME=" + cacheDir, "GOCPP_GATE_PHASE=09", "GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1", "GOCPP_WORKLOST=fail"}
 	return runCmd(t, dir, env, gocppBin, args...)
 }
 
@@ -358,7 +359,7 @@ func TestRegexpDialect(t *testing.T) {
 	ourBin, goBin := filepath.Join(ours, "m.test"), filepath.Join(theirs, "m.test")
 	func() {
 		defer acquire()()
-		env := []string{"XDG_CACHE_HOME=" + cacheDir, "GOCPP_GATE_PHASE=09", "GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1"}
+		env := []string{"XDG_CACHE_HOME=" + cacheDir, "GOCPP_GATE_PHASE=09", "GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1", "GOCPP_WORKLOST=fail"}
 		if r := runCmd(t, ours, env, gocppBin, "test", "-c", "-o", ourBin); r.exit != 0 {
 			t.Fatalf("gocpp test -c: %d\n%s%s", r.exit, r.stdout, r.stderr)
 		}
@@ -412,7 +413,7 @@ func TestRegexpDialect(t *testing.T) {
 func gocppTest(t *testing.T, dir string, args ...string) result {
 	t.Helper()
 	defer acquire()()
-	env := []string{"XDG_CACHE_HOME=" + cacheDir, "GOCPP_GATE_PHASE=09", "GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1"}
+	env := []string{"XDG_CACHE_HOME=" + cacheDir, "GOCPP_GATE_PHASE=09", "GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1", "GOCPP_WORKLOST=fail"}
 	return runCmd(t, dir, env, gocppBin, append([]string{"test"}, args...)...)
 }
 
@@ -612,7 +613,7 @@ func FuzzF(f *testing.F) {
 		}
 	}
 	defer acquire()()
-	env := []string{"XDG_CACHE_HOME=" + cacheDir, "GOCPP_GATE_PHASE=09", "GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1", "ASAN_OPTIONS=detect_leaks=1"}
+	env := []string{"XDG_CACHE_HOME=" + cacheDir, "GOCPP_GATE_PHASE=09", "GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1", "GOCPP_WORKLOST=fail", "ASAN_OPTIONS=detect_leaks=1"}
 	r := runCmd(t, dir, env, gocppBin, "test", "-asan", "-v")
 	if r.exit != 0 || strings.Contains(r.stdout+r.stderr, "Sanitizer") {
 		t.Fatalf("exit %d\n%s%s", r.exit, r.stdout, r.stderr)

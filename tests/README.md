@@ -162,6 +162,7 @@ missing compiler).
 | `GOCPP_FLAGS` | none | more flags for `gocpp run`, split on spaces, for example `GOCPP_FLAGS=-asan` for a sanitizer run |
 | `GOCPP_TEST_PHASE` | `Phase` of internal/version | run the tests up to this phase (00 to 15), for example `GOCPP_TEST_PHASE=01` while you build Phase 01 |
 | `GOCPP_GATE_PHASE` | set per test | not set by you: for gocpp's own development and tests, gocpp's phase gates accept the features up to this phase (`cmd/gocpp/gatephase.go`). For a test whose `// phase:` comes after `Phase` of internal/version (one that runs only with `GOCPP_TEST_PHASE`), the harness passes that test's phase to its gocpp commands, so the test can use the features of its phase before the phase is finished. A test of a finished phase gets none, so an error test still sees the gates of later phases. It never turns the gates of finished phases back on |
+| `GOCPP_WORKLOST` | `fail`, set by the harness | not set by you: the gocpp commands of the tests stop with status 4 when something else removes a build's work folder, instead of building again as gocpp does for users ([docs/spec/build.md](../docs/spec/build.md#a-work-folder-that-is-removed)), so a real bug is not hidden. `cmd/gocpp/worklost_test.go` tests both |
 | `GOCPP_RUN_VS_GO` | none | `1`: `TestRunVsGo` builds each test in `tests/run` with real Go (`go build`, like a diff test) and checks the test's `// Output:` block (compared like `TestRun` compares), `// ExitCode:` and `// Stderr:` regexps against what the Go binary does, so that an expected output pasted from Go can't drift. It checks the tests of every phase, runs no C++ compiler, and skips a test whose code `go build` rejects (an error at a line of the program: gocpp-only code) and a test with a `// divergence: Dn` line (it shows a divergence of [docs/spec/language.md](../docs/spec/language.md), so Go does something else on purpose). Any other `go build` failure fails the test, and a run that compares no test fails too. Off, `TestRunVsGo` is a skip: `GOCPP_RUN_VS_GO=1 go test ./tests/... -run RunVsGo` |
 | `GOCPP_TEST_PENDING` | none | `1`: also run the tests with a `// pending:` line (they fail until their step lands) |
 | `GOCPP_TEST_TIMEOUT` | `2m` | the time limit of one command (one `gocpp run`, one `go build`), as a Go duration |
@@ -243,6 +244,27 @@ results on disk (`gocpp/probe/`, [interop.md](../docs/spec/interop.md#the-two-co
 which the gocpp commands of a run share; `GOCPP_NOPROBECACHE=1` turns them off. Go's own test
 binaries (`go test ./internal/...`) don't use the probe cache on disk unless `GOCPP_PROBE_CACHE`
 names a folder. The Go of the diff tests keeps its usual build cache (`GOCACHE`).
+
+## Concurrent builds
+
+`tools/buildstress` runs many `gocpp build` and `gocpp run` processes at the same time against one cache
+folder (an editor next to a terminal, CI jobs, `make -j`): small programs of their own and one program that
+all of them share (so the same folder of generated files), both compilers, the default build and `-release`,
+several runtime keys (each a runtime library of its own), a cache that is replaced by an empty one every few
+builds (cold: the runtime library, the precompiled header and the objects are made while others ask for
+them), a tiny object cache that is trimmed all the time (`-objsize 2M -trim-marker-every 1s`),
+`GOCPP_NOOBJCACHE` for some builds, and `taskset`/`nice` to squeeze the processes. It checks the exit status
+and the program's output and counts the folders a build leaves behind; nothing is retried. `-wipe-every 2500ms`
+adds a cleaner that removes the work folder of a running build, as a cleaner of `/tmp` would (`-wipe-mode
+contents|glob|tmp` for the other ways: `glob` is `rm -rf folder/*`, which leaves the dotfiles). Run it in the dev shell, bounded, through the machine's slot script:
+
+    go build -o /tmp/gocpp ./cmd/gocpp
+    go run ./tools/buildstress -gocpp /tmp/gocpp -procs 24 -builds 500 -duration 3m -cold-every 40
+    go run ./tools/buildstress -gocpp /tmp/gocpp -procs 24 -builds 150 -wipe-every 2500ms
+
+It exits with status 1 when any build failed. Without the cleaner the builds run with `GOCPP_WORKLOST=fail`
+(a lost work folder is an error, as in all the tests and campaigns of the repository; with the cleaner the
+default self-healing is what is tested).
 
 ## testdata/
 

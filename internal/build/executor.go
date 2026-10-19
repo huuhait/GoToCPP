@@ -45,6 +45,14 @@ type Stats struct {
 	RuntimeCompiles atomic.Int64 // compiler runs for the runtime's files
 }
 
+// Reset sets the counts to zero (a build that is made again after its work folder was removed).
+func (s *Stats) Reset() {
+	s.Compiles.Store(0)
+	s.Hits.Store(0)
+	s.Links.Store(0)
+	s.RuntimeCompiles.Store(0)
+}
+
 func (s *Stats) compiled() {
 	if s != nil {
 		s.Compiles.Add(1)

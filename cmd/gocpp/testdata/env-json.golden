@@ -47,6 +47,7 @@
 	"GOCPP_PROBE_TIMEOUT": "",
 	"GOCPP_TOOLCHAIN": "auto",
 	"GOCPP_TOOLCHAIN_URL": "",
+	"GOCPP_WORKLOST": "",
 	"GOOS": "linux",
 	"PKG_CONFIG": "pkg-config",
 	"XDG_CACHE_HOME": "/xdg"

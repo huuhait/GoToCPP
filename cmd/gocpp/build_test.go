@@ -80,6 +80,7 @@ func TestMain(m *testing.M) {
 	os.Setenv("GOCPP_NOOBJCACHE", "1")
 	os.Setenv("GOCPP_MODCACHE", "off") // the tests never download modules or use a real module cache (modcmd_test.go sets its own)
 	os.Setenv("GOCPP_OFFLINE", "1")
+	os.Setenv("GOCPP_WORKLOST", "fail") // a lost work folder is an error in the tests (worklost_test.go sets what it tests)
 	code := m.Run()
 	entries, _ := os.ReadDir(tmp)
 	for _, e := range entries {

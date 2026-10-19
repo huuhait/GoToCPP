@@ -1100,10 +1100,7 @@ func (d *driver) compile(patterns []string) (*program, int) {
 			return nil, exitUsage
 		}
 	}
-	work, err := os.MkdirTemp("", "gocpp-build")
-	if err == nil {
-		work, err = filepath.Abs(work) // the compilers run in it
-	}
+	work, err := makeWorkFolder()
 	if err != nil {
 		fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
 		return nil, exitErrors
@@ -1167,49 +1164,112 @@ func (d *driver) compile(patterns []string) (*program, int) {
 		}
 	}
 
-	b := &build.Builder{CXX: cxx, ASan: d.flags.asan, NoChecks: d.flags.nochecks, LTO: d.flags.lto, GOOS: d.check.goos, Work: work, Stderr: d.stderr, KeepWork: d.flags.work,
-		Env: env, CC: cc, GenRoot: genRoot, Cache: cache, Jobs: d.flags.jobs, Stats: &d.stats, Mode: d.flags.mode,
-		DryRun: x.dryRun || d.afterPlan != nil, Rebuild: x.rebuild, EmitLLVM: x.llvm}
 	exe := filepath.Join(work, name+exeSuffixFor(d.check.goos))
 	if d.lib != nil {
 		exe = filepath.Join(work, d.lib.file)
-		b.Soname = d.lib.file
-		if d.lib.script != nil {
-			b.VersionScript = filepath.Join(work, "exports.map")
-			if err := os.WriteFile(b.VersionScript, d.lib.script, 0o644); err != nil {
-				fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
-				return nil, exitErrors
+	}
+	// newBuilder makes the Builder of one attempt (a build that lost its work folder, workLost,
+	// makes a second one: a Builder is used once).
+	newBuilder := func() (*build.Builder, int) {
+		b := &build.Builder{CXX: cxx, ASan: d.flags.asan, NoChecks: d.flags.nochecks, LTO: d.flags.lto, GOOS: d.check.goos, Work: work, Stderr: d.stderr, KeepWork: d.flags.work,
+			Env: env, CC: cc, GenRoot: genRoot, Cache: cache, Jobs: d.flags.jobs, Stats: &d.stats, Mode: d.flags.mode,
+			DryRun: x.dryRun || d.afterPlan != nil, Rebuild: x.rebuild, EmitLLVM: x.llvm}
+		if d.lib != nil {
+			b.Soname = d.lib.file
+			if d.lib.script != nil {
+				b.VersionScript = filepath.Join(work, "exports.map")
+				if err := os.WriteFile(b.VersionScript, d.lib.script, 0o644); err != nil {
+					fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
+					return nil, exitErrors
+				}
 			}
 		}
-	}
-	if d.flags.x || x.dryRun && d.name == "build" {
-		b.Trace = d.stderr // -n prints the commands too
-	}
-	if x.verbose {
-		for _, p := range set.pkgs {
-			fmt.Fprintln(d.stderr, p.Load.ImportPath)
+		if d.flags.x || x.dryRun && d.name == "build" {
+			b.Trace = d.stderr // -n prints the commands too
 		}
-	}
-	if d.wantsPlan() {
-		b.Plan = &build.Plan{}
-	}
-	if x.llvm != "" {
-		b.LLVMDir = d.outputPath(name+exeSuffixFor(d.check.goos)) + ".llvm"
-		if !b.DryRun {
-			if err := build.PrepareIRDir(b.LLVMDir); err != nil {
-				fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
-				return nil, exitErrors
+		if x.verbose {
+			for _, p := range set.pkgs {
+				fmt.Fprintln(d.stderr, p.Load.ImportPath)
 			}
 		}
+		if d.wantsPlan() {
+			b.Plan = &build.Plan{}
+		}
+		if x.llvm != "" {
+			b.LLVMDir = d.outputPath(name+exeSuffixFor(d.check.goos)) + ".llvm"
+			if !b.DryRun {
+				if err := build.PrepareIRDir(b.LLVMDir); err != nil {
+					fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
+					return nil, exitErrors
+				}
+			}
+		}
+		if d.stamp != nil {
+			b.Rec = d.stamp.rec
+		}
+		return b, 0
 	}
-	if d.stamp != nil {
-		b.Rec = d.stamp.rec
+	b, code := newBuilder()
+	if b == nil {
+		return nil, code
 	}
 	if testHookGenWritten != nil {
 		testHookGenWritten()
 	}
 	pbs := d.packageBuilds(set, files, units)
-	if err := b.Link(d.ctx, pbs, exe); err != nil {
+	link := func(attempt int) error {
+		if testHookLink != nil {
+			testHookLink("before", attempt, work)
+		}
+		err := b.Link(d.ctx, pbs, exe)
+		if testHookLink != nil {
+			testHookLink("after", attempt, work)
+		}
+		return err
+	}
+	err = link(0)
+	checkExe := exe
+	if d.lib != nil {
+		checkExe = "" // a library mode's output is not always a file of that name
+	}
+	for attempt := 1; workLost(work, checkExe, b.DryRun, err) && d.interrupted() == nil; attempt++ {
+		// Something else removed the work folder (or the temporary folder that holds it) while
+		// the compilers ran in it: a temporary-file cleaner, another tool that clears TMPDIR. No
+		// failure of the program or of gocpp: the build is made again in a work folder of the
+		// same name, a few times at most.
+		if workLostFails() {
+			fmt.Fprintf(d.stderr, "gocpp %s: the work folder %s was removed while the build ran: another process or a cleanup of the temporary folder %s deleted it (GOCPP_WORKLOST=fail: not building again)\n",
+				d.name, work, filepath.Dir(work))
+			return nil, exitWorkLost
+		}
+		if attempt > maxWorkAttempts {
+			fmt.Fprintf(d.stderr, "gocpp %s: the work folder %s was removed %d times while the build ran: another process or a cleanup of the temporary folder %s keeps deleting it\n",
+				d.name, work, attempt, filepath.Dir(work))
+			return nil, exitErrors
+		}
+		fmt.Fprintf(d.stderr, "gocpp %s: the work folder %s was removed while the build ran (another process or a cleanup of the temporary folder deleted it; GOCPP_WORKLOST=fail makes this an error): building again\n", d.name, work)
+		if err := restoreWork(work); err != nil {
+			fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
+			return nil, exitErrors
+		}
+		if strings.HasPrefix(genRoot, work+string(os.PathSeparator)) {
+			for _, f := range files.Files { // the generated files were in the work folder too
+				if _, err := writeIfChanged(filepath.Join(genRoot, filepath.FromSlash(f.Path)), f.Data); err != nil {
+					fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
+					return nil, exitErrors
+				}
+			}
+		}
+		if d.stamp != nil {
+			d.stamp.rec = &build.Record{}
+		}
+		d.stats.Reset() // the counts of -x are those of the build that worked
+		if b, code = newBuilder(); b == nil {
+			return nil, code
+		}
+		err = link(attempt)
+	}
+	if err != nil {
 		if sig := d.interrupted(); sig != nil {
 			return nil, stopStatus(sig)
 		}
@@ -1701,11 +1761,42 @@ func trimGen(dir, keep string, now time.Time) {
 		if folders <= maxGenFolders {
 			break
 		}
-		if os.RemoveAll(o.path) == nil {
+		if removeGenFolder(o.path, now) {
 			folders--
 		}
 	}
 }
+
+// removeGenFolder removes the folder gen of a program unless a build uses it, or used it since trimGen
+// looked at its time. The time of a folder is its last use only from the moment its build has
+// written its files (useGen): a build that holds the lock of the folder (lockGen) and has not got so
+// far looks as old as the folder was. So the lock decides: the folder is removed while the remover
+// holds its lock, and stays when the lock is taken (a build that comes later waits for the remover,
+// then writes its files into a new folder); and the time is read again under the lock, for a build
+// that finished between the look of trimGen and now. The lock file is made when it is not there:
+// a build that is just starting (it made the folder, not yet the lock file) waits for the remover
+// too. Where locks can't be taken, every build has a folder of its own (lockGen), and the old
+// folder is nobody's.
+func removeGenFolder(gen string, now time.Time) bool {
+	l, busy, err := lockFile(gen + ".lock")
+	if busy {
+		return false
+	}
+	if err == nil {
+		defer l.unlock()
+	}
+	if fi, err := os.Stat(gen); err != nil || now.Sub(fi.ModTime()) <= maxGenAge {
+		return false // gone already, or used since
+	}
+	if testHookGenRemove != nil {
+		testHookGenRemove(gen)
+	}
+	return os.RemoveAll(gen) == nil
+}
+
+// testHookGenRemove, if set, is called by removeGenFolder when it holds the lock and is about to
+// remove the folder. Only the tests set it.
+var testHookGenRemove func(gen string)
 
 // writeIfChanged writes data to the file name, unless it has these bytes already: editors and
 // the object cache see no change then. The file is replaced by a rename, so that a gocpp that

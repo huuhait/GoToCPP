@@ -102,6 +102,9 @@ func TestMain(m *testing.M) {
 	// standard library's internal packages for the error tests.
 	os.Unsetenv(allowInternalName)
 	os.Setenv("GOCPP_OFFLINE", "1")
+	// A work folder that something else removes is an error here, not a build that goes again: a real bug
+	// of gocpp must not be hidden by the self-healing that users get (docs/spec/build.md).
+	os.Setenv("GOCPP_WORKLOST", "fail")
 	killOnSignal(tmp)
 	// run stops each command before go test's -timeout runs out. If a test
 	// hangs somewhere else, the test binary panics at the timeout without
