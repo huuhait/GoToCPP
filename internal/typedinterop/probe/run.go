@@ -13,8 +13,10 @@ import (
 	"math/big"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -48,6 +50,10 @@ type Config struct {
 	Dir   string
 	Flags []string
 
+	// CacheDir is the folder of the cache on disk (cache.go): "" means the environment's
+	// (CacheDir), "off" no cache on disk. It is not part of any key.
+	CacheDir string
+
 	// Timeout limits the compiler run (EnvTimeout, else DefaultTimeout, when 0). MaxDecl is the
 	// largest declaration of the dump that is kept (DefaultMaxDecl when 0)
 	// and MaxJSON the size of the whole dump (DefaultMaxJSON when 0): beyond
@@ -75,17 +81,24 @@ func FindClang(ctx context.Context) (build.CXX, error) {
 	return cxx, nil
 }
 
-// A Runner runs probes and remembers the tables of the probe files it has
-// run, in memory (step 12.7 builds the cache on disk from Key and DepsHash).
-// The zero value is ready to use; it is safe for concurrent use.
+// A Runner runs probes and remembers what it made and read: the results of the
+// references, the declaration parts and the lists of headers they depend on, in
+// memory and in the cache on disk (cache.go, units.go; ADR-088). The zero value is
+// ready to use; it is safe for concurrent use. A source that was not made by
+// Generate (a hand-written text, in tests) is one unit: its table is kept in memory
+// by PreKey.
 type Runner struct {
 	mu     sync.Mutex
 	memo   map[string]*memoEntry
 	flying map[string]*flight // probe runs in progress, by PreKey
 	runs   int
 
-	declMemo map[string]*declEntry // extracted declarations (decls.go), by the key of their probe text
 	declRuns int
+
+	tcMu     sync.Mutex              // one toolchain question at a time (aux.go)
+	st       store                   // the entries this Runner made or read (cache.go)
+	dirsMemo map[string][]string     // the compiler's include search path, by config (aux.go)
+	infoMemo map[string]*includeInfo // the includes of a preamble, by config and contents of its headers (includes.go)
 }
 
 // A flight is a compiler run that other callers of the same probe wait for.
@@ -125,6 +138,10 @@ func (rn *Runner) Probe(ctx context.Context, cfg Config, set *collect.Set, gc Ge
 func (rn *Runner) Run(ctx context.Context, cfg Config, src *Source) (*Table, error) {
 	if cfg.CXX.Family != build.Clang {
 		return nil, fmt.Errorf("%w: the probe compiler is %s", ErrNoClang, cfg.CXX.Name())
+	}
+	if src.Preamble != "" {
+		// A generated file: its units are cached one by one (units.go).
+		return rn.probeSource(ctx, cfg, src)
 	}
 	pre := PreKey(cfg, src)
 	var fl *flight
@@ -208,9 +225,18 @@ func effMaxJSON(cfg Config) int64 {
 	return cfg.MaxJSON
 }
 
+// KeyVersion is the version of the cache key and of what the cache holds. Raise it when
+// the probe files, the readers of the compiler's output or the meaning of a result
+// change: every older entry is then a miss.
+const KeyVersion = "gocpp-probe-v4"
+
+// keyVersion is KeyVersion; a test changes it to see that it is in the key.
+var keyVersion = KeyVersion
+
 // PreKey returns the part of the cache key that is known before the run:
-// the probe file, the compiler (path, arguments, version, identity), the
-// flags, the package folder and the environment that moves the include path.
+// the probe file, the compiler (path, arguments, family, target, version,
+// identity), the flags, the package folder and the environment that moves the
+// include path. The contents of the headers are not in it (Key has them).
 func PreKey(cfg Config, src *Source) string {
 	h := sha256.New()
 	w := func(parts ...string) {
@@ -223,8 +249,8 @@ func PreKey(cfg Config, src *Source) string {
 	// and clang's messages and a header's own relative includes depend on it.
 	// MaxDecl and MaxJSON are part of it too: a table made with a small limit
 	// has probes that failed for the limit (TooLarge), which a larger limit would not.
-	w("gocpp-probe-v3", src.Text, cfg.CXX.Path, strings.Join(cfg.CXX.Args, "\x01"), cfg.CXX.Version, cfg.Dir, strings.Join(cfg.Flags, "\x01"),
-		strconv.Itoa(effMaxDecl(cfg)), strconv.FormatInt(effMaxJSON(cfg), 10))
+	w(keyVersion, src.Text, cfg.CXX.Path, strings.Join(cfg.CXX.Args, "\x01"), cfg.CXX.Family.String(), cfg.CXX.GOOS, cfg.CXX.GOARCH, cfg.CXX.Version,
+		canonPath(cfg.Dir), strings.Join(cfg.Flags, "\x01"), strconv.Itoa(effMaxDecl(cfg)), strconv.FormatInt(effMaxJSON(cfg), 10))
 	if id, ok := cfg.CXX.Identity(); ok {
 		w(id)
 	}
@@ -234,22 +260,41 @@ func PreKey(cfg Config, src *Source) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// canonPath returns the folder name as the keys have it: with slashes, and on Windows
+// in lower case (C:\Users\Me and c:/users/me are one folder there).
+func canonPath(p string) string { return canonPathFor(runtime.GOOS, p) }
+
+func canonPathFor(goos, p string) string {
+	if goos == "windows" {
+		p = strings.ReplaceAll(p, "\\", "/")
+		return strings.ToLower(path.Clean(p))
+	}
+	return path.Clean(p)
+}
+
 // Key returns the cache key of a table: PreKey and the contents of every
 // header that the compiler read (Table.Deps), so that an edit of
 // ./engine.hpp, or of a system header, makes another key.
 func Key(cfg Config, src *Source, deps []string) string {
+	return keyFrom(PreKey(cfg, src), DepsHash(deps))
+}
+
+// keyFrom combines a PreKey and a DepsHash.
+func keyFrom(pre, depsHash string) string {
 	h := sha256.New()
-	io.WriteString(h, PreKey(cfg, src))
-	io.WriteString(h, DepsHash(deps))
+	io.WriteString(h, pre)
+	io.WriteString(h, depsHash)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
 // A fileHash remembers the hash of a file by its stat, to avoid reading the
-// system headers on every call. A file whose modification time is within two
-// seconds of the check is always read again (it can change in the same tick).
+// system headers on every call of a process. The stat is the size, the modification
+// time and the inode change time, which every write moves and no program can set back; where
+// the system does not give it (changeTime) there is no shortcut. A file whose modification time
+// is within two seconds of the check is always read again (it can change in the same tick).
 type fileHash struct {
-	size, mtime int64
-	hash        string
+	size, mtime, ctime int64
+	hash               string
 }
 
 var (
@@ -262,11 +307,35 @@ var (
 func DepsHash(deps []string) string {
 	sorted := slices.Clone(deps)
 	sort.Strings(sorted)
+	sums := make([]string, len(sorted))
+	if len(sorted) < 24 {
+		for i, d := range sorted {
+			sums[i] = hashFile(d)
+		}
+	} else {
+		// A standard header pulls in a hundred files: read them at the same time.
+		var wg sync.WaitGroup
+		work := make(chan int)
+		for w := 0; w < min(8, runtime.NumCPU()); w++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for i := range work {
+					sums[i] = hashFile(sorted[i])
+				}
+			}()
+		}
+		for i := range sorted {
+			work <- i
+		}
+		close(work)
+		wg.Wait()
+	}
 	h := sha256.New()
-	for _, d := range sorted {
-		io.WriteString(h, d)
+	for i, d := range sorted {
+		io.WriteString(h, canonPath(d))
 		h.Write([]byte{0})
-		io.WriteString(h, hashFile(d))
+		io.WriteString(h, sums[i])
 		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil))
@@ -277,11 +346,14 @@ func hashFile(path string) string {
 	if err != nil {
 		return "missing"
 	}
+	ct, haveCT := changeTime(st)
 	fresh := time.Since(st.ModTime()) > 2*time.Second
 	hashMu.Lock()
 	c, ok := hashCache[path]
 	hashMu.Unlock()
-	if ok && fresh && c.size == st.Size() && c.mtime == st.ModTime().UnixNano() {
+	// Without the change time (where the system does not give it) an edit that keeps the size and
+	// the modification time cannot be seen, so the file is read every time.
+	if ok && fresh && haveCT && c.size == st.Size() && c.mtime == st.ModTime().UnixNano() && c.ctime == ct {
 		return c.hash
 	}
 	data, err := os.ReadFile(path)
@@ -289,13 +361,13 @@ func hashFile(path string) string {
 		return "unreadable"
 	}
 	sum := sha256.Sum256(data)
-	hs := hex.EncodeToString(sum[:8])
+	hs := hex.EncodeToString(sum[:16])
 	// The racy-git rule: a file that was modified less than 2 s before it was
 	// read can change again in the same clock tick without its size or modification
 	// time changing, so its hash is not kept (and the file is read again next time).
-	if fresh {
+	if fresh && haveCT {
 		hashMu.Lock()
-		hashCache[path] = fileHash{st.Size(), st.ModTime().UnixNano(), hs}
+		hashCache[path] = fileHash{st.Size(), st.ModTime().UnixNano(), ct, hs}
 		hashMu.Unlock()
 	}
 	return hs
@@ -404,6 +476,12 @@ type dump struct {
 // run itself (it did not start, it was stopped, it crashed, the dump is not
 // JSON). Errors in the source are not failures: they are in the stderr.
 func runDump(ctx context.Context, cfg Config, text, filter string, fn func(RawDecl) error) (*dump, error) {
+	// At most Jobs() compilers run at the same time in the process, whoever asks.
+	release, err := gate.acquire(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%s was stopped: %w", cfg.CXX.Name(), err)
+	}
+	defer release()
 	start := time.Now()
 	timeout := effTimeout(cfg)
 	maxJSON := effMaxJSON(cfg)
@@ -526,10 +604,10 @@ func runProbe(ctx context.Context, cfg Config, src *Source) (*Table, error) {
 	t.Stats.TooLarge = tooLarge
 	t.Stderr = string(d.stderr)
 	t.Deps = d.deps
-	if err := assemble(t, src, founds, ParseDiags(d.stderr, d.srcPath)); err != nil {
+	if err := assemble(t, src, founds, ParseDiags(d.stderr, d.srcPath), nil); err != nil {
 		return nil, err
 	}
-	t.Deps = addShadows(t.Deps, cfg, src)
+	t.Deps = addShadows(t.Deps, cfg, src.Includes)
 	t.Key = Key(cfg, src, t.Deps)
 	t.Timing.Parse = parse
 	t.Timing.CPU = d.cpu
@@ -538,20 +616,14 @@ func runProbe(ctx context.Context, cfg Config, src *Source) (*Table, error) {
 	return t, nil
 }
 
-// addShadows adds to the headers the compiler read the places where a header
-// that the probe file includes would hide the one that was found: the same
-// name in the package folder (a quoted include), in the -iquote folders and
-// in the -I folders that come before it. A file that is not there has a hash
-// of its own, so its appearance changes the key. The limit is the one of the
-// kind probe's cache: the top-level includes only, not those of the headers.
-func addShadows(deps []string, cfg Config, src *Source) []string {
-	var iquote, idirs []string
+// flagDirs returns the folders of the flags' -iquote, and of -I, -isystem and -idirafter (absolute, in order).
+func flagDirs(cfg Config) (iquote, idirs []string) {
 	for i := 0; i < len(cfg.Flags); i++ {
 		f := cfg.Flags[i]
 		var dst *[]string
 		var val string
 		switch {
-		case f == "-I" || f == "-iquote":
+		case f == "-I" || f == "-iquote" || f == "-isystem" || f == "-idirafter":
 			if i+1 < len(cfg.Flags) {
 				val = cfg.Flags[i+1]
 				i++
@@ -562,26 +634,42 @@ func addShadows(deps []string, cfg Config, src *Source) []string {
 			}
 		case strings.HasPrefix(f, "-I") && len(f) > 2:
 			dst, val = &idirs, f[2:]
+		case strings.HasPrefix(f, "-isystem") && len(f) > 8:
+			dst, val = &idirs, f[8:]
+		case strings.HasPrefix(f, "-idirafter") && len(f) > 10:
+			dst, val = &idirs, f[10:]
+		case strings.HasPrefix(f, "-iquote") && len(f) > 7:
+			dst, val = &iquote, f[7:]
 		}
 		if dst != nil && val != "" {
 			if !filepath.IsAbs(val) {
-				val = filepath.Join(cfg.Dir, val)
+				val = joinRaw(cfg.Dir, val)
 			}
 			*dst = append(*dst, val)
 		}
 	}
+	return iquote, idirs
+}
+
+// addShadows adds to the headers the compiler read the places where a header
+// that the probe file includes would hide the one that was found: the same
+// name in the package folder (a quoted include), in the -iquote folders and
+// in the -I folders that come before it. A file that is not there has a hash
+// of its own, so its appearance changes the key. The limit is the one of the
+// kind probe's cache: the top-level includes only, not those of the headers.
+func addShadows(deps []string, cfg Config, includes []string) []string {
+	iquote, idirs := flagDirs(cfg)
 	seen := make(map[string]bool, len(deps))
 	for _, d := range deps {
 		seen[d] = true
 	}
 	add := func(p string) {
-		p = filepath.Clean(p)
 		if !seen[p] {
 			seen[p] = true
 			deps = append(deps, p)
 		}
 	}
-	for _, inc := range src.Includes {
+	for _, inc := range includes {
 		if len(inc) < 3 {
 			continue
 		}
@@ -592,10 +680,10 @@ func addShadows(deps []string, cfg Config, src *Source) []string {
 				continue
 			}
 			if cfg.Dir != "" {
-				add(filepath.Join(cfg.Dir, name))
+				add(joinRaw(cfg.Dir, name))
 			}
 			for _, d := range iquote {
-				add(filepath.Join(d, name))
+				add(joinRaw(d, name))
 			}
 			fallthrough
 		case '<':
@@ -603,7 +691,7 @@ func addShadows(deps []string, cfg Config, src *Source) []string {
 				continue
 			}
 			for _, d := range idirs {
-				add(filepath.Join(d, name))
+				add(joinRaw(d, name))
 			}
 		}
 	}
@@ -895,8 +983,9 @@ type attribution struct {
 	main, alt, value *DiagGroup
 }
 
-// assemble fills the table from the dump and the diagnostics.
-func assemble(t *Table, src *Source, founds map[probeName]*found, groups []DiagGroup) error {
+// assemble fills the table from the dump and the diagnostics, for the references ids
+// (all of them when ids is nil). A batch (units.go) holds only some of the references.
+func assemble(t *Table, src *Source, founds map[probeName]*found, groups []DiagGroup, ids []int) error {
 	attr := make(map[int]*attribution)
 	get := func(id int) *attribution {
 		a := attr[id]
@@ -930,9 +1019,17 @@ func assemble(t *Table, src *Source, founds map[probeName]*found, groups []DiagG
 			t.HeaderErrors = append(t.HeaderErrors, g.Err)
 			continue
 		}
+		if l.Role == RoleAlias {
+			// An error of a local variable's alias is not the answer of any reference: the
+			// reference that declares the variable fails on its own line for the same reason,
+			// and the lines that use the alias fail by naming it. (The alias is declared once
+			// in the file, before the first line that uses it, so attributing its error to a
+			// reference would make a result depend on its neighbours.)
+			continue
+		}
 		a := get(l.Ref)
 		switch l.Role {
-		case RoleMain, RoleAlias:
+		case RoleMain:
 			if a.main == nil {
 				a.main = g
 			}
@@ -955,7 +1052,13 @@ func assemble(t *Table, src *Source, founds map[probeName]*found, groups []DiagG
 			forms[probeName{l.Ref, l.Role}] = l.Form
 		}
 	}
-	for id := range t.Results {
+	if ids == nil {
+		ids = make([]int, len(t.Results))
+		for i := range ids {
+			ids[i] = i
+		}
+	}
+	for _, id := range ids {
 		r := &t.Results[id]
 		r.ID = id
 		r.Key = src.Keys[id]

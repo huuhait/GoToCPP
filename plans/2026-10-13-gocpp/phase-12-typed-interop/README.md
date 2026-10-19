@@ -161,7 +161,7 @@ accepted. Narrowing conversions get a `gocpp vet` warning instead.
 Probe results are cached by hash(include set, flags, compiler version, probe text **and the
 contents of every header the probe included**, taken from the `-MD` depfile, as in Phase 06).
 Without the header contents, editing `./engine.hpp` would leave stale answers. New references
-only add new probes. Probing runs in parallel with other build work. Targets: cold < 0.5 s per
+only add new probes (built in 12.7: the cache is per reference, ADR-088). Probing runs in parallel with other build work. Targets: cold < 0.5 s per
 package, warm ≈ 0.
 
 ### 2.7 `gocpp bindgen <header>`
@@ -301,8 +301,18 @@ The contract is [docs/spec/typed-interop.md](../../../docs/spec/typed-interop.md
   Go lvalues, the members of global values (`std.cout.x`: no probe of the value alone), hoisting of C strings
   out of loops, an exact template-vs-index decision beyond the kind probe's, the mode flag and the default
   switch (12.11).
-- **12.7 (cache)** builds on `probe.PreKey`, `probe.Key` and `probe.DepsHash`; `probe.Runner` is
-  the in-memory memo it replaces or extends.
+- **12.7 (cache + incremental + parallel probing)**, done: ADR-088, spec §9. A probe file is a preamble and one
+  *unit* per reference; results are cached per unit on disk under (key of the preamble, hash of the contents of
+  its headers from `-MD`, unit text without its number), declaration parts and the refusals of dumps over the limit
+  the same way (`probe.{cache,units,declcache,limiter,aux}.go`). One edited line runs the unit that changed; the
+  units that are not cached go in batches (>= 400 units, <= `Jobs()` of them, `GOCPP_PROBE_JOBS`, default
+  `min(8, NumCPU/2)`, one global bound for the whole process); lock files make two processes that need the same answer
+  run one compiler. `GOCPP_PROBE_CACHE=off` turns it off, `gocpp __typed-probe -cache-stats | -cache-clean` show and
+  empty it, `-stable` prints a report without the run's timing so that cold and warm runs compare byte for byte,
+  `-stats` prints the cache counters. `probe.Runner` keeps the results in memory as before (the same codec as the disk).
+  Not done: a precompiled header of the preamble (an edit still costs one run of 0.3 s of CPU for the headers), dependencies
+  per reference (an edit of any header of the package loses all its results), and `gocpp build` does not call the
+  typed pipeline yet (12.11).
 - **12.8 (macro constants)** reads `Result.Value` (`big.Int`, exact float bits, string) of the
   references with `Ref.WantValue`.
 - Developer tool: `gocpp __typed-probe [-refs] [-decls] [patterns]` prints the references and results as

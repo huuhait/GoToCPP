@@ -143,6 +143,8 @@ func TestDeclsOffByDefault(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, "lib.hpp", physHeader)
 	write(t, dir, "main.gp", physProgram)
+	// (a header written in the last two seconds is not remembered: the cache's racy rule)
+	defer probe.SetRacyWindow(0)()
 	p, fset := tsupport.CheckDir(t, dir, "main.gp")
 	if errs := p.Errors.Diagnostics(); len(errs) > 0 {
 		t.Fatal(errs)

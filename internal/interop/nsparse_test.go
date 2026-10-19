@@ -474,6 +474,9 @@ func TestParseDeps(t *testing.T) {
 		{name: "relative", dir: "/src/game",
 			data: "gp_probe: /tmp/p/gp_probe.cpp native/x.hpp\n",
 			want: []string{filepath.Join("/src/game", "native/x.hpp")}},
+		{name: "dotdot after a symlink is kept", dir: "/src/game",
+			data: "gp_probe: /tmp/p/gp_probe.cpp inc/link/../foo.h /tmp/p/./a/../b.h /tmp/p/./c.h\n",
+			want: []string{"/src/game/inc/link/../foo.h", "/tmp/p/./a/../b.h", "/tmp/p/c.h"}},
 		{name: "only the probe", data: "gp_probe: /tmp/p/gp_probe.cpp\n"},
 	} {
 		t.Run(c.name, func(t *testing.T) {

@@ -79,6 +79,11 @@ type Report struct {
 	Decls  *probe.DeclTable
 	Mapper *ftype.Mapper
 	Values []ftype.Value
+
+	// Stable makes MarshalJSON leave out what describes the run and not the answers (timing,
+	// statistics, whether the cache served it, the number of compiler runs), so that the JSON
+	// of a cold run and of a warm run are the same bytes.
+	Stable bool
 }
 
 // UnitIncludes returns the #include texts of the translation unit of the
@@ -156,37 +161,91 @@ func Analyze(ctx context.Context, p *check.Package, fset *token.FileSet, opts Op
 		}
 	}
 	rep.KindTime = time.Since(t0)
+	// The overload sets of the functions the program calls do not depend on the probe's answers
+	// (only on the references and the kinds), so their run goes beside the probe's.
+	var funcs func() (*probe.DeclTable, error)
+	fctx, stopFuncs := context.WithCancel(ctx)
+	defer stopFuncs()
+	if opts.Decls {
+		funcs = startFuncDecls(fctx, rep, cfg, rn, opts)
+	}
 	t, err := rn.Probe(ctx, cfg, set, probe.GenConfig{Includes: rep.Includes, Kinds: rep.Kinds, StringToCStr: opts.StringToCStr})
 	if err != nil {
+		if funcs != nil {
+			stopFuncs() // the overload run is of no use now: stop its compilers
+			funcs()     // and wait for the goroutine
+		}
 		return rep, err
 	}
 	rep.Table = t
 	if opts.Decls {
-		if err := extractDecls(ctx, rep, cfg, rn, opts); err != nil {
+		if err := extractDecls(ctx, rep, cfg, rn, opts, funcs); err != nil {
 			return rep, err
 		}
 	}
 	return rep, nil
 }
 
+// declConfig returns the configuration of the declaration runs of opts for the report.
+func declConfig(rep *Report, opts Options) probe.DeclConfig {
+	dc := opts.DeclLimits
+	dc.Includes, dc.StringToCStr = rep.Includes, opts.StringToCStr
+	return dc
+}
+
+// startFuncDecls starts the extraction of the overload sets of the called functions and returns
+// the function that waits for its table.
+func startFuncDecls(ctx context.Context, rep *Report, cfg probe.Config, rn *probe.Runner, opts Options) func() (*probe.DeclTable, error) {
+	var queries []probe.DeclQuery
+	for _, name := range probe.FuncNames(rep.Set, rep.Kinds) {
+		queries = append(queries, probe.DeclQuery{Kind: probe.DeclFunc, Name: name})
+	}
+	if len(queries) == 0 {
+		return func() (*probe.DeclTable, error) { return nil, nil }
+	}
+	dc := declConfig(rep, opts)
+	done := make(chan struct{})
+	var tab *probe.DeclTable
+	var err error
+	go func() {
+		defer close(done)
+		tab, err = rn.Decls(ctx, cfg, dc, queries)
+	}()
+	return func() (*probe.DeclTable, error) {
+		<-done
+		return tab, err
+	}
+}
+
 // extractDecls runs steps 12.3 and 12.4 on the probe results of rep: it asks
 // for the declarations that the results need, then for those that the records
 // found need (public fields, bases, function signatures), a few rounds deep,
 // and maps every result.
-func extractDecls(ctx context.Context, rep *Report, cfg probe.Config, rn *probe.Runner, opts Options) error {
-	dc := opts.DeclLimits
-	dc.Includes, dc.StringToCStr = rep.Includes, opts.StringToCStr
+func extractDecls(ctx context.Context, rep *Report, cfg probe.Config, rn *probe.Runner, opts Options, funcs func() (*probe.DeclTable, error)) error {
+	dc := declConfig(rep, opts)
 	rounds := opts.DeclRounds
 	if rounds <= 0 {
 		rounds = 3
 	}
 	m := ftype.New(nil, opts.Target)
 	all := &probe.DeclTable{Records: map[string]*probe.Record{}, Enums: map[string]*probe.Enum{}, Funcs: map[string]*probe.FuncSet{}, Canon: map[string]string{}, Errors: map[string]string{}}
-	queries := m.Needs(rep.Table.Results)
-	for _, name := range probe.FuncNames(rep.Set, rep.Kinds) {
-		queries = append(queries, probe.DeclQuery{Kind: probe.DeclFunc, Name: name})
+	if funcs != nil {
+		tab, err := funcs()
+		if err != nil {
+			return fmt.Errorf("cannot extract the declarations: %w", err)
+		}
+		if tab != nil {
+			m.Add(tab)
+			mergeDecls(all, tab)
+		}
 	}
-	for round := 0; round < rounds && len(queries) > 0; round++ {
+	queries := m.Needs(rep.Table.Results)
+	round := 0
+	if len(queries) == 0 {
+		// The functions' run was the first round: go on with the types of their signatures.
+		queries, round = m.NeedsMore(), 1
+	}
+	for ; round < rounds && len(queries) > 0; round++ {
 		tab, err := rn.Decls(ctx, cfg, dc, queries)
 		if err != nil {
 			return fmt.Errorf("cannot extract the declarations: %w", err)
@@ -258,6 +317,19 @@ func (r *Report) MarshalJSON() ([]byte, error) {
 	if r.Table != nil && r.Table.Source != nil {
 		src = r.Table.Source.Text
 	}
+	table, decls := r.Table, r.Decls
+	if r.Stable {
+		if table != nil {
+			c := *table
+			c.Timing, c.Stats, c.Cached = probe.Timing{}, probe.Stats{}, false
+			table = &c
+		}
+		if decls != nil {
+			c := *decls
+			c.Timing, c.Stats, c.Cached, c.Runs = probe.Timing{}, probe.Stats{}, false, 0
+			decls = &c
+		}
+	}
 	kinds := make(map[string]string, len(r.Kinds))
 	for k, v := range r.Kinds {
 		kinds[k] = v.String()
@@ -269,5 +341,5 @@ func (r *Report) MarshalJSON() ([]byte, error) {
 		Table    *probe.Table      `json:"table"`
 		Source   string            `json:"source,omitempty"`
 		Decls    *probe.DeclTable  `json:"decls,omitempty"`
-	}{rows, r.Includes, kinds, r.Table, src, r.Decls})
+	}{rows, r.Includes, kinds, table, src, decls})
 }

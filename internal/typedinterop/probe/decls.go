@@ -50,8 +50,9 @@ type DeclConfig struct {
 	Includes     []string
 	StringToCStr bool
 
-	// Parallel is the number of compiler runs at the same time (8 when 0);
-	// MaxRuns the largest number of type runs for one call (64 when 0): more
+	// Parallel is the number of this call's runs that are started at the same time
+	// (Jobs() when 0); the compilers that run at once in the process are bounded by
+	// Jobs() anyway (limiter.go). MaxRuns the largest number of type runs for one call (64 when 0): more
 	// names than that are answered with an error, not probed.
 	Parallel int
 	MaxRuns  int
@@ -125,11 +126,9 @@ type declPart struct {
 	stats   Stats
 	deps    []string
 	timing  Timing
-}
 
-type declEntry struct {
-	part *declPart
-	deps string
+	// refusal says that the run was stopped for the size of the dump: no dependency file.
+	refusal bool
 }
 
 // Decls extracts the declarations that the queries ask for. A query that
@@ -140,7 +139,7 @@ func (rn *Runner) Decls(ctx context.Context, cfg Config, dc DeclConfig, queries 
 	t0 := time.Now()
 	out := &DeclTable{Records: map[string]*Record{}, Enums: map[string]*Enum{}, Funcs: map[string]*FuncSet{}, Canon: map[string]string{}, Errors: map[string]string{}}
 	if dc.Parallel <= 0 {
-		dc.Parallel = 8
+		dc.Parallel = Jobs()
 	}
 	if dc.MaxRuns <= 0 {
 		dc.MaxRuns = 64
@@ -290,28 +289,119 @@ func (rn *Runner) Decls(ctx context.Context, cfg Config, dc DeclConfig, queries 
 	return out, nil
 }
 
-// memoRun runs build's compiler run once per probe text and memoizes the
-// part by the same key as the probe tables (the headers' contents are
-// re-checked on a hit).
-func (rn *Runner) memoRun(cfg Config, text string, run func() (*declPart, error)) (*declPart, bool, error) {
-	key := PreKey(cfg, &Source{Text: text})
-	rn.mu.Lock()
-	e := rn.declMemo[key]
-	rn.mu.Unlock()
-	if e != nil && DepsHash(e.part.deps) == e.deps {
-		return e.part, true, nil
+// memoRun runs a declaration run once per probe text: the part is looked up in the cache (memory,
+// then disk) under the key of the text and the contents of the headers that the run read, and
+// made by run when it is not there. The runs of one key go one at a time in this process and
+// on this machine (cache.go has the lock); the others find the part when the first is done.
+func (rn *Runner) memoRun(ctx context.Context, cfg Config, includes []string, text, preamble string, run func() (*declPart, error)) (*declPart, bool, error) {
+	dir, write := rn.diskFor(cfg)
+	tc := rn.toolchain(ctx, cfg, dir, write)
+	pre := withToolchain(PreKey(cfg, &Source{Text: text}), tc)
+	name := entryName("d", selfID(), pre)
+	fkey := "d" + pre
+	lookup := func() *declPart {
+		v := rn.findVariant(dir, name, "d")
+		if v == nil {
+			return nil
+		}
+		p, err := decodePart(v.Part, v.Deps)
+		if err != nil {
+			cacheCount.corrupt.Add(1)
+			return nil
+		}
+		return p
 	}
+	for round := 0; round < 16; round++ {
+		if p := lookup(); p != nil {
+			return p, true, nil
+		}
+		rn.mu.Lock()
+		if other := rn.flying[fkey]; other != nil {
+			rn.mu.Unlock()
+			select {
+			case <-other.done:
+			case <-ctx.Done():
+				return nil, false, fmt.Errorf("%s was stopped: %w", cfg.CXX.Name(), ctx.Err())
+			}
+			if other.err != nil && !errors.Is(other.err, context.Canceled) {
+				return nil, false, other.err
+			}
+			continue
+		}
+		fl := &flight{done: make(chan struct{})}
+		if rn.flying == nil {
+			rn.flying = make(map[string]*flight)
+		}
+		rn.flying[fkey] = fl
+		rn.mu.Unlock()
+		p, hit, err := rn.makePart(ctx, cfg, includes, text, preamble, dir, write, tc, name, fkey, lookup, run)
+		rn.mu.Lock()
+		delete(rn.flying, fkey)
+		rn.mu.Unlock()
+		fl.err = err
+		close(fl.done)
+		if err != nil {
+			return nil, false, err
+		}
+		if p == nil {
+			continue
+		}
+		return p, hit, nil
+	}
+	return nil, false, errors.New("the declaration run kept being taken by others")
+}
+
+// makePart is the part of memoRun that holds the flight: it looks again (a caller that came
+// after another finished), takes the lock on disk, runs and stores. It returns a nil part
+// when another process made it meanwhile, and the caller looks again.
+func (rn *Runner) makePart(ctx context.Context, cfg Config, includes []string, text, preamble, dir string, write bool, tc toolchain, name, fkey string,
+	lookup func() *declPart, run func() (*declPart, error)) (*declPart, bool, error) {
+	if p := lookup(); p != nil {
+		return p, true, nil
+	}
+	if dir != "" {
+		release, waited := acquireLock(ctx, dir, fkey, effTimeout(cfg))
+		if release != nil {
+			defer release()
+		}
+		if waited {
+			if p := lookup(); p != nil {
+				return p, true, nil
+			}
+		}
+	}
+	start := time.Now()
 	p, err := run()
 	if err != nil {
 		return nil, false, err
 	}
 	rn.mu.Lock()
-	if rn.declMemo == nil {
-		rn.declMemo = make(map[string]*declEntry)
-	}
-	rn.declMemo[key] = &declEntry{part: p, deps: DepsHash(p.deps)}
 	rn.declRuns++
 	rn.mu.Unlock()
+	cacheCount.runs.Add(1)
+	deps := p.deps
+	if len(deps) == 0 && p.refusal {
+		// The run was stopped (the dump is too large) or a header is missing: the compiler wrote
+		// no dependency file. What the answer depends on is still the headers of the file.
+		deps = preprocessDeps(ctx, cfg, text)
+	}
+	// (The includes are those of the preamble: the query below it has no directive, and one question serves
+	// every run of the same preamble.)
+	deps = rn.finalDeps(ctx, cfg, preamble, includes, deps, p.header, tc)
+	p.deps = deps
+	body, err := encodePart(p)
+	if err != nil {
+		return p, false, nil // not cacheable; the run's own part is the answer
+	}
+	// The part the caller gets is the one read back, as a later call gets it.
+	if back, err := decodePart(body, deps); err == nil {
+		p = back
+	}
+	if racyDeps(deps, start) {
+		return p, false, nil // a header changed while the compiler ran: not kept anywhere (racyDeps)
+	}
+	rn.addVariant(dir, name, "d", fmt.Sprintf("declarations %s %s", cfg.CXX.Name(), canonPath(cfg.Dir)),
+		variant{Deps: deps, DepsHash: DepsHash(deps), Part: body}, write && len(deps) > 0)
 	return p, false, nil
 }
 
@@ -327,6 +417,7 @@ func (rn *Runner) DeclRuns() int {
 func (rn *Runner) typeRun(ctx context.Context, cfg Config, dc DeclConfig, r *typeRun) (*declPart, bool, error) {
 	g := &gen{lines: make(map[int]Line), skipped: make(map[int]string), aliases: make(map[string]bool)}
 	g.preamble("// gocpp typed interop: declaration probe file (generated)", dc.Includes, dc.StringToCStr)
+	preamble := g.b.String()
 	g.b.WriteString(declHelpers)
 	g.line += strings.Count(declHelpers, "\n")
 	lineQ := make(map[int]int)
@@ -350,7 +441,7 @@ func (rn *Runner) typeRun(ctx context.Context, cfg Config, dc DeclConfig, r *typ
 			lineQ[g.line] = i
 		}
 	}
-	return rn.memoRun(cfg, g.b.String(), func() (*declPart, error) {
+	return rn.memoRun(ctx, cfg, dc.Includes, g.b.String(), preamble, func() (*declPart, error) {
 		return runTypeDump(ctx, cfg, g.b.String(), r, lineQ)
 	})
 }
@@ -443,7 +534,7 @@ func runTypeDump(ctx context.Context, cfg Config, text string, r *typeRun, lineQ
 	if errors.Is(err, ErrDumpTooLarge) {
 		// The names of this run have no answer, and the answer is remembered: another call
 		// would read the same 30 MB again.
-		part := &declPart{errs: map[string]string{}}
+		part := &declPart{errs: map[string]string{}, refusal: true}
 		for _, q := range r.queries {
 			part.errs[QueryKey(q)] = "the declaration is larger than the limit of the extraction"
 		}
@@ -564,6 +655,7 @@ func compilerErrors(d *dump, lineQ map[int]int, part *declPart) map[int]string {
 func (rn *Runner) funcRun(ctx context.Context, cfg Config, dc DeclConfig, qs []DeclQuery) (*declPart, bool, error) {
 	g := &gen{lines: make(map[int]Line), skipped: make(map[int]string), aliases: make(map[string]bool)}
 	g.preamble("// gocpp typed interop: function declaration probe file (generated)", dc.Includes, dc.StringToCStr)
+	preamble := g.b.String()
 	lineQ := make(map[int]int)
 	for i, q := range qs {
 		t, _ := ctype.Parse(q.Name)
@@ -571,7 +663,7 @@ func (rn *Runner) funcRun(ctx context.Context, cfg Config, dc DeclConfig, qs []D
 		lineQ[g.line] = i
 	}
 	text := g.b.String()
-	return rn.memoRun(cfg, text, func() (*declPart, error) {
+	return rn.memoRun(ctx, cfg, dc.Includes, text, preamble, func() (*declPart, error) {
 		return runFuncDump(ctx, cfg, text, qs, lineQ)
 	})
 }

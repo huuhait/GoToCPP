@@ -268,6 +268,10 @@ type Table struct {
 	Timing Timing `json:"timing"`
 	Stats  Stats  `json:"stats"`
 
+	// Cache says where the answers came from (not in the JSON: it differs between a cold and
+	// a warm run).
+	Cache CacheInfo `json:"-"`
+
 	// Stderr is the compiler's own text, for debugging (not parsed lines
 	// only: all of it, up to the limit).
 	Stderr string `json:"-"`

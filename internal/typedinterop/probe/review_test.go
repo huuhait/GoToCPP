@@ -167,8 +167,10 @@ func TestHashFileRacy(t *testing.T) {
 	hashMu.Lock()
 	_, cached := hashCache[f]
 	hashMu.Unlock()
-	if !cached {
-		t.Error("an old file's hash is not kept")
+	// (Where the system gives no change time there is no shortcut: the file is read every time.)
+	fi, _ := os.Stat(f)
+	if _, have := changeTime(fi); have != cached {
+		t.Errorf("an old file's hash: kept %v, change time available %v", cached, have)
 	}
 }
 

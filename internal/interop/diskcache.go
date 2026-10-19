@@ -213,6 +213,10 @@ var selfID = sync.OnceValue(func() string {
 	return id
 })
 
+// SelfID identifies the running gocpp for the keys of the caches of other packages (the
+// typed probes' cache): its version and executable, as the kind probe's keys have them.
+func SelfID() string { return selfID() }
+
 // A diskKey names an entry.
 type diskKey struct {
 	path string // the entry's file

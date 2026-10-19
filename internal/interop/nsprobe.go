@@ -1206,6 +1206,16 @@ func parseDiagnostics(out []byte, probe string) []diagnostic {
 // samePath reports whether the paths a and b, as a compiler prints them,
 // name the same file. The compiler prints the probe file's path as it got
 // it, so Clean is only for safety.
+// hasDotDot reports whether an element of the path is "..".
+func hasDotDot(p string) bool {
+	for _, e := range strings.FieldsFunc(p, func(r rune) bool { return r == '/' || r == filepath.Separator }) {
+		if e == ".." {
+			return true
+		}
+	}
+	return false
+}
+
 func samePath(a, b string) bool {
 	return a == b || filepath.Clean(a) == filepath.Clean(b)
 }
@@ -1341,9 +1351,18 @@ func parseDeps(data []byte, src, dir string) []string {
 		f := cur.String()
 		cur.Reset()
 		if !filepath.IsAbs(f) && dir != "" {
-			f = filepath.Join(dir, f)
+			if hasDotDot(f) {
+				f = strings.TrimRight(dir, `/\`) + string(filepath.Separator) + f
+			} else {
+				f = filepath.Join(dir, f)
+			}
 		}
-		if f = filepath.Clean(f); !samePath(f, src) {
+		// (A path with a ".." is kept as the compiler spelled it: the system takes the parent of what the
+		// element before the ".." names, which cleaning the text would not.)
+		if !hasDotDot(f) {
+			f = filepath.Clean(f)
+		}
+		if !samePath(f, src) {
 			files = append(files, f)
 		}
 	}

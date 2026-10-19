@@ -3,7 +3,7 @@
 Typed interop (Phase 12, [README](../../plans/2026-10-13-gocpp/phase-12-typed-interop/README.md))
 asks **clang** for the real C++ types of exactly the C/C++ names that a program uses. This
 document is the contract of the first six steps, which every later step builds on (§5 and §6 are
-steps 12.3 and 12.4, §7 is step 12.5, §8 is step 12.6):
+steps 12.3 and 12.4, §7 is step 12.5, §8 is step 12.6, §9 is step 12.7):
 
 | Step | Package | What it does |
 |---|---|---|
@@ -190,30 +190,31 @@ file is 162 MB.)
 | `ValueError` | the compiler's error for a failed value probe |
 | `Error`, `ErrorAt`, `Notes`, `AltError` | the failure of the probe |
 
-### 2.4 Keys and the in-memory memo (for step 12.7)
+### 2.4 Keys
 
-- `probe.PreKey(cfg, src)`: hash of the probe text, compiler (path, arguments, version, identity),
-  package folder (on purpose: quoted includes and messages depend on it), flags, `MaxDecl`,
-  `MaxJSON` and the environment of `build.KeyEnv` (`CPATH`, `CPLUS_INCLUDE_PATH`,
-  `NIX_CFLAGS_COMPILE*`, `CCC_ADD_ARGS`, `NIX_HARDENING_ENABLE`, ...: the same list as the
-  runtime's object files and the kind probe).
+- `probe.PreKey(cfg, src)` (`gocpp-probe-v4`): hash of the probe text, compiler (path, arguments, family,
+  target OS and architecture, version, identity), package folder (on purpose: quoted includes and messages
+  depend on it; slashes and lower case on Windows), flags, `MaxDecl`, `MaxJSON` and the environment of
+  `build.KeyEnv` (`CPATH`, `CPLUS_INCLUDE_PATH`, `NIX_CFLAGS_COMPILE*`, `CCC_ADD_ARGS`, `NIX_HARDENING_ENABLE`, ...:
+  the same list as the runtime's object files and the kind probe).
 - `probe.Key(cfg, src, deps)` = `PreKey` and the **contents** of every header the compiler read
-  (`DepsHash`: sha256 of the bytes; a stat shortcut skips files whose size and time did not change
-  only when they were already older than 2 seconds when they were hashed (the racy-git rule); a
-  missing file has a hash of its own). So editing `./engine.hpp`, or a
-  system header, makes another key.
-- `Runner` memoizes tables by `PreKey` and re-checks `DepsHash(table.Deps)` on a hit
-  (`Table.Cached`); callers of one probe file at the same time share one compiler run
-  (singleflight). `Runner.Runs()` counts the compiler runs. **IDs are positions in the sorted keys,
-  so they change when a reference is added or removed: anything that outlives a table (12.7's
-  cache, hover) must key by `Result.Key`, never by ID.** The disk cache and incremental
-  probing are step 12.7.
+  (`DepsHash`: sha256 of the bytes; a missing file has a hash of its own). So editing `./engine.hpp`, or a
+  system header, makes another key. Inside one process a stat shortcut skips files whose size, modification
+  time and (on Linux) inode change time did not change and that were older than 2 seconds when they were hashed.
+- `Runner` serves a probe file from its memory (and the disk, §9); callers of one probe at the same time share
+  one compiler run. `Runner.Runs()` counts the compiler runs. **IDs are positions in the sorted keys, so they
+  change when a reference is added or removed: anything that outlives a table (the cache, hover) must key
+  by `Result.Key`, never by ID.** The cache stores results by the text of the reference's lines
+  (`Source.Units[i].Hash`), which has no ID in it.
 
 ## 3. Developer tool
 
-`gocpp __typed-probe [-refs] [-decls] [patterns]` (hidden: not in `gocpp help`) checks the packages, runs
+`gocpp __typed-probe [-refs] [-decls] [-stable] [-stats] [patterns]` (hidden: not in `gocpp help`) checks the packages, runs
 the pipeline for each root package and prints the reference table and the result table as JSON
-(`-refs`: only the collector, no clang; `-decls`: also the declarations and the mapped view of each result). Exit status 3 when there is no clang. The JSON has `refs`
+(`-refs`: only the collector, no clang; `-decls`: also the declarations and the mapped view of each result;
+`-stable`: leave out the timing, the statistics and the cache flags, so that a cold and a warm run print the same
+bytes; `-stats`: one line on standard error with the units, hits, batches and compiler runs;
+`-cache-stats` and `-cache-clean` show and empty the cache folder and check nothing). Exit status 3 when there is no clang. The JSON has `refs`
 (each with its `result`), `includes`, `kinds`, `table` (timing, stats, header errors, deps) and
 `source` (the probe file).
 
@@ -307,11 +308,11 @@ mapper does that (§6).
   name `duration`) and every standard template whose dump is over the limit: the record is
   not reported (`Errors`), and the mapper makes a named type with `Incomplete` set. The mapper turns it into a named type with no known members. This is the main cost of
   the step: a run for a standard library template takes 0.1 to 1 s (the measured sizes: `vector` 12
-  MB, `map` 12 MB, `unique_ptr` 2.5 MB). Step 12.7's disk cache is what makes this a cold-build cost
-  only, and the memo (`Runner.DeclRuns`) already makes a second call free.
-- **Memo.** A run is remembered by the hash of its text, the compiler, the flags and the
+  MB, `map` 12 MB, `unique_ptr` 2.5 MB). The disk cache (§9, step 12.7) makes this a cold-build cost
+  only: a second call, and a second process, get the part from the cache with no compiler run.
+- **Cache.** A run is remembered by the hash of its text, the compiler, the flags and the
   environment (`probe.PreKey`), and valid while the contents of the headers it read (the `-MD`
-  file) are unchanged.
+  file) are unchanged, in memory and on disk (§9). The refusal of a dump over the limit is cached too.
 - Errors of a query (a name that is not a type, a name that clang does not know, a limit) are in
   `DeclTable.Errors["type X"]`, never a failure of the call; the call fails only when the context
   is cancelled. A compiler that crashes, hangs (`GOCPP_PROBE_TIMEOUT`) or prints garbage gives
@@ -510,3 +511,76 @@ rejects or equals them) with a C++ twin each (`tests/typed/twin`, compiled and c
 `TestTypedEmit` pins the text; `TestTypedWindows` runs the std-only program on the real PC
 (`GOCPP_WINDOWS_SSH`). The unit tests of the decisions are in `internal/lower/typed_test.go` and
 `internal/typedinterop/ftype/arrow_test.go`.
+
+## 9. The cache (step 12.7, ADR-088)
+
+Every answer of the compiler is kept: the kinds (Phase 06's cache, unchanged), the results of the
+probes, the declaration parts and their refusals.
+
+- **Units.** `probe.Generate` returns `Source.Preamble` and `Source.Units`: the probe lines of each reference
+  with the aliases of local variables they use (all of them, each with the ones it uses), and a hash of their
+  text without the reference's number. A result is stored under (key of the preamble, hash of the headers'
+  contents, unit hash). `Runner.Probe` looks up every unit, sends the missing ones to the compiler in batches
+  (a probe file with the same preamble and only those units; a batch has at least `GOCPP_PROBE_BATCH`, default 400,
+  units and there are at most `Jobs()` of them), and puts every result through the cache's encoding before it
+  reaches the table. A result does not depend on the batch it came from: the places in the probe file that
+  its messages name (`ErrorAt`, `Notes`, `RecoveredAt`, `RecoveredNotes`) are the full file's lines of the unit, of an
+  alias it uses, or of the preamble; a place in another unit has line 0. An error of an alias line is dropped
+  (the lines that use the alias fail on their own).
+- **Headers.** The context entry of a preamble has up to four *variants*: the list of files the compiler read
+  (`-MD`) with the hash of their contents. An entry whose files still have those contents is used; a variant
+  older than a week (or from the future) is not (`maxVariantAge`). The list is completed (`finalDeps`) with
+  - the places where an include of the package would be hidden (the package folder, `-iquote`, `-I`);
+  - for every header that was read and found in one of the search folders, the same name in the folders before
+    it and in every folder that the flags and the environment name (`-iquote`, `-I`, `-isystem`, `-idirafter`,
+    `CPATH`, `CPLUS_INCLUDE_PATH`; the order inside the flags is not trusted): a header that appears there hides
+    the one that was found, also in a header that a header includes. The folders of the flags and the
+    environment are listed whether they exist or not (`clang -E -v` leaves out a folder that does not exist, and
+    one made later must be seen); the compiler's own folders (from the toolchain) come after them;
+  - the package folder is also the first folder of the search order (the probe adds it as `-iquote`): a header
+    created there hides one that was found in a `-I` folder, in a header that a header includes and in an
+    `-include` flag as well as in the package's own includes;
+  - for every include directive the preprocessor met, the folder of the file that has it joined with the name as it
+    was spelled (`../foo.h` keeps its `..`): a quoted include is looked up in the folder of the file that has it
+    first, before any search folder; the folders of the flags and the environment are watched for the same spelled
+    name. The directives are not read from the text of the headers (no regular expression can follow a continued
+    line, a comment, a digraph, a macro that makes the name) but from `clang -E -dI`, whose output keeps every
+    `#include`/`#import`/`#include_next` with the name after the macros, in the line markers' file (also the
+    includes that a guard or `#pragma once` skipped, and those that were not found). The run is made once per
+    preamble and kept in the Runner for as long as the headers it read have the same contents (each batch of
+    units and each declaration run asks), and not at all for a text with no header. Includes made by the compiler's
+    own headers are left out (nobody adds a header there). The candidate paths are built as text (folder, separator,
+    name), never cleaned: a `..` after a symbolic link is resolved by the system on the link's target (`dir/link/..`
+    is the parent of what `link` points to), so the paths are stat-ed and read as they were spelled, and `ParseDeps`
+    keeps a path with a `..` as the compiler wrote it. The question is asked once per generated preamble (the title
+    line aside), not per declaration run: a declaration run passes its preamble, without its query. When the output is not complete (the compiler was
+    stopped at the time limit, the output ends in the middle of a line, a directive line is over 1 MiB) the cache
+    is conservative: the folder of every header that was read that is not the compiler's own, and the package
+    folder, are watched for every name by which such a header was found;
+  - after a "file not found" (the compiler writes no dependency file then), every place where the missing
+    header would be: the package's own includes in every folder, and the names that headers include
+    (as spelled, from the same `-dI` run; `-M -MG` when that is not complete) in the folders of the search, the package folder and the folder of every header
+    that was read. A negative answer (a header that is not there, also inside another header) is an entry like
+    another and is lost when the header appears in any of those places.
+  The toolchain (the search path, the target, the GCC installation clang chose) is part of the key of the
+  results, so another libstdc++ is another cache; it is asked from the compiler (`-E -v`, one cheap run) at most
+  once an hour and kept in the cache (`toolchainTTL`). A Runner with no cache folder does not ask.
+  **What is not seen:** a header that `__has_include` asks for and that appears later; a change of the toolchain
+  within the hour; and, with no cache folder, a header that hides another one a header includes (the search path
+  is only asked for after an error). These are bounded by the week. A header that was modified (modification or
+  change time) less than two seconds before the compiler started, or at any time after, is not kept anywhere, not in
+  memory either (`racyDeps`): the compiler may have read the old contents.
+- **Declarations.** `Runner.Decls` caches each run's part (records, enums, canonical names, overload sets,
+  errors, header errors) under the key of the run's text, with the same variants. Types are written as text and
+  parsed back; the table of a warm call is the table of a cold one. A run killed at the dump limit
+  is cached as a refusal; its headers come from a preprocessor-only run.
+- **Folder and files.** `<user cache>/gocpp/probe/typed-v1/{c,u,d}/xx/<sha256>.json`
+  (`GOCPP_PROBE_CACHE=<abs>` is the folder above `typed-v1`, `off` or `GOCPP_NOPROBECACHE=1` disables;
+  test binaries use none unless it is set). A file has a checksum line; writes are atomic (rename); bad files are
+  misses. At most 100,000 entries and 256 MB, 90 days unused (`Prune`: at the first write of a process and every
+  512 writes, and not within an hour of the last pruning, the time of the file `.pruned`); a read refreshes the time. Read-only folders fall back to memory. `gocpp clean -cache` removes it.
+- **Processes.** A lock file per key (`locks/`, with the machine's name and the process id): a process that finds the lock waits (at most the run's limit
+  plus 15 s; the context ends it) and looks again; the lock of a process of this machine that is gone is taken over at once. Counters: `probe.CacheCounters()`.
+- **Parallelism.** `Jobs()` (`GOCPP_PROBE_JOBS`, default `min(8, NumCPU/2)`) compilers at the same time in the
+  process, in all calls (a global semaphore taken by every run, also the auxiliary ones). Cancelling the
+  context kills each compiler's process group.

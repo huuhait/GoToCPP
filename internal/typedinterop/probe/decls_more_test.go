@@ -53,8 +53,8 @@ func TestDeclsMemo(t *testing.T) {
 	if second.Runs != 0 || !second.Cached || rn.DeclRuns() != 5 {
 		t.Errorf("second: %d runs, cached %v, %d total", second.Runs, second.Cached, rn.DeclRuns())
 	}
-	if second.Records["geo::Vec"] != first.Records["geo::Vec"] {
-		t.Error("the memo returned another record")
+	if a, b := jsonOf(second.Records["geo::Vec"]), jsonOf(first.Records["geo::Vec"]); a != b {
+		t.Error("the cache returned another record")
 	}
 	// The header changes: the type run of Vec runs again and sees the new field, the others
 	// that read the same header run again too (their key has the header's contents).
@@ -255,4 +255,9 @@ func TestDeclsInjection(t *testing.T) {
 	if tab.Errors["func geo::g<int>"] != "not a function name" || tab.Records["Buf<char, 8>"] != nil && tab.Records["Buf<char, 8>"].Size != 8 {
 		t.Errorf("%v %v", tab.Errors, tab.Records)
 	}
+}
+
+func jsonOf(v any) string {
+	b, _ := json.Marshal(v)
+	return string(b)
 }

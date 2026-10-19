@@ -31,7 +31,10 @@
 //     probe (an unrelated header with an error) are reported, and don't stop
 //     the run.
 //   - Every probe is independent: an error in one line leaves the others
-//     alone (-ferror-limit=0).
+//     alone (-ferror-limit=0). That is what the cache relies on (ADR-088): the
+//     file is a preamble and one Unit per reference, a result is stored per
+//     unit under the contents of the headers the preamble reads, and the units
+//     that are not cached are run in batches (units.go, cache.go).
 package probe
 
 import (
@@ -72,6 +75,8 @@ type Line struct {
 	// Form is FormExpr or FormType for a main or alternative line.
 	Form Form
 	Text string
+	// Needs are the names of the aliases that an alias line uses (RoleAlias only).
+	Needs []string
 }
 
 // A GenConfig is what Generate needs besides the references.
@@ -123,6 +128,58 @@ type Source struct {
 	// Includes are the headers of the #include lines, as written ("./a.hpp"
 	// with the quotes, <vector> with the brackets).
 	Includes []string
+
+	// Preamble is the part of Text before the first probe line: the title, the
+	// headers, the package's includes and the helper block. It is the context
+	// of every probe: the cache keys it, and the headers it reads are the
+	// dependencies of every result (cache.go).
+	Preamble string
+
+	// Units are the probes of the references that have any, one per reference, in
+	// the order of Text. A unit holds everything a reference's answer depends
+	// on, so that its result can be cached and reused in any other probe file with
+	// the same preamble (units.go).
+	Units []Unit
+
+	// aliasAt is the line of each alias in Text.
+	aliasAt map[string]int
+}
+
+// A Unit is the probe of one reference: the lines of the local-variable aliases
+// it uses (all of them, also those that an earlier reference's lines declare in
+// the full file) and its own lines (the main probe, the alternative reading, the
+// value probes).
+type Unit struct {
+	Ref int
+	// Aliases are the alias lines the unit's lines use, in the order that they
+	// must be declared (a dependency comes first).
+	Aliases []Line
+	// Lines are the unit's own lines, and At their line numbers in Source.Text.
+	Lines []Line
+	At    []int
+	// Hash identifies the unit's text without its reference number: the same
+	// probe in another file has the same hash.
+	Hash string
+}
+
+// unitHash returns the hash of the canonical text of a unit's lines.
+func unitHash(aliases, lines []Line) string {
+	h := sha256.New()
+	for _, a := range aliases {
+		fmt.Fprintf(h, "a%d:%s\n", len(a.Text), a.Text)
+	}
+	for _, l := range lines {
+		t := canonLine(l)
+		fmt.Fprintf(h, "%s %s %d:%s\n", l.Role, l.Form, len(t), t)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// canonLine returns the text of a probe line with the reference's number
+// replaced in the name that the line declares (the first "gp_probe_N", always
+// the declaration), so that two references with the same probe have the same text.
+func canonLine(l Line) string {
+	return strings.Replace(l.Text, "gp_probe_"+strconv.Itoa(l.Ref), "gp_probe_@", 1)
 }
 
 // helpers is the part of the probe file after the includes: the stand-ins of
@@ -220,6 +277,10 @@ type gen struct {
 	skipped map[int]string
 	aliases map[string]bool
 	kinds   map[string]interop.Kind
+
+	// aliasLine and aliasAt are the alias lines that were emitted, by name, and where.
+	aliasLine map[string]Line
+	aliasAt   map[string]int
 }
 
 func (g *gen) emit(text string, l *Line) {
@@ -234,8 +295,11 @@ func (g *gen) emit(text string, l *Line) {
 
 // Generate returns the probe file for the references of set.
 func Generate(set *collect.Set, cfg GenConfig) *Source {
-	g := &gen{lines: make(map[int]Line), skipped: make(map[int]string), aliases: make(map[string]bool), kinds: cfg.Kinds}
+	g := &gen{lines: make(map[int]Line), skipped: make(map[int]string), aliases: make(map[string]bool), kinds: cfg.Kinds,
+		aliasLine: make(map[string]Line), aliasAt: make(map[string]int)}
 	headers, helperFrom, helperTo := g.preamble("// gocpp typed interop: probe file (generated)", cfg.Includes, cfg.StringToCStr)
+	preamble := g.b.String()
+	var units []Unit
 
 	for _, ref := range set.Refs {
 		if why := skipReason(ref, cfg.Kinds); why != "" {
@@ -254,15 +318,24 @@ func Generate(set *collect.Set, cfg GenConfig) *Source {
 		// A local variable's alias comes before the first line that uses it.
 		for _, a := range r.pre {
 			a := a
-			g.aliases[aliasNameOf(a.Text)] = true
+			name := aliasNameOf(a.Text)
+			g.aliases[name] = true
 			g.emit(a.Text, &a)
+			g.aliasLine[name] = a
+			g.aliasAt[name] = g.line
 		}
+		u := Unit{Ref: ref.ID, Aliases: g.closure(r.used)}
 		for _, l := range ls {
 			l := l
 			g.emit(l.Text, &l)
+			u.Lines = append(u.Lines, l)
+			u.At = append(u.At, g.line)
 		}
+		u.Hash = unitHash(u.Aliases, u.Lines)
+		units = append(units, u)
 	}
-	src := &Source{Text: g.b.String(), Lines: g.lines, Skipped: g.skipped, NRefs: len(set.Refs), HelperFrom: helperFrom, HelperTo: helperTo, Includes: headers}
+	src := &Source{Text: g.b.String(), Lines: g.lines, Skipped: g.skipped, NRefs: len(set.Refs), HelperFrom: helperFrom, HelperTo: helperTo, Includes: headers,
+		Preamble: preamble, Units: units, aliasAt: g.aliasAt}
 	for _, r := range set.Refs {
 		src.Keys = append(src.Keys, r.Key)
 	}
@@ -272,6 +345,32 @@ func Generate(set *collect.Set, cfg GenConfig) *Source {
 		}
 	}
 	return src
+}
+
+// closure returns the alias lines that the names use, with the aliases that
+// those use, each once, a dependency before its user.
+func (g *gen) closure(names []string) []Line {
+	var out []Line
+	seen := make(map[string]bool)
+	var add func(name string)
+	add = func(name string) {
+		if seen[name] {
+			return
+		}
+		seen[name] = true
+		l, ok := g.aliasLine[name]
+		if !ok {
+			return
+		}
+		for _, n := range l.Needs {
+			add(n)
+		}
+		out = append(out, l)
+	}
+	for _, n := range names {
+		add(n)
+	}
+	return out
 }
 
 // preamble writes the first lines of a probe file: the title, the headers the

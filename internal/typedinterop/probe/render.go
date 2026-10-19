@@ -29,8 +29,11 @@ type rend struct {
 	// ambiguous is set when such a node was met.
 	ambiguous bool
 
-	// pre are the alias lines (RoleAlias) that the rendered text needs.
-	pre []Line
+	// pre are the alias lines (RoleAlias) that the rendered text needs and
+	// that no earlier reference emitted; used are the names of all the aliases
+	// the text uses, emitted before or not (a unit holds all of them).
+	pre  []Line
+	used []string
 
 	// reason is why the reference can't be rendered.
 	reason string
@@ -474,10 +477,12 @@ func (r *rend) typ(e collect.Expr) string {
 func (r *rend) alias(def *collect.Ref) string {
 	name := aliasName(def)
 	if r.g.aliases[name] {
+		r.used = append(r.used, name)
 		return name
 	}
 	for _, l := range r.pre {
 		if aliasNameOf(l.Text) == name {
+			r.used = append(r.used, name)
 			return name
 		}
 	}
@@ -488,7 +493,9 @@ func (r *rend) alias(def *collect.Ref) string {
 	}
 	r.ambiguous = r.ambiguous || sub.ambiguous
 	r.pre = append(r.pre, sub.pre...)
-	r.pre = append(r.pre, Line{Ref: def.ID, Role: RoleAlias, Text: "using " + name + " = " + text + ";"})
+	r.pre = append(r.pre, Line{Ref: def.ID, Role: RoleAlias, Text: "using " + name + " = " + text + ";", Needs: sub.used})
+	r.used = append(r.used, sub.used...)
+	r.used = append(r.used, name)
 	return name
 }
 
