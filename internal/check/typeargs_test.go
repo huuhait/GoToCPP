@@ -301,7 +301,7 @@ func main() { _, _ = x, y }
 // a type and in a value. Constants, instantiated types, values with C/C++
 // parts, functions and nil are fine.
 func TestTemplateArgErrors(t *testing.T) {
-	const box = "type Box[T any] struct{ v T }\n"
+	const box = "" // Box is declared in falseErrorsMain: a generic type declared in a function is a gate error
 	const generic = "cannot use generic type Box[T any] without instantiation"
 	for _, c := range []struct{ body, want string }{
 		{box + "_ = std.vector[Box]{}", generic},

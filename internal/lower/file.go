@@ -152,6 +152,9 @@ type gen struct {
 	// (canon.go: localTag).
 	localTags map[*types.TypeName]string
 
+	// localOrdinals numbers the types declared in function bodies of the package in source order (localOrdinal).
+	localOrdinals map[token.Pos]int
+
 	// lits are the numbers of the func literals in their functions (closures.go: numberLits).
 	lits map[*ast.FuncLit]int
 

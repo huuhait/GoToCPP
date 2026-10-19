@@ -396,14 +396,13 @@ func TestFindMessage(t *testing.T) {
 		{"./main.gp:5:12: interfaces are not supported yet (Phase 05)", "gate/feature/interfaces"},
 		{"main.gp:5:12: interfaces are not supported yet (Phase 05)\n\tother line", "gate/feature/interfaces"},
 		{"/tmp/x/a.gp:5: generic types are not supported yet (Phase 07)", "gate/feature/generic types"},
-		{"main.go:5:23: slices.Contains is not available yet (Phase 07)", "lower/std-generics"},
 		{"gocpp vet: not available yet (Phase 13)", "driver/command"},
 		{"gocpp build: building for plan9/arm on linux/amd64 is not supported yet (Phase 06)", "driver/cross-target"},
 		{"./a.gp:3:6: cannot declare C - C is reserved for C's built-in types", "loader/reserved-c"},
 		{"cannot find header stdio.hx", "check/header"},
 		{"package net/http is not available yet (Phase 09)", "loader/package"},
 		{"the format verb %x is not supported yet (Phase 05)", "gate/verb/%x"},
-		{"x.gp:1:1: a thing is not supported yet (Phase 07)", "lower/phase-07"},
+		{"x.gp:1:1: a thing is not supported yet (Phase 08)", "lower/phase-08"},
 	}
 	for _, tc := range tests {
 		ms := FindMessage(tc.in)
@@ -419,9 +418,9 @@ func TestFindMessage(t *testing.T) {
 			t.Errorf("FindMessage(%q) = %v, want %s first", tc.in, ids, tc.id)
 		}
 	}
-	// The most specific pattern only: "%s (Phase 07)" is not shown next to "%s.%s is not available yet (Phase 07)".
-	if ms := FindMessage("slices.Contains is not available yet (Phase 07)"); len(ms) != 1 {
-		t.Errorf("slices.Contains: %d entries, want the most specific one", len(ms))
+	// The most specific pattern only: "%s (Phase 12)" is not shown next to "%s on values with C/C++ parts (Phase 12)".
+	if ms := FindMessage("== on values with C/C++ parts (Phase 12)"); len(ms) != 1 {
+		t.Errorf("== on values with C/C++ parts: %d entries, want the most specific one", len(ms))
 	}
 	for _, in := range []string{"", "nothing to see here", "interfaces are fine"} {
 		if ms := FindMessage(in); len(ms) != 0 {
@@ -650,7 +649,6 @@ func TestFallbacks(t *testing.T) {
 		"x.gp:3:4: not supported yet: the operator &^ on float64",
 		"x.gp:3:4: conversions of C/C++ values to int (Phase 12)",
 		"x.gp:3:4: make of chan int (Phase 08)",
-		"x.gp:3:4: index expressions on T (Phase 07)",
 		"x.gp:3:4: something of C/C++ values (typed interop: Phase 12)",
 		"x.gp:3:4: something (a later step of Phase 04)",
 	} {
@@ -668,15 +666,15 @@ func TestFallbacks(t *testing.T) {
 		}
 	}
 	// An entry of its own comes before a catch-all that also matches.
-	if ms := FindMessage("range over functions (Phase 07)"); len(ms) != 1 || ms[0].ID != "lower/range-func" {
-		t.Errorf("range over functions: %v", ms)
+	if ms := FindMessage("== on values with C/C++ parts (Phase 12)"); len(ms) != 1 || ms[0].ID != "lower/cpp-eq-switch" {
+		t.Errorf("== on values with C/C++ parts: %v", ms)
 	}
 }
 
 var phaseMarkRx = regexp.MustCompile(`\(?(?:typed interop: |a later step of )?Phase \d\d\)?`)
 
 // fragment reports whether the template tmpl is a piece that the lowering completes with a name or a
-// type, with fewer than three words of its own: "%s %s (Phase 07)", " (Phase 08)", "not supported yet: %s".
+// type, with fewer than three words of its own: "%s %s (Phase 12)", " (Phase 08)", "not supported yet: %s".
 func fragment(tmpl string) bool {
 	if tmpl == "not supported yet: %s" {
 		return true

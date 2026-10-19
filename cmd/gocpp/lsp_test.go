@@ -566,7 +566,6 @@ func TestLSPGatePhase(t *testing.T) {
 		phase    int
 		src, msg string
 	}{
-		{7, "package main\n\nfunc G[T any](x T) {}\n\nfunc main() {}\n", "generic functions are not supported yet (Phase 07)"},
 		{8, "package main\n\nfunc main() { go func() {}() }\n", "go statements are not supported yet (Phase 08)"},
 	} {
 		if c.phase > version.Phase {

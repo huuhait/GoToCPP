@@ -226,9 +226,13 @@ func main() {
 		want: []string{"6:10: fmt.Sprint is not available yet (Phase 03)"}},
 	{name: "weak", phase: 3, src: "package main\n\nimport \"weak\"\n\nfunc main() {\n\tvar w weak.Pointer[int]\n\tprintln(w.Value() == nil)\n}\n",
 		want: []string{"3:8: package weak is not available yet (Phase 03)", "7:10: pointers are not supported yet (Phase 03)"}},
-	{name: "weak/defined type", phase: 7, before: 3,
+	{name: "weak/defined type", phase: Never,
 		src:  "package main\n\nimport \"weak\"\n\ntype WP weak.Pointer[int]\n\ntype A = weak.Pointer[int]\n\nfunc main() {\n\tvar a A\n\tprintln(a.Value() == nil, WP(a) == WP{})\n}\n",
-		want: []string{"5:6: a type defined as weak.Pointer[T] is not supported yet (Phase 07)"}},
+		want: []string{"5:6: a type defined as weak.Pointer[T] is not supported in gocpp"}},
+
+	{name: "generic types declared inside functions", phase: Never,
+		src:  "package main\n\nfunc main() {\n\ttype Pair[K, V any] struct {\n\t\tk K\n\t\tv V\n\t}\n\tvar p Pair[int, string]\n\t_ = p\n}\n",
+		want: []string{"4:7: generic types declared inside functions are not supported in gocpp"}},
 
 	// Phase 04.
 	{name: "header imports", phase: 4, src: "package main\n\nimport \"<stdio.h>\"\n\nfunc main() {\n\tstdio.puts(\"x\")\n}\n",
@@ -334,15 +338,15 @@ func main() {
 		want: []string{"3:1: //export functions are not supported yet (Phase 06)"}},
 
 	// Phase 07.
-	{name: "generics", phase: 7, src: "package main\n\nfunc F[T any](x T) T { return x }\n\nfunc main() {\n\tprintln(F(1))\n}\n",
+	{name: "generics", phase: 7, before: 4, src: "package main\n\nfunc F[T any](x T) T { return x }\n\nfunc main() {\n\tprintln(F(1))\n}\n",
 		want: []string{"3:7: generic functions are not supported yet (Phase 07)"}},
-	{name: "generics/type sets", phase: 7, src: "package main\n\ntype N interface{ ~int | ~int64 }\n\nfunc main() {}\n",
+	{name: "generics/type sets", phase: 7, before: 4, src: "package main\n\ntype N interface{ ~int | ~int64 }\n\nfunc main() {}\n",
 		want: []string{"3:8: generic functions are not supported yet (Phase 07)"}},
-	{name: "generics/types", phase: 7, src: "package main\n\ntype S[T any] struct{ v T }\n\nfunc main() {\n\tvar s S[int]\n\t_ = s\n}\n",
+	{name: "generics/types", phase: 7, before: 4, src: "package main\n\ntype S[T any] struct{ v T }\n\nfunc main() {\n\tvar s S[int]\n\t_ = s\n}\n",
 		want: []string{"3:7: generic types are not supported yet (Phase 07)"}},
-	{name: "range over functions", phase: 7, src: "package main\n\nfunc seq(yield func(int) bool) {}\n\nfunc main() {\n\tfor x := range seq {\n\t\tprintln(x)\n\t}\n}\n",
+	{name: "range over functions", phase: 7, before: 4, src: "package main\n\nfunc seq(yield func(int) bool) {}\n\nfunc main() {\n\tfor x := range seq {\n\t\tprintln(x)\n\t}\n}\n",
 		want: []string{"6:2: range over functions is not supported yet (Phase 07)"}},
-	{name: "slices", phase: 7, src: "package main\n\nimport \"slices\"\n\nfunc main() {\n\tprintln(slices.Contains([]int{1}, 1))\n}\n",
+	{name: "slices", phase: 7, before: 4, src: "package main\n\nimport \"slices\"\n\nfunc main() {\n\tprintln(slices.Contains([]int{1}, 1))\n}\n",
 		want: []string{
 			"3:8: package slices is not available yet (Phase 07)",
 			"6:17: generic functions are not supported yet (Phase 07)",
@@ -730,8 +734,30 @@ func TestGateSince(t *testing.T) {
 	if !f.allowed(5) || f.allowed(4) {
 		t.Errorf("allowed(5) = %v, allowed(4) = %v, want true and false", f.allowed(5), f.allowed(4))
 	}
-	if g := features[featGenerics]; g.allowed(6) || !g.allowed(7) {
-		t.Errorf("the generics row: allowed(6) = %v, allowed(7) = %v, want false and true", g.allowed(6), g.allowed(7))
+	// Generics (Phase 07) are built and open from Phase 05 on (step 7.11), with the packages of step 7.10.
+	for _, id := range []featureID{featGenerics, featGenericTypes, featRangeFunc} {
+		if g := features[id]; g.Phase != 7 || g.Since != 5 || g.allowed(4) || !g.allowed(5) {
+			t.Errorf("%s: Phase %d, Since %d, allowed(4) = %v, allowed(5) = %v, want 7, 5, false, true", g.Name, g.Phase, g.Since, g.allowed(4), g.allowed(5))
+		}
+	}
+	for _, tc := range gateCases {
+		switch tc.name {
+		case "generics", "generics/type sets", "generics/types", "range over functions", "slices":
+			if got := checkAt(t, load.Config{}, writeTree(t, map[string]string{"main.gp": tc.src}), 5, "."); got != "" {
+				t.Errorf("%s at Phase 05 (Since 5):\n%s\nwant no errors", tc.name, got)
+			}
+		}
+	}
+	for _, path := range []string{"cmp", "iter", "maps", "slices"} {
+		if p := lookupStdPackage(path); p == nil || p.Phase != 7 || p.Since != 5 || p.allowed(4) || !p.allowed(5) {
+			t.Errorf("package %s: %+v, want Phase 7 and Since 5", path, p)
+		}
+		if since, ok := SinceOf(pkgMessage(path, 7)); !ok || since != 5 {
+			t.Errorf("SinceOf(%q) = %d, %v, want 5", pkgMessage(path, 7), since, ok)
+		}
+	}
+	if _, ok := SinceOf(pkgMessage("sync", 8)); ok {
+		t.Errorf("SinceOf(package sync) is set: sync has no Since")
 	}
 }
 
@@ -743,6 +769,9 @@ func gateLifted(line string) int {
 		if f.Since != 0 && strings.HasSuffix(line, f.Message()) {
 			return min(p, f.Since)
 		}
+	}
+	if since, ok := SinceOf(line); ok {
+		return min(p, since)
 	}
 	return p
 }

@@ -37,6 +37,7 @@ type P C.Point
 type GoInt int
 type GoS struct{ x int }
 type S struct{ n int }
+type Box[T any] struct{ v T }
 
 func (p P) Len() float64 { return std.sqrt(p.x*p.x + p.y*p.y) }
 

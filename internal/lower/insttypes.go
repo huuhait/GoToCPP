@@ -145,22 +145,8 @@ func (g *gen) instOf(n *types.Named, pos token.Pos) *instType {
 	}
 	gt := owner.genericTypes[origin.Obj()]
 	if gt == nil {
-		if owner.pkg.Load.Std {
-			g.notYet(pos, fmt.Sprintf("%s.%s is not available yet (Phase 07)", origin.Obj().Pkg().Name(), origin.Obj().Name()))
-		} else {
-			g.errorf(pos, "internal error: no declaration of the generic type %s", origin.Obj().Name())
-		}
+		g.errorf(pos, "internal error: no declaration of the generic type %s", origin.Obj().Name())
 		return nil
-	}
-	if owner.pkg.Load.Std {
-		for _, m := range gt.methods {
-			if isStubBody(m.decl.Body) {
-				// A standard package's declaration stub (its methods are panic("stub")): until the
-				// package is ported, the user's use is the error.
-				g.notYet(pos, fmt.Sprintf("%s.%s is not available yet (Phase 07)", origin.Obj().Pkg().Name(), origin.Obj().Name()))
-				return nil
-			}
-		}
 	}
 	for a := range n.TypeArgs().Types() {
 		if g.hasCxxNamed(a) {

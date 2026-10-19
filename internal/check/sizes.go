@@ -281,20 +281,34 @@ func (s gocppSizes) structLayout(st *types.Struct) layout {
 	if n == 0 {
 		return layout{1, 1}
 	}
-	fields := make([]*types.Var, n)
+	// One pass, and the layout of each field once: asking for it again (for the alignment, for the
+	// offsets and for the last field) made a chain of structs, each holding the next by value, cost
+	// 3^depth (a type nested 12 deep took minutes to lower).
 	align := int64(1)
+	var off, lastOff int64 // the next offset (-1: overflow), and the offset of the last field
+	var last layout
 	for i := range n {
-		fields[i] = st.Field(i)
-		if a := s.layoutOf(fields[i].Type()).align; a > align {
-			align = a
+		l := s.layoutOf(st.Field(i).Type())
+		if l.align > align {
+			align = l.align
 		}
+		if off < 0 {
+			lastOff = -1
+		} else {
+			off = alignUp(off, l.align)
+			lastOff = off
+			if l.size < 0 || off > math.MaxInt64-l.size {
+				off = -1
+			} else {
+				off += l.size
+			}
+		}
+		last = l
 	}
-	last := s.layoutOf(fields[n-1].Type()).size
-	off := s.Offsetsof(fields)[n-1]
-	if off < 0 || last < 0 || off > math.MaxInt64-last-(align-1) {
+	if lastOff < 0 || last.size < 0 || lastOff > math.MaxInt64-last.size-(align-1) {
 		return layout{-1, align}
 	}
-	return layout{alignUp(off+last, align), align}
+	return layout{alignUp(lastOff+last.size, align), align}
 }
 
 // alignUp rounds x up to a multiple of a, a power of 2. It keeps a negative

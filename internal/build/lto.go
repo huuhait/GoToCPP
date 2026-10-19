@@ -44,8 +44,21 @@ func (b *Builder) compileFlags() []string {
 	if b.LTO {
 		flags = append(flags, LTOFlags(b.CXX)...)
 	}
+	if bigObj(b.CXX) && !b.ltoOn() {
+		flags = append(flags, "-Wa,-mbig-obj")
+	}
 	return flags
 }
+
+// bigObj reports whether the compiles for c need -Wa,-mbig-obj (before LTO is considered). A COFF
+// object holds 32767 sections, and every inline function and variable of a header is a section of
+// its own (-ffunction-sections): the file of a generics-heavy program (a few dozen instances with
+// type switches and descriptors) goes over it, and GNU as stops with "too many sections". The
+// big-object format has no such limit. Only GCC's MinGW needs the flag (LLVM's assembler switches
+// to the format by itself), and it must not be given for LTO: GCC's linker plugin does not claim
+// a big-object file ("plugin needed to handle lto object"), and LTO objects hold GIMPLE, so they
+// don't have the sections.
+func bigObj(c CXX) bool { return c.GOOS == "windows" && c.Family == GCC }
 
 // linkFlags are the flags of the link that come before the object files: Flags, the flags of the
 // target (LinkFlags: a Windows program links statically with an 8 MiB stack), and the flag of LTO

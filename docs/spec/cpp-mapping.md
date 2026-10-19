@@ -2706,7 +2706,11 @@ inline void gp_inst_e0e468d0_Stack::Push(gp::ptr<gp_inst_e0e468d0_Stack> s, int6
   is, whether called or not.
 - **Descriptors.** An instance's descriptor is named with Go's `%T` text: type arguments in full (import
   paths for packages, `main.Point`), a comma without a space, nested instances inside:
-  `main.Pair[string,[]int]`, `*main.Stack[main.Pair[int,map[string]bool]]`. `%v` and `%+v` use the
+  `main.Pair[string,[]int]`, `*main.Stack[main.Pair[int,map[string]bool]]`. A type declared in a function
+  that is a type argument gets gc's number (`main.Box[main.point·1]`): the 1-based place of its declaration
+  among the defined types declared in function bodies of its package, in source order (closures and generic
+  functions included, aliases not; `internal/lower/canon.go: localOrdinal`); outside the brackets it has none.
+  `%v` and `%+v` use the
   field names and values of the instance, a `String()` or `Error()` method is called, and an
   interface that the instance implements has its method table (value set, pointer set) like any struct.
 - **Interfaces.** Generic interface types are instances too (`Getter[int]`: an interface struct with the

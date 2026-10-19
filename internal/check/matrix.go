@@ -66,7 +66,7 @@ string, conversions between number types, the built-in functions
 	pkgs := slices.Clone(stdPackages)
 	slices.SortStableFunc(pkgs, func(a, b stdPackage) int { return cmp.Compare(a.Phase, b.Phase) })
 	for _, p := range pkgs {
-		fmt.Fprintf(&b, "| `%s` | %s | %s |\n", p.Path, phaseText(p.Phase), p.Notes)
+		fmt.Fprintf(&b, "| `%s` | %s | %s |\n", p.Path, packagePhaseText(p), p.Notes)
 	}
 
 	b.WriteString("\n## Parts of packages\n\n" +
@@ -121,6 +121,14 @@ func featurePhaseText(f feature) string {
 		return fmt.Sprintf("%s (works from %s)", phaseText(f.Phase), phaseText(f.Since))
 	}
 	return phaseText(f.Phase)
+}
+
+// packagePhaseText returns the phase of a standard package for the matrix, like featurePhaseText.
+func packagePhaseText(p stdPackage) string {
+	if p.Since != 0 && p.Since < p.Phase {
+		return fmt.Sprintf("%s (works from %s)", phaseText(p.Phase), phaseText(p.Since))
+	}
+	return phaseText(p.Phase)
 }
 
 // phaseText returns the phase for the matrix: "03", or "never".

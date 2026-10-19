@@ -26,9 +26,8 @@ func Gates() []Gate {
 		out = append(out, Gate{Kind: "feature", Subject: f.Name, Message: f.Message(), Phase: f.Phase, Notes: f.Notes})
 	}
 	// The generics gate that gatewalk.go reports for a type defined over weak.Pointer[T].
-	gt := &features[featGenericTypes]
-	out = append(out, Gate{Kind: "feature", Subject: weakDefinedSubject, Message: gateMessage(weakDefinedSubject, false, gt.Phase), Phase: gt.Phase,
-		Notes: "A type declared over the intrinsic, like `type WP weak.Pointer[int]`. `weak.Pointer[T]` itself and aliases of it work from Phase 03."})
+	out = append(out, Gate{Kind: "feature", Subject: weakDefinedSubject, Message: gateMessage(weakDefinedSubject, false, Never), Phase: Never,
+		Notes: "A type declared over the intrinsic, like `type WP weak.Pointer[int]`: `weak.Pointer[T]` is a compiler intrinsic (a runtime class), so use it itself or an alias of it (`type A = weak.Pointer[int]`). Both work from Phase 03."})
 	for i := range stdPackages {
 		p := &stdPackages[i]
 		subject := p.Path

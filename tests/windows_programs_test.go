@@ -325,6 +325,50 @@ func TestWindowsPrograms(t *testing.T) {
 	}
 }
 
+// TestWindowsBuildModes builds for Windows in the two modes that need different flags of GCC's MinGW:
+// `-release` (-O2 -flto: -Wa,-mbig-obj must NOT be given, GCC's linker plugin does not claim a
+// big-object file, "plugin needed to handle lto object") and a debug build of a program with so many
+// generic instances that one object goes over the 32767 sections of the COFF format (it needs
+// -Wa,-mbig-obj, "too many sections"). The release hello also runs.
+func TestWindowsBuildModes(t *testing.T) {
+	if os.Getenv("GOCPP_TEST_TARGET") != "windows" {
+		t.Skip("GOCPP_TEST_TARGET=windows turns it on")
+	}
+	c := setup(t)
+	if why := windowsUnavailable(); why != "" {
+		if os.Getenv("GOCPP_REQUIRE_WINE") == "1" {
+			t.Fatalf("GOCPP_REQUIRE_WINE=1, but the Windows mode can't run: %s", why)
+		}
+		t.Skip(why)
+	}
+	w := winrunner(t)
+	dir := filepath.Join(repoRoot, "tests", "testdata", "windows")
+	t.Run("release hello", func(t *testing.T) {
+		exe := filepath.Join(t.TempDir(), "hello.exe")
+		b := c.run(t, gocppJob(dir, nil, "", 6, "build", "-release", "-os", "windows", "-o", exe, "hello.gp"))
+		if b.problem != "" || b.exit != 0 {
+			t.Fatalf("%s: %s\n%s", b.cmd, b.why(), indent(string(b.stderr)))
+		}
+		w.sem <- struct{}{}
+		defer func() { <-w.sem }()
+		r := w.execute(t, c, dir, exe, nil, nil, "hello.exe", false)
+		if r.problem != "" || r.exit != 0 || string(r.stdout) != "hello, world\n" || len(r.stderr) > 0 {
+			t.Errorf("hello.exe (release): %s, stdout %q, stderr %q", r.why(), r.stdout, r.stderr)
+		}
+	})
+	t.Run("many generic instances", func(t *testing.T) {
+		exe := filepath.Join(t.TempDir(), "typeswitch.exe")
+		runDir := filepath.Join(repoRoot, "tests", "run")
+		b := c.run(t, gocppJob(runDir, nil, "", 9, "build", "-os", "windows", "-o", exe, "generics_typeswitch_param.gp"))
+		if b.problem != "" || b.exit != 0 {
+			t.Fatalf("%s: %s\n%s", b.cmd, b.why(), indent(string(b.stderr)))
+		}
+		if fi, err := os.Stat(exe); err != nil || fi.Size() == 0 {
+			t.Fatalf("the build made no program: %v", err)
+		}
+	})
+}
+
 // realHomeTraces are what Wine leaves in a real home folder when it is not isolated: the prefix,
 // the desktop entries, the menus, the MIME database, the icons, Wine's cache.
 func realHomeTraces(home string) map[string]string {

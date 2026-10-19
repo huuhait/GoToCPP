@@ -50,6 +50,32 @@
 > bytes, up to +43% for programs that embed a lot; `-O0` binaries +0 to 1.4%), and `build`, `run` and `emit` take it. Compile time of 200 instances equals
 > the hand-written code (spec, "Cost").
 
+> **Update 2026-10-20 (steps 7.11 and 7.12):** **7.11 lifts the generics gate** the way the multi-package gate was
+> lifted: the rows "generic functions", "generic types" and "range over functions" and the packages `cmp`,
+> `slices`, `maps` and `iter` carry `Since: 5` (`internal/check/gates.go`), so a program that uses them passes
+> `gocpp check` at the project's phase (`gocpp version` prints `phase 05`; the feature matrix says "07 (works
+> from 05)"). The dead "(Phase 07)" messages of the lowering and their explain entries are gone, and the
+> `generics` example no longer carries `// pending:`. `version.Phase` stays 5 until the other phases are finished.
+> **7.12 tests:** 219 run tests of generic code (45 new) and 76 of range over functions (10 new)
+> (`tests/run/generics_*`, `rangefunc_*`; all compared with real Go by `TestRunVsGo`), among the new ones 18 hash sweeps made by
+> [tools/genericsgen](../../../tools/genericsgen) (every integer, float, complex, string and ordered type through
+> generic functions: wrap-around, division by zero, shifts by counts of every width, all conversions, `min`/`max`,
+> sorting), the four misuse panics of range over functions from generic iterators, late `yield` calls (stack,
+> `defer`, results, nested loops, goroutines; ASan-clean), `%T` / `%v` / `%+v` / `%#v` of instances (nested,
+> pointers, funcs, channels, anonymous structs, local types: `main.Box[main.point·1]`), and 4 new error tests
+> (16 in all) with the messages of gc and go/types. The tests found three bugs, all fixed here: a defined slice type as the type
+> argument of `append(s, t...)` (`~string | ~[]byte`) was an internal panic in the substitution; `%T` of a type
+> declared in a function lacked gc's `·N`; and the layout of structs that hold each other by value cost
+> 3^depth in the checker (a 12-deep chain took minutes). Windows (GCC) needed `-Wa,-mbig-obj` for a program with
+> many instances (not with `-release`: GCC's LTO plugin rejects big-object files). The review of the step found three more: a cross-package
+> instance nested with a function-local type argument got two identities (the local type's tag came from the asking package);
+> `type WP weak.Pointer[T]` and a generic type declared inside a function (Go accepts it; gocpp does not build it) are now clean gate
+> errors ("not supported in gocpp") instead of internal errors. Nine mutants of the lowering and the runtime are all caught. **Compile time** is measured in
+> [docs/guides/generics-compile-time.md](../../../docs/guides/generics-compile-time.md): generic functions cost
+> what the same code written out costs (200 to 2000 instances: 2.9 to 17.4 s of CPU with g++ and 1.4 to 8.4 s
+> with clang++ at `-O0`); generic types cost 30 to 55% more (+33% with g++ and +39% with clang++ in the independent re-measurement of 20 types x 10 instances), because each unit of the package parses the text
+> of every instance.
+
 ---
 
 ## 1. Idea

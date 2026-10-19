@@ -803,3 +803,49 @@ func main() { _, _, _, _ = e8, e9, e10, ok4 }
 		t.Errorf("unsafe.Offsetof(mc.b) in an opaque argument is %v, want 8", got)
 	}
 }
+
+// TestSizesNestedStructs: a chain of structs that each hold the next by value has a layout that is
+// computed once for each level. The layout of a struct used to ask for the layout of each field
+// three times, so the cost was 3^depth: a chain 12 deep took minutes to lower. With depth 40 the
+// old code never finishes (the test would end with the timeout of go test); this one is instant.
+func TestSizesNestedStructs(t *testing.T) {
+	const depth = 40
+	var src strings.Builder
+	src.WriteString("package p\n\nimport \"unsafe\"\n\n")
+	for i := range depth {
+		if i+1 < depth {
+			fmt.Fprintf(&src, "type S%d struct {\n\tv byte\n\tin S%d\n\tw int16\n}\n\n", i, i+1)
+		} else {
+			fmt.Fprintf(&src, "type S%d struct{ v int32 }\n\n", i)
+		}
+	}
+	src.WriteString("const Size = unsafe.Sizeof(S0{})\nconst Align = unsafe.Alignof(S0{})\n")
+	pkg := checkSizesSrc(t, "nested.go", src.String(), &sizesImporter{t: t}, nil)
+	// S39 is 4 bytes (align 4); each level adds v at 0, `in` at its alignment, w after it and pads
+	// to the alignment: the first level where `in` is 4-aligned gives 4+4... compute by hand below.
+	size, align := int64(4), int64(4)
+	for range depth - 1 {
+		off := alignUp(1, align)
+		off += size
+		size = alignUp(alignUp(off, 2)+2, align)
+	}
+	if got := constInt(t, pkg, "Size"); got != size {
+		t.Errorf("Sizeof(S0) = %d, want %d", got, size)
+	}
+	if got := constInt(t, pkg, "Align"); got != align {
+		t.Errorf("Alignof(S0) = %d, want %d", got, align)
+	}
+}
+
+func constInt(t *testing.T, pkg *types.Package, name string) int64 {
+	t.Helper()
+	c, ok := pkg.Scope().Lookup(name).(*types.Const)
+	if !ok {
+		t.Fatalf("no constant %s", name)
+	}
+	v, ok := constant.Int64Val(c.Val())
+	if !ok {
+		t.Fatalf("constant %s is not an int64: %v", name, c.Val())
+	}
+	return v
+}

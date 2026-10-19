@@ -101,9 +101,7 @@ func (fg *funcGen) sliceBuiltin(c *ast.CallExpr, name string) cppir.Expr {
 	if !isSlice(t) {
 		what := map[string]string{"make": "make of ", "append": "append to ", "copy": "copy to ", "clear": "clear of "}[name]
 		phase := ""
-		if _, ok := types.Unalias(t).(*types.TypeParam); ok {
-			phase = " (Phase 07)"
-		} else if _, ok := under(t).(*types.Chan); ok {
+		if _, ok := under(t).(*types.Chan); ok {
 			phase = " (Phase 08)"
 		}
 		fg.g.unsupported(c.Pos(), what+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))+phase)

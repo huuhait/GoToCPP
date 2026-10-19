@@ -269,11 +269,13 @@ func (g *gateChecker) checkImports(f *load.File) {
 			g.node(featMultiPackage, spec.Path)
 			continue
 		}
-		phase := otherStdPhase
+		phase, ok := otherStdPhase, false
 		if row := lookupStdPackage(path); row != nil {
-			phase = row.Phase
+			phase, ok = row.Phase, row.allowed(g.phase)
+		} else {
+			ok = phase <= g.phase
 		}
-		if phase > g.phase {
+		if !ok {
 			g.report(spec.Path.Pos(), spec.Path.End(), pkgMessage(path, phase), phase)
 		}
 	}
@@ -345,6 +347,9 @@ func (g *gateChecker) visit(n ast.Node) bool {
 		if n.TypeParams != nil {
 			g.node(featGenericTypes, n.TypeParams)
 			g.typeParams = append(g.typeParams, n.TypeParams)
+			if obj, ok := g.info.Defs[n.Name].(*types.TypeName); ok && obj.Pkg() != nil && obj.Parent() != nil && obj.Parent() != obj.Pkg().Scope() {
+				g.node(featLocalGenericTypes, n.Name)
+			}
 		}
 	case *ast.FuncType:
 		if n.TypeParams != nil {
@@ -814,9 +819,9 @@ func (g *gateChecker) checkTypes() {
 			g.typeUses(obj.Type(), id.Pos(), id.End(), &typeWalk{seen: make(map[types.Type]bool)})
 		case *types.TypeName:
 			// type WP weak.Pointer[T]: the intrinsic (weak.Pointer[T] itself and its aliases)
-			// is a runtime class; a type defined over it waits for the generics.
-			if f := &features[featGenericTypes]; !obj.IsAlias() && weakDefined(obj.Type()) && !f.allowed(g.phase) {
-				g.report(id.Pos(), id.End(), gateMessage(weakDefinedSubject, false, f.Phase), f.Phase)
+			// is a runtime class (gp::weak_ptr): a type defined over it is an error at every phase.
+			if !obj.IsAlias() && weakDefined(obj.Type()) {
+				g.report(id.Pos(), id.End(), gateMessage(weakDefinedSubject, false, Never), Never)
 			}
 		}
 	}

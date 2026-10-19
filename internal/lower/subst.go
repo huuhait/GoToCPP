@@ -113,6 +113,22 @@ func (s *subster) typ(t types.Type) types.Type {
 	case *types.Signature:
 		params, results := s.tuple(t.Params()), s.tuple(t.Results())
 		if params != t.Params() || results != t.Results() {
+			if t.Variadic() && params.Len() > 0 {
+				// go/types wants the variadic parameter of an unnamed slice (or a string): the
+				// signature of append(s, t...) has T there, and the type argument may be a defined
+				// type (type Raw []byte).
+				last := params.At(params.Len() - 1)
+				if _, ok := last.Type().(*types.Slice); !ok {
+					if u, ok := last.Type().Underlying().(*types.Slice); ok {
+						vars := make([]*types.Var, params.Len())
+						for i := range vars {
+							vars[i] = params.At(i)
+						}
+						vars[len(vars)-1] = types.NewParam(last.Pos(), last.Pkg(), last.Name(), u)
+						params = types.NewTuple(vars...)
+					}
+				}
+			}
 			return types.NewSignatureType(nil, nil, nil, params, results, t.Variadic())
 		}
 	case *types.Tuple:

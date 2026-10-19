@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"go/ast"
 	"go/token"
 	"go/types"
 	"sort"
@@ -34,11 +35,57 @@ type canon struct {
 	// inArgs: the type is a type argument of a generic type's instance, which Go's %T writes with
 	// the import paths of the packages: main.Stack[net/url.URL].
 	inArgs bool
+	// ordinal returns Go's number of a type declared in a function (0 for any other): gc writes
+	// main.Box[main.point·1] for a type argument that is local to a function (localOrdinal).
+	ordinal func(*types.TypeName) int
 }
 
 // canonName returns the name of t as Go's %T prints it.
 func (g *gen) canonName(t types.Type) string {
-	return (&canon{}).str(t)
+	return (&canon{ordinal: g.localOrdinal}).str(t)
+}
+
+// localOrdinal returns the number that Go's %T appends to a type declared in a function when it is a
+// type argument (main.Box[main.point·1]): the 1-based place of its declaration among the defined
+// types declared in function bodies of its package, in source order (files in the order of the
+// package, closures and generic functions included, aliases not counted). 0 for a package-level
+// type and for what the lowering does not know.
+func (g *gen) localOrdinal(tn *types.TypeName) int {
+	if tn.Pkg() == nil || tn.Pos() == token.NoPos {
+		return 0
+	}
+	o := g.other(tn.Pkg())
+	if o == nil {
+		return 0
+	}
+	if o.localOrdinals == nil {
+		o.localOrdinals = make(map[token.Pos]int)
+		n := 0
+		count := func(root ast.Node) {
+			ast.Inspect(root, func(x ast.Node) bool {
+				if ts, ok := x.(*ast.TypeSpec); ok && ts.Assign == token.NoPos {
+					n++
+					o.localOrdinals[ts.Name.Pos()] = n
+				}
+				return true
+			})
+		}
+		for _, f := range o.pkg.Load.Files {
+			for _, d := range f.AST.Decls {
+				switch d := d.(type) {
+				case *ast.FuncDecl:
+					if d.Body != nil {
+						count(d.Body)
+					}
+				case *ast.GenDecl:
+					if d.Tok == token.VAR { // a function literal in an initializer
+						count(d)
+					}
+				}
+			}
+		}
+	}
+	return o.localOrdinals[tn.Pos()]
 }
 
 // canonText returns the identity text of t (a method's signature, for the itabs).
@@ -55,6 +102,12 @@ func (g *gen) localTag(tn *types.TypeName) string {
 	}
 	if tn.Pkg() == nil || tn.Parent() == nil || tn.Parent() == tn.Pkg().Scope() || tn.Parent() == types.Universe {
 		return ""
+	}
+	// The tag belongs to the package that declares the type: an instance of another package's generic
+	// type (a.Box[a.Box[L]]) is made by that package, which must give L the tag that the declaring
+	// package gives it, or one type gets two identities and two structs.
+	if o := g.other(tn.Pkg()); o != nil && o != g {
+		return o.localTag(tn)
 	}
 	if n, ok := g.tdecls().local[tn]; ok {
 		return n
@@ -157,6 +210,11 @@ func (c *canon) str(t types.Type) string {
 				args[i] = in.str(targs.At(i))
 			}
 			s += "[" + strings.Join(args, ",") + "]"
+		}
+		if c.inArgs && !c.ident && c.ordinal != nil {
+			if n := c.ordinal(obj); n > 0 {
+				s += "·" + strconv.Itoa(n)
+			}
 		}
 		if c.ident && c.local != nil {
 			if tag := c.local(obj); tag != "" {

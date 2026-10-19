@@ -670,14 +670,10 @@ func (fg *funcGen) convertValue(c *ast.CallExpr, to, from types.Type, x cppir.Ex
 }
 
 // notLowered reports what of the type t (index expressions on, len of) lowering doesn't write:
-// "not supported yet" with the phase that brings it, for a type parameter (Phase 07) or a
-// channel (Phase 08); for any other type, which go/types rejects there, an internal error.
+// "not supported yet" with the phase that brings it, for a channel (Phase 08); for any other
+// type, which go/types rejects there (a type parameter is the type argument in the instance), an internal error.
 func (g *gen) notLowered(pos token.Pos, what string, t types.Type) {
 	ts := types.TypeString(t, types.RelativeTo(g.pkg.Types))
-	if _, ok := types.Unalias(t).(*types.TypeParam); ok {
-		g.unsupported(pos, what+" "+ts+" (Phase 07)")
-		return
-	}
 	if _, ok := under(t).(*types.Chan); ok {
 		g.unsupported(pos, what+" "+ts+" (Phase 08)")
 		return

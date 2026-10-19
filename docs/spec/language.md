@@ -8,7 +8,7 @@ Everything this document doesn't mention works as the Go spec says.
 
 | | |
 |---|---|
-| Status | Written in Phase 00 from the plan; each phase updates it when it builds a feature. The features of Phases 00 to 05 are built and their gates are lifted (`gocpp version` prints `phase 05`): the core language, C/C++ interop, interfaces, embedding, `error`, `panic` and `recover`, `fmt` on any value, and programs of several packages. Goroutines and channels exist but stay gated until Phase 08 is finished (`select`, `sync` and `time` are missing); generics are Phase 07 |
+| Status | Written in Phase 00 from the plan; each phase updates it when it builds a feature. The features of Phases 00 to 05 are built and their gates are lifted (`gocpp version` prints `phase 05`): the core language, C/C++ interop, interfaces, embedding, `error`, `panic` and `recover`, `fmt` on any value, and programs of several packages. **Generics (Phase 07) are built and open from Phase 05 on** ([Generics and range over functions](#generics-and-range-over-functions)): generic functions, types and aliases, constraints, `comparable`, range over functions, and Go's own `cmp`, `slices`, `maps` and `iter`. Goroutines and channels exist but stay gated until Phase 08 is finished (`select`, `sync` and `time` are missing) |
 | Source | [Phase 00 §2.2](../../plans/2026-10-13-gocpp/phase-00-foundations/README.md#22-the-language-as-a-diff-against-go) (the divergence list D1–D21; D22 from the Phase 02 evaluation-order work, D23 from Phase 03 steps 3.5 and 3.7, D24 from step 3.6, D25 from step 3.15, D26 from Phase 04 step 4.12, D27 from step 4.11, D28 from Phase 05 step 5.10) and the phase READMEs linked in each section |
 | See also | [cpp-mapping.md](cpp-mapping.md) (what the C++ output looks like), [interop.md](interop.md) (using C and C++), [feature-matrix.md](feature-matrix.md) (the phase of each feature) |
 
@@ -885,6 +885,91 @@ func main() {
   "Defer"). Programs that depend on the inliner's result print something else; the tests avoid
   those shapes (`tests/diff/recover_*`).
 - **Phase:** [05](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md#27-panic--recover--defer-full-version).
+
+## Generics and range over functions
+
+```go
+type Number interface{ ~int | ~int8 | ~float64 }
+
+func Sum[T Number](xs ...T) (s T) {
+	for _, x := range xs {
+		s += x
+	}
+	return
+}
+
+type Stack[T any] struct{ items []T }
+
+func (s *Stack[T]) Push(v T) { s.items = append(s.items, v) }
+
+func Count(n int) iter.Seq[int] {
+	return func(yield func(int) bool) {
+		for i := range n {
+			if !yield(i) {
+				return
+			}
+		}
+	}
+}
+
+func main() {
+	fmt.Println(Sum[int8](100, 27, 1)) // -128: the sum wraps at the width of the type argument
+	var st Stack[string]
+	st.Push("a")
+	fmt.Printf("%T\n", st) // main.Stack[string]
+	for x := range Count(10) {
+		if x == 3 {
+			break
+		}
+	}
+}
+```
+
+Generics follow the Go spec (go1.25, with generic type aliases) and the type checker of Go
+(`go/types`) checks them: the constraints, the type sets, `comparable` (every interface satisfies it,
+and `==` on an uncomparable dynamic type panics), inference, and the messages of the errors. What
+gocpp adds is only how the code is compiled, so the programs behave as the same code written with the
+type arguments does ([ADR-030](../adr/030-generic-instances.md), [cpp-mapping.md](cpp-mapping.md#generics-steps-71-to-73)):
+
+- Each instance (a function or a type with its list of type arguments) is **ordinary C++ written with
+  those types**, not a C++ template. `int8(100) + int8(50)` wraps to `-106` inside `Sum[int8]`, `a / b`
+  panics with `integer divide by zero` for integers and gives `±Inf` for floats, `any(x)`, `x.(T)`,
+  `case T:` and `%T` see the type argument, and `int` and `int64` stay two types.
+- `%T`, `%v`, `%+v` and `%#v` of an instance print what Go prints: `main.Pair[string,[]int]`,
+  `*main.Stack[net/url.URL]`, `main.Box[main.point·1]` for a type declared in a function (the number
+  counts such types in the package, as gc does), `main.loc[int]` for a type declared in a generic function.
+- **Range over functions** (`for x := range f`, Go 1.23) is Go's own rewrite: the loop body becomes the
+  `yield` function, `break`, `continue`, `return`, labels and `goto` work across any number of nested loops,
+  a `defer` in the body belongs to the function with the loop, and an iterator that misuses `yield` gets
+  Go's four panics (`range function continued iteration after function for loop body returned false`,
+  `... after whole loop exit`, `... after loop body panic`, and `range function recovered a loop body panic
+  and did not resume panicking`). A `yield` that is kept and called after the loop is over panics before it
+  touches anything (no dangling reads of the finished frame). `iter.Pull` and `iter.Pull2` run the iterator on
+  a goroutine of its own ([D7](#d7-goroutines-are-os-threads)): a switch costs about a microsecond.
+- `cmp`, `slices`, `maps` and `iter` are Go's own packages ([ADR-078](../adr/078-cmp-slices-maps-iter-ports-and-pull-coroutines.md)).
+
+**Differences.** None of them is a new divergence of the list above; they are consequences of D4, D14,
+D19 and D7, and of the stage of the interop:
+
+| What | Go | gocpp |
+|---|---|---|
+| A C or C++ type as a type argument of a **function** (`Max[std.string]`, `Id(v)` with a `std::vector`) | not applicable ([D14](#d14-cc-values-follow-c-rules)) | allowed: the argument is spelled in the instance, or the C++ compiler deduces it. `go/types` cannot check the constraint, so the C++ compiler does, and its errors are the user's |
+| A C or C++ type as a type argument of a generic **type** (`Box[std.string]`, `iter.Seq[std.string]`) | not applicable | an error that says so; the fields, descriptor and equality of an instance are made from Go types (typed interop, Phase 12) |
+| A generic function of another package whose body uses C/C++ names, instantiated by an importer | not applicable | an error at the call (`it can only be instantiated in its own package`, Phase 12) |
+| A constant as a type argument ([D4](#d4-constants-as-type-arguments)) | not allowed | allowed for C++ templates only; for generic Go code it is still an error |
+| A type parameter named `C` ([D19](#d19-c-is-a-reserved-name)) | fine | fine for a type parameter (it shadows the pseudo-package in its scope); an error for every other declaration |
+| Stack traces | `main.f-range1` for a loop body | the body (a generated helper) is left out; a func literal in it is `main.f.func1` |
+| The same instance in many files | one copy | one copy for each translation unit that asks for it (not shared between units); a change to a generic function recompiles its users |
+
+Where gc and the Go spec differ, gocpp follows the **spec** and notes it: a method value `x.M` with a
+pointer type argument copies `*x` when it is evaluated; a `defer` in a loop body inside a func literal that
+gc inlines runs when the literal returns; calling a value method through a nil pointer in generic code
+panics with the nil dereference text where gc says `value method main.Base.String called using nil *Base pointer`.
+
+Source: [Phase 07](../../plans/2026-10-13-gocpp/phase-07-generics/README.md),
+[ADR-030](../adr/030-generic-instances.md), [ADR-033](../adr/033-range-over-func.md),
+[cpp-mapping.md](cpp-mapping.md#generics-steps-71-to-73). Compile time:
+[the guide](../guides/generics-compile-time.md).
 
 ---
 

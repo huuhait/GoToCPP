@@ -684,15 +684,8 @@ func (fg *funcGen) bindVars(tok token.Token, vars []rangeVar, isMap bool, it cpp
 
 // rangeKind names what a range over a value of type t is, for "not supported yet".
 func rangeKind(t types.Type) string {
-	switch types.Unalias(t).Underlying().(type) {
-	case *types.Signature:
-		return "range over functions (Phase 07)"
-	}
 	if hasC(t) {
 		return "range over C/C++ values of this kind"
-	}
-	if _, ok := types.Unalias(t).(*types.TypeParam); ok {
-		return "range over type parameters (Phase 07)"
 	}
 	return "range over " + types.TypeString(t, nil)
 }

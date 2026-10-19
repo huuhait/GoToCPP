@@ -47,10 +47,6 @@ type genericFunc struct {
 
 	snap *genSnap // the type information of the declaration, as go/types recorded it
 
-	// stub says that the function is a declaration stub of the standard library, whose body is
-	// panic("stub") until step 7.10 ports the package: it cannot be instantiated.
-	stub bool
-
 	// cxx is 0 before usesCxx looked at the body, 1 if the body uses C/C++ names or values, else 2.
 	cxx int
 
@@ -176,7 +172,7 @@ func (g *gen) collectGeneric(d *ast.FuncDecl) {
 		g.generics = make(map[*types.Func]*genericFunc)
 	}
 	g.privateInfoOnce()
-	gf := &genericFunc{fn: fn, decl: d, owner: g, stub: g.pkg.Load.Std && isStubBody(d.Body)}
+	gf := &genericFunc{fn: fn, decl: d, owner: g}
 	params := fn.Signature().Params()
 	for i := range params.Len() {
 		if _, ok := callableParam(params.At(i).Type()); ok {
@@ -187,25 +183,6 @@ func (g *gen) collectGeneric(d *ast.FuncDecl) {
 		}
 	}
 	g.generics[fn] = gf
-}
-
-// isStubBody reports whether body is { panic("stub") }, the body of the standard library's
-// declaration stubs (tools/stubgen).
-func isStubBody(body *ast.BlockStmt) bool {
-	if len(body.List) != 1 {
-		return false
-	}
-	es, ok := body.List[0].(*ast.ExprStmt)
-	if !ok {
-		return false
-	}
-	c, ok := es.X.(*ast.CallExpr)
-	if !ok || len(c.Args) != 1 {
-		return false
-	}
-	f, ok := c.Fun.(*ast.Ident)
-	lit, ok2 := c.Args[0].(*ast.BasicLit)
-	return ok && ok2 && f.Name == "panic" && lit.Value == `"stub"`
 }
 
 // privateInfo gives the package maps of its own: an instance replaces the entries of the nodes of
@@ -433,10 +410,6 @@ func (fg *funcGen) instRef(e ast.Expr) *instRef {
 	gf := owner.generics[fn.Origin()]
 	if gf == nil {
 		g.errorf(e.Pos(), "internal error: no generic function %s", fn.Name())
-		return &instRef{fn: fn}
-	}
-	if gf.stub {
-		g.notYet(e.Pos(), fmt.Sprintf("%s.%s is not available yet (Phase 07)", fn.Pkg().Name(), fn.Name()))
 		return &instRef{fn: fn}
 	}
 	if gf.owner != g && gf.usesCxx() {

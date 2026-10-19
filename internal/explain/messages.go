@@ -168,7 +168,7 @@ var gateTopics = map[string]string{
 	"type assertions": "interfaces", "type switches": "interfaces", "struct embedding": "embedding",
 	"panic with a value of a non-basic type": "panics", "generic functions": "generics", "generic types": "generics",
 	"range over functions": "range", "go statements": "goroutines", "channels": "channels",
-	"select statements": "select", "a type defined as weak.Pointer[T]": "generics", "promoted fields and methods of several embedded C/C++ types": "embedding",
+	"select statements": "select", "a type defined as weak.Pointer[T]": "generics", "generic types declared inside functions": "generics", "promoted fields and methods of several embedded C/C++ types": "embedding",
 }
 
 // describeGate writes the explanation of a gate from its table row.
@@ -249,14 +249,6 @@ var curated = []Message{
 		Title:   "A generic type of a package that is not lowered",
 		Why:     "An instance of a generic type is made by the package that declares the type. This package is not one the program lowers (a standard package that is not ported).",
 		Fix:     "Wait for the package, or declare the type yourself.",
-		Topic:   "generics",
-	},
-	{
-		ID: "lower/std-generics", Source: "lowering", Phase: 7,
-		Pattern: "%s.%s is not available yet (Phase 07)",
-		Title:   "A generic function of the standard library",
-		Why:     "Functions such as slices.Contains, maps.Keys and cmp.Compare are generic. The standard library of gocpp gets them in Phase 07, with the generic functions of the program.",
-		Fix:     "Write the loop yourself, or wait for Phase 07.",
 		Topic:   "generics",
 	},
 	{
@@ -880,14 +872,6 @@ var curated = []Message{
 		Topic:   "interop",
 	},
 	{
-		Fallback: true, ID: "lower/phase-07", Source: "lowering", Phase: 7,
-		Pattern: "%s (Phase 07)",
-		Title:   "A construct that Phase 07 builds",
-		Why:     "The checker lets a few generic constructs through (a type parameter that is only passed on), and the lowering stops where the instance would need something that comes in Phase 07: constraint interfaces, range over functions, instantiations of types.",
-		Fix:     "Use a plain type, or wait for Phase 07.",
-		Topic:   "generics",
-	},
-	{
 		Fallback: true, ID: "lower/phase-08", Source: "lowering", Phase: 8,
 		Pattern: "%s (Phase 08)",
 		Title:   "A construct that Phase 08 builds",
@@ -925,38 +909,6 @@ var curated = []Message{
 		Why:     "The name C belongs to the built-in C package.",
 		Fix:     "Import the package under another name.",
 		Spec:    "interop.md",
-	},
-	{
-		ID: "lower/range-func", Source: "lowering", Phase: 7,
-		Text:  "range over functions (Phase 07)",
-		Title: "Range over a function",
-		Why:   "for x := range seq, where seq is an iterator func, is built in a later step of Phase 07 (range-over-func rewrites the loop body into a function).",
-		Fix:   "Call the iterator with a func literal that holds the loop body: seq(func(x T) bool { ...; return true }).",
-		Topic: "range",
-	},
-	{
-		ID: "lower/range-typeparam", Source: "lowering", Phase: 7,
-		Text:  "range over type parameters (Phase 07)",
-		Title: "Range over a value of a type parameter",
-		Why:   "A range over a value whose type is a type parameter is lowered in the instance, where the type argument is known. Generic bodies are not lowered as such yet.",
-		Fix:   "Range over a slice or map type that you name, and instantiate the function with it.",
-		Topic: "generics",
-	},
-	{
-		ID: "lower/constraint-iface", Source: "lowering", Phase: 7,
-		Text:  "constraint interfaces (Phase 07)",
-		Title: "Constraint interfaces",
-		Why:   "An interface with type sets (~int | ~string) is a constraint, not a type of values. Constraints are checked by the type checker; the lowering does not write them as C++ types.",
-		Fix:   "Use the constraint only as the bound of a type parameter, not as the type of a variable.",
-		Topic: "generics",
-	},
-	{
-		ID: "lower/instantiation", Source: "lowering", Phase: 7,
-		Text:  "instantiations (Phase 07)",
-		Title: "An explicit instantiation of a generic type",
-		Why:   "F[int] and T[int] as expressions: functions are instantiated by the lowering where they are called, and generic types come in a later step of Phase 07.",
-		Fix:   "Call the generic function and let the arguments give the type arguments.",
-		Topic: "generics",
 	},
 	{
 		ID: "lower/cpp-eq-switch", Source: "lowering", Phase: 12,

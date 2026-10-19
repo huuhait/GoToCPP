@@ -325,7 +325,7 @@ What a target changes:
 | | host | windows/amd64 | linux/arm64 (best effort) |
 |---|---|---|---|
 | compiler | `GOCPP_CXX`, `CXX`, clang++, g++ | `GOCPP_CXX`, else by `GOCPP_TOOLCHAIN`: `x86_64-w64-mingw32-clang++` or `-g++` in PATH, else the pinned llvm-mingw | `GOCPP_CXX`, else `aarch64-linux-gnu-g++` |
-| compile flags | common | common, `-D_WIN32_WINNT=0x0A00` (Windows 10 API) | common, and `--target=aarch64-linux-gnu` for a clang that does not name its target |
+| compile flags | common | common, `-D_WIN32_WINNT=0x0A00` (Windows 10 API), and `-Wa,-mbig-obj` for GCC (a COFF object holds 32767 sections, which a program with many generic instances goes over) | common, and `--target=aarch64-linux-gnu` for a clang that does not name its target |
 | link flags | common | `-static`, `-Wl,--stack,8388608` (the main thread has Linux's 8 MiB), `-pthread` for GCC (needed with a posix thread model, harmless with the mcf model of the dev shell's MinGW; 14.1's `.drectve` asks for the same 8 MiB stack, the two agree and survive `--gc-sections`: `TestWindowsDriverFlags`) | common |
 | program name | `name` | `name.exe` | `name` |
 | build constraints | the host's | `windows`, `amd64`, `_windows.go` | `linux`, `arm64`, `unix` |

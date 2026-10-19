@@ -62,7 +62,7 @@ const (
 	diffLine                            // // diff: stderr, // diff: combined
 	lsanLine                            // // lsan: cycle
 	divergenceLine                      // // divergence: D1
-	pendingLine                         // // pending: step 7.1 (generics)
+	pendingLine                         // // pending: reason (a test of a later phase that cannot pass yet)
 	stdInternalLine                     // // std-internal: tests internal/bytealg
 	goBuildLine                         // //go:build expr
 )

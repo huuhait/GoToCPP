@@ -7,8 +7,8 @@ import (
 )
 
 // TestGenericsEmit checks gocpp emit on programs with generic functions, with the gates open to
-// Phase 07 (generic functions, generic types and the types declared in generic functions are built;
-// the stubs of the standard packages that are not ported are user errors).
+// Phase 07 (generic functions, generic types, the types declared in generic functions and the ported
+// packages cmp and slices).
 func TestGenericsEmit(t *testing.T) {
 	t.Setenv(gatePhaseEnv, "07")
 	tests := []struct {
@@ -18,10 +18,10 @@ func TestGenericsEmit(t *testing.T) {
 	}{
 		{"function", "package main\n\nfunc Id[T any](x T) T { return x }\n\nfunc main() { println(Id(1), Id(\"s\")) }\n", 0,
 			[]string{"gp_inst_", "_Id(int64_t x)", "_Id(gp::string x)", "// Id[int]", "// Id[string]"}},
-		{"stub", "package main\n\nimport \"cmp\"\n\nfunc main() { println(cmp.Compare(1, 2)) }\n", 1,
-			[]string{"main.go:5:23: cmp.Compare is not available yet (Phase 07)"}},
-		{"stub slices", "package main\n\nimport \"slices\"\n\nfunc main() { println(slices.Contains([]int{1}, 1)) }\n", 1,
-			[]string{"main.go:5:23: slices.Contains is not available yet (Phase 07)"}},
+		{"cmp", "package main\n\nimport \"cmp\"\n\nfunc main() { println(cmp.Compare(1, 2)) }\n", 0,
+			[]string{"gp_inst_", "_Compare(int64_t x, int64_t y)"}},
+		{"slices", "package main\n\nimport \"slices\"\n\nfunc main() { println(slices.Contains([]int{1}, 1)) }\n", 0,
+			[]string{"gp_inst_", "_Contains("}},
 		{"type", "package main\n\ntype Box[T any] struct{ v T }\n\nfunc main() { var b Box[int]; println(b.v) }\n", 0,
 			[]string{"gp_inst_", "_Box", `"main.Box[int]"`}},
 		{"local type", "package main\n\nfunc F[T any](v T) any {\n\ttype box struct{ v T }\n\treturn box{v}\n}\n\nfunc main() { println(F(1) != nil) }\n", 0,

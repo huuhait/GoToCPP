@@ -105,7 +105,7 @@ func TestExplainList(t *testing.T) {
 		t.Fatalf("-list -json: %v %d\n%s", err, len(items), j.stdout)
 	}
 	m := gocppRun("", false, "explain", "-list", "-messages")
-	if m.code != 0 || !strings.Contains(m.stdout, "interfaces are not supported yet (Phase 05)\n") || !strings.Contains(m.stdout, "%s.%s is not available yet (Phase 07)\n") {
+	if m.code != 0 || !strings.Contains(m.stdout, "interfaces are not supported yet (Phase 05)\n") || !strings.Contains(m.stdout, "%s.%s uses C/C++ names, so it can only be instantiated in its own package (Phase 12)\n") {
 		t.Errorf("-list -messages:\n%s", m.stdout)
 	}
 	mj := gocppRun("", false, "explain", "-list", "-messages", "-json")

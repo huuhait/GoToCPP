@@ -188,7 +188,7 @@ func (g *gen) ifaceOf(t types.Type, pos token.Pos) *ifaceInfo {
 		return nil
 	case *types.Interface:
 		if !u.IsMethodSet() {
-			g.unsupported(pos, "constraint interfaces (Phase 07)")
+			g.errorf(pos, "internal error: the constraint interface %s is used as a type (go/types rejects it)", g.canonName(u))
 			return nil
 		}
 		key := g.canonText(u)

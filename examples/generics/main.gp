@@ -1,5 +1,4 @@
 // phase: 07
-// pending: step 7.1 (generic functions) and the rest of Phase 07
 
 // Generics shows generic functions (Map, Filter, Reduce), constraints with
 // type sets, a generic type (Stack[T]) with methods, a generic type alias,

@@ -239,3 +239,29 @@ func TestToolchainConfigDownloadOnlyForABuild(t *testing.T) {
 		t.Error("ToolchainConfig accepted GOCPP_TOOLCHAIN=never")
 	}
 }
+
+// TestBigObjFlag: MinGW's GCC gets -Wa,-mbig-obj (a COFF object holds 32767 sections, which a program
+// with many generic instances goes over), but not when the objects are LTO objects (-lto, or -flto from
+// -release or the environment): GCC's linker plugin does not claim a big-object file, and
+// `gocpp build -release -os windows` stopped at the link with "plugin needed to handle lto object".
+func TestBigObjFlag(t *testing.T) {
+	win := CXX{Family: GCC, Path: "/bin/x86_64-w64-mingw32-g++", GOOS: "windows", GOARCH: "amd64"}
+	cases := []struct {
+		name string
+		b    *Builder
+		want bool
+	}{
+		{"mingw g++", &Builder{CXX: win}, true},
+		{"mingw g++ -lto", &Builder{CXX: win, LTO: true}, false},
+		{"mingw g++ -release", &Builder{CXX: win, Env: EnvFlags{}.Layered([]string{"-O2", "-flto"}, []string{"-O2", "-flto"}, nil, nil, nil)}, false},
+		{"mingw g++ GOCPP_CXXFLAGS=-flto", &Builder{CXX: win, Env: EnvFlags{CXXFlags: []string{"-flto=auto"}}}, false},
+		{"mingw clang++", &Builder{CXX: CXX{Family: Clang, Path: "/bin/x86_64-w64-mingw32-clang++", GOOS: "windows", GOARCH: "amd64"}}, false},
+		{"host g++", &Builder{CXX: CXX{Family: GCC, Path: "/bin/g++"}}, false},
+	}
+	for _, c := range cases {
+		got := slices.Contains(c.b.compileFlags(), "-Wa,-mbig-obj")
+		if got != c.want {
+			t.Errorf("%s: -Wa,-mbig-obj in the compile flags = %v, want %v", c.name, got, c.want)
+		}
+	}
+}

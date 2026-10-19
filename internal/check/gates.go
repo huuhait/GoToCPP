@@ -102,6 +102,7 @@ const (
 	featGenerics // generic functions (step 7.1, 7.2)
 	featGenericTypes
 	featRangeFunc
+	featLocalGenericTypes
 
 	// Phase 08.
 	featGo
@@ -182,6 +183,11 @@ func SinceOf(msg string) (since int, ok bool) {
 			return f.Since, true
 		}
 	}
+	for i := range stdPackages {
+		if p := &stdPackages[i]; p.Since != 0 && strings.HasSuffix(msg, p.message(p.Path)) {
+			return p.Since, true
+		}
+	}
 	return 0, false
 }
 
@@ -233,7 +239,7 @@ var features = [numFeatures]feature{
 		Notes:  "Named types: `type Celsius float64`, `type Point struct{...}`."},
 	{id: featTypeAliases, Name: "type aliases", Plural: true, Phase: 3,
 		Detect: "a type spec with =",
-		Notes:  "`type A = B`. A generic alias comes in Phase 07."},
+		Notes:  "`type A = B`. A generic alias (Go 1.24) is a generic type."},
 	{id: featStringSlice, Name: "string slicing", Phase: 3,
 		Detect: "a slice expression on a string",
 		Notes:  "`s[a:b]`. Phase 02 has `+`, comparisons, `len(s)` and the byte `s[i]`."},
@@ -305,15 +311,19 @@ var features = [numFeatures]feature{
 		Detect: "an //export line in the doc comment of a func",
 		Notes:  "Functions that C code can call (`-buildmode=c-archive`, `c-shared`)."},
 
-	{id: featGenerics, Name: "generic functions", Plural: true, Phase: 7,
+	{id: featGenerics, Name: "generic functions", Plural: true, Phase: 7, Since: 5,
 		Detect: "type parameters on a func (FuncType), info.Instances of functions, type sets and comparable",
-		Notes:  "Generic functions, constraints with type sets, instantiating them with explicit or inferred type arguments. Exemption: `weak.Make` from Phase 03. The standard packages `cmp`, `slices`, `maps` and `iter` are Go's own (step 7.10)."},
-	{id: featGenericTypes, Name: "generic types", Plural: true, Phase: 7,
+		Notes:  "Generic functions, constraints with type sets and `comparable`, instantiating them with explicit or inferred type arguments. Each instance is an ordinary C++ function written with its types (ADR-030). Built in steps 7.1 to 7.10 and open from Phase 05 on. Exemption: `weak.Make` from Phase 03. The standard packages `cmp`, `slices`, `maps` and `iter` are Go's own (step 7.10)."},
+	{id: featGenericTypes, Name: "generic types", Plural: true, Phase: 7, Since: 5,
 		Detect: "type parameters on a type declaration (TypeSpec), info.Instances of types, a Named type with type arguments",
-		Notes:  "Generic types and their methods, generic aliases (step 7.3 and 7.7): one struct, method set and descriptor for each instance, named with Go's `%T` text. A C/C++ type as a type argument of a generic type is not supported yet. Exemption: `weak.Pointer[T]` from Phase 03."},
-	{id: featRangeFunc, Name: "range over functions", Phase: 7,
+		Notes:  "Generic types and their methods, generic aliases (step 7.3 and 7.7): one struct, method set and descriptor for each instance, named with Go's `%T` text. A C/C++ type as a type argument of a generic type is a user error. Open from Phase 05 on. Exemption: `weak.Pointer[T]` from Phase 03."},
+	{id: featRangeFunc, Name: "range over functions", Phase: 7, Since: 5,
 		Detect: "a range statement over a value of func type",
-		Notes:  "`for x := range f` over any func(yield func(...) bool) (step 7.8: Go's rewrite and its misuse checks). `iter.Seq`, `iter.Seq2`, `iter.Pull` and `iter.Pull2` are Go's own (step 7.10)."},
+		Notes:  "`for x := range f` over any func(yield func(...) bool) (step 7.8: Go's rewrite and its misuse checks), open from Phase 05 on. `iter.Seq`, `iter.Seq2`, `iter.Pull` and `iter.Pull2` are Go's own (step 7.10)."},
+
+	{id: featLocalGenericTypes, Name: "generic types declared inside functions", Plural: true, Phase: Never,
+		Detect: "a type declaration with type parameters whose type name is not in the package scope",
+		Notes:  "`func f() { type Pair[K, V any] struct{...} }`. Go accepts them; gocpp has types declared inside functions (also inside generic functions) and generic types at package level, but not both at once. Declare the generic type at package level."},
 
 	{id: featGo, Name: "go statements", Plural: true, Phase: 8,
 		Detect: "a go statement",
@@ -387,7 +397,16 @@ type stdPackage struct {
 	// means Phase.
 	Rest int
 
+	// Since, if it is not zero, is the phase from which the gate lets the import through
+	// although Phase is later (feature.Since): the package is built and tested.
+	Since int
+
 	Notes string // for the feature matrix
+}
+
+// allowed reports whether the gates of the phase let the package be imported.
+func (p *stdPackage) allowed(phase int) bool {
+	return p.Phase <= phase || (p.Since != 0 && p.Since <= phase)
 }
 
 // message returns the error for an import of the package path (the row's
@@ -427,12 +446,12 @@ var stdPackages = []stdPackage{
 	{Path: "runtime", Phase: 8, Notes: "`runtime.Error`, `PanicNilError`, `TypeAssertionError`, `Gosched`, `NumGoroutine`, `GOMAXPROCS`, `NumCPU`, `Goexit`, `LockOSThread`, `Caller`, `Callers`, `CallersFrames`, `FuncForPC`, `Stack`, `GC`, `ReadMemStats`, `Version`, `GOOS`, `GOARCH`, `KeepAlive` and `SetFinalizer` from Phase 08 (step 8.10). Each goroutine has a thread of its own, so `LockOSThread` does nothing and `Gosched` only yields the CPU. Memory is reference counted: `GC` does nothing and a finalizer never runs. The profiles, traces and `AddCleanup` are not built; stdlib/runtime/PORT.md lists them."},
 	{Path: "runtime/debug", Phase: 8, Notes: "`Stack`, `PrintStack`, `SetGCPercent`, `SetMemoryLimit`, `FreeOSMemory`, `SetMaxStack`, `SetMaxThreads`, `SetPanicOnFault` and `SetTraceback` from Phase 08 (step 8.10). `ReadBuildInfo`, `ReadGCStats` and `SetCrashOutput` come with Phase 09."},
 	{Path: "runtime/cgo", Phase: 9, Notes: "`cgo.Handle` with `NewHandle`, `Value` and `Delete` (step 9.2): a native table, so a handle passes through C and C++ as an integer."},
-	{Path: "cmp", Phase: 7, Notes: "Go's own package (ported by `tools/portstd`, step 7.10)."},
-	{Path: "iter", Phase: 7, Notes: "Go's own package (ported by `tools/portstd`, step 7.10): `Seq`, `Seq2`, and `Pull` and `Pull2` from Phase 08. The coroutine of `Pull` is a goroutine of its own (a thread) that the runtime hands control to and from; a switch costs about a microsecond, where Go's costs 20 nanoseconds."},
-	{Path: "maps", Phase: 7, Notes: "Go's own package (ported by `tools/portstd`, step 7.10): `Keys`, `Values`, `All`, `Collect`, `Insert`, `Clone`, `Copy`, `Equal`, `DeleteFunc` and the rest."},
-	{Path: "slices", Phase: 7, Notes: "Go's own package (ported by `tools/portstd`, step 7.10), with Go's pattern-defeating quicksort (`Sort`, `SortFunc`, `SortStableFunc`), `BinarySearch`, `Insert`, `Delete`, `Compact`, the iterator functions and the rest."},
-	{Path: "sync", Phase: 8, Notes: "`Mutex`, `RWMutex`, `WaitGroup` (with `Go`), `Once`, `OnceFunc`, `Cond`, `Map`, `Pool` and `Locker` from Phase 08 (step 8.7). `OnceValue` and `OnceValues` are generic functions: they come with Phase 07."},
-	{Path: "sync/atomic", Phase: 8, Notes: "The function-style API, `Int32`, `Int64`, `Uint32`, `Uint64`, `Uintptr`, `Bool` and `Value` from Phase 08 (step 8.7). `Pointer[T]` is a generic type: it comes with Phase 07."},
+	{Path: "cmp", Phase: 7, Since: 5, Notes: "Go's own package (ported by `tools/portstd`, step 7.10)."},
+	{Path: "iter", Phase: 7, Since: 5, Notes: "Go's own package (ported by `tools/portstd`, step 7.10): `Seq`, `Seq2`, and `Pull` and `Pull2` from Phase 08. The coroutine of `Pull` is a goroutine of its own (a thread) that the runtime hands control to and from; a switch costs about a microsecond, where Go's costs 20 nanoseconds."},
+	{Path: "maps", Phase: 7, Since: 5, Notes: "Go's own package (ported by `tools/portstd`, step 7.10): `Keys`, `Values`, `All`, `Collect`, `Insert`, `Clone`, `Copy`, `Equal`, `DeleteFunc` and the rest."},
+	{Path: "slices", Phase: 7, Since: 5, Notes: "Go's own package (ported by `tools/portstd`, step 7.10), with Go's pattern-defeating quicksort (`Sort`, `SortFunc`, `SortStableFunc`), `BinarySearch`, `Insert`, `Delete`, `Compact`, the iterator functions and the rest."},
+	{Path: "sync", Phase: 8, Notes: "`Mutex`, `RWMutex`, `WaitGroup` (with `Go`), `Once`, `OnceFunc`, `Cond`, `Map`, `Pool` and `Locker` from Phase 08 (step 8.7). `OnceValue` and `OnceValues` are generic functions: the generics themselves work from Phase 05 on, but the package waits for Phase 08."},
+	{Path: "sync/atomic", Phase: 8, Notes: "The function-style API, `Int32`, `Int64`, `Uint32`, `Uint64`, `Uintptr`, `Bool` and `Value` from Phase 08 (step 8.7). `Pointer[T]` is a generic type, written in Go (Phase 07)."},
 	{Path: "time", Phase: 8, Notes: "The whole package, since step 8.8 (Go's own `format.go`, `time.go` and `zoneinfo.go`, with natives for the clocks, `Sleep`, the timers and the time zone files). Timers follow Go 1.23: timer channels look unbuffered, `Stop` and `Reset` leave no stale value, and a `Timer` nobody holds is freed. `time.LoadLocation` reads the system's zoneinfo (the `ZONEINFO` variable, `/usr/share/zoneinfo`, `/etc/zoneinfo`); there is no embedded copy (`time/tzdata` is not available). On Windows (Phase 14) the zone data comes later."},
 	{Path: "bufio", Phase: 9, Notes: "Go's own package (ported by `tools/portstd`, step 9.4b): `Reader`, `Writer`, `ReadWriter`, `Scanner` and the split functions."},
 	{Path: "bytes", Phase: 9, Notes: "Go's own package (ported by `tools/portstd`, step 9.4b), with `internal/bytealg` for the searches. `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq` and `FieldsFuncSeq` return an `iter.Seq` (step 7.10)."},

@@ -704,7 +704,7 @@ var nodeKinds = map[string]string{
 	"FuncLit":        "function literals",
 	"SelectorExpr":   "selectors",
 	"IndexExpr":      "index expressions",
-	"IndexListExpr":  "instantiations (Phase 07)",
+	"IndexListExpr":  "instantiations",
 	"SliceExpr":      "slice expressions",
 	"TypeAssertExpr": "type assertions",
 	"StarExpr":       "pointer types",
