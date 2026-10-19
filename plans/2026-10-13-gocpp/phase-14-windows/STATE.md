@@ -13,7 +13,7 @@
   - [x] native `internal/syscall/windows` on `<windows.h>` (design differs: four natives under Go's own syscall layer, ADR-076)
   - [ ] `os`, `path/filepath`, `time`, `os/exec`, `os/signal` + tests
 - [x] 14.4 Windows interop: `WIN32_LEAN_AND_MEAN`/`NOMINMAX`/`UNICODE` defaults, macro collisions, `C.wstr`/`C.GoStringW`, Windows header zoo + SDL2/raylib/sqlite3/zlib for MinGW-w64 (merged 2026-10-19; ADR-082)
-- [ ] 14.5 Language server + VS Code on Windows (paths, URIs, file watching, case-insensitive names) + Phase 11 budgets on Windows
+- [x] 14.5 Language server + VS Code on Windows (paths, URIs, file watching, case-insensitive names) + Phase 11 budgets on Windows
 - [ ] 14.6 Debugging (gdb/lldb, VS Code launch template) + typed-interop probes with the Windows target
 - [ ] 14.7 Test infrastructure: Wine CI job for the whole suite (`GOOS=windows` Go as reference) + real-Windows release checklist
 - [ ] 14.8 Docs: install on Windows, build for Windows from Linux, Windows interop cookbook
