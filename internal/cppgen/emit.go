@@ -33,6 +33,8 @@ type Config struct {
 
 	// Concepts writes C++20 concepts for Go's constraints into the headers (lower.Options.Concepts).
 	Concepts bool
+	// Library writes a library (lower.Options.Library): gp_init_all in the last package, no main().
+	Library bool
 }
 
 // An Error is a problem that stops EmitPackage: mostly a construct that the emitter can't
@@ -115,6 +117,11 @@ type PackageFiles struct {
 	ImportPath string
 	Compile    []string // the translation units of the package (paths of Files)
 	HeaderC    bool     // pkg.hpp includes the package's C/C++ headers: its flags are public
+
+	// Namespace is the C++ namespace of the package, and Funcs the C++ names of its functions by
+	// their Go names (lower.PackageFiles), for the glue of the exported functions of a library.
+	Namespace string
+	Funcs     map[string]string
 }
 
 // EmitProgram writes the C++ of the packages of a program in the split layout (Phase 06 README
@@ -137,7 +144,7 @@ func EmitProgram(fset *token.FileSet, pkgs []ProgramPackage, root string, cfg Co
 		}
 		in[i] = lower.PackageInput{Pkg: p.Pkg, Interop: p.Interop}
 	}
-	prog := lower.NewProgram(fset, in, lower.Options{AllForwarders: cfg.AllForwarders, Concepts: cfg.Concepts})
+	prog := lower.NewProgram(fset, in, lower.Options{AllForwarders: cfg.AllForwarders, Concepts: cfg.Concepts, Library: cfg.Library})
 	pfs, err := prog.Lower()
 	if err != nil {
 		var le *lower.Error
@@ -148,7 +155,7 @@ func EmitProgram(fset *token.FileSet, pkgs []ProgramPackage, root string, cfg Co
 	}
 	out := &ProgramFiles{}
 	for i, pf := range pfs {
-		info := PackageFiles{ImportPath: pf.ImportPath, HeaderC: pf.HeaderC}
+		info := PackageFiles{ImportPath: pf.ImportPath, HeaderC: pf.HeaderC, Namespace: pf.Namespace, Funcs: pf.Funcs}
 		std := pkgs[i].Pkg.Load.Std
 		add := func(rel string, f *cppir.File, compile bool) {
 			outPath := ""

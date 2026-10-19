@@ -300,6 +300,70 @@ void tls_set(void* p) noexcept {
     tslot = p;
 }
 
+namespace {
+
+// The thread-exit hook (tls_on_thread_exit): one pthread key whose destructor calls the function
+// that the ending thread registered. The key's value is the address of the thread's own hook
+// record (a thread_local, which is still there when the destructors of the keys run).
+struct exit_hook {
+    void (*fn)(void*);
+    void* arg;
+};
+constinit thread_local exit_hook thook{};
+constinit std::atomic<bool> hook_stopped{false};
+pthread_key_t hook_key;
+constinit std::atomic<int> hook_state{0}; // 0: no key, 1: being made, 2: made, 3: failed
+constinit std::atomic<bool> hook_deleting{false};
+
+void run_exit_hook(void* v) noexcept {
+    auto* h = static_cast<exit_hook*>(v);
+    if (hook_stopped.load(std::memory_order_acquire) || h->fn == nullptr) {
+        return;
+    }
+    void (*fn)(void*) = h->fn;
+    void* arg = h->arg;
+    h->fn =
+        nullptr; // a thread that is adopted again by fn's own thread-local users gets a new hook
+    fn(arg);
+}
+
+bool hook_key_ready() noexcept {
+    for (;;) {
+        int st = hook_state.load(std::memory_order_acquire);
+        if (st == 2) {
+            return true;
+        }
+        if (st == 3) {
+            return false;
+        }
+        int none = 0;
+        if (st == 0 && hook_state.compare_exchange_strong(none, 1, std::memory_order_acq_rel)) {
+            bool ok = pthread_key_create(&hook_key, run_exit_hook) == 0;
+            hook_state.store(ok ? 2 : 3, std::memory_order_release);
+            return ok;
+        }
+        sched_yield();
+    }
+}
+
+} // namespace
+
+void tls_on_thread_exit(void (*fn)(void*), void* arg) noexcept {
+    if (hook_stopped.load(std::memory_order_acquire) || !hook_key_ready()) {
+        return;
+    }
+    thook = exit_hook{fn, arg};
+    pthread_setspecific(hook_key, &thook);
+}
+
+void tls_on_thread_exit_stop() noexcept {
+    hook_stopped.store(true, std::memory_order_release);
+    if (hook_state.load(std::memory_order_acquire) == 2 &&
+        !hook_deleting.exchange(true, std::memory_order_acq_rel)) {
+        pthread_key_delete(hook_key); // no destructor runs for the threads that have a value
+    }
+}
+
 bool stack_bounds(uintptr_t& lo, uintptr_t& hi) noexcept {
     if (tstack.lo == 0) {
         return false;

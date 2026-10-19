@@ -784,6 +784,15 @@ const std::vector<gp::string>& envs() noexcept {
     return envs_storage();
 }
 
+namespace detail {
+
+void load_process_info() {
+    args_storage() = to_strings(os::process_arguments());
+    envs_storage() = to_strings(os::environment());
+}
+
+} // namespace detail
+
 int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
     // The main goroutine is registered first: its id is 1.
     detail::goroutine_id();

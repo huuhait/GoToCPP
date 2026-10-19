@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include <dlfcn.h>
 #include <malloc.h>
 #include <poll.h>
 #include <unistd.h>
@@ -151,6 +152,57 @@ std::vector<std::string> arguments(int argc, char** argv) {
         args.emplace_back(argv[i]);
     }
     return args;
+}
+
+std::vector<std::string> process_arguments() {
+    std::vector<std::string> args;
+    std::FILE* f = std::fopen("/proc/self/cmdline", "rb");
+    if (f == nullptr) {
+        return args;
+    }
+    std::string cur;
+    bool open = false;
+    for (int c; (c = std::fgetc(f)) != EOF;) {
+        if (c == 0) {
+            args.push_back(std::move(cur));
+            cur.clear();
+            open = false;
+        } else {
+            cur.push_back(static_cast<char>(c));
+            open = true;
+        }
+    }
+    if (open) {
+        args.push_back(std::move(cur));
+    }
+    std::fclose(f);
+    return args;
+}
+
+void* library_ref(const void* addr) noexcept {
+    Dl_info info;
+    if (dladdr(addr, &info) == 0 || info.dli_fname == nullptr) {
+        return nullptr;
+    }
+    void* self = dlopen(info.dli_fname, RTLD_NOW | RTLD_NOLOAD);
+    if (self == nullptr) {
+        return nullptr;
+    }
+    void* prog = dlopen(nullptr, RTLD_NOW);
+    if (prog != nullptr) {
+        dlclose(prog);
+    }
+    if (self == prog) {
+        dlclose(self);
+        return nullptr;
+    }
+    return self;
+}
+
+void library_unref(void* handle) noexcept {
+    if (handle != nullptr) {
+        dlclose(handle);
+    }
 }
 
 std::vector<std::string> environment() {

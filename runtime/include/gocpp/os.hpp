@@ -66,6 +66,12 @@ write_result write(int fd, const char* data, std::size_t n) noexcept;
 // Linux they are argv; on Windows (Phase 14) they come from the wide command line.
 std::vector<std::string> arguments(int argc, char** argv);
 
+// process_arguments returns the arguments of the running process when nobody passed them to the
+// program (a library that runs in a program that is not gocpp's: the arguments of the host
+// program; Linux: /proc/self/cmdline), the program name first, or an empty list when the OS
+// can't tell.
+std::vector<std::string> process_arguments();
+
 // environment returns the process environment as "KEY=value" strings, in the OS's order.
 std::vector<std::string> environment();
 
@@ -134,6 +140,24 @@ int thread_start(void (*fn)(void*), void* arg, std::size_t stack_size) noexcept;
 // also reads from its exception handler, where thread_local isn't safe to touch.)
 void* tls_get() noexcept;
 void tls_set(void* p) noexcept;
+
+// tls_on_thread_exit makes the calling thread call fn(arg) when it ends (Linux: a destructor of a
+// pthread key, which runs for a thread that returns from its function or calls pthread_exit, in
+// any thread, also one that C created). Only the last call of a thread counts. The portable
+// runtime uses it to free the goroutine record of a thread that no go statement started. fn runs
+// on the ending thread, after the C++ thread-local destructors, and must not block. A thread that
+// is killed with the process doesn't run it. tls_on_thread_exit_stop forgets all registrations and
+// makes later calls do nothing: a shared library calls it before it is unloaded, because the
+// address of fn is in it. May fail silently (no key available): the record is then never freed.
+void tls_on_thread_exit(void (*fn)(void*), void* arg) noexcept;
+void tls_on_thread_exit_stop() noexcept;
+
+// library_ref takes one more reference to the shared library that holds the code at addr, and
+// returns a handle for library_unref; null when addr is in the main program (nothing to unload) or
+// the OS can't tell. While the reference is held, the host's dlclose of the library only gives
+// back the host's own reference: the library stays mapped, its destructors do not run.
+void* library_ref(const void* addr) noexcept;
+void library_unref(void* handle) noexcept;
 
 // stack_bounds returns the calling thread's stack as [lo, hi): the lowest address that a frame
 // may use, and the end of the stack (the highest address plus one). It is known for the main

@@ -76,6 +76,7 @@ struct goroutine {
     bool is_blocked = false;
     std::unique_ptr<task> body;
     goroutine* next_adopted = nullptr; // the list of threads that no go statement started
+    goroutine* prev_adopted = nullptr;
 };
 
 // The default stack of a goroutine is 8 MiB. Stack pages cost memory only once they are touched,
@@ -94,9 +95,30 @@ void set_stack_size(std::size_t n) noexcept;
 // gocpp, a std::thread) gets a record the first time it asks, with the next id; the first
 // thread to ask is the main goroutine (run_main asks first, on the main thread; a program that
 // embeds the runtime and asks first from another thread gives the id 1 to that thread). Only the
-// main thread's record counts in num_goroutine; the others stay (they are never freed: no
-// destructor of the C++ library can tell that such a thread ended).
+// main thread's record counts in num_goroutine; the others don't. A record is freed when its
+// thread ends (the OS layer's thread-exit hook, os::tls_on_thread_exit), so a library that is
+// called from a thread per request holds no record for a thread that is gone.
 goroutine& this_goroutine() noexcept;
+
+// release_adopted frees the record p of an adopted thread (the thread-exit hook; also callable
+// for tests). adopted_count is how many adopted records are alive.
+void release_adopted(void* p) noexcept;
+std::size_t adopted_count() noexcept;
+
+// end_threads ends the idle goroutine threads and waits, at most timeout_ns, until every
+// goroutine thread has gone (a thread that still runs a goroutine is not waited for longer), and
+// forget_adopted frees the records of all adopted threads and stops the thread-exit hook. A
+// shared library calls them when it is unloaded (gp::lib::shutdown), because the threads' code and
+// the hook's address are in the library.
+void end_threads(int64_t timeout_ns) noexcept;
+void forget_adopted() noexcept;
+
+// running_goroutines is how many goroutines that go statements started have not ended yet (a
+// goroutine that is blocked counts; a thread that is idle between goroutines does not). A shared
+// library must not be unloaded while it is above 0: set_go_hook installs fn, which every go
+// statement calls first (gp::lib uses it to keep the library mapped; null: none).
+int64_t running_goroutines() noexcept;
+void set_go_hook(void (*fn)() noexcept) noexcept;
 
 // current_goroutine_id returns the id of the calling thread's goroutine without creating a
 // record: 0 for a thread that has none (yet). It only reads the thread's slot, so it is

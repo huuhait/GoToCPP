@@ -89,6 +89,15 @@ type Builder struct {
 	// so it is an -iquote folder of their compiles.
 	GenRoot string
 
+	// Mode is what the build makes (modes.go): a program (the zero value is the same as ModeExe), or a
+	// library, which compiles everything with -fPIC (and, for c-shared, hidden visibility) and, for the
+	// static ones, ends in an archive instead of a link. Soname names a shared library.
+	Mode   Mode
+	Soname string
+
+	// VersionScript, for c-shared, is the file that names the functions the library exports.
+	VersionScript string
+
 	// Jobs is how many compiles run at the same time (gocpp build -p N): 0 means DefaultJobs
 	// (GOMAXPROCS).
 	Jobs int
@@ -100,6 +109,8 @@ type Builder struct {
 
 	// Stats, if not nil, counts the compiles, cache hits and links of the builds (executor.go).
 	Stats *Stats
+
+	modeApplied bool // applyMode ran
 
 	sc *statCache // the stats of this build's object cache lookups (Link)
 

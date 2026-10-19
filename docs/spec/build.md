@@ -109,3 +109,70 @@ which packages changed since the last build of the program:
 
 A changed API recompiles the units of the packages that include the header; a changed body recompiles
 the package's own unit and nothing else (the header is written again only when its bytes change).
+
+## Libraries (`-buildmode`)
+
+`gocpp build -buildmode=<mode>` makes a library instead of a program ([ADR-043](../adr/043-library-build-modes.md);
+the guide is [libraries.md](../guides/libraries.md)). The mode is part of the up-to-date key, and every
+unit is compiled with `-fPIC`, so a library never reuses the objects of a program (the object cache keeps both).
+
+| Mode | Files | For |
+|---|---|---|
+| `exe` | the program (the default) | |
+| `c-archive` | `libx.a` and `libx.h` | C programs; link with `-lstdc++ -pthread -lm -ldl` |
+| `c-shared` | `libx.so` and `libx.h` | C programs, `dlopen`; every unit is `-fvisibility=hidden` |
+| `cpp-lib` | a folder: `lib/libx.a`, `include/`, `lib/cmake/x/xConfig.cmake`, `lib/pkgconfig/x.pc` | C++ projects, with the native C++ API |
+
+**Names.** For the C modes `-o libx.a` (or `libx.so`) names the library and the header is `libx.h` next to it; without
+`-o`, `lib<program>.a`/`.so` in the current folder. For `cpp-lib` the patterns name the packages (several allowed, none
+needs to be `main`), `-o` is the folder of the installed tree (default `<name>-cpp`) and the name is the package's, or the
+module's last element for several packages.
+
+**`//export Name`** in the doc comment of a function (no blank line between; the name is the function's own; not a
+method, not generic, not `init`) makes it a C function. The C modes need at least one export and a `main` package with a
+`main` function, as cgo does. The types follow cgo:
+
+| Go | C |
+|---|---|
+| `int8`..`int64`, `uint8`..`uint64`, `int`, `uint`, `uintptr`, `float32`, `float64` | `GoInt8`..`GoUint64`, `GoInt`, `GoUint`, `GoUintptr`, `GoFloat32`, `GoFloat64` |
+| `bool` | `GoUint8` |
+| `unsafe.Pointer`, `*T` for a number or a `C` type, `*C.char` | `void*`, `T*`, `char*` |
+| `C.int`, `C.long`, `C.size_t`, ... | `int`, `long`, `size_t` |
+| `string` | `GoString {p, n}` |
+| `[]T` for numbers or bool | `GoSlice {data, len, cap}` |
+| several results | `struct Name_return {r0, r1, ...}` |
+
+Not allowed (an error at the `.gp` position that says what to do instead): structs, arrays, maps, channels, funcs,
+interfaces, `error`, complex numbers, a variadic function, a pointer to a gocpp struct, string or slice (reference counting
+would free what C holds), a slice of anything but numbers or bool, a string behind a pointer.
+Values are copied at the boundary: arguments are copies for the call; a `string` or slice result is `malloc` memory that
+the caller frees with `free` (a string has a NUL after its last byte); a pointer result must point to C memory or a package
+variable, or it is a fatal error.
+
+**Start.** There is no load-time constructor. The first call of any exported function, on any thread, runs the package
+initialization once in Go's order (thread-safe; other threads wait for it) and makes the calling thread a goroutine (its
+record is freed when the thread ends). `os.Args` and the environment are the host's. gocpp installs no signal or terminate
+handler. A panic that leaves an exported function (and `runtime.Goexit`) prints Go's message and trace and ends the process
+with status 2; it never unwinds into C. A callback into C that calls back an export works (the nesting is plain C calls).
+
+**c-shared isolation.** Each shared library has its own copy of the runtime and shares no symbol with another:
+hidden visibility, `-fno-gnu-unique` (GCC), `--exclude-libs,ALL` and a version script that exports only the `//export`
+names. Two libraries load in one process and unload with `dlclose` (`TestModes*` in cmd/gocpp). Unloading runs the
+library's shutdown (`atexit`): it ends the idle goroutine threads, waits for them and forgets the adopted records. A library
+with a goroutine that has not ended is not unloaded (it keeps a reference to itself from the first `go` statement until an exported
+function returns with no goroutine left: `dlclose` is a no-op meanwhile; ADR-043); the end of the process does not wait for goroutines.
+
+**cpp-lib.** The installed tree is a prefix: `include/gpkg/<import path>/pkg.hpp` for every package (with the layout of
+[ADR-025](../adr/025-split-layout.md)), the runtime's `include/gocpp/`, `include/<name>.hpp` (namespace aliases for the
+root packages and `gocpp_<name>::init()`, which runs the package initialization once: call it before any other call),
+and the CMake and pkg-config files. With CMake:
+
+```cmake
+find_package(geo CONFIG REQUIRED)          # CMAKE_PREFIX_PATH=<the tree>
+target_link_libraries(app PRIVATE gocpp::geo)
+```
+
+The target carries `-std=c++20 -fwrapv -fno-strict-aliasing -ffp-contract=off -fexceptions` (the consumer compiles gocpp's
+inline code), the build's `-asan`/`-nochecks` flags, the public flags of packages whose headers include C or C++ headers,
+`Threads::Threads -lm -ldl` and the packages' link flags. Use the compiler family that built the archive (CMake warns).
+The stamp also records the header and the tree files, so a build with a missing or edited output builds again.

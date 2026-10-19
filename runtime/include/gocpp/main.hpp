@@ -35,4 +35,12 @@ namespace gp {
 const std::vector<gp::string>& args() noexcept;
 const std::vector<gp::string>& envs() noexcept;
 
+namespace detail {
+
+// load_process_info sets args() and envs() from the running process, for a library that no
+// run_main started (gp::lib::enter, gocpp/lib.hpp): the host program's arguments and environment.
+void load_process_info();
+
+} // namespace detail
+
 } // namespace gp

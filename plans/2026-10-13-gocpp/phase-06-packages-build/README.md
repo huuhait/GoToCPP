@@ -417,7 +417,13 @@ func main() { imgui.Begin("hello") }
 8. **6.8 Runtime prebuild + precompiled header.**
 9. **6.9 Link step** (ordering, dedup, system libs, LTO with the matching archiver).
 10. **6.10 Build modes**: `c-archive`, `c-shared` (`//export` with cgo's type rules, lazy init,
-    hidden visibility, trampolines), `cpp-lib` (CMake INTERFACE flags).
+    hidden visibility, trampolines), `cpp-lib` (CMake INTERFACE flags). *Built: `gocpp build -buildmode=
+    c-archive|c-shared|cpp-lib` (internal/libgen, internal/build/modes.go, cmd/gocpp/modes.go, runtime
+    lib.hpp/lib.cpp); `//export` with cgo's type rules and the cgo-named header; lazy thread-safe init and
+    thread adoption; a panic prints Go's message and aborts with status 2; c-shared hides everything but the
+    exports (version script, `-fno-gnu-unique`), so two libraries load into one process and unload; a cpp-lib
+    is a tree with `include/`, `lib/libx.a`, a CMake package and a pkg-config file. ADR-043, docs/guides/libraries.md;
+    tests in cmd/gocpp/modes_test.go. Windows `.dll` is Phase 14.*
 11. **6.11 `compile_commands.json` + `gocpp export cmake`.**
 12. **6.12 CLI**: `list`, `env`, `clean`, all build flags, build tags.
 13. **6.13 Cross-compilation**: windows/amd64 with MinGW-w64 (`.exe` linked with `-static`), the

@@ -59,6 +59,7 @@ type PackageBuild struct {
 // include each other's headers through GenRoot, the folder that holds them. At most Jobs compiles
 // run at the same time (executor.go).
 func (b *Builder) Link(ctx context.Context, pkgs []PackageBuild, out string) error {
+	b.applyMode() // a library's -fPIC (modes.go), before anything is compiled or keyed
 	// With flags of the environment, the runtime's compiles get gocpp's language flags after
 	// them too (as the generated C++ does), then -Wno-error (valid code must not fail for a
 	// warning that a user's -Werror -Wshadow turns into an error) and -x c++, which comes right
@@ -149,6 +150,12 @@ func (b *Builder) Link(ctx context.Context, pkgs []PackageBuild, out string) err
 	for _, o := range srcObjs {
 		objs = append(objs, o...)
 	}
+	if b.Mode.Archive() {
+		// A static library: the objects of the program, of the libraries and of the runtime in one
+		// archive (a C program links it with the C++ library: -lstdc++, and what the packages' link
+		// flags name, which LibraryLinkFlags gives).
+		return b.archive(ctx, slices.Concat(objs, libObjs, rtObjs), out)
+	}
 	for i := len(pkgs) - 1; i >= 0; i-- {
 		link = appendLinkFlags(link, pkgs[i].Flags.Link)
 	}
@@ -158,7 +165,7 @@ func (b *Builder) Link(ctx context.Context, pkgs []PackageBuild, out string) err
 	if b.GOOS != "darwin" {
 		gc = []string{"-Wl,--gc-sections"}
 	}
-	args := slices.Concat(Flags(b.CXX, b.ASan), gc, objs, libObjs, rtObjs, link, b.Env.LDFlags, []string{"-o", out})
+	args := slices.Concat(Flags(b.CXX, b.ASan), gc, b.Mode.LinkFlags(b.Soname, b.VersionScript), objs, libObjs, rtObjs, link, b.Env.LDFlags, []string{"-o", out})
 	b.recordLink(ctx, slices.Concat(link, b.Env.LDFlags))
 	b.Stats.linked()
 	if b.Rec == nil || b.Rec.Bad() != "" {

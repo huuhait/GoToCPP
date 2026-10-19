@@ -663,6 +663,7 @@ type Stamp struct {
 	Files     []depRec       `json:"files"` // the headers that the compiles read, once each
 	Link      *LinkRec       `json:"link"`
 	Output    OutputRec      `json:"output"`
+	Extra     []OutputRec    `json:"extra,omitempty"` // the other files a library mode wrote (stampextra.go)
 	Pkgs      []PkgSummary   `json:"pkgs,omitempty"`
 
 	file  string
@@ -852,6 +853,11 @@ func (s *Stamp) Check(ctx context.Context, cache string, compilers []string, pkg
 	// The program first: the cheapest and the most likely to differ.
 	if !s.checkFile(s.Output.Path, &s.Output.Stat, stat) {
 		return s.Output.Path + " is missing or was changed"
+	}
+	for i := range s.Extra {
+		if !s.checkFile(s.Extra[i].Path, &s.Extra[i].Stat, stat) {
+			return s.Extra[i].Path + " is missing or was changed"
+		}
 	}
 	// What the loader looked at.
 	for i := range s.Trace {

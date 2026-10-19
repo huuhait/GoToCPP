@@ -56,6 +56,14 @@ func (g *gen) lowerSplit() bool {
 // has asked for its descriptors.
 func (g *gen) files() *PackageFiles {
 	pf := &PackageFiles{ImportPath: g.pkg.Load.ImportPath, Namespace: g.ns, Dir: PkgDir(g.pkg.Load.ImportPath), HeaderC: g.headerNeedsC()}
+	for _, fi := range g.funcs {
+		if fi.decl != nil && fi.decl.Recv == nil && fi.decl.Name.Name != "init" {
+			if pf.Funcs == nil {
+				pf.Funcs = make(map[string]string)
+			}
+			pf.Funcs[fi.decl.Name.Name] = fi.name
+		}
+	}
 	parts := g.structDecls()
 	if g.err != nil {
 		return nil
@@ -315,18 +323,26 @@ func (g *gen) addCIncludes(f *cppir.File) {
 // that Go does (the packages of the Program are in it), and main.
 func (g *gen) initFile(pf *PackageFiles) *cppir.File {
 	decls := slices.Concat(g.out.instDecls(initUnit), g.out.vars, g.out.inits)
+	// The program's entry: the main package, and in a library (Options.Library: c-archive, c-shared,
+	// cpp-lib) the last package of the program, which has gp_init_all but no main: the library's
+	// glue calls gp_init_all when its first function is called (gocpp/lib.hpp).
+	lib := g.opts.Library
 	main := g.pkg.Types.Name() == "main"
-	if len(decls) == 0 && !main {
+	entry := main && !lib || lib && g == g.prog.gens[len(g.prog.gens)-1]
+	if len(decls) == 0 && !entry {
 		return nil
 	}
 	f := g.unitFile(pf, "pkg_init.cpp", decls)
-	if !main {
+	if !entry {
 		return f
 	}
-	mainFn, _ := g.pkg.Types.Scope().Lookup("main").(*types.Func)
-	if mainFn == nil {
-		g.errorf(g.firstPos(), "%v", errNoMain)
-		return nil
+	var mainFn *types.Func
+	if !lib {
+		mainFn, _ = g.pkg.Types.Scope().Lookup("main").(*types.Func)
+		if mainFn == nil {
+			g.errorf(g.firstPos(), "%v", errNoMain)
+			return nil
+		}
 	}
 	init := cppir.Expr(&cppir.Lit{Text: "nullptr"})
 	body := &cppir.Block{}
@@ -338,9 +354,12 @@ func (g *gen) initFile(pf *PackageFiles) *cppir.File {
 			body.Stmts = append(body.Stmts, &cppir.ExprStmt{X: call(o.ns + "::gp_init_funcs")})
 		}
 	}
-	if len(body.Stmts) > 0 {
+	if len(body.Stmts) > 0 || lib {
 		init = &cppir.Unary{Op: "&", X: cxxName("gp_init_all")}
 		f.Decls = append(f.Decls, &cppir.Func{Result: typeName("void"), Name: "gp_init_all", Body: body}, &cppir.Blank{})
+	}
+	if lib {
+		return f
 	}
 	run := call("gp::run_main", cxxName("argc"), cxxName("argv"), init, &cppir.Unary{Op: "&", X: cxxName(g.ns + "::" + g.names[mainFn])})
 	f.Decls = append(f.Decls, &cppir.Func{

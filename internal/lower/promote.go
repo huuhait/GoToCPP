@@ -66,6 +66,10 @@ type Options struct {
 	// -gp:concepts`). It also writes the forwarding members of every struct, so that a promoted
 	// method satisfies a method constraint as it does in Go.
 	Concepts bool
+	// Library says that the program is a library (the build modes c-archive, c-shared and cpp-lib,
+	// Phase 06 step 6.10): the last package of the program defines gp_init_all, always, and no
+	// package defines main(). The library's own glue starts the program (gocpp/lib.hpp).
+	Library bool
 }
 
 // forwarders returns the forwarders of the struct si that are written: all of them for a struct

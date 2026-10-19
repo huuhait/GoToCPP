@@ -30,9 +30,21 @@ constinit std::atomic<uint64_t> next_id{1};
 // The goroutines that are alive (num_goroutine).
 constinit std::atomic<int64_t> live{0};
 
-// The goroutine records of the threads that no go statement started: never freed, and
-// reachable from here (so a leak check doesn't report them).
-constinit std::atomic<goroutine*> adopted{nullptr};
+// The goroutines that go statements started and that have not ended (running_goroutines), and the
+// function that a go statement calls before it starts one (set_go_hook).
+constinit std::atomic<int64_t> bodies{0};
+constinit std::atomic<void (*)() noexcept> go_hook{nullptr};
+
+// The goroutine records of the threads that no go statement started (a C library's thread, a
+// std::thread, the main thread): a list, so that a leak check finds them reachable and a library
+// that is unloaded can free them. A record is freed when its thread ends (release_adopted).
+constinit std::mutex adopted_mu;
+constinit goroutine* adopted = nullptr;
+
+// The goroutine threads that are running or idle (go_start counts a thread before it starts it,
+// worker_main stops counting as its last act): lib::shutdown waits for them to be gone before a
+// shared library is unloaded, because their code is in it.
+constinit std::atomic<int64_t> threads_alive{0};
 
 // The default stack, 0 until a program sets it.
 constinit std::atomic<std::size_t> stack_setting{0};
@@ -149,6 +161,7 @@ void run_goroutine(goroutine* g) {
     if (counted) {
         live.fetch_sub(1, std::memory_order_acq_rel);
     }
+    bodies.fetch_sub(1, std::memory_order_acq_rel);
 }
 
 // idle_wait puts the worker w on the idle list and waits for the next goroutine. It returns
@@ -196,6 +209,7 @@ void worker_main(void* p) {
         g = idle_wait(w);
     }
     delete w;
+    threads_alive.fetch_sub(1, std::memory_order_acq_rel);
 }
 
 // take_idle returns an idle worker with a stack of the given size, off the list, or null.
@@ -242,12 +256,84 @@ goroutine& this_goroutine() noexcept {
     if (g->counted) {
         live.fetch_add(1, std::memory_order_acq_rel);
     }
-    g->next_adopted = adopted.load(std::memory_order_relaxed);
-    while (!adopted.compare_exchange_weak(g->next_adopted, g, std::memory_order_release,
-                                          std::memory_order_relaxed)) {
+    {
+        std::lock_guard<std::mutex> lk(adopted_mu);
+        g->next_adopted = adopted;
+        if (adopted != nullptr) {
+            adopted->prev_adopted = g;
+        }
+        adopted = g;
     }
     os::tls_set(g);
+    // The record goes with the thread (a library that is called from a thread per request must
+    // not leak one for each): when the thread ends, the OS layer calls release_adopted. The main
+    // goroutine's thread ends with the process.
+    os::tls_on_thread_exit(&release_adopted, g);
     return *g;
+}
+
+void release_adopted(void* p) noexcept {
+    auto* g = static_cast<goroutine*>(p);
+    // Anything that asks for the thread's goroutine later (another destructor of the thread)
+    // gets a new record, not this one.
+    os::tls_set(nullptr);
+    {
+        std::lock_guard<std::mutex> lk(adopted_mu);
+        if (g->prev_adopted != nullptr) {
+            g->prev_adopted->next_adopted = g->next_adopted;
+        } else {
+            adopted = g->next_adopted;
+        }
+        if (g->next_adopted != nullptr) {
+            g->next_adopted->prev_adopted = g->prev_adopted;
+        }
+    }
+    if (g->counted) {
+        live.fetch_sub(1, std::memory_order_acq_rel);
+    }
+    delete g;
+}
+
+std::size_t adopted_count() noexcept {
+    std::lock_guard<std::mutex> lk(adopted_mu);
+    std::size_t n = 0;
+    for (goroutine* g = adopted; g != nullptr; g = g->next_adopted) {
+        n++;
+    }
+    return n;
+}
+
+void end_threads(int64_t timeout_ns) noexcept {
+    stop_idle_threads();
+    auto end = std::chrono::steady_clock::now() + std::chrono::nanoseconds(timeout_ns);
+    while (threads_alive.load(std::memory_order_acquire) > 0 &&
+           std::chrono::steady_clock::now() < end) {
+        stop_idle_threads(); // a goroutine that ended since goes idle: it must end too
+        std::this_thread::sleep_for(std::chrono::microseconds(200));
+    }
+    // The thread that counted itself out may still be returning from worker_main.
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+}
+
+int64_t running_goroutines() noexcept {
+    return bodies.load(std::memory_order_acquire);
+}
+
+void set_go_hook(void (*fn)() noexcept) noexcept {
+    go_hook.store(fn, std::memory_order_release);
+}
+
+void forget_adopted() noexcept {
+    os::tls_on_thread_exit_stop(); // no thread calls release_adopted of this code any more
+    std::lock_guard<std::mutex> lk(adopted_mu);
+    while (adopted != nullptr) {
+        goroutine* g = adopted;
+        adopted = g->next_adopted;
+        if (g->counted) {
+            live.fetch_sub(1, std::memory_order_acq_rel);
+        }
+        delete g;
+    }
 }
 
 uint64_t goroutine_id() noexcept {
@@ -260,6 +346,13 @@ void go_start(std::unique_ptr<task> body, std::size_t stack) {
     g->id = next_id.fetch_add(1, std::memory_order_relaxed);
     g->counted = true;
     g->body = std::move(body);
+    // The count first, then the hook: a library that gives its reference back (lib::detail::leave)
+    // does so only when it sees no goroutine, under the lock that the hook takes, so either it
+    // sees this goroutine, or the hook runs after it and takes the reference again.
+    bodies.fetch_add(1, std::memory_order_seq_cst);
+    if (auto hook = go_hook.load(std::memory_order_acquire)) {
+        hook();
+    }
     live.fetch_add(1, std::memory_order_acq_rel);
     std::size_t size = stack != 0 ? stack : stack_size();
     if (stack == 0) {
@@ -274,8 +367,10 @@ void go_start(std::unique_ptr<task> body, std::size_t stack) {
     if (w != nullptr) {
         w->stack = stack == 0 ? size : 0; // 0: not reused
         w->next = g.get();
+        threads_alive.fetch_add(1, std::memory_order_acq_rel);
         err = os::thread_start(worker_main, w, size);
         if (err != 0) {
+            threads_alive.fetch_sub(1, std::memory_order_acq_rel);
             delete w;
         }
     }
@@ -284,6 +379,7 @@ void go_start(std::unique_ptr<task> body, std::size_t stack) {
         return;
     }
     int64_t have = live.fetch_sub(1, std::memory_order_acq_rel) - 1;
+    bodies.fetch_sub(1, std::memory_order_acq_rel);
     claim_death();
     std::string msg = "runtime: failed to create new OS thread (have ";
     print_int(msg, have);

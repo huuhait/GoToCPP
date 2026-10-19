@@ -89,6 +89,11 @@ type PackageFiles struct {
 	Desc   *cppir.File // pkg_desc.cpp: the descriptors of the package's types, or nil
 	Init   *cppir.File // pkg_init.cpp: the package variables, their initialization and init functions; main's has main
 
+	// Funcs maps the Go name of each function of the package (no methods, no init functions) to its C++
+	// name in Namespace (a name that is reserved in C++ has a _ suffix, ADR-010), for the glue of
+	// the exported functions of a library (Phase 06 step 6.10).
+	Funcs map[string]string
+
 	// HeaderC says that pkg.hpp includes the package's C/C++ headers, because a declaration in it
 	// needs a C/C++ type (headerNeedsC): the flags that make those headers parse as the package
 	// sees them are public flags, which every package that includes pkg.hpp compiles with too.

@@ -229,6 +229,8 @@ type buildFlags struct {
 	jobs     int    // -p, 0 for the default (GOMAXPROCS)
 	concepts bool   // -gp:concepts
 
+	mode build.Mode // -buildmode, build only (modes.go); "" is a program
+
 	cppErrors cppErrorsMode // -cpperrors: "short" or "full"
 	diagOpts  diagOptions   // -color, -excerpt
 }
@@ -251,6 +253,9 @@ func (f *buildFlags) register(flags *flag.FlagSet, withOutput bool) {
 		return nil
 	})
 	flags.BoolVar(&f.concepts, "gp:concepts", false, "also write C++20 concepts for Go's constraints into the package headers")
+	if withOutput {
+		f.registerMode(flags)
+	}
 	flags.BoolVar(&f.work, "work", false, "print the name of the work folder and keep it (without the object cache)")
 	flags.BoolVar(&f.x, "x", false, "print the commands")
 }
@@ -380,6 +385,9 @@ type driver struct {
 	work    string    // the work folder, while there is one
 	gen     string    // the folder of the generated C++ of the program that is built
 	removed bool      // the work folder was removed early (SIGTERM)
+
+	lib      *libState // the library that a library mode builds (modes.go)
+	libRoots []string  // the import paths of the packages of a cpp-lib
 
 	stamp         *stampState // the up-to-date check of this build, or nil (uptodate.go)
 	upToDateBuild bool        // the build found its program current
@@ -590,12 +598,21 @@ func (d *driver) load(patterns []string) (*buildSet, int) {
 			mains = append(mains, p)
 		}
 	}
+	cppLib := d.flags.mode == build.ModeCPPLib
+	if cppLib {
+		mains = d.libMains(prog, roots) // a library has no main package: its roots, the last one is the entry
+		d.libRoots = nil
+		for _, p := range mains {
+			d.libRoots = append(d.libRoots, p.ImportPath)
+		}
+	}
 	switch {
 	case len(roots) == 0 && d.name == "build":
 		return nil, 0 // like go build: check warned that a pattern matched nothing
 	case len(roots) == 0:
 		fmt.Fprintf(d.stderr, "gocpp %s: no packages loaded from %s\n", d.name, strings.Join(patterns, " "))
 		return nil, exitErrors
+	case cppLib:
 	case len(mains) == 0 && len(roots) == 1:
 		fmt.Fprintf(d.stderr, "package %s is not a main package (gocpp %s builds programs)\n", roots[0].ImportPath, d.name)
 		return nil, exitErrors
@@ -611,12 +628,16 @@ func (d *driver) load(patterns []string) (*buildSet, int) {
 			d.name, len(mains), strings.Join(paths, "\n\t"))
 		return nil, exitErrors
 	}
-	mainPkg := r.Package(mains[0])
+	entry := mains[0]
+	if cppLib {
+		entry = mains[len(mains)-1]
+	}
+	mainPkg := r.Package(entry)
 	if mainPkg == nil || !mainPkg.Checked() {
-		fmt.Fprintf(d.stderr, "gocpp %s: internal error: package %s was not checked\n", d.name, mains[0].ImportPath)
+		fmt.Fprintf(d.stderr, "gocpp %s: internal error: package %s was not checked\n", d.name, entry.ImportPath)
 		return nil, exitInternal
 	}
-	if _, ok := mainPkg.Types.Scope().Lookup("main").(*types.Func); !ok {
+	if _, ok := mainPkg.Types.Scope().Lookup("main").(*types.Func); !ok && !cppLib {
 		// go build's message (from its linker).
 		fmt.Fprintf(d.stderr, "# %s\nfunction main is undeclared in the main package\n", mainPkg.Load.ImportPath)
 		return nil, exitErrors
@@ -636,7 +657,13 @@ func (d *driver) load(patterns []string) (*buildSet, int) {
 			visit(dep)
 		}
 	}
-	visit(mains[0])
+	if cppLib {
+		for _, p := range mains {
+			visit(p)
+		}
+	} else {
+		visit(mains[0])
+	}
 	d.counts.load++
 	d.counts.check += len(prog.Packages)
 	set := &buildSet{main: mainPkg}
@@ -670,7 +697,7 @@ func (d *driver) emit(set *buildSet, root string, cxx *build.CXX) (*cppgen.Progr
 		}
 		in[i] = cppgen.ProgramPackage{Pkg: pkg, Interop: interop}
 	}
-	files, err := cppgen.EmitProgram(d.check.fset, in, root, cppgen.Config{Concepts: d.flags.concepts})
+	files, err := cppgen.EmitProgram(d.check.fset, in, root, cppgen.Config{Concepts: d.flags.concepts, Library: d.flags.mode.Library()})
 	if err == nil {
 		d.counts.emit += len(set.pkgs)
 		return files, 0
@@ -894,6 +921,11 @@ func (d *driver) compile(patterns []string) (*program, int) {
 	if files == nil {
 		return nil, code
 	}
+	if d.flags.mode.Library() {
+		if code := d.prepareLibrary(set, files, cxx, env); code != 0 {
+			return nil, code
+		}
+	}
 	if d.flags.x {
 		fmt.Fprintf(d.stderr, "# gocpp emit > %s\n", build.ShellQuoteWork(genRoot, work))
 	}
@@ -926,7 +958,19 @@ func (d *driver) compile(patterns []string) (*program, int) {
 	}
 
 	b := &build.Builder{CXX: cxx, ASan: d.flags.asan, NoChecks: d.flags.nochecks, GOOS: d.check.goos, Work: work, Stderr: d.stderr, KeepWork: d.flags.work,
-		Env: env, CC: cc, GenRoot: genRoot, Cache: cache, Jobs: d.flags.jobs, Stats: &d.stats}
+		Env: env, CC: cc, GenRoot: genRoot, Cache: cache, Jobs: d.flags.jobs, Stats: &d.stats, Mode: d.flags.mode}
+	exe := filepath.Join(work, name+exeSuffix)
+	if d.lib != nil {
+		exe = filepath.Join(work, d.lib.file)
+		b.Soname = d.lib.file
+		if d.lib.script != nil {
+			b.VersionScript = filepath.Join(work, "exports.map")
+			if err := os.WriteFile(b.VersionScript, d.lib.script, 0o644); err != nil {
+				fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
+				return nil, exitErrors
+			}
+		}
+	}
 	if d.flags.x {
 		b.Trace = d.stderr
 	}
@@ -937,7 +981,6 @@ func (d *driver) compile(patterns []string) (*program, int) {
 		testHookGenWritten()
 	}
 	pbs := d.packageBuilds(set, files, units)
-	exe := filepath.Join(work, name+exeSuffix)
 	if err := b.Link(d.ctx, pbs, exe); err != nil {
 		if sig := d.interrupted(); sig != nil {
 			return nil, stopStatus(sig)
@@ -1099,6 +1142,7 @@ func (d *driver) compileFailed(pkg *check.Package, e *build.CompileError, work s
 	if e.What == "the runtime" {
 		what = "gocpp's runtime"
 	}
+	exportGlue := d.lib != nil && (strings.HasSuffix(e.Unit, "gocpp_export.cpp") || strings.Contains(e.Command, "gocpp_export.cpp"))
 	var shown []string
 	if d.flags.cppErrors.full() {
 		if out := strings.TrimRight(string(e.Output), "\n"); out != "" {
@@ -1142,6 +1186,11 @@ func (d *driver) compileFailed(pkg *check.Package, e *build.CompileError, work s
 		fmt.Fprintf(d.stderr, "# %s\n(the same errors in %s)\n", pkg.Load.ImportPath, unit)
 	case len(flags) > 0:
 		fmt.Fprintf(d.stderr, "# %s\n%s %s with the flags below\n", pkg.Load.ImportPath, what, verb)
+	case exportGlue:
+		// The C functions of the //export directives are gocpp's glue, but the mistake is the name:
+		// one that a header of the packages or of the C library declares differently.
+		fmt.Fprintf(d.stderr, "# %s\nthe exported functions %s %s: an exported name is probably one that a C header declares "+
+			"differently (macros and functions of the C library); choose another name\n", pkg.Load.ImportPath, what, verb)
 	default:
 		fmt.Fprintf(d.stderr, "# %s\ninternal error: %s %s\n", pkg.Load.ImportPath, what, verb)
 	}
@@ -1154,7 +1203,7 @@ func (d *driver) compileFailed(pkg *check.Package, e *build.CompileError, work s
 		fmt.Fprintf(d.stderr, "(the compiler's whole output is in %s)\n", log)
 		return
 	}
-	if len(flags) > 0 {
+	if len(flags) > 0 || exportGlue {
 		for _, f := range flags {
 			fmt.Fprintf(d.stderr, "(%s)\n", f)
 		}
@@ -1206,6 +1255,14 @@ func (d *driver) build(patterns []string) int {
 		return code
 	}
 	defer d.removeWork()
+	if d.lib != nil {
+		built, code := d.installLibrary(p, d.flags.output)
+		if code != 0 {
+			return code
+		}
+		d.saveStamp(built)
+		return 0
+	}
 	out := d.flags.output
 	name := filepath.Base(p.exe)
 	switch {
@@ -1325,6 +1382,9 @@ func (d *driver) genRoot(set *buildSet, work, cache string) string {
 	}
 	h := sha256.New()
 	fmt.Fprintf(h, "%s\x00%s\x00%s/%s\x00", set.main.Load.Dir, set.main.Load.ImportPath, d.check.goos, d.check.goarch)
+	if d.flags.mode != "" {
+		fmt.Fprintf(h, "%s\x00%s\x00", d.flags.mode, strings.Join(d.libRoots, "\x01")) // a library's files are not a program's
+	}
 	for _, f := range set.main.Load.Files {
 		fmt.Fprintf(h, "%s\x00", f.Path)
 	}
