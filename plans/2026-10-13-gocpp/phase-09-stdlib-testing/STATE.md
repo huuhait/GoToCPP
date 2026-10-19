@@ -20,7 +20,7 @@
 - [x] 9.4 Port tier-1 pure packages (9.4a unicode, strconv, errors merged 2026-10-20; 9.4b io, io/fs, path, strings, bytes, bufio, context merged 2026-10-20; sort, regexp/syntax, regexp merged 2026-10-20 (9.4c)) (`unicode/utf8`, `unicode`, `strings`, `bytes`, `strconv`, `errors`, `sort`, `math/bits`, `io`, `bufio`, `context`, `regexp`)
 - [x] 9.5 `math` (native + bit-exact pure-Go where needed)
 - [x] 9.6 `os` (interop + native, Go error types)
-- [ ] 9.7 `fmt` port (+ `internal/fmtsort`, C++ value printing)
+- [x] 9.7 `fmt`: NOT ported. Decision 2026-10-19: keep the native engine of 5.11 as the product (fast, handles C++ values, 210 run tests compared with real Go); an audit against Go's own fmt tests through the 9.10 harness follows
 - [x] 9.8 `time` (ported logic, native clocks/timers, zoneinfo)
 - [x] 9.9 `flag`, `testing` + `gocpp test` (T incl. `Parallel`, B + `Loop`, examples, flags, Go-style output)
 - [ ] 9.10 Go's tests: tier 1 + deferred suites (slices/maps/cmp/iter, rangefunc, rest of `test/chan`); test-only packages; counting rule
@@ -34,7 +34,7 @@
 - [ ] Deferred suites (from Phases 07 and 08) pass
 - [x] `wc` + `grep-lite` match their Go versions (flag ported 2026-10-19: identical output on 14 and 12 argument vectors)
 - [x] `gocpp test` output format matches `go test`
-- [ ] `fmt` differential tests (≥ 100 cases) byte-identical to Go
+- [x] `fmt` differential tests (≥ 100 cases) byte-identical to Go (210 `fmt_*` run tests vs real Go)
 - [ ] `encoding/json` round-trips like Go
 
 ## Decisions / notes
