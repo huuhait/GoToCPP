@@ -269,3 +269,14 @@ conformance:
 
 conformance-report:
 	$(GO) run ./tools/gotest report $(CONFORMANCE_OUT)
+
+# The packaging checks (step 15.13, docs/guides/packaging.md), not part of ci: the packaging tests
+# (go install of a tagged version from a local module proxy, the GoReleaser config, the flake's
+# vendorHash stamp), then what the tools that are installed say: goreleaser check and a snapshot
+# release into dist/ (nothing is published), and nix build of the flake package (it builds gocpp,
+# wraps it with g++ and clang++, and its install check builds and runs a program with both).
+.PHONY: package-check
+package-check:
+	GOCPP_REQUIRE_PACKAGING=1 $(GO) test -count=1 ./internal/packaging
+	goreleaser release --snapshot --clean --skip=publish
+	nix build .#gocpp --no-link -L

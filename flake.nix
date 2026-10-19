@@ -1,5 +1,5 @@
 {
-  description = "gocpp development shell";
+  description = "gocpp: Go-syntax programs compiled to readable C++20 (the package, and the development shell)";
 
   # nixos-26.05 is the newest branch that still has Go 1.25: nixos-unstable
   # removed go_1_25 when Go 1.25 reached end of life. Its default compilers are
@@ -7,13 +7,138 @@
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 
   outputs =
-    { nixpkgs, ... }:
+    { self, nixpkgs, ... }:
     let
       # Add a system here to get the shell there too, e.g. "aarch64-linux".
       systems = [ "x86_64-linux" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+
+      # The package (nix build, nix run, nix profile install) is built for the systems that have
+      # release binaries too (.goreleaser.yaml); only x86_64-linux is tested (step 15.13).
+      packageSystems = [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
+      forAllPackageSystems =
+        f: nixpkgs.lib.genAttrs packageSystems (system: f nixpkgs.legacyPackages.${system});
+
+      # gocpp, wrapped so that the compilers it needs are found on NixOS, where no compiler is
+      # on the PATH by default. The runtime and the standard library are embedded in the binary
+      # (ADR-009), so the Go program is all there is to build.
+      mkGocpp =
+        pkgs:
+        let
+          lib = pkgs.lib;
+          llvm = pkgs.llvmPackages_21;
+
+          # Only what the Go program needs to build: no tests, plans, docs or tools. The runtime
+          # is embedded from four places of runtime/ (runtime/files.go lists them).
+          src = lib.fileset.toSource {
+            root = ./.;
+            fileset = lib.fileset.unions [
+              ./go.mod
+              ./go.sum
+              ./LICENSE
+              ./cmd
+              ./internal
+              ./stdlib
+              ./runtime/files.go
+              ./runtime/include
+              ./runtime/src
+              ./runtime/debug
+            ];
+          };
+
+          # The wrapped compilers: Nix's g++ and clang++ add the include and library paths of
+          # their own libstdc++ and libc, so a generated program builds and links wherever
+          # gocpp runs. binutils has ar and nm (the runtime library, gocpp build -buildmode);
+          # llvm-ar is for clang's LTO objects; pkg-config is for interop with C libraries.
+          compilers = [
+            pkgs.gcc
+            llvm.clang
+            pkgs.binutils
+            llvm.llvm
+            pkgs.pkg-config
+          ];
+
+          # "dev" plus the commit: a flake build is not a tagged release.
+          rev = self.shortRev or self.dirtyShortRev or "unknown";
+        in
+        (pkgs.buildGoModule.override { go = pkgs.go_1_25; }) {
+          pname = "gocpp";
+          version = "dev-${rev}";
+          inherit src;
+          # The hash of the downloaded modules: it changes with go.mod and go.sum. When
+          # TestFlakeVendorHash (internal/packaging) says that go.mod or go.sum changed, run
+          #   nix build .#gocpp
+          # with lib.fakeHash here, copy the hash that Nix reports, and write the new
+          # sha256 of go.mod followed by go.sum (cat go.mod go.sum | sha256sum) on the next line.
+          # go.mod+go.sum sha256: 266875ca3c94dc999671c0ddd01ac2d3595642481d8796b13d40d64e7b8e71f3
+          vendorHash = "sha256-yQpnSIS+F8ANLTm1WdUe1Nc8me1LK98G0gjQQ8vaC6o=";
+          subPackages = [ "cmd/gocpp" ];
+          # Download the module cache (one dependency, golang.org/x/tools) instead of vendoring:
+          # go mod vendor also wants the packages that the tests of cmd/gocpp import, which the
+          # source above leaves out (tools/, tests/).
+          proxyVendor = true;
+          env.CGO_ENABLED = "0";
+          ldflags = [
+            "-s"
+            "-w"
+            "-X github.com/huuhait/gocpp/internal/version.Version=dev-${rev}"
+          ];
+
+          # The tests of gocpp compile C++ for minutes; they are run in the repository
+          # (make ci), not for every package build. The install check below builds and runs a
+          # program with the wrapped compilers instead.
+          doCheck = false;
+
+          nativeBuildInputs = [ pkgs.makeWrapper ];
+          postInstall = ''
+            wrapProgram $out/bin/gocpp --prefix PATH : ${lib.makeBinPath compilers}
+          '';
+
+          # No hardening flags from the compiler wrappers (see the dev shell).
+          hardeningDisable = [ "all" ];
+
+          doInstallCheck = true;
+          installCheckPhase = ''
+            runHook preInstallCheck
+            export HOME=$TMPDIR XDG_CACHE_HOME=$TMPDIR/cache
+            mkdir hello && cd hello
+            printf 'package main\n\nimport "fmt"\n\nfunc main() { fmt.Println("hello from the nix package") }\n' > hello.gp
+            for cxx in g++ clang++; do
+              echo "== $cxx"
+              GOCPP_CXX=$cxx $out/bin/gocpp run hello.gp | tee out.txt
+              grep -q 'hello from the nix package' out.txt
+            done
+            $out/bin/gocpp version
+            runHook postInstallCheck
+          '';
+
+          meta = {
+            description = "Go-syntax programs compiled to readable C++20";
+            homepage = "https://github.com/huuhait/gocpp";
+            license = lib.licenses.bsd3;
+            mainProgram = "gocpp";
+            platforms = lib.platforms.linux;
+          };
+        };
     in
     {
+      packages = forAllPackageSystems (pkgs: rec {
+        gocpp = mkGocpp pkgs;
+        default = gocpp;
+      });
+
+      apps = forAllPackageSystems (pkgs: rec {
+        gocpp = {
+          type = "app";
+          meta.description = "gocpp: Go-syntax programs compiled to readable C++20";
+          program = "${self.packages.${pkgs.stdenv.hostPlatform.system}.gocpp}/bin/gocpp";
+        };
+        default = gocpp;
+      });
+
       devShells = forAllSystems (
         pkgs:
         let

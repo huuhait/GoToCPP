@@ -123,6 +123,18 @@ Linux and Windows are the targets (your decision); macOS is not.
 - `gocpp version` prints the gocpp version, the embedded runtime hash, and the Go version used to
   build it.
 
+*Built in step 15.13* ([ADR-089](../../../docs/adr/089-packaging-go-install-goreleaser-nix.md), `docs/guides/packaging.md`):
+`.goreleaser.yaml` (static `CGO_ENABLED=0` builds for linux amd64/arm64 and windows amd64, tar.gz and zip with `LICENSE` and
+`README.md`, `checksums.txt`, a draft release; `goreleaser check` and `release --snapshot` pass), the flake's `packages`/`apps`
+(`buildGoModule` with `proxyVendor`, wrapped with Nix's g++, clang++, binutils, llvm-ar and pkg-config; `nix build` and `nix run`
+work, the install check builds and runs a program with both compilers), and `go install ...@version`, which the repository did
+not allow before: 11 test files that differed from others only in case and one file name with an apostrophe were refused by the
+module zip rules (renamed; the apostrophe is now made by a test). `internal/packaging` runs a real `go install @v0.0.1-rc.1`
+against a local `file://` proxy, builds with the GoReleaser ldflags, and guards go.mod, the config and the flake's `vendorHash`
+(`make package-check` adds goreleaser and nix). `internal/version.Version` takes the installed module version, and `gocpp version`
+prints a second line `runtime <hash>`. Not done here: the Windows host's pinned toolchain download (the zip needs MinGW-w64 on the
+`PATH`), MinGW in the Nix package, the release pipeline (15.12 and 15.16); nothing was published.
+
 ### 2.5 Module downloads: `gocpp get`
 
 Go-modules style: `require` versions come from git tags (`vX.Y.Z`), downloads go to

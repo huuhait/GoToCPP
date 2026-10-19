@@ -48,3 +48,6 @@ docs/benchmarks/lsp.json
 # Benchmark runs (make bench): bench/baseline.json and bench/history/ are committed
 /bench/results/
 /tools/gobench/gobench
+
+# GoReleaser output
+/dist/

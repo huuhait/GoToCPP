@@ -1,0 +1,97 @@
+# GoReleaser configuration (step 15.13, docs/guides/packaging.md).
+#
+# Release binaries of gocpp: linux amd64 and arm64, windows amd64, with checksums. The C++
+# runtime and the standard library are embedded in the binary (go:embed, ADR-009), so an archive
+# holds the program, LICENSE and README.md and nothing else. CGO is off: the binaries are static
+# and the same on every system.
+#
+# Try it without a release, which builds everything into dist/ and publishes nothing:
+#
+#   goreleaser check
+#   goreleaser release --snapshot --clean
+#
+# A real release is made by the pipeline that pushes a vX.Y.Z tag (never by hand from a
+# development machine): goreleaser release --clean. The release is created as a draft, so
+# someone looks at it before it goes public.
+#
+# TestGoReleaserConfig (internal/packaging) checks the shape of this file; the llvm-mingw release in
+# the release notes below must be internal/toolchain.Release (the same test checks it).
+
+version: 2
+
+project_name: gocpp
+
+dist: dist
+
+builds:
+  - id: gocpp
+    main: ./cmd/gocpp
+    binary: gocpp
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    # -X sets internal/version.Version, which gocpp version prints. -s -w drop the symbol and
+    # debug tables (the binary is about a third smaller; gocpp's own stack traces do not use them).
+    ldflags:
+      - -s -w -X github.com/huuhait/gocpp/internal/version.Version=v{{ .Version }}
+    goos:
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      # Windows arm64 is a post-1.0 item (phase-15 README §2.8).
+      - goos: windows
+        goarch: arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: gocpp
+    ids:
+      - gocpp
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "gocpp_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: git
+  filters:
+    exclude:
+      - "^plan:"
+      - "^docs?:"
+      - "^tests?:"
+
+release:
+  github:
+    owner: huuhait
+    name: gocpp
+  # Created as a draft: nothing is public until someone publishes it.
+  draft: true
+  prerelease: auto
+  header: |
+    ## gocpp {{ .Tag }}
+
+    gocpp compiles to C++20: you need a C++ compiler (g++ 13 or newer, or clang++ 17 or newer) on the PATH.
+    The runtime and the standard library are inside the binary.
+
+    For Windows targets gocpp uses a MinGW-w64 compiler from the PATH, or downloads its pinned
+    llvm-mingw release 20261006 (ucrt) on first use (`GOCPP_TOOLCHAIN`, `gocpp env`).
+
+    Verify a download with `sha256sum -c checksums.txt`.

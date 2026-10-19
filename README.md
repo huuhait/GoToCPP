@@ -88,6 +88,16 @@ A command that is not built yet says which phase builds it.
 - Progress: [plans/2026-10-13-gocpp/STATE.md](plans/2026-10-13-gocpp/STATE.md)
 - How work is done: [plans/2026-10-13-gocpp/WORKFLOW.md](plans/2026-10-13-gocpp/WORKFLOW.md)
 
+## Install
+
+```sh
+go install github.com/huuhait/gocpp/cmd/gocpp@latest    # needs Go 1.25 and a C++ compiler (g++ 13+ or clang++ 17+)
+nix run github:huuhait/gocpp -- run hello.gp             # brings g++ and clang++
+```
+
+Release archives (linux amd64/arm64, windows amd64) come with the releases. The runtime and the
+standard library are inside the binary. [docs/guides/packaging.md](docs/guides/packaging.md) has the details.
+
 ## Build and test
 
 You need Go 1.25 and make, and `make ci` also needs `g++` and `clang++`. The Nix dev shell has

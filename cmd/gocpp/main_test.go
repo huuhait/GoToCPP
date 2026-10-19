@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/version"
 )
 
@@ -56,11 +57,11 @@ func TestVersion(t *testing.T) {
 	if code != 0 || errOut != "" {
 		t.Fatalf("gocpp version: exit %d, stderr %q; want exit 0 and no stderr", code, errOut)
 	}
-	if want := version.String() + "\n"; out != want {
+	if want := version.String() + "\nruntime " + build.RuntimeHash() + "\n"; out != want {
 		t.Errorf("gocpp version printed %q, want %q", out, want)
 	}
-	// For example "gocpp dev (phase 00) go1.25.14 linux/amd64".
-	if re := regexp.MustCompile(`^gocpp \S+ \(phase \d\d\) .+ \S+/\S+\n$`); !re.MatchString(out) {
+	// For example "gocpp dev (phase 00) go1.25.14 linux/amd64", then "runtime " and 16 hex digits.
+	if re := regexp.MustCompile(`^gocpp \S+ \(phase \d\d\) .+ \S+/\S+\nruntime [0-9a-f]{16}\n$`); !re.MatchString(out) {
 		t.Errorf("gocpp version printed %q, want it to match %s", out, re)
 	}
 }

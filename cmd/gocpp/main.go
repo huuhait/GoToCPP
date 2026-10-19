@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/version"
 )
 
@@ -158,6 +159,9 @@ func runVersion(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: gocpp version")
 		return 2
 	}
+	// The first line is the version (scripts may parse it); the second names the embedded runtime,
+	// the folder that gocpp extracts it into (ADR-009).
 	fmt.Fprintln(stdout, version.String())
+	fmt.Fprintf(stdout, "runtime %s\n", build.RuntimeHash())
 	return 0
 }
