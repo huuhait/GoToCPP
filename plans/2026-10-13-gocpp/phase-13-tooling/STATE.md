@@ -1,6 +1,6 @@
 # Phase 13: Developer Tooling · STATE
 
-**Status:** `[~]` in progress (13.3 merged 2026-10-19)
+**Status:** `[~]` in progress (13.3, 13.4 merged 2026-10-19)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-19
 
@@ -21,7 +21,7 @@
   - [x] Go analyzers (printf, shadow, copylock, nilness, ...)
   - [x] gocpp analyzers (cycles, `&cppLocal`, `C.cstr` lifetime + "keeps the pointer" list + NUL bytes, narrowing, panicking `!` in libraries, ignored errors, `go` in `!` functions, unwaited `#body()`, unused lazy params)
   - [x] CI: every analyzer over the Phase 04 interop examples
-- [ ] 13.4 `gocpp doc`
+- [x] 13.4 `gocpp doc`
 - [ ] 13.5 `gocpp emit --annotate` + `gocpp explain`
 
 ## Exit criteria
