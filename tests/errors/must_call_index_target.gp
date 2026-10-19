@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // ! goes on a name that a call uses. A call of an arbitrary expression (fns[0]!()) is not in v1:
 // store the function in a variable first.

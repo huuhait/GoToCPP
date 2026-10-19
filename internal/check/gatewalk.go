@@ -262,7 +262,7 @@ func (g *gateChecker) checkImports(f *load.File) {
 	}
 	for _, spec := range f.AST.Imports {
 		path, err := strconv.Unquote(spec.Path.Value)
-		if err != nil || path == "C" || path == load.CgohPath {
+		if err != nil || path == "C" || path == load.CgohPath || path == load.MustPath || path == load.MacroPath {
 			continue
 		}
 		if dep := g.pkg.Load.Imports[path]; dep != nil && !dep.Std {
@@ -288,8 +288,6 @@ func (g *gateChecker) checkComments(file *ast.File) {
 			switch {
 			case strings.HasPrefix(c.Text, "//go:linkname"):
 				g.node(featLinkname, c)
-			case strings.HasPrefix(c.Text, "//go:embed"):
-				g.node(featGoEmbed, c)
 			}
 		}
 	}

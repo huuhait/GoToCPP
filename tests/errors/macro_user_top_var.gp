@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // A macro on top of a var is one error, the syntax error (step 10.9).
 

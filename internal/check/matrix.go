@@ -51,6 +51,17 @@ string, conversions between number types, the built-in functions
 
 `)
 
+	b.WriteString(`## Always available (Phase 10)
+
+The syntax and the meaning of these have no gate and no row below, at every phase and in every command
+(` + "`check`, `build`, `run`, `test`, `vet`, `expand`, `fmt`, `lsp`" + `), with no ` + "`GOCPP_GATE_PHASE`" + `
+([ADR-095](../adr/095-must-and-macros-are-always-available.md)): ` + "`!`" + ` (must) calls and must functions
+(divergence D12), macros with ` + "`lazy`" + ` parameters and the built-in ` + "`#file()`, `#line()`, `#func()`, `#text()`, `#body()`, `#embed()`" + `
+(D13, D18), ` + "`#Derive(String, Equal, Clone)`" + `, and ` + "`//go:embed`" + ` on ` + "`string`" + ` and ` + "`[]byte`" + ` variables
+(the ` + "`embed`" + ` row below). What such a program uses from the later phases is still gated by those phases
+(a must function that imports ` + "`strings`" + ` needs Phase 09).
+
+`)
 	b.WriteString("## Language features\n\n| Feature | Phase | Notes |\n|---|---|---|\n")
 	rows := slices.Clone(features[:])
 	slices.SortStableFunc(rows, func(a, b feature) int { return cmp.Compare(a.Phase, b.Phase) })

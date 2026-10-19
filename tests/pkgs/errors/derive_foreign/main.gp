@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // A type of another package without a Clone method that shows slices, maps or pointers is an error
 // for Clone (a copy would share them), as one that cannot be compared is for Equal (step 10.10). A

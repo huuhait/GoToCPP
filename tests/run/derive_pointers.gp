@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 09
 
 // Pointers to types of other packages and field types with a Clone method of their own (step 10.10).
 // A pointer to a type of another package (*time.Location, *bytes.Buffer, *sync.Mutex) is shared by

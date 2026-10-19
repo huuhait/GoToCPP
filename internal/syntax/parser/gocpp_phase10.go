@@ -127,12 +127,15 @@ func (p *parser) parseLazyType() ast.Expr {
 // and the end of the line. Patch 6.
 func (p *parser) parseOnTopMacro() *ast.GenDecl {
 	pos := p.pos
-	x := p.parseExpr()
+	x := p.parseUnaryExpr() // not parseExpr: "#include <stdio.h>" must not go on to the next lines as a comparison
 	call, ok := x.(*ast.CallExpr)
-	if !ok || !macroCallee(call.Fun) {
+	if !ok || !macroCallee(call.Fun) || p.tok.Precedence() != token.LowestPrec { // a macro call followed by an operator is no line of macros
 		p.error(pos, "expected a macro call on top of a declaration: #Name(...)")
 		if !ok {
 			call = &ast.CallExpr{Fun: x, Lparen: x.End(), Rparen: x.End()}
+		}
+		for p.tok != token.SEMICOLON && p.tok != token.EOF {
+			p.next() // the rest of the line is not a macro call either: one error is enough
 		}
 	}
 	p.expectSemi()

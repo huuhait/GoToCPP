@@ -27,7 +27,7 @@ func loadProgram(t *testing.T, dir string, std fs.FS, goStd func(string) bool) (
 	if std == nil {
 		std, goStd = stdlib.FS(), stdlib.IsStd
 	}
-	prog := load.Load(load.Config{Dir: dir, Stdlib: std, GoStd: goStd, GOOS: "linux", GOARCH: "amd64", Phase10Syntax: true}, ".")
+	prog := load.Load(load.Config{Dir: dir, Stdlib: std, GoStd: goStd, GOOS: "linux", GOARCH: "amd64"}, ".")
 	r := check.Check(prog, check.Config{Phase: check.LastPhase})
 	var errs []string
 	for _, p := range prog.Packages {

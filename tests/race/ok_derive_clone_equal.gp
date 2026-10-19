@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 08
 
 // #Derive(Clone, Equal) on a value that goroutines share (step 10.10): reading it to clone it or to
 // compare it is not a write, and each goroutine changes only its own copy, so the race detector

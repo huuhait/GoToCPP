@@ -1,6 +1,6 @@
 # ADR-058: The built-in macros and `//go:embed` are source rewrites in the loader
 
-Status: accepted (2026-10-18), step 10.8. (Numbers 053 to 057 belong to jobs that run in parallel.)
+Status: accepted (2026-10-18), step 10.8; the clause "only when the parser took the syntax of Phase 10" is superseded by [ADR-095](095-must-and-macros-are-always-available.md). (Numbers 053 to 057 belong to jobs that run in parallel.)
 
 ## Context
 

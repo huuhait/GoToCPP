@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // In a must function, a call whose last result is a concrete error type (not exactly error) is
 // not handled for you: a nil *MyErr would become a non-nil error. Taking the error yourself,

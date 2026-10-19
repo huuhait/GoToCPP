@@ -8,7 +8,7 @@ Everything this document doesn't mention works as the Go spec says.
 
 | | |
 |---|---|
-| Status | Written in Phase 00 from the plan; each phase updates it when it builds a feature. The features of Phases 00 to 05 are built and their gates are lifted (`gocpp version` prints `phase 05`): the core language, C/C++ interop, interfaces, embedding, `error`, `panic` and `recover`, `fmt` on any value, and programs of several packages. **Generics (Phase 07) are built and open from Phase 05 on** ([Generics and range over functions](#generics-and-range-over-functions)): generic functions, types and aliases, constraints, `comparable`, range over functions, and Go's own `cmp`, `slices`, `maps` and `iter`. Goroutines and channels exist but stay gated until Phase 08 is finished (`select`, `sync` and `time` are missing) |
+| Status | Written in Phase 00 from the plan; each phase updates it when it builds a feature. The features of Phases 00 to 05 are built and their gates are lifted (`gocpp version` prints `phase 05`): the core language, C/C++ interop, interfaces, embedding, `error`, `panic` and `recover`, `fmt` on any value, and programs of several packages. **Generics (Phase 07) are built and open from Phase 05 on** ([Generics and range over functions](#generics-and-range-over-functions)): generic functions, types and aliases, constraints, `comparable`, range over functions, and Go's own `cmp`, `slices`, `maps` and `iter`. **`!` (must), must functions, macros (`macro`, `lazy`, `#Name(...)`, the built-ins) and `#Derive` (Phase 10, divergences D12, D13, D17's `errors.Wrapf` and D18) are always available**: they have no gate and need no `GOCPP_GATE_PHASE` ([ADR-095](../adr/095-must-and-macros-are-always-available.md)). Goroutines and channels exist but stay gated until Phase 08 is finished (`select`, `sync` and `time` are missing) |
 | Source | [Phase 00 §2.2](../../plans/2026-10-13-gocpp/phase-00-foundations/README.md#22-the-language-as-a-diff-against-go) (the divergence list D1–D21; D22 from the Phase 02 evaluation-order work, D23 from Phase 03 steps 3.5 and 3.7, D24 from step 3.6, D25 from step 3.15, D26 from Phase 04 step 4.12, D27 from step 4.11, D28 from Phase 05 step 5.10) and the phase READMEs linked in each section |
 | See also | [cpp-mapping.md](cpp-mapping.md) (what the C++ output looks like), [interop.md](interop.md) (using C and C++), [feature-matrix.md](feature-matrix.md) (the phase of each feature) |
 
@@ -349,7 +349,7 @@ func port(path string) (int, error) {
   `func f() (T, error)`. A must call `F!(...)` returns the error of that one call. In a function
   without an error result, a failing must call panics (in a test it calls `t.Fatal`). In `main`,
   the error is printed and the program exits with code 1.
-- **Phase:** [10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md#21-part-a--must).
+- **Phase:** [10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md#21-part-a--must). Built, and always available: no phase gate and no `GOCPP_GATE_PHASE` ([ADR-095](../adr/095-must-and-macros-are-always-available.md)).
 - **More:** [Must functions and must calls](#must-functions-and-must-calls) below.
 
 ## D13. Macros
@@ -376,7 +376,7 @@ func main() {
   style, or wrap style with `#body()`). `#Derive(...)` on top of a type generates methods. The
   built-ins are `#file()`, `#line()`, `#func()`, `#text()`, `#body()`, `#embed()` and
   `#Derive(...)`.
-- **Phase:** [10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md#22-part-b-macros).
+- **Phase:** [10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md#22-part-b-macros). Built, and always available: no phase gate and no `GOCPP_GATE_PHASE` ([ADR-095](../adr/095-must-and-macros-are-always-available.md)).
 - **More:** [Macros](#macros) below.
 
 ## D14. C/C++ values follow C++ rules
@@ -567,7 +567,7 @@ func count() int {
   identifiers, so old code that uses them as names still works. A macro parameter can't be named
   `lazy`: `macro M(lazy string)` is a clear error.
 - **Phase:** [10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md#22-part-b-macros)
-  (parser patch 6).
+  (parser patch 6). Built, and always available: no phase gate and no `GOCPP_GATE_PHASE` ([ADR-095](../adr/095-must-and-macros-are-always-available.md)).
 
 ## D19. C is a reserved name
 
@@ -1104,7 +1104,7 @@ func main!() {
 `!` (must) works in exactly two places, and only where you write it: on a function and on one
 call. Without `!`, the code is plain Go.
 
-**Phase:** [10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md#21-part-a--must).
+**Phase:** [10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md#21-part-a--must) (built, always available, [ADR-095](../adr/095-must-and-macros-are-always-available.md)).
 `!` is pure sugar: it is rewritten into the same early returns you would write by hand, so it
 costs nothing at run time.
 
@@ -1543,7 +1543,7 @@ before `go/types` runs, so a macro is type-checked once, where it is declared.
   compiler inlines a macro across packages. The parameters for a lazy argument and for `#body()` are C++
   template parameters of that instance: the argument is the lambda itself, and nothing is allocated.
 - `gocpp expand file.gp` shows the code after expansion ([guide](../guides/expand.md), step 10.11).
-- **Phase:** [10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md#22-part-b-macros).
+- **Phase:** [10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md#22-part-b-macros) (built, always available, [ADR-095](../adr/095-must-and-macros-are-always-available.md)).
 
 ### Syntax: the exact rules
 
@@ -1559,9 +1559,10 @@ prints it. The rest of this document says what the forms mean.
 
 Nothing else changes: `a != b`, `a!=b`, `!ok`, `a !(b)`, `a! (b)` and `if!(a)` are scanned as in Go, a `#`
 that is not followed by a letter is an illegal character as in Go, and a `#` or a `!(` in a string, a rune or
-a comment is text. These names exist only in gocpp's syntax mode; the parser, `gocpp fmt` and the
-language server get it from the same switch, and gocpp's compiler gates it until Phase 10 is built, with a
-message that names the phase ("must calls are not supported yet (Phase 10)").
+a comment is text. These names exist only in gocpp's syntax (the parser option `Phase10Syntax` of the fork, which every gocpp tool sets); the parser, `gocpp fmt` and the
+language server read it always: there is no switch and no phase gate (before step 10.12 the compiler said
+"must calls are not supported yet (Phase 10)", [ADR-095](../adr/095-must-and-macros-are-always-available.md)). The standard library is parsed the same way, which
+changes nothing for Go code.
 
 A keyword after a dot is a name (D3), but never a must call: `x.type!(1)` is `x.type`, `!` and
 `(1)`. In the parameter list of a macro, `lazy` right after a parameter name is always the

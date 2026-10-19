@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 09
 
 // The rules for #Derive that need the types (step 10.10): what the generators can and cannot do
 // with the type of each field, and what the type must be.

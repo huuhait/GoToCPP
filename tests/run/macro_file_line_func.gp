@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // #file(), #line() and #func() (Phase 10 step 10.8): the place of the use, in functions,
 // methods, closures, package-level initializers, init functions and const contexts. The

@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // #Derive (step 10.10, ADR-080): the methods are ordinary Go methods written by the compiler, so the
 // C++ is what a hand-written Equal, Clone and String would give: no helper calls, a switch for the

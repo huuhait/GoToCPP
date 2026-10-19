@@ -617,8 +617,6 @@ func (p *Pipeline) loadConfig(h *handle, dir string, headers bool) load.Config {
 		GOARCH:    p.cfg.GOARCH,
 		Tags:      p.cfg.Tags,
 		AllErrors: true,
-		// The `!` syntax of Phase 10 parses when the gates allow it, as in gocpp check.
-		Phase10Syntax: p.cfg.Phase >= 10,
 		// A check here reads only what the imports' resolution read (fs.go),
 		// so the embedded files are not read: gocpp check reports their errors.
 		NoEmbedFiles: true,

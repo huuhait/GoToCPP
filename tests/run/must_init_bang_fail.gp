@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 // ExitCode: 1
 // Stderr: (?m)^[^\n]*: num "q": bad$
 

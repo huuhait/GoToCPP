@@ -64,7 +64,7 @@ func noBang() { os.Remove("z") }
 func dropped!(s string) { os.Remove(s) }
 `
 	dir := writeTree(t, map[string]string{"main.gp": src})
-	prog, r := loadAndCheck(t, load.Config{Phase10Syntax: true}, dir, "main.gp")
+	prog, r := loadAndCheck(t, load.Config{}, dir, "main.gp")
 	if txt := errorText(t, prog, r, dir, true); txt != "" {
 		t.Fatalf("errors:\n%s", txt)
 	}
@@ -122,7 +122,7 @@ func dropped!(s string) { os.Remove(s) }
 // A package without `!` has no Must info, and neither has one with errors.
 func TestMustInfoNone(t *testing.T) {
 	dir := writeTree(t, map[string]string{"main.gp": "package main\n\nfunc main() {}\n"})
-	prog, r := loadAndCheck(t, load.Config{Phase10Syntax: true}, dir, "main.gp")
+	prog, r := loadAndCheck(t, load.Config{}, dir, "main.gp")
 	if p := mainPkg(t, prog, r); p.Must != nil {
 		t.Errorf("Must = %+v", p.Must)
 	}
@@ -143,7 +143,7 @@ func main!() {
 }
 `
 	dir := writeTree(t, map[string]string{"main.gp": src})
-	prog, r := loadAndCheck(t, load.Config{Phase10Syntax: true}, dir, "main.gp")
+	prog, r := loadAndCheck(t, load.Config{}, dir, "main.gp")
 	if txt := errorText(t, prog, r, dir, true); txt != "" {
 		t.Fatalf("errors:\n%s", txt)
 	}
@@ -185,7 +185,7 @@ func TestMustInfoCountsEveryCall(t *testing.T) {
 			}
 			return true
 		})
-		prog, r := loadAndCheck(t, load.Config{Phase10Syntax: true, Dir: filepath.Dir(f)}, filepath.Dir(f), f)
+		prog, r := loadAndCheck(t, load.Config{Dir: filepath.Dir(f)}, filepath.Dir(f), f)
 		if errorText(t, prog, r, filepath.Dir(f), true) != "" {
 			continue // an error test or a program of a later phase
 		}
@@ -226,7 +226,7 @@ var g = strconv.Atoi!("4")
 var h, i = two!()
 `
 	dir := writeTree(t, map[string]string{"main.gp": src})
-	prog, r := loadAndCheck(t, load.Config{Phase10Syntax: true}, dir, "main.gp")
+	prog, r := loadAndCheck(t, load.Config{}, dir, "main.gp")
 	if txt := errorText(t, prog, r, dir, true); txt != "" {
 		t.Fatalf("errors:\n%s", txt)
 	}

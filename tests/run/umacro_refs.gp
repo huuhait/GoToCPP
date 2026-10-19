@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 08
 
 // Lambdas for lazy arguments and wrapped code capture the caller's variables by reference when the macro
 // only calls them where they stand (step 10.9); when the macro keeps, defers, starts or passes them on, they

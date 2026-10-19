@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // The go/types errors of a use of a macro of another package, in the words of the macro.
 

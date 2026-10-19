@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // #Derive on generic types and embedded fields (step 10.10). The methods of a generic type are
 // written for its type parameters: a field of a type parameter is compared with == when the

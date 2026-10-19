@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // //go:embed on variables of type string and []byte (Phase 10 step 10.8): text, empty,
 // binary and unicode files, patterns with wildcards and quotes, groups of variables, defined types, a

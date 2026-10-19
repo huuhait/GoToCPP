@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // Mistakes in the use of #embed (Phase 10 step 10.8): the file is named by one string literal, a file of
 // the source file's folder or below it.

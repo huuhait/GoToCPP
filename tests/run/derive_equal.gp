@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 08
 
 // #Derive(Equal) (step 10.10): deep equality that follows pointers, slices, maps and arrays and
 // calls the Equal method of a field's type when it has one (time.Time, other derived types). A

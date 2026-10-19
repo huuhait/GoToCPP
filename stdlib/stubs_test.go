@@ -148,9 +148,10 @@ func TestStubsTypeCheck(t *testing.T) {
 	}
 }
 
-// laterSyntax are the examples that use syntax that the parser takes only
-// from Phase 10 on, so they can't be type-checked yet. Their packages have
-// stubs all the same (encoding/json, sync, bufio, errors, ...).
+// laterSyntax are the examples that use the syntax of Phase 10, which the stock
+// parser rejects and stock go/types can't check: internal/check rewrites it
+// (its TestExamples checks these two, with no gate since step 10.12). Their
+// packages have stubs all the same (encoding/json, sync, bufio, errors, ...).
 var laterSyntax = map[string]string{
 	"macros":      "macro declarations and #Name(...) calls (Phase 10)",
 	"must-errors": "must functions (func f!()) and F!(...) calls (Phase 10)",

@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // What the compiler says about a must function that cannot work (step 10.4): main! and init!
 // have no parameters and results (an error is printed and the program exits), and the returns of

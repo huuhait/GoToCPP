@@ -358,10 +358,9 @@ func Spawn!(p string) {
 `
 
 // The analyzers about ! and macros: a panic in a library, a lazy parameter nobody calls, a
-// dropped error, a go statement that drops the error of a must function. The packages need the
-// syntax of Phase 10, which the gate phase opens.
+// dropped error, a go statement that drops the error of a must function. The syntax of Phase 10
+// needs no switch (ADR-095).
 func TestVetBangAndMacros(t *testing.T) {
-	t.Setenv("GOCPP_GATE_PHASE", "10")
 	code, out, errOut := vetIn(t, map[string]string{"lib/lib.gp": vetBang}, "./lib")
 	if code != 1 || out != "" {
 		t.Fatalf("exit %d, stdout %q, stderr:\n%s", code, out, errOut)

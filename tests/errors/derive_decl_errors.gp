@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // The rules for a #Derive line that the loader checks (step 10.10), before the types are known.
 

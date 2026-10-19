@@ -105,9 +105,12 @@ Phase 10 (step 10.1) adds the next four. They add the syntax of must calls and m
 ([language spec](../../docs/spec/language.md#syntax-the-exact-rules) has the rules), in a mode
 that is off by default (`parser.Phase10Syntax`, `scanner.Phase10Syntax`): without it, the
 scanner and the parser behave exactly as upstream, and each new form is the syntax error that
-upstream reports (the tests check that against the stock `go/parser`). The gocpp compiler turns the
-mode on only when Phase 10 is built; before that, its gate (`internal/check`, "must calls are not
-supported yet (Phase 10)") needs those errors. `gocpp fmt` has the mode on, because it only formats.
+upstream reports (the tests check that against the stock `go/parser`). Every gocpp tool turns the
+mode on: the loader (so `check`, `build`, `run`, `test`, `vet`, `expand`), `gocpp fmt`, `doc`, `parse` and the
+language server. Since step 10.12 ([ADR-095](../../docs/adr/095-must-and-macros-are-always-available.md)) there is
+no phase gate for the syntax: before, the compiler turned the mode on only when its gates allowed Phase 10 and
+explained the errors with "must calls are not supported yet (Phase 10)". The option stays in the fork because the
+parser's own tests need the stock behavior and Go code must parse as upstream's parser does.
 
 | # | Patch | Step |
 |---|---|---|

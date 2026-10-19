@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // Lazy parameters (step 10.9): the argument is not evaluated at the use; the macro runs it, zero,
 // one or several times, when it calls the parameter. The type after lazy is written at every use,

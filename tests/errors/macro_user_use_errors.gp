@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // The rules for using a macro (step 10.9): where it can be used, what it gets, and what it
 // can not be.

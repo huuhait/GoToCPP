@@ -114,11 +114,8 @@ func mainPkg(t *testing.T, prog *load.Program, r *Result) *Package {
 	return p
 }
 
-// laterSyntax are the examples that use syntax that the parser takes only
-// from Phase 10 on.
-var laterSyntax = map[string]bool{"macros": true, "must-errors": true}
-
-// TestExamples checks the 17 target programs that parse in Phase 01, for
+// TestExamples checks the 19 target programs (the two with the syntax of Phase 10 too, since
+// step 10.12 made it always available), for
 // linux and windows (win32 only for windows: its files say so), each as a
 // program and with its tests: 0 errors, and every package is checked.
 func TestExamples(t *testing.T) {
@@ -133,9 +130,6 @@ func TestExamples(t *testing.T) {
 			t.Fatal(err)
 		}
 		name := filepath.Base(dir)
-		if laterSyntax[name] {
-			continue
-		}
 		n++
 		t.Run(name, func(t *testing.T) {
 			systems := 0
@@ -147,11 +141,16 @@ func TestExamples(t *testing.T) {
 						continue
 					}
 					systems++
-					if errs := errorText(t, prog, r, dir, true); errs != "" {
-						t.Errorf("%s, Tests %v:\n%s", goos, tests, errs)
+					msg, masked := maskedExamples[name] // an error until a step lands (gates_test.go)
+					want := ""
+					if masked {
+						want = errorLines([]string{msg})
+					}
+					if errs := errorText(t, prog, r, dir, true); errs != want {
+						t.Errorf("%s, Tests %v:\n%s\nwant:\n%s", goos, tests, errs, want)
 					}
 					for _, p := range r.Packages {
-						if !p.Checked() {
+						if !p.Checked() && !masked {
 							t.Errorf("%s, Tests %v: %s is not checked", goos, tests, p.Load.ImportPath)
 						}
 					}
@@ -162,8 +161,8 @@ func TestExamples(t *testing.T) {
 			}
 		})
 	}
-	if n != 17 {
-		t.Errorf("checked %d examples, want 17", n)
+	if n != 19 {
+		t.Errorf("checked %d examples, want 19", n)
 	}
 }
 

@@ -4,12 +4,13 @@ Go code is full of `if err != nil { return ..., err }`. gocpp has an opt-in shor
 function or on one call returns the error for you. It is sugar, rewritten into the early returns you
 would write by hand, so it costs nothing at run time. Code without `!` is plain Go.
 
-> **Experimental today.** The `!` syntax is phase 10. Run this lesson with
-> `GOCPP_GATE_PHASE=10 gocpp run .`. Without the switch `gocpp check` refuses the program
-> (below). The program is not valid Go: `!` is gocpp-only syntax. `GOCPP_GATE_PHASE=10 gocpp expand .`
-> prints the plain Go that it stands for ([guide](../guides/expand.md)).
+> **Experimental today, for the library only.** The `!` syntax needs no switch: every gocpp command
+> accepts it. This lesson also uses `strconv`, a standard package of phase 09, which is still hidden
+> behind a switch: run it with `GOCPP_GATE_PHASE=09 gocpp run .`. Without the switch `gocpp check`
+> refuses the program for `strconv` (below), not for the `!`. The program is not valid Go: `!` is
+> gocpp-only syntax. `gocpp expand .` prints the plain Go that it stands for ([guide](../guides/expand.md)).
 
-<!-- program: 10 id=must exit=1 -->
+<!-- program: 09 id=must exit=1 -->
 ```go
 package main
 
@@ -57,11 +58,11 @@ func main!() {
  | strconv.Atoi: parsing "x": invalid syntax
 ```
 
-Without the switch the compiler refuses the program:
+Without the switch the compiler refuses the program, because of the package and not the `!`:
 
 <!-- rejected: must -->
 ```text
-./main.gp:12:11: must functions are not supported yet (Phase 10)
+./main.gp:5:2: package strconv is not available yet (Phase 09)
 ```
 
 The last line of `main` fails: `parse("22", "1")` returns an error that `main!` does not take, so

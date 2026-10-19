@@ -872,9 +872,6 @@ func TestProbeExamples(t *testing.T) {
 				t.Fatal(err)
 			}
 			name := filepath.Base(dir)
-			if laterSyntax[name] {
-				continue
-			}
 			n++
 			t.Run(name, func(t *testing.T) {
 				for _, goos := range []string{"linux", "windows"} {
@@ -900,8 +897,8 @@ func TestProbeExamples(t *testing.T) {
 				}
 			})
 		}
-		if n != 17 {
-			t.Errorf("checked %d examples, want 17", n)
+		if n != 19 {
+			t.Errorf("checked %d examples, want 19", n)
 		}
 	})
 }

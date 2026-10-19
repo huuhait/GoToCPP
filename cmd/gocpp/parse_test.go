@@ -147,3 +147,20 @@ func TestParseUsage(t *testing.T) {
 		t.Errorf("gocpp parse -x x.gp: exit %d, stdout %q, stderr:\n%s\nwant exit 2, the error and the usage", code, out, errOut)
 	}
 }
+
+// TestParsePhase10Syntax: gocpp parse reads the syntax of Phase 10 (a must function and call, a macro
+// declaration with a lazy parameter, a macro use and a line of macros), with no switch (ADR-095).
+func TestParsePhase10Syntax(t *testing.T) {
+	const src = "package main\n\nmacro Assert(cond lazy bool) {}\n\n#Trace()\nfunc f!() int {\n\t#Assert(true)\n\treturn g!()\n}\n\nfunc g() (int, error) { return 0, nil }\n"
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{"x.gp": src})
+	t.Chdir(dir)
+	code, out, errOut := gocpp("parse", "x.gp")
+	if r := (result{code, out, errOut}); r != (result{}) {
+		t.Errorf("gocpp parse x.gp:\n%s\nwant exit 0 and no output", show(r))
+	}
+	code, out, errOut = gocpp("parse", "-dump", "x.gp")
+	if code != 0 || errOut != "" || !strings.Contains(out, `"f!"`) || !strings.Contains(out, `"#Assert"`) {
+		t.Errorf("gocpp parse -dump x.gp: exit %d, stderr %q, stdout:\n%s", code, errOut, out)
+	}
+}

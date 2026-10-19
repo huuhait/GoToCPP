@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // The built-in macros are constants of Go (Phase 10 step 10.8): #file(), #func() and #text(x) are
 // untyped string constants, #line() is an untyped integer constant, #embed("f") is an untyped string

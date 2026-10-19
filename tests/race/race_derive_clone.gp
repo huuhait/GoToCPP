@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 08
 // ExitCode: 66
 // Stderr: WARNING: DATA RACE
 // Stderr: (?s)WARNING: DATA RACE\n(Write|Read) at 0x[0-9a-f]+ by (main goroutine|goroutine \d+):\n.*\nPrevious (write|read) at 0x[0-9a-f]+ by (main goroutine|goroutine \d+):\n

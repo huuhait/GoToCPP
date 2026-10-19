@@ -17,7 +17,7 @@ import (
 func derived(t *testing.T, src string) (map[string]string, string) {
 	t.Helper()
 	dir := writeTree(t, map[string]string{"main.gp": src})
-	prog, r := loadAndCheck(t, load.Config{Phase10Syntax: true}, dir, "main.gp")
+	prog, r := loadAndCheck(t, load.Config{}, dir, "main.gp")
 	p := mainPkg(t, prog, r)
 	out := map[string]string{}
 	for _, m := range p.Derived {
@@ -156,7 +156,7 @@ func TestDeriveErrors(t *testing.T) {
 func TestDeriveNoBodies(t *testing.T) {
 	check := func(src string) (*Package, string) {
 		dir := writeTree(t, map[string]string{"main.gp": src})
-		prog := load.Load(load.Config{Dir: dir, Phase10Syntax: true, Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: "linux", GOARCH: "amd64"}, "main.gp")
+		prog := load.Load(load.Config{Dir: dir, Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: "linux", GOARCH: "amd64"}, "main.gp")
 		cfg := fakeProbeConfig(LastPhase)
 		cfg.NoDerivedBodies = true
 		r := Check(prog, cfg)

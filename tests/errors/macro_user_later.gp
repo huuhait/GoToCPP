@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // A macro that is not declared (step 10.9): the built-in macros around it still expand.
 

@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 08
 
 // #Derive(Clone) (step 10.10): a deep copy. Slices, maps, arrays, pointers and structs are copied
 // all the way down; nil stays nil and an empty slice or map stays empty; channels, funcs and

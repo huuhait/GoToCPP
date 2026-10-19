@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 08
 
 // The built-in macros in many places (Phase 10 step 10.8): constants and array lengths,
 // switch cases, generic functions, method values, struct literals, goroutines, defer, labels,

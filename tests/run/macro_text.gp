@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // #text(x) (Phase 10 step 10.8): the source text of the argument, exactly as written, except
 // that a line break with its indentation and each comment become one space. The argument is

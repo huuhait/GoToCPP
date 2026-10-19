@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // The soft errors of go/types (no new variables, declared and not used) are errors with `!` too,
 // and their messages say nothing about the code that the compiler writes for `!`.

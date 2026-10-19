@@ -64,6 +64,10 @@ yet (Phase 03)"). For gocpp's own development and tests,
 GOCPP_GATE_PHASE=NN (two digits) accepts them up to phase NN; build, run
 and emit read it too. It can't turn the gates of finished phases back on.
 
+The syntax of Phase 10 is always accepted, with no environment variable:
+! (must) calls and must functions, macros (macro, lazy, #Name(...) and the
+built-in #file, #line, #func, #text, #body, #embed), #Derive and //go:embed.
+
 -types prints the type of every expression of the packages named on the
 command line to standard output, one per line in source order: its
 position, its mode (value, var, const, type, ...), its source text and
@@ -267,11 +271,7 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 			// what the go compiler shows, and the Printer stops at 10.
 			AllErrors: true,
 			Tests:     c.tests,
-			// The syntax of Phase 10 (F!(x), func f!()) parses only where
-			// the gates allow it; before, it is a syntax error that the
-			// gates explain (internal/check, gateUnchecked).
-			Phase10Syntax: phase >= 10,
-			TestMain:      c.testMain,
+			TestMain:  c.testMain,
 		}, m.patterns...)
 	}
 	c.lastProg = prog
@@ -798,7 +798,7 @@ func (c *checkCommand) parserErrorsOf(name string) *fileErrors {
 	}
 	fe.size = len(src)
 	fset := token.NewFileSet()
-	_, err = parser.ParseFile(fset, name, src, parser.ParseComments|parser.AllErrors)
+	_, err = parser.ParseFile(fset, name, src, parser.ParseComments|parser.AllErrors|parser.Phase10Syntax)
 	var list scanner.ErrorList
 	if !errors.As(err, &list) {
 		return fe
@@ -807,7 +807,7 @@ func (c *checkCommand) parserErrorsOf(name string) *fileErrors {
 	s.Init(fset.AddFile(name, -1, len(src)), src, func(pos token.Position, msg string) {
 		fe.scanner[errorAt{pos.Filename, pos.Line, pos.Column, msg}] = true
 		fe.scannerAt[[2]int{pos.Line, pos.Column}] = true
-	}, scanner.ScanComments)
+	}, scanner.ScanComments|scanner.Phase10Syntax)
 	for {
 		if _, tok, _ := s.Scan(); tok == token.EOF {
 			break
@@ -818,7 +818,7 @@ func (c *checkCommand) parserErrorsOf(name string) *fileErrors {
 			fe.parser[k] = true
 		}
 	}
-	_, err = parser.ParseFile(token.NewFileSet(), name, src, parser.ParseComments)
+	_, err = parser.ParseFile(token.NewFileSet(), name, src, parser.ParseComments|parser.Phase10Syntax)
 	if errors.As(err, &list) {
 		for _, e := range list {
 			if k := (errorAt{e.Pos.Filename, e.Pos.Line, e.Pos.Column, e.Msg}); fe.parser[k] {

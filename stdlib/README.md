@@ -134,7 +134,7 @@ Don't edit a stub by hand: the tests fail when a stub is not what the tool write
   `gocpp fmt`; the stubs type-check with go/types with 0 errors; and the target programs in
   `examples/` type-check against them with 0 errors, after the header and namespace rewrites of
   `internal/load` for the files that import headers. `macros` and `must-errors` are skipped,
-  because their syntax (`macro`, `#Name(...)`, `F!(...)`) parses only from Phase 10.
+  because their syntax (`macro`, `#Name(...)`, `F!(...)`) needs gocpp's parser mode and the rewrites of `internal/check`, not stock go/types (the tests of `internal/check` check them).
 
 ## Later phases
 

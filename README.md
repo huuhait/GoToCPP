@@ -59,6 +59,10 @@ under way: the build cache and the build modes are next). What works today:
   errors like `go build` (`gocpp check ./...`; `gocpp check -h`). Features of later phases get a
   "not supported yet (Phase NN)" error; [docs/spec/feature-matrix.md](docs/spec/feature-matrix.md)
   lists them.
+- `!` (must), must functions, macros (`macro`, `lazy`, `#Name(...)`, `#file()`, `#line()`, `#func()`,
+  `#text()`, `#body()`, `#embed()`), `#Derive` and `//go:embed` are always on: every command
+  accepts them, and no environment variable is needed ([docs/spec/language.md](docs/spec/language.md#d12-must-for-errors),
+  [examples/macros](examples/macros/main.gp), [examples/must-errors](examples/must-errors/main.gp)).
 - `gocpp expand` prints the plain Go that the macros, `#Derive` lines and `!` forms of a package
   stand for, so you can see what the compiler does ([docs/guides/expand.md](docs/guides/expand.md);
   `gocpp expand -h`).

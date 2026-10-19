@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // The rules for declaring a macro (step 10.9). Each is checked where the macro is declared.
 

@@ -84,5 +84,6 @@ order for `#func()`, where Go numbers them in initialization order; and for a fo
 ## In the tools
 
 `gocpp fmt` keeps these macros as written, and the generated C++ keeps the line of each use for the
-debugger and the C++ compiler's messages. Before Phase 10 is finished these macros and
-`//go:embed` are gated: `gocpp` says "macros are not supported yet (Phase 10)".
+debugger and the C++ compiler's messages. These macros, `//go:embed` and `import _ "embed"` are always
+available: there is no phase gate for them ([ADR-095](../adr/095-must-and-macros-are-always-available.md)). Only
+`embed.FS` waits for `io/fs` (Phase 09).

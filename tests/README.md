@@ -51,6 +51,16 @@ to that phase instead (`GOCPP_TEST_PHASE=01 go test ./tests/...`), and gocpp acc
 test's own phase in it (`GOCPP_GATE_PHASE`, below). A missing or malformed phase
 line fails the test, and so does any other malformed line, even in a test that is skipped.
 
+The syntax and the meaning of `!` (must), macros (`macro`, `lazy`, `#Name(...)`, `#file()` and the other
+built-ins), `#Derive` and `//go:embed` have no phase gate (step 10.12,
+[ADR-095](../docs/adr/095-must-and-macros-are-always-available.md)), so a test of them does not say
+`// phase: 10`. Its line names the latest gate that its program meets: `// phase: 05` for a program that uses only
+what the finished phases have (it runs in a plain `go test ./tests`, with no `GOCPP_GATE_PHASE`), `// phase: 08` for one
+that starts goroutines or uses channels, `// phase: 09` for one that imports `strings`, `os`, `strconv` and the other
+packages of Phase 09. To find the line of a new test, run `gocpp check -e` on it at each phase
+(`GOCPP_GATE_PHASE=NN`): the line is the latest phase named in a "not supported yet (Phase NN)" or "not available yet
+(Phase NN)" error. `// phase: 10` stays for a test that needs something else of Phase 10 (`errors.Trace`).
+
 A test is also skipped, with a message, when:
 - it has a `// zoneinfo: required` line (run tests: a program that loads time zones by name with `time.LoadLocation`) and the machine has no time zone database with `America/New_York`, `Europe/Berlin` and `Asia/Kolkata` (the `ZONEINFO` variable, else `/usr/share/zoneinfo`, `/usr/share/lib/zoneinfo`, `/usr/lib/locale/TZ`, `/etc/zoneinfo`);
 - it has a `// pending: reason` line (below the phase line; allowed in run, diff, interop and pkgs tests and in

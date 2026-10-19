@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 // ExitCode: 2
 // Stderr: (?m)^panic: .*num "z": bad
 

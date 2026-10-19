@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 08
 
 // Macros on top of functions, wrap style (step 10.9): a macro that uses #body() gets the function's
 // code and decides how it runs: once (VM), under recover (Recover), on another goroutine

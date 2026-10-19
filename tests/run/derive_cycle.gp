@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 // lsan: cycle
 
 // Types that refer to themselves, and what the generators do not do about references (step

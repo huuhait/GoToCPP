@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 08
 
 // Macros used inside macros (step 10.9): #file(), #line() and #func() describe the outermost use,
 // the code that the programmer wrote, while #text(param) is the text of the innermost use. A lazy

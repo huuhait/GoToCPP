@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // The errors of go/types about the stubs of #Derive (step 10.10), in the words of the #Derive line:
 // the methods exist before the types are checked, so a type that cannot have them is found by go/types.

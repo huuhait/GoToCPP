@@ -25,9 +25,9 @@ import (
 
 // ParseFull is the parse mode of the files that the features look at: with
 // comments and all the syntax errors, as gocpp check parses them. It has the
-// syntax of Phase 10 (F!(x), func f!(), #Name, macro) on: it changes nothing
-// for a file without it, and the features can then look at a file that uses
-// it (the gates of internal/check say when the syntax is not allowed yet).
+// syntax of Phase 10 (F!(x), func f!(), #Name, macro) on, as the loader has it
+// always (ADR-095): it changes nothing for a file without it, and the features
+// can look at a file that uses it.
 const ParseFull = parser.ParseComments | parser.AllErrors | parser.Phase10Syntax
 
 // A ParsedFile is a file as the parser left it, shared by every snapshot in

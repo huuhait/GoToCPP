@@ -21,7 +21,7 @@ tour/08-stdlib.md | 8 The standard library (experimental)
 tour/09-cpp-containers.md | 9 C++ containers
 tour/10-c-libraries.md | 10 C libraries
 tour/11-must-functions.md | 11 Must functions (experimental)
-tour/12-macros.md | 12 Macros (experimental)
+tour/12-macros.md | 12 Macros
 tour/13-next.md | 13 Where to go next
 
 # Interop

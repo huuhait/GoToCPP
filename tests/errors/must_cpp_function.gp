@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // ! works on Go functions whose last result is error. A C or C++ function does not return a Go
 // error, and the compiler says so.

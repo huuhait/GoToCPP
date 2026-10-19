@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 08
 
 // Macros on top of functions, start style (step 10.9): the call becomes the first statement of the
 // function; a func() it returns is deferred (unless it is nil), so it runs when the function ends,

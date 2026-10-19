@@ -68,7 +68,7 @@ Of gocpp's own:
 - **`reserved`**: a name that C++ reserves (`__x`, `a__b`, `_X`). gocpp writes it as it is, but
   a C++ header may define a macro with that name.
 
-Of gocpp's own, about `!` and macros (they work on the programs of Phase 10; a package without
+Of gocpp's own, about `!` and macros (they work on the programs with Phase 10 syntax, which needs no switch; a package without
 `!` and macros has nothing for them to find):
 
 - **`panicbang`**: a `!` that panics inside a library. What `!` does on an error depends on the

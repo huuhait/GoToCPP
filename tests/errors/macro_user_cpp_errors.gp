@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // A lazy parameter can not have a C or C++ type (step 10.9).
 

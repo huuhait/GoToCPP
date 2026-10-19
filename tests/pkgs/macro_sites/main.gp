@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // The built-in macros across the packages of a module (Phase 10 step 10.8): #file() is the path
 // from the module root, #func() has the import path of its package, #embed and //go:embed read

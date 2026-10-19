@@ -752,7 +752,8 @@ func TestCheckWarning(t *testing.T) {
 // phase gate errors of each example at Phase 02. gocpp check reports the
 // ones of the phases after version.Phase (and not lifted earlier, see
 // examplePhase), so it keeps those (internal/check's TestGateExamples checks
-// that this is what each phase reports); all keeps every line. It maps each example to its error lines, as check prints them
+// that this is what each phase reports); all keeps every line. A line that is no gate error (the example that waits
+// for a step, its error hides the gates: maskedExamples in internal/check) is always kept. It maps each example to its error lines, as check prints them
 // for the example's folder (win32 for windows/amd64).
 func examplesGates(t *testing.T, all ...bool) map[string][]string {
 	t.Helper()
@@ -767,7 +768,7 @@ func examplesGates(t *testing.T, all ...bool) map[string][]string {
 		if n, ok := strings.CutPrefix(line, "== "); ok {
 			name = n
 			gates[name] = []string{}
-		} else if line != "" && name != "" && (len(all) > 0 || examplePhase(t, line) > version.Phase) {
+		} else if line != "" && name != "" && (len(all) > 0 || !exampleGateRx.MatchString(line) || examplePhase(t, line) > version.Phase) {
 			gates[name] = append(gates[name], line)
 		}
 	}
@@ -1418,5 +1419,23 @@ func TestCheckTarget(t *testing.T) {
 				t.Errorf("GOOS=%s GOARCH=%s gocpp check .:\n%s\nwant exit %d and stderr %q", c.goos, c.goarch, show(r), c.code, c.stderr)
 			}
 		})
+	}
+}
+
+// TestCheckPhase10SyntaxErrors: a real syntax error in a file with the syntax of Phase 10 is reported once.
+// The check parses the file again to tell the parser's errors from the scanner's (parserErrorsOf), and
+// that parse must take the syntax of Phase 10 too, or it finds other errors than the loader and
+// misjudges them. A stray "# 3" is the scanner's error; `#include <stdio.h>` is one error, not a
+// comparison that goes on into the next lines.
+func TestCheckPhase10SyntaxErrors(t *testing.T) {
+	r := checkIn(t, map[string]string{"main.go": "package main\n\nfunc f!() {}\n\n# 3\n\nfunc main() {}\n"}, "check", "-e", "main.go")
+	want := result{1, "", "# command-line-arguments\n./main.go:5:1: illegal character U+0023 '#'\n"}
+	if r != want {
+		t.Errorf("stray #:\n%s\nwant:\n%s", show(r), show(want))
+	}
+	r = checkIn(t, map[string]string{"main.go": "package main\n\nimport \"fmt\"\n\n#include <stdio.h>\n\nfunc main() { fmt.Println() }\n"}, "check", "-e", "main.go")
+	want = result{1, "", "# command-line-arguments\n./main.go:5:1: expected a macro call on top of a declaration: #Name(...)\n"}
+	if r != want {
+		t.Errorf("#include:\n%s\nwant:\n%s", show(r), show(want))
 	}
 }

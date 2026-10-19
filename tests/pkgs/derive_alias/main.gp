@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // An alias to a composite type of another package, used by a file that does not import that package
 // (step 10.10): the generated code names the alias, not the type behind it.

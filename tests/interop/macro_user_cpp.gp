@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // User macros together with C and C++ values (step 10.9): the arguments of a line of macros on top of a
 // func and of a use inside code can name header packages and namespaces (math.sqrt, std.string); a generic

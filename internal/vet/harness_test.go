@@ -83,8 +83,7 @@ func loadDir(t testing.TB, root string, cfg load.Config, patterns ...string) *pr
 	cfg.Dir, cfg.Stdlib, cfg.GoStd = root, stdlib.FS(), stdlib.IsStd
 	cfg.GOOS, cfg.GOARCH = "linux", "amd64"
 	cfg.AllErrors = true
-	cfg.Tests = true         // like gocpp vet
-	cfg.Phase10Syntax = true // the gate phase is LastPhase (fakeProbeConfig)
+	cfg.Tests = true // like gocpp vet
 	prog := load.Load(cfg, patterns...)
 	res := check.Check(prog, fakeProbeConfig())
 	p := &program{dir: root, prog: prog, res: res}

@@ -89,14 +89,6 @@ type Config struct {
 	// the first 10 on different lines (gocpp check -e).
 	AllErrors bool
 
-	// Phase10Syntax parses with parser.Phase10Syntax: the `!` forms of
-	// Phase 10 (F!(x), func f!()), and the macro syntax (#Name, macro,
-	// lazy), which the parser makes stock go/ast nodes with marks (package
-	// gpast). The callers set it when the phase gates allow the features of
-	// Phase 10 (check.Config.Phase >= 10): before that, a file with such
-	// syntax is a syntax error, which the gates (internal/check) explain.
-	Phase10Syntax bool
-
 	// NoEmbedFiles makes //go:embed and #embed (step 10.8) check the
 	// directive and the pattern, but not read any file: the variable or the
 	// macro gets the empty string, and a missing file is no error. The
@@ -502,9 +494,9 @@ type File struct {
 	// rename and the hints take the user's own names only.
 	Synthetic map[*ast.Ident]bool
 	// Src is the text of the file, for the macro #text(x) (the text of
-	// an argument, step 10.8). It is set only when the loader parses the
-	// syntax of Phase 10 (Config.Phase10Syntax) and only for a file of a
-	// user package: it is nil otherwise. The caller must not change it.
+	// an argument, step 10.8). It is set only for a file of a user package
+	// (not the standard library): it is nil otherwise. The caller must not
+	// change it.
 	Src []byte
 }
 
@@ -1462,14 +1454,10 @@ func (l *loader) process(p *Package) {
 	}
 
 	for _, f := range p.Files {
-		if l.cfg.Phase10Syntax {
-			addOnTopUnresolved(f.AST) // macros.go: the lines of macros are not walked by the parser's resolver
-		}
+		addOnTopUnresolved(f.AST) // macros.go: the lines of macros are not walked by the parser's resolver
 		f.Rewrite = RewriteFile(l.fset, f.AST, f.Info, pkgLevel, l.dotNames(p, f.Info), p.Errors)
 	}
-	if l.cfg.Phase10Syntax {
-		l.builtinMacros(p) // builtins.go: #file, #line, #func, #text, #embed and //go:embed
-	}
+	l.builtinMacros(p) // builtins.go: #file, #line, #func, #text, #embed and //go:embed
 }
 
 // loadDep loads the package dep that the package on top of the stack
@@ -1754,16 +1742,15 @@ func (l *loader) parseMode() parser.Mode {
 	if l.cfg.AllErrors {
 		mode |= parser.AllErrors
 	}
-	if l.cfg.Phase10Syntax {
-		mode |= parser.Phase10Syntax
-	}
-	return mode
+	// The syntax of Phase 10 (F!(x), func f!(), #Name, macro, lazy) is always on
+	// (ADR-095): the parser makes stock go/ast nodes with marks (package gpast).
+	return mode | parser.Phase10Syntax
 }
 
-// keepSrc returns src for File.Src: the text of a file of a user package
-// when the loader parses the syntax of Phase 10, else nil.
+// keepSrc returns src for File.Src: the text of a file of a user package,
+// else nil.
 func (l *loader) keepSrc(p *Package, src []byte) []byte {
-	if l.cfg.Phase10Syntax && !p.Std {
+	if !p.Std {
 		return src
 	}
 	return nil

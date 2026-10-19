@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // A macro with a lazy parameter (step 10.9): Assert builds its message only when the assertion
 // fails. #file(), #line() and #text(cond) inside the macro describe the place and the text of the

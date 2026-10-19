@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 09
 
 // Macros together with the must operator `!` (step 10.9): a macro on top of a must function and of
 // main!, a must call inside a macro (a macro has no error result, so the error panics there), a macro

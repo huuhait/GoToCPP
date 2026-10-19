@@ -554,6 +554,71 @@ func TestLSPProfileUsage(t *testing.T) {
 	}
 }
 
+// TestLSPPhase10Syntax: the editor takes the syntax of Phase 10 (a must function and call, a macro with
+// a lazy parameter and its use) with no GOCPP_GATE_PHASE (step 10.12, ADR-095): no diagnostic at all for
+// the program, and for the same program with a `go` statement only the gate of Phase 08 (so the check
+// ran, and its gates are still there).
+func TestLSPPhase10Syntax(t *testing.T) {
+	const prog = `package main
+
+import "errors"
+
+macro Assert(cond lazy bool) {
+	if !cond() {
+		panic("assert")
+	}
+}
+
+func parse(s string) (int, error) {
+	if s == "" {
+		return 0, errors.New("empty")
+	}
+	return len(s), nil
+}
+
+func run!() int {
+	x := parse!("abc")
+	#Assert(x == 3)
+	return x
+}
+
+func main() {
+	println(run!())
+%s}
+`
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "gocpp.mod"), []byte("module example.com/p10\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diagnostics := func(src string) string {
+		file := filepath.Join(dir, "main.gp")
+		if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		uri := string(protocol.URIFromPath(file))
+		p := startLSPEnv(t, []string{"GOCPP_LSP_CACHE=off", "XDG_CACHE_HOME=" + t.TempDir(), "GOCPP_GATE_PHASE="})
+		p.send(lspInitialize)
+		p.read()
+		p.send(fmt.Sprintf(`{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":%q,"languageId":"gocpp","version":1,"text":%q}}}`, uri, src))
+		for {
+			body, err := p.out.Read()
+			if err != nil {
+				t.Fatalf("reading from gocpp lsp: %v; stderr:\n%s", err, p.stderr.String())
+			}
+			if strings.Contains(string(body), `"method":"textDocument/publishDiagnostics"`) {
+				return string(body)
+			}
+		}
+	}
+	if got := diagnostics(fmt.Sprintf(prog, "")); !strings.Contains(got, `"diagnostics":[]`) {
+		t.Errorf("the program with !, a macro and a use: %s", got)
+	}
+	got := diagnostics(fmt.Sprintf(prog, "\tgo func() {}()\n"))
+	if !strings.Contains(got, "go statements are not supported yet (Phase 08)") || strings.Contains(got, "Phase 10") {
+		t.Errorf("with a go statement: %s", got)
+	}
+}
+
 // TestLSPGatePhase: gocpp lsp has the phase gates of gocpp check (a feature
 // of a later phase is an error), and GOCPP_GATE_PHASE opens them, like it
 // does for check.

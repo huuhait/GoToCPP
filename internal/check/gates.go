@@ -114,12 +114,6 @@ const (
 	featFormatMore
 	featFormatDynamic
 
-	// Phase 10.
-	featMustCalls
-	featMustFuncs
-	featMacros
-	featGoEmbed
-
 	// Phase 12.
 	featPromotedCpp
 	featPromotedCppShadow
@@ -344,19 +338,6 @@ var features = [numFeatures]feature{
 		Detect: "a format argument of fmt.Printf, Sprintf or Errorf without a constant value",
 		Notes:  "From Phase 05 `fmt` checks nothing at compile time: a bad verb prints Go's error form at run time."},
 
-	{id: featMustCalls, Name: "must calls", Plural: true, Phase: 10,
-		Detect: "a syntax error in a file with name!( or name![ (a name right before !)",
-		Notes:  "`F!(...)` (divergence D12)."},
-	{id: featMustFuncs, Name: "must functions", Plural: true, Phase: 10,
-		Detect: "a syntax error in a file with func name!",
-		Notes:  "`func f!()` (divergence D12)."},
-	{id: featMacros, Name: "macros", Plural: true, Phase: 10,
-		Detect: "a syntax error in a file with #Name or a package-level macro Name",
-		Notes:  "`macro` declarations with `lazy` parameters, and `#Name(...)` uses, `#body()` and the other built-in macros (divergence D13)."},
-	{id: featGoEmbed, Name: "//go:embed", Phase: 10,
-		Detect: "a //go:embed line",
-		Notes:  "Comes with `#embed(...)`."},
-
 	{id: featPromotedCpp, Name: "promoted fields and methods of several embedded C/C++ types", Plural: true, Phase: 12,
 		Detect: "a selector that go/types can't find, on a struct that embeds more than one C/C++ type (one is fine: check/promoted.go)",
 		Notes:  "A struct that embeds one C/C++ type has its members promoted from Phase 05 (`mv.push_back(1)` for `std.vector[int]`). With several, check can't tell which one has the member: name the field, `mv.vector.push_back(1)`."},
@@ -441,6 +422,7 @@ const otherStdPhase = 9
 var stdPackages = []stdPackage{
 	{Path: "fmt", Phase: 2, Rest: 9, Notes: "`Print`, `Println` and `Printf` with basic values from Phase 02; from Phase 05 every value and verb, the `Fprint` functions for `os.Stdout`, `os.Stderr` and a `fmt.State`, `Append`, `Errorf`, `Stringer`, `Formatter` and the other interfaces; see the table of members below. The rest (`Sscan` and friends) comes with Go's `fmt` in Phase 09."},
 	{Path: "unsafe", Phase: 3, Rest: 4, Notes: "`Sizeof`, `Alignof` and `Offsetof` from Phase 03, the rest (`unsafe.Pointer`, `Slice`, `String`, …) from Phase 04. `unsafe.Pointer` keeps gocpp memory alive (divergence D16)."},
+	{Path: "embed", Phase: 10, Since: 5, Notes: "Always available for `//go:embed` on `string` and `[]byte` variables and for `#embed(...)` (step 10.8, ADR-095). `embed.FS` needs `io/fs` (Phase 09) and is an error until then."},
 	{Path: "weak", Phase: 3, Notes: "`weak.Pointer[T]` is a compiler intrinsic, exempt from the generics gate."},
 	{Path: "errors", Phase: 5, Notes: "Go's own package since step 9.4a (ported by `tools/portstd`; `As` and `Is` use three natives over the type descriptors, as in step 5.7, not the reflect subset)."},
 	{Path: "runtime", Phase: 8, Notes: "`runtime.Error`, `PanicNilError`, `TypeAssertionError`, `Gosched`, `NumGoroutine`, `GOMAXPROCS`, `NumCPU`, `Goexit`, `LockOSThread`, `Caller`, `Callers`, `CallersFrames`, `FuncForPC`, `Stack`, `GC`, `ReadMemStats`, `Version`, `GOOS`, `GOARCH`, `KeepAlive` and `SetFinalizer` from Phase 08 (step 8.10). Each goroutine has a thread of its own, so `LockOSThread` does nothing and `Gosched` only yields the CPU. Memory is reference counted: `GC` does nothing and a finalizer never runs. The profiles, traces and `AddCleanup` are not built; stdlib/runtime/PORT.md lists them."},
@@ -476,7 +458,6 @@ var stdPackages = []stdPackage{
 	{Path: "unicode/utf16", Phase: 9},
 	{Path: "math", Phase: 9},
 	{Path: "math/bits", Phase: 9},
-	{Path: "embed", Phase: 10, Notes: "With `//go:embed` and `#embed(...)`."},
 	{Path: "go/...", Phase: Never, Notes: "`go/ast`, `go/types` and the other packages about Go source are not planned."},
 	{Path: "net/http", Phase: Never, Notes: "Not planned: use a C or C++ HTTP library through a header import."},
 	{Path: "plugin", Phase: Never, Notes: "gocpp builds one native binary (divergence D6)."},

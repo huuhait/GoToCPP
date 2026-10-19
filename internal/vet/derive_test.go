@@ -41,7 +41,7 @@ func main() {
 			t.Fatal(err)
 		}
 	}
-	p := loadDir(t, root, load.Config{Phase10Syntax: true})
+	p := loadDir(t, root, load.Config{})
 	rep := p.vet(t, "copylocks")
 	var got []string
 	for _, f := range rep.Findings {

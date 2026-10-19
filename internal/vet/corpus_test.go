@@ -19,7 +19,7 @@ import (
 // the program has errors (an error test, or a feature of a later phase).
 func sweepFile(t *testing.T, file string, force bool) (*Report, bool) {
 	dir := filepath.Dir(file)
-	prog := load.Load(load.Config{Dir: dir, Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: "linux", GOARCH: "amd64", AllErrors: true, Phase10Syntax: true}, file)
+	prog := load.Load(load.Config{Dir: dir, Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: "linux", GOARCH: "amd64", AllErrors: true}, file)
 	res := check.Check(prog, fakeProbeConfig())
 	if prog.Errors.HasErrors() {
 		return nil, false

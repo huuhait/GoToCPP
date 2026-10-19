@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // //go:embed on an embed.FS is not available until Phase 09 has io/fs (Phase 10 step 10.8): string and
 // []byte variables work.

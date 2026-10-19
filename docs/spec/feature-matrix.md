@@ -31,6 +31,16 @@ string, conversions between number types, the built-in functions
 `fmt.Printf` as statements, with values of basic types (`fmt.Printf` with the verbs
 `%v %d %s %t %f %%`).
 
+## Always available (Phase 10)
+
+The syntax and the meaning of these have no gate and no row below, at every phase and in every command
+(`check`, `build`, `run`, `test`, `vet`, `expand`, `fmt`, `lsp`), with no `GOCPP_GATE_PHASE`
+([ADR-095](../adr/095-must-and-macros-are-always-available.md)): `!` (must) calls and must functions
+(divergence D12), macros with `lazy` parameters and the built-in `#file()`, `#line()`, `#func()`, `#text()`, `#body()`, `#embed()`
+(D13, D18), `#Derive(String, Equal, Clone)`, and `//go:embed` on `string` and `[]byte` variables
+(the `embed` row below). What such a program uses from the later phases is still gated by those phases
+(a must function that imports `strings` needs Phase 09).
+
 ## Language features
 
 | Feature | Phase | Notes |
@@ -76,10 +86,6 @@ string, conversions between number types, the built-in functions
 | channels | 08 | Also `close`, and `range` over a channel. |
 | select statements | 08 |  |
 | test files | 09 | `_test.gp` files and `gocpp test`. |
-| must calls | 10 | `F!(...)` (divergence D12). |
-| must functions | 10 | `func f!()` (divergence D12). |
-| macros | 10 | `macro` declarations with `lazy` parameters, and `#Name(...)` uses, `#body()` and the other built-in macros (divergence D13). |
-| `//go:embed` | 10 | Comes with `#embed(...)`. |
 | promoted fields and methods of several embedded C/C++ types | 12 | A struct that embeds one C/C++ type has its members promoted from Phase 05 (`mv.push_back(1)` for `std.vector[int]`). With several, check can't tell which one has the member: name the field, `mv.vector.push_back(1)`. |
 | selectors that a Go member and a member of an embedded C/C++ type could both match (name the field) | 12 | In Go the shallowest member wins and the same depth is ambiguous, but check can't know the members of a C/C++ type, so it can't tell whether `s.x` is the Go field or the C++ member. Name the field: `s.epoint.x` or `s.Deep.Inner.x`. |
 | method expressions of promoted members of an embedded C/C++ type | 12 | `MV.size`, `(*MV).push_back` for a struct that embeds `std.vector[int]`. Use a func literal instead: `func(m MV) { m.size() }`. |
@@ -132,7 +138,7 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 | `unicode/utf16` | 09 |  |
 | `math` | 09 |  |
 | `math/bits` | 09 |  |
-| `embed` | 10 | With `//go:embed` and `#embed(...)`. |
+| `embed` | 10 (works from 05) | Always available for `//go:embed` on `string` and `[]byte` variables and for `#embed(...)` (step 10.8, ADR-095). `embed.FS` needs `io/fs` (Phase 09) and is an error until then. |
 | `go/...` | never | `go/ast`, `go/types` and the other packages about Go source are not planned. |
 | `net/http` | never | Not planned: use a C or C++ HTTP library through a header import. |
 | `plugin` | never | gocpp builds one native binary (divergence D6). |

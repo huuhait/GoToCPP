@@ -4,12 +4,11 @@ A macro is a function that runs when the program is compiled and gets the place 
 where it is used. It is type-checked where it is declared, not at every use. Macros are used inside
 code (`#Assert(...)`), on top of a function (`#Trace()`) and on top of a type (`#Derive(String)`).
 
-> **Experimental today.** Macros are phase 10. Run this lesson with
-> `GOCPP_GATE_PHASE=10 gocpp run .`. The program is not valid Go: `macro` and `#Name` are gocpp-only
-> syntax. `GOCPP_GATE_PHASE=10 gocpp expand .`
-> prints the plain Go that they stand for ([guide](../guides/expand.md)).
+> Macros need no switch: every gocpp command accepts them. The program is not valid Go: `macro` and
+> `#Name` are gocpp-only syntax. `gocpp expand .` prints the plain Go that they stand for
+> ([guide](../guides/expand.md)).
 
-<!-- program: 10 id=macros -->
+<!-- program: 05 id=macros -->
 ```go
 package main
 
@@ -63,13 +62,6 @@ ratio: 4
 enter main.ratio
 exit  main.ratio
 recovered: main.gp:31: assertion failed: b != 0: ratio(1, 0)
-```
-
-Without the switch the compiler refuses the program:
-
-<!-- rejected: macros -->
-```text
-./main.gp:7:1: macros are not supported yet (Phase 10)
 ```
 
 ## What to notice

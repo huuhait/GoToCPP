@@ -10,51 +10,38 @@ import (
 )
 
 // The tests of the built-in macros (#file, #line, #func, #text, #embed) and of //go:embed through
-// the gocpp commands (Phase 10 step 10.8): the phase gates, the errors of the directive (which
+// the gocpp commands (Phase 10 step 10.8): no phase gate (step 10.12), the errors of the directive (which
 // sit on the directive's own line, so an error test file can't hold their comments), the program
 // that a rebuild makes after an embedded file changed, a big file, the formatter, and the C++ of
 // a program without macros staying the same.
 
-// TestMacroGates: before Phase 10 the macros and //go:embed are errors that name the phase; at
-// Phase 10 they check.
-func TestMacroGates(t *testing.T) {
+// TestMacroNoGate: the built-in macros and //go:embed check at every phase, with no
+// GOCPP_GATE_PHASE (step 10.12, ADR-095).
+func TestMacroNoGate(t *testing.T) {
 	macro := map[string]string{"main.go": "package main\n\nfunc main() { println(#line()) }\n"}
 	embed := map[string]string{
 		"main.go": "package main\n\nimport _ \"embed\"\n\n//go:embed a.txt\nvar a string\n\nfunc main() { println(a) }\n",
 		"a.txt":   "x",
 	}
-	t.Run("macro before", func(t *testing.T) {
-		t.Setenv(gatePhaseEnv, "05")
-		r := checkIn(t, macro, "check", "main.go")
-		if r.code != 1 || !strings.Contains(r.stderr, "macros are not supported yet (Phase 10)") {
-			t.Errorf("exit %d:\n%s", r.code, show(r))
-		}
-	})
-	t.Run("embed before", func(t *testing.T) {
-		t.Setenv(gatePhaseEnv, "05")
-		r := checkIn(t, embed, "check", "main.go")
-		if r.code != 1 || !strings.Contains(r.stderr, "//go:embed is not supported yet (Phase 10)") {
-			t.Errorf("exit %d:\n%s", r.code, show(r))
-		}
-	})
-	t.Run("macro at 10", func(t *testing.T) {
-		t.Setenv(gatePhaseEnv, "10")
-		if r := checkIn(t, macro, "check", "main.go"); r.code != 0 {
-			t.Errorf("exit %d:\n%s", r.code, show(r))
-		}
-	})
-	t.Run("embed at 10", func(t *testing.T) {
-		t.Setenv(gatePhaseEnv, "10")
-		if r := checkIn(t, embed, "check", "main.go"); r.code != 0 {
-			t.Errorf("exit %d:\n%s", r.code, show(r))
-		}
-	})
+	for _, phase := range []string{"", "05", "10"} {
+		t.Run("macro "+phase, func(t *testing.T) {
+			t.Setenv(gatePhaseEnv, phase)
+			if r := checkIn(t, macro, "check", "main.go"); r.code != 0 {
+				t.Errorf("exit %d:\n%s", r.code, show(r))
+			}
+		})
+		t.Run("embed "+phase, func(t *testing.T) {
+			t.Setenv(gatePhaseEnv, phase)
+			if r := checkIn(t, embed, "check", "main.go"); r.code != 0 {
+				t.Errorf("exit %d:\n%s", r.code, show(r))
+			}
+		})
+	}
 }
 
 // TestGoEmbedDirectiveErrors: the errors of the //go:embed line, as the go command words them, at the
 // place where it reports them (the pattern, or the start of the line).
 func TestGoEmbedDirectiveErrors(t *testing.T) {
-	t.Setenv(gatePhaseEnv, "10")
 	const head = "package main\n\nimport _ \"embed\"\n\n"
 	tests := []struct {
 		name, src string
@@ -95,7 +82,6 @@ func TestGoEmbedDirectiveErrors(t *testing.T) {
 // TestEmbedRebuild: a changed embedded file changes the program at the next run (the C++ text holds
 // the bytes, so the object cache can't give the old object), also for a file that a pattern added.
 func TestEmbedRebuild(t *testing.T) {
-	t.Setenv(gatePhaseEnv, "10")
 	c := anyCXX(t)
 	t.Setenv("GOCPP_CXX", c.name)
 	t.Setenv("CXX", "")
@@ -137,7 +123,6 @@ func TestEmbedRebuild(t *testing.T) {
 // TestEmbedBigFile: three megabytes (the C++ compiler takes it as a string literal) arrive intact, as
 // a string and as a []byte.
 func TestEmbedBigFile(t *testing.T) {
-	t.Setenv(gatePhaseEnv, "10")
 	c := anyCXX(t)
 	t.Setenv("GOCPP_CXX", c.name)
 	t.Setenv("CXX", "")
@@ -163,7 +148,6 @@ func TestEmbedBigFile(t *testing.T) {
 
 // TestEmbedTooBig: a file over the limit is an error, not an out-of-memory in the C++ compiler.
 func TestEmbedTooBig(t *testing.T) {
-	t.Setenv(gatePhaseEnv, "10")
 	dir := inDir(t, map[string]string{
 		"main.gp": "package main\n\nimport _ \"embed\"\n\n//go:embed big.bin\nvar s string\n\nfunc main() { println(len(s)) }\n",
 	})
@@ -201,7 +185,6 @@ func TestMacroEmitUnchanged(t *testing.T) {
 // TestMacroEmitLines: the C++ of an expansion keeps the line of the use for the debugger and the
 // compiler's messages, and holds the constant.
 func TestMacroEmitLines(t *testing.T) {
-	t.Setenv(gatePhaseEnv, "10")
 	src := "package main\n\nfunc f() string { return #func() }\n\nfunc main() {\n\n\tprintln(#file(), #line(), f(), #text(a +\n\t\tb))\n}\n"
 	r := checkIn(t, map[string]string{"main.go": src}, "emit", "main.go")
 	if r.code != 0 {
@@ -216,7 +199,6 @@ func TestMacroEmitLines(t *testing.T) {
 
 // TestMacroFmt: gocpp fmt writes the built-in macros back as they are, and a second run changes nothing.
 func TestMacroFmt(t *testing.T) {
-	t.Setenv(gatePhaseEnv, "10")
 	src := "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(#file(),   #line(), #func(), #text(a+  b),\n\t\t#embed(\"a.txt\"))\n}\n"
 	inDir(t, map[string]string{"main.gp": src, "a.txt": "x"})
 	r := gocppRun("", false, "fmt", "-w", "main.gp")
@@ -238,7 +220,6 @@ func TestEmbedStampSeesNewFiles(t *testing.T) {
 	for _, tc := range []struct{ name, pattern string }{{"glob", "*.dat"}, {"folder", "dir"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			withOneCXX(t, func(t *testing.T, c testCXX) {
-				t.Setenv(gatePhaseEnv, "10")
 				t.Setenv("XDG_CACHE_HOME", t.TempDir())
 				cacheOn(t)
 				t.Setenv("GOCPP_NOUPTODATE", "")

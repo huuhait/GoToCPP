@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // The code of a function under a wrap macro keeps Go's own rules for its results (step 10.9): a
 // variable that hides a result, a bare return, return f() that forwards several values, a defer that

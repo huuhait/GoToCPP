@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // Package util declares macros for the packages that import it. Their bodies use util's private
 // names (note, calls), which the C++ code of a use in another package names with util's namespace.

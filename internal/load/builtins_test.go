@@ -31,7 +31,7 @@ func embedGoStd(path string) bool { return path == "embed" || goStd(path) }
 
 // macroConfig is the loader configuration of these tests.
 func macroConfig() Config {
-	return Config{Phase10Syntax: true, Stdlib: embedStd, GoStd: embedGoStd}
+	return Config{Stdlib: embedStd, GoStd: embedGoStd}
 }
 
 // loadMacros loads the module in files (a gocpp.mod is added unless there is
@@ -534,24 +534,6 @@ func TestEmbedSymlink(t *testing.T) {
 	want := "# example.com/app\n./main.gp:5:12: pattern link.txt: cannot embed irregular file link.txt\n"
 	if got := errorText(t, prog, root); got != want {
 		t.Errorf("errors:\n%s\nwant:\n%s", got, want)
-	}
-}
-
-// TestBuiltinMacrosOff: without the syntax of Phase 10 the loader leaves
-// everything alone: //go:embed is an ordinary comment.
-func TestBuiltinMacrosOff(t *testing.T) {
-	root := writeTree(t, map[string]string{
-		"gocpp.mod": "module example.com/app\n\ngocpp 0.1\n",
-		"main.gp":   embedHead + "//go:embed nope.txt\nvar a string\n\nfunc main() { println(a) }\n",
-	})
-	cfg := macroConfig()
-	cfg.Phase10Syntax = false
-	prog := loadIn(t, cfg, root, ".")
-	if got := errorText(t, prog, root); got != "" {
-		t.Errorf("errors: %s", got)
-	}
-	if got := printedFile(t, prog, prog.Roots[0], "main.gp"); strings.Contains(got, "= (") {
-		t.Errorf("expanded without the syntax:\n%s", got)
 	}
 }
 

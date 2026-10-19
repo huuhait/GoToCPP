@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 08
 
 // Where a macro can be used (step 10.9): in package-level initializers, in closures, goroutines,
 // loop headers, switch cases, composite literals, returns and method values; with the names

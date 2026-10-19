@@ -267,7 +267,7 @@ func TestExpandPackage(t *testing.T) {
 }
 
 // TestExpandErrors: the errors of the check are printed like gocpp check's, with exit status 1 and
-// nothing on standard output; a gate that is closed is an error too.
+// nothing on standard output; the Phase 10 forms have no gate.
 func TestExpandErrors(t *testing.T) {
 	const bad = "package main\n\nfunc f!() int {\n\treturn 1\n}\n\nfunc main() { var s string = 1; _ = s }\n"
 	r := expandIn(t, map[string]string{"main.gp": bad}, "main.gp")
@@ -286,12 +286,14 @@ func TestExpandErrors(t *testing.T) {
 	if r.code != 1 || r.stdout != "" || r.stderr == "" {
 		t.Errorf("missing file: %d %q\n%s", r.code, r.stdout, r.stderr)
 	}
-	// A closed gate: Phase 10 forms are errors, as for gocpp check.
+	// No gate: the Phase 10 forms expand at every phase (step 10.12, ADR-095), with no environment.
 	inDir(t, map[string]string{"main.gp": "package main\n\nfunc main() { println(#line()) }\n"})
-	t.Setenv(gatePhaseEnv, "05")
-	r = gocppRun("", false, "expand", "main.gp")
-	if r.code != 1 || r.stdout != "" || !strings.Contains(r.stderr, "macros are not supported yet (Phase 10)") {
-		t.Errorf("gate: %d %q\n%s", r.code, r.stdout, r.stderr)
+	for _, phase := range []string{"", "05"} {
+		t.Setenv(gatePhaseEnv, phase)
+		r = gocppRun("", false, "expand", "main.gp")
+		if r.code != 0 || !strings.Contains(r.stdout, "println(3)") {
+			t.Errorf("phase %q: %d %q\n%s", phase, r.code, r.stdout, r.stderr)
+		}
 	}
 }
 
@@ -416,7 +418,7 @@ func TestExpandRunsAsGo(t *testing.T) {
 		}
 		name := strings.TrimSuffix(filepath.Base(path), ".gp")
 		text := string(src)
-		if !strings.HasPrefix(text, "// phase: 10") && !strings.Contains(text, "!(") && !strings.Contains(text, "#") {
+		if !phase10Rx.MatchString(text) {
 			continue
 		}
 		t.Run(name, func(t *testing.T) {
@@ -676,7 +678,7 @@ func TestExpandKeepsComments(t *testing.T) {
 			t.Fatal(err)
 		}
 		text := string(src)
-		phase10 := strings.HasPrefix(text, "// phase: 10")
+		phase10 := phase10Rx.MatchString(text) // the programs with the syntax of Phase 10 (their phase line names the latest gate they meet since step 10.12)
 		if !phase10 && os.Getenv("GOCPP_EXPAND_SWEEP") != "1" && (i%9 != 0 || testing.Short()) {
 			continue
 		}
@@ -838,6 +840,10 @@ func TestApplyEdits(t *testing.T) {
 		}
 	}
 }
+
+// phase10Rx finds the syntax of Phase 10 in a program: a name with a ! right before ( or [, a macro use #Name, or a macro
+// declaration. It looks at the text, so it may find one in a string or a comment: that only makes the sweep run a program more.
+var phase10Rx = regexp.MustCompile(`(?m)\w![(\[]|#[A-Za-z_]|^macro \w`)
 
 // declNames returns the names of the declarations of a program: functions (methods with their receiver),
 // types, variables and constants, without the ! and the # of the macros and the must functions.

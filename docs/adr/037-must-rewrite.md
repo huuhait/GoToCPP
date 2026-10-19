@@ -1,6 +1,6 @@
 # ADR-037: `!` is a rewrite of the Go AST around go/types, and the lowerer sees plain Go
 
-Status: accepted (2026-10-18). Builds [ADR-013](013-must-errors.md) (what `!` means) with
+Status: accepted (2026-10-18); the Gate paragraph is superseded by [ADR-095](095-must-and-macros-are-always-available.md). Builds [ADR-013](013-must-errors.md) (what `!` means) with
 steps 10.2 to 10.6 of [Phase 10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md).
 It replaces the README's plan to lower the helper calls in the C++ lowerer (README §2.1 items 5
 to 7) with a rewrite of the Go AST. Everything the user sees (the rules of

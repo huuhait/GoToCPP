@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // Package dot is imported with a dot: its macros are used as #Twice(...).
 package dot

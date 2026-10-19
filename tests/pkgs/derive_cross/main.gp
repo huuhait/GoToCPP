@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // Derived methods across packages (step 10.10): the methods of a type of another package are
 // callable and are used by the generators of the packages that hold that type, also through an

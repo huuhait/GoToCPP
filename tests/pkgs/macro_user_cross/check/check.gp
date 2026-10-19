@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // Package check has macros that use macros of util: the place stays that of the outermost use.
 package check

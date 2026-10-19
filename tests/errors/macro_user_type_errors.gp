@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // What go/types says about macros (step 10.9), in the words of the macro: a macro is a function with
 // hidden parameters, and the messages name it as #Name.

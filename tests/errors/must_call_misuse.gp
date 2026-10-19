@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 09
 
 // What the compiler says about a `!` call that cannot work (step 10.3): the last result of the
 // callee must be exactly error (a *MyErr would turn a nil pointer into a non-nil error), the

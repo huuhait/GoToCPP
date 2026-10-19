@@ -11,8 +11,8 @@ gocpp expand [-full] [-tags list] [-os goos] [-arch goarch] [-color mode] [-exce
 The arguments are those of `gocpp check`: a folder, a list of `.gp` files, an import path, or a
 pattern with `...`; without arguments it takes the package in the current folder. It loads and
 checks the package like `gocpp check` does, and prints the errors the same way (exit status 1,
-nothing on standard output). Until the gates of Phase 10 are lifted (step 10.12), the macros and
-`!` need `GOCPP_GATE_PHASE=10`, as for `gocpp check`.
+nothing on standard output). The macros, `#Derive` and `!` are always available, like in every gocpp
+command: no environment variable opens them ([ADR-095](../adr/095-must-and-macros-are-always-available.md)).
 
 ## An example
 

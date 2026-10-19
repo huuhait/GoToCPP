@@ -29,15 +29,14 @@ import (
 
 // ParserMode is the mode in which gofmt parses: with the comments, and
 // without the deprecated object resolution, which only gofmt -r uses. gocpp
-// adds the syntax of Phase 10 (F!(x), func f!(), #Name(...), macro, lazy):
-// formatting doesn't need the phase gate that gocpp check has, and a file
-// with that syntax is formatted before the compiler accepts it, as a file
-// with interfaces is formatted before Phase 05 builds them.
+// adds the syntax of Phase 10 (F!(x), func f!(), #Name(...), macro, lazy),
+// which is always on in gocpp (ADR-095): the loader and the language server
+// parse it the same way.
 //
 // ParserMode is exported because everything that checks a formatted result
 // must parse it in the same mode (the language server's safety nets do);
-// it is the one place that says whether the syntax of Phase 10 is on for
-// tools that only format.
+// it is the one place that says how the tools that only format parse the
+// syntax of Phase 10.
 const ParserMode = parser.ParseComments | parser.SkipObjectResolution | parser.Phase10Syntax
 
 // errMacroOnTop is the error of the parser for lines of macros that are not

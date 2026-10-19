@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // Many wrap macros on one func (step 10.9): 3, 8 and 20 stacked on a func with no result, with unnamed and
 // with named results, and on a method. How many there can be does not depend on the layout of the

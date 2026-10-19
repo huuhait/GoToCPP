@@ -84,10 +84,10 @@ Three additions, each of them optional and each of them off unless you write the
 - **Macros** (`macro`, `#Assert(...)`, `#Derive(String)`) run at compile time and know the place
   and the text of their use ([tour 12](../tour/12-macros.md), [D13](../spec/language.md#d13-macros)).
 
-> **Experimental today.** The syntax of must functions and macros is phase 10, goroutines are phase 08
-> and the ported standard packages are phase 09. The compiler refuses a feature of a phase that is
-> not finished, with an error that names the phase. For your own development set
-> `GOCPP_GATE_PHASE` to the phase (`GOCPP_GATE_PHASE=10 gocpp run .` opens everything up to 10);
+> **Experimental today.** Goroutines are phase 08 and the ported standard packages are phase 09. The
+> compiler refuses a feature of a phase that is not finished, with an error that names the phase. For
+> your own development set `GOCPP_GATE_PHASE` to the phase (`GOCPP_GATE_PHASE=09 gocpp run .` opens
+> everything up to 09). The syntax of must functions and macros (phase 10) needs no switch;
 > `gocpp version` prints the last finished phase, and the [feature matrix](../spec/feature-matrix.md)
 > lists each feature with its phase. Typed interop (`GOCPP_TYPED_INTEROP=1`) is a separate
 > experimental switch: [typed interop](../spec/typed-interop.md).

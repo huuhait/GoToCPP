@@ -27,8 +27,8 @@ func main() {
 > **Status.** gocpp is built in phases, and the compiler refuses a feature whose phase is not
 > finished, with an error that names the phase. Phases 00 to 05 are finished (`gocpp version`
 > prints the last one); generics work from phase 05 on; goroutines (08), the ported standard
-> library (09) and must functions and macros (10) work and are behind `GOCPP_GATE_PHASE`. Pages
-> and lessons that need it say so. The [feature matrix](spec/feature-matrix.md) has every feature
+> library (09) work and are behind `GOCPP_GATE_PHASE`; must functions, macros and `#Derive` (10)
+> are always on. Pages and lessons that need the switch say so. The [feature matrix](spec/feature-matrix.md) has every feature
 > with its phase.
 
 ## Start here

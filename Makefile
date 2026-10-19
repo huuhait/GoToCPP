@@ -37,7 +37,9 @@ ci: export GOCPP_REQUIRE_WINE ?= 1
 # with a "// pending:" line and is skipped (GOCPP_TEST_PENDING=1 runs it). Raise
 # this when a later phase gets its first test. GOCPP_TEST_PHASE= make ci (empty)
 # runs only the finished phases. At 10 (steps 10.2 to 10.6, the ! operator) the tests of
-# Phase 09 and 10 that wait for unmerged steps carry the line.
+# Phase 09 and 10 that wait for unmerged steps carry the line. The ! forms, macros and
+# #Derive have no gate since step 10.12 (ADR-095): their tests name the latest gate they
+# meet, so those with phase 05 run in a plain `go test ./tests` too.
 CI_TEST_PHASE = 10
 test test-programs quick ci-sanitize ci-windows: export GOCPP_TEST_PHASE ?= $(CI_TEST_PHASE)
 

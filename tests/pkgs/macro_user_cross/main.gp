@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // Macros across packages (step 10.9): #util.Assert, a macro of another package, on top of
 // functions and inside code; lazy parameters of util's own types; generic macros instantiated in

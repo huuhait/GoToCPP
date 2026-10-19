@@ -347,13 +347,14 @@ func TestExamplesPending(t *testing.T) {
 	}
 }
 
-// TestExpandLessons: the lessons that point at gocpp expand use programs that it expands (with
-// the switch), so the sentence is true.
+// TestExpandLessons: the lessons that point at gocpp expand (the must and the macros lessons: `!` and
+// macros need no switch since step 10.12, the lesson's own switch is for the library it uses) use
+// programs that it expands, so the sentence is true.
 func TestExpandLessons(t *testing.T) {
 	bin := gocpp(t)
 	n := 0
 	for _, s := range programs(t) {
-		if s.phase != "10" || !strings.HasPrefix(s.doc, "tour/") {
+		if (s.id != "must" && s.id != "macros") || !strings.HasPrefix(s.doc, "tour/") {
 			continue
 		}
 		n++
@@ -366,6 +367,6 @@ func TestExpandLessons(t *testing.T) {
 		})
 	}
 	if n < 2 {
-		t.Errorf("%d phase 10 lessons", n)
+		t.Errorf("%d lessons with ! or macros", n)
 	}
 }

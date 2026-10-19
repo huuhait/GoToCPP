@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -380,33 +379,11 @@ func main() {
 	},
 		want: []string{"# command-line-arguments [command-line-arguments.test]", "./main_test.gp:1:1: test files are not supported yet (Phase 09)"}},
 
-	{name: "embed", phase: 10, src: "package main\n\nimport _ \"embed\"\n\nfunc main() {}\n",
-		// The package embed is the declaration stub since step 10.8: the gate is its phase.
-		want: []string{"3:10: package embed is not available yet (Phase 10)"}},
+	// The syntax and the semantics of Phase 10 (must calls and functions, macros,
+	// #Derive, //go:embed and the embed package for strings and byte slices) have no
+	// gate since step 10.12 (ADR-095): they check at every phase (TestPhase10Always).
 
 	// Phase 10.
-	{name: "must calls", phase: 10, src: "package main\n\nfunc f() (int, error) { return 0, nil }\n\nfunc main() {\n\tx := f!()\n\tprintln(x)\n\ty := f!()\n}\n",
-		want:   []string{"6:8: must calls are not supported yet (Phase 10)"},
-		wantAt: []string{"6:8: expected ';', found '!'", "9:3: expected '}', found 'EOF'"}},
-	{name: "must functions", phase: 10, src: "package main\n\nfunc run!() {}\n\ntype T int\n\nfunc (t *T) Start!() {}\n\nfunc main() {}\n",
-		want: []string{"3:9: must functions are not supported yet (Phase 10)"},
-		wantAt: []string{
-			"3:9: expected '(', found '!'",
-			"5:1: expected ')', found 'type'",
-			"7:18: missing ',' in parameter list",
-			"9:6: expected '(', found main",
-		}},
-	{name: "must calls/generic", phase: 10, src: main_("\tx := parse![int](\"1\")\n\t_ = x\n"),
-		want:   []string{"4:12: must calls are not supported yet (Phase 10)"},
-		wantAt: []string{"4:12: expected ';', found '!'", "6:3: expected '}', found 'EOF'"}},
-	{name: "macros", phase: 10, src: "package main\n\nmacro Twice(x int) int {\n\treturn x * 2\n}\n\nfunc main() {\n\tprintln(#Twice(2))\n}\n",
-		want:   []string{"3:1: macros are not supported yet (Phase 10)"},
-		wantAt: []string{"3:1: expected declaration, found macro", "8:10: illegal character U+0023 '#'"}},
-	{name: "macros/use", phase: 10, src: main_("\t#Dbg(1)\n"),
-		want:   []string{"4:2: macros are not supported yet (Phase 10)"},
-		wantAt: []string{"4:2: illegal character U+0023 '#'", "5:3: expected '}', found 'EOF'"}},
-	{name: "go:embed", phase: 10, src: "package main\n\n//go:embed hello.txt\nvar s string\n\nfunc main() {\n\tprintln(s)\n}\n",
-		want: []string{"3:1: //go:embed is not supported yet (Phase 10)"}},
 	{name: "errors.Trace", phase: 10, src: "package main\n\nimport \"errors\"\n\nfunc f() (err error) {\n\terrors.Trace(err)\n\treturn\n}\n\nfunc main() {\n\tf()\n}\n",
 		want:   []string{"6:9: errors.Trace is not available yet (Phase 10)"},
 		wantAt: []string{"6:9: undefined: errors.Trace"}},
@@ -604,88 +581,6 @@ func TestConfigPhase(t *testing.T) {
 	}
 }
 
-func TestPhase10Syntax(t *testing.T) {
-	for _, tc := range []struct {
-		src  string
-		want string // feature@offset, separated by spaces
-	}{
-		{"x := f!(1)", "must calls@6"},
-		{"x := os.ReadFile!(p)", "must calls@16"},
-		{"x := parse![int](s)", "must calls@10"},
-		{"func f!() {}", "must functions@6"},
-		{"func (s *S) Start!() {}", "must functions@17"},
-		{"func f() {}\nfunc g() { f!() }", "must calls@24"},
-		{"#Trace()\nfunc f() {}", "macros@0"},
-		{"func f() { x := #Dbg(1) }", "macros@16"},
-		{"macro Assert(c bool) {}", "macros@0"},
-		{"package p\n\nmacro M() {}\nfunc f!() { g!() }", "must calls@37 must functions@30 macros@11"},
-		// Go code.
-		{"if !ok { x = !y }", ""},
-		{"x := a != b", ""},
-		{"x := f(!b)", ""},
-		{"x := a[!b]", ""},
-		{"if! (a) {}", ""},
-		{"x := y ! (z)", ""},
-		{"s := \"#x\" // #y\nr := '#'", ""},
-		{"type T struct {\n\tmacro int\n}", ""},
-		{"func f() {\n\tmacro := 1\n\tmacro = 2\n}", ""},
-		{"func f(macro int) {}", ""},
-		{"func f() { println(#func(), #file()) }", "macros@19"},
-		{"func f() { #util.Assert(true) }", "macros@11"},
-		{"func f() { defer x.Close!() }", "must calls@24"},
-		{"func parse![T any](s string) T {}", "must functions@10"},
-		{"x := F[int]!(y)", ""},
-	} {
-		var got []string
-		for _, u := range phase10Syntax([]byte(tc.src)) {
-			got = append(got, fmt.Sprintf("%s@%d", features[u.id].Name, u.offset))
-		}
-		if strings.Join(got, " ") != tc.want {
-			t.Errorf("%q: got %q, want %q", tc.src, strings.Join(got, " "), tc.want)
-		}
-	}
-}
-
-// TestPhase10SyntaxGoCode checks that phase10Syntax finds nothing in Go
-// code: the Go source of the dev shell's Go, the stubs and the programs of
-// tests/diff.
-func TestPhase10SyntaxGoCode(t *testing.T) {
-	var roots []string
-	if out, err := exec.Command("go", "env", "GOROOT").Output(); err == nil {
-		roots = append(roots, filepath.Join(strings.TrimSpace(string(out)), "src"))
-	} else {
-		t.Logf("no Go source: go env GOROOT: %v", err)
-	}
-	roots = append(roots, "../../stdlib", "../../tests/diff")
-	n := 0
-	for _, root := range roots {
-		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() && d.Name() == "testdata" {
-				return filepath.SkipDir
-			}
-			if d.IsDir() || !strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, ".gp") {
-				return nil
-			}
-			src, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-			n++
-			if uses := phase10Syntax(src); len(uses) > 0 {
-				t.Errorf("%s: %s at offset %d", path, features[uses[0].id].Name, uses[0].offset)
-			}
-			return nil
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	t.Logf("%d files", n)
-}
-
 // The examples: testdata/gates/examples.txt has the gate errors of each
 // example at Phase 02 (with -update-gates, the test writes it).
 const examplesFile = "testdata/gates/examples.txt"
@@ -793,9 +688,16 @@ func exampleErrors(t *testing.T, dir string, phase int, tests bool) []string {
 	return lines
 }
 
+// maskedExamples are the examples with an error that is no gate and that stays until a step lands (their
+// pending: line); the error hides the gates (step 10.12: examples/macros uses #Derive(JSON), which waits
+// for encoding/json, step 9.11). Its phase line (09) is the latest gate once the error is gone.
+var maskedExamples = map[string]string{
+	"macros": "./main.gp:77:9: #Derive(JSON) is not available yet: it needs encoding/json, which is a declaration stub until step 9.11",
+}
+
 // TestGateExamples checks the 19 examples: at each phase from 02 to 15,
 // they give exactly the gate errors of examples.txt whose phase is later
-// (and the macro examples, from Phase 10 on, only their syntax errors);
+// (the macro example: the one error of maskedExamples);
 // the latest gate of each example is the phase it is tagged with (its
 // phase: line); with their tests, wc and grep-lite need Phase 09.
 func TestGateExamples(t *testing.T) {
@@ -852,6 +754,19 @@ func TestGateExamples(t *testing.T) {
 			if !ok {
 				t.Fatalf("not in %s (run with -update-gates)", examplesFile)
 			}
+			if msg, masked := maskedExamples[name]; masked {
+				// A real error that the example has until a step lands (its pending: line) hides every
+				// gate: the checker doesn't check a package with such an error. It is the same at each phase.
+				if !slices.Equal(all, []string{msg}) {
+					t.Errorf("%s has\n%s\nwant the one error %s", examplesFile, strings.Join(all, "\n"), msg)
+				}
+				for phase := floorPhase; phase <= LastPhase; phase++ {
+					if got := exampleErrors(t, dir, phase, false); !slices.Equal(got, all) {
+						t.Errorf("Phase %02d: got\n%s\nwant\n%s", phase, strings.Join(got, "\n"), msg)
+					}
+				}
+				return
+			}
 			latest := floorPhase
 			for _, l := range all {
 				p := gatePhase(l)
@@ -883,9 +798,7 @@ func TestGateExamples(t *testing.T) {
 				if !slices.Equal(gates, wantGates) {
 					t.Errorf("Phase %02d: got gate errors\n%s\nwant\n%s", phase, strings.Join(gates, "\n"), strings.Join(wantGates, "\n"))
 				}
-				// Only the syntax of Phase 10 can't be parsed yet: from
-				// Phase 10 on, the macro examples have syntax errors.
-				if wantOthers := laterSyntax[name] && phase >= 10; wantOthers != (len(others) > 0) {
+				if len(others) > 0 {
 					t.Errorf("Phase %02d: other errors:\n%s", phase, strings.Join(others, "\n"))
 				}
 			}
@@ -906,23 +819,6 @@ func TestGateExamples(t *testing.T) {
 		}
 		if err := os.WriteFile(examplesFile, []byte(golden.String()), 0o644); err != nil {
 			t.Fatal(err)
-		}
-	}
-}
-
-// TestGateExamplesAllErrors checks that the gate errors of the macro
-// examples replace all their syntax errors also with load.Config.AllErrors
-// (gocpp check -e).
-func TestGateExamplesAllErrors(t *testing.T) {
-	for name := range laterSyntax {
-		dir, err := filepath.Abs(filepath.Join("../../examples", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		for line := range strings.Lines(checkAt(t, load.Config{AllErrors: true}, dir, floorPhase, ".")) {
-			if !strings.HasPrefix(line, "# ") && gatePhase(strings.TrimSuffix(line, "\n")) != 10 {
-				t.Errorf("%s: %s", name, line)
-			}
 		}
 	}
 }
@@ -1039,21 +935,6 @@ func TestGatesPromotedEveryUse(t *testing.T) {
 	}
 }
 
-// TestGatesSyntaxErrorBeforeMacro checks that a syntax error before the
-// first Phase 10 syntax of a file stays.
-func TestGatesSyntaxErrorBeforeMacro(t *testing.T) {
-	dir := writeTree(t, map[string]string{"main.gp": "package main\n\nfunc helper() { x := }\n\nmacro M() {}\n\nfunc main() {\n\t#M()\n}\n"})
-	want := errorLines([]string{
-		"3:22: expected operand, found '}'",
-		"5:1: macros are not supported yet (Phase 10)",
-	})
-	for _, all := range []bool{false, true} {
-		if got := checkAt(t, load.Config{AllErrors: all}, dir, floorPhase, "."); got != want {
-			t.Errorf("AllErrors %v: got:\n%s\nwant:\n%s", all, got, want)
-		}
-	}
-}
-
 // TestGatesPromotedTypeNames checks promoted members of a type name
 // declared with a C++ type, embedded directly, through a pointer and
 // through another alias: with one embedded C++ type they are promoted (no
@@ -1075,5 +956,71 @@ func TestGatesPromotedTypeNames(t *testing.T) {
 	}
 	if w := errorLines(want); got != w {
 		t.Errorf("two embedded C++ types:\ngot:\n%s\nwant:\n%s", got, w)
+	}
+}
+
+// TestPhase10Always checks that the syntax and the semantics of Phase 10 have no gate (step 10.12,
+// ADR-095): must calls and functions, macros of the three styles, a #Derive line, //go:embed and
+// #embed check without a gate error at the last finished phase (and at Phase 02, where only the
+// gates of the other features speak).
+func TestPhase10Always(t *testing.T) {
+	const src = `package main
+
+import (
+	_ "embed"
+	"errors"
+)
+
+//go:embed hello.txt
+var hello string
+
+macro Assert(cond lazy bool) {
+	if !cond() {
+		panic("assert")
+	}
+}
+
+#Derive(String)
+type T int
+
+const (
+	A T = iota
+	B
+)
+
+func parse(s string) (int, error) {
+	if s == "" {
+		return 0, errors.New("empty")
+	}
+	return len(s), nil
+}
+
+func run!() int {
+	x := parse!("abc")
+	#Assert(x == 3)
+	return x
+}
+
+func main() {
+	n := run!()
+	println(n, hello, #embed("hello.txt"), #file(), #line(), #func(), B.String())
+}
+`
+	dir := writeTree(t, map[string]string{"main.gp": src, "hello.txt": "hi\n"})
+	for _, phase := range []int{version.Phase, LastPhase} {
+		got := checkAt(t, load.Config{}, dir, phase, ".")
+		for l := range strings.Lines(got) {
+			if gatePhase(strings.TrimSuffix(l, "\n")) == 10 {
+				t.Errorf("Phase %02d: a gate of Phase 10: %s", phase, l)
+			}
+		}
+		if got != "" {
+			t.Errorf("Phase %02d: errors:\n%s", phase, got)
+		}
+	}
+	// A gate of another feature still speaks.
+	dir = writeTree(t, map[string]string{"main.gp": "package main\n\nfunc f() (int, error) { return 0, nil }\n\nfunc main() {\n\tx := f!()\n\tch := make(chan int)\n\t_, _ = x, ch\n}\n"})
+	if got := checkAt(t, load.Config{}, dir, 5, "."); !strings.Contains(got, "channels are not supported yet (Phase 08)") || strings.Contains(got, "must calls") {
+		t.Errorf("the channel gate:\n%s", got)
 	}
 }

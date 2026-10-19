@@ -59,7 +59,7 @@ func runParse(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 			exit = 1
 			continue
 		}
-		f, err := parser.ParseFile(fset, name, src, parser.ParseComments|parser.SkipObjectResolution)
+		f, err := parser.ParseFile(fset, name, src, parser.ParseComments|parser.SkipObjectResolution|parser.Phase10Syntax)
 		if err != nil {
 			scanner.PrintError(stderr, err)
 			exit = 1

@@ -61,7 +61,7 @@
 == hello
 
 == macros
-./main.gp:20:1: macros are not supported yet (Phase 10)
+./main.gp:77:9: #Derive(JSON) is not available yet: it needs encoding/json, which is a declaration stub until step 9.11
 
 == mixed-sources
 ./main.gp:13:2: package unsafe is not available yet (Phase 03)
@@ -106,8 +106,27 @@ catalog/catalog.gp:55:18: fmt.Errorf is not available yet (Phase 05)
 ./main.gp:50:12: built-in function append is not supported yet (Phase 03)
 
 == must-errors
-./main.gp:40:16: must functions are not supported yet (Phase 10)
-./main.gp:82:19: must calls are not supported yet (Phase 10)
+./main.gp:11:2: package bufio is not available yet (Phase 09)
+./main.gp:12:2: package errors is not available yet (Phase 05)
+./main.gp:14:2: package os is not available yet (Phase 05)
+./main.gp:15:2: package strconv is not available yet (Phase 09)
+./main.gp:16:2: package strings is not available yet (Phase 09)
+./main.gp:19:6: type declarations are not supported yet (Phase 03)
+./main.gp:19:13: composite types are not supported yet (Phase 03)
+./main.gp:26:49: error values are not supported yet (Phase 05)
+./main.gp:29:22: fmt.Errorf is not available yet (Phase 05)
+./main.gp:29:29: the format verb %q is not supported yet (Phase 03)
+./main.gp:41:2: defer is not supported yet (Phase 03)
+./main.gp:41:21: pointers are not supported yet (Phase 03)
+./main.gp:42:10: os.Open is not available yet (Phase 09)
+./main.gp:43:8: function values are not supported yet (Phase 03)
+./main.gp:43:10: os.File is not available yet (Phase 09)
+./main.gp:43:16: closures are not supported yet (Phase 03)
+./main.gp:88:13: os.ReadFile is not available yet (Phase 09)
+./main.gp:89:37: conversions between strings and bytes, runes or integers are not supported yet (Phase 03)
+./main.gp:104:34: panic with a value of a non-basic type is not supported yet (Phase 05)
+./main.gp:118:60: os.ErrNotExist is not available yet (Phase 09)
+./main.gp:124:13: width, precision and flags in format strings are not supported yet (Phase 03)
 
 == primes
 

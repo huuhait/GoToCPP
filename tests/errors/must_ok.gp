@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 09
 
 // Programs with ! that check without errors: every shape of Phase 10 that is allowed.
 package main

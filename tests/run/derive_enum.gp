@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // #Derive(String) on integer types with constants (step 10.10): the name of the constant, or
 // Type(n) for another value, as Go's stringer tool does. A value that two constants share gets the

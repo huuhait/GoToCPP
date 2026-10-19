@@ -47,7 +47,8 @@ lists every feature with its phase.
 | [7 Goroutines and channels](07-goroutines.md) | `GOCPP_GATE_PHASE=08` (experimental) |
 | [8 The standard library](08-stdlib.md) | `GOCPP_GATE_PHASE=09` (experimental) |
 | [9 C++ containers](09-cpp-containers.md) and [10 C libraries](10-c-libraries.md) | nothing: interop with C and C++ is finished (phase 04) |
-| [11 Must functions](11-must-functions.md) and [12 Macros](12-macros.md) | `GOCPP_GATE_PHASE=10` (experimental) |
+| [11 Must functions](11-must-functions.md) | `GOCPP_GATE_PHASE=09` (experimental: the lesson uses `strconv`; the `!` itself needs nothing) |
+| [12 Macros](12-macros.md) | nothing: `!`, macros and `#Derive` are always on (phase 10) |
 
 ## The lessons
 

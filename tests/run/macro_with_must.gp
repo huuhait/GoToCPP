@@ -1,4 +1,4 @@
-// phase: 10
+// phase: 05
 
 // The built-in macros together with the must operator `!` (Phase 10 step 10.8): both are rewrites, and a
 // macro in the arguments of a must call or inside a must function expands in place.

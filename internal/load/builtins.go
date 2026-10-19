@@ -50,7 +50,7 @@ import (
 // #body() a call of gp_body.
 
 // builtinMacros expands the built-in macros and //go:embed in the files of
-// p. It runs when the loader parses the syntax of Phase 10.
+// p. It always runs (the syntax of Phase 10 is always on, ADR-095).
 func (l *loader) builtinMacros(p *Package) {
 	if p.Std {
 		return // the standard library has none, and its files have no Src
