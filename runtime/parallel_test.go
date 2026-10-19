@@ -152,9 +152,15 @@ func extractRuntime(t *testing.T) string {
 	return rtDir
 }
 
+// atExit are the functions that TestMain calls after the tests (windows_test.go ends its server).
+var atExit []func()
+
 // TestMain removes the extracted runtime and the objects built in it at the end.
 func TestMain(m *testing.M) {
 	code := m.Run()
+	for _, f := range atExit {
+		f()
+	}
 	if rtDir != "" {
 		os.RemoveAll(rtDir)
 	}
@@ -177,7 +183,7 @@ var rtObjSets sync.Map // compiler path + flags -> *rtObjects
 // runtime together. If a file doesn't build, every call gets the same error, with the
 // compiler's messages (startBuilds reports it once for all the programs that got it).
 func (c cxx) runtimeObjects(rt string, more []string) ([]string, error) {
-	key := c.cc.Path + "\x00" + strings.Join(more, "\x00")
+	key := c.cc.Path + "\x00" + c.targetOS() + "\x00" + strings.Join(more, "\x00")
 	v, _ := rtObjSets.LoadOrStore(key, new(rtObjects))
 	r := v.(*rtObjects)
 	r.once.Do(func() {
@@ -186,7 +192,7 @@ func (c cxx) runtimeObjects(rt string, more []string) ([]string, error) {
 			r.err = err
 			return
 		}
-		srcs := rtfiles.Sources(runtime.GOOS)
+		srcs := rtfiles.Sources(c.targetOS())
 		r.objs = make([]string, len(srcs))
 		r.err = parallel(len(srcs), func(i int) error {
 			obj := filepath.Join(dir, fmt.Sprintf("%d.o", i))
@@ -331,7 +337,7 @@ func (c cxx) build(rt, src, outDir string, flags []string, weight int) buildResu
 	if err != nil || objsErr != nil {
 		return buildResult{own: err, shared: objsErr}
 	}
-	bin := filepath.Join(outDir, name)
+	bin := filepath.Join(outDir, name+c.exe())
 	args = append(c.flags(flags), obj)
 	args = append(args, objs...)
 	args = append(args, "-o", bin)

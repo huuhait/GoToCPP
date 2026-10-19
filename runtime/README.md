@@ -29,7 +29,7 @@ This is runtime v0 (Phase 02): the API shape is final, and every later phase gro
 | `src/select.cpp` | the `select` statement (Phase 08, step 8.5): Go's `selectgo` on the channel objects: a random poll order (a thread-local xorshift64*), the lock order by channel address (a channel in two cases is locked once), the first ready case, the default, and otherwise one `sudog` for each case with a shared claim flag and wake cell, `block_scope("select")`, park, and the clean-up of the entries that did not fire. Up to 16 cases need no allocation. Standard C++ only. Embedded |
 | `time.hpp`, `src/time.cpp`, `src/timer.cpp` | the natives of package `time` (Phase 08, step 8.8, ADR-041): the clocks (`gp::time::now`, `nano`), `sleep`, the timers (one lazily started thread with a map of the armed timers by deadline; a timer is a record on a channel object, `chan_core::timer`; Go 1.23 rules: `len`/`cap` of a timer channel are 0, `Stop` and `Reset` leave no stale value, an unreferenced `Timer` is freed because the map holds its channel weakly), `gp::detail::timers_can_wake()` for the deadlock detector, and `getenv`, `call_once` and the zone files through C stdio (standard C++ only). Embedded |
 | `src/os/linux/` | the Linux OS layer: `os.cpp`, `thread.cpp` (the thread layer of Phase 08: detached pthreads with a stack size and a guard, the thread's slot, the stack bounds, the SIGSEGV handler on each thread's alternate stack that calls the stack-overflow hook), `linux.hpp` (shared by the two) and `trace.cpp` (the stack trace's addresses, ELF file and demangling). Embedded |
-| `src/os/windows/` | the Windows OS layer (Phase 14): so far only `trace.cpp`, the stack trace's addresses (no file reader yet); the thread layer's Windows version (`CreateThread`, a vectored exception handler for the stack overflow) comes with it. Embedded |
+| `src/os/windows/` | the Windows OS layer (Phase 14, step 14.1, ADR-053): `os.cpp` (output with `WriteFile`/`WriteConsoleW`, arguments and environment as UTF-8, `exit`, CPU count), `thread.cpp` (`CreateThread` with a stack size, TLS indexes, the stack bounds, the vectored exception handler for the stack overflow), `fault.cpp` (the access violations and other faults of the CPU, as Go's report), `cmdline.cpp` (Go's command-line splitting, plain C++), `utf8.cpp` (UTF-8 to UTF-16 for the console, plain C++), `trace.cpp` (the stack trace's addresses, the PE file with its COFF symbols and DWARF, demangling) and `windows.hpp`. Embedded |
 | `files.go` | package `rtfiles`: `FS()` holds `include/` and `src/`; `Sources(goos)` lists the `.cpp` files a program is compiled with (`src/*.cpp` and `src/os/<goos>/*.cpp`) |
 | `src/sync.cpp`, `src/atomic.cpp` | package `sync` and `sync/atomic` (Phase 08, step 8.7): the semaphore table of Go's `runtime/sema.go` (buckets keyed by the address of a semaphore word; the waiters are `sudog`s on the goroutines' stacks, counted as blocked), the slow paths of the Mutex (`lockSlow`, `unlockSlow`, with the starvation mode and its threshold scaled for threads, ADR-040), the notify list of `sync.Cond`, the panics and fatal errors of the package, and the spin-lock table of the pointer atomics. Embedded |
 | `test/` | the C++ tests (not embedded): `unit.cpp`, `slice_test.cpp`, `array_test.cpp`, `map_test.cpp`, `fmt_test.cpp`, `thread_test.cpp`, `goroutine_test.cpp`, `chan_test.cpp`, `select_test.cpp`, `sync_test.cpp`, `time_test.cpp`, `interop_test.cpp`, `cxxvalue_test.cpp`, `unsafe_test.cpp`, `type_test.cpp`, `iface_test.cpp`, `ifaceconv_test.cpp`, `bytealg_test.cpp`, `diff.cpp`, `fortify.cpp` and `layout.cpp` (generated), and the header `threads_ended.hpp` (the test programs that start threads wait with it until the threads have left `/proc/self/task` before they end: a thread that just ended can make LeakSanitizer's stop-the-world at exit print "Unable to get registers from thread") |
@@ -103,8 +103,8 @@ What they do, in short:
   table and the DWARF line table, about 2 ms) and prints the frames, without the runtime's
   own (`gp::`, `std::`, libc, gocpp's helpers); a stripped program (no `.symtab`) gets the
   addresses. The parser of mangled names and the line table reader are standard C++, never
-  read outside their data and limit their recursion. Windows (`src/os/windows/`) has the
-  addresses but no file reader yet (Phase 14). The accepted differences from Go's trace are
+  read outside their data and limit their recursion. Windows (`src/os/windows/`) reads the
+  program's PE file instead (the COFF symbol table and the DWARF sections that MinGW writes into it). The accepted differences from Go's trace are
   listed in `docs/spec/cpp-mapping.md` ("Runtime checks and panics"). A nil pointer
   dereference also sets the goroutine's signal (a thread-local value, like Go's `g.sig`), and then the report prints Go's signal
   line after the panic text (after the whole chain of panics, from step 3.13 on):
@@ -194,7 +194,7 @@ The thread layer, in short (`os.hpp` has the contract, `src/os/linux/thread.cpp`
   `run_main` sets (`on_stack_overflow` in `src/rt.cpp`: Go's three lines, exit code 2). The hook
   is portable code that only formats numbers and calls `os::write` and `os::exit_now`, the
   async-signal-safe parts of the interface, so the Windows version (a vectored exception
-  handler, Phase 14) needs only the detection. A sanitizer build has no handler of the
+  handler, ADR-053) needs only the detection. A sanitizer build has no handler of the
   runtime's (AddressSanitizer reports the overflow itself, `stack-overflow`; ThreadSanitizer
   only crashes on a goroutine's stack).
   The report is Go's three lines, then a blank line and `goroutine N [running]:` (when the thread
@@ -223,9 +223,64 @@ A check of `#include` lines can't see everything: glibc's standard headers decla
 functions anyway (g++ defines `_GNU_SOURCE`, so `<cstdio>` declares `fileno`), and code can
 declare an OS function by hand. So `TestWindowsSyntax` also compiles every `.cpp` file outside
 `src/os/` for Windows with the dev shell's MinGW-w64 (`-fsyntax-only`), where those don't
-exist, and the Windows OS layer's files (`src/os/windows/`, so far only the stack trace's
-part; Phase 14 brings the rest). It is skipped when `x86_64-w64-mingw32-g++` isn't installed. Neither check reaches a
+exist, and the Windows OS layer's files (`src/os/windows/`). It is skipped when `x86_64-w64-mingw32-g++` isn't installed. Neither check reaches a
 POSIX function that also exists on Windows (MinGW has `fileno`): reviews still matter.
+
+## The Windows OS layer
+
+`src/os/windows/` is the Windows version of the OS layer (Phase 14, step 14.1; the decisions are in
+[ADR-053](../docs/adr/053-windows-os-layer-on-createthread.md)). It builds with MinGW-w64
+(`x86_64-w64-mingw32-g++`, linked `-static`) and runs on Windows 10 and later, and under Wine.
+
+| Job | How |
+|---|---|
+| output | `write` is `WriteFile` on a pipe or file (bytes as they are: `\n` stays `\n`, the C library's text mode is switched off for stdin, stdout and stderr), and `WriteConsoleW` on a console, with UTF-8 converted to UTF-16 by Go's rules (`utf8.cpp`; a character cut between two writes waits for its rest; no allocation). The console's code page is left alone, as in Go: C `printf` through a console shows the active code page (a documented limitation). A broken pipe is `write_result::failed` (Windows has no SIGPIPE) |
+| arguments and environment | `GetCommandLineW` split by Go's rules (`cmdline.cpp`), `GetEnvironmentStringsW`; both UTF-8. `argv` is not used |
+| threads | `CreateThread` with `STACK_SIZE_PARAM_IS_A_RESERVATION` (a stack size is address space, as on Linux), at least 256 KiB; the thread's slot and its "has bounds" flag are TLS indexes (a handler can read them); `stack_bounds` is `GetCurrentThreadStackLimits` for the main thread and the threads of `thread_start` only. `exit_thread` has no unwinding (Windows has no forced unwind). `std::mutex`, `std::condition_variable` and `std::atomic::wait` do the blocking, with whatever thread library the C++ library has (mcfgthread in the dev shell) |
+| stack overflow | `SetThreadStackGuarantee` (64 KiB) and a vectored exception handler for `EXCEPTION_STACK_OVERFLOW`; the same hook as on Linux prints Go's three lines and ends with code 2 |
+| other faults | an unhandled-exception filter calls `os::set_fault_hook`'s hook on the faulting thread: `panic: runtime error: invalid memory address or nil pointer dereference` and `[signal 0xc0000005 code=0x0 addr=0x0 pc=0x...]` (below address 4096; `unexpected fault address` above), `integer divide by zero`, `Exception 0x...` for others; the goroutine's trace comes from unwinding the exception's context; exit code 2. C++ exceptions and faults that a `__try` block takes are never seen by the filter (Linux has no such hook: a fault there is a plain crash). The stack overflow handler is vectored and runs before `__try` blocks; C's `signal(SIGSEGV)` catches neither (ADR-053) |
+| exit | `exit` flushes C stdio and calls `_exit` (no `atexit`, no static destructors: Go's `os.Exit`); `exit_now` is `TerminateProcess` |
+| main thread's stack | 8 MiB like Linux (a `-stack` linker directive in `os.cpp` for GNU ld; the driver also passes `-Wl,--stack`) |
+| stack trace | `RtlCaptureStackBackTrace`, then the PE file's COFF symbols and DWARF line table (a program without `-g`, or stripped, has addresses or names only) |
+| Ctrl-C | not handled: the default ends the program with exit code `0xc000013a`, as in a Go program without `os/signal` (Phase 14, step 14.3) |
+
+Tests: `go test -run 'TestWindows' ./runtime` cross-compiles the runtime and its C++ tests with the dev
+shell's MinGW-w64 (`-static`) and runs the programs on Windows. Two runners, chosen by the environment:
+- **A real Windows PC over ssh**: with `GOCPP_WINDOWS_SSH=user@host` (the only place that names the
+  machine; never committed), `winremote_test.go` copies each program with scp into
+  `%USERPROFILE%\gocpp-wintest\<run id>\`, runs it through ssh (cmd.exe is the login shell: arguments are
+  quoted for the C runtime, the environment is set with `set`), and deletes the folder at the end. A
+  program that is still running when its time is up is ended with `taskkill` by its image name, which has
+  the run's id in it (`gp<pid>_<time>_<n>.exe`), so a program of another session on the same PC is never
+  touched, and programs that finished are never killed. Nothing else on the machine is touched: no
+  installs, no registry or system changes. A test binary that was killed (SIGKILL, a panic) leaves its
+  folder `gocpp-wintest\<run id>` on the PC and a `/tmp/gp-ssh-*` folder here (the next run removes the
+  ones a day old or more; by hand: `ssh user@host "rmdir /S /Q gocpp-wintest"`). The control socket
+  folder is always in `/tmp`, whatever TMPDIR is (a socket path is limited to about 104 bytes). One ssh connection
+  is shared (`ControlMaster`, `ControlPersist=60`), `BatchMode` and `ConnectTimeout=10` make a dead host
+  fail at once, and the host needs key authentication with a known host key. Limits of the runner:
+  the exit status is the program's low 8 bits (ssh's rule: a crash with `0xc0000005` shows as 5), and
+  cmd.exe cannot carry an empty environment variable or the characters `% & | < > ^` in an argument.
+- **Wine** (the default without the variable; MinGW-w64 and Wine come from the dev shell): a prefix of
+  its own (`windows_test.go` has the rules: no real home, no display, the server killed by its PID);
+  skipped when MinGW or Wine is missing, a failure with `GOCPP_REQUIRE_WINE=1` (`make ci` sets it).
+  Wine is not Windows: on a CPU with a large XSAVE area (AVX-512) Wine 11.0 cannot dispatch a stack
+  overflow (it ends the thread with "stack overflow ... bytes" before any handler runs: Wine commits the
+  whole stack and keeps one guard page at its end, and the 3392-byte exception frame does not fit in what
+  is left), so the `overflow-*` cases of `TestWindowsRuntime` fail under Wine there; they need the real PC,
+  which passes them. If the Wine test binary is SIGKILLed, only the wineserver dies with it (`Pdeathsig`):
+  the helpers (`winedevice.exe` and others) stay alive, and are ended with `wineserver -k` under the
+  same `WINEPREFIX`, or `pkill -f` on the prefix's `gocpp-wine-` folder name.
+
+`test/winos_test.cpp` is the test of this layer; the portable unit programs, `test/thread_test.cpp` and
+16 programs of `tests/run` also run (`TestWindowsGoPrograms`), `TestWindowsDiff` runs the differential test
+against a `GOOS=windows` Go build, and `TestWindowsDriverFlags` builds with the driver's `--gc-sections` and
+`--stack` flags (`GOCPP_WINDOWS_PROGS=winos_test,thread_test` limits `TestWindowsRuntime` to those
+programs). `TestWindowsCommandLine` and `TestWindowsConsoleUTF8` check the command-line splitter and the
+console's UTF-8 conversion against copies of Go's, on the host. The layer is x86-64 only (an `#error`
+elsewhere); `cpu_limit`, `cgroup_cpu_limit`, `mem_info` and `trim_memory` (step 8.9) have Windows versions.
+The console path (`WriteConsoleW`, a real console window) is for the real-Windows checklist of step 14.7:
+over ssh the program has no console.
 
 ## `nofortify.h`
 
@@ -241,6 +296,7 @@ this.
 ## Tests
 
 `go test ./runtime` (also part of `make test` and `make ci`) runs:
+- `TestWindowsRuntime`, `TestWindowsGoPrograms`, `TestWindowsDiff` and `TestWindowsDriverFlags`: the runtime for Windows, on a real PC over ssh (`GOCPP_WINDOWS_SSH`) or under Wine (skipped without MinGW or Wine, a failure with `GOCPP_REQUIRE_WINE=1`, which `make ci` sets). See "The Windows OS layer" above. `GOCPP_WINDOWS_PROGS=winos_test,thread_test` limits `TestWindowsRuntime` to those programs.
 - `TestCXX`: compiles `test/unit.cpp`, `test/runtimepkg_test.cpp` (step 8.10: the cgroup parser on sample files, GOMAXPROCS, `caller`/`callers`/`stack`, `mem_info`, and the cases that end the process: `gp::exit` flushes C stdio in order and leaves no destructor behind, with busy and many goroutines, two exits at once, and the ASan leak check before `_exit`; also built with `-fsanitize=thread` by `TestRuntimePkgTSan`), `test/slice_test.cpp`, `test/array_test.cpp`, `test/map_test.cpp`, `test/fmt_test.cpp`, `test/trace_test.cpp`, `test/interop_test.cpp`, `test/cxxvalue_test.cpp`, `test/type_test.cpp`, `test/iface_test.cpp`, `test/ifaceconv_test.cpp`, `test/bytealg_test.cpp` (the natives of `internal/bytealg`: each against a plain loop on seeded inputs of every length and alignment, and the two ways of `Count` on their own), `test/nochecks_test.cpp`, and `test/diff.cpp` with the embedded runtime, with g++
   and clang++, each at `-O0`, at `-O2` and with `-fsanitize=address,undefined` (a sanitizer
   report fails the test; this mode also writes DWARF 4, the others the compilers' DWARF 5).

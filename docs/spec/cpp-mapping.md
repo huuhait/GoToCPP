@@ -1553,7 +1553,11 @@ Sources: [Phase 03 §2.10](../../plans/2026-10-13-gocpp/phase-03-core-language/R
     action they had (a crash, exit code 139), and so does an overflow of a thread that the runtime
     didn't start (a C library's thread, a `std::thread`). Not with a sanitizer (it reports
     overflows itself: AddressSanitizer prints `stack-overflow`, exit code 1), not with `ulimit -s
-    unlimited` for the main thread, and not on Windows (Phase 14) yet.
+    unlimited` for the main thread. Windows (step 14.1, ADR-053) reports the same three lines from a
+    vectored exception handler, and also turns the other CPU faults (a nil or wild pointer in C
+    code, an integer division by zero in C code, an illegal instruction) into Go's report
+    (`panic: runtime error: invalid memory address or nil pointer dereference`, `[signal 0xc0000005
+    code=0x0 addr=0x0 pc=0x...]`, exit code 2), where Linux leaves the crash.
 - **Panic values** (step 5.10): a panic is a `gp::panic_error` that holds the value as a `gp::any`
   (`recover()` returns it): `panic("boom")` an `any` of Go type `string`, `panic(1.5)` a
   `float64`, `panic(err)` and `panic(x)` for an interface value the value itself (a value of
@@ -1638,7 +1642,9 @@ Where the trace differs from Go's (accepted divergences):
 - an optimized build (Phase 15) can show the line of an inlined runtime header as the
   innermost frame's line; gocpp builds at `-O0`;
 - a stripped program shows the addresses instead (`?()` and `pc=0x...`, for `addr2line`);
-- on Windows the trace has no frames yet, until Phase 14 reads the program's PE file.
+- on Windows the trace reads the program's PE file (COFF symbols and the DWARF that MinGW writes
+  into it): names and lines as on Linux; a program linked without `-g` shows names only, and a
+  stripped one addresses.
 - a panic that starts in a deferred call while another panic runs has a `panic(...)` frame
   with `?:0` for its place, where Go shows its runtime's `panic({0x...?, 0x...?})` and the line
   of `runtime/panic.go`;
@@ -2304,7 +2310,16 @@ go close(c)                                 gp::go_call([](auto&& gp_a0) { gp::c
 
 Everything the OS does for this is behind `gp::os` (`runtime/include/gocpp/os.hpp`, the Linux
 version in `runtime/src/os/linux/thread.cpp`): starting a detached thread with a stack size,
-a thread slot, the stack bounds, and the stack-overflow hook. The Windows version is Phase 14.
+a thread slot, the stack bounds, and the stack-overflow hook. The Windows version
+(`runtime/src/os/windows/`, step 14.1, [ADR-053](../adr/053-windows-os-layer-on-createthread.md))
+starts threads with `CreateThread`, keeps the slot in TLS indexes (so an exception handler can read
+it), and has no forced unwind (`exit_thread` ends the thread without running destructors).
+
+**Portability notes for the C++ the compiler writes and the runtime (Windows, LLP64).** `long` is 32 bits
+on Windows, so `int64_t` is `long long` there and `long` is `int32`: `%T` of a C `long long` prints `int`
+(as does `int64_t`: C++ cannot tell them apart), and a C `long` prints `int32`. Output never goes
+through the C library's text mode: `\n` is one byte, and a console gets UTF-16 (`WriteConsoleW`; the console's code page is not changed, as in Go). The
+arguments and the environment are UTF-8 (Go's splitting of the command line), not the ANSI code page.
 
 Source: [Phase 08 §2.2 to §2.4](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md#22-goroutines--os-threads),
 [ADR-007](../adr/007-goroutines-os-threads.md), [ADR-026](../adr/026-channels-and-thread-reuse.md),

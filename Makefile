@@ -19,6 +19,12 @@ ci: export GOCPP_REQUIRE_CXX ?= g++,clang++
 # GOCPP_REQUIRE_GDB= make ci turns this off.
 ci: export GOCPP_REQUIRE_GDB ?= 1
 
+# In "make ci", the Windows tests of the runtime (runtime/windows_test.go: MinGW-w64 and Wine, which
+# the dev shell has on x86-64) fail instead of skipping when either is missing.
+# GOCPP_WINDOWS_SSH=user@host runs them on a real Windows PC instead (then this is not needed).
+# GOCPP_REQUIRE_WINE= make ci turns this off.
+ci: export GOCPP_REQUIRE_WINE ?= 1
+
 # make ci, make test, make quick and make ci-sanitize run the test programs up to
 # this phase (GOCPP_TEST_PHASE, tests/README.md), not only up to the last finished
 # phase (internal/version): the features of the later phases that are already

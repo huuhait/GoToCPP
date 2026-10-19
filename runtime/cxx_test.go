@@ -63,6 +63,23 @@ type cxx struct {
 	name    string    // the subtest name: "g++", "clang++"
 	cc      build.CXX // the compiler, as build.LookCXX found it
 	missing string    // why it can't be used, or ""
+	goos    string    // the operating system it builds for ("windows": a cross compiler); "": this one
+}
+
+// targetOS is the GOOS of the programs that c builds.
+func (c cxx) targetOS() string {
+	if c.goos != "" {
+		return c.goos
+	}
+	return runtime.GOOS
+}
+
+// exe is the suffix of the programs that c builds.
+func (c cxx) exe() string {
+	if c.targetOS() == "windows" {
+		return ".exe"
+	}
+	return ""
 }
 
 var (

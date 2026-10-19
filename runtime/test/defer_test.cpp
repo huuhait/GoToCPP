@@ -1252,7 +1252,8 @@ void test_panic_values() {
 }
 
 // A forced unwind (pthread_exit, pthread_cancel) is not caught: no Go code runs during it, and the
-// thread ends (glibc aborts if a handler swallowed it).
+// thread ends (glibc aborts if a handler swallowed it). Linux only: Windows has no forced unwind.
+#if defined(__linux__)
 std::atomic<int> forced_state{0};
 
 void forced_thread(void*) {
@@ -1269,6 +1270,7 @@ void forced_thread(void*) {
         forced_state = 2; // not reached: neither the deferred calls nor the code after them run
     }
 }
+#endif
 
 void test_forced_unwind() {
 #if defined(__linux__)

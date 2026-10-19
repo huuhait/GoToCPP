@@ -213,9 +213,16 @@ void test_numbers() {
     CHECK_EQ(sprintf("%T %T %T %T %T", int(1), char(1), short(1), 1u, static_cast<signed char>(1)),
              std::is_signed_v<char> ? "int32 int8 int16 uint32 int8"
                                     : "int32 uint8 int16 uint32 int8");
+#if defined(_WIN32)
+    // int64_t is long long on Windows (LLP64), and that is Go's int: C++ can't tell them apart
+    // (long is 32 bits there: int32).
+    CHECK_EQ(sprintf("%T %T %T", int64_t(1), 1LL, 1L), "int int int32");
+    CHECK_EQ(sprintf("%T %T %T", uint64_t(1), 1ULL, 1.0f), "uint uint float32");
+#else
     // long is int64_t on Linux (Go's int: C++ can't tell them apart), long long is not.
     CHECK_EQ(sprintf("%T %T", int64_t(1), 1LL), "int int64");
     CHECK_EQ(sprintf("%T %T %T", uint64_t(1), 1ULL, 1.0f), "uint uint64 float32");
+#endif
     CHECK_EQ(sprintf("%5d|%-4v|%s", int(42), short(7), int(3)), "   42|7   |%!s(int32=3)");
 }
 

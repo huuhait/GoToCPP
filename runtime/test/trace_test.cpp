@@ -359,12 +359,67 @@ void test_lines() {
     CHECK(true); // reached the end
 }
 
+// The file names of a line table written by hand (DWARF 4): a native Windows path, as clang writes
+// it for a COFF target. A Windows program's trace shows it with slashes, as Go does (C:/work/...);
+// on Linux a backslash is an ordinary character of a name and the path stays as it is.
+void test_line_paths() {
+    auto le = [](std::string& out, uint64_t v, int bytes) {
+        for (int i = 0; i < bytes; i++) {
+            out += static_cast<char>((v >> (8 * i)) & 0xff);
+        }
+    };
+    const std::string file = "C:\\work\\sub\\hello.gp";
+    std::string rest; // after header_length
+    rest += '\1';     // minimum_instruction_length
+    rest += '\1';     // maximum_operations_per_instruction
+    rest += '\1';     // default_is_stmt
+    rest += '\xfb';   // line_base -5
+    rest += '\x0e';   // line_range 14
+    rest += '\x0d';   // opcode_base 13
+    for (char len : {0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1}) {
+        rest += len;
+    }
+    rest += '\0'; // no include directories
+    rest += file;
+    rest += '\0';
+    rest += std::string(3, '\0'); // directory 0, no time, no size
+    rest += '\0';                 // end of the file names
+    std::string program;
+    program += std::string("\0\x09\x02", 3); // set_address
+    le(program, 0x1000, 8);
+    program += '\x03'; // advance_line
+    program += '\x05'; // +5: line 6
+    program += '\x01'; // copy
+    program += '\x02'; // advance_pc
+    program += '\x04';
+    program += std::string("\0\1\1", 3); // end_sequence
+    std::string unit;
+    le(unit, 4, 2); // version
+    le(unit, rest.size(), 4);
+    unit += rest;
+    unit += program;
+    std::string table;
+    le(table, unit.size(), 4);
+    table += unit;
+
+    gp::detail::line_query q;
+    q.addr = 0x1002;
+    gp::detail::lines_of(table, "", "", &q, 1);
+    CHECK_EQ(q.line, int64_t(6));
+#if defined(_WIN32)
+    CHECK(q.file == "C:/work/sub/hello.gp");
+#else
+    CHECK(q.file == file);
+#endif
+}
+
 void no_init() {}
 
 void run_tests() {
     test_func_name();
     test_trace();
     test_lines();
+    test_line_paths();
     if (failures > 0) {
         std::string msg =
             "FAIL: " + std::to_string(failures) + " of " + std::to_string(checks) + " checks\n";

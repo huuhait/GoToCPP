@@ -755,6 +755,67 @@ void on_stack_overflow(const os::stack_fault& f) noexcept {
     os::exit_now(2);
 }
 
+#ifdef _WIN32
+// on_fault is the OS layer's hook for the exceptions of the CPU that nothing handled (an access
+// violation of C code, an integer division by zero: os::set_fault_hook). It runs on the faulting
+// thread's own stack, so unlike on_stack_overflow it may allocate and read the program's file for
+// a trace. It prints what Go on Windows prints: the panic line (a fault at an address below 4096
+// is a nil pointer dereference), the signal line with the exception code, code= (read or write)
+// and the address, and the goroutine's trace, and ends the program with code 2. Go can recover
+// from these panics; gocpp's report is final (a hardware fault is not a C++ exception).
+void on_fault(const os::fault_info& f) noexcept {
+    detail::claim_death();
+    std::string out;
+    try {
+        bool access = f.gp_code == 0xc0000005 || f.gp_code == 0xc0000006;
+        bool signal_line = true;
+        if (access && f.gp_addr < 4096) {
+            out += "panic: runtime error: invalid memory address or nil pointer dereference\n";
+        } else if (access) {
+            out += "unexpected fault address ";
+            detail::print_hex(out, f.gp_addr);
+            out += "\nfatal error: fault\n";
+        } else if (f.gp_code == 0xc0000094) {
+            out += "panic: runtime error: integer divide by zero\n";
+        } else if (f.gp_code == 0xc0000095) {
+            out += "panic: runtime error: integer overflow\n";
+        } else {
+            out += "Exception ";
+            detail::print_hex(out, f.gp_code);
+            out += ' ';
+            detail::print_hex(out, f.gp_access);
+            out += ' ';
+            detail::print_hex(out, f.gp_addr);
+            out += ' ';
+            detail::print_hex(out, f.gp_pc);
+            out += "\nPC=";
+            detail::print_hex(out, f.gp_pc);
+            out += '\n';
+            signal_line = false;
+        }
+        if (signal_line) {
+            out += "[signal ";
+            detail::print_hex(out, f.gp_code);
+            out += " code=";
+            detail::print_hex(out, access ? f.gp_access : 0);
+            out += " addr=";
+            detail::print_hex(out, access ? f.gp_addr : 0);
+            out += " pc=";
+            detail::print_hex(out, f.gp_pc);
+            out += "]\n";
+        }
+        out += "\ngoroutine ";
+        detail::print_uint(out, detail::goroutine_id());
+        out += " [running]:\n";
+        detail::append_trace(out, f.gp_pcs, static_cast<std::size_t>(f.gp_npcs), true);
+    } catch (...) {
+        // Without memory the report is what there is.
+    }
+    detail::write_stderr(out);
+    os::exit(2);
+}
+#endif
+
 std::vector<gp::string>& args_storage() {
     static std::vector<gp::string> v;
     return v;
@@ -797,6 +858,9 @@ int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
     // The main goroutine is registered first: its id is 1.
     detail::goroutine_id();
     os::set_stack_overflow_hook(on_stack_overflow);
+#ifdef _WIN32
+    os::set_fault_hook(on_fault);
+#endif
     os::start();
     std::set_new_handler(detail::out_of_memory);
     detail::cxx_terminate = std::set_terminate(detail::on_terminate);

@@ -62,6 +62,40 @@ holds the `gp::os` thread layer (Phase 08). This phase adds the Windows versions
 | blocking in `gp::waiter` | condition variables / futex | condition variables (C++20 `std::atomic::wait` works on both) |
 | clocks | `std::chrono` | `std::chrono` (QueryPerformanceCounter underneath) |
 
+**14.1 as built (2026-10-18, [ADR-053](../../../docs/adr/053-windows-os-layer-on-createthread.md)).** Where the
+table above changed:
+- *threads*: `CreateThread`, not winpthreads. The dev shell's MinGW GCC has the C++ library's thread
+  model `mcf`, so `std::thread` and `<mutex>` sit on mcfgthread (the toolchain has winpthreads too,
+  but two thread libraries in one process is the cost), while goroutine threads need a stack size,
+  bounds and no handle; the portable runtime keeps `std::mutex`/`std::condition_variable`
+  and does not care which thread library is below.
+- *faults*: new on Windows, not in the table: an access violation, an integer division by zero or an
+  illegal instruction of C code becomes Go's report (`panic: runtime error: invalid memory address
+  or nil pointer dereference`, `[signal 0xc0000005 code=0x0 addr=0x0 pc=0x...]`, exit code 2) through
+  `os::set_fault_hook`; the table's stack overflow is a vectored handler with a 64 KiB stack guarantee.
+- *traces*: `RtlCaptureStackBackTrace`, then the PE file's COFF symbols and the DWARF line table
+  (libbacktrace is not used: the runtime's own reader handles ELF and PE).
+- *main thread's stack* is 8 MiB by a linker directive (Linux's size; Windows' default is 1 MiB).
+- *Ctrl-C* keeps the OS default (exit code `0xc000013a`, as a Go program without `os/signal`);
+  `os/signal` is step 14.3.
+- Tests run on Windows (`runtime/windows_test.go`): on a real PC over ssh when `GOCPP_WINDOWS_SSH=user@host`
+  is set (`runtime/winremote_test.go`; the programs are cross-compiled here and copied to a folder of the
+  run, which is deleted afterwards), otherwise under Wine (`GOCPP_REQUIRE_WINE`). They run the runtime's
+  portable unit programs, the thread layer, `test/winos_test.cpp`, the differential test and 16
+  `tests/run` programs; the command-line splitter and the console conversion are checked against Go's on
+  the host. Wine 11.0 cannot dispatch a stack overflow on a CPU with a large XSAVE area (AVX-512), so the
+  `overflow-*` cases need the real PC there. Not covered by either, left to step 14.7's real-Windows checklist: the console
+  path (`WriteConsoleW`; C `printf` through a console under code pages 437 and 850, a documented limitation: gocpp does not change the code page, as Go does not), the exit code of a real crash (`0xc0000005`, `0xc00000fd`),
+  UCRT (the dev shell's MinGW is msvcrt flavor).
+- *For later steps (review notes of 14.1)*: `os` (step 9.6/14.3) must make `Getenv` case-insensitive on
+  Windows. Step 14.7's checklist: (1) 10,000 blocked goroutines: the commit charge (each thread has a
+  64 KiB stack guarantee and an 8 MiB reservation); (2) the cost of the emulated TLS of MinGW's GCC
+  (`__emutls_get_address`) in the pointer release path, to measure in Phase 14; (3) more than 64 CPUs:
+  `cpu_count` uses `GetProcessAffinityMask`, which sees one processor group; (4) UCRT's
+  `_get_osfhandle` and `_setmode` when a standard handle is closed (the msvcrt of the dev shell does not
+  show it); (5) `test_thread_min_stack` is vacuous under Wine (Wine gives more than the request), so
+  check on real Windows (the ssh runner can: a thread that asks for 4 KiB) that a request below 256 KiB still leaves room for the 64 KiB stack guarantee. The layer is x86-64 only.
+
 ### 2.2 Build driver
 
 - **Toolchain detection** for MinGW-w64 (`x86_64-w64-mingw32-clang++`, `x86_64-w64-mingw32-g++`,

@@ -1,7 +1,7 @@
 // gocpp/os.hpp: the OS layer, the only way the runtime reaches the operating system.
 //
 // These are only declarations, in standard C++. Each operating system has its own
-// implementation in runtime/src/os/<os>/ (Linux now, Windows in Phase 14), and only those
+// implementation in runtime/src/os/<os>/ (Linux, and Windows: ADR-053), and only those
 // files may include OS headers such as <unistd.h> or <windows.h>. Everything else in the
 // runtime uses standard C++. The thread layer (threads with a stack size, thread-local storage and
 // the stack-overflow hook; Phase 08, steps 8.15 and 8.1) is at the end of this file.
@@ -29,8 +29,9 @@ inline constexpr int stderr_fd = 2;
 // it makes a SIGPIPE harmless (a handler that does nothing, not "ignore", so programs that the
 // process starts get the default back): a write to a broken pipe then fails with an error, and
 // the caller decides (see write_result). It also starts the thread layer for the main thread
-// (the stack bounds, and on Linux the SIGSEGV handler on an alternate stack; see "threads"
-// below). Windows (Phase 14) doesn't have it yet.
+// (the stack bounds, and on Linux the SIGSEGV handler on an alternate stack, on Windows the
+// exception handlers; see "threads" and "faults" below). Windows has no SIGPIPE: there a write
+// to a broken pipe is write_result::failed, as in Go on Windows.
 void start() noexcept;
 
 // write_result is what write reports.
@@ -63,7 +64,8 @@ write_result write(int fd, const char* data, std::size_t n) noexcept;
 [[noreturn]] void exit(int code) noexcept;
 
 // arguments returns the program's arguments, the program name first, as UTF-8 strings. On
-// Linux they are argv; on Windows (Phase 14) they come from the wide command line.
+// Linux they are argv; on Windows they come from the wide command line (UTF-16 converted to
+// UTF-8, split with Go's rules for it; argv, in the ANSI code page, is not used).
 std::vector<std::string> arguments(int argc, char** argv);
 
 // process_arguments returns the arguments of the running process when nobody passed them to the
@@ -72,7 +74,9 @@ std::vector<std::string> arguments(int argc, char** argv);
 // can't tell.
 std::vector<std::string> process_arguments();
 
-// environment returns the process environment as "KEY=value" strings, in the OS's order.
+// environment returns the process environment as "KEY=value" strings, in the OS's order (on
+// Windows, from the wide environment block, as UTF-8; like Go, it includes the entries that
+// start with '=', the current folders of the drives: "=C:=C:\\dir").
 std::vector<std::string> environment();
 
 // --- the stack trace of a panic (gocpp/trace.hpp) ---
@@ -81,14 +85,15 @@ std::vector<std::string> environment();
 // (the first one is in the function that called stack), at most max of them, and returns how
 // many it wrote (0 when it can't). It runs at every panic, so it only collects addresses:
 // read_exe and the DWARF line table turn them into names and lines later, and only for a
-// panic that ends the program. On Linux it is glibc's backtrace(); Phase 14 brings Windows
-// (CaptureStackBackTrace). Not async-signal-safe: a panic is a C++ exception, not a signal.
+// panic that ends the program. On Linux it is glibc's backtrace(); on Windows
+// RtlCaptureStackBackTrace. Not async-signal-safe: a panic is a C++ exception, not a signal.
 int stack(uintptr_t* pcs, int max) noexcept;
 
 // read_exe reads the running program's file into img, and reports whether it could. It reads
 // the file at once (a few hundred KB for a small program), so it is for the end of a program
-// only. On Linux the file is /proc/self/exe, an ELF file; Windows (PE, Phase 14) has no
-// version yet.
+// only. On Linux the file is /proc/self/exe, an ELF file; on Windows it is the module's PE
+// file (GetModuleFileNameW): its COFF symbol table and the DWARF sections that MinGW writes
+// into it (a program linked without -g or with -s has no lines or names).
 bool read_exe(gp::detail::exe_image& img);
 
 // demangle returns the C++ name of a mangled symbol name ("gpkg_main::f(long)"), or "" when
@@ -106,8 +111,8 @@ const std::type_info* current_exception_type() noexcept;
 // --- threads (Phase 08, steps 8.15 and 8.1) ---
 //
 // Every goroutine is an OS thread (ADR-007), and this is the only way the runtime starts one,
-// keeps a pointer for it, or learns what its stack is. Linux has pthreads, Windows (Phase 14)
-// CreateThread; the portable runtime (gocpp/goroutine.hpp, src/goroutine.cpp) never sees
+// keeps a pointer for it, or learns what its stack is. Linux has pthreads, Windows
+// CreateThread (ADR-053); the portable runtime (gocpp/goroutine.hpp, src/goroutine.cpp) never sees
 // either. Blocking is not here: gp::waiter is a mutex and a condition variable of the C++
 // library.
 
@@ -129,7 +134,8 @@ int thread_start(void (*fn)(void*), void* arg, std::size_t stack_size) noexcept;
 // the thread's stack with a forced unwind, a C++ exception that no handler may swallow (the
 // frames' destructors run, a catch (...) must throw it again). No Go code runs. The runtime
 // never calls it; the tests do, to check that a function with defers lets the forced unwind through
-// (step 5.10, test/defer_test.cpp). Linux only until Phase 14.
+// (step 5.10, test/defer_test.cpp). Linux only: Windows has no forced unwind, so there it ends the
+// thread at once (ExitThread: no frame's destructor runs).
 [[noreturn]] void exit_thread(); // (not noexcept: the forced unwind passes through it)
 
 // tls_get and tls_set are the calling thread's slot: one pointer per thread, null before the
@@ -145,8 +151,11 @@ void tls_set(void* p) noexcept;
 // pthread key, which runs for a thread that returns from its function or calls pthread_exit, in
 // any thread, also one that C created). Only the last call of a thread counts. The portable
 // runtime uses it to free the goroutine record of a thread that no go statement started. fn runs
-// on the ending thread, after the C++ thread-local destructors, and must not block. A thread that
-// is killed with the process doesn't run it. tls_on_thread_exit_stop forgets all registrations and
+// on the ending thread, on Linux after the C++ thread-local destructors (on Windows it is a
+// fiber-local storage callback, which Windows runs at the start of the thread's end, before the C++
+// thread-local destructors that run at DLL_THREAD_DETACH: there no order is promised, and a
+// destructor that uses the goroutine record gets a new one), and must not block. A thread that is
+// killed with the process doesn't run it. tls_on_thread_exit_stop forgets all registrations and
 // makes later calls do nothing: a shared library calls it before it is unloaded, because the
 // address of fn is in it. May fail silently (no key available): the record is then never freed.
 void tls_on_thread_exit(void (*fn)(void*), void* arg) noexcept;
@@ -163,7 +172,8 @@ void library_unref(void* handle) noexcept;
 // may use, and the end of the stack (the highest address plus one). It is known for the main
 // thread (after start) and for threads that thread_start started, and returns false for any
 // other thread (a thread of a C library, a std::thread). Then no hook runs on an overflow
-// either. The end may be some KB above the first frame: the thread's own data (thread-local
+// either (Windows: the same rule, kept in a flag of the thread, although the OS knows the stack of
+// every thread). The end may be some KB above the first frame: the thread's own data (thread-local
 // variables, the alternate stack) takes the top.
 bool stack_bounds(uintptr_t& lo, uintptr_t& hi) noexcept;
 
@@ -233,7 +243,45 @@ void trim_memory() noexcept;
 // no_core_dump makes the process leave no core file if it dies of a signal (Linux:
 // prctl(PR_SET_DUMPABLE, 0), which also stops a core_pattern that pipes to a handler such as
 // systemd-coredump; ulimit -c 0 does not). The runtime's tests that crash on purpose call it:
-// on a loaded machine the handler holds the dying process for minutes. Other systems: nothing.
+// on a loaded machine the handler holds the dying process for minutes. Windows: no error box and
+// no Windows Error Reporting (SetErrorMode).
 void no_core_dump() noexcept;
+
+#if defined(_WIN32)
+// --- faults (Windows) ---
+//
+// On Linux a fault that is not a stack overflow is a plain crash (SIGSEGV, exit code 139). On
+// Windows the OS layer turns the exceptions of the CPU that nothing handles (an access violation
+// from C code or from a build without checks, an integer division by zero, an illegal
+// instruction) into Go's report, through a hook like the stack overflow's. A C++ exception, and
+// anything that a frame-based handler of the program's own (a __try block) takes, is not touched:
+// the OS layer only sees what reaches the unhandled-exception filter. So a __try/__except block
+// still catches a CPU fault, but C's signal(SIGSEGV) handler does not (the hook ends the process
+// first), and neither a __try block nor signal() catches a stack overflow (see
+// set_stack_overflow_hook: that one is a vectored handler, which runs before frame-based ones).
+
+// A fault_info describes one: gp_code is the exception code (0xc0000005, access violation),
+// gp_access and gp_addr the first two words of the exception record (for an access violation: 0
+// read, 1 write, 8 execute, and the address), gp_pc the instruction that faulted, and gp_pcs the
+// return addresses of the faulting stack, innermost first, gp_pcs[0] being gp_pc, gp_npcs of them
+// (found by unwinding the exception's context, so it also works for the code that crashed).
+struct fault_info {
+    uint32_t gp_code;
+    uint64_t gp_access;
+    uint64_t gp_addr;
+    uintptr_t gp_pc;
+    const uintptr_t* gp_pcs;
+    int gp_npcs;
+};
+
+// set_fault_hook sets the function that gets a fault_info, on the stack of the faulting thread
+// (it may allocate and print; it is not a signal handler), and returns the one before (null at
+// first). It should not return: the runtime's hook prints Go's lines and ends the process with
+// code 2. If it returns, or there is none, the fault goes to the filter that was there before
+// (the C runtime's, then Windows' own: the crash, exit code 0xc0000005 and so on). Only the
+// exceptions listed above come here.
+using fault_hook = void (*)(const fault_info&) noexcept;
+fault_hook set_fault_hook(fault_hook hook) noexcept;
+#endif
 
 } // namespace gp::os

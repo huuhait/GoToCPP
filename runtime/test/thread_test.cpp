@@ -497,7 +497,15 @@ void guard_thread(void* p) {
     if (stop_recursing) {
         return;
     }
-    if (frame_here() < lo + (std::size_t(64) << 10)) {
+#ifdef _WIN32
+    // Windows keeps the last 64 KiB (the stack guarantee, SetThreadStackGuarantee) and a page for
+    // the exception frame of an overflow: a frame in there is a stack overflow, as the report of
+    // the real Windows PC showed. Near the end is just above that zone.
+    constexpr std::size_t near_end = std::size_t(100) << 10;
+#else
+    constexpr std::size_t near_end = std::size_t(64) << 10;
+#endif
+    if (frame_here() < lo + near_end) {
         wild_store();
     } else {
         deep_then_wild(lo, depth + 1);

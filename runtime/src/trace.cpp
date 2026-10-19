@@ -1085,7 +1085,7 @@ void line_unit(reader& r, std::string_view line_str, std::string_view str,
     }
     u.p = program;
 
-    auto path_of = [&](uint64_t file) {
+    auto path_raw = [&](uint64_t file) {
         std::string p;
         if (file < file_base || file - file_base >= files.size()) {
             return p;
@@ -1104,6 +1104,15 @@ void line_unit(reader& r, std::string_view line_str, std::string_view str,
             p += '/';
         }
         p += f.path;
+        return p;
+    };
+    auto path_of = [&](uint64_t file) {
+        std::string p = path_raw(file);
+#ifdef _WIN32
+        // Go prints file names of Windows programs with slashes (C:/work/main.go); MinGW's DWARF
+        // has the backslashes of the native paths.
+        std::replace(p.begin(), p.end(), '\\', '/');
+#endif
         return p;
     };
 
