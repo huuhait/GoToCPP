@@ -28,6 +28,8 @@
 #include <gocpp/errors.hpp>
 #include <gocpp/reflect.hpp>
 #include <gocpp/math.hpp>
+#include <gocpp/bytealg.hpp>
+#include <gocpp/shims.hpp>
 #include <gocpp/minmax.hpp>
 #include <gocpp/print.hpp>
 #include <gocpp/panic.hpp>

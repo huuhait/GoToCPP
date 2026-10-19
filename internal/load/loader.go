@@ -39,6 +39,12 @@ type Config struct {
 	// StdlibDir/fmt/print.gp. If it is empty, it is "$GOCPP/stdlib".
 	StdlibDir string
 
+	// AllowStdInternal lets the packages that Load reads outside the standard library import the
+	// standard library's internal packages (internal/bytealg, ...), which Go's rule for internal
+	// packages forbids. It is for gocpp's own tests of those packages (cmd/gocpp sets it from
+	// GOCPP_ALLOW_INTERNAL, which only the test harness sets): a program that uses it is not Go.
+	AllowStdInternal bool
+
 	// GoStd reports whether path is a package of Go's standard library.
 	// For such a package that Stdlib doesn't have, the error is "package
 	// net/http is not available yet (Phase 09)" instead of "package

@@ -198,6 +198,11 @@ func (c *checkCommand) run(patterns []string) int {
 	return code
 }
 
+// allowInternalEnv names the environment variable that lets a program import the standard
+// library's internal packages (load.Config.AllowStdInternal). Only the test harness sets it, for the
+// tests that say "// std-internal:".
+const allowInternalEnv = "GOCPP_ALLOW_INTERNAL"
+
 // check loads and type-checks the packages of the patterns and prints
 // their errors and warnings to stderr, like go build. It returns the
 // program, the result of the type checking (nil when the packages couldn't
@@ -226,6 +231,9 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 			GOOS:      c.goos,
 			GOARCH:    c.goarch,
 			FS:        c.fs,
+			// GOCPP_ALLOW_INTERNAL=1: the tests of the standard library's internal packages
+			// (tests/README.md, "// std-internal:") import them from test programs.
+			AllowStdInternal: os.Getenv(allowInternalEnv) == "1",
 			// Always all the syntax errors: firstSyntaxErrorPerLine keeps
 			// what the go compiler shows, and the Printer stops at 10.
 			AllErrors: true,

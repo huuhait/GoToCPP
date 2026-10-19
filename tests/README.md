@@ -66,6 +66,19 @@ A test is also skipped, with a message, when:
 Each runner logs how many tests it found, skipped (by reason) and found malformed (`-v` shows
 the log).
 
+## Tests of the standard library's internal packages
+
+A run test may say `// std-internal: reason` under its phase line when it tests a package that
+only the standard library may import (`internal/bytealg`, `internal/byteorder`, ...: Go's rule, which gocpp keeps for
+programs). The harness then runs that test's gocpp commands with `GOCPP_ALLOW_INTERNAL=1`, which opens the internal
+packages of the standard library that gocpp has (`load.Config.AllowStdInternal`): a module's `internal` folders, and a
+standard package that does not exist, stay closed. No other test gets the variable, so users keep seeing "use of
+internal package ... not allowed"; a test of another kind with the line is malformed. (A pkgs test may say it too, and gets the variable; `TestPkgsVsGo` has no twins.) For `TestRunVsGo` real Go cannot
+import `internal/...` either: the harness copies the `.gp` files of the packages the test imports as `.go` files into a
+module next to the test (`difftest/internal/<name>`, [twin_test.go](twin_test.go)), and builds the program there. The
+natives of `internal/bytealg` (C++ in gocpp) are replaced in that copy by calls of `bytes` and `strings`
+(`testdata/twin/bytealg_native.go.txt`), so a test's `// Output:` block must equal what Go computes for the same inputs.
+
 ## Sanitizers
 
 `make ci-sanitize` is the sanitizer job: it runs the tests that run programs (`TestRun`,

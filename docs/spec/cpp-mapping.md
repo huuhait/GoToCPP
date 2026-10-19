@@ -2732,3 +2732,22 @@ The plan already describes these shapes; each phase adds them here when it build
 | [08](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md) | `go` (`gp::go`), channels, `select` |
 | [10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md) | `!` as early returns, macros as inline templates |
 | [15](../../plans/2026-10-13-gocpp/phase-15-hardening-release/README.md) | escape analysis (locals that don't escape stay on the stack), Swiss-table maps, and maybe smaller strings and slices (only if the benchmarks say so) |
+
+### The internal packages and their natives (step 9.2)
+
+`stdlib/internal/*` ([PORT.md](../../stdlib/internal/PORT.md), [ADR-045](../adr/045-internal-shims-and-test-access.md)) are
+lowered like `errors`. Where Go has assembly, the function is native (ADR-027) and its C++ takes the C++ types of the Go
+parameters, by reference:
+
+| Go (`internal/bytealg`) | C++ (`gp::bytealg::`, `gocpp/bytealg.hpp`) | Over |
+|---|---|---|
+| `IndexByte`, `IndexByteString` | `index_byte`, `index_byte_string` | `memchr` |
+| `LastIndexByte`, `LastIndexByteString` | `last_index_byte`, `last_index_byte_string` | a backward loop (`memrchr` is a GNU function) |
+| `Count`, `CountString` | `count`, `count_string` | 8-byte words without optimization, a loop the compiler vectorizes with it |
+| `Equal`, `Compare`, `CompareString` | `equal`, `compare`, `compare_string` | `memcmp` (`Compare` gives -1, 0, +1) |
+| `Index`, `IndexString` | `index`, `index_string` | `memmem` |
+| `MakeNoZero` | `make_no_zero` | an array that is not zeroed (`gp::detail::new_array`); panics like `make` when `n` is negative |
+
+A nil slice and the empty string have a null data pointer, which `memchr` and `memcmp` must not get, so each function
+checks the length first. `internal/godebug`'s `env` (`gp::godebug::env`) and the handle table of `runtime/cgo`
+(`gp::cgo::handle_new`, `handle_value`, `handle_delete`) are in `gocpp/shims.hpp`.

@@ -229,9 +229,8 @@ files pass".
    `internal/byteorder`, `internal/abi`/`internal/godebug`/`internal/cpu` (stubs), minimal
    `runtime` and `syscall` surfaces. This step also owns the public `runtime/cgo` package (`Handle`,
    `NewHandle`, `Value`, `Delete`: a native handle table behind the `//gocpp:native` marker; the docs
-   say "Phase 09" for it, since step 5.12 found that no step had built it) and, unless step 8.10 builds
-   it first, `runtime.Error` and `runtime.PanicNilError` as named types that the runtime's panic values
-   already implement (`r.(runtime.Error)`).
+   say "Phase 09" for it, since step 5.12 found that no step had built it) (and
+   `runtime.Error` and `runtime.PanicNilError`, which step 8.10 built first: `stdlib/runtime/runtime.gp`).
 3. **9.3 Reflect subset** (descriptor extensions incl. zero value and element assign/swap; the
    per-package API list in §2.2; `internal/reflectlite` alias; `DeepEqual`).
 4. **9.4 Port tier-1 pure packages**: `unicode/utf8`, `unicode`, `strings`, `bytes`, `strconv`,
@@ -248,6 +247,37 @@ files pass".
 11. **9.11 Tier-2 packages**, `encoding/json` first.
 12. **9.12 Docs**: package list, what differs from Go, how to port a package.
 13. **9.13 v0.1 release candidate**: tag, changelog, install notes.
+
+### 3.1 Notes on step 9.2: what the packages import
+
+Made from the imports of each package's `.go` files (go1.25.14, `purego`, linux), by reading the selectors that name
+another package's symbols; `docs/guides/porting-blockers.md` (step 9.1) has the package-level table. Step 9.2 built the
+first row group; the rest is owned by the step in the last column, and nothing here adds a file to `runtime`
+(step 8.9 and 8.10 own it).
+
+| Package | Symbols it uses from internal packages | Provided by |
+|---|---|---|
+| `strings` | `bytealg.{IndexByteString, CountString, CompareString, LastIndexByteString, IndexString, HashStrRev, PrimeRK, MaxBruteForce, MaxLen, Cutover, MakeNoZero}`, `stringslite.*`, `abi.NoEscape` | 9.2 (all of them) |
+| `bytes` | `bytealg.{Index, IndexByte, IndexString, IndexByteString, Count, Compare, LastIndexByte, IndexRabinKarp, LastIndexRabinKarp, MaxLen, MaxBruteForce, Cutover, MakeNoZero}`; `runtime.growslice` appears only in a comment | 9.2 |
+| `strconv` | `stringslite.Clone`, `bytealg.IndexByteString` (the `bootstrap` variants avoid it) | 9.2 |
+| `math/bits` | `runtime.overflowError`, `runtime.divideError` (linkname: 9.1's table turns them into native panics) | 9.1 |
+| `unicode/utf8`, `unicode`, `sort`, `io`, `bufio`, `context`, `regexp` | none of the internal packages above (`sort`, `errors`, `context` need `internal/reflectlite`) | 9.3, 8.7, 8.8, 7.x |
+| `slices`, `maps`, `iter` | `iter`: `race.{Acquire, Release, Write}`, `runtime.{Goexit, newcoro, coroswitch}` | 9.2 (`race`), 8.9 and 7.8 (`runtime`, coroutines) |
+| `math` | `cpu.X86.HasFMA`, `cpu.ARM64.HasFMA` | 9.2 (false: the portable branch) |
+| `sync` | `race.{Enabled, Enable, Disable, Acquire, Release, ReleaseMerge, Read, Write}`, `runtime.{GOMAXPROCS, randn}`, `internal/sync`, `internal/synctest` | 9.2 (`race`), 8.7 |
+| `time` | `godebug.New`, `stringslite.Clone`, `bytealg.IndexByte`, `runtime.{GOOS, GOROOT, usleep}`, `syscall.{Open, Read, Seek, Close, Getenv, ENOENT, ...}` | 9.2 (the first three), 8.8, 9.6 |
+| `os` | `byteorder`, `goarch.BigEndian`, `itoa`, `stringslite`, `testlog.{Open, Stat, Getenv, Logger, PanicOnExit0}`, `bytealg.{CompareString, LastIndexByteString}`, `runtime.{GOOS, KeepAlive, SetFinalizer, AddCleanup, LockOSThread, rand}`, about 150 `syscall` names, `internal/poll`, `internal/filepathlite`, `internal/syscall/*` | 9.2 (the first five), 9.6 (the rest: `os` is native over interop) |
+| `testing`, `flag` | `race.Errors`, `runtime.{Goexit, Callers, CallersFrames, Caller, GOMAXPROCS, ReadMemStats, GC, MemStats, SetBlockProfileRate, ...}`, `runtime/debug`, `runtime/trace`, `internal/sysinfo` | 9.2 (`race`), 8.10, 9.9 |
+| `fmt` | `internal/fmtsort`, `reflect`, `os` | 9.7, 9.3 |
+| `hash/fnv`, `encoding/base64` (tier 2) | `byteorder`, `bytealg` through `strings` | 9.2 |
+
+What step 9.2 built (`stdlib/internal/PORT.md`, ADR-045): `internal/abi` (`NoEscape`, `Escape`), `internal/bytealg`
+(natives and generic Rabin-Karp), `internal/byteorder`, `internal/cpu`, `internal/godebug`, `internal/goarch`,
+`internal/goos`, `internal/itoa`, `internal/oserror`, `internal/race`, `internal/stringslite`, `internal/testlog`, and
+`runtime/cgo`. Tests: `tests/run/shim_*.gp` (differential against real Go through twins: `tests/twin_test.go`).
+Not built by this step, because it belongs to the runtime or to other steps: `runtime.Error`/`PanicNilError` and the
+functions of `runtime` listed above (built by step 8.10, merged), `syscall` (9.6), `internal/reflectlite` (built by 9.3),
+`internal/sync` and `internal/synctest` (8.7).
 
 ## 4. Deliverables
 

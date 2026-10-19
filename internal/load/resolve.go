@@ -45,7 +45,7 @@ func (l *loader) resolve(from *Package, path string, at token.Position) (*Packag
 	// Go's rule for internal packages comes first for a package that
 	// exists, also for a standard package that gocpp doesn't have yet;
 	// a path that names no package gets the error of find.
-	if !internalAllowed(from, path) && (msg == "" || l.cfg.GoStd != nil && l.cfg.GoStd(path)) {
+	if !internalAllowed(from, path) && !(l.cfg.AllowStdInternal && l.isStdInternal(path)) && (msg == "" || l.cfg.GoStd != nil && l.cfg.GoStd(path)) {
 		return nil, fmt.Sprintf("use of internal package %s not allowed", path)
 	}
 	if msg != "" {
@@ -120,6 +120,14 @@ func internalAllowed(from *Package, path string) bool {
 		}
 	}
 	return inModule(importer, parent)
+}
+
+// isStdInternal reports whether path is an internal package of the standard library that gocpp
+// has: the internal packages of Go's standard library (the first element of the path is internal,
+// or the path has an element internal: crypto/internal/...).
+func (l *loader) isStdInternal(path string) bool {
+	return l.isStd(path) && (path == "internal" || strings.HasPrefix(path, "internal/") ||
+		strings.Contains(path, "/internal/") || strings.HasSuffix(path, "/internal"))
 }
 
 // find returns where the package with the import path path is, for an

@@ -108,7 +108,7 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 | `sync` | 08 |  |
 | `sync/atomic` | 08 |  |
 | `time` | 08 | The whole package, since step 8.8 (Go's own `format.go`, `time.go` and `zoneinfo.go`, with natives for the clocks, `Sleep`, the timers and the time zone files). Timers follow Go 1.23: timer channels look unbuffered, `Stop` and `Reset` leave no stale value, and a `Timer` nobody holds is freed. `time.LoadLocation` reads the system's zoneinfo (the `ZONEINFO` variable, `/usr/share/zoneinfo`, `/etc/zoneinfo`); there is no embedded copy (`time/tzdata` is not available). On Windows (Phase 14) the zone data comes later. |
-| `runtime/cgo` | 09 | `cgo.Handle`: not built yet. |
+| `runtime/cgo` | 09 | `cgo.Handle` with `NewHandle`, `Value` and `Delete` (step 9.2): a native table, so a handle passes through C and C++ as an integer. |
 | `bufio` | 09 |  |
 | `bytes` | 09 |  |
 | `context` | 09 |  |

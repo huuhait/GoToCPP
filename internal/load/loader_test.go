@@ -1382,6 +1382,44 @@ c/c.gp:10:2: package example.com/m/a/internal/missing is not in module example.c
 	wantErrors(t, prog, root, "")
 }
 
+// TestAllowStdInternal checks Config.AllowStdInternal (gocpp's tests of the standard library's
+// internal packages): it opens the internal packages of the standard library that exist, and
+// nothing else: a module's internal package stays closed, and so does the hidden package of the
+// type checker.
+func TestAllowStdInternal(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"gocpp.mod":         "module example.com/m\n",
+		"a/internal/x/x.gp": "package x\n",
+		"c/c.gp": `package c
+
+import (
+	_ "internal/bytealg"
+	_ "internal/abi"
+	_ "example.com/m/a/internal/x"
+	_ "gocpp/cgoh"
+	_ "internal/zzz"
+)
+`,
+	})
+	prog := loadIn(t, Config{AllowStdInternal: true}, root, "./c")
+	wantErrors(t, prog, root, `# example.com/m/c
+c/c.gp:5:2: use of internal package internal/abi not allowed
+c/c.gp:6:2: use of internal package example.com/m/a/internal/x not allowed
+c/c.gp:7:2: use of internal package gocpp/cgoh not allowed
+c/c.gp:8:2: package internal/zzz is not in std ($GOCPP/stdlib/internal/zzz)
+`)
+	// (internal/abi is a Go package that this test's standard library does not have: it stays
+	// closed, as it is for a package that exists in Go and not here.) Off, the standard internal packages are closed again.
+	prog = loadIn(t, Config{}, root, "./c")
+	wantErrors(t, prog, root, `# example.com/m/c
+c/c.gp:4:2: use of internal package internal/bytealg not allowed
+c/c.gp:5:2: use of internal package internal/abi not allowed
+c/c.gp:6:2: use of internal package example.com/m/a/internal/x not allowed
+c/c.gp:7:2: use of internal package gocpp/cgoh not allowed
+c/c.gp:8:2: package internal/zzz is not in std ($GOCPP/stdlib/internal/zzz)
+`)
+}
+
 // TestCgohPath checks that no package can import the hidden package of
 // the type checker (CgohPath), also from a module named gocpp that has a
 // package with that path; the package itself still loads as a pattern.

@@ -34,35 +34,37 @@ const goMinor = 25
 
 // The comment lines of the test formats. Each one starts a line.
 const (
-	phaseLine        = "// phase: NN" // the form of the first line, for messages
-	outputPrefix     = "// Output:"
-	exitCodePrefix   = "// ExitCode:"
-	stderrPrefix     = "// Stderr:"
-	pkgConfigPrefix  = "// pkg-config:"
-	displayPrefix    = "// display:"
-	zoneinfoPrefix   = "// zoneinfo:"
-	diffPrefix       = "// diff:"
-	lsanPrefix       = "// lsan:"
-	divergencePrefix = "// divergence:"
-	pendingPrefix    = "// pending:"
-	goBuildPrefix    = "//go:build"
+	phaseLine         = "// phase: NN" // the form of the first line, for messages
+	outputPrefix      = "// Output:"
+	exitCodePrefix    = "// ExitCode:"
+	stderrPrefix      = "// Stderr:"
+	pkgConfigPrefix   = "// pkg-config:"
+	displayPrefix     = "// display:"
+	zoneinfoPrefix    = "// zoneinfo:"
+	diffPrefix        = "// diff:"
+	lsanPrefix        = "// lsan:"
+	divergencePrefix  = "// divergence:"
+	pendingPrefix     = "// pending:"
+	stdInternalPrefix = "// std-internal:"
+	goBuildPrefix     = "//go:build"
 )
 
 // A lineSet is a set of the optional comment lines.
 type lineSet uint16
 
 const (
-	outputLine     lineSet = 1 << iota // the // Output: block; required where it is allowed
-	exitCodeLine                       // // ExitCode: N
-	stderrLine                         // // Stderr: regexp
-	pkgConfigLine                      // // pkg-config: lib...
-	displayLine                        // // display: required
-	zoneinfoLine                       // // zoneinfo: required
-	diffLine                           // // diff: stderr, // diff: combined
-	lsanLine                           // // lsan: cycle
-	divergenceLine                     // // divergence: D1
-	pendingLine                        // // pending: step 7.1 (generics)
-	goBuildLine                        // //go:build expr
+	outputLine      lineSet = 1 << iota // the // Output: block; required where it is allowed
+	exitCodeLine                        // // ExitCode: N
+	stderrLine                          // // Stderr: regexp
+	pkgConfigLine                       // // pkg-config: lib...
+	displayLine                         // // display: required
+	zoneinfoLine                        // // zoneinfo: required
+	diffLine                            // // diff: stderr, // diff: combined
+	lsanLine                            // // lsan: cycle
+	divergenceLine                      // // divergence: D1
+	pendingLine                         // // pending: step 7.1 (generics)
+	stdInternalLine                     // // std-internal: tests internal/bytealg
+	goBuildLine                         // //go:build expr
 )
 
 // optionalLines lists the optional comment lines with their prefixes.
@@ -80,6 +82,7 @@ var optionalLines = []struct {
 	{lsanLine, lsanPrefix},
 	{divergenceLine, divergencePrefix},
 	{pendingLine, pendingPrefix},
+	{stdInternalLine, stdInternalPrefix},
 	{goBuildLine, goBuildPrefix},
 }
 
@@ -98,15 +101,15 @@ type format struct {
 }
 
 // Every format honors //go:build lines. The tests that run a program take // lsan: cycle and
-// // pending:.
+// // pending:; run and pkgs tests also take // std-internal:.
 var (
-	runFormat     = format{"run", outputLine | exitCodeLine | stderrLine | lsanLine | divergenceLine | pendingLine | zoneinfoLine | goBuildLine, true}
+	runFormat     = format{"run", outputLine | exitCodeLine | stderrLine | lsanLine | divergenceLine | pendingLine | stdInternalLine | zoneinfoLine | goBuildLine, true}
 	errorsFormat  = format{"errors", goBuildLine, true}
 	goldenFormat  = format{"golden", goBuildLine, true}
 	diffFormat    = format{"diff", diffLine | lsanLine | pendingLine | goBuildLine, true}
 	interopFormat = format{"interop", outputLine | exitCodeLine | stderrLine | pkgConfigLine | lsanLine | pendingLine | goBuildLine, true}
 	// A multi-package test is a folder: a module with a main.gp (tests/pkgs).
-	pkgsFormat  = format{"pkgs", outputLine | exitCodeLine | stderrLine | lsanLine | divergenceLine | pendingLine | goBuildLine, true}
+	pkgsFormat  = format{"pkgs", outputLine | exitCodeLine | stderrLine | lsanLine | divergenceLine | pendingLine | stdInternalLine | goBuildLine, true}
 	debugFormat = format{"debug", goBuildLine, true} // and the // gdb: comments (debug.go)
 
 	// An interop error test (a test in tests/interop with // ERROR
@@ -123,19 +126,20 @@ var (
 
 // A header is what a test file says about itself in its comment lines.
 type header struct {
-	phase     int              // the phase that makes the test pass (the first line, "// phase: NN")
-	output    string           // the expected stdout, from the // Output: block
-	exitCode  int              // the expected exit code (// ExitCode: N, default 0)
-	stderr    []*regexp.Regexp // the // Stderr: regexps; none means stderr must be empty
-	pkgConfig []string         // the pkg-config packages the test needs (// pkg-config: ...)
-	display   bool             // the program needs a display (// display: required)
-	zoneinfo  bool             // the program loads time zones by name (// zoneinfo: required)
-	diff      string           // a diff test's mode (// diff: ...): diffStdout, diffStderr or diffCombined
-	cycle     bool             // the program leaks a reference cycle on purpose (// lsan: cycle)
-	diverges  string           // the divergence of docs/spec/language.md that the test shows (// divergence: D1), or ""
-	pending   string           // why the test fails until a step of its phase lands (// pending: ...), or ""
-	build     constraint.Expr  // the //go:build constraint, or nil
-	buildLine string           // the //go:build line, for messages
+	phase       int              // the phase that makes the test pass (the first line, "// phase: NN")
+	output      string           // the expected stdout, from the // Output: block
+	exitCode    int              // the expected exit code (// ExitCode: N, default 0)
+	stderr      []*regexp.Regexp // the // Stderr: regexps; none means stderr must be empty
+	pkgConfig   []string         // the pkg-config packages the test needs (// pkg-config: ...)
+	display     bool             // the program needs a display (// display: required)
+	zoneinfo    bool             // the program loads time zones by name (// zoneinfo: required)
+	diff        string           // a diff test's mode (// diff: ...): diffStdout, diffStderr or diffCombined
+	cycle       bool             // the program leaks a reference cycle on purpose (// lsan: cycle)
+	diverges    string           // the divergence of docs/spec/language.md that the test shows (// divergence: D1), or ""
+	pending     string           // why the test fails until a step of its phase lands (// pending: ...), or ""
+	stdInternal string           // why the test imports the standard library's internal packages (// std-internal: ...), or ""
+	build       constraint.Expr  // the //go:build constraint, or nil
+	buildLine   string           // the //go:build line, for messages
 }
 
 // parse reads the comment lines of a test file. path names the file in the
@@ -295,6 +299,12 @@ func (h *header) set(l lineSet, line, rest string, seen lineSet) error {
 			return fmt.Errorf("bad %q line: want the reason, such as \"// pending: step 7.1 (generic functions)\"", pendingPrefix)
 		}
 		h.pending = s
+	case stdInternalLine:
+		s := strings.TrimSpace(rest)
+		if s == "" {
+			return fmt.Errorf("bad %q line: want the reason, such as \"// std-internal: tests internal/bytealg\"", stdInternalPrefix)
+		}
+		h.stdInternal = s
 	case goBuildLine:
 		expr, err := constraint.Parse(line)
 		if err != nil {

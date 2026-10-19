@@ -98,6 +98,9 @@ func TestMain(m *testing.M) {
 	}
 	os.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 	os.Setenv("GOCPP_MODCACHE", "off") // the test programs never download modules
+	// Only a test with "// std-internal:" gets this (runEnv): a developer's value must not open the
+	// standard library's internal packages for the error tests.
+	os.Unsetenv(allowInternalName)
 	os.Setenv("GOCPP_OFFLINE", "1")
 	killOnSignal(tmp)
 	// run stops each command before go test's -timeout runs out. If a test
@@ -678,13 +681,26 @@ func (c *config) runTest(t *testing.T, p *program) {
 
 // runEnv returns the environment that gocpp run gets for the test with the header h, on top of
 // the harness's own: for a test that leaks a reference cycle on purpose (// lsan: cycle), the
-// ASAN_OPTIONS that turn LeakSanitizer off (lsanEnv), which the program inherits.
+// ASAN_OPTIONS that turn LeakSanitizer off (lsanEnv), which the program inherits; for a test that
+// says // std-internal:, GOCPP_ALLOW_INTERNAL=1.
 func runEnv(h *header) []string {
-	if !h.cycle {
-		return nil
+	var env []string
+	if h.cycle {
+		env = append(env, lsanEnv(os.Getenv("ASAN_OPTIONS")))
 	}
-	return []string{lsanEnv(os.Getenv("ASAN_OPTIONS"))}
+	if h.stdInternal != "" {
+		env = append(env, allowInternalEnv)
+	}
+	return env
 }
+
+// allowInternalEnv lets a test that says "// std-internal:" import the standard library's internal
+// packages (cmd/gocpp: load.Config.AllowStdInternal). No other test gets it, so the error "use of
+// internal package ... not allowed" stays what a user sees.
+const (
+	allowInternalName = "GOCPP_ALLOW_INTERNAL"
+	allowInternalEnv  = allowInternalName + "=1"
+)
 
 // runVsGoTest builds a run test with real Go, runs it like gocpp run runs
 // it, and checks the result against the test's expectations.
@@ -968,6 +984,12 @@ func (c *config) goBuild(t *testing.T, p *program) (prog string, build result) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if p.header.stdInternal != "" {
+			// The standard library's internal packages, as twins next to the program (twin_test.go).
+			if src, err = writeTwins(dir, src); err != nil {
+				t.Fatal(err)
+			}
+		}
 		if err := os.WriteFile(filepath.Join(dir, goFile), src, 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -1003,7 +1025,9 @@ func goRejects(out, goFile string) bool {
 	if goFile == "(the module)" {
 		return anyGoError.MatchString(out)
 	}
-	rx := regexp.MustCompile(`(?m)^(\./)?` + regexp.QuoteMeta(goFile) + `:\d+(:\d+)?: `)
+	// go build names the file with "./", or with its whole path when it is the import path (the
+	// error of an import "C" preamble).
+	rx := regexp.MustCompile(`(?m)^(\./|/[^\s:]*/)?` + regexp.QuoteMeta(goFile) + `:\d+(:\d+)?: `)
 	return rx.MatchString(out)
 }
 

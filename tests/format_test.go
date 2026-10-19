@@ -24,23 +24,24 @@ import (
 // line instead of the constraint, for comparisons. (TestTargetGate checks
 // the constraints.)
 type headerView struct {
-	phase     int
-	output    string
-	exitCode  int
-	stderr    []string
-	pkgConfig []string
-	display   bool
-	zoneinfo  bool
-	diff      string
-	cycle     bool
-	diverges  string
-	pending   string
-	build     string
+	phase       int
+	output      string
+	exitCode    int
+	stderr      []string
+	pkgConfig   []string
+	display     bool
+	zoneinfo    bool
+	diff        string
+	cycle       bool
+	diverges    string
+	pending     string
+	stdInternal string
+	build       string
 }
 
 func view(h *header) headerView {
 	v := headerView{phase: h.phase, output: h.output, exitCode: h.exitCode, pkgConfig: h.pkgConfig,
-		display: h.display, zoneinfo: h.zoneinfo, diff: h.diff, cycle: h.cycle, diverges: h.diverges, pending: h.pending, build: h.buildLine}
+		display: h.display, zoneinfo: h.zoneinfo, diff: h.diff, cycle: h.cycle, diverges: h.diverges, pending: h.pending, stdInternal: h.stdInternal, build: h.buildLine}
 	for _, rx := range h.stderr {
 		v.stderr = append(v.stderr, rx.String())
 	}
@@ -87,6 +88,8 @@ func TestParseHeader(t *testing.T) {
 		{"diff_lsan.gp", diffFormat, headerView{phase: 3, cycle: true}},
 		{"run_pending.gp", runFormat, headerView{phase: 7, output: "ok\n", pending: "step 7.1 (generic functions)"}},
 		{"zoneinfo_ok.gp", runFormat, headerView{phase: 8, output: "ok\n", zoneinfo: true}},
+		{"run_std_internal.gp", runFormat, headerView{phase: 9, output: "ok\n", stdInternal: "tests internal/bytealg"}},
+		{"run_std_internal.gp", pkgsFormat, headerView{phase: 9, output: "ok\n", stdInternal: "tests internal/bytealg"}},
 		// Every format honors a //go:build line in the header.
 		{"gobuild_ok.gp", runFormat, headerView{phase: 14, build: "//go:build linux || windows"}},
 		{"gobuild_ok.gp", interopFormat, headerView{phase: 14, build: "//go:build linux || windows"}},
@@ -162,6 +165,9 @@ func TestParseHeaderMalformed(t *testing.T) {
 		{"divergence_bad.gp", runFormat, `2: bad "// divergence:" line: want a divergence of docs/spec/language.md, such as D1, not "1"`},
 		{"pending_bad.gp", runFormat, `2: bad "// pending:" line: want the reason, such as "// pending: step 7.1 (generic functions)"`},
 		{"run_pending.gp", errorsFormat, `2: tests in tests/errors have no "// pending:" line`},
+		{"std_internal_bad.gp", runFormat, `2: bad "// std-internal:" line: want the reason, such as "// std-internal: tests internal/bytealg"`},
+		{"run_std_internal.gp", diffFormat, `2: tests in tests/diff have no "// std-internal:" line`},
+		{"run_std_internal.gp", errorsFormat, `2: tests in tests/errors have no "// std-internal:" line`},
 		{"divergence_in_diff.gp", diffFormat, `2: tests in tests/diff have no "// divergence:" line`},
 	}
 	for _, tt := range tests {
@@ -519,6 +525,8 @@ func TestGoRejects(t *testing.T) {
 		{"# difftest\n./slices_append.go:8:2: undefined: foo\n", true},
 		{"# difftest\nslices_append.go:12: syntax error\n", true},
 		{"# difftest\n./slices_append.go:3:8: package raylib.h is not in std\n", true},
+		{"/tmp/x/001/slices_append.go:13:2: invalid import path: <stdlib.h>\n", true}, // the whole path
+		{"/tmp/x/001/other.go:13:2: invalid import path: <stdlib.h>\n", false},
 		{"go: go.mod requires go >= 1.99 (running go 1.25.14; GOTOOLCHAIN=local)\n", false},
 		{"go: errors parsing go.mod:\ngo.mod:3: invalid go version '1.x'\n", false},
 		{"# difftest\n./other.go:8:2: undefined: foo\n", false},          // another file
@@ -1150,5 +1158,20 @@ func TestCheckPending(t *testing.T) {
 	err := checkPending("x.gp", &header{phase: version.Phase, pending: "step"})
 	if err == nil || !strings.Contains(err.Error(), "pending: test of a finished phase") {
 		t.Errorf("a pending test of a finished phase: %v", err)
+	}
+}
+
+// TestAllowInternalOnlyByHeader checks that the harness does not pass a developer's
+// GOCPP_ALLOW_INTERNAL on to the gocpp runs (TestMain unsets it) and that runEnv sets it for a test
+// with "// std-internal:" only.
+func TestAllowInternalOnlyByHeader(t *testing.T) {
+	if v, ok := os.LookupEnv(allowInternalName); ok {
+		t.Errorf("%s is %q in the test binary's environment; TestMain must remove it", allowInternalName, v)
+	}
+	if env := runEnv(&header{}); slices.Contains(env, allowInternalEnv) {
+		t.Errorf("runEnv(no std-internal line) = %q", env)
+	}
+	if env := runEnv(&header{stdInternal: "tests internal/bytealg"}); !slices.Contains(env, allowInternalEnv) {
+		t.Errorf("runEnv(std-internal line) = %q, want %s", env, allowInternalEnv)
 	}
 }

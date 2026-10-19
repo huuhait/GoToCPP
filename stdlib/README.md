@@ -22,6 +22,10 @@ embedded in the `gocpp` binary, and the loader finds the standard packages here.
   text is the same, so keep a copy of `PATENTS` from the pinned tarball with any redistribution of `stdlib/`.
 - **`time`** since step 8.8: Go's `format.go`, `time.go` and `zoneinfo.go` with natives for the clocks, `Sleep`, the timers and the zone files
   (`stdlib/time/PORT.md`, ADR-041).
+- **Internal packages** (step 9.2, ADR-045): `internal/bytealg`, `stringslite`, `byteorder`, `abi`, `cpu`, `godebug`,
+  `race`, `testlog`, `itoa`, `oserror`, `goarch` and `goos`, and the public `runtime/cgo`. They are real packages that the
+  ported packages of step 9.4 import; `internal/PORT.md` says what each one is and how it differs from Go's. A program
+  cannot import them (Go's rule); their tests do, through `// std-internal:` ([tests/README.md](../tests/README.md)).
 - **Native functions.** A function without a body that has a `//gocpp:native` line in its doc comment is written in
   C++: the line names the runtime function that its calls become (ADR-027).
 

@@ -426,7 +426,7 @@ var stdPackages = []stdPackage{
 	{Path: "errors", Phase: 5},
 	{Path: "runtime", Phase: 8, Notes: "`runtime.Error`, `PanicNilError`, `TypeAssertionError`, `Gosched`, `NumGoroutine`, `GOMAXPROCS`, `NumCPU`, `Goexit`, `LockOSThread`, `Caller`, `Callers`, `CallersFrames`, `FuncForPC`, `Stack`, `GC`, `ReadMemStats`, `Version`, `GOOS`, `GOARCH`, `KeepAlive` and `SetFinalizer` from Phase 08 (step 8.10). Each goroutine has a thread of its own, so `LockOSThread` does nothing and `Gosched` only yields the CPU. Memory is reference counted: `GC` does nothing and a finalizer never runs. The profiles, traces and `AddCleanup` are not built; stdlib/runtime/PORT.md lists them."},
 	{Path: "runtime/debug", Phase: 8, Notes: "`Stack`, `PrintStack`, `SetGCPercent`, `SetMemoryLimit`, `FreeOSMemory`, `SetMaxStack`, `SetMaxThreads`, `SetPanicOnFault` and `SetTraceback` from Phase 08 (step 8.10). `ReadBuildInfo`, `ReadGCStats` and `SetCrashOutput` come with Phase 09."},
-	{Path: "runtime/cgo", Phase: 9, Notes: "`cgo.Handle`: not built yet."},
+	{Path: "runtime/cgo", Phase: 9, Notes: "`cgo.Handle` with `NewHandle`, `Value` and `Delete` (step 9.2): a native table, so a handle passes through C and C++ as an integer."},
 	{Path: "cmp", Phase: 7},
 	{Path: "iter", Phase: 7, Notes: "`iter.Pull` and `iter.Pull2` from Phase 08 (they run on a helper thread)."},
 	{Path: "maps", Phase: 7},
