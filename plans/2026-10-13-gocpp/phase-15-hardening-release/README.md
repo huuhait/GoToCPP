@@ -235,6 +235,30 @@ bytes, D15); deleting string keys from a 1,000-entry map is slower than Go (67 a
 else gocpp is ahead of Go or within noise of it (tiny-map churn: 22 against 20 ns), and ahead of the old
 table by 1.5x to 20x (insert 7x and range 18x at 10 million entries: the old table's per-entry nodes). The 10-million-entry columns are the most affected by the
 machine's load (cache and memory bandwidth are shared).
+### Notes on step 15.9 (random-program differential testing)
+
+**15.9 Random-program differential testing** ([guide](../../../docs/guides/difftest.md),
+`tools/difftest`): a seeded generator of valid Go programs whose behavior the specification
+defines (`tools/difftest/gen`: integer wrap, shifts and division of every width, strings and
+runes, slice aliasing with a length/capacity model, arrays and structs, maps, pointers, methods
+and interfaces, embedding, type switches, closures with Go 1.22 loop variables, defer, panic and
+recover, the run-time panics, labels, constants, generic functions, goroutines with channels and
+`select`, `fmt` verbs, complex numbers, the fmt methods, map keys, float conversions, invalid UTF-8,
+`println`, the ported standard packages), parameterized by the features of the phase that gocpp has reached
+(`-phase`, `-features`); a runner that builds 100 to 200 programs as one bundle of 8 files with
+real Go and with gocpp (`tools/difftest/diff`), compares the output of each program, finds
+crashes, hangs and build failures by program, resumes from per-bundle state files, and minimizes
+every mismatch with an AST-level reducer (at most 100 gocpp builds) before classifying it
+against `tools/difftest/known.txt` or writing a finding to `tools/difftest/findings/` (ignored
+by git). `-asan` builds the programs with the sanitizers: any report fails. The generator is
+checked three ways: unit tests (determinism, 2000 programs type-check, a static lint for
+forbidden constructs, feature gating), real Go on thousands of programs (every program must
+build and run twice with the same output: counted as `generator bugs`), and seeded bugs in a
+scratch copy of the compiler (`DIFFTEST_MUTANTS=1 go test -run SeededBugs ./tools/difftest/diff`).
+Campaign numbers, the seven injected bugs, the rate (212 programs a minute, 3.5 CPU seconds a
+program) and the known differences are in the guide. The 1M-program exit criterion is a nightly
+job (`go run ./tools/difftest -n 1000000 -j 8`, resumable, about 960 CPU hours) that adds up over
+many nights.
 
 ## 4. Deliverables
 

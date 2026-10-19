@@ -1,0 +1,30 @@
+# Known differences between gocpp and Go that the difftest campaigns found and understood.
+#
+# A mismatch that matches an entry is counted as known; any other mismatch is a finding
+# (tools/difftest/findings/, minimized) and fails the campaign. An entry is a block of
+# "key: value" lines, blocks are separated by blank lines:
+#
+#   name:   a short unique name
+#   kind:   output | exit | stderr | build | ice | crash | timeout | sanitizer | * (any)
+#   sig:    regexp matched against the signature of the mismatch: its first differing line pair
+#           ("- <Go prints>" newline "+ <gocpp prints>"), or the first error line of a build
+#   src:    optional regexp matched against the minimized program
+#   reason: why it differs
+#   doc:    the document that explains it (a path from the repository root, with an optional #anchor)
+#
+# Every entry must name a document: a documented divergence (docs/spec/language.md, D1 to D28) or
+# an open bug in the plan. An entry that matches too much hides real bugs: keep sig and src narrow.
+
+name: D1-self-referencing-closure-leak
+kind: sanitizer
+sig: LeakSanitizer
+src: \bfib = func\(n int\) int
+reason: a closure that calls itself through the variable that holds it is a reference cycle, which reference counting never frees (documented: D1); LeakSanitizer reports it when an ASan build ends
+doc: docs/spec/language.md#d1-reference-counting-instead-of-a-garbage-collector
+
+name: cap-growth-size-classes
+kind: output
+sig: (?s)^- .*[0-9]\n\+ .*[0-9]$
+src: p[0-9]+_cap[sn][0-9]+\[
+reason: cap() after append of a slice with pointer-containing or zero-size elements differs from gc 1.25 (gc rounds the new array up to a malloc size class: append 33 strings gives cap 71 in Go and 64 in gocpp; []struct{} grows by length in Go); the spec promises only cap >= len, the capgrowth scenario is off by default (-features +capgrowth) and gocpp's runtime/src/slice.cpp is to be fixed separately
+doc: plans/2026-10-13-gocpp/TODO.md

@@ -1,0 +1,281 @@
+package gen
+
+import (
+	"fmt"
+)
+
+// Goroutine and channel scenarios. Every one has a deterministic result: goroutines hand
+// results back over channels or write distinct slots that are read after a receive, the
+// order in which values are printed never depends on scheduling, and a select has exactly
+// one ready case whenever it runs (or a default).
+
+func init() {
+	register("workers", 9, []string{"goroutines", "chan"}, scenWorkers)
+	register("pipeline", 8, []string{"goroutines", "chan"}, scenPipeline)
+	register("pingpong", 7, []string{"goroutines", "chan"}, scenPingPong)
+	register("chanbasic", 8, []string{"chan"}, scenChanBasic)
+	register("selectdet", 8, []string{"chan", "select"}, scenSelect)
+	register("gopanic", 5, []string{"goroutines", "chan", "defer"}, scenGoPanic)
+}
+
+// pureFunc makes a top-level function T -> T over one parameter and returns its name.
+func (g *Gen) pureFunc(t *Type) string {
+	f := g.topName("w")
+	g.topFunc(fmt.Sprintf("%s(x %s) %s", f, t.Name, t.Name), []*Var{{Name: "x", T: t}}, func() {
+		e := g.expr(t, 2)
+		g.sweep()
+		g.ln("return %s", e)
+	})
+	return f
+}
+
+func scenWorkers(g *Gen) {
+	t := g.randIntType()
+	f := g.pureFunc(t)
+	n := g.between(3, 12)
+	nw := g.between(1, 4)
+	g.ln("jobs := make(chan int, %d)", g.between(0, 4))
+	g.ln("res := make([]%s, %d)", t.Name, n)
+	g.ln("done := make(chan int)")
+	g.enter(fmt.Sprintf("for w := 0; w < %d; w++", nw))
+	g.ln("go func() {")
+	g.ind++
+	g.ln("cnt := 0")
+	g.enter("for j := range jobs")
+	g.ln("res[j] = %s(%s(j) * %s)", f, t.Name, g.lit(t))
+	g.ln("cnt++")
+	g.leave()
+	g.ln("done <- cnt")
+	g.ind--
+	g.ln("}()")
+	g.leave()
+	g.enter(fmt.Sprintf("for j := 0; j < %d; j++", n))
+	g.ln("jobs <- j")
+	g.leave()
+	g.ln("close(jobs)")
+	g.ln("total := 0")
+	g.enter(fmt.Sprintf("for w := 0; w < %d; w++", nw))
+	g.ln("total += <-done")
+	g.leave()
+	g.ln("fmt.Println(total, res)")
+	g.showAll()
+}
+
+func scenPipeline(g *Gen) {
+	t := g.randIntType()
+	f := g.pureFunc(t)
+	h := g.pureFunc(t)
+	n := g.between(2, 10)
+	g.ln("src := make(chan %s)", t.Name)
+	g.ln("mid := make(chan %s, %d)", t.Name, g.between(0, 3))
+	g.ln("out := make(chan %s)", t.Name)
+	g.ln("go func() {")
+	g.ind++
+	g.enter(fmt.Sprintf("for i := 0; i < %d; i++", n))
+	g.ln("src <- %s(i) + %s", t.Name, g.lit(t))
+	g.leave()
+	g.ln("close(src)")
+	g.ind--
+	g.ln("}()")
+	g.ln("go func() {")
+	g.ind++
+	g.enter("for v := range src")
+	g.ln("mid <- %s(v)", f)
+	g.leave()
+	g.ln("close(mid)")
+	g.ind--
+	g.ln("}()")
+	g.ln("go func() {")
+	g.ind++
+	g.ln("var acc %s", t.Name)
+	g.enter("for v := range mid")
+	g.ln("acc = acc*3 + %s(v)", h)
+	g.ln("out <- acc")
+	g.leave()
+	g.ln("close(out)")
+	g.ind--
+	g.ln("}()")
+	g.ln("var seen []%s", t.Name)
+	g.enter("for v := range out")
+	g.ln("seen = append(seen, v)")
+	g.leave()
+	g.ln("fmt.Println(len(seen), seen)")
+	g.ln("v, ok := <-out")
+	g.ln("fmt.Println(v, ok)")
+	g.showAll()
+}
+
+func scenPingPong(g *Gen) {
+	t := g.randIntType()
+	n := g.between(2, 8)
+	g.ln("ping, pong := make(chan %s), make(chan %s)", t.Name, t.Name)
+	g.ln("quit := make(chan string)")
+	g.ln("go func() {")
+	g.ind++
+	g.enter("for v := range ping")
+	g.ln("fmt.Println(\"got ping\", v)")
+	g.ln("pong <- v*2 + %s", g.lit(t))
+	g.leave()
+	g.ln("quit <- \"bye\"")
+	g.ind--
+	g.ln("}()")
+	g.ln("x := %s", g.lit(t))
+	g.enter(fmt.Sprintf("for i := 0; i < %d; i++", n))
+	g.ln("ping <- x")
+	g.ln("x = <-pong")
+	g.ln("fmt.Println(\"got pong\", x)")
+	g.leave()
+	g.ln("close(ping)")
+	g.ln("fmt.Println(<-quit)")
+	g.showAll()
+}
+
+func scenChanBasic(g *Gen) {
+	t := g.randIntType()
+	c := g.between(1, 5)
+	g.ln("c := make(chan %s, %d)", t.Name, c)
+	g.ln("fmt.Println(len(c), cap(c))")
+	g.enter(fmt.Sprintf("for i := 0; i < %d; i++", c))
+	g.ln("c <- %s(i) * %s", t.Name, g.lit(t))
+	g.ln("fmt.Println(len(c), cap(c))")
+	g.leave()
+	g.ln("close(c)")
+	g.ln("v, ok := <-c")
+	g.ln("fmt.Println(v, ok)")
+	g.enter("for v := range c")
+	g.ln("fmt.Println(\"left\", v, len(c))")
+	g.leave()
+	g.ln("v, ok = <-c")
+	g.ln("fmt.Println(v, ok, len(c), cap(c))")
+	g.ln("var nc chan %s", t.Name)
+	g.ln("fmt.Println(nc == nil, len(nc), cap(nc))")
+	// a channel of channels, and directional channel parameters
+	g.ln("cc := make(chan chan %s, 1)", t.Name)
+	g.ln("inner := make(chan %s, 1)", t.Name)
+	g.ln("cc <- inner")
+	g.ln("(<-cc) <- %s", g.lit(t))
+	g.ln("fmt.Println(<-inner)")
+	f := g.topName("snd")
+	g.topf("func %s(c chan<- %s, v %s) { c <- v }\n", f, t.Name, t.Name)
+	r := g.topName("rcv")
+	g.topf("func %s(c <-chan %s) %s { return <-c }\n", r, t.Name, t.Name)
+	g.ln("d := make(chan %s, 2)", t.Name)
+	g.ln("%s(d, %s)", f, g.lit(t))
+	g.ln("fmt.Println(%s(d))", r)
+	g.ln("var s struct{}")
+	g.ln("sc := make(chan struct{}, 1)")
+	g.ln("sc <- s")
+	g.ln("fmt.Println(<-sc)")
+	g.showAll()
+}
+
+func scenSelect(g *Gen) {
+	t := g.randIntType()
+	// default with nothing ready; one ready case; disabled (nil) cases
+	g.ln("a := make(chan %s, 1)", t.Name)
+	g.ln("b := make(chan string, 1)")
+	g.ln("var nilc chan int")
+	g.ln("select {")
+	g.ln("case v := <-a:")
+	g.ln("\tfmt.Println(\"a\", v)")
+	g.ln("case <-nilc:")
+	g.ln("\tfmt.Println(\"nil\")")
+	g.ln("default:")
+	g.ln("\tfmt.Println(\"nothing ready\")")
+	g.ln("}")
+	g.ln("a <- %s", g.lit(t))
+	g.ln("b <- \"pre\"")
+	g.ln("select {")
+	g.ln("case v, ok := <-a:")
+	g.ln("\tfmt.Println(\"a\", v, ok)")
+	g.ln("case b <- \"s\":")
+	g.ln("\tfmt.Println(\"sent b\")")
+	g.ln("}")
+	g.ln("select {")
+	g.ln("case s := <-b:")
+	g.ln("\tfmt.Println(\"b\", s)")
+	g.ln("case nilc <- 1:")
+	g.ln("\tfmt.Println(\"unreachable\")")
+	g.ln("}")
+	// a loop that consumes two producers that run in lockstep: ready cases are never ambiguous
+	n := g.between(2, 6)
+	g.ln("x, y := make(chan %s), make(chan string)", t.Name)
+	g.ln("ack := make(chan bool)")
+	g.ln("go func() {")
+	g.ind++
+	g.enter(fmt.Sprintf("for i := 0; i < %d; i++", n))
+	g.ln("if i%%2 == 0 {")
+	g.ln("\tx <- %s(i)", t.Name)
+	g.ln("} else {")
+	g.ln("\ty <- fmt.Sprint(\"y\", i)")
+	g.ln("}")
+	g.ln("<-ack")
+	g.leave()
+	g.ln("close(x)")
+	g.ind--
+	g.ln("}()")
+	g.enter(fmt.Sprintf("for i := 0; i < %d; i++", n))
+	g.ln("select {")
+	g.ln("case v := <-x:")
+	g.ln("\tfmt.Println(\"x\", v)")
+	g.ln("case s := <-y:")
+	g.ln("\tfmt.Println(\"y\", s)")
+	g.ln("}")
+	g.ln("ack <- true")
+	g.leave()
+	g.ln("_, ok := <-x")
+	g.ln("fmt.Println(ok)")
+	// a select on a closed channel always proceeds, with the zero value
+	g.ln("cl := make(chan %s)", t.Name)
+	g.ln("close(cl)")
+	g.ln("select {")
+	g.ln("case v, ok := <-cl:")
+	g.ln("\tfmt.Println(\"closed\", v, ok)")
+	g.ln("}")
+	// a labelled break out of a for-select
+	g.ln("q := make(chan int, 3)")
+	g.ln("q <- 1; q <- 2; q <- 3; close(q)")
+	g.ln("sum := 0")
+	g.ln("loop:")
+	g.ln("for {")
+	g.ln("\tselect {")
+	g.ln("\tcase v, ok := <-q:")
+	g.ln("\t\tif !ok {")
+	g.ln("\t\t\tbreak loop")
+	g.ln("\t\t}")
+	g.ln("\t\tsum += v")
+	g.ln("\t}")
+	g.ln("}")
+	g.ln("fmt.Println(\"sum\", sum)")
+	g.showAll()
+}
+
+func scenGoPanic(g *Gen) {
+	t := g.randIntType()
+	// a goroutine that panics and recovers itself, and reports through a channel
+	g.ln("res := make(chan string)")
+	g.ln("work := func(d %s) {", t.Name)
+	g.ln("\tdefer func() {")
+	g.ln("\t\tif r := recover(); r != nil {")
+	g.ln("\t\t\tres <- fmt.Sprint(\"recovered \", r)")
+	g.ln("\t\t}")
+	g.ln("\t}()")
+	g.ln("\tx := %s", g.lit(t))
+	g.ln("\tres <- fmt.Sprint(\"result \", x/d)")
+	g.ln("}")
+	g.ln("go work(%s(0))", t.Name)
+	g.ln("fmt.Println(<-res)")
+	g.ln("go work(%s(1))", t.Name)
+	g.ln("fmt.Println(<-res)")
+	// defers run on the goroutine's own stack, in order, before it signals
+	g.ln("fin := make(chan []string)")
+	g.ln("go func() {")
+	g.ln("\tvar log []string")
+	g.ln("\tdefer func() { fin <- log }()")
+	g.ln("\tdefer func() { log = append(log, \"second\") }()")
+	g.ln("\tdefer func() { log = append(log, \"first\") }()")
+	g.ln("\tlog = append(log, \"body\")")
+	g.ln("}()")
+	g.ln("fmt.Println(<-fin)")
+	g.showAll()
+}
