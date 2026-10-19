@@ -527,7 +527,7 @@ func loadConfig!(path string) (cfg Config, err error) {
   | `errors.Trace(err)` | shows the path an error took (an **optional** step, see [open points](#open-points)) | 10 |
   | `C.cstr(s)` | a NUL-terminated `const char*` for `s`, valid until the end of the statement | 04 |
   | `C.wstr(s)`, `C.GoStringW(p)` | UTF-16 strings for Windows `W` functions | 14 |
-  | hidden helper packages `gocpp/macro`, `gocpp/must`, `gocpp/cgoh` | the compiler adds and uses them for its rewrites; you don't import them | 04, 10 |
+  | hidden helper packages `gocpp/must`, `gocpp/cgoh` (the path `gocpp/macro` is reserved) | the compiler adds and uses them for its rewrites; you don't import them | 04, 10 |
 
 - Not every Go standard package exists. The tiers are in
   [Phase 09 §2.6](../../plans/2026-10-13-gocpp/phase-09-stdlib-testing/README.md#26-package-tiers)
@@ -1282,8 +1282,8 @@ func secret(key string) (int, error) {
 - The `defer`s in the function's code run when that code ends, that is when `#body()` returns,
   before the macro goes on.
 - A macro that starts `#body()` on another thread must wait for it before it returns, as
-  `InThread` does. `gocpp vet` warns when `#body()` runs in a `go` statement that nothing waits
-  for.
+  `InThread` does. `gocpp vet` will warn when `#body()` runs in a `go` statement that nothing waits
+  for (Phase 13; not built yet).
 - **v1 limit:** `#body()` gives the macro no access to the function's results, so a `#Retry(3)`
   that looks at the returned error is not possible yet ([open points](#open-points)).
 
@@ -1317,7 +1317,7 @@ use, so the built-ins are untyped constants (`const here = #line()`, `[#line() %
   Go's rules and error messages ([guide](../guides/embed.md)). `embed.FS` waits for `io/fs` (Phase 09).
 - Mistakes (an argument to `#line()`, `#text()` without an argument, `#body()` outside a macro,
   a file that does not exist) are errors at the use. Used inside a macro declaration, `#file()`,
-  `#line()`, `#func()` and `#text(param)` describe the use of the macro (step 10.9).
+  `#line()`, `#func()` and `#text(param)` describe the use of the macro (step 10.9, below).
 
 **Nested macros keep both places.** If a macro `Check(v int)` uses `#Assert(v > 0, ...)`, then
 inside `Assert`, `#text(cond)` is `"v > 0"` (the text of the inner use), while `#file()` and
@@ -1374,35 +1374,64 @@ type Config struct {
 
 ### Rules (v1)
 
-The compiler checks each of these rules and gives a clear error:
-- `macro` declarations only at package level.
-- A `lazy` parameter type must be concrete and spellable at every use: a predeclared or an
-  exported type, not `lazy T` and not an unexported type of another package.
-- A macro is only used with `#`. A plain call `util.Dbg(x)` or a macro used as a value
-  (`f := util.Dbg`) is an error.
+The compiler checks each of these rules and gives a clear error (`gocpp explain` knows each message):
+- `macro` declarations only at package level; a macro has no receiver, is declared once, and is not
+  named like a built-in macro (`file`, `line`, `func`, `text`, `embed`, `body`, `Derive`); names that
+  start with `gp_` are reserved in a macro.
+- A `lazy` parameter type must be concrete and written the same way at every use: a predeclared type,
+  a type of the macro's package (exported, when the use is in another package), or a type of a package
+  that the file of the use imports; not `lazy T` of the macro's own type parameter, not a struct or
+  interface type with members.
+- A macro is only used with `#`: `#Name(...)`, `#pkg.Name(...)`, on top of a func. A plain call
+  `util.Dbg(x)` or a macro used as a value (`f := util.Dbg`) is an error ("Dbg is a macro: write
+  #Dbg(...)").
+- A use has one argument for each parameter (a variadic parameter takes any number, or one slice with
+  `...`).
 - A macro that returns `func()` can't be a statement inside code (`#util.Locked(&mu)` on its own
   line would drop the unlock). Use it on top of a function, or call the result.
-- `#body()` only inside macros, and a macro that uses it only on top of a function.
+- A macro can't be the call of a `defer` or `go` statement.
+- `#body()` only inside macros, and a macro that uses it only on top of a function (it can't be used
+  on a must function, `func f!()`, yet).
+- `!` can't be used in a lazy argument.
 - A macro can't `return` or `break` out of the code that uses it (use `!` for errors).
+- An unexported macro (`macro helper()`) can only be used in its package.
+- A variable (or parameter) with the name of a macro, in a function that uses the macro, hides it:
+  `show := 5` next to `#show(1)` is an error at the use. A macro and a func of a package can't share a name.
 - On types, only the built-in `#Derive` exists in v1.
 
 Also good to know:
 - A `defer` inside a macro body runs when the **macro** returns, not when the caller returns (the
   macro is a function). To run code when the caller ends, return a `func()` and use the macro on
   top of the function.
+- A lazy argument is an expression of the caller's code: it is type-checked at the use, and it sees the
+  variables as they are when the macro calls it (it is a closure).
+- Each run of the code of a wrapped function (a macro may run `#body()` several times) is a call of the
+  function's body: named results start at zero, and the results of the function are those of the last run.
+- A function with a wrap macro can not call `recover()` itself (outside a func literal): its code runs
+  in a func literal that the macro calls, so `recover()` would not see the panic. The compiler says so;
+  call `recover()` in a deferred func literal inside the function, which works.
 - C macros stay usable for C APIs, through their header packages (`raylib.RAYWHITE`).
 
 ### How macros are compiled
 
-- Every macro becomes a function with a hidden first parameter that holds the place of the use
-  (one static object per use, so it costs nothing at run time). A `lazy T` parameter becomes a
-  `func() T`, and a wrap macro gets the function's code as a hidden `func()` parameter.
-- `#util.Dbg(a * 2)` becomes a call `util.Dbg(<place>, a*2)`. A start-style macro becomes the
-  first statement of the function. A wrap-style macro becomes
-  `util.VM(<place>, func() { <the function's code> })`.
-- In C++, macros are inline templates in the package header. The C++ compiler inlines them, also
-  across packages, and lazy arguments and `#body()` don't allocate.
-- `gocpp expand file.gp` shows the code after expansion.
+([ADR-075](../adr/075-user-macros-are-generic-functions.md).) The loader rewrites macros into plain Go
+before `go/types` runs, so a macro is type-checked once, where it is declared.
+
+- A macro becomes a generic function of the same name with hidden parameters: the file, the line and the
+  function of the outermost use (`gp_file`, `gp_line`, `gp_func`), the text of each parameter that the
+  body gives to `#text` (`gp_text_x`), and for a wrap macro the function's code (`gp_body`). A `lazy T`
+  parameter becomes a type parameter constrained to `func() T`.
+- `#util.Dbg(a * 2)` becomes `util.Dbg("main.gp", 12, "main.f", "a * 2", a*2)`, and a lazy argument a
+  func literal: `util.Assert("main.gp", 12, "main.f", "n > 0", n > 0, func() string { return msg })`.
+- A start-style macro becomes the first statement of the function (a `func()` it returns is deferred
+  unless it is nil). A wrap-style macro becomes `util.VM("main.gp", 12, "main.f", func() { <the function's
+  code> }); return`: the function gets new results, and the code runs unchanged as a func literal with the
+  old results, whose values the func literal passes on (`gp_r0, gp_r1 = func() (n int, err error) { <code> }()`),
+  so Go's rules for results (a hidden result, a defer that changes it, `return f()`) apply to the code.
+- In C++, a generic function is lowered by the package that uses it, in the unit that uses it, so the C++
+  compiler inlines a macro across packages. The parameters for a lazy argument and for `#body()` are C++
+  template parameters of that instance: the argument is the lambda itself, and nothing is allocated.
+- `gocpp expand file.gp` shows the code after expansion (step 10.11).
 - **Phase:** [10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md#22-part-b-macros).
 
 ### Syntax: the exact rules

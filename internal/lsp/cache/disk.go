@@ -43,8 +43,8 @@ import (
 // format must change it (and the binary's hash changes the folder anyway).
 // 2: the probe uses have the flags, and the answers are the kind probe's
 // (Phase 04). 3: the answers of pkg-config (step 4.15). 4: the answers of
-// the C header check (step 4.14).
-const diskFormat = 4
+// the C header check (step 4.14). 5: the macros of the package (step 10.9).
+const diskFormat = 5
 
 // diskKind is the kind of the summaries in the disk cache.
 const diskKind = "summary"
@@ -75,6 +75,7 @@ type diskLoad struct {
 	NoFiles               load.NoFilesReason
 	ForTest               string
 	Exported              []string
+	Macros                map[string]*load.MacroSig
 }
 
 // diskKey returns the key of the summary of a check with the key key.
@@ -107,6 +108,7 @@ func encodeSummary(s *summary) ([]byte, bool) {
 			NoFiles:    s.load.NoFiles,
 			ForTest:    s.load.ForTest,
 			Exported:   s.load.ExportedNames(),
+			Macros:     s.load.Macros,
 		},
 		HasExport: s.export != nil,
 		Export:    s.export,
@@ -197,6 +199,7 @@ func (p *Pipeline) diskSummaryOf(h *handle, k *keyed) *summary {
 		Incomplete: d.Load.Incomplete,
 		NoFiles:    d.Load.NoFiles,
 		ForTest:    d.Load.ForTest,
+		Macros:     d.Load.Macros,
 	}, d.Load.Exported)
 	s := &summary{importPath: d.ImportPath, load: lp, hasC: d.HasC, failed: d.Failed, apiHash: d.APIHash, opaque: d.Opaque}
 	if d.HasExport {

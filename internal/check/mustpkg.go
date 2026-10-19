@@ -32,17 +32,9 @@ import (
 // lowerer emits gp::must_exit for it). None of them has a body: a call
 // that is left (a check with errors) never gets to the lowerer.
 //
-// gocpp/macro has the type of the use-site record of the macros (step
-// 10.9): each use #util.Dbg(x) becomes util.Dbg(&gp_site_N, x) with one
-// static macro.Site per use, which Outer links to the use of an outer macro
-// (docs/adr/014-macros.md):
-//
-//	type Site struct {
-//		File, Func string
-//		Line       int
-//		Args       []string
-//		Outer      *Site
-//	}
+// (The plan had a second hidden package, gocpp/macro, with the type of the use-site record of the macros:
+// each use #util.Dbg(x) as util.Dbg(&gp_site_N, x). Step 10.9 does not use it: the place of a use goes in
+// as constant arguments, docs/adr/075-user-macros-are-generic-functions.md. The path stays reserved.)
 
 // The names of the functions of gocpp/must.
 const (
@@ -83,13 +75,9 @@ func mustArity(name string) int {
 	return -1
 }
 
-// hiddenMust and hiddenMacro return the hidden packages, made once: a
-// types.Package that is complete is never changed, so every Check, also at
-// the same time, can use it.
-var (
-	hiddenMust  = sync.OnceValue(newMustPackage)
-	hiddenMacro = sync.OnceValue(newMacroPackage)
-)
+// hiddenMust returns the hidden package, made once: a types.Package that is complete is never
+// changed, so every Check, also at the same time, can use it.
+var hiddenMust = sync.OnceValue(newMustPackage)
 
 // newMustPackage makes the hidden package gocpp/must. Check makes it once,
 // for all its packages.
@@ -127,26 +115,6 @@ func newMustPackage() *types.Package {
 	// func Exit(err error)
 	exitSig := types.NewSignatureType(nil, nil, nil, types.NewTuple(param("err", errType)), nil, false)
 	pkg.Scope().Insert(types.NewFunc(token.NoPos, pkg, mustExit, exitSig))
-	pkg.MarkComplete()
-	return pkg
-}
-
-// newMacroPackage makes the hidden package gocpp/macro (see above).
-func newMacroPackage() *types.Package {
-	pkg := types.NewPackage(load.MacroPath, "macro")
-	str := types.Typ[types.String]
-	field := func(name string, t types.Type) *types.Var {
-		return types.NewField(token.NoPos, pkg, name, t, false)
-	}
-	site := types.NewNamed(types.NewTypeName(token.NoPos, pkg, "Site", nil), nil, nil)
-	site.SetUnderlying(types.NewStruct([]*types.Var{
-		field("File", str),
-		field("Func", str),
-		field("Line", types.Typ[types.Int]),
-		field("Args", types.NewSlice(str)),
-		field("Outer", types.NewPointer(site)),
-	}, nil))
-	pkg.Scope().Insert(site.Obj())
 	pkg.MarkComplete()
 	return pkg
 }

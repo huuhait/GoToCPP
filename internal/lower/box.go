@@ -117,6 +117,7 @@ func boxedVars(info *tinfo, fn ast.Node) map[*types.Var]boxReason {
 	// innermost last: the body of a range over a func is a closure too (rangefunc.go).
 	var regions []boxRegion
 	var stack []ast.Node
+	var refLits map[*ast.FuncLit]bool // the literals that capture by reference (closures.go: refArgs)
 	ast.Inspect(fn, func(n ast.Node) bool {
 		if n == nil {
 			switch top := stack[len(stack)-1].(type) {
@@ -133,6 +134,15 @@ func boxedVars(info *tinfo, fn ast.Node) map[*types.Var]boxReason {
 		}
 		stack = append(stack, n)
 		switch n := n.(type) {
+		case *ast.CallExpr:
+			// The func literals that go to a closure parameter that a macro only calls capture by
+			// reference (refArgs): they box nothing.
+			for _, fl := range refArgs(info, n) {
+				if refLits == nil {
+					refLits = make(map[*ast.FuncLit]bool)
+				}
+				refLits[fl] = true
+			}
 		case *ast.FuncLit:
 			lits = append(lits, n)
 			regions = append(regions, boxRegion{lit: n})
@@ -152,6 +162,9 @@ func boxedVars(info *tinfo, fn ast.Node) map[*types.Var]boxReason {
 			}
 			if v := b.localVar(n); v != nil && b.info.Uses[n] != nil {
 				for _, r := range regions {
+					if r.lit != nil && refLits[r.lit] {
+						continue
+					}
 					if r.active(n.Pos()) && !r.contains(v.Pos()) {
 						b.captured[v] = true
 						break

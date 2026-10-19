@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/huuhait/gocpp/internal/syntax/gpast"
 	"go/ast"
 	"go/constant"
 	goformat "go/format"
@@ -527,8 +528,14 @@ func declaringNames(n ast.Node, name string) []declName {
 	var names []declName
 	switch n := n.(type) {
 	case *ast.FuncDecl:
-		if n.Name.Name == name {
-			names = append(names, declName{ident: n.Name, decl: n})
+		if base := gpast.MacroBase(gpast.MustBase(n.Name.Name)); base == name {
+			id := n.Name
+			if base != id.Name {
+				// load!(...) or macro Name(...): the tree has the mark in the name, the source has
+				// the name alone at its place (a macro's name has no #).
+				id = &ast.Ident{NamePos: id.NamePos, Name: base}
+			}
+			names = append(names, declName{ident: id, decl: n})
 		}
 	case *ast.TypeSpec:
 		if n.Name.Name == name {

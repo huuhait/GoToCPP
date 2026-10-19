@@ -42,12 +42,12 @@ import (
 // error that go/types finds in the new code points at the text the user
 // wrote, and the generated C++ maps to the use.
 //
-// What the rewrite leaves alone: the macro declarations (macro Name(...) {})
-// and the lines of macros on top of a declaration (#Name(...) above func):
-// they are step 10.9's. Inside a macro declaration #file(), #line(), #func()
-// and #text(x) mean the place where the macro is USED, so they are only
-// checked, not replaced; the user macros report "not supported yet" until
-// 10.9 (reportMacros).
+// The user macros (step 10.9, macros.go) are expanded by the same walk, because it
+// knows the runtime name of the function that holds a use. Inside a macro
+// declaration #file(), #line(), #func() and #text(x) mean the place where the
+// macro is USED, so there they become the hidden parameters of the function
+// that the macro turns into (gp_file, gp_line, gp_func, gp_text_x), and
+// #body() a call of gp_body.
 
 // builtinMacros expands the built-in macros and //go:embed in the files of
 // p. It runs when the loader parses the syntax of Phase 10.
@@ -57,6 +57,9 @@ func (l *loader) builtinMacros(p *Package) {
 	}
 	b := &builtinPass{l: l, p: p, prefix: runtimePkgName(p)}
 	b.initCtx = &funcName{name: b.prefix + ".init", top: true}
+	b.wrapped = make(map[*ast.FuncDecl]bool)
+	b.wrapRet = make(map[*ast.FuncDecl]bool)
+	b.macroSigs()
 	for _, f := range p.Files {
 		b.file(f)
 	}
@@ -85,10 +88,24 @@ type builtinPass struct {
 	f *File
 
 	// stack holds the functions around the node being walked, the innermost
-	// last; it is empty inside a macro declaration (validate), where the
-	// built-in macros are only checked.
-	stack    []*funcName
-	validate bool
+	// last.
+	stack []*funcName
+
+	// macro is the macro declaration whose body is being walked, or nil.
+	macro *macroCtx
+
+	// uses are the uses of user macros that the walk has seen and not yet
+	// replaced; typeNames the package's type names (macros.go); defers
+	// numbers the names of the func values that on-top macros defer.
+	uses      map[*ast.CallExpr]*useInfo
+	typeNames map[string]bool
+	defers    int
+	wrapped   map[*ast.FuncDecl]bool // the functions that a wrap macro has been applied to
+	wrapRet   map[*ast.FuncDecl]bool // those whose body ends with the return that follows the wrap call
+
+	// nerr counts the errors that the pass reported; errors are dropped while quiet is not 0.
+	nerr  int
+	quiet int
 
 	// embedName is the local name of the import of "embed" in the file ("" if
 	// there is none).
@@ -179,8 +196,7 @@ func (b *builtinPass) funcDeclName(d *ast.FuncDecl) string {
 	return b.prefix + "." + recv + "." + name
 }
 
-// file expands the built-in macros of one file, then reports what is left
-// for step 10.9.
+// file expands the built-in macros and the user macros of one file.
 func (b *builtinPass) file(f *File) {
 	b.f = f
 	b.embedName = ""
@@ -193,11 +209,13 @@ func (b *builtinPass) file(f *File) {
 		}
 	}
 	b.goEmbed()
-	for _, d := range f.AST.Decls {
+	var decls []ast.Decl
+	for i, d := range f.AST.Decls {
 		switch d := d.(type) {
 		case *ast.FuncDecl:
 			if gpast.IsMacroDecl(d) {
-				b.apply(d.Body, nil)
+				b.macroDecl(d) // (lines of macros on top of it are a syntax error)
+				decls = append(decls, d)
 				continue
 			}
 			ctx := &funcName{name: b.funcDeclName(d), top: true}
@@ -205,14 +223,24 @@ func (b *builtinPass) file(f *File) {
 			if d.Body != nil {
 				b.apply(d.Body, ctx)
 			}
+			if calls := gpast.OnTopOf(f.AST.Decls, i); calls != nil {
+				b.onTop(d, calls, ctx)
+			}
 		case *ast.GenDecl:
 			if _, ok := gpast.OnTop(d); ok {
-				continue // step 10.9
+				continue // a line of macros: handled with the declaration below it (and dropped)
+			}
+			if d.Tok == token.TYPE { // (on top of a var, const or import: a syntax error, reported once)
+				for _, call := range gpast.OnTopOf(f.AST.Decls, i) {
+					b.topType(call)
+				}
 			}
 			b.apply(d, b.initCtx)
 		}
+		decls = append(decls, f.AST.Decls[i])
 	}
-	b.reportMacros(f)
+	f.AST.Decls = decls
+	b.leftovers(f)
 }
 
 // apply expands the built-in macros in the tree n, in place, where ctx is
@@ -222,24 +250,36 @@ func (b *builtinPass) apply(n ast.Node, ctx *funcName) {
 	if n == nil || reflectNil(n) {
 		return
 	}
-	b.stack, b.validate = []*funcName{ctx}, ctx == nil
+	b.stack = []*funcName{ctx}
 	astutil.Apply(n, func(c *astutil.Cursor) bool {
 		switch n := c.Node().(type) {
 		case *ast.FuncLit:
-			if !b.validate {
-				b.stack = append(b.stack, b.stack[len(b.stack)-1].closure())
-			}
+			b.stack = append(b.stack, b.stack[len(b.stack)-1].closure())
 		case *ast.CallExpr:
-			if id, ok := n.Fun.(*ast.Ident); ok && gpast.IsMacroUse(id.Name) {
-				if b.builtin(c, n, id) {
-					return false
+			if root := useRoot(n.Fun); root != nil {
+				if id, ok := n.Fun.(*ast.Ident); ok {
+					if b.builtin(c, n, id) {
+						return false
+					}
+					if base := gpast.MacroBase(id.Name); builtinNames[base] {
+						if base == "Derive" {
+							b.errorf(n.Pos(), "#Derive is for types: put it on top of a type declaration")
+						}
+						return true
+					}
 				}
+				b.userMacro(c, n)
 			}
 		}
 		return true
 	}, func(c *astutil.Cursor) bool {
-		if _, ok := c.Node().(*ast.FuncLit); ok && !b.validate {
+		switch n := c.Node().(type) {
+		case *ast.FuncLit:
 			b.stack = b.stack[:len(b.stack)-1]
+		case *ast.CallExpr:
+			if b.uses != nil {
+				b.finishUse(c, n)
+			}
 		}
 		return true
 	})
@@ -262,6 +302,10 @@ func (b *builtinPass) funcNow() string { return b.stack[len(b.stack)-1].name }
 
 // errorf reports an error at pos.
 func (b *builtinPass) errorf(pos token.Pos, format string, args ...any) {
+	if b.quiet > 0 {
+		return
+	}
+	b.nerr++
 	b.p.Errors.Errorf(b.l.fset.Position(pos), format, args...)
 }
 
@@ -272,7 +316,7 @@ func (b *builtinPass) errorf(pos token.Pos, format string, args ...any) {
 // that it is not supported yet.
 func (b *builtinPass) builtin(c *astutil.Cursor, call *ast.CallExpr, id *ast.Ident) bool {
 	name := gpast.MacroBase(id.Name)
-	if call.Ellipsis.IsValid() {
+	if call.Ellipsis.IsValid() && builtinNames[name] {
 		b.errorf(call.Ellipsis, "#%s: cannot use ... in the arguments", name)
 	}
 	switch name {
@@ -280,7 +324,9 @@ func (b *builtinPass) builtin(c *astutil.Cursor, call *ast.CallExpr, id *ast.Ide
 		if len(call.Args) != 0 {
 			b.errorf(call.Args[0].Pos(), "#%s takes no arguments", name)
 		}
-		if b.validate {
+		if b.macro != nil {
+			// The place of the use of the macro: a hidden parameter.
+			b.replaceWith(c, call, b.hidden(map[string]string{"file": hiddenFile, "line": hiddenLine, "func": hiddenFunc}[name], call.Pos()))
 			return true
 		}
 		switch name {
@@ -295,13 +341,15 @@ func (b *builtinPass) builtin(c *astutil.Cursor, call *ast.CallExpr, id *ast.Ide
 	case "text":
 		if len(call.Args) != 1 {
 			b.errorf(call.Pos(), "#text takes one argument: #text(x)")
-			if !b.validate {
-				b.replace(c, call, token.STRING, `""`)
-			}
+			b.replace(c, call, token.STRING, `""`)
 			return true
 		}
-		if b.validate {
-			return true
+		if b.macro != nil {
+			// #text(param) is the text that the use wrote for it.
+			if a, ok := call.Args[0].(*ast.Ident); ok && b.macro.params[a.Name] && a.Name != "_" && a.Name != "" {
+				b.replaceWith(c, call, b.hidden(hiddenText+a.Name, call.Pos()))
+				return true
+			}
 		}
 		b.replace(c, call, token.STRING, strconv.Quote(b.sourceText(call.Args[0])))
 		return true
@@ -312,11 +360,13 @@ func (b *builtinPass) builtin(c *astutil.Cursor, call *ast.CallExpr, id *ast.Ide
 		if len(call.Args) != 0 {
 			b.errorf(call.Args[0].Pos(), "#body takes no arguments")
 		}
-		if !b.validate {
+		if b.macro == nil {
 			b.errorf(call.Pos(), "#body() can only be used inside a macro declaration")
 			b.replace(c, call, token.INT, "0")
+			return true
 		}
-		return true
+		call.Fun = b.hidden(hiddenBody, id.NamePos)
+		return false
 	}
 	return false
 }
@@ -331,12 +381,21 @@ func (b *builtinPass) replace(c *astutil.Cursor, call *ast.CallExpr, kind token.
 	})
 }
 
+// replaceWith replaces the use call by the expression x, in parentheses with the span of the call.
+func (b *builtinPass) replaceWith(c *astutil.Cursor, call *ast.CallExpr, x ast.Expr) {
+	c.Replace(&ast.ParenExpr{Lparen: call.Pos(), X: x, Rparen: call.Rparen})
+}
+
 // fileName returns what #file() gives at pos: the path of the file from
 // the root of its module, with slashes, or the name of the file when it is
 // in no module. A //line directive changes the name, as it does for the
 // runtime.
 func (b *builtinPass) fileName(pos token.Pos) string {
-	name := b.l.fset.Position(pos).Filename
+	return b.fileNameOf(b.l.fset.Position(pos).Filename)
+}
+
+// fileNameOf is fileName for the name of a file in the file set.
+func (b *builtinPass) fileNameOf(name string) string {
 	if name == "" {
 		return "??" // `//line :500` has no file name; Go's runtime prints ??
 	}
@@ -414,32 +473,6 @@ func normalizeText(text []byte) string {
 		prev = min(end, len(text))
 	}
 	return out.String()
-}
-
-// reportMacros reports what the file still has of user macros, which step
-// 10.9 builds: a macro declaration, a line of macros on top of a
-// declaration and a use of a macro that is not built in.
-func (b *builtinPass) reportMacros(f *File) {
-	for _, d := range f.AST.Decls {
-		switch d := d.(type) {
-		case *ast.FuncDecl:
-			if gpast.IsMacroDecl(d) {
-				b.errorf(d.Pos(), "macro declarations are not supported yet (Phase 10, step 10.9)")
-				continue
-			}
-		case *ast.GenDecl:
-			if call, ok := gpast.OnTop(d); ok {
-				b.errorf(d.Pos(), "macros on top of a declaration are not supported yet (Phase 10, step 10.9): %s", exprName(call.Fun))
-				continue
-			}
-		}
-		ast.Inspect(d, func(n ast.Node) bool {
-			if id, ok := n.(*ast.Ident); ok && gpast.IsMacroUse(id.Name) {
-				b.errorf(id.Pos(), "macro %s is not supported yet (Phase 10, step 10.9)", id.Name)
-			}
-			return true
-		})
-	}
 }
 
 // exprName returns the name that a macro use calls, #util.Dbg.

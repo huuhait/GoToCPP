@@ -320,6 +320,16 @@ type Package struct {
 	// and the loader never changes it (Config.Deps).
 	summary bool
 
+	// Macros are the macros that the package declares, by name (Phase 10, step 10.9): what a
+	// package that uses one needs to rewrite the use. A summary keeps them.
+	Macros map[string]*MacroSig
+
+	// MacroUses holds the names of the functions that the rewrite of the macro uses
+	// call (the callee of each #Name(...), also on top of a func), with what each use calls:
+	// internal/check tells a use of a macro's function that is not one of them (a plain call, a
+	// value) from the others, and finds a callee that a variable of the same name hides.
+	MacroUses map[*ast.Ident]*MacroUse
+
 	// IncludeDirs are the folders that the C++ compiler needs for the module
 	// headers that the package imports (Include.File): the root folder of
 	// each module with such a header, in the order of the imports, each
@@ -353,6 +363,13 @@ func (p *Package) mainModule() *Module {
 	return p.Module
 }
 
+// A MacroUse is the callee of the rewrite of a macro use (Package.MacroUses).
+type MacroUse struct {
+	Sig  *MacroSig
+	Path string        // the import path of the package that declares the macro
+	Call *ast.CallExpr // the call that the rewrite made
+}
+
 // Summary returns what a later Load needs of p when Config.Deps gives it,
 // as a new package: the fields of p but no Files, no Imports (an empty map)
 // and no test links, with the exported package-level names of p kept for
@@ -373,8 +390,24 @@ func (p *Package) Summary() *Package {
 		NoFiles:    p.NoFiles,
 		ForTest:    p.ForTest,
 		exported:   maps.Clone(p.exportedNames()),
+		Macros:     summaryMacros(p.Macros),
 		summary:    true,
 	}
+}
+
+// summaryMacros returns the signatures of the macros without the declarations, which a summary
+// must not keep alive.
+func summaryMacros(m map[string]*MacroSig) map[string]*MacroSig {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]*MacroSig, len(m))
+	for k, v := range m {
+		c := *v
+		c.decl = nil
+		out[k] = &c
+	}
+	return out
 }
 
 // ExportedNames returns the exported package-level names of p, sorted: what
@@ -401,6 +434,7 @@ func NewSummary(p *Package, exported []string) *Package {
 		NoFiles:    p.NoFiles,
 		ForTest:    p.ForTest,
 		exported:   make(map[string]bool, len(exported)),
+		Macros:     summaryMacros(p.Macros),
 		summary:    true,
 	}
 	if s.Errors == nil {
@@ -1417,6 +1451,9 @@ func (l *loader) process(p *Package) {
 	}
 
 	for _, f := range p.Files {
+		if l.cfg.Phase10Syntax {
+			addOnTopUnresolved(f.AST) // macros.go: the lines of macros are not walked by the parser's resolver
+		}
 		f.Rewrite = RewriteFile(l.fset, f.AST, f.Info, pkgLevel, l.dotNames(p, f.Info), p.Errors)
 	}
 	if l.cfg.Phase10Syntax {

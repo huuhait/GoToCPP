@@ -63,7 +63,7 @@ the module (`util/util.gp`), or the file name for a program without `gocpp.mod`;
 a closure, `main.init.0` for an `init`, `main.F[...]` for a generic function). They are untyped
 constants, so `const here = #line()` and `[#line() % 7]int` work. A `//line` comment changes `#file()` and
 `#line()`; the name is the module-relative or the base name of what the comment says (`??` when it has none),
-which can differ from what Go's runtime prints for a relative or an absolute name. Inside a macro that you write (step 10.9) they describe the place where the
+which can differ from what Go's runtime prints for a relative or an absolute name. Inside a macro that you write they describe the place where the
 macro is used.
 
 ## The text of an expression: `#text(x)`

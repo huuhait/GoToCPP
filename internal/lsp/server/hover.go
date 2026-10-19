@@ -232,6 +232,9 @@ func (q *query) objectHover(ctx context.Context, obj types.Object, id *ast.Ident
 		h.doc = doc.Text()
 	}
 	h.signature = q.objectString(obj, qual, d)
+	if sig := q.macroOf(obj); sig != nil {
+		h.signature = sig.Sig // macro Assert(cond bool, msg lazy string), not the hidden parameters of its function
+	}
 	if v, ok := obj.(*types.Var); ok && q.cppValue(v) {
 		// x := lib.f(): its type comes from C/C++, and has no spelling.
 		kind := "var "
@@ -289,6 +292,22 @@ func (q *query) objectHover(ctx context.Context, obj types.Object, id *ast.Ident
 	}
 	h.methods = strings.Join(methods, "\n")
 	return h, nil
+}
+
+// macroOf returns the signature of the macro whose function obj is (step 10.9: the loader turns a
+// macro into a function of the same name), or nil.
+func (q *query) macroOf(obj types.Object) *load.MacroSig {
+	fn, ok := obj.(*types.Func)
+	if !ok || fn.Pkg() == nil || fn.Parent() != fn.Pkg().Scope() {
+		return nil
+	}
+	if fn.Pkg() == q.types {
+		return q.lp.Macros[fn.Name()]
+	}
+	if dep := q.lp.Imports[fn.Pkg().Path()]; dep != nil {
+		return dep.Macros[fn.Name()]
+	}
+	return nil
 }
 
 // cppValue reports whether the variable v of the document's package has

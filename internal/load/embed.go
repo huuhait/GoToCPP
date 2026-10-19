@@ -391,12 +391,7 @@ func (b *builtinPass) embedCall(c *astutil.Cursor, call *ast.CallExpr) {
 	}
 	if lit == nil || lit.Kind != token.STRING {
 		b.errorf(call.Pos(), `#embed takes one argument, a string literal: #embed("file")`)
-		if !b.validate {
-			b.replace(c, call, token.STRING, `""`)
-		}
-		return
-	}
-	if b.validate {
+		b.replace(c, call, token.STRING, `""`)
 		return
 	}
 	name, err := strconv.Unquote(lit.Value)

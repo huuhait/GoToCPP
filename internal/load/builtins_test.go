@@ -250,8 +250,8 @@ func TestBuiltinMacroErrors(t *testing.T) {
 			"# example.com/app\n./main.gp:5:34: #embed /etc/passwd: invalid file name\n"},
 		{"embed of a folder", head + "func main() { fmt.Println(#embed(\"d\")) }\n",
 			"# example.com/app\n./main.gp:5:34: #embed d: a folder can't be embedded as a string\n"},
-		{"user macro is step 10.9", head + "func main() { #Debug(1) }\n",
-			"# example.com/app\n./main.gp:5:15: macro #Debug is not supported yet (Phase 10, step 10.9)\n"},
+		{"undefined user macro", head + "func main() { #Debug(1) }\n",
+			"# example.com/app\n./main.gp:5:15: undefined macro #Debug\n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

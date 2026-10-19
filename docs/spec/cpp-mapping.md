@@ -2933,7 +2933,7 @@ The plan already describes these shapes; each phase adds them here when it build
 | [06](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md) | the rest of the package headers and the build modes (`c-archive`, `c-shared`, `cpp-lib`) |
 | [07](../../plans/2026-10-13-gocpp/phase-07-generics/README.md) | generic functions and types, their methods, operations and constraints ([Generics](#generics-steps-71-to-73) and `-gp:concepts`: below it; range over functions: [Range over functions](#range-over-functions)) |
 | [08](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md) | `go` (`gp::go`), channels, `select` |
-| [10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md) | `!` as early returns, macros as inline templates |
+| [10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md) | `!` as early returns, macros as generic functions instantiated where they are used ([ADR-075](../adr/075-user-macros-are-generic-functions.md)): lazy arguments and `#body()` are lambdas passed to template parameters |
 | [15](../../plans/2026-10-13-gocpp/phase-15-hardening-release/README.md) | escape analysis (locals that don't escape stay on the stack), Swiss-table maps, and maybe smaller strings and slices (only if the benchmarks say so) |
 
 ### The internal packages and their natives (step 9.2)

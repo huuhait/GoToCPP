@@ -26,7 +26,8 @@ const CgohPath = "gocpp/cgoh"
 // Phase 10: gocpp/must has the helpers that the type checker gives the
 // calls with ! (F!(x) becomes gp_must.M1(F(x)) while go/types checks the
 // package, and the helper is gone when the checker is done), and
-// gocpp/macro has the type of the use-site record of the macros (Site).
+// gocpp/macro was planned for the use-site record of the macros (Site); step 10.9 does not use it, and the
+// path stays reserved.
 // Like CgohPath, they are made in Go code by package check; no .gp file
 // can import them, and a user package with such a path can't be imported
 // either.

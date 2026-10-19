@@ -645,6 +645,19 @@ at the call site **and** at the macro or derive that produced it.
    on-top macros: start style (first statement, nil-safe `defer` form) and wrap style (the code
    moved into a closure, returns rewritten, `gp_body` as a template callable); nested sites via
    `Outer`; macros from other packages via package summaries; the v1 rules with clear errors.
+   *Built (step 10.9, [ADR-075](../../../docs/adr/075-user-macros-are-generic-functions.md)):* the
+   loader rewrites macros in the same walk as the built-ins (`internal/load/macros.go`). A macro is a
+   **generic function of the same name** with hidden parameters, not a function with a `Site` and not a
+   header template: the place of the use is passed as constants (`gp_file`, `gp_line`, `gp_func` of the
+   outermost use, and `gp_text_x` for each parameter that the body gives to `#text(x)`), so `Outer` is
+   the nested use passing its own constants on; a `lazy T` parameter and the code of a wrap macro are
+   type parameters constrained to `func() T` (`gp_L_x`, `gp_B`), which the lowering makes C++ template
+   parameters of the instance (the call passes the lambda itself: no `gp::func`), and the instance is
+   written in the unit that uses the macro, which is how a macro is inlined across packages. Start style
+   is `if gp_defer1 := M(...); gp_defer1 != nil { defer gp_defer1() }` as the first statement; wrap style
+   moves the code into a func literal and names the results. Packages: `Package.Macros` (summaries keep
+   them). `gocpp/macro` (`Site`) of step 10.2 is not used. Limits: a wrap macro on a must function, a
+   macro's own name is not hygienic (a local variable of that name at a use is an error).
 10. **10.10 `#Derive(...)`** in two steps (stubs before `go/types`, bodies after): `String`,
     `Equal`, then `Clone` and struct-only `JSON` (both may move after v1).
 11. **10.11 `gocpp expand`.**

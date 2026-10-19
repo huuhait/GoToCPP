@@ -72,6 +72,13 @@ type funcGen struct {
 	rf         *rfNest             // the range-over-func loops of the function, or nil (rangefunc.go)
 	contLabels map[ast.Stmt]string // the label at the end of a loop's body, for continue
 
+	// rawLits are the func literals that go to a closure parameter of a macro: funcValue writes the
+	// lambda itself (markRawLits).
+	rawLits map[*ast.FuncLit]bool
+
+	// refLits are those among them that a macro only calls: they capture by reference (refArgs).
+	refLits map[*ast.FuncLit]bool
+
 	temps   map[ast.Expr]string // the expressions that order.go put into temporaries
 	ordered map[ast.Expr]bool   // the calls that order.go ordered
 	force   map[ast.Expr]bool   // the calls that order.go must put into temporaries
@@ -529,6 +536,9 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 		return &cppir.Call{Fun: cxxName("std::apply"), Args: []cppir.Expr{fn, arg}}
 	}
 	if sig != nil {
+		if inst != nil {
+			fg.markRawLits(c, inst) // the closures of a macro are passed as lambdas (generics.go: callableParam)
+		}
 		return &cppir.Call{Fun: &cppir.Name{Name: callee, Args: calleeArgs}, Args: fg.callArgs(c, sig)} // closures.go: variadics
 	}
 	if template {

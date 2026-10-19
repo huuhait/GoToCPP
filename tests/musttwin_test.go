@@ -14,11 +14,22 @@ import (
 // function). TestRunVsGo runs the twin with real Go and compares what it prints with the test's
 // // Output: block, so the expected output of a `!` program comes from real Go, not from
 // gocpp (tests/run/README.md, "Programs with !").
+//
+// The same goes for the tests of the user macros (step 10.9), umacro_*.gp, whose twins are in
+// tests/run/testdata/macro_twin: a macro is sugar for a function and its call, so the twin writes
+// them by hand (the hidden arguments as constants, a lazy argument as a func literal, a wrap
+// macro's code as a func literal) and real Go runs it.
 func mustTwin(p *program) string {
-	if !strings.HasPrefix(p.name, "must_") {
+	dir := ""
+	switch {
+	case strings.HasPrefix(p.name, "must_"):
+		dir = "must_twin"
+	case strings.HasPrefix(p.name, "umacro_"):
+		dir = "macro_twin"
+	default:
 		return ""
 	}
-	twin := filepath.Join(p.dir, "testdata", "must_twin", p.name+".go")
+	twin := filepath.Join(p.dir, "testdata", dir, p.name+".go")
 	if _, err := os.Stat(twin); err != nil {
 		return ""
 	}

@@ -511,7 +511,11 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 	// Every package buffers: an expression that go/types skips next to an
 	// opaque one can be in a file without import "C" (make(lib.Vec, n),
 	// with type Vec = C.vec in another file or package).
-	c := &collector{fset: fset, list: errs, seen: make(map[errorKey]bool), fix: cv.fixMessage,
+	fix := cv.fixMessage
+	if mf := macroFixer(lp); mf != nil {
+		fix = func(msg string) string { return mf(cv.fixMessage(msg)) }
+	}
+	c := &collector{fset: fset, list: errs, seen: make(map[errorKey]bool), fix: fix,
 		buffer: true}
 	imp := &importer{from: lp, checked: checked, refused: make(map[string]bool), cgoh: cv.cgoh}
 	if lp.Incomplete {
@@ -565,6 +569,10 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 	}
 	checkPrintSlices(fset, pkg, files, info, c.checkExprError)
 	falseErrs := newFalseErrors(pkg, info, files)
+	inPlainMacroUse := func(token.Pos) bool { return false }
+	if plain := plainMacroUses(lp, files, info); plain != nil {
+		inPlainMacroUse = reportPlainMacroUses(fset, errs, plain) // macromsg.go
+	}
 	c.flush(func(err types.Error) bool {
 		if diag.ErrorCode(err) == diag.UnusedVar {
 			return used.vars[err.Pos]
@@ -572,7 +580,7 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 		pn := pkgNameAt(files, info, err.Pos)
 		return pn != nil && used.imports[pn]
 	}, func(err types.Error) bool {
-		return dropFalse && falseErrs.drop(err)
+		return inPlainMacroUse(err.Pos) || dropFalse && falseErrs.drop(err)
 	})
 	return &Package{Load: lp, Types: pkg, Info: info, Errors: errs}, c.blocking
 }
@@ -617,9 +625,6 @@ func (im *importer) ImportFrom(path, _ string, _ types.ImportMode) (*types.Packa
 	}
 	if path == load.MustPath {
 		return hiddenMust(), nil // only the rewrite of the ! forms imports it (must.go)
-	}
-	if path == load.MacroPath {
-		return hiddenMacro(), nil
 	}
 	if dep := im.from.Imports[path]; dep != nil {
 		if pkg := im.checked[dep]; pkg != nil {

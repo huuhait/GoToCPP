@@ -158,11 +158,82 @@ func (fg *funcGen) funcValue(fl *ast.FuncLit) cppir.Expr {
 		fg.g.errorf(fl.Pos(), "internal error: a func literal without a signature")
 		return placeholder
 	}
+	if fg.rawLits[fl] {
+		// The argument of a macro's closure parameter (a template parameter of the instance): the
+		// lambda itself, with no gp::func around it, so that nothing is allocated.
+		if fg.g.awareBody(fl.Body) {
+			return call("gp::aware", fg.lambda(fl))
+		}
+		return fg.lambda(fl)
+	}
 	if fg.g.awareBody(fl.Body) {
 		// A func literal that calls recover: its func value is known to be aware (aware.hpp).
 		return construct(fg.g.funcType(sig, fl.Pos()), call("gp::aware", fg.lambda(fl)))
 	}
 	return construct(fg.g.funcType(sig, fl.Pos()), fg.lambda(fl))
+}
+
+// markRawLits notes the func literals among the arguments of the call c of the instance inst that
+// go to a closure parameter of a macro (genericFunc.callable): funcValue writes them as lambdas.
+func (fg *funcGen) markRawLits(c *ast.CallExpr, inst *instRef) {
+	if inst.gf == nil || inst.gf.callable == nil {
+		return
+	}
+	for i, a := range c.Args {
+		if i >= len(inst.gf.callable) || !inst.gf.callable[i] {
+			continue
+		}
+		if fl, ok := ast.Unparen(a).(*ast.FuncLit); ok {
+			if fg.rawLits == nil {
+				fg.rawLits = make(map[*ast.FuncLit]bool)
+			}
+			fg.rawLits[fl] = true
+		}
+	}
+	for _, fl := range refArgs(fg.g.info, c) {
+		if fg.refLits == nil {
+			fg.refLits = make(map[*ast.FuncLit]bool)
+		}
+		fg.refLits[fl] = true // the macro only calls it: it captures by reference
+	}
+}
+
+// refArgs returns the func literals among the arguments of the call c that go to a closure parameter
+// that the macro only calls (refParam): their lambdas capture the variables of the caller by
+// reference, because they cannot outlive the call. The boxing analysis (box.go) uses it too, so a
+// variable that only such a lambda captures and changes is not boxed.
+func refArgs(info *tinfo, c *ast.CallExpr) []*ast.FuncLit {
+	fun := ast.Unparen(c.Fun)
+	switch x := fun.(type) {
+	case *ast.IndexExpr:
+		fun = ast.Unparen(x.X)
+	case *ast.IndexListExpr:
+		fun = ast.Unparen(x.X)
+	}
+	var id *ast.Ident
+	switch x := fun.(type) {
+	case *ast.Ident:
+		id = x
+	case *ast.SelectorExpr:
+		id = x.Sel
+	default:
+		return nil
+	}
+	fn, _ := info.Uses[id].(*types.Func)
+	if fn == nil {
+		return nil
+	}
+	params := fn.Signature().Params()
+	var out []*ast.FuncLit
+	for i, a := range c.Args {
+		if i >= params.Len() {
+			break
+		}
+		if fl, ok := ast.Unparen(a).(*ast.FuncLit); ok && refParam(params.At(i).Type()) {
+			out = append(out, fl)
+		}
+	}
+	return out
 }
 
 // lambda returns the C++ lambda of the func literal fl (see the top of the file).
@@ -200,7 +271,9 @@ func (fg *funcGen) lambda(fl *ast.FuncLit) *cppir.Lambda {
 // the functions around fl that fl uses (a boxed one is its box), in the order of their first
 // uses.
 func (fg *funcGen) captures(fl *ast.FuncLit) []cppir.Capture {
-	return fg.captureNames([]ast.Node{fl.Body}, func(pos token.Pos) bool { return inside(fl, pos) })
+	// A lambda that a macro only calls captures a variable that lives on the stack by reference (a
+	// boxed one is its box, a copy of the pointer).
+	return fg.captureVars([]ast.Node{fl.Body}, func(pos token.Pos) bool { return inside(fl, pos) }, fg.refLits[fl])
 }
 
 // captureNames returns the captures of a closure whose code is the nodes: a copy of each variable
@@ -208,6 +281,11 @@ func (fg *funcGen) captures(fl *ast.FuncLit) []cppir.Capture {
 // in the order of their first uses. The nodes of a range over a func are its body and the targets
 // of its range variables (rangefunc.go).
 func (fg *funcGen) captureNames(nodes []ast.Node, in func(pos token.Pos) bool) []cppir.Capture {
+	return fg.captureVars(nodes, in, false)
+}
+
+// captureVars is captureNames, with the variables that are not boxed captured by reference if byRef.
+func (fg *funcGen) captureVars(nodes []ast.Node, in func(pos token.Pos) bool, byRef bool) []cppir.Capture {
 	var caps []cppir.Capture
 	seen := make(map[string]bool)
 	for _, node := range nodes {
@@ -227,7 +305,7 @@ func (fg *funcGen) captureNames(nodes []ast.Node, in func(pos token.Pos) bool) [
 			}
 			if !seen[name] {
 				seen[name] = true
-				caps = append(caps, cppir.Capture{Name: name})
+				caps = append(caps, cppir.Capture{Name: name, ByRef: byRef && !fg.isBoxed(v)})
 			}
 			return true
 		})

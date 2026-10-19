@@ -437,8 +437,13 @@ func (c *completer) format(cand *candidate) formatted {
 				sp = q.funcSpellingOf(o)
 			}
 			f.detail = "func" + q.signatureString(sig, qual, sp)
+			nparams := sig.Params().Len()
+			if m := q.macroOf(o); m != nil {
+				// A macro (step 10.9): its declaration, not the hidden parameters of its function.
+				f.detail, nparams = m.Sig, len(m.Params)
+			}
 			if cand.invoke {
-				f.snippet = c.callSnippet(o.Name(), needsTypeArgs(sig), sig.Params().Len())
+				f.snippet = c.callSnippet(o.Name(), needsTypeArgs(sig) && q.macroOf(o) == nil, nparams)
 			}
 		}
 	case *types.PkgName:

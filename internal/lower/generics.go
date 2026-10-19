@@ -53,6 +53,51 @@ type genericFunc struct {
 
 	// cxx is 0 before usesCxx looked at the body, 1 if the body uses C/C++ names or values, else 2.
 	cxx int
+
+	// callable marks the parameters whose type is a type parameter of a macro that stands for a
+	// closure (callableParam): the instance takes them as a C++ template parameter, so that a lazy
+	// argument or the code of a wrapped function is a plain lambda, with no gp::func and no
+	// allocation. It is nil for a function with none.
+	callable []bool
+}
+
+// constraintFunc returns the func type T of a type parameter whose constraint is ~T, or nil.
+func constraintFunc(tp *types.TypeParam) types.Type {
+	iface, ok := tp.Constraint().Underlying().(*types.Interface)
+	if !ok || iface.NumEmbeddeds() != 1 {
+		return nil
+	}
+	u, ok := iface.EmbeddedType(0).(*types.Union)
+	if !ok || u.Len() != 1 {
+		return nil
+	}
+	if _, ok := u.Term(0).Type().Underlying().(*types.Signature); !ok {
+		return nil
+	}
+	return u.Term(0).Type()
+}
+
+// callableParam reports whether the type t of a parameter is a type parameter that the macros of
+// Phase 10 add for a lazy parameter (gp_L_name, constrained to ~func() T) or for the code of a wrap
+// macro (gp_B, ~func()): the loader's rewrite (internal/load/macros.go) names them so.
+func callableParam(t types.Type) (string, bool) {
+	tp, ok := types.Unalias(t).(*types.TypeParam)
+	if !ok {
+		return "", false
+	}
+	name := tp.Obj().Name()
+	return name, strings.HasPrefix(name, "gp_L_") || strings.HasPrefix(name, "gp_LN_") || name == "gp_B" || name == "gp_BN"
+}
+
+// refParam reports whether the type t of a parameter is a closure type parameter of a macro that the
+// macro only calls (gp_LN_x, gp_BN): the lambda for it can capture by reference.
+func refParam(t types.Type) bool {
+	tp, ok := types.Unalias(t).(*types.TypeParam)
+	if !ok {
+		return false
+	}
+	name := tp.Obj().Name()
+	return strings.HasPrefix(name, "gp_LN_") || name == "gp_BN"
 }
 
 // usesCxx reports whether the body of the generic function uses C/C++ names or values: a name of
@@ -131,7 +176,17 @@ func (g *gen) collectGeneric(d *ast.FuncDecl) {
 		g.generics = make(map[*types.Func]*genericFunc)
 	}
 	g.privateInfoOnce()
-	g.generics[fn] = &genericFunc{fn: fn, decl: d, owner: g, stub: g.pkg.Load.Std && isStubBody(d.Body)}
+	gf := &genericFunc{fn: fn, decl: d, owner: g, stub: g.pkg.Load.Std && isStubBody(d.Body)}
+	params := fn.Signature().Params()
+	for i := range params.Len() {
+		if _, ok := callableParam(params.At(i).Type()); ok {
+			if gf.callable == nil {
+				gf.callable = make([]bool, params.Len())
+			}
+			gf.callable[i] = true
+		}
+	}
+	g.generics[fn] = gf
 }
 
 // isStubBody reports whether body is { panic("stub") }, the body of the standard library's
@@ -417,6 +472,14 @@ func (fg *funcGen) opaqueInstRef(gf *genericFunc, idx []ast.Expr, inferred []typ
 	r := &instRef{gf: gf, fn: gf.fn, targs: make([]types.Type, tparams.Len()), keys: make([]string, tparams.Len()), pos: pos}
 	for i := range r.targs {
 		name := tparams.At(i).Obj().Name()
+		if _, ok := callableParam(tparams.At(i)); ok {
+			// A closure of a macro (gp_L_x, gp_B): the func type of its constraint, whatever the other type
+			// arguments are. (It is a C++ template parameter of the instance, but a func in the body.)
+			if ft := constraintFunc(tparams.At(i)); ft != nil {
+				r.targs[i], r.keys[i] = ft, g.canonText(ft)
+				continue
+			}
+		}
 		if i < len(inferred) && complete(inferred[i]) && !hasC(inferred[i]) && !(i < len(idx) && !g.info.Types[idx[i]].IsType()) {
 			r.targs[i], r.keys[i] = inferred[i], g.canonText(inferred[i])
 			continue
@@ -712,6 +775,16 @@ func (g *gen) lowerInstance(in *instance) {
 	g.noteInstanceBody(in) // why.go
 	f := &funcInfo{decl: gf.decl, obj: obj, name: in.name}
 	f.prepare(g)
+	// The parameters that stand for a closure of a macro (callableParam) are C++ template
+	// parameters: the call passes the lambda itself.
+	var callable []string
+	for i := range f.params {
+		if gf.callable != nil && gf.callable[i] {
+			name, _ := callableParam(gf.fn.Signature().Params().At(i).Type())
+			f.params[i].Type = typeName(name)
+			callable = append(callable, name)
+		}
+	}
 	proto := &cppir.Func{Result: f.result, Name: f.name, Params: f.params}
 	fn := g.funcBuild(f)
 	if g.err != nil {
@@ -721,8 +794,9 @@ func (g *gen) lowerInstance(in *instance) {
 		// In the header of an instance of a generic type: inline.
 		proto.Specs, fn.Specs = []string{"inline"}, []string{"inline"}
 	}
-	if len(in.open) > 0 {
-		// A function template over the type arguments that C++ deduces (opaque instances).
+	if len(in.open) > 0 || len(callable) > 0 {
+		// A function template over the type arguments that C++ deduces (opaque instances) and over
+		// the closures of a macro.
 		t, pt := &cppir.Template{}, &cppir.Template{} // pt, of the prototype, has the defaults
 		for _, n := range in.open {
 			name := cppir.TypeString(g.cxxNamed[n].typ)
@@ -732,6 +806,10 @@ func (g *gen) lowerInstance(in *instance) {
 				name += " = typename gp::detail::slice_elem_of<" + cppir.TypeString(g.cxxNamed[in.open[f-1]].typ) + ">::type"
 			}
 			pt.Params = append(pt.Params, cppir.Param{Type: typeName("typename"), Name: name})
+		}
+		for _, name := range callable {
+			p := cppir.Param{Type: typeName("typename"), Name: name}
+			t.Params, pt.Params = append(t.Params, p), append(pt.Params, p)
 		}
 		proto.Template, fn.Template = pt, t
 	}

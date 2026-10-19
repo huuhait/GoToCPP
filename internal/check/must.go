@@ -493,7 +493,7 @@ func (mp *mustPass) reportLeftovers() {
 					continue
 				}
 			}
-			mp.errorf(n, "macros are not supported yet (Phase 10, step 10.9)")
+			mp.errorf(n, "internal error: a macro form that the loader did not rewrite (internal/load/macros.go)")
 		}
 	}
 }
@@ -798,7 +798,8 @@ func markSynthetic(lp *load.Package, user map[*ast.Ident]bool) {
 		if f.AST == nil {
 			continue
 		}
-		f.Synthetic = nil
+		// The names that the loader's macro rewrite wrote (internal/load/macros.go) are in user
+		// (they were in the tree before this pass) and stay synthetic.
 		ast.Inspect(f.AST, func(n ast.Node) bool {
 			if id, ok := n.(*ast.Ident); ok && !user[id] {
 				if f.Synthetic == nil {
