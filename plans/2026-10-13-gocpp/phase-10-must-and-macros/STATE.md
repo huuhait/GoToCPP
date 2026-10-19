@@ -35,7 +35,7 @@
   - [ ] closures; reject `go F!()` and `!` inside lazy arguments
 - [x] 10.6 `errors.Wrapf(&err, ...)`
 - [ ] 10.7 (optional) Error return traces: design note, then `errors.Trace` / `%+v`
-- [ ] 10.8 Built-in macros (`#file`, `#line`, `#func`, `#text`, `#body`, `#embed`) + `//go:embed`
+- [x] 10.8 Built-in macros (`#file`, `#line`, `#func`, `#text`, `#body`, `#embed`) + `//go:embed`
 - [ ] 10.9 User macros
   - [ ] `macro` decl → inline header template with hidden `gp_site` param; `#file/#line/#func/#text` → use site
   - [ ] uses inside code → calls with one static `Site` each
