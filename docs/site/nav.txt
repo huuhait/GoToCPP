@@ -1,0 +1,81 @@
+// The sidebar of the documentation site (tools/docsite). A line starting with "# " begins a section,
+// "path | Title" lists a page (the title is optional), "~ glob" puts pages in the section without
+// listing them. Every page of docs/ and of the generated reference must be in a section.
+# Start
+index.md | Home
+faq.md | FAQ
+guides/go-developers.md | For Go developers
+guides/cpp-developers.md | For C++ developers
+guides/packaging.md | Installing gocpp
+
+# Tour
+tour/README.md | Introduction
+tour/01-hello.md | 1 Hello, gocpp
+tour/02-values-and-control-flow.md | 2 Values and control flow
+tour/03-data.md | 3 Slices, maps, structs
+tour/04-closures-and-defer.md | 4 Closures and defer
+tour/05-interfaces-errors.md | 5 Interfaces and errors
+tour/06-generics.md | 6 Generics
+tour/07-goroutines.md | 7 Goroutines (experimental)
+tour/08-stdlib.md | 8 The standard library (experimental)
+tour/09-cpp-containers.md | 9 C++ containers
+tour/10-c-libraries.md | 10 C libraries
+tour/11-must-functions.md | 11 Must functions (experimental)
+tour/12-macros.md | 12 Macros (experimental)
+tour/13-next.md | 13 Where to go next
+
+# Interop
+spec/interop.md | Interop guide
+spec/interop-cookbook.md | Cookbook
+guides/interop-examples.md | Examples walkthrough
+spec/typed-interop.md | Typed interop (experimental)
+guides/libraries.md | Calling gocpp from C and C++
+guides/windows-cross.md | Windows
+
+# Language spec
+spec/README.md | Overview
+spec/language.md | The language
+spec/feature-matrix.md | Feature matrix
+spec/cpp-mapping.md | C++ mapping
+spec/modules.md | Modules
+spec/build.md | Building programs
+spec/build-link.md | Runtime and link
+
+# Tools
+guides/testing.md | Testing
+guides/modules.md | Modules and gocpp get
+guides/doc.md | gocpp doc
+guides/explain.md | gocpp explain
+guides/expand.md | gocpp expand
+guides/vet.md | gocpp vet
+guides/debugging.md | Debugging
+guides/race.md | Race detector
+guides/editors.md | Editors and the language server
+guides/embed.md | Embedding files
+guides/llvm-tools.md | LLVM tools
+guides/generics-compile-time.md | Compile time of generics
+
+# Standard library
+stdlib/index.html | Reference
+~ stdlib/*.html
+~ stdlib/*/*.html
+guides/porting.md | Porting a package
+guides/porting-blockers.md | Porting blockers
+
+# Quality
+guides/conformance.md | Conformance suite
+guides/difftest.md | Differential testing
+guides/fuzzing.md | Fuzzing
+guides/sanitizers.md | Sanitizers
+benchmarks/README.md | Benchmarks
+~ benchmarks/*.md
+~ conformance/*.md
+
+# Decisions
+adr/README.md | ADR index
+~ adr/*.md
+
+# Contributing
+README.md | The docs folder
+CONTRIBUTING.md | Contributing
+guides/docs-site.md | The documentation site

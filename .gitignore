@@ -60,3 +60,7 @@ docs/benchmarks/lsp.json
 # "go build ./tools/sanitize" writes into the folder it runs in
 /sanitize-results/
 /sanitize
+
+# The documentation site (make docs, step 15.15)
+/site/
+/.docsite-new-*

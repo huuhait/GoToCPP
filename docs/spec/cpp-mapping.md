@@ -524,7 +524,7 @@ What the C++ looks like (step 3.10, internal/lower/methods.go):
   nil `g` panics after `f` ran). A value method called through a pointer that is not a local of
   the caller copies it first, `gp::ptr<T>(g)->M(...)`, so the object stays alive for the call.
 - fmt calls `String()`, `Error()`, `GoString()` and `Format(f fmt.State, verb rune)` through the
-  method tables of the descriptors (gocpp/fmt.hpp, [fmt](#fmt)): a method needs no member for it.
+  method tables of the descriptors (gocpp/fmt.hpp, [fmt](#fmt-and-the-builtins)): a method needs no member for it.
 - Go has no methods on local types (a method is declared at package level on a package-level
   type), so a local type moved to the namespace has none of its own.
 - Method values and method expressions (step 3.10b) are generic lambdas in a `gp::func`, so a
@@ -566,7 +566,7 @@ struct Celsius : gp::newtype<Celsius, double> {      // a distinct type with dou
 ```
 
 - **For `fmt`** nothing is written into the struct: `fmt` reads values through the type descriptors
-  ([fmt](#fmt)), whose field lists have the Go names, the exported and embedded flags, the tags and
+  ([fmt](#fmt-and-the-builtins)), whose field lists have the Go names, the exported and embedded flags, the tags and
   the offsets of the members (`gp::offset_of(&Point::X)`). `gp_fields` (`gp::field(&T::f, "name",
   exported, embedded)`, every field in declaration order, also blank `_` fields) is for
   `gp::convert` between struct types, and for `gp::cgo::fmt_arg`, which walks the C++ types of a

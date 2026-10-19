@@ -6,6 +6,19 @@ gocpp is one program: the C++ runtime and the standard library are inside the bi
 does **not** carry is a C++ compiler: g++ 13 or newer, or clang++ 17 or newer, must be on the `PATH`
 (`gocpp env` shows the one it found), except in the Nix package, which brings its own.
 
+## Platforms and requirements
+
+- **Linux, x86-64**: the platform that the tests run on every day.
+- **Linux, arm64**: the release archives and the Nix package are built for it; there is no arm64 test run yet
+  (plan step 15.12).
+- **Windows 10 or later, x86-64**: `gocpp.exe` builds and runs Windows programs on a Windows host (it is tested on a
+  real Windows 11 PC), and Linux can cross-build them ([guide](windows-cross.md)). The C++ compiler is a MinGW-w64
+  one.
+- **macOS** is not a target.
+- **C++ compiler**: `g++` 13 or newer, or `clang++` 17 or newer (the Nix package brings GCC 15 and clang 21).
+- **`go install`** needs a Go toolchain of version 1.25 or newer (`go.mod` says `go 1.25.0`); the release archives and
+  the Nix package need no Go.
+
 ## go install
 
 ```sh
@@ -53,8 +66,10 @@ nix shell nixpkgs#goreleaser -c goreleaser release --snapshot --clean --skip=pub
 A real release is `goreleaser release --clean` on a `vX.Y.Z` tag, by the release pipeline (steps 15.12 and 15.16),
 not from a development machine.
 
-Windows: the zip holds `gocpp.exe`. A Windows program needs a MinGW-w64 `g++` (or `clang++`) on the `PATH`; the
-pinned llvm-mingw download is implemented for Linux hosts only.
+Windows: the zip holds `gocpp.exe`. A Windows program needs a MinGW-w64 `g++` (or `clang++`): one on the `PATH`
+or in a known folder (MSYS2, Scoop and so on), else the pinned llvm-mingw, which `gocpp build` downloads once. The
+download is pinned for Linux (amd64 and arm64) and Windows (amd64) hosts (`internal/toolchain.Archives`); the
+rules are in [the build spec](../spec/build.md#gocppexe-on-a-windows-host).
 
 ## Nix
 

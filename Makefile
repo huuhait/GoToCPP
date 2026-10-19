@@ -14,6 +14,10 @@ CI_CHECKS = lint test build portstd-check bench-smoke
 # this off; tests/README.md has the details.
 ci: export GOCPP_REQUIRE_CXX ?= g++,clang++
 
+# In "make ci", the tests of the documentation site that compare programs with the real go command
+# (tools/docsite) fail instead of skipping when there is no go command. GOCPP_REQUIRE_GO= make ci turns this off.
+ci: export GOCPP_REQUIRE_GO ?= 1
+
 # In "make ci", the debug tests (tests/debug) fail instead of skipping their
 # gdb part when gdb is missing or may not trace programs (no ptrace).
 # GOCPP_REQUIRE_GDB= make ci turns this off.
@@ -310,3 +314,17 @@ package-check:
 	GOCPP_REQUIRE_PACKAGING=1 $(GO) test -count=1 ./internal/packaging
 	goreleaser release --snapshot --clean --skip=publish
 	nix build .#gocpp --no-link -L
+
+# The documentation site (step 15.15, docs/guides/docs-site.md): docs/ and the standard library
+# reference as a static site in site/ (git-ignored), after every link and anchor was checked. No
+# network and no dependency (tools/docsite). docs-check only checks. The code of the tour and the
+# guides is checked by go test ./tools/docsite, which is part of make test.
+.PHONY: docs docs-check clean-docs
+docs:
+	$(GO) run ./tools/docsite -out site
+
+docs-check:
+	$(GO) run ./tools/docsite -check
+
+clean-docs:
+	rm -rf site

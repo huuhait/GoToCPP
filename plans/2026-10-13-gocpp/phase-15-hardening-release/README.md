@@ -299,6 +299,45 @@ program) and the known differences are in the guide. The 1M-program exit criteri
 job (`go run ./tools/difftest -n 1000000 -j 8`, resumable, about 960 CPU hours) that adds up over
 many nights.
 
+### 3.2 Notes on step 15.15 (the docs site)
+
+Built: `tools/docsite`, a static site generator in pure Go with no dependency (go.mod and go.sum are
+unchanged, so the flake's `vendorHash` stays). `make docs` writes `site/` (git-ignored), `make docs-check`
+only checks. It renders every `docs/**/*.md` with its own small Markdown renderer (headings with GitHub's
+anchors, nested lists, tables, fenced code, links, images, emphasis), takes the sidebar from
+`docs/site/nav.txt`, adds the standard library reference (one page for each non-internal package of
+`stdlib/`, made with `internal/doc`, the code of `gocpp doc -all`, with an anchor for every declaration), a
+client-side search over titles, headings and library names (works from `file://`) and previous/next
+links. A link that leaves `docs/` must lead to a repository file and is written as a link to it on the web
+(`-repo`, `-branch`). A broken link in a page that is never rewritten (one ADR) is listed in
+`docs/site/known-links.txt`.
+
+New pages: `docs/index.md` (home), `docs/tour/` (thirteen lessons), `docs/guides/go-developers.md`,
+`cpp-developers.md`, `interop-examples.md` (SQLite, raylib, C++ containers and mixed sources, quoted from
+`examples/`) and `docs-site.md`. The interop guide and the cookbook are `docs/spec/interop.md` and
+`interop-cookbook.md`, which already existed and have their own test (`TestDocSnippets`).
+
+The docs are tests: in the tour and the three guides every `go` block carries a marker (`program: PHASE`,
+`excerpt: FILE`, `illustration: reason`), a program is written to a folder, checked with `gocpp check` at
+its phase, run, compared with its `output` block and, when it says `go`, with the real go command; a
+`cpp` block marked `emitted` must be lines of `gocpp emit`; a `rejected` block must be lines that `gocpp
+check` prints without the switch. A page never describes a feature as available that the compiler
+rejects: lessons 7, 8, 11 and 12 and the Go-developer guide are marked experimental with the real switch
+(`GOCPP_GATE_PHASE=08`, `09`, `10`; typed interop is `GOCPP_TYPED_INTEROP=1`). `TestGateNotesCurrent`
+fails once `version.Phase` reaches 10, as a reminder to remove those notes (step 15.16).
+
+Review round 1 added: a FAQ page; the facts that pages state about gocpp are checked against it (the
+`gocpp` commands they name must exist, so a planned command such as `gocpp expand` is not described as
+working; the standard packages they list as present are exactly those of `stdlib/` and the missing ones
+really fail to import; "Phases 00 to NN are finished" is `version.Phase`; a lesson's switch is its
+program's phase, and the program is rejected one phase lower; the platforms are the hosts of
+`internal/toolchain`); the renderer makes what it cannot render (unclosed comment or fence, footnote,
+undefined reference, table cells that GitHub would drop) an error of `docsite -check`, supports setext
+headings, consecutive reference definitions, text after a comment and `<pre>` blocks, and keeps ids unique;
+`-out` is refused under `docs/` or above it, and the site is swapped in as a whole.
+**Publishing is not done**: there is no workflow or hosting setup that uploads `site/`; `make docs` builds it
+and the manager decides where it goes (the plan's "published as a static site from `docs/`" is open).
+
 ## 4. Deliverables
 
 - Benchmark suite with history; optimized runtime and lowering

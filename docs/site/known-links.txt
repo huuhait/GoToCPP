@@ -1,0 +1,5 @@
+// Links that are broken in pages that this site does not change: "page | link as written | why".
+// docsite does not report them. An entry that is no longer broken is an error of "docsite -check"
+// (remove it, or a new break could hide behind it). The ADRs are never rewritten (docs/adr/README.md), so a broken link in one is listed
+// here instead.
+adr/035-reflect-subset-on-descriptors.md | 016-type-descriptors.md | ADR 016 is 016-interfaces-itabs.md

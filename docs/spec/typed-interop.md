@@ -186,7 +186,7 @@ file is 162 MB.)
 | `OK`, `Form`, `Alt` | a probe compiled; was it an expression or a type; was it the alternative reading |
 | `Type` | the canonical type as clang printed it; for an expression the type of `decltype((E))`, so `long &` for an lvalue |
 | `Base`, `Ref`, `Category`, `Const` | `Type` without the reference; `""`, `&` or `&&`; `lvalue`/`xvalue`/`prvalue` (empty for a type); top-level `const` of `Base` |
-| `Value` | `Const{Kind: int|bool|float|string, Int *big.Int, Float, Str}` |
+| `Value` | `Const{Kind: int\|bool\|float\|string, Int *big.Int, Float, Str}` |
 | `ValueError` | the compiler's error for a failed value probe |
 | `Error`, `ErrorAt`, `Notes`, `AltError` | the failure of the probe |
 
