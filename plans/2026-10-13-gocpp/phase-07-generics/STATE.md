@@ -23,7 +23,7 @@
   - [ ] `break` / `continue` / `return` / labels / `goto`
   - [ ] `defer` inside the body → outer frame
 - [x] 7.9 Optional `-gp:concepts` output
-- [ ] 7.10 Port `cmp`, `slices`, `maps`, `iter` (`//go:linkname` → native functions; Go tests in Phase 09)
+- [x] 7.10 Port `cmp`, `slices`, `maps`, `iter` (`//go:linkname` → native functions; Go tests in Phase 09)
 - [ ] 7.11 Lift the generics gate; update the feature matrix
 - [ ] 7.12 Tests: ≥ 60 run + differential (misuse panics, late `yield` under ASan, small ints, `%T`); compile-time measurement
 
