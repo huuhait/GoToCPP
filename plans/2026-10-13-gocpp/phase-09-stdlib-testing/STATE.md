@@ -19,7 +19,7 @@
   - [ ] `internal/reflectlite` alias + `DeepEqual`
 - [~] 9.4 Port tier-1 pure packages (9.4a unicode, strconv, errors merged 2026-10-20; strings, bytes, io, bufio, context, regexp, sort remain) (`unicode/utf8`, `unicode`, `strings`, `bytes`, `strconv`, `errors`, `sort`, `math/bits`, `io`, `bufio`, `context`, `regexp`)
 - [x] 9.5 `math` (native + bit-exact pure-Go where needed)
-- [ ] 9.6 `os` (interop + native, Go error types)
+- [x] 9.6 `os` (interop + native, Go error types)
 - [ ] 9.7 `fmt` port (+ `internal/fmtsort`, C++ value printing)
 - [ ] 9.8 `time` (ported logic, native clocks/timers, zoneinfo)
 - [ ] 9.9 `flag`, `testing` + `gocpp test` (T incl. `Parallel`, B + `Loop`, examples, flags, Go-style output)
