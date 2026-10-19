@@ -220,7 +220,7 @@ func TestEnvListsEveryVariable(t *testing.T) {
 	// under another name.
 	internal := func(n string) bool {
 		return strings.HasPrefix(n, "GOCPP_TEST_") || strings.HasPrefix(n, "GOCPP_BENCH") || strings.HasPrefix(n, "GOCPP_FUZZ_") || n == "GOCPP_REQUIRE_CXX" || n == "GOCPP_RUN_VS_GO" ||
-			n == "GOCPP_ALLOW_INTERNAL" || n == "GOCPP_REQUIRE_PORTSTD" || n == "GOCPP_LIB_" // the harness's, a tool's, and the prefix of a header guard
+			n == "GOCPP_ALLOW_INTERNAL" || n == "GOCPP_ASAN" || n == "GOCPP_REQUIRE_PORTSTD" || n == "GOCPP_LIB_" // the harness's, a tool's, and the prefix of a header guard
 	}
 	for n := range found {
 		if !listed[n] && !internal(n) {
