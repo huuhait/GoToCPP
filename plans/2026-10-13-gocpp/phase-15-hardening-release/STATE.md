@@ -21,7 +21,7 @@
 ### Robustness
 - [ ] 15.8 Fuzzing (parse → check → lower → emit; sampled C++ compiles)
 - [ ] 15.9 Random-program differential testing vs `go run` (batched programs, no implementation-defined cases)
-- [ ] 15.10 Port Go `test/` run-tests as a conformance suite (downloads the pinned Go source)
+- [x] 15.10 Port Go `test/` run-tests as a conformance suite (downloads the pinned Go source)
 - [ ] 15.11 Nightly ASan/UBSan/TSan/LSan (fail on any report) + leak audit
 
 ### Platforms & packaging
