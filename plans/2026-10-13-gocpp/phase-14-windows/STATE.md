@@ -8,7 +8,7 @@
 
 - [x] 14.1 Windows OS layer in the runtime (console UTF-8, UTF-16 args/env, threads, stack-overflow handler, `_exit`, stack traces) + unit tests under Wine
 - [ ] 14.2 Build driver: MinGW-w64 detection + the pinned llvm-mingw download on a Windows host (Phase 06 §2.10), `.exe`/`.dll` + import libs + `dllexport`, `-static` linking, response files, spaces/drive letters, cache location, CRLF
-- [ ] 14.3 Standard library for Windows
+- [x] 14.3 Standard library for Windows (merged 2026-10-19; ADR-076: Go's own _windows files over four natives)
   - [ ] `portstd` with `GOOS=windows`
   - [ ] native `internal/syscall/windows` on `<windows.h>`
   - [ ] `os`, `path/filepath`, `time`, `os/exec`, `os/signal` + tests
