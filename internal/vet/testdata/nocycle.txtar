@@ -1,0 +1,1051 @@
+Code that looks like a reference cycle and is not. Every analyzer runs on
+these, so a false positive of any of them shows.
+-- other_variable/main.gp --
+package main
+
+import "fmt"
+
+func main() {
+	x := 1
+	var f func()
+	f = func() { fmt.Println(x) }
+	f()
+}
+-- field_other_object/main.gp --
+package main
+
+type Server struct {
+	onDone func()
+	n      int
+}
+
+type Logger struct{ lines int }
+
+func main() {
+	l := &Logger{}
+	s := &Server{}
+	s.onDone = func() { l.lines++ }
+	s.onDone()
+	_ = s.n
+}
+-- one_way_pointer/main.gp --
+package main
+
+type Node struct{ next *Node }
+
+func main() {
+	a, b := &Node{}, &Node{}
+	a.next = b
+	_ = a
+}
+-- pointer_move/main.gp --
+package main
+
+type Node struct{ next *Node }
+
+func main() {
+	var p *Node
+	q := &Node{}
+	p = q
+	p = p.next
+	_ = p
+}
+-- pointer_swap/main.gp --
+package main
+
+type Node struct{ next *Node }
+
+func main() {
+	a, b := &Node{}, &Node{}
+	a = b
+	b = a
+	_, _ = a, b
+}
+-- break_with_nil/main.gp --
+package main
+
+func main() {
+	var f func()
+	f = func() {
+		if f != nil {
+			f = nil
+		}
+	}
+	f()
+	f = nil
+}
+-- break_field_nil/main.gp --
+package main
+
+type T struct {
+	cb func()
+	n  int
+}
+
+func main() {
+	t := &T{}
+	t.cb = func() { t.n++ }
+	t.cb()
+	t.cb = nil
+}
+-- package_variable/main.gp --
+package main
+
+var counter int
+
+var hook func()
+
+func main() {
+	hook = func() { counter++ }
+	hook()
+}
+-- argument_closure/main.gp --
+package main
+
+import "fmt"
+
+func apply(xs []int, f func(int) int) []int {
+	out := make([]int, 0, len(xs))
+	for _, x := range xs {
+		out = append(out, f(x))
+	}
+	return out
+}
+
+func main() {
+	xs := []int{1, 2, 3}
+	fmt.Println(apply(xs, func(x int) int { return x * len(xs) }))
+}
+-- immediate_call/main.gp --
+package main
+
+import "fmt"
+
+func main() {
+	total := 0
+	func() {
+		total += 2
+	}()
+	fmt.Println(total)
+}
+-- defer_closure/main.gp --
+package main
+
+import "fmt"
+
+func main() {
+	n := 0
+	defer func() { fmt.Println(n) }()
+	n = 3
+}
+-- return_closure/main.gp --
+package main
+
+import "fmt"
+
+func counter() func() int {
+	n := 0
+	return func() int { n++; return n }
+}
+
+func main() {
+	next := counter()
+	fmt.Println(next(), next())
+}
+-- declared_inside/main.gp --
+package main
+
+type T struct {
+	cb func() int
+}
+
+func main() {
+	t := &T{}
+	t.cb = func() int {
+		t := 5 // a new variable, not the captured one
+		return t
+	}
+	_ = t.cb()
+}
+-- loop_variable/main.gp --
+package main
+
+import "fmt"
+
+func main() {
+	handlers := make([]func(), 3)
+	for i := 0; i < 3; i++ {
+		handlers[i] = func() { fmt.Println(i) }
+	}
+	for _, h := range handlers {
+		h()
+	}
+}
+-- chain_not_cycle/main.gp --
+package main
+
+type Node struct{ next *Node }
+
+func main() {
+	a, b, c := &Node{}, &Node{}, &Node{}
+	a.next = b
+	b.next = c
+	_ = a
+}
+-- unsafe_address/main.gp --
+package main
+
+import "unsafe"
+
+type Builder struct {
+	addr uintptr
+	buf  []byte
+}
+
+func (b *Builder) check() {
+	if b.addr == 0 {
+		b.addr = uintptr(unsafe.Pointer(b))
+	}
+}
+
+func main() {
+	var b Builder
+	b.check()
+}
+-- value_copy/main.gp --
+package main
+
+type Point struct{ x, y int }
+
+type Shape struct {
+	origin Point
+	c      func() Point
+}
+
+func main() {
+	p := Point{1, 2}
+	s := &Shape{origin: p}
+	s.origin = p
+	s.c = func() Point { return p }
+	_ = s
+}
+-- sort_closure/main.gp --
+package main
+
+import "fmt"
+
+func less(xs []int) func(i, j int) bool {
+	return func(i, j int) bool { return xs[i] < xs[j] }
+}
+
+func main() {
+	xs := []int{3, 1, 2}
+	l := less(xs)
+	fmt.Println(l(0, 1))
+}
+-- goroutine_channel/main.gp --
+package main
+
+import "fmt"
+
+func main() {
+	ch := make(chan int)
+	done := make(chan struct{})
+	go func() {
+		for v := range ch {
+			fmt.Println(v)
+		}
+		close(done)
+	}()
+	ch <- 1
+	close(ch)
+	<-done
+}
+-- method_value_other/main.gp --
+package main
+
+type Server struct {
+	onDone func()
+	n      int
+}
+
+type Worker struct{ n int }
+
+func (w *Worker) run() { w.n++ }
+
+func main() {
+	s := &Server{}
+	w := &Worker{}
+	s.onDone = w.run
+	s.onDone()
+	_ = s.n
+}
+-- map_of_ints/main.gp --
+package main
+
+func main() {
+	m := map[string]int{}
+	m["a"] = len(m)
+	m["b"] = m["a"] + 1
+}
+-- two_way_with_weak/main.gp --
+package main
+
+import "weak"
+
+type Node struct {
+	parent weak.Pointer[Node]
+	child  *Node
+}
+
+func main() {
+	p := &Node{}
+	c := &Node{}
+	p.child = c
+	c.parent = weak.Make(p)
+}
+-- closure_in_closure_other/main.gp --
+package main
+
+func main() {
+	a := 0
+	var f, g func()
+	f = func() { a++ }
+	g = func() { f() }
+	g()
+}
+-- cycle_disabled_by_nil_target/main.gp --
+package main
+
+type Node struct{ next *Node }
+
+func main() {
+	a := &Node{}
+	b := &Node{}
+	a.next = b
+	b.next = a
+	a.next = nil
+	b.next = nil
+}
+-- rev_n01_copy_capture/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	x := 1
+	f := func() int { return x }
+	fmt.Println(f())
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n02_closure_not_self/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	var f func(int) int
+	f = func(n int) int { return n * 2 }
+	fmt.Println(f(2))
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n03_recursion_param/main.gp --
+package main
+
+import "fmt"
+
+func fib(self func(func(int) int, int) int, n int) int {
+	return self(nil, n)
+}
+
+func build() {
+	f := func(_ func(int) int, n int) int { return n }
+	fmt.Println(fib(f, 3))
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n04_nil_after_use/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	var f func(int)
+	f = func(n int) {
+		if n > 0 {
+			f(n - 1)
+		}
+	}
+	f(3)
+	f = nil
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n05_parent_child_nil_before/main.gp --
+package main
+
+import "fmt"
+
+type N struct {
+	parent *N
+	kids   []*N
+}
+
+func build() {
+	p := &N{}
+	c := &N{}
+	c.parent = p
+	p.kids = append(p.kids, c)
+	fmt.Println(len(p.kids))
+	c.parent = nil
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n06_weak_parent/main.gp --
+package main
+
+import (
+	"fmt"
+	"weak"
+)
+
+type N struct {
+	parent weak.Pointer[N]
+	kids   []*N
+}
+
+func build() {
+	p := &N{}
+	c := &N{}
+	c.parent = weak.Make(p)
+	p.kids = append(p.kids, c)
+	fmt.Println(c.parent.Value() == p)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n07_singly_linked/main.gp --
+package main
+
+import "fmt"
+
+type N struct{ next *N }
+
+func build() {
+	a, b, c := &N{}, &N{}, &N{}
+	a.next = b
+	b.next = c
+	fmt.Println(a.next.next == c)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n08_value_copies/main.gp --
+package main
+
+import "fmt"
+
+type N struct{ next *N }
+
+func build() {
+	a := N{}
+	b := a
+	b.next = &a
+	fmt.Println(b.next == &a)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n09_weak_closure/main.gp --
+package main
+
+import (
+	"fmt"
+	"weak"
+)
+
+type S struct {
+	n  int
+	cb func()
+}
+
+func build() {
+	s := &S{}
+	w := weak.Make(s)
+	s.cb = func() {
+		if p := w.Value(); p != nil {
+			p.n++
+		}
+	}
+	s.cb()
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n10_closure_arg/main.gp --
+package main
+
+import "fmt"
+
+type S struct{ n int }
+
+func apply(f func()) { f() }
+
+func build() {
+	s := &S{}
+	apply(func() { s.n++ })
+	fmt.Println(s.n)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n11_slice_closures_not_self/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	var fs []func() int
+	i := 0
+	fs = append(fs, func() int { i++; return i })
+	fmt.Println(fs[0]())
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n12_map_closures_not_self/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	m := map[string]func() int{}
+	x := 1
+	m["a"] = func() int { return x }
+	fmt.Println(m["a"]())
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n13_cb_captures_unrelated/main.gp --
+package main
+
+import "fmt"
+
+type S struct{ cb func() }
+
+func build() {
+	s := &S{}
+	x := 0
+	s.cb = func() { x++ }
+	s.cb()
+	fmt.Println(x)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n14_temp_graph/main.gp --
+package main
+
+import "fmt"
+
+type N struct{ next *N }
+
+func build() {
+	{
+		a := &N{}
+		b := &N{}
+		a.next = b
+	}
+	fmt.Println("temp")
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n15_pointer_swap/main.gp --
+package main
+
+import "fmt"
+
+type N struct{ v int }
+
+func build() {
+	p, q := &N{1}, &N{2}
+	p, q = q, p
+	p = q
+	fmt.Println(p.v, q.v)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n16_closure_captures_value_struct/main.gp --
+package main
+
+import "fmt"
+
+type S struct{ n int }
+
+func build() {
+	s := S{}
+	f := func() { s.n++ }
+	f()
+	fmt.Println(s.n)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n17_goroutine_chan/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	ch := make(chan int)
+	go func() { ch <- 1 }()
+	fmt.Println(<-ch)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n18_cleared_field/main.gp --
+package main
+
+import "fmt"
+
+type S struct {
+	n  int
+	cb func()
+}
+
+func build() {
+	s := &S{}
+	s.cb = func() { s.n++ }
+	s.cb()
+	s.cb = nil
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n19_other_owner/main.gp --
+package main
+
+import "fmt"
+
+type S struct{ n int }
+type T struct{ cb func() }
+
+func build() {
+	s := &S{}
+	t := &T{}
+	t.cb = func() { s.n++ }
+	t.cb()
+	fmt.Println(s.n)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n20_registry_param/main.gp --
+package main
+
+import "fmt"
+
+func register(reg map[string]func() int, x *int) {
+	reg["a"] = func() int { *x++; return *x }
+}
+
+func build() {
+	reg := map[string]func() int{}
+	x := 0
+	register(reg, &x)
+	fmt.Println(reg["a"]())
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n21_counter_generator/main.gp --
+package main
+
+import "fmt"
+
+func counter() func() int {
+	n := 0
+	return func() int { n++; return n }
+}
+
+func build() {
+	c := counter()
+	fmt.Println(c(), c())
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n22_defer_closure/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	x := 1
+	defer func() { fmt.Println(x) }()
+	x = 2
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n23_loop_closures_run/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	var fs []func() int
+	for i := 0; i < 3; i++ {
+		fs = append(fs, func() int { return i })
+	}
+	for _, f := range fs {
+		fmt.Println(f())
+	}
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n24_tail_list/main.gp --
+package main
+
+import "fmt"
+
+type N struct{ next *N }
+
+func build() {
+	head := &N{}
+	tail := head
+	for i := 0; i < 3; i++ {
+		n := &N{}
+		tail.next = n
+		tail = n
+	}
+	fmt.Println(head.next != nil)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n25_dll_unlinked/main.gp --
+package main
+
+import "fmt"
+
+type N struct{ prev, next *N }
+
+func build() {
+	a, b := &N{}, &N{}
+	a.next = b
+	b.prev = a
+	a.next = nil
+	fmt.Println(b.prev == a)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n26_dll_weak_prev/main.gp --
+package main
+
+import (
+	"fmt"
+	"weak"
+)
+
+type N struct {
+	prev weak.Pointer[N]
+	next *N
+}
+
+func build() {
+	a, b := &N{}, &N{}
+	a.next = b
+	b.prev = weak.Make(a)
+	fmt.Println(b.prev.Value() == a)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n27_stack_of_others/main.gp --
+package main
+
+import "fmt"
+
+type S struct{ items []*S }
+
+func build() {
+	s, s2 := &S{}, &S{}
+	s.items = append(s.items, s2)
+	fmt.Println(len(s.items))
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n28_global_target/main.gp --
+package main
+
+import "fmt"
+
+type N struct{ v int }
+
+var global *N
+
+func build() {
+	n := &N{1}
+	global = n
+	global = nil
+	fmt.Println(n.v)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n29_assigned_later/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	x := 0
+	f := func() { x++ }
+	x = 5
+	f()
+	fmt.Println(x)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n30_iface_value/main.gp --
+package main
+
+import "fmt"
+
+type I interface{ M() int }
+type V struct{ n int }
+
+func (v V) M() int { return v.n }
+
+func build() {
+	var i I = V{3}
+	fmt.Println(i.M())
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n31_named_func_recursion/main.gp --
+package main
+
+import "fmt"
+
+func fact(n int) int {
+	if n < 2 {
+		return 1
+	}
+	return n * fact(n-1)
+}
+
+func build() { fmt.Println(fact(5)) }
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n32_cb_no_capture/main.gp --
+package main
+
+import "fmt"
+
+type H struct{ fn func() }
+
+func build() {
+	h := &H{}
+	h.fn = func() { fmt.Println("x") }
+	h.fn()
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n33_self_ptr_nil/main.gp --
+package main
+
+import "fmt"
+
+type N struct{ next *N }
+
+func build() {
+	n := &N{}
+	n.next = n
+	n.next = nil
+	fmt.Println(n.next == nil)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n34_closure_iife/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	n := 2
+	func() { n++ }()
+	fmt.Println(n)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n35_done_chan_goroutines/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	done := make(chan bool)
+	go func() { done <- true }()
+	<-done
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n36_go_method/main.gp --
+package main
+
+import "fmt"
+
+type W struct{ done chan bool }
+
+func (w *W) run() { w.done <- true }
+
+func build() {
+	w := &W{done: make(chan bool)}
+	go w.run()
+	<-w.done
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n37_generic_stack/main.gp --
+package main
+
+import "fmt"
+
+type Stack[T any] struct{ items []T }
+
+func (s *Stack[T]) Push(v T) { s.items = append(s.items, v) }
+
+func build() {
+	s := &Stack[int]{}
+	s.Push(1)
+	fmt.Println(len(s.items))
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n38_value_recv_method_value_FP/main.gp --
+package main
+
+import "fmt"
+
+type S struct{ cb func() }
+
+func (s S) Val() {}
+
+func build() {
+	var a S
+	a.cb = a.Val
+	a.cb()
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n39_two_value_recv_mv_FP/main.gp --
+package main
+
+import "fmt"
+
+type S struct{ cb func() }
+
+func (s S) Val() {}
+
+func build() {
+	var a, b S
+	a.cb = b.Val
+	b.cb = a.Val
+	a.cb()
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n40_pointer_stored_in_owner_then_dropped/main.gp --
+package main
+
+import "fmt"
+
+type N struct{ child *N }
+
+func build() {
+	root := &N{}
+	child := &N{}
+	root.child = child
+	root.child = nil
+	child.child = root
+	fmt.Println(child.child == root)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n41_shadowed_name/main.gp --
+package main
+
+import "fmt"
+
+type S struct{ cb func() }
+
+func build() {
+	s := &S{}
+	{
+		s := &S{}
+		_ = s
+	}
+	f := func() { _ = 1 }
+	s.cb = f
+	fmt.Println(s.cb != nil)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n42_closure_over_other_closure_chain/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	a := func() int { return 1 }
+	b := func() int { return a() + 1 }
+	c := func() int { return b() + 1 }
+	fmt.Println(c())
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_n43_close_breaks/main.gp --
+package main
+
+import "fmt"
+
+type S struct {
+	n  int
+	cb func()
+}
+
+func (s *S) Close() { s.cb = nil }
+
+func build() {
+	s := &S{}
+	s.cb = func() { s.n++ }
+	s.cb()
+	s.Close()
+}
+
+func main() { build(); fmt.Println("ok") }
+-- self_clearing_closure/main.gp --
+package main
+
+type holder struct{ f func(string) string }
+
+func main() {
+	h := &holder{}
+	suffix := "!"
+	h.f = func(s string) string {
+		h.f = nil
+		return s + suffix
+	}
+	_ = h.f("done")
+}
+-- fresh_head_rebinding/main.gp --
+package main
+
+type node struct {
+	n    int
+	next *node
+}
+
+func main() {
+	var head *node
+	for i := 3; i > 0; i-- {
+		head = &node{i, head}
+	}
+	var s []int
+	s = append(s, 1, 2)
+	s = append(s, s...)
+	f := func() int { return 0 }
+	for i := 0; i < 3; i++ {
+		prev := f
+		f = func() int { return prev() + 1 }
+	}
+	_, _, _ = head, s, f
+}

@@ -91,6 +91,14 @@ panic with a nil pointer dereference on a small file with `C.strlen(...)` (the f
 - Every analyzer runs inside `recover`. A crash becomes a "vet: analyzer X failed on package Y"
   note instead of killing vet, and it is reported as a gocpp bug.
 - A CI test runs every enabled analyzer over all interop examples (the Phase 04 suite).
+- **As built (13.3, `internal/vet`, [docs/guides/vet.md](../../../docs/guides/vet.md)):** gocpp has
+  its own small driver (`internal/vet/driver.go`) instead of `checker.Analyze`, over the
+  packages that `load` and `check` produce (no `*packages.Package`). It keeps the facts across
+  packages and recovers a panic of an analyzer in every package. The guard is finer than
+  "skip the analyzers": most analyzers run in an ill-typed package (a corpus test shows they
+  accept invalid types), and `printf`, `nilness` and `tests` run over a copy of the syntax with the
+  statements or functions that touch opaque values pruned. `panicbang` is a registered
+  placeholder until Phase 10 builds `!`.
 - typed mode (Phase 12) doesn't change this, because it keeps stock `go/types` (C names stay
   invalid there). The gocpp analyzers below use the interop checker's types directly.
 

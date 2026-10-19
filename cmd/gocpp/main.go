@@ -41,7 +41,7 @@ var commands = []command{
 	{name: "expand", phase: 10, summary: "print code after macro, #Derive and ! rewriting"},
 	{name: "fmt", phase: 1, summary: "format .gp files like gofmt", run: runFmt},
 	{name: "lsp", phase: 11, summary: "run the language server for editors", run: runLSP},
-	{name: "vet", phase: 13, summary: "report likely mistakes in packages"},
+	{name: "vet", phase: 13, summary: "report likely mistakes in packages", run: runVet},
 	{name: "doc", phase: 13, summary: "show documentation for a package or symbol"},
 	{name: "debug", phase: 13, summary: "build a program and start gdb or lldb on it"},
 	{name: "explain", phase: 13, summary: "show the C++ generated for one .gp line"},

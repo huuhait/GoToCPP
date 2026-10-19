@@ -1,0 +1,54 @@
+A call of a builtin that go/types folds into a constant (len of an array,
+unsafe.Sizeof) has the invalid type recorded for its callee: that is no
+C/C++ name, and the code around it must still be vetted by printf and nilness.
+-- len_array/main.gp --
+package main
+
+type T struct{ x int }
+
+func b(p *T) int {
+	var arr [4]int
+	n := len(arr)
+	if p == nil {
+		return p.x + n // want `nil dereference in field selection`
+	}
+	return n
+}
+
+func main() { _ = b(&T{}) }
+-- sizeof/main.gp --
+package main
+
+import "unsafe"
+
+type T struct{ x int }
+
+func c(p *T) int {
+	if p == nil {
+		return p.x + int(unsafe.Sizeof(*p)) // want `nil dereference in field selection`
+	}
+	return 0
+}
+
+func main() { _ = c(&T{}) }
+-- constant_builtins/main.gp --
+package main
+
+import (
+	"fmt"
+	"unsafe"
+)
+
+type T struct{ x int }
+
+func d(p *T) {
+	if p == nil {
+		_ = p.x // want `nil dereference in field selection`
+	}
+	fmt.Printf("%d\n", len("abc"))
+	fmt.Printf("%s\n", unsafe.Sizeof(1)) // want `Printf format %s has arg unsafe.Sizeof\(1\) of wrong type uintptr`
+	fmt.Printf("%d\n", min(1, 2))
+	fmt.Printf("%s\n", complex(1, 2)) // want `Printf format %s has arg complex\(1, 2\) of wrong type complex128`
+}
+
+func main() { d(&T{}) }

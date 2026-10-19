@@ -1,0 +1,252 @@
+Printf checks: the verbs against the argument types, the number of
+arguments, wrappers (also in another package), and C/C++ values, which are
+accepted wherever their type is not known.
+analyzers: printf
+-- verb_type/main.gp --
+package main
+
+import "fmt"
+
+func main() {
+	fmt.Printf("%d\n", "text") // want `Printf format %d has arg "text" of wrong type string`
+	fmt.Printf("%s\n", 42)     // want `Printf format %s has arg 42 of wrong type int`
+	fmt.Printf("%d %s\n", 1, "ok")
+	fmt.Printf("%v %T\n", 1.5, []int{1})
+}
+-- arg_count/main.gp --
+package main
+
+import "fmt"
+
+func main() {
+	fmt.Printf("%s %s\n", "a") // want `Printf format %s reads arg #2, but call has 1 arg`
+	fmt.Printf("%s\n", "a", "b") // want `Printf call needs 1 arg but has 2 args`
+	fmt.Printf("%[2]s %[1]s\n", "a", "b")
+}
+-- println_directive/main.gp --
+package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("done %d") // want `Println call has possible Printf formatting directive %d`
+	fmt.Println("100%")
+	fmt.Println("a", "b\n") // want `Println arg list ends with redundant newline`
+}
+-- sprintf_errorf/main.gp --
+package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+func f() error {
+	return fmt.Errorf("failed: %d", "x") // want `Errorf format %d has arg "x" of wrong type string`
+}
+
+func g() error {
+	return fmt.Errorf("wrap: %w", errors.New("inner"))
+}
+
+func main() {
+	_ = fmt.Sprintf("%q", 1.5) // want `Sprintf format %q has arg 1.5 of wrong type float64`
+	_, _ = f(), g()
+}
+-- wrapper_local/main.gp --
+package main
+
+import "fmt"
+
+func logf(format string, args ...any) {
+	fmt.Printf(format, args...)
+}
+
+func main() {
+	logf("%d\n", "text") // want `logf format %d has arg "text" of wrong type string`
+	logf("%d\n", 7)
+}
+-- wrapper_cross/lib/lib.gp --
+package lib
+
+import "fmt"
+
+// Logf is a Printf wrapper: the analyzer learns that in this package.
+func Logf(format string, args ...any) {
+	fmt.Println(fmt.Sprintf(format, args...))
+}
+
+// Plain is not.
+func Plain(format string, args ...any) {
+	fmt.Println(format, len(args))
+}
+-- wrapper_cross/main.gp --
+package main
+
+import "example.com/m/wrapper_cross/lib"
+
+func main() {
+	lib.Logf("%d\n", "text") // want `Logf format %d has arg "text" of wrong type string`
+	lib.Logf("%d\n", 1)
+	lib.Plain("%d\n", "text")
+}
+-- wrapper_cross2/a/a.gp --
+package a
+
+import "fmt"
+
+func Wrap(format string, args ...any) string {
+	return fmt.Sprintf(format, args...)
+}
+-- wrapper_cross2/b/b.gp --
+package b
+
+import "example.com/m/wrapper_cross2/a"
+
+// Wrap2 wraps a wrapper: the fact travels through two packages.
+func Wrap2(format string, args ...any) string {
+	return a.Wrap(format, args...)
+}
+-- wrapper_cross2/main.gp --
+package main
+
+import (
+	"fmt"
+
+	"example.com/m/wrapper_cross2/b"
+)
+
+func main() {
+	fmt.Println(b.Wrap2("%s", 1)) // want `Wrap2 format %s has arg 1 of wrong type int`
+}
+-- opaque_value/main.gp --
+package main
+
+import (
+	"fmt"
+
+	"<vector>"
+)
+
+func main() {
+	v := std.vector[int]{1, 2}
+	fmt.Printf("%v %T\n", v, v)
+	fmt.Printf("%d %s\n", v.size(), v.front())
+	fmt.Printf("%d\n", "text") // want `Printf format %d has arg "text" of wrong type string`
+}
+-- opaque_wrapper/main.gp --
+package main
+
+import (
+	"fmt"
+
+	"<string>"
+)
+
+func note(format string, args ...any) {
+	fmt.Printf(format, args...)
+}
+
+func main() {
+	s := std.string("x")
+	note("%s %v\n", s, s)
+	note("%d\n", "text") // want `note format %d has arg "text" of wrong type string`
+	for i := 0; i < 2; i++ {
+		fmt.Printf("%d %d\n", i) // want `Printf format %d reads arg #2, but call has 1 arg`
+	}
+}
+-- opaque_pkgvar/main.gp --
+package main
+
+import (
+	"fmt"
+
+	"<vector>"
+)
+
+var table = std.vector[int]{1, 2, 3}
+
+func main() {
+	fmt.Printf("%s\n", 3) // want `Printf format %s has arg 3 of wrong type int`
+	fmt.Println(table.size())
+}
+-- skipped_stmt/main.gp --
+package main
+
+import (
+	"fmt"
+
+	"<vector>"
+)
+
+func main() {
+	v := std.vector[int]{}
+	if v.empty() {
+		fmt.Printf("%d\n", "no") // want `Printf format %d has arg "no" of wrong type string`
+	}
+	switch v.size() {
+	case 0:
+		fmt.Printf("%d\n", "zero") // want `Printf format %d has arg "zero" of wrong type string`
+	default:
+		fmt.Printf("%d\n", 3)
+	}
+	select {
+	default:
+		fmt.Printf("%s\n", 4) // want `Printf format %s has arg 4 of wrong type int`
+	}
+}
+-- opaque_arg_beside_bad/main.gp --
+package main
+
+import (
+	"fmt"
+
+	"<vector>"
+)
+
+func main() {
+	v := std.vector[int]{1}
+	fmt.Printf("%d %s\n", "x", v.size()) // want `Printf format %d has arg "x" of wrong type string`
+	fmt.Printf("%d %d\n", int(v.size()))  // want `Printf format %d reads arg #2, but call has 1 arg`
+	fmt.Printf("%s\n", int(v.size()))     // want `Printf format %s has arg .* of wrong type int`
+	fmt.Printf("%d %v\n", v.size(), v)
+	fmt.Printf("%d\n", int(v.size()))
+	fmt.Printf("%d %d\n", len(v), "x") // want `Printf format %d has arg "x" of wrong type string`
+}
+-- opaque_arg_in_header/main.gp --
+package main
+
+import (
+	"fmt"
+
+	"<vector>"
+)
+
+func main() {
+	v := std.vector[int]{1}
+	if err := fmt.Errorf("%d", "y", v.size()); err != nil { // want `Errorf format %d has arg "y" of wrong type string`
+		fmt.Println(err)
+	}
+	for i := 0; i < int(v.size()); i++ {
+		fmt.Printf("%s\n", i) // want `Printf format %s has arg i of wrong type int`
+	}
+}
+-- opaque_spread/main.gp --
+package main
+
+import (
+	"fmt"
+
+	"<vector>"
+)
+
+func f(format string, args ...any) {
+	fmt.Printf(format, args...)
+}
+
+func main() {
+	v := std.vector[int]{1}
+	rest := []any{v.size()}
+	f("%d\n", rest...)
+	f("%d\n", "x", v.size()) // want `f format %d has arg "x" of wrong type string`
+}

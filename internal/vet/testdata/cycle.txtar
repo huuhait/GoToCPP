@@ -1,0 +1,877 @@
+Reference cycles that gocpp's reference counting never frees: the shapes
+the cycle analyzer finds.
+analyzers: cycle
+-- self_closure/main.gp --
+package main
+
+func main() {
+	var f func()
+	f = func() { f() } // want `reference cycle: f holds a closure that captures f, which keeps f alive`
+	f()
+}
+-- fib_closure/main.gp --
+package main
+
+import "fmt"
+
+func main() {
+	var fib func(int) int
+	fib = func(n int) int { // want `reference cycle: fib holds a closure that captures fib`
+		if n < 2 {
+			return n
+		}
+		return fib(n-1) + fib(n-2)
+	}
+	fmt.Println(fib(10))
+}
+-- two_closures/main.gp --
+package main
+
+func main() {
+	var even, odd func(int) bool
+	even = func(n int) bool { return n == 0 || odd(n-1) }
+	odd = func(n int) bool { return n != 0 && even(n-1) } // want `reference cycle: odd holds a closure that captures even, and even holds a closure that captures odd`
+	_ = even(4)
+}
+-- field_closure/main.gp --
+package main
+
+type Server struct {
+	onDone func()
+	n      int
+}
+
+func (s *Server) run() { s.n++ }
+
+func main() {
+	s := &Server{}
+	s.onDone = func() { s.run() } // want `reference cycle: s.onDone holds a closure that captures s, which keeps s alive`
+	s.onDone()
+}
+-- method_value/main.gp --
+package main
+
+type Server struct {
+	onDone func()
+	n      int
+}
+
+func (s *Server) run() { s.n++ }
+
+func main() {
+	s := &Server{}
+	s.onDone = s.run // want `reference cycle: s.onDone holds the method value s.run`
+	s.onDone()
+}
+-- map_of_closures/main.gp --
+package main
+
+func main() {
+	handlers := map[string]func(){}
+	handlers["a"] = func() { // want `reference cycle: handlers\["a"\] holds a closure that captures handlers`
+		handlers["b"]()
+	}
+	handlers["b"] = func() {}
+	handlers["a"]()
+}
+-- slice_of_closures/main.gp --
+package main
+
+type Bus struct {
+	subs []func()
+	n    int
+}
+
+func main() {
+	b := &Bus{}
+	b.subs = append(b.subs, func() { b.n++ }) // want `reference cycle: b.subs holds a closure that captures b`
+	for _, f := range b.subs {
+		f()
+	}
+}
+-- literal_with_closure/main.gp --
+package main
+
+type Table struct {
+	ops map[string]func() int
+	n   int
+}
+
+func main() {
+	t := &Table{}
+	t.ops = map[string]func() int{"inc": func() int { t.n++; return t.n }} // want `reference cycle: t.ops holds a closure that captures t`
+	_ = t.ops["inc"]()
+}
+-- parent_child/main.gp --
+package main
+
+type Node struct {
+	parent *Node
+	child  *Node
+}
+
+func main() {
+	p := &Node{}
+	c := &Node{}
+	p.child = c
+	c.parent = p // want `reference cycle: c.parent holds p, and p.child holds c`
+}
+-- self_pointer/main.gp --
+package main
+
+type Node struct{ next *Node }
+
+func main() {
+	n := &Node{}
+	n.next = n // want `reference cycle: n.next holds n`
+}
+-- goroutine_cycle/main.gp --
+package main
+
+func main() {
+	var loop func()
+	loop = func() { // want `reference cycle: loop holds a closure that captures loop`
+		go func() { loop() }()
+	}
+	loop()
+}
+-- address_of/main.gp --
+package main
+
+type Node struct{ next *Node }
+
+func main() {
+	var a Node
+	var b Node
+	a.next = &b
+	b.next = &a // want `reference cycle: b.next holds &a, and a.next holds &b`
+}
+-- closure_in_literal/main.gp --
+package main
+
+type Job struct {
+	run func()
+	id  int
+}
+
+func main() {
+	var j *Job
+	j = &Job{run: func() { _ = j.id }} // want `reference cycle: j holds a closure that captures j`
+	j.run()
+}
+-- param_cycle/main.gp --
+package main
+
+type Node struct{ peer *Node }
+
+func link(a, b *Node) {
+	a.peer = b
+	b.peer = a // want `reference cycle: b.peer holds a, and a.peer holds b`
+}
+
+func main() {
+	link(&Node{}, &Node{})
+}
+-- three_cycle/main.gp --
+package main
+
+type Node struct{ next *Node }
+
+func main() {
+	a, b, c := &Node{}, &Node{}, &Node{}
+	a.next = b
+	b.next = c
+	c.next = a // want `reference cycle: c.next holds a, and a.next holds b, and b.next holds c`
+}
+-- cycle_in_method/main.gp --
+package main
+
+type T struct {
+	cb func()
+	n  int
+}
+
+func (t *T) install() {
+	t.cb = func() { t.n++ } // want `reference cycle: t.cb holds a closure that captures t`
+}
+
+func main() {
+	t := &T{}
+	t.install()
+}
+-- rev_p01_self_closure/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	var f func(int)
+	f = func(n int) { // want `reference cycle`
+		if n > 0 {
+			f(n - 1)
+		}
+	}
+	f(3)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p02_mutual_closures/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	var even, odd func(int) bool
+	even = func(n int) bool { return n == 0 || odd(n-1) }
+	odd = func(n int) bool { return n != 0 && even(n-1) } // want `reference cycle`
+	fmt.Println(even(4))
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p03_struct_field_closure_ptr/main.gp --
+package main
+
+import "fmt"
+
+type S struct {
+	n  int
+	cb func()
+}
+
+func build() {
+	s := &S{}
+	s.cb = func() { s.n++ } // want `reference cycle`
+	s.cb()
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p04_struct_field_closure_value/main.gp --
+package main
+
+import "fmt"
+
+type S struct {
+	n  int
+	cb func()
+}
+
+func build() {
+	var s S
+	s.cb = func() { s.n++ } // want `reference cycle`
+	s.cb()
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p05_slice_of_closures_self/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	var fs []func() int
+	fs = append(fs, func() int { return len(fs) }) // want `reference cycle`
+	fmt.Println(fs[0]())
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p06_map_of_closures_self/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	m := map[string]func() int{}
+	m["a"] = func() int { return len(m) } // want `reference cycle`
+	fmt.Println(m["a"]())
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p07_parent_child_literal/main.gp --
+package main
+
+import "fmt"
+
+type N struct {
+	parent *N
+	kids   []*N
+}
+
+func build() {
+	p := &N{}
+	c := &N{parent: p}
+	p.kids = append(p.kids, c) // want `reference cycle`
+	fmt.Println(len(p.kids))
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p08_doubly_linked/main.gp --
+package main
+
+import "fmt"
+
+type N struct {
+	v          int
+	prev, next *N
+}
+
+func build() {
+	a, b := &N{v: 1}, &N{v: 2}
+	a.next = b
+	b.prev = a // want `reference cycle`
+	fmt.Println(a.next.v)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p09_self_pointer/main.gp --
+package main
+
+import "fmt"
+
+type N struct{ next *N }
+
+func build() {
+	n := &N{}
+	n.next = n // want `reference cycle`
+	fmt.Println(n.next == n)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p10_tree_parent_assign/main.gp --
+package main
+
+import "fmt"
+
+type T struct {
+	parent      *T
+	left, right *T
+}
+
+func build() {
+	root, l := &T{}, &T{}
+	l.parent = root
+	root.left = l // want `reference cycle`
+	fmt.Println(root.left.parent == root)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p11_method_value_stored/main.gp --
+package main
+
+import "fmt"
+
+type S struct {
+	n  int
+	cb func()
+}
+
+func (s *S) Run() { s.n++ }
+
+func build() {
+	s := &S{}
+	s.cb = s.Run // want `reference cycle`
+	s.cb()
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p12_goroutine_closure/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	done := make(chan bool)
+	var f func(int)
+	f = func(n int) { // want `reference cycle`
+		if n == 0 {
+			done <- true
+			return
+		}
+		go f(n - 1)
+	}
+	go f(2)
+	<-done
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p13_chan_of_closures/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	ch := make(chan func(), 1)
+	ch <- func() { _ = len(ch) } // want `reference cycle`
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p14_interface_cycle/main.gp --
+package main
+
+import "fmt"
+
+type I interface{ Peer() I }
+
+type A struct{ peer I }
+type B struct{ peer I }
+
+func (a *A) Peer() I { return a.peer }
+func (b *B) Peer() I { return b.peer }
+
+func build() {
+	a, b := &A{}, &B{}
+	a.peer = b
+	b.peer = a // want `reference cycle`
+	fmt.Println(a.Peer() != nil)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p15_field_func_recursive/main.gp --
+package main
+
+import "fmt"
+
+type T struct{ f func(int) int }
+
+func build() {
+	t := &T{}
+	t.f = func(n int) int { // want `reference cycle`
+		if n == 0 {
+			return 0
+		}
+		return t.f(n - 1)
+	}
+	fmt.Println(t.f(3))
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p16_literal_closure_captures_var/main.gp --
+package main
+
+import "fmt"
+
+type S struct {
+	x  int
+	cb func()
+}
+
+func build() {
+	var s *S
+	s = &S{cb: func() { s.x++ }} // want `reference cycle`
+	s.cb()
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p17_ring_of_three/main.gp --
+package main
+
+import "fmt"
+
+type N struct{ next *N }
+
+func build() {
+	a, b, c := &N{}, &N{}, &N{}
+	a.next = b
+	b.next = c
+	c.next = a // want `reference cycle`
+	fmt.Println(a.next.next.next == a)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p18_map_back_to_owner/main.gp --
+package main
+
+import "fmt"
+
+type N struct{ m map[string]*N }
+
+func build() {
+	m := map[string]*N{}
+	n := &N{}
+	m["a"] = n
+	n.m = m // want `reference cycle`
+	fmt.Println(len(n.m))
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p19_slice_literal_self/main.gp --
+package main
+
+import "fmt"
+
+type O struct{ items []*O }
+
+func build() {
+	o := &O{}
+	o.items = []*O{o} // want `reference cycle`
+	fmt.Println(len(o.items))
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p20_append_self/main.gp --
+package main
+
+import "fmt"
+
+type O struct{ items []*O }
+
+func build() {
+	o := &O{}
+	o.items = append(o.items, o) // want `reference cycle`
+	fmt.Println(len(o.items))
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p21_param_capture/main.gp --
+package main
+
+import "fmt"
+
+type S struct {
+	n  int
+	cb func()
+}
+
+func attach(s *S) { s.cb = func() { s.n++ } } // want `reference cycle`
+
+func build() {
+	s := &S{}
+	attach(s)
+	s.cb()
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p22_observer/main.gp --
+package main
+
+import "fmt"
+
+type Subject struct {
+	x   int
+	obs []func()
+}
+
+func build() {
+	sub := &Subject{}
+	sub.obs = append(sub.obs, func() { sub.x++ }) // want `reference cycle`
+	sub.obs[0]()
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p23_constructor_returns/main.gp --
+package main
+
+import "fmt"
+
+type X struct {
+	n  int
+	cb func()
+}
+
+func New() *X {
+	x := &X{}
+	x.cb = func() { x.n++ } // want `reference cycle`
+	return x
+}
+
+func build() {
+	x := New()
+	x.cb()
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p25_slice_elem_closure/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	fs := make([]func() int, 1)
+	fs[0] = func() int { return len(fs) } // want `reference cycle`
+	fmt.Println(fs[0]())
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p26_array_closure/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	var arr [1]func() int
+	arr[0] = func() int { return len(arr) } // want `reference cycle`
+	fmt.Println(arr[0]())
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p27_func_var_stored/main.gp --
+package main
+
+import "fmt"
+
+type N struct{ cb func() }
+
+func build() {
+	n := &N{}
+	f := func() { _ = n }
+	n.cb = f // want `reference cycle`
+	n.cb()
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p28_children_map/main.gp --
+package main
+
+import "fmt"
+
+type N struct {
+	parent *N
+	kids   map[string]*N
+}
+
+func build() {
+	p := &N{kids: map[string]*N{}}
+	c := &N{}
+	p.kids["c"] = c
+	c.parent = p // want `reference cycle`
+	fmt.Println(len(p.kids))
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p29_loop_built_dll/main.gp --
+package main
+
+import "fmt"
+
+type N struct{ prev, next *N }
+
+func build() {
+	head := &N{}
+	tail := head
+	for i := 0; i < 3; i++ {
+		n := &N{}
+		n.prev = tail
+		tail.next = n // want `reference cycle`
+		tail = n
+	}
+	fmt.Println(head.next != nil)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p30_root_child_literal_append/main.gp --
+package main
+
+import "fmt"
+
+type N struct {
+	root *N
+	kids []*N
+}
+
+func build() {
+	root := &N{}
+	root.kids = append(root.kids, &N{root: root}) // want `reference cycle`
+	fmt.Println(len(root.kids))
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p31_loop_closure/main.gp --
+package main
+
+import "fmt"
+
+func build() {
+	for i := 0; i < 2; i++ {
+		var f func()
+		f = func() { // want `reference cycle`
+			if i > 5 {
+				f()
+			}
+		}
+		f()
+	}
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p32_method_value_two_objects/main.gp --
+package main
+
+import "fmt"
+
+type S struct{ cb func() }
+
+func (s *S) Run() {}
+
+func build() {
+	a, b := &S{}, &S{}
+	a.cb = b.Run
+	b.cb = a.Run // want `reference cycle`
+	a.cb()
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p33_closure_via_decorator_FN/main.gp --
+package main
+
+import "fmt"
+
+func twice(f func(int) int) func(int) int { return func(n int) int { return f(f(n)) } }
+
+func build() {
+	var g func(int) int
+	g = twice(func(n int) int { // want `reference cycle`
+		if n > 100 {
+			return g(n - 1)
+		}
+		return n + 1
+	})
+	fmt.Println(g(1))
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p34_struct_value_in_slice_capture/main.gp --
+package main
+
+import "fmt"
+
+type S struct{ cbs []func() int }
+
+func build() {
+	var s S
+	s.cbs = append(s.cbs, func() int { return len(s.cbs) }) // want `reference cycle`
+	fmt.Println(s.cbs[0]())
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p35_ptr_to_closure_var/main.gp --
+package main
+
+import "fmt"
+
+type H struct{ fp *func() }
+
+func build() {
+	h := &H{}
+	var f func()
+	f = func() { _ = h }
+	h.fp = &f // want `reference cycle`
+	(*h.fp)()
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p36_graph_nodes_edges/main.gp --
+package main
+
+import "fmt"
+
+type Node struct{ edges []*Node }
+
+func build() {
+	a, b := &Node{}, &Node{}
+	a.edges = append(a.edges, b)
+	b.edges = append(b.edges, a) // want `reference cycle`
+	fmt.Println(len(a.edges))
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p37_owner_child_back_ptr_iface/main.gp --
+package main
+
+import "fmt"
+
+type Owner struct{ child *Child }
+type Child struct{ owner *Owner }
+
+func build() {
+	o := &Owner{}
+	c := &Child{}
+	o.child = c
+	c.owner = o // want `reference cycle`
+	fmt.Println(o.child.owner == o)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p38_closure_in_composite_stored/main.gp --
+package main
+
+import "fmt"
+
+type R struct{ run func() }
+type S struct {
+	n  int
+	rs []R
+}
+
+func build() {
+	s := &S{}
+	s.rs = append(s.rs, R{run: func() { s.n++ }}) // want `reference cycle`
+	s.rs[0].run()
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p39_chan_struct_self/main.gp --
+package main
+
+import "fmt"
+
+type W struct{ out chan *W }
+
+func build() {
+	w := &W{out: make(chan *W, 1)}
+	w.out <- w // want `reference cycle`
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p40_ptr_ptr/main.gp --
+package main
+
+import "fmt"
+
+type N struct{ p **N }
+
+func build() {
+	n := &N{}
+	pn := &n
+	n.p = pn // want `reference cycle`
+	fmt.Println(*n.p == n)
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p41_nil_init_FN/main.gp --
+package main
+
+import "fmt"
+
+type S struct {
+	n  int
+	cb func()
+}
+
+func build() {
+	s := &S{}
+	s.cb = nil
+	s.cb = func() { s.n++ } // want `reference cycle`
+	s.cb()
+}
+
+func main() { build(); fmt.Println("ok") }
+-- rev_p42_nil_in_branch_FN/main.gp --
+package main
+
+import "fmt"
+
+type S struct {
+	n  int
+	cb func()
+}
+
+func build() {
+	s := &S{}
+	k := 1
+	s.cb = func() { s.n++ } // want `reference cycle`
+	s.cb()
+	if k > 100 {
+		s.cb = nil
+	}
+}
+
+func main() { build(); fmt.Println("ok") }

@@ -1,0 +1,34 @@
+Names that C++ reserves, and the placeholder analyzer.
+analyzers: reserved,panicbang
+-- reserved_names/main.gp --
+package main
+
+func _Hidden() {} // want `the name _Hidden is reserved in C\+\+ \(it starts with _ and a capital letter\)`
+
+func a__b() {} // want `the name a__b is reserved in C\+\+ \(it contains __\)`
+
+func _lower() {}
+
+func ok_name() {}
+
+func main() {
+	x__y := 1 // want `the name x__y is reserved in C\+\+`
+	_ = x__y
+	_Hidden()
+	a__b()
+	_lower()
+	ok_name()
+}
+-- reserved_fields/main.gp --
+package main
+
+type T struct {
+	_Field int // want `the name _Field is reserved in C\+\+`
+	good   int
+}
+
+func main() { _ = T{} }
+-- panicbang_placeholder/main.gp --
+package main
+
+func main() {}

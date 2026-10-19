@@ -1,0 +1,360 @@
+The checks of go vet that gocpp vet runs: each with a mistake and with
+code that is fine.
+-- copylock_mutex/main.gp --
+package main
+
+import "sync"
+
+type Counter struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (c Counter) Get() int { // want `Get passes lock by value: .*Counter contains sync.Mutex`
+	return c.n
+}
+
+func (c *Counter) Inc() {
+	c.mu.Lock()
+	c.n++
+	c.mu.Unlock()
+}
+
+func main() {
+	var c Counter
+	d := c // want `assignment copies lock value to d: .*Counter contains sync.Mutex`
+	c.Inc()
+	println(d.n)
+	p := &c
+	_ = p
+}
+-- copylock_waitgroup/main.gp --
+package main
+
+import "sync"
+
+func work(wg sync.WaitGroup) { // want `work passes lock by value: sync.WaitGroup contains sync.noCopy`
+	wg.Done()
+}
+
+func ok(wg *sync.WaitGroup) {
+	wg.Done()
+}
+
+func main() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	ok(&wg)
+	work(wg) // want `call of work copies lock value: sync.WaitGroup contains sync.noCopy`
+}
+-- copylock_literal/main.gp --
+package main
+
+import "sync"
+
+func main() {
+	var wg sync.WaitGroup
+	func(x sync.WaitGroup) {}(wg) // want `func passes lock by value: sync.WaitGroup contains sync.noCopy` `call of func\(x sync.WaitGroup\) {} copies lock value: sync.WaitGroup contains sync.noCopy`
+}
+-- copylock_testing_t/main.gp --
+package main
+
+import "testing"
+
+func helper(t testing.T) {} // want `helper passes lock by value: testing.T contains testing.common contains sync.RWMutex`
+
+func main() {}
+-- unusedresult/main.gp --
+package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+func main() {
+	fmt.Sprintf("%d", 1) // want `result of fmt.Sprintf call not used`
+	errors.New("lost")   // want `result of errors.New call not used`
+	_ = fmt.Sprint("fine")
+	fmt.Println("fine")
+}
+-- assign/main.gp --
+package main
+
+type T struct{ x int }
+
+func main() {
+	x := 1
+	x = x // want `self-assignment of x`
+	var t T
+	t.x = t.x // want `self-assignment of t.x`
+	y := 2
+	x = y
+	_, _ = x, t
+}
+-- bools/main.gp --
+package main
+
+func main() {
+	x, y := 1, 2
+	if x == 1 || x == 1 { // want `redundant or: x == 1 \|\| x == 1`
+		println("a")
+	}
+	if x != 1 || x != 2 { // want `suspect or: x != 1 \|\| x != 2`
+		println("b")
+	}
+	if x == 1 || y == 1 {
+		println("c")
+	}
+}
+-- composites/lib/lib.gp --
+package lib
+
+type Point struct {
+	X, Y int
+}
+-- composites/main.gp --
+package main
+
+import "example.com/m/composites/lib"
+
+type Local struct{ a, b int }
+
+func main() {
+	p := lib.Point{1, 2} // want `lib.Point struct literal uses unkeyed fields`
+	q := lib.Point{X: 1, Y: 2}
+	l := Local{1, 2}
+	_, _, _ = p, q, l
+}
+-- lostcancel/main.gp --
+package main
+
+import (
+	"context"
+	"fmt"
+)
+
+func bad() {
+	ctx, cancel := context.WithCancel(context.Background()) // want `the cancel function is not used on all paths`
+	fmt.Println(ctx)
+	if ctx == nil {
+		return // want `this return statement may be reached without using the cancel var defined on line 9`
+	}
+	cancel()
+}
+
+func good() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	fmt.Println(ctx)
+}
+
+func main() {
+	bad()
+	good()
+}
+-- shift/main.gp --
+package main
+
+import "fmt"
+
+func main() {
+	var a int32 = 1
+	fmt.Println(a << 40) // want `a \(32 bits\) too small for shift of 40`
+	var b int64 = 1
+	fmt.Println(b << 40)
+	var u uint8 = 1
+	fmt.Println(u >> 8) // want `u \(8 bits\) too small for shift of 8`
+}
+-- stdmethods/main.gp --
+package main
+
+type R struct{}
+
+func (R) ReadByte() int { return 0 } // want `method ReadByte\(\) int should have signature ReadByte\(\) \(byte, error\)`
+
+type W struct{}
+
+func (W) WriteByte(c byte) error { return nil }
+
+func main() {
+	_, _ = R{}, W{}
+}
+-- structtag/main.gp --
+package main
+
+type T struct {
+	A int `json:"b"`
+	B int `json:"b"` // want `struct field B repeats json tag "b" also at`
+	C int `json:"c,omitempty"`
+	D int `json: "d"` // want `struct field tag .* not compatible with reflect.StructTag.Get: bad syntax for struct tag value`
+}
+
+func main() {
+	_ = T{}
+}
+-- tests/x_test.gp --
+package main
+
+import "testing"
+
+func TestGood(t *testing.T) {}
+
+func Testbad(t *testing.T) {} // want `Testbad has malformed name: first letter after 'Test' must not be lowercase`
+
+func TestWrong(t *testing.B) {}
+
+func ExampleMissing() {} // want `ExampleMissing refers to unknown identifier: Missing`
+
+func main() {}
+-- unreachable/main.gp --
+package main
+
+import "fmt"
+
+func f() int {
+	return 1
+	fmt.Println("never") // want `unreachable code`
+	return 2
+}
+
+func g(n int) int {
+	for {
+		if n > 3 {
+			return n
+		}
+		n++
+	}
+}
+
+func main() {
+	fmt.Println(f(), g(0))
+}
+-- unsafeptr/main.gp --
+package main
+
+import "unsafe"
+
+func main() {
+	var u uintptr = 5
+	p := unsafe.Pointer(u) // want `possible misuse of unsafe.Pointer`
+	x := 1
+	q := unsafe.Pointer(&x)
+	r := uintptr(q)
+	_, _ = p, r
+}
+-- errorsas/main.gp --
+package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+type MyErr struct{}
+
+func (*MyErr) Error() string { return "my" }
+
+func main() {
+	err := fmt.Errorf("x: %w", &MyErr{})
+	var m MyErr
+	fmt.Println(errors.As(err, m)) // want `second argument to errors.As must be a non-nil pointer to either a type that implements error, or to any interface type`
+	var pm *MyErr
+	fmt.Println(errors.As(err, &pm))
+}
+-- nilfunc/main.gp --
+package main
+
+func helper() {}
+
+func main() {
+	if helper == nil { // want `comparison of function helper == nil is always false` `impossible condition: non-nil == nil`
+		return
+	}
+	f := helper
+	if f == nil { // want `impossible condition: non-nil == nil`
+		return
+	}
+}
+-- ifaceassert/main.gp --
+package main
+
+type A interface{ M() int }
+type B interface{ M() string }
+
+func main() {
+	var a A
+	_, ok := a.(B) // want `impossible type assertion: no type can implement both .*A and .*B \(conflicting types for M method\)`
+	_ = ok
+}
+-- stringintconv/main.gp --
+package main
+
+import "fmt"
+
+func main() {
+	n := 65
+	s := string(n) // want `conversion from int to string yields a string of one rune, not a string of digits`
+	r := string(rune(n))
+	fmt.Println(s, r)
+}
+-- timeformat/main.gp --
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	t := time.Unix(0, 0)
+	fmt.Println(t.Format("2006-02-01")) // want `2006-02-01 should be 2006-01-02`
+	fmt.Println(t.Format("2006-01-02"))
+}
+-- nilness/main.gp --
+package main
+
+type T struct{ x int }
+
+func f(p *T) int {
+	if p == nil {
+		return p.x // want `nil dereference in field selection`
+	}
+	return p.x
+}
+
+func g(p *T) int {
+	if p != nil {
+		return p.x
+	}
+	return 0
+}
+
+func main() {
+	_, _ = f(&T{}), g(nil)
+}
+-- appends_atomic_defers_waitgroup/main.gp --
+package main
+
+import (
+	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
+)
+
+func main() {
+	var s []int
+	s = append(s) // want `append with no values`
+	var n int64
+	n = atomic.AddInt64(&n, 1) // want `direct assignment to atomic value`
+	start := time.Now()
+	defer fmt.Println(time.Since(start)) // want `call to time.Since is not deferred`
+	var wg sync.WaitGroup
+	go func() {
+		wg.Add(1) // want `WaitGroup.Add called from inside new goroutine`
+		wg.Done()
+	}()
+	wg.Wait()
+	fmt.Println(s, n)
+}

@@ -145,6 +145,7 @@ func signalContext() (context.Context, func() os.Signal, func()) {
 type checkCommand struct {
 	all           bool   // -e
 	types         bool   // -types
+	tests         bool   // load the _test.gp files too (gocpp vet)
 	dir           string // the current folder
 	goos, goarch  string // the target of the build constraints
 	stdout        io.Writer
@@ -221,6 +222,7 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 			// Always all the syntax errors: firstSyntaxErrorPerLine keeps
 			// what the go compiler shows, and the Printer stops at 10.
 			AllErrors: true,
+			Tests:     c.tests,
 		}, m.patterns...)
 	}
 	c.fset = prog.Fset

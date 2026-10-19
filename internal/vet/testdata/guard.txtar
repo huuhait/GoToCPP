@@ -1,0 +1,124 @@
+Packages with C/C++ names: go/types gives their expressions no complete
+type, and analyzers that need one are guarded. The code that does not touch
+such names is still vetted.
+-- nilness_beside_opaque/main.gp --
+package main
+
+import (
+	"fmt"
+
+	"<vector>"
+)
+
+type T struct{ x int }
+
+func plain(p *T) int {
+	if p == nil {
+		return p.x // want `nil dereference in field selection`
+	}
+	return p.x
+}
+
+func opaque(p *T) int {
+	v := std.vector[int]{1}
+	if p == nil {
+		return p.x + int(v.size()) // skipped: touches a C++ value
+	}
+	return p.x
+}
+
+func main() {
+	fmt.Println(plain(&T{}), opaque(&T{}))
+}
+-- opaque_global/main.gp --
+package main
+
+import (
+	"fmt"
+
+	"<string>"
+)
+
+var name = std.string("gp")
+
+type T struct{ x int }
+
+func f(p *T) int {
+	if p == nil {
+		return p.x // want `nil dereference in field selection`
+	}
+	return 0
+}
+
+func main() {
+	fmt.Println(name.size(), f(nil))
+}
+-- opaque_struct_skipped/main.gp --
+package main
+
+import (
+	"fmt"
+
+	"<vector>"
+)
+
+type Holder struct {
+	items std.vector[int]
+	n     int
+}
+
+func (h *Holder) count() int {
+	if h == nil {
+		return h.n // not reported: h has a C++ part, and the guard skips what touches it
+	}
+	return h.n
+}
+
+func main() {
+	var h Holder
+	fmt.Println(h.count(), h.items.size())
+}
+-- cycle_beside_opaque/main.gp --
+package main
+
+import "<vector>"
+
+type S struct {
+	cb func()
+	v  std.vector[int]
+}
+
+func main() {
+	var f func()
+	f = func() { f() } // want `reference cycle`
+	f()
+	s := &S{}
+	s.cb = func() { _ = s.v.size() }
+	s.cb()
+}
+-- no_c_names/main.gp --
+package main
+
+type T struct{ x int }
+
+func f(p *T) int {
+	if p == nil {
+		return p.x // want `nil dereference in field selection`
+	}
+	return p.x
+}
+
+func main() { _ = f(nil) }
+-- c_function_call/main.gp --
+package main
+
+import (
+	"fmt"
+
+	"<cstdlib>"
+)
+
+func main() {
+	fmt.Println(int(std.abs(-3)))
+	fmt.Printf("%d\n", "no") // want `Printf format %d has arg "no" of wrong type string`
+}
