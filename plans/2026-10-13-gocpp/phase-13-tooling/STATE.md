@@ -1,8 +1,8 @@
 # Phase 13: Developer Tooling · STATE
 
-**Status:** `[ ]` not started
+**Status:** `[~]` in progress (13.3 merged 2026-10-19)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-13
+**Last updated:** 2026-10-19
 
 ## Steps
 
@@ -15,12 +15,12 @@
   - [ ] path remapping for `-trimpath` builds (`-ffile-prefix-map` + substitute-path/source-map)
   - [ ] `gocpp debug`
   - [ ] VS Code: `contributes.breakpoints` for gocpp + launch template
-- [ ] 13.3 `gocpp vet`
-  - [ ] hand-built `packages.Package` + `checker.Analyze` (facts across packages)
-  - [ ] `IllTyped` guard for packages with opaque expressions; `recover` per analyzer; `-v` lists skipped analyzers
-  - [ ] Go analyzers (printf, shadow, copylock, nilness, ...)
-  - [ ] gocpp analyzers (cycles, `&cppLocal`, `C.cstr` lifetime + "keeps the pointer" list + NUL bytes, narrowing, panicking `!` in libraries, ignored errors, `go` in `!` functions, unwaited `#body()`, unused lazy params)
-  - [ ] CI: every analyzer over the Phase 04 interop examples
+- [x] 13.3 `gocpp vet`
+  - [x] hand-built `packages.Package` + `checker.Analyze` (facts across packages)
+  - [x] `IllTyped` guard for packages with opaque expressions; `recover` per analyzer; `-v` lists skipped analyzers
+  - [x] Go analyzers (printf, shadow, copylock, nilness, ...)
+  - [x] gocpp analyzers (cycles, `&cppLocal`, `C.cstr` lifetime + "keeps the pointer" list + NUL bytes, narrowing, panicking `!` in libraries, ignored errors, `go` in `!` functions, unwaited `#body()`, unused lazy params)
+  - [x] CI: every analyzer over the Phase 04 interop examples
 - [ ] 13.4 `gocpp doc`
 - [ ] 13.5 `gocpp emit --annotate` + `gocpp explain`
 
