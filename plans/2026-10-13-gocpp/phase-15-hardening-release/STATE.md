@@ -1,8 +1,8 @@
 # Phase 15: Optimization, Hardening & Release · STATE
 
-**Status:** `[ ]` not started
+**Status:** `[~]` in progress (15.1, 15.5, 15.8, 15.9, 15.10, 15.13, 15.14 merged)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-13
+**Last updated:** 2026-10-19
 
 ## Steps
 

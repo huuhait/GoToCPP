@@ -18,10 +18,10 @@
 - [x] 3.5 Slices (make, append + growth formula, sub-slice, copy, nil, clear; `cap >= len` only) (slice→array conversions moved to 3.6b; printing slices with fmt is 3.15b)
 - [x] 3.6 Arrays (`gp::array`, checked index, `==`) + range rules (hidden counters, copy on `range arr`)
 - [x] 3.7 Maps
-  - [ ] get / set / ref / lookup / erase / len / clear
-  - [ ] nil-map panics
-  - [ ] snapshot range
-  - [ ] hashing (strings, arrays, structs, floats, pointers)
+  - [x] get / set / ref / lookup / erase / len / clear
+  - [x] nil-map panics
+  - [x] snapshot range
+  - [x] hashing (strings, arrays, structs, floats, pointers)
 - [x] 3.8 Structs
   - [x] layout, zero values, `==`, hash, `gp_fields`
   - [x] keyed literals in source order

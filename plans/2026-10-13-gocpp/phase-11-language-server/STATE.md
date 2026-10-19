@@ -1,8 +1,8 @@
 # Phase 11: Fast Language Server · STATE
 
-**Status:** `[~]` in progress (v0 track done 2026-10-14: 11.1–11.7, 11.10a/b; the optional tree-sitter grammar is left; 11.10a grammar done)
+**Status:** `[~]` in progress (v0 track done 2026-10-14: 11.1–11.7, 11.10a/b; the optional tree-sitter grammar is left; 11.10a grammar done; 11.8, 11.9, 11.11, 11.12 merged since; open: 11.13, the 1.5x-of-gopls criterion, the VS Code checklist)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-13
+**Last updated:** 2026-10-19
 
 ## Steps
 
@@ -32,9 +32,9 @@
 
 ## Exit criteria
 
-- [ ] All p95 budgets met on the 3 reference projects
+- [x] All p95 budgets met on the 3 reference projects (docs/benchmarks/lsp.md, table of 2026-10-18: every budget row "met"; re-run after the later perf rounds)
 - [ ] Within 1.5× of gopls on the shared project
-- [ ] Random-edit differential test passes (vs `gocpp check -interop=opaque`)
+- [x] Random-edit differential test passes (vs `gocpp check -interop=opaque`)
 - [ ] VS Code checklist passes (incl. `!` and macro features)
 
 ## Decisions / notes

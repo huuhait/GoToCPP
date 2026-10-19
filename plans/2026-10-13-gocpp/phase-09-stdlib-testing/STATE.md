@@ -1,22 +1,22 @@
 # Phase 09: Standard Library & `gocpp test` · STATE
 
-**Status:** `[~]` in progress (9.1 merged 2026-10-18)
+**Status:** `[~]` in progress (9.1-9.6, 9.8, 9.9 merged; open: 9.7 (decision: port Go's `fmt` or keep the native engine of 5.11), 9.10, 9.11, 9.12, 9.13; `stdlib/flag` is still a declaration stub, so `wc` and `grep-lite` stay pending)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-18
+**Last updated:** 2026-10-19
 
 ## Steps
 
 - [x] Check which Go stdlib packages can be ported and what blocks them (`go list`, 2026-10-13; table in README §1)
 - [x] 9.1 `tools/portstd` (pinned source tarball + SHA-256, `go/build` file selection per target OS with `purego`/no asm, rename, linkname → native, patch, `PORT.md`)
 - [x] 9.2 Internal shims
-  - [ ] `internal/bytealg` (native)
-  - [ ] `internal/stringslite`, `internal/byteorder`
-  - [ ] `internal/abi`, `internal/godebug`, `internal/cpu` stubs
-  - [ ] minimal `runtime` + `syscall` surfaces
+  - [x] `internal/bytealg` (native)
+  - [x] `internal/stringslite`, `internal/byteorder`
+  - [x] `internal/abi`, `internal/godebug`, `internal/cpu` stubs
+  - [x] minimal `runtime` + `syscall` surfaces
 - [x] 9.3 Reflect subset
-  - [ ] descriptor extensions (fields + tags, elem/key, len, accessors, zero value, element assign/swap)
-  - [ ] per-package API list (§2.2), incl. settable values and `Swapper`
-  - [ ] `internal/reflectlite` alias + `DeepEqual`
+  - [x] descriptor extensions (fields + tags, elem/key, len, accessors, zero value, element assign/swap)
+  - [x] per-package API list (§2.2), incl. settable values and `Swapper`
+  - [x] `internal/reflectlite` alias + `DeepEqual`
 - [x] 9.4 Port tier-1 pure packages (9.4a unicode, strconv, errors merged 2026-10-20; 9.4b io, io/fs, path, strings, bytes, bufio, context merged 2026-10-20; sort, regexp/syntax, regexp merged 2026-10-20 (9.4c)) (`unicode/utf8`, `unicode`, `strings`, `bytes`, `strconv`, `errors`, `sort`, `math/bits`, `io`, `bufio`, `context`, `regexp`)
 - [x] 9.5 `math` (native + bit-exact pure-Go where needed)
 - [x] 9.6 `os` (interop + native, Go error types)
@@ -33,7 +33,7 @@
 - [ ] Tier 1 complete; ≥ 90 % of test functions in the selected Go test files pass (counting rule, written reasons)
 - [ ] Deferred suites (from Phases 07 and 08) pass
 - [ ] `wc` + `grep-lite` match their Go versions
-- [ ] `gocpp test` output format matches `go test`
+- [x] `gocpp test` output format matches `go test`
 - [ ] `fmt` differential tests (≥ 100 cases) byte-identical to Go
 - [ ] `encoding/json` round-trips like Go
 

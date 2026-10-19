@@ -1,6 +1,6 @@
 # Phase 13: Developer Tooling · STATE
 
-**Status:** `[~]` in progress (13.1, 13.3, 13.4 merged 2026-10-19/20)
+**Status:** `[~]` in progress (13.1, 13.2, 13.4, 13.5 merged; 13.3 merged without most of its gocpp analyzers: 13.3b)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-19
 
@@ -9,27 +9,28 @@
 - [x] Test: x/tools on code that uses C/C++ names: go/types reports 0 errors, `refactor/satisfy` (printf) and `go/ssa` (nilness) panic → guard needed (`spikes/2026-10-13/audit-checks/xtools-opaque`, 2026-10-13)
 - [x] 13.1 Diagnostics polish (excerpts, color, C++ → gocpp names incl. `gpkg_…` namespaces, noise filter, "in expansion of" notes)
 - [x] 13.2 Debugging
-  - [ ] GDB pretty printers
-  - [ ] LLDB data formatters
-  - [ ] `.debug_gdb_scripts` + safe-path handling (`-iex add-auto-load-safe-path`), LLDB `command script import`
-  - [ ] path remapping for `-trimpath` builds (`-ffile-prefix-map` + substitute-path/source-map)
-  - [ ] `gocpp debug`
-  - [ ] VS Code: `contributes.breakpoints` for gocpp + launch template
-- [x] 13.3 `gocpp vet`
+  - [x] GDB pretty printers
+  - [x] LLDB data formatters
+  - [x] `.debug_gdb_scripts` + safe-path handling (`-iex add-auto-load-safe-path`), LLDB `command script import`
+  - [x] path remapping for `-trimpath` builds (`-ffile-prefix-map` + substitute-path/source-map)
+  - [x] `gocpp debug`
+  - [x] VS Code: `contributes.breakpoints` for gocpp + launch template
+- [~] 13.3 `gocpp vet` (only `cycle` and `reserved` exist of the gocpp analyzers, plus a `panicbang` placeholder that does nothing: the rest is 13.3b)
   - [x] hand-built `packages.Package` + `checker.Analyze` (facts across packages)
   - [x] `IllTyped` guard for packages with opaque expressions; `recover` per analyzer; `-v` lists skipped analyzers
   - [x] Go analyzers (printf, shadow, copylock, nilness, ...)
-  - [x] gocpp analyzers (cycles, `&cppLocal`, `C.cstr` lifetime + "keeps the pointer" list + NUL bytes, narrowing, panicking `!` in libraries, ignored errors, `go` in `!` functions, unwaited `#body()`, unused lazy params)
+  - [ ] gocpp analyzers (cycles, `&cppLocal`, `C.cstr` lifetime + "keeps the pointer" list + NUL bytes, narrowing, panicking `!` in libraries, ignored errors, `go` in `!` functions, unwaited `#body()`, unused lazy params)
   - [x] CI: every analyzer over the Phase 04 interop examples
+- [ ] 13.3b The missing gocpp vet analyzers (the un-ticked sub-box above): `panicbang` (panicking `!` in libraries, replaces the placeholder), `&cppLocal`, `C.cstr` lifetime + "keeps the pointer" list + NUL bytes, narrowing, ignored errors, `go` in `!` functions, unwaited `#body()`, unused lazy params (internal/vet, docs/guides/vet.md; job running)
 - [x] 13.4 `gocpp doc`
 - [x] 13.5 `gocpp emit --annotate` + `gocpp explain`
 
 ## Exit criteria
 
-- [ ] Scripted gdb/lldb sessions show gocpp values and stop on `.gp` breakpoints (also with `-trimpath`)
+- [x] Scripted gdb/lldb sessions show gocpp values and stop on `.gp` breakpoints (also with `-trimpath`)
 - [ ] vet finds a closure cycle, a printf mistake (also through a cross-package wrapper), and a panicking `!` in a library
-- [ ] vet runs over every interop example without crashing
-- [ ] ≥ 20 error tests show C++ errors with gocpp type names
+- [x] vet runs over every interop example without crashing
+- [x] ≥ 20 error tests show C++ errors with gocpp type names
 
 ## Decisions / notes
 

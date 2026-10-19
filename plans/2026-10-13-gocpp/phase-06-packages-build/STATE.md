@@ -1,8 +1,8 @@
 # Phase 06: Packages, Modules & Build System · STATE
 
-**Status:** `[ ]` not started
+**Status:** `[~]` in progress (6.1-6.3, 6.5-6.13 merged; 6.4 `gp::lazy<T>` and 6.14 (LLVM plugin test, `opt` check) open; clangd manual check open)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-13
+**Last updated:** 2026-10-19
 
 ## Steps
 
@@ -16,25 +16,25 @@
 - [x] 6.8 Runtime prebuild + precompiled header
 - [x] 6.9 Link step (ordering, dedup, system libs, LTO with matching archiver)
 - [x] 6.10 Build modes
-  - [ ] `c-archive` + `//export` (cgo's type rules, copies) + C header + lazy init
-  - [ ] `c-shared` (hidden visibility, lazy init, trampolines)
-  - [ ] `cpp-lib` (lib + headers + CMake INTERFACE flags)
+  - [x] `c-archive` + `//export` (cgo's type rules, copies) + C header + lazy init
+  - [x] `c-shared` (hidden visibility, lazy init, trampolines)
+  - [x] `cpp-lib` (lib + headers + CMake INTERFACE flags)
 - [x] 6.11 `compile_commands.json` + `gocpp export cmake`
 - [x] 6.12 CLI: `list`, `env`, `clean`, build flags, build tags
-  - [ ] trusted C++ flags from the user (not from packages): `gocpp build -cxxflags=… -ldflags=…` and `GOCPP_CXXFLAGS` / `GOCPP_LDFLAGS`, which may load LLVM plugins (`-fpass-plugin=x.so`, `-fplugin=x.so`); part of the cache key (the plugin file's hash too)
-  - [ ] `gocpp build -emit-llvm` (clang only): writes each translation unit's LLVM IR (`.ll`, or `.bc` with `-emit-llvm=bc`) next to the objects, for `opt -load-pass-plugin=…` and other tools; a clear error with g++
+  - [x] trusted C++ flags from the user (not from packages): `gocpp build -cxxflags=… -ldflags=…` and `GOCPP_CXXFLAGS` / `GOCPP_LDFLAGS`, which may load LLVM plugins (`-fpass-plugin=x.so`, `-fplugin=x.so`); part of the cache key (the plugin file's hash too)
+  - [x] `gocpp build -emit-llvm` (clang only): writes each translation unit's LLVM IR (`.ll`, or `.bc` with `-emit-llvm=bc`) next to the objects, for `opt -load-pass-plugin=…` and other tools; a clear error with g++
 - [x] 6.13 Cross-compilation: windows/amd64 via MinGW-w64 (`.exe` linked with `-static`) + Wine CI job; linux/arm64 best effort
-  - [ ] the Windows toolchain downloaded like Go's (§2.10): `GOCPP_TOOLCHAIN=auto|local|pinned`, pinned llvm-mingw (UCRT) with SHA-256 in the binary, `GOCPP_TOOLCHAIN_URL` mirror, cache + lock, `gocpp env`/`clean -toolchain`, never started by the LSP or `check`, NixOS handled, test server tests
+  - [x] the Windows toolchain downloaded like Go's (§2.10): `GOCPP_TOOLCHAIN=auto|local|pinned`, pinned llvm-mingw (UCRT) with SHA-256 in the binary, `GOCPP_TOOLCHAIN_URL` mirror, cache + lock, `gocpp env`/`clean -toolchain`, never started by the LSP or `check`, NixOS handled, test server tests
 - [ ] 6.14 Tests: multi-package fixtures, init order vs Go, incremental-build assertions (incl. constants), build-mode consumers (incl. two c-shared libs in one process), a tiny LLVM pass plugin loaded through `-cxxflags` (it counts functions) and `-emit-llvm` output that `opt` accepts
 
 ## Exit criteria
 
-- [ ] `multi-pkg` builds and runs on GCC and Clang
-- [ ] No-op rebuild < 200 ms; body-only change → 1 TU recompiled; changed exported constant → dependents rebuilt
-- [ ] Cross-package init order matches Go 1.25 (differential test)
-- [ ] c-archive used from C; cpp-lib used from CMake; two c-shared libs load and unload in one process
+- [x] `multi-pkg` builds and runs on GCC and Clang
+- [x] No-op rebuild < 200 ms; body-only change → 1 TU recompiled; changed exported constant → dependents rebuilt
+- [x] Cross-package init order matches Go 1.25 (differential test)
+- [x] c-archive used from C; cpp-lib used from CMake; two c-shared libs load and unload in one process
 - [ ] clangd opens generated code cleanly (manual)
-- [ ] `gocpp build -os windows` makes a working `hello.exe`; OS-independent run tests pass under Wine
+- [x] `gocpp build -os windows` makes a working `hello.exe`; OS-independent run tests pass under Wine (checked on the real Windows PC over ssh instead of Wine, by the user's order: `TestWindowsPrograms` and the 10-program sample, commit b2fbc3cd)
 
 ## Decisions / notes
 

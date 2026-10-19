@@ -1,8 +1,8 @@
 # Phase 12: Typed C++ Interop via Clang · STATE
 
-**Status:** `[ ]` not started (probe approach validated by spike; probe pitfalls from the audit planned)
+**Status:** `[~]` in progress (12.1-12.6 merged; open: 12.7 (probe cache), 12.8-12.13)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-13
+**Last updated:** 2026-10-19
 
 ## Steps
 
@@ -11,9 +11,9 @@
 - [x] Audit re-check (clang 21): integer values from `ConstantExpr`, exact floats via `bit_cast`, string macros from `StringLiteral`, `-ast-list` index 20,924 names in 0.13 s, `-dM` 1,639 macros in 0.02 s, `-Xclang -code-completion-at` works (`spikes/2026-10-13/audit-checks/clang-probes`)
 - [x] 12.1 Reference collector (expression shapes, operators, expressions touching opaque values)
 - [x] 12.2 Probe generator + runner + streaming JSON reader
-  - [ ] expression probes with lvalue/rvalue arguments mirroring the generated code
-  - [ ] constant probes: integers (`ConstantExpr` value), floats (`bit_cast` into an integer template argument), strings (`StringLiteral`)
-  - [ ] type probes
+  - [x] expression probes with lvalue/rvalue arguments mirroring the generated code
+  - [x] constant probes: integers (`ConstantExpr` value), floats (`bit_cast` into an integer template argument), strings (`StringLiteral`)
+  - [x] type probes
 - [x] 12.3 Record / enum / function extraction (filtered by used names)
 - [x] 12.4 C++ → foreign type mapper (`T&` results addressable, templates, overload sets)
 - [x] 12.5 Interop checker (exact-mirror errors only, operator typing with C++ conversions, g++ builds → warnings, compatibility rule)

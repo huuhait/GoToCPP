@@ -1,8 +1,8 @@
 # Phase 07: Generics · STATE
 
-**Status:** `[~]` in progress (7.1, 7.2 merged 2026-10-18; 7.3 next)
+**Status:** `[x]` done (7.1-7.12 merged; remaining items are lows in TODO.md)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-18
+**Last updated:** 2026-10-19
 
 ## Steps
 
@@ -11,17 +11,17 @@
 - [x] 7.2 Explicit type arguments: `Info.Instances` + `Info.Selections` (methods of generic types); syntax/`decltype` rule for C/C++ type arguments
 - [x] 7.3 Generic types + methods + instance descriptors (Go's exact qualified names: `main.Pair[string,[]int]`; one hidden descriptor argument per type parameter)
 - [x] 7.4 Type-parameter operations
-  - [ ] arithmetic cast back to `T`; checked `/ % << >>` (ints vs floats)
-  - [ ] `gp::convert`, `len`/index/range over type sets, zero values
-  - [ ] tests with `int8`, `uint8`, `float64`
+  - [x] arithmetic cast back to `T`; checked `/ % << >>` (ints vs floats)
+  - [x] `gp::convert`, `len`/index/range over type sets, zero values
+  - [x] tests with `int8`, `uint8`, `float64`
 - [x] 7.5 `gp_call_<Method>` helpers (pointer check first, forwarded args, promoted methods, plain names like `get`)
 - [x] 7.6 Interfaces × generics (constraint methods, `comparable`, interface type args)
 - [x] 7.7 Generic type aliases (Go 1.24)
 - [x] 7.8 Range-over-func
-  - [ ] Go's state machine (READY/PANIC/DONE/EXHAUSTED/MISSING_PANIC) + 4 exact messages
-  - [ ] body as a normal closure (boxed state), never `[&]`
-  - [ ] `break` / `continue` / `return` / labels / `goto`
-  - [ ] `defer` inside the body → outer frame
+  - [x] Go's state machine (READY/PANIC/DONE/EXHAUSTED/MISSING_PANIC) + 4 exact messages
+  - [x] body as a normal closure (boxed state), never `[&]`
+  - [x] `break` / `continue` / `return` / labels / `goto`
+  - [x] `defer` inside the body → outer frame
 - [x] 7.9 Optional `-gp:concepts` output
 - [x] 7.10 Port `cmp`, `slices`, `maps`, `iter` (`//go:linkname` → native functions; Go tests in Phase 09)
 - [x] 7.11 Lift the generics gate; update the feature matrix
@@ -29,11 +29,11 @@
 
 ## Exit criteria
 
-- [ ] `generics` example passes on GCC and Clang
-- [ ] ≥ 60 generic tests + differential green (incl. `int8`/`uint8` arithmetic, division by zero)
-- [ ] Range-over-func matches Go (jumps, `defer`, all four misuse panics); late `yield` ASan-clean
-- [ ] `%T` of generic instances matches Go
-- [ ] Compile-time overhead measured and noted below
+- [x] `generics` example passes on GCC and Clang
+- [x] ≥ 60 generic tests + differential green (incl. `int8`/`uint8` arithmetic, division by zero)
+- [x] Range-over-func matches Go (jumps, `defer`, all four misuse panics); late `yield` ASan-clean
+- [x] `%T` of generic instances matches Go
+- [x] Compile-time overhead measured and noted below
 
 ## Decisions / notes
 

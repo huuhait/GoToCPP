@@ -1,8 +1,8 @@
 # gocpp plan · STATE
 
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Current focus:** Phases 00-05 done; in flight 6.5-6.7 (build graph/cache), 7.1/7.2 (generic functions), 8.5/8.6 (select), 11.11/11.12 (LSP benchmarks, tracing); next 7.3, 8.7+, 9, LSP performance. See [HANDOFF.md](HANDOFF.md).
-**Last updated:** 2026-10-16
+**Current focus:** Phases 00-05 and 07 done. Nearly done: 06 (open: 6.4 `gp::lazy<T>`, 6.14 plugin test) and 08 (open: one TSan run of `tests/race`). Under way: 09 (open: `flag` port, 9.7 decision, 9.10-9.13), 10 (10.11-10.13), 11 (11.13, LSP performance vs gopls), 12 (12.7+), 13 (13.3b missing vet analyzers), 14 (14.2, 14.5-14.8), 15 (15.2-15.4, 15.6, 15.7, 15.11, 15.12, 15.15-15.17). See [HANDOFF.md](HANDOFF.md).
+**Last updated:** 2026-10-19
 **Migration:** done; the project runs on the larger server (128 cores, about 200 GB RAM). [HANDOFF.md](HANDOFF.md) says what is where.
 
 ---
@@ -36,25 +36,25 @@
 - [x] **Phase 03:** Core language → [STATE](phase-03-core-language/STATE.md) · ends with **M2**
 - [x] **Phase 04:** C/C++ interop (opaque) → [STATE](phase-04-cpp-interop/STATE.md) · ends with **M3**
 - [x] **Phase 05:** Interfaces, embedding, errors, panic/recover → [STATE](phase-05-interfaces-errors/STATE.md)
-- [ ] **Phase 06:** Packages, modules & build system → [STATE](phase-06-packages-build/STATE.md) · ends with **M4**
-- [ ] **Phase 07:** Generics → [STATE](phase-07-generics/STATE.md)
-- [ ] **Phase 08:** Concurrency → [STATE](phase-08-concurrency/STATE.md) · ends with **M5**
-- [ ] **Phase 09:** Stdlib & `gocpp test` → [STATE](phase-09-stdlib-testing/STATE.md) · ends with **M6 (v0.1)**
-- [ ] **Phase 10:** Beyond Go: `!` (must) & macros → [STATE](phase-10-must-and-macros/STATE.md)
+- [~] **Phase 06:** Packages, modules & build system → [STATE](phase-06-packages-build/STATE.md) · ends with **M4**
+- [x] **Phase 07:** Generics → [STATE](phase-07-generics/STATE.md)
+- [~] **Phase 08:** Concurrency → [STATE](phase-08-concurrency/STATE.md) · ends with **M5**
+- [~] **Phase 09:** Stdlib & `gocpp test` → [STATE](phase-09-stdlib-testing/STATE.md) · ends with **M6 (v0.1)**
+- [~] **Phase 10:** Beyond Go: `!` (must) & macros → [STATE](phase-10-must-and-macros/STATE.md)
 - [~] **Phase 11:** Fast language server (gopls speed) → [STATE](phase-11-language-server/STATE.md) · v0 starts after Phase 01 · ends with **M7**
-- [ ] **Phase 12:** Typed C++ interop via clang → [STATE](phase-12-typed-interop/STATE.md)
-- [ ] **Phase 13:** Developer tooling (diagnostics, debugging, vet, doc) → [STATE](phase-13-tooling/STATE.md)
-- [ ] **Phase 14:** Windows → [STATE](phase-14-windows/STATE.md) · ends with **M8**
-- [ ] **Phase 15:** Optimization, hardening & release → [STATE](phase-15-hardening-release/STATE.md) · ends with **M9 (v1.0)**
+- [~] **Phase 12:** Typed C++ interop via clang → [STATE](phase-12-typed-interop/STATE.md)
+- [~] **Phase 13:** Developer tooling (diagnostics, debugging, vet, doc) → [STATE](phase-13-tooling/STATE.md)
+- [~] **Phase 14:** Windows → [STATE](phase-14-windows/STATE.md) · ends with **M8**
+- [~] **Phase 15:** Optimization, hardening & release → [STATE](phase-15-hardening-release/STATE.md) · ends with **M9 (v1.0)**
 
 ## Milestones
 
 | | Milestone | Proof | Rough time from start* | Likely range |
 |---|---|---|---|---|
 | [x] | **M1** `hello.gp` runs | `gocpp run examples/hello` on GCC + Clang | ~6.5 weeks | 6–8 |
-| [ ] | **L0** editor v0 (early track) | diagnostics, hover, go-to-definition, completion, `gocpp fmt` in VS Code | ~8.5 weeks (2 weeks after M1) | 8–10 |
+| [x] | **L0** editor v0 (early track) | diagnostics, hover, go-to-definition, completion, `gocpp fmt` in VS Code | ~8.5 weeks (2 weeks after M1) | 8–10 |
 | [x] | **M2** real non-interop programs | `structs`, `wordfreq-core`, `closures` + 150 run tests | ~15 weeks | 14–18 |
-| [ ] | **M3** any C/C++ header usable | `sqlite`, `raylib`/`sdl`, `cpp-std`, `mixed-sources` | ~20 weeks | 19–24 |
+| [x] | **M3** any C/C++ header usable | `sqlite`, `raylib`/`sdl`, `cpp-std`, `mixed-sources` | ~20 weeks | 19–24 |
 | [ ] | **M4** real multi-package projects | `multi-pkg`, no-op rebuild < 200 ms; first `hello.exe` under Wine | ~29.5 weeks | 28–36 |
 | [ ] | **M5** Go-style concurrency | `workers`, TSan-clean suite | ~37.5 weeks | 35–46 |
 | [ ] | **M6** v0.1 usable (Linux) | tier-1 stdlib + `flag`/`regexp`, `gocpp test`, `wc`, `grep-lite` | ~45.5 weeks | 42–56 |

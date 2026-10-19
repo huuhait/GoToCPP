@@ -1,8 +1,8 @@
 # Phase 08: Concurrency · STATE
 
-**Status:** `[~]` in progress (8.1-8.6, 8.15 merged)
+**Status:** `[~]` all steps 8.1-8.15 merged; open only the exit criterion "concurrency suite green under TSan": `tests/race` (78 programs, 8.12) has not been run since it merged. Mark the phase done when it has.
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-18
+**Last updated:** 2026-10-19
 
 ## Steps
 
@@ -17,9 +17,9 @@
 - [x] 8.5 `select` (random poll order, lock order, default, nil cases, one entry per case + shared claim flag)
 - [x] 8.6 `for range ch`
 - [x] 8.7 `sync` + `sync/atomic`
-  - [ ] Mutex / RWMutex (atomic state word, waiters outside the object, copyable)
-  - [ ] WaitGroup (+ `Go`), Once, OnceFunc/OnceValue/OnceValues, Cond, Map, Pool
-  - [ ] atomic typed API + `gp::atomic_ptr<T>` + function-style API (`std::atomic_ref`)
+  - [x] Mutex / RWMutex (atomic state word, waiters outside the object, copyable)
+  - [x] WaitGroup (+ `Go`), Once, OnceFunc/OnceValue/OnceValues, Cond, Map, Pool
+  - [x] atomic typed API + `gp::atomic_ptr<T>` + function-style API (`std::atomic_ref`)
 - [x] 8.8 `time` (Go 1.23+ rules: unbuffered timer channels, no stale values, weak refs in the timer heap)
 - [x] 8.9 Exit semantics (flush + `_exit`, no static destructors, harness fails on TSan warnings)
 - [x] 8.10 `runtime` (Gosched, NumGoroutine, GOMAXPROCS remembers its value + cgroup-aware default, Goexit)
@@ -30,16 +30,16 @@
   - [x] self-contained Go `test/chan` programs (from the pinned upstream source) as differential tests
   - [x] stress: 10k goroutines, 1M channel ops; deep recursion
   - [x] timer `cap`/`len`/`Stop`/`Reset` differential tests
-- [ ] 8.14 (optional) `iter.Pull` on a helper thread
+- [x] 8.14 (optional) `iter.Pull` on a helper thread
 - [x] 8.15 Thread layer for portability (`gp::os` in `runtime/src/os/`: start with stack size, TLS, stack-overflow hook; Linux now, Windows in Phase 14)
 
 ## Exit criteria
 
-- [ ] `workers` example passes on GCC and Clang
+- [x] `workers` example passes on GCC and Clang
 - [ ] Concurrency suite green under TSan (harness fails on any TSan warning)
-- [ ] 10k simultaneous goroutines OK; deep recursion prints `fatal error: stack overflow`
-- [ ] Deadlock messages (incl. `Goexit`) + exit code match Go
-- [ ] Self-contained `test/chan` programs match Go output
+- [x] 10k simultaneous goroutines OK; deep recursion prints `fatal error: stack overflow`
+- [x] Deadlock messages (incl. `Goexit`) + exit code match Go
+- [x] Self-contained `test/chan` programs match Go output
 
 ## Decisions / notes
 
