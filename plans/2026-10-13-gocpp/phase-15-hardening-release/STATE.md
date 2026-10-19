@@ -22,7 +22,7 @@
 - [x] 15.8 Fuzzing (parse → check → lower → emit; sampled C++ compiles)
 - [x] 15.9 Random-program differential testing vs `go run` (batched programs, no implementation-defined cases)
 - [x] 15.10 Port Go `test/` run-tests as a conformance suite (downloads the pinned Go source)
-- [ ] 15.11 Nightly ASan/UBSan/TSan/LSan (fail on any report) + leak audit
+- [x] 15.11 Nightly ASan/UBSan/TSan/LSan (fail on any report) + leak audit
 
 ### Platforms & packaging
 - [ ] 15.12 Linux arm64 CI; Windows (Phase 14) in the release pipeline
