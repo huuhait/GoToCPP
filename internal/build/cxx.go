@@ -291,9 +291,13 @@ func lookPath(ctx context.Context, path string, args []string, c bool) (CXX, err
 	if ok && d.stamp == stamp {
 		return d.cxx, nil
 	}
-	cxx, err := detect(ctx, CXX{Path: path, Args: args, C: c, stamp: stamp})
-	if err != nil {
-		return CXX{}, err
+	cxx, found := loadDetected(key, stamp, CXX{Path: path, Args: args, C: c, stamp: stamp})
+	if !found {
+		cxx, err = detect(ctx, CXX{Path: path, Args: args, C: c, stamp: stamp})
+		if err != nil {
+			return CXX{}, err
+		}
+		saveDetected(key, stamp, cxx)
 	}
 	detected.Lock()
 	detected.m[key] = detection{stamp: stamp, cxx: cxx}

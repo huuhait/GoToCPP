@@ -50,6 +50,14 @@ func TestMain(m *testing.M) {
 			}
 			testHookCPP = replaceMain(string(src))
 		}
+		if marker := os.Getenv("GOCPP_TEST_HANG_AFTER_GEN"); marker != "" {
+			// A build that stops when the generated files are written (graph_unix_test.go kills it
+			// there): it makes the file marker and waits to be killed.
+			testHookGenWritten = func() {
+				os.WriteFile(marker, nil, 0o644)
+				time.Sleep(10 * time.Minute)
+			}
+		}
 		main()
 	}
 	if os.Getenv("GOCPP_CHECK_PROCESS") == "1" {
@@ -539,6 +547,7 @@ func TestTraceCacheHit(t *testing.T) {
 	// text of its own, so that the first build misses whatever the shared cache holds.
 	forEachCXX(t, func(t *testing.T, c testCXX) {
 		t.Setenv("GOCPP_NOOBJCACHE", "0") // TestMain turns the cache off for the tests
+		t.Setenv("GOCPP_NOUPTODATE", "1") // the second build is the object cache's answer, not the end of the build
 		src := strings.Replace(helloSrc, "hello, gocpp", fmt.Sprintf("hello from %s %d", c.name, time.Now().UnixNano()), 1)
 		inDir(t, map[string]string{"hello.gp": src})
 		compile := regexp.MustCompile(`(?m)^\S+ .* -c \S+/hello\.gp\.cpp -o \$WORK/00-hello\.gp\.o( |$)`)

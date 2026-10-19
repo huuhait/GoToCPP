@@ -5,20 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
 )
 
-// Building a program of several packages (Phase 06 step 6.2): Link compiles the translation
+// Building a program of several packages (Phase 06 steps 6.2, 6.5 to 6.7): Link compiles the translation
 // units of all the packages, the packages' own C and C++ files and the C and C++ libraries of the
-// modules, and links their objects with the runtime. The action graph with content hashing,
-// the -p flag and the other refinements are steps 6.5 to 6.9; this is the simple, correct
-// version of it: every unit goes through the object cache (objcache.go), which keys it by its text,
-// the flags, the compiler and every header the compile read, so a program in which nothing
-// changed compiles nothing, and a changed .gp file recompiles its own unit and the units of the
-// packages that include a header that changed.
+// modules, and links their objects with the runtime. Every compile is an action of the executor
+// (executor.go: at most Jobs at a time, all the errors in a fixed order) that goes through the object
+// cache (objcache.go), which keys it by its text, the flags, the compiler and every header the compile
+// read, so a program in which nothing changed compiles nothing, and a changed .gp file recompiles its
+// own unit and the units of the packages that include a header that changed. A Builder with a Rec
+// also records what the build did, for the up-to-date check (stamp.go).
 
 // A PackageBuild is one package of a program for Link.
 type PackageBuild struct {
@@ -52,13 +51,13 @@ type PackageBuild struct {
 	SourceWarnings func(out []byte)
 }
 
-// maxUnitJobs is how many translation units compile at the same time.
-var maxUnitJobs = max(1, min(runtime.NumCPU(), 16))
-
 // Link compiles the packages and links the program out. The objects of the packages come in the
 // order of pkgs; a compile or link that fails is a *CompileError (PkgPath says the package of a
-// unit or a source that failed). The generated units may include each other's headers through
-// GenRoot, the folder that holds them.
+// unit or a source that failed). When several compiles fail, the error is an *Errors that holds
+// them in a fixed order (the package's own C and C++ files, the libraries of the modules, then the
+// generated units, each in the order of pkgs), and nothing is linked. The generated units may
+// include each other's headers through GenRoot, the folder that holds them. At most Jobs compiles
+// run at the same time (executor.go).
 func (b *Builder) Link(ctx context.Context, pkgs []PackageBuild, out string) error {
 	// With flags of the environment, the runtime's compiles get gocpp's language flags after
 	// them too (as the generated C++ does), then -Wno-error (valid code must not fail for a
@@ -69,6 +68,7 @@ func (b *Builder) Link(ctx context.Context, pkgs []PackageBuild, out string) err
 	if env := b.Env.CXXCompile(); len(env) > 0 {
 		flags = slices.Concat(flags, env, LanguageFlags(), []string{"-Wno-error", "-x", "c++"})
 	}
+	b.sc = statMemo()
 	defer b.waitPCH() // a header that is still being built is finished, not left half done
 	defer b.stores.Wait()
 	rtDir, rtObjs, rtErr := b.runtime(ctx, flags)
@@ -86,78 +86,66 @@ func (b *Builder) Link(ctx context.Context, pkgs []PackageBuild, out string) err
 		}
 	}
 
-	// The package's own C and C++ files compile at the same time as the units. An error in
-	// them is reported first: it is the user's.
+	// The actions, in the order of the errors: the package's own C and C++ files (an error in
+	// them is the user's), the libraries, the generated units.
+	var acts []action
 	srcObjs := make([][]string, len(pkgs))
-	srcErrs := make([]error, len(pkgs))
-	var wg sync.WaitGroup
 	for i := range pkgs {
 		if len(pkgs[i].CFiles)+len(pkgs[i].CXXFiles) == 0 {
 			continue
 		}
-		wg.Go(func() { srcObjs[i], srcErrs[i] = b.compilePackageSources(ctx, rtDir, &pkgs[i], i, len(pkgs) > 1) })
+		objs, as, err := b.planPackageSources(ctx, rtDir, &pkgs[i], i, len(pkgs) > 1)
+		if err != nil {
+			return err
+		}
+		srcObjs[i] = objs
+		acts = append(acts, as...)
 	}
-	var libObjs []string
-	var libErr error
-	wg.Go(func() { libObjs, libErr = b.compileLibsOf(ctx, rtDir, libs) })
+	libObjs, libActs, libErr := b.planLibs(ctx, rtDir, libs)
+	acts = append(acts, libActs...)
 
-	// The generated units.
-	type unit struct {
-		pkg int
-		src string
-		obj string
-	}
-	var units []unit
+	var unitObjs []string
 	for i, pb := range pkgs {
 		for _, src := range pb.Units {
 			obj := filepath.Join(b.Work, strings.TrimSuffix(filepath.Base(src), ".cpp")+".o")
 			if len(pkgs) > 1 || len(pb.Units) > 1 {
 				obj = filepath.Join(b.Work, fmt.Sprintf("%02d-%s.o", i, strings.TrimSuffix(filepath.Base(src), ".cpp")))
 			}
-			units = append(units, unit{i, src, obj})
+			unitObjs = append(unitObjs, obj)
+			pb := &pkgs[i]
+			acts = append(acts, action{name: src, run: func() (func(), error) {
+				out, err := b.compileUnit(ctx, rtDir, pb, src, obj)
+				var ce *CompileError
+				if errors.As(err, &ce) {
+					ce.Include = filepath.Join(rtDir, "include")
+					ce.PkgPath = pb.Path
+					ce.Unit = src
+				}
+				return func() { b.warn(out) }, err
+			}})
 		}
 	}
-	unitErr := make([]error, len(units))
-	sem := make(chan struct{}, maxUnitJobs)
-	for k, u := range units {
-		pb := &pkgs[u.pkg]
-		wg.Go(func() {
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			_, unitErr[k] = b.compileUnit(ctx, rtDir, pb, u.src, u.obj)
-		})
+	errs, notStarted := b.runActions(ctx, acts)
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	wg.Wait()
-	for i, err := range srcErrs {
-		if err != nil {
-			var ce *CompileError
-			if errors.As(err, &ce) {
-				ce.PkgPath = pkgs[i].Path
-			}
-			return err
-		}
-	}
+	// A failure to list the sources of a library comes after the errors of the C and C++ files
+	// of the packages, which compiled.
 	if libErr != nil {
-		return libErr
-	}
-	for k, err := range unitErr {
-		if err != nil {
-			var ce *CompileError
-			if errors.As(err, &ce) {
-				ce.Include = filepath.Join(rtDir, "include")
-				ce.PkgPath = pkgs[units[k].pkg].Path
-				ce.Unit = units[k].src
-			}
-			return err
+		k := 0
+		for i := range pkgs {
+			k += len(srcObjs[i])
 		}
+		errs = slices.Insert(errs, k, libErr)
+	}
+	if err := joinErrors(notStarted, errs...); err != nil {
+		return err
 	}
 	// The libraries after the object files that use them, as a linker that reads its inputs once
 	// (GNU ld with static libraries) needs. The link flags of the packages go last, the packages
 	// that import the others first.
 	var objs, link []string
-	for _, u := range units {
-		objs = append(objs, u.obj)
-	}
+	objs = append(objs, unitObjs...)
 	for _, o := range srcObjs {
 		objs = append(objs, o...)
 	}
@@ -171,7 +159,28 @@ func (b *Builder) Link(ctx context.Context, pkgs []PackageBuild, out string) err
 		gc = []string{"-Wl,--gc-sections"}
 	}
 	args := slices.Concat(Flags(b.CXX, b.ASan), gc, objs, libObjs, rtObjs, link, b.Env.LDFlags, []string{"-o", out})
-	return b.run(ctx, b.CXX, "the generated C++", true, args)
+	b.recordLink(ctx, slices.Concat(link, b.Env.LDFlags))
+	b.Stats.linked()
+	if b.Rec == nil || b.Rec.Bad() != "" {
+		return b.run(ctx, b.CXX, "the generated C++", true, args)
+	}
+	// A build that is recorded asks the linker for the names of the files it reads (-Wl,-t).
+	traced := slices.Insert(slices.Clone(args), len(args)-2, "-Wl,-t")
+	printed, err := b.runCommand(ctx, b.CXX, "the generated C++", true, traced, args)
+	rest, files := linkTrace(printed, b.Work)
+	var ce *CompileError
+	if errors.As(err, &ce) {
+		ce.Output, _ = linkTrace(ce.Output, b.Work)
+	}
+	b.warn(rest)
+	if errors.Is(err, errOutputOpen) {
+		b.Rec.Fail("the linker's output may be incomplete")
+		return nil
+	}
+	if err == nil {
+		b.setLinkFiles(files)
+	}
+	return err
 }
 
 // compileUnit compiles the generated translation unit src of the package pb into obj, through the
@@ -220,9 +229,7 @@ func (b *Builder) compileUnit(ctx context.Context, rtDir string, pb *PackageBuil
 		}
 		return ""
 	}
-	out, err := b.compileCached(ctx, b.CXX, src, obj, compile, runGen, pchDeps)
-	b.warn(out)
-	return out, err
+	return b.compileCached(ctx, b.CXX, src, obj, compile, runGen, pchDeps)
 }
 
 // sameLib reports whether a and b are the library of one module, as two packages that import its

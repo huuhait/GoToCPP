@@ -47,7 +47,7 @@ var commands = []command{
 	{name: "explain", phase: 13, summary: "show the C++ generated for one .gp line"},
 	{name: "env", phase: 6, summary: "print the C++ compiler, cache dir and flags"},
 	{name: "list", phase: 6, summary: "list packages, like go list"},
-	{name: "clean", phase: 6, summary: "remove object files and cached files"},
+	{name: "clean", phase: 6, summary: "remove object files and cached files", run: runClean},
 	{name: "get", phase: 6, summary: "add dependencies to gocpp.mod and download them", run: runGet},
 	{name: "bindgen", phase: 12, summary: "write a readable gocpp view of a C/C++ header"},
 	{name: "export", phase: 6, summary: "write build files for other tools (cmake)"},
@@ -57,7 +57,10 @@ var commands = []command{
 }
 
 func main() {
-	exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+	stop := startProfile()
+	code := run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
+	stop()
+	exit(code)
 }
 
 // exit ends gocpp with the exit status code, or by dying of the signal

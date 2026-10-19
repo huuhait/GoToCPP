@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -80,6 +81,14 @@ package with a very large number of headers in many folders; -x prints
 turns it off, and GOCPP_OBJCACHE_SIZE (bytes, or with a K, M or G suffix;
 2G by default) limits its size: the oldest files go first.
 
+gocpp build also remembers each program it built (in the cache folder): the files that the
+loader read, the headers the C++ compiler read, the files the linker opened, pkg-config's answers,
+the compilers and the environment, and the program itself. The next gocpp build with the same
+arguments checks that record first, and when none of it changed it prints nothing and exits with
+status 0, without loading the packages (a few milliseconds). -x says why a build is not up to date
+or not recorded. A build that printed a warning is never recorded, so the warning comes every time.
+GOCPP_NOUPTODATE=1 turns the check off. gocpp clean -cache removes the cache. See docs/spec/build.md.
+
 The C and C++ flags of a package come from its //gocpp:cflags, ldflags,
 link and pkg-config lines, which an allow-list like go build's checks
 (GOCPP_CFLAGS_ALLOW and GOCPP_LDFLAGS_ALLOW allow more flags), and from
@@ -136,11 +145,21 @@ The build flags (of build and run) are:
 		undefined behavior, as in C++, instead of a panic. Division by
 		zero and a negative shift count still panic, and the results
 		that Go defines stay (MIN / -1, shifts by the width or more)
+	-p n
+		run at most n compiles at the same time (GOMAXPROCS by default,
+		like go build). The compiles start in the order of the packages;
+		a compile that fails does not stop the others, so one build
+		shows all the errors it can (after 20 failures no new compile
+		starts), and nothing is linked. With -p 1 the compiles run one
+		after the other. The messages of the compiles that worked
+		(warnings) come in the same order whatever the speed.
 	-work
 		print the name of the work folder and keep it (the object cache
 		is not used, so that its files have real paths in them)
 	-x
-		print the commands
+		print the commands, a line for each compile that the object cache
+		answered, why a build was not up to date, and at the end the
+		counts of what the build did ("# actions: ...")
 
 The flags are:
 `
@@ -202,6 +221,7 @@ type buildFlags struct {
 	work     bool   // -work
 	asan     bool   // -asan
 	nochecks bool   // -nochecks
+	jobs     int    // -p, 0 for the default (GOMAXPROCS)
 
 	cppErrors cppErrorsMode // -cpperrors: "short" or "full"
 }
@@ -214,6 +234,14 @@ func (f *buildFlags) register(flags *flag.FlagSet, withOutput bool) {
 	flags.Var(&f.cppErrors, "cpperrors", "how much of the C++ compiler's errors to show: short or full")
 	flags.BoolVar(&f.asan, "asan", false, "build with AddressSanitizer and UndefinedBehaviorSanitizer")
 	flags.BoolVar(&f.nochecks, "nochecks", false, "build without the bounds and nil checks (division and shift checks stay)")
+	flags.Func("p", "the number of compiles that run at the same time (default GOMAXPROCS)", func(v string) error {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return errors.New("must be a positive number")
+		}
+		f.jobs = n
+		return nil
+	})
 	flags.BoolVar(&f.work, "work", false, "print the name of the work folder and keep it (without the object cache)")
 	flags.BoolVar(&f.x, "x", false, "print the commands")
 }
@@ -340,7 +368,29 @@ type driver struct {
 	work    string    // the work folder, while there is one
 	gen     string    // the folder of the generated C++ of the program that is built
 	removed bool      // the work folder was removed early (SIGTERM)
-	done    chan struct{}
+
+	stamp         *stampState // the up-to-date check of this build, or nil (uptodate.go)
+	upToDateBuild bool        // the build found its program current
+	noStamp       string      // why there is none
+
+	stats  build.Stats // what the compiles and the link did (printed by -x)
+	counts struct {    // what the front end did (printed by -x)
+		load  int // loads of the program (a build that is up to date has none)
+		check int // packages type-checked
+		emit  int // packages emitted
+		write int // generated files written (their bytes changed)
+	}
+
+	// moreFailures says that failures of the same build are printed after this one, so that the
+	// message about the work folder comes once, after the last (buildFailed, compileFailed).
+	moreFailures bool
+
+	// lastShown and lastShownPkg are the errors that compileFailed printed last, and their package.
+	lastShown    []string
+	lastShownPkg string
+
+	logCount int // the logs of failed compiles written so far (compileFailed)
+	done     chan struct{}
 }
 
 // notify is signal.Notify for the signals sigs that gocpp doesn't ignore
@@ -374,6 +424,7 @@ func newDriver(name string, f *buildFlags, stdout, stderr io.Writer) (*driver, i
 		return nil, exitErrors
 	}
 	d := &driver{name: name, flags: f, check: c, stdout: stdout, stderr: stderr, done: make(chan struct{})}
+	build.SetDetectCache(cacheDir()) // the compilers are detected once, not in every run
 	if f.x {
 		// -x shows the runs of pkg-config too, as go build -x does.
 		c.pkgConfig = build.TracePkgConfig(func(line string) { fmt.Fprintln(stderr, line) })
@@ -574,6 +625,8 @@ func (d *driver) load(patterns []string) (*buildSet, int) {
 		}
 	}
 	visit(mains[0])
+	d.counts.load++
+	d.counts.check += len(prog.Packages)
 	set := &buildSet{main: mainPkg}
 	for _, lp := range prog.Packages {
 		if !reach[lp] || notLowered(lp) {
@@ -607,6 +660,7 @@ func (d *driver) emit(set *buildSet, root string, cxx *build.CXX) (*cppgen.Progr
 	}
 	files, err := cppgen.EmitProgram(d.check.fset, in, root, cppgen.Config{})
 	if err == nil {
+		d.counts.emit += len(set.pkgs)
 		return files, 0
 	}
 	return nil, d.emitFailed(set, err)
@@ -767,6 +821,9 @@ func (d *driver) compile(patterns []string) (*program, int) {
 	if set == nil {
 		return nil, code
 	}
+	if d.stamp != nil {
+		d.watchHeaders(set)
+	}
 	pkg := set.main
 	env, err := build.ReadEnvFlags()
 	if err != nil {
@@ -815,10 +872,7 @@ func (d *driver) compile(patterns []string) (*program, int) {
 		}
 	}()
 
-	cache := ""
-	if dir, err := os.UserCacheDir(); err == nil {
-		cache = filepath.Join(dir, "gocpp")
-	}
+	cache := cacheDir()
 	name := d.programName(pkg)
 	genRoot, releaseGen := d.lockGen(d.genRoot(set, work, cache), work)
 	built := false
@@ -830,6 +884,10 @@ func (d *driver) compile(patterns []string) (*program, int) {
 	}
 	if d.flags.x {
 		fmt.Fprintf(d.stderr, "# gocpp emit > %s\n", build.ShellQuoteWork(genRoot, work))
+	}
+	if d.stamp != nil {
+		d.stamp.pkgs = d.stampSummaries(set, files)
+		d.traceSummaries(d.stamp.pkgs)
 	}
 	units := make(map[string][]string) // the translation units by import path (absolute names)
 	for i, pf := range files.Packages {
@@ -845,16 +903,23 @@ func (d *driver) compile(patterns []string) (*program, int) {
 		if testHookCPP != nil {
 			data = testHookCPP(f.Path, data)
 		}
-		if err := writeIfChanged(filepath.Join(genRoot, filepath.FromSlash(f.Path)), data); err != nil {
+		changed, err := writeIfChanged(filepath.Join(genRoot, filepath.FromSlash(f.Path)), data)
+		if err != nil {
 			fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
 			return nil, exitErrors
+		}
+		if changed {
+			d.counts.write++
 		}
 	}
 
 	b := &build.Builder{CXX: cxx, ASan: d.flags.asan, NoChecks: d.flags.nochecks, GOOS: d.check.goos, Work: work, Stderr: d.stderr, KeepWork: d.flags.work,
-		Env: env, CC: cc, GenRoot: genRoot, Cache: cache}
+		Env: env, CC: cc, GenRoot: genRoot, Cache: cache, Jobs: d.flags.jobs, Stats: &d.stats}
 	if d.flags.x {
 		b.Trace = d.stderr
+	}
+	if d.stamp != nil {
+		b.Rec = d.stamp.rec
 	}
 	if testHookGenWritten != nil {
 		testHookGenWritten()
@@ -865,69 +930,115 @@ func (d *driver) compile(patterns []string) (*program, int) {
 		if sig := d.interrupted(); sig != nil {
 			return nil, stopStatus(sig)
 		}
-		// The package of the unit or the source that failed (the link: the first package that
-		// has C/C++ files, link flags or C/C++ imports).
-		var ce *build.CompileError
-		src := ""
-		if errors.As(err, &ce) {
-			src = ce.Unit
-			switch {
-			case ce.PkgPath != "":
-				pkg = set.byPath(ce.PkgPath)
-			case ce.Link:
-				pkg = set.linkPackage()
-			}
-		}
-		if errors.As(err, &ce) && ce.Lib != nil {
-			d.libFailed(pkg, ce)
-			return nil, exitErrors
-		}
-		if errors.As(err, &ce) && ce.Source != "" {
-			d.sourceFailed(pkg, ce)
-			return nil, exitErrors
-		}
-		if errors.As(err, &ce) && ce.Link && d.cppLinkFailed(pkg, ce, env) {
-			return nil, exitErrors
-		}
-		if errors.As(err, &ce) && !ce.Link && ce.What == "the generated C++" && d.cppCompileFailed(pkg, ce, src) {
-			return nil, exitErrors
-		}
-		if errors.As(err, &ce) && ce.Link && (len(pkg.Flags.Link) > 0 || len(env.LDFlags) > 0 || hasSources(pkg.Load)) {
-			d.linkFailed(pkg, ce, env)
-			return nil, exitErrors
-		}
-		if errors.As(err, &ce) {
-			keep = true
-			// With flags of the package or of the environment, the flags
-			// may be the cause: not reported as a bug in gocpp.
-			var flags []string
-			if directive := directiveCompileFlags(pkg); ce.What != "the runtime" && len(directive) > 0 {
-				flags = append(flags, "the compile flags of the package's //gocpp: directives: "+strings.Join(directive, " "))
-			}
-			if recipe := recipeCompileFlags(pkg); ce.What != "the runtime" && len(recipe) > 0 {
-				flags = append(flags, "the compile flags of the cxx recipes of the package's modules: "+strings.Join(recipe, " "))
-				flags = append(flags, shadowHints(recipe)...)
-			}
-			for _, v := range []struct {
-				name  string
-				flags []string
-			}{{"GOCPP_CFLAGS", env.CFlags}, {"GOCPP_CXXFLAGS", env.CXXFlags}} {
-				if len(v.flags) > 0 {
-					flags = append(flags, v.name+": "+strings.Join(v.flags, " "))
-				}
-			}
-			d.compileFailed(pkg, ce, work, flags)
-			if len(flags) > 0 {
-				return nil, exitErrors
-			}
-			return nil, exitInternal
-		}
-		fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
-		return nil, exitErrors
+		code, kept := d.buildFailed(set, err, env, work)
+		keep = keep || kept
+		return nil, code
 	}
 	built = true
 	keep = true // the caller removes it
+	if st := d.stamp; st != nil {
+		st.built = true
+		st.compilers = []string{build.CompilerID(cxx)}
+		if hasCFiles || needC {
+			st.compilers = append(st.compilers, build.CompilerID(cc))
+		}
+	}
 	return &program{work: work, exe: exe}, 0
+}
+
+// buildFailed prints the error err of Build.Link and returns the exit status and whether the
+// work folder must be kept. err holds one failure, or all of those of a build in which more than
+// one compile failed (build.Errors), in a fixed order; each is printed like a single one, and the
+// status is the highest of them (an internal error, a bug in gocpp, over an error of the user).
+func (d *driver) buildFailed(set *buildSet, err error, env build.EnvFlags, work string) (code int, keep bool) {
+	errs := build.Flatten(err)
+	for i, e := range errs {
+		d.moreFailures = i < len(errs)-1
+		c, k := d.reportFailure(set, e, env, work)
+		code = max(code, c)
+		keep = keep || k
+	}
+	var multi *build.Errors
+	if errors.As(err, &multi) && multi.NotStarted > 0 {
+		fmt.Fprintf(d.stderr, "gocpp %s: stopped after %d failed compiles: %d more were not started\n", d.name, len(errs), multi.NotStarted)
+	}
+	return code, keep
+}
+
+// reportFailure prints one failure of the build (buildFailed) and returns its exit status and
+// whether the work folder is kept for it.
+func (d *driver) reportFailure(set *buildSet, err error, env build.EnvFlags, work string) (code int, kept bool) {
+	pkg := set.main
+	// The package of the unit or the source that failed (the link: the first package that
+	// has C/C++ files, link flags or C/C++ imports).
+	var ce *build.CompileError
+	src := ""
+	if errors.As(err, &ce) {
+		src = ce.Unit
+		switch {
+		case ce.PkgPath != "":
+			pkg = set.byPath(ce.PkgPath)
+		case ce.Link:
+			pkg = set.linkPackage()
+		}
+	}
+	if errors.As(err, &ce) && ce.Lib != nil {
+		d.libFailed(pkg, ce)
+		return exitErrors, kept
+	}
+	if errors.As(err, &ce) && ce.Source != "" {
+		d.sourceFailed(pkg, ce)
+		return exitErrors, kept
+	}
+	if errors.As(err, &ce) && ce.Link && d.cppLinkFailed(pkg, ce, env) {
+		return exitErrors, kept
+	}
+	if errors.As(err, &ce) && !ce.Link && ce.What == "the generated C++" && d.cppCompileFailed(pkg, ce, src) {
+		return exitErrors, kept
+	}
+	if errors.As(err, &ce) && ce.Link && (len(pkg.Flags.Link) > 0 || len(env.LDFlags) > 0 || hasSources(pkg.Load)) {
+		d.linkFailed(pkg, ce, env)
+		return exitErrors, kept
+	}
+	if errors.As(err, &ce) {
+		kept = true
+		// With flags of the package or of the environment, the flags
+		// may be the cause: not reported as a bug in gocpp.
+		var flags []string
+		if directive := directiveCompileFlags(pkg); ce.What != "the runtime" && len(directive) > 0 {
+			flags = append(flags, "the compile flags of the package's //gocpp: directives: "+strings.Join(directive, " "))
+		}
+		if recipe := recipeCompileFlags(pkg); ce.What != "the runtime" && len(recipe) > 0 {
+			flags = append(flags, "the compile flags of the cxx recipes of the package's modules: "+strings.Join(recipe, " "))
+			flags = append(flags, shadowHints(recipe)...)
+		}
+		for _, v := range []struct {
+			name  string
+			flags []string
+		}{{"GOCPP_CFLAGS", env.CFlags}, {"GOCPP_CXXFLAGS", env.CXXFlags}} {
+			if len(v.flags) > 0 {
+				flags = append(flags, v.name+": "+strings.Join(v.flags, " "))
+			}
+		}
+		d.compileFailed(pkg, ce, work, flags)
+		if len(flags) > 0 {
+			return exitErrors, kept
+		}
+		return exitInternal, true
+	}
+	fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
+	return exitErrors, kept
+}
+
+// traceActions prints what the build did, as the line "# actions: ..." of -x. The counts are of
+// operations, not of time (the tests of the incremental builds read them): load, check and emit
+// are what the front end did (load=0 for a build that was up to date), write the generated files
+// whose bytes changed, and the rest is build.Stats.
+func (d *driver) traceActions() {
+	if !d.flags.x || d.counts.load == 0 && !d.upToDateBuild {
+		return // (the build stopped before it loaded the packages: a usage error, the errors of check)
+	}
+	fmt.Fprintf(d.stderr, "# actions: load=%d check=%d emit=%d write=%d %s\n", d.counts.load, d.counts.check, d.counts.emit, d.counts.write, d.stats.String())
 }
 
 // removeWork removes the work folder, if it is there and -work doesn't
@@ -963,17 +1074,18 @@ func (d *driver) compileFailed(pkg *check.Package, e *build.CompileError, work s
 	if e.Link {
 		log, verb = "link.log", "did not link"
 	}
+	// Several units can fail in one build (buildFailed): the first failure has compile.log,
+	// the next ones compile-2.log, compile-3.log, ...
+	d.logCount++
+	if d.logCount > 1 {
+		log = fmt.Sprintf("%s-%d.log", strings.TrimSuffix(log, ".log"), d.logCount)
+	}
 	logPath := filepath.Join(work, log)
 	os.WriteFile(logPath, append([]byte(e.Command+"\n"), e.Output...), 0o644)
 
 	what := "generated C++"
 	if e.What == "the runtime" {
 		what = "gocpp's runtime"
-	}
-	if len(flags) > 0 {
-		fmt.Fprintf(d.stderr, "# %s\n%s %s with the flags below\n", pkg.Load.ImportPath, what, verb)
-	} else {
-		fmt.Fprintf(d.stderr, "# %s\ninternal error: %s %s\n", pkg.Load.ImportPath, what, verb)
 	}
 	var shown []string
 	if d.flags.cppErrors.full() {
@@ -1005,8 +1117,30 @@ func (d *driver) compileFailed(pkg *check.Package, e *build.CompileError, work s
 	if len(shown) == 0 {
 		shown = append(shown, fmt.Sprintf("%s: %v (it printed nothing)", e.Command, e.Err))
 	}
-	for _, line := range shown {
-		fmt.Fprintln(d.stderr, line)
+	// Units of one package that fail for one reason (a header that does not compile) show the same
+	// errors: the second one says so.
+	same := d.lastShown != nil && d.lastShownPkg == pkg.Load.ImportPath && slices.Equal(d.lastShown, shown)
+	d.lastShown, d.lastShownPkg = shown, pkg.Load.ImportPath
+	switch {
+	case same:
+		unit := "the link"
+		if e.Unit != "" {
+			unit = filepath.Base(e.Unit)
+		}
+		fmt.Fprintf(d.stderr, "# %s\n(the same errors in %s)\n", pkg.Load.ImportPath, unit)
+	case len(flags) > 0:
+		fmt.Fprintf(d.stderr, "# %s\n%s %s with the flags below\n", pkg.Load.ImportPath, what, verb)
+	default:
+		fmt.Fprintf(d.stderr, "# %s\ninternal error: %s %s\n", pkg.Load.ImportPath, what, verb)
+	}
+	if !same {
+		for _, line := range shown {
+			fmt.Fprintln(d.stderr, line)
+		}
+	}
+	if d.moreFailures {
+		fmt.Fprintf(d.stderr, "(the compiler's whole output is in %s)\n", log)
+		return
 	}
 	if len(flags) > 0 {
 		for _, f := range flags {
@@ -1051,6 +1185,10 @@ func (d *driver) linkFailed(pkg *check.Package, e *build.CompileError, env build
 
 // build is gocpp build: it builds the program and moves it to its place.
 func (d *driver) build(patterns []string) int {
+	defer d.traceActions()
+	if d.stamp = d.beginStamp(patterns); d.stamp != nil && d.upToDate() {
+		return 0
+	}
 	p, code := d.compile(patterns)
 	if p == nil {
 		return code
@@ -1074,6 +1212,7 @@ func (d *driver) build(patterns []string) int {
 		fmt.Fprintf(d.stderr, "gocpp build: %v\n", err)
 		return exitErrors
 	}
+	d.saveStamp(out)
 	return 0
 }
 
@@ -1247,35 +1386,35 @@ func trimGen(dir, keep string, now time.Time) {
 // writeIfChanged writes data to the file name, unless it has these bytes already: editors and
 // the object cache see no change then. The file is replaced by a rename, so that a gocpp that
 // builds the same program at the same time never reads half a file.
-func writeIfChanged(name string, data []byte) error {
+func writeIfChanged(name string, data []byte) (written bool, err error) {
 	if old, err := os.ReadFile(name); err == nil && bytes.Equal(old, data) {
-		return nil
+		return false, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
-		return err
+		return false, err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(name), ".tmp-"+filepath.Base(name)+"-")
 	if err != nil {
-		return err
+		return false, err
 	}
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
 		os.Remove(tmp.Name())
-		return err
+		return false, err
 	}
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmp.Name())
-		return err
+		return false, err
 	}
 	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
 		os.Remove(tmp.Name())
-		return err
+		return false, err
 	}
 	if err := os.Rename(tmp.Name(), name); err != nil {
 		os.Remove(tmp.Name())
-		return err
+		return false, err
 	}
-	return nil
+	return true, nil
 }
 
 // packageBuilds returns the packages of the program for build.Builder.Link, in the order of

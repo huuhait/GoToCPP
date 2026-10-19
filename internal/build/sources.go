@@ -8,10 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
-	"sync"
 )
 
 // The C and C++ sources of a package (Phase 04 README §2.9, step 4.13).
@@ -121,18 +119,13 @@ func FindCC(ctx context.Context, cxx CXX) (CXX, error) {
 	return CXX{}, fmt.Errorf("no C compiler for the package's .c files: gocpp can't tell which C compiler goes with the C++ compiler %s (GOCPP_CC can name it)", cxx.Name())
 }
 
-// maxSourceJobs is how many of a package's C and C++ files compile at the
-// same time, next to the compile of the generated C++. Phase 06 brings the
-// real build graph and -p.
-var maxSourceJobs = max(1, min(runtime.NumCPU(), 8))
-
-// compilePackageSources compiles the C and C++ files of the package pb (Dir, CFiles and
-// CXXFiles) into Work/cobj, at most maxSourceJobs at the same time, and returns their object
-// files, in the order of the files (the C files first). rtDir is the runtime's folder, for
-// gocpp/nofortify.h. idx is the number of the package and multi says that the program has more
-// than one: then the objects are in a folder of the package, cobj/<idx>. A compile that fails is
-// a *CompileError with Source set: the first one, in the order of the files.
-func (b *Builder) compilePackageSources(ctx context.Context, rtDir string, pb *PackageBuild, idx int, multi bool) ([]string, error) {
+// planPackageSources returns the object files of the C and C++ files of the package pb (Dir,
+// CFiles and CXXFiles), in the order of the files (the C files first), in Work/cobj, and the
+// actions that compile them (compileCached). rtDir is the runtime's folder, for gocpp/nofortify.h.
+// idx is the number of the package and multi says that the program has more than one: then the
+// objects are in a folder of the package, cobj/<idx>. A compile that fails is a *CompileError with
+// Source and PkgPath set: an error of the user.
+func (b *Builder) planPackageSources(ctx context.Context, rtDir string, pb *PackageBuild, idx int, multi bool) (objs []string, acts []action, err error) {
 	type source struct {
 		c    CXX
 		file string
@@ -145,7 +138,7 @@ func (b *Builder) compilePackageSources(ctx context.Context, rtDir string, pb *P
 		srcs = append(srcs, source{b.CXX, f})
 	}
 	if len(srcs) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	objDir := filepath.Join(b.Work, "cobj")
 	if multi {
@@ -153,13 +146,10 @@ func (b *Builder) compilePackageSources(ctx context.Context, rtDir string, pb *P
 	}
 	b.trace("mkdir -p " + ShellQuoteWork(objDir, b.Work))
 	if err := os.MkdirAll(objDir, 0o755); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	nofortify := filepath.Join(rtDir, "include", "gocpp", "nofortify.h")
-	objs := make([]string, len(srcs))
-	errs := make([]error, len(srcs))
-	sem := make(chan struct{}, maxSourceJobs)
-	var wg sync.WaitGroup
+	objs = make([]string, len(srcs))
 	for i, s := range srcs {
 		file := filepath.Join(pb.Dir, s.file)
 		// a.c and a.cpp get a.c.o and a.cpp.o.
@@ -170,18 +160,18 @@ func (b *Builder) compilePackageSources(ctx context.Context, rtDir string, pb *P
 		}
 		args := slices.Concat(SourceFlags(s.c, b.ASan), []string{std, "-iquote", pb.Dir, "-include", nofortify},
 			env, pb.Flags.Compile, pb.Public, []string{"-c", "-x", lang, file, "-o", objs[i]})
-		wg.Go(func() {
-			sem <- struct{}{}
-			defer func() { <-sem }()
+		acts = append(acts, action{name: file, run: func() (func(), error) {
 			out, err := b.compileCached(ctx, s.c, file, objs[i], args, func(args []string) ([]byte, error) {
 				return b.runOutput(ctx, s.c, what+s.file, false, args)
 			}, nil)
 			var ce *CompileError
 			if errors.As(err, &ce) {
-				ce.Source = file
+				ce.Source, ce.PkgPath = file, pb.Path
 			}
-			errs[i] = err
-			if len(out) > 0 {
+			return func() {
+				if len(out) == 0 {
+					return
+				}
 				b.traceMu.Lock()
 				defer b.traceMu.Unlock()
 				switch {
@@ -190,14 +180,8 @@ func (b *Builder) compilePackageSources(ctx context.Context, rtDir string, pb *P
 				case b.Stderr != nil:
 					b.Stderr.Write(out)
 				}
-			}
-		})
+			}, err
+		}})
 	}
-	wg.Wait()
-	for _, err := range errs {
-		if err != nil {
-			return nil, err
-		}
-	}
-	return objs, nil
+	return objs, acts, nil
 }

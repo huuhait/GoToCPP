@@ -163,6 +163,10 @@ type checkCommand struct {
 	ctx     context.Context
 	stopped func() os.Signal
 
+	// fs, if not nil, is where the loader reads files and folders instead of the operating system
+	// directly (load.Config.FS): gocpp build records what it reads (build.FSRecorder).
+	fs load.FileSystem
+
 	// pkgConfig, if not nil, runs pkg-config for the flags of the packages
 	// (check.Config.PkgConfig): gocpp build -x and run -x print the runs.
 	pkgConfig build.PkgConfigFunc
@@ -219,6 +223,7 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 			GoStd:     stdlib.IsStd,
 			GOOS:      c.goos,
 			GOARCH:    c.goarch,
+			FS:        c.fs,
 			// Always all the syntax errors: firstSyntaxErrorPerLine keeps
 			// what the go compiler shows, and the Printer stops at 10.
 			AllErrors: true,

@@ -89,6 +89,20 @@ type Builder struct {
 	// so it is an -iquote folder of their compiles.
 	GenRoot string
 
+	// Jobs is how many compiles run at the same time (gocpp build -p N): 0 means DefaultJobs
+	// (GOMAXPROCS).
+	Jobs int
+
+	// Rec, if not nil, collects what the build did for the up-to-date check (stamp.go): every compile
+	// that the object cache answered or stored, the link, and the reasons that make the build
+	// unstampable.
+	Rec *Record
+
+	// Stats, if not nil, counts the compiles, cache hits and links of the builds (executor.go).
+	Stats *Stats
+
+	sc *statCache // the stats of this build's object cache lookups (Link)
+
 	pchDone chan struct{}  // closed when the precompiled header that startPCH started is built
 	stores  sync.WaitGroup // the stores of the object cache that are running (objcache.go)
 	traceMu sync.Mutex
@@ -262,18 +276,23 @@ func allExist(files []string) bool {
 // time, and returns the object files.
 func (b *Builder) compileRuntime(ctx context.Context, dir, objDir string, srcs, flags []string) ([]string, error) {
 	objs := make([]string, len(srcs))
-	errs := make([]error, len(srcs))
-	var wg sync.WaitGroup
+	acts := make([]action, len(srcs))
 	for i, s := range srcs {
 		objs[i] = filepath.Join(objDir, runtimeObjectName(s))
 		args := slices.Concat(flags, []string{"-I", filepath.Join(dir, "include"), "-c", filepath.Join(dir, filepath.FromSlash(s)), "-o", objs[i]})
-		wg.Go(func() { errs[i] = b.run(ctx, b.CXX, "the runtime", false, args) })
+		acts[i] = action{name: s, run: func() (func(), error) {
+			b.Stats.runtimeCompiled()
+			return nil, b.run(ctx, b.CXX, "the runtime", false, args)
+		}}
 	}
-	wg.Wait()
+	errs, _ := b.runActions(ctx, acts)
 	for _, err := range errs {
 		if err != nil {
 			return nil, err // the first one: one compile error is enough
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	return objs, nil
 }
@@ -334,6 +353,11 @@ func writeCompiler(write func(parts ...string), c CXX) {
 	write(c.Family.String(), c.Version)
 	st := c.stamp
 	write(st.real, fmt.Sprint(st.size), fmt.Sprint(st.modTime))
+	// The size and the time can be set back after the file was replaced: its content tells too
+	// (hashed once for the stat of the file: fileContentID).
+	if st.real != "" {
+		write(fileContentID(st.real))
+	}
 }
 
 // environ returns the entries NAME=value of the environment whose name keep accepts, sorted.
@@ -397,7 +421,13 @@ func outputCut(cmd *exec.Cmd, err error) bool {
 // succeeds instead of writing it to Stderr. When the compiler succeeded but
 // its output was cut short (see errOutputOpen), it returns what it got and errOutputOpen.
 func (b *Builder) runOutput(ctx context.Context, c CXX, what string, link bool, args []string) ([]byte, error) {
-	show := b.show(c, args)
+	return b.runCommand(ctx, c, what, link, args, args)
+}
+
+// runCommand is runOutput that shows the command (-x, and CompileError.Command) as shown, not as
+// args: the link of a recorded build has -Wl,-t, which the user did not ask for.
+func (b *Builder) runCommand(ctx context.Context, c CXX, what string, link bool, args, shown []string) ([]byte, error) {
+	show := b.show(c, shown)
 	b.trace(show)
 	out := &limitBuffer{max: maxCompileOutput}
 	cmd, err := Start(ctx, func() *exec.Cmd {

@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
-	"sync"
 )
 
 // Building the C and C++ libraries of the modules (Phase 06 step 6.1d,
@@ -47,14 +45,9 @@ import (
 // a *CompileError with Lib set: an error of the user's build (the recipe or
 // the library), not a bug of gocpp.
 
-// maxLibJobs is how many source files of the libraries compile at the same
-// time.
-var maxLibJobs = max(1, min(runtime.GOMAXPROCS(0), 64))
-
-// compileLibsOf compiles the sources of the libraries libs into
-// Work/libobj and returns the object files in the order of the libraries and
-// of their files (sorted by name).
-func (b *Builder) compileLibsOf(ctx context.Context, rtDir string, libs []*CxxLib) ([]string, error) {
+// planLibs returns the object files of the sources of the libraries libs in Work/libobj, in the
+// order of the libraries and of their files (sorted by name), and the actions that compile them.
+func (b *Builder) planLibs(ctx context.Context, rtDir string, libs []*CxxLib) (objs []string, acts []action, err error) {
 	type job struct {
 		lib *CxxLib
 		src LibSource
@@ -65,13 +58,13 @@ func (b *Builder) compileLibsOf(ctx context.Context, rtDir string, libs []*CxxLi
 	for li, lib := range libs {
 		srcs, errs := lib.Sources()
 		if len(errs) > 0 {
-			return nil, errors.New(errs[0].Pos.Filename + ":" + fmt.Sprint(errs[0].Pos.Line) + ": " + errs[0].Msg)
+			return nil, nil, errors.New(errs[0].Pos.Filename + ":" + fmt.Sprint(errs[0].Pos.Line) + ": " + errs[0].Msg)
 		}
 		for si, s := range srcs {
 			c := b.CXX
 			if s.C {
 				if b.CC.Path == "" {
-					return nil, fmt.Errorf("cxx %s: no C compiler for %s", lib.Module, s.Rel)
+					return nil, nil, fmt.Errorf("cxx %s: no C compiler for %s", lib.Module, s.Rel)
 				}
 				c = b.CC
 			}
@@ -81,18 +74,15 @@ func (b *Builder) compileLibsOf(ctx context.Context, rtDir string, libs []*CxxLi
 		}
 	}
 	if len(jobs) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	objDir := filepath.Join(b.Work, "libobj")
 	b.trace("mkdir -p " + ShellQuoteWork(objDir, b.Work))
 	if err := os.Mkdir(objDir, 0o755); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	nofortify := filepath.Join(rtDir, "include", "gocpp", "nofortify.h")
-	objs := make([]string, len(jobs))
-	errs := make([]error, len(jobs))
-	sem := make(chan struct{}, maxLibJobs)
-	var wg sync.WaitGroup
+	objs = make([]string, len(jobs))
 	for i, j := range jobs {
 		objs[i] = j.obj
 		std, lang, env := "-std="+j.lib.Std, "c++", b.Env.CXXCompile()
@@ -103,9 +93,7 @@ func (b *Builder) compileLibsOf(ctx context.Context, rtDir string, libs []*CxxLi
 		}
 		args := slices.Concat(SourceFlags(j.c, b.ASan), []string{std, "-w", "-iquote", j.lib.Dir, "-include", nofortify},
 			env, j.lib.Public, private, []string{"-c", "-x", lang, j.src.File, "-o", j.obj})
-		wg.Go(func() {
-			sem <- struct{}{}
-			defer func() { <-sem }()
+		acts = append(acts, action{name: j.src.File, run: func() (func(), error) {
 			out, err := b.compileCachedSalt(ctx, j.c, j.src.File, j.obj, args, func(args []string) ([]byte, error) {
 				return b.runOutput(ctx, j.c, what+j.src.Rel, false, args)
 			}, nil, []string{"cxx", j.lib.Module, j.lib.Version})
@@ -113,15 +101,26 @@ func (b *Builder) compileLibsOf(ctx context.Context, rtDir string, libs []*CxxLi
 			if errors.As(err, &ce) {
 				ce.Source, ce.Lib, ce.LibLine, ce.LibText = j.src.File, j.lib, j.src.Line, j.src.Text
 			}
-			errs[i] = err
-			if len(out) > 0 && b.Stderr != nil {
-				b.traceMu.Lock()
-				defer b.traceMu.Unlock()
-				b.Stderr.Write(out)
-			}
-		})
+			return func() {
+				if len(out) > 0 && b.Stderr != nil {
+					b.traceMu.Lock()
+					defer b.traceMu.Unlock()
+					b.Stderr.Write(out)
+				}
+			}, err
+		}})
 	}
-	wg.Wait()
+	return objs, acts, nil
+}
+
+// compileLibsOf compiles the sources of the libraries libs (planLibs) and returns their object
+// files, or the first error in the order of the sources.
+func (b *Builder) compileLibsOf(ctx context.Context, rtDir string, libs []*CxxLib) ([]string, error) {
+	objs, acts, err := b.planLibs(ctx, rtDir, libs)
+	if err != nil {
+		return nil, err
+	}
+	errs, _ := b.runActions(ctx, acts)
 	for _, err := range errs {
 		if err != nil {
 			return nil, err

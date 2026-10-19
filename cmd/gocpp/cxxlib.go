@@ -26,6 +26,14 @@ func (d *driver) resolveLibs(pkg *check.Package) (needC bool, code int) {
 	for _, lib := range pkg.Flags.Libs {
 		srcs, lerrs := lib.Sources()
 		errs = append(errs, lerrs...)
+		if d.stamp != nil {
+			// The patterns of the recipe were expanded by listing these folders, which the loader's
+			// file system did not see: the stamp watches them, so that a new file that matches is a
+			// change (a removed or edited one is seen by the compile's own dependencies).
+			for _, dir := range lib.GlobDirs() {
+				d.stamp.fsrec.ReadDir(dir)
+			}
+		}
 		for _, s := range srcs {
 			needC = needC || s.C
 		}

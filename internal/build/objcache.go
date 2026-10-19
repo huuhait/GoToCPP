@@ -156,6 +156,9 @@ type objCache struct {
 	// reads them: the generated files of a standard package are the same in every program, and
 	// so are their objects (genPlaceholder).
 	gen string
+
+	// sc, if not nil, answers the stats of the lookups of one build (Builder.sc).
+	sc *statCache
 }
 
 // genPlaceholder stands for the folder of the generated files in the paths of an entry and in
@@ -173,7 +176,7 @@ func (b *Builder) objects() *objCache {
 	if os.MkdirAll(dir, 0o700) != nil {
 		return nil
 	}
-	oc := &objCache{dir: dir, max: objCacheMax()}
+	oc := &objCache{dir: dir, max: objCacheMax(), sc: b.sc}
 	if b.GenRoot != "" {
 		oc.gen = filepath.Clean(b.GenRoot)
 	}
@@ -287,6 +290,7 @@ func (b *Builder) compileCachedSalt(ctx context.Context, c CXX, src, obj string,
 	outputOpen := false
 	run0 := run
 	run = func(args []string) ([]byte, error) {
+		b.Stats.compiled()
 		out, err := run0(args)
 		if errors.Is(err, errOutputOpen) {
 			outputOpen = true
@@ -299,6 +303,7 @@ func (b *Builder) compileCachedSalt(ctx context.Context, c CXX, src, obj string,
 		if b.KeepWork && b.Cache != "" && !objCacheOff() {
 			b.notCached("-work keeps the work folder")
 		}
+		b.Rec.Fail("the object cache is not used")
 		return run(args)
 	}
 	if f := uncacheableFlag(slices.Concat(c.Args, args)); f != "" {
@@ -310,9 +315,10 @@ func (b *Builder) compileCachedSalt(ctx context.Context, c CXX, src, obj string,
 		b.notCached("an option asks for the host's CPU (-march=native)")
 		return run(args)
 	}
-	text, err := os.ReadFile(src)
+	text, srcRec, err := readRecorded(src)
 	switch {
 	case err != nil:
+		b.Rec.Fail(src + " can't be read steadily")
 		return run(args)
 	case hasTimeMacro(text):
 		b.notCached(filepath.Base(src) + " uses __DATE__, __TIME__ or __TIMESTAMP__")
@@ -327,8 +333,11 @@ func (b *Builder) compileCachedSalt(ctx context.Context, c CXX, src, obj string,
 	}
 	keyArgs := b.keyArgs(args)
 	key := b.objKey(c, keyArgs, tu, salt)
-	if hash, ok := oc.lookup(key, obj); ok {
-		b.trace("# cache hit " + b.shortUnit(src) + " " + hash[:16])
+	if e, deps, ok := oc.lookupEntry(key, obj); ok {
+		b.Stats.hit()
+		b.trace("# cache hit " + b.shortUnit(src) + " " + e.Obj[:16])
+		here := mapEntry(e, oc.unmapGen) // the paths of this build, as the stamp keeps them
+		b.Rec.addUnit(UnitRec{Src: src, SrcRec: srcRec, Absent: here.Absent, Except: here.Except, deps: deps})
 		return nil, nil
 	}
 	// A miss: compile, and store the object when the compile was silent.
@@ -369,9 +378,35 @@ func (b *Builder) compileCachedSalt(ctx context.Context, c CXX, src, obj string,
 			b.notCached(err.Error())
 			return
 		}
-		oc.store(key, entry, obj)
+		deps := entry.deps // with the paths of this build: store maps them to $GEN
+		if stored, ok := oc.store(key, entry, obj); ok {
+			here := mapEntry(stored, oc.unmapGen)
+			b.Rec.addUnit(UnitRec{Src: src, SrcRec: srcRec, Absent: here.Absent, Except: here.Except, deps: deps})
+		} else {
+			b.Rec.Fail("the object of " + filepath.Base(src) + " could not be stored")
+		}
 	})
 	return out, nil
+}
+
+// readRecorded reads the file p and returns its text with the record of its stat and hash for
+// the up-to-date check (statRec). It fails when the file changed while it was read.
+func readRecorded(p string) ([]byte, statRec, error) {
+	before, err := os.Stat(p)
+	if err != nil {
+		return nil, statRec{}, err
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return nil, statRec{}, err
+	}
+	after, err := os.Stat(p)
+	if err != nil || before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) || sysStatOf(before) != sysStatOf(after) {
+		return nil, statRec{}, fmt.Errorf("%s changed while it was read", p)
+	}
+	rec := recOf(after, time.Now())
+	rec.Hash = hashHex(data)
+	return data, rec, nil
 }
 
 // shortUnit returns the name of the source src for the lines of -x: its base name, or for a
@@ -390,6 +425,7 @@ func (b *Builder) shortUnit(src string) string {
 // the silence is not a mystery (gocpp build -x).
 func (b *Builder) notCached(why string) {
 	b.trace("# not cached: " + why)
+	b.Rec.Fail("a compile is not kept in the object cache: " + why)
 }
 
 // workNames returns the names of the work folder that the compiler can show: Work, and with a
@@ -824,7 +860,7 @@ func sortedKeys(m map[string]bool) []string {
 
 // absentOK reports whether none of the files that the entry wants absent exists. A file that
 // is a dependency (deps) or in Except doesn't count.
-func (e *objEntry) absentOK(deps []depRec) bool {
+func (e *objEntry) absentOK(deps []depRec, sc *statCache) bool {
 	if len(e.Absent) == 0 {
 		return true
 	}
@@ -842,11 +878,11 @@ func (e *objEntry) absentOK(deps []depRec) bool {
 				if n++; n > maxAbsentPaths {
 					return false // a manifest that asks for more than a store would
 				}
-				cand := filepath.Join(dir, rel)
+				cand := dir + string(filepath.Separator) + rel // (both are clean)
 				if skip[cand] {
 					continue
 				}
-				if _, err := os.Lstat(cand); !errors.Is(err, fs.ErrNotExist) {
+				if _, err := sc.Lstat(cand); !errors.Is(err, fs.ErrNotExist) {
 					return false
 				}
 			}
@@ -959,6 +995,22 @@ func (oc *objCache) writeSet(deps []depRec) string {
 	return name
 }
 
+// mappedSet returns the set of that name with the paths of this build ($GEN written as its generated
+// folder), read once for the cache sc (the units of a program share most of their sets), or nil when it is
+// missing or broken. The caller must not change the records.
+func (oc *objCache) mappedSet(name string, sc *statCache) []depRec {
+	if v, ok := sc.sets.Load(name); ok {
+		return v.([]depRec)
+	}
+	deps := oc.readSet(name)
+	if deps == nil {
+		return nil
+	}
+	deps = mapDeps(deps, oc.unmapGen)
+	sc.sets.Store(name, deps)
+	return deps
+}
+
 // readSet returns the set of that name, or nil when it is missing or broken.
 func (oc *objCache) readSet(name string) []depRec {
 	data, err := os.ReadFile(oc.setPath(name))
@@ -986,39 +1038,45 @@ func (oc *objCache) readManifest(key string) objManifest {
 	return m
 }
 
-// lookup looks for an entry of the manifest key whose files are all as recorded and whose
-// object is intact, and copies the object to obj. It returns the hash of the object.
-func (oc *objCache) lookup(key, obj string) (hash string, ok bool) {
+// lookupEntry looks for an entry of the manifest key whose files are all as recorded and whose
+// object is intact, and copies the object to obj. It returns the entry that answered (the paths of
+// its absent files written with $GEN, as the manifest has them) and the files it depends on, as
+// they are now (with the paths of this build, which the caller must not change), which the
+// up-to-date check keeps.
+func (oc *objCache) lookupEntry(key, obj string) (objEntry, []depRec, bool) {
 	m := oc.readManifest(key)
-	hashes := make(map[string]hashedFile) // the files hashed in this lookup
-	sets := make(map[string][]depRec)     // the sets read in this lookup
+	sc := oc.sc
+	if sc == nil {
+		sc = statMemo() // the files hashed and the sets read in this lookup
+	}
 	for _, e := range m.Entries {
 		if e.Version != objCacheVersion || !isHexName(e.Obj) || !isHexName(e.Set) {
 			continue
 		}
-		deps, ok := sets[e.Set]
-		if !ok {
-			deps = oc.readSet(e.Set)
-			sets[e.Set] = deps
-		}
+		deps := oc.mappedSet(e.Set, sc)
 		if deps == nil {
 			continue
 		}
 		// The paths of the entry are the build's own for the check.
 		here := mapEntry(e, oc.unmapGen)
-		valid, fresh := here.valid(mapDeps(deps, oc.unmapGen), hashes)
+		valid, fresh := here.validWith(deps, sc)
 		if !valid || !oc.copyOut(e, obj) {
 			continue
 		}
 		if fresh != nil {
-			oc.refresh(key, e, mapDeps(fresh, oc.mapGen))
+			if set := oc.refresh(key, e, mapDeps(fresh, oc.mapGen)); set != "" {
+				e.Set = set
+			}
 		}
 		oc.touch(oc.objectPath(e.Obj))
 		oc.touch(oc.setPath(e.Set))
 		oc.touch(oc.manifestPath(key))
-		return e.Obj, true
+		if fresh != nil {
+			deps = fresh
+		}
+		return e, deps, true
 	}
-	return "", false
+	return objEntry{}, nil, false
 }
 
 // A hashedFile is a file that a lookup had to read: its hash and its stat after the read.
@@ -1050,14 +1108,15 @@ func hashFile(path string) (h hashedFile, ok bool) {
 		stable: time.Since(after.ModTime()) > objRacyWindow && (sys.ctime == 0 || time.Since(time.Unix(0, sys.ctime)) > objRacyWindow)}, true
 }
 
-// valid reports whether the files deps (the set of the entry) have the recorded content and
-// none of the files that must be absent exists. hashes remembers files already hashed. When a
-// file has the recorded content but another stat (it was touched, or the store was copied),
-// and its stat can be trusted from now on, fresh is the set with the new stat, to be saved so
-// that the next lookup needn't read the file.
-func (e *objEntry) valid(deps []depRec, hashes map[string]hashedFile) (valid bool, fresh []depRec) {
+// validWith reports whether the files deps (the set of the entry) have the recorded content and
+// none of the files that must be absent exists. sc remembers the stats and the hashes that this
+// build already asked for (the units of a program read the same headers: statMemo); nil asks the
+// system. When a file has the recorded content but another stat (it was touched, or the store was
+// copied), and its stat can be trusted from now on, fresh is the set with the new stat, to be saved
+// so that the next lookup needn't read the file.
+func (e *objEntry) validWith(deps []depRec, sc *statCache) (valid bool, fresh []depRec) {
 	for i, d := range deps {
-		fi, err := os.Stat(d.Path)
+		fi, err := sc.Stat(d.Path)
 		if err != nil || !fi.Mode().IsRegular() || fi.Size() != d.Size {
 			return false, nil
 		}
@@ -1065,12 +1124,9 @@ func (e *objEntry) valid(deps []depRec, hashes map[string]hashedFile) (valid boo
 		if fi.ModTime().UnixNano() == d.Mod && sys.ino == d.Ino && sys.ctime == d.Chg {
 			continue
 		}
-		h, ok := hashes[d.Path]
+		h, ok := sc.hash(d.Path)
 		if !ok {
-			if h, ok = hashFile(d.Path); !ok {
-				return false, nil
-			}
-			hashes[d.Path] = h
+			return false, nil
 		}
 		if h.hash != d.Hash {
 			return false, nil
@@ -1082,18 +1138,18 @@ func (e *objEntry) valid(deps []depRec, hashes map[string]hashedFile) (valid boo
 			fresh[i].Size, fresh[i].Mod, fresh[i].Ino, fresh[i].Chg = h.rec.Size, h.rec.Mod, h.rec.Ino, h.rec.Chg
 		}
 	}
-	if !e.absentOK(deps) {
+	if !e.absentOK(deps, sc) {
 		return false, nil
 	}
 	return true, fresh
 }
 
 // refresh saves the set fresh (the files of the entry e with their new stat) and points the
-// entry of the manifest key at it. Errors are ignored.
-func (oc *objCache) refresh(key string, e objEntry, fresh []depRec) {
+// entry of the manifest key at it. It returns the name of the new set, or "". Errors are ignored.
+func (oc *objCache) refresh(key string, e objEntry, fresh []depRec) string {
 	set := oc.writeSet(fresh)
 	if set == "" {
-		return
+		return ""
 	}
 	m := oc.readManifest(key)
 	for i := range m.Entries {
@@ -1104,6 +1160,7 @@ func (oc *objCache) refresh(key string, e objEntry, fresh []depRec) {
 	if js, err := json.Marshal(m); err == nil {
 		oc.writeFile(oc.manifestPath(key), js)
 	}
+	return set
 }
 
 // isHexName reports whether s is a name that cannot leave the cache folder.
@@ -1162,23 +1219,23 @@ func (oc *objCache) touch(path string) {
 // The object is named by the SHA-256 of its bytes, so that the name says what the file holds:
 // one that is there already is checked against it and replaced when it differs (a lost write,
 // a truncated file), never trusted.
-func (oc *objCache) store(key string, e objEntry, obj string) {
+func (oc *objCache) store(key string, e objEntry, obj string) (objEntry, bool) {
 	e.Version = objCacheVersion
 	e.deps = mapDeps(e.deps, oc.mapGen)
 	e = mapEntry(e, oc.mapGen)
 	data, err := os.ReadFile(obj)
 	if err != nil {
-		return
+		return e, false
 	}
 	sum := sha256.Sum256(data)
 	e.Obj, e.Size = hex.EncodeToString(sum[:]), int64(len(data))
 	if old, err := os.ReadFile(oc.objectPath(e.Obj)); err == nil && sha256.Sum256(old) == sum {
 		oc.touch(oc.objectPath(e.Obj))
 	} else if !oc.writeFile(oc.objectPath(e.Obj), data) {
-		return
+		return e, false
 	}
 	if e.Set = oc.writeSet(e.deps); e.Set == "" {
-		return
+		return e, false
 	}
 	m := oc.readManifest(key)
 	entries := []objEntry{e}
@@ -1190,9 +1247,10 @@ func (oc *objCache) store(key string, e objEntry, obj string) {
 	m.Version, m.Entries = objCacheVersion, entries
 	js, err := json.Marshal(m)
 	if err != nil || !oc.writeFile(oc.manifestPath(key), js) {
-		return
+		return e, false
 	}
 	oc.maybeTrim()
+	return e, true
 }
 
 // writeFile writes data to path atomically (a temporary file in the folder, renamed).

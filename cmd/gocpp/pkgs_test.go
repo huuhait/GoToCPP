@@ -114,12 +114,18 @@ func sorted(s []string) []string {
 
 func TestPackagesIncremental(t *testing.T) {
 	t.Setenv("GOCPP_GATE_PHASE", "06")
+	// This test is about the object cache's answers (a hit for each unit of a build whose
+	// sources did not change): the up-to-date check (graph_test.go) would end that build before
+	// the units.
+	t.Setenv("GOCPP_NOUPTODATE", "1")
 	forEachCXX(t, func(t *testing.T, c testCXX) {
 		cacheOn(t)
 		// The text of the program is its own for each run of the test, so that the first build
 		// misses whatever the shared cache holds.
 		stamp := fmt.Sprintf("%s %d", c.name, time.Now().UnixNano())
-		dir := inDir(t, pkgsProject("tag "+stamp, 5))
+		files0 := pkgsProject("tag "+stamp, 5)
+		files0["main.gp"] += "\nvar stampVar = \"" + stamp + "\"\n" // pkg_init.cpp of main is new to the cache too
+		dir := inDir(t, files0)
 		ageTree(t, dir)
 		build := func() result {
 			r := gocppRun("", false, "build", "-x", "-o", "prog", ".")

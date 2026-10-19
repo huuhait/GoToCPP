@@ -8,6 +8,7 @@
 | [interop-cookbook.md](interop-cookbook.md) | Recipes for C and C++ in `.gp` programs (call C, std containers, exceptions, callbacks, sqlite, zlib, flags, helpers, modules, SDL2/raylib, wrapping a handle, memory rules, common errors); every program is a test |
 | [typed-interop.md](typed-interop.md) | Typed interop (Phase 12, steps 12.1 and 12.2): the reference collector, the clang probe file, the result table, keys and the in-memory memo |
 | [modules.md](modules.md) | Modules: the `gocpp.mod` file, how the module of a folder is found, `require`, `replace` with local folders, `vendor/`, and how an import path becomes a folder |
+| [build.md](build.md) | Building programs: the actions of a build and `-p`, how several errors are shown, `-x` and its counts, when a build is up to date and does nothing, what is kept in the cache folder, `gocpp clean`, package summaries and the API hash |
 | [feature-matrix.md](feature-matrix.md) | Which phase brings each feature and standard package. Generated from the compiler's gate table, so it always matches what `gocpp check` accepts |
 
 The first three are **v0**: written in Phase 00 from the plan in

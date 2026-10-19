@@ -32,9 +32,14 @@ func ageTree(t *testing.T, dir string) {
 // cacheOn turns the object cache on (TestMain turns it off). The cache folder is
 // the tests' shared one, so the runtime is not built again: a test that wants a
 // miss gives its library a source text of its own.
+//
+// It also turns the up-to-date check of gocpp build off (GOCPP_NOUPTODATE): the tests that use the
+// object cache look at what it answers for each unit, and a build that is up to date would end
+// before it. The tests of the check turn it on again (graph_test.go, newIncr).
 func cacheOn(t *testing.T) {
 	t.Helper()
 	t.Setenv("GOCPP_NOOBJCACHE", "0")
+	t.Setenv("GOCPP_NOUPTODATE", "1")
 }
 
 // withOneCXX runs fn with one installed compiler: for the tests of rules that
@@ -463,6 +468,9 @@ func TestRecipeIncludeShadowsStdHeader(t *testing.T) {
 		dir := inDir(t, libProject("\tsrc src/clib.c\n\tinclude .\n\tdefine CLIB_SCALE=3\n\tprivate-define CLIB_BUILD=1", "\tfmt.Println(clib.clib_square(2))", lib))
 		for _, cmd := range []string{"build", "run"} {
 			r := gocppRun("", false, cmd, ".")
+			// Several units of the program fail, each for this reason: the build shows them all, and
+			// keeps its work folder for the one that is not an error at a .gp line.
+			workFolders(t, r.stderr)
 			want := "the recipe's include folder " + filepath.Join(dir, "clib") + " has a file named stdint.h, which hides the standard header of that name"
 			if r.code == 0 || !strings.Contains(r.stderr, want) {
 				t.Errorf("gocpp %s = %+v, want a hint %q", cmd, r, want)

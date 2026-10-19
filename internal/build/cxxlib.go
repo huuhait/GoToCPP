@@ -88,9 +88,10 @@ type CxxLib struct {
 
 	srcs, excludes []*gocppmod.RecipeStmt
 
-	once    sync.Once
-	sources []LibSource
-	errs    []diag.Diagnostic
+	once     sync.Once
+	sources  []LibSource
+	globDirs []string // the folders that the patterns were expanded over (GlobDirs)
+	errs     []diag.Diagnostic
 }
 
 // A LibSource is one source file of a library.
@@ -317,6 +318,8 @@ func recipeLinkRefused(args []string) string {
 type modRoot struct {
 	dir  string // the folder, as the loader gave it
 	real string // the folder with its symbolic links resolved
+
+	listed []string // the folders that patterns were expanded over (readNames), for GlobDirs
 }
 
 func newModRoot(dir string) (*modRoot, error) {
@@ -461,6 +464,10 @@ func (lib *CxxLib) resolveSources() {
 		return
 	}
 	budget := &globBudget{entries: maxGlobEntries}
+	defer func() {
+		lib.globDirs = root.listed
+		slices.Sort(lib.globDirs)
+	}()
 	seen := make(map[string]bool) // by the real file
 	var all []LibSource
 	for _, s := range lib.srcs {
@@ -501,6 +508,14 @@ func (lib *CxxLib) resolveSources() {
 	}
 	slices.SortFunc(all, func(a, b LibSource) int { return strings.Compare(a.Rel, b.Rel) })
 	lib.sources = all
+}
+
+// GlobDirs returns the folders (absolute) that the patterns of the recipe were expanded over, as
+// Sources found them, sorted: a file that appears in one of them is a new source of the library.
+// The up-to-date check watches them (a pattern without "*?[" names its file and lists nothing).
+func (lib *CxxLib) GlobDirs() []string {
+	lib.once.Do(lib.resolveSources)
+	return lib.globDirs
 }
 
 // isSourceName reports whether the file name is a C or C++ source of a
@@ -644,6 +659,9 @@ func (m *modRoot) expand(pat string, budget *globBudget) ([]string, error) {
 // readNames returns the sorted names in the folder dir of the module,
 // counted against the budget.
 func (m *modRoot) readNames(dir string, budget *globBudget) ([]string, error) {
+	if abs := m.join(dir); !slices.Contains(m.listed, abs) {
+		m.listed = append(m.listed, abs)
+	}
 	f, err := os.Open(m.join(dir))
 	if err != nil {
 		return nil, err

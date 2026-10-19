@@ -178,6 +178,20 @@ constant-initialized use `gp::lazy<T>` storage, constructed inside `gp_var_init(
   `#Derive` will generate. Phase 10's expansion of *other* packages' macros reads these summaries,
   and they are part of the API hash.
 - Parallel compilation with `-p N` (default: number of CPUs), Go's flag name.
+- *Built (6.5 to 6.7, [ADR-036](../../../docs/adr/036-action-graph-and-up-to-date-check.md), [docs/spec/build.md](../../../docs/spec/build.md)),
+  and where it differs from the sketch above:* the transpile step is not an action with its own key: the front end
+  (load, check, emit) is one step of the whole program and runs in every build that is not up to date (25 ms for four
+  packages, 65 ms for a hundred), because the checker's types are not exportable and the emitter's files of a package depend on its dependents
+  (descriptors); instead a build that finds **nothing changed** (a *stamp* of the last build: everything the loader read,
+  every header the compiles read, the files the linker opened, pkg-config's answers, the compilers, the environment,
+  and the program itself) prints nothing and ends in milliseconds without loading anything (27 ms for four packages, 32
+  for 20, 95 for 100, from 340, 355 and 667: medians of 10 on a busy machine, `go test -bench Noop ./cmd/gocpp`). The compile actions are keyed as ADR-008 says, by the object cache
+  (text, flags, compiler, environment, then the headers the compiler read); the **API hash** is the hash of `pkg.hpp`
+  (not of export data: a constant's value is in `pkg.hpp`, and the dependents' own text has it folded in), kept per
+  package in the stamp and shown by `-x`, with `# sources changed:` / `# api changed:` against the last build. The
+  executor runs the compiles of all kinds at most `-p` at a time, shows all the errors of a build in the order of the
+  packages, and orders the warnings of the compiles that worked the same way; `-x` ends with `# actions: ...` counts
+  that the tests assert instead of times.
 - **Runtime** is compiled once per (compiler, flags) into the cache. `gocpp/rt.hpp` gets a
   **precompiled header**, since every TU includes it. This is the biggest compile-time win.
 - `-unity` option: one TU per package (faster clean builds, slower incremental builds).
@@ -393,10 +407,13 @@ func main() { imgui.Begin("hello") }
    (`types.Info.InitOrder`, init functions by file name). Left for 6.4: `gp::lazy<T>` for C++ types
    that can't be constant-initialized, and the lazy initialization of `c-archive`/`c-shared`.*
 5. **6.5 Action graph** (transpile → compile → link) with content hashing, `-MD` header deps,
-   macro lists, public flags and wrapper environment in the keys.
+   macro lists, public flags and wrapper environment in the keys. *Built: the compile actions through the
+   object cache (6.2), the counts of `-x`, and the up-to-date check (§2.5, ADR-036). Macro lists are Phase 10's.*
 6. **6.6 Cache** (objects, generated files, write-if-changed, API hash = export data + `pkg.hpp`,
-   package summaries, `clean -cache`).
-7. **6.7 Parallel executor** (`-p`), `-x`, `-work`, good error aggregation.
+   package summaries, `clean -cache`). *Built: the API hash is `pkg.hpp`'s hash, the summaries and stamps are in the
+   cache folder, the compiler detection is kept on disk, `gocpp clean -cache|-gen|-stamp|-modcache [-n]`, trimming of
+   old stamps; per-package skipping of the front end (export data) is not built.*
+7. **6.7 Parallel executor** (`-p`), `-x`, `-work`, good error aggregation. *Built (§2.5).*
 8. **6.8 Runtime prebuild + precompiled header.**
 9. **6.9 Link step** (ordering, dedup, system libs, LTO with the matching archiver).
 10. **6.10 Build modes**: `c-archive`, `c-shared` (`//export` with cgo's type rules, lazy init,
