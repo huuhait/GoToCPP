@@ -18,7 +18,7 @@
   - [ ] per-package API list (§2.2), incl. settable values and `Swapper`
   - [ ] `internal/reflectlite` alias + `DeepEqual`
 - [ ] 9.4 Port tier-1 pure packages (`unicode/utf8`, `unicode`, `strings`, `bytes`, `strconv`, `errors`, `sort`, `math/bits`, `io`, `bufio`, `context`, `regexp`)
-- [ ] 9.5 `math` (native + bit-exact pure-Go where needed)
+- [x] 9.5 `math` (native + bit-exact pure-Go where needed)
 - [ ] 9.6 `os` (interop + native, Go error types)
 - [ ] 9.7 `fmt` port (+ `internal/fmtsort`, C++ value printing)
 - [ ] 9.8 `time` (ported logic, native clocks/timers, zoneinfo)
