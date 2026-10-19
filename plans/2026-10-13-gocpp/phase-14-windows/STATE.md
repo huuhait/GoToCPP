@@ -1,12 +1,12 @@
 # Phase 14: Windows · STATE
 
-**Status:** `[ ]` not started (the runtime is portable from Phase 02; Windows test builds start in Phase 06)
+**Status:** `[~]` in progress (14.1 merged 2026-10-20; verified on a real Windows 11 PC over ssh) (the runtime is portable from Phase 02; Windows test builds start in Phase 06)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-13
 
 ## Steps
 
-- [ ] 14.1 Windows OS layer in the runtime (console UTF-8, UTF-16 args/env, threads, stack-overflow handler, `_exit`, stack traces) + unit tests under Wine
+- [x] 14.1 Windows OS layer in the runtime (console UTF-8, UTF-16 args/env, threads, stack-overflow handler, `_exit`, stack traces) + unit tests under Wine
 - [ ] 14.2 Build driver: MinGW-w64 detection + the pinned llvm-mingw download on a Windows host (Phase 06 §2.10), `.exe`/`.dll` + import libs + `dllexport`, `-static` linking, response files, spaces/drive letters, cache location, CRLF
 - [ ] 14.3 Standard library for Windows
   - [ ] `portstd` with `GOOS=windows`
