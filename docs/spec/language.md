@@ -575,7 +575,9 @@ func area() int {
 - **gocpp:** `C` is reserved for C's built-in types and the boundary helpers (`C.int`,
   `C.CString`), and every `.gp` file can use it without an import. A local or package-level
   declaration named `C` is an error. An import can't be named `C` either
-  (`import C "<x.h>"`), and `package C` is an error too.
+  (`import C "<x.h>"`), and `package C` is an error too. A dot import of a package that exports `C`
+  (`import . "unicode"`: the category `unicode.C`) is an error as well, so Go's own `unicode` tests
+  reach the package by its name.
 - **Phase:** [01](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#23-import-classification).
   What `C` holds: [interop.md](interop.md#what-c-holds).
 

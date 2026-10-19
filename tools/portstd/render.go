@@ -145,7 +145,7 @@ func portMD(r *Result) string {
 	pr("# %s\n\n", r.Pkg)
 	pr("Ported by `tools/portstd` from %s's `src/%s` (BSD-3-Clause, see `%s`). Do not edit the `.gp` files by hand: ", r.Pin.Version, r.Pkg, license)
 	pr("the tool writes them again, and `make portstd-check` fails when a file differs from what it writes. ")
-	pr("A change goes into `tools/portstd/patches/%s` (a rule with a reason), or into the tool.\n\n", patchFile(r.Pkg))
+	pr("A change goes into a rule of `tools/portstd/patches/%s` (the file is created for the first rule; every rule has a reason), or into the tool.\n\n", patchFile(r.Pkg))
 	pr("| | |\n|---|---|\n")
 	pr("| Source | %s, `%s` (SHA-256 of the tarball `%s`) |\n", r.Pin.Version, path0(r.Pin.URL), r.Pin.SHA256)
 	pr("| Systems (GOOS) | %s |\n", strings.Join(r.Opts.OS, ", "))
@@ -176,12 +176,23 @@ func portMD(r *Result) string {
 	if len(r.Patches) == 0 {
 		pr("None: the files are Go's, with the header line%s.\n", plural(r.Natives, " and the native declarations below"))
 	}
+	// Rules with the same file and reason (one reason for several @replace) are one line.
+	type patchKey struct{ file, why string }
+	var order []patchKey
+	places := make(map[patchKey]int)
 	for _, p := range r.Patches {
-		times := ""
-		if p.Count > 1 {
-			times = fmt.Sprintf(" (%d places)", p.Count)
+		k := patchKey{p.File, p.Why}
+		if _, ok := places[k]; !ok {
+			order = append(order, k)
 		}
-		pr("- `%s`%s: %s\n", p.File, times, p.Why)
+		places[k] += p.Count
+	}
+	for _, k := range order {
+		times := ""
+		if places[k] > 1 {
+			times = fmt.Sprintf(" (%d places)", places[k])
+		}
+		pr("- `%s`%s: %s\n", k.file, times, k.why)
 	}
 
 	pr("\n## Native functions\n\n")
@@ -345,8 +356,9 @@ func firstLines(b []byte, n int) []byte {
 // removed (the package is real now: see "Replacing a stub" in docs/guides/porting.md). A
 // hand-written .gp file that the port overwrites, or that stays beside the port (and would
 // declare the same names twice), is refused unless force is set; with force the first is
-// overwritten and the second is kept, with a warning.
-func prepareWrite(out string, r *Result, force bool, log io.Writer) error {
+// overwritten and the second is kept, with a warning. The files in own are gocpp's own files
+// beside the port (ports.txt "own" lines): the tool leaves them alone, without a word.
+func prepareWrite(out string, r *Result, own []string, force bool, log io.Writer) error {
 	dir := pkgDir(out, r.Pkg)
 	stubs, hand, err := foreignFiles(dir)
 	if err != nil {
@@ -358,6 +370,12 @@ func prepareWrite(out string, r *Result, force bool, log io.Writer) error {
 	}
 	var clash, stale []string
 	for _, h := range hand {
+		if slices.Contains(own, h) {
+			if writes[h] {
+				return fmt.Errorf("%s: %s is listed as gocpp's own file in ports.txt, but the port writes a file of that name", r.Pkg, h)
+			}
+			continue
+		}
 		if writes[h] {
 			clash = append(clash, h)
 		} else {

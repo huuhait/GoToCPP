@@ -75,8 +75,9 @@ type stubPackage struct {
 	// gp::weak_ptr) from Phase, and the stub stays, for go/types only.
 	Intrinsic string
 
-	// Real: the package is real now (errors, since Phase 05 step 5.7, by hand; sync and sync/atomic, since
-	// Phase 08 step 8.7, by hand; unicode/utf8, since Phase 09 step 9.1, by tools/portstd): stdlib/<path>
+	// Real: the package is real now (errors, since Phase 05 step 5.7, by hand, and by tools/portstd since 9.4a;
+	// sync and sync/atomic, since Phase 08 step 8.7, by hand; unicode/utf8, since Phase 09 step 9.1, and unicode
+	// and strconv, since 9.4a, by tools/portstd): stdlib/<path>
 	// holds its .gp files, and the tool writes no stub there. The
 	// tool still makes the stub in memory, because the tests compare the real package's exported
 	// declarations with it (TestRealPackagesMatchStub).
@@ -104,7 +105,7 @@ var packages = []stubPackage{
 	{Path: "runtime", Phase: 8, Real: true, Missing: runtimeMissing},
 	{Path: "cmp", Phase: 7},
 	{Path: "iter", Phase: 7},
-	{Path: "unicode", Phase: 9},
+	{Path: "unicode", Phase: 9, Real: true},
 	{Path: "unicode/utf8", Phase: 9, Real: true},
 	{Path: "encoding", Phase: 9},
 	{Path: "io", Phase: 9},
@@ -114,7 +115,7 @@ var packages = []stubPackage{
 	{Path: "fmt", Phase: 5, Later: "Phase 05 replaces it with a basic fmt, and Phase 09 with Go's."},
 	{Path: "maps", Phase: 7},
 	{Path: "slices", Phase: 7},
-	{Path: "strconv", Phase: 9},
+	{Path: "strconv", Phase: 9, Real: true},
 	{Path: "strings", Phase: 9},
 	{Path: "bytes", Phase: 9},
 	{Path: "bufio", Phase: 9},

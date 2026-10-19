@@ -236,6 +236,11 @@ files pass".
 4. **9.4 Port tier-1 pure packages**: `unicode/utf8`, `unicode`, `strings`, `bytes`, `strconv`,
    `errors` (replaces the Phase 05 version), `sort`, `math/bits`, `io`, `bufio`, `context`,
    `regexp`.
+   **9.4a built** (ADR-072): `unicode`, `strconv` and `errors` (the Phase 05 copy is now a port; `errors.Wrapf` stays as an
+   `own` file), with 24 run tests `tests/run/{strconv,unicode,errors}_{gotest,goexamples,diff}_*.gp` (Go's own test tables
+   through a harness, the documented examples, sweeps over every code point and 400000 floats; expected output from real Go).
+   Left for the next slices: `strings`, `bytes`, `io`, `bufio`, `regexp` (need `sync`, 8.7), `sort` (needs `slices`, 7.10),
+   `context` (needs `sync`, `sync/atomic`, `time`).
 5. **9.5 `math`** (Go's code ported by `tools/portstd`, plus natives in `gocpp/math.hpp` and `runtime/src/math.cpp`; results bit-identical to Go on amd64, checked by 122 differential run tests `tests/run/math_*.gp` that tools/mathcorpus generates from real Go: ADR-071). Built: every exported function of `math` (`math/cmplx` and `math/rand` are not in this step); `-ffp-contract=off` was already in the language flags (ADR-006) and is now tested (`math_fma_contraction_*`, and the whole set again with `-O2 -mfma -mavx2`); the float to integer conversions of ADR-006 are tested against Go (`math_f2i_*`). Findings: Go's amd64 `Log` is wrong for subnormal numbers and gocpp copies it (one `@replace` removes it); the bits of a NaN that an operator (`+`, `min`, `max`) produces are out of the contract.
 6. **9.6 `os`** (interop + native) with Go error types. (Before `fmt`, because `fmt` imports `os`.)
 7. **9.7 `fmt`** port on the reflect subset (+ `internal/fmtsort`, C++ value printing).

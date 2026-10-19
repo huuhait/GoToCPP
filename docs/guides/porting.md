@@ -62,6 +62,10 @@ union over the systems, so Phase 14 can port the same package for Windows into t
 system or architecture, a `//go:build` line is false, cgo, assembly, or a patch (`@skip`). Go's `_test.go` files are not copied:
 step 9.10 runs them.
 
+An `own <pkg> <file.gp>...` line of `ports.txt` names the files that gocpp adds to a port (`own errors wrapf.gp`: `errors.Wrapf`,
+which Go does not have): they stay beside the port, the tool neither refuses the package for them nor checks them, and a name
+that the port writes itself is an error.
+
 ## What the tool changes
 
 | Where | Change |
@@ -96,7 +100,7 @@ Do all of this in the same commit:
 3. `internal/check/gates.go`: the package's row in `stdPackages` (the gate says from which phase the package may be imported; a
    package that was never gated needs a row, and the phase number must be the step that makes it usable).
 4. `docs/spec/feature-matrix.md`: the line of the package.
-5. `internal/check/gates_test.go`: `TestStdPackagesMatchStubs` counts the stubs on disk (`n < 23` now); every package that stops
+5. `internal/check/gates_test.go`: `TestStdPackagesMatchStubs` counts the stubs on disk (`n < 18` now); every package that stops
    being a stub lowers the number by one.
 6. A test program in `tests/run/` and, when the package replaces a hand-written one, the old package's tests.
 

@@ -1,8 +1,14 @@
+// Code ported from Go 1.25.14 src/errors/join.go; DO NOT EDIT by hand; see PORT.md.
+
 // Copyright 2022 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
 package errors
+
+import (
+	"unsafe"
+)
 
 // Join returns an error that wraps the given errors.
 // Any nil error values are discarded.
@@ -50,7 +56,7 @@ func (e *joinError) Error() string {
 		b = append(b, err.Error()...)
 	}
 	// At this point, b has at least one byte '\n'.
-	return string(b)
+	return unsafe.String(&b[0], len(b))
 }
 
 func (e *joinError) Unwrap() []error {

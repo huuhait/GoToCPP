@@ -28,7 +28,8 @@ bool comparable(const gp::iface& err) noexcept;
 void check_target(const gp::iface& target);
 
 // assign(err, target): the dynamic type of err is assignable to the type that target (accepted
-// by check_target) points to: the same type, or an interface type that it implements. If it is,
+// by check_target) points to: the same type, a type with the same underlying type when one of the
+// two is unnamed (reflect's AssignableTo), or an interface type that it implements. If it is,
 // *target = err (as an interface value of the target's interface type, or the value itself) and
 // the result is true.
 bool assign(const gp::iface& err, const gp::iface& target);

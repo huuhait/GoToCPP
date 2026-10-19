@@ -60,6 +60,7 @@ and from the user's answers to Q1–Q13
 | [040](040-sync-on-a-semaphore-table.md) | `sync` is Go's algorithms on words, with the waiters in a table outside the objects | accepted | Templates over the generated structs as natives, Go's Mutex/RWMutex/WaitGroup/Cond line by line, a semaphore table keyed by address (blocked accounting as channels), starvation threshold scaled for threads, `atomic_ref` for sync/atomic. |
 | [054](054-reason-log-and-explain.md) | The lowering records its reasons in an optional log; `explain` is built from the compiler's own output | accepted | `lower.Why` (nil: hooks do nothing, the C++ never changes), each reason kind is an `explain` topic, topics embed live examples, messages have a table with a completeness test. |
 | [066](066-debugger-support.md) | The debugger support: gdb's script travels inside every program, and gdb is the full debugger | accepted | Printers that read memory, a frame filter for Go names, `gp goroutines`; the script is a `.debug_gdb_scripts` section of every Linux program; `gocpp debug`; lldb best effort (summaries only). |
+| [072](072-unicode-strconv-errors-ports.md) | `unicode`, `strconv` and `errors` are Go's own packages, with patches only where gocpp's costs differ | accepted | portstd output; `errors` keeps the step 5.7 natives, `unicode` reads table entries by value (about 4-6x), `strconv` uses `internal/bytealg`; `own` lines in `ports.txt`; Go's own test tables run through a harness, expected output from real Go. |
 
 ## Changing a decision
 

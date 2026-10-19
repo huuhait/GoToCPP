@@ -51,7 +51,14 @@ bool assign(const gp::iface& err, const gp::iface& target) {
         return true;
     }
     if (have != elem) {
-        return false;
+        // Go's AssignableTo: also a type and another with the same underlying type when one of them
+        // is not named (struct{ MyErr } and a named struct with the same fields), as reflect's
+        // Value.Set does.
+        if (!gp::reflect::t_assignable(
+                static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(have)),
+                static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(elem)))) {
+            return false;
+        }
     }
     if (elem->gp_store == nullptr) [[unlikely]] {
         fail("errors: cannot assign to a *target of a C++ type without copy assignment");

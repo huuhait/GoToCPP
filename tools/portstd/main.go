@@ -246,7 +246,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	var written []*Result
 	for _, r := range results {
-		if err := prepareWrite(*out, r, *force, stderr); err != nil {
+		if err := prepareWrite(*out, r, cfg.Own[r.Pkg], *force, stderr); err != nil {
 			fmt.Fprintf(stderr, "portstd: %v\n", err)
 			status = 1
 			continue

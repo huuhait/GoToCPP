@@ -1,3 +1,5 @@
+// Code ported from Go 1.25.14 src/errors/wrap.go; DO NOT EDIT by hand; see PORT.md.
+
 // Copyright 2018 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -131,9 +133,8 @@ func as(err error, target any) bool {
 	}
 }
 
-// The three functions below are what Go's source does with internal/reflectlite, which gocpp
-// does not port. The runtime has them (runtime/include/gocpp/errors.hpp), over the type
-// descriptors of the values.
+// The three functions below are what Go's source does with internal/reflectlite, which the port does not call. The
+// runtime has them (runtime/include/gocpp/errors.hpp), over the type descriptors of the values.
 
 // comparableType reports whether the dynamic type of err can be compared with ==
 // (reflectlite.TypeOf(err).Comparable()). err is not nil.

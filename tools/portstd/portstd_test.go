@@ -1155,6 +1155,48 @@ func TestCLIRefusesHandWrittenFiles(t *testing.T) {
 	}
 }
 
+// TestCLIOwnFiles: a .gp file that ports.txt lists with an "own" line is gocpp's own file beside the
+// port (errors.Wrapf): the port neither refuses nor warns, and keeps it; a listed name that the port
+// writes itself is an error; a hand-written file that is not listed is still refused.
+func TestCLIOwnFiles(t *testing.T) {
+	flags, out := cliEnv(t, true)
+	cfgDir := flags[1]
+	ports := filepath.Join(cfgDir, "ports.txt")
+	b, _ := os.ReadFile(ports)
+	os.WriteFile(ports, append(b, "own fx/basic mine.gp\n"...), 0o644)
+	dir := filepath.Join(out, "fx", "basic")
+	os.MkdirAll(dir, 0o755)
+	mine := filepath.Join(dir, "mine.gp")
+	os.WriteFile(mine, []byte("package basic\n\n// gocpp's own\n"), 0o644)
+	code, _, stderr := runCLI(append(slices.Clone(flags), "-offline", "fx/basic")...)
+	if code != 0 || strings.Contains(stderr, "mine.gp") {
+		t.Fatalf("an own file beside the port: exit %d\n%s", code, stderr)
+	}
+	if got, _ := os.ReadFile(mine); !strings.Contains(string(got), "gocpp's own") {
+		t.Error("the port must keep the own file")
+	}
+	// a hand-written file that is not listed is refused
+	other := filepath.Join(dir, "other.gp")
+	os.WriteFile(other, []byte("package basic\n"), 0o644)
+	if code, _, stderr = runCLI(append(slices.Clone(flags), "-offline", "fx/basic")...); code != 1 || !strings.Contains(stderr, "other.gp") || strings.Contains(stderr, "mine.gp") {
+		t.Errorf("an unlisted file: exit %d\n%s", code, stderr)
+	}
+	os.Remove(other)
+	// the listed name clashes with a file the port writes
+	os.WriteFile(ports, append(b, "own fx/basic a.gp\n"...), 0o644)
+	os.WriteFile(filepath.Join(dir, "a.gp"), []byte("package basic\n"), 0o644)
+	if code, _, stderr = runCLI(append(slices.Clone(flags), "-offline", "fx/basic")...); code != 1 || !strings.Contains(stderr, "listed as gocpp's own file") {
+		t.Errorf("an own name that the port writes: exit %d\n%s", code, stderr)
+	}
+	// the syntax of the line
+	for _, line := range []string{"own fx/basic\n", "own fx/basic sub/x.gp\n", "own fx/basic x.txt\n"} {
+		os.WriteFile(ports, append(b, line...), 0o644)
+		if code, _, stderr = runCLI(append(slices.Clone(flags), "-offline", "fx/basic")...); code != 1 || !strings.Contains(stderr, "ports.txt") {
+			t.Errorf("%q: exit %d\n%s", line, code, stderr)
+		}
+	}
+}
+
 func TestOrphanPatchWarning(t *testing.T) {
 	cfg := fixtureConfig(t, fixturePin(strings.Repeat("1", 64)), map[string]string{
 		"patches/fx__basic.rules": "# fine\n",

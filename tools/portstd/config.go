@@ -61,7 +61,8 @@ type Config struct {
 	Pin      Pin
 	Defaults Options
 	Ports    []PortSpec
-	Options  map[string]Options // per-package options of "options" lines
+	Options  map[string]Options  // per-package options of "options" lines
+	Own      map[string][]string // gocpp's own .gp files beside a port, by package ("own" lines)
 	Natives  map[string]NativeEntry
 	Boundary map[string]Boundary
 	Tiers    map[string][]string
@@ -162,12 +163,15 @@ func sortedLines(m map[int]string) []int {
 
 // parsePorts reads ports.txt: a "default" line with the options of every
 // package, "options <package> ..." lines with the options of a package that
-// is not ported yet (the -list closure uses them), then one package per line
-// whose options replace the others.
+// is not ported yet (the -list closure uses them), "own <package> <file.gp>..."
+// lines with the .gp files that gocpp adds to a port (errors.Wrapf: they stay
+// beside the port, and the tool does not write, check or warn about them), then
+// one package per line whose options replace the others.
 func (c *Config) parsePorts(text string) error {
 	lines := configLines(text)
 	c.Defaults = Options{OS: []string{"linux"}, Arch: "generic", Tags: []string{"purego"}}
 	c.Options = make(map[string]Options)
+	c.Own = make(map[string][]string)
 	seen := make(map[string]bool)
 	order := sortedLines(lines)
 	// Pass 1: default and options lines (the default must come first).
@@ -192,6 +196,16 @@ func (c *Config) parsePorts(text string) error {
 				return fmt.Errorf("line %d: %v", n, err)
 			}
 			c.Options[f[1]] = o
+		case "own":
+			if len(f) < 3 {
+				return fmt.Errorf("line %d: usage: own <package> <file.gp>...", n)
+			}
+			for _, name := range f[2:] {
+				if !strings.HasSuffix(name, ".gp") || strings.ContainsAny(name, "/\\") {
+					return fmt.Errorf("line %d: %q is not a .gp file name of the package folder", n, name)
+				}
+			}
+			c.Own[f[1]] = append(c.Own[f[1]], f[2:]...)
 		default:
 			seen["package"] = true
 		}
@@ -199,7 +213,7 @@ func (c *Config) parsePorts(text string) error {
 	// Pass 2: the packages.
 	for _, n := range order {
 		f := strings.Fields(lines[n])
-		if f[0] == "default" || f[0] == "options" {
+		if f[0] == "default" || f[0] == "options" || f[0] == "own" {
 			continue
 		}
 		base := c.optionsFor(f[0])

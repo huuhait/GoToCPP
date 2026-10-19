@@ -1,0 +1,91 @@
+# errors (step 9.4a): Go's package uses internal/reflectlite in three places (Is asks whether the type of target is
+# comparable; As checks target and assigns to it). gocpp has the reflect subset behind internal/reflectlite (step 9.3),
+# and the port runs unchanged with it, but through reflect.Value and reflect.Type it is 6 times slower for As and
+# 1.6 times for Is at -O0 (errors.As on a chain of 5: 7.9 us against 1.4 us). So the three operations are native
+# functions over the type descriptors (runtime/include/gocpp/errors.hpp, runtime/src: gp::errors::comparable,
+# check_target and assign, Phase 05 step 5.7), with Go's three panic texts. Everything else is Go's own code.
+
+@note The three uses of internal/reflectlite are native functions (gp::errors::comparable, check_target, assign) over the type descriptors, not the reflect subset: the results and the panic texts are Go's, and errors.Is/As are several times faster (stdlib/errors/wrap.gp).
+
+@note wrapf.gp beside the port is gocpp's own file (errors.Wrapf, Phase 10, divergence D17): it is not Go's and ports.txt lists it as `own`.
+
+@file wrap.go
+@why internal/reflectlite is not imported: its three uses are the native functions below.
+@replace
+package errors
+
+import (
+	"internal/reflectlite"
+)
+
+@with
+package errors
+
+@end
+@why Is: reflectlite.TypeOf(target).Comparable() is the native comparableType (target is not nil here).
+@replace
+	isComparable := reflectlite.TypeOf(target).Comparable()
+@with
+	isComparable := comparableType(target)
+@end
+@why As: the checks at the start (target is a non-nil pointer to a type that implements error or to an interface type) are the native checkTarget, with Go's three panic texts; the nil test stays in Go.
+@replace
+	val := reflectlite.ValueOf(target)
+	typ := val.Type()
+	if typ.Kind() != reflectlite.Ptr || val.IsNil() {
+		panic("errors: target must be a non-nil pointer")
+	}
+	targetType := typ.Elem()
+	if targetType.Kind() != reflectlite.Interface && !targetType.Implements(errorType) {
+		panic("errors: *target must be interface or implement error")
+	}
+	return as(err, target, val, targetType)
+}
+
+func as(err error, target any, targetVal reflectlite.Value, targetType reflectlite.Type) bool {
+	for {
+		if reflectlite.TypeOf(err).AssignableTo(targetType) {
+			targetVal.Elem().Set(reflectlite.ValueOf(err))
+			return true
+		}
+@with
+	checkTarget(target)
+	return as(err, target)
+}
+
+func as(err error, target any) bool {
+	for {
+		if assign(err, target) {
+			return true
+		}
+@end
+@why As: the recursion no longer carries the reflect values (the native assign finds the target type itself).
+@replace
+				if as(err, target, targetVal, targetType) {
+@with
+				if as(err, target) {
+@end
+@why The three native functions (their doc comments get the //gocpp:native marker from natives.txt); errorType is only used by the checks that are native now.
+@replace
+var errorType = reflectlite.TypeOf((*error)(nil)).Elem()
+@with
+// The three functions below are what Go's source does with internal/reflectlite, which the port does not call. The
+// runtime has them (runtime/include/gocpp/errors.hpp), over the type descriptors of the values.
+
+// comparableType reports whether the dynamic type of err can be compared with ==
+// (reflectlite.TypeOf(err).Comparable()). err is not nil.
+//
+func comparableType(err error) bool
+
+// checkTarget panics unless target is a non-nil pointer to either a type that implements error,
+// or to any interface type: "errors: target must be a non-nil pointer", "errors: *target must
+// be interface or implement error".
+//
+func checkTarget(target any)
+
+// assign reports whether the dynamic type of err is assignable to the type that target (a
+// pointer that checkTarget has accepted) points to: the same type, or an interface type that
+// the dynamic type implements. If it is, assign stores err in *target.
+//
+func assign(err error, target any) bool
+@end

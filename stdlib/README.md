@@ -6,17 +6,18 @@ embedded in the `gocpp` binary, and the loader finds the standard packages here.
 
 ## What is here now
 
-- **Real packages** (Phase 05 and later steps). `errors` since step 5.7: `errors.gp`, `wrap.gp` and `join.gp` are
+- **Real packages** (Phase 05 and later steps). `errors` since step 5.7 (a port by `tools/portstd` since step 9.4a): `errors.gp`, `wrap.gp` and `join.gp` are
   Go's `src/errors`, lowered with the program's packages like any package (`PORT.md` lists what differs from Go's
   source). A package is real when none of its functions is a declaration stub (below): it is built from its `.gp`
   files, and `tools/stubgen` writes no stub for it (`stubPackage.Real`; `sync` and `sync/atomic` are real since step 8.7: Mutex, WaitGroup and the others over native templates, ADR-040; the tool still makes the stub in memory,
   because the tests compare the real package's exported declarations with it and with Go's).
-- **Ported packages** (Phase 09 step 9.1). `unicode/utf8`, `unicode/utf16` and `math/bits` are Go's source, copied by
+- **Ported packages** (Phase 09 steps 9.1, 9.4a, 9.5). `unicode/utf8`, `unicode/utf16`, `math/bits`, `math`, `unicode`,
+  `strconv` and `errors` (which replaced the Phase 05 copy; `wrapf.gp` beside it is gocpp's own) are Go's source, copied by
   `tools/portstd` from the pinned Go tarball: the `.gp` files start with `// Code ported from Go ...; DO NOT EDIT by
   hand`, `stdlib/<pkg>/PORT.md` says what was taken, left out and changed, and `stdlib/PORTED.txt` lists them for
   tools. A change goes into a patch rule of the tool, not into the file (`make portstd-check` fails otherwise); how
   to port a package is in [docs/guides/porting.md](../docs/guides/porting.md), and what blocks the tier-1 packages in
-  [porting-blockers.md](../docs/guides/porting-blockers.md). `unicode/utf8` is a real package: `tools/stubgen` lists it as
+  [porting-blockers.md](../docs/guides/porting-blockers.md). Each of them is a real package: `tools/stubgen` lists it as
   `Real` and writes no stub for it. `LICENSE` here is Go's BSD-3-Clause license, which the ported files carry; Go's
   `PATENTS` file (the additional patent grant) is not copied: it grants rights to users of Go itself, and the ported
   text is the same, so keep a copy of `PATENTS` from the pinned tarball with any redistribution of `stdlib/`.

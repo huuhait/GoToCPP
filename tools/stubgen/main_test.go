@@ -240,38 +240,22 @@ func TestRealPackagesMatchStub(t *testing.T) {
 				t.Fatal(err)
 			}
 			dir := filepath.Join(stdlibDir, filepath.FromSlash(p.Path))
-			entries, err := os.ReadDir(dir)
+			fset := token.NewFileSet()
+			files, err := parseRealDir(fset, dir)
 			if err != nil {
 				t.Fatal(err)
 			}
-			fset := token.NewFileSet()
-			var files []*ast.File
-			for _, e := range entries {
-				if e.IsDir() || !strings.HasSuffix(e.Name(), ".gp") {
-					continue
-				}
-				src, err := os.ReadFile(filepath.Join(dir, e.Name()))
-				if err != nil {
-					t.Fatal(err)
-				}
-				if !linuxFile(e.Name(), src) {
-					continue // a file of another system (time/zoneinfo_windows.gp)
-				}
-				f, err := parser.ParseFile(fset, e.Name(), src, parser.ParseComments)
-				if err != nil {
-					t.Fatal(err)
-				}
-				files = append(files, f)
-			}
-			if len(files) == 0 {
-				t.Fatalf("no .gp files in %s", dir)
-			}
-			conf := types.Config{GoVersion: "go1.25", Importer: stubImp, Error: func(err error) { t.Error(err) }}
+			imp := &realImporter{t: t, stubs: stubImp, fset: fset, pkgs: make(map[string]*types.Package)}
+			conf := types.Config{GoVersion: "go1.25", Importer: imp, Error: func(err error) { t.Error(err) }}
 			realPkg, _ := conf.Check(p.Path, fset, files, nil)
 			if realPkg == nil {
 				t.Fatal("not type-checked")
 			}
-			c := &comparison{t: t, left: map[string]bool{}, private: map[string]bool{}, realPkg: true}
+			left := make(map[string]bool)
+			for _, name := range st.leftOut[p.Path] {
+				left[name] = true
+			}
+			c := &comparison{t: t, left: left, private: map[string]bool{}, realPkg: true}
 			missing := make(map[string]bool)
 			for _, name := range p.Missing {
 				missing[name] = true
@@ -303,6 +287,64 @@ func TestRealPackagesMatchStub(t *testing.T) {
 			}
 		})
 	}
+}
+
+// parseRealDir parses the .gp files of the real package in dir that are built for linux/amd64.
+func parseRealDir(fset *token.FileSet, dir string) ([]*ast.File, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var files []*ast.File
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".gp") {
+			continue
+		}
+		src, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return nil, err
+		}
+		if !linuxFile(e.Name(), src) {
+			continue // a file of another system (time/zoneinfo_windows.gp)
+		}
+		f, err := parser.ParseFile(fset, e.Name(), src, parser.ParseComments)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no .gp files in %s", dir)
+	}
+	return files, nil
+}
+
+// realImporter imports what a real package imports: the stub of a package that has one, else the
+// real package from stdlib/<path> (internal/bytealg, internal/reflectlite, math, ...: the packages
+// of the standard library that have no stub because they are not in Go's public API list or were
+// never stubbed), type-checked from its .gp files.
+type realImporter struct {
+	t     *testing.T
+	stubs *memImporter
+	fset  *token.FileSet
+	pkgs  map[string]*types.Package
+}
+
+func (m *realImporter) Import(p string) (*types.Package, error) {
+	if pkg := m.pkgs[p]; pkg != nil {
+		return pkg, nil
+	}
+	if m.stubs.files[stubFile(p)] != nil || p == "unsafe" {
+		return m.stubs.Import(p)
+	}
+	files, err := parseRealDir(m.fset, filepath.Join(stdlibDir, filepath.FromSlash(p)))
+	if err != nil {
+		return nil, fmt.Errorf("no stub and no real package for %s: %v", p, err)
+	}
+	conf := types.Config{GoVersion: "go1.25", Importer: m, Error: func(err error) { m.t.Errorf("real %s: %v", p, err) }}
+	pkg, _ := conf.Check(p, m.fset, files, nil)
+	m.pkgs[p] = pkg
+	return pkg, nil
 }
 
 // linuxFile reports whether the .gp file name with the text src is built for linux/amd64: its name
@@ -530,6 +572,9 @@ func compareStructs(t *testing.T, name string, s, r *types.Struct, left map[stri
 	for i, f := range fieldsOf(s) {
 		if f.Name() == "_" || (ignorePrivate && !f.Exported() && !f.Embedded()) {
 			continue
+		}
+		if ignorePrivate && left[name+"."+f.Name()] {
+			continue // a field the stub leaves out (unicode.CaseRange.Delta has an unexported type), but the real package has
 		}
 		got = append(got, fmt.Sprintf("%s %s embedded=%v tag=%q", f.Name(), typeString(f.Type()), f.Embedded(), s.Tag(i)))
 	}

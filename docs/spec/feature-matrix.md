@@ -97,7 +97,7 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 | `fmt` | 02 | `Print`, `Println` and `Printf` with basic values from Phase 02; from Phase 05 every value and verb, the `Fprint` functions for `os.Stdout`, `os.Stderr` and a `fmt.State`, `Append`, `Errorf`, `Stringer`, `Formatter` and the other interfaces; see the table of members below. The rest (`Sscan` and friends) comes with Go's `fmt` in Phase 09. |
 | `unsafe` | 03 | `Sizeof`, `Alignof` and `Offsetof` from Phase 03, the rest (`unsafe.Pointer`, `Slice`, `String`, …) from Phase 04. `unsafe.Pointer` keeps gocpp memory alive (divergence D16). |
 | `weak` | 03 | `weak.Pointer[T]` is a compiler intrinsic, exempt from the generics gate. |
-| `errors` | 05 |  |
+| `errors` | 05 | Go's own package since step 9.4a (ported by `tools/portstd`; `As` and `Is` use three natives over the type descriptors, as in step 5.7, not the reflect subset). |
 | `os` | 05 | `os.Stdout` and `os.Stderr` as the writers of `fmt.Fprint` and friends from Phase 05; the rest of the package in Phase 09. |
 | `cmp` | 07 |  |
 | `iter` | 07 | `iter.Pull` and `iter.Pull2` from Phase 08 (they run on a helper thread). |
@@ -119,10 +119,10 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 | `io/fs` | 09 |  |
 | `reflect` | 09 | A subset, without `MakeFunc`, calling methods by name, `StructOf` and `FuncOf` (divergence D6). |
 | `regexp` | 09 |  |
-| `strconv` | 09 |  |
+| `strconv` | 09 | Go's own package (ported by `tools/portstd`, step 9.4a), with `internal/bytealg` for `IndexByteString`. |
 | `strings` | 09 |  |
 | `testing` | 09 |  |
-| `unicode` | 09 |  |
+| `unicode` | 09 | Go's own package (ported by `tools/portstd`, step 9.4a): the tables, `Is*`, `To*`, `SimpleFold`, `SpecialCase`. |
 | `unicode/utf8` | 09 |  |
 | `unicode/utf16` | 09 |  |
 | `math` | 09 |  |

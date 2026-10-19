@@ -1,6 +1,6 @@
 # math
 
-Ported by `tools/portstd` from go1.25.14's `src/math` (BSD-3-Clause, see `../LICENSE`). Do not edit the `.gp` files by hand: the tool writes them again, and `make portstd-check` fails when a file differs from what it writes. A change goes into `tools/portstd/patches/math.rules` (a rule with a reason), or into the tool.
+Ported by `tools/portstd` from go1.25.14's `src/math` (BSD-3-Clause, see `../LICENSE`). Do not edit the `.gp` files by hand: the tool writes them again, and `make portstd-check` fails when a file differs from what it writes. A change goes into a rule of `tools/portstd/patches/math.rules` (the file is created for the first rule; every rule has a reason), or into the tool.
 
 | | |
 |---|---|
@@ -126,18 +126,12 @@ Ported by `tools/portstd` from go1.25.14's `src/math` (BSD-3-Clause, see `../LIC
 
 - `abs.go`: Abs is native: clearing the sign bit of x is one instruction (std::fabs), and it keeps NaN payloads like Go's.
 - `exp_noasm.go`: Exp is Go's amd64 assembly (Shibata's algorithm, with FMA instructions when the CPU has them), not the pure-Go exp: the two differ in the last bit for many inputs.
-- `floor.go`: Floor, Ceil and Trunc are native, directly (not through archFloor and the other stubs, so that no call stays between the program and the instruction): amd64 has them as assembly (SSE4.1 ROUNDSD), and the results are exact, so gp::math::floor, ceil and trunc (ROUNDSD itself when the CPU has it) give the same bits, also for a signaling NaN. The Go code (floor, ceil, trunc) stays for Go's tests.
-- `floor.go`: Floor, Ceil and Trunc are native, directly (not through archFloor and the other stubs, so that no call stays between the program and the instruction): amd64 has them as assembly (SSE4.1 ROUNDSD), and the results are exact, so gp::math::floor, ceil and trunc (ROUNDSD itself when the CPU has it) give the same bits, also for a signaling NaN. The Go code (floor, ceil, trunc) stays for Go's tests.
-- `floor.go`: Floor, Ceil and Trunc are native, directly (not through archFloor and the other stubs, so that no call stays between the program and the instruction): amd64 has them as assembly (SSE4.1 ROUNDSD), and the results are exact, so gp::math::floor, ceil and trunc (ROUNDSD itself when the CPU has it) give the same bits, also for a signaling NaN. The Go code (floor, ceil, trunc) stays for Go's tests.
+- `floor.go` (3 places): Floor, Ceil and Trunc are native, directly (not through archFloor and the other stubs, so that no call stays between the program and the instruction): amd64 has them as assembly (SSE4.1 ROUNDSD), and the results are exact, so gp::math::floor, ceil and trunc (ROUNDSD itself when the CPU has it) give the same bits, also for a signaling NaN. The Go code (floor, ceil, trunc) stays for Go's tests.
 - `floor.go`: RoundToEven is native: gc turns it into ROUNDSD (an intrinsic with a runtime check for SSE4.1) on amd64, which turns a signaling NaN into a quiet one, as std::nearbyint does; the Go code below returns the signaling NaN as it is, so the bits would differ for that input. The Go version stays for Go's tests.
 - `fma.go`: FMA is native: gc turns math.FMA into the VFMADD231SD instruction when the CPU has it (a runtime check), and std::fma is the same exactly rounded operation, so the bits are the same; the software version below stays for Go's tests.
 - `log_stub.go`: Log is Go's amd64 assembly, not the pure-Go log: the same algorithm, but the assembly takes the exponent from the bits of x without normalizing a subnormal x, so Log of a subnormal number is wrong in Go on amd64, and gocpp reproduces it (@note above).
 - `sqrt.go`: Sqrt is native: gc turns math.Sqrt into the SQRTSD instruction (an intrinsic), whose result is the correctly rounded square root, as std::sqrt's is; the pure-Go sqrt below stays (Go's tests use it).
-- `unsafe.go`: The bit casts are native: `*(*uint64)(unsafe.Pointer(&f))` would make gocpp allocate f on the heap (unsafe.Pointer keeps memory alive, divergence D16), and every other function of the package calls these.
-- `unsafe.go`: The bit casts are native: `*(*uint64)(unsafe.Pointer(&f))` would make gocpp allocate f on the heap (unsafe.Pointer keeps memory alive, divergence D16), and every other function of the package calls these.
-- `unsafe.go`: The bit casts are native: `*(*uint64)(unsafe.Pointer(&f))` would make gocpp allocate f on the heap (unsafe.Pointer keeps memory alive, divergence D16), and every other function of the package calls these.
-- `unsafe.go`: The bit casts are native: `*(*uint64)(unsafe.Pointer(&f))` would make gocpp allocate f on the heap (unsafe.Pointer keeps memory alive, divergence D16), and every other function of the package calls these.
-- `unsafe.go`: The bit casts are native: `*(*uint64)(unsafe.Pointer(&f))` would make gocpp allocate f on the heap (unsafe.Pointer keeps memory alive, divergence D16), and every other function of the package calls these.
+- `unsafe.go` (5 places): The bit casts are native: `*(*uint64)(unsafe.Pointer(&f))` would make gocpp allocate f on the heap (unsafe.Pointer keeps memory alive, divergence D16), and every other function of the package calls these.
 
 ## Native functions
 

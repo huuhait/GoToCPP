@@ -27,3 +27,8 @@ math.archExp          gp::math::exp
 math.archLog          gp::math::log
 math.FMA              gp::math::fma
 math.RoundToEven    gp::math::round_to_even
+
+# errors (step 9.4a): runtime/include/gocpp/errors.hpp (patches/errors.rules says why)
+errors.comparableType gp::errors::comparable
+errors.checkTarget    gp::errors::check_target
+errors.assign         gp::errors::assign

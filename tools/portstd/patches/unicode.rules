@@ -1,0 +1,82 @@
+# unicode (step 9.4a): Go's code, with its table searches made cheap for gocpp. In gocpp a pointer to a slice element
+# (`&ranges[m]`) is a counted pointer (docs/adr/004-memory-arc.md): making and dropping it costs two atomic operations
+# per step of the search, which made unicode.IsLetter on a CJK character about 4-5 times slower than the copy of a
+# 4-byte struct (150 ns against 640-810 ns at -O0). So the table entries are read by value (Go's own is32 already does so for
+# Range32 in its binary search, and the results are the same).
+
+@note The searches of the range tables (is16, is32's linear case, lookupCaseRange) copy the table entry instead of taking its address: `range_ := ranges[m]`, and lookupCaseRange returns (CaseRange, bool). Same results; a pointer to a slice element is a counted pointer in gocpp and about 4-5 times slower.
+
+@file letter.go
+@why is16 and is32 (linear search): the entry is a 4 or 8 byte struct; read it by value.
+@replace count=2
+			range_ := &ranges[i]
+@with
+			range_ := ranges[i]
+@end
+@replace
+		range_ := &ranges[m]
+@with
+		range_ := ranges[m]
+@end
+@why lookupCaseRange returns the entry (CaseRange is 20 bytes) and whether there is one, instead of a pointer to it or nil; convertCase takes the entry.
+@replace
+// lookupCaseRange returns the CaseRange mapping for rune r or nil if no
+// mapping exists for r.
+func lookupCaseRange(r rune, caseRange []CaseRange) *CaseRange {
+	// binary search over ranges
+	lo := 0
+	hi := len(caseRange)
+	for lo < hi {
+		m := int(uint(lo+hi) >> 1)
+		cr := &caseRange[m]
+		if rune(cr.Lo) <= r && r <= rune(cr.Hi) {
+			return cr
+		}
+		if r < rune(cr.Lo) {
+			hi = m
+		} else {
+			lo = m + 1
+		}
+	}
+	return nil
+}
+
+// convertCase converts r to _case using CaseRange cr.
+func convertCase(_case int, r rune, cr *CaseRange) rune {
+@with
+// lookupCaseRange returns the CaseRange mapping for rune r and true,
+// or false if no mapping exists for r.
+func lookupCaseRange(r rune, caseRange []CaseRange) (CaseRange, bool) {
+	// binary search over ranges
+	lo := 0
+	hi := len(caseRange)
+	for lo < hi {
+		m := int(uint(lo+hi) >> 1)
+		cr := caseRange[m]
+		if rune(cr.Lo) <= r && r <= rune(cr.Hi) {
+			return cr, true
+		}
+		if r < rune(cr.Lo) {
+			hi = m
+		} else {
+			lo = m + 1
+		}
+	}
+	return CaseRange{}, false
+}
+
+// convertCase converts r to _case using CaseRange cr.
+func convertCase(_case int, r rune, cr CaseRange) rune {
+@end
+@replace
+	if cr := lookupCaseRange(r, caseRange); cr != nil {
+		return convertCase(_case, r, cr), true
+@with
+	if cr, ok := lookupCaseRange(r, caseRange); ok {
+		return convertCase(_case, r, cr), true
+@end
+@replace
+	if cr := lookupCaseRange(r, CaseRanges); cr != nil {
+@with
+	if cr, ok := lookupCaseRange(r, CaseRanges); ok {
+@end

@@ -1,6 +1,6 @@
 # math/bits
 
-Ported by `tools/portstd` from go1.25.14's `src/math/bits` (BSD-3-Clause, see `../../LICENSE`). Do not edit the `.gp` files by hand: the tool writes them again, and `make portstd-check` fails when a file differs from what it writes. A change goes into `tools/portstd/patches/math__bits.rules` (a rule with a reason), or into the tool.
+Ported by `tools/portstd` from go1.25.14's `src/math/bits` (BSD-3-Clause, see `../../LICENSE`). Do not edit the `.gp` files by hand: the tool writes them again, and `make portstd-check` fails when a file differs from what it writes. A change goes into a rule of `tools/portstd/patches/math__bits.rules` (the file is created for the first rule; every rule has a reason), or into the tool.
 
 | | |
 |---|---|
