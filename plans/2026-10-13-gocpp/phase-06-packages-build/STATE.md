@@ -19,8 +19,8 @@
   - [ ] `c-archive` + `//export` (cgo's type rules, copies) + C header + lazy init
   - [ ] `c-shared` (hidden visibility, lazy init, trampolines)
   - [ ] `cpp-lib` (lib + headers + CMake INTERFACE flags)
-- [ ] 6.11 `compile_commands.json` + `gocpp export cmake`
-- [ ] 6.12 CLI: `list`, `env`, `clean`, build flags, build tags
+- [x] 6.11 `compile_commands.json` + `gocpp export cmake`
+- [x] 6.12 CLI: `list`, `env`, `clean`, build flags, build tags
   - [ ] trusted C++ flags from the user (not from packages): `gocpp build -cxxflags=… -ldflags=…` and `GOCPP_CXXFLAGS` / `GOCPP_LDFLAGS`, which may load LLVM plugins (`-fpass-plugin=x.so`, `-fplugin=x.so`); part of the cache key (the plugin file's hash too)
   - [ ] `gocpp build -emit-llvm` (clang only): writes each translation unit's LLVM IR (`.ll`, or `.bc` with `-emit-llvm=bc`) next to the objects, for `opt -load-pass-plugin=…` and other tools; a clear error with g++
 - [ ] 6.13 Cross-compilation: windows/amd64 via MinGW-w64 (`.exe` linked with `-static`) + Wine CI job; linux/arm64 best effort
