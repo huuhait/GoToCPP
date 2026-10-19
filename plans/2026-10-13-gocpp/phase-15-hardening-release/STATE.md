@@ -14,7 +14,7 @@
   - [ ] `const&` only for caller-local, never-address-taken, uncaptured arguments
   - [ ] targeted random generators (callee clears the source, closure changes it, method drops its receiver) under ASan
 - [ ] 15.4 Intrusive refcount experiment (keep only if it wins)
-- [ ] 15.5 Swiss-table maps
+- [x] 15.5 Swiss-table maps
 - [ ] 15.6 Devirtualization + bounds-check help
 - [ ] 15.7 Compile-time work (`extern template`, ccache/sccache, C++20 modules evaluation)
 
