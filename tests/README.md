@@ -203,6 +203,14 @@ in `bin/`).
   `[signal 0xc0000005 ...]`; the harness maps it to Go's SIGSEGV line before it compares.
 - `TestWindowsPrograms` runs the programs of `testdata/windows`: what the run tests cannot say (arguments,
   environment, an exit code, UTF-8 output, a stack overflow, big output, a C `exit`).
+- The tests of package os (step 14.3): `windows_sample.txt` holds 43 `os_*` run tests whose Linux expectation holds on
+  Windows, and the 61 `os_win_*` run tests carry a `//go:build windows` line, so `TestRun` skips them and `TestRunWindows` runs
+  them: their `// Output:` is what **Go 1.25.14 built for Windows** (`GOOS=windows go build`, the dev shell's Go) prints when
+  it runs on the real PC, checked against gocpp's output there (a sweep of `os_*` in both, on the PC, gave the same output
+  for 101 of 114; the others use Linux-only API). `windows_skip.txt` says, for each other `os_*` test, which `os_win_*` twin
+  replaces it or why it cannot run. `TestWindowsConsole` runs `testdata/windows/console.gp` in a real console (a pseudo
+  console over `ssh -tt`, `internal/winssh.RunConsole`: needs `GOCPP_WINDOWS_SSH`, skips under Wine) and compares what the
+  screen shows: UTF-8 through `fmt` and `os.Stdout`, stderr, and a read of the console.
 - `TestWineIsolation` is the canary: it runs `hello.exe` in a fresh Wine environment and checks that
   `~/.wine`, `~/.local/share/applications`, `~/.config/menus` and `~/.cache/wine` are as they were, that
   the prefix is in the test's folder, and that no process of the environment survives `Close`.

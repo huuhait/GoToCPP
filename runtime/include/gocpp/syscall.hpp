@@ -164,4 +164,45 @@ std::tuple<gp::string, int64_t> sys_nodename();
 // sys_exit is gp::os::exit (flush, leak check in an ASan build, _exit): no deferred function runs.
 [[noreturn]] void sys_exit(int64_t code);
 
+// --- Windows (Phase 14, step 14.3; ADR-076; implemented in src/os/windows/win_syscall.cpp) ---
+//
+// Go's package syscall on Windows reaches the system through Syscall and LoadLibrary, which Go's
+// runtime provides; stdlib/syscall/dll_windows.gp takes them from these natives, and everything
+// above them (the system calls of syscall, internal/syscall/windows, internal/poll, os) is Go's own
+// code. Declared for every system (standard C++ only), defined on Windows only.
+
+// win_syscall15 calls the function at address trap with nargs integer arguments (a1..a15, the rest
+// is ignored) on the calling thread, with the Windows x64 calling convention, and returns (RAX,
+// 0, GetLastError() read right after the call: a double that the function returns in XMM0 is lost).
+// The pointers in the arguments are addresses of memory the caller keeps alive (a gocpp object does
+// not move).
+std::tuple<uintptr_t, uintptr_t, uintptr_t>
+win_syscall15(uintptr_t trap, uintptr_t nargs, uintptr_t a1, uintptr_t a2, uintptr_t a3,
+              uintptr_t a4, uintptr_t a5, uintptr_t a6, uintptr_t a7, uintptr_t a8, uintptr_t a9,
+              uintptr_t a10, uintptr_t a11, uintptr_t a12, uintptr_t a13, uintptr_t a14,
+              uintptr_t a15);
+
+// win_syscall_n is win_syscall15 for up to 42 arguments (Go's limit), given as a slice; the second
+// result is 0 (a function that returns a double leaves it in XMM0, which C++ cannot read here).
+std::tuple<uintptr_t, uintptr_t, uintptr_t> win_syscall_n(uintptr_t trap,
+                                                          const gp::slice<uintptr_t>& args);
+
+// win_loadlibrary is LoadLibraryW(name); win_loadsystemlibrary is LoadLibraryExW(name, 0,
+// LOAD_LIBRARY_SEARCH_SYSTEM32): they return (HMODULE, 0) or (0, GetLastError()). name is the
+// address of a NUL-terminated UTF-16 string. win_getprocaddress is GetProcAddress(handle, name)
+// with the address of a NUL-terminated ASCII name: (address, 0) or (0, GetLastError()).
+std::tuple<uintptr_t, uintptr_t> win_loadlibrary(uintptr_t name);
+std::tuple<uintptr_t, uintptr_t> win_loadsystemlibrary(uintptr_t name);
+std::tuple<uintptr_t, uintptr_t> win_getprocaddress(uintptr_t handle, uintptr_t name);
+
+// win_setenv and win_unsetenv put the variable into the C library's copy of the environment too
+// (and keep an empty value in the system's block); key and value are the addresses of
+// NUL-terminated UTF-16 strings, the ones that Go's Setenv already made, so unpaired surrogates
+// stay as they are.
+void win_setenv(uintptr_t key, uintptr_t value);
+void win_unsetenv(uintptr_t key);
+
+// sys_flush_stdio flushes C's stdio before a write to a standard handle (flush_c_stdio).
+void sys_flush_stdio();
+
 } // namespace gp::syscall

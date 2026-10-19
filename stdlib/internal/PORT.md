@@ -11,7 +11,7 @@ copied as it is, except for what this table says.
 | `internal/byteorder` | `src/internal/byteorder/byteorder.go` | None. |
 | `internal/cpu` | `src/internal/cpu/cpu.go` | A stub: every feature variable is false, so ported packages take their portable branch (`CacheLinePadSize` is 64, 128 on arm64). |
 | `internal/godebug` | `src/internal/godebug/godebug.go` | `Setting` reads `$GODEBUG` at each call (a native `env`); no table of known settings and defaults, no metrics, no runtime hook. |
-| `internal/goarch`, `internal/goos` | `src/internal/goarch`, `src/internal/goos` | `amd64` and `arm64`, `linux` and `windows` only (the targets of ADR-021); the generated `z*` files are written by hand in the same shape. |
+| `internal/goarch`, `internal/goos` | `src/internal/goarch`, `src/internal/goos` | `amd64` and `arm64`, `linux` and `windows` (the targets of ADR-021) and `darwin` (`zgoos_darwin.gp`, so that the loader's tests for every system that Go knows type-check `runtime`); the generated `z*` files are written by hand in the same shape. `runtime.GOOS` and `runtime.GOARCH` are `goos.GOOS` and `goarch.GOARCH` (step 14.3): the target's, not constants. |
 | `internal/itoa`, `internal/oserror` | the same | None. |
 | `internal/race` | `src/internal/race/norace.go` | Without `ReadObjectPC` and `WriteObjectPC` (they take an `*abi.Type`). |
 | `internal/stringslite` | `src/internal/stringslite/strings.go` | None (it imports `internal/bytealg`). |

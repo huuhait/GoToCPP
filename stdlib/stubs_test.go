@@ -137,12 +137,14 @@ func (f importerFunc) Import(path string) (*types.Package, error) { return f(pat
 // TestStubsTypeCheck loads every stub package with load.Load and
 // type-checks it with stock go/types, with 0 errors.
 func TestStubsTypeCheck(t *testing.T) {
-	prog, errs := loadAndCheck(t, load.Config{}, t.TempDir(), stubPackages(t)...)
+	// (The packages of stdlib.WindowsOnly have no file for the default system, Linux.)
+	paths := slices.DeleteFunc(stubPackages(t), func(p string) bool { return slices.Contains(stdlib.WindowsOnly, p) })
+	prog, errs := loadAndCheck(t, load.Config{}, t.TempDir(), paths...)
 	if errs != "" {
 		t.Errorf("errors:\n%s", errs)
 	}
-	if n := len(prog.Roots); n != len(stubPackages(t)) {
-		t.Errorf("%d packages loaded, want %d", n, len(stubPackages(t)))
+	if n := len(prog.Roots); n != len(paths) {
+		t.Errorf("%d packages loaded, want %d", n, len(paths))
 	}
 }
 
@@ -192,9 +194,6 @@ func TestExamplesTypeCheck(t *testing.T) {
 						continue
 					}
 					systems++
-					if errs != "" && goos == "windows" && windowsGap(errs) {
-						continue
-					}
 					if errs != "" {
 						t.Errorf("%s, Tests %v:\n%s", goos, tests, errs)
 					}
@@ -205,20 +204,4 @@ func TestExamplesTypeCheck(t *testing.T) {
 			}
 		})
 	}
-}
-
-// windowsGap reports whether every error block of errs (the lines "# pkg" or "# pkg (go/types)"
-// start them) belongs to a package of LinuxOnly: the standard packages that have files for Linux
-// only so far.
-func windowsGap(errs string) bool {
-	blocks := 0
-	for _, line := range strings.Split(errs, "\n") {
-		if pkg, ok := strings.CutPrefix(line, "# "); ok {
-			blocks++
-			if f := strings.Fields(pkg); len(f) == 0 || !slices.Contains(stdlib.LinuxOnly, f[0]) {
-				return false
-			}
-		}
-	}
-	return blocks > 0
 }

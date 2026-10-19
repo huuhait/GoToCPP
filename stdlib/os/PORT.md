@@ -71,3 +71,36 @@ stat_linux.go stat_unix.go sys.go sys_linux.go sys_unix.go tempfile.go types.go 
   before, as for the `fmt` shim and the builtin `print`.
 - `os.Exit` is `syscall.Exit`, which is `gp::os::exit` (step 8.9): C stdio is flushed, no deferred function runs, no static
   destructor, the ASan leak check runs first.
+
+## Windows (step 14.3, ADR-076)
+
+For `windows/amd64` the package is the same shared files (`dir.gp env.gp error.gp error_errno.gp executable.gp file.gp file_posix.gp getwd.gp
+path.gp proc.gp rawconn.gp removeall_noat.gp stat.gp sys.gp tempfile.gp types.gp gocpp_helpers.gp`, which carry no build line, or one that
+holds on Windows) and Go's own Windows files, selected by their `_windows` names: `dir_windows.gp executable_windows.gp file_windows.gp
+path_windows.gp stat_windows.gp sys_windows.gp types_windows.gp` (go1.25.14, `src/os`). `stat_windows`, `types_windows`, `path_windows`,
+`sys_windows` and `executable_windows` are Go's files byte for byte; the other two have these edits (the same rules as the Linux files):
+
+- `file_windows.gp`: no `runtime.SetFinalizer`/`KeepAlive` (an unclosed `*File` keeps its handle until the program ends); `File.dirinfo` is the
+  mutex-protected `dirInfoPointer` of `gocpp_helpers.gp`; `newFile` does not ask `windows.IsNonblock` (**a handle opened with
+  `FILE_FLAG_OVERLAPPED` that is given to `NewFile` is used with synchronous calls, which the system refuses**: every handle that package os
+  opens is synchronous, `syscall.Open`'s and `CreatePipe`'s are); `net_newWindowsFile` (for package net) is gone.
+- `dir_windows.gp`: no `runtime.KeepAlive`.
+
+Not taken: `root_windows.go` and the `Root` family (`stubPackage.Missing`, as on Linux), `removeall_at.go`/`removeall_windows.go` (the
+`NtCreateFile` based `RemoveAll`; `removeall_noat.gp`, the path walking version, serves: the differences listed above for Linux apply, except that
+Windows' own error texts show), `exec.go`/`exec_windows.go`/`exec_posix.go`, written again as `process_windows.gp`: a `Process` that owns the
+handle that `FindProcess` opened (`OpenProcess`), `Kill` is `TerminateProcess`, `Wait` is `WaitForSingleObject` + `GetExitCodeProcess`, `Release` returns
+`EINVAL` the second time, `ProcessState.String` prints `exit status 0xc0000005` for large codes; `StartProcess` fails with `ENOSYS` (os/exec comes
+later). `os.Args` is the runtime's (Go's `init` splits `GetCommandLine`; the runtime did it at the start with the same rules, ADR-053).
+`os.Environ`, `Getenv`, `Setenv` (case-insensitive names, `=C:` entries) are the system's block through `syscall`.
+
+What the tests found about Windows that a Linux programmer would not expect (all the same as real Go's): `Remove` of an open file fails
+(sharing violation), `Rename` over an open file is `Access is denied`, names are case-insensitive and lose trailing dots, `a:b` makes an NTFS stream,
+`Chmod` is the read-only attribute, `Mode` is `-rw-rw-rw-`/`-r--r--r--`/`drwxrwxrwx`, `Getuid` is -1, `SameFile` compares volume and file index,
+`Close` of a pipe wakes a blocked `Read` (`CancelIoEx`; on Linux the reader stays blocked), and a program without the long-path manifest cannot
+`Chdir` into a path of more than 260 characters (Go's linker writes the manifest, gocpp's driver does not yet: step 14.2).
+
+Differences from Go 1.25.14 that remain (`tests/run/os_win_*.gp` compare with Go 1.25.14 built for Windows and run on the same PC): `CanUseLongPaths` is
+false, so package os adds `\\?\` to long paths itself (`fixLongPath`); `NewFile` of an overlapped pipe is not supported; no finalizers. The console
+paths (`readConsole`/`writeConsole`, Go's code) run in `TestWindowsConsole` (`tests/windows_programs_test.go`, a pseudo console over `ssh -tt`
+through `internal/winssh.RunConsole`): UTF-8 through `fmt` and `os.Stdout`, `Stat` says character device, and a console read gives UTF-8.

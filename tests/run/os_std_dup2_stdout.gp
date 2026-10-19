@@ -1,5 +1,7 @@
 // phase: 09
 
+//go:build linux
+
 package main
 
 import (

@@ -2,12 +2,13 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build unix
+
 package poll
 
 import (
 	"errors"
 	"syscall"
-	"time"
 )
 
 // pollDesc is Go's handle on the runtime poller. gocpp has no poller (every goroutine is an OS
@@ -61,21 +62,3 @@ func (pd *pollDesc) waitWrite(isFile bool) error { return pd.wait('w', isFile) }
 func (pd *pollDesc) waitCanceled(mode int) {}
 
 func (pd *pollDesc) pollable() bool { return pd.ok }
-
-// SetDeadline sets the read and write deadlines associated with fd.
-func (fd *FD) SetDeadline(t time.Time) error {
-	return ErrNoDeadline
-}
-
-// SetReadDeadline sets the read deadline associated with fd.
-func (fd *FD) SetReadDeadline(t time.Time) error {
-	return ErrNoDeadline
-}
-
-// SetWriteDeadline sets the write deadline associated with fd.
-func (fd *FD) SetWriteDeadline(t time.Time) error {
-	return ErrNoDeadline
-}
-
-// IsPollDescriptor reports whether fd is the descriptor being used by the poller: never.
-func IsPollDescriptor(fd uintptr) bool { return false }

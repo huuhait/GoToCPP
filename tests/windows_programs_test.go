@@ -98,10 +98,69 @@ var windowsPrograms = []windowsProgram{
 		},
 	},
 	{
+		// The same through package os: one write of 1.7 MB, then lines by os.Stdout and by fmt, in order.
+		name: "osout", phase: 9,
+		check: func(t *testing.T, stdout string) {
+			lines := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
+			if len(lines) != 20000+200+1 {
+				t.Fatalf("%d lines, want 20201", len(lines))
+			}
+			if lines[0] != "line 0 of a large output written through package os, longer than any pipe buffer" ||
+				lines[19999] != "line 19999 of a large output written through package os, longer than any pipe buffer" {
+				t.Errorf("the big write starts %q and ends %q", lines[0], lines[19999])
+			}
+			for i := 0; i < 100; i++ {
+				if lines[20000+2*i] != fmt.Sprintf("line %d via WriteString", 20000+i) || lines[20001+2*i] != fmt.Sprintf("line %d via fmt", 20000+i) {
+					t.Fatalf("line %d is %q then %q", 20000+2*i, lines[20000+2*i], lines[20001+2*i])
+				}
+			}
+			if lines[20200] != "end" {
+				t.Errorf("the last line is %q", lines[20200])
+			}
+		},
+	},
+	{
 		// To a pipe, text is written as the UTF-8 it is (to a console the runtime writes UTF-16:
 		// Phase 14 checks that on a real console).
 		name: "unicode", phase: 6, stdout: "h\u00e9llo \u4e16\u754c \U0001F642\n\"\u4e16\" 6\n",
 	},
+}
+
+// TestWindowsConsole runs tests/testdata/windows/console.gp on a real PC with a console (ssh -tt: a
+// pseudo console, ConPTY), which Wine cannot give: the program's output through fmt and os.Stdout
+// (WriteConsoleW, with UTF-8 turned into UTF-16), stderr in the same console, and a read of the console
+// (ReadConsoleW back to UTF-8), as the user of a terminal window sees it. (Step 14.3.)
+func TestWindowsConsole(t *testing.T) {
+	if os.Getenv("GOCPP_TEST_TARGET") != "windows" {
+		t.Skip("GOCPP_TEST_TARGET=windows turns it on")
+	}
+	if windowsHost() == "" {
+		t.Skip("needs a real Windows PC (GOCPP_WINDOWS_SSH=user@host): Wine has no pseudo console over ssh")
+	}
+	c := setup(t)
+	dir := filepath.Join(repoRoot, "tests", "testdata", "windows")
+	exe := filepath.Join(t.TempDir(), "console.exe")
+	b := c.run(t, gocppJob(dir, nil, "", 9, "build", "-os", "windows", "-o", exe, "console.gp"))
+	if b.problem != "" || b.exit != 0 {
+		t.Fatalf("%s: %s\n%s", b.cmd, b.why(), indent(string(b.stderr)))
+	}
+	w := winrunner(t)
+	screen, code, err := w.remote.RunConsole(t.Context(), 3*time.Minute, exe, "type: ", "h\u00e9llo w\u00f6rld\r\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != 0 {
+		t.Errorf("exit code %d, want 0", code)
+	}
+	want := "console: <nil> true\n" +
+		"fmt: h\u00e9llo \u4e16\u754c \U0001F642\n" +
+		"os: h\u00e9llo \u4e16\u754c \U0001F642\n" +
+		"err: \u00e9\n" +
+		"type: h\u00e9llo w\u00f6rld\n" +
+		"read 15 <nil> \"h\u00e9llo w\u00f6rld\\r\\n\"\n"
+	if screen != want {
+		t.Errorf("the screen shows\n%q\nwant\n%q", screen, want)
+	}
 }
 
 func firstN(s string, n int) string { return s[:min(len(s), n)] }
@@ -134,7 +193,7 @@ func TestWindowsPrograms(t *testing.T) {
 			}
 			w.sem <- struct{}{}
 			defer func() { <-w.sem }()
-			r := w.execute(t, c, dir, exe, p.args, p.env, p.name+".exe "+strings.Join(p.args, " "), p.name == "large")
+			r := w.execute(t, c, dir, exe, p.args, p.env, p.name+".exe "+strings.Join(p.args, " "), p.name == "large" || p.name == "osout")
 			if r.problem != "" {
 				t.Fatalf("%s: %s\nstderr:\n%s", r.cmd, r.problem, indent(string(r.stderr)))
 			}

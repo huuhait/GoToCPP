@@ -257,3 +257,92 @@ func (r *Remote) Run(ctx context.Context, timeout time.Duration, exe string, env
 	}
 	return res, nil
 }
+
+// vtRx matches the terminal control sequences that the pseudo console (ConPTY) writes around a
+// program's output: CSI sequences (ESC [ ... letter) and OSC sequences (ESC ] ... BEL).
+var vtRx = regexp.MustCompile("\x1b\\[[0-9;?]*[A-Za-z]|\x1b\\][^\x07]*\x07")
+
+// A markerWriter collects what the console shows and tells, once, when the text marker has appeared in it.
+type markerWriter struct {
+	mu     sync.Mutex
+	buf    bytes.Buffer
+	marker []byte
+	seen   chan struct{}
+	done   bool
+}
+
+func (w *markerWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.buf.Write(p)
+	if !w.done && bytes.Contains(w.buf.Bytes(), w.marker) {
+		w.done = true
+		close(w.seen)
+	}
+	return len(p), nil
+}
+
+func (w *markerWriter) sawMarker() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.done
+}
+
+func (w *markerWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
+}
+
+// RunConsole runs exe with a console (ssh -tt: the program's standard handles are the console of a pseudo
+// terminal, as in a terminal window), types the text stdin at it once the console shows prompt (the text
+// that the program writes before it reads: a fixed pause would be a guess), and returns what appeared on
+// the screen with the control sequences taken out and "\r\n" turned into "\n". The console shows what the
+// program writes to both streams, and the characters that are typed (echo), in one stream. The exit code
+// is the program's. An error says the screen if prompt never appeared before the time was up.
+func (r *Remote) RunConsole(ctx context.Context, timeout time.Duration, exe, prompt, stdin string) (output string, code int, err error) {
+	name, err := r.upload(exe)
+	if err != nil {
+		return "", 0, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, "ssh", append(r.sshOpts(), "-tt", "--", r.host, `cd /d gocpp-wintest\`+r.runID+` && .\`+name)...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 5 * time.Second
+	in, err := cmd.StdinPipe()
+	if err != nil {
+		return "", 0, err
+	}
+	out := &markerWriter{marker: []byte(prompt), seen: make(chan struct{})}
+	cmd.Stdout = out
+	cmd.Stderr = out
+	if err := cmd.Start(); err != nil {
+		return "", 0, err
+	}
+	// The text is typed when the prompt is on the screen; the pipe stays open until the program ends (a
+	// closed input ends the session before the output has come).
+	go func() {
+		select {
+		case <-out.seen:
+			in.Write([]byte(stdin))
+		case <-cctx.Done():
+		}
+	}()
+	err = cmd.Wait()
+	in.Close()
+	text := vtRx.ReplaceAllString(out.String(), "")
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	var ee *exec.ExitError
+	switch {
+	case cctx.Err() != nil:
+		kctx, kcancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer kcancel()
+		r.ssh(kctx, `taskkill /F /T /IM `+name+` >nul 2>&1`)
+		return text, 0, fmt.Errorf("the program did not end in %v (prompt %q seen: %v); screen:\n%s", timeout, prompt, out.sawMarker(), text)
+	case errors.As(err, &ee):
+		return text, ee.ExitCode(), nil
+	}
+	return text, 0, err
+}

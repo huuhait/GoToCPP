@@ -1587,9 +1587,13 @@ func TestRealStdlib(t *testing.T) {
 			dir := t.TempDir()
 			cfg := Config{Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: sys[0], GOARCH: sys[1]}
 			paths := paths
-			if sys[0] != "linux" {
-				// os and what it stands on have files for Linux only so far (stdlib.LinuxOnly), and
-				// so have the packages that import them.
+			if sys[0] != "windows" {
+				// The packages of stdlib.WindowsOnly have files for Windows only.
+				paths = slices.DeleteFunc(slices.Clone(paths), func(p string) bool { return slices.Contains(stdlib.WindowsOnly, p) })
+			}
+			if sys[0] == "darwin" {
+				// os and what it stands on have files for Linux and Windows only (stdlib.LinuxOnly: macOS is
+				// not a target), and so have the packages that import them.
 				probe := loadIn(t, cfg, t.TempDir(), paths...)
 				var uses func(p *Package, seen map[*Package]bool) bool
 				uses = func(p *Package, seen map[*Package]bool) bool {

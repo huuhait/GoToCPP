@@ -23,7 +23,7 @@ import (
 // more pattern, and so does a new kind of file (a native .cpp file);
 // TestFSHasEveryFile finds a file that no pattern matches.
 //
-//go:embed LICENSE */*.gp */*/*.gp */*/*/*.gp
+//go:embed LICENSE */*.gp */*/*.gp */*/*/*.gp */*/*/*/*.gp
 var files embed.FS
 
 // FS returns the standard library: a read-only file system whose root is
@@ -80,8 +80,13 @@ func Std() []string {
 	return slices.Clone(std)
 }
 
-// LinuxOnly lists the standard packages that have files for Linux only so far: package os and what
-// it stands on (step 9.6). Windows brings its own files in Phase 14 (and macOS in Phase 15), so the
-// tests that check every package, or an example, for another system leave these packages out until
-// then (their errors for that system are not failures).
+// LinuxOnly lists the standard packages that have files for Linux and Windows only: package os and
+// what it stands on (step 9.6; Windows since step 14.3). macOS is not a target (Phase 14 README), so
+// the tests that check every package for a system that Go knows (darwin) leave these packages out
+// (their errors for that system are not failures).
 var LinuxOnly = []string{"os", "syscall", "internal/poll", "internal/filepathlite"}
+
+// WindowsOnly lists the standard packages that have files for Windows only: Go's internal/syscall/windows
+// and its sysdll (step 14.3), which only Windows' packages import. The tests that load every package
+// for a system leave them out for the others.
+var WindowsOnly = []string{"internal/syscall/windows", "internal/syscall/windows/sysdll"}

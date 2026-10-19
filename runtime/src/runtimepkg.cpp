@@ -150,7 +150,10 @@ int64_t swap_setting(std::atomic<int64_t>& setting, int64_t value, int64_t (*ini
 }
 
 // The table of Func values (stdlib/runtime).
-constinit std::mutex funcs_mu;
+// (No constinit: with the posix thread model of MinGW-w64 (WinLibs, MSYS2) std::mutex has no
+// constexpr constructor; with libstdc++ on Linux and the mcf model it is constant-initialized
+// anyway.)
+std::mutex funcs_mu;
 
 } // namespace
 

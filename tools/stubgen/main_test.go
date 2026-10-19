@@ -352,9 +352,29 @@ func (m *realImporter) Import(p string) (*types.Package, error) {
 // has no other system or architecture suffix, and its //go:build line (if any) holds.
 func linuxFile(name string, src []byte) bool {
 	base := strings.TrimSuffix(name, ".gp")
-	if i := strings.LastIndex(base, "_"); i >= 0 {
-		switch base[i+1:] {
-		case "windows", "darwin", "plan9", "js", "wasip1", "freebsd", "netbsd", "openbsd", "arm64", "arm", "386":
+	// Go's rule for names: name_GOOS, name_GOARCH or name_GOOS_GOARCH (the system part of a double
+	// suffix counts too: types_windows_amd64.gp is a Windows file, not a Linux one).
+	parts := strings.Split(base, "_")
+	otherOS := func(s string) bool {
+		switch s {
+		case "windows", "darwin", "plan9", "js", "wasip1", "freebsd", "netbsd", "openbsd", "aix", "android", "dragonfly", "illumos", "ios", "solaris", "hurd", "zos":
+			return true
+		}
+		return false
+	}
+	otherArch := func(s string) bool {
+		switch s {
+		case "arm64", "arm", "386", "loong64", "mips", "mipsle", "mips64", "mips64le", "ppc64", "ppc64le", "riscv64", "s390x", "wasm", "sparc64":
+			return true
+		}
+		return false
+	}
+	if n := len(parts); n >= 2 {
+		last := parts[n-1]
+		if otherOS(last) || otherArch(last) {
+			return false
+		}
+		if last == "amd64" && n >= 3 && otherOS(parts[n-2]) {
 			return false
 		}
 	}

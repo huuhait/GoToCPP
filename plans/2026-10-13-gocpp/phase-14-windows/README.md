@@ -129,6 +129,23 @@ table above changed:
 - Go's Windows code calls the Win32 API through `syscall` (loading DLLs, `syscall.SyscallN`). gocpp
   replaces that one layer with a native `internal/syscall/windows` built on the `<windows.h>`
   header package, so the code above it ports mechanically.
+- **14.3 as built (2026-10-19, [ADR-076](../../../docs/adr/076-os-on-windows-over-a-generic-syscall.md)).** The sketch above (a native
+  `internal/syscall/windows` on `<windows.h>`) became something smaller and closer to Go: the bottom layer is Go's own runtime interface,
+  four natives (`win_syscall15`, `win_loadlibrary`, `win_loadsystemlibrary`, `win_getprocaddress`), and everything above is **Go's
+  `_windows.go` files**, cut to what package os needs: `syscall` (`dll`, `env`, `exec` without `StartProcess`, `syscall`, `types`,
+  `zerrors`, `zsyscall`, `wtf8`), `internal/syscall/windows`, `internal/poll` (`fd_windows.go` reduced to blocking handles: no IOCP; `Close`
+  of a pipe wakes its readers with `CancelIoEx`), `internal/filepathlite` (`path_windows.go` whole), and `os` (`dir`, `executable`, `file`,
+  `path`, `stat`, `sys`, `types` `_windows.go`, a new `process_windows.gp`). `tools/portstd` needed no run for `GOOS=windows`: none of the
+  packages it has ported (`errors`, `math`, `math/bits`, `strconv`, `unicode`, `unicode/utf16`, `unicode/utf8` ...) has a file that differs
+  between `linux` and `windows` (checked with `go list`). `runtime.GOOS` follows the target; `std.txt` is the union of both systems'
+  `go list std`; `stdlib.LinuxOnly` no longer hides Windows errors (`TestCheckTarget/windows/*` pass); the MinGW headers' 756 extra macros are
+  reserved names (`cxx_macros.txt`). Tests: `tests/run/os_win_*.gp` (61) have the output of **Go 1.25.14 built for Windows and run on the same
+  real PC** as their expectation, 43 existing `os_*` tests run on Windows unchanged (`tests/windows_sample.txt`), `runtime/test/winos_test.cpp`
+  checks the natives; all of it ran on the real PC over ssh. **Left for later steps**: `os/exec` and `os.StartProcess` (the Go code is
+  there to port: `syscall/exec_windows.go`'s `StartProcess`), `os/signal` (Ctrl-C), `net`, `time`'s local zone and `LoadLocation` (Go reads
+  the registry and its own `zoneinfo.zip`: `time.Local` is UTC), the long-path-aware manifest (a build-driver job: step 14.2; without it
+  `Chdir` into a path of more than 260 characters fails), a console that a user types at (`TestWindowsConsole` runs the console paths in a pseudo console over `ssh -tt`; a real terminal window is step 14.7's checklist), `NewCallback`,
+  the registry, UCRT (llvm-mingw's headers may define macros that the list does not know).
 - Linux-only by nature: `-race`, because ThreadSanitizer doesn't support Windows. AddressSanitizer
   and UBSan work with clang's MinGW target.
 

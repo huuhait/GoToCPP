@@ -1,3 +1,64 @@
 # Run tests that TestRunWindows leaves out even with GOCPP_TEST_WINDOWS=all, "name: reason". The
 # tests that a //go:build line leaves out for windows/amd64 skip by themselves (their line says
-# so); these are OS-independent tests that hit a known gap of the Windows runtime (none today: 14.1 reads the PE file for the frames of a trace).
+# so); these are OS-independent tests that hit a known gap of the Windows runtime (none today: 14.1 reads the PE file for the frames of a trace),
+# and the tests of package os whose Linux expectation is not Windows' (step 14.3): most have a twin os_win_* with the
+# output of real Go on Windows.
+os_chtimes_modtime: its output is Linux's (error texts, modes, paths); Windows' is os_win_chtimes_modtime
+os_create_truncates: its output is Linux's (error texts, modes, paths); Windows' is os_win_create_truncates
+os_devnull: its output is Linux's (error texts, modes, paths); Windows' is os_win_devnull
+os_dir_chdir_getwd: its output is Linux's (error texts, modes, paths); Windows' is os_win_dir_chdir_getwd
+os_dir_mkdir_semantics: its output is Linux's (error texts, modes, paths); Windows' is os_win_dir_mkdir_semantics
+os_dir_mkdirall: its output is Linux's (error texts, modes, paths); Windows' is os_win_dir_mkdirall
+os_dir_readdir_sorted: its output is Linux's (error texts, modes, paths); Windows' is os_win_dir_readdir_sorted
+os_dir_readdirnames_readdir: its output is Linux's (error texts, modes, paths); Windows' is os_win_dir_readdirnames_readdir
+os_dir_remove: its output is Linux's (error texts, modes, paths); Windows' is os_win_dir_remove
+os_dir_removeall: its output is Linux's (error texts, modes, paths); Windows' is os_win_dir_removeall
+os_dir_removeall_deep_tree: its output is Linux's (error texts, modes, paths); Windows' is os_win_dir_removeall_deep_tree
+os_dirfs_basic: its output is Linux's (error texts, modes, paths); Windows' is os_win_dirfs_basic
+os_dirfs_walkdir: its output is Linux's (error texts, modes, paths); Windows' is os_win_dirfs_walkdir
+os_env_ccall_sees_setenv: prints the user's folders or $HOME, which differ on Windows (see os_win_userdirs, os_win_env_case)
+os_env_setenv_errors: its output is Linux's (error texts, modes, paths); Windows' is os_win_env_setenv_errors
+os_err_closed_file: its output is Linux's (error texts, modes, paths); Windows' is os_win_err_closed_file
+os_err_link_error: its output is Linux's (error texts, modes, paths); Windows' is os_win_err_link_error
+os_err_path_error_fields: its output is Linux's (error texts, modes, paths); Windows' is os_win_err_path_error_fields
+os_err_syscall_error: its output is Linux's (error texts, modes, paths); Windows' is os_win_err_syscall_error
+os_file_fd_name: prints handle numbers, which are the system's
+os_file_o_sync_dsync: its output is Linux's (error texts, modes, paths); Windows' is os_win_file_o_sync_dsync
+os_file_seek: its output is Linux's (error texts, modes, paths); Windows' is os_win_file_seek
+os_file_stat_fields: its output is Linux's (error texts, modes, paths); Windows' is os_win_file_stat_fields
+os_file_sync_chmod: its output is Linux's (error texts, modes, paths); Windows' is os_win_file_sync_chmod
+os_file_truncate: its output is Linux's (error texts, modes, paths); Windows' is os_win_file_truncate
+os_file_write_empty: its output is Linux's (error texts, modes, paths); Windows' is os_win_file_write_empty
+os_link_hardlink: its output is Linux's (error texts, modes, paths); Windows' is os_win_link_hardlink
+os_link_lstat_vs_stat: its output is Linux's (error texts, modes, paths); Windows' is os_win_link_lstat_vs_stat
+os_link_rename_dir_over_dir: its output is Linux's (error texts, modes, paths); Windows' is os_win_link_rename_dir_over_dir
+os_link_rename_file: its output is Linux's (error texts, modes, paths); Windows' is os_win_link_rename_file
+os_link_symlink_readlink: its output is Linux's (error texts, modes, paths); Windows' is os_win_link_symlink_readlink
+os_open_directory_read: its output is Linux's (error texts, modes, paths); Windows' is os_win_open_directory_read
+os_open_empty_name: its output is Linux's (error texts, modes, paths); Windows' is os_win_open_empty_name
+os_open_flags_trunc_excl: its output is Linux's (error texts, modes, paths); Windows' is os_win_open_flags_trunc_excl
+os_open_nul_in_name: its output is Linux's (error texts, modes, paths); Windows' is os_win_open_nul_in_name
+os_open_rdonly_write_error: its output is Linux's (error texts, modes, paths); Windows' is os_win_open_rdonly_write_error
+os_path_invalid_utf8_names: its output is Linux's (error texts, modes, paths); Windows' is os_win_path_invalid_utf8_names
+os_path_long_names: uses names, signals or file types that only Linux has: it fails with real Go on Windows too
+os_path_symlink_loop: its output is Linux's (error texts, modes, paths); Windows' is os_win_path_symlink_loop
+os_path_trailing_slash_dots: its output is Linux's (error texts, modes, paths); Windows' is os_win_path_trailing_slash_dots
+os_path_unicode_names: its output is Linux's (error texts, modes, paths); Windows' is os_win_path_unicode_names
+os_perm_chmod_modes: its output is Linux's (error texts, modes, paths); Windows' is os_win_perm_chmod_modes
+os_perm_denied_dir: its output is Linux's (error texts, modes, paths); Windows' is os_win_perm_denied_dir
+os_perm_denied_read: its output is Linux's (error texts, modes, paths); Windows' is os_win_perm_denied_read
+os_pipe_close_queued_reader: its output is Linux's (error texts, modes, paths); Windows' is os_win_pipe_close_queued_reader
+os_pipe_epipe_not_stdout: its output is Linux's (error texts, modes, paths); Windows' is os_win_pipe_epipe_not_stdout
+os_proc_executable: its output is Linux's (error texts, modes, paths); Windows' is os_win_proc_executable
+os_proc_exit_code_range: os.Exit(261) is 5 on Linux and 261 on Windows (exit codes are 32 bits there); the harness takes 0 to 255 only
+os_proc_ids: its output is Linux's (error texts, modes, paths); Windows' is os_win_proc_ids
+os_proc_signal_self: uses names, signals or file types that only Linux has: it fails with real Go on Windows too
+os_readfile_proc: its output is Linux's (error texts, modes, paths); Windows' is os_win_readfile_proc
+os_readfile_writefile: its output is Linux's (error texts, modes, paths); Windows' is os_win_readfile_writefile
+os_stat_fifo: its output is Linux's (error texts, modes, paths); Windows' is os_win_stat_fifo
+os_stat_file_info_string: its output is Linux's (error texts, modes, paths); Windows' is os_win_stat_file_info_string
+os_stat_modes_special: uses names, signals or file types that only Linux has: it fails with real Go on Windows too
+os_temp_createtemp: uses names, signals or file types that only Linux has: it fails with real Go on Windows too
+os_temp_mkdirtemp: uses names, signals or file types that only Linux has: it fails with real Go on Windows too
+os_temp_tempdir_env: prints the user's folders or $HOME, which differ on Windows (see os_win_userdirs, os_win_env_case)
+os_temp_userdirs: prints the user's folders or $HOME, which differ on Windows (see os_win_userdirs, os_win_env_case)

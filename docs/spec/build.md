@@ -364,6 +364,16 @@ build programs with the driver and run them under Wine:
 | goroutines on threads, channels, `select`, `sync` | |
 | a stack overflow (message and exit 2), the 8 MiB main stack, big programs | |
 | `defer`, `recover`, maps, strings, closures, generics | |
+| package `os` and `syscall` (step 14.3, [ADR-076](../adr/076-os-on-windows-over-a-generic-syscall.md)): files, directories, `RemoveAll`, environment, `Stat`, hard and symbolic links, pipes, `Chmod`, long paths, `Hostname`, `Executable`, `FindProcess` | `os/exec` and `StartProcess`, `os/signal`, `net`; a long-path-aware manifest (so `Chdir` to a path of more than 260 characters fails); `time.Local` (UTC) and zone names |
+
+**Package `os` on Windows (step 14.3).** `syscall`, `internal/syscall/windows`, `internal/poll`, `internal/filepathlite` and `os` are Go's own
+Windows files, cut to what a program needs and compiled with the program; the only natives are four (a call of a function by address,
+`LoadLibrary`, `GetProcAddress`). So the errors, their texts (`The system cannot find the file specified.`), the permission bits
+(`Chmod` is the read-only attribute), `\\?\` long paths, `SameFile`, reparse points, case-insensitive environment names and the sharing rules of
+Windows are Go's. `tests/run/os_win_*.gp` (`//go:build windows`) carry the output of **Go 1.25.14 built for Windows and run on the real PC** as
+their expectation; `tests/windows_sample.txt` also has the 43 `os_*` tests whose Linux output is Windows' too, and `tests/windows_skip.txt`
+says why the others are left out. Run them with
+`GOCPP_TEST_TARGET=windows GOCPP_WINDOWS_SSH=user@host go test ./tests -run TestRunWindows`.
 
 Result of `GOCPP_TEST_WINDOWS=all` (2026-10-18, dev shell: MinGW-w64 msvcrt, Wine): 827 OS-independent run
 tests built for windows/amd64 and run, 826 passed on the first run; the one failure was Wine's own

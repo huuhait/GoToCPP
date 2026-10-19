@@ -193,3 +193,13 @@ func (fd *FD) decref() error {
 	}
 	return nil
 }
+
+// closing reports whether the descriptor is closing (Close has been called).
+func (fd *FD) closing() bool {
+	return fd.fdmu.state.Load()&mutexClosed != 0
+}
+
+// refs returns the number of references (the one Close holds counts).
+func (mu *fdMutex) refs() uint64 {
+	return (mu.state.Load() & mutexRefMask) / mutexRef
+}

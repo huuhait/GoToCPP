@@ -226,6 +226,9 @@ internal/sync
 internal/synctest
 internal/syscall/execenv
 internal/syscall/unix
+internal/syscall/windows
+internal/syscall/windows/registry
+internal/syscall/windows/sysdll
 internal/sysinfo
 internal/syslist
 internal/testenv

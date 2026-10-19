@@ -34,19 +34,23 @@ func goListStd(t *testing.T) ([]string, string) {
 		t.Skip("no go command")
 	}
 	// GOAMD64=v1: the list depends on it (runtime/race/internal/amd64v1 or amd64v3), and std.txt
-	// is written with the default, v1.
-	list := exec.Command("go", "list", "std")
-	list.Env = append(os.Environ(), "GOAMD64=v1")
-	out, err := list.Output()
-	if err != nil {
-		t.Fatalf("go list std: %v", err)
-	}
+	// is written with the default, v1. The list is the union of the two systems' (Phase 14,
+	// step 14.3): Windows adds internal/syscall/windows and its folders.
 	var paths []string
-	for _, p := range strings.Fields(string(out)) {
-		if !strings.HasPrefix(p, "vendor/") {
-			paths = append(paths, p)
+	for _, goos := range []string{"linux", "windows"} {
+		list := exec.Command("go", "list", "std")
+		list.Env = append(os.Environ(), "GOAMD64=v1", "GOOS="+goos, "GOARCH=amd64")
+		out, err := list.Output()
+		if err != nil {
+			t.Fatalf("GOOS=%s go list std: %v", goos, err)
+		}
+		for _, p := range strings.Fields(string(out)) {
+			if !strings.HasPrefix(p, "vendor/") && !slices.Contains(paths, p) {
+				paths = append(paths, p)
+			}
 		}
 	}
+	slices.Sort(paths)
 	v, err := exec.Command("go", "env", "GOVERSION").Output()
 	if err != nil {
 		t.Fatalf("go env GOVERSION: %v", err)

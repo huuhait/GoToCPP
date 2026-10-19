@@ -2356,6 +2356,14 @@ a thread slot, the stack bounds, and the stack-overflow hook. The Windows versio
 starts threads with `CreateThread`, keeps the slot in TLS indexes (so an exception handler can read
 it), and has no forced unwind (`exit_thread` ends the thread without running destructors).
 
+The system calls of package `syscall` on Windows are one more thing behind the OS layer (step 14.3, [ADR-076](../adr/076-os-on-windows-over-a-generic-syscall.md)):
+Go's own Windows code calls the system through four natives in `runtime/src/os/windows/win_syscall.cpp` (`gp::syscall::win_syscall15`
+calls a function pointer with up to 15 integer arguments on the calling thread, clearing and then reading `GetLastError`;
+`win_loadlibrary`, `win_loadsystemlibrary`, `win_getprocaddress`). A Go struct that the system fills (`WIN32_FIND_DATAW`,
+`FILE_ID_BOTH_DIR_INFO`, `OVERLAPPED`) is the C++ struct that the compiler writes, with Go's field order and natural alignment and a
+`static_assert` of its size, so its layout is the system's; a pointer argument is `uintptr(unsafe.Pointer(p))` of an object that does not
+move.
+
 **Portability notes for the C++ the compiler writes and the runtime (Windows, LLP64).** `long` is 32 bits
 on Windows, so `int64_t` is `long long` there and `long` is `int32`: `%T` of a C `long long` prints `int`
 (as does `int64_t`: C++ cannot tell them apart), and a C `long` prints `int32`. Output never goes

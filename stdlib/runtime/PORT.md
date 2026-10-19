@@ -40,3 +40,5 @@ What is different (a goroutine is an OS thread, memory is reference counted, ADR
 Not built: `AddCleanup`, `Breakpoint`, `CPUProfile`, `MemProfile`, `BlockProfile`, `MutexProfile`, `GoroutineProfile`,
 `ThreadCreateProfile`, `StackRecord`, `MemProfileRecord`, the trace and metrics functions. `runtime/debug`: `ReadBuildInfo`, `ReadGCStats`, `SetCrashOutput`, `WriteHeapDump`
 and `SetMemoryLimit`'s enforcement (the limit is stored) come with Phase 09 or are never built.
+
+- Step 14.3: `GOOS` and `GOARCH` are `goos.GOOS` and `goarch.GOARCH` (the files of `internal/goos` and `internal/goarch` that the target selects), not the constants `"linux"` and `"amd64"`, so a program built with `-os windows` has `runtime.GOOS == "windows"` and the packages that switch on it (`os.UserHomeDir`, `os.Process`) follow.

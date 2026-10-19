@@ -1,7 +1,9 @@
 # The sample that TestRunWindows (GOCPP_TEST_TARGET=windows) runs by default: OS-independent run
 # tests that cover the pieces of the runtime that the Windows OS layer carries (goroutines on
 # threads, channels, select, panics and their exit code and messages, defer and recover, maps,
-# strings, fmt, closures, big stacks). One test a line; every one must also pass on Linux.
+# strings, fmt, closures, big stacks) and package os (Phase 14 step 14.3). One test a line; every one must
+# also pass on Linux, except the os_win_* tests, which have a //go:build windows line (real Go's output on
+# Windows is their expectation).
 algo_bfs
 algo_lru
 algo_primes
@@ -44,3 +46,114 @@ fmt_int_unicode_values
 fmt_string_q_unicode
 assert_panic_error
 errors_as_chain
+
+# Package os (Phase 14 step 14.3): the os tests whose Linux expectation holds on Windows too (found by running
+# each test on a real PC and with Go 1.25.14 built for Windows; tests/run/os_win_*.gp are the ones whose Windows output differs).
+os_dir_file_readdir_n
+os_dir_many_entries
+os_dir_mkdirall_concurrent
+os_env_clearenv
+os_env_concurrent
+os_env_environ
+os_env_expand_env
+os_env_expand_func
+os_env_get_set_unset
+os_env_shared_key_race_free
+os_err_classify
+os_err_read_after_close_pipe
+os_err_sentinel_texts
+os_file_append_mode_concurrent
+os_file_big_sparse
+os_file_concurrent_close
+os_file_concurrent_pread_pwrite
+os_file_create_write_read
+os_file_double_fd_independent_offsets
+os_file_many_fds
+os_file_nil_receiver
+os_file_read_zero_len
+os_file_readat_eof_semantics
+os_file_shared_offset_goroutines
+os_file_write_at_append
+os_file_write_at_read_at
+os_iface_file_satisfies
+os_iface_io_copy_file_to_file
+os_iface_readfrom_writeto
+os_link_same_file
+os_pipe_basic
+os_pipe_large_transfer
+os_pipe_many_writers_readers
+os_proc_exit_code
+os_proc_exit_flushes_stdout
+os_proc_exit_in_goroutine
+os_proc_exit_zero
+os_std_stderr_stdout_order
+os_std_stdin_eof
+os_std_stdin_replaced_by_pipe
+os_std_stdout_replaced_by_file
+os_std_streams_as_values
+os_stdio_fd_numbers_after_close
+
+# The Windows-only tests of package os (//go:build windows; their output is real Go's on Windows).
+os_win_chtimes_modtime
+os_win_create_truncates
+os_win_devnull
+os_win_dir_chdir_getwd
+os_win_dir_mkdir_semantics
+os_win_dir_mkdirall
+os_win_dir_readdir_sorted
+os_win_dir_readdirnames_readdir
+os_win_dir_remove
+os_win_dir_removeall
+os_win_dir_removeall_deep_tree
+os_win_dirfs_basic
+os_win_dirfs_walkdir
+os_win_env_case
+os_win_env_setenv_errors
+os_win_err_closed_file
+os_win_err_link_error
+os_win_err_path_error_fields
+os_win_err_syscall_error
+os_win_errors
+os_win_file_o_sync_dsync
+os_win_file_seek
+os_win_file_stat_fields
+os_win_file_sync_chmod
+os_win_file_truncate
+os_win_file_write_empty
+os_win_link_hardlink
+os_win_link_lstat_vs_stat
+os_win_link_rename_dir_over_dir
+os_win_link_rename_file
+os_win_link_symlink_readlink
+os_win_longpath
+os_win_open_directory_read
+os_win_open_empty_name
+os_win_open_flags_trunc_excl
+os_win_open_nul_in_name
+os_win_open_rdonly_write_error
+os_win_path_invalid_utf8_names
+os_win_path_symlink_loop
+os_win_path_trailing_slash_dots
+os_win_path_unicode_names
+os_win_paths
+os_win_perm_chmod_modes
+os_win_perm_denied_dir
+os_win_perm_denied_read
+os_win_pipe_close
+os_win_pipe_close_queued_reader
+os_win_pipe_epipe_not_stdout
+os_win_proc_executable
+os_win_proc_ids
+os_win_proc_info
+os_win_readfile_proc
+os_win_readfile_writefile
+os_win_readonly
+os_win_samefile
+os_win_sharing
+os_win_stat_fifo
+os_win_stat_file_info_string
+os_win_stdio
+os_win_userdirs
+os_win_syscall_dll
+os_win_env_wtf8
+os_win_offset

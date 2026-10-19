@@ -14,6 +14,7 @@
 // Nothing here depends on timing, except that a sleep lasts at least what it was asked for.
 #include <gocpp/os.hpp>
 #include <gocpp/rt.hpp>
+#include <gocpp/syscall.hpp>
 #include <gocpp/trace.hpp>
 #include "threads_ended.hpp"
 
@@ -597,6 +598,185 @@ void test_library_ref_of_the_program() {
     gp::os::library_unref(nullptr); // nothing
 }
 
+#ifdef _WIN32
+// --- the natives of package syscall (gocpp/syscall.hpp; step 14.3): a call of a system function,
+// LoadLibrary and GetProcAddress, and the environment kept in two places. Only the natives are used
+// (the test folder includes no OS header): the system functions are called through them.
+
+using gp::syscall::win_getprocaddress;
+using gp::syscall::win_loadlibrary;
+using gp::syscall::win_loadsystemlibrary;
+using gp::syscall::win_syscall15;
+using gp::syscall::win_syscall_n;
+
+uintptr_t addr_of(const wchar_t* text) {
+    return reinterpret_cast<uintptr_t>(text);
+}
+
+uintptr_t addr_of(const char* text) {
+    return reinterpret_cast<uintptr_t>(text);
+}
+
+uintptr_t kernel32_proc(const char* name) {
+    auto [mod, e] = win_loadsystemlibrary(addr_of(L"kernel32.dll"));
+    CHECK(mod != 0 && e == 0);
+    auto [proc, e2] = win_getprocaddress(mod, addr_of(name));
+    CHECK(proc != 0 && e2 == 0);
+    return proc;
+}
+
+// call calls the system function at proc with up to 15 arguments.
+template <typename... A>
+std::tuple<uintptr_t, uintptr_t, uintptr_t> call(uintptr_t proc, A... a) {
+    uintptr_t v[15] = {static_cast<uintptr_t>(a)...};
+    return win_syscall15(proc, sizeof...(A), v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8],
+                         v[9], v[10], v[11], v[12], v[13], v[14]);
+}
+
+void test_win_load_library() {
+    auto [mod, e] = win_loadlibrary(addr_of(L"kernel32.dll"));
+    CHECK(mod != 0 && e == 0);
+    auto [sys, e1] = win_loadsystemlibrary(addr_of(L"kernel32.dll"));
+    CHECK(sys == mod && e1 == 0); // the same module
+    // A library that does not exist: ERROR_MOD_NOT_FOUND (126), also for the System32 search.
+    auto [none, e2] = win_loadlibrary(addr_of(L"gocpp-no-such-library.dll"));
+    CHECK(none == 0 && e2 == 126);
+    auto [none2, e3] = win_loadsystemlibrary(addr_of(L"gocpp-no-such-library.dll"));
+    CHECK(none2 == 0 && e3 == 126);
+    // A procedure that does not exist: ERROR_PROC_NOT_FOUND (127).
+    auto [p, e4] = win_getprocaddress(mod, addr_of("GocppNoSuchProcedure"));
+    CHECK(p == 0 && e4 == 127);
+}
+
+void test_win_syscall_results() {
+    uintptr_t pid_proc = kernel32_proc("GetCurrentProcessId");
+    auto [pid, r2, err] = call(pid_proc);
+    CHECK(pid != 0 && err == 0);
+    (void)r2;
+    // The last error is cleared before the call: an old error does not show on a call that
+    // succeeds.
+    uintptr_t set_last = kernel32_proc("SetLastError");
+    call(set_last, 1234);
+    auto [pid2, r22, err2] = call(pid_proc);
+    CHECK(pid2 == pid && err2 == 0);
+    (void)r22;
+    // A call that fails: GetFileAttributesW of a path that does not exist (ERROR_PATH_NOT_FOUND 3
+    // for a folder that does not exist, ERROR_FILE_NOT_FOUND 2 for a file in one that does).
+    uintptr_t attrs = kernel32_proc("GetFileAttributesW");
+    auto [a1, x1, e1] = call(attrs, addr_of(L"C:\\gocpp-no-such-folder\\file"));
+    CHECK(a1 == 0xffffffff && e1 == 3);
+    (void)x1;
+    auto [a2, x2, e2] = call(attrs, addr_of(L"C:\\gocpp-no-such-file"));
+    CHECK(a2 == 0xffffffff && e2 == 2);
+    (void)x2;
+    // Six arguments (two of them on the stack): MultiByteToWideChar(CP_UTF8, 0, "h\xc3\xa9", 3,
+    // buf, 8).
+    uintptr_t conv = kernel32_proc("MultiByteToWideChar");
+    wchar_t buf[8] = {};
+    auto [n, x3, e3] =
+        call(conv, 65001, 0, addr_of("h\xc3\xa9"), 3, reinterpret_cast<uintptr_t>(buf), 8);
+    CHECK(n == 2 && e3 == 0 && buf[0] == L'h' && buf[1] == 0xe9);
+    (void)x3;
+    // Nine arguments (five on the stack): CreateFileW(path, access, share, sa, mode, attrs,
+    // template) has seven; with a path that does not exist it fails with the folder's error and
+    // returns INVALID_HANDLE_VALUE.
+    uintptr_t create = kernel32_proc("CreateFileW");
+    auto [h, x4, e4] =
+        call(create, addr_of(L"C:\\gocpp-no-such-folder\\f"), 0x80000000u, 3, 0, 3, 0x80, 0);
+    CHECK(h == ~uintptr_t(0) && e4 == 3);
+    (void)x4;
+}
+
+void test_win_setenv_two_places() {
+    uintptr_t get = kernel32_proc("GetEnvironmentVariableW");
+    wchar_t buf[16] = {};
+    // A value is in the system's block and in the C library's copy.
+    gp::syscall::runtime_setenv("GP_TEST_SETENV"_gs, "value"_gs);
+    auto [n, x, e] = call(get, addr_of(L"GP_TEST_SETENV"), reinterpret_cast<uintptr_t>(buf), 16);
+    CHECK(n == 5 && buf[0] == L'v' && e == 0);
+    (void)x;
+    const char* c = std::getenv("GP_TEST_SETENV");
+    CHECK(c != nullptr && std::string(c) == "value");
+    // An empty value: the variable stays set for the system (as in Go: a length of 0 and no
+    // ERROR_ENVVAR_NOT_FOUND), and C's getenv says NULL (the library cannot hold an empty value).
+    gp::syscall::runtime_setenv("GP_TEST_SETENV"_gs, ""_gs);
+    auto [n2, x2, e2] = call(get, addr_of(L"GP_TEST_SETENV"), reinterpret_cast<uintptr_t>(buf), 16);
+    CHECK(n2 == 0 && e2 != 203);
+    (void)x2;
+    CHECK(std::getenv("GP_TEST_SETENV") == nullptr);
+    // Unset: gone from both (ERROR_ENVVAR_NOT_FOUND, 203).
+    gp::syscall::runtime_unsetenv("GP_TEST_SETENV"_gs);
+    auto [n3, x3, e3] = call(get, addr_of(L"GP_TEST_SETENV"), reinterpret_cast<uintptr_t>(buf), 16);
+    CHECK(n3 == 0 && e3 == 203);
+    (void)x3;
+    CHECK(std::getenv("GP_TEST_SETENV") == nullptr);
+}
+
+// sum_all adds its 42 arguments (the system's calling convention: the first four in registers).
+uintptr_t __attribute__((ms_abi))
+sum_all(uintptr_t a0, uintptr_t a1, uintptr_t a2, uintptr_t a3, uintptr_t a4, uintptr_t a5,
+        uintptr_t a6, uintptr_t a7, uintptr_t a8, uintptr_t a9, uintptr_t a10, uintptr_t a11,
+        uintptr_t a12, uintptr_t a13, uintptr_t a14, uintptr_t a15, uintptr_t a16, uintptr_t a17,
+        uintptr_t a18, uintptr_t a19, uintptr_t a20, uintptr_t a21, uintptr_t a22, uintptr_t a23,
+        uintptr_t a24, uintptr_t a25, uintptr_t a26, uintptr_t a27, uintptr_t a28, uintptr_t a29,
+        uintptr_t a30, uintptr_t a31, uintptr_t a32, uintptr_t a33, uintptr_t a34, uintptr_t a35,
+        uintptr_t a36, uintptr_t a37, uintptr_t a38, uintptr_t a39, uintptr_t a40, uintptr_t a41) {
+    uintptr_t all[] = {a0,  a1,  a2,  a3,  a4,  a5,  a6,  a7,  a8,  a9,  a10, a11, a12, a13,
+                       a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27,
+                       a28, a29, a30, a31, a32, a33, a34, a35, a36, a37, a38, a39, a40, a41};
+    uintptr_t sum = 0;
+    for (uintptr_t i = 0; i < 42; i++) {
+        sum += all[i] * (i + 1); // the position counts: a swapped argument shows
+    }
+    return sum;
+}
+
+void test_win_syscall_n() {
+    // More than 15 arguments go as a slice (Go's SyscallN takes 42); the missing ones are 0.
+    auto fn = reinterpret_cast<uintptr_t>(&sum_all);
+    for (int n : {16, 20, 42}) {
+        auto args = gp::make_slice<uintptr_t>(n);
+        uintptr_t want = 0;
+        for (int i = 0; i < n; i++) {
+            args[i] = static_cast<uintptr_t>(100 + i);
+            want += (100 + i) * static_cast<uintptr_t>(i + 1);
+        }
+        auto [r1, r2, e] = win_syscall_n(fn, args);
+        CHECK(r1 == want && r2 == 0 && e == 0);
+    }
+}
+
+void test_win_setenv_wtf8() {
+    // A value with an unpaired surrogate (WTF-8: ED A0 80 is U+D800) reaches both copies as the
+    // UTF-16 it is, not as U+FFFD for each byte.
+    uintptr_t get = kernel32_proc("GetEnvironmentVariableW");
+    wchar_t buf[16] = {};
+    gp::syscall::runtime_setenv("GP_TEST_WTF8"_gs, "a\xed\xa0\x80"
+                                                   "b\xf0\x9f\x99\x82"_gs);
+    auto [n, x, e] = call(get, addr_of(L"GP_TEST_WTF8"), reinterpret_cast<uintptr_t>(buf), 16);
+    CHECK(n == 5 && e == 0 && buf[0] == L'a' && buf[1] == 0xD800 && buf[2] == L'b' &&
+          buf[3] == 0xD83D && buf[4] == 0xDE42);
+    (void)x;
+    // A byte that is not UTF-8 is U+FFFD by itself.
+    gp::syscall::runtime_setenv("GP_TEST_WTF8"_gs, "\xff"
+                                                   "z"_gs);
+    auto [n2, x2, e2] = call(get, addr_of(L"GP_TEST_WTF8"), reinterpret_cast<uintptr_t>(buf), 16);
+    CHECK(n2 == 2 && e2 == 0 && buf[0] == 0xFFFD && buf[1] == L'z');
+    (void)x2;
+    gp::syscall::runtime_unsetenv("GP_TEST_WTF8"_gs);
+}
+
+void test_win_runtime_args() {
+    // The program's arguments for os.Args are the runtime's, the program name first.
+    auto args = gp::syscall::runtime_args();
+    CHECK(args.gp_len() >= 1);
+    CHECK(args.gp_len() == static_cast<int64_t>(gp::args().size()));
+    auto envs = gp::syscall::runtime_envs();
+    CHECK(envs.gp_len() == static_cast<int64_t>(gp::envs().size()));
+    CHECK(gp::syscall::runtime_rand() != gp::syscall::runtime_rand());
+}
+#endif
+
 // --- the tests ---
 
 struct named_test {
@@ -641,6 +821,14 @@ const named_test tests[] = {
     {"thread_exit_callback_foreign_thread", test_thread_exit_callback_foreign_thread},
     {"thread_exit_order", test_thread_exit_order},
     {"library_ref_of_the_program", test_library_ref_of_the_program},
+#ifdef _WIN32
+    {"win_load_library", test_win_load_library},
+    {"win_syscall_results", test_win_syscall_results},
+    {"win_setenv_two_places", test_win_setenv_two_places},
+    {"win_setenv_wtf8", test_win_setenv_wtf8},
+    {"win_syscall_n", test_win_syscall_n},
+    {"win_runtime_args", test_win_runtime_args},
+#endif
     {"goroutine_channel", test_goroutine_channel},
     {"goroutines_many", test_goroutines_many},
     {"goroutine_panic_recovered", test_goroutine_panic_recovered},

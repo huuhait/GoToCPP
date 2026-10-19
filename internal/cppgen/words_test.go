@@ -2,6 +2,7 @@ package cppgen
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"go/token"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/lower"
 )
 
@@ -228,6 +230,45 @@ func TestMacroList(t *testing.T) {
 			ran = true
 		}
 	}
+	// The MinGW-w64 compiler of the Windows target (Phase 14): its C library headers define other
+	// macros (DUMMYUNIONNAME, CLK_TCK, _alloca ...) that a Go name must not be either, as the
+	// package syscall of Windows declares names like them. Only a compiler that is installed is
+	// used (never the pinned toolchain's download); the list keeps what an absent one would add.
+	t.Setenv("GOCPP_TOOLCHAIN", "local")
+	if wcc, err := build.FindCXXFor(context.Background(), "windows", "amd64"); err != nil {
+		t.Logf("windows/amd64: %v", err)
+	} else {
+		args := slices.Concat(build.Flags(wcc, false), []string{includeFlag(t), "-dM", "-E", src})
+		out, _, code, err := command(filepath.Dir(src), false, wcc.Path, args...)
+		if err != nil || code != 0 {
+			t.Fatalf("%s %s: exit code %d %v\n%s", wcc.Path, strings.Join(args, " "), code, err, out)
+		}
+		for name := range defines(string(out)) {
+			if token.IsIdentifier(name) {
+				found[name] = true
+			}
+		}
+		ran = true
+	}
+	// The dumps of compilers that are not installed here (testdata/mingw-macros: WinLibs' MinGW-w64 with
+	// the posix thread model, whose headers define the pthread, signal and process macros that the
+	// dev shell's mcf flavour does not).
+	dumps, err := filepath.Glob(filepath.Join("testdata", "mingw-macros", "*.txt"))
+	if err != nil || len(dumps) == 0 {
+		t.Fatalf("no macro dumps in testdata/mingw-macros: %v", err)
+	}
+	for _, d := range dumps {
+		text, err := os.ReadFile(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for l := range strings.SplitSeq(string(text), "\n") {
+			if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") && token.IsIdentifier(l) {
+				found[l] = true
+			}
+		}
+		ran = true
+	}
 	if !ran {
 		t.Skip("no compiler")
 	}
@@ -279,8 +320,9 @@ func defines(out string) map[string]bool {
 func writeMacroList(names map[string]bool) error {
 	var b strings.Builder
 	b.WriteString(`# The macros of the headers that gocpp/rt.hpp includes, with g++ and clang++ and the
-# driver's flags (also -O2 and the sanitizers), which a Go name must not be: names.go gives
-# such a name a _ suffix. The compilers' predefined macros (__x86_64__, __GNUC__) are here too.
+# driver's flags (also -O2 and the sanitizers), with the MinGW-w64 compiler for windows/amd64 and with the dumps of
+# testdata/mingw-macros (WinLibs' posix flavour), which a Go name must not be: names.go gives such a name a _ suffix. The compilers' predefined macros
+# (__x86_64__, __GNUC__) are here too.
 # TestMacroList checks the list; "go test ./internal/cppgen -run TestMacroList -update" adds
 # new macros and keeps the old ones. One name per line.
 `)

@@ -39,7 +39,10 @@ constinit std::atomic<void (*)() noexcept> go_hook{nullptr};
 // The goroutine records of the threads that no go statement started (a C library's thread, a
 // std::thread, the main thread): a list, so that a leak check finds them reachable and a library
 // that is unloaded can free them. A record is freed when its thread ends (release_adopted).
-constinit std::mutex adopted_mu;
+// (No constinit: with the posix thread model of MinGW-w64 (WinLibs, MSYS2) std::mutex has no
+// constexpr constructor; with libstdc++ on Linux and the mcf model it is constant-initialized
+// anyway.)
+std::mutex adopted_mu;
 constinit goroutine* adopted = nullptr;
 
 // The goroutine threads that are running or idle (go_start counts a thread before it starts it,
@@ -110,7 +113,10 @@ constexpr std::size_t initial_idle_max = default_idle_limit;
 
 constinit std::atomic<int64_t> idle_timeout_ns{initial_idle_timeout_ns};
 
-constinit std::mutex pool_mu;
+// (No constinit: with the posix thread model of MinGW-w64 (WinLibs, MSYS2) std::mutex has no
+// constexpr constructor; with libstdc++ on Linux and the mcf model it is constant-initialized
+// anyway.)
+std::mutex pool_mu;
 constinit worker* idle_head = nullptr; // the worker that went idle last
 constinit std::size_t idle_count = 0;
 constinit std::size_t idle_max = initial_idle_max;

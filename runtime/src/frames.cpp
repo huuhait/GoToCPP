@@ -35,7 +35,10 @@ image_state& state() {
 }
 
 // mu guards the caches below (and the use of the image's line table).
-constinit std::mutex mu;
+// (No constinit: with the posix thread model of MinGW-w64 (WinLibs, MSYS2) std::mutex has no
+// constexpr constructor; with libstdc++ on Linux and the mcf model it is constant-initialized
+// anyway.)
+std::mutex mu;
 
 // The Go name of each function that was asked about, by its symbol.
 std::unordered_map<const exe_symbol*, go_func>& names() {

@@ -25,3 +25,6 @@ func (r *Remote) Run(context.Context, time.Duration, string, []string, []string,
 	return Result{}, errors.New("not available")
 }
 func EscapeArg(s string) string { return s }
+func (r *Remote) RunConsole(context.Context, time.Duration, string, string, string) (string, int, error) {
+	return "", 0, errors.New("not available")
+}

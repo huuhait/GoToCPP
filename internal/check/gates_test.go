@@ -751,7 +751,7 @@ func exampleErrors(t *testing.T, dir string, phase int, tests bool) []string {
 	}
 	var lines []string
 	for line := range strings.Lines(checkAt(t, cfg, dir, phase, ".")) {
-		if line = strings.TrimSuffix(line, "\n"); !strings.HasPrefix(line, "# ") && !(cfg.GOOS == "windows" && inLinuxOnly(line)) {
+		if line = strings.TrimSuffix(line, "\n"); !strings.HasPrefix(line, "# ") {
 			lines = append(lines, line)
 		}
 	}
@@ -1041,15 +1041,4 @@ func TestGatesPromotedTypeNames(t *testing.T) {
 	if w := errorLines(want); got != w {
 		t.Errorf("two embedded C++ types:\ngot:\n%s\nwant:\n%s", got, w)
 	}
-}
-
-// inLinuxOnly reports whether the error line is in a file of a package of stdlib.LinuxOnly
-// ("$GOCPP/stdlib/os/file.gp:12:3: ..."): those packages have files for Linux only so far (step 9.6).
-func inLinuxOnly(line string) bool {
-	for _, p := range stdlib.LinuxOnly {
-		if strings.HasPrefix(line, "$GOCPP/stdlib/"+p+"/") {
-			return true
-		}
-	}
-	return false
 }

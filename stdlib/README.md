@@ -31,6 +31,8 @@ embedded in the `gocpp` binary, and the loader finds the standard packages here.
 - **Package `os` and what it stands on** (step 9.6, ADR-067): `os`, `syscall` (a Linux subset), `internal/poll` (blocking mode),
   `internal/filepathlite` are real packages made of copies of Go's files, each with a `PORT.md` (`io` and `io/fs` were copies too
   until step 9.4b made them ports). Their system calls are natives in `runtime/src/os/linux/posix_file.cpp`.
+  For Windows (step 14.3, ADR-076) the same packages have Go's own `_windows.go` files over four natives (`win_syscall.cpp`), plus
+  `internal/syscall/windows` and its `sysdll`.
 - **Native functions.** A function without a body that has a `//gocpp:native` line in its doc comment is written in
   C++: the line names the runtime function that its calls become (ADR-027).
 
