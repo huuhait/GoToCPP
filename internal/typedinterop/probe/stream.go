@@ -36,6 +36,10 @@ type RawDecl struct {
 	// TooLarge says that the object is larger than the limit; Raw is nil.
 	TooLarge bool
 
+	// Head is the first bytes of the object (at most 1 KB), also when it is too
+	// large: its kind and id. Valid only until fn returns.
+	Head []byte
+
 	// Raw is the JSON text of the object. It is valid only until fn returns:
 	// the scanner reuses its buffer.
 	Raw []byte
@@ -134,7 +138,7 @@ func ScanDecls(r io.Reader, maxDecl int, fn func(RawDecl) error) (int, error) {
 			}
 			s.pos += used
 		}
-		d := RawDecl{Size: size, TooLarge: tooLarge, Name: declName(prefix)}
+		d := RawDecl{Size: size, TooLarge: tooLarge, Name: declName(prefix), Head: prefix[:min(len(prefix), 1024)]}
 		if !tooLarge {
 			d.Raw = obj
 		}

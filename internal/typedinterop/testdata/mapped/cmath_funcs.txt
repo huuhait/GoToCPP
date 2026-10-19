@@ -1,0 +1,83 @@
+::ceil
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::fabs
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::floor
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::lround
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::sqrt
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::trunc
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+C.double
+    type double
+    => type C.double
+call(::ceil|lit(1.2))
+    prvalue double
+    => value C.double
+call(::fabs|lit((-3.25)))
+    prvalue double
+    => value C.double
+call(::floor|lit((-2.5)))
+    prvalue double
+    => value C.double
+call(::lround|lit(2.5))
+    prvalue long
+    => value C.long
+call(::sqrt|lit(16.0))
+    prvalue double
+    => value C.double
+call(::trunc|lit(3.7))
+    prvalue double
+    => value C.double
+call(go(double)|arg&(C.double))
+    prvalue double
+    => value C.double
+call(go(double)|arg&(decay(call(::trunc|lit(3.7)))))
+    prvalue double
+    => value C.double
+call(go(double)|call(::fabs|lit((-3.25))))
+    prvalue double
+    => value C.double
+call(go(double)|call(::floor|lit((-2.5))))
+    prvalue double
+    => value C.double
+call(go(double)|call(::sqrt|lit(16.0)))
+    prvalue double
+    => value C.double
+call(go(double)|call(std::fmax|lit(1.5),arg(go(double))))
+    prvalue double
+    => value C.double
+call(go(double)|call(unknown(no complete type for hyp)|lit(3),lit(4)))
+    skipped
+    => opaque: not probed: incomplete: no complete type for hyp
+call(go(int64_t)|call(::lround|lit(2.5)))
+    prvalue long
+    => value C.long (int64_t)
+call(std::fmax|lit(1.5),arg(go(double)))
+    prvalue double
+    => value C.double
+call(std::hypot|arg&(C.double),arg&(C.double))
+    prvalue double
+    => value C.double
+call(unknown(no complete type for hyp)|lit(3),lit(4))
+    skipped
+    => opaque: not probed: incomplete: no complete type for hyp
+decay(call(::trunc|lit(3.7)))
+    type double
+    => type C.double
+std::fmax
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::hypot
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+
+declarations: func ceil, func fabs, func floor, func lround, func sqrt, func std::fmax, func std::hypot, func trunc

@@ -1,0 +1,134 @@
+::get_add
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::list_head
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::n2::value
+    lvalue int
+    => assignable C.int
+::n3::value
+    lvalue int
+    => assignable C.int
+::node
+    type node
+    => type node
+::stamp
+    type stamp
+    => type stamp
+bin(!=|arg&(decay(call(::get_add|)))|lit(nullptr))
+    prvalue bool
+    => value C.bool
+bin(!=|arg&(decay(call(::list_head|)))|lit(nullptr))
+    prvalue bool
+    => value C.bool
+bin(==|arg&(star(::node))|lit(nullptr))
+    prvalue bool
+    => value C.bool
+bin(==|sel(sel(sel(arg&(decay(call(::list_head|)))|next)|next)|next)|lit(nullptr))
+    prvalue bool
+    => value C.bool
+call(::get_add|)
+    prvalue int (*)(int, int)
+    => value func(C.int, C.int) C.int
+call(::list_head|)
+    prvalue node *
+    => value *node
+call(arg&(decay(call(::get_add|)))|lit(40),lit(2))
+    prvalue int
+    => value C.int
+call(call(::get_add|)|lit(2),lit(3))
+    prvalue int
+    => value C.int
+call(go(int64_t)|::n2::value)
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|::n3::value)
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(arg&(decay(call(::get_add|)))|lit(40),lit(2)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(call(::get_add|)|lit(2),lit(3)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(arg&(::stamp)|when_sec))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(arg&(decay(call(::list_head|)))|value))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(arg&(star(::node))|value))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(paren(star(arg&(decay(call(::list_head|)))))|value))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(sel(arg&(decay(call(::list_head|)))|next)|value))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(sel(paren(star(sel(arg&(decay(call(::list_head|)))|next)))|next)|value))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(sel(sel(arg&(decay(call(::list_head|)))|next)|next)|value))
+    prvalue long
+    => value C.long (int64_t)
+decay(call(::get_add|))
+    type int (*)(int, int)
+    => type func(C.int, C.int) C.int
+decay(call(::list_head|))
+    type node *
+    => type *node
+paren(star(arg&(decay(call(::list_head|)))))
+    lvalue node
+    => assignable node
+paren(star(sel(arg&(decay(call(::list_head|)))|next)))
+    lvalue node
+    => assignable node
+sel(arg&(::stamp)|when)
+    lvalue long
+    => assignable C.long
+sel(arg&(::stamp)|when_sec)
+    lvalue long
+    => assignable C.long
+sel(arg&(decay(call(::list_head|)))|next)
+    lvalue node *
+    => assignable *node
+sel(arg&(decay(call(::list_head|)))|value)
+    lvalue int
+    => assignable C.int
+sel(arg&(star(::node))|value)
+    lvalue int
+    => assignable C.int
+sel(paren(star(arg&(decay(call(::list_head|)))))|value)
+    lvalue int
+    => assignable C.int
+sel(paren(star(sel(arg&(decay(call(::list_head|)))|next)))|next)
+    lvalue node *
+    => assignable *node
+sel(sel(arg&(decay(call(::list_head|)))|next)|next)
+    lvalue node *
+    => assignable *node
+sel(sel(arg&(decay(call(::list_head|)))|next)|value)
+    lvalue int
+    => assignable C.int
+sel(sel(paren(star(sel(arg&(decay(call(::list_head|)))|next)))|next)|value)
+    lvalue int
+    => assignable C.int
+sel(sel(sel(arg&(decay(call(::list_head|)))|next)|next)|next)
+    lvalue node *
+    => assignable *node
+sel(sel(sel(arg&(decay(call(::list_head|)))|next)|next)|value)
+    lvalue int
+    => assignable C.int
+star(::node)
+    type node *
+    => type *node
+star(arg&(decay(call(::list_head|))))
+    lvalue node
+    => assignable node
+star(sel(arg&(decay(call(::list_head|)))|next))
+    lvalue node
+    => assignable node
+
+declarations: func get_add, func list_head, record node, record stamp

@@ -266,20 +266,22 @@ so it is added **only in the background**:
 | clang JSON format changes between versions | Tolerant reader; CI against several clang versions |
 | clang work makes the editor slow | Strictly background + cached; budgets re-measured with C/C++ features on; slow-clang test |
 
-## 7. Built so far: steps 12.1 and 12.2 (API for 12.3 and later)
+## 7. Built so far: steps 12.1 to 12.4 (API for 12.5 and later)
 
 The contract is [docs/spec/typed-interop.md](../../../docs/spec/typed-interop.md). In short:
 
 - `internal/typedinterop.Analyze(ctx, pkg, fset, Options)` runs the collector, the kind probe and
   the probe for one checked package and returns a `Report{Set, Table, Includes, Kinds}`.
   Errors wrap `typedinterop.ErrNoClang` when clang++ is missing (12.11 falls back to opaque).
-- **12.3 (records, enums, functions)** adds new probe *roles* in `probe/gen.go` (a filtered dump
-  of the names actually used: `Set.KindPaths()` and the `Type` results tell which). The reader
-  (`probe.ScanDecls`, `decodeDecl`) and the diagnostic attribution (`Source.Lines`) are reusable:
-  give a new probe line a `Line{Ref, Role}` and it gets its own error text.
-- **12.4 (type mapper)** reads `Result.Type` (canonical spelling), `Base`, `Ref`, `Category`,
-  `Const`. Results can name the stand-ins `gp_pr::string`, `gp_pr::slice<T>`,
-  `gp_pr::array<T, N>`, `gp_pr::map<K, V>`: they stand for the Go types of the generated code.
+- **12.3 (records, enums, functions)**, done: `ctype` (the structured type and its parser),
+  `Result.Written` (typedef names kept), and `probe.Runner.Decls` (records, enums, overload sets,
+  by id from filtered dumps: ADR-074). `Options.Decls` in `Analyze` runs it after the probe, a few
+  rounds deep. Not done: header locations, parameter names of free functions, `explicit`.
+- **12.4 (type mapper)**, done: `ftype.Mapper` maps a type or a `probe.Result` to a `go/types`
+  type of the foreign view (`Mapped`, `Value`), with `Opaque` and a reason as the fallback;
+  `MembersOf`, `Enumerators`, `Sig`, `Needs`/`NeedsMore`, `Value.Compat`. Results can name the
+  stand-ins `gp_pr::string`, `gp_pr::slice<T>`, `gp_pr::array<T, N>`, `gp_pr::map<K, V>`:
+  they map to Go's `string`, `[]T`, `[N]T`, `map[K]V`.
 - **12.5 (interop checker)** uses `Ref.Sites[i].Ctx` and `.Target` (what the value goes to) to
   decide when a failed probe is an error, `Result.Error`/`Notes` for the message (clang's
   overload candidates are in `Notes`), and `Result.Alt`/`AltError` for ambiguous names.
@@ -287,5 +289,5 @@ The contract is [docs/spec/typed-interop.md](../../../docs/spec/typed-interop.md
   the in-memory memo it replaces or extends.
 - **12.8 (macro constants)** reads `Result.Value` (`big.Int`, exact float bits, string) of the
   references with `Ref.WantValue`.
-- Developer tool: `gocpp __typed-probe [-refs] [patterns]` prints the references and results as
+- Developer tool: `gocpp __typed-probe [-refs] [-decls] [patterns]` prints the references and results as
   JSON.

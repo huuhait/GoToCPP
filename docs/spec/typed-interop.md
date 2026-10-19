@@ -1,14 +1,17 @@
-# Typed interop: the reference collector and the probe (steps 12.1 and 12.2)
+# Typed interop: the collector, the probe, the declarations and the type mapper (steps 12.1 to 12.4)
 
 Typed interop (Phase 12, [README](../../plans/2026-10-13-gocpp/phase-12-typed-interop/README.md))
 asks **clang** for the real C++ types of exactly the C/C++ names that a program uses. This
-document is the contract of the first two steps, which every later step builds on:
+document is the contract of the first four steps, which every later step builds on (§5 and §6 are
+steps 12.3 and 12.4):
 
 | Step | Package | What it does |
 |---|---|---|
 | 12.1 reference collector | `internal/typedinterop/collect` | lists what a checked package asks of C/C++, as canonical *reference shapes* |
 | 12.2 probe | `internal/typedinterop/probe` | writes one probe file per package, runs clang, reads the typed answer for each reference |
-| glue | `internal/typedinterop` | `Analyze(ctx, pkg, fset, opts)`: collect, kind probe, probe; `Report` (JSON for the developer tool) |
+| 12.3 declarations | `internal/typedinterop/ctype`, `.../probe` (`decls*.go`) | reads clang's type text into a structured type; extracts the records, enums and overload sets that the results name |
+| 12.4 type mapper | `internal/typedinterop/ftype` | maps a C++ type (and a probe result) to a `go/types` type of the foreign view, with `Opaque` as the fallback |
+| glue | `internal/typedinterop` | `Analyze(ctx, pkg, fset, opts)`: collect, kind probe, probe, and with `Options.Decls` the declarations and the mapping; `Report` (JSON for the developer tool) |
 
 Nothing in the opaque pipeline uses these packages: they are additive. The only change outside
 them is `internal/interop/typedhooks.go`, which exports the compiler arguments, environment and
@@ -206,9 +209,9 @@ file is 162 MB.)
 
 ## 3. Developer tool
 
-`gocpp __typed-probe [-refs] [patterns]` (hidden: not in `gocpp help`) checks the packages, runs
+`gocpp __typed-probe [-refs] [-decls] [patterns]` (hidden: not in `gocpp help`) checks the packages, runs
 the pipeline for each root package and prints the reference table and the result table as JSON
-(`-refs`: only the collector, no clang). Exit status 3 when there is no clang. The JSON has `refs`
+(`-refs`: only the collector, no clang; `-decls`: also the declarations and the mapped view of each result). Exit status 3 when there is no clang. The JSON has `refs`
 (each with its `result`), `includes`, `kinds`, `table` (timing, stats, header errors, deps) and
 `source` (the probe file).
 
@@ -225,3 +228,163 @@ the pipeline for each root package and prints the reference table and the result
   text is the diagnostic).
 - Probes use clang even when the build uses g++: headers that branch on `__clang__` can
   differ; step 12.5 turns probe errors into warnings for a g++ build.
+
+## 5. Declarations (step 12.3)
+
+The probe says what type an expression has. It does not list the members of that type. Step 12.3
+reads them from clang's AST dump of the real declarations, and makes the type text structured.
+
+### 5.1 `ctype`: C++ types as trees
+
+`ctype.Parse(text)` reads a type in the spelling that clang prints (`qualType`, `desugaredQualType`,
+diagnostics) into a `Type`: a leaf (`Builtin`, `Named` with its qualified path and template
+arguments, `Unnamed` for `(unnamed struct)`, `Special` for `<overloaded function type>` and
+`decltype(...)`) under declarator parts (`Pointer`, `LRef`, `RRef`, `Array`, `Func` with the
+`const`/`&`/`noexcept`/attribute qualifiers of a method, `MemberPtr`). `String` writes the same
+spelling back; for every type text that the headers of the C++ standard library print
+(`TestCorpus`: 7,359 spellings from `<vector> <map> <string> <chrono> <filesystem> ...`) the two are
+inverse, except for the listed normal forms (the position of an unnamed type is dropped,
+`long unsigned int` is `unsigned long`). What it reads: function pointers, `(&)[N]`, nested
+templates, non-type template arguments (`std::array<int, 5>`, `ratio<1, 1000>`), pack expansions,
+trailing return types, member pointers, `__attribute__((noreturn))` on function types. What it
+rejects (an error, never a guess): vector types, `_Atomic`, a type with another attribute,
+dependent-name syntax such as `typename T::template X<U>` (a probe never prints it). Nesting is
+limited (900 levels) so that a text from a header cannot exhaust the stack; `FuzzParse` checks that
+`Parse` never panics and that `Parse(String(t))` equals `t`.
+
+### 5.2 The written type
+
+`Result.Written` is the type with its typedef names kept, from the type tree that clang puts in
+the dump of the probe's alias: `FILE *` where `Type` says `_IO_FILE *`, `size_t` for `unsigned
+long`, `int32_t` for `int`, `value_type &` for a member typedef (unqualified, as the class has it).
+It is empty when it is the same as `Type` or when the dump has no such tree (another clang): readers
+must treat empty as "no information". The type mapper uses it only to name a type as the program
+does (`Mapped.Alias`).
+
+### 5.3 What is extracted
+
+`Runner.Decls(ctx, cfg, DeclConfig, queries)` answers `DeclQuery`s:
+
+| Query | Answer |
+|---|---|
+| `{DeclType, "geo::Vec"}` (a canonical type name, or a typedef name) | `Records[canonical]` (`Record`) or `Enums[canonical]` (`Enum`); `Canon[query]` is the canonical spelling (`FILE` is `_IO_FILE`, a typedef of a builtin is that builtin) |
+| `{DeclFunc, "geo::f"}` (a qualified function name) | `Funcs[name]` (`FuncSet`: every overload with its type; a function template is `Kind: "template"` with no type) |
+
+A `Record` has `Tag`, `Complete` (a forward-declared handle like `struct _IO_FILE` of another
+header is incomplete), `Size`/`Align` (`sizeof`/`alignof` asked of the compiler), `Fields` (name, type,
+access, bit-field width, members of anonymous unions), `Statics`, `Methods` (constructors,
+destructors, conversions, operators, member templates; `virtual`, `pure`, `override`, `final`,
+`static`, `constexpr`, `deleted`, `defaulted`, access, parameter names and defaults), `Bases`,
+`Types` (member typedefs, desugared), `Nested`, and `Traits` (aggregate, polymorphic, abstract,
+empty, standard layout, trivial, trivially copyable, pod). An `Enum` has `Scoped`, `Underlying`
+(`std::underlying_type`, asked of the compiler), `Size`, and the values (`big.Int`; clang's dump
+has the value only for an explicit initializer: the others are the previous one plus one).
+
+Member types are written **relative to the scope** in clang's dump (`Vec` inside `namespace geo`).
+The reader resolves what the record itself defines (its member typedefs, nested types and
+injected class name); the rest stays relative, and `Record.Scope` says where to look it up. The
+mapper does that (§6).
+
+### 5.4 How it is asked
+
+`-ast-dump-filter` takes one substring of a qualified name, so the extraction is a set of runs:
+
+- **Types.** The run's file has the package's includes and, for each name, aliases whose names
+  contain the type's last name (`gp_d3_Vec`; the others are the canonical type, `sizeof`,
+  `alignof` and the enum's underlying type). The dump holds the declarations whose name contains
+  `Vec` and the aliases; the alias's type tree names the **id** of the declaration (a typedef of an
+  unnamed struct has no name, and `std::vector<long>` is one specialization among several), and
+  that id selects the declaration. Names with the same last part share a run; distinct names run in
+  parallel (`DeclConfig.Parallel`, 8) up to `MaxRuns` (64) per call.
+- **Functions.** One run for all of them: `namespace gp_f0_fopen { using ::fopen; }`, the
+  `UsingShadowDecl`s of the dump list every overload with its type.
+- **Limits.** The dump of one run is limited to `DeclConfig.MaxJSON` (32 MB) and one declaration to
+  8 MB: `std::basic_string<char>` has 40 MB of declarations in libstdc++ (the bodies of every member
+  function are in the dump), so it has no members here (`Errors["type std::basic_string<char>"]`),
+  and the refusal is remembered. The same happens to `std::chrono::duration<...>` (17 MB for the
+  name `duration`) and every standard template whose dump is over the limit: the record is
+  not reported (`Errors`), and the mapper makes a named type with `Incomplete` set. The mapper turns it into a named type with no known members. This is the main cost of
+  the step: a run for a standard library template takes 0.1 to 1 s (the measured sizes: `vector` 12
+  MB, `map` 12 MB, `unique_ptr` 2.5 MB). Step 12.7's disk cache is what makes this a cold-build cost
+  only, and the memo (`Runner.DeclRuns`) already makes a second call free.
+- **Memo.** A run is remembered by the hash of its text, the compiler, the flags and the
+  environment (`probe.PreKey`), and valid while the contents of the headers it read (the `-MD`
+  file) are unchanged.
+- Errors of a query (a name that is not a type, a name that clang does not know, a limit) are in
+  `DeclTable.Errors["type X"]`, never a failure of the call; the call fails only when the context
+  is cancelled. A compiler that crashes, hangs (`GOCPP_PROBE_TIMEOUT`) or prints garbage gives
+  the error to the queries of its run.
+
+**Names in the query.** The text of a query is not written into the probe file: the parsed type
+is printed again, and a name with a control character, a comment (`//`, `/*`, `*/`), `#`, `;`,
+`"`, a backslash, a backtick or a brace is refused with an error of its own, so one name cannot
+change the lines of the others. A function name is a plain path without template arguments.
+
+**Anonymous members.** The members of anonymous unions and structs are fields of the record, at
+any depth (`union { struct { int lo, hi; }; long both; };` gives `lo`, `hi` and `both`), with
+`Anon` and `Union` (some union is around the field: `lo` and `hi` of `union { struct { int lo, hi; };
+long both; };` are both `Union` although they do not overlap each other; the direct members of a
+record that is itself a union have `Union` false, `Record.Tag` says `union`). A `struct { ... } pos;` is a field
+`pos` of an unnamed type, and a typedef, alias or static member of an unnamed struct or union
+(`typedef struct { int a; } Inner;`, `using X = struct { ... };`) is not an anonymous member at all. When an anonymous member cannot be placed (deeper than 16 levels, or
+without the field that follows it), the record is `Partial`: `Complete` is false, no members are
+reported, `Size` and `Align` are still the compiler's, and the mapper treats it as a record with
+unknown members. Field offsets are not extracted.
+
+Not extracted (known gaps): the location of a declaration (header and line: step 12.13), the
+parameter names and default values of free functions (the overload's type only), `explicit` on a
+constructor (clang's JSON does not say), friends, using-declarations of members (inherited
+members come through `Bases`), variables.
+
+## 6. The foreign view (step 12.4)
+
+`ftype.Mapper` maps C++ types to `go/types` types in a pseudo-package `C`. The table:
+
+| C++ | `Mapped.Kind`, `Type` |
+|---|---|
+| `int`, `unsigned long`, `double`, `bool`, `wchar_t`, `char16_t` | `Scalar`: named `C.int`, `C.ulong`, `C.double`, `C.bool`, ... over the Go basic type of the same size (`Target`: `LongBits` 64 on LP64 and 32 on Windows, `WcharBits`, `PtrBits`, `CharUnsigned` for aarch64 Linux or `-funsigned-char`; `LP64`, `LLP64`, `ILP32`) |
+| `size_t`, `int32_t`, `uint8_t`, `ptrdiff_t`, ... | the same named type as the builtin on the target (as in cgo), with `Alias` `size_t` when the written type said so: `size_t` is `C.ulong` on LP64, `C.ulonglong` on Windows, `C.uint` on 32 bits |
+| `void` | `Void` (no type) |
+| `T*` | `Pointer`: `*T`; `void*` is `unsafe.Pointer`; `R (*)(A...)` is `FuncPtr`: a `func(A...) R` |
+| `T&`, `const T&`, `T&&` | the type of `T` with `Ref` `&` or `&&`; in a `Value` the expression is `Assignable` when it is a non-const lvalue (`v.front() = 5`) |
+| `T[N]`, `T[]` | `Array`: `[N]T`; `[0]T` with `Flexible` |
+| `R (A...)` | `Func`: a `*types.Signature`; the C++ details (reference parameters, `...`, `const`/`&`/`noexcept` of a method) are in `Mapper.Sig` |
+| struct, class, union | `Record`: a named struct whose public fields are the fields and whose public bases are embedded fields (so `types.LookupFieldOrMethod` promotes through them); `MembersOf` has everything (methods with their overloads, statics, nested types, private members with their access, the members of the bases) |
+| enum | `Enum`: a named integer type over the underlying type; `Enumerators` are `types.Const`s; `Scoped` for an enum class |
+| `std::vector<long>`, `std::map<K, V>` | `Record` named `std.vector[C.long]`; `std::basic_string<char>` is `std.string` |
+| `gocpp_probe_internal_pr::string`, `slice<T>`, `array<T, N>`, `map<K, V>` | `Go`: `string`, `[]T`, `[N]T`, `map[K]V` (the stand-ins of the probe file) |
+| anything else | `Opaque` with a `Reason`: a pointer to member, a type with no name, `__int128`, a dependent type, a name that could not be resolved |
+
+Rules that the checker (12.5) can rely on:
+
+- The mapping **never guesses**. A relative name is resolved from the innermost scope outwards
+  among the names the declarations know (`Mapper.qualify`), with the template arguments qualified
+  first; a name that is not known is `Opaque`. A record with no declaration is a named type with
+  `Incomplete` set (its members are unknown, which is not an error).
+- Each canonical C++ type has one `types.Named`: two mappings of `geo::Vec` are the same object;
+  a record may mention itself.
+- `Mapper.Needs(results)` and `NeedsMore()` list the declarations to ask for, round after round
+  (results, then the types of the public fields, bases and function signatures of the records
+  found; three rounds by default); the library's internals (`std::_Vector_base`, `__gnu_cxx`) and
+  the names inside `std` are not followed.
+- `Value.Compat(goType)` answers whether a value can go where a Go type is wanted by the rules of C++
+  (the compatibility rule): `No` only when no conversion exists (a `void` value, a number where a
+  pointer is wanted), `Unknown` whenever a conversion operator or constructor could exist. A
+  null pointer constant goes to pointers and function pointers: `nullptr`, and an integer
+  constant 0 such as the macro `NULL`. C++ only accepts an integer *literal* 0 (`'\0'`, `(1 - 1)` and a
+  constexpr zero are refused by both compilers); the probe gives a constant's value, not its form,
+  so the rule is permissive here (a missed early error, never a false one). On every program of the header zoo and of the golden programs of
+  `tests/interop` (which opaque mode compiles) no site gets `No`.
+- `Value.String()` is the stable text form used by the golden files: `value C.ulong (size_t)`,
+  `assignable std.vector[C.long]`, `type *_IO_FILE (*FILE)`, `opaque: pointer to member`.
+
+**Members.** `MembersOf` lists the members of a record and of its bases (a derived member hides the
+base's of the same name; the access of a member of a protected or private base is lowered).
+Overloads from a `using Base::f;` in the derived class and a name found in two bases (ambiguous in
+C++) have no marker there, and the Go objects of the named struct (fields, embedded bases) are
+only the public data members: the checker (12.5) must use `MembersOf`, not `go/types`
+lookups, to decide whether a member exists, is accessible, or is ambiguous.
+
+`typedinterop.Options.Decls` turns all of this on in `Analyze` (`Report.Decls`, `Report.Mapper`,
+`Report.Values`); it is off by default, and `Analyze` without it is unchanged (a test compares the
+probe file and the table). Nothing in the opaque pipeline uses these packages.

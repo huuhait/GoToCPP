@@ -1,0 +1,300 @@
+::arr
+    lvalue std::array<int, 3>
+    => assignable std.array[C.int, 3]
+::size_of_v
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::table
+    lvalue int [4]
+    => lvalue [4]C.int
+::times
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+C.double
+    type double
+    => type C.double
+C.int
+    type int
+    => type C.int
+C.long
+    type long
+    => type C.long
+C.short
+    type short
+    => type C.short
+C.uint
+    type unsigned int
+    => type C.uint
+bin(!=|arg&(decay(call(index(std::make_unique|std::string)|lit("hello"))))|lit(nullptr))
+    prvalue bool
+    => value C.bool
+bin(+|call(index(std::get|lit(0))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))))|lit(10))
+    prvalue int
+    => value C.int
+bin(==|index(paren(star(arg&(decay(call(index(std::make_unique|std::string)|lit("hello"))))))|lit(0))|lit('h'))
+    prvalue bool
+    => value C.bool
+call(C.int|lit(1))
+    prvalue int
+    => value C.int
+call(go(bool)|inst(std::is_same_v|C.int,C.int))
+    prvalue bool
+    => value C.bool
+call(go(bool)|inst(std::is_same_v|C.int,C.long))
+    prvalue bool
+    => value C.bool
+call(go(bool)|sel(index(std::numeric_limits|C.uint)|is_signed))
+    prvalue bool
+    => value C.bool
+call(go(double)|call(index(std::get|lit(1))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three")))))))
+    prvalue double
+    => value C.double
+call(go(int64_t)|arg&(decay(bin(+|call(index(std::get|lit(0))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))))|lit(10)))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(index(::times|lit(3))|lit(4)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(call(index(std::make_shared|C.int)|lit(41))))|use_count)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(inst(std::variant|C.int,std::string))|index)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(call(index(std::get|lit(1))|arg&(inst(std::variant|C.int,std::string)))|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(call(index(std::get|lit(2))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))))|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(index(std::numeric_limits|C.short)|max)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(paren(::arr)|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(paren(star(arg&(decay(call(index(std::make_unique|std::string)|lit("hello"))))))|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(::arr|lit(0)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(::size_of_v|C.double))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(::size_of_v|C.int))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(::table|lit(0)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(::table|lit(1)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(paren(::arr)|lit(2)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(paren(::table)|lit(3)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|star(arg&(decay(call(index(std::make_shared|C.int)|lit(41))))))
+    prvalue long
+    => value C.long (int64_t)
+call(index(::times|lit(3))|lit(4))
+    prvalue int
+    => value C.int
+call(index(std::get|lit(0))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))))
+    lvalue int
+    => assignable C.int
+call(index(std::get|lit(1))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))))
+    lvalue double
+    => assignable C.double
+call(index(std::get|lit(1))|arg&(inst(std::variant|C.int,std::string)))
+    lvalue std::basic_string<char>
+    => assignable std.string (members unknown)
+call(index(std::get|lit(2))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))))
+    lvalue std::basic_string<char>
+    => assignable std.string (members unknown)
+call(index(std::make_shared|C.int)|lit(41))
+    prvalue std::shared_ptr<int>
+    => value std.shared_ptr[C.int]
+call(index(std::make_unique|std::string)|lit("hello"))
+    prvalue std::unique_ptr<std::basic_string<char>>
+    => value std.unique_ptr[std.basic_string[C.char]]
+call(inst(std::variant|C.int,std::string)|index(std::in_place_index|lit(1)),lit("in place"))
+    prvalue std::variant<int, std::basic_string<char>>
+    => value std.variant[C.int, std.basic_string[C.char]]
+call(sel(arg&(decay(call(index(std::make_shared|C.int)|lit(41))))|use_count)|)
+    prvalue long
+    => value C.long
+call(sel(arg&(inst(std::variant|C.int,std::string))|index)|)
+    prvalue unsigned long
+    => value C.ulong (size_t)
+call(sel(call(index(std::get|lit(1))|arg&(inst(std::variant|C.int,std::string)))|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(sel(call(index(std::get|lit(2))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))))|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(sel(index(std::numeric_limits|C.short)|max)|)
+    prvalue short
+    => value C.short
+call(sel(paren(::arr)|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(sel(paren(star(arg&(decay(call(index(std::make_unique|std::string)|lit("hello"))))))|append)|lit("!"))
+    lvalue std::basic_string<char>
+    => assignable std.string (members unknown)
+call(sel(paren(star(arg&(decay(call(index(std::make_unique|std::string)|lit("hello"))))))|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three")))
+    prvalue std::tuple<int, double, std::basic_string<char>>
+    => value std.tuple[C.int, C.double, std.basic_string[C.char]]
+call(std::string|lit("three"))
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+decay(bin(+|call(index(std::get|lit(0))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))))|lit(10)))
+    type int
+    => type C.int
+decay(call(index(std::make_shared|C.int)|lit(41)))
+    type std::shared_ptr<int>
+    => type std.shared_ptr[C.int]
+decay(call(index(std::make_unique|std::string)|lit("hello")))
+    type std::unique_ptr<std::basic_string<char>>
+    => type std.unique_ptr[std.basic_string[C.char]]
+decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))
+    type std::tuple<int, double, std::basic_string<char>>
+    => type std.tuple[C.int, C.double, std.basic_string[C.char]]
+index(::arr|lit(0))
+    lvalue int
+    => assignable C.int
+index(::size_of_v|C.double)
+    lvalue const int
+    => lvalue C.int
+index(::size_of_v|C.int)
+    lvalue const int
+    => lvalue C.int
+index(::table|lit(0))
+    lvalue int
+    => assignable C.int
+index(::table|lit(1))
+    lvalue int
+    => assignable C.int
+index(::times|lit(3))
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+index(paren(::arr)|lit(2))
+    lvalue int
+    => assignable C.int
+index(paren(::table)|lit(3))
+    lvalue int
+    => assignable C.int
+index(paren(star(arg&(decay(call(index(std::make_unique|std::string)|lit("hello"))))))|lit(0))
+    lvalue char
+    => assignable C.char
+index(std::get|lit(0))
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+index(std::get|lit(1))
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+index(std::get|lit(2))
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+index(std::in_place_index|lit(1))
+    lvalue const std::in_place_index_t<1>
+    => lvalue std.in_place_index_t[1]
+index(std::make_shared|C.int)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+index(std::make_unique|std::string)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+index(std::numeric_limits|C.short)
+    type std::numeric_limits<short>
+    => type std.numeric_limits[C.short]
+index(std::numeric_limits|C.uint)
+    type std::numeric_limits<unsigned int>
+    => type std.numeric_limits[C.uint]
+inst(std::is_same_v|C.int,C.int)
+    lvalue const bool
+    => lvalue C.bool
+inst(std::is_same_v|C.int,C.long)
+    lvalue const bool
+    => lvalue C.bool
+inst(std::variant|C.int,std::string)
+    type std::variant<int, std::basic_string<char>>
+    => type std.variant[C.int, std.basic_string[C.char]]
+paren(::arr)
+    lvalue std::array<int, 3>
+    => assignable std.array[C.int, 3]
+paren(::table)
+    lvalue int [4]
+    => lvalue [4]C.int
+paren(star(arg&(decay(call(index(std::make_unique|std::string)|lit("hello"))))))
+    lvalue std::basic_string<char>
+    => assignable std.string (members unknown)
+sel(arg&(decay(call(index(std::make_shared|C.int)|lit(41))))|use_count)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(inst(std::variant|C.int,std::string))|index)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(call(index(std::get|lit(1))|arg&(inst(std::variant|C.int,std::string)))|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(call(index(std::get|lit(2))|arg&(decay(call(std::make_tuple|call(C.int|lit(1)),lit(2.5),call(std::string|lit("three"))))))|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(index(std::numeric_limits|C.short)|max)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(index(std::numeric_limits|C.uint)|is_signed)
+    lvalue const bool
+    => lvalue C.bool
+sel(paren(::arr)|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(paren(star(arg&(decay(call(index(std::make_unique|std::string)|lit("hello"))))))|append)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(paren(star(arg&(decay(call(index(std::make_unique|std::string)|lit("hello"))))))|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+star(arg&(decay(call(index(std::make_shared|C.int)|lit(41)))))
+    lvalue int
+    => assignable C.int
+star(arg&(decay(call(index(std::make_unique|std::string)|lit("hello")))))
+    lvalue std::basic_string<char>
+    => assignable std.string (members unknown)
+std::get
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::in_place_index
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::is_same_v
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::make_shared
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::make_tuple
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::make_unique
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::numeric_limits
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::string
+    type std::basic_string<char>
+    => type std.string (members unknown)
+std::variant
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+
+declarations: func std::get, func std::make_shared, func std::make_tuple, func std::make_unique, func times, record std::array<int, 3>, record std::in_place_index_t<1>, record std::numeric_limits<short>, record std::numeric_limits<unsigned int>, record std::shared_ptr<int>, record std::tuple<int, double, std::basic_string<char>>, record std::unique_ptr<std::basic_string<char>>, record std::variant<int, std::basic_string<char>>
+no answer: type std::basic_string<char>: the declaration is larger than the limit of the extraction

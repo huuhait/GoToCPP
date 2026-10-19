@@ -1,0 +1,477 @@
+::grid
+    lvalue int [2][3]
+    => lvalue [2][3]C.int
+::table
+    lvalue int [5]
+    => lvalue [5]C.int
+C.double
+    type double
+    => type C.double
+C.int
+    type int
+    => type C.int
+C.long
+    type long
+    => type C.long
+bin(+|arg&(decay(rangeval(arg&(decay(call(index(std::span|C.int)|::table))))))|lit(1))
+    prvalue int
+    => value C.int
+call(go(bool)|arg&(decay(rangeval(arg&(index(std::vector|go(bool)))))))
+    prvalue bool
+    => value C.bool
+call(go(double)|arg&(decay(rangeval(arg&(inst(std::array|C.double,lit(3)))))))
+    prvalue double
+    => value C.double
+call(go(int32_t)|arg&(decay(rangeval(arg&(decay(call(std::string|lit("hey"))))))))
+    prvalue int
+    => value C.int (int32_t)
+call(go(int32_t)|index(arg&(decay(rangekey(arg&(inst(std::map|std::string,C.int)))))|lit(0)))
+    prvalue int
+    => value C.int (int32_t)
+call(go(int32_t)|index(arg&(std::string)|lit(0)))
+    prvalue int
+    => value C.int (int32_t)
+call(go(int64_t)|arg&(C.int))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(C.long))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangekey(::table))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangekey(arg&(decay(call(std::string|lit("hey"))))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangekey(arg&(index(std::deque|C.int))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangekey(arg&(index(std::list|std::string))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangekey(arg&(index(std::set|C.int))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangekey(arg&(index(std::vector|go(bool)))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangekey(arg&(index(std::vector|go(int64_t)))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangekey(arg&(inst(std::array|C.double,lit(3)))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangekey(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int)))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangekey(call(std::views::reverse|arg&(index(std::vector|go(int64_t))))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangekey(call(std::views::take|arg&(index(std::vector|go(int64_t))),lit(2))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangeval(::table))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangeval(arg&(decay(call(std::string|lit("hey"))))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangeval(arg&(index(std::deque|C.int))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangeval(arg&(index(std::set|C.int))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangeval(arg&(index(std::vector|go(int64_t)))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangeval(arg&(inst(std::map|std::string,C.int))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangeval(call(std::views::iota|lit(3),lit(6))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangeval(call(std::views::reverse|arg&(index(std::vector|go(int64_t))))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangeval(call(std::views::take|arg&(index(std::vector|go(int64_t))),lit(2))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(rangekey(arg&(inst(std::map|std::string,C.int)))))|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(rangeval(arg&(index(std::list|std::string)))))|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(rangeval(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int))))))|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(call(sel(arg&(index(std::list|std::string))|front)|)|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(::table|lit(0)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(::table|lit(4)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(arg&(decay(rangeval(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int))))))|lit(1)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(arg&(decay(unknown(builtin make)))|arg(go(int64_t))))
+    skipped
+    => opaque: not probed: incomplete: builtin make
+call(go(int64_t)|index(arg&(index(std::vector|go(int64_t)))|lit(0)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(arg&(inst(std::array|C.long,lit(1)))|lit(0)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(arg&(inst(std::map|std::string,C.int))|lit("a")))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(index(::grid|arg&(decay(rangekey(::grid))))|lit(2)))
+    prvalue long
+    => value C.long (int64_t)
+call(index(std::span|C.int)|::table)
+    prvalue std::span<int>
+    => value std.span[C.int]
+call(sel(arg&(decay(rangekey(arg&(inst(std::map|std::string,C.int)))))|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(decay(rangeval(arg&(index(std::list|std::string)))))|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(decay(rangeval(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int))))))|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(index(std::deque|C.int))|push_back)|lit(1))
+    prvalue void
+    => value void
+call(sel(arg&(index(std::deque|C.int))|push_front)|lit(0))
+    prvalue void
+    => value void
+call(sel(arg&(index(std::list|std::string))|front)|)
+    lvalue std::basic_string<char>
+    => assignable std.string (members unknown)
+call(sel(arg&(index(std::list|std::string))|push_back)|call(std::string|lit("x")))
+    prvalue void
+    => value void
+call(sel(arg&(index(std::list|std::string))|push_back)|call(std::string|lit("yy")))
+    prvalue void
+    => value void
+call(sel(arg&(index(std::set|C.int))|insert)|lit(10))
+    prvalue std::pair<std::_Rb_tree_const_iterator<int>, bool>
+    => value std.pair[std._Rb_tree_const_iterator[C.int], C.bool] (members unknown)
+call(sel(arg&(index(std::set|C.int))|insert)|lit(20))
+    prvalue std::pair<std::_Rb_tree_const_iterator<int>, bool>
+    => value std.pair[std._Rb_tree_const_iterator[C.int], C.bool] (members unknown)
+call(sel(arg&(index(std::set|C.int))|insert)|lit(30))
+    prvalue std::pair<std::_Rb_tree_const_iterator<int>, bool>
+    => value std.pair[std._Rb_tree_const_iterator[C.int], C.bool] (members unknown)
+call(sel(arg&(index(std::vector|go(bool)))|push_back)|lit(false))
+    prvalue void
+    => value void
+call(sel(arg&(index(std::vector|go(bool)))|push_back)|lit(true))
+    prvalue void
+    => value void
+call(sel(arg&(index(std::vector|go(int64_t)))|push_back)|lit(2))
+    prvalue void
+    => value void
+call(sel(arg&(index(std::vector|go(int64_t)))|push_back)|lit(5))
+    prvalue void
+    => value void
+call(sel(arg&(index(std::vector|go(int64_t)))|push_back)|lit(9))
+    prvalue void
+    => value void
+call(sel(call(sel(arg&(index(std::list|std::string))|front)|)|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(sel(index(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int)))|lit(7))|push_back)|lit(70))
+    prvalue void
+    => value void
+call(sel(index(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int)))|lit(7))|push_back)|lit(71))
+    prvalue void
+    => value void
+call(std::string|lit("hey"))
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(std::string|lit("x"))
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(std::string|lit("yy"))
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(std::views::iota|lit(3),lit(6))
+    prvalue std::ranges::iota_view<int, int>
+    => value std.ranges.iota_view[C.int, C.int]
+call(std::views::reverse|arg&(index(std::vector|go(int64_t))))
+    prvalue std::ranges::reverse_view<std::ranges::ref_view<std::vector<long>>>
+    => value std.ranges.reverse_view[std.ranges.ref_view[std.vector[C.long]]]
+call(std::views::take|arg&(index(std::vector|go(int64_t))),lit(2))
+    prvalue std::ranges::take_view<std::ranges::ref_view<std::vector<long>>>
+    => value std.ranges.take_view[std.ranges.ref_view[std.vector[C.long]]]
+decay(call(index(std::span|C.int)|::table))
+    type std::span<int>
+    => type std.span[C.int]
+decay(call(std::string|lit("hey")))
+    type std::basic_string<char>
+    => type std.string (members unknown)
+decay(rangekey(::grid))
+    type long
+    => type C.long
+decay(rangekey(::table))
+    type long
+    => type C.long
+decay(rangekey(arg&(decay(call(index(std::span|C.int)|::table)))))
+    type long
+    => type C.long
+decay(rangekey(arg&(decay(call(std::string|lit("hey"))))))
+    type long
+    => type C.long
+decay(rangekey(arg&(index(std::deque|C.int))))
+    type long
+    => type C.long
+decay(rangekey(arg&(index(std::list|std::string))))
+    type long
+    => type C.long
+decay(rangekey(arg&(index(std::set|C.int))))
+    type long
+    => type C.long
+decay(rangekey(arg&(index(std::vector|go(bool)))))
+    type long
+    => type C.long
+decay(rangekey(arg&(index(std::vector|go(int64_t)))))
+    type long
+    => type C.long
+decay(rangekey(arg&(inst(std::array|C.double,lit(3)))))
+    type long
+    => type C.long
+decay(rangekey(arg&(inst(std::map|std::string,C.int))))
+    type std::basic_string<char>
+    => type std.string (members unknown)
+decay(rangekey(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int)))))
+    type int
+    => type C.int
+decay(rangekey(call(std::views::reverse|arg&(index(std::vector|go(int64_t))))))
+    type long
+    => type C.long
+decay(rangekey(call(std::views::take|arg&(index(std::vector|go(int64_t))),lit(2))))
+    type long
+    => type C.long
+decay(rangeval(::table))
+    type int
+    => type C.int
+decay(rangeval(arg&(decay(call(index(std::span|C.int)|::table)))))
+    type int
+    => type C.int
+decay(rangeval(arg&(decay(call(std::string|lit("hey"))))))
+    type char
+    => type C.char
+decay(rangeval(arg&(index(std::deque|C.int))))
+    type int
+    => type C.int
+decay(rangeval(arg&(index(std::list|std::string))))
+    type std::basic_string<char>
+    => type std.string (members unknown)
+decay(rangeval(arg&(index(std::set|C.int))))
+    type int
+    => type C.int
+decay(rangeval(arg&(index(std::vector|go(bool)))))
+    type std::_Bit_reference
+    => type std._Bit_reference (members unknown)
+decay(rangeval(arg&(index(std::vector|go(int64_t)))))
+    type long
+    => type C.long
+decay(rangeval(arg&(inst(std::array|C.double,lit(3)))))
+    type double
+    => type C.double
+decay(rangeval(arg&(inst(std::map|std::string,C.int))))
+    type int
+    => type C.int
+decay(rangeval(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int)))))
+    type std::vector<int>
+    => type std.vector[C.int]
+decay(rangeval(call(std::views::iota|lit(3),lit(6))))
+    type int
+    => type C.int
+decay(rangeval(call(std::views::reverse|arg&(index(std::vector|go(int64_t))))))
+    type long
+    => type C.long
+decay(rangeval(call(std::views::take|arg&(index(std::vector|go(int64_t))),lit(2))))
+    type long
+    => type C.long
+decay(unknown(builtin make))
+    skipped
+    => opaque: not probed: incomplete: builtin make
+index(::grid|arg&(decay(rangekey(::grid))))
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+index(::table|lit(0))
+    lvalue int
+    => assignable C.int
+index(::table|lit(4))
+    lvalue int
+    => assignable C.int
+index(arg&(decay(call(index(std::span|C.int)|::table)))|arg&(decay(rangekey(arg&(decay(call(index(std::span|C.int)|::table)))))))
+    lvalue int
+    => assignable C.int
+index(arg&(decay(rangekey(arg&(inst(std::map|std::string,C.int)))))|lit(0))
+    lvalue char
+    => assignable C.char
+index(arg&(decay(rangeval(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int))))))|lit(1))
+    lvalue int
+    => assignable C.int
+index(arg&(decay(unknown(builtin make)))|arg&(C.long))
+    skipped
+    => opaque: not probed: incomplete: builtin make
+index(arg&(decay(unknown(builtin make)))|arg(go(int64_t)))
+    skipped
+    => opaque: not probed: incomplete: builtin make
+index(arg&(index(std::vector|go(int64_t)))|lit(0))
+    lvalue long
+    => assignable C.long
+index(arg&(inst(std::array|C.double,lit(3)))|lit(1))
+    lvalue double
+    => assignable C.double
+index(arg&(inst(std::array|C.long,lit(1)))|lit(0))
+    lvalue long
+    => assignable C.long
+index(arg&(inst(std::map|std::string,C.int))|lit("a"))
+    lvalue int
+    => assignable C.int
+index(arg&(inst(std::map|std::string,C.int))|lit("b"))
+    lvalue int
+    => assignable C.int
+index(arg&(inst(std::map|std::string,C.int))|lit("c"))
+    lvalue int
+    => assignable C.int
+index(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int)))|lit(7))
+    lvalue std::vector<int>
+    => assignable std.vector[C.int]
+index(arg&(stand:array(C.long,lit(3)))|arg(go(int64_t)))
+    lvalue long
+    => assignable C.long
+index(arg&(std::string)|lit(0))
+    lvalue char
+    => assignable C.char
+index(index(::grid|arg&(decay(rangekey(::grid))))|lit(2))
+    lvalue int
+    => assignable C.int
+index(std::deque|C.int)
+    type std::deque<int>
+    => type std.deque[C.int]
+index(std::list|std::string)
+    type std::list<std::basic_string<char>>
+    => type std.list[std.basic_string[C.char]]
+index(std::set|C.int)
+    type std::set<int>
+    => type std.set[C.int]
+index(std::span|C.int)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+index(std::vector|C.int)
+    type std::vector<int>
+    => type std.vector[C.int]
+index(std::vector|go(bool))
+    type std::vector<bool>
+    => type std.vector[C.bool]
+index(std::vector|go(int64_t))
+    type std::vector<long>
+    => type std.vector[C.long]
+inst(std::array|C.double,lit(3))
+    type std::array<double, 3>
+    => type std.array[C.double, 3]
+inst(std::array|C.long,lit(1))
+    type std::array<long, 1>
+    => type std.array[C.long, 1]
+inst(std::map|std::string,C.int)
+    type std::map<std::basic_string<char>, int>
+    => type std.map[std.basic_string[C.char], C.int]
+inst(std::unordered_map|C.int,index(std::vector|C.int))
+    type std::unordered_map<int, std::vector<int>>
+    => type std.unordered_map[C.int, std.vector[C.int]]
+sel(arg&(decay(rangekey(arg&(inst(std::map|std::string,C.int)))))|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(rangeval(arg&(index(std::list|std::string)))))|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(rangeval(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int))))))|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::deque|C.int))|push_back)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::deque|C.int))|push_front)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::list|std::string))|front)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::list|std::string))|push_back)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::set|C.int))|insert)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::vector|go(bool)))|push_back)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::vector|go(int64_t)))|push_back)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(call(sel(arg&(index(std::list|std::string))|front)|)|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(index(arg&(inst(std::unordered_map|C.int,index(std::vector|C.int)))|lit(7))|push_back)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+stand:array(C.long,lit(3))
+    type gocpp_probe_internal_pr::array<long, 3>
+    => type [3]C.long
+stand:slice(C.long)
+    type gocpp_probe_internal_pr::slice<long>
+    => type []C.long
+std::array
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::deque
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::list
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::map
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::set
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::span
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::string
+    type std::basic_string<char>
+    => type std.string (members unknown)
+std::unordered_map
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::vector
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::views::iota
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::views::reverse
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::views::take
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+unknown(builtin make)
+    skipped
+    => opaque: not probed: incomplete: builtin make
+
+declarations: func std::views::iota, func std::views::reverse, func std::views::take, record std::array<double, 3>, record std::array<long, 1>, record std::deque<int>, record std::list<std::basic_string<char>>, record std::map<std::basic_string<char>, int>, record std::ranges::iota_view<int, int>, record std::ranges::ref_view<std::vector<long>>, record std::ranges::reverse_view<std::ranges::ref_view<std::vector<long>>>, record std::ranges::take_view<std::ranges::ref_view<std::vector<long>>>, record std::set<int>, record std::span<int>, record std::unordered_map<int, std::vector<int>>, record std::vector<bool>, record std::vector<int>, record std::vector<long>
+no answer: type std::basic_string<char>: the declaration is larger than the limit of the extraction

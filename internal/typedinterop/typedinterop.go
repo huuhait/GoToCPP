@@ -20,6 +20,7 @@ import (
 	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/interop"
 	"github.com/huuhait/gocpp/internal/typedinterop/collect"
+	"github.com/huuhait/gocpp/internal/typedinterop/ftype"
 	"github.com/huuhait/gocpp/internal/typedinterop/probe"
 )
 
@@ -42,6 +43,19 @@ type Options struct {
 
 	// StringToCStr: see probe.GenConfig.
 	StringToCStr bool
+
+	// Decls asks for step 12.3 and 12.4: after the probe, the declarations of the
+	// classes, enums and functions the results mention are extracted, and every
+	// result is mapped to the foreign view (Report.Decls, Mapper, Values). It costs
+	// more compiler runs (one per distinct type name), so it is not the default.
+	Decls bool
+
+	// Target is the data model of the types (the zero value is LP64);
+	// DeclRounds limits how many levels of types are followed from the
+	// results into their members (3 when 0); DeclConfig has the limits of the extraction.
+	Target     ftype.Target
+	DeclRounds int
+	DeclLimits probe.DeclConfig
 }
 
 // A Report is the references of a package with their results.
@@ -58,6 +72,13 @@ type Report struct {
 
 	// IncludeErrors are the headers that the kind probe could not include.
 	IncludeErrors []interop.IncludeError
+
+	// Decls, Mapper and Values are set by Options.Decls: the extracted
+	// declarations (all rounds merged), the mapper that holds them, and the foreign
+	// view of each result, indexed by reference ID.
+	Decls  *probe.DeclTable
+	Mapper *ftype.Mapper
+	Values []ftype.Value
 }
 
 // UnitIncludes returns the #include texts of the translation unit of the
@@ -140,7 +161,72 @@ func Analyze(ctx context.Context, p *check.Package, fset *token.FileSet, opts Op
 		return rep, err
 	}
 	rep.Table = t
+	if opts.Decls {
+		if err := extractDecls(ctx, rep, cfg, rn, opts); err != nil {
+			return rep, err
+		}
+	}
 	return rep, nil
+}
+
+// extractDecls runs steps 12.3 and 12.4 on the probe results of rep: it asks
+// for the declarations that the results need, then for those that the records
+// found need (public fields, bases, function signatures), a few rounds deep,
+// and maps every result.
+func extractDecls(ctx context.Context, rep *Report, cfg probe.Config, rn *probe.Runner, opts Options) error {
+	dc := opts.DeclLimits
+	dc.Includes, dc.StringToCStr = rep.Includes, opts.StringToCStr
+	rounds := opts.DeclRounds
+	if rounds <= 0 {
+		rounds = 3
+	}
+	m := ftype.New(nil, opts.Target)
+	all := &probe.DeclTable{Records: map[string]*probe.Record{}, Enums: map[string]*probe.Enum{}, Funcs: map[string]*probe.FuncSet{}, Canon: map[string]string{}, Errors: map[string]string{}}
+	queries := m.Needs(rep.Table.Results)
+	for _, name := range probe.FuncNames(rep.Set, rep.Kinds) {
+		queries = append(queries, probe.DeclQuery{Kind: probe.DeclFunc, Name: name})
+	}
+	for round := 0; round < rounds && len(queries) > 0; round++ {
+		tab, err := rn.Decls(ctx, cfg, dc, queries)
+		if err != nil {
+			return fmt.Errorf("cannot extract the declarations: %w", err)
+		}
+		m.Add(tab)
+		mergeDecls(all, tab)
+		queries = m.NeedsMore()
+	}
+	rep.Decls, rep.Mapper = all, m
+	rep.Values = make([]ftype.Value, len(rep.Table.Results))
+	for i := range rep.Table.Results {
+		rep.Values[i] = m.Value(&rep.Table.Results[i])
+	}
+	return nil
+}
+
+func mergeDecls(dst, src *probe.DeclTable) {
+	for k, v := range src.Records {
+		dst.Records[k] = v
+	}
+	for k, v := range src.Enums {
+		dst.Enums[k] = v
+	}
+	for k, v := range src.Funcs {
+		dst.Funcs[k] = v
+	}
+	for k, v := range src.Canon {
+		dst.Canon[k] = v
+	}
+	for k, v := range src.Errors {
+		dst.Errors[k] = v
+	}
+	dst.HeaderErrors = append(dst.HeaderErrors, src.HeaderErrors...)
+	dst.Runs += src.Runs
+	dst.Deps = append(dst.Deps, src.Deps...)
+	dst.Timing.Compile += src.Timing.Compile
+	dst.Timing.CPU += src.Timing.CPU
+	dst.Timing.Total += src.Timing.Total
+	dst.Stats.Decls += src.Stats.Decls
+	dst.Stats.JSONBytes += src.Stats.JSONBytes
 }
 
 // Collect runs only the collector (step 12.1) for the checked package p and
@@ -156,12 +242,16 @@ func (r *Report) MarshalJSON() ([]byte, error) {
 	type row struct {
 		collect.RefJSON
 		Result *probe.Result `json:"result"`
+		Mapped string        `json:"mapped,omitempty"`
 	}
 	rows := make([]row, len(r.Set.Refs))
 	for i, ref := range r.Set.Refs {
 		rows[i] = row{RefJSON: ref.JSON()}
 		if r.Table != nil {
 			rows[i].Result = r.Table.Result(ref.ID)
+		}
+		if i < len(r.Values) {
+			rows[i].Mapped = r.Values[i].String()
 		}
 	}
 	src := ""
@@ -178,5 +268,6 @@ func (r *Report) MarshalJSON() ([]byte, error) {
 		Kinds    map[string]string `json:"kinds,omitempty"`
 		Table    *probe.Table      `json:"table"`
 		Source   string            `json:"source,omitempty"`
-	}{rows, r.Includes, kinds, r.Table, src})
+		Decls    *probe.DeclTable  `json:"decls,omitempty"`
+	}{rows, r.Includes, kinds, r.Table, src, r.Decls})
 }

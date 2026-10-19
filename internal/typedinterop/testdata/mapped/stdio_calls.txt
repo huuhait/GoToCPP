@@ -1,0 +1,59 @@
+::EOF
+    prvalue int = -1
+    => value C.int
+::fflush
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::printf
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::puts
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::stdout
+    lvalue _IO_FILE *
+    => assignable *_IO_FILE (*FILE)
+C.int
+    type int
+    => type C.int
+C.longlong
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+C.ulonglong
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+call(::fflush|::stdout)
+    prvalue int
+    => value C.int
+call(::printf|lit("%d %.1f %s %c\012"),lit(5),lit(2.5),lit("x"),lit('z'))
+    prvalue int
+    => value C.int
+call(::printf|lit("%lld %llu\012"),call(C.longlong|lit(1099511627776)),call(C.ulonglong|lit(9223372036854775808ULL)))
+    prvalue int
+    => value C.int
+call(::printf|lit("%lld\012"),arg&(decay(call(C.longlong|lit(1099511627776)))))
+    prvalue int
+    => value C.int
+call(::printf|lit("%s\012"),lit("hello"))
+    prvalue int
+    => value C.int
+call(::printf|lit("EOF is %d\012"),::EOF)
+    prvalue int
+    => value C.int
+call(::printf|lit("printf wrote %d bytes\012"),arg&(C.int))
+    prvalue int
+    => value C.int
+call(::puts|lit("puts"))
+    prvalue int
+    => value C.int
+call(C.longlong|lit(1099511627776))
+    prvalue long long
+    => value C.longlong
+call(C.ulonglong|lit(9223372036854775808ULL))
+    prvalue unsigned long long
+    => value C.ulonglong
+decay(call(C.longlong|lit(1099511627776)))
+    type long long
+    => type C.longlong
+
+declarations: func fflush, func printf, func puts, record _IO_FILE

@@ -1,0 +1,116 @@
+::BF
+    type BF
+    => type BF
+::LIGHT
+    prvalue shade
+    => value shade
+::bf_make
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+C.longlong
+    type long long
+    => type C.longlong
+C.uint
+    type unsigned int
+    => type C.uint
+addr(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368)))))
+    prvalue BF *
+    => value *BF
+bin(==|arg&(decay(sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|tone)))|::LIGHT)
+    prvalue bool
+    => value C.bool
+call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))
+    prvalue BF
+    => value BF
+call(go(double)|sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|wide))
+    prvalue double
+    => value C.double
+call(go(int64_t)|sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|s5))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|u3))
+    prvalue long
+    => value C.long (int64_t)
+call(go(uint64_t)|sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|pad))
+    prvalue unsigned long
+    => value C.ulong (uint64_t)
+call(unknown(no complete type for third)|addr(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))))
+    skipped
+    => opaque: not probed: incomplete: no complete type for third
+call(unknown(no complete type for wide)|arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368)))))
+    skipped
+    => opaque: not probed: incomplete: no complete type for wide
+decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368)))
+    type BF
+    => type BF
+decay(sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|flag))
+    type bool
+    => type C.bool
+decay(sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|s5))
+    type int
+    => type C.int
+decay(sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|tone))
+    type shade
+    => type shade
+decay(sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|u3))
+    type unsigned int
+    => type C.uint
+decay(sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|wide))
+    type long long
+    => type C.longlong
+decay(sel(sel(unknown(Go type *command-line-arguments.Holder)|b)|s5))
+    skipped
+    => opaque: not probed: incomplete: Go type *command-line-arguments.Holder
+decay(sel(sel(unknown(Go type *command-line-arguments.Holder)|b)|u3))
+    skipped
+    => opaque: not probed: incomplete: Go type *command-line-arguments.Holder
+sel(arg&(::BF)|wide)
+    lvalue long long
+    => assignable C.longlong
+sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|flag)
+    lvalue bool
+    => assignable C.bool
+sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|pad)
+    lvalue unsigned char
+    => assignable C.uchar
+sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|s5)
+    lvalue int
+    => assignable C.int
+sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|tone)
+    lvalue shade
+    => assignable shade
+sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|u3)
+    lvalue unsigned int
+    => assignable C.uint
+sel(arg&(decay(call(::bf_make|lit(5),lit((-3)),lit(1),lit(34359738368))))|wide)
+    lvalue long long
+    => assignable C.longlong
+sel(arg&(star(::BF))|u3)
+    lvalue unsigned int
+    => assignable C.uint
+sel(sel(unknown(Go type *command-line-arguments.Holder)|b)|s5)
+    skipped
+    => opaque: not probed: incomplete: Go type *command-line-arguments.Holder
+sel(sel(unknown(Go type *command-line-arguments.Holder)|b)|u3)
+    skipped
+    => opaque: not probed: incomplete: Go type *command-line-arguments.Holder
+sel(sel(unknown(Go type command-line-arguments.Holder)|b)|u3)
+    skipped
+    => opaque: not probed: incomplete: Go type command-line-arguments.Holder
+sel(unknown(Go type *command-line-arguments.Holder)|b)
+    skipped
+    => opaque: not probed: incomplete: Go type *command-line-arguments.Holder
+sel(unknown(Go type command-line-arguments.Holder)|b)
+    skipped
+    => opaque: not probed: incomplete: Go type command-line-arguments.Holder
+sel(unknown(Go type command-line-arguments.Holder)|v)
+    skipped
+    => opaque: not probed: incomplete: Go type command-line-arguments.Holder
+star(::BF)
+    type BF *
+    => type *BF
+unknown(type struct{b C.BF; v C.uint})
+    skipped
+    => opaque: not probed: incomplete: type struct{b C.BF; v C.uint}
+
+declarations: enum shade, func bf_make, record BF

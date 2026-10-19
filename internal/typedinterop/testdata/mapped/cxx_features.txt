@@ -1,0 +1,366 @@
+::Color::Blue
+    prvalue oop::Color
+    => value oop.Color
+::Color::Green
+    prvalue oop::Color
+    => value oop.Color
+::High
+    prvalue oop::Level
+    => value oop.Level
+::Low
+    prvalue oop::Level
+    => value oop.Level
+::Mid
+    prvalue oop::Level
+    => value oop.Level
+::Ring
+    type oop::Ring
+    => type oop.Ring
+::Stack
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::Vec2
+    type oop::Vec2
+    => type oop.Vec2
+::color_name
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::divmod
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::pick
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::scale
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::sum_all
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::twice
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::volume
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+C.int
+    type int
+    => type C.int
+bin(+|arg&(decay(call(::Vec2|lit(1),lit(2))))|arg&(decay(call(::Vec2|lit(10),lit(20)))))
+    prvalue oop::Vec2
+    => value oop.Vec2
+bin(<|arg&(decay(call(::Vec2|lit(1),lit(2))))|arg&(decay(call(::Vec2|lit(10),lit(20)))))
+    prvalue bool
+    => value C.bool
+bin(<|arg&(decay(call(::Vec2|lit(10),lit(20))))|arg&(decay(call(::Vec2|lit(1),lit(2)))))
+    prvalue bool
+    => value C.bool
+bin(==|arg&(::Vec2)|call(::Vec2|))
+    prvalue bool
+    => value C.bool
+bin(==|arg&(decay(::Color::Green))|::Color::Green)
+    prvalue bool
+    => value C.bool
+bin(==|arg&(decay(bin(+|arg&(decay(call(::Vec2|lit(1),lit(2))))|arg&(decay(call(::Vec2|lit(10),lit(20)))))))|call(::Vec2|lit(111),lit(122)))
+    prvalue bool
+    => value C.bool
+call(::Vec2|)
+    prvalue oop::Vec2
+    => value oop.Vec2
+call(::Vec2|lit(1),lit(2))
+    prvalue oop::Vec2
+    => value oop.Vec2
+call(::Vec2|lit(10),lit(20))
+    prvalue oop::Vec2
+    => value oop.Vec2
+call(::Vec2|lit(100),lit(100))
+    prvalue oop::Vec2
+    => value oop.Vec2
+call(::Vec2|lit(111),lit(122))
+    prvalue oop::Vec2
+    => value oop.Vec2
+call(::color_name|::Color::Blue)
+    prvalue const char *
+    => value *C.char
+call(::color_name|arg&(decay(::Color::Green)))
+    prvalue const char *
+    => value *C.char
+call(::divmod|lit(17),lit(5),arg&(C.int),arg&(C.int))
+    prvalue void
+    => value void
+call(::pick|arg&(decay(call(C.int|lit(1)))),arg&(decay(call(C.int|lit(2)))),lit(false))
+    lvalue int
+    => assignable C.int
+call(::pick|arg&(decay(call(C.int|lit(1)))),arg&(decay(call(C.int|lit(2)))),lit(true))
+    lvalue int
+    => assignable C.int
+call(::scale|call(std::string|lit("ab")))
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(::scale|lit(4))
+    prvalue int
+    => value C.int
+call(::scale|lit(4.0))
+    prvalue double
+    => value C.double
+call(::sum_all|lit{index(std::vector|C.int)|lit(1),lit(2),lit(3)})
+    prvalue int
+    => value C.int
+call(::twice|call(std::string|lit("go")))
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(::volume|lit(2))
+    prvalue int
+    => value C.int
+call(::volume|lit(2),lit(5))
+    prvalue int
+    => value C.int
+call(::volume|lit(2),lit(5),lit(7))
+    prvalue int
+    => value C.int
+call(C.int|lit(1))
+    prvalue int
+    => value C.int
+call(C.int|lit(2))
+    prvalue int
+    => value C.int
+call(arg&(decay(bin(+|arg&(decay(call(::Vec2|lit(1),lit(2))))|arg&(decay(call(::Vec2|lit(10),lit(20)))))))|lit(2))
+    prvalue int
+    => value C.int
+call(go(double)|call(::scale|lit(4.0)))
+    prvalue double
+    => value C.double
+call(go(int64_t)|::Color::Blue)
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|::High)
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|::Low)
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|::Mid)
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(C.int))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(::Color::Green)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(call(C.int|lit(1)))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(call(C.int|lit(2)))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangekey(arg&(index(::Stack|go(int64_t)))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangeval(arg&(index(::Stack|go(int64_t)))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangeval(paren(lit{::Ring|})))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(::pick|arg&(decay(call(C.int|lit(1)))),arg&(decay(call(C.int|lit(2)))),lit(true)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(::scale|lit(4)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(::sum_all|lit{index(std::vector|C.int)|lit(1),lit(2),lit(3)}))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(::volume|lit(2)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(::volume|lit(2),lit(5)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(::volume|lit(2),lit(5),lit(7)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(arg&(decay(bin(+|arg&(decay(call(::Vec2|lit(1),lit(2))))|arg&(decay(call(::Vec2|lit(10),lit(20)))))))|lit(2)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(index(::twice|go(int64_t))|lit(21)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(index(::Stack|go(int64_t)))|pop)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(index(::Stack|go(int64_t)))|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(arg&(decay(bin(+|arg&(decay(call(::Vec2|lit(1),lit(2))))|arg&(decay(call(::Vec2|lit(10),lit(20)))))))|lit(0)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(arg&(decay(bin(+|arg&(decay(call(::Vec2|lit(1),lit(2))))|arg&(decay(call(::Vec2|lit(10),lit(20)))))))|lit(1)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(arg&(::Vec2)|x))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(arg&(::Vec2)|y))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(arg&(decay(bin(+|arg&(decay(call(::Vec2|lit(1),lit(2))))|arg&(decay(call(::Vec2|lit(10),lit(20)))))))|x))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(arg&(decay(bin(+|arg&(decay(call(::Vec2|lit(1),lit(2))))|arg&(decay(call(::Vec2|lit(10),lit(20)))))))|y))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(arg&(decay(un(-|arg&(decay(bin(+|arg&(decay(call(::Vec2|lit(1),lit(2))))|arg&(decay(call(::Vec2|lit(10),lit(20))))))))))|x))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(index(::Stack|go(int64_t))|kind))
+    prvalue long
+    => value C.long (int64_t)
+call(index(::twice|go(int64_t))|lit(21))
+    prvalue long
+    => value C.long
+call(sel(arg&(decay(lit{index(::Stack|std::string)|}))|pop)|)
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(sel(arg&(decay(lit{index(::Stack|std::string)|}))|push)|lit("x"))
+    prvalue void
+    => value void
+call(sel(arg&(index(::Stack|go(int64_t)))|pop)|)
+    prvalue long
+    => value C.long
+call(sel(arg&(index(::Stack|go(int64_t)))|push)|lit(5))
+    prvalue void
+    => value void
+call(sel(arg&(index(::Stack|go(int64_t)))|push)|lit(6))
+    prvalue void
+    => value void
+call(sel(arg&(index(::Stack|go(int64_t)))|push)|lit(7))
+    prvalue void
+    => value void
+call(sel(arg&(index(::Stack|go(int64_t)))|size)|)
+    prvalue unsigned long
+    => value C.ulong (size_t)
+call(stand:string()|call(::scale|call(std::string|lit("ab"))))
+    prvalue gocpp_probe_internal_pr::string
+    => value string
+call(stand:string()|call(::twice|call(std::string|lit("go"))))
+    prvalue gocpp_probe_internal_pr::string
+    => value string
+call(stand:string()|call(sel(arg&(decay(lit{index(::Stack|std::string)|}))|pop)|))
+    prvalue gocpp_probe_internal_pr::string
+    => value string
+call(std::string|lit("ab"))
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(std::string|lit("go"))
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+decay(::Color::Green)
+    type oop::Color
+    => type oop.Color
+decay(bin(+|arg&(decay(call(::Vec2|lit(1),lit(2))))|arg&(decay(call(::Vec2|lit(10),lit(20))))))
+    type oop::Vec2
+    => type oop.Vec2
+decay(call(::Vec2|lit(1),lit(2)))
+    type oop::Vec2
+    => type oop.Vec2
+decay(call(::Vec2|lit(10),lit(20)))
+    type oop::Vec2
+    => type oop.Vec2
+decay(call(C.int|lit(1)))
+    type int
+    => type C.int
+decay(call(C.int|lit(2)))
+    type int
+    => type C.int
+decay(lit{index(::Stack|std::string)|})
+    type oop::Stack<std::basic_string<char>>
+    => type oop.Stack[std.basic_string[C.char]]
+decay(rangekey(arg&(index(::Stack|go(int64_t)))))
+    type long
+    => type C.long
+decay(rangeval(arg&(index(::Stack|go(int64_t)))))
+    type long
+    => type C.long
+decay(rangeval(paren(lit{::Ring|})))
+    type int
+    => type C.int
+decay(un(-|arg&(decay(bin(+|arg&(decay(call(::Vec2|lit(1),lit(2))))|arg&(decay(call(::Vec2|lit(10),lit(20)))))))))
+    type oop::Vec2
+    => type oop.Vec2
+index(::Stack|go(int64_t))
+    type oop::Stack<long>
+    => type oop.Stack[C.long]
+index(::Stack|std::string)
+    type oop::Stack<std::basic_string<char>>
+    => type oop.Stack[std.basic_string[C.char]]
+index(::twice|go(int64_t))
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+index(arg&(decay(bin(+|arg&(decay(call(::Vec2|lit(1),lit(2))))|arg&(decay(call(::Vec2|lit(10),lit(20)))))))|lit(0))
+    prvalue int
+    => value C.int
+index(arg&(decay(bin(+|arg&(decay(call(::Vec2|lit(1),lit(2))))|arg&(decay(call(::Vec2|lit(10),lit(20)))))))|lit(1))
+    prvalue int
+    => value C.int
+index(std::vector|C.int)
+    type std::vector<int>
+    => type std.vector[C.int]
+lit{::Ring|}
+    prvalue oop::Ring
+    => value oop.Ring
+lit{index(::Stack|std::string)|}
+    prvalue oop::Stack<std::basic_string<char>>
+    => value oop.Stack[std.basic_string[C.char]]
+lit{index(std::vector|C.int)|lit(1),lit(2),lit(3)}
+    prvalue std::vector<int>
+    => value std.vector[C.int]
+paren(lit{::Ring|})
+    prvalue oop::Ring
+    => value oop.Ring
+sel(arg&(::Vec2)|x)
+    lvalue int
+    => assignable C.int
+sel(arg&(::Vec2)|y)
+    lvalue int
+    => assignable C.int
+sel(arg&(decay(bin(+|arg&(decay(call(::Vec2|lit(1),lit(2))))|arg&(decay(call(::Vec2|lit(10),lit(20)))))))|x)
+    lvalue int
+    => assignable C.int
+sel(arg&(decay(bin(+|arg&(decay(call(::Vec2|lit(1),lit(2))))|arg&(decay(call(::Vec2|lit(10),lit(20)))))))|y)
+    lvalue int
+    => assignable C.int
+sel(arg&(decay(lit{index(::Stack|std::string)|}))|pop)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(::Stack|std::string)|}))|push)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(un(-|arg&(decay(bin(+|arg&(decay(call(::Vec2|lit(1),lit(2))))|arg&(decay(call(::Vec2|lit(10),lit(20))))))))))|x)
+    lvalue int
+    => assignable C.int
+sel(arg&(index(::Stack|go(int64_t)))|pop)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(::Stack|go(int64_t)))|push)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(::Stack|go(int64_t)))|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(index(::Stack|go(int64_t))|kind)
+    lvalue const int
+    => lvalue C.int
+std::string
+    type std::basic_string<char>
+    => type std.string (members unknown)
+std::vector
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+un(-|arg&(decay(bin(+|arg&(decay(call(::Vec2|lit(1),lit(2))))|arg&(decay(call(::Vec2|lit(10),lit(20))))))))
+    prvalue oop::Vec2
+    => value oop.Vec2
+
+declarations: enum oop::Color, enum oop::Level, func oop::color_name, func oop::divmod, func oop::pick, func oop::scale, func oop::sum_all, func oop::twice, func oop::volume, record oop::Ring, record oop::Stack<long>, record oop::Stack<std::basic_string<char>>, record oop::Vec2, record std::vector<int>
+no answer: type std::basic_string<char>: the declaration is larger than the limit of the extraction

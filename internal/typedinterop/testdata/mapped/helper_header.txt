@@ -1,0 +1,67 @@
+::MX_CM_PER_M
+    prvalue int = 100
+    => value C.int
+::MX_FAST
+    prvalue mx_mode
+    => value mx_mode
+::MX_SLOW
+    prvalue mx_mode
+    => value mx_mode
+::clamp_to
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::hypot3
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::mx_counter
+    type mx_counter
+    => type mx_counter
+::mx_describe
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::mx_limit
+    lvalue const int
+    => lvalue C.int
+::mx_mode
+    type mx_mode
+    => type mx_mode
+call(::clamp_to|lit(150),lit(0),::mx_limit)
+    prvalue int
+    => value C.int
+call(::clamp_to|lit(2.5),lit(0.0),lit(1.0))
+    prvalue double
+    => value C.double
+call(::hypot3|lit(1),lit(2),lit(2))
+    prvalue double
+    => value C.double
+call(::mx_describe|lit(1.5))
+    prvalue std::basic_string<char>
+    => value std.string (std::string) (members unknown)
+call(go(int64_t)|::MX_SLOW)
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(::mx_mode))
+    prvalue long
+    => value C.long (int64_t)
+call(sel(arg&(::mx_counter)|add)|lit(2))
+    prvalue void
+    => value void
+call(sel(arg&(::mx_counter)|add)|lit(40))
+    prvalue void
+    => value void
+call(sel(arg&(::mx_counter)|get)|)
+    prvalue int
+    => value C.int
+call(stand:string()|call(::mx_describe|lit(1.5)))
+    prvalue gocpp_probe_internal_pr::string
+    => value string
+sel(arg&(::mx_counter)|add)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(::mx_counter)|get)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+
+declarations: enum mx_mode, func clamp_to, func hypot3, func mx_describe, record mx_counter
+no answer: type std::basic_string<char>: the declaration is larger than the limit of the extraction
+no answer: type std::string: the declaration is larger than the limit of the extraction

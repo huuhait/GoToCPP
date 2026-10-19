@@ -1,0 +1,44 @@
+::AS_BOOL
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::ERANGE
+    prvalue int = 34
+    => value C.int
+::LIMIT
+    prvalue int = 10
+    => value C.int
+::TWICE
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::errno
+    lvalue int
+    => assignable C.int
+::strtol
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+call(::AS_BOOL|lit(7))
+    prvalue int
+    => value C.int
+call(::TWICE|lit(21))
+    prvalue int
+    => value C.int
+call(::strtol|lit("99999999999999999999"),lit(nullptr),lit(10))
+    prvalue long
+    => value C.long
+call(go(int64_t)|::ERANGE)
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|::LIMIT)
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|::errno)
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(::AS_BOOL|lit(7)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(::TWICE|lit(21)))
+    prvalue long
+    => value C.long (int64_t)
+
+declarations: func strtol

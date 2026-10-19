@@ -83,6 +83,9 @@ type Runner struct {
 	memo   map[string]*memoEntry
 	flying map[string]*flight // probe runs in progress, by PreKey
 	runs   int
+
+	declMemo map[string]*declEntry // extracted declarations (decls.go), by the key of their probe text
+	declRuns int
 }
 
 // A flight is a compiler run that other callers of the same probe wait for.
@@ -220,7 +223,7 @@ func PreKey(cfg Config, src *Source) string {
 	// and clang's messages and a header's own relative includes depend on it.
 	// MaxDecl and MaxJSON are part of it too: a table made with a small limit
 	// has probes that failed for the limit (TooLarge), which a larger limit would not.
-	w("gocpp-probe-v2", src.Text, cfg.CXX.Path, strings.Join(cfg.CXX.Args, "\x01"), cfg.CXX.Version, cfg.Dir, strings.Join(cfg.Flags, "\x01"),
+	w("gocpp-probe-v3", src.Text, cfg.CXX.Path, strings.Join(cfg.CXX.Args, "\x01"), cfg.CXX.Version, cfg.Dir, strings.Join(cfg.Flags, "\x01"),
 		strconv.Itoa(effMaxDecl(cfg)), strconv.FormatInt(effMaxJSON(cfg), 10))
 	if id, ok := cfg.CXX.Identity(); ok {
 		w(id)
@@ -380,7 +383,27 @@ func parseProbeName(name string) (probeName, bool) {
 	return probeName{id, role}, true
 }
 
-func runProbe(ctx context.Context, cfg Config, src *Source) (*Table, error) {
+// ErrDumpTooLarge is the error of a run whose AST dump passed the size limit (Config.MaxJSON).
+var ErrDumpTooLarge = errors.New("the dump is too large")
+
+// A dump is what one compiler run printed: the statistics, the compiler's
+// messages and the headers it read. The declarations went to the callback.
+type dump struct {
+	srcPath string // the path of the source as the compiler got it (the messages name it)
+	stats   Stats
+	stderr  []byte
+	deps    []string
+	cpu     time.Duration
+	compile time.Duration
+}
+
+// runDump compiles the source text with clang's filtered JSON AST dump
+// (-ast-dump-filter=filter) and calls fn for each top-level declaration of
+// the dump, in order. It enforces the limits of cfg (time, size), kills the
+// compiler's process group whatever happens, and classifies the failures of the
+// run itself (it did not start, it was stopped, it crashed, the dump is not
+// JSON). Errors in the source are not failures: they are in the stderr.
+func runDump(ctx context.Context, cfg Config, text, filter string, fn func(RawDecl) error) (*dump, error) {
 	start := time.Now()
 	timeout := effTimeout(cfg)
 	maxJSON := effMaxJSON(cfg)
@@ -395,10 +418,10 @@ func runProbe(ctx context.Context, cfg Config, src *Source) (*Table, error) {
 	}
 	srcPath := filepath.Join(tmp, probeFileName)
 	depPath := filepath.Join(tmp, "gp_probe.d")
-	if err := os.WriteFile(srcPath, []byte(src.Text), 0o644); err != nil {
+	if err := os.WriteFile(srcPath, []byte(text), 0o644); err != nil {
 		return nil, err
 	}
-	mode := []string{"-fsyntax-only", "-Xclang", "-ast-dump=json", "-Xclang", "-ast-dump-filter=" + probeDeclPrefix}
+	mode := []string{"-fsyntax-only", "-Xclang", "-ast-dump=json", "-Xclang", "-ast-dump-filter=" + filter}
 	args, err := interop.ProbeCompilerArgs(cfg.CXX, mode, cfg.Dir, cfg.Flags, depPath, srcPath)
 	if err != nil {
 		return nil, err
@@ -424,35 +447,16 @@ func runProbe(ctx context.Context, cfg Config, src *Source) (*Table, error) {
 	// Whatever happens below, the process group dies with the run.
 	defer build.KillGroup(cmd)
 
-	t := &Table{Source: src, Results: make([]Result, src.NRefs), Compiler: compilerID(cfg.CXX)}
-	founds := make(map[probeName]*found)
+	d := &dump{srcPath: srcPath}
 	cr := &countReader{r: stdout, max: maxJSON, cancel: cancel}
-	var parse time.Duration
-	n, scanErr := ScanDecls(cr, cfg.MaxDecl, func(d RawDecl) error {
-		t.Stats.Decls++
-		if d.Size > t.Stats.LargestDecl {
-			t.Stats.LargestDecl = d.Size
+	_, scanErr := ScanDecls(cr, cfg.MaxDecl, func(rd RawDecl) error {
+		d.stats.Decls++
+		if rd.Size > d.stats.LargestDecl {
+			d.stats.LargestDecl = rd.Size
 		}
-		pn, ok := parseProbeName(d.Name)
-		if !ok {
-			return nil
-		}
-		if d.TooLarge {
-			t.Stats.TooLarge++
-			founds[pn] = &found{tooBig: true}
-			return nil
-		}
-		p0 := time.Now()
-		f, err := decodeDecl(d.Raw)
-		parse += time.Since(p0)
-		if err != nil {
-			return fmt.Errorf("%s: %w", d.Name, err)
-		}
-		founds[pn] = f
-		return nil
+		return fn(rd)
 	})
-	_ = n
-	t.Stats.JSONBytes = cr.n
+	d.stats.JSONBytes = cr.n
 	abort := scanErr != nil && !cr.over
 	// Drain what is left (the compiler must be able to exit). A reader error does not
 	// kill the compiler yet: if it crashed in the middle of the dump (a truncated
@@ -463,7 +467,7 @@ func runProbe(ctx context.Context, cfg Config, src *Source) (*Table, error) {
 	build.KillGroup(cmd)
 	switch {
 	case cr.over:
-		return nil, fmt.Errorf("the AST dump of the probes is larger than %d bytes: probing stopped", maxJSON)
+		return nil, fmt.Errorf("%w: the AST dump of the probes is larger than %d bytes: probing stopped", ErrDumpTooLarge, maxJSON)
 	case ctx.Err() != nil:
 		return nil, fmt.Errorf("%s was stopped: %w", cfg.CXX.Name(), ctx.Err())
 	case rctx.Err() != nil:
@@ -475,25 +479,61 @@ func runProbe(ctx context.Context, cfg Config, src *Source) (*Table, error) {
 	case abort:
 		return nil, fmt.Errorf("reading the AST dump: %w%s", scanErr, excerpt(stderr.buf.Bytes()))
 	}
-	t.Stats.ExitCode = cmd.ProcessState.ExitCode()
-	t.Stats.StderrBytes = stderr.total
-	t.Stats.StderrTruncated = stderr.truncated
-	t.Stderr = stderr.buf.String()
-	if t.Stats.ExitCode > 1 && t.Stats.Decls == 0 {
-		return nil, fmt.Errorf("%s failed (exit %d)%s", cfg.CXX.Name(), t.Stats.ExitCode, excerpt(stderr.buf.Bytes()))
+	d.stats.ExitCode = cmd.ProcessState.ExitCode()
+	d.stats.StderrBytes = stderr.total
+	d.stats.StderrTruncated = stderr.truncated
+	d.stderr = stderr.buf.Bytes()
+	if d.stats.ExitCode > 1 && d.stats.Decls == 0 {
+		return nil, fmt.Errorf("%s failed (exit %d)%s", cfg.CXX.Name(), d.stats.ExitCode, excerpt(stderr.buf.Bytes()))
 	}
 	if data, err := os.ReadFile(depPath); err == nil {
-		t.Deps = interop.ParseDeps(data, srcPath, cfg.Dir)
-		slices.Sort(t.Deps)
+		d.deps = interop.ParseDeps(data, srcPath, cfg.Dir)
+		slices.Sort(d.deps)
 	}
-	if err := assemble(t, src, founds, ParseDiags(stderr.buf.Bytes(), srcPath)); err != nil {
+	d.cpu = cmd.ProcessState.UserTime() + cmd.ProcessState.SystemTime()
+	d.compile = time.Since(start)
+	return d, nil
+}
+
+func runProbe(ctx context.Context, cfg Config, src *Source) (*Table, error) {
+	founds := make(map[probeName]*found)
+	var parse time.Duration
+	t := &Table{Source: src, Results: make([]Result, src.NRefs), Compiler: compilerID(cfg.CXX)}
+	d, err := runDump(ctx, cfg, src.Text, probeDeclPrefix, func(rd RawDecl) error {
+		pn, ok := parseProbeName(rd.Name)
+		if !ok {
+			return nil
+		}
+		if rd.TooLarge {
+			t.Stats.TooLarge++
+			founds[pn] = &found{tooBig: true}
+			return nil
+		}
+		p0 := time.Now()
+		f, err := decodeDecl(rd.Raw)
+		parse += time.Since(p0)
+		if err != nil {
+			return fmt.Errorf("%s: %w", rd.Name, err)
+		}
+		founds[pn] = f
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	tooLarge := t.Stats.TooLarge
+	t.Stats = d.stats
+	t.Stats.TooLarge = tooLarge
+	t.Stderr = string(d.stderr)
+	t.Deps = d.deps
+	if err := assemble(t, src, founds, ParseDiags(d.stderr, d.srcPath)); err != nil {
 		return nil, err
 	}
 	t.Deps = addShadows(t.Deps, cfg, src)
 	t.Key = Key(cfg, src, t.Deps)
 	t.Timing.Parse = parse
-	t.Timing.CPU = cmd.ProcessState.UserTime() + cmd.ProcessState.SystemTime()
-	t.Timing.Compile = time.Since(start)
+	t.Timing.CPU = d.cpu
+	t.Timing.Compile = d.compile
 	t.Timing.Total = t.Timing.Compile
 	return t, nil
 }
@@ -610,7 +650,6 @@ func decodeDecl(raw []byte) (*found, error) {
 		if t == "" {
 			t = n.Type.QualType
 		}
-		f.written = normalizeType(n.Type.QualType)
 		if m := gpCRx.FindStringSubmatch(t); m != nil {
 			f.typ = normalizeType(strings.TrimSpace(m[1]))
 			f.wrapped = true
@@ -618,6 +657,7 @@ func decodeDecl(raw []byte) (*found, error) {
 			f.typ = normalizeType(t)
 		}
 	}
+	f.written = writtenType(&n)
 	// A string constant: the VarDecl gp_probe_N_s = str_of((E)) of type const char *,
 	// where E is the string literal itself. A string literal deeper in the tree (the
 	// "" of __builtin_nanf("") in NAN) is not the value.
@@ -645,6 +685,50 @@ func decodeDecl(raw []byte) (*found, error) {
 	}
 	visit(&n)
 	return f, nil
+}
+
+// writtenType returns the type of a main probe as clang's tree has it with its
+// typedef names kept: FILE *, size_t, value_type &. The probe is
+// gocpp_probe_internal_c<decltype((E))> (the tree of the argument holds the
+// type of E as the declaration spelled it) or gocpp_probe_internal_c<T> (T as
+// the user's name for it). "" when the tree has no such node (another clang).
+func writtenType(n *node) string {
+	var arg *node
+	var find func(n *node)
+	find = func(n *node) {
+		if arg != nil {
+			return
+		}
+		if n.Kind == "TemplateArgument" {
+			arg = n
+			return
+		}
+		for i := range n.Inner {
+			find(&n.Inner[i])
+		}
+	}
+	find(n)
+	if arg == nil {
+		return ""
+	}
+	if len(arg.Inner) > 0 && arg.Inner[0].Kind == "DecltypeType" {
+		d := &arg.Inner[0]
+		if len(d.Inner) == 0 {
+			return ""
+		}
+		last := &d.Inner[len(d.Inner)-1]
+		if !strings.HasSuffix(last.Kind, "Type") || last.Type == nil {
+			return ""
+		}
+		if strings.Contains(last.Type.QualType, "decltype(") {
+			return ""
+		}
+		return normalizeType(last.Type.QualType)
+	}
+	if arg.Type != nil && !strings.Contains(arg.Type.QualType, "decltype(") {
+		return normalizeType(arg.Type.QualType)
+	}
+	return ""
 }
 
 func isCharPtr(t string) bool {
@@ -891,9 +975,11 @@ func assemble(t *Table, src *Source, founds map[probeName]*found, groups []DiagG
 		case main != nil && !main.tooBig && main.wrapped:
 			r.OK, r.Form = true, formOf(RoleMain)
 			r.splitType(main.typ, r.Form == FormExpr)
+			r.setWritten(main.written)
 		case alt != nil && !alt.tooBig && alt.wrapped:
 			r.OK, r.Alt, r.Form = true, true, formOf(RoleAlt)
 			r.splitType(alt.typ, r.Form == FormExpr)
+			r.setWritten(alt.written)
 		case main != nil && main.tooBig:
 			r.Error = "the probe's AST is larger than the limit"
 		case main != nil && !main.wrapped, alt != nil && !alt.wrapped:

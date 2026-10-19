@@ -234,34 +234,7 @@ func (g *gen) emit(text string, l *Line) {
 // Generate returns the probe file for the references of set.
 func Generate(set *collect.Set, cfg GenConfig) *Source {
 	g := &gen{lines: make(map[int]Line), skipped: make(map[int]string), aliases: make(map[string]bool), kinds: cfg.Kinds}
-	g.emit("// gocpp typed interop: probe file (generated)", nil)
-	for _, h := range []string{"cstddef", "cstdint", "bit", "compare", "iterator", "string_view", "type_traits", "utility",
-		// What gocpp/rt.hpp always includes (the cheap ones), so that std::string, std::vector, std::tuple
-		// and std::unique_ptr resolve in the probe as they do in the build.
-		"initializer_list", "string", "vector", "memory", "tuple", "array", "cstring", "limits", "new", "span"} {
-		g.emit("#include <"+h+">", nil)
-	}
-	var headers []string
-	for _, inc := range cfg.Includes {
-		header, externC := interop.SplitExternC(inc)
-		headers = append(headers, header)
-		if externC {
-			g.emit(`extern "C" {`, nil)
-		}
-		g.emit("#include "+header, nil)
-		if externC {
-			g.emit("}", nil)
-		}
-	}
-	extra := ""
-	if cfg.StringToCStr {
-		extra = "  operator const char*() const noexcept;\n"
-	}
-	text := fmt.Sprintf(helpers, extra)
-	helperFrom := g.line + 1
-	g.b.WriteString(text)
-	g.line += strings.Count(text, "\n")
-	helperTo := g.line
+	headers, helperFrom, helperTo := g.preamble("// gocpp typed interop: probe file (generated)", cfg.Includes, cfg.StringToCStr)
 
 	for _, ref := range set.Refs {
 		if why := skipReason(ref, cfg.Kinds); why != "" {
@@ -298,6 +271,39 @@ func Generate(set *collect.Set, cfg GenConfig) *Source {
 		}
 	}
 	return src
+}
+
+// preamble writes the first lines of a probe file: the title, the headers the
+// helpers need, the package's includes and the helper block. It returns the
+// includes' headers and the line range of the helper block.
+func (g *gen) preamble(title string, includes []string, stringToCStr bool) (headers []string, helperFrom, helperTo int) {
+	g.emit(title, nil)
+	for _, h := range []string{"cstddef", "cstdint", "bit", "compare", "iterator", "string_view", "type_traits", "utility",
+		// What gocpp/rt.hpp always includes (the cheap ones), so that std::string, std::vector, std::tuple
+		// and std::unique_ptr resolve in the probe as they do in the build.
+		"initializer_list", "string", "vector", "memory", "tuple", "array", "cstring", "limits", "new", "span"} {
+		g.emit("#include <"+h+">", nil)
+	}
+	for _, inc := range includes {
+		header, externC := interop.SplitExternC(inc)
+		headers = append(headers, header)
+		if externC {
+			g.emit(`extern "C" {`, nil)
+		}
+		g.emit("#include "+header, nil)
+		if externC {
+			g.emit("}", nil)
+		}
+	}
+	extra := ""
+	if stringToCStr {
+		extra = "  operator const char*() const noexcept;\n"
+	}
+	text := fmt.Sprintf(helpers, extra)
+	helperFrom = g.line + 1
+	g.b.WriteString(text)
+	g.line += strings.Count(text, "\n")
+	return headers, helperFrom, g.line
 }
 
 // skipReason returns why a reference has no probe, or "".

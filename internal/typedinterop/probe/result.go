@@ -107,6 +107,13 @@ type Result struct {
 	// a type probe, the type itself ("std::basic_string<char>").
 	Type string `json:"type,omitempty"`
 
+	// Written is the type with its typedef names kept, as the declaration
+	// spelled it: "FILE *" where Type says "_IO_FILE *", "size_t" for
+	// "unsigned long", "value_type &" for a member typedef (unqualified, as
+	// the class has it). Empty when it is the same as Type, or when the
+	// compiler's dump has no such tree.
+	Written string `json:"written,omitempty"`
+
 	// Base is Type without the reference, Ref is "", "&" or "&&", Category the
 	// value category of an expression and Const says that Base is const at
 	// the top (const int, char *const).
@@ -132,6 +139,13 @@ type Result struct {
 	AltError string `json:"altError,omitempty"`
 	// ErrorAt is where the error is (the probe file's line, or a header's).
 	ErrorAt *Diag `json:"errorAt,omitempty"`
+}
+
+// setWritten records the written type, unless it adds nothing.
+func (r *Result) setWritten(w string) {
+	if w != "" && w != r.Type {
+		r.Written = w
+	}
 }
 
 // splitType derives Base, Ref, Category and Const from the canonical type of

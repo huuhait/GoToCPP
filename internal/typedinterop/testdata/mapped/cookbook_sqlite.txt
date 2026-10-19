@@ -1,0 +1,131 @@
+::SQLITE_DONE
+    prvalue int = 101
+    => value C.int
+::SQLITE_OK
+    prvalue int = 0
+    => value C.int
+::SQLITE_ROW
+    prvalue int = 100
+    => value C.int
+::SQLITE_TRANSIENT
+    prvalue void (*)(void *)
+    => value func(unsafe.Pointer)
+::sqlite3
+    type sqlite3
+    => type sqlite3 (members unknown)
+::sqlite3_bind_int
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::sqlite3_bind_text
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::sqlite3_close
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::sqlite3_column_int
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::sqlite3_column_text
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::sqlite3_errmsg
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::sqlite3_exec
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::sqlite3_finalize
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::sqlite3_open
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::sqlite3_prepare_v2
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::sqlite3_reset
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::sqlite3_step
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::sqlite3_stmt
+    type sqlite3_stmt
+    => type sqlite3_stmt (members unknown)
+C.int
+    type int
+    => type C.int
+addr(arg&(star(::sqlite3)))
+    prvalue sqlite3 **
+    => value **sqlite3
+addr(arg&(star(::sqlite3_stmt)))
+    prvalue sqlite3_stmt **
+    => value **sqlite3_stmt
+bin(!=|arg&(C.int)|::SQLITE_DONE)
+    prvalue bool
+    => value C.bool
+bin(!=|arg&(C.int)|::SQLITE_OK)
+    prvalue bool
+    => value C.bool
+bin(!=|arg&(C.int)|::SQLITE_ROW)
+    prvalue bool
+    => value C.bool
+bin(==|call(::sqlite3_step|arg&(star(::sqlite3_stmt)))|::SQLITE_ROW)
+    prvalue bool
+    => value C.bool
+call(::sqlite3_bind_int|arg&(star(::sqlite3_stmt)),lit(1),lit(10))
+    prvalue int
+    => value C.int
+call(::sqlite3_bind_int|arg&(star(::sqlite3_stmt)),lit(2),call(C.int|arg(go(int64_t))))
+    prvalue int
+    => value C.int
+call(::sqlite3_bind_text|arg&(star(::sqlite3_stmt)),lit(1),arg(go(const char*)),lit((-1)),::SQLITE_TRANSIENT)
+    prvalue int
+    => value C.int
+call(::sqlite3_close|arg&(star(::sqlite3)))
+    prvalue int
+    => value C.int
+call(::sqlite3_column_int|arg&(star(::sqlite3_stmt)),lit(1))
+    prvalue int
+    => value C.int
+call(::sqlite3_column_text|arg&(star(::sqlite3_stmt)),lit(0))
+    prvalue const unsigned char *
+    => value *C.uchar
+call(::sqlite3_errmsg|arg&(star(::sqlite3)))
+    prvalue const char *
+    => value *C.char
+call(::sqlite3_exec|arg&(star(::sqlite3)),lit("CREATE TABLE fruit (name TEXT, qty INTEGER)"),lit(nullptr),lit(nullptr),lit(nullptr))
+    prvalue int
+    => value C.int
+call(::sqlite3_finalize|arg&(star(::sqlite3_stmt)))
+    prvalue int
+    => value C.int
+call(::sqlite3_open|lit(":memory:"),addr(arg&(star(::sqlite3))))
+    prvalue int
+    => value C.int
+call(::sqlite3_prepare_v2|arg&(star(::sqlite3)),lit("INSERT INTO fruit VALUES (\0771, \0772)"),lit((-1)),addr(arg&(star(::sqlite3_stmt))),lit(nullptr))
+    prvalue int
+    => value C.int
+call(::sqlite3_prepare_v2|arg&(star(::sqlite3)),lit("SELECT name, qty FROM fruit WHERE qty > \0771 ORDER BY qty"),lit((-1)),addr(arg&(star(::sqlite3_stmt))),lit(nullptr))
+    prvalue int
+    => value C.int
+call(::sqlite3_reset|arg&(star(::sqlite3_stmt)))
+    prvalue int
+    => value C.int
+call(::sqlite3_step|arg&(star(::sqlite3_stmt)))
+    prvalue int
+    => value C.int
+call(C.int|arg(go(int64_t)))
+    prvalue int
+    => value C.int
+call(go(int64_t)|call(::sqlite3_column_int|arg&(star(::sqlite3_stmt)),lit(1)))
+    prvalue long
+    => value C.long (int64_t)
+star(::sqlite3)
+    type sqlite3 *
+    => type *sqlite3
+star(::sqlite3_stmt)
+    type sqlite3_stmt *
+    => type *sqlite3_stmt
+
+declarations: func sqlite3_bind_int, func sqlite3_bind_text, func sqlite3_close, func sqlite3_column_int, func sqlite3_column_text, func sqlite3_errmsg, func sqlite3_exec, func sqlite3_finalize, func sqlite3_open, func sqlite3_prepare_v2, func sqlite3_reset, func sqlite3_step, record sqlite3, record sqlite3_stmt

@@ -1,0 +1,141 @@
+call(go(int64_t)|call(sel(arg&(decay(call(std::string|lit("hello"))))|find)|lit("world")))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(call(std::string|lit("hello"))))|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|back)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(lit{inst(std::map|std::string,go(int64_t))|}))|count)|lit("carol")))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(lit{inst(std::map|std::string,go(int64_t))|}))|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(std::max|arg&(go(int64_t)),arg(go(int64_t))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|lit(0)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(arg&(decay(lit{inst(std::map|std::string,go(int64_t))|}))|lit("bob")))
+    prvalue long
+    => value C.long (int64_t)
+call(sel(arg&(decay(call(std::string|lit("hello"))))|find)|lit("world"))
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(decay(call(std::string|lit("hello"))))|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|back)|)
+    lvalue long
+    => assignable C.long
+call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|begin)|)
+    prvalue __gnu_cxx::__normal_iterator<long *, std::vector<long>>
+    => value __gnu_cxx.__normal_iterator[*C.long, std.vector[C.long]] (members unknown)
+call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|end)|)
+    prvalue __gnu_cxx::__normal_iterator<long *, std::vector<long>>
+    => value __gnu_cxx.__normal_iterator[*C.long, std.vector[C.long]] (members unknown)
+call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|push_back)|lit(1))
+    prvalue void
+    => value void
+call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(decay(lit{inst(std::map|std::string,go(int64_t))|}))|count)|lit("carol"))
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(decay(lit{inst(std::map|std::string,go(int64_t))|}))|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(stand:string()|arg&(decay(call(std::string|lit("hello")))))
+    prvalue gocpp_probe_internal_pr::string
+    => value string
+call(std::max|arg&(go(int64_t)),arg(go(int64_t)))
+    lvalue const long
+    => lvalue C.long
+call(std::sort|call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|begin)|),call(sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|end)|))
+    prvalue void
+    => value void
+call(std::string|lit("hello"))
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+decay(call(std::string|lit("hello")))
+    type std::basic_string<char>
+    => type std.string (members unknown)
+decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)})
+    type std::vector<long>
+    => type std.vector[C.long]
+decay(lit{inst(std::map|std::string,go(int64_t))|})
+    type std::map<std::basic_string<char>, long>
+    => type std.map[std.basic_string[C.char], C.long]
+index(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|lit(0))
+    lvalue long
+    => assignable C.long
+index(arg&(decay(lit{inst(std::map|std::string,go(int64_t))|}))|lit("alice"))
+    lvalue long
+    => assignable C.long
+index(arg&(decay(lit{inst(std::map|std::string,go(int64_t))|}))|lit("bob"))
+    lvalue long
+    => assignable C.long
+index(std::vector|go(int64_t))
+    type std::vector<long>
+    => type std.vector[C.long]
+inst(std::map|std::string,go(int64_t))
+    type std::map<std::basic_string<char>, long>
+    => type std.map[std.basic_string[C.char], C.long]
+lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}
+    prvalue std::vector<long>
+    => value std.vector[C.long]
+lit{inst(std::map|std::string,go(int64_t))|}
+    prvalue std::map<std::basic_string<char>, long>
+    => value std.map[std.basic_string[C.char], C.long]
+sel(arg&(decay(call(std::string|lit("hello"))))|find)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(std::string|lit("hello"))))|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|back)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|begin)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|end)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|push_back)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(std::vector|go(int64_t))|lit(5),lit(2),lit(9)}))|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{inst(std::map|std::string,go(int64_t))|}))|count)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{inst(std::map|std::string,go(int64_t))|}))|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::map
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::max
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::sort
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::string
+    type std::basic_string<char>
+    => type std.string (members unknown)
+std::vector
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+
+declarations: func std::max, func std::sort, record std::map<std::basic_string<char>, long>, record std::vector<long>
+no answer: type std::basic_string<char>: the declaration is larger than the limit of the extraction

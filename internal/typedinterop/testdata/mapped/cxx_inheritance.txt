@@ -1,0 +1,274 @@
+::Circle
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::Rect
+    type oop::Rect
+    => type oop.Rect
+::Shape
+    type oop::Shape
+    => type oop.Shape
+::Shape::live
+    lvalue int
+    => assignable C.int
+::Square
+    type oop::Square
+    => type oop.Square
+::area_of
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::make_shape
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::name_of
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::total_area
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+C.int
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+addr(arg&(decay(call(::Circle|lit(2)))))
+    prvalue oop::Circle *
+    => value *oop.Circle
+addr(arg&(decay(call(::Square|lit(4)))))
+    prvalue oop::Square *
+    => value *oop.Square
+call(::Circle|lit(2))
+    prvalue oop::Circle
+    => value oop.Circle
+call(::Rect|lit(2),lit(3))
+    prvalue oop::Rect
+    => value oop.Rect
+call(::Square|lit(4))
+    prvalue oop::Square
+    => value oop.Square
+call(::area_of|arg&(decay(call(::Rect|lit(2),lit(3)))))
+    prvalue double
+    => value C.double
+call(::area_of|arg&(decay(call(::Square|lit(4)))))
+    prvalue double
+    => value C.double
+call(::make_shape|call(C.int|arg&(go(int64_t))))
+    prvalue std::unique_ptr<oop::Shape>
+    => value std.unique_ptr[oop.Shape]
+call(::name_of|addr(arg&(decay(call(::Circle|lit(2))))))
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(::name_of|addr(arg&(decay(call(::Square|lit(4))))))
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(::total_area|arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|})))
+    prvalue double
+    => value C.double
+call(C.int|arg&(go(int64_t)))
+    prvalue int
+    => value C.int
+call(go(double)|call(::area_of|arg&(decay(call(::Rect|lit(2),lit(3))))))
+    prvalue double
+    => value C.double
+call(go(double)|call(::area_of|arg&(decay(call(::Square|lit(4))))))
+    prvalue double
+    => value C.double
+call(go(double)|call(::total_area|arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))))
+    prvalue double
+    => value C.double
+call(go(double)|call(sel(arg&(decay(call(::Circle|lit(2))))|area)|))
+    prvalue double
+    => value C.double
+call(go(double)|call(sel(arg&(decay(call(::Rect|lit(2),lit(3))))|area)|))
+    prvalue double
+    => value C.double
+call(go(double)|call(sel(arg&(decay(call(::Square|lit(4))))|area)|))
+    prvalue double
+    => value C.double
+call(go(double)|call(sel(arg&(star(::Shape))|area)|))
+    prvalue double
+    => value C.double
+call(go(double)|sel(arg&(decay(addr(arg&(decay(call(::Square|lit(4)))))))|w))
+    prvalue double
+    => value C.double
+call(go(int64_t)|::Shape::live)
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangekey(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(index(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))|lit(1))))|use_count)|))
+    prvalue long
+    => value C.long (int64_t)
+call(index(std::make_shared|::Rect)|lit(1),lit(1))
+    prvalue std::shared_ptr<oop::Rect>
+    => value std.shared_ptr[oop.Rect]
+call(index(std::make_shared|::Square)|lit(3))
+    prvalue std::shared_ptr<oop::Square>
+    => value std.shared_ptr[oop.Square]
+call(sel(arg&(decay(addr(arg&(decay(call(::Square|lit(4)))))))|describe)|)
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(sel(arg&(decay(addr(arg&(decay(call(::Square|lit(4)))))))|name)|)
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(sel(arg&(decay(call(::Circle|lit(2))))|area)|)
+    prvalue double
+    => value C.double
+call(sel(arg&(decay(call(::Circle|lit(2))))|name)|)
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(sel(arg&(decay(call(::Rect|lit(2),lit(3))))|area)|)
+    prvalue double
+    => value C.double
+call(sel(arg&(decay(call(::Rect|lit(2),lit(3))))|name)|)
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(sel(arg&(decay(call(::Square|lit(4))))|area)|)
+    prvalue double
+    => value C.double
+call(sel(arg&(decay(call(::Square|lit(4))))|name)|)
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(sel(arg&(decay(index(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))|lit(1))))|use_count)|)
+    prvalue long
+    => value C.long
+call(sel(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))|push_back)|call(index(std::make_shared|::Rect)|lit(1),lit(1)))
+    prvalue void
+    => value void
+call(sel(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))|push_back)|call(index(std::make_shared|::Square)|lit(3)))
+    prvalue void
+    => value void
+call(sel(arg&(star(::Shape))|area)|)
+    prvalue double
+    => value C.double
+call(sel(arg&(star(::Shape))|describe)|)
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(sel(arg&(star(::Shape))|name)|)
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(sel(paren(star(arg&(decay(call(::make_shape|call(C.int|arg&(go(int64_t))))))))|describe)|)
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(sel(paren(star(arg&(decay(rangeval(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|})))))))|name)|)
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+decay(addr(arg&(decay(call(::Square|lit(4))))))
+    type oop::Square *
+    => type *oop.Square
+decay(call(::Circle|lit(2)))
+    type oop::Circle
+    => type oop.Circle
+decay(call(::Rect|lit(2),lit(3)))
+    type oop::Rect
+    => type oop.Rect
+decay(call(::Square|lit(4)))
+    type oop::Square
+    => type oop.Square
+decay(call(::make_shape|call(C.int|arg&(go(int64_t)))))
+    type std::unique_ptr<oop::Shape>
+    => type std.unique_ptr[oop.Shape]
+decay(index(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))|lit(1)))
+    type std::shared_ptr<oop::Shape>
+    => type std.shared_ptr[oop.Shape]
+decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|})
+    type std::vector<std::shared_ptr<oop::Shape>>
+    => type std.vector[std.shared_ptr[oop.Shape]]
+decay(rangekey(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))))
+    type long
+    => type C.long
+decay(rangeval(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))))
+    type std::shared_ptr<oop::Shape>
+    => type std.shared_ptr[oop.Shape]
+index(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))|lit(1))
+    lvalue std::shared_ptr<oop::Shape>
+    => assignable std.shared_ptr[oop.Shape]
+index(std::make_shared|::Rect)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+index(std::make_shared|::Square)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+index(std::shared_ptr|::Shape)
+    type std::shared_ptr<oop::Shape>
+    => type std.shared_ptr[oop.Shape]
+index(std::vector|index(std::shared_ptr|::Shape))
+    type std::vector<std::shared_ptr<oop::Shape>>
+    => type std.vector[std.shared_ptr[oop.Shape]]
+lit{index(std::vector|index(std::shared_ptr|::Shape))|}
+    prvalue std::vector<std::shared_ptr<oop::Shape>>
+    => value std.vector[std.shared_ptr[oop.Shape]]
+paren(star(arg&(decay(call(::make_shape|call(C.int|arg&(go(int64_t))))))))
+    lvalue oop::Shape
+    => assignable oop.Shape
+paren(star(arg&(decay(rangeval(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|})))))))
+    lvalue oop::Shape
+    => assignable oop.Shape
+sel(arg&(decay(addr(arg&(decay(call(::Square|lit(4)))))))|describe)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(addr(arg&(decay(call(::Square|lit(4)))))))|name)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(addr(arg&(decay(call(::Square|lit(4)))))))|w)
+    lvalue double
+    => assignable C.double
+sel(arg&(decay(call(::Circle|lit(2))))|area)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(::Circle|lit(2))))|name)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(::Rect|lit(2),lit(3))))|area)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(::Rect|lit(2),lit(3))))|name)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(::Square|lit(4))))|area)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(::Square|lit(4))))|name)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(index(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))|lit(1))))|use_count)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))|push_back)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(star(::Shape))|area)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(star(::Shape))|describe)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(star(::Shape))|name)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(paren(star(arg&(decay(call(::make_shape|call(C.int|arg&(go(int64_t))))))))|describe)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(paren(star(arg&(decay(rangeval(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|})))))))|name)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+star(::Shape)
+    type oop::Shape *
+    => type *oop.Shape
+star(arg&(decay(call(::make_shape|call(C.int|arg&(go(int64_t)))))))
+    lvalue oop::Shape
+    => assignable oop.Shape
+star(arg&(decay(rangeval(arg&(decay(lit{index(std::vector|index(std::shared_ptr|::Shape))|}))))))
+    lvalue oop::Shape
+    => assignable oop.Shape
+std::make_shared
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::shared_ptr
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::vector
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+
+declarations: func oop::area_of, func oop::make_shape, func oop::name_of, func oop::total_area, func std::make_shared, record oop::Circle, record oop::Rect, record oop::Shape, record oop::Square, record std::shared_ptr<oop::Rect>, record std::shared_ptr<oop::Shape>, record std::shared_ptr<oop::Square>, record std::unique_ptr<oop::Shape>, record std::vector<std::shared_ptr<oop::Shape>>
+no answer: type element_type: unknown type name 'element_type'
+no answer: type std::basic_string<char>: the declaration is larger than the limit of the extraction

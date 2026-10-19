@@ -1,0 +1,144 @@
+bin(!=|arg&(decay(bin(+|arg&(decay(call(std::string|lit("hello"))))|lit("\077"))))|arg&(decay(call(std::string|lit("hello")))))
+    prvalue bool
+    => value C.bool
+bin(!=|arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|find)|lit("world"))))|std::string::npos)
+    prvalue bool
+    => value C.bool
+bin(&&|un(!|call(sel(arg&(decay(call(std::string|lit("hello"))))|empty)|))|arg(go(bool)))
+    prvalue bool
+    => value C.bool
+bin(+|arg&(decay(call(std::string|lit("hello"))))|lit("\077"))
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+bin(<|arg&(decay(call(std::string|lit("hello"))))|lit("help"))
+    prvalue bool
+    => value C.bool
+bin(<|lit("a")|arg&(decay(call(std::string|lit("hello")))))
+    prvalue bool
+    => value C.bool
+bin(==|arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7))))|lit("world!s!"))
+    prvalue bool
+    => value C.bool
+bin(==|arg&(decay(call(std::string|lit("hello"))))|lit("hello, world!"))
+    prvalue bool
+    => value C.bool
+bin(==|call(sel(arg&(decay(call(std::string|lit("hello"))))|find)|lit("moon"))|std::string::npos)
+    prvalue bool
+    => value C.bool
+bin(==|call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(0),lit(5))|lit("Hello"))
+    prvalue bool
+    => value C.bool
+bin(==|call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(0),lit(5))|lit("hello"))
+    prvalue bool
+    => value C.bool
+bin(==|index(arg&(decay(call(std::string|lit("hello"))))|lit(0))|lit('h'))
+    prvalue bool
+    => value C.bool
+call(go(bool)|call(sel(arg&(decay(call(std::string|lit("hello"))))|starts_with)|lit("Hell")))
+    prvalue bool
+    => value C.bool
+call(go(int64_t)|arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|find)|lit("world")))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(bin(+|arg&(decay(call(std::string|lit("hello"))))|lit("\077"))))|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7))))|length)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(call(std::string|lit("hello"))))|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(arg&(decay(call(std::string|lit("hello"))))|lit(0)))
+    prvalue long
+    => value C.long (int64_t)
+call(sel(arg&(decay(bin(+|arg&(decay(call(std::string|lit("hello"))))|lit("\077"))))|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7))))|append)|lit("s"))
+    lvalue std::basic_string<char>
+    => assignable std.string (members unknown)
+call(sel(arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7))))|length)|)
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(decay(call(std::string|lit("hello"))))|empty)|)
+    prvalue bool
+    => value C.bool
+call(sel(arg&(decay(call(std::string|lit("hello"))))|find)|lit("moon"))
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(decay(call(std::string|lit("hello"))))|find)|lit("world"))
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(decay(call(std::string|lit("hello"))))|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(decay(call(std::string|lit("hello"))))|starts_with)|lit("Hell"))
+    prvalue bool
+    => value C.bool
+call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(0),lit(5))
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7))
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(sel(call(sel(arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7))))|append)|lit("s"))|append)|lit("!"))
+    lvalue std::basic_string<char>
+    => assignable std.string (members unknown)
+call(std::string|lit("hello"))
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+decay(bin(+|arg&(decay(call(std::string|lit("hello"))))|lit("\077")))
+    type std::basic_string<char>
+    => type std.string (members unknown)
+decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|find)|lit("world")))
+    type unsigned long
+    => type C.ulong
+decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7)))
+    type std::basic_string<char>
+    => type std.string (members unknown)
+decay(call(std::string|lit("hello")))
+    type std::basic_string<char>
+    => type std.string (members unknown)
+index(arg&(decay(call(std::string|lit("hello"))))|lit(0))
+    lvalue char
+    => assignable C.char
+sel(arg&(decay(bin(+|arg&(decay(call(std::string|lit("hello"))))|lit("\077"))))|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7))))|append)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7))))|length)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(std::string|lit("hello"))))|empty)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(std::string|lit("hello"))))|find)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(std::string|lit("hello"))))|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(std::string|lit("hello"))))|starts_with)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(std::string|lit("hello"))))|substr)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(call(sel(arg&(decay(call(sel(arg&(decay(call(std::string|lit("hello"))))|substr)|lit(7))))|append)|lit("s"))|append)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::string
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::string::npos
+    lvalue const unsigned long
+    => lvalue C.ulong
+un(!|call(sel(arg&(decay(call(std::string|lit("hello"))))|empty)|))
+    prvalue bool
+    => value C.bool
+
+declarations: 
+no answer: type std::basic_string<char>: the declaration is larger than the limit of the extraction

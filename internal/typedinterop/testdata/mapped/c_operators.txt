@@ -1,0 +1,227 @@
+::floor
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::sqrt
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+C.int
+    type int
+    => type C.int
+bin(!=|arg&(C.int)|lit(7))
+    prvalue bool
+    => value C.bool
+bin(!=|arg&(decay(bin(*|arg&(C.int)|lit(3))))|lit(0))
+    prvalue bool
+    => value C.bool
+bin(%|arg&(decay(bin(*|arg&(C.int)|lit(3))))|lit(4))
+    prvalue int
+    => value C.int
+bin(&&|arg&(go(bool))|call(sel(arg&(index(std::vector|C.int))|empty)|))
+    prvalue bool
+    => value C.bool
+bin(&^|arg&(C.int)|lit(3))
+    prvalue int
+    => value C.int
+bin(&|arg&(C.int)|lit(3))
+    prvalue int
+    => value C.int
+bin(*|arg&(C.int)|lit(3))
+    prvalue int
+    => value C.int
+bin(*|arg&(decay(bin(*|call(::sqrt|lit(2.0))|lit(2))))|lit(1000))
+    prvalue double
+    => value C.double
+bin(*|call(::sqrt|lit(2.0))|lit(2))
+    prvalue double
+    => value C.double
+bin(+|arg&(C.int)|lit(1))
+    prvalue int
+    => value C.int
+bin(+|call(::floor|arg&(decay(bin(*|call(::sqrt|lit(2.0))|lit(2)))))|lit(0.5))
+    prvalue double
+    => value C.double
+bin(-|arg&(decay(bin(*|arg&(C.int)|lit(3))))|arg&(C.int))
+    prvalue int
+    => value C.int
+bin(/|arg&(decay(bin(*|arg&(C.int)|lit(3))))|lit(2))
+    prvalue int
+    => value C.int
+bin(<<|arg&(C.int)|arg&(go(int64_t)))
+    prvalue int
+    => value C.int
+bin(<<|arg&(C.int)|lit(2))
+    prvalue int
+    => value C.int
+bin(<=|arg&(C.int)|lit(7))
+    prvalue bool
+    => value C.bool
+bin(<|arg&(C.int)|arg&(decay(bin(*|arg&(C.int)|lit(3)))))
+    prvalue bool
+    => value C.bool
+bin(==|arg&(C.int)|lit(7))
+    prvalue bool
+    => value C.bool
+bin(>=|arg&(decay(bin(*|arg&(C.int)|lit(3))))|lit(22))
+    prvalue bool
+    => value C.bool
+bin(>>|arg&(C.int)|arg&(go(int64_t)))
+    prvalue int
+    => value C.int
+bin(>>|arg&(decay(bin(*|arg&(C.int)|lit(3))))|lit(1))
+    prvalue int
+    => value C.int
+bin(>|arg&(C.int)|lit(3))
+    prvalue bool
+    => value C.bool
+bin(>|arg&(decay(bin(*|arg&(C.int)|lit(3))))|lit(20))
+    prvalue bool
+    => value C.bool
+bin(>|call(sel(arg&(index(std::vector|C.int))|size)|)|lit(0))
+    prvalue bool
+    => value C.bool
+bin(^|arg&(C.int)|lit(5))
+    prvalue int
+    => value C.int
+bin(||arg&(C.int)|lit(8))
+    prvalue int
+    => value C.int
+bin(|||un(!|arg&(decay(un(!|call(sel(arg&(index(std::vector|C.int))|empty)|)))))|arg(go(bool)))
+    prvalue bool
+    => value C.bool
+call(::floor|arg&(decay(bin(*|call(::sqrt|lit(2.0))|lit(2)))))
+    prvalue double
+    => value C.double
+call(::sqrt|lit(2.0))
+    prvalue double
+    => value C.double
+call(C.int|arg&(go(int64_t)))
+    prvalue int
+    => value C.int
+call(go(int64_t)|arg&(C.int))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|bin(%|arg&(decay(bin(*|arg&(C.int)|lit(3))))|lit(4)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|bin(&^|arg&(C.int)|lit(3)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|bin(&|arg&(C.int)|lit(3)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|bin(*|arg&(decay(bin(*|call(::sqrt|lit(2.0))|lit(2))))|lit(1000)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|bin(+|arg&(C.int)|lit(1)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|bin(+|call(::floor|arg&(decay(bin(*|call(::sqrt|lit(2.0))|lit(2)))))|lit(0.5)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|bin(-|arg&(decay(bin(*|arg&(C.int)|lit(3))))|arg&(C.int)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|bin(/|arg&(decay(bin(*|arg&(C.int)|lit(3))))|lit(2)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|bin(<<|arg&(C.int)|arg&(go(int64_t))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|bin(<<|arg&(C.int)|lit(2)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|bin(>>|arg&(C.int)|arg&(go(int64_t))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|bin(>>|arg&(decay(bin(*|arg&(C.int)|lit(3))))|lit(1)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|bin(^|arg&(C.int)|lit(5)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|bin(||arg&(C.int)|lit(8)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(std::max|arg&(go(int64_t)),arg(go(int64_t))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(std::min|call(C.int|arg&(go(int64_t))),arg&(C.int)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|un(+|arg&(C.int)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|un(-|arg&(C.int)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|un(^|arg&(C.int)))
+    prvalue long
+    => value C.long (int64_t)
+call(sel(arg&(index(std::vector|C.int))|empty)|)
+    prvalue bool
+    => value C.bool
+call(sel(arg&(index(std::vector|C.int))|pop_back)|)
+    prvalue void
+    => value void
+call(sel(arg&(index(std::vector|C.int))|push_back)|arg&(C.int))
+    prvalue void
+    => value void
+call(sel(arg&(index(std::vector|C.int))|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(std::max|arg&(go(int64_t)),arg(go(int64_t)))
+    lvalue const long
+    => lvalue C.long
+call(std::min|call(C.int|arg&(go(int64_t))),arg&(C.int))
+    lvalue const int
+    => lvalue C.int
+decay(bin(*|arg&(C.int)|lit(3)))
+    type int
+    => type C.int
+decay(bin(*|call(::sqrt|lit(2.0))|lit(2)))
+    type double
+    => type C.double
+decay(un(!|call(sel(arg&(index(std::vector|C.int))|empty)|)))
+    type bool
+    => type C.bool
+index(std::vector|C.int)
+    type std::vector<int>
+    => type std.vector[C.int]
+sel(arg&(index(std::vector|C.int))|empty)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::vector|C.int))|pop_back)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::vector|C.int))|push_back)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::vector|C.int))|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::max
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::min
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::vector
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+un(!|arg&(decay(un(!|call(sel(arg&(index(std::vector|C.int))|empty)|)))))
+    prvalue bool
+    => value C.bool
+un(!|call(sel(arg&(index(std::vector|C.int))|empty)|))
+    prvalue bool
+    => value C.bool
+un(+|arg&(C.int))
+    prvalue int
+    => value C.int
+un(-|arg&(C.int))
+    prvalue int
+    => value C.int
+un(^|arg&(C.int))
+    prvalue int
+    => value C.int
+
+declarations: func floor, func sqrt, func std::max, func std::min, record std::vector<int>

@@ -16,6 +16,8 @@ import (
 	"github.com/huuhait/gocpp/internal/build"
 )
 
+const goodDecl = `{"id":"0x1","kind":"TypeAliasDecl","name":"gp_probe_0","type":{"desugaredQualType":"gocpp_probe_internal_c<int>","qualType":"gocpp_probe_internal_c<decltype((8192))>"}}`
+
 func fakeCXX(t *testing.T, script string) build.CXX {
 	t.Helper()
 	dir := t.TempDir()

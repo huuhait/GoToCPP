@@ -3,6 +3,7 @@ package probe
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -495,4 +496,63 @@ func aliasNameOf(line string) string {
 	s := strings.TrimPrefix(line, "using ")
 	name, _, _ := strings.Cut(s, " =")
 	return name
+}
+
+// FuncNames returns the qualified C++ names of the functions that the
+// references call (the Fun of a call that is a path whose kind is a value:
+// "fopen", "std::min", "geo::f"), sorted and without repeats. A function
+// template called with explicit arguments (std::max[float64]) is named by its
+// template. These are the names for which step 12.3 extracts overload sets.
+func FuncNames(set *collect.Set, kinds map[string]interop.Kind) []string {
+	r := &rend{kinds: kinds}
+	seen := map[string]bool{}
+	var out []string
+	add := func(p *collect.Path) {
+		if p == nil || p.Ns == "C" && len(p.Parts) == 0 {
+			return
+		}
+		e := r.eff(p)
+		if e.Ns == "C" {
+			return // cgo's own names (C.int, C.CString)
+		}
+		if k, ok := r.kind(e); !ok || (k != interop.Value && k != interop.ValueTemplate) {
+			return
+		}
+		// A static member function (std::thread::hardware_concurrency) is in its class's
+		// declaration, not in a namespace's overload set.
+		if n := len(e.Parts); n > 1 {
+			if pk, ok := r.prefixKind(e, n-1); !ok || pk != interop.Namespace {
+				return
+			}
+		}
+		name := strings.Join(e.Parts, "::")
+		if e.Ns != "" {
+			name = strings.TrimPrefix(e.Ns, "::") + "::" + name
+		}
+		if !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	for _, ref := range set.Refs {
+		collect.Walk(ref.Expr, func(e collect.Expr) bool {
+			if c, ok := e.(*collect.Call); ok {
+				switch f := c.Fun.(type) {
+				case *collect.Path:
+					add(f)
+				case *collect.Inst:
+					if p, ok := f.X.(*collect.Path); ok {
+						add(p)
+					}
+				case *collect.IndexOrInst:
+					if p, ok := f.X.(*collect.Path); ok {
+						add(p)
+					}
+				}
+			}
+			return true
+		})
+	}
+	sort.Strings(out)
+	return out
 }

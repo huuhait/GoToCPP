@@ -1,0 +1,77 @@
+::Z_OK
+    prvalue int = 0
+    => value C.int
+::compress
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::compressBound
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::crc32
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::uncompress
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+C.uchar
+    type unsigned char
+    => type C.uchar
+C.uint
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+C.ulong
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+addr(arg&(decay(call(C.ulong|arg&(go(int64_t))))))
+    prvalue unsigned long *
+    => value *C.ulong
+addr(arg&(decay(call(C.ulong|arg(go(int64_t))))))
+    prvalue unsigned long *
+    => value *C.ulong
+bin(!=|call(::compress|call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t)))),addr(arg&(decay(call(C.ulong|arg(go(int64_t)))))),call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t)))),call(C.ulong|arg(go(int64_t))))|::Z_OK)
+    skipped
+    => opaque: not probed: incomplete: no complete type for bytesPtr
+bin(!=|call(::uncompress|call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t)))),addr(arg&(decay(call(C.ulong|arg&(go(int64_t)))))),call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t)))),call(C.ulong|arg(go(int64_t))))|::Z_OK)
+    skipped
+    => opaque: not probed: incomplete: no complete type for bytesPtr
+call(::compressBound|call(C.ulong|arg(go(int64_t))))
+    prvalue unsigned long
+    => value C.ulong
+call(::compress|call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t)))),addr(arg&(decay(call(C.ulong|arg(go(int64_t)))))),call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t)))),call(C.ulong|arg(go(int64_t))))
+    skipped
+    => opaque: not probed: incomplete: no complete type for bytesPtr
+call(::crc32|lit(0),call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t)))),call(C.uint|arg(go(int64_t))))
+    skipped
+    => opaque: not probed: incomplete: no complete type for bytesPtr
+call(::uncompress|call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t)))),addr(arg&(decay(call(C.ulong|arg&(go(int64_t)))))),call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t)))),call(C.ulong|arg(go(int64_t))))
+    skipped
+    => opaque: not probed: incomplete: no complete type for bytesPtr
+call(C.uint|arg(go(int64_t)))
+    prvalue unsigned int
+    => value C.uint
+call(C.ulong|arg&(go(int64_t)))
+    prvalue unsigned long
+    => value C.ulong
+call(C.ulong|arg(go(int64_t)))
+    prvalue unsigned long
+    => value C.ulong
+call(paren(star(C.uchar))|arg(go(void*)))
+    prvalue unsigned char *
+    => value *C.uchar
+call(unknown(no complete type for bytesPtr)|arg&(stand:slice(go(uint8_t))))
+    skipped
+    => opaque: not probed: incomplete: no complete type for bytesPtr
+decay(call(C.ulong|arg&(go(int64_t))))
+    type unsigned long
+    => type C.ulong
+decay(call(C.ulong|arg(go(int64_t))))
+    type unsigned long
+    => type C.ulong
+paren(star(C.uchar))
+    type unsigned char *
+    => type *C.uchar
+star(C.uchar)
+    type unsigned char *
+    => type *C.uchar
+
+declarations: func compress, func compressBound, func crc32, func uncompress

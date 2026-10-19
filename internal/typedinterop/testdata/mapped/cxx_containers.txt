@@ -1,0 +1,672 @@
+C.int
+    type int
+    => type C.int
+bin(*|arg&(C.int)|arg&(C.int))
+    prvalue int
+    => value C.int
+bin(+|arg&(C.int)|arg&(C.int))
+    prvalue int
+    => value C.int
+bin(<<|arg&(std::stringstream)|lit("n="))
+    lvalue std::basic_ostream<char>
+    => assignable std.basic_ostream[C.char]
+bin(<<|bin(<<|arg&(std::stringstream)|lit("n="))|lit(5))
+    lvalue std::basic_ostream<char>
+    => assignable std.basic_ostream[C.char]
+bin(<<|bin(<<|bin(<<|arg&(std::stringstream)|lit("n="))|lit(5))|lit(' '))
+    lvalue std::basic_ostream<char>
+    => assignable std.basic_ostream[C.char]
+bin(<<|bin(<<|bin(<<|bin(<<|arg&(std::stringstream)|lit("n="))|lit(5))|lit(' '))|call(std::string|lit("s")))
+    lvalue std::basic_ostream<char>
+    => assignable std.basic_ostream[C.char]
+bin(==|call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|find)|lit(9))|call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|end)|))
+    prvalue bool
+    => value C.bool
+call(go(bool)|call(sel(arg&(index(std::queue|std::string))|empty)|))
+    prvalue bool
+    => value C.bool
+call(go(double)|call(index(std::get|lit(2))|arg&(decay(call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5))))))
+    prvalue double
+    => value C.double
+call(go(int64_t)|arg&(decay(rangeval(arg&(decay(lit{index(std::list|go(int64_t))|lit(3),lit(1),lit(2)}))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangeval(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(rangeval(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(tuple(call(std::minmax|lit(17),lit(5))|0))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(decay(tuple(call(std::minmax|lit(17),lit(5))|1))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(index(arg&(decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}))|lit("add"))|lit(3),lit(4)))
+    skipped
+    => opaque: not probed: incomplete: type func(C.int, C.int) C.int
+call(go(int64_t)|call(index(arg&(decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}))|lit("mul"))|lit(3),lit(4)))
+    skipped
+    => opaque: not probed: incomplete: type func(C.int, C.int) C.int
+call(go(int64_t)|call(index(std::get|C.int)|arg&(decay(call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(index(std::get|lit(0))|arg&(decay(call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5))))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|count)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|find)|lit("o")))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|back)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|front)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|count)|lit(5)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|erase)|lit(1)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|back)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|front)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}))|size)|))
+    skipped
+    => opaque: not probed: incomplete: type func(C.int, C.int) C.int
+call(go(int64_t)|call(sel(arg&(index(std::priority_queue|go(int64_t)))|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(index(std::priority_queue|go(int64_t)))|top)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(index(std::stack|go(int64_t)))|size)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(sel(arg&(index(std::stack|go(int64_t)))|top)|))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(std::size|arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(arg&(decay(lit{index(std::deque|go(int64_t))|}))|lit(1)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(std::tuple_size_v|inst(std::tuple|go(int64_t),go(int64_t),go(int64_t))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(arg&(decay(call(unknown(no complete type for divmod)|arg(go(int64_t)),arg(go(int64_t)))))|first))
+    skipped
+    => opaque: not probed: incomplete: no complete type for divmod
+call(go(int64_t)|sel(arg&(decay(call(unknown(no complete type for divmod)|arg(go(int64_t)),arg(go(int64_t)))))|second))
+    skipped
+    => opaque: not probed: incomplete: no complete type for divmod
+call(go(int64_t)|star(call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|lower_bound)|lit(2))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|star(sel(arg&(decay(call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert)|lit(4))))|first)))
+    prvalue long
+    => value C.long (int64_t)
+call(index(arg&(decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}))|lit("add"))|lit(3),lit(4))
+    skipped
+    => opaque: not probed: incomplete: type func(C.int, C.int) C.int
+call(index(arg&(decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}))|lit("mul"))|lit(3),lit(4))
+    skipped
+    => opaque: not probed: incomplete: type func(C.int, C.int) C.int
+call(index(std::bitset|lit(8))|lit(11))
+    prvalue std::bitset<8>
+    => value std.bitset[8]
+call(index(std::get|C.int)|arg&(decay(call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5)))))
+    lvalue int
+    => assignable C.int
+call(index(std::get|lit(0))|arg&(decay(call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5)))))
+    lvalue int
+    => assignable C.int
+call(index(std::get|lit(1))|arg&(decay(call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5)))))
+    lvalue std::basic_string<char>
+    => assignable std.string (members unknown)
+call(index(std::get|lit(2))|arg&(decay(call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5)))))
+    lvalue double
+    => assignable C.double
+call(sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|count)|)
+    prvalue unsigned long
+    => value C.ulong (size_t)
+call(sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|set)|lit(7))
+    lvalue std::bitset<8>
+    => assignable std.bitset[8]
+call(sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|test)|lit(1))
+    prvalue bool
+    => value C.bool
+call(sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|test)|lit(2))
+    prvalue bool
+    => value C.bool
+call(sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|to_string)|)
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|find)|lit("o"))
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|starts_with)|lit("hell"))
+    prvalue bool
+    => value C.bool
+call(sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|substr)|lit(6))
+    prvalue std::basic_string_view<char>
+    => value std.string_view
+call(sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|back)|)
+    lvalue long
+    => assignable C.long
+call(sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|front)|)
+    lvalue long
+    => assignable C.long
+call(sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|push_back)|lit(2))
+    prvalue void
+    => value void
+call(sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|push_back)|lit(3))
+    prvalue void
+    => value void
+call(sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|push_front)|lit(1))
+    prvalue void
+    => value void
+call(sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(decay(lit{index(std::list|go(int64_t))|lit(3),lit(1),lit(2)}))|push_front)|lit(0))
+    prvalue void
+    => value void
+call(sel(arg&(decay(lit{index(std::list|go(int64_t))|lit(3),lit(1),lit(2)}))|sort)|)
+    prvalue void
+    => value void
+call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|count)|lit(5))
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|end)|)
+    prvalue std::_Rb_tree_const_iterator<long>
+    => value std._Rb_tree_const_iterator[C.long] (members unknown)
+call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|erase)|lit(1))
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|find)|lit(9))
+    prvalue std::_Rb_tree_const_iterator<long>
+    => value std._Rb_tree_const_iterator[C.long] (members unknown)
+call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert)|lit(3))
+    prvalue std::pair<std::_Rb_tree_const_iterator<long>, bool>
+    => value std.pair[std._Rb_tree_const_iterator[C.long], C.bool] (members unknown)
+call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert)|lit(4))
+    prvalue std::pair<std::_Rb_tree_const_iterator<long>, bool>
+    => value std.pair[std._Rb_tree_const_iterator[C.long], C.bool] (members unknown)
+call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|lower_bound)|lit(2))
+    prvalue std::_Rb_tree_const_iterator<long>
+    => value std._Rb_tree_const_iterator[C.long] (members unknown)
+call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|back)|)
+    lvalue int
+    => assignable C.int
+call(sel(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|front)|)
+    lvalue int
+    => assignable C.int
+call(sel(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}))|size)|)
+    skipped
+    => opaque: not probed: incomplete: type func(C.int, C.int) C.int
+call(sel(arg&(index(std::priority_queue|go(int64_t)))|pop)|)
+    prvalue void
+    => value void
+call(sel(arg&(index(std::priority_queue|go(int64_t)))|push)|arg&(go(int64_t)))
+    prvalue void
+    => value void
+call(sel(arg&(index(std::priority_queue|go(int64_t)))|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(index(std::priority_queue|go(int64_t)))|top)|)
+    lvalue const long
+    => lvalue C.long
+call(sel(arg&(index(std::queue|std::string))|back)|)
+    lvalue std::basic_string<char>
+    => assignable std.string (members unknown)
+call(sel(arg&(index(std::queue|std::string))|empty)|)
+    prvalue bool
+    => value C.bool
+call(sel(arg&(index(std::queue|std::string))|front)|)
+    lvalue std::basic_string<char>
+    => assignable std.string (members unknown)
+call(sel(arg&(index(std::queue|std::string))|pop)|)
+    prvalue void
+    => value void
+call(sel(arg&(index(std::queue|std::string))|push)|lit("a"))
+    prvalue void
+    => value void
+call(sel(arg&(index(std::queue|std::string))|push)|lit("b"))
+    prvalue void
+    => value void
+call(sel(arg&(index(std::stack|go(int64_t)))|pop)|)
+    prvalue void
+    => value void
+call(sel(arg&(index(std::stack|go(int64_t)))|push)|lit(1))
+    prvalue void
+    => value void
+call(sel(arg&(index(std::stack|go(int64_t)))|push)|lit(2))
+    prvalue void
+    => value void
+call(sel(arg&(index(std::stack|go(int64_t)))|size)|)
+    prvalue unsigned long
+    => value C.ulong
+call(sel(arg&(index(std::stack|go(int64_t)))|top)|)
+    lvalue long
+    => assignable C.long
+call(sel(arg&(std::stringstream)|str)|)
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(stand:string()|call(index(std::get|lit(1))|arg&(decay(call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5))))))
+    prvalue gocpp_probe_internal_pr::string
+    => value string
+call(stand:string()|call(sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|to_string)|))
+    prvalue gocpp_probe_internal_pr::string
+    => value string
+call(stand:string()|call(sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|substr)|lit(6)))
+    prvalue gocpp_probe_internal_pr::string
+    => value string
+call(stand:string()|call(sel(arg&(index(std::queue|std::string))|back)|))
+    prvalue gocpp_probe_internal_pr::string
+    => value string
+call(stand:string()|call(sel(arg&(index(std::queue|std::string))|front)|))
+    prvalue gocpp_probe_internal_pr::string
+    => value string
+call(stand:string()|call(sel(arg&(std::stringstream)|str)|))
+    prvalue gocpp_probe_internal_pr::string
+    => value string
+call(std::make_pair|arg(go(int64_t)),arg(go(int64_t)))
+    prvalue std::pair<long, long>
+    => value std.pair[C.long, C.long]
+call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5))
+    prvalue std::tuple<int, std::basic_string<char>, double>
+    => value std.tuple[C.int, std.basic_string[C.char], C.double]
+call(std::minmax|lit(17),lit(5))
+    prvalue std::pair<const int &, const int &>
+    => value std.pair[C.int, C.int]
+call(std::size|arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)})))
+    prvalue unsigned long
+    => value C.ulong
+call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))
+    prvalue std::basic_string_view<char>
+    => value std.string_view
+call(std::string|lit("hello world"))
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(std::string|lit("s"))
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(std::string|lit("two"))
+    prvalue std::basic_string<char>
+    => value std.string (members unknown)
+call(unknown(no complete type for divmod)|arg(go(int64_t)),arg(go(int64_t)))
+    skipped
+    => opaque: not probed: incomplete: no complete type for divmod
+decay(call(index(std::bitset|lit(8))|lit(11)))
+    type std::bitset<8>
+    => type std.bitset[8]
+decay(call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert)|lit(3)))
+    type std::pair<std::_Rb_tree_const_iterator<long>, bool>
+    => type std.pair[std._Rb_tree_const_iterator[C.long], C.bool] (members unknown)
+decay(call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert)|lit(4)))
+    type std::pair<std::_Rb_tree_const_iterator<long>, bool>
+    => type std.pair[std._Rb_tree_const_iterator[C.long], C.bool] (members unknown)
+decay(call(std::make_tuple|lit(1),call(std::string|lit("two")),lit(3.5)))
+    type std::tuple<int, std::basic_string<char>, double>
+    => type std.tuple[C.int, std.basic_string[C.char], C.double]
+decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world"))))))
+    type std::basic_string_view<char>
+    => type std.string_view
+decay(call(std::string|lit("hello world")))
+    type std::basic_string<char>
+    => type std.string (members unknown)
+decay(call(unknown(no complete type for divmod)|arg(go(int64_t)),arg(go(int64_t))))
+    skipped
+    => opaque: not probed: incomplete: no complete type for divmod
+decay(lit{index(std::deque|go(int64_t))|})
+    type std::deque<long>
+    => type std.deque[C.long]
+decay(lit{index(std::list|go(int64_t))|lit(3),lit(1),lit(2)})
+    type std::list<long>
+    => type std.list[C.long]
+decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)})
+    type std::set<long>
+    => type std.set[C.long]
+decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)})
+    type std::array<int, 4>
+    => type std.array[C.int, 4]
+decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|})
+    skipped
+    => opaque: not probed: incomplete: type func(C.int, C.int) C.int
+decay(rangeval(arg&(decay(lit{index(std::list|go(int64_t))|lit(3),lit(1),lit(2)}))))
+    type long
+    => type C.long
+decay(rangeval(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))))
+    type long
+    => type C.long
+decay(rangeval(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))))
+    type int
+    => type C.int
+decay(tuple(call(std::minmax|lit(17),lit(5))|0))
+    type int
+    => type C.int
+decay(tuple(call(std::minmax|lit(17),lit(5))|1))
+    type int
+    => type C.int
+index(arg&(decay(lit{index(std::deque|go(int64_t))|}))|lit(1))
+    lvalue long
+    => assignable C.long
+index(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|lit(2))
+    lvalue int
+    => assignable C.int
+index(arg&(decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}))|lit("add"))
+    skipped
+    => opaque: not probed: incomplete: type func(C.int, C.int) C.int
+index(arg&(decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}))|lit("mul"))
+    skipped
+    => opaque: not probed: incomplete: type func(C.int, C.int) C.int
+index(std::bitset|lit(8))
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+index(std::deque|go(int64_t))
+    type std::deque<long>
+    => type std.deque[C.long]
+index(std::function|unknown(type func(C.int, C.int) C.int))
+    skipped
+    => opaque: not probed: incomplete: type func(C.int, C.int) C.int
+index(std::get|C.int)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+index(std::get|lit(0))
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+index(std::get|lit(1))
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+index(std::get|lit(2))
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+index(std::list|go(int64_t))
+    type std::list<long>
+    => type std.list[C.long]
+index(std::priority_queue|go(int64_t))
+    type std::priority_queue<long>
+    => type std.priority_queue[C.long]
+index(std::queue|std::string)
+    type std::queue<std::basic_string<char>>
+    => type std.queue[std.basic_string[C.char]]
+index(std::set|go(int64_t))
+    type std::set<long>
+    => type std.set[C.long]
+index(std::stack|go(int64_t))
+    type std::stack<long>
+    => type std.stack[C.long]
+index(std::tuple_size_v|inst(std::tuple|go(int64_t),go(int64_t),go(int64_t)))
+    lvalue const unsigned long
+    => lvalue C.ulong (size_t)
+inst(std::array|C.int,lit(4))
+    type std::array<int, 4>
+    => type std.array[C.int, 4]
+inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))
+    skipped
+    => opaque: not probed: incomplete: type func(C.int, C.int) C.int
+inst(std::pair|go(int64_t),go(int64_t))
+    type std::pair<long, long>
+    => type std.pair[C.long, C.long]
+inst(std::tuple|go(int64_t),go(int64_t),go(int64_t))
+    type std::tuple<long, long, long>
+    => type std.tuple[C.long, C.long, C.long]
+lit{index(std::deque|go(int64_t))|}
+    prvalue std::deque<long>
+    => value std.deque[C.long]
+lit{index(std::list|go(int64_t))|lit(3),lit(1),lit(2)}
+    prvalue std::list<long>
+    => value std.list[C.long]
+lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}
+    prvalue std::set<long>
+    => value std.set[C.long]
+lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}
+    prvalue std::array<int, 4>
+    => value std.array[C.int, 4]
+lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}
+    skipped
+    => opaque: not probed: incomplete: type func(C.int, C.int) C.int
+sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|count)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|set)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|test)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(index(std::bitset|lit(8))|lit(11))))|to_string)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert)|lit(3))))|second)
+    lvalue bool
+    => assignable C.bool
+sel(arg&(decay(call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert)|lit(4))))|first)
+    lvalue std::_Rb_tree_const_iterator<long>
+    => assignable std._Rb_tree_const_iterator[C.long] (members unknown)
+sel(arg&(decay(call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert)|lit(4))))|second)
+    lvalue bool
+    => assignable C.bool
+sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|find)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|starts_with)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(std::string_view|arg&(decay(call(std::string|lit("hello world")))))))|substr)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(unknown(no complete type for divmod)|arg(go(int64_t)),arg(go(int64_t)))))|first)
+    skipped
+    => opaque: not probed: incomplete: no complete type for divmod
+sel(arg&(decay(call(unknown(no complete type for divmod)|arg(go(int64_t)),arg(go(int64_t)))))|second)
+    skipped
+    => opaque: not probed: incomplete: no complete type for divmod
+sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|back)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|front)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|push_back)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|push_front)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(std::deque|go(int64_t))|}))|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(std::list|go(int64_t))|lit(3),lit(1),lit(2)}))|push_front)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(std::list|go(int64_t))|lit(3),lit(1),lit(2)}))|sort)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|count)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|end)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|erase)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|find)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|lower_bound)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|back)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|front)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{inst(std::array|C.int,lit(4))|lit(4),lit(3),lit(2),lit(1)}))|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(lit{inst(std::map|std::string,index(std::function|unknown(type func(C.int, C.int) C.int)))|}))|size)
+    skipped
+    => opaque: not probed: incomplete: type func(C.int, C.int) C.int
+sel(arg&(index(std::priority_queue|go(int64_t)))|pop)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::priority_queue|go(int64_t)))|push)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::priority_queue|go(int64_t)))|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::priority_queue|go(int64_t)))|top)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::queue|std::string))|back)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::queue|std::string))|empty)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::queue|std::string))|front)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::queue|std::string))|pop)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::queue|std::string))|push)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::stack|go(int64_t)))|pop)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::stack|go(int64_t)))|push)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::stack|go(int64_t)))|size)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(index(std::stack|go(int64_t)))|top)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(std::stringstream)|str)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+star(call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|lower_bound)|lit(2)))
+    lvalue const long
+    => lvalue C.long
+star(sel(arg&(decay(call(sel(arg&(decay(lit{index(std::set|go(int64_t))|lit(5),lit(1),lit(3)}))|insert)|lit(4))))|first))
+    lvalue const long
+    => lvalue C.long
+std::array
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::bitset
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::deque
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::function
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::get
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::list
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::make_pair
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::make_tuple
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::map
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::minmax
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::pair
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::priority_queue
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::queue
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::set
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::size
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::stack
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::string
+    type std::basic_string<char>
+    => type std.string (members unknown)
+std::string_view
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::stringstream
+    type std::basic_stringstream<char>
+    => type std.basic_stringstream[C.char]
+std::tuple
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+std::tuple_size_v
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+unknown(type func(C.int, C.int) C.int)
+    skipped
+    => opaque: not probed: incomplete: type func(C.int, C.int) C.int
+unknown(type func(a, b C.int) C.int)
+    skipped
+    => opaque: not probed: incomplete: type func(a, b C.int) C.int
+
+declarations: func std::get, func std::make_pair, func std::make_tuple, func std::minmax, func std::size, record std::array<int, 4>, record std::basic_ostream<char>, record std::basic_string_view<char>, record std::basic_stringstream<char>, record std::bitset<8>, record std::deque<long>, record std::list<long>, record std::pair<const int &, const int &>, record std::pair<long, long>, record std::priority_queue<long>, record std::queue<std::basic_string<char>>, record std::set<long>, record std::stack<long>, record std::tuple<int, std::basic_string<char>, double>, record std::tuple<long, long, long>
+no answer: type std::basic_string<char>: the declaration is larger than the limit of the extraction

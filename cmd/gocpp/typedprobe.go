@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/huuhait/gocpp/internal/typedinterop"
+	"github.com/huuhait/gocpp/internal/typedinterop/ftype"
 )
 
 // runTypedProbe is the hidden developer command "gocpp __typed-probe" (steps
@@ -22,6 +23,7 @@ func runTypedProbe(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("gocpp __typed-probe", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	refsOnly := flags.Bool("refs", false, "only collect the references (no clang run)")
+	decls := flags.Bool("decls", false, "also extract the declarations the results mention and map every result to the foreign view (steps 12.3 and 12.4)")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -48,7 +50,10 @@ func runTypedProbe(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		if p == nil || !p.Checked() {
 			continue
 		}
-		opts := typedinterop.Options{}
+		opts := typedinterop.Options{Decls: *decls, Target: ftype.LP64}
+		if c.goos == "windows" {
+			opts.Target = ftype.LLP64
+		}
 		if *refsOnly {
 			rep := typedinterop.Collect(p, prog.Fset)
 			if err := enc.Encode(rep); err != nil {

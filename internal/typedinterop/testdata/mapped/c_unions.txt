@@ -1,0 +1,264 @@
+::CU_FLAG
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::CU_MAX
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::CU_NAME
+    lvalue const char [7] = "cunion"
+    => lvalue [7]C.char
+::CU_PI
+    prvalue double = 3.5
+    => value C.double
+::CU_SQUARE
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::CU_VERSION
+    prvalue int = 3
+    => value C.int
+::MON
+    prvalue Weekday
+    => value Weekday
+::Num
+    type Num
+    => type Num
+::ON
+    prvalue Switch
+    => value Switch
+::SUN
+    prvalue Weekday
+    => value Weekday
+::TUE
+    prvalue Weekday
+    => value Weekday
+::WED
+    prvalue Weekday
+    => value Weekday
+::cu_apply
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::cu_flags
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::cu_float_bits
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::cu_item
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::cu_mul
+    lvalue int (int, int)
+    => lvalue func(C.int, C.int) C.int
+::enum_Weekday
+    type Weekday
+    => type Weekday
+C.int
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+addr(arg&(decay(call(::cu_item|lit(3),lit(2.5)))))
+    prvalue Item *
+    => value *Item
+addr(arg&(decay(call(::cu_item|lit(4),lit(0)))))
+    prvalue Item *
+    => value *Item
+addr(index(sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|name)|lit(0)))
+    prvalue char *
+    => value *C.char
+call(::CU_FLAG|lit(4))
+    prvalue unsigned int
+    => value C.uint
+call(::CU_MAX|call(C.int|arg&(go(int64_t))),lit(2))
+    prvalue int
+    => value C.int
+call(::CU_MAX|lit(3),lit(9))
+    prvalue int
+    => value C.int
+call(::CU_SQUARE|arg(go(int64_t)))
+    prvalue long
+    => value C.long
+call(::CU_SQUARE|lit(7))
+    prvalue int
+    => value C.int
+call(::cu_apply|addr(arg&(decay(call(::cu_item|lit(3),lit(2.5))))),lit(6),lit(7))
+    prvalue int
+    => value C.int
+call(::cu_apply|addr(arg&(decay(call(::cu_item|lit(4),lit(0))))),lit(6),lit(7))
+    prvalue int
+    => value C.int
+call(::cu_flags|lit(5))
+    prvalue Flags
+    => value Flags
+call(::cu_float_bits|lit((-2.0)))
+    prvalue Num
+    => value Num
+call(::cu_item|lit(3),lit(2.5))
+    prvalue Item
+    => value Item
+call(::cu_item|lit(4),lit(0))
+    prvalue Item
+    => value Item
+call(C.int|arg&(go(int64_t)))
+    prvalue int
+    => value C.int
+call(go(double)|sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|dval))
+    prvalue double
+    => value C.double
+call(go(int32_t)|sel(arg&(::Num)|i))
+    prvalue int
+    => value C.int (int32_t)
+call(go(int64_t)|::MON)
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|::ON)
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|::SUN)
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|::TUE)
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|arg&(::enum_Weekday))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(::CU_MAX|call(C.int|arg&(go(int64_t))),lit(2)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(::CU_MAX|lit(3),lit(9)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(::CU_SQUARE|arg(go(int64_t))))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(::CU_SQUARE|lit(7)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(::cu_apply|addr(arg&(decay(call(::cu_item|lit(3),lit(2.5))))),lit(6),lit(7)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(::cu_apply|addr(arg&(decay(call(::cu_item|lit(4),lit(0))))),lit(6),lit(7)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(std::size|sel(arg&(::Num)|bytes)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(sel(arg&(::Num)|bytes)|lit(2)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|index(sel(arg&(::Num)|bytes)|lit(3)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(arg&(decay(call(::cu_flags|lit(5))))|signed_part))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|ival))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|kind))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|pos)|x))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|sel(sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|pos)|y))
+    prvalue long
+    => value C.long (int64_t)
+call(go(uint32_t)|sel(arg&(::Num)|i))
+    prvalue unsigned int
+    => value C.uint (uint32_t)
+call(go(uint32_t)|sel(arg&(decay(call(::cu_float_bits|lit((-2.0)))))|i))
+    prvalue unsigned int
+    => value C.uint (uint32_t)
+call(go(uint64_t)|call(::CU_FLAG|lit(4)))
+    prvalue unsigned long
+    => value C.ulong (uint64_t)
+call(go(uint64_t)|sel(arg&(decay(call(::cu_flags|lit(5))))|level))
+    prvalue unsigned long
+    => value C.ulong (uint64_t)
+call(go(uint64_t)|sel(arg&(decay(call(::cu_flags|lit(5))))|mode))
+    prvalue unsigned long
+    => value C.ulong (uint64_t)
+call(go(uint64_t)|sel(arg&(decay(call(::cu_flags|lit(5))))|ready))
+    prvalue unsigned long
+    => value C.ulong (uint64_t)
+call(std::size|sel(arg&(::Num)|bytes))
+    prvalue unsigned long
+    => value C.ulong (size_t)
+decay(call(::cu_flags|lit(5)))
+    type Flags
+    => type Flags
+decay(call(::cu_float_bits|lit((-2.0))))
+    type Num
+    => type Num
+decay(call(::cu_item|lit(3),lit(2.5)))
+    type Item
+    => type Item
+decay(call(::cu_item|lit(4),lit(0)))
+    type Item
+    => type Item
+index(sel(arg&(::Num)|bytes)|lit(0))
+    lvalue unsigned char
+    => assignable C.uchar
+index(sel(arg&(::Num)|bytes)|lit(2))
+    lvalue unsigned char
+    => assignable C.uchar
+index(sel(arg&(::Num)|bytes)|lit(3))
+    lvalue unsigned char
+    => assignable C.uchar
+index(sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|name)|lit(0))
+    lvalue char
+    => assignable C.char
+sel(arg&(::Num)|bytes)
+    lvalue unsigned char [4]
+    => lvalue [4]C.uchar
+sel(arg&(::Num)|f)
+    lvalue float
+    => assignable C.float
+sel(arg&(::Num)|i)
+    lvalue int
+    => assignable C.int (int32_t)
+sel(arg&(decay(call(::cu_flags|lit(5))))|level)
+    lvalue unsigned int
+    => assignable C.uint
+sel(arg&(decay(call(::cu_flags|lit(5))))|mode)
+    lvalue unsigned int
+    => assignable C.uint
+sel(arg&(decay(call(::cu_flags|lit(5))))|ready)
+    lvalue unsigned int
+    => assignable C.uint
+sel(arg&(decay(call(::cu_flags|lit(5))))|signed_part)
+    lvalue int
+    => assignable C.int
+sel(arg&(decay(call(::cu_float_bits|lit((-2.0)))))|i)
+    lvalue int
+    => assignable C.int (int32_t)
+sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|dval)
+    lvalue double
+    => assignable C.double
+sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|ival)
+    lvalue int
+    => assignable C.int
+sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|kind)
+    lvalue int
+    => assignable C.int
+sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|name)
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|op)
+    lvalue int (*)(int, int)
+    => assignable func(C.int, C.int) C.int
+sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|pos)
+    prvalue Item::(unnamed struct) &
+    => value Item.(unnamed struct) (members unknown)
+sel(sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|pos)|x)
+    lvalue int
+    => assignable C.int
+sel(sel(arg&(decay(call(::cu_item|lit(3),lit(2.5))))|pos)|y)
+    lvalue int
+    => assignable C.int
+std::size
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+
+declarations: enum Switch, enum Weekday, func cu_apply, func cu_flags, func cu_float_bits, func cu_item, func std::size, record Flags, record Item, record Num
+no answer: type Item::(unnamed struct): a name that cannot be used in a probe

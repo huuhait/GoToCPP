@@ -23,8 +23,6 @@ func simpleSource(t testing.TB) *Source {
 	return Generate(collect.NewSet(ref(pth("BUFSIZ"))), GenConfig{Kinds: stdKinds})
 }
 
-const goodDecl = `{"id":"0x1","kind":"TypeAliasDecl","name":"gp_probe_0","type":{"desugaredQualType":"gocpp_probe_internal_c<int>","qualType":"gocpp_probe_internal_c<decltype((8192))>"}}`
-
 func TestDecodeDecl(t *testing.T) {
 	f, err := decodeDecl([]byte(`{"kind":"TypeAliasDecl","name":"gp_probe_3_v","type":{"desugaredQualType":"gocpp_probe_internal_val<(__int128)-16>","qualType":"gocpp_probe_internal_val<gocpp_probe_internal_pr::enc((-16))>"},
 	  "inner":[{"kind":"TemplateArgument","inner":[{"kind":"ConstantExpr","value":"-16"}]}]}`))

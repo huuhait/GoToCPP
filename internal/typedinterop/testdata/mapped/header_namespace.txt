@@ -1,0 +1,53 @@
+::geo_make_pair
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::geo_sum
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::geo_version
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::len2
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::make
+    skipped
+    => opaque: not probed: name only: it is the function of a call or the template of an instance
+::struct_geo_pair
+    type geo_pair
+    => type geo_pair
+::vec3
+    type geo::vec3
+    => type geo.vec3
+C.double
+    type double
+    => type C.double
+call(::geo_make_pair|lit(3),lit(4))
+    prvalue geo_pair
+    => value geo_pair
+call(::geo_sum|arg&(::struct_geo_pair))
+    prvalue int
+    => value C.int
+call(::geo_version|)
+    prvalue int
+    => value C.int
+call(::len2|arg&(::vec3))
+    prvalue double
+    => value C.double
+call(::make|lit(1),lit(2),lit(2))
+    prvalue geo::vec3
+    => value geo.vec3
+call(go(double)|call(unknown(no complete type for length2)|arg&(::vec3)))
+    skipped
+    => opaque: not probed: incomplete: no complete type for length2
+call(go(int64_t)|call(::geo_sum|arg&(::struct_geo_pair)))
+    prvalue long
+    => value C.long (int64_t)
+call(go(int64_t)|call(::geo_version|))
+    prvalue long
+    => value C.long (int64_t)
+call(unknown(no complete type for length2)|arg&(::vec3))
+    skipped
+    => opaque: not probed: incomplete: no complete type for length2
+
+declarations: func geo::len2, func geo::make, func geo_make_pair, func geo_sum, func geo_version, record geo::vec3, record geo_pair
