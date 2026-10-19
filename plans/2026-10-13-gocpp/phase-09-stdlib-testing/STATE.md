@@ -17,7 +17,7 @@
   - [ ] descriptor extensions (fields + tags, elem/key, len, accessors, zero value, element assign/swap)
   - [ ] per-package API list (§2.2), incl. settable values and `Swapper`
   - [ ] `internal/reflectlite` alias + `DeepEqual`
-- [~] 9.4 Port tier-1 pure packages (9.4a unicode, strconv, errors merged 2026-10-20; 9.4b io, io/fs, path, strings, bytes, bufio, context merged 2026-10-20; sort, regexp remain, they need slices 7.10) (`unicode/utf8`, `unicode`, `strings`, `bytes`, `strconv`, `errors`, `sort`, `math/bits`, `io`, `bufio`, `context`, `regexp`)
+- [x] 9.4 Port tier-1 pure packages (9.4a unicode, strconv, errors merged 2026-10-20; 9.4b io, io/fs, path, strings, bytes, bufio, context merged 2026-10-20; sort, regexp/syntax, regexp merged 2026-10-20 (9.4c)) (`unicode/utf8`, `unicode`, `strings`, `bytes`, `strconv`, `errors`, `sort`, `math/bits`, `io`, `bufio`, `context`, `regexp`)
 - [x] 9.5 `math` (native + bit-exact pure-Go where needed)
 - [x] 9.6 `os` (interop + native, Go error types)
 - [ ] 9.7 `fmt` port (+ `internal/fmtsort`, C++ value printing)
