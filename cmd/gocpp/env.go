@@ -134,6 +134,7 @@ var envVars = []envVar{
 		return ""
 	}, doc: "the folder in which the runtime is extracted"},
 	{name: "GOCPPVERSION", found: true, def: func(*envState) string { return version.Version }, doc: "the version of gocpp"},
+	{name: "GOCPP_AR", doc: "the archiver (and its arguments) for the runtime library and -lto, instead of the search for ar, gcc-ar or llvm-ar"},
 	{name: "GOCPP_ARCH", doc: "the architecture to build for, like -arch (amd64 or arm64); default: GOARCH, else this system's"},
 	{name: "GOCPP_CC", doc: "the C compiler for the .c files of packages (a program, maybe with arguments); default: the C compiler of the C++ compiler's toolchain (gcc for g++, clang for clang++)"},
 	{name: "GOCPP_CFLAGS", doc: "trusted flags for every C and C++ compile (also the probes and the runtime), not checked; split like a command (quotes keep spaces)"},
@@ -168,6 +169,7 @@ var envVars = []envVar{
 	{name: "GOCPP_NOOBJCACHE", doc: "any value but empty, 0 and false: no object cache"},
 	{name: "GOCPP_NOPCH", doc: "any non-empty value: no precompiled header of the runtime"},
 	{name: "GOCPP_NOPROBECACHE", doc: "any value but empty, 0 and false: no cache on disk for the compiler's answers about headers"},
+	{name: "GOCPP_NORTLIB", doc: "any value but empty, 0 and false: no runtime library; the runtime's object files are linked one by one"},
 	{name: "GOCPP_NOUPTODATE", doc: "any value but empty, 0 and false: gocpp build does not check whether the program is up to date"},
 	{name: "GOCPP_OBJCACHE_SIZE", def: func(*envState) string { return "2G" }, doc: "the size limit of the object cache (a number with K, M or G); the oldest files go first"},
 	{name: "GOCPP_OFFLINE", doc: "any value but empty, 0 and false: never use the network (module downloads and the Windows toolchain)"},
