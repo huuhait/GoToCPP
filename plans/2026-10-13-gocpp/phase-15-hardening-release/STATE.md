@@ -7,7 +7,7 @@
 ## Steps
 
 ### Performance
-- [ ] 15.1 Benchmark suite (gocpp vs Go vs C++) + per-commit tracking on a fixed machine + 5 % regression gate
+- [x] 15.1 Benchmark suite (gocpp vs Go vs C++) + per-commit tracking on a fixed machine + 5 % regression gate
 - [ ] 15.2 Escape analysis (unknown code = escaping) + `-gp:m`
 - [ ] 15.3 Receiver and parameter optimizations
   - [ ] non-escaping pointer methods use `this`; strong reference at the call site unless the receiver is an unchangeable caller local
