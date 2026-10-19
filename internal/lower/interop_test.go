@@ -390,7 +390,7 @@ func TestCUserErrors(t *testing.T) {
 		{"var p *C.char; _ = string(p)", "cannot convert p (C pointer) to type string: use C.GoString(p)"},
 		// The cgo helpers and C.cstr (step 4.9, cstrings.go).
 		{"f := C.GoString; _ = f", "must call C.GoString"},
-		{"_ = C.nosuch", `undefined: C.nosuch (C has only C's built-in types and the helpers C.CString, C.GoString, C.GoStringN, C.GoBytes, C.free and C.cstr; a C/C++ name comes through its header: import "<header.h>")`},
+		{"_ = C.nosuch", `undefined: C.nosuch (C has only C's built-in types and the helpers C.CString, C.GoString, C.GoStringN, C.GoBytes, C.free, C.cstr, C.wstr, C.WString, C.GoStringW and C.GoStringWN; a C/C++ name comes through its header: import "<header.h>")`},
 		{"_ = C.cstr(\"x\")", `C.cstr("x") can be only an argument of a C/C++ function or the value of a new variable (name := C.cstr("x")): its C string lives only as long as that; for a C string that lives longer, use C.CString and C.free`},
 		{"var p *C.char = C.cstr(\"x\"); _ = p", `C.cstr("x") can be only an argument of a C/C++ function or the value of a new variable (name := C.cstr("x")): its C string lives only as long as that; for a C string that lives longer, use C.CString and C.free`},
 		{"var q Q; q.Put(C.int(lib.f(C.cstr(\"x\")))); _ = lib.g(C.int(C.cstr(\"x\")))", `C.cstr("x") can be only an argument of a C/C++ function or the value of a new variable (name := C.cstr("x")): its C string lives only as long as that; for a C string that lives longer, use C.CString and C.free`},
@@ -398,6 +398,10 @@ func TestCUserErrors(t *testing.T) {
 		{"s := \"x\"; n := C.cstr(s); lib.f(n, C.cstr(s+\"!\")); n = C.cstr(\"y\"); var m = C.cstr(s); lib.f(m); var v std.vector[int]; v.push_back(lib.g(C.cstr(s))); _ = std.string(C.cstr(s))", ""},
 		{"s := C.GoString(lib.f()); t := C.GoStringN(lib.f(), 3) + s + \"!\"; b := C.GoBytes(lib.f(), 2); p := C.CString(t); C.free(p); defer C.free(lib.g()); _, _ = string(b), C.GoString(nil)", ""},
 		{"_ = string(lib.f()); var cs std.string; var gs string = string(cs) + \"!\"; _ = gs", ""},
+		{"_ = lib.FILE{a: C.wstr(\"x\")}", "C.wstr(\"x\") (C.wstr holder) cannot be stored in a composite literal: its C string could outlive the holder; use C.WString and C.free for a retained C string"},
+		{"_ = C.GoStringW(C.wstr(\"x\"))", `C.wstr("x") can be only an argument of a C/C++ function or the value of a new variable (name := C.wstr("x")): its C string lives only as long as that; for a C string that lives longer, use C.WString and C.free`},
+		{"h := C.wstr(\"x\"); h2 := h; _ = lib.FILE{h2}", "h2 (C.wstr holder) cannot be stored in a composite literal: its C string could outlive the holder; use C.WString and C.free for a retained C string"},
+		{"var a [lib.NMAX]C.char; _ = a", "a C/C++ macro in an array length (lib.NMAX) is not supported yet (Phase 12, step 12.8: constant macros are probed first): write the number, such as [260]windows.WCHAR for MAX_PATH"},
 		{"_ = lib.FILE{a: C.cstr(\"x\")}", "C.cstr(\"x\") (C.cstr holder) cannot be stored in a composite literal: its C string could outlive the holder; use C.CString and C.free for a retained C string"},
 		{"_ = lib.FILE{C.cstr(\"x\")}", "C.cstr(\"x\") (C.cstr holder) cannot be stored in a composite literal: its C string could outlive the holder; use C.CString and C.free for a retained C string"},
 		{"h := C.cstr(\"x\"); h2 := h; var h3 = h2; _ = lib.FILE{a: h3}", "h3 (C.cstr holder) cannot be stored in a composite literal: its C string could outlive the holder; use C.CString and C.free for a retained C string"},
@@ -1144,6 +1148,24 @@ func TestRootIdentOf(t *testing.T) {
 		}
 		if got != tt.want {
 			t.Errorf("rootIdentOf(%s) = %q, want %q", tt.src, got, tt.want)
+		}
+	}
+}
+
+// TestCConstTypeLLP64 checks that the ranges of C.long, C.ulong and C.wchar_t follow the target (step 14.4):
+// Windows is LLP64, where long has 32 bits and wchar_t is an unsigned 16-bit unit.
+func TestCConstTypeLLP64(t *testing.T) {
+	for _, tt := range []struct {
+		goos, name string
+		want       types.BasicKind
+	}{
+		{"linux", "long", types.Int64}, {"linux", "ulong", types.Uint64}, {"linux", "wchar_t", types.Int32},
+		{"windows", "long", types.Int32}, {"windows", "ulong", types.Uint32}, {"windows", "wchar_t", types.Uint16},
+		{"windows", "int", types.Int32}, {"windows", "longlong", types.Int64}, {"windows", "size_t", types.Uint64},
+	} {
+		g := &gen{pkg: &check.Package{Load: &load.Package{GOOS: tt.goos}}}
+		if got, ok := g.cConstType(tt.name); !ok || got != tt.want {
+			t.Errorf("%s: C.%s has range %v (ok %v), want %v", tt.goos, tt.name, got, ok, tt.want)
 		}
 	}
 }

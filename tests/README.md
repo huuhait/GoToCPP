@@ -167,6 +167,7 @@ missing compiler).
 | `GOCPP_TEST_TIMEOUT` | `2m` | the time limit of one command (one `gocpp run`, one `go build`), as a Go duration |
 | `GOCPP_TEST_TARGET` | none | `windows`: also build the run tests for windows/amd64 and run them under Wine (`TestRunWindows`, `TestWindowsPrograms`, `TestWineIsolation`; the section "Windows under Wine" below); run on a real PC with `GOCPP_WINDOWS_SSH` |
 | `GOCPP_TEST_WINDOWS` | `sample` | with `GOCPP_TEST_TARGET=windows`: `sample` runs the tests of `windows_sample.txt`, `all` every run test that `windows_skip.txt` does not name |
+| `GOCPP_WINDOWS_LIBS` | none | with `GOCPP_TEST_TARGET=windows`: a folder with `include/` and `lib/` of sqlite3, zlib, SDL2 and raylib built for MinGW-w64 (`tools/winlibs.sh DIR`); `TestWindowsPrograms/lib*` skip without it |
 | `GOCPP_WINDOWS_SSH` | none | `user@host`: the Windows tests (`GOCPP_TEST_TARGET=windows`) run their programs on that real Windows PC over ssh instead of under Wine (key authentication; `internal/winssh`; the variable is the only place that names the machine; never commit it) |
 | `GOCPP_WINE_JOBS` | `4` | the programs that run under Wine at once (Wine's server is one process) |
 | `GOCPP_REQUIRE_WINE_OVERFLOW` | none | `1`: `TestWindowsPrograms/overflow` fails instead of skipping when this machine's Wine ends a stack overflow with exit code 1 and no message |
@@ -211,6 +212,13 @@ in `bin/`).
   replaces it or why it cannot run. `TestWindowsConsole` runs `testdata/windows/console.gp` in a real console (a pseudo
   console over `ssh -tt`, `internal/winssh.RunConsole`: needs `GOCPP_WINDOWS_SSH`, skips under Wine) and compares what the
   screen shows: UTF-8 through `fmt` and `os.Stdout`, stderr, and a read of the console.
+- Windows interop (step 14.4, ADR-082): `testdata/windows` also holds `wstr.gp` (`C.wstr` and `C.GoStringW` with real
+  `W` functions), `winapi.gp` (kernel32, advapi32 and user32 through the C API, a `WINAPI` thread callback, the registry,
+  LLP64 sizes), `winzoo.gp` (13 Windows headers), `winmacros.gp` (names that are macros of `<windows.h>`) and `winstruct/` (a
+  package with C and C++ files that needs the Win32 defaults); their expectations were checked on the real PC. The
+  programs `lib*.gp` use libraries that MinGW does not ship: they skip unless `GOCPP_WINDOWS_LIBS=DIR` names a folder
+  with `include/` and `lib/` of sqlite3, zlib, SDL2 and raylib for MinGW-w64, which `tools/winlibs.sh DIR` builds in the dev
+  shell (network once). sqlite3 and zlib run; SDL2 and raylib are only linked (`buildOnly`: they need their DLL and a display).
 - `TestWineIsolation` is the canary: it runs `hello.exe` in a fresh Wine environment and checks that
   `~/.wine`, `~/.local/share/applications`, `~/.config/menus` and `~/.cache/wine` are as they were, that
   the prefix is in the test's folder, and that no process of the environment survives `Close`.

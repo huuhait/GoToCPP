@@ -534,7 +534,7 @@ func loadConfig!(path string) (cfg Config, err error) {
   | `errors.Wrapf(&err, format, args...)` | used with `defer`: puts context in front of the error that the function returns. It wraps like `fmt.Errorf` with `%w`, so `errors.Is(err, fs.ErrNotExist)` and `errors.As` still find the original error | 10 |
   | `errors.Trace(err)` | shows the path an error took (an **optional** step, see [open points](#open-points)) | 10 |
   | `C.cstr(s)` | a NUL-terminated `const char*` for `s`, valid until the end of the statement | 04 |
-  | `C.wstr(s)`, `C.GoStringW(p)` | UTF-16 strings for Windows `W` functions | 14 |
+  | `C.wstr(s)`, `C.WString(s)`, `C.GoStringW(p)`, `C.GoStringWN(p, n)` | wide strings (UTF-16 on Windows) for the `W` functions | 14 |
   | hidden helper packages `gocpp/must`, `gocpp/cgoh` (the path `gocpp/macro` is reserved) | the compiler adds and uses them for its rewrites; you don't import them | 04, 10 |
 
 - Not every Go standard package exists. The tiers are in

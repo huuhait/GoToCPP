@@ -636,6 +636,8 @@ func runInterop(t *testing.T, bin string, asan bool) {
 		name, out string
 	}{
 		{"strn-neg", "fatal error: out of memory\n\ngoroutine 1 [running]:\n"},
+		{"wstrn-neg", "fatal error: out of memory\n\ngoroutine 1 [running]:\n"},
+		{"wstrn-neg-unsigned", "fatal error: out of memory\n\ngoroutine 1 [running]:\n"},
 		{"strn-nil", nilPanic + nilSignal + "\n\ngoroutine 1 [running]:\n"},
 		{"bytes-neg", "panic: runtime error: gobytes: length out of range\n\ngoroutine 1 [running]:\n"},
 		{"bytes-nil", nilPanic + nilSignal + "\n\ngoroutine 1 [running]:\n"},

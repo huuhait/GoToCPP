@@ -197,7 +197,8 @@ var cTypes = map[string]string{
 // the type that C++ sees: C.cstr(s) is a holder that converts to const char*,
 // C.CString(s) a char*, C.GoString(p) a gocpp string.
 var cgoHelpers = map[string]string{
-	"cstr": "const char*", "CString": "char*", "GoString": "gocpp_probe_internal_pr::string", "GoStringN": "gocpp_probe_internal_pr::string",
+	"cstr": "const char*", "wstr": "const wchar_t*", "WString": "wchar_t*", "CString": "char*", "GoString": "gocpp_probe_internal_pr::string", "GoStringN": "gocpp_probe_internal_pr::string",
+	"GoStringW": "gocpp_probe_internal_pr::string", "GoStringWN": "gocpp_probe_internal_pr::string",
 	"GoBytes": "gocpp_probe_internal_pr::slice<uint8_t>",
 }
 

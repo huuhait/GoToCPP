@@ -163,6 +163,17 @@ table above changed:
   or for as long as a variable holds it (a holder, like Phase 04's `C.cstr`), and
   `C.GoStringW(p)` converts back.
 - x86-64 Windows has a single calling convention, so callbacks work as in Phase 04.
+- **14.4 as built (2026-10-19, [ADR-082](../../../docs/adr/082-windows-interop-defaults-and-wide-strings.md)).** The defaults are
+  `-DWIN32_LEAN_AND_MEAN -DNOMINMAX -DUNICODE -D_UNICODE` as compile flags of a windows package that imports a header or has C/C++ files
+  (`build.Win32Defaults`; not the runtime, not the sources of a library with a `cxx` recipe), off with `//gocpp:no-win32-defaults` or per macro by
+  naming it in your own flags (`-DNAME`, `-UNAME`: `//gocpp:cflags`, pkg-config, a recipe, `GOCPP_CFLAGS`/`GOCPP_CXXFLAGS`). No new collision rule:
+  Phase 04's macro protection renamed every name of the header zoo's test (`ERROR`, `DELETE`, `near`, `far`, `GetObject`, `min`, ...).
+  `C.wstr`, `C.GoStringW` and the new `C.WString` (a retained `malloc`ed copy, for struct fields) and `C.GoStringWN` work on every target (the unit is `wchar_t`: UTF-16 on Windows, UTF-32 on Linux) with Go's WTF-8
+  rules; `C.wchar_t` is a built-in C type; the ranges of `C.long`/`C.ulong`/`C.wchar_t` follow the target (LLP64). `tests/testdata/windows/` has
+  the programs run on the real PC (`wstr`, `winapi`: kernel32/advapi32/user32 and a `WINAPI` thread callback, `winzoo`: 13 Windows headers,
+  `winmacros`, `winstruct/`: packing, bit-fields, UTF-16 in a struct, `dllexport`, C and C++ files), and sqlite3 and zlib built for MinGW-w64
+  (`tools/winlibs.sh`; SDL2 and raylib are only linked). **Left**: the typed probe on the Windows target (step 14.6), macros in array lengths (Phase 12's
+  typed mode), running SDL2/raylib (DLLs and a display), UCRT.
 
 ### 2.5 Editor, debugger, typed interop
 

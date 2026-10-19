@@ -104,3 +104,43 @@ func TestFixHelpers(t *testing.T) {
 		}
 	}
 }
+
+// TestWideHelpers checks the wide-string helpers (step 14.4): the pointer of C.GoStringW and C.GoStringWN is any C
+// value, nil, or a gocpp pointer to a 2- or 4-byte integer; a string, an int, a []uint16 or a *byte is an error of
+// ours (the C++ compiler's message would not say what is wanted), and C.wstr and C.WString give C values.
+func TestWideHelpers(t *testing.T) {
+	src := `package main
+
+import cstdlib "<stdlib.h>"
+
+func main() {
+	var u16 *uint16
+	var r32 *int32
+	var by *byte
+	var xs []uint16
+	n := 3
+	w := C.wstr("a")
+	k := C.WString("b")
+	_ = C.GoStringW(u16)
+	_ = C.GoStringW(r32)
+	_ = C.GoStringW(nil)
+	_ = C.GoStringW(cstdlib.getenv("X"))
+	_ = C.GoStringWN(k, 2)
+	_ = C.GoStringW("text")
+	_ = C.GoStringW(n)
+	_ = C.GoStringW(by)
+	_ = C.GoStringWN(xs, 2)
+	_ = w
+}
+`
+	root := writeTree(t, map[string]string{"gocpp.mod": "module example.com/m\n", "main.gp": src})
+	prog, r := loadAndCheck(t, load.Config{}, root, ".")
+	want := "# example.com/m\n" +
+		"./main.gp:18:18: cannot use \"text\" (value of type untyped string) as a wide C string in argument to C.GoStringW: want a C pointer to wide characters (LPCWSTR, wchar_t*), a *uint16 or nil\n" +
+		"./main.gp:19:18: cannot use n (value of type int) as a wide C string in argument to C.GoStringW: want a C pointer to wide characters (LPCWSTR, wchar_t*), a *uint16 or nil\n" +
+		"./main.gp:20:18: cannot use by (value of type *byte) as a wide C string in argument to C.GoStringW: want a C pointer to wide characters (LPCWSTR, wchar_t*), a *uint16 or nil\n" +
+		"./main.gp:21:19: cannot use xs (value of type []uint16) as a wide C string in argument to C.GoStringWN: want a C pointer to wide characters (LPCWSTR, wchar_t*), a *uint16 or nil\n"
+	if errs := errorText(t, prog, r, root, true); errs != want {
+		t.Errorf("errors:\n%s\nwant:\n%s", errs, want)
+	}
+}

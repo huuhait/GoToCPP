@@ -361,8 +361,8 @@ var features = [numFeatures]feature{
 		Notes:  "`[cstdio.BUFSIZ]byte`, `const n = cstdio.BUFSIZ`."},
 
 	{id: featWideStrings, Name: "C.wstr and C.GoStringW", Plural: true, Phase: 14,
-		Detect: "the selectors C.wstr and C.GoStringW",
-		Notes:  "UTF-16 strings for Windows APIs."},
+		Detect: "the selectors C.wstr, C.GoStringW and C.GoStringWN",
+		Notes:  "Wide strings (UTF-16 on Windows) for the `W` functions: also `C.GoStringWN`."},
 	{id: featNoWin32Defaults, Name: "//gocpp:no-win32-defaults", Phase: 14,
 		Detect: "the directive"},
 

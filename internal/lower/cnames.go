@@ -58,6 +58,7 @@ var cBuiltins = map[string]string{
 	"float":     "float",
 	"double":    "double",
 	"size_t":    "size_t",
+	"wchar_t":   "wchar_t", // (step 14.4: 16 bits on Windows, 32 elsewhere)
 }
 
 // A cRef is the C++ of a C/C++ name of the source.
@@ -196,7 +197,7 @@ func (g *gen) cBuiltin(sel *ast.SelectorExpr) cRef {
 		// A helper that is not called (f := C.GoString): check rewrites only calls.
 		g.userError(sel.Pos(), "must call C.%s", sel.Sel.Name)
 	} else {
-		g.userError(sel.Pos(), "undefined: C.%s (C has only C's built-in types and the helpers C.CString, C.GoString, C.GoStringN, C.GoBytes, C.free and C.cstr; a C/C++ name comes through its header: import \"<header.h>\")", sel.Sel.Name)
+		g.userError(sel.Pos(), "undefined: C.%s (C has only C's built-in types and the helpers C.CString, C.GoString, C.GoStringN, C.GoBytes, C.free, C.cstr, C.wstr, C.WString, C.GoStringW and C.GoStringWN; a C/C++ name comes through its header: import \"<header.h>\")", sel.Sel.Name)
 	}
 	return cRef{x: placeholder, kind: interop.Value, src: "C." + sel.Sel.Name}
 }

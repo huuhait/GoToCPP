@@ -339,6 +339,11 @@ type Package struct {
 	// names in the module ("imconfig.h", "backends/x.h").
 	IncludeDirs []string
 
+	// GOOS is the target of the build constraints that loaded the package (Config.GOOS, or the
+	// system that runs Load): build.ReadPackageFlags gives a package for windows the Win32 defaults
+	// (step 14.4). It is empty in a summary.
+	GOOS string
+
 	// CxxModules are the modules whose headers the package imports, with the
 	// cxx recipe that says how to build the library, in the order of the
 	// imports, each once (Phase 06 step 6.1d). build.ReadPackageFlags reads the
@@ -689,6 +694,7 @@ func (l *loader) newPackage(importPath, dir string, std bool, mod *Module) *Pack
 	}
 	return &Package{
 		main:       main,
+		GOOS:       l.cfg.GOOS,
 		ImportPath: importPath,
 		Dir:        dir,
 		Std:        std,

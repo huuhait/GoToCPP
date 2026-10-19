@@ -982,7 +982,8 @@ func (d *driver) probe(pkg *check.Package, cxx *build.CXX) (*lower.Interop, int)
 // imports (build.ReadPackageFlags puts those last, as -iquote folder), which
 // are the loader's, not the user's flags.
 func directiveCompileFlags(pkg *check.Package) []string {
-	return pkg.Flags.Compile[:min(pkg.Flags.Directive, len(pkg.Flags.Compile))]
+	end := min(pkg.Flags.Directive, len(pkg.Flags.Compile))
+	return pkg.Flags.Compile[min(pkg.Flags.Defaults, end):end] // (gocpp's own Win32 defaults come first)
 }
 
 // recipeCompileFlags returns the compile flags of pkg that come from the cxx

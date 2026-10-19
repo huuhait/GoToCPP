@@ -3,6 +3,7 @@
 // (cmd/cgo/out.go: _Cfunc_CString and _cgoPREFIX_Cfunc_CString; runtime/string.go: gostring,
 // gostringn, gobytes). Standard C++ only.
 #include <gocpp/rt.hpp>
+#include <gocpp/wstr.hpp>
 
 #include <cstdint>
 #include <cstdlib>
@@ -59,6 +60,21 @@ string go_string_n(const char* p, int64_t n) {
     }
 #endif
     return string::gp_copy(std::string_view(p, static_cast<std::size_t>(n)));
+}
+
+bool wide_n_ok(int64_t n, [[maybe_unused]] const void* p) {
+    if (n == 0) {
+        return false;
+    }
+    if (n < 0 || n > max_alloc / 2) {
+        fatal("out of memory");
+    }
+#ifndef GOCPP_NOCHECKS
+    if (p == nullptr) {
+        panic_nil();
+    }
+#endif
+    return true;
 }
 
 slice<uint8_t> go_bytes(const void* p, int64_t n) {

@@ -1107,6 +1107,115 @@ void test_cgo() {
     CHECK_EQ(gp::len(gp::cgo::GoBytes(vp, int32_t(2))), int64_t(2));
 }
 
+// --- C.wstr, C.GoStringW, C.GoStringWN (step 14.4, ADR-082) ---
+
+template <typename W>
+std::basic_string<W> wide_of(const char* utf8) {
+    return gp::detail::to_wide<W>(utf8, static_cast<int64_t>(std::strlen(utf8)));
+}
+
+void test_wstr() {
+    // UTF-16 units (char16_t), whatever the size of wchar_t.
+    CHECK(wide_of<char16_t>("abc") == u"abc");
+    CHECK(wide_of<char16_t>("h\xC3\xA9llo") == u"h\u00e9llo");     // 2 bytes
+    CHECK(wide_of<char16_t>("\xE4\xB8\x96") == u"\u4e16");         // 3 bytes
+    CHECK(wide_of<char16_t>("\xF0\x9F\x99\x82") == u"\U0001F642"); // a pair
+    CHECK_EQ(int(wide_of<char16_t>("\xF0\x9F\x99\x82").size()), 2);
+    // The low bits of the pair: U+1F643 and U+10FFFF (the largest) round trip too.
+    CHECK(wide_of<char16_t>("\xF0\x9F\x99\x83") == u"\U0001F643");
+    CHECK(wide_of<char16_t>("\xF4\x8F\xBF\xBF") ==
+          (std::u16string() + char16_t(0xDBFF) + char16_t(0xDFFF)));
+    CHECK_EQ(str(gp::detail::from_wide(u"\U0001F643\U0010FFFF", 4)),
+             std::string("\xF0\x9F\x99\x83\xF4\x8F\xBF\xBF"));
+    // An invalid byte is U+FFFD (Go's UTF16FromString), also a truncated sequence and an overlong
+    // one.
+    CHECK(wide_of<char16_t>("a\xFFz") == u"a\ufffdz");
+    CHECK(wide_of<char16_t>("\xE4\xB8") == u"\ufffd\ufffd");
+    CHECK(wide_of<char16_t>("\xC0\x80") == u"\ufffd\ufffd");
+    // A WTF-8 surrogate is one lone unit: ED A0 80 (D800), ED BF BF (DFFF).
+    CHECK(wide_of<char16_t>("x\xED\xA0\x80y") == (std::u16string(u"x") + char16_t(0xD800) + u"y"));
+    CHECK(wide_of<char16_t>("\xED\xBF\xBF") == std::u16string(1, char16_t(0xDFFF)));
+    // A valid pair written as two WTF-8 surrogates stays two lone units (Go does not join them).
+    CHECK_EQ(int(wide_of<char16_t>("\xED\xA0\xBD\xED\xB9\x82").size()), 2);
+    // ED 9F BF is U+D7FF, a real character, not a surrogate.
+    CHECK(wide_of<char16_t>("\xED\x9F\xBF") == std::u16string(1, char16_t(0xD7FF)));
+    // UTF-32 units: a pair is one unit, a surrogate stays a lone value.
+    CHECK(wide_of<char32_t>("\xF0\x9F\x99\x82") == U"\U0001F642");
+    CHECK(wide_of<char32_t>("\xED\xA0\x80") == std::u32string(1, char32_t(0xD800)));
+    CHECK(wide_of<char32_t>("a\xFF") == U"a\ufffd");
+
+    // Back to a gocpp string.
+    CHECK_EQ(str(gp::detail::from_wide(u"h\u00e9llo \u4e16 \U0001F642", 10)),
+             std::string("h\xC3\xA9llo \xE4\xB8\x96 \xF0\x9F\x99\x82"));
+    const char16_t lone[] = {
+        u'x', char16_t(0xD800), u'y', char16_t(0xDFFF), char16_t(0xD800), char16_t(0xDC00)};
+    // lone high, lone low, then a real pair (U+10000).
+    CHECK_EQ(str(gp::detail::from_wide(lone, 6)),
+             std::string("x\xED\xA0\x80y\xED\xBF\xBF\xF0\x90\x80\x80"));
+    const char16_t tail[] = {u'a', char16_t(0xD83D)};
+    CHECK_EQ(str(gp::detail::from_wide(tail, 2)),
+             std::string("a\xED\xA0\xBD")); // a high surrogate at the end
+    const char32_t wide32[] = {U'a', char32_t(0x1F642), char32_t(0xD800), char32_t(0x110000),
+                               char32_t(0xFFFFFFFF)};
+    CHECK_EQ(str(gp::detail::from_wide(wide32, 5)),
+             std::string("a\xF0\x9F\x99\x82\xED\xA0\x80\xEF\xBF\xBD\xEF\xBF\xBD"));
+    // A round trip of ill-formed text is lossless (WTF-8), unless a high and a low surrogate follow
+    // each other: they join into one character, in Go too.
+    const std::string ill = "k\xED\xA0\x80z\xED\xB0\x80";
+    auto w16 = wide_of<char16_t>(ill.c_str());
+    CHECK_EQ(str(gp::detail::from_wide(w16.data(), int64_t(w16.size()))), ill);
+
+    // C.wstr(s): a holder of wchar_t units, NUL-terminated; a NUL inside ends the C string.
+    gp::wstr_holder h = gp::wstr("h\xC3\xA9llo"_gs);
+    CHECK(h.gp_ptr()[0] == L'h' && h.gp_ptr()[1] == wchar_t(0xE9) && h.gp_ptr()[5] == 0);
+    // The implicit conversion to const wchar_t*: valid to the end of the statement.
+    CHECK_EQ(int(gp::detail::wide_length<wchar_t>(gp::wstr("abc"_gs))), 3);
+    CHECK_EQ(int(gp::detail::wide_length(gp::wstr("").gp_ptr())), 0);
+    CHECK_EQ(int(gp::detail::wide_length(gp::wstr(gp::concat("a\0b"_gs, ""_gs, "c"_gs)).gp_ptr())),
+             1);
+    CHECK_EQ(int(gp::detail::wide_length(gp::wstr("lit").gp_ptr())), 3);
+    gp::wstr_holder copy = h; // a copy keeps its own units
+    CHECK(copy.gp_ptr() != h.gp_ptr() && copy.gp_ptr()[1] == wchar_t(0xE9));
+    if constexpr (sizeof(wchar_t) == 2) {
+        CHECK_EQ(int(gp::detail::wide_length(gp::wstr("\xF0\x9F\x99\x82"_gs).gp_ptr())), 2);
+    } else {
+        CHECK_EQ(int(gp::detail::wide_length(gp::wstr("\xF0\x9F\x99\x82"_gs).gp_ptr())), 1);
+    }
+
+    // WString: a malloc'ed copy, for a pointer that C keeps; C.free frees it (ASan checks).
+    wchar_t* kept = gp::cgo::WString("k\xC3\xA9\xF0\x9F\x99\x82"_gs);
+    CHECK_EQ(str(gp::cgo::GoStringW(kept)), std::string("k\xC3\xA9\xF0\x9F\x99\x82"));
+    CHECK_EQ(int(gp::detail::wide_length(kept)), sizeof(wchar_t) == 2 ? 4 : 3);
+    gp::cgo::free(kept);
+    wchar_t* empty = gp::cgo::WString(""_gs);
+    CHECK(empty != nullptr && empty[0] == 0);
+    gp::cgo::free(empty);
+
+    // GoStringW: any pointer to 2- or 4-byte integers; null gives "".
+    CHECK_EQ(str(gp::cgo::GoStringW(nullptr)), std::string());
+    CHECK_EQ(str(gp::cgo::GoStringW(static_cast<const wchar_t*>(nullptr))), std::string());
+    CHECK_EQ(str(gp::cgo::GoStringW(gp::wstr("h\xC3\xA9llo \xE4\xB8\x96"_gs).gp_ptr())),
+             std::string("h\xC3\xA9llo \xE4\xB8\x96"));
+    CHECK_EQ(str(gp::cgo::GoStringW(L"wide")), std::string("wide"));
+    CHECK_EQ(str(gp::cgo::GoStringW(u"u16 \u00e9")), std::string("u16 \xC3\xA9"));
+    CHECK_EQ(str(gp::cgo::GoStringW(U"u32 \U0001F642")), std::string("u32 \xF0\x9F\x99\x82"));
+    uint16_t u16buf[] = {'o', 'k', 0, 'x'};
+    CHECK_EQ(str(gp::cgo::GoStringW(u16buf)), std::string("ok")); // up to the NUL
+    gp::ptr<uint16_t> gpbuf = gp::new_<uint16_t>(uint16_t('p'));  // one unit: no NUL after it
+    CHECK_EQ(str(gp::cgo::GoStringWN(gpbuf, 1)), std::string("p"));
+    gp::ptr<uint16_t> gpzero = gp::new_<uint16_t>(uint16_t(0));
+    CHECK_EQ(str(gp::cgo::GoStringW(gpzero)), std::string());
+    // GoStringWN: n units, NULs too; 0 doesn't read p.
+    CHECK_EQ(str(gp::cgo::GoStringWN(u16buf, 4)), std::string("ok\0x", 4));
+    CHECK_EQ(str(gp::cgo::GoStringWN(u16buf, 1)), std::string("o"));
+    CHECK_EQ(str(gp::cgo::GoStringWN(nullptr, 0)), std::string());
+    CHECK_EQ(str(gp::cgo::GoStringWN(static_cast<const wchar_t*>(nullptr), int64_t(0))),
+             std::string());
+    CHECK_EQ(panic_text([] { (void)gp::cgo::GoStringWN(static_cast<const wchar_t*>(nullptr), 3); }),
+             nil_msg);
+    CHECK_EQ(panic_text([] { (void)gp::cgo::GoStringWN(nullptr, 1); }), nil_msg);
+}
+
 // --- boxes and result slots (step 4.8) ---
 
 // Counts what happens to it, and can't be default-constructed or assigned.
@@ -1443,6 +1552,7 @@ void run_tests() {
     test_ptr();
     test_cstr();
     test_cgo();
+    test_wstr();
     test_callback();
     rt_test::threads_ended(); // see threads_ended.hpp
     if (failures > 0) {
@@ -1465,6 +1575,12 @@ void run_case() {
     if (c == "strn-neg") {
         // Go: "fatal error: out of memory", exit code 2.
         gp::println(gp::cgo::GoStringN(cbuf, -1));
+    } else if (c == "wstrn-neg") {
+        // C.GoStringWN(p, -1): the same fatal error as C.GoStringN (step 14.4).
+        gp::println(gp::cgo::GoStringWN(L"hello", -1));
+    } else if (c == "wstrn-neg-unsigned") {
+        // An unsigned n beyond int64 counts as negative, as in GoStringN.
+        gp::println(gp::cgo::GoStringWN(L"hello", ~uint64_t(0)));
     } else if (c == "strn-nil") {
         // Go: the nil dereference panic, with the signal line.
         gp::println(gp::cgo::GoStringN(static_cast<char*>(nullptr), 3));

@@ -476,6 +476,9 @@ func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Packa
 			}
 		}
 	}
+	if convert {
+		cv.checkWideArgs(p, fset) // C.GoStringW(badType): a message of ours, not the C++ compiler's
+	}
 	if mp != nil {
 		markSynthetic(lp, userIdents)
 	}

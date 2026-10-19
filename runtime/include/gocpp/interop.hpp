@@ -15,6 +15,7 @@
 //     a, b := std.minmax(x, y)    auto [a, b] = gp::values(std::minmax(x, y));
 //     p := std.minmax(x, y)       auto p = gp::values(std::minmax(x, y));
 //     C.cstr(s)                   gp::cstr(s), and gp::cstr(s).gp_ptr() as a C/C++ argument
+//     C.wstr(s)                   gp::wstr(s) (wstr.hpp: UTF-16 for the W functions of Windows)
 //     C.CString(s)                gp::cgo::CString(s)
 //     C.GoString(p)               gp::cgo::GoString(p)
 //     C.GoStringN(p, n)           gp::cgo::GoStringN(p, n)
@@ -45,6 +46,7 @@
 #include <gocpp/slice.hpp>
 #include <gocpp/string.hpp>
 #include <gocpp/unsafe.hpp>
+#include <gocpp/wstr.hpp>
 
 #include <array>
 #include <algorithm>

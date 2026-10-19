@@ -81,8 +81,13 @@ type PackageFlags struct {
 	// //gocpp:cflags and pkg-config --cflags, in source order.
 	Compile []string
 
-	// Directive is the number of flags at the start of Compile that come from
-	// the package's directives and pkg-config; after them come the public flags
+	// Defaults is the number of flags at the very start of Compile that gocpp adds by itself: the
+	// Win32 defaults of a package for windows (Win32Defaults). The precompiled header of the
+	// runtime is not used with them (precompiledFor).
+	Defaults int
+
+	// Directive is the number of flags at the start of Compile (the Defaults among them) that come
+	// from the package's directives and pkg-config; after them come the public flags
 	// of the cxx recipes of its modules (Libs), then the -iquote folders of the
 	// modules whose headers the package imports.
 	Directive int
@@ -358,6 +363,11 @@ func ReadPackageFlags(ctx context.Context, fset *token.FileSet, lp *load.Package
 	rerrs, rpending := readRecipes(ctx, lp, pkgConfig, &flags)
 	errs = append(errs, rerrs...)
 	pending = pending || rpending
+	if defaults := Win32Defaults(lp, flags.Compile); len(defaults) > 0 {
+		flags.Compile = slices.Concat(defaults, flags.Compile)
+		flags.Defaults = len(defaults)
+		flags.Directive += len(defaults)
+	}
 	// The folders of the modules whose headers the package imports
 	// (load.Package.IncludeDirs): a module header is included by its
 	// absolute name, and the headers of its library include each other by

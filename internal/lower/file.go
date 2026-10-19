@@ -175,6 +175,7 @@ type gen struct {
 	cFuncs   map[ast.Expr]bool // func values that go to C/C++ places: callbacks (ccallback.go)
 	elided   map[*ast.CompositeLit]ast.Expr
 	holders  map[*types.Var]bool // the variables that hold a C.cstr holder (cstrings.go)
+	wideVars map[*types.Var]bool // the holders among them that hold a C.wstr holder (cstrings.go)
 
 	cConstKinds   map[ast.Expr]types.BasicKind // known C numeric targets, for exact constant emission
 	initialValues map[*types.Var]ast.Expr      // initializers of inferred locals, for known C types

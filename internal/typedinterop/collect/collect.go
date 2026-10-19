@@ -321,7 +321,7 @@ func (c *collector) visit(e ast.Expr) bool {
 }
 
 // helperNames maps the names of check's rewritten helpers to what the user wrote.
-var helperNames = strings.NewReplacer("gp_cgoh.Cstr", "C.cstr", "gp_cgoh.Free", "C.free", "gp_cgoh.", "C.")
+var helperNames = strings.NewReplacer("gp_cgoh.Cstr", "C.cstr", "gp_cgoh.Wstr", "C.wstr", "gp_cgoh.Free", "C.free", "gp_cgoh.", "C.")
 
 // text returns the expression e as the user wrote it (check's rewrite of
 // conversions and cgo helpers undone).
@@ -865,9 +865,13 @@ func (c *collector) checkRewrite(x *ast.CallExpr) Expr {
 		return nil
 	case "cstr":
 		return &Arg{T: &GoType{Cxx: "const char*"}} // the holder: C++ sees the const char* it converts to
+	case "wstr":
+		return &Arg{T: &GoType{Cxx: "const wchar_t*"}} // the wide holder
+	case "WString":
+		return &Arg{T: &GoType{Cxx: "wchar_t*"}}
 	case "CString":
 		return &Arg{T: &GoType{Cxx: "char*"}}
-	case "GoString", "GoStringN":
+	case "GoString", "GoStringN", "GoStringW", "GoStringWN":
 		return &Arg{T: &Stand{Name: "string"}}
 	case "GoBytes":
 		return &Arg{T: &Stand{Name: "slice", Args: []Expr{&GoType{Cxx: "uint8_t"}}}}

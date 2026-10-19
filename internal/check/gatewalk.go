@@ -623,7 +623,7 @@ func (g *gateChecker) visitSelector(sel *ast.SelectorExpr) {
 			if path == "C" {
 				if !g.cppIdents[x.Pos()] {
 					id := featCNames
-					if sel.Sel.Name == "wstr" || sel.Sel.Name == "GoStringW" {
+					if sel.Sel.Name == "wstr" || sel.Sel.Name == "WString" || sel.Sel.Name == "GoStringW" || sel.Sel.Name == "GoStringWN" {
 						id = featWideStrings
 					}
 					g.node(id, sel)
@@ -631,7 +631,12 @@ func (g *gateChecker) visitSelector(sel *ast.SelectorExpr) {
 				return
 			}
 			if path == load.CgohPath && CgoHelperOf(sel, g.info) != "" {
-				g.node(featCNames, sel) // C.GoString(p), which Check rewrote (cgohelpers.go)
+				id := featCNames // C.GoString(p), which Check rewrote (cgohelpers.go)
+				switch CgoHelperOf(sel, g.info) {
+				case "wstr", "WString", "GoStringW", "GoStringWN":
+					id = featWideStrings
+				}
+				g.node(id, sel)
 				return
 			}
 			if g.info.Uses[sel.Sel] == nil {

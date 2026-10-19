@@ -417,6 +417,12 @@ func main() {
 	// Phase 14.
 	{name: "C.wstr", phase: 14, src: main_("\tp := C.wstr(\"x\")\n\t_ = p\n"),
 		want: []string{"4:7: C.wstr and C.GoStringW are not supported yet (Phase 14)"}},
+	{name: "C.WString", phase: 14, src: main_("\tp := C.WString(\"x\")\n\t_ = p\n"),
+		want: []string{"4:7: C.wstr and C.GoStringW are not supported yet (Phase 14)"}},
+	{name: "C.GoStringW", phase: 14, src: main_("\tvar p *uint16\n\t_ = C.GoStringW(p)\n"),
+		want: []string{"5:6: C.wstr and C.GoStringW are not supported yet (Phase 14)"}},
+	{name: "C.GoStringWN", phase: 14, src: main_("\tvar p *uint16\n\t_ = C.GoStringWN(p, 3)\n"),
+		want: []string{"5:6: C.wstr and C.GoStringW are not supported yet (Phase 14)"}},
 	{name: "no-win32-defaults", phase: 14, src: "// Command x.\n//\n//gocpp:no-win32-defaults\npackage main\n\nfunc main() {}\n",
 		want: []string{"3:1: //gocpp:no-win32-defaults is not supported yet (Phase 14)"}},
 

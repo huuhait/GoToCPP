@@ -358,17 +358,18 @@ declares comes through its package or a namespace, never through `C` (`cstdio.pr
 | `C.char`, `C.schar`, `C.uchar` | `char`, `signed char`, `unsigned char` |
 | `C.short`, `C.ushort` | `short`, `unsigned short` |
 | `C.int`, `C.uint` | `int`, `unsigned int` |
-| `C.long`, `C.ulong` | `long`, `unsigned long` |
+| `C.long`, `C.ulong` | `long`, `unsigned long` (64 bits on Linux, 32 bits on Windows: [LLP64](#windows-headers)) |
 | `C.longlong`, `C.ulonglong` | `long long`, `unsigned long long` |
 | `C.float`, `C.double` | `float`, `double` |
 | `C.size_t` | `size_t` |
+| `C.wchar_t` | `wchar_t` (16 bits on Windows, 32 bits on Linux) |
 
 | Helper | What it does | More |
 |---|---|---|
 | `C.cstr(s)` | a NUL-terminated `const char*` for a gocpp string, valid until the end of the statement | [strings](#strings-at-the-boundary) |
 | `C.CString(s)`, `C.free(p)` | a `malloc`ed C copy of a string (cgo-compatible), and freeing it | [strings](#strings-at-the-boundary) |
 | `C.GoString(p)`, `C.GoStringN(p, n)`, `C.GoBytes(p, n)` | C memory → gocpp `string` or `[]byte` (cgo-compatible) | [strings](#strings-at-the-boundary) |
-| `C.wstr(s)`, `C.GoStringW(p)` | UTF-16 strings for Windows (Phase 14) | [Windows](#windows-headers) |
+| `C.wstr(s)`, `C.WString(s)`, `C.GoStringW(p)`, `C.GoStringWN(p, n)` | wide strings: UTF-16 for the `W` functions of Windows (UTF-32 where `wchar_t` has 32 bits); `C.WString` is `C.CString` for wide characters | [Windows](#windows-headers) |
 
 - Every `.gp` file can use `C` without importing it. The front-end adds `import "C"` only to the
   files that use it: a file that doesn't use C stays plain Go.
@@ -1722,7 +1723,7 @@ package](#c-and-c-sources-in-a-package)).
 | `//gocpp:cflags ...`, `//gocpp:ldflags ...` | one or more flags | adds the flags, if they are allowed |
 | `//gocpp:extern-c <hdr>` | one header | wraps that header in `extern "C"` (for C libraries whose headers lack the guard, such as `<lua.h>`) |
 | `//gocpp:no-extern-c <hdr>` | one header | turns the `extern "C"` wrapping off for that one header, whatever the defaults below say |
-| `//gocpp:no-win32-defaults` | none | Windows: gocpp does not define `WIN32_LEAN_AND_MEAN` and `NOMINMAX` ([Windows headers](#windows-headers), Phase 14) |
+| `//gocpp:no-win32-defaults` | none | Windows: gocpp does not define `WIN32_LEAN_AND_MEAN`, `NOMINMAX`, `UNICODE` and `_UNICODE` ([Windows headers](#windows-headers), Phase 14) |
 
 The rules for directives:
 - A directive starts with exactly `//gocpp:`, with no space after `//`. `// gocpp:link m` is an
@@ -2315,17 +2316,68 @@ func main() {
 ```
 
 - `<windows.h>` is a header package like any other: `windows.MessageBoxW(nil, …)`,
-  `windows.GetLastError()`.
-- gocpp defines `WIN32_LEAN_AND_MEAN` and `NOMINMAX` by default, so the `min`/`max` macros can't
-  break C++ code. `//gocpp:no-win32-defaults` turns them off. The macro protection above handles
-  other collisions (`ERROR`, `DELETE`, `interface`).
-- `UNICODE` is defined by default, as Go's own Windows code uses the `W` functions. So
-  `windows.MessageBox` (a macro) means `MessageBoxW`.
-- `W` functions take UTF-16 text. `C.wstr(s)` gives a `const wchar_t*` for the statement (a
-  holder, like `C.cstr`), and `C.GoStringW(p)` converts back.
-- x86-64 Windows has a single calling convention, so callbacks work as on Linux.
+  `windows.GetLastError()`. So are `<winsock2.h>`, `<ws2tcpip.h>`, `<shellapi.h>`, `<shlobj.h>`, `<wincrypt.h>`,
+  `<mmsystem.h>`, `<dxgi.h>`, `<d3d11.h>` and the C runtime's `<io.h>`, `<direct.h>`, `<process.h>`, `<tchar.h>`:
+  `tests/testdata/windows/winzoo.gp` imports them all and calls each.
+- **The Win32 defaults.** For a package for windows that imports a header or has C or C++ files, gocpp compiles the
+  generated C++, the probes and the package's own C and C++ files with `-DWIN32_LEAN_AND_MEAN -DNOMINMAX -DUNICODE
+  -D_UNICODE`. They keep `min` and `max` out of C++ code, stop `<windows.h>` from including the old
+  `<winsock.h>` (MinGW warns "Please include winsock2.h before windows.h" otherwise), and make the name `MessageBox` mean
+  `MessageBoxW`, as Go's own Windows code uses the `W` functions. The runtime and the sources of a library with a
+  `cxx` recipe do not get them.
+  - `//gocpp:no-win32-defaults` turns all four off for the package.
+  - A flag of yours that defines or undefines one of them (`-DNAME`, `-DNAME=v`, `-UNAME`, also as `-D NAME`) in
+    `//gocpp:cflags`, in pkg-config's flags, in the public flags of a `cxx` recipe, or in `GOCPP_CFLAGS` or
+    `GOCPP_CXXFLAGS` leaves that macro to you: gocpp adds the others. For example `//gocpp:cflags -UUNICODE -U_UNICODE`
+    gives `MessageBoxA`.
+  - They are compile flags of the package, so the runtime's precompiled header is not used for it.
+- **Names that are macros of the headers** are handled by the macro protection above, with no rule of their own for
+  Windows. A name of your package that `<windows.h>` makes a macro gets a `_` suffix in the generated C++ (the Go name,
+  and what `%T` prints, stay): `ERROR`, `DELETE`, `CONST`, `TRUE`, `FALSE`, `MAX_PATH`, `INFINITE`, `near`, `far`,
+  `small`, `IN`, `OUT`, `OPTIONAL`, `VOID`, and the `W`/`A` macros `GetObject`, `SendMessage`, `CreateWindow`,
+  `DrawText`, `LoadImage`, `RGB`, and `min` and `max` (with `NOMINMAX` they are not macros, and your own `min` and
+  `max` work). `interface` is a keyword in Go and cannot be a name. `tests/testdata/windows/winmacros.gp` declares each
+  kind (constant, variable, type, field, method, function) and prints them.
+- `W` functions take UTF-16 text. `C.wstr(s)` gives a `const wchar_t*` for the statement (a holder, like `C.cstr`), and
+  `C.WString(s)` is `C.CString` for wide characters: a `malloc`ed copy for a pointer that C keeps (a struct field such
+  as `WNDCLASSW.lpszClassName`; free it with `C.free`); `C.GoStringW(p)` converts a NUL-terminated wide string back; `C.GoStringWN(p, n)` converts `n` characters, NULs
+  included. `p` is any pointer to 2-byte or 4-byte integers: an `LPCWSTR`, `&buf[0]` of a `[260]windows.WCHAR`, a
+  `*uint16`. The conversions are Go's (`syscall.UTF16FromString` and `UTF16ToString`, with WTF-8): an invalid UTF-8 byte
+  becomes U+FFFD, a surrogate written as three bytes (WTF-8) becomes a lone UTF-16 unit and comes back as the same three
+  bytes, a character beyond U+FFFF is a surrogate pair, and a NUL inside the string ends the C string, as with `C.cstr`
+  (`syscall.UTF16FromString` returns an error for a NUL instead). `C.wstr` always makes a copy: a gocpp string is UTF-8 and the units are not,
+  so there is no zero-copy form as `C.cstr` has. `C.GoStringW(p)` with a pointer of another kind (a string, an int, a `*byte`, a slice) is an
+  error of gocpp's, not a C++ one.
+  The rules for holders are `C.cstr`'s (an argument of a C/C++ function, or the value of a new variable), and a holder is
+  not an argument of `C.GoStringW`. **They work on every target**: where `wchar_t` has 32 bits (Linux) the units are
+  UTF-32, so `wchar.wcslen(C.wstr(s))` counts characters there and UTF-16 units on Windows.
+- **LLP64.** On Windows `long` has 32 bits: `C.long` and `C.ulong` are 4 bytes (the constants that gocpp checks follow the
+  target: `C.long(1 << 40)` is an error on Windows), `DWORD` is `unsigned long`, `C.size_t`, `C.longlong` and every
+  handle (`HANDLE`, `HWND`, ...: pointers) have 64 bits. A macro that casts, such as `INVALID_HANDLE_VALUE`, compares
+  with a handle (`h == windows.INVALID_HANDLE_VALUE`); to compare a macro with an integer, convert it:
+  `int(windows.ERROR_FILE_NOT_FOUND)`.
+- **Constants of the headers in array lengths** (`var buf [windows.MAX_PATH]windows.WCHAR`) are not supported until Phase 12 step 12.8 (constant
+  macros are probed first and substituted): the error says so; write the number, `[260]windows.WCHAR`.
+- **GUIDs.** `IID_IDXGIFactory1`, `CLSID_*` and the other GUID constants that MinGW's headers declare are defined in libraries, not in the headers:
+  `uuid`, and `dxguid` for the DirectX ones (`//gocpp:link dxgi dxguid`). `__uuidof(T)` has no gocpp form; use the constant, and pass it to a function
+  that takes `REFIID` without `&` (the C++ reference).
+- **Libraries.** `//gocpp:link ws2_32 winmm` adds `-lws2_32 -lwinmm` (MinGW links kernel32, user32, advapi32 and shell32 by default; gdi32, ws2_32, winmm, ole32 and the others you name).
+  Programs are linked with `-static`, which skips a DLL's import library (`libSDL2.dll.a`): name the file,
+  `//gocpp:ldflags -l:libSDL2.dll.a`, and put the DLL next to the program. MinGW has no `#pragma comment(lib, …)`.
+  A missing library shows as `undefined reference to '__imp_socket'`; for the common functions gocpp adds the hint `add //gocpp:link ws2_32`.
+  A compile error that comes from the ANSI/Wide switch (`cannot convert 'const wchar_t*' to 'LPCSTR'`) gets a hint that says whether the Win32
+  defaults are on and how to change them.
+- **Structs, calls, callbacks.** `#pragma pack`, bit-fields, `WCHAR name[16]` in a struct, `__declspec(dllexport)` and
+  `WINAPI` in a header work through the compiler (`tests/testdata/windows/winstruct/`). x86-64 Windows has a single
+  calling convention, so a gocpp function is a `WNDPROC`, a `LPTHREAD_START_ROUTINE` or a `binop` as on Linux
+  (`tests/testdata/windows/winapi.gp` starts a thread with one). A COM interface is a C++ class in MinGW's headers:
+  `dxgi.CreateDXGIFactory1(dxgi.IID_IDXGIFactory1, (*unsafe.Pointer)(unsafe.Pointer(&factory)))` takes the IID as a
+  reference, so pass it without `&`, and call `factory.Release()`.
+- **Libraries that MinGW does not ship** (sqlite3, zlib, SDL2, raylib) build for MinGW-w64 in the nix shell (`tools/winlibs.sh`)
+  and link with `GOCPP_CFLAGS=-I… GOCPP_LDFLAGS=-L…`; `tests/testdata/windows/lib*.gp` are the zoo programs for them.
 
-Source: [Phase 14 §2.4](../../plans/2026-10-13-gocpp/phase-14-windows/README.md#24-interop-with-windows-headers).
+Source: [Phase 14 §2.4](../../plans/2026-10-13-gocpp/phase-14-windows/README.md#24-interop-with-windows-headers),
+[ADR-082](../adr/082-windows-interop-defaults-and-wide-strings.md).
 
 ## Limits and known gaps
 

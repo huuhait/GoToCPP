@@ -794,10 +794,15 @@ func (d *driver) cppCompileFailed(pkg *check.Package, e *build.CompileError, src
 		fmt.Fprintf(d.stderr, "# %s\n%s\n", pkg.Load.ImportPath, strings.TrimRight(d.shortenDir(pkg, string(e.Output)), "\n"))
 		return true
 	}
+	var msgs []string
 	for i := range errs {
+		msgs = append(msgs, errs[i].msg)
 		errs[i].msg = "C++: " + errs[i].msg
 	}
 	d.printCppErrors(pkg, errs)
+	if h := win32DefaultsHint(pkg.Load.GOOS, pkg.Flags.Defaults, msgs); h != "" {
+		fmt.Fprintf(d.stderr, "\t%s\n", h)
+	}
 	switch {
 	case others == 1:
 		fmt.Fprintln(d.stderr, "(and 1 more error in gocpp's code: -cpperrors=full shows it)")
@@ -933,6 +938,9 @@ func (d *driver) cppLinkFailed(pkg *check.Package, e *build.CompileError, env bu
 	}
 	hints = append(hints, externCClashHints(pkg.Load.Dir, pkg.ExternC, pkg.Load.CXXFiles, undefined)...)
 	hints = append(hints, noRecipeHints(pkg, e.Output)...)
+	if h := importLibHint(pkg.Load.GOOS, undefined); h != "" {
+		hints = append(hints, h)
+	}
 	if len(pkg.Flags.Link) > 0 {
 		hints = append(hints, fmt.Sprintf("(the link flags of the package's //gocpp: directives: %s)", strings.Join(pkg.Flags.Link, " ")))
 	}

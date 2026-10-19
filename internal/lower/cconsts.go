@@ -25,8 +25,7 @@ import (
 //
 // C++ would convert such a constant silently (200 becomes -56; 2.5 becomes 2). The types are
 // cgo's on the targets of gocpp (Linux and Windows, x86-64): char is signed. C.long and C.ulong
-// are 64 bits as on Linux (on Windows they have 32 bits, but gocpp doesn't tell the targets apart
-// here yet). A constant for any other C/C++ type (a typedef of a header, std.string) is the C++
+// are 64 bits on Linux and 32 bits on Windows (LLP64, cConstType; step 14.4). A constant for any other C/C++ type (a typedef of a header, std.string) is the C++
 // compiler's to check, and so is one passed to a C/C++ function, whose parameter types gocpp
 // doesn't know in opaque mode.
 
@@ -35,7 +34,25 @@ var cConstTypes = map[string]types.BasicKind{
 	"char": types.Int8, "schar": types.Int8, "uchar": types.Uint8,
 	"short": types.Int16, "ushort": types.Uint16, "int": types.Int32, "uint": types.Uint32,
 	"long": types.Int64, "ulong": types.Uint64, "longlong": types.Int64, "ulonglong": types.Uint64,
-	"float": types.Float32, "double": types.Float64, "size_t": types.Uint64,
+	"float": types.Float32, "double": types.Float64, "size_t": types.Uint64, "wchar_t": types.Int32,
+}
+
+// cConstType returns the Go type with the range of the C built-in type name for the target of the
+// package (cConstTypes are Linux's; Windows is LLP64: long and unsigned long have 32 bits, and
+// wchar_t is the unsigned 16-bit UTF-16 unit, step 14.4).
+func (g *gen) cConstType(name string) (types.BasicKind, bool) {
+	if g.pkg.Load != nil && g.pkg.Load.GOOS == "windows" {
+		switch name {
+		case "long":
+			return types.Int32, true
+		case "ulong":
+			return types.Uint32, true
+		case "wchar_t":
+			return types.Uint16, true
+		}
+	}
+	kind, ok := cConstTypes[name]
+	return kind, ok
 }
 
 // cConstOK reports whether the untyped constant e (tv is its type and value) may go where it
@@ -81,7 +98,7 @@ func (w *cWalk) cConstOK(e ast.Expr, tv types.TypeAndValue, parent ast.Node) boo
 		g.userError(e.Pos(), "cannot use %s as %s value in %s", constDesc(g.srcText(e), tv, tv.Value), ts, t.context)
 		return false
 	case *ast.SelectorExpr:
-		kind, ok := cConstTypes[x.Sel.Name]
+		kind, ok := g.cConstType(x.Sel.Name)
 		if !ok || !g.isC(x.X) {
 			return true
 		}
@@ -113,7 +130,7 @@ func (g *gen) cOperandConstOK(e ast.Expr, tv types.TypeAndValue, other, x ast.Ex
 	if kind == "pointer" {
 		return mismatched() // p == 0: only nil goes with a C pointer
 	}
-	b, ok := cConstTypes[ts[len("C."):]]
+	b, ok := g.cConstType(ts[len("C."):])
 	if !ok {
 		return true
 	}
@@ -163,7 +180,7 @@ func (g *gen) cRepresentable(e ast.Expr, tv types.TypeAndValue, kind types.Basic
 // e is one that Go allows (a constant conversion: the value must be representable), and reports
 // Go's error if it isn't.
 func (g *gen) cConvConstOK(e ast.Expr, tv types.TypeAndValue, to string) bool {
-	kind := cConstTypes[to[len("C."):]]
+	kind, _ := g.cConstType(to[len("C."):])
 	if _, ok := g.cRepresentable(e, tv, kind); ok {
 		return true
 	}

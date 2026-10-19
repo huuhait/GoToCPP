@@ -6,6 +6,7 @@ import (
 	"go/types"
 	"strings"
 
+	"github.com/huuhait/gocpp/internal/diag"
 	"github.com/huuhait/gocpp/internal/load"
 )
 
@@ -28,6 +29,10 @@ import (
 //	func GoBytes(p unsafe.Pointer, n int) []byte
 //	func Free(p unsafe.Pointer)    // C.free
 //	func Cstr(s string) C.cstr     // C.cstr; the result is opaque: the holder, a C++ object
+//	func Wstr(s string) C.wstr     // C.wstr: the same for wide characters (UTF-16 on Windows)
+//	func WString(s string) *C.wchar_t        // C.WString; the result is opaque: a C pointer
+//	func GoStringW(p C.wide) string          // C.GoStringW: p is any pointer to 2- or 4-byte integers
+//	func GoStringWN(p C.wide, n int) string  // C.GoStringWN
 //
 // (*C.char and C.cstr stand for the invalid type: a variable declared *C.char has it too, since
 // go/types makes a pointer to an invalid type invalid, so CString's result compares with nil and
@@ -62,6 +67,8 @@ import (
 var cgoHelpers = map[string]string{
 	"CString": "CString", "GoString": "GoString", "GoStringN": "GoStringN", "GoBytes": "GoBytes",
 	"free": "Free", "cstr": "Cstr",
+	// Phase 14 (step 14.4): the wide-string helpers of Windows (ADR-082).
+	"wstr": "Wstr", "WString": "WString", "GoStringW": "GoStringW", "GoStringWN": "GoStringWN",
 }
 
 // helperOf maps the names of the helpers in the hidden package to the names that the user writes.
@@ -120,12 +127,15 @@ func IsHelperSelector(sel *ast.SelectorExpr) bool {
 // CgoHelperDocs are the declarations of the cgo helpers as the user writes them, and what they
 // do, by name: for the editor's hover.
 var CgoHelperDocs = map[string][2]string{
-	"CString":   {"func C.CString(s string) *C.char", "C.CString copies the bytes of s and a NUL into C's heap (malloc). Free the copy with C.free."},
-	"GoString":  {"func C.GoString(p *C.char) string", "C.GoString copies the C string at p, up to its NUL, into a gocpp string. A nil p gives \"\". p may be any char pointer (const char*, unsigned char*)."},
-	"GoStringN": {"func C.GoStringN(p *C.char, n C.int) string", "C.GoStringN copies the n bytes at p into a gocpp string, NUL bytes too."},
-	"GoBytes":   {"func C.GoBytes(p unsafe.Pointer, n C.int) []byte", "C.GoBytes copies the n bytes at p into a new []byte."},
-	"free":      {"func C.free(p unsafe.Pointer)", "C.free frees memory of C's heap, as C's free (C.CString's copies). A nil p does nothing."},
-	"cstr":      {"func C.cstr(s string) C.cstr", "C.cstr gives s to C as a const char*, without a copy when a NUL follows its bytes already. The C string lives as long as the holder that C.cstr returns: to the end of the statement, or as long as the variable it is in (name := C.cstr(s))."},
+	"CString":    {"func C.CString(s string) *C.char", "C.CString copies the bytes of s and a NUL into C's heap (malloc). Free the copy with C.free."},
+	"GoString":   {"func C.GoString(p *C.char) string", "C.GoString copies the C string at p, up to its NUL, into a gocpp string. A nil p gives \"\". p may be any char pointer (const char*, unsigned char*)."},
+	"GoStringN":  {"func C.GoStringN(p *C.char, n C.int) string", "C.GoStringN copies the n bytes at p into a gocpp string, NUL bytes too."},
+	"GoBytes":    {"func C.GoBytes(p unsafe.Pointer, n C.int) []byte", "C.GoBytes copies the n bytes at p into a new []byte."},
+	"free":       {"func C.free(p unsafe.Pointer)", "C.free frees memory of C's heap, as C's free (C.CString's copies). A nil p does nothing."},
+	"wstr":       {"func C.wstr(s string) C.wstr", "C.wstr gives s to a W function as a const wchar_t* (LPCWSTR): UTF-16 where wchar_t has 16 bits (Windows), UTF-32 where it has 32. Invalid UTF-8 bytes become U+FFFD, and a surrogate written as three bytes (WTF-8) becomes a lone surrogate unit, as in Go's syscall.UTF16FromString. The text lives as long as the holder that C.wstr returns: to the end of the statement, or as long as the variable it is in (name := C.wstr(s))."},
+	"GoStringW":  {"func C.GoStringW(p *C.wchar_t) string", "C.GoStringW copies the wide C string at p, up to its NUL, into a gocpp string (UTF-8; a lone surrogate becomes its three WTF-8 bytes, as Go's syscall.UTF16ToString). A nil p gives \"\". p is any pointer to 2-byte or 4-byte integers (LPCWSTR, LPWSTR, a WCHAR buffer)."},
+	"GoStringWN": {"func C.GoStringWN(p *C.wchar_t, n C.int) string", "C.GoStringWN copies the n wide characters at p into a gocpp string, NUL characters too."},
+	"cstr":       {"func C.cstr(s string) C.cstr", "C.cstr gives s to C as a const char*, without a copy when a NUL follows its bytes already. The C string lives as long as the holder that C.cstr returns: to the end of the statement, or as long as the variable it is in (name := C.cstr(s))."},
 }
 
 // CgoHelperOf returns the name of the cgo helper that sel names after Check's rewrite
@@ -169,6 +179,11 @@ func addHelpers(pkg *types.Package) {
 	fn("GoBytes", []*types.Var{param("p", ptr), param("n", cint)}, types.NewSlice(types.Universe.Lookup("byte").Type()))
 	fn("Free", []*types.Var{param("p", ptr)})
 	fn("Cstr", []*types.Var{param("s", str)}, invalid)
+	fn("Wstr", []*types.Var{param("s", str)}, invalid)
+	fn("WString", []*types.Var{param("s", str)}, invalid)
+	// A wide pointer is opaque (the invalid type): LPCWSTR of a header, a *uint16 of a gocpp slice, ...
+	fn("GoStringW", []*types.Var{param("p", invalid)}, str)
+	fn("GoStringWN", []*types.Var{param("p", invalid), param("n", cint)}, str)
 	addUnsafeHelpers(pkg) // unsafe.Slice and unsafe.String of C values (unsafecalls.go)
 	addSliceHelper(pkg)   // a[lo:hi] of a C array (slicecalls.go)
 }
@@ -247,4 +262,64 @@ func replaceWord(msg, old, new string, ok func(rest string) bool) string {
 		}
 		msg = rest
 	}
+}
+
+// checkWideArgs reports the calls of C.GoStringW and C.GoStringWN whose first argument cannot be a wide C string: the
+// parameter of the hidden function is the invalid type, so that any C pointer passes (an LPCWSTR of a header, a
+// wchar_t* of any size), and go/types would let a string or an int through to a C++ error. The pointer must be a C
+// value (opaque), nil, or a gocpp pointer to an integer of 2 or 4 bytes (*uint16, *int32): the units of UTF-16 and
+// UTF-32.
+func (cv *converter) checkWideArgs(p *Package, fset *token.FileSet) {
+	if p == nil || p.Info == nil {
+		return
+	}
+	for _, f := range cv.lp.Files {
+		ast.Inspect(f.AST, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || len(call.Args) == 0 {
+				return true
+			}
+			sel, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			name := CgoHelperOf(sel, p.Info)
+			if name != "GoStringW" && name != "GoStringWN" {
+				return true
+			}
+			arg := call.Args[0]
+			t := p.Info.TypeOf(arg)
+			if t == nil || wideArgOK(t) {
+				return true
+			}
+			p.Errors.Add(diag.Diagnostic{
+				Pos: fset.Position(arg.Pos()),
+				End: fset.Position(arg.End()),
+				Msg: "cannot use " + types.ExprString(arg) + " (value of type " + types.TypeString(t, nil) + ") as a wide C string in argument to C." + name +
+					": want a C pointer to wide characters (LPCWSTR, wchar_t*), a *uint16 or nil",
+			})
+			return true
+		})
+	}
+}
+
+// wideArgOK reports whether a value of type t can be the pointer of C.GoStringW: a C value (invalid type), nil, or a
+// pointer to a 2-byte or 4-byte integer.
+func wideArgOK(t types.Type) bool {
+	if b, ok := t.(*types.Basic); ok {
+		return b.Kind() == types.Invalid || b.Kind() == types.UntypedNil
+	}
+	ptr, ok := t.Underlying().(*types.Pointer)
+	if !ok {
+		return false
+	}
+	b, ok := ptr.Elem().Underlying().(*types.Basic)
+	if !ok {
+		return false
+	}
+	switch b.Kind() {
+	case types.Int16, types.Uint16, types.Int32, types.Uint32, types.Invalid:
+		return true
+	}
+	return false
 }

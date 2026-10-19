@@ -32,6 +32,11 @@ type windowsProgram struct {
 	exit   int
 	stderr *regexp.Regexp // stderr must match; nil: stderr must be empty
 	phase  int
+	// libs is for a program of a library that is not part of MinGW-w64 (sqlite3, zlib, SDL2, raylib): it runs when
+	// GOCPP_WINDOWS_LIBS names a folder with the libraries' include/ and lib/ (tests/README.md), else it skips.
+	// buildOnly programs are linked and not run (they need a DLL next to the program and a display).
+	libs, buildOnly bool
+	dir             string // a folder of tests/testdata/windows to build as a package (gocpp build .), instead of name.gp
 	// wineGap says why a result is Wine's, not the program's, and the test then skips: it returns the
 	// reason for a result that this Wine produces and a real Windows doesn't, or "".
 	wineGap func(exit int, stdout, stderr string) string
@@ -119,6 +124,88 @@ var windowsPrograms = []windowsProgram{
 			}
 		},
 	},
+	// Step 14.4 (ADR-082): Windows interop, run on the real PC. Each program is also a place where a rule is
+	// checked by what it prints: C.wstr/C.GoStringW with real W functions, the C API of kernel32, advapi32 and
+	// user32, the Windows header zoo, names that are macros of windows.h, and a package with C and C++ files
+	// that needs the Win32 defaults.
+	{name: "wstr", phase: 14, stdout: `"plain" round trip true
+"héllo wörld" round trip true
+"世界" round trip true
+"🙂 smile" round trip true
+"tab\tand 'quotes'" round trip true
+lstrlenW: 3 2 2 0
+NUL: 2
+invalid: "a�z"
+lone surrogate round trip: true
+CompareStringOrdinal: true
+variable: 4
+nil: ""
+FormatMessageW: 44 "The system cannot find the file specified.\r\n"
+`},
+	{name: "winapi", phase: 14, stdout: `sizes: 4 4 8 8 4 8 2
+clocks: true true true true
+SYSTEM_INFO: 4096 true true
+SYSTEMTIME: 2026 10 19 12 30 15 250 1
+now is after 2026: true
+CreateFileW of a missing file: true true
+WriteFile: true true
+ReadFile: true 27 hello 世界 from the C API
+GetFileSizeEx: true
+DeleteFileW: true true
+ProductName: 0 true true
+thread: 42 1
+user32: true HÉLLO
+`},
+	{name: "winzoo", phase: 14, stdout: `windows: true true
+winsock2: WSAStartup 0 514
+ws2tcpip: inet_pton 1 true
+winsock2: htons 13330
+shellapi: CommandLineToArgvW 3 a
+shlobj: SHGetFolderPathW 0 true
+wincrypt: true true true
+mmsystem: timeGetTime true
+io: _access 0
+direct: _getcwd true true
+tchar: _tcslen 5
+dxgi: CreateDXGIFactory1 0 true
+d3d11: 7 24 72 28
+`},
+	{name: "winmacros", phase: 14, stdout: `11 12 13 14 15 16 17
+21 22 23 24 25
+5 6
+GetObject of hi 13 {1 2 hi}
+DrawText:x 31 197121 3 4
+260 1 0 4294967295 65536
+true 197121 22136 4660
+true
+`},
+	{name: "libsqlite3", libs: true, phase: 14, stdout: `rows: 3 changes: 1
+2 bö 1.5
+3 世界 2.5
+open file: true
+file removed: true
+true near "SELEC": syntax error
+true
+`},
+	{name: "libzlib", libs: true, phase: 14, stdout: `uLong: 4 uInt: 4
+true true
+true 47 true
+3106698858 103547413
+true true
+true
+`},
+	{name: "libsdl2", libs: true, buildOnly: true, phase: 14},
+	{name: "libraylib", libs: true, buildOnly: true, phase: 14},
+	{name: "winstruct", dir: "winstruct", phase: 14, stdout: `add_stdcall: 5
+apply with a gocpp callback: 42
+packed size: 7 7
+packed fields: 1 16909060 5
+bit-fields: 5 17 11259375 4
+bit-field store: 5 31 11259375
+entry: 7 héllo 世界 true
+clamp3 (C++ with std::min and std::max): 10 0
+macro: 3 5 3
+`},
 	{
 		// To a pipe, text is written as the UTF-8 it is (to a console the runtime writes UTF-16:
 		// Phase 14 checks that on a real console).
@@ -187,9 +274,27 @@ func TestWindowsPrograms(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			exe := filepath.Join(t.TempDir(), p.name+".exe")
-			b := c.run(t, gocppJob(dir, nil, "", p.phase, "build", "-os", "windows", "-o", exe, p.name+".gp"))
+			var benv []string
+			if p.libs {
+				libsDir := os.Getenv("GOCPP_WINDOWS_LIBS")
+				if libsDir == "" {
+					t.Skip("GOCPP_WINDOWS_LIBS names a folder with the MinGW-w64 builds of sqlite3, zlib, SDL2 and raylib (include/, lib/): see tests/README.md")
+				}
+				benv = []string{"GOCPP_CFLAGS=-I" + filepath.Join(libsDir, "include"), "GOCPP_LDFLAGS=-L" + filepath.Join(libsDir, "lib")}
+			}
+			src, bdir := p.name+".gp", dir
+			if p.dir != "" {
+				src, bdir = ".", filepath.Join(dir, p.dir)
+			}
+			b := c.run(t, gocppJob(bdir, benv, "", p.phase, "build", "-os", "windows", "-o", exe, src))
 			if b.problem != "" || b.exit != 0 {
 				t.Fatalf("%s: %s\n%s", b.cmd, b.why(), indent(string(b.stderr)))
+			}
+			if p.buildOnly {
+				if fi, err := os.Stat(exe); err != nil || fi.Size() == 0 {
+					t.Fatalf("the build made no program: %v", err)
+				}
+				return
 			}
 			w.sem <- struct{}{}
 			defer func() { <-w.sem }()

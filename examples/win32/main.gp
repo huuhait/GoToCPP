@@ -10,11 +10,14 @@
 // When the environment variable GOCPP_SMOKE is set, a timer closes the
 // message box and the window closes as soon as it is made, so the program
 // can run in CI.
+//
+//gocpp:link gdi32
 package main
 
 import (
 	"fmt"
 	"os"
+	"unsafe"
 
 	"<windows.h>"
 )
@@ -78,7 +81,10 @@ func main() {
 	fmt.Println("MessageBoxW returned", int(r), r == windows.IDOK)
 
 	instance := windows.GetModuleHandleW(nil)
-	className := C.wstr("GocppWindow") // kept in a variable: the class keeps the pointer
+	// C.WString makes a copy in C's heap, for a pointer that a C struct keeps (wc.lpszClassName); C.wstr is for one
+	// that a call uses and forgets.
+	className := C.WString("GocppWindow")
+	defer C.free(unsafe.Pointer(className))
 	var wc windows.WNDCLASSW
 	wc.lpfnWndProc = wndProc
 	wc.hInstance = instance

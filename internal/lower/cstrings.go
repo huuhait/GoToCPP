@@ -56,11 +56,16 @@ func (fg *funcGen) cgoHelperCall(c *ast.CallExpr, name string) cppir.Expr {
 		return placeholder
 	}
 	switch name {
-	case "CString", "cstr":
+	case "CString", "cstr", "wstr", "WString":
 		// A gocpp string (or an opaque value, which the C++ compiler checks).
 		fun := "gp::cgo::CString"
-		if name == "cstr" {
+		switch name {
+		case "WString":
+			fun = "gp::cgo::WString"
+		case "cstr":
 			fun = "gp::cstr"
+		case "wstr":
+			fun = "gp::wstr" // wstr.hpp: UTF-16 for the W functions (step 14.4)
 		}
 		return call(fun, fg.exactExpr(c.Args[0]))
 	}
@@ -77,10 +82,14 @@ func (fg *funcGen) cgoHelperCall(c *ast.CallExpr, name string) cppir.Expr {
 	return call("gp::cgo::"+name, args...)
 }
 
-// isCstrCall reports whether e is a call of C.cstr.
+// isCstrCall reports whether e is a call of C.cstr or C.wstr (a wide holder, the same rules).
 func (g *gen) isCstrCall(e ast.Expr) bool {
 	c, ok := ast.Unparen(e).(*ast.CallExpr)
-	return ok && g.cgoHelper(c) == "cstr"
+	if !ok {
+		return false
+	}
+	h := g.cgoHelper(c)
+	return h == "cstr" || h == "wstr"
 }
 
 // holderVars returns the variables that hold a C.cstr holder: those declared from a call of
@@ -91,6 +100,7 @@ func (g *gen) holderVars() map[*types.Var]bool {
 		return g.holders
 	}
 	g.holders = make(map[*types.Var]bool)
+	g.wideVars = make(map[*types.Var]bool)
 	type decl struct {
 		v     *types.Var
 		value ast.Expr
@@ -133,6 +143,7 @@ func (g *gen) holderVars() map[*types.Var]bool {
 		for _, d := range decls {
 			if !g.holders[d.v] && g.isHolder(d.value) {
 				g.holders[d.v] = true
+				g.wideVars[d.v] = g.isWideHolder(d.value)
 				changed = true
 			}
 		}
@@ -152,6 +163,29 @@ func (g *gen) isHolder(e ast.Expr) bool {
 		}
 	}
 	return false
+}
+
+// isWideHolder reports whether the holder e (see isHolder) is one of C.wstr: the wide string of the
+// W functions, whose retained form is C.WString.
+func (g *gen) isWideHolder(e ast.Expr) bool {
+	if c, ok := ast.Unparen(e).(*ast.CallExpr); ok {
+		return g.cgoHelper(c) == "wstr"
+	}
+	if id, ok := ast.Unparen(e).(*ast.Ident); ok {
+		if v, ok := g.info.Uses[id].(*types.Var); ok {
+			return g.wideVars[v]
+		}
+	}
+	return false
+}
+
+// holderNames returns what the messages about the holder e call it: "C.cstr" or "C.wstr", and the
+// helper that makes the copy that C keeps: "C.CString" or "C.WString".
+func (g *gen) holderNames(e ast.Expr) (holder, retained string) {
+	if g.isWideHolder(e) {
+		return "C.wstr", "C.WString"
+	}
+	return "C.cstr", "C.CString"
 }
 
 // cstrPlaceOK reports whether the holder e (a C.cstr call or a holder variable) lives as long as its C
@@ -185,7 +219,8 @@ func (g *gen) cstrPlaceOK(e ast.Expr, parent ast.Node) bool {
 			}
 		}
 	case *ast.CompositeLit, *ast.KeyValueExpr:
-		g.userError(e.Pos(), "%s (C.cstr holder) cannot be stored in a composite literal: its C string could outlive the holder; use C.CString and C.free for a retained C string", g.srcText(e))
+		holder, retained := g.holderNames(e)
+		g.userError(e.Pos(), "%s (%s holder) cannot be stored in a composite literal: its C string could outlive the holder; use %s and C.free for a retained C string", g.srcText(e), holder, retained)
 		return false
 	case *ast.ValueSpec:
 		if p.Type == nil && len(p.Names) == len(p.Values) {
@@ -193,7 +228,8 @@ func (g *gen) cstrPlaceOK(e ast.Expr, parent ast.Node) bool {
 		}
 	}
 	src := g.srcText(e)
-	g.userError(e.Pos(), "%s can be only an argument of a C/C++ function or the value of a new variable (name := %s): its C string lives only as long as that; for a C string that lives longer, use C.CString and C.free", src, src)
+	_, retained := g.holderNames(e)
+	g.userError(e.Pos(), "%s can be only an argument of a C/C++ function or the value of a new variable (name := %s): its C string lives only as long as that; for a C string that lives longer, use %s and C.free", src, src, retained)
 	return false
 }
 
