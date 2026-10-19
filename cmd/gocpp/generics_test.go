@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -59,5 +60,51 @@ func TestGenericsCxxOtherPackage(t *testing.T) {
 	want := "./main.go:7:37: lib.Len uses C/C++ names, so it can only be instantiated in its own package (Phase 12)"
 	if r.code != 1 || !strings.Contains(r.stderr, want) {
 		t.Errorf("exit %d, want 1 and %q:\n%s", r.code, want, show(r))
+	}
+}
+
+// TestConceptsFlag checks -gp:concepts of gocpp emit, build and run (Phase 07 step 7.9): the
+// package header gets the concepts of the constraints with the flag and none without it, the flag
+// is in the usage, and a program built with it prints what it prints without it.
+func TestConceptsFlag(t *testing.T) {
+	t.Setenv(gatePhaseEnv, "07")
+	const src = "package main\n\nimport \"fmt\"\n\ntype Num interface{ ~int | ~float64 }\n\n" +
+		"func Sum[T Num](xs ...T) (s T) {\n\tfor _, x := range xs {\n\t\ts += x\n\t}\n\treturn\n}\n\n" +
+		"func main() { fmt.Println(Sum(1, 2, 3), Sum(1.5, 2)) }\n"
+	tree := map[string]string{"main.go": src}
+	off := checkIn(t, tree, "emit", "main.gp")
+	on := checkIn(t, tree, "emit", "-gp:concepts", "main.gp")
+	if off.code != 0 || on.code != 0 {
+		t.Fatalf("emit: %s\n%s", show(off), show(on))
+	}
+	for _, w := range []string{"concept gp_concept_Num", "concept gp_sat_Sum", "#include <gocpp/concepts.hpp>", "::gp::concepts::tilde<gp_T, int64_t>"} {
+		if !strings.Contains(on.stdout, w) {
+			t.Errorf("emit -gp:concepts has no %q", w)
+		}
+		if strings.Contains(off.stdout, w) {
+			t.Errorf("emit without -gp:concepts has %q", w)
+		}
+	}
+	if r := gocppRun("", false, "build", "-h"); !strings.Contains(r.stdout+r.stderr, "-gp:concepts") {
+		t.Errorf("gocpp build -h does not describe -gp:concepts:\n%s", r.stdout+r.stderr)
+	}
+	anyCXX(t)
+	inDir(t, map[string]string{"main.gp": src})
+	for _, cmd := range []string{"run", "build"} {
+		args := []string{cmd, "-gp:concepts"}
+		if cmd == "build" {
+			args = append(args, "-o", "prog"+exeSuffix)
+		}
+		r := gocppRun("", false, append(args, "main.gp")...)
+		if r.code != 0 {
+			t.Fatalf("gocpp %s -gp:concepts main.gp = %s", cmd, show(r))
+		}
+		if cmd == "run" && r.stdout != "6 3.5\n" {
+			t.Errorf("gocpp run -gp:concepts printed %q, want %q", r.stdout, "6 3.5\n")
+		}
+	}
+	out, err := exec.Command("./prog" + exeSuffix).CombinedOutput()
+	if err != nil || string(out) != "6 3.5\n" {
+		t.Errorf("the program built with -gp:concepts: %v, printed %q", err, out)
 	}
 }

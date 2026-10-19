@@ -134,6 +134,11 @@ The build flags (of build and run) are:
 	-asan
 		build with AddressSanitizer and UndefinedBehaviorSanitizer:
 		the program stops at the first report, with exit status 1
+	-gp:concepts
+		also write C++20 concepts for Go's constraints into the package
+		headers (gp_concept_<Name> for each named interface type,
+		gp_sat_<Func> for each generic function), for C++ code that works
+		with the package; the generated code does not use them
 	-cpperrors mode
 		short (the default) or full: full shows the whole output of
 		the C++ compiler or the linker when the program's C++ doesn't
@@ -187,7 +192,7 @@ stops the compilers, removes the work folder and dies of that signal.
 
 The flags are:
 `
-	emitUsage = `usage: gocpp emit [file.gp... | package]
+	emitUsage = `usage: gocpp emit [-gp:concepts] [file.gp... | package]
 
 gocpp emit checks the package like gocpp check and prints the C++ that
 gocpp build compiles for it to standard output. The arguments are those
@@ -222,6 +227,7 @@ type buildFlags struct {
 	asan     bool   // -asan
 	nochecks bool   // -nochecks
 	jobs     int    // -p, 0 for the default (GOMAXPROCS)
+	concepts bool   // -gp:concepts
 
 	cppErrors cppErrorsMode // -cpperrors: "short" or "full"
 	diagOpts  diagOptions   // -color, -excerpt
@@ -244,6 +250,7 @@ func (f *buildFlags) register(flags *flag.FlagSet, withOutput bool) {
 		f.jobs = n
 		return nil
 	})
+	flags.BoolVar(&f.concepts, "gp:concepts", false, "also write C++20 concepts for Go's constraints into the package headers")
 	flags.BoolVar(&f.work, "work", false, "print the name of the work folder and keep it (without the object cache)")
 	flags.BoolVar(&f.x, "x", false, "print the commands")
 }
@@ -317,6 +324,7 @@ func runEmit(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("gocpp emit", flag.ContinueOnError)
 	var ef buildFlags
 	ef.diagOpts.register(flags)
+	flags.BoolVar(&ef.concepts, "gp:concepts", false, "also write C++20 concepts for Go's constraints into the package headers")
 	if code, done := parseFlags("emit", emitUsage, flags, args, stderr); done {
 		return code
 	}
@@ -662,7 +670,7 @@ func (d *driver) emit(set *buildSet, root string, cxx *build.CXX) (*cppgen.Progr
 		}
 		in[i] = cppgen.ProgramPackage{Pkg: pkg, Interop: interop}
 	}
-	files, err := cppgen.EmitProgram(d.check.fset, in, root, cppgen.Config{})
+	files, err := cppgen.EmitProgram(d.check.fset, in, root, cppgen.Config{Concepts: d.flags.concepts})
 	if err == nil {
 		d.counts.emit += len(set.pkgs)
 		return files, 0

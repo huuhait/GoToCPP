@@ -615,3 +615,37 @@ extern "C" {
 		&Include{Pos: gp(5), Path: "vector", System: true},
 	)
 }
+
+// TestPrintConcepts checks the concept definitions (a term on each line, a Paren term), the requires-expression and the requires-clause of a function.
+func TestPrintConcepts(t *testing.T) {
+	typename := func(name string) Param { return Param{Type: tn("typename"), Name: name} }
+	tmpl := &Template{Params: []Param{typename("T")}}
+	same := func(r string) Type { return &TypeName{Name: "std::same_as", Args: []Node{tn(r)}} }
+	show := &Requires{Params: []Param{{Type: &Ref{Elem: tn("T")}, Name: "x"}, {Type: tn("int64_t"), Name: "a0"}},
+		Reqs: []Requirement{{X: &Call{Fun: &Member{X: n("x"), Name: "Show"}, Args: []Expr{n("a0")}}, Result: same("gp::string")},
+			{X: &Call{Fun: &Member{X: n("x"), Name: "Close"}}}}}
+	arg := func(name string, a ...Node) *Name { return &Name{Name: name, Args: a} }
+	checkPrint(t, `
+template <typename T>
+concept Any = true;
+template <typename T>
+concept One = gp::concepts::comparable<T>;
+template <typename T>
+concept Num =
+    gp::concepts::tilde<T, int64_t> ||
+    (gp::concepts::tilde<T, double> && gp::concepts::comparable<T>);
+template <typename T>
+concept Shower = requires(T& x, int64_t a0) { { x.Show(a0) } -> std::same_as<gp::string>; { x.Close() }; };
+template <typename T, typename U>
+    requires gp_concepts::Both<T, U>
+void F(T x, U y);
+`,
+		&Concept{Template: tmpl, Name: "Any", Op: "&&"},
+		&Concept{Template: tmpl, Name: "One", Op: "&&", Terms: []Expr{arg("gp::concepts::comparable", tn("T"))}},
+		&Concept{Template: tmpl, Name: "Num", Op: "||", Terms: []Expr{
+			arg("gp::concepts::tilde", tn("T"), tn("int64_t")),
+			&Paren{X: bin("&&", arg("gp::concepts::tilde", tn("T"), tn("double")), arg("gp::concepts::comparable", tn("T")))}}},
+		&Concept{Template: tmpl, Name: "Shower", Op: "&&", Terms: []Expr{show}},
+		&Func{Template: &Template{Params: []Param{typename("T"), typename("U")}, Requires: arg("gp_concepts::Both", tn("T"), tn("U"))},
+			Result: tn("void"), Name: "F", Params: []Param{{Type: tn("T"), Name: "x"}, {Type: tn("U"), Name: "y"}}})
+}

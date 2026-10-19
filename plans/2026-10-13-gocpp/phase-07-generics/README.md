@@ -26,6 +26,22 @@
 > `main.Pair[string,[]int]`) for each instance, from the instance's substituted types; the manager
 > decides before 7.3 starts. Everything else in this README stands.
 
+> **Update 2026-10-18 (steps 7.4, 7.5, 7.6, 7.9):** **7.4, 7.5, 7.6 are built by the same substitution** (no
+> code of their own; audited by 46 new tests: `tests/run/generics_ops_*.gp` and `generics_iface_*.gp`, compared with
+> real Go, and `tests/errors/generics_ops_errors.gp`; the table is in
+> [docs/spec/cpp-mapping.md](../../../docs/spec/cpp-mapping.md#operations-and-constraints-in-generic-code-steps-74-75-76)).
+> No miscompile of an operation was found; the differences from gc that the audit met are listed in the spec
+> ("Known differences from gc"). **7.9 is built as an option, `gocpp build|emit -gp:concepts`:** `pkg.hpp` also
+> gets a C++20 `concept` for each named constraint interface (`gp_concept_<Name><T>`) and for the constraints
+> of each generic function (`gp_sat_<Func><T, ...>`) from `gocpp/concepts.hpp`, for C++ code that works with
+> the package (`cpp-lib`, 6.10): `requires` clauses and `static_assert`s on the C++ side. They are not
+> attached to anything the generated code uses (ADR-030 has no template to put a `requires` on), and they
+> accept at most a few more types than Go's constraint (`int`/`int64` are one C++ type), never fewer. What it
+> does and does not give is spelled out in the spec ("`-gp:concepts`"). As built: the concepts live in `pkg.hpp`
+> (it includes `gocpp/concepts.hpp`), the flag turns on the forwarding members of every struct (+1.7% emitted
+> bytes, up to +43% for programs that embed a lot; `-O0` binaries +0 to 1.4%), and `build`, `run` and `emit` take it. Compile time of 200 instances equals
+> the hand-written code (spec, "Cost").
+
 ---
 
 ## 1. Idea

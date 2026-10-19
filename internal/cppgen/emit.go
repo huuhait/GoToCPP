@@ -30,6 +30,9 @@ type Config struct {
 	// AllForwarders writes the forwarding members of promoted methods for every struct (lower.Options),
 	// not only for those whose method tables need them. The tests that call them from C++ set it.
 	AllForwarders bool
+
+	// Concepts writes C++20 concepts for Go's constraints into the headers (lower.Options.Concepts).
+	Concepts bool
 }
 
 // An Error is a problem that stops EmitPackage: mostly a construct that the emitter can't
@@ -71,7 +74,7 @@ func EmitPackage(w io.Writer, fset *token.FileSet, pkg *check.Package, cfg Confi
 	case pkg.Errors.HasErrors():
 		return fmt.Errorf("cppgen: package %s has errors", pkg.Load.ImportPath)
 	}
-	f, err := lower.Package(fset, pkg, cfg.Interop, lower.Options{AllForwarders: cfg.AllForwarders})
+	f, err := lower.Package(fset, pkg, cfg.Interop, lower.Options{AllForwarders: cfg.AllForwarders, Concepts: cfg.Concepts})
 	if err != nil {
 		var le *lower.Error
 		if errors.As(err, &le) {
@@ -134,7 +137,7 @@ func EmitProgram(fset *token.FileSet, pkgs []ProgramPackage, root string, cfg Co
 		}
 		in[i] = lower.PackageInput{Pkg: p.Pkg, Interop: p.Interop}
 	}
-	prog := lower.NewProgram(fset, in, lower.Options{AllForwarders: cfg.AllForwarders})
+	prog := lower.NewProgram(fset, in, lower.Options{AllForwarders: cfg.AllForwarders, Concepts: cfg.Concepts})
 	pfs, err := prog.Lower()
 	if err != nil {
 		var le *lower.Error

@@ -1,0 +1,42 @@
+// What a C++ user of the packages concepts2 and concepts2/lib asks of their concepts (gocpp
+// -gp:concepts): names that the concepts' text uses, a method named like its type, a variadic
+// method, a defined pointer type (its method set is empty), cross-package constraints, an
+// unexported generic function, a Unicode name.
+#include "gpkg/example.com/concepts2/lib/pkg.hpp"
+#include "gpkg/example.com/concepts2/pkg.hpp"
+
+namespace lib = gpkg_example_dcom__concepts2__lib;
+namespace m = gpkg_main;
+
+struct CxxVisitor {
+    int64_t Visit(int64_t, gp::slice<gp::string>) const { return 1; }
+};
+
+// A method named like its struct: the struct's member is Visit_.
+static_assert(lib::gp_concept_Visitor<lib::Visit>);
+static_assert(m::gp_sat_V<lib::Visit> && m::gp_sat_V<gp::ptr<lib::Visit>> && m::gp_sat_V<CxxVisitor>);
+static_assert(!m::gp_sat_V<lib::S> && !m::gp_sat_V<int64_t> && !m::gp_sat_V<lib::NPS>);
+
+// A defined pointer type has no methods in Go (NPS is a gp::newtype over a gp::ptr).
+static_assert(lib::gp_concept_Greeter<lib::S> && lib::gp_concept_Greeter<gp::ptr<lib::S>>);
+static_assert(!lib::gp_concept_Greeter<lib::NPS> && !m::gp_sat_H<lib::NPS>);
+static_assert(lib::gp_concept_Greeter<lib::Número> && !lib::gp_concept_Greeter<lib::Count>);
+
+// A pointer method (Add), a value method through a pointer.
+static_assert(lib::gp_concept_Adder<gp::ptr<lib::Count>> && !lib::gp_concept_Adder<lib::Count>);
+static_assert(m::gp_sat_Ad<gp::ptr<lib::Count>> && !m::gp_sat_Ad<lib::Count> && !m::gp_sat_Ad<lib::NPS>);
+
+// Type parameters and types named like what the text of a concept uses (x, a0, std, gp).
+static_assert(m::gp_concept_G<m::impl> && !m::gp_concept_G<lib::S>);
+static_assert(m::gp_sat_F<m::impl> && m::gp_sat_F<gp::ptr<m::impl>> && !m::gp_sat_F<int64_t>);
+static_assert(m::gp_sat_A<lib::S> && !m::gp_sat_A<int64_t>);
+static_assert(m::gp_sat_B<int64_t> && m::gp_sat_B<gp::string> && !m::gp_sat_B<double>);
+static_assert(m::gp_sat_Cc<lib::Número> && !m::gp_sat_Cc<lib::Count>);
+static_assert(m::gp_sat_D<double> && m::gp_sat_D<lib::Count> && !m::gp_sat_D<gp::string>);
+
+// A constraint of another package, and an unexported generic function.
+static_assert(lib::gp_concept_Number<lib::Count> && lib::gp_concept_Number<double> && !lib::gp_concept_Number<lib::S>);
+static_assert(lib::gp_sat_Twice<int64_t> && lib::gp_sat_unexp<lib::Count> && !lib::gp_sat_unexp<gp::string>);
+static_assert(m::gp_sat_H<lib::S> && m::gp_sat_H<lib::Número> && m::gp_sat_H<gp::ptr<lib::S>>);
+
+int main() {}

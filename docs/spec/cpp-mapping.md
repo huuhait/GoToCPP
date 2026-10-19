@@ -2441,8 +2441,126 @@ void main() {
 - **Cost.** Each instance is lowered and compiled like a function written by hand. A program with 20
   generic functions (a loop, a closure, a map, a slice) each instantiated with 10 types (200 instances
   in one unit) compiled in 15.2 s of CPU with g++ and 12.3 s with clang++; the same program with the 200
-  functions written out by hand (4200 lines instead of 600): 15.7 s and 12.4 s. A change to a generic
-  function body recompiles the units that instantiate it, and no header.
+  functions written out by hand (4200 lines instead of 600): 15.7 s and 12.4 s. A smaller program of the same
+  shape (step 7.12, 20 generic functions of one-line bodies and 200 calls, with a warm runtime cache, `-O0 -g`):
+  generic 2.6 to 3.0 s with g++, 2.1 s with clang++; written out: 2.5 to 2.6 s and 2.1 s; the binaries differ
+  by 7 KB (4.170 MB against 4.163 MB with g++, 3.512 against 3.506 with clang++; hello world is 3.5 and 3.0).
+  (A first build in a fresh cache pays for the runtime objects the program uses: measure the second one.)
+  A change to a generic function body recompiles the units that instantiate it, and no header.
+
+### Operations and constraints in generic code (steps 7.4, 7.5, 7.6)
+
+These three steps of the plan have no code of their own for functions: the instance is ordinary code,
+so each rule is the one of the same code written with the type argument. The tests that pin it are
+`tests/run/generics_ops_*.gp` (operations) and `tests/run/generics_iface_*.gp` (constraints and
+interfaces), all compared with real Go (`GOCPP_RUN_VS_GO=1`), and `tests/errors/generics_ops_errors.gp`
+(the operations that a type set does not allow, with `go/types`' messages).
+
+| Plan step | What it asked for | What the instance does | Test |
+|---|---|---|---|
+| 7.4 | Go arithmetic cast back to `T`, checked `/ % << >>` | `int8(100) + int8(50)` wraps, `MinInt / -1` is `MinInt`, `x / 0` panics, a shift count over the width gives 0 or -1, a negative count panics (the typed code's `gp::` helpers) | `ops_arith_matrix`, `ops_divmod_matrix`, `ops_shift_counts`, `ops_assign_ops` |
+| 7.4 | `gp::convert`, `len`/index/range over type sets, zero values | `T(x)` is the conversion of the concrete type: float to integer truncates, integer narrowing wraps, `string(rune)`, `[]byte(s)`; `len`, `cap`, indexing, slicing, `range` of every kind (also the integer and the array pointer), `append`, `copy`, `clear`, `min`, `max`; `var z T`, `*new(T)` | `ops_conv_matrix`, `ops_string_conv`, `ops_len_cap`, `ops_index_*`, `ops_range_forms`, `ops_append_copy`, `ops_clear_minmax`, `ops_zero_values`, `ops_nil_conv` |
+| 7.4 | `==`, `<` | the concrete type's: NaN is unequal to itself, an array or struct of interfaces panics for an uncomparable dynamic type (`comparing uncomparable type []int`), a map key of one does (`hash of unhashable type`) | `ops_compare_ordered`, `ops_comparable_types`, `ops_uncomparable_panic`, `iface_comparable_keys` |
+| 7.5 | `gp_call_<Method>`: pointer check first, forwarded arguments, promoted methods | a constraint method is the call on the type argument as the typed code makes it: a value method, a pointer method, a promoted one (through embedded values, pointers, interfaces), the method of an interface type argument (dynamic dispatch), a method value or expression | `iface_promoted_deep`, `iface_method_values`, `iface_nil_receiver`, `ops_method_expr`, `generics_promoted_methods`, `generics_value_ptr_methods` |
+| 7.6 | constraint methods, `comparable`, interface type arguments | `T = any`, `error`, `fmt.Stringer`, a user interface: `var z T` is the nil interface, `any(x)`, `x.(T)` and `case T:` see the dynamic type, `T = *S` calls pointer methods on a nil receiver | `iface_any_typearg`, `iface_convert_assert`, `iface_returns_iface`, `iface_error_typearg`, `ops_type_switch_matrix` |
+| 7.6 | `interface{ ~[]E; Len() int }`, `PT interface{ *T; Set(string) }`, embedded constraints, `T interface{ Less(T) bool }` | the type set and the methods are checked by `go/types`; the instance lowers the body with the type argument | `iface_tilde_slice_method`, `iface_ptr_constraint`, `iface_embed_constraint`, `iface_typeset_method`, `iface_self_ref` |
+
+What the audit found: no miscompile of an operation. The differences from gc that it did find are the
+"Known differences from gc" above (a type parameter named `C`; the text of a nil value-method call; a
+method value bound through a pointer type argument), and they are kept out of the tests.
+
+### `-gp:concepts`: C++20 concepts for Go's constraints (step 7.9)
+
+`gocpp build -gp:concepts` and `gocpp emit -gp:concepts` (off by default: without the flag the files are
+byte for byte the same as before) also write C++20 `concept`s into `pkg.hpp` of each program package.
+They are for C++ code that works with the package (the `cpp-lib` mode, step 6.10, or any C++ that includes
+`pkg.hpp`): to ask whether a C++ type is in a Go constraint's type set and has its methods, and to put a
+`requires` clause or a `static_assert` on C++ code that wants the same types, so that a wrong type is an
+error that names the constraint and not a failure inside a template. The generated code does not use
+them (under ADR-030 there is no C++ template to put them on: a generic function exists for the instances
+the Go code names).
+
+```go
+package k
+
+type Integer interface{ ~int | ~int8 | ~int16 | ~int32 | ~int64 }
+type Ordered interface{ Integer | ~string }
+type Greeter interface{ Hello() string }
+
+func Max[T Ordered](a, b T) T                       { /* ... */ }
+func Len[S ~[]E, E any](s S) int                    { return len(s) }
+func Greet[T Greeter](x T) string                   { return x.Hello() }
+```
+
+```cpp
+#include <gocpp/concepts.hpp>   // the building blocks (the header includes it itself)
+
+// for each named interface type of the package that has no type parameters: gp_concept_<Name>
+template <typename T>
+concept gp_concept_Integer =
+    gp::concepts::tilde<T, int64_t> || gp::concepts::tilde<T, int8_t> || /* ... */;
+
+// for each generic function (also an unexported one): gp_sat_<Func>, the constraints of all the
+// type parameters, in order; a constraint that names another type parameter uses its template parameter
+template <typename T>
+concept gp_sat_Max = gp_concept_Ordered<T>;
+template <typename S, typename E>
+concept gp_sat_Len = gp::concepts::tilde<S, gp::slice<E>>;
+template <typename T>
+concept gp_sat_Greet = gp_concept_Greeter<T>;
+// where gp_concept_Greeter<T> is, for the method Hello() string:
+//   requires(T& x) { { x.Hello() } -> std::same_as<gp::string>; }
+//   || requires(T& x) { { x->Hello() } -> std::same_as<gp::string>; }
+//   || requires(T& x) { { gp::concepts::ptr_elem_t<T>::Hello(x) } -> std::same_as<gp::string>; }
+```
+
+```cpp
+template <typename T>
+    requires k::gp_sat_Max<T>
+T twice(T x) { return x + x; }   // twice(gp::string("a")) is an error that names gp_sat_Max
+static_assert(k::gp_sat_Greet<k::Named> && !k::gp_sat_Greet<int64_t>);
+```
+
+The pieces are in `runtime/include/gocpp/concepts.hpp` (which only a `pkg.hpp` with concepts includes;
+`rt.hpp` does not): `tilde<T, U>` is Go's `~U` (`T` is `U`, or a defined type over `U`: a
+`gp::newtype`'s `gp_underlying`), `exact<T, U>` is `U`, `comparable<T>` is `std::equality_comparable`
+(a slice, map or func has no `==` in C++ either; a struct has it when its fields do), and a method is a
+`requires` expression for `x.M(a)` returning exactly the Go result type, for `x->M(a)` (a value method of
+the pointee through a `gp::ptr`) or for `ptr_elem_t<T>::M(x, a)` (a pointer method, a static function that
+takes the pointer first, so only a pointer has it: as in Go's method sets). The `x->M` and static forms need
+`T` to be a `gp::ptr` itself (`is_ptr<T>`): a defined pointer type (`type NPS *S`, a `gp::newtype` over a
+`gp::ptr`) has no methods in Go and satisfies no method constraint. A method named like its struct is a
+member with a `_` at the end (`Visit_`, because of the constructor): the requirement tries both names. The
+text of a concept uses names that no Go name can be (`gp_T`, `gp_x`, `gp_a0`, `::std::`, `::gp::`), and a
+type parameter named `std` or `gp` is renamed as the other reserved names are. A union is the disjunction of its
+terms, an embedded interface the conjunction of its elements and methods. `-gp:concepts` also writes the
+forwarding members of every struct (as `AllForwarders` does), so a promoted method satisfies a method
+constraint as it does in Go.
+
+What it does **not** give, precisely: (1) a concept may accept more types than Go's constraint, never fewer
+types that Go accepts: `int` and `int64` are one C++ type (`int64_t`), `uint8` and `byte` are one, so
+`~int` also accepts a defined type over `int64`; two defined struct types are two structs but `~struct{...}`
+is not spelled; (2) a term that C++ cannot spell (an anonymous struct, a C or C++ type, a type of the
+standard library, a generic type) is left out of its union, which makes the concept accept everything for
+that union; (3) a method signature with such a type is left out (no requirement); (4) a method's result is
+checked with `std::same_as`, so a C++ method that returns a convertible type does not satisfy it; (5) an
+interface with type parameters (`type Set[T any] interface{...}`) has no concept (7.3); (6) it never makes
+a generic function callable from C++ for an arbitrary type: the instances are the ones the Go code names,
+and a C++ caller still calls those by name; (7) the C++ names are those of the package's lowering, so
+a renamed C++ keyword method is the escaped one. (8) the flag writes the forwarding members of every
+struct, so the emitted C++ is larger (about 1.7% more bytes over the test programs, up to 43% for programs that
+embed a lot; the `-O0` binaries grow by 0 to 1.4%). A program built with the flag behaves as without it
+(`TestConceptsRun`).
+
+The tests are in `internal/cppgen/concepts_test.go` and `internal/cppgen/testdata/program/concepts/`:
+`static_assert`s (positive and negative) over each concept, compiled with g++ and clang++ (two modules:
+`concepts` and `concepts2`, the second with cross-package constraints, names that the text of a concept uses,
+a method named like its type, a variadic method, a defined pointer type, a Unicode name and an unexported
+generic function); a corpus test (`TestConceptsCorpus`) that emits about 120 of the run tests with the
+option and compiles them with both compilers; `TestConceptsFlag` in `cmd/gocpp` (emit, build and run with
+`-gp:concepts`); `runtime/test/concepts_test.cpp` (the building blocks); snippets that
+must be rejected with an error that names the concept; the output without the flag has no concept and
+does not include the header; the program with the flag prints what real Go prints.
 
 Source: [Phase 07 §2](../../plans/2026-10-13-gocpp/phase-07-generics/README.md), [ADR-030](../adr/030-generic-instances.md).
 
@@ -2610,7 +2728,7 @@ The plan already describes these shapes; each phase adds them here when it build
 | [04](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md) | C/C++ values (see [interop.md](interop.md)) |
 | [05](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md) | interface structs, type descriptors, method tables (steps 5.1 to 5.3: [Interfaces](#interfaces)), conversions, assertions, embedding, `panic`/`recover` |
 | [06](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md) | the rest of the package headers and the build modes (`c-archive`, `c-shared`, `cpp-lib`) |
-| [07](../../plans/2026-10-13-gocpp/phase-07-generics/README.md) | generic types and their methods (generic functions: [Generics](#generics-steps-71-and-72); range over functions: [Range over functions](#range-over-functions)) |
+| [07](../../plans/2026-10-13-gocpp/phase-07-generics/README.md) | generic types and their methods (generic functions: [Generics](#generics-steps-71-and-72), their operations and constraints, and `-gp:concepts`: below it; range over functions: [Range over functions](#range-over-functions)) |
 | [08](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md) | `go` (`gp::go`), channels, `select` |
 | [10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md) | `!` as early returns, macros as inline templates |
 | [15](../../plans/2026-10-13-gocpp/phase-15-hardening-release/README.md) | escape analysis (locals that don't escape stay on the stack), Swiss-table maps, and maybe smaller strings and slices (only if the benchmarks say so) |

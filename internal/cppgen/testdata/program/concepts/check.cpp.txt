@@ -1,0 +1,97 @@
+// What a C++ user of package k can ask of its concepts (gocpp -gp:concepts): types that satisfy
+// the Go constraints, and types that do not. Compiled with g++ and clang++.
+#include "gpkg/example.com/concepts/k/pkg.hpp"
+
+#include <string>
+#include <vector>
+
+namespace k = gpkg_example_dcom__concepts__k;
+
+// A C++ type with the methods of a constraint.
+struct CxxGreeter {
+    gp::string Hello() const { return "cxx"_gs; }
+};
+struct CxxNonConst {
+    gp::string Hello() { return "cxx"_gs; }
+};
+struct CxxWrongResult {
+    int64_t Hello() const { return 1; }
+};
+struct CxxPtrMethod {
+    static void Rename(gp::ptr<CxxPtrMethod>, gp::string) {}
+};
+
+// Number = Integer | Float: the signed integers and the floats, and the defined types over them.
+static_assert(k::gp_sat_Sum<int64_t> && k::gp_sat_Sum<int8_t> && k::gp_sat_Sum<int16_t> && k::gp_sat_Sum<int32_t>);
+static_assert(k::gp_sat_Sum<float> && k::gp_sat_Sum<double>);
+static_assert(k::gp_sat_Sum<k::Celsius> && k::gp_sat_Sum<k::Meters>);
+static_assert(k::gp_sat_Sum<int>, "C++ int is 32 bits, Go's int32");
+static_assert(!k::gp_sat_Sum<gp::string> && !k::gp_sat_Sum<bool> && !k::gp_sat_Sum<uint64_t> && !k::gp_sat_Sum<uint8_t>);
+static_assert(!k::gp_sat_Sum<gp::slice<int64_t>> && !k::gp_sat_Sum<k::Named> && !k::gp_sat_Sum<void*> && !k::gp_sat_Sum<std::string>);
+static_assert(!k::gp_sat_Sum<long long>, "a different C++ type from int64_t");
+static_assert(k::gp_concept_Integer<k::Meters> && !k::gp_concept_Integer<double> && !k::gp_concept_Integer<k::Celsius>);
+static_assert(k::gp_concept_Float<k::Celsius> && !k::gp_concept_Float<k::Meters>);
+
+// Ordered adds ~string.
+static_assert(k::gp_sat_Max<gp::string> && k::gp_sat_Max<k::Meters> && k::gp_sat_Max<double>);
+static_assert(!k::gp_sat_Max<k::Names> && !k::gp_sat_Max<bool> && !k::gp_sat_Max<gp::slice<gp::string>>);
+
+// comparable.
+static_assert(k::gp_sat_Eq<int64_t> && k::gp_sat_Eq<gp::string> && k::gp_sat_Eq<k::Named> && k::gp_sat_Eq<k::Wrapper>);
+static_assert(k::gp_sat_Eq<gp::ptr<k::Named>> && k::gp_sat_Eq<gp::any> && k::gp_sat_Eq<k::Greeter> && k::gp_sat_Eq<std::string>);
+static_assert(k::gp_sat_Eq<gp::array<int64_t, 3>>);
+static_assert(!k::gp_sat_Eq<gp::slice<int64_t>> && !k::gp_sat_Eq<gp::map<gp::string, int64_t>>);
+static_assert(!k::gp_sat_Eq<gp::func<void()>> && !k::gp_sat_Eq<k::Bag> && !k::gp_sat_Eq<gp::array<gp::slice<int64_t>, 2>>);
+
+// A method: a value method (also through a pointer, a promoted one, an interface's).
+static_assert(k::gp_sat_Greet<k::Named> && k::gp_sat_Greet<gp::ptr<k::Named>> && k::gp_sat_Greet<k::Tagged>);
+static_assert(k::gp_sat_Greet<k::Wrapper> && k::gp_sat_Greet<gp::ptr<k::Wrapper>> && k::gp_sat_Greet<k::Greeter>);
+static_assert(k::gp_sat_Greet<CxxGreeter> && k::gp_sat_Greet<CxxNonConst>);
+static_assert(!k::gp_sat_Greet<CxxWrongResult> && !k::gp_sat_Greet<int64_t> && !k::gp_sat_Greet<gp::string>);
+static_assert(!k::gp_sat_Greet<k::Renamer> && !k::gp_sat_Greet<k::Bag> && !k::gp_sat_Greet<k::Meters>);
+
+// A pointer method: only in the method set of the pointer.
+static_assert(k::gp_sat_Rename<gp::ptr<k::Named>> && k::gp_sat_Rename<gp::ptr<k::Wrapper>> && k::gp_sat_Rename<k::Renamer>);
+static_assert(k::gp_sat_Rename<gp::ptr<CxxPtrMethod>>);
+static_assert(!k::gp_sat_Rename<k::Named> && !k::gp_sat_Rename<k::Wrapper> && !k::gp_sat_Rename<k::Greeter>);
+static_assert(!k::gp_sat_Rename<gp::ptr<k::Tagged>> && !k::gp_sat_Rename<CxxPtrMethod>);
+
+// An interface that embeds two: both method sets.
+static_assert(k::gp_sat_Both2<gp::ptr<k::Named>> && k::gp_sat_Both2<gp::ptr<k::Wrapper>> && k::gp_sat_Both2<k::Both>);
+static_assert(!k::gp_sat_Both2<k::Named> && !k::gp_sat_Both2<k::Greeter> && !k::gp_sat_Both2<k::Renamer>);
+static_assert(!k::gp_sat_Both2<gp::ptr<k::Tagged>>);
+
+// A type set and a method together, and an anonymous constraint.
+static_assert(k::gp_sat_Show<k::Tagged> && k::gp_sat_Anon<k::Tagged>);
+static_assert(!k::gp_sat_Show<k::Meters> && !k::gp_sat_Show<int64_t> && !k::gp_sat_Show<k::Named> && !k::gp_sat_Show<gp::string>);
+static_assert(!k::gp_sat_Anon<gp::string> && !k::gp_sat_Anon<k::Named>);
+
+// ~[]E with the element type as a second type parameter.
+static_assert(k::gp_sat_Len<k::Names, gp::string> && k::gp_sat_Len<gp::slice<int64_t>, int64_t>);
+static_assert(!k::gp_sat_Len<gp::slice<int64_t>, gp::string> && !k::gp_sat_Len<k::Names, int64_t>);
+static_assert(!k::gp_sat_Len<gp::string, uint8_t> && !k::gp_sat_Len<int64_t, int64_t>);
+
+// Two type parameters, ~string | ~[]byte, any, and an unexported function.
+static_assert(k::gp_sat_Conv<int8_t, double> && k::gp_sat_Conv<k::Celsius, k::Meters>);
+static_assert(!k::gp_sat_Conv<gp::string, int64_t> && !k::gp_sat_Conv<int64_t, uint8_t>);
+static_assert(k::gp_sat_Size<gp::string> && k::gp_sat_Size<gp::slice<uint8_t>>);
+static_assert(!k::gp_sat_Size<gp::slice<int64_t>> && !k::gp_sat_Size<int64_t>);
+static_assert(k::gp_sat_Any<std::vector<int>> && k::gp_sat_Any<void*>);
+static_assert(k::gp_sat_unexported<int8_t> && !k::gp_sat_unexported<float>);
+
+// A requires-clause of C++ code that works with the package: the error names the constraint.
+template <typename T>
+    requires k::gp_sat_Sum<T>
+T twice(T x) {
+    return T(x + x);
+}
+template <typename T>
+    requires k::gp_sat_Greet<T>
+gp::string greet_twice(T& x) {
+    return x.Hello() + x.Hello();
+}
+
+int main() {
+    CxxGreeter g;
+    return int(twice<int8_t>(3)) + int(twice(k::Meters(4)).gp_value()) + int(gp::len(greet_twice(g)));
+}

@@ -61,6 +61,11 @@ type Options struct {
 	// AllForwarders writes the forwarding members of every struct (see the top), not only those of the
 	// structs that need them.
 	AllForwarders bool
+
+	// Concepts writes C++20 concepts for Go's constraints into pkg.hpp (concepts.go, `gocpp
+	// -gp:concepts`). It also writes the forwarding members of every struct, so that a promoted
+	// method satisfies a method constraint as it does in Go.
+	Concepts bool
 }
 
 // forwarders returns the forwarders of the struct si that are written: all of them for a struct
@@ -69,7 +74,7 @@ type Options struct {
 // declarations that such a g makes for a shared struct are not used (makeShared runs in the owner),
 // so no program tells g from the owner here; the owner is what is right.
 func (g *gen) forwarders(si *structInfo) []forwarder {
-	if o := si.owner; o.opts.AllForwarders || o.fwdNeed[si] {
+	if o := si.owner; o.opts.AllForwarders || o.opts.Concepts || o.fwdNeed[si] {
 		return g.allForwarders(si)
 	}
 	return nil

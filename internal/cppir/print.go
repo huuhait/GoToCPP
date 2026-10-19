@@ -141,6 +141,8 @@ func (p *printer) decl(d Decl) {
 		p.line(d.Pos, p.inline(d))
 	case *StaticAssert:
 		p.line(d.Pos, "static_assert("+p.expr(d.Cond)+");")
+	case *Concept:
+		p.concept(d)
 	case *Comment:
 		p.line(d.Pos, "// "+d.Text)
 	case *Blank:
@@ -154,7 +156,39 @@ func (p *printer) decl(d Decl) {
 func (p *printer) template(pos Pos, t *Template) {
 	if t != nil {
 		p.line(pos, "template <"+p.params(t.Params)+">")
+		if t.Requires != nil {
+			p.w.indent()
+			p.line(pos, "requires "+p.operand(t.Requires, PrecLogOr))
+			p.w.dedent()
+		}
 	}
+}
+
+// concept writes a concept definition (see Concept).
+func (p *printer) concept(d *Concept) {
+	p.template(d.Pos, d.Template)
+	head := "concept " + d.Name + " ="
+	switch len(d.Terms) {
+	case 0:
+		p.line(d.Pos, head+" true;")
+		return
+	case 1:
+		p.line(d.Pos, head+" "+p.expr(d.Terms[0])+";")
+		return
+	}
+	prec := binaryPrecs[d.Op] + 1
+	p.line(d.Pos, head)
+	p.w.indent()
+	for i, t := range d.Terms {
+		l := p.operand(t, prec)
+		if i < len(d.Terms)-1 {
+			l += " " + d.Op
+		} else {
+			l += ";"
+		}
+		p.line(d.Pos, l)
+	}
+	p.w.dedent()
 }
 
 // params returns the parameters, joined with ", ".
@@ -623,6 +657,20 @@ func (p *printer) expr(e Expr) string {
 		return p.lambdaHead(e) + " " + p.braces(e.Body.Stmts)
 	case *Expand:
 		return p.operand(e.X, PrecPostfix) + "..."
+	case *Requires:
+		s := "requires"
+		if len(e.Params) > 0 {
+			s += "(" + p.params(e.Params) + ")"
+		}
+		s += " {"
+		for _, r := range e.Reqs {
+			s += " { " + p.expr(r.X) + " }"
+			if r.Result != nil {
+				s += " -> " + p.typ(r.Result)
+			}
+			s += ";"
+		}
+		return s + " }"
 	}
 	panic(fmt.Sprintf("cppir: unknown expression %T", e))
 }

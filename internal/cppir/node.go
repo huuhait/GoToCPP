@@ -106,6 +106,11 @@ type Func struct {
 // parameter is a Param: {Type: TypeName{Name: "typename"}, Name: "T"}.
 type Template struct {
 	Params []Param
+
+	// Requires is the requires-clause of the declaration, `requires Requires`, written on a line of
+	// its own after the template head (nil: none). Only a Func and a Concept's own head are printed
+	// with it; a Struct's is not.
+	Requires Expr
 }
 
 // A Param is a parameter of a function, a lambda or a template: `Type Name`, `Type... Name`
@@ -175,6 +180,22 @@ type Declarator struct {
 type StaticAssert struct {
 	Pos  Pos
 	Cond Expr
+}
+
+// A Concept is a C++20 concept definition at namespace scope:
+//
+//	template <Template.Params>
+//	concept Name = Terms[0] Op Terms[1] Op ... ;
+//
+// Op is "&&" or "||". With more than one term, each goes on a line of its own, indented, with
+// Op at the end of every line but the last; a term that binds less tightly than Op gets
+// parentheses (Print adds them). A concept without terms is `= true`.
+type Concept struct {
+	Pos      Pos
+	Template *Template
+	Name     string
+	Op       string
+	Terms    []Expr
 }
 
 // A Comment is a comment: `// Text` on a line of its own, `/* Text */` inside a Line or an
@@ -475,6 +496,24 @@ type Capture struct {
 	Init  Expr
 }
 
+// A Requires is a requires-expression with parameters,
+//
+//	requires(Params) { { Reqs[0].X } -> Reqs[0].Result; { Reqs[1].X }; }
+//
+// (a requirement without a Result has no `->`). Its parameters are the C++ parameters Param
+// describes, `T& x`.
+type Requires struct {
+	Params []Param
+	Reqs   []Requirement
+}
+
+// A Requirement is a compound requirement of a Requires: `{ X } -> Result;`. Result is the
+// type-constraint after the arrow (std::same_as<R>) or nil.
+type Requirement struct {
+	X      Expr
+	Result Type
+}
+
 // An Expand is a pack expansion, X...: f(gp_a...).
 type Expand struct {
 	X Expr
@@ -520,6 +559,7 @@ func (*Access) node()       {}
 func (*Using) node()        {}
 func (*VarDecl) node()      {}
 func (*StaticAssert) node() {}
+func (*Concept) node()      {}
 func (*Comment) node()      {}
 func (*Blank) node()        {}
 
@@ -532,6 +572,7 @@ func (*Access) decl()       {}
 func (*Using) decl()        {}
 func (*VarDecl) decl()      {}
 func (*StaticAssert) decl() {}
+func (*Concept) decl()      {}
 func (*Comment) decl()      {}
 func (*Blank) decl()        {}
 
@@ -605,6 +646,7 @@ func (*InitList) node()   {}
 func (*Designated) node() {}
 func (*Lambda) node()     {}
 func (*Expand) node()     {}
+func (*Requires) node()   {}
 
 func (*Name) expr()       {}
 func (*Lit) expr()        {}
@@ -622,6 +664,7 @@ func (*InitList) expr()   {}
 func (*Designated) expr() {}
 func (*Lambda) expr()     {}
 func (*Expand) expr()     {}
+func (*Requires) expr()   {}
 
 func (*TypeName) node() {}
 func (*Ref) node()      {}
