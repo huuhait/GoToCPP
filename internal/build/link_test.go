@@ -222,15 +222,3 @@ func TestLinkSharedAcrossGenRoots(t *testing.T) {
 		}
 	})
 }
-
-func TestAppendLinkFlags(t *testing.T) {
-	var link []string
-	link = appendLinkFlags(link, []string{"-L/opt/x", "-lfoo", "-lm", "-pthread", "-Wl,--as-needed", "-framework", "Cocoa"})
-	link = appendLinkFlags(link, []string{"-lm", "-L/opt/x", "-lbar", "-pthread", "-Wl,--as-needed", "-framework", "Cocoa", "-l"})
-	want := "-L/opt/x -lfoo -lm -pthread -Wl,--as-needed -framework Cocoa -lbar -Wl,--as-needed -framework Cocoa -l"
-	// A flag that names a library or a folder is added once; the others are kept as they come
-	// (a pair such as -framework Cocoa stays whole).
-	if got := strings.Join(link, " "); got != want {
-		t.Errorf("appendLinkFlags = %q, want %q", got, want)
-	}
-}

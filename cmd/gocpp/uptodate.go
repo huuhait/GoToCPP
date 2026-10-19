@@ -157,7 +157,7 @@ func (d *driver) beginStamp(patterns []string) *stampState {
 		outKind = "file"
 	}
 	parts := []string{"gocpp build", exeIdentity(), d.check.goos + "/" + d.check.goarch, d.check.dir, strings.Join(patterns, "\x00"),
-		fmt.Sprint(d.flags.asan, d.flags.nochecks), out, outKind}
+		fmt.Sprint(d.flags.asan, d.flags.nochecks, d.flags.lto), out, outKind}
 	if d.flags.mode != "" {
 		if d.flags.mode == build.ModeCPPLib {
 			parts[len(parts)-1] = "tree" // -o is the folder of the tree, which exists after the first build
@@ -240,7 +240,11 @@ func (d *driver) saveStamp(out string) {
 	}
 	var s *build.Stamp
 	if why == "" {
-		s, why = build.NewStamp(st.key, st.fsrec, st.pkgLog, st.rec, st.compilers, out, st.pkgs)
+		var extra []string
+		if d.lib != nil {
+			extra = d.lib.extra
+		}
+		s, why = build.NewStamp(st.key, st.fsrec, st.pkgLog, st.rec, st.compilers, out, st.pkgs, extra...)
 		if s != nil && d.lib != nil {
 			if w := s.AddOutputs(d.lib.extra); w != "" {
 				s, why = nil, w

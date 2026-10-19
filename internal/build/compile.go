@@ -129,6 +129,14 @@ type Builder struct {
 
 	sc *statCache // the stats of this build's object cache lookups (Link)
 
+	// LTO builds the runtime and the generated C++ with link-time optimization (-flto: gocpp
+	// build -lto); the runtime's library is then made with the archiver that belongs to the
+	// compiler (FindArchiver), and a build fails when there is none.
+	LTO bool
+
+	ar       *archiverResult // the archiver of this build (archiver)
+	pchFresh sync.Map        // precompiled headers whose files were checked in this build (pch.go)
+
 	pchDone chan struct{}  // closed when the precompiled header that startPCH started is built
 	stores  sync.WaitGroup // the stores of the object cache that are running (objcache.go)
 	traceMu sync.Mutex
@@ -232,13 +240,38 @@ func (b *Builder) runtime(ctx context.Context, flags []string, testing bool) (di
 			b.Plan.setRuntime(dir)
 			b.recordRuntime(dir, srcs, flags)
 			b.startPCH(ctx, dir) // while the runtime's object files compile
-			if objs, err = b.cachedObjects(ctx, dir, srcs, flags); err == nil {
-				if len(tsrcs) == 0 {
-					return dir, objs, nil
+			// The runtime as one static library (rtlib.go); its object files when there is no
+			// archiver (without LTO, which needs the matching one). Package testing's natives
+			// (tsrcs) are never in the library: their global operator new and delete must be in a
+			// program that imports testing and in no other, and an archive member is taken only
+			// for a symbol that something wants. They are object files of a set of their own, in
+			// front of the library (they use it).
+			a, aerr := b.rtArchiver(ctx)
+			switch {
+			case aerr == nil && !noRuntimeLib() && !b.Mode.Archive():
+				var lib string
+				if lib, err = b.cachedLib(ctx, dir, srcs, flags, a); err == nil {
+					var more []string
+					if len(tsrcs) > 0 {
+						more, err = b.cachedObjects(ctx, dir, tsrcs, flags)
+					}
+					if err == nil {
+						return dir, append(more, lib), nil
+					}
 				}
-				var more []string
-				if more, err = b.cachedObjects(ctx, dir, tsrcs, flags); err == nil {
-					return dir, append(objs, more...), nil
+			case aerr != nil && (b.ltoOn() || os.Getenv("GOCPP_AR") != ""):
+				// LTO objects can't go without the matching archiver, and a GOCPP_AR that
+				// names nothing usable is the user's mistake: say so.
+				return "", nil, aerr
+			default:
+				if objs, err = b.cachedObjects(ctx, dir, srcs, flags); err == nil {
+					if len(tsrcs) == 0 {
+						return dir, objs, nil
+					}
+					var more []string
+					if more, err = b.cachedObjects(ctx, dir, tsrcs, flags); err == nil {
+						return dir, append(objs, more...), nil
+					}
 				}
 			}
 			var ce *CompileError

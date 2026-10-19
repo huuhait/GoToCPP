@@ -83,7 +83,7 @@ func TestBuildPkgConfig(t *testing.T) {
 			t.Errorf("the compile of the generated C++ lacks the flags of pkg-config --cflags:\n%s\nstderr:\n%s", compile, r.stderr)
 		}
 		link := regexp.MustCompile(`(?m)^.* \$WORK/[^ ]*\.o .* -o \$WORK/[^ ]*$`).FindString(r.stderr)
-		if !regexp.MustCompile(`\.o ` + regexp.QuoteMeta(lib) + ` -lgptestlib -o `).MatchString(link) {
+		if !regexp.MustCompile(`\.[oa] ` + regexp.QuoteMeta(lib) + ` -lgptestlib -o `).MatchString(link) {
 			t.Errorf("the link lacks the flags of pkg-config --libs after the objects:\n%s\nstderr:\n%s", link, r.stderr)
 		}
 	})
@@ -136,7 +136,7 @@ func TestBuildEnvFlags(t *testing.T) {
 		r := gocppRun("", true, "run", "-x", ".")
 		if r.code != 0 || !strings.HasSuffix(r.stdout, "answer 42\nmain\n") ||
 			!regexp.MustCompile(`(?m) -DGPTESTLIB_ON `+regexp.QuoteMeta(strings.Join(build.LanguageFlags(), " "))+` -Wno-error -x c\+\+ -I \S+/include -c \S+/src/\S+\.cpp `).MatchString(r.stdout) ||
-			!regexp.MustCompile(`(?m)\.o -L\S+ -lgptestlib -o \$WORK/\S+$`).MatchString(r.stdout) {
+			!regexp.MustCompile(`(?m)\.[oa] -L\S+ -lgptestlib -o \$WORK/\S+$`).MatchString(r.stdout) {
 			t.Errorf("gocpp run with GOCPP_CXXFLAGS and GOCPP_LDFLAGS = %+v", r)
 		}
 	})

@@ -24,11 +24,11 @@ import (
 // so the version alone can't name the folder; with the hash, two gocpp
 // binaries never share a folder unless their runtimes are the same.
 //
-// The runtime's object files are cached next to the files, in
-// obj/<key>/, where the key is a hash of everything the compile depends
-// on (runtimeKey): the compiler, its flags and the environment variables
-// that change what it does. Phase 06 brings the real build cache; this one
-// is just enough that gocpp run doesn't compile the runtime every time.
+// The runtime is cached next to the files as a static library, lib/<key>/libgocpprt.a (rtlib.go),
+// where the key is a hash of everything the compile depends on (runtimeKey): the compiler, its
+// flags and the environment variables that change what it does, and the archiver. Without an
+// archiver (GOCPP_NORTLIB, or no ar), its object files are kept in obj/<key>/ and linked one by
+// one.
 //
 // Both are written atomically, so that gocpp commands that run at the same
 // time (the test harness runs many) never see half a folder: each writes a

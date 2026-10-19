@@ -392,8 +392,10 @@ func TestPackagesLinkFlags(t *testing.T) {
 			t.Fatalf("no link line in -x:\n%s", r.stderr)
 		}
 		line := link[len(link)-1]
-		if !strings.Contains(line, " -ldl -lm -lz1 -lpthread -Wl,--as-needed ") && !strings.Contains(line, " -ldl -lm -lz1 -lpthread -Wl,--as-needed") {
-			t.Errorf("the link flags are not those of main, a and b in this order, without the second -lm:\n%s", line)
+		// -lm is named by a and by b: it stays once, at the place of the last (b's: behind both of
+		// its users; dedupLinkFlags).
+		if !strings.Contains(line, " -ldl -lz1 -lpthread -lm -Wl,--as-needed ") && !strings.Contains(line, " -ldl -lz1 -lpthread -lm -Wl,--as-needed") {
+			t.Errorf("the link flags are not those of main, a and b in this order, with -lm once, at the last place:\n%s", line)
 		}
 	})
 }

@@ -144,14 +144,23 @@ func TestProgramParallel(t *testing.T) {
 		}
 	}
 	dir, _ := ExtractRuntime(cache)
-	objs, _ := os.ReadDir(filepath.Join(dir, "obj"))
-	if len(objs) != 1 || strings.HasPrefix(objs[0].Name(), ".") {
-		var names []string
-		for _, o := range objs {
-			names = append(names, o.Name())
-		}
-		t.Errorf("obj/ holds %q, want one folder", names)
+	if libs := libFolders(t, dir); len(libs) != 1 {
+		t.Errorf("lib/ holds %q, want one folder", libs)
 	}
+	assertNoTemp(t, filepath.Join(dir, "lib"))
+}
+
+// libFolders returns the names of the folders of runtime libraries in dir/lib (not the lock files).
+func libFolders(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, _ := os.ReadDir(filepath.Join(dir, "lib"))
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	return names
 }
 
 func TestProgramNoChecks(t *testing.T) {
@@ -214,8 +223,8 @@ func TestProgramNoChecks(t *testing.T) {
 		}
 	}
 	dir, _ := ExtractRuntime(cache)
-	if objs, _ := os.ReadDir(filepath.Join(dir, "obj")); len(objs) != 2 {
-		t.Errorf("obj/ holds %d folders, want 2: the runtime with and without -nochecks", len(objs))
+	if libs := libFolders(t, dir); len(libs) != 2 {
+		t.Errorf("lib/ holds %d folders, want 2: the runtime with and without -nochecks", len(libs))
 	}
 }
 
@@ -253,7 +262,9 @@ func TestRemoveStale(t *testing.T) {
 }
 
 func TestBrokenObjects(t *testing.T) {
-	// A folder of runtime objects with a file missing is replaced.
+	// The runtime without a library (GOCPP_NORTLIB): a folder of runtime objects with a file
+	// missing is replaced.
+	t.Setenv("GOCPP_NORTLIB", "1")
 	cxx, err := LookCXX(context.Background(), "g++")
 	if err != nil {
 		if cxx, err = LookCXX(context.Background(), "clang++"); err != nil {

@@ -125,9 +125,9 @@ func (b *Builder) applyMode() {
 func LibraryLinkFlags(pkgs []PackageBuild, env EnvFlags) []string {
 	var link []string
 	for i := len(pkgs) - 1; i >= 0; i-- {
-		link = appendLinkFlags(link, pkgs[i].Flags.Link)
+		link = append(link, pkgs[i].Flags.Link...)
 	}
-	return slices.Concat(link, env.LDFlags)
+	return slices.Concat(dedupLinkFlags(link), env.LDFlags)
 }
 
 // archiver returns the program that makes an archive for the compiler c: gcc-ar or llvm-ar from the
@@ -164,13 +164,22 @@ func fileExists(p string) bool {
 // objects hold them. It records the archiver for the up-to-date check.
 func (b *Builder) archive(ctx context.Context, objs []string, out string) error {
 	ar := b.archiver()
+	var arArgs []string
+	if b.ltoOn() {
+		// LTO objects (the user's -flto): the archiver that reads them (archive.go).
+		a, err := b.rtArchiver(ctx)
+		if err != nil {
+			return err
+		}
+		ar, arArgs = a.Path, a.Args
+	}
 	b.recordArchive(ar)
 	b.Stats.linked()
 	if err := os.Remove(out); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	tool := CXX{Path: ar, Family: b.CXX.Family}
-	_, err := b.runOutput(ctx, tool, "the archive", true, slices.Concat([]string{"rcsD", out}, objs))
+	_, err := b.runOutput(ctx, tool, "the archive", true, slices.Concat(arArgs, []string{"rcsD", out}, objs))
 	return err
 }
 

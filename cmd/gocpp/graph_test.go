@@ -864,6 +864,13 @@ func traceShape(t *testing.T, dir, stderr string) string {
 // a change of a constant. This is the format of what -x says about the actions.
 func TestBuildTraceGolden(t *testing.T) {
 	withOneCXX(t, func(t *testing.T, c testCXX) {
+		// The golden has "runtime=0": the runtime's library is in the cache already, as it is
+		// when other tests of the package ran first. Run alone, the test builds it once first
+		// (with a program of its own, so that no unit of the first build is a cache hit).
+		warm := newIncr(t, stampProject(5), "-p", "1")
+		if r, _ := warm.build(); r.code != 0 {
+			t.Fatalf("the warm-up build: exit %d\n%s", r.code, r.stderr)
+		}
 		s := newIncr(t, stampProject(5), "-p", "1")
 		shape := func() string {
 			r, _ := s.build()
@@ -1110,6 +1117,53 @@ func TestUpToDateRecipeGlob(t *testing.T) {
 		s.write(map[string]string{"clib/src/c.txt": "x\n"})
 		if r, _ := s.build(); !isUpToDate(r.stderr) {
 			t.Errorf("a text file in the folder of the library made the build not up to date:\n%s", r.stderr)
+		}
+	})
+}
+
+// -lto is part of the stamp key: a program built without it is not up to date for -lto, and the
+// other way round.
+func TestUpToDateLTOIsPartOfTheKey(t *testing.T) {
+	withOneCXX(t, func(t *testing.T, c testCXX) {
+		s := newIncr(t, stampProject(3))
+		s.build()
+		if r, _ := s.build(); !isUpToDate(r.stderr) {
+			t.Fatalf("the second build is not up to date:\n%s", r.stderr)
+		}
+		s.args = []string{"-lto"}
+		r, n := s.build()
+		if isUpToDate(r.stderr) || n.link != 1 {
+			t.Fatalf("a build with -lto after one without: up to date %v, %+v:\n%s", isUpToDate(r.stderr), n, r.stderr)
+		}
+		if !strings.Contains(r.stderr, "-flto") {
+			t.Errorf("no -flto in the commands of the -lto build:\n%s", r.stderr)
+		}
+		if r, _ := s.build(); !isUpToDate(r.stderr) {
+			t.Errorf("the second -lto build is not up to date:\n%s", r.stderr)
+		}
+		s.args = nil
+		if r, n := s.build(); isUpToDate(r.stderr) || n.link != 1 {
+			t.Errorf("a build without -lto after one with: up to date %v, %+v", isUpToDate(r.stderr), n)
+		}
+		if got := s.run(); !strings.HasSuffix(got, " "+s.stamp+"\n") {
+			t.Errorf("the program prints %q", got)
+		}
+	})
+}
+
+// A build with -flto in the user's flags (a release build) links: the runtime library is made with
+// the archiver that reads LTO objects, and the linker's temporary objects are not shown.
+func TestBuildUserFlto(t *testing.T) {
+	forEachCXX(t, func(t *testing.T, c testCXX) {
+		inDir(t, map[string]string{"main.gp": "package main\n\nfunc main() {\n\tprintln(\"lto ok\")\n}\n"})
+		t.Setenv("GOCPP_CXXFLAGS", "-O1 -flto")
+		t.Setenv("GOCPP_LDFLAGS", "-flto")
+		r := gocppRun("", true, "run", ".")
+		if r.code != 0 || !strings.Contains(r.stderr, "lto ok") && !strings.Contains(r.stdout, "lto ok") {
+			t.Fatalf("gocpp run with -flto in the flags = %+v", r)
+		}
+		if strings.Contains(r.stderr, ".temp.o") || strings.Contains(r.stderr, "lto-llvm") {
+			t.Errorf("the linker's temporary objects are shown:\n%s", r.stderr)
 		}
 	})
 }

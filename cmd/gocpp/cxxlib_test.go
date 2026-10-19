@@ -286,7 +286,7 @@ func TestRecipeParallelBuild(t *testing.T) {
 				link = l
 			}
 		}
-		iApp, iLib0, iLib40, iRT, iM := strings.Index(link, ".gp.o"), strings.Index(link, "0-0-f00.c.o"), strings.Index(link, "0-10-sum.c.o"), strings.Index(link, "src_complex.o"), strings.LastIndex(link, " -lm ")
+		iApp, iLib0, iLib40, iRT, iM := strings.Index(link, ".gp.o"), strings.Index(link, "0-0-f00.c.o"), strings.Index(link, "0-10-sum.c.o"), strings.Index(link, "libgocpprt.a"), strings.LastIndex(link, " -lm ")
 		if link == "" || iApp < 0 && !strings.Contains(link, "$WORK/app.o") || iLib0 < 0 || iLib40 < iLib0 || iRT < iLib40 || iM < iRT {
 			t.Errorf("link order: objects of the library after the program's and before the runtime's, -lm last:\n%s", link)
 		}

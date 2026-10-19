@@ -51,6 +51,19 @@ type PackageBuild struct {
 	SourceWarnings func(out []byte)
 }
 
+// runtimeFlags are the flags of the compiles of the runtime. With flags of the environment, the
+// runtime's compiles get gocpp's language flags after them too (as the generated C++ does), then
+// -Wno-error (valid code must not fail for a warning that a user's -Werror -Wshadow turns into an
+// error) and -x c++, which comes right before each runtime source. All of them are part of the
+// key of the runtime's library (and of its object files).
+func (b *Builder) runtimeFlags() []string {
+	flags := b.compileFlags()
+	if env := b.Env.CXXCompile(); len(env) > 0 {
+		flags = slices.Concat(flags, env, LanguageFlags(), []string{"-Wno-error", "-x", "c++"})
+	}
+	return flags
+}
+
 // Link compiles the packages and links the program out. The objects of the packages come in the
 // order of pkgs; a compile or link that fails is a *CompileError (PkgPath says the package of a
 // unit or a source that failed). When several compiles fail, the error is an *Errors that holds
@@ -60,15 +73,10 @@ type PackageBuild struct {
 // run at the same time (executor.go).
 func (b *Builder) Link(ctx context.Context, pkgs []PackageBuild, out string) error {
 	b.applyMode() // a library's -fPIC (modes.go), before anything is compiled or keyed
-	// With flags of the environment, the runtime's compiles get gocpp's language flags after
-	// them too (as the generated C++ does), then -Wno-error (valid code must not fail for a
-	// warning that a user's -Werror -Wshadow turns into an error) and -x c++, which comes right
-	// before each runtime source. All of them are part of the key of the runtime's object
-	// files.
-	flags := CompileFlags(b.CXX, b.ASan, b.NoChecks)
-	if env := b.Env.CXXCompile(); len(env) > 0 {
-		flags = slices.Concat(flags, env, LanguageFlags(), []string{"-Wno-error", "-x", "c++"})
+	if b.LTO && b.Mode.Archive() {
+		return fmt.Errorf("-lto cannot be combined with -buildmode=%s: the archive would hold LTO objects, which only a link by the same compiler with -flto can read (a C program cannot use it)", b.Mode)
 	}
+	flags := b.runtimeFlags()
 	b.sc = statMemo()
 	defer b.waitPCH() // a header that is still being built is finished, not left half done
 	defer b.stores.Wait()
@@ -164,19 +172,21 @@ func (b *Builder) Link(ctx context.Context, pkgs []PackageBuild, out string) err
 		return b.archive(ctx, slices.Concat(objs, libObjs, rtObjs), out)
 	}
 	for i := len(pkgs) - 1; i >= 0; i-- {
-		link = appendLinkFlags(link, pkgs[i].Flags.Link)
+		link = append(link, pkgs[i].Flags.Link...)
 	}
-	// --gc-sections drops the functions and data that nothing reaches (the compiles put each in
-	// a section of its own); macOS's linker does that by itself.
-	var gc []string
-	if b.GOOS != "darwin" {
-		gc = []string{"-Wl,--gc-sections"}
+	plan, err := b.linkParts(objs, libObjs, rtObjs, link)
+	if err != nil {
+		return err
 	}
-	ldflags := b.autoLTO(b.Env.LDFlags)
-	args := slices.Concat(Flags(b.CXX, b.ASan), LinkFlags(b.CXX), gc, b.Mode.LinkFlags(b.Soname, b.VersionScript), objs, libObjs, rtObjs, link, ldflags, []string{"-o", out})
-	b.recordLinkPlan(Command{Kind: KindLink, Compiler: compiler(b.CXX), Args: args, Output: out, Pre: slices.Concat(Flags(b.CXX, b.ASan), LinkFlags(b.CXX), gc, b.Mode.LinkFlags(b.Soname, b.VersionScript)),
-		Objs: slices.Concat(objs, libObjs, rtObjs), Post: slices.Concat(link, ldflags)})
-	b.recordLink(ctx, slices.Concat(link, ldflags))
+	args, err := b.linkCommand(plan, out)
+	if err != nil {
+		return err
+	}
+	// The plan (gocpp build -n, gocpp export) keeps the arguments in full: the response file of a
+	// long link is in the work folder, which is deleted after the build.
+	b.recordLinkPlan(Command{Kind: KindLink, Compiler: compiler(b.CXX), Args: slices.Concat(plan.pre, plan.objs, plan.post, []string{"-o", out}), Output: out, Pre: plan.pre,
+		Objs: plan.objs, Post: plan.post})
+	b.recordLink(ctx, slices.Concat(link, plan.ldflags))
 	b.Stats.linked()
 	if b.Rec == nil || b.Rec.Bad() != "" {
 		return b.run(ctx, b.CXX, "the generated C++", true, args)
@@ -220,9 +230,9 @@ func (b *Builder) unitArgs(rtDir string, pb *PackageBuild, src, obj string) []st
 		quote = append(quote, "-iquote", b.GenRoot)
 	}
 	pkgFlags := slices.Concat(pb.Flags.Compile, pb.Public)
-	compile := slices.Concat(CompileFlags(b.CXX, b.ASan, b.NoChecks), GeneratedFlags(b.CXX), quote, []string{"-I", filepath.Join(rtDir, "include"), "-c", src, "-o", obj})
+	compile := slices.Concat(b.compileFlags(), GeneratedFlags(b.CXX), quote, []string{"-I", filepath.Join(rtDir, "include"), "-c", src, "-o", obj})
 	if user := slices.Concat(b.Env.CXXCompile(), pkgFlags); len(user) > 0 {
-		compile = slices.Concat(CompileFlags(b.CXX, b.ASan, b.NoChecks), quote, []string{"-I", filepath.Join(rtDir, "include")},
+		compile = slices.Concat(b.compileFlags(), quote, []string{"-I", filepath.Join(rtDir, "include")},
 			user, LanguageFlags(), []string{"-Wno-error"}, GeneratedFlags(b.CXX), []string{"-c", "-x", "c++", src, "-o", obj})
 	}
 	return compile
@@ -292,18 +302,6 @@ func (b *Builder) compileUnit(ctx context.Context, rtDir string, pb *PackageBuil
 // headers read it.
 func sameLib(a, b *CxxLib) bool {
 	return a == b || a.Module == b.Module && a.Version == b.Version && a.File == b.File && a.Dir == b.Dir
-}
-
-// appendLinkFlags adds the link flags more to link: a flag that names a library or a folder
-// (-lm, -L/opt/lib, -pthread) once.
-func appendLinkFlags(link, more []string) []string {
-	for _, f := range more {
-		if (len(f) > 2 && (strings.HasPrefix(f, "-l") || strings.HasPrefix(f, "-L")) || f == "-pthread") && slices.Contains(link, f) {
-			continue
-		}
-		link = append(link, f)
-	}
-	return link
 }
 
 // autoLTO returns the link flags with a bare -flto turned into -flto=auto for GCC: without a job

@@ -638,3 +638,32 @@ func TestAutoLTO(t *testing.T) {
 		t.Errorf("autoLTO changed its argument: %q", in)
 	}
 }
+
+// A c-archive writes a header next to the sources besides the library: a header is a file the
+// loader looks at, so the listing of the folder that the build read changed during it, and both
+// files are the build's own output (NewStamp gets the header as an extra output).
+func TestNewStampSettlesListingWithExtraOutputs(t *testing.T) {
+	dir := t.TempDir()
+	writeAt(t, filepath.Join(dir, "a.gp"), "package main\n", time.Hour)
+	r := NewFSRecorder()
+	rec := &Record{link: &LinkRec{}}
+	if _, err := r.ReadDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	lib, hdr := filepath.Join(dir, "libu.a"), filepath.Join(dir, "libu.h")
+	writeAt(t, lib, "lib", time.Hour)
+	writeAt(t, hdr, "hdr", time.Hour)
+	if s, why := NewStamp("key", r, nil, rec, nil, lib, nil); s != nil || !strings.Contains(why, "changed during the build") {
+		t.Fatalf("without the header as an output: %v, %q", s, why)
+	}
+	s, why := NewStamp("key", r, nil, rec, nil, lib, nil, hdr)
+	if s == nil {
+		t.Fatalf("NewStamp: %s", why)
+	}
+	if why := s.AddOutputs([]string{hdr}); why != "" {
+		t.Fatal(why)
+	}
+	if why := s.Check(context.Background(), t.TempDir(), nil, nil); why != "" {
+		t.Errorf("the stamp is not current: %s", why)
+	}
+}

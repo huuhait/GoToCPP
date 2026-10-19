@@ -201,6 +201,14 @@ The build flags (of build and run; -compdb, -emit-llvm, -n and -o are of build o
 		print the commands that the build would run, and run none of
 		them (the generated C++ is written, nothing is compiled or
 		linked, no program is written)
+	-lto
+		link-time optimization: the runtime and the generated C++
+		compile with -flto (-flto=auto for g++, -flto=thin for clang++)
+		and the link optimizes across them. The runtime's library is
+		made with the archiver that belongs to the compiler (gcc-ar,
+		llvm-ar, or ar with the compiler's plugin; GOCPP_AR names
+		one); the build stops when there is none. Combine it with
+		an -O level (GOCPP_CXXFLAGS=-O2)
 	-nochecks
 		build without the bounds and nil checks, for speed: an index
 		or slice expression out of range, a slice to array conversion
@@ -311,6 +319,7 @@ type buildFlags struct {
 	work     bool   // -work
 	asan     bool   // -asan
 	nochecks bool   // -nochecks
+	lto      bool   // -lto
 	jobs     int    // -p, 0 for the default (GOMAXPROCS)
 	concepts bool   // -gp:concepts
 
@@ -332,6 +341,7 @@ func (f *buildFlags) register(flags *flag.FlagSet, withOutput bool) {
 	f.cross.register(flags)
 	flags.Var(&f.cppErrors, "cpperrors", "how much of the C++ compiler's errors to show: short or full")
 	flags.BoolVar(&f.asan, "asan", false, "build with AddressSanitizer and UndefinedBehaviorSanitizer")
+	flags.BoolVar(&f.lto, "lto", false, "link-time optimization (-flto; the runtime library gets the compiler's archiver)")
 	flags.BoolVar(&f.nochecks, "nochecks", false, "build without the bounds and nil checks (division and shift checks stay)")
 	flags.Func("p", "the number of compiles that run at the same time (default GOMAXPROCS)", func(v string) error {
 		n, err := strconv.Atoi(v)
@@ -1130,7 +1140,7 @@ func (d *driver) compile(patterns []string) (*program, int) {
 		}
 	}
 
-	b := &build.Builder{CXX: cxx, ASan: d.flags.asan, NoChecks: d.flags.nochecks, GOOS: d.check.goos, Work: work, Stderr: d.stderr, KeepWork: d.flags.work,
+	b := &build.Builder{CXX: cxx, ASan: d.flags.asan, NoChecks: d.flags.nochecks, LTO: d.flags.lto, GOOS: d.check.goos, Work: work, Stderr: d.stderr, KeepWork: d.flags.work,
 		Env: env, CC: cc, GenRoot: genRoot, Cache: cache, Jobs: d.flags.jobs, Stats: &d.stats, Mode: d.flags.mode,
 		DryRun: x.dryRun || d.afterPlan != nil, Rebuild: x.rebuild, EmitLLVM: x.llvm}
 	exe := filepath.Join(work, name+exeSuffixFor(d.check.goos))
@@ -1380,6 +1390,8 @@ func (d *driver) compileFailed(pkg *check.Package, e *build.CompileError, work s
 			unit = filepath.Base(e.Unit)
 		}
 		fmt.Fprintf(d.stderr, "# %s\n(the same errors in %s)\n", pkg.Load.ImportPath, unit)
+	case e.What == "the archiver":
+		fmt.Fprintf(d.stderr, "# %s\nthe archiver failed while making gocpp's runtime library (GOCPP_AR names it; -lto needs gcc-ar or llvm-ar)\n", pkg.Load.ImportPath)
 	case len(flags) > 0:
 		fmt.Fprintf(d.stderr, "# %s\n%s %s with the flags below\n", pkg.Load.ImportPath, what, verb)
 	case exportGlue:
@@ -1404,6 +1416,10 @@ func (d *driver) compileFailed(pkg *check.Package, e *build.CompileError, work s
 			fmt.Fprintf(d.stderr, "(%s)\n", f)
 		}
 		fmt.Fprintf(d.stderr, "The work folder is kept: %s\n(the generated C++ is in %s, and the compiler's whole output is in %s)\n", work, d.gen, log)
+		return
+	}
+	if e.What == "the archiver" {
+		fmt.Fprintf(d.stderr, "(the archiver's whole output is in %s)\n", log)
 		return
 	}
 	fmt.Fprintf(d.stderr, "This is a bug in gocpp. The work folder is kept: %s\n(the generated C++ is in %s, and the compiler's whole output is in %s)\n", work, d.gen, log)

@@ -178,6 +178,13 @@ func TestBuildLDFlagsAfterPackageLinkFlags(t *testing.T) {
 func TestBuildModeFlags(t *testing.T) {
 	withOneCXX(t, func(t *testing.T, c testCXX) {
 		logs := quiet(t, c)
+		// -release compiles with -flto, so the runtime library needs an archiver that reads the
+		// objects; the fake compiler's name ("fake-g++") has no tools of its own to find.
+		if c.cxx.Family == build.Clang {
+			t.Setenv("GOCPP_AR", "llvm-ar")
+		} else {
+			t.Setenv("GOCPP_AR", "gcc-ar")
+		}
 		inDir(t, map[string]string{"hello.gp": uniqueMain(t)})
 		for _, m := range []struct {
 			flag    string

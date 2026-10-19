@@ -419,8 +419,23 @@ func main() { imgui.Begin("hello") }
    cache folder, the compiler detection is kept on disk, `gocpp clean -cache|-gen|-stamp|-modcache [-n]`, trimming of
    old stamps; per-package skipping of the front end (export data) is not built.*
 7. **6.7 Parallel executor** (`-p`), `-x`, `-work`, good error aggregation. *Built (§2.5).*
-8. **6.8 Runtime prebuild + precompiled header.**
-9. **6.9 Link step** (ordering, dedup, system libs, LTO with the matching archiver).
+8. **6.8 Runtime prebuild + precompiled header.** *Built in job 6.8/6.9 (ADR-057, docs/spec/build-link.md):
+   the runtime is one static library `lib/<key>/libgocpprt.a` per (compiler, flags, sanitizer,
+   `-nochecks`, `-lto`, environment, archiver, target) key, built once under a file lock into a
+   temporary folder and renamed into place (a killed build leaves no library; a damaged one is
+   rebuilt), found by the stamp and the link as one input; without an archiver or with
+   `GOCPP_NORTLIB=1` the runtime's object files are linked as before. The precompiled header was already
+   there (5.7, objcache); 6.8 adds the freshness check (the files it was made from are compared
+   once per build: a header edited in place is removed, because g++ would go on with the old text)
+   and measures it (docs/spec/build-link.md). Left for 6.10+: nothing of its own; the executor
+   (6.5) should list `libgocpprt.a` as the one input of the runtime and its build as one action.*
+9. **6.9 Link step** (ordering, dedup, system libs, LTO with the matching archiver). *Built in job
+   6.8/6.9: `linkArgs`/`dedupLinkFlags` (linkplan.go) make the one link command in a fixed order
+   (driver flags, objects in package order, runtime library, package flags deduplicated
+   with the last `-l` and the first `-L` kept, `GOCPP_LDFLAGS`, `-o`), response file `link.rsp`
+   over 28000 bytes on Windows targets (120000 elsewhere); `gocpp build -lto` (g++ `-flto=auto`,
+   clang++ `-flto=thin`) with the archiver of the compiler (`gcc-ar`, `llvm-ar`, or `ar` with the
+   compiler's plugin; `GOCPP_AR`; a clear error when there is none).*
 10. **6.10 Build modes**: `c-archive`, `c-shared` (`//export` with cgo's type rules, lazy init,
     hidden visibility, trampolines), `cpp-lib` (CMake INTERFACE flags). *Built: `gocpp build -buildmode=
     c-archive|c-shared|cpp-lib` (internal/libgen, internal/build/modes.go, cmd/gocpp/modes.go, runtime

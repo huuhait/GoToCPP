@@ -764,9 +764,10 @@ func LoadStamp(cache, key string) *Stamp {
 // NewStamp makes the stamp of a build: trace is what the loader looked at, pkgConfig the runs of
 // pkg-config, rec what the Builder recorded (Link must have returned: the stores of the object
 // cache are done), compilers the identities of the compilers (CompilerID), and out the program,
-// which must be written. It returns nil and why when the
-// build can't be stamped.
-func NewStamp(key string, trace *FSRecorder, pkgConfig *PkgConfigLog, rec *Record, compilers []string, out string, pkgs []PkgSummary) (*Stamp, string) {
+// which must be written, and extra the other files that a library mode wrote next to the sources
+// (the header of a c-archive: they are not a change of the folder's listing either). It returns
+// nil and why when the build can't be stamped.
+func NewStamp(key string, trace *FSRecorder, pkgConfig *PkgConfigLog, rec *Record, compilers []string, out string, pkgs []PkgSummary, extra ...string) (*Stamp, string) {
 	if why := trace.Bad(); why != "" {
 		return nil, why
 	}
@@ -801,7 +802,7 @@ func NewStamp(key string, trace *FSRecorder, pkgConfig *PkgConfigLog, rec *Recor
 	slices.SortFunc(s.Units, func(a, b UnitRec) int { return strings.Compare(a.Src, b.Src) })
 	// The program is written next to the sources by default: the full listing of a folder
 	// that an embed pattern read (fsOp.All) must not see it as a new file.
-	if why := s.settleListings([]string{out}); why != "" {
+	if why := s.settleListings(append([]string{out}, extra...)); why != "" {
 		return nil, why
 	}
 	// The headers of all the compiles, each once: a program's units read the same few hundred

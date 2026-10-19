@@ -46,7 +46,7 @@ import (
 // pchFlags are the flags of the precompiled header: those of a plain compile of the generated
 // C++ (Program), without the package's -iquote, which the compilers don't check.
 func (b *Builder) pchFlags() []string {
-	return slices.Concat(CompileFlags(b.CXX, b.ASan, b.NoChecks), GeneratedFlags(b.CXX))
+	return slices.Concat(b.compileFlags(), GeneratedFlags(b.CXX))
 }
 
 // pchBuilds are the headers that this process is building (by file name).
@@ -106,6 +106,33 @@ func (p *pch) ready() bool {
 			return false
 		}
 	}
+	return p.fresh()
+}
+
+// fresh checks, once for each build, that the files the header was made from (its list, saveDeps) are
+// as they were: a header of the runtime or of the system that was edited in place makes the
+// precompiled header stale, and the compilers don't all notice (clang compares the times of the
+// files and refuses the header; g++ looks at the flags only, and would go on with the text of the
+// old header, so a program could mean something else with the header than without it). A stale
+// header is removed: the build then makes a new one (startPCH) and compiles without it until
+// it is ready.
+func (p *pch) fresh() bool {
+	if _, ok := p.b.pchFresh.Load(p.file); ok {
+		return true
+	}
+	var pd pchDeps
+	data, err := os.ReadFile(p.depfile())
+	if err != nil || json.Unmarshal(data, &pd) != nil {
+		p.remove()
+		return false
+	}
+	for _, d := range pd.Deps {
+		if !d.sameNow() {
+			p.remove()
+			return false
+		}
+	}
+	p.b.pchFresh.Store(p.file, true)
 	return true
 }
 

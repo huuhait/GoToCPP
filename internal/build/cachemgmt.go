@@ -25,7 +25,7 @@ type CacheFolder struct {
 // make again) and the language server's cache are not among them.
 var CacheFolders = []CacheFolder{
 	{"obj", "the object cache: object files of the generated C++ and of C and C++ sources, with the lists of headers they read"},
-	{"rt", "the runtime: its sources, object files and precompiled headers"},
+	{"rt", "the runtime: its sources, its libraries (one per compiler and flags) or object files, and precompiled headers"},
 	{"gen", "the generated C++ of the programs that were built"},
 	{"stamp", "the records of finished builds (the up-to-date check)"},
 	{"cxxid", "what the C++ compilers are (their versions)"},

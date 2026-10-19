@@ -490,7 +490,7 @@ func TestTraceCommands(t *testing.T) {
 			// (internal/build/pch.go). The units of the package compile at the same time: in
 			// any order.
 			unit, unit,
-			regexp.MustCompile(`^` + regexp.QuoteMeta(c.cxx.Path+" "+flags+gc+" $WORK/00-hello.gp.o $WORK/00-pkg_init.o ") + `(\S+\.o ?)+ -o \$WORK/hello$`),
+			regexp.MustCompile(`^` + regexp.QuoteMeta(c.cxx.Path+" "+flags+gc+" $WORK/00-hello.gp.o $WORK/00-pkg_init.o ") + `(\S+\.[oa] ?)+ -o \$WORK/hello$`),
 			regexp.MustCompile(`^\$WORK/hello 'arg 1'$`),
 		}
 		if lines[0] != "WORK="+work {
