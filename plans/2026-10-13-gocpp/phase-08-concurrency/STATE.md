@@ -16,7 +16,7 @@
 - [x] 8.4 Directional channel types (same C++ type, distinct descriptors)
 - [x] 8.5 `select` (random poll order, lock order, default, nil cases, one entry per case + shared claim flag)
 - [x] 8.6 `for range ch`
-- [ ] 8.7 `sync` + `sync/atomic`
+- [x] 8.7 `sync` + `sync/atomic`
   - [ ] Mutex / RWMutex (atomic state word, waiters outside the object, copyable)
   - [ ] WaitGroup (+ `Go`), Once, OnceFunc/OnceValue/OnceValues, Cond, Map, Pool
   - [ ] atomic typed API + `gp::atomic_ptr<T>` + function-style API (`std::atomic_ref`)
