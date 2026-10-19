@@ -14,43 +14,30 @@ Linux and Windows.
 ## How Go++ compares
 
 Go++ sits between Go and C++: Go's syntax and tooling, with C++ as the target, so you can call C
-and C++ libraries without glue code. The tables are a rough guide, not a benchmark. *(planned)*
-means not built yet; the Status section below says what works today.
-
-**The language**
+and C++ libraries without glue code. The table is a rough guide, not a benchmark.
+✅ yes, ❌ no, 🚧 being built (the Status section below says what works today).
 
 | | Go++ | Go | C++ | Rust |
-|---|---|---|---|---|
-| Syntax | Go's | Go's | C-style, large | Own, expression-based |
-| Learning curve | Low (if you know Go) | Low | High | High |
-| Generics | Yes (functions built, types in progress) | Yes | Templates | Traits and generics |
-| Errors | `error`, `panic`, `!` *(planned)* | `error`, `panic` | Exceptions or codes | `Result` and `?` |
+|---|:---:|:---:|:---:|:---:|
+| Simple syntax, easy to learn | ✅ | ✅ | ❌ | ❌ |
+| No garbage collector | ✅ | ❌ | ✅ | ✅ |
+| Memory safe by default | ✅ | ✅ | ❌ | ✅ |
+| Memory safety proven at compile time | ❌ | ❌ | ❌ | ✅ |
+| Goroutines, channels and `select` | ✅ | ✅ | ❌ | ❌ |
+| Millions of lightweight tasks | ❌ | ✅ | ❌ | ✅ |
+| Generics | 🚧 | ✅ | ✅ | ✅ |
+| Call C directly, no wrapper | ✅ | ❌ | ✅ | ❌ |
+| Call C++ directly, no wrapper | ✅ | ❌ | ✅ | ❌ |
+| Fast builds | ❌ | ✅ | ❌ | ❌ |
+| Formatter and language server included | ✅ | ✅ | ❌ | ✅ |
+| One tool for build, test and packages | 🚧 | ✅ | ❌ | ✅ |
+| Easy cross-compiling | 🚧 | ✅ | ❌ | ✅ |
+| Large standard library | 🚧 | ✅ | ✅ | ❌ |
+| Ready for production | ❌ | ✅ | ✅ | ✅ |
 
-**Memory and concurrency**
-
-| | Go++ | Go | C++ | Rust |
-|---|---|---|---|---|
-| Memory | Reference counting (cycles leak) | Garbage collector | Manual or RAII | Ownership, no GC |
-| Memory safety | Bounds and nil checks | Safe | Not safe by default | Safe by default |
-| Concurrency | Goroutines on OS threads (max ~20-30k) | Goroutines, millions | Threads, coroutines | Threads, async |
-
-**Interop**
-
-| | Go++ | Go | C++ | Rust |
-|---|---|---|---|---|
-| Calling C | Import the header | cgo (slower, extra step) | Native | `bindgen` or FFI |
-| Calling C++ | Import the header | No (C only) | Native | `cxx` crate |
-
-**Build, speed and tooling**
-
-| | Go++ | Go | C++ | Rust |
-|---|---|---|---|---|
-| Build speed | Slower than Go | Very fast | Slow | Slow to medium |
-| Runtime speed | Goal: within 2x of Go (not measured) | Fast | Fastest | Same as C++ |
-| Standard library | Small today | Large | Large | Medium, plus crates |
-| Tooling | `gocpp` commands, language server | Excellent | Fragmented | Excellent |
-| Cross-compiling | Linux; Windows in progress | Very easy | Hard | Easy to medium |
-| Maturity | Young | Mature | Mature | Mature |
+Notes: Go++ counts as memory safe except for raw C and C++ pointers. Its memory is reference
+counted, so cycles leak (`weak.Pointer` breaks them). Goroutines are OS threads, so about 20,000
+to 30,000 is the limit. Rust's standard library is small, but its crate ecosystem is large.
 
 **Use Go++ when** you like Go's syntax and workflow but must call C or C++ libraries (a game
 engine, SQLite, a vendor SDK) or live inside a C++ code base, and reference counting is fine.
@@ -59,8 +46,6 @@ engine, SQLite, a vendor SDK) or live inside a C++ code base, and reference coun
 - a mature standard library and fast builds: Go
 - full control and the biggest ecosystem: C++
 - memory safety proven at compile time: Rust
-
-Go++ is not production-ready yet.
 
 ## Status
 
