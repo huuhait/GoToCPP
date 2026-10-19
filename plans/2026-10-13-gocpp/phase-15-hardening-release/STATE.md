@@ -30,7 +30,7 @@
 - [x] 15.14 `gocpp get` + `gocpp.sum` + minimal version selection (`x/mod` workarounds for dotless paths and `gocpp.mod` boundaries)
 
 ### Docs & release
-- [ ] 15.15 Docs site (tour, spec, interop guide + cookbook, Go-dev and C++-dev guides, stdlib reference)
+- [x] 15.15 Docs site (tour, spec, interop guide + cookbook, Go-dev and C++-dev guides, stdlib reference)
 - [ ] 15.16 v1.0 compatibility promise + changelog + release
 - [ ] 15.17 Post-1.0 roadmap ADRs
 
