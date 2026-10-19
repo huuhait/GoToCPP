@@ -95,6 +95,13 @@ under ASan.
   sanitizer report, not only on the exit code (Phase 08 uses `_exit`, which sanitizers see, but
   checking the output too is cheap insurance).
 - **Leak audit** on large programs to find reference cycles in the runtime and stdlib.
+  *Built in 15.11* (`tools/sanitize`, [guide](../../../docs/guides/sanitizers.md),
+  [ADR-090](../../../docs/adr/090-nightly-sanitizers-and-a-bounded-leak-policy.md)): `make sanitize-nightly`
+  (stages `canary`, `leaks`, `asan`, `ubsan`, `tsan`, `deep-sanitize`, `deep-race`) runs `tests/run` under `-asan`, UBSan alone and
+  `-race` with both compilers and fails on any report in a program's stderr; canaries (programs that are
+  wrong on purpose) must be reported or the job is blind; the leak audit bounds the 18 programs that say
+  `// lsan: cycle` by a ceiling per compiler in `tools/sanitize/leaks.txt` (more than the ceiling, or no leak
+  at all, fails). `tools/sanitize/nightly.sh` and `.github/workflows/sanitizers-nightly.yml` start it.
 
 ### 2.3 Platforms
 

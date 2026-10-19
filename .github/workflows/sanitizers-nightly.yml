@@ -1,0 +1,138 @@
+# The nightly sanitizer job (step 15.11, docs/guides/sanitizers.md). Decision Q9: the repository is not
+# on GitHub yet, so nothing runs this file today; tools/sanitize/nightly.sh is the job on the author's
+# machine. It is kept here, with the same commands, so that moving the repository turns the job on. It was
+# not run by GitHub: the commands it calls are tested through make sanitize-smoke.
+# Not done offline: the actions are pinned by major version, not by commit SHA (the SHAs of
+# checkout, install-nix-action, cache and upload-artifact must be looked up when the repository
+# moves). GitHub-hosted jobs stop after 360 minutes: the deep gates are two jobs for that reason, and
+# a self-hosted runner is the place for the full corpus if the shards still run too long.
+name: sanitizers-nightly
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      flags:
+        description: "more flags for sanitize nightly, for example -sample or -stages asan,leaks"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sanitizers-nightly
+  cancel-in-progress: false
+
+
+jobs:
+  # The canaries (programs that are wrong on purpose must be reported) and the leak audit. Fast; a
+  # failure here means the sanitizers or the allowlist are broken, whatever the corpus says.
+  canary-and-leaks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: canaries and the leak audit
+        env:
+          EXTRA: ${{ inputs.flags }}
+        run: make sanitize-nightly SANITIZEFLAGS="-stages canary,leaks -out sanitize-results $EXTRA"
+        shell: nix develop -c bash {0}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sanitize-canary-leaks
+          path: sanitize-results/
+
+  # AddressSanitizer + LeakSanitizer + UndefinedBehaviorSanitizer (-asan) and UBSan alone, tests/run in
+  # four shards, with g++ and clang++.
+  address-and-undefined:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/gocpp-sanitize
+          key: gocpp-sanitize-asan-${{ matrix.shard }}-${{ hashFiles('runtime/**', 'go.mod') }}
+      - name: asan and ubsan, shard ${{ matrix.shard }} of 4
+        env:
+          EXTRA: ${{ inputs.flags }}
+        run: make sanitize-nightly SANITIZEFLAGS="-stages asan,ubsan -shard ${{ matrix.shard }}/4 -j 4 -gocpp-cache $HOME/.cache/gocpp-sanitize -out sanitize-results $EXTRA"
+        shell: nix develop -c bash {0}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sanitize-asan-ubsan-${{ matrix.shard }}
+          path: sanitize-results/
+
+  # ThreadSanitizer (-race): the concurrency programs of tests/run and the silent programs of tests/race.
+  thread:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/gocpp-sanitize
+          key: gocpp-sanitize-tsan-${{ matrix.shard }}-${{ hashFiles('runtime/**', 'go.mod') }}
+      - name: tsan, shard ${{ matrix.shard }} of 2
+        env:
+          EXTRA: ${{ inputs.flags }}
+        run: make sanitize-nightly SANITIZEFLAGS="-stages tsan -shard ${{ matrix.shard }}/2 -j 2 -gocpp-cache $HOME/.cache/gocpp-sanitize -out sanitize-results $EXTRA"
+        shell: nix develop -c bash {0}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sanitize-tsan-${{ matrix.shard }}
+          path: sanitize-results/
+
+  # The deep gates: interop, diff, zoo and example programs, the emitter's own tests (ci-sanitize), and
+  # tests/race with both compilers, the concurrency programs with -race and the runtime's
+  # ThreadSanitizer unit tests (ci-race), which the corpus runs above do not cover. Two jobs: one job
+  # may not run longer than 360 minutes on a GitHub-hosted runner.
+  deep-sanitize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: make ci-sanitize
+        env:
+          EXTRA: ${{ inputs.flags }}
+        run: make sanitize-nightly SANITIZEFLAGS="-stages deep-sanitize -out sanitize-results $EXTRA"
+        shell: nix develop -c bash {0}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sanitize-deep-sanitize
+          path: sanitize-results/
+
+  deep-race:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: make ci-race
+        env:
+          EXTRA: ${{ inputs.flags }}
+        run: make sanitize-nightly SANITIZEFLAGS="-stages deep-race -out sanitize-results $EXTRA"
+        shell: nix develop -c bash {0}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sanitize-deep-race
+          path: sanitize-results/

@@ -1,0 +1,19 @@
+# The short representative corpus (sanitize run -corpus sample, nightly -sample): programs that
+# touch the memory-heavy parts of the runtime (strings, slices, maps, closures, interfaces,
+# generics, errors, panics and defers, goroutines, channels, select, sync), two of the
+# "// lsan: cycle" programs, and a silent program of tests/race. One run is a smoke test of the
+# job, not coverage; the nightly job runs all of tests/run.
+tests/run/strings_builder_noleak.gp
+tests/run/maps_basic.gp
+tests/run/slices_append.gp
+tests/run/iface_basic.gp
+tests/run/generics_bigstruct.gp
+tests/run/errors_join_basic.gp
+tests/run/defer_panic.gp
+tests/run/closures_capture.gp
+tests/run/closures_recursive.gp
+tests/run/chan_worker_pool.gp
+tests/run/select_basic_recv.gp
+tests/run/sync_mutex_counter.gp
+tests/run/sync_cond_queue.gp
+tests/race/ok_fan_out_in.gp

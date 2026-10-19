@@ -67,8 +67,9 @@ test:
 test-programs:
 	$(GO) test -count=1 -v ./tests/...
 
-# The sanitizer job (Phase 03 exit criteria): the test programs that run code
-# (tests/run, tests/diff, tests/interop, tests/zoo and examples/) with gocpp run -asan
+# The sanitizer job (Phase 03 exit criteria; the nightly job of step 15.11, make sanitize-nightly, adds
+# canaries, UBSan alone, tests/run in full and a bounded leak audit, and runs this target as its deep
+# stage): the test programs that run code (tests/run, tests/diff, tests/interop, tests/zoo and examples/) with gocpp run -asan
 # (AddressSanitizer, LeakSanitizer and UndefinedBehaviorSanitizer; a test
 # marked "// lsan: cycle" leaks a reference cycle on purpose and runs without
 # LeakSanitizer), then the emitter's tests, which build and run programs
@@ -126,6 +127,35 @@ ci-race:
 	$(GO) test -count=1 -timeout 60m -parallel 2 -run 'TSan' ./runtime/...
 	$(GO) test -count=1 -timeout 60m -run '^TestRace' ./cmd/gocpp/...
 	@echo "make ci-race: all checks passed"
+
+# The nightly sanitizer job (step 15.11, tools/sanitize, docs/guides/sanitizers.md): every sanitizer
+# over tests/run with g++ and clang++ (AddressSanitizer, LeakSanitizer and UndefinedBehaviorSanitizer
+# with -asan, UBSan alone, ThreadSanitizer with -race over the concurrency programs), the canaries
+# (programs that are wrong on purpose: a sanitizer that does not report them is blind and fails the job),
+# and the leak audit of tools/sanitize/leaks.txt. Any report fails it. Hours of CPU time: it is not part
+# of ci, run it nightly (tools/sanitize/nightly.sh, .github/workflows/sanitizers-nightly.yml) and on a
+# shared machine through heavy.sh. It runs every phase of tests/run (not only CI_TEST_PHASE): programs
+# above -phase are counted in its output. SANITIZEFLAGS passes flags to the tool: "-shard 0/4", "-j 8",
+# "-deep" (adds make ci-sanitize and make ci-race), "-stages asan,leaks", "-cxx g++", "-phase 10".
+SANITIZEFLAGS ?=
+.PHONY: sanitize-nightly sanitize-smoke sanitize-leaks sanitize-selftest
+sanitize-nightly:
+	$(GO) run ./tools/sanitize nightly $(SANITIZEFLAGS)
+
+# The same job on the 14 programs of tools/sanitize/sample.txt: about two minutes. It proves that the
+# job works on this machine (canaries, leak audit, all three modes, both compilers).
+sanitize-smoke:
+	$(GO) run ./tools/sanitize nightly -sample $(SANITIZEFLAGS)
+
+# The leak audit alone: every "// lsan: cycle" program with LeakSanitizer ON, under its ceiling.
+sanitize-leaks:
+	$(GO) run ./tools/sanitize leaks -cxx g++,clang++ $(SANITIZEFLAGS)
+
+# The tests of the job itself with the real sanitizers: injected UBSan, ASan, LeakSanitizer and TSan
+# errors must fail the job, the canaries must be reported, the leak audit must fail on a leak on top of a
+# cycle and on a stale marker. A few minutes; GOCPP_SANITIZE_E2E_CXX=g++,clang++ runs both compilers.
+sanitize-selftest:
+	GOCPP_SANITIZE_E2E=1 $(GO) test -count=1 -timeout 60m -v ./tools/sanitize
 
 # Fails if gofmt lists a Go file outside LINT_SKIP, then runs go vet, also for
 # windows and darwin (a file with a build tag that only one system compiles).

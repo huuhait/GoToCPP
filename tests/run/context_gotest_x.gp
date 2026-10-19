@@ -1078,6 +1078,10 @@ func TestCustomContextCause(t *testT) {
 	}
 	ctx, cancelFunc := context.WithCancel(ccc)
 	ccc.setCancelChild(cancelFunc)
+	// Make ctx's Done channel now. Without this, whether the channel exists when ccc.cancel runs depends on
+	// whether the goroutine of propagateCancel has called Done yet, so the cycle that this test leaks (see
+	// tools/sanitize/leaks.txt) had 174 or 175 allocations from run to run.
+	_ = ctx.Done()
 	ccc.cancel()
 	atomic.AddInt64(&checks, 1)
 	if got := ctx.Err(); got != context.Canceled {

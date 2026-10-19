@@ -20,7 +20,10 @@ type Queue struct {
 }
 
 func NewQueue() *Queue {
-	q := &Queue{}
+	// The room for every item that the program puts (3 producers x 1000): the queue never grows, so the
+	// memory that the leaked queue holds (see tools/sanitize/leaks.txt) is the same on every run, whatever
+	// the order of the goroutines (a queue that grows by append holds 200 to 800 bytes, depending on it).
+	q := &Queue{items: make([]int, 0, 3000)}
 	q.cond = sync.NewCond(&q.mu)
 	return q
 }

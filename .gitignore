@@ -55,3 +55,8 @@ docs/benchmarks/lsp.json
 # Windows programs built or copied into the root by hand (a gocpp.exe of "go build" with GOOS=windows)
 /gocpp.exe
 /*.exe
+
+# Results of the nightly sanitizer job (step 15.11, tools/sanitize/nightly.sh), and the binary that
+# "go build ./tools/sanitize" writes into the folder it runs in
+/sanitize-results/
+/sanitize

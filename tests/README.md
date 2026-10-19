@@ -129,11 +129,34 @@ and then runs with `ASAN_OPTIONS=detect_leaks=0` (after the `ASAN_OPTIONS` of th
 so LeakSanitizer is off for that test only; AddressSanitizer and UBSan stay on. The line is
 allowed in run, diff and interop tests, and in `internal/cppgen/testdata/emit`. It is set with or
 without `-asan` (without, it changes nothing), so the command that a failing test shows has it.
-Today 21 tests have it (`rg -l "^// lsan: cycle" tests internal`); the first ones were `tests/run/closures_recursive.gp` and
+Today 18 tests have it (`go run ./tools/sanitize leaks -check` compares them with the list below; `rg -l "^// lsan: cycle" tests internal` also finds the three header-parser fixtures of `tests/testdata/header`); the first ones were `tests/run/closures_recursive.gp` and
 `internal/cppgen/testdata/emit/closures.gp`, both a closure that calls itself through a variable,
 `tests/run/embed_later_types.gp`, two structs that embed pointers to each other, and
 `tests/run/sync_cond_queue.gp` and `sync_cond_semaphore.gp`, a struct that holds a `sync.Cond` whose
 Locker is a pointer to a field of that same struct (the usual `sync.NewCond(&q.mu)`); the others are later tests of the same kinds, and `derive_cycle.gp` (a value that points to itself).
+
+**The marker hides every leak of its program, so it is bounded** (step 15.11,
+[docs/guides/sanitizers.md](../docs/guides/sanitizers.md)): every test with `// lsan: cycle` must be listed in
+`tools/sanitize/leaks.txt` with the kind of cycle, the reason and the most it may leak (a ceiling in bytes and
+allocations per compiler). `go test ./tools/sanitize` (part of `make test`) fails when a marker and a line
+disagree, and the leak audit (`make sanitize-leaks`, a stage of the nightly job) builds each listed test with
+LeakSanitizer on and fails when it leaks more than its ceiling, leaks nothing any more (remove the marker) or
+makes any other sanitizer report. Adding the marker to a test means adding its line (`go run ./tools/sanitize
+leaks -update -filter NAME` measures the ceiling).
+
+## The nightly sanitizer job
+
+`make sanitize-nightly` (step 15.11, [docs/guides/sanitizers.md](../docs/guides/sanitizers.md)) runs every
+program of `tests/run` with `-asan` (AddressSanitizer, LeakSanitizer, UBSan), with UBSan alone and, for the
+concurrency programs and the silent programs of `tests/race`, with `-race`, with both compilers, and fails on
+*any* sanitizer report in a program's stderr, whatever the test expects; it also runs the canaries (programs
+that are wrong on purpose, which must be reported) and the leak audit. It reads the same header lines as
+the harness (`// phase:`, `// pending:`, `// ExitCode:`, `// lsan: cycle`, `//go:build`), skips the tests that
+need C libraries or a display, and does not read `// Output:` (the harness checks that). `make
+sanitize-smoke` runs it on 14 programs in about two minutes, `make sanitize-selftest` proves with real
+sanitizers that it fails on an injected UBSan, ASan, LeakSanitizer and ThreadSanitizer error. The interop, diff,
+zoo and example programs and the emitter's tests stay with `make ci-sanitize` and `make ci-race`, which the
+nightly job runs as its `deep` stages (`deep-sanitize`, `deep-race`).
 
 ## What the tests assume of the host
 

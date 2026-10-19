@@ -1,0 +1,36 @@
+# The programs that may leak a reference cycle (step 15.11, docs/guides/sanitizers.md).
+#
+# Every test with a "// lsan: cycle" header line is here: gocpp frees by reference counting and
+# never frees a cycle (divergence D1), so LeakSanitizer is off for these programs in a normal
+# sanitizer run. Here each one is bounded instead: "go run ./tools/sanitize leaks" builds it with
+# -asan and LeakSanitizer ON, and fails when it leaks nothing (remove the marker and the line), more
+# than the ceiling (a real leak on top of the cycle) or when another sanitizer reports.
+#
+# path | kind | ceiling per compiler, g++=BYTES/ALLOCATIONS clang++=BYTES/ALLOCATIONS [slack=BYTES/ALLOCATIONS] | reason
+#
+# slack is for a program whose leak differs from run to run (it starts goroutines, and what a leaked
+# queue or a thread's bookkeeping holds depends on how they interleave); the limit is the ceiling plus
+# the slack, at most 4 KiB. No line has one today: make the program deterministic first. The allocation slack must be 0 (the policy test enforces it): one more allocation is the sign of a leak.
+#
+# Kinds: closure-self, mutual-pointers, doubly-linked, cond-locker, self-pointer, cyclic-data,
+# context-tree, mixed. "go run ./tools/sanitize leaks -update" records the measured sizes (it only
+# lowers a ceiling; -allow-grow raises one, and the change needs a reviewer who agrees that it is
+# a cycle and not a leak).
+internal/cppgen/testdata/emit/closures.gp | closure-self | g++=72/2 clang++=72/2 | recursion through a variable: a closure that calls itself holds the box that holds the closure
+tests/diff/closure_iface_options.gp | closure-self | g++=1400/6 clang++=1400/6 | the memoized fib is a closure that holds itself through a variable
+tests/run/closures_recursive.gp | closure-self | g++=288/8 clang++=288/8 | fib calls itself through the variable that holds it: the closure and its box hold each other
+tests/run/context_gotest_x.gp | context-tree | g++=35704/175 clang++=35704/175 | the layered-context tests (TestLayers*, TestCause, custom contexts) make children that are never canceled: a child holds its parent and the parent's children map holds the child (cancelCtx.propagateCancel, Done); 43 of the 47 leak stacks go through package context, the other 4 are the test's own context values and a channel held by that tree
+tests/run/derive_cycle.gp | self-pointer | g++=72/1 clang++=72/1 | a value that points back to itself (the test of what Equal and Clone do about references)
+tests/run/embed_later_types.gp | mutual-pointers | g++=80/2 clang++=80/2 | two structs that embed pointers to each other
+tests/run/generics_closures_loopvars.gp | closure-self | g++=192/4 clang++=192/4 | recursive closures in generic functions (rec calls itself through its variable)
+tests/run/generics_mutual_recursion.gp | mutual-pointers | g++=848/9 clang++=848/9 | a tree whose nodes hold a forest, a forest of trees, a list of pairs of itself: instances that refer to each other
+tests/run/generics_ops_closures.gp | closure-self | g++=192/4 clang++=192/4 | Fix-style recursion through a variable in a generic function (rec = func(x T) T { return f(rec, x) })
+tests/run/generics_types_cache.gp | doubly-linked | g++=176/2 clang++=176/2 | a cache with a doubly linked list: prev and next are strong
+tests/run/generics_types_mutual.gp | mutual-pointers | g++=792/9 clang++=792/9 | mutually recursive generic types: each instance refers to the other
+tests/run/iface_mv_func_values.gp | closure-self | g++=200/5 clang++=200/5 | a func value that calls itself through the variable g (var g func(int) int), next to method values stored in interfaces
+tests/run/rangefunc_literals_recursion.gp | closure-self | g++=72/2 clang++=72/2 | a func literal that calls itself through the variable rec (var rec func(n int) int; rec = func ...)
+tests/run/reflect_deepequal_cycles.gp | cyclic-data | g++=3608/25 clang++=3608/25 | reflect.DeepEqual on values with cycles: a node that points to itself, a tree whose children point to the parent
+tests/run/sync_cond_broadcast_generations.gp | cond-locker | g++=128/2 clang++=128/2 | the barrier's Cond has a Locker that is a pointer into the barrier struct that holds the Cond (b.cond = sync.NewCond(&b.mu))
+tests/run/sync_cond_broadcast_not_sticky.gp | cond-locker | g++=120/2 clang++=120/2 | the gate's Cond has a Locker that is a pointer into the gate struct that holds the Cond (g.cond = sync.NewCond(&g.mu))
+tests/run/sync_cond_queue.gp | cond-locker | g++=24192/3 clang++=24192/3 | the Cond's Locker is a pointer into the struct that holds the Cond (sync.NewCond(&q.mu)); the queue's slice has room for all 3000 items from the start, so the leak is the same on every run (24,192 bytes: that slice and the queue's two small objects)
+tests/run/sync_cond_semaphore.gp | cond-locker | g++=112/2 clang++=112/2 | the Cond's Locker is a pointer into the struct that holds the Cond (sync.NewCond(&s.mu))
