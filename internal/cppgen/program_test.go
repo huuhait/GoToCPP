@@ -27,7 +27,7 @@ func loadProgram(t *testing.T, dir string, std fs.FS, goStd func(string) bool) (
 	if std == nil {
 		std, goStd = stdlib.FS(), stdlib.IsStd
 	}
-	prog := load.Load(load.Config{Dir: dir, Stdlib: std, GoStd: goStd, GOOS: "linux", GOARCH: "amd64"}, ".")
+	prog := load.Load(load.Config{Dir: dir, Stdlib: std, GoStd: goStd, GOOS: "linux", GOARCH: "amd64", Phase10Syntax: true}, ".")
 	r := check.Check(prog, check.Config{Phase: check.LastPhase})
 	var errs []string
 	for _, p := range prog.Packages {
@@ -43,9 +43,31 @@ func loadProgram(t *testing.T, dir string, std fs.FS, goStd func(string) bool) (
 	if len(errs) > 0 {
 		t.Fatalf("the program has errors:\n%s", strings.Join(errs, "\n"))
 	}
+	// The packages of the program, like cmd/gocpp's load: what the main package imports, without
+	// the packages that get no C++ (fmt, a stub) and what only they import (fmt imports io, which
+	// the program has no C++ of when nothing else uses it).
+	reach := make(map[*load.Package]bool)
+	var visit func(p *load.Package)
+	visit = func(p *load.Package) {
+		if reach[p] {
+			return
+		}
+		reach[p] = true
+		if p.Std && (p.ImportPath == "fmt" || stub(p)) {
+			return
+		}
+		for _, dep := range p.Imports {
+			visit(dep)
+		}
+	}
+	for _, p := range prog.Packages {
+		if p.IsProgram() {
+			visit(p)
+		}
+	}
 	var pkgs []ProgramPackage
 	for _, p := range prog.Packages {
-		if p.Std && (p.ImportPath == "fmt" || stub(p)) {
+		if !reach[p] || p.Std && (p.ImportPath == "fmt" || stub(p)) {
 			continue
 		}
 		pkgs = append(pkgs, ProgramPackage{Pkg: r.Package(p)})

@@ -47,7 +47,7 @@ func emitPatterns(t *testing.T, cfg Config, dir string, patterns ...string) (str
 // emitPatterns does, and fails the test if it has errors.
 func checkPatterns(t *testing.T, dir string, patterns ...string) (*token.FileSet, *check.Package) {
 	t.Helper()
-	lcfg := load.Config{Dir: dir, Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: "linux", GOARCH: "amd64"}
+	lcfg := load.Config{Dir: dir, Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: "linux", GOARCH: "amd64", Phase10Syntax: true}
 	prog := load.Load(lcfg, patterns...)
 	r := check.Check(prog, check.Config{Phase: check.LastPhase})
 	if len(prog.Roots) != 1 {
