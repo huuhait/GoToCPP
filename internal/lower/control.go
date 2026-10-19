@@ -306,6 +306,7 @@ func (fg *funcGen) forStmt(s *ast.ForStmt) {
 			typ := fg.g.cxxType(v.Type(), v.Pos())
 			line.Stmts = append(line.Stmts, &cppir.ExprStmt{X: &cppir.Assign{Op: "=", X: cxxName(name), Y: newBox(typ, deref(cxxName(name)))}})
 		}
+		fg.g.noteLoopCopy(renew, s.For) // why.go
 		l.renew = line
 		l.post = s.Post
 	} else if s.Post != nil {
@@ -432,7 +433,8 @@ func (fg *funcGen) forInit(s ast.Stmt) (cppir.Stmt, bool) {
 // calls (gp::len(f()), arrays.go: rangeCount).
 func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 	if isRangeFunc(fg.g.info, s) {
-		fg.rangeFunc(s) // rangefunc.go
+		fg.g.why(s.For, WhyRange, "range over a func: the iterator is called with the loop body as its yield function, a closure (Go's own rewrite); gp::rangefunc_state keeps Go's checks that the iterator does not call yield after the loop ended; break, continue and return are returns from the closure with the jump recorded in the state") // why.go
+		fg.rangeFunc(s)                                                                                                                                                                                                                                                                                                                              // rangefunc.go
 		return
 	}
 	if fg.g.cRange(s) {
@@ -440,7 +442,8 @@ func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 		return
 	}
 	xt := fg.g.info.TypeOf(s.X)
-	b := underBasic(xt) // also a named string or integer type (step 3.9)
+	fg.g.noteRange(s, xt) // why.go
+	b := underBasic(xt)   // also a named string or integer type (step 3.9)
 	switch {
 	case b != nil && b.Info()&types.IsString != 0:
 		fg.rangeIter(s, "gp::range_string", func(it cppir.Expr) cppir.Expr { return &cppir.Member{X: it, Name: "gp_r"} })

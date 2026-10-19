@@ -35,6 +35,10 @@ type Config struct {
 	Concepts bool
 	// Library writes a library (lower.Options.Library): gp_init_all in the last package, no main().
 	Library bool
+
+	// Why, when it is not nil, collects the reasons for the lowering's decisions (lower.Why):
+	// gocpp emit -annotate. It never changes the C++.
+	Why *lower.Why
 }
 
 // An Error is a problem that stops EmitPackage: mostly a construct that the emitter can't
@@ -76,7 +80,7 @@ func EmitPackage(w io.Writer, fset *token.FileSet, pkg *check.Package, cfg Confi
 	case pkg.Errors.HasErrors():
 		return fmt.Errorf("cppgen: package %s has errors", pkg.Load.ImportPath)
 	}
-	f, err := lower.Package(fset, pkg, cfg.Interop, lower.Options{AllForwarders: cfg.AllForwarders, Concepts: cfg.Concepts})
+	f, err := lower.Package(fset, pkg, cfg.Interop, lower.Options{AllForwarders: cfg.AllForwarders, Concepts: cfg.Concepts, Why: cfg.Why})
 	if err != nil {
 		var le *lower.Error
 		if errors.As(err, &le) {
@@ -100,6 +104,9 @@ type ProgramPackage struct {
 type File struct {
 	Path string // relative to the root of the generated files, with slashes: gpkg/<import path>/pkg.hpp
 	Data []byte
+
+	// Std says that the file is of a package of the standard library.
+	Std bool
 }
 
 // A ProgramFiles are the generated files of a program.
@@ -144,7 +151,7 @@ func EmitProgram(fset *token.FileSet, pkgs []ProgramPackage, root string, cfg Co
 		}
 		in[i] = lower.PackageInput{Pkg: p.Pkg, Interop: p.Interop}
 	}
-	prog := lower.NewProgram(fset, in, lower.Options{AllForwarders: cfg.AllForwarders, Concepts: cfg.Concepts, Library: cfg.Library})
+	prog := lower.NewProgram(fset, in, lower.Options{AllForwarders: cfg.AllForwarders, Concepts: cfg.Concepts, Library: cfg.Library, Why: cfg.Why})
 	pfs, err := prog.Lower()
 	if err != nil {
 		var le *lower.Error
@@ -168,7 +175,7 @@ func EmitProgram(fset *token.FileSet, pkgs []ProgramPackage, root string, cfg Co
 			case root != "":
 				outPath = filepath.Join(root, filepath.FromSlash(rel))
 			}
-			out.Files = append(out.Files, File{Path: rel, Data: cppir.Print(f, outPath)})
+			out.Files = append(out.Files, File{Path: rel, Data: cppir.Print(f, outPath), Std: std})
 			if compile {
 				info.Compile = append(info.Compile, rel)
 			}

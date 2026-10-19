@@ -75,6 +75,7 @@ func (fg *funcGen) chanRecv(e *ast.UnaryExpr) cppir.Expr {
 	if isTuple(fg.g.info.TypeOf(e)) || fg.commaRecvs[e] {
 		fun = "gp::recv2"
 	}
+	fg.g.noteChan(e.Pos(), fun) // why.go
 	return call(fun, fg.expr(e.X))
 }
 
@@ -90,6 +91,7 @@ func isRecv(e ast.Expr) *ast.UnaryExpr {
 // sendStmt lowers ch <- v: gp::send(ch, v);. The channel and the value are evaluated first, in
 // the order of a call's arguments, and then the goroutine communicates.
 func (fg *funcGen) sendStmt(s *ast.SendStmt) {
+	fg.g.noteChan(s.Pos(), "gp::send") // why.go
 	p := fg.g.pos(s.Pos())
 	pre := fg.order(false, s.Chan, s.Value)
 	var v cppir.Expr
@@ -114,11 +116,13 @@ func (fg *funcGen) chanBuiltin(c *ast.CallExpr, name string) cppir.Expr {
 		} else {
 			elem = fg.g.cxxType(ct.Elem(), arg.Pos())
 		}
+		fg.g.noteChan(c.Pos(), "gp::make_chan") // why.go
 		if len(c.Args) == 1 {
 			return templateCall("gp::make_chan", []cppir.Node{elem})
 		}
 		return templateCall("gp::make_chan", []cppir.Node{elem}, fg.intExpr(c.Args[1]))
 	case "close":
+		fg.g.noteChan(c.Pos(), "gp::close") // why.go
 		return call("gp::close", fg.expr(arg))
 	}
 	fg.g.errorf(c.Pos(), "internal error: %s of a channel (a construct the checker should have rejected)", name)
@@ -165,6 +169,7 @@ func (fg *funcGen) chanConversion(c *ast.CallExpr, to, from types.Type, x cppir.
 // later case's call can't change or free it. break leaves the C++ switch, like Go's select;
 // continue and the labelled jumps are the loop's (flow.go).
 func (fg *funcGen) selectStmt(s *ast.SelectStmt) {
+	fg.g.noteSelect(s) // why.go
 	if len(s.Body.List) == 0 {
 		p := fg.g.pos(s.Select)
 		fg.add(&cppir.ExprStmt{Pos: p, X: call("gp::select")})

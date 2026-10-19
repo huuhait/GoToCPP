@@ -175,6 +175,7 @@ func (fg *funcGen) lambda(fl *ast.FuncLit) *cppir.Lambda {
 		return &cppir.Lambda{Body: &cppir.Block{Inline: true}}
 	}
 	caps := fg.captures(fl) // the names outside the literal
+	fg.noteClosure(fl, n)   // why.go
 	fg.names.openScope()    // the lambda's parameters, results and outermost declarations
 	f := &funcInfo{sig: sig, ftype: fl.Type, body: fl.Body, pos: fl.Pos(), top: fg.top, names: fg.names, boxed: fg.boxed}
 	f.signature(g)
@@ -299,6 +300,7 @@ func (fg *funcGen) callValue(c *ast.CallExpr) cppir.Expr {
 		return placeholder
 	}
 	fun := ast.Unparen(c.Fun)
+	fg.g.noteCallValue(c.Pos(), fg.stableCallee(fun)) // why.go
 	var callee cppir.Expr
 	if fl, ok := fun.(*ast.FuncLit); ok {
 		// Called at once: no func value. A lambda over several lines is called as

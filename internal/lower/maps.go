@@ -63,6 +63,7 @@ func (fg *funcGen) mapRead(e *ast.IndexExpr) cppir.Expr {
 	if isTuple(fg.g.info.TypeOf(e)) || fg.commaOKs[e] {
 		fun = "gp::lookup"
 	}
+	fg.g.noteMap(e.Lbrack, "read "+fun) // why.go
 	return call(fun, fg.expr(e.X), fg.expr(e.Index))
 }
 
@@ -87,6 +88,7 @@ func (fg *funcGen) mapIndex(e ast.Expr) *ast.IndexExpr {
 // mapRef returns gp::ref(m, k) for the map entry x: the value of k, inserted first as the zero
 // value if it isn't there (a nil map panics).
 func (fg *funcGen) mapRef(x *ast.IndexExpr) cppir.Expr {
+	fg.g.noteMap(x.Lbrack, "write gp::ref") // why.go
 	return call("gp::ref", fg.expr(x.X), fg.expr(x.Index))
 }
 
@@ -100,6 +102,7 @@ func (fg *funcGen) mapLit(e *ast.CompositeLit) cppir.Expr {
 	fg.g.litPartType(e, t, nil)
 	key, elem := fg.g.litPartType(e, t, keyOf), fg.g.litPartType(e, t, elemOf)
 	var pairs []cppir.Expr
+	fg.g.noteMap(e.Lbrace, "literal gp::map_of") // why.go
 	for _, kv := range fg.mapEntries(e) {
 		pairs = append(pairs, &cppir.InitList{Elems: []cppir.Expr{fg.expr(kv.Key), fg.expr(kv.Value)}})
 	}
@@ -449,11 +452,13 @@ func (fg *funcGen) mapBuiltin(c *ast.CallExpr, name string) cppir.Expr {
 		} else {
 			targs = []cppir.Node{fg.g.cxxType(mt.Key(), arg.Pos()), fg.g.cxxType(mt.Elem(), arg.Pos())}
 		}
+		fg.g.noteMap(c.Pos(), "make gp::make_map") // why.go
 		if len(c.Args) == 1 {
 			return templateCall("gp::make_map", targs)
 		}
 		return templateCall("gp::make_map", targs, fg.intExpr(c.Args[1]))
 	case "delete":
+		fg.g.noteMap(c.Pos(), "delete gp::erase") // why.go
 		return call("gp::erase", fg.expr(arg), fg.expr(c.Args[1]))
 	case "clear":
 		return call("gp::clear", fg.expr(arg))
@@ -800,11 +805,13 @@ func (fg *funcGen) mapSimple(s ast.Stmt) cppir.Expr {
 			v := fg.constValue(y)
 			safe := v != nil && constant.Sign(v) != 0 && constant.Compare(v, token.NEQ, constant.MakeInt64(-1))
 			if b != nil && b.Info()&types.IsInteger != 0 && !safe {
+				fg.g.noteMap(x.Lbrack, map[token.Token]string{token.QUO: "divide gp::set", token.REM: "remainder gp::set"}[op]) // why.go
 				return call("gp::set", fg.expr(x.X), fg.expr(x.Index), fg.binaryOp(s.TokPos, op, x, y))
 			}
 			// A float, or a divisor that can't fail: compound.
 		case token.SHL, token.SHR:
 			if _, rt := fg.mapShift(s); rt {
+				fg.g.noteMap(x.Lbrack, "shift gp::ref") // why.go
 				helper := "gp::shl"
 				if op == token.SHR {
 					helper = "gp::shr"
@@ -820,6 +827,7 @@ func (fg *funcGen) mapSimple(s ast.Stmt) cppir.Expr {
 // mapTarget makes t, the target of an assignment to the map entry x, store through gp::set
 // (target.assignExpr).
 func (fg *funcGen) mapTarget(t *target, x *ast.IndexExpr) {
+	fg.g.noteMap(x.Lbrack, "store gp::set") // why.go
 	t.mapX, t.mapK = fg.expr(x.X), fg.expr(x.Index)
 }
 

@@ -54,6 +54,7 @@ import (
 // gp::to_iface for a concrete value, gp::iface_cast for another interface, to() for nil.
 func (g *gen) toInterface(from, to types.Type, x cppir.Expr, pos token.Pos) cppir.Expr {
 	typ := g.cxxType(to, pos)
+	g.noteToIface(from, to, pos) // why.go
 	switch {
 	case from == nil || isNilType(from):
 		return construct(typ)
@@ -137,6 +138,7 @@ func (fg *funcGen) typeAssert(e *ast.TypeAssertExpr) cppir.Expr {
 	t := g.info.TypeOf(e.Type)
 	x := fg.expr(e.X)
 	commaOK := isTuple(g.info.TypeOf(e)) || fg.commaAsserts[e]
+	g.noteAssert(t, commaOK, e.Pos()) // why.go
 	if g.foreignVal(t) {
 		// A C/C++ type: the value's descriptor is the foreign one of its C++ type.
 		ct := g.typeExpr(e.Type)
@@ -208,6 +210,7 @@ func (fg *funcGen) typeSwitchStmt(s *ast.TypeSwitchStmt) {
 	guard, _ := typeSwitchGuard(s)
 	xe := guard.X
 	xt := g.info.TypeOf(xe)
+	g.noteTypeSwitch(s) // why.go
 	xtyp := g.cxxType(xt, xe.Pos())
 	pre := fg.order(false, xe)
 	wrap()

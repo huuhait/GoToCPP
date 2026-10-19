@@ -191,6 +191,7 @@ func (fg *funcGen) ownedValue(e ast.Expr, x cppir.Expr) cppir.Expr {
 	if _, ok := fg.temps[ast.Unparen(e)]; ok || !fg.g.ownedCall(e) {
 		return x // a temporary of the order is owned already (emitItem)
 	}
+	fg.g.noteOwnedResult(e.Pos()) // why.go
 	r := fg.names.temp("R")
 	cond := &cppir.Name{Name: "gp::detail::is_values", Args: []cppir.Node{typeName(r)}}
 	owned := &cppir.Call{Fun: &cppir.Name{Name: "gp::values", Args: []cppir.Node{typeName(r)}}, Args: []cppir.Expr{x}}

@@ -135,7 +135,10 @@ gocpp-specific analyzers:
 4. **13.4 `gocpp doc`.** Built as `internal/doc` (a port of `cmd/doc`: same lookup rules and same
    output as `go doc`, checked against the real `go doc`; gocpp syntax, derived methods, header
    packages, `-examples`) with a reusable `doc.Render`; guide: `docs/guides/doc.md`.
-5. **13.5 `emit --annotate` and `explain`.**
+5. **13.5 `emit --annotate` and `explain`.** Built: a nil-able reason log in `lower.Options` (hooks never change
+   the C++; [ADR-054](../../../docs/adr/054-reason-log-and-explain.md)), `gocpp emit -annotate`, `gocpp explain`
+   for the topics of `gocpp explain -list` (the kinds of reasons and reference pages, each with a live example from the real compiler), `file.gp:LINE` and messages (a table with a completeness
+   test over the sources); guide: [docs/guides/explain.md](../../../docs/guides/explain.md).
 
 ## 4. Deliverables
 

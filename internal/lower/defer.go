@@ -232,6 +232,7 @@ func (fg *funcGen) openDefers() {
 	fg.push(&d.try.Body.Stmts, &d.try.Body.End)
 	fg.names.openScope()
 	fg.fresh = true
+	fg.g.noteDeferFrame(fg.fn.pos, len(fg.fn.results) > 0) // why.go
 }
 
 // closeDefers ends the shape that openDefers started, at the body's closing brace rbrace: the
@@ -283,6 +284,7 @@ func (fg *funcGen) deferReturn(s *ast.ReturnStmt) {
 	p := fg.g.pos(s.Pos())
 	label := fg.names.temp("ret")
 	d.exits = append(d.exits, deferExit{label, p})
+	fg.g.noteDeferReturn(s.Pos(), label, len(fg.fn.results) > 0) // why.go
 	jump := &cppir.Goto{Pos: p, Label: label}
 	if len(s.Results) == 0 {
 		fg.add(jump) // a bare return: the named results are set already
@@ -345,8 +347,10 @@ func (fg *funcGen) deferredCall(pos token.Pos, c *ast.CallExpr, spawn bool) {
 	pre := fg.order(false, c)
 	fg.deferCall = nil
 	var push cppir.Expr
+	how := howThunk // for the reason log (why.go)
 	switch fn := fg.deferredFunc(c); {
 	case fn != nil:
+		how = howFunc
 		args := []cppir.Expr{cxxName(fg.cname(fn, c.Fun.Pos()))}
 		for _, a := range c.Args {
 			if fg.g.pkg.Opaque.IsOpaque(a) && fg.constValue(a) == nil {
@@ -357,6 +361,7 @@ func (fg *funcGen) deferredCall(pos token.Pos, c *ast.CallExpr, spawn bool) {
 		}
 		push = fg.pushCall(pushName("gp_push", fg.deferKind(c)), args...) // gp_push_aware: recover.go
 	case fg.isBuiltin(c, "recover"):
+		how = howRecover
 		// defer recover() does nothing: recover is the deferred call itself, not called by one
 		// (recover.go), and it has no arguments.
 		auto := &cppir.Ref{Elem: typeName("auto"), RValue: true}
@@ -365,12 +370,19 @@ func (fg *funcGen) deferredCall(pos token.Pos, c *ast.CallExpr, spawn bool) {
 			Body:   &cppir.Block{Inline: true},
 		})
 	case fg.g.opaqueCallee(c):
+		how = howOpaque
 		push = fg.deferThunk(c) // a member of a C/C++ object, or a C++ callable (cbox.go)
 	case fg.funcValueCall(c):
+		how = howValue
+		if _, lit := ast.Unparen(c.Fun).(*ast.FuncLit); lit {
+			how = howLiteral
+		}
 		push = fg.deferValue(c) // closures.go
 	default:
+		how = howThunk
 		push = fg.deferThunk(c)
 	}
+	fg.noteDeferred(pos, spawn, how) // why.go
 	fg.add(withPre(p, pre, &cppir.ExprStmt{Pos: p, X: push}))
 }
 

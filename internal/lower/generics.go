@@ -508,6 +508,7 @@ func (g *gen) instanceName(r *instRef) cppir.Expr {
 		}
 		g.instNames[name] = text
 		in = &instance{gf: r.gf, targs: r.targs, unit: g.unit, open: open, name: name}
+		g.noteInstanceUse(r, name) // why.go
 		if g.insts == nil {
 			g.insts = make(map[instKey]*instance)
 		}
@@ -597,16 +598,19 @@ func (g *gen) lowerInstance(in *instance) {
 		uintCounts map[ast.Expr]bool
 		unit       string
 		open       map[*types.Named]bool
-	}{g.info, g.implicit, g.uintCounts, g.unit, g.curOpen}
+		inst       string
+	}{g.info, g.implicit, g.uintCounts, g.unit, g.curOpen, g.curInst}
 	g.info, g.implicit, g.uintCounts, g.unit = owner.info, nil, make(map[ast.Expr]bool), in.unit
 	g.curOpen = make(map[*types.Named]bool)
+	g.curInst = in.name
 	for _, n := range in.open {
 		g.curOpen[n] = true
 	}
 	defer func() {
-		g.info, g.implicit, g.uintCounts, g.unit, g.curOpen = saved.info, saved.implicit, saved.uintCounts, saved.unit, saved.open
+		g.info, g.implicit, g.uintCounts, g.unit, g.curOpen, g.curInst = saved.info, saved.implicit, saved.uintCounts, saved.unit, saved.open, saved.inst
 	}()
 
+	g.noteInstanceBody(in) // why.go
 	f := &funcInfo{decl: gf.decl, obj: obj, name: in.name}
 	f.prepare(g)
 	proto := &cppir.Func{Result: f.result, Name: f.name, Params: f.params}

@@ -1234,6 +1234,7 @@ func (fg *funcGen) emitItem(it *orderItem, pre *[]cppir.Stmt) {
 		// r := x; if r { r = y } (for ||: if !r)
 		fg.emitScope(it.inner[0], pre)
 		t := fg.names.temp("t")
+		fg.g.noteOrder(it.e.Pos(), t, orderBlock) // why.go
 		*pre = append(*pre, varDecl(cppir.Pos{}, fg.boolType(it.e), t, fg.cBool(it.bin.X)))
 		var inner []cppir.Stmt
 		fg.emitScope(it.inner[1], &inner)
@@ -1267,6 +1268,7 @@ func (fg *funcGen) emitItem(it *orderItem, pre *[]cppir.Stmt) {
 		x = fg.ownedValue(it.e, x) // a copy, also of a C++ pair of references (crange.go)
 	}
 	t := fg.names.temp("t")
+	fg.g.noteOrder(it.e.Pos(), t, orderUnit) // why.go
 	*pre = append(*pre, varDecl(cppir.Pos{}, typ, t, x))
 	fg.temps[it.e] = t
 	if it.bin == nil && typ.(*cppir.TypeName).Name == "auto" && fg.g.pkg.Opaque.IsOpaque(it.e) {
@@ -1463,6 +1465,7 @@ func (fg *funcGen) emitPanic(it *orderItem, pre *[]cppir.Stmt) {
 		return
 	}
 	t := fg.names.temp("t")
+	fg.g.noteOrder(it.e.Pos(), t, orderPanic) // why.go
 	*pre = append(*pre, varDecl(cppir.Pos{}, typeName("auto"), t, fg.exactExpr(it.e)))
 	fg.temps[it.e] = t
 }

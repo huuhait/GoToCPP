@@ -110,6 +110,7 @@ func (fg *funcGen) pkgFunc(c *ast.CallExpr, sel *ast.SelectorExpr) string {
 // fmtCall returns the C++ of the call c of the fmt function fn, whose C++ name is callee.
 func (fg *funcGen) fmtCall(c *ast.CallExpr, fn *types.Func, callee string) cppir.Expr {
 	name := fn.Name()
+	fg.g.noteFmt(c.Pos(), name) // why.go
 	if name == "FormatString" {
 		args := fg.exprs(c.Args, false)
 		if len(c.Args) > 0 && isNilType(fg.g.info.TypeOf(c.Args[0])) {

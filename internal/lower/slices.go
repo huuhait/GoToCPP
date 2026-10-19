@@ -102,6 +102,7 @@ func (fg *funcGen) sliceBuiltin(c *ast.CallExpr, name string) cppir.Expr {
 		fg.g.unsupported(c.Pos(), what+types.TypeString(t, types.RelativeTo(fg.g.pkg.Types))+phase)
 		return placeholder
 	}
+	fg.g.noteSliceBuiltin(c, name) // why.go
 	switch name {
 	case "make":
 		// make([]T, n) and make([]T, n, c): the type is the first argument.

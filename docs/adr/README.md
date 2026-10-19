@@ -58,6 +58,7 @@ and from the user's answers to Q1–Q13
 | [037](037-must-rewrite.md) | `!` is a rewrite of the Go AST around `go/types`, and the lowerer sees plain Go | accepted | Helpers of the hidden `gocpp/must` for the checker, a post-check that the last result is exactly `error`, then each helper becomes hand-written control flow in the Go AST; `main!` is a wrapper that calls `gp::must_exit`. Builds 013. (031 to 036 are other jobs'.) |
 | [063](063-doc-header-documentation.md) | `gocpp doc` documents C/C++ headers from their Doxygen comments, read as text | accepted | A line reader and regexes, not a parser; the compiler probes answer what the comments cannot; Windows-1252 per invalid byte; derived methods from fixed tables; `#Derive` on a type group shows nothing. |
 | [040](040-sync-on-a-semaphore-table.md) | `sync` is Go's algorithms on words, with the waiters in a table outside the objects | accepted | Templates over the generated structs as natives, Go's Mutex/RWMutex/WaitGroup/Cond line by line, a semaphore table keyed by address (blocked accounting as channels), starvation threshold scaled for threads, `atomic_ref` for sync/atomic. |
+| [054](054-reason-log-and-explain.md) | The lowering records its reasons in an optional log; `explain` is built from the compiler's own output | accepted | `lower.Why` (nil: hooks do nothing, the C++ never changes), each reason kind is an `explain` topic, topics embed live examples, messages have a table with a completeness test. |
 
 ## Changing a decision
 

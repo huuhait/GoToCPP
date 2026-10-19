@@ -204,6 +204,15 @@ type gen struct {
 	cxxCount int
 	curOpen  map[*types.Named]bool
 
+	// curInst is the C++ name of the instance being lowered, "" outside one (the reason log's Inst).
+	curInst string
+
+	// whyReg says that the package was registered with the reason log (Why.register).
+	whyReg bool
+
+	// mute, when it is not 0, stops the reason log (quiet).
+	mute int
+
 	// prog is the program of the packages lowered together (program.go); it is never nil.
 	// global counts the definitions of shared types being written (shared.go): the package's
 	// types are fully qualified there too, as they are written outside its namespace.
@@ -433,6 +442,7 @@ func (g *gen) collectFunc(d *ast.FuncDecl) {
 		// Go allows many init functions, and nothing can refer to them.
 		name = fmt.Sprintf("gp_init_%d", len(g.initFns)+1)
 		g.initFns = append(g.initFns, name)
+		g.noteInitFunc(d.Name.Pos(), name) // why.go
 	}
 	g.names[fn] = name
 	g.funcs = append(g.funcs, &funcInfo{decl: d, obj: fn, name: name})

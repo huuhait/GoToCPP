@@ -250,6 +250,7 @@ func (fg *funcGen) selector(x *ast.SelectorExpr) cppir.Expr {
 		}
 		fg.g.unsupported(x.Pos(), "this qualified name")
 	case sel.Kind() == types.FieldVal:
+		fg.g.noteField(x, sel) // why.go
 		return fg.fieldChain(fg.expr(x.X), sel, x.Pos())
 	default:
 		return fg.methodValue(x, sel) // methods.go: method values and expressions

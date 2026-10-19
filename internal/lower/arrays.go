@@ -186,6 +186,7 @@ func hasKeys(e *ast.CompositeLit) bool {
 // operator[], which checks the bounds), or of p[i] for a pointer p to an array, (*p)[i]: a nil
 // p panics with the nil dereference before the index is checked, as in Go.
 func (fg *funcGen) arrayIndex(e *ast.IndexExpr) cppir.Expr {
+	fg.g.noteIndex(e.Lbrack, fg.g.info.TypeOf(e.X)) // why.go
 	x := fg.expr(e.X)
 	if arrayPtr(fg.g.info.TypeOf(e.X)) != nil {
 		x = deref(x)

@@ -70,6 +70,10 @@ type Options struct {
 	// Phase 06 step 6.10): the last package of the program defines gp_init_all, always, and no
 	// package defines main(). The library's own glue starts the program (gocpp/lib.hpp).
 	Library bool
+
+	// Why, when it is not nil, collects the reasons for the lowering's decisions (why.go): the
+	// annotated view of gocpp emit -annotate. It never changes the C++.
+	Why *Why
 }
 
 // forwarders returns the forwarders of the struct si that are written: all of them for a struct

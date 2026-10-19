@@ -46,6 +46,7 @@ import (
 
 // addr returns the C++ of &x.
 func (fg *funcGen) addr(e *ast.UnaryExpr) cppir.Expr {
+	fg.noteAddr(e) // why.go
 	switch x := ast.Unparen(e.X).(type) {
 	case *ast.Ident:
 		v, ok := fg.g.info.Uses[x].(*types.Var)

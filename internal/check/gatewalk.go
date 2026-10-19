@@ -811,7 +811,7 @@ func (g *gateChecker) checkTypes() {
 			// type WP weak.Pointer[T]: the intrinsic (weak.Pointer[T] itself and its aliases)
 			// is a runtime class; a type defined over it waits for the generics.
 			if f := &features[featGenericTypes]; !obj.IsAlias() && weakDefined(obj.Type()) && !f.allowed(g.phase) {
-				g.report(id.Pos(), id.End(), gateMessage("a type defined as weak.Pointer[T]", false, f.Phase), f.Phase)
+				g.report(id.Pos(), id.End(), gateMessage(weakDefinedSubject, false, f.Phase), f.Phase)
 			}
 		}
 	}

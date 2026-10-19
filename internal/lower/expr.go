@@ -251,6 +251,7 @@ func (fg *funcGen) value(e ast.Expr) cppir.Expr {
 		return fg.slice(e)
 	case *ast.StarExpr:
 		// *p: gp::ptr's operator* panics like Go for a nil p.
+		fg.g.noteDeref(e.Pos()) // why.go
 		return deref(fg.expr(e.X))
 	case *ast.CompositeLit:
 		return fg.compLit(e) // structs.go
@@ -378,10 +379,12 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 		return fg.cgoHelperCall(c, name) // C.GoString(p) and the other cgo helpers (cstrings.go)
 	}
 	if x, ok := fg.cCall(c); ok {
-		return x // of a C/C++ function (cvalues.go)
+		fg.g.noteCCall(c.Pos()) // why.go
+		return x                // of a C/C++ function (cvalues.go)
 	}
 	if fg.g.opaqueCallee(c) {
-		return fg.opaqueCall(c) // of a member of a C/C++ value, or a C++ callable (cvalues.go)
+		fg.g.noteMemberCall(c.Pos()) // why.go
+		return fg.opaqueCall(c)      // of a member of a C/C++ value, or a C++ callable (cvalues.go)
 	}
 	if x := fg.mustExit(c); x != nil {
 		return x // gp_must.Exit(gp_main()): the end of main! (must.go)
@@ -436,7 +439,7 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 			case "len", "cap", "panic", "new", "make", "append", "copy", "clear", "delete", "close":
 				return fg.builtin(c, obj.Name())
 			case "recover":
-				return fg.recoverCall() // recover.go
+				return fg.recoverCall(c.Pos()) // recover.go
 			case "min", "max":
 				return fg.minMax(c, obj.Name()) // builtins.go
 			default:

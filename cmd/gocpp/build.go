@@ -192,13 +192,17 @@ stops the compilers, removes the work folder and dies of that signal.
 
 The flags are:
 `
-	emitUsage = `usage: gocpp emit [-gp:concepts] [file.gp... | package]
+	emitUsage = `usage: gocpp emit [-gp:concepts] [-annotate [-json] [-nochecks] [-kinds k1,k2] [-std] [-o file]] [file.gp... | package]
 
 gocpp emit checks the package like gocpp check and prints the C++ that
 gocpp build compiles for it to standard output. The arguments are those
 of gocpp build. Errors print like gocpp check's, with exit status 1; a
 construct that the checker accepts but the emitter can't translate yet
 is an internal error, with exit status 2.
+
+With -annotate the output is for reading: the C++ with the .gp line that
+each part comes from and the reasons for the lowering's choices (gocpp
+explain TOPIC says what a mechanism is). See docs/guides/explain.md.
 `
 )
 
@@ -330,7 +334,12 @@ func runEmit(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	var ef buildFlags
 	ef.diagOpts.register(flags)
 	flags.BoolVar(&ef.concepts, "gp:concepts", false, "also write C++20 concepts for Go's constraints into the package headers")
+	var ann annotateFlags
+	ann.register(flags) // annotate.go
 	if code, done := parseFlags("emit", emitUsage, flags, args, stderr); done {
+		return code
+	}
+	if code, bad := ann.validate(stderr); bad {
 		return code
 	}
 	d, code := newDriver("emit", &ef, stdout, stderr)
@@ -341,6 +350,9 @@ func runEmit(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	set, code := d.load(flags.Args())
 	if set == nil {
 		return code
+	}
+	if ann.on {
+		return ann.run(d, set, stdout, stderr)
 	}
 	files, code := d.emit(set, "", nil)
 	if files == nil {
@@ -369,6 +381,10 @@ type driver struct {
 
 	// files says that the package is a list of .gp files.
 	files bool
+
+	// why, when it is not nil, collects the reasons for the lowering's choices (gocpp emit
+	// -annotate, annotate.go).
+	why *lower.Why
 
 	// pkgLine says that the "# <package>" line of the output of the
 	// package's C and C++ files is printed (sourcesHeader).
@@ -697,7 +713,7 @@ func (d *driver) emit(set *buildSet, root string, cxx *build.CXX) (*cppgen.Progr
 		}
 		in[i] = cppgen.ProgramPackage{Pkg: pkg, Interop: interop}
 	}
-	files, err := cppgen.EmitProgram(d.check.fset, in, root, cppgen.Config{Concepts: d.flags.concepts, Library: d.flags.mode.Library()})
+	files, err := cppgen.EmitProgram(d.check.fset, in, root, cppgen.Config{Concepts: d.flags.concepts, Library: d.flags.mode.Library(), Why: d.why})
 	if err == nil {
 		d.counts.emit += len(set.pkgs)
 		return files, 0

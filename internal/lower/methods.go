@@ -462,6 +462,7 @@ func (g *gen) callMethod(recv cppir.Expr, ptr bool, fn *types.Func, r recvPath, 
 	if p, ok := under(base).(*types.Pointer); ok {
 		base = p.Elem()
 	}
+	g.noteMethodCall(base, r.ptrRecv, ptr, fn, pos) // why.go
 	if isInterface(base) {
 		// A method of an interface value: the wrapper of its interface struct (ifaces.go).
 		return &cppir.Call{Fun: &cppir.Member{X: recv, Name: g.ifaceMethodName(base, fn, pos)}, Args: args}
@@ -657,7 +658,12 @@ func (fg *funcGen) methodLambda(x *ast.SelectorExpr, s *selection) *cppir.Lambda
 		lam.Captures = []cppir.Capture{{Name: "gp_r", Init: value}}
 		ptr = r.ptrRecv
 	}
-	lam.Body.Stmts = append(lam.Body.Stmts, &cppir.Return{X: fg.g.callMethod(recv, ptr, fn, r, args, x.Pos())})
+	// The call inside the lambda is not a method call of the program: its notes would say "a static
+	// call" for what is a lambda that binds the receiver (noteMethodValue says it).
+	fg.g.noteMethodValue(x, s, r)
+	var body cppir.Expr
+	fg.g.quiet(func() { body = fg.g.callMethod(recv, ptr, fn, r, args, x.Pos()) })
+	lam.Body.Stmts = append(lam.Body.Stmts, &cppir.Return{X: body})
 	return lam
 }
 

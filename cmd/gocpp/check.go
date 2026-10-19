@@ -169,6 +169,10 @@ type checkCommand struct {
 	// directly (load.Config.FS): gocpp build records what it reads (build.FSRecorder).
 	fs load.FileSystem
 
+	// minPhase, when it is not zero, opens the phase gates up to that phase, as GOCPP_GATE_PHASE
+	// does: gocpp explain emits the examples of the topics of a later phase.
+	minPhase int
+
 	// pkgConfig, if not nil, runs pkg-config for the flags of the packages
 	// (check.Config.PkgConfig): gocpp build -x and run -x print the runs.
 	pkgConfig build.PkgConfigFunc
@@ -217,6 +221,7 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 		fmt.Fprintf(c.stderr, "gocpp: %v\n", err)
 		return &load.Program{Fset: token.NewFileSet(), Errors: new(diag.List)}, nil, exitInternal
 	}
+	phase = max(phase, c.minPhase)
 	m := matchPatterns(c.dir, patterns)
 	for _, w := range m.warnings {
 		fmt.Fprintln(c.stderr, w)

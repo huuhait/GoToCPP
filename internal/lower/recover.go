@@ -2,6 +2,7 @@ package lower
 
 import (
 	"go/ast"
+	"go/token"
 	"go/types"
 
 	"github.com/huuhait/gocpp/internal/cppir"
@@ -116,18 +117,20 @@ func (fg *funcGen) takeTicket() {
 	if !fg.g.awareBody(fg.fn.body) {
 		return
 	}
+	fg.g.noteAware(fg.fn.pos) // why.go
 	fg.add(varDecl(fg.g.pos(fg.fn.pos), typeName("gp::defer_ctx"), deferCtxName, call("gp::take_defer_ctx")))
 }
 
 // recoverCall returns the C++ of the call of the builtin recover: gp::recover(gp_dc), or nil
 // outside a function and in the body of a range over a func (that body is a closure that the
 // iterator calls, never the deferred call that a panic runs: Go gives nil there too).
-func (fg *funcGen) recoverCall() cppir.Expr {
+func (fg *funcGen) recoverCall(pos token.Pos) cppir.Expr {
 	if fg.fn == nil || fg.inRFBody() || !fg.g.awareBody(fg.fn.body) {
 		// Outside a function body (a package variable's initializer): no deferred call called it,
 		// so Go gives nil.
 		return construct(typeName("gp::any"))
 	}
+	fg.g.noteRecover(pos) // why.go
 	return call("gp::recover", cxxName(deferCtxName))
 }
 

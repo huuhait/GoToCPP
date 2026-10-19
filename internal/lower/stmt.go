@@ -537,7 +537,14 @@ func varTarget(name string) target {
 
 // lhs returns the target of the left side e of an assignment, which is not _.
 func (fg *funcGen) lhs(e ast.Expr) target {
-	t := target{x: fg.expr(e), gtype: fg.g.info.TypeOf(e), src: e}
+	t := target{gtype: fg.g.info.TypeOf(e), src: e}
+	if fg.mapIndex(e) != nil {
+		// A store to a map entry is gp::set (mapTarget): the read gp::get(m, k) built here is
+		// not in the output, so it records no reason.
+		fg.g.quiet(func() { t.x = fg.expr(e) })
+	} else {
+		t.x = fg.expr(e)
+	}
 	switch x := ast.Unparen(e).(type) {
 	case *ast.Ident:
 		if v, ok := fg.g.info.Uses[x].(*types.Var); ok {

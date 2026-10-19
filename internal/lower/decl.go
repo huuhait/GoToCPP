@@ -61,6 +61,8 @@ func (f *funcInfo) prepare(g *gen) {
 			obj := g.info.Defs[id]
 			if obj == nil {
 				obj = g.info.Uses[id]
+			} else {
+				g.noteName(id) // why.go
 			}
 			switch obj := obj.(type) {
 			case *types.Var:
@@ -140,6 +142,7 @@ func (g *gen) funcBuild(f *funcInfo) *cppir.Func {
 	body := f.body
 	g.noteConversions(body, f.sig) // named.go
 	g.markCounts(body)
+	g.noteBoxed(f.boxed)                             // why.go
 	g.numberLits(f.decl, make(map[*ast.FuncLit]int)) // closures.go
 	fg := newFuncGen(g, f.names, f)
 	fn := &cppir.Func{Pos: g.pos(f.pos), Result: f.result, Name: f.name, Params: f.params, Quals: f.quals(), Body: &cppir.Block{}}
@@ -270,6 +273,7 @@ func (g *gen) packageVars() {
 		}
 	}
 	for _, v := range g.vars {
+		g.notePkgVar(v, byVar[v]) // why.go
 		if !complete(v.Type()) {
 			// A C/C++ type (ctypes.go): its zero value, and the value in gp_var_init. Not
 			// constinit: a C++ class may have a constructor that isn't constexpr.
@@ -408,6 +412,7 @@ func (g *gen) prepareVarInits(fg *funcGen) {
 					for x, r := range boxedVars(g.info, v) {
 						fg.boxed[x] = r
 					}
+					g.noteBoxed(fg.boxed) // why.go
 					ast.Inspect(v, func(n ast.Node) bool {
 						if id, ok := n.(*ast.Ident); ok {
 							switch obj := g.info.Uses[id].(type) {

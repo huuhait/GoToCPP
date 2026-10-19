@@ -243,12 +243,14 @@ func (fg *funcGen) binaryOp(pos token.Pos, op token.Token, x, y ast.Expr) cppir.
 		}
 		if v := fg.constValue(y); v != nil && constant.Sign(v) != 0 && constant.Compare(v, token.NEQ, constant.MakeInt64(-1)) {
 			// Neither a division by zero nor MIN / -1 can happen.
+			fg.g.noteDivision(pos, op, true) // why.go
 			return narrow(t, fg.infix(x, op.String(), y))
 		}
 		helper := "gp::div"
 		if op == token.REM {
 			helper = "gp::rem"
 		}
+		fg.g.noteDivision(pos, op, false) // why.go
 		// gp::div deduces its type from x (y converts to it), so a constant x needs its type.
 		return call(helper, fg.exactExpr(x), fg.expr(y))
 	case token.SHL, token.SHR:
@@ -294,6 +296,7 @@ func (fg *funcGen) concat(x, y ast.Expr) cppir.Expr {
 	}
 	walk(x)
 	walk(y)
+	fg.g.noteConcat(x.Pos(), len(parts)) // why.go
 	if len(parts) == 2 {
 		return fg.infix(parts[0], "+", parts[1])
 	}
@@ -348,6 +351,7 @@ func (fg *funcGen) shift(t *types.Basic, nt types.Type, op token.Token, x, y ast
 	if op == token.SHR {
 		helper = "gp::shr"
 	}
+	fg.g.noteShift(y.Pos(), op) // why.go
 	a := fg.exactExpr(x)
 	if v := fg.constValue(x); v != nil {
 		var st types.Type = t // the type of the shift
@@ -425,6 +429,7 @@ func (fg *funcGen) index(e *ast.IndexExpr) cppir.Expr {
 		fg.g.notLowered(e.Lbrack, "index expressions on", t)
 		return placeholder
 	}
+	fg.g.noteIndex(e.Lbrack, t) // why.go
 	return &cppir.Index{X: fg.expr(e.X), Index: fg.intExpr(e.Index)}
 }
 
@@ -446,6 +451,7 @@ func (fg *funcGen) slice(e *ast.SliceExpr) cppir.Expr {
 		return placeholder
 	}
 	x := fg.movedExpr(e.X)
+	fg.g.noteSliceExpr(e, t) // why.go
 	switch {
 	case e.Low == nil && e.High == nil && e.Max == nil:
 		return x
@@ -477,6 +483,7 @@ func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 	arg := c.Args[0]
 	if name == "new" {
 		t := fg.g.info.TypeOf(arg)
+		fg.g.noteNew(c.Pos(), t) // why.go
 		return newBox(fg.g.cxxType(t, arg.Pos()), nil)
 	}
 	t := fg.g.info.TypeOf(arg)
@@ -503,6 +510,7 @@ func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 		// runtime gives the underlying one.
 		return fg.g.wrapNamed(fg.g.info.TypeOf(c), x, c.Pos())
 	default: // panic
+		fg.g.notePanic(c.Pos(), t) // why.go
 		if fg.g.info.Types[arg].IsNil() {
 			return call("gp::panic", lit("nullptr")) // panic(nil): *runtime.PanicNilError (Go 1.21)
 		}
@@ -554,6 +562,7 @@ func (fg *funcGen) conversion(c *ast.CallExpr, to types.Type) cppir.Expr {
 	}
 	arg := c.Args[0]
 	from := fg.g.info.TypeOf(arg)
+	fg.g.noteConv(c.Pos(), to, from) // why.go
 	if isInterface(to) {
 		// T(x) to an interface type: any(1), Shape(r), error(e) (iconv.go)
 		return fg.interfaceConversion(c, to, from)
