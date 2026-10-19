@@ -16,7 +16,7 @@
   - [ ] type probes
 - [x] 12.3 Record / enum / function extraction (filtered by used names)
 - [x] 12.4 C++ → foreign type mapper (`T&` results addressable, templates, overload sets)
-- [ ] 12.5 Interop checker (exact-mirror errors only, operator typing with C++ conversions, g++ builds → warnings, compatibility rule)
+- [x] 12.5 Interop checker (exact-mirror errors only, operator typing with C++ conversions, g++ builds → warnings, compatibility rule)
 - [ ] 12.6 Codegen upgrades (`.`/`->`, designated init order, template/index, auto `const char*` except "keeps the pointer" list, references)
 - [ ] 12.7 Cache + incremental probing + parallel probing (header contents in the key)
 - [ ] 12.8 Gap E1: constant macros probed first, substituted before go/types
