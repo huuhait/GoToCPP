@@ -32,7 +32,7 @@
 
 - [ ] Tier 1 complete; ≥ 90 % of test functions in the selected Go test files pass (counting rule, written reasons)
 - [ ] Deferred suites (from Phases 07 and 08) pass
-- [ ] `wc` + `grep-lite` match their Go versions
+- [x] `wc` + `grep-lite` match their Go versions (flag ported 2026-10-19: identical output on 14 and 12 argument vectors)
 - [x] `gocpp test` output format matches `go test`
 - [ ] `fmt` differential tests (≥ 100 cases) byte-identical to Go
 - [ ] `encoding/json` round-trips like Go
