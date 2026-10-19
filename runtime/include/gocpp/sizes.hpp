@@ -11,9 +11,8 @@
 #include <gocpp/complex.hpp>
 #include <gocpp/string.hpp>
 #include <gocpp/ptr.hpp>
-#include <gocpp/slice.hpp>
+#include <gocpp/golayout.hpp>
 #include <gocpp/array.hpp>
-#include <gocpp/map.hpp>
 #include <gocpp/func.hpp>
 #include <gocpp/iface.hpp>
 #include <gocpp/chan.hpp>
