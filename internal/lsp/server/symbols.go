@@ -16,6 +16,7 @@ import (
 	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/lsp/cache"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
+	"github.com/huuhait/gocpp/internal/lsp/safe"
 )
 
 // textDocument/documentSymbol and workspace/symbol (step 11.8).
@@ -62,6 +63,9 @@ type symbolFeature struct {
 type symbolEntry struct {
 	hash cache.Hash
 	syms []symNode
+	// flat are the workspace symbols of the file (made on the first query
+	// that needs them): without the package, which is the query's.
+	flat []wsSymbol
 }
 
 // maxSymbolFiles is the number of files whose symbols are kept before the table
@@ -244,7 +248,7 @@ func (sf *symbolFeature) symbolsOf(pf *cache.ParsedFile) []symNode {
 	if sf.files == nil || len(sf.files) >= maxSymbolFiles {
 		sf.files = make(map[string]symbolEntry)
 	}
-	sf.files[pf.Path] = symbolEntry{pf.Hash, syms}
+	sf.files[pf.Path] = symbolEntry{hash: pf.Hash, syms: syms}
 	sf.filesMu.Unlock()
 	return syms
 }
@@ -312,6 +316,8 @@ type wsSymbol struct {
 	path      string // the file
 	off, end  int    // the name
 	score     int
+	lower     string // name in lower case
+	ascii     bool   // name is ASCII only
 }
 
 // workspaceSymbol answers workspace/symbol.
@@ -323,15 +329,19 @@ func (s *Server) workspaceSymbol(ctx context.Context, e env, params json.RawMess
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	all, err := s.workspaceSymbols(ctx, e.snapshot)
+	files, err := s.workspaceFileSymbols(ctx, e.snapshot)
 	if err != nil {
 		return nil, err
 	}
+	sq := newSymQuery(p.Query)
 	var hits []wsSymbol
-	for _, sym := range all {
-		if score, ok := matchSymbol(p.Query, sym.name); ok {
-			sym.score = score
-			hits = append(hits, sym)
+	for _, f := range files {
+		for _, sym := range f.syms {
+			if score, ok := sq.match(&sym); ok {
+				sym.score = score
+				sym.container = f.container
+				hits = append(hits, sym)
+			}
 		}
 	}
 	slices.SortFunc(hits, func(a, b wsSymbol) int {
@@ -359,50 +369,134 @@ func (s *Server) workspaceSymbol(ctx context.Context, e env, params json.RawMess
 	return out, nil
 }
 
-// workspaceSymbols returns the symbols of every package of the workspace in
-// the snapshot.
-func (s *Server) workspaceSymbols(ctx context.Context, snap *cache.Snapshot) ([]wsSymbol, error) {
+// A fileSyms is the workspace symbols of one file of a package.
+type fileSyms struct {
+	container string // the import path of the package
+	syms      []wsSymbol
+}
+
+// workspaceFileSymbols returns the symbols of every file of every package of
+// the workspace in the snapshot, by file. A file's symbols are in the table
+// for its content (the hash the snapshot knows without a parse), so a query
+// parses nothing for the files that it has seen, and the parse cache's own
+// limit on memory does not matter to it.
+func (s *Server) workspaceFileSymbols(ctx context.Context, snap *cache.Snapshot) ([]fileSyms, error) {
 	pkgs, err := s.workspacePackages(ctx, snap)
 	if err != nil {
 		return nil, err
 	}
-	type result struct{ syms []wsSymbol }
-	results := make([]result, len(pkgs))
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, 8)
+	type slot struct {
+		pkg  int
+		path string
+		hash cache.Hash
+		syms []wsSymbol
+		miss bool
+	}
+	var slots []slot
 	for i, pkg := range pkgs {
+		files, err := snap.SourceFiles(pkg.dir)
+		if err != nil {
+			continue
+		}
+		for _, name := range files {
+			h, err := snap.FileHash(name)
+			if err != nil {
+				continue
+			}
+			sl := slot{pkg: i, path: name, hash: h}
+			sl.syms, sl.miss = s.symbols.flatOf(name, h)
+			slots = append(slots, sl)
+		}
+	}
+	// The files that have no symbols for this content are parsed, a few at a
+	// time (the first query of a workspace, or after edits).
+	var wg sync.WaitGroup
+	var pc safe.Catcher
+	sem := make(chan struct{}, 8)
+	for i := range slots {
+		if !slots[i].miss {
+			continue
+		}
 		wg.Add(1)
 		sem <- struct{}{}
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			files, err := snap.PackageFiles(&load.Package{Dir: pkg.dir})
-			if err != nil {
-				return
-			}
-			for _, name := range files {
-				if filepath.Dir(name) != pkg.dir {
-					continue
+			pc.Run(func() {
+				if faultInSymbols != nil {
+					faultInSymbols(slots[i].path)
 				}
-				pf, err := snap.ParsePath(ctx, name, cache.ParseFull)
+				sl := &slots[i]
+				pf, err := snap.ParsePath(ctx, sl.path, cache.ParseFull)
 				if err != nil {
-					continue
+					sl.syms = nil
+					return
 				}
-				for _, n := range s.symbols.symbolsOf(pf) {
-					results[i].syms = append(results[i].syms, wsEntries(n, "", pkg.path, name)...)
-				}
-			}
+				sl.syms = s.symbols.makeFlat(pf)
+			})
 		}()
 	}
 	wg.Wait()
+	pc.Rethrow()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	out := make([]fileSyms, 0, len(slots))
+	for _, sl := range slots {
+		if len(sl.syms) > 0 {
+			out = append(out, fileSyms{container: pkgs[sl.pkg].path, syms: sl.syms})
+		}
+	}
+	return out, nil
+}
+
+// workspaceSymbols returns the symbols of every package of the workspace in
+// the snapshot.
+func (s *Server) workspaceSymbols(ctx context.Context, snap *cache.Snapshot) ([]wsSymbol, error) {
+	files, err := s.workspaceFileSymbols(ctx, snap)
+	if err != nil {
+		return nil, err
+	}
 	var all []wsSymbol
-	for _, r := range results {
-		all = append(all, r.syms...)
+	for _, f := range files {
+		for _, sym := range f.syms {
+			sym.container = f.container
+			all = append(all, sym)
+		}
 	}
 	return all, nil
+}
+
+// flatOf returns the workspace symbols of the file for the content with the
+// hash, when the table has them (miss is false).
+func (sf *symbolFeature) flatOf(path string, hash cache.Hash) (syms []wsSymbol, miss bool) {
+	sf.filesMu.Lock()
+	defer sf.filesMu.Unlock()
+	e, ok := sf.files[path]
+	if !ok || e.hash != hash || e.flat == nil {
+		return nil, true
+	}
+	return e.flat, false
+}
+
+// makeFlat makes the workspace symbols of the parsed file, and keeps them in
+// the table next to its symbols.
+func (sf *symbolFeature) makeFlat(pf *cache.ParsedFile) []wsSymbol {
+	nodes := sf.symbolsOf(pf)
+	flat := make([]wsSymbol, 0, len(nodes))
+	for _, n := range nodes {
+		flat = append(flat, wsEntries(n, "", "", pf.Path)...)
+	}
+	if flat == nil {
+		flat = []wsSymbol{} // "made" even when the file has no symbols
+	}
+	sf.filesMu.Lock()
+	if e, ok := sf.files[pf.Path]; ok && e.hash == pf.Hash {
+		e.flat = flat
+		sf.files[pf.Path] = e
+	}
+	sf.filesMu.Unlock()
+	return flat
 }
 
 // wsEntries returns the workspace symbols of n and its members. A method of
@@ -421,7 +515,8 @@ func wsEntries(n symNode, parent, container, path string) []wsSymbol {
 	if parent != "" {
 		name = parent + "." + name
 	}
-	out := []wsSymbol{{name: name, kind: n.kind, container: container, path: path, off: n.selStart, end: n.selEnd}}
+	lower := strings.ToLower(name)
+	out := []wsSymbol{{name: name, kind: n.kind, container: container, path: path, off: n.selStart, end: n.selEnd, lower: lower, ascii: isASCII(name) && isASCII(lower)}}
 	for _, c := range n.children {
 		out = append(out, wsEntries(c, n.name, container, path)...)
 	}
@@ -485,19 +580,105 @@ func (s *Server) workspacePackages(ctx context.Context, snap *cache.Snapshot) ([
 
 // warm builds the index of the workspace in the background: it parses the
 // files and takes their symbols.
+// faultInSymbols is set by a test: it is called in the goroutine of each file
+// whose symbols are made, and panics there.
+var faultInSymbols func(path string)
+
 func (s *Server) warmSymbols() {
 	if !s.symbols.warming.CompareAndSwap(false, true) {
 		return // one run at a time: a second would redo the first's work
 	}
 	go func() {
 		defer s.symbols.warming.Store(false)
-		snap, release := s.session.Snapshot()
-		defer release()
-		ctx := s.comp.index.ctx
-		if _, err := s.workspaceSymbols(ctx, snap); err != nil && ctx.Err() == nil {
-			s.log.Printf("the symbol index: %v", err)
+		if p := safe.Call(func() {
+			snap, release := s.session.Snapshot()
+			defer release()
+			ctx := s.comp.index.ctx
+			if _, err := s.workspaceSymbols(ctx, snap); err != nil && ctx.Err() == nil {
+				s.log.Printf("the symbol index: %v", err)
+			}
+		}); p != nil {
+			s.log.Printf("the symbol index: panic: %v\n%s", p.Value, p.Stack)
 		}
 	}()
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+// A symQuery is a workspace/symbol query prepared for many names:
+// matchSymbol's rules, with the work that does not depend on the name done
+// once, and bytes for the names that are ASCII (almost all of them).
+type symQuery struct {
+	raw   string
+	lower string
+	ascii bool
+}
+
+func newSymQuery(query string) *symQuery {
+	return &symQuery{raw: query, lower: strings.ToLower(query), ascii: isASCII(query) && isASCII(strings.ToLower(query))}
+}
+
+// match is matchSymbol(q.raw, sym.name).
+func (q *symQuery) match(sym *wsSymbol) (int, bool) {
+	if q.raw == "" {
+		return 0, true
+	}
+	if !q.ascii || !sym.ascii {
+		return matchSymbol(q.raw, sym.name)
+	}
+	ln, n, lq := sym.lower, sym.name, q.lower
+	// Every way to match needs the characters of the query in the name, in
+	// order: most names are out at once.
+	qi := 0
+	for i := 0; i < len(ln) && qi < len(lq); i++ {
+		if ln[i] == lq[qi] {
+			qi++
+		}
+	}
+	if qi < len(lq) {
+		return 0, false
+	}
+	switch {
+	case ln == lq:
+		return 100000, true
+	case strings.HasPrefix(ln, lq):
+		return 50000 - len(ln), true
+	}
+	isUp := func(c byte) bool { return 'A' <= c && c <= 'Z' }
+	isLow := func(c byte) bool { return 'a' <= c && c <= 'z' }
+	if i := strings.Index(ln, lq); i >= 0 {
+		score := 20000 - i
+		if n[i-1] == '.' || n[i-1] == '_' || isUp(n[i]) && isLow(n[i-1]) {
+			score += 5000
+		}
+		return score, true
+	}
+	score, last, gaps := 0, -1, 0
+	qi = 0
+	for i := 0; i < len(ln) && qi < len(lq); i++ {
+		if ln[i] != lq[qi] {
+			continue
+		}
+		if last >= 0 && i > last+1 {
+			gaps += i - last - 1
+		}
+		if i == 0 || n[i-1] == '.' || n[i-1] == '_' || isUp(n[i]) && isLow(n[i-1]) {
+			score += 100
+		}
+		if n[i] == q.raw[qi] {
+			score += 10 // the case matches
+		}
+		last = i
+		qi++
+	}
+	return score - gaps, true
 }
 
 // matchSymbol reports whether query matches name, and how well: a higher

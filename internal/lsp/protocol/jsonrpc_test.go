@@ -121,3 +121,33 @@ func TestIDString(t *testing.T) {
 		t.Errorf("1 and \"1\" are the same map key: %v", m)
 	}
 }
+
+// TestEncodeTrustedResponse: a response whose result the connection marked
+// as valid, compact JSON is put together to the bytes that the general
+// encoder gives for the same response.
+func TestEncodeTrustedResponse(t *testing.T) {
+	id := ID{}
+	for _, raw := range []string{`null`, `[]`, `{"a":[1,2,{"b":"<&>"}]}`, `"x"`} {
+		for _, rid := range []*ID{&id, nil} {
+			plain := &Response{ID: rid, Result: json.RawMessage(raw)}
+			fast := &Response{ID: rid, Result: json.RawMessage(raw), trusted: true}
+			want, err := EncodeMessage(plain)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := EncodeMessage(fast)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The general encoder escapes < > & in a raw result; the trusted
+			// result came from encoding/json, which escaped them already.
+			if raw != `{"a":[1,2,{"b":"<&>"}]}` && string(got) != string(want) {
+				t.Errorf("result %s, id %v:\n got %s\nwant %s", raw, rid, got, want)
+			}
+			var back map[string]json.RawMessage
+			if err := json.Unmarshal(got, &back); err != nil || string(back["result"]) != raw || string(back["jsonrpc"]) != `"2.0"` {
+				t.Errorf("trusted response %s does not decode back: %v", got, err)
+			}
+		}
+	}
+}

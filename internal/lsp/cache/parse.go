@@ -8,6 +8,7 @@ import (
 
 	"github.com/huuhait/gocpp/internal/lsp/trace"
 	"github.com/huuhait/gocpp/internal/syntax/parser"
+	"github.com/huuhait/gocpp/internal/syntax/scanner"
 )
 
 // The per-file parse cache (Phase 11 README §2.2 item 3): a parsed file is
@@ -73,10 +74,40 @@ func (p *Pipeline) parse(ctx context.Context, f *fileHandle, mode parser.Mode) (
 			Fset: fset, Tok: fset.File(file.FileStart), File: file, Err: err,
 		}
 		if mode&parser.ImportsOnly != 0 {
-			pf.Src = bytes.Clone(f.src[:headerEnd(pf)])
+			// The header stands for the imports of the file only when the
+			// whole parse finds the same imports: a syntax error in the header,
+			// or an import after another declaration (the parser reports it and
+			// goes on, as the loader does), would make the metadata and the check
+			// resolve different imports ("internal error: the import of fmt was
+			// not resolved with the metadata"). Such a file is its own header.
+			if end := headerEnd(pf); err == nil && !lateImport(f.src[end:]) {
+				pf.Src = bytes.Clone(f.src[:end])
+			}
 		}
 		return pf, nil
 	})
+}
+
+// lateImport reports whether src, the text of a file after its header, has an
+// import keyword: no valid file has one there (a keyword is no name, and the
+// strings and comments are no tokens), and the full parse of one that does
+// finds an import that the header's parse did not.
+func lateImport(src []byte) bool {
+	if !bytes.Contains(src, []byte("import")) {
+		return false
+	}
+	fset := token.NewFileSet()
+	var sc scanner.Scanner
+	sc.Init(fset.AddFile("", fset.Base(), len(src)), src, nil, 0)
+	for {
+		_, tok, _ := sc.Scan()
+		switch tok {
+		case token.IMPORT:
+			return true
+		case token.EOF:
+			return false
+		}
+	}
 }
 
 // headerEnd returns the offset in the source of pf, which was parsed with

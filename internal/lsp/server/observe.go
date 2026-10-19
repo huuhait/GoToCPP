@@ -45,6 +45,12 @@ type Options struct {
 	// Phase is check.Config.Phase, the phase of the gates, as gocpp check
 	// has it (version.Phase, or later with GOCPP_GATE_PHASE).
 	Phase int
+	// WideFamily makes references and rename follow a method through every
+	// interface of the module that its type could satisfy (gocpp's family
+	// until the speed work of Phase 11, ADR-052), not only through the
+	// interfaces that a use in the module needs (gopls's, the default). It
+	// is slow on a module whose types share a method name (gocpp lsp -wide-family).
+	WideFamily bool
 }
 
 // StatsCommand is the command of workspace/executeCommand that returns the

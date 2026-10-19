@@ -134,8 +134,10 @@ type Server struct {
 	pipeline *cache.Pipeline
 	session  *cache.Session
 	diags    *diagnostics
-	obs      *observer      // the slow log, the spans and the stats (observe.go)
-	conn     *protocol.Conn // set by Serve
+	obs      *observer // the slow log, the spans and the stats (observe.go)
+	// wideFamily is Options.WideFamily.
+	wideFamily bool
+	conn       *protocol.Conn // set by Serve
 	// requests are the methods of the requests that run on a snapshot
 	// (see method); tests add their own before Serve.
 	requests     map[string]method
@@ -220,6 +222,7 @@ func newServerOpts(logger *log.Logger, cfg cache.Config, clock debounce.Clock, o
 		trace:        protocol.Off,
 		warned:       make(map[protocol.DocumentURI]bool),
 		stale:        make(map[protocol.DocumentURI]map[protocol.ID]*staleToken),
+		wideFamily:   opts.WideFamily,
 	}
 	s.obs = newObserver(s, opts)
 	s.addObservability()
@@ -587,7 +590,7 @@ func (s *Server) didChange(_ context.Context, params json.RawMessage) error {
 	err := s.session.DidChange(uri, version, p.ContentChanges)
 	if old != nil {
 		s.modified(uri) // a failed change made it broken: stale too
-		s.diags.scheduleFile(uri, s.diags.delay)
+		s.diags.scheduleChange(uri)
 	}
 	if err != nil {
 		s.warnBroken(uri)

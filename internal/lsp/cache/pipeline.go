@@ -338,8 +338,15 @@ type fileHandle struct {
 // A dirHandle is the .gp files in a folder: on disk and in the overlays.
 type dirHandle struct {
 	names []string // sorted
-	isDir bool     // the folder exists: on disk (also when it can't be read) or in the overlays
-	err   error    // the folder can't be read and has no overlays
+	// tests are the full names of the _test.gp files of the listing (made
+	// with the listing: TestFiles); all are the full names of every file,
+	// made when asked for (SourceFiles).
+	tests   []string
+	allOnce sync.Once
+	all     []string
+	dirName string
+	isDir   bool  // the folder exists: on disk (also when it can't be read) or in the overlays
+	err     error // the folder can't be read and has no overlays
 	// failed: reading the folder gave an error that is not "does not
 	// exist" (permissions, too many open files), whatever the overlays
 	// add to the listing: it is read again by the next snapshot.
@@ -561,7 +568,7 @@ func (s *state) dir(dir string) (*dirHandle, error) {
 	if d != nil {
 		return d, nil
 	}
-	d = &dirHandle{}
+	d = &dirHandle{dirName: dir}
 	entries, err := retryRead(func() ([]os.DirEntry, error) { return os.ReadDir(dir) })
 	d.failed = err != nil && !errors.Is(err, fs.ErrNotExist)
 	for _, e := range entries {
@@ -575,6 +582,11 @@ func (s *state) dir(dir string) (*dirHandle, error) {
 		}
 	}
 	slices.Sort(d.names)
+	for _, name := range d.names {
+		if strings.HasSuffix(name, "_test.gp") {
+			d.tests = append(d.tests, filepath.Join(dir, name))
+		}
+	}
 	if err != nil && len(d.names) == 0 {
 		d.err = err
 	}

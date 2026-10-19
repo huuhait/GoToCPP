@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/huuhait/gocpp/internal/lsp/safe"
 )
 
 // TestPromiseOnce checks that many goroutines that ask at the same time get
@@ -344,5 +347,28 @@ func TestCounters(t *testing.T) {
 	}
 	if s.MaxCost() != 0 {
 		t.Errorf("max cost %d", s.MaxCost())
+	}
+}
+
+// TestPromisePanic: a computation runs on a goroutine that no caller owns, so
+// a panic in it would end the process; it is the error of the promise, for
+// every Get, and the stack of the panic is in it.
+func TestPromisePanic(t *testing.T) {
+	runs := 0
+	p := NewPromise(func(context.Context) (int, error) {
+		runs++
+		var m map[string]int
+		m["x"] = 1
+		return 1, nil
+	})
+	for range 3 {
+		_, err := p.Get(context.Background())
+		var pn *safe.Panic
+		if !errors.As(err, &pn) || !strings.Contains(err.Error(), "nil map") || !strings.Contains(string(pn.Stack), "TestPromisePanic") {
+			t.Fatalf("Get: %v", err)
+		}
+	}
+	if runs != 1 {
+		t.Errorf("%d computations, want 1", runs)
 	}
 }

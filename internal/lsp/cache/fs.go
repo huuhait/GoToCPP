@@ -1,10 +1,12 @@
 package cache
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"time"
 )
 
@@ -53,6 +55,13 @@ func (r *read) digest(h *hasher) {
 		h.str(n)
 	}
 	h.str(r.err)
+}
+
+// same reports whether o is what r is, field by field: the equality that
+// digest makes a hash of, without hashing the files' contents.
+func (r *read) same(o *read) bool {
+	return r.kind == o.kind && r.path == o.path && r.exists == o.exists && r.isDir == o.isDir &&
+		r.err == o.err && bytes.Equal(r.data, o.data) && slices.Equal(r.names, o.names)
 }
 
 // A stateFS is a load.FileSystem over the snapshot of the state s. With

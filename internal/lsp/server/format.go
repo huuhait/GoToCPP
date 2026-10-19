@@ -12,12 +12,14 @@ import (
 	"go/token"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/huuhait/gocpp/internal/diag"
 	gpformat "github.com/huuhait/gocpp/internal/format"
 	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/lsp/cache"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
+	"github.com/huuhait/gocpp/internal/lsp/safe"
 	"github.com/huuhait/gocpp/internal/syntax/parser"
 	"github.com/huuhait/gocpp/internal/syntax/scanner"
 )
@@ -70,7 +72,50 @@ func documentOfSnapshot(snap *cache.Snapshot, uri protocol.DocumentURI) (*docume
 	if err != nil {
 		return nil, protocol.Errorf(protocol.RequestFailed, "%v", err)
 	}
-	return &document{path: path, src: src, mapper: protocol.NewMapper(string(src))}, nil
+	return &document{path: path, src: src, mapper: diskMappers.of(snap, path, src)}, nil
+}
+
+// diskMappers keeps the mappers (line tables) of files that are not open,
+// by the hash of their content: a request that answers in many files (the
+// references of a popular name) would build one for each, again and again.
+var diskMappers mapperCache
+
+type mapperKey struct {
+	path string
+	hash cache.Hash
+}
+
+type mapperCache struct {
+	mu    sync.Mutex
+	m     map[mapperKey]*protocol.Mapper
+	bytes int
+}
+
+// maxMapperBytes is the size of the texts whose mappers are kept before the
+// table starts over.
+const maxMapperBytes = 64 << 20
+
+func (c *mapperCache) of(snap *cache.Snapshot, path string, src []byte) *protocol.Mapper {
+	h, err := snap.FileHash(path)
+	if err != nil {
+		return protocol.NewMapper(string(src))
+	}
+	k := mapperKey{path, h}
+	c.mu.Lock()
+	m := c.m[k]
+	c.mu.Unlock()
+	if m != nil {
+		return m
+	}
+	m = protocol.NewMapper(string(src))
+	c.mu.Lock()
+	if c.m == nil || c.bytes+len(src) > maxMapperBytes {
+		c.m, c.bytes = make(map[mapperKey]*protocol.Mapper), 0
+	}
+	c.m[k] = m
+	c.bytes += len(src)
+	c.mu.Unlock()
+	return m
 }
 
 // formatting answers textDocument/formatting: the edits that turn the
@@ -108,14 +153,24 @@ func formatEdits(ctx context.Context, doc *document) ([]protocol.TextEdit, error
 	}
 	// A safety net: the result must parse. go/printer has a known bug
 	// that drops needed parentheses (range (std.vector[int]{7, 8}), see
-	// the plan's TODO); then the file is left alone.
-	if _, err := parser.ParseFile(token.NewFileSet(), doc.path, res, gpformat.ParserMode); err != nil {
+	// the plan's TODO); then the file is left alone. The check and the
+	// edits don't depend on each other, so they run together.
+	parsed := make(chan error, 1)
+	go func() {
+		var err error
+		if p := safe.Call(func() { _, err = parser.ParseFile(token.NewFileSet(), doc.path, res, gpformat.ParserMode) }); p != nil {
+			err = fmt.Errorf("the parser failed on the result: %v", p.Value) // the file is left alone
+		}
+		parsed <- err
+	}()
+	edits := computeEdits(ctx, doc.mapper, string(res))
+	if err := <-parsed; err != nil {
 		return nil, protocol.Errorf(protocol.RequestFailed, "gocpp fmt would break the file, so it is not formatted: %v", firstError(err))
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return computeEdits(ctx, doc.mapper, string(res)), nil
+	return edits, nil
 }
 
 // formatError returns the answer to a formatting request whose file

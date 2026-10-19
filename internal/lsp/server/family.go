@@ -16,17 +16,22 @@ import (
 )
 
 // What the user is told about a search that reaches further than the name they
-// asked for (step 11.8, review round 1).
+// asked for (step 11.8, review round 1; narrowed in the LSP speed work, ADR-052).
 //
-// The family of a method is wider than gopls's. gopls renames the methods that
-// a use that needs the interface ties together (a value of one type passed
-// where the interface is wanted). gocpp renames every method that has the
-// name and the shape of a method of an interface of the module (the type
-// would satisfy the interface), whether or not a use needs it: renaming
-// Lener.Len also renames Counterer.Len of a type that nothing converts to
-// Lener. So a rename of a method always says which other declarations it
-// changed, and which of them no use of the module needs to be one, so the user
-// can undo it. (A narrower family is a TODO: plans/.../TODO.md.)
+// The family of a method is gopls's: the methods that a use ties together (a
+// value of one type passed, assigned, returned, sent, compared, converted or
+// asserted where an interface with the method is needed: see ties). A type
+// that could be used as the interface, but no use in the module needs to be,
+// is not in the family, so renaming Lener.Len leaves Counterer.Len alone
+// when nothing converts a Counterer to a Lener. A rename of a method says
+// which other declarations it changed, so the user can undo it.
+//
+// Before ADR-052 the family was every method with the name and the shape of
+// a method of an interface of the module (the type would satisfy it), whether
+// or not a use needs it: Options.WideFamily (gocpp lsp -wide-family) brings
+// that back, with the older message that says which of the declarations no
+// use needs. It was slow (0.7-0.9 s for a method that all the types of a
+// 30k-line module share, where gopls takes 4 ms) and wider than gopls.
 
 // otherDeclarations tells the user which declarations beyond the one they
 // asked about a rename of a method changed, with an info message.
@@ -55,7 +60,10 @@ func (rn *renamer) otherDeclarations() {
 	if len(others) == 0 {
 		return
 	}
-	required := rn.requiredTypes()
+	var required map[string]bool
+	if rn.s.wideFamily {
+		required = rn.requiredTypes()
+	}
 	where := func(d decl) string {
 		return fmt.Sprintf("%s (%s:%d)", d.name, filepath.Base(d.pos.Filename), d.pos.Line)
 	}
@@ -64,9 +72,18 @@ func (rn *renamer) otherDeclarations() {
 		if i < 5 {
 			all = append(all, where(d))
 		}
-		if !types.IsInterface(d.typ) && !required[typeKey(d.typ)] {
+		if required != nil && !types.IsInterface(d.typ) && !required[typeKey(d.typ)] {
 			unused = append(unused, where(d))
 		}
+	}
+	if !rn.s.wideFamily {
+		msg := fmt.Sprintf("gocpp rename: %s was also renamed in %d other method declaration(s) that a use in the module ties to the same interface, or that a type assertion, type switch or errors.As on the interface can reach: %s", sym.name, len(others), strings.Join(all, ", "))
+		if len(others) > len(all) {
+			msg += ", ..."
+		}
+		msg += ". Undo the rename if some of them are unrelated."
+		rn.showInfo(msg)
+		return
 	}
 	msg := fmt.Sprintf("gocpp rename: %s was also renamed in %d other method declaration(s) that have its name and shape: %s", sym.name, len(others), strings.Join(all, ", "))
 	if len(others) > len(all) {
@@ -81,6 +98,10 @@ func (rn *renamer) otherDeclarations() {
 		msg += "."
 	}
 	msg += " Undo the rename if some of them are unrelated."
+	rn.showInfo(msg)
+}
+
+func (rn *renamer) showInfo(msg string) {
 	if err := rn.e.notify("window/showMessage", &protocol.ShowMessageParams{Type: protocol.Info, Message: msg}); err != nil {
 		rn.e.log.Printf("window/showMessage: %v", err)
 	}
@@ -106,166 +127,313 @@ func typeKey(t types.Type) string {
 func (rn *renamer) requiredTypes() map[string]bool {
 	name := rn.sym.name
 	required := make(map[string]bool)
-	wants := func(t types.Type) bool {
-		if t == nil || !types.IsInterface(t) {
-			return false
-		}
-		it, ok := t.Underlying().(*types.Interface)
-		if !ok {
-			return false
-		}
-		for m := range it.Methods() {
-			if m.Name() == name {
-				return true
+	for _, v := range rn.res.views {
+		for _, t := range v.ties() {
+			if t.src == nil || types.IsInterface(t.src) || t.asserted {
+				continue
+			}
+			it, ok := t.dst.Underlying().(*types.Interface)
+			if !ok {
+				continue
+			}
+			for m := range it.Methods() {
+				if m.Name() == name {
+					if k := typeKey(t.src); k != "" {
+						required[k] = true
+					}
+					break
+				}
 			}
 		}
-		return false
 	}
-	mark := func(info *types.Info, e ast.Expr, target types.Type) {
-		if e == nil || !wants(target) {
+	return required
+}
+
+// A tie is a use that needs the type dst (a named interface) of a value of
+// the type src (a named type, a pointer to one, or another named interface):
+// the use makes src's methods the implementations of dst's. gopls ties the
+// methods of a family the same way (the implements relation alone, a type that
+// merely could be used as the interface, does not).
+type tie struct {
+	src, dst types.Type
+	names    map[string]bool // the names of dst's methods
+	// asserted marks a record that dst, an interface, is the target of a type
+	// assertion or a type switch case (src is nil): a type that reaches it
+	// only through the assertion is not tied to it.
+	asserted bool
+}
+
+// ties returns the ties of the view's files: the uses of the package that
+// need an interface of a value of another type. They are computed once per
+// checked package (cache.Package.Memo), so the references and renames of a
+// method that every type of the module shares don't read the module again.
+func (v *view) ties() []tie {
+	if v.info == nil {
+		return nil
+	}
+	if v.pkg == nil || v.test {
+		return scanTies(v.info, v.files)
+	}
+	return v.pkg.Memo(tiesKey{}, func() any { return scanTies(v.info, v.files) }).([]tie)
+}
+
+type tiesKey struct{}
+
+// scanTies finds the ties of the files: a value that is passed, assigned,
+// returned, sent, put in a composite literal, compared or converted where an
+// interface is wanted, and the types that a type assertion or a type switch
+// takes out of an interface.
+func scanTies(info *types.Info, files map[string]*ast.File) []tie {
+	var out []tie
+	seen := make(map[[2]types.Type]bool)
+	// A tie is between a type that has methods (any type: a named one, a
+	// pointer to one, an unnamed struct that embeds one) and an interface with
+	// methods (a named one, an interface literal, the constraint of a type
+	// parameter): the empty interface ties nothing.
+	usable := func(t types.Type) bool {
+		switch t := types.Unalias(t).(type) {
+		case *types.Basic:
+			return false
+		case *types.Named:
+			return t.TypeParams().Len() == 0 || t.TypeArgs().Len() > 0
+		}
+		return true
+	}
+	add := func(src, dst types.Type) {
+		if src == nil || dst == nil || !types.IsInterface(dst) || !usable(dst) || !usable(src) {
 			return
 		}
-		if t := info.TypeOf(e); t != nil && !types.IsInterface(t) {
-			if k := typeKey(t); k != "" {
-				required[k] = true
+		it, ok := dst.Underlying().(*types.Interface)
+		if !ok || it.NumMethods() == 0 || types.Identical(src, dst) {
+			return
+		}
+		k := [2]types.Type{src, dst}
+		if !seen[k] {
+			seen[k] = true
+			names := make(map[string]bool, it.NumMethods())
+			for m := range it.Methods() {
+				names[m.Name()] = true
 			}
+			out = append(out, tie{src, dst, names, false})
 		}
 	}
-	for _, v := range rn.res.views {
-		if v.info == nil {
-			continue
+	asserted := func(t types.Type) {
+		if t == nil || !types.IsInterface(t) {
+			return
 		}
-		info := v.info
-		for _, f := range v.files {
-			var sigs []*types.Signature
-			var walk func(n ast.Node) bool
-			walk = func(n ast.Node) bool {
-				switch n := n.(type) {
-				case *ast.FuncDecl:
-					if sig, ok := info.TypeOf(n.Name).(*types.Signature); ok {
-						sigs = append(sigs, sig)
-						ast.Inspect(n.Body, walk)
-						sigs = sigs[:len(sigs)-1]
+		it, ok := t.Underlying().(*types.Interface)
+		if !ok || it.NumMethods() == 0 {
+			return
+		}
+		names := make(map[string]bool, it.NumMethods())
+		for m := range it.Methods() {
+			names[m.Name()] = true
+		}
+		out = append(out, tie{dst: t, names: names, asserted: true})
+	}
+	mark := func(e ast.Expr, target types.Type) {
+		if e == nil || target == nil {
+			return
+		}
+		if t := info.TypeOf(e); t != nil {
+			add(t, target)
+		}
+	}
+	// Go's order, so that the list is the same for every run.
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		var sigs []*types.Signature
+		var walk func(n ast.Node) bool
+		walk = func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.FuncDecl:
+				if sig, ok := info.TypeOf(n.Name).(*types.Signature); ok && n.Body != nil {
+					sigs = append(sigs, sig)
+					ast.Inspect(n.Body, walk)
+					sigs = sigs[:len(sigs)-1]
+				}
+				return false
+			case *ast.FuncLit:
+				if sig, ok := info.TypeOf(n).(*types.Signature); ok && n.Body != nil {
+					sigs = append(sigs, sig)
+					ast.Inspect(n.Body, walk)
+					sigs = sigs[:len(sigs)-1]
+				}
+				return false
+			case *ast.AssignStmt:
+				if len(n.Lhs) == len(n.Rhs) && n.Tok == token.ASSIGN {
+					for i := range n.Rhs {
+						mark(n.Rhs[i], info.TypeOf(n.Lhs[i]))
 					}
-					return false
-				case *ast.FuncLit:
-					if sig, ok := info.TypeOf(n).(*types.Signature); ok {
-						sigs = append(sigs, sig)
-						ast.Inspect(n.Body, walk)
-						sigs = sigs[:len(sigs)-1]
+				}
+			case *ast.ValueSpec:
+				if n.Type != nil && len(n.Values) > 0 {
+					for _, val := range n.Values {
+						mark(val, info.TypeOf(n.Type))
 					}
-					return false
-				case *ast.AssignStmt:
-					if len(n.Lhs) == len(n.Rhs) && n.Tok == token.ASSIGN {
-						for i := range n.Rhs {
-							mark(info, n.Rhs[i], info.TypeOf(n.Lhs[i]))
+				}
+			case *ast.ReturnStmt:
+				if len(sigs) > 0 {
+					res := sigs[len(sigs)-1].Results()
+					if res.Len() == len(n.Results) {
+						for i, r := range n.Results {
+							mark(r, res.At(i).Type())
 						}
 					}
-				case *ast.ValueSpec:
-					if n.Type != nil && len(n.Values) > 0 {
-						for _, val := range n.Values {
-							mark(info, val, info.TypeOf(n.Type))
-						}
+				}
+			case *ast.SendStmt:
+				if ch, ok := underlying(info.TypeOf(n.Chan)).(*types.Chan); ok {
+					mark(n.Value, ch.Elem())
+				}
+			case *ast.CallExpr:
+				if isErrorsAs(info, n) {
+					// errors.As(err, &target) takes a value of the interface type
+					// out of the chain of err, as a type assertion does.
+					if p, ok := underlying(info.TypeOf(n.Args[1])).(*types.Pointer); ok {
+						asserted(p.Elem())
 					}
-				case *ast.ReturnStmt:
-					if len(sigs) > 0 {
-						res := sigs[len(sigs)-1].Results()
-						if res.Len() == len(n.Results) {
-							for i, r := range n.Results {
-								mark(info, r, res.At(i).Type())
-							}
-						}
-					}
-				case *ast.SendStmt:
-					if ch, ok := info.TypeOf(n.Chan).Underlying().(*types.Chan); ok {
-						mark(info, n.Value, ch.Elem())
-					}
-				case *ast.CallExpr:
-					if tv, ok := info.Types[n.Fun]; ok && tv.IsType() && len(n.Args) == 1 {
-						mark(info, n.Args[0], tv.Type) // a conversion
-					} else if ok && n.Fun != nil {
-						if sig, ok := types.Unalias(info.TypeOf(n.Fun)).Underlying().(*types.Signature); ok {
-							params := sig.Params()
-							for i, a := range n.Args {
-								switch {
-								case i < params.Len()-1 || i == params.Len()-1 && !sig.Variadic():
-									mark(info, a, params.At(i).Type())
-								case params.Len() > 0 && sig.Variadic():
-									if sl, ok := params.At(params.Len() - 1).Type().(*types.Slice); ok && !n.Ellipsis.IsValid() {
-										mark(info, a, sl.Elem())
-									}
-								}
-							}
-						}
-					}
-				case *ast.CompositeLit:
-					switch t := types.Unalias(info.TypeOf(n)).Underlying().(type) {
-					case *types.Slice:
-						for _, el := range n.Elts {
-							mark(info, litValue(el), t.Elem())
-						}
-					case *types.Array:
-						for _, el := range n.Elts {
-							mark(info, litValue(el), t.Elem())
-						}
-					case *types.Map:
-						for _, el := range n.Elts {
-							if kv, ok := el.(*ast.KeyValueExpr); ok {
-								mark(info, kv.Value, t.Elem())
-								mark(info, kv.Key, t.Key())
-							}
-						}
-					case *types.Struct:
-						for i, el := range n.Elts {
-							if kv, ok := el.(*ast.KeyValueExpr); ok {
-								if id, ok := kv.Key.(*ast.Ident); ok {
-									if fv, ok := info.Uses[id].(*types.Var); ok {
-										mark(info, kv.Value, fv.Type())
-									}
-								}
-							} else if i < t.NumFields() {
-								mark(info, el, t.Field(i).Type())
-							}
-						}
-					}
-				case *ast.BinaryExpr:
-					if n.Op == token.EQL || n.Op == token.NEQ {
-						mark(info, n.X, info.TypeOf(n.Y))
-						mark(info, n.Y, info.TypeOf(n.X))
-					}
-				case *ast.TypeAssertExpr:
-					if n.Type != nil && wants(info.TypeOf(n.X)) {
-						if t := info.TypeOf(n.Type); t != nil && !types.IsInterface(t) {
-							required[typeKey(t)] = true
-						}
-					}
-				case *ast.TypeSwitchStmt:
-					var x ast.Expr
-					switch a := n.Assign.(type) {
-					case *ast.ExprStmt:
-						x = a.X
-					case *ast.AssignStmt:
-						if len(a.Rhs) == 1 {
-							x = a.Rhs[0]
-						}
-					}
-					if ta, ok := x.(*ast.TypeAssertExpr); ok && wants(info.TypeOf(ta.X)) {
-						for _, c := range n.Body.List {
-							for _, te := range c.(*ast.CaseClause).List {
-								if t := info.TypeOf(te); t != nil && !types.IsInterface(t) {
-									required[typeKey(t)] = true
+				}
+				if tv, ok := info.Types[n.Fun]; ok && tv.IsType() && len(n.Args) == 1 {
+					mark(n.Args[0], tv.Type) // a conversion
+				} else if ok && n.Fun != nil {
+					if sig, ok := underlying(info.TypeOf(n.Fun)).(*types.Signature); ok {
+						params := sig.Params()
+						for i, a := range n.Args {
+							switch {
+							case i < params.Len()-1 || i == params.Len()-1 && !sig.Variadic():
+								mark(a, params.At(i).Type())
+							case params.Len() > 0 && sig.Variadic():
+								if sl, ok := params.At(params.Len() - 1).Type().(*types.Slice); ok && !n.Ellipsis.IsValid() {
+									mark(a, sl.Elem())
 								}
 							}
 						}
 					}
 				}
-				return true
+			case *ast.CompositeLit:
+				switch t := underlying(info.TypeOf(n)).(type) {
+				case *types.Slice:
+					for _, el := range n.Elts {
+						mark(litValue(el), t.Elem())
+					}
+				case *types.Array:
+					for _, el := range n.Elts {
+						mark(litValue(el), t.Elem())
+					}
+				case *types.Map:
+					for _, el := range n.Elts {
+						if kv, ok := el.(*ast.KeyValueExpr); ok {
+							mark(kv.Value, t.Elem())
+							mark(kv.Key, t.Key())
+						}
+					}
+				case *types.Struct:
+					for i, el := range n.Elts {
+						if kv, ok := el.(*ast.KeyValueExpr); ok {
+							if id, ok := kv.Key.(*ast.Ident); ok {
+								if fv, ok := info.Uses[id].(*types.Var); ok {
+									mark(kv.Value, fv.Type())
+								}
+							}
+						} else if i < t.NumFields() {
+							mark(el, t.Field(i).Type())
+						}
+					}
+				}
+			case *ast.BinaryExpr:
+				if n.Op == token.EQL || n.Op == token.NEQ {
+					mark(n.X, info.TypeOf(n.Y))
+					mark(n.Y, info.TypeOf(n.X))
+				}
+			case *ast.TypeAssertExpr:
+				if n.Type != nil {
+					add(info.TypeOf(n.Type), info.TypeOf(n.X))
+					asserted(info.TypeOf(n.Type))
+				}
+			case *ast.TypeSwitchStmt:
+				var x ast.Expr
+				switch a := n.Assign.(type) {
+				case *ast.ExprStmt:
+					x = a.X
+				case *ast.AssignStmt:
+					if len(a.Rhs) == 1 {
+						x = a.Rhs[0]
+					}
+				}
+				if ta, ok := x.(*ast.TypeAssertExpr); ok {
+					for _, c := range n.Body.List {
+						for _, te := range c.(*ast.CaseClause).List {
+							add(info.TypeOf(te), info.TypeOf(ta.X))
+							asserted(info.TypeOf(te))
+						}
+					}
+				}
 			}
-			ast.Inspect(f, walk)
+			return true
+		}
+		ast.Inspect(files[name], walk)
+	}
+	// An instantiation needs its type arguments to satisfy the constraints of
+	// the type parameters: the constraint is an interface that the argument
+	// implements (the methods of a constraint such as interface{ Area()
+	// float64 } are tied to the argument's, as gopls does).
+	ids := make([]*ast.Ident, 0, len(info.Instances))
+	for id := range info.Instances {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i].Pos() < ids[j].Pos() })
+	for _, id := range ids {
+		inst := info.Instances[id]
+		var tparams *types.TypeParamList
+		switch o := info.Uses[id].(type) {
+		case *types.Func:
+			if sig, ok := o.Type().(*types.Signature); ok {
+				tparams = sig.TypeParams()
+			}
+		case *types.TypeName:
+			if n, ok := types.Unalias(o.Type()).(*types.Named); ok {
+				tparams = n.TypeParams()
+			}
+		}
+		if tparams == nil || inst.TypeArgs == nil {
+			continue
+		}
+		for i := range min(tparams.Len(), inst.TypeArgs.Len()) {
+			add(inst.TypeArgs.At(i), tparams.At(i).Constraint())
 		}
 	}
-	delete(required, "")
-	return required
+	return out
+}
+
+// isErrorsAs reports whether the call is errors.As(err, target).
+func isErrorsAs(info *types.Info, call *ast.CallExpr) bool {
+	if len(call.Args) != 2 {
+		return false
+	}
+	var id *ast.Ident
+	switch f := call.Fun.(type) {
+	case *ast.SelectorExpr:
+		id = f.Sel
+	case *ast.Ident:
+		id = f // a dot import
+	default:
+		return false
+	}
+	fn, ok := info.Uses[id].(*types.Func)
+	return ok && fn.Name() == "As" && fn.Pkg() != nil && fn.Pkg().Path() == "errors"
+}
+
+// underlying returns the underlying type of t, or nil when t is nil (the
+// type of an expression that did not check).
+func underlying(t types.Type) types.Type {
+	if t == nil {
+		return nil
+	}
+	return types.Unalias(t).Underlying()
 }
 
 // litValue returns the value of an element of a composite literal.
@@ -354,7 +522,7 @@ func findModules(roots []string) []string {
 // (always for a rename), that the search covers the module of the document
 // only, when the workspace has other modules.
 func (s *Server) warnModules(e env, what string, q *query, sym *symbol, every bool) {
-	if sym.scope == scopeLocal || e.notify == nil {
+	if sym.scope == scopeLocal || sym.scope == scopeFamily && s.wideFamily || e.notify == nil {
 		return
 	}
 	others := s.otherModules(q)
@@ -406,6 +574,37 @@ var stdMethods = map[string]struct {
 	"Len":    {"func() int", "sort.Interface", []string{"Less", "Swap"}, "sort.Sort accepts the value"},
 	"Less":   {"func(i int, j int) bool", "sort.Interface", []string{"Len", "Swap"}, "sort.Sort accepts the value"},
 	"Swap":   {"func(i int, j int)", "sort.Interface", []string{"Len", "Less"}, "sort.Sort accepts the value"},
+}
+
+// errorsProtocol says what calls the method fn by name when the standard
+// library does, through an interface that is written in its code and has no
+// name that a search could find: the Unwrap, Is and As methods of an error
+// (errors.Is, errors.As and errors.Unwrap), as a predicate: "errors.Is calls it".
+// It returns "" for any other method.
+func errorsProtocol(fn *types.Func) string {
+	sig, ok := fn.Type().(*types.Signature)
+	if !ok || sig.Recv() == nil || types.IsInterface(recvBase(fn)) {
+		return ""
+	}
+	typ := func(t *types.Var) string {
+		return types.TypeString(t.Type(), func(*types.Package) string { return "" })
+	}
+	params, results := sig.Params(), sig.Results()
+	switch fn.Name() {
+	case "Unwrap":
+		if params.Len() == 0 && results.Len() == 1 && (typ(results.At(0)) == "error" || typ(results.At(0)) == "[]error") {
+			return "errors.Is, errors.As and errors.Unwrap call it"
+		}
+	case "Is":
+		if params.Len() == 1 && results.Len() == 1 && typ(params.At(0)) == "error" && typ(results.At(0)) == "bool" {
+			return "errors.Is calls it"
+		}
+	case "As":
+		if params.Len() == 1 && results.Len() == 1 && (typ(params.At(0)) == "any" || typ(params.At(0)) == "interface{}") && typ(results.At(0)) == "bool" {
+			return "errors.As calls it"
+		}
+	}
+	return ""
 }
 
 // newImplements warns the user, with a showMessage, about the methods that the

@@ -18,20 +18,51 @@ searched, and you get a warning when there are any), in the unsaved text of the 
 in `_test.gp` files (internal and external tests, also of packages that import the package only
 in their tests).
 
-*What a method stands for (the family).* The methods of a rename or a references request are
-one family: the method you ask about, the methods of the interfaces of the module (and of its
-test files) that it could satisfy, and the methods of all the types of the module (and of the
-test files) that have the name and the shape of a method of such an interface, so that the
-interface is still satisfied afterwards. This is **wider than gopls's**: gopls ties methods
-only through a use that needs the interface (a value of one type passed where the interface is
-wanted), gocpp ties every method that could satisfy it, needed or not. Renaming `Lener.Len`
-therefore also renames `Counterer.Len` of a type that nothing converts to `Lener`. A rename of a
-method always tells you, with a message, how many other declarations it changed (and the first
-few), and which of them no use that gocpp found needs to be part of the family, so that you can
-undo it. Anonymous interface literals (`interface{ Len() int }` written in an expression or a
-parameter) and dynamic assertions (`v.(interface{ Len() int })`) are not part of the family
-(gopls neither). A method that implements a method of an interface that is not in the module
-(`String` and `fmt.Stringer`) keeps its references, and a rename of it is refused.
+*What a method stands for (the family).* A **rename** of a method changes the method you ask
+about and the methods that tie to it, so that the program means what it meant before:
+
+- a *use* ties a type's method to an interface's: wherever a value of one type is passed,
+  assigned, returned, sent, put in a composite literal, compared or converted where an interface
+  with the method is wanted (the interface may be named, written as a literal in a parameter, or the
+  constraint of a type parameter that the call instantiates; the type may be a named type, a pointer,
+  or an unnamed struct that embeds one), the type's method and the interface's method are one method
+  and change together, also in the test files and in other packages. This is gopls's family. For an
+  unexported method the importers are searched too (a `main` that passes a `base.Dog` to a
+  `func(base.Animal)` ties the unexported `Dog.name` to `Animal.name`);
+- an interface that a type assertion, a type switch or `errors.As` takes a value out as is followed
+  all the way, **which gopls does not do**: the type that the assertion reaches (it may be unexported,
+  in a package that the asserting code does not import, and reached only through `error` or `any`) must
+  keep implementing the interface, so the interface's method and the method of every type of the
+  module that implements the interface change together, from either side. Without it the program
+  compiles and the assertion fails at run time. It makes a rename wider than gopls's when the
+  interface is a target of such a check (the types are compared with the interface by the names and
+  signatures of their methods, in every package of the module, so it is slow only then). Types
+  declared inside a function, generic types and the types of other modules are not looked at;
+- a type that merely *could* be used as the interface, with no use that needs it to and no
+  assertion that takes it, is left alone: renaming `Lener.Len` leaves `Counterer.Len` alone when
+  nothing converts a `Counterer` to a `Lener`. It stops satisfying `Lener`. Nothing in the module
+  can tell (it compiles, and no check sees the difference); only reflection and code outside the
+  module could.
+
+A rename tells you, with a message, how many other declarations it changed (and the first few), so
+that you can undo it. These are refused instead, because the program would change without a
+compile-time error: a method that implements a method of an interface that is not in the module
+(`String` and `fmt.Stringer`, `Error` and `error`); `Unwrap`, `Is` and `As` of an error, which
+the `errors` package calls by name; and an `init` function. The edit is also checked at the end by
+type-checking the packages it changes and the importers of the packages whose methods it
+changes: if an importer would no longer compile, it is refused.
+
+**References and highlights** of a method use the same family, except for the interfaces outside
+the module (the references of `Error` are those of that method, not of every `Error` method of the
+module that returns as an `error`). This differs from gopls, which lists the declaration of the
+method you asked about and the uses (calls) of the methods of every type that implements the
+interface, tied by a use or not, but not the declarations of those methods: gocpp lists the
+declarations and the uses of the tied methods. `gocpp lsp -wide-family` restores the older, wider
+family for both (every method of the module with the name and shape of a method of an interface
+the type satisfies, needed by a use or not; it is slow when many types share a method name, and
+wider than gopls; it has none of the later guards above: the assertion follow-up, the importers of an
+unexported method, the refusals of `Unwrap`, `Is`, `As` and `init`). Both modes are written down in
+[ADR-052](../adr/052-lsp-speed-work.md).
 
 *What a rename checks.* It is refused, with a message, when the new name would clash with another
 name, hide a use, or be captured (also in the test files), when the name is used in other

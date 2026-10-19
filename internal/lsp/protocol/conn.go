@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"runtime/debug"
 	"slices"
 	"sync"
 	"time"
@@ -245,7 +246,7 @@ func (c *Conn) serve(ctx context.Context, h Handler) error {
 				c.cancelRequest(req.Params)
 				continue
 			}
-			if err := h.Notify(ctx, req); errors.Is(err, ErrStop) {
+			if err := c.notified(ctx, h, req); errors.Is(err, ErrStop) {
 				return nil
 			} else if err != nil {
 				c.log.Printf("%s: %v", req.Method, err)
@@ -281,7 +282,7 @@ func (c *Conn) start(ctx context.Context, h Handler, req *Request) error {
 		}
 		return nil
 	}
-	work := h.Call(rctx, req)
+	work := c.called(rctx, h, req)
 	c.works.Add(1)
 	go func() {
 		defer c.works.Done()
@@ -289,7 +290,7 @@ func (c *Conn) start(ctx context.Context, h Handler, req *Request) error {
 		var result any
 		var err error
 		if work != nil {
-			result, err = work(rctx)
+			result, err = c.safely(cl, work, rctx)
 		}
 		if errors.Is(err, context.Canceled) && rctx.Err() != nil {
 			var re *ResponseError
@@ -304,6 +305,47 @@ func (c *Conn) start(ctx context.Context, h Handler, req *Request) error {
 		}
 	}()
 	return nil
+}
+
+// notified runs h.Notify, on the goroutine that reads the connection: a panic
+// in a handler of a notification (a change of a document, say) is logged and
+// the notification is dropped, as an error would.
+func (c *Conn) notified(ctx context.Context, h Handler, req *Request) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			c.log.Printf("%s: panic: %v\n%s", req.Method, r, debug.Stack())
+			err = nil
+		}
+	}()
+	return h.Notify(ctx, req)
+}
+
+// called runs h.Call, the first part of a request, on the goroutine that
+// reads the connection: a panic in it is the answer of the request, an
+// InternalError, as a panic in its work is.
+func (c *Conn) called(ctx context.Context, h Handler, req *Request) (work Work) {
+	defer func() {
+		if r := recover(); r != nil {
+			c.log.Printf("%s: panic: %v\n%s", req.Method, r, debug.Stack())
+			msg := fmt.Sprintf("%s: internal error: %v", req.Method, r)
+			work = func(context.Context) (any, error) { return nil, Errorf(InternalError, "%s", msg) }
+		}
+	}()
+	return h.Call(ctx, req)
+}
+
+// safely runs the work of a request and turns a panic in it into an
+// InternalError answer: a bug in one request (a nil type of an expression
+// that did not check, say) must not end the server and every open document
+// with it. The panic and its stack are logged.
+func (c *Conn) safely(cl *call, work Work, ctx context.Context) (result any, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			c.log.Printf("%s: panic: %v\n%s", cl.method, r, debug.Stack())
+			result, err = nil, Errorf(InternalError, "%s: internal error: %v", cl.method, r)
+		}
+	}()
+	return work(ctx)
 }
 
 // finish claims the answer to the request cl: the caller must write it
@@ -420,7 +462,12 @@ func (c *Conn) reply(cl *call, result any, err error) {
 	id := cl.id
 	resp := &Response{ID: &id}
 	if err == nil {
-		resp.Result, err = json.Marshal(result)
+		if t, ok := result.(trustedEncoder); ok {
+			resp.Result = t.compactJSON()
+			resp.trusted = true
+		} else if resp.Result, err = json.Marshal(result); err == nil {
+			resp.trusted = true // encoding/json's output is valid and compact
+		}
 		if err != nil {
 			c.log.Printf("%s: cannot encode the result: %v", cl.method, err)
 			resp.Result = nil

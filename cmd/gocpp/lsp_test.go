@@ -259,7 +259,7 @@ func TestLSPLogfile(t *testing.T) {
 
 func TestLSPUsage(t *testing.T) {
 	code, out, errOut := gocpp("lsp", "extra")
-	if code != 2 || out != "" || errOut != "usage: gocpp lsp [-logfile file] [-slow duration] [-profile dir [-exec-trace]] [-trace file]\n" {
+	if code != 2 || out != "" || errOut != "usage: gocpp lsp [-logfile file] [-slow duration] [-profile dir [-exec-trace]] [-trace file] [-wide-family]\n" {
 		t.Errorf("gocpp lsp extra: exit %d, stdout %q, stderr %q", code, out, errOut)
 	}
 	code, out, errOut = gocpp("lsp", "-h")

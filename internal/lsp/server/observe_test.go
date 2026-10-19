@@ -153,6 +153,15 @@ func TestStats(t *testing.T) {
 	for range 3 {
 		hoverAtPoint(c)
 	}
+	// The span of a run of diagnostics ends after its publish: the count
+	// of the run that the next() above waited for is there a moment later.
+	for range 400 {
+		var st Stats
+		if resp := c.call(GocppStats, ""); resp.Error == nil && json.Unmarshal(resp.Result, &st) == nil && st.Requests["diagnostics"].Count >= 1 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	for _, call := range []func() *protocol.Response{
 		func() *protocol.Response { return c.call(GocppStats, "") },
 		func() *protocol.Response {

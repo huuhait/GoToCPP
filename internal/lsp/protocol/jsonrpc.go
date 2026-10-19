@@ -104,6 +104,11 @@ type Response struct {
 	ID     *ID // nil only in an error response to a message whose ID can't be read
 	Result json.RawMessage
 	Error  *ResponseError
+
+	// trusted is set by the connection when Result is the output of
+	// encoding/json or of a type of this package that encodes itself: valid
+	// JSON, already compact, so EncodeMessage need not scan it again.
+	trusted bool
 }
 
 func (*Request) isMessage()  {}
@@ -213,6 +218,21 @@ func EncodeMessage(m Message) ([]byte, error) {
 			w.ID, _ = m.ID.MarshalJSON()
 		}
 	case *Response:
+		if m.trusted && m.Error == nil && len(m.Result) > 0 {
+			// The result of a big answer (thousands of references) is not
+			// scanned and copied again by json.Marshal: the message is
+			// put together, in the order and form that wire gives.
+			id := []byte("null")
+			if m.ID != nil {
+				id, _ = m.ID.MarshalJSON()
+			}
+			b := make([]byte, 0, len(m.Result)+len(id)+48)
+			b = append(b, `{"jsonrpc":"2.0","id":`...)
+			b = append(b, id...)
+			b = append(b, `,"result":`...)
+			b = append(b, m.Result...)
+			return append(b, '}'), nil
+		}
 		w.ID = json.RawMessage("null") // JSON-RPC 2.0: null when the id is unknown
 		if m.ID != nil {
 			w.ID, _ = m.ID.MarshalJSON()

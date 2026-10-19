@@ -19,6 +19,7 @@ import (
 	"github.com/huuhait/gocpp/internal/lsp/cache"
 	"github.com/huuhait/gocpp/internal/lsp/debounce"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
+	"github.com/huuhait/gocpp/internal/lsp/safe"
 	"github.com/huuhait/gocpp/internal/syntax/scanner"
 )
 
@@ -92,11 +93,29 @@ import (
 // x") are relatedInformation when the file can be read, and else lines
 // of the message.
 
-// diagnoseDelay is the quiet time after a didChange before the diagnostics
-// of its package run (README §2.2 item 7: "about 30 ms"). With a 10k-line
-// package checked again in about 30 ms, a keystroke gets new diagnostics
-// in about 60 ms, within the budget of 100 ms (BenchmarkKeystroke).
+// diagnoseDelay is the longest quiet time after a didChange before the
+// diagnostics of its package run (README §2.2 item 7: "about 30 ms"): the
+// wait of a package whose check is slow. A package whose last check was
+// quick runs at once (adaptiveDelay): waiting only pays when the work that a
+// newer keystroke makes useless would cost more than the wait.
 const diagnoseDelay = 30 * time.Millisecond
+
+// quickCheck is the time of a check, publish included, up to which the next
+// change runs at once: a check that short costs less than the wait, and
+// running it for each keystroke of a burst costs the same as one long run
+// (the debouncer never runs two checks of a package at the same time, and a
+// newer change cancels the one under way).
+const quickCheck = 10 * time.Millisecond
+
+// adaptiveDelay returns the quiet time before the run that a didChange
+// schedules, from the time that the last run of the package took: none
+// after a quick one, else half of that time, up to max.
+func adaptiveDelay(last, max time.Duration) time.Duration {
+	if last <= quickCheck {
+		return 0
+	}
+	return min(last/2, max)
+}
 
 // maxRetries is how often a run checks again when the snapshot changed
 // while it checked.
@@ -109,7 +128,10 @@ const diagSource = "gocpp"
 type diagnostics struct {
 	s     *Server
 	deb   *debounce.Debouncer[string] // by package folder
-	delay time.Duration               // after a didChange
+	delay time.Duration               // after a didChange: at most (diagnoseDelay)
+	// fixed makes every didChange wait delay, however quick the last check
+	// was (the tests of the debounce).
+	fixed bool
 
 	// related: the client takes relatedInformation (initialize); without
 	// it, the related places are lines of the message.
@@ -123,6 +145,8 @@ type diagnostics struct {
 	mu    sync.Mutex
 	files map[protocol.DocumentURI]*published // what the client has
 	pkgs  map[string]*pkgState                // by folder
+	last  map[string]time.Duration            // how long a run of the package takes, by folder (see recordRun)
+	runs  map[string][]time.Duration          // the times of the last finished runs, by folder
 }
 
 // published is the last publish of a file.
@@ -141,10 +165,17 @@ type pkgState struct {
 }
 
 func newDiagnostics(s *Server, clock debounce.Clock) *diagnostics {
-	return &diagnostics{
+	d := &diagnostics{
 		s: s, deb: debounce.New[string](clock), delay: diagnoseDelay,
 		files: make(map[protocol.DocumentURI]*published), pkgs: make(map[string]*pkgState),
+		last: make(map[string]time.Duration), runs: make(map[string][]time.Duration),
 	}
+	// A bug in the diagnostics of a package is logged, not a crash of the
+	// server; the next change of the package runs them again.
+	d.deb.OnPanic = func(dir string, p *safe.Panic) {
+		s.log.Printf("diagnostics of %s: panic: %v\n%s", dir, p.Value, p.Stack)
+	}
+	return d
 }
 
 // stop cancels the runs and waits (a little) for them to end.
@@ -163,6 +194,50 @@ func (d *diagnostics) schedule(dir string, delay time.Duration) {
 func (d *diagnostics) scheduleFile(uri protocol.DocumentURI, delay time.Duration) {
 	if path := uri.Path(); path != "" {
 		d.schedule(filepath.Dir(path), delay)
+	}
+}
+
+// runsKept is how many finished runs of a package the estimate of its time
+// looks at.
+const runsKept = 5
+
+// recordRun notes that a run of the package in dir took t: the estimate d.last
+// is the median of the last runsKept runs, so that one slow run (a garbage
+// collection, a busy machine) does not make the next keystroke wait.
+func (d *diagnostics) recordRun(dir string, t time.Duration) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	runs := append(d.runs[dir], t)
+	if len(runs) > runsKept {
+		runs = runs[len(runs)-runsKept:]
+	}
+	d.runs[dir] = runs
+	sorted := slices.Clone(runs)
+	slices.Sort(sorted)
+	d.last[dir] = sorted[len(sorted)/2]
+}
+
+// changeDelay returns the quiet time before the run that a change of the
+// package in dir schedules.
+func (d *diagnostics) changeDelay(dir string) time.Duration {
+	if d.fixed {
+		return d.delay
+	}
+	d.mu.Lock()
+	last, ok := d.last[dir]
+	d.mu.Unlock()
+	if !ok {
+		return d.delay
+	}
+	return adaptiveDelay(last, d.delay)
+}
+
+// scheduleChange schedules a run for the package of the file uri, which a
+// change of its text (or of the disk) made stale: after changeDelay.
+func (d *diagnostics) scheduleChange(uri protocol.DocumentURI) {
+	if path := uri.Path(); path != "" {
+		dir := filepath.Dir(path)
+		d.schedule(dir, d.changeDelay(dir))
 	}
 }
 
@@ -191,6 +266,13 @@ func (d *diagnostics) scheduleOpen(skip string, delay time.Duration) {
 
 // run diagnoses the package of the folder dir on the current snapshot.
 func (d *diagnostics) run(ctx context.Context, dir string) {
+	start := time.Now()
+	defer func() {
+		// A run that was cancelled took no time that says anything.
+		if ctx.Err() == nil {
+			d.recordRun(dir, time.Since(start))
+		}
+	}()
 	ctx, span := d.s.obs.begin(ctx, "diagnostics", "dir", dir)
 	defer d.s.obs.end(span, func() string { return fmt.Sprintf("dir=%s (now: %s)", dir, d.s.snapshotInfo()) })
 	for try := 0; ; try++ {

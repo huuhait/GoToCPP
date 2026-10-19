@@ -130,6 +130,15 @@ func semanticTokens(ctx context.Context, e env, uri protocol.DocumentURI, rng *p
 	if q == nil {
 		return nil, nil // the document is not a file of its package: no tokens
 	}
+	if rng == nil && q.pkg != nil && q.tests == nil {
+		// The tokens of the whole file depend on the check and the text
+		// alone: made once for the package (every request of an editor that
+		// scrolls or reopens the file asks again).
+		data := q.pkg.Memo(semanticKey{q.file.Path}, func() any {
+			return q.encodeTokens(q.semanticTokens(), 0, len(q.src))
+		}).([]uint32)
+		return &protocol.SemanticTokens{Data: data}, nil
+	}
 	toks := q.semanticTokens()
 	lo, hi := 0, len(q.src)
 	if rng != nil {
@@ -138,6 +147,15 @@ func semanticTokens(ctx context.Context, e env, uri protocol.DocumentURI, rng *p
 			return nil, protocol.Errorf(protocol.InvalidParams, "%v", err)
 		}
 	}
+	return &protocol.SemanticTokens{Data: q.encodeTokens(toks, lo, hi)}, nil
+}
+
+// semanticKey is the key of the encoded tokens of a file in the package's memo.
+type semanticKey struct{ path string }
+
+// encodeTokens returns the tokens that lie in [lo, hi) in the protocol's
+// form: five numbers each, relative to the one before.
+func (q *query) encodeTokens(toks []semToken, lo, hi int) []uint32 {
 	data := make([]uint32, 0, 5*len(toks))
 	line, col := uint32(0), uint32(0)
 	for _, t := range toks {
@@ -154,7 +172,7 @@ func semanticTokens(ctx context.Context, e env, uri protocol.DocumentURI, rng *p
 		data = append(data, dl, dc, length, uint32(t.typ), t.mods)
 		line, col = pos.Line, pos.Character
 	}
-	return &protocol.SemanticTokens{Data: data}, nil
+	return data
 }
 
 // utf16Length returns the number of UTF-16 code units of s.

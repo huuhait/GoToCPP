@@ -249,6 +249,27 @@ func TestMatchSymbol(t *testing.T) {
 	}
 }
 
+// TestSymQueryMatchesMatchSymbol: the prepared query (bytes, lower case names
+// made once) gives the score and the answer of matchSymbol for every pair of
+// a set of names and queries, ASCII or not.
+func TestSymQueryMatchesMatchSymbol(t *testing.T) {
+	names := []string{"", "a", "Rect", "Rect.Area", "AreaOf", "TotalArea", "AxRxExA", "area", "Area", "Ünïcode", "Ünï.Çode", "get_value", "GetValue",
+		"HTTPServer.ServeHTTP", "x.y.z", "F25_3", "pkg.Type.Method", "ABC", "aBc", "a.b", "_x", "Z"}
+	queries := []string{"", "a", "ar", "area", "AREA", "ra", "rect", "Rect", "gv", "GV", "get", "Value", "http", "xyz", "x.y", "f25", "F25_3", "ünï", "Ü", "_", ".", "zz", "bc", "tm"}
+	for _, q := range queries {
+		sq := newSymQuery(q)
+		for _, n := range names {
+			lower := strings.ToLower(n)
+			sym := wsSymbol{name: n, lower: lower, ascii: isASCII(n) && isASCII(lower)}
+			gs, gok := sq.match(&sym)
+			ws, wok := matchSymbol(q, n)
+			if gs != ws || gok != wok {
+				t.Errorf("query %q, name %q: got (%d, %v), matchSymbol says (%d, %v)", q, n, gs, gok, ws, wok)
+			}
+		}
+	}
+}
+
 func TestDocumentHighlight(t *testing.T) {
 	c := startRefs(t, wsFiles, plainInit)
 	src := wsFiles["app/main.gp"]
@@ -308,4 +329,23 @@ func TestSymbolTableForgetsDeleted(t *testing.T) {
 		t.Error("the symbols of the deleted file are still in the table")
 	}
 	sameList(t, "after", c.workspaceSymbols("Double"), []string{})
+}
+
+// TestIndexNameOfSecondFile: a folder whose first file has a broken package
+// clause is a package by its next file's (the walk of the module index does
+// that), so the fix of the second file, reported as a changed file, brings
+// the folder into the index: the symbols have their package path.
+func TestIndexNameOfSecondFile(t *testing.T) {
+	files := map[string]string{
+		"gocpp.mod": "module example.com/idx\n",
+		"p/a.gp":    "package\n\nfunc Asym() {}\n",
+		"p/b.gp":    "package\n\nfunc Bsym() {}\n",
+	}
+	c := startRefsRoot(t, files)
+	sameList(t, "before the fix", c.workspaceSymbols("Bsym"), []string{})
+	if err := os.WriteFile(filepath.Join(c.root, "p", "b.gp"), []byte("package p\n\nfunc Bsym() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c.notify("workspace/didChangeWatchedFiles", fmt.Sprintf(`{"changes":[{"uri":%q,"type":2}]}`, c.uri("p/b.gp")))
+	sameList(t, "after the fix", c.workspaceSymbols("Bsym"), []string{"Bsym (example.com/idx/p) p/b.gp:3"})
 }

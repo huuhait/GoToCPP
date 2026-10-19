@@ -65,6 +65,9 @@ func total(shapes []Shape) int {
 }
 
 func Total(shapes ...Shape) int { return total(shapes) }
+
+// A use that needs a Circle to be a Shape ties its methods to the interface's.
+var _ Shape = (*Circle)(nil)
 `,
 	"lib/lib_test.gp": `package lib
 
@@ -662,4 +665,37 @@ func TestRenameResultCheck(t *testing.T) {
 		// A rename that is fine stays fine.
 		{"conf.gp", "Get|() int", "Fetch", []string{"conf.gp:13: func (t T) Fetch() int   { return t.A }"}, ""},
 	})
+}
+
+// TestReferencesInChangedDiskFile: the places of the references in a file
+// that is not open come from its current text: a change on disk that moves
+// the use is seen by the next search (the line tables of files on disk are
+// kept by content, never by name alone).
+func TestReferencesInChangedDiskFile(t *testing.T) {
+	files := map[string]string{
+		"gocpp.mod":    "module example.com/disk\n",
+		"lib/lib.gp":   "package lib\n\nfunc Count() int { return 1 }\n",
+		"app/other.gp": "package app\n\nimport \"example.com/disk/lib\"\n\nfunc Use() int { return lib.Count() }\n",
+	}
+	c := startRefs(t, files, plainInit)
+	c.open("lib/lib.gp", files["lib/lib.gp"])
+	c.next("lib/lib.gp")
+	want := func(line int) {
+		t.Helper()
+		got := c.references("lib/lib.gp", "func |Count", true)
+		found := fmt.Sprintf("app/other.gp:%d:", line)
+		for _, g := range got {
+			if strings.HasPrefix(g, found) {
+				return
+			}
+		}
+		t.Errorf("references %v: want one at line %d of app/other.gp", got, line)
+	}
+	want(5)
+	moved := "package app\n\nimport \"example.com/disk/lib\"\n\n// a comment\n// and another\n\nfunc Use() int { return lib.Count() }\n"
+	if err := os.WriteFile(filepath.Join(c.root, "app", "other.gp"), []byte(moved), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c.notify("workspace/didChangeWatchedFiles", fmt.Sprintf(`{"changes":[{"uri":%q,"type":2}]}`, c.uri("app/other.gp")))
+	want(8)
 }

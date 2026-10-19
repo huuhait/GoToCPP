@@ -124,10 +124,7 @@ func (m *metadata) valid(s *state) bool {
 		if err != nil {
 			return false
 		}
-		a, b := newHasher("read"), newHasher("read")
-		r.digest(a)
-		cur.digest(b)
-		if a.sum() != b.sum() {
+		if !r.same(cur) {
 			return false
 		}
 	}
@@ -242,6 +239,37 @@ type Package struct {
 	depTypes  map[types.Object]string
 	funcOnce  sync.Once
 	funcTypes map[types.Object]string // the functions of the package (funcSpellings)
+
+	// memo holds what the language server derives from the check (Memo).
+	memo sync.Map // key -> *memoEntry
+}
+
+type memoEntry struct {
+	mu   sync.Mutex
+	done bool
+	val  any
+}
+
+// Memo returns what f computes from the package, computing it once for the
+// key: a value that depends on the check alone (an index of its AST, say) is
+// then shared by every request and every snapshot that has this package, and
+// goes away with it. f must not change the package. When f panics, nothing is
+// kept: the next call runs f again (a sync.Once would be spent, and the later
+// calls would get nil and fail on it, on every request, until the package
+// changes).
+func (pkg *Package) Memo(key any, f func() any) any {
+	e, ok := pkg.memo.Load(key)
+	if !ok {
+		e, _ = pkg.memo.LoadOrStore(key, new(memoEntry))
+	}
+	me := e.(*memoEntry)
+	me.mu.Lock()
+	defer me.mu.Unlock()
+	if !me.done {
+		me.val = f()
+		me.done = true
+	}
+	return me.val
 }
 
 // Fset returns the FileSet of the package's files and of the objects of the
@@ -364,6 +392,58 @@ func (s *Snapshot) PackageFiles(lp *load.Package) ([]string, error) {
 	return names, nil
 }
 
+// TestFiles returns the _test.gp files of the folder dir in the snapshot,
+// sorted: what PackageFiles returns for them, without the cost of naming
+// every file (a search asks for each folder of a module).
+func (s *Snapshot) TestFiles(dir string) ([]string, error) {
+	st, ok := s.state.(*state)
+	if !ok {
+		return nil, errNoPipeline
+	}
+	d, err := st.dir(filepath.Clean(dir))
+	if err != nil {
+		return nil, err
+	}
+	return d.tests, nil
+}
+
+// SourceFiles returns the absolute names of the .gp files of the folder dir
+// in the snapshot, sorted, as PackageFiles does for a package that is not of
+// the standard library, but without naming them again for each request: the
+// slice is shared, and must not be changed.
+func (s *Snapshot) SourceFiles(dir string) ([]string, error) {
+	st, ok := s.state.(*state)
+	if !ok {
+		return nil, errNoPipeline
+	}
+	d, err := st.dir(filepath.Clean(dir))
+	if err != nil {
+		return nil, err
+	}
+	d.allOnce.Do(func() {
+		d.all = make([]string, len(d.names))
+		for i, name := range d.names {
+			d.all[i] = filepath.Join(d.dirName, name)
+		}
+	})
+	return d.all, nil
+}
+
+// FileHash returns the hash of the content of the file path in the snapshot:
+// what ParsePath's results are keyed by, without reading the parse cache. A
+// file of the standard library has its own hash.
+func (s *Snapshot) FileHash(path string) (Hash, error) {
+	st, ok := s.state.(*state)
+	if !ok {
+		return Hash{}, errNoPipeline
+	}
+	f, err := st.fileOrStd(path)
+	if err != nil {
+		return Hash{}, err
+	}
+	return f.hash, f.err
+}
+
 // IsStdFile reports whether path is the name of a file of the standard
 // library (in Config.StdlibDir): it has no file on disk.
 func (s *Snapshot) IsStdFile(path string) bool {
@@ -458,6 +538,12 @@ func (s *state) handle(ctx context.Context, id pkgID, importPath string, stack [
 		}
 		pf, err := s.p.parse(ctx, f, parser.ImportsOnly)
 		if err != nil {
+			if cerr := ctx.Err(); cerr != nil {
+				// Not the file's header: a request that gives up must not make
+				// a key from its own error (the metadata kept under it would be
+				// shared by every later request, whatever the file says then).
+				return nil, cerr
+			}
 			imports.str(err.Error())
 			continue
 		}

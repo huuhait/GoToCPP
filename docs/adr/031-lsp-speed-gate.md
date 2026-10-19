@@ -46,7 +46,8 @@ shared machine and with the numbers:
    performance job in [TODO.md](../../plans/2026-10-13-gocpp/TODO.md) (the user wants the server optimized
    as far as it goes: keystroke without the debounce when a check is fast, the references family narrowed
    to gopls's use-tied unification, rename and workspace symbols, then tighter budgets and no `Known`
-   exclusion). Phase 11's exit criterion keeps the 1.5x row until then.
+   exclusion). Phase 11's exit criterion keeps the 1.5x row until then. (Done in part:
+   [ADR-052](052-lsp-speed-work.md).)
 
 ## Alternatives
 

@@ -206,6 +206,9 @@ func URIFromPath(path string) DocumentURI {
 	if path == "" {
 		return ""
 	}
+	if plainPath(path) {
+		return DocumentURI(fileScheme + "://" + path) // what the general way gives, without its work
+	}
 	if !IsWindowsDrivePath(path) {
 		if abs, err := filepath.Abs(path); err == nil {
 			path = abs
@@ -224,6 +227,36 @@ func URIFromPath(path string) DocumentURI {
 }
 
 const fileScheme = "file"
+
+// plainPath reports whether path is an absolute, clean path of a system with
+// slashes that needs no escaping in a URI (letters, digits and - _ . ~ in
+// the names): its URI is "file://" and the path. The names a language server
+// answers with are nearly all so.
+func plainPath(path string) bool {
+	if filepath.Separator != '/' || len(path) < 2 || path[0] != '/' {
+		return false
+	}
+	segStart := 1
+	for i := 1; i <= len(path); i++ {
+		if i < len(path) {
+			c := path[i]
+			switch {
+			case c == '/':
+			case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z', '0' <= c && c <= '9', c == '-', c == '_', c == '.', c == '~':
+				continue
+			default:
+				return false
+			}
+		}
+		// A name ends here: it must be a name, not "", "." or "..".
+		seg := path[segStart:i]
+		if seg == "" || seg == "." || seg == ".." {
+			return false
+		}
+		segStart = i + 1
+	}
+	return true
+}
 
 // IsWindowsDrivePath returns true if the file path is of the form used by
 // Windows. We check if the path begins with a drive letter, followed by a ":".

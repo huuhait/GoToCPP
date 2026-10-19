@@ -173,25 +173,27 @@ func (s *Snapshot) Edited(texts map[protocol.DocumentURI]string) (*Snapshot, fun
 	if !ok {
 		return nil, nil, errNoPipeline
 	}
-	sess := NewSession(st.p.NewState())
-	for _, o := range s.Overlays() {
-		if _, replaced := texts[o.uri]; replaced {
-			continue
-		}
-		item := protocol.TextDocumentItem{URI: o.uri, LanguageID: o.languageID, Version: o.version, Text: o.Text()}
-		if _, err := sess.DidOpen(item); err != nil {
-			return nil, nil, err
-		}
+	// The snapshot is made from s as an edit of the open documents is: its
+	// state is a clone of s's (State.Clone), so what the edit leaves alone (the
+	// files read, the packages checked) is not read or checked again, and only
+	// the packages that the texts change, and the ones that import them, are.
+	sess := &Session{live: 1}
+	overlays := make(map[protocol.DocumentURI]*Overlay, len(s.overlays)+len(texts))
+	for uri, o := range s.overlays {
+		overlays[uri] = o
 	}
+	changed := make(map[protocol.DocumentURI]bool, len(texts))
 	for uri, text := range texts {
 		item := protocol.TextDocumentItem{URI: uri, LanguageID: "gocpp", Version: 1, Text: text}
 		if o := s.Overlay(uri); o != nil {
 			item.LanguageID, item.Version = o.languageID, o.version
 		}
-		if _, err := sess.DidOpen(item); err != nil {
-			return nil, nil, err
-		}
+		overlays[uri] = newOverlay(item)
+		changed[uri] = true
 	}
+	first := newSnapshot(sess, 0, overlays, nil)
+	first.state = st.Clone(first, Change{Files: changed})
+	sess.current = first
 	snap, release := sess.Snapshot()
 	var once sync.Once
 	return snap, func() {

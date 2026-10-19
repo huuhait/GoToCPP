@@ -789,3 +789,101 @@ func TestStdlibNames(t *testing.T) {
 		release()
 	}
 }
+
+// TestLateImport: a file whose import comes after another declaration (or
+// after a syntax error) has the same imports in its metadata as in its check,
+// so the check resolves them (no "internal error: the import of fmt was not
+// resolved with the metadata"), whatever the history of the file was.
+func TestLateImport(t *testing.T) {
+	late := "package main\n\ndefer x()\n\nimport \"fmt\"\nimport \"os\"\n\nfunc main() { fmt.Println(os.Args) }\n"
+	late2 := "package main\n\nfunc g() {}\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(1) }\n"
+	for name, text := range map[string]string{"after a syntax error": late, "after a declaration": late2} {
+		for _, history := range []bool{false, true} {
+			w := newWorld(t, testConfig(), map[string]string{
+				"gocpp.mod": "module example.com/late\n",
+				"main.gp":   "package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(1) }\n",
+			})
+			if history {
+				w.open("main.gp", "package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(1) }\n")
+				w.pkg(".")
+				w.edit("main.gp", text)
+			} else {
+				w.open("main.gp", text)
+			}
+			errs := w.errs(w.pkg("."))
+			if strings.Contains(errs, "internal error") || strings.Contains(errs, "undefined: fmt") {
+				t.Errorf("%s (history %v): bogus errors:\n%s", name, history, errs)
+			}
+			if !strings.Contains(errs, "imports must appear before other declarations") && name == "after a declaration" {
+				t.Errorf("%s: the real error is missing:\n%s", name, errs)
+			}
+		}
+	}
+}
+
+// TestMemoPanic: a function that panics in Package.Memo leaves nothing kept
+// (a sync.Once would be spent, and the later callers would get nil): the next
+// call computes the value, and it is kept after that.
+func TestMemoPanic(t *testing.T) {
+	w := newWorld(t, testConfig(), app)
+	pkg := w.pkg(".")
+	type key struct{}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("the panic of f did not reach the caller")
+			}
+		}()
+		pkg.Memo(key{}, func() any { panic("boom") })
+	}()
+	n := 0
+	for range 3 {
+		if got := pkg.Memo(key{}, func() any { n++; return "value" }); got != "value" {
+			t.Fatalf("Memo after a panic: %v", got)
+		}
+	}
+	if n != 1 {
+		t.Errorf("f ran %d times after the panic, want 1", n)
+	}
+}
+
+// TestCanceledHandleKeepsNothing: a request whose context is done while the
+// handle of a package is made gets the context's error, and leaves nothing
+// behind. The key of the metadata used to take the error for a header ("context
+// canceled" instead of the file's text), so every later cancelled request for
+// the package shared one metadata, made for whatever text the file had then:
+// the imports of another version of the file (a bogus "package ... is not in
+// module", the importers missing from a search), until the package changed.
+func TestCanceledHandleKeepsNothing(t *testing.T) {
+	files := map[string]string{
+		"gocpp.mod": "module example.com/cc\n",
+		"a/a.gp":    "package a\n",
+		"b/b.gp":    "package b\n",
+		"main.gp":   "package main\n\nimport \"example.com/cc/a\"\n\nfunc main() { _ = a.X }\n",
+	}
+	w := newWorld(t, testConfig(), files)
+	imports := func(ctx context.Context) ([]string, error) {
+		snap, release := w.s.Snapshot()
+		defer release()
+		refs, err := snap.ImportsOf(ctx, w.root)
+		var out []string
+		for _, r := range refs {
+			out = append(out, r.ImportPath)
+		}
+		return out, err
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	w.open("main.gp", "package main\n\nimport \"example.com/cc/a\"\n\nfunc main() {}\n")
+	if got, err := imports(canceled); err == nil {
+		t.Errorf("a cancelled request made a handle: %v", got)
+	}
+	w.edit("main.gp", "package main\n\nimport \"example.com/cc/b\"\n\nfunc main() {}\n")
+	if got, err := imports(canceled); err == nil {
+		t.Errorf("a cancelled request made a handle: %v", got)
+	}
+	got, err := imports(context.Background())
+	if err != nil || len(got) != 1 || got[0] != "example.com/cc/b" {
+		t.Errorf("the imports after the cancelled requests: %v, %v; want [example.com/cc/b]", got, err)
+	}
+}

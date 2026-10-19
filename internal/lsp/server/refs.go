@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,6 +22,7 @@ import (
 	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/lsp/cache"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
+	"github.com/huuhait/gocpp/internal/lsp/safe"
 	"github.com/huuhait/gocpp/internal/syntax/parser"
 )
 
@@ -99,6 +101,7 @@ func (s *Server) references(ctx context.Context, e env, params json.RawMessage) 
 	warn(e, "references", res)
 	s.warnModules(e, "references", q, sym, false)
 	docs := newDocs(e.snapshot)
+	locs = make([]protocol.Location, 0, len(res.hits))
 	for _, h := range res.hits {
 		if h.def && !p.Context.IncludeDeclaration {
 			continue
@@ -109,7 +112,7 @@ func (s *Server) references(ctx context.Context, e env, params json.RawMessage) 
 		}
 		locs = append(locs, loc)
 	}
-	return locs, nil
+	return protocol.LocationList(locs), nil
 }
 
 // warn tells the user, with a window/showMessage warning, that the results of
@@ -261,6 +264,11 @@ const (
 	scopeLocal   scope = iota // its own package (a local name, an unexported one)
 	scopeImports              // the packages that import its package (an exported package-level name)
 	scopeModule               // every package of the module (an exported method or field)
+	// scopeFamily is an unexported method: no other package can name it, but a
+	// use in an importer can tie its type to an interface that has it (a value
+	// of base.Dog passed to a func(base.Animal) in main makes base.Dog.name and
+	// base.Animal.name one method), so the importers are searched for ties.
+	scopeFamily
 )
 
 // symbolAt returns the symbol at the place of q: nil when there is no name
@@ -435,7 +443,16 @@ func (sym *symbol) setScope() {
 		return
 	}
 	obj := sym.objs[0]
-	if obj.Pkg() == nil || !obj.Exported() {
+	if obj.Pkg() == nil {
+		return
+	}
+	if fn, ok := obj.(*types.Func); ok && !obj.Exported() {
+		if sig, ok := fn.Type().(*types.Signature); ok && sig.Recv() != nil {
+			sym.scope = scopeFamily
+		}
+		return
+	}
+	if !obj.Exported() {
 		return
 	}
 	switch o := obj.(type) {
@@ -602,6 +619,14 @@ func findPackage(root *types.Package, path string, seen map[*types.Package]bool)
 	return nil
 }
 
+// faultInViews is set by a test: it is called in the goroutine of each package
+// of a search, and panics there.
+var faultInViews func(dir string)
+
+// skipImporterTies is set by a test: the search of an unexported method leaves
+// out the importers, so that the check of the result is what finds a tie there.
+var skipImporterTies bool
+
 // skipTestClosure is set by a test: the closure leaves out the checks with test
 // files, so that the check of the result is what finds the broken tests.
 var skipTestClosure bool
@@ -649,6 +674,10 @@ type result struct {
 	// and could not be searched, why: the references of the search are not
 	// all of them, and a rename would leave that package behind.
 	incomplete []string
+	// importersOf returns the folders of the packages that import the package
+	// in the folder dir, directly or not; nil when the search did not read the
+	// imports of the module.
+	importersOf func(dir string) []string
 }
 
 // search finds the places of the symbol in the workspace.
@@ -672,9 +701,27 @@ type searcher struct {
 	// local limits the search to the document's package (highlights).
 	local bool
 
-	mod     *load.Module
-	pkgs    []importable // the module's packages
-	imports map[string][]cache.ImportRef
+	mod       *load.Module
+	pkgs      []importable // the module's packages
+	imports   map[string][]cache.ImportRef
+	reverse   map[string][]string      // the folders that import an import path (importers)
+	fileInfo  map[*token.File]fileInfo // hitOf's table: one search, one view of each file
+	pathOfDir map[string]string        // the import path of the module's package in a folder
+
+	// wantAll: a dynamic target is part of the family, so the types of every
+	// package of the module matter (dynamic.go); allLoaded: they are searched.
+	wantAll, allLoaded bool
+}
+
+// scope is the symbol's scope for this search: the importers of an unexported
+// method are looked at for ties only in the narrow family (the wide family
+// finds the types that could be used as the interface in the packages it
+// searches, as before).
+func (r *searcher) scope() scope {
+	if r.sym.scope == scopeFamily && r.s.wideFamily {
+		return scopeLocal
+	}
+	return r.sym.scope
 }
 
 // run does the search.
@@ -729,24 +776,52 @@ func (r *searcher) run(ctx context.Context, only []string) (*result, error) {
 		todo = nil
 		if len(only) == 0 {
 			todo = r.moreDirs(keys, searched)
+			if r.wantAll && !r.allLoaded {
+				r.allLoaded = true
+				for _, p := range r.pkgs {
+					if !searched[p.dir] {
+						searched[p.dir] = true
+						todo = append(todo, p.dir)
+					}
+				}
+				sort.Strings(todo)
+			}
 		}
 		if len(todo) == 0 && len(keys.list) == before {
 			break
 		}
 	}
 	r.checkImporters(views, missing, res)
+	if r.imports != nil {
+		res.importersOf = func(dir string) []string {
+			for _, p := range r.pkgs {
+				if p.dir == dir {
+					return r.importers(p.path, true)
+				}
+			}
+			return nil
+		}
+	}
 	res.views = views
 	res.keys = keys.list
-	seen := make(map[hitKey]bool)
+	// What each view found, so that the lists are made once at their size.
+	found := make([][]hit, 0, len(views)+len(tviews))
+	total := 0
+	for _, v := range views {
+		hs := r.scan(v, keys, declPos)
+		found, total = append(found, hs), total+len(hs)
+	}
+	seen := make(map[hitKey]struct{}, total)
+	res.hits = make([]hit, 0, total)
 	addHit := func(h hit) {
 		k := hitKey{h.path, h.off}
-		if !seen[k] {
-			seen[k] = true
+		if _, dup := seen[k]; !dup {
+			seen[k] = struct{}{}
 			res.hits = append(res.hits, h)
 		}
 	}
-	for _, v := range views {
-		for _, h := range r.scan(v, keys, declPos) {
+	for _, hs := range found {
+		for _, h := range hs {
 			addHit(h)
 		}
 	}
@@ -763,12 +838,8 @@ func (r *searcher) run(ctx context.Context, only []string) (*result, error) {
 			addHit(h)
 		}
 	}
-	sort.Slice(res.hits, func(i, j int) bool {
-		a, b := res.hits[i], res.hits[j]
-		if a.path != b.path {
-			return a.path < b.path
-		}
-		return a.off < b.off
+	slices.SortFunc(res.hits, func(a, b hit) int {
+		return cmp.Or(strings.Compare(a.path, b.path), cmp.Compare(a.off, b.off))
 	})
 	return res, nil
 }
@@ -820,6 +891,9 @@ func (r *searcher) pkgName(dir string) string {
 // places where a related name that closure found in another package is
 // used.
 func (r *searcher) moreDirs(keys *keySet, searched map[string]bool) []string {
+	if skipImporterTies && r.sym.scope == scopeFamily {
+		return nil
+	}
 	var out []string
 	for _, k := range keys.list {
 		if k.pkg == "" || k.local != nil {
@@ -849,6 +923,16 @@ type hitKey struct {
 type posKey struct {
 	path string
 	off  int
+}
+
+// declKeyOf returns the place of pos as a posKey: the file's own name and the
+// byte offset (not the line directives' name that Position would give).
+func declKeyOf(fset *token.FileSet, pos token.Pos) (posKey, bool) {
+	tf := fset.File(pos)
+	if tf == nil {
+		return posKey{}, false
+	}
+	return posKey{tf.Name(), tf.Offset(pos)}, tf.Name() != ""
 }
 
 // A keySet is a list of keys without duplicates, in the order they came.
@@ -955,7 +1039,7 @@ func (r *searcher) dirs(ctx context.Context, only []string) ([]string, error) {
 	if len(only) > 0 {
 		return only, nil
 	}
-	if sym.scope != scopeLocal && sym.declPath != "" {
+	if sc := r.scope(); sc != scopeLocal && sym.declPath != "" {
 		mod := q.lp.Module
 		if mod != nil && mod.Path != "" && !q.lp.Std {
 			r.mod = mod
@@ -977,8 +1061,10 @@ func (r *searcher) dirs(ctx context.Context, only []string) ([]string, error) {
 			if err := r.loadImports(ctx); err != nil {
 				return nil, err
 			}
-			for _, d := range r.importers(sym.declPath, sym.scope == scopeModule) {
-				set[d] = true
+			if sc != scopeFamily || !skipImporterTies {
+				for _, d := range r.importers(sym.declPath, sc == scopeModule || sc == scopeFamily) {
+					set[d] = true
+				}
 			}
 		}
 	}
@@ -1020,6 +1106,7 @@ func (r *searcher) loadImports(ctx context.Context) error {
 	r.imports = make(map[string][]cache.ImportRef, len(r.pkgs))
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	var pc safe.Catcher // a panic in a goroutine is the request's (see protocol.Conn)
 	sem := make(chan struct{}, 8)
 	for _, p := range r.pkgs {
 		wg.Add(1)
@@ -1027,16 +1114,19 @@ func (r *searcher) loadImports(ctx context.Context) error {
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			refs, err := r.snap.ImportsOf(ctx, p.dir)
-			if err != nil {
-				return // a folder that is no package
-			}
-			mu.Lock()
-			r.imports[p.dir] = refs
-			mu.Unlock()
+			pc.Run(func() {
+				refs, err := r.snap.ImportsOf(ctx, p.dir)
+				if err != nil {
+					return // a folder that is no package
+				}
+				mu.Lock()
+				r.imports[p.dir] = refs
+				mu.Unlock()
+			})
 		}()
 	}
 	wg.Wait()
+	pc.Rethrow()
 	return ctx.Err()
 }
 
@@ -1044,12 +1134,15 @@ func (r *searcher) loadImports(ctx context.Context) error {
 // package with the import path path, directly or, with transitive,
 // through other packages of the module too.
 func (r *searcher) importers(path string, transitive bool) []string {
-	reverse := make(map[string][]string) // import path -> the folders that import it
-	for dir, refs := range r.imports {
-		for _, ref := range refs {
-			reverse[ref.ImportPath] = append(reverse[ref.ImportPath], dir)
+	if r.reverse == nil { // import path -> the folders that import it
+		r.reverse = make(map[string][]string)
+		for dir, refs := range r.imports {
+			for _, ref := range refs {
+				r.reverse[ref.ImportPath] = append(r.reverse[ref.ImportPath], dir)
+			}
 		}
 	}
+	reverse := r.reverse
 	var out []string
 	seen := make(map[string]bool)
 	var visit func(path string)
@@ -1061,10 +1154,14 @@ func (r *searcher) importers(path string, transitive bool) []string {
 			seen[dir] = true
 			out = append(out, dir)
 			if transitive {
-				for _, p := range r.pkgs {
-					if p.dir == dir {
-						visit(p.path)
+				if r.pathOfDir == nil {
+					r.pathOfDir = make(map[string]string, len(r.pkgs))
+					for _, p := range r.pkgs {
+						r.pathOfDir[p.dir] = p.path
 					}
+				}
+				if path, ok := r.pathOfDir[dir]; ok {
+					visit(path)
 				}
 			}
 		}
@@ -1082,6 +1179,7 @@ func (r *searcher) views(ctx context.Context, dirs []string) ([]*view, []string,
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var firstErr error
+	var pc safe.Catcher
 	sem := make(chan struct{}, 8)
 	for i, dir := range dirs {
 		if dir == q.lp.Dir && !q.isTest() {
@@ -1093,19 +1191,25 @@ func (r *searcher) views(ctx context.Context, dirs []string) ([]*view, []string,
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			pkg, err := r.snap.Package(ctx, dir)
-			if err != nil {
-				if ctx.Err() != nil {
-					mu.Lock()
-					firstErr = ctx.Err()
-					mu.Unlock()
+			pc.Run(func() {
+				if faultInViews != nil {
+					faultInViews(dir)
 				}
-				return
-			}
-			out[i] = viewOf(pkg)
+				pkg, err := r.snap.Package(ctx, dir)
+				if err != nil {
+					if ctx.Err() != nil {
+						mu.Lock()
+						firstErr = ctx.Err()
+						mu.Unlock()
+					}
+					return
+				}
+				out[i] = viewOf(pkg)
+			})
 		}()
 	}
 	wg.Wait()
+	pc.Rethrow()
 	if firstErr != nil {
 		return nil, nil, firstErr
 	}
@@ -1146,6 +1250,75 @@ func viewOf(pkg *cache.Package) *view {
 	return v
 }
 
+// An identIndex lists the names of a check by spelling: the identifiers that
+// the check gave an object (as a declaration or a use), and the imports that
+// have no name of their own. A search looks up the few spellings of the symbol
+// instead of walking every name of the package, which is what made a search
+// cost the size of the package and not the number of its results.
+type identIndex struct {
+	byName map[string]*identList
+	specs  map[string][]*ast.ImportSpec // by the name of the package the import declares
+}
+
+// An identList holds the names that spell one name: the ones that declare an
+// object and the ones that use one, with the objects, so that a search does
+// not look them up in the check's maps (which is what a search of a popular
+// name would spend its time on).
+type identList struct {
+	defs, uses []identObj
+}
+
+type identObj struct {
+	id  *ast.Ident
+	obj types.Object
+}
+
+type identIndexKey struct{}
+
+// identIndex returns the index of the view's check: shared by every request
+// and snapshot that has the package (cache.Package.Memo); a test view is not
+// cached, so its index is made for the search.
+func (v *view) identIndex() *identIndex {
+	if v.pkg != nil && !v.test {
+		return v.pkg.Memo(identIndexKey{}, func() any { return buildIdentIndex(v.info) }).(*identIndex)
+	}
+	return buildIdentIndex(v.info)
+}
+
+func buildIdentIndex(info *types.Info) *identIndex {
+	ix := &identIndex{byName: make(map[string]*identList, len(info.Defs)/4+len(info.Uses)/16)}
+	list := func(name string) *identList {
+		l := ix.byName[name]
+		if l == nil {
+			l = new(identList)
+			ix.byName[name] = l
+		}
+		return l
+	}
+	for id, obj := range info.Defs {
+		if obj != nil {
+			l := list(id.Name)
+			l.defs = append(l.defs, identObj{id, obj})
+		}
+	}
+	for id, obj := range info.Uses {
+		if obj != nil {
+			// The embedded field's own name is in Defs and Uses: both lists.
+			l := list(id.Name)
+			l.uses = append(l.uses, identObj{id, obj})
+		}
+	}
+	for node, obj := range info.Implicits {
+		if spec, ok := node.(*ast.ImportSpec); ok && spec.Name == nil && obj != nil {
+			if ix.specs == nil {
+				ix.specs = make(map[string][]*ast.ImportSpec)
+			}
+			ix.specs[obj.Name()] = append(ix.specs[obj.Name()], spec)
+		}
+	}
+	return ix
+}
+
 // scan returns the hits of the keys in the view: the names that declare or
 // use one of the objects, in the files of the view. declPos gets the place of
 // each declaration that it finds.
@@ -1162,6 +1335,11 @@ func (r *searcher) scan(v *view, keys *keySet, declPos map[posKey]bool) []hit {
 			want[origin(obj)] = true
 		}
 	}
+	// The answer for an object is the same for every name of it (the places
+	// that are added to declPos while the view is scanned are the declarations
+	// of objects that match already), so it is worked out once: a position
+	// costs a search in the file set.
+	known := make(map[types.Object]bool)
 	matches := func(obj types.Object) bool {
 		obj = origin(obj)
 		if want[obj] {
@@ -1170,8 +1348,13 @@ func (r *searcher) scan(v *view, keys *keySet, declPos map[posKey]bool) []hit {
 		if len(declPos) == 0 || !obj.Pos().IsValid() || !v.test && obj.Pkg() != v.types {
 			return false
 		}
-		p := v.fset.Position(obj.Pos())
-		return declPos[posKey{p.Filename, p.Offset}]
+		if m, ok := known[obj]; ok {
+			return m
+		}
+		k, ok := declKeyOf(v.fset, obj.Pos())
+		m := ok && declPos[k]
+		known[obj] = m
+		return m
 	}
 	var hits []hit
 	add := func(id *ast.Ident, obj types.Object, def bool) {
@@ -1181,25 +1364,38 @@ func (r *searcher) scan(v *view, keys *keySet, declPos map[posKey]bool) []hit {
 		if h, ok := r.hitOf(v, id, obj, def); ok {
 			hits = append(hits, h)
 			if def && origin(obj).Pkg() == v.types {
-				if p := v.fset.Position(origin(obj).Pos()); p.Filename != "" {
-					declPos[posKey{p.Filename, p.Offset}] = true
+				if k, ok := declKeyOf(v.fset, origin(obj).Pos()); ok {
+					declPos[k] = true
 				}
 			}
 		}
 	}
-	for id, obj := range v.info.Defs {
-		add(id, obj, true)
-	}
-	for id, obj := range v.info.Uses {
-		// The embedded field's own name: the ident is both its declaration
-		// (Defs) and a use of the type.
-		add(id, obj, false)
-	}
-	for node, obj := range v.info.Implicits {
-		// An import without a name declares the package name at its path.
-		if spec, ok := node.(*ast.ImportSpec); ok && spec.Name == nil && obj != nil && matches(obj) {
-			if h, ok := r.specHit(v, spec, obj); ok {
-				hits = append(hits, h)
+	// Only the names that the keys spell can be the symbol's: the index of the
+	// check's names (identIndex) finds them without a walk over all of them.
+	ix := v.identIndex()
+	var seenName map[string]bool
+	for _, k := range keys.list {
+		if seenName[k.name] {
+			continue
+		}
+		if seenName == nil {
+			seenName = make(map[string]bool, len(keys.list))
+		}
+		seenName[k.name] = true
+		if l := ix.byName[k.name]; l != nil {
+			for _, d := range l.defs {
+				add(d.id, d.obj, true)
+			}
+			for _, u := range l.uses {
+				add(u.id, u.obj, false)
+			}
+		}
+		for _, spec := range ix.specs[k.name] {
+			// An import without a name declares the package name at its path.
+			if obj := v.info.Implicits[spec]; obj != nil && matches(obj) {
+				if h, ok := r.specHit(v, spec, obj); ok {
+					hits = append(hits, h)
+				}
 			}
 		}
 	}
@@ -1213,16 +1409,40 @@ func (r *searcher) hitOf(v *view, id *ast.Ident, obj types.Object, def bool) (hi
 	if id == nil || !id.Pos().IsValid() || v.synthetic[id] {
 		return hit{}, false
 	}
-	p := v.fset.Position(id.Pos())
-	file, ok := v.files[p.Filename]
-	if !ok || file == nil {
+	tf := v.fset.File(id.Pos())
+	if tf == nil {
 		return hit{}, false
 	}
-	src, err := r.snap.ReadFile(p.Filename)
-	if err != nil || p.Offset+len(id.Name) > len(src) || string(src[p.Offset:p.Offset+len(id.Name)]) != id.Name {
+	// What the view and the snapshot say of a file is looked up once.
+	fi, ok := r.fileInfo[tf]
+	if !ok {
+		fi.name = tf.Name()
+		if file, in := v.files[fi.name]; in && file != nil {
+			if src, err := r.snap.ReadFile(fi.name); err == nil {
+				fi.src, fi.ok = src, true
+			}
+		}
+		if r.fileInfo == nil {
+			r.fileInfo = make(map[*token.File]fileInfo)
+		}
+		r.fileInfo[tf] = fi
+	}
+	if !fi.ok {
 		return hit{}, false
 	}
-	return hit{path: p.Filename, off: p.Offset, end: p.Offset + len(id.Name), def: def, v: v, id: id, obj: obj}, true
+	off := tf.Offset(id.Pos())
+	if off+len(id.Name) > len(fi.src) || string(fi.src[off:off+len(id.Name)]) != id.Name {
+		return hit{}, false
+	}
+	return hit{path: fi.name, off: off, end: off + len(id.Name), def: def, v: v, id: id, obj: obj}, true
+}
+
+// A fileInfo is what a search needs of a file of a view: its name, and its
+// text when the view counts the file.
+type fileInfo struct {
+	name string
+	src  []byte
+	ok   bool
 }
 
 // specHit returns the hit for an import without a name: the whole path.
@@ -1238,34 +1458,49 @@ func (r *searcher) specHit(v *view, spec *ast.ImportSpec, obj types.Object) (hit
 type docs struct {
 	snap *cache.Snapshot
 	mu   sync.Mutex
-	m    map[string]*document
+	m    map[string]*docEntry
 }
 
-func newDocs(snap *cache.Snapshot) *docs { return &docs{snap: snap, m: make(map[string]*document)} }
+type docEntry struct {
+	doc *document
+	uri protocol.DocumentURI
+}
 
-func (d *docs) get(path string) (*document, error) {
+func newDocs(snap *cache.Snapshot) *docs { return &docs{snap: snap, m: make(map[string]*docEntry)} }
+
+func (d *docs) entry(path string) (*docEntry, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if doc := d.m[path]; doc != nil {
-		return doc, nil
+	if e := d.m[path]; e != nil {
+		return e, nil
 	}
-	doc, err := documentOfSnapshot(d.snap, protocol.URIFromPath(path))
+	uri := protocol.URIFromPath(path)
+	doc, err := documentOfSnapshot(d.snap, uri)
 	if err != nil {
 		return nil, err
 	}
-	d.m[path] = doc
-	return doc, nil
+	e := &docEntry{doc: doc, uri: uri}
+	d.m[path] = e
+	return e, nil
+}
+
+func (d *docs) get(path string) (*document, error) {
+	e, err := d.entry(path)
+	if err != nil {
+		return nil, err
+	}
+	return e.doc, nil
 }
 
 // location returns the place of the hit.
 func (d *docs) location(h hit) (protocol.Location, error) {
-	doc, err := d.get(h.path)
+	e, err := d.entry(h.path)
 	if err != nil {
 		return protocol.Location{}, err
 	}
 	return protocol.Location{
-		URI:   protocol.URIFromPath(h.path),
-		Range: protocol.Range{Start: doc.mapper.Position(h.off), End: doc.mapper.Position(h.end)},
+		URI:   e.uri,
+		Range: protocol.Range{Start: e.doc.mapper.Position(h.off), End: e.doc.mapper.Position(h.end)},
 	}, nil
 }
 
@@ -1280,9 +1515,9 @@ func (r *searcher) initialDecls(ctx context.Context, declPos map[posKey]bool) er
 		if !obj.Pos().IsValid() {
 			continue
 		}
-		p := q.fset.Position(obj.Pos())
-		if q.exact[p.Filename] {
-			declPos[posKey{p.Filename, p.Offset}] = true
+		k, ok := declKeyOf(q.fset, obj.Pos())
+		if ok && q.exact[k.path] {
+			declPos[k] = true
 			continue
 		}
 		d, err := q.declOf(ctx, obj)
@@ -1314,6 +1549,9 @@ func (r *searcher) closure(ctx context.Context, views []*view, keys *keySet, res
 				added = true
 			}
 		}
+		if !r.s.wideFamily && r.relatedByShapes(views, keys) {
+			added = true
+		}
 		if !added {
 			return nil
 		}
@@ -1343,13 +1581,15 @@ func (r *searcher) related(v *view, keys *keySet, res *result) bool {
 		}
 	}
 	added := false
-	add := func(obj types.Object) {
+	add := func(obj types.Object) bool {
 		if keys.add(keyOf(obj)) {
 			added = true
 			if res.outside == "" && !r.inWorkspace(obj) {
 				res.outside = objectName(obj)
 			}
+			return true
 		}
+		return false
 	}
 	// The embedded fields of the type names: x.T (for a rename only: the
 	// references of a type are the uses of the type).
@@ -1369,7 +1609,25 @@ func (r *searcher) related(v *view, keys *keySet, res *result) bool {
 	for _, m := range methods {
 		byName[m.Name()] = append(byName[m.Name()], m)
 	}
-	cands := r.candidates(v, byName)
+	if !r.s.wideFamily {
+		added = r.relatedByTies(v, methods, byName, add) || added
+		if r.sym.rename {
+			// A method that implements an interface of another package (the
+			// standard library's: fmt.Stringer, error) is not renamed: the
+			// rename would change what the code does (fmt stops calling
+			// it) without a use that shows it, so the search finds the
+			// interface's method, and the rename is refused (res.outside).
+			for _, c := range r.candidates(v, byName, true) {
+				for _, m := range byName[c.name] {
+					for _, rel := range relatedMethods(m, c.named, c.pkg) {
+						add(rel)
+					}
+				}
+			}
+		}
+		return added
+	}
+	cands := r.candidates(v, byName, false)
 	for _, c := range cands {
 		for _, m := range byName[c.name] {
 			for _, rel := range relatedMethods(m, c.named, c.pkg) {
@@ -1408,6 +1666,70 @@ func (r *searcher) related(v *view, keys *keySet, res *result) bool {
 	return added
 }
 
+// relatedByTies adds the methods that a use of the view ties to the methods
+// (the narrow family, gopls's): for each use that needs an interface of a value
+// of another type (v.ties), the interface's method of a name that the family
+// has is the implementation of the type's method of that name, so one stands
+// for the other. It reports whether it added one. A type that merely could be
+// used as an interface, with no use in the module that needs it, is not in the
+// family (Options.WideFamily goes back to the wide one).
+//
+// The ties of a use only: the interfaces that a type assertion, a type switch
+// or errors.As takes a value out as have no value of a known type to tie, and
+// are followed by relatedByShapes (dynamic.go).
+func (r *searcher) relatedByTies(v *view, methods []*types.Func, byName map[string][]*types.Func, add func(types.Object) bool) bool {
+	ties := v.ties()
+	if len(ties) == 0 {
+		return false
+	}
+	in := make(map[types.Object]bool, len(methods))
+	for _, m := range methods {
+		in[origin(m)] = true
+	}
+	added := false
+	for changed := true; changed; {
+		changed = false
+		for _, t := range ties {
+			if t.asserted {
+				continue
+			}
+			for name, ms := range byName {
+				if !t.names[name] {
+					continue
+				}
+				fs, fd := lookupMethod(t.src, ms[0].Pkg(), name), lookupMethod(t.dst, ms[0].Pkg(), name)
+				if fs == nil || fd == nil {
+					continue
+				}
+				os, od := origin(fs), origin(fd)
+				switch {
+				case in[os] && !in[od]:
+					if !r.inWorkspace(od) {
+						// An interface outside the workspace (error, fmt.Stringer):
+						// a rename must not go on (it would change what the code
+						// does there), so it is found and refused; the references
+						// of the method are not those of every type that ties to
+						// the same interface.
+						if r.sym.rename {
+							added = add(od) || added
+						}
+						continue
+					}
+					in[od], changed, added = true, true, true
+					add(od)
+				case in[od] && !in[os]:
+					if !r.inWorkspace(os) {
+						continue
+					}
+					in[os], changed, added = true, true, true
+					add(os)
+				}
+			}
+		}
+	}
+	return added
+}
+
 // lookupMethod returns the method called name of the type t (its own,
 // promoted, or an interface's), or nil.
 func lookupMethod(t types.Type, pkg *types.Package, name string) *types.Func {
@@ -1433,8 +1755,9 @@ type methodCand struct {
 }
 
 // candidates returns the named types of the view's package and of the packages
-// its check read, with a method of one of the names.
-func (r *searcher) candidates(v *view, names map[string][]*types.Func) []methodCand {
+// its check read, with a method of one of the names; foreign leaves out the
+// types of the workspace (the module's packages).
+func (r *searcher) candidates(v *view, names map[string][]*types.Func, foreign bool) []methodCand {
 	var pkgs []*types.Package
 	pkgs = append(pkgs, v.types)
 	if v.pkg != nil {
@@ -1476,6 +1799,9 @@ func (r *searcher) candidates(v *view, names map[string][]*types.Func) []methodC
 			}
 			if !workspace(tp) && !types.IsInterface(named) {
 				continue // a concrete type of a package outside the workspace: not renamed with ours
+			}
+			if foreign && workspace(tp) {
+				continue
 			}
 			for name := range names {
 				if hasMethod(named, tp, name) {
@@ -1585,6 +1911,9 @@ func objectName(obj types.Object) string {
 	if fn, ok := obj.(*types.Func); ok {
 		if rt := recvBase(fn); rt != nil {
 			if n, ok := rt.(*types.Named); ok {
+				if n.Obj().Pkg() == nil {
+					return n.Obj().Name() + "." + fn.Name() // error.Error
+				}
 				return n.Obj().Pkg().Name() + "." + n.Obj().Name() + "." + fn.Name()
 			}
 		}
@@ -1631,7 +1960,7 @@ func (r *searcher) testViews(ctx context.Context, dirs []string, keys *keySet, d
 		paths[r.sym.declPath] = true
 	}
 	candidates := slices.Clone(dirs)
-	if r.sym.scope != scopeLocal {
+	if r.scope() != scopeLocal {
 		for _, p := range r.pkgs {
 			if !inDirs[p.dir] {
 				candidates = append(candidates, p.dir)
@@ -1649,15 +1978,12 @@ func (r *searcher) testViews(ctx context.Context, dirs []string, keys *keySet, d
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		files, err := r.snap.PackageFiles(&load.Package{Dir: dir})
+		files, err := r.snap.TestFiles(dir)
 		if err != nil {
 			continue
 		}
 		use := false
 		for _, name := range files {
-			if !strings.HasSuffix(name, "_test.gp") || filepath.Dir(name) != dir {
-				continue
-			}
 			src, err := r.snap.ReadFile(name)
 			if err != nil || !mentions(src) {
 				continue

@@ -18,6 +18,7 @@ import (
 	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/lsp/cache"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
+	"github.com/huuhait/gocpp/internal/lsp/safe"
 	"github.com/huuhait/gocpp/internal/syntax/parser"
 )
 
@@ -169,7 +170,10 @@ func walked(modDir, dir string) bool {
 }
 
 // dirPackageName returns the package name that the walk gives the folder
-// dir: the name of its first .gp file that is not a test or hidden, or "".
+// dir: the name of the first .gp file, not a test or hidden, that has one
+// (a file whose package clause is broken has none: the walk goes on to the
+// next file, and so must this, or a change of that next file looks like
+// no change and the index keeps a folder out that the walk would find).
 func dirPackageName(dir string) string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -180,9 +184,10 @@ func dirPackageName(dir string) string {
 		if !e.IsDir() && strings.HasSuffix(n, ".gp") && !strings.HasSuffix(n, "_test.gp") &&
 			!strings.HasPrefix(n, ".") && !strings.HasPrefix(n, "_") {
 			if src, err := readHeader(filepath.Join(dir, n)); err == nil {
-				return packageName(n, src)
+				if name := packageName(n, src); name != "" {
+					return name
+				}
 			}
-			return ""
 		}
 	}
 	return ""
@@ -200,9 +205,13 @@ func (ix *importIndex) generation() uint64 {
 // warm starts the index of the module of the folder dir, if it has one.
 func (ix *importIndex) warm(dir string) {
 	go func() {
-		if mod := load.FindModule(dir); mod != nil && mod.Path != "" {
-			ix.module(mod, false)
-		}
+		// A background walk that fails is no crash of the server: the next
+		// request that needs the index walks again.
+		safe.Call(func() {
+			if mod := load.FindModule(dir); mod != nil && mod.Path != "" {
+				ix.module(mod, false)
+			}
+		})
 	}()
 }
 
@@ -300,8 +309,10 @@ func (ix *importIndex) moduleAll(mod *load.Module, wait bool) []importable {
 		ix.mods[mod.Dir] = m
 		go func() {
 			defer cancel()
-			pkgs := ix.walk(ctx, mod)
-			if ctx.Err() != nil {
+			var pkgs []importable
+			// A panic leaves what the walk before had (it is no answer), and the
+			// waiters are released.
+			if safe.Call(func() { pkgs = ix.walk(ctx, mod) }) != nil || ctx.Err() != nil {
 				pkgs = m.prev // stopped: what it found is not all
 			}
 			m.pkgs = pkgs

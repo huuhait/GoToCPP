@@ -669,6 +669,9 @@ func (r *fuzzRun) answers() map[string]string {
 			r.broken++
 		}
 		resp := r.c.call("textDocument/documentSymbol", docParams(r.uri(i)))
+		if resp.Error != nil && resp.Error.Code == int64(protocol.InternalError) {
+			r.t.Errorf("documentSymbol %s: %s", rel, resp.Error.Message)
+		}
 		out["symbols "+rel] = norm(string(resp.Result)) + r.shown(norm)
 		for _, m := range []struct{ method, needle string }{
 			{"textDocument/hover", "core.NewBase("},
@@ -696,6 +699,12 @@ func (r *fuzzRun) answers() map[string]string {
 				res = sortedLocations(res)
 			}
 			if resp.Error != nil {
+				// A crash of a request (protocol.Conn answers a panic with an
+				// InternalError) is a failure of the server whatever the other
+				// server says: two servers that both crash would agree.
+				if resp.Error.Code == int64(protocol.InternalError) {
+					r.t.Errorf("%s %s %q: %s", m.method, rel, m.needle, resp.Error.Message)
+				}
 				res = "error " + resp.Error.Message
 			}
 			res += r.shown(norm)
@@ -703,6 +712,9 @@ func (r *fuzzRun) answers() map[string]string {
 		}
 	}
 	resp := r.c.call("workspace/symbol", `{"query":"New"}`)
+	if resp.Error != nil && resp.Error.Code == int64(protocol.InternalError) {
+		r.t.Errorf("workspace/symbol: %s", resp.Error.Message)
+	}
 	out["workspace/symbol New"] = norm(string(resp.Result))
 	return out
 }
@@ -1147,5 +1159,41 @@ func TestFuzzRegressions(t *testing.T) {
 				t.Errorf("the servers differ after %d edits", len(edits))
 			}
 		})
+	}
+}
+
+// A recordingTB keeps the failures that the comparison reports instead of
+// failing the test.
+type recordingTB struct {
+	testing.TB
+	errs []string
+}
+
+func (r *recordingTB) Errorf(format string, args ...any) {
+	r.errs = append(r.errs, fmt.Sprintf(format, args...))
+}
+
+// TestFuzzCrashIsFailure: a request that crashes (the connection answers a
+// panic with an InternalError) fails the comparison even though a server that
+// crashes the same way would agree with it.
+func TestFuzzCrashIsFailure(t *testing.T) {
+	r := newFuzzRun(t, bench.Generate(fuzzSpec))
+	defer func() {
+		r.c.call("shutdown", "")
+		r.c.notify("exit", "")
+		r.c.wait()
+	}()
+	r.quiet()
+	rec := &recordingTB{TB: t}
+	r.t = rec
+	r.answers()
+	if len(rec.errs) != 0 {
+		t.Fatalf("failures without a crash: %q", rec.errs)
+	}
+	faultInViews = func(string) { var m map[string]int; m["x"] = 1 }
+	defer func() { faultInViews = nil }()
+	r.answers()
+	if len(rec.errs) == 0 || !strings.Contains(rec.errs[0], "internal error") {
+		t.Errorf("a crash of a request is no failure of the comparison: %q", rec.errs)
 	}
 }

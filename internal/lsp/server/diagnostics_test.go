@@ -453,7 +453,9 @@ func TestDiagnosticsDebounce(t *testing.T) {
 	clock := new(debounce.FakeClock)
 	src := "package main\n\nfunc main() { _ = x0 }\n"
 	root := writeTree(t, map[string]string{"gocpp.mod": "module example.com/m\n"})
-	c := &dclient{client: startServer(t, newServer(nil, testConfig(), clock), nil), root: root}
+	srv := newServer(nil, testConfig(), clock)
+	srv.diags.fixed = true // the quiet time of a slow check, whatever the last one took
+	c := &dclient{client: startServer(t, srv, nil), root: root}
 	c.call("initialize", initParams)
 	// due waits until the server has made n timers, then lets d pass.
 	due := func(n int, d time.Duration) {
@@ -480,6 +482,69 @@ func TestDiagnosticsDebounce(t *testing.T) {
 	clock.Advance(time.Millisecond)
 	want(t, c.next("main.gp"), 6, "2:18-2:20 error: undefined: x6\n")
 	c.quiet("main.gp", 50*time.Millisecond)
+}
+
+// TestAdaptiveDelay: the quiet time after a change follows the last check: none
+// after a quick one, half of a slower one, never more than the maximum.
+func TestAdaptiveDelay(t *testing.T) {
+	for _, c := range []struct{ last, want time.Duration }{
+		{0, 0},
+		{2 * time.Millisecond, 0},
+		{quickCheck, 0},
+		{quickCheck + time.Millisecond, (quickCheck + time.Millisecond) / 2},
+		{40 * time.Millisecond, 20 * time.Millisecond},
+		{60 * time.Millisecond, diagnoseDelay},
+		{time.Second, diagnoseDelay},
+	} {
+		if got := adaptiveDelay(c.last, diagnoseDelay); got != c.want {
+			t.Errorf("adaptiveDelay(%v) = %v, want %v", c.last, got, c.want)
+		}
+	}
+}
+
+// TestDiagnosticsQuickCheckRunsAtOnce: after a quick check, a change schedules
+// its run with no wait (the timer is due at once), and the answer is the
+// diagnostics of the last text; after a slow check the change waits the
+// quiet time, and a burst of changes still gives one run.
+func TestDiagnosticsQuickCheckRunsAtOnce(t *testing.T) {
+	clock := new(debounce.FakeClock)
+	src := "package main\n\nfunc main() { _ = x0 }\n"
+	root := writeTree(t, map[string]string{"gocpp.mod": "module example.com/m\n"})
+	srv := newServer(nil, testConfig(), clock)
+	c := &dclient{client: startServer(t, srv, nil), root: root}
+	c.call("initialize", initParams)
+	due := func(n int, d time.Duration) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for clock.Timers() < n {
+			if time.Now().After(deadline) {
+				t.Fatalf("%d timers, want %d", clock.Timers(), n)
+			}
+			time.Sleep(100 * time.Microsecond)
+		}
+		clock.Advance(d)
+	}
+	dir := filepath.Join(root)
+	c.open("main.gp", src)
+	due(1, 0)
+	want(t, c.next("main.gp"), 1, "2:18-2:20 error: undefined: x0\n")
+	// The check was quick: the change is due at once.
+	srv.diags.mu.Lock()
+	srv.diags.last[dir] = time.Millisecond
+	srv.diags.mu.Unlock()
+	c.change("main.gp", 2, strings.Replace(src, "x0", "x2", 1))
+	due(1, 0)
+	want(t, c.next("main.gp"), 2, "2:18-2:20 error: undefined: x2\n")
+	// A slow one: the change waits.
+	srv.diags.mu.Lock()
+	srv.diags.last[dir] = 80 * time.Millisecond
+	srv.diags.mu.Unlock()
+	c.change("main.gp", 3, strings.Replace(src, "x0", "x3", 1))
+	c.call("test/sync", "")
+	due(1, diagnoseDelay-time.Millisecond)
+	c.quiet("main.gp", 50*time.Millisecond)
+	clock.Advance(time.Millisecond)
+	want(t, c.next("main.gp"), 3, "2:18-2:20 error: undefined: x3\n")
 }
 
 // TestDiagnosticsBroken: a failed didChange marks the overlay broken: its
@@ -661,4 +726,27 @@ func TestDiagnosticsSameAsCheck(t *testing.T) {
 		t.Errorf("only %d diagnostics compared", compared)
 	}
 	t.Logf("%d diagnostics of %d programs", compared, len(files))
+}
+
+// TestRecordRunMedian: the estimate of a package's check time is the median of
+// the last runs, so a single slow run (noise) does not delay the next keystroke
+// and a package that is slow every time does.
+func TestRecordRunMedian(t *testing.T) {
+	d := newDiagnostics(nil, nil)
+	dir := "/p"
+	for _, ms := range []int{2, 3, 2, 2, 90} { // one outlier, the last run, among quick ones
+		d.recordRun(dir, time.Duration(ms)*time.Millisecond)
+	}
+	if got := adaptiveDelay(d.last[dir], diagnoseDelay); got != 0 {
+		t.Errorf("one slow run among quick ones: the next change waits %v, want 0", got)
+	}
+	for _, ms := range []int{40, 45, 50} { // three slow runs: the package is slow
+		d.recordRun(dir, time.Duration(ms)*time.Millisecond)
+	}
+	if got := adaptiveDelay(d.last[dir], diagnoseDelay); got == 0 {
+		t.Errorf("a package that takes 40+ ms: the next change does not wait (estimate %v)", d.last[dir])
+	}
+	if len(d.runs[dir]) != runsKept {
+		t.Errorf("%d runs kept, want %d", len(d.runs[dir]), runsKept)
+	}
 }

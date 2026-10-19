@@ -216,15 +216,53 @@ func f() int { return Use(Real{}) + Counterer{}.Len() }
 `,
 }
 
-// TestRenameMethodFamilyMessage: a rename of a method says which other
-// declarations it changed, and which of them no use needs to be the interface.
+// TestRenameMethodFamilyMessage: a rename of a method changes the methods
+// that a use ties to the interface (Real: Use(Real{}) needs a Lener), says so,
+// and leaves the one that nothing converts to it (Counterer) alone, as gopls
+// does.
 func TestRenameMethodFamilyMessage(t *testing.T) {
 	c := startRefs(t, lenFiles, plainInit)
 	got, rerr := c.rename("a/a.gp", "Lener interface{ L|en", "Size")
 	if rerr != nil {
 		t.Fatal(rerr)
 	}
-	// gocpp renames Counterer.Len too (gopls does not): the message says so.
+	sameList(t, "the changed lines", diffLines(t, c, got), []string{
+		"a/a.gp:3: type Lener interface{ Size() int }",
+		"a/a.gp:7: func (Real) Size() int { return 1 }",
+		"a/a.gp:13: func Use(l Lener) int { return l.Size() }",
+	})
+	shown := c.takeShown()
+	if len(shown) != 1 || shown[0].Type != protocol.Info {
+		t.Fatalf("the messages: %+v", shown)
+	}
+	m := shown[0].Message
+	for _, want := range []string{"Len was also renamed in 1 other method declaration(s)", "a.Real.Len (a.gp:7)", "ties to the same interface", "Undo the rename"} {
+		if !strings.Contains(m, want) {
+			t.Errorf("the message lacks %q:\n%s", want, m)
+		}
+	}
+	if strings.Contains(m, "Counterer") {
+		t.Errorf("the message names a type that no use ties to the interface:\n%s", m)
+	}
+	// A rename of a name that has no family says nothing of the kind.
+	if _, rerr := c.rename("a/a.gp", "func |Use(", "Used"); rerr != nil {
+		t.Fatal(rerr)
+	}
+	if shown := c.takeShown(); len(shown) != 0 {
+		t.Errorf("messages for a function: %+v", shown)
+	}
+}
+
+// TestRenameWideFamily: with Options.WideFamily (gocpp lsp -wide-family) a
+// rename follows the method through every type that has the name and the
+// shape of an interface method, and says which of them no use needs.
+func TestRenameWideFamily(t *testing.T) {
+	c := startRefs(t, lenFiles, plainInit)
+	c.s.wideFamily = true
+	got, rerr := c.rename("a/a.gp", "Lener interface{ L|en", "Size")
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
 	sameList(t, "the changed lines", diffLines(t, c, got), []string{
 		"a/a.gp:3: type Lener interface{ Size() int }",
 		"a/a.gp:7: func (Real) Size() int { return 1 }",
@@ -245,13 +283,6 @@ func TestRenameMethodFamilyMessage(t *testing.T) {
 	unused := m[strings.Index(m, "Not needed by any use"):]
 	if strings.Contains(unused, "Real.Len") || !strings.Contains(unused, "Counterer.Len") {
 		t.Errorf("the types not needed:\n%s", unused)
-	}
-	// A rename of a name that has no family says nothing of the kind.
-	if _, rerr := c.rename("a/a.gp", "func |Use(", "Used"); rerr != nil {
-		t.Fatal(rerr)
-	}
-	if shown := c.takeShown(); len(shown) != 0 {
-		t.Errorf("messages for a function: %+v", shown)
 	}
 }
 

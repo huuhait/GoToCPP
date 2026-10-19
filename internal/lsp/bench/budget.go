@@ -47,9 +47,7 @@ var Budgets = []Budget{
 	{ScFormat, 20, "format a 1,000-line file < 20 ms", nil, "", nil},
 	{ScRefsPopular, 300, "find references across the workspace < 300 ms", nil, "", nil},
 	{ScRefsLocal, 300, "find references across the workspace < 300 ms", nil, "", nil},
-	{ScRefsFamily, 300, "find references of a method that an interface of the whole module shares < 300 ms", nil,
-		"references follow a method through every interface of the module that it satisfies, so a method that all types share has a family as large as the module (TODO.md: narrow to gopls's use-tied unification)",
-		[]string{"medium", "large"}},
+	{ScRefsFamily, 300, "find references of a method that an interface of the whole module shares < 300 ms", nil, "", nil},
 	{ScRename, 300, "rename across the workspace < 300 ms", nil, "", nil},
 }
 

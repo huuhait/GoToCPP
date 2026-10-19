@@ -735,3 +735,83 @@ func TestRequest(t *testing.T) {
 		t.Errorf("Request after Serve = %v, want ErrClosed", err)
 	}
 }
+
+// TestPanicInWork: a panic in the work of a request is answered with an
+// InternalError, logged, and the connection goes on with the next request.
+func TestPanicInWork(t *testing.T) {
+	checkGoroutines(t)
+	h := funcs{call: func(ctx context.Context, req *Request) Work {
+		if req.Method == "boom" {
+			return func(context.Context) (any, error) {
+				var m map[string]int
+				m["x"] = 1 // assignment to a nil map
+				return nil, nil
+			}
+		}
+		return Reply(req.Params, nil)
+	}}
+	in := frame(`{"jsonrpc":"2.0","id":1,"method":"boom"}`) + frame(`{"jsonrpc":"2.0","id":2,"method":"echo","params":[1]}`)
+	var out bytes.Buffer
+	var logs bytes.Buffer
+	c := newConn(in, "", &out)
+	c.log = log.New(&logs, "", 0)
+	if err := c.Serve(context.Background(), h); err != nil && err != io.EOF {
+		t.Fatal(err)
+	}
+	bodies, _ := readAll(NewReader(&out))
+	got := strings.Join(bodies, "\n")
+	if !strings.Contains(got, `"id":2,"result":[1]`) {
+		t.Errorf("the request after the panic is not answered: %s", got)
+	}
+	if !strings.Contains(got, `"id":1`) || !strings.Contains(got, `"code":-32603`) || !strings.Contains(got, "internal error") {
+		t.Errorf("the panicking request is not answered with InternalError: %s", got)
+	}
+	if !strings.Contains(logs.String(), "panic") || !strings.Contains(logs.String(), "assignment to entry in nil map") {
+		t.Errorf("the panic is not logged: %q", logs.String())
+	}
+}
+
+// TestPanicInNotifyAndCall: a panic in the handler of a notification, or in the
+// first part of a request (Handler.Call, which runs on the goroutine that
+// reads), is logged: the notification is dropped, the request answered with an
+// InternalError, and the connection goes on.
+func TestPanicInNotifyAndCall(t *testing.T) {
+	checkGoroutines(t)
+	h := funcs{
+		notify: func(ctx context.Context, req *Request) error {
+			if req.Method == "boomNotify" {
+				var m map[string]int
+				m["x"] = 1
+			}
+			return nil
+		},
+		call: func(ctx context.Context, req *Request) Work {
+			if req.Method == "boomCall" {
+				var p *Request
+				_ = p.Method // nil pointer dereference
+			}
+			return Reply(req.Params, nil)
+		},
+	}
+	in := frame(`{"jsonrpc":"2.0","method":"boomNotify"}`) + frame(`{"jsonrpc":"2.0","id":1,"method":"boomCall"}`) + frame(`{"jsonrpc":"2.0","id":2,"method":"echo","params":[1]}`)
+	var out bytes.Buffer
+	var logs bytes.Buffer
+	c := newConn(in, "", &out)
+	c.log = log.New(&logs, "", 0)
+	if err := c.Serve(context.Background(), h); err != nil && err != io.EOF {
+		t.Fatal(err)
+	}
+	bodies, _ := readAll(NewReader(&out))
+	got := strings.Join(bodies, "\n")
+	if !strings.Contains(got, `"id":2,"result":[1]`) {
+		t.Errorf("the request after the panics is not answered: %s", got)
+	}
+	if !strings.Contains(got, `"id":1`) || !strings.Contains(got, `"code":-32603`) {
+		t.Errorf("boomCall is not answered with InternalError: %s", got)
+	}
+	for _, want := range []string{"boomNotify: panic", "assignment to entry in nil map", "boomCall: panic", "nil pointer"} {
+		if !strings.Contains(logs.String(), want) {
+			t.Errorf("the log lacks %q: %q", want, logs.String())
+		}
+	}
+}

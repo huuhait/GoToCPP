@@ -9,16 +9,19 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"maps"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/huuhait/gocpp/internal/diag"
 	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/lsp/cache"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
+	"github.com/huuhait/gocpp/internal/lsp/safe"
 )
 
 // textDocument/prepareRename and textDocument/rename (step 11.8): a safe
@@ -127,6 +130,9 @@ func (s *Server) prepareRename(ctx context.Context, e env, params json.RawMessag
 	if err := sym.renameable(); err != nil {
 		return nil, renameRefused(err)
 	}
+	if err := s.refusedBySemantics(sym); err != nil {
+		return nil, renameRefused(err)
+	}
 	return protocol.PrepareRenamePlaceholder{Range: sym.rng, Placeholder: sym.name}, nil
 }
 
@@ -177,6 +183,27 @@ func (sym *symbol) renameable() error {
 	return nil
 }
 
+// refusedBySemantics returns a refusal for a name whose rename would change
+// what the program does with no error from the build: an init function (it
+// would no longer run) and the methods that the errors package calls by name.
+// The legacy wide family leaves them as it always did.
+func (s *Server) refusedBySemantics(sym *symbol) error {
+	if s.wideFamily || len(sym.objs) != 1 {
+		return nil
+	}
+	fn, ok := sym.objs[0].(*types.Func)
+	if !ok {
+		return nil
+	}
+	if sym.name == "init" && sym.packageLevel() {
+		return refuse("cannot rename init: the runtime calls it when the package is initialized; under another name it would not run, and the build would not say so")
+	}
+	if by := errorsProtocol(fn); by != "" {
+		return refuse("cannot rename %s: %s, so under another name the program would behave differently with no error from the build", sym.name, by)
+	}
+	return nil
+}
+
 // validName reports whether name can be the new name of a symbol.
 func validName(name string) error {
 	switch {
@@ -209,6 +236,9 @@ func (s *Server) rename(ctx context.Context, e env, params json.RawMessage) (any
 		return nil, protocol.Errorf(protocol.RequestFailed, "%s", q.noNameMessage())
 	}
 	if err := sym.renameable(); err != nil {
+		return nil, renameRefused(err)
+	}
+	if err := s.refusedBySemantics(sym); err != nil {
 		return nil, renameRefused(err)
 	}
 	if err := validName(p.NewName); err != nil {
@@ -307,6 +337,15 @@ func (rn *renamer) edits(ctx context.Context) (map[string]*fileEdits, error) {
 		return nil, refuse("cannot rename %s: %v", sym.name, res.testErr)
 	case len(res.hits) == 0:
 		return nil, refuse("cannot rename %s: it has no declaration that gocpp can see", sym.name)
+	}
+	if !rn.s.wideFamily {
+		for _, h := range res.hits {
+			if fn, ok := h.obj.(*types.Func); ok && h.def {
+				if by := errorsProtocol(fn); by != "" {
+					return nil, refuse("cannot rename %s: %s is in the same family, and %s, so under another name the program would behave differently with no error from the build", sym.name, objectName(fn), by)
+				}
+			}
+		}
 	}
 	if err := rn.checkExported(); err != nil {
 		return nil, err
@@ -490,23 +529,7 @@ func (rn *renamer) conflict(h hit, format string, args ...any) error {
 // checkConflicts looks for the conflicts that a rename of every hit to the new
 // name makes, from the scopes of go/types.
 func (rn *renamer) checkConflicts() error {
-	sels := make(map[*view]map[*ast.Ident]*ast.SelectorExpr)
-	selectorsOf := func(v *view) map[*ast.Ident]*ast.SelectorExpr {
-		m := sels[v]
-		if m == nil {
-			m = make(map[*ast.Ident]*ast.SelectorExpr)
-			for _, f := range v.files {
-				ast.Inspect(f, func(n ast.Node) bool {
-					if sel, ok := n.(*ast.SelectorExpr); ok {
-						m[sel.Sel] = sel
-					}
-					return true
-				})
-			}
-			sels[v] = m
-		}
-		return m
-	}
+	selectorsOf := (*view).selectors
 	owners := make(map[*view]*fieldOwners)
 	// The declarations first: their conflicts say more than the uses'.
 	hits := slices.Clone(rn.res.hits)
@@ -723,6 +746,39 @@ type fieldOwners struct {
 }
 
 func (v *view) fieldOwners() *fieldOwners {
+	if v.pkg == nil || v.test {
+		return v.makeFieldOwners()
+	}
+	return v.pkg.Memo(fieldOwnersKey{}, func() any { return v.makeFieldOwners() }).(*fieldOwners)
+}
+
+type fieldOwnersKey struct{}
+
+// selectors returns the selector expressions of the view's files by their
+// selected name (the walk is done once for each checked package: every
+// rename of a name that other packages use asks for it in each of them).
+func (v *view) selectors() map[*ast.Ident]*ast.SelectorExpr {
+	build := func() any {
+		m := make(map[*ast.Ident]*ast.SelectorExpr)
+		for _, f := range v.files {
+			ast.Inspect(f, func(n ast.Node) bool {
+				if sel, ok := n.(*ast.SelectorExpr); ok {
+					m[sel.Sel] = sel
+				}
+				return true
+			})
+		}
+		return m
+	}
+	if v.pkg == nil || v.test {
+		return build().(map[*ast.Ident]*ast.SelectorExpr)
+	}
+	return v.pkg.Memo(selectorsKey{}, build).(map[*ast.Ident]*ast.SelectorExpr)
+}
+
+type selectorsKey struct{}
+
+func (v *view) makeFieldOwners() *fieldOwners {
 	o := &fieldOwners{structOf: make(map[*types.Var]*types.Struct), namedOf: make(map[*types.Struct]*types.Named)}
 	for _, f := range v.files {
 		ast.Inspect(f, func(n ast.Node) bool {
@@ -874,6 +930,17 @@ func (rn *renamer) checkResult(ctx context.Context, files map[string]*fileEdits)
 			dirs[v.dir] = true
 		}
 	}
+	// The importers of the edited folders, whether or not the search found a use
+	// there: a method that is renamed changes the method sets of its types, and an
+	// importer that passes a value of one to an interface of the package (a tie
+	// that the search did not see) would no longer compile.
+	if rn.res.importersOf != nil && (rn.sym.scope == scopeFamily || rn.sym.scope == scopeModule) {
+		for _, dir := range slices.Sorted(maps.Keys(dirs)) {
+			for _, imp := range rn.res.importersOf(dir) {
+				dirs[imp] = true
+			}
+		}
+	}
 	after, release, err := rn.e.snapshot.Edited(texts)
 	if err != nil {
 		return err
@@ -884,12 +951,37 @@ func (rn *renamer) checkResult(ctx context.Context, files map[string]*fileEdits)
 		sorted = append(sorted, d)
 	}
 	slices.Sort(sorted)
-	for _, dir := range sorted {
+	// The packages are checked together (an importer waits for the edited
+	// package it imports, the others don't wait for anything), and compared in
+	// order, so the refusal names the same package every time.
+	type checked struct {
+		pkg *cache.Package
+		err error
+	}
+	results := make([]checked, len(sorted))
+	var wg sync.WaitGroup
+	var pc safe.Catcher
+	sem := make(chan struct{}, 8)
+	for i, dir := range sorted {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			pc.Run(func() { results[i].pkg, results[i].err = after.Package(ctx, dir) })
+		}()
+	}
+	wg.Wait()
+	pc.Rethrow()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	for i, dir := range sorted {
 		before, err := rn.e.snapshot.Package(ctx, dir)
 		if err != nil {
 			continue
 		}
-		now, err := after.Package(ctx, dir)
+		now, err := results[i].pkg, results[i].err
 		if err != nil {
 			return refuse("cannot rename %s to %s: the package %s can't be checked afterwards: %v", rn.sym.name, rn.newName, dir, err)
 		}

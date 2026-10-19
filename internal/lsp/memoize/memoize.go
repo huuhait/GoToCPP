@@ -18,6 +18,8 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
+
+	"github.com/huuhait/gocpp/internal/lsp/safe"
 )
 
 // A Promise is a value that is computed once, on its first Get, by the
@@ -93,8 +95,17 @@ func (p *Promise[V]) Get(ctx context.Context) (V, error) {
 }
 
 // do runs compute for the run r and keeps its result.
+//
+// The computation runs on a goroutine that no caller owns: a panic in it
+// would end the process, so it becomes the error of the promise (a
+// *safe.Panic), which every Get gets.
 func (p *Promise[V]) do(ctx context.Context, r *run, compute func(ctx context.Context) (V, error)) {
-	v, err := compute(ctx)
+	var v V
+	var err error
+	if pn := safe.Call(func() { v, err = compute(ctx) }); pn != nil {
+		var zero V
+		v, err = zero, pn
+	}
 	p.mu.Lock()
 	if p.run == r {
 		p.run = nil

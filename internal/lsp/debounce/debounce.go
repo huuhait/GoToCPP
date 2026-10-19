@@ -9,6 +9,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/huuhait/gocpp/internal/lsp/safe"
 )
 
 // A Clock makes timers: RealClock, or a FakeClock in tests.
@@ -45,6 +47,10 @@ func (RealClock) AfterFunc(d time.Duration, f func()) Timer { return time.AfterF
 // its key can't start, and Stop waits for it.
 type Debouncer[K comparable] struct {
 	clock Clock
+
+	// OnPanic, when set (before the first Run), gets the panic of an f, which
+	// then counts as returned. Without it a panic in f ends the process.
+	OnPanic func(key K, p *safe.Panic)
 
 	mu      sync.Mutex
 	keys    map[K]*entry
@@ -197,7 +203,13 @@ func (d *Debouncer[K]) start(key K, e *entry) {
 	r := e.next
 	e.next, e.running = nil, r
 	go func() {
-		r.f(r.ctx)
+		// A panic in f would end the process, and leave the key running for
+		// ever: it goes to OnPanic, and the key is free again.
+		if p := safe.Call(func() { r.f(r.ctx) }); p != nil && d.OnPanic != nil {
+			d.OnPanic(key, p)
+		} else if p != nil {
+			panic(p)
+		}
 		d.mu.Lock()
 		defer d.mu.Unlock()
 		e.running = nil

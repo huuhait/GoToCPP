@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/huuhait/gocpp/internal/lsp/safe"
 )
 
 // checkGoroutines fails the test if, at its end, more goroutines run than
@@ -289,4 +291,25 @@ func TestDueAfterStuck(t *testing.T) {
 	if got := rec.get(); !slices.Equal(got, []string{"stuck", "99"}) {
 		t.Errorf("ran %v, want stuck 99", got)
 	}
+}
+
+// TestOnPanic: a panic in a run goes to OnPanic, and the key is free for the
+// next run (it would end the process, and keep the key running for ever).
+func TestOnPanic(t *testing.T) {
+	checkGoroutines(t)
+	clock := &FakeClock{}
+	d := New[string](clock)
+	var got atomic.Value
+	d.OnPanic = func(key string, p *safe.Panic) { got.Store(fmt.Sprintf("%s: %v", key, p.Value)) }
+	var rec recorder
+	d.Run("k", time.Millisecond, func(context.Context) { panic("boom") })
+	clock.Advance(time.Millisecond)
+	waitFor(t, "OnPanic", func() bool { return got.Load() != nil })
+	if got.Load() != "k: boom" {
+		t.Errorf("OnPanic got %v", got.Load())
+	}
+	d.Run("k", time.Millisecond, rec.f("after"))
+	clock.Advance(time.Millisecond)
+	waitFor(t, "the run after the panic", func() bool { return len(rec.get()) == 1 })
+	stop(t, d)
 }

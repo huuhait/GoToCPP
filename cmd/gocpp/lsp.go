@@ -17,7 +17,7 @@ import (
 
 // lspUsage is the help text of "gocpp lsp". "gocpp lsp -h" prints it,
 // followed by the flags.
-const lspUsage = `usage: gocpp lsp [-logfile file] [-slow duration] [-profile dir [-exec-trace]] [-trace file]
+const lspUsage = `usage: gocpp lsp [-logfile file] [-slow duration] [-profile dir [-exec-trace]] [-trace file] [-wide-family]
 
 gocpp lsp runs the gocpp language server. It speaks the Language Server
 Protocol (LSP 3.17) over standard input and standard output: an editor
@@ -88,6 +88,7 @@ func runLSP(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	profile := flags.String("profile", "", "write the CPU and heap profiles to the folder `dir` when the server ends")
 	execTrace := flags.Bool("exec-trace", false, "with -profile, write the Go execution trace (exec.trace) too")
 	traceFile := flags.String("trace", "", "write the spans of the work to `file` as a Chrome trace when the server ends")
+	wide := flags.Bool("wide-family", false, "references and rename follow a method through every interface of the module that its type could satisfy, not only through the interfaces that a use needs (slower)")
 	flags.Usage = func() {
 		fmt.Fprint(stderr, lspUsage)
 		flags.PrintDefaults()
@@ -99,7 +100,7 @@ func runLSP(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2 // flag has printed the error and the usage
 	}
 	if flags.NArg() > 0 {
-		fmt.Fprintln(stderr, "usage: gocpp lsp [-logfile file] [-slow duration] [-profile dir [-exec-trace]] [-trace file]")
+		fmt.Fprintln(stderr, "usage: gocpp lsp [-logfile file] [-slow duration] [-profile dir [-exec-trace]] [-trace file] [-wide-family]")
 		return 2
 	}
 	logOut := stderr
@@ -126,7 +127,7 @@ func runLSP(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "gocpp lsp: %v\n", err)
 		return 2
 	}
-	opts := server.Options{Slow: *slow, Phase: phase}
+	opts := server.Options{Slow: *slow, Phase: phase, WideFamily: *wide}
 	if prof != nil {
 		defer prof.stop()
 		opts.Trace = prof.rec

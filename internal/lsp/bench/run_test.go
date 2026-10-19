@@ -3,6 +3,7 @@ package bench
 import (
 	"bytes"
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -197,6 +198,14 @@ func TestGateVsGopls(t *testing.T) {
 // fails when it is fixed (the exemption must not outlive it); a row with
 // failed repetitions fails when more than 5% of them failed.
 func TestGateKnownAndFailures(t *testing.T) {
+	// No budget has a known problem today: give one, for the test.
+	saved := slices.Clone(Budgets)
+	t.Cleanup(func() { Budgets = saved })
+	for i := range Budgets {
+		if Budgets[i].Scenario == ScRefsFamily {
+			Budgets[i].Known, Budgets[i].KnownIn = "a plan", []string{"medium", "large"}
+		}
+	}
 	known := Row{Project: "medium", Scenario: ScRefsFamily, Budget: 300, Known: "a plan", Samples: 10}
 	known.P95 = 700
 	if bad := Gate([]Row{known}, DefaultGate); len(bad) != 0 {
