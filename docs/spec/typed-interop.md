@@ -1,9 +1,9 @@
-# Typed interop: the collector, the probe, the declarations, the type mapper, the checker, the code generation and the constants (steps 12.1 to 12.8)
+# Typed interop: the collector, the probe, the declarations, the type mapper, the checker, the code generation and the constants (steps 12.1 to 12.9)
 
 Typed interop (Phase 12, [README](../../plans/2026-10-13-gocpp/phase-12-typed-interop/README.md))
 asks **clang** for the real C++ types of exactly the C/C++ names that a program uses. This
-document is the contract of the first eight steps, which every later step builds on (§5 and §6 are
-steps 12.3 and 12.4, §7 is step 12.5, §8 is step 12.6, §9 is step 12.7, §10 is step 12.8):
+document is the contract of the first nine steps, which every later step builds on (§5 and §6 are
+steps 12.3 and 12.4, §7 is step 12.5, §8 is step 12.6, §9 is step 12.7, §10 is step 12.8, §11 is step 12.9):
 
 | Step | Package | What it does |
 |---|---|---|
@@ -14,6 +14,7 @@ steps 12.3 and 12.4, §7 is step 12.5, §8 is step 12.6, §9 is step 12.7, §10 
 | 12.5 interop checker | `internal/typedinterop/icheck` | errors for the C++ compiler's errors, at the `.gp` position, in Go's words; silent when not certain |
 | 12.6 code generation | `internal/lower` (`typed*.go`, `keeps.go`), `cmd/gocpp/typedlower.go` | writes the C++ of foreign calls, members, literals and strings from the real types; off unless `GOCPP_TYPED_INTEROP=1` |
 | 12.8 constants (gap E1) | `internal/check` (`constsubst.go`), `internal/typedinterop` (`consts.go`) | probes the C/C++ names that sit where Go needs a constant and puts their values into the program before `go/types` runs; off unless `GOCPP_TYPED_INTEROP=1` |
+| 12.9 promoted members (gap E2) | `internal/check` (`cppmembers.go`), `internal/typedinterop` (`members.go`), `.../collect` (`members.go`) | asks the compiler which embedded C++ class has which member name and applies Go's rule of selectors (§11) |
 | glue | `internal/typedinterop` | `Analyze(ctx, pkg, fset, opts)`: collect, kind probe, probe, and with `Options.Decls` the declarations and the mapping; `Report` (JSON for the developer tool) |
 
 Nothing in the opaque pipeline uses these packages: they are additive. The only change outside
@@ -227,8 +228,8 @@ bytes; `-stats`: one line on standard error with the units, hits, batches and co
 - Array lengths of C++ constants (`[cstdio.BUFSIZ]byte`) are probed as a type
   (`gocpp_probe_internal_pr::array<uint8_t, BUFSIZ>`) and as a constant; since step 12.8 the constant is put into the
   program before `go/types` (§10), so the array type is a plain Go type.
-- A call through a local function value, a method value (`f := v.size`) and an embedded-field
-  promoted member are not typed here (12.9).
+- A call through a local function value and a method value (`f := v.size`) are not typed here.
+  A member promoted from an embedded class is (§11).
 - The kind of a path is the kind probe's: a `NotFound` kind is still probed (clang's own error
   text is the diagnostic).
 - Probes use clang even when the build uses g++: headers that branch on `__clang__` can
@@ -695,3 +696,108 @@ float literals), `internal/typedinterop/consts_test.go` + `testdata/consts` (the
 shape in the table above, redefinition and `#undef`, platform and flag macros, a header that redefines another's
 macro, the cache), `cmd/gocpp/typedconsts_test.go` (the driver: typed, opaque, no clang), and `tests/typed`
 (`macro_consts.gp` with its C++ twin, `err_const_*.gp`).
+
+## 11. Promoted members of embedded C++ classes (step 12.9, ADR-098, gap E2)
+
+```go
+type Stacked struct {
+	std.vector[int]
+	embed.Stack
+	n int
+}
+var s Stacked
+s.push_back(1)  // the vector's: s.vector.push_back(1)
+s.push(2)       // the stack's
+s.size()        // ambiguous if both have a member size: Go's rule
+```
+
+go/types has no type for an embedded C++ class (a C/C++ type is invalid in it, `FakeImportC`), so the
+first pass of `internal/check` can decide a selector `x.name` on such a struct only when the answer does not
+depend on the class's members (`promoted.go`: one embedded class, no Go member at the same depth). The others
+are the **candidates of the second pass** (`internal/check/cppmembers.go`): a selector that go/types found
+nothing for, on a struct that embeds a class directly or through embedded structs (including embedded pointers,
+aliases and named types over a class), and a selector that go/types resolved to a Go member when a class is at
+the same or a shallower depth (the member of the class would win or make it ambiguous).
+
+**The hook.** `check.Config.CppMembers` (unset: opaque mode, the first pass stands) is called at most once
+for a package, and only when it has candidates, with one `MemberQuery{Class, Name}` per embedded class and
+name. `typedinterop.MembersHook`/`AnswerMembers` answers with the C++ compiler: for each query one probe
+`decltype((std::declval<C&>().name))` (the lookup is the compiler's own: bases, using-declarations, anonymous
+unions, the library's internal base classes that the declaration extraction does not follow), classified by
+what clang says about the access (`ClassifyMember`):
+
+| the compiler says | `MemberStatus` |
+|---|---|
+| it compiles (data member, static member, enumerator) | `MemberFound` |
+| "reference to non-static member function must be called" (a member function, any overloads, const and non-const, or a template) | `MemberFound` |
+| "no member named 'n' in 'C'" | `MemberMissing` |
+| "'n' is a private member of 'B'" / "protected" (also through a private or protected base) | `MemberPrivate` / `MemberProtected` |
+| "member 'n' found in multiple base classes" (different bases) or "non-static member 'n' found in multiple base-class subobjects of type 'B'" (a non-virtual diamond; a virtual one is fine) | `MemberAmbiguous` |
+| "attempt to use a deleted function" | `MemberDeleted` |
+| "cannot refer to type member" (a nested type, a typedef) | `MemberNotValue` |
+| a note "expanded from macro 'n'" (the name is a macro of the headers) | `MemberMacro` |
+| anything else, a probe that failed, a header that does not compile, no clang | `MemberUnknown` |
+
+A class that has an `operator->` and no member of the name is `MemberUnknown` too (the pointee may have it:
+typed code generation writes `x->name`, §8); so every class is probed for `operator->` once. The probes are
+ordinary references of the probe file (`collect.MemberSet`), so the disk cache of §9 holds the answers: a warm
+build asks the compiler nothing, and a cold one runs it once for all classes and names of the package.
+
+**What the answers decide** (`decideCpp`). With the depth d of a member = the number of embedded fields to its
+owner (a field of the struct itself 0, a member of the class that the struct embeds 1, a member of a class
+embedded in an embedded struct 2, ...), Go's rule applies to the Go members and the members of the classes
+together; a member that the class has but that its users cannot use (private, protected, deleted, ambiguous
+in its bases) counts as a member for the rule:
+
+| members at the smallest depth | result |
+|---|---|
+| none | error `s.foo undefined (type S has no field or method foo; std.vector[int] has no member foo)` (several classes: `none of the embedded C++ types A, B has a member foo`; a macro or a type adds a remark) |
+| one Go member | go/types' selection stands; the gate for a Go member beside an embedded class (`featPromotedCppShadow`) is not reported, the class was asked |
+| one member of a class | promoted through the embedded fields: `Package.PromotedPath`/`PromotedField` (what the opaque pass, the gates and the lowering read) |
+| several | error `ambiguous selector s.size (std.vector[int].size and std.string.size)` (a Go member is "a Go member") |
+| one of a class, and a Go member deeper | error: Go's rule picks the class's, but go/types' selection (and the types of the expressions around it) is the Go member's: `s.size is the member of std.vector[int], which is shallower than the Go member size (Go's rule): name the field, s.vector.size` |
+| one of a class that is private, protected, deleted or ambiguous in its bases | error `s.priv undefined (the member priv of C is private)`, `... is protected`, `s.del is a deleted function of C`, `ambiguous selector s.x (C has a member x in several bases)` |
+
+The errors are at the selector in the `.gp` file. The go/types error of an unresolved selector is replaced by
+ours or dropped (a member found); the phase gates (§ gates.go: several embedded classes, a Go member beside a
+class) are not reported for a selector the second pass decided, and stay for the others. Anything the hook
+cannot answer (no clang, an error of the probe, a class from another package, a class that is a type
+parameter) leaves the selector as the first pass had it: one class is promoted and the C++ compiler checks
+the member; several is the gate. The compatibility rule holds: an answer is an error only where C++ itself
+has no usable member by that name.
+
+**Not promoted.** Operators: `s[0]`, `s + t`, `len(s)` and `range s` stay what go/types says (write
+`s.vector[0]`); constructors and destructors; nested types and member typedefs (not values; `MemberNotValue`
+is an error when nothing else has the name). A member template is a member (`s.twice(21)`, one instantiation
+per call, the arguments deduced); explicit template arguments of a member (`s.conv[int](x)`) are a limit of
+the lowering, with or without embedding (opaque mode has it too). The interfaces that a struct would
+satisfy with a promoted C++ method are not seen by go/types (`promoted.go`).
+
+**The second pass does not run go/types again.** A class synthesized as go/types objects (methods, fields) would
+make method sets, assignability and the types of the expressions around a call depend on a C++ declaration that
+stock go/types never reads, and every C/C++ expression would have to be typed in it. The pass re-decides what
+the first pass could not, where the first pass looked (`PromotedPath`, the false errors that stay, the opaque
+pass, the gates). Cost: none without a candidate; with candidates, one hook call per package and, cold, one
+compiler run (about 0.35 s for a small std example; warm: none; `Package.CppMembersAsked` counts the questions).
+The opaque pass is run a second time only for a package that has candidates.
+
+**Typed code generation.** A promoted selector is collected as a member of an lvalue of the embedded field's C++
+type (`collect.promotedReceiver`: `Select{Arg{T: class, LValue}, name}`; a temporary for the member of a call's
+result), so `s.size()` is probed and lowered like `v.size()` on a variable: the class of the field is the
+reference of `sel.Sel` (`Set.RefOf`), `lower.memberObject` hands it to `typedMember`, which writes `.` for
+a class and `->` for a raw pointer or a smart pointer's pointee: `s.vector.push_back(1)`, `o.Inner->vector.size()`,
+`s.vector.at(0) = 5` (a `T&` result stays assignable), `&s.at(0)`. A deferred call
+of a promoted member is lowered inside the defer thunk through the thunk's copy of the object, as
+`gp_df.gp_push_call([](auto&& gp_a0) { gp::deref((*gp_a0).Box).get(); }, s)`: `gp::deref` there is the thunk's own
+(it gives the object whether the frame stored a pointer or a copy), and only the member of the class is typed. The interop checker (12.5) checks the uses
+of promoted members like any other (`no overload of s.push_back matches the arguments ...`).
+
+**Limits.** A generic struct that embeds a class of its type parameter (`type Holder[T any] struct{ std.vector[T] }`)
+fails before this pass with "interface types as C++ template arguments are not available yet" (a limit of the
+lowering of generic types over C++ templates, with or without promotion); a class that is a type parameter is
+undecided.
+
+**The switch.** The hook is set when `GOCPP_TYPED_INTEROP=1` (build, run, emit, check) and by the hidden
+commands `__typed-check` and `__typed-probe` (`cmd/gocpp/typedmembers.go`); it needs clang++ and, for a
+build for another system, only the headers of the C++ standard library (as `attachTyped`). The language
+server does not set it (12.13).

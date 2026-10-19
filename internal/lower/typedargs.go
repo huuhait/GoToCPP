@@ -309,7 +309,7 @@ func (g *gen) calleeSigs(c *ast.CallExpr) ([]calleeSig, string, bool) {
 	if !ok {
 		return nil, "", false
 	}
-	out, ok := g.methodSigs(sel.X, sel.Sel.Name)
+	out, ok := g.methodSigs(g.memberObject(sel), sel.Sel.Name)
 	return out, sel.Sel.Name, ok
 }
 
@@ -400,7 +400,7 @@ func (g *gen) methodKeepsCharPtr(c *ast.CallExpr) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	v := g.tvalOf(sel.X)
+	v := g.tvalOf(g.memberObject(sel))
 	if v == nil {
 		return "", false
 	}

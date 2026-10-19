@@ -2,153 +2,144 @@
     embed_cxx.gp:22:2 type  C.elabel
 1 path ::epoint
     embed_cxx.gp:17:2 type  C.epoint
-2 binary bin(==|sel(unknown(Go type command-line-arguments.Labeled)|text)|lit("hello!")) incomplete(Go type command-line-arguments.Labeled)
+2 binary bin(==|sel(arg&(::elabel)|text)|lit("hello!"))
     embed_cxx.gp:75:34 convert -> (ast: <nil>)  l.text == "hello!"
-3 call call(go(bool)|call(sel(unknown(Go type command-line-arguments.Vec)|empty)|)) incomplete(Go type command-line-arguments.Vec)
+3 call call(go(bool)|call(sel(arg&(index(std::vector|go(int64_t)))|empty)|))
     embed_cxx.gp:59:36 arg -> any  bool(v.empty())
-4 call call(go(int64_t)|call(sel(sel(unknown(Go type *command-line-arguments.Vec)|vector)|size)|)) incomplete(Go type *command-line-arguments.Vec)
-    embed_cxx.gp:63:29 arg -> any  int(o.Vec.vector.size())
-5 call call(go(int64_t)|call(sel(unknown(Go type *command-line-arguments.P)|sum)|)) incomplete(Go type *command-line-arguments.P)
-    embed_cxx.gp:53:14 arg -> any  int(pp.sum())
-6 call call(go(int64_t)|call(sel(unknown(Go type command-line-arguments.Labeled)|size)|)) incomplete(Go type command-line-arguments.Labeled)
+4 call call(go(int64_t)|call(sel(arg&(::elabel)|size)|))
     embed_cxx.gp:75:14 arg -> any  int(l.size())
-7 call call(go(int64_t)|call(sel(unknown(Go type command-line-arguments.Outer)|at)|arg&(go(int64_t)))) incomplete(Go type command-line-arguments.Outer)
+5 call call(go(int64_t)|call(sel(arg&(::epoint)|sum)|))
+    embed_cxx.gp:44:34 arg -> any  int(p.sum())
+    embed_cxx.gp:46:48 arg -> any  int(p.sum())
+    embed_cxx.gp:53:14 arg -> any  int(pp.sum())
+    embed_cxx.gp:53:29 arg -> any  int(q.sum())
+6 call call(go(int64_t)|call(sel(arg&(index(std::vector|go(int64_t)))|at)|arg&(go(int64_t))))
     embed_cxx.gp:65:18 arg -> any  int(o.at(i))
-8 call call(go(int64_t)|call(sel(unknown(Go type command-line-arguments.Outer)|back)|)) incomplete(Go type command-line-arguments.Outer)
+7 call call(go(int64_t)|call(sel(arg&(index(std::vector|go(int64_t)))|back)|))
     embed_cxx.gp:69:29 arg -> any  int(o.back())
-9 call call(go(int64_t)|call(sel(unknown(Go type command-line-arguments.Outer)|size)|)) incomplete(Go type command-line-arguments.Outer)
+8 call call(go(int64_t)|call(sel(arg&(index(std::vector|go(int64_t)))|size)|))
+    embed_cxx.gp:59:14 arg -> any  int(v.size())
     embed_cxx.gp:63:14 arg -> any  int(o.size())
     embed_cxx.gp:64:18 operand  int(o.size())
     embed_cxx.gp:69:14 arg -> any  int(o.size())
-10 call call(go(int64_t)|call(sel(unknown(Go type command-line-arguments.P)|sum)|)) incomplete(Go type command-line-arguments.P)
-    embed_cxx.gp:44:34 arg -> any  int(p.sum())
-    embed_cxx.gp:46:48 arg -> any  int(p.sum())
-    embed_cxx.gp:53:29 arg -> any  int(q.sum())
-11 call call(go(int64_t)|call(sel(unknown(Go type command-line-arguments.Vec)|size)|)) incomplete(Go type command-line-arguments.Vec)
-    embed_cxx.gp:59:14 arg -> any  int(v.size())
+9 call call(go(int64_t)|call(sel(sel(unknown(Go type *command-line-arguments.Vec)|vector)|size)|)) incomplete(Go type *command-line-arguments.Vec)
+    embed_cxx.gp:63:29 arg -> any  int(o.Vec.vector.size())
+10 call call(go(int64_t)|sel(arg&(::epoint)|x))
+    embed_cxx.gp:44:14 arg -> any  int(p.x)
+    embed_cxx.gp:49:14 arg -> any  int(p.x)
+    embed_cxx.gp:49:24 arg -> any  int(q.x)
+11 call call(go(int64_t)|sel(arg&(::epoint)|y))
+    embed_cxx.gp:44:24 arg -> any  int(p.y)
 12 call call(go(int64_t)|sel(sel(unknown(Go type command-line-arguments.P)|epoint)|x)) incomplete(Go type command-line-arguments.P)
     embed_cxx.gp:46:14 arg -> any  int(p.epoint.x)
 13 call call(go(int64_t)|sel(sel(unknown(Go type command-line-arguments.P)|epoint)|y)) incomplete(Go type command-line-arguments.P)
     embed_cxx.gp:46:31 arg -> any  int(p.epoint.y)
-14 call call(go(int64_t)|sel(unknown(Go type command-line-arguments.P)|x)) incomplete(Go type command-line-arguments.P)
-    embed_cxx.gp:44:14 arg -> any  int(p.x)
-    embed_cxx.gp:49:14 arg -> any  int(p.x)
-    embed_cxx.gp:49:24 arg -> any  int(q.x)
-15 call call(go(int64_t)|sel(unknown(Go type command-line-arguments.P)|y)) incomplete(Go type command-line-arguments.P)
-    embed_cxx.gp:44:24 arg -> any  int(p.y)
-16 call call(sel(sel(unknown(Go type *command-line-arguments.Vec)|vector)|size)|) incomplete(Go type *command-line-arguments.Vec)
-    embed_cxx.gp:63:33 convert -> int  o.Vec.vector.size()
-17 call call(sel(unknown(Go type *command-line-arguments.P)|scale)|lit(3)) incomplete(Go type *command-line-arguments.P)
-    embed_cxx.gp:52:2 stmt  pp.scale(3)
-18 call call(sel(unknown(Go type *command-line-arguments.P)|sum)|) incomplete(Go type *command-line-arguments.P)
-    embed_cxx.gp:53:18 convert -> int  pp.sum()
-19 call call(sel(unknown(Go type command-line-arguments.Labeled)|append)|lit("!")) incomplete(Go type command-line-arguments.Labeled)
+14 call call(sel(arg&(::elabel)|append)|lit("!"))
     embed_cxx.gp:73:2 stmt  l.append("!")
-20 call call(sel(unknown(Go type command-line-arguments.Labeled)|append)|lit("hello")) incomplete(Go type command-line-arguments.Labeled)
+15 call call(sel(arg&(::elabel)|append)|lit("hello"))
     embed_cxx.gp:72:2 stmt  l.append("hello")
-21 call call(sel(unknown(Go type command-line-arguments.Labeled)|size)|) incomplete(Go type command-line-arguments.Labeled)
+16 call call(sel(arg&(::elabel)|size)|)
     embed_cxx.gp:75:18 convert -> int  l.size()
-22 call call(sel(unknown(Go type command-line-arguments.Outer)|at)|arg&(go(int64_t))) incomplete(Go type command-line-arguments.Outer)
+17 call call(sel(arg&(::epoint)|scale)|lit(10))
+    embed_cxx.gp:48:2 stmt  q.scale(10)
+18 call call(sel(arg&(::epoint)|scale)|lit(2))
+    embed_cxx.gp:45:2 stmt  p.scale(2)
+19 call call(sel(arg&(::epoint)|scale)|lit(3))
+    embed_cxx.gp:52:2 stmt  pp.scale(3)
+20 call call(sel(arg&(::epoint)|sum)|)
+    embed_cxx.gp:44:38 convert -> int  p.sum()
+    embed_cxx.gp:46:52 convert -> int  p.sum()
+    embed_cxx.gp:53:18 convert -> int  pp.sum()
+    embed_cxx.gp:53:33 convert -> int  q.sum()
+21 call call(sel(arg&(index(std::vector|go(int64_t)))|at)|arg&(go(int64_t)))
     embed_cxx.gp:65:22 convert -> int  o.at(i)
-23 call call(sel(unknown(Go type command-line-arguments.Outer)|back)|) incomplete(Go type command-line-arguments.Outer)
+22 call call(sel(arg&(index(std::vector|go(int64_t)))|back)|)
     embed_cxx.gp:69:33 convert -> int  o.back()
-24 call call(sel(unknown(Go type command-line-arguments.Outer)|pop_back)|) incomplete(Go type command-line-arguments.Outer)
+23 call call(sel(arg&(index(std::vector|go(int64_t)))|empty)|)
+    embed_cxx.gp:59:41 convert -> bool  v.empty()
+24 call call(sel(arg&(index(std::vector|go(int64_t)))|pop_back)|)
     embed_cxx.gp:68:2 stmt  o.pop_back()
-25 call call(sel(unknown(Go type command-line-arguments.Outer)|push_back)|lit(7)) incomplete(Go type command-line-arguments.Outer)
+25 call call(sel(arg&(index(std::vector|go(int64_t)))|push_back)|lit(1))
+    embed_cxx.gp:56:2 stmt  v.push_back(1)
+26 call call(sel(arg&(index(std::vector|go(int64_t)))|push_back)|lit(2))
+    embed_cxx.gp:57:2 stmt  v.push_back(2)
+27 call call(sel(arg&(index(std::vector|go(int64_t)))|push_back)|lit(3))
+    embed_cxx.gp:58:2 stmt  v.push_back(3)
+28 call call(sel(arg&(index(std::vector|go(int64_t)))|push_back)|lit(7))
     embed_cxx.gp:61:2 stmt  o.push_back(7)
-26 call call(sel(unknown(Go type command-line-arguments.Outer)|push_back)|lit(8)) incomplete(Go type command-line-arguments.Outer)
+29 call call(sel(arg&(index(std::vector|go(int64_t)))|push_back)|lit(8))
     embed_cxx.gp:62:2 stmt  o.push_back(8)
-27 call call(sel(unknown(Go type command-line-arguments.Outer)|size)|) incomplete(Go type command-line-arguments.Outer)
+30 call call(sel(arg&(index(std::vector|go(int64_t)))|size)|)
+    embed_cxx.gp:59:18 convert -> int  v.size()
     embed_cxx.gp:63:18 convert -> int  o.size()
     embed_cxx.gp:64:22 convert -> int  o.size()
     embed_cxx.gp:69:18 convert -> int  o.size()
-28 call call(sel(unknown(Go type command-line-arguments.P)|scale)|lit(10)) incomplete(Go type command-line-arguments.P)
-    embed_cxx.gp:48:2 stmt  q.scale(10)
-29 call call(sel(unknown(Go type command-line-arguments.P)|scale)|lit(2)) incomplete(Go type command-line-arguments.P)
-    embed_cxx.gp:45:2 stmt  p.scale(2)
-30 call call(sel(unknown(Go type command-line-arguments.P)|sum)|) incomplete(Go type command-line-arguments.P)
-    embed_cxx.gp:44:38 convert -> int  p.sum()
-    embed_cxx.gp:46:52 convert -> int  p.sum()
-    embed_cxx.gp:53:33 convert -> int  q.sum()
-31 call call(sel(unknown(Go type command-line-arguments.Vec)|empty)|) incomplete(Go type command-line-arguments.Vec)
-    embed_cxx.gp:59:41 convert -> bool  v.empty()
-32 call call(sel(unknown(Go type command-line-arguments.Vec)|push_back)|lit(1)) incomplete(Go type command-line-arguments.Vec)
-    embed_cxx.gp:56:2 stmt  v.push_back(1)
-33 call call(sel(unknown(Go type command-line-arguments.Vec)|push_back)|lit(2)) incomplete(Go type command-line-arguments.Vec)
-    embed_cxx.gp:57:2 stmt  v.push_back(2)
-34 call call(sel(unknown(Go type command-line-arguments.Vec)|push_back)|lit(3)) incomplete(Go type command-line-arguments.Vec)
-    embed_cxx.gp:58:2 stmt  v.push_back(3)
-35 call call(sel(unknown(Go type command-line-arguments.Vec)|size)|) incomplete(Go type command-line-arguments.Vec)
-    embed_cxx.gp:59:18 convert -> int  v.size()
-36 index index(std::vector|go(int64_t))
+31 call call(sel(sel(unknown(Go type *command-line-arguments.Vec)|vector)|size)|) incomplete(Go type *command-line-arguments.Vec)
+    embed_cxx.gp:63:33 convert -> int  o.Vec.vector.size()
+32 index index(std::vector|go(int64_t))
     embed_cxx.gp:27:2 type  C.std.vector[int]
-37 member sel(sel(unknown(Go type *command-line-arguments.Vec)|vector)|size) incomplete(Go type *command-line-arguments.Vec) name-only
-    embed_cxx.gp:63:33 callee  o.Vec.vector.size
-38 member sel(sel(unknown(Go type command-line-arguments.P)|epoint)|x) incomplete(Go type command-line-arguments.P)
-    embed_cxx.gp:46:18 convert -> int  p.epoint.x
-39 member sel(sel(unknown(Go type command-line-arguments.P)|epoint)|y) incomplete(Go type command-line-arguments.P)
-    embed_cxx.gp:46:35 convert -> int  p.epoint.y
-40 member sel(unknown(Go type *command-line-arguments.P)|scale) incomplete(Go type *command-line-arguments.P) name-only
-    embed_cxx.gp:52:2 callee  pp.scale
-41 member sel(unknown(Go type *command-line-arguments.P)|sum) incomplete(Go type *command-line-arguments.P) name-only
-    embed_cxx.gp:53:18 callee  pp.sum
-42 member sel(unknown(Go type *command-line-arguments.P)|x) incomplete(Go type *command-line-arguments.P)
-    embed_cxx.gp:51:2 assign  pp.x
-43 member sel(unknown(Go type *command-line-arguments.Vec)|vector) incomplete(Go type *command-line-arguments.Vec)
-    embed_cxx.gp:63:33 member  o.Vec.vector
-44 member sel(unknown(Go type command-line-arguments.Labeled)|append) incomplete(Go type command-line-arguments.Labeled) name-only
+33 member sel(arg&(::elabel)|append) name-only
     embed_cxx.gp:72:2 callee  l.append
     embed_cxx.gp:73:2 callee  l.append
-45 member sel(unknown(Go type command-line-arguments.Labeled)|size) incomplete(Go type command-line-arguments.Labeled) name-only
+34 member sel(arg&(::elabel)|size) name-only
     embed_cxx.gp:75:18 callee  l.size
-46 member sel(unknown(Go type command-line-arguments.Labeled)|text) incomplete(Go type command-line-arguments.Labeled)
+35 member sel(arg&(::elabel)|text)
     embed_cxx.gp:75:34 operand  l.text
-47 member sel(unknown(Go type command-line-arguments.Outer)|at) incomplete(Go type command-line-arguments.Outer) name-only
-    embed_cxx.gp:65:22 callee  o.at
-48 member sel(unknown(Go type command-line-arguments.Outer)|back) incomplete(Go type command-line-arguments.Outer) name-only
-    embed_cxx.gp:69:33 callee  o.back
-49 member sel(unknown(Go type command-line-arguments.Outer)|pop_back) incomplete(Go type command-line-arguments.Outer) name-only
-    embed_cxx.gp:68:2 callee  o.pop_back
-50 member sel(unknown(Go type command-line-arguments.Outer)|push_back) incomplete(Go type command-line-arguments.Outer) name-only
-    embed_cxx.gp:61:2 callee  o.push_back
-    embed_cxx.gp:62:2 callee  o.push_back
-51 member sel(unknown(Go type command-line-arguments.Outer)|size) incomplete(Go type command-line-arguments.Outer) name-only
-    embed_cxx.gp:63:18 callee  o.size
-    embed_cxx.gp:64:22 callee  o.size
-    embed_cxx.gp:69:18 callee  o.size
-52 member sel(unknown(Go type command-line-arguments.P)|epoint) incomplete(Go type command-line-arguments.P)
-    embed_cxx.gp:46:18 member  p.epoint
-    embed_cxx.gp:46:35 member  p.epoint
-53 member sel(unknown(Go type command-line-arguments.P)|scale) incomplete(Go type command-line-arguments.P) name-only
+36 member sel(arg&(::epoint)|scale) name-only
     embed_cxx.gp:45:2 callee  p.scale
     embed_cxx.gp:48:2 callee  q.scale
-54 member sel(unknown(Go type command-line-arguments.P)|sum) incomplete(Go type command-line-arguments.P) name-only
+    embed_cxx.gp:52:2 callee  pp.scale
+37 member sel(arg&(::epoint)|sum) name-only
     embed_cxx.gp:44:38 callee  p.sum
     embed_cxx.gp:46:52 callee  p.sum
+    embed_cxx.gp:53:18 callee  pp.sum
     embed_cxx.gp:53:33 callee  q.sum
-55 member sel(unknown(Go type command-line-arguments.P)|x) incomplete(Go type command-line-arguments.P)
+38 member sel(arg&(::epoint)|x)
     embed_cxx.gp:40:2 assign  p.x
     embed_cxx.gp:43:2 stmt  p.x
     embed_cxx.gp:44:18 convert -> int  p.x
     embed_cxx.gp:49:18 convert -> int  p.x
     embed_cxx.gp:49:28 convert -> int  q.x
-56 member sel(unknown(Go type command-line-arguments.P)|y) incomplete(Go type command-line-arguments.P)
+    embed_cxx.gp:51:2 assign  pp.x
+39 member sel(arg&(::epoint)|y)
     embed_cxx.gp:41:2 assign  p.y
     embed_cxx.gp:42:2 assign  p.y
     embed_cxx.gp:44:28 convert -> int  p.y
-57 member sel(unknown(Go type command-line-arguments.Vec)|empty) incomplete(Go type command-line-arguments.Vec) name-only
+40 member sel(arg&(index(std::vector|go(int64_t)))|at) name-only
+    embed_cxx.gp:65:22 callee  o.at
+41 member sel(arg&(index(std::vector|go(int64_t)))|back) name-only
+    embed_cxx.gp:69:33 callee  o.back
+42 member sel(arg&(index(std::vector|go(int64_t)))|empty) name-only
     embed_cxx.gp:59:41 callee  v.empty
-58 member sel(unknown(Go type command-line-arguments.Vec)|push_back) incomplete(Go type command-line-arguments.Vec) name-only
+43 member sel(arg&(index(std::vector|go(int64_t)))|pop_back) name-only
+    embed_cxx.gp:68:2 callee  o.pop_back
+44 member sel(arg&(index(std::vector|go(int64_t)))|push_back) name-only
     embed_cxx.gp:56:2 callee  v.push_back
     embed_cxx.gp:57:2 callee  v.push_back
     embed_cxx.gp:58:2 callee  v.push_back
-59 member sel(unknown(Go type command-line-arguments.Vec)|size) incomplete(Go type command-line-arguments.Vec) name-only
+    embed_cxx.gp:61:2 callee  o.push_back
+    embed_cxx.gp:62:2 callee  o.push_back
+45 member sel(arg&(index(std::vector|go(int64_t)))|size) name-only
     embed_cxx.gp:59:18 callee  v.size
-60 path std::vector name-only
+    embed_cxx.gp:63:18 callee  o.size
+    embed_cxx.gp:64:22 callee  o.size
+    embed_cxx.gp:69:18 callee  o.size
+46 member sel(sel(unknown(Go type *command-line-arguments.Vec)|vector)|size) incomplete(Go type *command-line-arguments.Vec) name-only
+    embed_cxx.gp:63:33 callee  o.Vec.vector.size
+47 member sel(sel(unknown(Go type command-line-arguments.P)|epoint)|x) incomplete(Go type command-line-arguments.P)
+    embed_cxx.gp:46:18 convert -> int  p.epoint.x
+48 member sel(sel(unknown(Go type command-line-arguments.P)|epoint)|y) incomplete(Go type command-line-arguments.P)
+    embed_cxx.gp:46:35 convert -> int  p.epoint.y
+49 member sel(unknown(Go type *command-line-arguments.Vec)|vector) incomplete(Go type *command-line-arguments.Vec)
+    embed_cxx.gp:63:33 member  o.Vec.vector
+50 member sel(unknown(Go type command-line-arguments.P)|epoint) incomplete(Go type command-line-arguments.P)
+    embed_cxx.gp:46:18 member  p.epoint
+    embed_cxx.gp:46:35 member  p.epoint
+51 path std::vector name-only
     embed_cxx.gp:27:2 template  C.std.vector
-61 other unknown(type struct{C.elabel; n int}) incomplete(type struct{C.elabel; n int})
+52 other unknown(type struct{C.elabel; n int}) incomplete(type struct{C.elabel; n int})
     embed_cxx.gp:21:14 type  struct{C.elabel; n int}
-62 other unknown(type struct{C.epoint; name string}) incomplete(type struct{C.epoint; name string})
+53 other unknown(type struct{C.epoint; name string}) incomplete(type struct{C.epoint; name string})
     embed_cxx.gp:16:8 type  struct{C.epoint; name string}
-63 other unknown(type struct{C.std.vector[int]; tag int}) incomplete(type struct{C.std.vector[int]; tag int})
+54 other unknown(type struct{C.std.vector[int]; tag int}) incomplete(type struct{C.std.vector[int]; tag int})
     embed_cxx.gp:26:10 type  struct{C.std.vector[int]; tag int}

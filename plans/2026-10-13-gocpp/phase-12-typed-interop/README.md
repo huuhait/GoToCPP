@@ -134,10 +134,16 @@ accepted. Narrowing conversions get a `gocpp vet` warning instead.
    `go/types` runs, each `cstdio.BUFSIZ` that is used in a constant context is replaced in the AST with
    a typed constant of the probed value, keeping its position. Then stock `go/types` sees
    `[8192]byte` and is happy.
-3. **Gap E2 (embedded C++ types) without a fork.** Run `go/types` once. For each "has no field or
-   method" error on a struct that embeds a C++ type, look up the member in the probed record. If
-   it exists, rewrite the selector to go through the field (`mv.vector.push_back(1)`) and
-   re-check. Two passes, only for files that need it.
+3. **Gap E2 (embedded C++ types) without a fork.** Run `go/types` once (it cannot know the members of a
+   C++ class: every C/C++ type is invalid in it). The selectors it cannot decide (`x.name` found nothing,
+   on a struct that embeds a class, or a Go member beside a class at the same or a shallower depth) are the
+   candidates of a **second pass** in `internal/check`: the C++ compiler is asked which embedded class has
+   which name (one probe per class and name, cached with the others), and Go's rule of selectors (smallest
+   depth wins, several are ambiguous) is applied to the Go members and the answers together, where the first
+   pass looked (the promoted path, the false errors, the opaque pass, the gates). The class is a member table,
+   not go/types objects, and `go/types` is not run twice. Done in step 12.9, see
+   [ADR-098](../../../docs/adr/098-promoted-members-of-embedded-cpp-classes-are-decided-by-the-compiler-in-a-second-pass.md)
+   and [the spec](../../../docs/spec/typed-interop.md) §11.
 4. **A vendored `go/types` fork stays a last resort.** The audit showed what it would cost: a
    forked `go/types` is a *different* package, so x/tools (`gcexportdata` for the language server,
    `go/analysis` and `go/ssa` for `gocpp vet`) would no longer accept its types. Vendoring also
@@ -226,7 +232,7 @@ so it is added **only in the background**:
 6. **12.6 Codegen upgrades** (§2.5, incl. the "keeps the pointer" list for automatic `const char*`).
 7. **12.7 Cache + incremental probing + parallelism** (header contents in the key).
 8. **12.8 Gap E1**: constant macros probed first and substituted before `go/types`.
-9. **12.9 Gap E2**: second type-check pass that routes promoted C++ members through the field.
+9. **12.9 Gap E2**: second pass (a hook of check, answered by the C++ compiler) that decides the promoted C++ members of embedded classes; typed code generation writes them through the embedded field (ADR-098).
 10. **12.10 `gocpp bindgen`** (struct-valued macros as `var`).
 11. **12.11 Modes + clang-missing fallback**; switch the default when ready.
 12. **12.12 Tests**: the whole Phase 04 suite + header zoo in **both** modes; ≥ 30 early-error tests;

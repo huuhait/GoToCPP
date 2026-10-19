@@ -160,6 +160,7 @@ func findOpaque(fset *token.FileSet, p *Package) *Opaque {
 	}
 	op := newOpaquePass(p.Types, p.Info, files)
 	op.conversion = p.Conversion
+	op.cpp = p.cppSels
 	op.label(files)
 	if !typesMayBeIncomplete(p.Errors) {
 		op.unusedRangeVars(fset, p)
@@ -172,6 +173,25 @@ func findOpaque(fset *token.FileSet, p *Package) *Opaque {
 		}
 	}
 	return op.result
+}
+
+// provisionalOpaque is the opaque pass over the first pass's check without its sanity errors: the
+// second pass for promoted C++ members (cppmembers.go) reads the type expressions from it, and
+// findOpaque runs again with the answers.
+func provisionalOpaque(fset *token.FileSet, p *Package) *Opaque {
+	op := newOpaquePass(p.Types, p.Info, p.astFiles())
+	op.conversion = p.Conversion
+	op.label(p.astFiles())
+	return op.result
+}
+
+// promoted reports whether the selector e, whose X is c, is a member of an embedded C/C++ class:
+// the second pass's answer when it looked at e, else the first pass's rule (promoted.go).
+func (op *opaquePass) promoted(e *ast.SelectorExpr, c ast.Expr) bool {
+	if r, ok := op.cpp[e]; ok {
+		return r.opaque
+	}
+	return promotedPath(op.pkg, op.info.Types[c].Type, e.Sel.Name) != nil
 }
 
 // unusedRangeVars adds the "declared and not used" errors that go/types leaves out for the
@@ -269,6 +289,9 @@ func typesMayBeIncomplete(l *diag.List) bool {
 type opaquePass struct {
 	pkg  *types.Package
 	info *types.Info
+
+	// cpp is what the second pass for promoted C++ members decided (Package.cppSels), or nil.
+	cpp map[*ast.SelectorExpr]*cppSel
 
 	// decls says how each object of the package was declared.
 	decls map[types.Object]decl
@@ -813,7 +836,7 @@ func (op *opaquePass) cOperand(e, c ast.Expr) bool {
 	switch e := e.(type) {
 	case *ast.SelectorExpr:
 		if c == e.X {
-			return op.cPointer(c) || promotedPath(op.pkg, op.info.Types[c].Type, e.Sel.Name) != nil
+			return op.cPointer(c) || op.promoted(e, c)
 		}
 	case *ast.CallExpr:
 		if id, ok := ast.Unparen(e.Fun).(*ast.Ident); ok && c != e.Fun {

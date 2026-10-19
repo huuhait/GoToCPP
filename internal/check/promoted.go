@@ -37,7 +37,13 @@ import (
 // type that the selector sel = x.name takes its member from (see above), or nil if sel is not such
 // a selector.
 func (p *Package) PromotedPath(sel *ast.SelectorExpr) []int {
-	if p == nil || p.Types == nil || p.Info == nil || p.Info.Selections[sel] != nil {
+	if p == nil || p.Types == nil || p.Info == nil {
+		return nil
+	}
+	if r, ok := p.cppSelOf(sel); ok {
+		return r.path // decided by the second pass (cppmembers.go)
+	}
+	if p.Info.Selections[sel] != nil {
 		return nil
 	}
 	tv, ok := p.Info.Types[sel.X]

@@ -123,6 +123,12 @@ type Config struct {
 	// values into the syntax tree before it checks the package (constsubst.go; Phase 12, step 12.8,
 	// ADR-097). nil leaves such names opaque, as before. Only typed mode sets it.
 	Constants ConstFunc
+
+	// CppMembers, if not nil, turns on the second pass for the promoted members of embedded C++
+	// classes (cppmembers.go, Phase 12 step 12.9): typed interop answers which embedded class has
+	// which member name. Check calls it at most once per package, and only when the first pass
+	// has a selector it cannot decide. nil is opaque mode: the first pass stands.
+	CppMembers CppMembers
 }
 
 // A Dep is what Check needs of a package that it imports but does not
@@ -233,6 +239,12 @@ type Package struct {
 	// checks is how many times go/types checked the package: 1, or more
 	// after rewrites of conversions.
 	checks int
+
+	// cppSels is what the second pass for promoted C++ members decided
+	// (cppmembers.go); nil without Config.CppMembers or when the first pass
+	// had nothing to ask. cppAsked is the number of questions it asked.
+	cppSels  map[*ast.SelectorExpr]*cppSel
+	cppAsked int
 
 	// Derived are the methods that #Derive generated (derive.go), with their source text, in
 	// the order of the #Derive lines: gocpp expand prints them.
@@ -406,6 +418,15 @@ func Check(prog *load.Program, cfg Config) *Result {
 			p = checkPackageConsts(prog.Fset, lp, checked, cgoh, c && !depsFailed, perrs, cfg.NoDerivedBodies, cs)
 			p.Consts = cs.uses()
 			p.Flags, p.ProbeFlags, p.ExternC = flagsOf[lp].flags, flagsOf[lp].probe, flagsOf[lp].externC
+			if cfg.CppMembers != nil && c && !depsFailed && !lp.Std {
+				// The second pass for the members of embedded C++ classes (cppmembers.go): it needs the
+				// first pass's Opaque (the type expressions of the embedded fields), and changes it.
+				ctx := cfg.Context
+				if ctx == nil {
+					ctx = context.Background()
+				}
+				p.resolveCppMembers(prog.Fset, ctx, cfg.CppMembers)
+			}
 			p.Opaque = findOpaque(prog.Fset, p)
 			checked[lp] = p.Types
 			failed[lp] = depsFailed || hasHardErrors(p.Errors)

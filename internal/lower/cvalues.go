@@ -148,6 +148,9 @@ func (fg *funcGen) opaqueExpr(e ast.Expr) cppir.Expr {
 				// A member of the one C/C++ type that a struct embeds (check/promoted.go):
 				// through the embedded fields, o.vector.push_back for o.push_back.
 				x, _ = fg.fieldSteps(x, fg.g.info.TypeOf(y.X), path, y.Pos())
+				if m := fg.typedMemberOf(y, x); m != nil {
+					return m // typed mode: . or -> from the C++ type of the embedded field (typed.go)
+				}
 				return fg.g.cMemberOf(x, y.Sel)
 			}
 			if m := fg.typedMemberOf(y, x); m != nil {

@@ -550,6 +550,8 @@ with the explicit field. Step 5.8, `internal/check/promoted.go`.
   "ambiguous selector"): the error is "selectors that a Go member and a member of an embedded C/C++ type could
   both match (name the field) are not supported yet (Phase 12)", for the selector `s.x`; write `s.epoint.x` or
   the Go path. A C/C++ type that is deeper than the Go member never matters (`tests/interop/embed_cxx_depth.gp`).
+  Typed mode (`GOCPP_TYPED_INTEROP=1`, step 12.9) asks the C++ compiler whether the type has the name and applies
+  Go's rule: [typed-interop.md §11](typed-interop.md#11-promoted-members-of-embedded-c-classes-step-129-adr-098-gap-e2).
 - A method expression of a promoted member (`MV.size`, `(*MV).push_back`) has no C++ form yet: "method
   expressions of promoted members of an embedded C/C++ type are not supported yet (Phase 12)"; use a func
   literal. (A call or a `defer` of the member is fine: `defer mv.push_back(1)` works.)
@@ -559,7 +561,9 @@ with the explicit field. Step 5.8, `internal/check/promoted.go`.
   expression names the owner, and the error says to write the path of the embedded fields, `m.N.unode.next`.
 - With **several** embedded C/C++ types (also in different depths), gocpp can't tell which one has the
   member until typed interop (Phase 12): the error is "promoted fields and methods of several
-  embedded C/C++ types are not supported yet (Phase 12)"; name the field.
+  embedded C/C++ types are not supported yet (Phase 12)"; name the field. (Typed mode asks the C++ compiler which
+  type has the member: the selector is promoted, or it is an ambiguity, a missing or an inaccessible member, at the
+  selector: [typed-interop.md §11](typed-interop.md#11-promoted-members-of-embedded-c-classes-step-129-adr-098-gap-e2).)
 - A C/C++ method is not part of the Go method set of the struct: the struct does not implement an
   interface that needs it (go/types reports the missing method), and `x.name` is not a method
   value of the struct.

@@ -80,7 +80,7 @@ func PhaseName(n int) string { return phaseNames[n] }
 // built once and shared: do not change it.
 func Messages() []Message {
 	msgOnce.Do(func() {
-		msgTable = append(append([]Message(nil), curated...), gateMessages()...)
+		msgTable = append(append(append([]Message(nil), promotedMessages...), curated...), gateMessages()...)
 		for i := range msgTable {
 			msgTable[i].re = msgTable[i].compile()
 		}

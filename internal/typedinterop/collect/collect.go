@@ -70,9 +70,26 @@ const maxKey = 4000
 // set of the program (load.Program.Fset). A package that was not checked,
 // or has no C/C++ uses, gives an empty set.
 func Collect(p *check.Package, fset *token.FileSet) *Set {
+	c := newCollector(p, fset)
+	if c == nil {
+		return &Set{byNode: make(map[any]*Ref), byKey: make(map[string]*Ref)}
+	}
+	for _, f := range p.Load.Files {
+		c.collectDecls(f.AST)
+	}
+	for _, f := range p.Load.Files {
+		c.walk(f.AST)
+	}
+	c.set.finish()
+	return c.set
+}
+
+// newCollector returns the collector of the checked package p, or nil for a package that was not
+// checked or has no opaque pass.
+func newCollector(p *check.Package, fset *token.FileSet) *collector {
 	s := &Set{byNode: make(map[any]*Ref), byKey: make(map[string]*Ref)}
 	if p == nil || !p.Checked() || p.Opaque == nil || p.Info == nil {
-		return s
+		return nil
 	}
 	s.Dir = p.Load.Dir
 	c := &collector{
@@ -104,14 +121,7 @@ func Collect(p *check.Package, fset *token.FileSet) *Set {
 			}
 		}
 	}
-	for _, f := range p.Load.Files {
-		c.collectDecls(f.AST)
-	}
-	for _, f := range p.Load.Files {
-		c.walk(f.AST)
-	}
-	s.finish()
-	return s
+	return c
 }
 
 // A varDecl says how a local variable was declared without a type.
@@ -785,6 +795,9 @@ func (c *collector) conv(e ast.Expr) Expr {
 	case *ast.SelectorExpr:
 		if p, _, ok := c.pathOf(x); ok {
 			return p
+		}
+		if recv := c.promotedReceiver(x); recv != nil {
+			return &Select{X: recv, Name: x.Sel.Name}
 		}
 		return &Select{X: c.conv(x.X), Name: x.Sel.Name}
 	case *ast.IndexExpr:

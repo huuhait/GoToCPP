@@ -59,10 +59,21 @@ func CXX(t testing.TB) build.CXX {
 // and returns its package.
 func CheckDir(t testing.TB, dir, name string) (*check.Package, *token.FileSet) {
 	t.Helper()
+	return CheckDirConfig(t, dir, name, nil)
+}
+
+// CheckDirConfig is CheckDir with a change to the check's configuration (the hook of the second
+// pass for promoted C++ members, check.Config.CppMembers).
+func CheckDirConfig(t testing.TB, dir, name string, change func(*check.Config)) (*check.Package, *token.FileSet) {
+	t.Helper()
 	cxx := CXX(t)
 	cfg := load.Config{Dir: dir, Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: "linux", GOARCH: "amd64"}
 	prog := load.Load(cfg, name)
-	r := check.Check(prog, check.Config{Phase: check.LastPhase, CXX: func(context.Context) (build.CXX, error) { return cxx, nil }})
+	ccfg := check.Config{Phase: check.LastPhase, CXX: func(context.Context) (build.CXX, error) { return cxx, nil }}
+	if change != nil {
+		change(&ccfg)
+	}
+	r := check.Check(prog, ccfg)
 	for _, p := range r.Packages {
 		if p.Load.Dir == dir || len(prog.Packages) == 1 {
 			return p, prog.Fset

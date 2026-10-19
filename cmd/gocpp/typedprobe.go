@@ -24,7 +24,7 @@ import (
 // package, how many compiler runs the probes needed and where the answers came from;
 // GOCPP_PROBE_CACHE=off turns the cache off, GOCPP_PROBE_JOBS bounds the compiler runs.
 func runTypedProbe(args []string, _ io.Reader, stdout, stderr io.Writer) int {
-	c := &checkCommand{stdout: io.Discard, stderr: stderr, kinds: true}
+	c := &checkCommand{stdout: io.Discard, stderr: stderr, kinds: true, typedMembers: true}
 	flags := flag.NewFlagSet("gocpp __typed-probe", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	refsOnly := flags.Bool("refs", false, "only collect the references (no clang run)")

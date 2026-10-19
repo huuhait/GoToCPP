@@ -653,6 +653,9 @@ func (g *gateChecker) visitSelector(sel *ast.SelectorExpr) {
 			return
 		}
 	}
+	if _, ok := g.pkg.cppSelOf(sel); ok {
+		return // the second pass for promoted C++ members decided it (cppmembers.go)
+	}
 	if g.info.Selections[sel] == nil {
 		g.unresolved = append(g.unresolved, sel)
 	} else if cMayShadow(g.pkg.Types, g.typeOf(sel.X), sel.Sel.Name) {

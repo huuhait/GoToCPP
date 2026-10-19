@@ -124,7 +124,7 @@ func (fg *funcGen) typedMemberOf(sel *ast.SelectorExpr, x cppir.Expr) cppir.Expr
 		// In a deferred or spawned call the object is what the frame stored (funcGen.thunk): a
 		// pointer to it, or a copy. gp::deref gives the object in both cases, and only the member
 		// that the smart pointer's pointee has needs the arrow.
-		if v := fg.g.tvalOf(sel.X); v != nil && v.Kind == ftype.Record && !isRuntimeType(v.cType()) && fg.g.arrowMember(sel, v) {
+		if v := fg.g.tvalOf(fg.g.memberObject(sel)); v != nil && v.Kind == ftype.Record && !isRuntimeType(v.cType()) && fg.g.arrowMember(sel, v) {
 			fg.g.noteCName(sel.Sel.Name, sel.Sel.Pos())
 			return fg.g.cNode(&cppir.Member{X: call("gp::smartnn", call("gp::deref", x)), Arrow: true, Name: sel.Sel.Name}).(*cppir.Member)
 		}
@@ -135,7 +135,7 @@ func (fg *funcGen) typedMemberOf(sel *ast.SelectorExpr, x cppir.Expr) cppir.Expr
 
 func (g *gen) typedMember(sel *ast.SelectorExpr, x cppir.Expr) cppir.Expr {
 	name := sel.Sel
-	v := g.tvalOf(sel.X)
+	v := g.tvalOf(g.memberObject(sel))
 	if v == nil {
 		return nil
 	}
@@ -150,6 +150,18 @@ func (g *gen) typedMember(sel *ast.SelectorExpr, x cppir.Expr) cppir.Expr {
 		return g.cNode(&cppir.Member{X: call("gp::nonnull", x), Arrow: true, Name: name.Name}).(*cppir.Member)
 	}
 	return nil
+}
+
+// memberObject returns the expression whose typed view is the object of the member access sel: sel.X,
+// or, for a member that a struct takes from an embedded C++ class (check/promoted.go,
+// cppmembers.go), the name sel.Sel, which the collector made the reference of the embedded field's
+// class of (collect/members.go). The C++ of the object is the path of the embedded fields
+// (fieldSteps), so its type is that of the field, not sel.X's.
+func (g *gen) memberObject(sel *ast.SelectorExpr) ast.Expr {
+	if g.typedOn() && g.pkg.PromotedPath(sel) != nil && g.interop.typed.rep.Set.RefOf(sel.Sel) != nil {
+		return sel.Sel
+	}
+	return sel.X
 }
 
 // arrowMember reports whether the member access sel on the class value v is x->name: the compiler

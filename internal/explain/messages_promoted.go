@@ -1,0 +1,87 @@
+package explain
+
+// The messages of the second pass for promoted members of embedded C++ classes (internal/check/cppmembers.go,
+// Phase 12 step 12.9, ADR-098). They come before the curated table: the more specific entries must be
+// found before "interop/no-member", whose pattern matches their ends too.
+var promotedMessages = []Message{
+	{
+		ID: "interop/promoted-macro", Source: "checker", Phase: 0,
+		Pattern: "%s undefined (type %s has no field or method %s; %s has no member %s) (%s is a macro of the headers)",
+		Title:   "A member name that is a macro of the headers",
+		Why:     "The name of the selector is also a macro of the imported headers, so in C++ the text x.name is not a member access: the preprocessor changes it first. gocpp asks the compiler about the member, and the compiler sees the macro's text, not a member of the class.",
+		Fix:     "Name the member differently in the header, #undef the macro in a header of your own before the class, or use the macro as the constant it is (in typed mode: lib.NAME).",
+		Topic:   "interop", Spec: "typed-interop.md",
+	},
+	{
+		ID: "interop/promoted-type", Source: "checker", Phase: 0,
+		Pattern: "%s undefined (type %s has no field or method %s; %s has no member %s) (%s is a type of the class, not a member)",
+		Title:   "A nested type or a typedef of an embedded C++ class used as a member",
+		Why:     "The class has a nested type (a struct, an enum, a using or typedef) of that name, and a type is not a value: it is not promoted into the Go struct, so s.name has no meaning.",
+		Fix:     "Write the type with its class, lib.Class.name (a path of the header package), and use a variable of it.",
+		Topic:   "interop", Spec: "typed-interop.md",
+	},
+	{
+		ID: "interop/promoted-bases", Source: "checker", Phase: 0,
+		Pattern: "ambiguous selector %s (%s has a member %s in several bases)",
+		Title:   "A member that an embedded C++ class gets from several bases",
+		Why:     "The class inherits the name from two base classes, or from the same base through two non-virtual paths (a diamond), so C++ itself refuses the name: the compiler says \"member found in multiple base classes\". A virtual base is not ambiguous.",
+		Fix:     "Name the base: s.Class.Base.name is not available from Go, so add a member function to your own subclass of the class (or a using-declaration) that says which one is meant.",
+		Topic:   "interop", Spec: "typed-interop.md",
+	},
+	{
+		ID: "interop/promoted-ambiguous", Source: "checker", Phase: 0,
+		Pattern: "ambiguous selector %s (%s)",
+		Title:   "A name that two embedded types have at the same depth",
+		Why:     "Go's rule for selectors: a name is found at the smallest depth, and when two members (of embedded C++ classes, or a Go field and a class's member) are at that depth, the name is ambiguous. gocpp asked the C++ compiler which embedded classes have the member, and more than one has it.",
+		Fix:     "Name the field of the embedded type that you mean: s.vector.size() or s.string.size().",
+		Topic:   "interop", Spec: "typed-interop.md",
+	},
+	{
+		ID: "interop/promoted-shadow", Source: "checker", Phase: 0,
+		Pattern: "%s is the member of %s, which is shallower than the Go member %s (Go's rule): name the field, %s",
+		Title:   "A C++ member that hides a deeper Go member",
+		Why:     "The embedded C++ class has a member of that name closer to the struct than the Go field or method that go/types found, so by Go's rule of selectors the C++ member is the one meant. But go/types has already typed the program with the Go member, so gocpp cannot choose the C++ one without a guess.",
+		Fix:     "Name the field you mean: write the path of the embedded fields, as the message shows.",
+		Topic:   "interop", Spec: "typed-interop.md",
+	},
+	{
+		ID: "interop/promoted-private", Source: "checker", Phase: 0,
+		Pattern: "%s undefined (the member %s of %s is private)",
+		Title:   "A private member of an embedded C++ class (or of a private base)",
+		Why:     "The class has the member, but it is private, or it comes from a private base class, so it is not accessible to code outside the class, in C++ or in Go, and it is not promoted.",
+		Fix:     "Use the public interface of the class, or change the access in your own header.",
+		Topic:   "interop", Spec: "typed-interop.md",
+	},
+	{
+		ID: "interop/promoted-protected", Source: "checker", Phase: 0,
+		Pattern: "%s undefined (the member %s of %s is protected)",
+		Title:   "A protected member of an embedded C++ class (or of a protected base)",
+		Why:     "The class has the member, but it is protected, or it comes from a protected base class, so only the class and its subclasses can use it: it is not promoted into the Go struct.",
+		Fix:     "Use the public interface of the class, or change the access in your own header.",
+		Topic:   "interop", Spec: "typed-interop.md",
+	},
+	{
+		ID: "interop/promoted-deleted", Source: "checker", Phase: 0,
+		Pattern: "%s is a deleted function of %s",
+		Title:   "A member function that is declared = delete",
+		Why:     "The class declares the function with = delete, so C++ rejects every use of it.",
+		Fix:     "Use another member of the class that does the same thing.",
+		Topic:   "interop", Spec: "typed-interop.md",
+	},
+	{
+		ID: "interop/promoted-missing", Source: "checker", Phase: 0,
+		Pattern: "%s undefined (type %s has no field or method %s; %s has no member %s)",
+		Title:   "A member that no embedded C++ class has",
+		Why:     "The Go struct has no field or method of that name, and the C++ compiler says that the embedded class (or none of the embedded classes) has a member of that name either, also not in its base classes. Operators are not names in Go and are not promoted.",
+		Fix:     "Check the spelling and the class; for an operator write the field, s.vector[0].",
+		Topic:   "interop", Spec: "typed-interop.md",
+	},
+	{
+		ID: "interop/promoted-missing-several", Source: "checker", Phase: 0,
+		Pattern: "%s undefined (type %s has no field or method %s; none of the embedded C++ types %s has a member %s)",
+		Title:   "A member that none of the embedded C++ classes has",
+		Why:     "The Go struct has no field or method of that name, and the C++ compiler says that none of the embedded classes has a member of that name, also not in their base classes.",
+		Fix:     "Check the spelling and the classes the struct embeds.",
+		Topic:   "interop", Spec: "typed-interop.md",
+	},
+}

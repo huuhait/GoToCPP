@@ -188,6 +188,10 @@ type checkCommand struct {
 	// (check.Config.PkgConfig): gocpp build -x and run -x print the runs.
 	pkgConfig build.PkgConfigFunc
 
+	// typedMembers turns the second pass for promoted C++ members on (check.Config.CppMembers)
+	// although GOCPP_TYPED_INTEROP is not set: the hidden commands of typed interop.
+	typedMembers bool
+
 	// kinds: the namespace probe asks the kind probe also about the C/C++
 	// paths that the lowerer will ask about (lower.ProbePaths), so that
 	// the build runs the compiler once per include set. build, run and
@@ -315,6 +319,9 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 		}
 	}
 	cfg.Constants = typedConstants() // E1 of typed interop: only with GOCPP_TYPED_INTEROP=1 (typedlower.go)
+	if c.typedMembers || typedLowering() {
+		cfg.CppMembers = c.membersHook() // the second pass for promoted C++ members (typedmembers.go)
+	}
 	c.typeChecked = true
 	r := check.Check(prog, cfg)
 	if c.ctx != nil && c.ctx.Err() != nil {
