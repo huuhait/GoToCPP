@@ -1,0 +1,7 @@
+# command-line-arguments
+[1m./main.gp:5:14: [0m[1;31mcannot use "text" (untyped string constant) as int value in variable declaration[0m
+		var n int = "text"
+		            [1;32m^~~~~~[0m
+[1m./main.gp:6:10: [0m[1;31mundefined: m[0m
+		println(m)
+		        [1;32m^[0m

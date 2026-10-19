@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -184,6 +185,23 @@ type cxxDiag struct {
 	inst []cxxLoc // the template instantiations that lead to it, the innermost first
 	mac  []cxxLoc // gcc: the expansions of the macro that it is in, the innermost first
 	incl []cxxLoc // the #include lines that lead to its file, the innermost first
+
+	cands  []cxxNote   // the notes that name a candidate ("candidate: 'void f(int)'"), in order
+	macros []macroNote // the macros whose expansion has the error, the innermost first
+}
+
+// A cxxNote is a note of the compiler with the place it points to.
+type cxxNote struct {
+	loc    cxxLoc
+	text   string // without "note: "
+	detail string // gcc: why a candidate does not fit ("expects 2 arguments, 1 provided"), or ""
+}
+
+// A macroNote names a macro whose expansion has an error: gcc's "in expansion of macro 'PX'"
+// (and "in definition of macro" for the definition), clang's "expanded from macro 'PX'".
+type macroNote struct {
+	name string
+	def  cxxLoc // where the macro is defined, if the compiler says so
 }
 
 var (
@@ -215,6 +233,17 @@ var (
 	// has the error: "in expansion of macro 'PX'". (clang reports such an
 	// error at the use itself.)
 	macroNoteRx = regexp.MustCompile(`^in expansion of macro `)
+	// macroNameRx gets the name from gcc's notes "in expansion of macro 'PX'" and "in definition
+	// of macro 'PX'" and from clang's "expanded from macro 'PX'" (gcc writes curly quotes in a
+	// UTF-8 locale).
+	macroNameRx = regexp.MustCompile(`^(in expansion of|in definition of|expanded from) macro ['‘](.+?)['’]`)
+	// candidateRx matches the notes that list the candidates of an overload or conversion that
+	// failed: gcc's "candidate: 'void f(int)'" and clang's "candidate function not viable: ...".
+	// (gcc's lines "  candidate expects 1 argument" start with spaces and are details of the
+	// candidate before.)
+	candidateRx = regexp.MustCompile(`^candidate\b`)
+	// candidateDetailRx matches gcc's notes after a candidate that give the reason it does not fit.
+	candidateDetailRx = regexp.MustCompile(`^(?:candidate expects |no known conversion for argument )`)
 	// staticAssertRx matches the message of a failed static_assert, gcc's
 	// and clang's (with the condition), and gives the static_assert's own
 	// message.
@@ -258,6 +287,7 @@ func parseCXXErrors(out []byte) []cxxDiag {
 				diags = append(diags, cxxDiag{loc: loc, msg: m[4], inst: slices.Clone(ctx), incl: incl})
 				cur = len(diags) - 1
 				incl = nil
+				ctx = nil // gcc prints the context again for the next error that has one
 			case "note":
 				switch {
 				case cur < 0:
@@ -265,6 +295,19 @@ func parseCXXErrors(out []byte) []cxxDiag {
 					diags[cur].inst = append(diags[cur].inst, loc)
 				case macroNoteRx.MatchString(m[4]):
 					diags[cur].mac = append(diags[cur].mac, loc)
+					diags[cur].noteMacro(m[4], cxxLoc{})
+				case macroNameRx.MatchString(m[4]):
+					diags[cur].noteMacro(m[4], loc)
+				case candidateDetailRx.MatchString(strings.TrimSpace(m[4])) && len(diags[cur].cands) > 0:
+					// gcc's "candidate expects 2 arguments, 1 provided" and "no known conversion for
+					// argument 1 from 'X' to 'Y'" say why the candidate before does not fit.
+					c := &diags[cur].cands[len(diags[cur].cands)-1]
+					if c.detail != "" {
+						c.detail += "; "
+					}
+					c.detail += strings.TrimPrefix(strings.TrimSpace(m[4]), "candidate ")
+				case candidateRx.MatchString(m[4]):
+					diags[cur].cands = append(diags[cur].cands, cxxNote{loc: loc, text: m[4]})
 				}
 			default: // a warning: the notes after it are its own
 				cur, incl = -1, nil
@@ -286,6 +329,27 @@ func parseCXXErrors(out []byte) []cxxDiag {
 		}
 	}
 	return diags
+}
+
+// noteMacro records the macro that the note text names. gcc's "in expansion of" note starts the
+// entry (def is the zero place), its "in definition of" note and clang's "expanded from" give
+// the place of the definition.
+func (d *cxxDiag) noteMacro(text string, def cxxLoc) {
+	m := macroNameRx.FindStringSubmatch(text)
+	if m == nil {
+		return
+	}
+	if m[1] == "in expansion of" {
+		d.macros = append(d.macros, macroNote{name: m[2]})
+		return
+	}
+	for i := range d.macros {
+		if d.macros[i].name == m[2] && d.macros[i].def.file == "" {
+			d.macros[i].def = def
+			return
+		}
+	}
+	d.macros = append(d.macros, macroNote{name: m[2], def: def}) // clang
 }
 
 // A cxxClassifier decides which errors of the generated C++ are the
@@ -441,6 +505,10 @@ type cppError struct {
 	at   cxxLoc
 	msg  string
 	from []cxxLoc // more .gp lines of the template backtrace
+
+	cands  []cxxNote   // the candidates that the compiler lists (a note each)
+	macros []macroNote // the macros whose expansion has the error
+	fn     string      // a link error: the C++ name of the function that uses the symbol, or ""
 }
 
 // userCXXErrors returns the errors of the compiler's output out that are
@@ -471,38 +539,239 @@ func (c *cxxClassifier) userCXXErrors(out []byte) (errs []cppError, others int, 
 			continue
 		}
 		seen[at] = true
-		errs = append(errs, cppError{at: at, msg: c.userMessage(d), from: from})
+		errs = append(errs, cppError{at: at, msg: c.userMessage(d), from: from, cands: d.cands, macros: d.macros})
 	}
 	return errs, others, true
 }
 
+// maxCandidates is how many of the compiler's candidates ("note: candidate: ...") a report
+// shows, and maxFrames how many .gp lines of a template backtrace; the rest is a count.
+const (
+	maxCandidates = 3
+	maxFrames     = 3
+)
+
 // printCppErrors prints errs like gocpp check prints errors: under the
 // package's line, sorted by place, at most 10 (then "too many errors"),
-// each with its source line and the other .gp lines that lead to it.
+// each with its source line (or, with excerpts, the line and a caret), the
+// compiler's first candidates, the macros it comes from and the other .gp
+// lines that lead to it. C++ names in the messages are turned into gocpp's
+// (cppnames.go).
 func (d *driver) printCppErrors(pkg *check.Package, errs []cppError) {
+	tr := d.translator(pkg)
+	lineTypes := goLineTypes(d.check.fset, pkg)
+	opts := d.check.diagOpts
+	excerpt := opts.excerptOn(d.stderr)
 	var l diag.List
 	lines := make(map[string][]string)
+	srcLine := func(at cxxLoc) (string, bool) {
+		if at.file == "" {
+			return "", false
+		}
+		if _, ok := lines[at.file]; !ok {
+			src, _ := os.ReadFile(at.file)
+			lines[at.file] = strings.Split(string(src), "\n")
+		}
+		if src := lines[at.file]; at.line >= 1 && at.line <= len(src) {
+			return strings.TrimSuffix(src[at.line-1], "\r"), true
+		}
+		return "", false
+	}
 	for _, e := range errs {
+		tr.setHints(lineTypes[cxxLoc{file: filepath.Clean(e.at.file), line: e.at.line}])
+		pos := token.Position{Filename: e.at.file, Line: e.at.line}
 		var related []diag.Related
-		if e.at.file != "" {
-			if _, ok := lines[e.at.file]; !ok {
-				src, _ := os.ReadFile(e.at.file)
-				lines[e.at.file] = strings.Split(string(src), "\n")
-			}
-			if src := lines[e.at.file]; e.at.line >= 1 && e.at.line <= len(src) {
-				if s := strings.TrimSpace(src[e.at.line-1]); s != "" {
-					related = append(related, diag.Related{Msg: s})
-				}
+		if line, ok := srcLine(e.at); ok {
+			if excerpt {
+				pos.Column = cppColumn(e.msg, line)
+			} else if s := strings.TrimSpace(line); s != "" {
+				related = append(related, diag.Related{Msg: s})
 			}
 		}
-		for _, f := range e.from {
+		note := func(format string, args ...any) {
+			related = append(related, diag.Related{Msg: "note: " + fmt.Sprintf(format, args...)})
+		}
+		for _, m := range e.macros {
+			if m.def.file != "" && d.showPlace(m.def.file) {
+				note("in expansion of macro '%s' (defined at %s)", m.name, d.placeName(m.def))
+			} else {
+				note("in expansion of macro '%s'", m.name)
+			}
+		}
+		if e.fn != "" {
+			note("used in function %s", tr.symbolName(e.fn))
+		}
+		var cands []cxxNote // the candidates worth reading
+		for _, c := range e.cands {
+			if !d.showPlace(c.loc.file) && (bareCandidateRx.MatchString(c.text) || systemCandidateRx.MatchString(c.text)) {
+				continue // a template or constructor of a system or runtime header: noise
+			}
+			if libraryHeader(c.loc.file) {
+				continue // a member of the C++ standard library or of gocpp's runtime: not the user's to read
+			}
+			cands = append(cands, c)
+		}
+		for i, c := range cands {
+			if i == maxCandidates {
+				note("and %d more candidates", len(cands)-i)
+				break
+			}
+			text := tr.message(withRx.ReplaceAllString(candidateText(c.text), ""))
+			if d.showPlace(c.loc.file) {
+				text += " (" + d.placeName(c.loc) + ")"
+			}
+			if c.detail != "" {
+				text += "; " + tr.message(c.detail)
+			}
+			note("%s", text)
+		}
+		for i, f := range e.from {
+			if i == maxFrames {
+				note("and %d more template instantiations from .gp lines", len(e.from)-maxFrames)
+				break
+			}
 			related = append(related, diag.Related{Pos: token.Position{Filename: f.file, Line: f.line}, Msg: "from here"})
 		}
-		l.Add(diag.Diagnostic{Pos: token.Position{Filename: e.at.file, Line: e.at.line}, Severity: diag.Error, Msg: e.msg, Related: related})
+		l.Add(diag.Diagnostic{Pos: pos, Severity: diag.Error, Msg: tr.message(e.msg), Related: related})
 	}
 	fmt.Fprintf(d.stderr, "# %s\n", pkg.Load.ImportPath)
-	p := diag.Printer{Dir: d.check.dir}
+	p := opts.printer(d.stderr, d.check.dir, false)
 	p.Print(d.stderr, &l)
+}
+
+// libraryHeader reports whether file is a header of the C++ standard library (libstdc++'s and
+// libc++'s are under .../include/c++/) or of gocpp's runtime: the candidates there are the
+// library's own overloads, with template parameters spelled out, and a user's mistake is better
+// described by the call than by them.
+func libraryHeader(file string) bool {
+	f := filepath.ToSlash(file)
+	return strings.Contains(f, "/include/c++/") || strings.Contains(f, "/gocpp/") && strings.HasSuffix(f, ".hpp")
+}
+
+// withRx matches the "[with T = long int; ...]" that gcc appends to a template function.
+var withRx = regexp.MustCompile(` \[with [^\]]*\]`)
+
+// numberedCandidateRx matches the start of gcc's candidate notes: "candidate: '" and, when it
+// lists several, "candidate 2: '".
+var numberedCandidateRx = regexp.MustCompile(`^candidate(?: \d+)?: '(.*)'([^']*)$`)
+
+// candidateText returns the text of a note about a candidate for the report: gcc's "candidate:
+// 'void f(int)'" without the quotes around the signature, with ASCII quotes.
+func candidateText(text string) string {
+	text = strings.NewReplacer("‘", "'", "’", "'").Replace(text)
+	if m := numberedCandidateRx.FindStringSubmatch(text); m != nil {
+		return "candidate: " + m[1] + m[2]
+	}
+	return text
+}
+
+// showPlace reports whether a note names the place file: a .gp file or a file under the current
+// folder. Headers of the system and of the runtime are left out: their paths differ by machine
+// and say little.
+func (d *driver) showPlace(file string) bool {
+	if file == "" {
+		return false
+	}
+	if strings.HasSuffix(file, ".gp") {
+		return true
+	}
+	rel, err := filepath.Rel(d.check.dir, file)
+	return err == nil && filepath.IsLocal(rel)
+}
+
+// placeName returns "file:line" for a note, with the file shown like gocpp shows its files.
+func (d *driver) placeName(l cxxLoc) string {
+	return fmt.Sprintf("%s:%d", diag.ShortFileName(d.check.dir, l.file), l.line)
+}
+
+// translator returns the translator of the names in the messages about pkg: a package shows as
+// its name, or as its import path when two packages of the program have the same name.
+func (d *driver) translator(pkg *check.Package) *nameTranslator {
+	names := make(map[string]string) // import path to package name
+	count := make(map[string]int)
+	var walk func(p *load.Package)
+	walk = func(p *load.Package) {
+		if p == nil {
+			return
+		}
+		if _, ok := names[p.ImportPath]; ok {
+			return
+		}
+		names[p.ImportPath] = p.Name
+		count[p.Name]++
+		for _, imp := range p.Imports {
+			walk(imp)
+		}
+	}
+	walk(pkg.Load)
+	return &nameTranslator{
+		shortFile: func(f string) string { return diag.ShortFileName(d.check.dir, f) },
+		windows:   d.check.goos == "windows",
+		pkgName: func(path string) string {
+			name := names[path]
+			switch {
+			case name == "" || path == "main":
+				return ""
+			case count[name] > 1:
+				return path
+			}
+			return name
+		},
+	}
+}
+
+// bareCandidateRx matches the candidate notes of clang that say no more than that there is one.
+var bareCandidateRx = regexp.MustCompile(`^candidate (?:function|template|constructor)(?: template)?$`)
+
+// systemCandidateRx matches the candidates of a template or a constructor, which in a system
+// header or the runtime's are the library's own machinery: gcc's "candidate 1: 'template<class
+// T> ...'" and clang's "candidate template ignored: ...", "candidate constructor not viable".
+var systemCandidateRx = regexp.MustCompile(`^candidate(?: \d+)?: ['‘]template<|^candidate (?:template ignored|constructor|function template)`)
+
+var (
+	quotedRx = regexp.MustCompile(`'([^']+)'`)
+	identRx  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+)
+
+// cxxPrimitives are the words of the compilers' messages that name no part of the user's code
+// even when they are in quotes.
+var cxxPrimitives = map[string]bool{
+	"int": true, "char": true, "long": true, "short": true, "float": true, "double": true, "void": true,
+	"bool": true, "unsigned": true, "signed": true, "const": true, "auto": true, "struct": true,
+	"class": true, "enum": true, "union": true, "size_t": true, "nullptr": true, "this": true,
+}
+
+// cppColumn guesses the column (1-based, in bytes) in the .gp line line that the C++ error msg is
+// about, or returns 0. The generated C++ has only the line (#line), so the column of the
+// compiler means nothing; but a message quotes the names it is about ("no member named
+// 'push_bak' in 'std::vector<long>'"), and the first quoted name that is a word of the line, the
+// last part of a qualified name (std::max, a.b), is a good place for the caret.
+func cppColumn(msg, line string) int {
+	for _, m := range quotedRx.FindAllStringSubmatch(msg, -1) {
+		name := m[1]
+		if i := strings.IndexAny(name, "<("); i >= 0 {
+			name = name[:i]
+		}
+		if i := strings.LastIndexAny(name, ":."); i >= 0 {
+			name = name[i+1:]
+		}
+		if !identRx.MatchString(name) || cxxPrimitives[name] || len(name) < 2 {
+			continue
+		}
+		for from := 0; from < len(line); {
+			i := strings.Index(line[from:], name)
+			if i < 0 {
+				break
+			}
+			i += from
+			end := i + len(name)
+			if (i == 0 || !wordBefore(line, i)) && (end == len(line) || wordLen(line[end:]) == 0) {
+				return i + 1
+			}
+			from = i + 1
+		}
+	}
+	return 0
 }
 
 // cppCompileFailed reports the error of a compile of the generated C++ of
@@ -543,6 +812,7 @@ func (d *driver) cppCompileFailed(pkg *check.Package, e *build.CompileError, src
 type undefinedRef struct {
 	sym string
 	at  cxxLoc
+	fn  string // the C++ name of the function that uses it, if the linker says so ("in function")
 }
 
 var (
@@ -563,19 +833,30 @@ var (
 	// gocppSymbolRx matches the symbols of gocpp's runtime (gp::) and of
 	// the generated C++ (the namespaces gpkg_<package>).
 	gocppSymbolRx = regexp.MustCompile(`(?:^|[^A-Za-z0-9_])(?:gp::|gpkg_)`)
+	// gnuFuncRx matches the line of GNU ld that names the function of the undefined references
+	// after it: "/usr/bin/ld: /work/main.gp.o: in function `gpkg_main::main()':".
+	gnuFuncRx = regexp.MustCompile("(?:^|: )in function [`'‘](.*)['’]:?$")
+	// lldFuncRx matches the second line of lld's and mold's place, which names the function:
+	// ">>>               /work/main.gp.o:(gpkg_main::main())".
+	lldFuncRx = regexp.MustCompile(`^>>>\s+\S.*?:\((.+)\)$`)
 )
 
 // parseUndefined reads the undefined symbols in the linker's output out,
 // with the .gp lines that use them.
 func parseUndefined(out []byte) []undefinedRef {
 	var refs []undefinedRef
-	last := -1 // lld: the symbol that the ">>> referenced by" lines belong to
+	curFn := "" // GNU ld: the function of the references after its "in function" line
+	last := -1  // lld: the symbol that the ">>> referenced by" lines belong to
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	sc.Buffer(nil, 1<<20)
 	for sc.Scan() {
 		line := cleanCompilerLine(sc.Text())
+		if m := gnuFuncRx.FindStringSubmatch(line); m != nil && !gnuUndefinedRx.MatchString(line) {
+			curFn = m[1]
+			continue
+		}
 		if m := gnuUndefinedRx.FindStringSubmatch(line); m != nil {
-			r := undefinedRef{sym: m[1]}
+			r := undefinedRef{sym: m[1], fn: curFn}
 			if p := gnuPlaceRx.FindStringSubmatch(line); p != nil {
 				n, _ := strconv.Atoi(p[2])
 				r.at = cxxLoc{p[1], n}
@@ -596,10 +877,15 @@ func parseUndefined(out []byte) []undefinedRef {
 			line, _ := strconv.Atoi(n)
 			r := refs[last]
 			if r.at.file != "" {
+				r.fn = ""
 				refs = append(refs, r) // another place of the same symbol
 				last = len(refs) - 1
 			}
 			refs[last].at = cxxLoc{file, line}
+			continue
+		}
+		if m := lldFuncRx.FindStringSubmatch(line); m != nil && last >= 0 {
+			refs[last].fn = m[1]
 			continue
 		}
 		if !strings.HasPrefix(line, ">>>") {
@@ -660,11 +946,15 @@ func (d *driver) cppLinkFailed(pkg *check.Package, e *build.CompileError, env bu
 		fmt.Fprintf(d.stderr, "# %s\n%s\n", pkg.Load.ImportPath, strings.TrimRight(d.shortenDir(pkg, string(e.Output)), "\n"))
 	} else {
 		var errs []cppError
-		seen := make(map[undefinedRef]bool)
+		type key struct {
+			sym string
+			at  cxxLoc
+		}
+		seen := make(map[key]bool)
 		for _, r := range refs {
-			if !seen[r] {
-				seen[r] = true
-				errs = append(errs, cppError{at: r.at, msg: fmt.Sprintf("C++: undefined reference to '%s'", r.sym)})
+			if k := (key{r.sym, r.at}); !seen[k] {
+				seen[k] = true
+				errs = append(errs, cppError{at: r.at, msg: fmt.Sprintf("C++: undefined reference to '%s'", r.sym), fn: r.fn})
 			}
 		}
 		d.printCppErrors(pkg, errs)
@@ -718,4 +1008,112 @@ func genericBodies(set cppLineSet, fset *token.FileSet, p *load.Package, seen ma
 	for _, imp := range p.Imports {
 		genericBodies(set, fset, imp, seen)
 	}
+}
+
+// goLineTypes returns the spellings of the Go types that each .gp line of pkg mentions: the types
+// of the expressions that start on the line and of the names declared on it, and the types they
+// are made of ([]int64 gives int64 too). The translator uses them to tell the Go types that have
+// one C++ type apart (nameTranslator.hints).
+func goLineTypes(fset *token.FileSet, pkg *check.Package) map[cxxLoc][]string {
+	out := make(map[cxxLoc][]string)
+	if pkg.Info == nil || fset == nil {
+		return out
+	}
+	qual := func(p *types.Package) string { return p.Name() }
+	seen := make(map[cxxLoc]map[string]bool)
+	add := func(pos token.Pos, t types.Type) {
+		if !pos.IsValid() || t == nil {
+			return
+		}
+		p := fset.Position(pos)
+		at := cxxLoc{file: filepath.Clean(p.Filename), line: p.Line}
+		var walk func(t types.Type, depth int)
+		walk = func(t types.Type, depth int) {
+			if t == nil || depth > 8 {
+				return
+			}
+			sp := spellGo(t, qual)
+			if seen[at] == nil {
+				seen[at] = make(map[string]bool)
+			}
+			if !seen[at][sp] {
+				seen[at][sp] = true
+				out[at] = append(out[at], sp)
+			}
+			switch t := t.(type) {
+			case *types.Slice:
+				walk(t.Elem(), depth+1)
+			case *types.Array:
+				walk(t.Elem(), depth+1)
+			case *types.Pointer:
+				walk(t.Elem(), depth+1)
+			case *types.Chan:
+				walk(t.Elem(), depth+1)
+			case *types.Map:
+				walk(t.Key(), depth+1)
+				walk(t.Elem(), depth+1)
+			case *types.Signature:
+				for i := 0; i < t.Params().Len(); i++ {
+					walk(t.Params().At(i).Type(), depth+1)
+				}
+				for i := 0; i < t.Results().Len(); i++ {
+					walk(t.Results().At(i).Type(), depth+1)
+				}
+			}
+		}
+		walk(t, 0)
+	}
+	for e, tv := range pkg.Info.Types {
+		add(e.Pos(), tv.Type)
+	}
+	for id, obj := range pkg.Info.Defs {
+		if obj != nil {
+			add(id.Pos(), obj.Type())
+		}
+	}
+	return out
+}
+
+// spellGo writes the Go type t the way a message about it does: with no parameter names, and
+// with the direction of channels.
+func spellGo(t types.Type, qual types.Qualifier) string {
+	switch t := t.(type) {
+	case *types.Basic:
+		return t.Name()
+	case *types.Slice:
+		return "[]" + spellGo(t.Elem(), qual)
+	case *types.Array:
+		return fmt.Sprintf("[%d]%s", t.Len(), spellGo(t.Elem(), qual))
+	case *types.Pointer:
+		return "*" + spellGo(t.Elem(), qual)
+	case *types.Map:
+		return "map[" + spellGo(t.Key(), qual) + "]" + spellGo(t.Elem(), qual)
+	case *types.Chan:
+		el := spellGo(t.Elem(), qual)
+		switch t.Dir() {
+		case types.SendOnly:
+			return "chan<- " + el
+		case types.RecvOnly:
+			return "<-chan " + el
+		}
+		return "chan " + el
+	case *types.Signature:
+		tuple := func(v *types.Tuple) []string {
+			var out []string
+			for i := 0; i < v.Len(); i++ {
+				out = append(out, spellGo(v.At(i).Type(), qual))
+			}
+			return out
+		}
+		s := "func(" + strings.Join(tuple(t.Params()), ", ") + ")"
+		switch rs := tuple(t.Results()); len(rs) {
+		case 0:
+		case 1:
+			s += " " + rs[0]
+		default:
+			s += " (" + strings.Join(rs, ", ") + ")"
+		}
+		return s
+	}
+	return types.TypeString(t, qual)
 }

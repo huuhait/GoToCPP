@@ -1,0 +1,7 @@
+# command-line-arguments
+./main.gp:5:14: cannot use "text" (untyped string constant) as int value in variable declaration
+		var n int = "text"
+		            ^~~~~~
+./main.gp:6:17: cannot use 42 (untyped int constant) as string value in variable declaration
+		var s string = 42
+		               ^~

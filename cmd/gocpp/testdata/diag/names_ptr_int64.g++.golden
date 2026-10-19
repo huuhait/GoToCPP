@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:7: C++: invalid conversion from 'long int*' to 'int'
+		_ = cstdlib.abs(p)
+		~~~~~~~~~~~~~~~~~~

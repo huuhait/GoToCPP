@@ -1,0 +1,3 @@
+# command-line-arguments
+./main.gp:8: C++: no viable conversion from '[]string' to 'int'
+	_ = cstdlib.abs(s)

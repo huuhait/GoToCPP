@@ -1,0 +1,7 @@
+# command-line-arguments
+./main.gp:7: C++: invalid initialization of reference of type 'const std::vector<std::string>&' from expression of type '[]string'
+		takes.total(words)
+		~~~~~~~~~~~~~~~~~~
+./main.gp:8:14: C++: invalid initialization of reference of type 'const std::vector<std::string>&' from expression of type 'map[string]int'
+		takes.total(map[string]int{})
+		            ^

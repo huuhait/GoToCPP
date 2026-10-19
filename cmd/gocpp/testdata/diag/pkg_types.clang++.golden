@@ -1,0 +1,13 @@
+# github.com/huuhait/game
+./main.gp:11: C++: cannot initialize a parameter of type 'int' with an rvalue of type 'engine.Body *'
+		_ = cstdlib.abs(b)
+		~~~~~~~~~~~~~~~~~~
+./main.gp:12: C++: no viable conversion from 'engine.Body' to 'int'
+		_ = cstdlib.abs(*b)
+		~~~~~~~~~~~~~~~~~~~
+./main.gp:13: C++: no viable conversion from '[]engine.Body' to 'int'
+		_ = cstdlib.abs([]engine.Body{})
+		~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./main.gp:14:18: C++: no viable conversion from 'map[engine.ID]*engine.Body' to 'int'
+		_ = cstdlib.abs(map[engine.ID]*engine.Body{})
+		                ^

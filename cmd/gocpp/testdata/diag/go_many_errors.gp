@@ -1,0 +1,18 @@
+//test: cmd=check
+package main
+
+func main() {
+	a := 1 + "a"
+	b := 2 + "b"
+	c := 3 + "c"
+	d := 4 + "d"
+	e := 5 + "e"
+	f := 6 + "f"
+	g := 7 + "g"
+	h := 8 + "h"
+	i := 9 + "i"
+	j := 10 + "j"
+	k := 11 + "k"
+	l := 12 + "l"
+	_, _, _, _, _, _, _, _, _, _, _, _ = a, b, c, d, e, f, g, h, i, j, k, l
+}

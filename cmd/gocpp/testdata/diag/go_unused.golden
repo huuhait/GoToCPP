@@ -1,0 +1,7 @@
+# command-line-arguments
+./main.gp:6:2: "os" imported and not used
+		"os"
+		^
+./main.gp:10:2: declared and not used: unused
+		unused := 1
+		^

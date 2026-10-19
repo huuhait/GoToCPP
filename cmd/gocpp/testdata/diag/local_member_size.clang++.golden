@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:9:8: C++: no member named 'size' in 'std::pair<long, long>'
+		_ = p.size()
+		      ^

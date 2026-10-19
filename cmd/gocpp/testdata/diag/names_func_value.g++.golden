@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:7: C++: cannot convert 'func(int) int' to 'int'
+		_ = cstdlib.abs(f)
+		~~~~~~~~~~~~~~~~~~

@@ -1,0 +1,7 @@
+# command-line-arguments
+./main.gp:8: C++: cannot convert 'any' to 'const char*'
+		_ = cstring.strlen(v)
+		~~~~~~~~~~~~~~~~~~~~~
+./main.gp:9: C++: cannot convert 'error' to 'const char*'
+		_ = cstring.strlen(e)
+		~~~~~~~~~~~~~~~~~~~~~

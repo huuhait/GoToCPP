@@ -14,8 +14,8 @@ import (
 
 func main() {
 	s := "hi"
-	cstdio.puts(s)        // ERROR "C\+\+: (cannot convert|no viable conversion from) 'gp::string' to 'const char ?\*' \(a gocpp string is no C string: pass C\.cstr\(s\), or C\.CString\(s\) for a copy that C keeps\)"
-	_ = cstring.strlen(s) // ERROR "C\+\+: (cannot convert|no viable conversion from) 'gp::string' to 'const char ?\*' \(a gocpp string"
+	cstdio.puts(s)        // ERROR "C\+\+: (cannot convert|no viable conversion from) 'string' to 'const char ?\*' \(a gocpp string is no C string: pass C\.cstr\(s\), or C\.CString\(s\) for a copy that C keeps\)"
+	_ = cstring.strlen(s) // ERROR "C\+\+: (cannot convert|no viable conversion from) 'string' to 'const char ?\*' \(a gocpp string"
 	_ = string(cstdlib.getenv("HOME")) // ERROR "C\+\+: string\(p\) of a C string: use C\.GoString\(p\) \(or C\.GoStringN\(p, n\)\)"
 	cstdio.puts(C.cstr(s))
 	_ = C.GoString(cstdlib.getenv("HOME"))

@@ -1,0 +1,5 @@
+# command-line-arguments
+./main.gp:7: C++: member reference type 'int' is not a pointer
+		_ = errmacro.POINT_X(C.int(n))
+		~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+	note: in expansion of macro 'POINT_X' (defined at ./errmacro.h:5)

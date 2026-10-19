@@ -1,0 +1,29 @@
+# command-line-arguments
+./main.gp:11:21: C++: no viable conversion from '::Node<int64_t>' to 'Item'
+		node.takeI(n); _ = Node{}
+		                   ^
+	note: candidate constructor (the implicit copy constructor) not viable: no known conversion from '::Node<int64_t>' to 'const Item &' for 1st argument (./node.h:3)
+	note: candidate constructor (the implicit move constructor) not viable: no known conversion from '::Node<int64_t>' to 'Item &&' for 1st argument (./node.h:3)
+./main.gp:12:13: C++: no viable conversion from 'Node' to 'Item'
+		node.takeI(Node{}); _ = Item{}
+		           ^
+	note: candidate constructor (the implicit copy constructor) not viable: no known conversion from 'Node' to 'const Item &' for 1st argument (./node.h:3)
+	note: candidate constructor (the implicit move constructor) not viable: no known conversion from 'Node' to 'Item &&' for 1st argument (./node.h:3)
+./main.gp:13:16: C++: no viable conversion from 'main.Point' to 'Point' (aka 'ns::Point')
+		node.ns.takeP(Point{})
+		              ^
+	note: candidate constructor (the implicit copy constructor) not viable: no known conversion from 'Point' to 'const Point &' for 1st argument (./node.h:5)
+	note: candidate constructor (the implicit move constructor) not viable: no known conversion from 'Point' to 'Point &&' for 1st argument (./node.h:5)
+./main.gp:14:24: C++: no viable conversion from 'int' to 'Point'
+		node.ns.takeP(5); _ = Point{}
+		                      ^
+	note: candidate constructor (the implicit copy constructor) not viable: no known conversion from 'int' to 'const Point &' for 1st argument (./node.h:5)
+	note: candidate constructor (the implicit move constructor) not viable: no known conversion from 'int' to 'Point &&' for 1st argument (./node.h:5)
+./main.gp:15: C++: cannot initialize a parameter of type 'int' with an lvalue of type 'const char[2]'
+		node.Point("x"); _ = Point{}
+		~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./main.gp:16:13: C++: no viable conversion from 'main.Item' to 'Item'
+		node.takeI(Item{})
+		           ^
+	note: candidate constructor (the implicit copy constructor) not viable: no known conversion from 'Item' to 'const Item &' for 1st argument (./node.h:3)
+	note: candidate constructor (the implicit move constructor) not viable: no known conversion from 'Item' to 'Item &&' for 1st argument (./node.h:3)

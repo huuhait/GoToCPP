@@ -1,0 +1,16 @@
+# command-line-arguments
+./main.gp:13: C++: cannot convert '[]string' to 'int'
+		_ = cstdlib.abs(s)
+		~~~~~~~~~~~~~~~~~~
+./main.gp:14: C++: cannot convert 'map[string][]int' to 'int'
+		_ = cstdlib.abs(m)
+		~~~~~~~~~~~~~~~~~~
+./main.gp:15: C++: invalid conversion from 'main.Point*' to 'int'
+		_ = cstdlib.abs(p)
+		~~~~~~~~~~~~~~~~~~
+./main.gp:16: C++: cannot convert 'func(int) bool' to 'int'
+		_ = cstdlib.abs(f)
+		~~~~~~~~~~~~~~~~~~
+./main.gp:17: C++: cannot convert 'chan []byte' to 'int'
+		_ = cstdlib.abs(c)
+		~~~~~~~~~~~~~~~~~~

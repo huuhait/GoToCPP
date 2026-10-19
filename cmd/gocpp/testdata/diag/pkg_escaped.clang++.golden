@@ -1,0 +1,7 @@
+# example.com/my-game/v2
+./main.gp:11: C++: no viable conversion from 'util.Pair' to 'int'
+		_ = cstdlib.abs(p)
+		~~~~~~~~~~~~~~~~~~
+./main.gp:12: C++: cannot initialize a parameter of type 'int' with an rvalue of type 'util.Pair *'
+		_ = cstdlib.abs(&p)
+		~~~~~~~~~~~~~~~~~~~

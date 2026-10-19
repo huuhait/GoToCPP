@@ -12,7 +12,7 @@ import (
 func format() string { return "%d\n" }
 
 func main() {
-	cstdio.printf(format(), 1) // ERROR "C\+\+: (cannot convert|no viable conversion from) 'gp::string' to 'const char ?\*'"
+	cstdio.printf(format(), 1) // ERROR "C\+\+: (cannot convert|no viable conversion from) 'string' to 'const char ?\*'"
 	_ = cstdlib.abs(1, 2)      // ERROR "C\+\+: too many arguments to function"
 	cstdio.puts("ok")
 }

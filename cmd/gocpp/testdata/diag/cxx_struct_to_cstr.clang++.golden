@@ -1,0 +1,7 @@
+# command-line-arguments
+./main.gp:9: C++: no viable conversion from 'main.Point' to 'const char *'
+		cstdio.puts(p)
+		~~~~~~~~~~~~~~
+./main.gp:10: C++: cannot initialize a parameter of type 'const char *' with an rvalue of type 'main.Point *'
+		cstdio.puts(&p)
+		~~~~~~~~~~~~~~~

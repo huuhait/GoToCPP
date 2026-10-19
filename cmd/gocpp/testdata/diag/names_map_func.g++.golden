@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:7: C++: cannot convert 'map[int]func(string) bool' to 'int'
+		_ = cstdlib.abs(m)
+		~~~~~~~~~~~~~~~~~~

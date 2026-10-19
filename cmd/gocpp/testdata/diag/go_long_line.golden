@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:6:126: undefined: undefinedName
+	…%b%c%d%e, a<<b<<c, a>>b>>c, "some long text goes here", undefinedName, "more text after the error")
+	                                                         ^~~~~~~~~~~~~

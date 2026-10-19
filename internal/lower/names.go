@@ -184,6 +184,78 @@ func NamespaceName(path string) string {
 	return b.String()
 }
 
+// PackagePath is the inverse of NamespaceName: it returns the import path of the package whose
+// C++ namespace is ns, and false if ns is not a name that NamespaceName makes. The codes start
+// with _, and the character after it says which one it is, so the decoding is unambiguous and
+// exact (also for the bytes of a non-ASCII path). The driver uses it to show gpkg_main::Point
+// as main.Point in C++ error messages (Phase 13 README §2.1).
+func PackagePath(ns string) (string, bool) {
+	rest, ok := strings.CutPrefix(ns, "gpkg_")
+	if !ok {
+		return "", false
+	}
+	var b strings.Builder
+	for i := 0; i < len(rest); i++ {
+		c := rest[i]
+		if 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' {
+			b.WriteByte(c)
+			continue
+		}
+		if c != '_' || i+1 >= len(rest) {
+			return "", false
+		}
+		i++
+		switch rest[i] {
+		case '_':
+			b.WriteByte('/')
+		case 'd':
+			b.WriteByte('.')
+		case 'h':
+			b.WriteByte('-')
+		case 'u':
+			b.WriteByte('_')
+		case 't':
+			b.WriteByte('~')
+		case 'p':
+			b.WriteByte('+')
+		case 'x':
+			if i+2 >= len(rest) {
+				return "", false
+			}
+			n, err := strconv.ParseUint(rest[i+1:i+3], 16, 8)
+			if err != nil || strings.ToLower(rest[i+1:i+3]) != rest[i+1:i+3] || rest[i+1] == '+' || rest[i+1] == '-' {
+				return "", false
+			}
+			b.WriteByte(byte(n))
+			i += 2
+		default:
+			return "", false
+		}
+	}
+	return b.String(), true
+}
+
+// Unescape is the inverse of Escape for a name that Escape returned: the Go name with the _
+// suffixes of reserved names taken off (new_ → new, new__ → new_, x_ → x_). A name that Escape
+// never returns (a reserved word) is returned as it is.
+func Unescape(escaped string) string {
+	base := strings.TrimRight(escaped, "_")
+	k := len(escaped) - len(base)
+	taken := func(j int) bool {
+		return reserved[base+strings.Repeat("_", j)] || j == 0 && strings.HasPrefix(base, "gp_")
+	}
+	if k == 0 || taken(k) {
+		return escaped
+	}
+	n := 0 // the free names of the family below the name
+	for j := 0; j < k; j++ {
+		if !taken(j) {
+			n++
+		}
+	}
+	return base + strings.Repeat("_", n)
+}
+
 // A funcNames chooses the C++ names inside one function: of its parameters, results and local
 // variables, and of the temporaries that the generated code needs.
 //

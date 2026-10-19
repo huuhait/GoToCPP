@@ -1,0 +1,20 @@
+# command-line-arguments
+./main.gp:8:24: C++: could not convert '5' from 'int' to 'Node'
+		node.take2(5, 5); _ = Node{}
+		                      ^
+./main.gp:9:12: C++: could not convert 'main.Node{string{std::shared_ptr<const void>{std::__shared_ptr<const void, __gnu_cxx::_S_atomic>{0, std::__shared_count<>{0}}}, 0, 0}}' from 'main.Node' to 'Node'
+		node.take(Node{})
+		          ^
+./main.gp:10:7: C++: no matching function for call to 'over(int, int, int)'
+		node.over(5, 5, 5)
+		     ^
+	note: candidate: int over(Node) (./node.h:6); expects 1 argument, 3 provided
+	note: candidate: int over(double, Node) (./node.h:7); expects 2 arguments, 3 provided
+./main.gp:11:19: C++: no matching function for call to 'over(const char [2])'
+		_ = Node{}; node.over("x")
+		                 ^
+	note: candidate: int over(Node) (./node.h:6); no known conversion for argument 1 from 'const char [2]' to 'Node'
+	note: candidate: int over(double, Node) (./node.h:7); expects 2 arguments, 1 provided
+./main.gp:13: C++: could not convert 'm' from 'map[string]main.Node' to 'Node'
+		node.take2(1, m)
+		~~~~~~~~~~~~~~~~

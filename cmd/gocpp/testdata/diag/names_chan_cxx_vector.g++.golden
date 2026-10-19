@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:8: C++: cannot convert 'chan std::vector<long int>' to 'int'
+		_ = cstdlib.abs(ch)
+		~~~~~~~~~~~~~~~~~~~

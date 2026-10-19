@@ -1,0 +1,4 @@
+# command-line-arguments
+[1m./main.gp:4:20: [0m[1;31minvalid operation: 1 + "a" (mismatched types untyped int and untyped string)[0m
+	func main() { x := 1 + "a"; _ = x }
+	                   [1;32m^~~~~~~[0m

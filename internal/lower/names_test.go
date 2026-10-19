@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"go/token"
 	"go/types"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"slices"
@@ -283,5 +284,67 @@ func TestShadowNames(t *testing.T) {
 	}
 	if n < 100 {
 		t.Errorf("only %d local variables", n)
+	}
+}
+
+// TestPackagePath checks that PackagePath undoes NamespaceName for the fixtures of
+// TestNamespaceName and for random paths (the bytes of a path, valid UTF-8 or not), and
+// rejects what NamespaceName never makes.
+func TestPackagePath(t *testing.T) {
+	for _, path := range []string{
+		"main", "fmt", "github.com/huuhait/game/engine", "github.com/mattn/go-sqlite3", "a_b~c+d", "x.u",
+		"x_", "é", "日本語/パッケージ", "a/b/", "_", "__", "a__b", "~~", "a/x41", "x/xab", "a_x41", "+-.", "",
+		"gpkg_main", "a\xff\x00b", "gopkg.in/yaml.v3", "example.com/a_b/c-d~e+f/é_x",
+	} {
+		ns := NamespaceName(path)
+		if got, ok := PackagePath(ns); !ok || got != path {
+			t.Errorf("PackagePath(%q) = %q, %v; want %q", ns, got, ok, path)
+		}
+	}
+	rnd := rand.New(rand.NewPCG(1, 2))
+	alphabet := []byte("abcxyzXYZ019/._-~+ \x00\x7f\xc3\xa9\xe6\x97\xa5\xff:@#%")
+	for i := 0; i < 5000; i++ {
+		n := rnd.IntN(24)
+		path := make([]byte, n)
+		for j := range path {
+			if rnd.IntN(4) == 0 {
+				path[j] = byte(rnd.IntN(256))
+			} else {
+				path[j] = alphabet[rnd.IntN(len(alphabet))]
+			}
+		}
+		ns := NamespaceName(string(path))
+		if got, ok := PackagePath(ns); !ok || got != string(path) {
+			t.Fatalf("PackagePath(%q) = %q, %v; want %q", ns, got, ok, path)
+		}
+		// The namespace is a C++ identifier.
+		for _, c := range []byte(ns) {
+			if !(c == '_' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9') {
+				t.Fatalf("NamespaceName(%q) = %q has %q", path, ns, c)
+			}
+		}
+	}
+	for _, bad := range []string{"main", "gpkg", "gpkg_a_", "gpkg_a_q", "gpkg_a_x4", "gpkg_a_xzz", "gpkg_a_xAB", "gpkg_a b", "gpkg_a-b", "gpkg_a_x+1", "gpkg_é"} {
+		if got, ok := PackagePath(bad); ok {
+			t.Errorf("PackagePath(%q) = %q, true; want false", bad, got)
+		}
+	}
+}
+
+// TestUnescape checks that Unescape undoes Escape: for the reserved words, the names that end
+// in _, and every name of a family.
+func TestUnescape(t *testing.T) {
+	var names []string
+	for _, r := range ReservedNames() {
+		names = append(names, r, r+"_", r+"__", strings.TrimSuffix(r, "_"))
+	}
+	names = append(names, "x", "x_", "x__", "new", "new_", "new__", "gp_x", "gp_x_", "Point", "EOF", "EOF_", "_", "__", "a_b")
+	for _, n := range names {
+		if e := Escape(n); Unescape(e) != n {
+			t.Errorf("Unescape(Escape(%q) = %q) = %q", n, e, Unescape(e))
+		}
+	}
+	if got := Unescape("new_"); got != "new" {
+		t.Errorf("Unescape(new_) = %q, want new", got)
 	}
 }

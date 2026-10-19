@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:7: C++: cannot initialize a parameter of type 'int' with an rvalue of type 'long *'
+		_ = cstdlib.abs(p)
+		~~~~~~~~~~~~~~~~~~

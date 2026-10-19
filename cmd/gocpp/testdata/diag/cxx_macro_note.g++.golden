@@ -1,0 +1,5 @@
+# command-line-arguments
+./main.gp:7: C++: base operand of '->' is not a pointer
+		_ = errmacro.POINT_X(C.int(n))
+		~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+	note: in expansion of macro 'POINT_X'

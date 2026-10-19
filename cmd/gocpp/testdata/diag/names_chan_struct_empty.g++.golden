@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:7: C++: cannot convert 'chan struct{...}' to 'int'
+		_ = cstdlib.abs(c)
+		~~~~~~~~~~~~~~~~~~

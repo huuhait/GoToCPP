@@ -1,0 +1,7 @@
+# command-line-arguments
+./main.gp:7: C++: no viable conversion from '[]string' to 'const std::vector<std::string>'
+		takes.total(words)
+		~~~~~~~~~~~~~~~~~~
+./main.gp:8:14: C++: no viable conversion from 'map[string]int' to 'const std::vector<std::string>'
+		takes.total(map[string]int{})
+		            ^

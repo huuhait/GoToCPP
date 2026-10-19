@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:7: C++: cannot convert 'map[string]int' to 'const char*'
+		_ = cstring.strlen(m)
+		~~~~~~~~~~~~~~~~~~~~~

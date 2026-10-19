@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:7: C++: cannot convert 'any' to 'int'
+		_ = cstdlib.abs(v)
+		~~~~~~~~~~~~~~~~~~

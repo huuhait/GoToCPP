@@ -1,0 +1,7 @@
+# command-line-arguments
+./main.gp:7:4: C++: no matching member function for call to 'push_back'
+		v.push_back("x")
+		  ^
+./main.gp:8:8: C++: too many arguments to function call, expected 0, have 1; did you mean 'std::size'?
+		_ = v.size(1)
+		      ^

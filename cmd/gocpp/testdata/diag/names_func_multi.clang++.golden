@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:7: C++: no viable conversion from 'func(string) (int, error)' to 'int'
+		_ = cstdlib.abs(f)
+		~~~~~~~~~~~~~~~~~~

@@ -1,0 +1,19 @@
+# command-line-arguments
+./main.gp:11:21: C++: could not convert 'n' from 'Node<long int>' to 'Item'
+		node.takeI(n); _ = Node{}
+		                   ^
+./main.gp:12:13: C++: could not convert 'main.Node{string{std::shared_ptr<const void>{std::__shared_ptr<const void, __gnu_cxx::_S_atomic>{0, std::__shared_count<>{0}}}, 0, 0}}' from 'main.Node' to 'Item'
+		node.takeI(Node{}); _ = Item{}
+		           ^
+./main.gp:13:16: C++: could not convert 'main.Point{0}' from 'main.Point' to 'ns::Point'
+		node.ns.takeP(Point{})
+		              ^
+./main.gp:14:24: C++: could not convert '5' from 'int' to 'ns::Point'
+		node.ns.takeP(5); _ = Point{}
+		                      ^
+./main.gp:15: C++: invalid conversion from 'const char*' to 'int'
+		node.Point("x"); _ = Point{}
+		~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./main.gp:16:13: C++: could not convert 'main.Item{string{std::shared_ptr<const void>{std::__shared_ptr<const void, __gnu_cxx::_S_atomic>{0, std::__shared_count<>{0}}}, 0, 0}}' from 'main.Item' to 'Item'
+		node.takeI(Item{})
+		           ^

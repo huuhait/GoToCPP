@@ -1,0 +1,32 @@
+# command-line-arguments
+./main.gp:5:7: invalid operation: 1 + "a" (mismatched types untyped int and untyped string)
+		a := 1 + "a"
+		     ^~~~~~~
+./main.gp:6:7: invalid operation: 2 + "b" (mismatched types untyped int and untyped string)
+		b := 2 + "b"
+		     ^~~~~~~
+./main.gp:7:7: invalid operation: 3 + "c" (mismatched types untyped int and untyped string)
+		c := 3 + "c"
+		     ^~~~~~~
+./main.gp:8:7: invalid operation: 4 + "d" (mismatched types untyped int and untyped string)
+		d := 4 + "d"
+		     ^~~~~~~
+./main.gp:9:7: invalid operation: 5 + "e" (mismatched types untyped int and untyped string)
+		e := 5 + "e"
+		     ^~~~~~~
+./main.gp:10:7: invalid operation: 6 + "f" (mismatched types untyped int and untyped string)
+		f := 6 + "f"
+		     ^~~~~~~
+./main.gp:11:7: invalid operation: 7 + "g" (mismatched types untyped int and untyped string)
+		g := 7 + "g"
+		     ^~~~~~~
+./main.gp:12:7: invalid operation: 8 + "h" (mismatched types untyped int and untyped string)
+		h := 8 + "h"
+		     ^~~~~~~
+./main.gp:13:7: invalid operation: 9 + "i" (mismatched types untyped int and untyped string)
+		i := 9 + "i"
+		     ^~~~~~~
+./main.gp:14:7: invalid operation: 10 + "j" (mismatched types untyped int and untyped string)
+		j := 10 + "j"
+		     ^~~~~~~~
+./main.gp:14:7: too many errors

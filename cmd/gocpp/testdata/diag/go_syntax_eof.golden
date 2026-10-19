@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:5:16: missing ',' before newline in argument list
+		println("open"
+		              ^

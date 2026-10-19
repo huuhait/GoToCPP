@@ -1,0 +1,11 @@
+# command-line-arguments
+./main.gp:6: C++: invalid conversion from 'const char*' to 'long int'
+		over.pick("text", 1.5)
+		~~~~~~~~~~~~~~~~~~~~~~
+./main.gp:7:7: C++: no matching function for call to 'pick([]int)'
+		over.pick([]int{1})
+		     ^
+	note: candidate: int pick(int) (./over.h:3); no known conversion for argument 1 from '[]int' to 'int'
+	note: candidate: int pick(long int, long int) (./over.h:4); expects 2 arguments, 1 provided
+	note: candidate: int pick(double, int, int) (./over.h:5); expects 3 arguments, 1 provided
+	note: and 2 more candidates

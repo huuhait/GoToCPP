@@ -181,7 +181,11 @@ func TestSource(t *testing.T) {
 		// A file can start with a byte order mark (3 bytes, no width).
 		{"byte order mark", "\ufeffpackage p\n", 1, 4, "\ufeffpackage p\n^\n"},
 		{"just after the end", "x :=\n", 1, 5, "x :=\n    ^\n"},
-		{"past the end", "x\n", 1, 3, ""},
+		// On the last line a column past the end is the end of the file ("expected '}', found
+		// 'EOF'"): the caret goes just after the last character. On another line it is a mistake.
+		{"past the end of the last line", "x\n", 1, 3, "x\n ^\n"},
+		{"past the end of the last line, no newline", "ab", 1, 9, "ab\n  ^\n"},
+		{"past the end of another line", "x\ny\n", 1, 3, ""},
 		{"no column", "x\n", 1, 0, ""},
 		{"no line", "x\n", 0, 1, ""},
 		{"line after the end", "x\n", 3, 1, ""},
@@ -484,4 +488,23 @@ func TestPrintConcurrent(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+// TestWindow checks the part of a long line that an excerpt shows: the column is about a third
+// of the way in, and the window is never wider than the limit.
+func TestWindow(t *testing.T) {
+	cs := cells([]byte(strings.Repeat("x", 300)))
+	for _, from := range []int{0, 5, 40, 150, 290, 299} {
+		lo, hi := window(cs, from, 60)
+		w := hi - lo + boolInt(lo > 0) + boolInt(hi < len(cs))
+		if w > 60 || from < lo || from > hi {
+			t.Errorf("window(%d) = %d:%d: width %d, column outside", from, lo, hi, w)
+		}
+		switch {
+		case from == 150 && from-lo != 20:
+			t.Errorf("window(150) = %d:%d: the column is %d cells in, want 20 (a third of 60)", lo, hi, from-lo)
+		case from == 40 && from-lo != 20:
+			t.Errorf("window(40) = %d:%d: the column is %d cells in, want 20", lo, hi, from-lo)
+		}
+	}
 }

@@ -1,0 +1,7 @@
+# command-line-arguments
+./main.gp:5:7: invalid operation: "日本語のテキスト" + 1 (mismatched types untyped string and untyped int)
+		s := "日本語のテキスト" + 1
+		     ^~~~~~~~~~~~~~~~~~~~~~
+./main.gp:6:7: invalid operation: "héllo wörld" + 2 (mismatched types untyped string and untyped int)
+		t := "héllo wörld" + 2
+		     ^~~~~~~~~~~~~~~~~

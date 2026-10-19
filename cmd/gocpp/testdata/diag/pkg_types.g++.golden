@@ -1,0 +1,13 @@
+# github.com/huuhait/game
+./main.gp:11: C++: invalid conversion from 'engine.Body*' to 'int'
+		_ = cstdlib.abs(b)
+		~~~~~~~~~~~~~~~~~~
+./main.gp:12: C++: cannot convert 'engine.Body' to 'int'
+		_ = cstdlib.abs(*b)
+		~~~~~~~~~~~~~~~~~~~
+./main.gp:13: C++: cannot convert '[]engine.Body' to 'int'
+		_ = cstdlib.abs([]engine.Body{})
+		~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./main.gp:14:18: C++: cannot convert 'map[engine.ID]*engine.Body' to 'int'
+		_ = cstdlib.abs(map[engine.ID]*engine.Body{})
+		                ^

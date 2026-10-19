@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:9:8: C++: no member named 'value' in 'std::map<long, long>'
+		_ = m.value()
+		      ^

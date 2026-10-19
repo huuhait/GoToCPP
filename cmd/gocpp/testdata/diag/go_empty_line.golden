@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:8:1: missing return
+	}
+	^

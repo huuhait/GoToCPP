@@ -1,0 +1,24 @@
+# command-line-arguments
+./main.gp:8:24: C++: no viable conversion from 'int' to 'Node'
+		node.take2(5, 5); _ = Node{}
+		                      ^
+	note: candidate constructor (the implicit copy constructor) not viable: no known conversion from 'int' to 'const Node &' for 1st argument (./node.h:2)
+	note: candidate constructor (the implicit move constructor) not viable: no known conversion from 'int' to 'Node &&' for 1st argument (./node.h:2)
+./main.gp:9: C++: too few arguments to function call, expected 2, have 1
+		node.take(Node{})
+		~~~~~~~~~~~~~~~~~
+./main.gp:10:7: C++: no matching function for call to 'over'
+		node.over(5, 5, 5)
+		     ^
+	note: candidate function not viable: requires 2 arguments, but 3 were provided (./node.h:7)
+	note: candidate function not viable: requires single argument 'n', but 3 arguments were provided (./node.h:6)
+./main.gp:11:19: C++: no matching function for call to 'over'
+		_ = Node{}; node.over("x")
+		                 ^
+	note: candidate function not viable: no known conversion from 'const char[2]' to 'Node' for 1st argument (./node.h:6)
+	note: candidate function not viable: requires 2 arguments, but 1 was provided (./node.h:7)
+./main.gp:13: C++: no viable conversion from 'map[string]Node' to 'Node'
+		node.take2(1, m)
+		~~~~~~~~~~~~~~~~
+	note: candidate constructor (the implicit copy constructor) not viable: no known conversion from 'map[string]Node' to 'const Node &' for 1st argument (./node.h:2)
+	note: candidate constructor (the implicit move constructor) not viable: no known conversion from 'map[string]Node' to 'Node &&' for 1st argument (./node.h:2)

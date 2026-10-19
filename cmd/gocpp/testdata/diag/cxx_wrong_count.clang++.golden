@@ -1,0 +1,7 @@
+# command-line-arguments
+./main.gp:6: C++: too many arguments to function call, expected single argument '__x', have 2 arguments
+		_ = cstdlib.abs(1, 2)
+		~~~~~~~~~~~~~~~~~~~~~
+./main.gp:7: C++: too few arguments to function call, single argument '__x' was not specified
+		_ = cstdlib.abs()
+		~~~~~~~~~~~~~~~~~

@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:6:16: expected '}', found 'EOF'
+			println("x")
+			            ^

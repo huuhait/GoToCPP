@@ -1,0 +1,6 @@
+# command-line-arguments
+./main.gp:10:2: not enough arguments in call to add
+	have (number, number)
+	want (int, int, int)
+		))
+		^

@@ -257,12 +257,12 @@ func TestParseUndefined(t *testing.T) {
 				"/src/main.gp:6:(.text+0xa): undefined reference to `gocpp_missing_fn(int)'\n" +
 				"/src/main.gp:9:(.text+0x1e): undefined reference to `zlibVersion'\n" +
 				"collect2: error: ld returned 1 exit status\n",
-			want: []undefinedRef{{"gocpp_missing_fn(int)", cxxLoc{"/src/main.gp", 6}}, {"zlibVersion", cxxLoc{"/src/main.gp", 9}}},
+			want: []undefinedRef{{"gocpp_missing_fn(int)", cxxLoc{"/src/main.gp", 6}, "gpkg_main::main()"}, {"zlibVersion", cxxLoc{"/src/main.gp", 9}, "gpkg_main::main()"}},
 		},
 		{
 			name: "GNU ld without debug information, and curly quotes",
 			out:  "/usr/bin/ld: main.o:(.text+0x5): undefined reference to ‘sqlite3_open’\n",
-			want: []undefinedRef{{"sqlite3_open", cxxLoc{}}},
+			want: []undefinedRef{{"sqlite3_open", cxxLoc{}, ""}},
 		},
 		{
 			name: "lld",
@@ -272,12 +272,12 @@ func TestParseUndefined(t *testing.T) {
 				">>> referenced by main.gp:8 (/src/main.gp:8)\n" +
 				">>>               /work/main.gp.o:(gpkg_main::main())\n" +
 				"clang++: error: linker command failed with exit code 1 (use -v to see invocation)\n",
-			want: []undefinedRef{{"gocpp_missing_fn(int)", cxxLoc{"/src/main.gp", 6}}, {"gocpp_missing_fn(int)", cxxLoc{"/src/main.gp", 8}}},
+			want: []undefinedRef{{"gocpp_missing_fn(int)", cxxLoc{"/src/main.gp", 6}, "gpkg_main::main()"}, {"gocpp_missing_fn(int)", cxxLoc{"/src/main.gp", 8}, "gpkg_main::main()"}},
 		},
 		{
 			name: "mold",
 			out:  "mold: error: undefined symbol: f\n>>> referenced by main.gp:3\n>>>               /work/main.gp.o:(gpkg_main::main())\n",
-			want: []undefinedRef{{"f", cxxLoc{"main.gp", 3}}},
+			want: []undefinedRef{{"f", cxxLoc{"main.gp", 3}, "gpkg_main::main()"}},
 		},
 	}
 	for _, tt := range tests {
@@ -321,7 +321,7 @@ func TestCppErrors(t *testing.T) {
 		// The short report: exit 1, the error at the .gp line with the
 		// source line, and no work folder kept.
 		r := gocppRun("", false, "build", ".")
-		if !regexp.MustCompile(`^# command-line-arguments\n\./main\.gp:9: C\+\+: (cannot convert|no viable conversion from) 'gp::string' to 'const char ?\*' \(a gocpp string is no C string: pass C\.cstr\(s\), or C\.CString\(s\) for a copy that C keeps\)\n\tcstdio\.printf\(format\(\), 1\)\n$`).MatchString(r.stderr) ||
+		if !regexp.MustCompile(`^# command-line-arguments\n\./main\.gp:9: C\+\+: (cannot convert|no viable conversion from) 'string' to 'const char ?\*' \(a gocpp string is no C string: pass C\.cstr\(s\), or C\.CString\(s\) for a copy that C keeps\)\n\tcstdio\.printf\(format\(\), 1\)\n$`).MatchString(r.stderr) ||
 			r.code != 1 {
 			t.Errorf("gocpp build = %+v, want exit 1 and the error at ./main.gp:9", r)
 		}
@@ -392,7 +392,7 @@ func TestCppLinkErrors(t *testing.T) {
 		inDir(t, files)
 		// No .c file: the hint names the directives.
 		r := gocppRun("", false, "build", ".")
-		if r.code != 1 || r.stderr != "# command-line-arguments\n./main.gp:6: C++: undefined reference to 'c_answer'\n\tn := int(answer.c_answer())\n"+
+		if r.code != 1 || r.stderr != "# command-line-arguments\n./main.gp:6: C++: undefined reference to 'c_answer'\n\tn := int(answer.c_answer())\n\tnote: used in function main.main\n"+
 			"\t(the headers declare it, but the program links no definition: add the library with //gocpp:link or //gocpp:pkg-config, or the C or C++ file that defines it to the package)\n" {
 			t.Errorf("gocpp build without the C file = %+v, want exit 1 and the link error at ./main.gp:6", r)
 		}
@@ -489,5 +489,54 @@ func TestEmitFailedPrefix(t *testing.T) {
 			strings.Count(stderr.String(), "internal error") != 1 {
 			t.Errorf("emitFailed(%v) = %d, %q; want %d and %q", tt.err, code, stderr.String(), exitInternal, tt.want)
 		}
+	}
+}
+
+// TestParseCandidates checks gcc's candidate notes with their reasons: the reason lines are
+// joined to the candidate before them.
+func TestParseCandidates(t *testing.T) {
+	out := tGP + ":7:7: error: no matching function for call to 'pick([]int)'\n" +
+		"    7 |  over.pick([]int{1})\n" +
+		tGP + ":3:12: note: candidate 1: 'int pick(int)'\n" +
+		tGP + ":3:12: note:   no known conversion for argument 1 from '[]int' to 'int'\n" +
+		tGP + ":4:12: note: candidate 2: 'int pick(long int, long int)'\n" +
+		tGP + ":4:12: note:   candidate expects 2 arguments, 1 provided\n"
+	diags := parseCXXErrors([]byte(out))
+	if len(diags) != 1 || len(diags[0].cands) != 2 {
+		t.Fatalf("parseCXXErrors = %+v, want one error with two candidates", diags)
+	}
+	c := diags[0].cands
+	if c[0].detail != "no known conversion for argument 1 from '[]int' to 'int'" || c[1].detail != "expects 2 arguments, 1 provided" {
+		t.Errorf("details = %q, %q", c[0].detail, c[1].detail)
+	}
+	if got := candidateText(c[1].text); got != "candidate: int pick(long int, long int)" {
+		t.Errorf("candidateText = %q", got)
+	}
+	for _, text := range []string{"candidate template ignored: could not match 'x'", "candidate 2: 'template<class T> void f(T)'", "candidate constructor not viable"} {
+		if !systemCandidateRx.MatchString(text) {
+			t.Errorf("systemCandidateRx does not match %q", text)
+		}
+	}
+	if systemCandidateRx.MatchString("candidate function not viable: requires 2 arguments") || systemCandidateRx.MatchString("candidate: 'int pick(int)'") {
+		t.Error("systemCandidateRx matches a candidate that is worth showing")
+	}
+}
+
+// TestParseContextOnce: gcc's instantiation context belongs to the first error after it; an
+// error after that, in other code, does not get its frames.
+func TestParseContextOnce(t *testing.T) {
+	out := "/w/h.h: In instantiation of 'void f(T) [with T = int]':\n" +
+		tGP + ":9:4:   required from here\n" +
+		"/w/h.h:3:5: error: no match\n" +
+		tGP + ":10:8: error: 'X' has no member named 'y'\n"
+	diags := parseCXXErrors([]byte(out))
+	if len(diags) != 2 {
+		t.Fatalf("got %d errors, want 2: %+v", len(diags), diags)
+	}
+	if len(diags[0].inst) != 1 || diags[0].inst[0].line != 9 {
+		t.Errorf("first error inst = %+v, want the frame at line 9", diags[0].inst)
+	}
+	if len(diags[1].inst) != 0 {
+		t.Errorf("second error inst = %+v, want none", diags[1].inst)
 	}
 }

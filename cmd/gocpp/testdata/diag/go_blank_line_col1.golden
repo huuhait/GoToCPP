@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:5:1: declared and not used: x
+	x := 1
+	^

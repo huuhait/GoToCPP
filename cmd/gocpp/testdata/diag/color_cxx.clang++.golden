@@ -1,0 +1,4 @@
+# command-line-arguments
+[1m./main.gp:8: [0m[1;31mC++: no viable conversion from '[]string' to 'int'[0m
+		_ = cstdlib.abs(s)
+		[1;32m~~~~~~~~~~~~~~~~~~[0m

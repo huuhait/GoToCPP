@@ -1,0 +1,6 @@
+# command-line-arguments
+[1m./main.gp:7:7: [0m[1;31mC++: no matching function for call to 'pick([]int)'[0m
+		over.pick([]int{1})
+		     [1;32m^[0m
+[35m	note: candidate: int pick(int) (./over.h:3); no known conversion for argument 1 from '[]int' to 'int'[0m
+[35m	note: candidate: int pick(long int, long int) (./over.h:4); expects 2 arguments, 1 provided[0m

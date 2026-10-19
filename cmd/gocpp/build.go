@@ -224,6 +224,7 @@ type buildFlags struct {
 	jobs     int    // -p, 0 for the default (GOMAXPROCS)
 
 	cppErrors cppErrorsMode // -cpperrors: "short" or "full"
+	diagOpts  diagOptions   // -color, -excerpt
 }
 
 func (f *buildFlags) register(flags *flag.FlagSet, withOutput bool) {
@@ -231,6 +232,7 @@ func (f *buildFlags) register(flags *flag.FlagSet, withOutput bool) {
 		flags.StringVar(&f.output, "o", "", "write the program to this file or folder")
 	}
 	f.cppErrors = "short"
+	f.diagOpts.register(flags)
 	flags.Var(&f.cppErrors, "cpperrors", "how much of the C++ compiler's errors to show: short or full")
 	flags.BoolVar(&f.asan, "asan", false, "build with AddressSanitizer and UndefinedBehaviorSanitizer")
 	flags.BoolVar(&f.nochecks, "nochecks", false, "build without the bounds and nil checks (division and shift checks stay)")
@@ -313,10 +315,12 @@ func runRun(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 // runEmit is "gocpp emit".
 func runEmit(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("gocpp emit", flag.ContinueOnError)
+	var ef buildFlags
+	ef.diagOpts.register(flags)
 	if code, done := parseFlags("emit", emitUsage, flags, args, stderr); done {
 		return code
 	}
-	d, code := newDriver("emit", &buildFlags{}, stdout, stderr)
+	d, code := newDriver("emit", &ef, stdout, stderr)
 	if d == nil {
 		return code
 	}
@@ -413,7 +417,7 @@ var stopSigs = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
 // newDriver returns the driver of the command name, or nil and the exit
 // status when it can't start.
 func newDriver(name string, f *buildFlags, stdout, stderr io.Writer) (*driver, int) {
-	c := &checkCommand{stdout: stdout, stderr: stderr, kinds: true}
+	c := &checkCommand{stdout: stdout, stderr: stderr, kinds: true, diagOpts: f.diagOpts}
 	var err error
 	if c.goos, c.goarch, err = target(); err != nil {
 		fmt.Fprintf(stderr, "gocpp: %v\n", err) // go exits with 2 too

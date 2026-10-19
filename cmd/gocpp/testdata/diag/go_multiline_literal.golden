@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:9:3: unknown field Z in struct literal of type P
+			Z: 2,
+			^

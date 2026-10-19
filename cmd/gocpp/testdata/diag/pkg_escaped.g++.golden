@@ -1,0 +1,7 @@
+# example.com/my-game/v2
+./main.gp:11: C++: cannot convert 'util.Pair' to 'int'
+		_ = cstdlib.abs(p)
+		~~~~~~~~~~~~~~~~~~
+./main.gp:12: C++: invalid conversion from 'util.Pair*' to 'int'
+		_ = cstdlib.abs(&p)
+		~~~~~~~~~~~~~~~~~~~

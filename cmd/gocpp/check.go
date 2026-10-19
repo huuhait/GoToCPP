@@ -81,6 +81,7 @@ func runCheck(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	flags.BoolVar(&c.all, "e", false, "report all errors, not only the first 10 of each package")
 	flags.BoolVar(&c.types, "types", false, "print the type of every expression to standard output")
+	c.diagOpts.register(flags)
 	flags.Usage = func() {
 		fmt.Fprint(stderr, checkUsage)
 		flags.PrintDefaults()
@@ -143,11 +144,12 @@ func signalContext() (context.Context, func() os.Signal, func()) {
 
 // A checkCommand is one run of "gocpp check".
 type checkCommand struct {
-	all           bool   // -e
-	types         bool   // -types
-	tests         bool   // load the _test.gp files too (gocpp vet)
-	dir           string // the current folder
-	goos, goarch  string // the target of the build constraints
+	all           bool        // -e
+	diagOpts      diagOptions // -color, -excerpt
+	types         bool        // -types
+	tests         bool        // load the _test.gp files too (gocpp vet)
+	dir           string      // the current folder
+	goos, goarch  string      // the target of the build constraints
 	stdout        io.Writer
 	stderr        io.Writer
 	fset          *token.FileSet
@@ -373,7 +375,7 @@ func importsBroken(p *load.Package, broken map[*load.Package]bool) bool {
 
 // print prints the diagnostics l like go build. all prints every error.
 func (c *checkCommand) print(w io.Writer, l *diag.List, all bool) {
-	p := diag.Printer{All: all, Dir: c.dir}
+	p := c.diagOpts.printer(w, c.dir, all)
 	if err := p.Print(w, l); err != nil {
 		fmt.Fprintf(c.stderr, "gocpp check: %v\n", err)
 	}

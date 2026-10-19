@@ -1,0 +1,7 @@
+# command-line-arguments
+./main.gp:7:4: C++: no matching function for call to 'push_back(const char [2])'
+		v.push_back("x")
+		  ^
+./main.gp:8: C++: no matching function for call to 'std::vector<long int>::size(int)'
+		_ = v.size(1)
+		~~~~~~~~~~~~~

@@ -1,0 +1,7 @@
+# command-line-arguments
+./main.gp:7:14: undefined: strlen
+		fmt.Println(strlen("abc"))
+		            ^~~~~~
+./main.gp:9:4: cannot use "x" (untyped string constant) as int value in argument to f
+		f("x")
+		  ^~~

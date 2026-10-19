@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:7:8: C++: no member named 'lenght' in 'std::string'
+		_ = s.lenght()
+		      ^

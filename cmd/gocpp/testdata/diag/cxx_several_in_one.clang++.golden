@@ -1,0 +1,16 @@
+# command-line-arguments
+./main.gp:13: C++: no viable conversion from '[]string' to 'int'
+		_ = cstdlib.abs(s)
+		~~~~~~~~~~~~~~~~~~
+./main.gp:14: C++: no viable conversion from 'map[string][]int' to 'int'
+		_ = cstdlib.abs(m)
+		~~~~~~~~~~~~~~~~~~
+./main.gp:15: C++: cannot initialize a parameter of type 'int' with an rvalue of type 'main.Point *'
+		_ = cstdlib.abs(p)
+		~~~~~~~~~~~~~~~~~~
+./main.gp:16: C++: no viable conversion from 'func(int) bool' to 'int'
+		_ = cstdlib.abs(f)
+		~~~~~~~~~~~~~~~~~~
+./main.gp:17: C++: no viable conversion from 'chan []byte' to 'int'
+		_ = cstdlib.abs(c)
+		~~~~~~~~~~~~~~~~~~

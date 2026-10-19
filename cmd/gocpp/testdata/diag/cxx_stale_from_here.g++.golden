@@ -1,0 +1,7 @@
+# command-line-arguments
+./main.gp:10: C++: no matching function for call to 'std::map<std::string, main.Node>::insert(int)'
+		m.insert(1)
+		~~~~~~~~~~~
+./main.gp:11:8: C++: 'std::map<std::string, main.Node>' has no member named 'nosuch'
+		_ = m.nosuch
+		      ^

@@ -1,0 +1,7 @@
+# command-line-arguments
+./main.gp:9:24: C++: no viable conversion from 'string' to 'int'
+		_ = cstdlib.abs(First[string](words))
+		                      ^
+./main.gp:10: C++: no viable conversion from 'string' to 'int'
+		_ = cstdlib.abs(First(words))
+		~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

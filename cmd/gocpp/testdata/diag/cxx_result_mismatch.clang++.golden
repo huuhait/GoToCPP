@@ -1,0 +1,2 @@
+# command-line-arguments
+./main.gp:6:17: cannot use cstdlib.abs(1) (C/C++ value) as string value in variable declaration: convert it, string(cstdlib.abs(1))

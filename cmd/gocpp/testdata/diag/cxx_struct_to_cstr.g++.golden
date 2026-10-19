@@ -1,0 +1,7 @@
+# command-line-arguments
+./main.gp:9: C++: cannot convert 'main.Point' to 'const char*'
+		cstdio.puts(p)
+		~~~~~~~~~~~~~~
+./main.gp:10: C++: cannot convert 'main.Point*' to 'const char*'
+		cstdio.puts(&p)
+		~~~~~~~~~~~~~~~

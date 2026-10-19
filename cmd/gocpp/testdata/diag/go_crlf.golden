@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:5:7: invalid operation: "a" + 1 (mismatched types untyped string and untyped int)
+		x := "a" + 1
+		     ^~~~~~~

@@ -1,0 +1,4 @@
+# command-line-arguments
+./main.gp:7:7: C++: 'std::vector<long int>' has no member named 'push_bak'; did you mean 'push_back'?
+		nums.push_bak(4)
+		     ^

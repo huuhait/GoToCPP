@@ -1,0 +1,7 @@
+# command-line-arguments
+./main.gp:5:2: declared and not used: undefinedName
+	 undefinedName := 1; println("padding padding padding padding padding padding padding padding paddi…
+	 ^
+./main.gp:5:137: invalid operation: 1 + "x" (mismatched types untyped int and untyped string)
+	…ng padding padding padding padding padding padding padding padding padding padding padding", 1+"x")
+	                                                                                              ^~~~~

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"unicode"
 	"unicode/utf8"
 )
@@ -22,6 +23,34 @@ type Printer struct {
 	// Source prints the source line under each diagnostic, and a caret (^)
 	// under its column. go build has no such option.
 	Source bool
+
+	// Indent starts each line of a source excerpt (Source). The go test
+	// runner and many editors read a line that starts with white space as
+	// the continuation of the diagnostic before it, so gocpp indents the
+	// excerpts with a tab.
+	Indent string
+
+	// MaxWidth is the most terminal cells that a source line of an
+	// excerpt takes. A longer line is cut on both sides of the column and
+	// marked with "…" (its tabs become single spaces, so that the caret
+	// stays under the column). 0 shows every line whole.
+	MaxWidth int
+
+	// WholeLine makes an excerpt of a place without a column (only the
+	// line is known, as with the C++ compiler's errors) underline the code
+	// of the line with ~, with no caret. Without it such a place has no
+	// excerpt.
+	WholeLine bool
+
+	// Related shows an excerpt under each related place that has a
+	// position too, if Source is set.
+	Related bool
+
+	// Color writes ANSI escape sequences: the position in bold, an error
+	// message in bold red, a warning in yellow, the related places
+	// (notes) in magenta and the carets in green. See ColorEnabled for
+	// the usual rules to turn it on.
+	Color bool
 
 	// Dir is the current folder: Print shows file names relative to it.
 	// It must be an absolute path. If it is empty, Print uses os.Getwd.
@@ -92,6 +121,7 @@ func (p *Printer) Print(w io.Writer, l *List) error {
 		cwd:     p.Dir,
 		dirs:    make(map[string]string),
 		files:   make(map[string][][]byte),
+		cells:   make(map[cellKey]*lineCells),
 	}
 	if s.cwd == "" {
 		s.cwd, _ = os.Getwd() // if it fails, cwd is "" and names stay as they are
@@ -117,26 +147,43 @@ type printState struct {
 	cwd   string              // the current folder, or "" to show names as they are
 	dirs  map[string]string   // a folder and how it is shown
 	files map[string][][]byte // the lines of each file; nil if it can't be read
+	cells map[cellKey]*lineCells
+}
+
+// A cellKey names a source line; its cells are made once however many errors point into it (a
+// generated line of megabytes with hundreds of errors).
+type cellKey struct {
+	file string
+	line int
+}
+
+// lineCells are the cells of a line and their terminal width.
+type lineCells struct {
+	cs    []cell
+	width int
 }
 
 // diagnostic writes d, its source line if s.Source is set, and its related
 // places.
 func (s *printState) diagnostic(b *bytes.Buffer, d *Diagnostic) {
-	b.WriteString(s.position(d.Pos))
+	b.WriteString(s.paint(styleBold, s.position(d.Pos)))
+	msgStyle := styleErrorMsg
 	if d.Severity != Error {
-		b.WriteString(d.Severity.String())
-		b.WriteString(": ")
+		b.WriteString(s.paint(styleWarning, d.Severity.String()+":"))
+		b.WriteByte(' ')
+		msgStyle = ""
 	}
-	b.WriteString(d.Msg)
+	b.WriteString(s.paint(msgStyle, d.Msg))
 	b.WriteByte('\n')
 	if s.Source {
-		s.source(b, d.Pos)
+		s.source(b, "", d.Pos, d.End)
 	}
 	for _, r := range d.Related {
-		b.WriteByte('\t')
-		b.WriteString(s.position(r.Pos))
-		b.WriteString(r.Msg)
+		b.WriteString(s.paint(styleNote, "\t"+s.position(r.Pos)+r.Msg))
 		b.WriteByte('\n')
+		if s.Source && s.Related {
+			s.source(b, "\t", r.Pos, token.Position{})
+		}
 	}
 }
 
@@ -218,57 +265,229 @@ func sameDir(cwd, rel, dir string) bool {
 	return os.SameFile(fi1, fi2)
 }
 
+// A cell is one character of a source line as the excerpt shows it.
+type cell struct {
+	text  string // what is written (U+FFFD for a character that is not safe)
+	width int    // terminal cells; a tab is 1 here, and written as a tab
+	tab   bool
+	start int // the byte offset in the line
+}
+
+// cells splits line into cells. Bad UTF-8, control characters (like the
+// start of an escape sequence) and bidi controls are shown as U+FFFD: as
+// they are, they could do strange things in a terminal. A bidi control
+// changes the order in which the terminal shows the characters after it
+// ("Trojan Source"), so the caret could point at the wrong one.
+func cells(line []byte) []cell {
+	cs := make([]cell, 0, len(line))
+	text := string(line) // the cells are pieces of it
+	for i := 0; i < len(line); {
+		r, size := utf8.DecodeRune(line[i:])
+		c := cell{start: i}
+		switch {
+		case r == '\t':
+			c.text, c.width, c.tab = "\t", 1, true
+		case r == utf8.RuneError && size == 1, unicode.IsControl(r), unicode.Is(unicode.Bidi_Control, r):
+			c.text, c.width = string(utf8.RuneError), 1
+		default:
+			c.text, c.width = text[i:i+size], width(r)
+		}
+		cs = append(cs, c)
+		i += size
+	}
+	return cs
+}
+
 // source writes the source line of pos, and under it a line with a caret
-// (^) under the column of pos. It writes nothing if the file can't be read,
-// the line doesn't exist, or the column is not on the line. The column
-// just after the last character is on the line: an error at the end of a
-// line points there.
-func (s *printState) source(b *bytes.Buffer, pos token.Position) {
-	if pos.Filename == "" || pos.Line < 1 || pos.Column < 1 {
+// (^) under the column of pos, and ~ under the rest of the range up to end
+// if end is on the same line (on a later line: up to the end of the line).
+// Every line starts with s.Indent and indent. It writes nothing if the file
+// can't be read, the line doesn't exist, or the column is not on the line.
+// The column just after the last character is on the line: an error at the
+// end of a line points there. Without a column, the code of the line is
+// underlined with ~ if s.WholeLine is set, else nothing is written.
+func (s *printState) source(b *bytes.Buffer, indent string, pos, end token.Position) {
+	if pos.Filename == "" || pos.Line < 1 || pos.Column < 0 || pos.Column < 1 && !s.WholeLine {
 		return
 	}
 	line, ok := s.line(pos.Filename, pos.Line)
+	if ok && pos.Column-1 > len(line) && s.lastLine(pos.Filename, pos.Line) {
+		// The end of the file ("expected '}', found 'EOF'") is after the last line's end: the caret
+		// goes just after the last character.
+		pos.Column = len(line) + 1
+		end = token.Position{}
+	}
 	if !ok || pos.Column-1 > len(line) {
 		return
 	}
-	// The caret line copies each tab of the source line, so that a tab
-	// moves both lines to the same place, and puts spaces for the other
-	// characters before the column: as many as the terminal cells they
-	// take.
-	var caret []byte
-	for i := 0; i < len(line); {
-		r, size := utf8.DecodeRune(line[i:])
-		before := i < pos.Column-1
-		switch {
-		case r == '\t':
-			b.WriteByte('\t')
-			if before {
-				caret = append(caret, '\t')
-			}
-		case r == utf8.RuneError && size == 1, unicode.IsControl(r), unicode.Is(unicode.Bidi_Control, r):
-			// Show bad UTF-8, control characters (like the start of an
-			// escape sequence) and bidi controls as U+FFFD. As they are,
-			// they could do strange things in a terminal. A bidi control
-			// changes the order in which the terminal shows the
-			// characters after it ("Trojan Source"), so the caret could
-			// point at the wrong one.
-			b.WriteRune(utf8.RuneError)
-			if before {
-				caret = append(caret, ' ')
-			}
-		default:
-			b.Write(line[i : i+size])
-			if before {
-				for range width(r) {
-					caret = append(caret, ' ')
-				}
-			}
-		}
-		i += size
+	lc := s.cells[cellKey{pos.Filename, pos.Line}]
+	if lc == nil {
+		cs := cells(line)
+		lc = &lineCells{cs, cellsWidth(cs)}
+		s.cells[cellKey{pos.Filename, pos.Line}] = lc
 	}
+	cs := lc.cs // shared: not changed below
+	// from and to are the cell numbers of the range: from is the caret
+	// (len(cs) just after the line), to the end of the range (exclusive).
+	var from, to int
+	caret := pos.Column > 0
+	if caret {
+		// A column in the middle of a character puts the caret after it.
+		from = cellAt(cs, pos.Column-1)
+		to = from + 1
+		switch {
+		case end.Filename == pos.Filename && end.Line > pos.Line:
+			to = len(cs)
+		case end.Filename == pos.Filename && end.Line == pos.Line && end.Column > pos.Column:
+			to = max(cellAt(cs, end.Column-1), from)
+		}
+	} else {
+		from = 0
+		for from < len(cs) && (cs[from].text == " " || cs[from].tab) {
+			from++
+		}
+		if from == len(cs) {
+			return // a blank line has nothing to underline
+		}
+		to = len(cs)
+		for to > from && (cs[to-1].text == " " || cs[to-1].tab) {
+			to--
+		}
+	}
+	to = max(to, from)
+
+	// The part of the line to show. A long line is cut around the caret.
+	lo, hi := 0, len(cs)
+	var before, after string
+	cut := false // the line is cut: a tab shows as a space (one cell)
+	if s.MaxWidth > 0 && lc.width > max(s.MaxWidth, minMaxWidth) {
+		cut = true
+		lo, hi = window(cs, from, max(s.MaxWidth, minMaxWidth))
+		if lo > 0 {
+			before = "…"
+		}
+		if hi < len(cs) {
+			after = "…"
+		}
+	}
+	to = min(to, hi)
+
+	b.WriteString(indent)
+	b.WriteString(s.Indent)
+	b.WriteString(before)
+	for _, c := range cs[lo:hi] {
+		if cut && c.tab {
+			b.WriteByte(' ')
+			continue
+		}
+		b.WriteString(c.text)
+	}
+	b.WriteString(after)
 	b.WriteByte('\n')
-	b.Write(caret)
-	b.WriteString("^\n")
+
+	// The caret line copies each tab of the source line before the range,
+	// so that a tab moves both lines to the same place, and puts spaces for
+	// the other characters: as many as the terminal cells they take.
+	var cl []byte
+	if before != "" {
+		cl = append(cl, ' ')
+	}
+	for _, c := range cs[lo:min(from, hi)] {
+		if c.tab && !cut {
+			cl = append(cl, '\t')
+			continue
+		}
+		for range c.width {
+			cl = append(cl, ' ')
+		}
+	}
+	n := 0 // the cells of the range
+	for _, c := range cs[min(from, hi):max(to, min(from, hi))] {
+		n += c.width
+	}
+	var mark []byte
+	if caret {
+		mark = append(mark, '^')
+		for range max(n, 1) - 1 {
+			mark = append(mark, '~')
+		}
+	} else {
+		for range n {
+			mark = append(mark, '~')
+		}
+	}
+	b.WriteString(indent)
+	b.WriteString(s.Indent)
+	b.Write(cl)
+	b.WriteString(s.paint(styleCaret, string(mark)))
+	b.WriteByte('\n')
+}
+
+// cellAt returns the number of cells of cs that start before the byte offset off: the index of
+// the first cell at or after it (a binary search: a line of megabytes can have many errors).
+func cellAt(cs []cell, off int) int {
+	return sort.Search(len(cs), func(i int) bool { return cs[i].start >= off })
+}
+
+// minMaxWidth is the least Printer.MaxWidth that is used: a narrower window
+// has no room for the code around the column.
+const minMaxWidth = 20
+
+// cellsWidth returns the terminal cells of cs.
+func cellsWidth(cs []cell) int {
+	n := 0
+	for _, c := range cs {
+		n += c.width
+	}
+	return n
+}
+
+// window returns the cells lo:hi of cs to show for a line that is wider than
+// maxw cells (a tab is a space then): the caret cell from is about a third
+// of the way into the window, which takes at most maxw cells with the
+// ellipsis (one cell) at each end that is cut.
+func window(cs []cell, from, maxw int) (lo, hi int) {
+	w := 0
+	for lo = min(from, len(cs)); lo > 0 && w+cs[lo-1].width <= maxw/3; lo-- {
+		w += cs[lo-1].width
+	}
+	avail := maxw
+	if lo > 0 {
+		avail--
+	}
+	w = 0
+	for hi = lo; hi < len(cs) && w+cs[hi].width <= avail; hi++ {
+		w += cs[hi].width
+	}
+	if hi < len(cs) { // the ellipsis on the right takes a cell
+		for hi > lo && w+1 > avail {
+			hi--
+			w -= cs[hi].width
+		}
+		return lo, hi
+	}
+	// The window reaches the end of the line: use the room on the left.
+	for lo > 0 && cellsWidth(cs[lo-1:hi])+boolInt(lo-1 > 0) <= maxw {
+		lo--
+	}
+	return lo, hi
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// lastLine reports whether n is the last line of the file name (already read by line): the
+// last one with text, as a final line end makes an empty line after it.
+func (s *printState) lastLine(name string, n int) bool {
+	lines := s.files[name]
+	if k := len(lines); k > 1 && len(lines[k-1]) == 0 {
+		return n == k-1
+	}
+	return n == len(lines)
 }
 
 // line returns line n (n >= 1) of the file, without its line end. It reads

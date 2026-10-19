@@ -1,0 +1,9 @@
+# command-line-arguments
+./main.gp:11:12: C++: no viable conversion from 'main.Node' to 'Node'
+		node.take(Node{}, "x")
+		          ^
+	note: candidate constructor (the implicit copy constructor) not viable: no known conversion from 'Node' to 'const Node &' for 1st argument (./node.h:3)
+	note: candidate constructor (the implicit move constructor) not viable: no known conversion from 'Node' to 'Node &&' for 1st argument (./node.h:3)
+./main.gp:12: C++: cannot initialize a parameter of type 'Node *' with an rvalue of type 'main.Node *'
+		node.takeP(&Node{})
+		~~~~~~~~~~~~~~~~~~~

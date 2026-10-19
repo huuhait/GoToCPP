@@ -1100,7 +1100,7 @@ fmt.Println(strings.ToUpper(s + "!"))
   values do ([pointers](#pointers-unsafe-and-slices-at-the-boundary)).
 - **A gocpp string is no C string.** `cstdio.puts(s)` doesn't compile: in opaque mode gocpp
   doesn't know that `puts` takes a `const char*`, so the C++ compiler reports it at the `.gp` line,
-  with a hint: "C++: cannot convert 'gp::string' to 'const char*' (a gocpp string is no C string:
+  with a hint: "C++: cannot convert 'string' to 'const char*' (a gocpp string is no C string:
   pass C.cstr(s), or C.CString(s) for a copy that C keeps)". `string(p)` of a C pointer is an
   error too ("use C.GoString(p)"), as in cgo.
 - **Strings that come through C++.** A gocpp string reached through a C++ value (a field of an
@@ -2231,6 +2231,42 @@ with status 1:
   here`). The errors are sorted by place; after 10 comes "too many errors", like `go build`.
 - **`-cpperrors=full`** (a flag of `gocpp build` and `gocpp run`) shows the compiler's whole output
   instead, under the package's line, with the package's folder written as `./`.
+- **gocpp's names in the message.** The compiler's message is rewritten with the names of the
+  `.gp` source: `gp::slice<gp::string>` is `[]string`, `gp::map<gp::string, double>` is `map[string]float64`,
+  `gp::ptr<T>` is `*T`, `gp::func<R(A)>` is `func(A) R`, `gp::chan<T>` is `chan T` (`<-chan T` or `chan<- T` when the line says so), `gp::any` and
+  `gp::error` are `any` and `error`, and `gpkg_main::Point` is `main.Point`; the namespace of an
+  imported package (`gpkg_github_dcom__a__engine`) is turned back into the package name (`engine`) by
+  reversing the escape of ADR-010 (the round trip is a property test). C and C++ types keep their
+  C++ names (`std::vector<int>`, `const char*`), the compiler's template noise is dropped
+  (`std::__cxx11::basic_string<char, ...>` is `std::string`; clang's `(aka ...)` of a runtime type
+  is left out). `-cpperrors=full` shows the raw text.
+  Names are rewritten only when the message proves them: Go types that share one C++ type
+  (`int` and `int64`, `uint`, `uint64` and `uintptr`, a channel in any direction) are shown as the
+  `.gp` line of the error spells them (the checker's types of that line); when the line does not
+  say, the C++ name stays (`[]int64_t`, `gp::chan<T>`) rather than a guess. A type of the package is `main.Point` when the text writes its namespace (gcc always does, clang
+  with `(aka 'gpkg_main::Point')`); a bare `Point` that clang writes stays as it is, because a C or C++
+  type of the same name looks the same. A raw name is never wrong, a wrong rewrite is.
+- **Candidates and macros.** The candidate list of "no matching function" is shown as notes, at
+  most three with the reason each one does not fit, then "and N more candidates" (the library's own
+  overloads, in the C++ standard library's and gocpp's runtime headers, are left out). A note "in expansion of macro 'X' (defined at ./x.h:5)"
+  is kept.
+- **Source excerpts and color.** When standard error is a terminal (`-excerpt=always|never|auto`,
+  `GOCPP_EXCERPT`; not with `TERM=dumb`), every error of gocpp or of the C++ compiler shows its
+  source line (tabs kept, wide characters counted by their cells, a line over 100 cells cut around
+  the column with `…`) and a caret under the column (`^~~~` for a span). The C++ compiler's column
+  means nothing in the generated code, so a C++ error has a line only: the caret goes under the
+  first name the message quotes that is a word of the line (`v.push_bak(x)`), a guess that can be
+  the wrong one when the name occurs twice (`x.foo(foo)`); without a quoted name the whole line is
+  underlined with `~~~~`. An error at the end of the file (`expected '}', found 'EOF'`) points just
+  after the last character of the last line. Color (`-color=auto|always|never`) is plain ANSI:
+  bold for the place, red for the error, magenta for notes, green for the caret. What decides, first
+  rule wins: the `-color` flag (`always`/`never`), `GOCPP_COLOR=always|never`, `NO_COLOR` set to
+  any non-empty value (no color), `CLICOLOR_FORCE` set to anything but empty or `0` (color),
+  `TERM=dumb` (no color), and otherwise whether standard error is a terminal. Without a terminal the
+  output is the plain `file:line:col: message` form that editors and CI read; the exit codes do not
+  change. `gocpp fmt` has gofmt's flags and gofmt's error format, and no `-color`. The golden tests are
+  `cmd/gocpp/testdata/diag` (a `.golden` file per
+  compiler where g++ and clang++ word an error differently; `GOCPP_UPDATE_DIAG=1` rewrites them).
 - **Link errors.** A function that a header declares but that nothing the program links defines
   (a library without its `//gocpp:link` or `//gocpp:pkg-config` line, a missing `.c` file) is your
   error too, at the `.gp` line that uses it (from the debug information; GNU ld, lld and mold are

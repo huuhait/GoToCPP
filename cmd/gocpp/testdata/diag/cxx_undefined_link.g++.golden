@@ -1,0 +1,6 @@
+# command-line-arguments
+./main.gp:6:15: C++: undefined reference to 'gocpp_test_undefined_fn'
+		undefined_fn.gocpp_test_undefined_fn(1)
+		             ^
+	note: used in function main.main
+	(the headers declare it, but the program links no definition: add the library with //gocpp:link or //gocpp:pkg-config, or the C or C++ file that defines it to the package)
