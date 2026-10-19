@@ -280,6 +280,10 @@ const (
 	exitErrors   = 1
 	exitInternal = 2
 	exitUsage    = 2 // a flag that can't be used here (-emit-llvm with g++): like a flag that does not parse
+
+	// exitNoTestFiles is what load returns for gocpp test when the package has no test files
+	// (nothing is printed: gocpp test says "[no test files]").
+	exitNoTestFiles = -1
 )
 
 // testHookCPP, when it isn't nil, changes the C++ that the emitter wrote
@@ -468,9 +472,13 @@ type driver struct {
 	mu      sync.Mutex
 	stopped os.Signal
 	running *exec.Cmd // the program, while gocpp run runs it
-	work    string    // the work folder, while there is one
-	gen     string    // the folder of the generated C++ of the program that is built
-	removed bool      // the work folder was removed early (SIGTERM)
+	// runningGroup says that the program runs in a process group of its own (gocpp test): then the
+	// terminal's signals do not reach it, and watchSignals passes SIGINT on too, to the group.
+	runningGroup  bool
+	groupSignaled bool   // a signal was passed on to the group: execTest kills what it leaves
+	work          string // the work folder, while there is one
+	gen           string // the folder of the generated C++ of the program that is built
+	removed       bool   // the work folder was removed early (SIGTERM)
 
 	lib      *libState // the library that a library mode builds (modes.go)
 	libRoots []string  // the import paths of the packages of a cpp-lib
@@ -485,6 +493,8 @@ type driver struct {
 	stamp         *stampState // the up-to-date check of this build, or nil (uptodate.go)
 	upToDateBuild bool        // the build found its program current
 	noStamp       string      // why there is none
+
+	test *testRun // gocpp test: what the generated main package found (nil for the other commands)
 
 	stats  build.Stats // what the compiles and the link did (printed by -x)
 	counts struct {    // what the front end did (printed by -x)
@@ -587,8 +597,20 @@ func (d *driver) watchSignals() {
 		d.mu.Lock()
 		switch {
 		case d.running != nil:
-			if sig == syscall.SIGTERM || sig == syscall.SIGHUP {
-				d.running.Process.Signal(sig)
+			s, _ := sig.(syscall.Signal)
+			switch {
+			case (sig == syscall.SIGINT || sig == syscall.SIGQUIT) && d.runningGroup:
+				// The terminal sent it to gocpp only: the test binary and the processes of its
+				// group get it (execTest kills what is left when the binary is gone).
+				d.groupSignaled = true
+				signalTest(d.running, s, true)
+			case sig == syscall.SIGTERM || sig == syscall.SIGHUP:
+				if d.runningGroup {
+					d.groupSignaled = true
+					signalTest(d.running, s, true)
+				} else {
+					d.running.Process.Signal(sig)
+				}
 				if d.work != "" && !d.flags.work && runtime.GOOS != "windows" {
 					os.RemoveAll(d.work)
 					d.removed = true
@@ -687,6 +709,9 @@ func (d *driver) load(patterns []string) (*buildSet, int) {
 	if code != 0 {
 		return nil, code
 	}
+	if d.test != nil && d.test.noTestFiles {
+		return nil, exitNoTestFiles
+	}
 	var roots []*load.Package
 	for _, p := range prog.Roots {
 		if !c.dropped[p] {
@@ -698,7 +723,13 @@ func (d *driver) load(patterns []string) (*buildSet, int) {
 	// imports them.
 	var mains []*load.Package
 	for _, p := range roots {
-		if p.Name == "main" {
+		if d.test != nil {
+			// gocpp test: the program is the generated main package of the test binary (the
+			// package under test may be a main package too).
+			if p.ForTest != "" && p.ImportPath == p.ForTest+".test" {
+				mains = append(mains, p)
+			}
+		} else if p.Name == "main" {
 			mains = append(mains, p)
 		}
 	}
@@ -954,6 +985,7 @@ var exeSuffix = func() string {
 type program struct {
 	work string // the work folder
 	exe  string // the program file
+	dir  string // the folder of the main package (gocpp test runs the program there)
 }
 
 // compile checks and builds the program of the patterns in a new work folder. On failure it
@@ -1139,7 +1171,7 @@ func (d *driver) compile(patterns []string) (*program, int) {
 			st.compilers = append(st.compilers, build.CompilerID(cc))
 		}
 	}
-	return &program{work: work, exe: exe}, 0
+	return &program{work: work, exe: exe, dir: set.main.Load.Dir}, 0
 }
 
 // buildFailed prints the error err of Build.Link and returns the exit status and whether the

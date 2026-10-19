@@ -72,7 +72,9 @@ func (b *Builder) Link(ctx context.Context, pkgs []PackageBuild, out string) err
 	b.sc = statMemo()
 	defer b.waitPCH() // a header that is still being built is finished, not left half done
 	defer b.stores.Wait()
-	rtDir, rtObjs, rtErr := b.runtime(ctx, flags)
+	// Only a program that imports testing is linked with the natives of testing (rtfiles.TestingSources).
+	usesTesting := slices.ContainsFunc(pkgs, func(pb PackageBuild) bool { return pb.Path == "testing" })
+	rtDir, rtObjs, rtErr := b.runtime(ctx, flags, usesTesting)
 	if rtErr != nil {
 		return rtErr
 	}

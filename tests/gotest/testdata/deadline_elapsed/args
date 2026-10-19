@@ -1,0 +1,7 @@
+-v
+-timeout
+30s
+-bench
+E
+-benchtime
+10x

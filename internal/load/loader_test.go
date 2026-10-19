@@ -1632,3 +1632,99 @@ func TestRealStdlib(t *testing.T) {
 		})
 	}
 }
+
+// testMainStd is the fake standard library with testing and its internal package testdeps.
+func testMainStd() fstest.MapFS {
+	std := maps.Clone(fakeStd)
+	std["testing/testing.gp"] = &fstest.MapFile{Data: []byte("package testing\n\ntype T struct{}\n")}
+	std["testing/internal/testdeps/deps.gp"] = &fstest.MapFile{Data: []byte("package testdeps\n\nvar ImportPath string\n")}
+	return std
+}
+
+func testMainGoStd(path string) bool {
+	return goStd(path) || path == "testing" || path == "testing/internal/testdeps"
+}
+
+// TestTestMain checks Config.TestMain: the generated main package is the last root, in the graph of
+// the test, so it imports the test variant of the package under test and its external test package, and
+// it may import testing/internal/testdeps, which a user package may not.
+func TestTestMain(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"gocpp.mod":      "module example.com/m\n",
+		"geom/geom.gp":   "package geom\n\nfunc Area() int { return 1 }\n",
+		"geom/a_test.gp": "package geom\n\nfunc Helper() int { return Area() }\n",
+		"geom/x_test.gp": "package geom_test\n\nimport \"example.com/m/geom\"\n\nvar _ = geom.Helper\n",
+		"plain/plain.gp": "package plain\n",
+		"user/user.gp":   "package user\n\nimport _ \"testing/internal/testdeps\"\n",
+	})
+	main := `package main
+
+import (
+	"testing"
+	"testing/internal/testdeps"
+
+	_test "example.com/m/geom"
+	_xtest "example.com/m/geom_test"
+)
+
+var _ = testing.T{}
+var _ = testdeps.ImportPath
+var _ = _test.Area
+var _ = _xtest.Missing
+
+func main() {}
+`
+	var calls []string
+	hook := func(fset *token.FileSet, p, xt *Package) ([]byte, []diag.Diagnostic) {
+		calls = append(calls, fmt.Sprintf("%s xtest=%v files=%d", p.ImportPath, xt != nil, len(p.Files)))
+		return []byte(main), nil
+	}
+	cfg := Config{Tests: true, TestMain: hook, Stdlib: testMainStd(), GoStd: testMainGoStd}
+	prog := loadIn(t, cfg, root, "./geom")
+	wantErrors(t, prog, root, "")
+	if len(calls) != 1 || calls[0] != "example.com/m/geom xtest=true files=2" {
+		t.Errorf("TestMain calls = %q", calls)
+	}
+	if len(prog.Roots) != 3 {
+		t.Fatalf("%d roots, want the package, its external test package and the main package", len(prog.Roots))
+	}
+	pkg, xt, m := prog.Roots[0], prog.Roots[1], prog.Roots[2]
+	if m.ImportPath != "example.com/m/geom.test" || m.Name != "main" || m.ForTest != "example.com/m/geom" || len(m.Files) != 1 {
+		t.Errorf("main package = %s %s ForTest %q, %d files", m.ImportPath, m.Name, m.ForTest, len(m.Files))
+	}
+	if m.Files[0].Test || filepath.Base(m.Files[0].Path) != "_testmain.gp" || filepath.Dir(m.Files[0].Path) != pkg.Dir {
+		t.Errorf("file of the main package = %+v", m.Files[0].Path)
+	}
+	if m.Imports["example.com/m/geom"] != pkg {
+		t.Errorf("the main package does not import the test variant of the package")
+	}
+	if m.Imports["example.com/m/geom_test"] != xt {
+		t.Errorf("the main package does not import the external test package")
+	}
+	if m.Imports["testing/internal/testdeps"] == nil || m.Imports["testing"] == nil {
+		t.Errorf("imports of the main package: %v", slices.Sorted(maps.Keys(m.Imports)))
+	}
+	if got := typeCheckProgram(t, prog, root); !strings.Contains(got, "geom_test.Missing") && !strings.Contains(got, "Missing") {
+		t.Errorf("the main package was not type-checked with the others: %q", got)
+	}
+
+	// A user package may not import testing/internal/testdeps.
+	prog = loadIn(t, Config{Stdlib: testMainStd(), GoStd: testMainGoStd}, root, "./user")
+	wantErrors(t, prog, root, "# example.com/m/user\nuser/user.gp:3:8: use of internal package testing/internal/testdeps not allowed\n")
+
+	// No hook result, no main package; a package without test files is still the plain package.
+	hook = func(*token.FileSet, *Package, *Package) ([]byte, []diag.Diagnostic) { return nil, nil }
+	prog = loadIn(t, Config{Tests: true, TestMain: hook, Stdlib: testMainStd(), GoStd: testMainGoStd}, root, "./plain")
+	if len(prog.Roots) != 1 {
+		t.Errorf("%d roots without a main package", len(prog.Roots))
+	}
+
+	// Errors of the hook go to the package under test, and there is no main package.
+	hook = func(fset *token.FileSet, p, xt *Package) ([]byte, []diag.Diagnostic) {
+		return []byte(main), []diag.Diagnostic{{Pos: token.Position{Filename: filepath.Join(p.Dir, "a_test.gp"), Line: 3}, Msg: "wrong signature for TestX"}}
+	}
+	prog = loadIn(t, Config{Tests: true, TestMain: hook, Stdlib: testMainStd(), GoStd: testMainGoStd}, root, "./geom")
+	if len(prog.Roots) != 2 || !prog.Roots[0].Errors.HasErrors() {
+		t.Errorf("roots %d, hook errors not in the package: %v", len(prog.Roots), prog.Roots[0].Errors.Diagnostics())
+	}
+}

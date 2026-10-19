@@ -42,7 +42,7 @@ import (
 
 // lowerSplit lowers the package into g.out for the split layout.
 func (g *gen) lowerSplit() bool {
-	if g.pkg.Types.Name() == "main" {
+	if g.pkg.Load.IsProgram() {
 		mainFn, _ := g.pkg.Types.Scope().Lookup("main").(*types.Func)
 		if mainFn == nil {
 			g.errorf(g.firstPos(), "%v", errNoMain)
@@ -327,7 +327,7 @@ func (g *gen) initFile(pf *PackageFiles) *cppir.File {
 	// cpp-lib) the last package of the program, which has gp_init_all but no main: the library's
 	// glue calls gp_init_all when its first function is called (gocpp/lib.hpp).
 	lib := g.opts.Library
-	main := g.pkg.Types.Name() == "main"
+	main := g.pkg.Load.IsProgram()
 	entry := main && !lib || lib && g == g.prog.gens[len(g.prog.gens)-1]
 	if len(decls) == 0 && !entry {
 		return nil

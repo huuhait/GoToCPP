@@ -23,7 +23,7 @@ import (
 // more pattern, and so does a new kind of file (a native .cpp file);
 // TestFSHasEveryFile finds a file that no pattern matches.
 //
-//go:embed LICENSE */*.gp */*/*.gp
+//go:embed LICENSE */*.gp */*/*.gp */*/*/*.gp
 var files embed.FS
 
 // FS returns the standard library: a read-only file system whose root is

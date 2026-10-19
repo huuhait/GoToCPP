@@ -9,9 +9,11 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <new>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -1005,10 +1007,24 @@ bool read_entries(reader& r, bool dw64, std::string_view line_str, std::string_v
     return !r.bad;
 }
 
+// A line_collector keeps every row of the line table instead of answering queries: the ranges of
+// addresses [lo, hi) of the table, in the order of the units, with the line and the file (an index
+// in files). indexed_lines_of builds one once and answers from it.
+struct line_span {
+    uint64_t lo = 0, hi = 0;
+    int64_t line = 0;
+    uint32_t file = 0;
+};
+struct line_collector {
+    std::vector<line_span> ranges;
+    std::vector<std::string> files;
+    std::unordered_map<std::string, uint32_t> ids;
+};
+
 // One unit of the line table: its header and its line program.
-// qs are the queries, sorted by address.
+// qs are the queries, sorted by address; with col, nothing is asked and every row is kept in col.
 void line_unit(reader& r, std::string_view line_str, std::string_view str,
-               const std::vector<line_query*>& qs) {
+               const std::vector<line_query*>& qs, line_collector* col) {
     bool dw64 = false;
     uint64_t length = r.fixed(4);
     if (length == 0xffffffff) {
@@ -1125,8 +1141,20 @@ void line_unit(reader& r, std::string_view line_str, std::string_view str,
     bool have_prev = false, skip_seq = false;
     uint64_t prev_addr = 0, prev_file = 0;
     int64_t prev_line = 0;
+    std::unordered_map<uint64_t, uint32_t> file_ids; // the files of this unit, by number, for col
     auto row = [&](bool end_seq) {
-        if (!skip_seq && have_prev && prev_addr < addr) {
+        if (!skip_seq && have_prev && prev_addr < addr && col != nullptr) {
+            auto it = file_ids.find(prev_file);
+            if (it == file_ids.end()) {
+                auto [id, fresh] = col->ids.try_emplace(path_of(prev_file), 0);
+                if (fresh) {
+                    id->second = static_cast<uint32_t>(col->files.size());
+                    col->files.push_back(id->first);
+                }
+                it = file_ids.emplace(prev_file, id->second).first;
+            }
+            col->ranges.push_back(line_span{prev_addr, addr, prev_line, it->second});
+        } else if (!skip_seq && have_prev && prev_addr < addr) {
             // The queries in [prev_addr, addr): a binary search, so a row costs log(queries).
             auto k = std::lower_bound(qs.begin(), qs.end(), prev_addr,
                                       [](const line_query* q, uint64_t a) { return q->addr < a; });
@@ -1217,7 +1245,60 @@ void lines_of(std::string_view debug_line, std::string_view line_str, std::strin
     const auto* p = reinterpret_cast<const unsigned char*>(debug_line.data());
     reader r{p, p + debug_line.size()};
     while (!r.bad && r.left() > 0) {
-        line_unit(r, line_str, str, sorted);
+        line_unit(r, line_str, str, sorted, nullptr);
+    }
+}
+
+namespace {
+
+// The line table of the program, read once by indexed_lines_of: the ranges sorted by address (the
+// first unit wins where two overlap, as in lines_of).
+struct line_index {
+    const char* data = nullptr; // the section it was read from
+    std::size_t size = 0;
+    line_collector col;
+    bool built = false;
+};
+
+} // namespace
+
+void indexed_lines_of(std::string_view debug_line, std::string_view line_str, std::string_view str,
+                      line_query* queries, std::size_t n) {
+    static std::mutex mu;
+    static line_index* idx = new line_index; // never freed: a leak check finds it through here
+    std::lock_guard<std::mutex> lk(mu);
+    if (!idx->built || idx->data != debug_line.data() || idx->size != debug_line.size()) {
+        *idx = line_index{};
+        idx->data = debug_line.data();
+        idx->size = debug_line.size();
+        const auto* p = reinterpret_cast<const unsigned char*>(debug_line.data());
+        reader r{p, p + debug_line.size()};
+        const std::vector<line_query*> none;
+        while (!r.bad && r.left() > 0) {
+            line_unit(r, line_str, str, none, &idx->col);
+        }
+        std::stable_sort(idx->col.ranges.begin(), idx->col.ranges.end(),
+                         [](const line_span& a, const line_span& b) { return a.lo < b.lo; });
+        idx->built = true;
+    }
+    const std::vector<line_span>& rs = idx->col.ranges;
+    for (std::size_t k = 0; k < n; k++) {
+        line_query& q = queries[k];
+        if (q.line != 0) {
+            continue;
+        }
+        // The last range that starts at or before the address; the ones before it that overlap it
+        // (rare: the same code in two units) are looked at too.
+        auto it = std::upper_bound(rs.begin(), rs.end(), q.addr,
+                                   [](uint64_t a, const line_span& r) { return a < r.lo; });
+        for (std::size_t back = 0; back < 4 && it != rs.begin(); back++) {
+            --it;
+            if (q.addr < it->hi) {
+                q.file = idx->col.files[it->file];
+                q.line = it->line;
+                break;
+            }
+        }
     }
 }
 

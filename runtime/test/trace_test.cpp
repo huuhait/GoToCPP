@@ -357,6 +357,38 @@ void test_lines() {
         gp::detail::lines_of(bad, img.debug_line_str.substr(0, n % 64), "", &r, 1);
     }
     CHECK(true); // reached the end
+
+    // indexed_lines_of (the index of the whole table, read once) answers as lines_of does, for the
+    // first, the middle and the last address of many functions, and again when asked a second time.
+    std::vector<gp::detail::line_query> asked;
+    for (std::size_t k = 0; k < img.funcs.size(); k += 3) {
+        const auto& f = img.funcs[k];
+        for (uint64_t off :
+             {uint64_t(0), uint64_t(f.size / 2), uint64_t(f.size > 0 ? f.size - 1 : 0)}) {
+            gp::detail::line_query a;
+            a.addr = f.addr + off;
+            asked.push_back(a);
+        }
+    }
+    std::vector<gp::detail::line_query> plain = asked, indexed = asked, again = asked;
+    gp::detail::lines_of(img.debug_line, img.debug_line_str, img.debug_str, plain.data(),
+                         plain.size());
+    gp::detail::indexed_lines_of(img.debug_line, img.debug_line_str, img.debug_str, indexed.data(),
+                                 indexed.size());
+    gp::detail::indexed_lines_of(img.debug_line, img.debug_line_str, img.debug_str, again.data(),
+                                 again.size());
+    int64_t found = 0;
+    for (std::size_t k = 0; k < asked.size(); k++) {
+        CHECK_EQ(indexed[k].line, plain[k].line);
+        CHECK(indexed[k].file == plain[k].file);
+        CHECK_EQ(again[k].line, plain[k].line);
+        found += plain[k].line != 0 ? 1 : 0;
+    }
+    CHECK(found > 100);
+    gp::detail::line_query nothing;
+    nothing.addr = 1;
+    gp::detail::indexed_lines_of(img.debug_line, img.debug_line_str, img.debug_str, &nothing, 1);
+    CHECK_EQ(nothing.line, int64_t(0));
 }
 
 // The file names of a line table written by hand (DWARF 4): a native Windows path, as clang writes

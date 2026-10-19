@@ -1,0 +1,3 @@
+bench
+want: 1 allocs/op
+want: 0 allocs/op

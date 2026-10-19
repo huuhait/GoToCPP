@@ -1,0 +1,3 @@
+diverge: the line of the message is in testing's own source, which is another file than Go's
+want: returned without calling F.Fuzz, F.Fail, or F.Skip
+want: --- FAIL: FuzzNo

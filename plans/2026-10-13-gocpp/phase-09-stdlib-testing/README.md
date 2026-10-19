@@ -255,6 +255,14 @@ files pass".
 8. **9.8 `time`** (ported logic + native hooks + zoneinfo lookup).
 9. **9.9 `flag`, `testing` + `gocpp test`** (T incl. `Parallel`, B with `Loop`, examples, flags,
    Go-style output).
+   *First slice built (job 9.9): `gocpp test` and `testing` without waiting for the ports of `sync`, `time`,
+   `os`, `flag` and `regexp`; `flag` itself is still 9.4's. The loader generates the main package of each
+   test binary (`load.Config.TestMain`, `internal/gotest`), `stdlib/testing` is Go 1.25's package in `.gp` on a
+   short list of natives (`runtime/include/gocpp/testing.hpp`), and `tests/gotest` compares the output with
+   real `go test` on 56 fixtures (and a few more tests: the regexp dialect, reruns, `-o`, the order of parallel tests). Decisions, differences and gaps: ADR-056, `stdlib/testing/PORT.md`,
+   `docs/guides/testing.md`. A `package main` can be tested, fuzz targets run their seed corpus, and the allocation
+   columns count C++ `operator new`. Left for later: `-json`, `-race`, coverage, the fuzzing engine, `T.Context`/`T.Output`
+   (need `context`/`io`), vet, the goroutine dump of a timeout, the natives replaced by their ports (the list in PORT.md).*
 10. **9.10 Run Go's tests** for tier 1 and the deferred suites (§2.8): test-only packages, patches
     with reasons, the counting rule; fix the gocpp bugs they find.
 11. **9.11 Tier-2 packages**, `encoding/json` first.

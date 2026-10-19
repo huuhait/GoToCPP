@@ -72,6 +72,19 @@ type Config struct {
 	// of the program. A package without such files is the plain package.
 	Tests bool
 
+	// TestMain, with Tests, makes the main package of a test binary, like the
+	// main package that go test generates: after the package under test p
+	// (the test variant when it has internal tests) and its external test
+	// package xtest (nil if there is none) are loaded, TestMain is called
+	// (and the file set) and returns the source of a file "package main"
+	// (nil: no main package) or the errors that stop the test (added to p). The file is the only one of a package that is the last
+	// root, after p and xtest, with the import path p.ImportPath + ".test".
+	// It can import p, the path of xtest (p.ImportPath + "_test") and
+	// "testing/internal/testdeps" besides the packages that any file can
+	// import, and it is loaded in the import graph of the test: p is the
+	// test variant. TestMain is not called when p or xtest has load errors.
+	TestMain func(fset *token.FileSet, p, xtest *Package) ([]byte, []diag.Diagnostic)
+
 	// AllErrors parses with parser.AllErrors: all syntax errors, not only
 	// the first 10 on different lines (gocpp check -e).
 	AllErrors bool
@@ -281,6 +294,16 @@ type Package struct {
 	// xtestOf is the package of an external test package, and xtest the
 	// external test package of a package. Else they are nil.
 	xtestOf, xtest *Package
+
+	// testMainOf is the package under test of the generated main package
+	// of a test binary (Config.TestMain), and xtestMain the external test
+	// package it imports, if any.
+	testMainOf, xtestMain *Package
+
+	// testMain says that the package is the generated main package of a test binary, and
+	// mainUnderTest that it is a package main that a test binary imports (go test builds it
+	// as a library, its main function is a function like any other): see IsProgram.
+	testMain, mainUnderTest bool
 
 	// exported holds the exported package-level names, for dot imports.
 	// It is nil until dotNames needs it.
@@ -858,7 +881,52 @@ func (l *loader) startTest(p, xt *Package) {
 		l.process(xt)
 		l.state[xt] = loaded
 	}
+	l.loadTestMain(p, xt)
 	l.stack, l.graph = nil, nil
+}
+
+// IsProgram reports whether the package is the main package of the program, the one with the entry
+// point: a package main, except one that a test binary imports (the generated main package of the
+// test binary is the program then, and it is not named main: a program has one package named main).
+func (p *Package) IsProgram() bool {
+	return p.testMain || p.Name == "main" && !p.mainUnderTest
+}
+
+// testMainFile is the name of the file of the generated main package of a test binary.
+const testMainFile = "_testmain.gp"
+
+// loadTestMain loads the main package that Config.TestMain makes for the test of p and its
+// external test package xt (which may be nil), in the import graph of the test.
+func (l *loader) loadTestMain(p, xt *Package) {
+	if l.cfg.TestMain == nil || p.ImportPath == commandLine || p.Errors.HasErrors() || xt != nil && xt.Errors.HasErrors() {
+		return
+	}
+	src, errs := l.cfg.TestMain(l.fset, p, xt)
+	for _, d := range errs {
+		p.Errors.Add(d)
+	}
+	if src == nil || len(errs) > 0 {
+		return
+	}
+	m := l.newPackage(p.ImportPath+".test", p.Dir, p.Std, p.Module)
+	m.testMainOf, m.xtestMain = p, xt
+	m.testMain = true
+	if p.Name == "main" {
+		p.mainUnderTest = true
+	}
+	m.ForTest = p.ImportPath
+	path := filepath.Join(p.Dir, testMainFile)
+	if l.cfg.Overlay == nil {
+		l.cfg.Overlay = make(map[string][]byte)
+	}
+	l.cfg.Overlay[path] = src
+	l.read(m, []string{path}, false)
+	l.prog.Roots = append(l.prog.Roots, m)
+	l.stack = []stackEntry{{pkg: m}}
+	l.state[m] = loading
+	l.all = append(l.all, m)
+	l.process(m)
+	l.state[m] = loaded
 }
 
 // readXTest reads the external test files (package c_test) of the plain
@@ -1335,7 +1403,7 @@ func (l *loader) process(p *Package) {
 			pos := l.fset.Position(spec.Pos())
 			if msg, ok := problems[path]; ok {
 				p.Errors.Errorf(pos, "%s", msg)
-			} else if dep := p.Imports[path]; dep != nil && dep.Name == "main" && dep != p.xtestOf {
+			} else if dep := p.Imports[path]; dep != nil && dep.Name == "main" && dep != p.xtestOf && dep != p.testMainOf {
 				p.Errors.Errorf(pos, "import %q is a program, not an importable package", path)
 			}
 		}

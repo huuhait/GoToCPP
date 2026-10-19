@@ -235,6 +235,9 @@ func TestRealPackagesMatchStub(t *testing.T) {
 			continue
 		}
 		t.Run(strings.ReplaceAll(p.Path, "/", "_"), func(t *testing.T) {
+			if p.Differs != "" {
+				t.Skip(p.Differs)
+			}
 			stub, err := stubImp.Import(p.Path)
 			if err != nil {
 				t.Fatal(err)

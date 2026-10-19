@@ -181,8 +181,8 @@ void resolve_pcs(const uintptr_t* pcs, std::size_t n, bool call, frame_info* out
     if (queries.empty()) {
         return;
     }
-    lines_of(st.img.debug_line, st.img.debug_line_str, st.img.debug_str, queries.data(),
-             queries.size());
+    indexed_lines_of(st.img.debug_line, st.img.debug_line_str, st.img.debug_str, queries.data(),
+                     queries.size());
     for (std::size_t j = 0; j < todo.size(); j++) {
         std::size_t i = todo[j];
         out[i].file = std::move(queries[j].file);

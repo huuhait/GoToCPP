@@ -59,6 +59,13 @@ func (l *loader) resolve(from *Package, path string, at token.Position) (*Packag
 	if hiddenPath(path) {
 		return nil, fmt.Sprintf("use of internal package %s not allowed", path)
 	}
+	if from.testMainOf != nil {
+		// The generated main package of a test binary imports the external test package by the
+		// path that it has, and testdeps, which is internal to testing.
+		if xt := from.xtestMain; xt != nil && path == xt.ImportPath {
+			return xt, ""
+		}
+	}
 	loc, msg := l.find(from, path)
 	// Go's rule for internal packages comes first for a package that
 	// exists, also for a standard package that gocpp doesn't have yet;
@@ -117,6 +124,9 @@ func (l *loader) resolve(from *Package, path string, at token.Position) (*Packag
 // The .gp files named on the command line count as the package of their
 // folder, and an external test package as its package.
 func internalAllowed(from *Package, path string) bool {
+	if from.testMainOf != nil && path == "testing/internal/testdeps" {
+		return true // the generated main package of a test binary (Config.TestMain)
+	}
 	var parent string
 	switch {
 	case strings.HasSuffix(path, "/internal"):

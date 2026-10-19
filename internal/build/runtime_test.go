@@ -265,7 +265,7 @@ func TestBrokenObjects(t *testing.T) {
 	var trace strings.Builder
 	b := &Builder{CXX: cxx, GOOS: runtime.GOOS, Work: work, Cache: cache, Trace: &trace}
 	flags := Flags(cxx, false)
-	dir, objs, err := b.runtime(context.Background(), flags)
+	dir, objs, err := b.runtime(context.Background(), flags, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestBrokenObjects(t *testing.T) {
 	if err := os.Remove(objs[0]); err != nil {
 		t.Fatal(err)
 	}
-	_, again, err := b.runtime(context.Background(), flags)
+	_, again, err := b.runtime(context.Background(), flags, false)
 	if err != nil || !allExist(again) || again[0] != objs[0] {
 		t.Fatalf("runtime after a missing object file = %q, %v", again, err)
 	}

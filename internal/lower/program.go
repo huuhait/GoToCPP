@@ -71,7 +71,7 @@ func NewProgram(fset *token.FileSet, in []PackageInput, opts Options) *Program {
 		p.gens = append(p.gens, g)
 		p.byPkg[pi.Pkg.Types] = g
 		p.byLoc[pi.Pkg.Load.ImportPath] = g
-		if pi.Pkg.Types.Name() == "main" {
+		if pi.Pkg.Load.IsProgram() {
 			p.main = g
 		}
 	}

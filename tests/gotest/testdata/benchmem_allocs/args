@@ -1,0 +1,6 @@
+-bench
+Alloc
+-benchtime
+100x
+-run
+^$

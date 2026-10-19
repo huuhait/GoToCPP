@@ -1,0 +1,4 @@
+-v
+-run
+TestS/b.*/x
+.

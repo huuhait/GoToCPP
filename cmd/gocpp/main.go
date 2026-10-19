@@ -35,7 +35,7 @@ type command struct {
 var commands = []command{
 	{name: "build", phase: 2, summary: "compile packages and their C/C++ files", run: runBuild},
 	{name: "run", phase: 2, summary: "compile and run a program", run: runRun},
-	{name: "test", phase: 9, summary: "run the tests in _test.gp files"},
+	{name: "test", phase: 9, summary: "run the tests in _test.gp files", run: runTest},
 	{name: "check", phase: 1, summary: "parse and type-check packages, print errors", run: runCheck},
 	{name: "emit", phase: 2, summary: "print the C++ generated for a .gp file", run: runEmit},
 	{name: "expand", phase: 10, summary: "print code after macro, #Derive and ! rewriting"},

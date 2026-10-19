@@ -1,0 +1,4 @@
+-v
+-vet=off
+-run
+FuzzF/ok1|FuzzP/seed

@@ -3,6 +3,7 @@ package rtfiles_test
 import (
 	"io/fs"
 	"os"
+	"path"
 	"slices"
 	"strings"
 	"testing"
@@ -100,6 +101,28 @@ func TestSources(t *testing.T) {
 	for _, p := range rtfiles.Sources("plan9") {
 		if strings.HasPrefix(p, "src/os/") {
 			t.Errorf(`Sources("plan9") has %s`, p)
+		}
+	}
+}
+
+// TestTestingSources checks the two lists: the files of package testing are not among the sources of
+// a program, and they are the sources of the programs that import testing.
+func TestTestingSources(t *testing.T) {
+	var testingFiles []string
+	for _, p := range rtfiles.TestingSources("linux") {
+		if !strings.HasPrefix(path.Base(p), "testing") {
+			t.Errorf("TestingSources has %s", p)
+		}
+		testingFiles = append(testingFiles, p)
+	}
+	for _, want := range []string{"src/testing.cpp", "src/testing_alloc.cpp", "src/testing_regex.cpp", "src/os/linux/testing_os.cpp"} {
+		if !slices.Contains(testingFiles, want) {
+			t.Errorf("TestingSources(linux) = %q lacks %s", testingFiles, want)
+		}
+	}
+	for _, p := range rtfiles.Sources("linux") {
+		if strings.HasPrefix(path.Base(p), "testing") {
+			t.Errorf("Sources has %s: a program that does not import testing would be linked with it", p)
 		}
 	}
 }

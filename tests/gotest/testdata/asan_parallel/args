@@ -1,0 +1,5 @@
+-asan
+-v
+-parallel
+1
+.

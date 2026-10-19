@@ -92,6 +92,11 @@ type stubPackage struct {
 	// (syscall: the errors, the constants and the calls that os needs; stdlib/syscall/PORT.md).
 	// Every name it declares must still match Go's; the names it lacks are not listed.
 	Partial bool
+
+	// Differs, with Real: why the real package's exported declarations are not compared with
+	// the stub (testing is written for gocpp: its private helpers, durations and left-out
+	// methods are listed in stdlib/testing/PORT.md).
+	Differs string
 }
 
 // packages are the packages that get a stub: every standard package that a
@@ -133,7 +138,7 @@ var packages = []stubPackage{
 	{Path: "flag", Phase: 9},
 	{Path: "regexp", Phase: 9},
 	{Path: "encoding/json", Phase: 9},
-	{Path: "testing", Phase: 9},
+	{Path: "testing", Phase: 9, Real: true, Differs: "stdlib/testing/PORT.md lists the differences from Go's testing"},
 }
 
 // runtimeMissing and debugMissing: what the real packages runtime and runtime/debug (Phase 08

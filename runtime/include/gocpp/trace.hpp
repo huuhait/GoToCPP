@@ -114,6 +114,14 @@ struct line_query {
 void lines_of(std::string_view debug_line, std::string_view line_str, std::string_view str,
               line_query* queries, std::size_t n);
 
+// indexed_lines_of does what lines_of does, but reads the whole table only once (the first call
+// keeps the address ranges of every row, in memory, for the life of the program) and then answers
+// a query by a binary search: for a program that asks for lines again and again (runtime.Caller,
+// the testing package), where lines_of costs a pass over the table for every call. The sections
+// must be the same in every call. It is safe to call from several threads.
+void indexed_lines_of(std::string_view debug_line, std::string_view line_str, std::string_view str,
+                      line_query* queries, std::size_t n);
+
 // append_trace appends the trace of the return addresses pcs (innermost first, from
 // os::stack) to out, like Go 1.25: every frame of a stack of up to 100 frames that the trace
 // shows; for a deeper one, the inner 50, "...N frames elided..." and the outer 50 (main.main

@@ -1,0 +1,6 @@
+-bench
+.
+-benchtime
+5x
+-run
+^$

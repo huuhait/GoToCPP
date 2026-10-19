@@ -206,9 +206,16 @@ func (b *Builder) runGenerated(ctx context.Context, pc *pch, args []string) (out
 }
 
 // runtime returns the folder of the runtime and its object files for the
-// compile flags flags, compiling them first if they are not in the cache.
-func (b *Builder) runtime(ctx context.Context, flags []string) (dir string, objs []string, err error) {
+// compile flags flags, compiling them first if they are not in the cache. With
+// testing, the object files of package testing's natives (rtfiles.TestingSources)
+// come too, in a set of their own in the cache: a program that does not import
+// testing has none of them.
+func (b *Builder) runtime(ctx context.Context, flags []string, testing bool) (dir string, objs []string, err error) {
 	srcs := rtfiles.Sources(b.GOOS)
+	var tsrcs []string
+	if testing {
+		tsrcs = rtfiles.TestingSources(b.GOOS)
+	}
 	if b.Cache != "" {
 		if dir, err = ExtractRuntime(b.Cache); err == nil && (b.DryRun || b.Rebuild) {
 			// The runtime is compiled again, or only listed: into the work folder, not the cache.
@@ -226,7 +233,13 @@ func (b *Builder) runtime(ctx context.Context, flags []string) (dir string, objs
 			b.recordRuntime(dir, srcs, flags)
 			b.startPCH(ctx, dir) // while the runtime's object files compile
 			if objs, err = b.cachedObjects(ctx, dir, srcs, flags); err == nil {
-				return dir, objs, nil
+				if len(tsrcs) == 0 {
+					return dir, objs, nil
+				}
+				var more []string
+				if more, err = b.cachedObjects(ctx, dir, tsrcs, flags); err == nil {
+					return dir, append(objs, more...), nil
+				}
 			}
 			var ce *CompileError
 			if errors.As(err, &ce) || ctx.Err() != nil {
@@ -249,7 +262,7 @@ func (b *Builder) runtime(ctx context.Context, flags []string) (dir string, objs
 	if err := os.Mkdir(objDir, 0o755); err != nil {
 		return "", nil, err
 	}
-	if objs, err = b.compileRuntime(ctx, dir, objDir, srcs, flags); err != nil {
+	if objs, err = b.compileRuntime(ctx, dir, objDir, slices.Concat(srcs, tsrcs), flags); err != nil {
 		return "", nil, err
 	}
 	return dir, objs, nil

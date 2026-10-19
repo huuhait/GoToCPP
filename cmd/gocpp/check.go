@@ -186,6 +186,18 @@ type checkCommand struct {
 	// emit set it; check and the language server keep the cheaper
 	// namespace mode.
 	kinds bool
+
+	// testMain makes the main package of each test binary (load.Config.TestMain, gocpp test; tests is
+	// set too). lastProg is the program of the last check, for the import path of a package whose test
+	// failed to build.
+	testMain func(fset *token.FileSet, p, xtest *load.Package) ([]byte, []diag.Diagnostic)
+	lastProg *load.Program
+
+	// testSetupFailed is set when gocpp test found a syntax error in a test file (check).
+	testSetupFailed bool
+
+	// typeChecked is set when the type checker ran (the packages were loaded without errors).
+	typeChecked bool
 }
 
 // run checks the packages of the patterns and returns the exit status.
@@ -251,8 +263,10 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 			// the gates allow it; before, it is a syntax error that the
 			// gates explain (internal/check, gateUnchecked).
 			Phase10Syntax: phase >= 10,
+			TestMain:      c.testMain,
 		}, m.patterns...)
 	}
+	c.lastProg = prog
 	c.fset = prog.Fset
 	c.files = m.files
 	c.headers = make(map[string]*header)
@@ -288,6 +302,7 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 			return interop.ProbeKinds(ctx, cxx, dir, flags, includes, all)
 		}
 	}
+	c.typeChecked = true
 	r := check.Check(prog, cfg)
 	if c.ctx != nil && c.ctx.Err() != nil {
 		if sig := c.stopped(); sig != nil {
@@ -324,7 +339,14 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 		if len(errs.Diagnostics()) == 0 {
 			continue
 		}
-		fmt.Fprintf(c.stderr, "# %s\n", p.Load.ImportPath)
+		header := pkgHeader(p.Load)
+		if c.tests && !p.Checked() && slices.ContainsFunc(errs.Diagnostics(), inTestFile) {
+			// A syntax error in a _test.gp file: go test finds it when it lists the package, before
+			// it builds the test binary, so the header is the package's and the result "[setup failed]".
+			header = p.Load.ImportPath
+			c.testSetupFailed = true
+		}
+		fmt.Fprintf(c.stderr, "# %s\n", header)
 		c.print(c.stderr, errs, c.all)
 		failed = failed || errs.HasErrors()
 		if !p.Checked() || slices.ContainsFunc(errs.Diagnostics(), isBreaking) {
@@ -335,6 +357,20 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 		return prog, r, 1
 	}
 	return prog, r, 0
+}
+
+// inTestFile reports whether the diagnostic is in a _test.gp file.
+func inTestFile(d diag.Diagnostic) bool {
+	return strings.HasSuffix(d.Pos.Filename, "_test.gp")
+}
+
+// pkgHeader is what follows "# " in the errors of the package lp: its import path, and for a package of
+// a test the one that go test shows, "example.com/app/geom [example.com/app/geom.test]".
+func pkgHeader(lp *load.Package) string {
+	if lp.ForTest != "" && lp.ImportPath != lp.ForTest+".test" {
+		return lp.ImportPath + " [" + lp.ForTest + ".test]"
+	}
+	return lp.ImportPath
 }
 
 // packageList returns the packages of prog in the order of go's

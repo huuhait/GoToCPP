@@ -58,8 +58,24 @@ func FS() fs.FS {
 
 // Sources returns the paths in FS of the .cpp files that a program for the operating system
 // goos (a GOOS value: "linux", "windows") is compiled with: src/*.cpp and src/os/<goos>/*.cpp,
-// sorted. For an OS that has no OS layer, it returns only the portable files.
+// sorted. For an OS that has no OS layer, it returns only the portable files. The files of
+// package testing (their names start with "testing") are not among them: only a program that
+// imports testing is linked with them (TestingSources), because they replace the global
+// operator new (to count allocations) and hold the regular expression translator.
 func Sources(goos string) []string {
+	return sources(goos, false)
+}
+
+// TestingSources returns the paths in FS of the .cpp files of package testing (src/testing*.cpp and
+// src/os/<goos>/testing*.cpp), sorted: the natives of stdlib/testing and of testing/internal/testdeps
+// (gocpp/testing.hpp). The driver compiles and links them into the programs that import testing,
+// and into no other. (With one archive for the runtime, the linker takes these objects only when
+// something refers to them; the natives of the testing package do.)
+func TestingSources(goos string) []string {
+	return sources(goos, true)
+}
+
+func sources(goos string, testing bool) []string {
 	var srcs []string
 	for _, dir := range []string{"src", path.Join("src", "os", goos)} {
 		entries, err := fs.ReadDir(files, dir)
@@ -67,7 +83,7 @@ func Sources(goos string) []string {
 			continue // no OS layer for goos
 		}
 		for _, e := range entries {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), ".cpp") {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".cpp") && strings.HasPrefix(e.Name(), "testing") == testing {
 				srcs = append(srcs, path.Join(dir, e.Name()))
 			}
 		}
