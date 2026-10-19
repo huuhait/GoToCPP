@@ -8,7 +8,7 @@
 
 - [x] Check which Go stdlib packages can be ported and what blocks them (`go list`, 2026-10-13; table in README §1)
 - [x] 9.1 `tools/portstd` (pinned source tarball + SHA-256, `go/build` file selection per target OS with `purego`/no asm, rename, linkname → native, patch, `PORT.md`)
-- [ ] 9.2 Internal shims
+- [x] 9.2 Internal shims
   - [ ] `internal/bytealg` (native)
   - [ ] `internal/stringslite`, `internal/byteorder`
   - [ ] `internal/abi`, `internal/godebug`, `internal/cpu` stubs

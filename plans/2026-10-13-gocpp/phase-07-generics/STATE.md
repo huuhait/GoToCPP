@@ -10,19 +10,19 @@
 - [x] 7.1 Generic functions: one ordinary C++ function PER INSTANCE (ADR-030), not templates
 - [x] 7.2 Explicit type arguments: `Info.Instances` + `Info.Selections` (methods of generic types); syntax/`decltype` rule for C/C++ type arguments
 - [ ] 7.3 Generic types + methods + instance descriptors (Go's exact qualified names: `main.Pair[string,[]int]`; one hidden descriptor argument per type parameter)
-- [ ] 7.4 Type-parameter operations
+- [x] 7.4 Type-parameter operations
   - [ ] arithmetic cast back to `T`; checked `/ % << >>` (ints vs floats)
   - [ ] `gp::convert`, `len`/index/range over type sets, zero values
   - [ ] tests with `int8`, `uint8`, `float64`
-- [ ] 7.5 `gp_call_<Method>` helpers (pointer check first, forwarded args, promoted methods, plain names like `get`)
-- [ ] 7.6 Interfaces × generics (constraint methods, `comparable`, interface type args)
-- [ ] 7.7 Generic type aliases (Go 1.24)
+- [x] 7.5 `gp_call_<Method>` helpers (pointer check first, forwarded args, promoted methods, plain names like `get`)
+- [x] 7.6 Interfaces × generics (constraint methods, `comparable`, interface type args)
+- [x] 7.7 Generic type aliases (Go 1.24)
 - [x] 7.8 Range-over-func
   - [ ] Go's state machine (READY/PANIC/DONE/EXHAUSTED/MISSING_PANIC) + 4 exact messages
   - [ ] body as a normal closure (boxed state), never `[&]`
   - [ ] `break` / `continue` / `return` / labels / `goto`
   - [ ] `defer` inside the body → outer frame
-- [ ] 7.9 Optional `-gp:concepts` output
+- [x] 7.9 Optional `-gp:concepts` output
 - [ ] 7.10 Port `cmp`, `slices`, `maps`, `iter` (`//go:linkname` → native functions; Go tests in Phase 09)
 - [ ] 7.11 Lift the generics gate; update the feature matrix
 - [ ] 7.12 Tests: ≥ 60 run + differential (misuse panics, late `yield` under ASan, small ints, `%T`); compile-time measurement
