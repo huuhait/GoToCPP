@@ -14,7 +14,9 @@ The VS Code extension for gocpp. It adds the `gocpp` language for `.gp` files:
   of later versions of the server need no change in the extension;
 - format on save and organize imports on save, and tabs for indentation, in `.gp` files (the
   same defaults as the Go extension);
-- breakpoints in `.gp` files, for debugging (Phase 13).
+- breakpoints in `.gp` files, for debugging: start the program with the C/C++ extension (cppdbg and gdb) or
+  CodeLLDB; the `launch.json` and `tasks.json` to copy, with gocpp's printers, are in
+  [docs/guides/debugging.md](../../docs/guides/debugging.md#vs-code).
 
 The extension is plain JavaScript (`src/`), so it has no build step. The other editors are in
 [docs/guides/editors.md](../../docs/guides/editors.md).

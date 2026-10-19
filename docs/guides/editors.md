@@ -328,3 +328,9 @@ projects, for gocpp and for gopls on the same code, and writes the table; `make 
 the speed budgets (a Go test that is not part of `make ci`, because it takes a minute and a half
 and needs a quiet machine). `go run ./tools/lspbench -h` lists the flags (`-only hover -scale 20
 -gocpp-args "-profile /tmp/p"` profiles one scenario).
+
+## Debugging
+
+gdb (and, with fewer features, LLDB) shows gocpp values as Go values and stops at `.gp` lines; `gocpp debug`
+starts it. VS Code runs it through the C/C++ extension: breakpoints in `.gp` files come with the gocpp
+extension, and [debugging.md](debugging.md) has the `launch.json` and `tasks.json` to copy.

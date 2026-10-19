@@ -59,6 +59,7 @@ and from the user's answers to Q1–Q13
 | [063](063-doc-header-documentation.md) | `gocpp doc` documents C/C++ headers from their Doxygen comments, read as text | accepted | A line reader and regexes, not a parser; the compiler probes answer what the comments cannot; Windows-1252 per invalid byte; derived methods from fixed tables; `#Derive` on a type group shows nothing. |
 | [040](040-sync-on-a-semaphore-table.md) | `sync` is Go's algorithms on words, with the waiters in a table outside the objects | accepted | Templates over the generated structs as natives, Go's Mutex/RWMutex/WaitGroup/Cond line by line, a semaphore table keyed by address (blocked accounting as channels), starvation threshold scaled for threads, `atomic_ref` for sync/atomic. |
 | [054](054-reason-log-and-explain.md) | The lowering records its reasons in an optional log; `explain` is built from the compiler's own output | accepted | `lower.Why` (nil: hooks do nothing, the C++ never changes), each reason kind is an `explain` topic, topics embed live examples, messages have a table with a completeness test. |
+| [066](066-debugger-support.md) | The debugger support: gdb's script travels inside every program, and gdb is the full debugger | accepted | Printers that read memory, a frame filter for Go names, `gp goroutines`; the script is a `.debug_gdb_scripts` section of every Linux program; `gocpp debug`; lldb best effort (summaries only). |
 
 ## Changing a decision
 

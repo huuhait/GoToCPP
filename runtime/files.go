@@ -21,6 +21,33 @@ import (
 //go:embed include src
 var files embed.FS
 
+// debugFiles are the debugger scripts that gocpp debug hands to LLDB, and to gdb when the safe
+// path of auto-loading can't name the program (gdb's script is in every program,
+// src/os/linux/debug_scripts.cpp). The files stay out of FS: they are not C++.
+//
+//go:embed debug/gocpp_lldb.py debug/gocpp-gdb.py
+var debugFiles embed.FS
+
+// GDBScript returns the text of runtime/debug/gocpp-gdb.py, the script that every program
+// carries for gdb.
+func GDBScript() []byte {
+	data, err := debugFiles.ReadFile("debug/gocpp-gdb.py")
+	if err != nil {
+		panic(err) // the embed pattern names the file
+	}
+	return data
+}
+
+// LLDBScript returns the text of runtime/debug/gocpp_lldb.py, the summaries of the runtime's
+// values for LLDB.
+func LLDBScript() []byte {
+	data, err := debugFiles.ReadFile("debug/gocpp_lldb.py")
+	if err != nil {
+		panic(err) // the embed pattern names the file
+	}
+	return data
+}
+
 // FS returns the runtime: a read-only file system whose root is this folder. It holds
 // include/gocpp/*.hpp (the headers; generated code includes gocpp/rt.hpp), src/*.cpp (the
 // portable .cpp files) and src/os/<os>/*.cpp (the OS layer of each operating system).

@@ -1,0 +1,86 @@
+### 00 break generics.gp:18
+Breakpoint 1 at 0xADDR: generics.gp:18. (2 locations)
+
+### 01 break generics.gp:26
+Breakpoint 2 at 0xADDR: file generics.gp, line 26.
+
+### 02 break generics.gp:32
+Breakpoint 3 at 0xADDR: generics.gp:32. (2 locations)
+
+### 03 run
+
+Breakpoint 1.1, at generics.gp:18
+18			return a // @max
+
+### 04 bt
+#0  main.Max[...] (a=2, b=1) at generics.gp:18
+#1  0xADDR in main.main () at generics.gp:37
+### 05 gp locals
+a (int) = 2
+b (int) = 1
+
+### 06 continue
+
+Breakpoint 1.2, at generics.gp:18
+18			return a // @max
+
+### 07 bt
+#0  main.Max[...] (a=2.5, b=1.5) at generics.gp:18
+#1  0xADDR in main.main () at generics.gp:37
+### 08 gp locals
+a (float64) = 2.5
+b (float64) = 1.5
+
+### 09 continue
+2 2.5 {a 1}
+
+Breakpoint 2, at generics.gp:26
+26			out = append(out, f(x)) // @map
+
+### 10 bt
+#0  main.Map[...] (xs=[1 2] (len 2, cap 2), f=func(0xADDR closure in main.main)) at generics.gp:26
+#1  0xADDR in main.main () at generics.gp:38
+### 11 gp locals
+x (int) = 1
+xs ([]int) = [1 2] (len 2, cap 2)
+f (func(int) string) = func(0xADDR closure in main.main)
+out ([]string) = [] (len 0, cap 2)
+
+### 12 continue
+
+Breakpoint 2, at generics.gp:26
+26			out = append(out, f(x)) // @map
+
+### 13 gp locals
+x (int) = 2
+xs ([]int) = [1 2] (len 2, cap 2)
+f (func(int) string) = func(0xADDR closure in main.main)
+out ([]string) = ["1"] (len 1, cap 2)
+
+### 14 continue
+[1 2]
+
+Breakpoint 3.1, at generics.gp:32
+32		fmt.Println(v) // @show
+
+### 15 bt
+#0  main.Show[...] (v={Key:"a" Val:1}) at generics.gp:32
+#1  0xADDR in main.main () at generics.gp:39
+### 16 gp locals
+v (main.Pair) = {Key:"a" Val:1}
+
+### 17 continue
+{a 1}
+
+Breakpoint 3.2, at generics.gp:32
+32		fmt.Println(v) // @show
+
+### 18 bt
+#0  main.Show[...] (v="s") at generics.gp:32
+#1  0xADDR in main.main () at generics.gp:40
+### 19 gp locals
+v (string) = "s"
+
+### 20 continue
+s
+[Inferior 1 (process N) exited normally]

@@ -1,0 +1,99 @@
+### 00 break frames.gp:45
+Breakpoint 1 at 0xADDR: file frames.gp, line 45.
+
+### 01 break frames.gp:16
+Breakpoint 2 at 0xADDR: file frames.gp, line 16.
+
+### 02 break frames.gp:12
+Breakpoint 3 at 0xADDR: file frames.gp, line 12.
+
+### 03 break frames.gp:23
+Breakpoint 4 at 0xADDR: file frames.gp, line 23.
+
+### 04 break frames.gp:32
+Breakpoint 5 at 0xADDR: file frames.gp, line 32.
+
+### 05 break frames.gp:39
+Breakpoint 6 at 0xADDR: file frames.gp, line 39.
+
+### 06 run
+
+Breakpoint 1, at frames.gp:45
+45		return 7 // @global
+
+### 07 bt
+#0  main.init.func1 () at frames.gp:45
+#1  0xADDR in main.init () at frames.gp:46
+### 08 continue
+
+Breakpoint 2, at frames.gp:16
+16		t.n++ // @inc
+
+### 09 bt
+#0  main.(*T).Inc (t=&{n:1} @0xADDR) at frames.gp:16
+#1  0xADDR in main.main () at frames.gp:50
+### 10 print t
+$1 = &{n:1} @0xADDR
+
+### 11 continue
+
+Breakpoint 3, at frames.gp:12
+12		return t.n // @get
+
+### 12 bt
+#0  main.T.Get (this=0xADDR) at frames.gp:12
+#1  0xADDR in main.main () at frames.gp:51
+### 13 continue
+2
+
+Breakpoint 4, at frames.gp:23
+23				return x + 1 // @inner
+
+### 14 bt
+#0  main.outer.func1.1 () at frames.gp:23
+#3  0xADDR in main.outer.func1 () at frames.gp:25
+#6  0xADDR in main.main () at frames.gp:52
+### 15 gp bt
+#0  main.outer.func1.1 () at frames.gp:23
+#3  0xADDR in main.outer.func1 () at frames.gp:25
+#6  0xADDR in main.main () at frames.gp:52
+### 16 continue
+12
+body
+
+Breakpoint 5, at frames.gp:32
+32			fmt.Println("deferred") // @defer
+
+### 17 bt
+#0  main.deferred.func1 () at frames.gp:32
+#7  0xADDR in main.deferred () at frames.gp:35
+#8  0xADDR in main.main () at frames.gp:53
+### 18 continue
+deferred
+
+Breakpoint 6, at frames.gp:39
+39			return 1 // @fact
+
+### 19 bt
+#0  main.fact (n=1) at frames.gp:39
+#1  0xADDR in main.fact (n=2) at frames.gp:41
+#2  0xADDR in main.fact (n=3) at frames.gp:41
+#3  0xADDR in main.main () at frames.gp:54
+### 20 gp locals
+n (int) = 1
+
+### 21 set gocpp names cpp
+
+### 22 bt
+#0  gpkg_main::fact (n=1) at frames.gp:39
+#1  0xADDR in gpkg_main::fact (n=2) at frames.gp:41
+#2  0xADDR in gpkg_main::fact (n=3) at frames.gp:41
+#3  0xADDR in gpkg_main::main () at frames.gp:54
+### 23 set gocpp names go
+
+### 24 frame 1
+#1  0xADDR in gpkg_main::fact (n=2) at frames.gp:41
+41		return n * fact(n-1)
+
+### 25 gp locals
+n (int) = 2

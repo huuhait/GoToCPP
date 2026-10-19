@@ -1,0 +1,170 @@
+### 00 break values.gp:73
+Breakpoint 1 at 0xADDR: file values.gp, line 73.
+
+### 01 break values.gp:129
+Breakpoint 2 at 0xADDR: file values.gp, line 129.
+
+### 02 run
+
+Breakpoint 1, at values.gp:73
+73		fmt.Println(s, sl, m, p, a, e, f == nil, pt, arr, o, sh) // @zero
+
+### 03 gp locals
+s (string) = ""
+sl ([]int) = [] (nil)
+m (map[string]int) = map[] (nil)
+p (*main.Point) = nil
+a (any) = nil
+e (error) = nil
+f (func()) = nil
+pt (main.Point) = {X:0 Y:0}
+arr ([2]int) = [0 0]
+o (main.Outer) = {Inner:{A:0 B:0} Name:"" new:0 class:0 Ptr:nil Any:nil}
+sh (main.Shape) = nil
+
+### 04 continue
+ [] map[] <nil> <nil> <nil> true {0 0} [0 0] {{0 0}  0 0 <nil> <nil>} <nil>
+1 one -5 200 -300 60000 -70000 4000000000 -1099511627776 9223372036854775808 0.1 2.25 true 120 121 (1+2i) (3.5-4i)
+ hello héllo, 世界 a"b\c
+	 0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789 [] [] [1 2 3] [a bb] [[1] [2 3]] [{1 2} {3 4}] [104 105] [2] [7 8 9] [[1 2] [3 4]]
+map[] map[] map[a:1 b:2] map[1:a 3:c] map[x:[1 2]] map[p:{5 6}] <nil> 0xADDR &{7 8} &{1 0xADDR} &{9 0xADDR} <nil> 42 s {1 2} &{7 8} 1.5 true boom
+
+Breakpoint 2, at values.gp:129
+129		fmt.Println(sh, sh2, st, nilFn == nil, fn(1, 2), clo(1), temp, ids, col, cnt, out, anon) // @show
+
+### 05 gp locals
+n (int) = 1
+s (string) = "one"
+i8 (int8) = -5
+u8 (uint8) = 200
+i16 (int16) = -300
+u16 (uint16) = 60000
+i32 (int32) = -70000
+u32 (uint32) = 4000000000
+i64 (int) = -1099511627776
+u64 (uint) = 9223372036854775808
+f32 (float32) = 0.1
+f64 (float64) = 2.25
+b (bool) = true
+r (int32) = 120
+by (uint8) = 121
+c64 (complex64) = (1+2i)
+c128 (complex128) = (3.5-4i)
+empty (string) = ""
+hello (string) = "hello"
+uni (string) = "h\u00e9llo, \u4e16\u754c"
+esc (string) = "a\"b\\c\n\t"
+long (string) = "01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789"...
+nilSlice ([]int) = [] (nil)
+emptySlice ([]int) = [] (len 0, cap 0)
+ints ([]int) = [1 2 3] (len 3, cap 3)
+strs ([]string) = ["a" "bb"] (len 2, cap 2)
+nested ([][]int) = [[1] [2 3]] (len 2, cap 2)
+pts ([]main.Point) = [{X:1 Y:2} {X:3 Y:4}] (len 2, cap 2)
+bs ([]uint8) = [104 105] (len 2, cap 2)
+sub ([]int) = [2] (len 1, cap 2)
+arr ([3]int) = [7 8 9]
+arr2 ([2][2]int) = [[1 2] [3 4]]
+nilMap (map[string]int) = map[] (nil)
+emptyMap (map[string]int) = map[] (len 0)
+m1 (map[string]int) = map["a":1 "b":2] (len 2)
+m2 (map[int]string) = map[1:"a" 3:"c"] (len 2)
+m3 (map[string][]int) = map["x":[1 2]] (len 1)
+m4 (map[string]main.Point) = map["p":{X:5 Y:6}] (len 1)
+nilPtr (*main.Point) = nil
+pi (*int) = &42 @0xADDR
+pp (*main.Point) = &{X:7 Y:8} @0xADDR
+list (*main.Node) = &{Val:1 Next:0xADDR} @0xADDR
+cyc (*main.Node) = &{Val:9 Next:0xADDR} @0xADDR
+nilAny (any) = nil
+anyInt (any) = (int) 42
+anyStr (any) = (string) "s"
+anyPt (any) = (main.Point) {X:1 Y:2}
+anyPtr (any) = (*main.Point) &{X:7 Y:8} @0xADDR
+anyF (any) = (float64) 1.5
+anyB (any) = (bool) true
+err (error) = (*errors.errorString) &{s:"boom"} @0xADDR
+sh (main.Shape) = (main.Point) {X:2 Y:3}
+sh2 (main.Shape) = (*main.Sq) &{S:4} @0xADDR
+st (main.Stringer) = (main.Color) 0
+nilFn (func(int) int) = nil
+fn (func(int, int) int) = func(0xADDR main.add)
+k (int) = 10
+clo (func(int) int) = func(0xADDR closure in main.show)
+temp (main.Celsius) = 36.6
+ids (main.IDs) = [4 5] (len 2, cap 2)
+col (main.Color) = 1
+cnt (main.Counts) = map["z":26] (len 1)
+out (main.Outer) = {Inner:{A:-1 B:2} Name:"out" new:3 class:4.5 Ptr:0xADDR Any:5}
+anon (struct{...}) = {A:1 B:"x"}
+
+### 06 print ints
+$1 = [1 2 3] (len 3, cap 3)
+
+### 07 print $gp_len(ints)
+$2 = 3
+
+### 08 print $gp_index(ints, 1)
+$3 = 2
+
+### 09 print m1
+$4 = map["a":1 "b":2] (len 2)
+
+### 10 print $gp_len(m1)
+$5 = 2
+
+### 11 print hello
+$6 = "hello"
+
+### 12 print pp
+$7 = &{X:7 Y:8} @0xADDR
+
+### 13 print $gp_deref(pp)
+$8 = {X:7 Y:8}
+
+### 14 print sh
+$9 = (main.Point) {X:2 Y:3}
+
+### 15 print err
+$10 = (*errors.errorString) &{s:"boom"} @0xADDR
+
+### 16 print clo
+$11 = func(0xADDR closure in main.show)
+
+### 17 print out
+$12 = {Inner:{A:-1 B:2} Name:"out" new:3 class:4.5 Ptr:0xADDR Any:5}
+
+### 18 gp print out
+(main.Outer) {Inner:{A:-1 B:2} Name:"out" new:3 class:4.5 Ptr:0xADDR Any:5}
+
+### 19 gp whatis list
+type = *main.Node
+
+### 20 gp whatis m4
+type = map[string]main.Point
+
+### 21 gp whatis sh2
+type = main.Shape
+
+### 22 info locals
+hello = "hello"
+ints = [1 2 3] (len 3, cap 3)
+m1 = map["a":1 "b":2] (len 2)
+pp = &{X:7 Y:8} @0xADDR
+anyPt = (main.Point) {X:1 Y:2}
+out = {Inner:{A:-1 B:2} Name:"out" new:3 class:4.5 Ptr:0xADDR Any:5}
+### 23 bt
+#0  main.show (n=1, s="one") at values.gp:129
+#1  0xADDR in main.main () at values.gp:134
+### 24 gp bt
+#0  main.show (n=1, s="one") at values.gp:129
+#1  0xADDR in main.main () at values.gp:134
+### 25 set gocpp print-style tree
+
+### 26 print pts
+$13 = []main.Point len 2 cap 2 = {main.Point = {X = 1, Y = 2}, main.Point = {X = 3, Y = 4}}
+
+### 27 print m4
+$14 = map[string]main.Point len 1 = {["p"] = main.Point = {X = 5, Y = 6}}
+
+### 28 set gocpp print-style go

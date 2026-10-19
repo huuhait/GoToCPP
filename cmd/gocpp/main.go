@@ -43,7 +43,7 @@ var commands = []command{
 	{name: "lsp", phase: 11, summary: "run the language server for editors", run: runLSP},
 	{name: "vet", phase: 13, summary: "report likely mistakes in packages", run: runVet},
 	{name: "doc", phase: 13, summary: "show documentation for a package or symbol", run: runDoc},
-	{name: "debug", phase: 13, summary: "build a program and start gdb or lldb on it"},
+	{name: "debug", phase: 13, summary: "build a program and start gdb or lldb on it", run: runDebug},
 	{name: "explain", phase: 13, summary: "explain a construct, a .gp line or an error message", run: runExplain},
 	{name: "env", phase: 6, summary: "print the C++ compiler, cache dir and flags"},
 	{name: "list", phase: 6, summary: "list packages, like go list"},

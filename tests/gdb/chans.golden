@@ -1,0 +1,45 @@
+### 00 break chans.gp:27
+Breakpoint 1 at 0xADDR: file chans.gp, line 27.
+
+### 01 run
+
+Breakpoint 1, at chans.gp:27
+27		fmt.Println(nilCh, ch, unbuf, closed, recvOnly, sendOnly, a, chs, m, len(ch), cap(ch)) // @chans
+
+### 02 gp locals
+nilCh (chan int) = nil
+ch (chan int) = chan(0xADDR len 2 cap 3)
+unbuf (chan string) = chan(0xADDR len 0 cap 0)
+closed (chan main.Msg) = chan(0xADDR len 1 cap 1 closed)
+recvOnly (chan int) = chan(0xADDR len 2 cap 3)
+sendOnly (chan int) = chan(0xADDR len 2 cap 3)
+a (any) = (chan int) 0xADDR
+chs ([]chan int) = [0xADDR nil] (len 2, cap 2)
+m (map[string]chan int) = map["c":0xADDR] (len 1)
+
+### 03 print ch
+$1 = chan(0xADDR len 2 cap 3)
+
+### 04 print unbuf
+$2 = chan(0xADDR len 0 cap 0)
+
+### 05 print closed
+$3 = chan(0xADDR len 1 cap 1 closed)
+
+### 06 print nilCh
+$4 = nil
+
+### 07 print $gp_len(chs)
+$5 = 2
+
+### 08 print $gp_index(chs, 0)
+$6 = chan(0xADDR len 2 cap 3)
+
+### 09 print chs
+$7 = [0xADDR nil] (len 2, cap 2)
+
+### 10 print m
+$8 = map["c":0xADDR] (len 1)
+
+### 11 print a
+$9 = (chan int) 0xADDR

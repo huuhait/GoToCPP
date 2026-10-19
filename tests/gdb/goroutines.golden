@@ -1,0 +1,42 @@
+### 00 break goroutines.gp:60 if $gp_blocked() == 6
+Breakpoint 1 at 0xADDR: file goroutines.gp, line 60.
+
+### 01 run
+
+Thread N "goroutines" hit Breakpoint 1, at goroutines.gp:60
+60		select { // @poll
+
+### 02 gp goroutines
+*    1  running                      thread 1   main.poll (goroutines.gp:60)
+     2  waiting [chan receive]       thread 2   main.worker (goroutines.gp:13)
+     3  waiting [chan receive]       thread 3   main.worker (goroutines.gp:13)
+     4  waiting [chan receive]       thread 4   main.main.func1 (goroutines.gp:34)
+     5  waiting [chan send]          thread 5   main.sender (goroutines.gp:20)
+     6  waiting [select]             thread 6   main.main.func2 (goroutines.gp:39)
+     7  waiting [select (no cases)]  thread 7   main.main.func3 (goroutines.gp:46)
+
+### 03 info goroutines
+*    1  running                      thread 1   main.poll (goroutines.gp:60)
+     2  waiting [chan receive]       thread 2   main.worker (goroutines.gp:13)
+     3  waiting [chan receive]       thread 3   main.worker (goroutines.gp:13)
+     4  waiting [chan receive]       thread 4   main.main.func1 (goroutines.gp:34)
+     5  waiting [chan send]          thread 5   main.sender (goroutines.gp:20)
+     6  waiting [select]             thread 6   main.main.func2 (goroutines.gp:39)
+     7  waiting [select (no cases)]  thread 7   main.main.func3 (goroutines.gp:46)
+
+### 04 thread 4
+[Switching to thread 4 (Thread NxADDR (LWP N))]
+### 05 gp goroutines
+     1  running                      thread 1   main.poll (goroutines.gp:60)
+     2  waiting [chan receive]       thread 2   main.worker (goroutines.gp:13)
+     3  waiting [chan receive]       thread 3   main.worker (goroutines.gp:13)
+*    4  waiting [chan receive]       thread 4   main.main.func1 (goroutines.gp:34)
+     5  waiting [chan send]          thread 5   main.sender (goroutines.gp:20)
+     6  waiting [select]             thread 6   main.main.func2 (goroutines.gp:39)
+     7  waiting [select (no cases)]  thread 7   main.main.func3 (goroutines.gp:46)
+
+### 06 bt
+#12 0xADDR in main.main.func1 () at goroutines.gp:34
+### 07 gp bt
+#12 0xADDR in main.main.func1 () at goroutines.gp:34
+### 08 bt

@@ -293,10 +293,25 @@ user's own C/C++ files (Phase 04). The project's dev shell turns hardening off, 
 `TestNoFortify` turns it on again with `NIX_HARDENING_ENABLE` (nixpkgs' default list) to check
 this.
 
+## Debugger support
+
+`debug/gocpp-gdb.py` is the gdb script for gocpp programs: pretty printers for the runtime's values, Go names in
+backtraces, `gp goroutines` and the other `gp` commands (see [docs/guides/debugging.md](../docs/guides/debugging.md)
+and [ADR-066](../docs/adr/066-debugger-support.md)). Every program carries it in a `.debug_gdb_scripts` section that
+`src/os/linux/debug_scripts.cpp` writes from `src/os/linux/gocpp_gdb.inc`; the `.inc` is generated: after you change the
+`.py`, run `go test ./runtime -run TestDebugScript -update-debug-script` (the test fails while it is stale).
+`debug/gocpp_lldb.py` is the LLDB version (best effort; `gocpp debug` loads it). The printers read the fields of the
+runtime's classes by name (`gp_len_`, `gp_data_`, `gp_owner_`, `gp_sp_`, `gp_impl_`, `gp_type_`, ...) and the layout of
+libstdc++'s `unordered_map` and `shared_ptr`: **renaming a field or changing a layout of `string`, `slice`, `array`,
+`map`, `ptr`, `iface`, `chan`, `func`, `goroutine` or the type descriptor needs the same change in the scripts**; the tests
+of `tests/gdb` (`TestGDBPrinters`) fail until it is made. `debug/test_gocpp_gdb.py` tests the part of the script that
+needs no gdb (`TestDebugScriptUnits`).
+
 ## Tests
 
 `go test ./runtime` (also part of `make test` and `make ci`) runs:
 - `TestWindowsRuntime`, `TestWindowsGoPrograms`, `TestWindowsDiff` and `TestWindowsDriverFlags`: the runtime for Windows, on a real PC over ssh (`GOCPP_WINDOWS_SSH`) or under Wine (skipped without MinGW or Wine, a failure with `GOCPP_REQUIRE_WINE=1`, which `make ci` sets). See "The Windows OS layer" above. `GOCPP_WINDOWS_PROGS=winos_test,thread_test` limits `TestWindowsRuntime` to those programs.
+- `TestDebugScript` and `TestDebugScriptUnits`: the gdb script in `src/os/linux/gocpp_gdb.inc` is `debug/gocpp-gdb.py`, and the unit tests of `debug/test_gocpp_gdb.py` pass (python3).
 - `TestCXX`: compiles `test/unit.cpp`, `test/runtimepkg_test.cpp` (step 8.10: the cgroup parser on sample files, GOMAXPROCS, `caller`/`callers`/`stack`, `mem_info`, and the cases that end the process: `gp::exit` flushes C stdio in order and leaves no destructor behind, with busy and many goroutines, two exits at once, and the ASan leak check before `_exit`; also built with `-fsanitize=thread` by `TestRuntimePkgTSan`), `test/slice_test.cpp`, `test/array_test.cpp`, `test/map_test.cpp`, `test/fmt_test.cpp`, `test/trace_test.cpp`, `test/interop_test.cpp`, `test/cxxvalue_test.cpp`, `test/type_test.cpp`, `test/iface_test.cpp`, `test/ifaceconv_test.cpp`, `test/bytealg_test.cpp` (the natives of `internal/bytealg`: each against a plain loop on seeded inputs of every length and alignment, and the two ways of `Count` on their own), `test/nochecks_test.cpp`, and `test/diff.cpp` with the embedded runtime, with g++
   and clang++, each at `-O0`, at `-O2` and with `-fsanitize=address,undefined` (a sanitizer
   report fails the test; this mode also writes DWARF 4, the others the compilers' DWARF 5).

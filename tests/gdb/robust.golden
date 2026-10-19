@@ -1,0 +1,179 @@
+### 00 gp break main.main
+### 01 break robust.gp:28
+Breakpoint 2 at 0xADDR: file robust.gp, line 28.
+
+### 02 break robust.gp:54
+Breakpoint 3 at 0xADDR: file robust.gp, line 54.
+
+### 03 break robust.gp:21
+Breakpoint 4 at 0xADDR: file robust.gp, line 21.
+
+### 04 run
+### 05 bt
+#0  main.main () at robust.gp:26
+### 06 continue
+
+Breakpoint 2, at robust.gp:28
+28			count++ // @inc
+
+### 07 gp locals
+count (int) = 20
+
+### 08 bt
+#0  main.main.func1 () at robust.gp:28
+#3  0xADDR in main.main () at robust.gp:30
+### 09 continue
+
+Breakpoint 3, at robust.gp:54
+54		fmt.Println(count, err, acc.n, len(grid), rates, msg, bad, fake, anyv, *q, *fl, r, fp) // @locals
+
+### 10 gp locals
+count (int) = 21
+inc (func()) = func(0xADDR closure in main.main)
+err (error) = nil
+show (func()) = func(0xADDR closure in main.main)
+acc (*main.Acc) = &{n:2} @0xADDR
+q (*int) = &7 @0xADDR
+fl (*float64) = &2.5 @0xADDR
+r ([]int) = [1 2 3 4] (len 4, cap 6)
+grow (func()) = func(0xADDR closure in main.main)
+arr ([3]int) = [4 5 6]
+fp (*[3]int) = &[4 5 6] @0xADDR
+grid ([][]int) = [[0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ...] [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ...] [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] [...] ...] (len 300, cap 300)
+rates (map[float64]string) = map[-2.5:"b" 9.5:"d" 10.5:"c" 100:"a"] (len 4)
+msg (string) = "hello"
+bad ([4]uint8) = [255 254 128 0]
+fake ([8]int) = [0 0 0 0 0 0 0 0]
+anyv (any) = (int) 5
+
+### 11 print rates
+$1 = map[-2.5:"b" 9.5:"d" 10.5:"c" 100:"a"] (len 4)
+
+### 12 python print(len(gdb.execute("print grid", to_string=True)) < 3000)
+True
+
+### 13 gp print acc.n
+(int) 2
+
+### 14 gp print *acc
+(main.Acc) {n:2}
+
+### 15 gp print len(grid)
+(int) 300
+
+### 16 gp print grid[1][2]
+(int) 0
+
+### 17 gp whatis acc.n
+type = int
+
+### 18 gp print *q
+(int) 7
+
+### 19 gp print *fl
+(float64) 2.5
+
+### 20 gp print $gp_deref(q)
+(int) 7
+
+### 21 gp print count
+(int) 21
+
+### 22 gp whatis count
+type = int
+
+### 23 gp print r[1]
+(int) 2
+
+### 24 gp print len(r)
+(int) 4
+
+### 25 gp print fp[1]
+(int) 5
+
+### 26 gp print *fp
+([3]int) [4 5 6]
+
+### 27 set var msg.gp_len_ = -1
+
+### 28 print msg
+$3 = ""
+
+### 29 gp locals
+count (int) = 21
+msg (string) = ""
+anyv (any) = (int) 5
+### 30 set var msg.gp_len_ = 5
+
+### 31 set $orig = anyv.gp_type_
+
+### 32 set var fake.gp_elems._M_elems[0] = (long)&bad.gp_elems._M_elems[0]
+
+### 33 set var anyv.gp_type_ = (const gp::type_desc*)&fake.gp_elems._M_elems[0]
+
+### 34 print anyv
+$4 = (\ufffd\ufffd\ufffd) 5
+
+### 35 gp locals
+count (int) = 21
+msg (string) = "hello"
+anyv (any) = (\ufffd\ufffd\ufffd) 5
+### 36 set var anyv.gp_type_ = $orig
+
+### 37 print $gp_blocked()
+$5 = 0
+
+### 38 print $gp_blocked(1, 2)
+$gp_blocked takes 0 arguments, not 2
+
+### 39 python print(len([l for l in gdb.execute("info skip", to_string=True).split("\n") if l.endswith(" ^std::")]))
+1
+
+### 40 gp skip-runtime
+6 skip rules are on (info skip lists them; gp skip-runtime off removes them).
+
+### 41 gp skip-runtime
+6 skip rules are on (info skip lists them; gp skip-runtime off removes them).
+
+### 42 python print(len([l for l in gdb.execute("info skip", to_string=True).split("\n") if l.endswith(" ^std::")]))
+1
+
+### 43 gp skip-runtime off
+The runtime's skip rules are off: step goes into the runtime.
+
+### 44 python print(len([l for l in gdb.execute("info skip", to_string=True).split("\n") if l.endswith(" ^std::")]))
+0
+
+### 45 gp skip-runtime
+6 skip rules are on (info skip lists them; gp skip-runtime off removes them).
+
+### 46 python print(len([l for l in gdb.execute("info skip", to_string=True).split("\n") if l.endswith(" ^std::")]))
+1
+
+### 47 python print(len([l for l in gdb.execute("info skip", to_string=True).split("\n") if "*/rt/*/src" in l]))
+0
+
+### 48 step
+### 49 step
+### 50 step
+### 51 step
+### 52 step
+### 53 step
+### 54 step
+### 55 step
+### 56 bt
+#0  main.deferred () at robust.gp:23
+#1  0xADDR in main.main () at robust.gp:57
+### 57 continue
+
+Breakpoint 4, at robust.gp:21
+21			fmt.Println("deferred") // @deferred
+
+### 58 bt
+#0  main.deferred.func1 () at robust.gp:21
+#7  0xADDR in main.deferred () at robust.gp:23
+#8  0xADDR in main.main () at robust.gp:57
+### 59 gp bt
+#0  main.deferred.func1 () at robust.gp:21
+#7  0xADDR in main.deferred () at robust.gp:23
+#8  0xADDR in main.main () at robust.gp:57

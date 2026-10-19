@@ -1,0 +1,35 @@
+# What gocpp_lldb.py shows (checked by TestLLDBPrinters): the same values as gdb, best effort.
+# (frame variable comes first: lldb shows <incomplete type> for a type the second time, with or
+# without gocpp_lldb.py.)
+breakpoint set -f values.gp -l @show
+process launch
+#want (?m)stop reason = breakpoint 1\.1
+#want values\.gp:129
+frame variable ints
+#want \(gp::slice<long>\) ints = \[1 2 3\] \(len 3, cap 3\)
+gp_locals
+#want (?m)^s = "one"$
+#want (?m)^f64 = 2\.25$
+#want (?m)^c128 = \(3\.5-4i\)$
+#want (?m)^uni = "héllo, 世界"$
+#want (?m)^esc = "a\\"b\\\\c\\n\\t"$
+#want (?m)^nilSlice = \[\] \(nil\)$
+#want (?m)^ints = \[1 2 3\] \(len 3, cap 3\)$
+#want (?m)^strs = \["a" "bb"\] \(len 2, cap 2\)$
+#want (?m)^nested = \[\[1\] \[2 3\]\] \(len 2, cap 2\)$
+#want (?m)^pts = \[\{X:1 Y:2\} \{X:3 Y:4\}\] \(len 2, cap 2\)$
+#want (?m)^sub = \[2\] \(len 1, cap 2\)$
+#want (?m)^arr2 = \[\[1 2\] \[3 4\]\]$
+#want (?m)^m1 = map\[\.\.\.\] \(len 2\)$
+#want (?m)^nilPtr = nil$
+#want (?m)^pp = &\{X:7 Y:8\} @0xADDR$
+#want (?m)^anyInt = \(int\) 42$
+#want (?m)^anyStr = \(string\) "s"$
+#want (?m)^anyPt = \(main\.Point\) \{X:1 Y:2\}$
+#want (?m)^sh = \(main\.Point\) \{X:2 Y:3\}$
+#want (?m)^nilAny = nil$
+#want (?m)^temp = 36\.6$
+#want (?m)^ids = \[4 5\] \(len 2, cap 2\)$
+#want (?m)^out = \{Inner:\{A:-1 B:2\} Name:"out" new:3 class:4\.5 Ptr:0xADDR Any:5\}$
+gp_print pp
+#want (?m)^&\{X:7 Y:8\} @0xADDR$
