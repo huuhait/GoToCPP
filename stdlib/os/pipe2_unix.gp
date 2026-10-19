@@ -13,10 +13,12 @@ import "syscall"
 func Pipe() (r *File, w *File, err error) {
 	var p [2]int
 
-	e := syscall.Pipe2(p[0:], syscall.O_CLOEXEC)
+	// The ends are made non-blocking at once (Go sets O_NONBLOCK in newFile, 2 more system calls
+	// for each end): they are pollable, see newFile.
+	e := syscall.Pipe2(p[0:], syscall.O_CLOEXEC|syscall.O_NONBLOCK)
 	if e != nil {
 		return nil, nil, NewSyscallError("pipe2", e)
 	}
 
-	return newFile(p[0], "|0", kindPipe, false), newFile(p[1], "|1", kindPipe, false), nil
+	return newFile(p[0], "|0", kindPipe, true), newFile(p[1], "|1", kindPipe, true), nil
 }

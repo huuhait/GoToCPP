@@ -33,14 +33,16 @@ stat_linux.go stat_unix.go sys.go sys_linux.go sys_unix.go tempfile.go types.go 
 - `runtime.KeepAlive` and `runtime.SetFinalizer` calls are dropped (memory is reference counted; a `*File` that is dropped does
   not close its descriptor, as a Go `*File` that is collected would: gocpp has no finalizers, so **an unclosed file leaks its
   descriptor** until the program ends).
-- `internal/poll` is gocpp's blocking reduction (stdlib/internal/poll/PORT.md): `newFile` marks a descriptor
-  "pollable" only when it already is non-blocking (a pipe made with `O_NONBLOCK`, a shared standard stream): `pollDesc.init`
-  then succeeds and an EAGAIN is waited out with `poll(2)` on the calling thread. Every file that package os opens itself stays
-  in blocking mode. `SetDeadline` and friends return `ErrNoDeadline`.
-- **`Close` does not wake a `Read` or `Write` that is blocked in the kernel** on a pipe, a FIFO or the tty: `Close` on a pipe
-  whose reader is blocked returns nil at once and the reader stays blocked until the writer closes or writes (the same for a
-  `Write` blocked on a full pipe). Go's poller wakes them with `ErrClosed`. A program that closes the read end to stop a reader
-  goroutine hangs. The follow-up is in plans/TODO.md ("9.6 lows", priority).
+- `internal/poll` is gocpp's reduction (stdlib/internal/poll/PORT.md): `newFile` marks a descriptor "pollable" when it is a `Pipe`
+  end, a FIFO, a socket or a terminal that `Open` opened, or already is non-blocking (a pipe made with `O_NONBLOCK`, a shared
+  standard stream): it is put in non-blocking mode and an EAGAIN is waited out with `ppoll(2)` on the calling thread together with a
+  wake descriptor. A regular file, a directory, a block device and `/dev/null` and the other memory devices stay in blocking mode
+  (one `fstat` at `Open` decides). **`Close` wakes a `Read` or `Write` that is blocked on a pollable file** with `ErrClosed`, and
+  `SetDeadline`, `SetReadDeadline` and `SetWriteDeadline` work on them (`ErrNoDeadline` for the others), as in Go. `File.Fd()`
+  puts a pollable file back in blocking mode (also Go's rule); a `Close` still wakes a call that waits in `ppoll`, but not one
+  that is already inside a blocking kernel `read` or `write` (a call that started after `Fd()`). `os.Stdin`/`Stdout`/`Stderr`
+  are not pollable unless the process got them non-blocking. Without a free descriptor for the wake eventfd (EMFILE) a wait
+  goes on without it and polls its state every 25 ms (`Close` and deadlines still work, a little late).
 - `internal/syscall/unix` is not ported: `Fcntl(F_GETFL)` is the native `sysFcntlGetFl`, `UTIME_OMIT` a constant.
 - `internal/testlog`, `internal/filepathlite`, `internal/itoa`, `internal/oserror`: used as in Go (shims of step 9.2, and
   `internal/filepathlite` ported in this step).

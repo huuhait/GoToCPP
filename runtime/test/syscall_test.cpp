@@ -357,6 +357,73 @@ void test_pipe_dup_nonblock() {
     CHECK(sc::sys_pipe2(small, 0) == EINVAL_);
 }
 
+// sys_poll_wait: the descriptor, the wake descriptor and the timeout end the wait, in that order of
+// importance (a signalled wake descriptor wins over a ready file); the wake descriptor is level
+// triggered until cleared.
+void test_poll_wait() {
+    auto fds = gp::make_slice<int64_t>(2);
+    CHECK(sc::sys_pipe2(fds, 0) == 0);
+    auto [wake, e] = sc::sys_wake_new();
+    CHECK(e == 0 && wake >= 0);
+    auto [state, pe] = sc::sys_poll_wait(fds[0], wake, false, 0);
+    CHECK(pe == 0 && state == sc::poll_timeout);
+    std::tie(state, pe) = sc::sys_poll_wait(fds[0], wake, false, 20'000'000);
+    CHECK(pe == 0 && state == sc::poll_timeout);
+    // A pipe with room can be written.
+    std::tie(state, pe) = sc::sys_poll_wait(fds[1], wake, true, -1);
+    CHECK(pe == 0 && state == sc::poll_ready);
+    auto [n, we] = sc::sys_write(fds[1], bytes("x"));
+    CHECK(we == 0 && n == 1);
+    std::tie(state, pe) = sc::sys_poll_wait(fds[0], wake, false, -1);
+    CHECK(pe == 0 && state == sc::poll_ready);
+    sc::sys_wake_signal(wake);
+    std::tie(state, pe) = sc::sys_poll_wait(fds[0], wake, false, -1);
+    CHECK(pe == 0 && state == sc::poll_woken); // wins over the ready file
+    std::tie(state, pe) = sc::sys_poll_wait(fds[0], wake, false, -1);
+    CHECK(pe == 0 && state == sc::poll_woken); // level triggered
+    sc::sys_wake_clear(wake);
+    std::tie(state, pe) = sc::sys_poll_wait(fds[0], wake, false, -1);
+    CHECK(pe == 0 && state == sc::poll_ready);
+    // A thread that signals ends a wait that has no timeout.
+    auto buf = gp::make_slice<uint8_t>(8);
+    std::tie(n, we) = sc::sys_read(fds[0], buf);
+    CHECK(we == 0 && n == 1);
+    std::thread t([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        sc::sys_wake_signal(wake);
+    });
+    std::tie(state, pe) = sc::sys_poll_wait(fds[0], wake, false, -1);
+    CHECK(pe == 0 && state == sc::poll_woken);
+    t.join();
+    // A hangup is "ready" (the read then sees EOF).
+    CHECK(sc::sys_close(fds[1]) == 0);
+    sc::sys_wake_clear(wake);
+    std::tie(state, pe) = sc::sys_poll_wait(fds[0], wake, false, -1);
+    CHECK(pe == 0 && state == sc::poll_ready);
+    CHECK(sc::sys_close(fds[0]) == 0);
+    CHECK(sc::sys_close(wake) == 0);
+}
+
+// A signal that interrupts ppoll does not end sys_poll_wait: the wait is repeated with the time
+// that is left (the timeout still passes in full) and reports the timeout, not EINTR.
+void test_poll_wait_eintr() {
+    auto [signals, state, elapsed_ms] = sc::sys_selftest_poll_eintr();
+    CHECK(signals >= 1); // ppoll was interrupted
+    CHECK(state == sc::poll_timeout);
+    CHECK(elapsed_ms >= 145);
+    auto fds = gp::make_slice<int64_t>(2);
+    CHECK(sc::sys_pipe2(fds, 0) == 0);
+    // A wake descriptor that is -1 is ignored, and a huge timeout does not overflow.
+    auto [s2, e2] = sc::sys_poll_wait(fds[0], -1, false, 1'000'000);
+    CHECK(e2 == 0 && s2 == sc::poll_timeout);
+    auto n = sc::sys_write(fds[1], bytes("x"));
+    CHECK(std::get<1>(n) == 0);
+    auto [s3, e3] = sc::sys_poll_wait(fds[0], -1, false, INT64_MAX);
+    CHECK(e3 == 0 && s3 == sc::poll_ready);
+    CHECK(sc::sys_close(fds[0]) == 0);
+    CHECK(sc::sys_close(fds[1]) == 0);
+}
+
 void test_retry_eintr() {
     auto [runs, e] = sc::sys_selftest_retry();
     CHECK(runs >= 1); // a signal arrived while the read was blocked
@@ -429,6 +496,8 @@ int main() {
     test_getdents();
     test_cwd();
     test_pipe_dup_nonblock();
+    test_poll_wait();
+    test_poll_wait_eintr();
     test_retry_eintr();
     test_ids_and_misc();
     test_env();

@@ -43,6 +43,10 @@ type FD struct {
 	// Non-zero if this file has been set to blocking mode.
 	isBlocking uint32
 
+	// Closed when the descriptor is destroyed; Close of a non-blocking file waits for it (Go's
+	// csema). Made by Init for a pollable descriptor.
+	csema chan struct{}
+
 	// Whether this is a streaming descriptor, as opposed to a
 	// packet-based descriptor like a UDP socket. Immutable.
 	IsStream bool
@@ -74,6 +78,9 @@ func (fd *FD) Init(net string, pollable bool) error {
 		return nil
 	}
 	err := fd.pd.init(fd)
+	if err == nil {
+		fd.csema = make(chan struct{})
+	}
 	if err != nil {
 		// If we could not initialize the runtime poller,
 		// assume we are using blocking mode.
@@ -92,6 +99,9 @@ func (fd *FD) destroy() error {
 	err := fd.SysFile.destroy(fd.Sysfd)
 
 	fd.Sysfd = -1
+	if fd.csema != nil {
+		close(fd.csema)
+	}
 	return err
 }
 
@@ -106,8 +116,20 @@ func (fd *FD) Close() error {
 	fd.pd.evict()
 
 	// The call to decref will call destroy if there are no other
-	// references. (Every descriptor is in blocking mode: Close does not wait for the others.)
-	return fd.decref()
+	// references.
+	err := fd.decref()
+
+	// Wait until the descriptor is closed. If this was the only
+	// reference, it is already closed. Only wait if the file has
+	// not been set to blocking mode, as otherwise any current I/O
+	// may be blocking, and that would block the Close.
+	// No need for an atomic read of isBlocking, increfAndClose means
+	// we have exclusive access to fd.
+	if fd.isBlocking == 0 && fd.csema != nil {
+		<-fd.csema
+	}
+
+	return err
 }
 
 // SetBlocking puts the file into blocking mode.

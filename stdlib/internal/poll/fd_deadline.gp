@@ -2,9 +2,13 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build windows
+
 package poll
 
 import "time"
+
+// A Windows handle is in blocking mode (the model of fd_windows.gp): it has no deadlines.
 
 // SetDeadline sets the read and write deadlines associated with fd.
 func (fd *FD) SetDeadline(t time.Time) error {

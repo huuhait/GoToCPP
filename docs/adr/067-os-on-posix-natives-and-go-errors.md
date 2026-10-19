@@ -1,6 +1,6 @@
 # ADR-067: Package `os` is Go's own `os` over small POSIX natives, with Go's error types
 
-Status: accepted (2026-10-18)
+Status: accepted (2026-10-18; point 3 and the `Close` sentence under Bad amended 2026-10-19: `Close` wakes a blocked `Read` or `Write`, and deadlines work)
 
 ## Context
 
@@ -24,6 +24,15 @@ reads, the order of the checks in `RemoveAll`, `MkdirAll`, `CreateTemp`. All of 
 3. **`internal/poll` is reduced to the blocking case**: a goroutine is an OS thread (ADR-007), so there is no netpoller
    (`SetDeadline` is `ErrNoDeadline`; `Close` does not wake a blocked `Read`). The `fdMutex` rules (reference count, closed
    bit, serialized reads and writes, the last reference closes the descriptor) are kept, with `sync.Mutex` for the two locks.
+   **Amended 2026-10-19 (follow-up of 9.6, job 09-pollclose): the reduction is no longer "blocking only".** A pipe end, a
+   FIFO, a socket or a terminal that `Open` opened, and a descriptor that already was non-blocking, are *pollable*: they are
+   in non-blocking mode and an EAGAIN is waited out by `ppoll(2)` on the descriptor and on a wake eventfd that `Close`
+   (`pollDesc.evict`) and `SetDeadline` signal. So `Close` wakes a `Read` or `Write` that waits with `ErrClosed`, and
+   `SetDeadline`, `SetReadDeadline` and `SetWriteDeadline` work on those files (`ErrNoDeadline` for the others), as in Go.
+   Regular files, directories and the memory devices stay in blocking mode, with the one system call per read or write
+   they had. A wait that cannot make its eventfd (EMFILE) goes on without it and looks at the file's state every 25 ms,
+   as Go's wait does not fail for lack of descriptors. A call that is blocked inside a kernel `read` (a file after
+   `Fd()`, which returns blocking mode as in Go) is still not woken. Details: stdlib/internal/poll/PORT.md.
 4. **`io`, `io/fs`, `internal/filepathlite` are copies of Go's files** (marked in their `PORT.md`): step 9.4 replaces `io` and
    `io/fs` with `tools/portstd`'s output. The declarations, and so the identity of `io.EOF` and `fs.ErrNotExist`, do not
    change. `io/fs` lacks `Glob` and `Sub` until `path` is ported (`stubPackage.Missing`).
@@ -52,7 +61,6 @@ EINTR retry through a signal, threads setting the environment).
 
 Bad: `RemoveAll` is Go's portable path-walking version, not the `openat` one, so a tree deeper than about 2000 levels
 fails with `lstat ...: file name too long`, `RemoveAll("file/x")` on a regular file returns nil, and permission texts differ
-(stdlib/os/PORT.md lists them). `Close` does not wake a `Read` or `Write` blocked on a pipe, FIFO or tty (a wake channel in
-`pollDesc` is the follow-up, TODO "9.6 lows"). Compiling a program that imports `os` compiles `os`, `syscall`, `internal/poll`, `io`, `io/fs`, `time` (cached by Phase 06).
+(stdlib/os/PORT.md lists them). (Amended 2026-10-19: `Close` now wakes a `Read` or `Write` blocked on a pipe, FIFO or tty, see point 3.) Compiling a program that imports `os` compiles `os`, `syscall`, `internal/poll`, `io`, `io/fs`, `time` (cached by Phase 06).
 An unclosed file leaks its descriptor. `SIGPIPE` on standard output ends the program as Go's does only through the
 natives' `die_of_sigpipe` (`fmt` and `os.Stdout.Write` both).

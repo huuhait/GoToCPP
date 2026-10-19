@@ -132,9 +132,30 @@ func newFile(fd int, name string, kind newFileKind, nonBlocking bool) *File {
 	}}
 
 	// Go makes a file it opened a pollable one (it sets O_NONBLOCK and registers it with the
-	// poller). Here only a descriptor that already is non-blocking is "pollable" (internal/poll
-	// waits for it with poll(2)); the others stay in blocking mode, whatever their kind.
+	// poller); here "pollable" means that internal/poll waits for the descriptor with ppoll(2)
+	// on the calling thread, together with a wake descriptor that Close and SetDeadline signal
+	// (stdlib/internal/poll/PORT.md). A pipe made by Pipe is pollable, so is a FIFO, a terminal
+	// or a socket that Open opened, and a descriptor that already was non-blocking. A regular file
+	// (and a directory or a block device) never waits: it stays in blocking mode, and its reads
+	// and writes are the one system call they were.
 	pollable := nonBlocking
+	if kind == kindPipe {
+		pollable = true
+	} else if kind == kindOpenFile && !nonBlocking {
+		var st syscall.Stat_t
+		err := ignoringEINTR(func() error {
+			return syscall.Fstat(fd, &st)
+		})
+		if err == nil {
+			switch st.Mode & syscall.S_IFMT {
+			case syscall.S_IFIFO, syscall.S_IFSOCK:
+				pollable = true
+			case syscall.S_IFCHR:
+				// The memory devices (/dev/null, zero, random, ...) never block.
+				pollable = (uint64(st.Rdev)>>8)&0xfff != 1
+			}
+		}
+	}
 
 	// Things like regular files and FIFOs in kqueue on *BSD/Darwin
 	// may not work properly (or accurately according to its manual).
@@ -180,7 +201,7 @@ func newFile(fd int, name string, kind newFileKind, nonBlocking bool) *File {
 		// non-blocking mode.
 		if nonBlocking {
 			// See the comments on net_newUnixFile.
-			if kind == kindSock {
+			if kind == kindSock || kind == kindPipe {
 				f.nonblock = true // tell Fd to return blocking descriptor
 			}
 		} else if err := syscall.SetNonblock(fd, true); err == nil {

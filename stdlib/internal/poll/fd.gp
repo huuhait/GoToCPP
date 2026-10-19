@@ -8,8 +8,10 @@
 // It keeps what package os needs of Go's package: the FD type with its lock and reference
 // count (a closed file is not used again, Close during a Read is safe), and the read, write
 // and metadata calls with Go's error rules (EINTR, io.EOF, short writes). A goroutine is an
-// OS thread (ADR-007), so every descriptor is used in blocking mode and there is no poller:
-// no deadlines, and Close does not wake a Read that is blocked in the kernel.
+// OS thread (ADR-007), so there is no poller: a pipe, FIFO, terminal or non-blocking descriptor
+// waits with ppoll(2) on the calling thread and on a wake descriptor, which is how Close wakes a
+// Read or Write that waits and how deadlines end a wait (fd_poll.gp); any other descriptor is
+// used in blocking mode.
 package poll
 
 import (

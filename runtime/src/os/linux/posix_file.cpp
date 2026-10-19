@@ -20,6 +20,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <sys/eventfd.h>
 #include <sys/resource.h>
 #include <sys/time.h>
 #include <sys/stat.h>
@@ -291,6 +292,30 @@ int64_t sys_mkdir(const gp::string& path, int64_t mode) {
     return retry([&] { return ::mkdir(p.c_str(), static_cast<mode_t>(mode)); }) != 0 ? fail() : 0;
 }
 
+int64_t sys_mknod(const gp::string& path, int64_t mode, int64_t dev) {
+    std::string p = c_path(path);
+    return retry([&] {
+               return ::mknod(p.c_str(), static_cast<mode_t>(mode), static_cast<dev_t>(dev));
+           }) != 0
+               ? fail()
+               : 0;
+}
+
+std::tuple<int64_t, int64_t, int64_t> sys_getrlimit(int64_t resource) {
+    struct rlimit rl;
+    if (::syscall(SYS_prlimit64, 0, static_cast<int>(resource), nullptr, &rl) != 0) {
+        return {0, 0, fail()};
+    }
+    return {static_cast<int64_t>(rl.rlim_cur), static_cast<int64_t>(rl.rlim_max), 0};
+}
+
+int64_t sys_setrlimit(int64_t resource, int64_t cur, int64_t max) {
+    struct rlimit rl;
+    rl.rlim_cur = static_cast<rlim_t>(cur);
+    rl.rlim_max = static_cast<rlim_t>(max);
+    return ::syscall(SYS_prlimit64, 0, static_cast<int>(resource), &rl, nullptr) != 0 ? fail() : 0;
+}
+
 int64_t sys_rmdir(const gp::string& path) {
     std::string p = c_path(path);
     return retry([&] { return ::rmdir(p.c_str()); }) != 0 ? fail() : 0;
@@ -394,15 +419,62 @@ std::tuple<int64_t, int64_t> sys_dup(int64_t fd) {
     return {r, 0};
 }
 
-int64_t sys_poll(int64_t fd, bool write) {
-    pollfd p{static_cast<int>(fd), static_cast<short>(write ? POLLOUT : POLLIN), 0};
+std::tuple<int64_t, int64_t> sys_wake_new() {
+    int fd = ::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    if (fd < 0) {
+        return {-1, fail()};
+    }
+    return {fd, 0};
+}
+
+void sys_wake_signal(int64_t fd) {
+    uint64_t one = 1;
+    // The counter cannot overflow in practice (2^64-2 signals); a failed write is a closed fd.
+    ssize_t r = retry([&] { return ::write(static_cast<int>(fd), &one, sizeof one); });
+    (void)r;
+}
+
+void sys_wake_clear(int64_t fd) {
+    uint64_t v;
+    ssize_t r = retry([&] { return ::read(static_cast<int>(fd), &v, sizeof v); });
+    (void)r;
+}
+
+std::tuple<int64_t, int64_t> sys_poll_wait(int64_t fd, int64_t wakefd, bool write,
+                                           int64_t timeout_ns) {
+    pollfd p[2] = {{static_cast<int>(fd), static_cast<short>(write ? POLLOUT : POLLIN), 0},
+                   {static_cast<int>(wakefd), POLLIN, 0}};
+    // A negative wakefd is ignored by poll. A timeout beyond about 13 days is cut (the caller's
+    // loop asks again), so that the end time cannot overflow.
+    constexpr int64_t max_timeout_ns = int64_t{1} << 50;
+    if (timeout_ns > max_timeout_ns) {
+        timeout_ns = max_timeout_ns;
+    }
+    auto now = [] { return std::chrono::steady_clock::now(); };
+    auto end = now() + std::chrono::nanoseconds(timeout_ns < 0 ? 0 : timeout_ns);
     for (;;) {
-        int r = ::poll(&p, 1, -1);
-        if (r > 0) {
-            return 0;
+        timespec ts{};
+        timespec* tsp = nullptr;
+        if (timeout_ns >= 0) {
+            auto left = std::chrono::duration_cast<std::chrono::nanoseconds>(end - now()).count();
+            if (left < 0) {
+                left = 0;
+            }
+            ts.tv_sec = static_cast<time_t>(left / 1000000000);
+            ts.tv_nsec = static_cast<long>(left % 1000000000);
+            tsp = &ts;
         }
-        if (r < 0 && errno != EINTR) {
-            return errno;
+        int r = ::ppoll(p, 2, tsp, nullptr);
+        if (r > 0) {
+            // The wake descriptor wins: a Close or a new deadline is seen even when the file is
+            // ready too (the caller looks at its state and polls again).
+            return {wakefd >= 0 && p[1].revents != 0 ? poll_woken : poll_ready, 0};
+        }
+        if (r == 0) {
+            return {poll_timeout, 0};
+        }
+        if (errno != EINTR) {
+            return {0, errno};
         }
     }
 }
@@ -576,6 +648,42 @@ std::tuple<int64_t, int64_t> sys_selftest_retry() {
     ::close(fds[0]);
     ::close(fds[1]);
     return {selftest_runs.load(), e};
+}
+
+std::tuple<int64_t, int64_t, int64_t> sys_selftest_poll_eintr() {
+    int fds[2];
+    if (::pipe(fds) != 0) {
+        return {0, -errno, 0};
+    }
+    auto [wake, we] = sys_wake_new();
+    if (we != 0) {
+        ::close(fds[0]);
+        ::close(fds[1]);
+        return {0, -we, 0};
+    }
+    selftest_runs.store(0);
+    selftest_wfd.store(-1);
+    struct sigaction sa{};
+    struct sigaction old{};
+    sa.sa_handler = selftest_handler;
+    sa.sa_flags = 0;
+    sigemptyset(&sa.sa_mask);
+    ::sigaction(SIGALRM, &sa, &old);
+    struct itimerval it{};
+    it.it_value.tv_usec = 20000;
+    it.it_interval.tv_usec = 20000;
+    ::setitimer(ITIMER_REAL, &it, nullptr);
+    auto start = std::chrono::steady_clock::now();
+    auto [state, e] = sys_poll_wait(fds[0], wake, false, 150'000'000);
+    auto took = std::chrono::steady_clock::now() - start;
+    struct itimerval off{};
+    ::setitimer(ITIMER_REAL, &off, nullptr);
+    ::sigaction(SIGALRM, &old, nullptr);
+    ::close(fds[0]);
+    ::close(fds[1]);
+    ::close(static_cast<int>(wake));
+    return {selftest_runs.load(), e != 0 ? -e : state,
+            std::chrono::duration_cast<std::chrono::milliseconds>(took).count()};
 }
 
 std::tuple<gp::string, int64_t> sys_nodename() {

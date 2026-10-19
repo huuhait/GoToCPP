@@ -87,6 +87,11 @@ int64_t sys_lchown(const gp::string& path, int64_t uid, int64_t gid);
 // --- names ---
 
 int64_t sys_mkdir(const gp::string& path, int64_t mode);
+// sys_getrlimit returns the soft and the hard limit of a resource (RLIM_INFINITY is -1 as an
+// int64_t), sys_setrlimit sets both.
+std::tuple<int64_t, int64_t, int64_t> sys_getrlimit(int64_t resource);
+int64_t sys_setrlimit(int64_t resource, int64_t cur, int64_t max);
+int64_t sys_mknod(const gp::string& path, int64_t mode, int64_t dev);
 int64_t sys_rmdir(const gp::string& path);
 int64_t sys_unlink(const gp::string& path);
 int64_t sys_rename(const gp::string& from, const gp::string& to);
@@ -118,9 +123,24 @@ int64_t sys_utimensat(const gp::string& path, int64_t asec, int64_t ansec, int64
 
 std::tuple<int64_t, int64_t> sys_dup(int64_t fd);
 
-// sys_poll waits until fd can be read (write false) or written (write true), or has an error or a
-// hangup (poll(2), without a timeout; EINTR is retried). It returns 0 or the errno.
-int64_t sys_poll(int64_t fd, bool write);
+// The wake descriptor of a pollDesc (internal/poll): an eventfd that Close and SetDeadline
+// signal to end a wait in sys_poll_wait. sys_wake_new returns it (non-blocking, close-on-exec),
+// sys_wake_signal makes it readable (level triggered: it stays readable) and sys_wake_clear
+// empties it.
+std::tuple<int64_t, int64_t> sys_wake_new();
+void sys_wake_signal(int64_t fd);
+void sys_wake_clear(int64_t fd);
+
+// What sys_poll_wait reports.
+constexpr int64_t poll_ready = 0;   // fd can be read (or written), or has an error or a hangup
+constexpr int64_t poll_woken = 1;   // wakefd is readable
+constexpr int64_t poll_timeout = 2; // timeout_ns passed
+
+// sys_poll_wait blocks the calling thread until fd can be read (write false) or written (write
+// true), or has an error or a hangup, or wakefd is readable, or timeout_ns nanoseconds passed
+// (negative: no timeout); ppoll(2) with EINTR retried. It returns the state and the errno.
+std::tuple<int64_t, int64_t> sys_poll_wait(int64_t fd, int64_t wakefd, bool write,
+                                           int64_t timeout_ns);
 int64_t sys_dup3(int64_t oldfd, int64_t newfd, int64_t flags);
 int64_t sys_umask(int64_t mask);
 int64_t sys_set_nonblock(int64_t fd, bool nonblocking);
@@ -157,6 +177,11 @@ std::tuple<int64_t, int64_t> sys_fcntl_getfl(int64_t fd);
 // that repeats the call gets the byte on the second try. It returns (handler runs, errno of the
 // read) and restores the signal's old action: (n >= 1, 0) when the retry works.
 std::tuple<int64_t, int64_t> sys_selftest_retry();
+
+// sys_selftest_poll_eintr is a test seam for the EINTR rule of sys_poll_wait: it waits 150 ms on an
+// idle pipe while SIGALRM arrives every 20 ms (no SA_RESTART), and returns the number of signals
+// that ran, the state sys_poll_wait reported (or its negated errno) and the milliseconds it took.
+std::tuple<int64_t, int64_t, int64_t> sys_selftest_poll_eintr();
 
 // sys_nodename is the host name (uname(2)'s nodename).
 std::tuple<gp::string, int64_t> sys_nodename();

@@ -72,6 +72,15 @@ func sysLchown(path string, uid int, gid int) (errno int)
 //gocpp:native gp::syscall::sys_mkdir
 func sysMkdir(path string, mode int) (errno int)
 
+//gocpp:native gp::syscall::sys_mknod
+func sysMknod(path string, mode int, dev int) (errno int)
+
+//gocpp:native gp::syscall::sys_getrlimit
+func sysGetrlimit(resource int) (cur int, max int, errno int)
+
+//gocpp:native gp::syscall::sys_setrlimit
+func sysSetrlimit(resource int, cur int, max int) (errno int)
+
 //gocpp:native gp::syscall::sys_rmdir
 func sysRmdir(path string) (errno int)
 
@@ -313,6 +322,31 @@ func Mkdir(path string, mode uint32) (err error) {
 		return EINVAL
 	}
 	return errnoErr(Errno(sysMkdir(path, int(mode))))
+}
+
+func Getrlimit(resource int, rlim *Rlimit) (err error) {
+	cur, max, errno := sysGetrlimit(resource)
+	if errno != 0 {
+		return errnoErr(Errno(errno))
+	}
+	rlim.Cur = uint64(cur)
+	rlim.Max = uint64(max)
+	return nil
+}
+
+func Setrlimit(resource int, rlim *Rlimit) (err error) {
+	return errnoErr(Errno(sysSetrlimit(resource, int(rlim.Cur), int(rlim.Max))))
+}
+
+func Mknod(path string, mode uint32, dev int) (err error) {
+	if hasNUL(path) {
+		return EINVAL
+	}
+	return errnoErr(Errno(sysMknod(path, int(mode), dev)))
+}
+
+func Mkfifo(path string, mode uint32) (err error) {
+	return Mknod(path, mode|S_IFIFO, 0)
 }
 
 func Rmdir(path string) error {
