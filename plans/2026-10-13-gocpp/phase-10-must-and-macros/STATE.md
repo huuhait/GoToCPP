@@ -18,22 +18,22 @@
   - [x] patch #6: `macro` declarations (package level), `lazy T` params, package-level on-top `#Name(...)` lines
   - [x] `go/printer` fork printing `macro`, `lazy`, `func f!()`, on-top macros; `gocpp fmt` switches to it
   - [x] tests + round-trip
-- [ ] 10.2 Hidden packages `gocpp/must` (M1, M2, M3, Any) and `gocpp/macro` (Site + `Outer`), aliased `gp_must`/`gp_macro`
-- [ ] 10.3 `F!` call rewrite + post-check on every form (`Identical` to `error`) + friendly error messages
-- [ ] 10.4 Must functions
+- [x] 10.2 Hidden packages `gocpp/must` (M1, M2, M3, Any) and `gocpp/macro` (Site + `Outer`), aliased `gp_must`/`gp_macro`
+- [x] 10.3 `F!` call rewrite + post-check on every form (`Identical` to `error`) + friendly error messages
+- [x] 10.4 Must functions
   - [ ] signature (`error` added unless declared) + `return x` → `return x, nil`
   - [ ] two checks: find dropped errors with the first check's signatures, rewrite, check again
   - [ ] declared-error form (`(cfg Config, err error)` + `errors.Wrapf`)
   - [ ] `main!` / `init!` (print + exit 1), methods
   - [ ] `defer f.Close()` inside; closures not handled; `go f()` → vet warning
-- [ ] 10.5 `!` lowering
+- [x] 10.5 `!` lowering
   - [ ] propagate (zero values + error, defers run)
   - [ ] panic without an error result (incl. `init`, package-level vars); `t.Fatal` in tests
   - [ ] `main`: print error (`<program>` = base name of `os.Args[0]`), exit 1
   - [ ] per-context shapes: left-hoisting, loop condition + post, `else if`, `case`, `&&`/`||`
   - [ ] `defer F!()` as a deferred closure (args evaluated at the defer)
   - [ ] closures; reject `go F!()` and `!` inside lazy arguments
-- [ ] 10.6 `errors.Wrapf(&err, ...)`
+- [x] 10.6 `errors.Wrapf(&err, ...)`
 - [ ] 10.7 (optional) Error return traces: design note, then `errors.Trace` / `%+v`
 - [ ] 10.8 Built-in macros (`#file`, `#line`, `#func`, `#text`, `#body`, `#embed`) + `//go:embed`
 - [ ] 10.9 User macros
