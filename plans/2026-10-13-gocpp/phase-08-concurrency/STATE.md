@@ -20,7 +20,7 @@
   - [ ] Mutex / RWMutex (atomic state word, waiters outside the object, copyable)
   - [ ] WaitGroup (+ `Go`), Once, OnceFunc/OnceValue/OnceValues, Cond, Map, Pool
   - [ ] atomic typed API + `gp::atomic_ptr<T>` + function-style API (`std::atomic_ref`)
-- [ ] 8.8 `time` (Go 1.23+ rules: unbuffered timer channels, no stale values, weak refs in the timer heap)
+- [x] 8.8 `time` (Go 1.23+ rules: unbuffered timer channels, no stale values, weak refs in the timer heap)
 - [x] 8.9 Exit semantics (flush + `_exit`, no static destructors, harness fails on TSan warnings)
 - [x] 8.10 `runtime` (Gosched, NumGoroutine, GOMAXPROCS remembers its value + cgroup-aware default, Goexit)
 - [ ] 8.11 Deadlock detection (Go 1.23+ timer rule, foreign threads, `Goexit` message)
