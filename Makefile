@@ -7,7 +7,7 @@ GOFMT ?= gofmt
 
 # The checks "make ci" runs. A later check is added here. The GCC + Clang
 # matrix is part of test: the test programs run with both compilers.
-CI_CHECKS = lint test build portstd-check
+CI_CHECKS = lint test build portstd-check bench-smoke
 
 # In "make ci", a C++ compiler that isn't installed fails the test programs
 # (outside it, they skip that compiler). GOCPP_REQUIRE_CXX= make ci turns
@@ -48,6 +48,7 @@ LINT_SKIP = -path ./spikes -o -path ./.git -o -name testdata
 STATICCHECK ?= $(GO) run honnef.co/go/tools/cmd/staticcheck@v0.7.0
 
 .PHONY: build test lint staticcheck ci clean quick portstd-check conformance conformance-check conformance-report
+.PHONY: bench bench-smoke bench-check bench-baseline bench-history
 
 build:
 	$(GO) build -o bin/gocpp ./cmd/gocpp
@@ -198,6 +199,44 @@ fuzz-seeds:
 
 ci: $(CI_CHECKS)
 	@echo "make ci: all checks passed"
+
+# The benchmark suite (bench/, tools/gobench, docs/benchmarks/README.md): every program in
+# bench/programs built by gocpp (g++ and clang++), by real Go and, for the compute kernels, as a
+# C++20 twin; outputs compared; times, CPU time and peak memory measured.
+#
+# bench-smoke: tiny sizes; builds and runs every program with gocpp's O2 flavor (g++ and clang++), Go
+# and the twins, and compares the outputs (about 1 minute). Part of make ci: it is the check that
+# every benchmark still builds and agrees. The default (-O0) flavor is left out of ci (the test
+# suites cover it): make bench-smoke BENCHFLAGS="-flavors default,O2,release" adds it. Its timings
+# mean nothing.
+#
+# bench: the full run (an hour or more; run it on a quiet machine: it prints the load average and
+# marks a noisy run). Writes bench/results/ (gitignored), docs/benchmarks/runtime.md and a line of
+# bench/history/<machine>.jsonl (commit that line with the change it measures; "make bench-history"
+# prints the table). BENCHFLAGS passes flags: BENCHFLAGS="-match '^cpu/' -reps 5".
+#
+# bench-check: the regression gate. Measures like bench and compares with bench/baseline.json:
+# fails (exit 1) when a gocpp time is more than 5 % over the baseline beyond noise and the slowdown
+# reproduces in two more measurements; "inconclusive" (exit 0) on a busy machine or another
+# machine; BENCHFLAGS=-require-quiet makes that a failure. Not part of ci (timing needs a quiet,
+# fixed machine). bench-baseline: measure and write bench/baseline.json (a deliberate act: say why
+# in the commit message).
+BENCHFLAGS ?=
+bench-smoke:
+	$(GO) run ./tools/gobench run -smoke -flavors O2 -out= $(BENCHFLAGS)
+
+bench:
+	$(GO) run ./tools/gobench run -compile -md docs/benchmarks/runtime.md -history auto $(BENCHFLAGS)
+
+bench-check:
+	$(GO) run ./tools/gobench check $(BENCHFLAGS)
+
+bench-baseline:
+	$(GO) run ./tools/gobench run -out bench/results/baseline-run.json $(BENCHFLAGS)
+	cp bench/results/baseline-run.json bench/baseline.json
+
+bench-history:
+	$(GO) run ./tools/benchhist
 
 # The edit-test loop: only what differs from the merge base with dev (gofmt, vet and the tests
 # of the changed Go packages, the changed test fixtures with one compiler, a small smoke set,

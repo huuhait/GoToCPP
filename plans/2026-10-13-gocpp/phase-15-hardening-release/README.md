@@ -34,6 +34,19 @@ mandelbrot, k-nucleotide (maps + strings), regex-redux (`regexp`), a JSON-ish pa
 ping-pong (concurrency), plus the `examples/`. Results are tracked per commit on a fixed machine
 (shared CI runners are too noisy for a 5 % gate), and a > 5 % regression fails CI.
 
+*Built in step 15.1* (docs/benchmarks/README.md has the full description): 54 programs in `bench/programs/`
+(cpu, data, dispatch, runtime, generics; each one `.gp` file that is also valid `.go`), 32 with a C++20 twin in
+`bench/cpp/`, run by `tools/gobench` on gocpp (g++ and clang++, in the flavors `default` = -O0 -g, `O2`, and `release` =
+`build -release`), Go and the twins, with outputs compared across all of them, medians/MAD, memory, binary
+sizes and compile times. `make bench-smoke` (in `make ci`), `make bench`, `make bench-check` (the 5 % gate: median,
+fastest run and MAD must agree, drift-corrected by Go and the twins, must reproduce, inconclusive on a busy or different
+machine), `make bench-history` (`bench/history/*.jsonl`). Every program builds today; regex-redux (`regexp`) and the JSON-ish parser
+(`encoding/json`) are to be added when those packages build. The baseline (`bench/baseline.json`) committed now comes from a
+loaded shared machine (load 67 to 240 on 192 cores, unpinned): the authoritative one is written on the fixed, quiet benchmark
+machine at the end of this phase. First findings (default build 9 times slower than Go, optimized builds 1.5 times Go and at Go's
+speed on the CPU kernels; the worst gaps are panic/recover, calls through embedded pointers and interfaces, goroutine
+hand-offs, slice allocation against C++): docs/benchmarks/README.md.
+
 **Optimizations, in expected-value order** (each one behind the `gp::` API or a lowering
 decision, so they're isolated and testable):
 

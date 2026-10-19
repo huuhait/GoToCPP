@@ -1,0 +1,10 @@
+package main
+
+import "<cmath>"
+
+// Generated per run by tools/gobench from bench/shim/shim.gp.tmpl: the problem size and the
+// few functions that differ between gocpp and Go.
+
+const benchN = @N@
+
+func sqrt(x float64) float64 { return float64(std.sqrt(x)) }

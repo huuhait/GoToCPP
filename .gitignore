@@ -44,3 +44,7 @@ docs/benchmarks/lsp.json
 /tools/difftest/findings/
 /fuzz-findings/
 /fuzz-findings.md
+
+# Benchmark runs (make bench): bench/baseline.json and bench/history/ are committed
+/bench/results/
+/tools/gobench/gobench
