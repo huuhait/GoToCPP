@@ -10,6 +10,7 @@ default os=linux arch=generic tags=purego
 unicode/utf16
 unicode/utf8
 math/bits tags=purego,compiler_bootstrap
+math
 
 # Options of packages that are not ported yet, for -list (the closure of the tier-1 packages). The tag
 # compiler_bootstrap selects Go's variants without //go:linkname and without internal/bytealg (math/bits'

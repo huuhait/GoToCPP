@@ -27,6 +27,7 @@
 #include <gocpp/error.hpp>
 #include <gocpp/errors.hpp>
 #include <gocpp/reflect.hpp>
+#include <gocpp/math.hpp>
 #include <gocpp/minmax.hpp>
 #include <gocpp/print.hpp>
 #include <gocpp/panic.hpp>

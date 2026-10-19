@@ -44,4 +44,3 @@ internal/filepathlite   9.6      with os
 io/fs                   9.6      with os
 path                    9.6      with os
 path/filepath           9.6      with os
-math                    9.5      native <cmath> plus Go code where bit-exactness matters

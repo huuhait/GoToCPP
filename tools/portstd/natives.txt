@@ -12,3 +12,18 @@
 #	TODO: reason         no native yet: the port is refused (a blocker) until someone writes one
 #
 # A function that has no entry here is a blocker too ("asm" or "linkname-pull").
+
+# math (step 9.5): runtime/include/gocpp/math.hpp and runtime/src/math.cpp (patches/math.rules says why each one)
+math.Float32bits      gp::math::float32bits
+math.Float32frombits  gp::math::float32frombits
+math.Float64bits      gp::math::float64bits
+math.Float64frombits  gp::math::float64frombits
+math.Abs              gp::math::abs
+math.Sqrt             gp::math::sqrt
+math.Floor            gp::math::floor
+math.Ceil             gp::math::ceil
+math.Trunc            gp::math::trunc
+math.archExp          gp::math::exp
+math.archLog          gp::math::log
+math.FMA              gp::math::fma
+math.RoundToEven    gp::math::round_to_even

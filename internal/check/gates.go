@@ -451,6 +451,7 @@ var stdPackages = []stdPackage{
 	{Path: "unicode", Phase: 9},
 	{Path: "unicode/utf8", Phase: 9},
 	{Path: "unicode/utf16", Phase: 9},
+	{Path: "math", Phase: 9},
 	{Path: "math/bits", Phase: 9},
 	{Path: "embed", Phase: 10, Notes: "With `//go:embed` and `#embed(...)`."},
 	{Path: "go/...", Phase: Never, Notes: "`go/ast`, `go/types` and the other packages about Go source are not planned."},

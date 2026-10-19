@@ -44,12 +44,13 @@ Source: go1.25.14, target `linux`, GOARCH `generic`, tags `purego`. Roots: `unic
 | 6 | `math/bits` | 3 | none | none | none |  |
 | 7 | `strings` | 8 | `errors`, `internal/abi`, `internal/bytealg`, `internal/stringslite`, `io`, `iter`, `math/bits`, `sync`, `unicode`, `unicode/utf8` | needs internal/abi, internal/bytealg, iter, sync | `internal/abi`, `internal/bytealg`, `internal/reflectlite`, `iter`, `sync` | unsafe |
 | 8 | `bytes` | 4 | `errors`, `internal/bytealg`, `io`, `iter`, `math/bits`, `unicode`, `unicode/utf8` | needs internal/bytealg, iter | `internal/bytealg`, `internal/reflectlite`, `iter`, `sync` |  |
-| 9 | `strconv` | 14 | `errors`, `internal/stringslite`, `math`, `math/bits`, `unicode/utf8` | needs math | `internal/bytealg`, `internal/reflectlite`, `math` |  |
-| 10 | `sort` | 5 | `internal/reflectlite`, `math/bits`, `slices` | needs internal/reflectlite, slices | `internal/reflectlite`, `slices` | reflect |
-| 11 | `bufio` | 2 | `bytes`, `errors`, `io`, `strings`, `unicode/utf8` | none | `internal/abi`, `internal/bytealg`, `internal/reflectlite`, `iter`, `sync` |  |
-| 12 | `context` | 1 | `errors`, `internal/reflectlite`, `sync`, `sync/atomic`, `time` | needs internal/reflectlite, sync, sync/atomic, time | `internal/reflectlite`, `sync`, `sync/atomic`, `time` | reflect |
-| 13 | `regexp/syntax` | 8 | `slices`, `sort`, `strconv`, `strings`, `sync`, `unicode`, `unicode/utf8` | needs slices, sync | `internal/abi`, `internal/bytealg`, `internal/reflectlite`, `iter`, `math`, `slices`, `sync` |  |
-| 14 | `regexp` | 4 | `bytes`, `io`, `regexp/syntax`, `slices`, `strconv`, `strings`, `sync`, `unicode`, `unicode/utf8` | needs slices, sync | `internal/abi`, `internal/bytealg`, `internal/reflectlite`, `iter`, `math`, `slices`, `sync` |  |
+| 9 | `math` | 53 | `math/bits` | none | none |  |
+| 10 | `strconv` | 14 | `errors`, `internal/stringslite`, `math`, `math/bits`, `unicode/utf8` | none | `internal/bytealg`, `internal/reflectlite` |  |
+| 11 | `sort` | 5 | `internal/reflectlite`, `math/bits`, `slices` | needs internal/reflectlite, slices | `internal/reflectlite`, `slices` | reflect |
+| 12 | `bufio` | 2 | `bytes`, `errors`, `io`, `strings`, `unicode/utf8` | none | `internal/abi`, `internal/bytealg`, `internal/reflectlite`, `iter`, `sync` |  |
+| 13 | `context` | 1 | `errors`, `internal/reflectlite`, `sync`, `sync/atomic`, `time` | needs internal/reflectlite, sync, sync/atomic, time | `internal/reflectlite`, `sync`, `sync/atomic`, `time` | reflect |
+| 14 | `regexp/syntax` | 8 | `slices`, `sort`, `strconv`, `strings`, `sync`, `unicode`, `unicode/utf8` | needs slices, sync | `internal/abi`, `internal/bytealg`, `internal/reflectlite`, `iter`, `slices`, `sync` |  |
+| 15 | `regexp` | 4 | `bytes`, `io`, `regexp/syntax`, `slices`, `strconv`, `strings`, `sync`, `unicode`, `unicode/utf8` | needs slices, sync | `internal/abi`, `internal/bytealg`, `internal/reflectlite`, `iter`, `slices`, `sync` |  |
 
 ### Provided another way (not ported)
 
@@ -59,7 +60,6 @@ Source: go1.25.14, target `linux`, GOARCH `generic`, tags `purego`. Roots: `unic
 | `internal/bytealg` | 9.2 | native (memchr, memcmp) | `internal/stringslite`, `strings`, `bytes` |
 | `internal/reflectlite` | 9.3 | alias of the reflect subset | `errors`, `sort`, `context` |
 | `iter` | 7.8 | Phase 07 (range over func) | `strings`, `bytes` |
-| `math` | 9.5 | native <cmath> plus Go code where bit-exactness matters | `strconv` |
 | `slices` | 7.1 | Phase 07 | `sort`, `regexp/syntax`, `regexp` |
 | `sync` | 8.7 | native (Phase 08) | `io`, `strings`, `context`, `regexp/syntax`, `regexp` |
 | `sync/atomic` | 8.7 | native (Phase 08) | `context` |

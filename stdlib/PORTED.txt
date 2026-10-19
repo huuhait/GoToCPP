@@ -4,6 +4,7 @@
 #
 # Written by go run ./tools/portstd; do not edit by hand (make portstd-check).
 
+math go1.25.14 os=linux arch=generic tags=purego files=53 natives=13 patches=14
 math/bits go1.25.14 os=linux arch=generic tags=compiler_bootstrap,purego files=3 natives=0 patches=0
 unicode/utf16 go1.25.14 os=linux arch=generic tags=purego files=1 natives=0 patches=0
 unicode/utf8 go1.25.14 os=linux arch=generic tags=purego files=1 natives=0 patches=0

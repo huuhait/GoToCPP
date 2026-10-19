@@ -36,7 +36,7 @@ against Go 1.25.7, and the audit refined it:
 | `errors`, `sort`, `context` | `internal/reflectlite` | copy; back `reflectlite` with our reflect subset (2.2) |
 | `fmt`, `flag`, `encoding/json`, `encoding/binary` | `reflect`, `internal/fmtsort` | copy; reflect subset (2.2) + port `fmtsort` |
 | `time`, `os`, `path/filepath`, `log` | `runtime`, `syscall`, `internal/godebug`, `internal/filepathlite` | port the logic (formatting, parsing, paths); write the system hooks natively |
-| `math` | `internal/cpu`, `unsafe`, assembly files | wrap `<cmath>` natively for speed; keep Go's pure-Go code where bit-exact results matter |
+| `math` | `internal/cpu`, `unsafe`, assembly files | **built (9.5, ADR-071):** Go's own code ported, plus natives where Go itself runs instructions or assembly (`Exp` and `Log` transcribe Go's amd64 assembly; `Sqrt`, `Floor`, `Ceil`, `Trunc`, `Abs`, `FMA`, the bit casts are inline); never `libm`: the contract is Go's results on amd64, bit for bit |
 | `crypto/sha256` | `crypto/internal/fips140/...` (Go 1.24+ FIPS module) | don't port the FIPS tree; port only the generic (`purego`) block function, or wrap a C library |
 
 ## 2. How it works
@@ -237,7 +237,7 @@ files pass".
 4. **9.4 Port tier-1 pure packages**: `unicode/utf8`, `unicode`, `strings`, `bytes`, `strconv`,
    `errors` (replaces the Phase 05 version), `sort`, `math/bits`, `io`, `bufio`, `context`,
    `regexp`.
-5. **9.5 `math`** (native `<cmath>` + Go code where bit-exactness matters).
+5. **9.5 `math`** (Go's code ported by `tools/portstd`, plus natives in `gocpp/math.hpp` and `runtime/src/math.cpp`; results bit-identical to Go on amd64, checked by 122 differential run tests `tests/run/math_*.gp` that tools/mathcorpus generates from real Go: ADR-071). Built: every exported function of `math` (`math/cmplx` and `math/rand` are not in this step); `-ffp-contract=off` was already in the language flags (ADR-006) and is now tested (`math_fma_contraction_*`, and the whole set again with `-O2 -mfma -mavx2`); the float to integer conversions of ADR-006 are tested against Go (`math_f2i_*`). Findings: Go's amd64 `Log` is wrong for subnormal numbers and gocpp copies it (one `@replace` removes it); the bits of a NaN that an operator (`+`, `min`, `max`) produces are out of the contract.
 6. **9.6 `os`** (interop + native) with Go error types. (Before `fmt`, because `fmt` imports `os`.)
 7. **9.7 `fmt`** port on the reflect subset (+ `internal/fmtsort`, C++ value printing).
 8. **9.8 `time`** (ported logic + native hooks + zoneinfo lookup).

@@ -1,0 +1,329 @@
+// phase: 09
+// math.Exp on about 100k inputs: bit-identical to Go (hash of the result bits and 200 samples).
+
+package main
+
+import (
+	"fmt"
+	"math"
+)
+
+var state uint64 = 0x9E3779B97F4A7C15
+
+func next() uint64 { // splitmix64
+	state += 0x9E3779B97F4A7C15
+	z := state
+	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9
+	z = (z ^ (z >> 27)) * 0x94D049BB133111EB
+	return z ^ (z >> 31)
+}
+
+func unit() float64 { return float64(next()>>11) / (1 << 53) }
+
+func sgn() float64 {
+	if next()&1 == 0 {
+		return 1
+	}
+	return -1
+}
+
+func mix(h, w uint64) uint64 {
+	h ^= w
+	h *= 1099511628211
+	h ^= h >> 29
+	return h
+}
+
+func b2w(b bool) uint64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func specials() []float64 {
+	s := []float64{0, math.Copysign(0, -1), 1, -1, 0.5, -0.5, 2, -2, 3, 10, math.Inf(1), math.Inf(-1), math.NaN(),
+		math.MaxFloat64, -math.MaxFloat64, math.SmallestNonzeroFloat64, -math.SmallestNonzeroFloat64,
+		2.2250738585072014e-308, 2.225073858507201e-308, math.MaxFloat32, 1e-10, 1e10, 1e15, 1e300, 1e-300,
+		math.Pi, math.Pi / 2, math.Pi / 4, 3 * math.Pi / 2, 2 * math.Pi, 1e6 * math.Pi, math.E, math.Ln2, math.Ln10,
+		709.782712893384, 709.79, -745.13321910194122, -745.2, -708.3964185322641, 1 << 52, 1 << 53, 1 << 62, 1 << 63,
+		-1 << 63, 1 << 64, 0.7071067811865476, 0.7071067811865475, 1.4142135623730951, 0.9999999999999999, 1.0000000000000002,
+		171.62437695630272, 171.7, 172, 1.0e22, 4503599627370496.5, 6.5, 7.5, 0.4999999999999999, 1e-5, 8.0e-5, 9.5367431640625e-07, 0.1, 0.2, 0.3, 1.0 / 3, 2.0 / 3,
+		math.Float64frombits(0x7ff0000000000001), math.Float64frombits(0x7ff8000000000000), math.Float64frombits(0xfff8000000000000),
+		math.Float64frombits(0x7ff4479c6aacc07a), math.Float64frombits(0xfff8000000000001), math.Float64frombits(0x7fffffffffffffff),
+		math.Float64frombits(0xffffffffffffffff), math.Float64frombits(0xfff0000000000001)}
+	for i := -40; i <= 40; i++ {
+		s = append(s, float64(i), float64(i)+0.5, float64(i)/3, float64(i)*math.Pi/4)
+	}
+	n := len(s)
+	for i := 0; i < n; i++ {
+		x := s[i]
+		s = append(s, math.Nextafter(x, math.Inf(1)), math.Nextafter(x, math.Inf(-1)), -x)
+	}
+	return s
+}
+
+func inputs() []float64 {
+	xs := specials()
+	for i := 0; i < 20000; i++ {
+		xs = append(xs, math.Float64frombits(next()))
+	}
+	for i := 0; i < 30000; i++ {
+		xs = append(xs, sgn()*unit())
+	}
+	for i := 0; i < 30000; i++ {
+		xs = append(xs, sgn()*(1+unit())*math.Ldexp(1, int(next()%61)-30))
+	}
+	for i := 0; i < 20000; i++ {
+		xs = append(xs, (unit()*2-1)*1000)
+	}
+	return xs
+}
+
+func pairs() ([]float64, []float64) {
+	sp := specials()
+	var as, bs []float64
+	for i := 0; i < len(sp); i += 3 {
+		for j := 0; j < len(sp); j += 3 {
+			as = append(as, sp[i])
+			bs = append(bs, sp[j])
+		}
+	}
+	for i := 0; i < 30000; i++ {
+		as = append(as, sgn()*unit()*20)
+		bs = append(bs, sgn()*unit()*20)
+	}
+	for i := 0; i < 30000; i++ {
+		as = append(as, sgn()*(1+unit())*math.Ldexp(1, int(next()%41)-20))
+		bs = append(bs, float64(int(next()%61)-30)+[]float64{0, 0.5, 0.25, 0.1}[next()%4])
+	}
+	for i := 0; i < 20000; i++ {
+		as = append(as, math.Float64frombits(next()))
+		bs = append(bs, math.Float64frombits(next()))
+	}
+	for i := 0; i < 20000; i++ {
+		as = append(as, (unit()*2-1)*1000)
+		bs = append(bs, (unit()*2-1)*1000)
+	}
+	return as, bs
+}
+
+func main() {
+	xs := inputs()
+	h := uint64(14695981039346656037)
+	for i, x := range xs {
+		y := math.Exp(x)
+		h = mix(h, math.Float64bits(y))
+		if i%500 == 0 {
+			fmt.Printf("%016x %016x\n", math.Float64bits(x), math.Float64bits(y))
+		}
+	}
+	fmt.Printf("n=%d hash=%016x\n", len(xs), h)
+}
+
+// Output:
+// 0000000000000000 3ff0000000000000
+// 40862e42fefa39f0 7ff0000000000000
+// 4008000000000000 403415e5bf6fb106
+// 4040bfffffffffff 42f41dbd6e3e0616
+// 5b65923ac30ec1f4 7ff0000000000000
+// c024bfdbf760976a 3f005d21bf6d2705
+// cc9f5dfc8a5c49d1 0000000000000000
+// 28faf9b36567288d 3ff0000000000000
+// 5c01af71ea368d0e 7ff0000000000000
+// 52bd26a497b45c45 7ff0000000000000
+// 57a8503628a803dd 7ff0000000000000
+// 9146970ff4ce0971 3ff0000000000000
+// f56a5815e599ff1f 0000000000000000
+// 398243dbd8701b2c 3ff0000000000000
+// 5ba4a48740cb04df 7ff0000000000000
+// da25dad4e83140c7 0000000000000000
+// 9ba45dbea8b9d076 3ff0000000000000
+// f762bc1ba29bdb35 0000000000000000
+// 662b00cc72923f60 7ff0000000000000
+// 482a3a7945c16ef0 7ff0000000000000
+// a8698fe6f1d1b6d7 3ff0000000000000
+// e006469c13f2521e 0000000000000000
+// e1dd8f8aae0c18d4 0000000000000000
+// e11d793466eefc2b 0000000000000000
+// 4dcd1ad5a02370a4 7ff0000000000000
+// 0deb45aa655f885e 3ff0000000000000
+// f6250f700d64e16e 0000000000000000
+// d8536e85cdee3a05 0000000000000000
+// 4e76b4f39cf95384 7ff0000000000000
+// f88bbc29e3ba37f8 0000000000000000
+// 73ea5c3d1e048b48 7ff0000000000000
+// 5c7b45e3f515c5bb 7ff0000000000000
+// ab2567ceba64e421 3ff0000000000000
+// eb8d783bcea270b8 0000000000000000
+// c3b9dee0ebf001a5 0000000000000000
+// 0e7855fba5612c1d 3ff0000000000000
+// 836e10793726318c 3ff0000000000000
+// 3b34dda55a15d732 3ff0000000000000
+// 2f4e9ffba969cc56 3ff0000000000000
+// 8b1e87ad9104ded4 3ff0000000000000
+// 17c82fc123e13faa 3ff0000000000000
+// f3be5d2a6268c34c 0000000000000000
+// 4b335c2e086fec82 7ff0000000000000
+// 304c21caf2bd8d77 3ff0000000000000
+// 3fe30bf498dd7094 3ffd03bae16c6629
+// 3fb5aac89bff8058 3ff169c47d7f1cd0
+// 3feb34272e81d3a3 4002b8277c17e8ce
+// 3fe816820fd48922 4000fb8b7820a8ec
+// bfd0fe16d5fa012a 3fe889c1c0bf81db
+// bfd7e00241eae292 3fe609473236178c
+// 3fd04afd572abb6e 3ff4a37ed3f5c309
+// bfd3fac47071ae3a 3fe76b4f478f6252
+// 3fee624f10cecad8 4004ace3b0733cee
+// 3fea5ab522610f73 40023aa05a137da7
+// bfefdb1385845498 3fd7a690a759ce24
+// bfeab98dff3b972c 3fdbc38737d89891
+// 3fe33b90cc1ec878 3ffd2f0629865994
+// bfbd77b29473af38 3fec8548fe718138
+// bfc0d52264f94548 3fec0e8b6c250083
+// bfaca7d38cbe0a80 3fee421aea98a2cd
+// 3fd89e3ee22ebdcc 3ff7817c37958bf7
+// 3fdb17eda830b6f4 3ff86ec84c9bb09d
+// 3fdc928ac90fa0f4 3ff9010171bf2054
+// bfe1262476c0cd54 3fe2b9752bd73ef7
+// bfd891a76658a7ee 3fe5cc71423abe96
+// 3fe75dada7e86de4 40009a8d862eb698
+// 3feb0ff8154e2eb2 4002a308b58ee98a
+// 3fdf06d705d2c98a 3ff9fb3d8b12daa2
+// bfe3f76f15ef5ae3 3fe12572f8c109df
+// bfd111a2c1ca78b2 3fe882445a7bc870
+// 3fde48a32b9caa20 3ff9ae78eb0ab1cd
+// 3fef97a196284ef1 40057890ac2f1418
+// 3fede2e4caecfaa7 40045b33eb518f5e
+// bfb8f8d3e2cf5e90 3fed06a2720c8388
+// 3fb5e89f9a291078 3ff16df9d31ee1b8
+// bfed44e8558c6b55 3fd9a4491cf44289
+// bfdb8a8438eb88d8 3fe4cf372edf026d
+// bfef3966dac6296e 3fd81f3e25f231b2
+// 3fe177a452bbd5c2 3ffb9e09492129be
+// 3fd5fa7497c7977e 3ff68e54d69768aa
+// bfd0f1b0f3280d4c 3fe88e831b560bb2
+// 3fdce23d0b00be16 3ff92037bf098bfb
+// 3f9b4fb30606ac40 3ff06eb716e50fc3
+// 3febc6ef604f80de 40030ecae8404efd
+// bfd1425a423a5810 3fe86fa3797c6fc3
+// 3fc446f084e7184c 3ff2bf1664b77b87
+// 3fc1dcd9164395c0 3ff265698fbe8a8c
+// 3fed04e125e49e2c 4003cfde690999f2
+// bfd9c1bae0d1834a 3fe565d40bde4f64
+// 3fe9c5140195eae9 4001e629a8aa9318
+// bfcbf4cde2506070 3fe9b8b4d16b5238
+// bfccc9fdcd96446c 3fe98e016c8d5686
+// 3fe908bfc5faf522 40017e05f4ec6f6d
+// bfe7529c40e5d1d8 3fdee0ce6e45d016
+// 3fddc5abc9eb9c18 3ff97a20e1b68569
+// bfcd86ee3ae16e44 3fe96864a3ac27f2
+// bfc3b6e0915c3048 3feb6ea48736d649
+// bfe8a5ac83066a77 3fdda04edeb55e2f
+// 3fdb59c5446ed18c 3ff887f8124ece04
+// bfd090d7606e9e78 3fe8b3c887cec777
+// 3fe4d49c91a53133 3ffead8a5f91cbc4
+// 3fe8ba0c569302d0 400153356c551992
+// 3fedd712a427ca3e 400453b045ad1235
+// bfecd6ff4d77b8de 3fd9fcf35e50c639
+// 418b404fc3162484 7ff0000000000000
+// 41d17b6ce028e50d 7ff0000000000000
+// 408655173bfff5d1 7ff0000000000000
+// bfea65e0e6524d11 3fdc0c7fcb690f89
+// be22aed75aeb9d29 3feffffffed5128a
+// c10cb224405f8efc 0000000000000000
+// 3feb027bf746a552 40029b2fd828baae
+// c0609ecd76ff47a0 33f211fb11548831
+// c016e544370168a9 3f6ac353ee6eb9a7
+// c0a93a015cc53ccd 0000000000000000
+// 3e87c667839667c9 3ff000002f8ccf4e
+// 3e11d98eda6dcb94 3ff000000047663b
+// 416b3a4c3d7d9238 7ff0000000000000
+// c1656317acd288fe 0000000000000000
+// 3fee7cfa81808980 4004be261e5c0d40
+// bea144763594e4ae 3feffffeebb8a14f
+// c06274676f3acee9 32a00b2b59eaaace
+// bf87a2dd3a378270 3fefa1ffacc6f51c
+// 3f0138f32b5b8be8 3ff00022720b6a71
+// bf83230b4ef7d484 3fefb3cf180d4b55
+// 3e1422076fb38833 3ff000000050881e
+// 4017a2641f288700 407702f50d05d3b2
+// be1c28c11f1e1e4e 3fefffffff1eb9f7
+// 40bf4cf742ff052e 7ff0000000000000
+// c19940c466a73f26 0000000000000000
+// bfc84b098455eb88 3fea77df50e94b6a
+// 3e73ccded0704d12 3ff0000013ccdedd
+// c19259d0233a17c8 0000000000000000
+// 3e387a09cc4c64a0 3ff000000187a09d
+// bf31ffcdf0faf143 3feffdc01a80f687
+// bf2dc2f4ae75ee28 3feffe23de8bd399
+// 413f1b588b0dde46 7ff0000000000000
+// c149b81eb24a22ae 0000000000000000
+// c03a3ee2751880ae 3d919379ab4604cc
+// c040825333089264 3cf49aa54cd96f82
+// c069e40733ff2e61 2d4221f804000501
+// 3fb3a5f40e85efb6 3ff146c03cf3217f
+// 4190e24e797072b6 7ff0000000000000
+// 4158bac92af262e6 7ff0000000000000
+// bf98a2773cb47237 3fef3d464d32ab91
+// c080f5aaa4e0668e 0f006b8e7d5e4b82
+// c0c65c914e3bbb1a 0000000000000000
+// 3fd71f13102b33ce 3ff6f6633fe8436a
+// 3e6924bd2c13f2a4 3ff000000c925e9b
+// 4035402d0ef88402 41d9403966c29352
+// be20d335ec1dfd0e 3feffffffef2cca1
+// bf2724e26d190e2c 3feffe8dba37a627
+// c1a6776763ade5a0 0000000000000000
+// bf73d3e6f8b4d4aa 3fefd870ba265715
+// 41668c332abcb596 7ff0000000000000
+// beec4e02cfb706e8 3fefffe3b209b4e7
+// 40dd70b10b863620 7ff0000000000000
+// 3eac444c99c0d1a1 3ff00000e2226b0c
+// c178b7b6d077fabf 0000000000000000
+// bf6b00e334851430 3fefe50a7e576e78
+// befc5f503bf32744 3fefffc74191d7cd
+// c021901561e5f3bb 3f2420a65719fd48
+// bf9fe1961bbabc9a 3fef04e140cbca6a
+// c0b82ff8a46d7370 0000000000000000
+// bf441813cf8fabab 3feffafa5ff82b18
+// 4089045a47b8c079 7ff0000000000000
+// c07bf9e98e980d9f 1792a7d5b23fc71b
+// c08c2be7a4bbcb87 0000000000000000
+// 40811f081d4297a7 715570bfaa4c6e2b
+// 405566d61ad0e231 47a6b2d7b845d83b
+// c08101b9da2c269e 0edd18021bb1f62b
+// c08a31e27a1d835e 0000000000000000
+// c08aa54ac269a045 0000000000000000
+// 4067ce94cf8091a0 511b4617dfac99c7
+// 408ba94277171cb2 7ff0000000000000
+// 407afeb0d39dbd69 66e17671ed25cf46
+// 406dddc7ccb3faa2 557a10ac0747620f
+// 4038ec6f580d899a 422f1014815a4422
+// c05c9ef205a6bc34 359c8ba504692451
+// c088d420c5366bbf 0000000000000000
+// 40863da363414e13 7ff0000000000000
+// c089a72a0990087b 0000000000000000
+// 406a4b15d13a7908 52e618a171efae90
+// c065f8d41fe23f29 30153e7c507d7095
+// 40867b1e8721c6a9 7ff0000000000000
+// 4077c8882b2981fe 623fdabf44631c00
+// c07460d4022d36f8 22885d75c07f400e
+// c088043886eef719 0000000000000000
+// c07211561b55e493 25deb5c1f43b18fa
+// 408171fe0170a0b0 7244ddc4a87ad201
+// c053422327c05870 38fd2099535d45d4
+// c0889826c6d467f5 0000000000000000
+// 407baeb37ff376d8 67dfedcaa47ef3d5
+// 408d71fa5ceb8ced 7ff0000000000000
+// c0863526f46028ca 0001b0c06928cb90
+// c08a73755f0a012b 0000000000000000
+// c06077c19b5ceab4 340e9c1481283775
+// c08db6fd3eb3d7af 0000000000000000
+// c084931eb03021f8 0491ae0adf28e8e1
+// c080c58c2d474550 0f8a43a48be605e2
+// 408ba17a7d743a80 7ff0000000000000
+// c0825a6354c0c00a 0afa200636e5a0ac
+// c0653ddadc66b0d6 309c9cb0bb3a04e4
+// 40898f904c7db4f1 7ff0000000000000
+// 408c622861ab45a0 7ff0000000000000
+// n=101592 hash=0b1bac9214347092

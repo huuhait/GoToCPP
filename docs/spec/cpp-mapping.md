@@ -718,6 +718,22 @@ their places among the calls. A store `m[k] = v` evaluates the calls of `m` and 
 is after `f` ran. A map literal is evaluated in its place among the calls, entry by entry, as gc stores
 it: a panic in one entry comes before the calls of the entries after it.
 
+## Floating-point numbers and package math
+
+gocpp copies what gc does on amd64 (`GOAMD64=v1` or `v2`), bit for bit, on every platform
+([ADR-071](../adr/071-math-bit-exact.md)):
+
+| Go | Generated C++ | Notes |
+|---|---|---|
+| `a*b + c` | `a * b + c` | two roundings: every compile has `-ffp-contract=off` and `-fno-fast-math` (the language flags, last on the command line, so that `GOCPP_CXXFLAGS` and a package's flags can't turn them off), and no x87 (SSE2 only). Only `math.FMA` fuses. |
+| `int64(f)`, `uint8(f)`, ... for a float `f` | `gp::f2i<T>(f)` | in range, truncation; out of range, NaN and infinities are Go's amd64 values (`int64`: `MinInt64`; `uint64`: see `gocpp/arith.hpp`), never C++'s undefined behavior (`-fsanitize=float-cast-overflow` stays quiet). |
+| `float64(i)`, `float32(i)` for an integer | a plain conversion | rounds to nearest even, once (a `uint64` above 2^63 too). |
+| `x / 0.0` of variables | `x / 0.0` | `+Inf`, `-Inf` or NaN, no panic. |
+| `min(x, y)`, `max(x, y)` of floats | `gp::min`, `gp::max` | NaN wins, `-0 < +0`, as in Go. Which payload a NaN result has is not specified (ADR-071). |
+| `math.Sqrt`, `Abs`, `Floor`, `Ceil`, `Trunc`, `RoundToEven`, `FMA`, `Float64bits`, ... | `::gp::math::sqrt(x)`, ... | inline natives (`gocpp/math.hpp`): the instructions that Go uses. Calls through a function value work. |
+| `math.Exp`, `math.Log` | `gp::math::exp`, `gp::math::log` | Go's amd64 assembly, transcribed (`runtime/src/math.cpp`): `Exp` takes the FMA path when the CPU has AVX and FMA (`GODEBUG=cpu.fma=off` and `cpu.avx=off` switch it off, as in Go); `Log` of a subnormal number is as wrong as Go's. |
+| everything else in `math` | Go's own code, ported | never `libm`: glibc rounds some results differently from Go's. |
+
 ## Complex numbers
 
 `complex64` and `complex128` are `gp::complex64` and `gp::complex128` (`gocpp/complex.hpp`): a
