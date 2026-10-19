@@ -52,6 +52,9 @@ lib@v2.0.0` is written `v2.0.0+incompatible` for such a library, so a later `goc
 move back to a release that is older than that commit; it moves to a newer one. To go back to a release on purpose,
 name it (`lib@v1.4.0`) or use `lib@latest`.
 
+`gocpp get lib@v1.0.0` for a library that is already required at that version but is not in the module cache changes
+nothing, so it downloads and verifies nothing; `gocpp get` with no arguments (or `gocpp mod download`) fetches it.
+
 ## See why a module is there
 
 ```text

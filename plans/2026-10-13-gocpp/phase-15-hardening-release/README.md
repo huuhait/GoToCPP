@@ -114,7 +114,7 @@ version selection** (Go's algorithm, small to implement). `golang.org/x/mod` pro
 `go.mod` as a module boundary. gocpp therefore filters out nested `gocpp.mod` directories itself
 before zipping and hashing. A proxy is a later option.
 
-*Built in 15.14* ([ADR-059](../../../docs/adr/070-version-selection-and-gocpp-get.md), [guide](../../../docs/guides/modules.md)):
+*Built in 15.14* ([ADR-070](../../../docs/adr/070-version-selection-and-gocpp-get.md), [guide](../../../docs/guides/modules.md)):
 `golang.org/x/mod` is **not** a dependency; gocpp has its own semver compare, module path checks, module zip rules
 (`modfetch.CreateZip`) and `h1:` hashing (the same hashes as `go.sum`), and MVS over `gocpp.mod` and `go.mod`
 files (`internal/mvs`, `internal/modgraph`), tested against the real go command. `gocpp get` (`internal/modget`) is
