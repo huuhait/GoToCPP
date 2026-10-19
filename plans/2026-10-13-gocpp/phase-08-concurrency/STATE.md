@@ -25,11 +25,11 @@
 - [x] 8.10 `runtime` (Gosched, NumGoroutine, GOMAXPROCS remembers its value + cgroup-aware default, Goexit)
 - [x] 8.11 Deadlock detection (Go 1.23+ timer rule, foreign threads, `Goexit` message)
 - [x] 8.12 `-race` (TSan) CI job
-- [ ] 8.13 Tests
-  - [ ] ≥ 50 deterministic concurrency run tests
-  - [ ] self-contained Go `test/chan` programs (from the pinned upstream source) as differential tests
-  - [ ] stress: 10k goroutines, 1M channel ops; deep recursion
-  - [ ] timer `cap`/`len`/`Stop`/`Reset` differential tests
+- [x] 8.13 Tests
+  - [x] ≥ 50 deterministic concurrency run tests
+  - [x] self-contained Go `test/chan` programs (from the pinned upstream source) as differential tests
+  - [x] stress: 10k goroutines, 1M channel ops; deep recursion
+  - [x] timer `cap`/`len`/`Stop`/`Reset` differential tests
 - [ ] 8.14 (optional) `iter.Pull` on a helper thread
 - [x] 8.15 Thread layer for portability (`gp::os` in `runtime/src/os/`: start with stack size, TLS, stack-overflow hook; Linux now, Windows in Phase 14)
 
