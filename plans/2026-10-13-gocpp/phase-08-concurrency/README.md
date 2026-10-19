@@ -215,7 +215,7 @@ step 8.12's job must set `TSAN_OPTIONS=detect_deadlocks=0` for the `select_1000_
   like Go 1.25, cgroup limits and CPU affinity; setting it stores the value, so
   `GOMAXPROCS(1)` then `GOMAXPROCS(0)` returns 1, even though gocpp doesn't use it for scheduling),
   `Goexit` (the Phase 05 `goexit_signal`: defers run, `recover()` returns nil, the goroutine ends).
-- `iter.Pull` (Phase 07) can be built on a helper thread.
+- `iter.Pull` (Phase 07) is built on a goroutine of its own, a coroutine that never runs at the same time as the goroutine that drives it (step 7.10, ADR-078; the natives `gp::iter::newcoro` and `coroswitch`).
 
 ### 2.6 Program exit and deadlocks
 
@@ -274,7 +274,7 @@ step 8.12's job must set `TSAN_OPTIONS=detect_deadlocks=0` for the `select_1000_
     a deep-recursion test; timer `cap`/`len`/`Stop`/`Reset` differential tests. The other
     `test/chan` programs need `flag`, `runtime.GC`, `container/*` or `text/template` and move to
     Phase 09; `perm.go` is an error test (`tests/errors`).
-14. **8.14 (optional) `iter.Pull` on a helper thread.**
+14. **8.14 (optional) `iter.Pull` on a helper thread.** Done in step 7.10 (ADR-078).
 15. **8.15 Thread layer for portability**: thread start with a stack size, thread-local storage
     and the stack-overflow hook behind one small `gp::os` interface in `runtime/src/os/`, with the Linux version here
     and the Windows version in Phase 14.

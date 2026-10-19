@@ -69,9 +69,9 @@ string, conversions between number types, the built-in functions
 | format strings that are not constants | 05 | From Phase 05 `fmt` checks nothing at compile time: a bad verb prints Go's error form at run time. |
 | programs of more than one package | 06 (works from 05) | Importing packages of your module (`gocpp.mod`), of `replace`d, vendored and downloaded modules. The standard packages are fine. Works from Phase 05 (step 6.2: one translation unit per file, Go's initialization order across packages); Phase 06 finishes the build system (cache, build modes). |
 | `//export` functions | 06 | Functions that C code can call (`-buildmode=c-archive`, `c-shared`). |
-| generic functions | 07 | Generic functions, constraints with type sets, instantiating them with explicit or inferred type arguments. Exemption: `weak.Make` from Phase 03. The standard packages `cmp`, `slices`, `maps` and `iter` are ported in step 7.10: until then their functions cannot be instantiated. |
+| generic functions | 07 | Generic functions, constraints with type sets, instantiating them with explicit or inferred type arguments. Exemption: `weak.Make` from Phase 03. The standard packages `cmp`, `slices`, `maps` and `iter` are Go's own (step 7.10). |
 | generic types | 07 | Generic types and their methods, generic aliases (step 7.3 and 7.7): one struct, method set and descriptor for each instance, named with Go's `%T` text. A C/C++ type as a type argument of a generic type is not supported yet. Exemption: `weak.Pointer[T]` from Phase 03. |
-| range over functions | 07 | `for x := range f` over any func(yield func(...) bool) (step 7.8: Go's rewrite and its misuse checks). The types `iter.Seq` and `iter.Seq2` come with the port of `iter` in step 7.10; until then declare the func types. |
+| range over functions | 07 | `for x := range f` over any func(yield func(...) bool) (step 7.8: Go's rewrite and its misuse checks). `iter.Seq`, `iter.Seq2`, `iter.Pull` and `iter.Pull2` are Go's own (step 7.10). |
 | go statements | 08 | One OS thread per goroutine (divergence D7). |
 | channels | 08 | Also `close`, and `range` over a channel. |
 | select statements | 08 |  |
@@ -99,10 +99,10 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 | `weak` | 03 | `weak.Pointer[T]` is a compiler intrinsic, exempt from the generics gate. |
 | `errors` | 05 | Go's own package since step 9.4a (ported by `tools/portstd`; `As` and `Is` use three natives over the type descriptors, as in step 5.7, not the reflect subset). |
 | `os` | 05 | `os.Stdout` and `os.Stderr` as the writers of `fmt.Fprint` and friends from Phase 05; the rest of the package, since step 9.6 (files, directories, errors, the environment, `Exit`, pipes), in Phase 09. `os.Root`, `StartProcess`, `os/exec` and `os/signal` are not built. |
-| `cmp` | 07 |  |
-| `iter` | 07 | `iter.Pull` and `iter.Pull2` from Phase 08 (they run on a helper thread). |
-| `maps` | 07 |  |
-| `slices` | 07 |  |
+| `cmp` | 07 | Go's own package (ported by `tools/portstd`, step 7.10). |
+| `iter` | 07 | Go's own package (ported by `tools/portstd`, step 7.10): `Seq`, `Seq2`, and `Pull` and `Pull2` from Phase 08. The coroutine of `Pull` is a goroutine of its own (a thread) that the runtime hands control to and from; a switch costs about a microsecond, where Go's costs 20 nanoseconds. |
+| `maps` | 07 | Go's own package (ported by `tools/portstd`, step 7.10): `Keys`, `Values`, `All`, `Collect`, `Insert`, `Clone`, `Copy`, `Equal`, `DeleteFunc` and the rest. |
+| `slices` | 07 | Go's own package (ported by `tools/portstd`, step 7.10), with Go's pattern-defeating quicksort (`Sort`, `SortFunc`, `SortStableFunc`), `BinarySearch`, `Insert`, `Delete`, `Compact`, the iterator functions and the rest. |
 | `runtime` | 08 | `runtime.Error`, `PanicNilError`, `TypeAssertionError`, `Gosched`, `NumGoroutine`, `GOMAXPROCS`, `NumCPU`, `Goexit`, `LockOSThread`, `Caller`, `Callers`, `CallersFrames`, `FuncForPC`, `Stack`, `GC`, `ReadMemStats`, `Version`, `GOOS`, `GOARCH`, `KeepAlive` and `SetFinalizer` from Phase 08 (step 8.10). Each goroutine has a thread of its own, so `LockOSThread` does nothing and `Gosched` only yields the CPU. Memory is reference counted: `GC` does nothing and a finalizer never runs. The profiles, traces and `AddCleanup` are not built; stdlib/runtime/PORT.md lists them. |
 | `runtime/debug` | 08 | `Stack`, `PrintStack`, `SetGCPercent`, `SetMemoryLimit`, `FreeOSMemory`, `SetMaxStack`, `SetMaxThreads`, `SetPanicOnFault` and `SetTraceback` from Phase 08 (step 8.10). `ReadBuildInfo`, `ReadGCStats` and `SetCrashOutput` come with Phase 09. |
 | `sync` | 08 | `Mutex`, `RWMutex`, `WaitGroup` (with `Go`), `Once`, `OnceFunc`, `Cond`, `Map`, `Pool` and `Locker` from Phase 08 (step 8.7). `OnceValue` and `OnceValues` are generic functions: they come with Phase 07. |
@@ -110,19 +110,19 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 | `time` | 08 | The whole package, since step 8.8 (Go's own `format.go`, `time.go` and `zoneinfo.go`, with natives for the clocks, `Sleep`, the timers and the time zone files). Timers follow Go 1.23: timer channels look unbuffered, `Stop` and `Reset` leave no stale value, and a `Timer` nobody holds is freed. `time.LoadLocation` reads the system's zoneinfo (the `ZONEINFO` variable, `/usr/share/zoneinfo`, `/etc/zoneinfo`); there is no embedded copy (`time/tzdata` is not available). On Windows (Phase 14) the zone data comes later. |
 | `runtime/cgo` | 09 | `cgo.Handle` with `NewHandle`, `Value` and `Delete` (step 9.2): a native table, so a handle passes through C and C++ as an integer. |
 | `bufio` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b): `Reader`, `Writer`, `ReadWriter`, `Scanner` and the split functions. |
-| `bytes` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b), with `internal/bytealg` for the searches. `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq` and `FieldsFuncSeq` return an `iter.Seq`, a generic type: they come with step 7.3. |
+| `bytes` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b), with `internal/bytealg` for the searches. `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq` and `FieldsFuncSeq` return an `iter.Seq` (step 7.10). |
 | `context` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b), on `sync`, `sync/atomic`, `time` and the reflect subset. |
 | `encoding` | 09 |  |
 | `encoding/json` | 09 |  |
 | `flag` | 09 |  |
 | `io` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b; the files were a copy in step 9.6). |
-| `io/fs` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b), with `Glob`, `Sub` and the rest; `ReadDir` sorts with a local sort until `slices` is real (step 7.10). |
+| `io/fs` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b), with `Glob`, `Sub` and the rest; `ReadDir` sorts with `slices.SortFunc`, as Go does. |
 | `path` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b): `Clean`, `Join`, `Match`, `Split` and the rest. `path/filepath` comes with `os` in the next steps. |
 | `syscall` | 09 | A subset of Go's package for Linux (step 9.6): `Errno` and `Signal` with Go's texts, the `E...`, `SIG...` and `O_...` constants, `Stat_t` and the other types that `os` needs, the environment and the file system calls. No `Syscall`, `ForkExec` or socket functions; Windows comes with Phase 14. |
 | `reflect` | 09 | A subset, without `MakeFunc`, calling methods by name, `StructOf` and `FuncOf` (divergence D6). |
 | `regexp` | 09 |  |
 | `strconv` | 09 | Go's own package (ported by `tools/portstd`, step 9.4a), with `internal/bytealg` for `IndexByteString`. |
-| `strings` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b), with `internal/bytealg` for the searches. `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq` and `FieldsFuncSeq` return an `iter.Seq`, a generic type: they come with step 7.3. |
+| `strings` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b), with `internal/bytealg` for the searches. `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq` and `FieldsFuncSeq` return an `iter.Seq` (step 7.10). |
 | `testing` | 09 |  |
 | `unicode` | 09 | Go's own package (ported by `tools/portstd`, step 9.4a): the tables, `Is*`, `To*`, `SimpleFold`, `SpecialCase`. |
 | `unicode/utf8` | 09 |  |

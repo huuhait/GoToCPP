@@ -32,3 +32,10 @@ math.RoundToEven    gp::math::round_to_even
 errors.comparableType gp::errors::comparable
 errors.checkTarget    gp::errors::check_target
 errors.assign         gp::errors::assign
+
+# iter (step 7.10): runtime/include/gocpp/iter.hpp and runtime/src/iter.cpp (patches/iter.rules says why)
+runtime.newcoro       gp::iter::newcoro
+runtime.coroswitch    gp::iter::coroswitch
+
+# maps (step 7.10): runtime/include/gocpp/maps.hpp and runtime/src/maps.cpp (map_clone in gocpp/map.hpp)
+maps.clone            gp::maps::clone

@@ -118,7 +118,7 @@ sync.runtime_Foo      TODO: written by 8.7      # no native yet: the port is ref
 
 The key is the target of the function's `//go:linkname` (`runtime.nanotime`), or the package-qualified name of the function
 (`sync.runtime_Semacquire`) when it has none. The marker goes at the end of the doc comment, after a `//` line, as ADR-027 shows.
-The argument-less form (`local`) is the one Phase 09 reserves: the loader still rejects it (`internal/load/native.go`); step 9.2,
+A function-typed parameter is a `gp::func<...>` and a handle that the native owns is a `uintptr` (`iter`'s coroutines, ADR-078: `patches/iter.rules` turns Go's `*coro` into one). The argument-less form (`local`) is the one Phase 09 reserves: the loader still rejects it (`internal/load/native.go`); step 9.2,
 the first step that writes natives with bodies in `.cpp` files (`internal/bytealg`), builds it.
 
 ## Patch files: `tools/portstd/patches/<import path with / as __>.rules`

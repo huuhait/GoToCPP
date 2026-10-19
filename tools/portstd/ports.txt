@@ -10,6 +10,10 @@ default os=linux arch=generic tags=purego
 # gocpp's own .gp files beside a port: the tool leaves them alone (they are not Go's, so they have no header and no hash).
 own errors wrapf.gp
 
+cmp
+iter
+maps
+slices
 unicode
 unicode/utf16
 unicode/utf8

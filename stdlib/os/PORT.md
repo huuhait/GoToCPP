@@ -24,8 +24,8 @@ stat_linux.go stat_unix.go sys.go sys_linux.go sys_unix.go tempfile.go types.go 
   `ProcessState` (Go's `exec.go`, `exec_posix.go`, `exec_unix.go` without the pidfd paths: a Process is a pid, `Wait` is
   `wait4`). `StartProcess` returns `&PathError{Op: "fork/exec", Err: syscall.ENOSYS}`: fork and exec are not built (`os/exec`
   is a later step).
-- `gocpp_helpers.gp`: stand-ins for generic library functions that the ports do not have yet (`slices.SortFunc`, `slices.Grow`,
-  `atomic.Pointer[dirInfo]` as a mutex-protected pointer), `lstatat`, and `readFrom`/`writeTo` (always "not handled": Go's
+- `gocpp_helpers.gp`: `sortDirEntries` and `growBytes` (one-line calls of `slices.SortFunc` and `slices.Grow`, since step 7.10),
+  `atomic.Pointer[dirInfo]` as a mutex-protected pointer, `lstatat`, and `readFrom`/`writeTo` (always "not handled": Go's
   copy_file_range/sendfile/splice paths are not built, so `File.ReadFrom` and `WriteTo` use `io.Copy`).
 
 ## Changes to Go's files

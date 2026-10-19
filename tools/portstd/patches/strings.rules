@@ -1,8 +1,4 @@
-# strings (step 9.4b): Go's package. Until generic types land (step 7.3) the functions that return an iterator are left out; Builder keeps its address as a uintptr.
-
-@note Lines, SplitSeq, SplitAfterSeq, FieldsSeq and FieldsFuncSeq (Go 1.24) are not in the port: they return iter.Seq[string], a generic type, and gocpp has generic functions but not yet generic types (step 7.3). They come back when the rule goes (TODO).
-
-@skip iter.go   Lines, SplitSeq, SplitAfterSeq, FieldsSeq and FieldsFuncSeq return iter.Seq[string], a generic type: needs generic types (7.3).
+# strings (step 9.4b): Go's package; Builder keeps its address as a uintptr. (The iterator functions, Lines and the Seq ones, are in since step 7.10.)
 
 @note Builder remembers its address as a uintptr, not as a *Builder: in gocpp a pointer field is a counted reference, so Go's `b.addr = b` made every Builder own itself and never free its buffer (a reference cycle, ADR-004). Same checks and the same panic; no strings.Builder leaks.
 

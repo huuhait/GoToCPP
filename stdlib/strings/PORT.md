@@ -15,6 +15,7 @@ Ported by `tools/portstd` from go1.25.14's `src/strings` (BSD-3-Clause, see `../
 - `builder.gp`, from `builder.go`
 - `clone.gp`, from `clone.go`
 - `compare.gp`, from `compare.go`
+- `iter.gp`, from `iter.go`
 - `reader.gp`, from `reader.go`
 - `replace.gp`, from `replace.go`
 - `search.gp`, from `search.go`
@@ -22,7 +23,6 @@ Ported by `tools/portstd` from go1.25.14's `src/strings` (BSD-3-Clause, see `../
 
 ## Files not taken
 
-- `iter.go`: patch: Lines, SplitSeq, SplitAfterSeq, FieldsSeq and FieldsFuncSeq return iter.Seq[string], a generic type: needs generic types (7.3).
 - 10 `_test.go` files: Go's tests of the package are run by step 9.10, not copied here
 
 ## Patches
@@ -41,5 +41,4 @@ None.
 
 ## Known divergences from Go
 
-- Lines, SplitSeq, SplitAfterSeq, FieldsSeq and FieldsFuncSeq (Go 1.24) are not in the port: they return iter.Seq[string], a generic type, and gocpp has generic functions but not yet generic types (step 7.3). They come back when the rule goes (TODO).
 - Builder remembers its address as a uintptr, not as a *Builder: in gocpp a pointer field is a counted reference, so Go's `b.addr = b` made every Builder own itself and never free its buffer (a reference cycle, ADR-004). Same checks and the same panic; no strings.Builder leaks.

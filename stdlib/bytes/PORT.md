@@ -14,11 +14,11 @@ Ported by `tools/portstd` from go1.25.14's `src/bytes` (BSD-3-Clause, see `../LI
 
 - `buffer.gp`, from `buffer.go`
 - `bytes.gp`, from `bytes.go`
+- `iter.gp`, from `iter.go`
 - `reader.gp`, from `reader.go`
 
 ## Files not taken
 
-- `iter.go`: patch: Lines, SplitSeq, SplitAfterSeq, FieldsSeq and FieldsFuncSeq return iter.Seq[[]byte], a generic type: needs generic types (7.3).
 - 8 `_test.go` files: Go's tests of the package are run by step 9.10, not copied here
 
 ## Patches
@@ -35,4 +35,4 @@ None.
 
 ## Known divergences from Go
 
-- Lines, SplitSeq, SplitAfterSeq, FieldsSeq and FieldsFuncSeq (Go 1.24) are not in the port: they return iter.Seq[[]byte], a generic type, and gocpp has generic functions but not yet generic types (step 7.3). They come back when the rule goes (TODO).
+None.

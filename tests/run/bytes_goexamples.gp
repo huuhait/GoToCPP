@@ -1,5 +1,5 @@
 // phase: 09
-// Go 1.25's bytes/example_test.go (the documented examples of Buffer, Reader and the functions: Compare, Contains*, Count, Cut*, Equal, Fields*, HasPrefix, Index*, Join, Map, Repeat, Replace*, Split*, Title, To*, Trim*; the iterator examples and the base64 and slices ones are not included) run in order; expected output from real Go.
+// Go 1.25's bytes/example_test.go (the documented examples of Buffer, Reader and the functions: Compare, Contains*, Count, Cut*, Equal, Fields*, HasPrefix, Index*, Join, Lines, Map, Repeat, Replace*, Split*, Title, To*, Trim*, including the iterator examples; the base64 example is not included) run in order; expected output from real Go.
 
 package main
 
@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"sync/atomic"
 	"unicode"
@@ -135,6 +136,16 @@ func ExampleCompare() {
 	}
 	if !bytes.Equal(a, b) {
 		// a not equal b
+	}
+}
+
+func ExampleCompare_search() {
+	// Binary search to find a matching byte slice.
+	var needle []byte
+	var haystack [][]byte // Assume sorted
+	_, found := slices.BinarySearchFunc(haystack, needle, bytes.Compare)
+	if found {
+		// Found it!
 	}
 }
 
@@ -496,6 +507,60 @@ func ExampleToUpperSpecial() {
 
 }
 
+func ExampleLines() {
+	text := []byte("Hello\nWorld\nGo Programming\n")
+	for line := range bytes.Lines(text) {
+		fmt.Printf("%q\n", line)
+	}
+
+}
+
+func ExampleSplitSeq() {
+	s := []byte("a,b,c,d")
+	for part := range bytes.SplitSeq(s, []byte(",")) {
+		fmt.Printf("%q\n", part)
+	}
+
+}
+
+func ExampleSplitAfterSeq() {
+	s := []byte("a,b,c,d")
+	for part := range bytes.SplitAfterSeq(s, []byte(",")) {
+		fmt.Printf("%q\n", part)
+	}
+
+}
+
+func ExampleFieldsSeq() {
+	text := []byte("The quick brown fox")
+	fmt.Println("Split byte slice into fields:")
+	for word := range bytes.FieldsSeq(text) {
+		fmt.Printf("%q\n", word)
+	}
+
+	textWithSpaces := []byte("  lots   of   spaces  ")
+	fmt.Println("\nSplit byte slice with multiple spaces:")
+	for word := range bytes.FieldsSeq(textWithSpaces) {
+		fmt.Printf("%q\n", word)
+	}
+
+}
+
+func ExampleFieldsFuncSeq() {
+	text := []byte("The quick brown fox")
+	fmt.Println("Split on whitespace(similar to FieldsSeq):")
+	for word := range bytes.FieldsFuncSeq(text, unicode.IsSpace) {
+		fmt.Printf("%q\n", word)
+	}
+
+	mixedText := []byte("abc123def456ghi")
+	fmt.Println("\nSplit on digits:")
+	for word := range bytes.FieldsFuncSeq(mixedText, unicode.IsDigit) {
+		fmt.Printf("%q\n", word)
+	}
+
+}
+
 // ---- a small harness instead of package testing (step 9.9); Go's tests are below, unchanged except as listed above ----
 
 type testT struct {
@@ -628,6 +693,8 @@ func main() {
 	ExampleClone()
 	fmt.Println("== ExampleCompare")
 	ExampleCompare()
+	fmt.Println("== ExampleCompare_search")
+	ExampleCompare_search()
 	fmt.Println("== ExampleContains")
 	ExampleContains()
 	fmt.Println("== ExampleContainsAny")
@@ -730,6 +797,16 @@ func main() {
 	ExampleToUpper()
 	fmt.Println("== ExampleToUpperSpecial")
 	ExampleToUpperSpecial()
+	fmt.Println("== ExampleLines")
+	ExampleLines()
+	fmt.Println("== ExampleSplitSeq")
+	ExampleSplitSeq()
+	fmt.Println("== ExampleSplitAfterSeq")
+	ExampleSplitAfterSeq()
+	fmt.Println("== ExampleFieldsSeq")
+	ExampleFieldsSeq()
+	fmt.Println("== ExampleFieldsFuncSeq")
+	ExampleFieldsFuncSeq()
 }
 
 // Output:
@@ -756,6 +833,7 @@ func main() {
 // abc
 // dbc
 // == ExampleCompare
+// == ExampleCompare_search
 // == ExampleContains
 // true
 // false
@@ -908,3 +986,39 @@ func main() {
 // GOPHER== ExampleToUpperSpecial
 // Original : ahoj vývojári golang
 // ToUpper : AHOJ VÝVOJÁRİ GOLANG
+// == ExampleLines
+// "Hello\n"
+// "World\n"
+// "Go Programming\n"
+// == ExampleSplitSeq
+// "a"
+// "b"
+// "c"
+// "d"
+// == ExampleSplitAfterSeq
+// "a,"
+// "b,"
+// "c,"
+// "d"
+// == ExampleFieldsSeq
+// Split byte slice into fields:
+// "The"
+// "quick"
+// "brown"
+// "fox"
+//
+// Split byte slice with multiple spaces:
+// "lots"
+// "of"
+// "spaces"
+// == ExampleFieldsFuncSeq
+// Split on whitespace(similar to FieldsSeq):
+// "The"
+// "quick"
+// "brown"
+// "fox"
+//
+// Split on digits:
+// "abc"
+// "def"
+// "ghi"

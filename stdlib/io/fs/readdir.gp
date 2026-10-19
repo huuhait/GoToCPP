@@ -8,6 +8,8 @@ package fs
 
 import (
 	"errors"
+	"internal/bytealg"
+	"slices"
 )
 
 // ReadDirFS is the interface implemented by a file system
@@ -43,54 +45,10 @@ func ReadDir(fsys FS, name string) ([]DirEntry, error) {
 	}
 
 	list, err := dir.ReadDir(-1)
-	sortDirEntries(list)
+	slices.SortFunc(list, func(a, b DirEntry) int {
+		return bytealg.CompareString(a.Name(), b.Name())
+	})
 	return list, err
-}
-
-// sortDirEntries sorts list by name (the byte order of the names). Go calls slices.SortFunc with
-// bytealg.CompareString; package slices is not real yet (stdlib/io/fs/PORT.md).
-func sortDirEntries(list []DirEntry) {
-	if len(list) < 2 {
-		return
-	}
-	tmp := make([]DirEntry, len(list))
-	mergeSortEntries(list, tmp)
-}
-
-func mergeSortEntries(a, tmp []DirEntry) {
-	if len(a) <= 12 {
-		for i := 1; i < len(a); i++ {
-			for j := i; j > 0 && a[j].Name() < a[j-1].Name(); j-- {
-				a[j], a[j-1] = a[j-1], a[j]
-			}
-		}
-		return
-	}
-	mid := len(a) / 2
-	mergeSortEntries(a[:mid], tmp[:mid])
-	mergeSortEntries(a[mid:], tmp[mid:])
-	copy(tmp, a)
-	i, j, k := 0, mid, 0
-	for i < mid && j < len(a) {
-		if tmp[j].Name() < tmp[i].Name() {
-			a[k] = tmp[j]
-			j++
-		} else {
-			a[k] = tmp[i]
-			i++
-		}
-		k++
-	}
-	for i < mid {
-		a[k] = tmp[i]
-		i++
-		k++
-	}
-	for j < len(a) {
-		a[k] = tmp[j]
-		j++
-		k++
-	}
 }
 
 // dirInfo is a DirEntry based on a FileInfo.

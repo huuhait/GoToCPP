@@ -1,5 +1,2 @@
-# bytes (step 9.4b): Go's package. Until generic types land (step 7.3) the functions that return an iterator are left out.
+# bytes (step 9.4b): Go's package, unchanged except as below. (The iterator functions, Lines and the Seq ones, are in since step 7.10.)
 
-@note Lines, SplitSeq, SplitAfterSeq, FieldsSeq and FieldsFuncSeq (Go 1.24) are not in the port: they return iter.Seq[[]byte], a generic type, and gocpp has generic functions but not yet generic types (step 7.3). They come back when the rule goes (TODO).
-
-@skip iter.go   Lines, SplitSeq, SplitAfterSeq, FieldsSeq and FieldsFuncSeq return iter.Seq[[]byte], a generic type: needs generic types (7.3).

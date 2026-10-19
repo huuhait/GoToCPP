@@ -165,12 +165,21 @@ void run_goroutine(goroutine* g) {
     g->body.reset(); // the closure's values go before the goroutine stops counting
     os::tls_set(nullptr);
     bool counted = g->counted;
+    auto end_hook = g->end_hook;
+    void* end_arg = g->end_arg;
     delete g;
-    race::no_sync ns; // the counts order nothing in Go (gocpp/race.hpp)
-    if (counted) {
-        live.fetch_sub(1, std::memory_order_acq_rel);
+    {
+        race::no_sync ns; // the counts order nothing in Go (gocpp/race.hpp)
+        if (counted) {
+            live.fetch_sub(1, std::memory_order_acq_rel);
+        }
+        bodies.fetch_sub(1, std::memory_order_acq_rel);
     }
-    bodies.fetch_sub(1, std::memory_order_acq_rel);
+    // Outside the scope above: the hook hands control to another goroutine (iter.Pull's coroutine
+    // ends), and that is an edge of the memory model that the race detector must see.
+    if (end_hook != nullptr) {
+        end_hook(end_arg);
+    }
 }
 
 // idle_wait puts the worker w on the idle list and waits for the next goroutine. It returns

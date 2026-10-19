@@ -5,67 +5,25 @@
 package os
 
 import (
+	"internal/bytealg"
 	"io"
+	"slices"
 	"sync"
 )
 
-// Helpers that stand in for generic functions of the standard library that gocpp's ports do not
-// have yet (slices.SortFunc, slices.Grow): stdlib/os/PORT.md.
+// Helpers for the generic functions of package slices (which the 9.6 version of this package could not call, so it had its own merge
+// sort and Grow): stdlib/os/PORT.md.
 
-// sortDirEntries sorts list by name (the byte order of the names), as os.ReadDir does with
-// slices.SortFunc and bytealg.CompareString.
+// sortDirEntries sorts list by name (the byte order of the names), as os.ReadDir does.
 func sortDirEntries(list []DirEntry) {
-	if len(list) < 2 {
-		return
-	}
-	tmp := make([]DirEntry, len(list))
-	mergeSortEntries(list, tmp)
-}
-
-func mergeSortEntries(a, tmp []DirEntry) {
-	if len(a) <= 12 {
-		for i := 1; i < len(a); i++ {
-			for j := i; j > 0 && a[j].Name() < a[j-1].Name(); j-- {
-				a[j], a[j-1] = a[j-1], a[j]
-			}
-		}
-		return
-	}
-	mid := len(a) / 2
-	mergeSortEntries(a[:mid], tmp[:mid])
-	mergeSortEntries(a[mid:], tmp[mid:])
-	copy(tmp, a)
-	i, j, k := 0, mid, 0
-	for i < mid && j < len(a) {
-		if tmp[j].Name() < tmp[i].Name() {
-			a[k] = tmp[j]
-			j++
-		} else {
-			a[k] = tmp[i]
-			i++
-		}
-		k++
-	}
-	for i < mid {
-		a[k] = tmp[i]
-		i++
-		k++
-	}
-	for j < len(a) {
-		a[k] = tmp[j]
-		j++
-		k++
-	}
+	slices.SortFunc(list, func(a, b DirEntry) int {
+		return bytealg.CompareString(a.Name(), b.Name())
+	})
 }
 
 // growBytes is slices.Grow for a []byte: it returns s with room for n more bytes.
 func growBytes(s []byte, n int) []byte {
-	if n -= cap(s) - len(s); n > 0 {
-		t := make([]byte, len(s), cap(s)+n)
-		copy(t, s)
-		s = t
-	}
-	return s
+	return slices.Grow(s, n)
 }
 
 // dirInfoPointer is atomic.Pointer[dirInfo] (Go's field type), which gocpp's sync/atomic does not

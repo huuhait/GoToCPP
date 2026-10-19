@@ -1,5 +1,5 @@
 // phase: 09
-// Go 1.25's strings/example_test.go (the documented examples of Builder, Reader, Replacer and the functions: Compare, Contains*, Count, Cut*, EqualFold, Fields*, HasPrefix, Index*, Join, Map, Repeat, Replace*, Split*, Title, To*, Trim*; the iterator examples are not included) run in order; expected output from real Go.
+// Go 1.25's strings/example_test.go (the documented examples of Builder, Reader, Replacer and the functions: Compare, Contains*, Count, Cut*, EqualFold, Fields*, HasPrefix, Index*, Join, Lines, Map, Repeat, Replace*, Split*, Title, To*, Trim*, including the iterator examples) run in order; expected output from real Go.
 
 package main
 
@@ -378,6 +378,60 @@ func ExampleToValidUTF8() {
 
 }
 
+func ExampleLines() {
+	text := "Hello\nWorld\nGo Programming\n"
+	for line := range strings.Lines(text) {
+		fmt.Printf("%q\n", line)
+	}
+
+}
+
+func ExampleSplitSeq() {
+	s := "a,b,c,d"
+	for part := range strings.SplitSeq(s, ",") {
+		fmt.Printf("%q\n", part)
+	}
+
+}
+
+func ExampleSplitAfterSeq() {
+	s := "a,b,c,d"
+	for part := range strings.SplitAfterSeq(s, ",") {
+		fmt.Printf("%q\n", part)
+	}
+
+}
+
+func ExampleFieldsSeq() {
+	text := "The quick brown fox"
+	fmt.Println("Split string into fields:")
+	for word := range strings.FieldsSeq(text) {
+		fmt.Printf("%q\n", word)
+	}
+
+	textWithSpaces := "  lots   of   spaces  "
+	fmt.Println("\nSplit string with multiple spaces:")
+	for word := range strings.FieldsSeq(textWithSpaces) {
+		fmt.Printf("%q\n", word)
+	}
+
+}
+
+func ExampleFieldsFuncSeq() {
+	text := "The quick brown fox"
+	fmt.Println("Split on whitespace(similar to FieldsSeq):")
+	for word := range strings.FieldsFuncSeq(text, unicode.IsSpace) {
+		fmt.Printf("%q\n", word)
+	}
+
+	mixedText := "abc123def456ghi"
+	fmt.Println("\nSplit on digits:")
+	for word := range strings.FieldsFuncSeq(mixedText, unicode.IsDigit) {
+		fmt.Printf("%q\n", word)
+	}
+
+}
+
 // ---- a small harness instead of package testing (step 9.9); Go's tests are below, unchanged except as listed above ----
 
 type testT struct {
@@ -592,6 +646,16 @@ func main() {
 	ExampleTrimRightFunc()
 	fmt.Println("== ExampleToValidUTF8")
 	ExampleToValidUTF8()
+	fmt.Println("== ExampleLines")
+	ExampleLines()
+	fmt.Println("== ExampleSplitSeq")
+	ExampleSplitSeq()
+	fmt.Println("== ExampleSplitAfterSeq")
+	ExampleSplitAfterSeq()
+	fmt.Println("== ExampleFieldsSeq")
+	ExampleFieldsSeq()
+	fmt.Println("== ExampleFieldsFuncSeq")
+	ExampleFieldsFuncSeq()
 }
 
 // Output:
@@ -740,3 +804,39 @@ func main() {
 // abc
 // abc
 // abc
+// == ExampleLines
+// "Hello\n"
+// "World\n"
+// "Go Programming\n"
+// == ExampleSplitSeq
+// "a"
+// "b"
+// "c"
+// "d"
+// == ExampleSplitAfterSeq
+// "a,"
+// "b,"
+// "c,"
+// "d"
+// == ExampleFieldsSeq
+// Split string into fields:
+// "The"
+// "quick"
+// "brown"
+// "fox"
+//
+// Split string with multiple spaces:
+// "lots"
+// "of"
+// "spaces"
+// == ExampleFieldsFuncSeq
+// Split on whitespace(similar to FieldsSeq):
+// "The"
+// "quick"
+// "brown"
+// "fox"
+//
+// Split on digits:
+// "abc"
+// "def"
+// "ghi"

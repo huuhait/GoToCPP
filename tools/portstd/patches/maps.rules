@@ -1,0 +1,2 @@
+# maps (step 7.10): Go's package, unchanged. Clone calls the runtime's map copy through //go:linkname (maps.clone); the tool turns
+# it into a native (natives.txt: gp::maps::clone, gp::map_clone over the swiss table's block).

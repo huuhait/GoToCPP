@@ -28,8 +28,7 @@ Ported by `tools/portstd` from go1.25.14's `src/io/fs` (BSD-3-Clause, see `../..
 
 ## Patches
 
-- `readdir.go` (2 places): package slices is not real yet (7.10): slices.SortFunc is a call of the local sortDirEntries below.
-- `readdir.go`: The local sort (a merge sort, so it is stable and O(n log n) for a big directory; a string comparison with < is the byte order, the order of bytealg.CompareString).
+None: the files are Go's, with the header line.
 
 ## Native functions
 
@@ -41,4 +40,4 @@ None.
 
 ## Known divergences from Go
 
-- ReadDir sorts with a local stable merge sort by name (sortDirEntries) instead of slices.SortFunc and bytealg.CompareString: package slices is a declaration stub until step 7.10. The order is the same (the names of a directory are distinct, and the byte order of strings is the order of CompareString); the rule goes with slices.
+None.

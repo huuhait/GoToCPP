@@ -1,0 +1,32 @@
+# iter (step 7.10): Go's package, with the two runtime coroutine functions (runtime.newcoro and runtime.coroswitch, linked with
+# //go:linkname) as natives with a uintptr handle. gocpp's goroutines are OS threads (ADR-007), so a coroutine is a goroutine
+# that never runs at the same time as the goroutine that switched to it (runtime/include/gocpp/iter.hpp, runtime/src/iter.cpp).
+
+@note The coroutine is a native (gp::iter::newcoro, gp::iter::coroswitch) over a goroutine of its own: Pull and Pull2 are Go's code. The handle is a uintptr instead of a *coro, so the natives need no generated type. runtime.NumGoroutine counts the coroutine from Pull until the sequence is over or stop returns, as in Go; a Pull whose sequence is neither finished nor stopped leaks its goroutine, as in Go. Every switch is a hand-over between two threads: about 0.15 to 0.7 microseconds when both threads are running on different CPUs (they spin for a moment before they sleep), about 1.5 microseconds when one has to be woken, 3 on a machine with one CPU, where Go's costs 30 nanoseconds. iter.Pull is for the occasional pull (zipping two sequences), not for a loop over millions of values: range over the function itself.
+
+@file iter.go
+@why The coroutine handle is a uintptr (a *coro of an empty struct would need a type the native C++ functions can name); newcoro and coroswitch are natives (gocpp:native through natives.txt, keys runtime.newcoro and runtime.coroswitch).
+@replace
+type coro struct{}
+
+//go:linkname newcoro runtime.newcoro
+func newcoro(func(*coro)) *coro
+
+//go:linkname coroswitch runtime.coroswitch
+func coroswitch(*coro)
+@with
+// newcoro and coroswitch are the runtime's coroutines (gocpp: natives, runtime/src/iter.cpp). A coroutine is
+// named by a uintptr here, where Go has a *coro.
+
+//go:linkname newcoro runtime.newcoro
+func newcoro(func(c uintptr)) uintptr
+
+//go:linkname coroswitch runtime.coroswitch
+func coroswitch(c uintptr)
+@end
+@why The closure that runs on the coroutine gets the handle as a uintptr.
+@replace count=2
+	c := newcoro(func(c *coro) {
+@with
+	c := newcoro(func(c uintptr) {
+@end

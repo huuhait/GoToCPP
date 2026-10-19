@@ -26,6 +26,8 @@
 #include <gocpp/ifaceconv.hpp>
 #include <gocpp/error.hpp>
 #include <gocpp/errors.hpp>
+#include <gocpp/iter.hpp>
+#include <gocpp/maps.hpp>
 #include <gocpp/reflect.hpp>
 #include <gocpp/math.hpp>
 #include <gocpp/bytealg.hpp>

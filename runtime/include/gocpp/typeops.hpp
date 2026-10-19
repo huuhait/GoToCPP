@@ -135,6 +135,10 @@ struct type_ops {
     std::shared_ptr<void> (*gp_map_snap)(const void*) = nullptr;
     std::int64_t (*gp_snap_len)(const void*) = nullptr;
     void (*gp_snap_at)(const void*, std::int64_t, const void**, const void**) = nullptr;
+    // Map: gp_map_clone(m) is a new object of the map's own C++ type (a named map type too) that
+    // holds a copy of the map (gp::map_clone), as the owner of what an interface holds
+    // (maps.Clone).
+    std::shared_ptr<void> (*gp_map_clone)(const void*) = nullptr;
     // Pointer and UnsafePointer: the object is a gp::ptr<U>.
     const void* (*gp_target)(const void*) = nullptr;
     std::shared_ptr<void> (*gp_owner)(const void*) = nullptr;
@@ -455,11 +459,33 @@ constexpr void set_lifetime(type_ops& o) noexcept {
     }
 }
 
+// map_clone_object<T, K, V>: for the map type T (a gp::map<K, V> or a named type over one) a new T
+// that holds a copy of the map at p.
+template <typename T, typename K, typename V>
+std::shared_ptr<void> map_clone_object(const void* p) {
+    const map<K, V>& src = *static_cast<const T*>(p);
+    if constexpr (std::is_same_v<T, map<K, V>>) {
+        return std::make_shared<map<K, V>>(gp::map_clone(src));
+    } else {
+        return std::make_shared<T>(T(gp::map_clone(src)));
+    }
+}
+
+template <typename T, typename U>
+constexpr void set_map_clone(type_ops&, const U*) noexcept {}
+template <typename T, typename K, typename V>
+constexpr void set_map_clone(type_ops& o, const map<K, V>*) noexcept {
+    if constexpr (std::is_copy_constructible_v<K> && std::is_copy_constructible_v<V>) {
+        o.gp_map_clone = &map_clone_object<T, K, V>;
+    }
+}
+
 // ops_of<T>() is the operations of the type T (through its newtype layers).
 template <typename T>
 constexpr type_ops ops_of() noexcept {
     type_ops o = ops_builder<typename underlying_class<T>::type>::build();
     set_lifetime<T>(o);
+    set_map_clone<T>(o, static_cast<typename underlying_class<T>::type*>(nullptr));
     return o;
 }
 

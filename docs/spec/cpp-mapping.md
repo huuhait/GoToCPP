@@ -2499,10 +2499,9 @@ void main() {
   A generic function named like a C++ keyword (`class`) shows in a trace as `main.class_[...]` (the
   `_` of the escape).
 - **Not built.** A C/C++ type as a type argument of a generic *type*
-  (see below), the generic functions of
-  `cmp`, `slices`, `maps` and `iter` (step 7.10: their stubs are rejected with
-  `cmp.Compare is not available yet (Phase 07)`), a generic function as a func value when one of its
-  type arguments is a C++ type that C++ deduces.
+  (see below), a generic function as a func value when one of its
+  type arguments is a C++ type that C++ deduces. (`cmp`, `slices`, `maps` and `iter` are Go's own
+  generic packages since step 7.10: their functions are instantiated like yours, in the unit that asks.)
 - **Cost.** Each instance is lowered and compiled like a function written by hand. A program with 20
   generic functions (a loop, a closure, a map, a slice) each instantiated with 10 types (200 instances
   in one unit) compiled in 15.2 s of CPU with g++ and 12.3 s with clang++; the same program with the 200
@@ -2826,7 +2825,7 @@ std::tuple<int64_t, bool> find(int64_t n) {
   the caller in gc 1.25 (a gc bug: `go run` of such a program runs the literal's deferred calls late);
   gocpp runs them when the literal returns, as the spec says. Range over a value whose type is a type
   parameter with a func core type (`S ~func(yield func(int) bool)`) works: the instance has the concrete
-  type. `iter.Seq`, `iter.Seq2` and `iter.Pull` come with the port of `iter` (step 7.10).
+  type. `iter.Seq`, `iter.Seq2`, `iter.Pull` and `iter.Pull2` are Go's own (step 7.10, ADR-078); the coroutine of `Pull` is a goroutine (a thread) that hands control back and forth.
 
 Source: [Phase 07 §2.5](../../plans/2026-10-13-gocpp/phase-07-generics/README.md#25-range-over-func-iterators-go-123),
 [ADR-033](../adr/033-range-over-func.md), `internal/lower/rangefunc.go`.

@@ -1138,6 +1138,64 @@ void test_adl() {
 
 // stress: a million inserts, lookups and deletes (stress_ops), for correctness under growth and
 // shrinking and as a rough speed check (the times are in the job's report, not checked).
+// map_clone (maps.Clone): the copy has the entries, is independent of the original, keeps NaN keys
+// and tombstones, shares counted values as an assignment does, and nil stays nil.
+void test_clone() {
+    gp::map<gp::string, gp::string> m = gp::make_map<gp::string, gp::string>();
+    for (int i = 0; i < 5000; i++) {
+        gp::set(m, gp::string::gp_copy(("k" + std::to_string(i)).c_str()),
+                gp::string::gp_copy(("v" + std::to_string(i)).c_str()));
+    }
+    for (int i = 0; i < 5000; i += 3) {
+        gp::erase(m, gp::string::gp_copy(("k" + std::to_string(i)).c_str()));
+    }
+    auto c = gp::map_clone(m);
+    CHECK_EQ(gp::len(c), gp::len(m));
+    for (int i = 0; i < 5000; i++) {
+        gp::string k = gp::string::gp_copy(("k" + std::to_string(i)).c_str());
+        auto [v, ok] = gp::lookup(c, k);
+        auto [w, ok2] = gp::lookup(m, k);
+        CHECK(ok == ok2 && v == w);
+    }
+    // The copy has the table of the original, down to the room it may still use before it grows.
+    CHECK(c.gp_get()->gp_cap == m.gp_get()->gp_cap);
+    CHECK(c.gp_get()->gp_size == m.gp_get()->gp_size);
+    CHECK(c.gp_get()->gp_growth == m.gp_get()->gp_growth);
+    CHECK(c.gp_get()->gp_seed == m.gp_get()->gp_seed);
+    gp::set(c, "new"_gs, "x"_gs);
+    gp::clear(c);
+    CHECK_EQ(gp::len(c), INT64_C(0));
+    CHECK(gp::len(m) > 3000);
+    gp::map<double, int64_t> f = gp::make_map<double, int64_t>();
+    for (int i = 0; i < 6; i++) {
+        gp::set(f, std::nan(""), int64_t(i));
+        gp::set(f, double(i), int64_t(i * i));
+    }
+    auto fc = gp::map_clone(f);
+    CHECK_EQ(gp::len(fc), INT64_C(12));
+    CHECK_EQ(gp::get(fc, 3.0), INT64_C(9));
+    gp::map<int64_t, int64_t> nil;
+    CHECK(gp::map_clone(nil) == nullptr);
+    auto empty = gp::map_clone(gp::make_map<int64_t, int64_t>());
+    CHECK(empty != nullptr);
+    gp::set(empty, 1, 2);
+    CHECK_EQ(gp::get(empty, 1), INT64_C(2));
+    // Cells that a range of the original holds do not matter to the copy.
+    gp::map<int64_t, int64_t> g = gp::make_map<int64_t, int64_t>();
+    for (int i = 0; i < 100; i++) {
+        gp::set(g, i, i);
+    }
+    int64_t seen = 0;
+    gp::map<int64_t, int64_t> snap;
+    for (auto it = gp::range_map(g); gp::range_next(it);) {
+        if (++seen == 5) {
+            snap = gp::map_clone(g);
+            gp::erase(g, 1000);
+        }
+    }
+    CHECK_EQ(gp::len(snap), INT64_C(100));
+}
+
 void test_stress() {
     const int64_t n = stress_ops;
     imap m = gp::make_map<int64_t, int64_t>();
@@ -1241,6 +1299,7 @@ void run_tests() {
     test_chains();
     test_self_free();
     test_adl();
+    test_clone();
     test_stress();
     bench();
     if (failures > 0) {

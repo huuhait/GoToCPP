@@ -11,9 +11,9 @@ embedded in the `gocpp` binary, and the loader finds the standard packages here.
   source). A package is real when none of its functions is a declaration stub (below): it is built from its `.gp`
   files, and `tools/stubgen` writes no stub for it (`stubPackage.Real`; `sync` and `sync/atomic` are real since step 8.7: Mutex, WaitGroup and the others over native templates, ADR-040; the tool still makes the stub in memory,
   because the tests compare the real package's exported declarations with it and with Go's).
-- **Ported packages** (Phase 09 steps 9.1, 9.4a, 9.4b, 9.5). `unicode/utf8`, `unicode/utf16`, `math/bits`, `math`, `unicode`,
+- **Ported packages** (Phase 09 steps 9.1, 9.4a, 9.4b, 9.5, and Phase 07 step 7.10). `cmp`, `slices`, `maps` and `iter` (ADR-078), `unicode/utf8`, `unicode/utf16`, `math/bits`, `math`, `unicode`,
   `strconv`, `errors` (which replaced the Phase 05 copy; `wrapf.gp` beside it is gocpp's own), `io`, `io/fs`, `path`, `strings`,
-  `bytes`, `bufio` and `context` (ADR-073; `strings` and `bytes` without the functions that return an iterator, until generic types) are Go's source, copied by
+  `bytes`, `bufio` and `context` (ADR-073, ADR-078) are Go's source, copied by
   `tools/portstd` from the pinned Go tarball: the `.gp` files start with `// Code ported from Go ...; DO NOT EDIT by
   hand`, `stdlib/<pkg>/PORT.md` says what was taken, left out and changed, and `stdlib/PORTED.txt` lists them for
   tools. A change goes into a patch rule of the tool, not into the file (`make portstd-check` fails otherwise); how

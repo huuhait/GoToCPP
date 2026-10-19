@@ -75,6 +75,13 @@ struct goroutine {
     // that wakes it (unblock), so a goroutine that is being woken is not blocked any more.
     bool is_blocked = false;
     std::unique_ptr<task> body;
+    // end_hook(end_arg), when set (by the goroutine itself, before it ends), runs on the
+    // goroutine's thread after the goroutine has stopped counting (num_goroutine,
+    // running_goroutines), and after its record is freed, so it must not use the record:
+    // iter.Pull's coroutine wakes the goroutine that is waiting for it here, so that
+    // runtime.NumGoroutine is already back when next or stop returns, as in Go (coroexit).
+    void (*end_hook)(void*) noexcept = nullptr;
+    void* end_arg = nullptr;
     goroutine* next_adopted = nullptr; // the list of threads that no go statement started
     goroutine* prev_adopted = nullptr;
 };

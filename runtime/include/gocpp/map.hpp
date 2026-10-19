@@ -926,6 +926,68 @@ void clear(const map<K, V>& m) {
     impl->gp_clear();
 }
 
+// map_clone(m): a copy of the map with the same entries (maps.Clone): the table's block is copied
+// slot by slot (keys and values are copied with their own copy constructors, so strings and other
+// counted values are shared as an assignment shares them), control bytes included, so nothing is
+// hashed or probed again. The copy has the seed of the original (the entries sit where its hashes
+// put them) and no range holds its block. A NaN key is copied like any other (the copy has as many
+// of them). nil gives nil. Like Go's clone, it dies with "concurrent map clone and map write" when
+// a write is in progress.
+template <typename K, typename V>
+map<K, V> map_clone(const map<K, V>& m) {
+    using cell = detail::map_cell<K, V>;
+    const detail::map_impl<K, V>* src = m.gp_get();
+    if (src == nullptr) {
+        return map<K, V>();
+    }
+    if (src->gp_writing.load(std::memory_order_relaxed) != 0) [[unlikely]] {
+        detail::panic_concurrent("concurrent map clone and map write");
+    }
+    auto out = std::make_shared<detail::map_impl<K, V>>();
+    out->gp_seed = src->gp_seed;
+    if (src->gp_store == nullptr) {
+        return map<K, V>(std::move(out));
+    }
+    std::size_t cap = src->gp_cap;
+    detail::map_store* ns = detail::store_new<cell>(cap);
+    int8_t* nctrl = detail::store_ctrl(ns);
+    cell* ncells = detail::store_cells<cell>(ns);
+    const int8_t* sctrl = src->gp_ctrl;
+    const cell* scells = src->gp_cells;
+    if constexpr (std::is_trivially_copyable_v<cell>) {
+        std::memcpy(nctrl, sctrl, cap + detail::group_width);
+        std::memcpy(static_cast<void*>(ncells), static_cast<const void*>(scells),
+                    cap * sizeof(cell));
+    } else {
+        std::size_t i = 0;
+        try {
+            for (; i < cap; i++) {
+                if (sctrl[i] >= 0) {
+                    ::new (static_cast<void*>(&ncells[i])) cell(scells[i]);
+                }
+            }
+        } catch (...) {
+            for (std::size_t j = 0; j < i; j++) {
+                if (sctrl[j] >= 0) {
+                    ncells[j].~cell();
+                }
+            }
+            detail::store_free<cell>(ns);
+            throw;
+        }
+        std::memcpy(nctrl, sctrl, cap + detail::group_width);
+    }
+    out->gp_store = ns;
+    out->gp_ctrl = nctrl;
+    out->gp_cells = ncells;
+    out->gp_mask = src->gp_mask;
+    out->gp_cap = cap;
+    out->gp_size = src->gp_size;
+    out->gp_growth = src->gp_growth;
+    out->gp_nans = src->gp_nans;
+    return map<K, V>(std::move(out));
+}
+
 // map_range is the state of `for k, v := range m` (above). After each successful
 // range_next, gp_key() and gp_value() are the entry's key and its current value; they stay
 // valid until the next range_next or a store, delete or clear of that map. Copy them (or read

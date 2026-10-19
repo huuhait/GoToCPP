@@ -1,12 +1,14 @@
 // phase: 09
-// Go 1.25's bytes/bytes_test.go (Equal, Compare, Index*, Count, Split*, Fields*, Map, Title, ToUpper/Lower, Trim*, Repeat, Replace, EqualFold, Cut*, Contains*, Clone, Buffer.Grow/Truncate panics) through a small harness; the iterator tests (Lines, SplitSeq, FieldsSeq, ...) are not included, they need generic types; the allocation counts are not checked; expected output from real Go.
+// Go 1.25's bytes/bytes_test.go (Equal, Compare, Index*, Count, Split*, Fields*, Lines and the Seq iterators, Map, Title, ToUpper/Lower, Trim*, Repeat, Replace, EqualFold, Cut*, Contains*, Clone, Buffer.Grow/Truncate panics) through a small harness; the allocation counts are not checked; expected output from real Go.
 
 package main
 
 import (
 	"bytes"
 	"fmt"
+	"iter"
 	"math"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"unicode"
@@ -14,18 +16,6 @@ import (
 	"unsafe"
 )
 
-
-func slicesEqual[T comparable](a, b []T) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
 var compareTests = []struct {
 	a, b []byte
 	i    int
@@ -63,6 +53,16 @@ func sliceOfString(s [][]byte) []string {
 	return result
 }
 
+func collect(t *testT, seq iter.Seq[[]byte]) [][]byte {
+	out := slices.Collect(seq)
+	out1 := slices.Collect(seq)
+	atomic.AddInt64(&checks, 1)
+	if !slices.Equal(sliceOfString(out), sliceOfString(out1)) {
+		t.Fatalf("inconsistent seq:\n%s\n%s", out, out1)
+	}
+	return out
+}
+
 type LinesTest struct {
 	a string
 	b []string
@@ -74,6 +74,16 @@ var linesTests = []LinesTest{
 	{a: "abc\r\n", b: []string{"abc\r\n"}},
 	{a: "\nabc", b: []string{"\n", "abc"}},
 	{a: "\nabc\n\n", b: []string{"\n", "abc\n", "\n"}},
+}
+
+func TestLines(t *testT) {
+	for _, s := range linesTests {
+		result := sliceOfString(slices.Collect(bytes.Lines([]byte(s.a))))
+		atomic.AddInt64(&checks, 1)
+		if !slices.Equal(result, s.b) {
+			t.Errorf(`slices.Collect(Lines(%q)) = %q; want %q`, s.a, result, s.b)
+		}
+	}
 }
 
 // For ease of reading, the test cases use strings that are converted to byte
@@ -703,9 +713,18 @@ func TestSplit(t *testT) {
 
 		result := sliceOfString(a)
 		atomic.AddInt64(&checks, 1)
-		if !slicesEqual(result, tt.a) {
+		if !slices.Equal(result, tt.a) {
 			t.Errorf(`Split(%q, %q, %d) = %v; want %v`, tt.s, tt.sep, tt.n, result, tt.a)
 			continue
+		}
+
+		atomic.AddInt64(&checks, 1)
+		if tt.n < 0 {
+			b := sliceOfString(slices.Collect(bytes.SplitSeq([]byte(tt.s), []byte(tt.sep))))
+			atomic.AddInt64(&checks, 1)
+			if !slices.Equal(b, tt.a) {
+				t.Errorf(`collect(SplitSeq(%q, %q)) = %v; want %v`, tt.s, tt.sep, b, tt.a)
+			}
 		}
 
 		atomic.AddInt64(&checks, 1)
@@ -727,7 +746,7 @@ func TestSplit(t *testT) {
 		if tt.n < 0 {
 			b := sliceOfString(bytes.Split([]byte(tt.s), []byte(tt.sep)))
 			atomic.AddInt64(&checks, 1)
-			if !slicesEqual(result, b) {
+			if !slices.Equal(result, b) {
 				t.Errorf("Split disagrees withSplitN(%q, %q, %d) = %v; want %v", tt.s, tt.sep, tt.n, b, a)
 			}
 		}
@@ -770,9 +789,18 @@ func TestSplitAfter(t *testT) {
 
 		result := sliceOfString(a)
 		atomic.AddInt64(&checks, 1)
-		if !slicesEqual(result, tt.a) {
+		if !slices.Equal(result, tt.a) {
 			t.Errorf(`Split(%q, %q, %d) = %v; want %v`, tt.s, tt.sep, tt.n, result, tt.a)
 			continue
+		}
+
+		atomic.AddInt64(&checks, 1)
+		if tt.n < 0 {
+			b := sliceOfString(slices.Collect(bytes.SplitAfterSeq([]byte(tt.s), []byte(tt.sep))))
+			atomic.AddInt64(&checks, 1)
+			if !slices.Equal(b, tt.a) {
+				t.Errorf(`collect(SplitAfterSeq(%q, %q)) = %v; want %v`, tt.s, tt.sep, b, tt.a)
+			}
 		}
 
 		atomic.AddInt64(&checks, 1)
@@ -789,7 +817,7 @@ func TestSplitAfter(t *testT) {
 		if tt.n < 0 {
 			b := sliceOfString(bytes.SplitAfter([]byte(tt.s), []byte(tt.sep)))
 			atomic.AddInt64(&checks, 1)
-			if !slicesEqual(result, b) {
+			if !slices.Equal(result, b) {
 				t.Errorf("SplitAfter disagrees withSplitAfterN(%q, %q, %d) = %v; want %v", tt.s, tt.sep, tt.n, b, a)
 			}
 		}
@@ -828,9 +856,15 @@ func TestFields(t *testT) {
 
 		result := sliceOfString(a)
 		atomic.AddInt64(&checks, 1)
-		if !slicesEqual(result, tt.a) {
+		if !slices.Equal(result, tt.a) {
 			t.Errorf("Fields(%q) = %v; want %v", tt.s, a, tt.a)
 			continue
+		}
+
+		result2 := sliceOfString(collect(t, bytes.FieldsSeq([]byte(tt.s))))
+		atomic.AddInt64(&checks, 1)
+		if !slices.Equal(result2, tt.a) {
+			t.Errorf(`collect(FieldsSeq(%q)) = %v; want %v`, tt.s, result2, tt.a)
 		}
 
 		atomic.AddInt64(&checks, 1)
@@ -852,7 +886,7 @@ func TestFieldsFunc(t *testT) {
 		a := bytes.FieldsFunc([]byte(tt.s), unicode.IsSpace)
 		result := sliceOfString(a)
 		atomic.AddInt64(&checks, 1)
-		if !slicesEqual(result, tt.a) {
+		if !slices.Equal(result, tt.a) {
 			t.Errorf("FieldsFunc(%q, unicode.IsSpace) = %v; want %v", tt.s, a, tt.a)
 			continue
 		}
@@ -876,8 +910,14 @@ func TestFieldsFunc(t *testT) {
 
 		result := sliceOfString(a)
 		atomic.AddInt64(&checks, 1)
-		if !slicesEqual(result, tt.a) {
+		if !slices.Equal(result, tt.a) {
 			t.Errorf("FieldsFunc(%q) = %v, want %v", tt.s, a, tt.a)
+		}
+
+		result2 := sliceOfString(collect(t, bytes.FieldsFuncSeq([]byte(tt.s), pred)))
+		atomic.AddInt64(&checks, 1)
+		if !slices.Equal(result2, tt.a) {
+			t.Errorf(`collect(FieldsFuncSeq(%q)) = %v; want %v`, tt.s, result2, tt.a)
 		}
 
 		atomic.AddInt64(&checks, 1)
@@ -1217,7 +1257,7 @@ func TestRunes(t *testT) {
 		tin := []byte(tt.in)
 		a := bytes.Runes(tin)
 		atomic.AddInt64(&checks, 1)
-		if !slicesEqual(a, tt.out) {
+		if !slices.Equal(a, tt.out) {
 			t.Errorf("Runes(%q) = %v; want %v", tin, a, tt.out)
 			continue
 		}
@@ -2002,6 +2042,7 @@ func (r *rngT) Float64() float64 { return float64(r.Uint64()>>11) / (1 << 53) }
 
 func main() {
 	tests_ := []testCase{
+		{"TestLines", TestLines},
 		{"TestEqual", TestEqual},
 		{"TestEqualExhaustive", TestEqualExhaustive},
 		{"TestNotEqual", TestNotEqual},
@@ -2051,6 +2092,7 @@ func main() {
 }
 
 // Output:
+// ok TestLines subtests: 0 checks: 5
 // ok TestEqual subtests: 0 checks: 211
 // ok TestEqualExhaustive subtests: 0 checks: 12530
 // ok TestNotEqual subtests: 0 checks: 98737
@@ -2065,10 +2107,10 @@ func main() {
 // ok TestIndexRune subtests: 0 checks: 2043
 // ok TestCountByte subtests: 0 checks: 620803
 // ok TestCountByteNoMatch subtests: 0 checks: 140448
-// ok TestSplit subtests: 0 checks: 126
-// ok TestSplitAfter subtests: 0 checks: 60
-// ok TestFields subtests: 0 checks: 40
-// ok TestFieldsFunc subtests: 0 checks: 25
+// ok TestSplit subtests: 0 checks: 155
+// ok TestSplitAfter subtests: 0 checks: 81
+// ok TestFields subtests: 0 checks: 62
+// ok TestFieldsFunc subtests: 0 checks: 33
 // ok TestMap subtests: 0 checks: 45
 // ok TestToUpper subtests: 0 checks: 27
 // ok TestToLower subtests: 0 checks: 24
@@ -2095,4 +2137,4 @@ func main() {
 // ok TestContainsRune subtests: 0 checks: 8
 // ok TestContainsFunc subtests: 0 checks: 8
 // ok TestClone subtests: 0 checks: 28
-// tests: 44 failed: 0
+// tests: 45 failed: 0

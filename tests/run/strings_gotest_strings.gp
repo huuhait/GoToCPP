@@ -1,5 +1,5 @@
 // phase: 09
-// Go 1.25's strings/strings_test.go (Index, Count, Split*, Fields*, Map, Title, ToUpper/Lower, Trim*, Repeat, Replace, EqualFold, Cut*, ContainsFunc, invalid UTF-8 handling, the random index tests) through a small harness; the iterator tests (Lines, SplitSeq, FieldsSeq, ...) are not included, they need generic types; the allocation counts are not checked; expected output from real Go.
+// Go 1.25's strings/strings_test.go (Index, Count, Split*, Fields*, Lines and the Seq iterators, Map, Title, ToUpper/Lower, Trim*, Repeat, Replace, EqualFold, Cut*, ContainsFunc, invalid UTF-8 handling, the random index tests) through a small harness; the allocation counts are not checked; expected output from real Go.
 
 package main
 
@@ -7,7 +7,9 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"iter"
 	"math"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"unicode"
@@ -16,16 +18,37 @@ import (
 )
 
 
-func slicesEqual[T comparable](a, b []T) bool {
-	if len(a) != len(b) {
-		return false
+func collect(t *testT, seq iter.Seq[string]) []string {
+	out := slices.Collect(seq)
+	out1 := slices.Collect(seq)
+	atomic.AddInt64(&checks, 1)
+	if !slices.Equal(out, out1) {
+		t.Fatalf("inconsistent seq:\n%s\n%s", out, out1)
 	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
+	return out
+}
+
+type LinesTest struct {
+	a string
+	b []string
+}
+
+var linesTests = []LinesTest{
+	{a: "abc\nabc\n", b: []string{"abc\n", "abc\n"}},
+	{a: "abc\r\nabc", b: []string{"abc\r\n", "abc"}},
+	{a: "abc\r\n", b: []string{"abc\r\n"}},
+	{a: "\nabc", b: []string{"\n", "abc"}},
+	{a: "\nabc\n\n", b: []string{"\n", "abc\n", "\n"}},
+}
+
+func TestLines(t *testT) {
+	for _, s := range linesTests {
+		result := slices.Collect(strings.Lines(s.a))
+		atomic.AddInt64(&checks, 1)
+		if !slices.Equal(result, s.b) {
+			t.Errorf(`slices.Collect(Lines(%q)) = %q; want %q`, s.a, result, s.b)
 		}
 	}
-	return true
 }
 
 var abcd = "abcd"
@@ -413,9 +436,17 @@ func TestSplit(t *testT) {
 	for _, tt := range splittests {
 		a := strings.SplitN(tt.s, tt.sep, tt.n)
 		atomic.AddInt64(&checks, 1)
-		if !slicesEqual(a, tt.a) {
+		if !slices.Equal(a, tt.a) {
 			t.Errorf("Split(%q, %q, %d) = %v; want %v", tt.s, tt.sep, tt.n, a, tt.a)
 			continue
+		}
+		atomic.AddInt64(&checks, 1)
+		if tt.n < 0 {
+			a2 := slices.Collect(strings.SplitSeq(tt.s, tt.sep))
+			atomic.AddInt64(&checks, 1)
+			if !slices.Equal(a2, tt.a) {
+				t.Errorf(`collect(SplitSeq(%q, %q)) = %v; want %v`, tt.s, tt.sep, a2, tt.a)
+			}
 		}
 		atomic.AddInt64(&checks, 1)
 		if tt.n == 0 {
@@ -430,7 +461,7 @@ func TestSplit(t *testT) {
 		if tt.n < 0 {
 			b := strings.Split(tt.s, tt.sep)
 			atomic.AddInt64(&checks, 1)
-			if !slicesEqual(a, b) {
+			if !slices.Equal(a, b) {
 				t.Errorf("Split disagrees with SplitN(%q, %q, %d) = %v; want %v", tt.s, tt.sep, tt.n, b, a)
 			}
 		}
@@ -457,9 +488,17 @@ func TestSplitAfter(t *testT) {
 	for _, tt := range splitaftertests {
 		a := strings.SplitAfterN(tt.s, tt.sep, tt.n)
 		atomic.AddInt64(&checks, 1)
-		if !slicesEqual(a, tt.a) {
+		if !slices.Equal(a, tt.a) {
 			t.Errorf(`Split(%q, %q, %d) = %v; want %v`, tt.s, tt.sep, tt.n, a, tt.a)
 			continue
+		}
+		atomic.AddInt64(&checks, 1)
+		if tt.n < 0 {
+			a2 := slices.Collect(strings.SplitAfterSeq(tt.s, tt.sep))
+			atomic.AddInt64(&checks, 1)
+			if !slices.Equal(a2, tt.a) {
+				t.Errorf(`collect(SplitAfterSeq(%q, %q)) = %v; want %v`, tt.s, tt.sep, a2, tt.a)
+			}
 		}
 		s := strings.Join(a, "")
 		atomic.AddInt64(&checks, 1)
@@ -470,7 +509,7 @@ func TestSplitAfter(t *testT) {
 		if tt.n < 0 {
 			b := strings.SplitAfter(tt.s, tt.sep)
 			atomic.AddInt64(&checks, 1)
-			if !slicesEqual(a, b) {
+			if !slices.Equal(a, b) {
 				t.Errorf("SplitAfter disagrees with SplitAfterN(%q, %q, %d) = %v; want %v", tt.s, tt.sep, tt.n, b, a)
 			}
 		}
@@ -504,9 +543,14 @@ func TestFields(t *testT) {
 	for _, tt := range fieldstests {
 		a := strings.Fields(tt.s)
 		atomic.AddInt64(&checks, 1)
-		if !slicesEqual(a, tt.a) {
+		if !slices.Equal(a, tt.a) {
 			t.Errorf("Fields(%q) = %v; want %v", tt.s, a, tt.a)
 			continue
+		}
+		a2 := collect(t, strings.FieldsSeq(tt.s))
+		atomic.AddInt64(&checks, 1)
+		if !slices.Equal(a2, tt.a) {
+			t.Errorf(`collect(FieldsSeq(%q)) = %v; want %v`, tt.s, a2, tt.a)
 		}
 	}
 }
@@ -522,7 +566,7 @@ func TestFieldsFunc(t *testT) {
 	for _, tt := range fieldstests {
 		a := strings.FieldsFunc(tt.s, unicode.IsSpace)
 		atomic.AddInt64(&checks, 1)
-		if !slicesEqual(a, tt.a) {
+		if !slices.Equal(a, tt.a) {
 			t.Errorf("FieldsFunc(%q, unicode.IsSpace) = %v; want %v", tt.s, a, tt.a)
 			continue
 		}
@@ -531,8 +575,13 @@ func TestFieldsFunc(t *testT) {
 	for _, tt := range FieldsFuncTests {
 		a := strings.FieldsFunc(tt.s, pred)
 		atomic.AddInt64(&checks, 1)
-		if !slicesEqual(a, tt.a) {
+		if !slices.Equal(a, tt.a) {
 			t.Errorf("FieldsFunc(%q) = %v, want %v", tt.s, a, tt.a)
+		}
+		a2 := collect(t, strings.FieldsFuncSeq(tt.s, pred))
+		atomic.AddInt64(&checks, 1)
+		if !slices.Equal(a2, tt.a) {
+			t.Errorf(`collect(FieldsFuncSeq(%q)) = %v; want %v`, tt.s, a2, tt.a)
 		}
 	}
 }
@@ -1819,6 +1868,7 @@ func (r *rngT) Float64() float64 { return float64(r.Uint64()>>11) / (1 << 53) }
 
 func main() {
 	tests_ := []testCase{
+		{"TestLines", TestLines},
 		{"TestIndex", TestIndex},
 		{"TestLastIndex", TestLastIndex},
 		{"TestIndexAny", TestIndexAny},
@@ -1863,6 +1913,7 @@ func main() {
 }
 
 // Output:
+// ok TestLines subtests: 0 checks: 5
 // ok TestIndex subtests: 0 checks: 91
 // ok TestLastIndex subtests: 0 checks: 13
 // ok TestIndexAny subtests: 0 checks: 17
@@ -1871,10 +1922,10 @@ func main() {
 // ok TestLastIndexByte subtests: 0 checks: 6
 // ok TestIndexRandom subtests: 0 checks: 275528
 // ok TestIndexRune subtests: 0 checks: 2041
-// ok TestSplit subtests: 0 checks: 90
-// ok TestSplitAfter subtests: 0 checks: 47
-// ok TestFields subtests: 0 checks: 15
-// ok TestFieldsFunc subtests: 0 checks: 19
+// ok TestSplit subtests: 0 checks: 122
+// ok TestSplitAfter subtests: 0 checks: 68
+// ok TestFields subtests: 0 checks: 45
+// ok TestFieldsFunc subtests: 0 checks: 27
 // ok TestMap subtests: 0 checks: 76
 // ok TestToUpper subtests: 0 checks: 10
 // ok TestToLower subtests: 0 checks: 9
@@ -1902,4 +1953,4 @@ func main() {
 // ok TestCut subtests: 0 checks: 8
 // ok TestCutPrefix subtests: 0 checks: 6
 // ok TestCutSuffix subtests: 0 checks: 6
-// tests: 39 failed: 0
+// tests: 40 failed: 0

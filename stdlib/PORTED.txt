@@ -5,16 +5,20 @@
 # Written by go run ./tools/portstd; do not edit by hand (make portstd-check).
 
 bufio go1.25.14 os=linux arch=generic tags=purego files=2 natives=0 patches=0
-bytes go1.25.14 os=linux arch=generic tags=purego files=3 natives=0 patches=0
+bytes go1.25.14 os=linux arch=generic tags=purego files=4 natives=0 patches=0
+cmp go1.25.14 os=linux arch=generic tags=purego files=1 natives=0 patches=0
 context go1.25.14 os=linux arch=generic tags=purego files=1 natives=0 patches=0
 errors go1.25.14 os=linux arch=generic tags=purego files=3 natives=3 patches=5
 io go1.25.14 os=linux arch=generic tags=purego files=3 natives=0 patches=0
-io/fs go1.25.14 os=linux arch=generic tags=purego files=9 natives=0 patches=3
+io/fs go1.25.14 os=linux arch=generic tags=purego files=9 natives=0 patches=0
+iter go1.25.14 os=linux arch=generic tags=purego files=1 natives=2 patches=2
+maps go1.25.14 os=linux arch=generic tags=purego files=2 natives=1 patches=0
 math go1.25.14 os=linux arch=generic tags=purego files=53 natives=13 patches=14
 math/bits go1.25.14 os=linux arch=generic tags=compiler_bootstrap,purego files=3 natives=0 patches=0
 path go1.25.14 os=linux arch=generic tags=purego files=2 natives=0 patches=0
+slices go1.25.14 os=linux arch=generic tags=purego files=5 natives=0 patches=0
 strconv go1.25.14 os=linux arch=generic tags=purego files=14 natives=0 patches=0
-strings go1.25.14 os=linux arch=generic tags=purego files=7 natives=0 patches=4
+strings go1.25.14 os=linux arch=generic tags=purego files=8 natives=0 patches=4
 unicode go1.25.14 os=linux arch=generic tags=purego files=5 natives=0 patches=5
 unicode/utf16 go1.25.14 os=linux arch=generic tags=purego files=1 natives=0 patches=0
 unicode/utf8 go1.25.14 os=linux arch=generic tags=purego files=1 natives=0 patches=0

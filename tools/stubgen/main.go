@@ -77,7 +77,7 @@ type stubPackage struct {
 
 	// Real: the package is real now (errors, since Phase 05 step 5.7, by hand, and by tools/portstd since 9.4a;
 	// sync and sync/atomic, since Phase 08 step 8.7, by hand; unicode/utf8, since Phase 09 step 9.1, and unicode
-	// and strconv, since 9.4a, and io, io/fs, strings, bytes, bufio and context, since 9.4b, by tools/portstd): stdlib/<path>
+	// and strconv, since 9.4a, and io, io/fs, strings, bytes, bufio and context, since 9.4b, and cmp, iter, maps and slices, since 7.10, by tools/portstd): stdlib/<path>
 	// holds its .gp files, and the tool writes no stub there. The
 	// tool still makes the stub in memory, because the tests compare the real package's exported
 	// declarations with it (TestRealPackagesMatchStub).
@@ -113,8 +113,8 @@ var packages = []stubPackage{
 	{Path: "weak", Phase: 3, Intrinsic: "gp::weak_ptr"},
 	{Path: "errors", Phase: 5, Real: true},
 	{Path: "runtime", Phase: 8, Real: true, Missing: runtimeMissing},
-	{Path: "cmp", Phase: 7},
-	{Path: "iter", Phase: 7},
+	{Path: "cmp", Phase: 7, Real: true},
+	{Path: "iter", Phase: 7, Real: true},
 	{Path: "unicode", Phase: 9, Real: true},
 	{Path: "unicode/utf8", Phase: 9, Real: true},
 	{Path: "encoding", Phase: 9},
@@ -124,11 +124,11 @@ var packages = []stubPackage{
 	{Path: "context", Phase: 9, Real: true},
 	{Path: "embed", Phase: 10},
 	{Path: "fmt", Phase: 5, Later: "Phase 05 replaces it with a basic fmt, and Phase 09 with Go's."},
-	{Path: "maps", Phase: 7},
-	{Path: "slices", Phase: 7},
+	{Path: "maps", Phase: 7, Real: true},
+	{Path: "slices", Phase: 7, Real: true},
 	{Path: "strconv", Phase: 9, Real: true},
-	{Path: "strings", Phase: 9, Real: true, Missing: iterMissing},
-	{Path: "bytes", Phase: 9, Real: true, Missing: iterMissing},
+	{Path: "strings", Phase: 9, Real: true},
+	{Path: "bytes", Phase: 9, Real: true},
 	{Path: "bufio", Phase: 9, Real: true},
 	{Path: "sync", Phase: 8, Real: true},
 	{Path: "sync/atomic", Phase: 8, Real: true},
@@ -140,10 +140,6 @@ var packages = []stubPackage{
 	{Path: "encoding/json", Phase: 9},
 	{Path: "testing", Phase: 9, Real: true, Differs: "stdlib/testing/PORT.md lists the differences from Go's testing"},
 }
-
-// iterMissing: the functions of strings and bytes (Go 1.24) that return an iterator, iter.Seq[V], a generic
-// type: the ports leave them out until step 7.3 (tools/portstd/patches/strings.rules and bytes.rules).
-var iterMissing = []string{"FieldsFuncSeq", "FieldsSeq", "Lines", "SplitAfterSeq", "SplitSeq"}
 
 // runtimeMissing and debugMissing: what the real packages runtime and runtime/debug (Phase 08
 // step 8.10) leave out; stdlib/runtime/PORT.md says why.
