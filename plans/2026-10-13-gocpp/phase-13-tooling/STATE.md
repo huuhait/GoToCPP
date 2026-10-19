@@ -22,7 +22,7 @@
   - [x] gocpp analyzers (cycles, `&cppLocal`, `C.cstr` lifetime + "keeps the pointer" list + NUL bytes, narrowing, panicking `!` in libraries, ignored errors, `go` in `!` functions, unwaited `#body()`, unused lazy params)
   - [x] CI: every analyzer over the Phase 04 interop examples
 - [x] 13.4 `gocpp doc`
-- [ ] 13.5 `gocpp emit --annotate` + `gocpp explain`
+- [x] 13.5 `gocpp emit --annotate` + `gocpp explain`
 
 ## Exit criteria
 
