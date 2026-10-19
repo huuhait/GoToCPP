@@ -39,6 +39,10 @@ import (
 //     runs the deferred calls, so a deferred call that changes a named result through a pointer
 //     (defer set(&err)) changes what the function returns. A goto out of a try block is allowed,
 //     and it jumps over no declaration: the body is in the try block, a scope of its own.
+//   - A return stores into a result by an alias when a variable of an inner scope has the
+//     result's name at the return (for i, x := range xs { return i, nil } with a result i): the
+//     alias is auto& gp_res_i = i;, declared with the result (resultAliases). The result's own
+//     name would be the inner variable there, and the return would store into that.
 //   - Each return has its own exit, at the return's line, as Go's deferreturn is: a panic in a
 //     deferred call shows the function at that line in the trace, and gdb's next stays on it.
 //     The end of the body (and a panic, after the catch) goes to the exit at the closing brace.
@@ -102,17 +106,95 @@ func hasDefer(body *ast.BlockStmt) bool {
 
 // prepareDefers is prepare's part for a function with defers: it gets a deferInfo, and its
 // results that have no names get gp_r names, for the variables that the returns assign.
-func (f *funcInfo) prepareDefers() {
+func (f *funcInfo) prepareDefers(g *gen) {
 	if f.body == nil || !hasDefer(f.body) {
 		return
 	}
 	f.defers = &deferInfo{}
 	res := f.sig.Results()
+	f.aliases = resultAliases(g, f.ftype, f.body, res.Len())
 	if f.results == nil && res.Len() > 0 {
 		f.results = make([]string, res.Len())
 		for i := range f.results {
 			f.results[i] = f.names.temp("r")
 		}
+	}
+}
+
+// resultAliases returns, for a function with defers whose results have names, the alias of each
+// result that a variable of an inner scope hides at a return statement of the body that has
+// values (a bare return can't be there: Go rejects it), or nil if there is none. A return stores
+// its values into the result variables by their C++ names (deferReturn), and in C++ the inner
+// variable of that name is the one in scope (for i, x := range xs { return i, nil }): the
+// alias gp_res_i is declared next to the result and can't be hidden (a user name never starts
+// with gp_, names.go). It is the name that C++ would see, not just a variable of that name in
+// the function: a variable in a block that has no return, or in a func literal, hides
+// nothing, and the function is then written as before.
+func resultAliases(g *gen, ftype *ast.FuncType, body *ast.BlockStmt, n int) []string {
+	if ftype == nil || ftype.Results == nil {
+		return nil
+	}
+	// The function's scope holds the results. (Not the result variables' Parent: those of an
+	// instance of a generic function are variables of its own, without a scope.)
+	fscope := g.info.Scopes[ftype]
+	if fscope == nil {
+		return nil
+	}
+	var names []string // the names of the results, "" for an unnamed one or _
+	for _, fld := range ftype.Results.List {
+		if len(fld.Names) == 0 {
+			names = append(names, "")
+		}
+		for _, id := range fld.Names {
+			if id.Name == "_" {
+				names = append(names, "")
+			} else {
+				names = append(names, id.Name)
+			}
+		}
+	}
+	if len(names) != n {
+		return nil
+	}
+	var aliases []string
+	ast.Inspect(body, func(node ast.Node) bool {
+		switch node := node.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.ReturnStmt:
+			if len(node.Results) == 0 {
+				return true
+			}
+			inner := fscope.Innermost(node.Pos())
+			if inner == nil {
+				return true
+			}
+			for i, name := range names {
+				if name == "" {
+					continue
+				}
+				if _, obj := inner.LookupParent(name, node.Pos()); obj != fscope.Lookup(name) {
+					if aliases == nil {
+						aliases = make([]string, n)
+					}
+					aliases[i] = "gp_res_" + name
+				}
+			}
+		}
+		return true
+	})
+	return aliases
+}
+
+// declareAliases declares the aliases of the results (resultAliases) after the results:
+// auto& gp_res_i = i;.
+func (fg *funcGen) declareAliases() {
+	f := fg.fn
+	for i, a := range f.aliases {
+		if a == "" {
+			continue
+		}
+		fg.add(varDecl(fg.g.pos(f.pos), &cppir.Ref{Elem: typeName("auto")}, a, cxxName(f.results[i])))
 	}
 }
 
@@ -210,11 +292,16 @@ func (fg *funcGen) deferReturn(s *ast.ReturnStmt) {
 	targets := make([]target, len(fg.fn.results))
 	for i, n := range fg.fn.results {
 		targets[i] = varTarget(n)
+		if len(fg.fn.aliases) > 0 && fg.fn.aliases[i] != "" {
+			// The result's own name is hidden here: store through the alias (and no value reads
+			// that name, bind's reads).
+			targets[i] = varTarget(fg.fn.aliases[i])
+		}
 		targets[i].gtype = res.At(i).Type() // which return f() converts to (step 3.9)
 		targets[i].gcDefer = true           // gc's ascompatee: a result, with defers
 		targets[i].ret = true               // a C/C++ local that is returned moves (returnMove)
 		if fg.isBoxed(res.At(i)) {
-			targets[i].x = &cppir.Paren{X: deref(cxxName(n))}
+			targets[i].x = &cppir.Paren{X: deref(targets[i].x)}
 		}
 	}
 	var lines []cppir.Stmt

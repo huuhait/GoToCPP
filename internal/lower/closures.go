@@ -176,7 +176,7 @@ func (fg *funcGen) lambda(fl *ast.FuncLit) *cppir.Lambda {
 	}
 	caps := fg.captures(fl) // the names outside the literal
 	fg.names.openScope()    // the lambda's parameters, results and outermost declarations
-	f := &funcInfo{sig: sig, body: fl.Body, pos: fl.Pos(), top: fg.top, names: fg.names, boxed: fg.boxed}
+	f := &funcInfo{sig: sig, ftype: fl.Type, body: fl.Body, pos: fl.Pos(), top: fg.top, names: fg.names, boxed: fg.boxed}
 	f.signature(g)
 	lam := &cppir.Lambda{
 		Captures: caps,

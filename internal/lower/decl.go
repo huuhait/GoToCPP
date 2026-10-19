@@ -19,9 +19,10 @@ type funcInfo struct {
 	obj  *types.Func   // nil for a func literal
 	name string        // the C++ name (of a function of the package)
 
-	sig  *types.Signature
-	body *ast.BlockStmt
-	pos  token.Pos // the func keyword
+	sig   *types.Signature
+	ftype *ast.FuncType // the function's type in the source (the result variables of the declaration)
+	body  *ast.BlockStmt
+	pos   token.Pos // the func keyword
 	// top is the outermost node that the function is in: its own declaration, or for a func
 	// literal the declaration or the package variable's initializer that holds it (panicid.go).
 	top ast.Node
@@ -30,6 +31,10 @@ type funcInfo struct {
 	result  cppir.Type    // the C++ result type: void, int64_t, std::tuple<int64_t, bool>
 	params  []cppir.Param // the C++ parameters
 	results []string      // the C++ names of the named results, or nil
+	// aliases are the names of the results that a variable of an inner scope hides at a return
+	// statement with values: gp_res_<name>, a reference to the result that the return assigns
+	// through (defer.go: resultAliases), or "" (nil: none).
+	aliases []string
 
 	boxed map[*types.Var]boxReason // the variables that live in a box (box.go)
 	args  []*types.Var             // the boxed parameters, in order
@@ -47,6 +52,7 @@ type funcInfo struct {
 // funcDecl copies it into its box, a variable of the same name in a block (ADR-022's shape).
 func (f *funcInfo) prepare(g *gen) {
 	f.sig, f.body, f.pos, f.top = f.obj.Signature(), f.decl.Body, f.decl.Pos(), f.decl
+	f.ftype = f.decl.Type
 	f.boxed = boxedVars(g.info, f.decl)
 	f.names = g.newFuncNames()
 	// A new name must not hide anything that the function refers to (funcNames).
@@ -117,7 +123,7 @@ func (f *funcInfo) signature(g *gen) {
 		}
 	}
 	f.result = g.resultType(sig, f.pos)
-	f.prepareDefers()
+	f.prepareDefers(g)
 }
 
 // funcDecl adds the definition of a function.
@@ -169,6 +175,7 @@ func (fg *funcGen) funcBody() {
 			}
 		}
 	}
+	fg.declareAliases()         // defer.go
 	fg.fresh = f.results == nil // the named results are in the function's block (declLines)
 	fg.recvCopy()               // methods.go: a value receiver's copy, T v = *this;
 	fg.openDefers()             // defer.go
