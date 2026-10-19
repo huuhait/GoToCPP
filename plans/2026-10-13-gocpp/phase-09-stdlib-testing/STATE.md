@@ -21,8 +21,8 @@
 - [x] 9.5 `math` (native + bit-exact pure-Go where needed)
 - [x] 9.6 `os` (interop + native, Go error types)
 - [ ] 9.7 `fmt` port (+ `internal/fmtsort`, C++ value printing)
-- [ ] 9.8 `time` (ported logic, native clocks/timers, zoneinfo)
-- [ ] 9.9 `flag`, `testing` + `gocpp test` (T incl. `Parallel`, B + `Loop`, examples, flags, Go-style output)
+- [x] 9.8 `time` (ported logic, native clocks/timers, zoneinfo)
+- [x] 9.9 `flag`, `testing` + `gocpp test` (T incl. `Parallel`, B + `Loop`, examples, flags, Go-style output)
 - [ ] 9.10 Go's tests: tier 1 + deferred suites (slices/maps/cmp/iter, rangefunc, rest of `test/chan`); test-only packages; counting rule
 - [ ] 9.11 Tier-2 packages (`encoding/json` first)
 - [ ] 9.12 Docs (package list, differences, porting guide)
