@@ -239,15 +239,20 @@ files pass".
    **9.4a built** (ADR-072): `unicode`, `strconv` and `errors` (the Phase 05 copy is now a port; `errors.Wrapf` stays as an
    `own` file), with 24 run tests `tests/run/{strconv,unicode,errors}_{gotest,goexamples,diff}_*.gp` (Go's own test tables
    through a harness, the documented examples, sweeps over every code point and 400000 floats; expected output from real Go).
-   Left for the next slices: `strings`, `bytes`, `io`, `bufio`, `regexp` (need `sync`, 8.7), `sort` (needs `slices`, 7.10),
-   `context` (needs `sync`, `sync/atomic`, `time`).
+   **9.4b built** (ADR-073): `io`, `io/fs` (with `Glob` and `Sub`), `path`, `strings`, `bytes`, `bufio` and `context`, all through `tools/portstd`
+   (the 9.6 copies of `io` and `io/fs` are gone). `strings` and `bytes` lack `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq` and
+   `FieldsFuncSeq` until generic types (7.3); `io/fs` sorts with a local sort until `slices` (7.10); `strings.Builder` keeps its address as a
+   `uintptr` (Go's `*Builder` field is a reference cycle under reference counting: a leak of every Builder). Tests: 339 `Test*` and 155
+   `Example*` functions of Go's own test files for the seven packages through the 9.4a harness (`tests/run/{strings,bytes,io,bufio,context,path,iofs}_{gotest,goexamples}_*.gp`)
+   and five differential sweeps (`*_diff_ops.gp`), expected output from real Go.
+   Left for the next slices: `sort` (needs `slices`, 7.10), `regexp/syntax` and `regexp` (need `slices` and `sort`).
 5. **9.5 `math`** (Go's code ported by `tools/portstd`, plus natives in `gocpp/math.hpp` and `runtime/src/math.cpp`; results bit-identical to Go on amd64, checked by 122 differential run tests `tests/run/math_*.gp` that tools/mathcorpus generates from real Go: ADR-071). Built: every exported function of `math` (`math/cmplx` and `math/rand` are not in this step); `-ffp-contract=off` was already in the language flags (ADR-006) and is now tested (`math_fma_contraction_*`, and the whole set again with `-O2 -mfma -mavx2`); the float to integer conversions of ADR-006 are tested against Go (`math_f2i_*`). Findings: Go's amd64 `Log` is wrong for subnormal numbers and gocpp copies it (one `@replace` removes it); the bits of a NaN that an operator (`+`, `min`, `max`) produces are out of the contract.
 6. **9.6 `os`** (interop + native) with Go error types. (Before `fmt`, because `fmt` imports `os`.)
    *Built (ADR-067):* not "interop": Go's own `os` files for Linux (`stdlib/os/PORT.md`) over a `syscall` subset
    (`stdlib/syscall/PORT.md`) whose system calls are natives that return the errno (`runtime/src/os/linux/posix_file.cpp`,
    `gocpp/syscall.hpp`; EINTR retried, `O_CLOEXEC`), and a blocking-mode `internal/poll`. `io`, `io/fs` and
-   `internal/filepathlite` are copied from Go until 9.4 replaces `io` and `io/fs` with `portstd`'s output (declarations and
-   `io.EOF` do not change). `os.Stdout`/`Stderr` are real `*os.File` values: `fmt.Fprint*` writes through them as `io.Writer`.
+   `internal/filepathlite` are copied from Go (`io` and `io/fs` were too, until 9.4b replaced them with `portstd`'s output: declarations and
+   `io.EOF` did not change). `os.Stdout`/`Stderr` are real `*os.File` values: `fmt.Fprint*` writes through them as `io.Writer`.
    Not built: `os.Root`, `StartProcess` (ENOSYS), `os/exec`, `os/signal`, deadlines, zero-copy `ReadFrom`/`WriteTo`, file
    finalizers. `RemoveAll` is Go's portable (non-`openat`) version. Tests: `tests/run/os_*.gp` (compared with real Go) and
    `runtime/test/syscall_test.cpp`.

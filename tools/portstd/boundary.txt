@@ -41,6 +41,4 @@ internal/syscall/unix   9.6      with os
 internal/syscall/execenv 9.6     with os
 internal/testlog        9.6      with os
 internal/filepathlite   9.6      with os
-io/fs                   9.6      with os
-path                    9.6      with os
 path/filepath           9.6      with os

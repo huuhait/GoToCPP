@@ -1,3 +1,5 @@
+// Code ported from Go 1.25.14 src/io/fs/readdir.go; DO NOT EDIT by hand; see PORT.md.
+
 // Copyright 2020 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -45,43 +47,8 @@ func ReadDir(fsys FS, name string) ([]DirEntry, error) {
 	return list, err
 }
 
-// dirInfo is a DirEntry based on a FileInfo.
-type dirInfo struct {
-	fileInfo FileInfo
-}
-
-func (di dirInfo) IsDir() bool {
-	return di.fileInfo.IsDir()
-}
-
-func (di dirInfo) Type() FileMode {
-	return di.fileInfo.Mode().Type()
-}
-
-func (di dirInfo) Info() (FileInfo, error) {
-	return di.fileInfo, nil
-}
-
-func (di dirInfo) Name() string {
-	return di.fileInfo.Name()
-}
-
-func (di dirInfo) String() string {
-	return FormatDirEntry(di)
-}
-
-// FileInfoToDirEntry returns a [DirEntry] that returns information from info.
-// If info is nil, FileInfoToDirEntry returns nil.
-func FileInfoToDirEntry(info FileInfo) DirEntry {
-	if info == nil {
-		return nil
-	}
-	return dirInfo{fileInfo: info}
-}
-
-// sortDirEntries sorts list by name (the byte order of the names): Go calls slices.SortFunc with
-// bytealg.CompareString, neither of which is ported yet (stdlib/io/fs/PORT.md). A merge sort,
-// so the sort is stable and O(n log n) for a big directory.
+// sortDirEntries sorts list by name (the byte order of the names). Go calls slices.SortFunc with
+// bytealg.CompareString; package slices is not real yet (stdlib/io/fs/PORT.md).
 func sortDirEntries(list []DirEntry) {
 	if len(list) < 2 {
 		return
@@ -124,4 +91,38 @@ func mergeSortEntries(a, tmp []DirEntry) {
 		j++
 		k++
 	}
+}
+
+// dirInfo is a DirEntry based on a FileInfo.
+type dirInfo struct {
+	fileInfo FileInfo
+}
+
+func (di dirInfo) IsDir() bool {
+	return di.fileInfo.IsDir()
+}
+
+func (di dirInfo) Type() FileMode {
+	return di.fileInfo.Mode().Type()
+}
+
+func (di dirInfo) Info() (FileInfo, error) {
+	return di.fileInfo, nil
+}
+
+func (di dirInfo) Name() string {
+	return di.fileInfo.Name()
+}
+
+func (di dirInfo) String() string {
+	return FormatDirEntry(di)
+}
+
+// FileInfoToDirEntry returns a [DirEntry] that returns information from info.
+// If info is nil, FileInfoToDirEntry returns nil.
+func FileInfoToDirEntry(info FileInfo) DirEntry {
+	if info == nil {
+		return nil
+	}
+	return dirInfo{fileInfo: info}
 }

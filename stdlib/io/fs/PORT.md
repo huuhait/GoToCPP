@@ -1,12 +1,44 @@
 # io/fs
 
-Step 9.6 (Phase 09) **copied** go1.25.14's `src/io/fs` (`fs.go`, `format.go`, `readdir.go`, `readfile.go`, `readlink.go`,
-`stat.go`, `walk.go`; BSD-3-Clause, see `../../LICENSE`) because `os` needs `fs.FileMode`, `fs.FileInfo`, `fs.DirEntry`, `fs.PathError`,
-`fs.ErrNotExist` and the rest (`os.PathError = fs.PathError`, `os.FileMode = fs.FileMode`). Changes:
+Ported by `tools/portstd` from go1.25.14's `src/io/fs` (BSD-3-Clause, see `../../LICENSE`). Do not edit the `.gp` files by hand: the tool writes them again, and `make portstd-check` fails when a file differs from what it writes. A change goes into a rule of `tools/portstd/patches/io__fs.rules` (the file is created for the first rule; every rule has a reason), or into the tool.
 
-- `readdir.go`: `slices.SortFunc` with `bytealg.CompareString` is `sortDirEntries` (a stable merge sort by name, in the file).
-- `walk.go`: `path.Join` is `pathJoin` (a join for directory names without dot-dot).
-- `glob.go` and `sub.go` are **not taken**: they need package `path`, which is not ported yet (`Glob`, `GlobFS`, `Sub`, `SubFS`
-  are listed in `stubPackage.Missing` of `tools/stubgen`).
+| | |
+|---|---|
+| Source | go1.25.14, `go1.25.14.src.tar.gz` (SHA-256 of the tarball `9e83f44f5fc297378861b4e16cc6aa114be8add7993fb3ceb2c512380aa4d582`) |
+| Systems (GOOS) | linux |
+| Architecture (GOARCH) | `generic`: no architecture-specific file, so no assembly variant |
+| Build tags | `purego` |
+| Regenerate | `go run ./tools/portstd io/fs` |
 
-**Step 9.4 replaces these files with `tools/portstd`'s output** (with `path` ported first); the declarations do not change.
+## Files taken
+
+- `format.gp`, from `format.go`
+- `fs.gp`, from `fs.go`
+- `glob.gp`, from `glob.go`
+- `readdir.gp`, from `readdir.go`
+- `readfile.gp`, from `readfile.go`
+- `readlink.gp`, from `readlink.go`
+- `stat.gp`, from `stat.go`
+- `sub.gp`, from `sub.go`
+- `walk.gp`, from `walk.go`
+
+## Files not taken
+
+- 10 `_test.go` files: Go's tests of the package are run by step 9.10, not copied here
+
+## Patches
+
+- `readdir.go` (2 places): package slices is not real yet (7.10): slices.SortFunc is a call of the local sortDirEntries below.
+- `readdir.go`: The local sort (a merge sort, so it is stable and O(n log n) for a big directory; a string comparison with < is the byte order, the order of bytealg.CompareString).
+
+## Native functions
+
+None.
+
+## Findings
+
+None.
+
+## Known divergences from Go
+
+- ReadDir sorts with a local stable merge sort by name (sortDirEntries) instead of slices.SortFunc and bytealg.CompareString: package slices is a declaration stub until step 7.10. The order is the same (the names of a directory are distinct, and the byte order of strings is the order of CompareString); the rule goes with slices.

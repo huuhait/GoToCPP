@@ -11,8 +11,9 @@ embedded in the `gocpp` binary, and the loader finds the standard packages here.
   source). A package is real when none of its functions is a declaration stub (below): it is built from its `.gp`
   files, and `tools/stubgen` writes no stub for it (`stubPackage.Real`; `sync` and `sync/atomic` are real since step 8.7: Mutex, WaitGroup and the others over native templates, ADR-040; the tool still makes the stub in memory,
   because the tests compare the real package's exported declarations with it and with Go's).
-- **Ported packages** (Phase 09 steps 9.1, 9.4a, 9.5). `unicode/utf8`, `unicode/utf16`, `math/bits`, `math`, `unicode`,
-  `strconv` and `errors` (which replaced the Phase 05 copy; `wrapf.gp` beside it is gocpp's own) are Go's source, copied by
+- **Ported packages** (Phase 09 steps 9.1, 9.4a, 9.4b, 9.5). `unicode/utf8`, `unicode/utf16`, `math/bits`, `math`, `unicode`,
+  `strconv`, `errors` (which replaced the Phase 05 copy; `wrapf.gp` beside it is gocpp's own), `io`, `io/fs`, `path`, `strings`,
+  `bytes`, `bufio` and `context` (ADR-073; `strings` and `bytes` without the functions that return an iterator, until generic types) are Go's source, copied by
   `tools/portstd` from the pinned Go tarball: the `.gp` files start with `// Code ported from Go ...; DO NOT EDIT by
   hand`, `stdlib/<pkg>/PORT.md` says what was taken, left out and changed, and `stdlib/PORTED.txt` lists them for
   tools. A change goes into a patch rule of the tool, not into the file (`make portstd-check` fails otherwise); how
@@ -28,8 +29,8 @@ embedded in the `gocpp` binary, and the loader finds the standard packages here.
   ported packages of step 9.4 import; `internal/PORT.md` says what each one is and how it differs from Go's. A program
   cannot import them (Go's rule); their tests do, through `// std-internal:` ([tests/README.md](../tests/README.md)).
 - **Package `os` and what it stands on** (step 9.6, ADR-067): `os`, `syscall` (a Linux subset), `internal/poll` (blocking mode),
-  `internal/filepathlite`, `io` and `io/fs` are real packages made of copies of Go's files, each with a `PORT.md`. Their system
-  calls are natives in `runtime/src/os/linux/posix_file.cpp`.
+  `internal/filepathlite` are real packages made of copies of Go's files, each with a `PORT.md` (`io` and `io/fs` were copies too
+  until step 9.4b made them ports). Their system calls are natives in `runtime/src/os/linux/posix_file.cpp`.
 - **Native functions.** A function without a body that has a `//gocpp:native` line in its doc comment is written in
   C++: the line names the runtime function that its calls become (ADR-027).
 

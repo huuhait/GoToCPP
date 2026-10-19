@@ -1,3 +1,5 @@
+// Code ported from Go 1.25.14 src/io/fs/walk.go; DO NOT EDIT by hand; see PORT.md.
+
 // Copyright 2020 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -6,6 +8,7 @@ package fs
 
 import (
 	"errors"
+	"path"
 )
 
 // SkipDir is used as a return value from [WalkDirFunc] to indicate that
@@ -90,7 +93,7 @@ func walkDir(fsys FS, name string, d DirEntry, walkDirFn WalkDirFunc) error {
 	}
 
 	for _, d1 := range dirs {
-		name1 := pathJoin(name, d1.Name())
+		name1 := path.Join(name, d1.Name())
 		if err := walkDir(fsys, name1, d1, walkDirFn); err != nil {
 			if err == SkipDir {
 				break
@@ -124,14 +127,4 @@ func WalkDir(fsys FS, root string, fn WalkDirFunc) error {
 		return nil
 	}
 	return err
-}
-
-// pathJoin is path.Join for the names that WalkDir joins: a directory path of the file system (".",
-// or elements without a dot-dot) and one name from ReadDir (package path is not ported yet:
-// stdlib/io/fs/PORT.md).
-func pathJoin(dir, name string) string {
-	if dir == "." || dir == "" {
-		return name
-	}
-	return dir + "/" + name
 }

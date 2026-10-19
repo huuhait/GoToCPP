@@ -109,19 +109,20 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 | `sync/atomic` | 08 | The function-style API, `Int32`, `Int64`, `Uint32`, `Uint64`, `Uintptr`, `Bool` and `Value` from Phase 08 (step 8.7). `Pointer[T]` is a generic type: it comes with Phase 07. |
 | `time` | 08 | The whole package, since step 8.8 (Go's own `format.go`, `time.go` and `zoneinfo.go`, with natives for the clocks, `Sleep`, the timers and the time zone files). Timers follow Go 1.23: timer channels look unbuffered, `Stop` and `Reset` leave no stale value, and a `Timer` nobody holds is freed. `time.LoadLocation` reads the system's zoneinfo (the `ZONEINFO` variable, `/usr/share/zoneinfo`, `/etc/zoneinfo`); there is no embedded copy (`time/tzdata` is not available). On Windows (Phase 14) the zone data comes later. |
 | `runtime/cgo` | 09 | `cgo.Handle` with `NewHandle`, `Value` and `Delete` (step 9.2): a native table, so a handle passes through C and C++ as an integer. |
-| `bufio` | 09 |  |
-| `bytes` | 09 |  |
-| `context` | 09 |  |
+| `bufio` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b): `Reader`, `Writer`, `ReadWriter`, `Scanner` and the split functions. |
+| `bytes` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b), with `internal/bytealg` for the searches. `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq` and `FieldsFuncSeq` return an `iter.Seq`, a generic type: they come with step 7.3. |
+| `context` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b), on `sync`, `sync/atomic`, `time` and the reflect subset. |
 | `encoding` | 09 |  |
 | `encoding/json` | 09 |  |
 | `flag` | 09 |  |
-| `io` | 09 |  |
-| `io/fs` | 09 |  |
+| `io` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b; the files were a copy in step 9.6). |
+| `io/fs` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b), with `Glob`, `Sub` and the rest; `ReadDir` sorts with a local sort until `slices` is real (step 7.10). |
+| `path` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b): `Clean`, `Join`, `Match`, `Split` and the rest. `path/filepath` comes with `os` in the next steps. |
 | `syscall` | 09 | A subset of Go's package for Linux (step 9.6): `Errno` and `Signal` with Go's texts, the `E...`, `SIG...` and `O_...` constants, `Stat_t` and the other types that `os` needs, the environment and the file system calls. No `Syscall`, `ForkExec` or socket functions; Windows comes with Phase 14. |
 | `reflect` | 09 | A subset, without `MakeFunc`, calling methods by name, `StructOf` and `FuncOf` (divergence D6). |
 | `regexp` | 09 |  |
 | `strconv` | 09 | Go's own package (ported by `tools/portstd`, step 9.4a), with `internal/bytealg` for `IndexByteString`. |
-| `strings` | 09 |  |
+| `strings` | 09 | Go's own package (ported by `tools/portstd`, step 9.4b), with `internal/bytealg` for the searches. `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq` and `FieldsFuncSeq` return an `iter.Seq`, a generic type: they come with step 7.3. |
 | `testing` | 09 |  |
 | `unicode` | 09 | Go's own package (ported by `tools/portstd`, step 9.4a): the tables, `Is*`, `To*`, `SimpleFold`, `SpecialCase`. |
 | `unicode/utf8` | 09 |  |

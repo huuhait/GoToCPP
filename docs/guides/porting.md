@@ -90,7 +90,7 @@ first and keeps the second with a warning). Never rely on `-force` for this: loo
 
 ## Replacing a stub or a hand-written package
 
-When a package that already exists in `stdlib/` becomes a port (`unicode`, `io`, `errors`, ...), the port is only half of the change.
+When a package that already exists in `stdlib/` becomes a port (`unicode`, `strings`, `io`, `errors`, ...), the port is only half of the change.
 Do all of this in the same commit:
 
 1. Delete the old file (the stub or the hand-written `.gp`) after reading it: a hand-written file may hold a fix the port needs
@@ -100,8 +100,8 @@ Do all of this in the same commit:
 3. `internal/check/gates.go`: the package's row in `stdPackages` (the gate says from which phase the package may be imported; a
    package that was never gated needs a row, and the phase number must be the step that makes it usable).
 4. `docs/spec/feature-matrix.md`: the line of the package.
-5. `internal/check/gates_test.go`: `TestStdPackagesMatchStubs` counts the stubs on disk (`n < 18` now); every package that stops
-   being a stub lowers the number by one.
+5. `internal/check/gates_test.go`: `TestStdPackagesMatchStubs` counts the stubs and the real packages together (at least 25), so a
+   package that stops being a stub changes nothing there; it must have a row in `stdPackages` (item 3).
 6. A test program in `tests/run/` and, when the package replaces a hand-written one, the old package's tests.
 
 `make portstd-check` fails on a stub that stays beside a port.
