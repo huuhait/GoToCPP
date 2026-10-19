@@ -74,7 +74,7 @@ func (s *Session) DidOpen(item protocol.TextDocumentItem) (replaced bool, err er
 	defer s.change.Unlock()
 	snap, release := s.Snapshot()
 	defer release()
-	_, replaced = snap.overlays[item.URI]
+	_, replaced = snap.overlays[item.URI.Key()]
 	return replaced, s.update(snap, item.URI, newOverlay(item))
 }
 
@@ -87,7 +87,7 @@ func (s *Session) DidChange(uri protocol.DocumentURI, version int32, changes []p
 	defer s.change.Unlock()
 	snap, release := s.Snapshot()
 	defer release()
-	old := snap.overlays[uri]
+	old := snap.overlays[uri.Key()]
 	if old == nil {
 		return fmt.Errorf("%s is not open", uri)
 	}
@@ -106,7 +106,7 @@ func (s *Session) DidClose(uri protocol.DocumentURI) error {
 	defer s.change.Unlock()
 	snap, release := s.Snapshot()
 	defer release()
-	if snap.overlays[uri] == nil {
+	if snap.overlays[uri.Key()] == nil {
 		return fmt.Errorf("%s is not open", uri)
 	}
 	return s.update(snap, uri, nil)
@@ -157,10 +157,13 @@ func (s *Session) update(prev *Snapshot, uri protocol.DocumentURI, o *Overlay) e
 	for k, v := range prev.overlays {
 		overlays[k] = v
 	}
+	// The key is the URI of the file's one spelling (DocumentURI.Key): on a system whose file names are
+	// case-insensitive, the editor's spellings of one file are one document. The overlay keeps the editor's
+	// own URI, which the answers about the document use.
 	if o == nil {
-		delete(overlays, uri)
+		delete(overlays, uri.Key())
 	} else {
-		overlays[uri] = o
+		overlays[uri.Key()] = o
 	}
 	return s.next(prev, overlays, Change{Files: map[protocol.DocumentURI]bool{uri: true}})
 }

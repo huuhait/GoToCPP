@@ -7,6 +7,10 @@
 // Phase 11 fills it. The early version (v0: diagnostics, hover,
 // go-to-definition, completion, formatting) needs only Phase 01. So far
 // (steps 11.1 to 11.7) there are:
+//   - fspath (Phase 14 step 14.5, ADR-096): how file names are written and
+//     compared on the system the server runs on (Windows drive letters, UNC
+//     names, no letter case), and Canon, the one spelling of a file that the
+//     documents, the cache and the answers use;
 //   - protocol: the LSP 3.17 types (copied from gopls, see
 //     protocol/COPIED.md), JSON-RPC 2.0 over the Content-Length framing
 //     (notifications in order on the read loop, requests on their own

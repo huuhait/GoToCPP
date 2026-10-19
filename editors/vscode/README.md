@@ -65,7 +65,7 @@ your shell.
 
 | Setting | Default | What it does |
 |---|---|---|
-| `gocpp.path` | `"gocpp"` | The gocpp binary that runs the server. A name is looked up in `PATH`. A path can start with `~` (your home folder); a relative path is relative to the first workspace folder. On Windows, `.exe` can be left out. A `.bat` or `.cmd` wrapper does not work: VS Code starts the binary without a shell, and Node.js refuses to run those without one. |
+| `gocpp.path` | `"gocpp"` | The gocpp binary that runs the server. A name is looked up in `PATH`. A path can start with `~` (your home folder); a relative path is relative to the first workspace folder. On Windows, `.exe` can be left out, the value may be the folder of `gocpp.exe`, a UNC name, a path with spaces (no quoting needed; quotes around the whole path are taken off, as are quotes around an entry of `PATH`), and `/` or `\\` both work. A `.bat` or `.cmd` wrapper does not work: VS Code starts the binary without a shell, and Node.js refuses to run those without one. |
 | `gocpp.lsp.args` | `[]` | More arguments for the server, after `gocpp lsp`. For example `["-logfile", "/tmp/gocpp-lsp.log"]` writes the server log to that file. `gocpp lsp -h` lists the flags. |
 | `gocpp.lsp.env` | `{}` | Environment variables for the server, on top of the environment of VS Code, for example `{ "PATH": "/opt/gocpp/bin:/usr/bin" }`. A `PATH` here is also used to find `gocpp.path`. |
 | `gocpp.trace.server` | `"off"` | `"messages"` or `"verbose"` writes the messages between VS Code and the server to the **gocpp** output channel. The change takes effect at once. |

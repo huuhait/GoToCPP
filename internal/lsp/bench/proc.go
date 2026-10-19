@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"strings"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -69,7 +69,7 @@ func StartProc(ctx context.Context, t Target, dir, cacheDir string) (*Proc, erro
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
 		"XDG_CACHE_HOME="+cacheDir,
-		"GOCPP_LSP_CACHE="+cacheDir+"/gocpp-lsp",
+		"GOCPP_LSP_CACHE="+filepath.Join(cacheDir, "gocpp-lsp"),
 		"GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1",
 		"GOPROXY=off", "GOFLAGS=-mod=mod", "GOTOOLCHAIN=local", "GOWORK=off",
 	)
@@ -137,27 +137,12 @@ func (p *Proc) Kill() {
 }
 
 // Memory returns the resident set of the process now and its peak, in
-// bytes, from /proc (Linux); 0, 0 when unknown.
+// bytes (/proc on Linux, the working set on Windows); 0, 0 when unknown.
 func (p *Proc) Memory() (rss, peak int64) {
 	if p.cmd == nil {
 		return 0, 0
 	}
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", p.pid))
-	if err != nil {
-		return 0, 0
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		var kb int64
-		switch {
-		case strings.HasPrefix(line, "VmRSS:"):
-			fmt.Sscanf(strings.TrimPrefix(line, "VmRSS:"), "%d", &kb)
-			rss = kb << 10
-		case strings.HasPrefix(line, "VmHWM:"):
-			fmt.Sscanf(strings.TrimPrefix(line, "VmHWM:"), "%d", &kb)
-			peak = kb << 10
-		}
-	}
-	return rss, peak
+	return procMemory(p.pid)
 }
 
 // NewPipeProc returns a Proc for a server that is not a process: it reads

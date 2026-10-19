@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io/fs"
@@ -18,6 +19,7 @@ import (
 	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/interop"
 	"github.com/huuhait/gocpp/internal/lsp/cache/filecache"
+	"github.com/huuhait/gocpp/internal/lsp/fspath"
 	"github.com/huuhait/gocpp/internal/lsp/memoize"
 	"github.com/huuhait/gocpp/internal/lsp/trace"
 	"github.com/huuhait/gocpp/internal/syntax/parser"
@@ -86,6 +88,15 @@ type Config struct {
 	// that checks may have used: then the packages that are Stale should
 	// be checked again in a new snapshot (Session.Recheck).
 	OnProbe func()
+
+	// ReadFile, if not nil, reads the files of the disk (os.ReadFile otherwise; the tests use it to make a file busy).
+	ReadFile func(path string) ([]byte, error)
+
+	// OnReadFailure, if not nil, is called when a file of the disk could not be read although the read was repeated
+	// (another program has it open without sharing for longer than the repeats last: IsBusy says so, or the machine is out of
+	// descriptors). The snapshot has no file then, and no event will come when the file is free again, so the server reads
+	// it again in the background and makes a new snapshot when it can (Server.readFailed). It must not block.
+	OnReadFailure func(path string, err error)
 
 	// The memory caps of the caches; 0 means the default. MaxCheckBytes
 	// caps the checked packages (with their ASTs, types.Info and the
@@ -402,23 +413,27 @@ func (s *state) Clone(next *Snapshot, ch Change) State {
 			n.overlays[path] = o
 		}
 	}
-	paths := make(map[string]bool, len(changed))
-	dirs := make(map[string]bool, len(changed))
+	paths := make(nameSet, len(changed))
+	dirs := make(nameSet, len(changed))
+	recheck := make(nameSet, len(ch.Packages))
+	for dir := range ch.Packages {
+		recheck.add(dir)
+	}
 	var trees []string // the changed paths, as folders
 	modChanged := false
 	for uri := range changed {
 		if path := uri.Path(); path != "" {
-			paths[path] = true
-			dirs[path] = true // it may be a folder
-			dirs[filepath.Dir(path)] = true
+			paths.add(path)
+			dirs.add(path) // it may be a folder
+			dirs.add(filepath.Dir(path))
 			trees = append(trees, path+string(filepath.Separator))
-			modChanged = modChanged || filepath.Base(path) == modFileName
+			modChanged = modChanged || fspath.Equal(filepath.Base(path), modFileName)
 		}
 	}
 	// under reports whether path is in one of the changed folders.
 	under := func(path string) bool {
 		for _, t := range trees {
-			if strings.HasPrefix(path, t) {
+			if fspath.HasPrefixDir(path, t) {
 				return true
 			}
 		}
@@ -434,13 +449,13 @@ func (s *state) Clone(next *Snapshot, ch Change) State {
 	// until a notification says so, and a snapshot must never keep one.
 	n.files = make(map[string]*fileHandle, len(s.files))
 	for path, f := range s.files {
-		if !paths[path] && !under(path) && f.err == nil {
+		if !paths.has(path) && !under(path) && f.err == nil {
 			n.files[path] = f
 		}
 	}
 	n.dirs = make(map[string]*dirHandle, len(s.dirs))
 	for dir, d := range s.dirs {
-		if !dirs[dir] && !under(dir) && !d.failed && (len(d.names) > 0 || d.err == nil) {
+		if !dirs.has(dir) && !under(dir) && !d.failed && (len(d.names) > 0 || d.err == nil) {
 			n.dirs[dir] = d
 		}
 	}
@@ -450,7 +465,7 @@ func (s *state) Clone(next *Snapshot, ch Change) State {
 		return n // a module can change the import path of every package
 	}
 	for dir, m := range s.mods {
-		if !dirs[dir] && !under(dir) && (m == nil || m.err == nil) {
+		if !dirs.has(dir) && !under(dir) && (m == nil || m.err == nil) {
 			n.mods[dir] = m
 		}
 	}
@@ -464,7 +479,7 @@ func (s *state) Clone(next *Snapshot, ch Change) State {
 		for _, dep := range h.cut {
 			importers[dep] = append(importers[dep], id)
 		}
-		if !id.std && (dirs[id.dir] || under(id.dir) || ch.Packages[id.dir] || h.failedRead()) || h.meta.reads != nil && touches(h.meta.reads, paths, dirs, under) {
+		if !id.std && (dirs.has(id.dir) || under(id.dir) || recheck.has(id.dir) || h.failedRead()) || h.meta.reads != nil && touches(h.meta.reads, paths, dirs, under) {
 			stale = append(stale, id)
 		}
 	}
@@ -486,9 +501,9 @@ func (s *state) Clone(next *Snapshot, ch Change) State {
 }
 
 // touches reports whether one of the reads is of a changed file or folder.
-func touches(reads []*read, paths, dirs map[string]bool, under func(string) bool) bool {
+func touches(reads []*read, paths, dirs nameSet, under func(string) bool) bool {
 	for _, r := range reads {
-		if paths[r.path] || dirs[r.path] || under(r.path) {
+		if paths.has(r.path) || dirs.has(r.path) || under(r.path) {
 			return true
 		}
 	}
@@ -512,6 +527,7 @@ var errReleased = errors.New("cache: the snapshot was destroyed")
 
 // file returns the file with the absolute name path in the snapshot.
 func (s *state) file(path string) (*fileHandle, error) {
+	path = fspath.Canon(path)
 	s.mu.Lock()
 	f := s.files[path]
 	s.mu.Unlock()
@@ -522,25 +538,82 @@ func (s *state) file(path string) (*fileHandle, error) {
 	if o := s.overlays[path]; o != nil {
 		f.src = []byte(o.Text())
 	} else {
-		f.src, f.err = retryRead(func() ([]byte, error) { return os.ReadFile(path) })
+		read := s.p.cfg.ReadFile
+		if read == nil {
+			read = os.ReadFile
+		}
+		f.src, f.err = retryRead(func() ([]byte, error) { return read(path) })
+		if f.err != nil && transientRead(f.err) != 0 && s.p.cfg.OnReadFailure != nil {
+			s.p.cfg.OnReadFailure(path, f.err)
+		}
+		// An editor shows a file without its byte order mark (VS Code takes it off and writes it back), so the
+		// columns of line 0 that the server answers with must not count it. Windows editors write one often.
+		f.src = bytes.TrimPrefix(f.src, utf8BOM)
 	}
 	f.hash = hashOf(f.src)
 	return store(s, filesOf, path, f)
 }
 
+var utf8BOM = []byte("\xef\xbb\xbf")
+
 // retryRead calls read, and again (a few times, after a short wait) when it
 // fails because the process or the machine has no file descriptors or
-// memory for a moment: a loaded machine does that, and the error must not
-// become a fact about the files.
+// memory for a moment (a loaded machine does that), or, on Windows, because
+// another program has the file open without sharing for a moment (a formatter
+// that writes it, a virus scanner that looks at it: ERROR_SHARING_VIOLATION).
+// The error must not become a fact about the files.
 func retryRead[T any](read func() (T, error)) (T, error) {
 	var v T
 	var err error
-	for try, wait := 0, 5*time.Millisecond; ; try, wait = try+1, wait*4 {
-		if v, err = read(); err == nil || try == 3 || !(errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE) || errors.Is(err, syscall.ENOMEM)) {
+	for try, wait := 0, 5*time.Millisecond; ; try++ {
+		v, err = read()
+		kind := transientRead(err)
+		if err == nil || kind == 0 || try >= kind {
 			return v, err
 		}
-		time.Sleep(wait)
+		retrySleep(wait)
+		if kind == transientResources {
+			wait *= 4
+		} else {
+			wait *= 2
+		}
 	}
+}
+
+// retrySleep waits between the repeats of a read (the tests count the waits).
+var retrySleep = time.Sleep
+
+// ErrBusy is the error of a read that fails because another program has the file (the tests make it; on Windows the
+// system's sharing and lock violations are busy too).
+var ErrBusy = errors.New("the file is in use by another program")
+
+// IsBusy reports whether err says that the file is in use by another program, which passes.
+func IsBusy(err error) bool { return transientRead(err) == transientSharing }
+
+// What transientRead says: how many times a failed read is repeated (0: not at all).
+const (
+	transientResources = 3 // out of descriptors or memory: waits of 5, 20 and 80 ms
+	transientSharing   = 7 // a sharing violation on Windows: 5, 10, 20, ... 320 ms, about 0.6 s
+)
+
+// transientRead tells whether err is one that passes: how many times the read is repeated, or 0.
+func transientRead(err error) int {
+	if err == nil {
+		return 0
+	}
+	if errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE) || errors.Is(err, syscall.ENOMEM) {
+		return transientResources
+	}
+	if errors.Is(err, ErrBusy) {
+		return transientSharing
+	}
+	if runtime.GOOS == "windows" {
+		var en syscall.Errno
+		if errors.As(err, &en) && (en == 32 || en == 33) { // ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
+			return transientSharing
+		}
+	}
+	return 0
 }
 
 // store puts v under key into the map of s that m returns, unless a value
@@ -567,6 +640,7 @@ func handlesOf(s *state) map[pkgID]*handle    { return s.handles }
 // dir returns the .gp files of the folder dir in the snapshot: on disk and
 // in the overlays.
 func (s *state) dir(dir string) (*dirHandle, error) {
+	dir = fspath.Canon(dir)
 	s.mu.Lock()
 	d := s.dirs[dir]
 	s.mu.Unlock()
@@ -582,7 +656,7 @@ func (s *state) dir(dir string) (*dirHandle, error) {
 		}
 	}
 	for path := range s.overlays {
-		if filepath.Dir(path) == dir && strings.HasSuffix(path, ".gp") && !slices.Contains(d.names, filepath.Base(path)) {
+		if fspath.Equal(filepath.Dir(path), dir) && strings.HasSuffix(path, ".gp") && !containsName(d.names, filepath.Base(path)) {
 			d.names = append(d.names, filepath.Base(path))
 		}
 	}
@@ -604,12 +678,27 @@ func (s *state) dir(dir string) (*dirHandle, error) {
 	return store(s, dirsOf, dir, d)
 }
 
+// A nameSet is a set of file names, compared by the rule of the file system for letter case (fspath.Key).
+type nameSet map[string]bool
+
+func (s nameSet) add(name string)      { s[fspath.Key(name)] = true }
+func (s nameSet) has(name string) bool { return s[fspath.Key(name)] }
+
+// containsName reports whether names has name, by the rule of the file system (letter case counts or not).
+func containsName(names []string, name string) bool {
+	if !fspath.FoldCase() {
+		return slices.Contains(names, name)
+	}
+	return slices.ContainsFunc(names, func(n string) bool { return fspath.Equal(n, name) })
+}
+
 // modFileName is the name of the file at the top of a module.
 const modFileName = "gocpp.mod"
 
 // modFile returns the gocpp.mod file of the folder dir, as the loader
 // finds it (load.FindModule): in dir or the nearest folder above it, or nil.
 func (s *state) modFile(dir string) (*fileHandle, error) {
+	dir = fspath.Canon(dir)
 	s.mu.Lock()
 	m, ok := s.mods[dir]
 	s.mu.Unlock()

@@ -25,6 +25,9 @@ import (
 func TestSameAsCheck(t *testing.T) {
 	var dirs []string // folders of packages to compare, each a program
 	examples, _ := filepath.Glob("../../../examples/*/main.gp")
+	if len(examples) == 0 {
+		t.Skip("the examples and tests of the repository are not here (the test binary runs on its own, as on a Windows PC)")
+	}
 	for _, f := range examples {
 		dirs = append(dirs, filepath.Dir(f))
 	}
@@ -338,10 +341,11 @@ func TestImportErrorsAtEverySpec(t *testing.T) {
 		"other/o.gp": "package other\n\nimport \"example.com/x/lib\"\n\nfunc G() { lib.F() }\n",
 	})
 	lib := filepath.Join(w.root, "lib")
-	if got, want := w.errs(w.pkg(".")), "./a.gp:4:2: no .gp files in "+lib+"\n./b.gp:3:8: no .gp files in "+lib+"\n"; got != want {
+	// The names of the files are written the way of the system (".\\a.gp" on Windows).
+	if got, want := w.errs(w.pkg(".")), "."+string(filepath.Separator)+"a.gp:4:2: no .gp files in "+lib+"\n."+string(filepath.Separator)+"b.gp:3:8: no .gp files in "+lib+"\n"; got != want {
 		t.Errorf("main: errors\n%s\nwant\n%s", got, want)
 	}
-	if got, want := w.errs(w.pkg("other")), "other/o.gp:3:8: no .gp files in "+lib+"\n"; got != want {
+	if got, want := w.errs(w.pkg("other")), "other"+string(filepath.Separator)+"o.gp:3:8: no .gp files in "+lib+"\n"; got != want {
 		t.Errorf("other: errors\n%s\nwant\n%s", got, want)
 	}
 	if w.pkg(".").Check.Checked() || w.pkg("other").Check.Checked() {

@@ -54,7 +54,7 @@ func (s *Server) documentLink(ctx context.Context, e env, params json.RawMessage
 			if path == "" {
 				continue
 			}
-			target := protocol.URI(protocol.URIFromPath(path))
+			target := protocol.URI(locationURI(q.snap, path))
 			links = append(links, protocol.DocumentLink{
 				Range:   q.rangeOf(inc.Spec.Path.Pos(), inc.Spec.Path.End()),
 				Target:  &target,

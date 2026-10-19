@@ -732,14 +732,21 @@ func TestWindowsNativeUnits(t *testing.T) {
 	for _, c := range []struct {
 		pkg  string
 		runs []string // -test.run patterns, one run each (cmd.exe reads | and ^)
+		skip string   // a -test.skip pattern (no | or ^ either), for tests that assume Linux
 	}{
-		{"./internal/build", []string{"TestJob", "TestManifest", "TestFitCommand", "TestRspQuoteWindows", "TestFindCXXForWindowsHost"}},
-		{"./internal/filelock", []string{"."}},
-		{"./internal/fsretry", []string{"."}},
-		{"./internal/modfetch", []string{"TestConcurrentProcesses"}},
-		{"./internal/winpath", []string{"."}},
-		{"./internal/toolchain", []string{"TestLock", "TestRemove", "TestDownloadZip", "TestUnpackZip"}},
-		{"./cmd/gocpp", []string{"TestCanonPath", "TestWithExeSuffix", "TestNormalizeEnvPaths"}},
+		{"./internal/build", []string{"TestJob", "TestManifest", "TestFitCommand", "TestRspQuoteWindows", "TestFindCXXForWindowsHost"}, ""},
+		{"./internal/filelock", []string{"."}, ""},
+		{"./internal/fsretry", []string{"."}, ""},
+		{"./internal/modfetch", []string{"TestConcurrentProcesses"}, ""},
+		{"./internal/winpath", []string{"."}, ""},
+		{"./internal/toolchain", []string{"TestLock", "TestRemove", "TestDownloadZip", "TestUnpackZip"}, ""},
+		{"./cmd/gocpp", []string{"TestCanonPath", "TestWithExeSuffix", "TestNormalizeEnvPaths"}, ""},
+		// The language server (step 14.5): its tests use the paths of the system they run on.
+		{"./internal/lsp/fspath", []string{"."}, ""},
+		{"./internal/lsp/protocol", []string{"."}, ""},
+		{"./internal/lsp/cache/filecache", []string{"."}, ""},
+		{"./internal/lsp/cache", []string{"."}, ""},
+		{"./internal/lsp/server", []string{"."}, "TestDiagnosticsProbe"},
 	} {
 		t.Run(strings.TrimPrefix(c.pkg, "./"), func(t *testing.T) {
 			bin := filepath.Join(t.TempDir(), "unit.test.exe")
@@ -755,7 +762,11 @@ func TestWindowsNativeUnits(t *testing.T) {
 				if c.pkg == "./internal/modfetch" {
 					env = nil // its tests start servers of their own and set what they need
 				}
-				res, err := r.Run(ctx, 7*time.Minute, bin, env, []string{"-test.run=" + run, "-test.v", "-test.count=1"}, false)
+				args := []string{"-test.run=" + run, "-test.v", "-test.count=1"}
+				if c.skip != "" {
+					args = append(args, "-test.skip="+c.skip)
+				}
+				res, err := r.Run(ctx, 7*time.Minute, bin, env, args, false)
 				cancel()
 				if err != nil {
 					t.Fatal(err)

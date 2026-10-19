@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"slices"
 	"time"
+
+	"github.com/huuhait/gocpp/internal/lsp/fspath"
 )
 
 // The file systems that the loads of the pipeline read through
@@ -25,10 +27,11 @@ import (
 //     read (its own files come from load.Config.Overlay), so it depends
 //     only on its key, also when it runs after its snapshot is gone.
 
-// TODO(11.4, Phase 14): the names are taken as they come, not normalized:
-// a folder reached through a symbolic link, and on Windows a name in other
-// letter case, is another folder here than its real path, so two names of
-// one package make two packages (gopls has the same rule for URIs).
+// The names are made canonical where they enter the state (fspath.Canon:
+// on a system whose file names are case-insensitive, the case that the disk
+// has), so that two spellings of one folder do not make two packages. A
+// folder reached through a symbolic link or a junction is still another
+// folder here than its real path (gopls has the same rule).
 
 // A read is one read of a load: a file, a folder listing or a stat, and
 // what it gave.
@@ -73,6 +76,7 @@ type stateFS struct {
 
 // do makes the read of kind and path in s.
 func (s *state) do(kind byte, path string) (*read, error) {
+	path = fspath.Canon(path)
 	r := &read{kind: kind, path: path}
 	switch kind {
 	case 'f':
@@ -192,7 +196,7 @@ func newReplayFS(reads []*read) replayFS {
 }
 
 func (fsys replayFS) get(kind byte, path string) (*read, error) {
-	if r := fsys[string(kind)+path]; r != nil {
+	if r := fsys[string(kind)+fspath.Canon(path)]; r != nil {
 		return r, nil
 	}
 	return nil, fmt.Errorf("internal error: %s was not read when the imports were resolved", path)

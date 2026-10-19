@@ -1502,7 +1502,7 @@ func (d *docs) entry(path string) (*docEntry, error) {
 	if e := d.m[path]; e != nil {
 		return e, nil
 	}
-	uri := protocol.URIFromPath(path)
+	uri := locationURI(d.snap, path) // the editor's own URI for an open document, else the path's (one URIFromPath)
 	doc, err := documentOfSnapshot(d.snap, uri)
 	if err != nil {
 		return nil, err

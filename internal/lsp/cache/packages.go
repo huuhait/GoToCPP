@@ -20,6 +20,7 @@ import (
 	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/diag"
 	"github.com/huuhait/gocpp/internal/load"
+	"github.com/huuhait/gocpp/internal/lsp/fspath"
 	"github.com/huuhait/gocpp/internal/lsp/memoize"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
 	"github.com/huuhait/gocpp/internal/lsp/trace"
@@ -453,7 +454,7 @@ func (s *Snapshot) IsStdFile(path string) bool {
 
 // inStdlib reports whether path is in Config.StdlibDir.
 func (p *Pipeline) inStdlib(path string) bool {
-	return strings.HasPrefix(path, p.cfg.StdlibDir+string(filepath.Separator))
+	return fspath.HasPrefixDir(path, p.cfg.StdlibDir+string(filepath.Separator))
 }
 
 // fileOrStd returns the file path of the snapshot (state.file), or the file
@@ -482,6 +483,9 @@ var ErrNoPackage = errors.New("no package")
 // are being made, which import this one: an import of one of them is a
 // cycle, which is cut.
 func (s *state) handle(ctx context.Context, id pkgID, importPath string, stack []pkgID) (*handle, error) {
+	if !id.std {
+		id.dir = fspath.Canon(id.dir) // one spelling of a folder: its handle, files and imports are keyed by it
+	}
 	s.mu.Lock()
 	if s.released {
 		s.mu.Unlock()

@@ -90,6 +90,24 @@ test('Windows: .exe and .com, ";" in PATH, names of variables in any case', () =
 	assert.throws(() => serverCommand({}, opts4), SettingsError);
 });
 
+test('Windows: a path with spaces, quotes, a folder, a UNC name, mixed slashes', () => {
+	const files = ['C:\\Program Files\\gocpp\\bin\\gocpp.exe', '\\\\srv\\share\\gocpp\\gocpp.exe', 'C:\\Users\\Jos\u00e9 \u65e5\u672c\\gocpp.exe'];
+	const opts = fake('win32', { Path: '"C:\\Program Files\\gocpp\\bin";C:\\Windows' }, files);
+	// Spaces need no quoting for a program that is started without a shell; a quoted path or PATH entry is read.
+	assert.strictEqual(serverCommand({ path: 'C:\\Program Files\\gocpp\\bin\\gocpp.exe' }, opts).command, files[0]);
+	assert.strictEqual(serverCommand({ path: '"C:\\Program Files\\gocpp\\bin\\gocpp.exe"' }, opts).command, files[0]);
+	assert.strictEqual(serverCommand({ path: 'C:/Program Files/gocpp/bin/gocpp' }, opts).command, files[0]);
+	assert.strictEqual(serverCommand({}, opts).command, files[0], 'a quoted entry of PATH');
+	// The folder of the binary.
+	assert.strictEqual(serverCommand({ path: 'C:\\Program Files\\gocpp\\bin' }, opts).command, files[0]);
+	assert.strictEqual(serverCommand({ path: 'C:\\Program Files\\gocpp\\bin\\' }, opts).command, files[0]);
+	// A UNC name, and a user folder with a non-ASCII name.
+	assert.strictEqual(serverCommand({ path: '\\\\srv\\share\\gocpp\\gocpp' }, opts).command, files[1]);
+	assert.strictEqual(serverCommand({ path: '~\\gocpp' }, fake('win32', {}, files, { homedir: 'C:\\Users\\Jos\u00e9 \u65e5\u672c' })).command, files[2]);
+	// A folder without the binary is the same error as a missing file.
+	assert.throws(() => serverCommand({ path: 'C:\\Windows' }, opts), SettingsError);
+});
+
 test('not found: the message names PATH or the setting gocpp.path', () => {
 	const opts = fake('linux', { PATH: '/bin' }, []);
 	assert.throws(() => serverCommand({}, opts), (err) => {

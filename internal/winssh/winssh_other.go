@@ -5,6 +5,7 @@ package winssh
 import (
 	"context"
 	"errors"
+	"io"
 	"time"
 )
 
@@ -24,6 +25,21 @@ func (r *Remote) Close() {}
 func (r *Remote) Run(context.Context, time.Duration, string, []string, []string, bool) (Result, error) {
 	return Result{}, errors.New("not available")
 }
+
+// A Process is not available on this system either.
+type Process struct {
+	Stdin  io.WriteCloser
+	Stdout io.Reader
+}
+
+func (r *Remote) Start(context.Context, []string, string) (*Process, error) {
+	return nil, errors.New("not available")
+}
+func (p *Process) Stderr() string                    { return "" }
+func (p *Process) Done() <-chan struct{}             { return nil }
+func (p *Process) Wait(context.Context) (int, error) { return 0, errors.New("not available") }
+func (p *Process) Kill()                             {}
+
 func EscapeArg(s string) string { return s }
 func (r *Remote) RunConsole(context.Context, time.Duration, string, string, string) (string, int, error) {
 	return "", 0, errors.New("not available")

@@ -32,6 +32,9 @@ func repoFiles(t *testing.T) map[string][]byte {
 	t.Helper()
 	files := make(map[string][]byte)
 	root := filepath.Join("..", "..", "..")
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
+		t.Skip("the repository is not here (the test binary runs on its own, as on a Windows PC)")
+	}
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err

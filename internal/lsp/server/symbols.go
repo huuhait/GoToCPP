@@ -361,7 +361,7 @@ func (s *Server) workspaceSymbol(ctx context.Context, e env, params json.RawMess
 		out = append(out, protocol.SymbolInformation{
 			Name: h.name, Kind: h.kind, ContainerName: h.container,
 			Location: protocol.Location{
-				URI:   protocol.URIFromPath(h.path),
+				URI:   locationURI(docs.snap, h.path),
 				Range: protocol.Range{Start: doc.mapper.Position(h.off), End: doc.mapper.Position(h.end)},
 			},
 		})

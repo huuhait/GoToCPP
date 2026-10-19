@@ -194,6 +194,53 @@ gocpp may come later.
 See [editors/vscode/README.md](../../editors/vscode/README.md): how to install the extension
 from source, its settings, and how to see the server log.
 
+## Windows
+
+`gocpp.exe lsp` is the same server, and every editor above starts it the same way (the command is
+`gocpp.exe`, or `gocpp` when the folder of the binary is in `PATH`). What differs is how names of
+files are written and compared, and the server takes care of it ([ADR-096](../adr/096-language-server-on-windows-one-spelling-per-file.md)):
+
+- **URIs.** `file:///c:/Users/Me/p.gp`, VS Code's `file:///c%3A/Users/Me/p.gp`, `file://C:/Users/Me/p.gp`
+  (two slashes, which some clients send), `file://localhost/C:/...` and a UNC name
+  (`file://server/share/p.gp`, also `file:////server/share/p.gp`) all name the file they say. Names with
+  spaces and characters outside the ANSI code page (`Wörk Dir 日本語`) work: the server reads the files with
+  the wide API, and hands the C++ compiler, which does not, a short name (this is [gocpp
+  build's rule](../adr/081-windows-host-build-driver.md) too). The server answers with an upper-case drive letter
+  (`file:///C:/...`); clients treat drive letters as case-insensitive.
+- **One spelling per file.** Windows compares names without case, and editors spell a folder as the user typed
+  it (`c:\users\me\proj`) while the disk says `C:\Users\Me\Proj`. The server gives every name from the editor
+  the spelling that the disk has (drive letter in upper case, each folder and file in its stored case, 8.3 short names such as
+  `ADMINI~1` written out) before it uses it as a key, so the packages, open documents, diagnostics and caches
+  of two spellings are the same. The answer about a document that is open uses the editor's own URI for it
+  (the editor knows the document by that), every other file the disk's spelling. A file that is created later
+  with another case than the server first saw is found when the watcher reports it (below).
+  Not handled: two names of one folder through a symbolic link or a junction (two folders here, as in gopls), the
+  administrative share `\\localhost\c$` (it is another name of `C:\`, so a file opened through it has its own
+  package), a path with a trailing dot or space, a case-sensitive folder on a Windows file system (a WSL share
+  `\\wsl$\...` or a folder with `fsutil file setCaseSensitiveInfo`): two names that differ in case only are one name to the
+  server there.
+- **Line ends and columns.** Sources with `\r\n` work everywhere: a position counts UTF-16 units of the
+  line without its line end, an edit that the server answers (rename, organize imports) uses the line end of the file, and
+  format keeps `\r\n` (the file is not rewritten with `\n`). A UTF-8 byte order mark at the start of a file on
+  disk (Notepad writes one) is not counted: the editor shows the file without it, and the server's columns on
+  the first line must agree.
+- **File watching.** The server asks the editor to watch `**/*.gp`, `**/gocpp.mod` and the headers
+  (`workspace/didChangeWatchedFiles`, like gopls); it has no watcher of its own, so with an editor that does not
+  watch files (Helix, Zed, eglot) does not see a change on disk of a file that is not open (a `git checkout`) until a watcher event or a
+  restart: a file is read again only when an event names it, as in gopls. An event may name the file in any
+  of the spellings above, and a created, deleted or renamed file or folder makes the server forget what it knew of
+  names (the case and the listings behind it) before it looks at the event. A file that another program holds so that it cannot be read (a lock,
+  no sharing) for more than half a second is read again in the background (the log and `window/logMessage` say so once) and the packages are
+  diagnosed when it can be read.
+- **C++ compiler and cache.** The server needs the same MinGW-w64 as `gocpp build` for the header imports (`gocpp env`
+  shows what it found; without a compiler each header import gets the error "cannot check the header imports", and the rest works), and it runs the
+  compiler with the environment of the build (`TEMP` and `LOCALAPPDATA` replaced by names the compiler can read when
+  the user's own cannot be). The cache of summaries is in `%LocalAppData%\gocpp\lsp` (`GOCPP_LSP_CACHE`).
+- **Speed.** The budgets of the language server are measured on Windows with the same harness as on Linux
+  (`GOCPP_WINDOWS_LSPBENCH=1 GOCPP_WINDOWS_SSH=user@host go test -run TestWindowsLSPBench ./tests`: tools/lspbench
+  runs on the PC); the figures are in [the benchmarks](../benchmarks/lsp-windows.md). The clock of a Windows process ticks every
+  half millisecond or so, so a figure under a millisecond is a multiple of that.
+
 ## Neovim
 
 Neovim 0.11 and later have the LSP setup built in. Put this in your `init.lua`:

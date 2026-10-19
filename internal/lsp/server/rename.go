@@ -1356,7 +1356,7 @@ func (rn *renamer) workspaceEdit(files map[string]*fileEdits) (*protocol.Workspa
 			te := &protocol.TextDocumentEdit{
 				TextDocument: protocol.OptionalVersionedTextDocumentIdentifier{
 					Version:                fe.doc.version,
-					TextDocumentIdentifier: protocol.TextDocumentIdentifier{URI: protocol.URIFromPath(p)},
+					TextDocumentIdentifier: protocol.TextDocumentIdentifier{URI: locationURI(rn.e.snapshot, p)},
 				},
 			}
 			for _, ed := range fe.edits {
@@ -1368,7 +1368,7 @@ func (rn *renamer) workspaceEdit(files map[string]*fileEdits) (*protocol.Workspa
 	}
 	we.Changes = make(map[protocol.DocumentURI][]protocol.TextEdit, len(paths))
 	for _, p := range paths {
-		we.Changes[protocol.URIFromPath(p)] = files[p].edits
+		we.Changes[locationURI(rn.e.snapshot, p)] = files[p].edits
 	}
 	return we, nil
 }

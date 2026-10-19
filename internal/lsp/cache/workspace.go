@@ -190,7 +190,7 @@ func (s *Snapshot) Edited(texts map[protocol.DocumentURI]string) (*Snapshot, fun
 		if o := s.Overlay(uri); o != nil {
 			item.LanguageID, item.Version = o.languageID, o.version
 		}
-		overlays[uri] = newOverlay(item)
+		overlays[uri.Key()] = newOverlay(item)
 		changed[uri] = true
 	}
 	first := newSnapshot(sess, 0, overlays, nil)

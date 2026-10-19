@@ -618,7 +618,10 @@ func (r *fuzzRun) quiet() {
 func (r *fuzzRun) answers() map[string]string {
 	r.t.Helper()
 	out := map[string]string{}
-	norm := func(s string) string { return strings.ReplaceAll(s, r.c.root, "ROOT") }
+	// The folder as a path and as a URI (the two differ on Windows: backslashes, escapes).
+	norm := func(s string) string {
+		return strings.ReplaceAll(strings.ReplaceAll(s, string(protocol.URIFromPath(r.c.root)), "file://ROOT"), r.c.root, "ROOT")
+	}
 	r.c.pubMu.Lock()
 	last := map[protocol.DocumentURI]*publish{}
 	for _, p := range r.c.publishes {
@@ -1103,7 +1106,7 @@ func TestFuzzUnreadableHeals(t *testing.T) {
 	r.c.notify("workspace/didChangeWatchedFiles", fmt.Sprintf(`{"changes":[{"uri":%q,"type":2}]}`, r.uri(target)))
 	r.quiet()
 	// The server has seen the failure: pkg002 is broken for it.
-	if got := r.answers()["diagnostics "+strings.ReplaceAll(string(r.uri(5)), r.c.root, "ROOT")]; got == "" {
+	if got := r.answers()["diagnostics "+strings.ReplaceAll(strings.ReplaceAll(string(r.uri(5)), string(protocol.URIFromPath(r.c.root)), "file://ROOT"), r.c.root, "ROOT")]; got == "" {
 		t.Logf("main shows nothing while pkg002/f01 is unreadable (the failure may have been missed)")
 	}
 	if err := os.Chmod(path, 0o644); err != nil { // readable again, and nobody says so

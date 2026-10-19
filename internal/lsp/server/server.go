@@ -39,6 +39,7 @@ import (
 
 	"github.com/huuhait/gocpp/internal/lsp/cache"
 	"github.com/huuhait/gocpp/internal/lsp/debounce"
+	"github.com/huuhait/gocpp/internal/lsp/fspath"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
 	"github.com/huuhait/gocpp/internal/version"
 	"github.com/huuhait/gocpp/stdlib"
@@ -88,6 +89,7 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) int {
 		// The background work stops: nothing is checked or published
 		// any more.
 		s.session.Shutdown()
+		s.retry.close()
 		s.diags.stop()
 		s.comp.stop()
 		s.pipeline.Close()
@@ -173,7 +175,9 @@ type Server struct {
 	// change of the document makes stale (method.contentModified). The
 	// value is the request's own token, so that a request that ends
 	// removes itself and never a newer request with the same ID.
-	stale map[protocol.DocumentURI]map[protocol.ID]*staleToken
+	stale    map[protocol.DocumentURI]map[protocol.ID]*staleToken
+	retry    *readRetry // the files that could not be read and are read again (readfail.go)
+	readFile func(string) ([]byte, error)
 	// shutdownID is the ID of the shutdown request, once it came.
 	shutdownID *protocol.ID
 }
@@ -228,6 +232,8 @@ func newServerOpts(logger *log.Logger, cfg cache.Config, clock debounce.Clock, o
 		warned:       make(map[protocol.DocumentURI]bool),
 		stale:        make(map[protocol.DocumentURI]map[protocol.ID]*staleToken),
 		wideFamily:   opts.WideFamily,
+		retry:        newReadRetry(),
+		readFile:     cfg.ReadFile,
 	}
 	s.dynLimitOpt.Store(int64(opts.DynamicLimit))
 	s.obs = newObserver(s, opts)
@@ -244,6 +250,7 @@ func newServerOpts(logger *log.Logger, cfg cache.Config, clock debounce.Clock, o
 	}
 	s.diags = newDiagnostics(s, clock)
 	cfg.OnProbe = s.diags.probed
+	cfg.OnReadFailure = s.readFailed
 	if cfg.Trace == nil {
 		cfg.Trace = opts.Trace
 	}
@@ -390,6 +397,7 @@ func (s *Server) addStale(uri protocol.DocumentURI, id protocol.ID) *staleToken 
 	if uri == "" {
 		return nil
 	}
+	uri = uri.Key()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.stale[uri] == nil {
@@ -403,6 +411,7 @@ func (s *Server) addStale(uri protocol.DocumentURI, id protocol.ID) *staleToken 
 // removeStale removes the request id with the token from uri, unless a
 // newer request with the same ID has taken its place.
 func (s *Server) removeStale(uri protocol.DocumentURI, id protocol.ID, token *staleToken) {
+	uri = uri.Key()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.stale[uri][id] != token {
@@ -417,9 +426,10 @@ func (s *Server) removeStale(uri protocol.DocumentURI, id protocol.ID, token *st
 // modified cancels, with ContentModified, the requests in flight whose
 // result the change of uri made stale.
 func (s *Server) modified(uri protocol.DocumentURI) {
+	key := uri.Key()
 	s.mu.Lock()
-	ids := s.stale[uri]
-	delete(s.stale, uri)
+	ids := s.stale[key]
+	delete(s.stale, key)
 	s.mu.Unlock()
 	for id := range ids {
 		s.conn.Cancel(id, protocol.Errorf(protocol.ContentModified, "%s changed", uri))
@@ -572,7 +582,7 @@ func (s *Server) didOpen(_ context.Context, params json.RawMessage) error {
 		s.modified(uri)
 	}
 	s.mu.Lock()
-	delete(s.warned, uri)
+	delete(s.warned, uri.Key())
 	s.mu.Unlock()
 	s.diags.scheduleFile(uri, 0)
 	if path := uri.Path(); path != "" {
@@ -610,9 +620,10 @@ func (s *Server) didChange(_ context.Context, params json.RawMessage) error {
 // warnBroken tells the user, once per document, that a change of uri failed:
 // the server's copy of the text is not the editor's any more.
 func (s *Server) warnBroken(uri protocol.DocumentURI) {
+	key := uri.Key()
 	s.mu.Lock()
-	warned := s.warned[uri]
-	s.warned[uri] = true
+	warned := s.warned[key]
+	s.warned[key] = true
 	s.mu.Unlock()
 	if warned || s.conn == nil {
 		return
@@ -653,7 +664,11 @@ func (s *Server) didSave(_ context.Context, params json.RawMessage) error {
 
 // isHeader reports whether the file is a C/C++ header (watchedFiles).
 func isHeader(path string) bool {
-	switch filepath.Ext(path) {
+	ext := filepath.Ext(path)
+	if fspath.FoldCase() {
+		ext = strings.ToLower(ext) // FOO.H is a header on a case-insensitive file system
+	}
+	switch ext {
 	case ".h", ".hh", ".hpp", ".hxx", ".inc":
 		return true
 	}
@@ -678,6 +693,14 @@ func (s *Server) didChangeWatchedFiles(_ context.Context, params json.RawMessage
 	var p protocol.DidChangeWatchedFilesParams
 	if err := decode(params, &p); err != nil {
 		return err
+	}
+	for _, c := range p.Changes {
+		if c.Type != protocol.Changed {
+			// A file or folder was made or removed (or renamed): the canonical names (fspath.Canon) and the
+			// listings behind them are old.
+			fspath.Invalidate()
+			break
+		}
 	}
 	s.comp.index.changed(p.Changes) // a package may be new, or gone
 	s.symbols.forget(p.Changes)

@@ -23,6 +23,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -467,4 +468,105 @@ func (r *Remote) killRun() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	r.ssh(ctx, `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*gocpp-wintest\`+r.runID+`*' -and $_.Name -ne 'powershell.exe' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1`)
+}
+
+// A Process is a program that runs on the machine with its standard streams connected to this side
+// (ssh without a terminal): a language server that a test drives over its standard input and output.
+// The streams are binary: ssh adds and removes nothing.
+type Process struct {
+	Stdin  io.WriteCloser // the program's standard input; closing it is the end of its input
+	Stdout io.Reader      // the program's standard output
+	r      *Remote
+	cmd    *exec.Cmd
+	stderr *stderrBuf
+	done   chan struct{}
+	code   int
+	werr   error
+}
+
+type stderrBuf struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *stderrBuf) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.buf.Len() < 4<<20 {
+		b.buf.Write(p)
+	}
+	return len(p), nil
+}
+
+func (b *stderrBuf) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// Start runs the cmd.exe command line in this run's folder, with the extra environment (NAME=value),
+// and returns at once. The program ends when its input ends, when Kill is called, or when ctx is done;
+// the ssh client is killed with the test (process group, Pdeathsig), and so is the program's tree on the
+// machine (the server of the connection ends the session's processes; Kill also ends those that name
+// this run's folder).
+func (r *Remote) Start(ctx context.Context, env []string, line string) (*Process, error) {
+	var b strings.Builder
+	b.WriteString(`cd /d ` + r.Dir())
+	for _, kv := range env {
+		if strings.ContainsAny(kv, "\"%\r\n") {
+			return nil, fmt.Errorf("the variable %q has a character that cmd.exe cannot carry", kv)
+		}
+		b.WriteString(` && set "` + kv + `"`)
+	}
+	b.WriteString(` && ` + line)
+	cmd := exec.CommandContext(ctx, "ssh", append(r.sshOpts(), "-T", "--", r.host, b.String())...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 5 * time.Second
+	in, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	p := &Process{Stdin: in, Stdout: out, r: r, cmd: cmd, stderr: new(stderrBuf), done: make(chan struct{})}
+	cmd.Stderr = p.stderr
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	go func() {
+		err := cmd.Wait()
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			p.code, err = ee.ExitCode(), nil
+		}
+		p.werr = err
+		close(p.done)
+	}()
+	return p, nil
+}
+
+// Stderr returns what the program has written to its standard error so far (the first 4 MiB).
+func (p *Process) Stderr() string { return p.stderr.String() }
+
+// Done is closed when the program has ended.
+func (p *Process) Done() <-chan struct{} { return p.done }
+
+// Wait waits for the end of the program and returns its exit code (the low 8 bits).
+func (p *Process) Wait(ctx context.Context) (int, error) {
+	select {
+	case <-p.done:
+		return p.code, p.werr
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	}
+}
+
+// Kill ends the connection and the processes of this run on the machine, and waits for the end.
+func (p *Process) Kill() {
+	syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL)
+	p.r.killRun()
+	<-p.done
 }

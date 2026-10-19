@@ -78,6 +78,13 @@ function candidates(file, platform) {
 	return [file + '.exe', file + '.com'];
 }
 
+// unquote takes one pair of double quotes off s: a path with spaces that was pasted from a Windows
+// shell ("C:\\Program Files\\gocpp\\gocpp.exe", quotes included), or an entry of PATH written that way.
+function unquote(s) {
+	s = s.trim();
+	return s.length >= 2 && s.startsWith('"') && s.endsWith('"') ? s.slice(1, -1) : s;
+}
+
 // findBinary returns the full path of the binary bin (the setting
 // gocpp.path), or undefined when it is not there. A bin with a path
 // separator is a path: "~" at its start is the home directory, and a
@@ -88,6 +95,9 @@ function findBinary(bin, opts) {
 	const { env, platform, homedir, cwd } = opts;
 	const isExec = opts.isExecutable ?? ((f) => isExecutableFile(f, platform));
 	const p = platform === 'win32' ? path.win32 : path.posix;
+	if (platform === 'win32') {
+		bin = unquote(bin);
+	}
 	const hasSep = bin.includes('/') || (platform === 'win32' && bin.includes('\\'));
 	if (bin === '~' || hasSep || p.isAbsolute(bin)) {
 		let file = bin;
@@ -100,10 +110,19 @@ function findBinary(bin, opts) {
 			}
 			file = p.resolve(cwd, file);
 		}
-		return candidates(p.normalize(file), platform).find(isExec);
+		file = p.normalize(file);
+		const found = candidates(file, platform).find(isExec);
+		if (found !== undefined || platform !== 'win32') {
+			return found;
+		}
+		// The setting names the folder of gocpp.exe ("C:\\Program Files\\gocpp\\bin").
+		return candidates(p.join(file, 'gocpp'), platform).find(isExec);
 	}
 	const dirs = (env[envKey(env, 'PATH', platform)] || '').split(p.delimiter);
-	for (const dir of dirs) {
+	for (let dir of dirs) {
+		if (platform === 'win32') {
+			dir = unquote(dir); // PATH entries with spaces are often quoted on Windows
+		}
 		if (dir === '') {
 			continue; // like Go's exec.LookPath, an empty entry is not "."
 		}

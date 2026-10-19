@@ -10,7 +10,7 @@ behind LSP 3.17. The rest of the folder is gocpp's own code (§4).
 | File | What it is |
 |---|---|
 | `tsprotocol.go`, `tsjson.go` | the generated code: every LSP type and constant, and the JSON code of the union ("or") types. Copied (§1) |
-| `uri.go`, `form.go`, `tsdocument_changes.go`, `tsinsertreplaceedit.go` | gopls's hand-written code that the generated code needs: `DocumentURI` and `URI`, `FormField`, `DocumentChange`, `InsertReplaceEdit`'s JSON. Copied |
+| `uri.go`, `form.go`, `tsdocument_changes.go`, `tsinsertreplaceedit.go` | gopls's hand-written code that the generated code needs: `DocumentURI` and `URI`, `FormField`, `DocumentChange`, `InsertReplaceEdit`'s JSON. Copied; `uri.go` was changed in Phase 14 step 14.5 (ADR-096): it calls `internal/lsp/fspath` for the names of the system (Windows drive letters, UNC, case), has `Key`, and `urimemo.go` is new |
 | `uri_test.go`, `uri_windows_test.go` | gopls's tests of `uri.go`. Copied |
 | `internal/pathutil/` | gopls's `internal/util/pathutil`, which `uri.go` imports. Copied |
 | `generate/` | gopls's generator, with its README. Copied |

@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -50,6 +51,9 @@ func hoverAtPoint(c *dclient) {
 // With a threshold of one nanosecond every piece of work is slow: the log
 // has the method, the document, the snapshot and the phases of the check.
 func TestSlowLog(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the clock of a Windows process ticks every half millisecond or more: a fast request measures 0 ns, and the test counts on a duration")
+	}
 	c := startObserve(t, Options{Slow: time.Nanosecond})
 	name := "obs/obs.gp"
 	c.open(name, observeFiles[name])
@@ -146,6 +150,9 @@ func TestTraceSpans(t *testing.T) {
 }
 
 func TestStats(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the clock of a Windows process ticks every half millisecond or more: a fast request measures 0 ns, and the test counts on a duration")
+	}
 	c := startObserve(t, Options{})
 	name := "obs/obs.gp"
 	c.open(name, observeFiles[name])

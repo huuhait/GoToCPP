@@ -58,8 +58,9 @@ func (s *Snapshot) decref() {
 // a greater ID.
 func (s *Snapshot) ID() uint64 { return s.id }
 
-// Overlay returns the open document uri, or nil.
-func (s *Snapshot) Overlay(uri protocol.DocumentURI) *Overlay { return s.overlays[uri] }
+// Overlay returns the open document uri, or nil. Spellings of one file that the file system takes for the same
+// name (a Windows drive letter or folder in other case) find the same document.
+func (s *Snapshot) Overlay(uri protocol.DocumentURI) *Overlay { return s.overlays[uri.Key()] }
 
 // Overlays returns the open documents, sorted by URI.
 func (s *Snapshot) Overlays() []*Overlay {

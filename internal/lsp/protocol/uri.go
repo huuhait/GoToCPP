@@ -16,6 +16,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/huuhait/gocpp/internal/lsp/fspath"
 	"github.com/huuhait/gocpp/internal/lsp/protocol/internal/pathutil"
 )
 
@@ -69,16 +70,26 @@ func (uri *DocumentURI) UnmarshalText(data []byte) (err error) {
 
 // Clean returns the cleaned uri by triggering filepath.Clean underlying.
 func (uri DocumentURI) Clean() DocumentURI {
-	return URIFromPath(filepath.Clean(uri.Path()))
+	return URIFromPath(fspath.Clean(uri.Path()))
 }
 
-// Path returns the file path for the given URI.
+// Path returns the file path for the given URI, in the one spelling that the server uses for the file
+// (fspath.Canon: on Windows the clean name with an upper-case drive letter, UNC names as `\\host\share`, and
+// every part that exists on disk in the case it has there, so that `file:///c:/users/me/proj` and
+// `file:///C:/Users/Me/Proj` have one path). Elsewhere it is the path of the URI as it is.
 //
 // DocumentURI("").Path() returns the empty string.
 //
 // Path panics if called on a URI that is not a valid filename.
 func (uri DocumentURI) Path() string {
-	filename, err := filename(uri)
+	f := fspath.Current()
+	if f.FoldCase {
+		if p, ok := memoLoad(&pathMemo, uri, f); ok {
+			return p
+		}
+	}
+	gen := fspath.Generation()
+	p, err := pathOf(f, uri)
 	if err != nil {
 		// e.g. ParseRequestURI failed.
 		//
@@ -88,12 +99,33 @@ func (uri DocumentURI) Path() string {
 		// ParseRequestURI, which ensures validity.
 		panic(err)
 	}
-	return filepath.FromSlash(filename)
+	p = f.Canon(p)
+	if f.FoldCase {
+		memoStore(&pathMemo, uri, f, gen, p)
+	}
+	return p
+}
+
+// Key returns the DocumentURI that stands for the file in maps and comparisons: the URI of its Path. Two URIs of
+// one file that the editor and the server spell differently have one Key. Where names are case-sensitive it
+// is the URI itself.
+func (uri DocumentURI) Key() DocumentURI {
+	f := fspath.Current()
+	if uri == "" || !f.FoldCase {
+		return uri
+	}
+	if k, ok := memoLoad(&keyMemo, uri, f); ok {
+		return DocumentURI(k)
+	}
+	gen := fspath.Generation()
+	k := URIFromPath(uri.Path())
+	memoStore(&keyMemo, uri, f, gen, string(k))
+	return k
 }
 
 // Base returns the base name of the file path of the given URI.
 func (uri DocumentURI) Base() string {
-	return filepath.Base(uri.Path())
+	return fspath.Base(uri.Path())
 }
 
 // Dir returns the URI for the directory containing the receiver.
@@ -106,18 +138,30 @@ func (uri DocumentURI) Dir() DocumentURI {
 // DirPath returns the file path to the directory containing this URI, which
 // must be a file URI.
 func (uri DocumentURI) DirPath() string {
-	return filepath.Dir(uri.Path())
+	return fspath.Dir(uri.Path())
 }
 
 // Encloses reports whether uri's path, considered as a sequence of segments,
 // is a prefix of file's path.
 func (uri DocumentURI) Encloses(file DocumentURI) bool {
+	if fspath.FoldCase() {
+		return fspath.Within(uri.Path(), file.Path()) && !fspath.Equal(uri.Path(), file.Path())
+	}
 	return pathutil.InDir(uri.Path(), file.Path())
 }
 
 // Location returns the Location for the specified range of this URI's file.
 func (uri DocumentURI) Location(rng Range) Location {
 	return Location{URI: uri, Range: rng}
+}
+
+// pathOf returns the path of the file URI in the spelling of the flavor f, without the work of fspath.Canon.
+func pathOf(f fspath.Flavor, uri DocumentURI) (string, error) {
+	if f.Windows {
+		return windowsPathOf(f, uri)
+	}
+	p, err := filename(uri)
+	return f.FromSlash(p), err
 }
 
 func filename(uri DocumentURI) (string, error) {
@@ -164,6 +208,25 @@ slow:
 	return u.Path, nil
 }
 
+// windowsPathOf is pathOf for the Windows flavor: `file:///c:/x` is `C:\x`, an authority is a UNC name
+// (`file://srv/share/x` is `\\srv\share\x`), `file:////srv/share/x` too.
+func windowsPathOf(f fspath.Flavor, uri DocumentURI) (string, error) {
+	if uri == "" {
+		return "", nil
+	}
+	u, err := url.ParseRequestURI(string(uri))
+	if err != nil {
+		return "", err
+	}
+	if u.Scheme != fileScheme {
+		return "", fmt.Errorf("only file URIs are supported, got %q from %q", u.Scheme, uri)
+	}
+	if u.User != nil {
+		return "", fmt.Errorf("a file URI has no user name: %q", uri)
+	}
+	return f.FromURIParts(u.Host, u.Path), nil
+}
+
 // ParseDocumentURI interprets a string as a DocumentURI, applying VS
 // Code workarounds; see [DocumentURI.UnmarshalText] for details.
 // If "s" is a file name, use [URIFromPath] instead.
@@ -174,6 +237,10 @@ func ParseDocumentURI(s string) (DocumentURI, error) {
 
 	if !strings.HasPrefix(s, "file://") {
 		return "", fmt.Errorf("DocumentURI scheme is not 'file': %s", s)
+	}
+
+	if f := fspath.Current(); f.Windows {
+		return parseWindowsURI(f, s)
 	}
 
 	// VS Code sends URLs with only two slashes,
@@ -200,11 +267,70 @@ func ParseDocumentURI(s string) (DocumentURI, error) {
 	return DocumentURI(u.String()), nil
 }
 
+// parseWindowsURI is ParseDocumentURI for the Windows flavor. The forms that editors and tools send for the
+// same file are one: `file:///c:/x`, `file:///C%3A/x`, `file://C:/x` (two slashes, no authority: VS Code's
+// bug golang/go#39789), `file://localhost/C:/x`; and a UNC name is the authority: `file://srv/share/x`,
+// `file:////srv/share/x`. The result has the drive letter in upper case and the path escaped the way
+// URIFromPath escapes it; the case of the names is the editor's (Path gives the case of the disk).
+func parseWindowsURI(f fspath.Flavor, s string) (DocumentURI, error) {
+	rest := s[len("file://"):]
+	host, p := "", rest
+	if !strings.HasPrefix(rest, "/") {
+		i := strings.IndexByte(rest, '/')
+		if i < 0 {
+			i = len(rest)
+		}
+		h, err := url.PathUnescape(rest[:i])
+		if err != nil {
+			return "", err
+		}
+		if strings.Contains(h, "@") {
+			return "", fmt.Errorf("a file URI has no user name: %s", s) // file://user@srv/share would make a path that Path cannot read
+		}
+		host, p = h, rest[i:]
+		if len(host) == 2 && host[1] == ':' && isLetterByte(host[0]) {
+			// file://C:/x: the drive letter is not a host.
+			host, p = "", "/"+host+p
+		} else if p == "" {
+			p = "/"
+		}
+	}
+	p, err := url.PathUnescape(p)
+	if err != nil {
+		return "", err
+	}
+	name := f.FromURIParts(host, p)
+	if !f.IsAbs(name) && !strings.HasPrefix(name, `\`) {
+		// A rooted name with no drive (`file:///x/y`): the URI keeps its form, as the editor sent it.
+		return DocumentURI((&url.URL{Scheme: fileScheme, Path: p}).String()), nil
+	}
+	return uriOfName(f, name), nil
+}
+
+func isLetterByte(c byte) bool { return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' }
+
+// uriOfName returns the URI of the absolute name in the flavor f.
+func uriOfName(f fspath.Flavor, name string) DocumentURI {
+	host, p := f.URIParts(name)
+	if host == "" && !strings.HasPrefix(p, "/") {
+		p = "/" + p // a name that is still relative (a flavor that is not the system's): the URI has a rooted path all the same
+	}
+	return DocumentURI((&url.URL{Scheme: fileScheme, Host: host, Path: p}).String())
+}
+
 // URIFromPath returns DocumentURI for the supplied file path.
 // Given "", it returns "".
 func URIFromPath(path string) DocumentURI {
 	if path == "" {
 		return ""
+	}
+	if f := fspath.Current(); f.Windows {
+		if !f.IsAbs(path) {
+			if abs, err := filepath.Abs(path); err == nil && f.IsAbs(abs) {
+				path = abs
+			}
+		}
+		return uriOfName(f, path)
 	}
 	if plainPath(path) {
 		return DocumentURI(fileScheme + "://" + path) // what the general way gives, without its work

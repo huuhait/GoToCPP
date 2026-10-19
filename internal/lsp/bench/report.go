@@ -74,6 +74,7 @@ func DescribeMachine() Machine {
 	if data, err := os.ReadFile("/proc/sys/kernel/osrelease"); err == nil {
 		m.Kernel = "Linux " + strings.TrimSpace(string(data))
 	}
+	describePlatform(&m)
 	return m
 }
 

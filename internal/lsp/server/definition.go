@@ -64,7 +64,7 @@ func (q *query) definition(ctx context.Context) ([]protocol.Location, error) {
 				if path == "" || err != nil {
 					return nil, err
 				}
-				return []protocol.Location{{URI: protocol.URIFromPath(path)}}, nil
+				return []protocol.Location{{URI: locationURI(q.snap, path)}}, nil
 			}
 		}
 	}
@@ -175,7 +175,7 @@ func (q *query) objectLocation(ctx context.Context, obj types.Object) ([]protoco
 		end = d.pf.Tok.Offset(d.ident.End())
 	}
 	return []protocol.Location{{
-		URI:   protocol.URIFromPath(d.pf.Path),
+		URI:   locationURI(q.snap, d.pf.Path),
 		Range: protocol.Range{Start: m.Position(d.off), End: m.Position(end)},
 	}}, nil
 }
@@ -204,7 +204,7 @@ func (q *query) packageLocations(path string) ([]protocol.Location, error) {
 		if err != nil {
 			continue
 		}
-		loc := protocol.Location{URI: protocol.URIFromPath(file)}
+		loc := protocol.Location{URI: locationURI(q.snap, file)}
 		if r, ok := packageClause(file, src); ok {
 			loc.Range = r
 		}

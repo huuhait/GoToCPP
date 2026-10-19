@@ -18,6 +18,7 @@ import (
 	"github.com/huuhait/gocpp/internal/diag"
 	"github.com/huuhait/gocpp/internal/lsp/cache"
 	"github.com/huuhait/gocpp/internal/lsp/debounce"
+	"github.com/huuhait/gocpp/internal/lsp/fspath"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
 	"github.com/huuhait/gocpp/internal/lsp/safe"
 	"github.com/huuhait/gocpp/internal/syntax/scanner"
@@ -328,7 +329,7 @@ func (d *diagnostics) currentID() uint64 {
 func (d *diagnostics) publish(ctx context.Context, snap *cache.Snapshot, dir string, pkg *cache.Package) (apiChanged, stale bool) {
 	open := make(map[string]*cache.Overlay) // the open documents of the package, by path
 	for _, o := range snap.Overlays() {
-		if path := o.URI().Path(); strings.HasSuffix(path, ".gp") && filepath.Dir(path) == dir {
+		if path := o.URI().Path(); strings.HasSuffix(path, ".gp") && fspath.Equal(filepath.Dir(path), dir) {
 			open[path] = o
 		}
 	}
@@ -506,6 +507,7 @@ func newSourceFile(src []byte) *sourceFile {
 func diagnose(ctx context.Context, snap *cache.Snapshot, dir string, pkg *cache.Package, open map[string]*cache.Overlay, related bool) map[string][]protocol.Diagnostic {
 	byFile := make(map[string][]protocol.Diagnostic)
 	sources := make(map[string]*sourceFile)
+	uriOf := func(path string) protocol.DocumentURI { return locationURI(snap, path) }
 	source := func(path string) *sourceFile {
 		if f, ok := sources[path]; ok {
 			return f
@@ -558,15 +560,15 @@ func diagnose(ctx context.Context, snap *cache.Snapshot, dir string, pkg *cache.
 				if y.Pos.Filename == "" {
 					y.Pos = token.Position{Filename: path, Line: 1, Column: 1}
 				}
-				byFile[path] = append(byFile[path], toProtocol(y, source, inPkg, related))
+				byFile[path] = append(byFile[path], toProtocol(y, source, uriOf, inPkg, related))
 			}
 			continue
 		}
-		if filepath.Dir(x.Pos.Filename) != dir {
+		if !fspath.Equal(filepath.Dir(x.Pos.Filename), dir) {
 			continue // in another package (an import cycle): its own run shows it
 		}
 		inPkg[x.Pos.Filename] = true // a file of dir that the package left out
-		byFile[x.Pos.Filename] = append(byFile[x.Pos.Filename], toProtocol(x, source, inPkg, related))
+		byFile[x.Pos.Filename] = append(byFile[x.Pos.Filename], toProtocol(x, source, uriOf, inPkg, related))
 	}
 	for path, ds := range byFile {
 		slices.SortStableFunc(ds, func(a, b protocol.Diagnostic) int {
@@ -579,7 +581,7 @@ func diagnose(ctx context.Context, snap *cache.Snapshot, dir string, pkg *cache.
 
 // toProtocol converts a diagnostic in a file of the package (inPkg) to LSP.
 // Without related, the related places are lines of the message.
-func toProtocol(x diag.Diagnostic, source func(string) *sourceFile, inPkg map[string]bool, related bool) protocol.Diagnostic {
+func toProtocol(x diag.Diagnostic, source func(string) *sourceFile, uriOf func(string) protocol.DocumentURI, inPkg map[string]bool, related bool) protocol.Diagnostic {
 	d := protocol.Diagnostic{Severity: protocol.SeverityError, Source: diagSource, Message: x.Msg}
 	if x.Severity == diag.Warning {
 		d.Severity = protocol.SeverityWarning
@@ -614,7 +616,7 @@ func toProtocol(x diag.Diagnostic, source func(string) *sourceFile, inPkg map[st
 		start := offsetOf(f, r.Pos, inPkg[r.Pos.Filename])
 		rng := protocol.Range{Start: f.mapper.Position(start), End: f.mapper.Position(tokenEnd(f.src, start))}
 		d.RelatedInformation = append(d.RelatedInformation, protocol.DiagnosticRelatedInformation{
-			Location: protocol.Location{URI: protocol.URIFromPath(r.Pos.Filename), Range: rng},
+			Location: protocol.Location{URI: uriOf(r.Pos.Filename), Range: rng},
 			Message:  r.Msg,
 		})
 	}

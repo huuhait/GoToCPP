@@ -190,6 +190,14 @@ table above changed:
 - **Language server**: Windows paths ↔ `file:///C:/…` URIs (drive-letter case, percent
   encoding), case-insensitive file names in the snapshot cache, file watching. Phase 11's speed
   budgets are measured on Windows too.
+- **14.5 as built (2026-10-20, [ADR-096](../../../docs/adr/096-language-server-on-windows-one-spelling-per-file.md))**: `internal/lsp/fspath` (flavors Posix, Windows and CaseFold; `Canon` gives a
+  file one spelling: clean, upper-case drive, 8.3 names written out, the disk's case of every part) under `DocumentURI.Path`/`Key` and the cache's handles; URIs of VS Code (`file:///c%3A/...`),
+  `file://C:/...`, UNC and `localhost`; answers about an open document use the editor's URI; a BOM on disk is not counted; the file watcher stays the client's (events in any spelling, created/deleted
+  events forget the names; an editor without a watcher does not see disk changes of unopened files until a watcher event or a restart, as in gopls; a file that is locked by another program is read again in the background); the VS Code extension takes a quoted or folder `gocpp.path`; `tests/windows_lsp_test.go` drives `gocpp.exe lsp` on the real PC (Unicode folder with spaces, CRLF, BOM,
+  short and UNC names, a 300-character path, the C++ probe), `TestWindowsNativeUnits` runs the tests of `fspath`, `protocol`, `cache` and part of `server` there, and `TestWindowsLSPBench`
+  runs the Phase 11 benchmarks on the PC ([lsp-windows.md](../../../docs/benchmarks/lsp-windows.md): every budget row met on the 16-thread PC, `large` (91k lines) 442 MiB against the 400 MiB budget for 50k (the Linux table of 2026-10-18 says 371, but dev now measures 432-446 MiB on `large`, so this miss is not Windows-specific; `medium`, 31k lines, 171 MiB)).
+  **Not done**: links and junctions, `\\localhost\c$` as a second name of a drive, trailing dots, reserved device names, a server-side watcher, the editors other than VS Code on Windows (the
+  protocol is the same).
 - **Debugging**: MinGW builds carry DWARF, so `gocpp debug` uses gdb (MSYS2) or lldb
   (llvm-mingw) with the Phase 13 printers, and VS Code works through CodeLLDB. The Visual Studio
   debugger (PDB + natvis) comes with the MSVC ABI later.
