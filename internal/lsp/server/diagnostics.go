@@ -191,6 +191,8 @@ func (d *diagnostics) scheduleOpen(skip string, delay time.Duration) {
 
 // run diagnoses the package of the folder dir on the current snapshot.
 func (d *diagnostics) run(ctx context.Context, dir string) {
+	ctx, span := d.s.obs.begin(ctx, "diagnostics", "dir", dir)
+	defer d.s.obs.end(span, func() string { return fmt.Sprintf("dir=%s (now: %s)", dir, d.s.snapshotInfo()) })
 	for try := 0; ; try++ {
 		snap, release := d.s.session.Snapshot()
 		pkg, err := snap.Package(ctx, dir)

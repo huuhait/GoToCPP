@@ -222,3 +222,85 @@ func TestComputeEditsCapped(t *testing.T) {
 		t.Errorf("the edits are wrong")
 	}
 }
+
+// TestSameLines: when only the white space of the lines changes, the lines
+// correspond one to one, and the edits are right (applied, they give the
+// new text) and few (one per changed line); the pairs are a common
+// subsequence of the two texts. Texts that are not like that don't take the
+// shortcut.
+func TestSameLines(t *testing.T) {
+	rng := rand.New(rand.NewSource(7))
+	words := []string{"if x {", "}", "return a", "x := f(1, 2)", "", "// c", "for {", "}", "}"}
+	for n := range 300 {
+		var before, after strings.Builder
+		changed := 0
+		for range 5 + rng.Intn(40) {
+			w := words[rng.Intn(len(words))]
+			ind := strings.Repeat("\t", rng.Intn(4))
+			ind2 := strings.Repeat("\t", rng.Intn(4))
+			if rng.Intn(5) == 0 && w != "" {
+				w = strings.Replace(w, " ", "  ", 1) // inner spaces
+			}
+			after.WriteString(ind2 + strings.ReplaceAll(w, "  ", " ") + "\n")
+			before.WriteString(ind + w + "\n")
+			if ind+w != ind2+strings.ReplaceAll(w, "  ", " ") {
+				changed++
+			}
+		}
+		b, a := before.String(), after.String()
+		m := protocol.NewMapper(b)
+		edits := computeEdits(context.Background(), m, a)
+		if got := applyEdits(t, b, edits); got != a {
+			t.Fatalf("case %d: the edits give\n%q\nwant\n%q", n, got, a)
+		}
+		if len(edits) > changed {
+			t.Errorf("case %d: %d edits for %d changed lines", n, len(edits), changed)
+		}
+		la, lb := splitLines(b), splitLines(a)
+		ka, kb := lineKeys(b, a, la, lb)
+		pairs := sameLines(b, a, la, lb, ka, kb)
+		if b != a && pairs == nil {
+			t.Fatalf("case %d: no shortcut for a change of white space only", n)
+		}
+		last := -1
+		for _, p := range pairs {
+			if p.x != p.y || p.x <= last || ka[p.x] != kb[p.y] {
+				t.Fatalf("case %d: the pair %v is not a common line in order", n, p)
+			}
+			last = p.x
+		}
+	}
+	// Not the shortcut: another number of lines, or a line that changes
+	// more than its white space.
+	for _, c := range [][2]string{{"a\nb\n", "a\nb\nc\n"}, {"a\nb\n", "a\nc\n"}, {"x := 1\n", "x := 2\n"}} {
+		la, lb := splitLines(c[0]), splitLines(c[1])
+		ka, kb := lineKeys(c[0], c[1], la, lb)
+		if sameLines(c[0], c[1], la, lb, ka, kb) != nil {
+			t.Errorf("%q to %q takes the shortcut", c[0], c[1])
+		}
+	}
+}
+
+// lineKeys numbers the distinct lines of two texts, like computeEdits.
+func lineKeys(before, after string, a, b []line) (ka, kb []int) {
+	ids := map[string]int{}
+	key := func(text string, l line) int {
+		k := text[l.start:l.content]
+		if l.end > l.content {
+			k += "\n"
+		}
+		id, ok := ids[k]
+		if !ok {
+			id = len(ids)
+			ids[k] = id
+		}
+		return id
+	}
+	for _, l := range a {
+		ka = append(ka, key(before, l))
+	}
+	for _, l := range b {
+		kb = append(kb, key(after, l))
+	}
+	return ka, kb
+}

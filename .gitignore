@@ -34,3 +34,4 @@ node_modules/
 !tests/pkgs/**/*~/**
 \#*\#
 .#*
+docs/benchmarks/lsp.json

@@ -327,3 +327,22 @@ func TestStoreCancelRace(t *testing.T) {
 		t.Errorf("%d entries, over the cap %d", len(s.entries), max)
 	}
 }
+
+func TestCounters(t *testing.T) {
+	s := NewStore[string, int](0, nil)
+	get := func(key string) {
+		if _, err := s.Get(context.Background(), key, func(context.Context) (int, error) { return len(key), nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	get("a")
+	get("a")
+	get("bb")
+	get("a")
+	if hits, misses := s.Counters(); hits != 2 || misses != 2 {
+		t.Errorf("hits %d, misses %d, want 2 and 2", hits, misses)
+	}
+	if s.MaxCost() != 0 {
+		t.Errorf("max cost %d", s.MaxCost())
+	}
+}

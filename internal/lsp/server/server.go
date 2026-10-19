@@ -49,15 +49,23 @@ import (
 // the packages it checks in the cache on disk that the environment says
 // (openDisk), so that its next run starts warm.
 func Run(ctx context.Context, in io.Reader, out io.Writer, logger *log.Logger) int {
+	return RunWith(ctx, in, out, logger, Options{})
+}
+
+// RunWith is Run with the options of the slow-request log and the span
+// recorder (step 11.12).
+func RunWith(ctx context.Context, in io.Reader, out io.Writer, logger *log.Logger, opts Options) int {
 	if logger == nil {
 		logger = log.New(io.Discard, "", 0)
 	}
 	cfg := pipelineConfig()
+	cfg.Trace = opts.Trace
+	cfg.Phase = opts.Phase
 	if disk := openDisk(logger); disk != nil {
 		defer disk.Close()
 		cfg.Disk = disk
 	}
-	return newServer(logger, cfg, debounce.RealClock{}).Serve(ctx, in, out)
+	return newServerOpts(logger, cfg, debounce.RealClock{}, opts).Serve(ctx, in, out)
 }
 
 // Serve serves the LSP over in and out until the client's exit
@@ -126,6 +134,7 @@ type Server struct {
 	pipeline *cache.Pipeline
 	session  *cache.Session
 	diags    *diagnostics
+	obs      *observer      // the slow log, the spans and the stats (observe.go)
 	conn     *protocol.Conn // set by Serve
 	// requests are the methods of the requests that run on a snapshot
 	// (see method); tests add their own before Serve.
@@ -196,6 +205,11 @@ func New(logger *log.Logger) *Server {
 // newServer returns a server with the pipeline configuration cfg (whose
 // OnProbe it sets) and the clock of its diagnostics' debouncer.
 func newServer(logger *log.Logger, cfg cache.Config, clock debounce.Clock) *Server {
+	return newServerOpts(logger, cfg, clock, Options{})
+}
+
+// newServerOpts is newServer with the options opts.
+func newServerOpts(logger *log.Logger, cfg cache.Config, clock debounce.Clock, opts Options) *Server {
 	if logger == nil {
 		logger = log.New(io.Discard, "", 0)
 	}
@@ -207,6 +221,8 @@ func newServer(logger *log.Logger, cfg cache.Config, clock debounce.Clock) *Serv
 		warned:       make(map[protocol.DocumentURI]bool),
 		stale:        make(map[protocol.DocumentURI]map[protocol.ID]*staleToken),
 	}
+	s.obs = newObserver(s, opts)
+	s.addObservability()
 	s.addNavigation()
 	s.addRefactor()
 	s.addSymbols()
@@ -219,6 +235,9 @@ func newServer(logger *log.Logger, cfg cache.Config, clock debounce.Clock) *Serv
 	}
 	s.diags = newDiagnostics(s, clock)
 	cfg.OnProbe = s.diags.probed
+	if cfg.Trace == nil {
+		cfg.Trace = opts.Trace
+	}
 	s.pipeline = cache.NewPipeline(cfg)
 	s.addCompletion(s.pipeline)
 	s.session = cache.NewSession(s.pipeline.NewState())
@@ -289,6 +308,8 @@ func (s *Server) Notify(ctx context.Context, req *protocol.Request) error {
 		}
 		return nil
 	}
+	ctx, span := s.obs.begin(ctx, req.Method)
+	defer s.obs.end(span, func() string { return fmt.Sprintf("uri=%s (now: %s)", documentOf(req.Params), s.snapshotInfo()) })
 	return h(s, ctx, req.Params)
 }
 
@@ -331,6 +352,10 @@ func (s *Server) Call(ctx context.Context, req *protocol.Request) protocol.Work 
 		if token != nil {
 			defer s.removeStale(uri, id, token)
 		}
+		ctx, span := s.obs.begin(ctx, req.Method, "snapshot", snap.ID())
+		defer s.obs.end(span, func() string {
+			return fmt.Sprintf("uri=%s snapshot=%d (now: %s)", documentOf(req.Params), snap.ID(), s.snapshotInfo())
+		})
 		return m.run(ctx, e, req.Params)
 	}
 }
@@ -438,6 +463,7 @@ func (s *Server) initialize(params json.RawMessage) (any, error) {
 		ServerInfo: &protocol.ServerInfo{Name: "gocpp", Version: version.Version},
 	}
 	s.nav.initialize(p.Capabilities, &res.Capabilities)
+	observabilityCapabilities(&res.Capabilities)
 	s.refactor.initialize(p.Capabilities, &res.Capabilities)
 	s.symbols.initialize(&p, &res.Capabilities)
 	semanticCapabilities(&res.Capabilities)
@@ -606,6 +632,9 @@ func (s *Server) didSave(_ context.Context, params json.RawMessage) error {
 	if err := decode(params, &p); err != nil {
 		return err
 	}
+	// A client without a file watcher reports no change on disk but this:
+	// the saved file may have another package name now.
+	s.comp.index.changed([]protocol.FileEvent{{URI: p.TextDocument.URI, Type: protocol.Changed}})
 	s.diags.scheduleFile(p.TextDocument.URI, 0)
 	return nil
 }

@@ -275,3 +275,56 @@ them, which does not know gocpp.
 Any LSP client works: the command is `gocpp lsp`, over standard input and output, for files
 with the extension `.gp`. The language id is `gocpp`, and the root of a project is the folder
 with `gocpp.mod`. `gocpp lsp -h` lists the flags.
+
+## When the server is slow: the slow log, traces and profiles
+
+The server is meant to be as fast as gopls, with written budgets (about 30 ms of waiting after
+the last keystroke, then the check; hover under 30 ms; completion under 50 ms; the table is in
+[docs/benchmarks/lsp.md](../benchmarks/lsp.md)). When it is not, these tools say where the time
+goes. All of them are flags of `gocpp lsp`, so in an editor they go into the command, for
+example `{"gocpp", "lsp", "-slow", "200ms", "-logfile", "/tmp/gocpp-lsp.log"}`.
+
+**The slow log.** A request, a notification or a diagnostics run that takes `-slow` (500 ms
+by default; a negative value turns the log off) or longer is written to the log (standard error,
+or `-logfile`) with what it was about and where its time went:
+
+```
+slow: textDocument/completion took 612ms (over 500ms) uri=file:///w/pkg/a.gp snapshot=41 (now: snapshot=41 live=1 overlays=3 checks=17); phases: package 598ms, check 597ms, typecheck 520ms, load 61ms, imports 9ms, export 4ms
+```
+
+The phases are the time spent in the steps of the work, summed by name: `package` (getting the
+checked package of the file: from the cache, or by checking it), `check` (one package check)
+with its parts `queue` (waiting for a free core), `imports` (reading the export data of the
+imports), `load` (reading and parsing the package's files), `typecheck`, `export` (writing the
+export data for the importers) and `apihash`; `parse` (parsing one file for a feature), `disk-read`
+(a package summary from the disk cache). Phases of different names can overlap (`check` holds
+`typecheck`). A request that waits for a check that another piece of work started shows `package`
+without the parts: they are in the line of the work that did the check. A line of the log is
+what to put in a bug report, with the output of `gocpp version`.
+
+**`gocpp/stats`.** The request `gocpp/stats` (also the command `gocpp.stats` of
+`workspace/executeCommand`, which every client can send) answers with JSON: the snapshots (the
+current one, how many are alive, how many documents are open), the work of the pipeline (files
+parsed, packages checked, summaries read from the disk cache), each cache's entries, estimated
+memory, hits, misses and hit rate (`parse`, `check`, `summary`), the count, p50, p95 and maximum
+of the last 256 of each kind of request (and of the diagnostics runs), and the memory of the
+process. In Neovim: `:lua vim.print(vim.lsp.get_clients()[1]:request_sync("gocpp/stats", nil, 5000).result)`.
+
+**Chrome trace.** `gocpp lsp -trace spans.json` writes every piece of work and its steps as a
+Chrome trace when the server ends (or is stopped with SIGINT or SIGTERM: then the process exits
+at once, so the summaries being written to the disk cache are lost, which is harmless). The server
+keeps up to a million spans in memory (about 150 MB) until then, so use it for a short session. Open it in
+`chrome://tracing`, [Perfetto](https://ui.perfetto.dev) or speedscope: each request, each
+notification, each diagnostics run and each namespace probe is a row, with its steps below.
+
+**Profiles.** `gocpp lsp -profile dir` writes `cpu.pprof` and `heap.pprof` to the folder `dir`
+when the server ends (the heap profile is taken after a garbage collection: it shows what is
+alive), and `-exec-trace` adds the Go execution trace, `exec.trace`. Read them with
+`go tool pprof -http=: dir/cpu.pprof` and `go tool trace dir/exec.trace`. Stop the editor (or
+send SIGTERM to the server) after the slow action, so that the profile has it.
+
+**Benchmarks.** `make lsp-bench` replays scripted editor sessions against generated reference
+projects, for gocpp and for gopls on the same code, and writes the table; `make lsp-budgets` checks
+the speed budgets (a Go test that is not part of `make ci`, because it takes a minute and a half
+and needs a quiet machine). `go run ./tools/lspbench -h` lists the flags (`-only hover -scale 20
+-gocpp-args "-profile /tmp/p"` profiles one scenario).

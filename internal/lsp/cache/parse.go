@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/token"
 
+	"github.com/huuhait/gocpp/internal/lsp/trace"
 	"github.com/huuhait/gocpp/internal/syntax/parser"
 )
 
@@ -58,8 +59,10 @@ func (p *Pipeline) parse(ctx context.Context, f *fileHandle, mode parser.Mode) (
 	if f.err != nil {
 		return nil, f.err
 	}
-	return p.parses.Get(ctx, parseKey{f.path, f.hash, mode}, func(context.Context) (*ParsedFile, error) {
+	return p.parses.Get(ctx, parseKey{f.path, f.hash, mode}, func(ctx context.Context) (*ParsedFile, error) {
 		p.stats.parses.Add(1)
+		_, span := trace.Start(ctx, "parse", "file", f.path)
+		defer span.End()
 		fset := token.NewFileSet()
 		file, err := parser.ParseFile(fset, f.path, f.src, mode)
 		pf := &ParsedFile{

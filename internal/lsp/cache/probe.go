@@ -11,6 +11,7 @@ import (
 
 	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/interop"
+	"github.com/huuhait/gocpp/internal/lsp/trace"
 )
 
 // The namespace probe off the hot path (README §2.2 item 8, step 11.4).
@@ -106,6 +107,7 @@ type prober struct {
 	cheader  func(ctx context.Context, cxx build.CXX, dir string, flags []string, include string) (interop.CHeader, error)
 	pc       build.PkgConfigFunc // Config.PkgConfig, or build.PkgConfig
 	onChange func()              // Config.OnProbe, or nil
+	rec      *trace.Recorder     // Config.Trace, or nil
 	sem      chan struct{}       // a place for each probe that runs: at most maxProbes
 
 	mu      sync.Mutex
@@ -361,7 +363,9 @@ func (pr *prober) run(set *probeSet) {
 		var err error
 		select {
 		case pr.sem <- struct{}{}:
-			res, err = pr.probe(pr.ctx, set.cxx, set.dir, set.flags, set.includes, names)
+			ctx, span := trace.Begin(trace.WithRecorder(pr.ctx, pr.rec), "probe", "dir", set.dir, "names", len(names))
+			res, err = pr.probe(ctx, set.cxx, set.dir, set.flags, set.includes, names)
+			span.End()
 			<-pr.sem
 		case <-pr.ctx.Done():
 		}

@@ -83,18 +83,109 @@ func newImportIndex(ctx context.Context, p *cache.Pipeline) *importIndex {
 // changed takes in files that changed on disk (didChangeWatchedFiles):
 // a file or folder that is created or deleted, or a changed gocpp.mod
 // (its module path), makes the module indexes old: the next request makes
-// them again (in the meantime, it gets the old ones). A saved .gp file
-// changes nothing (its package name could, which the index then misses
-// until the next such change).
+// them again (in the meantime, it gets the old ones), and so does a changed
+// folder or any other file but a header. A changed .gp file
+// makes them old only when its package name is not the one that the index
+// has for its folder (a package clause that was broken, or is fixed).
 func (ix *importIndex) changed(events []protocol.FileEvent) {
 	for _, e := range events {
-		if e.Type == protocol.Created || e.Type == protocol.Deleted || filepath.Base(e.URI.Path()) == "gocpp.mod" {
+		path := e.URI.Path()
+		if e.Type == protocol.Created || e.Type == protocol.Deleted || filepath.Base(path) == "gocpp.mod" ||
+			folderOrOther(path) || e.Type == protocol.Changed && ix.nameChanged(path) {
 			ix.mu.Lock()
 			ix.gen++
 			ix.mu.Unlock()
 			return
 		}
 	}
+}
+
+// folderOrOther reports whether a changed path is something else than a .gp
+// file or a header: a folder, whose listing may have changed in a way that
+// nobody reported file by file (a tool that deleted its files).
+func folderOrOther(path string) bool {
+	return path != "" && !strings.HasSuffix(path, ".gp") && !isHeader(path)
+}
+
+// nameChanged reports whether the .gp file path, as it is on disk now, makes
+// the index of the module that has it old: its folder has another package
+// name than the index says (none, if the folder was no package). A file
+// that the walk would not look at (a folder that starts with . or _, a
+// testdata folder, another module, a _test.gp file) changes nothing. A
+// module whose index is being made is made again at once: the walk may have
+// read the file already.
+func (ix *importIndex) nameChanged(path string) bool {
+	if !strings.HasSuffix(path, ".gp") || strings.HasSuffix(path, "_test.gp") {
+		return false
+	}
+	dir := filepath.Dir(path)
+	name := dirPackageName(dir)
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	for modDir, m := range ix.mods {
+		if !walked(modDir, dir) {
+			continue
+		}
+		select {
+		case <-m.done:
+		default:
+			return true // being made
+		}
+		have := ""
+		for _, p := range m.pkgs {
+			if p.dir == dir {
+				have = p.name
+			}
+		}
+		if have != name {
+			return true
+		}
+	}
+	return false
+}
+
+// walked reports whether the walk of the module in modDir looks at the
+// folder dir: it is under modDir, no folder on the way starts with . or _ or
+// is called testdata, and none but modDir has a gocpp.mod.
+func walked(modDir, dir string) bool {
+	rel, err := filepath.Rel(modDir, dir)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	if rel == "." {
+		return true
+	}
+	cur := modDir
+	for _, n := range strings.Split(rel, string(filepath.Separator)) {
+		if strings.HasPrefix(n, ".") || strings.HasPrefix(n, "_") || n == "testdata" {
+			return false
+		}
+		cur = filepath.Join(cur, n)
+		if _, err := os.Stat(filepath.Join(cur, "gocpp.mod")); err == nil {
+			return false
+		}
+	}
+	return true
+}
+
+// dirPackageName returns the package name that the walk gives the folder
+// dir: the name of its first .gp file that is not a test or hidden, or "".
+func dirPackageName(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		n := e.Name()
+		if !e.IsDir() && strings.HasSuffix(n, ".gp") && !strings.HasSuffix(n, "_test.gp") &&
+			!strings.HasPrefix(n, ".") && !strings.HasPrefix(n, "_") {
+			if src, err := readHeader(filepath.Join(dir, n)); err == nil {
+				return packageName(n, src)
+			}
+			return ""
+		}
+	}
+	return ""
 }
 
 // generation returns the number of the changes of files on disk that made the

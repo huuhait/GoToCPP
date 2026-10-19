@@ -12,11 +12,14 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
+	"time"
 
 	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/interop"
 	"github.com/huuhait/gocpp/internal/lsp/cache/filecache"
 	"github.com/huuhait/gocpp/internal/lsp/memoize"
+	"github.com/huuhait/gocpp/internal/lsp/trace"
 	"github.com/huuhait/gocpp/internal/syntax/parser"
 )
 
@@ -104,6 +107,11 @@ type Config struct {
 	// another standard library must use another version. The pipeline
 	// doesn't close it.
 	Disk *filecache.Cache
+
+	// Trace, if not nil, records the spans of the background work (the
+	// namespace probes) for gocpp lsp -trace; the spans of a request or a
+	// diagnostics run go to the recorder of their own context.
+	Trace *trace.Recorder
 }
 
 // The default caps: the memory budget is 400 MB for a 50k-line project
@@ -220,6 +228,7 @@ func NewPipeline(cfg Config) *Pipeline {
 		probe = interop.ProbeNamespaces
 	}
 	p.prober = newProber(find, probe, cfg.OnProbe)
+	p.prober.rec = cfg.Trace
 	if cfg.PkgConfig != nil {
 		p.prober.pc = cfg.PkgConfig
 	}
@@ -271,6 +280,51 @@ func (p *Pipeline) Stats() (parses, metadata, checks int64) {
 	return p.stats.parses.Load(), p.stats.metadata.Load(), p.stats.checks.Load()
 }
 
+// A CacheMetrics describes one of the pipeline's caches.
+type CacheMetrics struct {
+	Entries  int   `json:"entries"`  // the values kept
+	Bytes    int64 `json:"bytes"`    // their estimated memory
+	MaxBytes int64 `json:"maxBytes"` // the cap (0: none)
+	Hits     int64 `json:"hits"`
+	Misses   int64 `json:"misses"`
+}
+
+// HitRate returns hits / (hits + misses), or 0 when there were none.
+func (m CacheMetrics) HitRate() float64 {
+	if m.Hits+m.Misses == 0 {
+		return 0
+	}
+	return float64(m.Hits) / float64(m.Hits+m.Misses)
+}
+
+// Metrics describes the pipeline for gocpp/stats: the work done, the disk
+// cache, and the caches in memory.
+type Metrics struct {
+	Parses, MetadataLoads, Checks    int64
+	DiskHits, DiskMisses, DiskWrites int64
+	Caches                           map[string]CacheMetrics // "parse", "check", "summary"
+}
+
+// Metrics returns the metrics of the pipeline now.
+func (p *Pipeline) Metrics() Metrics {
+	m := Metrics{Parses: p.stats.parses.Load(), MetadataLoads: p.stats.metadata.Load(), Checks: p.stats.checks.Load(),
+		DiskHits: p.stats.diskHits.Load(), DiskMisses: p.stats.diskMisses.Load(), DiskWrites: p.stats.diskWrites.Load(),
+		Caches: make(map[string]CacheMetrics, 3)}
+	add := func(name string, n int, cost, max, hits, misses int64) {
+		m.Caches[name] = CacheMetrics{Entries: n, Bytes: cost, MaxBytes: max, Hits: hits, Misses: misses}
+	}
+	n, c := p.parses.Stats()
+	h, ms := p.parses.Counters()
+	add("parse", n, c, p.parses.MaxCost(), h, ms)
+	n, c = p.checks.Stats()
+	h, ms = p.checks.Counters()
+	add("check", n, c, p.checks.MaxCost(), h, ms)
+	n, c = p.summaries.Stats()
+	h, ms = p.summaries.Counters()
+	add("summary", n, c, p.summaries.MaxCost(), h, ms)
+	return m
+}
+
 // A fileHandle is the content of a file in a snapshot: of its overlay (an
 // open document), or else from disk (or from the standard library), read
 // once. It never changes.
@@ -286,6 +340,10 @@ type dirHandle struct {
 	names []string // sorted
 	isDir bool     // the folder exists: on disk (also when it can't be read) or in the overlays
 	err   error    // the folder can't be read and has no overlays
+	// failed: reading the folder gave an error that is not "does not
+	// exist" (permissions, too many open files), whatever the overlays
+	// add to the listing: it is read again by the next snapshot.
+	failed bool
 }
 
 // state is the State of a snapshot: the files it has read and the handles
@@ -359,15 +417,18 @@ func (s *state) Clone(next *Snapshot, ch Change) State {
 	defer s.mu.Unlock()
 	// What was missing is looked for again: an import may resolve now
 	// (metadata.valid reads it).
+	// A read that failed for any reason (a file that could not be read for
+	// a moment) is made again too: a failure is no fact about the files
+	// until a notification says so, and a snapshot must never keep one.
 	n.files = make(map[string]*fileHandle, len(s.files))
 	for path, f := range s.files {
-		if !paths[path] && !under(path) && !errors.Is(f.err, fs.ErrNotExist) {
+		if !paths[path] && !under(path) && f.err == nil {
 			n.files[path] = f
 		}
 	}
 	n.dirs = make(map[string]*dirHandle, len(s.dirs))
 	for dir, d := range s.dirs {
-		if !dirs[dir] && !under(dir) && (len(d.names) > 0 || !errors.Is(d.err, fs.ErrNotExist)) {
+		if !dirs[dir] && !under(dir) && !d.failed && (len(d.names) > 0 || d.err == nil) {
 			n.dirs[dir] = d
 		}
 	}
@@ -377,7 +438,7 @@ func (s *state) Clone(next *Snapshot, ch Change) State {
 		return n // a module can change the import path of every package
 	}
 	for dir, m := range s.mods {
-		if !dirs[dir] && !under(dir) {
+		if !dirs[dir] && !under(dir) && (m == nil || m.err == nil) {
 			n.mods[dir] = m
 		}
 	}
@@ -391,7 +452,7 @@ func (s *state) Clone(next *Snapshot, ch Change) State {
 		for _, dep := range h.cut {
 			importers[dep] = append(importers[dep], id)
 		}
-		if !id.std && (dirs[id.dir] || under(id.dir) || ch.Packages[id.dir]) || h.meta.reads != nil && touches(h.meta.reads, paths, dirs, under) {
+		if !id.std && (dirs[id.dir] || under(id.dir) || ch.Packages[id.dir] || h.failedRead()) || h.meta.reads != nil && touches(h.meta.reads, paths, dirs, under) {
 			stale = append(stale, id)
 		}
 	}
@@ -449,10 +510,25 @@ func (s *state) file(path string) (*fileHandle, error) {
 	if o := s.overlays[path]; o != nil {
 		f.src = []byte(o.Text())
 	} else {
-		f.src, f.err = os.ReadFile(path)
+		f.src, f.err = retryRead(func() ([]byte, error) { return os.ReadFile(path) })
 	}
 	f.hash = hashOf(f.src)
 	return store(s, filesOf, path, f)
+}
+
+// retryRead calls read, and again (a few times, after a short wait) when it
+// fails because the process or the machine has no file descriptors or
+// memory for a moment: a loaded machine does that, and the error must not
+// become a fact about the files.
+func retryRead[T any](read func() (T, error)) (T, error) {
+	var v T
+	var err error
+	for try, wait := 0, 5*time.Millisecond; ; try, wait = try+1, wait*4 {
+		if v, err = read(); err == nil || try == 3 || !(errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE) || errors.Is(err, syscall.ENOMEM)) {
+			return v, err
+		}
+		time.Sleep(wait)
+	}
 }
 
 // store puts v under key into the map of s that m returns, unless a value
@@ -486,7 +562,8 @@ func (s *state) dir(dir string) (*dirHandle, error) {
 		return d, nil
 	}
 	d = &dirHandle{}
-	entries, err := os.ReadDir(dir)
+	entries, err := retryRead(func() ([]os.DirEntry, error) { return os.ReadDir(dir) })
+	d.failed = err != nil && !errors.Is(err, fs.ErrNotExist)
 	for _, e := range entries {
 		if !e.IsDir() && strings.HasSuffix(e.Name(), ".gp") {
 			d.names = append(d.names, e.Name())

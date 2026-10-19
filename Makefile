@@ -121,6 +121,25 @@ vscode-test: $(VSCODE_DIR)/node_modules/.package-lock.json
 $(VSCODE_DIR)/node_modules/.package-lock.json: $(VSCODE_DIR)/package-lock.json
 	cd $(VSCODE_DIR) && npm ci --no-audit --no-fund
 
+# The language server benchmarks (Phase 11 step 11.11, tools/lspbench): the
+# reference projects are generated (never checked in), the scenarios are
+# replayed against gocpp lsp and, when gopls is on the PATH, against gopls on
+# the same code, and the table goes to docs/benchmarks/lsp.md (the raw figures
+# to lsp.json). Run it alone, on a quiet machine (it refuses to start when the
+# load average is over 30; LSP_BENCH_FLAGS="-max-load 0" overrides, for
+# development; "-runs 1 -scale 0.2" is a quick look). lsp-budgets is the gate
+# on the speed budgets (a Go test that is opt-in, so not part of make ci: it
+# takes a minute and a half and skips itself on a loaded machine).
+LSP_BENCH_PROJECTS ?= small,medium,large,cpp
+.PHONY: lsp-bench lsp-budgets
+lsp-bench:
+	$(GO) build -o bin/gocpp ./cmd/gocpp
+	nice -n 10 $(GO) run ./tools/lspbench -gocpp bin/gocpp -projects $(LSP_BENCH_PROJECTS) \
+		-json docs/benchmarks/lsp.json -md docs/benchmarks/lsp.md $(LSP_BENCH_FLAGS)
+
+lsp-budgets:
+	GOCPP_LSP_BUDGETS=on $(GO) test -count=1 -v -run TestLSPBudgets ./tools/lspbench
+
 ci: $(CI_CHECKS)
 	@echo "make ci: all checks passed"
 

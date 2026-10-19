@@ -17,7 +17,7 @@ import (
 
 // lspUsage is the help text of "gocpp lsp". "gocpp lsp -h" prints it,
 // followed by the flags.
-const lspUsage = `usage: gocpp lsp [-logfile file]
+const lspUsage = `usage: gocpp lsp [-logfile file] [-slow duration] [-profile dir [-exec-trace]] [-trace file]
 
 gocpp lsp runs the gocpp language server. It speaks the Language Server
 Protocol (LSP 3.17) over standard input and standard output: an editor
@@ -54,6 +54,20 @@ the entries of other gocpp binaries go after a day). The server trims the
 cache in the background, at most once an hour, and removes only the files
 it wrote there. The folder can be deleted at any time.
 
+A request, a notification or a diagnostics run that takes -slow or longer
+(default 500ms; a negative value turns the log off) is logged with the time
+of its phases (parse, load, typecheck, ...) and the state of the session.
+-profile dir writes the CPU profile (cpu.pprof) and the heap profile
+(heap.pprof) of the server in dir when it ends (go tool pprof reads them),
+and -exec-trace the Go execution trace (exec.trace) too; -trace file writes
+the spans of the work as a Chrome trace (chrome://tracing, Perfetto,
+speedscope); it keeps up to a million spans in memory (about 150 MB) until
+the server ends. After SIGINT or SIGTERM the files are written and the
+process exits at once, without waiting for the cache of summaries (its writes
+in flight are lost; its entries are checked when read). The request gocpp/stats, also the command gocpp.stats of
+workspace/executeCommand, returns the cache hit rates, the snapshots and the
+memory.
+
 The flags are:
 `
 
@@ -70,6 +84,10 @@ func runLSP(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("gocpp lsp", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	logfile := flags.String("logfile", "", "append the log to `file`, not to standard error")
+	slow := flags.Duration("slow", server.DefaultSlow, "log the work that takes `duration` or longer, with its phases (negative: off)")
+	profile := flags.String("profile", "", "write the CPU and heap profiles to the folder `dir` when the server ends")
+	execTrace := flags.Bool("exec-trace", false, "with -profile, write the Go execution trace (exec.trace) too")
+	traceFile := flags.String("trace", "", "write the spans of the work to `file` as a Chrome trace when the server ends")
 	flags.Usage = func() {
 		fmt.Fprint(stderr, lspUsage)
 		flags.PrintDefaults()
@@ -81,7 +99,7 @@ func runLSP(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2 // flag has printed the error and the usage
 	}
 	if flags.NArg() > 0 {
-		fmt.Fprintln(stderr, "usage: gocpp lsp [-logfile file]")
+		fmt.Fprintln(stderr, "usage: gocpp lsp [-logfile file] [-slow duration] [-profile dir [-exec-trace]] [-trace file]")
 		return 2
 	}
 	logOut := stderr
@@ -95,5 +113,23 @@ func runLSP(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		logOut = f
 	}
 	logger := log.New(logOut, "", log.Ldate|log.Ltime|log.Lmicroseconds)
-	return server.Run(context.Background(), stdin, stdout, logger)
+	prof, err := startLSPProfile(*profile, *execTrace, *traceFile, stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "gocpp lsp: %v\n", err)
+		return 2
+	}
+	// The gates of the phases are those of gocpp check: the editor shows the
+	// errors that a build would give (GOCPP_GATE_PHASE opens them for the
+	// development of a phase).
+	phase, err := gatePhase(os.Getenv(gatePhaseEnv))
+	if err != nil {
+		fmt.Fprintf(stderr, "gocpp lsp: %v\n", err)
+		return 2
+	}
+	opts := server.Options{Slow: *slow, Phase: phase}
+	if prof != nil {
+		defer prof.stop()
+		opts.Trace = prof.rec
+	}
+	return server.RunWith(context.Background(), stdin, stdout, logger, opts)
 }

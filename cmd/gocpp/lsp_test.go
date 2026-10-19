@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -60,8 +61,14 @@ func (b *lockedBuffer) Len() int {
 
 func startLSP(t *testing.T, args ...string) *lspProcess {
 	t.Helper()
+	return startLSPEnv(t, nil, args...)
+}
+
+// startLSPEnv is startLSP with more environment variables.
+func startLSPEnv(t *testing.T, env []string, args ...string) *lspProcess {
+	t.Helper()
 	p := &lspProcess{t: t, cmd: exec.Command(os.Args[0], append([]string{"lsp"}, args...)...)}
-	p.cmd.Env = append(os.Environ(), "GOCPP_TEST_MAIN=1")
+	p.cmd.Env = append(append(os.Environ(), "GOCPP_TEST_MAIN=1"), env...)
 	p.cmd.Stderr = &p.stderr
 	var err error
 	if p.in, err = p.cmd.StdinPipe(); err != nil {
@@ -129,7 +136,7 @@ func (p *lspProcess) wait() int {
 
 var (
 	lspInitialize = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":null,"clientInfo":{"name":"lsp_test"},"rootUri":null,"capabilities":{}}}`
-	lspInitResult = `{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":2,"save":{}},"completionProvider":{"triggerCharacters":["."],"resolveProvider":true},"hoverProvider":true,"signatureHelpProvider":{"triggerCharacters":["(",","]},"definitionProvider":true,"typeDefinitionProvider":true,"referencesProvider":true,"documentHighlightProvider":true,"documentSymbolProvider":true,"codeActionProvider":true,"documentLinkProvider":{},"workspaceSymbolProvider":true,"documentFormattingProvider":true,"renameProvider":true,"semanticTokensProvider":{"legend":{"tokenTypes":["namespace","type","struct","interface","typeParameter","parameter","variable","property","function","method","cppHeader","cppNamespace","cppName"],"tokenModifiers":["declaration","readonly","defaultLibrary","modification"]},"range":true,"full":true},"inlayHintProvider":{}},"serverInfo":{"name":"gocpp","version":` + strconv.Quote(version.Version) + `}}}`
+	lspInitResult = `{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"positionEncoding":"utf-16","textDocumentSync":{"openClose":true,"change":2,"save":{}},"completionProvider":{"triggerCharacters":["."],"resolveProvider":true},"hoverProvider":true,"signatureHelpProvider":{"triggerCharacters":["(",","]},"definitionProvider":true,"typeDefinitionProvider":true,"referencesProvider":true,"documentHighlightProvider":true,"documentSymbolProvider":true,"codeActionProvider":true,"documentLinkProvider":{},"workspaceSymbolProvider":true,"documentFormattingProvider":true,"renameProvider":true,"executeCommandProvider":{"commands":["gocpp.stats"]},"semanticTokensProvider":{"legend":{"tokenTypes":["namespace","type","struct","interface","typeParameter","parameter","variable","property","function","method","cppHeader","cppNamespace","cppName"],"tokenModifiers":["declaration","readonly","defaultLibrary","modification"]},"range":true,"full":true},"inlayHintProvider":{}},"serverInfo":{"name":"gocpp","version":` + strconv.Quote(version.Version) + `}}}`
 	lspShutdown   = `{"jsonrpc":"2.0","id":2,"method":"shutdown"}`
 	lspExit       = `{"jsonrpc":"2.0","method":"exit"}`
 )
@@ -252,7 +259,7 @@ func TestLSPLogfile(t *testing.T) {
 
 func TestLSPUsage(t *testing.T) {
 	code, out, errOut := gocpp("lsp", "extra")
-	if code != 2 || out != "" || errOut != "usage: gocpp lsp [-logfile file]\n" {
+	if code != 2 || out != "" || errOut != "usage: gocpp lsp [-logfile file] [-slow duration] [-profile dir [-exec-trace]] [-trace file]\n" {
 		t.Errorf("gocpp lsp extra: exit %d, stdout %q, stderr %q", code, out, errOut)
 	}
 	code, out, errOut = gocpp("lsp", "-h")
@@ -462,4 +469,146 @@ func shift(pos string, n int) string {
 		panic(err)
 	}
 	return fmt.Sprintf(`{"line":%d,"character":%d}`, p.Line, int(p.Character)+n)
+}
+
+// TestLSPProfile: -profile, -exec-trace and -trace write their files when
+// the server ends (step 11.12), and the stats request answers.
+func TestLSPProfile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "prof", "nested")
+	traceFile := filepath.Join(t.TempDir(), "spans.json")
+	p := startLSP(t, "-profile", dir, "-exec-trace", "-trace", traceFile, "-slow", "1ns")
+	p.send(lspInitialize)
+	p.read()
+	p.send(`{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///w/a.gp","languageId":"gocpp","version":1,"text":"package main\n"}}}`)
+	p.send(`{"jsonrpc":"2.0","id":7,"method":"gocpp/stats"}`)
+	var stats struct {
+		Result struct {
+			Requests map[string]struct{ Count int }
+			Memory   struct{ HeapAlloc uint64 }
+		}
+	}
+	if err := json.Unmarshal([]byte(p.read()), &stats); err != nil {
+		t.Fatal(err)
+	}
+	if stats.Result.Requests["textDocument/didOpen"].Count != 1 || stats.Result.Memory.HeapAlloc == 0 {
+		t.Errorf("stats: %+v", stats)
+	}
+	p.send(lspShutdown)
+	p.read()
+	p.send(lspExit)
+	if code := p.wait(); code != 0 {
+		t.Errorf("exit status %d, want 0; stderr:\n%s", code, p.stderr.String())
+	}
+	for _, name := range []string{"cpu.pprof", "heap.pprof", "exec.trace"} {
+		if fi, err := os.Stat(filepath.Join(dir, name)); err != nil || fi.Size() == 0 {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	data, err := os.ReadFile(traceFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tr struct{ TraceEvents []struct{ Name, Ph string } }
+	if err := json.Unmarshal(data, &tr); err != nil {
+		t.Fatalf("%v\n%s", err, data)
+	}
+	found := false
+	for _, e := range tr.TraceEvents {
+		found = found || e.Ph == "X" && e.Name == "textDocument/didOpen"
+	}
+	if !found {
+		t.Errorf("no span of didOpen in %s", data)
+	}
+	if !strings.Contains(p.stderr.String(), "slow: textDocument/didOpen took") {
+		t.Errorf("the log has no slow line:\n%s", p.stderr.String())
+	}
+}
+
+// TestLSPProfileSignal: SIGTERM writes the profiles before the process
+// exits with status 143.
+func TestLSPProfileSignal(t *testing.T) {
+	dir := t.TempDir()
+	p := startLSP(t, "-profile", dir)
+	p.send(lspInitialize)
+	p.read()
+	if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	p.in.Close()
+	err := p.cmd.Wait()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 143 {
+		t.Errorf("exit: %v, want status 143; stderr:\n%s", err, p.stderr.String())
+	}
+	for _, name := range []string{"cpu.pprof", "heap.pprof"} {
+		if fi, err := os.Stat(filepath.Join(dir, name)); err != nil || fi.Size() == 0 {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestLSPProfileUsage(t *testing.T) {
+	code, _, errOut := gocpp("lsp", "-exec-trace")
+	if code != 2 || !strings.Contains(errOut, "-exec-trace needs -profile dir") {
+		t.Errorf("-exec-trace alone: exit %d, stderr %q", code, errOut)
+	}
+}
+
+// TestLSPGatePhase: gocpp lsp has the phase gates of gocpp check (a feature
+// of a later phase is an error), and GOCPP_GATE_PHASE opens them, like it
+// does for check.
+func TestLSPGatePhase(t *testing.T) {
+	dir := t.TempDir()
+	// A feature of a phase after the finished one (version.Phase): the
+	// first of these that is not built yet.
+	var src, gated string
+	for _, c := range []struct {
+		phase    int
+		src, msg string
+	}{
+		{7, "package main\n\nfunc G[T any](x T) {}\n\nfunc main() {}\n", "generic functions are not supported yet (Phase 07)"},
+		{8, "package main\n\nfunc main() { go func() {}() }\n", "go statements are not supported yet (Phase 08)"},
+	} {
+		if c.phase > version.Phase {
+			src, gated = c.src, c.msg
+			break
+		}
+	}
+	if src == "" {
+		t.Skip("the features of these phases are built")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "gocpp.mod"), []byte("module example.com/gate\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "main.gp")
+	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	uri := string(protocol.URIFromPath(file))
+	diagnostics := func(env ...string) string {
+		p := startLSPEnv(t, append(env, "GOCPP_LSP_CACHE=off", "XDG_CACHE_HOME="+t.TempDir()))
+		p.send(lspInitialize)
+		p.read()
+		p.send(fmt.Sprintf(`{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":%q,"languageId":"gocpp","version":1,"text":%q}}}`, uri, src))
+		for {
+			body, err := p.out.Read()
+			if err != nil {
+				t.Fatalf("reading from gocpp lsp: %v; stderr:\n%s", err, p.stderr.String())
+			}
+			if strings.Contains(string(body), `"method":"textDocument/publishDiagnostics"`) {
+				return string(body)
+			}
+		}
+	}
+	if got := diagnostics(); !strings.Contains(got, gated) {
+		t.Errorf("the default gates: %s", got)
+	}
+	if got := diagnostics("GOCPP_GATE_PHASE=15"); !strings.Contains(got, `"diagnostics":[]`) {
+		t.Errorf("with GOCPP_GATE_PHASE=15: %s", got)
+	}
+	t.Setenv("GOCPP_GATE_PHASE", "99")
+	code, _, errOut := gocpp("lsp")
+	if code != 2 || !strings.Contains(errOut, "GOCPP_GATE_PHASE=99") {
+		t.Errorf("a bad GOCPP_GATE_PHASE: exit %d, stderr %q", code, errOut)
+	}
 }

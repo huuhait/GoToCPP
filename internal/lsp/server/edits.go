@@ -59,7 +59,11 @@ func computeEdits(ctx context.Context, m *protocol.Mapper, after string) []proto
 	}
 	e := editor{m: m, before: before, after: after, a: a, b: b, eol: eol}
 	i, j := 0, 0
-	for _, p := range append(commonLines(ctx, ka, kb, maxDiffWork), pair{len(a), len(b)}) {
+	common := sameLines(before, after, a, b, ka, kb)
+	if common == nil {
+		common = commonLines(ctx, ka, kb, maxDiffWork)
+	}
+	for _, p := range append(common, pair{len(a), len(b)}) {
 		if p.x > i || p.y > j {
 			e.hunk(i, p.x, j, p.y)
 		}
@@ -180,6 +184,44 @@ func (e *editor) add(base int, old, new string) {
 		},
 		NewText: new[p : len(new)-s],
 	})
+}
+
+// sameLines is the shortcut for the usual formatting, where only the white
+// space of the lines changes (the indentation, the spaces around an
+// operator): when both texts have the same number of lines and every line
+// of before is, without its white space, the line of after at the same
+// place, the lines correspond one to one and the common lines are the ones
+// that are equal at the same place. That takes one pass, where the diff of
+// a 1,000-line file that lost its indentation takes 10 ms. It returns nil
+// when the texts are not like that (the diff runs then). The pairs are a
+// common subsequence, not always a longest one (a line could match another
+// copy of itself further down), so the edits are right, and a little
+// longer in rare cases.
+func sameLines(before, after string, a, b []line, ka, kb []int) []pair {
+	if len(a) != len(b) {
+		return nil
+	}
+	squash := func(s string) string {
+		out := make([]byte, 0, len(s))
+		for i := range len(s) {
+			if c := s[i]; c != ' ' && c != '\t' && c != '\r' {
+				out = append(out, c)
+			}
+		}
+		return string(out)
+	}
+	for i := range a {
+		if ka[i] != kb[i] && squash(before[a[i].start:a[i].content]) != squash(after[b[i].start:b[i].content]) {
+			return nil
+		}
+	}
+	out := make([]pair, 0, len(a)) // not nil: nil says there is no shortcut
+	for i := range a {
+		if ka[i] == kb[i] {
+			out = append(out, pair{i, i})
+		}
+	}
+	return out
 }
 
 // A pair is a line of a (x) that is the same as a line of b (y).

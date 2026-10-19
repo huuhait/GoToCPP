@@ -17,6 +17,7 @@ import (
 	"container/list"
 	"context"
 	"sync"
+	"sync/atomic"
 )
 
 // A Promise is a value that is computed once, on its first Get, by the
@@ -134,6 +135,8 @@ type Store[K comparable, V any] struct {
 	entries map[K]*entry[K, V]
 	lru     list.List // the entries that are done and counted, most recently used first
 	total   int64     // the cost of the entries in lru
+
+	hits, misses atomic.Int64 // Counters
 }
 
 type entry[K comparable, V any] struct {
@@ -163,8 +166,12 @@ func (s *Store[K, V]) Get(ctx context.Context, key K, compute func(ctx context.C
 	if e == nil {
 		e = &entry[K, V]{key: key, promise: NewPromise(compute)}
 		s.entries[key] = e
-	} else if e.elem != nil {
-		s.lru.MoveToFront(e.elem)
+		s.misses.Add(1)
+	} else {
+		s.hits.Add(1)
+		if e.elem != nil {
+			s.lru.MoveToFront(e.elem)
+		}
 	}
 	s.mu.Unlock()
 
@@ -218,6 +225,14 @@ func (s *Store[K, V]) Peek(key K) (v V, err error, ok bool) {
 	}
 	return e.promise.Done()
 }
+
+// Counters returns how often Get found the key in the store (a hit: its
+// value is kept, or being computed for another Get) and how often it did
+// not (a miss: the value is computed for this Get).
+func (s *Store[K, V]) Counters() (hits, misses int64) { return s.hits.Load(), s.misses.Load() }
+
+// MaxCost returns the cap of the store (0: none).
+func (s *Store[K, V]) MaxCost() int64 { return s.maxCost }
 
 // Stats returns the number of kept values that are done and their cost.
 func (s *Store[K, V]) Stats() (n int, cost int64) {

@@ -141,7 +141,7 @@ never let clang (C/C++ knowledge) sit on the hot path.
 
 - **Benchmark harness:** replays recorded editor sessions (open project, type 200 characters,
   complete, hover, rename, save) against the reference projects and reports p50/p95 per request type.
-- **CI gate:** a regression over 10 % on any budget row fails the build.
+- **CI gate:** a regression over 10 % on any budget row fails the build. (As built: ADR-031 and "As built" below.)
 - **gopls side by side:** the same session against gopls on the `.go` copy of reference project 1,
   published as a table.
 - **Built-in profiling:** `gocpp lsp -profile` (pprof CPU/heap), `-trace` (per-request timings),
@@ -150,6 +150,23 @@ never let clang (C/C++ knowledge) sit on the hot path.
   finished, compares the server's diagnostics with a fresh `gocpp check -interop=opaque`. They must
   always agree (no stale results). Typed-interop diagnostics (Phase 12) are compared separately,
   after their background probes finish.
+
+**As built (steps 11.11 and 11.12).** `tools/lspbench` (library: `internal/lsp/bench`) generates the
+reference projects with a seed (never checked in: `small` about 20 files in 3 packages, `medium` about 200
+files in 20, `large` 1,500 files in 100, and `cpp`, which adds packages that import C++ headers; the same
+source is valid Go, so gopls opens it as `.go`), replays the scenarios of the table against `gocpp lsp` and
+gopls over stdio, and writes `docs/benchmarks/lsp.md` (`make lsp-bench`). The reference projects are
+synthetic: a real 30k-line Go library is still not chosen (ADR-015), and the generated code is a stand-in
+with the shapes editors meet (structs with embedding, methods, interfaces, errors, `fmt`, goroutines and
+channels, calls between packages). The gate is `TestLSPBudgets` (`make lsp-budgets`, opt-in, not part of `make ci`: ADR-031): the median of five
+sessions, a row fails when its p95 is over three times its budget and over 2.5 times gopls's p95 of the same
+run, a failure is measured again, and the test skips itself when the load average is high; a regression of
+10 % is not gated, because on a shared machine noise is bigger than that, and the 1.5× of gopls is a goal
+that is **not met** today. Profiling: `gocpp lsp -profile
+dir`, `-exec-trace`, `-trace file` (Chrome trace), `-slow` (the slow-request log with its phases), and the
+request `gocpp/stats`; see docs/guides/editors.md. The random-edit differential test
+(`internal/lsp/server/fuzz_test.go`) compares the incremental server with a fresh one (a fresh server, not
+`gocpp check`: the two differ on purpose in the ways the notes of 11.3 and 11.4 list).
 
 ### 2.6 Early track: start using it after Phase 01
 
@@ -197,7 +214,10 @@ M1 in the one-person order).
 ## 5. Exit criteria
 
 - Every budget in 2.1 is met (p95) on all three reference projects.
-- On the shared reference project, every row is within 1.5× of gopls.
+- On the shared reference project, every row is within 1.5× of gopls. **Not met yet** (2026-10-18:
+  keystroke 14-18× on small and medium because of the 30 ms debounce, references 3-12×, rename 6×);
+  tracked by the language-server performance job in TODO.md, see
+  [ADR-031](../../../docs/adr/031-lsp-speed-gate.md).
 - The random-edit differential test passes: server diagnostics always equal
   `gocpp check -interop=opaque` once background work is done.
 - (The C/C++ budget row and the "no request waits on clang" test belong to Phase 12, where clang

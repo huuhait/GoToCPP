@@ -22,6 +22,7 @@ import (
 	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/lsp/memoize"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
+	"github.com/huuhait/gocpp/internal/lsp/trace"
 	"github.com/huuhait/gocpp/internal/syntax/parser"
 )
 
@@ -83,6 +84,28 @@ type handle struct {
 
 	// keyed is stage 2: the key, from the summaries of deps.
 	keyed *memoize.Promise[*keyed]
+}
+
+// failedRead reports whether a file or folder that the handle was made from
+// could not be read (not: does not exist): the handle may be wrong, so the
+// next snapshot makes it again, and the importers with it.
+func (h *handle) failedRead() bool {
+	for _, f := range h.files {
+		if f.err != nil {
+			return true
+		}
+	}
+	if h.mod != nil && h.mod.err != nil {
+		return true
+	}
+	if h.meta != nil {
+		for _, r := range h.meta.reads {
+			if r.err != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // A metadata is what a package imports, as the loader resolves it: from
@@ -254,6 +277,8 @@ func (s *Snapshot) Package(ctx context.Context, dir string) (*Package, error) {
 	if !ok {
 		return nil, errNoPipeline
 	}
+	ctx, span := trace.Start(ctx, "package", "dir", dir)
+	defer span.End()
 	h, err := st.handle(ctx, pkgID{dir: filepath.Clean(dir)}, "", nil)
 	if err != nil {
 		return nil, err
@@ -678,7 +703,10 @@ func (p *Pipeline) summaryOf(ctx context.Context, h *handle) (*summary, error) {
 				return pkg.summary, nil
 			}
 			if fromDisk {
-				if s := p.diskSummaryOf(h, k); s != nil {
+				_, span := trace.Start(ctx, "disk-read", "dir", h.id.dir)
+				s := p.diskSummaryOf(h, k)
+				span.End()
+				if s != nil {
 					return s, nil
 				}
 			}
@@ -756,9 +784,14 @@ func (p *Pipeline) checked(ctx context.Context, h *handle, k *keyed) (*Package, 
 // summaries (k.deps), and type-checks it with their types from their
 // export data, at most GOMAXPROCS checks at a time.
 func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, error) {
+	ctx, span := trace.Start(ctx, "check", "dir", h.id.dir)
+	defer span.End()
+	_, queue := trace.Start(ctx, "queue")
 	select {
 	case p.sem <- struct{}{}:
+		queue.End()
 	case <-ctx.Done():
+		queue.End()
 		return nil, ctx.Err()
 	}
 	defer func() { <-p.sem }()
@@ -776,6 +809,7 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 	// The imports from their export data, all into one map, so that a
 	// package that two of them mention is one *types.Package.
 	imported := make(map[string]*types.Package)
+	_, importSpan := trace.Start(ctx, "imports", "n", len(k.deps))
 	depOf := make(map[*load.Package]check.Dep, len(k.deps))
 	byRef := make(map[depRef]*summary, len(k.deps))
 	for i, s := range k.deps {
@@ -794,6 +828,7 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 		}
 		depOf[s.load] = d
 	}
+	importSpan.End()
 	cfg.Deps = func(importPath, dir string, std bool) *load.Package {
 		if s := byRef[depRef{importPath, dir, std}]; s != nil {
 			return s.load
@@ -809,7 +844,9 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 		errs.Errorf(token.Position{}, "internal error: the import of %s was not resolved with the metadata of %s", importPath, dir)
 		return (&load.Package{ImportPath: importPath, Dir: dir, Std: std, Errors: errs, Incomplete: true}).Summary()
 	}
+	_, loadSpan := trace.Start(ctx, "load")
 	prog := load.Load(cfg, pattern)
+	loadSpan.End()
 	if len(prog.Roots) == 0 {
 		return nil, fmt.Errorf("cache: %w in %s", ErrNoPackage, dir)
 	}
@@ -820,6 +857,7 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 	// The compiler, the probes and pkg-config answer at once, from what
 	// the prober knows (probe.go); rec keeps what they answered.
 	rec := &probeRecord{pr: p.prober}
+	_, checkSpan := trace.Start(ctx, "typecheck")
 	r := check.Check(prog, check.Config{
 		Phase:     p.cfg.Phase,
 		GOOS:      p.cfg.GOOS,
@@ -835,6 +873,7 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 		// (check.Package.Partial); its diagnostics stay the same.
 		Partial: true,
 	})
+	checkSpan.End()
 	if err := ctx.Err(); err != nil {
 		return nil, err // the probe stopped
 	}
@@ -842,8 +881,11 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 	dep, _ := r.Dep(root)
 	sum.hasC, sum.failed = dep.HasC, dep.Failed
 	if dep.Types != nil {
+		_, exportSpan := trace.Start(ctx, "export")
 		var buf bytes.Buffer
-		if err := gcexportdata.Write(&buf, cfg.Fset, dep.Types); err != nil {
+		err := gcexportdata.Write(&buf, cfg.Fset, dep.Types)
+		exportSpan.End()
+		if err != nil {
 			return nil, fmt.Errorf("cache: the export data of %s: %v", root.ImportPath, err)
 		}
 		sum.export = buf.Bytes()
@@ -855,7 +897,9 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 	if cp != nil && cp.Load == root {
 		sum.opaque = opaqueTableOf(cfg.Fset, cp, func(name string) []byte { return src[name] })
 	}
+	_, hashSpan := trace.Start(ctx, "apihash")
 	sum.apiHash = apiHash(root, dep, k.deps, sum.opaque)
+	hashSpan.End()
 	if rec.used() {
 		sum.records = append(sum.records, rec)
 		sum.own = rec
