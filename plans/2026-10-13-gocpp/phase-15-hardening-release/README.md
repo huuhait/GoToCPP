@@ -183,6 +183,30 @@ WebAssembly via emscripten · an optional tracing GC for cycle-heavy programs ·
 `-fno-exceptions` embedded mode (panic = abort) · C++20 module output · `net/http` through a C++
 library wrapper · self-hosting (compiling the gocpp compiler with gocpp once the stdlib can carry
 `go/*`). (A goroutine scheduler is deliberately *not* on this list: `go` stays an OS thread.)
+The proposals written for step 15.17 are in [§2.9](#29-post-10-roadmap).
+
+### 2.9 Post-1.0 roadmap
+
+Step 15.17 turns the directions above, and the open questions found in the repository, into
+**proposed** ADRs: each one has the facts it rests on (with the files they come from), the options, a
+recommendation and the trigger that would make the decision urgent. None of them is decided: the user
+accepts, changes or drops each one. The numbers are measurements of `dev` on 2026-10-20 and are marked
+where they are estimates.
+
+| ADR | Direction | Recommendation in one line |
+|---|---|---|
+| [103](../../../docs/adr/103-reference-cycles-stay-counted-common-shapes-get-compiler-fixes-and-a-cycle-report-comes-before-any-collector.md) | Memory: reference cycles (D1) | stay counted; fix recursive closures and `sync.Cond` at compile time; a cycle report before any collector |
+| [104](../../../docs/adr/104-goroutines-stay-threads-the-main-goroutine-gets-a-large-stack-and-a-scheduler-needs-new-evidence.md) | Goroutines and stacks (D7, D24) | keep threads (Q4); give the main goroutine a large stack; a scheduler needs new evidence |
+| [105](../../../docs/adr/105-generic-type-instances-get-out-of-line-bodies-and-c-20-modules-wait-for-a-measurement.md) | Generics compile cost, C++20 modules | out-of-line bodies for generic type instances; modules only after a measured prototype |
+| [106](../../../docs/adr/106-reflect-grows-method-and-call-for-types-the-program-already-has.md) | `reflect` completeness (D6) | `Method`/`Call` for types the program has, when `text/template` is ported; never `StructOf`/`FuncOf` |
+| [107](../../../docs/adr/107-the-standard-library-beyond-tier-2-goes-by-blockers-not-by-popularity.md) | Standard library beyond tier 2 | waves by blocker class; `net/http` and TLS stay C++ library modules |
+| [108](../../../docs/adr/108-typed-interop-becomes-the-default-when-three-measurements-pass-and-the-clang-policy-is-a-matrix.md) | Typed interop default, clang policy | flip to `auto` after a clang matrix, cold probing and Windows probes pass |
+| [109](../../../docs/adr/109-after-1-0-the-pipeline-and-arm64-come-first-macos-needs-a-machine-and-a-checksum-database-needs-an-ecosystem.md) | Platforms, release pipeline, module trust, debugger | Q9 and the pipeline, arm64, macOS only with a Mac maintainer, sumdb when modules exist |
+| [110](../../../docs/adr/110-the-go-language-version-moves-once-a-year-and-the-v1-promise-names-what-it-covers.md) | Go version policy, what the v1 promise covers | one Go version, moved yearly; the promise lists covered and uncovered surfaces |
+
+Candidates that were looked at and not written as ADRs: a goroutine scheduler as its own direction
+(ADR-104 covers why not), self-hosting, WebAssembly and `-fno-exceptions` mode (no evidence in the
+repository beyond the backlog line), the MSVC ABI and Windows arm64 (one line each in ADR-109).
 
 ## 3. Steps
 
@@ -206,7 +230,7 @@ library wrapper · self-hosting (compiling the gocpp compiler with gocpp once th
 14. **15.14 `gocpp get`** + `gocpp.sum` + MVS (+ the `x/mod` workarounds).
 15. **15.15 Docs site** (tour, spec, guides, cookbook, stdlib reference).
 16. **15.16 v1.0**: compatibility promise, changelog, release.
-17. **15.17 Post-1.0 roadmap** ADRs.
+17. **15.17 Post-1.0 roadmap** ADRs. Written as proposals ADR-103 to ADR-110, listed in [§2.9](#29-post-10-roadmap).
 
 ### 3.1 Notes on step 15.5 (Swiss-table maps, [ADR-059](../../../docs/adr/059-swiss-table-maps.md))
 
