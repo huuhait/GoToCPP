@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/huuhait/gocpp/internal/typedinterop/ctype"
+	"github.com/huuhait/gocpp/internal/typedinterop/tsupport"
 )
 
 // verifyProgram writes a C++ file that asserts, with the compiler, every fact
@@ -170,7 +171,7 @@ func compileVerify(t *testing.T, dir, prog string) {
 		t.Fatal(err)
 	}
 	ran := 0
-	for _, cxx := range []string{"clang++", "g++"} {
+	for _, cxx := range []string{tsupport.ClangProgram(), "g++"} {
 		if _, err := exec.LookPath(cxx); err != nil {
 			continue
 		}

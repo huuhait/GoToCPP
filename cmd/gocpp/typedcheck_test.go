@@ -99,7 +99,7 @@ func zooEnv(t *testing.T) {
 	t.Setenv("GOCPP_OFFLINE", "1")
 	t.Setenv("GOCPP_PROBE_TIMEOUT", "5m")
 	t.Setenv("GOCPP_NOPROBECACHE", "1")
-	t.Setenv("GOCPP_CLANG", "")
+	t.Setenv("GOCPP_CLANG", matrixClang)
 }
 
 // needClang skips the test when typed interop has no clang++ (it falls back to opaque).

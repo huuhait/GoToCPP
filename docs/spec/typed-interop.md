@@ -1,4 +1,4 @@
-# Typed interop: the collector, the probe, the declarations, the type mapper, the checker, the code generation, the constants, the promoted members, bindgen and the mode (steps 12.1 to 12.11)
+# Typed interop: the collector, the probe, the declarations, the type mapper, the checker, the code generation, the constants, the promoted members, bindgen and the mode (steps 12.1 to 12.12)
 
 Typed interop (Phase 12, [README](../../plans/2026-10-13-gocpp/phase-12-typed-interop/README.md))
 asks **clang** for the real C++ types of exactly the C/C++ names that a program uses. This
@@ -1054,8 +1054,7 @@ and `addr_loopvar_error` (with clang++ the early error of the typed checker, `ca
 `typedinterop.DefaultMode` is **opaque**. The evidence of §13.5 and of §13.7 (warm overhead) supports `auto`, but the
 default stays until these hold, which this step cannot show: (1) cold probing of the examples is 0.9 to 2.4 s on a
 lightly loaded machine (§13.7), above the 0.5 s of the exit criterion; (2) only clang 21 was
-available (clang 17 to 20 are step 12.12's tests); (3) the other tests of step 12.12 (more early-error tests, a header
-edit invalidating the probes) are not written; (4) there is no probe for a Windows host. Switching is one constant
+available (step 12.12 built the matrix script, `tools/clang-matrix.sh`, and ran clang 21 only: §14.4); (3) there is no probe for a Windows host. Switching is one constant
 (`DefaultMode = Auto`) and the words of the documents that say "opaque is the default" (ADR-101 lists them); the test
 suites of `cmd/gocpp` and `tests` set `GOCPP_INTEROP=opaque` in their `TestMain`, so that they keep testing the
 opaque pipeline when the default moves, and `TestCorpusTyped` keeps testing the typed one. (A dry run with `DefaultMode = Auto` failed only the two goldens of `gocpp env`, which show the default.)
@@ -1091,3 +1090,82 @@ and opaque, a program of Go alone; `TestInteropEarlyErrors`: the early error in 
 g++; `TestInteropFallbackWindows`: a build for Windows without clang++ runs on the real PC),
 `tests/interopmodes_test.go` (`TestCorpusTyped`), the goldens of `gocpp env`, the help texts, and the
 feature matrix (`docs/spec/feature-matrix.md`).
+
+## 14. The tests of step 12.12
+
+The step collects the evidence for the exit criteria of Phase 12. Most tests were written with the steps they test; this
+step adds what was missing and measures the three numbers that the exit criteria give.
+
+### 14.1 What shows which criterion
+
+| Criterion | Test |
+|---|---|
+| Phase 04 suite and header zoo in both modes | opaque: `TestInterop`, `TestZoo`, `TestRun`, `TestPkgs`, `TestExamples`; typed: `TestCorpusTyped` (§13.5, the same programs with `GOCPP_INTEROP=typed` and both compilers). The build-and-run half rests on the 12.11 run of `TestCorpusTyped` (294 programs); step 12.12 did not repeat it, it adds the check-only sweep of §14.2 |
+| No typed-mode error on a program that compiles in opaque mode | `TestTypedCheckCorpus` (`tests/typedcheck_test.go`): `gocpp check` of every corpus program that imports a header, opaque (must pass) then typed (must pass), with g++ and clang++; clang++ prints nothing; plus the accepted programs of the checker's zoo (`accept_*`, built by both compilers in `TestTypedCheckZoo`) |
+| At least 30 early errors in gocpp's words | the `reject_*` programs of `internal/typedinterop/icheck/testdata/zoo` with golden files (`TestRejectZoo`; 22 programs, 77 diagnostics), each at a line where the C++ build fails (`TestTypedCheckZoo`), the `err_*` programs of `tests/typed`; `TestEarlyErrorInventory` counts them and `TestEarlyErrorWords` rejects clang's own words in the goldens |
+| `T&` parameters and results, mixed arithmetic | `accept_refs.gp`, `accept_arith.gp` (zoo), `tests/typed/refs_numeric.gp` (with its C++ twin) |
+| E1 (`[cstdio.BUFSIZ]byte`) | `tests/typed/macro_consts.gp` (typed builds and runs, `// opaque: reject`), `TestTypedConsts` (the opaque gate message) |
+| E2 (embedded `std.vector[int]`) | `tests/typed/embed_promoted.gp` (`// opaque: reject`), `TestTypedEmbedInterop`, `TestTypedCheckPromoted` |
+| Float and string macros | `tests/typed/macro_consts.gp` (`TAU`, `TENTH`, `GREETING`, `SEP`, `ESC`), `TestConstZoo`, `TestConstBigIntIsExact` |
+| A header edit invalidates the probes | `TestTypedHeaderEditInvalidatesProbes` (`cmd/gocpp`: edits that keep the size and the modification time, a macro value and a signature; an unedited header and a return to an old one run no compiler), the cache tests of `probe` (`TestCacheHeaderEditInvalidates` and others) |
+| Warm builds add little | `TestTypedWarmRunsNoCompiler` (for a warm check of each example: 0 probe-cache compiler runs and 0 calls that reach clang++, counted by a logging wrapper; no clock), `BenchmarkTypedCheck`, `BenchmarkWarmProbe` |
+| JSON of other clang versions | `TestReaderIgnoresWhatItDoesNotKnow`, `TestReaderOfRecordsIgnoresWhatItDoesNotKnow`, `TestReaderOfATruncatedDump` (§14.4), `tools/clang-matrix.sh` |
+
+### 14.2 The compatibility sweep
+
+`TestTypedCheckCorpus` takes the loaders of the suites (`tests/interop`, `zoo`, `run`, `pkgs` and `examples`), leaves out
+what `TestCorpusTyped` leaves out (error tests of opaque mode, programs without a header import, `typedExceptions`) and
+the tests that expect a failed build (`ExitCode: 1` with a `// Stderr:` pattern that names `x.gp:line:`: they fail to build in
+opaque mode too; programs that run and panic, exit status 2, are checked), and checks the rest in both modes. Measured on 2026-10-20: **287 programs, each with
+g++ and clang++, 0 typed errors, 0 typed messages with clang++**. It runs in about 30 s on the 192-core machine, against minutes
+for `TestCorpusTyped`, so it is the one to run after a change to the checker or the probes.
+
+### 14.3 Speed
+
+`BenchmarkTypedCheck` (`cmd/gocpp`, `go test -run '^$' -bench TypedCheck -benchtime 10x ./cmd/gocpp`) runs `gocpp check .` as a
+process on each example that imports a header; the cache folders are new for each "cold" run and kept for a "warm" one (the
+compiler-detection cache is on, as a user has it). Median of 10 runs on 2026-10-20, the machine at a load of 20 to 30; times in ms:
+
+| Example | opaque cold | typed cold | probing (typed - opaque, cold) | opaque warm | typed warm | warm overhead |
+|---|---|---|---|---|---|---|
+| `cpp-std` | 465 | 2507 | **2040** | 37 | 66 | 28 |
+| `mixed-sources` | 258 | 2069 | **1810** | 53 | 56 | 3 |
+| `multi-pkg` | 68 | 576 | **510** | 43 | 36 | 0 |
+| `raylib` | 72 | 1097 | **1030** | 42 | 65 | 23 |
+| `sqlite` | 72 | 1327 | **1260** | 113 (noise) | 64 | 0 to 25 |
+
+A quiet-machine run of the real `gocpp` binary gave the warm overhead as 22 to 30 ms (`cpp-std` 30, `sqlite` 25, `raylib` 22).
+
+- **Warm overhead < 50 ms: met** (0 to 30 ms).
+- **Cold probing < 0.5 s per example package: not met.** 0.5 s for `multi-pkg`, 1.0 to 2.0 s for the others. A cold check of `cpp-std`
+  runs clang++ about a dozen times (the detection, the kind probe, the probe, four declaration dumps, three `-E` runs for the includes and the search path),
+  about 0.5 s each for the library's headers; the dumps run in parallel but the stages (kinds, probes, declarations) do not.
+  An experiment (`clang++ -x c++-header` of the preamble, then `-include-pch`) shows what a precompiled header would do: building
+  it costs 0.62 s once, and a run on it takes 0.10 s instead of 0.51 s (0.22 s with the JSON dump). That makes the second and later
+  cold packages of a program fast, but the first one only slightly faster (one PCH build plus runs of 0.1 to 0.2 s), so a cold first
+  check stays near 1 s. Under 0.5 s on the first run needs a primed cache (ADR-108, measurement 2) or a changed criterion; this step
+  does not change the product's behavior, and the criterion is reported as not met.
+
+### 14.4 Clang versions
+
+The dev shell has clang 21.1.8 only (clang 20 is in the Nix store as a derivation that is not built, 17 to 19 are not there), so
+the versions 17 to 20 could not be run. `tools/clang-matrix.sh [clang++ ...]` is the matrix: for each program (by default
+`clang++-17` to `clang++-21` that are in PATH) it sets `GOCPP_CLANG` and runs `./internal/typedinterop/...`, the typed tests of
+`cmd/gocpp` and `TestTypedCheckCorpus`. That the version asked for is the one used is tested, not assumed: `tsupport.Clang` (the
+helper of the probe, checker and mapper tests) and `probe.FindClang` (the product) follow the same rule, `TestClangInUse` and
+`TestMatrixClangReachesTheDriver` compare the major version with `GOCPP_EXPECT_CLANG_MAJOR`, and
+`TestProbeTestsUseTheClangOfTheMatrix` runs a probe test through a logging wrapper named in `GOCPP_CLANG` and finds its compile line
+in the log. (An earlier version of the helper looked up `clang++` in PATH whatever `GOCPP_CLANG` said, and several tests cleared the
+variable; both are fixed.) What can be tested with one clang is the tolerance of the reader: the real dumps of clang 21 are changed in
+the ways a version can differ without changing the meaning (unknown fields at every object, fields the reader does not use
+removed, keys reversed or sorted), and the decoded probes, records and enums must stay equal. What this does not show is a
+renamed or restructured node (clang 21 changed how the AST represents qualified type names, for example); only the matrix shows that.
+
+### 14.5 Not covered
+
+- `type Handle geo.handle` (a Go type declared over a C type) is not supported by the lowering at all ("a later step of Phase 04"),
+  and `gocpp check` accepts `var h Handle = "s"` in both modes; the typed errors listed in the 2026-10-14 note of the STATE file
+  for named types over C wait for that feature.
+- Statements that the probes do not mirror are not typed: `p.x = "a"` (a string to an `int` field), a keyed literal with an
+  unknown field, `return` of a C number in a function that returns `string` (the lowering reports the last one in `gocpp build`,
+  the checker does not). They stay the C++ compiler's, as the compatibility rule allows.

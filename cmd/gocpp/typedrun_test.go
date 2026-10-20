@@ -128,13 +128,18 @@ func typedIn(t *testing.T) {
 	inDir(t, files)
 }
 
+// matrixClang is the clang++ that the run asks for with GOCPP_CLANG (tools/clang-matrix.sh runs the
+// tests once for each version), or "" for the clang++ in PATH. The tests that need the plain
+// default put this back instead of clearing the variable.
+var matrixClang = os.Getenv("GOCPP_CLANG")
+
 func typedEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("GOCPP_MODCACHE", "off")
 	t.Setenv("GOCPP_OFFLINE", "1")
 	t.Setenv("GOCPP_PROBE_TIMEOUT", "5m")
 	t.Setenv("GOCPP_NOPROBECACHE", "1")
-	t.Setenv("GOCPP_CLANG", "")
+	t.Setenv("GOCPP_CLANG", matrixClang)
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 }
 

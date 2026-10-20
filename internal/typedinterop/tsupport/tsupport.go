@@ -99,11 +99,21 @@ func CheckSource(t testing.TB, src string, extra map[string]string) (*check.Pack
 	return CheckDir(t, dir, "main.gp")
 }
 
-// Clang returns clang++ for the probes, or skips the test (and fails it when
+// ClangProgram is the clang++ the tests probe with: the program in GOCPP_CLANG when it is set
+// (tools/clang-matrix.sh sets it for each version), else clang++ in PATH. It is the rule of
+// probe.FindClang.
+func ClangProgram() string {
+	if prog := os.Getenv("GOCPP_CLANG"); prog != "" {
+		return prog
+	}
+	return "clang++"
+}
+
+// Clang returns clang++ for the probes (ClangProgram), or skips the test (and fails it when
 // GOCPP_REQUIRE_CXX names clang++).
 func Clang(t testing.TB) build.CXX {
 	t.Helper()
-	cxx, err := build.LookCXX(context.Background(), "clang++")
+	cxx, err := build.LookCXX(context.Background(), ClangProgram())
 	if err == nil && cxx.Family == build.Clang {
 		return cxx
 	}

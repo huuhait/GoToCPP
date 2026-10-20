@@ -85,7 +85,7 @@ func main() { _ = f(0) + len(buf) + len(grid) + half + len(name) }
 	if r := gocppRun("", false, "check", "a.gp"); r.code == 0 || !strings.Contains(r.stderr, opaqueWant) || strings.Contains(r.stderr, "cannot evaluate") {
 		t.Errorf("typed check without clang: exit %d\n%s", r.code, r.stderr)
 	}
-	t.Setenv("GOCPP_CLANG", "")
+	t.Setenv("GOCPP_CLANG", matrixClang)
 
 	// A name that is no constant is an error at its place, in Go's words, from gocpp check as well as build.
 	inDir(t, map[string]string{"k.hpp": hdr, "gocpp.mod": "module m\n", "b.gp": `package main

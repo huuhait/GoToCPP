@@ -349,5 +349,10 @@ The contract is [docs/spec/typed-interop.md](../../../docs/spec/typed-interop.md
   hooks, then one `Analyze` per package whose report feeds both the interop checker (its early errors are in `gocpp check`
   and `build`) and the lowering. The default stays opaque (cold probing 0.9 to 2.4 s, above the 0.5 s of the exit criterion; clang 17 to 20 untested);
   `DefaultMode = Auto` is the switch. Not done: the mode in the language server (12.13), narrowing warnings in `gocpp vet`.
+- **12.12 (tests)**, done: [spec §14](../../../docs/spec/typed-interop.md#14-the-tests-of-step-1212) maps each exit criterion to its tests and has the
+  measurements. New: `TestTypedCheckCorpus` (287 corpus programs, both compilers, no typed error), `TestTypedHeaderEditInvalidatesProbes`,
+  `TestTypedWarmRunsNoCompiler`, `BenchmarkTypedCheck`, the early-error inventory (77 diagnostics in 22 programs), the reader's tolerance
+  tests and `tools/clang-matrix.sh`. Measured: warm overhead 0 to 30 ms (met); cold probing 0.5 to 2.0 s per example (not met); clang 21 only
+  (17 to 20 not available here). Not done: named types over C types (a Phase 04 gate), typed errors for statements the probes do not mirror.
 - Developer tool: `gocpp __typed-probe [-refs] [-decls] [patterns]` prints the references and results as
   JSON.

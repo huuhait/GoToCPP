@@ -64,7 +64,12 @@ func harvest(v any, out map[string]bool) {
 // whose names contain one of the filters.
 func corpus(t *testing.T) []string {
 	t.Helper()
-	clang, err := exec.LookPath("clang++")
+	// GOCPP_CLANG names the clang++ of the version matrix (tools/clang-matrix.sh).
+	prog := os.Getenv("GOCPP_CLANG")
+	if prog == "" {
+		prog = "clang++"
+	}
+	clang, err := exec.LookPath(prog)
 	if err != nil {
 		t.Skip("no clang++")
 	}

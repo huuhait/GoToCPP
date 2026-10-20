@@ -1,6 +1,6 @@
 # Phase 12: Typed C++ Interop via Clang · STATE
 
-**Status:** `[~]` in progress (12.1-12.6 merged; open: 12.7 (probe cache), 12.8-12.13)
+**Status:** `[~]` in progress (12.1-12.12 merged; open: 12.13 and exit criteria: cold probing, clang 17-20, Windows)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-19
 
@@ -23,12 +23,12 @@
 - [x] 12.9 Gap E2: second type-check pass for promoted C++ members
 - [x] 12.10 `gocpp bindgen` (struct-valued macros as `var`)
 - [x] 12.11 `-interop=typed|opaque` + clang-missing fallback + default switch
-- [ ] 12.12 Tests
-  - [ ] Phase 04 suite + header zoo in both modes
-  - [ ] ≥ 30 early-error tests + compatibility tests (`T&` params/results, mixed arithmetic)
-  - [ ] E1 (`[cstdio.BUFSIZ]byte`) and E2 (embedded `std.vector[int]`)
-  - [ ] float and string macros; header edit invalidates probes
-  - [ ] probe speed benchmarks; clang 17–21 JSON compatibility
+- [x] 12.12 Tests (merged 2026-10-20; spec §14 maps each criterion to its test)
+  - [x] Phase 04 suite + header zoo in both modes (check-only sweep of 287 programs with g++ and clang++; build-and-run half is 12.11's `TestCorpusTyped`)
+  - [x] ≥ 30 early-error tests + compatibility tests (77 diagnostics in 22 reject programs; `T&` params/results, mixed arithmetic)
+  - [x] E1 (`[cstdio.BUFSIZ]byte`) and E2 (embedded `std.vector[int]`)
+  - [x] float and string macros; header edit invalidates probes
+  - [~] probe speed benchmarks done; clang 17–21 JSON compatibility: tolerance tests + `tools/clang-matrix.sh` ready, only clang 21 exists in the dev shell (17-20 untested)
 - [ ] 12.13 Language-server integration
   - [ ] header index from `-Xclang -ast-list` + `-E -dM` (on-disk cache)
   - [ ] header-package (`raylib.`) and namespace (`std.`) completion from the index
@@ -39,13 +39,22 @@
 ## Exit criteria
 
 - [ ] Phase 04 suite + header zoo green in typed and opaque modes
-- [ ] E1 and E2 work with stock go/types
-- [ ] ≥ 30 early-error tests; no typed-mode error on programs that compile in opaque mode
-- [ ] Warm overhead < 50 ms; cold probing < 0.5 s per example package
+- [x] E1 and E2 work with stock go/types (12.12)
+- [x] ≥ 30 early-error tests; no typed-mode error on programs that compile in opaque mode (77 diagnostics; 287-program sweep, 0 typed errors)
+- [~] Warm overhead < 50 ms (met: 0-30 ms); cold probing < 0.5 s per example package (NOT met: 0.5-2.0 s typed minus opaque; clang runs ~14 times for cpp-std; see decisions)
 - [ ] `bindgen` output reviewed for raylib, sqlite3, SDL
 - [ ] Editor: `raylib.`/`std.` completion works; C/C++ data < 2 s; no request waits on clang; Phase 11 budgets hold
 
 ## Decisions / notes
+
+- 2026-10-20: 12.12 merged (tests, docs, `tools/clang-matrix.sh`; no product change). Cold typed
+  probing measured: cpp-std 2.0 s, mixed-sources 1.8 s, sqlite 1.3 s, raylib 1.0 s, multi-pkg 0.5 s
+  over opaque; a PCH of the preamble costs 0.62 s once and then a probe run takes 0.10 s instead of
+  0.51 s. Open decision: parallelize/merge the three sequential probe stages, add a PCH, prime the
+  cache, or change the criterion (ADR-108 measurement 2); this blocks flipping `DefaultMode` to auto.
+  Clang 17-20 are untested (dev shell has 21 only); the matrix script and tolerance tests are ready.
+  Old note about named types over C (`type Handle geo.handle`) could not become tests: `gocpp build`
+  refuses them ("not supported yet"), `gocpp check` accepts them silently.
 
 - 2026-10-13: Compatibility rule. Typed mode never rejects what opaque mode + the C++
   compiler accepted; boundary conversions follow C++ implicit rules (narrowing → vet warning).
