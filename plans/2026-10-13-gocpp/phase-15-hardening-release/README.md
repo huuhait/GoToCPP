@@ -403,9 +403,8 @@ random programs: no site changes) and stays as a guard against a change of the o
 builds, 15 runs, two rounds, `-O2`): 70-73 ms against 73-94 ms for dev, no regression, so it was runtime header
 layout noise of the first measurement.
 
-What is left of 15.3 and 15.2: the copy of an interface value or pointer out of a slice element or a range
-variable (`v := vals[i]`, `for _, s := range shapes`) needs the escape analysis of 15.2 (that nothing writes the
-element during the variable's life); natives of the runtime (`sync.Mutex.Lock`) take owning pointers, so a pure
+What was left of 15.3 and 15.2 (the copy of an interface value or pointer out of a slice element or a range
+variable is done by step 15.2, see §3.4); natives of the runtime (`sync.Mutex.Lock`) take owning pointers, so a pure
 native allow-list (math, bits, utf8) would make more callees pure; struct and array parameters are still copies.
 
 ### 3.3 Notes on step 15.15 (the docs site)
@@ -446,6 +445,43 @@ headings, consecutive reference definitions, text after a comment and `<pre>` bl
 `-out` is refused under `docs/` or above it, and the site is swapped in as a whole.
 **Publishing is not done**: there is no workflow or hosting setup that uploads `site/`; `make docs` builds it
 and the manager decides where it goes (the plan's "published as a static site from `docs/`" is open).
+
+### 3.4 Notes on step 15.2 (escape analysis, [ADR-114](../../../docs/adr/114-escape-analysis-keeps-non-escaping-objects-on-the-stack.md))
+
+Built (`internal/lower/escape.go`, `chapure.go`, `elemref.go`, `localclosure.go`, runtime `gp::stack_ptr`, `gp::local_ptr`,
+`gp::borrow_tmp`): address-taken locals, `&T{}` and `new(T)` whose pointers only reach borrowed parameters or are read and written
+through can stay on the C++ stack (a direct `new(T)` argument still allocates); `v := xs[i]` and
+`for _, v := range xs` are `const T&` when the region is pure by class hierarchy analysis and no thread stores
+the elements. This excludes local-array stores too, including nested arrays and string slots. Func literals
+that are only called where they are made are raw by-reference lambdas. Small variables that only they capture
+(also loop variables) can be plain C++ variables. Formerly boxed objects and captures have a 2 KiB object limit
+and share a 16 KiB storage budget, including conservative pointer/alignment overhead. These are not bounds on
+the entire generated frame or arbitrary recursion. `-gp:m`, `-gp:m=2` and `-gp:noescape` give the decisions
+like `go build -gcflags=-m` and the baseline.
+
+Measured (`bench/programs/dispatch/escape.gp`, O2, 5 runs, median ms, a busy shared machine): Go 396 (base run) / 481
+(current run), gocpp before 3234 (g++) and 3557 (clang++), gocpp after 574 and 592: from 8.2x and 9.0x slower than Go to
+1.19x and 1.23x. By kernel (scratch program, g++ O2, 100M, 400M and 100M rounds): stack objects 1.4 s to 0.056 s (Go
+0.05 s), local closures 3.5 s to 0.2 s (Go 0.21 s), interface elements 3.0 s to 1.4 s (Go 1.4 s). The `dispatch` programs
+that do not use these (closures that escape, interface calls on fields) did not change beyond noise.
+
+Tests: `TestEscapeAnalysis`, `TestElemRefs`, `TestElemRefsStrings`, `TestLocalClosures`, and
+`TestLocalClosureStackBudget` cover positive and negative decisions. Earlier mutation rounds exercised the
+analysis and local closures; the review's adversarial programs also killed the `inBox` mutation. The direct
+`new(T)` diagnostic is now pinned at both `-gp:m` levels against the generated allocation. The run tests
+`escape_elem_arrays`, `escape_stack_size`, and `escape_generic` cover array mutation, bounded stack storage,
+and instance-local generic boxing. `tests/run/escape_*.gp` (g++, clang++, `-asan`, output as real Go's),
+`tests/golden/escape.gp`, runtime
+`test_ptr_stack` (also on the real Windows PC). A regression run of the 678 `tests/run` programs whose C++ differs
+between `-gp:noescape` and the default found two order-of-evaluation regressions (a local that a local closure changes
+was no longer copied in place as gc does; `boxRefCaptured` fixed it), then only failures that the base also has.
+
+Not done (honest gaps): the thread analysis of ADR-086 marks nearly every program with `fmt` or an interface call as
+threaded, so element references appear only for element types that are never stored (a CHA-based refinement of
+`threaded` would widen it); loop variables, parameters, receivers and named results are not stack objects (a
+parameter or result captured by a local closure stays boxed); `&x` inside a closure counts as escaping; natives
+(`sync.Mutex`, `bytes.Buffer`) still escape; generic functions are not analysed; `go` and `defer` uses escape; a
+deferred closure is not local; struct and array parameters are still copies.
 
 ## 4. Deliverables
 

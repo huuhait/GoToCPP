@@ -81,7 +81,7 @@ gp::map<gp::string, int64_t> count(const gp::slice<gp::string>& words) {
     gp::map<gp::string, int64_t> m = gp::map_of<gp::string, int64_t>({});
     for (auto gp_it0 = gp::range_slice(words); gp::range_next(gp_it0);) {
 #line 71 "$DIR/maps.gp"
-        gp::string w = gp_it0.gp_v();
+        const gp::string& w = gp_it0.gp_v();
         gp::ref(m, w)++;
     }
     return m;
@@ -336,7 +336,7 @@ void main() {
     int64_t sum = 0;
     for (auto gp_it13 = gp::range_slice(ptrs); gp::range_next(gp_it13);) {
 #line 285 "$DIR/maps.gp"
-        gp::ptr<int64_t> p = gp_it13.gp_v();
+        const gp::ptr<int64_t>& p = gp_it13.gp_v();
         sum = sum + *p;
     }
     gp::fmt::Println(sum);
@@ -354,13 +354,13 @@ void main() {
     gp::map<gp::string, int64_t> fm = gp::map_of<gp::string, int64_t>({});
     gpkg_main::fill(fm, 3);
     gpkg_main::show(fm);
-    gp::ptr<gp::map<gp::string, int64_t>> boxed = gp::new_<gp::map<gp::string, int64_t>>(gp::map_of<gp::string, int64_t>({{"k"_gs, 1}}));
-    gp::ptr<gp::map<gp::string, int64_t>> pb = boxed;
+    gp::map<gp::string, int64_t> boxed = gp::map_of<gp::string, int64_t>({{"k"_gs, 1}});
+    gp::ptr<gp::map<gp::string, int64_t>> pb = gp::stack_ptr(boxed);
     gp::ref(*pb, "k"_gs) += 5;
     gp::set(*pb, "j"_gs, 2);
-    gpkg_main::show(gp::map<gp::string, int64_t>((*boxed)));
+    gpkg_main::show(gp::map<gp::string, int64_t>(boxed));
     *pb = nullptr;
-    gp::fmt::Println((*boxed) == nullptr, gp::len(*pb));
+    gp::fmt::Println(boxed == nullptr, gp::len(*pb));
     gp::ptr<gp::map<int64_t, bool>> pm = gp::new_<gp::map<int64_t, bool>>();
     { auto gp_t11 = *pm == nullptr; gp::fmt::Println(gp_t11, gp::get(*pm, 1)); }
     gnil = gp::map_of<gp::string, int64_t>({});

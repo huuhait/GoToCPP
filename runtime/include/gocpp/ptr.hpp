@@ -659,6 +659,48 @@ ptr<T> static_ptr(T& x) noexcept {
     return ptr<T>(static_owner(), std::addressof(x));
 }
 
+// stack_ptr(x): &x for a variable on the C++ stack that the escape analysis (internal/lower
+// escape.go, ADR-114) proved is never reached by a pointer that outlives it. The pointer owns
+// nothing: copying and dropping it touch no reference count (the control block is empty), and
+// it must not be used where an owner is needed (an aliasing pointer, a weak pointer, an
+// interface), which the analysis never allows. A bug in the analysis would not be a leak but a
+// dangling pointer, so the owner checks of the aliasing constructors still abort on one.
+template <typename T>
+ptr<T> stack_ptr(T& x) noexcept {
+    return ptr<T>(std::shared_ptr<T>(std::shared_ptr<void>(), std::addressof(x)));
+}
+
+// local_ptr<T> is the variable `p := &T{...}` or `p := new(T)` when the object never escapes: a
+// gp::ptr<T> that holds its object in itself, on the stack (gp_obj), so that the object is built
+// with the variable and dies with it. It is made by local_new<T>(args...), which is T's
+// constructor arguments (the literal, or none for the zero value).
+template <typename T>
+class local_ptr : public ptr<T> {
+public:
+    template <typename... Args>
+    explicit local_ptr(Args&&... args) : gp_obj(std::forward<Args>(args)...) {
+        static_cast<ptr<T>&>(*this) = stack_ptr(gp_obj);
+    }
+    local_ptr(const local_ptr&) = delete;
+    // (without this one, the constructor above would take the other pointer as T's argument)
+    local_ptr(local_ptr&&) = delete;
+    local_ptr& operator=(const local_ptr&) = delete;
+
+    T gp_obj;
+};
+
+template <typename T, typename... Args>
+local_ptr<T> local_new(Args&&... args) {
+    return local_ptr<T>(std::forward<Args>(args)...);
+}
+
+// borrow_tmp(T{...}): the address of a temporary that lives to the end of the full-expression:
+// &T{...} passed straight to a borrowed parameter (escape.go).
+template <typename T>
+bptr<std::remove_reference_t<T>> borrow_tmp(T&& tmp) noexcept {
+    return bptr<std::remove_reference_t<T>>(std::addressof(tmp));
+}
+
 // cptr<T> is a gocpp pointer to a C/C++ type T (Phase 04 step 4.10): what &T{...} of a C type,
 // and &s.f and &s[i] of a gocpp struct or slice with C/C++ elements, give. It owns what it
 // points into, like any gp::ptr<T>, and converts to the raw T* that C takes (borrowed). Unlike

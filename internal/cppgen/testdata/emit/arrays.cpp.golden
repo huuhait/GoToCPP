@@ -139,7 +139,7 @@ void main() {
     gpkg_main::show((*a));
     gp::ptr<gp::array<int64_t, 3>> np{};
     gp::fmt::Println(int64_t(3), int64_t(3), int64_t(3), gp::cap(mk()));
-    gp::ptr<gp::array<gp::string, 2>> lp = gp::new_<gp::array<gp::string, 2>>(gp::array<gp::string, 2>{"p"_gs, "q"_gs});
+    gp::local_ptr<gp::array<gp::string, 2>> lp = gp::local_new<gp::array<gp::string, 2>>(gp::array<gp::string, 2>{"p"_gs, "q"_gs});
     (*lp)[0] = "r"_gs;
     gpkg_main::showStrs(*lp);
     (*gp3)[2] = 33;

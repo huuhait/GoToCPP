@@ -1227,6 +1227,54 @@ void test_ptr_borrowed() {
     CHECK_PANIC((void)*gp::field_ptr(nil, &Point::Y), nil_msg);
 }
 
+void test_ptr_stack() {
+    // gp::stack_ptr(x) (ADR-114): a gp::ptr<T> to a variable on the C++ stack that owns nothing.
+    Point x{3, 4};
+    gp::ptr<Point> p = gp::stack_ptr(x);
+    CHECK(p != nullptr);
+    CHECK(p.gp_get() == &x);
+    CHECK_EQ(p.gp_shared().use_count(), 0L); // no control block: no counts
+    gp::ptr<Point> q = p;
+    CHECK_EQ(q.gp_shared().use_count(), 0L);
+    CHECK(q == p);
+    p->X = 8;
+    CHECK_EQ(x.X, INT64_C(8));
+    CHECK_EQ((*q).Y, INT64_C(4));
+    q = nullptr;
+    CHECK(q == nullptr);
+    CHECK_PANIC((void)q->X, nil_msg);
+    // the same pointer lent to a borrowed parameter
+    gp::bptr<Point> b = gp::lend(p);
+    CHECK(b.gp_get() == &x);
+
+    // gp::local_new<T>(...) (ADR-114): the object of `p := &T{...}` that never escapes lives in
+    // the pointer variable: built with it, destroyed with it, exactly once.
+    CHECK_EQ(live, 0);
+    {
+        gp::local_ptr<Tracked> t = gp::local_new<Tracked>(INT64_C(5));
+        CHECK_EQ(live, 1);
+        CHECK_EQ(t->n, INT64_C(5));
+        CHECK(t.gp_get() == &t.gp_obj);
+        CHECK_EQ(t.gp_shared().use_count(), 0L);
+        t->n += 2;
+        gp::ptr<Tracked> copy = t; // a copy of the pointer is not a copy of the object
+        CHECK_EQ(live, 1);
+        CHECK_EQ(copy->n, INT64_C(7));
+        gp::local_ptr<Tracked> zero = gp::local_new<Tracked>();
+        CHECK_EQ(live, 2);
+        CHECK_EQ(zero->n, INT64_C(0));
+    }
+    CHECK_EQ(live, 0);
+    static_assert(!std::is_copy_constructible_v<gp::local_ptr<Tracked>>);
+    static_assert(!std::is_move_constructible_v<gp::local_ptr<Tracked>>);
+
+    // gp::borrow_tmp(T{...}) is a borrowed pointer to a temporary of the full-expression.
+    auto sum = [](gp::bptr<Point> r) { return r->X + r->Y; };
+    CHECK_EQ(sum(gp::borrow_tmp(Point{1, 2})), INT64_C(3));
+    CHECK_EQ(live, 0);
+    CHECK_EQ(sum(gp::borrow_tmp(Point{5, 6})), INT64_C(11));
+}
+
 int64_t adapt_target(gp::bptr<Point> p, const gp::string& s, int64_t k) {
     return p->X + gp::len(s) + k;
 }
@@ -1591,6 +1639,7 @@ void run_tests() {
     test_ptr_ownership();
     test_ptr_static();
     test_ptr_borrowed();
+    test_ptr_stack();
     test_adapt();
     test_ptr_weak();
     test_ptr_chains();

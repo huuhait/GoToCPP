@@ -36,6 +36,11 @@ type Config struct {
 	// Library writes a library (lower.Options.Library): gp_init_all in the last package, no main().
 	Library bool
 
+	// NoEscape and Escape are lower.Options.NoEscape and Escape: the escape analysis off, and its
+	// diagnostics (gocpp -gp:noescape, -gp:m).
+	NoEscape bool
+	Escape   *lower.EscapeLog
+
 	// Why, when it is not nil, collects the reasons for the lowering's decisions (lower.Why):
 	// gocpp emit -annotate. It never changes the C++.
 	Why *lower.Why
@@ -80,7 +85,10 @@ func EmitPackage(w io.Writer, fset *token.FileSet, pkg *check.Package, cfg Confi
 	case pkg.Errors.HasErrors():
 		return fmt.Errorf("cppgen: package %s has errors", pkg.Load.ImportPath)
 	}
-	f, err := lower.Package(fset, pkg, cfg.Interop, lower.Options{AllForwarders: cfg.AllForwarders, Concepts: cfg.Concepts, Why: cfg.Why})
+	f, err := lower.Package(fset, pkg, cfg.Interop, lower.Options{
+		AllForwarders: cfg.AllForwarders, Concepts: cfg.Concepts, Why: cfg.Why,
+		NoEscape: cfg.NoEscape, Escape: cfg.Escape,
+	})
 	if err != nil {
 		var le *lower.Error
 		if errors.As(err, &le) {
@@ -151,7 +159,10 @@ func EmitProgram(fset *token.FileSet, pkgs []ProgramPackage, root string, cfg Co
 		}
 		in[i] = lower.PackageInput{Pkg: p.Pkg, Interop: p.Interop}
 	}
-	prog := lower.NewProgram(fset, in, lower.Options{AllForwarders: cfg.AllForwarders, Concepts: cfg.Concepts, Library: cfg.Library, Why: cfg.Why})
+	prog := lower.NewProgram(fset, in, lower.Options{
+		AllForwarders: cfg.AllForwarders, Concepts: cfg.Concepts, Library: cfg.Library, Why: cfg.Why,
+		NoEscape: cfg.NoEscape, Escape: cfg.Escape,
+	})
 	pfs, err := prog.Lower()
 	if err != nil {
 		var le *lower.Error

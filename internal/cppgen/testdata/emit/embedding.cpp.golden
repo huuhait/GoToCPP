@@ -384,19 +384,19 @@ int64_t Node::Val(gp::bptr<Node> n) {
 }
 
 void main() {
-    gp::ptr<User> u = gp::new_<User>(User{.Name = "ann"_gs});
+    gp::local_ptr<User> u = gp::local_new<User>(User{.Name = "ann"_gs});
     Base::Touch(gp::borrow(&u->Base));
     Mid m{gp::new_<Base>(Base{5}), 1};
     Base::Touch(gp::lend(m.Base));
     { auto gp_t0 = u->Base.Get(); auto gp_t1 = gp::ptr<Base>(m.Base)->Get(); auto gp_t2 = Base::Sum(gp::lend(m.Base), gp::slice_of<int64_t>({1, 2})); auto gp_t3 = u->Base.Get(); auto gp_t4 = u->Base.ID; gp::fmt::Println(gp_t4, gp_t0, m.Base->ID, gp_t1, gp_t2, gp_t3); }
-    gp::ptr<Both> b = gp::new_<Both>();
-    Base::Touch(gp::borrow(&(*b).User.Base));
-    (*b).Mid.Base = gp::new_<Base>(Base{});
-    Base::Touch(gp::lend((*b).Mid.Base));
-    { auto gp_t5 = (*b).Get(); auto gp_t6 = (*b).User.Base.Get(); auto gp_t7 = gp::ptr<Base>((*b).Mid.Base)->Get(); gp::fmt::Println(gp_t5, gp_t6, gp_t7, (*b).Own); }
+    Both b{};
+    Base::Touch(gp::borrow(&b.User.Base));
+    b.Mid.Base = gp::new_<Base>(Base{});
+    Base::Touch(gp::lend(b.Mid.Base));
+    { auto gp_t5 = b.Get(); auto gp_t6 = b.User.Base.Get(); auto gp_t7 = gp::ptr<Base>(b.Mid.Base)->Get(); gp::fmt::Println(gp_t5, gp_t6, gp_t7, b.Own); }
     Temp t{Celsius(100.0), "C"_gs};
     { auto gp_t8 = t.Celsius.F(); gp::fmt::Println(gp_t8, Base2{Base{3}}.Base.Get()); }
-    gp::ptr<Node> n = gp::new_<Node>(Node{gp::new_<Node>(Node{nullptr, 2}), 1});
+    gp::local_ptr<Node> n = gp::local_new<Node>(Node{gp::new_<Node>(Node{nullptr, 2}), 1});
     { auto gp_t9 = Node::Val(gp::lend(n)); gp::fmt::Println(gp_t9, Node::Val(gp::lend(n->Node_))); }
     gp::ptr<gp::array<int64_t, 20000>> wide = gp::new_<gp::array<int64_t, 20000>>();
     (*wide)[0] = 4;

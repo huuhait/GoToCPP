@@ -457,8 +457,8 @@ void main() {
     gpkg_main::pick(q)->Y++;
     gp::fmt::Println(gp::fmt::as(&gp_td_Rect, grect), gp::fmt::as(&gp_td_Point, *gptr), gp::fmt::as(&gp_td_Point, (*q)));
 #line 161 "$DIR/structs.gp"
-    gp::ptr<Point> b = gp::new_<Point>(Point{1, 2});
-    gp::ptr<int64_t> py = gp::ptr<int64_t>(b, &(*b).Y);
+    Point b{1, 2};
+    gp::ptr<int64_t> py = gp::stack_ptr(b.Y);
     *py = 20;
     gp::ptr<int64_t> pg = gp::static_ptr(grect.Max.X);
     *pg = 30;
@@ -469,11 +469,11 @@ void main() {
     *pe = 50;
     gp::ptr<int64_t> pm = gp::field_ptr(mk(), &Outer::X);
     gp::ptr<int64_t> pd = gp::field_ptr(mk()->Mid, &Mid::M);
-    { static_cast<void>(ps[0]); auto gp_t5 = *pm; gp::fmt::Println(gp::fmt::as(&gp_td_Point, (*b)), gp::fmt::as(&gp_td_Rect, grect), gp::fmt::as(&gp_td_Point, (*q)), gp::fmt::as(&gp_td_Point, ps[0]), gp_t5, *pd); }
+    { static_cast<void>(ps[0]); auto gp_t5 = *pm; gp::fmt::Println(gp::fmt::as(&gp_td_Point, b), gp::fmt::as(&gp_td_Rect, grect), gp::fmt::as(&gp_td_Point, (*q)), gp::fmt::as(&gp_td_Point, ps[0]), gp_t5, *pd); }
 #line 176 "$DIR/structs.gp"
     double zero = 0.0;
     gp_anon_b79b937cf52eaff0 nan{zero / zero};
-    gp::fmt::Println((*q) == *pp, (*q) != (*b), Rect{} == Rect{}, nan == nan, nan != nan);
+    gp::fmt::Println((*q) == *pp, (*q) != b, Rect{} == Rect{}, nan == nan, nan != nan);
     gp::fmt::Println(gp_anon_69f7bc70c6068911{0.0} == gp_anon_69f7bc70c6068911{-zero}, Blank{.a = 1, .b = 2.0} == Blank{.a = 1, .b = 2.0});
 #line 182 "$DIR/structs.gp"
     Rect r1{Point{0, 0}, Point{4, 3}};
@@ -488,21 +488,21 @@ void main() {
     l2.R.Min.X = 9;
     gp::fmt::Println(gp::fmt::as(&gp_td_Line, l), l2 == l, gp::fmt::as(&gp_td_Point, l2.R.Min));
 #line 195 "$DIR/structs.gp"
-    gp::ptr<Outer> o = gp::new_<Outer>();
-    (*o).Inner.A = 1;
-    (*o).Inner.b = "x"_gs;
-    (*o).Mid = gp::new_<Mid>(Mid{.M = 2});
-    (*o).Mid->M++;
-    gp::ptr<Outer> po = o;
+    Outer o{};
+    o.Inner.A = 1;
+    o.Inner.b = "x"_gs;
+    o.Mid = gp::new_<Mid>(Mid{.M = 2});
+    o.Mid->M++;
+    gp::ptr<Outer> po = gp::stack_ptr(o);
     po->Inner.A = po->Inner.A + 5;
     po->Inner.A = po->Inner.A * 2;
-    (*o).Mid->Deep = gp::new_<Deep>(Deep{.D = 7});
-    { auto gp_t7 = mk(); auto gp_t8 = mk(); auto gp_t9 = (*o).Mid->M; auto gp_t10 = po->Mid->Deep->D; auto gp_t11 = gp_t7->Mid->Deep->D; gp::fmt::Println((*o).Inner.A, (*o).Inner.b, gp_t9, gp::fmt::as(&gp_td_Inner, (*o).Inner), (*o).X, gp_t10, gp_t11, gp_t8->X); }
-    gp::ptr<int64_t> pa = gp::ptr<int64_t>(o, &(*o).Inner.A);
+    o.Mid->Deep = gp::new_<Deep>(Deep{.D = 7});
+    { auto gp_t7 = mk(); auto gp_t8 = mk(); auto gp_t9 = o.Mid->M; auto gp_t10 = po->Mid->Deep->D; auto gp_t11 = gp_t7->Mid->Deep->D; gp::fmt::Println(o.Inner.A, o.Inner.b, gp_t9, gp::fmt::as(&gp_td_Inner, o.Inner), o.X, gp_t10, gp_t11, gp_t8->X); }
+    gp::ptr<int64_t> pa = gp::stack_ptr(o.Inner.A);
     *pa = 100;
-    gp::ptr<int64_t> pdd = gp::field_ptr((*o).Mid->Deep, &Deep::D);
+    gp::ptr<int64_t> pdd = gp::field_ptr(o.Mid->Deep, &Deep::D);
     *pdd = 70;
-    { auto gp_t12 = (*o).Mid->Deep->D; gp::fmt::Println((*o).Inner.A, gp_t12, *pdd); }
+    { auto gp_t12 = o.Mid->Deep->D; gp::fmt::Println(o.Inner.A, gp_t12, *pdd); }
 #line 212 "$DIR/structs.gp"
     gp::ptr<Node> list{};
     for (int64_t gp_i0 = 0; gp_i0 < 4; gp_i0++) {
@@ -572,11 +572,11 @@ void main() {
     gp::ptr<Big> bp2 = gp::new_init<Big>([&](Big& gp_b) { gp_b.data[5] = 1; gp_b.n = x; });
     { auto gp_t20 = gpkg_main::sum((*big)); auto gp_t21 = gpkg_main::sum(*bp); auto gp_t22 = gpkg_main::sum((*big2)); gp::fmt::Println(gp_t20, gp_t21, gp_t22, gpkg_main::sum(*bp2)); }
 #line 282 "$DIR/structs.gp"
-    gp::ptr<gp::array<Point, 2>> arr = gp::new_<gp::array<Point, 2>>(gp::array<Point, 2>{Point{1, 2}, Point{3, 4}});
-    (*arr)[1].Y++;
-    gp::ptr<int64_t> pa0 = gp::ptr<int64_t>(arr, &(*arr)[0].X);
+    gp::array<Point, 2> arr{Point{1, 2}, Point{3, 4}};
+    arr[1].Y++;
+    gp::ptr<int64_t> pa0 = gp::stack_ptr(arr[0].X);
     *pa0 = 9;
-    gp::fmt::Println(gp::fmt::as(&gp_td_Point, (*arr)[0]), gp::fmt::as(&gp_td_Point, (*arr)[1]));
+    gp::fmt::Println(gp::fmt::as(&gp_td_Point, arr[0]), gp::fmt::as(&gp_td_Point, arr[1]));
 }
 
 void gp_var_init() {

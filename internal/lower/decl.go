@@ -40,6 +40,7 @@ type funcInfo struct {
 
 	boxed map[*types.Var]boxReason // the variables that live in a box (box.go)
 	args  []*types.Var             // the boxed parameters, in order
+	esc   *escapeInfo              // what the escape analysis kept on the stack (escape.go), or nil
 
 	defers *deferInfo // the single-exit shape of a function with defers (defer.go), or nil
 
@@ -56,6 +57,10 @@ func (f *funcInfo) prepare(g *gen) {
 	f.sig, f.body, f.pos, f.top = f.obj.Signature(), f.decl.Body, f.decl.Pos(), f.decl
 	f.ftype = f.decl.Type
 	f.boxed = maps.Clone(g.boxedOf(f.decl)) // (prepare adds to it)
+	f.esc = g.escapeOf(f.decl)
+	for v := range f.esc.stack {
+		f.boxed[v] = boxStack // (escape.go: the variable stays on the stack)
+	}
 	f.names = g.newFuncNames()
 	// A new name must not hide anything that the function refers to (funcNames).
 	ast.Inspect(f.decl, func(n ast.Node) bool {
@@ -165,6 +170,7 @@ func (g *gen) funcBuild(f *funcInfo) *cppir.Func {
 	g.markCounts(body)
 	g.noteBoxed(f.boxed)                             // why.go
 	g.noteBorrow(f)                                  // whynotes.go
+	g.noteEscape(f)                                  // escape.go
 	g.numberLits(f.decl, make(map[*ast.FuncLit]int)) // closures.go
 	fg := newFuncGen(g, f.names, f)
 	fn := &cppir.Func{Pos: g.pos(f.pos), Result: f.result, Name: f.name, Params: f.params, Quals: f.quals(), Body: &cppir.Block{}}
@@ -474,6 +480,21 @@ func newBox(typ cppir.Type, value cppir.Expr) cppir.Expr {
 		return &cppir.Call{Fun: fun}
 	}
 	return &cppir.Call{Fun: fun, Args: []cppir.Expr{value}}
+}
+
+// localNew returns gp::local_new<typ>(value): a gp::local_ptr<typ> that holds a new typ made from
+// value (or the zero value if value is nil) in the variable itself, on the stack (escape.go).
+func localNew(typ cppir.Type, value cppir.Expr) cppir.Expr {
+	fun := &cppir.Name{Name: "gp::local_new", Args: []cppir.Node{typ}}
+	if value == nil {
+		return &cppir.Call{Fun: fun}
+	}
+	return &cppir.Call{Fun: fun, Args: []cppir.Expr{value}}
+}
+
+// localPtrType returns gp::local_ptr<typ>, the type of a pointer variable that holds its object.
+func localPtrType(typ cppir.Type) cppir.Type {
+	return &cppir.TypeName{Name: "gp::local_ptr", Args: []cppir.Node{typ}}
 }
 
 // isClass reports whether the C++ type of t is a class type (gp::string, gp::ptr), which a

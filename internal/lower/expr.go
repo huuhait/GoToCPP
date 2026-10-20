@@ -179,9 +179,43 @@ func newFuncGen(g *gen, names *funcNames, fn *funcInfo) *funcGen {
 	return fg
 }
 
-// isBoxed reports whether v is a variable of the function that lives in a box (box.go).
+// isBoxed reports whether v is a variable of the function that other code can change through a
+// pointer: it lives in a box (box.go), or stays on the stack with pointers to it that only callees
+// that borrow them use (boxStack, escape.go). Its value is not stable across a call.
 func (fg *funcGen) isBoxed(v *types.Var) bool {
 	return fg.boxed[v] != 0
+}
+
+// inBox reports whether v lives in a heap box: the C++ variable is the gp::ptr<T> to it, and each
+// use of v is (*v). A variable that stays on the stack (boxStack) is an ordinary C++ variable
+// that isBoxed still counts as shared.
+func (fg *funcGen) inBox(v *types.Var) bool {
+	r := fg.boxed[v]
+	return r != 0 && r != boxStack && r != boxRefCaptured
+}
+
+// onStack reports whether v is a variable whose address is taken but that stays on the C++ stack.
+func (fg *funcGen) onStack(v *types.Var) bool {
+	return fg.boxed[v] == boxStack
+}
+
+// escInfo returns what the escape analysis decided for the function being lowered (never nil).
+func (fg *funcGen) escInfo() *escapeInfo {
+	if fg.fn != nil && fg.fn.esc != nil {
+		return fg.fn.esc
+	}
+	return noEscape
+}
+
+// noEscape is the escape information of code that has none (gp_var_init).
+var noEscape = &escapeInfo{}
+
+// escOf returns the escape information of the function, or nil for none.
+func (f *funcInfo) escOf() *escapeInfo {
+	if f == nil {
+		return nil
+	}
+	return f.esc
 }
 
 // deref returns *x, the variable that the pointer x points to.
@@ -332,7 +366,7 @@ func (fg *funcGen) ident(id *ast.Ident) cppir.Expr {
 		if name, ok := fg.heldPtrs[obj]; ok {
 			return cxxName(name) // a deferred call's own copy of the pointer
 		}
-		if fg.isBoxed(obj) {
+		if fg.inBox(obj) {
 			// The variable is in its box: (*x).
 			return &cppir.Paren{X: deref(cxxName(fg.cname(obj, id.Pos())))}
 		}

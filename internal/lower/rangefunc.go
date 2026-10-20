@@ -277,7 +277,10 @@ func (fg *funcGen) rangeFunc(s *ast.RangeStmt) {
 // function; loop is on the nest's stack.
 func (fg *funcGen) rfBody(s *ast.RangeStmt, loop *rfLoop, ysig *types.Signature, depth int) *cppir.Lambda {
 	g, rf := fg.g, fg.rf
-	f := &funcInfo{sig: ysig, body: s.Body, pos: s.For, top: fg.top, names: fg.names, boxed: fg.boxed}
+	f := &funcInfo{
+		sig: ysig, body: s.Body, pos: s.For, top: fg.top, names: fg.names, boxed: fg.boxed,
+		esc: fg.fn.escOf(),
+	}
 	lam := &cppir.Lambda{
 		Template: []cppir.Param{{Type: typeName("int"), Default: lit("0")}},
 		Specs:    []string{"mutable"},

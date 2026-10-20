@@ -35,6 +35,7 @@ type Program struct {
 	byLoc map[string]*gen         // by import path
 	main  *gen                    // the main package
 	thr   *threadInfo             // the whole-program thread facts (threads.go), computed on first use
+	cha   *chaIndex               // the methods of the named types (chapure.go), on first use
 
 	// The unnamed struct and interface types, one C++ type each in the whole program (shared.go).
 	anonStructs map[string]*structInfo

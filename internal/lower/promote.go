@@ -71,6 +71,13 @@ type Options struct {
 	// package defines main(). The library's own glue starts the program (gocpp/lib.hpp).
 	Library bool
 
+	// NoEscape turns the escape analysis off (escape.go): every variable whose address is taken is
+	// boxed and every &T{...} and new(T) allocates, as before step 15.2 (`gocpp -gp:noescape`).
+	NoEscape bool
+	// Escape, when it is not nil, collects the decisions of the escape analysis for `gocpp -gp:m`
+	// (escape.go). It never changes the C++.
+	Escape *EscapeLog
+
 	// Why, when it is not nil, collects the reasons for the lowering's decisions (why.go): the
 	// annotated view of gocpp emit -annotate. It never changes the C++.
 	Why *Why

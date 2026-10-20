@@ -161,7 +161,7 @@ func inPlaceLocals(info *tinfo, top ast.Node, boxed map[*types.Var]boxReason) (i
 	}
 	in = make(map[*types.Var]bool)
 	for v, r := range boxed {
-		if r != boxCaptured || params[v] || !canSSA(v.Type()) {
+		if r != boxCaptured && r != boxRefCaptured || params[v] || !canSSA(v.Type()) {
 			continue
 		}
 		ok := true

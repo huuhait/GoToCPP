@@ -327,7 +327,7 @@ func (fg *funcGen) lendArg(a ast.Expr, def cppir.Expr, safe bool, pt types.Type)
 			return def, lendTemp // a new object: the temporary lives to the end of the call
 		}
 		if id, ok := x.(*ast.Ident); ok {
-			if v, ok := fg.g.info.Uses[id].(*types.Var); ok && !isPkgVar(v) && fg.isBoxed(v) {
+			if v, ok := fg.g.info.Uses[id].(*types.Var); ok && !isPkgVar(v) && fg.inBox(v) {
 				return lendCall(def), lendBox // &x of a boxed variable is its box, which the frame holds
 			}
 		}
@@ -392,7 +392,7 @@ func (fg *funcGen) lendRecv(x *ast.SelectorExpr, r recvPath, def cppir.Expr, saf
 	}
 	// The address of the value at the end of the path.
 	if id, ok := ast.Unparen(x.X).(*ast.Ident); ok && len(r.path) == 0 {
-		if v, ok := fg.g.info.Uses[id].(*types.Var); ok && !isPkgVar(v) && fg.isBoxed(v) {
+		if v, ok := fg.g.info.Uses[id].(*types.Var); ok && !isPkgVar(v) && fg.inBox(v) {
 			return lendCall(def), lendBox // the box of the variable, which the frame holds
 		}
 	}

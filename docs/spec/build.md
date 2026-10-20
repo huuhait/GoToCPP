@@ -132,6 +132,8 @@ and `-o` are for `build` only; `-compdb` is also a flag of `run`, `test` and `de
 | `-tags a,b` | more build tags (comma list; the last `-tags` is the list), for `//go:build` lines and the file names of `.gp`, `.c` and `.cc/.cpp/.cxx` files; also in `check`, `emit` and `list` |
 | `-debug` / `-release` / `-race` | `-O0 -g` (what a build is by default) / `-O2 -flto` / ThreadSanitizer, on linux with Go's race report, exit code 66 and `GORACE` ([the race detector](../guides/race.md)); on darwin ThreadSanitizer's own text. `-debug` with `-release`, `-race` with `-release` or `-asan`, and `-race` for windows are errors |
 | `-asan`, `-nochecks`, `-cpperrors` | as before |
+| `-gp:m`, `-gp:m=2` | print the decisions of the escape analysis in the form of `go build -gcflags=-m` (`moved to heap: x`, `&T{} escapes to heap`, `&x does not escape`, `leaking param: p`, `v borrows xs[i]`); `=2` says why. Only the program's own packages, not the standard library. On `build`, `run` and `emit` ([ADR-114](../adr/114-escape-analysis-keeps-non-escaping-objects-on-the-stack.md)) |
+| `-gp:noescape` | turn the escape analysis off: every variable whose address is taken is boxed and every `&T{...}` and `new(T)` allocates (to find out whether a bug is the analysis's) |
 | `-cflags`, `-cxxflags`, `-ldflags` | the user's flags: see below |
 | `-emit-llvm[=ll\|bc]`, `-compdb[=path]` | files for other tools: see below |
 

@@ -875,11 +875,11 @@ gp::string Deep::Error(gp::bptr<Deep> d) {
 void main() {
 #line 187 "$DIR/methods.gp"
     gp::defer_frame gp_df; try {
-        gp::ptr<List> l = gp::new_<List>();
-        List::Push(gp::lend(l), 1);
-        List::Push(gp::lend(l), 2);
-        List::Push(gp::lend(l), 3);
-        { auto gp_t0 = (*l).Len(); gp::fmt::Println(gp_t0, Elem::Sum(gp::lend((*l).head))); }
+        List l{};
+        List::Push(gp::borrow(&l), 1);
+        List::Push(gp::borrow(&l), 2);
+        List::Push(gp::borrow(&l), 3);
+        { auto gp_t0 = l.Len(); gp::fmt::Println(gp_t0, Elem::Sum(gp::lend(l.head))); }
 #line 194 "$DIR/methods.gp"
         gp::ptr<Point> p = gp::new_<Point>(Point{1, 2});
         Point q = (*p).Add(Point{10, 20});
@@ -899,9 +899,9 @@ void main() {
         gp::map<gp::string, Point> m = gp::map_of<gp::string, Point>({{"a"_gs, Point{5, 6}}});
         gp::fmt::Println(gp::fmt::as(&gp_td_Point, gp::get(m, "a"_gs).Add(Point{1, 1})));
 #line 212 "$DIR/methods.gp"
-        gp::ptr<IDs> ids = gp::new_<IDs>(IDs(gp::slice_of<int64_t>({1, 2})));
-        IDs::Add(gp::lend(ids), 3);
-        { auto gp_t4 = (*ids).Sum(); auto gp_t5 = (*ids).slice(); gp::fmt::Println(gp_t4, gp_t5, gp::len((*ids))); }
+        IDs ids = IDs(gp::slice_of<int64_t>({1, 2}));
+        IDs::Add(gp::borrow(&ids), 3);
+        { auto gp_t4 = ids.Sum(); auto gp_t5 = ids.slice(); gp::fmt::Println(gp_t4, gp_t5, gp::len(ids)); }
 #line 216 "$DIR/methods.gp"
         Celsius c = Celsius(21.5);
         { auto gp_t6 = c.Fahrenheit(); gp::fmt::Println(gp::fmt::as(&gp_td_Celsius, c), gp::fmt::as(&gp_td_Celsius, gp_t6), c.String()); }
@@ -930,10 +930,10 @@ void main() {
         { auto gp_t20 = h(); T::PM(gp::lend(gp_t20), f()); }
         { auto gp_t21 = f(); gs[0].M(gp_t21); }
         { auto gp_t22 = f(); T::PM(gp::ptr<T>(gs.gp_owner(), &gs[1]), gp_t22); }
-        gp::ptr<T> x = gp::new_<T>(T{5});
-        { auto gp_t23 = T::PM(gp::lend(x), 1); (*x).M(gp_t23); }
-        gp::ptr<T> px = x;
-        { auto gp_t24 = T::PM(gp::lend(px), 2); auto gp_t25 = T::PM(gp::lend(x), 3); px->M(gp_t24 + gp_t25); }
+        T x{5};
+        { auto gp_t23 = T::PM(gp::borrow(&x), 1); x.M(gp_t23); }
+        gp::ptr<T> px = gp::stack_ptr(x);
+        { auto gp_t24 = T::PM(gp::lend(px), 2); auto gp_t25 = T::PM(gp::borrow(&x), 3); px->M(gp_t24 + gp_t25); }
 #line 246 "$DIR/methods.gp"
         gp::ptr<Outer> o = gp::new_<Outer>(Outer{Inner{1}, gp::new_<Mid>(Mid{gp::new_<Deep>(Deep{2}), 3}), 4});
         { auto gp_t26 = (*o).Inner.Get(); auto gp_t27 = gp::ptr<Deep>((*o).Mid->Deep)->Val(); auto gp_t28 = Deep::Bump(gp::lend((*o).Mid->Deep)); gp::fmt::Println(gp_t26, gp_t27, gp_t28, Deep::Bump(gp::lend((*o).Mid->Deep))); }

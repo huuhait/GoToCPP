@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"sort"
 
 	"github.com/huuhait/gocpp/internal/check"
 )
@@ -63,6 +64,19 @@ const (
 	boxShared                        // a closure captures it, and it is larger than 128 bytes
 	boxCObject                       // a closure captures a C/C++ object (cbox.go)
 	boxDefer                         // a deferred call uses a C/C++ object, or its address is taken in a function with defers (cbox.go)
+
+	// boxStack is not a box: the variable stays on the C++ stack because the escape analysis
+	// (escape.go) proved that none of the pointers to it outlives it. It keeps its entry in the
+	// map of boxed variables because a call can still change it through such a pointer, so every
+	// rule that treats a boxed variable as "memory" (order, stability of lent arguments)
+	// applies; funcGen.inBox tells it apart where the representation matters.
+	boxStack
+
+	// boxRefCaptured is boxStack for a variable that only local closures capture and change
+	// (localclosure.go): no address is taken, the closures capture it by reference. It is
+	// shared memory for the order of evaluation, and gc's in-place copy (inplace.go) treats it
+	// like the boxCaptured variable it replaces.
+	boxRefCaptured
 )
 
 // maxStackVarSize is the size in bytes above which a local variable is boxed (boxLarge): Go
@@ -94,6 +108,10 @@ func (r boxReason) String() string {
 		return "captured C/C++ object"
 	case boxDefer:
 		return "deferred call on a C/C++ object"
+	case boxStack:
+		return "address does not escape"
+	case boxRefCaptured:
+		return "captured by reference by local closures"
 	}
 	return "not boxed"
 }
@@ -103,9 +121,28 @@ func (r boxReason) String() string {
 // and over the initializer of each package variable, where only a function literal can declare
 // variables (decl.go: prepareVarInits).
 func boxedVars(info *tinfo, fn ast.Node) map[*types.Var]boxReason {
+	return boxedVarsFull(info, fn, false).first
+}
+
+// A boxResult is the result of the boxing analysis: the first reason for each boxed variable (what
+// the lowering uses), every reason that applies to it (the escape analysis unboxes a variable
+// whose reasons are all about its address), and the variables that closures capture.
+type boxResult struct {
+	first    map[*types.Var]boxReason
+	all      map[*types.Var]uint32 // a bit 1<<reason for each reason that applies
+	captured map[*types.Var]bool
+	// local are the func literals that cannot outlive their statement (localclosure.go): they
+	// capture by reference, and the variables that only they capture are not boxed.
+	local localClosures
+	// stackBytes reserves the storage of formerly boxed captures for the escape analysis.
+	stackBytes int64
+}
+
+func boxedVarsFull(info *tinfo, fn ast.Node, withLocal bool) *boxResult {
 	b := &boxer{
 		info:     info,
 		boxed:    make(map[*types.Var]boxReason),
+		all:      make(map[*types.Var]uint32),
 		captured: make(map[*types.Var]bool),
 		changed:  make(map[*types.Var]bool),
 		declared: make(map[*types.Var]bool),
@@ -118,6 +155,20 @@ func boxedVars(info *tinfo, fn ast.Node) map[*types.Var]boxReason {
 	var regions []boxRegion
 	var stack []ast.Node
 	var refLits map[*ast.FuncLit]bool // the literals that capture by reference (closures.go: refArgs)
+	// The local closures (localclosure.go) capture by reference too, but only the variables that
+	// a statement of a block or the header of a loop declares: a parameter and a result keep
+	// their boxing (the box at the function's entry). A loop variable is one variable per
+	// iteration in Go, but a closure that is local runs within its iteration, so one C++ variable
+	// does.
+	var local localClosures
+	var levels map[*types.Var]bool
+	refCaptured := make(map[*types.Var]bool) // the variables that only local closures capture
+	if d, ok := fn.(*ast.FuncDecl); ok && withLocal {
+		local = findLocalClosures(info, d)
+		if local != nil {
+			levels = blockLevelVars(info, d.Body)
+		}
+	}
 	ast.Inspect(fn, func(n ast.Node) bool {
 		if n == nil {
 			switch top := stack[len(stack)-1].(type) {
@@ -163,6 +214,11 @@ func boxedVars(info *tinfo, fn ast.Node) map[*types.Var]boxReason {
 			if v := b.localVar(n); v != nil && b.info.Uses[n] != nil {
 				for _, r := range regions {
 					if r.lit != nil && refLits[r.lit] {
+						continue
+					}
+					_, isLocal := local[r.lit]
+					if r.lit != nil && isLocal && levels[v] && !cObject(v.Type()) {
+						refCaptured[v] = true // (captured by reference: nothing shares it)
 						continue
 					}
 					if r.active(n.Pos()) && !r.contains(v.Pos()) {
@@ -241,6 +297,29 @@ func boxedVars(info *tinfo, fn ast.Node) map[*types.Var]boxReason {
 	for v := range addrHeld(info, fn) {
 		b.mark(v, boxDefer) // its frame holds the box (cbox.go)
 	}
+	// A local closure must not move a large formerly boxed capture onto a fixed-size C++ stack.
+	// Reserve its storage before address-taken locals, in source order so the result is stable.
+	var captures []*types.Var
+	for v := range refCaptured {
+		if !b.captured[v] && b.boxed[v] == 0 {
+			captures = append(captures, v)
+		}
+	}
+	sort.Slice(captures, func(i, j int) bool { return captures[i].Pos() < captures[j].Pos() })
+	stackBytes := int64(0)
+	for _, v := range captures {
+		size := check.Sizes().Sizeof(v.Type())
+		if !b.changed[v] && size >= 0 && size <= maxCaptureCopy {
+			continue // this value already lived on the stack before local-closure analysis
+		}
+		cost := stackObjectCost(v.Type())
+		if size < 0 || size > maxStackObjectSize || stackBytes+cost > maxStackObjectsSum {
+			b.captured[v] = true // the local closure captures its box instead
+			continue
+		}
+		stackBytes += cost
+	}
+
 	for v := range b.captured {
 		switch {
 		case b.changed[v]:
@@ -256,7 +335,17 @@ func boxedVars(info *tinfo, fn ast.Node) map[*types.Var]boxReason {
 			b.mark(v, boxLarge)
 		}
 	}
-	return b.boxed
+	for v := range refCaptured {
+		// A variable that a local closure changes is still memory that a call can change, so it
+		// is boxRefCaptured for the order of evaluation, not a box. (A variable that anything else
+		// captures, or that is boxed for another reason, is boxed for that reason.)
+		if b.changed[v] && !b.captured[v] && b.boxed[v] == 0 {
+			b.mark(v, boxRefCaptured)
+		}
+	}
+	return &boxResult{
+		first: b.boxed, all: b.all, captured: b.captured, local: local, stackBytes: stackBytes,
+	}
 }
 
 // cAddr reports whether e is &x of a variable x of a C/C++ type, or of an element or a field of
@@ -311,15 +400,22 @@ func (b *boxer) fields(l *ast.FieldList) {
 type boxer struct {
 	info     *tinfo
 	boxed    map[*types.Var]boxReason
-	captured map[*types.Var]bool // used inside a function literal that it is declared outside of
-	changed  map[*types.Var]bool // assigned, or a part of it is written, after its declaration
-	declared map[*types.Var]bool // the variables that the function declares
-	param    map[*types.Var]bool // the parameters, receivers and results among them
+	all      map[*types.Var]uint32 // every reason that applies, as bits (boxResult)
+	captured map[*types.Var]bool   // used inside a function literal that it is declared outside of
+	changed  map[*types.Var]bool   // assigned, or a part of it is written, after its declaration
+	declared map[*types.Var]bool   // the variables that the function declares
+	param    map[*types.Var]bool   // the parameters, receivers and results among them
 }
 
 // mark boxes v (if it is not nil) for the reason r, unless it is boxed for a reason already.
 func (b *boxer) mark(v *types.Var, r boxReason) {
-	if v != nil && b.boxed[v] == 0 {
+	if v == nil {
+		return
+	}
+	if b.all != nil {
+		b.all[v] |= 1 << r
+	}
+	if b.boxed[v] == 0 {
 		b.boxed[v] = r
 	}
 }

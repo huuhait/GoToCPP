@@ -1137,7 +1137,9 @@ gp::ptr<Counter> NewCounter() {
   it anywhere, or captures it and it is larger than 128 bytes (Go shares those with closures
   too). A local variable larger than 128 KB (Go's limit for stack variables) is boxed
   too, so it can't overflow the C++ stack. Uses of a boxed `x` become `(*x)`, and `&x` is the
-  box. This is a simple, safe version of Go's escape analysis; Phase 15 adds the real one.
+  box. The boxing is the conservative first step; the escape analysis (Phase 15 step 15.2,
+  [ADR-114](../adr/114-escape-analysis-keeps-non-escaping-objects-on-the-stack.md), below) takes the
+  variables back to the stack whose address cannot outlive them.
   - A boxed parameter keeps its name: the C++ parameter is copied into its box at the
     function's entry, and the box is a variable of the same name in a block around the body,
     the shape of a shadowing declaration:
@@ -1168,6 +1170,26 @@ gp::ptr<Counter> NewCounter() {
   | `&f()[i]` (not a variable) | the result's block | `gp::elem_ptr(f(), i)` |
   | `&globalVar`, `&globalVar.f`, `&garr[i]` | a static owner that is never freed | `gp::static_ptr(globalVar)`, `gp::static_ptr(globalVar.f)`, `gp::static_ptr(garr[i])` |
 
+- **Escape analysis** ([ADR-114](../adr/114-escape-analysis-keeps-non-escaping-objects-on-the-stack.md)).
+  A local variable whose address is taken, `&T{...}` and `new(T)` are kept on the C++ stack when every
+  pointer to the object is used only as a borrowed parameter or receiver of a callee
+  ([ADR-086](../adr/086-borrowed-pointer-parameters-and-receivers.md)), is compared, or is read and
+  written through, and a pointer variable that holds the address (`p := &x`, `p := &T{...}`) is
+  never assigned, copied, stored, returned, sent, captured, converted to an interface, passed to
+  an owning parameter or to unknown code (C/C++, `unsafe.Pointer`, an interface method or a func
+  value), or used by `go` or `defer`. `gocpp build -gp:m` prints the decisions like
+  `go build -gcflags=-m`.
+
+  | Go | C++ |
+  |---|---|
+  | `var c T; c.Inc(); bump(&c)` | `T c{}; T::Inc(gp::borrow(&c)); bump(gp::borrow(&c));` |
+  | `p := &c` | `gp::ptr<T> p = gp::stack_ptr(c);` (a `gp::ptr` that owns nothing: copies cost no count) |
+  | `p := &T{...}`, `p := new(T)` | `gp::local_ptr<T> p = gp::local_new<T>(T{...});` (the object is a member of the pointer variable) |
+  | `bump(&T{...})` | `bump(gp::borrow_tmp(T{...}))` (a temporary of the call) |
+
+  A variable that stays on the stack is still "memory that a call can change" for the order of
+  evaluation (it keeps its entry in the map of boxed variables, with the reason `boxStack`).
+  `-gp:noescape` turns the analysis off.
 - Dereferencing a nil `gp::ptr` (`*p`, `p->f`, also `&p->f`) panics with Go's message:
   `runtime error: invalid memory address or nil pointer dereference`. Unrecovered, it also
   prints Go's signal line (`[signal SIGSEGV: ...]`).
@@ -1228,6 +1250,16 @@ gp::func<int64_t()> counter(int64_t step) {
   that never changes: Go shares those too, so many closures of a big array share one array), and the lambda captures the box, so the closure and
   the function see the same variable, as in Go. The lambda is `mutable`, so the copies are not
   `const`. Nested closures, parameters and named results are captured the same way.
+- A **local closure** ([ADR-114](../adr/114-escape-analysis-keeps-non-escaping-objects-on-the-stack.md))
+  is a literal that is only called where it is made: `func() { ... }()` or `f := func() { ... }`
+  with every use of `f` a call that runs at once (not `go`, `defer`, another literal or the body
+  of a range over a func), and no `recover`. It is a raw lambda that captures by reference
+  (`auto f = [&n]<int = 1>(int64_t d) mutable { n += d; };`, no `gp::func`, no allocation), and a
+  variable that only local closures capture need not be boxed. Formerly boxed captures are subject
+  to the same 2 KiB object limit and shared 16 KiB storage budget as address-taken locals; larger
+  captures, parameters and results keep their boxes. A variable that anything else captures is
+  boxed as above, and the local lambda captures its box. `-gp:m` prints
+  `func literal does not escape` or `func literal escapes to heap`.
 - The body of a func literal is lowered like a function's (its parameters, named results, its
   own `defer` frame, break and continue), and written over several lines, each statement at its
   `.gp` line, so gdb stops and steps in a closure. A literal on one `.gp` line stays on one C++

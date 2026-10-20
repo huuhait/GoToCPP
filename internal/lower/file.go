@@ -197,9 +197,15 @@ type gen struct {
 
 	// borrow is the result of the borrowed-parameter analysis (borrow.go), by function.
 	borrow   map[*types.Func]*borrowSum
-	borrowC  map[types.Type]bool                        // cached foreign-type boundary
-	boxCache map[*ast.FuncDecl]map[*types.Var]boxReason // boxedOf
-	thr      *threadInfo                                // the thread facts of a package lowered alone (threads.go)
+	borrowC  map[types.Type]bool           // cached foreign-type boundary
+	boxCache map[*ast.FuncDecl]*boxResult  // boxedOf, boxInfoOf
+	escCache map[*ast.FuncDecl]*escapeInfo // escapeOf (escape.go)
+	// localLits are the func literals of the functions boxInfoOf has analysed that cannot outlive
+	// their statement (localclosure.go), each with the variable that holds it, or nil.
+	localLits    map[*ast.FuncLit]*types.Var
+	localHolders map[*types.Var]bool // the variables among them that hold one
+	thr          *threadInfo         // the thread facts of a package lowered alone (threads.go)
+	cha          *chaIndex           // the methods of a package lowered alone (chapure.go)
 
 	// inTemplate counts the C++ template arguments being lowered (ctypes.go: templateArg),
 	// in which the package's types are fully qualified.

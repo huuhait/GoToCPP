@@ -240,7 +240,7 @@ int64_t Sum(const gp::slice<::gpkg_example_dcom__three__base::Shape>& ss) {
     int64_t t = 0;
     for (auto gp_it0 = gp::range_slice(ss); gp::range_next(gp_it0);) {
 #line 18 "$DIR/mid/mid.gp"
-        ::gpkg_example_dcom__three__base::Shape s = gp_it0.gp_v();
+        const ::gpkg_example_dcom__three__base::Shape& s = gp_it0.gp_v();
         t = t + s.Area();
     }
     return t;

@@ -270,7 +270,7 @@ func (fg *funcGen) typeSwitchStmt(s *ast.TypeSwitchStmt) {
 			}
 		}
 		p := g.pos(c.Case)
-		if fg.isBoxed(v) {
+		if fg.inBox(v) {
 			fg.add(varDecl(p, ptrType(typ), fg.names.declare(v), newBox(typ, init)))
 			return
 		}

@@ -239,12 +239,12 @@ void main() {
     gp::fmt::Println(total);
     gpkg_main::show(sh);
     gpkg_main::show(rest);
-    gp::ptr<gp::slice<int64_t>> bx = gp::new_<gp::slice<int64_t>>(gp::slice_of<int64_t>({1}));
-    gp::ptr<gp::slice<int64_t>> pb = bx;
+    gp::slice<int64_t> bx = gp::slice_of<int64_t>({1});
+    gp::ptr<gp::slice<int64_t>> pb = gp::stack_ptr(bx);
     *pb = gp::append(static_cast<gp::slice<int64_t>&&>(*pb), 2);
     (*pb)[0] = 5;
-    (*bx) = gp::append(static_cast<gp::slice<int64_t>&&>((*bx)), 3);
-    gpkg_main::show(gp::slice<int64_t>((*bx)));
+    bx = gp::append(static_cast<gp::slice<int64_t>&&>(bx), 3);
+    gpkg_main::show(gp::slice<int64_t>(bx));
     gpkg_main::show(gp::slice<int64_t>(*pb));
 }
 

@@ -195,7 +195,7 @@ def go_type(name):
         return go_type(name[:-1])
     if name in GO_BASIC:
         return GO_BASIC[name]
-    for prefix, fmt in (("gp::slice", "[]%s"), ("gp::ptr", "*%s"), ("gp::bptr", "*%s"), ("gp::cptr", "*%s"), ("gp::weak_ptr", "weak.Pointer[%s]")):
+    for prefix, fmt in (("gp::slice", "[]%s"), ("gp::ptr", "*%s"), ("gp::local_ptr", "*%s"), ("gp::bptr", "*%s"), ("gp::cptr", "*%s"), ("gp::weak_ptr", "weak.Pointer[%s]")):
         a = _angle(name, prefix)
         if a is not None:
             return fmt % go_type(a)
@@ -858,7 +858,7 @@ def classify(t):
         kind = "array"
     elif tag.startswith("gp::map<"):
         kind = "map"
-    elif tag.startswith("gp::ptr<") or tag.startswith("gp::cptr<") or tag.startswith("gp::bptr<"):
+    elif tag.startswith("gp::ptr<") or tag.startswith("gp::local_ptr<") or tag.startswith("gp::cptr<") or tag.startswith("gp::bptr<"):
         kind = "ptr"
     elif tag.startswith("gp::weak_ptr<"):
         kind = "weak"

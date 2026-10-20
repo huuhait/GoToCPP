@@ -596,7 +596,7 @@ func TestOrderTemps(t *testing.T) {
 		{"q := &mkp().b\n\t_ = q", "gp::ptr<int64_t> q = gp::field_ptr(mkp(), &Pt::b);"},
 		{"ls := Pt{}\n\tq := &ls.a\n\t_ = q", "gp::ptr<int64_t> q = gp::ptr<int64_t>(ls, &(*ls).a);"},
 		{"lt := Tree{}\n\tlt = lt.kids[0]", "lt = Tree(lt.kids[0]);"},
-		{"lt := Tree{}\n\tlp := &lt\n\t*lp = *lt.next", "*lp = Tree(*(*lt).next);"},
+		{"lt := Tree{}\n\tlp := &lt\n\t*lp = *lt.next", "*lp = Tree(*lt.next);"},
 		{"lp := &gst\n\tgst = *lp", "gst = *lp;"},
 		{"lt := Tree{}\n\tlt.kids = append(lt.kids, Tree{})", "lt.kids = gp::append(static_cast<gp::slice<Tree>&&>(lt.kids), Tree{});"},
 		{"fmt.Println(Pt{x, 1}, f())", "{ auto gp_t0 = Pt{x, 1}; gp::fmt::Println(gp::fmt::as(&gp_td_Pt, gp_t0), f()); }"},

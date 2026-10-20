@@ -209,6 +209,18 @@ The build flags (of build and run; -emit-llvm, -n and -o are of build only) are:
 		headers (gp_concept_<Name> for each named interface type,
 		gp_sat_<Func> for each generic function), for C++ code that works
 		with the package; the generated code does not use them
+	-gp:m[=2]
+		print the decisions of the escape analysis, like go build
+		-gcflags=-m: what stays on the C++ stack ("&x does not escape"),
+		what is moved to the heap, the parameters that leak, the slice
+		elements that are borrowed and the func literals that do not
+		escape. -gp:m=2 adds the reason of each decision. The standard
+		library is not reported
+	-gp:noescape
+		turn the escape analysis off (the baseline for comparisons): a
+		variable whose address is taken, &T{} and new(T) are in heap
+		boxes, closures capture by value or in a box, and a slice
+		element is copied
 	-ldflags flags
 		trusted flags for the link, like GOCPP_LDFLAGS: added after the
 		package's link flags, like -cxxflags otherwise
@@ -348,6 +360,9 @@ type buildFlags struct {
 	jobs     int    // -p, 0 for the default (GOMAXPROCS)
 	concepts bool   // -gp:concepts
 
+	escape   escapeLevel // -gp:m: print the escape analysis (escape.go)
+	noEscape bool        // -gp:noescape
+
 	mode build.Mode // -buildmode, build only (modes.go); "" is a program
 
 	cppErrors cppErrorsMode // -cpperrors: "short" or "full"
@@ -380,6 +395,7 @@ func (f *buildFlags) register(flags *flag.FlagSet, withOutput bool) {
 		return nil
 	})
 	flags.BoolVar(&f.concepts, "gp:concepts", false, "also write C++20 concepts for Go's constraints into the package headers")
+	f.registerEscape(flags)
 	if withOutput {
 		f.registerMode(flags)
 	}
@@ -461,6 +477,7 @@ func runEmit(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	ef.interop.register(flags)
 	ef.diagOpts.register(flags)
 	flags.BoolVar(&ef.concepts, "gp:concepts", false, "also write C++20 concepts for Go's constraints into the package headers")
+	ef.registerEscape(flags)
 	var ann annotateFlags
 	ann.register(flags) // annotate.go
 	flags.Var(tagsFlag{&ef.extra.tags}, "tags", "a comma-separated `list` of build tags that are satisfied, like go build -tags")
@@ -912,8 +929,10 @@ func (d *driver) emit(set *buildSet, root string, cxx *build.CXX) (*cppgen.Progr
 		}
 		in[i] = cppgen.ProgramPackage{Pkg: pkg, Interop: interop}
 	}
-	files, err := cppgen.EmitProgram(d.check.fset, in, root, cppgen.Config{Concepts: d.flags.concepts, Library: d.flags.mode.Library(), Why: d.why})
+	escape := d.flags.newEscapeLog()
+	files, err := cppgen.EmitProgram(d.check.fset, in, root, cppgen.Config{Concepts: d.flags.concepts, Library: d.flags.mode.Library(), Why: d.why, NoEscape: d.flags.noEscape, Escape: escape})
 	if err == nil {
+		printEscape(d.stderr, escape)
 		d.counts.emit += len(set.pkgs)
 		return files, 0
 	}

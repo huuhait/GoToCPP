@@ -75,7 +75,7 @@ std::tuple<int64_t, gp::error> work(int64_t a, int64_t b) {
 #line 29 "$ROOT/tests/golden/macros_user.gp"
         }
         gpkg_main::gp_inst_d027af83_Retry("macros_user.gp"_gv, 30, "main.work"_gv, [&gp_r0_, &gp_r1_, &b, &a]<int = 1>() mutable -> void {
-            { auto gp_t0 = [b, a]<int = 1>() mutable -> std::tuple<int64_t, gp::error> {
+            { auto gp_t0 = [&b, &a]<int = 1>() mutable -> std::tuple<int64_t, gp::error> {
                 gpkg_main::gp_inst_89bda361_Assert("macros_user.gp"_gv, 32, "main.work"_gv, "b != 0"_gv, b != 0, [&a]<int = 1>() mutable -> gp::string { return gp::fmt::Sprint("b of "_gs, a); });
                 return {gp::div(a, b), gp::error()};
             }.operator()(); gp_r0_ = std::get<0>(gp_t0); gp_r1_ = std::get<1>(gp_t0); }

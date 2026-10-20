@@ -99,6 +99,7 @@ def kind_of(v):
         ("gp::array<", "array"),
         ("gp::map<", "map"),
         ("gp::ptr<", "ptr"),
+        ("gp::local_ptr<", "ptr"),
         ("gp::cptr<", "ptr"),
         ("gp::bptr<", "ptr"),
         ("gp::chan<", "chan"),

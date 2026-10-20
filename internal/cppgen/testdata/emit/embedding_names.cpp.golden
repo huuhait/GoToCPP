@@ -130,8 +130,8 @@ gpkg_main::Item Outer::Total() const {
 }
 
 void main() {
-    gp::ptr<Outer> o = gp::new_<Outer>(Outer{.Base = Base{3}, .Mine = gpkg_main::Item{4}, .Mine2 = gp::new_<gpkg_main::Pair>(gpkg_main::Pair{1, 2})});
-    { auto gp_t0 = (*o).Base.Item(); auto gp_t1 = (*o).Base.Pair(); auto gp_t2 = Base::Take(gp::borrow(&(*o).Base), gpkg_main::Item{1}, gp::lend((*o).Mine2)); auto gp_t3 = (*o).Total(); gp::fmt::Println(gp::fmt::as(&gp_td_Item, gp_t0), gp::fmt::as(gp_tdc_0, gp_t1), gp_t2, gp::fmt::as(&gp_td_Item, gp_t3), gp::fmt::as(gp_tdc_1, (*o).Arr), (*o).M == nullptr, (*o).F == nullptr); }
+    Outer o{.Base = Base{3}, .Mine = gpkg_main::Item{4}, .Mine2 = gp::new_<gpkg_main::Pair>(gpkg_main::Pair{1, 2})};
+    { auto gp_t0 = o.Base.Item(); auto gp_t1 = o.Base.Pair(); auto gp_t2 = Base::Take(gp::borrow(&o.Base), gpkg_main::Item{1}, gp::lend(o.Mine2)); auto gp_t3 = o.Total(); gp::fmt::Println(gp::fmt::as(&gp_td_Item, gp_t0), gp::fmt::as(gp_tdc_0, gp_t1), gp_t2, gp::fmt::as(&gp_td_Item, gp_t3), gp::fmt::as(gp_tdc_1, o.Arr), o.M == nullptr, o.F == nullptr); }
 }
 
 } // namespace gpkg_main

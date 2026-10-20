@@ -345,7 +345,7 @@ func (fg *funcGen) loopBoxes(s *ast.ForStmt) []*types.Var {
 	}
 	var vars []*types.Var
 	for _, e := range a.Lhs {
-		if v, ok := fg.g.info.Defs[e.(*ast.Ident)].(*types.Var); ok && fg.isBoxed(v) {
+		if v, ok := fg.g.info.Defs[e.(*ast.Ident)].(*types.Var); ok && fg.inBox(v) {
 			vars = append(vars, v)
 		}
 	}
@@ -384,7 +384,7 @@ func (fg *funcGen) forInit(s ast.Stmt) (cppir.Stmt, bool) {
 		t := fg.g.varType(obj, e.Pos()) // auto for a C/C++ value (cvalues.go)
 		if fg.isCBox(obj) {
 			t = boxType(t) // auto stays auto: the box is built from the value (cbox.go)
-		} else if fg.isBoxed(obj) {
+		} else if fg.inBox(obj) {
 			t = ptrType(t)
 		}
 		if typ != nil && (cppir.TypeString(t) != cppir.TypeString(typ) || cppir.TypeString(t) == "auto") {
@@ -528,7 +528,7 @@ func (fg *funcGen) rangeStmt(s *ast.RangeStmt) {
 	}
 	l := loop{stmt: s, head: head, body: s.Body}
 	switch {
-	case key != nil && fg.isBoxed(key):
+	case key != nil && fg.inBox(key):
 		l.vars = func() {
 			fg.add(varDecl(fg.g.pos(s.Key.Pos()), ptrType(ct), fg.names.declare(key), newBox(ct, cxxName(i))))
 		}
@@ -608,6 +608,9 @@ func (fg *funcGen) rangeIter(s *ast.RangeStmt, start string, value func(it cppir
 				continue
 			}
 			v.typ = fg.g.varType(v.obj, v.e.Pos()) // auto for a C/C++ element (cvalues.go): a copy
+			if fg.escInfo().refs[v.obj] {
+				v.typ = &cppir.Ref{Elem: &cppir.Const{Elem: v.typ}} // elemref.go
+			}
 		}
 		vars = append(vars, v)
 	}
@@ -673,7 +676,7 @@ func (fg *funcGen) bindVars(tok token.Token, vars []rangeVar, isMap bool, it cpp
 		if fg.isCBox(v.obj) {
 			name := fg.names.declare(v.obj)
 			line.Stmts = append(line.Stmts, withHold(cppir.Pos{}, cBoxDecl(cppir.Pos{}, v.typ, name, v.value), fg.holdBox(v.obj, name))) // cbox.go
-		} else if fg.isBoxed(v.obj) {
+		} else if fg.inBox(v.obj) {
 			line.Stmts = append(line.Stmts, varDecl(cppir.Pos{}, ptrType(v.typ), fg.names.declare(v.obj), newBox(v.typ, v.value)))
 		} else {
 			line.Stmts = append(line.Stmts, varDecl(cppir.Pos{}, v.typ, fg.names.declare(v.obj), v.value))

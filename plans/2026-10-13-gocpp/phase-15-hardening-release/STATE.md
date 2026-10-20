@@ -1,6 +1,6 @@
 # Phase 15: Optimization, Hardening & Release · STATE
 
-**Status:** `[~]` in progress (15.1, 15.3, 15.5, 15.8-15.11, 15.13-15.15 and 15.17 merged; remaining implementation/release steps and exit criteria are open)
+**Status:** `[~]` in progress (15.1-15.3, 15.5, 15.8-15.11, 15.13-15.15 and 15.17 merged; 15.7a in progress; remaining implementation/release steps and exit criteria are open)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-20
 
@@ -8,7 +8,7 @@
 
 ### Performance
 - [x] 15.1 Benchmark suite (gocpp vs Go vs C++) + per-commit tracking on a fixed machine + 5 % regression gate
-- [~] 15.2 Escape analysis (unknown code = escaping) + `-gp:m`: review fixes and focused coder checks complete in `job/15.2`; independent whole-net re-review underway, manager checks pending
+- [x] 15.2 Escape analysis (unknown code = escaping) + `-gp:m`: clean whole-net review and focused manager checks; conservative stack, closure and element-reference optimizations integrated
 - [x] 15.3 Receiver and parameter optimizations (whole integrated/test-reliability review clean at `e91d0ced`; manager focused production, fixture and corrected generator checks passed)
   - [x] non-escaping pointer receivers/parameters use `gp::bptr<T>` rather than `this` (ADR-086); callers retain owners unless stability/purity proves lending safe
   - [x] `const&` ABI with owning snapshots for mutable/captured sources and implicit foreign work; defer/go collect owning values
@@ -46,6 +46,18 @@
 - [ ] Installable via `go install`, release binary, `nix run` (also on NixOS); docs site live
 
 ## Decisions / notes
+
+- 2026-10-20: 15.2 integrated from reviewed source `b68eb6ac`, including all earlier fixes.
+  Unknown/native calls and generic instances remain conservative. Added stack objects are
+  limited to 2 KiB each and a shared 16 KiB function budget including local-closure captures
+  and holder/alignment overhead; this is not a bound on the whole C++ frame or recursion.
+  Borrowed element analysis accounts for string-containing local arrays and mutation aliases.
+  Shadow-dependent initializers retain heap ownership instead of moving a non-movable holder.
+  Whole-net independent review is clean. Manager checks passed: analysis/budget/CLI tests,
+  four runtime fixtures with GCC/Clang ASan and four real-Go comparisons, escape golden,
+  and combined checks after the LSP/probing integrations, including macro/escape goldens.
+  No selected runtime comparison skipped. Historical benchmarks were not remeasured;
+  no full corpus, sanitizer sweep, new Windows/arm64 run or v1.0 acceptance is claimed.
 
 - 2026-10-20: Step 15.3 integrated after clean whole-net review at `e91d0ced`, including
   current native-fmt integration and test reliability. Ownership fixes cover promoted/named

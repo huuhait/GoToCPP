@@ -82,7 +82,7 @@ func (fg *funcGen) rangeC(s *ast.RangeStmt) {
 			boxes = append(boxes, rangeBox{obj, n})
 			return n
 		}
-		if fg.isBoxed(obj) {
+		if fg.inBox(obj) {
 			fg.g.errorf(e.Pos(), "internal error: a boxed C/C++ range variable that is not an object")
 		}
 		return fg.names.declare(obj)

@@ -523,7 +523,7 @@ gp::string joined() {
     gp::string s = ""_gs;
     for (auto gp_it0 = gp::range_slice(trail); gp::range_next(gp_it0);) {
 #line 190 "$DIR/defer.gp"
-        gp::string t = gp_it0.gp_v();
+        const gp::string& t = gp_it0.gp_v();
         s = gp::concat(s, t, " "_gs);
     }
     return s;

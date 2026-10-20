@@ -500,8 +500,14 @@ type borrowWalk struct {
 	cands map[*types.Var]bool   // the parameters that may still be borrowed
 	esc   map[*types.Var]string // the candidates found to escape, with the reason
 	why   string                // the reason that useOK found
-	pure  bool
-	pureV bool // pure also for strings (borrowSum.pureV)
+	// cha says that a call through an interface is pure when every method it can reach is
+	// (chapure.go): for the analysis of a region of code (elemref.go), not for function summaries.
+	cha bool
+	// declPos is the position where the object being classified is declared (escape.go), or
+	// NoPos for a parameter.
+	declPos token.Pos
+	pure    bool
+	pureV   bool // pure also for strings (borrowSum.pureV)
 	// deps are the functions of this package whose summaries the walk read.
 	deps  map[*types.Func]bool
 	stack []ast.Node
@@ -543,21 +549,12 @@ func (a *borrowWalk) parent(k int) ast.Node {
 func (a *borrowWalk) useOK(v *types.Var) bool {
 	// The uses inside a func literal, a range over a func (its body is a closure), a go or a
 	// defer statement are captured or stored for later.
-	for _, n := range a.stack {
-		switch n := n.(type) {
-		case *ast.FuncLit:
-			return a.fail("a func literal captures it")
-		case *ast.GoStmt, *ast.DeferStmt:
-			return a.fail("a go or defer statement keeps it for later")
-		case *ast.RangeStmt:
-			if isRangeFunc(a.g.info, n) {
-				return a.fail("the body of a range over a func is a closure that captures it")
-			}
-		}
+	if msg := a.closureUse(); msg != "" {
+		return a.fail(msg)
 	}
 	g := a.g
 	k := 0 // the stack index (from the top) of the expression e being classified
-	e := ast.Expr(a.stack[len(a.stack)-1].(*ast.Ident))
+	e := a.stack[len(a.stack)-1].(ast.Expr)
 	up := func() { // e = its parent, if that is a ParenExpr
 		for {
 			p, ok := a.parent(k + 1).(*ast.ParenExpr)
@@ -635,6 +632,32 @@ func (a *borrowWalk) useOK(v *types.Var) bool {
 		}
 	}
 	return false
+}
+
+// closureUse says why the use at the top of the stack is captured or kept for later by a closure, a
+// go statement or a defer statement, or "". With a.declPos set (the escape analysis of a local
+// variable), a closure that the variable is declared in does not count: the variable and its
+// users live and die together inside it.
+func (a *borrowWalk) closureUse() string {
+	for i := len(a.stack) - 1; i >= 0; i-- {
+		switch n := a.stack[i].(type) {
+		case *ast.FuncLit:
+			if a.declPos.IsValid() && n.Pos() <= a.declPos && a.declPos < n.End() {
+				return ""
+			}
+			return "a func literal captures it"
+		case *ast.GoStmt, *ast.DeferStmt:
+			return "a go or defer statement keeps it for later"
+		case *ast.RangeStmt:
+			if isRangeFunc(a.g.info, n) {
+				if a.declPos.IsValid() && n.Pos() <= a.declPos && a.declPos < n.End() {
+					return ""
+				}
+				return "the body of a range over a func is a closure that captures it"
+			}
+		}
+	}
+	return ""
 }
 
 // fail records the reason why the use of the candidate keeps it from being borrowed, and
@@ -919,6 +942,15 @@ func (a *borrowWalk) purity(n ast.Node) {
 		}
 		fn := g.calleeFunc(x)
 		if fn == nil {
+			if m := g.ifaceCallee(x); m != nil && a.cha {
+				if !g.ifaceMethodPure(m, false) {
+					a.pure = false
+				}
+				if !g.ifaceMethodPure(m, true) {
+					a.pureV = false
+				}
+				return
+			}
 			both()
 			return
 		}
@@ -1036,21 +1068,58 @@ func (a *borrowWalk) privateStore(l ast.Expr, strict bool) bool {
 // boxedOf returns boxedVars of the function declaration d, computed once (the lowering of d and the
 // borrow analysis both need it). The map is shared: a caller that changes it takes a copy.
 func (g *gen) boxedOf(d *ast.FuncDecl) map[*types.Var]boxReason {
+	return g.boxInfoOf(d).first
+}
+
+// boxInfoOf is boxedOf with every reason and the captured variables (the escape analysis).
+func (g *gen) boxInfoOf(d *ast.FuncDecl) *boxResult {
 	if isGenericDecl(d) {
 		// Each instance of a generic function has variable objects of its own (generics.go: apply),
 		// and the same declaration: a map computed for one instance names none of the variables of
-		// another, which would then have no box for a variable that a closure changes.
-		return boxedVars(g.info, d)
+		// another, which would then have no box for a variable that a closure changes. The local
+		// closures and stack objects (withLocal) are keyed by the objects of one instance too, so
+		// a generic declaration is analysed without them: its closures and addresses keep the
+		// boxing of every instance. (The escape analysis skips generic declarations as well.)
+		return boxedVarsFull(g.info, d, false)
 	}
 	if b, ok := g.boxCache[d]; ok {
 		return b
 	}
 	if g.boxCache == nil {
-		g.boxCache = make(map[*ast.FuncDecl]map[*types.Var]boxReason)
+		g.boxCache = make(map[*ast.FuncDecl]*boxResult)
 	}
-	b := boxedVars(g.info, d)
+	b := boxedVarsFull(g.info, d, !g.opts.NoEscape)
 	g.boxCache[d] = b
+	for lit, holder := range b.local {
+		if g.localLits == nil {
+			g.localLits = make(map[*ast.FuncLit]*types.Var)
+		}
+		g.localLits[lit] = holder
+		if holder != nil {
+			if g.localHolders == nil {
+				g.localHolders = make(map[*types.Var]bool)
+			}
+			g.localHolders[holder] = true
+		}
+	}
 	return b
+}
+
+// ifaceCallee returns the interface method that the call c calls, or nil.
+func (g *gen) ifaceCallee(c *ast.CallExpr) *types.Func {
+	sel, ok := ast.Unparen(c.Fun).(*ast.SelectorExpr)
+	if !ok {
+		return nil
+	}
+	s := g.info.Selections[sel]
+	if s == nil || s.Kind() != types.MethodVal {
+		return nil
+	}
+	fn, _ := s.Obj().(*types.Func)
+	if !isIfaceMethod(fn) {
+		return nil
+	}
+	return fn
 }
 
 // isGenericDecl reports whether d is a generic function, or a method of a generic type: the

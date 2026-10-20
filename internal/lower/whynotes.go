@@ -65,6 +65,17 @@ func (g *gen) noteBoxed(boxed map[*types.Var]boxReason) {
 		if name == "" {
 			name = "an unnamed result" // gp_r0: the results of a function that needs variables for them
 		}
+		if boxed[v] == boxStack {
+			g.why(v.Pos(), WhyBoxing, name+" stays on the C++ stack: its address is taken, but the escape "+
+				"analysis found that the address does not escape, so pointers to it are gp::stack_ptr "+
+				"values (no heap box, no counts)")
+			continue
+		}
+		if boxed[v] == boxRefCaptured {
+			g.why(v.Pos(), WhyBoxing, name+" stays on the C++ stack: only closures that are called where "+
+				"they are made capture it, by reference (no heap box)")
+			continue
+		}
 		g.why(v.Pos(), WhyBoxing, boxText(name, boxed[v]))
 	}
 }
@@ -139,6 +150,10 @@ func (fg *funcGen) boxedWhy(v *types.Var) string {
 		return "a C/C++ object"
 	case boxDefer:
 		return "held by a defer frame"
+	case boxStack:
+		return "on the stack"
+	case boxRefCaptured:
+		return "on the stack, captured by reference"
 	}
 	return "boxed"
 }

@@ -102,10 +102,10 @@ int64_t Base::Eat(gp::bptr<Base> b, Item i, const gp::slice<Item>& is) {
 
 #line 27 "$DIR/embedding_fields.gp"
 void main() {
-    gp::ptr<Outer> o = gp::new_<Outer>(Outer{Base{3}, 4, 5, "s"_gs});
-    { auto gp_t0 = (*o).Base.Make(); auto gp_t1 = Base::Eat(gp::borrow(&(*o).Base), Item{1}, nullptr); gp::fmt::Println(gp::fmt::as(&gp_td_Item, gp_t0), (*o).Item, gp_t1, (*o).gp, (*o).std); }
-    gp::ptr<Outer2> o2 = gp::new_<Outer2>(Outer2{.Base = Base{2}});
-    { auto gp_t2 = (*o2).Base.Make(); gp::fmt::Println(gp::fmt::as(&gp_td_Item, gp_t2), Base::Eat(gp::borrow(&(*o2).Base), Item{5}, (*o2).Items)); }
+    Outer o{Base{3}, 4, 5, "s"_gs};
+    { auto gp_t0 = o.Base.Make(); auto gp_t1 = Base::Eat(gp::borrow(&o.Base), Item{1}, nullptr); gp::fmt::Println(gp::fmt::as(&gp_td_Item, gp_t0), o.Item, gp_t1, o.gp, o.std); }
+    Outer2 o2{.Base = Base{2}};
+    { auto gp_t2 = o2.Base.Make(); gp::fmt::Println(gp::fmt::as(&gp_td_Item, gp_t2), Base::Eat(gp::borrow(&o2.Base), Item{5}, o2.Items)); }
 }
 
 } // namespace gpkg_main

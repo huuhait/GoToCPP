@@ -55,16 +55,16 @@ gp::ptr<int64_t> pick(gp::ptr<int64_t> p) {
 
 void main() {
     gp::ptr<int64_t> x = gp::new_<int64_t>(1);
-    gp::ptr<gp::ptr<int64_t>> p = gp::new_<gp::ptr<int64_t>>(x);
-    *(*p) = 10;
-    gpkg_main::inc(gp::lend((*p)));
-    gp::ptr<int64_t> q = (*p);
+    gp::ptr<int64_t> p = x;
+    *p = 10;
+    gpkg_main::inc(gp::lend(p));
+    gp::ptr<int64_t> q = p;
     *q = *q * 2;
-    { auto gp_t0 = (*p) == q; auto gp_t1 = (*p) == x; auto gp_t2 = (*p) != nullptr; auto gp_t3 = *(*p); gp::fmt::Println((*x), gp_t3, *q, gp_t0, gp_t1, gp_t2); }
+    { auto gp_t0 = p == q; auto gp_t1 = p == x; auto gp_t2 = p != nullptr; auto gp_t3 = *p; gp::fmt::Println((*x), gp_t3, *q, gp_t0, gp_t1, gp_t2); }
 #line 53 "$DIR/pointers.gp"
-    gp::ptr<int64_t> y = gp::new_<int64_t>(2);
-    gpkg_main::swap(gp::lend(x), gp::lend(y));
-    gp::fmt::Println((*x), (*y));
+    int64_t y = 2;
+    gpkg_main::swap(gp::lend(x), gp::borrow(&y));
+    gp::fmt::Println((*x), y);
 #line 57 "$DIR/pointers.gp"
     auto gp_t4 = gpkg_main::grow(21, "hi"_gs);
 #line 57 "$DIR/pointers.gp"
@@ -85,13 +85,13 @@ void main() {
     *gnew = 7;
     { auto gp_t7 = gptr == gaddr; auto gp_t8 = *gptr; gp::fmt::Println(g, gp_t8, *gnew, gp_t7); }
 #line 68 "$DIR/pointers.gp"
-    gp::ptr<gp::ptr<int64_t>> pp = p;
+    gp::ptr<gp::ptr<int64_t>> pp = gp::stack_ptr(p);
     **pp = **pp + 1;
     { auto gp_t9 = gpkg_main::pick(*pp); *gp_t9 = *gp_t9 + 100; }
     gp::fmt::Println((*x), **pp);
 #line 73 "$DIR/pointers.gp"
     gp::ptr<int64_t> np{};
-    gp::fmt::Println(np == nullptr, gp::ptr<int64_t>(nullptr) == np, nullptr != (*p));
+    gp::fmt::Println(np == nullptr, gp::ptr<int64_t>(nullptr) == np, nullptr != p);
 #line 77 "$DIR/pointers.gp"
     gp::ptr<int64_t> last{};
     for (gp::ptr<int64_t> i = gp::new_<int64_t>(0); (*i) < 3;) {
@@ -146,7 +146,7 @@ void main() {
     }
     gp::fmt::Println((*cnt));
 #line 113 "$DIR/pointers.gp"
-    { auto gp_t12 = gpkg_main::bump(gp::lend((*p))); gp::fmt::Println((*x) + gp_t12, (*x)); }
+    { auto gp_t12 = gpkg_main::bump(gp::lend(p)); gp::fmt::Println((*x) + gp_t12, (*x)); }
 }
 
 int64_t bump(gp::bptr<int64_t> p) {

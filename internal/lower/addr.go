@@ -54,8 +54,10 @@ func (fg *funcGen) addr(e *ast.UnaryExpr) cppir.Expr {
 		case !ok:
 		case isPkgVar(v):
 			return call("gp::static_ptr", cxxName(fg.cname(v, x.Pos())))
-		case fg.isBoxed(v):
+		case fg.inBox(v):
 			return cxxName(fg.cname(v, x.Pos())) // the box
+		case fg.onStack(v):
+			return call("gp::stack_ptr", cxxName(fg.cname(v, x.Pos()))) // owns nothing (escape.go)
 		}
 		fg.g.errorf(e.Pos(), "internal error: the address of %s, which is not boxed", x.Name)
 		return placeholder
@@ -76,6 +78,15 @@ func (fg *funcGen) addr(e *ast.UnaryExpr) cppir.Expr {
 		// than 128 KiB is built in the block itself (largeBox, arrays.go).
 		// (Also of a gocpp type with C/C++ parts, &[]C.int{1}: clits.go.)
 		t := fg.g.info.TypeOf(x)
+		if fg.escInfo().held[e] != nil {
+			// Held by a local pointer variable that does not let it escape: the object lives in
+			// the variable (gp::local_ptr) (escape.go).
+			return localNew(fg.g.litPartType(x, t, nil), fg.expr(x))
+		}
+		if fg.escInfo().temps[e] {
+			// Goes straight to a borrowed parameter: a temporary of the call (escape.go).
+			return call("gp::borrow_tmp", fg.expr(x))
+		}
 		if largeVar(t) {
 			return largeBox(fg.g.litPartType(x, t, nil), fg.expr(x))
 		}

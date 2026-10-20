@@ -896,7 +896,23 @@ func (fg *funcGen) newTargets(lhs []ast.Expr) []target {
 			continue
 		}
 		if obj, ok := fg.g.info.Defs[id].(*types.Var); ok {
-			t := target{typ: fg.g.varType(obj, id.Pos()), shadow: fg.shadowing(obj), box: fg.isBoxed(obj), gtype: obj.Type()}
+			t := target{
+				typ: fg.g.varType(obj, id.Pos()), shadow: fg.shadowing(obj), box: fg.inBox(obj),
+				gtype: obj.Type(),
+			}
+			if fg.escInfo().holders[obj] {
+				// A pointer variable that holds its object on the stack (escape.go).
+				if pt, ok := types.Unalias(obj.Type()).(*types.Pointer); ok {
+					t.typ = localPtrType(fg.g.cxxType(pt.Elem(), id.Pos()))
+				}
+			}
+			if fg.holdsLocalClosure(obj) {
+				t.typ = typeName("auto") // the lambda of a local closure (localclosure.go)
+			}
+			if fg.escInfo().refs[obj] {
+				// An element variable that borrows the element (elemref.go).
+				t.typ = &cppir.Ref{Elem: &cppir.Const{Elem: t.typ}}
+			}
 			t.cbox = t.box && cObject(obj.Type())
 			if t.box && !t.cbox && cppir.TypeString(t.typ) == "auto" {
 				t.typ = fg.boxedAutoType(obj, id)

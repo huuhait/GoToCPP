@@ -229,6 +229,7 @@ const (
 	ownerPtr             // *p, p[i] of a pointer p to an array, p.f of a pointer p to a struct: p
 	ownerSlice           // s[i] of a slice s: the slice's array
 	ownerEmbedded        // a field through an embedded pointer (structs.go): that pointer
+	ownerStack           // a local variable on the stack whose address never escapes (escape.go)
 )
 
 // ownerOf returns the owner of the addressable expression e (Phase 03 README §2.2, the owner
@@ -244,8 +245,10 @@ func (fg *funcGen) ownerOf(e ast.Expr) (ast.Expr, int) {
 			case !ok:
 			case isPkgVar(v):
 				return x, ownerPkg
-			case fg.isBoxed(v):
+			case fg.inBox(v):
 				return x, ownerBox
+			case fg.onStack(v):
+				return x, ownerStack
 			}
 			return nil, ownerNone
 		case *ast.StarExpr:
@@ -308,6 +311,8 @@ func (fg *funcGen) addrOf(e ast.Expr) cppir.Expr {
 			return box
 		}
 		return construct(typ, box, &cppir.Unary{Op: "&", X: fg.expr(e)})
+	case ownerStack:
+		return call("gp::stack_ptr", fg.expr(e)) // a pointer that owns nothing (escape.go)
 	case ownerPtr, ownerSlice:
 		if s, ok := ast.Unparen(e).(*ast.StarExpr); ok {
 			return fg.expr(s.X)

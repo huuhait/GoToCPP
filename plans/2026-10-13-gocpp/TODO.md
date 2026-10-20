@@ -15,8 +15,8 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
   Smaller preambles were withdrawn; continue the remaining cold-probing performance work.
   Keep cold first-run performance separate from a run that retains a precompiled header;
   the < 0.5 s exit criterion is not yet met for every example.
-- [~] 15.2: independent whole-net re-review after fixes for local-array element references,
-  shared stack budgets and generic-instance integration; manager checks still pending.
+- [x] 15.2: escape analysis and allocation diagnostics integrated after clean whole-net review,
+  focused GCC/Clang ASan/Go checks and combined compiler checks.
 - [x] 9.12: checked stdlib inventory, Go differences and exercised porting guide; clean round-2 review and manager focused checks.
 - [~] 15.7a: independently check compiler-cache launcher support and measure a small real-cache workflow; remaining 15.7 generic-body/module work stays open.
 - [ ] Next: 12.13 typed-interop editor support and 9.13 release-candidate prerequisites;

@@ -159,6 +159,11 @@ func (fg *funcGen) funcValue(fl *ast.FuncLit) cppir.Expr {
 		fg.g.errorf(fl.Pos(), "internal error: a func literal without a signature")
 		return placeholder
 	}
+	if _, local := fg.g.localLits[fl]; local {
+		// A local closure (localclosure.go): the lambda itself, called where it is made or through
+		// the variable `auto f` that holds it.
+		return fg.lambda(fl)
+	}
 	if fg.rawLits[fl] {
 		// The argument of a macro's closure parameter (a template parameter of the instance): the
 		// lambda itself, with no gp::func around it, so that nothing is allocated.
@@ -249,7 +254,10 @@ func (fg *funcGen) lambda(fl *ast.FuncLit) *cppir.Lambda {
 	caps := fg.captures(fl) // the names outside the literal
 	fg.noteClosure(fl, n)   // why.go
 	fg.names.openScope()    // the lambda's parameters, results and outermost declarations
-	f := &funcInfo{sig: sig, ftype: fl.Type, body: fl.Body, pos: fl.Pos(), top: fg.top, names: fg.names, boxed: fg.boxed}
+	f := &funcInfo{
+		sig: sig, ftype: fl.Type, body: fl.Body, pos: fl.Pos(), top: fg.top, names: fg.names,
+		boxed: fg.boxed, esc: fg.fn.escOf(),
+	}
 	f.signature(g)
 	lam := &cppir.Lambda{
 		Captures: caps,
@@ -274,7 +282,9 @@ func (fg *funcGen) lambda(fl *ast.FuncLit) *cppir.Lambda {
 func (fg *funcGen) captures(fl *ast.FuncLit) []cppir.Capture {
 	// A lambda that a macro only calls captures a variable that lives on the stack by reference (a
 	// boxed one is its box, a copy of the pointer).
-	return fg.captureVars([]ast.Node{fl.Body}, func(pos token.Pos) bool { return inside(fl, pos) }, fg.refLits[fl])
+	_, local := fg.g.localLits[fl]
+	byRef := fg.refLits[fl] || local
+	return fg.captureVars([]ast.Node{fl.Body}, func(pos token.Pos) bool { return inside(fl, pos) }, byRef)
 }
 
 // captureNames returns the captures of a closure whose code is the nodes: a copy of each variable
@@ -306,7 +316,7 @@ func (fg *funcGen) captureVars(nodes []ast.Node, in func(pos token.Pos) bool, by
 			}
 			if !seen[name] {
 				seen[name] = true
-				caps = append(caps, cppir.Capture{Name: name, ByRef: byRef && !fg.isBoxed(v)})
+				caps = append(caps, cppir.Capture{Name: name, ByRef: byRef && !fg.inBox(v)})
 			}
 			return true
 		})
@@ -555,4 +565,10 @@ func (fg *funcGen) funcName(fn *types.Func, pos token.Pos) string {
 		name = fg.g.ns + "::" + name
 	}
 	return name
+}
+
+// holdsLocalClosure reports whether v is the variable of a local closure: `f := func() {...}` whose
+// every use is a call (localclosure.go). Its C++ type is auto, the lambda itself.
+func (fg *funcGen) holdsLocalClosure(v *types.Var) bool {
+	return fg.g.localHolders[v]
 }

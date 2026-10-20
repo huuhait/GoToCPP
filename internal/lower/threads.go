@@ -467,7 +467,12 @@ func (fg *funcGen) hotRecv(x *ast.SelectorExpr, r recvPath) bool {
 // object under the callee, so such an argument is copied for the call, like an argument of an
 // impure callee (ADR-086, section 4).
 func (fg *funcGen) hotLoad(e ast.Expr) bool {
-	t := fg.g.threads()
+	return fg.g.hotLoad(e)
+}
+
+// hotLoad is funcGen.hotLoad for the analyses that run before a function is lowered.
+func (g *gen) hotLoad(e ast.Expr) bool {
+	t := g.threads()
 	if !t.threaded {
 		return false
 	}
@@ -475,18 +480,19 @@ func (fg *funcGen) hotLoad(e ast.Expr) bool {
 		e = ast.Unparen(e)
 		switch x := e.(type) {
 		case *ast.Ident:
-			v, ok := fg.g.info.Uses[x].(*types.Var)
-			return ok && isPkgVar(v) && fg.g.mutatedGlobal(v)
+			v, ok := g.info.Uses[x].(*types.Var)
+			return ok && isPkgVar(v) && g.mutatedGlobal(v)
 		case *ast.SelectorExpr:
-			if v, ok := fg.g.info.Uses[x.Sel].(*types.Var); ok && isPkgVar(v) {
-				return fg.g.mutatedGlobal(v) // pkg.V
+			if v, ok := g.info.Uses[x.Sel].(*types.Var); ok && isPkgVar(v) {
+				return g.mutatedGlobal(v) // pkg.V
 			}
-			if sel := fg.g.info.Selections[x]; sel != nil && sel.Kind() == types.FieldVal && t.hotFields(sel.Recv(), sel.Index()) {
+			sel := g.info.Selections[x]
+			if sel != nil && sel.Kind() == types.FieldVal && t.hotFields(sel.Recv(), sel.Index()) {
 				return true
 			}
 			e = x.X
 		case *ast.IndexExpr:
-			switch u := under(fg.g.info.TypeOf(x.X)).(type) {
+			switch u := under(g.info.TypeOf(x.X)).(type) {
 			case *types.Slice:
 				if t.library || t.mutElems[elemKey(u.Elem())] {
 					return true
@@ -517,7 +523,7 @@ func (fg *funcGen) hotLoad(e ast.Expr) bool {
 			}
 			e = x.X
 		case *ast.CallExpr:
-			if fg.g.info.Types[x.Fun].IsType() && len(x.Args) == 1 {
+			if g.info.Types[x.Fun].IsType() && len(x.Args) == 1 {
 				e = x.Args[0] // a conversion
 				continue
 			}
