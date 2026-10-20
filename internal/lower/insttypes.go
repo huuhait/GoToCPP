@@ -15,9 +15,10 @@ import (
 // Generic types (Phase 07 step 7.3, docs/adr/030-generic-instances.md).
 //
 // An instance of a generic type (Pair[string, []int]) is one C++ type for the whole program, as an
-// unnamed struct type is (shared.go): the struct, its members, its method definitions, its
-// descriptor and method tables are written, under include guards, in the header of every package
-// that uses it. It belongs to the namespace of the package that declares the generic type, so
+// unnamed struct type is (shared.go): the struct, its members, small inline methods, descriptor
+// and method tables are written under include guards in the header of every package that uses
+// it. Larger methods are defined once in a using package's descriptor unit. It belongs to the
+// namespace of the package that declares the generic type, so
 // that its members and the names in its methods' bodies are that package's, and the text is the
 // same wherever it is written:
 //
@@ -58,6 +59,9 @@ type instType struct {
 	iface *ifaceInfo  // an interface
 	fns   []*funcInfo // the methods, prepared (makeInstance)
 	unit  string      // the unit of the instances that the methods ask for
+
+	bodies      []cppir.Decl // non-inline method definitions, emitted once
+	bodyPackage *gen         // a package whose header already includes the complete instance
 }
 
 // isInstance reports whether n is an instance of a generic type that the lowering writes (not
@@ -336,8 +340,12 @@ func (g *gen) makeInstance(it *instType) {
 		if g.err != nil {
 			return
 		}
-		fn.Specs = append([]string{"inline"}, fn.Specs...)
-		d.post = append(d.post, fn, &cppir.Blank{})
+		if inlineInstanceMethod(f, fn) {
+			fn.Specs = append([]string{"inline"}, fn.Specs...)
+			d.post = append(d.post, fn, &cppir.Blank{})
+		} else {
+			it.bodies = append(it.bodies, fn, &cppir.Blank{})
+		}
 	}
 	for _, fd := range g.forwardDefs(si) {
 		if fn, ok := fd.(*cppir.Func); ok {
@@ -352,6 +360,111 @@ func (g *gen) makeInstance(it *instType) {
 			d.refs = append(d.refs, r)
 		}
 	}
+}
+
+// inlineInstanceMethod keeps small methods visible without LTO. Count lowered statements,
+// including receiver copies, temporaries and control-flow bodies: one Go statement can expand
+// into many C++ statements. A tiny scalar loop stays inline too: outlining it can prevent useful
+// optimization of its caller. Closures and calls spelled append, make or new are not small.
+func inlineInstanceMethod(f *funcInfo, fn *cppir.Func) bool {
+	complex := false
+	ast.Inspect(f.body, func(n ast.Node) bool {
+		if complex {
+			return false
+		}
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			complex = true
+		case *ast.CallExpr:
+			if id, ok := ast.Unparen(n.Fun).(*ast.Ident); ok {
+				complex = id.Name == "append" || id.Name == "make" || id.Name == "new"
+			}
+		}
+		return !complex
+	})
+	if complex {
+		return false
+	}
+
+	remaining := 3
+	var small func([]cppir.Stmt) bool
+	small = func(stmts []cppir.Stmt) bool {
+		for _, stmt := range stmts {
+			switch stmt := stmt.(type) {
+			case *cppir.Line:
+				if !small(stmt.Stmts) {
+					return false
+				}
+			case *cppir.Block:
+				if !small(stmt.Stmts) {
+					return false
+				}
+			case *cppir.For:
+				remaining--
+				if stmt.Init != nil && !small([]cppir.Stmt{stmt.Init}) {
+					return false
+				}
+				if !small(stmt.Body.Stmts) {
+					return false
+				}
+			case *cppir.While:
+				remaining--
+				if !small(stmt.Body.Stmts) {
+					return false
+				}
+			case *cppir.If:
+				remaining--
+				if !small([]cppir.Stmt{stmt.Then}) {
+					return false
+				}
+				if stmt.Else != nil && !small([]cppir.Stmt{stmt.Else}) {
+					return false
+				}
+			case *cppir.Comment, *cppir.Blank:
+			case *cppir.VarDecl:
+				remaining -= len(stmt.Vars)
+			case *cppir.ExprStmt, *cppir.Return:
+				remaining--
+			default:
+				return false
+			}
+			if remaining < 0 {
+				return false
+			}
+		}
+		return true
+	}
+	return small(fn.Body.Stmts)
+}
+
+// placeInstanceBodies chooses a translation unit only after every shared dependency is known.
+// The first using package in import order already has the instance and its dependencies in its
+// header. The declaring package need not: Box[importer.Local] must not add an import cycle or
+// change the declaring package's header. Names, descriptors and semantic ownership stay there.
+func (p *Program) placeInstanceBodies() {
+	for _, g := range p.gens {
+		for _, item := range g.sharedClosure() {
+			it := item.inst()
+			if it != nil && len(it.bodies) > 0 && it.bodyPackage == nil {
+				it.bodyPackage = g
+			}
+		}
+	}
+}
+
+// instanceBodies returns this package's out-of-line definitions in their original namespaces.
+func (g *gen) instanceBodies() []cppir.Decl {
+	sec := sections{g: g}
+	for _, item := range g.sharedClosure() {
+		if it := item.inst(); it != nil && it.bodyPackage == g {
+			item.put(&sec, it.bodies...)
+		}
+	}
+	// These definitions are appended after unitFile has protected its own declarations.
+	// An importer's native includes can also have macros used only in a moved method body.
+	file := &cppir.File{Decls: sec.decls()}
+	g.protectNames(file)
+	return file.Decls
 }
 
 // def returns the shared definition of the instance.

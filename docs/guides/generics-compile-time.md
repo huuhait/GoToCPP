@@ -8,11 +8,13 @@ deduction or instantiation for your generics, and the cost has three parts:
 
 1. gocpp's own work (check and lower: milliseconds for a program of a few thousand lines);
 2. the C++ compiler on the text of each instance, which is the cost of that function written by hand;
-3. for generic **types**, the text of every instance (struct, methods, descriptor) is in `pkg.hpp`, so each
-   translation unit of the package parses it again, and a hand-written program has it in one unit only.
+3. for generic **types**, the struct, descriptor and small methods of every instance are in `pkg.hpp`, so
+   each translation unit parses them again. Larger method bodies are now defined once in a descriptor
+   translation unit (15.7b; see [the current measurement](#bounded-body-placement-157b)).
 
-This page has the measurements of step 7.12 and the cheap ways to bring the numbers down. Nothing here needs
-a change to gocpp.
+The first tables are the historical measurements of step 7.12, before body placement changed. The
+15.7b section reports a separate, current baseline/candidate comparison; do not mix the two machines'
+numbers. The ordinary build advice below does not need configuration changes.
 
 ## How it was measured
 
@@ -105,8 +107,8 @@ None of these needs work in gocpp.
 6. **`extern template` does not apply**: the instances are ordinary functions and structs, not templates.
    Their equivalent would be to write each instance of a generic type once, in one `.cpp`, and only declare
    it in `pkg.hpp` (the struct has to stay in the header because users hold it by value), so that the method
-   bodies are compiled once and not parsed by every unit. Today the bodies are in the header under
-   macro guards (`_POST`) and are `inline`. That is a change to `internal/lower/insttypes.go`, not a switch.
+   bodies are compiled once and not parsed by every unit. The bounded implementation below moves
+   larger bodies; the small inline bodies still have macro guards (`_POST`). There is no user switch.
 
 7. **An external compiler cache is optional.** The existing compiler command accepts
    `CXX='ccache g++'` or `GOCPP_CXX='sccache clang++'`; there is no extra `GOCPP_CCACHE` switch.
@@ -117,20 +119,107 @@ None of these needs work in gocpp.
    gives the configuration, measurement recipe and compiler-identity limits. No external-cache
    speedup is included in the tables above.
 
-## The concrete next step (not done)
+## Bounded body placement (15.7b)
 
-The independent review of step 7.12 measured where the header time goes in the 20 types x 10 program: `pkg.hpp` is
-978 KB, 42% of it the method bodies of the instances (the `_POST` blocks), 31% repeated long `#line` paths, and
-`pkg_desc.cpp` and `pkg_init.cpp` each parse the whole header: 14 of the 41 CPU seconds with g++, 7.5 of 19 with
-clang++. Two changes in `internal/lower` would bring the T rows from +33 to 39% to an expected +5 to 10%:
+Implemented and independently reviewed on 2026-10-20, from baseline `1c7081e9`. Larger generic-type methods are ordinary,
+non-`inline` definitions in an existing `pkg_desc.cpp`; their member declarations stay in `pkg.hpp`.
+The types, names, namespaces, inline descriptors, method adapters and generic-function helper definitions
+are unchanged. No C++ templates, modules, new translation-unit kinds or cache mechanisms are
+introduced; an otherwise absent `pkg_desc.cpp` is emitted when needed.
 
-1. **Emit the method bodies of an instance once, as ordinary (non-`inline`) definitions in the existing
-   `pkg_desc.cpp` unit, and only declare them in `pkg.hpp`.** Bodies of at most three statements stay inline in the
-   header, so that `-O2` without LTO still inlines the small accessors.
-2. **Drop a `#line N` directive that repeats the one before it** (a few percent of the header's size and parse time).
+The inline policy keeps at most **three lowered statements**, counting receiver copies, temporaries,
+individual declarations, control statements, loop initializers and nested bodies, not just Go source
+lines. A closure or a call spelled `append`, `make` or `new` makes the method out of line even when its
+source is short. Simple getters/setters, small call wrappers and tiny scalar loops therefore remain
+visible to `-O2` without LTO, but the T workload's two-line `Add` is compiled once. An initial policy that
+rejected all control flow regressed an eight-iteration scalar loop on clang++; the optimized check
+caught that and the bounded recursive count replaced it. This is still a heuristic, not a guarantee
+of runtime neutrality for larger methods. The original rule of three Go statements would leave every
+T method inline.
+
+After the shared-type dependency closure is complete, the first using package in import order emits
+the body, in the **declaring package's namespace**. Its header already has the complete instance and
+type arguments. Defining every body in the declaring package would fail for `Box[importer.Local]` or
+require an import cycle. This choice does not change type identity or ownership, and another source
+file or package that uses the same instance does not emit another body. Nested instances and promoted
+method forwarders keep the existing ordering and inline adapters. There is no new `#line`
+deduplication: the moved body keeps its source positions, and the printer emits the required
+directives in the new context. Relocated bodies also receive the using package's macro protection,
+including names absent from the header.
+
+### Current matched compile check
+
+The unchanged `ctime_gen.py t 20 10` workload and its handwritten twin, g++ 15.3.0 and clang++ 21.1.8,
+Linux x86-64, `-O0 -g`, `-p 4`. Each compiler starts with a private empty runtime/PCH cache; an explicitly
+recorded hello build warms it, then all measured builds reuse that runtime/PCH. Program object caching
+and the up-to-date check are disabled (`GOCPP_NOOBJCACHE=1 GOCPP_NOUPTODATE=1`); module access is offline.
+OS page caches are not flushed, so this is not a cold-machine measurement. The same input paths,
+compiler command and flags are used by the baseline and candidate binaries.
+Compiler invocations are timed by the same transparent wrapper in both. Runs are serialized under the
+shared performance lock, but not CPU-pinned; load averages during the final builds were about 2.0–2.4.
+
+For each compiler the actual order is baseline generic, baseline hand, candidate generic, candidate
+hand, then the reverse order. All runs succeeded and printed `600`; no samples were excluded.
+CPU seconds (user + system), **both observations**, not the minimum:
+
+| Compiler | Generic baseline | Generic candidate | Hand baseline | Hand candidate |
+|---|---|---|---|---|
+| g++ | 25.022, 24.644 | 23.645, 23.469 | 10.379, 10.426 | 10.581, 10.530 |
+| clang++ | 14.717, 14.363 | 14.230, 13.956 | 7.464, 7.699 | 7.250, 7.302 |
+
+Generic wall seconds were 12.997, 12.695 → 12.240, 12.228 (g++) and 6.737, 6.608 → 6.464, 6.386
+(clang++). The handwritten control's generated files are byte-identical between baseline and candidate,
+yet its mean CPU time increased about 1.5% with g++ and decreased about 4% with clang++. Generic mean
+CPU decreased about 5% and 3%, respectively: **whole-build speedup remains inconclusive at this sample
+size/noise**, not the previously estimated +5–10% cost over hand-written code. The candidate still
+costs more than twice the handwritten twin with g++, and about twice with clang++.
+
+The deterministic improvement is less repeated method text: 200 `Add` definitions move out of the
+header; the 400 `Len`/`First` definitions stay inline. Header bytes fall from 1,052,956 to 903,338 with
+g++, and 1,053,756 to 904,138 with clang++ (about 14%). Source paths contribute to these absolute sizes.
+`pkg_desc.cpp` grows from 697 bytes to about 149,147 bytes. Per-unit CPU seconds for the generic program:
+
+| Compiler / unit | Baseline pair | Candidate pair |
+|---|---|---|
+| g++ source | 12.193, 11.896 | 11.462, 11.432 |
+| g++ descriptor | 5.817, 5.748 | 5.700, 5.702 |
+| g++ init | 5.811, 5.794 | 5.203, 5.168 |
+| clang++ source | 5.992, 5.863 | 5.731, 5.660 |
+| clang++ descriptor | 3.762, 3.635 | 3.653, 3.598 |
+| clang++ init | 3.765, 3.639 | 3.431, 3.367 |
+
+### Optimized non-LTO check
+
+A small `Counter[uint64]` program was built with `-cxxflags=-O2` and no LTO, with both compilers.
+Twenty million getter/setter iterations and four million calls of an eight-iteration arithmetic
+method were each run in five alternating baseline/candidate pairs. All outputs matched Go.
+An initial policy that outlined every loop regressed the arithmetic case on clang++ from a median
+19.879 ms to 35.543 ms (about 79%); that prototype and its raw samples are retained separately, not
+mixed into the final comparison. Counting loop initializers and bodies under the small-body budget
+keeps that method inline and removes this observed regression. The final medians (MAD), milliseconds:
+
+| Compiler / case | Baseline | Candidate |
+|---|---|---|
+| g++ getters/setters | 87.074 (0.281) | 86.786 (0.358) |
+| g++ small arithmetic loop | 35.612 (0.101) | 35.650 (0.251) |
+| clang++ getters/setters | 92.708 (0.209) | 92.178 (0.070) |
+| clang++ small arithmetic loop | 19.787 (0.155) | 19.787 (0.074) |
+
+These are narrow checks that the retained small methods still optimize, not proof that every
+out-of-line method is runtime-neutral. The cross-package fixture also compiles and runs at `-O2`
+with larger out-of-line methods, pointer/value receivers, promoted adapters and a closure.
+
+The compile and runtime tables above use the final candidate (SHA-256 beginning `5ed00b17`) against
+the unchanged baseline (`12d6a56d`). Earlier prototype runs are retained with the 15.7b handback;
+none are substituted for the final measurements or excluded from their own revision's samples.
+
+The historical 7.12 estimate also proposed suppressing repeated `#line` directives. This job does not
+implement that separate change, package PCH, shared-instance naming, modules or an external cache.
+Full 15.7 remains open; these measurements are not a project-wide performance acceptance.
 
 ## What to expect for a big program
 
+These historical 7.12 numbers illustrate scale, not current build-time budgets after 15.7b.
 A program with 2000 generic function instances builds in 17 s (g++) or 8 s (clang++) of CPU at `-O0`, in one
 translation unit when it is one file: the wall time is about the same, because one unit is one process. Split
 into several files the units compile in parallel. A program with 200 instances of generic types is 28 s (g++) or

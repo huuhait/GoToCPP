@@ -84,13 +84,7 @@ void main();
 
 #ifndef GP_INST_E0E468D0_STACK_POST
 #define GP_INST_E0E468D0_STACK_POST
-#line 10 "$ROOT/tests/golden/generics_types.gp"
-inline void gp_inst_e0e468d0_Stack::Push(gp::ptr<gp_inst_e0e468d0_Stack> s, int64_t v) {
-#line 10 "$ROOT/tests/golden/generics_types.gp"
-    s->items = gp::append(static_cast<gp::slice<int64_t>&&>(s->items), v);
-#line 10 "$ROOT/tests/golden/generics_types.gp"
-}
-
+#line 12 "$ROOT/tests/golden/generics_types.gp"
 inline int64_t gp_inst_e0e468d0_Stack::Len() const {
 #line 12 "$ROOT/tests/golden/generics_types.gp"
     const gp_inst_e0e468d0_Stack& s = *this;
@@ -128,6 +122,16 @@ namespace gpkg_main {
 inline const gp::imethod gp_im_Lenner[]{gp::imethod("Len", nullptr, "func() int")};
 const gp::type_desc gp_td_Lenner = gp::named<Lenner>("main.Lenner", "main", gp::shape_interface(gp_im_Lenner));
 const gp::type_desc* const gp_tdc_0 = gp::td_ptr<gp_inst_e0e468d0_Stack>(&gp_td_gp_inst_e0e468d0_Stack);
+
+} // namespace gpkg_main
+
+namespace gpkg_main {
+#line 10 "$ROOT/tests/golden/generics_types.gp"
+void gp_inst_e0e468d0_Stack::Push(gp::ptr<gp_inst_e0e468d0_Stack> s, int64_t v) {
+#line 10 "$ROOT/tests/golden/generics_types.gp"
+    s->items = gp::append(static_cast<gp::slice<int64_t>&&>(s->items), v);
+#line 10 "$ROOT/tests/golden/generics_types.gp"
+}
 
 } // namespace gpkg_main
 

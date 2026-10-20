@@ -135,6 +135,7 @@ func (p *Program) finishShared() {
 			it.owner().makeShared(it)
 		}
 	}
+	p.placeInstanceBodies()
 }
 
 // makeShared makes the definition of the shared type it, which this package owns.

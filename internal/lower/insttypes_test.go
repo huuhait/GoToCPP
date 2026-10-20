@@ -178,6 +178,253 @@ func main() { _ = Box[int]{} }
 
 var _ = check.LastPhase
 
+func TestInstanceMethodPlacement(t *testing.T) {
+	tests := []struct {
+		name   string
+		body   string
+		inline bool
+	}{
+		{"accessor", "return b.n", true},
+		{"three lowered statements", "n := b.n; return n + 1", true},
+		{"larger body", "a := b.n; c := a + 1; d := c + 1; return d", false},
+		{"nested loop", "for i := 0; i < b.n; i++ { b.n += i }; return b.n", false},
+		{"closure", "f := func() int { return b.n }; return f()", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := instProgram(t, "package main\n"+
+				"type Box[T any] struct { n int; v T }\n"+
+				"func (b Box[T]) Method() int { "+tt.body+" }\n"+
+				"func main() { println(Box[int]{}.Method()) }\n")
+			files, err := p.Lower()
+			if err != nil {
+				t.Fatal(err)
+			}
+			file := files[0]
+			header := string(cppir.Print(file.Header, ""))
+			var desc string
+			if file.Desc != nil {
+				desc = string(cppir.Print(file.Desc, ""))
+			}
+			definition := regexp.MustCompile(`(?m)^(inline )?int64_t gp_inst_\w+::Method\([^\n]*\) const \{`)
+			if got := len(definition.FindAllString(header, -1)); (got == 1) != tt.inline {
+				t.Fatalf("header has %d definitions, inline = %v:\n%s", got, tt.inline, header)
+			}
+			if got := len(definition.FindAllString(desc, -1)); (got == 0) != tt.inline {
+				t.Fatalf("descriptor unit has %d definitions, inline = %v:\n%s", got, tt.inline, desc)
+			}
+			if !strings.Contains(header, "int64_t Method() const;") {
+				t.Fatalf("header lost the method declaration:\n%s", header)
+			}
+			if !tt.inline && strings.Contains(definition.FindString(desc), "inline ") {
+				t.Fatal("out-of-line definition is inline")
+			}
+		})
+	}
+}
+
+func TestInstanceSmallLoopStaysInline(t *testing.T) {
+	p := instProgram(t, `package main
+
+type Box[T any] struct { n int; v T }
+func (b *Box[T]) Step() {
+	for i := 0; i < 8; i++ { b.n = b.n * 3 + 1 }
+}
+func main() { var b Box[int]; b.Step(); println(b.n) }
+`)
+	files, err := p.Lower()
+	if err != nil {
+		t.Fatal(err)
+	}
+	header := string(cppir.Print(files[0].Header, ""))
+	definition := regexp.MustCompile(`(?m)^inline void gp_inst_\w+::Step\([^\n]*\) \{`)
+	if !definition.MatchString(header) {
+		t.Fatalf("small scalar loop is not inline:\n%s", header)
+	}
+	if files[0].Desc != nil {
+		t.Fatal("small scalar loop unexpectedly needs a descriptor unit")
+	}
+}
+
+func TestInstanceExpandedMethodOutOfLine(t *testing.T) {
+	p := instProgram(t, `package main
+
+type Box[T any] struct { items []T; n int }
+func (b *Box[T]) Add(v T) { b.items = append(b.items, v); b.n++ }
+func main() { var b Box[int]; b.Add(1) }
+`)
+	files, err := p.Lower()
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := files[0]
+	if file.Desc == nil {
+		t.Fatal("expanded append body has no descriptor unit")
+	}
+	header := string(cppir.Print(file.Header, ""))
+	desc := string(cppir.Print(file.Desc, ""))
+	definition := regexp.MustCompile(`(?m)^void gp_inst_\w+::Add\([^\n]*\) \{`)
+	if !definition.MatchString(desc) || definition.MatchString(header) {
+		t.Fatalf("expanded two-statement body is not out of line:\nheader:\n%s\ndesc:\n%s", header, desc)
+	}
+}
+
+func TestInstanceMethodDefinitionOnceAcrossFiles(t *testing.T) {
+	fset, pkg, _ := checkFiles(t, map[string]string{
+		"main.gp": `package main
+
+type Box[T any] struct { n int; v T }
+func (b Box[T]) Method() int {
+	a := b.n
+	c := a + 1
+	d := c + 1
+	return d
+}
+func main() { println(Box[int]{}.Method(), other()) }
+`,
+		"other.gp": `package main
+func other() int { return Box[int]{}.Method() }
+`,
+	})
+	p := NewProgram(fset, []PackageInput{{Pkg: pkg}}, Options{})
+	files, err := p.Lower()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files[0].Units) != 2 {
+		t.Fatalf("%d source units, want 2", len(files[0].Units))
+	}
+	definitions := 0
+	for _, it := range p.instTypes {
+		if len(it.bodies) == 0 {
+			continue
+		}
+		definitions++
+		fn := it.bodies[0].(*cppir.Func)
+		if fn.Pos.Line != 4 || fn.Body.End.Line != 9 {
+			t.Fatalf("moved method source span = %v..%v, want lines 4..9", fn.Pos, fn.Body.End)
+		}
+		if filepath.Base(fn.Pos.File) != "main.gp" || fn.Pos.File != fn.Body.End.File {
+			t.Fatalf("moved method source files = %q..%q", fn.Pos.File, fn.Body.End.File)
+		}
+		definition := fn.Name + "("
+		desc := string(cppir.Print(files[0].Desc, ""))
+		mapped := make(map[int]bool)
+		for _, stmt := range fn.Body.Stmts {
+			switch stmt := stmt.(type) {
+			case *cppir.Line:
+				mapped[stmt.Pos.Line] = true
+			case *cppir.VarDecl:
+				mapped[stmt.Pos.Line] = true
+			case *cppir.Return:
+				mapped[stmt.Pos.Line] = true
+			}
+		}
+		for _, line := range []int{5, 6, 7, 8} {
+			if !mapped[line] {
+				t.Errorf("moved method lost source line %d", line)
+			}
+		}
+		count := strings.Count(desc, definition)
+		if count != 1 {
+			t.Fatalf("descriptor unit has %d definitions of %s", count, fn.Name)
+		}
+		for _, unit := range files[0].Units {
+			if strings.Contains(string(cppir.Print(unit.File, "")), definition) {
+				t.Fatalf("%s also defines %s", unit.Name, fn.Name)
+			}
+		}
+	}
+	if definitions != 1 {
+		t.Fatalf("%d out-of-line methods, want 1", definitions)
+	}
+}
+
+func TestInstanceMethodBodyUsesImportingPackage(t *testing.T) {
+	p := borrowForeignProgram(t, map[string]string{
+		"gocpp.mod": "module example.com/placement\n",
+		"a/a.gp": `package a
+
+type Box[T any] struct { Value T }
+func (b Box[T]) Copy() T {
+	x := b.Value
+	y := x
+	z := y
+	return z
+}
+`,
+		"b/b.gp": `package b
+import "example.com/placement/a"
+type Local struct { N int }
+func New() a.Box[Local] { return a.Box[Local]{Local{7}} }
+func Copy() Local { return New().Copy() }
+`,
+		"main.gp": `package main
+import "example.com/placement/b"
+func main() { println(b.Copy().N, b.New().Copy().N) }
+`,
+	})
+	files, err := p.Lower()
+	if err != nil {
+		t.Fatal(err)
+	}
+	definitions := 0
+	for _, file := range files {
+		if file.ImportPath == "example.com/placement/a" {
+			if strings.Contains(string(cppir.Print(file.Header, "")), "Local") {
+				t.Fatal("declaring package's header names its importer's type")
+			}
+		}
+		if file.Desc == nil {
+			continue
+		}
+		text := string(cppir.Print(file.Desc, ""))
+		count := len(regexp.MustCompile(`gp_inst_\w+::Copy\(\) const \{`).FindAllString(text, -1))
+		definitions += count
+		if count > 0 && file.ImportPath != "example.com/placement/b" {
+			t.Fatalf("method body is in %s, want the first using package b", file.ImportPath)
+		}
+	}
+	if definitions != 1 {
+		t.Fatalf("%d imported method definitions, want 1", definitions)
+	}
+}
+
+func TestInstanceMethodBodyMacroProtection(t *testing.T) {
+	p := borrowForeignProgram(t, map[string]string{
+		"gocpp.mod": "module example.com/methodmacro\n",
+		"lib/lib.gp": `package lib
+
+type Box[T any] struct { Value T }
+func (b Box[T]) Copy() T {
+	local := b.Value
+	next := local
+	result := next
+	return result
+}
+`,
+		"main.gp": `package main
+import "example.com/methodmacro/lib"
+func main() { println(lib.Box[int]{7}.Copy()) }
+`,
+	})
+	// The importer's native includes may introduce a macro whose name only occurs in the
+	// declaring package's method body, not in the instance's header declarations.
+	p.gens[len(p.gens)-1].macros = map[string]bool{"local": true}
+	files, err := p.Lower()
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := files[len(files)-1]
+	if file.Desc == nil {
+		t.Fatal("no descriptor unit for imported method")
+	}
+	text := string(cppir.Print(file.Desc, ""))
+	if !strings.Contains(text, "#undef local\n") {
+		t.Fatalf("moved method is not protected from the importer's macro:\n%s", text)
+	}
+}
+
 // TestInstanceForwarders checks that an instance that embeds another type has the members that
 // forward the promoted methods: its descriptor has a method table that calls them, and an instance
 // is one text for all the packages that mention it, so what it has can't depend on which asks.

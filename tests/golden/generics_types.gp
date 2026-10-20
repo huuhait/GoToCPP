@@ -1,6 +1,6 @@
 // phase: 07
 
-// Instances of generic types: one struct, descriptor and method set for each list of type arguments, named gp_inst_<hash>_<Name> in the namespace of the package that declares the type, written in the header with the methods inline.
+// Generic instances keep their declaring namespace and small methods inline; larger bodies are defined once in the descriptor unit.
 package main
 
 import "fmt"

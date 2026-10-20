@@ -95,11 +95,13 @@ func (g *gen) files() *PackageFiles {
 		}
 		desc = append(desc, parts.impl.def...)
 	}
-	if len(desc) > 0 || parts != nil && len(parts.globalFwd) > 0 {
+	bodies := g.instanceBodies()
+	if len(desc) > 0 || len(bodies) > 0 || parts != nil && len(parts.globalFwd) > 0 {
 		pf.Desc = g.unitFile(pf, "pkg_desc.cpp", desc)
 		if parts != nil && len(parts.globalFwd) > 0 {
 			pf.Desc.Decls = append(pf.Desc.Decls, parts.globalFwd...)
 		}
+		pf.Desc.Decls = append(pf.Desc.Decls, bodies...)
 	}
 	pf.Init = g.initFile(pf)
 	if g.err != nil {

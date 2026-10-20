@@ -1,6 +1,6 @@
 # Phase 15: Optimization, Hardening & Release · STATE
 
-**Status:** `[~]` in progress (15.1-15.3, 15.5, 15.7a, 15.8-15.11, 15.13-15.15 and 15.17 merged; 15.6a merged and 15.7b in review; remaining implementation/release steps and exit criteria are open)
+**Status:** `[~]` in progress (15.1-15.3, 15.5, 15.7a, 15.8-15.11, 15.13-15.15 and 15.17 merged; 15.6a and 15.7b merged; 15.6b in progress; remaining implementation/release steps and exit criteria are open)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-20
 
@@ -21,7 +21,7 @@
 - [~] 15.7 Compile-time work (`extern template`, ccache/sccache, C++20 modules evaluation)
   - [x] 15.7a Existing external-cache launcher workflow documented and tested; clean review and manager focused checks, no redundant configuration knob
   - [ ] Real ccache/sccache statistics remain unmeasured: neither tool was available in the checked environment
-  - [~] 15.7b Generic-type body placement: move larger method bodies out of repeatedly parsed headers, preserving small-method inlining and instance identity; focused correctness and matched compile-time checks required
+  - [x] 15.7b Generic-type body placement: larger methods emitted once, small methods kept inline; clean independent review and focused source/integrated checks. Measured header size is smaller; whole-build speed benefit remains inconclusive
   - [ ] 15.7c C++20 modules evaluation remains separate, unstarted work
 
 ### Robustness
@@ -49,6 +49,22 @@
 - [ ] Installable via `go install`, release binary, `nix run` (also on NixOS); docs site live
 
 ## Decisions / notes
+
+- 2026-10-20: 15.7b integrated from reviewed source `724fac60` (bounded ADR-105 option 1).
+  Larger generic-type methods are emitted once in a using package's descriptor unit, retaining
+  the declaring namespace and semantic owner. A recursive three-lowered-statement policy
+  keeps small methods inline; an initial tiny-loop regression was fixed before acceptance.
+  Independent whole-net review is clean; its wording nit was corrected to say that no new
+  translation-unit kind is introduced, although `pkg_desc.cpp` is created when needed.
+  Manager checks passed: placement/naming/policy tests, six GCC/Clang package fixtures,
+  the relevant golden, optimized non-LTO fixture and real-Go comparison. Combined checks
+  with 15.6a passed, including four goldens, two package fixtures, two runtime fixtures and
+  three Go comparisons without selected-case skips. Docsite checked 224 pages.
+  The measured T20x10 headers are about 14% smaller (200 bodies moved, 400 accessors inline).
+  Generic mean build CPU fell about 5.1%/3.1%, but unchanged controls varied +1.5%/-4.0%,
+  so whole-build speed benefit remains inconclusive. No timing replay or full sweep was run
+  by the manager; no universal runtime-neutrality or Windows claim is made. Modules,
+  external-cache statistics, package PCH and full performance acceptance remain separate.
 
 - 2026-10-20: 15.6a integrated from reviewed source `01ec0226` (ADR-118). A direct adapter
   reuses the existing owning method-table thunk only for tightly proven same-package,
