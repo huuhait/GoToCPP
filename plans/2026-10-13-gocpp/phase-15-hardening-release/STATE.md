@@ -22,7 +22,7 @@
   - [x] 15.7a Existing external-cache launcher workflow documented and tested; clean review and manager focused checks, no redundant configuration knob
   - [ ] Real ccache/sccache statistics remain unmeasured: neither tool was available in the checked environment
   - [x] 15.7b Generic-type body placement: larger methods emitted once, small methods kept inline; clean independent review and focused source/integrated checks. Measured header size is smaller; whole-build speed benefit remains inconclusive
-  - [ ] 15.7c C++20 modules evaluation remains separate, unstarted work
+  - [~] 15.7c Bounded C++20 module/header-unit prototype against the existing PCH; evaluation only, no production adoption
 
 ### Robustness
 - [x] 15.8 Fuzzing (parse → check → lower → emit; sampled C++ compiles)

@@ -25,7 +25,8 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] 15.6a: proven-concrete interface calls integrated after clean review and focused source/integration checks; ownership, ordering, nil/recover behavior and dynamic fallback preserved. Kernel speedups are not whole-project performance acceptance.
 - [x] 15.7b: generic-type method body placement integrated after clean review and focused source/integrated checks. Measured header size is about 14% smaller; whole-build speed benefit remains inconclusive. Modules remain separate.
 - [~] 15.6b: verify existing range-bound snapshots and branch hints; add focused coverage and only justified improvements.
-- [ ] Next: remaining 12.13 editor features, remaining 15.7 and 15.4 in dependency order.
+- [~] 15.7c: evaluate C++20 modules/header units with available GCC/Clang against the existing PCH; no production build-system adoption.
+- [ ] Next: remaining 12.13 editor features, real external-cache measurements and 15.4 in dependency order.
 
 At most five active workers, including reviewers; start the next review as its coder releases a slot.
 Only necessary focused checks. No `make ci`, `verify.sh` or full sweeps by any worker or

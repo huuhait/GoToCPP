@@ -14,7 +14,7 @@ typing rows, no qualifying slowdown or code change. Step 15.6a concrete-interfac
 is integrated after clean review and focused source/integration checks. Step 15.7b generic
 body placement is also integrated: measured headers are smaller, but whole-build speed
 benefit remains inconclusive. Active jobs are 12.13a background header indexing/completion
-review fixes and bounded 15.6b bounds-check help.
+re-review, bounded 15.6b bounds-check help, and a 15.7c C++20 modules evaluation.
 The 9.13a changes passed independent re-review and focused source/integrated manager
 checks. Full 9.13/M6 remain open; no release or tag is authorized.
 User-owned `c4/` has not been changed by the manager.
@@ -31,9 +31,10 @@ User-owned `c4/` has not been changed by the manager.
 | 9.13a release preparation | `../GoToCPP-9.13` / `job/9.13` | Integrated from `235ca9ba` after clean round-2 review and focused source/integrated manager checks. Notices, installation instructions and byte-identical reserved-filename repair included; real offline local-proxy installation passes. No release archives, Nix installation, new platform run or publication. Full 9.13/M6 remain open. |
 
 One coder and one independent reviewer per job, sequentially: no subject edits during review,
-no delegation by workers, and final reports only except genuinely blocked decisions. Two
-workers are active: the 12.13a coder addressing the complete first-review findings and the
-15.6b coder. The bounds-check worktree is
+no delegation by workers, and final reports only except genuinely blocked decisions. Three
+workers are active: the 12.13a independent re-reviewer, the 15.6b coder, and the 15.7c
+prototype worker. The module evaluation is in `../GoToCPP-15.7c` on `job/15.7c`, based on
+`a4316076`; it does not authorize production module adoption. The bounds-check worktree is
 `../GoToCPP-15.6b` on `job/15.6b`, based on `a07dda2a`; existing safe range and branch-hint
 behavior is checked before considering any new optimization. The new 15.7b worktree is
 `../GoToCPP-15.7b` on `job/15.7b`, based on `1c7081e9`; larger generic-type bodies are its
