@@ -2,8 +2,8 @@
 #
 # Release binaries of gocpp: linux amd64 and arm64, windows amd64, with checksums. The C++
 # runtime and the standard library are embedded in the binary (go:embed, ADR-009), so an archive
-# holds the program, LICENSE and README.md and nothing else. CGO is off: the binaries are static
-# and the same on every system.
+# holds the program, LICENSE, THIRD_PARTY_NOTICES.txt and README.md. CGO is off: the gocpp
+# executable is static; programs it generates still use the selected C++ toolchain.
 #
 # Try it without a release, which builds everything into dist/ and publishes nothing:
 #
@@ -60,6 +60,7 @@ archives:
     name_template: "gocpp_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - LICENSE
+      - THIRD_PARTY_NOTICES.txt
       - README.md
 
 checksum:

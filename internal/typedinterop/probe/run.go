@@ -169,9 +169,9 @@ type Runner struct {
 
 	declRuns int
 
-	tcMu      sync.Mutex              // one toolchain question at a time (aux.go)
+	tcMu      sync.Mutex              // one toolchain question at a time (auxiliary.go)
 	st        store                   // the entries this Runner made or read (cache.go)
-	dirsMemo  map[string][]string     // the compiler's include search path, by config (aux.go)
+	dirsMemo  map[string][]string     // the compiler's include search path, by config (auxiliary.go)
 	infoMemo  map[string]*includeInfo // the includes of a preamble, by config and contents of its headers (includes.go)
 	infoReads map[string]infoRead     // what each infoMemo answer was made for, by the key of the preamble
 	buildCtx  context.Context         // SetBuildContext

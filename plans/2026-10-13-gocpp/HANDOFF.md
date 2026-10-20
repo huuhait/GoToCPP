@@ -5,11 +5,13 @@
 This section supersedes the older checkpoints below. The user asked to continue the work
 and plan, keeping the latest limit of **five active workers total**, including reviewers.
 
-At recovery, `dev` was `94c4a6d9`. The current pushed checkpoint is `ca4819df`: 9.12 docs,
-11.14 guarded checks, the safe PCH/prefetch portion of 12.14, 15.2 escape analysis, and 15.7a
-compiler-cache documentation/tests are now integrated. The global LSP and cold-probing
-performance criteria remain open. The new active jobs are 11.14b targeted measurements,
-12.13a background header indexing/completion, and 9.13a release-preparation review.
+At recovery, `dev` was `94c4a6d9`. Integrated work now includes 9.12 docs, 11.14 guarded
+checks, the safe PCH/prefetch portion of 12.14, 15.2 escape analysis, 15.7a compiler-cache
+documentation/tests, and 9.13a release preparation. The global LSP and cold-probing
+performance criteria remain open. Active jobs are 11.14b targeted measurements,
+12.13a background header indexing/completion, and 15.6a interface-call optimization.
+The 9.13a changes passed independent re-review and focused source/integrated manager
+checks. Full 9.13/M6 remain open; no release or tag is authorized.
 User-owned `c4/` has not been changed by the manager.
 
 | Job | Existing worktree / branch | Resume gate |
@@ -19,13 +21,14 @@ User-owned `c4/` has not been changed by the manager.
 | 15.2 escape analysis | `../GoToCPP-15.2` / `job/15.2` | Integrated from `b68eb6ac` after clean whole-net review and passing focused/combined manager checks. Array aliases, shared stack budgets, generic facts and shadow-dependent holders are covered. Full benchmarks and platform acceptance remain open. |
 | 9.12 stdlib documentation | `../GoToCPP-9.12` / `job/9.12` | Integrated from `b5c96982` after clean round-2 review and passing manager inventory/link/snippet/whitespace checks. The release candidate and full Phase 09 acceptance remain open. |
 | 15.7a compiler-cache integration | `../GoToCPP-15-15.7` / `job/15-15.7` | Existing launcher support documented/tested and integrated from `a67c4e69` after clean review and manager checks. No production change, real cache-hit evidence or speedup claim. Remaining 15.7 work is open. |
+| 9.13a release preparation | `../GoToCPP-9.13` / `job/9.13` | Integrated from `235ca9ba` after clean round-2 review and focused source/integrated manager checks. Notices, installation instructions and byte-identical reserved-filename repair included; real offline local-proxy installation passes. No release archives, Nix installation, new platform run or publication. Full 9.13/M6 remain open. |
 
 One coder and one independent reviewer per job, sequentially: no subject edits during review,
 no delegation by workers, and final reports only except genuinely blocked decisions. Three
-workers are currently active: the 12.13a and 11.14b coders and the 9.13a reviewer. Start the next
-review when its coder finishes; never fill slots with blocked work. Continue those subjobs,
-then the remaining 12.13 editor features, 15.6, 15.7 and 15.4 in dependency order. An unmet exit criterion is not waived by merging
-an independently reviewed partial improvement.
+coders are currently active: 12.13a, 11.14b and 15.6a. Start the next review when its coder
+finishes; never fill slots with blocked work. Continue those subjobs, then the remaining
+12.13 editor features, 15.6, 15.7 and 15.4 in dependency order. An unmet exit criterion is
+not waived by merging an independently reviewed partial improvement.
 
 Only necessary focused checks may run. Nobody runs `make ci`, `verify.sh`, full test,
 interop, phase or sanitizer sweeps; final broad verification belongs to the user. Heavy work

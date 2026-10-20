@@ -21,7 +21,8 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] 15.7a: existing compiler-cache launcher support documented and tested, with clean review and manager checks. Real-cache statistics were not measured because the tools were unavailable; remaining 15.7 work stays open.
 - [~] 12.13a: background header indexing and header/namespace completion; member/hover work remains separate.
 - [~] 11.14b: targeted current-build typing/completion comparisons, including a workload where settle runs.
-- [~] 9.13a: release-candidate preparation is in independent review; no tag or release is authorized.
+- [x] 9.13a: release-preparation notes, distribution notices, reserved module filename and Nix phase-gating fixes integrated after clean re-review and focused source/integrated manager checks. Full 9.13/M6 remain open; no tag or release is authorized.
+- [~] 15.6a: proven-concrete interface calls, preserving dynamic fallback and ownership.
 - [ ] Next: remaining 12.13 editor features, 15.6, remaining 15.7 and 15.4 in dependency order.
 
 At most five active workers, including reviewers; start the next review as its coder releases a slot.

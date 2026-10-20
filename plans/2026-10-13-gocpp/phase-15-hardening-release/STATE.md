@@ -1,6 +1,6 @@
 # Phase 15: Optimization, Hardening & Release · STATE
 
-**Status:** `[~]` in progress (15.1-15.3, 15.5, 15.8-15.11, 15.13-15.15 and 15.17 merged; 15.7a in progress; remaining implementation/release steps and exit criteria are open)
+**Status:** `[~]` in progress (15.1-15.3, 15.5, 15.7a, 15.8-15.11, 15.13-15.15 and 15.17 merged; 15.6a in progress; remaining implementation/release steps and exit criteria are open)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-20
 
@@ -15,7 +15,9 @@
   - [x] targeted pointer/value generators and owner-drop regressions under ASan; corrected real-runner smoke passed, not a full campaign
 - [ ] 15.4 Intrusive refcount experiment (keep only if it wins)
 - [x] 15.5 Swiss-table maps
-- [ ] 15.6 Devirtualization + bounds-check help
+- [~] 15.6 Devirtualization + bounds-check help
+  - [~] 15.6a Proven-concrete interface-call devirtualization; dynamic fallback and ownership preserved
+  - [ ] 15.6b Bounds-check help
 - [~] 15.7 Compile-time work (`extern template`, ccache/sccache, C++20 modules evaluation)
   - [x] 15.7a Existing external-cache launcher workflow documented and tested; clean review and manager focused checks, no redundant configuration knob
   - [ ] Real ccache/sccache statistics remain unmeasured: neither tool was available in the checked environment

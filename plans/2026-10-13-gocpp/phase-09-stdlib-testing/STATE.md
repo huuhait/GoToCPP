@@ -27,7 +27,9 @@
 - [x] 9.10 Go's tests: tier 1 + deferred suites (slices/maps/cmp/iter, rangefunc, rest of `test/chan`); test-only packages; counting rule (merged 2026-10-20, ADR-113; `go run ./tools/stdgocount -check`; guide docs/guides/stdlib-tests.md)
 - [x] 9.11 Tier-2 packages (`encoding/json` first)
 - [x] 9.12 Docs (package list, differences, porting guide): independent round-2 review clean; manager inventory, links, snippets and whitespace checks passed
-- [ ] 9.13 v0.1 release candidate
+- [~] 9.13 v0.1 release candidate
+  - [x] 9.13a Preparation notes, distribution notices and local installation repair: independent re-review clean; focused source and integrated manager checks passed
+  - [ ] Final acceptance, platform/archive validation and explicit release approval
 
 ## Exit criteria
 
@@ -39,6 +41,18 @@
 - [ ] `encoding/json` round-trips like Go
 
 ## Decisions / notes
+
+- 2026-10-20: 9.13a integrated from reviewed source `235ca9ba`. Preparation notes preserve
+  the open tier-1, JSON, platform and final release gates. Distribution configuration includes
+  the Go, Sun/SunSoft and Cephes notices without changing the project license. The reserved
+  module-zip basename `aux.go` was renamed byte-for-byte to `auxiliary.go`; integration retains
+  all current PCH/prefetch fields and changes only two filename comments in `run.go`.
+  Independent round-2 review is clean. Manager source checks passed: offline local-proxy
+  installation and execution, notice/configuration checks, links/markers and all four checks
+  of the new packaging sample. Combined-tree installation, notice/configuration and focused
+  probe checks passed; the integrated docsite has 223 pages and no broken link. No selected
+  installation test skipped. No actual release archives, Nix package build/install, new
+  Windows/arm64 run, full sweep, tag or publication was performed. Full 9.13/M6 remain open.
 
 - 2026-10-20: 9.12 integrated from reviewed source `b5c96982`. The checked inventory covers
   51 public and 20 internal packages; target columns describe source selection, not platform

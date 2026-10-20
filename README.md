@@ -102,8 +102,11 @@ go install github.com/huuhait/gocpp/cmd/gocpp@latest    # needs Go 1.25 and a C+
 nix run github:huuhait/gocpp -- run hello.gp             # brings g++ and clang++
 ```
 
-Release archives (linux amd64/arm64, windows amd64) come with the releases. The runtime and the
-standard library are inside the binary. [docs/guides/packaging.md](docs/guides/packaging.md) has the details.
+Release archives are configured for linux amd64/arm64 and windows amd64; that is not a claim
+that a v0.1 release is available or validated on every target. The runtime and standard library
+are inside the binary. [Installation](docs/guides/packaging.md) covers source builds and the
+packaging mechanisms; [v0.1 preparation](docs/guides/release-candidate.md) records the draft
+changelog, known limits and open acceptance gates. No release is approved by these notes.
 
 ## Build and test
 

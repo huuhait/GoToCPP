@@ -7,6 +7,7 @@ faq.md | FAQ
 guides/go-developers.md | For Go developers
 guides/cpp-developers.md | For C++ developers
 guides/packaging.md | Installing gocpp
+guides/release-candidate.md | v0.1 preparation
 
 # Tour
 tour/README.md | Introduction

@@ -39,6 +39,7 @@
               ./go.mod
               ./go.sum
               ./LICENSE
+              ./THIRD_PARTY_NOTICES.txt
               ./cmd
               ./internal
               ./stdlib
@@ -95,6 +96,8 @@
           nativeBuildInputs = [ pkgs.makeWrapper ];
           postInstall = ''
             wrapProgram $out/bin/gocpp --prefix PATH : ${lib.makeBinPath compilers}
+            install -Dm644 LICENSE $out/share/doc/gocpp/LICENSE
+            install -Dm644 THIRD_PARTY_NOTICES.txt $out/share/doc/gocpp/THIRD_PARTY_NOTICES.txt
           '';
 
           # No hardening flags from the compiler wrappers (see the dev shell).

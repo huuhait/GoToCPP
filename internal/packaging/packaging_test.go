@@ -120,7 +120,7 @@ func TestGoReleaserConfig(t *testing.T) {
 		"goarch:\n      - amd64\n      - arm64\n",
 		"- goos: windows\n        goarch: arm64\n", // no Windows arm64 build
 		"format_overrides:\n      - goos: windows\n        formats:\n          - zip\n",
-		"- LICENSE\n",
+		"files:\n      - LICENSE\n      - THIRD_PARTY_NOTICES.txt\n      - README.md\n",
 		"algorithm: sha256\n",
 		"draft: true\n", // nothing is public until someone publishes the release
 	} {
@@ -133,6 +133,51 @@ func TestGoReleaserConfig(t *testing.T) {
 	}
 	if !strings.Contains(cfg, "-X github.com/huuhait/gocpp/internal/version.Version=v{{ .Version }}") {
 		t.Errorf(".goreleaser.yaml: ldflags must set internal/version.Version to v{{ .Version }}")
+	}
+}
+
+func TestThirdPartyNotices(t *testing.T) {
+	notices := readRepoFile(t, "THIRD_PARTY_NOTICES.txt")
+
+	t.Run("Go license", func(t *testing.T) {
+		license := strings.TrimSpace(readRepoFile(t, "stdlib/LICENSE"))
+		if !strings.Contains(notices, license) {
+			t.Error("THIRD_PARTY_NOTICES.txt must reproduce the full Go license")
+		}
+	})
+
+	for _, tc := range []struct {
+		name  string
+		path  string
+		start string
+		end   string
+	}{
+		{"SunPro 1993", "stdlib/math/log.gp", "Copyright (C) 1993", "is preserved."},
+		{"SunSoft 1993", "stdlib/math/cbrt.gp", "Copyright (C) 1993", "is preserved."},
+		{"Sun 2004", "stdlib/math/exp.gp", "Copyright (C) 2004", "is preserved."},
+		{"Cephes", "stdlib/math/sin.gp", "Cephes Math Library Release", "moshier@na-net.ornl.gov"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Strip only the Go comment prefix, keeping the upstream notice's text and spacing.
+			var lines []string
+			for _, line := range strings.Split(readRepoFile(t, tc.path), "\n") {
+				line = strings.TrimPrefix(line, "// ")
+				lines = append(lines, strings.TrimPrefix(line, "//"))
+			}
+			source := strings.Join(lines, "\n")
+			start := strings.Index(source, tc.start)
+			if start < 0 {
+				t.Fatalf("%s: missing notice start %q", tc.path, tc.start)
+			}
+			end := strings.Index(source[start:], tc.end)
+			if end < 0 {
+				t.Fatalf("%s: missing notice end %q", tc.path, tc.end)
+			}
+			notice := source[start : start+end+len(tc.end)]
+			if !strings.Contains(notices, notice) {
+				t.Errorf("THIRD_PARTY_NOTICES.txt must preserve the notice from %s", tc.path)
+			}
+		})
 	}
 }
 
@@ -189,6 +234,15 @@ func TestFlakePackage(t *testing.T) {
 	} {
 		if !strings.Contains(flake, want) {
 			t.Errorf("flake.nix lacks %q", want)
+		}
+	}
+	for _, want := range []string{
+		"./THIRD_PARTY_NOTICES.txt\n",
+		"install -Dm644 LICENSE $out/share/doc/gocpp/LICENSE",
+		"install -Dm644 THIRD_PARTY_NOTICES.txt $out/share/doc/gocpp/THIRD_PARTY_NOTICES.txt",
+	} {
+		if !strings.Contains(flake, want) {
+			t.Errorf("flake.nix: missing distribution notice input or install command %q", want)
 		}
 	}
 	// Every file the Go program embeds is in the source of the package.
