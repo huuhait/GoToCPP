@@ -32,7 +32,7 @@ import (
 
 // checkUsage is the help text of "gocpp check". "gocpp check -h" prints
 // it, followed by the flags.
-const checkUsage = `usage: gocpp check [-e] [-tags list] [-types] [packages]
+const checkUsage = `usage: gocpp check [-e] [-interop mode] [-tags list] [-types] [-v] [packages]
 
 gocpp check parses and type-checks the packages and prints their errors
 the way go build prints compile errors: a line "# <import path>" before
@@ -74,7 +74,7 @@ position, its mode (value, var, const, type, ...), its source text and
 its type. A value that comes from C or C++ prints as opaque. A
 definition (def var, def func, ...) prints the type of the new name.
 
-The flags are:
+` + interopHelp + `The flags are:
 `
 
 // runCheck is "gocpp check" (phase 01 README §2.12): it loads the
@@ -90,6 +90,8 @@ func runCheck(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	flags.Var(tagsFlag{&c.tags}, "tags", "a comma-separated `list` of build tags that are satisfied, like go build -tags")
 	var cross crossFlags
 	cross.register(flags)
+	c.interop.register(flags)
+	flags.BoolVar(&c.verbose, "v", false, "print a note about the interop mode in use (typed or opaque, and why)")
 	flags.Usage = func() {
 		fmt.Fprint(stderr, checkUsage)
 		flags.PrintDefaults()
@@ -188,8 +190,18 @@ type checkCommand struct {
 	// (check.Config.PkgConfig): gocpp build -x and run -x print the runs.
 	pkgConfig build.PkgConfigFunc
 
+	// interop is the -interop flag of the command (interop.go); the environment decides when it is
+	// empty. typed is the typed pipeline of the command, made by prepareTyped once the packages
+	// are loaded. verbose prints the notes about the decision (check -v, build -v). noTyped keeps
+	// the pipeline off whatever the mode is: the hidden commands of typed interop run the parts
+	// themselves.
+	interop interopFlag
+	typed   *typedState
+	verbose bool
+	noTyped bool
+
 	// typedMembers turns the second pass for promoted C++ members on (check.Config.CppMembers)
-	// although GOCPP_TYPED_INTEROP is not set: the hidden commands of typed interop.
+	// whatever the mode is: the hidden commands of typed interop.
 	typedMembers bool
 
 	// kinds: the namespace probe asks the kind probe also about the C/C++
@@ -299,6 +311,13 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 		c.afterLoad(prog)
 	}
 
+	// The interop mode: typed interop runs when the mode says so and clang++ is there (interop.go).
+	if !c.noTyped {
+		if code, ok := c.prepareTyped(prog); !ok {
+			return prog, nil, code
+		}
+	}
+
 	// The namespace probe runs the C++ compiler of the target (GOOS,
 	// GOARCH) for the files with header imports. ^C (or SIGTERM, SIGHUP)
 	// stops it: the compiler runs in its own process group, which the
@@ -318,10 +337,7 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 			return interop.ProbeKinds(ctx, cxx, dir, flags, includes, all)
 		}
 	}
-	cfg.Constants = typedConstants() // E1 of typed interop: only with GOCPP_TYPED_INTEROP=1 (typedlower.go)
-	if c.typedMembers || typedLowering() {
-		cfg.CppMembers = c.membersHook() // the second pass for promoted C++ members (typedmembers.go)
-	}
+	c.typedHooks(&cfg) // gap E1 (constants) and gap E2 (promoted members) of typed interop (interop.go)
 	c.typeChecked = true
 	r := check.Check(prog, cfg)
 	if c.ctx != nil && c.ctx.Err() != nil {
@@ -330,6 +346,7 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 		}
 		return prog, nil, exitErrors
 	}
+	c.analyzeTyped(prog, r) // the early errors of typed interop, and the reports for the code generation
 	failed := false
 	// broken holds the packages with errors and the packages that import
 	// one, directly or not. Like go build, which doesn't compile a package

@@ -14,7 +14,7 @@ import (
 )
 
 // The programs of tests/typed (Phase 12 step 12.6, ADR-087): what typed code generation can do and
-// opaque mode cannot, or does differently. Each is built and run with GOCPP_TYPED_INTEROP=1 with
+// opaque mode cannot, or does differently. Each is built and run with GOCPP_INTEROP=typed with
 // both compilers and prints what its C++ twin (tests/typed/twin/NAME.cpp, compiled with both
 // compilers by TestTypedTwin) prints: the expected output is C++'s, not the lowering's own.
 //
@@ -160,7 +160,7 @@ func TestTypedRun(t *testing.T) {
 				if why := missingLibs(p.libs); why != "" {
 					t.Skip(why)
 				}
-				t.Setenv("GOCPP_TYPED_INTEROP", "1")
+				t.Setenv("GOCPP_INTEROP", "typed")
 				switch {
 				case p.errorRE != nil:
 					r := gocppRun("", false, "build", "-o", filepath.Join(t.TempDir(), "x"), p.file)
@@ -187,7 +187,7 @@ func TestTypedRun(t *testing.T) {
 				if p.opaque == "" || p.errorRE != nil {
 					return
 				}
-				t.Setenv("GOCPP_TYPED_INTEROP", "")
+				t.Setenv("GOCPP_INTEROP", "opaque")
 				switch p.opaque {
 				case "reject":
 					if r := gocppRun("", false, "build", "-o", filepath.Join(t.TempDir(), "x"), p.file); r.code == 0 {

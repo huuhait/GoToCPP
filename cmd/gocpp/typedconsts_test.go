@@ -7,7 +7,7 @@ import (
 )
 
 // The constants of typed interop (Phase 12 step 12.8, gap E1, ADR-097) through the driver: with
-// GOCPP_TYPED_INTEROP=1 the C/C++ names that sit where Go needs a constant are probed before go/types
+// GOCPP_INTEROP=typed the C/C++ names that sit where Go needs a constant are probed before go/types
 // and become constants; without it, or without clang, the program is checked as in opaque mode.
 func TestTypedConsts(t *testing.T) {
 	const hdr = `#pragma once
@@ -50,7 +50,7 @@ func main() { _ = f(0) + len(buf) + len(grid) + half + len(name) }
 	t.Setenv("GOCPP_CXX", "clang++")
 
 	// Typed mode: the program checks, and the constants are in the C++.
-	t.Setenv("GOCPP_TYPED_INTEROP", "1")
+	t.Setenv("GOCPP_INTEROP", "typed")
 	if r := gocppRun("", false, "check", "a.gp"); r.code != 0 || r.stdout != "" || r.stderr != "" {
 		t.Fatalf("typed check: exit %d\n%s%s", r.code, r.stdout, r.stderr)
 	}
@@ -71,15 +71,16 @@ func main() { _ = f(0) + len(buf) + len(grid) + half + len(name) }
 		}
 	}
 
-	// Opaque mode (the default) is unchanged: the names are not constants for go/types, the phase gate says so.
+	// Opaque mode is unchanged: the names are not constants for go/types, the phase gate says so.
 	opaqueWant := "./a.gp:8:14: C macros in constant expressions are not supported yet (Phase 12)"
-	t.Setenv("GOCPP_TYPED_INTEROP", "")
+	t.Setenv("GOCPP_INTEROP", "opaque")
 	if r := gocppRun("", false, "check", "a.gp"); r.code == 0 || !strings.Contains(r.stderr, opaqueWant) {
 		t.Errorf("opaque check: exit %d\n%s", r.code, r.stderr)
 	}
 
-	// Typed mode without a clang to probe with: the same as opaque mode, no error of its own.
-	t.Setenv("GOCPP_TYPED_INTEROP", "1")
+	// Auto mode without a clang to probe with: the same as opaque mode, no error of its own. (Typed
+	// mode without clang is an error: TestInteropNoClang.)
+	t.Setenv("GOCPP_INTEROP", "auto")
 	t.Setenv("GOCPP_CLANG", "/nonexistent/clang++")
 	if r := gocppRun("", false, "check", "a.gp"); r.code == 0 || !strings.Contains(r.stderr, opaqueWant) || strings.Contains(r.stderr, "cannot evaluate") {
 		t.Errorf("typed check without clang: exit %d\n%s", r.code, r.stderr)
@@ -98,7 +99,7 @@ var d [c]int
 
 func main() {}
 `})
-	t.Setenv("GOCPP_TYPED_INTEROP", "1")
+	t.Setenv("GOCPP_INTEROP", "typed")
 	r := gocppRun("", false, "check", "-e", "b.gp")
 	want := `# command-line-arguments
 ./b.gp:5:8: array length k.NEXT must be constant: the C++ compiler cannot evaluate it at compile time (non-type template argument is not a constant expression)
@@ -143,7 +144,7 @@ func main() { _ = v + s + len(n) + len(arr) + len(buf) + int(h) }
 	typedEnv(t)
 	inDir(t, map[string]string{"g.hpp": hdr, "a.gp": src, "gocpp.mod": "module m\n"})
 	needClang(t)
-	t.Setenv("GOCPP_TYPED_INTEROP", "1")
+	t.Setenv("GOCPP_INTEROP", "typed")
 	t.Setenv("GOCPP_CXX", "clang++")
 
 	em := gocppRun("", false, "emit", "a.gp")
@@ -165,14 +166,14 @@ func main() { _ = v + s + len(n) + len(arr) + len(buf) + int(h) }
 		t.Errorf("SAME is asserted %d times, want once however often it is used", n)
 	}
 	// Opaque mode writes none.
-	t.Setenv("GOCPP_TYPED_INTEROP", "")
+	t.Setenv("GOCPP_INTEROP", "opaque")
 	inDir(t, map[string]string{"g.hpp": hdr, "b.gp": "package main\n\nimport \"./g.hpp\"\n\nfunc main() { _ = g.VV }\n", "gocpp.mod": "module m\n"})
 	if op := gocppRun("", false, "emit", "b.gp"); op.code != 0 || strings.Contains(op.stdout, "static_assert") {
 		t.Errorf("opaque emit (exit %d):\n%s%s", op.code, op.stdout, op.stderr)
 	}
 
 	// clang builds it; g++ sees VV as 2 and the build fails at the line of the use, in the words of the guard.
-	t.Setenv("GOCPP_TYPED_INTEROP", "1")
+	t.Setenv("GOCPP_INTEROP", "typed")
 	inDir(t, map[string]string{"g.hpp": hdr, "a.gp": src, "gocpp.mod": "module m\n"})
 	t.Setenv("GOCPP_CXX", "clang++")
 	if r := gocppRun("", false, "build", "-o", filepath.Join(t.TempDir(), "x"), "a.gp"); r.code != 0 {
@@ -217,7 +218,7 @@ var k = 1000 >> loc.S31
 func main() { _, _, _ = m, n, k }
 `})
 	needClang(t)
-	t.Setenv("GOCPP_TYPED_INTEROP", "1")
+	t.Setenv("GOCPP_INTEROP", "typed")
 	r := gocppRun("", false, "check", "-e", "a.gp")
 	why := "its value depends on where or when it is used (the macro expands to __%s__), so the probe's value would not be the program's"
 	want := "# command-line-arguments\n" +
@@ -231,7 +232,7 @@ func main() { _, _, _ = m, n, k }
 	if r := gocppRun("", false, "check", "-e", "s.gp"); r.code != 0 || r.stderr != "" {
 		t.Errorf("typed shifts: exit %d\n%s", r.code, r.stderr)
 	}
-	t.Setenv("GOCPP_TYPED_INTEROP", "")
+	t.Setenv("GOCPP_INTEROP", "opaque")
 	if r := gocppRun("", false, "check", "-e", "s.gp"); r.code != 0 || r.stderr != "" {
 		t.Errorf("opaque shifts: exit %d\n%s", r.code, r.stderr)
 	}

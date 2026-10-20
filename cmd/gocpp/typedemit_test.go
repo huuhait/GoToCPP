@@ -51,7 +51,7 @@ func main() {
 	needClang(t)
 	t.Setenv("GOCPP_CXX", "g++")
 
-	t.Setenv("GOCPP_TYPED_INTEROP", "1")
+	t.Setenv("GOCPP_INTEROP", "typed")
 	typed := gocppRun("", false, "emit", "a.gp")
 	if typed.code != 0 {
 		t.Fatalf("typed emit: exit %d\n%s", typed.code, typed.stderr)
@@ -78,7 +78,7 @@ func main() {
 
 	// The opaque build rejects a.gp (the string arguments, the number, the assignment), so the default
 	// is checked on a program that opaque mode accepts.
-	t.Setenv("GOCPP_TYPED_INTEROP", "")
+	t.Setenv("GOCPP_INTEROP", "opaque")
 	inDir(t, map[string]string{"shapes.hpp": hdr, "b.gp": `package main
 
 import "./shapes.hpp"

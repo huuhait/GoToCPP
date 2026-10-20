@@ -1,9 +1,9 @@
-# Typed interop: the collector, the probe, the declarations, the type mapper, the checker, the code generation, the constants, the promoted members and bindgen (steps 12.1 to 12.10)
+# Typed interop: the collector, the probe, the declarations, the type mapper, the checker, the code generation, the constants, the promoted members, bindgen and the mode (steps 12.1 to 12.11)
 
 Typed interop (Phase 12, [README](../../plans/2026-10-13-gocpp/phase-12-typed-interop/README.md))
 asks **clang** for the real C++ types of exactly the C/C++ names that a program uses. This
-document is the contract of the first ten steps, which every later step builds on (§5 and §6 are
-steps 12.3 and 12.4, §7 is step 12.5, §8 is step 12.6, §9 is step 12.7, §10 is step 12.8, §11 is step 12.9, §12 is step 12.10):
+document is the contract of the first eleven steps, which every later step builds on (§5 and §6 are
+steps 12.3 and 12.4, §7 is step 12.5, §8 is step 12.6, §9 is step 12.7, §10 is step 12.8, §11 is step 12.9, §12 is step 12.10, §13 is step 12.11):
 
 | Step | Package | What it does |
 |---|---|---|
@@ -12,10 +12,11 @@ steps 12.3 and 12.4, §7 is step 12.5, §8 is step 12.6, §9 is step 12.7, §10 
 | 12.3 declarations | `internal/typedinterop/ctype`, `.../probe` (`decls*.go`) | reads clang's type text into a structured type; extracts the records, enums and overload sets that the results name |
 | 12.4 type mapper | `internal/typedinterop/ftype` | maps a C++ type (and a probe result) to a `go/types` type of the foreign view, with `Opaque` as the fallback |
 | 12.5 interop checker | `internal/typedinterop/icheck` | errors for the C++ compiler's errors, at the `.gp` position, in Go's words; silent when not certain |
-| 12.6 code generation | `internal/lower` (`typed*.go`, `keeps.go`), `cmd/gocpp/typedlower.go` | writes the C++ of foreign calls, members, literals and strings from the real types; off unless `GOCPP_TYPED_INTEROP=1` |
-| 12.8 constants (gap E1) | `internal/check` (`constsubst.go`), `internal/typedinterop` (`consts.go`) | probes the C/C++ names that sit where Go needs a constant and puts their values into the program before `go/types` runs; off unless `GOCPP_TYPED_INTEROP=1` |
+| 12.6 code generation | `internal/lower` (`typed*.go`, `keeps.go`), `cmd/gocpp/typedlower.go` | writes the C++ of foreign calls, members, literals and strings from the real types; on in typed mode (§13) |
+| 12.8 constants (gap E1) | `internal/check` (`constsubst.go`), `internal/typedinterop` (`consts.go`) | probes the C/C++ names that sit where Go needs a constant and puts their values into the program before `go/types` runs; on in typed mode (§13) |
 | 12.9 promoted members (gap E2) | `internal/check` (`cppmembers.go`), `internal/typedinterop` (`members.go`), `.../collect` (`members.go`) | asks the compiler which embedded C++ class has which member name and applies Go's rule of selectors (§11) |
 | 12.10 bindgen | `internal/typedinterop/bindgen`, `cmd/gocpp/bindgen.go` | `gocpp bindgen`: a readable Go-syntax view of a header, made from the preprocessor, the AST dump and the probe (§12) |
+| 12.11 mode | `internal/typedinterop` (`mode.go`), `cmd/gocpp/interop.go` | `-interop=typed`/`opaque`/`auto`, `GOCPP_INTEROP`, the clang-missing fallback, and the wiring of the steps above into `check`, `build`, `run`, `emit`, `test`, `vet` and `expand` (§13) |
 | glue | `internal/typedinterop` | `Analyze(ctx, pkg, fset, opts)`: collect, kind probe, probe, and with `Options.Decls` the declarations and the mapping; `Report` (JSON for the developer tool) |
 
 Nothing in the opaque pipeline uses these packages: they are additive. The only change outside
@@ -25,7 +26,7 @@ the same way (same `-std=c++20`, `-iquote dir`, package flags without message fl
 policy, `-MD`).
 
 **clang++ is required** (the JSON AST dump). `probe.FindClang` returns `probe.ErrNoClang`
-(wrapped) when it is missing, or is not clang; step 12.11 falls back to opaque mode on it. The
+(wrapped) when it is missing, or is not clang (or older than clang 17); the mode `auto` falls back to opaque mode on it and `typed` fails (§13). The
 program in `GOCPP_CLANG` is used when it is set.
 
 ## 1. Collector (`collect`)
@@ -403,8 +404,8 @@ probe file and the table). Nothing in the opaque pipeline uses these packages.
 was made already. The result has `Diags` (`diag.Diagnostic`: position in the `.gp` file, message,
 related lines, severity), `Silent` (what was left to the C++ compiler, and why), `Skipped` (the whole
 package, and why) and `Stats`. It is called by the hidden command `gocpp __typed-check [-e] [-v]
-[-build g++|clang++] patterns` (exit status 1 on errors, 3 without clang++); nothing else runs it
-(the switch is step 12.11), and the default pipeline and the language server do not use it.
+[-build g++|clang++] patterns` (exit status 1 on errors, 3 without clang++); the same checker runs in `gocpp check`, `build`, `run`, `emit`, `test`, `vet` and `expand` when the mode is typed (§13);
+the language server does not use it yet.
 [ADR-079](../adr/079-typed-interop-checker-reports-only-what-the-compiler-reports.md) has the
 reasons.
 
@@ -455,16 +456,15 @@ xvalue or a const lvalue; a class value can be assigned: C++ calls `operator=`).
 **Known limits.** Silent where the probe is not the code (above); the opaque check and the lowering
 run first and report their own errors (an unknown name, a C value converted to a Go number in a
 declaration, argument or result), so the checker adds to what opaque mode finds, never replaces it;
-narrowing warnings (README §2.3) belong to `gocpp vet` (it reports the explicit conversions `C.int(i64)` today; the implicit ones that this mode accepts wait for the typed mode to be the default, step 12.11); the "name through the wrong header" warning
+narrowing warnings (README §2.3) belong to `gocpp vet` (it reports the explicit conversions `C.int(i64)` today; the implicit ones that this mode accepts wait for `gocpp vet` to run the probes: Phase 13); the "name through the wrong header" warning
 needs header locations (step 12.13); an incomplete type used as a value is not checked.
 
 ## 8. Code generation (step 12.6)
 
 [ADR-087](../adr/087-typed-interop-code-generation.md) has the reasons. The lowering reads the report of
 `typedinterop.Analyze` (with `Decls` and `StringToCStr`) through `lower.Interop.SetTyped`; the driver sets
-it for each package that is not the standard library's when the environment variable `GOCPP_TYPED_INTEROP`
-is `1` (a developer switch until the mode flag of step 12.11). Without it the output is byte-identical to
-the opaque mode's. Where the probe has no answer for an expression (not probed, failed, or **recovered**: clang
+it for each package that is not the standard library's when the mode is typed (§13; the report is the one
+that `check` made for the interop checker). In opaque mode the output is byte-identical to Phase 04's. Where the probe has no answer for an expression (not probed, failed, or **recovered**: clang
 printed an error and kept a type; an opaque or incomplete foreign type; a copy of the syntax tree that the
 collector did not see) the opaque lowering runs. A cross build is typed only when every header is the C++
 library's.
@@ -608,8 +608,9 @@ n := 1 << lib.SHIFT                ->  n := 1 << 5
 `Check` once per package, before the first `go/types` run, with a `ConstQuery`: the package folder, its probe flags,
 its `#include` texts (with the extern "C" mark), the target, and the `CppPath`s (header package or namespace, and
 the names after it) of every name in a place below. `typedinterop.Constants(Options)` answers it; the driver sets it
-when `GOCPP_TYPED_INTEROP=1` (`typedConstants` in `cmd/gocpp/typedlower.go`, called in `check.go`), for every
-command that checks (`build`, `run`, `check`, `emit`, `vet`, `expand`); the language server does not set it.
+when the mode is typed (§13: `typedinterop.Hooks`, called in `check.go`), for every command that checks
+(`build`, `run`, `test`, `check`, `emit`, `vet`, `expand`); the language server does not set it yet (12.13 takes
+its hooks from `typedinterop.Hooks` too).
 
 **The places** (`constFinder`), the only ones where a name is replaced:
 
@@ -798,10 +799,9 @@ fails before this pass with "interface types as C++ template arguments are not a
 lowering of generic types over C++ templates, with or without promotion); a class that is a type parameter is
 undecided.
 
-**The switch.** The hook is set when `GOCPP_TYPED_INTEROP=1` (build, run, emit, check) and by the hidden
-commands `__typed-check` and `__typed-probe` (`cmd/gocpp/typedmembers.go`); it needs clang++ and, for a
-build for another system, only the headers of the C++ standard library (as `attachTyped`). The language
-server does not set it (12.13).
+**The switch.** The hook is set when the mode is typed (§13: `typedinterop.Hooks`) and by the hidden
+commands `__typed-check` and `__typed-probe`; it needs clang++ and, for a build for another system, only
+the headers of the C++ standard library. The language server does not set it (12.13).
 
 ## 12. `gocpp bindgen` (step 12.10)
 
@@ -952,3 +952,142 @@ and literal rules), golden files for the headers of `testdata/headers` (C, C++, 
 `-std`, patterns, `-pkg`) with a `gocpp fmt` and `gocpp check` of each, the header zoo (`<stdio.h>` ... `<regex>`, sqlite3,
 zlib, SDL2, raylib: checked, deterministic, facts asserted; goldens guarded by a hash of clang and the header files) and the
 error cases (missing header, missing include, a header that does not compile, no clang). `cmd/gocpp/bindgen_test.go` runs the command.
+
+## 13. The interop mode (step 12.11, ADR-101)
+
+[ADR-101](../adr/101-the-interop-mode-is-chosen-by-a-flag-and-falls-back-to-opaque-without-clang.md) has the reasons.
+Opaque mode (Phase 04) leaves every question about a C/C++ name to the C++ compiler. Typed mode (this phase) asks
+clang++ with probes. The mode is the user's choice, with a safe automatic one.
+
+### 13.1 Choosing the mode
+
+| Source | Spelling | Priority |
+|---|---|---|
+| the flag, on `check`, `build`, `run`, `test`, `emit`, `vet`, `expand` (and `debug`, `export`, which take the build flags) | `-interop=typed`, `-interop=opaque`, `-interop=auto` | first |
+| the environment | `GOCPP_INTEROP=typed`, `opaque` or `auto` (`gocpp env GOCPP_INTEROP` shows it) | second |
+| the older environment switch | `GOCPP_TYPED_INTEROP=1` is `typed`, `0` is `opaque` (any other value is ignored) | third |
+| nothing | `typedinterop.DefaultMode` | last |
+
+An empty variable is unset. A value that is not a mode is an error: for the flag the usual flag error, for the variable
+`gocpp: GOCPP_INTEROP=fast: want typed, opaque or auto` (status 2; the flag hides a bad variable). The up-to-date check
+of `gocpp build` has the flag in its key (the variables are in it already). The mode of a user who sets nothing is
+**opaque** today; §13.6 says why and how it switches.
+
+- `typed`: the probes run. No clang++ is an error.
+- `opaque`: nothing of this phase runs; the output is Phase 04's, byte for byte.
+- `auto`: typed when clang++ is installed, else opaque, **without a word**. `gocpp check -v` and `gocpp build -v`
+  (also `run`, `test`, `vet`) print one line that says which mode was used and why
+  (`interop: clang++ not found, using opaque mode for C/C++ names (...)`).
+
+### 13.2 What typed mode runs
+
+In every command that checks packages (`check.go`), after the packages are loaded and before they are type-checked:
+
+1. the **decision** (`typedinterop.Decide`, `prepareTyped`): see §13.3;
+2. the **hooks**: `check.Config.Constants` (gap E1, §10) and `check.Config.CppMembers` (gap E2, §11), made by
+   `typedinterop.Hooks`; both use one `probe.Runner` for the command, so the compiler answers one question once;
+3. after the type check, for every package that checked without errors, imports a header, and is not the standard
+   library's: **one** `typedinterop.Analyze` with `Decls`, `StringToCStr` and the target's data model (LP64, LLP64 for
+   Windows), then `icheck.CheckReport` on that report (§7). The errors and warnings join the package's errors and print
+   like the other errors of `gocpp check`; the packages are analyzed at the same time (at most 4), the compiler runs are
+   bounded by the probe's own limit. The checker uses `StringToCStr` like the code generation, so the two agree on what
+   a Go string passed to `const char*` is: that is the tie that §7 asked for.
+4. `build`, `run`, `test` and `emit` then give the same report to the lowering (`lower.Interop.SetTyped`, §8), so
+   a package is probed once for both.
+
+`gocpp expand` has the constants substituted before the type check (the printed output has your names, not the
+numbers); `gocpp vet` has the early errors like `check` (the analyzers that need the C++ types of the probes are
+Phase 13's). A build for another system than this one is typed only when every header is the C++ standard library's
+(the probes read this machine's headers) and gets no early errors.
+
+### 13.3 Without clang++ (the fallback)
+
+`typedinterop.Decide(ctx, setting, needed)` looks for clang++ (`GOCPP_CLANG`, else `clang++` in `PATH`; clang 17 or newer,
+like every compiler of gocpp) **only when the program has something to probe**: a package that is not the standard
+library's imports a C/C++ header (`typedinterop.Needed`). A program of Go alone never asks.
+
+| Mode | clang++ there | clang++ missing |
+|---|---|---|
+| `opaque` | opaque | opaque |
+| `auto` | typed | opaque, silent (a line at `-v`); `gocpp check` and `gocpp build` do not fail |
+| `typed` | typed | **error**, exit status **3** (the status of `gocpp bindgen` without clang++): `gocpp: -interop=typed: typed interop needs clang++: the C++ compiler "..." was not found: ...; install clang++, set GOCPP_CLANG to its path, or use -interop=opaque` |
+
+The message names the source of the mode (`-interop=typed`, `GOCPP_INTEROP=typed`, `GOCPP_TYPED_INTEROP=1`). Two more
+fallbacks, per package and always to opaque: a probe that fails for another reason (a header that clang cannot read, a
+compiler run that times out) leaves that package opaque (a line `gocpp: typed interop: ... (using opaque mode for P)` with
+`typed` and with `-v`, none with `auto`); and **`auto` is opaque on a Windows host** (`runtime.GOOS == "windows"`)
+even when clang++ is installed, because the probes do not pass the MinGW-w64 target and its headers yet (README §2.8);
+`-interop=typed` asks anyway.
+
+### 13.4 For the language server (step 12.13)
+
+`internal/lsp` is not touched by this step. It takes everything it needs from `internal/typedinterop`:
+`ResolveMode(flag, os.Getenv)` for the setting (the editor can pass `-interop` or an initialization option as `flag`),
+`Decide` for the clang rule, and `Hooks(HookOptions{GOOS, GOARCH, Runner})` for `check.Config.Constants` and
+`check.Config.CppMembers`. The early errors and the lowering's report are not needed in the editor's path.
+
+### 13.5 The compatibility evidence
+
+The rule (README §1): a program that opaque mode and the C++ compiler accept is accepted by typed mode, and prints the
+same. `TestCorpusTyped` (`tests/interopmodes_test.go`) runs every program of the repository that imports a header with
+`GOCPP_INTEROP=typed` and each compiler (g++ and clang++), against the expectations of the opaque suites (`// Output:`,
+exit code, stderr), which opaque mode meets. Measured on 2026-10-19 (clang 21.1.8, g++ 15):
+
+| Corpus | Found | Run in typed mode | Same output, both compilers | Not run |
+|---|---|---|---|---|
+| `tests/interop` | 228 | 175 | 172 | 39 error tests (`// ERROR`), 13 without a header, 1 later phase |
+| `tests/zoo` (headers and libraries) | 23 | 23 | 23 | |
+| `tests/run` | 2012 | 84 | 84 | 1864 without a header, 63 other target, 1 pending |
+| `tests/pkgs` | 61 | 7 | 7 | 54 without a header |
+| `examples` | 19 | 5 | 5 | 12 without a header, 1 later phase, 1 pending (raylib and SDL are built, not run: no display) |
+| **total** | 2343 | **294** | **291** | |
+
+The three programs that differ are tests of mistakes that opaque mode rejects and typed mode words itself, so they are
+not valid programs: `implicit_conversion` and `assign_to_call` (typed mode accepts them: that is what it adds, ADR-087),
+and `addr_loopvar_error` (with clang++ the early error of the typed checker, `cannot use &i (value of type *C.int) as
+*Counter value`, comes before the lowering's error about the loop variable: the program is wrong twice). They are
+`typedExceptions` of the test. No valid program of the corpus is rejected, and none prints something else. The
+`tests/typed` programs (42) have their own test (`TestTypedRun`, with the C++ twins).
+
+### 13.6 The default
+
+`typedinterop.DefaultMode` is **opaque**. The evidence of §13.5 and of §13.7 (warm overhead) supports `auto`, but the
+default stays until these hold, which this step cannot show: (1) cold probing of the examples is 0.9 to 2.4 s on a
+lightly loaded machine (§13.7), above the 0.5 s of the exit criterion; (2) only clang 21 was
+available (clang 17 to 20 are step 12.12's tests); (3) the other tests of step 12.12 (more early-error tests, a header
+edit invalidating the probes) are not written; (4) there is no probe for a Windows host. Switching is one constant
+(`DefaultMode = Auto`) and the words of the documents that say "opaque is the default" (ADR-101 lists them); the test
+suites of `cmd/gocpp` and `tests` set `GOCPP_INTEROP=opaque` in their `TestMain`, so that they keep testing the
+opaque pipeline when the default moves, and `TestCorpusTyped` keeps testing the typed one. (A dry run with `DefaultMode = Auto` failed only the two goldens of `gocpp env`, which show the default.)
+
+### 13.7 Cost
+
+Measured with `GOMAXPROCS=4` on a 192-core machine at a load of about 20 (an earlier run at a load of 300 to 2000 gave
+the same warm numbers and 1.5 to 2 times the cold ones), `gocpp check` and `gocpp emit` on the examples, opaque against
+typed (median of 7 warm runs; "cold" is the first run with an empty cache folder, so the probe cache and the kind
+cache are empty too):
+
+| Example | check warm (opaque) | check warm (typed) | emit warm (opaque) | emit warm (typed) | check cold (opaque) | check cold (typed) |
+|---|---|---|---|---|---|---|
+| `cpp-std` | 34 ms | 59 ms | 24 ms | 59 ms | 0.45 s | 2.4 s |
+| `sqlite` | 37 ms | 56 ms | 25 ms | 55 ms | 0.06 s | 1.4 s |
+| `raylib` | 33 ms | 51 ms | 24 ms | 52 ms | 0.06 s | 0.9 s |
+| `mixed-sources` | 41 ms | 39 ms | 20 ms | 50 ms | 0.23 s | 2.1 s |
+
+The warm overhead is 0 to 25 ms for `check` and 28 to 35 ms for `emit` (the exit criterion is 50 ms: met). It needed one fix
+in this step: `gocpp check` did not keep the compiler detection between runs (`build.SetDetectCache`, which `build` does),
+so every warm typed check started clang++ twice (0.3 s on a loaded machine). The cold runs fill the probe cache (§9) with
+one compiler run for the kinds, one batch of the probes and a run for each declaration group, three stages one after
+the other; most of the time is the parsing of the C++ library's headers by clang (2 to 5 CPU seconds for the examples).
+**The cold cost is above the 0.5 s of the exit criterion** for every example but `raylib` (0.9 s), which is one of the
+reasons the default stays opaque (§13.6).
+
+### 13.8 Tests
+
+`internal/typedinterop/mode_test.go` (the order of the sources, the clang rule), `cmd/gocpp/interop_test.go`
+(`TestInteropPrecedence`: eleven combinations of flag and variables with the `-v` note; `TestInteropFlagEverywhere`:
+the flag and its help in nine commands, `debug` and `export cmake` too; `TestInteropNoClang`: status 3 for typed in six commands, silence for auto
+and opaque, a program of Go alone; `TestInteropEarlyErrors`: the early error in `gocpp check` and `build`, warnings with
+g++; `TestInteropFallbackWindows`: a build for Windows without clang++ runs on the real PC),
+`tests/interopmodes_test.go` (`TestCorpusTyped`), the goldens of `gocpp env`, the help texts, and the
+feature matrix (`docs/spec/feature-matrix.md`).

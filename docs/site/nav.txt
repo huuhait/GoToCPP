@@ -28,7 +28,7 @@ tour/13-next.md | 13 Where to go next
 spec/interop.md | Interop guide
 spec/interop-cookbook.md | Cookbook
 guides/interop-examples.md | Examples walkthrough
-spec/typed-interop.md | Typed interop (experimental)
+spec/typed-interop.md | Typed interop
 guides/libraries.md | Calling gocpp from C and C++
 guides/windows-cross.md | Windows
 

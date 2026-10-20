@@ -80,6 +80,12 @@ type Report struct {
 	Mapper *ftype.Mapper
 	Values []ftype.Value
 
+	// StringToCStr says that the probe was made for the typed code generation (Options.StringToCStr):
+	// that code converts a Go string to a const char* or a std::string parameter itself, so the
+	// conversions of the string stand-in are not the whole truth (the interop checker is silent about
+	// them).
+	StringToCStr bool
+
 	// Stable makes MarshalJSON leave out what describes the run and not the answers (timing,
 	// statistics, whether the cache served it, the number of compiler runs), so that the JSON
 	// of a cold run and of a warm run are the same bytes.
@@ -123,7 +129,7 @@ func Analyze(ctx context.Context, p *check.Package, fset *token.FileSet, opts Op
 		}
 	}
 	set := collect.Collect(p, fset)
-	rep := &Report{Set: set, Includes: UnitIncludes(p)}
+	rep := &Report{Set: set, Includes: UnitIncludes(p), StringToCStr: opts.StringToCStr}
 	var err error
 	rn := opts.Runner
 	if rn == nil {

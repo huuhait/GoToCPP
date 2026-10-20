@@ -62,7 +62,7 @@ func main() {
 	needClang(t)
 	t.Setenv("GOCPP_CXX", "g++")
 
-	t.Setenv("GOCPP_TYPED_INTEROP", "1")
+	t.Setenv("GOCPP_INTEROP", "typed")
 	typed := gocppRun("", false, "emit", "a.gp")
 	if typed.code != 0 {
 		t.Fatalf("typed emit: exit %d\n%s", typed.code, typed.stderr)
@@ -85,7 +85,7 @@ func main() {
 	}
 
 	// Opaque mode accepts the program with one class per struct, and writes gp::deref.
-	t.Setenv("GOCPP_TYPED_INTEROP", "")
+	t.Setenv("GOCPP_INTEROP", "opaque")
 	op := gocppRun("", false, "emit", "a.gp")
 	if op.code == 0 {
 		t.Fatalf("opaque emit of a struct with two classes succeeded:\n%s", op.stdout)
@@ -221,9 +221,9 @@ func TestTypedEmbedInterop(t *testing.T) {
 		needClang(t)
 		for _, name := range []string{"embed_cxx.gp", "embed_cxx_depth.gp", "embed_cxx_store.gp"} {
 			t.Run(strings.TrimSuffix(name, ".gp"), func(t *testing.T) {
-				t.Setenv("GOCPP_TYPED_INTEROP", "")
+				t.Setenv("GOCPP_INTEROP", "opaque")
 				op := gocppRun("", false, "run", name)
-				t.Setenv("GOCPP_TYPED_INTEROP", "1")
+				t.Setenv("GOCPP_INTEROP", "typed")
 				ty := gocppRun("", false, "run", name)
 				if ty.code != op.code || ty.stdout != op.stdout {
 					t.Errorf("typed: exit %d\n%s\nopaque: exit %d\n%s\ntyped stderr:\n%s", ty.code, ty.stdout, op.code, op.stdout, ty.stderr)

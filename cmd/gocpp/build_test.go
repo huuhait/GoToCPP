@@ -80,6 +80,10 @@ func TestMain(m *testing.M) {
 	os.Setenv("GOCPP_NOOBJCACHE", "1")
 	os.Setenv("GOCPP_MODCACHE", "off") // the tests never download modules or use a real module cache (modcmd_test.go sets its own)
 	os.Setenv("GOCPP_OFFLINE", "1")
+	// The tests of this package check the opaque pipeline, the contract of Phase 04, unless a test sets the
+	// interop mode itself (the typed*_test.go files and interop_test.go do): the mode of a user who sets
+	// nothing is typedinterop.DefaultMode, and these tests must not move when it changes (ADR-101).
+	os.Setenv("GOCPP_INTEROP", "opaque")
 	os.Setenv("GOCPP_WORKLOST", "fail") // a lost work folder is an error in the tests (worklost_test.go sets what it tests)
 	code := m.Run()
 	entries, _ := os.ReadDir(tmp)

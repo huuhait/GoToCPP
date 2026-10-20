@@ -111,7 +111,10 @@ func (c *checker) failureWhy(r *collect.Ref, res *probe.Result) string {
 	if why != "" {
 		return why
 	}
-	if stand && !standErrorOK(res) {
+	if stand && !standErrorOK(res, c.rep.StringToCStr) {
+		if c.rep.StringToCStr {
+			return "the probe uses the stand-in of string, and the typed code generation converts a Go string to a std::string or a const char* parameter itself"
+		}
 		return "the probe uses the stand-in of string, and this error is not one of its conversions"
 	}
 	if c.dependsOnFailed(r) {
@@ -162,16 +165,19 @@ var (
 
 // standErrorOK reports whether an error of a probe that uses the stand-in of
 // string is one of the failures that the stand-in has exactly as the runtime's
-// string: a conversion that is refused, or the number of arguments.
-func standErrorOK(res *probe.Result) bool {
+// string: a conversion that is refused, or the number of arguments. With typed (the report was made
+// for the typed code generation, which converts a Go string to a const char* or std::string parameter
+// by itself where every overload agrees) only the number of arguments is.
+func standErrorOK(res *probe.Result, typed bool) bool {
 	if res.ErrorAt == nil || filepath.Base(res.ErrorAt.File) != "gp_probe.cpp" {
 		return false
 	}
 	msg := res.Error
 	switch {
 	case strings.HasPrefix(msg, "no viable conversion from '"+standName+"'"),
-		standInitRe.MatchString(msg),
-		arityRe.MatchString(msg):
+		standInitRe.MatchString(msg):
+		return !typed
+	case arityRe.MatchString(msg):
 		return true
 	case strings.HasPrefix(msg, "no matching function for call to"),
 		strings.HasPrefix(msg, "no matching member function for call to"),
@@ -181,8 +187,10 @@ func standErrorOK(res *probe.Result) bool {
 		}
 		for _, n := range res.Notes {
 			switch {
-			case strings.HasPrefix(n.Msg, "passing argument to parameter"):
 			case arityNoteRe.MatchString(n.Msg):
+			case typed:
+				return false
+			case strings.HasPrefix(n.Msg, "passing argument to parameter"):
 			case strings.Contains(n.Msg, "no known conversion from '"+standName+"'") && !strings.Contains(n.Msg, "template"):
 			default:
 				return false

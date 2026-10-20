@@ -61,8 +61,8 @@ gocpp runs on Linux (x86-64 tested, arm64 released) and on Windows 10 or later (
   [spec/modules.md](spec/modules.md) and [spec/build.md](spec/build.md) cover modules and the build.
 - **C and C++**: [spec/interop.md](spec/interop.md) (header packages, names, strings, pointers,
   callbacks), [spec/interop-cookbook.md](spec/interop-cookbook.md) (recipes, each one a test) and
-  [spec/typed-interop.md](spec/typed-interop.md) (the experimental typed mode,
-  `GOCPP_TYPED_INTEROP=1`).
+  [spec/typed-interop.md](spec/typed-interop.md) (the typed mode,
+  `-interop=typed`, and the automatic fallback to opaque without clang++).
 - **Tools**: `gocpp run`, `build`, `test`, `check`, `fmt`, `vet`, `doc`, `explain`, `emit`, `lsp`,
   `get` and `debug`; the [guides](guides/testing.md) have one page for each.
 - **Decisions**: [the ADRs](adr/README.md) record why things are as they are.

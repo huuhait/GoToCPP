@@ -80,8 +80,36 @@ func TestStandErrorOK(t *testing.T) {
 		for _, n := range tc.notes {
 			res.Notes = append(res.Notes, probe.Diag{Severity: "note", Msg: n})
 		}
-		if got := standErrorOK(res); got != tc.want {
+		if got := standErrorOK(res, false); got != tc.want {
 			t.Errorf("%s: standErrorOK = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	// For the typed code generation (the report has StringToCStr): the conversions of the Go string to a
+	// const char* or a std::string parameter are the generated code's, not the stand-in's, so only the
+	// number of arguments is certain.
+	typedTests := []struct {
+		name  string
+		msg   string
+		notes []string
+		want  bool
+	}{
+		{"no viable conversion", "no viable conversion from '" + s + "' to 'const std::string &'", nil, false},
+		{"parameter", "cannot initialize a parameter of type 'const char *' with an lvalue of type '" + s + "'", nil, false},
+		{"too many", "too many arguments to function call, expected 1, have 2", nil, true},
+		{"no matching, conversions", "no matching function for call to 'f'",
+			[]string{"candidate function not viable: no known conversion from '" + s + "' to 'int' for 1st argument"}, false},
+		{"no matching, parameter note", "no matching function for call to 'f'",
+			[]string{"passing argument to parameter 'x' here"}, false},
+		{"no matching, only arity", "no matching function for call to 'f'",
+			[]string{"candidate function not viable: requires 2 arguments, but 1 was provided", "candidate function not viable: requires 3 arguments, but 1 was provided"}, true},
+	}
+	for _, tc := range typedTests {
+		res := &probe.Result{Error: tc.msg, ErrorAt: probeAt}
+		for _, n := range tc.notes {
+			res.Notes = append(res.Notes, probe.Diag{Severity: "note", Msg: n})
+		}
+		if got := standErrorOK(res, true); got != tc.want {
+			t.Errorf("typed %s: standErrorOK = %v, want %v", tc.name, got, tc.want)
 		}
 	}
 }

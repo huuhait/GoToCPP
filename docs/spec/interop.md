@@ -16,7 +16,7 @@ C/C++ name is **opaque**: gocpp writes it into the C++ output almost unchanged, 
 compiler, which understands C++ perfectly, checks it. That is why almost every header, library
 and template works from the start. gocpp only needs two small facts from the compiler: is a name
 a macro, and is it a namespace, a type, a template or a value ([the probes](#the-two-compiler-probes)).
-Later, [typed interop](#what-typed-interop-will-add) (Phase 12) asks clang for real types.
+Typed interop (Phase 12, `-interop=typed`; [what it adds](#what-typed-interop-adds)) asks clang for real types.
 
 **Contents.**
 [A first example](#a-first-example) ·
@@ -36,7 +36,7 @@ Later, [typed interop](#what-typed-interop-will-add) (Phase 12) asks clang for r
 [Limits and known gaps](#limits-and-known-gaps) ·
 [Troubleshooting](#troubleshooting) ·
 [How interop is tested](#how-interop-is-tested) ·
-[What typed interop will add](#what-typed-interop-will-add).
+[What typed interop adds](#what-typed-interop-adds).
 Recipes: [cookbook](interop-cookbook.md).
 
 ## A first example
@@ -550,7 +550,7 @@ with the explicit field. Step 5.8, `internal/check/promoted.go`.
   "ambiguous selector"): the error is "selectors that a Go member and a member of an embedded C/C++ type could
   both match (name the field) are not supported yet (Phase 12)", for the selector `s.x`; write `s.epoint.x` or
   the Go path. A C/C++ type that is deeper than the Go member never matters (`tests/interop/embed_cxx_depth.gp`).
-  Typed mode (`GOCPP_TYPED_INTEROP=1`, step 12.9) asks the C++ compiler whether the type has the name and applies
+  Typed mode (`-interop=typed`, step 12.9) asks the C++ compiler whether the type has the name and applies
   Go's rule: [typed-interop.md §11](typed-interop.md#11-promoted-members-of-embedded-c-classes-step-129-adr-098-gap-e2).
 - A method expression of a promoted member (`MV.size`, `(*MV).push_back`) has no C++ form yet: "method
   expressions of promoted members of an embedded C/C++ type are not supported yet (Phase 12)"; use a func
@@ -1121,7 +1121,7 @@ fmt.Println(strings.ToUpper(s + "!"))
   `std.string("x")` or a gocpp string variable). A gocpp string itself converts only to
   `std::string_view`, and a C `char*` never converts to a gocpp string (`C.GoString(p)` copies one).
 - Typed interop (Phase 12) will convert a `string` passed to a `const char*` parameter
-  automatically, except for functions that keep the pointer ([below](#what-typed-interop-will-add)).
+  automatically, except for functions that keep the pointer ([below](#what-typed-interop-adds)).
 
 Source: [Phase 04 §2.6](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#26-strings-at-the-boundary).
 
@@ -2513,9 +2513,9 @@ produces it. Beyond it:
 - Sanitizers: the whole set runs under AddressSanitizer, LeakSanitizer and UndefinedBehaviorSanitizer with both
   compilers (`GOCPP_FLAGS=-asan`, `make ci-sanitize`).
 
-## What typed interop will add
+## What typed interop adds
 
-Phase 12 asks clang for the real types of exactly the C/C++ names a program uses, through small
+Typed interop (Phase 12; `-interop=typed`) asks clang for the real types of exactly the C/C++ names a program uses, through small
 generated "probe" files, the way cgo asks gcc about C names.
 
 - **Earlier, better errors:** many C/C++ mistakes are reported before the C++ compile, with
@@ -2525,7 +2525,7 @@ generated "probe" files, the way cgo asks gcc about C names.
   only in the background, so it never slows down the other editor features.
 - **The two gaps closed:** C macros as compile-time constants (`[cstdio.BUFSIZ]byte`), and
   promoted members of several embedded C++ types.
-- **Exact C++** (step 12.6, behind the developer switch `GOCPP_TYPED_INTEROP=1` until the mode flag):
+- **Exact C++** (step 12.6):
   `x->m` or `x.m` instead of `gp::deref(x).m` (also `sp.m` for a member of a smart pointer's pointee),
   keyed C struct literals as designated initializers in the right order, `v.at(0) = 5`, and
   `&v.at(0)` for a `T&` result. Exact template-vs-index decisions and reference results copied
@@ -2544,8 +2544,11 @@ generated "probe" files, the way cgo asks gcc about C names.
   (`var n int = cstring.strlen(s)`), a gocpp number into a C number, a gocpp number next to a
   C/C++ number (`cstring.strlen(s) + len(s)`) by C++'s conversion rules, with the conversion written
   as `gp::cgo::as<T>(x)`; narrowing conversions get a `gocpp vet` warning instead of an error.
-- **Modes:** `-interop=typed|opaque`. Opaque stays the default until typed mode passes the whole
-  Phase 04 suite; then the default switches to typed. Probing needs `clang++`, also when the build
-  uses `g++`; without clang, gocpp warns once and uses opaque mode.
+- **Modes** (step 12.11, [the spec](typed-interop.md#13-the-interop-mode-step-1211-adr-101)): `-interop=typed`,
+  `-interop=opaque` or `-interop=auto` on `check`, `build`, `run`, `test`, `emit`, `vet` and `expand`, and
+  `GOCPP_INTEROP` with the same values (the flag wins; `GOCPP_TYPED_INTEROP=1` still means typed). Opaque, the
+  mode of this document, is what you get when you set nothing; typed mode passes the same programs (294 programs that
+  import headers print the same in both). Probing needs `clang++`, also when the build uses `g++`. `auto` is typed when
+  clang++ is installed and opaque otherwise, with no message; `typed` without clang++ is an error (status 3).
 
 Source: [Phase 12](../../plans/2026-10-13-gocpp/phase-12-typed-interop/README.md).

@@ -47,7 +47,7 @@ gocpp build. A flag that gocpp test does not know goes to the test binary.
 Fuzz targets run their seed corpus; -fuzz, -race, -cover and -json are not
 supported yet.
 
-The flags:
+` + interopHelp + `The flags:
 `
 
 // testRun is what one run of gocpp test knows about the package it is working on.

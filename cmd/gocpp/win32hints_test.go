@@ -92,7 +92,7 @@ func TestWindowsInteropMessages(t *testing.T) {
 	})
 	t.Run("a macro in an array length", func(t *testing.T) {
 		r := build(t, "package main\n\nimport \"<windows.h>\"\n\nfunc main() {\n\tvar buf [windows.MAX_PATH]windows.WCHAR\n\t_ = buf\n}\n")
-		want := "a C/C++ macro in an array length (windows.MAX_PATH) is not supported yet (Phase 12, step 12.8"
+		want := "a C/C++ macro in an array length (windows.MAX_PATH) needs typed interop (-interop=typed, which needs clang++)"
 		if r.code != 1 || !strings.Contains(r.stderr, want) || strings.Contains(r.stderr, "internal error") || !strings.Contains(r.stderr, "[260]windows.WCHAR") {
 			t.Errorf("exit %d, stderr:\n%s", r.code, r.stderr)
 		}

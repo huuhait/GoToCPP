@@ -210,6 +210,11 @@ treatment:
 
 The full rules are in [interop.md](interop.md#how-names-are-translated).
 
+In typed interop mode (`-interop=typed`, [typed-interop.md §8](typed-interop.md#8-code-generation-step-126)) the same
+programs get more exact C++ for calls into C and C++: `p.m` on a raw pointer is `gp::nonnull(p)->m`, `x.m` on a class is
+`x.m` (not `gp::deref(x).m`), a keyed C struct literal is a designated initializer, a Go string passed to a `const char*`
+parameter is `gp::cstr(s).gp_ptr()`. This document shows the output of opaque mode.
+
 Sources: [Phase 02 §2.2](../../plans/2026-10-13-gocpp/phase-02-walking-skeleton/README.md#22-backend-structure-internalcppgen),
 [Phase 04 §2.3](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#23-name-translation),
 [Phase 06 §2.2](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#22-one-package--its-own-c-files).

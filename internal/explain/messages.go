@@ -277,9 +277,9 @@ var curated = []Message{
 	},
 	{
 		ID: "lower/cpp-macro-array-len", Source: "lowering", Phase: 12,
-		Pattern: "a C/C++ macro in an array length (%s) is not supported yet (Phase 12, step 12.8: constant macros are probed first): write the number, such as [260]windows.WCHAR for MAX_PATH",
+		Pattern: "a C/C++ macro in an array length (%s) needs typed interop (-interop=typed, which needs clang++); or write the number, such as [260]windows.WCHAR for MAX_PATH",
 		Title:   "A C/C++ macro in an array length",
-		Why:     "An array length must be a constant the Go type checker knows. A C/C++ macro such as MAX_PATH is only known to the C++ compiler. Typed interop (step 12.8) probes the constant macros of a package with clang first and puts their values into the program before type checking, so [cstdio.BUFSIZ]byte works there; this message is what the default mode (opaque), a build without clang and a cross build for another system say.",
+		Why:     "An array length must be a constant the Go type checker knows. A C/C++ macro such as MAX_PATH is only known to the C++ compiler. Typed interop (-interop=typed, or the default auto mode when clang++ is installed) probes the constant macros of a package with clang first and puts their values into the program before type checking, so [cstdio.BUFSIZ]byte works there. This message is what opaque mode (-interop=opaque), a build without clang++ and a cross build for another system say (their headers are the host's, not the target's).",
 		Fix:     "Write the number: [260]windows.WCHAR instead of [windows.MAX_PATH]windows.WCHAR, or declare a Go constant with the value.",
 		Topic:   "interop",
 	},

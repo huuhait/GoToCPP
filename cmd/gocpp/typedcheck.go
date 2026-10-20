@@ -29,7 +29,7 @@ import (
 //	-build X  the compiler that builds the program: g++ makes the errors warnings
 //	          (the default is the compiler that gocpp build would use)
 func runTypedCheck(args []string, _ io.Reader, stdout, stderr io.Writer) int {
-	c := &checkCommand{stdout: io.Discard, stderr: stderr, kinds: true, typedMembers: true}
+	c := &checkCommand{stdout: io.Discard, stderr: stderr, kinds: true, typedMembers: true, noTyped: true}
 	flags := flag.NewFlagSet("gocpp __typed-check", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.BoolVar(&c.all, "e", false, "report all errors, not only the first 10 of each package")

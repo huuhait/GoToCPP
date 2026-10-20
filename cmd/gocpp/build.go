@@ -216,6 +216,11 @@ The build flags (of build and run; -emit-llvm, -n and -o are of build only) are:
 		print the commands that the build would run, and run none of
 		them (the generated C++ is written, nothing is compiled or
 		linked, no program is written)
+	-interop mode
+		how C/C++ names are understood: typed (clang++ answers their
+		types), opaque (the C++ compiler decides) or auto (typed when
+		clang++ is installed); default GOCPP_INTEROP, else auto or opaque
+		as "gocpp env GOCPP_INTEROP" shows
 	-lto
 		link-time optimization: the runtime and the generated C++
 		compile with -flto (-flto=auto for g++, -flto=thin for clang++)
@@ -268,7 +273,7 @@ The build flags (of build and run; -emit-llvm, -n and -o are of build only) are:
 		answered, why a build was not up to date, and at the end the
 		counts of what the build did ("# actions: ...")
 
-The flags are:
+` + interopHelp + `The flags are:
 `
 	runUsage = `usage: gocpp run [build flags] [package | file.gp...] [arguments...]
 
@@ -292,7 +297,7 @@ and waits for the program: a kill of gocpp alone stops the program too.
 twice.) When gocpp gets SIGINT, SIGTERM or SIGHUP while it builds, it
 stops the compilers, removes the work folder and dies of that signal.
 
-The flags are:
+` + interopHelp + `The flags are:
 `
 	emitUsage = `usage: gocpp emit [-gp:concepts] [-tags list] [-annotate [-json] [-nochecks] [-kinds k1,k2] [-std] [-o file]] [file.gp... | package]
 
@@ -305,6 +310,8 @@ is an internal error, with exit status 2.
 With -annotate the output is for reading: the C++ with the .gp line that
 each part comes from and the reasons for the lowering's choices (gocpp
 explain TOPIC says what a mechanism is). See docs/guides/explain.md.
+
+` + interopHelp + `The flags are:
 `
 )
 
@@ -348,6 +355,8 @@ type buildFlags struct {
 
 	extra extraFlags // the flags of step 6.12 (flags.go)
 	cross crossFlags // -os and -arch (cross.go)
+
+	interop interopFlag // -interop (interop.go)
 }
 
 func (f *buildFlags) register(flags *flag.FlagSet, withOutput bool) {
@@ -357,6 +366,7 @@ func (f *buildFlags) register(flags *flag.FlagSet, withOutput bool) {
 	f.cppErrors = "short"
 	f.diagOpts.register(flags)
 	f.cross.register(flags)
+	f.interop.register(flags)
 	flags.Var(&f.cppErrors, "cpperrors", "how much of the C++ compiler's errors to show: short or full")
 	flags.BoolVar(&f.asan, "asan", false, "build with AddressSanitizer and UndefinedBehaviorSanitizer")
 	flags.BoolVar(&f.lto, "lto", false, "link-time optimization (-flto; the runtime library gets the compiler's archiver)")
@@ -448,6 +458,7 @@ func runEmit(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("gocpp emit", flag.ContinueOnError)
 	var ef buildFlags
 	ef.cross.register(flags)
+	ef.interop.register(flags)
 	ef.diagOpts.register(flags)
 	flags.BoolVar(&ef.concepts, "gp:concepts", false, "also write C++20 concepts for Go's constraints into the package headers")
 	var ann annotateFlags
@@ -586,7 +597,7 @@ var stopSigs = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
 // newDriver returns the driver of the command name, or nil and the exit
 // status when it can't start.
 func newDriver(name string, f *buildFlags, stdout, stderr io.Writer) (*driver, int) {
-	c := &checkCommand{stdout: stdout, stderr: stderr, kinds: true, diagOpts: f.diagOpts}
+	c := &checkCommand{stdout: stdout, stderr: stderr, kinds: true, diagOpts: f.diagOpts, interop: f.interop, verbose: f.extra.verbose}
 	var err error
 	if c.goos, c.goarch, err = f.cross.resolve(); err != nil {
 		fmt.Fprintf(stderr, "gocpp: %v\n", err) // go exits with 2 too

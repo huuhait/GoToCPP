@@ -165,6 +165,7 @@ func (d *driver) beginStamp(patterns []string) *stampState {
 		parts = append(parts, "buildmode="+string(d.flags.mode))
 	}
 	parts = append(parts, d.flags.extra.keyParts()...)
+	parts = append(parts, "interop="+d.flags.interop.value) // the environment's GOCPP_INTEROP is in stampEnv
 	if d.envOK {
 		parts = append(parts, pluginKey(d.env)...) // a plugin that is built again changes the key
 	}

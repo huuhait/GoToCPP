@@ -191,13 +191,14 @@ Go syntax, one package per header (`func InitWindow(width C.int, height C.int, t
 ### 2.8 Requirements and modes
 
 - Probing needs `clang++` even when the real build uses `g++`. On Linux both use libstdc++,
-  so the answers almost always match (and §2.2 handles the rest). If clang is missing, gocpp warns
-  once and uses opaque mode.
+  so the answers almost always match (and §2.2 handles the rest). If clang is missing, `-interop=auto` uses
+  opaque mode without a word (a line at `-v`), and `-interop=typed` is an error with exit status 3 (step 12.11).
 - For Windows builds the probes run with the Windows target and its headers
   (`--target=x86_64-w64-windows-gnu` plus the MinGW-w64 sysroot, Phase 14), because
   `<windows.h>` and friends only make sense for that target.
-- `-interop=typed|opaque`. Opaque stays the default until typed mode passes the whole Phase 04
-  suite, and then the default switches to typed.
+- `-interop=typed|opaque|auto` (step 12.11, built). Opaque stays the default until typed mode is shown
+  on a quiet machine and with clang 17 to 20 (ADR-101 says what blocks the switch and how to make it); the Phase 04
+  suite and the header zoo already pass in typed mode (294 programs, `TestCorpusTyped`).
 
 ### 2.9 C/C++ in the language server (without slowing it down)
 
@@ -299,11 +300,11 @@ The contract is [docs/spec/typed-interop.md](../../../docs/spec/typed-interop.md
   C++ compiler and why), plus the typed rules from the declarations (void used as a value, `Compat`
   says No, assignment to a temporary). `probe.Result.Recovered` is the error of a probe that clang
   recovered from. The hidden command `gocpp __typed-check [-e] [-v] [-build g++|clang++]` runs it;
-  the mode switch is 12.11 and the default pipeline is unchanged. Not done: narrowing warnings
+  the mode switch is 12.11 (built: the checker runs in `gocpp check` in typed mode). Not done: narrowing warnings
   (`gocpp vet`), the wrong-header warning (needs header locations, 12.13), an incomplete type used
   as a value.
-- **12.6 (code generation)**, done: `lower.Interop.SetTyped(report, cross)` (ADR-087, spec §8; the hidden
-  switch `GOCPP_TYPED_INTEROP=1` in the driver until 12.11 gives the mode flag) makes the lowering write
+- **12.6 (code generation)**, done: `lower.Interop.SetTyped(report, cross)` (ADR-087, spec §8; the switch
+  is the mode flag of step 12.11, `-interop=typed`) makes the lowering write
   `x.m` / `gp::nonnull(p)->m` / `gp::smartnn(sp)->m` (only where the compiler says the class lacks the member) from the C++ type, designated initializers in declaration order (Go's
   order of evaluation kept), Go strings for `const char*` and `std::string` parameters (the keeps-the-pointer list
   in `lower/keeps.go`), C++'s conversions between C++ and gocpp numbers (`gp::cgo::as<T>`), assignable and
@@ -340,5 +341,13 @@ The contract is [docs/spec/typed-interop.md](../../../docs/spec/typed-interop.md
   variable, and `ctype.Parse` for the types; everything else comes from clang's `-E -dD` and JSON AST dump (read by its own streaming
   scanner). Struct macros are folded with C's rules and checked against the compiler by a seeded fuzz test.
   Not done: Windows headers, the documentation comments of the header, the clang 17 to 20 comparison (12.12).
+- **12.11 (modes)**, done: [ADR-101](../../../docs/adr/101-the-interop-mode-is-chosen-by-a-flag-and-falls-back-to-opaque-without-clang.md),
+  spec §13. `-interop=typed|opaque|auto` on `check`, `build`, `run`, `test`, `emit`, `vet` and `expand`, `GOCPP_INTEROP`
+  (the flag wins; `GOCPP_TYPED_INTEROP=1` is an alias for typed), `typedinterop.ResolveMode/Decide/Hooks` (the language
+  server of 12.13 takes its hooks from there). `auto` is typed when clang++ is installed, else opaque without a word;
+  `typed` without clang++ is exit status 3. `check` now runs the whole typed pipeline in typed mode: the constants and members
+  hooks, then one `Analyze` per package whose report feeds both the interop checker (its early errors are in `gocpp check`
+  and `build`) and the lowering. The default stays opaque (cold probing 0.9 to 2.4 s, above the 0.5 s of the exit criterion; clang 17 to 20 untested);
+  `DefaultMode = Auto` is the switch. Not done: the mode in the language server (12.13), narrowing warnings in `gocpp vet`.
 - Developer tool: `gocpp __typed-probe [-refs] [-decls] [patterns]` prints the references and results as
   JSON.

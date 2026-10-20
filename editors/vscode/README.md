@@ -74,6 +74,12 @@ After a change of `gocpp.path`, `gocpp.lsp.args` or `gocpp.lsp.env`, the extensi
 restart the server. The command **gocpp: Restart Language Server** (in the Command Palette)
 restarts it at any time.
 
+**C and C++ names.** The interop mode is chosen by `-interop=typed|opaque|auto` or the variable `GOCPP_INTEROP`
+(`typed` asks clang++ for the types of the C/C++ names and needs it; `auto` uses it when it is installed). A build
+or `gocpp check` task you start from VS Code takes the variable from its `env`. The language server
+does not read the mode yet: its C/C++ knowledge comes with step 12.13 of the plan, which will take it from
+`GOCPP_INTEROP` in `gocpp.lsp.env` (or `-interop` in `gocpp.lsp.args`), so the extension needs no new setting.
+
 The extension sets these defaults for `.gp` files, as the Go extension does for `.go` files:
 
 ```json

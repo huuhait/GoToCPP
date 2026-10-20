@@ -16,6 +16,7 @@ import (
 	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/modfetch"
 	"github.com/huuhait/gocpp/internal/toolchain"
+	"github.com/huuhait/gocpp/internal/typedinterop"
 	"github.com/huuhait/gocpp/internal/version"
 )
 
@@ -154,6 +155,7 @@ var envVars = []envVar{
 	{name: "GOCPP_EXCERPT", doc: "always or never: show the source line and a caret under each error (the -excerpt flag wins); default: on a terminal"},
 	{name: "GOCPP_EXEC", doc: "the program that gocpp run starts the program with, with arguments if needed (wine for windows, qemu-aarch64), like go run -exec"},
 	{name: "GOCPP_GATE_PHASE", doc: "two digits: accept the features of the plan's phases up to this one (gocpp's own development and tests)"},
+	{name: "GOCPP_INTEROP", def: func(*envState) string { return typedinterop.DefaultMode.String() }, doc: "typed, opaque or auto: how C/C++ names are understood (the -interop flag wins). typed asks clang++ for the real types (early errors, constant macros, promoted members); opaque leaves C++ to the C++ compiler; auto is typed when clang++ is installed, else opaque"},
 	{name: "GOCPP_LDFLAGS", doc: "trusted flags for every link, not checked"},
 	{name: "GOCPP_LDFLAGS_ALLOW", doc: "regular expression: link flags of //gocpp: directives that are allowed besides the allow-list"},
 	{name: "GOCPP_LDFLAGS_DISALLOW", doc: "regular expression: link flags of //gocpp: directives that are refused, also allowed ones"},
@@ -187,7 +189,7 @@ var envVars = []envVar{
 	{name: "GOCPP_PROBE_TIMEOUT", doc: "the longest one probe compiler run of the typed interop may take (a duration); default 5m in the tests"},
 	{name: "GOCPP_TOOLCHAIN", def: func(*envState) string { return string(toolchain.DefaultMode) }, doc: "where the Windows compiler comes from: auto (MinGW-w64 in PATH or in the folders of MSYS2, Chocolatey, Scoop and WinGet's WinLibs, else the pinned llvm-mingw, downloaded on first use), local (PATH and, on Windows, the usual MinGW-w64 folders; never downloads) or pinned (always the pinned one)"},
 	{name: "GOCPP_TOOLCHAIN_URL", doc: "an https folder URL with the toolchain archives under their names, instead of llvm-mingw's GitHub release (a mirror)"},
-	{name: "GOCPP_TYPED_INTEROP", doc: "set to 1: the experimental typed lowering of calls into C and C++ (the real types the probes report; hidden until the mode flag of step 12.11)"},
+	{name: "GOCPP_TYPED_INTEROP", doc: "older spelling of GOCPP_INTEROP: 1 means typed, 0 means opaque (GOCPP_INTEROP and -interop win)"},
 	{name: "GOCPP_WORKLOST", doc: "fail: a build whose work folder is removed by something else while it runs stops with status 4 and a message; by default it makes the folder again and builds again, up to three times (the tests and campaigns of the repository set fail, so that a real bug is not hidden)"},
 	{name: "GOOS", def: func(e *envState) string { return e.goos }, doc: "the operating system to build for (build constraints and the compiler)"},
 	{name: "PKG_CONFIG", def: func(*envState) string { return "pkg-config" }, doc: "the pkg-config program, for //gocpp:pkg-config lines"},

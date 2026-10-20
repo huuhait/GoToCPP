@@ -66,8 +66,8 @@ func (g *gen) typeExpr(e ast.Expr) cppir.Type {
 		}
 		if _, isLit := x.Len.(*ast.BasicLit); !isLit {
 			// [windows.MAX_PATH]windows.WCHAR, [cstdio.BUFSIZ]byte: the length is a C macro, whose value only
-			// the compiler knows (Phase 12 step 12.8 probes constant macros first and substitutes them).
-			g.notYet(x.Len.Pos(), "a C/C++ macro in an array length ("+g.srcText(x.Len)+") is not supported yet (Phase 12, step 12.8: constant macros are probed first): write the number, such as [260]windows.WCHAR for MAX_PATH")
+			// the compiler knows (typed interop probes constant macros first and substitutes them: ADR-097).
+			g.notYet(x.Len.Pos(), "a C/C++ macro in an array length ("+g.srcText(x.Len)+") needs typed interop (-interop=typed, which needs clang++); or write the number, such as [260]windows.WCHAR for MAX_PATH")
 			return typeName("gp_unsupported")
 		}
 	case *ast.MapType:

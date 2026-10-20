@@ -54,7 +54,7 @@ package; the others run, and the analyzers of gocpp check what they touch.
 reported on standard error ("vet: analyzer X failed on package Y"): that
 is a gocpp bug.
 
-The flags are:
+` + interopHelp + `The flags are:
 `
 
 // A triState is the flag of one analyzer: not set, true or false.
@@ -85,6 +85,8 @@ func runVet(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	flags.BoolVar(&jsonOut, "json", false, "print the findings as JSON on standard output")
 	flags.BoolVar(&verbose, "v", false, "also list what was skipped or left out on packages with C/C++ names")
 	flags.BoolVar(&list, "list", false, "list the analyzers and exit")
+	var interop interopFlag
+	interop.register(flags)
 	states := make(map[string]*triState)
 	for _, a := range vet.Analyzers {
 		st := new(triState)
@@ -123,7 +125,7 @@ func runVet(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	analyzers := vet.Select(on, off)
 
 	var errBuf bytes.Buffer
-	c := &checkCommand{stdout: stdout, stderr: &errBuf, tests: true, noDerived: true}
+	c := &checkCommand{stdout: stdout, stderr: &errBuf, tests: true, noDerived: true, interop: interop, verbose: verbose}
 	var err error
 	if c.goos, c.goarch, err = target(); err != nil {
 		fmt.Fprintf(stderr, "gocpp: %v\n", err)
@@ -147,6 +149,9 @@ func runVet(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	// can be vetted. The warnings are shown.
 	if r == nil || !c.vettable(prog, r) {
 		stderr.Write(errBuf.Bytes())
+		if r == nil && code == exitNoClang {
+			return code // -interop=typed without clang++
+		}
 		return exitInternal
 	}
 	if code == 0 {

@@ -102,6 +102,9 @@ func TestMain(m *testing.M) {
 	// standard library's internal packages for the error tests.
 	os.Unsetenv(allowInternalName)
 	os.Setenv("GOCPP_OFFLINE", "1")
+	// The suites check the opaque pipeline, the contract of Phase 04, whatever the default mode of a user is
+	// (typedinterop.DefaultMode, ADR-101); TestCorpusTyped runs the C/C++ programs again in typed mode.
+	os.Setenv("GOCPP_INTEROP", "opaque")
 	// A work folder that something else removes is an error here, not a build that goes again: a real bug
 	// of gocpp must not be hidden by the self-healing that users get (docs/spec/build.md).
 	os.Setenv("GOCPP_WORKLOST", "fail")
@@ -619,6 +622,10 @@ func (c *config) runPrograms(t *testing.T, where string, progs []*program, fn fu
 		if p.skip, kind = c.skipReason(p.header); p.skip != "" {
 			skipped[kind]++
 			nskipped++
+		} else if why := typedModeSkip(p); why != "" {
+			p.skip, kind = why, skipKinds[len(skipKinds)-1]
+			skipped[kind]++
+			nskipped++
 		}
 	}
 	summary := fmt.Sprintf("%s: found %d, skipped %d", where, len(progs), nskipped)
@@ -648,7 +655,7 @@ func (c *config) runPrograms(t *testing.T, where string, progs []*program, fn fu
 
 // skipKinds are the kinds of reasons to skip a test, in the order that
 // skipReason checks them.
-var skipKinds = []string{"needs a later phase", "builds for another target", "needs a display", "needs a missing library", "needs a time zone database", "pending"}
+var skipKinds = []string{"needs a later phase", "builds for another target", "needs a display", "needs a missing library", "needs a time zone database", "pending", "not for typed interop"}
 
 // skipReason returns why the test with header h can't run here, with the
 // kind of the reason (one of skipKinds), or "" and "".

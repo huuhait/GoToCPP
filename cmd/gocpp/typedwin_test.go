@@ -36,7 +36,7 @@ func TestTypedWindows(t *testing.T) {
 			continue
 		}
 		t.Run(p.name, func(t *testing.T) {
-			t.Setenv("GOCPP_TYPED_INTEROP", "1")
+			t.Setenv("GOCPP_INTEROP", "typed")
 			exe := filepath.Join(t.TempDir(), p.name+".exe")
 			r := gocppRun("", false, "build", "-os", "windows", "-o", exe, p.file)
 			if r.code != 0 {

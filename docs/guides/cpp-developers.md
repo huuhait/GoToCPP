@@ -289,9 +289,11 @@ are behind `GOCPP_GATE_PHASE=08` today (phase 08 is not finished).
   package is built as a C archive or a shared library (`gocpp build -buildmode=c-archive`); the
   guide [calling gocpp from C and C++](libraries.md) shows the header it writes and a C++ program
   that uses it.
-- **Typed interop** (`GOCPP_TYPED_INTEROP=1`, experimental): gocpp asks the C++ compiler for the
-  types of the C++ names you use and checks them itself, so the mistakes show before the C++ build.
-  See the [typed interop spec](../spec/typed-interop.md).
+- **Typed interop** (`-interop=typed`, or `GOCPP_INTEROP=typed`; `-interop=auto` uses it when clang++
+  is installed): gocpp asks clang++ for the types of the C++ names you use and checks them itself, so
+  the mistakes show before the C++ build, and macros such as `cstdio.BUFSIZ` work as array lengths.
+  Without it (`-interop=opaque`, today's default) the C++ compiler decides everything about C++.
+  See the [typed interop spec](../spec/typed-interop.md#13-the-interop-mode-step-1211-adr-101).
 
 ## What to know before you rely on it
 

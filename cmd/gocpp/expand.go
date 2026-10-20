@@ -68,7 +68,7 @@ more than one file, each file starts with a line "//// name" (slashes in
 the path, also on Windows). The _test.gp files are not loaded, so they are
 not printed. The output is Go-like text for reading, not a program that can
 be compiled.
-The flags are:
+` + interopHelp + `The flags are:
 `
 
 // runExpand is "gocpp expand" (Phase 10 step 10.11).
@@ -79,6 +79,7 @@ func runExpand(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	flags.Var(tagsFlag{&c.tags}, "tags", "a comma-separated `list` of build tags that are satisfied, like go build -tags")
 	var cross crossFlags
 	cross.register(flags)
+	c.interop.register(flags)
 	full := false
 	flags.BoolVar(&full, "full", false, "print the bytes of embedded files in full, not their first 40")
 	if code, done := parseFlags("expand", expandUsage, flags, args, stderr); done {

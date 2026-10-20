@@ -242,5 +242,5 @@ gocpp run .          # needs the sqlite3 library (pkg-config sqlite3)
 ```
 
 The dev shell of the repository (`nix develop`) has sqlite, raylib, SDL2 and zlib.
-Typed interop (`GOCPP_TYPED_INTEROP=1`, experimental) checks the types of these calls itself
+Typed interop (`-interop=typed`, which needs clang++) checks the types of these calls itself
 instead of leaving them to the C++ compiler: [typed interop](../spec/typed-interop.md).

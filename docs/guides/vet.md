@@ -162,7 +162,7 @@ which `gocpp vet` does not probe):
   and `cap(x)`, a value masked or reduced to the range (`x & 0xff`, `x % 100`), the same width
   with another sign, and `C.long`, whose width depends on the target. The implicit narrowing that
   typed interop accepts (`var c C.int = n`, a struct field `lib.Rect{x: n}`) needs the C++ types
-  from the probes and is not reported yet: it waits for typed mode to be the default (step 12.11).
+  from the probes and is not reported yet: `gocpp vet` does not run the probes (Phase 13).
 
 How the analyzers see `!` and macros: the front-end rewrites `!` and macros into plain Go before
 `go/types` (ADR-037, ADR-075), so the trees that the analyzers read have no `!`. `check.Package.Must`
