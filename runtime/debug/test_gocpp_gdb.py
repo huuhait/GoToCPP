@@ -109,6 +109,30 @@ class Types(unittest.TestCase):
         for cxx, want in cases:
             self.assertEqual(G.go_type(cxx), want, cxx)
 
+    def test_data_model(self):
+        # Windows (LLP64): a long is 32 bits, gocpp's int is long long, and the interface kinds
+        # read their value as long long. The model of the system the tests run on comes back at the end.
+        try:
+            G.apply_data_model(4)
+            cases = [
+                ("long", "int32"),
+                ("unsigned long", "uint32"),
+                ("long long", "int"),
+                ("unsigned long long", "uint"),
+                ("gp::slice<long long>", "[]int"),
+                ("int64_t", "int"),
+            ]
+            for cxx, want in cases:
+                self.assertEqual(G.go_type(cxx), want, cxx)
+            self.assertEqual(G.KIND_TYPES["Int"], "long long")
+            self.assertEqual(G.KIND_TYPES["Uintptr"], "unsigned long long")
+            self.assertEqual(G.KIND_TYPES["Int64"], "long long")
+        finally:
+            G.apply_data_model(8)
+        self.assertEqual(G.go_type("long"), "int")
+        self.assertEqual(G.go_type("long long"), "int64")
+        self.assertEqual(G.KIND_TYPES["Int"], "long")
+
     def test_split_args(self):
         self.assertEqual(G.split_args("a, b<c, d>, e(f, g)"), ["a", "b<c, d>", "e(f, g)"])
 

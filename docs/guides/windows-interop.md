@@ -317,7 +317,11 @@ code page, gocpp gives the compiler the short name of the path ([Windows page](w
 - A function pointer that you get from `GetProcAddress` cannot be called from Go code, and there is no `NewCallback`; link to the function instead.
 - COM: the interfaces are C++ classes in MinGW's headers. `dxgi.CreateDXGIFactory1(dxgi.IID_IDXGIFactory1, ...)` works (pass the IID without `&`, call
   `factory.Release()`), but the GUID constants live in libraries (`//gocpp:link dxgi dxguid`), and `__uuidof` has no gocpp form.
-- Typed interop (`GOCPP_INTEROP=typed` or `-interop=typed`) for the Windows target: its probe needs a `clang++` and the MinGW include paths, and does not use the
-  pinned llvm-mingw's clang yet (planned). On a Windows host `auto` stays `opaque`; `typed` without a clang exits with status 3.
+- Typed interop (`GOCPP_INTEROP=typed` or `-interop=typed`) for the Windows target: its probes run a `clang++` for the target (the order is
+  `GOCPP_CLANG`, `x86_64-w64-mingw32-clang++`, the compiler of the build when it is clang, the pinned llvm-mingw's clang when it is installed, then the
+  `clang++` in PATH) with `--target=x86_64-w64-mingw32`, `-D_WIN32_WINNT=0x0A00` and the Win32 defaults of the package, and, on a system other than
+  Windows, with the include folders of the MinGW-w64 `g++` that the cross build uses (a host clang has no Windows headers of its own). Types follow
+  the Windows data model: `DWORD` is `unsigned long`, 4 bytes. This was checked from Linux (the probes of `<windows.h>`, the typed `emit`, `check` and a typed build that ran on the PC), with
+  fake compilers for the command lines, and on the PC itself with the pinned llvm-mingw's clang (not with MSYS2's or WinLibs' clang, which the PC does not have). `gocpp doc` of a header uses the same flags. Without a clang, `auto` stays `opaque`, and `typed` exits with status 3.
 - Libraries built with Visual Studio (C++ ABI); MinGW-w64 builds of sqlite3, zlib, SDL2 and raylib were built and linked (sqlite3 and zlib also ran
   on the PC; SDL2 and raylib need their DLLs and a display and were only linked).

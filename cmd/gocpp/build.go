@@ -625,8 +625,8 @@ func newDriver(name string, f *buildFlags, stdout, stderr io.Writer) (*driver, i
 		c.pkgConfig = build.TracePkgConfig(func(line string) { fmt.Fprintln(stderr, line) })
 	}
 	d.ctx, d.cancel = context.WithCancel(context.Background())
-	if name == "build" || name == "run" {
-		// Only a build may download the Windows toolchain (not check, emit or the server).
+	if name == "build" || name == "run" || name == "debug" {
+		// Only a build (gocpp build, run and debug) may download the Windows toolchain (not check, emit or the server).
 		d.ctx = build.WithToolchainDownload(d.ctx, stderr)
 	}
 	// The checks (the namespace probe) stop like the build.

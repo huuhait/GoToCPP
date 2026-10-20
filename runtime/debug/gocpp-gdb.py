@@ -70,6 +70,33 @@ GO_BASIC = {
     "gp::complex<double>": "complex128",
 }
 
+# On Windows (LLP64) a long is 32 bits and gocpp's int and int64 are int64_t = long long: the names
+# of the four C++ types move. The script learns the data model from gdb when it loads (a program for
+# Windows opened in gdb of any system has long of 4 bytes), and apply_data_model is the one place
+# that changes the tables (the unit tests call it for both models).
+LP64_BASIC = {"long": "int", "unsigned long": "uint", "long long": "int64", "unsigned long long": "uint64"}
+LLP64_BASIC = {"long": "int32", "unsigned long": "uint32", "long long": "int", "unsigned long long": "uint"}
+
+
+def apply_data_model(long_bytes):
+    """Set the names of the 64-bit integer types and the C++ types of the interface kinds for a
+    system whose long has long_bytes bytes: 8 (Linux, LP64) or 4 (Windows, LLP64)."""
+    llp64 = long_bytes == 4
+    GO_BASIC.update(LLP64_BASIC if llp64 else LP64_BASIC)
+    KIND_TYPES.update(
+        {"Int": "long long", "Uint": "unsigned long long", "Uintptr": "unsigned long long"}
+        if llp64
+        else {"Int": "long", "Uint": "unsigned long", "Uintptr": "unsigned long"}
+    )
+
+
+def _long_bytes():
+    try:
+        return gdb.lookup_type("long").sizeof
+    except Exception:
+        return 8
+
+
 # The C++ words that gocpp escapes with a trailing "_" (docs/spec/cpp-mapping.md, "Names inside a
 # package"): a field named new_ is the Go field new. (The macros of the C headers, EOF_ and the
 # like, are not listed: they are rare as field names.)
@@ -1303,6 +1330,9 @@ KIND_TYPES = {
 }
 
 
+apply_data_model(_long_bytes())
+
+
 def iface_dynamic(v):
     """The value inside the interface value v as a gdb value (the pointee for a pointer), or
     None for nil and for what has no C++ type here."""
@@ -1614,14 +1644,44 @@ if not STUB:
 # ---- goroutines ----
 
 GOROUTINE_TLS = "gp::os::(anonymous namespace)::tslot"
+# Windows: the thread slot is a TLS index (runtime/src/os/windows/thread.cpp), and the selected
+# thread's value is in its thread environment block (gdb's $_tlb): TlsSlots[64] at 0x1480, then the
+# array that TlsExpansionSlots (0x1780) points to. x86-64 only, like the Windows layer.
+WINDOWS_TLS_INDEX = "gp::os::debug_tls_slot"
+TEB_TLS_SLOTS = 0x1480
+TEB_TLS_EXPANSION = 0x1780
+
+
+def thread_slot_value():
+    """The goroutine slot of the selected thread as an integer: the thread_local of the Linux layer,
+    else the TLS slot of the Windows layer. Raises gdb.error when neither is there."""
+    try:
+        return int(gdb.parse_and_eval("'%s'" % GOROUTINE_TLS))
+    except gdb.error:
+        pass
+    index = int(gdb.parse_and_eval("'%s'" % WINDOWS_TLS_INDEX))
+    teb = int(gdb.parse_and_eval("$_tlb"))
+    if index < 64:
+        where = teb + TEB_TLS_SLOTS + 8 * index
+    else:
+        expansion = read_pointer(teb + TEB_TLS_EXPANSION)
+        if expansion == 0:
+            return 0
+        where = expansion + 8 * (index - 64)
+    return read_pointer(where)
+
+
+def read_pointer(address):
+    """The 8-byte value at address in the program, as an unsigned integer."""
+    mem = gdb.selected_inferior().read_memory(address, 8)
+    return int.from_bytes(bytes(mem), "little")
 
 
 def goroutine_record():
     """The record of the goroutine that runs the selected thread, or None (an idle thread, a
     thread that is no goroutine, a program without the runtime's symbols)."""
     try:
-        slot = gdb.parse_and_eval("'%s'" % GOROUTINE_TLS)
-        a = int(slot)
+        a = thread_slot_value()
         if a == 0:
             return None
         return gdb.Value(a).cast(gdb.lookup_type("gp::detail::goroutine").pointer()).dereference()
@@ -2113,13 +2173,15 @@ if not STUB:
         def invoke(self, *args):
             _arity(args, 0, "$gp_blocked")
             try:
-                v = gdb.parse_and_eval("'gp::detail::(anonymous namespace)::blocked'")
+                # One word: the live goroutines in the high half, the blocked ones in the low half
+                # (runtime/src/sched.hpp).
+                v = gdb.parse_and_eval("'gp::detail::sched::counts'")
                 # The debug info names the counter even when the linker dropped it (a program
                 # that never starts a goroutine): then its address is garbage.
                 sym = gdb.execute("info symbol %d" % int(v.address), to_string=True)
-                if "blocked" not in sym:
+                if "counts" not in sym:
                     return _int(0)
-                return v["_M_i"]
+                return _int(int(v["_M_i"]) & 0xFFFFFFFF)
             except (gdb.error, TypeError, ValueError, OverflowError):
                 return _int(0)
 

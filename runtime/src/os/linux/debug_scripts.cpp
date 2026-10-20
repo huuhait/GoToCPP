@@ -1,7 +1,7 @@
 // debug_scripts.cpp: the GDB pretty printers of gocpp, inside every program (Phase 13, step 13.2).
 //
 // GDB looks for a section named .debug_gdb_scripts in each program that it loads, and runs the
-// scripts in it. This one holds the text of runtime/debug/gocpp-gdb.py (gocpp_gdb.inc, made
+// scripts in it. This one holds the text of runtime/debug/gocpp-gdb.py (src/os/gocpp_gdb.inc, made
 // from it by `go test ./runtime -run TestDebugScript -update-debug-script`), so gdb shows
 // gocpp's values and Go names without anything installed next to the program, and a program
 // that is moved to another machine keeps its printers. The text is the script's own type,
@@ -23,7 +23,7 @@ extern const char debug_script_present[] = "gocpp-gdb.py";
 __asm__(".pushsection \".debug_gdb_scripts\", \"MSR\", %progbits, 1\n"
         ".byte 4\n"
         ".ascii \"gocpp-gdb.py\\n\"\n"
-#include "gocpp_gdb.inc"
+#include "../gocpp_gdb.inc"
         ".byte 0\n"
         ".popsection\n");
 #endif

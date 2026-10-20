@@ -207,7 +207,10 @@ func TestConstNoAnswer(t *testing.T) {
 	if ans != nil || err != nil {
 		t.Errorf("a missing header: %v, %v", ans, err)
 	}
-	ans, err = constValues(context.Background(), check.ConstQuery{Dir: dir, Includes: []string{`"./macros.hpp"`}, Paths: paths, GOOS: "windows", GOARCH: "amd64"}, Options{Clang: clang})
+	q := check.ConstQuery{
+		Dir: dir, Includes: []string{`"./macros.hpp"`}, Paths: paths, GOOS: "plan9", GOARCH: "riscv64",
+	}
+	ans, err = constValues(context.Background(), q, Options{Clang: clang})
 	if ans != nil || err != nil {
 		t.Errorf("another target: %v, %v", ans, err)
 	}

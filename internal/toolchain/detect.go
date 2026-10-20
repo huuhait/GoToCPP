@@ -205,3 +205,30 @@ func (c *Config) targetsMingw(ctx context.Context, p string) bool {
 	m, err := c.machine(ctx, p)
 	return err == nil && MingwMachine(m)
 }
+
+// FindTool looks for a program that comes with a MinGW-w64 install but is not a compiler (gdb, lldb,
+// lldb-dap) on a Windows host (Phase 14 step 14.6): in PATH first, then in the folders of the known
+// installs (knownFolders: MSYS2, Chocolatey, Scoop, WinGet's WinLibs, the usual unpack folders), then
+// in the bin folder of gocpp's own llvm-mingw when it is unpacked (it has lldb, no gdb). The user's
+// PATH always wins. source says where it was found ("PATH", "MSYS2 ucrt64 (C:\msys64\ucrt64\bin)");
+// ok is false when there is none. On other hosts only PATH is looked at.
+func (c *Config) FindTool(name string) (path, source string, ok bool) {
+	if p, err := c.lookPath(name); err == nil {
+		return p, "PATH", true
+	}
+	if !c.isWindowsHost() {
+		return "", "", false
+	}
+	for _, f := range knownFolders(c.getenv, c.glob, c.isDir) {
+		p := filepath.Join(f.dir, name+".exe")
+		if c.isFile(p) {
+			return p, f.source + " (" + f.dir + ")", true
+		}
+	}
+	if dir := c.Dir(); dir != "" {
+		if p, found := installed(dir, name); found {
+			return p, "pinned llvm-mingw " + Release + " (cached)", true
+		}
+	}
+	return "", "", false
+}

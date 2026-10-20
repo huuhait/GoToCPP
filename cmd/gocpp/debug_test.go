@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -177,5 +178,120 @@ func TestDebugGDBColonTmpdir(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("the gdb session lacks %q:\n%s", want, out)
 		}
+	}
+}
+
+// On a Windows host the program is C:\...\prog.exe: the debugger gets slashes (a backslash starts an
+// escape in gdb's commands), and a drive letter is no colon problem (the safe path list of gdb is
+// separated by semicolons there).
+func TestDebugArgsWindows(t *testing.T) {
+	const exe = `C:\Users\me\AppData\Local\Temp\gocpp-build1\prog.exe`
+	df := &debugFlags{debugger: "gdb", hostOS: "windows", batch: true, cmds: stringList{"break x.gp:3"},
+		maps: stringList{`C:\trim=D:\src dir`}}
+	got := debugArgs(df, exe, []string{"a b"}, "")
+	want := []string{"-q", "-batch", "-iex",
+		"add-auto-load-safe-path C:/Users/me/AppData/Local/Temp/gocpp-build1/prog.exe",
+		"-iex", `set substitute-path "C:\\trim" "D:\\src dir"`, "-ex", "break x.gp:3",
+		"--args", "C:/Users/me/AppData/Local/Temp/gocpp-build1/prog.exe", "a b"}
+	if !slices.Equal(got, want) {
+		t.Errorf("gdb args on Windows:\n got %q\nwant %q", got, want)
+	}
+
+	t.Run("a folder with spaces is one word of the safe path", func(t *testing.T) {
+		df := &debugFlags{debugger: "gdb", hostOS: "windows"}
+		got := debugArgs(df, `C:\my work\prog.exe`, nil, "")
+		want := []string{"-q", "-iex", "add-auto-load-safe-path C:/my work/prog.exe", "--args", "C:/my work/prog.exe"}
+		if !slices.Equal(got, want) {
+			t.Errorf("got %q\nwant %q", got, want)
+		}
+	})
+	t.Run("a semicolon in the name is not on the safe path list", func(t *testing.T) {
+		df := &debugFlags{debugger: "gdb", hostOS: "windows"}
+		got := debugArgs(df, `C:\a;b\prog.exe`, nil, `C:\a;b\gocpp-gdb.py`)
+		want := []string{"-q", "-iex", "set auto-load python-scripts off", "-ex", "source C:/a;b/gocpp-gdb.py",
+			"--args", "C:/a;b/prog.exe"}
+		if !slices.Equal(got, want) {
+			t.Errorf("got %q\nwant %q", got, want)
+		}
+	})
+	t.Run("lldb", func(t *testing.T) {
+		df := &debugFlags{debugger: "lldb", hostOS: "windows", cmds: stringList{"run"}}
+		got := debugArgs(df, `C:\w d\prog.exe`, []string{"x"}, `C:\w d\gocpp_lldb.py`)
+		want := []string{"-O", `command script import "C:/w d/gocpp_lldb.py"`, "-o", "run", "--", "C:/w d/prog.exe", "x"}
+		if !slices.Equal(got, want) {
+			t.Errorf("got %q\nwant %q", got, want)
+		}
+	})
+	t.Run("a colon is fine on Windows and a problem elsewhere", func(t *testing.T) {
+		if needsHandLoad("windows", "C:/x/prog.exe") || !needsHandLoad("linux", "/tmp/a:b/prog") {
+			t.Error("needsHandLoad is wrong for a drive letter or for a colon in a Linux path")
+		}
+	})
+}
+
+// The messages for a missing debugger name what to install on Windows, and the search goes through
+// toolchain.FindTool (a stub here).
+func TestDebugNoDebugger(t *testing.T) {
+	anyCXX(t)
+	inDir(t, map[string]string{"hello.gp": debugSessionSrc})
+	old := findTool
+	findTool = func(string) (string, string, bool) { return "", "", false }
+	t.Cleanup(func() { findTool = old })
+	r := gocppRun("", false, "debug", "-batch", "hello.gp")
+	if r.code != 1 || !strings.HasPrefix(r.stderr, "gocpp debug: gdb was not found in PATH") {
+		t.Fatalf("gocpp debug with no gdb = %+v", r)
+	}
+	for _, host := range []string{"windows"} {
+		for _, name := range []string{"gdb", "lldb"} {
+			msg := noDebuggerMessage(name, host)
+			if !strings.Contains(msg, "winget") && !strings.Contains(msg, "scoop") && !strings.Contains(msg, "pacman") {
+				t.Errorf("the %s message for %s says nothing about installing it: %q", name, host, msg)
+			}
+		}
+	}
+}
+
+// defaultDebugger prefers gdb and takes lldb only when gdb is missing.
+func TestDefaultDebugger(t *testing.T) {
+	old := findTool
+	t.Cleanup(func() { findTool = old })
+	for _, c := range []struct {
+		have []string
+		want string
+	}{
+		{[]string{"gdb", "lldb"}, "gdb"}, {[]string{"lldb"}, "lldb"}, {[]string{"gdb"}, "gdb"}, {nil, "gdb"},
+	} {
+		findTool = func(name string) (string, string, bool) { return name, "PATH", slices.Contains(c.have, name) }
+		if got := defaultDebugger(); got != c.want {
+			t.Errorf("with %v installed, defaultDebugger() = %s, want %s", c.have, got, c.want)
+		}
+	}
+}
+
+// A program for another system cannot be started here: the error says so before anything is built,
+// and -print still shows the command line (built with MinGW-w64 when it is installed).
+func TestDebugCrossTarget(t *testing.T) {
+	noTargetEnv(t)
+	inDir(t, map[string]string{"hello.gp": debugSessionSrc})
+	other := "windows"
+	if runtime.GOOS == "windows" {
+		other = "linux"
+	}
+	r := gocppRun("", false, "debug", "-os", other, "hello.gp")
+	if r.code != 1 || !strings.Contains(r.stderr, "cannot be debugged on "+runtime.GOOS) ||
+		!strings.Contains(r.stderr, "-print") {
+		t.Errorf("gocpp debug -os %s = %+v", other, r)
+	}
+	if _, err := exec.LookPath("x86_64-w64-mingw32-g++"); err != nil || runtime.GOOS == "windows" {
+		return
+	}
+	t.Setenv("GOCPP_CXX", "")
+	t.Setenv("CXX", "")
+	r = gocppRun("", false, "debug", "-os", "windows", "-print", "-ex", "break hello.gp:11", "hello.gp")
+	line := strings.TrimSpace(r.stdout)
+	if r.code != 0 || !strings.HasPrefix(line, "gdb -q -iex 'add-auto-load-safe-path ") ||
+		!strings.Contains(line, ".exe") ||
+		!strings.Contains(line, "'break hello.gp:11'") {
+		t.Errorf("gocpp debug -os windows -print = %+v", r)
 	}
 }

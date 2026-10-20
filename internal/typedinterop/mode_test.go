@@ -121,15 +121,40 @@ func TestDecide(t *testing.T) {
 			t.Fatalf("%+v: want off, no error, a note for -v", d)
 		}
 	})
-	t.Run("auto on a Windows host", func(t *testing.T) {
-		defer func(old string) { hostOS = old }(hostOS)
-		hostOS = "windows"
-		if d := Decide(ctx, Setting{Auto, "default"}, true); d.On || d.Err != nil || d.Note == "" {
-			t.Fatalf("%+v: want off with a note, whatever clang++ is there", d)
+	t.Run("windows target", func(t *testing.T) {
+		// The Windows target is probed from any system (ADR-116): auto and typed use the clang that
+		// FindClangFor gives, and without one auto falls back and typed fails, as for the host's target.
+		t.Setenv("GOCPP_CLANG", "/nonexistent/clang++")
+		if d := DecideFor(ctx, Setting{Auto, "default"}, true, "windows", "amd64"); d.On || d.Err != nil || d.Note == "" {
+			t.Fatalf("auto: %+v: want off with a note", d)
 		}
-		if _, err := exec.LookPath("clang++"); err == nil {
-			if d := Decide(ctx, Setting{Typed, "-interop"}, true); !d.On {
-				t.Fatalf("%+v: typed asks clang++ on any host", d)
+		if d := DecideFor(ctx, Setting{Typed, "-interop"}, true, "windows", "amd64"); d.On || !errors.Is(d.Err, ErrNoClang) {
+			t.Fatalf("typed: %+v: want ErrNoClang", d)
+		}
+		if _, err := exec.LookPath("clang++"); err != nil {
+			return
+		}
+		t.Setenv("GOCPP_CLANG", "")
+		for _, m := range []Mode{Typed, Auto} {
+			if d := DecideFor(ctx, Setting{m, "-interop"}, true, "windows", "amd64"); !d.On || d.Err != nil {
+				t.Fatalf("%v: %+v: the host's clang++ is a cross compiler for windows/amd64", m, d)
+			}
+		}
+	})
+	t.Run("targets the probes answer for", func(t *testing.T) {
+		for _, c := range []struct {
+			goos, goarch string
+			want         bool
+		}{
+			{"", "", true},
+			{runtime.GOOS, runtime.GOARCH, true},
+			{"windows", "amd64", true},
+			{"linux", "arm64", runtime.GOOS == "linux" && runtime.GOARCH == "arm64"},
+			{"darwin", "arm64", runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"},
+			{"windows", "arm64", runtime.GOOS == "windows" && runtime.GOARCH == "arm64"},
+		} {
+			if got := ProbesTarget(c.goos, c.goarch); got != c.want {
+				t.Errorf("ProbesTarget(%q, %q) = %v, want %v", c.goos, c.goarch, got, c.want)
 			}
 		}
 	})

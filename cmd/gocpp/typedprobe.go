@@ -63,7 +63,7 @@ func runTypedProbe(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		if p == nil || !p.Checked() {
 			continue
 		}
-		opts := typedinterop.Options{Decls: *decls, Target: ftype.LP64, Runner: runner}
+		opts := typedinterop.Options{Decls: *decls, Target: ftype.LP64, Runner: runner, GOOS: c.goos, GOARCH: c.goarch}
 		if c.goos == "windows" {
 			opts.Target = ftype.LLP64
 		}

@@ -3,7 +3,6 @@ package typedinterop
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"strings"
 
 	"github.com/huuhait/gocpp/internal/check"
@@ -44,9 +43,6 @@ const (
 	// GOCPP_INTEROP wins over it.
 	EnvLegacy = "GOCPP_TYPED_INTEROP"
 )
-
-// hostOS is the system that runs gocpp (a variable for the tests).
-var hostOS = runtime.GOOS
 
 // DefaultMode is the mode when no flag and no variable says anything.
 const DefaultMode = Opaque
@@ -151,28 +147,38 @@ type Decision struct {
 	Note string
 }
 
-// Decide applies the clang rule to the setting. needed says whether the program has anything to
+// Decide applies the clang rule to the setting for a build for this machine (DecideFor).
+func Decide(ctx context.Context, s Setting, needed bool) Decision {
+	return DecideFor(ctx, s, needed, "", "")
+}
+
+// ProbesTarget reports whether the probes answer for the target goos/goarch (empty: this machine):
+// this machine's own target, and windows/amd64 from any system, where the probe runs a clang for the
+// Windows target with the MinGW-w64 headers and the Win32 defaults (Phase 14 step 14.6, ADR-116).
+// For any other target only the headers of the C++ standard library are typed (StdHeadersOnly).
+func ProbesTarget(goos, goarch string) bool {
+	return probe.ProbesTarget(goos, goarch)
+}
+
+// DecideFor applies the clang rule to the setting for a build for the target goos/goarch (empty:
+// this machine). needed says whether the program has anything to
 // probe (a package that is not the standard library's imports a C/C++ header): without it the
 // answer is Off and clang++ is not looked for, so a program of Go alone pays nothing. Typed
-// without clang++ is an error, auto falls back to opaque.
-func Decide(ctx context.Context, s Setting, needed bool) Decision {
+// without clang++ is an error, auto falls back to opaque. The clang is the one for the target
+// (probe.FindClangFor): for windows/amd64 the one that builds the Windows program or a clang that
+// the target's flags make a cross compiler.
+func DecideFor(ctx context.Context, s Setting, needed bool, goos, goarch string) Decision {
 	switch {
 	case s.Mode == Opaque:
 		return Decision{Note: "interop: opaque mode (" + s.String() + ")"}
 	case !needed:
 		return Decision{Note: "interop: no C/C++ header is imported, nothing to probe"}
 	}
-	if s.Mode == Auto && hostOS == "windows" {
-		// The probes of a Windows host need the target of the MinGW-w64 build and its headers
-		// (README section 2.8), which the probe does not pass yet; until it does, clang++ on a Windows
-		// host is not enough for auto. -interop=typed still asks.
-		return Decision{Note: "interop: auto mode is opaque on a Windows host (-interop=typed asks clang++ anyway)"}
-	}
-	if _, err := probe.FindClang(ctx); err != nil {
+	if _, err := probe.FindClangFor(ctx, goos, goarch); err != nil {
 		if s.Mode == Typed {
 			return Decision{Err: fmt.Errorf("%s: %w; install clang++, set GOCPP_CLANG to its path, or use -interop=opaque", s, err)}
 		}
-		return Decision{Note: "interop: clang++ not found, using opaque mode for C/C++ names (" + s.String() + "; -interop=opaque turns this note off)"}
+		return Decision{Note: "interop: no usable clang++ (not found, or it does not work), using opaque mode for C/C++ names (" + s.String() + "; -interop=opaque turns this note off)"}
 	}
 	return Decision{On: true, Note: "interop: typed mode (" + s.String() + ")"}
 }
@@ -208,17 +214,17 @@ type HookOptions struct {
 // CppMembers (gap E2, step 12.9). The language server (step 12.13) and the command line driver
 // both take their hooks from here. For a target other than this machine, the hooks answer only
 // for packages whose headers are all the C++ standard library's (their types are the same on
-// both systems; other headers are the host's, not the target's). Without clang++ the hooks
+// both systems; other headers are the host's, not the target's); windows/amd64 is probed like this
+// machine's own target (ProbesTarget). Without clang++ the hooks
 // answer nothing and check goes on in opaque mode.
 func Hooks(o HookOptions) (check.ConstFunc, check.CppMembers) {
 	rn := o.Runner
 	if rn == nil {
 		rn = new(probe.Runner)
 	}
-	cross := o.GOOS != "" && o.GOOS != runtime.GOOS || o.GOARCH != "" && o.GOARCH != runtime.GOARCH
 	consts := Constants(Options{Runner: rn})
-	members := MembersHook(Options{Runner: rn})
-	if !cross {
+	members := MembersHook(Options{Runner: rn, GOOS: o.GOOS, GOARCH: o.GOARCH})
+	if ProbesTarget(o.GOOS, o.GOARCH) {
 		return consts, members
 	}
 	return consts, func(ctx context.Context, p *check.Package, qs []check.MemberQuery) ([]check.MemberAnswer, error) {

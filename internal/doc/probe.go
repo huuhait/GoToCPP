@@ -20,7 +20,9 @@ func (r *runner) probe() HeaderProbe {
 	return &compilerProbe{goos: goos, goarch: goarch, dir: r.dir}
 }
 
-// compilerProbe asks the C++ compiler of the target.
+// compilerProbe asks the C++ compiler of the target, with the target's flags (build.ProbeTargetFlags)
+// and, for windows, the Win32 defaults (WIN32_LEAN_AND_MEAN, NOMINMAX, UNICODE, _UNICODE) that a
+// package for windows is compiled with (Phase 14 step 14.6, ADR-116).
 type compilerProbe struct {
 	goos, goarch string
 	dir          string
@@ -38,7 +40,9 @@ func (p *compilerProbe) FindHeader(ctx context.Context, name string) (string, er
 	if err != nil {
 		return "", err
 	}
-	cmd := cxx.Command(ctx, "-E", "-M", "-x", "c++", "-")
+	// The header is the target's: the flags of the target and the Win32 defaults, as for the build.
+	args := append(build.ProbeTargetFlags(cxx), build.Win32DefaultsFor(p.goos, nil)...)
+	cmd := cxx.Command(ctx, append(args, "-E", "-M", "-x", "c++", "-")...)
 	cmd.Dir = p.dir
 	cmd.Stdin = strings.NewReader("#include <" + name + ">\n")
 	var out, errb bytes.Buffer
@@ -61,7 +65,7 @@ func (p *compilerProbe) Kind(ctx context.Context, includes []string, path string
 	if err != nil {
 		return "", err
 	}
-	res, err := interop.ProbeKinds(ctx, cxx, p.dir, nil, includes, []string{path})
+	res, err := interop.ProbeKinds(ctx, cxx, p.dir, build.Win32DefaultsFor(p.goos, nil), includes, []string{path})
 	if err != nil {
 		return "", err
 	}

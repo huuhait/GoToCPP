@@ -780,7 +780,8 @@ func probeFlags(flags []string) []string {
 }
 
 // compilerArgs returns the arguments of a probe run: -std=c++20 and
-// -iquote dir, the package's flags (without the messageFlags), the mode
+// -iquote dir, the flags of the compiler's target (build.ProbeTargetFlags: none for the host),
+// the package's flags (without the messageFlags), the mode
 // (-fsyntax-only, or -E -dM), the probe's own flags (which the package's
 // flags can't turn off: for most flags the last one wins), the dependency
 // file and the source src.
@@ -793,6 +794,8 @@ func compilerArgs(cxx build.CXX, mode []string, dir string, flags []string, depF
 	if dir != "" {
 		args = append(args, "-iquote", dir)
 	}
+	// The target's flags come before the package's, which can override them (a -D_WIN32_WINNT).
+	args = append(args, build.ProbeTargetFlags(cxx)...)
 	args = append(args, probeFlags(flags)...)
 	args = append(args, mode...)
 	args = append(args, quietFlags(cxx)...)

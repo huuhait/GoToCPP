@@ -30,8 +30,12 @@ var ErrNoClang = probe.ErrNoClang
 // Options of Analyze.
 type Options struct {
 	// Clang is the compiler for the probes; the zero value means
-	// probe.FindClang. It must be clang.
+	// probe.FindClangFor(GOOS, GOARCH). It must be clang.
 	Clang build.CXX
+
+	// GOOS and GOARCH are the target of the probes (empty: this machine). Only a target that
+	// ProbesTarget accepts gets a compiler for it; the others are probed with this machine's clang.
+	GOOS, GOARCH string
 
 	// Runner remembers tables in memory; nil means a new one per call.
 	Runner *probe.Runner
@@ -124,7 +128,7 @@ func Analyze(ctx context.Context, p *check.Package, fset *token.FileSet, opts Op
 	cxx := opts.Clang
 	if cxx.Path == "" {
 		var err error
-		if cxx, err = probe.FindClang(ctx); err != nil {
+		if cxx, err = probe.FindClangFor(ctx, opts.GOOS, opts.GOARCH); err != nil {
 			return nil, err
 		}
 	}

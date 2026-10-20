@@ -734,13 +734,21 @@ func TestWindowsNativeUnits(t *testing.T) {
 		runs []string // -test.run patterns, one run each (cmd.exe reads | and ^)
 		skip string   // a -test.skip pattern (no | or ^ either), for tests that assume Linux
 	}{
-		{"./internal/build", []string{"TestJob", "TestManifest", "TestFitCommand", "TestRspQuoteWindows", "TestFindCXXForWindowsHost"}, ""},
+		{"./internal/build", []string{
+			"TestJob", "TestManifest", "TestFitCommand", "TestRspQuoteWindows", "TestFindCXXForWindowsHost",
+			"TestMingwSearchDirs", "TestWin32DefaultsFor",
+		}, ""},
 		{"./internal/filelock", []string{"."}, ""},
 		{"./internal/fsretry", []string{"."}, ""},
 		{"./internal/modfetch", []string{"TestConcurrentProcesses"}, ""},
 		{"./internal/winpath", []string{"."}, ""},
-		{"./internal/toolchain", []string{"TestLock", "TestRemove", "TestDownloadZip", "TestUnpackZip"}, ""},
-		{"./cmd/gocpp", []string{"TestCanonPath", "TestWithExeSuffix", "TestNormalizeEnvPaths"}, ""},
+		{"./internal/toolchain", []string{
+			"TestLock", "TestRemove", "TestDownloadZip", "TestUnpackZip", "TestFindToolReal",
+		}, ""},
+		{"./cmd/gocpp", []string{
+			"TestCanonPath", "TestWithExeSuffix", "TestNormalizeEnvPaths", "TestDebugArgsWindows",
+			"TestVSCodeLaunchGDB",
+		}, ""},
 		// The language server (step 14.5): its tests use the paths of the system they run on.
 		{"./internal/lsp/fspath", []string{"."}, ""},
 		{"./internal/lsp/protocol", []string{"."}, ""},

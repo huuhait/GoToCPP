@@ -14,7 +14,7 @@
   - [ ] `os`, `path/filepath`, `time`, `os/exec`, `os/signal` + tests
 - [x] 14.4 Windows interop: `WIN32_LEAN_AND_MEAN`/`NOMINMAX`/`UNICODE` defaults, macro collisions, `C.wstr`/`C.GoStringW`, Windows header zoo + SDL2/raylib/sqlite3/zlib for MinGW-w64 (merged 2026-10-19; ADR-082)
 - [x] 14.5 Language server + VS Code on Windows (paths, URIs, file watching, case-insensitive names) + Phase 11 budgets on Windows
-- [ ] 14.6 Debugging (gdb/lldb, VS Code launch template) + typed-interop probes with the Windows target
+- [x] 14.6 Debugging (gdb/lldb, VS Code launch template) + typed-interop probes with the Windows target (merged 2026-10-20, ADR-116; real PC: TestWindowsDebug 9/9, typed `<windows.h>` run, native typed check with the downloaded llvm-mingw; lldb/lldb-dap and a VS Code launch on Windows not tried)
 - [x] 14.7 Test infrastructure: Wine CI job for the whole suite (`GOOS=windows` Go as reference) + real-Windows release checklist
 - [x] 14.8 Docs: install on Windows, build for Windows from Linux, Windows interop cookbook
 
@@ -27,6 +27,8 @@
 - [ ] Phase 11 editor budgets hold on Windows
 
 ## Decisions / notes
+
+- 2026-10-20: 14.6 merged (ADR-116). `gocpp debug` finds gdb/lldb (PATH, MSYS2/Chocolatey/Scoop/WinGet/MinGW folders, then pinned llvm-mingw, which has lldb but no gdb), PE `.debug_gdb_scripts`, `-vscode` launch templates (cppdbg+gdb, lldb-dap). Typed probes and `gocpp doc` now target windows/amd64 from any host; "auto is opaque on a Windows host" removed; probe-cache key layout changed (one cold run). Also fixed a Linux regression: programs from libgocpprt.a had no `.debug_gdb_scripts`, so TestDebugGDB had failed on dev. That revived `tests/gdb`, which now shows 8 stale-golden failures (goroutines bt frame #11 vs #12; frames clang++ O2 breakpoint not hit): follow-up. Not run: interop corpus on a Windows host (ADR-108 measurement 3), stepping sessions, lldb on Windows. Opt-in `TestWindowsTypedNative` (GOCPP_TEST_DOWNLOAD=1) downloads 190 MB llvm-mingw into the run folder and removes it: decide if it belongs in a regular PC batch.
 
 - 2026-10-13 (your decision, Q8): Linux and Windows are the targets, Linux first, Windows before
   v1.0; macOS is not a target. Toolchain: MinGW-w64 (clang or gcc) first, cross-compiled from

@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -426,5 +428,109 @@ func TestNoCompilerMessageSaysGOCPPCXXOnce(t *testing.T) {
 		if n := strings.Count(err.Error(), "GOCPP_CXX"); n != 1 {
 			t.Errorf("offline=%v: GOCPP_CXX is in the message %d times: %v", offline, n, err)
 		}
+	}
+}
+
+// The debuggers of a Windows host (step 14.6): gdb and lldb are found in PATH first, then in the
+// folders of the known installs, then in gocpp's own llvm-mingw (lldb only).
+func TestFindTool(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		l      layout
+		tool   string
+		want   string // "" for none
+		source string
+	}{
+		{name: "gdb in PATH", l: layout{files: []string{"/w/bin/gdb.exe"}, path: []string{"/w/bin"}},
+			tool: "gdb", want: "/w/bin/gdb.exe", source: "PATH"},
+		{name: "PATH wins over a known folder",
+			l: layout{files: []string{"/p/gdb.exe", "/m/ucrt64/bin/gdb.exe"}, path: []string{"/p"},
+				env: map[string]string{"MSYS2_ROOT": "/m"}},
+			tool: "gdb", want: "/p/gdb.exe", source: "PATH"},
+		{name: "gdb of MSYS2 ucrt64 when PATH has none",
+			l: layout{files: []string{"/m/ucrt64/bin/gdb.exe", "/m/mingw64/bin/gdb.exe"},
+				env: map[string]string{"MSYS2_ROOT": "/m"}},
+			tool: "gdb", want: "/m/ucrt64/bin/gdb.exe", source: "MSYS2 ucrt64"},
+		{name: "gdb of WinGet's WinLibs",
+			l: layout{files: []string{"/l/Microsoft/WinGet/Packages/BrechtSanders.WinLibs.POSIX.UCRT_x/mingw64/bin/gdb.exe"},
+				env: map[string]string{"LOCALAPPDATA": "/l"}},
+			tool:   "gdb",
+			want:   "/l/Microsoft/WinGet/Packages/BrechtSanders.WinLibs.POSIX.UCRT_x/mingw64/bin/gdb.exe",
+			source: "WinGet WinLibs"},
+		{name: "lldb of Scoop's llvm-mingw",
+			l:    layout{files: []string{"/s/apps/llvm-mingw/current/bin/lldb.exe"}, env: map[string]string{"SCOOP": "/s"}},
+			tool: "lldb", want: "/s/apps/llvm-mingw/current/bin/lldb.exe", source: "Scoop llvm-mingw"},
+		{name: "none", l: layout{}, tool: "gdb"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := c.l.config()
+			got, source, ok := cfg.FindTool(c.tool)
+			if ok != (c.want != "") || filepath.ToSlash(got) != c.want || !strings.Contains(source, c.source) {
+				t.Errorf("FindTool(%s) = %q, %q, %v; want %q from %q", c.tool, got, source, ok, c.want, c.source)
+			}
+		})
+	}
+}
+
+// On a Linux host only PATH is looked at: the folders are Windows ones.
+func TestFindToolLinuxHost(t *testing.T) {
+	l := layout{files: []string{"/m/ucrt64/bin/gdb.exe"}, env: map[string]string{"MSYS2_ROOT": "/m"}}
+	cfg := l.config()
+	cfg.Host = "linux/amd64"
+	if p, source, ok := cfg.FindTool("gdb"); ok {
+		t.Errorf("found %s (%s) in a Windows folder on a Linux host", p, source)
+	}
+}
+
+// gocpp's own llvm-mingw has lldb: it is used when it is fully unpacked (the marker file is there),
+// and only after PATH and the known folders.
+func TestFindToolPinnedToolchain(t *testing.T) {
+	cfg := (&layout{}).config()
+	cfg.Cache = t.TempDir()
+	bin := filepath.Join(cfg.Dir(), "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lldb := filepath.Join(bin, "lldb.exe")
+	if err := os.WriteFile(lldb, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if p, _, ok := cfg.FindTool("lldb"); ok {
+		t.Errorf("found %s in a toolchain that is not fully unpacked", p)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.Dir(), markerName), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, source, ok := cfg.FindTool("lldb")
+	if !ok || p != lldb || !strings.Contains(source, "pinned llvm-mingw") {
+		t.Errorf("FindTool(lldb) = %q, %q, %v; want %s from the pinned toolchain", p, source, ok, lldb)
+	}
+}
+
+// On a real Windows machine: with a PATH that names no gdb, FindTool finds the one of the install
+// that the machine has (WinGet's WinLibs, MSYS2, ...), and it runs. Skipped elsewhere, and where gdb
+// is installed in a folder that is not one of the known ones. The Windows suite runs it on the real PC
+// (TestWindowsNativeUnits).
+func TestFindToolReal(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("a Windows machine's folders")
+	}
+	inPath, err := exec.LookPath("gdb")
+	if err != nil {
+		t.Skip("gdb is not installed")
+	}
+	cfg, err := FromEnv(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.LookPath = func(string) (string, error) { return "", errors.New("PATH names no gdb") }
+	got, source, ok := cfg.FindTool("gdb")
+	if !ok {
+		t.Skipf("gdb is in %s, which is not one of the folders of the known installs", inPath)
+	}
+	t.Logf("gdb found in %s (%s); PATH has %s", got, source, inPath)
+	out, err := exec.Command(got, "--version").Output()
+	if err != nil || !strings.HasPrefix(string(out), "GNU gdb") {
+		t.Errorf("%s --version: %v %q", got, err, out)
 	}
 }

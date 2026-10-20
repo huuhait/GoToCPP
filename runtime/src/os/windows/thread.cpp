@@ -17,6 +17,12 @@
 
 namespace gp::os {
 
+// The index of the thread slot (tls_get), for a debugger: gocpp's gdb script reads the slot of the
+// selected thread from the thread environment block (TlsSlots[index]) to find the goroutine of a
+// thread, as it reads the thread_local tslot of the Linux layer (docs/guides/debugging.md). It is
+// TLS_OUT_OF_INDEXES until the indexes are made.
+DWORD debug_tls_slot = TLS_OUT_OF_INDEXES;
+
 namespace {
 
 constinit std::atomic<stack_overflow_hook> overflow_hook{nullptr};
@@ -30,7 +36,7 @@ constinit std::atomic<stack_overflow_hook> overflow_hook{nullptr};
 struct tls_indexes {
     DWORD slot;
     DWORD bounds;
-    tls_indexes() : slot(TlsAlloc()), bounds(TlsAlloc()) {}
+    tls_indexes() : slot(TlsAlloc()), bounds(TlsAlloc()) { debug_tls_slot = slot; }
 };
 
 const tls_indexes& tls() noexcept {

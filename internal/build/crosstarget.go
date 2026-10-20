@@ -73,7 +73,7 @@ func targetFlags(c CXX) []string {
 	var flags []string
 	// A clang that is not one of the target's own (llvm-mingw's x86_64-w64-mingw32-clang++ and
 	// Debian's aarch64-linux-gnu-clang++ name the target themselves) is told the target.
-	if c.Family == Clang && c.GOOS != "" && !strings.Contains(filepath.Base(c.Path), "-") {
+	if c.Family == Clang && c.GOOS != "" && !targetNamed(c) {
 		if triple := TargetTriple(c.GOOS, c.GOARCH); triple != "" {
 			flags = append(flags, "--target="+triple)
 		}
@@ -84,6 +84,18 @@ func targetFlags(c CXX) []string {
 		flags = append(flags, "-D_WIN32_WINNT="+winNT)
 	}
 	return flags
+}
+
+// targetNamed reports whether the compiler's program name starts with its target
+// (x86_64-w64-mingw32-clang++, aarch64-linux-gnu-clang++): such a clang knows its target and, for
+// MinGW-w64, its headers. A version suffix (clang++-21) is not a target.
+func targetNamed(c CXX) bool {
+	arch, _, ok := strings.Cut(filepath.Base(c.Path), "-")
+	switch arch {
+	case "x86_64", "i686", "i386", "aarch64", "arm64", "armv7", "arm", "riscv64", "amd64":
+		return ok
+	}
+	return false
 }
 
 // windowsStack is the size of the main thread's stack of a Windows program, the same as the

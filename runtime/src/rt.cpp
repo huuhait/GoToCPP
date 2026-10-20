@@ -958,6 +958,19 @@ void load_process_info() {
 
 } // namespace detail
 
+// debug_script_present is defined by the OS layer's debug_scripts.cpp, whose object file holds the
+// gdb script of every program in a section of its own (docs/guides/debugging.md). The runtime is a
+// static library, and the linker takes a member only for a symbol that something wants: this
+// reference, in the file every program links, is what brings the script in. (Without it the
+// section was left out of every program.)
+extern const char debug_script_present[];
+
+namespace {
+
+[[gnu::used]] const char* const keep_debug_script = debug_script_present;
+
+} // namespace
+
 int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
     // The main goroutine is registered first: its id is 1.
     detail::goroutine_id();

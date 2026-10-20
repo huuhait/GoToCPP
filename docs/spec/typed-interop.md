@@ -27,7 +27,10 @@ policy, `-MD`).
 
 **clang++ is required** (the JSON AST dump). `probe.FindClang` returns `probe.ErrNoClang`
 (wrapped) when it is missing, or is not clang (or older than clang 17); the mode `auto` falls back to opaque mode on it and `typed` fails (§13). The
-program in `GOCPP_CLANG` is used when it is set.
+program in `GOCPP_CLANG` is used when it is set. For the target windows/amd64 `probe.FindClangFor` finds the clang
+(`GOCPP_CLANG`, `x86_64-w64-mingw32-clang++`, the clang of the build, `clang++`) and marks it with the target, which the probes
+pass on as `--target`, `-D_WIN32_WINNT` and, from a system other than Windows, the include folders of the MinGW-w64 g++
+(`build.ProbeTargetFlags`); the target is part of every cache key (Phase 14 step 14.6, ADR-116).
 
 ## 1. Collector (`collect`)
 
@@ -467,7 +470,7 @@ it for each package that is not the standard library's when the mode is typed (�
 that `check` made for the interop checker). In opaque mode the output is byte-identical to Phase 04's. Where the probe has no answer for an expression (not probed, failed, or **recovered**: clang
 printed an error and kept a type; an opaque or incomplete foreign type; a copy of the syntax tree that the
 collector did not see) the opaque lowering runs. A cross build is typed only when every header is the C++
-library's.
+library's, except the build for windows/amd64, whose probes read the MinGW-w64 headers (`typedinterop.ProbesTarget`).
 
 | Source | Opaque mode | Typed mode |
 |---|---|---|
@@ -977,7 +980,7 @@ of `gocpp build` has the flag in its key (the variables are in it already). The 
 - `opaque`: nothing of this phase runs; the output is Phase 04's, byte for byte.
 - `auto`: typed when clang++ is installed, else opaque, **without a word**. `gocpp check -v` and `gocpp build -v`
   (also `run`, `test`, `vet`) print one line that says which mode was used and why
-  (`interop: clang++ not found, using opaque mode for C/C++ names (...)`).
+  (`interop: no usable clang++ (not found, or it does not work), using opaque mode for C/C++ names (...)`).
 
 ### 13.2 What typed mode runs
 
@@ -1015,9 +1018,9 @@ library's imports a C/C++ header (`typedinterop.Needed`). A program of Go alone 
 The message names the source of the mode (`-interop=typed`, `GOCPP_INTEROP=typed`, `GOCPP_TYPED_INTEROP=1`). Two more
 fallbacks, per package and always to opaque: a probe that fails for another reason (a header that clang cannot read, a
 compiler run that times out) leaves that package opaque (a line `gocpp: typed interop: ... (using opaque mode for P)` with
-`typed` and with `-v`, none with `auto`); and **`auto` is opaque on a Windows host** (`runtime.GOOS == "windows"`)
-even when clang++ is installed, because the probes do not pass the MinGW-w64 target and its headers yet (README §2.8);
-`-interop=typed` asks anyway.
+`typed` and with `-v`, none with `auto`); and the probes of a program for Windows pass the MinGW-w64 target, its headers and the Win32 defaults (step 14.6, ADR-116; before it,
+`auto` was opaque on a Windows host and for any target other than this machine's). A Windows host with no clang++ that gocpp can find stays
+opaque with `auto`.
 
 ### 13.4 For the language server (step 12.13)
 
@@ -1054,7 +1057,7 @@ and `addr_loopvar_error` (with clang++ the early error of the typed checker, `ca
 `typedinterop.DefaultMode` is **opaque**. The evidence of §13.5 and of §13.7 (warm overhead) supports `auto`, but the
 default stays until these hold, which this step cannot show: (1) cold probing of the examples is 0.9 to 2.4 s on a
 lightly loaded machine (§13.7), above the 0.5 s of the exit criterion; (2) only clang 21 was
-available (step 12.12 built the matrix script, `tools/clang-matrix.sh`, and ran clang 21 only: §14.4); (3) there is no probe for a Windows host. Switching is one constant
+available (step 12.12 built the matrix script, `tools/clang-matrix.sh`, and ran clang 21 only: §14.4); (3) the probe for a Windows host was written and ran on the real PC with the pinned llvm-mingw's clang (step 14.6, `TestWindowsTypedNative`), but the interop corpus has not run there. Switching is one constant
 (`DefaultMode = Auto`) and the words of the documents that say "opaque is the default" (ADR-101 lists them); the test
 suites of `cmd/gocpp` and `tests` set `GOCPP_INTEROP=opaque` in their `TestMain`, so that they keep testing the
 opaque pipeline when the default moves, and `TestCorpusTyped` keeps testing the typed one. (A dry run with `DefaultMode = Auto` failed only the two goldens of `gocpp env`, which show the default.)

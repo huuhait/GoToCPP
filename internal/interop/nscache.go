@@ -406,7 +406,12 @@ func setKey(cxx build.CXX, dir string, flags, includes []string) string {
 	// after their number, so that they can't be confused with the parts
 	// after them.
 	parts := append([]string{cxx.Path, fmt.Sprint(len(cxx.Args))}, cxx.Args...)
-	parts = append(parts, cxx.Family.String(), cxx.Version, dir, fmt.Sprint(len(flags)))
+	// The target and its flags (a clang for Windows probes with --target and the MinGW-w64
+	// headers): the same clang for two targets must not share an entry.
+	target := build.ProbeTargetFlags(cxx)
+	parts = append(parts, cxx.Family.String(), cxx.Version, cxx.GOOS, cxx.GOARCH, fmt.Sprint(len(target)))
+	parts = append(parts, target...)
+	parts = append(parts, dir, fmt.Sprint(len(flags)))
 	parts = append(parts, flags...)
 	return strings.Join(append(parts, includes...), "\x00")
 }

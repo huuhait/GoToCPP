@@ -43,6 +43,23 @@ func Win32Defaults(lp *load.Package, user []string) []string {
 			}
 		}
 	}
+	return win32MacroFlags(user)
+}
+
+// Win32DefaultsFor returns the flags of the Win32 defaults for a probe that belongs to no package
+// (gocpp doc of a header, for the target goos): the defaults of a package for windows that imports
+// that header, or nil for another system (Phase 14 step 14.6). user are the flags that the probe has
+// from the user.
+func Win32DefaultsFor(goos string, user []string) []string {
+	if goos != "windows" {
+		return nil
+	}
+	return win32MacroFlags(user)
+}
+
+// win32MacroFlags is the part of the defaults that the flags of the user and the environment leave
+// to gocpp: a -D for each macro that none of them defines or undefines.
+func win32MacroFlags(user []string) []string {
 	env, _ := ReadEnvFlags() // a bad quote is reported where the flags are used
 	mentioned := macrosOf(slices.Concat(env.CFlags, env.CXXFlags, user))
 	var out []string

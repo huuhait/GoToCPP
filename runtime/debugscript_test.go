@@ -10,15 +10,15 @@ import (
 	"testing"
 )
 
-var updateDebugScript = flag.Bool("update-debug-script", false, "rewrite src/os/linux/gocpp_gdb.inc from debug/gocpp-gdb.py")
+var updateDebugScript = flag.Bool("update-debug-script", false, "rewrite src/os/gocpp_gdb.inc from debug/gocpp-gdb.py")
 
 const (
 	debugScriptPy  = "debug/gocpp-gdb.py"
-	debugScriptInc = "src/os/linux/gocpp_gdb.inc"
+	debugScriptInc = "src/os/gocpp_gdb.inc"
 )
 
-// TestDebugScript checks that src/os/linux/gocpp_gdb.inc, the text that every program carries in
-// its .debug_gdb_scripts section (src/os/linux/debug_scripts.cpp), is the script
+// TestDebugScript checks that src/os/gocpp_gdb.inc, the text that every program carries in
+// its .debug_gdb_scripts section (src/os/linux/debug_scripts.cpp, src/os/windows/debug_scripts.cpp), is the script
 // debug/gocpp-gdb.py. go test ./runtime -run TestDebugScript -update-debug-script rewrites it.
 func TestDebugScript(t *testing.T) {
 	py, err := os.ReadFile(debugScriptPy)

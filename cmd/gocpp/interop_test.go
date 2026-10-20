@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -194,7 +195,8 @@ func TestInteropNoClang(t *testing.T) {
 	}
 	t.Run("auto note at -v", func(t *testing.T) {
 		got, r := note(t, "-interop=auto", "a.gp")
-		if r.code != 0 || !strings.HasPrefix(got, "interop: clang++ not found, using opaque mode") || strings.Count(r.stderr, "\n") != 1 {
+		const note = "interop: no usable clang++ (not found, or it does not work), using opaque mode"
+		if r.code != 0 || !strings.HasPrefix(got, note) || strings.Count(r.stderr, "\n") != 1 {
 			t.Fatalf("exit %d, note %q, stderr (want one line):\n%s", r.code, got, r.stderr)
 		}
 	})
@@ -212,6 +214,28 @@ func TestInteropNoClang(t *testing.T) {
 			t.Fatalf("a program of Go alone needs no clang++: exit %d\n%s", r.code, r.stderr)
 		}
 	})
+}
+
+// otherTarget returns the -os and -arch flags of a target that the probes cannot see the headers of
+// (typedinterop.ProbesTarget is false): not this machine's, and not windows/amd64, which is probed
+// from every system (Phase 14 step 14.6).
+func otherTarget() []string {
+	if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
+		return []string{"-os", "linux", "-arch", "arm64"}
+	}
+	return []string{"-os", "linux", "-arch", "amd64"}
+}
+
+// needMingwClang skips a test of the Windows target when this machine has no way to probe it:
+// clang++ with the MinGW-w64 headers (the g++ of the cross build names them).
+func needMingwClang(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		return
+	}
+	if _, err := exec.LookPath("x86_64-w64-mingw32-g++"); err != nil {
+		t.Skip("no MinGW-w64 g++: clang++ has no headers for the Windows target")
+	}
 }
 
 // TestInteropEarlyErrors: typed mode reports a mistake in a call of C++ code in gocpp check, in
@@ -233,17 +257,25 @@ func TestInteropEarlyErrors(t *testing.T) {
 		t.Fatalf("typed build: exit %d\n%s", b.code, b.stderr)
 	}
 	// A build for another system than this one gets no early errors: the probes read this machine's headers.
-	cross := "windows"
-	if runtime.GOOS == "windows" {
-		cross = "linux"
-	}
+	// (The Windows target is the exception: its probes read the MinGW-w64 headers, see below.)
+	cross := otherTarget()
 	if h := gocppRun("", false, "check", "-interop=typed", "s.gp"); h.code != 1 || !strings.Contains(h.stderr, "too many arguments in call to cmath.sqrt") {
 		t.Fatalf("typed check of the library alone: exit %d\n%s", h.code, h.stderr)
 	}
-	c := gocppRun("", false, "check", "-interop=typed", "-os", cross, "s.gp")
-	if c.code != 0 || strings.Contains(c.stderr, "too many arguments") {
-		t.Fatalf("typed check for %s: exit %d\n%s", cross, c.code, c.stderr)
-	}
+	t.Run("another target", func(t *testing.T) {
+		t.Setenv("GOCPP_CXX", "g++") // names the compiler of the target (there is no cross compiler here)
+		c := gocppRun("", false, append(append([]string{"check", "-interop=typed"}, cross...), "s.gp")...)
+		if c.code != 0 || strings.Contains(c.stderr, "too many arguments") {
+			t.Fatalf("typed check for %v: exit %d\n%s", cross, c.code, c.stderr)
+		}
+	})
+	t.Run("the windows target is probed", func(t *testing.T) {
+		needMingwClang(t)
+		w := gocppRun("", false, "check", "-interop=typed", "-os", "windows", "s.gp")
+		if w.code != 1 || !strings.Contains(w.stderr, "too many arguments in call to cmath.sqrt") {
+			t.Fatalf("typed check for windows: exit %d\n%s", w.code, w.stderr)
+		}
+	})
 	// With g++ as the build compiler the early errors are warnings: the C++ compiler decides.
 	t.Setenv("GOCPP_CXX", "g++")
 	w := gocppRun("", false, "check", "-interop=typed", "a.gp")
@@ -312,10 +344,8 @@ func main() {
 `
 	interopSetup(t, map[string]string{"lib.hpp": hdr, "own.gp": own, "std.gp": std})
 	needClang(t)
-	cross := "windows"
-	if runtime.GOOS == "windows" {
-		cross = "linux"
-	}
+	cross := otherTarget()
+	t.Setenv("GOCPP_CXX", "g++") // names the compiler of the other target (there is no cross compiler here)
 	emit := func(mode, file string, args ...string) result {
 		t.Helper()
 		r := gocppRun("", false, append(append([]string{"emit", "-interop=" + mode}, args...), file)...)
@@ -327,14 +357,23 @@ func main() {
 	if typed := emit("typed", "own.gp"); !strings.Contains(typed.stdout, "gp::nonnull(p)->v = 4;") {
 		t.Fatalf("typed emit of a program with its own header, for this system:\n%s", typed.stdout)
 	}
-	if x, o := emit("typed", "own.gp", "-os", cross), emit("opaque", "own.gp", "-os", cross); x.stdout != o.stdout || strings.Contains(x.stdout, "gp::nonnull") {
-		t.Fatalf("typed emit for %s with a header of its own is not opaque's:\n%s", cross, x.stdout)
+	x, o := emit("typed", "own.gp", cross...), emit("opaque", "own.gp", cross...)
+	if x.stdout != o.stdout || strings.Contains(x.stdout, "gp::nonnull") {
+		t.Fatalf("typed emit for %v with a header of its own is not opaque's:\n%s", cross, x.stdout)
 	}
+	// The windows target is probed (MinGW-w64's headers, LLP64): its typed emit is this system's.
+	t.Run("windows", func(t *testing.T) {
+		needMingwClang(t)
+		t.Setenv("GOCPP_CXX", "") // the MinGW-w64 g++ of the cross build
+		if w := emit("typed", "own.gp", "-os", "windows"); !strings.Contains(w.stdout, "gp::nonnull(p)->v = 4;") {
+			t.Fatalf("typed emit for windows with a header of its own:\n%s", w.stdout)
+		}
+	})
 	// opaque mode rejects v.at(0) = 5; the library's headers alone are typed for the other system too.
-	if r := gocppRun("", false, "emit", "-interop=typed", "-os", cross, "std.gp"); r.code != 0 {
-		t.Fatalf("typed emit of the library alone for %s: exit %d\n%s", cross, r.code, r.stderr)
+	if r := gocppRun("", false, append([]string{"emit", "-interop=typed"}, append(cross, "std.gp")...)...); r.code != 0 {
+		t.Fatalf("typed emit of the library alone for %v: exit %d\n%s", cross, r.code, r.stderr)
 	}
-	if r := gocppRun("", false, "emit", "-interop=opaque", "-os", cross, "std.gp"); r.code == 0 {
+	if r := gocppRun("", false, append([]string{"emit", "-interop=opaque"}, append(cross, "std.gp")...)...); r.code == 0 {
 		t.Fatalf("opaque mode accepts v.at(0) = 5: the test shows nothing\n%s", r.stdout)
 	}
 }

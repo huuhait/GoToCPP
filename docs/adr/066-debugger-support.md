@@ -23,7 +23,7 @@ function is `gpkg_main::fact`. Phase 13's exit criterion asks that scripted gdb 
    stopped anywhere, at the price of knowing the layout of the runtime's classes and of libstdc++'s hash table (maps).
    The tests fail when a layout changes. At `-O2` a value that the compiler dropped is `<optimized out>`.
 3. **The script travels inside every program**, as the text of a `.debug_gdb_scripts` section (type 4, Python text) that
-   `runtime/src/os/linux/debug_scripts.cpp` writes from `gocpp_gdb.inc` (generated from the `.py` by
+   `runtime/src/os/linux/debug_scripts.cpp` writes from `gocpp_gdb.inc` (now `runtime/src/os/gocpp_gdb.inc`, shared with Windows by [ADR-116](116-debugging-and-typed-interop-on-windows.md); generated from the `.py` by
    `go test ./runtime -run TestDebugScript -update-debug-script`; the test fails when it is stale). The section has no `A` flag,
    so it is not loaded into memory (about 90 KB in the file; `strip` removes it, and then there are no printers), and a program that moves to another
    machine keeps its printers. gdb runs it only for a safe path: `gocpp debug` adds the program with

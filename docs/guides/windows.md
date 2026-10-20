@@ -242,11 +242,17 @@ in the Command Palette, and pick the `editors/vscode` folder; [its README](../..
 - Speed: every budget of the language server is met on the PC (16 threads); the numbers are in
   [the Windows benchmark](../benchmarks/lsp-windows.md). The one miss is memory: the 91,000-line `large` project used 442 MiB against a budget of 400 MiB for 50,000 lines, and Linux shows the same.
 
-**Debugging** works in its basics: `gocpp debug` builds with DWARF debug information and starts WinLibs' gdb. On the PC, in batch mode
-(`gocpp debug -batch -ex "break prog.gp:8" -ex run -ex bt -ex "print s" -ex "print xs" -ex "gp goroutines" prog.gp`), a breakpoint on a `.gp` line was hit, `bt` showed Go names
-(`main.main () at ...pan.gp:3`), the gocpp printers for strings and slices worked (`print s` gave `"hello"`, `print xs` gave `[1 2 3] (len 3, cap 3)`) and `gp goroutines`
-ran. A map before its initialisation printed as `map[...] (Cannot access memory ...)`. Not tried: stepping, lldb, and a VS Code launch template (planned). Run
-`gocpp debug` from a terminal that gdb can take over: without `-batch` and without a terminal it waits for input. See the [debugging guide](debugging.md).
+**Debugging** works with gdb (step 14.6): `gocpp debug` finds the gdb of an install (PATH, MSYS2, Chocolatey, Scoop,
+WinGet's WinLibs, then gocpp's llvm-mingw) before it builds anything, builds with DWARF debug information, and starts it with the
+program as gdb's safe path (forward slashes, `;` as the list separator), so the gocpp script inside the program (the
+`.debug_gdb_scripts` section of the `.exe`) loads and the printers work. On the PC, with WinLibs' gdb 17.2, in a folder and a
+`TEMP` with spaces, in batch mode, these were checked: a breakpoint on a `.gp` line, `bt` with Go names and `.gp` lines, the printers
+for strings, slices, maps and `int`, `gp locals`, `gp goroutines` (seven goroutines of every state), a stack overflow that stops at its `.gp` line,
+and `catch throw` that stops a Go panic at the function that caused it. `gocpp debug -vscode` prints the VS Code `launch.json` (cppdbg with
+`miDebuggerPath` and the safe path; `-debugger lldb` prints one for lldb-dap). Not tried on Windows: lldb and lldb-dap (the PC has no lldb), a launch in
+VS Code, and stepping through a long session. Run `gocpp debug` from a terminal that gdb can take over: without `-batch` and without a
+terminal it waits for input. A bare `bt` on a stack-overflow crash walks a hundred thousand frames: use `bt 5`. See the
+[debugging guide](debugging.md#debugging-on-windows).
 
 ## What does not work yet
 
@@ -262,8 +268,8 @@ native-fmt audit; this is not a claim that the full Windows or upstream fmt suit
 | time zones | `time.Local` is UTC and `time.LoadLocation` has no Windows data (Go reads the registry; gocpp does not yet) |
 | `-race` | not for Windows: `gocpp build: -race is not supported for windows`. ThreadSanitizer does not exist for MinGW |
 | `-asan` | not for Windows: `gocpp build: -asan is not supported for windows`. The MinGW GCC of WinLibs has no libsanitizer (`cannot read spec file 'libsanitizer.spec'`). Sanitizers run on Linux. clang's MinGW target has AddressSanitizer; gocpp has not tried it |
-| a VS Code debug launch, stepping, lldb | planned (basic `gocpp debug` with gdb works, see above) |
-| typed interop (`GOCPP_INTEROP=typed`, `-interop=typed`), `gocpp doc` of a header package | the probes need `clang++` and still use the host's compiler rules (planned). On a Windows host `auto` stays `opaque`, because the pinned llvm-mingw's clang is not used for probing yet; `typed` without a clang exits with status 3 on `build`, `run` and `check` (1 on `gocpp test` for now) |
+| lldb, lldb-dap, a VS Code launch, a long stepping session | not tried on Windows: the PC has gdb only. The `launch.json` for them is printed by `gocpp debug -vscode` and checked as text only (see above) |
+| typed interop (`GOCPP_INTEROP=typed`, `-interop=typed`), `gocpp doc` of a header package | the probes run a clang for the Windows target: `x86_64-w64-mingw32-clang++`, the clang++ of the build or of the pinned llvm-mingw, or the clang++ in PATH, with `--target`, `-D_WIN32_WINNT=0x0A00`, the Win32 defaults and, on a system other than Windows, the headers of MinGW-w64's g++ (see the end of this page). Checked on Linux with MinGW-w64 headers (`<windows.h>` and its types are probed as LLP64; a typed program that imports it runs on the PC), and on the PC with the pinned llvm-mingw's clang (`auto` is typed, the probe, a typed build and `gocpp doc <windows.h>`; `GOCPP_TEST_DOWNLOAD=1 go test -run TestWindowsTypedNative ./tests`). On a Windows host `auto` uses the clang++ it finds (PATH, the build's compiler, the pinned llvm-mingw once it is installed) and stays `opaque` when there is none; `typed` without a clang exits with status 3 on `build`, `run` and `check` (1 on `gocpp test` for now) |
 | Win32 programs with a window | build, but the examples were not run on an interactive desktop in the checks for this page: see [the Win32 page](windows-interop.md#a-window) |
 | a function pointer from `GetProcAddress`, `NewCallback`, COM classes of your own, the registry beyond the raw `advapi32` calls | no gocpp form for the first two; see the limits on the Win32 page |
 | SDL2, raylib | link, but were not run (they need their DLLs and a display) |

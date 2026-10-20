@@ -37,8 +37,8 @@ import (
 // holds them: a warm build asks the compiler nothing.
 
 // MembersHook returns the check.CppMembers hook of typed interop. opts has the compiler, the
-// runner (the cache of the compiler runs; share it with the Analyze of the same build) and the
-// limits; nothing else of it is used. When there is no clang the hook returns the error
+// runner (the cache of the compiler runs; share it with the Analyze of the same build), the target
+// (GOOS and GOARCH) and the limits; nothing else of it is used. When there is no clang the hook returns the error
 // ErrNoClang, and check goes on without the second pass.
 func MembersHook(opts Options) check.CppMembers {
 	return func(ctx context.Context, p *check.Package, qs []check.MemberQuery) ([]check.MemberAnswer, error) {
@@ -56,7 +56,7 @@ func AnswerMembers(ctx context.Context, p *check.Package, qs []check.MemberQuery
 	cxx := opts.Clang
 	if cxx.Path == "" {
 		var err error
-		if cxx, err = probe.FindClang(ctx); err != nil {
+		if cxx, err = probe.FindClangFor(ctx, opts.GOOS, opts.GOARCH); err != nil {
 			return nil, err
 		}
 	}

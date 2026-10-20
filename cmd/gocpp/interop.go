@@ -131,7 +131,7 @@ func (c *checkCommand) prepareTyped(prog *load.Program) (int, bool) {
 		// between runs, as in gocpp build, so that a warm check does not start the compiler twice.
 		build.SetDetectCache(cacheDir())
 	}
-	dec := typedinterop.Decide(ctx, set, needed)
+	dec := typedinterop.DecideFor(ctx, set, needed, c.goos, c.goarch)
 	if dec.Err != nil {
 		fmt.Fprintf(c.stderr, "gocpp: %v\n", dec.Err)
 		return exitNoClang, false
@@ -181,13 +181,17 @@ func (c *checkCommand) typedHooks(cfg *check.Config) {
 // (attachTyped). A package that can't be analyzed keeps the opaque pipeline: with auto the reason
 // is a note for -v; with typed it is a warning on standard error, because the user asked for
 // typed. A build for another system than this one is typed only for the headers of the C++
-// library and gets no checker errors (the probes read this machine's headers).
+// library and gets no checker errors (the probes read this machine's headers), except a build for
+// windows/amd64, whose probes run a clang with the MinGW-w64 headers and the Win32 defaults
+// (typedinterop.ProbesTarget, ADR-116).
 func (c *checkCommand) analyzeTyped(prog *load.Program, r *check.Result) {
 	if !c.typedOn() {
 		return
 	}
-	cross := !isHostTarget(c.goos, c.goarch)
-	fam := build.Clang // the family of the build compiler: g++ makes the checker's errors warnings
+	// The probes cannot see the headers of a target that is not probed.
+	cross := !typedinterop.ProbesTarget(c.goos, c.goarch)
+	// The family of the build compiler: g++ makes the checker's errors warnings.
+	fam := build.Clang
 	if !cross {
 		if cxx, err := build.FindCXXFor(c.context(), c.goos, c.goarch); err == nil {
 			fam = cxx.Family
@@ -230,7 +234,10 @@ func (c *checkCommand) analyzeTyped(prog *load.Program, r *check.Result) {
 
 // analyzePackage is analyzeTyped for one package; it returns the line to print, or "".
 func (c *checkCommand) analyzePackage(prog *load.Program, p *check.Package, cross bool, fam build.Family) string {
-	opts := typedinterop.Options{Decls: true, StringToCStr: true, Target: ftype.LP64, Runner: c.typed.runner}
+	opts := typedinterop.Options{
+		Decls: true, StringToCStr: true, Target: ftype.LP64, Runner: c.typed.runner,
+		GOOS: c.goos, GOARCH: c.goarch,
+	}
 	if c.goos == "windows" {
 		opts.Target = ftype.LLP64
 	}

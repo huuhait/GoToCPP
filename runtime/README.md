@@ -312,7 +312,8 @@ this.
 `debug/gocpp-gdb.py` is the gdb script for gocpp programs: pretty printers for the runtime's values, Go names in
 backtraces, `gp goroutines` and the other `gp` commands (see [docs/guides/debugging.md](../docs/guides/debugging.md)
 and [ADR-066](../docs/adr/066-debugger-support.md)). Every program carries it in a `.debug_gdb_scripts` section that
-`src/os/linux/debug_scripts.cpp` writes from `src/os/linux/gocpp_gdb.inc`; the `.inc` is generated: after you change the
+`src/os/linux/debug_scripts.cpp` (ELF) and `src/os/windows/debug_scripts.cpp` (PE: the same section,
+written with `.section` because COFF has no `.pushsection`) write from `src/os/gocpp_gdb.inc`; the `.inc` is generated: after you change the
 `.py`, run `go test ./runtime -run TestDebugScript -update-debug-script` (the test fails while it is stale).
 `debug/gocpp_lldb.py` is the LLDB version (best effort; `gocpp debug` loads it). The printers read the fields of the
 runtime's classes by name (`gp_len_`, `gp_data_`, `gp_owner_`, `gp_sp_`, `gp_impl_`, `gp_type_`, ...) and the layout of
@@ -321,12 +322,19 @@ libstdc++'s `unordered_map` and `shared_ptr`: **renaming a field or changing a l
 of `tests/gdb` (`TestGDBPrinters`) fail until it is made. `debug/test_gocpp_gdb.py` tests the part of the script that
 needs no gdb (`TestDebugScriptUnits`).
 
+The Windows layer keeps the goroutine's record in a TLS index (`gp::os::debug_tls_slot`, set by
+`thread.cpp`), and the script reads that slot from the thread's TEB (`$_tlb`, `TlsSlots` at 0x1480
+and `TlsExpansionSlots` at 0x1780 of the 64-bit TEB) because the slot is a `TlsAlloc` index, not a
+`thread_local` (ADR-053); the script also maps `long long` to `int` on LLP64. `$gp_blocked()` reads
+the low half of `gp::detail::sched::counts` (`src/sched.hpp`): **a change of that word needs the
+same change in the script**.
+
 ## Tests
 
 `go test ./runtime` (also part of `make test` and `make ci`) runs:
 - `TestWindowsRuntime`, `TestWindowsGoPrograms`, `TestWindowsDiff` and `TestWindowsDriverFlags`: the runtime for Windows, on a real PC over ssh (`GOCPP_WINDOWS_SSH`) or under Wine (skipped without MinGW or Wine, a failure with `GOCPP_REQUIRE_WINE=1`, which `make ci` sets). See "The Windows OS layer" above. `GOCPP_WINDOWS_PROGS=winos_test,thread_test` limits `TestWindowsRuntime` to those programs.
 - `TestTestingNatives`: `test/testing_natives_test.cpp`, built with the natives of package testing (`rtfiles.TestingSources`), g++ and clang++ at `-O0` and `-O2`: `lookup_env`/`set_env`/`unset_env`, `make_temp_dir`, `remove_all`, `make_dir`, `getwd`/`chdir`, `read_file(s)` with names outside ASCII, the standard output capture (C's `printf` and the runtime's own writes), `cpu_name`. The same program runs on Windows in `TestWindowsRuntime` (`testing-natives`), with the Windows half of its `#ifdef`s.
-- `TestDebugScript` and `TestDebugScriptUnits`: the gdb script in `src/os/linux/gocpp_gdb.inc` is `debug/gocpp-gdb.py`, and the unit tests of `debug/test_gocpp_gdb.py` pass (python3).
+- `TestDebugScript` and `TestDebugScriptUnits`: the gdb script in `src/os/gocpp_gdb.inc` is `debug/gocpp-gdb.py`, and the unit tests of `debug/test_gocpp_gdb.py` pass (python3).
 - `TestCXX`: compiles `test/unit.cpp`, `test/runtimepkg_test.cpp` (step 8.10: the cgroup parser on sample files, GOMAXPROCS, `caller`/`callers`/`stack`, `mem_info`, and the cases that end the process: `gp::exit` flushes C stdio in order and leaves no destructor behind, with busy and many goroutines, two exits at once, and the ASan leak check before `_exit`; also built with `-fsanitize=thread` by `TestRuntimePkgTSan`), `test/slice_test.cpp`, `test/array_test.cpp`, `test/map_test.cpp`, `test/fmt_test.cpp`, `test/trace_test.cpp`, `test/interop_test.cpp`, `test/cxxvalue_test.cpp`, `test/type_test.cpp`, `test/iface_test.cpp`, `test/ifaceconv_test.cpp`, `test/bytealg_test.cpp` (the natives of `internal/bytealg`: each against a plain loop on seeded inputs of every length and alignment, and the two ways of `Count` on their own), `test/nochecks_test.cpp`, and `test/diff.cpp` with the embedded runtime, with g++
   and clang++, each at `-O0`, at `-O2` and with `-fsanitize=address,undefined` (a sanitizer
   report fails the test; this mode also writes DWARF 4, the others the compilers' DWARF 5).

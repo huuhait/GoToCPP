@@ -38,6 +38,8 @@ to keep the work folder) and these:
 | `-batch` | run the `-ex` commands and exit, with no prompt (for scripts, tests and CI) |
 | `-map FROM=TO` | show the sources that the debug information names under `FROM` from `TO` (see "Moved sources") |
 | `-print` | print the debugger's command line and don't start it |
+| `-vscode` | print the `.vscode/launch.json` for the program and the target (`-os`), and build nothing (see "VS Code") |
+| `-x` | also print which debugger was found, and where (`# gdb: C:\msys64\ucrt64\bin\gdb.exe (MSYS2 ucrt64 (C:\msys64\ucrt64\bin))`; from PATH it is `(PATH)`) |
 
 gdb only runs the scripts that a program carries (the `.debug_gdb_scripts` section) from a
 "safe path". `gocpp debug` makes the program one (`add-auto-load-safe-path`; if the program's path
@@ -66,6 +68,60 @@ and never `set auto-load safe-path /` outside a throwaway test machine: any prog
 holds can run code in your gdb session just by being debugged. For a program that
 someone else built, leave auto-loading off (gdb's default) and load the script from your own gocpp
 checkout with `source`; running the program under any debugger still runs its code.
+
+## Debugging on Windows
+
+`gocpp debug` works on a Windows host, for a program built for Windows (a program for another system
+cannot run under the debugger of this one: `gocpp debug -os windows` on Linux says so, and `-print` still
+shows the command line). It starts the gdb of MinGW-w64 and needs one on this machine: gocpp looks in
+PATH, then in the folders where an install puts it (MSYS2's `ucrt64`, `clang64` and `mingw64`, Chocolatey,
+Scoop, WinGet's WinLibs package, `C:\mingw64`, `C:\w64devkit` and the like), then in the pinned llvm-mingw
+toolchain if gocpp has downloaded it. The folders are the ones the compiler search uses, including some a user can create
+(`C:\mingw64`, `C:\w64devkit`, `C:\winlibs`): gocpp runs what it finds there as you, as it does with the compiler. It looks before it builds anything, so a missing debugger
+costs no build. `-x` says which one it started. When there is none, the message says what to install:
+
+```
+gocpp debug: gdb was not found in PATH, in the folders of MSYS2, WinGet, Scoop or Chocolatey (install MinGW-w64
+with gdb: winget install BrechtSanders.WinLibs.POSIX.UCRT, or MSYS2: pacman -S mingw-w64-ucrt-x86_64-gdb;
+-debugger lldb uses the lldb of llvm-mingw)
+```
+
+WinLibs and MSYS2 have gdb; llvm-mingw has lldb and no gdb. gdb needs Python for the printers (WinLibs' gdb has it);
+without Python gdb still debugs the program, with C++ names and without printers.
+
+- **The script is in the program.** A program for Windows carries the same `.debug_gdb_scripts` section as one for
+  Linux (a PE file holds it as a section with a long name; gdb reads it from the symbol table), so
+  `gp locals`, `gp goroutines` and the printers are there. gdb runs it for a "safe path", which on Windows is
+  the program's path with forward slashes: `gocpp debug` passes `-iex 'add-auto-load-safe-path
+  C:/Users/me/my app/hello.exe'` (a list of safe paths is separated by `;` there, so the colon of a
+  drive letter is no problem, and a backslash would be eaten by gdb's command parser). Spaces in the
+  folders of the sources, the program and `TEMP` are fine.
+- **Paths.** Breakpoints take the `.gp` file name, as on Linux (`break hello.gp:12`). Backtraces show
+  `.gp` lines (the `#line` directives of the generated code), with the drive letter and forward slashes:
+  `main.main () at C:/Users/me/my app/hello.gp:12`. `gocpp debug` writes every path it hands to gdb with forward
+  slashes; type them that way in your own commands, because gdb takes a backslash as an escape.
+- **A stack overflow** stops at the `.gp` line of the recursion: gdb reports `SIGSEGV` (the guard page), and
+  `bt 5` shows `main.down (n=...) at deep.gp:6`. Do not run `bt` or `gp bt` without a number on a
+  stack that is a hundred thousand frames deep: gdb walks every one of them, slowly. `gp bt 20` and `bt -20`
+  are the ends.
+- **A Go panic** (an index out of range, a nil dereference, `panic(...)`) is a C++ exception inside the
+  program. `catch throw` stops at the point where it is thrown, and `bt` shows the Go function that caused it
+  with its `.gp` line (`main.at (...) at boom.gp:6`) and its callers:
+
+  ```
+  (gdb) catch throw
+  (gdb) run
+  (gdb) bt 40
+  ```
+
+  Without the catchpoint a panic that nothing recovers prints Go's report (`panic: runtime error: index out
+  of range [7] with length 3`, with the `.gp` line) and the program exits with status 2, as it does on Linux.
+- **Names.** On Windows `long` has 32 bits, so `int` and `int64` are both `long long` and `uint`, `uint64`
+  and `uintptr` are `unsigned long long`; the printers know the data model and show `int`, `int64`, as on
+  Linux. A C type from `<windows.h>` such as `DWORD` is an `unsigned long`.
+- **Goroutines.** The goroutine of a thread is read from the runtime's TLS slot in the thread's TEB (the Windows
+  runtime keeps it there instead of in a `thread_local`), so `gp goroutines`, `info goroutines` and the
+  frames of a goroutine's thread work as on Linux.
 
 ## What gdb shows
 
@@ -211,8 +267,18 @@ while `gp_locals` and `gp_print` always work.
 ## VS Code
 
 Install the gocpp extension (`editors/vscode`): it lets you set breakpoints in `.gp` files. To start
-a program, use the C/C++ extension (ms-vscode.cpptools) with gdb. `.vscode/tasks.json` builds the
-program with debug information (the default build has it):
+a program, use the C/C++ extension (ms-vscode.cpptools) with gdb, or lldb-dap. `gocpp debug -vscode`
+prints the `.vscode/launch.json` for the program (the name of the `.gp` file or the package, else the
+folder) and the target (`-os`), so it never goes out of date with the flags:
+
+```
+gocpp debug -vscode hello.gp > .vscode/launch.json            # gdb, for this system
+gocpp debug -vscode -os windows hello.gp > .vscode/launch.json
+gocpp debug -vscode -debugger lldb hello.gp > .vscode/launch.json
+```
+
+`.vscode/tasks.json` builds the program with debug information (the default build has it); for Windows
+the program is `app.exe`:
 
 ```json
 {
@@ -231,7 +297,7 @@ program with debug information (the default build has it):
 ```
 
 and `.vscode/launch.json` starts it under gdb, with gocpp's printers (the auto-load line) and the
-tree style that VS Code's variables view needs:
+tree style that VS Code's variables view needs. For Linux (`gocpp debug -vscode -os linux app.gp`):
 
 ```json
 {
@@ -247,19 +313,90 @@ tree style that VS Code's variables view needs:
       "preLaunchTask": "gocpp: build",
       "MIMode": "gdb",
       "miDebuggerPath": "gdb",
-      "miDebuggerArgs": "-iex 'add-auto-load-safe-path ${workspaceFolder}/bin/app'",
+      "miDebuggerArgs": "-iex \"add-auto-load-safe-path ${workspaceFolder}/bin/app\"",
       "setupCommands": [
-        { "text": "-enable-pretty-printing", "ignoreFailures": true },
-        { "text": "set gocpp print-style tree" }
+        {
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        },
+        {
+          "text": "set gocpp print-style tree"
+        }
+      ],
+      "externalConsole": false
+    }
+  ]
+}
+```
+
+For Windows (`gocpp debug -vscode -os windows app.gp`; `miDebuggerPath` is the name `gdb.exe` when no
+gdb was found on this machine, and the full path of the gdb that gocpp found when there is one, such as
+`C:/msys64/ucrt64/bin/gdb.exe`, because VS Code usually does not have MinGW's folder in its PATH):
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "gocpp: debug",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/app.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "gocpp: build",
+      "MIMode": "gdb",
+      "miDebuggerPath": "gdb.exe",
+      "miDebuggerArgs": "-iex \"add-auto-load-safe-path ${workspaceFolder}/bin/app.exe\"",
+      "setupCommands": [
+        {
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        },
+        {
+          "text": "set gocpp print-style tree"
+        }
+      ],
+      "externalConsole": false
+    }
+  ]
+}
+```
+
+The safe path in `miDebuggerArgs` is the program itself, with forward slashes and in double quotes
+because a workspace folder may have a space in its name. `externalConsole` is `false`: the program's output is
+in VS Code's debug console. With `-map FROM=TO` the file gets a `sourceFileMap` (cppdbg) or a `sourceMap`
+(lldb-dap) for sources that the debug information names under another folder; for a program built with
+`-trimpath`, add `{ "text": "set substitute-path /trimmed/src ${workspaceFolder}" }` to `setupCommands`.
+
+For LLDB, `-debugger lldb` prints a configuration for the lldb-dap extension (the `lldb-dap` of LLVM 18 or
+later, or the "LLDB DAP" extension of the LLVM project) and writes `.vscode/gocpp_lldb.py`, the summaries
+that its `initCommands` load:
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "gocpp: debug (lldb)",
+      "type": "lldb-dap",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/app",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "gocpp: build",
+      "initCommands": [
+        "command script import \"${workspaceFolder}/.vscode/gocpp_lldb.py\""
       ]
     }
   ]
 }
 ```
 
-With a program built with `-trimpath`, add `{ "text": "set substitute-path /trimmed/src ${workspaceFolder}" }` to
-`setupCommands`. For LLDB use the CodeLLDB extension (vadimcn.vscode-lldb): `"type": "lldb"`,
-`"program": "${workspaceFolder}/bin/app"`, `"initCommands": ["command script import /path/to/gocpp/runtime/debug/gocpp_lldb.py"]`.
+Not tried: nobody has started these files in VS Code yet (the tests check that they are valid JSON with the
+fields above, and that the gdb command line of the Windows launch is the one that was run by hand on a real
+PC, see "Limits"). If a field is wrong for your version of the C/C++ extension, `gocpp debug -print` shows the command line
+that gocpp itself uses, which is known to work.
 
 ## Other editors and terminals
 
@@ -279,6 +416,9 @@ source.
   descriptor). A number that gdb itself makes (`gp whatis 1+2`) has C types (`int32`).
 - A map prints in Go's order of keys only when it fits `print elements` (numbers by value,
   other keys by their text); a bigger map prints in the table's order.
-- Windows: the gdb printers load from a PE program too (checked on a real PC with WinLibs' gdb: breakpoints on `.gp` lines, Go names in `bt`, strings, slices and `gp goroutines`);
-  stepping, lldb and a VS Code launch template are not tried yet ([gocpp on Windows](windows.md#editing-on-windows)). macOS is not a target; the Mach-O
+- Windows: `gocpp debug` with gdb is tried on a real PC (WinLibs' gdb 17.2): the printers load from the
+  program's own section, breakpoints, `gp locals`, `gp goroutines`, `catch throw` and a stack overflow work, with
+  `.gp` lines (see "Debugging on Windows"). Not tried: lldb and lldb-dap on Windows (no PC with one), a
+  VS Code launch on Windows, stepping with `next` and `step` through a long session, and debugging a program
+  that runs as a service or in another session. macOS is not a target; the Mach-O
   section `__DATA,__lldbsummaries` is not written.

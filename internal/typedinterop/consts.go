@@ -4,7 +4,6 @@ import (
 	"context"
 	"maps"
 	"math/big"
-	"runtime"
 	"slices"
 	"strings"
 
@@ -27,9 +26,9 @@ import (
 // cached run in the batches of 12.7.
 
 // Constants returns the function that gives check.Config.Constants the values of C/C++ names. The
-// compiler is clang (opts.Clang or probe.FindClang); without clang, with headers that do not
-// include, or for another target than this machine (the value of a macro is the host's, not the
-// target's) it answers nothing and the names stay opaque.
+// compiler is clang (opts.Clang or probe.FindClangFor the target of the query); without clang, with
+// headers that do not include, or for a target that ProbesTarget does not accept (the value of a
+// macro is the host's, not the target's) it answers nothing and the names stay opaque.
 func Constants(opts Options) check.ConstFunc {
 	return func(ctx context.Context, q check.ConstQuery) (map[string]check.ConstAnswer, error) {
 		return constValues(ctx, q, opts)
@@ -37,13 +36,13 @@ func Constants(opts Options) check.ConstFunc {
 }
 
 func constValues(ctx context.Context, q check.ConstQuery, opts Options) (map[string]check.ConstAnswer, error) {
-	if q.GOOS != "" && q.GOOS != runtime.GOOS || q.GOARCH != "" && q.GOARCH != runtime.GOARCH {
+	if !ProbesTarget(q.GOOS, q.GOARCH) {
 		return nil, nil
 	}
 	cxx := opts.Clang
 	if cxx.Path == "" {
 		var err error
-		if cxx, err = probe.FindClang(ctx); err != nil {
+		if cxx, err = probe.FindClangFor(ctx, q.GOOS, q.GOARCH); err != nil {
 			return nil, nil // no clang: opaque
 		}
 	}

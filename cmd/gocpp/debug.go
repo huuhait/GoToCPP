@@ -11,10 +11,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 
 	"github.com/huuhait/gocpp/internal/build"
+	"github.com/huuhait/gocpp/internal/toolchain"
 	rtfiles "github.com/huuhait/gocpp/runtime"
 )
 
@@ -35,6 +37,12 @@ Breakpoints on .gp lines work as in Go: break hello.gp:12 (gdb), or
 breakpoint set -f hello.gp -l 12 (lldb). The debugger takes over the terminal;
 gocpp waits for it, removes the work folder, and exits with its status.
 
+On Windows the program is a PE file with DWARF debug information; the debugger is
+the gdb of MinGW-w64 (WinLibs, MSYS2) or the lldb of llvm-mingw, found in PATH and
+in the folders of those installs. gocpp debug runs the program on this machine only:
+with -os windows on another system it can show the command line (-print) but not
+start it. -vscode prints a launch.json for VS Code (see docs/guides/debugging.md).
+
 The debug flags are:
 `
 
@@ -45,6 +53,11 @@ type debugFlags struct {
 	maps     stringList // -map
 	batch    bool
 	show     bool
+	vscode   bool
+
+	// hostOS is the system that runs the debugger (runtime.GOOS when empty): the Windows rules
+	// for paths are used for "windows". A field, so that the tests can check them anywhere.
+	hostOS string
 }
 
 // A stringList is a flag that can be given more than once.
@@ -65,6 +78,9 @@ func runDebug(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	flags.Var(&df.maps, "map", "FROM=TO: show the sources that the debug info names under FROM from TO (a program built with -trimpath, or moved)")
 	flags.BoolVar(&df.batch, "batch", false, "run the -ex commands and exit, without a prompt (for scripts and tests)")
 	flags.BoolVar(&df.show, "print", false, "print the debugger's command line and don't start it")
+	flags.BoolVar(&df.vscode, "vscode", false,
+		"print a launch.json for VS Code (the C/C++ extension with gdb, or lldb-dap with -debugger lldb) "+
+			"and don't build or start anything")
 	if code, done := parseFlags("debug", debugUsage, flags, args, stderr); done {
 		return code
 	}
@@ -79,6 +95,9 @@ func runDebug(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	}
 	args = flags.Args()
+	if df.vscode {
+		return printVSCode(&f, &df, args, stdout, stderr)
+	}
 	n := 0
 	for n < len(args) && strings.HasSuffix(args[n], ".gp") {
 		n++
@@ -102,14 +121,44 @@ func runDebug(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return d.debug(args[:n], args[n:], &df)
 }
 
+// findTool finds a debugger program: in PATH, and on a Windows host in the folders of the known
+// MinGW-w64 installs and gocpp's own llvm-mingw (toolchain.FindTool). A variable, for the tests.
+var findTool = defaultFindTool
+
+// defaultFindTool is findTool without a stub.
+func defaultFindTool(name string) (path, source string, ok bool) {
+	cfg, err := toolchain.FromEnv(false)
+	if err != nil {
+		cfg = toolchain.Config{}
+	}
+	return cfg.FindTool(name)
+}
+
 // defaultDebugger returns gdb, or lldb when only that is installed.
 func defaultDebugger() string {
-	if _, err := exec.LookPath("gdb"); err != nil {
-		if _, err := exec.LookPath("lldb"); err == nil {
+	if _, _, ok := findTool("gdb"); !ok {
+		if _, _, ok := findTool("lldb"); ok {
 			return "lldb"
 		}
 	}
 	return "gdb"
+}
+
+// noDebuggerMessage says that the debugger is not installed, and on Windows where to get one.
+func noDebuggerMessage(name, hostOS string) string {
+	if hostOS != "windows" {
+		return fmt.Sprintf("%s was not found in PATH (the nix dev shell has gdb and lldb; -debugger chooses)", name)
+	}
+	if name == "lldb" {
+		return "lldb was not found in PATH, in the folders of MSYS2, WinGet, Scoop or Chocolatey, " +
+			"or in gocpp's llvm-mingw " +
+			"(install llvm-mingw, which has lldb: scoop install llvm-mingw, " +
+			"or MSYS2: pacman -S mingw-w64-ucrt-x86_64-lldb; -debugger gdb uses gdb)"
+	}
+	return "gdb was not found in PATH, in the folders of MSYS2, WinGet, Scoop or Chocolatey " +
+		"(install MinGW-w64 with gdb: winget install BrechtSanders.WinLibs.POSIX.UCRT, " +
+		"or MSYS2: pacman -S mingw-w64-ucrt-x86_64-gdb; " +
+		"-debugger lldb uses the lldb of llvm-mingw)"
 }
 
 // quoteArg quotes a path or a word for the command line of gdb or lldb: unchanged when it
@@ -122,10 +171,37 @@ func quoteArg(s string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
 }
 
+// debuggerPath writes a path of this machine as the debugger's commands should name it: on
+// Windows with slashes, which gdb and lldb read as well as backslashes, and which a command line of
+// gdb does not mangle (gdb takes a backslash as the start of an escape).
+func debuggerPath(hostOS, p string) string {
+	if hostOS == "windows" {
+		return strings.ReplaceAll(p, `\`, "/")
+	}
+	return p
+}
+
+// needsHandLoad says that gdb's safe path list can't name the program, so that gocpp debug loads
+// the script by hand: the list is separated by colons (semicolons on Windows), so a program whose
+// name has the separator is not on it.
+func needsHandLoad(hostOS, exe string) bool {
+	sep := ":"
+	if hostOS == "windows" {
+		sep = ";"
+	}
+	return strings.Contains(exe, sep)
+}
+
 // debugArgs returns the arguments of the debugger df.debugger for the program exe with the
 // arguments args. script is the file with the debugger's script: the LLDB summaries, or for gdb
-// (only used when exe has a colon in its name, which a safe path can't hold) gocpp-gdb.py.
+// (only used when exe is not a safe path name: needsHandLoad) gocpp-gdb.py.
 func debugArgs(df *debugFlags, exe string, args []string, script string) []string {
+	hostOS := df.hostOS
+	if hostOS == "" {
+		hostOS = runtime.GOOS
+	}
+	exe = debuggerPath(hostOS, exe)
+	script = debuggerPath(hostOS, script)
 	var a []string
 	switch df.debugger {
 	case "lldb":
@@ -146,10 +222,10 @@ func debugArgs(df *debugFlags, exe string, args []string, script string) []strin
 		if df.batch {
 			a = append(a, "-batch")
 		}
-		// The program carries gocpp's gdb script; gdb runs it for a safe path only. A safe
-		// path is a colon-separated list: a program whose name has a colon (TMPDIR) gets the
+		// The program carries gocpp's gdb script; gdb runs it for a safe path only. A safe path
+		// is a list with a separator: a program whose name has it (TMPDIR with a colon) gets the
 		// script by hand instead.
-		if strings.Contains(exe, ":") && script != "" {
+		if needsHandLoad(hostOS, exe) && script != "" {
 			a = append(a, "-iex", "set auto-load python-scripts off", "-ex", "source "+script)
 		} else {
 			a = append(a, "-iex", "add-auto-load-safe-path "+exe)
@@ -168,6 +244,34 @@ func debugArgs(df *debugFlags, exe string, args []string, script string) []strin
 
 // debug builds the program and runs the debugger on it.
 func (d *driver) debug(patterns, args []string, df *debugFlags) int {
+	hostOS := df.hostOS
+	if hostOS == "" {
+		hostOS = runtime.GOOS
+	}
+	cross := !isHostTarget(d.check.goos, d.check.goarch)
+	if cross && !df.show {
+		// The debugger starts the program, which must run here: a Windows program on Linux (Wine
+		// has no debugger interface that gdb can use) or the other way round does not.
+		fmt.Fprintf(d.stderr, "gocpp debug: a program for %s/%s cannot be debugged on %s/%s: "+
+			"run gocpp debug on a %s machine "+
+			"(the program built there carries the same debug information and printers), "+
+			"or use -print to see the command line\n",
+			d.check.goos, d.check.goarch, runtime.GOOS, runtime.GOARCH, d.check.goos)
+		return exitErrors
+	}
+	// The debugger is looked for first: a build that ends in "gdb was not found" is wasted time.
+	var path string
+	if !df.show {
+		var source string
+		var ok bool
+		if path, source, ok = findTool(df.debugger); !ok {
+			fmt.Fprintf(d.stderr, "gocpp debug: %s\n", noDebuggerMessage(df.debugger, hostOS))
+			return exitErrors
+		}
+		if d.flags.x {
+			fmt.Fprintf(d.stderr, "# %s: %s (%s)\n", df.debugger, path, source)
+		}
+	}
 	p, code := d.compile(patterns)
 	if p == nil {
 		return code
@@ -181,7 +285,7 @@ func (d *driver) debug(patterns, args []string, df *debugFlags) int {
 			fmt.Fprintf(d.stderr, "gocpp debug: %v\n", err)
 			return exitErrors
 		}
-	case strings.Contains(p.exe, ":"):
+	case needsHandLoad(hostOS, debuggerPath(hostOS, p.exe)):
 		script = filepath.Join(p.work, "gocpp-gdb.py")
 		if err := os.WriteFile(script, rtfiles.GDBScript(), 0o644); err != nil {
 			fmt.Fprintf(d.stderr, "gocpp debug: %v\n", err)
@@ -203,11 +307,6 @@ func (d *driver) debug(patterns, args []string, df *debugFlags) int {
 			return 0
 		}
 	}
-	path, err := exec.LookPath(df.debugger)
-	if err != nil {
-		fmt.Fprintf(d.stderr, "gocpp debug: %v (the nix dev shell has gdb and lldb; -debugger chooses)\n", err)
-		return exitErrors
-	}
 	// The debugger stays in gocpp's process group, so that the terminal's signals reach it, and
 	// it takes over the terminal; SIGINT and SIGQUIT are its own (watchSignals ignores them
 	// while it runs), SIGTERM and SIGHUP are passed on.
@@ -225,7 +324,7 @@ func (d *driver) debug(patterns, args []string, df *debugFlags) int {
 	d.mu.Lock()
 	d.running = cmd
 	d.mu.Unlock()
-	err = cmd.Wait()
+	err := cmd.Wait()
 	d.mu.Lock()
 	d.running = nil
 	d.mu.Unlock()

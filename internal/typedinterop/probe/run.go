@@ -81,6 +81,76 @@ func FindClang(ctx context.Context) (build.CXX, error) {
 	return cxx, nil
 }
 
+// ProbesTarget reports whether the probes can answer for the target goos/goarch: this machine's own
+// target (its headers are the target's), and windows/amd64 from any system (Phase 14 step 14.6,
+// ADR-116): the probe runs a clang for the target with the MinGW-w64 headers (build.ProbeTargetFlags).
+// Every other target has no headers on this machine, so only the C++ standard library's headers,
+// which are the same everywhere, can be probed for it. Empty goos and goarch mean this machine.
+func ProbesTarget(goos, goarch string) bool {
+	if (goos == "" || goos == runtime.GOOS) && (goarch == "" || goarch == runtime.GOARCH) {
+		return true
+	}
+	return goos == "windows" && goarch == "amd64"
+}
+
+// FindClangFor returns the clang++ for the probes of the target goos/goarch (empty: this machine).
+// For this machine's own target it is FindClang. For windows/amd64 the compiler carries the target
+// (CXX.GOOS and GOARCH), which makes the probes pass its flags (build.ProbeTargetFlags) and is part
+// of every cache key. In this order: GOCPP_CLANG; x86_64-w64-mingw32-clang++ in PATH; the compiler of
+// the build for the target (build.FindCXXFor: GOCPP_CXX, MinGW-w64 in the folders of an install, the
+// pinned llvm-mingw) when it is clang; clang++ in PATH, which the target's flags make a cross
+// compiler with the headers of the MinGW-w64 g++. Any other target gets this machine's clang (its
+// probes see this machine's headers; the callers restrict them to the C++ library's headers). When
+// there is none, the error wraps ErrNoClang.
+func FindClangFor(ctx context.Context, goos, goarch string) (build.CXX, error) {
+	if goos == "" || goarch == "" {
+		goos, goarch = runtime.GOOS, runtime.GOARCH
+	}
+	if goos != "windows" || goarch != "amd64" {
+		return FindClang(ctx)
+	}
+	var problems []string
+	try := func(prog string) (build.CXX, bool) {
+		cxx, err := build.LookCXX(ctx, prog)
+		if err != nil {
+			problems = append(problems, err.Error())
+			return build.CXX{}, false
+		}
+		if cxx.Family != build.Clang {
+			problems = append(problems, cxx.Name()+" is not clang")
+			return build.CXX{}, false
+		}
+		cxx.GOOS, cxx.GOARCH = goos, goarch
+		return cxx, true
+	}
+	if prog := os.Getenv("GOCPP_CLANG"); prog != "" {
+		if cxx, ok := try(prog); ok {
+			return cxx, nil
+		}
+		return build.CXX{}, fmt.Errorf("%w: %s", ErrNoClang, strings.Join(problems, "; "))
+	}
+	if _, err := exec.LookPath(mingwClang); err == nil {
+		if cxx, ok := try(mingwClang); ok {
+			return cxx, nil
+		}
+	}
+	if cxx, err := build.FindCXXFor(ctx, goos, goarch); err == nil && cxx.Family == build.Clang {
+		return cxx, nil
+	}
+	if _, err := exec.LookPath("clang++"); err == nil {
+		if cxx, ok := try("clang++"); ok {
+			return cxx, nil
+		}
+	}
+	if len(problems) == 0 {
+		problems = append(problems, "no clang++ for "+goos+"/"+goarch+" in PATH")
+	}
+	return build.CXX{}, fmt.Errorf("%w: %s", ErrNoClang, strings.Join(problems, "; "))
+}
+
+// mingwClang is the clang++ of an llvm-mingw install, which knows its target and its headers.
+const mingwClang = "x86_64-w64-mingw32-clang++"
+
 // A Runner runs probes and remembers what it made and read: the results of the
 // references, the declaration parts and the lists of headers they depend on, in
 // memory and in the cache on disk (cache.go, units.go; ADR-088). The zero value is
