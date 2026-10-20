@@ -163,6 +163,7 @@ var envVars = []envVar{
 	{name: "GOCPP_LSP_CACHE", doc: "the folder of the language server's cache (an absolute name), or off; default: gocpp/lsp in the cache folder"},
 	{name: "GOCPP_LSP_CACHE_AGE", def: func(*envState) string { return "120h" }, doc: "how long the language server's cache keeps an entry that is not used"},
 	{name: "GOCPP_LSP_CACHE_SIZE", def: func(*envState) string { return "1G" }, doc: "the size limit of the language server's cache (a number with K, M or G)"},
+	{name: "GOCPP_LSP_NOFOCUS", doc: "any value: the language server checks the whole package after an edit inside a function body, and does not publish the diagnostics of the edited file from the focused check first (a debugging switch; by default it does)"},
 	{name: "GOCPP_LSP_NOSTALE", doc: "any value: the language server does not answer from the last repaired check of a file with a syntax error while it is being typed (a debugging switch; by default it does)"},
 	{name: "GOCPP_MODAUTH", doc: "credentials for module downloads: host=token pairs (the value is not shown by gocpp env)"},
 	{name: "GOCPP_MODCACERT", doc: "a file of CA certificates for module downloads"},

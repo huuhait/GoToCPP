@@ -234,6 +234,12 @@ takes a few tens of milliseconds in a big package; a client that supports it is 
 `GOCPP_LSP_NOSTALE=1` turns that off. (An error in the package clause or the imports cannot be repaired this way.) References and
 rename do not use the repaired text: a rename that did not see the blanked parts would be wrong.
 
+An edit inside the body of one function is answered first from a focused check of that file (the other files' bodies are
+left out; [ADR-115](../adr/115-lsp-focused-check-after-an-edit-inside-a-function-body.md)): its diagnostics and the completion come
+after about 2 ms, and the check of the whole package follows after 100 ms without an edit and republishes anything that differs.
+A package with generics, macros, `!` forms or C and C++ files always takes the whole check. `GOCPP_LSP_NOFOCUS=1` turns the
+focused check off (a debugging switch).
+
 All the setups need the `gocpp` binary in `PATH` (or its full path in the config). Build it in
 the gocpp repository with `make build`; that writes `bin/gocpp`.
 

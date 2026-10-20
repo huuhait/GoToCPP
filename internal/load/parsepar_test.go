@@ -379,6 +379,9 @@ func assertParallelLoadEqual(t *testing.T, want, got *Program) {
 				!reflect.DeepEqual(file.Directives, other.Directives) {
 				t.Fatalf("%s: import/directive metadata changed", file.Path)
 			}
+			if !reflect.DeepEqual(file.Rewrite, other.Rewrite) {
+				t.Fatalf("%s: the record of the header and namespace rewrite changed", file.Path)
+			}
 			ast.Inspect(file.AST, func(node ast.Node) bool {
 				if node != nil && want.Fset.Position(node.Pos()) != got.Fset.Position(node.Pos()) {
 					t.Errorf("%s: resolved source position changed", file.Path)

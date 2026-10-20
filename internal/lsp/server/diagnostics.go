@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"go/token"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -118,6 +119,10 @@ func adaptiveDelay(last, max time.Duration) time.Duration {
 	return min(last/2, max)
 }
 
+// settleDelay is the quiet time after a quick publish (see run) before the full check of the
+// package: the typing has paused, and the rest of the package is brought up to date.
+const settleDelay = 100 * time.Millisecond
+
 // maxRetries is how often a run checks again when the snapshot changed
 // while it checked.
 const maxRetries = 3
@@ -130,6 +135,13 @@ type diagnostics struct {
 	s     *Server
 	deb   *debounce.Debouncer[string] // by package folder
 	delay time.Duration               // after a didChange: at most (diagnoseDelay)
+
+	// settle is the quiet time after a quick run before the full run (settleDelay).
+	settle time.Duration
+
+	// noFocus turns the focused checks off (GOCPP_LSP_NOFOCUS, for A/B measurements and for finding
+	// out whether a wrong answer comes from them).
+	noFocus bool
 	// fixed makes every didChange wait delay, however quick the last check
 	// was (the tests of the debounce).
 	fixed bool
@@ -167,8 +179,9 @@ type pkgState struct {
 
 func newDiagnostics(s *Server, clock debounce.Clock) *diagnostics {
 	d := &diagnostics{
-		s: s, deb: debounce.New[string](clock), delay: diagnoseDelay,
-		files: make(map[protocol.DocumentURI]*published), pkgs: make(map[string]*pkgState),
+		s: s, deb: debounce.New[string](clock), delay: diagnoseDelay, settle: settleDelay,
+		noFocus: os.Getenv("GOCPP_LSP_NOFOCUS") != "",
+		files:   make(map[protocol.DocumentURI]*published), pkgs: make(map[string]*pkgState),
 		last: make(map[string]time.Duration), runs: make(map[string][]time.Duration),
 	}
 	// A bug in the diagnostics of a package is logged, not a crash of the
@@ -266,18 +279,171 @@ func (d *diagnostics) scheduleOpen(skip string, delay time.Duration) {
 }
 
 // run diagnoses the package of the folder dir on the current snapshot.
+//
+// A change that stays inside the body of one function of a file, in a package that a full run has
+// published, is answered at once from a focused check (cache.Snapshot.Focused): only the
+// diagnostics of the edited file are published, from the check of that file alone, which the cache
+// proves gives the same as the full check. The full run follows when the typing pauses
+// (settleDelay), and it publishes anything that differs from what was sent, so a gap in the proof
+// shows as a late correction, not as a wrong state that stays.
 func (d *diagnostics) run(ctx context.Context, dir string) {
+	d.runWith(ctx, dir, true)
+}
+
+// runFull is a run that does not try the focused check: the full check of the package, published
+// whole.
+func (d *diagnostics) runFull(ctx context.Context, dir string) {
+	d.runWith(ctx, dir, false)
+}
+
+// quickBase returns the last full package that was published for the folder dir while it was open,
+// or nil.
+func (d *diagnostics) quickBase(dir string) *cache.Package {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if st := d.pkgs[dir]; st != nil && st.pkg != nil && !st.pkg.Stale() {
+		return st.pkg
+	}
+	return nil
+}
+
+// focused returns the focused check for the snapshot snap of the package in dir, or nil when there
+// is none (see Snapshot.Focused).
+func (d *diagnostics) focused(
+	ctx context.Context, snap *cache.Snapshot, dir string,
+) (base, pkg *cache.Package) {
+	if d.noFocus {
+		return nil, nil
+	}
+	base = d.quickBase(dir)
+	if base == nil {
+		return nil, nil
+	}
+	pkg, err := snap.Focused(ctx, dir, base)
+	if err != nil || pkg == nil {
+		return nil, nil
+	}
+	return base, pkg
+}
+
+// publishQuick publishes the diagnostics of the edited file of pkg, the focused package of the
+// folder dir in snap, and reports whether it did (it does not when the file is not an open document
+// that the last full run knew).
+func (d *diagnostics) publishQuick(
+	ctx context.Context, snap *cache.Snapshot, dir string, base, pkg *cache.Package,
+) bool {
+	path := pkg.Focus()
+	var edited *cache.Overlay
+	for _, o := range snap.Overlays() {
+		if fspath.Equal(o.URI().Path(), path) {
+			edited = o
+		}
+	}
+	if edited == nil || edited.Broken() {
+		return false
+	}
+	if relatesTo(base, path) {
+		return false
+	}
+	editedOnly := map[string]*cache.Overlay{path: edited}
+	byFile := diagnose(ctx, snap, dir, pkg, editedOnly, d.related.Load(), path)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if ctx.Err() != nil {
+		return true // a newer run comes
+	}
+	st := d.pkgs[dir]
+	if st == nil || st.pkg != base || d.versionsMoved(snap, dir, edited.URI()) {
+		return false
+	}
+	uri := edited.URI()
+	if d.send(uri, snap.ID(), edited.Version(), byFile[path], true) {
+		st.files[uri] = true
+	} else {
+		delete(st.files, uri)
+	}
+	return true
+}
+
+// versionsMoved reports whether an open document of the folder dir other than the one at skip has a
+// version that the client has no diagnostics for: a didChange that only raised the version of a
+// file (the same text) needs the publish of the full run, which sends every open file of the
+// package at its version, and the quick publish of the edited file alone would leave the client
+// with older versions. d.mu is held.
+func (d *diagnostics) versionsMoved(
+	snap *cache.Snapshot, dir string, skip protocol.DocumentURI,
+) bool {
+	for _, o := range snap.Overlays() {
+		path := o.URI().Path()
+		if o.URI() == skip || !strings.HasSuffix(path, ".gp") {
+			continue
+		}
+		if !fspath.Equal(filepath.Dir(path), dir) {
+			continue
+		}
+		prev := d.files[o.URI()]
+		if prev == nil || prev.version != o.Version() {
+			return true
+		}
+	}
+	return false
+}
+
+// relatesTo reports whether a diagnostic of base in another file points into the file at path (a
+// related place: "other declaration of x"). An edit that adds or removes a line in path moves that
+// place, and the quick publish does not republish the other files, so the full run answers instead.
+func relatesTo(base *cache.Package, path string) bool {
+	for _, list := range []*diag.List{base.Program.Errors, base.Check.Errors} {
+		for _, x := range list.Diagnostics() {
+			if fspath.Equal(x.Pos.Filename, path) {
+				continue
+			}
+			for _, r := range x.Related {
+				if fspath.Equal(r.Pos.Filename, path) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func (d *diagnostics) runWith(ctx context.Context, dir string, quick bool) {
 	start := time.Now()
+	settle := false
 	defer func() {
 		// A run that was cancelled took no time that says anything.
 		if ctx.Err() == nil {
 			d.recordRun(dir, time.Since(start))
+			if settle {
+				d.deb.Run(dir, d.settle, func(ctx context.Context) { d.runFull(ctx, dir) })
+			}
 		}
 	}()
 	ctx, span := d.s.obs.begin(ctx, "diagnostics", "dir", dir)
 	defer d.s.obs.end(span, func() string { return fmt.Sprintf("dir=%s (now: %s)", dir, d.s.snapshotInfo()) })
 	for try := 0; ; try++ {
 		snap, release := d.s.session.Snapshot()
+		if quick {
+			if base, fpkg := d.focused(ctx, snap, dir); fpkg != nil {
+				if d.checked != nil {
+					d.checked(ctx, dir, snap.ID(), try)
+				}
+				if ctx.Err() != nil {
+					release()
+					return
+				}
+				if try < maxRetries && d.currentID() != snap.ID() {
+					release()
+					continue
+				}
+				if d.publishQuick(ctx, snap, dir, base, fpkg) {
+					release()
+					settle = ctx.Err() == nil
+					return
+				}
+			}
+		}
 		pkg, err := snap.Package(ctx, dir)
 		if ctx.Err() != nil {
 			release()
@@ -336,7 +502,7 @@ func (d *diagnostics) publish(ctx context.Context, snap *cache.Snapshot, dir str
 	}
 	var byFile map[string][]protocol.Diagnostic
 	if len(open) > 0 {
-		byFile = diagnose(ctx, snap, dir, pkg, open, d.related.Load())
+		byFile = diagnose(ctx, snap, dir, pkg, open, d.related.Load(), "")
 		for path := range open {
 			if _, ok := byFile[path]; !ok {
 				byFile[path] = nil
@@ -505,7 +671,13 @@ func newSourceFile(src []byte) *sourceFile {
 // package, and to every open file that the package leaves out (build
 // constraints exclude it, or all files): "build constraints exclude all
 // .gp files". With related, the related places are relatedInformation.
-func diagnose(ctx context.Context, snap *cache.Snapshot, dir string, pkg *cache.Package, open map[string]*cache.Overlay, related bool) map[string][]protocol.Diagnostic {
+//
+// With only, a path, it returns the diagnostics of that file alone (of a focused package, whose
+// other files are not meant to be read).
+func diagnose(
+	ctx context.Context, snap *cache.Snapshot, dir string, pkg *cache.Package,
+	open map[string]*cache.Overlay, related bool, only string,
+) map[string][]protocol.Diagnostic {
 	byFile := make(map[string][]protocol.Diagnostic)
 	sources := make(map[string]*sourceFile)
 	uriOf := func(path string) protocol.DocumentURI { return locationURI(snap, path) }
@@ -527,8 +699,11 @@ func diagnose(ctx context.Context, snap *cache.Snapshot, dir string, pkg *cache.
 	inPkg := make(map[string]bool)
 	var placeless []string // the files of the diagnostics without a place
 	for _, f := range root.Files {
-		byFile[f.Path] = nil
 		inPkg[f.Path] = true
+		if only != "" && f.Path != only {
+			continue
+		}
+		byFile[f.Path] = nil
 		placeless = append(placeless, f.Path)
 		if f.AST != nil && f.AST.Name != nil && f.AST.Name.Pos().IsValid() {
 			clause[f.Path] = pkg.Fset().Position(f.AST.Name.Pos())
@@ -536,7 +711,7 @@ func diagnose(ctx context.Context, snap *cache.Snapshot, dir string, pkg *cache.
 	}
 	var left []string
 	for path := range open {
-		if !inPkg[path] {
+		if !inPkg[path] && only == "" {
 			left = append(left, path)
 		}
 	}
@@ -563,6 +738,9 @@ func diagnose(ctx context.Context, snap *cache.Snapshot, dir string, pkg *cache.
 				}
 				byFile[path] = append(byFile[path], toProtocol(y, source, uriOf, inPkg, related))
 			}
+			continue
+		}
+		if only != "" && x.Pos.Filename != only {
 			continue
 		}
 		if !fspath.Equal(filepath.Dir(x.Pos.Filename), dir) {

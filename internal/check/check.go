@@ -149,6 +149,11 @@ type Config struct {
 	// gocpp bug leaves behind. The language server sets it, which does not
 	// generate code.
 	SkipOpaque bool
+
+	// Focus, if not empty, is the name of one file (as load.File.Path has it): the function bodies
+	// of the other files of the package are not checked (stripOtherBodies), and the gates look at
+	// that file alone. The package is Focused then. See focus.go.
+	Focus string
 }
 
 // A Dep is what Check needs of a package that it imports but does not
@@ -210,6 +215,9 @@ type Package struct {
 	// (Config.SkipOpaque): the last check recorded no error, and nothing in
 	// the package or its imports is C.
 	typesClean bool
+
+	// Focused says that the function bodies of the files other than Config.Focus were left out.
+	Focused bool
 
 	// Load is the loaded package: its files (whose ASTs go/types
 	// checked), imports and load errors.
@@ -473,7 +481,9 @@ func Check(prog *load.Program, cfg Config) *Result {
 			if len(cerrs) > 0 {
 				perrs = append(slices.Clone(perrs), cerrs...)
 			}
+			focused := cfg.Focus != "" && stripOtherBodies(lp, cfg.Focus)
 			p = checkPackageConsts(prog.Fset, lp, checked, cgoh, c && !depsFailed, perrs, cfg.NoDerivedBodies, cs, cfg.SkipOpaque && !c)
+			p.Focused = focused
 			p.Consts = cs.uses()
 			p.Flags, p.ProbeFlags, p.ExternC = flagsOf[lp].flags, flagsOf[lp].probe, flagsOf[lp].externC
 			if cfg.CppMembers != nil && c && !depsFailed && !lp.Std {
@@ -492,6 +502,10 @@ func Check(prog *load.Program, cfg Config) *Result {
 			}
 			checked[lp] = p.Types
 			failed[lp] = depsFailed || hasHardErrors(p.Errors)
+		}
+		gates.focus = ""
+		if p.Focused {
+			gates.focus = cfg.Focus
 		}
 		gates.apply(p)
 		r.Packages = append(r.Packages, p)
@@ -724,7 +738,7 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 		// would say it again.
 		c.refused = imp.refused
 	}
-	info := newInfo()
+	info := newInfoFor(lp)
 	conf := types.Config{
 		GoVersion:   GoVersion,
 		FakeImportC: true,
@@ -803,14 +817,30 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 
 // newInfo returns an empty types.Info that records everything.
 func newInfo() *types.Info {
+	return newInfoSized(0)
+}
+
+// newInfoFor returns an empty types.Info with room for what go/types records for the files of lp:
+// the maps would otherwise grow, and be copied, several times.
+func newInfoFor(lp *load.Package) *types.Info {
+	bytes := 0
+	for _, f := range lp.Files {
+		bytes += len(f.Src)
+	}
+	return newInfoSized(bytes)
+}
+
+// newInfoSized is newInfo for files of about bytes bytes of source. (Measured on generated
+// packages: a byte of source has 0.09 typed expressions, 0.02 uses, and so on.)
+func newInfoSized(bytes int) *types.Info {
 	return &types.Info{
-		Types:        make(map[ast.Expr]types.TypeAndValue),
+		Types:        make(map[ast.Expr]types.TypeAndValue, bytes/11),
 		Instances:    make(map[*ast.Ident]types.Instance),
-		Defs:         make(map[*ast.Ident]types.Object),
-		Uses:         make(map[*ast.Ident]types.Object),
-		Implicits:    make(map[ast.Node]types.Object),
-		Selections:   make(map[*ast.SelectorExpr]*types.Selection),
-		Scopes:       make(map[ast.Node]*types.Scope),
+		Defs:         make(map[*ast.Ident]types.Object, bytes/48),
+		Uses:         make(map[*ast.Ident]types.Object, bytes/16),
+		Implicits:    make(map[ast.Node]types.Object, bytes/128),
+		Selections:   make(map[*ast.SelectorExpr]*types.Selection, bytes/100),
+		Scopes:       make(map[ast.Node]*types.Scope, bytes/64),
 		FileVersions: make(map[*ast.File]string),
 	}
 }

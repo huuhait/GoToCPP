@@ -18,6 +18,7 @@ import (
 
 	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/interop"
+	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/lsp/cache/filecache"
 	"github.com/huuhait/gocpp/internal/lsp/fspath"
 	"github.com/huuhait/gocpp/internal/lsp/memoize"
@@ -139,6 +140,10 @@ type Pipeline struct {
 	cfg    Config
 	cfgKey Hash // the parts of cfg that results depend on
 
+	// testLoaded, if not nil, sees the program of a focused check right after its load (for the
+	// tests).
+	testLoaded func(*load.Program)
+
 	parses    *memoize.Store[parseKey, *ParsedFile]
 	checks    *memoize.Store[Hash, *Package]
 	summaries *memoize.Store[Hash, *summary]
@@ -178,7 +183,7 @@ type Pipeline struct {
 
 	stats struct {
 		parses, metadata, checks         atomic.Int64
-		testChecks                       atomic.Int64
+		testChecks, focused              atomic.Int64
 		diskHits, diskMisses, diskWrites atomic.Int64
 	}
 }
@@ -298,6 +303,10 @@ func (p *Pipeline) NewState() State {
 func (p *Pipeline) Stats() (parses, metadata, checks int64) {
 	return p.stats.parses.Load(), p.stats.metadata.Load(), p.stats.checks.Load()
 }
+
+// FocusedChecks returns the number of focused checks (focus.go) that started, the ones that
+// declined after the load included. They are not in the checks of Stats.
+func (p *Pipeline) FocusedChecks() int64 { return p.stats.focused.Load() }
 
 // A CacheMetrics describes one of the pipeline's caches.
 type CacheMetrics struct {

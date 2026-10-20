@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"sync"
 
+	"github.com/huuhait/gocpp/internal/diag"
 	"github.com/huuhait/gocpp/internal/syntax/parser"
 )
 
@@ -101,4 +102,64 @@ func parseFilesUsing(
 	}
 	fset.AddExistingFiles(tokenFiles...)
 	return files, errs
+}
+
+// forEachFile calls fn for each file of a package, one after the other, or on several
+// goroutines when the files are big enough to pay for them (parallelParseBytes of source,
+// as for parsing). fn works on one file's tree and reports its errors to the list it is
+// given; the lists are added to errs afterwards in the order of the files, so the diagnostics
+// come in the order that a loop over the files gives them. A panic in fn is rethrown on the
+// caller once every worker has joined, as for the parser.
+func forEachFile(files []*File, errs *diag.List, fn func(i int, f *File, errs *diag.List)) {
+	forEachFileWith(files, errs, runtime.GOMAXPROCS(0), parallelParseBytes, fn)
+}
+
+// forEachFileWith is forEachFile with the parallelism and the threshold given, for tests that
+// compare the serial and the parallel runs.
+func forEachFileWith(
+	files []*File, errs *diag.List, workers, minBytes int, fn func(i int, f *File, errs *diag.List),
+) {
+	total := 0
+	for _, f := range files {
+		if f.AST != nil {
+			total += int(f.AST.FileEnd - f.AST.FileStart)
+		}
+	}
+	workers = min(len(files), workers)
+	if workers < 2 || total < minBytes {
+		for i, f := range files {
+			fn(i, f, errs)
+		}
+		return
+	}
+
+	lists := make([]diag.List, len(files))
+	panics := make([]any, len(files))
+	jobs := make(chan int, len(files))
+	for i := range files {
+		jobs <- i
+	}
+	close(jobs)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				func() {
+					defer func() { panics[i] = recover() }()
+					fn(i, files[i], &lists[i])
+				}()
+			}
+		}()
+	}
+	wg.Wait()
+	for _, value := range panics {
+		if value != nil {
+			panic(value)
+		}
+	}
+	for i := range lists {
+		errs.AddAll(&lists[i])
+	}
 }

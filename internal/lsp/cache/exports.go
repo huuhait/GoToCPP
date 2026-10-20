@@ -190,7 +190,7 @@ func (s *Snapshot) PackageWithFile(ctx context.Context, path string, src []byte)
 			if err != nil {
 				return nil, err
 			}
-			return p.check(ctx, v, k)
+			return p.check(ctx, v, k, nil)
 		})
 	}
 	return p.packageOf(ctx, v)

@@ -89,6 +89,11 @@ type handle struct {
 	// variant is set for the handle of a package with another text for one of
 	// its files (PackageWithFile): its check is not a version of the package.
 	variant bool
+
+	// The focused check of the handle against the base focusFor (focus.go), made once.
+	focusMu   sync.Mutex
+	focusFor  *Package
+	focusProm *memoize.Promise[*Package]
 }
 
 // failedRead reports whether a file or folder that the handle was made from
@@ -252,6 +257,14 @@ type Package struct {
 
 	// memo holds what the language server derives from the check (Memo).
 	memo sync.Map // key -> *memoEntry
+
+	// For focused checks (focus.go): focus is what a check that may have focused checks after it
+	// keeps (nil: none may), focused is the file of a focused package, and focusOK says whether the
+	// package is plain enough for them (focusOnce).
+	focus     *focusBase
+	focused   string
+	focusOnce sync.Once
+	focusOK   bool
 }
 
 type memoEntry struct {
@@ -607,7 +620,7 @@ func (s *state) handle(ctx context.Context, id pkgID, importPath string, stack [
 			if err != nil {
 				return nil, err
 			}
-			return p.check(ctx, h, k)
+			return p.check(ctx, h, k, nil)
 		})
 	}
 	return store(s, handlesOf, id, h)
@@ -878,7 +891,9 @@ func (p *Pipeline) packageOf(ctx context.Context, h *handle) (*Package, error) {
 // is stale and a new one would not be (keyed.renew).
 func (p *Pipeline) checked(ctx context.Context, h *handle, k *keyed) (*Package, error) {
 	for {
-		pkg, err := p.checks.Get(ctx, k.key, func(ctx context.Context) (*Package, error) { return p.check(ctx, h, k) })
+		pkg, err := p.checks.Get(ctx, k.key, func(ctx context.Context) (*Package, error) {
+			return p.check(ctx, h, k, nil)
+		})
 		if h.variant {
 			// ForgetIf only drops completed cache ownership. It neither cancels an in-flight promise nor
 			// changes a package still held by a request, snapshot or repair view. Track failed/canceled
@@ -896,8 +911,13 @@ func (p *Pipeline) checked(ctx context.Context, h *handle, k *keyed) (*Package, 
 
 // check loads the package of h alone, with its imports from their
 // summaries (k.deps), and type-checks it with their types from their
-// export data, at most GOMAXPROCS checks at a time.
-func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, error) {
+// export data, at most GOMAXPROCS checks at a time. With a focus request
+// (focus.go) it is the check of one edited file against a base: the function
+// bodies of the other files are left out, no summary is made, and
+// errFocusDeclined says that the proofs failed.
+func (p *Pipeline) check(
+	ctx context.Context, h *handle, k *keyed, fr *focusRequest,
+) (*Package, error) {
 	ctx, span := trace.Start(ctx, "check", "dir", h.id.dir)
 	defer span.End()
 	_, queue := trace.Start(ctx, "queue")
@@ -909,7 +929,11 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 		return nil, ctx.Err()
 	}
 	defer func() { <-p.sem }()
-	p.stats.checks.Add(1)
+	if fr != nil {
+		p.stats.focused.Add(1)
+	} else {
+		p.stats.checks.Add(1)
+	}
 
 	pattern, dir := h.loadPattern()
 	cfg := p.loadConfig(h, dir, false)
@@ -954,6 +978,9 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 		errs.Errorf(token.Position{}, "internal error: the import of %s was not resolved with the metadata of %s", importPath, dir)
 		return (&load.Package{ImportPath: importPath, Dir: dir, Std: std, Errors: errs, Incomplete: true}).Summary()
 	}
+	if fr != nil {
+		cfg.SkipBodies = func(path string) bool { return !fspath.Equal(path, fr.file) }
+	}
 	_, loadSpan := trace.Start(ctx, "load")
 	prog := load.Load(cfg, pattern)
 	loadSpan.End()
@@ -961,6 +988,12 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 		return nil, fmt.Errorf("cache: %w in %s", ErrNoPackage, dir)
 	}
 	root := prog.Roots[0]
+	if fr != nil && p.testLoaded != nil {
+		p.testLoaded(prog)
+	}
+	if fr != nil && !fr.accept(prog, root) {
+		return nil, errFocusDeclined
+	}
 	reportImportErrors(prog, root)
 	sum := &summary{importPath: root.ImportPath, load: root.Summary()}
 
@@ -968,7 +1001,7 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 	// the prober knows (probe.go); rec keeps what they answered.
 	rec := &probeRecord{pr: p.prober}
 	_, checkSpan := trace.Start(ctx, "typecheck")
-	r := check.Check(prog, check.Config{
+	ccfg := check.Config{
 		Phase:     p.cfg.Phase,
 		GOOS:      p.cfg.GOOS,
 		GOARCH:    p.cfg.GOARCH,
@@ -988,12 +1021,19 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 		LazyPartial: true,
 		// Nothing here lowers the program: the methods of #Derive stay stubs (no second check).
 		NoDerivedBodies: true,
-	})
+	}
+	if fr != nil {
+		ccfg.Focus = fr.file
+	}
+	r := check.Check(prog, ccfg)
 	checkSpan.End()
 	if err := ctx.Err(); err != nil {
 		return nil, err // the probe stopped
 	}
 	cp := r.Package(root)
+	if fr != nil {
+		return p.focusedPackage(h, k, fr, prog, root, cp, imported)
+	}
 	dep, _ := r.Dep(root)
 	sum.hasC, sum.failed = dep.HasC, dep.Failed
 	if dep.Types != nil {
@@ -1022,7 +1062,8 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 	}
 	sum.inherit(k.deps)
 	pkg := &Package{Program: prog, Check: cp, APIHash: sum.apiHash, summary: sum,
-		src: src, imported: imported, tables: sum.tables, variant: k.variant}
+		src: src, imported: imported, tables: sum.tables, variant: k.variant,
+		focus: p.newFocusBase(h, k)}
 	for _, f := range h.files {
 		pkg.cost += sourceFactor * int64(len(f.src))
 	}

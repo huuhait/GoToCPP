@@ -8,11 +8,13 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
 
 	"github.com/huuhait/gocpp/internal/lsp/cache"
+	"github.com/huuhait/gocpp/internal/lsp/fspath"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
 	"github.com/huuhait/gocpp/internal/syntax/parser"
 )
@@ -191,11 +193,37 @@ func (s *Server) completer(ctx context.Context, snap *cache.Snapshot, uri protoc
 		}
 	}
 	if q == nil {
+		q = s.focusedQuery(ctx, snap, uri, at)
+	}
+	if q == nil {
 		if q, err = newQuery(ctx, snap, uri, at); q == nil || err != nil {
 			return nil, err
 		}
 	}
 	return newCompleter(ctx, q, pf, s.comp.index, filter)
+}
+
+// focusedQuery returns the query of the place at in the document uri on the focused check of its
+// package (cache.Snapshot.Focused), or nil when there is none: the completions at a place of the
+// file that was edited need only the declarations of the package and the bodies of that file, not
+// the bodies of the others, so a keystroke in a body does not wait for the whole package to be
+// checked.
+func (s *Server) focusedQuery(
+	ctx context.Context, snap *cache.Snapshot, uri protocol.DocumentURI, at protocol.Position,
+) *query {
+	path := uri.Path()
+	if path == "" {
+		return nil
+	}
+	_, pkg := s.diags.focused(ctx, snap, filepath.Dir(path))
+	if pkg == nil || !fspath.Equal(pkg.Focus(), path) {
+		return nil
+	}
+	q, err := queryOfPackage(snap, pkg, path, at)
+	if err != nil {
+		return nil
+	}
+	return q
 }
 
 // fixDangling returns the text of the parsed file pf with each x. at the end

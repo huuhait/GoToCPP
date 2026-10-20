@@ -118,6 +118,11 @@ func (l *List) Add(d Diagnostic) {
 	l.diags = append(l.diags, d)
 }
 
+// AddAll adds the diagnostics of other, in the order they were found there.
+func (l *List) AddAll(other *List) {
+	l.diags = append(l.diags, other.diags...)
+}
+
 // Errorf adds an error at pos. The arguments are formatted like
 // fmt.Sprintf. A message that is already a string is added with
 // l.Errorf(pos, "%s", msg).

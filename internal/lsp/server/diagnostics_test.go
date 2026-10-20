@@ -330,6 +330,9 @@ func TestDiagnosticsStale(t *testing.T) {
 	files := map[string]string{"gocpp.mod": "module example.com/m\n", "main.gp": src, "other/o.gp": "package other\n\nfunc f() { _ = 1 }\n"}
 	var mainDir string
 	c := startDiag(t, testConfig(), files, func(s *Server) {
+		// The runs here are the ones of the quick path; the full run that settles a package after a
+		// quick publish (settleDelay) would be a third call.
+		s.diags.settle = time.Hour
 		s.diags.checked = func(_ context.Context, dir string, snapID uint64, try int) {
 			if dir != mainDir {
 				return

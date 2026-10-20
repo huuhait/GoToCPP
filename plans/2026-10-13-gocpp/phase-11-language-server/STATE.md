@@ -29,7 +29,9 @@
 - [x] 11.11 Benchmark harness + 3 reference projects + CI gate + gopls side-by-side table
 - [x] 11.12 Profiling/tracing/slow-request log + random-edit differential test
 - [x] 11.13 `!` and macro support (after Phase 10): hovers, inlay hints for handled calls, code actions, expand macro (whole-current-net review clean at `c69600da`; manager focused and receiver-integration checks passed)
-- [~] 11.14 Fresh-typing and completion speed pass (ADR-115): round-2 review found a quick-publication mismatch with existing line mappings; conservative decline and regression fixes underway. Historical all-round results do not meet the every-row gopls goal, and final-HEAD performance remains unmeasured.
+- [~] 11.14 Fresh-typing and completion speed pass (ADR-115)
+  - [x] Guarded focused checks and quick publication: clean whole-net review, manager focused checks passed; line-mapped packages conservatively use full checks
+  - [ ] Final integrated measurements and consistent every-row gopls wins: historical all-round results still lose some typing rows
 
 ## Exit criteria
 
@@ -39,6 +41,21 @@
 - [ ] VS Code checklist passes (incl. `!` and macro features)
 
 ## Decisions / notes
+
+- 2026-10-20: The guarded-check implementation of 11.14 (ADR-115) is integrated from
+  reviewed source `4e444985`; the overall speed goal remains open. Whole-net independent
+  review is clean after fixes to version-only publication, related locations, incomplete
+  overlays, replaced bases, first-publication comparison, phase gates and line mappings.
+  Any package with an existing line-mapping comment declines the focused path, preserving
+  diagnostics at logical filenames. Manager race-enabled checks passed for eligibility,
+  quick publications, completion and line mappings; parser body-skipping and CLI environment
+  checks passed. The parser patch reverse-applies cleanly; its unified-diff context spaces
+  are intentionally retained, although a generic whitespace check flags them. All other
+  staged files passed the whitespace check. One optional historical-claim wording nit was
+  corrected. No final benchmark matrix, full CI, Windows run or every-row win is claimed.
+  Saved all-round medium p95 candidate/gopls values remain 4.40/3.94 ms fresh typing,
+  3.84/3.69 ms imported typing and 4.38/5.11 ms completion; these are historical binaries,
+  not the final integrated build. Post-hoc removal of a disturbed round is not acceptance.
 
 - 2026-10-20: Step 11.13 integrated after clean whole-current-net review at `c69600da`.
   It includes exact current-snapshot hovers, safe repair/stale reuse, hints/actions/tokens,

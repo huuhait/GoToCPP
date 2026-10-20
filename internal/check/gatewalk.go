@@ -31,12 +31,45 @@ type gates struct {
 	// (type Vec = std.vector[int], type Vec2 std.vector[int]): embedding
 	// one embeds a C/C++ type too.
 	opaqueTypes map[*types.TypeName]bool
+
+	// typesGated says that the walk of a type (typeUses) can report an error at this
+	// phase: one of typeUseFeatures is not allowed. When it is false the walk of the
+	// types of the expressions and declarations has nothing to find, and checkTypes
+	// does not make it.
+	typesGated bool
+
+	// focus, if not empty, is the one file that the gates look at (Config.Focus); apply sets it for
+	// each package.
+	focus string
 }
+
+// typeUseFeatures are the features that typeUses asks the gate about. A test
+// (TestTypeUseFeaturesComplete) compares the list with the body of typeUses.
+var typeUseFeatures = [...]featureID{
+	featComplex, featPointers, featComposite, featChannels, featFuncValues,
+	featGenerics, featAny, featInterfaces, featGenericTypes, featErrors,
+}
+
+// noGateElision is set by a test to run the walks that the gates leave out when
+// they cannot find anything (typesGated, mayHaveMemberRule).
+var noGateElision bool
 
 // newGates returns the gates of a program, which allow the features of
 // phase and earlier ones.
 func newGates(fset *token.FileSet, phase int) *gates {
-	return &gates{fset: fset, phase: phase, opaqueFields: make(map[*types.Var]bool), opaqueTypes: make(map[*types.TypeName]bool)}
+	gs := &gates{
+		fset:         fset,
+		phase:        phase,
+		opaqueFields: make(map[*types.Var]bool),
+		opaqueTypes:  make(map[*types.TypeName]bool),
+	}
+	gs.typesGated = noGateElision
+	for _, id := range typeUseFeatures {
+		if !features[id].allowed(phase) {
+			gs.typesGated = true
+		}
+	}
+	return gs
 }
 
 // apply runs the gates over the checked or unchecked package p (after the
@@ -62,6 +95,9 @@ func (gs *gates) apply(p *Package) {
 	}
 	g.hidden, g.skipTypes = p.rewriteNodes()
 	for _, f := range p.Load.Files {
+		if gs.focus != "" && f.Path != gs.focus {
+			continue
+		}
 		g.checkFile(f)
 	}
 	for _, sel := range g.unresolved {
@@ -161,6 +197,13 @@ type gateChecker struct {
 	// typeCalls are the features that the walk of a type asks the gate about
 	// (typeUsesOnce).
 	typeCalls map[types.Type][]featureID
+
+	// memberRules says, for the packages whose objects the walk has met, whether
+	// laterMember can find a row for them (hasMemberRules); rulesPkg and rulesAny
+	// are the last answer, because the objects of one package come in runs.
+	memberRules map[*types.Package]bool
+	rulesPkg    *types.Package
+	rulesAny    bool
 
 	// hidden and skipTypes are the nodes of the rewrite of conversions
 	// (Package.rewriteNodes), which the gates don't look at: the user
@@ -783,7 +826,7 @@ func (g *gateChecker) hasC(e ast.Expr) bool {
 // packages that come later than their package.
 func (g *gateChecker) checkTypes() {
 	g.inTypes = true
-	for e, tv := range g.info.Types {
+	for e, tv := range g.typesToWalk() {
 		if g.skipTypes[e] {
 			continue
 		}
@@ -821,7 +864,9 @@ func (g *gateChecker) checkTypes() {
 		}
 		switch obj := obj.(type) {
 		case *types.Var, *types.Const:
-			g.typeUsesOnce(obj.Type(), id.Pos(), id.End())
+			if g.typesGated {
+				g.typeUsesOnce(obj.Type(), id.Pos(), id.End())
+			}
 		case *types.TypeName:
 			// type WP weak.Pointer[T]: the intrinsic (weak.Pointer[T] itself and its aliases)
 			// is a runtime class (gp::weak_ptr): a type defined over it is an error at every phase.
@@ -847,10 +892,22 @@ func (g *gateChecker) checkTypes() {
 		if g.skipTypes[id] {
 			continue
 		}
+		if !g.mayHaveMemberRule(obj) {
+			continue
+		}
 		if m := laterMember(obj); m != nil && m.Phase > g.phase {
 			g.report(id.Pos(), id.End(), m.message(), m.Phase)
 		}
 	}
+}
+
+// typesToWalk returns the types of the expressions that checkTypes walks: all of them,
+// or none when no feature of a type is gated at this phase (gates.typesGated).
+func (g *gateChecker) typesToWalk() map[ast.Expr]types.TypeAndValue {
+	if !g.typesGated {
+		return nil
+	}
+	return g.info.Types
 }
 
 // inFuncParams reports whether pos is in the type parameter list of a func.
@@ -871,6 +928,47 @@ func (g *gateChecker) inTypeParams(e ast.Expr) bool {
 		}
 	}
 	return false
+}
+
+// mayHaveMemberRule reports whether laterMember could return a row for obj: it is false
+// for the objects of a package that no row of stdMembers and no standard package with a
+// later Rest names (the packages of the user, nearly all of the uses of a program), so that
+// the table is not searched for each of them.
+func (g *gateChecker) mayHaveMemberRule(obj types.Object) bool {
+	pkg := obj.Pkg()
+	if pkg == nil {
+		return false
+	}
+	if noGateElision {
+		return true
+	}
+	if pkg == g.rulesPkg {
+		return g.rulesAny
+	}
+	hasRules, ok := g.memberRules[pkg]
+	if !ok {
+		hasRules = hasMemberRules(pkg.Path())
+		if g.memberRules == nil {
+			g.memberRules = make(map[*types.Package]bool)
+		}
+		g.memberRules[pkg] = hasRules
+	}
+	g.rulesPkg = pkg
+	g.rulesAny = hasRules
+	return hasRules
+}
+
+// hasMemberRules reports whether lookupMember can find a row for a member of the package
+// path: a row of stdMembers for it, or a standard package row whose Rest is later than
+// its Phase.
+func hasMemberRules(path string) bool {
+	for i := range stdMembers {
+		if stdMembers[i].Pkg == path {
+			return true
+		}
+	}
+	row := lookupStdPackage(path)
+	return row != nil && row.Rest > row.Phase
 }
 
 // laterMember returns the row of obj if it is a member of a standard

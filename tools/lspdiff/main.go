@@ -9,6 +9,12 @@
 // It exits with status 1 when an answer differs. The answers are compared as
 // JSON (the text of the project's folder is replaced by <root>); the
 // diagnostics are compared as (severity, line, message).
+//
+// It waits 150 ms after each edit, longer than the quiet time after which the server settles an
+// edit inside a function body with a full check (100 ms), so it compares the settled state. The
+// first answers after such an edit (the quick publish and the completion that the focused check
+// gives) are compared by the tests of internal/lsp/server, TestDiagnosticsQuickMatchesFullRun and
+// TestCompletionFocusedMatchesFull.
 package main
 
 import (

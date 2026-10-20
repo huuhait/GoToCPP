@@ -1556,6 +1556,27 @@ func (p *parser) parseBody() *ast.BlockStmt {
 	return &ast.BlockStmt{Lbrace: lbrace, List: list, Rbrace: rbrace}
 }
 
+// skipBody skips a function body, from its { to the matching }, without making nodes for it
+// (SkipFuncBodies). The tokens are still scanned, so the positions after the body are those of a
+// full parse.
+func (p *parser) skipBody() {
+	depth := 0
+	for p.tok != token.EOF {
+		switch p.tok {
+		case token.LBRACE:
+			depth++
+		case token.RBRACE:
+			depth--
+			if depth == 0 {
+				p.next()
+				return
+			}
+		}
+		p.next()
+	}
+	p.expect(token.RBRACE) // reports the missing }
+}
+
 func (p *parser) parseBlockStmt() *ast.BlockStmt {
 	if p.trace {
 		defer un(trace(p, "BlockStmt"))
@@ -2945,7 +2966,11 @@ func (p *parser) parseFuncDeclRest(doc *ast.CommentGroup, pos token.Pos, macro b
 	var body *ast.BlockStmt
 	switch p.tok {
 	case token.LBRACE:
-		body = p.parseBody()
+		if p.mode&SkipFuncBodies != 0 && !macro && !(recv == nil && ident.Name == "init") {
+			p.skipBody()
+		} else {
+			body = p.parseBody()
+		}
 		p.expectSemi()
 	case token.SEMICOLON:
 		p.next()

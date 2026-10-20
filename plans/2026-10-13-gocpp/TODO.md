@@ -10,7 +10,7 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 
 ## Now: resumed jobs (2026-10-20)
 
-- [~] 11.14: fix the round-2 line-mapping diagnostic mismatch, then re-review. Every-row gopls and final-HEAD performance acceptance remain open.
+- [~] 11.14: guarded-check implementation integrated after clean review and manager focused checks; measure the final build and continue the remaining typing gaps. Every-row gopls acceptance remains open.
 - [~] 12.14: independent re-review after removing the unsound smaller preamble and fixing
   prefetch cancellation while preserving the independent PCH improvements.
   Keep cold first-run performance separate from a run that retains a precompiled header;

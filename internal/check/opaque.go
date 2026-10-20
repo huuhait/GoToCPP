@@ -363,8 +363,8 @@ func newOpaquePass(pkg *types.Package, info *types.Info, files []*ast.File) *opa
 	op := &opaquePass{
 		pkg:        pkg,
 		info:       info,
-		decls:      make(map[types.Object]decl),
-		skip:       make(map[ast.Expr]bool),
+		decls:      make(map[types.Object]decl, len(info.Defs)),
+		skip:       make(map[ast.Expr]bool, len(info.Defs)),
 		litParent:  make(map[*ast.CompositeLit]*ast.CompositeLit),
 		instIdents: make(map[*ast.Ident]ast.Expr),
 		keyOf:      make(map[ast.Expr]*ast.CompositeLit),

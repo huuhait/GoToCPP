@@ -55,6 +55,7 @@ const (
 	SpuriousErrors                                    // same as AllErrors, for backward-compatibility
 	SkipObjectResolution                              // skip deprecated identifier resolution; see ParseFile
 	Phase10Syntax                                     // gocpp: parse the syntax of Phase 10 (F!(x), func f!(), #Name(...), macro, lazy); see ../FORK.md
+	SkipFuncBodies                                    // gocpp: leave function bodies out of the tree; see ../FORK.md
 	AllErrors            = SpuriousErrors             // report all errors (not just the first 10 on different lines)
 )
 

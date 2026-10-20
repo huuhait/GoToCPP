@@ -89,6 +89,12 @@ type Config struct {
 	// the first 10 on different lines (gocpp check -e).
 	AllErrors bool
 
+	// SkipBodies, if not nil, says for the name of a file whether the parser leaves the bodies of
+	// its functions out (parser.SkipFuncBodies; the body of init stays). The language server's
+	// focused check uses it for the files that it does not look at the bodies of
+	// (internal/lsp/cache, focus.go).
+	SkipBodies func(path string) bool
+
 	// NoEmbedFiles makes //go:embed and #embed (step 10.8) check the
 	// directive and the pattern, but not read any file: the variable or the
 	// macro gets the empty string, and a missing file is no error. The
@@ -679,6 +685,16 @@ func newLoader(cfg Config) *loader {
 		state:    make(map[*Package]loadState),
 	}
 	l.parseFile = parser.ParseFile
+	if skip := cfg.SkipBodies; skip != nil {
+		l.parseFile = func(
+			fset *token.FileSet, name string, src any, mode parser.Mode,
+		) (*ast.File, error) {
+			if skip(name) {
+				mode |= parser.SkipFuncBodies
+			}
+			return parser.ParseFile(fset, name, src, mode)
+		}
+	}
 	l.overlayDirs = make(map[string][]string)
 	for name := range cfg.Overlay {
 		dir := filepath.Dir(name)
@@ -1399,16 +1415,20 @@ func (l *loader) process(p *Package) {
 
 	var paths []string              // the imported paths, in the order of their first import
 	first := make(map[string]*File) // the file with the first import of each path
-	for _, f := range p.Files {
+	// The checks of one file's tree don't depend on the other files, so they run together;
+	// their errors come in the order of the files.
+	forEachFile(p.Files, p.Errors, func(_ int, f *File, errs *diag.List) {
 		if !p.Std {
 			// The standard library is gocpp's own, and it keeps Go's
 			// names: unicode.C (Phase 09 ports unicode).
-			CheckReservedC(l.fset, f.AST, p.Errors)
+			CheckReservedC(l.fset, f.AST, errs)
 		}
-		f.Directives = ParseDirectives(l.fset, f.AST, p.Errors)
+		f.Directives = ParseDirectives(l.fset, f.AST, errs)
 		if !p.Std {
-			checkNativeStd(l.fset, f.AST, p.Errors)
+			checkNativeStd(l.fset, f.AST, errs)
 		}
+	})
+	for _, f := range p.Files {
 		for _, path := range PackagePaths(f.AST) {
 			if first[path] == nil {
 				first[path] = f
@@ -1477,10 +1497,16 @@ func (l *loader) process(p *Package) {
 		}
 	}
 
-	for _, f := range p.Files {
-		addOnTopUnresolved(f.AST) // macros.go: the lines of macros are not walked by the parser's resolver
-		f.Rewrite = RewriteFile(l.fset, f.AST, f.Info, pkgLevel, l.dotNames(p, f.Info), p.Errors)
+	// The names that the dot imports bring are found first, one file after the other: they read
+	// the packages that p imports. The rewrites of the files don't depend on each other.
+	fileDots := make([]map[string]bool, len(p.Files))
+	for i, f := range p.Files {
+		fileDots[i] = l.dotNames(p, f.Info)
 	}
+	forEachFile(p.Files, p.Errors, func(i int, f *File, errs *diag.List) {
+		addOnTopUnresolved(f.AST) // macros.go: the lines of macros are not walked by the parser's resolver
+		f.Rewrite = RewriteFile(l.fset, f.AST, f.Info, pkgLevel, fileDots[i], errs)
+	})
 	l.builtinMacros(p) // builtins.go: #file, #line, #func, #text, #embed and //go:embed
 }
 

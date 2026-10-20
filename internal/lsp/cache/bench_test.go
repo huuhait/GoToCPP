@@ -254,3 +254,76 @@ func BenchmarkEditMediumDep(b *testing.B) { benchGenerated(b, bench.Medium, true
 
 // BenchmarkEditSmall: a keystroke in the hot package of the small project (6 files).
 func BenchmarkEditSmall(b *testing.B) { benchGenerated(b, bench.Small, false) }
+
+// BenchmarkFocusedMedium: the same keystroke as BenchmarkEditMedium, answered by the focused check
+// (focus.go) against the full check of the file before the typing.
+func BenchmarkFocusedMedium(b *testing.B) {
+	proj := bench.Generate(bench.Medium)
+	files := map[string]string{"gocpp.mod": "module " + proj.Module + "\n"}
+	for _, rel := range proj.SourceFiles(false) {
+		files[rel+".gp"] = proj.Source(rel)
+	}
+	name := proj.Hot + ".gp"
+	dir := filepath.ToSlash(filepath.Dir(name))
+	w := newWorld(b, testConfig(), files)
+	w.pkg(dir)
+	src := files[name]
+	w.open(name, src)
+	base := w.pkg(dir)
+	abs := filepath.Join(w.root, filepath.FromSlash(dir))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		w.edit(name, strings.Replace(src, "\tsum := 0\n", fmt.Sprintf("\tsum := %d\n", i+1), 1))
+		snap, release := w.s.Snapshot()
+		pkg, err := snap.Focused(context.Background(), abs, base)
+		release()
+		if err != nil || pkg == nil {
+			b.Fatalf("no focused check: %v", err)
+		}
+	}
+}
+
+// BenchmarkFocusedDeclineMedium: a keystroke that leaves a syntax error, the most common state
+// while typing. The focused check declines it, and BenchmarkFocusedDeclineFullMedium is the full
+// check that follows; the first must cost next to nothing on top of the second.
+func BenchmarkFocusedDeclineMedium(b *testing.B) {
+	benchmarkSyntaxError(b, true)
+}
+
+func BenchmarkFocusedDeclineFullMedium(b *testing.B) {
+	benchmarkSyntaxError(b, false)
+}
+
+func benchmarkSyntaxError(b *testing.B, tryFocused bool) {
+	proj := bench.Generate(bench.Medium)
+	files := map[string]string{"gocpp.mod": "module " + proj.Module + "\n"}
+	for _, rel := range proj.SourceFiles(false) {
+		files[rel+".gp"] = proj.Source(rel)
+	}
+	name := proj.Hot + ".gp"
+	dir := filepath.ToSlash(filepath.Dir(name))
+	w := newWorld(b, testConfig(), files)
+	w.pkg(dir)
+	src := files[name]
+	w.open(name, src)
+	base := w.pkg(dir)
+	abs := filepath.Join(w.root, filepath.FromSlash(dir))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		w.edit(name, strings.Replace(src, "\tsum := 0\n", fmt.Sprintf("\tsum := %d +\n", i+1), 1))
+		snap, release := w.s.Snapshot()
+		if tryFocused {
+			pkg, err := snap.Focused(context.Background(), abs, base)
+			if err != nil || pkg != nil {
+				b.Fatalf("the focused check did not decline: %v %v", pkg, err)
+			}
+		}
+		_, err := snap.Package(context.Background(), abs)
+		release()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}

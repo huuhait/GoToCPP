@@ -12,7 +12,7 @@ has no tracked pending changes; user-owned `c4/` remains untracked and untouched
 
 | Job | Existing worktree / branch | Resume gate |
 |---|---|---|
-| 11.14 LSP speed pass | `../GoToCPP-11.14` / `job/11.14` | Round-2 review found quick diagnostics mishandling existing line mappings; coder is adding a conservative decline and regression tests. Historical measurements do not establish an every-row gopls win or final-HEAD performance. |
+| 11.14 LSP speed pass | `../GoToCPP-11.14` / `job/11.14` | Guarded-check implementation integrated from `4e444985` after clean whole-net review and passing focused manager checks. Remaining final-build benchmarks and every-row gopls goal are open. |
 | 12.14 cold typed probing | `../GoToCPP-12.14` / `job/12.14` | Round-3 fixes remove the smaller-preamble shortcut and make prefetch cancellation-aware while retaining PCH work. Independent re-review underway. Current raylib evidence still misses cold < 0.5 s; other measurements are historical. |
 | 15.2 escape analysis | `../GoToCPP-15.2` / `job/15.2` | Review fixes and focused coder checks complete on `455eba4b` plus staged binary deletions and uncommitted fixes. Independent whole-net re-review underway; no clean approval yet. |
 | 9.12 stdlib documentation | `../GoToCPP-9.12` / `job/9.12` | Integrated from `b5c96982` after clean round-2 review and passing manager inventory/link/snippet/whitespace checks. The release candidate and full Phase 09 acceptance remain open. |
