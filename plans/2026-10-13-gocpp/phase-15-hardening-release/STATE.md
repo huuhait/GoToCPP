@@ -32,7 +32,7 @@
 ### Docs & release
 - [x] 15.15 Docs site (tour, spec, interop guide + cookbook, Go-dev and C++-dev guides, stdlib reference)
 - [ ] 15.16 v1.0 compatibility promise + changelog + release
-- [ ] 15.17 Post-1.0 roadmap ADRs
+- [x] 15.17 Post-1.0 roadmap ADRs
 
 ## Exit criteria (v1.0)
 
