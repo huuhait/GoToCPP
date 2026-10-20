@@ -108,6 +108,15 @@ None of these needs work in gocpp.
    bodies are compiled once and not parsed by every unit. Today the bodies are in the header under
    macro guards (`_POST`) and are `inline`. That is a change to `internal/lower/insttypes.go`, not a switch.
 
+7. **An external compiler cache is optional.** The existing compiler command accepts
+   `CXX='ccache g++'` or `GOCPP_CXX='sccache clang++'`; there is no extra `GOCPP_CCACHE` switch.
+   Keep gocpp's own cache on for normal builds. When comparing external cold/warm builds, bypass
+   the internal object cache and up-to-date check and inspect the external tool's hit/miss counters:
+   a shorter second build can simply be runtime/PCH reuse. Changing work folders and debug paths
+   can prevent external hits, and PCH support is tool-specific. The [build specification](../spec/build.md#compiler-launchers-and-external-caches)
+   gives the configuration, measurement recipe and compiler-identity limits. No external-cache
+   speedup is included in the tables above.
+
 ## The concrete next step (not done)
 
 The independent review of step 7.12 measured where the header time goes in the 20 types x 10 program: `pkg.hpp` is

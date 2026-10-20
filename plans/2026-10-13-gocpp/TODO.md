@@ -18,7 +18,7 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] 15.2: escape analysis and allocation diagnostics integrated after clean whole-net review,
   focused GCC/Clang ASan/Go checks and combined compiler checks.
 - [x] 9.12: checked stdlib inventory, Go differences and exercised porting guide; clean round-2 review and manager focused checks.
-- [~] 15.7a: independently check compiler-cache launcher support and measure a small real-cache workflow; remaining 15.7 generic-body/module work stays open.
+- [x] 15.7a: existing compiler-cache launcher support documented and tested, with clean review and manager checks. Real-cache statistics were not measured because the tools were unavailable; remaining 15.7 work stays open.
 - [ ] Next: 12.13 typed-interop editor support and 9.13 release-candidate prerequisites;
   then 15.6, 15.7 and 15.4 in dependency order.
 

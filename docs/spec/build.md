@@ -117,6 +117,75 @@ removed at any time; a build that runs while it is removed may fail with a messa
 that is a symbolic link is removed as a link, what it points at is never touched);
 `-gen`, `-stamp` and `-modcache` remove one kind; `-n` prints what would be removed, with the sizes.
 
+## Compiler launchers and external caches
+
+A compiler command can already include a launcher; no separate `GOCPP_CCACHE` switch is needed:
+
+```sh
+CXX='ccache g++' gocpp build .
+GOCPP_CXX='sccache clang++' gocpp build .
+```
+
+For a host build, `GOCPP_CXX` wins over `CXX`. With neither set, a non-Windows host tries
+`clang++` and `g++`; a Windows host follows `GOCPP_TOOLCHAIN` and the
+[MinGW-w64 selection rules](#gocppexe-on-a-windows-host). For a cross build, use `GOCPP_CXX` to
+name the target's compiler explicitly; the host's `CXX` is ignored. A chosen command that fails
+is an error, not a request to fall back to an uncached compiler. The launcher must be installed
+separately and support the compiler command that follows it; gocpp neither installs it nor
+configures a remote cache.
+
+Commands are split into words, **not run through a shell**. Quote a whole word to retain spaces:
+`GOCPP_CXX='"/opt/cache tools/ccache" "/opt/compiler tools/g++" -m64'`. Quotes have no escapes;
+`$HOME`, `~`, pipes and shell substitutions are not expanded. The launcher receives its arguments
+first, followed by gocpp's flags. Compiler detection (`--version`, `-dM -E`) goes through the same
+command, so the family and version are the underlying compiler's, not the cache program's. For
+package `.c` files the matching C compiler is substituted (`ccache g++` becomes `ccache gcc`),
+with the other arguments retained; set `GOCPP_CC` explicitly if those arguments are C++-only.
+Long commands put gocpp's arguments in a response file, leaving the launcher and its compiler
+argument outside it. `-x` still shows the original command. The external tool must support the
+compiler's response-file syntax.
+
+**Two independent cache layers.** Keep gocpp's object cache and up-to-date check enabled normally:
+when they answer, the external cache is not called. A gocpp `# cache hit` or `hit=` count is only
+an **internal** hit. To measure an external cache, bypass the internal object cache and up-to-date
+check and read the external tool's own statistics. For example, with ccache already installed,
+in a disposable shell session from a small project's folder:
+
+```sh
+scratch=$(mktemp -d)
+export XDG_CACHE_HOME="$scratch/xdg"
+export CCACHE_DIR="$scratch/ccache"
+export GOCPP_CXX='ccache g++'
+export GOCPP_NOOBJCACHE=1 GOCPP_NOUPTODATE=1
+ccache --zero-stats
+gocpp build -x -o "$scratch/app" .
+ccache --show-stats
+gocpp build -x -o "$scratch/app" .
+ccache --show-stats
+# Edit a small source or a header, build again, then read the statistics again.
+```
+
+The first build has a cold runtime cache too; later builds can reuse runtime objects and the
+runtime PCH even with `GOCPP_NOOBJCACHE=1`. Compare **changes in external hit/miss counts**, not
+just elapsed times. `gocpp build -a` also forces runtime compiles but still allows an external
+cache to answer. `GOCPP_NOPCH=1` is useful for a separate no-PCH comparison; it is not a default
+recommendation. PCH reuse has compiler- and cache-specific requirements. In particular, do not
+silently enable ccache's PCH sloppiness options just to obtain a hit. Work folders change between
+builds, and debug paths, generated paths and PCHs can prevent external hits. Do not turn off
+path hashing or other correctness checks without understanding the external tool's rules.
+
+**Identity limit.** gocpp keys its caches by the launcher path and program file, command arguments,
+and detected compiler family/version. It does not watch an underlying executable named only in
+those arguments: replacing that compiler in place (or changing what its name resolves to in
+`PATH`) can leave cached detection and objects unchanged. Prefer an absolute, versioned compiler
+path. After a toolchain change behind a launcher, start a new gocpp process and use a fresh gocpp
+cache or `gocpp clean -cache`; clearing only ccache/sccache does not clear gocpp's answers. Arbitrary
+wrappers that choose a compiler from their own configuration have the same limit.
+
+The launcher protocol is covered by deterministic fake-launcher tests. Actual hit rates and
+speedups depend on the installed cache, compiler, flags and workload; those tests are not evidence
+of a real ccache/sccache hit. See also [compile-time advice](../guides/generics-compile-time.md).
+
 ## Build flags, tags and the user's own compiler flags
 
 `gocpp build` and `gocpp run` take these flags (`gocpp build -h` has the text; `-n`, `-emit-llvm`

@@ -17,8 +17,8 @@
 - [x] 15.5 Swiss-table maps
 - [ ] 15.6 Devirtualization + bounds-check help
 - [~] 15.7 Compile-time work (`extern template`, ccache/sccache, C++20 modules evaluation)
-  - [~] 15.7a External compiler-cache integration and evidence: existing launcher workflow,
-    focused correctness checks, and a small cache-hit measurement; independent review pending
+  - [x] 15.7a Existing external-cache launcher workflow documented and tested; clean review and manager focused checks, no redundant configuration knob
+  - [ ] Real ccache/sccache statistics remain unmeasured: neither tool was available in the checked environment
   - [ ] Generic-type body placement and C++20 modules evaluation remain separate, unstarted work
 
 ### Robustness
@@ -46,6 +46,16 @@
 - [ ] Installable via `go install`, release binary, `nix run` (also on NixOS); docs site live
 
 ## Decisions / notes
+
+- 2026-10-20: 15.7a integrated from reviewed source `a67c4e69`. Existing `CXX`/`GOCPP_CXX`
+  command prefixes already support compiler-cache launchers, so no `GOCPP_CCACHE` knob or
+  production path was added. Tests cover forwarding, quoting, literal metacharacters,
+  response files, precedence, C-helper selection, target flags and pre-start cancellation.
+  Windows host fallback documentation was corrected during review. Manager focused tests
+  and integrated documentation checks passed (222 pages, no broken link). These fake-launcher
+  tests do not prove real cache hits or speedups: ccache/sccache were unavailable, no tools
+  were installed, and underlying-compiler identity limits remain documented. Overall 15.7
+  still needs real-cache measurements, generic-body work and modules evaluation.
 
 - 2026-10-20: 15.2 integrated from reviewed source `b68eb6ac`, including all earlier fixes.
   Unknown/native calls and generic instances remain conservative. Added stack objects are

@@ -77,6 +77,10 @@ func TestTargetFlags(t *testing.T) {
 		// A version suffix is not a target: clang++-21 is told it.
 		{"versioned clang++ for windows", CXX{Family: Clang, Path: "/usr/bin/clang++-21", GOOS: "windows", GOARCH: "amd64"},
 			[]string{"--target=x86_64-w64-mingw32", "-D_WIN32_WINNT=0x0A00"}},
+		{"launcher for Windows clang++", CXX{
+			Family: Clang, Path: "/bin/ccache", Args: []string{"clang++"},
+			GOOS: "windows", GOARCH: "amd64",
+		}, []string{"--target=x86_64-w64-mingw32", "-D_WIN32_WINNT=0x0A00"}},
 		{"plain clang++ for arm64", CXX{Family: Clang, Path: "/bin/clang++", GOOS: "linux", GOARCH: "arm64"},
 			[]string{"--target=aarch64-linux-gnu"}},
 		{"arm64 gcc", CXX{Family: GCC, Path: "/bin/aarch64-linux-gnu-g++", GOOS: "linux", GOARCH: "arm64"}, nil},

@@ -397,6 +397,136 @@ func TestFindCXXWithArguments(t *testing.T) {
 	}
 }
 
+// fakeCacheLauncher forwards a compiler command without interpreting its arguments.
+func fakeCacheLauncher(t *testing.T, dir, name string) string {
+	t.Helper()
+	skipWindows(t)
+	path := filepath.Join(dir, name)
+	text := "#!/bin/sh\nprintf '%s\\000' \"$@\" >> \"$0.args\"\nexec \"$@\"\n"
+	if err := os.WriteFile(path, []byte(text), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestCacheLauncherDetection(t *testing.T) {
+	for _, name := range []string{"ccache", "sccache"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			launcher := fakeCacheLauncher(t, dir, name+" launcher")
+			compiler := fakeCXX(t, dir, "my clang++", "clang version 99.0.0", clangMacros...)
+			flag := "-DVALUE=a b;$HOME"
+			command := shellQuote(launcher) + " " + shellQuote(compiler) + " " + shellQuote(flag)
+			setEnv(t, dir, command, "missing")
+
+			cxx, err := FindCXX(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := CXX{
+				Path: launcher, Args: []string{compiler, flag},
+				Family: Clang, Version: "clang version 99.0.0", Major: 99,
+			}
+			if !reflect.DeepEqual(noStamp(cxx), want) {
+				t.Fatalf("FindCXX() = %+v, want %+v", noStamp(cxx), want)
+			}
+
+			data, err := os.ReadFile(launcher + ".args")
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantArgs := []string{
+				compiler, flag, "--version",
+				compiler, flag, "-dM", "-E", "-x", "c++", "-",
+			}
+			gotArgs := strings.Split(strings.TrimSuffix(string(data), "\x00"), "\x00")
+			if !reflect.DeepEqual(gotArgs, wantArgs) {
+				t.Errorf("launcher arguments = %q, want %q", gotArgs, wantArgs)
+			}
+		})
+	}
+}
+
+func TestCacheLauncherResponseFile(t *testing.T) {
+	dir := t.TempDir()
+	launcher := fakeCacheLauncher(t, dir, "ccache")
+	compiler := fakeCompiler(t, GCC, `
+for arg in "$@"; do
+	case "$arg" in
+	@*)
+		while IFS= read -r line; do
+			printf '%s\n' "$line"
+		done < "${arg#@}"
+		;;
+	esac
+done
+`)
+	cxx := CXX{Path: launcher, Args: []string{compiler.Path, "-O1"}, Family: GCC}
+	old := compileLimit
+	compileLimit = 1
+	t.Cleanup(func() { compileLimit = old })
+	var trace strings.Builder
+	b := &Builder{Work: dir, Trace: &trace}
+	args := []string{"-c", "source with spaces.cpp", "-o", "output with spaces.o"}
+
+	out, err := b.runOutput(context.Background(), cxx, "test source", false, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := gnuTokens(string(out)); !reflect.DeepEqual(got, args) {
+		t.Errorf("response file arguments = %q, want %q", got, args)
+	}
+	data, err := os.ReadFile(launcher + ".args")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Split(strings.TrimSuffix(string(data), "\x00"), "\x00")
+	if len(got) != 3 || got[0] != compiler.Path || got[1] != "-O1" || !strings.HasPrefix(got[2], "@") {
+		t.Fatalf("launcher arguments = %q, want compiler, -O1, @file", got)
+	}
+	if _, err := os.Stat(strings.TrimPrefix(got[2], "@")); !os.IsNotExist(err) {
+		t.Errorf("response file was not removed: %v", err)
+	}
+	shown := trace.String()
+	if strings.Contains(shown, "@") || !strings.Contains(shown, "'source with spaces.cpp'") {
+		t.Errorf("trace hides the original arguments: %s", shown)
+	}
+}
+
+func TestCacheLauncherCompilerKeys(t *testing.T) {
+	dir := t.TempDir()
+	launcher := fakeCacheLauncher(t, dir, "ccache")
+	first := fakeCXX(t, dir, "g++", "g++ (GCC) 99.1.0", gccMacros...)
+	second := fakeCXX(t, dir, "other-g++", "g++ (GCC) 99.1.0", gccMacros...)
+	b := &Builder{}
+	var keys []string
+	for _, compiler := range []string{first, second} {
+		cxx, err := lookCommand(context.Background(), launcher, []string{compiler}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys = append(keys, b.objKey(cxx, []string{"-O0"}, []byte("int x;"), nil))
+	}
+	if keys[0] == keys[1] {
+		t.Error("different compiler arguments behind one launcher have the same object key")
+	}
+}
+
+func TestCacheLauncherCanceled(t *testing.T) {
+	dir := t.TempDir()
+	launcher := fakeCacheLauncher(t, dir, "sccache")
+	compiler := fakeCXX(t, dir, "g++", "g++ (GCC) 99.1.0", gccMacros...)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := lookCommand(ctx, launcher, []string{compiler}, false)
+	if err == nil || !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("lookCommand with a canceled context = %v, want context canceled", err)
+	}
+	if n := runsOf(t, compiler); n != 0 {
+		t.Errorf("canceled launcher ran the compiler %d times", n)
+	}
+}
+
 func TestFindCXXTooOld(t *testing.T) {
 	// A named compiler that is too old is an error; without GOCPP_CXX and
 	// CXX, an old clang++ is skipped for g++.

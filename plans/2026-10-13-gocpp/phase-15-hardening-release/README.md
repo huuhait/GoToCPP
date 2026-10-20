@@ -59,7 +59,17 @@ decision, so they're isolated and testable):
 | Swiss-table maps | replace `std::unordered_map` (Go 1.24 made the same switch); Go-style iteration without the Phase 03 key snapshot |
 | Devirtualization | an interface call right after a static conversion calls the method directly |
 | Bounds-check help | hoist `len` in range loops, `[[likely]]` on check branches; the C++ optimizer removes the rest |
-| Compile time | PCH (Phase 06), `extern template` for hot instances, ccache/sccache support (`GOCPP_CCACHE`), evaluate C++20 modules for the runtime |
+| Compile time | PCH (Phase 06), `extern template` for hot instances, optional compiler-cache launchers through `GOCPP_CXX`/`CXX`, evaluate C++20 modules for the runtime |
+
+**15.7a compiler-cache scope:** the existing `CXX='ccache g++'` command-prefix mechanism also
+accepts `GOCPP_CXX='sccache clang++'`; a second `GOCPP_CCACHE` configuration path adds no needed
+behavior. Retain that mechanism, with deterministic launcher tests and the
+[configuration/measurement recipe](../../../docs/spec/build.md#compiler-launchers-and-external-caches).
+Neither ccache nor sccache was available in the existing development shell for the 2026-10-20
+15.7a check, so no actual cache-hit statistics or speedup are claimed. The recipe deliberately
+bypasses gocpp's object cache/up-to-date check and separates runtime/PCH reuse from external hits.
+Out-of-line generic bodies and a measured modules evaluation remain separate, open parts of 15.7
+([ADR-105](../../../docs/adr/105-generic-type-instances-get-out-of-line-bodies-and-c-20-modules-wait-for-a-measurement.md)).
 
 The random differential tests (§2.2) get generators aimed at exactly these optimizations:
 callees that clear globals or fields their arguments came from, closures that change captured

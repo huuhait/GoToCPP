@@ -79,6 +79,41 @@ func TestFindCC(t *testing.T) {
 	}
 }
 
+func TestCacheLauncherFindCC(t *testing.T) {
+	for _, name := range []string{"ccache", "sccache"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			launcher := fakeCacheLauncher(t, dir, name)
+			gxx := fakeCXX(t, dir, "g++", "g++ (GCC) 99.1.0", gccMacros...)
+			gcc := fakeCXX(t, dir, "gcc", "gcc (GCC) 99.1.0", gccMacros...)
+			t.Setenv("GOCPP_CC", "")
+			cxx, err := lookCommand(context.Background(), launcher, []string{gxx, "-O1"}, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			cc, err := FindCC(context.Background(), cxx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := CXX{
+				Path: launcher, Args: []string{gcc, "-O1"}, C: true,
+				Family: GCC, Version: "gcc (GCC) 99.1.0", Major: 99,
+			}
+			if !reflect.DeepEqual(noStamp(cc), want) {
+				t.Fatalf("FindCC() = %+v, want %+v", noStamp(cc), want)
+			}
+			data, err := os.ReadFile(gcc + ".log")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(data), "-O1 -dM -E -x c -\n") {
+				t.Errorf("C compiler ran with %q, want C language and retained arguments", data)
+			}
+		})
+	}
+}
+
 func TestSourceFlags(t *testing.T) {
 	gcc, clang := CXX{Family: GCC, C: true}, CXX{Family: Clang}
 	for _, c := range []struct {

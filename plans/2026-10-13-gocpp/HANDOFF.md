@@ -16,7 +16,7 @@ has no tracked pending changes; user-owned `c4/` remains untracked and untouched
 | 12.14 cold typed probing | `../GoToCPP-12.14` / `job/12.14` | Safe partial implementation integrated from `d13cf67a` after clean round-4 review and focused/combined manager checks. Full type preambles retained; prefetch cancellation and immutable sharing fixed. Cold < 0.5 s remains unmet. |
 | 15.2 escape analysis | `../GoToCPP-15.2` / `job/15.2` | Integrated from `b68eb6ac` after clean whole-net review and passing focused/combined manager checks. Array aliases, shared stack budgets, generic facts and shadow-dependent holders are covered. Full benchmarks and platform acceptance remain open. |
 | 9.12 stdlib documentation | `../GoToCPP-9.12` / `job/9.12` | Integrated from `b5c96982` after clean round-2 review and passing manager inventory/link/snippet/whitespace checks. The release candidate and full Phase 09 acceptance remain open. |
-| 15.7a compiler-cache integration | `../GoToCPP-15-15.7` / `job/15-15.7` | Independent build-driver subtask started from a clean fast-forward to `94c4a6d9`; inspect/test existing launcher support before adding any mechanism. Generic-body/module work remains unstarted. |
+| 15.7a compiler-cache integration | `../GoToCPP-15-15.7` / `job/15-15.7` | Existing launcher support documented/tested and integrated from `a67c4e69` after clean review and manager checks. No production change, real cache-hit evidence or speedup claim. Remaining 15.7 work is open. |
 
 One coder and one independent reviewer per job, sequentially: no subject edits during review,
 no delegation by workers, and final reports only except genuinely blocked decisions. Five
