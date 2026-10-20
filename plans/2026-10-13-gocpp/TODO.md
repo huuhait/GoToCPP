@@ -24,7 +24,8 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] 9.13a: release-preparation notes, distribution notices, reserved module filename and Nix phase-gating fixes integrated after clean re-review and focused source/integrated manager checks. Full 9.13/M6 remain open; no tag or release is authorized.
 - [x] 15.6a: proven-concrete interface calls integrated after clean review and focused source/integration checks; ownership, ordering, nil/recover behavior and dynamic fallback preserved. Kernel speedups are not whole-project performance acceptance.
 - [~] 15.7b: generic-type method body placement is in independent review. Header size is smaller; measured whole-build speed benefit is inconclusive. Small-method inlining is preserved; modules remain separate.
-- [ ] Next: remaining 12.13 editor features, 15.6, remaining 15.7 and 15.4 in dependency order.
+- [~] 15.6b: verify existing range-bound snapshots and branch hints; add focused coverage and only justified improvements.
+- [ ] Next: remaining 12.13 editor features, remaining 15.7 and 15.4 in dependency order.
 
 At most five active workers, including reviewers; start the next review as its coder releases a slot.
 Only necessary focused checks. No `make ci`, `verify.sh` or full sweeps by any worker or

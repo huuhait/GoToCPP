@@ -17,7 +17,7 @@
 - [x] 15.5 Swiss-table maps
 - [~] 15.6 Devirtualization + bounds-check help
   - [x] 15.6a Proven-concrete interface-call devirtualization; dynamic fallback and ownership preserved, clean independent review and focused manager source/integration checks
-  - [ ] 15.6b Bounds-check help
+  - [~] 15.6b Bounds-check help: verify existing range snapshots and branch hints, add focused coverage, and change code only for a demonstrated safe opportunity
 - [~] 15.7 Compile-time work (`extern template`, ccache/sccache, C++20 modules evaluation)
   - [x] 15.7a Existing external-cache launcher workflow documented and tested; clean review and manager focused checks, no redundant configuration knob
   - [ ] Real ccache/sccache statistics remain unmeasured: neither tool was available in the checked environment
