@@ -19,8 +19,9 @@ import (
 // embedded standard library or of the document's module with that name, with
 // the same edit that completion's auto-import makes (importEdits: the import
 // goes into its group, and the imports are sorted as Organize Imports does).
-// The actions for `!` (add `!` where an error is ignored, make a `!`
-// function, expand `!`) and for macros come with step 11.13, after Phase 10.
+// Step 11.13 adds "Handle the error of f with !" (refactor.rewrite, bangactions.go) on a call that drops its
+// error, and "Show expansion" (refactor.inline, expansion.go) on a declaration that has a `!`, a macro
+// use or a #Derive in it.
 
 // undefinedPattern matches the message of the diagnostic for a package that
 // is not imported.
@@ -47,6 +48,20 @@ func (s *Server) codeActions(ctx context.Context, e env, params json.RawMessage)
 			return nil, err
 		}
 		actions = append(actions, fixes...)
+	}
+	if kindWanted(p.Context, protocol.RefactorRewrite) {
+		more, err := s.bangActions(ctx, e, p)
+		if err != nil {
+			return nil, err
+		}
+		actions = append(actions, more...)
+	}
+	if kindWanted(p.Context, protocol.RefactorInline) {
+		more, err := s.expansionActions(ctx, e, p)
+		if err != nil {
+			return nil, err
+		}
+		actions = append(actions, more...)
 	}
 	return actions, nil
 }

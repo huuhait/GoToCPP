@@ -22,6 +22,8 @@ type Session struct {
 	Root    string // the folder of the project
 	Timeout time.Duration
 
+	extra []sample // more samples of the repetition that ran (a scenario with two latencies)
+
 	Facts    map[string]string // what scenarios found out (the number of references), for the notes
 	docs     map[string]*Doc   // the open documents by Rel
 	initTime time.Duration     // the process start to the answer to initialize
@@ -273,4 +275,10 @@ func moreErrors(base int) func(*Publish) bool {
 // undone.
 func fewerErrors(base int) func(*Publish) bool {
 	return func(p *Publish) bool { return p.Errors() <= base }
+}
+
+// A sample is a latency of a series.
+type sample struct {
+	series string
+	d      time.Duration
 }

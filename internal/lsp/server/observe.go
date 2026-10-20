@@ -37,6 +37,11 @@ const DefaultSlow = 500 * time.Millisecond
 // choose; the zero value has the defaults, except that Slow 0 means
 // DefaultSlow (negative: the slow log is off).
 type Options struct {
+	// stale turns on the views of the files with a syntax error (stale.go): answers from the last repaired check
+	// across the keystrokes since. RunWith sets it (GOCPP_LSP_NOSTALE=1 turns it off); the tests of the server leave it
+	// off, unless they test it, so that their answers are those of the text as it is.
+	stale bool
+
 	// Slow is the time from which a request, a notification or a
 	// diagnostics run is logged with its breakdown.
 	Slow time.Duration
@@ -323,7 +328,7 @@ func (s *Server) addObservability() {
 		}
 		return s.stats(), nil
 	}}
-	s.requests["workspace/executeCommand"] = method{run: func(ctx context.Context, _ env, params json.RawMessage) (any, error) {
+	s.requests["workspace/executeCommand"] = method{run: func(ctx context.Context, e env, params json.RawMessage) (any, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -331,15 +336,18 @@ func (s *Server) addObservability() {
 		if err := decode(params, &p); err != nil {
 			return nil, err
 		}
-		if p.Command != StatsCommand {
-			return nil, protocol.Errorf(protocol.InvalidParams, "unknown command %q", p.Command)
+		switch p.Command {
+		case StatsCommand:
+			return s.stats(), nil
+		case ExpandCommand:
+			return s.showExpansion(ctx, e, p.Arguments)
 		}
-		return s.stats(), nil
+		return nil, protocol.Errorf(protocol.InvalidParams, "unknown command %q", p.Command)
 	}}
 }
 
 // observabilityCapabilities adds the command gocpp.stats to the server's
 // capabilities.
 func observabilityCapabilities(caps *protocol.ServerCapabilities) {
-	caps.ExecuteCommandProvider = &protocol.ExecuteCommandOptions{Commands: []string{StatsCommand}}
+	caps.ExecuteCommandProvider = &protocol.ExecuteCommandOptions{Commands: []string{StatsCommand, ExpandCommand}}
 }

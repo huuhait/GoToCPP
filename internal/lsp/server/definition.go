@@ -35,15 +35,23 @@ func (s *Server) locations(ctx context.Context, e env, params json.RawMessage, f
 	if err != nil {
 		return nil, err
 	}
-	q, err := newQuery(ctx, e.snapshot, p.TextDocument.URI, p.Position)
+	q, err := newViewQuery(ctx, e, p.TextDocument.URI, p.Position, false, false)
 	if err != nil {
 		return nil, err
 	}
 	locs := []protocol.Location{}
+	defer q.close()
 	if q != nil {
 		found, err := find(q, ctx)
 		if err != nil {
 			return nil, err
+		}
+		if len(found) == 0 && q.isFixed && q.origFn != nil {
+			if o := q.origFn(); o != nil {
+				if f2, err := find(o, ctx); err == nil {
+					found = f2
+				}
+			}
 		}
 		locs = append(locs, found...)
 	}

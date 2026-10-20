@@ -165,6 +165,13 @@ C and C++ names stay as you wrote them (`std.vector[int]`, `int(nums.size())`): 
 turns the compiler's own forms for them (`C.std.vector`, `gp_cgoh.As[int](x)`) back into your
 text, in the declarations it prints from the tree.
 
+## In the editor
+
+The language server has the same command as a code action, *Show expansion* (on a declaration that has a `!`, a
+macro use or a `#Derive` in it): it prints this output for the file you are editing, from the text in the editor, and shows
+it in a document of its own with the declaration selected ([the editors guide](editors.md#-macros-and-derive)). It uses the
+same printer (`internal/expand`), so the two can not differ. The hover on a `!` shows the part of it that stands for one statement.
+
 ## Limits
 
 - The output is for reading. It parses as Go, but it may not compile as it is: `gp_must` is not

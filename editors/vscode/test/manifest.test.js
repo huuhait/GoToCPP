@@ -37,6 +37,12 @@ test('the extension starts when a gocpp file opens', () => {
 	assert.ok(pkg.contributes.languages.some((l) => l.id === 'gocpp' && l.extensions.includes('.gp')));
 });
 
+test('the files that show an expansion (gocpp.showExpansion) are colored as gocpp', () => {
+	// The server writes the expansion of a file to name.gpexpand and shows it with window/showDocument; the
+	// extension is not .gp, so the server makes no package of it.
+	assert.ok(pkg.contributes.languages.some((l) => l.id === 'gocpp' && l.extensions.includes('.gpexpand')));
+});
+
 test('the dependencies are pinned, and VS Code is new enough for vscode-languageclient', () => {
 	for (const deps of [pkg.dependencies, pkg.devDependencies]) {
 		for (const [name, version] of Object.entries(deps)) {

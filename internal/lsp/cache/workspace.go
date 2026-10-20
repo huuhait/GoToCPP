@@ -144,15 +144,16 @@ func (st *state) checkTests(ctx context.Context, dir string) (*TestCheck, error)
 	}
 	rec := &probeRecord{pr: p.prober}
 	r := check.Check(prog, check.Config{
-		Phase:     p.cfg.Phase,
-		GOOS:      p.cfg.GOOS,
-		GOARCH:    p.cfg.GOARCH,
-		Context:   ctx,
-		CXX:       p.prober.findCXX(rec),
-		Probe:     p.prober.probeFor(rec),
-		PkgConfig: p.prober.pkgConfigFor(rec),
-		CHeader:   p.prober.cheaderFor(rec),
-		Partial:   true,
+		Phase:       p.cfg.Phase,
+		GOOS:        p.cfg.GOOS,
+		GOARCH:      p.cfg.GOARCH,
+		Context:     ctx,
+		CXX:         p.prober.findCXX(rec),
+		Probe:       p.prober.probeFor(rec),
+		PkgConfig:   p.prober.pkgConfigFor(rec),
+		CHeader:     p.prober.cheaderFor(rec),
+		Partial:     true,
+		LazyPartial: true,
 
 		NoDerivedBodies: true, // nothing here lowers the program
 	})

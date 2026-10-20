@@ -28,8 +28,10 @@ import (
 // (raylib in raylib.InitWindow), cppNamespace a C++ namespace (std, fs) and
 // cppName a name after one of them or a member of a C/C++ value
 // (InitWindow, vector, push_back). The editor extension maps them to colors
-// (editors/vscode/package.json). The `!` calls and functions and the #macros
-// of Phase 10 come with step 11.13 (the legend has no entries for them yet).
+// (editors/vscode/package.json). Step 11.13 adds the forms of Phase 10, with standard token types:
+// macro for the name of a macro (declaration and uses) and for the # of a use, `#Derive` included,
+// operator for the ! of a must call and of a must function (F!(x), func f!()), and keyword for
+// lazy in the parameters of a macro.
 //
 // The tokens come from the checked file: a walk over its syntax tree with
 // the types.Info. They need the package to be checked, so a file that is not
@@ -54,6 +56,9 @@ const (
 	tokCppHeader
 	tokCppNamespace
 	tokCppName
+	tokMacro    // the name of a macro, at its declaration and its uses (with the # of a use)
+	tokOperator // the ! of a must call and of a must function
+	tokKeyword  // lazy, in the parameters of a macro
 )
 
 var semanticTypes = []string{
@@ -70,6 +75,9 @@ var semanticTypes = []string{
 	tokCppHeader:     "cppHeader",
 	tokCppNamespace:  "cppNamespace",
 	tokCppName:       "cppName",
+	tokMacro:         "macro",
+	tokOperator:      "operator",
+	tokKeyword:       "keyword",
 }
 
 // The token modifiers of the legend, as bits.
@@ -123,12 +131,16 @@ type semToken struct {
 // semanticTokens answers a request for the tokens of the document, or of
 // the range rng of it.
 func semanticTokens(ctx context.Context, e env, uri protocol.DocumentURI, rng *protocol.Range) (any, error) {
-	q, err := newQuery(ctx, e.snapshot, uri, protocol.Position{})
+	q, err := newViewQuery(ctx, e, uri, protocol.Position{}, true, true)
 	if err != nil {
 		return nil, err
 	}
 	if q == nil {
 		return nil, nil // the document is not a file of its package: no tokens
+	}
+	defer q.close()
+	if q.shift != nil {
+		return q.staleTokens(rng)
 	}
 	if rng == nil && q.pkg != nil && q.tests == nil {
 		// The tokens of the whole file depend on the check and the text
@@ -148,6 +160,31 @@ func semanticTokens(ctx context.Context, e env, uri protocol.DocumentURI, rng *p
 		}
 	}
 	return &protocol.SemanticTokens{Data: q.encodeTokens(toks, lo, hi)}, nil
+}
+
+// staleTokens answers from a view of an older text (stale.go): the tokens of the text of the view that are in the
+// same place of the text of the request, moved to it.
+func (q *query) staleTokens(rng *protocol.Range) (any, error) {
+	lo, hi := 0, len(q.newSrc)
+	if rng != nil {
+		var err error
+		if lo, hi, err = q.newMapper.RangeOffsets(*rng); err != nil {
+			return nil, protocol.Errorf(protocol.InvalidParams, "%v", err)
+		}
+	}
+	all := q.semanticTokens()
+	toks := all[:0]
+	for _, t := range all {
+		if t.off <= q.staleBlank[1] && t.end >= q.staleBlank[0] {
+			continue // never reuse the edited body's partial token classifications
+		}
+		if a, b, ok := q.shift.rangeToNew(t.off, t.end); ok {
+			toks = append(toks, semToken{a, b, t.typ, t.mods})
+		}
+	}
+	nq := *q
+	nq.mapper, nq.src = q.newMapper, q.newSrc
+	return &protocol.SemanticTokens{Data: nq.encodeTokens(toks, lo, hi)}, nil
 }
 
 // semanticKey is the key of the encoded tokens of a file in the package's memo.
@@ -187,8 +224,31 @@ func utf16Length(s string) uint32 {
 	return n
 }
 
-// semanticTokens returns the tokens of the file of q, sorted by place.
+// semanticTokens returns the tokens of the file of q, sorted by place. For a file with a syntax error that was
+// repaired (repair.go) they are the tokens of the repaired check outside the blanked declarations and those of
+// the partial check inside them.
 func (q *query) semanticTokens() []semToken {
+	fixed, orig := q.views()
+	if fixed == nil {
+		return q.ownTokens()
+	}
+	var toks []semToken
+	for _, t := range fixed.ownTokens() {
+		if !q.blanked.within(t.off) {
+			toks = append(toks, t)
+		}
+	}
+	for _, t := range orig.ownTokens() {
+		if q.blanked.within(t.off) {
+			toks = append(toks, t)
+		}
+	}
+	sort.Slice(toks, func(i, j int) bool { return toks[i].off < toks[j].off })
+	return toks
+}
+
+// ownTokens returns the tokens of the file of q from q's own check.
+func (q *query) ownTokens() []semToken {
 	var toks []semToken
 	seen := make(map[int]bool) // the offsets that have a token
 	add := func(id *ast.Ident, typ int, mods uint32) {
@@ -203,6 +263,17 @@ func (q *query) semanticTokens() []semToken {
 		seen[off] = true
 		toks = append(toks, semToken{off, end, typ, mods})
 	}
+
+	// addAt adds a token for the text src[off:end], which is not a name of the tree (the ! of a must call,
+	// lazy, #Derive).
+	addAt := func(off, end, typ int, mods uint32, text string) {
+		if seen[off] || off < 0 || end > len(q.src) || string(q.src[off:end]) != text {
+			return
+		}
+		seen[off] = true
+		toks = append(toks, semToken{off, end, typ, mods})
+	}
+	q.phase10Tokens(addAt)
 
 	// The names of headers and namespaces, which the loader took out of the
 	// tree or rewrote.
@@ -264,6 +335,17 @@ func (q *query) semanticTokens() []semToken {
 		}
 		if def != nil {
 			mods |= modDeclaration
+		}
+		if typ == tokMacro && def == nil {
+			// A use: the # before it belongs to the token, when the macro is not qualified (#Assert); in
+			// #util.Assert the # has a token of its own (phase10Tokens), before the package name.
+			if off := q.tok.Offset(id.Pos()); off > 0 && q.src[off-1] == '#' && (sel == nil || sel.Sel != id) {
+				if !seen[off] && !seen[off-1] && string(q.src[off:off+len(id.Name)]) == id.Name {
+					seen[off], seen[off-1] = true, true
+					toks = append(toks, semToken{off - 1, off + len(id.Name), tokMacro, mods})
+					return true
+				}
+			}
 		}
 		if def == nil && writes[q.tok.Offset(id.Pos())] && (typ == tokVariable || typ == tokProperty || typ == tokParameter) {
 			mods |= modModification
@@ -367,6 +449,9 @@ func (q *query) classify(obj types.Object, params map[token.Pos]bool) (int, uint
 	case *types.Func:
 		if sig, ok := o.Type().(*types.Signature); ok && sig.Recv() != nil {
 			return tokMethod, mods
+		}
+		if q.macroOf(o) != nil {
+			return tokMacro, mods
 		}
 		return tokFunction, mods
 	case *types.Builtin:

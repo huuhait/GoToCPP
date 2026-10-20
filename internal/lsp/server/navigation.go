@@ -12,6 +12,7 @@ import (
 	goformat "go/format"
 	"go/token"
 	"go/types"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -116,6 +117,32 @@ type query struct {
 	// tests is the check with the test files that the query is in, for the
 	// document of a _test.gp file (newRefQuery); pkg is nil then.
 	tests *cache.TestCheck
+	// blanked and origFn: the file has a syntax error and was repaired (newViewQuery, repair.go): this is the query
+	// on the repaired check, blanked says what that check lacks, and origFn makes the query on the check of the text
+	// as it is, when a request for the whole file needs it (the partial check is made then, not before).
+	blanked *repair
+	isFixed bool
+	origFn  func() *query
+	// release lets go of the view that the query was made on (query.close); shift, newMapper and newSrc are set
+	// when that view is of an older text than the request's: every answer is in the offsets of the view's text and must go
+	// through the shift (stale.go).
+	release    func()
+	shift      *shift
+	newMapper  *protocol.Mapper
+	newSrc     []byte
+	staleBlank [2]int // the edited body's old partial results must not be returned
+}
+
+// views returns the two queries of a repaired file, the one on the repaired check and the one on the check of the
+// text as it is (made now), or nil.
+func (q *query) views() (fixed, orig *query) {
+	if !q.isFixed || q.origFn == nil {
+		return nil, nil
+	}
+	if orig = q.origFn(); orig == nil {
+		return nil, nil
+	}
+	return q, orig
 }
 
 // newQuery returns the query of the place at in the document uri, or nil
@@ -136,6 +163,11 @@ func newQuery(ctx context.Context, snap *cache.Snapshot, uri protocol.DocumentUR
 	if err != nil {
 		return nil, err
 	}
+	return queryOfPackage(snap, pkg, path, at)
+}
+
+// queryOfPackage is newQuery for a package that is found already.
+func queryOfPackage(snap *cache.Snapshot, pkg *cache.Package, path string, at protocol.Position) (*query, error) {
 	src, err := snap.ReadFile(path)
 	if err != nil {
 		return nil, nil // no such file: then it is no file of the package either
@@ -158,8 +190,8 @@ func queryIn(snap *cache.Snapshot, pkg *cache.Package, path string, src []byte, 
 		return nil
 	case cp.Checked():
 		q.types, q.info, q.opaque = cp.Types, cp.Info, cp.Opaque
-	case cp.Partial != nil:
-		q.types, q.info, q.opaque = cp.Partial.Types, cp.Partial.Info, cp.Partial.Opaque
+	case cp.HasPartial():
+		q.types, q.info, q.opaque = cp.PartialResult().Types, cp.PartialResult().Info, cp.PartialResult().Opaque
 	default:
 		return nil
 	}
@@ -182,8 +214,29 @@ func queryIn(snap *cache.Snapshot, pkg *cache.Package, path string, src []byte, 
 		return nil // can't be: the check read the same text
 	}
 	q.mapper = protocol.NewMapper(string(q.src))
-	q.pos = q.tok.Pos(q.mapper.Offset(at))
+	off := q.mapper.Offset(at)
+	if off < len(q.src) && q.src[off] == '#' {
+		off = macroNameOffset(q.src, off) // the cursor on the # of a macro use is on the macro
+	}
+	q.pos = q.tok.Pos(off)
 	return q
+}
+
+// macroNameOffset returns the offset of the name of the macro that the use at the # at off calls: the offset
+// after the # for #Name, and the offset of Name for #pkg.Name; off itself when the # is not followed by a use.
+func macroNameOffset(src []byte, off int) int {
+	i := off + 1
+	j := i
+	for j < len(src) && (src[j] == '_' || src[j] >= '0' && src[j] <= '9' || src[j] >= 'a' && src[j] <= 'z' || src[j] >= 'A' && src[j] <= 'Z' || src[j] >= 0x80) {
+		j++
+	}
+	if j == i {
+		return off
+	}
+	if j+1 < len(src) && src[j] == '.' {
+		return j + 1
+	}
+	return i
 }
 
 // decodePosition decodes the params of a request at a place in a document.
@@ -220,7 +273,7 @@ func identAt(lf *load.File, pos token.Pos) (*ast.Ident, []ast.Node) {
 	var path, afterPath []ast.Node
 	hidden := check.HiddenImport(f)
 	ast.PreorderStack(f, nil, func(n ast.Node, stack []ast.Node) bool {
-		if id != nil || n.Pos() > pos || pos > n.End() {
+		if lo, hi := span(n); id != nil || lo > pos || pos > hi {
 			return false
 		}
 		if x, ok := n.(*ast.Ident); ok && hidden != "" && x.Name == hidden {
@@ -255,6 +308,25 @@ func identAt(lf *load.File, pos token.Pos) (*ast.Ident, []ast.Node) {
 		return after, afterPath
 	}
 	return id, path
+}
+
+// span returns where the node n is for a search by place: its Pos and End, but the code of a function that a wrap
+// macro moved into a func literal is in a literal that starts at the function's brace, and has the uses of the
+// macros below the first (on the lines above the brace) inside: the literal and its block start at the first
+// statement they hold when that is before them.
+func span(n ast.Node) (lo, hi token.Pos) {
+	lo, hi = n.Pos(), n.End()
+	switch n := n.(type) {
+	case *ast.FuncLit:
+		l, _ := span(n.Body)
+		lo = min(lo, l)
+	case *ast.BlockStmt:
+		if len(n.List) > 0 {
+			l, _ := span(n.List[0])
+			lo = min(lo, l)
+		}
+	}
+	return lo, hi
 }
 
 // objectAt returns the object of the name id: what it declares or uses, or
@@ -851,12 +923,55 @@ func (q *query) tupleString(t *types.Tuple, variadic bool, qual types.Qualifier,
 				typ = "..." + types.TypeString(s.Elem(), qual)
 			}
 		}
-		if v.Name() != "" {
-			typ = v.Name() + " " + typ
+		if name := q.shownName(v); name != "" {
+			typ = name + " " + typ
 		}
 		list[i] = typ
 	}
 	return list
+}
+
+// loweringResult matches the names that the rewrite of the `!` forms gives to the results of a function
+// (check.nameResults and prepareFunc: freshName("must_r"), must_err1, ...). They are not reserved: a user may
+// declare a result called must_r (ADR-037), and then the name is the user's.
+var loweringResult = regexp.MustCompile(`^must_(r|err)(_?[0-9]+)?$`)
+
+// shownName returns the name that a hover shows for the parameter or result v: its own, but for the names
+// that the rewrite gave to the results of a function and the user did not write, which it drops. A name that
+// matches the rewrite's scheme is the user's when the source spells it at its place.
+func (q *query) shownName(v *types.Var) string {
+	name := v.Name()
+	if !loweringResult.MatchString(name) || !q.generated(v) {
+		return name
+	}
+	return ""
+}
+
+// generated reports whether the variable v, whose name matches the scheme of the rewrite's own names, was
+// written by the rewrite: its place in the source does not spell the name.
+func (q *query) generated(v *types.Var) bool {
+	// prepareFunc creates a named error result with NoPos before lowering anchors it. Its synthetic
+	// identifier is still positive origin evidence; do not reject it as an unknown imported name first.
+	for _, f := range q.lp.Files {
+		for id, synthetic := range f.Synthetic {
+			if synthetic && q.info.Defs[id] == v {
+				return true
+			}
+		}
+	}
+	if !v.Pos().IsValid() {
+		return false // unknown origin is not evidence that a user name was generated
+	}
+	posn := q.fset.Position(v.Pos())
+	if posn.Filename == "" || !q.exact[posn.Filename] {
+		return false // export data has no exact offsets; matching a naming scheme proves nothing
+	}
+	src, err := q.snap.ReadFile(posn.Filename)
+	if err != nil {
+		return false
+	}
+	end := posn.Offset + len(v.Name())
+	return posn.Offset < 0 || end > len(src) || string(src[posn.Offset:end]) != v.Name()
 }
 
 // signatureString returns the parameters and the results of sig, as Go
@@ -880,7 +995,7 @@ func (q *query) signatureString(sig *types.Signature, qual types.Qualifier, sp *
 		return b.String()
 	}
 	b.WriteByte(' ')
-	parens := len(results) > 1 || sig.Results().At(0).Name() != ""
+	parens := len(results) > 1 || q.shownName(sig.Results().At(0)) != ""
 	if parens {
 		b.WriteByte('(')
 	}

@@ -146,8 +146,9 @@ type depRef struct {
 // keyed is the key of a package's check and the summaries of its imports
 // (in the order of handle.deps).
 type keyed struct {
-	key  Hash
-	deps []*summary
+	key     Hash
+	deps    []*summary
+	variant bool // immutable provenance of the input namespace used for this computed key
 }
 
 // A summary is what the packages that import a package need of it: the
@@ -234,6 +235,10 @@ type Package struct {
 	cost    int64
 	summary *summary
 
+	// variant is copied from the computed input key before the package is published. Cache hits,
+	// evictions and live holders all keep the same origin; caller/view state cannot relabel it.
+	variant bool
+
 	// For OpaqueType (opaque.go): the content of the package's files by
 	// name, the packages read from export data by import path, and the
 	// side tables of the imports; depTypes is made from them once.
@@ -280,6 +285,10 @@ func (pkg *Package) Memo(key any, f func() any) any {
 // Fset returns the FileSet of the package's files and of the objects of the
 // packages it imports (from their export data).
 func (pkg *Package) Fset() *token.FileSet { return pkg.Program.Fset }
+
+// IsVariant reports whether this check belongs to PackageWithFile's patched-input namespace, not the
+// snapshot's original files. It remains true even when the replacement bytes equal the original text.
+func (pkg *Package) IsVariant() bool { return pkg.variant }
 
 // Provisional reports whether the check of the package, or of a package
 // that it imports, directly or not, went on without an answer of the
@@ -744,7 +753,7 @@ func (fsys recordingFS) Stat(name string) (fs.FileInfo, error) {
 // imports, all at the same time. (A cyclic import is loaded from source,
 // so its summary is not needed: k.deps has nil for it.)
 func (p *Pipeline) keyOf(ctx context.Context, h *handle) (*keyed, error) {
-	k := &keyed{deps: make([]*summary, len(h.deps))}
+	k := &keyed{deps: make([]*summary, len(h.deps)), variant: h.variant}
 	errs := make([]error, len(h.deps))
 	var wg sync.WaitGroup
 	for i, dep := range h.deps {
@@ -870,7 +879,12 @@ func (p *Pipeline) packageOf(ctx context.Context, h *handle) (*Package, error) {
 func (p *Pipeline) checked(ctx context.Context, h *handle, k *keyed) (*Package, error) {
 	for {
 		pkg, err := p.checks.Get(ctx, k.key, func(ctx context.Context) (*Package, error) { return p.check(ctx, h, k) })
-		if err == nil && !h.variant {
+		if h.variant {
+			// ForgetIf only drops completed cache ownership. It neither cancels an in-flight promise nor
+			// changes a package still held by a request, snapshot or repair view. Track failed/canceled
+			// variant attempts too; otherwise completed error values could escape the per-package bound.
+			p.variantVersions.note(p, h.id, k.key)
+		} else if err == nil {
 			p.versions.note(p, h.id, k.key)
 		}
 		if err != nil || !k.renew(pkg.summary) {
@@ -970,7 +984,8 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 		// A package with load errors (a file that doesn't parse) is
 		// type-checked too, for hover and go to definition there
 		// (check.Package.Partial); its diagnostics stay the same.
-		Partial: true,
+		Partial:     true,
+		LazyPartial: true,
 		// Nothing here lowers the program: the methods of #Derive stay stubs (no second check).
 		NoDerivedBodies: true,
 	})
@@ -1007,7 +1022,7 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 	}
 	sum.inherit(k.deps)
 	pkg := &Package{Program: prog, Check: cp, APIHash: sum.apiHash, summary: sum,
-		src: src, imported: imported, tables: sum.tables}
+		src: src, imported: imported, tables: sum.tables, variant: k.variant}
 	for _, f := range h.files {
 		pkg.cost += sourceFactor * int64(len(f.src))
 	}

@@ -150,6 +150,9 @@ type stdList struct {
 // fixDangling): the check is cached by its key, which has the hash of src,
 // so it is never the check of the snapshot's own text, which the
 // diagnostics use. The file must be a file of its package in the snapshot.
+// The check store keeps only the latest keptVersions patched checks of each package, separately from
+// ordinary versions and still under its global cost cap. Eviction drops cache ownership only; callers
+// may keep using a returned package for as long as they hold it.
 func (s *Snapshot) PackageWithFile(ctx context.Context, path string, src []byte) (*Package, error) {
 	st, ok := s.state.(*state)
 	if !ok {

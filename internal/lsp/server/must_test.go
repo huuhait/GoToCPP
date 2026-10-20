@@ -63,7 +63,9 @@ func TestMustNamesInTheEditor(t *testing.T) {
 		{"n = po|rt(name)", "func port(name string) (int, error)", "port"},
 	} {
 		text, rng := c.hover("m/m.gp", src, tc.mark)
-		if !strings.Contains(text, tc.want) || strings.Contains(text, "must_") || rng != tc.rng {
+		// The declaration (the first line) is the user's; the code of a ! form that follows (step 11.13) is the compiler's.
+		decl, _, _ := strings.Cut(text, "\n")
+		if !strings.Contains(decl, tc.want) || strings.Contains(decl, "must_") || rng != tc.rng {
 			t.Errorf("hover at %q: %q (range %q), want %q (range %q)", tc.mark, text, rng, tc.want, tc.rng)
 		}
 	}
@@ -90,6 +92,10 @@ func TestMustNamesInTheEditor(t *testing.T) {
 	// hints: the type of p and q, nothing for the error variables of the lowering
 	hints := c.hints("m/m.gp", nil)
 	for _, h := range hints {
+		if strings.Contains(h, " b: ") {
+			// report(p, port!(name)): the argument is a temporary of the lowering, whose place is the end of the call
+			t.Errorf("a hint for an argument that a ! form wrote: %q (all: %q)", h, hints)
+		}
 		if strings.Contains(h, "error") && !strings.Contains(h, "kind 2") {
 			t.Errorf("a hint for the code of a ! form: %q (all: %q)", h, hints)
 		}

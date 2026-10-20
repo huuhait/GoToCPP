@@ -63,7 +63,7 @@ func (c *completion) initialize(client protocol.ClientCapabilities, caps *protoc
 	c.snippets.Store(ci.SnippetSupport)
 	c.insertReplace.Store(ci.InsertReplaceSupport)
 	c.docMarkdown.Store(preferMarkdown(ci.DocumentationFormat, hoverMarkdown))
-	caps.CompletionProvider = &protocol.CompletionOptions{TriggerCharacters: []string{"."}, ResolveProvider: true}
+	caps.CompletionProvider = &protocol.CompletionOptions{TriggerCharacters: []string{".", "#"}, ResolveProvider: true}
 }
 
 // completionData is the data of an item, for completionItem/resolve: where
@@ -93,6 +93,9 @@ func (s *Server) completion(ctx context.Context, e env, params json.RawMessage) 
 	var p protocol.CompletionParams
 	if err := decode(params, &p); err != nil {
 		return nil, err
+	}
+	if mlist, ok, err := s.macroCompletion(ctx, e, p); ok || err != nil {
+		return mlist, err // after a # (step 11.13)
 	}
 	list := &protocol.CompletionList{IsIncomplete: true, Items: []protocol.CompletionItem{}}
 	c, err := s.completer(ctx, e.snapshot, p.TextDocument.URI, p.Position, true)

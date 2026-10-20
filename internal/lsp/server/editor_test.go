@@ -282,6 +282,22 @@ func (c *refClient) hints(name string, rng *protocol.Range) []string {
 	return out
 }
 
+// hintsRaw asks for the inlay hints of the file name (all of it) and returns them as they are.
+func (c *refClient) hintsRaw(name string, rng *protocol.Range) []protocol.InlayHint {
+	c.t.Helper()
+	src := c.text(name)
+	if rng == nil {
+		rng = &protocol.Range{End: protocol.NewMapper(src).Position(len(src))}
+	}
+	resp := c.call("textDocument/inlayHint", fmt.Sprintf(`{"textDocument":{"uri":%q},"range":{"start":{"line":%d,"character":%d},"end":{"line":%d,"character":%d}}}`,
+		c.uri(name), rng.Start.Line, rng.Start.Character, rng.End.Line, rng.End.Character))
+	var hints []protocol.InlayHint
+	if resp.Error != nil || json.Unmarshal(resp.Result, &hints) != nil {
+		c.t.Fatalf("inlayHint %s: %s %v", name, resp.Result, resp.Error)
+	}
+	return hints
+}
+
 func TestInlayHints(t *testing.T) {
 	c := startRefs(t, hintFiles, plainInit)
 	got := c.hints("h/h.gp", nil)
@@ -574,32 +590,78 @@ func TestEditorFeaturesSweep(t *testing.T) {
 }
 
 // checkTokenOrder checks the raw tokens of the file: sorted, one line each,
-// inside the text.
+// inside the text at UTF-16 boundaries. A failed request is not a successful check.
 func checkTokenOrder(t *testing.T, c *refClient, name, src string) {
 	t.Helper()
 	resp := c.call("textDocument/semanticTokens/full", docParams(c.uri(name)))
-	if resp.Error != nil || string(resp.Result) == "null" {
-		return
+	if resp.Error != nil {
+		t.Fatalf("%s: semanticTokens/full: %v", name, resp.Error)
 	}
-	var toks protocol.SemanticTokens
+	var toks *protocol.SemanticTokens
 	if err := json.Unmarshal(resp.Result, &toks); err != nil {
 		t.Fatal(err)
+	}
+	if toks == nil {
+		t.Fatalf("%s: semanticTokens/full returned null", name)
+	}
+	if err := tokenDataValid(toks.Data, src); err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+}
+
+// tokenDataValid allows an empty token list (some damaged files have no tokens), but not malformed tuples,
+// wrapped deltas, overlapping tokens or positions that Mapper would silently clamp, including half a surrogate pair.
+func tokenDataValid(data []uint32, src string) error {
+	if len(data)%5 != 0 {
+		return fmt.Errorf("%d token integers, want a multiple of five", len(data))
 	}
 	m := protocol.NewMapper(src)
 	prevEnd := -1
 	line, col := uint32(0), uint32(0)
-	for i := 0; i < len(toks.Data); i += 5 {
-		line += toks.Data[i]
-		if toks.Data[i] == 0 {
-			col += toks.Data[i+1]
-		} else {
-			col = toks.Data[i+1]
+	for i := 0; i < len(data); i += 5 {
+		d := data[i : i+5]
+		if d[0] > 0 {
+			col = 0
 		}
-		start := m.Offset(protocol.Position{Line: line, Character: col})
-		end := m.Offset(protocol.Position{Line: line, Character: col + toks.Data[i+2]})
-		if start < prevEnd || end <= start || end > len(src) || strings.Contains(src[start:end], "\n") {
-			t.Fatalf("%s: token %d at %d:%d-%d overlaps the one before (ends at %d) or is empty or multiline", name, i/5, line+1, col+1, end, prevEnd)
+		if line+d[0] < line || col+d[1] < col || col+d[1]+d[2] < col+d[1] {
+			return fmt.Errorf("token %d delta overflow", i/5)
+		}
+		line, col = line+d[0], col+d[1]
+		a, b := protocol.Position{Line: line, Character: col}, protocol.Position{Line: line, Character: col + d[2]}
+		start, end := m.Offset(a), m.Offset(b)
+		if d[2] == 0 || m.Position(start) != a || m.Position(end) != b || start < prevEnd || end <= start || end > len(src) || strings.Contains(src[start:end], "\n") {
+			return fmt.Errorf("token %d at %v..%v overlaps the previous end %d, is empty or is outside a line/UTF-16 boundary", i/5, a, b, prevEnd)
 		}
 		prevEnd = end
+	}
+	return nil
+}
+
+func TestTokenDataValidation(t *testing.T) {
+	const src = "Open é😀\r\nFine\n"
+	for _, tc := range []struct {
+		name string
+		data []uint32
+		ok   bool
+	}{
+		{"empty", nil, true},
+		{"UTF16 and next line reset", []uint32{0, 0, 4, 8, 0, 0, 5, 3, 8, 0, 1, 0, 4, 8, 0}, true},
+		{"truncated tuple", []uint32{0, 0, 4, 8}, false},
+		{"zero length", []uint32{0, 0, 0, 8, 0}, false},
+		{"overlap", []uint32{0, 0, 4, 8, 0, 0, 2, 2, 8, 0}, false},
+		{"line outside text", []uint32{3, 0, 1, 8, 0}, false},
+		{"column outside text", []uint32{0, 99, 1, 8, 0}, false},
+		{"past CRLF", []uint32{0, 0, 10, 8, 0}, false},
+		{"end in surrogate pair", []uint32{0, 6, 1, 8, 0}, false},
+		{"start in surrogate pair", []uint32{0, 7, 1, 8, 0}, false},
+		{"length overflow", []uint32{0, 5, ^uint32(0), 8, 0}, false},
+		{"column delta overflow", []uint32{0, 5, 1, 8, 0, 0, ^uint32(0), 1, 8, 0}, false},
+		{"line delta overflow", []uint32{1, 0, 1, 8, 0, ^uint32(0), 0, 1, 8, 0}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tokenDataValid(tc.data, src); (err == nil) != tc.ok {
+				t.Errorf("tokenDataValid(%v): %v, want valid=%v", tc.data, err, tc.ok)
+			}
+		})
 	}
 }

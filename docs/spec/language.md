@@ -1250,8 +1250,12 @@ operation of a `select` case too (evaluate it before the `select`).
 - `gocpp expand file.gp` prints the code after `!` and macros are rewritten (the rewritten code is plain
   Go that `go/types` checks, see [ADR-037](../adr/037-must-rewrite.md) and the
   [guide](../guides/expand.md)).
-- In the editor, hover on a must function shows its real signature, and hover on `F!` says what
-  happens on error at that spot (return, panic, exit 1 or `t.Fatal`). Phase 11.
+- In the editor (Phase 11, step 11.13, [ADR-099](../adr/099-the-editor-shows-the-bang-and-macro-forms-from-the-lowerings-own-lists.md)),
+  hover on a must function shows its real signature, hover on `F!` says what happens on error at that
+  spot (return, panic, exit 1 or `t.Fatal`) with the code that stands for the statement, an inlay hint
+  after every handled call (`→ return err`, and `!→ return err` for a call that a must function handles
+  without a `!`), and *Show expansion* prints what `gocpp expand` prints
+  ([the editors guide](../guides/editors.md#-macros-and-derive)).
 - `gocpp vet` warns about `!` that would panic inside a library package (libraries should return
   errors: `panicbang`, which also follows calls into other packages), about `go` statements that
   lose errors (`gobang`), about a dropped error where the function could return it (`ignorederr`),

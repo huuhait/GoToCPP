@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -232,5 +233,99 @@ var h, i = two!()
 	}
 	if got := len(mainPkg(t, prog, r).Must.Calls); got != 6 {
 		t.Errorf("Calls = %d, want 6", got)
+	}
+}
+
+// TestMustInfoEditorData: what the language server reads from Package.Must (step 11.13): the place of the
+// ! and of the callee's name of each written call, the calls that a must function handles without a !, and
+// for each statement that the lowering rewrote the code that stands for it.
+func TestMustInfoEditorData(t *testing.T) {
+	const src = `package main
+
+import (
+	"os"
+	"strconv"
+)
+
+func ret(s string) (int, error) {
+	n := strconv.Atoi!(s)
+	defer os.Remove!("x")
+	return n, nil
+}
+
+func dropped!(s string) {
+	os.Remove(s)
+	n := strconv.Atoi(s)
+	_ = n
+	defer os.Remove("y")
+}
+
+func main() {
+	os.Remove!("y")
+}
+`
+	dir := writeTree(t, map[string]string{"main.gp": src})
+	prog, r := loadAndCheck(t, load.Config{}, dir, "main.gp")
+	if txt := errorText(t, prog, r, dir, true); txt != "" {
+		t.Fatalf("errors:\n%s", txt)
+	}
+	p := mainPkg(t, prog, r)
+	text := func(pos token.Pos, n int) string {
+		off := prog.Fset.File(pos).Offset(pos)
+		return src[off : off+n]
+	}
+	// the written calls: the ! and the name
+	var names []string
+	for _, c := range p.Must.Calls {
+		if !c.Bang.IsValid() || text(c.Bang, 1) != "!" {
+			t.Errorf("a call at %v: Bang %v", prog.Fset.Position(c.Pos), c.Bang)
+			continue
+		}
+		off, bang := prog.Fset.File(c.Name).Offset(c.Name), prog.Fset.File(c.Bang).Offset(c.Bang)
+		names = append(names, src[off:bang])
+	}
+	if got, want := strings.Join(names, ","), "Atoi,Remove,Remove"; got != want {
+		t.Errorf("names of the written calls = %q, want %q", got, want)
+	}
+	// the must function
+	if len(p.Must.Funcs) != 1 || text(p.Must.Funcs[0].Bang, 1) != "!" || prog.Fset.Position(p.Must.Funcs[0].Bang).Line != 14 {
+		t.Errorf("Funcs = %+v", p.Must.Funcs)
+	}
+	// the calls that dropped! handles: lines 15, 16 and 18 (the deferred one)
+	var handled []string
+	for _, c := range p.Must.Handled {
+		if c.Bang.IsValid() {
+			t.Errorf("a handled call has a !: %+v", c)
+		}
+		handled = append(handled, fmt.Sprintf("%d:%s:%s:defer=%v:%s", prog.Fset.Position(c.Pos).Line, c.Kind, text(c.Name, 6), c.Deferred, text(c.Pos, 6)))
+	}
+	slices.Sort(handled)
+	want := []string{"15:return:Remove:defer=false:os.Rem", "16:return:Atoi(s:defer=false:strcon", "18:return:Remove:defer=true:os.Rem"}
+	if strings.Join(handled, "|") != strings.Join(want, "|") {
+		t.Errorf("Handled = %q, want %q", handled, want)
+	}
+	// the statements: every call is in one, and the lowered code of `n := strconv.Atoi!(s)` is the call and the check
+	for _, c := range append(append([]MustCall{}, p.Must.Calls...), p.Must.Handled...) {
+		in := 0
+		for _, s := range p.Must.Stmts {
+			if s.Pos <= c.Pos && c.End <= s.End && len(s.Lowered) > 0 {
+				in++
+			}
+		}
+		if in == 0 {
+			t.Errorf("the call at line %d is in no statement", prog.Fset.Position(c.Pos).Line)
+		}
+	}
+	found := false
+	for _, s := range p.Must.Stmts {
+		if prog.Fset.Position(s.Pos).Line == 9 {
+			found = true
+			if len(s.Lowered) != 2 {
+				t.Errorf("the code for line 9 has %d statements, want 2 (the call, the check)", len(s.Lowered))
+			}
+		}
+	}
+	if !found {
+		t.Errorf("no statement for line 9: %+v", p.Must.Stmts)
 	}
 }

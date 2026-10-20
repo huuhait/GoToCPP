@@ -3,11 +3,45 @@ package bench
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/huuhait/gocpp/internal/lsp/protocol"
 )
+
+func TestTypingAnswerValidation(t *testing.T) {
+	src := "Open 😀\nNext\n"
+	for _, tc := range []struct {
+		kind, raw string
+		ok        bool
+	}{
+		{"hover", `null`, false},
+		{"hover", `{"contents":{"kind":"plaintext","value":"func Open()"},"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":4}}}`, true},
+		{"hints", `[]`, false},
+		{"hints", `[{"position":{"line":0,"character":99}}]`, false},
+		{"hints", `[{"position":{"line":0,"character":4}},{"position":{"line":0,"character":1}}]`, false},
+		{"hints", `[{"position":{"line":0,"character":4}}]`, true},
+		{"tokens", `{"data":[0,0,4,8,0]}`, true},
+		{"tokens", `{"data":[]}`, false},
+		{"tokens", `{"data":[0,0,4,8]}`, false},
+		{"tokens", `{"data":[0,0,4,8,0,0,2,2,8,0]}`, false},
+		{"tokens", `{"data":[0,0,4,8,0,0,4294967295,2,8,0]}`, false},
+		{"tokens", `{"data":[0,0,4,8,0,0,5,1,8,0]}`, false}, // end in the UTF-16 emoji, with Open retained
+		{"tokens", `{"data":[0,0,4,8,0,0,6,1,8,0]}`, false}, // start in its surrogate pair
+		{"tokens", `{"data":[0,0,4,8,0,0,5,2,8,0]}`, true},  // a complete emoji, two UTF-16 code units
+		{"tokens", `{"data":[0,0,4,8,0,0,5,4294967295,8,0]}`, false},
+		{"tokens", `{"data":[0,0,4,8,0,1,0,1,8,0,4294967295,0,1,8,0]}`, false},
+		{"hints", `[{"position":{"line":0,"character":6}}]`, false},
+		{"hover", `{"contents":{"kind":"plaintext","value":"func Open()"},"range":{"start":{"line":0,"character":6},"end":{"line":0,"character":7}}}`, false},
+	} {
+		if err := validateTypingAnswer(tc.kind, []byte(tc.raw), src); (err == nil) != tc.ok {
+			t.Errorf("%s %s: %v, want valid=%v", tc.kind, tc.raw, err, tc.ok)
+		}
+	}
+}
 
 func TestFreshEditTexts(t *testing.T) {
 	ctx := context.Background()
@@ -38,6 +72,76 @@ func TestFreshEditTexts(t *testing.T) {
 			t.Fatalf("edit %d reuses text already seen by the server", i)
 		}
 		seen[text] = true
+	}
+}
+
+// TestFreshCompletionTexts: keep the numbered fresh prefix and the correct generic cursor for both r. and #.
+// The fake observes the actual request and text before cleanup, rather than reusing the scenario's offset formula.
+func TestFreshCompletionTexts(t *testing.T) {
+	for _, tc := range []struct {
+		name, text, before string
+		delta              int
+	}{
+		{"ordinary", "\tr.\n", "\tr.", 3},
+		{"macro", "\t#\n", "\t#", 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			proj := Generate(Small)
+			cfg := fakeConfig(t)
+			tree := cfg.WorkDir + "/tree"
+			if err := proj.Write(tree, ".gp"); err != nil {
+				t.Fatal(err)
+			}
+			type observed struct {
+				text string
+				off  int
+				err  error
+			}
+			requests := make(chan observed, 3)
+			f := newFake(nil)
+			f.observe = func(req *protocol.Request) {
+				if req.Method != "textDocument/completion" {
+					return
+				}
+				var p protocol.CompletionParams
+				err := json.Unmarshal(req.Params, &p)
+				f.mu.Lock()
+				text := f.texts[p.TextDocument.URI]
+				f.mu.Unlock()
+				requests <- observed{text, protocol.NewMapper(text).Offset(p.Position), err}
+			}
+			s, err := startSession(ctx, cfg, proj, f.target("gocpp", ".gp"), tree, cfg.WorkDir+"/cache")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.P.Kill()
+			if _, err := s.openAndWait(ctx, proj.Hot); err != nil {
+				t.Fatal(err)
+			}
+			sc := completionAt(tc.name, proj.Hot, "\tr.mu.Lock()\n", tc.text, tc.delta, 3)
+			if err := sc.prep(ctx, s); err != nil {
+				t.Fatal(err)
+			}
+			seen := make(map[string]bool)
+			for i := 0; i < 3; i++ {
+				if _, _, err := sc.run(ctx, s, i); err != nil {
+					t.Fatal(err)
+				}
+				select {
+				case request := <-requests:
+					if request.err != nil || !strings.HasSuffix(request.text[:request.off], tc.before) {
+						t.Fatalf("cursor is not after %q: offset %d (%v)", tc.before, request.off, request.err)
+					}
+					if seen[request.text] {
+						t.Fatal("completion edit repeated a previous text")
+					}
+					seen[request.text] = true
+				default:
+					t.Fatal("no actual completion request was observed")
+				}
+			}
+		})
 	}
 }
 

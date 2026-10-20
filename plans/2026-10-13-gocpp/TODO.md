@@ -15,6 +15,8 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 
 ## Small follow-ups (give them to the next job that touches the file)
 
+- [ ] 11.13 acceptance follow-ups (integrated 2026-10-20, ADR-099): selected joint latency/RSS sessions passed, but the all-project matrix, fresh feature/receiver/gopls comparison and manual VS Code checklist are open. Bigpkg clean-typing margin is thin. Windows LSP evidence uses the documented cleanup-only host overlay, not stock runner startup cleanup. Two existing CLI corpus cases did not check on this setup and were skipped; no full CI or phase sweep was run.
+
 - [ ] 15.3 follow-ups (integrated 2026-10-20, ADR-086): final-tree full performance, Windows/arm64 and large corrected-generator campaigns remain unverified. Historical benchmark/old all-OK runner claims are explicitly qualified. Escape-analysis work (15.2) is still needed for copies from slice/range values; arbitrary foreign-code and race-safety guarantees are not implied by bounded review. No full CI or sweep was run.
 
 - [ ] LSP follow-ups (2026-10-20, ADR-112): beat-gopls-every-row target still open; normal loading is parallel and the reviewed restricted rename binding proof avoids declaration-package rechecks for eligible exported nongeneric functions. Type checking and fallback rename forms remain targets; run a fresh matched gopls comparison rather than infer a win from historical numbers. Complete diagnostic range/metadata comparison and deterministic dependent-diagnostic synchronization. Selected checks are not all-budget or combined-11.13 acceptance. Legacy raw-configuration benchmark JSON must not be republished; new reports use configuration fingerprints.

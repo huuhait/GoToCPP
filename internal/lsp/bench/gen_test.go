@@ -129,6 +129,24 @@ func TestGenerateSizes(t *testing.T) {
 	if cp.Typo == "" || cp.Source(cp.Typo) == "" {
 		t.Errorf("cpp: no typo file")
 	}
+	// The macro project: every file of its macro packages uses the forms the scenarios look for, the
+	// Go copy has none of them, and the other projects have no macro file.
+	mp := Generate(Macro)
+	src := mp.Source(mp.MacroFile)
+	for _, needle := range []string{"#mac00.Assert(", "#mac00.Dbg(", "#mac00.Trace()", "#mac00.Count(", "#Derive(Equal", "strconv.Atoi!(a)", "os.Open!(path)", "f.Stat!()", "\tdata := os.ReadFile(path)", "\ttotal := #mac00.Dbg("} {
+		if !strings.Contains(src, needle) {
+			t.Errorf("macro: %s has no %q", mp.MacroFile, needle)
+		}
+	}
+	for _, rel := range mp.SourceFiles(true) {
+		if strings.HasPrefix(rel, "mac") {
+			t.Errorf("macro: %s is in the Go copy", rel)
+		}
+	}
+	if Generate(Small).MacroFile != "" {
+		t.Errorf("small has a macro file")
+	}
+	t.Logf("macro: %d lines", mp.Lines)
 }
 
 // dependsOn reports whether any file of the package of rel imports the
@@ -164,7 +182,7 @@ func TestGenerateGofmt(t *testing.T) {
 // The projects type-check with gocpp check (gates open), with no
 // diagnostics at all.
 func TestGenerateChecksWithGocpp(t *testing.T) {
-	for _, spec := range []Spec{Small, Medium} {
+	for _, spec := range []Spec{Small, Medium, Macro} {
 		dir := t.TempDir()
 		if err := Generate(spec).Write(dir, ".gp"); err != nil {
 			t.Fatal(err)
@@ -203,7 +221,7 @@ func TestGenerateBuildsWithGo(t *testing.T) {
 	if err != nil {
 		t.Skip("no go tool")
 	}
-	for _, spec := range []Spec{Small, Medium, Cpp} {
+	for _, spec := range []Spec{Small, Medium, Cpp, Macro} {
 		dir := t.TempDir()
 		if err := Generate(spec).Write(dir, ".go"); err != nil {
 			t.Fatal(err)

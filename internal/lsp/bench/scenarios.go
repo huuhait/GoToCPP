@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/huuhait/gocpp/internal/lsp/protocol"
 )
 
 // A scenario is one thing an editor does, repeated: iters measured
@@ -66,13 +68,32 @@ const (
 	ScTypoFirstWarm   = "typo-first-warm"
 	ScTypoErrorCold   = "typo-error-cold"
 	ScTypoErrorWarm   = "typo-error-warm"
+
+	// The features of the forms of Phase 10 (step 11.13), measured on the macro project, gocpp only.
+	ScHoverMacro      = "hover-macro"
+	ScHoverBang       = "hover-bang"
+	ScInlayBang       = "inlay-hints-bang"
+	ScTokensMacro     = "semantic-tokens-macro"
+	ScCompletionMacro = "completion-macro"
+	ScCodeAction      = "code-action"
+
+	// Typing into a file with a syntax error (review round 2 of step 11.13): 200 characters typed one by one, 30 ms
+	// apart, in a function of the macro project's file, whose package uses `!` everywhere. Bare: the time from each
+	// keystroke to its diagnostics. With requests: a hover, the hints and the tokens after each keystroke too; the
+	// series are the hover and the diagnostics then.
+	ScTypingClean     = "typing-clean" // the same keystrokes with a valid text (a comment): the cost of a clean check
+	ScTypingBare      = "typing-broken"
+	ScTypingReqs      = "typing-broken-reqs"
+	ScTypingReqsHover = "typing-broken-hover"
 )
 
 // order is the order of the rows in a report.
 var order = []string{ScInit, ScOpenCold, ScOpenWarm, ScCppOpenCold, ScCppOpenWarm, ScTypoFirstCold, ScTypoErrorCold, ScTypoFirstWarm, ScTypoErrorWarm,
 	ScKeystroke, ScKeystrokeDep, ScKeystrokeNew, ScKeystrokeDepNew, ScCompletionDot, ScCompletionEdit,
 	ScHover, ScDefinition, ScSignature, ScRefsPopular, ScRefsLocal, ScRefsFamily, ScRename, ScWorkspaceSymbol, ScDocumentSymbol, ScSemanticTokens,
-	ScFormat, ScSwitchFile, ScAPIChange, ScAPIFix}
+	ScFormat, ScSwitchFile, ScAPIChange, ScAPIFix,
+	ScHoverMacro, ScHoverBang, ScInlayBang, ScTokensMacro, ScCompletionMacro, ScCodeAction,
+	ScTypingClean, ScTypingBare, ScTypingReqs, ScTypingReqsHover}
 
 // settle is the quiet time after an edit that is put back, so that its
 // diagnostics (and a cancelled run) don't reach into the next repetition.
@@ -126,6 +147,54 @@ func scenarios(p *Project) []scenario {
 		formatBig(p),
 		switchFile(p),
 		apiChange(p),
+	}
+	if p.MacroFile != "" {
+		scs = append(scs, macroScenarios(p.MacroFile)...)
+	}
+	return scs
+}
+
+// macroScenarios are the scenarios of the features for `!`, macros and #Derive (step 11.13) on the
+// file rel, which has all of them (gocpp only: gopls cannot read the file).
+func macroScenarios(rel string) []scenario {
+	open := func(next func(ctx context.Context, s *Session) error) func(ctx context.Context, s *Session) error {
+		return func(ctx context.Context, s *Session) error {
+			if d := s.docs[rel]; d == nil || d.Version == 0 {
+				if _, err := s.openAndWait(ctx, rel); err != nil {
+					return err
+				}
+			}
+			if next != nil {
+				return next(ctx, s)
+			}
+			return nil
+		}
+	}
+	hoverMacro := position(ScHoverMacro, "textDocument/hover", rel,
+		[]mark{{"#mac00.Assert(", len("#mac00.As")}, {"#mac00.Dbg(", len("#mac00.Db")}, {"#mac00.Trace()", len("#mac00.Tr")}, {"#mac00.Count(", len("#mac00.Co")}, {"#Derive(Equal", len("#Der")}}, 60)
+	hoverBang := position(ScHoverBang, "textDocument/hover", rel,
+		[]mark{{"strconv.Atoi!(a)", len("strconv.At")}, {"os.Open!(path)", len("os.Op")}, {"f.Stat!()", len("f.St")}, {"\tdata := os.ReadFile(path)", len("\tdata := os.Rea")}, {"n := Load", len("n := Lo")}}, 60)
+	for _, sc := range []*scenario{&hoverMacro, &hoverBang} {
+		sc.gocppOnly, sc.prep = true, open(sc.prep)
+	}
+	hints := whole(ScInlayBang, "textDocument/inlayHint", rel, 40)
+	hints.run = func(ctx context.Context, s *Session, i int) (string, time.Duration, error) {
+		end := s.Pos(rel, len(s.Doc(rel).Text))
+		params := map[string]any{"textDocument": map[string]any{"uri": s.Doc(rel).URI},
+			"range": map[string]any{"start": map[string]any{"line": 0, "character": 0}, "end": end}}
+		d, raw, err := s.call(ctx, "textDocument/inlayHint", params)
+		if err == nil && !nonEmpty(raw) {
+			err = fmt.Errorf("inlay hints: empty result")
+		}
+		return "", d, err
+	}
+	tokens := whole(ScTokensMacro, "textDocument/semanticTokens/full", rel, 20)
+	completion := completionAt(ScCompletionMacro, rel, "\ttotal := #mac00.Dbg(", "\t#\n", 2, 30)
+	action := codeActionAt(ScCodeAction, rel, []mark{{"strconv.Atoi!(a)", len("strconv.At")}, {"#mac00.Dbg(", len("#mac00.Db")}}, 40)
+	scs := []scenario{hoverMacro, hoverBang, hints, tokens, completion, action, typing(ScTypingClean, rel, false, typedComment), typing(ScTypingBare, rel, false, typedStatement), typing(ScTypingReqs, rel, true, typedStatement)}
+	for i := range scs {
+		scs[i].gocppOnly = true
+		scs[i].prep = open(scs[i].prep)
 	}
 	return scs
 }
@@ -255,12 +324,21 @@ func completionDot(rel string, iters int) scenario {
 // completions at once, as an editor does: the time from the keystroke to
 // the menu, with the check that the new text needs.
 func completionEdit(rel string, iters int) scenario {
-	const typedLine = "\tr.\n"
+	return completionAt(ScCompletionEdit, rel, "\tr.mu.Lock()\n", "\tr.\n", 3, iters)
+}
+
+// completionAt types a fresh numbered comment and text at the line with anchor, then asks for completions
+// delta bytes into text. The prefix keeps every edit unique for both ordinary and macro completion.
+func completionAt(name, rel, anchor, typedLine string, delta, iters int) scenario {
 	var off int
 	return scenario{
-		name: ScCompletionEdit, iters: iters, warm: 2,
+		name: name, iters: iters, warm: 2,
 		prep: func(ctx context.Context, s *Session) (err error) {
-			off, err = s.Find(rel, "\tr.mu.Lock()\n", 0)
+			off, err = s.Find(rel, anchor, 0)
+			if err == nil {
+				// the start of the line
+				off = strings.LastIndexByte(s.Doc(rel).Text[:off+1], '\n') + 1
+			}
 			return err
 		},
 		run: func(ctx context.Context, s *Session, i int) (string, time.Duration, error) {
@@ -271,7 +349,7 @@ func completionEdit(rel string, iters int) scenario {
 			if err != nil {
 				return "", 0, err
 			}
-			p := s.at(rel, off+len(typed)-len(typedLine)+3)
+			p := s.at(rel, off+len(typed)-len(typedLine)+delta)
 			_, raw, err := s.call(ctx, "textDocument/completion", p)
 			d := time.Since(t0)
 			if err == nil && !nonEmpty(raw) {
@@ -281,6 +359,35 @@ func completionEdit(rel string, iters int) scenario {
 				err = e
 			}
 			sleep(ctx, settle)
+			return "", d, err
+		},
+	}
+}
+
+// codeActionAt asks for the code actions at each of the marks of the file in turn.
+func codeActionAt(name, rel string, marks []mark, iters int) scenario {
+	offs := make([]int, len(marks))
+	return scenario{
+		name: name, iters: iters, warm: 2,
+		prep: func(ctx context.Context, s *Session) error {
+			for i, m := range marks {
+				off, err := s.Find(rel, m.needle, m.delta)
+				if err != nil {
+					return err
+				}
+				offs[i] = off
+			}
+			return nil
+		},
+		run: func(ctx context.Context, s *Session, i int) (string, time.Duration, error) {
+			p := s.at(rel, offs[i%len(offs)])
+			params := map[string]any{"textDocument": map[string]any{"uri": p.TextDocument.URI},
+				"range":   map[string]any{"start": p.Position, "end": p.Position},
+				"context": map[string]any{"diagnostics": []any{}}}
+			d, raw, err := s.call(ctx, "textDocument/codeAction", params)
+			if err == nil && !nonEmpty(raw) {
+				err = fmt.Errorf("code action at %q: no actions", marks[i%len(marks)].needle)
+			}
 			return "", d, err
 		},
 	}
@@ -515,6 +622,180 @@ func apiChange(p *Project) scenario {
 				}
 			}
 			return s.Save(file)
+		},
+	}
+}
+
+// validateTypingAnswer rejects dropped features and malformed positions against the current document, not saved text.
+// Both binaries must retain Open's token before the damaged function; differential unit tests also cover the suffix.
+func validateTypingAnswer(kind string, raw json.RawMessage, src string) error {
+	m := protocol.NewMapper(src)
+	valid := func(p protocol.Position) bool {
+		off := m.Offset(p)
+		return off >= 0 && off <= len(src) && m.Position(off) == p
+	}
+	switch kind {
+	case "hover":
+		var h protocol.Hover
+		if err := json.Unmarshal(raw, &h); err != nil {
+			return err
+		}
+		if h.Contents.Value == "" || h.Range == (protocol.Range{}) || !valid(h.Range.Start) || !valid(h.Range.End) {
+			return fmt.Errorf("typing hover empty or out of bounds: %s", raw)
+		}
+	case "hints":
+		var hints []protocol.InlayHint
+		if err := json.Unmarshal(raw, &hints); err != nil {
+			return err
+		}
+		if len(hints) == 0 {
+			return fmt.Errorf("typing hints empty")
+		}
+		var prev protocol.Position
+		for _, h := range hints {
+			if !valid(h.Position) || h.Position.Line < prev.Line || h.Position.Line == prev.Line && h.Position.Character < prev.Character {
+				return fmt.Errorf("typing hints invalid or unsorted: %v after %v", h.Position, prev)
+			}
+			prev = h.Position
+		}
+	case "tokens":
+		var ts protocol.SemanticTokens
+		if err := json.Unmarshal(raw, &ts); err != nil {
+			return err
+		}
+		if len(ts.Data) == 0 || len(ts.Data)%5 != 0 {
+			return fmt.Errorf("typing tokens empty or invalid")
+		}
+		line, col := uint32(0), uint32(0)
+		prev := protocol.Position{}
+		open := false
+		for i := 0; i < len(ts.Data); i += 5 {
+			d := ts.Data[i : i+5]
+			if d[0] > 0 {
+				col = 0
+			}
+			if line+d[0] < line || col+d[1] < col || col+d[1]+d[2] < col+d[1] {
+				return fmt.Errorf("typing token delta overflow")
+			}
+			line, col = line+d[0], col+d[1]
+			a, b := protocol.Position{Line: line, Character: col}, protocol.Position{Line: line, Character: col + d[2]}
+			if d[2] == 0 || !valid(a) || !valid(b) || a.Line < prev.Line || a.Line == prev.Line && a.Character < prev.Character {
+				return fmt.Errorf("typing token invalid or overlapping: %v..%v after %v", a, b, prev)
+			}
+			open = open || src[m.Offset(a):m.Offset(b)] == "Open"
+			prev = b
+		}
+		if !open {
+			return fmt.Errorf("typing tokens lost os.Open before the damaged function")
+		}
+	}
+	return nil
+}
+
+// typedStatement is what typing writes: a call that is still open (a macro use with nested calls and a long argument list),
+// so that the text has a syntax error at almost every prefix, as a text being typed has.
+const typedStatement = "\n\tx := #mac00.Dbg(strconv.Itoa(len(strings.TrimSpace(fmt.Sprint(path, extra, len(path) * 2, extra + 1, path + \"-\" + path, strconv.Itoa(extra * extra), len(path) + len(path) + len(path), 12345678901234567890)))"
+
+// typedComment is 200 or more characters of a comment: every prefix is valid, so the file is checked in full at
+// every keystroke.
+const typedComment = "\n\t// the quick brown fox jumps over the lazy dog, and the lazy dog does not mind at all, because the fox is only a comment in a function that nobody calls; and the dog sleeps on, and the fox runs away over the hills and far away, never to be seen again by anybody."
+
+// typing types text[:200] into the function SumX of the file rel (before its return), one character at a
+// time with 30 ms between the keystrokes, and measures the time from each keystroke to its diagnostics. With reqs a
+// hover on a `!` call (rotating), the hints and the tokens of the file are asked after each keystroke, as an editor
+// does; the hover's latency is the series ScTypingReqsHover then. The text is taken out again at the end.
+func typing(name, rel string, reqs bool, text string) scenario {
+	const n = 200
+	typed := text[:n]
+	if reqs {
+		// Bare and requests run in one process. Different identifiers prevent the second scenario from reusing
+		// the first one's checked texts (the first two identical characters are warm-ups, not measurements).
+		typed = strings.Replace(typed, "\tx :=", "\ty :=", 1)
+	}
+	seen := map[string]bool{}
+	var at, origLen int
+	var bangs []int
+	return scenario{
+		name: name, iters: n - 2, warm: 2,
+		prep: func(ctx context.Context, s *Session) (err error) {
+			if at, err = s.Find(rel, "\treturn total, nil", -1); err != nil { // (the line end before it: the typed text starts with one)
+				return err
+			}
+			text := s.Doc(rel).Text
+			origLen = len(text)
+			bangs = bangs[:0]
+			for i := 0; i+1 < len(text); i++ {
+				if text[i] == '!' && text[i+1] == '(' && i < at && i > 0 && text[i-1] != ' ' {
+					bangs = append(bangs, i-2)
+				}
+			}
+			if reqs && len(bangs) == 0 {
+				return fmt.Errorf("%s has no ! call before the place to type", rel)
+			}
+			return nil
+		},
+		run: func(ctx context.Context, s *Session, i int) (string, time.Duration, error) {
+			k := i % n
+			if i > 0 && k == 0 { // the text of the last round goes
+				if _, err := s.Edit(rel, at, at+n, ""); err != nil {
+					return "", 0, err
+				}
+				sleep(ctx, 100*time.Millisecond)
+			}
+			seq := s.C.Seq()
+			t0, err := s.Edit(rel, at+k, at+k, typed[k:k+1])
+			if err != nil {
+				return "", 0, err
+			}
+			ver := s.Doc(rel).Version
+			doc := s.Doc(rel)
+			if seen[doc.Text] {
+				return "", 0, fmt.Errorf("%s repeated an edit; run with scale 1 for unique typing", name)
+			}
+			seen[doc.Text] = true
+			var hover time.Duration
+			if reqs {
+				p := s.at(rel, bangs[(i*7)%len(bangs)])
+				var raw json.RawMessage
+				if hover, raw, err = s.call(ctx, "textDocument/hover", p); err != nil {
+					return "", 0, err
+				}
+				if err := validateTypingAnswer("hover", raw, doc.Text); err != nil {
+					return "", 0, err
+				}
+				end := s.Pos(rel, len(s.Doc(rel).Text))
+				rng := map[string]any{"start": map[string]any{"line": 0, "character": 0}, "end": end}
+				uri := s.Doc(rel).URI
+				if _, raw, err = s.call(ctx, "textDocument/inlayHint", map[string]any{"textDocument": map[string]any{"uri": uri}, "range": rng}); err != nil {
+					return "", 0, err
+				}
+				if err := validateTypingAnswer("hints", raw, doc.Text); err != nil {
+					return "", 0, err
+				}
+				if _, raw, err = s.call(ctx, "textDocument/semanticTokens/full", map[string]any{"textDocument": map[string]any{"uri": uri}}); err != nil {
+					return "", 0, err
+				}
+				if err := validateTypingAnswer("tokens", raw, doc.Text); err != nil {
+					return "", 0, err
+				}
+			}
+			d, _, err := s.Wait(ctx, rel, seq, t0, func(p *Publish) bool { return p.Version >= ver })
+			if err != nil {
+				return "", 0, err
+			}
+			if reqs {
+				s.extra = append(s.extra, sample{ScTypingReqsHover, hover})
+			}
+			sleep(ctx, 30*time.Millisecond)
+			return "", d, nil
+		},
+		done: func(ctx context.Context, s *Session) error {
+			if d := s.Doc(rel); len(d.Text) > origLen {
+				if _, err := s.Edit(rel, at, at+len(d.Text)-origLen, ""); err != nil {
+					return err
+				}
+			}
+			return nil
 		},
 	}
 }

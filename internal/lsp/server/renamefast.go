@@ -245,7 +245,7 @@ func (v *view) normalBindingFacts() bool {
 	lp := cp.Load
 	if lp == nil || len(pkg.Program.Roots) != 1 || pkg.Program.Roots[0] != lp ||
 		v.info != cp.Info || v.types != cp.Types || v.fset != pkg.Fset() ||
-		pkg.Provisional() || pkg.Stale() || len(v.files) != len(lp.Files) {
+		pkg.IsVariant() || pkg.Provisional() || pkg.Stale() || len(v.files) != len(lp.Files) {
 		return false
 	}
 	for _, file := range lp.Files {

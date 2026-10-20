@@ -63,5 +63,11 @@
 //     yet, with the edit that adds the import), the field names of a
 //     struct literal and the keywords, ranked like gopls's (what fits the
 //     expected type first), with snippets for calls; their documentation
-//     comes from completionItem/resolve.
+//     comes from completionItem/resolve. Step 11.13 (ADR-099) adds the
+//     features for the forms of Phase 10: hover on a `!` call, a must
+//     function, a macro use and #Derive (what the call becomes and what
+//     happens on an error), inlay hints for the errors that a `!`
+//     handles and for lazy arguments, the tokens macro, operator and
+//     keyword, completion after a #, rename that keeps the `!` and the
+//     `#`, and the code action "Show expansion" (internal/expand).
 package lsp

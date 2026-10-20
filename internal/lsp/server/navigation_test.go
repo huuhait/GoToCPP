@@ -385,8 +385,8 @@ func TestHoverBroken(t *testing.T) {
 	snap, release := c.s.session.Snapshot()
 	pkg, err := snap.PackageOf(context.Background(), c.uri("app/main.gp"))
 	release()
-	if err != nil || pkg.Check.Checked() || pkg.Check.Partial == nil {
-		t.Fatalf("the package: %v, checked %v, partial %v; want a package with load errors and partial types", err, pkg.Check.Checked(), pkg.Check.Partial != nil)
+	if err != nil || pkg.Check.Checked() || !pkg.Check.HasPartial() {
+		t.Fatalf("the package: %v, checked %v, partial %v; want a package with load errors and partial types", err, pkg.Check.Checked(), pkg.Check.HasPartial())
 	}
 	for _, tc := range []hoverCase{
 		{"Jo|in(\",", "func Join(sep string, parts ...string) string\nJoin joins the parts with sep.", "Join"},

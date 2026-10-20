@@ -201,6 +201,13 @@ for unsaved headers (found by the Phase 01 loader and probe reviews).
 13. **11.13 `!` and macro support** (after Phase 10): hover explanations (incl. a `!` function's
     real signature), inlay hints on the calls a `!` function handles, macro go-to-definition, the
     `!` code actions, "expand macro" (also for wrap macros).
+    *As built (ADR-099):* hover on `F!`, on a must function, on a macro use and on `#Derive`; inlay
+    hints for every handled call (`→ return err`, `!→ ...` for a call a must function handles without
+    a `!`) and `lazy name:`; semantic tokens `macro`, `operator`, `keyword`; completion after `#`;
+    rename that keeps `!` and `#`; the code action "Show expansion" (`internal/expand`, the printer of
+    `gocpp expand`) and the quick action "Handle the error of f with !"; the `macro` benchmark project
+    with six rows. Not built: "make f a must function", and the `!` features in the initializer of a
+    package variable.
 
 Steps 11.1–11.7 and 11.10 form the **v0 early track** (it needs only Phase 01; built right after
 M1 in the one-person order).

@@ -220,7 +220,7 @@ func TestStatsCommandAdvertised(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := res.Capabilities.ExecuteCommandProvider
-	if p == nil || len(p.Commands) != 1 || p.Commands[0] != StatsCommand {
+	if p == nil || len(p.Commands) != 2 || p.Commands[0] != StatsCommand || p.Commands[1] != ExpandCommand {
 		t.Errorf("executeCommandProvider: %+v", p)
 	}
 }

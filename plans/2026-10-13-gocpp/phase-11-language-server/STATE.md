@@ -1,6 +1,6 @@
 # Phase 11: Fast Language Server · STATE
 
-**Status:** `[~]` in progress (v0 track done 2026-10-14: 11.1–11.7, 11.10a/b; the optional tree-sitter grammar is left; 11.10a grammar done; 11.8, 11.9, 11.11, 11.12 merged since; open: 11.13, the 1.5x-of-gopls criterion, the VS Code checklist)
+**Status:** `[~]` in progress (11.1-11.9 and 11.11-11.13 merged; the optional tree-sitter grammar, final all-project speed/gopls acceptance and manual VS Code checklist remain open)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-20
 
@@ -28,7 +28,7 @@
   - [ ] tree-sitter grammar (optional)
 - [x] 11.11 Benchmark harness + 3 reference projects + CI gate + gopls side-by-side table
 - [x] 11.12 Profiling/tracing/slow-request log + random-edit differential test
-- [ ] 11.13 `!` and macro support (after Phase 10): hovers, inlay hints for handled calls, code actions, expand macro
+- [x] 11.13 `!` and macro support (after Phase 10): hovers, inlay hints for handled calls, code actions, expand macro (whole-current-net review clean at `c69600da`; manager focused and receiver-integration checks passed)
 
 ## Exit criteria
 
@@ -38,6 +38,26 @@
 - [ ] VS Code checklist passes (incl. `!` and macro features)
 
 ## Decisions / notes
+
+- 2026-10-20: Step 11.13 integrated after clean whole-current-net review at `c69600da`.
+  It includes exact current-snapshot hovers, safe repair/stale reuse, hints/actions/tokens,
+  expansion documents/spans, bounded three-version patched-package retention and immutable
+  variant provenance. Cache eviction drops completed ownership, not active users or promises;
+  variants cannot take the ordinary rename binding shortcut. All eight feature findings
+  and later origin/integration findings are verified fixed.
+  Manager checks passed: build/vet; focused server/cache/checker/expansion/harness race tests;
+  shared CLI printer checks; editor manifest checks after installing unchanged pinned deps;
+  combined receiver/compiler smoke including must golden and three GCC/Clang run fixtures.
+  Two CLI corpus subcases were skipped because they did not check on this setup:
+  `os_win_syscall_dll.gp` (Windows syscall helpers unavailable here) and `macro_contexts.gp`.
+  Source-branch real-Windows LSP checks passed with an authorized host-cleanup-only overlay;
+  uploaded binaries matched the unmodified Windows-source reference. Stock cleanup/full
+  Windows-runner verification is not implied.
+  Saved post-rename measurements have complete 198-sample series and meet selected joint
+  limits: bigpkg clean typing p95 97.755 ms, hover 22.409 ms, peak RSS 160.566 MiB.
+  Earlier three-session retention evidence remains separately labeled. These are not a
+  final all-project matrix or a fresh gopls comparison of this feature/receiver combination.
+  No full CI or phase/sanitizer sweep was run; full exit criteria remain open.
 
 - 2026-10-20: Restricted rename binding proof integrated after clean four-file review at
   `aa9a004b` and manager build/vet/proof tests under race. It reuses declaration, capture,

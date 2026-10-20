@@ -36,7 +36,8 @@
 					"gocpp"
 				],
 				"extensions": [
-					".gp"
+					".gp",
+					".gpexpand"
 				],
 				"configuration": "./language-configuration.json"
 			}

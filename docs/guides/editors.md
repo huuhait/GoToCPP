@@ -8,9 +8,10 @@ What the server does now: it shows the errors of `gocpp check` as you type, and 
 go to definition and type definition, signature help, completion (with snippets for calls and
 the imports it adds for you), formatting and organize imports, find references, rename,
 document highlights, document and workspace symbols, semantic tokens, inlay hints, document
-links and a quick fix for a missing import. Some features come in later versions of the server
-(the ones for `!` and macros, and for C/C++ names), and they need no change in the editor setup
-below: the editor asks the server what it can do.
+links, a quick fix for a missing import, and the features for `!`, macros and `#Derive` (below,
+"`!`, macros and `#Derive`"). Some features come in later versions of the server (the ones for
+C/C++ names), and they need no change in the editor setup below: the editor asks the server what
+it can do.
 
 **References and rename.** They work on the names that gocpp code declares, in all the packages
 of the module that the file is in (one `gocpp.mod`; the other modules of the workspace are not
@@ -156,7 +157,7 @@ infer, after the name of the variable (also for the variables of `for i, v := ra
 of two kinds (parameter, type), so an editor can show one and not the other; a call of a C/C++
 function and a variable that holds a C/C++ value get none, since their types are opaque to
 gocpp. VS Code shows them with `editor.inlayHints.enabled`; Neovim 0.10 and later with
-`vim.lsp.inlay_hint.enable()`.
+`vim.lsp.inlay_hint.enable()`. The hints of the `!` forms are in the next section.
 
 **Document links.** A header import (`"<raylib.h>"`, `"./physics.h"`) is a link to the header
 file, found the way the build finds it (the folder of the file for `"./x.h"`, the compiler's
@@ -164,9 +165,74 @@ include path for a system header; there is no link for a header that is not foun
 when no C++ compiler is installed), and the addresses (`http://`, `https://`) in comments are
 links too.
 
-**Code actions.** *Organize Imports* (`source.organizeImports`), and the quick fix *Add import*
+**Code actions.** *Organize Imports* (`source.organizeImports`), the quick fix *Add import*
 for `undefined: strings`, which offers each package of the standard library and of the module
-with that name. The actions for `!` and macros come with those features.
+with that name, *Handle the error of f with !* and *Show expansion* (next section).
+
+### `!`, macros and `#Derive`
+
+The checker rewrites every `!`, macro use and `#Derive` line into plain Go, so the server shows
+you what they become, and where the user's words are, instead of the compiler's code.
+
+- **Hover on `F!(x)`** (on the name or on the `!`): the signature of `F`, what the `!` hands back
+  (the values besides the error), *what happens when the error is not nil in that place* (the
+  function returns it, a closure returns it through its own results, `t.Fatal` in a test, a
+  panic in a function without an error result, exit 1 in `main`, and the rules of `defer F!()`),
+  and the Go code that stands for the statement (names that start with `must_` belong to the
+  compiler). A call that a must function handles without a `!` in the text has the same hover,
+  and says that it is handled for you. Hover on a **must function** (`func f!(...) T`) shows the
+  signature that callers see, `func f(...) (T, error)`, and the declaration as written.
+- **Hover on a macro use** (`#util.Assert(x > 1, "small")`, also on top of a func): the macro as
+  declared (not the function with hidden parameters), the arguments the compiler passes for
+  `#file()`, `#line()`, `#func()` and `#text(x)`, a note for each `lazy` parameter, and the call
+  that the use becomes. Hover on `#Derive` lists the methods it writes.
+- **Inlay hints.** After a call that a `!` handles, where its error goes: `→ return err`,
+  `→ panic`, `→ exit 1`, `→ t.Fatal`, `→ deferred: ...`; a call that a must function handles
+  without a `!` in the text has a `!` in front of the arrow (`!→ return err`), the `!` that you
+  did not write. Before the argument of a lazy parameter of a macro: `lazy msg:`. They have no
+  kind, so they are on with the other hints. The tooltip says what happens.
+- **Semantic tokens.** `macro` for the name of a macro (declaration and uses) and for the `#` of
+  a use (`#Derive` too), `operator` for the `!` of a call and of a must function, `keyword` for
+  `lazy`.
+- **Completion** after a `#` (the server also asks for it with `#` as a trigger character):
+  the built-in macros, the macros of the package and of dot imports, and the packages that
+  declare macros; after `#util.` the macros of `util`. A macro inserts as a call with a
+  placeholder for each parameter.
+- **Definition, references, rename.** A macro is found by its name (`#util.Dbg` goes to the
+  macro); a method that `#Derive` writes goes to the `#Derive` line. Rename of a must function
+  changes the name and leaves every `!` as it is (`func load!(` and `load!(x)` become
+  `func fetch!(` and `fetch!(x)`; a new name typed with a `!` is accepted for a must function and
+  an error for another); rename of a macro keeps the `#`. Document symbols show `f!` and `#Name`.
+- **Handle the error of f with `!`** (code action, kind `refactor.rewrite`): on the name of a call
+  that drops its error, it puts a `!` after the name: `os.Remove(p)` becomes `os.Remove!(p)`, and
+  `n := strconv.Atoi(s)`, which the checker rejects, becomes `n := strconv.Atoi!(s)`. It is offered
+  where a `!` is accepted: the last result is exactly `error`, the call is a statement (also after
+  `defer`) of a function with the one result, or the only value of an assignment or `var` that wants the
+  others; it has no `!` yet, and no must function handles it already.
+- **Show expansion** (code action, kind `refactor.inline`, offered on a declaration that has a
+  `!`, a macro use or a `#Derive` in it; Ctrl+. in VS Code). It prints what `gocpp expand` prints
+  for the file, from the text in the editor, and shows it in a document of its own
+  (`name.gpexpand`, colored as gocpp, in a folder of its own for each source file inside a folder of the server's, private to you; the server removes it when it ends, and the next server removes the ones that a killed server left, when they are more than a day old),
+  with the declaration you were in selected. It loads the package and what it imports from
+  source and checks it again with the bodies of `#Derive` written, so it takes as long as
+  `gocpp expand` (a second or two for a package that imports a few standard packages) and
+  needs a package without errors (it says the first error otherwise). A client that cannot show
+  documents gets the text in the command's result (`gocpp.showExpansion`, a
+  `workspace/executeCommand`).
+
+Not covered: a `!` inside `#text(...)` (that is the text of the expression, not a call), the files `_test.gp` (the server checks
+a package without its test files, and loading them for each keystroke is not cheap: they get no hover, hints or tokens at all,
+`!` or not), and "make `f` a must function". While the package has an error the checker does not lower the `!` forms: you still
+get the hover text, the hints and the tokens (what happens on an error is then guessed from the signature of the function: a last
+result `error`, a `*testing.T` parameter, `main`), but not the code that stands for the statement, and "Show expansion" says the
+first error. A **syntax** error does not take the features of the rest of the file either: the server blanks the body of the function that the first
+errors are in (the parser loses the rest of the file after an unclosed parenthesis; the signature stays, so callers still check;
+a broken signature blanks the whole declaration), checks that text, and answers from it for everything outside the blanked
+parts; inside them it answers from the check of the text as it is. While you type, the answers come from the last such check
+and are moved across the keystrokes since (the characters just typed have no hover, token or hint until the next check, which
+takes a few tens of milliseconds in a big package; a client that supports it is then asked to refresh the tokens and the hints).
+`GOCPP_LSP_NOSTALE=1` turns that off. (An error in the package clause or the imports cannot be repaired this way.) References and
+rename do not use the repaired text: a rename that did not see the blanked parts would be wrong.
 
 All the setups need the `gocpp` binary in `PATH` (or its full path in the config). Build it in
 the gocpp repository with `make build`; that writes `bin/gocpp`.

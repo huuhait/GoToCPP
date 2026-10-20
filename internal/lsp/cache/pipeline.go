@@ -151,8 +151,10 @@ type Pipeline struct {
 	// (importset.go).
 	importSets importSets
 
-	// versions limits the checks that the cache keeps of one package.
-	versions versionKeeper
+	// Ordinary and patched-file checks each keep a separate bounded cohort per package, in the same
+	// cost-capped check store. A completion/repair must not evict ordinary edit/undo versions, or vice versa.
+	versions        versionKeeper
+	variantVersions versionKeeper
 
 	// sem holds a place for each type-check that runs, at most GOMAXPROCS.
 	sem chan struct{}

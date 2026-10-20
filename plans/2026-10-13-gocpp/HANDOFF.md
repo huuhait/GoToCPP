@@ -6,18 +6,24 @@ This checkpoint supersedes the historical focus, resource and validation instruc
 At recovery, `dev` is `69364ffc` (9.11 merged); `origin/dev` has no local commit difference.
 The only untracked path in the manager checkout is `c4/`; leave it alone.
 
+Latest integration checkpoint: native fmt `31514e86`, round-6 core `e745f037`, normal parsing
+`9a2b0871`, restricted rename `ea1005e4`, and receiver/parameter optimization `b9d4b506` are
+committed and pushed. The final `!`/macro editor integration is accepted in this checkpoint.
+All four originally resumed jobs have now passed their coder/reviewer loops and focused
+manager gates; this does not close the project's remaining phase/release/performance criteria.
+
 Four unfinished jobs were recovered from the final previous-session messages. Prior workers
 are no longer reachable; continue in the existing worktrees, not replacement branches:
 
 | Job | Existing worktree / branch | Last known gate (not a clean review) |
 |---|---|---|
 | fmt audit | `../GoToCPP-09-fmtaudit` / `job/09-fmtaudit` | Integrated after clean whole-diff review at `16dcf25d` and passing manager focused checks: ten fixtures on GCC/Clang plus real Go, close O0/O2/ASan/TSan, cleanup race tests, build/vet and port hashes. Three close findings and seven Scan/lowering/tool-cleanup findings are fixed. No full CI or upstream sweep; remaining limits are recorded in Phase 09 STATE. |
-| 11.13, `!`/macro editor support | `../GoToCPP-11-11.13` / `job/11-11.13` | Final integration/core-retention/provenance review clean at `c69600da`, based on committed rename `ea1005e4`. Selected post-merge limits met: big-package typing 97.755 ms, hover 22.409 ms, peak RSS 160.566 MiB, complete valid replies. Manager Go checks passed; the full editor manifest dependency test encountered missing `vscode-languageclient` installation and is being resolved. Feature remains unmerged; no full-project/gopls acceptance. |
+| 11.13, `!`/macro editor support | `../GoToCPP-11-11.13` / `job/11-11.13` | Integrated after whole-current-net review clean at `c69600da` and passing manager feature/receiver checks. Selected post-rename limits met: big-package typing 97.755 ms, hover 22.409 ms, peak RSS 160.566 MiB, complete valid replies. Missing editor deps were installed from the unchanged lockfile and the affected check passed. Full-project/gopls/manual editor acceptance remains open; source Windows evidence retains its cleanup-overlay qualification. |
 | LSP performance round 6 | `../GoToCPP-11-lspperf6` / `job/11-lspperf6` | Integrated as `e745f037` after clean review at `051eb2bf` and focused checks. The subsequent normal-loader parallel-parser change is also integrated after clean review at `541db0ab` and passing manager loader/cache/checker/multi-package/line/native-fmt checks. Matched small/medium evidence showed 6.6–13.3% lower p95, with slightly higher memory. Type checking, rename and beat-gopls/all-project acceptance remain open. |
 | 15.3, receiver/parameter optimizations | `../GoToCPP-15-recvparams` / `job/15-recvparams` | Integrated after whole-net production/test-reliability review clean at `e91d0ced` and passing manager focused checks. All 19 hot fixtures and the cross-package module are synchronized, with isolated fact/copy-lend controls. Corrected pointer/value generator smoke passed against Go and both ASan compilers. Full performance/platform/campaign acceptance remains open; see Phase 15 STATE. |
 
-Native fmt is merged as `31514e86` and pushed. The remaining jobs follow one coder and one
-independent reviewer per job, looping to clean. Agents work quietly: final reports only,
+The resumed jobs are integrated. Future jobs follow one coder and one independent reviewer
+per job, looping to clean. Agents work quietly: final reports only,
 except genuine blocked decisions; no mid-round relays or delegation without manager assignment.
 Each coder owns a separate existing worktree. The two LSP branches overlap in the benchmark
 harness; reconcile only during integration. Do not overwrite uncommitted work. Recovered fmt reproductions and logs are under

@@ -1032,8 +1032,8 @@ func newRefQuery(ctx context.Context, snap *cache.Snapshot, uri protocol.Documen
 			switch {
 			case cp.Checked():
 				q.types, q.info, q.opaque = cp.Types, cp.Info, cp.Opaque
-			case cp.Partial != nil:
-				q.types, q.info, q.opaque = cp.Partial.Types, cp.Partial.Info, cp.Partial.Opaque
+			case cp.HasPartial():
+				q.types, q.info, q.opaque = cp.PartialResult().Types, cp.PartialResult().Info, cp.PartialResult().Opaque
 			default:
 				return nil, nil
 			}
@@ -1264,8 +1264,8 @@ func viewOf(pkg *cache.Package) *view {
 	switch {
 	case cp.Checked():
 		v.types, v.info = cp.Types, cp.Info
-	case cp.Partial != nil:
-		v.types, v.info = cp.Partial.Types, cp.Partial.Info
+	case cp.HasPartial():
+		v.types, v.info = cp.PartialResult().Types, cp.PartialResult().Info
 	default:
 		return nil
 	}
@@ -2073,8 +2073,8 @@ func (r *searcher) testViews(ctx context.Context, dirs []string, keys *keySet, d
 			switch {
 			case cp.Checked():
 				v.types, v.info = cp.Types, cp.Info
-			case cp.Partial != nil:
-				v.types, v.info = cp.Partial.Types, cp.Partial.Info
+			case cp.HasPartial():
+				v.types, v.info = cp.PartialResult().Types, cp.PartialResult().Info
 			default:
 				continue
 			}

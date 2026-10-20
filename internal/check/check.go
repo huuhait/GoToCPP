@@ -10,6 +10,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/diag"
@@ -109,6 +110,12 @@ type Config struct {
 	// still has only its load errors, is not Checked, and its importers
 	// get no types from it (Result.Dep).
 	Partial bool
+
+	// LazyPartial, with Partial, makes the partial check of a package with load errors on the first call of
+	// Package.PartialResult (or MustPartialInfo) instead of in Check: the language server needs it for
+	// the requests that look at a file with a syntax error, not for its diagnostics, which come from the
+	// load errors alone, and a keystroke must not pay for a type check that nobody asked for.
+	LazyPartial bool
 
 	// NoDerivedBodies says that the caller does not lower the program (the language server,
 	// gocpp check, gocpp vet): the generators of #Derive (derive.go) run for their errors, but the
@@ -272,6 +279,11 @@ type Package struct {
 	// after the rewrite, ADR-037); nil if the package has none. gocpp vet reads it.
 	Must *MustInfo
 
+	// MustPartial is what the pass knows of a package that has errors, where the lowering did not run
+	// and Must is nil: the places of the `!` forms, for the editor (MustInfo.partialInfo). Nil
+	// for a package without errors and for one with no `!` form.
+	MustPartial *MustInfo
+
 	// Opaque says which expressions are opaque (they come from C/C++ and
 	// have no complete type) and keeps the type expressions of the objects
 	// declared with C/C++ types (see Opaque). It is nil if the package
@@ -312,6 +324,30 @@ type Package struct {
 	// parts, and types can be invalid where something is broken. Nothing
 	// else uses it: not the errors, not the phase gates, not the importers.
 	Partial *Partial
+
+	// partialFn makes Partial and MustPartial on the first call of PartialResult, for Config.LazyPartial.
+	partialFn   func() (*Partial, *MustInfo)
+	partialOnce sync.Once
+	hasPartial  bool // set when the package is made, never changed
+}
+
+// HasPartial reports whether the package has a partial check (made already, or made on demand).
+func (p *Package) HasPartial() bool { return p.hasPartial }
+
+// PartialResult returns Package.Partial, making it first when Config.LazyPartial left it for now. It makes the
+// check once; callers wait for it. The check changes the syntax trees of the package (the `!` forms are prepared
+// as for any check), so a caller that reads the trees must call it before.
+func (p *Package) PartialResult() *Partial {
+	if p.partialFn != nil {
+		p.partialOnce.Do(func() { p.Partial, p.MustPartial = p.partialFn() })
+	}
+	return p.Partial
+}
+
+// MustPartialInfo returns Package.MustPartial after PartialResult.
+func (p *Package) MustPartialInfo() *MustInfo {
+	p.PartialResult()
+	return p.MustPartial
 }
 
 // A Partial is the result of go/types on the files of a package that has
@@ -418,8 +454,12 @@ func Check(prog *load.Program, cfg Config) *Result {
 		if lp.Incomplete {
 			p = &Package{Load: lp, Errors: lp.Errors}
 			failed[lp] = true
-			if cfg.Partial {
-				p.Partial = checkPartial(prog.Fset, lp, checked, cgoh)
+			if cfg.Partial && cfg.LazyPartial {
+				p.partialFn = func() (*Partial, *MustInfo) { return checkPartial(prog.Fset, lp, checked, cgoh, false) }
+				p.hasPartial = true
+			} else if cfg.Partial {
+				p.Partial, p.MustPartial = checkPartial(prog.Fset, lp, checked, cgoh, true)
+				p.hasPartial = p.Partial != nil
 			}
 		} else {
 			depsFailed, c := false, usesC(lp)
@@ -464,10 +504,47 @@ func Check(prog *load.Program, cfg Config) *Result {
 // for Package.Partial: once, without the namespace probe (whose rewrites
 // stay, so those names are opaque) and without the rewrite of conversions.
 // Its errors are dropped: lp's own are the ones that count.
-func checkPartial(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package, cgoh *types.Package) *Partial {
+//
+// The `!` forms of the files that parsed are prepared as for a package with type errors, so that their names
+// mean what they mean in a clean file (the editor shows a file that is being typed: a syntax error in one
+// place must not take the features of the others), and the places of the forms are the second result
+// (Package.MustPartial). With rounds the calls that a must function handles without a `!` are found as well (more
+// checks: one for each round); without, only the written ones are in the list. The parser's tree of a broken file is walked by the pass; if the pass panics on
+// it, the package is checked as it is and has no list.
+func checkPartial(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package, cgoh *types.Package, rounds bool) (part *Partial, info *MustInfo) {
 	cv := newConverter(fset, lp, cgoh)
+	mp := newMustPass(fset, lp)
+	var user map[*ast.Ident]bool
+	if mp != nil {
+		user = identsOf(lp)
+		func() {
+			defer func() {
+				if recover() != nil {
+					mp = nil
+				}
+			}()
+			mp.prepare()
+		}()
+	}
 	p, _ := checkFiles(fset, lp, checked, cv, nil, false)
-	return &Partial{Types: p.Types, Info: p.Info, Opaque: findOpaque(fset, p)}
+	if mp != nil {
+		func() {
+			defer func() {
+				if recover() != nil {
+					info = nil
+				}
+			}()
+			for range maxMustRounds {
+				if !rounds || !mp.rewriteDropped(p.Info) {
+					break
+				}
+				p, _ = checkFiles(fset, lp, checked, cv, nil, false)
+			}
+			markSynthetic(lp, user)
+			info = mp.partialInfo(p.Info)
+		}()
+	}
+	return &Partial{Types: p.Types, Info: p.Info, Opaque: findOpaque(fset, p)}, info
 }
 
 // hasErrors reports whether l has an error, soft or not.
@@ -587,6 +664,8 @@ func checkPackageConsts(fset *token.FileSet, lp *load.Package, checked map[*load
 	}
 	if mp != nil && !hasErrors(p.Errors) {
 		p.Must = mp.mustInfo()
+	} else if mp != nil {
+		p.MustPartial = mp.partialInfo(p.Info)
 	}
 	if len(cv.names) > 0 {
 		p.setConversions(findConversions(lp, p.Info))

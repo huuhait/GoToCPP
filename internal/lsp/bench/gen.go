@@ -33,6 +33,12 @@ type Spec struct {
 	// like examples/cpp-std, and a header of their own) and a package that
 	// has a typo in a std name (the namespace probe finds it).
 	CppPackages int
+	// MacroPackages adds that many packages that use the forms of Phase 10 (gocpp only): `!`
+	// calls and must functions, macros of the package mac00, and #Derive, in every file. The
+	// language server's features for them are measured on MacroFile (step 11.13).
+	MacroPackages int
+	// MacroFiles is the number of files of each macro package (Files when 0).
+	MacroFiles int
 }
 
 // The three reference projects and the one with C++ headers. The seeds are
@@ -42,10 +48,15 @@ var (
 	Medium = Spec{Name: "medium", Seed: 2, Packages: 20, Files: 10}
 	Large  = Spec{Name: "large", Seed: 3, Packages: 100, Files: 15, Lite: true}
 	Cpp    = Spec{Name: "cpp", Seed: 4, Packages: 10, Files: 8, CppPackages: 6}
+	// Macro is a small project whose packages use `!`, macros and #Derive everywhere (gocpp only).
+	Macro = Spec{Name: "macro", Seed: 5, Packages: 4, Files: 6, MacroPackages: 8}
+	// BigPkg is one package of 46 files (3.7k lines) full of `!`, macros and #Derive, next to the file of its
+	// macros: the shape in which a keystroke in a file with a syntax error costs the most (gocpp only).
+	BigPkg = Spec{Name: "bigpkg", Seed: 6, Packages: 1, Files: 2, MacroPackages: 2, MacroFiles: 46}
 )
 
 // Specs returns the reference projects, small to large.
-func Specs() []Spec { return []Spec{Small, Medium, Large, Cpp} }
+func Specs() []Spec { return []Spec{Small, Medium, Large, Cpp, Macro, BigPkg} }
 
 // SpecByName returns the reference project called name.
 func SpecByName(name string) (Spec, bool) {
@@ -89,6 +100,8 @@ type Project struct {
 	// Typo is the Rel of the file with the typo in a namespace name (empty without
 	// C++ packages), CppFile a file that imports C++ headers (idem).
 	Typo, CppFile string
+	// MacroFile is a file full of `!` calls, macro uses and #Derive (empty without MacroPackages).
+	MacroFile string
 	// Big is a file of about 1,000 lines (the format-on-save budget is for
 	// such a file), APIFile a file of the last package, whose exported
 	// function Label the scenarios change, and APIUser the file that calls
@@ -118,7 +131,7 @@ func (p *Project) Source(rel string) string {
 func (p *Project) SourceFiles(goOnly bool) []string {
 	var out []string
 	for _, f := range p.Files {
-		if f.Kind == Source && !(goOnly && strings.HasPrefix(f.Rel, "cpp")) {
+		if f.Kind == Source && !(goOnly && isCppPath(f.Rel)) {
 			out = append(out, f.Rel)
 		}
 	}
@@ -158,7 +171,11 @@ func (p *Project) Write(dir, ext string) error {
 	return nil
 }
 
-func isCppPath(rel string) bool { return strings.HasPrefix(rel, "cpp") }
+// isCppPath reports whether the package of rel is gocpp only (it imports C++ headers, or uses the
+// forms of Phase 10): Go cannot read it.
+func isCppPath(rel string) bool {
+	return strings.HasPrefix(rel, "cpp") || strings.HasPrefix(rel, "mac")
+}
 
 func writeFile(path, content string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -233,6 +250,12 @@ func (g *generator) generate() *Project {
 	if s.CppPackages > 0 {
 		p.Typo, p.CppFile = "cpptypo/typo", "cpp00/f00"
 		g.add(p.Typo, g.cppTypo(), Source)
+	}
+	for i := range s.MacroPackages {
+		g.macroPackage(i)
+	}
+	if s.MacroPackages > 0 {
+		p.MacroFile = fmt.Sprintf("mac%02d/f%02d", min(3, s.MacroPackages-1), min(2, g.macroFiles()-1))
 	}
 	p.Big = "bigfile/big"
 	g.add(p.Big, g.bigFile(), Source)
@@ -572,5 +595,148 @@ func (g *generator) bigFile() string {
 	for n := range 40 {
 		fmt.Fprintf(&b, "\n// Compute%[1]d folds the values by a rotating rule.\nfunc Compute%[1]d(vals []int, limit int) (int, error) {\n\tif len(vals) == 0 {\n\t\treturn 0, errors.New(\"compute%[1]d: no values\")\n\t}\n\tacc := 0\n\tseen := map[int]bool{}\n\tfor i, v := range vals {\n\t\tswitch {\n\t\tcase v < 0:\n\t\t\tacc -= v * (i + %[2]d)\n\t\tcase v%%2 == 0:\n\t\t\tacc += v / 2\n\t\tdefault:\n\t\t\tacc += v*3 + %[3]d\n\t\t}\n\t\tif seen[v] {\n\t\t\tcontinue\n\t\t}\n\t\tseen[v] = true\n\t\tif acc > limit {\n\t\t\treturn acc, fmt.Errorf(\"compute%[1]d: %%d over limit %%d\", acc, limit)\n\t\t}\n\t}\n\treturn acc, nil\n}\n", n, 1+g.rng.IntN(5), 1+g.rng.IntN(9))
 	}
+	return b.String()
+}
+
+// macroPackage adds the package mac<i>. mac00 declares the macros; the others use them, with `!` calls,
+// must functions (which handle the calls that drop their errors), lazy arguments, a macro on top of a func,
+// and #Derive.
+func (g *generator) macroPackage(i int) {
+	dir := fmt.Sprintf("mac%02d", i)
+	if i == 0 {
+		g.add(dir+"/macros", macroDecls(g.spec.Module), Source)
+		return
+	}
+	for k := range g.macroFiles() {
+		g.add(fmt.Sprintf("%s/f%02d", dir, k), macroFile(g.spec.Module, dir, i, k), Source)
+	}
+}
+
+func (g *generator) macroFiles() int {
+	if g.spec.MacroFiles > 0 {
+		return g.spec.MacroFiles
+	}
+	return g.spec.Files
+}
+
+// macroDecls is mac00: a macro of every shape.
+func macroDecls(module string) string {
+	return `// Package mac00 declares the macros that the other macro packages use.
+package mac00
+
+import (
+	"fmt"
+	"os"
+	"sync"
+)
+
+// Assert panics with the place of the use when cond is false. msg is lazy: it is evaluated only then.
+macro Assert(cond bool, msg lazy string) {
+	if !cond {
+		panic(fmt.Sprintf("%s:%d: assertion failed: %s: %s", #file(), #line(), #text(cond), msg()))
+	}
+}
+
+// Dbg prints an expression, its text and its value, and gives the value back.
+macro Dbg[T any](v T) T {
+	fmt.Fprintf(os.Stderr, "[%s:%d] %s = %v\n", #file(), #line(), #text(v), v)
+	return v
+}
+
+// Trace prints when the function it stands on starts and ends.
+macro Trace() func() {
+	fmt.Println("enter", #func())
+	return func() { fmt.Println("exit ", #func()) }
+}
+
+// Locked holds mu while the function runs.
+macro Locked(mu *sync.Mutex) func() {
+	mu.Lock()
+	return mu.Unlock
+}
+
+// Count counts the calls of the function it stands on, and runs it.
+macro Count(n *int) {
+	*n++
+	#body()
+}
+`
+}
+
+// macroFile is file k of macro package i: eight functions that use the forms of Phase 10.
+func macroFile(module, pkg string, i, k int) string {
+	var b strings.Builder
+	t := fmt.Sprintf("%s%d", nouns[(i*5+k)%len(nouns)], k)
+	fmt.Fprintf(&b, "package %s\n\nimport (\n\t\"fmt\"\n\t\"os\"\n\t\"strconv\"\n\t\"strings\"\n\t\"sync\"\n\n\t\"%s/mac00\"\n)\n\n", pkg, module)
+	fmt.Fprintf(&b, `var (
+	mu%[1]s    sync.Mutex
+	calls%[1]s int
+)
+
+// %[1]s is a record; #Derive writes its Equal and Clone.
+#Derive(Equal, Clone)
+type %[1]s struct {
+	ID   int
+	Name string
+	Tags []string
+}
+
+// Load%[1]s reads a number from a file. It is a must function: the errors of the calls that drop
+// them are returned.
+func Load%[1]s!(path string) (n int) {
+	f := os.Open(path)
+	defer f.Close()
+	data := os.ReadFile(path)
+	n = strconv.Atoi(strings.TrimSpace(string(data)))
+	return n
+}
+
+// Parse%[1]s reads two numbers; the errors of both are returned by the ! calls.
+func Parse%[1]s(a, b string) (int, error) {
+	x := strconv.Atoi!(a)
+	y := strconv.Atoi!(b)
+	#mac00.Assert(x >= 0, fmt.Sprint("negative: ", x))
+	return x + y, nil
+}
+
+// Sum%[1]s uses the macros inside code.
+func Sum%[1]s(path string, extra int) (int, error) {
+	n := Load%[1]s!(path)
+	total := #mac00.Dbg(n + extra)
+	#mac00.Assert(total != 0, "zero")
+	return total, nil
+}
+
+// Guard%[1]s has macros on top of it.
+#mac00.Trace()
+#mac00.Locked(&mu%[1]s)
+func Guard%[1]s(r %[1]s) %[1]s {
+	return r.Clone()
+}
+
+// Counted%[1]s is wrapped by Count.
+#mac00.Count(&calls%[1]s)
+func Counted%[1]s(a int) int {
+	return a * 2
+}
+
+// Must%[1]s panics on an error: it has no error result.
+func Must%[1]s(s string) int {
+	return strconv.Atoi!(s)
+}
+
+// Close%[1]s closes the file and returns the error of the close if nothing failed before.
+func Close%[1]s(path string) (int, error) {
+	f := os.Open!(path)
+	defer f.Close!()
+	st := f.Stat!()
+	return int(st.Size()), nil
+}
+
+// Same%[1]s compares two records with the derived method.
+func Same%[1]s(a, b %[1]s) bool {
+	return a.Equal(b)
+}
+`, t)
 	return b.String()
 }

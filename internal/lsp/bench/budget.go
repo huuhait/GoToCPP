@@ -51,6 +51,15 @@ var Budgets = []Budget{
 	{ScRefsLocal, 20, "find references of a name only its package uses < 20 ms (the contract: 300 ms)", nil, "", nil},
 	{ScRefsFamily, 20, "find references of a method that an interface of the whole module shares < 20 ms (the contract: 300 ms)", nil, "", nil},
 	{ScRename, 60, "rename across the workspace < 60 ms (the contract: 300 ms)", nil, "", nil},
+	// The features of the forms of Phase 10 (step 11.13): gocpp only, on the macro project.
+	{ScHoverMacro, 30, "hover on a macro use or #Derive < 30 ms", []string{"macro"}, "", nil},
+	{ScHoverBang, 30, "hover on a ! call, or on the name of a must function < 30 ms", []string{"macro"}, "", nil},
+	{ScCompletionMacro, 50, "completion after a # right after the keystroke < 50 ms", []string{"macro"}, "", nil},
+	{ScCodeAction, 30, "code actions at a ! or a macro use < 30 ms", []string{"macro"}, "", nil},
+	// Typing into a file with a syntax error, in a package that uses `!` everywhere (review round 2).
+	{ScTypingBare, 100, "keystroke in a file with a syntax error → diagnostics < 100 ms", []string{"macro", "bigpkg"}, "", nil},
+	{ScTypingReqs, 100, "the same with a hover, the hints and the tokens asked after each keystroke < 100 ms", []string{"macro", "bigpkg"}, "", nil},
+	{ScTypingReqsHover, 30, "hover after a keystroke in a file with a syntax error < 30 ms", []string{"macro", "bigpkg"}, "", nil},
 }
 
 // MemoryBudgetMiB is the memory budget: 400 MB for a 50k-line project.

@@ -381,6 +381,7 @@ func runScenario(ctx context.Context, cfg Config, s *Session, sc scenario, smp *
 	}
 	iters := max(int(float64(sc.iters)*cfg.Scale+0.5), 2)
 	for i := 0; i < sc.warm+iters; i++ {
+		s.extra = s.extra[:0]
 		series, d, err := sc.run(ctx, s, i)
 		if series == "" {
 			series = sc.name
@@ -401,6 +402,9 @@ func runScenario(ctx context.Context, cfg Config, s *Session, sc scenario, smp *
 		}
 		if i >= sc.warm { // the warm-up repetitions are not counted
 			smp.add(series, d)
+			for _, x := range s.extra {
+				smp.add(x.series, x.d)
+			}
 		}
 	}
 	if sc.done != nil {

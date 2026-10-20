@@ -1,7 +1,9 @@
 package check
 
 import (
+	"go/ast"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/huuhait/gocpp/internal/load"
@@ -52,6 +54,65 @@ func TestPartial(t *testing.T) {
 				t.Errorf("main.main is missing")
 			}
 		}
+	}
+}
+
+// TestLazyPartialMustSynthetic: diagnostics need no partial rewrite/check; concurrent feature requests coalesce it,
+// and every identifier that the lazy ! preparation introduced is marked synthetic, never exposed as user code.
+func TestLazyPartialMustSynthetic(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"gocpp.mod": "module example.com/m\n",
+		"a.gp":      "package a\n\nimport \"strconv\"\n\nfunc good(s string) (int, error) { n := strconv.Atoi!(s); return n, nil }\n",
+		"broken.gp": "package a\n\nfunc broken() { x := }\n",
+	})
+	cfg := load.Config{Dir: root, Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: "linux", GOARCH: "amd64"}
+	prog := load.Load(cfg, ".")
+	lp := prog.Roots[0]
+	user := identsOf(lp)
+	ccfg := fakeProbeConfig(LastPhase)
+	ccfg.Partial, ccfg.LazyPartial = true, true
+	r := Check(prog, ccfg)
+	p := r.Package(lp)
+	if !p.HasPartial() || p.Partial != nil || p.MustPartial != nil || p.Must != nil || p.Checked() {
+		t.Fatalf("partial work was not lazy: %+v", p)
+	}
+	before := len(p.Errors.Diagnostics())
+	parts := make([]*Partial, 8)
+	var wg sync.WaitGroup
+	for i := range parts {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if !p.HasPartial() {
+				return
+			}
+			parts[i] = p.PartialResult()
+			p.MustPartialInfo()
+		}(i)
+	}
+	wg.Wait()
+	for _, part := range parts {
+		if part == nil || part != parts[0] {
+			t.Fatalf("partial requests did not coalesce")
+		}
+	}
+	if p.Must != nil || p.MustPartialInfo() == nil || len(p.MustPartialInfo().Calls) != 1 || len(p.Errors.Diagnostics()) != before {
+		t.Fatalf("partial changed compiler info/diagnostics or lost the written ! call")
+	}
+	synthetic := 0
+	for _, f := range lp.Files {
+		ast.Inspect(f.AST, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok && !user[id] {
+				synthetic++
+				if !f.Synthetic[id] {
+					t.Errorf("unmarked synthetic identifier %q", id.Name)
+				}
+			}
+			return true
+		})
+	}
+	if synthetic == 0 {
+		t.Fatal("no synthetic identifiers were prepared")
 	}
 }
 

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/token"
 	"slices"
 	"strings"
 	"testing"
@@ -370,6 +372,68 @@ func TestRenameBindingProofRequiresEveryOccurrence(t *testing.T) {
 	_, proofErr := rn.edits(context.Background())
 	if fullErr == nil || proofErr == nil || fullErr.Error() != proofErr.Error() {
 		t.Fatalf("missing occurrence: full=%v, proof=%v", fullErr, proofErr)
+	}
+}
+
+func TestRenameBindingFactsRequireExactOrdinaryOrigin(t *testing.T) {
+	rn := bindingProofRenamer(t)
+	normal := rn.sym.q.view()
+	if normal.pkg.IsVariant() || !normal.normalBindingFacts() {
+		t.Fatal("eligible exact ordinary facts were disabled")
+	}
+	// Warm the immutable package memo, then reject each view-specific mismatch before consulting it.
+	t.Run("inexact info", func(t *testing.T) {
+		inexact := *normal
+		info := *normal.info
+		inexact.info = &info
+		if inexact.normalBindingFacts() {
+			t.Fatal("inexact type information reused normal facts")
+		}
+	})
+	t.Run("inexact file set", func(t *testing.T) {
+		inexact := *normal
+		inexact.fset = token.NewFileSet()
+		if inexact.normalBindingFacts() {
+			t.Fatal("inexact file positions reused normal facts")
+		}
+	})
+	t.Run("different syntax view", func(t *testing.T) {
+		inexact := *normal
+		inexact.files = make(map[string]*ast.File, len(normal.files))
+		for path, file := range normal.files {
+			inexact.files[path] = file
+		}
+		inexact.files[rn.sym.q.file.Path] = new(ast.File)
+		if inexact.normalBindingFacts() {
+			t.Fatal("a different syntax view reused normal facts")
+		}
+	})
+	path := rn.sym.q.file.Path
+	src, err := rn.e.snapshot.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		text []byte
+	}{
+		{"identical replacement bytes", append([]byte(nil), src...)},
+		{"complete plain variant", append(append([]byte(nil), src...), []byte("\n// patched input\n")...)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for range 2 { // fresh computation and cached hit must retain the same immutable origin
+				pkg, err := rn.e.snapshot.PackageWithFile(context.Background(), path, tc.text)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !pkg.IsVariant() || viewOf(pkg).normalBindingFacts() {
+					t.Fatal("a complete plain patched package entered the ordinary binding proof")
+				}
+			}
+		})
+	}
+	if !normal.normalBindingFacts() {
+		t.Fatal("negative provenance checks poisoned the eligible ordinary package memo")
 	}
 }
 

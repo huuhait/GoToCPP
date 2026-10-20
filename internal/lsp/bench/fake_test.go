@@ -19,7 +19,8 @@ import (
 // tests of the harness use it, and make it slow on purpose to see the
 // budget gate trip.
 type fakeServer struct {
-	delay map[string]time.Duration // by method; "diagnostics" delays the publish after a change
+	delay   map[string]time.Duration // by method; "diagnostics" delays the publish after a change
+	observe func(*protocol.Request)  // test spy, set before the server starts
 
 	mu    sync.Mutex
 	texts map[protocol.DocumentURI]string
@@ -71,6 +72,9 @@ func (f *fakeServer) serve(in io.Reader) {
 		f.mu.Lock()
 		f.calls[req.Method]++
 		f.mu.Unlock()
+		if f.observe != nil {
+			f.observe(req)
+		}
 		if req.IsNotification() {
 			f.notification(req)
 			continue

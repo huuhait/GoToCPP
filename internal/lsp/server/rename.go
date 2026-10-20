@@ -22,6 +22,7 @@ import (
 	"github.com/huuhait/gocpp/internal/lsp/cache"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
 	"github.com/huuhait/gocpp/internal/lsp/safe"
+	"github.com/huuhait/gocpp/internal/syntax/gpast"
 )
 
 // textDocument/prepareRename and textDocument/rename (step 11.8): a safe
@@ -218,6 +219,28 @@ func (s *Server) refusedBySemantics(sym *symbol) error {
 	return nil
 }
 
+// isMustFunc reports whether the symbol is a function (or method) declared with a `!`: func f!(...).
+func (sym *symbol) isMustFunc(ctx context.Context) bool {
+	if len(sym.objs) != 1 {
+		return false
+	}
+	fn, ok := sym.objs[0].(*types.Func)
+	if !ok {
+		return false
+	}
+	d, err := sym.q.declOf(ctx, fn)
+	if err != nil || d == nil {
+		return false
+	}
+	fd, ok := d.decl.(*ast.FuncDecl)
+	return ok && fd.Name != nil && gpast.IsMust(fd.Name.Name)
+}
+
+// isMacro reports whether the symbol is a macro.
+func (sym *symbol) isMacro() bool {
+	return len(sym.objs) == 1 && sym.q.macroOf(sym.objs[0]) != nil
+}
+
 // validName reports whether name can be the new name of a symbol.
 func validName(name string) error {
 	switch {
@@ -255,7 +278,26 @@ func (s *Server) rename(ctx context.Context, e env, params json.RawMessage) (any
 	if err := s.refusedBySemantics(sym); err != nil {
 		return nil, renameRefused(err)
 	}
+	typed := p.NewName // (for the messages: what the user wrote)
+	if name, bang := strings.CutSuffix(p.NewName, "!"); bang {
+		// A must function is written f!: the ! is not part of its name, rename never changes it (step 11.13).
+		// A client may send the new name with it; for a symbol that is not a must function it is an error.
+		if !sym.isMustFunc(ctx) {
+			return nil, renameRefused(refuse("%q is not a valid name: it must be an identifier. A ! after a name marks a must function or a must call, and rename leaves it as it is", p.NewName))
+		}
+		p.NewName = name
+	}
+	if name, hash := strings.CutPrefix(p.NewName, "#"); hash {
+		// The same for a macro, written #Name at its uses.
+		if !sym.isMacro() {
+			return nil, renameRefused(refuse("%q is not a valid name: it must be an identifier. A # before a name marks a macro use, and rename leaves it as it is", p.NewName))
+		}
+		p.NewName = name
+	}
 	if err := validName(p.NewName); err != nil {
+		if typed != p.NewName {
+			err = refuse("%q is not a valid name: it must be an identifier", typed)
+		}
 		return nil, renameRefused(err)
 	}
 	if p.NewName == sym.name {

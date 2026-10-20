@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -68,6 +69,7 @@ func RunWith(ctx context.Context, in io.Reader, out io.Writer, logger *log.Logge
 		defer disk.Close()
 		cfg.Disk = disk
 	}
+	opts.stale = os.Getenv("GOCPP_LSP_NOSTALE") == ""
 	return newServerOpts(logger, cfg, debounce.RealClock{}, opts).Serve(ctx, in, out)
 }
 
@@ -92,6 +94,8 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) int {
 		s.retry.close()
 		s.diags.stop()
 		s.comp.stop()
+		s.expansions.close()
+		s.views.close()
 		s.pipeline.Close()
 	})
 	err := s.conn.Serve(ctx, s)
@@ -153,6 +157,8 @@ type Server struct {
 	comp         completion    // completion (completion.go)
 	refactor     refactor      // references and rename (refs.go, rename.go)
 	symbols      symbolFeature // document and workspace symbols (symbols.go)
+	views        *views        // the views of the files with a syntax error (stale.go), or nil
+	expansions   expansions    // the files that show an expansion (expansion.go)
 	syn          synTable      // the syntax index of the dynamic family (dynindex.go)
 	modsMu       sync.Mutex
 	mods         struct {
@@ -169,6 +175,9 @@ type Server struct {
 	// watchFiles: the client can register workspace/didChangeWatchedFiles
 	// (initialize), so initialized does.
 	watchFiles bool
+	// refreshTokens and refreshHints: the client takes workspace/semanticTokens/refresh and
+	// workspace/inlayHint/refresh (initialize): the views (stale.go) ask for them after an answer from an older text.
+	refreshTokens, refreshHints atomic.Bool
 	// warned holds the documents whose change failed and that the user
 	// was told about (didChange); didOpen removes a document.
 	warned map[protocol.DocumentURI]bool
@@ -207,6 +216,8 @@ type env struct {
 	log      *log.Logger
 	// notify sends a notification to the client (protocol.Conn.Notify).
 	notify func(method string, params any) error
+	// views are the views of the files with a syntax error (stale.go); nil: each request makes its own check.
+	views *views
 }
 
 // New returns a server that logs to logger, which may be nil.
@@ -263,6 +274,10 @@ func newServerOpts(logger *log.Logger, cfg cache.Config, clock debounce.Clock, o
 	s.pipeline = cache.NewPipeline(cfg)
 	s.addCompletion(s.pipeline)
 	s.session = cache.NewSession(s.pipeline.NewState())
+	if opts.stale {
+		s.views = newViews(s.session)
+		s.views.refresh = s.refreshFeatures
+	}
 	return s
 }
 
@@ -368,7 +383,7 @@ func (s *Server) Call(ctx context.Context, req *protocol.Request) protocol.Work 
 		uri = documentOf(req.Params)
 		token = s.addStale(uri, id)
 	}
-	e := env{snapshot: snap, log: s.log, notify: s.conn.Notify}
+	e := env{snapshot: snap, log: s.log, notify: s.conn.Notify, views: s.views}
 	return func(ctx context.Context) (any, error) {
 		defer release()
 		if token != nil {
@@ -468,7 +483,18 @@ func (s *Server) initialize(params json.RawMessage) (any, error) {
 		s.trace = *p.Trace
 	}
 	s.watchFiles = p.Capabilities.Workspace.DidChangeWatchedFiles.DynamicRegistration
+	if w := p.Capabilities.Workspace.SemanticTokens; w != nil {
+		s.refreshTokens.Store(w.RefreshSupport)
+	}
+	if w := p.Capabilities.Workspace.InlayHint; w != nil {
+		s.refreshHints.Store(w.RefreshSupport)
+	}
 	s.mu.Unlock()
+	if sd := p.Capabilities.Window.ShowDocument; sd != nil {
+		s.expansions.mu.Lock()
+		s.expansions.showDoc = sd.Support
+		s.expansions.mu.Unlock()
+	}
 	s.diags.related.Store(p.Capabilities.TextDocument.PublishDiagnostics.RelatedInformation)
 	if raw, err := json.Marshal(p.InitializationOptions); err == nil {
 		s.applySettings(raw)
@@ -606,6 +632,7 @@ func (s *Server) didChange(_ context.Context, params json.RawMessage) error {
 	uri, version := p.TextDocument.URI, p.TextDocument.Version
 	snap, release := s.session.Snapshot()
 	old := snap.Overlay(uri)
+	before := snap.ID()
 	release()
 	if old != nil && version <= old.Version() {
 		// The spec wants the version to go up. The text is still the
@@ -613,6 +640,11 @@ func (s *Server) didChange(_ context.Context, params json.RawMessage) error {
 		s.log.Printf("didChange: %s goes from version %d to %d", uri, old.Version(), version)
 	}
 	err := s.session.DidChange(uri, version, p.ContentChanges)
+	if err == nil && s.views != nil && s.views.any.Load() {
+		next, free := s.session.Snapshot()
+		s.views.changed(uri, before, next.ID())
+		free()
+	}
 	if old != nil {
 		s.modified(uri) // a failed change made it broken: stale too
 		s.diags.scheduleChange(uri)
@@ -649,6 +681,7 @@ func (s *Server) didClose(_ context.Context, params json.RawMessage) error {
 		return err
 	}
 	s.modified(p.TextDocument.URI)
+	s.views.forget(p.TextDocument.URI)
 	s.diags.scheduleFile(p.TextDocument.URI, 0)
 	return nil
 }
@@ -762,4 +795,19 @@ func (s *Server) Trace() protocol.TraceValue {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.trace
+}
+
+// refreshFeatures asks the client to ask again for the semantic tokens and the inlay hints it has, if it takes the
+// request: it was answered from an older text of a file with a syntax error (stale.go), and the check of the text
+// as it is now is done.
+func (s *Server) refreshFeatures() {
+	if s.conn == nil {
+		return
+	}
+	if s.refreshTokens.Load() {
+		s.conn.Request("workspace/semanticTokens/refresh", nil)
+	}
+	if s.refreshHints.Load() {
+		s.conn.Request("workspace/inlayHint/refresh", nil)
+	}
 }

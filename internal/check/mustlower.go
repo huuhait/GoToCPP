@@ -736,6 +736,9 @@ func (l *lowerer) lowerList(list []ast.Stmt) []ast.Stmt {
 		if len(pre) > 0 && len(wrapped) == 1 {
 			l.anchorStmts(a, wrapped[0]) // a block that wrapScoped made
 		}
+		if had {
+			l.mp.info.Stmts = append(l.mp.info.Stmts, MustStmt{Pos: a.start, End: a.end, Lowered: wrapped})
+		}
 		out = append(out, wrapped...)
 	}
 	return out

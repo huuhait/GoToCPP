@@ -555,8 +555,8 @@ func (c *completer) lexical() {
 			if declScope != scope || c.names[name] {
 				continue // declared after the cursor, or shadowed
 			}
-			if pn, ok := obj.(*types.PkgName); ok && (pn.Imported().Path() == "C" || pn.Imported().Path() == load.CgohPath) {
-				continue // the import "C" that the loader adds, and check's hidden import (gp_cgoh)
+			if pn, ok := obj.(*types.PkgName); ok && (pn.Imported().Path() == "C" || pn.Imported().Path() == load.CgohPath || strings.HasPrefix(pn.Imported().Path(), "gocpp/") && strings.HasPrefix(name, "gp_")) {
+				continue // the import "C" that the loader adds, and the hidden imports of check (gp_cgoh, gp_must)
 			}
 			if name == "iota" && obj.Parent() == types.Universe && !inConst {
 				continue

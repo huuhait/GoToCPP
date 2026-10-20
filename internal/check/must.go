@@ -112,6 +112,9 @@ type mustFunc struct {
 	// whose error the real main or init prints before the program exits (Package.Must).
 	name string
 	exit bool
+
+	// bang is the place of the ! after the name.
+	bang token.Pos
 }
 
 const (
@@ -132,6 +135,9 @@ type mustCall struct {
 
 	// deferred says that the call is the call of a defer statement.
 	deferred bool
+
+	// bang is the place of the `!` the user wrote after the name (explicit calls only).
+	bang token.Pos
 
 	// fn is the function that the call is in: a func declaration or a func
 	// literal (nil at package level).
@@ -164,7 +170,9 @@ func newMustPass(fset *token.FileSet, lp *load.Package) *mustPass {
 	}
 	if mp != nil {
 		for _, f := range lp.Files {
-			mp.files = append(mp.files, f.AST)
+			if f.AST != nil { // (a file that did not parse at all has none)
+				mp.files = append(mp.files, f.AST)
+			}
 		}
 	}
 	return mp
@@ -248,7 +256,7 @@ func (mp *mustPass) prepare() {
 // prepareFunc rewrites the signature and the returns of the must function fd.
 func (mp *mustPass) prepareFunc(f *ast.File, fd *ast.FuncDecl) {
 	fd.Name.Name = gpast.MustBase(fd.Name.Name)
-	mf := &mustFunc{decl: fd, file: f, name: fd.Name.Name}
+	mf := &mustFunc{decl: fd, file: f, name: fd.Name.Name, bang: fd.Name.NamePos + token.Pos(len(fd.Name.Name))}
 	mp.funcs[fd] = mf
 	mp.order = append(mp.order, mf)
 	if fd.Recv == nil && fd.Name.Name == "init" || fd.Recv == nil && fd.Name.Name == "main" && f.Name.Name == "main" {
@@ -362,6 +370,7 @@ func (mp *mustPass) visitExplicit(st *site) {
 	if id == nil || !gpast.IsMust(id.Name) {
 		return
 	}
+	bang := id.NamePos + token.Pos(len(id.Name)-1) // the ! ends the name
 	id.Name = gpast.MustBase(id.Name)
 	arity := 1
 	switch st.ctx {
@@ -378,7 +387,7 @@ func (mp *mustPass) visitExplicit(st *site) {
 		mp.errorf(st.call, "%s!(...) can give at most 3 values besides the error, not %d", id.Name, arity)
 		return
 	}
-	mp.wrap(st, arity, true)
+	mp.wrap(st, arity, true).bang = bang
 }
 
 // wrap replaces the call of the site by the helper call that gives arity

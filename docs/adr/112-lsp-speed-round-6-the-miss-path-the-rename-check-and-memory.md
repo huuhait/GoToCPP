@@ -91,6 +91,19 @@ both servers fail alike. The original gate was rerun with that reply-accounting 
    (`debug.SetMemoryLimit`: 256 MiB, or 1.4 times the live heap and 64 MiB; not when the user set
    GOMEMLIMIT) and three checks kept for each package (`cache.keptVersions`: an edit and its undo
    still hit) make it 370 MiB (494 MiB with neither, measured alternating).
+4a. **Patched-file variants have their own bounded ownership cohort** (step 11.13 memory follow-up, after the
+   reviewed normal-parser integration). `PackageWithFile` continues to use its complete variant namespace,
+   original-input, replacement-content, imported-API and configuration keys. Its successful and completed-error
+   results now use a separate instance of the existing hash-only `versionKeeper`: at most the latest three
+   patched-file versions per package, separately from the ordinary three edit/undo versions, in the same
+   globally cost-capped memo store. This is not a second result cache or a changed global memory limit.
+   `ForgetIf` removes only a completed entry's store ownership; it does not cancel an in-flight promise,
+   mutate the returned package or invalidate a request/snapshot/repair-view holder. Pending computations may
+   outlive a dropped keeper hash and are noted again on completion. Ordinary cache behavior and the global
+   cap (including its existing one-oversized-value rule) remain unchanged. No request-time GC or pacer tuning
+   is introduced. Deterministic/race tests cover unique/error variants, live holders, ordinary/variant isolation,
+   original/config/API keys, reverts, concurrent snapshots, coalescing and canceled waiters. Separate profiling
+   proof and joint latency/RSS measurements are recorded in [the step 11.13 evidence](../benchmarks/lsp-step-11.13.md).
 5. **Warming.** After the first diagnostics of a package the server checks the packages that import it,
    in the background, one or two at a time, each when nothing else is in flight, at most 96 and
    while the check cache is under half full (`warm.go`; `-no-warm`): the first references of a name
@@ -167,6 +180,12 @@ errors, partial/provisional/stale checks, repaired trees, opaque expressions/typ
 foreign rewrites, directives, macros or bang origins. The declaring snapshot must establish
 that it has no test files, and no test checks may be involved. A package memo stores only
 immutable checked-package eligibility facts; mutable probe state is checked separately.
+The step-11.13 combined integration additionally records immutable patched-input origin in the computed
+check key and copies it to `Package` before memo publication. `Package.IsVariant` is rejected before the
+ordinary-facts memo, even for byte-identical or complete plain-Go overrides. Cached hits, late completions,
+evicted/recomputed variants and active holders keep that origin; no caller/view label can relabel them.
+This closes a conservative origin gap found by an integration probe without weakening eligible ordinary
+positives, which still prove zero declaring-package scratch checks against a positive full-check count.
 The checked identifier index must show that every own-package declaration/use of the function
 is an edit, with a known scope. Unknown or missing facts fall back to the unchanged scratch
 checker. Binding is unchanged, so this function-name change changes neither its type nor any

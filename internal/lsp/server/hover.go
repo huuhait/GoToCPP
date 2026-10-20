@@ -16,6 +16,7 @@ import (
 	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
+	"github.com/huuhait/gocpp/internal/syntax/gpast"
 	"github.com/huuhait/gocpp/internal/syntax/parser"
 )
 
@@ -40,6 +41,8 @@ type hoverResult struct {
 	// text is plain text after the signature, for the hovers that have
 	// no doc comment of their own (C/C++ names, header imports).
 	text string
+	// expansion is Go code after the text and the doc: what a `!` or a macro use becomes (step 11.13).
+	expansion string
 }
 
 func (s *Server) hover(ctx context.Context, e env, params json.RawMessage) (any, error) {
@@ -47,11 +50,7 @@ func (s *Server) hover(ctx context.Context, e env, params json.RawMessage) (any,
 	if err != nil {
 		return nil, err
 	}
-	q, err := newQuery(ctx, e.snapshot, p.TextDocument.URI, p.Position)
-	if q == nil || err != nil {
-		return nil, err
-	}
-	h, rng, err := q.hover(ctx)
+	h, rng, err := s.hoverAt(ctx, e, p, true)
 	if h == nil || err != nil {
 		return nil, err
 	}
@@ -61,6 +60,36 @@ func (s *Server) hover(ctx context.Context, e env, params json.RawMessage) (any,
 		kind = protocol.Markdown
 	}
 	return &protocol.Hover{Contents: protocol.MarkupContent{Kind: kind, Value: h.format(markdown)}, Range: rng}, nil
+}
+
+// hoverAt returns the hover at the place of p, or nil. For a file with a syntax error it may come from a view of an older
+// text (stale.go) when allowStale is true, moved to the text of the request; when the range of the hover cannot be moved
+// (a word next to the change), the hover is made again from a view of the text itself.
+func (s *Server) hoverAt(ctx context.Context, e env, p protocol.TextDocumentPositionParams, allowStale bool) (*hoverResult, protocol.Range, error) {
+	q, err := newHoverQuery(ctx, e, p.TextDocument.URI, p.Position, allowStale)
+	if q == nil || err != nil {
+		return nil, protocol.Range{}, err
+	}
+	defer q.close()
+	h, rng, err := q.hover(ctx)
+	if q.isFixed && err == nil && (h == nil || strings.Contains(h.signature, "invalid type")) && q.origFn != nil {
+		// The repaired check has no answer (or an invalid one) where the text as it is has: a name that a blanked
+		// declaration declares (a type), say.
+		if o := q.origFn(); o != nil {
+			if h2, rng2, err2 := o.hover(ctx); err2 == nil && h2 != nil {
+				h, rng = h2, rng2
+			}
+		}
+	}
+	if h != nil && err == nil && q.shift != nil {
+		nr, ok := q.newRange(rng)
+		if !ok {
+			q.close()
+			return s.hoverAt(ctx, e, p, false)
+		}
+		rng = nr
+	}
+	return h, rng, err
 }
 
 // hover returns the hover at the place of q and the range it is for, or
@@ -106,16 +135,34 @@ func (q *query) hover(ctx context.Context) (*hoverResult, protocol.Range, error)
 			}
 		}
 	}
+	// The # and the name of a #Derive line (step 11.13).
+	if h, rng := q.deriveHover(); h != nil {
+		return h, rng, nil
+	}
 	// A C/C++ name.
 	if h, n := q.cppHover(); h != nil {
 		return h, q.rangeOf(n.Pos(), n.End()), nil
 	}
 	id, path := identAt(q.file, q.pos)
+	// The name of a `!` call that the lowering moved (code of its own: a loop's condition, a deferred call, the
+	// second operand of &&, a chain): the call has its place, and its name the checker's object.
+	var moved *bangCall
+	if c := q.bang().callAt(q.pos); c != nil && id == nil && q.objectAt(c.Callee) != nil {
+		moved = c
+		id, path = c.Callee, nil
+	}
 	if id == nil {
+		if f := q.bang().funcAt(q.pos); f != nil {
+			h, rng := q.exitFuncHover(f)
+			return h, rng, nil
+		}
 		return nil, protocol.Range{}, nil
 	}
 	obj := q.objectAt(id)
 	rng := q.rangeOf(id.Pos(), id.End())
+	if moved != nil {
+		rng = q.rangeOf(moved.Name, moved.Name+token.Pos(len(id.Name)))
+	}
 	if len(path) > 0 {
 		// A cgo helper, C.GoString, which check rewrote to a function of its hidden package.
 		if sel, ok := path[len(path)-1].(*ast.SelectorExpr); ok {
@@ -164,6 +211,14 @@ func (q *query) hover(ctx context.Context) (*hoverResult, protocol.Range, error)
 		return h, rng, err
 	}
 	h, err := q.objectHover(ctx, obj, id, path)
+	if h != nil && err == nil {
+		c := moved
+		if c == nil {
+			c = q.bang().callOf(id)
+		}
+		q.bangHover(h, obj, c)
+		q.macroUseHover(h, id)
+	}
 	return h, rng, err
 }
 
@@ -234,6 +289,12 @@ func (q *query) objectHover(ctx context.Context, obj types.Object, id *ast.Ident
 	h.signature = q.objectString(obj, qual, d)
 	if sig := q.macroOf(obj); sig != nil {
 		h.signature = sig.Sig // macro Assert(cond bool, msg lazy string), not the hidden parameters of its function
+	}
+	if d != nil {
+		if fd, ok := d.decl.(*ast.FuncDecl); ok && fd.Name != nil && gpast.IsMust(fd.Name.Name) {
+			// A must function (step 11.13): the signature above is the one callers see; this is the one written.
+			h.text = joinParas(h.text, mustFuncNote(mustDecl(d.pf.Fset, fd)))
+		}
 	}
 	if v, ok := obj.(*types.Var); ok && q.cppValue(v) {
 		// x := lib.f(): its type comes from C/C++, and has no spelling.
@@ -579,6 +640,7 @@ func (h *hoverResult) format(markdown bool) string {
 	sections := [][]string{
 		{fenced(h.signature)},
 		{text, doc, fenced(h.methods)},
+		{fenced(h.expansion)},
 		{h.footer},
 	}
 	var b strings.Builder

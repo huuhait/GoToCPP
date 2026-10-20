@@ -12,7 +12,8 @@ import "sync"
 // asked for. (A snapshot that holds a package keeps its check anyway.)
 const keptVersions = 3
 
-// A versionKeeper remembers the keys of the latest checks of each package.
+// A versionKeeper remembers only hashes, never packages. The pipeline uses separate keepers for ordinary
+// and patched-file cohorts; both evict from the same cost-capped store without changing live holders.
 type versionKeeper struct {
 	mu   sync.Mutex
 	keys map[pkgID][]Hash // oldest first

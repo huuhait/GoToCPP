@@ -1,7 +1,7 @@
 # gocpp plan · STATE
 
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Current focus:** Phases 00-05 and 07 done. Nearly done: 06 (open: 6.4 `gp::lazy<T>`, 6.14 plugin test) and 08 (open: one TSan run of `tests/race`). Under way: 09 (open: 9.10, 9.12, 9.13; native-fmt audit and tier-2 packages merged), 10 (10.11-10.13), 11 (11.13 latency work; round 6 integrated, performance vs gopls still open), 12 (12.7+), 13 (13.3b missing vet analyzers), 14 (14.2, 14.5-14.8), 15 (15.2, 15.4, 15.6, 15.7, 15.12, 15.16; receiver/parameter optimization merged). See [HANDOFF.md](HANDOFF.md).
+**Current focus:** Phases 00-05 and 07 done. Nearly done: 06 (open: 6.4 `gp::lazy<T>`, 6.14 plugin test) and 08 (open: one TSan run of `tests/race`). Under way: 09 (open: 9.10, 9.12, 9.13; native-fmt audit and tier-2 packages merged), 10 (10.11-10.13), 11 (11.13 editor support merged; final performance vs gopls and editor acceptance still open), 12 (12.7+), 13 (13.3b missing vet analyzers), 14 (14.2, 14.5-14.8), 15 (15.2, 15.4, 15.6, 15.7, 15.12, 15.16; receiver/parameter optimization merged). See [HANDOFF.md](HANDOFF.md).
 **Last updated:** 2026-10-20
 **Migration:** done; the project runs on the larger server (128 cores, about 200 GB RAM). [HANDOFF.md](HANDOFF.md) says what is where.
 
