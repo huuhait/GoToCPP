@@ -11,8 +11,8 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 ## Now: resumed jobs (2026-10-20)
 
 - [~] 11.14: guarded-check implementation integrated after clean review and manager focused checks; measure the final build and continue the remaining typing gaps. Every-row gopls acceptance remains open.
-- [~] 12.14: independent re-review after removing the unsound smaller preamble and fixing
-  prefetch cancellation while preserving the independent PCH improvements.
+- [~] 12.14: safe PCH/prefetch implementation integrated after clean review and manager checks.
+  Smaller preambles were withdrawn; continue the remaining cold-probing performance work.
   Keep cold first-run performance separate from a run that retains a precompiled header;
   the < 0.5 s exit criterion is not yet met for every example.
 - [~] 15.2: independent whole-net re-review after fixes for local-array element references,

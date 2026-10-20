@@ -1,8 +1,8 @@
-# Typed interop: the collector, the probe, the declarations, the type mapper, the checker, the code generation, the constants, the promoted members, bindgen and the mode (steps 12.1 to 12.12)
+# Typed interop: the collector, the probe, the declarations, the type mapper, the checker, the code generation, the constants, the promoted members, bindgen and the mode (steps 12.1 to 12.14)
 
 Typed interop (Phase 12, [README](../../plans/2026-10-13-gocpp/phase-12-typed-interop/README.md))
 asks **clang** for the real C++ types of exactly the C/C++ names that a program uses. This
-document is the contract of the first eleven steps, which every later step builds on (§5 and §6 are
+document is the contract of the first eleven steps (and of step 12.14 for the cost of the cold run), which every later step builds on (§5 and §6 are
 steps 12.3 and 12.4, §7 is step 12.5, §8 is step 12.6, §9 is step 12.7, §10 is step 12.8, §11 is step 12.9, §12 is step 12.10, §13 is step 12.11):
 
 | Step | Package | What it does |
@@ -17,6 +17,7 @@ steps 12.3 and 12.4, §7 is step 12.5, §8 is step 12.6, §9 is step 12.7, §10 
 | 12.9 promoted members (gap E2) | `internal/check` (`cppmembers.go`), `internal/typedinterop` (`members.go`), `.../collect` (`members.go`) | asks the compiler which embedded C++ class has which member name and applies Go's rule of selectors (§11) |
 | 12.10 bindgen | `internal/typedinterop/bindgen`, `cmd/gocpp/bindgen.go` | `gocpp bindgen`: a readable Go-syntax view of a header, made from the preprocessor, the AST dump and the probe (§12) |
 | 12.11 mode | `internal/typedinterop` (`mode.go`), `cmd/gocpp/interop.go` | `-interop=typed`/`opaque`/`auto`, `GOCPP_INTEROP`, the clang-missing fallback, and the wiring of the steps above into `check`, `build`, `run`, `emit`, `test`, `vet` and `expand` (§13) |
+| 12.14 cold probing | `internal/typedinterop/probe` (`pch.go`, `includes.go`, `decls.go`), `internal/interop` (`nscache.go`) | a precompiled header of the library block for probe/function runs, the includes question asked beside the compile, full preambles for all type dumps, and the kind probe's first miss starts the header (§2.2, §9, §14.3, ADR-117) |
 | glue | `internal/typedinterop` | `Analyze(ctx, pkg, fset, opts)`: collect, kind probe, probe, and with `Options.Decls` the declarations and the mapping; `Report` (JSON for the developer tool) |
 
 Nothing in the opaque pipeline uses these packages: they are additive. The only change outside
@@ -178,6 +179,21 @@ file is 162 MB.)
   when the run ends (timeout, cancel, or error), temporary files (the probe file and the
   dependency file) live in a folder that is removed on every path. A compiler that dies in the
   middle of the dump is reported with its signal and its messages, like one that dies at once.
+- **The library block is precompiled (step 12.14, ADR-117).** Every probe file starts with the same 18 library headers
+  (`stdHeaders`), which clang parses again in each run (0.3 s). The probe runs and the function runs of the declarations
+  load a precompiled header of that block instead (`-include-pch`, `probe/pch.go`; §9 says where it is kept and when it is
+  stale); the file keeps its `#include` lines, so no line moves and no answer changes. The type runs of the declarations do
+  not load it: clang reads the members of a class that comes from a precompiled header only when something uses them, and
+  the JSON dump prints the members read so far (`std::mutex` without its methods, `struct _IO_FILE` with a tenth of its
+  fields). **Every type dump parses the full block**, whether its requested types are spelled with `std::` or not.
+  The earlier smaller-preamble optimization and its approval memo were removed after review: equal preprocessor
+  output is not equal C++ name lookup. With `using namespace std`, a `requires` expression calling `begin(x)` can
+  succeed only with the full block's `std::begin`; both compiles succeed but select different member types and layouts.
+  The review example gave size/alignment 16/8 with the full block and 8/4 with the smaller one on Linux, while both
+  GCC and Clang runtime preludes agreed with 16/8. A textual heuristic and retry-on-error cannot detect that case.
+  The ordinary declaration cache still invalidates on dependency contents, including edits within the same Runner.
+  The tests compare the declarations made from the dumps, not byte-identical dump text. `GOCPP_PROBE_PCH=off`
+  (also `0`, `false`, `no`) disables PCH use; `wait` makes eligible runs wait for a header that is being made.
 - `Table.Deps` are the headers that clang read (from the `-MD` file) and the places in front of
   them where the same top-level include would hide them (the package folder, `-iquote` and `-I`
   folders that come first): a missing file has its own hash, so the appearance of a shadowing
@@ -586,6 +602,35 @@ probes, the declaration parts and their refusals.
   test binaries use none unless it is set). A file has a checksum line; writes are atomic (rename); bad files are
   misses. At most 100,000 entries and 256 MB, 90 days unused (`Prune`: at the first write of a process and every
   512 writes, and not within an hour of the last pruning, the time of the file `.pruned`); a read refreshes the time. Read-only folders fall back to memory. `gocpp clean -cache` removes it.
+- **The precompiled header of the library block (step 12.14, ADR-117).** `<probe cache>/pch/ab/<hash>.pch`, with
+  `<hash>.hpp` (the block, which clang names as an input file of the header) and `<hash>.json` (the files it read, and the
+  hash of their contents). The key is the compiler, the flags and the environment of the include path, the toolchain and the
+  text of the block, not the package folder: it is **per compiler and flag set**, so the packages that compile with the same
+  flags share it and a package whose flags differ (the `-I` folders of `pkg-config`) has one of its own; the 4 newest are
+  kept, so a machine that checks more than 4 flag sets keeps making them again. It may be used while the hash of the
+  contents of the files it was made from, completed by `finalDeps` as for a probe result (a library header that is edited,
+  or one that appears earlier on the search path), is what it was; otherwise it is made again. Built with
+  `-fvalidate-ast-input-files-content`, one build per key per process and a lock per key between processes, written under a
+  temporary name and renamed (the source `.hpp` too, and not again if the text is the same); after taking the lock a process
+  looks for the files again. The 4 newest are kept (`prunePCH`; the age, count and size limits of the other entries leave
+  them alone), and what a killed build left (`.tmp-*`, a `.pch` or `.hpp` with no `.json`) goes when it is 10 minutes old.
+  The `.json` has the size of the `.pch`: a file of another size is not used. The dependency list of a run that loaded it is the one the same run has without it, so the keys of results do
+  not change. A run is never held back by a build that has just started (it runs without the header; a build older than
+  200 ms is waited for, at most 400 ms); the kind probe's first miss starts the build beside it (a compiler outside the `Jobs()`
+  gate, like the build, and the toolchain question of that hook, which is asked in the hook). The build ends with the command
+  (`SetBuildContext`: an interrupt kills its compiler), and a call that started builds waits for them (`WaitPCH`) at most 6 s,
+  then stops them. A run that loaded the header, made no declaration and failed is made again without it: if the second run
+  fails in the same way the failure is the program's, otherwise the header is deleted (the compiler said "malformed",
+  "corrupt" or the like, or the second run succeeded), and a file refused twice is not used again by the process
+  (`PCHRechecks` counts the runs made again). No cache folder, a compiler that is not clang, `-march=native` in the flags, a
+  relative folder on the include path (`-I include`, `CPATH=inc`: the build runs in another folder than the package's) or
+  `GOCPP_PROBE_PCH=off`: no header. Counters: `PCHBuilds`, `PCHUses`, `PCHRejects`, `PCHRechecks`.
+- **The includes question beside the compile.** The `-E -dI` run of a preamble (above) is started with the compile run that
+  will need its answer (`prefetchInfo`); runs of the same preamble that start within a second share one question, an earlier
+  answer that is still valid skips it, and a header that changes meanwhile is covered by `racyDeps`. The await honors
+  caller cancellation and releases that caller's reference. Only the last reference cancels and joins the auxiliary
+  compiler, so a live waiter keeps its shared run. Published scanner output is immutable; each live waiter computes
+  completeness on its own copy. A canceled await returns incomplete information, which is not memoized; a canceled caller does not persist probe results, declarations or PCH metadata after the await.
 - **Processes.** A lock file per key (`locks/`, with the machine's name and the process id): a process that finds the lock waits (at most the run's limit
   plus 15 s; the context ends it) and looks again; the lock of a process of this machine that is gone is taken over at once. Counters: `probe.CacheCounters()`.
 - **Parallelism.** `Jobs()` (`GOCPP_PROBE_JOBS`, default `min(8, NumCPU/2)`) compilers at the same time in the
@@ -1081,8 +1126,10 @@ in this step: `gocpp check` did not keep the compiler detection between runs (`b
 so every warm typed check started clang++ twice (0.3 s on a loaded machine). The cold runs fill the probe cache (§9) with
 one compiler run for the kinds, one batch of the probes and a run for each declaration group, three stages one after
 the other; most of the time is the parsing of the C++ library's headers by clang (2 to 5 CPU seconds for the examples).
-**The cold cost is above the 0.5 s of the exit criterion** for every example but `raylib` (0.9 s), which is one of the
-reasons the default stays opaque (§13.6).
+**The cold cost exceeded the 0.5 s exit criterion** in the earlier measurements. Step 12.14 retains PCH acceleration
+for expression/function probes and overlaps include discovery, but review removed its unsound smaller type preamble
+(ADR-117, §14.3). Measurements made with that preamble are historical, not current acceptance evidence. A retained-PCH
+check is not a fully cold check. The all-example cold criterion remains open, keeping the default opaque (§13.6).
 
 ### 13.8 Tests
 
@@ -1110,6 +1157,7 @@ step adds what was missing and measures the three numbers that the exit criteria
 | E1 (`[cstdio.BUFSIZ]byte`) | `tests/typed/macro_consts.gp` (typed builds and runs, `// opaque: reject`), `TestTypedConsts` (the opaque gate message) |
 | E2 (embedded `std.vector[int]`) | `tests/typed/embed_promoted.gp` (`// opaque: reject`), `TestTypedEmbedInterop`, `TestTypedCheckPromoted` |
 | Float and string macros | `tests/typed/macro_consts.gp` (`TAU`, `TENTH`, `GREETING`, `SEP`, `ESC`), `TestConstZoo`, `TestConstBigIntIsExact` |
+| PCH acceleration changes no answer; type dumps keep the full preamble | `TestPCHOracle` (`tests/pchoracle_test.go`) compares `gocpp __typed-probe -decls -stable` with PCH `off` and `wait`, using empty caches. It now requires equal declaration dependencies too (no subset exception). The previous 286-program phase-12 run predates the smaller-preamble removal; no full oracle rerun is claimed for round 3. Focused tests: `TestPCHAnswersAreTheSameAsWithout`, `TestPCHTypeRunsKeepTheMembers`, `TestPCHCutOffIsMadeAgainWithTheSameAnswers`, `TestTypeRunsKeepFullBlockAnswers`, `TestTypeRunsKeepFullBlockPreprocessor`, `TestTypeRunsKeepFullBlockNameLookup`, `TestTypeRunsHeaderEditKeepsFullBlock`; fake-compiler tests retain PCH lifecycle/invalidation checks and add `TestIncludeInfoCancellationReleasesLastWaiter`, `TestIncludeInfoCancellationPreservesSharedWaiter` and `TestIncludeInfoConcurrentLiveWaiters` |
 | A header edit invalidates the probes | `TestTypedHeaderEditInvalidatesProbes` (`cmd/gocpp`: edits that keep the size and the modification time, a macro value and a signature; an unedited header and a return to an old one run no compiler), the cache tests of `probe` (`TestCacheHeaderEditInvalidates` and others) |
 | Warm builds add little | `TestTypedWarmRunsNoCompiler` (for a warm check of each example: 0 probe-cache compiler runs and 0 calls that reach clang++, counted by a logging wrapper; no clock), `BenchmarkTypedCheck`, `BenchmarkWarmProbe` |
 | JSON of other clang versions | `TestReaderIgnoresWhatItDoesNotKnow`, `TestReaderOfRecordsIgnoresWhatItDoesNotKnow`, `TestReaderOfATruncatedDump` (§14.4), `tools/clang-matrix.sh` |
@@ -1125,29 +1173,78 @@ for `TestCorpusTyped`, so it is the one to run after a change to the checker or 
 
 ### 14.3 Speed
 
-`BenchmarkTypedCheck` (`cmd/gocpp`, `go test -run '^$' -bench TypedCheck -benchtime 10x ./cmd/gocpp`) runs `gocpp check .` as a
+`BenchmarkTypedCheck` (`cmd/gocpp`, `go test -run '^$' -bench TypedCheck -benchtime 7x -count 3 ./cmd/gocpp`) runs `gocpp check .` as a
 process on each example that imports a header; the cache folders are new for each "cold" run and kept for a "warm" one (the
-compiler-detection cache is on, as a user has it). Median of 10 runs on 2026-10-20, the machine at a load of 20 to 30; times in ms:
+compiler-detection cache is on, as a user has it). The variants:
 
-| Example | opaque cold | typed cold | probing (typed - opaque, cold) | opaque warm | typed warm | warm overhead |
+- `opaque-cold`, `typed-cold`: empty cache folder. For typed this is the **first check of a flag set on a machine**: it makes the precompiled header (§9), which is per compiler and flag set.
+- `typed-cold-nopch`: the same with `GOCPP_PROBE_PCH=off` (no PCH; full type preambles and prefetched include discovery).
+- `typed-cold-pch`: no results or toolchain answer, but the PCH that an earlier run of the **same package** made. This is
+  **retained-PCH / partial-cache**, not a fully cold check. A package with different `pkg-config` flags needs its own PCH.
+- `opaque-warm`, `typed-warm`: the caches of the first run.
+
+Step 12.12 measured (2026-10-20, median of 10, load 20 to 30), typed minus opaque, cold: `cpp-std` 2.04 s, `mixed-sources` 1.81, `multi-pkg` 0.51,
+`raylib` 1.03, `sqlite` 1.26.
+
+**Historical step-12.14 measurements, before round-3 smaller-preamble removal.** These numbers used the withdrawn
+optimization and are not the performance of the current implementation. Median of 7 runs, two repeats, on a 192-core
+machine at load 22 to 30; the spread of the two medians is in brackets; times in ms. No other example row has been
+remeasured in round 3; only the separate `raylib` measurements below are current.
+
+| Historical example | opaque cold | typed cold (first flag set) | retained-PCH (not fully cold) | typed cold, PCH off | opaque warm | typed warm |
 |---|---|---|---|---|---|---|
-| `cpp-std` | 465 | 2507 | **2040** | 37 | 66 | 28 |
-| `mixed-sources` | 258 | 2069 | **1810** | 53 | 56 | 3 |
-| `multi-pkg` | 68 | 576 | **510** | 43 | 36 | 0 |
-| `raylib` | 72 | 1097 | **1030** | 42 | 65 | 23 |
-| `sqlite` | 72 | 1327 | **1260** | 113 (noise) | 64 | 0 to 25 |
+| `cpp-std` | 406 | 1975 [1974-1976] | 1999 [1973-2024] | 2127 [2091-2163] | 33 | 57 [51-62] |
+| `mixed-sources` | 231 [229-233] | 1615 [1606-1623] | 1529 [1502-1555] | 2094 [2091-2096] | 38 | 54 [48-60] |
+| `multi-pkg` | 65 [64-66] | 505 [496-514] | 286 [284-288] | 525 [519-530] | 41 | 30 [30-31] |
+| `raylib` | 54 | 560 [551-569] | 354 [353-356] | 792 [767-817] | 32 | 43 [43-44] |
+| `sqlite` | 49 | 566 [559-573] | 379 [379-380] | 1062 [1050-1073] | 33 | 43 [40-45] |
 
-A quiet-machine run of the real `gocpp` binary gave the warm overhead as 22 to 30 ms (`cpp-std` 30, `sqlite` 25, `raylib` 22).
+Historical typed-minus-opaque differences, in seconds; the retained-PCH column is partial-cache, not fully cold:
 
-- **Warm overhead < 50 ms: met** (0 to 30 ms).
-- **Cold probing < 0.5 s per example package: not met.** 0.5 s for `multi-pkg`, 1.0 to 2.0 s for the others. A cold check of `cpp-std`
-  runs clang++ about a dozen times (the detection, the kind probe, the probe, four declaration dumps, three `-E` runs for the includes and the search path),
-  about 0.5 s each for the library's headers; the dumps run in parallel but the stages (kinds, probes, declarations) do not.
-  An experiment (`clang++ -x c++-header` of the preamble, then `-include-pch`) shows what a precompiled header would do: building
-  it costs 0.62 s once, and a run on it takes 0.10 s instead of 0.51 s (0.22 s with the JSON dump). That makes the second and later
-  cold packages of a program fast, but the first one only slightly faster (one PCH build plus runs of 0.1 to 0.2 s), so a cold first
-  check stays near 1 s. Under 0.5 s on the first run needs a primed cache (ADR-108, measurement 2) or a changed criterion; this step
-  does not change the product's behavior, and the criterion is reported as not met.
+| Historical example | 12.12 | PCH off (old 12.14) | first flag set (old 12.14) | retained-PCH (old 12.14) |
+|---|---|---|---|---|
+| `cpp-std` | 2.04 | 1.72 | 1.57 | 1.59 |
+| `mixed-sources` | 1.81 | 1.86 | 1.38 | 1.30 |
+| `multi-pkg` | 0.51 | 0.46 | 0.44 | **0.22** |
+| `raylib` | 1.03 | 0.74 | 0.51 | **0.30** |
+| `sqlite` | 1.26 | 1.01 | 0.52 | **0.33** |
+
+These historical numbers include the removed three-run preprocessor-equivalence check and smaller type preambles.
+The retained-PCH variant primes with the **same package** (`keepOnlyHeader` removes everything but `pch/`). A PCH is
+per flag set: packages with different `-I` folders need separate headers. Its partial-cache savings do not meet a
+criterion that requires an empty cache. The later independent round-2 `raylib` benchmark, also before removal, found
+604–609 ms fully cold typed versus 62–63 ms opaque: a 0.541–0.546 s difference, already above the target.
+
+**Current round-3 measurement (2026-10-20).** Only `raylib` was remeasured after restoring full type preambles:
+`go test ./cmd/gocpp -run '^$' -bench '^BenchmarkTypedCheck$/^raylib$/' -benchtime=7x -count=2`, through the shared
+test slot with isolated offline caches and phase 12. Linux/amd64, Clang 21, 192 logical CPUs (Threadripper PRO 9995WX);
+the two columns are independent medians of 7 checks, in ms. Machine load was not recorded.
+
+| `raylib` variant | first median | second median |
+|---|---:|---:|
+| opaque, fully cold | 65.30 | 62.22 |
+| typed, fully cold (first PCH build included) | 917.3 | 911.5 |
+| typed, fully cold with PCH off | 935.3 | 938.6 |
+| typed, retained-PCH / partial-cache | 714.1 | 710.7 |
+| opaque, warm | 36.02 | 37.05 |
+| typed, warm | 57.48 | 57.07 |
+
+The fully cold typed-minus-opaque difference is **0.849–0.852 s**, above 0.5 s. Even the retained-PCH difference is
+0.648–0.649 s; it is not cold acceptance evidence. Warm overhead is 20–21 ms for this example only. Restoring full
+preambles materially increases `raylib`'s type-dump cost; no current result is inferred for the other four examples.
+A focused `TestPCHOracle/examples_raylib_main.gp` also passed with the new exact dependency comparison; that is one
+program, not a rerun of the 286-program oracle.
+
+**Current tradeoff and acceptance.** All type dumps now parse the full library block (§2.2), without a PCH. This gives up
+the unsafe smaller-preamble saving while preserving independent PCH acceleration for expression/function runs and
+include prefetch. The old tables cannot establish either current warm overhead or a current all-example cold bound.
+The <0.5 s fully cold criterion is **not accepted**. Only a narrow `raylib` repeat is made in round 3; other example
+rows remain historical, and the full oracle/matrix are left for independent/manual verification.
+
+Packages whose own headers include `<algorithm>`, `<filesystem>` and `<map>` still parse those headers in multiple
+stages. Full type dumps also parse the common library block, regardless of type spelling, because neither PCH loading
+nor preprocessor-equivalence heuristics preserve their required semantics. Speculative kind probing or a package PCH
+for expression/function runs could be investigated separately; no unmeasured floor or future speedup is claimed.
 
 ### 14.4 Clang versions
 

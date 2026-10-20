@@ -18,6 +18,9 @@ func TestMain(m *testing.M) {
 	// A header that a test writes is not racy for the cache (the tests of the rule set the window).
 	initialRacyWindow = racyWindow
 	racyWindow = 0
+	// The tests of the cache count the runs of fake compilers: a precompiled header would be one
+	// more (pch_test.go turns it on for the tests that are about it).
+	os.Setenv(EnvPCH, "off")
 	lockMargin = time.Second
 	lockWaitCap = 8 * time.Second
 	tsupport.Main(m)

@@ -458,6 +458,7 @@ func (rn *Runner) diskFor(cfg Config) (dir string, write bool) {
 var selfID = interop.SelfID
 
 func (rn *Runner) probeSource(ctx context.Context, cfg Config, src *Source) (*Table, error) {
+	defer rn.WaitPCH(ctx) // (no compiler of this call outlives it: pch.go)
 	t0 := time.Now()
 	t := &Table{Source: src, Results: make([]Result, src.NRefs), Compiler: compilerID(cfg.CXX)}
 	for id := range t.Results {
@@ -751,13 +752,22 @@ func (rn *Runner) runGroup(ctx context.Context, cfg Config, src *Source, pre, di
 			return nil, true, nil
 		}
 	}
+	// The question of finalDeps about the includes of the preamble does not wait for the compile.
+	ictx, endInfo := ctx, func() {}
+	if len(src.Includes) > 0 { // (a text with no header of the package is not asked: includeInfo)
+		ictx, endInfo = rn.prefetchInfo(ctx, cfg, src.Preamble)
+	}
+	defer endInfo()
 	start := time.Now()
 	out, _, err = rn.compileGroup(ctx, cfg, src, units)
 	if err != nil {
 		return nil, false, err
 	}
 	// Store before the flight and the lock are let go: whoever waited for them finds the results.
-	deps := rn.finalDeps(ctx, cfg, src.Preamble, src.Includes, out.deps, out.headers, tc)
+	deps := rn.finalDeps(ictx, cfg, src.Preamble, src.Includes, out.deps, out.headers, tc)
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
 	out.deps, out.depsHash = deps, DepsHash(deps)
 	// A header that changed while the compiler ran (or just before it) may be read in the old
 	// contents and hashed in the new: such a result is not kept anywhere.
@@ -801,7 +811,7 @@ func (rn *Runner) compileGroup(ctx context.Context, cfg Config, full *Source, un
 	founds := make(map[probeName]*found)
 	var parse time.Duration
 	tab := &Table{Source: b.src, Results: make([]Result, full.NRefs)}
-	d, err := runDump(ctx, cfg, b.src.Text, probeDeclPrefix, func(rd RawDecl) error {
+	d, err := runDump(ctx, rn.withPCH(ctx, cfg, b.src.Text), b.src.Text, probeDeclPrefix, func(rd RawDecl) error {
 		pn, ok := parseProbeName(rd.Name)
 		if !ok {
 			return nil

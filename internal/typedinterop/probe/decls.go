@@ -136,6 +136,7 @@ type declPart struct {
 // a failure of the whole call (the context, a compiler that cannot run at
 // all).
 func (rn *Runner) Decls(ctx context.Context, cfg Config, dc DeclConfig, queries []DeclQuery) (*DeclTable, error) {
+	defer rn.WaitPCH(ctx) // (no compiler of this call outlives it: pch.go)
 	t0 := time.Now()
 	out := &DeclTable{Records: map[string]*Record{}, Enums: map[string]*Enum{}, Funcs: map[string]*FuncSet{}, Canon: map[string]string{}, Errors: map[string]string{}}
 	if dc.Parallel <= 0 {
@@ -370,6 +371,11 @@ func (rn *Runner) makePart(ctx context.Context, cfg Config, includes []string, t
 			}
 		}
 	}
+	ictx, endInfo := ctx, func() {}
+	if len(includes) > 0 {
+		ictx, endInfo = rn.prefetchInfo(ctx, cfg, preamble)
+	}
+	defer endInfo()
 	start := time.Now()
 	p, err := run()
 	if err != nil {
@@ -387,7 +393,10 @@ func (rn *Runner) makePart(ctx context.Context, cfg Config, includes []string, t
 	}
 	// (The includes are those of the preamble: the query below it has no directive, and one question serves
 	// every run of the same preamble.)
-	deps = rn.finalDeps(ctx, cfg, preamble, includes, deps, p.header, tc)
+	deps = rn.finalDeps(ictx, cfg, preamble, includes, deps, p.header, tc)
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
 	p.deps = deps
 	body, err := encodePart(p)
 	if err != nil {
@@ -415,8 +424,25 @@ func (rn *Runner) DeclRuns() int {
 // ---------------------------------------------------------------- type runs
 
 func (rn *Runner) typeRun(ctx context.Context, cfg Config, dc DeclConfig, r *typeRun) (*declPart, bool, error) {
+	full := composeTypeRun(dc, r)
+	return rn.memoRun(ctx, cfg, dc.Includes, full.text, full.preamble, func() (*declPart, error) {
+		// Keep the full lookup environment, without a PCH that could hide members from the dump.
+		return runTypeDump(ctx, cfg, full.text, r, full.lineQ)
+	})
+}
+
+// A composedRun is the text of one type run: the file, the part of it that the includes question is asked
+// about (the preamble) and the lines of its queries.
+type composedRun struct {
+	text, preamble string
+	lineQ          map[int]int
+}
+
+// composeTypeRun writes the file of a type run with the full library block of every probe file.
+func composeTypeRun(dc DeclConfig, r *typeRun) composedRun {
 	g := &gen{lines: make(map[int]Line), skipped: make(map[int]string), aliases: make(map[string]bool)}
-	g.preamble("// gocpp typed interop: declaration probe file (generated)", dc.Includes, dc.StringToCStr)
+	title := "// gocpp typed interop: declaration probe file (generated)"
+	g.preamble(title, dc.Includes, dc.StringToCStr)
 	preamble := g.b.String()
 	g.b.WriteString(declHelpers)
 	g.line += strings.Count(declHelpers, "\n")
@@ -441,9 +467,7 @@ func (rn *Runner) typeRun(ctx context.Context, cfg Config, dc DeclConfig, r *typ
 			lineQ[g.line] = i
 		}
 	}
-	return rn.memoRun(ctx, cfg, dc.Includes, g.b.String(), preamble, func() (*declPart, error) {
-		return runTypeDump(ctx, cfg, g.b.String(), r, lineQ)
-	})
+	return composedRun{text: g.b.String(), preamble: preamble, lineQ: lineQ}
 }
 
 // A wanted is what the aliases of one query said.
@@ -664,7 +688,7 @@ func (rn *Runner) funcRun(ctx context.Context, cfg Config, dc DeclConfig, qs []D
 	}
 	text := g.b.String()
 	return rn.memoRun(ctx, cfg, dc.Includes, text, preamble, func() (*declPart, error) {
-		return runFuncDump(ctx, cfg, text, qs, lineQ)
+		return runFuncDump(ctx, rn.withPCH(ctx, cfg, text), text, qs, lineQ)
 	})
 }
 

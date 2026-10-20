@@ -145,6 +145,9 @@ var cacheCount struct {
 	lockLeaks                 atomic.Int64 // locks that could not be removed (they are taken over later as stale)
 	runs                      atomic.Int64 // compiler runs
 	pruned                    atomic.Int64
+	pchBuilds, pchUses        atomic.Int64 // precompiled headers made, and probe runs that loaded one
+	pchRejects                atomic.Int64 // runs whose compiler refused the header
+	pchRechecks               atomic.Int64 // runs that failed with the header and were made again without it
 }
 
 // A Counters is a snapshot of the cache's counters of this process.
@@ -156,19 +159,27 @@ type Counters struct {
 	LockLeaks                 int64
 	Runs                      int64
 	Pruned                    int64
+	PCHBuilds, PCHUses        int64
+	PCHRejects                int64
+	PCHRechecks               int64
 }
 
 // CacheCounters returns the counters of this process.
 func CacheCounters() Counters {
 	c := &cacheCount
 	return Counters{c.memHits.Load(), c.diskHits.Load(), c.misses.Load(), c.stores.Load(), c.storeErrors.Load(),
-		c.corrupt.Load(), c.lockWaits.Load(), c.lockLeaks.Load(), c.runs.Load(), c.pruned.Load()}
+		c.corrupt.Load(), c.lockWaits.Load(), c.lockLeaks.Load(), c.runs.Load(), c.pruned.Load(),
+		c.pchBuilds.Load(), c.pchUses.Load(), c.pchRejects.Load(), c.pchRechecks.Load()}
 }
 
 // ResetCacheCounters sets the counters to zero.
 func ResetCacheCounters() {
 	c := &cacheCount
-	for _, a := range []*atomic.Int64{&c.memHits, &c.diskHits, &c.misses, &c.stores, &c.storeErrors, &c.corrupt, &c.lockWaits, &c.lockLeaks, &c.runs, &c.pruned} {
+	all := []*atomic.Int64{
+		&c.memHits, &c.diskHits, &c.misses, &c.stores, &c.storeErrors, &c.corrupt, &c.lockWaits, &c.lockLeaks,
+		&c.runs, &c.pruned, &c.pchBuilds, &c.pchUses, &c.pchRejects, &c.pchRechecks,
+	}
+	for _, a := range all {
 		a.Store(0)
 	}
 }
@@ -482,6 +493,9 @@ type walked struct {
 func walk(dir string, now time.Time) []walked {
 	var out []walked
 	filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() && p == filepath.Join(dir, "pch") {
+			return fs.SkipDir // (the precompiled headers go by their own count: prunePCH)
+		}
 		if err != nil || d.IsDir() {
 			return nil
 		}

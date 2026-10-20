@@ -145,7 +145,17 @@ func Analyze(ctx context.Context, p *check.Package, fset *token.FileSet, opts Op
 		return rep, nil
 	}
 	t0 := time.Now()
-	if rep.Kinds, rep.IncludeErrors, err = probeKinds(ctx, cxx, p.Load.Dir, p.ProbeFlags, rep.Includes, set); err != nil {
+	// A kind probe that has to ask the compiler says that the probes will too: the precompiled header
+	// of their library block is made beside it (probe/pch.go), and waited for before Analyze returns.
+	// (The Prewarm hook runs where the kind probe asks the compiler, and may itself run the toolchain
+	// question once; the build of the header is not counted by the Jobs() gate.)
+	rn.SetBuildContext(ctx)
+	defer rn.ClearBuildContext()
+	defer rn.WaitPCH(ctx)
+	kctx := interop.WithMissHook(ctx, func() {
+		rn.Prewarm(ctx, cfg)
+	})
+	if rep.Kinds, rep.IncludeErrors, err = probeKinds(kctx, cxx, p.Load.Dir, p.ProbeFlags, rep.Includes, set); err != nil {
 		return nil, err
 	}
 	rep.KindTime = time.Since(t0)

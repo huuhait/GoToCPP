@@ -1,6 +1,6 @@
 # Phase 12: Typed C++ Interop via Clang · STATE
 
-**Status:** `[~]` in progress (12.1-12.12 merged; 12.14 cold-probing improvements in review-fix round; 12.13 and full exit criteria remain open)
+**Status:** `[~]` in progress (12.1-12.12 merged; safe PCH/prefetch part of 12.14 integrated; 12.13, cold-performance acceptance and remaining exit criteria are open)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-20
 
@@ -35,10 +35,10 @@
   - [ ] member completion on C++ values (`-Xclang -code-completion-at` fallback)
   - [ ] hover + go-to-definition into headers
   - [ ] C/C++ budget row (< 2 s, background) + slow-clang test; Phase 11 budgets still met
-- [~] 12.14 Cold typed-probing improvements (ADR-117): round-3 fixes remove the smaller
-  preamble and its stale decision cache and make prefetch cancellation-aware. Independent
-  re-review underway. Current raylib cold overhead is about 0.85 s; retained-PCH overhead is
-  about 0.65 s, not a cold first run. Every-example cold < 0.5 s remains unmet.
+- [~] 12.14 Cold typed-probing improvements (ADR-117)
+  - [x] Safe expression/function PCH and overlapping dependency discovery: whole-net round-4 review clean; manager focused and combined LSP/probe checks passed
+  - [x] Type dumps retain the full preamble; the unsound smaller-preamble optimization and stale approval cache were removed
+  - [ ] Cold < 0.5 s per example: latest raylib overhead is 0.849–0.852 s fully cold, or 0.648–0.649 s with a retained PCH (not fully cold)
 
 ## Exit criteria
 
@@ -50,6 +50,18 @@
 - [ ] Editor: `raylib.`/`std.` completion works; C/C++ data < 2 s; no request waits on clang; Phase 11 budgets hold
 
 ## Decisions / notes
+
+- 2026-10-20: Safe partial 12.14 implementation (ADR-117) integrated from source `d13cf67a`
+  after clean whole-net round-4 review. Expression/function probes may reuse a target-aware
+  PCH, but every type dump retains the full preamble. The smaller-preamble optimization was
+  withdrawn because equal preprocessed text does not prove equal C++ lookup. Shared include
+  prefetch now has cancellation-aware, reference-counted waiters and immutable published
+  answers. Manager focused race/PCH/cache/header-edit checks passed, along with one raylib
+  oracle case, five compiler-free warm checks and a Windows-target cross-clang header probe.
+  Combined checks after the 11.14 merge passed: environment listings, warm probes, target
+  flags and LSP line-mapping diagnostics. These are not a current full corpus, Windows-host
+  run or benchmark matrix. Raylib's current narrow timing remains above the cold target;
+  other examples' old figures remain historical. The performance exit criterion stays open.
 
 - 2026-10-20: 12.12 merged (tests, docs, `tools/clang-matrix.sh`; no product change). Cold typed
   probing measured: cpp-std 2.0 s, mixed-sources 1.8 s, sqlite 1.3 s, raylib 1.0 s, multi-pkg 0.5 s

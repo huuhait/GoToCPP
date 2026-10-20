@@ -35,11 +35,16 @@ import (
 // fakeCompiler is the compiler. The environment (set by newFake): FAKE_COUNTER (a file that gets a
 // line per run: "run", or "E" for a preprocessor-only run), FAKE_INC (the folder of the headers),
 // FAKE_SYS (the compiler's own include folder, for -v), FAKE_SLEEP (seconds of a probe run), FAKE_DI (hang, cut, long or noenter: what the -dI run does wrong),
-// FAKE_HELPER (a line number that the notes of an error point at), FAKE_BIG (print dump for ever).
+// FAKE_HELPER (a line number that the notes of an error point at), FAKE_BIG (print dump for ever), FAKE_BARRIER
+// (a file: the compile waits for the first -E -dI run to create it). FAKE_DI_BLOCKED is written after
+// the includes output is flushed; the run then waits for FAKE_DI_RELEASE or cancellation.
 func fakeCompiler(args []string) int {
 	var dep, src string
 	mode, verbose, mg, di := "run", false, false, false
 	for i, a := range args {
+		if a == "c++-header" && i > 0 && args[i-1] == "-x" {
+			return fakeHeaderBuild(args)
+		}
 		switch a {
 		case "-E", "-M":
 			mode = "E"
@@ -67,6 +72,24 @@ func fakeCompiler(args []string) int {
 			fmt.Fprintln(f, mode)
 		}
 		f.Close()
+	}
+	if barrier := os.Getenv("FAKE_BARRIER"); barrier != "" {
+		// A compile waits until the includes question has been asked (a run of -E -dI creates the file): a
+		// question that is asked only after the compile ends makes the compile fail.
+		if di {
+			os.WriteFile(barrier, nil, 0o644)
+		} else if mode == "run" {
+			for i := 0; ; i++ {
+				if _, err := os.Stat(barrier); err == nil {
+					break
+				}
+				if i > 400 {
+					fmt.Fprintln(os.Stderr, "clang: error: the includes question did not come while the compile ran")
+					return 2
+				}
+				time.Sleep(25 * time.Millisecond)
+			}
+		}
 	}
 	if mode == "run" && strings.Contains(string(mustRead(src)), "FAILNOW") {
 		fmt.Fprintln(os.Stderr, "clang: error: the compiler fell over")
@@ -139,6 +162,18 @@ func fakeCompiler(args []string) int {
 	fmt.Fprintf(dout, "# 1 \"%s\"\n", markerPath(src))
 	scan(text, src)
 	dout.Flush()
+	if di {
+		if blocked := os.Getenv("FAKE_DI_BLOCKED"); blocked != "" {
+			os.WriteFile(blocked, nil, 0o644)
+			deadline := time.Now().Add(time.Minute)
+			for time.Now().Before(deadline) {
+				if _, err := os.Stat(os.Getenv("FAKE_DI_RELEASE")); err == nil {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		}
+	}
 	switch os.Getenv("FAKE_DI") {
 	case "hang": // a compiler that is stopped at the time limit, after whole lines
 		if di {
@@ -1439,4 +1474,53 @@ func TestCacheFailureStopsTheOtherBatches(t *testing.T) {
 	if now, _ := gate.running(); now != 0 {
 		t.Errorf("%d slots still taken", now)
 	}
+}
+
+// fakeHeaderBuild is the fake compiler asked for a precompiled header (-x c++-header): it counts the build
+// ("H"), appends "start" to FAKE_PCH_START, sleeps FAKE_PCH_SLEEP seconds (appending a line to
+// FAKE_PCH_BEAT every 10 ms, so that a test sees whether the process still lives), reads FAKE_PCH_DEP as the one
+// header it read, writes FAKE_PCH_BYTES to the -o file, and last appends "end" to FAKE_PCH_END (a build that
+// was killed never writes it).
+func fakeHeaderBuild(args []string) int {
+	var dep, out string
+	for i, a := range args {
+		switch a {
+		case "-MF":
+			if i+1 < len(args) {
+				dep = args[i+1]
+			}
+		case "-o":
+			if i+1 < len(args) {
+				out = args[i+1]
+			}
+		}
+	}
+	appendLine := func(env, line string) {
+		if p := os.Getenv(env); p != "" {
+			if f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
+				fmt.Fprintln(f, line)
+				f.Close()
+			}
+		}
+	}
+	appendLine("FAKE_COUNTER", "H")
+	appendLine("FAKE_PCH_START", "start")
+	if secs, err := strconv.ParseFloat(os.Getenv("FAKE_PCH_SLEEP"), 64); err == nil && secs > 0 {
+		for end := time.Now().Add(time.Duration(secs * float64(time.Second))); time.Now().Before(end); {
+			appendLine("FAKE_PCH_BEAT", "beat")
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	bytes := os.Getenv("FAKE_PCH_BYTES")
+	if bytes == "" {
+		bytes = "fake precompiled header"
+	}
+	if out != "" {
+		os.WriteFile(out, []byte(bytes), 0o644)
+	}
+	if dep != "" {
+		os.WriteFile(dep, []byte("gp_pch.o: "+os.Getenv("FAKE_PCH_DEP")+"\n"), 0o644)
+	}
+	appendLine("FAKE_PCH_END", "end")
+	return 0
 }

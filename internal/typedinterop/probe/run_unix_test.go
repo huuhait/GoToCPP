@@ -18,6 +18,12 @@ import (
 
 const goodDecl = `{"id":"0x1","kind":"TypeAliasDecl","name":"gp_probe_0","type":{"desugaredQualType":"gocpp_probe_internal_c<int>","qualType":"gocpp_probe_internal_c<decltype((8192))>"}}`
 
+// skipAux is the start of a fake compiler's script that does nothing for the preprocessor-only runs (-E: the
+// includes question that runs beside a compile, the toolchain question), so that the script counts and
+// delays the compiles only.
+const skipAux = `case " $* " in *" -E "*) exit 0;; esac
+`
+
 func fakeCXX(t *testing.T, script string) build.CXX {
 	t.Helper()
 	dir := t.TempDir()
@@ -218,7 +224,8 @@ func TestRunPassesTheFlagsAndTheFolder(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(t.TempDir(), "args")
 	t.Setenv("FAKE_ARGS", out)
-	cxx := fakeCXX(t, `pwd > "$FAKE_ARGS"; for a in "$@"; do echo "$a" >> "$FAKE_ARGS"; done; echo `+"'"+goodDecl+"'")
+	script := `pwd > "$FAKE_ARGS"; for a in "$@"; do echo "$a" >> "$FAKE_ARGS"; done; echo `
+	cxx := fakeCXX(t, skipAux+script+"'"+goodDecl+"'")
 	if _, err := new(Runner).Run(context.Background(), Config{CXX: cxx, Dir: dir, Flags: []string{"-DX=5", "-I/inc"}}, simpleSource(t)); err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +243,7 @@ func TestRunPassesTheFlagsAndTheFolder(t *testing.T) {
 func TestRunnerSingleflight(t *testing.T) {
 	counter := filepath.Join(t.TempDir(), "count")
 	t.Setenv("FAKE_COUNTER", counter)
-	cxx := fakeCXX(t, `echo run >> "$FAKE_COUNTER"
+	cxx := fakeCXX(t, skipAux+`echo run >> "$FAKE_COUNTER"
 sleep 1
 printf '%s\n' '`+goodDecl+`'`)
 	rn := new(Runner)

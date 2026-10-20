@@ -254,6 +254,16 @@ func stateOf(path string) (fileState, time.Time, error) {
 	return fileState{path: path, exists: true, hash: sha256.Sum256(data), stat: statOf(after)}, after.ModTime(), nil
 }
 
+type missHookKey struct{}
+
+// WithMissHook returns a context in which ProbeKinds (and ProbeNamespaces) call fn just before they
+// start the compiler, because the cache had no answer. A caller that does more work when the cache is
+// cold (typed interop starts the precompiled header of its probes) learns that this way, before the
+// compiler is done. fn runs in the goroutine of the probe and must not block.
+func WithMissHook(ctx context.Context, fn func()) context.Context {
+	return context.WithValue(ctx, missHookKey{}, fn)
+}
+
 // probe is ProbeKinds with the cache c.
 func (c *cache) probe(ctx context.Context, cxx build.CXX, dir string, flags, includes, paths []string) (Result, error) {
 	return c.probeMode(ctx, cxx, dir, flags, includes, paths, true)
@@ -349,6 +359,9 @@ func (c *cache) probeMode(ctx context.Context, cxx build.CXX, dir string, flags,
 
 	// Probe all the paths of this call, not only the new ones: the headers
 	// take the time, not the paths, and so the answer comes from one run.
+	if fn, ok := ctx.Value(missHookKey{}).(func()); ok {
+		fn()
+	}
 	c.runs.Add(1)
 	run, err := runProbe(ctx, cxx, dir, flags, includes, parts, kinds)
 	if err != nil {

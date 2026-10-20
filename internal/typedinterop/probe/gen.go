@@ -390,15 +390,30 @@ func (g *gen) closure(names []string) []Line {
 	return out
 }
 
+// stdHeaders are the library headers that every probe file includes first (the lines after its
+// title): the ones the helpers need, and what gocpp/rt.hpp always includes (the cheap ones), so
+// that std::string, std::vector, std::tuple and std::unique_ptr resolve in the probe as they do
+// in the build. They are the same for every package, so pch.go precompiles them once.
+var stdHeaders = []string{
+	"cstddef", "cstdint", "bit", "compare", "iterator", "string_view", "type_traits", "utility",
+	"initializer_list", "string", "vector", "memory", "tuple", "array", "cstring", "limits", "new", "span",
+}
+
+// stdBlock returns the include lines of stdHeaders, as a probe file has them after its title.
+func stdBlock() string {
+	var b strings.Builder
+	for _, h := range stdHeaders {
+		b.WriteString("#include <" + h + ">\n")
+	}
+	return b.String()
+}
+
 // preamble writes the first lines of a probe file: the title, the headers the
 // helpers need, the package's includes and the helper block. It returns the
 // includes' headers and the line range of the helper block.
 func (g *gen) preamble(title string, includes []string, stringToCStr bool) (headers []string, helperFrom, helperTo int) {
 	g.emit(title, nil)
-	for _, h := range []string{"cstddef", "cstdint", "bit", "compare", "iterator", "string_view", "type_traits", "utility",
-		// What gocpp/rt.hpp always includes (the cheap ones), so that std::string, std::vector, std::tuple
-		// and std::unique_ptr resolve in the probe as they do in the build.
-		"initializer_list", "string", "vector", "memory", "tuple", "array", "cstring", "limits", "new", "span"} {
+	for _, h := range stdHeaders {
 		g.emit("#include <"+h+">", nil)
 	}
 	for _, inc := range includes {

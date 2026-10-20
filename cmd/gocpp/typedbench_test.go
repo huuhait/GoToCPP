@@ -23,12 +23,18 @@ import (
 //
 //	go test -run '^$' -bench TypedCheck -benchtime 10x ./cmd/gocpp
 //
-// For each example that imports a header there are four numbers:
+// For each example that imports a header there are these numbers:
 //
-//	opaque-cold   no cache of any kind (a new cache folder for each run)
-//	typed-cold    the same, in typed mode: typed-cold - opaque-cold is the cost of probing
-//	opaque-warm   the caches of the first run
-//	typed-warm    the same, in typed mode: typed-warm - opaque-warm is the warm overhead
+//	opaque-cold      no cache of any kind (a new cache folder for each run)
+//	typed-cold       the same, in typed mode: typed-cold - opaque-cold is the cost of probing, including
+//	                 the precompiled header of the library block (ADR-117), which a first run makes
+//	typed-cold-nopch the same with GOCPP_PROBE_PCH=off: the probing as it was before the header
+//	typed-cold-pch   no probe results and no toolchain answer, but the precompiled header that an earlier run
+//	                 of the same package made. The header is per compiler and flag set (the -I folders of
+//	                 pkg-config are in its key), so this is the cold cost of a package whose flag set already
+//	                 has a header; the first check of a package with a flag set of its own is typed-cold
+//	opaque-warm      the caches of the first run
+//	typed-warm       the same, in typed mode: typed-warm - opaque-warm is the warm overhead
 //
 // The machine is shared and noisy: the median of 10 is the number to look at, not one run. No test
 // checks a time; TestTypedWarmRunsNoCompiler counts the compiler runs instead.
@@ -74,7 +80,7 @@ func headerExamples(tb testing.TB) []string {
 
 // checkProcess runs `gocpp check -interop=mode .` in dir with the cache folders cache, and returns
 // its time and exit code.
-func checkProcess(b *testing.B, dir, mode, cache string) time.Duration {
+func checkProcess(b *testing.B, dir, mode, cache string, extraEnv ...string) time.Duration {
 	b.Helper()
 	cmd := exec.Command(os.Args[0], "check", "-interop="+mode, ".")
 	cmd.Dir = dir
@@ -90,6 +96,7 @@ func checkProcess(b *testing.B, dir, mode, cache string) time.Duration {
 		"GOCPP_PROBE_CACHE="+filepath.Join(cache, "probe"),
 		"XDG_CACHE_HOME="+cache,
 	)
+	cmd.Env = append(cmd.Env, extraEnv...)
 	cmd.WaitDelay = time.Minute
 	start := time.Now()
 	out, err := cmd.CombinedOutput()
@@ -108,13 +115,23 @@ func BenchmarkTypedCheck(b *testing.B) {
 	for _, dir := range headerExamples(b) {
 		b.Run(filepath.Base(dir), func(b *testing.B) {
 			for _, mode := range []string{"opaque", "typed"} {
-				b.Run(mode+"-cold", func(b *testing.B) {
-					var ds []time.Duration
-					for range b.N {
-						ds = append(ds, checkProcess(b, dir, mode, b.TempDir()))
-					}
-					b.ReportMetric(float64(median(ds))/float64(time.Millisecond), "median-ms")
+				benchCold(b, mode+"-cold", func() time.Duration {
+					return checkProcess(b, dir, mode, b.TempDir())
 				})
+				if mode == "typed" {
+					benchCold(b, mode+"-cold-nopch", func() time.Duration {
+						return checkProcess(b, dir, mode, b.TempDir(), "GOCPP_PROBE_PCH=off")
+					})
+					primed, made := b.TempDir(), false
+					benchCold(b, mode+"-cold-pch", func() time.Duration {
+						if !made {
+							checkProcess(b, dir, mode, primed) // makes the precompiled header
+							made = true
+						}
+						keepOnlyHeader(b, primed)
+						return checkProcess(b, dir, mode, primed)
+					})
+				}
 				b.Run(mode+"-warm", func(b *testing.B) {
 					cache := b.TempDir()
 					checkProcess(b, dir, mode, cache) // fills the caches
@@ -128,6 +145,46 @@ func BenchmarkTypedCheck(b *testing.B) {
 			}
 		})
 	}
+}
+
+// benchCold runs one cold variant: one timed run for each iteration, reported as the median.
+func benchCold(b *testing.B, name string, one func() time.Duration) {
+	b.Run(name, func(b *testing.B) {
+		var ds []time.Duration
+		for range b.N {
+			ds = append(ds, one())
+		}
+		b.ReportMetric(float64(median(ds))/float64(time.Millisecond), "median-ms")
+	})
+}
+
+// keepOnlyHeader removes everything a run left in the cache folder except the precompiled header of the library
+// block (ADR-117): the results, the declarations, the kinds and the toolchain answer, so that the next run is
+// cold for its package and finds the header of its flag set. (The header stays where it was made: clang records
+// the path of its source.)
+func keepOnlyHeader(tb testing.TB, cache string) {
+	tb.Helper()
+	keep := filepath.Join(cache, "probe", "typed-v1", "pch")
+	var drop func(dir string)
+	drop = func(dir string) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			path := filepath.Join(dir, e.Name())
+			switch {
+			case path == keep:
+			case e.IsDir() && strings.HasPrefix(keep, path+string(filepath.Separator)):
+				drop(path)
+			default:
+				if err := os.RemoveAll(path); err != nil {
+					tb.Fatal(err)
+				}
+			}
+		}
+	}
+	drop(cache)
 }
 
 // matrixClangProgram is the clang++ the typed tests probe with: GOCPP_CLANG, else clang++ in PATH.

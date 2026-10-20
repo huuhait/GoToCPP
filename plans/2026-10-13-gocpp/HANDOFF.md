@@ -13,7 +13,7 @@ has no tracked pending changes; user-owned `c4/` remains untracked and untouched
 | Job | Existing worktree / branch | Resume gate |
 |---|---|---|
 | 11.14 LSP speed pass | `../GoToCPP-11.14` / `job/11.14` | Guarded-check implementation integrated from `4e444985` after clean whole-net review and passing focused manager checks. Remaining final-build benchmarks and every-row gopls goal are open. |
-| 12.14 cold typed probing | `../GoToCPP-12.14` / `job/12.14` | Round-3 fixes remove the smaller-preamble shortcut and make prefetch cancellation-aware while retaining PCH work. Independent re-review underway. Current raylib evidence still misses cold < 0.5 s; other measurements are historical. |
+| 12.14 cold typed probing | `../GoToCPP-12.14` / `job/12.14` | Safe partial implementation integrated from `d13cf67a` after clean round-4 review and focused/combined manager checks. Full type preambles retained; prefetch cancellation and immutable sharing fixed. Cold < 0.5 s remains unmet. |
 | 15.2 escape analysis | `../GoToCPP-15.2` / `job/15.2` | Review fixes and focused coder checks complete on `455eba4b` plus staged binary deletions and uncommitted fixes. Independent whole-net re-review underway; no clean approval yet. |
 | 9.12 stdlib documentation | `../GoToCPP-9.12` / `job/9.12` | Integrated from `b5c96982` after clean round-2 review and passing manager inventory/link/snippet/whitespace checks. The release candidate and full Phase 09 acceptance remain open. |
 | 15.7a compiler-cache integration | `../GoToCPP-15-15.7` / `job/15-15.7` | Independent build-driver subtask started from a clean fast-forward to `94c4a6d9`; inspect/test existing launcher support before adding any mechanism. Generic-body/module work remains unstarted. |

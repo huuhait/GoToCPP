@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 // The includes of a preamble, as the preprocessor saw them. `clang -E -dI` keeps every include
@@ -182,18 +184,19 @@ func (s *directiveScanner) marker(l string) {
 // by the Runner for as long as the headers it was made of have the same contents (a declaration run and each
 // batch of units of one preamble ask the same question).
 func (rn *Runner) includeInfo(ctx context.Context, cfg Config, text string, read []string, missing bool, errKey string) *includeInfo {
+	if ctx.Err() != nil {
+		if pend := prefetchedInfo(ctx, infoText(text)); pend != nil {
+			pend.release()
+		}
+		return &includeInfo{}
+	}
 	if len(read) == 0 && !missing {
 		return &includeInfo{complete: true}
 	}
 	kcfg := cfg
 	kcfg.MaxDecl, kcfg.MaxJSON = 0, 0
 	// (the title line of the generated file does not matter: the runs of one package share the answer)
-	keyText := text
-	if strings.HasPrefix(keyText, "//") {
-		if _, rest, ok := strings.Cut(keyText, "\n"); ok {
-			keyText = rest
-		}
-	}
+	keyText := infoText(text)
 	key := PreKey(kcfg, &Source{Text: keyText}) + "\x00" + DepsHash(read) + "\x00" + errKey
 	rn.mu.Lock()
 	info, ok := rn.infoMemo[key]
@@ -202,25 +205,176 @@ func (rn *Runner) includeInfo(ctx context.Context, cfg Config, text string, read
 		return info
 	}
 	var sc *directiveScanner
+	var out *auxOut
+	var err error
+	var started time.Time // when a prefetched question was asked (zero: now)
+	if pend := prefetchedInfo(ctx, keyText); pend != nil {
+		// The run was started beside the compile that needs its answer (prefetchInfo).
+		select {
+		case <-pend.done:
+		case <-ctx.Done():
+			pend.release()
+			return &includeInfo{} // cancellation is not an answer to keep
+		}
+		sc, out, err = pend.sc, pend.out, pend.err
+		started = pend.started
+	} else {
+		sc, out, err = runInfo(ctx, cfg, text)
+	}
+	if ctx.Err() != nil {
+		if pend := prefetchedInfo(ctx, keyText); pend != nil {
+			pend.release()
+		}
+		return &includeInfo{}
+	}
+	if err != nil || sc == nil {
+		return &includeInfo{} // (not kept: the run was stopped)
+	}
+	// The published scanner and its slices are immutable; completeness belongs to this caller.
+	answer := sc.info
+	info = &answer
+	info.complete = !out.timedOut && !sc.overlong && !sc.unterminated() &&
+		(len(info.entered) > 0 || len(read) == 0) && (len(info.directives) > 0 || !missing)
+	// The key has the hash of the headers as they are now, the question saw them as they were when it started: a
+	// header that changed in between would keep the old answer under the new contents for the life of the Runner.
+	if info.complete && (started.IsZero() || !racyDeps(read, started)) {
+		rn.mu.Lock()
+		if rn.infoMemo == nil {
+			rn.infoMemo = make(map[string]*includeInfo)
+			rn.infoReads = make(map[string]infoRead)
+		}
+		rn.infoMemo[key] = info
+		rn.infoReads[PreKey(kcfg, &Source{Text: keyText})] = infoRead{read: slices.Clone(read), errKey: errKey}
+		rn.mu.Unlock()
+	}
+	return info
+}
+
+// runInfo runs the preprocessor over the text with -dI and returns what the scanner kept of its output.
+func runInfo(ctx context.Context, cfg Config, text string) (*directiveScanner, *auxOut, error) {
+	var sc *directiveScanner
 	out, err := runAuxTo(ctx, cfg, []string{"-E", "-dI", "-o", "-"}, text, func(src string) io.Writer {
 		sc = newDirectiveScanner(cfg.Dir, src)
 		return sc
 	})
-	if err != nil || sc == nil {
-		return &includeInfo{} // (not kept: the run was stopped)
-	}
-	info = &sc.info
-	info.complete = !out.timedOut && !sc.overlong && !sc.unterminated() &&
-		(len(info.entered) > 0 || len(read) == 0) && (len(info.directives) > 0 || !missing)
-	if info.complete {
-		rn.mu.Lock()
-		if rn.infoMemo == nil {
-			rn.infoMemo = make(map[string]*includeInfo)
+	return sc, out, err
+}
+
+// A prefetch is a run of the includes question that goes on beside a compiler run. The question
+// depends on the text and on the contents of the headers, not on what the compiler run read, so it
+// can be asked before the run is done instead of after it.
+type prefetch struct {
+	key     string
+	keyText string
+	started time.Time
+	refs    int
+	cancel  context.CancelFunc
+	done    chan struct{}
+	sc      *directiveScanner
+	out     *auxOut
+	err     error
+}
+
+// A prefetchRef is one caller's share of a prefetch. Cancellation releases only that share.
+type prefetchRef struct {
+	*prefetch
+	release func()
+}
+
+type prefetchKey struct{}
+
+// infoText drops the title, which does not affect the includes of a generated file.
+func infoText(text string) string {
+	if strings.HasPrefix(text, "//") {
+		if _, rest, ok := strings.Cut(text, "\n"); ok {
+			return rest
 		}
-		rn.infoMemo[key] = info
-		rn.mu.Unlock()
 	}
-	return info
+	return text
+}
+
+// An infoRead is the headers (and the error text) that an answer of includeInfo was made for, by the key of
+// its preamble: prefetchInfo does not ask again while the answer is still good.
+type infoRead struct {
+	read   []string
+	errKey string
+}
+
+// hasInfo reports whether the answer for the preamble with this PreKey is in the memory and the
+// headers it was made for have the contents they had.
+func (rn *Runner) hasInfo(pre string) bool {
+	rn.mu.Lock()
+	ir, ok := rn.infoReads[pre]
+	rn.mu.Unlock()
+	if !ok {
+		return false
+	}
+	key := pre + "\x00" + DepsHash(ir.read) + "\x00" + ir.errKey
+	rn.mu.Lock()
+	defer rn.mu.Unlock()
+	_, ok = rn.infoMemo[key]
+	return ok
+}
+
+// prefetchJoin is how old a prefetch can be and still serve a run that starts now: the headers it saw
+// are those of its start, and racyDeps looks two seconds back from the start of a run.
+const prefetchJoin = time.Second
+
+// prefetchInfo starts the includes question of the text in the background (or joins the run of
+// another compile of the same text that started a moment ago: the five declaration runs of a stage
+// ask the same) and returns a context that includeInfo answers from, and the function that lets
+// go of it (call it when the compile is done; the last one ends the run, and an answer that was not
+// used is dropped). The headers the answer saw are those of the time before the compiler run
+// started, which racyDeps covers: a header changed after that is not kept anywhere.
+func (rn *Runner) prefetchInfo(ctx context.Context, cfg Config, text string) (context.Context, func()) {
+	keyText := infoText(text)
+	kcfg := cfg
+	kcfg.MaxDecl, kcfg.MaxJSON = 0, 0
+	key := PreKey(kcfg, &Source{Text: keyText})
+	if rn.hasInfo(key) {
+		return ctx, func() {} // asked before, and the headers are as they were
+	}
+	rn.mu.Lock()
+	p := rn.prefetches[key]
+	if p == nil || time.Since(p.started) > prefetchJoin {
+		pctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+		p = &prefetch{key: key, keyText: keyText, started: time.Now(), cancel: cancel, done: make(chan struct{})}
+		if rn.prefetches == nil {
+			rn.prefetches = make(map[string]*prefetch)
+		}
+		rn.prefetches[key] = p
+		go func() {
+			defer close(p.done)
+			p.sc, p.out, p.err = runInfo(pctx, cfg, text)
+		}()
+	}
+	p.refs++
+	rn.mu.Unlock()
+	var once sync.Once
+	release := func() {
+		once.Do(func() {
+			rn.mu.Lock()
+			p.refs--
+			last := p.refs == 0
+			if last && rn.prefetches[key] == p {
+				delete(rn.prefetches, key)
+			}
+			rn.mu.Unlock()
+			if last {
+				p.cancel()
+				<-p.done
+			}
+		})
+	}
+	return context.WithValue(ctx, prefetchKey{}, &prefetchRef{prefetch: p, release: release}), release
+}
+
+// prefetchedInfo returns the caller's prefetch reference for the text, or nil.
+func prefetchedInfo(ctx context.Context, keyText string) *prefetchRef {
+	if p, ok := ctx.Value(prefetchKey{}).(*prefetchRef); ok && p.keyText == keyText {
+		return p
+	}
+	return nil
 }
 
 // includerShadows adds, for every include directive of a file that is not one of the compiler's own, the

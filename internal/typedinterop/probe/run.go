@@ -61,6 +61,10 @@ type Config struct {
 	Timeout time.Duration
 	MaxDecl int
 	MaxJSON int64
+
+	// pch is the precompiled header of the library block that a run loads (pch.go); the Runner
+	// sets it for one run and no key reads it.
+	pch *pchRef
 }
 
 // FindClang returns clang++ for the probes: the program in GOCPP_CLANG when
@@ -165,10 +169,15 @@ type Runner struct {
 
 	declRuns int
 
-	tcMu     sync.Mutex              // one toolchain question at a time (aux.go)
-	st       store                   // the entries this Runner made or read (cache.go)
-	dirsMemo map[string][]string     // the compiler's include search path, by config (aux.go)
-	infoMemo map[string]*includeInfo // the includes of a preamble, by config and contents of its headers (includes.go)
+	tcMu      sync.Mutex              // one toolchain question at a time (aux.go)
+	st        store                   // the entries this Runner made or read (cache.go)
+	dirsMemo  map[string][]string     // the compiler's include search path, by config (aux.go)
+	infoMemo  map[string]*includeInfo // the includes of a preamble, by config and contents of its headers (includes.go)
+	infoReads map[string]infoRead     // what each infoMemo answer was made for, by the key of the preamble
+	buildCtx  context.Context         // SetBuildContext
+	pchs      map[string]*pchState    // the precompiled headers of the library block, by key (pch.go)
+
+	prefetches map[string]*prefetch // the includes questions asked beside compiler runs, by config and text (includes.go)
 }
 
 // A flight is a compiler run that other callers of the same probe wait for.
@@ -546,6 +555,67 @@ type dump struct {
 // run itself (it did not start, it was stopped, it crashed, the dump is not
 // JSON). Errors in the source are not failures: they are in the stderr.
 func runDump(ctx context.Context, cfg Config, text, filter string, fn func(RawDecl) error) (*dump, error) {
+	d, err := runDumpOnce(ctx, cfg, text, filter, fn)
+	if cfg.pch == nil || !pchSuspect(d, err) {
+		return d, err
+	}
+	// The run made no declaration and failed with the header loaded: the compiler would not load it (a file
+	// changed under it, another compiler wrote it, the file is cut off or damaged), or the program has a
+	// fatal error of its own. The run is made again without the header, so the answer is the one a run
+	// without headers gives. If that run fails the same way the header is not to blame and stays.
+	cacheCount.pchRechecks.Add(1)
+	plainCfg := cfg
+	plainCfg.pch = nil
+	d2, err2 := runDumpOnce(ctx, plainCfg, text, filter, fn)
+	if pchMessage(failureText(d, err)) || !sameFailure(d, err, d2, err2) {
+		if pchReject(cfg.pch.path) < pchMaxRejects {
+			base := strings.TrimSuffix(cfg.pch.path, ".pch")
+			for _, ext := range []string{".json", ".pch"} {
+				os.Remove(base + ext)
+			}
+		}
+		cacheCount.pchRejects.Add(1)
+	}
+	return d2, err2
+}
+
+// pchSuspect reports whether a run that loaded a header failed in a way that the header may cause: it
+// made no declaration and the compiler exited with an error (or stopped with one).
+func pchSuspect(d *dump, err error) bool {
+	switch {
+	case d != nil:
+		return d.stats.Decls == 0 && d.stats.ExitCode != 0
+	case err != nil:
+		return strings.Contains(err.Error(), "failed (exit")
+	}
+	return false
+}
+
+// failureText is the compiler's messages of a failed run.
+func failureText(d *dump, err error) []byte {
+	if d != nil {
+		return d.stderr
+	}
+	if err != nil {
+		return []byte(err.Error())
+	}
+	return nil
+}
+
+// sameFailure reports whether the run without the header failed as the run with it did: no declaration
+// and the same exit status.
+func sameFailure(d *dump, err error, d2 *dump, err2 error) bool {
+	switch {
+	case d != nil && d2 != nil:
+		return d2.stats.Decls == 0 && d2.stats.ExitCode == d.stats.ExitCode
+	case d == nil && d2 == nil:
+		return err2 != nil && strings.Contains(err2.Error(), "failed (exit")
+	}
+	return false
+}
+
+// runDumpOnce is runDump with the header of cfg, if any.
+func runDumpOnce(ctx context.Context, cfg Config, text, filter string, fn func(RawDecl) error) (*dump, error) {
 	// At most Jobs() compilers run at the same time in the process, whoever asks.
 	release, err := gate.acquire(ctx)
 	if err != nil {
@@ -573,6 +643,10 @@ func runDump(ctx context.Context, cfg Config, text, filter string, fn func(RawDe
 	args, err := interop.ProbeCompilerArgs(cfg.CXX, mode, cfg.Dir, cfg.Flags, depPath, srcPath)
 	if err != nil {
 		return nil, err
+	}
+	if cfg.pch != nil {
+		args = withPCHArgs(args, cfg.pch.path)
+		cacheCount.pchUses.Add(1)
 	}
 	rctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -636,6 +710,14 @@ func runDump(ctx context.Context, cfg Config, text, filter string, fn func(RawDe
 	}
 	if data, err := os.ReadFile(depPath); err == nil {
 		d.deps = interop.ParseDeps(data, srcPath, cfg.Dir)
+		if cfg.pch != nil {
+			// The file the header was made from is not a header of the program; the headers it was
+			// made of are (a run that does not load the header reads them too).
+			d.deps = slices.DeleteFunc(d.deps, func(p string) bool { return p == cfg.pch.src })
+			if len(d.deps) > 0 { // (none: the compiler wrote no list, as when it stops at a missing header)
+				d.deps = unionDeps(d.deps, cfg.pch.read)
+			}
+		}
 		slices.Sort(d.deps)
 	}
 	d.cpu = cmd.ProcessState.UserTime() + cmd.ProcessState.SystemTime()

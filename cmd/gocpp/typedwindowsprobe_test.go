@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -116,5 +118,54 @@ func TestTypedCheckWindowsTargetIsTyped(t *testing.T) {
 	r := gocppRun("", true, "check", "-os", "windows", "-v", ".")
 	if r.code != 0 || !strings.Contains(r.stdout, "interop: typed mode") {
 		t.Errorf("gocpp check -os windows -v: %+v", r)
+	}
+}
+
+// The precompiled header of the library block (Phase 12 step 12.14, ADR-117) is made and loaded with the
+// target's flags: the probe of <windows.h> gives the same answers with the header as without it, the runs
+// load it, and the compiler never refuses it.
+func TestTypedProbeWindowsHeadersWithThePrecompiledHeader(t *testing.T) {
+	needWindowsClang(t)
+	t.Setenv("GOCPP_MODCACHE", "off")
+	t.Setenv("GOCPP_OFFLINE", "1")
+	t.Setenv("GOCPP_PROBE_TIMEOUT", "5m")
+	t.Setenv("GOCPP_CLANG", "")
+	t.Setenv("GOCPP_CXX", "")
+	t.Setenv("CXX", "")
+	t.Setenv("GOCPP_TOOLCHAIN", "local")
+	t.Setenv("GOCPP_OS", "windows")
+	t.Setenv("GOCPP_ARCH", "amd64")
+	t.Setenv("GOCPP_NOPROBECACHE", "")
+	inDir(t, map[string]string{"main.gp": winProbeProgram})
+	statsLine := regexp.MustCompile(`stats (\{.*\})`)
+	probe := func(mode string) (stdout string, uses, builds, rejects int) {
+		cache := t.TempDir()
+		t.Setenv("XDG_CACHE_HOME", cache)
+		t.Setenv("GOCPP_PROBE_CACHE", filepath.Join(cache, "probe"))
+		t.Setenv("GOCPP_PROBE_PCH", mode)
+		r := gocppRun("", false, "__typed-probe", "-decls", "-stable", "-stats", ".")
+		if r.code == 3 {
+			t.Skip("no clang++ for the probe")
+		}
+		if r.code != 0 {
+			t.Fatalf("__typed-probe for windows with GOCPP_PROBE_PCH=%s: %+v", mode, r)
+		}
+		for _, m := range statsLine.FindAllStringSubmatch(r.stderr, -1) {
+			var st struct {
+				Process struct{ PCHUses, PCHBuilds, PCHRejects int }
+			}
+			if json.Unmarshal([]byte(m[1]), &st) == nil {
+				uses, builds, rejects = st.Process.PCHUses, st.Process.PCHBuilds, st.Process.PCHRejects
+			}
+		}
+		return r.stdout, uses, builds, rejects
+	}
+	plain, _, _, _ := probe("off")
+	with, uses, builds, rejects := probe("wait")
+	if plain != with {
+		t.Errorf("the answers for the Windows target differ with the header:\n%s\n---\n%s", plain, with)
+	}
+	if builds == 0 || uses == 0 || rejects != 0 {
+		t.Errorf("%d headers made, %d runs loaded one, %d refused", builds, uses, rejects)
 	}
 }

@@ -74,7 +74,7 @@ func TestDeclsTemplateInstances(t *testing.T) {
 func TestDeclsParallelBound(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FAKE_DIR", dir)
-	cxx := fakeCXX(t, `f="$FAKE_DIR/run.$$"
+	cxx := fakeCXX(t, skipAux+`f="$FAKE_DIR/run.$$"
 : > "$f"
 ls "$FAKE_DIR" | grep -c '^run\.' >> "$FAKE_DIR/counts"
 sleep 0.3
