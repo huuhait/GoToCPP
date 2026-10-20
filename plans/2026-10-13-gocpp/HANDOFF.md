@@ -1,5 +1,50 @@
 # Handoff: where the work is
 
+## Resume checkpoint — 2026-10-20
+
+This checkpoint supersedes the historical focus, resource and validation instructions below.
+At recovery, `dev` is `69364ffc` (9.11 merged); `origin/dev` has no local commit difference.
+The only untracked path in the manager checkout is `c4/`; leave it alone.
+
+Four unfinished jobs were recovered from the final previous-session messages. Prior workers
+are no longer reachable; continue in the existing worktrees, not replacement branches:
+
+| Job | Existing worktree / branch | Last known gate (not a clean review) |
+|---|---|---|
+| fmt audit | `../GoToCPP-09-fmtaudit` / `job/09-fmtaudit` | Recovered independent-review reproductions show two deferred-close ordering/liveness problems: a replacement can leave a close pending at count zero, and a callback can run before the process-wide barrier completes. A separate close-hook TSan report shows a read of a mutable standard-file descriptor racing with close. Fix all three, then re-review. |
+| 11.13, `!`/macro editor support | `../GoToCPP-11-11.13` / `job/11-11.13` | Coder finished at `42e49dc9`; focused race/validator tests and real-Windows `TestWindowsLSPBang` / `TestWindowsLSP` passed. Fresh independent correctness review started. Guarded big-package hover remains 147–148 ms p95 (target 30 ms), clean typing 120 ms (target 100 ms): not budget-complete. Baseline drops 98/198 request samples, so request/hover speed ratios are invalid. |
+| LSP performance round 6 | `../GoToCPP-11-lspperf6` / `job/11-lspperf6` | Three-way comparison explains the four completion differences: dev-only 9.11 catalog entries (`rand`, `ring`, `crc32`, `tabwriter`) and corresponding sort-rank shifts. Shared base `cbc374b5` vs candidate `5ee48600` has 1,141 answers with zero differences per small/medium fixture. Bounded fresh Go 1.25 timings may use that shared base, explicitly labelled; current-dev / combined-11.13 integration gates remain open. |
+| 15.3, receiver/parameter optimizations | `../GoToCPP-15-recvparams` / `job/15-recvparams` | Fresh review at `0e70895c` found two blockers: promoted method-expression and interface forwarding can bind a const-reference receiver to an embedded pointer that the method clears (nil panic where Go/dev print `7`); borrowed method expressions with literal nil fail to compile (`lend(std::nullptr_t&)`). Repros under `/tmp/recv-review-0e70895c-6zXISdSP/cases/`: `promoted-ref.gp`, `promoted-ref-iface.gp`, `methodexpr-nil.gp`. Coder must fix and obtain re-review. The narrow M15 native-purity mutant also survived because another safety guard masked it; the fixture correction is in progress. |
+
+All four coder jobs have been restarted. A fresh independent reviewer is checking the whole
+15.3 change at `0e70895c`. Each coder owns a separate existing worktree. The two LSP branches
+overlap in the benchmark harness; reconcile only during integration. Do not overwrite
+uncommitted work. Recovered fmt reproductions and logs are under
+`~/.cache/gocpp-resume.rPhZsx/recovery/fmt-review/`; the shared timing lock is
+`~/.cache/gocpp-resume.rPhZsx/perf.lock`. Preserve these artifacts. The saved stdin-cancellation
+comparison already differs at the earlier round-2 baseline; do not present it as a newly
+introduced deferred-close defect.
+
+Current user rules:
+- At most **10 workers**, and no force-filling slots with blocked jobs.
+- Run **only necessary focused tests**. Nobody runs `make ci`, `verify.sh`, full test,
+  interop, phase or sanitizer sweeps; the user performs the full final review manually.
+- Independent review must be clean, followed by manager focused checks, before squash merge.
+- Windows checks use the real Windows PC over SSH, never Wine; do not commit its address.
+- Heavy work uses the shared `testslot.sh` wrapper and capped `gocpp-work.slice` (150 CPU cores,
+  372 GiB memory maximum); use bounded waits and isolated caches. Never delete another job's
+  temporary files.
+- Workers do not push. The manager pushes `origin dev` after **every** dev commit, never force.
+- Preserve benchmark workload/config/binary identity and actual run order; do not mix historical
+  Go 1.22 workload results with fresh Go 1.25 results or report a median of peaks as a peak.
+
+Current session queue:
+`/tmp/claude-1000/-home-huuhait-GoToCPP/630caf9c-9db4-4c66-8c7e-a72ff32a86f2/scratchpad/agent-queue.md`.
+Historical scratch reports and test wrappers remain under the previous session's
+`fa18916c-20de-43da-b276-dbf712f662ca/scratchpad/` directory in the same parent.
+
+## Historical handoff
+
 Updated: 2026-10-16. The server migration is done; work resumed on the larger server
 (128 cores, about 200 GB RAM: use high `-parallel` and run independent checks at once).
 
